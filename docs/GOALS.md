@@ -8,6 +8,8 @@
 
 **范围确认（用户，2026-08-20）**：执行全路线图——M1C→M1D→M2→…→M8 全部完成，**M9（含 optional client package / WebUI）压轴最后**；插件内核始终为纯 Swarm 能力，UI 只是末端的投影型 Consumer。开发模式：PM 统筹 + 实现智能体并行 worktree 隔离开发（CONTRIBUTING §2a），合并串行 + 双绿守卫（merge-guard）。M1D 前置环境依赖：rc.8 世系 DSH CLI（F16，用户准备）。
 
+**双线并行（用户，2026-08-20 起）**：同一项目管理工程师同时推进本项目与 **dsh-canvas**（影视创作平台插件化，`github.com/leinasi2014/dsh-canvas`，W1-W5 路线图）——同一套开发/治理规范与 git 纪律双侧一致，管理文档同构且负有双侧同步义务（CONTRIBUTING §8）。本文件仍只登记本项目目标；双线运行状态见两侧 ops skill 快照，审查带宽按里程碑优先级调度（本项目 M1D 优先于 canvas 抽取波次）。canvas 的视频生成 API 对接在本项目编排能力（M2+）就绪后启动。
+
 ## 当前开发目标
 
 **M1D — 装配验收与放行（进行中，2026-08-20 接替 M1C）**
