@@ -7,7 +7,7 @@ metadata:
   dsh_source_commit: "141eb6fef83422698aef7a981029e843e8161534"
   dsh_release: "0.1.0-rc.8"
   direct_reference: "NanmiCoder/dsh-agent-teams@801954dd7be67213cf4adc1aeb6f97bd3daa12cc"
-  architecture_reference: "openJiuwen-ai/jiuwenswarm@152583aa305836e87481e6de8a5f34e8c7d0928b"
+  architecture_reference: "openJiuwen-ai/jiuwenswarm@91c913726cedabb89cc6b538d9369e0ef1070578"
 ---
 
 # DSH 插件开发
