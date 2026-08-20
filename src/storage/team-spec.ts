@@ -133,10 +133,10 @@ export interface TeamRecord {
 
 // Single contained type-erasure: the zod literal owns runtime validation at
 // the durable boundary; `TeamRecord` is its precise in-memory projection.
-export const teamRecordSchema = storedTeamRecordSchema as unknown as z.ZodType<TeamRecord>
+const teamRecordSchema = storedTeamRecordSchema as unknown as z.ZodType<TeamRecord>
 
 /** Stored `migration_receipts` record schema; ids re-brand through transform. */
-export const migrationReceiptSchema: z.ZodType<MigrationReceipt> = z.object({
+const migrationReceiptSchema: z.ZodType<MigrationReceipt> = z.object({
   teamId: teamIdSchema.transform(value => value as TeamId),
   scope: z.string().min(1),
   sourcePath: z.string().min(1),

@@ -38,6 +38,8 @@
     "clean": "node -e \"require('node:fs').rmSync('lib',{recursive:true,force:true})\"",
     "build": "pnpm clean && tsc -p tsconfig.json && tsdown",
     "lint": "oxlint .",
+    "verify:duplication": "jscpd src",
+    "verify:exports": "knip",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "typecheck:test": "tsc -p tsconfig.test.json",
     "test": "vitest run",
@@ -46,7 +48,7 @@
     "verify:gate-a": "pnpm verify:official && pnpm verify:references",
     "verify:structure": "node scripts/verify-project.mjs",
     "verify:artifact": "node scripts/verify-package-artifact.mjs",
-    "verify": "pnpm verify:structure && pnpm lint && pnpm typecheck && pnpm typecheck:test && pnpm test && pnpm build && pnpm verify:artifact"
+    "verify": "pnpm verify:structure && pnpm lint && pnpm verify:duplication && pnpm verify:exports && pnpm typecheck && pnpm typecheck:test && pnpm test && pnpm build && pnpm verify:artifact"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
@@ -76,13 +78,13 @@
     "@deepseek-ai/dsh-subagent-spawn-in-process": "0.1.0-rc.8",
     "@deepseek-ai/dsh-system-prompt": "0.1.0-rc.8",
     "@deepseek-ai/dsh-tools": "^0.1.0-rc.8",
-    "@deepseek-ai/dsh-workspace": "0.1.0-rc.8",
     "@deepseek-ai/schemastery": "^3.18.1",
     "@types/node": "^24.0.0",
+    "jscpd": "^5.0.16",
+    "knip": "^6.32.2",
     "oxlint": "^1.79.0",
     "tsdown": "^0.22.2",
     "typescript": "^5.9.3",
-    "vitest": "^3.2.4",
-    "zod": "^4.4.3"
+    "vitest": "^3.2.4"
   }
 }

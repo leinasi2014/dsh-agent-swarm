@@ -15,7 +15,7 @@ export const TaskId = (value: string): TaskId => value as TaskId
 export const AttemptId = (value: string): AttemptId => value as AttemptId
 export const TeamMessageId = (value: string): TeamMessageId => value as TeamMessageId
 
-export type TeamMemberPhase = 'provisioning' | 'active' | 'failed' | 'removed'
+type TeamMemberPhase = 'provisioning' | 'active' | 'failed' | 'removed'
 
 export interface TeamMember {
   readonly name: string
@@ -27,7 +27,7 @@ export interface TeamMember {
   readonly error?: string
 }
 
-export type TeamTaskStatus =
+type TeamTaskStatus =
   | 'pending'
   | 'in_progress'
   | 'submitted'
@@ -53,7 +53,7 @@ export interface TeamTask {
   readonly updatedAt: number
 }
 
-export type TaskAttemptPhase =
+type TaskAttemptPhase =
   | 'running'
   | 'submitted'
   | 'verifying'
@@ -78,7 +78,7 @@ export interface TaskAttempt {
 }
 
 export type TeamMessageDelivery = 'quiet' | 'wakeup'
-export type TeamMessagePhase = 'queued' | 'delivered' | 'cancelled'
+type TeamMessagePhase = 'queued' | 'delivered' | 'cancelled'
 
 export interface TeamMessage {
   readonly id: TeamMessageId

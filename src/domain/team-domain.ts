@@ -707,15 +707,20 @@ export class TeamDomain implements TeamDomainPort {
     return structuredClone(committed)
   }
 
-  async snapshot(scope: TeamScope, teamId: TeamId, actorSessionId: string): Promise<TeamStatusSnapshot> {
-    const team = await this.store.read(scope, teamId)
-    if (team === undefined) throw new TeamDomainError(`team "${teamId}" not found`, 'TEAM_NOT_FOUND')
-    actorMembership(team, actorSessionId)
+  /** One authoritative aggregate plus its derived readiness/mailbox projections. */
+  private statusOf(team: TeamState): TeamStatusSnapshot {
     return {
       team,
       readyTaskIds: team.tasks.filter(task => isTaskReady(team.tasks, task)).map(task => task.id),
       pendingMessageIds: team.messages.filter(message => message.phase === 'queued').map(message => message.id),
     }
+  }
+
+  async snapshot(scope: TeamScope, teamId: TeamId, actorSessionId: string): Promise<TeamStatusSnapshot> {
+    const team = await this.store.read(scope, teamId)
+    if (team === undefined) throw new TeamDomainError(`team "${teamId}" not found`, 'TEAM_NOT_FOUND')
+    actorMembership(team, actorSessionId)
+    return this.statusOf(team)
   }
 
   async waitForChange(
@@ -731,10 +736,6 @@ export class TeamDomain implements TeamDomainPort {
     actorMembership(before, actorSessionId)
     const team = await this.store.waitForChange(scope, teamId, afterRevision, signal)
     actorMembership(team, actorSessionId)
-    return {
-      team,
-      readyTaskIds: team.tasks.filter(task => isTaskReady(team.tasks, task)).map(task => task.id),
-      pendingMessageIds: team.messages.filter(message => message.phase === 'queued').map(message => message.id),
-    }
+    return this.statusOf(team)
   }
 }
