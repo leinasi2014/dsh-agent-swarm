@@ -103,6 +103,9 @@ gh run list --limit 5 && gh run view <id> --log-failed | tail -30
 26. **智能体推送静默失败（2026-08-21）**：D1 作者的追补 commit 8e0023d（grace 2s→5s）推送失败但智能体以为已推、误报"双绿"，PM 差点信报告放弃追补（幸核 `gh pr view --json headRefOid,commits` 发现 PR 只有 1 commit）。规则：交付合同的完成汇报必须附 `gh pr view --json headRefOid,commits` 实证 head 即最终 commit；PM 合并前必查。
 27. **Windows 长路径 worktree 残留**：`git worktree remove` 报 "Filename too long"、PowerShell `\\?\` Remove-Item 也不彻底。规则：MSYS `rm -rf` 可清（Git Bash 自带长路径处理），再 `git worktree prune`；陈旧 `.git/shallow.lock` 先用 CIM 查存活进程（`Get-CimInstance Win32_Process`），busy=活 fetch 在跑就等，进程已死才是真陈旧锁。
 28. **测试窗口迁移要全量清点（2026-08-21，PR#58）**：D1 契约迁移改了 5 处断言，作者只加宽了自己新写的 wakeup 套件窗口，漏了同族 message-delivery 的 9 处 5s 窗口（且三串行窗口最坏可超 20s 测试预算）。规则：语义迁移类 diff 审查时枚举**所有依赖旧时序的既有测试**，一并核窗口与预算。
+29. **结算通知竞态族（2026-08-21，PR#66/#72/#73 三例同根）**：凡测试"drain 成员 → 期待 captain 侧调度 pass/投递产物"的形态，drain 必然以结算通知唤醒 captain——慢 runner 上通知 turn 先行把 captain 挂在模型闸门，后续 recoverAgent 全部 no-op（正确产品语义：mid-work 不自调度），期待物永远 undefined/0。规则：这类断言一律在 waitFor 轮内 `adapter.open()` + 重驱动 `recoverAgent`（driveRecoveryPasses 哲学；成员已冷、captain 为根会话时开闸无结算风险）。症状签名：`expected 0 to be greater than or equal to N` / `expected undefined to be 'owner-not-live'` / F8 的 delivered 停滞。
+30. **分支删除必须在 `gh pr view --json state` == MERGED 之后**（2026-08-21 两次险情）：merge-guard 收尾报错（合并冲突/TLS）≠ 未合并，本地 `git branch -D` 若先于 MERGED 核验执行，就要从远端重建分支。规则：守卫输出后先查 state 再删分支；守卫遇 GitHub 合并冲突时流程 = 本地 rebase → 语义并集解冲突 → force-push → 重跑守卫。
+31. **并行泳道扩容的条件（2026-08-21，用户指示，PR#69/#20 双侧）**：上限 2-3 → 3-6。>3 路的前提：① 咨询性预审席位分摊一审（终审+合并权仍 PM 独占）；② 合同显式声明泳道避让面（冲突面同文件不并行）；③ 合并仍串行。实测 6 路期间 PM 带宽占用主要在 rebase 解冲突（同仓多泳道必碰 README/verify.yml/GOALS 等公共文件）——公共登记面尽量集中在 PM 侧收尾批量改，实现合同里禁碰。
 
 ## 七、定时更新协议（本 Skill 的自我维护）
 
