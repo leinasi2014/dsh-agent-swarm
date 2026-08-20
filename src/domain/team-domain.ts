@@ -36,7 +36,8 @@ import type { CreateTaskInput, TeamAggregateStore, TeamDomainPort, TeamScope } f
 export const DEFAULT_TEAM_LIMITS: TeamLimits = {
   maxMembers: 8,
   maxTasks: 256,
-  maxMessages: 1_024,
+  maxPendingMessagesPerMember: 64,
+  maxRetainedMessages: 256,
   maxMessageBytes: 65_536,
   maxTaskBytes: 65_536,
   maxDependencies: 64,
