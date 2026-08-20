@@ -10,6 +10,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import { expectDomain, TeamDomainError } from './error.js'
+import { pruneRetainedAttempts } from './team-domain-board.js'
 import { pruneRetainedMessages } from './team-domain-mailbox.js'
 import {
   actorMembership,
@@ -206,6 +207,7 @@ export async function removeMember(
       }
     }
     pruneRetainedMessages(team, deps.limits.maxRetainedMessages)
+    pruneRetainedAttempts(team, deps.limits.maxRetainedAttempts)
   })
   return { member: structuredClone(committedMember), requeuedTaskIds: [...requeuedTaskIds] }
 }
@@ -246,6 +248,7 @@ export async function archiveTeam(
       if (message.phase === 'queued') team.messages[index] = { ...message, phase: 'cancelled' }
     }
     pruneRetainedMessages(team, deps.limits.maxRetainedMessages)
+    pruneRetainedAttempts(team, deps.limits.maxRetainedAttempts)
     Object.assign(team, { phase: 'archived' as const })
     committed = team
   })

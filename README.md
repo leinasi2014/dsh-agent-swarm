@@ -7,7 +7,7 @@
 - `ctx.agentSwarm` 宿主服务，以及 14 个 `agent_swarm_*` 模型工具；
 - Captain、持续型成员、persona/tool-filter 隔离、未完成 provisioning 的持久 child 对账恢复（`listChildren` live-preferred 枚举 + `sessionPersistence.inspect` 官方四要素：父 Session、continuable descriptor、provider、初始 user 消息持久接受；全部匹配则孤儿复活为成员，任一不匹配则 failed 并显式 drain，不可判定维持失败收敛）、有限退休记录复用与卸载回收（F3）；
 - 任务 DAG、优先级、自动事件调度和可注册 Scheduler Provider；
-- task `revision` CAS 与独立 `attemptId` fencing；
+- task `revision` CAS 与独立 `attemptId` fencing；attempt 历史按任务有界保留（`maxRetainedAttempts` 默认 64：current + 最近 N 条终态 attempt），终态迁移（审核落定/改派/成员移除/归档）在同一事务内最老先修剪——fencing 始终锚定在永不修剪的任务 `currentAttemptId` 上（被剪 id 的提交仍报 `TEAM_ATTEMPT_STALE`，不得复活），generation 从保留集最大值水位分配、跨修剪与重载严格递增；存量 schema-v1 记录（含 300 条 attempt 堆积）直接加载、由下一个终态迁移惰性修剪（F7，场景 18 测试关闭）；
 - `reserved → delivered` 分配检查点，失败时只回滚本次精确 attempt；
 - `submitted → review → completed` 强制审核门，可注册 Review Provider；
 - queued-before-delivered 邮箱、按消息 ID 串行派送和进程内重载重试；投递前在目标 Session 的持久 inbox/history 按稳定消息 id 折叠（`sessionPersistence.inspect` 对账 + 接收方 flush 后再确认），目标 Session 已接收而 Store 未确认的崩溃窗口只补确认、不重发（F2，场景 5 注入测试关闭）；邮箱准入按官方 per-target pending 语义（`maxPendingMessagesPerMember` 默认 64，仅计 queued-minus-delivered，超配额报官方码 `TEAM_MAILBOX_FULL`），delivered/cancelled 回执有界保留（`maxRetainedMessages` 默认 256）并在确认/取消时最老先修剪——修剪不动 queued 邮件、不破坏创建序 replay 与 revision 连续性，存量 schema-v1 记录（含 1024 条消息堆积）直接加载、由下一个终态迁移惰性修剪（F6，场景 17 测试关闭）；
@@ -15,7 +15,7 @@
 - 结构化 Team memory、成员安全移除（同时取消其未投递收发邮件）、Team 归档；
 - revision 游标式 `agent_swarm_wait`，无需轮询状态；
 - **M1A 权威存储（ADR-0007）**：`TeamDomainPort` 是工具与编排消费的唯一 Team 聚合权威边界；生产 Provider `StorageDomainTeamStore` 通过官方 `ctx.storageDomain` 打开 `agent_swarm` 域，按“每个 Team 一条带版本聚合记录、每个迁移一条持久回执”存储，写入先经官方域写链达到后端持久化、再更新内存并通知等待者；`sessionPersistence` 与 `storageDomain` 为必需注入，任一缺失时插件保持 pending（fail closed），没有 workspace-JSON 或非持久回退；遗留 `FileTeamStore` 仅保留为只读离线迁移读取器与测试 fixture；
-- 46 项测试：20 项协议（含 F6：per-target pending 准入 + `TEAM_MAILBOX_FULL`、quota+10 发送/确认不失语、最老先修剪且不动 queued、取消路径修剪、存量 v1 1024 条消息记录兼容）、13 项端口一致性/schema/版本/损坏/关闭/故障注入、5 项迁移（成功、目的非空、非法源、持久化失败、回执不一致）、2 项真实 rc.8 组合（真实官方存储栈 + JSONL 持久化 + continuable 成员 + 调度/审核 + 重载恢复 + 工作区篡改否认）、2 项 F2 邮箱崩溃窗口/幂等重扫、4 项 F3 provisioning 对账（场景 6 崩溃半边激活、四要素不匹配 failed+drain、证据不可判定维持现状、无 projection 注册表的 inspect-only 回退）。
+- 49 项测试：20 项协议（含 F6：per-target pending 准入 + `TEAM_MAILBOX_FULL`、quota+10 发送/确认不失语、最老先修剪且不动 queued、取消路径修剪、存量 v1 1024 条消息记录兼容）、3 项 F7 attempt 保留（12 轮 claim/改派循环保留窗口有界 + team.json 字节有界、跨修剪与重载 generation 严格递增、被剪 id 仍 `TEAM_ATTEMPT_STALE`、completed 任务引用的 current attempt 不被修剪、存量 v1 300 条 attempt 记录惰性修剪）、13 项端口一致性/schema/版本/损坏/关闭/故障注入、5 项迁移（成功、目的非空、非法源、持久化失败、回执不一致）、2 项真实 rc.8 组合（真实官方存储栈 + JSONL 持久化 + continuable 成员 + 调度/审核 + 重载恢复 + 工作区篡改否认）、2 项 F2 邮箱崩溃窗口/幂等重扫、4 项 F3 provisioning 对账（场景 6 崩溃半边激活、四要素不匹配 failed+drain、证据不可判定维持现状、无 projection 注册表的 inspect-only 回退）。
 
 ## Profile 组合（部署必读）
 
