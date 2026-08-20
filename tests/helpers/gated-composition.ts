@@ -175,6 +175,30 @@ export async function settleCaptain(adapter: GatedAdapter, lead: Agent): Promise
   }, { timeout: 5_000 })
 }
 
+/**
+ * Deterministically drive captain-recovery scheduling passes until `assert`
+ * holds. `recoverAgent` only requests a pass while the captain is `idle`
+ * (correct product semantics: a mid-work agent must not self-schedule), and
+ * on a slow runner a settlement notice can land after `settleCaptain`'s exit
+ * window, holding the captain `running` on a gated turn. Each poll therefore
+ * releases the currently held turns (letting such notices settle) and
+ * re-drives the recovery path whenever the captain is idle, until the
+ * caller's condition is met. Only safe while a premature gate opening is
+ * harmless (members cold or mid-idempotent reserved re-delivery) — for
+ * windows that depend on a member turn staying held, use `settleCaptain`
+ * once and a single explicit drive instead.
+ */
+export async function driveRecoveryPasses(
+  composition: Composition,
+  assert: () => void | Promise<void>,
+): Promise<void> {
+  await vi.waitFor(async () => {
+    composition.adapter.open()
+    if (composition.lead.status === 'idle') await composition.ctx.agentSwarm.recoverAgent(composition.lead)
+    await assert()
+  }, { timeout: 15_000 })
+}
+
 function expectIdle(lead: Agent): void {
   if (lead.status !== 'idle') throw new Error(`captain is ${lead.status}, expected idle`)
 }
