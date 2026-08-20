@@ -129,7 +129,20 @@ export class MemberProvisioner {
       try {
         const active = await this.deps.domain().settleMember(scope, membership.team.id, childId, { active: true })
         this.deps.trackChild(captain, childId)
-        await this.deps.afterActivation(scope, membership.team.id, captain, childId)
+        try {
+          await this.deps.afterActivation(scope, membership.team.id, captain, childId)
+        } catch (activationError) {
+          // Post-activation accounting is cursor-based and refolds through
+          // the recovery path, so a failure AFTER the durable active
+          // settlement must not roll the member back (issue #47: the
+          // compensating settle would only fail with TEAM_MEMBER_PHASE_INVALID,
+          // drain a live member and poison the name for retries under the
+          // lifetime-occupation rule). Degrade to a warning: the roster's
+          // active settlement is authoritative.
+          this.ctx.logger.warn(
+            `agent-swarm: post-activation accounting failed for ${childId} (member stays active; usage refolds on recovery): ${String(activationError)}`,
+          )
+        }
         return active
       } catch (error) {
         await this.deps.domain().settleMember(scope, membership.team.id, childId, {

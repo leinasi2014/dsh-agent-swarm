@@ -355,4 +355,67 @@ describe('persisted-child provisioning reconciliation (F3)', () => {
       for (const fiber of fibers.toReversed()) await fiber.dispose()
     }
   }, 20_000)
+
+  it('issue #47: a post-activation accounting failure keeps the committed active member and never drains the live child', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-provision-p1-'))
+    roots.push(sandbox)
+    const fibers: Fiber[] = []
+
+    try {
+      const stack = await mountCaptain(sandbox, fibers, 'p1-rollback-lead', 'P1 rollback team')
+      const domain = stack.ctx.agentSwarm.domain
+      // Inject exactly the trigger chain from the audit: the durable active
+      // settlement commits first, then the post-activation usage write
+      // fails (the upstream .dsh-mkdir ENOENT path seen in CI).
+      const batch = vi.spyOn(domain, 'recordSessionUsageBatch')
+        .mockRejectedValueOnce(new Error('injected: ENOENT .dsh-mkdir-xxx'))
+      const drain = vi.spyOn(stack.ctx.subagents, 'drainContinuableChildren')
+
+      const added = await stack.ctx.tools.execute({
+        signal: SIGNAL,
+        callId: CallId('p1-add'),
+        name: 'agent_swarm_add_member',
+        arguments: { name: 'p1-worker', role: 'Survive a post-activation accounting failure.' },
+        agent: stack.lead,
+      })
+      expect(added.isError).toBe(false)
+      expect((added.value as { phase: string }).phase).toBe('active')
+      expect(batch).toHaveBeenCalled()
+
+      const snapshot = await domain.snapshot(
+        stack.ctx.agentSwarm.scopeOf(stack.lead), AgentSwarm.TeamId(stack.teamId), stack.lead.id,
+      )
+      const member = snapshot.team.members[0]!
+      expect(member).toMatchObject({ name: 'p1-worker', phase: 'active' })
+      // The live child was NOT drained by the accounting failure and stays
+      // owned by the captain (no orphan, no contradictory cold child).
+      expect(drain).not.toHaveBeenCalled()
+      expect(stack.ctx.agents.get(SessionId(member.sessionId))).toBeDefined()
+
+      // Retry semantics stay coherent: the occupied name is taken (lifetime
+      // rule), a fresh name provisions normally.
+      const sameName = await stack.ctx.tools.execute({
+        signal: SIGNAL,
+        callId: CallId('p1-retry-same'),
+        name: 'agent_swarm_add_member',
+        arguments: { name: 'p1-worker', role: 'Must be rejected.' },
+        agent: stack.lead,
+      })
+      expect(sameName).toMatchObject({ isError: true, error: { info: { code: 'TEAM_MEMBER_NAME_TAKEN' } } })
+      const fresh = await stack.ctx.tools.execute({
+        signal: SIGNAL,
+        callId: CallId('p1-retry-fresh'),
+        name: 'agent_swarm_add_member',
+        arguments: { name: 'p1-worker-2', role: 'System stays healthy.' },
+        agent: stack.lead,
+      })
+      expect(fresh.isError).toBe(false)
+      expect((fresh.value as { phase: string }).phase).toBe('active')
+
+      batch.mockRestore()
+      drain.mockRestore()
+    } finally {
+      for (const fiber of fibers.toReversed()) await fiber.dispose()
+    }
+  }, 20_000)
 })
