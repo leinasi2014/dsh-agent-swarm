@@ -32,7 +32,7 @@ jobs:
           pwsh ./ref/jiuwenswarm/sync-reference.ps1
 
       - name: Materialize official evidence checkout
-        run: pwsh ./scripts/sync-official-evidence.ps1 -Target "${{ github.workspace }}/official-evidence"
+        run: pwsh ./scripts/sync-official-evidence.ps1 -Target "${{ runner.temp }}/official-evidence"
 
       - name: Full verify gate
         run: pnpm verify
@@ -40,7 +40,7 @@ jobs:
       - name: Gate A official baseline (live remote)
         run: pnpm verify:official
         env:
-          DSH_OFFICIAL_CHECKOUT: ${{ github.workspace }}/official-evidence
+          DSH_OFFICIAL_CHECKOUT: ${{ runner.temp }}/official-evidence
 
       - name: Coverage report
         run: pnpm test:coverage

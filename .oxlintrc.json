@@ -19,6 +19,7 @@
     "**/node_modules/**",
     "coverage/**",
     "ref/**",
+    "official-evidence/**",
     "**/*.mjs",
     "**/*.config.ts"
   ]
