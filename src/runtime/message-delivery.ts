@@ -36,13 +36,14 @@ import { messageAccepted, messageClaimed, messagePending } from './session-accep
 
 /**
  * Bounded wait for a waking frame's claim at the target's next turn boundary.
- * An idle or cold target claims within its first pre-step (milliseconds); a
+ * An idle or cold target claims within its first pre-step (milliseconds on a
+ * warm host; a cold runner's first member assemble can take seconds); a
  * member mid-turn claims when the running turn ends, which can be long — the
  * grace expires, the message stays durably queued, and the target's
  * `agent/status → idle` edge re-runs the rescan that completes the
  * acknowledgement on the claimed form.
  */
-const WAKEUP_CLAIM_GRACE_MS = 2_000
+const WAKEUP_CLAIM_GRACE_MS = 5_000
 
 /**
  * The exact model-visible frame one message is delivered under lives in
