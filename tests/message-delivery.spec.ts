@@ -139,9 +139,13 @@ describe('target-side message de-duplication (F2)', () => {
    * yet (3; draining after the claim cancels no mail, because the frame is
    * already history, not pending inbox). The rescan then enters through the
    * same `recoverAgent` → scheduler pass → `deliverQueuedMessage` path the
-   * real reload recovery uses. Before the claim, the pending-inbox
-   * acceptance form is also asserted durable (1a) — the fold covers both
-   * forms.
+   * real reload recovery uses.
+   *
+   * Issue #52 / D1 window shift: waking acknowledgement now requires the
+   * claimed form, so the send itself returns `queued` while the frame is
+   * pending behind the held turn and attempts NO acknowledgement — the
+   * injected crash lands on the rescan's make-up acknowledgement after the
+   * durable claim, which is the surviving half-window.
    */
   it('scenario 5: crash after target inbox acceptance but before delivered ack folds redelivery into a make-up acknowledgement', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-message-dedup-'))
@@ -200,10 +204,13 @@ describe('target-side message de-duplication (F2)', () => {
         return await followup(parent, childId, content, options)
       })
 
-      // Crash-window injection (2): the first store acknowledgement never commits.
+      // Crash-window injection: the FIRST store acknowledgement (the
+      // rescan's make-up over the durable claim) never commits.
       const acknowledge = vi.spyOn(ctx.agentSwarm.domain, 'acknowledgeMessage')
       acknowledge.mockRejectedValueOnce(new Error('simulated crash before the delivered ack commit'))
 
+      // Issue #52: the frame parks pending behind the held turn, so the send
+      // acknowledges nothing and reports queued.
       const sent = await ctx.tools.execute({
         signal: SIGNAL,
         callId: CallId('send'),
@@ -211,7 +218,8 @@ describe('target-side message de-duplication (F2)', () => {
         arguments: { target: 'inbox-worker', content: 'Accept me exactly once across the crash window.', delivery: 'wakeup' },
         agent: lead,
       })
-      expect(sent.isError).toBe(true)
+      expect(sent.isError).toBe(false)
+      expect((sent.value as { phase: string }).phase).toBe('queued')
 
       const scope = ctx.agentSwarm.scopeOf(lead)
       const queued = await ctx.agentSwarm.domain.snapshot(scope, teamId, lead.id)
@@ -221,21 +229,28 @@ describe('target-side message de-duplication (F2)', () => {
 
       // Durable fact (1a): the real followup accepted the real frame, and the
       // delivery path's checkpoint flush made that pending-inbox acceptance
-      // durable before the rejected acknowledgement.
+      // durable before the claim.
       await vi.waitFor(async () => {
         expect(acceptedFrames((await ctx.sessionPersistence.inspect(SessionId(memberSessionId), SIGNAL)).events, frame)).toBe(1)
       }, { timeout: 5_000 })
 
       // Durable fact (1b): let the member claim the frame into model-visible
       // history (the per-request turn checkpoint persists it) — the strongest
-      // durable form of "target already accepted".
+      // durable form of "target already accepted", and since issue #52 the
+      // only form a waking acknowledgement settles on.
       adapter.open()
       await vi.waitFor(async () => {
         const stored = await ctx.sessionPersistence.inspect(SessionId(memberSessionId), SIGNAL)
         expect(stored.events.some(event => event.type === 'user/message' && carriesFrame(event.data, frame))).toBe(true)
       }, { timeout: 5_000 })
 
-      // Durable fact (2): the store still owes the delivered acknowledgement.
+      // The rescan folds the durable claim into the make-up acknowledgement,
+      // whose commit is the injected crash — byte-identical durable state to
+      // a process killed right after the claim.
+      await ctx.agentSwarm.recoverAgent(lead)
+      await vi.waitFor(() => {
+        expect(acknowledge.mock.calls.length).toBeGreaterThanOrEqual(1)
+      }, { timeout: 5_000 })
       const unacked = await ctx.agentSwarm.domain.snapshot(scope, teamId, lead.id)
       expect(unacked.team.messages.find(candidate => candidate.id === message?.id)?.phase).toBe('queued')
 
@@ -248,7 +263,8 @@ describe('target-side message de-duplication (F2)', () => {
         expect(acceptedFrames((await ctx.sessionPersistence.inspect(SessionId(memberSessionId), SIGNAL)).events, frame)).toBe(1)
       }, { timeout: 5_000 })
 
-      // The reload recovery rescan (schedulePass -> deliverQueuedMessage).
+      // The reload recovery rescan (schedulePass -> deliverQueuedMessage):
+      // the claimed form persists cold, so the fold retries the make-up ack.
       await ctx.agentSwarm.recoverAgent(lead)
       await vi.waitFor(async () => {
         const snapshot = await ctx.agentSwarm.domain.snapshot(scope, teamId, lead.id)
@@ -275,7 +291,9 @@ describe('target-side message de-duplication (F2)', () => {
    * Idempotent redelivery: repeated reload rescans of one queued message
    * while its acknowledgement keeps failing must leave exactly one copy in
    * the target's history — every retry after the first acceptance folds into
-   * an acknowledgement attempt instead of a resend.
+   * an acknowledgement attempt instead of a resend. Since issue #52 the
+   * settling acceptance for waking mail is the durable CLAIM, so the
+   * repeated rescans fold over the claimed form while the ack store is down.
    */
   it('repeated deliverQueuedMessage rescans leave exactly one copy in the target history', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-message-idempotent-'))
@@ -333,6 +351,8 @@ describe('target-side message de-duplication (F2)', () => {
       const acknowledge = vi.spyOn(ctx.agentSwarm.domain, 'acknowledgeMessage')
       acknowledge.mockRejectedValue(new Error('acknowledge stays down across every rescan'))
 
+      // Issue #52: the frame parks pending behind the held turn, so the send
+      // acknowledges nothing and reports queued.
       const sent = await ctx.tools.execute({
         signal: SIGNAL,
         callId: CallId('send'),
@@ -340,7 +360,8 @@ describe('target-side message de-duplication (F2)', () => {
         arguments: { target: 'steady-worker', content: 'Rescans must not duplicate me.', delivery: 'wakeup' },
         agent: lead,
       })
-      expect(sent.isError).toBe(true)
+      expect(sent.isError).toBe(false)
+      expect((sent.value as { phase: string }).phase).toBe('queued')
 
       const scope = ctx.agentSwarm.scopeOf(lead)
       const queued = await ctx.agentSwarm.domain.snapshot(scope, teamId, lead.id)
@@ -365,7 +386,7 @@ describe('target-side message de-duplication (F2)', () => {
       await ctx.agentSwarm.recoverAgent(lead)
       await ctx.agentSwarm.recoverAgent(lead)
       await vi.waitFor(() => {
-        expect(acknowledge.mock.calls.length).toBeGreaterThanOrEqual(3)
+        expect(acknowledge.mock.calls.length).toBeGreaterThanOrEqual(2)
       }, { timeout: 5_000 })
 
       // Every rescan folded into an ack attempt: still one copy, one send.

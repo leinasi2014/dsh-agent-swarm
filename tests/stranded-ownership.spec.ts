@@ -76,12 +76,14 @@ describe('stranded-ownership self-healing over the real composition (issue #12)'
       // next-turn work keeps the Activation resident after the interrupt
       // (an empty inbox would let the spawn provider auto-settle the member
       // cold within the grace window, which is the evidence-only path of
-      // the next test instead).
+      // the next test instead). Issue #52: the parked frame is still
+      // pending, so the send reports `queued` — wakeup acknowledgement
+      // requires the claimed, model-visible form.
       const parked = await toolCall(ctx, composition.lead, 'send-wakeup', 'agent_swarm_send_message', {
         target: 'stranded-worker', content: 'Parked work across the stranding window.', delivery: 'wakeup',
       })
       expect(parked.isError).toBe(false)
-      expect((parked.value as { phase: string }).phase).toBe('delivered')
+      expect((parked.value as { phase: string }).phase).toBe('queued')
 
       // The captain interrupts the running turn (keepInbox): the member
       // converges live-and-idle while the task stays in_progress.

@@ -372,12 +372,15 @@ describe('official compatibility semantics over the real composition (issue #19)
       // next-turn work keeps the Activation resident across the upcoming
       // keepInbox interrupt (an empty inbox would let the spawn provider
       // auto-settle the member cold; the durable facts would survive
-      // either way, but this pins the live-resume variant).
+      // either way, but this pins the live-resume variant). Issue #52: the
+      // parked frame is still pending, so the send reports `queued` —
+      // wakeup acknowledgement requires the claimed, model-visible form
+      // (the quiet send below still acknowledges on inbox acceptance).
       const parked = await toolCall(ctx, lead, 'send-parked', 'agent_swarm_send_message', {
         target: 'runaway-worker', content: 'Parked wakeup kept across the interrupt.', delivery: 'wakeup',
       })
       expect(parked.isError).toBe(false)
-      expect((parked.value as { phase: string }).phase).toBe('delivered')
+      expect((parked.value as { phase: string }).phase).toBe('queued')
       const quiet = await toolCall(ctx, lead, 'send-quiet', 'agent_swarm_send_message', {
         target: 'runaway-worker', content: 'Quiet context kept across the interrupt.', delivery: 'quiet',
       })
