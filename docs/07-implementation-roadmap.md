@@ -128,7 +128,7 @@ Official integration:
 
 - compose M2 Workflow/Jobs observation with the canonical Team port; every long operation has a stable run id, cancellation and completion disclosure;
 - use `ctx.workspaceRegistry` only for identity/linkage and start each coding attempt in an out-of-process DSH/ACP Session whose actual cwd and tool roots match a unique Worktree lease;
-- consume official permission/sandbox/tool and interaction seams for the minimum command-check, independent Reviewer and optional human promotion gates;
+- consume target-verified permission/sandbox/tool enforcement points and official interaction seams for the minimum command-check, independent Reviewer and optional human promotion gates;
 - keep the stable control Profile on a last-known-good artifact and load each frozen candidate into a separate acceptance Profile, port and state root.
 
 Reference fusion:
@@ -147,6 +147,8 @@ Exit:
 - D2 supervised parallel self-development is approved by an independent security/regression review.
 
 M3 is a vertical dogfood slice, not completion of the full permission, remote Workspace or release product families. Their Providers are broadened and hardened in M5, M6 and M9.
+
+Historical reports created before ADR-0008 retain their original milestone numbers. Interpret their old M3/M4/M5/M6/M7/M8 labels as current M4/M5/M6/M7/M8/M9 respectively; immutable reviewer reports are not rewritten.
 
 ## M4 — accounting and scalable Store Providers
 

@@ -22,6 +22,7 @@
 | tiered permissions | DSH permission/sandbox/tool events | existing interaction/security seams |
 | context offload | compaction/spill Provider | existing DSH seams |
 | heartbeat tasks | schedule/jobs Consumer | generic plugin, not Team core |
+| self-improving coding Team | stable control + Worktree Workers + Review + acceptance Profile | ADR-0008 project composition over official seams |
 
 ## 2. Deterministic workflow versus adaptive team
 
@@ -46,6 +47,8 @@ Jiuwen demonstrates the product value of one worktree per coding worker. DSH’s
 3. a tool-level workspace executor that never claims the Agent itself has a different cwd.
 
 Do not fake isolation by only telling the model a path while its shell/fs tools still resolve another workspace.
+
+For plugin self-development, Worktree isolation is paired with a last-known-good control Profile. Submitted commits and package artifacts are frozen before independent review and loaded only in a separate acceptance Profile/port/state root. The candidate cannot approve/promote itself or write control storage, credentials, official source or either reference checkout. M1D permits single-writer dogfood; parallel self-development requires the M2/M3 exit evidence.
 
 ## 4. Team memory
 

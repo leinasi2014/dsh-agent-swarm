@@ -102,6 +102,8 @@ JiuwenSwarm contributes product-level orchestration features and failure cases.
 New plugins connect those concepts without duplicating the seams DSH already owns.
 ```
 
+For self-hosting, the direct reference contributes Team durability/fencing/lifecycle cases and Jiuwen contributes Worktree/permission/review/distributed behavior. Neither reference becomes the control or deployment runtime. ADR-0008 composes those behaviors through official DSH Profiles, RPC, Workflow/Jobs, Workspace linkage, Subagent Providers and interaction seams while an external last-known-good controller owns candidate promotion.
+
 ## 6. Current fusion status
 
 The two reference repositories are both present and pinned, but their strengths are only partially fused:
@@ -111,5 +113,6 @@ The two reference repositories are both present and pinned, but their strengths 
 - target-side mailbox identity de-duplication across a process crash and persisted-child-aware provisioning recovery are not yet at official/community parity;
 - Jiuwen workflow operators, human nodes, Worktree execution, distributed control/data planes, tiered team permissions, automatic Team-memory extraction, skill evolution and UI are not implemented;
 - the current memory API is manual structured storage, not Jiuwen personal/shared memory or automatic round-end extraction.
+- no stable-control/candidate-acceptance self-hosting pipeline is implemented; D0-D4 remain roadmap readiness labels.
 
 The detailed evidence and conflict matrix are in `10-fusion-audit.md`.

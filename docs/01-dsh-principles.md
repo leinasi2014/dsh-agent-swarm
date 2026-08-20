@@ -112,6 +112,8 @@ Do not silently fall back from distributed to local, from Worktree to shared che
 
 Client state must remain a projection. If a feature works only when the UI is open, its runtime design is wrong unless it is explicitly a UI-only feature.
 
+Self-hosting adds another composition boundary: the stable control Profile and candidate acceptance Profile are different deployments. A candidate is an input to verification, not a Provider of its own promotion decision. Keep last-known-good control, Worker Worktrees, frozen artifact, acceptance state/RPC and rollback ownership separate; never use mutable local-link output as the running control artifact.
+
 ## 10. Patch semantics
 
 `cordis.patch.yml` is an ordered layer. `insert` adds rows. Later rows can target an id and replace its full config. Config is not deep-merged. A `name` mismatch can make a patch ineffective. Always inspect the actual tree:
@@ -137,3 +139,5 @@ For this project, authoritative Team state is non-Session application data and t
 ## 12. Official-first is an implementation gate
 
 Before design or code, run `pnpm verify:gate-a`, read the materially present implemented Agent Notes and package exports/tests, inspect the target Profile, and update the ownership/conflict map. If a stable official Service Definition owns the capability, this project may only supply a Provider, Consumer, policy overlay or Bundle row. A new project Service requires evidence that the target lacks an owner and an ADR explaining how it avoids current and experimental service keys. See `11-official-first-development.md`.
+
+For self-hosting, the same gate must classify DSH RPC/Profile composition, Workflow/Jobs, Workspace identity versus real execution roots, permission/review owners and promotion/rollback. ADR-0008 readiness labels are evidence gates; a configuration toggle or successful model response cannot advance D0-D4.

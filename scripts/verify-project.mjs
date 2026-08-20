@@ -17,10 +17,12 @@ const required = [
   'docs/10-fusion-audit.md',
   'docs/11-official-first-development.md',
   'docs/12-independent-review-management.md',
+  'docs/13-self-hosting-dogfood.md',
   'docs/OFFICIAL_BASELINE.json',
   'docs/adr/0005-official-first-pure-plugin-integration.md',
   'docs/adr/0006-independent-reviewer-autonomy.md',
   'docs/adr/0007-m1-storage-authority-and-remediation-order.md',
+  'docs/adr/0008-self-hosting-dogfood-control-plane.md',
   'scripts/verify-official-baseline.mjs',
   'scripts/verify-reference-baselines.mjs',
   'scripts/sync-official-evidence.ps1',
@@ -82,6 +84,7 @@ for (const [file, phrases] of [
   ['CLAUDE.md', ['official-first', 'pure plugins']],
   ['docs/07-implementation-roadmap.md', ['Gate A', 'Official-first']],
   ['docs/12-independent-review-management.md', ['Reviewer autonomy', 'Project-manager boundary']],
+  ['docs/13-self-hosting-dogfood.md', ['stable control Profile', 'acceptance Profile', 'ADR-0008']],
   ['.agents/skills/dsh-plugin-development/SKILL.md', ['official-first compatibility gate', 'docs/11-official-first-development.md']],
 ]) {
   try {

@@ -117,7 +117,7 @@ ADR-0008 was accepted on 2026-08-20 after `pnpm verify:gate-a` again passed agai
 
 The self-hosting behavior is derived from:
 
-- official DSH Profile/Bundle composition, Session persistence, Subagents, Workflow, Jobs, Storage Domain, Workspace, permission/tool and interaction seams;
+- official DSH Profile/Bundle composition, Session persistence, Subagents, Workflow, Jobs, Storage Domain, Workspace and interaction services, plus target-verified permission/tool enforcement points;
 - `dsh-agent-teams` durable Team, status, fencing, mailbox and lifecycle failure behavior;
 - JiuwenSwarm Worktree, verification, permission, distributed reservation and Skill Evolution product/failure contracts.
 
