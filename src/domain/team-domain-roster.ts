@@ -17,19 +17,13 @@ import {
   attemptOf,
   clearTaskExecution,
   nonEmpty,
+  normalizeMemberName,
   replaceAttempt,
   replaceTask,
   type TeamDomainDeps,
 } from './team-domain-shared.js'
 import { TeamId, type TaskId, type TeamMember, type TeamMembership, type TeamState } from './types.js'
 import type { TeamScope } from './team-domain-port.js'
-
-function memberName(value: string): string {
-  const normalized = value.trim().toLowerCase()
-  expectDomain(/^[a-z][a-z0-9-]{0,63}$/.test(normalized), 'member name must be lowercase kebab-case', 'TEAM_MEMBER_NAME_INVALID')
-  expectDomain(normalized !== 'captain', 'member name "captain" is reserved', 'TEAM_MEMBER_NAME_RESERVED')
-  return normalized
-}
 
 export async function createTeam(
   deps: TeamDomainDeps,
@@ -142,7 +136,7 @@ export async function provisionMember(
     // their names occupied for the Team's lifetime, and the total roster size
     // (not only occupied rows) is what `maxMembers` bounds, matching the
     // official experimental roster (`TEAM_MEMBER_NAME_TAKEN`, members.size).
-    const name = memberName(input.name)
+    const name = normalizeMemberName(input.name)
     expectDomain(
       !team.members.some(candidate => candidate.name === name),
       `member name "${name}" was already used in this Team`,
@@ -222,7 +216,7 @@ export async function removeMember(
   await deps.store.transact(scope, teamId, team => {
     const authority = actorMembership(team, captainSessionId)
     expectDomain(authority.role === 'captain', 'only the captain can remove members', 'TEAM_CAPTAIN_REQUIRED')
-    const normalizedName = memberName(name)
+    const normalizedName = normalizeMemberName(name)
     const index = team.members.findIndex(member => member.name === normalizedName && member.phase === 'active')
     expectDomain(index >= 0, `active member "${normalizedName}" not found`, 'TEAM_MEMBER_NOT_FOUND')
     const current = team.members[index]!

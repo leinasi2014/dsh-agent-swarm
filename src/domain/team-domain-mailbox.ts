@@ -13,7 +13,7 @@
 import { randomUUID } from 'node:crypto'
 import { Buffer } from 'node:buffer'
 import { expectDomain } from './error.js'
-import { actorMembership, nonEmpty, type TeamDomainDeps } from './team-domain-shared.js'
+import { actorMembership, foldMemberName, nonEmpty, type TeamDomainDeps } from './team-domain-shared.js'
 import { TeamMessageId, type TeamId, type TeamMessageDelivery, type TeamState } from './types.js'
 import type { TeamScope } from './team-domain-port.js'
 
@@ -29,7 +29,11 @@ export async function queueMessage(
   let committed!: TeamState['messages'][number]
   await deps.store.transact(scope, teamId, team => {
     const sender = actorMembership(team, senderSessionId)
-    const normalizedTarget = targetName.trim().toLowerCase()
+    // Issue #19 Unicode alignment: targets fold through the same NFC +
+    // `\p{L}\p{N}` policy as provisioning, so 'BOB SMITH' resolves the member
+    // provisioned as 'Bob Smith' and non-Latin names address exactly their
+    // own rows. The `captain` pseudo-name addresses the captain identity.
+    const normalizedTarget = foldMemberName(targetName)
     const targetSessionId = normalizedTarget === 'captain'
       ? team.captainSessionId
       : team.members.find(member => member.name === normalizedTarget && member.phase === 'active')?.sessionId
