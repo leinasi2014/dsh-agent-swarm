@@ -60,13 +60,9 @@ const required = [
 
 // Engineering guardrail: one source file may not exceed this line count
 // unless an exception below records why and which milestone retires it.
+// The registry is currently empty: every source file is within the limit.
 const SRC_FILE_LINE_LIMIT = 600
-const SRC_FILE_LINE_LIMIT_EXCEPTIONS = new Map([
-  ['src/domain/team-domain.ts', {
-    reason: 'protocol core (roster/task/mailbox/budget/memory in one aggregate); splits with the M1B mailbox-retention restructuring',
-    due: 'M1B',
-  }],
-])
+const SRC_FILE_LINE_LIMIT_EXCEPTIONS = new Map()
 
 const failures = []
 for (const item of required) {

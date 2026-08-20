@@ -83,7 +83,7 @@ Since 2026-08-20 the runtime is split into milestone-shaped collaborators (`auth
 | Team memory entries | `TeamDomain` aggregate | M7 memory capability service becomes canonical |
 | Mailbox delivery semantics | `src/runtime/message-delivery.ts` | official Team backend adapter behind `TeamDomainPort` after promotion |
 | Scheduling pass ownership | orchestrator runtime | M2 Workflow/Jobs `workflow` mode becomes a second owner candidate |
-| Whole-aggregate protocol core | `src/domain/team-domain.ts` (740-line registered exception) | M1B mailbox-retention restructuring splits it |
+| Whole-aggregate protocol core | `src/domain/team-domain.ts` composing the roster/board/mailbox/budget/projection modules (600-line guardrail holds with zero exceptions) | M1B mailbox-retention restructuring reworks `team-domain-mailbox.ts` in place |
 
 ## 6. Conflict analysis
 
