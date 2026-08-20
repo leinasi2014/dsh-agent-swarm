@@ -77,10 +77,12 @@ export async function recordSessionUsage(
 
 /**
  * Fold one coalesced batch of Session usage events in a single transaction
- * (M1C usage write coalescing): each entry only counts while its event seq
- * exceeds the session's durable usage cursor, and the cursor moves to the
- * highest folded seq, so replayed batches and reload recovery never
- * double-count — exactly the single-event semantics, folded at once.
+ * (M1C usage write coalescing): entries are folded in ascending event-seq
+ * order regardless of submission order (P2-3), each entry only counts while
+ * its event seq exceeds the session's durable usage cursor, and the cursor
+ * moves to the highest folded seq, so replayed batches, out-of-order
+ * batches and reload recovery never drop or double-count — exactly the
+ * single-event semantics, folded at once.
  */
 export async function recordSessionUsageBatch(
   deps: TeamDomainDeps,
@@ -101,7 +103,7 @@ export async function recordSessionUsageBatch(
     const previous = team.usageCursors[sessionId] ?? -1
     let usedTokens = team.budget.usedTokens
     let cursor = previous
-    for (const entry of entries) {
+    for (const entry of entries.toSorted((left, right) => left.eventSeq - right.eventSeq)) {
       if (entry.eventSeq <= cursor) continue
       usedTokens += entry.tokens
       cursor = entry.eventSeq

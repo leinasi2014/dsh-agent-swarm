@@ -296,6 +296,25 @@ describe('TeamDomain over the official Storage Domain', () => {
     expect(budget.usedTokens).toBe(20)
   })
 
+  it('folds an out-of-order usage batch completely, matching single-event semantics (P2-3)', async () => {
+    const team = await teamWithMembers(1)
+    // A third-party Provider may submit a coalesced batch in any order; the
+    // public port must not silently drop the earlier event seq.
+    const budget = await domain.recordSessionUsageBatch(scope, team.id, 'member-1', [
+      { eventSeq: 5, tokens: 50 },
+      { eventSeq: 3, tokens: 30 },
+    ])
+    expect(budget.usedTokens).toBe(80)
+    // Duplicate seqs inside one batch keep the replay-exactly-once fold.
+    const replayed = await domain.recordSessionUsageBatch(scope, team.id, 'member-1', [
+      { eventSeq: 5, tokens: 50 },
+      { eventSeq: 3, tokens: 30 },
+    ])
+    expect(replayed.usedTokens).toBe(80)
+    const snapshot = await domain.snapshot(scope, team.id, 'captain-session')
+    expect(snapshot.team.usageCursors['member-1']).toBe(5)
+  })
+
   it('recovers interrupted provisioning idempotently and keeps retired names occupied (F12)', async () => {
     await stack.close()
     stack = await openStorageStack(join(sandbox, 'storage'), () => tick++)
