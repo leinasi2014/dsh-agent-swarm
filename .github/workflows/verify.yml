@@ -35,7 +35,20 @@ jobs:
         run: pwsh ./scripts/sync-official-evidence.ps1 -Target "${{ runner.temp }}/official-evidence"
 
       - name: Full verify gate
-        run: pnpm verify
+        # One targeted retry for the known upstream flake: the official
+        # dsh-session-persistence-jsonl Win32 mkdir/rename race fails with
+        # ENOENT on ".dsh-mkdir-*" temp dirs (recorded in the M1C exit
+        # report §3.1). Any OTHER failure fails immediately — this is a
+        # signature-scoped retry, not a blanket mask.
+        shell: pwsh
+        run: |
+          $log = pwsh -NoProfile -Command "pnpm verify" 2>&1 | Tee-Object -Variable out
+          $code = $LASTEXITCODE
+          if ($code -eq 0) { exit 0 }
+          if (($out | Out-String) -notmatch '\.dsh-mkdir-') { exit $code }
+          Write-Host "::warning::verified-flake signature .dsh-mkdir detected; retrying the gate once"
+          pnpm verify
+          exit $LASTEXITCODE
 
       - name: Gate A official baseline (live remote)
         run: pnpm verify:official
