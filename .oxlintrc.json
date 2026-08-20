@@ -1,0 +1,24 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn"
+  },
+  "options": {
+    "reportUnusedDisableDirectives": "warn"
+  },
+  "rules": {
+    "unicorn/require-module-specifiers": "off"
+  },
+  "env": {
+    "builtin": true,
+    "node": true
+  },
+  "ignorePatterns": [
+    "**/lib/**",
+    "**/node_modules/**",
+    "ref/**",
+    "**/*.mjs",
+    "**/*.config.ts"
+  ]
+}

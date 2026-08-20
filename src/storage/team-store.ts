@@ -82,7 +82,7 @@ export class FileTeamStore {
     if (!(await pathExists(stateRoot))) return []
     const entries = await readdir(stateRoot, { withFileTypes: true })
     const teams: TeamState[] = []
-    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    for (const entry of entries.toSorted((left, right) => left.name.localeCompare(right.name))) {
       if (!entry.isDirectory() || !entry.name.startsWith('team-')) continue
       const team = await this.read(stateRoot, entry.name as TeamId)
       if (team !== undefined) teams.push(team)

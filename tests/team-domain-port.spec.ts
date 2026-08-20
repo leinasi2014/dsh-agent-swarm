@@ -244,7 +244,7 @@ describe('TeamDomainPort provider over the official Storage Domain', () => {
       ]
       await new Promise(resolve => setTimeout(resolve, 50))
       expect(noStorage.get('agentSwarm')).toBeUndefined()
-      for (const fiber of noStorageFibers.reverse()) await fiber.dispose()
+      for (const fiber of noStorageFibers.toReversed()) await fiber.dispose()
 
       // Storage stack present but no persistence: still pending.
       const noPersistence = new Context()
@@ -259,7 +259,7 @@ describe('TeamDomainPort provider over the official Storage Domain', () => {
       ]
       await new Promise(resolve => setTimeout(resolve, 50))
       expect(noPersistence.get('agentSwarm')).toBeUndefined()
-      for (const fiber of noPersistenceFibers.reverse()) await fiber.dispose()
+      for (const fiber of noPersistenceFibers.toReversed()) await fiber.dispose()
     } finally {
       await rm(sandboxPending, { recursive: true, force: true })
     }
@@ -301,7 +301,7 @@ describe('TeamDomainPort provider over the official Storage Domain', () => {
       )
       expect(snapshot.team.name).toBe('Active team')
     } finally {
-      for (const fiber of fibers.reverse()) await fiber.dispose()
+      for (const fiber of fibers.toReversed()) await fiber.dispose()
     }
   })
 

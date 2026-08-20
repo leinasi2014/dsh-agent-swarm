@@ -37,6 +37,7 @@
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('lib',{recursive:true,force:true})\"",
     "build": "pnpm clean && tsc -p tsconfig.json && tsdown",
+    "lint": "oxlint .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "typecheck:test": "tsc -p tsconfig.test.json",
     "test": "vitest run",
@@ -45,7 +46,7 @@
     "verify:gate-a": "pnpm verify:official && pnpm verify:references",
     "verify:structure": "node scripts/verify-project.mjs",
     "verify:artifact": "node scripts/verify-package-artifact.mjs",
-    "verify": "pnpm verify:structure && pnpm typecheck && pnpm typecheck:test && pnpm test && pnpm build && pnpm verify:artifact"
+    "verify": "pnpm verify:structure && pnpm lint && pnpm typecheck && pnpm typecheck:test && pnpm test && pnpm build && pnpm verify:artifact"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
@@ -77,10 +78,11 @@
     "@deepseek-ai/dsh-tools": "^0.1.0-rc.8",
     "@deepseek-ai/dsh-workspace": "0.1.0-rc.8",
     "@deepseek-ai/schemastery": "^3.18.1",
-    "zod": "^4.4.3",
     "@types/node": "^24.0.0",
+    "oxlint": "^1.79.0",
     "tsdown": "^0.22.2",
     "typescript": "^5.9.3",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "zod": "^4.4.3"
   }
 }

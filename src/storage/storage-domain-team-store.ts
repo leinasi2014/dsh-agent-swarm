@@ -116,7 +116,7 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
   async list(scope: TeamScope): Promise<TeamState[]> {
     if (this.storeClosed) throw closed()
     const teams: TeamState[] = []
-    const entries = [...this.teams.entries()].sort((left, right) => left[0].localeCompare(right[0]))
+    const entries = [...this.teams.entries()].toSorted((left, right) => left[0].localeCompare(right[0]))
     for (const [teamId, record] of entries) {
       if (record.workspace !== scope) continue
       const team = this.validate(record, teamId)

@@ -42,13 +42,13 @@ async function openOn(ctx: Context, fibers: Fiber[], now: () => number): Promise
       async close() {
         await store.close()
         await domain.close()
-        for (const fiber of fibers.reverse()) await fiber.dispose()
+        for (const fiber of fibers.toReversed()) await fiber.dispose()
       },
     }
     return opened
   } catch (error) {
     // A failed open must not leak the half-mounted composition.
-    for (const fiber of fibers.reverse()) await fiber.dispose()
+    for (const fiber of fibers.toReversed()) await fiber.dispose()
     throw error
   }
 }

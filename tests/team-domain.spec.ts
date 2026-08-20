@@ -8,6 +8,20 @@ import { DEFAULT_TEAM_LIMITS } from '../src/domain/team-domain.js'
 import { AttemptId, TaskId, type TeamTask } from '../src/domain/types.js'
 import { openStorageStack, unitFilePath, type StorageStack } from './helpers/storage-stack.js'
 
+const graphTask = (id: string, blockedBy: string[]): TeamTask => ({
+  id: TaskId(id),
+  revision: 1,
+  subject: id,
+  description: id,
+  acceptanceCriteria: [],
+  status: 'pending',
+  blockedBy: blockedBy.map(TaskId),
+  writeScopes: [],
+  priority: 0,
+  createdAt: 1,
+  updatedAt: 1,
+})
+
 describe('TeamDomain over the official Storage Domain', () => {
   let sandbox: string
   let scope: string
@@ -170,24 +184,10 @@ describe('TeamDomain over the official Storage Domain', () => {
   })
 
   it('rejects missing, duplicate, self, and cyclic task dependencies', () => {
-    const base = (id: string, blockedBy: string[]): TeamTask => ({
-      id: TaskId(id),
-      revision: 1,
-      subject: id,
-      description: id,
-      acceptanceCriteria: [],
-      status: 'pending',
-      blockedBy: blockedBy.map(TaskId),
-      writeScopes: [],
-      priority: 0,
-      createdAt: 1,
-      updatedAt: 1,
-    })
-
-    expect(() => assertTaskGraph([base('task-1', ['task-2'])])).toThrowError(expect.objectContaining({ code: 'TEAM_TASK_DEPENDENCY_MISSING' }))
-    expect(() => assertTaskGraph([base('task-1', ['task-1'])])).toThrowError(expect.objectContaining({ code: 'TEAM_TASK_DEPENDENCY_CYCLE' }))
-    expect(() => assertTaskGraph([base('task-1', []), base('task-2', ['task-1', 'task-1'])])).toThrowError(expect.objectContaining({ code: 'TEAM_TASK_DEPENDENCY_DUPLICATE' }))
-    expect(() => assertTaskGraph([base('task-1', ['task-2']), base('task-2', ['task-1'])])).toThrowError(expect.objectContaining({ code: 'TEAM_TASK_DEPENDENCY_CYCLE' }))
+    expect(() => assertTaskGraph([graphTask('task-1', ['task-2'])])).toThrowError(expect.objectContaining({ code: 'TEAM_TASK_DEPENDENCY_MISSING' }))
+    expect(() => assertTaskGraph([graphTask('task-1', ['task-1'])])).toThrowError(expect.objectContaining({ code: 'TEAM_TASK_DEPENDENCY_CYCLE' }))
+    expect(() => assertTaskGraph([graphTask('task-1', []), graphTask('task-2', ['task-1', 'task-1'])])).toThrowError(expect.objectContaining({ code: 'TEAM_TASK_DEPENDENCY_DUPLICATE' }))
+    expect(() => assertTaskGraph([graphTask('task-1', ['task-2']), graphTask('task-2', ['task-1'])])).toThrowError(expect.objectContaining({ code: 'TEAM_TASK_DEPENDENCY_CYCLE' }))
   })
 
   it('rejects an arbitrary stale attempt id without revealing internal state', async () => {

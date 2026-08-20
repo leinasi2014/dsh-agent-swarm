@@ -340,7 +340,7 @@ describe('DSH rc.8 composition', () => {
       })
       expect(afterUnload).toMatchObject({ isError: true, error: { info: { code: 'UNKNOWN_TOOL' } } })
     } finally {
-      for (const fiber of fibers.reverse()) await fiber.dispose()
+      for (const fiber of fibers.toReversed()) await fiber.dispose()
     }
   }, 15_000)
 
@@ -401,7 +401,7 @@ describe('DSH rc.8 composition', () => {
       settle.mockRestore()
       drain.mockRestore()
     } finally {
-      for (const fiber of fibers.reverse()) await fiber.dispose()
+      for (const fiber of fibers.toReversed()) await fiber.dispose()
     }
   }, 15_000)
 })

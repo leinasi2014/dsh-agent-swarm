@@ -242,7 +242,7 @@ export class AgentSwarmRuntime extends Service {
     await this.ensureReady()
     this.assertOpen()
     let completeOperation!: () => void
-    const operation = new Promise<void>(resolve => { completeOperation = resolve })
+    const operation = new Promise<void>(settle => { completeOperation = settle })
     this.memberOperations.add(operation)
     try {
       const captain = requireAgent(exec)
@@ -632,10 +632,10 @@ export class AgentSwarmRuntime extends Service {
       .filter((value): value is string => value !== undefined))
     const members = snapshot.team.members
       .filter(member => member.phase === 'active' && !busy.has(member.sessionId))
-      .sort((left, right) => left.createdAt - right.createdAt)
+      .toSorted((left, right) => left.createdAt - right.createdAt)
     const ready = snapshot.team.tasks
       .filter(task => snapshot.readyTaskIds.includes(task.id))
-      .sort((left, right) => right.priority - left.priority || left.createdAt - right.createdAt)
+      .toSorted((left, right) => right.priority - left.priority || left.createdAt - right.createdAt)
 
     const provider = this.schedulerProviders.get(this.config.schedulerProvider)
     if (provider === undefined) throw new TeamDomainError(`scheduler Provider "${this.config.schedulerProvider}" is unavailable`, 'TEAM_SCHEDULER_PROVIDER_MISSING')
