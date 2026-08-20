@@ -3,8 +3,9 @@
  *
  * Composes the framework-neutral Team domain with continuable subagents and
  * the official Storage Domain. This class owns lifecycle, the Provider
- * registries, the scheduling pass and tool-facing operations; provisioning,
- * mailbox delivery and token accounting live in dedicated collaborators.
+ * registries and tool-facing operations; provisioning, mailbox delivery,
+ * token accounting and the scheduling pass (issue #12 / F10 discipline)
+ * live in dedicated collaborators.
  */
 import { resolve } from 'node:path'
 import { Service, type Context } from '@deepseek-ai/cordis'
@@ -24,10 +25,9 @@ import { boundedSettle } from './disposal.js'
 import { interruptMember } from './member-control.js'
 import { MemberProvisioner } from './member-provisioning.js'
 import { MessageDelivery } from './message-delivery.js'
-import { assignmentPrompt } from './prompts.js'
 import { manualReview, priorityReadyScheduler, type ReviewProviderInput, type ReviewProviderResult, type SchedulerDecision, type SchedulerSelectionInput, type TeamReviewProvider, type TeamSchedulerProvider } from './providers.js'
+import { SchedulingPass } from './scheduling.js'
 import { UsageAccountant } from './usage-accounting.js'
-import type { TaskAttempt } from '../domain/types.js'
 
 export type { ToolExecutionAuthority }
 export type { ReviewProviderInput, ReviewProviderResult, SchedulerDecision, SchedulerSelectionInput, TeamReviewProvider, TeamSchedulerProvider }
@@ -44,6 +44,14 @@ export interface RuntimeConfig {
    * experimental `disposalTimeoutMs` (default 5000). Positive safe integer.
    */
   readonly disposalTimeoutMs: number
+  /**
+   * Stranded-ownership grace bound (issue #12 / F10): a live-and-idle member
+   * holding an open in_progress task is retried under a fresh attempt once
+   * this many milliseconds elapsed since the task's last transition. Safe
+   * non-negative integer; 0 disables automatic retry (evidence-only
+   * `stranded=` hints remain). Decisions: docs/04 §8c.
+   */
+  readonly strandedAfterMs: number
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -66,6 +74,7 @@ export class AgentSwarmRuntime extends Service {
   private readonly usage: UsageAccountant
   private readonly delivery: MessageDelivery
   private readonly provisioning: MemberProvisioner
+  private readonly schedulingPass: SchedulingPass
   private closing = false
 
   constructor(
@@ -76,6 +85,9 @@ export class AgentSwarmRuntime extends Service {
     if (!Number.isSafeInteger(config.disposalTimeoutMs) || config.disposalTimeoutMs < 1) {
       throw new TeamDomainError('disposalTimeoutMs must be a positive safe integer', 'TEAM_INVALID_CONFIG')
     }
+    if (!Number.isSafeInteger(config.strandedAfterMs) || config.strandedAfterMs < 0) {
+      throw new TeamDomainError('strandedAfterMs must be a safe non-negative integer', 'TEAM_INVALID_CONFIG')
+    }
     this.schedulerProviders.set('priority-ready', priorityReadyScheduler())
     this.reviewProviders.set('manual', manualReview())
     this.usage = new UsageAccountant(ctx, { domain: () => this.domain, isClosing: () => this.closing })
@@ -84,6 +96,17 @@ export class AgentSwarmRuntime extends Service {
       isClosing: () => this.closing,
       scopeOf: agent => this.scopeOf(agent),
       accountAgentUsage: (scope, teamId, agent) => this.usage.accountAgentUsage(scope, teamId, agent),
+    })
+    this.schedulingPass = new SchedulingPass(ctx, {
+      domain: () => this.domain,
+      delivery: () => this.delivery,
+      usage: () => this.usage,
+      schedulerProvider: () => this.config.schedulerProvider,
+      schedulerProviders: () => this.schedulerProviders,
+      strandedAfterMs: this.config.strandedAfterMs,
+      isClosing: () => this.closing,
+      trackTeamChildren: (captain, team) => this.trackTeamChildren(captain, team),
+      requestSchedule: (scope, teamId, captain) => this.requestSchedule(scope, teamId, captain),
     })
     this.provisioning = new MemberProvisioner(ctx, {
       domain: () => this.domain,
@@ -456,7 +479,7 @@ export class AgentSwarmRuntime extends Service {
   private requestSchedule(scope: TeamScope, teamId: TeamId, captain: Agent): void {
     const key = `${scope}\0${teamId}`
     const previous = this.scheduling.get(key) ?? Promise.resolve()
-    const next = previous.then(async () => { await this.schedulePass(scope, teamId, captain) })
+    const next = previous.then(async () => { await this.schedulingPass.run(scope, teamId, captain) })
       .catch(error => {
         if (!this.closing) this.ctx.logger.warn(`agent-swarm: scheduler failed for ${teamId}: ${String(error)}`)
       })
@@ -466,95 +489,14 @@ export class AgentSwarmRuntime extends Service {
     this.scheduling.set(key, next)
   }
 
-  private async schedulePass(scope: TeamScope, teamId: TeamId, captain: Agent): Promise<void> {
-    if (this.closing) return
-    let snapshot = await this.domain.snapshot(scope, teamId, captain.id)
-    this.trackTeamChildren(captain, snapshot.team)
-    const hadQueuedMail = snapshot.pendingMessageIds.length > 0
-    for (const messageId of snapshot.pendingMessageIds) {
-      if (this.closing) return
-      await this.delivery.deliverQueuedMessage(scope, teamId, captain, messageId, AbortSignal.timeout(30_000))
-    }
-    if (hadQueuedMail) snapshot = await this.domain.snapshot(scope, teamId, captain.id)
-
-    const reserved = snapshot.team.tasks.flatMap(task => {
-      if (task.status !== 'in_progress' || task.currentAttemptId === undefined) return []
-      const attempt = snapshot.team.attempts.find(candidate => candidate.id === task.currentAttemptId)
-      return attempt?.phase === 'running' && attempt.assignmentPhase === 'reserved' ? [{ task, attempt }] : []
-    })
-    for (const { task, attempt } of reserved) {
-      if (this.closing) return
-      await this.dispatchAssignment(scope, snapshot.team, captain, task, attempt)
-    }
-    if (reserved.length > 0) snapshot = await this.domain.snapshot(scope, teamId, captain.id)
-
-    const busy = new Set(snapshot.team.tasks
-      .filter(task => ['in_progress', 'submitted', 'verifying'].includes(task.status))
-      .map(task => task.ownerSessionId)
-      .filter((value): value is string => value !== undefined))
-    const members = snapshot.team.members
-      .filter(member => member.phase === 'active' && !busy.has(member.sessionId))
-      .toSorted((left, right) => left.createdAt - right.createdAt)
-    const ready = snapshot.team.tasks
-      .filter(task => snapshot.readyTaskIds.includes(task.id))
-      .toSorted((left, right) => right.priority - left.priority || left.createdAt - right.createdAt)
-
-    const provider = this.schedulerProviders.get(this.config.schedulerProvider)
-    if (provider === undefined) throw new TeamDomainError(`scheduler Provider "${this.config.schedulerProvider}" is unavailable`, 'TEAM_SCHEDULER_PROVIDER_MISSING')
-    const decisions = await provider.select({ team: snapshot.team, readyTasks: ready, availableMembers: members })
-    const availableById = new Map(members.map(member => [member.sessionId, member]))
-    const readyById = new Map(ready.map(task => [task.id, task]))
-    const seenMembers = new Set<string>()
-    const seenTasks = new Set<string>()
-    for (const decision of decisions) {
-      if (this.closing) break
-      const member = availableById.get(decision.memberSessionId)
-      const task = readyById.get(TaskId(decision.taskId))
-      if (member === undefined || task === undefined || seenMembers.has(member.sessionId) || seenTasks.has(task.id)) {
-        throw new TeamDomainError('scheduler Provider returned an invalid or duplicate decision', 'TEAM_SCHEDULER_DECISION_INVALID')
-      }
-      seenMembers.add(member.sessionId)
-      seenTasks.add(task.id)
-      let claim
-      try {
-        claim = await this.domain.claimTask(scope, teamId, captain.id, task.id, task.revision, member.sessionId)
-      } catch (error) {
-        if (error instanceof TeamDomainError && ['TEAM_TASK_STALE_REVISION', 'TEAM_MEMBER_BUSY'].includes(error.code)) continue
-        throw error
-      }
-      await this.dispatchAssignment(scope, snapshot.team, captain, claim.task, claim.attempt)
-    }
-  }
-
-  private async dispatchAssignment(
-    scope: TeamScope,
-    team: TeamState,
-    captain: Agent,
-    task: TeamTask,
-    attempt: TaskAttempt,
-  ): Promise<void> {
-    try {
-      await this.ctx.subagents.followup(
-        captain,
-        SessionId(attempt.memberSessionId),
-        [{ type: 'text', text: assignmentPrompt(team, task, attempt.id) }],
-        { source: { kind: 'plugin', plugin: 'dsh-agent-swarm' }, signal: AbortSignal.timeout(30_000) },
-      )
-      const member = this.ctx.agents.get(SessionId(attempt.memberSessionId))
-      if (member !== undefined) await this.usage.accountAgentUsage(scope, team.id, member)
-      await this.domain.acknowledgeAssignment(scope, team.id, task.id, task.revision, attempt.id)
-    } catch (error) {
-      await this.domain.cancelAttempt(
-        scope,
-        team.id,
-        captain.id,
-        task.id,
-        task.revision,
-        `assignment delivery failed: ${error instanceof Error ? error.message : String(error)}`,
-      ).catch(rollbackError => {
-        this.ctx.logger.error(`agent-swarm: exact assignment rollback failed: ${String(rollbackError)}`)
-      })
-    }
+  /**
+   * Evidence-only stranded-ownership hint consumed by the status projection
+   * (issue #12 / F10): `stranded=idle-holder` while the owner is live and
+   * idle, `stranded=owner-not-live` when it is cold. Never mutates
+   * authoritative state — decisions in docs/04 §8c.
+   */
+  strandedEvidence(task: TeamTask): string {
+    return this.schedulingPass.strandedEvidence(task)
   }
 
   private trackChild(captain: Agent, childId: string): void {
@@ -572,6 +514,7 @@ export class AgentSwarmRuntime extends Service {
   async dispose(): Promise<void> {
     if (this.closing) return
     this.closing = true
+    this.schedulingPass.dispose()
     const failures: unknown[] = []
     const bound = <T>(label: string, operation: Promise<T>): Promise<void> =>
       boundedSettle(this.ctx, this.config.disposalTimeoutMs, label, operation, failures)

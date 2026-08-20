@@ -433,7 +433,7 @@ export function registerAgentSwarmTools(ctx: Context, runtime: AgentSwarmRuntime
     async execute(_args, exec) {
       const snapshot = await runtime.status(exec)
       const summary = snapshot.team.tasks.map(task => (
-        `${task.id}@${task.revision}:${task.status}${task.ownerSessionId === undefined ? '' : ` owner=${task.ownerSessionId}`}${task.currentAttemptId === undefined ? '' : ` attempt=${task.currentAttemptId}`}`
+        `${task.id}@${task.revision}:${task.status}${task.ownerSessionId === undefined ? '' : ` owner=${task.ownerSessionId}`}${task.currentAttemptId === undefined ? '' : ` attempt=${task.currentAttemptId}`}${runtime.strandedEvidence(task)}`
       )).join('\n')
       return {
         team_id: snapshot.team.id,
