@@ -39,7 +39,7 @@ describe('TeamDomain over the official Storage Domain', () => {
 
   afterEach(async () => {
     await stack.close()
-    await rm(sandbox, { recursive: true, force: true })
+    await rm(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   })
 
   async function teamWithMembers(count = 2) {

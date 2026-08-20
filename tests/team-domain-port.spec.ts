@@ -61,7 +61,7 @@ describe('TeamDomainPort provider over the official Storage Domain', () => {
 
   afterEach(async () => {
     await stack.close()
-    await rm(sandbox, { recursive: true, force: true })
+    await rm(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   })
 
   it('round-trips aggregates and isolates workspace scopes', async () => {
@@ -261,7 +261,7 @@ describe('TeamDomainPort provider over the official Storage Domain', () => {
       expect(noPersistence.get('agentSwarm')).toBeUndefined()
       for (const fiber of noPersistenceFibers.toReversed()) await fiber.dispose()
     } finally {
-      await rm(sandboxPending, { recursive: true, force: true })
+      await rm(sandboxPending, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
     }
   })
 
