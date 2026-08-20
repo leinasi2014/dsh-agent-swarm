@@ -39,16 +39,22 @@ jobs:
         # dsh-session-persistence-jsonl Win32 mkdir/rename race fails with
         # ENOENT on ".dsh-mkdir-*" temp dirs (recorded in the M1C exit
         # report §3.1). Any OTHER failure fails immediately — this is a
-        # signature-scoped retry, not a blanket mask.
+        # signature-scoped retry, not a blanket mask. Output is captured to
+        # a file and re-emitted: vitest worker stderr does not reliably
+        # surface through Tee-Object variable capture, which silently
+        # disabled the signature match on 2026-08-20 (three missed retries).
         shell: pwsh
         run: |
-          $log = pwsh -NoProfile -Command "pnpm verify" 2>&1 | Tee-Object -Variable out
+          pwsh -NoProfile -Command "pnpm verify" *> verify-gate.log
           $code = $LASTEXITCODE
+          Get-Content verify-gate.log
           if ($code -eq 0) { exit 0 }
-          if (($out | Out-String) -notmatch '\.dsh-mkdir-') { exit $code }
+          if (-not (Select-String -Path verify-gate.log -Pattern '\.dsh-mkdir-' -Quiet)) { exit $code }
           Write-Host "::warning::verified-flake signature .dsh-mkdir detected; retrying the gate once"
-          pnpm verify
-          exit $LASTEXITCODE
+          pwsh -NoProfile -Command "pnpm verify" *> verify-gate.log
+          $code = $LASTEXITCODE
+          Get-Content verify-gate.log
+          exit $code
 
       - name: Gate A official baseline (live remote)
         run: pnpm verify:official
