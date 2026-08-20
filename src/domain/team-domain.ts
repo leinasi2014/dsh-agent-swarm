@@ -188,6 +188,30 @@ export class TeamDomain implements TeamDomainPort {
     return await board.cancelAttempt(this.deps, scope, teamId, captainSessionId, taskId, expectedRevision, diagnostic)
   }
 
+  async retryAttempt(
+    scope: TeamScope,
+    teamId: TeamId,
+    captainSessionId: string,
+    taskId: TaskId,
+    expectedRevision: number,
+    assigneeSessionId: string,
+    diagnostic: string,
+  ): Promise<{ task: TeamTask; attempt: TaskAttempt }> {
+    return await board.retryAttempt(this.deps, scope, teamId, captainSessionId, taskId, expectedRevision, assigneeSessionId, diagnostic)
+  }
+
+  async reinstateAttempt(
+    scope: TeamScope,
+    teamId: TeamId,
+    captainSessionId: string,
+    taskId: TaskId,
+    expectedRevision: number,
+    misfiredAttemptId: AttemptId,
+    diagnostic: string,
+  ): Promise<TeamTask> {
+    return await board.reinstateAttempt(this.deps, scope, teamId, captainSessionId, taskId, expectedRevision, misfiredAttemptId, diagnostic)
+  }
+
   async queueMessage(
     scope: TeamScope,
     teamId: TeamId,

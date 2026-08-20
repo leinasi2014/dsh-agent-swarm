@@ -71,6 +71,16 @@ export class AgentSwarmRuntime extends Service {
   private readonly schedulerProviders = new Map<string, TeamSchedulerProvider>()
   private readonly reviewProviders = new Map<string, TeamReviewProvider>()
   private readonly ownedChildren = new Map<string, Set<string>>()
+  /**
+   * Session id → when its CURRENT idle stretch began, latched at every
+   * observed `agent/status → idle` edge (issue #83): the stranded grace
+   * bounds the owner's idle stretch, so the fresh edge of a captain teardown
+   * holds the self-heal back through the teardown window. An agent that runs
+   * again refreshes the latch at its next idle edge; entries never observed
+   * by this runtime are simply absent and the grace falls back to the task's
+   * last-transition clock.
+   */
+  private readonly idleSince = new Map<string, number>()
   private readonly usage: UsageAccountant
   private readonly delivery: MessageDelivery
   private readonly provisioning: MemberProvisioner
@@ -104,6 +114,7 @@ export class AgentSwarmRuntime extends Service {
       schedulerProvider: () => this.config.schedulerProvider,
       schedulerProviders: () => this.schedulerProviders,
       strandedAfterMs: this.config.strandedAfterMs,
+      idleSince: sessionId => this.idleSince.get(sessionId),
       isClosing: () => this.closing,
       trackTeamChildren: (captain, team) => this.trackTeamChildren(captain, team),
       requestSchedule: (scope, teamId, captain) => this.requestSchedule(scope, teamId, captain),
@@ -474,6 +485,7 @@ export class AgentSwarmRuntime extends Service {
   }
 
   observeAgentIdle(agent: Agent): void {
+    this.idleSince.set(agent.id, Date.now())
     void this.recoverAgent(agent).catch(error => {
       if (!this.closing) this.ctx.logger.warn(`agent-swarm: idle recovery failed: ${String(error)}`)
     })
@@ -537,6 +549,7 @@ export class AgentSwarmRuntime extends Service {
     if (this.closing) return
     this.closing = true
     this.schedulingPass.dispose()
+    this.idleSince.clear()
     const failures: unknown[] = []
     const bound = <T>(label: string, operation: Promise<T>): Promise<void> =>
       boundedSettle(this.ctx, this.config.disposalTimeoutMs, label, operation, failures)

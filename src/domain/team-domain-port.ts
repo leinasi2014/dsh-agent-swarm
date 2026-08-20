@@ -191,6 +191,47 @@ export interface TeamDomainPort {
     expectedRevision: number,
     diagnostic: string,
   ): Promise<TeamTask>
+  /**
+   * Retry the current owner's open `in_progress` attempt in place (issue
+   * #83): one transaction stales the fenced attempt with the retry
+   * diagnostic and allocates the same-owner successor (recording the attempt
+   * it replaced), so the task is continuously `in_progress` — never exposed
+   * as `pending` to a reader or a scheduling lane between the transitions.
+   * @returns the retried task and its fresh reserved attempt.
+   * @throws {@link TeamDomainError} `TEAM_TASK_STALE_REVISION`,
+   * `TEAM_TASK_NOT_REASSIGNABLE` (not the owner's open attempt),
+   * `TEAM_CAPTAIN_REQUIRED`, `TEAM_UNAUTHORIZED` (inactive assignee), or a
+   * budget exhaustion code.
+   */
+  retryAttempt(
+    scope: TeamScope,
+    teamId: TeamId,
+    captainSessionId: string,
+    taskId: TaskId,
+    expectedRevision: number,
+    assigneeSessionId: string,
+    diagnostic: string,
+  ): Promise<{ task: TeamTask; attempt: TaskAttempt }>
+  /**
+   * Reverse one misfired in-place retry (issue #83): the undelivered retry
+   * attempt is cancelled and the attempt it replaced is reinstated as the
+   * task's current running attempt inside one transaction, restoring the
+   * not-live owner's evidence-only state without ever exposing `pending`.
+   * @returns the reinstated task.
+   * @throws {@link TeamDomainError} `TEAM_TASK_STALE_REVISION`,
+   * `TEAM_ATTEMPT_STALE` (not the current retry, or no recorded replaced
+   * attempt / mismatched replacement), `TEAM_ATTEMPT_PHASE_INVALID` (the
+   * retry was already delivered or settled), `TEAM_CAPTAIN_REQUIRED`.
+   */
+  reinstateAttempt(
+    scope: TeamScope,
+    teamId: TeamId,
+    captainSessionId: string,
+    taskId: TaskId,
+    expectedRevision: number,
+    misfiredAttemptId: AttemptId,
+    diagnostic: string,
+  ): Promise<TeamTask>
   queueMessage(
     scope: TeamScope,
     teamId: TeamId,

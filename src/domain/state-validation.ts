@@ -106,6 +106,10 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
     if (attempt.assignmentPhase === 'reserved' && attempt.assignmentDeliveredAt !== undefined) {
       corrupt(path, `attempts[${index}] is reserved with assignmentDeliveredAt`)
     }
+    if (attempt.replacesAttemptId !== undefined) {
+      text(attempt.replacesAttemptId, path, `attempts[${index}].replacesAttemptId`)
+      if (attempt.replacesAttemptId === attempt.id) corrupt(path, `attempts[${index}].replacesAttemptId is self-referential`)
+    }
     if (attempt.output !== undefined) text(attempt.output, path, `attempts[${index}].output`)
     stringList(attempt.evidence, path, `attempts[${index}].evidence`)
     if (attempt.diagnostic !== undefined) text(attempt.diagnostic, path, `attempts[${index}].diagnostic`)

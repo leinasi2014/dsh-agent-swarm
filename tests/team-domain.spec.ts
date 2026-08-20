@@ -583,4 +583,5 @@ describe('TeamDomain over the official Storage Domain', () => {
     expect(createdAt).toEqual([...createdAt].toSorted((left, right) => left - right))
     expect(snapshot.team.revision).toBe(5 + 20)
   })
+
 })
