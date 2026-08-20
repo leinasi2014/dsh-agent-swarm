@@ -80,9 +80,36 @@ describe('untrusted-content delimiting over the real composition (F8, issue #14)
         'wakeup',
       )
       await ctx.agentSwarm.recoverAgent(composition.lead)
+      // The scenario has an intrinsic delivery-regime race (observed via
+      // followup targetStatus instrumentation): a fast host delivers this
+      // wakeup while the member is still cold and the claim settles in the
+      // rescan's own grace; a loaded runner finds the member already
+      // running-held, so the frame parks pending and the closed gate never
+      // yields the idle edge the redelivery needs. Converge the parked
+      // regime deterministically: drain the held member cold (discarding
+      // the unclaimed frame — the wakeup-visibility precedent; claimed
+      // history and the in_progress task survive), release held captain
+      // turns so the re-driven rescan can run, and let the redelivery
+      // cold-resume the member — its mail turn re-holds at the model gate,
+      // so the member is live again for the authority checks below once
+      // the claim lands. The fast regime returns on the first poll with no
+      // intervention.
+      const workerSession = SessionId(workerId)
       await vi.waitFor(async () => {
-        const snapshot = await snapshotOf(composition)
-        expect(snapshot.team.messages.find(candidate => candidate.id === message.id)?.phase).toBe('delivered')
+        const current = await snapshotOf(composition)
+        const phase = current.team.messages.find(candidate => candidate.id === message.id)?.phase
+        if (phase !== 'delivered') {
+          const member = composition.ctx.agents.get(workerSession)
+          if (member !== undefined && member.status === 'running') {
+            composition.ctx.subagents.interrupt(workerSession, { kind: 'ancestor', agent: composition.lead })
+            await composition.ctx.subagents.drainContinuableChildren(composition.lead, [workerSession])
+          } else {
+            composition.adapter.open()
+          }
+          await ctx.agentSwarm.recoverAgent(composition.lead)
+        }
+        const after = await snapshotOf(composition)
+        expect(after.team.messages.find(candidate => candidate.id === message.id)?.phase).toBe('delivered')
       }, { timeout: 25_000 })
       const frameRecord = followup.records.find(record => record.text === messageFrame(message))
       expect(frameRecord).toBeDefined()
