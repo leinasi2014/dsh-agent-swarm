@@ -1,0 +1,10 @@
+# Normalize every text file to LF in both the repository and the working
+# tree. Without this, Windows contributors with core.autocrlf=true produce
+# whole-file CRLF diffs; verify-project.mjs already enforces UTF-8 and final
+# newlines, and this pins the third axis (line endings) the same way.
+* text=auto eol=lf
+
+# Windows-born scripts that must stay executable under PowerShell 5.1.
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
