@@ -101,7 +101,7 @@ describe('DSH rc.8 composition', () => {
 
   afterEach(async () => {
     vi.useRealTimers()
-    await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
+    await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })))
   })
 
   it('mounts tools, starts a continuable member, schedules work, and drains on unload', async () => {
