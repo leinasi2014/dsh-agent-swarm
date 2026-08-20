@@ -44,7 +44,6 @@ async function withLock<T>(locks: Map<string, Promise<void>>, key: string, opera
 export class StorageDomainTeamStore implements TeamAggregateStore {
   readonly backend = 'storage-domain'
 
-  private readonly domain: Domain<typeof teamDomainSpec>
   private readonly teams: ReturnType<Domain<typeof teamDomainSpec>['table']>
   private readonly receipts: ReturnType<Domain<typeof teamDomainSpec>['table']>
   private readonly teamLocks = new Map<string, Promise<void>>()
@@ -58,7 +57,6 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
     domain: Domain<typeof teamDomainSpec>,
     private readonly now: () => number = Date.now,
   ) {
-    this.domain = domain
     this.teams = domain.table('teams')
     this.receipts = domain.table('migration_receipts')
     this.stopListening = ctx.on('domain/changed', change => this.onChange(change))
