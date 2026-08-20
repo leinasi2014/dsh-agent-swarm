@@ -396,16 +396,8 @@ export class AgentSwarmRuntime extends Service {
     let membership = await this.domain.findMembership(scope, agent.id)
     if (membership === undefined || this.closing) return
     if (membership.role === 'captain') {
-      const recovered = await this.domain.recoverProvisioningMembers(
-        scope,
-        membership.team.id,
-        agent.id,
-        'member provisioning did not commit before runtime recovery',
-      )
-      if (recovered.length > 0) {
-        this.ctx.logger.warn(`agent-swarm: recovered ${recovered.length} interrupted member provisioning record(s) for ${membership.team.id}`)
-        membership = await this.domain.requireMembership(scope, agent.id)
-      }
+      const settled = await this.provisioning.recoverInterrupted(agent, scope, membership)
+      if (settled > 0) membership = await this.domain.requireMembership(scope, agent.id)
     }
     const captain = this.ctx.agents.get(SessionId(membership.team.captainSessionId))
     if (captain === undefined) return

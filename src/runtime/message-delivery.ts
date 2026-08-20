@@ -12,10 +12,11 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
-import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { SessionId, type Session } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import type { TeamId, TeamMessage, TeamMessageId, TeamState } from '../domain/types.js'
+import { messageAccepted } from './session-acceptance.js'
 
 /**
  * The exact model-visible frame one message is delivered under. The frame is
@@ -29,25 +30,6 @@ import type { TeamId, TeamMessage, TeamMessageId, TeamState } from '../domain/ty
  */
 function messageFrame(message: TeamMessage): string {
   return `Team message ${message.id} from ${message.senderName}:\n${message.content}`
-}
-
-type InboxProjection = Record<'next-turn' | 'next-step', UserMessage[]>
-
-/** Fold the durable inbox suffix into the messages still awaiting a claim. */
-function pendingInboxMessages(events: readonly SessionEvent[]): UserMessage[] {
-  const inbox: InboxProjection = { 'next-turn': [], 'next-step': [] }
-  for (const event of events) {
-    if (event.type !== 'agent/inbox/spliced') continue
-    const pending = inbox[event.data.target]
-    pending.splice(event.data.start, event.data.removedCount ?? 0, ...event.data.inserted)
-  }
-  return [...inbox['next-turn'], ...inbox['next-step']]
-}
-
-/** Whether target history or its still-pending inbox already contains a match. */
-function messageAccepted(events: readonly SessionEvent[], predicate: (message: UserMessage) => boolean): boolean {
-  return events.some(event => event.type === 'user/message' && predicate(event.data))
-    || pendingInboxMessages(events).some(predicate)
 }
 
 /** Fold one live Session's non-inherited suffix for an acceptance check. */
