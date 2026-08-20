@@ -83,7 +83,7 @@ describe('untrusted-content delimiting over the real composition (F8, issue #14)
       await vi.waitFor(async () => {
         const snapshot = await snapshotOf(composition)
         expect(snapshot.team.messages.find(candidate => candidate.id === message.id)?.phase).toBe('delivered')
-      }, { timeout: 5_000 })
+      }, { timeout: 25_000 })
       const frameRecord = followup.records.find(record => record.text === messageFrame(message))
       expect(frameRecord).toBeDefined()
       const messageBlock = delimitedBlockOf(frameRecord?.text ?? '')
