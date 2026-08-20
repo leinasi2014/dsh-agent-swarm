@@ -5,5 +5,11 @@ export default defineConfig({
     include: ['tests/**/*.spec.ts'],
     exclude: ['ref/**', 'node_modules/**', 'lib/**'],
     testTimeout: 10_000,
+    coverage: {
+      provider: 'v8',
+      // Measure only this plugin's runtime source; reference checkouts and
+      // verification scripts are evidence/tooling, not shipped code.
+      include: ['src/**/*.ts'],
+    },
   },
 })

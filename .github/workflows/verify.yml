@@ -1,0 +1,46 @@
+# Full gate matrix. Local lefthook hooks stay fast; this workflow owns the
+# complete verification: pinned reference checkouts, the official evidence
+# checkout (network-verified), pnpm verify (structure, lint, duplication,
+# dead exports, typecheck, tests, build, artifact), Gate A official-baseline
+# verification and a coverage report.
+name: verify
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Materialize pinned reference checkouts
+        run: |
+          pwsh ./ref/dsh-agent-teams/sync-reference.ps1
+          pwsh ./ref/jiuwenswarm/sync-reference.ps1
+
+      - name: Materialize official evidence checkout
+        run: pwsh ./scripts/sync-official-evidence.ps1 -Target "${{ github.workspace }}/official-evidence"
+
+      - name: Full verify gate
+        run: pnpm verify
+
+      - name: Gate A official baseline (live remote)
+        run: pnpm verify:official
+        env:
+          DSH_OFFICIAL_CHECKOUT: ${{ github.workspace }}/official-evidence
+
+      - name: Coverage report
+        run: pnpm test:coverage

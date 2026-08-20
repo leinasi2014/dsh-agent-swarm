@@ -45,6 +45,8 @@ const required = [
   '.oxlintrc.json',
   '.jscpd.json',
   'knip.json',
+  'lefthook.yml',
+  '.github/workflows/verify.yml',
   'src/runtime/authority.ts',
   'src/runtime/providers.ts',
   'src/runtime/prompts.ts',

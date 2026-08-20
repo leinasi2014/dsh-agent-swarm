@@ -1,0 +1,9 @@
+# Git hooks (lefthook). Local checkpoints stay fast: staged lint only.
+# `pnpm verify` and CI own the full gate matrix (typecheck, tests, build,
+# duplication, dead exports, structure, official baseline).
+# Installed automatically on `pnpm install` via the postinstall script.
+pre-commit:
+  jobs:
+    - name: lint (staged)
+      glob: '*.{ts,tsx,mts,cts,mjs,cjs,js}'
+      run: node_modules/.bin/oxlint --no-error-on-unmatched-pattern {staged_files}
