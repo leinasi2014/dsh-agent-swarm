@@ -63,12 +63,12 @@ Read for implementation prior art, not framework truth.
 
 - URL: `https://github.com/openJiuwen-ai/jiuwenswarm`
 - Branch: `develop`
-- Commit: `20097e86f35e8b11be21e3bf76edaf97737301ed`
+- Commit: `99c4b9d2a0a8c5889ca586480f2b33e2c255494a`
 - Develop package state observed: `workswarm` `0.2.5.beta1`
 - Local pointer: `ref/jiuwenswarm/SOURCE_POINTER.json`
 - Full local checkout: `ref/jiuwenswarm/source/`
 
-Live verification on 2026-08-20 found `develop` at this commit and the pin was reviewed and updated the same day. Two deltas from the original `bddf335` pin were each diff-reviewed before adoption: `bddf335 → 152583aa` (gateway cron scheduling and server Session metadata) and `152583aa → 20097e86` (a single commit adding MCP connection-cache prewarm in `server/runtime/agent_adapter/interface_{code,deep}.py`, +78 lines). Neither delta touches the SwarmFlow, Team, Worktree, memory, Skill Evolution, permission or distributed-runtime evidence used by this project.
+Live verification on 2026-08-20 found `develop` at this commit and the pin was reviewed and updated the same day. Three deltas from the original `bddf335` pin were each diff-reviewed before adoption: `bddf335 → 152583aa` (gateway cron scheduling and server Session metadata), `152583aa → 20097e86` (a single commit adding MCP connection-cache prewarm in `server/runtime/agent_adapter/interface_{code,deep}.py`, +78 lines) and `20097e86 → 99c4b9d` (context_engine proactive-context integration, 21 files, +5693 lines; the proactive domain is explicitly not adopted per docs/05 §7.2). None of the deltas touches the SwarmFlow, Team, Worktree, memory, Skill Evolution, permission or distributed-runtime evidence used by this project.
 
 Priority documents/concepts:
 
