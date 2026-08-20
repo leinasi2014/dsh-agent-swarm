@@ -8,22 +8,25 @@
 
 ## 当前开发目标
 
-**M1B — 崩溃安全协议（进行中）**
+**M1C — 生命周期、协调与输入加固（进行中，2026-08-20 接替 M1B）**
 
-关闭以下 issue 并打 tag `m1b`：
+关闭以下 issue（docs/07 M1C）：
 
-1. #7 拆分 `team-domain.ts`（归还 600 行护栏例外；纯重构先行，为语义改造提供干净基线）
-2. #3 F2 目标侧稳定消息 id 去重（官方 `TeamMessageSource` 机制为模板，docs/02 §7.1）
-3. #4 F3 persisted-child 对账恢复（官方四要素校验为模板）
-4. #5 F6 邮箱 pending/retained 语义对齐官方（per-target pending + bounded receipts）
-5. #6 F7 attempt 上限与修剪（不得复活已淘汰 attempt id）
-6. #8 M1B exit：docs/07/10 同步、remediation diff 清单、tag
+1. #13 F4 有界卸载（disposalTimeoutMs）+ 伴随组（F11 歧义 fail-loud / F12 名字复用决策 / F14 归档只读 / F15 depthLimit 预检 / usage 写合并）
+2. #19 官方兼容语义组（waitForChange 契约 / quiet 不冷唤醒+有序旁路 / keepInbox interrupt / Unicode 成员名）
+3. #12 F10 live-status 调度 + 搁浅自愈（邮箱优先、CAS 守卫回滚）
+4. #14 F8 不可信内容定界 + 首个模型可见快照测试
+5. #15 模型体验（noProgress 短路、任务列表过滤分页、紧凑输出 schema）
 
-退出标准（docs/07 M1B）：F2、F3、F6 与 attempt 增长部分被真实崩溃/故障注入测试关闭。
+退出标准（docs/07 M1C）：F4、F7(usage 部分)、F8、F10 与接受的伴随发现在生命周期/调度/prompt 快照/兼容测试中通过。
+
+## 上一目标（已完成的登记记录）
+
+**M1B — 崩溃安全协议（2026-08-20 完成）**：#7/#3/#4/#5/#6/#8 全部关闭；F2/F3/F6/F7 被真实崩溃/故障注入测试关闭；场景审计 12/30；tag `m1b`。证据：`docs/development/2026-08-20-m1b-exit-report.md`。
 
 ## 下一个目标（预登记，当前目标完成后生效）
 
-**M1C — 生命周期、协调与输入加固**：F4 有界卸载（disposalTimeoutMs）、F10 live-status 调度与搁浅自愈、F8 不可信内容定界 + 快照测试、官方兼容语义组（waitForChange 契约 / quiet 语义 / keepInbox interrupt / Unicode 成员名 / 兼容小项 F11/F14/F15）、usage 写合并。issue 已建于 M1C 里程碑。
+**M1D — 装配验收与放行**：真实 rc.8 Profile 装配 + `--dump-config` + 重载/恢复/有界关停（Windows）；委派独立 GLM-5.3 回归/安全审查（按 docs/12，审查员自主不设限，输入 = 原始报告 + intake + M1B/M1C remediation diff 清单）；通过后 D1 单写入者 dogfood 门开放。
 
 ## 登记规则
 
