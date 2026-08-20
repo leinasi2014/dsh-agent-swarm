@@ -206,9 +206,12 @@ export interface TeamDomainPort {
   ): Promise<TeamBudget>
   /**
    * Fold one coalesced batch of usage events in a single transaction (M1C
-   * usage write coalescing). Entries only count while their event seq exceeds
-   * the session's durable usage cursor; the cursor moves to the highest
-   * folded seq, so replay and reload recovery never double-count.
+   * usage write coalescing). Entries fold in ascending event-seq order
+   * regardless of submission order (P2-3), so an out-of-order batch matches
+   * the single-event semantics exactly: each entry counts only while its
+   * event seq exceeds the session's durable usage cursor, and the cursor
+   * moves to the highest folded seq, so replay and reload recovery never
+   * double-count.
    */
   recordSessionUsageBatch(
     scope: TeamScope,
