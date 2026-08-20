@@ -185,11 +185,19 @@ describe('DSH rc.8 composition', () => {
       await vi.waitFor(async () => {
         const status = await successfulTool(
           ctx, lead, `status-${Date.now()}`, 'agent_swarm_status', {},
-        ) as { members: number; tasks: number; task_summary: string; used_tokens: number }
+        ) as { members: number; tasks: number; used_tokens: number }
         expect(status.members).toBe(1)
         expect(status.tasks).toBe(1)
-        expect(status.task_summary).toMatch(/in_progress .*attempt=/)
         expect(status.used_tokens).toBeGreaterThan(0)
+      }, { timeout: 5_000 })
+      // Issue #15 (official team_task_list pattern): task rows moved from the
+      // unbounded status summary into the filtered, paginated list tool.
+      await vi.waitFor(async () => {
+        const listed = await successfulTool(
+          ctx, lead, `list-${Date.now()}`, 'agent_swarm_list_tasks', { status: 'in_progress' },
+        ) as { tasks: Array<{ task_id: string; status: string; attempt_id?: string }> }
+        expect(listed.tasks).toHaveLength(1)
+        expect(listed.tasks[0]!.attempt_id).toBeDefined()
       }, { timeout: 5_000 })
       // Assignment delivery is asynchronous: the status checkpoint above can
       // pass on the reserved attempt before the followup reaches the member

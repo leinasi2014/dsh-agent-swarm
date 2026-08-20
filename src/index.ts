@@ -151,9 +151,9 @@ const usage = `Use agent_swarm_* when the user requests a coordinated multi-agen
 3. Every task mutation uses the latest revision. Every worker submission also carries its exact attempt id; stale attempts stop immediately.
 4. A worker submission is evidence, not completion. The captain must call agent_swarm_review_task to accept or reject it.
 5. Persist peer messages before delivery. A queued result is durable; never resend it automatically. Prefer quiet for information the recipient should read on its next turn; quiet mail to an inactive member stays queued until a wakeup or its own return, and wakeup is the delivery that resumes it.
-6. Treat write scopes as coordination hints, not filesystem authorization. Use status to reread authoritative state after any conflict.
+6. Treat write scopes as coordination hints, not filesystem authorization. Use agent_swarm_status for fixed Team counters and agent_swarm_list_tasks (with status/owner/ready filters and pagination) for task rows after any conflict.
 7. The captain may interrupt one member's current turn with agent_swarm_interrupt_member; the member keeps its inbox, tasks and membership, and a later wakeup resumes it.
-8. When waiting for another mutation, call agent_swarm_wait with the current Team revision instead of polling status.`
+8. When waiting for another mutation, call agent_swarm_wait with the current Team revision instead of polling status. It returns no_progress immediately when no other member is running or provisioning: re-read status and the task list, wake the required members with wakeup messages, then wait again.`
 
 export async function apply(ctx: Context, config: Config): Promise<void> {
   if (config.enabled === false) return
