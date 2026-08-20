@@ -74,6 +74,13 @@ export const inject = [
 /** Official experimental default for `disposalTimeoutMs` (F4 alignment). */
 const DEFAULT_DISPOSAL_TIMEOUT_MS = 5_000
 
+/**
+ * Default stranded-ownership grace bound (issue #12 / F10): long enough that
+ * a captain's interrupt-then-wakeup dance on a parked owner is unaffected,
+ * short enough to un-stick a member that stopped early within a minute.
+ */
+const DEFAULT_STRANDED_AFTER_MS = 60_000
+
 export interface Config {
   /** Mount all host contributions. */
   enabled?: boolean
@@ -104,6 +111,15 @@ export interface Config {
    * the official experimental config. Positive safe integer, default 5000.
    */
   disposalTimeoutMs?: number
+  /**
+   * Stranded-ownership grace bound (issue #12 / F10): a live-and-idle member
+   * still holding an open in_progress task is retried under a fresh fenced
+   * attempt for the same owner once this many ms elapsed since the task's
+   * last transition; 0 disables automatic retry (evidence-only `stranded=`
+   * hints remain). Safe non-negative integer, default 60000. Decisions and
+   * official-boundary rationale: docs/04 §8c.
+   */
+  strandedAfterMs?: number
   /** Ordered system-prompt contribution. */
   promptSectionOrder?: number
 }
@@ -125,6 +141,7 @@ export const Config: z<Config> = z.object({
   maxDependencies: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxDependencies),
   maxMemories: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxMemories),
   disposalTimeoutMs: z.number().step(1).min(1).default(DEFAULT_DISPOSAL_TIMEOUT_MS),
+  strandedAfterMs: z.number().step(1).min(0).default(DEFAULT_STRANDED_AFTER_MS),
   promptSectionOrder: z.natural().default(118),
 })
 
@@ -165,6 +182,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       maxMemories: config.maxMemories ?? DEFAULT_TEAM_LIMITS.maxMemories,
     },
     disposalTimeoutMs: config.disposalTimeoutMs ?? DEFAULT_DISPOSAL_TIMEOUT_MS,
+    strandedAfterMs: config.strandedAfterMs ?? DEFAULT_STRANDED_AFTER_MS,
   })
 
   // Fail closed: the official Storage Domain must open (backend routed, unit

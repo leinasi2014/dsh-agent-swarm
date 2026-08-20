@@ -348,26 +348,43 @@ describe('official compatibility semantics over the real composition (issue #19)
     try {
       const teamId = await createTeam(ctx, lead, 'create')
       const memberId = await addMember(ctx, lead, 'runaway-worker')
-      const idle = vi.spyOn(ctx.agentSwarm, 'observeAgentIdle').mockImplementation(() => {})
 
-      // The member is RUNNING on its gated initial turn; a task is assigned
-      // (followup accepted behind the running turn) and quiet mail injected.
+      // The member is RUNNING on its gated initial turn. Live-status
+      // scheduling (issue #12) defers the new task until the member frees,
+      // so the gate opens and the resulting idle edge assigns it; the
+      // member then runs the assignment turn (held again).
       const task = await toolCall(ctx, lead, 'task', 'agent_swarm_create_task', {
         subject: 'Interrupt proof', description: 'Ownership must survive the captain interrupt.',
       })
       expect(task.isError).toBe(false)
       const scope = ctx.agentSwarm.scopeOf(lead)
+      adapter.open()
       await vi.waitFor(async () => {
         const snapshot = await ctx.agentSwarm.domain.snapshot(scope, AgentSwarm.TeamId(teamId), lead.id)
         expect(snapshot.team.tasks[0]?.ownerSessionId).toBe(memberId)
         expect(snapshot.team.tasks[0]?.status).toBe('in_progress')
       }, { timeout: 5_000 })
+      await vi.waitFor(() => {
+        expect(ctx.agents.get(SessionId(memberId))?.status).toBe('running')
+      }, { timeout: 5_000 })
+      // Park a wakeup message behind the running assignment turn: pending
+      // next-turn work keeps the Activation resident across the upcoming
+      // keepInbox interrupt (an empty inbox would let the spawn provider
+      // auto-settle the member cold; the durable facts would survive
+      // either way, but this pins the live-resume variant).
+      const parked = await toolCall(ctx, lead, 'send-parked', 'agent_swarm_send_message', {
+        target: 'runaway-worker', content: 'Parked wakeup kept across the interrupt.', delivery: 'wakeup',
+      })
+      expect(parked.isError).toBe(false)
+      expect((parked.value as { phase: string }).phase).toBe('delivered')
       const quiet = await toolCall(ctx, lead, 'send-quiet', 'agent_swarm_send_message', {
         target: 'runaway-worker', content: 'Quiet context kept across the interrupt.', delivery: 'quiet',
       })
       expect(quiet.isError).toBe(false)
       expect((quiet.value as { phase: string }).phase).toBe('delivered')
-      expect(adapter.requests.length).toBe(1)
+      // Three held turns so far: the member's initial turn, the captain's
+      // settlement notice for it, and the member's assignment turn.
+      expect(adapter.requests.length).toBe(3)
 
       // Captain-only interrupt through the model tool.
       const interrupted = await toolCall(ctx, lead, 'interrupt', 'agent_swarm_interrupt_member', { name: 'runaway-worker' })
@@ -380,7 +397,7 @@ describe('official compatibility semantics over the real composition (issue #19)
         expect(ctx.agents.get(SessionId(memberId))?.status).toBe('idle')
       }, { timeout: 5_000 })
       await new Promise(resolve => setTimeout(resolve, 300))
-      expect(adapter.requests.length).toBe(1)
+      expect(adapter.requests.length).toBe(3)
 
       // Authorization and target validation on the host API.
       const memberAgent = ctx.agents.get(SessionId(memberId))
@@ -410,11 +427,10 @@ describe('official compatibility semantics over the real composition (issue #19)
       })
       expect(wakeup.isError).toBe(false)
       await vi.waitFor(() => {
-        expect(adapter.requests.length).toBeGreaterThan(1)
+        expect(adapter.requests.length).toBeGreaterThan(3)
       }, { timeout: 5_000 })
       expect(ctx.agents.get(SessionId(memberId))).toBeDefined()
 
-      idle.mockRestore()
       await pluginFiber.dispose()
     } finally {
       adapter.open()
