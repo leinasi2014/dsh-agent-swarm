@@ -154,3 +154,29 @@ Promotion/stabilization of official experimental Agent Team is an upstream produ
 ## 10. Documentation maintenance rule
 
 This file is the implementation-status baseline, not a timeless claim. On every official or reference update, execute Gate A in `11-official-first-development.md`, verify remote refs, installed exports and actual source integration; then update this audit, `09-sources.md`, affected design docs/ADRs, README and the project Skill in one change. A target diagram or roadmap checkbox never counts as proof that code is shipped.
+
+## 11. 2026-08-20 inventory delta and milestone placement
+
+Three-source re-inventory (official `141eb6f`, `dsh-agent-teams` `801954d`, `jiuwenswarm` `20097e8`; full findings in `02` §7 and `05` §7). Net effect on the plan: the M1B→M9 skeleton stands; the delta strengthens M1B/M1C implementation templates and extends M5/M7/M9.
+
+| Finding | Milestone placement |
+|---|---|
+| Official `TeamMessageSource` + `MessageSourceMap` target-side fold; receipt flush-then-ack; in-transaction dispatch registration (per-target FIFO) | M1B #3 (F2) implementation template |
+| Official persisted-child reconciliation four-factor check + ref label/descriptor mismatch fail-loud | M1B #4 (F3) template |
+| Official limit semantics (maxMembers counts failed names, maxTasks undeleted-only, framed-byte cap) | M1B #5/#6 defaults alignment |
+| `waitForChange` 10s–1h window, `{timedOut}`, no-replay, `TEAM_WAIT_ABORTED` | M1C compat issue |
+| quiet ordered bypass (`messagePrecedes`) + inactive quiet never cold-wakes, skipped on recovery | M1C compat issue (F13 exact semantics) |
+| Lead-only keepInbox interrupt | M1C compat issue |
+| Ref scheduler discipline: mailbox-before-assignment, CAS-guarded dispatch rollback, idle-holder fresh-attempt retry | M1C F10 issue (patterns) |
+| Unicode member-name normalization (NFC + `\p{L}\p{N}`, bounded length + digest) | M1C input-hardening issue |
+| Tool-layer model experience: noProgress short-circuit, task list filter/pagination, full output schemas | M1C context-cost item (audit §8) implementation material |
+| `Agent.steer()` report delivery with mailbox fallback; three-state send result | M2 delivery enhancement |
+| No monetary budget anywhere in JiuwenSwarm | M4 confirmed four-dimension (token/request/retry/deadline) + tokenMeter adapter |
+| Agent loop circuit breaker (4 detection classes, dual thresholds) | M5 fault-containment Provider (Backlog issue) |
+| Memory secrets/PII masking on write | M7 mandatory security requirement (Backlog issue) |
+| Remote members prefer official subagent ACP/codex/claude-code providers; reasoningEffort inheritance validated via `resolveCallConfig` | M6 clarification |
+| `ctx.invariants` pre-append companion; session-event graceful degradation; heartbeat liveness; trajectory observability | M8 observability family |
+| `/agent-teams` command + gesture boundary; HTTP state route + lazy web registration; client activity panel/cards; packaging contract (optional peers, client purity, OIDC publish) | M9 expansion (Backlog issue) |
+| Official 8-action task surface (release/edit/set_dependencies/reopen/delete+tombstone, `TEAM_TASK_HAS_DEPENDENTS`) vs this plugin's review-gate superset | M9 official-adapter/migration decision (Backlog issue) |
+
+Not adopted (reasons in `05` §7.2): IM channels, proactive engine, KV-cache affinity, self-updater/multi-instance, turn undo/redo, MCP runtime, E2A/A2A transports, monetary budgets. Official deleted surfaces (TeamSnapshot/global revision/`team/changed`) are a negative boundary; this plugin's revision CAS is an intentional superset mapped by the future adapter.
