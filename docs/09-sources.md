@@ -63,12 +63,12 @@ Read for implementation prior art, not framework truth.
 
 - URL: `https://github.com/openJiuwen-ai/jiuwenswarm`
 - Branch: `develop`
-- Commit: `99c4b9d2a0a8c5889ca586480f2b33e2c255494a`
+- Commit: `b7378eb48cdc8ffa363778cb918a891ceb96fcfd`
 - Develop package state observed: `workswarm` `0.2.5.beta1`
 - Local pointer: `ref/jiuwenswarm/SOURCE_POINTER.json`
 - Full local checkout: `ref/jiuwenswarm/source/`
 
-Live verification on 2026-08-20 found `develop` at this commit and the pin was reviewed and updated the same day. Three deltas from the original `bddf335` pin were each diff-reviewed before adoption: `bddf335 → 152583aa` (gateway cron scheduling and server Session metadata), `152583aa → 20097e86` (a single commit adding MCP connection-cache prewarm in `server/runtime/agent_adapter/interface_{code,deep}.py`, +78 lines) and `20097e86 → 99c4b9d` (context_engine proactive-context integration, 21 files, +5693 lines; the proactive domain is explicitly not adopted per docs/05 §7.2). None of the deltas touches the SwarmFlow, Team, Worktree, memory, Skill Evolution, permission or distributed-runtime evidence used by this project.
+Live verification on 2026-08-20 found `develop` at this commit and the pin was reviewed and updated the same day. Four deltas from the original `bddf335` pin were each diff-reviewed before adoption: `bddf335 → 152583aa` (gateway cron scheduling and server Session metadata), `152583aa → 20097e86` (a single commit adding MCP connection-cache prewarm in `server/runtime/agent_adapter/interface_{code,deep}.py`, +78 lines), `20097e86 → 99c4b9d` (context_engine proactive-context integration, 21 files, +5693 lines; the proactive domain is explicitly not adopted per docs/05 §7.2) and `99c4b9d → 56da762` (three same-day commits: Harmony frontend platform routing, cron free-model adaptation and dump trace/title fixes, 19 files +841/-45 — all in gateway/frontend/cron/trace domains that are not adopted). None of the deltas touches the SwarmFlow, Team, Worktree, memory, Skill Evolution, permission or distributed-runtime evidence used by this project. The upstream `develop` branch moved twice more during the 2026-08-20 M1C session; the pin was chased once and then re-pinned to the latest reviewed head in a single cumulative pass — a hot upstream is handled by reviewing cumulative diffs, not per-commit chases.
 
 Priority documents/concepts:
 
