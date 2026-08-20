@@ -23,7 +23,11 @@ const MAX_POLLS = 90 // ~30 minutes
 
 function checks() {
   const stdout = execFileSync('gh', ['pr', 'checks', pr, '--json', 'name,state'], { encoding: 'utf8' })
-  return JSON.parse(stdout)
+  const list = JSON.parse(stdout)
+  // gh reports mixed vocabulary across versions ("pass"/"fail" human table,
+  // "SUCCESS"/"FAILURE"/"PENDING" JSON) — normalize before classifying.
+  for (const check of list) check.state = String(check.state).toLowerCase()
+  return list
 }
 
 function summarize(list) {
