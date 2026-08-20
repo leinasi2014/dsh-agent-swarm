@@ -159,7 +159,7 @@ export class SchedulingPass {
       return
     }
     try {
-      await this.deps.domain().acknowledgeAssignment(scope, team.id, task.id, task.revision, attempt.id)
+      await this.deps.domain().acknowledgeAssignment(scope, team.id, task.id, attempt.id)
     } catch (error) {
       // The delivery itself succeeded, so this is not a delivery failure: a
       // lost acknowledgement race (the member settled faster than the
