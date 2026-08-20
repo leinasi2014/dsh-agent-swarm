@@ -1,0 +1,49 @@
+{
+  "repository": "https://github.com/deepseek-ai/deepseek-harness.git",
+  "branch": "master",
+  "commit": "141eb6fef83422698aef7a981029e843e8161534",
+  "release": "0.1.0-rc.8",
+  "verifiedAt": "2026-08-20",
+  "evidenceFiles": [
+    ".agents/notes/implemented/feature/2026-08-05-agent-teams.md",
+    ".agents/notes/implemented/architecture/2026-08-18-experimental-agent-teams-packages.md",
+    ".agents/notes/implemented/feature/2026-08-10-durable-workflow-runs-in-chat.md",
+    ".agents/notes/implemented/architecture/2026-07-15-replay-token-meter-service.md",
+    ".agents/notes/implemented/architecture/2026-07-26-job-registry-seam.md",
+    ".agents/notes/implemented/feature/2026-06-24-workspace-context.md",
+    "packages/storage/storage-domain/README.md",
+    "packages/experimental/agent-team/README.md"
+  ],
+  "packages": [
+    {
+      "path": "packages/workflow/workflow",
+      "name": "@deepseek-ai/dsh-workflow",
+      "visibility": "public"
+    },
+    {
+      "path": "packages/jobs/jobs",
+      "name": "@deepseek-ai/dsh-jobs",
+      "visibility": "public"
+    },
+    {
+      "path": "packages/llm/token-meter",
+      "name": "@deepseek-ai/dsh-token-meter",
+      "visibility": "public"
+    },
+    {
+      "path": "packages/storage/storage-domain",
+      "name": "@deepseek-ai/dsh-storage-domain",
+      "visibility": "public"
+    },
+    {
+      "path": "packages/workspace/workspace",
+      "name": "@deepseek-ai/dsh-workspace",
+      "visibility": "public"
+    },
+    {
+      "path": "packages/experimental/agent-team",
+      "name": "@deepseek-ai/dsh-experimental-agent-team",
+      "visibility": "private"
+    }
+  ]
+}

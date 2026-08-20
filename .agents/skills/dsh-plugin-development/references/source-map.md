@@ -1,0 +1,46 @@
+# Source map
+
+## Official DSH
+
+Read in order:
+
+1. `AGENTS.md`
+2. `docs/architecture.md`
+3. `packages/AGENTS.md`
+4. `packages/README.md`
+5. target group/package README
+6. generated subsystem docs and exported types
+7. tests and Agent Notes
+
+Recorded baseline: `deepseek-ai/deepseek-harness@141eb6fef83422698aef7a981029e843e8161534`.
+
+On 2026-08-20, remote `HEAD` and `refs/heads/master` were verified at this same commit. At this baseline, inspect the public `workflow`, `jobs`, `token-meter`, `storage-domain`, `workspace`, interaction, skill, compaction and spill packages before inventing a seam. The experimental Agent Team package is private/unpublished.
+
+## Community learning docs
+
+- quickstart
+- plugin user guide
+- plugin anatomy
+- first plugin
+- write tool/service/event
+- config and publish
+
+Use for explanation; verify against official source/installed package.
+
+## Direct plugin reference
+
+`ref/dsh-agent-teams/source/` pinned to `801954dd7be67213cf4adc1aeb6f97bd3daa12cc`.
+
+Use this checkout for DSH packaging, lifecycle, scheduler, mailbox, persistence,
+Host/Client and composition-test implementation examples. It is prior art, not
+the framework contract.
+
+## Jiuwen prior art
+
+`ref/jiuwenswarm/source/` pinned to
+`openJiuwen-ai/jiuwenswarm@152583aa305836e87481e6de8a5f34e8c7d0928b`.
+
+Use this checkout for SwarmFlow, Worktree, budgets, Team memory, Skill
+Evolution, tool-permission and distributed-Team concepts. Extract requirements
+and failure cases; do not copy its Python Runtime, transport choices or types
+into DSH contracts.

@@ -1,0 +1,17 @@
+{
+  "repository": "https://github.com/openJiuwen-ai/jiuwenswarm",
+  "branch": "develop",
+  "commit": "152583aa305836e87481e6de8a5f34e8c7d0928b",
+  "recorded_at": "2026-08-20",
+  "license": "Apache-2.0",
+  "local_checkout": "source",
+  "lfs_policy": "skip-smudge; upstream media objects are not required for source analysis",
+  "purpose": [
+    "SwarmFlow and deterministic multi-agent workflow",
+    "worktree-isolated coding agents",
+    "team token budgets and human interaction nodes",
+    "team memory and skill self-evolution",
+    "distributed team control and data planes",
+    "tool permission and security failure models"
+  ]
+}

@@ -1,0 +1,7 @@
+# Snapshot from upstream commit 801954dd7be67213cf4adc1aeb6f97bd3daa12cc.
+- insert:
+    - id: agent-teams
+      name: '@nanmicoder/dsh-agent-teams'
+      config:
+        stateDir: .agent-teams
+        memberProvider: spawn

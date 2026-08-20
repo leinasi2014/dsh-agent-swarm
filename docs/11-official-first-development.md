@@ -1,0 +1,143 @@
+# 11. Official-first plugin development constitution
+
+Status: mandatory. Effective: 2026-08-20.
+
+## 1. Fixed rule
+
+Every design, feature, refactor, fix and milestone starts by checking the current official DSH implementation and development direction. This project integrates through pure plugins. It must not conflict with, shadow, fork or independently reimplement an official capability.
+
+“Official-first” does not mean importing every official package. It means that official stable Service Definitions own their domains; this project contributes Providers, Consumers, policy overlays and Bundle composition. An official experimental/private package is a semantic compatibility target but is not a production dependency until officially promoted. A genuinely absent capability may receive a generic project seam only after the absence and ownership boundary are recorded.
+
+## 2. Gate A — mandatory pre-development evidence
+
+No production code begins until all items pass:
+
+1. Run `pnpm verify:gate-a`; it queries the official DSH remote and both reference branches, checks all clean local pins, verifies that required official Agent Notes/source evidence is materialized, and validates package visibility against `OFFICIAL_BASELINE.json`. Record the SHA, date and any drift.
+2. Read official `AGENTS.md`, `docs/architecture.md`, package rules/map, the relevant subsystem document and relevant implemented Agent Notes.
+3. Inspect package manifests, publication/private status, exports, types, README and tests at that commit.
+4. Inspect installed package exports and the target Profile's actual plugin tree. A published package is not automatically installed or composed.
+5. Classify the capability:
+   - official stable;
+   - official experimental/private;
+   - absent from the target;
+   - project-owned orchestration overlay.
+6. Re-read both pinned reference repositories for the affected behavior and failure cases.
+7. Update the ownership/conflict table and identify exactly one canonical state owner and one transition owner.
+8. Update `09-sources.md` and any superseded factual claims before implementation.
+9. For self-hosting work, identify the stable control artifact/Profile, candidate Worktree/artifact, acceptance Profile and external promotion owner. Verify that no official service is being misdescribed as a self-updater or cwd isolation mechanism.
+
+Gate A is not satisfied by a remote SHA alone. The cited implemented Agent Notes and package source must exist in the local evidence checkout, and the project revision being reviewed must be committed or otherwise reproducibly identified.
+
+If the official remote moved, review the diff before retaining the old compatibility plan. If network access is unavailable, record the verification limitation and do not call a cached pin “current.”
+
+## 3. Official direction at the verified rc.8 baseline
+
+The current official repository establishes these implemented directions:
+
+- everything, including Agent Loop, is a replaceable plugin; new product behavior belongs beside the loop, not inside it;
+- capabilities evolve as Service Definition / Provider / Consumer packages with explicit Bundle/Profile composition;
+- model-visible behavior is durable and replayable through Session/inbox semantics;
+- long-running orchestration uses published Workflow and Jobs seams, with durable run disclosure and cancellation/observation;
+- token measurement is a replay-aware official projection; policy consumers must define their own cumulative boundary without duplicating accounting;
+- Workspace is an official identity/membership domain, while execution cwd and sandbox/tool roots remain real capability boundaries;
+- Agent Teams incubates as private experimental packages, split into domain and tool Consumer, with strict durability, recovery, lifecycle and test requirements;
+- experimental placement relaxes publication/compatibility expectations, not security, lifecycle, documentation or real-composition requirements;
+- abstractions require a current owner and current consumer; speculative compatibility layers are prohibited.
+
+These are implemented-source facts, not a prediction of an unpublished roadmap. Future direction must be re-derived from the then-current official repository.
+
+## 4. Capability ownership map for this plugin
+
+| Capability | Canonical official owner | Project integration role |
+|---|---|---|
+| Agent execution and lifecycle | `ctx.agents` / Agent Loop plugins | observer/Consumer only; never patch loop |
+| continuable members | `ctx.subagents` | Team member Provider adapter |
+| durable Session facts | Session + Session persistence | require durability; append/model messages through official paths |
+| deterministic workflow | `ctx.workflowEngine` | Team workflow bridge Consumer |
+| background run control | `ctx.jobs` | publish/cancel/wait long Team runs |
+| token/context measurement | `ctx.tokenMeter` | accounting adapter feeding one Team budget ledger |
+| application storage lifecycle | `ctx.storageDomain` | Team store Provider; distributed backend adds domain CAS/leases |
+| Workspace identity/membership | `ctx.workspaceRegistry` | Workspace linkage; not Worktree/cwd isolation |
+| human interaction | questions/approval services | human workflow/review Providers |
+| Team roster/mailbox/task DAG | private experimental `ctx.agentTeams` | semantic target; current private backend behind one port until promotion |
+| attempt fencing, scheduling, review, Team budget/memory policy | this plugin family | project-owned overlay, implemented as replaceable plugins |
+
+## 5. Reference fusion rule
+
+The reference repositories are not runtime foundations.
+
+From `dsh-agent-teams`, retain characterized Team protocol behavior: real status-driven scheduling, DAG readiness, revision/attempt fencing, provider/model snapshots, durable mailbox recovery, safe removal/archive and lifecycle/stress cases. Map execution and durability back to official Agent/Subagent/Session services. UI/HTTP/command surfaces become separate Consumers.
+
+From JiuwenSwarm, retain product contracts: deterministic workflows, budgets, real Worktree isolation, human nodes, distributed reservation/ACK, personal/shared Team memory, tiered permission policy, Skill Evolution and monitoring. Map them respectively to official Workflow/Jobs, Token Meter, Workspace plus remote execution, interaction, storage, skills and UI seams. Do not embed its Python Runtime, Rails, ZMQ transport, database schema or permission engine.
+
+A reference feature is “fused” only when all are true:
+
+1. its behavior and failure cases have tests;
+2. its official DSH owner is identified;
+3. the project contributes through a Provider/Consumer/overlay without duplicate authority;
+4. lifecycle, security, persistence, replay and limits are verified;
+5. the assembled Profile passes real-composition verification;
+6. documentation marks it implemented rather than target/partial.
+
+## 6. Forbidden designs
+
+- editing Agent Loop for Team-specific scheduling, memory, review or workspace behavior;
+- registering a shadow `ctx.agentTeams`, `ctx.workflowEngine`, `ctx.jobs`, `ctx.tokenMeter`, `ctx.storageDomain` or `ctx.workspaceRegistry`;
+- keeping private Team state and official Team state both writable;
+- letting adaptive Scheduler and Workflow both own one attempt;
+- counting the same usage through Session folding and Token Meter twice;
+- claiming Worktree isolation when only a prompt/path field changed;
+- treating tool descriptions, `writeScopes` or model role as authorization;
+- copying Jiuwen's runtime/transport when an official DSH seam exists;
+- marking a roadmap item complete from a diagram, interface or test name without current runtime evidence.
+- loading mutable candidate output into the stable control Profile, letting a candidate promote itself, or using the candidate runtime as its own rollback controller;
+- allowing parallel coding writers before real per-attempt cwd/filesystem/tool-root isolation and independent executable review are proven.
+
+## 7. Change record required for every milestone
+
+Each milestone document or Agent Note records:
+
+```text
+Official remote SHA/date:
+Relevant implemented Agent Notes/packages:
+Installed/Profile capability evidence:
+Stable / experimental / absent / overlay classification:
+Reference behaviors and failure cases selected:
+Canonical state owner:
+Transition owner and conflict prevention:
+Plugin shape (definition/provider/consumer/bundle):
+Lifecycle/persistence/security limits:
+Migration/rollback:
+Unit/conformance/fault/real-composition gates:
+Docs/Skill files updated:
+```
+
+## 8. Gate B — implementation acceptance
+
+A change cannot enter a milestone as complete until:
+
+- no official service is shadowed and no second canonical state exists;
+- required services are declared through injection and missing capabilities fail loudly;
+- every effect/resource has bounded disposal;
+- model-visible inputs/results are durable or reconstructable;
+- security authority derives from Agent/Session/permission/workspace capabilities, never prompt text;
+- reference failure cases are covered proportionally to the feature;
+- real Loader/Profile composition proves actual services, not only mocks;
+- `rg` finds no superseded official-fact claim;
+- `docs/09-sources.md`, `docs/10-fusion-audit.md`, roadmap, ADRs and Skill remain synchronized.
+
+Self-hosting acceptance additionally requires ADR-0008: last-known-good control and candidate acceptance Profiles are separate; candidate evidence is frozen; promotion is externally owned and reversible; real Worker cwd/tool roots and control-root denial are tested. M1D permits D1 single-writer dogfood only. Parallel D2 operation requires the M2 and M3 exits.
+
+Security/architecture milestones also require an independent review commissioned under `12-independent-review-management.md`. Reviewer depth and completion remain reviewer-owned; the project manager triages evidence only after the report is complete.
+
+## 9. Gate C — official update response
+
+When official DSH changes:
+
+1. freeze feature expansion for the affected capability;
+2. diff manifests, exports, types, Agent Notes, tests and Bundle composition;
+3. classify compatibility impact;
+4. prefer deleting project duplication and moving to the official seam;
+5. provide state migration when canonical ownership changes;
+6. rerun conformance, fault and real-composition tests;
+7. update every factual and normative document in one reviewable change.

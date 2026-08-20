@@ -1,0 +1,19 @@
+{
+  "repository": "https://github.com/NanmiCoder/dsh-agent-teams",
+  "branch": "main",
+  "commit": "801954dd7be67213cf4adc1aeb6f97bd3daa12cc",
+  "tree": "17e8d9dfae26c923c3cee989e4cc0b52c71bc28d",
+  "package_version": "0.1.8",
+  "recorded_at": "2026-08-20",
+  "license": "MIT",
+  "local_checkout": "source",
+  "snapshot": "source-snapshot",
+  "purpose": [
+    "DSH bundle and host/client packaging",
+    "continuable subagent member lifecycle",
+    "dependency-aware task scheduling",
+    "attempt fencing and safe reassignment",
+    "durable mailbox and recovery",
+    "stress and lifecycle verification"
+  ]
+}

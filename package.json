@@ -1,0 +1,75 @@
+{
+  "name": "dsh-agent-swarm",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Durable multi-agent Team orchestration, review, budgets, memory, and scheduling for DeepSeek Harness",
+  "type": "module",
+  "main": "lib/index.mjs",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.mjs"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "docs",
+    ".agents/skills"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": "^22.19.0 || >=24"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('lib',{recursive:true,force:true})\"",
+    "build": "pnpm clean && tsc -p tsconfig.json && tsdown",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:test": "tsc -p tsconfig.test.json",
+    "test": "vitest run",
+    "verify:official": "node scripts/verify-official-baseline.mjs",
+    "verify:references": "node scripts/verify-reference-baselines.mjs",
+    "verify:gate-a": "pnpm verify:official && pnpm verify:references",
+    "verify:structure": "node scripts/verify-project.mjs",
+    "verify:artifact": "node scripts/verify-package-artifact.mjs",
+    "verify": "pnpm verify:structure && pnpm typecheck && pnpm typecheck:test && pnpm test && pnpm build && pnpm verify:artifact"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-agent": "^0.1.0-rc.8",
+    "@deepseek-ai/dsh-llm": "^0.1.0-rc.8",
+    "@deepseek-ai/dsh-session": "^0.1.0-rc.8",
+    "@deepseek-ai/dsh-subagent": "^0.1.0-rc.8",
+    "@deepseek-ai/dsh-system-prompt": "^0.1.0-rc.8",
+    "@deepseek-ai/dsh-tools": "^0.1.0-rc.8",
+    "@deepseek-ai/schemastery": "^3.18.1"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-agent": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-agent-loop": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-agent-loop-testkit": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-llm": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-session": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-session-persistence-jsonl": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-subagent": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-subagent-spawn-in-process": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-system-prompt": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-tools": "^0.1.0-rc.8",
+    "@deepseek-ai/dsh-workspace": "0.1.0-rc.8",
+    "@deepseek-ai/schemastery": "^3.18.1",
+    "@types/node": "^24.0.0",
+    "tsdown": "^0.22.2",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

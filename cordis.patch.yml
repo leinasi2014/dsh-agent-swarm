@@ -1,0 +1,11 @@
+# Bundle layer for the durable host-only Team orchestrator.
+- insert:
+    - id: agent-swarm
+      name: dsh-agent-swarm
+      config:
+        enabled: true
+        stateDir: .dsh-agent-swarm
+        memberProvider: spawn
+        memberMaxDepth: 1
+        schedulerProvider: priority-ready
+        reviewProvider: manual
