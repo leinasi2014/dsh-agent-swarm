@@ -24,9 +24,15 @@ const MAX_POLLS = 90 // ~30 minutes
 function checks() {
   const stdout = execFileSync('gh', ['pr', 'checks', pr, '--json', 'name,state'], { encoding: 'utf8' })
   const list = JSON.parse(stdout)
-  // gh reports mixed vocabulary across versions ("pass"/"fail" human table,
-  // "SUCCESS"/"FAILURE"/"PENDING" JSON) — normalize before classifying.
-  for (const check of list) check.state = String(check.state).toLowerCase()
+  // gh reports mixed vocabulary across versions: the human table says
+  // pass/fail/pending while the JSON says SUCCESS/FAILURE/PENDING (and
+  // cancellation variants). Normalize both case and vocabulary.
+  const vocabulary = { success: 'pass', failure: 'fail', failed: 'fail', pending: 'pending', queued: 'pending', cancel: 'fail', canceled: 'fail', cancelled: 'fail', skipping: 'skipping', skipped: 'skipping', pass: 'pass', fail: 'fail' }
+  for (const check of list) {
+    const normalized = vocabulary[String(check.state).toLowerCase()]
+    if (normalized === undefined) throw new Error(`merge-guard: unknown check state "${check.state}" (${check.name})`)
+    check.state = normalized
+  }
   return list
 }
 
