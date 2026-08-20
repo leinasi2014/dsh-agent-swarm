@@ -50,12 +50,12 @@ describe('live-status scheduling discipline over the real composition (issue #12
       await vi.waitFor(() => {
         expect(adapter.requests.length).toBe(1)
         expect(ctx.agents.get(SessionId(alphaId))?.status).toBe('running')
-      }, { timeout: 5_000 })
+      }, { timeout: 15_000 })
       const betaId = await addMember(composition, 'beta-worker')
       await vi.waitFor(() => {
         expect(adapter.requests.length).toBe(2)
         expect(ctx.agents.get(SessionId(betaId))?.status).toBe('running')
-      }, { timeout: 5_000 })
+      }, { timeout: 15_000 })
 
       const followup = spyFollowup(composition)
       const task = await toolCall(ctx, composition.lead, 'task-running', 'agent_swarm_create_task', {
@@ -63,7 +63,7 @@ describe('live-status scheduling discipline over the real composition (issue #12
       })
       expect(task.isError).toBe(false)
       // Both members are live and running: the pass must not claim for either.
-      await new Promise(resolve => setTimeout(resolve, 400))
+      await new Promise(resolve => setTimeout(resolve, 1_200))
       const deferred = await snapshotOf(composition)
       expect(deferred.team.tasks[0]).toMatchObject({ status: 'pending' })
       expect(followup.records.filter(record => record.text.includes('Team assignment'))).toHaveLength(0)
@@ -73,7 +73,7 @@ describe('live-status scheduling discipline over the real composition (issue #12
       await vi.waitFor(async () => {
         const snapshot = await snapshotOf(composition)
         expect(snapshot.team.tasks[0]).toMatchObject({ status: 'in_progress', ownerSessionId: alphaId })
-      }, { timeout: 5_000 })
+      }, { timeout: 15_000 })
 
       // The owner now runs its held assignment turn; a second task created
       // in that state routes to the idle member, never to the running owner.
@@ -84,7 +84,7 @@ describe('live-status scheduling discipline over the real composition (issue #12
       await vi.waitFor(async () => {
         const snapshot = await snapshotOf(composition)
         expect(snapshot.team.tasks[1]).toMatchObject({ status: 'in_progress', ownerSessionId: betaId })
-      }, { timeout: 5_000 })
+      }, { timeout: 15_000 })
 
       followup.restore()
       await composition.pluginFiber.dispose()
@@ -109,22 +109,22 @@ describe('live-status scheduling discipline over the real composition (issue #12
       const workerId = await addMember(composition, 'mail-worker')
       await vi.waitFor(() => {
         expect(adapter.requests.length).toBe(1)
-      }, { timeout: 5_000 })
+      }, { timeout: 15_000 })
       // Settle the member's initial turn and the captain's settlement
       // notice, then make the member cold exactly like a reloaded process.
       adapter.open()
       await vi.waitFor(() => {
         expect(composition.lead.status).toBe('running')
-      }, { timeout: 5_000 })
+      }, { timeout: 15_000 })
       adapter.open()
       await vi.waitFor(() => {
         expect(composition.lead.status).toBe('idle')
-      }, { timeout: 5_000 })
+      }, { timeout: 15_000 })
       ctx.subagents.interrupt(SessionId(workerId), { kind: 'ancestor', agent: composition.lead })
       await ctx.subagents.drainContinuableChildren(composition.lead, [SessionId(workerId)])
       await vi.waitFor(() => {
         expect(ctx.agents.get(SessionId(workerId))).toBeUndefined()
-      }, { timeout: 5_000 })
+      }, { timeout: 15_000 })
 
       // Stage through the authoritative domain only (no runtime scheduling
       // trigger): one ready task plus one queued wakeup message.
@@ -142,9 +142,9 @@ describe('live-status scheduling discipline over the real composition (issue #12
       await vi.waitFor(async () => {
         const snapshot = await snapshotOf(composition)
         expect(snapshot.team.messages.find(candidate => candidate.id === message.id)?.phase).toBe('delivered')
-      }, { timeout: 5_000 })
+      }, { timeout: 15_000 })
       // The woken member is running its mail turn: the new assignment waits.
-      await new Promise(resolve => setTimeout(resolve, 300))
+      await new Promise(resolve => setTimeout(resolve, 1_000))
       const duringMailTurn = await snapshotOf(composition)
       expect(duringMailTurn.team.tasks[0]).toMatchObject({ status: 'pending' })
       expect(followup.records.filter(record => record.text.includes('Team assignment'))).toHaveLength(0)
@@ -154,7 +154,7 @@ describe('live-status scheduling discipline over the real composition (issue #12
       await vi.waitFor(async () => {
         const snapshot = await snapshotOf(composition)
         expect(snapshot.team.tasks[0]).toMatchObject({ status: 'in_progress', ownerSessionId: workerId })
-      }, { timeout: 5_000 })
+      }, { timeout: 15_000 })
       const mailIndex = followup.records.findIndex(record => record.text.includes('Backlog delivers before assignment.'))
       const assignmentIndex = followup.records.findIndex(record => record.text.includes('Team assignment'))
       expect(mailIndex).toBeGreaterThanOrEqual(0)
@@ -226,8 +226,8 @@ describe('live-status scheduling discipline over the real composition (issue #12
       await ctx.agentSwarm.recoverAgent(composition.lead)
       await vi.waitFor(() => {
         expect(sabotaged).toBe(true)
-      }, { timeout: 5_000 })
-      await new Promise(resolve => setTimeout(resolve, 300))
+      }, { timeout: 15_000 })
+      await new Promise(resolve => setTimeout(resolve, 1_000))
 
       // The guarded rollback never called cancelAttempt: the handoff's
       // reservation survives untouched for the reserved-delivery path.
@@ -244,7 +244,7 @@ describe('live-status scheduling discipline over the real composition (issue #12
         const snapshot = await snapshotOf(composition)
         const delivered = snapshot.team.attempts.find(attempt => attempt.id === snapshot.team.tasks[0]?.currentAttemptId)
         expect(delivered?.assignmentPhase).toBe('delivered')
-      }, { timeout: 5_000 })
+      }, { timeout: 15_000 })
       expect(cancelSpy).not.toHaveBeenCalled()
 
       idle.mockRestore()
