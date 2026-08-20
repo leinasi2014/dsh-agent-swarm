@@ -27,9 +27,13 @@ export function workspaceOf(agent: Agent): string {
   return agent.session.header.cwd ?? process.cwd()
 }
 
-/** Validate the public wait-tool timeout bounds. */
+/**
+ * Validate the public wait-tool timeout bounds (issue #19, official
+ * experimental `TeamActivity.wait` window parity): an integer from ten
+ * seconds through one hour.
+ */
 export function expectDomainTimeout(value: number): void {
-  if (!Number.isSafeInteger(value) || value < 1 || value > 300_000) {
-    throw new TeamDomainError('timeout_ms must be a safe integer from 1 to 300000', 'TEAM_INPUT_INVALID')
+  if (!Number.isSafeInteger(value) || value < 10_000 || value > 3_600_000) {
+    throw new TeamDomainError('timeout_ms must be an integer from 10000 through 3600000', 'TEAM_INVALID_TIMEOUT')
   }
 }

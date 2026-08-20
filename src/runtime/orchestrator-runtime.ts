@@ -21,6 +21,7 @@ import { teamDomainSpec } from '../storage/team-spec.js'
 import type { Domain } from '@deepseek-ai/dsh-storage-domain'
 import { expectDomainTimeout, requireAgent, workspaceOf, type ToolExecutionAuthority } from './authority.js'
 import { boundedSettle } from './disposal.js'
+import { interruptMember } from './member-control.js'
 import { MemberProvisioner } from './member-provisioning.js'
 import { MessageDelivery } from './message-delivery.js'
 import { assignmentPrompt } from './prompts.js'
@@ -347,6 +348,8 @@ export class AgentSwarmRuntime extends Service {
     this.assertOpen()
     const actor = requireAgent(exec)
     expectDomainTimeout(timeoutMs)
+    // Official parity: caller cancellation rejects before waiter registration.
+    exec.signal.throwIfAborted()
     const scope = this.scopeOf(actor)
     const membership = await this.domain.requireReadMembership(scope, actor.id)
     const timeoutSignal = AbortSignal.timeout(timeoutMs)
@@ -366,8 +369,35 @@ export class AgentSwarmRuntime extends Service {
       if (timeoutSignal.aborted && !exec.signal.aborted) {
         return { snapshot: await this.domain.snapshot(scope, membership.team.id, actor.id), changed: false }
       }
+      // Issue #19, official `TEAM_WAIT_ABORTED` parity: caller cancellation
+      // surfaces as one structured domain error instead of a raw abort reason.
+      if (exec.signal.aborted) {
+        throw new TeamDomainError(
+          `agent_swarm_wait aborted: ${error instanceof Error ? error.message : String(error)}`,
+          'TEAM_WAIT_ABORTED',
+          { cause: error },
+        )
+      }
       throw error
     }
+  }
+
+  /**
+   * Captain-only keepInbox member interrupt (issue #19, official parity);
+   * the control surface lives in `member-control.ts`.
+   * @returns the target status sampled before the cancellation took effect.
+   */
+  async interruptMember(
+    exec: ToolExecutionAuthority,
+    name: string,
+  ): Promise<{ name: string; previousStatus: 'running' | 'idle' | 'inactive' }> {
+    return await interruptMember({
+      ctx: this.ctx,
+      domain: () => this.domain,
+      isClosing: () => this.closing,
+      scopeOf: agent => this.scopeOf(agent),
+      ensureReady: () => this.ensureReady(),
+    }, exec, name)
   }
 
   async setBudget(

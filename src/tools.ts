@@ -37,7 +37,7 @@ export function registerAgentSwarmTools(ctx: Context, runtime: AgentSwarmRuntime
     name: 'agent_swarm_add_member',
     description: 'Captain-only. Create a durable continuable DSH subagent member with an isolated persona and Team-safe tool permissions.',
     parameters: {
-      name: { type: 'string', required: true, description: 'Immutable lowercase kebab-case member name.' },
+      name: { type: 'string', required: true, description: 'Immutable member name: NFC-normalized Unicode letters/digits with dash separators, at most 64 code points.' },
       role: { type: 'string', required: true, description: 'Member specialty and responsibility.' },
       provider: { type: 'string', description: 'Optional continuable subagent Provider; defaults to plugin config.' },
       model: { type: 'string', description: 'Optional member model override.' },
@@ -288,12 +288,34 @@ export function registerAgentSwarmTools(ctx: Context, runtime: AgentSwarmRuntime
   }), 'review-task tool')
 
   register(ctx, defineTool({
+    name: 'agent_swarm_interrupt_member',
+    description: 'Captain-only. Cancel one member\'s current turn while keeping its pending inbox, task ownership and roster membership; a later wakeup message resumes it.',
+    parameters: {
+      name: { type: 'string', required: true, description: 'Active member name.' },
+    },
+    output: {
+      schema: {
+        type: 'object', additionalProperties: false,
+        properties: {
+          name: { type: 'string', required: true },
+          previous_status: { type: 'string', required: true, enum: ['running', 'idle', 'inactive'] },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: `Interrupted ${value.name}; previous_status=${value.previous_status}. Inbox, ownership and membership are preserved.` }],
+    },
+    async execute(args, exec) {
+      const interrupted = await runtime.interruptMember(exec, args.name)
+      return { name: interrupted.name, previous_status: interrupted.previousStatus }
+    },
+  }), 'interrupt-member tool')
+
+  register(ctx, defineTool({
     name: 'agent_swarm_send_message',
     description: 'Persist a Team message before best-effort delivery. A queued result is durable and must not be resent by the caller.',
     parameters: {
       target: { type: 'string', required: true, description: 'captain or an active member name.' },
       content: { type: 'string', required: true },
-      delivery: { type: 'string', enum: ['quiet', 'wakeup'], description: 'quiet avoids waking the captain; member delivery is FIFO followup.' },
+      delivery: { type: 'string', enum: ['quiet', 'wakeup'], description: 'quiet delivers without waking the recipient and stays queued while the target is inactive; wakeup follows up and may cold-resume an inactive member.' },
     },
     output: {
       schema: {
@@ -433,10 +455,10 @@ export function registerAgentSwarmTools(ctx: Context, runtime: AgentSwarmRuntime
 
   register(ctx, defineTool({
     name: 'agent_swarm_wait',
-    description: 'Wait without polling until the authoritative Team revision exceeds after_revision, or return unchanged at timeout.',
+    description: 'Wait without polling until the authoritative Team revision exceeds after_revision, or return unchanged at timeout. Caller cancellation fails with TEAM_WAIT_ABORTED.',
     parameters: {
       after_revision: { type: 'number', required: true },
-      timeout_ms: { type: 'number', description: '1..300000; defaults to 30000.' },
+      timeout_ms: { type: 'number', description: '10000..3600000; defaults to 30000.' },
     },
     output: {
       schema: {
