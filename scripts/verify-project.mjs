@@ -84,6 +84,7 @@ try {
   if (!String(pkg.scripts?.verify ?? '').includes('pnpm lint')) failures.push('package.json: verify chain must include the lint gate')
   if (!String(pkg.scripts?.verify ?? '').includes('pnpm verify:duplication')) failures.push('package.json: verify chain must include the duplication gate')
   if (!String(pkg.scripts?.verify ?? '').includes('pnpm verify:exports')) failures.push('package.json: verify chain must include the dead-export gate')
+  if (!String(pkg.scripts?.verify ?? '').includes('pnpm verify:scenarios')) failures.push('package.json: verify chain must include the scenario-audit gate')
   if (pkg.files?.some(item => item === 'ref' || item.startsWith('ref/'))) failures.push('package.json: ref must not be published')
 } catch (error) {
   failures.push(`package.json: ${String(error)}`)

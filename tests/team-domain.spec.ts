@@ -56,7 +56,7 @@ describe('TeamDomain over the official Storage Domain', () => {
     return team
   }
 
-  it('serializes concurrent claims and rejects the stale revision', async () => {
+  it('scenario 1: serializes concurrent claims and rejects the stale revision', async () => {
     const team = await teamWithMembers()
     const task = await domain.createTask(scope, team.id, 'captain-session', {
       subject: 'race',
@@ -107,7 +107,7 @@ describe('TeamDomain over the official Storage Domain', () => {
     expect(accepted.status).toBe('completed')
   })
 
-  it('rejects every late update after attempt fencing changes', async () => {
+  it('scenario 3: rejects every late update after attempt fencing changes', async () => {
     const team = await teamWithMembers()
     const task = await domain.createTask(scope, team.id, 'captain-session', {
       subject: 'handoff',
@@ -143,7 +143,7 @@ describe('TeamDomain over the official Storage Domain', () => {
     }
   })
 
-  it('persists queued-before-delivered mailbox state across a full storage reopen', async () => {
+  it('scenario 4: persists queued-before-delivered mailbox state across a full storage reopen', async () => {
     const team = await teamWithMembers(1)
     const message = await domain.queueMessage(
       scope, team.id, 'captain-session', 'worker-1', 'Inspect this task.', 'wakeup',
@@ -161,7 +161,7 @@ describe('TeamDomain over the official Storage Domain', () => {
     expect(snapshot.pendingMessageIds).toEqual([])
   })
 
-  it('enforces exact request and token budgets', async () => {
+  it('scenario 11: enforces exact request and token budgets', async () => {
     const team = await teamWithMembers()
     await domain.setBudget(scope, team.id, 'captain-session', {
       tokenLimit: 10,
@@ -183,7 +183,7 @@ describe('TeamDomain over the official Storage Domain', () => {
     )).rejects.toMatchObject({ code: 'TEAM_BUDGET_REQUESTS' })
   })
 
-  it('rejects missing, duplicate, self, and cyclic task dependencies', () => {
+  it('scenario 8: rejects missing, duplicate, self, and cyclic task dependencies', () => {
     expect(() => assertTaskGraph([graphTask('task-1', ['task-2'])])).toThrowError(expect.objectContaining({ code: 'TEAM_TASK_DEPENDENCY_MISSING' }))
     expect(() => assertTaskGraph([graphTask('task-1', ['task-1'])])).toThrowError(expect.objectContaining({ code: 'TEAM_TASK_DEPENDENCY_CYCLE' }))
     expect(() => assertTaskGraph([graphTask('task-1', []), graphTask('task-2', ['task-1', 'task-1'])])).toThrowError(expect.objectContaining({ code: 'TEAM_TASK_DEPENDENCY_DUPLICATE' }))
@@ -244,7 +244,7 @@ describe('TeamDomain over the official Storage Domain', () => {
     )).rejects.toMatchObject({ code: 'TEAM_TASK_NOT_REASSIGNABLE' })
   })
 
-  it('limits the complete serialized message frame, not only its content', async () => {
+  it('scenario 12: limits the complete serialized message frame, not only its content', async () => {
     await stack.close()
     stack = await openStorageStack(join(sandbox, 'storage'), () => tick++)
     const limited = new TeamDomain(stack.store, {
@@ -334,7 +334,7 @@ describe('TeamDomain over the official Storage Domain', () => {
     expect(afterReplacement.team.usageCursors).not.toHaveProperty('member-orphan')
   })
 
-  it('fences a removed member before requeuing their task and cancelling mail', async () => {
+  it('scenario 7: fences a removed member before requeuing their task and cancelling mail', async () => {
     const team = await teamWithMembers(1)
     const task = await domain.createTask(scope, team.id, 'captain-session', {
       subject: 'owned work', description: 'Must survive member removal.',

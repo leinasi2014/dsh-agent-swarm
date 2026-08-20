@@ -291,6 +291,7 @@ describe('DSH rc.8 composition', () => {
 
       // An ordinary workspace writer tampering with a decoy legacy state file
       // cannot reach the authoritative aggregate.
+      // scenario-evidence: 16
       const decoyDir = join(workspace, '.dsh-agent-swarm', created.team_id)
       await mkdir(decoyDir, { recursive: true })
       await writeFile(join(decoyDir, 'team.json'), JSON.stringify({
@@ -349,7 +350,7 @@ describe('DSH rc.8 composition', () => {
     }
   }, 15_000)
 
-  it('retains ownership of a started child when activation commit and immediate drain fail', async () => {
+  it('scenario 6: retains ownership of a started child when activation commit and immediate drain fail', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-member-failure-'))
     roots.push(sandbox)
     const ctx = new Context()
