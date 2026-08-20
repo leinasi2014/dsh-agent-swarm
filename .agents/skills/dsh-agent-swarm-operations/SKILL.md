@@ -94,10 +94,15 @@ gh run list --limit 5 && gh run view <id> --log-failed | tail -30
 17. **绿灯 ≠ 正确（race/timeout 类）**：#13 的 boundedSettle 超时构造 bug（resolve/reject 命名颠倒）是绿灯通过的。规则：PM 审查 race/timeout 类 diff 必须**专看败者路径**——losing promise 的 rejection 是否被观察、超时分支是否真的 reject。
 18. **gh TLS 超时的幂等处置**：合并类命令失败后**先查实际状态再重试**（PR #29 合并已成功但删分支失败，盲目重试会双合并）。
 19. **worktree 并行开发模式（2026-08-20 启用）**：主树 = PM 专属（停 main，做审查/治理/合并），每个实现任务一个 `git worktree`（独立目录/分支/依赖/refs）。速度 2-3 倍且零树竞争。规范全文见 CONTRIBUTING §2a；上限 2-3 路，合并保持串行。
-20. **官方包 `.dsh-mkdir-*` ENOENT flake**：dsh-session-persistence-jsonl 在慢 Windows runner 上的 mkdir/rename 临时目录竞态，当日命中 4 次（main 基线可复现，非我方 diff）。规则：命中该签名直接重跑失败 job；频率持续偏高则升级为上游 issue + CI 级重试策略。
+20. **官方包 `.dsh-mkdir-*` ENOENT flake**：dsh-session-persistence-jsonl 在慢 Windows runner 上的 mkdir/rename 临时目录竞态，非我方 diff。规则：命中该签名直接重跑失败 job。CI 级签名重试已上线（PR#44 建、PR#57 修捕获缺陷——见教训 25）；持续高频仍需上游 issue。
 21. **`gh pr merge` 非原子**：合并成功后的分支删除遇 TLS 超时会以非零退出（两次把 merge-guard 的收尾打成 stack trace）。规则：合并类命令失败后先查 PR 权威状态再定成败（守卫已内置该容错）。
 22. **并行 PR 的同文件冲突取"语义并集"**：#33/#35 同改 stranded 断言块——解冲突时按"匹配当前 API 面的一侧 + 保留对方的时序修复"取并集，逐 hunk 判断，不整文件取一侧。
 23. **结构化文本编辑用 Read+Edit，不玩 shell 花样**：heredoc 定界/pwsh 内联替换在含特殊字符时静默失败（本日两例）。规则：多行结构化内容一律 Write/Edit 工具。
+24. **句柄丢失 ≠ 智能体死亡（2026-08-21）**：会话上下文压缩后 `TaskOutput`/`SendMessage` 均报 "No task found"，但两个后台智能体实际仍在工作（其一还在与我并发修同一 worktree 的 ref）。规则：接管前先轮询远端/工作树实际状态（`gh pr list`、worktree `git status`/reflog mtime）；接管动作与在途智能体可能撞车（曾引发 stale `shallow.lock` 与神秘并发提交）。
+25. **守卫自身也会哑火——守卫必须验证其触发**（2026-08-21，PR#57 修复）：Tee-Object 变量捕获拿不到 vitest worker 子进程 stderr，`.dsh-mkdir` 签名重试守卫三连哑火。规则：守卫类机制上线后必须在真实失败上验证其触发过至少一次；输出捕获用文件重定向（`*>`）+ Select-String，不依赖管道对象捕获。
+26. **智能体推送静默失败（2026-08-21）**：D1 作者的追补 commit 8e0023d（grace 2s→5s）推送失败但智能体以为已推、误报"双绿"，PM 差点信报告放弃追补（幸核 `gh pr view --json headRefOid,commits` 发现 PR 只有 1 commit）。规则：交付合同的完成汇报必须附 `gh pr view --json headRefOid,commits` 实证 head 即最终 commit；PM 合并前必查。
+27. **Windows 长路径 worktree 残留**：`git worktree remove` 报 "Filename too long"、PowerShell `\\?\` Remove-Item 也不彻底。规则：MSYS `rm -rf` 可清（Git Bash 自带长路径处理），再 `git worktree prune`；陈旧 `.git/shallow.lock` 先用 CIM 查存活进程（`Get-CimInstance Win32_Process`），busy=活 fetch 在跑就等，进程已死才是真陈旧锁。
+28. **测试窗口迁移要全量清点（2026-08-21，PR#58）**：D1 契约迁移改了 5 处断言，作者只加宽了自己新写的 wakeup 套件窗口，漏了同族 message-delivery 的 9 处 5s 窗口（且三串行窗口最坏可超 20s 测试预算）。规则：语义迁移类 diff 审查时枚举**所有依赖旧时序的既有测试**，一并核窗口与预算。
 
 ## 七、定时更新协议（本 Skill 的自我维护）
 
