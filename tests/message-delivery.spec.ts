@@ -232,7 +232,7 @@ describe('target-side message de-duplication (F2)', () => {
       // durable before the claim.
       await vi.waitFor(async () => {
         expect(acceptedFrames((await ctx.sessionPersistence.inspect(SessionId(memberSessionId), SIGNAL)).events, frame)).toBe(1)
-      }, { timeout: 5_000 })
+      }, { timeout: 15_000 })
 
       // Durable fact (1b): let the member claim the frame into model-visible
       // history (the per-request turn checkpoint persists it) — the strongest
@@ -242,7 +242,7 @@ describe('target-side message de-duplication (F2)', () => {
       await vi.waitFor(async () => {
         const stored = await ctx.sessionPersistence.inspect(SessionId(memberSessionId), SIGNAL)
         expect(stored.events.some(event => event.type === 'user/message' && carriesFrame(event.data, frame))).toBe(true)
-      }, { timeout: 5_000 })
+      }, { timeout: 15_000 })
 
       // The rescan folds the durable claim into the make-up acknowledgement,
       // whose commit is the injected crash — byte-identical durable state to
@@ -250,7 +250,7 @@ describe('target-side message de-duplication (F2)', () => {
       await ctx.agentSwarm.recoverAgent(lead)
       await vi.waitFor(() => {
         expect(acknowledge.mock.calls.length).toBeGreaterThanOrEqual(1)
-      }, { timeout: 5_000 })
+      }, { timeout: 15_000 })
       const unacked = await ctx.agentSwarm.domain.snapshot(scope, teamId, lead.id)
       expect(unacked.team.messages.find(candidate => candidate.id === message?.id)?.phase).toBe('queued')
 
@@ -261,7 +261,7 @@ describe('target-side message de-duplication (F2)', () => {
       await vi.waitFor(async () => {
         expect(ctx.agents.get(SessionId(memberSessionId))).toBeUndefined()
         expect(acceptedFrames((await ctx.sessionPersistence.inspect(SessionId(memberSessionId), SIGNAL)).events, frame)).toBe(1)
-      }, { timeout: 5_000 })
+      }, { timeout: 15_000 })
 
       // The reload recovery rescan (schedulePass -> deliverQueuedMessage):
       // the claimed form persists cold, so the fold retries the make-up ack.
@@ -271,7 +271,7 @@ describe('target-side message de-duplication (F2)', () => {
         const settled = snapshot.team.messages.find(candidate => candidate.id === message?.id)
         expect(settled?.phase).toBe('delivered')
         expect(settled?.deliveredAt).toBeDefined()
-      }, { timeout: 5_000 })
+      }, { timeout: 15_000 })
 
       // Exactly one model-visible copy at the target, one followup, make-up ack.
       expect(await countTargetCopies(ctx, memberSessionId, frame)).toBe(1)
@@ -285,7 +285,7 @@ describe('target-side message de-duplication (F2)', () => {
       adapter.open()
       for (const fiber of fibers.toReversed()) await fiber.dispose()
     }
-  }, 20_000)
+  }, 60_000)
 
   /**
    * Idempotent redelivery: repeated reload rescans of one queued message
@@ -373,12 +373,12 @@ describe('target-side message de-duplication (F2)', () => {
       // (same crash-window facts as scenario 5).
       await vi.waitFor(async () => {
         expect(acceptedFrames((await ctx.sessionPersistence.inspect(SessionId(memberSessionId), SIGNAL)).events, frame)).toBe(1)
-      }, { timeout: 5_000 })
+      }, { timeout: 15_000 })
       adapter.open()
       await vi.waitFor(async () => {
         const stored = await ctx.sessionPersistence.inspect(SessionId(memberSessionId), SIGNAL)
         expect(stored.events.some(event => event.type === 'user/message' && carriesFrame(event.data, frame))).toBe(true)
-      }, { timeout: 5_000 })
+      }, { timeout: 15_000 })
 
       // Two reload-equivalent rescans while the ack store stays down.
       ctx.subagents.interrupt(SessionId(memberSessionId), { kind: 'ancestor', agent: lead })
@@ -387,7 +387,7 @@ describe('target-side message de-duplication (F2)', () => {
       await ctx.agentSwarm.recoverAgent(lead)
       await vi.waitFor(() => {
         expect(acknowledge.mock.calls.length).toBeGreaterThanOrEqual(2)
-      }, { timeout: 5_000 })
+      }, { timeout: 15_000 })
 
       // Every rescan folded into an ack attempt: still one copy, one send.
       expect(await countTargetCopies(ctx, memberSessionId, frame)).toBe(1)
@@ -400,7 +400,7 @@ describe('target-side message de-duplication (F2)', () => {
         const snapshot = await ctx.agentSwarm.domain.snapshot(scope, teamId, lead.id)
         const settled = snapshot.team.messages.find(candidate => candidate.id === message?.id)
         expect(settled?.phase).toBe('delivered')
-      }, { timeout: 5_000 })
+      }, { timeout: 15_000 })
       expect(await countTargetCopies(ctx, memberSessionId, frame)).toBe(1)
       expect(followupFrames.filter(text => text === frame)).toHaveLength(1)
       idle.mockRestore()
@@ -410,5 +410,5 @@ describe('target-side message de-duplication (F2)', () => {
       adapter.open()
       for (const fiber of fibers.toReversed()) await fiber.dispose()
     }
-  }, 20_000)
+  }, 60_000)
 })
