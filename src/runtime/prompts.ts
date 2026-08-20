@@ -10,6 +10,7 @@ export const CAPTAIN_ONLY_TOOLS = [
   'agent_swarm_create',
   'agent_swarm_add_member',
   'agent_swarm_remove_member',
+  'agent_swarm_interrupt_member',
   'agent_swarm_archive',
   'agent_swarm_reassign_task',
   'agent_swarm_review_task',

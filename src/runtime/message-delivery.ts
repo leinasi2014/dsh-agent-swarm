@@ -8,10 +8,16 @@
  * closes target-side: before any resend attempt, the target's durable
  * inbox/history is folded on the stable framed message identity, and an
  * already accepted frame is only acknowledged, never redelivered.
+ *
+ * Issue #19 / F13 quiet semantics (official `dispatchOnce` parity): a quiet
+ * message to a member delivers only while the target is live, through the
+ * non-waking `Agent.inject` seam; an inactive target's quiet message stays
+ * durably queued across sends, scheduler passes and reload-recovery rescans
+ * — only wakeup delivery may cold-resume an inactive member.
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { UserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, type UserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId, type Session } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
@@ -80,6 +86,29 @@ export class MessageDelivery {
         const captain = this.ctx.agents.get(SessionId(team.captainSessionId))
         return captain === undefined || await this.targetFlushedAndRecorded(captain.session, frame)
       }
+      const target = this.ctx.agents.get(SessionId(message.targetSessionId))
+      if (message.delivery === 'quiet') {
+        // Issue #19 / F13, official `dispatchOnce` parity: quiet mail to a
+        // member delivers only while the target is live, through the
+        // non-waking `Agent.inject` seam (pending until the running driver's
+        // next step boundary or a later wake). An inactive target's quiet
+        // message stays durably queued — the send path, the reload-recovery
+        // rescan and the scheduler pass must never cold-resume it; only a
+        // wakeup message (or the member's own return) makes delivery
+        // possible again. This also gives the official quiet ordered-bypass
+        // effect structurally: the inject never queues behind an in-flight
+        // wakeup dispatch.
+        if (target === undefined) return false
+        target.inject(createUserMessage({
+          content: [{ type: 'text', text: frame }],
+          source: { kind: 'plugin', plugin: 'dsh-agent-swarm' },
+        }))
+        const captain = sender.id === team.captainSessionId
+          ? sender
+          : this.ctx.agents.get(SessionId(team.captainSessionId))
+        await this.deps.accountAgentUsage(this.deps.scopeOf(captain ?? target), team.id, target)
+        return await this.targetFlushedAndRecorded(target.session, frame)
+      }
       const captain = sender.id === team.captainSessionId
         ? sender
         : this.ctx.agents.get(SessionId(team.captainSessionId))
@@ -90,7 +119,6 @@ export class MessageDelivery {
         [{ type: 'text', text: frame }],
         { source: { kind: 'plugin', plugin: 'dsh-agent-swarm' }, signal },
       )
-      const target = this.ctx.agents.get(SessionId(message.targetSessionId))
       if (target !== undefined) await this.deps.accountAgentUsage(this.deps.scopeOf(captain), team.id, target)
       return target === undefined || await this.targetFlushedAndRecorded(target.session, frame)
     } catch (error) {
