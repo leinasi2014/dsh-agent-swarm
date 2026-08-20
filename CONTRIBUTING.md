@@ -20,6 +20,37 @@ pnpm verify:gate-a   # 官方 remote + 两个参考仓库 pin 联网核验
 | 禁止 | 直接向 `main` 推送、force push、merge commit（用 rebase merge 保持线性） |
 | 历史分支 | `codex/glm-review-fixes` 是 M0/M1A 历史快照，不再开发 |
 
+### 2a. 并行 worktree 隔离开发规范（2026-08-20 起，PM 多智能体委派默认模式）
+
+多任务并行时，每任务一个独立 git worktree，物理隔离杜绝树竞争：
+
+**布局与生命周期**
+
+```sh
+# 创建（主树在 main、干净状态下）
+git worktree add ..\dsh-agent-swarm-wt-<slug> -b <type>/<slug> main
+# 初始化（每个 worktree 独立执行；pnpm store 硬链接，秒级）
+cd ..\dsh-agent-swarm-wt-<slug> && pnpm install
+pwsh -NoProfile -File ref/dsh-agent-teams/sync-reference.ps1
+pwsh -NoProfile -File ref/jiuwenswarm/sync-reference.ps1
+pnpm verify:structure   # 自检：refs/门禁就绪
+# 回收（PR 合并后）
+git worktree remove ..\dsh-agent-swarm-wt-<slug> && git branch -d <type>/<slug>
+```
+
+**分工纪律**
+
+| 角色 | 领地 | 职责 |
+|---|---|---|
+| PM（主树） | `D:\Source\DSH\plugin\dsh-agent-swarm`，**永远停在 main** | 审查（fetch 远端 diff）、治理、守卫合并、worktree 调度 |
+| 实现智能体 | 自己的 worktree，**分支已检出、禁止 switch** | 实现+测试+verify+PR；禁止触碰主树与其他 worktree |
+
+**任务分配与合并**
+
+- 并行任务优先选**不相交文件面**；交叠面（如同改 tools.ts）在委派合同中声明"保持内聚，冲突由 PM 合并时解"。
+- **合并保持串行**：PM 逐 PR → `node scripts/merge-guard.mjs <pr>`（双绿守卫，见 §4）→ rebase 合并；后合并者如冲突，由 PM rebase 解或退回该任务的智能体。
+- 并行上限 2-3 路（审查与冲突成本随路数上升）；worktree 是 git 内置能力，与 ADR-0008 的 D2"插件自我开发"边界无关——后者指插件运行时的自托管能力，此处是开发流程的标准 git 隔离。
+
 ## 3. 提交与本地门禁
 
 - Conventional Commits：`feat|fix|docs|chore|refactor|test(scope): 摘要`，正文写“为什么”。
@@ -30,7 +61,7 @@ pnpm verify:gate-a   # 官方 remote + 两个参考仓库 pin 联网核验
 
 1. 推送分支 → `gh pr create --base main`（模板自动加载，逐项勾选）。
 2. CI（`.github/workflows/verify.yml`：参考 pin 核验 + 官方证据 + 完整 verify + Gate A 联网核验 + 覆盖率）必须绿。
-3. 审查通过后 `gh pr merge --rebase --delete-branch`。
+3. 审查通过后用**双绿守卫合并**：`node scripts/merge-guard.mjs <pr>`——它会轮询到全部 check 终态、要求零失败且至少一 pass 才执行 rebase 合并（私有仓库免费版无 required checks，守卫把"双绿才合"从纪律变成机制；禁止裸 `gh pr merge`）。
 4. PR 描述用 `Closes #N` 链接 issue，合并即自动关闭并推进里程碑。
 
 ## 5. Issue / 里程碑 / 标签体系

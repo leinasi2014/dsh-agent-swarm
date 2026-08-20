@@ -36,6 +36,7 @@ const required = [
   'docs/adr/0008-self-hosting-dogfood-control-plane.md',
   'scripts/verify-official-baseline.mjs',
   'scripts/verify-reference-baselines.mjs',
+  'scripts/merge-guard.mjs',
   'scripts/sync-official-evidence.ps1',
   'ref/dsh-agent-teams/SOURCE_POINTER.json',
   'ref/dsh-agent-teams/sync-reference.ps1',

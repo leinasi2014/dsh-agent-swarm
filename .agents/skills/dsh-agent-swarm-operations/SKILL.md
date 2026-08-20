@@ -88,6 +88,11 @@ gh run list --limit 5 && gh run view <id> --log-failed | tail -30
 12. **lefthook staged lint 全被 ignore 时报错**：加 `--no-error-on-unmatched-pattern`。
 13. **并发会话冲突**：动手前查 `~/.dsh/sessions/--D-Source--/` mtime 判断 DSH RPC 会话是否活跃；用户的 web UI host（3080 端口）不经确认绝不终止。
 14. **PR/issue 编号共用一个序列**：issue 3-8 之后 PR 从 9 开始，引用时先查再写。
+15. **双绿险情（两起）**：PR #11 在一条 run 失败时被合入（main 带病、暴露真实竞态）；PR #30 在 pending 时合入（结果绿）。根因：私有仓库免费版无 required checks + 人工核对靠记忆。规则：**合并一律走 `node scripts/merge-guard.mjs <pr>`**（机制化双绿守卫），不再裸 `gh pr merge`；根治待 GitHub Pro/转公开后配置 required checks。
+16. **热上游不追提交**：jiuwenswarm 当日移动 4+ 次，逐提交 chase 一败再败。规则：Gate C 对热上游按**累计 diff 一次性审**（旧 pin → 最新 HEAD），审毕 pin 最新已审头（docs/09 有先例叙事）。
+17. **绿灯 ≠ 正确（race/timeout 类）**：#13 的 boundedSettle 超时构造 bug（resolve/reject 命名颠倒）是绿灯通过的。规则：PM 审查 race/timeout 类 diff 必须**专看败者路径**——losing promise 的 rejection 是否被观察、超时分支是否真的 reject。
+18. **gh TLS 超时的幂等处置**：合并类命令失败后**先查实际状态再重试**（PR #29 合并已成功但删分支失败，盲目重试会双合并）。
+19. **worktree 并行开发模式（2026-08-20 启用）**：主树 = PM 专属（停 main，做审查/治理/合并），每个实现任务一个 `git worktree`（独立目录/分支/依赖/refs）。速度 2-3 倍且零树竞争。规范全文见 CONTRIBUTING §2a；上限 2-3 路，合并保持串行。
 
 ## 七、定时更新协议（本 Skill 的自我维护）
 
