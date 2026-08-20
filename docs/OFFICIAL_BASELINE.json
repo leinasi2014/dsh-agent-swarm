@@ -12,7 +12,8 @@
     ".agents/notes/implemented/architecture/2026-07-26-job-registry-seam.md",
     ".agents/notes/implemented/feature/2026-06-24-workspace-context.md",
     "packages/storage/storage-domain/README.md",
-    "packages/experimental/agent-team/README.md"
+    "packages/experimental/agent-team/README.md",
+    "packages/experimental/agent-team/src/mailbox.ts"
   ],
   "packages": [
     {
