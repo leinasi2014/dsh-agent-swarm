@@ -28,6 +28,7 @@ const required = [
   'docs/11-official-first-development.md',
   'docs/12-independent-review-management.md',
   'docs/13-self-hosting-dogfood.md',
+  'docs/GOALS.md',
   'docs/OFFICIAL_BASELINE.json',
   'docs/adr/0005-official-first-pure-plugin-integration.md',
   'docs/adr/0006-independent-reviewer-autonomy.md',
@@ -124,6 +125,7 @@ for (const [file, phrases] of [
   ['docs/07-implementation-roadmap.md', ['Gate A', 'Official-first']],
   ['docs/12-independent-review-management.md', ['Reviewer autonomy', 'Project-manager boundary']],
   ['docs/13-self-hosting-dogfood.md', ['stable control Profile', 'acceptance Profile', 'ADR-0008']],
+  ['docs/GOALS.md', ['总目标', '当前开发目标', '下一个目标']],
   ['.agents/skills/dsh-plugin-development/SKILL.md', ['official-first compatibility gate', 'docs/11-official-first-development.md']],
   ['.agents/skills/dsh-agent-swarm-operations/SKILL.md', ['当前状态快照', '经验教训库', '定时更新协议', 'CONTRIBUTING']],
 ]) {

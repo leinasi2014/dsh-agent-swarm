@@ -116,3 +116,34 @@ The two reference repositories are both present and pinned, but their strengths 
 - no stable-control/candidate-acceptance self-hosting pipeline is implemented; D0-D4 remain roadmap readiness labels.
 
 The detailed evidence and conflict matrix are in `10-fusion-audit.md`.
+
+## 7. 2026-08-20 three-source inventory delta (new findings beyond the tables above)
+
+Verified against the pinned checkouts (`141eb6f` / `801954d` / `20097e8`); each item cites its source file. These feed the milestone placements recorded in `10-fusion-audit.md` §11.
+
+### 7.1 Official DSH — Agent Teams semantic details beyond the known surface
+
+- Target-side de-duplication mechanism: `TeamMessageSource` (kind/teamId/messageId/senderName) merged into the dsh-llm `MessageSourceMap` via declaration merging (`packages/experimental/agent-team/src/types.ts:110-122`); delivery folds the target's live or persisted inbox/history (including `agent/inbox/spliced` projections, `src/session-message.ts:9-31`) and acknowledges without resend when already present — the M1B/F2 implementation template.
+- Receipt ordering: the `team/message/delivered` receipt flushes the target Session before the Lead log is written; dispatch registration happens inside the durable transaction so concurrent senders serialize per target in durable queue order (`src/mailbox.ts:141-148, 279-305`).
+- quiet/wakeup: quiet messages may overtake an earlier active dispatch in order (`messagePrecedes`, `src/mailbox.ts:190-196`); an inactive target's quiet message stays queued forever and is skipped by Lead recovery (`src/mailbox.ts:250-253, 84-98`).
+- Limit semantics: `maxMembers=8` counts every ever-provisioned name (never reusable), `maxTasks=256` counts only undeleted tasks, `maxMessageBytes=65536` covers the complete framed delivery (`src/index.ts:41-65`).
+- `waitForChange`: 10s–1h window, `{timedOut}` single-value contract, never replays edges that already happened, `TEAM_WAIT_ABORTED` structured cancellation (`src/activity.ts:22-86`).
+- Lead-only `interrupt` is keepInbox: cancels the current turn without releasing task ownership or deleting durable mail (`src/roster.ts:203-214`).
+- Task board: 8 CAS actions (claim/release/edit/set_dependencies/complete/reopen/reassign[Lead-only]/delete-with-tombstone) plus `TEAM_TASK_HAS_DEPENDENTS` delete protection (`src/task-board.ts:176-202`); `task-<n>` exhaustion is loud (`TEAM_TASK_LIMIT`).
+- `./invariant` companion plugin validates candidate Team events pre-append against the committed prefix through the package-level `ctx.invariants` registry (`src/invariant.ts:16-35`).
+- Tool layer model experience: `wait_agent` returns an immediate `noProgress` short-circuit when no peer is active; `team_task_list` supports status/owner/ready filters with cursor pagination; every tool declares a full output schema rendered compactly (`packages/experimental/tool-agent-team/src/index.ts:134-387`).
+- Explicitly deleted surfaces (negative boundary, simplification note 2026-08-12): `TeamSnapshot`, global revision, `team/changed` events and snapshot timestamps do not exist officially; this plugin's revision CAS is an intentional superset and must be mapped by the future official adapter.
+
+### 7.2 dsh-agent-teams — behavior beyond the §2 tables
+
+- `/agent-teams` deterministic activation: closed-namespace command via `ctx.commands` plus a `agent/pre-step` waterfall gesture boundary that only honors a leading, whitespace-bounded token in genuine `source.kind === 'user'` turns (`src/command.ts:54, 99-149`); `slashCommand: false` disables both.
+- HTTP/command face: `GET /plugins/dsh-agent-teams/state` (exact, `?archived=1`) and an allowlisted assets route; web services are discovered lazily across `webServer|httpServer` renames with `internal/service` retries so headless profiles stay tool-only (`src/index.ts:159-248`).
+- `steerCaptainReport`: member reports are injected at the captain's latest model boundary via `Agent.steer()`, falling back to the mailbox; `agent_teams_send_message` returns a three-state `delivered: 'live' | 'wake' | 'mailbox'` (`src/tools.ts:206-217, 843`).
+- Member LLM selection: `reasoningEffort` inheritance (same route inherits the captain's current effort; changed route omits it; explicit wins; `"default"` forces the target default) validated through `ctx.llm.resolveCallConfig` before child creation (`src/members.ts:124-185`); cold-resume resolves the `agent-teams:<teamId>:<memberName>` label against the saved descriptor and fails loud on route mismatch (`src/members.ts:194-254`).
+- Retired-member guard: `ctx.subagents.listChildren/listDescendants/followup` are wrapped so retired ids disappear from catalogs and `followup` throws `NOT_RESUMABLE` (`src/members.ts:426-467`).
+- Scheduler discipline: per-member serial queues deliver **mailbox backlog before new assignments**; rollback of a failed dispatch is CAS-guarded on the attempt id; an idle member still holding an open task is retried under a fresh attempt (`src/scheduler.ts:139-234`).
+- Unicode member keys: NFC normalization plus `\p{L}\p{N}` whitelist (non-Latin names stay distinct), 48-codepoint cap with digest suffix (`src/state.ts:52-87`).
+- Session-event vocabulary degrades gracefully: host-unknown event types are silently omitted (debug-once per type) while disk stays authoritative (`src/events.ts`).
+- Protocol guards: one captain one team **and** one participant one team; claim authorization is checked before idempotent returns; captains cannot directly update member-held tasks; reassign is double-guarded (reassigning flag + handoff CAS); terminal tasks are idempotent-immutable (`src/tools.ts:596-837`).
+- Verification corpus: `scripts/{verify,lifecycle-verify,stress-verify}.mjs` enumerate ~60 named fault scenarios (gesture forging, cold restart with open tasks, 50 late writes, claim storms, archive三代, Windows real file-lock retries) — reference material for M1B/M1D fault suites and the M1D regression review.
+- Packaging contract for the eventual public release: all peerDependencies optional, client bundle purity gates (no `@deepseek-ai/*` value imports outside platform modules), OIDC npm publish, skills dual-directory sync check (`scripts/verify.mjs` §1, `.github/workflows/publish.yml`).

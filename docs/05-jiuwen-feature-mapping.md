@@ -96,3 +96,50 @@ Borrow the separation, not the exact ZMQ implementation:
 - Data plane: tasks, messages, outputs, budget and durable status.
 
 DSH Providers may use SDK, ACP, Redis Streams, gRPC or another transport. The Service contract must not name one transport.
+
+## 7. 2026-08-20 inventory additions
+
+Newly verified capabilities (source files under `ref/jiuwenswarm/source/jiuwenswarm/`), mapped to this plugin's milestone plan or explicitly not adopted.
+
+### 7.1 Adopted as requirements or reference patterns
+
+| Capability | Source | Placement |
+|---|---|---|
+| Agent loop circuit breaker (generic_repeat / unknown_tool_repeat / ping_pong / global, WARNING/CRITICAL dual thresholds) | `agents/harness/common/rails/execution_guard/circuit_breaker_rail.py` | M5 fault-containment Provider (AGENTS.md rule 15's retry-loop detection) |
+| Memory write masking for secrets/PII (including Chinese natural language and Markdown table shapes) | `agents/harness/common/memory/forbidden.py` | M7 mandatory memory security requirement |
+| Hybrid memory retrieval (SQLite FTS + vector + embedding cache) and background "dreaming" compaction/promotion (30-day/10-session/5-promotion bounds) | `agents/harness/common/memory/manager.py`, `memory/dreaming/sweeper.py` | post-M7 optional enhancement; not M7 scope |
+| Symphony progressive tree skill indexing/retrieval, capability fingerprints, versioned graph storage, plan.outcome learning with failure attribution | `symphony/{indexing,retrieval,evolution}` | reference only; M7 consumes official skill seams first |
+| A2X HTTP registry client (reservation envelope, ownership file lock, schema-versioned atomic rewrite) | `agents/harness/team/a2x/` | M8 distributed reservation/ACK reference |
+| Session-event graceful degradation (host-unknown types omitted, disk authoritative) | ref/dsh-agent-teams `src/events.ts` | M8 observability consumer pattern |
+| Heartbeat liveness (HEARTBEAT.md protocol, active_hours) | `gateway/heartbeat/heartbeat.py` | M8 liveness evidence idea for dogfood |
+| Trajectory/debug observability (span processors, subagent capture) | `server/runtime/debug_trace`, har
+
+## 7. 2026-08-20 inventory additions
+
+Newly verified capabilities (source files under `ref/jiuwenswarm/source/jiuwenswarm/`), mapped to this plugin's milestone plan or explicitly not adopted.
+
+### 7.1 Adopted as requirements or reference patterns
+
+| Capability | Source | Placement |
+|---|---|---|
+| Agent loop circuit breaker (generic_repeat / unknown_tool_repeat / ping_pong / global, WARNING/CRITICAL dual thresholds) | `agents/harness/common/rails/execution_guard/circuit_breaker_rail.py` | M5 fault-containment Provider (AGENTS.md rule 15's retry-loop detection) |
+| Memory write masking for secrets/PII (including Chinese natural language and Markdown table shapes) | `agents/harness/common/memory/forbidden.py` | M7 mandatory memory security requirement |
+| Hybrid memory retrieval (SQLite FTS + vector + embedding cache) and background "dreaming" compaction/promotion (30-day/10-session/5-promotion bounds) | `agents/harness/common/memory/manager.py`, `memory/dreaming/sweeper.py` | post-M7 optional enhancement; not M7 scope |
+| Symphony progressive tree skill indexing/retrieval, capability fingerprints, versioned graph storage, plan.outcome learning with failure attribution | `symphony/{indexing,retrieval,evolution}` | reference only; M7 consumes official skill seams first |
+| A2X HTTP registry client (reservation envelope, ownership file lock, schema-versioned atomic rewrite) | `agents/harness/team/a2x/` | M8 distributed reservation/ACK reference |
+| Session-event graceful degradation (host-unknown types omitted, disk authoritative) | ref/dsh-agent-teams `src/events.ts` | M8 observability consumer pattern |
+| Heartbeat liveness (HEARTBEAT.md protocol, active_hours) | `gateway/heartbeat/heartbeat.py` | M8 liveness evidence idea for dogfood |
+| Trajectory/debug observability (span processors, subagent capture) | `server/runtime/debug_trace`, harness `agent_observability.py` | M8 observability projections |
+| Human team membership via IM (/join seat claiming, GODVIEW/MEMBER roles, $-mention) | `gateway/routing/session_sharing.py` | optional M9 client roles note; official questions/approval remain the M5 seam |
+
+### 7.2 Not adopted (recorded to prevent re-litigation)
+
+| Capability | Reason |
+|---|---|
+| Nine IM channel adapters, attachments pipeline, proactive recommendation engine, eternal-conversation background agents, AutoHarness, GitCode issue auto-fix, video/image/phone toolkits | product domain outside `docs/00` scope; nothing is embedded from the Jiuwen runtime |
+| KV-cache affinity lifecycle (Ascend evict/offload/prefetch, task guard) | host/hardware infrastructure, not a plugin layer; official tokenMeter owns the measurement surface |
+| Self-updater and multi-instance manager | conflicts with ADR-0008: promotion must stay with an external stable controller; a running plugin never updates itself |
+| Turn-level undo/redo, session fork/rewind/state-copy | official Sessions/fork + the Session log already own this domain |
+| MCP runtime and tool ownership model | official mcp-client package already provides it |
+| Monetary budgets | the reference has none either (only `swarmflow_budget` and WS byte limits) — M4 stays token/request/retry/deadline plus the tokenMeter adapter |
+| E2A envelope / A2A bidirectional protocol stacks | remote-agent interop arrives through official subagent providers (ACP/codex/claude-code) in M6, not a parallel transport |
