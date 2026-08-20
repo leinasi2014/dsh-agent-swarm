@@ -40,7 +40,28 @@ const required = [
   'ref/jiuwenswarm/SOURCE_POINTER.json',
   'ref/jiuwenswarm/sync-reference.ps1',
   '.agents/skills/dsh-plugin-development/SKILL.md',
+  '.gitattributes',
+  '.editorconfig',
+  '.oxlintrc.json',
+  '.jscpd.json',
+  'knip.json',
+  'src/runtime/authority.ts',
+  'src/runtime/providers.ts',
+  'src/runtime/prompts.ts',
+  'src/runtime/usage-accounting.ts',
+  'src/runtime/message-delivery.ts',
+  'src/runtime/member-provisioning.ts',
 ]
+
+// Engineering guardrail: one source file may not exceed this line count
+// unless an exception below records why and which milestone retires it.
+const SRC_FILE_LINE_LIMIT = 600
+const SRC_FILE_LINE_LIMIT_EXCEPTIONS = new Map([
+  ['src/domain/team-domain.ts', {
+    reason: 'protocol core (roster/task/mailbox/budget/memory in one aggregate); splits with the M1B mailbox-retention restructuring',
+    due: 'M1B',
+  }],
+])
 
 const failures = []
 for (const item of required) {
@@ -56,6 +77,10 @@ try {
   if (pkg.name !== 'dsh-agent-swarm') failures.push('package.json: unexpected package name')
   if (pkg.dsh?.bundle?.patch !== './cordis.patch.yml') failures.push('package.json: missing dsh.bundle.patch')
   if (pkg.type !== 'module') failures.push('package.json: ESM type is required')
+  if (typeof pkg.packageManager !== 'string' || !pkg.packageManager.startsWith('pnpm@')) failures.push('package.json: packageManager must pin a pnpm version')
+  if (!String(pkg.scripts?.verify ?? '').includes('pnpm lint')) failures.push('package.json: verify chain must include the lint gate')
+  if (!String(pkg.scripts?.verify ?? '').includes('pnpm verify:duplication')) failures.push('package.json: verify chain must include the duplication gate')
+  if (!String(pkg.scripts?.verify ?? '').includes('pnpm verify:exports')) failures.push('package.json: verify chain must include the dead-export gate')
   if (pkg.files?.some(item => item === 'ref' || item.startsWith('ref/'))) failures.push('package.json: ref must not be published')
 } catch (error) {
   failures.push(`package.json: ${String(error)}`)
@@ -115,7 +140,15 @@ async function walk(dir) {
       await walk(path)
       continue
     }
-    const rel = relative(root, path)
+    const rel = relative(root, path).replaceAll('\\', '/')
+    if (/^(src|scripts|tests)\/.*\.ts$/.test(rel)) {
+      const content = await readFile(path, 'utf8')
+      const lines = content.split('\n').length
+      const exception = SRC_FILE_LINE_LIMIT_EXCEPTIONS.get(rel)
+      if (lines > SRC_FILE_LINE_LIMIT && exception === undefined) {
+        failures.push(`${rel}: ${lines} lines exceeds the ${SRC_FILE_LINE_LIMIT}-line source limit; split it or register a reasoned exception`)
+      }
+    }
     if (!/\.(md|json|ya?ml|ts|mjs|ps1|sh)$/.test(name)) continue
     const content = await readFile(path, 'utf8')
     if (content.includes('\uFFFD')) failures.push(`${rel}: invalid UTF-8 replacement character`)
@@ -129,5 +162,5 @@ if (failures.length > 0) {
   for (const failure of failures) console.error(`- ${failure}`)
   process.exitCode = 1
 } else {
-  console.log('Project structure, pinned clean references, manifests, Skill sections, UTF-8, and trailing newlines: PASS')
+  console.log('Project structure, pinned clean references, manifests, engineering gates, source size limits, UTF-8, and trailing newlines: PASS')
 }

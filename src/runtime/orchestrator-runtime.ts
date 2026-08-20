@@ -1,18 +1,34 @@
-import { randomUUID } from 'node:crypto'
+/**
+ * DSH-facing Team orchestrator.
+ *
+ * Composes the framework-neutral Team domain with continuable subagents and
+ * the official Storage Domain. This class owns lifecycle, the Provider
+ * registries, the scheduling pass and tool-facing operations; provisioning,
+ * mailbox delivery and token accounting live in dedicated collaborators.
+ */
 import { resolve } from 'node:path'
 import { Service, type Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { TokenUsage } from '@deepseek-ai/dsh-llm'
 import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-storage-domain'
 import type {} from '@deepseek-ai/dsh-subagent'
-import { TaskId, TeamId, TeamMessageId, type AttemptId, type TaskAttempt, type TeamLimits, type TeamMessage, type TeamState, type TeamTask } from '../domain/types.js'
+import { TaskId, type AttemptId, type TeamId, type TeamLimits, type TeamMessage, type TeamState, type TeamTask } from '../domain/types.js'
 import { TeamDomain } from '../domain/team-domain.js'
 import type { CreateTaskInput, TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import { TeamDomainError } from '../domain/error.js'
 import { StorageDomainTeamStore } from '../storage/storage-domain-team-store.js'
 import { teamDomainSpec } from '../storage/team-spec.js'
 import type { Domain } from '@deepseek-ai/dsh-storage-domain'
+import { expectDomainTimeout, requireAgent, workspaceOf, type ToolExecutionAuthority } from './authority.js'
+import { MemberProvisioner } from './member-provisioning.js'
+import { MessageDelivery } from './message-delivery.js'
+import { assignmentPrompt } from './prompts.js'
+import { manualReview, priorityReadyScheduler, type ReviewProviderInput, type ReviewProviderResult, type SchedulerDecision, type SchedulerSelectionInput, type TeamReviewProvider, type TeamSchedulerProvider } from './providers.js'
+import { UsageAccountant } from './usage-accounting.js'
+import type { TaskAttempt } from '../domain/types.js'
+
+export type { ToolExecutionAuthority }
+export type { ReviewProviderInput, ReviewProviderResult, SchedulerDecision, SchedulerSelectionInput, TeamReviewProvider, TeamSchedulerProvider }
 
 export interface RuntimeConfig {
   readonly memberProvider: string
@@ -23,107 +39,11 @@ export interface RuntimeConfig {
   readonly limits: TeamLimits
 }
 
-export interface ToolExecutionAuthority {
-  readonly agent?: Agent
-  readonly signal: AbortSignal
-}
-
-export interface SchedulerSelectionInput {
-  readonly team: TeamState
-  readonly readyTasks: readonly TeamTask[]
-  readonly availableMembers: readonly TeamState['members'][number][]
-}
-
-export interface SchedulerDecision {
-  readonly taskId: string
-  readonly memberSessionId: string
-}
-
-export interface TeamSchedulerProvider {
-  select(input: SchedulerSelectionInput): readonly SchedulerDecision[] | Promise<readonly SchedulerDecision[]>
-}
-
-export interface ReviewProviderInput {
-  readonly captain: Agent
-  readonly workspace: string
-  readonly team: TeamState
-  readonly task: TeamTask
-  readonly attempt: TaskAttempt
-  readonly requestedDecision: 'accept' | 'reject'
-  readonly diagnostic?: string
-  readonly signal: AbortSignal
-}
-
-export interface ReviewProviderResult {
-  readonly decision: 'accept' | 'reject'
-  readonly diagnostic?: string
-}
-
-export interface TeamReviewProvider {
-  review(input: ReviewProviderInput): ReviewProviderResult | Promise<ReviewProviderResult>
-}
-
 declare module '@deepseek-ai/cordis' {
   interface Context {
     /** Authoritative host API; model tools are only one Consumer. */
     agentSwarm: AgentSwarmRuntime
   }
-}
-
-const CAPTAIN_ONLY_TOOLS = [
-  'agent_swarm_create',
-  'agent_swarm_add_member',
-  'agent_swarm_remove_member',
-  'agent_swarm_archive',
-  'agent_swarm_reassign_task',
-  'agent_swarm_review_task',
-  'agent_swarm_set_budget',
-] as const
-
-function requireAgent(exec: ToolExecutionAuthority): Agent {
-  if (exec.agent === undefined) {
-    throw new TeamDomainError('Team tools require an Agent-backed DSH session', 'TEAM_AGENT_REQUIRED')
-  }
-  return exec.agent
-}
-
-function workspaceOf(agent: Agent): string {
-  return agent.session.header.cwd ?? process.cwd()
-}
-
-function expectDomainTimeout(value: number): void {
-  if (!Number.isSafeInteger(value) || value < 1 || value > 300_000) {
-    throw new TeamDomainError('timeout_ms must be a safe integer from 1 to 300000', 'TEAM_INPUT_INVALID')
-  }
-}
-
-function billedTokens(usage: TokenUsage): number {
-  return usage.inputTokens
-    + usage.outputTokens
-    + (usage.cacheReadTokens ?? 0)
-    + (usage.cacheWriteTokens ?? 0)
-}
-
-function assignmentPrompt(team: TeamState, task: TeamTask, attemptId: AttemptId): string {
-  const criteria = task.acceptanceCriteria.length === 0
-    ? '- Follow the task description and provide concrete evidence.'
-    : task.acceptanceCriteria.map(value => `- ${value}`).join('\n')
-  return `Team assignment from captain.
-
-Team: ${team.name} (${team.id})
-Task: ${task.subject} (${task.id}, revision ${task.revision})
-Attempt capability: ${attemptId}
-Description: ${task.description}
-Acceptance criteria:
-${criteria}
-
-Work only on this current attempt. When finished, call agent_swarm_submit_task with task_id=${task.id}, expected_revision=${task.revision}, and attempt_id=${attemptId}. Submission is not completion: the captain review gate accepts or rejects it. If the tool reports TEAM_ATTEMPT_STALE, stop immediately because ownership changed.`
-}
-
-function memberPersona(team: TeamState, name: string, role: string): string {
-  return `You are ${name}, an implementation member of the DSH team "${team.name}". Your role is: ${role}.
-
-Use the agent_swarm_* tools for all Team state; the authoritative Team aggregate lives in the host storage domain, outside this workspace, and is only reachable through those tools. Work on only one assigned attempt at a time. Preserve the exact task revision and attempt id supplied in the assignment. Submit output plus evidence, message the captain when blocked, and stop immediately on a stale-attempt error. You may create dependency-aware tasks and communicate with peers, but captain-only administration and review tools are intentionally hidden.`
 }
 
 /** DSH-facing runtime that composes the framework-neutral domain with continuable subagents. */
@@ -133,12 +53,12 @@ export class AgentSwarmRuntime extends Service {
   private domainHandle?: Domain<typeof teamDomainSpec>
   private startPromise?: Promise<void>
   private readonly scheduling = new Map<string, Promise<void>>()
-  private readonly usageAccounting = new Map<string, Promise<void>>()
-  private readonly messageDeliveries = new Map<string, Promise<TeamMessage | undefined>>()
   private readonly schedulerProviders = new Map<string, TeamSchedulerProvider>()
   private readonly reviewProviders = new Map<string, TeamReviewProvider>()
   private readonly ownedChildren = new Map<string, Set<string>>()
-  private readonly memberOperations = new Set<Promise<void>>()
+  private readonly usage: UsageAccountant
+  private readonly delivery: MessageDelivery
+  private readonly provisioning: MemberProvisioner
   private closing = false
 
   constructor(
@@ -146,17 +66,25 @@ export class AgentSwarmRuntime extends Service {
     readonly config: RuntimeConfig,
   ) {
     super(ctx, 'agentSwarm')
-    this.schedulerProviders.set('priority-ready', {
-      select: ({ readyTasks, availableMembers }) => availableMembers.flatMap((member, index) => {
-        const task = readyTasks[index]
-        return task === undefined ? [] : [{ taskId: task.id, memberSessionId: member.sessionId }]
-      }),
+    this.schedulerProviders.set('priority-ready', priorityReadyScheduler())
+    this.reviewProviders.set('manual', manualReview())
+    this.usage = new UsageAccountant(ctx, { domain: () => this.domain, isClosing: () => this.closing })
+    this.delivery = new MessageDelivery(ctx, {
+      domain: () => this.domain,
+      isClosing: () => this.closing,
+      scopeOf: agent => this.scopeOf(agent),
+      accountAgentUsage: (scope, teamId, agent) => this.usage.accountAgentUsage(scope, teamId, agent),
     })
-    this.reviewProviders.set('manual', {
-      review: input => ({
-        decision: input.requestedDecision,
-        ...(input.diagnostic === undefined ? {} : { diagnostic: input.diagnostic }),
-      }),
+    this.provisioning = new MemberProvisioner(ctx, {
+      domain: () => this.domain,
+      config,
+      scopeOf: agent => this.scopeOf(agent),
+      trackChild: (captain, childId) => this.trackChild(captain, childId),
+      afterActivation: async (scope, teamId, captain, childId) => {
+        const child = this.ctx.agents.get(childId)
+        if (child !== undefined) await this.usage.accountAgentUsage(scope, teamId, child)
+        this.requestSchedule(scope, teamId, captain)
+      },
     })
   }
 
@@ -241,95 +169,7 @@ export class AgentSwarmRuntime extends Service {
   ): Promise<TeamState['members'][number]> {
     await this.ensureReady()
     this.assertOpen()
-    let completeOperation!: () => void
-    const operation = new Promise<void>(settle => { completeOperation = settle })
-    this.memberOperations.add(operation)
-    try {
-      const captain = requireAgent(exec)
-      const scope = this.scopeOf(captain)
-      const membership = await this.domain.requireMembership(scope, captain.id)
-      if (membership.role !== 'captain') throw new TeamDomainError('only the captain can add members', 'TEAM_CAPTAIN_REQUIRED')
-
-      const providerName = input.provider ?? this.config.memberProvider
-      const provider = this.ctx.subagents.getProvider(providerName)
-      if (provider === undefined) {
-        throw new TeamDomainError(
-          `subagent provider "${providerName}" is unavailable; registered providers: ${this.ctx.subagents.list().join(', ') || 'none'}`,
-          'TEAM_MEMBER_PROVIDER_MISSING',
-        )
-      }
-      if (provider.prepareContinuable === undefined) {
-        throw new TeamDomainError(`subagent provider "${providerName}" is not continuable`, 'TEAM_MEMBER_PROVIDER_INCOMPATIBLE')
-      }
-      if (!provider.capabilities.persona || !provider.capabilities.toolFilter) {
-        throw new TeamDomainError(
-          `subagent provider "${providerName}" must support persona and toolFilter`,
-          'TEAM_MEMBER_PROVIDER_INCOMPATIBLE',
-        )
-      }
-
-      const childId = SessionId(randomUUID())
-      const provisioning = await this.domain.provisionMember(scope, membership.team.id, captain.id, {
-        name: input.name,
-        role: input.role,
-        sessionId: childId,
-        provider: providerName,
-      })
-      try {
-        await this.ctx.subagents.startContinuable({
-          provider: providerName,
-          label: `agent-swarm:${membership.team.id}:${provisioning.name}`,
-          childId,
-          request: {
-            prompt: [{ type: 'text', text: `You joined Team "${membership.team.name}". Wait for a task assignment.` }],
-            parent: captain,
-            persona: memberPersona(membership.team, provisioning.name, provisioning.role),
-            toolFilter: { deny: [...CAPTAIN_ONLY_TOOLS] },
-            agentOptions: {
-              ...(captain.options.provider === undefined ? {} : { provider: captain.options.provider }),
-              ...(input.model ?? this.config.memberModel ?? captain.options.model) === undefined
-                ? {}
-                : { model: input.model ?? this.config.memberModel ?? captain.options.model },
-            },
-            maxDepth: this.config.memberMaxDepth,
-          },
-          signal: exec.signal,
-        })
-      } catch (error) {
-        await this.domain.settleMember(scope, membership.team.id, childId, {
-          active: false,
-          error: error instanceof Error ? error.message : String(error),
-        })
-        throw error
-      }
-
-      try {
-        const active = await this.domain.settleMember(scope, membership.team.id, childId, { active: true })
-        this.trackChild(captain, childId)
-        const child = this.ctx.agents.get(childId)
-        if (child !== undefined) await this.accountAgentUsage(scope, membership.team.id, child)
-        this.requestSchedule(scope, membership.team.id, captain)
-        return active
-      } catch (error) {
-        await this.domain.settleMember(scope, membership.team.id, childId, {
-          active: false,
-          error: `member activation did not commit: ${error instanceof Error ? error.message : String(error)}`,
-        }).catch(settleError => {
-          this.ctx.logger.warn(`agent-swarm: failed to settle uncommitted child ${childId}: ${String(settleError)}`)
-        })
-        let drained = false
-        await this.ctx.subagents.drainContinuableChildren(captain, [childId]).then(() => {
-          drained = true
-        }).catch(drainError => {
-          this.ctx.logger.warn(`agent-swarm: failed to drain uncommitted child ${childId}: ${String(drainError)}`)
-        })
-        if (!drained) this.trackChild(captain, childId)
-        throw error
-      }
-    } finally {
-      completeOperation()
-      this.memberOperations.delete(operation)
-    }
+    return await this.provisioning.addMember(exec, input)
   }
 
   async createTask(exec: ToolExecutionAuthority, input: CreateTaskInput): Promise<TeamTask> {
@@ -479,7 +319,7 @@ export class AgentSwarmRuntime extends Service {
     )
     const captain = this.ctx.agents.get(SessionId(membership.team.captainSessionId))
     if (captain === undefined) return message
-    return await this.deliverQueuedMessage(scope, membership.team.id, captain, message.id, exec.signal) ?? message
+    return await this.delivery.deliverQueuedMessage(scope, membership.team.id, captain, message.id, exec.signal) ?? message
   }
 
   async status(exec: ToolExecutionAuthority) {
@@ -574,21 +414,7 @@ export class AgentSwarmRuntime extends Service {
   }
 
   observeSessionEvent(session: Session, event: SessionEvent): void {
-    if (this.closing || event.type !== 'assistant/message' || event.data.usage === undefined) return
-    const tokens = billedTokens(event.data.usage)
-    const scope = resolve(session.header.cwd ?? process.cwd())
-    const key = `${scope}\0${session.id}`
-    const previous = this.usageAccounting.get(key) ?? Promise.resolve()
-    const next = previous.then(async () => {
-      const membership = await this.domain.findMembership(scope, session.id)
-      if (membership === undefined) return
-      await this.domain.recordSessionUsage(scope, membership.team.id, session.id, event.seq, tokens)
-    }).catch(error => {
-      if (!this.closing) this.ctx.logger.warn(`agent-swarm: token accounting failed: ${String(error)}`)
-    }).finally(() => {
-      if (this.usageAccounting.get(key) === next) this.usageAccounting.delete(key)
-    })
-    this.usageAccounting.set(key, next)
+    this.usage.observeSessionEvent(session, event)
   }
 
   private requestSchedule(scope: TeamScope, teamId: TeamId, captain: Agent): void {
@@ -611,7 +437,7 @@ export class AgentSwarmRuntime extends Service {
     const hadQueuedMail = snapshot.pendingMessageIds.length > 0
     for (const messageId of snapshot.pendingMessageIds) {
       if (this.closing) return
-      await this.deliverQueuedMessage(scope, teamId, captain, messageId, AbortSignal.timeout(30_000))
+      await this.delivery.deliverQueuedMessage(scope, teamId, captain, messageId, AbortSignal.timeout(30_000))
     }
     if (hadQueuedMail) snapshot = await this.domain.snapshot(scope, teamId, captain.id)
 
@@ -679,7 +505,7 @@ export class AgentSwarmRuntime extends Service {
         { source: { kind: 'plugin', plugin: 'dsh-agent-swarm' }, signal: AbortSignal.timeout(30_000) },
       )
       const member = this.ctx.agents.get(SessionId(attempt.memberSessionId))
-      if (member !== undefined) await this.accountAgentUsage(scope, team.id, member)
+      if (member !== undefined) await this.usage.accountAgentUsage(scope, team.id, member)
       await this.domain.acknowledgeAssignment(scope, team.id, task.id, task.revision, attempt.id)
     } catch (error) {
       await this.domain.cancelAttempt(
@@ -695,67 +521,6 @@ export class AgentSwarmRuntime extends Service {
     }
   }
 
-  private async deliverMessage(
-    team: TeamState,
-    sender: Agent,
-    message: TeamMessage,
-    signal: AbortSignal,
-  ): Promise<boolean> {
-    try {
-      if (message.targetSessionId === team.captainSessionId && sender.id !== team.captainSessionId) {
-        await this.ctx.subagents.reportFrom(sender, [{ type: 'text', text: message.content }], {
-          delivery: message.delivery === 'quiet' ? 'quiet' : 'next-step',
-          signal,
-        })
-        return true
-      }
-      const captain = sender.id === team.captainSessionId
-        ? sender
-        : this.ctx.agents.get(SessionId(team.captainSessionId))
-      if (captain === undefined) return false
-      await this.ctx.subagents.followup(
-        captain,
-        SessionId(message.targetSessionId),
-        [{ type: 'text', text: `Team message ${message.id} from ${message.senderName}:\n${message.content}` }],
-        { source: { kind: 'plugin', plugin: 'dsh-agent-swarm' }, signal },
-      )
-      const target = this.ctx.agents.get(SessionId(message.targetSessionId))
-      if (target !== undefined) await this.accountAgentUsage(this.scopeOf(captain), team.id, target)
-      return true
-    } catch (error) {
-      this.ctx.logger.warn(`agent-swarm: message ${message.id} remains queued: ${String(error)}`)
-      return false
-    }
-  }
-
-  private async deliverQueuedMessage(
-    scope: TeamScope,
-    teamId: TeamId,
-    captain: Agent,
-    messageId: TeamMessageId,
-    signal: AbortSignal,
-  ): Promise<TeamMessage | undefined> {
-    const key = `${scope}\0${teamId}\0${messageId}`
-    const previous = this.messageDeliveries.get(key) ?? Promise.resolve(undefined)
-    const next = previous.then(async () => {
-      if (this.closing) return undefined
-      const snapshot = await this.domain.snapshot(scope, teamId, captain.id)
-      const message = snapshot.team.messages.find(candidate => candidate.id === messageId)
-      if (message === undefined || message.phase !== 'queued') return message
-      const sender = message.senderSessionId === captain.id
-        ? captain
-        : this.ctx.agents.get(SessionId(message.senderSessionId))
-      if (sender === undefined && message.targetSessionId === captain.id) return undefined
-      const delivered = await this.deliverMessage(snapshot.team, sender ?? captain, message, signal)
-      if (!delivered) return undefined
-      return await this.domain.acknowledgeMessage(scope, teamId, message.id)
-    }).finally(() => {
-      if (this.messageDeliveries.get(key) === next) this.messageDeliveries.delete(key)
-    })
-    this.messageDeliveries.set(key, next)
-    return await next
-  }
-
   private trackChild(captain: Agent, childId: string): void {
     const children = this.ownedChildren.get(captain.id) ?? new Set<string>()
     children.add(childId)
@@ -768,24 +533,13 @@ export class AgentSwarmRuntime extends Service {
     }
   }
 
-  private async accountAgentUsage(scope: TeamScope, teamId: TeamId, agent: Agent): Promise<void> {
-    const snapshot = await this.domain.snapshot(scope, teamId, agent.id)
-    const afterSeq = snapshot.team.usageCursors[agent.id] ?? -1
-    for (const event of agent.session.events) {
-      if (event.seq <= afterSeq) continue
-      if (event.type !== 'assistant/message' || event.data.usage === undefined) continue
-      const tokens = billedTokens(event.data.usage)
-      await this.domain.recordSessionUsage(scope, teamId, agent.id, event.seq, tokens)
-    }
-  }
-
   async dispose(): Promise<void> {
     if (this.closing) return
     this.closing = true
-    await Promise.allSettled(this.memberOperations)
+    await this.provisioning.wait()
     await Promise.allSettled(this.scheduling.values())
-    await Promise.allSettled(this.usageAccounting.values())
-    await Promise.allSettled(this.messageDeliveries.values())
+    await this.usage.wait()
+    await this.delivery.wait()
     const failures: unknown[] = []
     for (const [captainId, childIds] of this.ownedChildren) {
       const captain = this.ctx.agents.get(SessionId(captainId))
