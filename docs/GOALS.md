@@ -6,9 +6,11 @@
 
 以官方优先（official-first）的纯插件方式，为 DeepSeek Harness 交付持久、可审查的多代理 Team 协作层：M1（崩溃安全协议 + 独立回归审查）放行 → D1 单写入者 dogfood → M2 官方 Workflow/Jobs 编排 → M3 自托管安全纵切（D2 并行自我开发）→ M4-M8 能力族（记账/验证/Workspace 隔离/记忆进化/分布式）→ M9 客户端与正式发布。全程不修改 Agent Loop、不影子注册官方服务、单一权威状态（`TeamDomainPort`）。
 
+**范围确认（用户，2026-08-20）**：执行全路线图——M1C→M1D→M2→…→M8 全部完成，**M9（含 optional client package / WebUI）压轴最后**；插件内核始终为纯 Swarm 能力，UI 只是末端的投影型 Consumer。开发模式：PM 统筹 + 实现智能体并行 worktree 隔离开发（CONTRIBUTING §2a），合并串行 + 双绿守卫（merge-guard）。M1D 前置环境依赖：rc.8 世系 DSH CLI（F16，用户准备）。
+
 ## 当前开发目标
 
-**M1C — 生命周期、协调与输入加固（进行中，2026-08-20 接替 M1B）**
+**M1C — 生命周期、协调与输入加固（进行中，2026-08-20 接替 M1B；进度 3/5，#14/#15 并行 worktree 在途）**
 
 关闭以下 issue（docs/07 M1C）：
 
