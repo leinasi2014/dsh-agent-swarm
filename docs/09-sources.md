@@ -33,7 +33,8 @@ Verified target facts:
 - official Agent Team injects Agents, Sessions, Session persistence and Subagents, and documents persisted-child-aware provisioning recovery, bounded disposal and target-session mailbox de-duplication;
 - `ctx.workspaceRegistry` is a Workspace identity/membership registry, not a per-child Worktree allocator or cwd override;
 - since M1A this plugin consumes the official storage family directly: `@deepseek-ai/dsh-storage` (hub), `@deepseek-ai/dsh-storage-json` (json KV backend, deployment composition), `@deepseek-ai/dsh-storage-domain` (domain form, required peer) and `@deepseek-ai/dsh-session-persistence` (service definition, required peer) — all verified at rc.8 on npm and materialized in the evidence checkout (`packages/storage/*`, `packages/session/session-persistence`);
-- the installed plugin dependency tree still does not install workflow/jobs/token-meter as runtime dependencies, so their published availability is not the same as current integration.
+- since M2-1 (issue #75) the plugin also consumes `@deepseek-ai/dsh-workflow` (required peer: the abstract `WorkflowEngine` Service Definition, types and `WorkflowError`/`isFatalWorkflowError`) and dev-consumes `@deepseek-ai/dsh-invariants` plus the `@deepseek-ai/dsh-workflow/invariant` companion (real-composition event-stream validation in tests) — both verified at rc.8 on npm against the evidence checkout (`packages/workflow/workflow`, `packages/runtime-diagnostics/invariants`). The official default engine `@deepseek-ai/dsh-workflow-worker-thread` is deliberately NOT a dependency: the Team bridge must compose in Profiles without it (design note §4.3);
+- the installed plugin dependency tree still does not install jobs/token-meter as runtime dependencies, so their published availability is not the same as current integration.
 
 ### DeepSeek Harness community documentation
 

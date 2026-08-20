@@ -114,6 +114,8 @@ Official integration:
 - expose explicit `adaptive` or `workflow` mode; exactly one owner assigns, retries, cancels and settles an attempt;
 - project phases/events/status without copying Workflow state.
 
+Progress (2026-08-21, issue #75 / M2-1): the Team bridge workflow engine is implemented — an implementation of the official abstract `WorkflowEngine` registered in an isolated `workflowEngine` service scope (never over the default-scope official engine), whose runs are backed by a Team aggregate (captain = the start request's parent; every `agent()` call drives member provisioning, task creation, scheduler assignment, member submission and the captain review gate). The durable run overlay lives in the new `agent_swarm_workflow` Storage Domain and is the only run truth (nested Team runs have no official durable record — planning-note trap 1); crash recovery reclassifies interrupted runs evidence-only. Real-composition tests run the bridge beside the official `dsh-workflow/invariant` companion (event-stream pairing validated by the official checker) and cover run completion, bounded cancellation with synthesized agent ends, crash-recovery overlay reload, the synchronous official error surface, and default-off zero-change. Design note: `docs/development/2026-08-21-m2a-workflow-bridge-design.md`; protocol decisions: `docs/04` §8f. Still open in M2: the `adaptive|workflow` mode-selection surface with single-owner CAS (#77), run-as-job disclosure/cancellation/wakeup through `ctx.jobs` (#76), dual-owner fault tests, and the official consumers' UI projection verification.
+
 Reference fusion:
 
 - map Jiuwen phase, parallel, pipeline, nested workflow and stateful-agent-session behavior to official Workflow scripts/events;

@@ -28,6 +28,7 @@ import { MessageDelivery } from './message-delivery.js'
 import { manualReview, priorityReadyScheduler, type ReviewProviderInput, type ReviewProviderResult, type SchedulerDecision, type SchedulerSelectionInput, type TeamReviewProvider, type TeamSchedulerProvider } from './providers.js'
 import { SchedulingPass } from './scheduling.js'
 import { UsageAccountant } from './usage-accounting.js'
+import type { TeamBridgeWorkflowEngine } from './workflow/team-bridge-engine.js'
 
 export type { ToolExecutionAuthority }
 export type { ReviewProviderInput, ReviewProviderResult, SchedulerDecision, SchedulerSelectionInput, TeamReviewProvider, TeamSchedulerProvider }
@@ -86,6 +87,15 @@ export class AgentSwarmRuntime extends Service {
   private readonly provisioning: MemberProvisioner
   private readonly schedulingPass: SchedulingPass
   private closing = false
+
+  /**
+   * The Team bridge workflow engine (M2-1, issue #75), attached by plugin
+   * activation when `workflowBridge` is enabled. Registered in an isolated
+   * `workflowEngine` service scope — never over the default-scope official
+   * engine. Absent (undefined) when the capability is disabled: default
+   * behavior is byte-identical to the pre-bridge plugin.
+   */
+  workflowBridge?: TeamBridgeWorkflowEngine
 
   constructor(
     ctx: Context,
