@@ -54,6 +54,18 @@ async function openOn(ctx: Context, fibers: Fiber[], now: () => number): Promise
 }
 
 /**
+ * Mount the real storage composition (hub + json KV backend + domain form)
+ * onto an existing Context, for specs that compose it with further official
+ * services (persistence, agents, subagents) on one graph. Disposal stays the
+ * caller's responsibility.
+ */
+export async function mountStorageStackOn(ctx: Context, root: string): Promise<void> {
+  await ctx.plugin(Storage)
+  await ctx.plugin(StorageJson, { root })
+  await ctx.plugin(StorageDomain, { backend: 'json' })
+}
+
+/**
  * Mount hub + json backend + domain form on a fresh Context and open the
  * team domain. `root` is the json backend unit root (use a temp dir).
  */

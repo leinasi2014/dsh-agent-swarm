@@ -10,7 +10,7 @@
 - task `revision` CAS 与独立 `attemptId` fencing；
 - `reserved → delivered` 分配检查点，失败时只回滚本次精确 attempt；
 - `submitted → review → completed` 强制审核门，可注册 Review Provider；
-- queued-before-delivered 邮箱、按消息 ID 串行派送和进程内重载重试；目标 Session 接收后、Store 确认前的进程崩溃仍可能重复投递（M1B 修复项，未实现）；
+- queued-before-delivered 邮箱、按消息 ID 串行派送和进程内重载重试；投递前在目标 Session 的持久 inbox/history 按稳定消息 id 折叠（`sessionPersistence.inspect` 对账 + 接收方 flush 后再确认），目标 Session 已接收而 Store 未确认的崩溃窗口只补确认、不重发（F2，场景 5 注入测试关闭）；
 - request/retry/deadline 预算，以及从 DSH `assistant/message.usage` 按 event seq 去重的完整计费 token（uncached input、output、cache read/write）计量；
 - 结构化 Team memory、成员安全移除（同时取消其未投递收发邮件）、Team 归档；
 - revision 游标式 `agent_swarm_wait`，无需轮询状态；

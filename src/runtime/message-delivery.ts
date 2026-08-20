@@ -5,13 +5,60 @@
  * committed them as queued. Delivery serializes per message id; the store
  * acknowledgement happens strictly after the target accepted the content.
  * The accepted-at-target / unacknowledged-in-store crash window (M1B/F2)
- * lands here: target-side stable-id de-duplication before resend.
+ * closes target-side: before any resend attempt, the target's durable
+ * inbox/history is folded on the stable framed message identity, and an
+ * already accepted frame is only acknowledged, never redelivered.
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import type { UserMessage } from '@deepseek-ai/dsh-llm'
+import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import type { TeamId, TeamMessage, TeamMessageId, TeamState } from '../domain/types.js'
+
+/**
+ * The exact model-visible frame one message is delivered under. The frame is
+ * the stable target-side identity (M1B/F2): the message id it carries is
+ * allocated once at queue time, so a byte-identical text block inside the
+ * target's durable inbox/history proves this exact message was already
+ * accepted there. Unlike the official experimental `TeamMessageSource`
+ * merge, the identity rides existing stable seams (`MessageSourceMap.plugin`
+ * or the subagent-report relay) so this compatibility layer never shadows
+ * the official `team-message` source kind its future adapter will own.
+ */
+function messageFrame(message: TeamMessage): string {
+  return `Team message ${message.id} from ${message.senderName}:\n${message.content}`
+}
+
+type InboxProjection = Record<'next-turn' | 'next-step', UserMessage[]>
+
+/** Fold the durable inbox suffix into the messages still awaiting a claim. */
+function pendingInboxMessages(events: readonly SessionEvent[]): UserMessage[] {
+  const inbox: InboxProjection = { 'next-turn': [], 'next-step': [] }
+  for (const event of events) {
+    if (event.type !== 'agent/inbox/spliced') continue
+    const pending = inbox[event.data.target]
+    pending.splice(event.data.start, event.data.removedCount ?? 0, ...event.data.inserted)
+  }
+  return [...inbox['next-turn'], ...inbox['next-step']]
+}
+
+/** Whether target history or its still-pending inbox already contains a match. */
+function messageAccepted(events: readonly SessionEvent[], predicate: (message: UserMessage) => boolean): boolean {
+  return events.some(event => event.type === 'user/message' && predicate(event.data))
+    || pendingInboxMessages(events).some(predicate)
+}
+
+/** Fold one live Session's non-inherited suffix for an acceptance check. */
+function sessionAccepts(session: Session, predicate: (message: UserMessage) => boolean): boolean {
+  return messageAccepted(session.events.slice(session.header.seedLength ?? 0), predicate)
+}
+
+/** Identity predicate matching the exact framed text block of one message. */
+function framePredicate(frame: string): (message: UserMessage) => boolean {
+  return candidate => candidate.content.some(block => block.type === 'text' && block.text === frame)
+}
 
 /** Serialized per-message delivery over the authoritative mailbox. */
 export class MessageDelivery {
@@ -27,15 +74,29 @@ export class MessageDelivery {
     },
   ) {}
 
+  /**
+   * Flush one live accepting target's durability checkpoint, then confirm the
+   * frame is recorded (official `checkpointDelivered` parity): the store
+   * acknowledgement may only commit over an acceptance that survived the
+   * flush. A cold-resumed target skips this — its inbox admission is already
+   * durable through the persisted session.
+   */
+  private async targetFlushedAndRecorded(session: Session, frame: string): Promise<boolean> {
+    await this.ctx.sessions.flush(session)
+    return sessionAccepts(session, framePredicate(frame))
+  }
+
   /** Deliver one message body; `false` keeps it durably queued. */
   private async deliverMessage(team: TeamState, sender: Agent, message: TeamMessage, signal: AbortSignal): Promise<boolean> {
     try {
+      const frame = messageFrame(message)
       if (message.targetSessionId === team.captainSessionId && sender.id !== team.captainSessionId) {
-        await this.ctx.subagents.reportFrom(sender, [{ type: 'text', text: message.content }], {
+        await this.ctx.subagents.reportFrom(sender, [{ type: 'text', text: frame }], {
           delivery: message.delivery === 'quiet' ? 'quiet' : 'next-step',
           signal,
         })
-        return true
+        const captain = this.ctx.agents.get(SessionId(team.captainSessionId))
+        return captain === undefined || await this.targetFlushedAndRecorded(captain.session, frame)
       }
       const captain = sender.id === team.captainSessionId
         ? sender
@@ -44,12 +105,12 @@ export class MessageDelivery {
       await this.ctx.subagents.followup(
         captain,
         SessionId(message.targetSessionId),
-        [{ type: 'text', text: `Team message ${message.id} from ${message.senderName}:\n${message.content}` }],
+        [{ type: 'text', text: frame }],
         { source: { kind: 'plugin', plugin: 'dsh-agent-swarm' }, signal },
       )
       const target = this.ctx.agents.get(SessionId(message.targetSessionId))
       if (target !== undefined) await this.deps.accountAgentUsage(this.deps.scopeOf(captain), team.id, target)
-      return true
+      return target === undefined || await this.targetFlushedAndRecorded(target.session, frame)
     } catch (error) {
       this.ctx.logger.warn(`agent-swarm: message ${message.id} remains queued: ${String(error)}`)
       return false
@@ -57,9 +118,46 @@ export class MessageDelivery {
   }
 
   /**
+   * Reconcile one queued message against the target's durable facts (M1B/F2).
+   *
+   * `true` — the exact framed text is already present in the target's live or
+   * persisted inbox/history: the store acknowledgement is the only debt, so
+   * the caller acknowledges without resending. `false` — no acceptance
+   * exists: deliver normally. `undefined` — the persisted target could not be
+   * inspected; uncertainty keeps the message durably queued rather than risk
+   * a duplicate model-visible delivery. A live-target hit flushes the
+   * durability checkpoint before confirming, so a make-up acknowledgement
+   * never commits over an acceptance that is still only in memory.
+   */
+  private async targetAlreadyAccepted(message: TeamMessage, signal: AbortSignal): Promise<boolean | undefined> {
+    const frame = messageFrame(message)
+    const predicate = framePredicate(frame)
+    const live = this.ctx.agents.get(SessionId(message.targetSessionId))
+    if (live !== undefined) {
+      if (!sessionAccepts(live.session, predicate)) return false
+      try {
+        await this.ctx.sessions.flush(live.session)
+      } catch (error) {
+        this.ctx.logger.warn(`agent-swarm: message ${message.id} acceptance flush failed: ${String(error)}`)
+        return undefined
+      }
+      return sessionAccepts(live.session, predicate)
+    }
+    try {
+      const stored = await this.ctx.sessionPersistence.inspect(SessionId(message.targetSessionId), signal)
+      return messageAccepted(stored.events.slice(stored.meta.seedLength ?? 0), predicate)
+    } catch (error) {
+      this.ctx.logger.warn(`agent-swarm: message ${message.id} target ${message.targetSessionId} cannot be reconciled: ${String(error)}`)
+      return undefined
+    }
+  }
+
+  /**
    * Run one message through its serialized chain: reread the authoritative
    * snapshot, deliver only if still queued, then acknowledge after target
-   * acceptance.
+   * acceptance. A queued message whose target already durably accepted it
+   * (crash window, reload rescan, or any repeated call) folds to an
+   * acknowledgement only.
    */
   async deliverQueuedMessage(
     scope: TeamScope,
@@ -75,6 +173,9 @@ export class MessageDelivery {
       const snapshot = await this.deps.domain().snapshot(scope, teamId, captain.id)
       const message = snapshot.team.messages.find(candidate => candidate.id === messageId)
       if (message === undefined || message.phase !== 'queued') return message
+      const accepted = await this.targetAlreadyAccepted(message, signal)
+      if (accepted === undefined) return undefined
+      if (accepted) return await this.deps.domain().acknowledgeMessage(scope, teamId, message.id)
       const sender = message.senderSessionId === captain.id
         ? captain
         : this.ctx.agents.get(SessionId(message.senderSessionId))
