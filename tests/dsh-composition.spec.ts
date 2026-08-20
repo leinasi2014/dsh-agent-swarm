@@ -191,9 +191,14 @@ describe('DSH rc.8 composition', () => {
         expect(status.task_summary).toMatch(/in_progress .*attempt=/)
         expect(status.used_tokens).toBeGreaterThan(0)
       }, { timeout: 5_000 })
+      // Assignment delivery is asynchronous: the status checkpoint above can
+      // pass on the reserved attempt before the followup reaches the member
+      // transcript. Wait for the transcript like the budget settlement below.
+      await vi.waitFor(() => {
+        expect(JSON.stringify(adapter.requests)).toContain('Composition proof')
+      }, { timeout: 5_000 })
       expect(adapter.requests.length).toBeGreaterThanOrEqual(2)
       expect(adapter.requests.length).toBeLessThan(10)
-      expect(JSON.stringify(adapter.requests)).toContain('Composition proof')
       expect(schedulerCalls).toBeGreaterThan(0)
 
       // Token accounting settles asynchronously; wait for exact equality
