@@ -23,6 +23,7 @@ import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
+import { messageFrame } from '../src/runtime/prompts.js'
 import { mountStorageStackOn } from './helpers/storage-stack.js'
 
 const SIGNAL = new AbortController().signal
@@ -216,7 +217,7 @@ describe('target-side message de-duplication (F2)', () => {
       const queued = await ctx.agentSwarm.domain.snapshot(scope, teamId, lead.id)
       const message = queued.team.messages.find(candidate => candidate.content === 'Accept me exactly once across the crash window.')
       expect(message?.phase).toBe('queued')
-      const frame = `Team message ${message?.id} from ${message?.senderName}:\n${message?.content}`
+      const frame = messageFrame(message!)
 
       // Durable fact (1a): the real followup accepted the real frame, and the
       // delivery path's checkpoint flush made that pending-inbox acceptance
@@ -345,7 +346,7 @@ describe('target-side message de-duplication (F2)', () => {
       const queued = await ctx.agentSwarm.domain.snapshot(scope, teamId, lead.id)
       const message = queued.team.messages.find(candidate => candidate.content === 'Rescans must not duplicate me.')
       expect(message?.phase).toBe('queued')
-      const frame = `Team message ${message?.id} from ${message?.senderName}:\n${message?.content}`
+      const frame = messageFrame(message!)
 
       // Durable acceptance, then let the member claim the frame into history
       // (same crash-window facts as scenario 5).

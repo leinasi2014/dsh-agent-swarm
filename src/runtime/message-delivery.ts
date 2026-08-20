@@ -22,21 +22,16 @@ import { SessionId, type Session } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import type { TeamId, TeamMessage, TeamMessageId, TeamState } from '../domain/types.js'
+import { messageFrame } from './prompts.js'
 import { messageAccepted } from './session-acceptance.js'
 
 /**
- * The exact model-visible frame one message is delivered under. The frame is
- * the stable target-side identity (M1B/F2): the message id it carries is
- * allocated once at queue time, so a byte-identical text block inside the
- * target's durable inbox/history proves this exact message was already
- * accepted there. Unlike the official experimental `TeamMessageSource`
- * merge, the identity rides existing stable seams (`MessageSourceMap.plugin`
- * or the subagent-report relay) so this compatibility layer never shadows
- * the official `team-message` source kind its future adapter will own.
+ * The exact model-visible frame one message is delivered under lives in
+ * `prompts.ts` with the other F8 delimiting surfaces: the frame keeps its
+ * stable target-side identity (M1B/F2, message id allocated once at queue
+ * time) while the untrusted body travels as fenced data under an explicit
+ * not-instructions declaration.
  */
-function messageFrame(message: TeamMessage): string {
-  return `Team message ${message.id} from ${message.senderName}:\n${message.content}`
-}
 
 /** Fold one live Session's non-inherited suffix for an acceptance check. */
 function sessionAccepts(session: Session, predicate: (message: UserMessage) => boolean): boolean {
