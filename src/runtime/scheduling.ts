@@ -15,6 +15,7 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import { TaskId, type AttemptId, type TaskAttempt, type TeamId, type TeamState, type TeamTask } from '../domain/types.js'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import { TeamDomainError } from '../domain/error.js'
+import { frameVisibility, waitForFrameClaim, type FrameVisibility } from './frame-visibility.js'
 import type { MessageDelivery } from './message-delivery.js'
 import { assignmentPrompt } from './prompts.js'
 import type { TeamSchedulerProvider } from './providers.js'
@@ -70,8 +71,13 @@ export class SchedulingPass {
     }
     if (hadQueuedMail) snapshot = await this.deps.domain().snapshot(scope, teamId, captain.id)
 
-    // 2. Reserved attempts: a durable claim whose delivery never reached the
-    //    inbox checkpoint is re-dispatched (a failed dispatch rolls back).
+    // 2. Reserved attempts (issue #60 / P2-1): fold each delivery debt
+    //    against the owner's durable facts first — an already-CLAIMED frame
+    //    owes only its acknowledgement, a still-PENDING (or unverifiable)
+    //    frame is neither resent nor acknowledged (a second frame would
+    //    duplicate model-visible delivery), and an ABSENT frame (never
+    //    delivered, or discarded unread by an official teardown drain) is
+    //    redelivered exactly once.
     const reserved = snapshot.team.tasks.flatMap(task => {
       if (task.status !== 'in_progress' || task.currentAttemptId === undefined) return []
       const attempt = snapshot.team.attempts.find(candidate => candidate.id === task.currentAttemptId)
@@ -79,6 +85,7 @@ export class SchedulingPass {
     })
     for (const { task, attempt } of reserved) {
       if (this.deps.isClosing()) return
+      if (await this.settleReservedAssignment(scope, snapshot.team, task, attempt)) continue
       await this.dispatchAssignment(scope, snapshot.team, captain, task, attempt)
     }
     if (reserved.length > 0) snapshot = await this.deps.domain().snapshot(scope, teamId, captain.id)
@@ -130,7 +137,17 @@ export class SchedulingPass {
     }
   }
 
-  /** Deliver one claimed assignment, or roll back exactly its reservation. */
+  /**
+   * Deliver one claimed assignment, or roll back exactly its reservation.
+   *
+   * Issue #60 / P2-1 (the #52 claimed-gate, generalized): the followup's
+   * return only proves inbox ADMISSION — the pending form, which an aborted
+   * turn's teardown or an Activation disposal drain may still discard. The
+   * `delivered` checkpoint therefore commits only after the assignment frame
+   * is CLAIMED into the member's model-visible history; an unclaimed frame
+   * keeps the attempt `reserved`, and the reserved fold above (or the
+   * member's next `agent/status → idle` edge driving it) settles the debt.
+   */
   private async dispatchAssignment(
     scope: TeamScope,
     team: TeamState,
@@ -138,11 +155,12 @@ export class SchedulingPass {
     task: TeamTask,
     attempt: TaskAttempt,
   ): Promise<void> {
+    const frame = assignmentPrompt(team, task, attempt.id)
     try {
       await this.ctx.subagents.followup(
         captain,
         SessionId(attempt.memberSessionId),
-        [{ type: 'text', text: assignmentPrompt(team, task, attempt.id) }],
+        [{ type: 'text', text: frame }],
         { source: { kind: 'plugin', plugin: 'dsh-agent-swarm' }, signal: AbortSignal.timeout(30_000) },
       )
       const member = this.ctx.agents.get(SessionId(attempt.memberSessionId))
@@ -158,14 +176,62 @@ export class SchedulingPass {
       )
       return
     }
+    // Observe the CURRENT live member (the followup may have cold-resumed
+    // it) and wait one bounded claim grace; an absent member or an unclaimed
+    // frame leaves the attempt reserved — never a rollback, because the
+    // accepted frame may still be claimed by the turn it parked behind.
     try {
-      await this.deps.domain().acknowledgeAssignment(scope, team.id, task.id, attempt.id)
+      const member = this.ctx.agents.get(SessionId(attempt.memberSessionId))
+      if (member === undefined || !await waitForFrameClaim(this.ctx, member, frame, AbortSignal.timeout(30_000))) return
     } catch (error) {
-      // The delivery itself succeeded, so this is not a delivery failure: a
-      // lost acknowledgement race (the member settled faster than the
-      // checkpoint) leaves the attempt reserved and the next pass re-
-      // dispatches the same fenced attempt. Accepted work is never rolled
-      // back through this path.
+      this.ctx.logger.warn(`agent-swarm: assignment claim wait failed for ${task.id}: ${String(error)}`)
+      return
+    }
+    await this.commitAssignmentAcknowledgement(scope, team.id, task, attempt.id)
+  }
+
+  /**
+   * Fold one reserved attempt's delivery debt against the owner's durable
+   * facts (issue #60, the #52 fold on the assignment path): `true` means the
+   * attempt needs no dispatch this pass — the frame is already CLAIMED (the
+   * acknowledgement is the only debt), or still PENDING / unverifiable
+   * (never resend: the parked frame is still claimable at its turn boundary,
+   * and a second frame would duplicate model-visible delivery); `false`
+   * means no acceptance exists anywhere and {@link dispatchAssignment}
+   * redelivers exactly once.
+   */
+  private async settleReservedAssignment(
+    scope: TeamScope,
+    team: TeamState,
+    task: TeamTask,
+    attempt: TaskAttempt,
+  ): Promise<boolean> {
+    const visibility: FrameVisibility = await frameVisibility(
+      this.ctx, attempt.memberSessionId, assignmentPrompt(team, task, attempt.id),
+      AbortSignal.timeout(30_000), `assignment ${attempt.id}`,
+    )
+    if (visibility === 'absent') return false
+    if (visibility === 'claimed') await this.commitAssignmentAcknowledgement(scope, team.id, task, attempt.id)
+    return true
+  }
+
+  /**
+   * Commit the delivered checkpoint over an observed claim. The delivery
+   * itself already succeeded, so a failure here is not a delivery failure: a
+   * lost acknowledgement race (the member settled faster than the
+   * checkpoint) leaves the attempt reserved and the next pass re-folds the
+   * same fenced attempt. Accepted work is never rolled back through this
+   * path.
+   */
+  private async commitAssignmentAcknowledgement(
+    scope: TeamScope,
+    teamId: TeamId,
+    task: TeamTask,
+    attemptId: AttemptId,
+  ): Promise<void> {
+    try {
+      await this.deps.domain().acknowledgeAssignment(scope, teamId, task.id, attemptId)
+    } catch (error) {
       this.ctx.logger.warn(`agent-swarm: assignment acknowledgement deferred for ${task.id}: ${String(error)}`)
     }
   }
