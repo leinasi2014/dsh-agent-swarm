@@ -5,7 +5,7 @@
 ## 已实现的核心
 
 - `ctx.agentSwarm` 宿主服务，以及 14 个 `agent_swarm_*` 模型工具；
-- Captain、持续型成员、persona/tool-filter 隔离、未完成 provisioning 的失败收敛、有限退休记录复用与卸载回收；
+- Captain、持续型成员、persona/tool-filter 隔离、未完成 provisioning 的持久 child 对账恢复（`listChildren` live-preferred 枚举 + `sessionPersistence.inspect` 官方四要素：父 Session、continuable descriptor、provider、初始 user 消息持久接受；全部匹配则孤儿复活为成员，任一不匹配则 failed 并显式 drain，不可判定维持失败收敛）、有限退休记录复用与卸载回收（F3）；
 - 任务 DAG、优先级、自动事件调度和可注册 Scheduler Provider；
 - task `revision` CAS 与独立 `attemptId` fencing；
 - `reserved → delivered` 分配检查点，失败时只回滚本次精确 attempt；
@@ -15,7 +15,7 @@
 - 结构化 Team memory、成员安全移除（同时取消其未投递收发邮件）、Team 归档；
 - revision 游标式 `agent_swarm_wait`，无需轮询状态；
 - **M1A 权威存储（ADR-0007）**：`TeamDomainPort` 是工具与编排消费的唯一 Team 聚合权威边界；生产 Provider `StorageDomainTeamStore` 通过官方 `ctx.storageDomain` 打开 `agent_swarm` 域，按“每个 Team 一条带版本聚合记录、每个迁移一条持久回执”存储，写入先经官方域写链达到后端持久化、再更新内存并通知等待者；`sessionPersistence` 与 `storageDomain` 为必需注入，任一缺失时插件保持 pending（fail closed），没有 workspace-JSON 或非持久回退；遗留 `FileTeamStore` 仅保留为只读离线迁移读取器与测试 fixture；
-- 36 项测试：16 项协议、13 项端口一致性/schema/版本/损坏/关闭/故障注入、5 项迁移（成功、目的非空、非法源、持久化失败、回执不一致）、2 项真实 rc.8 组合（真实官方存储栈 + JSONL 持久化 + continuable 成员 + 调度/审核 + 重载恢复 + 工作区篡改否认）。
+- 42 项测试：16 项协议、13 项端口一致性/schema/版本/损坏/关闭/故障注入、5 项迁移（成功、目的非空、非法源、持久化失败、回执不一致）、2 项真实 rc.8 组合（真实官方存储栈 + JSONL 持久化 + continuable 成员 + 调度/审核 + 重载恢复 + 工作区篡改否认）、2 项 F2 邮箱崩溃窗口/幂等重扫、4 项 F3 provisioning 对账（场景 6 崩溃半边激活、四要素不匹配 failed+drain、证据不可判定维持现状、无 projection 注册表的 inspect-only 回退）。
 
 ## Profile 组合（部署必读）
 

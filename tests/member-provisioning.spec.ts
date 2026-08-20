@@ -1,0 +1,311 @@
+/**
+ * F3 (M1B): persisted-child provisioning reconciliation across the crash
+ * window between child Session persistence and the Team activation commit.
+ *
+ * Every test composes the real official services a deployment composes —
+ * AgentLoop with the in-process spawn provider (real continuable children),
+ * JSONL session persistence (real durable child artifacts) and the storage
+ * stack harness (real `agent_swarm` Storage Domain aggregate). The crash
+ * window is injected by construction, not by process death: committing the
+ * `provisioning` record directly, establishing the real child through
+ * `ctx.subagents.startContinuable`, letting its initial turn durably
+ * checkpoint the accepted prompt, then draining the child so the recovery
+ * scan sees exactly the durable facts a killed process leaves behind.
+ */
+import { randomUUID } from 'node:crypto'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { Context, type Fiber } from '@deepseek-ai/cordis'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { CallId, LlmAdapter, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import SessionProjection from '@deepseek-ai/dsh-session-projection'
+import SubagentService from '@deepseek-ai/dsh-subagent'
+import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import * as AgentSwarm from '../src/index.js'
+import { mountStorageStackOn } from './helpers/storage-stack.js'
+
+const SIGNAL = new AbortController().signal
+
+class ImmediateAdapter extends LlmAdapter {
+  override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+    return Promise.resolve({ provider, id: model, name: model })
+  }
+
+  override async * stream(): AsyncIterable<StreamChunk> {
+    const text = 'Acknowledged.'
+    yield { type: 'block-start', index: 0, blockType: 'text' }
+    yield { type: 'text-delta', index: 0, text }
+    yield { type: 'block-end', index: 0, block: { type: 'text', text } }
+    yield { type: 'usage', usage: { inputTokens: 1, outputTokens: 1 } }
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  }
+}
+
+/** The durable composition under test: one captain lead over real services. */
+interface CaptainStack {
+  readonly ctx: Context
+  readonly lead: ReturnType<Context['agentLoop']['create']>
+  readonly teamId: string
+}
+
+async function mountCaptain(
+  sandbox: string,
+  fibers: Fiber[],
+  leadId: string,
+  teamName: string,
+  options: { projections?: boolean } = {},
+): Promise<CaptainStack> {
+  const ctx = new Context()
+  await mountAgentLoopTestDependencies(ctx)
+  await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions') })
+  await mountStorageStackOn(ctx, join(sandbox, 'storage'))
+  fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
+  // The live-preferred `listChildren` evidence rung needs the official
+  // projection registry (and with it the subagent projection unit); the
+  // fallback test omits it to pin the official inspect-only baseline.
+  if (options.projections !== false) fibers.push(await ctx.plugin(SessionProjection))
+  fibers.push(await ctx.plugin(SubagentService))
+  fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
+  fibers.push(await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1 }))
+  ctx.llm.registerAdapter(['mock'], new ImmediateAdapter())
+  const lead = ctx.agentLoop.create(
+    SessionId(leadId),
+    { provider: 'mock', model: 'mock' },
+    { cwd: join(sandbox, 'workspace') },
+  )
+  const created = await ctx.tools.execute({
+    signal: SIGNAL,
+    callId: CallId('create'),
+    name: 'agent_swarm_create',
+    arguments: { name: teamName, description: `Prove persisted-child reconciliation for ${leadId}.` },
+    agent: lead,
+  })
+  expect(created.isError).toBe(false)
+  return { ctx, lead, teamId: (created.value as { team_id: string }).team_id }
+}
+
+/**
+ * Inject the kill -9 half-window: commit the provisioning record, establish
+ * the real continuable child, let its initial turn durably checkpoint the
+ * accepted prompt, then drain the child so the recovery scan sees exactly a
+ * reloaded process's cold durable facts.
+ */
+async function injectCrashWindow(
+  stack: CaptainStack,
+  input: { name: string; role: string; recordProvider: string },
+): Promise<SessionId> {
+  const scope = stack.ctx.agentSwarm.scopeOf(stack.lead)
+  const teamId = AgentSwarm.TeamId(stack.teamId)
+  const childId = SessionId(randomUUID())
+  await stack.ctx.agentSwarm.domain.provisionMember(scope, teamId, stack.lead.id, {
+    name: input.name,
+    role: input.role,
+    sessionId: childId,
+    provider: input.recordProvider,
+  })
+  await stack.ctx.subagents.startContinuable({
+    provider: 'spawn',
+    label: `agent-swarm:${teamId}:${input.name}`,
+    childId,
+    request: {
+      prompt: [{ type: 'text', text: `You joined Team "${stack.teamId}". Wait for a task assignment.` }],
+      parent: stack.lead,
+      maxDepth: 1,
+    },
+    signal: SIGNAL,
+  })
+  await vi.waitFor(async () => {
+    const stored = await stack.ctx.sessionPersistence.inspect(childId, SIGNAL)
+    expect(stored.events.some(event => event.type === 'user/message' && event.data.source.kind === 'user')).toBe(true)
+  }, { timeout: 5_000 })
+  stack.ctx.subagents.interrupt(childId, { kind: 'ancestor', agent: stack.lead })
+  await stack.ctx.subagents.drainContinuableChildren(stack.lead, [childId])
+  await vi.waitFor(() => {
+    expect(stack.ctx.agents.get(childId)).toBeUndefined()
+  }, { timeout: 5_000 })
+  return childId
+}
+
+describe('persisted-child provisioning reconciliation (F3)', () => {
+  const roots: string[] = []
+
+  afterEach(async () => {
+    await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })))
+  })
+
+  /**
+   * Crash-window equivalence argument (kill -9 half-window injection):
+   *
+   * A process killed after `startContinuable` durably established the child
+   * and its initial prompt was accepted, but before the activation's
+   * `settleMember(active)` commit, leaves exactly three durable facts: (1)
+   * the authoritative aggregate still records phase "provisioning" for the
+   * child's session id; (2) the child Session log proves the official four
+   * factors — `parentSession` is the captain, the folded descriptor is
+   * continuable, its provider matches the record, and a user-source message
+   * was durably accepted; (3) after the reload no child is live until
+   * something resumes it. This test reproduces those facts without killing
+   * the process: the direct `provisionMember` commit is (1) byte-identical
+   * to the uncommitted activation window; the real `startContinuable` plus
+   * the turn checkpoint establishes (2); draining the child after the claim
+   * makes the target cold, exactly like a reloaded process (3). The recovery
+   * then enters through the same `recoverAgent` entry the real reload uses.
+   */
+  it('scenario 6: crash after the child persisted but before the team activation commit re-activates the orphan as a member', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-provision-activate-'))
+    roots.push(sandbox)
+    const fibers: Fiber[] = []
+
+    try {
+      const stack = await mountCaptain(sandbox, fibers, 'reconcile-activate-lead', 'Reconciliation team')
+      const idle = vi.spyOn(stack.ctx.agentSwarm, 'observeAgentIdle').mockImplementation(() => {})
+      const childId = await injectCrashWindow(stack, {
+        name: 'orphan-worker',
+        role: 'Survive the crash between child persistence and activation.',
+        recordProvider: 'spawn',
+      })
+      const drain = vi.spyOn(stack.ctx.subagents, 'drainContinuableChildren')
+
+      await stack.ctx.agentSwarm.recoverAgent(stack.lead)
+
+      const snapshot = await stack.ctx.agentSwarm.domain.snapshot(
+        stack.ctx.agentSwarm.scopeOf(stack.lead), AgentSwarm.TeamId(stack.teamId), stack.lead.id,
+      )
+      expect(snapshot.team.members[0]).toMatchObject({ sessionId: childId, phase: 'active' })
+      // The persisted child is a roster member again — no orphan remains.
+      expect(await stack.ctx.agentSwarm.domain.findMembership(stack.ctx.agentSwarm.scopeOf(stack.lead), childId))
+        .toMatchObject({ role: 'member', name: 'orphan-worker' })
+      // Activation never recycles the child: no reconciliation drain ran.
+      expect(drain).not.toHaveBeenCalled()
+      idle.mockRestore()
+      drain.mockRestore()
+    } finally {
+      for (const fiber of fibers.toReversed()) await fiber.dispose()
+    }
+  }, 20_000)
+
+  /**
+   * The determinate mismatch half of the same crash window: the provisioning
+   * record names a provider the persisted child's descriptor does not carry,
+   * so recovery must settle the record failed and explicitly drain the
+   * orphan child instead of activating a member it cannot account for.
+   */
+  it('scenario 6: a persisted child that fails the four-factor check settles failed and is explicitly drained', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-provision-drain-'))
+    roots.push(sandbox)
+    const fibers: Fiber[] = []
+
+    try {
+      const stack = await mountCaptain(sandbox, fibers, 'reconcile-drain-lead', 'Mismatch team')
+      const idle = vi.spyOn(stack.ctx.agentSwarm, 'observeAgentIdle').mockImplementation(() => {})
+      const childId = await injectCrashWindow(stack, {
+        name: 'mismatched-worker',
+        role: 'Fail the provider factor of the reconciliation check.',
+        recordProvider: 'retired-provider',
+      })
+      const drain = vi.spyOn(stack.ctx.subagents, 'drainContinuableChildren')
+
+      await stack.ctx.agentSwarm.recoverAgent(stack.lead)
+
+      const snapshot = await stack.ctx.agentSwarm.domain.snapshot(
+        stack.ctx.agentSwarm.scopeOf(stack.lead), AgentSwarm.TeamId(stack.teamId), stack.lead.id,
+      )
+      const member = snapshot.team.members[0]!
+      expect(member.phase).toBe('failed')
+      expect(member.error).toContain('is not the provisioned provider "retired-provider"')
+      // The failed record is not a membership and the orphan was explicitly drained.
+      expect(await stack.ctx.agentSwarm.domain.findMembership(stack.ctx.agentSwarm.scopeOf(stack.lead), childId)).toBeUndefined()
+      expect(drain).toHaveBeenCalledTimes(1)
+      expect(drain.mock.calls[0]?.[1]).toEqual([childId])
+      idle.mockRestore()
+      drain.mockRestore()
+    } finally {
+      for (const fiber of fibers.toReversed()) await fiber.dispose()
+    }
+  }, 20_000)
+
+  /**
+   * Evidence that cannot be verified must not guess: with the persistence
+   * inspection down, recovery keeps the pre-F3 settlement (the record goes
+   * failed with the interrupted-provisioning diagnostic) and neither
+   * activates the member nor drains a child it could not classify.
+   */
+  it('keeps the pre-reconciliation failed settlement when the persisted child cannot be verified', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-provision-unknown-'))
+    roots.push(sandbox)
+    const fibers: Fiber[] = []
+
+    try {
+      const stack = await mountCaptain(sandbox, fibers, 'reconcile-unknown-lead', 'Uncertain team')
+      const idle = vi.spyOn(stack.ctx.agentSwarm, 'observeAgentIdle').mockImplementation(() => {})
+      const childId = await injectCrashWindow(stack, {
+        name: 'unverifiable-worker',
+        role: 'Stay unsettled in the active sense when persistence is down.',
+        recordProvider: 'spawn',
+      })
+      const inspect = vi.spyOn(stack.ctx.sessionPersistence, 'inspect')
+        .mockRejectedValue(new Error('persistence unavailable during recovery'))
+      const drain = vi.spyOn(stack.ctx.subagents, 'drainContinuableChildren')
+
+      await stack.ctx.agentSwarm.recoverAgent(stack.lead)
+
+      const snapshot = await stack.ctx.agentSwarm.domain.snapshot(
+        stack.ctx.agentSwarm.scopeOf(stack.lead), AgentSwarm.TeamId(stack.teamId), stack.lead.id,
+      )
+      const member = snapshot.team.members[0]!
+      expect(member.sessionId).toBe(childId)
+      expect(member.phase).toBe('failed')
+      expect(member.error).toContain('member provisioning did not commit before runtime recovery')
+      expect(member.error).toContain('could not verify the persisted child')
+      expect(await stack.ctx.agentSwarm.domain.findMembership(stack.ctx.agentSwarm.scopeOf(stack.lead), childId)).toBeUndefined()
+      expect(drain).not.toHaveBeenCalled()
+      idle.mockRestore()
+      inspect.mockRestore()
+      drain.mockRestore()
+    } finally {
+      for (const fiber of fibers.toReversed()) await fiber.dispose()
+    }
+  }, 20_000)
+
+  /**
+   * Minimal-composition contract: without the optional `sessionProjections`
+   * registry the live-preferred enumeration rung is unavailable, and the
+   * reconciliation must still reach the official inspect-only verdict instead
+   * of silently regressing every record to the pre-F3 bulk failure.
+   */
+  it('activates the persisted orphan without the sessionProjections registry through inspect-only evidence', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-provision-bare-'))
+    roots.push(sandbox)
+    const fibers: Fiber[] = []
+
+    try {
+      const stack = await mountCaptain(sandbox, fibers, 'reconcile-bare-lead', 'Bare team', { projections: false })
+      const idle = vi.spyOn(stack.ctx.agentSwarm, 'observeAgentIdle').mockImplementation(() => {})
+      const childId = await injectCrashWindow(stack, {
+        name: 'bare-worker',
+        role: 'Reconcile over persisted inspection alone.',
+        recordProvider: 'spawn',
+      })
+      const drain = vi.spyOn(stack.ctx.subagents, 'drainContinuableChildren')
+
+      await stack.ctx.agentSwarm.recoverAgent(stack.lead)
+
+      const snapshot = await stack.ctx.agentSwarm.domain.snapshot(
+        stack.ctx.agentSwarm.scopeOf(stack.lead), AgentSwarm.TeamId(stack.teamId), stack.lead.id,
+      )
+      expect(snapshot.team.members[0]).toMatchObject({ sessionId: childId, phase: 'active' })
+      expect(await stack.ctx.agentSwarm.domain.findMembership(stack.ctx.agentSwarm.scopeOf(stack.lead), childId))
+        .toMatchObject({ role: 'member', name: 'bare-worker' })
+      expect(drain).not.toHaveBeenCalled()
+      idle.mockRestore()
+      drain.mockRestore()
+    } finally {
+      for (const fiber of fibers.toReversed()) await fiber.dispose()
+    }
+  }, 20_000)
+})

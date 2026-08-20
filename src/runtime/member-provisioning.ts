@@ -4,23 +4,46 @@
  * One admitted operation at a time: the durable provisioning record commits
  * before the child starts, activation settles only after `startContinuable`
  * accepted, and every failure path settles the record failed and drains the
- * uncommitted child. The persisted-child reconciliation recovery (M1B/F3)
- * lands here.
+ * uncommitted child.
+ *
+ * The persisted-child reconciliation recovery (M1B/F3) also lives here: an
+ * interrupted `provisioning` record is reconciled against the durable child
+ * facts (official experimental `reconcileProvisioning` template) — exact
+ * parent Session, continuable descriptor, matching provider and a durably
+ * accepted initial user prompt — and the member is activated or the orphan
+ * child is explicitly drained.
  */
 import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-session-persistence'
+import { foldSubagentDescriptor, SubagentError, type SubagentListEntry } from '@deepseek-ai/dsh-subagent'
 import { TeamDomainError } from '../domain/error.js'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
-import type { TeamId, TeamMember } from '../domain/types.js'
+import type { TeamId, TeamMember, TeamMembership } from '../domain/types.js'
 import { requireAgent, type ToolExecutionAuthority } from './authority.js'
 import type { RuntimeConfig } from './orchestrator-runtime.js'
 import { CAPTAIN_ONLY_TOOLS, memberPersona } from './prompts.js'
+import { messageAccepted } from './session-acceptance.js'
+
+const MISMATCH = 'persisted child Session does not match the provisioned continuation'
+const INTERRUPTED = 'member provisioning did not commit before runtime recovery'
+const RECONCILE_TIMEOUT_MS = 30_000
+
+/** Evidence verdict for one interrupted provisioning record's child. */
+type ChildVerdict =
+  | { readonly kind: 'activate' }
+  | { readonly kind: 'failed'; readonly error: string; readonly drain: boolean }
+
+function describe(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
 
 /** Captain-owned member creation over one admitted operation slot. */
 export class MemberProvisioner {
   private readonly operations = new Set<Promise<void>>()
+  private projectionsAbsenceWarned = false
 
   constructor(
     private readonly ctx: Context,
@@ -129,5 +152,135 @@ export class MemberProvisioner {
   /** Wait for every admitted provisioning operation (disposal path). */
   wait(): Promise<Array<PromiseSettledResult<void>>> {
     return Promise.allSettled(this.operations)
+  }
+
+  /**
+   * Reconcile every interrupted `provisioning` record of one recovering
+   * captain against the durable child facts (M1B/F3, official
+   * `reconcileProvisioning` template): a child whose persisted Session proves
+   * the exact parent, a continuable descriptor, the provisioned provider and
+   * a durably accepted initial user prompt is activated back into the roster
+   * (orphan eliminated); a provable mismatch settles the record failed and
+   * explicitly drains the orphan child; evidence that cannot be verified
+   * keeps the pre-F3 failed settlement. A live child is left to its creator —
+   * the in-process operation still owns its terminal member edge.
+   *
+   * The domain stays the settlement authority (`settleMember`'s guarded
+   * transaction); this collaborator only collects evidence and performs the
+   * child lifecycle actions. If the pass itself fails unexpectedly, the
+   * remaining records fall back to the pre-F3 bulk settlement.
+   *
+   * @returns how many records were settled (activated or failed).
+   */
+  async recoverInterrupted(captain: Agent, scope: TeamScope, membership: TeamMembership): Promise<number> {
+    const interrupted = membership.team.members.filter(member => member.phase === 'provisioning')
+    if (interrupted.length === 0) return 0
+    let settled = 0
+    let activated = 0
+    try {
+      for (const member of interrupted) {
+        if (this.ctx.agents.get(SessionId(member.sessionId)) !== undefined) continue
+        const verdict = await this.childVerdict(captain, member)
+        const outcome = verdict.kind === 'activate' ? { active: true } as const : { active: false, error: verdict.error } as const
+        try {
+          await this.deps.domain().settleMember(scope, membership.team.id, member.sessionId, outcome)
+        } catch (error) {
+          if (error instanceof TeamDomainError && ['TEAM_MEMBER_PHASE_INVALID', 'TEAM_MEMBER_NOT_FOUND'].includes(error.code)) {
+            continue
+          }
+          throw error
+        }
+        settled += 1
+        if (verdict.kind === 'activate') {
+          activated += 1
+          this.deps.trackChild(captain, member.sessionId)
+        } else if (verdict.drain) {
+          await this.ctx.subagents.drainContinuableChildren(captain, [SessionId(member.sessionId)]).catch(error => {
+            this.ctx.logger.warn(`agent-swarm: failed to drain mismatched provisioning child ${member.sessionId}: ${String(error)}`)
+          })
+        }
+      }
+    } catch (error) {
+      const recovered = await this.deps.domain().recoverProvisioningMembers(
+        scope,
+        membership.team.id,
+        captain.id,
+        `${INTERRUPTED} (reconciliation failed: ${describe(error)})`,
+      )
+      settled += recovered.length
+    }
+    if (settled > 0) {
+      this.ctx.logger.warn(
+        `agent-swarm: reconciled ${settled} interrupted member provisioning record(s) for ${membership.team.id} (${activated} activated)`,
+      )
+    }
+    return settled
+  }
+
+  /**
+   * Collect one provisioning record's child evidence: the live-preferred
+   * child enumeration proves durable existence and mode, then one persisted
+   * inspection proves the exact parent Session, the descriptor provider and
+   * the durably accepted initial user prompt (the official four factors).
+   *
+   * The enumeration is the enrichment rung, not the official baseline: the
+   * official template reconciles from the persisted inspection alone, so a
+   * composition without the optional `sessionProjections` registry (loading
+   * `@deepseek-ai/dsh-session-projection`) keeps full reconciliation over
+   * the inspect-only path, with one logged warning.
+   */
+  private async childVerdict(captain: Agent, member: TeamMember): Promise<ChildVerdict> {
+    let entry: SubagentListEntry | undefined
+    let enumerationAbsent = false
+    try {
+      const children = await this.ctx.subagents.listChildren(SessionId(captain.id), AbortSignal.timeout(RECONCILE_TIMEOUT_MS))
+      entry = children.find(candidate => candidate.id === SessionId(member.sessionId))
+    } catch (error) {
+      if (!(error instanceof SubagentError && error.code === 'SUBAGENT_CONTROL_PROJECTIONS_UNAVAILABLE')) {
+        return { kind: 'failed', error: `${INTERRUPTED}: reconciliation could not verify the persisted child (child enumeration failed: ${describe(error)})`, drain: false }
+      }
+      enumerationAbsent = true
+      if (!this.projectionsAbsenceWarned) {
+        this.projectionsAbsenceWarned = true
+        this.ctx.logger.warn('agent-swarm: provisioning reconciliation falls back to persisted inspection only (sessionProjections registry absent)')
+      }
+    }
+    if (entry === undefined && !enumerationAbsent) {
+      return { kind: 'failed', error: `${INTERRUPTED}: provisioning did not leave a resumable child Session`, drain: false }
+    }
+    if (entry?.kind === 'diagnostic') {
+      return entry.reason === 'corrupt'
+        ? { kind: 'failed', error: `${INTERRUPTED}: ${MISMATCH} (subagent descriptor fold was corrupt)`, drain: true }
+        : { kind: 'failed', error: `${INTERRUPTED}: reconciliation could not verify the persisted child (child enumeration reported "${entry.reason}")`, drain: false }
+    }
+    if (entry?.mode !== undefined && entry.mode !== 'continuable') {
+      return { kind: 'failed', error: `${INTERRUPTED}: ${MISMATCH} (durable mode "${entry.mode}" is not continuable)`, drain: true }
+    }
+    let stored: Awaited<ReturnType<Context['sessionPersistence']['inspect']>>
+    try {
+      stored = await this.ctx.sessionPersistence.inspect(SessionId(member.sessionId), AbortSignal.timeout(RECONCILE_TIMEOUT_MS))
+    } catch (error) {
+      return { kind: 'failed', error: `${INTERRUPTED}: reconciliation could not verify the persisted child (child Session recovery failed: ${describe(error)})`, drain: false }
+    }
+    const suffix = stored.events.slice(stored.meta.seedLength ?? 0)
+    if (stored.meta.parentSession !== captain.id) {
+      return { kind: 'failed', error: `${INTERRUPTED}: ${MISMATCH} (parent session does not match the recovering captain)`, drain: true }
+    }
+    let descriptor: ReturnType<typeof foldSubagentDescriptor>
+    try {
+      descriptor = foldSubagentDescriptor(suffix)
+    } catch (error) {
+      return { kind: 'failed', error: `${INTERRUPTED}: ${MISMATCH} (persisted subagent descriptor is damaged: ${describe(error)})`, drain: true }
+    }
+    if (descriptor?.mode !== 'continuable') {
+      return { kind: 'failed', error: `${INTERRUPTED}: ${MISMATCH} (no supported continuable subagent descriptor)`, drain: true }
+    }
+    if (descriptor.provider !== member.provider) {
+      return { kind: 'failed', error: `${INTERRUPTED}: ${MISMATCH} (child provider "${descriptor.provider}" is not the provisioned provider "${member.provider}")`, drain: true }
+    }
+    if (!messageAccepted(suffix, message => message.source.kind === 'user')) {
+      return { kind: 'failed', error: `${INTERRUPTED}: ${MISMATCH} (no initial user prompt was durably accepted)`, drain: true }
+    }
+    return { kind: 'activate' }
   }
 }
