@@ -4,7 +4,9 @@
  * Owns budget limit configuration, token consumption and the replay-safe
  * per-session usage fold (idempotent by event sequence through one usage
  * cursor per session), plus the budget admission check task claiming must
- * pass. Budget semantics stay in one module so the M4 `ctx.tokenMeter`
+ * pass. Usage arrives as coalesced per-session batches (M1C write
+ * coalescing) that fold under the same cursor semantics in one transaction.
+ * Budget semantics stay in one module so the M4 `ctx.tokenMeter`
  * adapter has a single seam to replace.
  */
 import { expectDomain, TeamDomainError } from './error.js'
@@ -70,21 +72,48 @@ export async function recordSessionUsage(
   eventSeq: number,
   tokens: number,
 ): Promise<TeamBudget> {
+  return await recordSessionUsageBatch(deps, scope, teamId, sessionId, [{ eventSeq, tokens }])
+}
+
+/**
+ * Fold one coalesced batch of Session usage events in a single transaction
+ * (M1C usage write coalescing): each entry only counts while its event seq
+ * exceeds the session's durable usage cursor, and the cursor moves to the
+ * highest folded seq, so replayed batches and reload recovery never
+ * double-count — exactly the single-event semantics, folded at once.
+ */
+export async function recordSessionUsageBatch(
+  deps: TeamDomainDeps,
+  scope: TeamScope,
+  teamId: TeamId,
+  sessionId: string,
+  entries: readonly { readonly eventSeq: number; readonly tokens: number }[],
+): Promise<TeamBudget> {
+  expectDomain(entries.length > 0, 'usage batch must not be empty', 'TEAM_BUDGET_INVALID')
   let committed!: TeamBudget
   await deps.store.transact(scope, teamId, team => {
-    expectDomain(Number.isSafeInteger(eventSeq) && eventSeq >= 0, 'event seq must be a non-negative safe integer', 'TEAM_BUDGET_INVALID')
-    expectDomain(Number.isSafeInteger(tokens) && tokens >= 0, 'tokens must be a non-negative safe integer', 'TEAM_BUDGET_INVALID')
+    for (const entry of entries) {
+      expectDomain(Number.isSafeInteger(entry.eventSeq) && entry.eventSeq >= 0, 'event seq must be a non-negative safe integer', 'TEAM_BUDGET_INVALID')
+      expectDomain(Number.isSafeInteger(entry.tokens) && entry.tokens >= 0, 'tokens must be a non-negative safe integer', 'TEAM_BUDGET_INVALID')
+    }
     const known = team.captainSessionId === sessionId || team.members.some(member => member.sessionId === sessionId)
     expectDomain(known, 'usage session is not a Team participant', 'TEAM_UNAUTHORIZED')
     const previous = team.usageCursors[sessionId] ?? -1
-    if (eventSeq <= previous) {
+    let usedTokens = team.budget.usedTokens
+    let cursor = previous
+    for (const entry of entries) {
+      if (entry.eventSeq <= cursor) continue
+      usedTokens += entry.tokens
+      cursor = entry.eventSeq
+    }
+    if (cursor === previous) {
       committed = team.budget
       return
     }
-    committed = { ...team.budget, usedTokens: team.budget.usedTokens + tokens }
+    committed = { ...team.budget, usedTokens }
     Object.assign(team, {
       budget: committed,
-      usageCursors: { ...team.usageCursors, [sessionId]: eventSeq },
+      usageCursors: { ...team.usageCursors, [sessionId]: cursor },
     })
   })
   return structuredClone(committed)

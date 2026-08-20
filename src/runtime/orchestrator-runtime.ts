@@ -20,6 +20,7 @@ import { StorageDomainTeamStore } from '../storage/storage-domain-team-store.js'
 import { teamDomainSpec } from '../storage/team-spec.js'
 import type { Domain } from '@deepseek-ai/dsh-storage-domain'
 import { expectDomainTimeout, requireAgent, workspaceOf, type ToolExecutionAuthority } from './authority.js'
+import { boundedSettle } from './disposal.js'
 import { MemberProvisioner } from './member-provisioning.js'
 import { MessageDelivery } from './message-delivery.js'
 import { assignmentPrompt } from './prompts.js'
@@ -37,6 +38,11 @@ export interface RuntimeConfig {
   readonly schedulerProvider: string
   readonly reviewProvider: string
   readonly limits: TeamLimits
+  /**
+   * Bound for every disposal settlement step (F4), aligned with the official
+   * experimental `disposalTimeoutMs` (default 5000). Positive safe integer.
+   */
+  readonly disposalTimeoutMs: number
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -66,6 +72,9 @@ export class AgentSwarmRuntime extends Service {
     readonly config: RuntimeConfig,
   ) {
     super(ctx, 'agentSwarm')
+    if (!Number.isSafeInteger(config.disposalTimeoutMs) || config.disposalTimeoutMs < 1) {
+      throw new TeamDomainError('disposalTimeoutMs must be a positive safe integer', 'TEAM_INVALID_CONFIG')
+    }
     this.schedulerProviders.set('priority-ready', priorityReadyScheduler())
     this.reviewProviders.set('manual', manualReview())
     this.usage = new UsageAccountant(ctx, { domain: () => this.domain, isClosing: () => this.closing })
@@ -327,7 +336,9 @@ export class AgentSwarmRuntime extends Service {
     this.assertOpen()
     const actor = requireAgent(exec)
     const scope = this.scopeOf(actor)
-    const membership = await this.domain.requireMembership(scope, actor.id)
+    // F14 read path: reads resolve through the archived captain too, so the
+    // terminal aggregate stays inspectable after archive.
+    const membership = await this.domain.requireReadMembership(scope, actor.id)
     return await this.domain.snapshot(scope, membership.team.id, actor.id)
   }
 
@@ -337,7 +348,7 @@ export class AgentSwarmRuntime extends Service {
     const actor = requireAgent(exec)
     expectDomainTimeout(timeoutMs)
     const scope = this.scopeOf(actor)
-    const membership = await this.domain.requireMembership(scope, actor.id)
+    const membership = await this.domain.requireReadMembership(scope, actor.id)
     const timeoutSignal = AbortSignal.timeout(timeoutMs)
     try {
       const snapshot = await this.domain.waitForChange(
@@ -347,7 +358,10 @@ export class AgentSwarmRuntime extends Service {
         afterRevision,
         AbortSignal.any([exec.signal, timeoutSignal]),
       )
-      return { snapshot, changed: true }
+      // An archived Team resolves immediately even at a current cursor (it
+      // can never commit a later revision), so `changed` is derived from the
+      // authoritative revision, not from the wait having returned.
+      return { snapshot, changed: snapshot.team.revision > afterRevision }
     } catch (error) {
       if (timeoutSignal.aborted && !exec.signal.aborted) {
         return { snapshot: await this.domain.snapshot(scope, membership.team.id, actor.id), changed: false }
@@ -528,31 +542,27 @@ export class AgentSwarmRuntime extends Service {
   async dispose(): Promise<void> {
     if (this.closing) return
     this.closing = true
-    await this.provisioning.wait()
-    await Promise.allSettled(this.scheduling.values())
-    await this.usage.wait()
-    await this.delivery.wait()
     const failures: unknown[] = []
+    const bound = <T>(label: string, operation: Promise<T>): Promise<void> =>
+      boundedSettle(this.ctx, this.config.disposalTimeoutMs, label, operation, failures)
+    await bound('member provisioning', this.provisioning.wait())
+    await bound('scheduling', Promise.allSettled(this.scheduling.values()))
+    await bound('token accounting', this.usage.wait())
+    await bound('message delivery', this.delivery.wait())
     for (const [captainId, childIds] of this.ownedChildren) {
       const captain = this.ctx.agents.get(SessionId(captainId))
       if (captain === undefined) continue
-      try {
-        await this.ctx.subagents.drainContinuableChildren(
-          captain,
-          [...childIds].map(SessionId),
-        )
-      } catch (error) {
-        failures.push(error)
-      }
+      await bound(
+        `child drain for ${captainId}`,
+        this.ctx.subagents.drainContinuableChildren(captain, [...childIds].map(SessionId)),
+      )
     }
-    try {
+    await bound('aggregate store close', (async () => {
       // Reject revision waiters, stop listening to domain changes, then
       // release the storage-domain unit so the name frees for a later open.
       await this.storeInstance?.close()
       await this.domainHandle?.close()
-    } catch (error) {
-      failures.push(error)
-    }
+    })())
     if (failures.length > 0) throw new AggregateError(failures, 'Team orchestrator disposal failed')
   }
 }

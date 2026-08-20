@@ -80,9 +80,13 @@ export class MemberProvisioner {
       if (provider.prepareContinuable === undefined) {
         throw new TeamDomainError(`subagent provider "${providerName}" is not continuable`, 'TEAM_MEMBER_PROVIDER_INCOMPATIBLE')
       }
-      if (!provider.capabilities.persona || !provider.capabilities.toolFilter) {
+      // Every member carries the configured delegation-depth cap, so the
+      // provider must advertise `depthLimit` (F15): the preflight rejects
+      // here — before any provisioning record commits — instead of surfacing
+      // late (or silently ignored) at child start.
+      if (!provider.capabilities.depthLimit || !provider.capabilities.persona || !provider.capabilities.toolFilter) {
         throw new TeamDomainError(
-          `subagent provider "${providerName}" must support persona and toolFilter`,
+          `subagent provider "${providerName}" must support depthLimit, persona and toolFilter`,
           'TEAM_MEMBER_PROVIDER_INCOMPATIBLE',
         )
       }

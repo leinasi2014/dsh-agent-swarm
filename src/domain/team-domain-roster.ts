@@ -65,19 +65,64 @@ export async function createTeam(
   return structuredClone(team)
 }
 
+/**
+ * Resolve one session's active-Team membership, failing loud on ambiguity
+ * (F11): this domain permits a member to found its own Team in the same
+ * scope, so one session can genuinely match several active Teams. silently
+ * picking the first would route authority and accounting arbitrarily;
+ * `TEAM_MEMBERSHIP_AMBIGUOUS` names every matched Team instead.
+ */
 export async function findMembership(deps: TeamDomainDeps, scope: TeamScope, sessionId: string): Promise<TeamMembership | undefined> {
+  const matches: TeamMembership[] = []
   for (const team of await deps.store.list(scope)) {
     if (team.phase !== 'active') continue
-    if (team.captainSessionId === sessionId) return { team, role: 'captain', name: 'captain' }
+    if (team.captainSessionId === sessionId) {
+      matches.push({ team, role: 'captain', name: 'captain' })
+      continue
+    }
     const member = team.members.find(candidate => candidate.sessionId === sessionId && candidate.phase === 'active')
-    if (member !== undefined) return { team, role: 'member', name: member.name }
+    if (member !== undefined) matches.push({ team, role: 'member', name: member.name })
   }
-  return undefined
+  if (matches.length > 1) {
+    throw new TeamDomainError(
+      `session "${sessionId}" belongs to multiple active teams: ${matches.map(match => match.team.id).join(', ')}`,
+      'TEAM_MEMBERSHIP_AMBIGUOUS',
+    )
+  }
+  return matches[0]
 }
 
 export async function requireMembership(deps: TeamDomainDeps, scope: TeamScope, sessionId: string): Promise<TeamMembership> {
   const membership = await findMembership(deps, scope, sessionId)
   if (membership === undefined) throw new TeamDomainError('caller does not belong to an active team', 'TEAM_NOT_JOINED')
+  return membership
+}
+
+/**
+ * The read-side membership resolution (F14): active-Team membership wins, and
+ * a session captain of exactly one archived Team keeps read access to that
+ * terminal aggregate. Captain of several archived Teams is the same ambiguity
+ * and fails loud the same way.
+ */
+export async function findReadMembership(deps: TeamDomainDeps, scope: TeamScope, sessionId: string): Promise<TeamMembership | undefined> {
+  const active = await findMembership(deps, scope, sessionId)
+  if (active !== undefined) return active
+  const archivedCaptained = (await deps.store.list(scope))
+    .filter(team => team.phase !== 'active' && team.captainSessionId === sessionId)
+  if (archivedCaptained.length > 1) {
+    throw new TeamDomainError(
+      `session "${sessionId}" captained multiple archived teams: ${archivedCaptained.map(team => team.id).join(', ')}`,
+      'TEAM_MEMBERSHIP_AMBIGUOUS',
+    )
+  }
+  return archivedCaptained.length === 0 ? undefined : { team: archivedCaptained[0]!, role: 'captain', name: 'captain' }
+}
+
+export async function requireReadMembership(deps: TeamDomainDeps, scope: TeamScope, sessionId: string): Promise<TeamMembership> {
+  const membership = await findReadMembership(deps, scope, sessionId)
+  if (membership === undefined) {
+    throw new TeamDomainError('caller is not an active participant or archived captain', 'TEAM_NOT_JOINED')
+  }
   return membership
 }
 
@@ -92,10 +137,18 @@ export async function provisionMember(
   await deps.store.transact(scope, teamId, team => {
     const authority = actorMembership(team, captainSessionId)
     expectDomain(authority.role === 'captain', 'only the captain can add members', 'TEAM_CAPTAIN_REQUIRED')
-    const occupiedMembers = team.members.filter(candidate => candidate.phase === 'active' || candidate.phase === 'provisioning')
-    expectDomain(occupiedMembers.length < deps.limits.maxMembers, 'team member limit reached', 'TEAM_MEMBER_LIMIT')
+    // Official name-lifetime alignment (F12): a member name is immutable and
+    // never reusable — `failed`/`removed` records stay in the roster with
+    // their names occupied for the Team's lifetime, and the total roster size
+    // (not only occupied rows) is what `maxMembers` bounds, matching the
+    // official experimental roster (`TEAM_MEMBER_NAME_TAKEN`, members.size).
     const name = memberName(input.name)
-    expectDomain(!occupiedMembers.some(candidate => candidate.name === name), `active member name "${name}" is already in use`, 'TEAM_MEMBER_NAME_REUSED')
+    expectDomain(
+      !team.members.some(candidate => candidate.name === name),
+      `member name "${name}" was already used in this Team`,
+      'TEAM_MEMBER_NAME_TAKEN',
+    )
+    expectDomain(team.members.length < deps.limits.maxMembers, 'team member limit reached', 'TEAM_MEMBER_LIMIT')
     const timestamp = deps.now()
     committed = {
       name,
@@ -105,16 +158,8 @@ export async function provisionMember(
       phase: 'provisioning',
       createdAt: timestamp,
     }
-    const reusableIndex = team.members.findIndex(candidate => candidate.phase === 'failed' || candidate.phase === 'removed')
-    const usageCursors = { ...team.usageCursors }
-    if (reusableIndex === -1) {
-      team.members.push(committed)
-    } else {
-      const retired = team.members[reusableIndex]!
-      team.members[reusableIndex] = committed
-      delete usageCursors[retired.sessionId]
-    }
-    usageCursors[input.sessionId] = -1
+    team.members.push(committed)
+    const usageCursors = { ...team.usageCursors, [input.sessionId]: -1 }
     Object.assign(team, { usageCursors })
   })
   return structuredClone(committed)

@@ -78,6 +78,14 @@ export class TeamDomain implements TeamDomainPort {
     return await roster.requireMembership(this.deps, scope, sessionId)
   }
 
+  async findReadMembership(scope: TeamScope, sessionId: string): Promise<TeamMembership | undefined> {
+    return await roster.findReadMembership(this.deps, scope, sessionId)
+  }
+
+  async requireReadMembership(scope: TeamScope, sessionId: string): Promise<TeamMembership> {
+    return await roster.requireReadMembership(this.deps, scope, sessionId)
+  }
+
   async provisionMember(
     scope: TeamScope,
     teamId: TeamId,
@@ -217,6 +225,15 @@ export class TeamDomain implements TeamDomainPort {
     tokens: number,
   ): Promise<TeamBudget> {
     return await budget.recordSessionUsage(this.deps, scope, teamId, sessionId, eventSeq, tokens)
+  }
+
+  async recordSessionUsageBatch(
+    scope: TeamScope,
+    teamId: TeamId,
+    sessionId: string,
+    entries: readonly { readonly eventSeq: number; readonly tokens: number }[],
+  ): Promise<TeamBudget> {
+    return await budget.recordSessionUsageBatch(this.deps, scope, teamId, sessionId, entries)
   }
 
   async addMemory(

@@ -85,13 +85,13 @@ Exit: F2/F3/F6/F7 **closed**; the usage write-coalescing companion of the retent
 
 ### M1C — lifecycle, coordination and input hardening
 
-- configure bounded admission/disposal settlement and fail loud with diagnostics;
+- configure bounded admission/disposal settlement and fail loud with diagnostics — **done (F4 + companions, 2026-08-20, #13)**: `disposalTimeoutMs` (official name/default 5000, positive safe integer) bounds every disposal settlement step (admitted provisioning/scheduling/usage/delivery waits, child drains, store close) through `AbortSignal.timeout` + `Promise.race`; a timeout records a diagnostic and surfaces a visible `TEAM_DISPOSAL_TIMEOUT` failure in the disposal `AggregateError` (scenario-9 hung-provider test);
 - feed actual live Agent status into availability and surface abandoned ownership for reassignment;
-- batch/coalesce usage writes while preserving sequence idempotency;
+- batch/coalesce usage writes while preserving sequence idempotency — **done (#13)**: consecutive usage events coalesce per scope+session into one batched transaction (`recordSessionUsageBatch`) under the unchanged per-session seq cursor, with reload/replay no-double-count tests at both domain and composition level;
 - delimit untrusted task/message fields as model data;
-- reject ambiguous membership, preflight `depthLimit`, keep archived snapshots readable and decide official-compatible name/quiet semantics explicitly.
+- reject ambiguous membership, preflight `depthLimit`, keep archived snapshots readable and decide official-compatible name/quiet semantics explicitly — **companion set done except quiet semantics (#13)**: `TEAM_MEMBERSHIP_AMBIGUOUS` fail-loud (F11), `depthLimit` provider preflight before provisioning commits (F15), archived read-only snapshots with immediate terminal `waitForChange` (F14), and the F12 decision aligned with the official name lifetime (`TEAM_MEMBER_NAME_TAKEN`, total roster counts toward `maxMembers`; decision recorded in `docs/04` §8a). The quiet inactive-delivery compatibility half stays with the #19 official-compat group.
 
-Exit: F4, F8, F10 and accepted companion findings pass lifecycle, scheduling, prompt snapshot and compatibility tests.
+Exit: F4, F8, F10 and accepted companion findings pass lifecycle, scheduling, prompt snapshot and compatibility tests. F4/F11/F12/F14/F15 and usage coalescing are closed; F8 and F10 remain open.
 
 ### M1D — assembled acceptance
 

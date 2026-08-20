@@ -71,6 +71,9 @@ export const inject = [
   'storageDomain',
 ] as const
 
+/** Official experimental default for `disposalTimeoutMs` (F4 alignment). */
+const DEFAULT_DISPOSAL_TIMEOUT_MS = 5_000
+
 export interface Config {
   /** Mount all host contributions. */
   enabled?: boolean
@@ -96,6 +99,11 @@ export interface Config {
   maxTaskBytes?: number
   maxDependencies?: number
   maxMemories?: number
+  /**
+   * Bound for every disposal settlement step (F4), same name and default as
+   * the official experimental config. Positive safe integer, default 5000.
+   */
+  disposalTimeoutMs?: number
   /** Ordered system-prompt contribution. */
   promptSectionOrder?: number
 }
@@ -116,6 +124,7 @@ export const Config: z<Config> = z.object({
   maxTaskBytes: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxTaskBytes),
   maxDependencies: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxDependencies),
   maxMemories: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxMemories),
+  disposalTimeoutMs: z.number().step(1).min(1).default(DEFAULT_DISPOSAL_TIMEOUT_MS),
   promptSectionOrder: z.natural().default(118),
 })
 
@@ -154,6 +163,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       maxDependencies: config.maxDependencies ?? DEFAULT_TEAM_LIMITS.maxDependencies,
       maxMemories: config.maxMemories ?? DEFAULT_TEAM_LIMITS.maxMemories,
     },
+    disposalTimeoutMs: config.disposalTimeoutMs ?? DEFAULT_DISPOSAL_TIMEOUT_MS,
   })
 
   // Fail closed: the official Storage Domain must open (backend routed, unit
