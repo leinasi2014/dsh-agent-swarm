@@ -160,8 +160,16 @@ describe('stranded-ownership self-healing over the real composition (issue #12)'
       // moved from the removed status task_summary into list rows); nothing
       // else moves. The hint appears only after the post-drain scheduling
       // pass observes the cold owner, so settle on it instead of racing the
-      // pass (lesson #7 pattern, same settle as PR #33).
+      // pass (lesson #7 pattern, same settle as PR #33). The drain settles
+      // the child with a captain settlement-notice turn — on a slow runner
+      // that notice can hold the captain at the model gate, so the observing
+      // pass never runs and the hint stays undefined (observed on three CI
+      // runs across branches). Release held captain turns and re-drive the
+      // recovery path inside each poll (the member is cold; the captain is
+      // the root session and never settles).
       await vi.waitFor(async () => {
+        composition.adapter.open()
+        await ctx.agentSwarm.recoverAgent(composition.lead)
         const listed = await toolCall(ctx, composition.lead, `list-stranded-${Date.now()}`, 'agent_swarm_list_tasks', {})
         expect(listed.isError).toBe(false)
         expect(((listed.value as { tasks: Array<{ stranded?: string }> }).tasks[0]!).stranded).toBe('owner-not-live')
