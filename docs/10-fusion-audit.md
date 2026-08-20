@@ -21,7 +21,7 @@ The independent GLM-5.3 review on 2026-08-20 issued `CONDITIONAL PASS` with P0 =
 |---|---|---|
 | `deepseek-ai/deepseek-harness` | `141eb6fef83422698aef7a981029e843e8161534`; remote `HEAD` and `master` matched on 2026-08-20 | framework and published-service truth |
 | `NanmiCoder/dsh-agent-teams` | `801954dd7be67213cf4adc1aeb6f97bd3daa12cc`, version 0.1.8 | direct DSH Team implementation prior art |
-| `openJiuwen-ai/jiuwenswarm` | `b7378eb48cdc8ffa363778cb918a891ceb96fcfd`, WorkSwarm 0.2.5.beta1 | product architecture and failure-case prior art; the two 2026-08-20 deltas from `bddf335` (gateway cron/Session metadata, then MCP connection-cache prewarm in server runtime adapters) were diff-reviewed and touch none of the fused evidence surfaces |
+| `openJiuwen-ai/jiuwenswarm` | `36c7959cccc4e721240007c1211aa4ecbd34c22d`, WorkSwarm 0.2.5.beta1 | product architecture and failure-case prior art; the 2026-08-20 deltas from `bddf335` through `91c9137` (gateway cron/Session metadata, MCP connection-cache prewarm, proactive-context, frontend/cron/trace, MCP CLI surfacing) and the 2026-08-21 `36c7959` delta (AgentGroup hybrid-team packages — strictly additive overlay) were each diff-reviewed and touch none of the fused evidence surfaces |
 
 The official target publishes `ctx.workflowEngine`, `ctx.jobs`, `ctx.tokenMeter`, `ctx.storageDomain` and `ctx.workspaceRegistry`. Its Agent Team package is private/experimental and unpublished. These facts supersede earlier project text claiming that rc.8 had no public workflow or token-meter service.
 
