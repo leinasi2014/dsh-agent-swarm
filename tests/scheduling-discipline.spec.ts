@@ -19,6 +19,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
 import {
   addMember,
+  driveRecoveryPasses,
   mount,
   settleCaptain,
   snapshotOf,
@@ -138,6 +139,11 @@ describe('live-status scheduling discipline over the real composition (issue #12
       )
 
       const followup = spyFollowup(composition)
+      // Settle any drain-settlement notice still holding the captain before
+      // the single recovery drive (a `running` captain would no-op the
+      // drive). No gate opening after this point: the member's mail turn
+      // must stay held through the negative window below.
+      await settleCaptain(composition.adapter, composition.lead)
       await ctx.agentSwarm.recoverAgent(composition.lead)
       await vi.waitFor(async () => {
         const snapshot = await snapshotOf(composition)
@@ -216,17 +222,18 @@ describe('live-status scheduling discipline over the real composition (issue #12
       const cancelSpy = vi.spyOn(domain, 'cancelAttempt')
 
       // Stage the ready task through the authoritative domain (no scheduling
-      // trigger), settle both members' initial turns plus the captain's
-      // settlement notices, then drive exactly one pass from the idle
-      // captain's recovery path.
+      // trigger), then drive passes from the captain's recovery path until
+      // the sabotaged dispatch happens. The re-driving poll is required: a
+      // settlement notice that lands after `settleCaptain`'s exit window
+      // holds the captain `running` on a gated turn, and `recoverAgent` only
+      // requests a pass while the captain is idle.
       await domain.createTask(composition.scope, AgentSwarm.TeamId(composition.teamId), composition.lead.id, {
         subject: 'CAS rollback proof', description: 'The failed dispatch must not double-write.',
       })
       await settleCaptain(composition.adapter, composition.lead)
-      await ctx.agentSwarm.recoverAgent(composition.lead)
-      await vi.waitFor(() => {
+      await driveRecoveryPasses(composition, () => {
         expect(sabotaged).toBe(true)
-      }, { timeout: 15_000 })
+      })
       await new Promise(resolve => setTimeout(resolve, 1_000))
 
       // The guarded rollback never called cancelAttempt: the handoff's
@@ -238,13 +245,15 @@ describe('live-status scheduling discipline over the real composition (issue #12
       const fenced = afterRace.team.attempts.find(attempt => attempt.memberSessionId !== betaId)
       expect(fenced?.phase).toBe('stale')
 
-      // The next pass delivers the handoff's reserved attempt normally.
-      await ctx.agentSwarm.recoverAgent(composition.lead)
-      await vi.waitFor(async () => {
+      // The next pass delivers the handoff's reserved attempt normally. A
+      // premature gate release during the poll is harmless here: the attempt
+      // stays reserved and every re-driven pass re-dispatches the same
+      // fenced attempt until the delivery acknowledgement commits.
+      await driveRecoveryPasses(composition, async () => {
         const snapshot = await snapshotOf(composition)
         const delivered = snapshot.team.attempts.find(attempt => attempt.id === snapshot.team.tasks[0]?.currentAttemptId)
         expect(delivered?.assignmentPhase).toBe('delivered')
-      }, { timeout: 15_000 })
+      })
       expect(cancelSpy).not.toHaveBeenCalled()
 
       idle.mockRestore()
