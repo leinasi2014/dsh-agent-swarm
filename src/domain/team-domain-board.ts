@@ -7,6 +7,15 @@
  * reassignment/cancellation of open attempts. Task metadata CAS
  * (`revision`) and execution generation (`attemptId`) stay distinct
  * mechanisms, as in the port contract.
+ *
+ * Retained attempt history is bounded per task (M1B/F7): terminal
+ * transitions prune the oldest terminal attempts beyond the newest
+ * `maxRetainedAttempts` of their task inside the same transaction. The
+ * fencing basis never depends on the pruned array: worker updates are
+ * validated against the task's `currentAttemptId` (never pruned), and
+ * new generations are allocated from a watermark derived from the
+ * retained maximum generation, so a pruned id can never become valid
+ * again.
  */
 import { randomUUID } from 'node:crypto'
 import { expectDomain, TeamDomainError } from './error.js'
@@ -23,6 +32,8 @@ import {
 } from './team-domain-shared.js'
 import { AttemptId, TaskId, type TaskAttempt, type TeamId, type TeamState, type TeamTask } from './types.js'
 import type { CreateTaskInput, TeamScope } from './team-domain-port.js'
+
+const TERMINAL_ATTEMPT_PHASES = new Set(['accepted', 'rejected', 'cancelled', 'stale'])
 
 function taskOf(team: TeamState, id: TaskId): TeamTask {
   const task = team.tasks.find(candidate => candidate.id === id)
@@ -43,6 +54,21 @@ function assertCurrentAttempt(task: TeamTask, attemptId: AttemptId): void {
   if (task.currentAttemptId !== attemptId) {
     throw new TeamDomainError(`attempt "${attemptId}" is stale`, 'TEAM_ATTEMPT_STALE')
   }
+}
+
+/**
+ * Generation watermark of one task: strictly above every generation that
+ * was ever allocated, including generations whose attempts were pruned.
+ * Because pruning only ever removes the oldest terminal attempts of a
+ * task, the retained maximum is always the historical maximum, so the
+ * watermark stays monotonic without a persisted counter.
+ */
+function nextAttemptGeneration(team: TeamState, taskId: TaskId): number {
+  let watermark = 0
+  for (const attempt of team.attempts) {
+    if (attempt.taskId === taskId && attempt.generation > watermark) watermark = attempt.generation
+  }
+  return watermark + 1
 }
 
 export async function createTask(
@@ -104,7 +130,7 @@ export async function claimTask(
     expectDomain(!team.tasks.some(task => task.ownerSessionId === assigneeSessionId && ['in_progress', 'submitted', 'verifying'].includes(task.status)), 'assignee already owns open work', 'TEAM_MEMBER_BUSY')
     budgetAvailable(team.budget, deps.now())
     const timestamp = deps.now()
-    const generation = team.attempts.filter(attempt => attempt.taskId === taskId).length + 1
+    const generation = nextAttemptGeneration(team, taskId)
     committedAttempt = {
       id: AttemptId(`attempt-${randomUUID()}`),
       taskId,
@@ -241,6 +267,7 @@ export async function reviewTask(
     if (decision === 'reject') {
       Object.assign(team, { budget: { ...team.budget, usedRetries: team.budget.usedRetries + 1 } })
     }
+    pruneRetainedAttempts(team, deps.limits.maxRetainedAttempts)
   })
   return structuredClone(committed)
 }
@@ -281,6 +308,38 @@ export async function cancelAttempt(
       updatedAt: timestamp,
     })
     replaceTask(team, committed)
+    pruneRetainedAttempts(team, deps.limits.maxRetainedAttempts)
   })
   return structuredClone(committed)
+}
+
+/**
+ * Bound the retained terminal attempts per task, pruning the oldest
+ * first (M1B/F7). Only terminal phases are prunable; the open attempt
+ * still owed a settlement and any attempt a task references as its
+ * `currentAttemptId` are never removed, so the fencing reference and the
+ * deep state validation stay intact. Pruning removes whole entries from
+ * the front of the creation-ordered array, so the retained replay order,
+ * attempt identities and the store revision sequence stay continuous,
+ * and the per-task generation watermark survives (the retained maximum
+ * is always the historical maximum). Records persisted before this
+ * policy existed load unchanged; their history is pruned lazily by the
+ * next terminal transition that runs through here.
+ */
+export function pruneRetainedAttempts(team: TeamState, maxRetainedAttempts: number): void {
+  const currentIds = new Set(
+    team.tasks.flatMap(task => task.currentAttemptId === undefined ? [] : [task.currentAttemptId]),
+  )
+  const retainedTerminal = new Map<TaskId, number>()
+  const removable: number[] = []
+  for (let index = team.attempts.length - 1; index >= 0; index -= 1) {
+    const attempt = team.attempts[index]!
+    if (!TERMINAL_ATTEMPT_PHASES.has(attempt.phase) || currentIds.has(attempt.id)) continue
+    const seen = (retainedTerminal.get(attempt.taskId) ?? 0) + 1
+    retainedTerminal.set(attempt.taskId, seen)
+    if (seen > maxRetainedAttempts) removable.push(index)
+  }
+  // Collected newest-first, so splicing from the tail never shifts a
+  // pending lower index.
+  for (const index of removable) team.attempts.splice(index, 1)
 }

@@ -138,7 +138,11 @@ export interface TeamState {
  * Deployment limits of one Team domain. Mailbox admission follows the
  * official `maxPendingMessagesPerMember` semantics (only queued-minus-
  * delivered mail counts, per target); terminal receipts are bounded
- * separately by `maxRetainedMessages` (M1B/F6).
+ * separately by `maxRetainedMessages` (M1B/F6). Retained attempt history
+ * is bounded per task by `maxRetainedAttempts` (M1B/F7): only terminal
+ * attempts (accepted/rejected/cancelled/stale) beyond the newest N of
+ * their task are pruned, the referenced current attempt is never pruned,
+ * and pruning can never revive a stale attempt id.
  */
 export interface TeamLimits {
   readonly maxMembers: number
@@ -147,6 +151,8 @@ export interface TeamLimits {
   readonly maxPendingMessagesPerMember: number
   /** Team-wide bound on retained delivered/cancelled receipts (oldest pruned). */
   readonly maxRetainedMessages: number
+  /** Per-task bound on retained terminal attempts (oldest pruned). */
+  readonly maxRetainedAttempts: number
   readonly maxMessageBytes: number
   readonly maxTaskBytes: number
   readonly maxDependencies: number

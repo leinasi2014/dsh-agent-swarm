@@ -38,6 +38,7 @@ export const DEFAULT_TEAM_LIMITS: TeamLimits = {
   maxTasks: 256,
   maxPendingMessagesPerMember: 64,
   maxRetainedMessages: 256,
+  maxRetainedAttempts: 64,
   maxMessageBytes: 65_536,
   maxTaskBytes: 65_536,
   maxDependencies: 64,

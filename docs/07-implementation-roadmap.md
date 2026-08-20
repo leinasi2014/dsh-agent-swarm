@@ -79,9 +79,9 @@ Exit: **met** — F1 and F5 are closed by the real storage composition (workspac
 - fold target inbox/history by stable Team message id before sending or acknowledging — **done (F2, 2026-08-20)**: `sessionPersistence.inspect` reconciliation, exact-frame folding, target flush before the delivered acknowledgement, scenario-5 crash-window and idempotent-rescan tests;
 - reconcile provisioning from persisted child descriptor, exact parent and admitted initial inbox/history, then activate or drain — **done (F3, 2026-08-20)**: official four-factor reconciliation (`listChildren` live-preferred enumeration + `sessionPersistence.inspect`), orphan re-activation with member tracking, explicit mismatch drain, indeterminate-evidence failed settlement, scenario-6 crash-window/mismatch/indeterminate tests;
 - count mailbox limits per target pending messages, bound retained receipts and preserve ordered replay — **done (F6, 2026-08-20)**: `maxPendingMessagesPerMember` (official default 64) counts queued-minus-delivered mail per target with the official `TEAM_MAILBOX_FULL` code, retained delivered/cancelled receipts are bounded (`maxRetainedMessages`) and pruned oldest-first without ever removing queued mail or breaking creation order/revision continuity, and pre-F6 schema-v1 records (including 1024-message populations) load unchanged (scenario-17 suite);
-- bound/prune attempt history without permitting stale attempt ids to become valid again.
+- bound/prune attempt history without permitting stale attempt ids to become valid again — **done (F7, 2026-08-20)**: `maxRetainedAttempts` (default 64 per task) keeps the current attempt plus the newest N terminal attempts, terminal transitions prune the oldest inside the same aggregate transaction, fencing stays keyed on the never-pruned task `currentAttemptId` (pruned ids remain `TEAM_ATTEMPT_STALE`), and generations allocate from a retained-maximum watermark that stays strictly monotonic across pruning and reloads; pre-F7 schema-v1 records (including 300-attempt populations) load unchanged (scenario-18 suite).
 
-Exit: F2/F3/F6 **closed**; the attempt-growth part of F7 is closed by real crash/fault injection.
+Exit: F2/F3/F6/F7 **closed**; the usage write-coalescing companion of the retention cost belongs to M1C (#13).
 
 ### M1C — lifecycle, coordination and input hardening
 
@@ -91,7 +91,7 @@ Exit: F2/F3/F6 **closed**; the attempt-growth part of F7 is closed by real crash
 - delimit untrusted task/message fields as model data;
 - reject ambiguous membership, preflight `depthLimit`, keep archived snapshots readable and decide official-compatible name/quiet semantics explicitly.
 
-Exit: F4, F7, F8, F10 and accepted companion findings pass lifecycle, scheduling, prompt snapshot and compatibility tests.
+Exit: F4, F8, F10 and accepted companion findings pass lifecycle, scheduling, prompt snapshot and compatibility tests.
 
 ### M1D — assembled acceptance
 

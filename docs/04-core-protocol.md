@@ -19,6 +19,8 @@ revision:  concurrent control-plane edits
 attemptId: late data-plane result from an old worker
 ```
 
+Retained attempt history is bounded per task (M1B/F7): `maxRetainedAttempts` (default 64, a project-owned bound) keeps the current attempt plus the newest N terminal attempts (accepted/rejected/cancelled/stale) of each task; each terminal transition (review settlement, reassignment, member-removal requeue, archive) prunes the oldest terminal attempts beyond the bound inside the same aggregate transaction. Pruning can never revive a stale id: worker updates fence against the task's `currentAttemptId` (a task field that is never pruned, and pruning never removes the referenced attempt), while new generations allocate from a watermark derived from the retained maximum generation — because only the oldest terminal attempts are pruned, the retained maximum is always the historical maximum, so generations stay strictly monotonic without a persisted counter. The stored record shape is unchanged — pre-F7 `schemaVersion: 1` records (including 300-attempt populations) load unchanged and are pruned lazily by their next terminal transition.
+
 ## 2. Recommended overlay records
 
 ```ts
