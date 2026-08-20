@@ -24,6 +24,7 @@ import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
+import { messageFrame } from '../src/runtime/prompts.js'
 import { mountStorageStackOn } from './helpers/storage-stack.js'
 
 const SIGNAL = new AbortController().signal
@@ -226,7 +227,7 @@ describe('official compatibility semantics over the real composition (issue #19)
       const quietMessage = (await ctx.agentSwarm.domain.snapshot(scope, AgentSwarm.TeamId(teamId), lead.id))
         .team.messages.find(candidate => candidate.content === 'Quiet fact for the next turn.')
       expect(quietMessage?.phase).toBe('queued')
-      const quietFrame = `Team message ${quietMessage?.id} from ${quietMessage?.senderName}:\n${quietMessage?.content}`
+      const quietFrame = messageFrame(quietMessage!)
 
       // The reload-recovery rescan skips the inactive target's quiet mail.
       await ctx.agentSwarm.recoverAgent(lead)
@@ -249,7 +250,7 @@ describe('official compatibility semantics over the real composition (issue #19)
       }, { timeout: 5_000 })
       const wakeupMessage = (await ctx.agentSwarm.domain.snapshot(scope, AgentSwarm.TeamId(teamId), lead.id))
         .team.messages.find(candidate => candidate.content === 'Wake up and run one turn.')
-      const wakeupFrame = `Team message ${wakeupMessage?.id} from ${wakeupMessage?.senderName}:\n${wakeupMessage?.content}`
+      const wakeupFrame = messageFrame(wakeupMessage!)
       expect(followupFrames.filter(text => text === wakeupFrame)).toHaveLength(1)
 
       // Now live again, the quiet message delivers on the next rescan without
@@ -322,7 +323,7 @@ describe('official compatibility semantics over the real composition (issue #19)
       const scope = ctx.agentSwarm.scopeOf(lead)
       const message = (await ctx.agentSwarm.domain.snapshot(scope, (await ctx.agentSwarm.domain.requireMembership(scope, lead.id)).team.id, lead.id))
         .team.messages.find(candidate => candidate.content === 'Context you may claim at a later step boundary.')
-      const frame = `Team message ${message?.id} from ${message?.senderName}:\n${message?.content}`
+      const frame = messageFrame(message!)
       const stored = await ctx.sessionPersistence.inspect(SessionId(memberId), SIGNAL)
       expect(acceptedFrames(stored.events, frame)).toBe(1)
 
@@ -417,7 +418,7 @@ describe('official compatibility semantics over the real composition (issue #19)
       const quietRow = after.team.messages.find(candidate => candidate.content === 'Quiet context kept across the interrupt.')
       expect(quietRow?.phase).toBe('delivered')
       const stored = await ctx.sessionPersistence.inspect(SessionId(memberId), SIGNAL)
-      const quietFrame = `Team message ${quietRow?.id} from ${quietRow?.senderName}:\n${quietRow?.content}`
+      const quietFrame = messageFrame(quietRow!)
       expect(acceptedFrames(stored.events, quietFrame)).toBe(1)
       expect(JSON.stringify(stored.events)).toContain('Interrupt proof')
 
