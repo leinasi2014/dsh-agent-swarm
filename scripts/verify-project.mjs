@@ -8,6 +8,7 @@ const root = fileURLToPath(new URL('..', import.meta.url))
 const execFileAsync = promisify(execFile)
 const required = [
   'README.md',
+  'CONTRIBUTING.md',
   'package.json',
   'cordis.patch.yml',
   'src/index.ts',
