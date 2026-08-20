@@ -13,7 +13,10 @@ function register(ctx: Context, tool: Parameters<typeof ctx.tools.register>[0], 
  * official `tool-agent-team` `jsonOutput` pattern (issue #15, docs/02 §7.1):
  * `defineTool` compiles the schema, the compiler checks `execute` against the
  * value the model is promised, and the pure single-block render never falls
- * back to a generic projection.
+ * back to a generic projection. Stays unfenced by the accepted issue #62
+ * trade-off (quantified in docs/04 §8d): JSON.stringify output is one line
+ * that can forge no fence or message boundary, and the single-block JSON is
+ * the official output contract locked by the model-experience tests.
  */
 function compactJsonOutput<const S extends ValueSchemaSpec>(schema: S): {
   schema: S
