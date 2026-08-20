@@ -14,16 +14,36 @@
  * non-waking `Agent.inject` seam; an inactive target's quiet message stays
  * durably queued across sends, scheduler passes and reload-recovery rescans
  * — only wakeup delivery may cold-resume an inactive member.
+ *
+ * Issue #52 / D1 visibility gate: waking (non-quiet) mail acknowledges only
+ * after the frame is CLAIMED into the target's model-visible history. A
+ * still-pending frame is a transient acceptance — official turn lifecycle
+ * paths (an aborted turn, an Activation disposal drain) clear unclaimed
+ * inbox work — so `delivered` never precedes model visibility: a
+ * pending-only frame keeps the message durably queued (never resent while
+ * pending), and a frame whose acceptance was discarded is redelivered
+ * exactly once by the next rescan.
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, type UserMessage } from '@deepseek-ai/dsh-llm'
-import { SessionId, type Session } from '@deepseek-ai/dsh-session'
+import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import type { TeamId, TeamMessage, TeamMessageId, TeamState } from '../domain/types.js'
 import { messageFrame } from './prompts.js'
-import { messageAccepted } from './session-acceptance.js'
+import { messageAccepted, messageClaimed, messagePending } from './session-acceptance.js'
+
+/**
+ * Bounded wait for a waking frame's claim at the target's next turn boundary.
+ * An idle or cold target claims within its first pre-step (milliseconds on a
+ * warm host; a cold runner's first member assemble can take seconds); a
+ * member mid-turn claims when the running turn ends, which can be long — the
+ * grace expires, the message stays durably queued, and the target's
+ * `agent/status → idle` edge re-runs the rescan that completes the
+ * acknowledgement on the claimed form.
+ */
+const WAKEUP_CLAIM_GRACE_MS = 5_000
 
 /**
  * The exact model-visible frame one message is delivered under lives in
@@ -58,8 +78,8 @@ export class MessageDelivery {
   ) {}
 
   /**
-   * Flush one live accepting target's durability checkpoint, then confirm the
-   * frame is recorded (official `checkpointDelivered` parity): the store
+   * Flush one live accepting target's durability checkpoint, then confirm
+   * the frame is recorded (official `checkpointDelivered` parity): the store
    * acknowledgement may only commit over an acceptance that survived the
    * flush. A cold-resumed target skips this — its inbox admission is already
    * durable through the persisted session.
@@ -67,6 +87,26 @@ export class MessageDelivery {
   private async targetFlushedAndRecorded(session: Session, frame: string): Promise<boolean> {
     await this.ctx.sessions.flush(session)
     return sessionAccepts(session, framePredicate(frame))
+  }
+
+  /**
+   * Wait for one waking frame's CLAIM into the target's model-visible
+   * history (issue #52 / D1): the durable claim is the acceptance form no
+   * official turn lifecycle can discard. Flushes before each observation so a
+   * confirmed claim is already durable. `false` keeps the message queued —
+   * pending-only acceptance is transient and must not be acknowledged.
+   */
+  private async waitForClaim(target: Agent, frame: string, signal: AbortSignal): Promise<boolean> {
+    const predicate = framePredicate(frame)
+    const deadline = Date.now() + WAKEUP_CLAIM_GRACE_MS
+    for (;;) {
+      if (messageClaimed(target.session.events, predicate)) {
+        await this.ctx.sessions.flush(target.session)
+        if (messageClaimed(target.session.events, predicate)) return true
+      }
+      if (signal.aborted || Date.now() >= deadline) return false
+      await new Promise(resolve => setTimeout(resolve, 25))
+    }
   }
 
   /** Deliver one message body; `false` keeps it durably queued. */
@@ -79,7 +119,12 @@ export class MessageDelivery {
           signal,
         })
         const captain = this.ctx.agents.get(SessionId(team.captainSessionId))
-        return captain === undefined || await this.targetFlushedAndRecorded(captain.session, frame)
+        if (message.delivery === 'quiet') {
+          return captain === undefined || await this.targetFlushedAndRecorded(captain.session, frame)
+        }
+        // Waking mail to the captain (issue #52 / D1): acknowledge only on
+        // the claimed, model-visible form.
+        return captain !== undefined && await this.waitForClaim(captain, frame, signal)
       }
       const target = this.ctx.agents.get(SessionId(message.targetSessionId))
       if (message.delivery === 'quiet') {
@@ -114,8 +159,12 @@ export class MessageDelivery {
         [{ type: 'text', text: frame }],
         { source: { kind: 'plugin', plugin: 'dsh-agent-swarm' }, signal },
       )
-      if (target !== undefined) await this.deps.accountAgentUsage(this.deps.scopeOf(captain), team.id, target)
-      return target === undefined || await this.targetFlushedAndRecorded(target.session, frame)
+      // The followup may have cold-resumed the target; observe the CURRENT
+      // live agent (issue #52 / D1: waking mail acks only on the claim).
+      const woken = this.ctx.agents.get(SessionId(message.targetSessionId))
+      if (woken === undefined) return false
+      await this.deps.accountAgentUsage(this.deps.scopeOf(captain), team.id, woken)
+      return await this.waitForClaim(woken, frame, signal)
     } catch (error) {
       this.ctx.logger.warn(`agent-swarm: message ${message.id} remains queued: ${String(error)}`)
       return false
@@ -129,15 +178,26 @@ export class MessageDelivery {
    * persisted inbox/history: the store acknowledgement is the only debt, so
    * the caller acknowledges without resending. `false` — no acceptance
    * exists: deliver normally. `undefined` — the persisted target could not be
-   * inspected; uncertainty keeps the message durably queued rather than risk
-   * a duplicate model-visible delivery. A live-target hit flushes the
-   * durability checkpoint before confirming, so a make-up acknowledgement
-   * never commits over an acceptance that is still only in memory.
+   * inspected, or (waking mail, issue #52 / D1) the acceptance is still the
+   * transient pending-inbox form; uncertainty keeps the message durably
+   * queued rather than risk a duplicate model-visible delivery. A live-target
+   * hit flushes the durability checkpoint before confirming, so a make-up
+   * acknowledgement never commits over an acceptance that is still only in
+   * memory.
    */
   private async targetAlreadyAccepted(message: TeamMessage, signal: AbortSignal): Promise<boolean | undefined> {
     const frame = messageFrame(message)
     const predicate = framePredicate(frame)
     const live = this.ctx.agents.get(SessionId(message.targetSessionId))
+    const readAccepted = (events: readonly SessionEvent[]): boolean | undefined => {
+      if (message.delivery === 'quiet') return messageAccepted(events, predicate)
+      // Waking mail (issue #52 / D1): only the claimed history form settles
+      // the delivery debt; a still-pending frame may still be discarded by
+      // official turn lifecycle, so it is unsettled — neither acknowledged
+      // nor resent.
+      if (messageClaimed(events, predicate)) return true
+      return messagePending(events, predicate) ? undefined : false
+    }
     if (live !== undefined) {
       if (!sessionAccepts(live.session, predicate)) return false
       try {
@@ -146,11 +206,11 @@ export class MessageDelivery {
         this.ctx.logger.warn(`agent-swarm: message ${message.id} acceptance flush failed: ${String(error)}`)
         return undefined
       }
-      return sessionAccepts(live.session, predicate)
+      return readAccepted(live.session.events)
     }
     try {
       const stored = await this.ctx.sessionPersistence.inspect(SessionId(message.targetSessionId), signal)
-      return messageAccepted(stored.events.slice(stored.meta.seedLength ?? 0), predicate)
+      return readAccepted(stored.events.slice(stored.meta.seedLength ?? 0))
     } catch (error) {
       this.ctx.logger.warn(`agent-swarm: message ${message.id} target ${message.targetSessionId} cannot be reconciled: ${String(error)}`)
       return undefined

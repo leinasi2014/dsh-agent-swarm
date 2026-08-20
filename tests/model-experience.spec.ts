@@ -125,7 +125,9 @@ describe('tool-layer model experience over the real composition (issue #15)', ()
       // spawn provider auto-settles an empty-inbox child, so one wakeup
       // message is parked behind the running turn first (pending next-turn
       // work keeps the Activation resident); the keepInbox interrupt then
-      // converges the member live-and-idle without consuming it.
+      // converges the member live-and-idle without consuming it. Issue #52:
+      // the parked frame is still pending, so the send reports `queued` —
+      // wakeup acknowledgement requires the claimed, model-visible form.
       const memberId = await addMember(composition, 'idle-worker')
       await vi.waitFor(() => {
         expect(ctx.agents.get(SessionId(memberId))?.status).toBe('running')
@@ -134,7 +136,7 @@ describe('tool-layer model experience over the real composition (issue #15)', ()
         target: 'idle-worker', content: 'Parked work while the captain waits.', delivery: 'wakeup',
       })
       expect(parked.isError).toBe(false)
-      expect((parked.value as { phase: string }).phase).toBe('delivered')
+      expect((parked.value as { phase: string }).phase).toBe('queued')
       const interrupted = await toolCall(ctx, lead, 'interrupt-idle-worker', 'agent_swarm_interrupt_member', {
         name: 'idle-worker',
       })
