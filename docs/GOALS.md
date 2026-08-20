@@ -12,16 +12,21 @@
 
 ## 当前开发目标
 
-**M1D — 装配验收与放行（进行中，2026-08-20 接替 M1C）**
+**M2 — 官方 Workflow/Jobs 编排模式（2026-08-21 接替 M1D）**
 
-1. 真实 rc.8 Profile 装配 + `--dump-config` + 重载/恢复/有界关停验证（Windows）——**前置环境依赖：rc.8 世系 DSH CLI（用户侧准备，F16）**；
-2. `pnpm verify:gate-a` + 完整项目套件 + package artifact 检查；
-3. 委派独立 GLM-5.3 回归/安全审查（按 docs/12，审查员自主不设限；输入 = 原始报告 + intake + M1B/M1C exit 报告的 remediation diff 清单）；
-4. 通过后 M1 放行 + D1 单写入者 dogfood 门开放 + tag 里程碑。
+**入口门（开工前完成，M1D 回归审查 remediation）**：#60（P2-1 assignment 认领可见性——#52 claimed-gate 同构推广）、#61（P2-2 `TEAM_SELF_MESSAGE` 官方对齐）、#62（P3-4 fence 卫生清理）。
 
-退出标准（docs/07 M1D）：每个接受的 M1 blocker 关闭、无 P0/P1 回归、独立审查员掌握最终 verdict、仓库指向可复现提交。
+1. `ctx.workflowEngine`/`ctx.jobs` 的 Team 桥 Consumer；
+2. `adaptive`/`workflow` 显式模式（单 owner）；Jiuwen phase/parallel/pipeline/nested/human 节点映射；
+3. Team 预算跨 run 共享；双 owner 故障测试；
+4. 开工先做 Gate A + issue 分解（注意：`src/tools.ts` 已 594/600 行，扩工具前先拆分）；
+5. 规划陷阱预登记已就位：`docs/development/2026-08-20-m2-planning-note.md`。
+
+**D1 单写入者 dogfood 已开放（2026-08-21 起）**：M1 放行即生效，约束与观察清单见 `docs/development/2026-08-21-m1d-exit-report.md` §4。
 
 ## 上一目标（已完成的登记记录）
+
+**M1D — 装配验收与放行（2026-08-21 完成）**：#37（M1D-1 双环境 Profile 装配，PR#48）、#38（M1D-2 重载/恢复/关停，PR#51，**发现 D1**）、#52（D1 修复：waking 确认仅认领形态，PR#54+追补 PR#56）、#39（独立 GLM-5.3 回归审查 **verdict PASS**，报告 `docs/reviews/2026-08-21-m1d-regression-review.md`）、#40（本出口报告）。伴随：CI 守卫修复 PR#57、测试窗口加固 PR#58、教训库 PR#59。审查非阻断项立案 #60/#61/#62（M2 入口门）。85/85 测试；tag `m1d`。证据：`docs/development/2026-08-21-m1d-exit-report.md`。**M1（M1A→M1D）全量收束：D1 单写入者 dogfood 开放。**
 
 **M1C — 生命周期、协调与输入加固（2026-08-20 完成）**：#12/#13/#14/#15/#19 全部关闭（含 CI 稳定化 PR #33）；F4/F7(usage)/F8/F10 与伴随组在生命周期/调度/prompt 快照/兼容测试中通过；78/78 测试、场景审计 16/30；tag `m1c`。证据：`docs/development/2026-08-20-m1c-exit-report.md`。
 
@@ -29,7 +34,7 @@
 
 ## 下一个目标（预登记，当前目标完成后生效）
 
-**M2 — 官方 Workflow/Jobs 编排模式**：`ctx.workflowEngine`/`ctx.jobs` 的 Team 桥 Consumer；`adaptive`/`workflow` 显式模式（单 owner）；Jiuwen phase/parallel/pipeline/nested/human 节点映射；Team 预算跨 run 共享；双 owner 故障测试。开工时先做 Gate A + issue 分解（注意：`src/tools.ts` 已 594/600 行，扩工具前先拆分）。
+**M3 — 自托管安全纵切（D2 并行自我开发）**：真实 per-attempt 执行根、独立可执行审查、候选验收 Profile 分离、外部晋升/回滚（ADR-0008）。入口条件：M2 完成且 D1 dogfood 无未决阻断发现。
 
 ## 登记规则
 
