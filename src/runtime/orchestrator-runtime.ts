@@ -13,7 +13,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-storage-domain'
 import type {} from '@deepseek-ai/dsh-subagent'
-import { TaskId, type AttemptId, type TeamId, type TeamLimits, type TeamMessage, type TeamState, type TeamTask } from '../domain/types.js'
+import { TaskId, type AttemptId, type TeamId, type TeamLimits, type TeamMessage, type TeamState, type TeamStatusSnapshot, type TeamTask } from '../domain/types.js'
 import { TeamDomain } from '../domain/team-domain.js'
 import type { CreateTaskInput, TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import { TeamDomainError } from '../domain/error.js'
@@ -403,6 +403,28 @@ export class AgentSwarmRuntime extends Service {
       }
       throw error
     }
+  }
+
+  /**
+   * Wait-progress evidence for the model-only no-progress short-circuit
+   * (issue #15, official `wait_agent` parity): whether any OTHER member is
+   * currently running or provisioning — the only peers that can produce the
+   * change a wait parks for — plus the current status snapshot so the
+   * short-circuit payload can answer with the authoritative cursor state.
+   * Read-only; `waitForChange` itself keeps its authoritative contract.
+   */
+  async activePeerEvidence(exec: ToolExecutionAuthority): Promise<{ snapshot: TeamStatusSnapshot; activePeer: boolean }> {
+    await this.ensureReady()
+    this.assertOpen()
+    const actor = requireAgent(exec)
+    const scope = this.scopeOf(actor)
+    const membership = await this.domain.requireReadMembership(scope, actor.id)
+    const activePeer = membership.team.members.some(member =>
+      member.sessionId !== actor.id
+      && (member.phase === 'provisioning'
+        || (member.phase === 'active' && this.ctx.agents.get(SessionId(member.sessionId))?.status === 'running')))
+    const snapshot = await this.domain.snapshot(scope, membership.team.id, actor.id)
+    return { snapshot, activePeer }
   }
 
   /**

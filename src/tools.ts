@@ -1,10 +1,75 @@
 import type { Context } from '@deepseek-ai/cordis'
-import { defineTool } from '@deepseek-ai/dsh-tools'
-import { TaskId } from './domain/types.js'
+import { defineTool, type InferValue, type ValueSchemaSpec } from '@deepseek-ai/dsh-tools'
+import { TaskId, type TeamStatusSnapshot, type TeamTask } from './domain/types.js'
+import { expectDomain } from './domain/error.js'
 import type { AgentSwarmRuntime } from './runtime/orchestrator-runtime.js'
 
 function register(ctx: Context, tool: Parameters<typeof ctx.tools.register>[0], label: string): void {
   ctx.effect(() => ctx.tools.register(tool), `agent-swarm: ${label}`)
+}
+
+/**
+ * Declare one canonical output schema with compact model-facing JSON — the
+ * official `tool-agent-team` `jsonOutput` pattern (issue #15, docs/02 §7.1):
+ * `defineTool` compiles the schema, the compiler checks `execute` against the
+ * value the model is promised, and the pure single-block render never falls
+ * back to a generic projection.
+ */
+function compactJsonOutput<const S extends ValueSchemaSpec>(schema: S): {
+  schema: S
+  render: (args: unknown, value: InferValue<S>) => [{ type: 'text'; text: string }]
+} {
+  return {
+    schema,
+    render: (_args: unknown, value: InferValue<S>) => [{ type: 'text', text: JSON.stringify(value) }],
+  }
+}
+
+/** One compact task row (issue #15): the `team_task_list` view over our CAS fields. */
+const TASK_ROW_SCHEMA = {
+  type: 'object', additionalProperties: false,
+  properties: {
+    task_id: { type: 'string', required: true },
+    revision: { type: 'number', required: true },
+    subject: { type: 'string', required: true },
+    description: { type: 'string', required: true },
+    status: {
+      type: 'string', required: true,
+      enum: ['pending', 'in_progress', 'submitted', 'verifying', 'completed', 'failed', 'cancelled'],
+    },
+    ready: { type: 'boolean', required: true },
+    blocked_by: { type: 'array', required: true, items: { type: 'string' } },
+    owner: { type: 'string', description: 'Member name, or captain when the captain holds it.' },
+    attempt_id: { type: 'string' },
+    stranded: { type: 'string', enum: ['idle-holder', 'owner-not-live'] },
+  },
+} as const
+
+const TASK_LIST_VALUE_SCHEMA = {
+  type: 'object', additionalProperties: false,
+  properties: {
+    tasks: { type: 'array', required: true, items: TASK_ROW_SCHEMA },
+    next_cursor: { type: 'number', description: 'Present only when more filtered rows exist.' },
+  },
+} as const
+
+/** Official `NO_ACTIVE_PEER_MESSAGE` shape, adapted to this plugin's tool names. */
+const NO_ACTIVE_PEER_MESSAGE = 'No other Team member is running or provisioning. agent_swarm_wait cannot make progress or wake inactive members. Re-read the Team with agent_swarm_status and agent_swarm_list_tasks, then use agent_swarm_send_message with delivery "wakeup" to resume each required inactive member before waiting again.'
+
+function projectWait(result: { changed: boolean; snapshot: TeamStatusSnapshot }) {
+  return {
+    changed: result.changed,
+    revision: result.snapshot.team.revision,
+    ready_task_ids: result.snapshot.readyTaskIds,
+    queued_messages: result.snapshot.pendingMessageIds.length,
+  }
+}
+
+/** Adapt the evidence-only stranded hint (docs/04 §8c) into one row field. */
+function strandedHint(runtime: AgentSwarmRuntime, task: TeamTask):
+  { stranded: 'idle-holder' | 'owner-not-live' } | Record<string, never> {
+  const evidence = runtime.strandedEvidence(task).trim()
+  return evidence === '' ? {} : { stranded: evidence.slice('stranded='.length) as 'idle-holder' | 'owner-not-live' }
 }
 
 /** Register the model-facing Consumer over the Team orchestrator runtime. */
@@ -398,43 +463,27 @@ export function registerAgentSwarmTools(ctx: Context, runtime: AgentSwarmRuntime
 
   register(ctx, defineTool({
     name: 'agent_swarm_status',
-    description: 'Read the authoritative Team snapshot: roster, task revisions/attempts, readiness, queued mail, budgets, and memory count.',
+    description: 'Read the fixed-size Team counters: roster size, task counts by outcome, readiness, queued mail, budgets and memory. Task rows — owners, attempts, filters, pagination — come from agent_swarm_list_tasks; this summary never embeds them.',
     parameters: {},
-    output: {
-      schema: {
-        type: 'object', additionalProperties: false,
-        properties: {
-          team_id: { type: 'string', required: true },
-          name: { type: 'string', required: true },
-          revision: { type: 'number', required: true },
-          members: { type: 'number', required: true },
-          tasks: { type: 'number', required: true },
-          completed_tasks: { type: 'number', required: true },
-          ready_task_ids: { type: 'array', items: { type: 'string' }, required: true },
-          queued_messages: { type: 'number', required: true },
-          memory_entries: { type: 'number', required: true },
-          used_tokens: { type: 'number', required: true },
-          used_requests: { type: 'number', required: true },
-          used_retries: { type: 'number', required: true },
-          task_summary: { type: 'string', required: true },
-        },
+    output: compactJsonOutput({
+      type: 'object', additionalProperties: false,
+      properties: {
+        team_id: { type: 'string', required: true },
+        name: { type: 'string', required: true },
+        revision: { type: 'number', required: true },
+        members: { type: 'number', required: true },
+        tasks: { type: 'number', required: true },
+        completed_tasks: { type: 'number', required: true },
+        ready_tasks: { type: 'number', required: true },
+        queued_messages: { type: 'number', required: true },
+        memory_entries: { type: 'number', required: true },
+        used_tokens: { type: 'number', required: true },
+        used_requests: { type: 'number', required: true },
+        used_retries: { type: 'number', required: true },
       },
-      render: (_args, value) => [{
-        type: 'text',
-        text: [
-          `Team ${value.name} (${value.team_id}) revision ${value.revision}`,
-          `members=${value.members}, tasks=${value.tasks}, completed=${value.completed_tasks}`,
-          `ready=${value.ready_task_ids.join(', ') || 'none'}, queued_messages=${value.queued_messages}, memory=${value.memory_entries}`,
-          `budget: tokens=${value.used_tokens}, requests=${value.used_requests}, retries=${value.used_retries}`,
-          value.task_summary,
-        ].join('\n'),
-      }],
-    },
+    }),
     async execute(_args, exec) {
       const snapshot = await runtime.status(exec)
-      const summary = snapshot.team.tasks.map(task => (
-        `${task.id}@${task.revision}:${task.status}${task.ownerSessionId === undefined ? '' : ` owner=${task.ownerSessionId}`}${task.currentAttemptId === undefined ? '' : ` attempt=${task.currentAttemptId}`}${runtime.strandedEvidence(task)}`
-      )).join('\n')
       return {
         team_id: snapshot.team.id,
         name: snapshot.team.name,
@@ -442,47 +491,104 @@ export function registerAgentSwarmTools(ctx: Context, runtime: AgentSwarmRuntime
         members: snapshot.team.members.filter(member => member.phase === 'active').length,
         tasks: snapshot.team.tasks.length,
         completed_tasks: snapshot.team.tasks.filter(task => task.status === 'completed').length,
-        ready_task_ids: snapshot.readyTaskIds,
+        ready_tasks: snapshot.readyTaskIds.length,
         queued_messages: snapshot.pendingMessageIds.length,
         memory_entries: snapshot.team.memory.length,
         used_tokens: snapshot.team.budget.usedTokens,
         used_requests: snapshot.team.budget.usedRequests,
         used_retries: snapshot.team.budget.usedRetries,
-        task_summary: summary || 'No tasks.',
       }
     },
   }), 'status tool')
 
   register(ctx, defineTool({
+    name: 'agent_swarm_list_tasks',
+    description: 'List Team tasks with optional status/owner/ready filters and cursor pagination. Rows are compact and bounded (limit 1-100, default 50); use next_cursor to continue. Prefer this over reading full status for task inspection.',
+    parameters: {
+      status: { type: 'string', enum: ['pending', 'in_progress', 'submitted', 'verifying', 'completed', 'failed', 'cancelled'], description: 'Optional exact status filter.' },
+      owner: { type: 'string', description: 'Optional member-name filter; use "unowned" for tasks without an owner.' },
+      ready: { type: 'boolean', description: 'Optional readiness filter.' },
+      cursor: { type: 'integer', description: 'Zero-based result offset. Defaults to 0.' },
+      limit: { type: 'integer', description: 'Number of rows, 1 through 100. Defaults to 50.' },
+    },
+    output: compactJsonOutput(TASK_LIST_VALUE_SCHEMA),
+    async execute(args, exec) {
+      const cursor = args.cursor ?? 0
+      const limit = args.limit ?? 50
+      expectDomain(Number.isSafeInteger(cursor) && cursor >= 0, 'cursor must be a non-negative safe integer', 'TEAM_INPUT_INVALID')
+      expectDomain(Number.isSafeInteger(limit) && limit >= 1 && limit <= 100, 'limit must be an integer from 1 through 100', 'TEAM_INPUT_INVALID')
+      const snapshot = await runtime.status(exec)
+      const ownerNames = new Map(snapshot.team.members.map(member => [member.sessionId, member.name]))
+      const readyIds = new Set(snapshot.readyTaskIds)
+      const filtered = snapshot.team.tasks.filter(task =>
+        (args.status === undefined || task.status === args.status)
+        && (args.owner === undefined || (args.owner === 'unowned'
+          ? task.ownerSessionId === undefined
+          : ownerNames.get(task.ownerSessionId ?? '') === args.owner))
+        && (args.ready === undefined || readyIds.has(task.id) === args.ready))
+      const tasks = filtered.slice(cursor, cursor + limit).map(task => ({
+        task_id: task.id,
+        revision: task.revision,
+        subject: task.subject,
+        description: task.description,
+        status: task.status,
+        ready: readyIds.has(task.id),
+        blocked_by: task.blockedBy,
+        ...(task.ownerSessionId === undefined ? {} : { owner: ownerNames.get(task.ownerSessionId) ?? 'captain' }),
+        ...(task.currentAttemptId === undefined ? {} : { attempt_id: task.currentAttemptId }),
+        ...strandedHint(runtime, task),
+      }))
+      return { tasks, ...(cursor + limit < filtered.length ? { next_cursor: cursor + limit } : {}) }
+    },
+  }), 'list-tasks tool')
+
+  register(ctx, defineTool({
     name: 'agent_swarm_wait',
-    description: 'Wait without polling until the authoritative Team revision exceeds after_revision, or return unchanged at timeout. Caller cancellation fails with TEAM_WAIT_ABORTED.',
+    description: 'Wait without polling until the authoritative Team revision exceeds after_revision, or return unchanged at timeout. Returns no_progress immediately when no other member is running or provisioning — waiting cannot help then. Caller cancellation fails with TEAM_WAIT_ABORTED.',
     parameters: {
       after_revision: { type: 'number', required: true },
       timeout_ms: { type: 'number', description: '10000..3600000; defaults to 30000.' },
     },
-    output: {
-      schema: {
-        type: 'object', additionalProperties: false,
-        properties: {
-          changed: { type: 'boolean', required: true },
-          revision: { type: 'number', required: true },
-          ready_task_ids: { type: 'array', items: { type: 'string' }, required: true },
-          queued_messages: { type: 'number', required: true },
+    output: compactJsonOutput({
+      type: 'object', additionalProperties: false,
+      properties: {
+        changed: { type: 'boolean', required: true },
+        no_progress: {
+          type: 'object', additionalProperties: false,
+          description: 'Present only on the model-only shortcut that skips the wait.',
+          properties: {
+            reason: { type: 'string', required: true, const: 'no-active-peer' },
+            message: { type: 'string', required: true },
+          },
         },
+        revision: { type: 'number', required: true },
+        ready_task_ids: { type: 'array', required: true, items: { type: 'string' } },
+        queued_messages: { type: 'number', required: true },
       },
-      render: (_args, value) => [{
-        type: 'text',
-        text: `Team revision ${value.revision}; changed=${String(value.changed)}, ready=${value.ready_task_ids.join(', ') || 'none'}, queued_messages=${value.queued_messages}.`,
-      }],
-    },
+    }),
     async execute(args, exec) {
-      const result = await runtime.waitForChange(exec, args.after_revision, args.timeout_ms ?? 30_000)
-      return {
-        changed: result.changed,
-        revision: result.snapshot.team.revision,
-        ready_task_ids: result.snapshot.readyTaskIds,
-        queued_messages: result.snapshot.pendingMessageIds.length,
+      const timeoutMs = args.timeout_ms ?? 30_000
+      // Official parity: the authoritative window validation precedes the
+      // model-only no-progress shortcut, so invalid timeouts still surface
+      // TEAM_INVALID_TIMEOUT instead of a misleading no_progress value.
+      if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 10_000 || timeoutMs > 3_600_000) {
+        return projectWait(await runtime.waitForChange(exec, args.after_revision, timeoutMs))
       }
+      const evidence = await runtime.activePeerEvidence(exec)
+      // The shortcut only covers a current cursor: this domain's wait is
+      // level-triggered (docs/04 §8b), so a caller whose cursor is already
+      // surpassed must still observe changed=true through the real wait,
+      // which resolves immediately without parking.
+      if (!evidence.activePeer && evidence.snapshot.team.revision <= args.after_revision) {
+        return {
+          changed: false,
+          no_progress: { reason: 'no-active-peer' as const, message: NO_ACTIVE_PEER_MESSAGE },
+          revision: evidence.snapshot.team.revision,
+          ready_task_ids: evidence.snapshot.readyTaskIds,
+          queued_messages: evidence.snapshot.pendingMessageIds.length,
+        }
+      }
+      return projectWait(await runtime.waitForChange(exec, args.after_revision, timeoutMs))
     },
   }), 'wait tool')
 }

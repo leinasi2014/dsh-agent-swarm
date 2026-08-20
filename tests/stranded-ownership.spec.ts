@@ -154,10 +154,16 @@ describe('stranded-ownership self-healing over the real composition (issue #12)'
         expect(ctx.agents.get(SessionId(workerId))).toBeUndefined()
       }, { timeout: 5_000 })
 
-      // Evidence surfaces in the status projection; nothing else moves.
-      const status = await toolCall(ctx, composition.lead, 'status', 'agent_swarm_status', {})
-      expect(status.isError).toBe(false)
-      expect((status.value as { task_summary: string }).task_summary).toContain('stranded=owner-not-live')
+      // Evidence surfaces in the task-list rows (issue #15: the stranded hint
+      // moved from the removed status task_summary into list rows); nothing
+      // else moves. The hint appears only after the post-drain scheduling
+      // pass observes the cold owner, so settle on it instead of racing the
+      // pass (lesson #7 pattern, same settle as PR #33).
+      await vi.waitFor(async () => {
+        const listed = await toolCall(ctx, composition.lead, `list-stranded-${Date.now()}`, 'agent_swarm_list_tasks', {})
+        expect(listed.isError).toBe(false)
+        expect(((listed.value as { tasks: Array<{ stranded?: string }> }).tasks[0]!).stranded).toBe('owner-not-live')
+      }, { timeout: 15_000 })
 
       // Past the grace bound, repeated passes still never auto-release the
       // cold owner's task: reassignment stays with the captain. (Settle the
