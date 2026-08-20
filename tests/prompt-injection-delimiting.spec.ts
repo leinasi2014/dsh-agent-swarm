@@ -17,6 +17,7 @@ import { join } from 'node:path'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
+import { frameVisibility } from '../src/runtime/frame-visibility.js'
 import { assignmentPrompt, messageFrame } from '../src/runtime/prompts.js'
 import { SIGNAL, addMember, mount, settleCaptain, snapshotOf, spyFollowup, toolCall } from './helpers/gated-composition.js'
 import { assertDeclaredData, assertPayloadsDelimited, delimitedBlockOf } from './helpers/delimited-data.js'
@@ -86,24 +87,29 @@ describe('untrusted-content delimiting over the real composition (F8, issue #14)
       // rescan's own grace; a loaded runner finds the member already
       // running-held, so the frame parks pending and the closed gate never
       // yields the idle edge the redelivery needs. Converge the parked
-      // regime deterministically: drain the held member cold (discarding
-      // the unclaimed frame — the wakeup-visibility precedent; claimed
-      // history and the in_progress task survive), release held captain
-      // turns so the re-driven rescan can run, and let the redelivery
-      // cold-resume the member — its mail turn re-holds at the model gate,
-      // so the member is live again for the authority checks below once
-      // the claim lands. The fast regime returns on the first poll with no
-      // intervention.
+      // regime deterministically, but NEVER drain a member whose frame is
+      // already CLAIMED (issue observed on the #80 CI round): a claimed
+      // frame settles via the rescan's make-up acknowledgement with the
+      // member live-held, while draining it would cold-settle the member
+      // and nothing would wake it again — the authority checks below need
+      // a live member Agent. Pending/absent frames behind a held member
+      // are drained (discarding the unclaimed frame — the wakeup-visibility
+      // precedent) and the redelivery cold-resumes the member, re-holding
+      // its mail turn at the model gate. The fast regime returns on the
+      // first poll with no intervention.
       const workerSession = SessionId(workerId)
       await vi.waitFor(async () => {
         const current = await snapshotOf(composition)
         const phase = current.team.messages.find(candidate => candidate.id === message.id)?.phase
         if (phase !== 'delivered') {
+          const visibility = await frameVisibility(
+            composition.ctx, workerId, messageFrame(message), SIGNAL, 'f8 peer message',
+          )
           const member = composition.ctx.agents.get(workerSession)
-          if (member !== undefined && member.status === 'running') {
+          if (visibility !== 'claimed' && member !== undefined && member.status === 'running') {
             composition.ctx.subagents.interrupt(workerSession, { kind: 'ancestor', agent: composition.lead })
             await composition.ctx.subagents.drainContinuableChildren(composition.lead, [workerSession])
-          } else {
+          } else if (visibility !== 'claimed') {
             composition.adapter.open()
           }
           await ctx.agentSwarm.recoverAgent(composition.lead)
