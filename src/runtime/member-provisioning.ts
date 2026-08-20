@@ -24,7 +24,7 @@ import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import type { TeamId, TeamMember, TeamMembership } from '../domain/types.js'
 import { requireAgent, type ToolExecutionAuthority } from './authority.js'
 import type { RuntimeConfig } from './orchestrator-runtime.js'
-import { CAPTAIN_ONLY_TOOLS, memberPersona } from './prompts.js'
+import { CAPTAIN_ONLY_TOOLS, memberJoinNotice, memberPersona } from './prompts.js'
 import { messageAccepted } from './session-acceptance.js'
 
 const MISMATCH = 'persisted child Session does not match the provisioned continuation'
@@ -104,7 +104,7 @@ export class MemberProvisioner {
           label: `agent-swarm:${membership.team.id}:${provisioning.name}`,
           childId,
           request: {
-            prompt: [{ type: 'text', text: `You joined Team "${membership.team.name}". Wait for a task assignment.` }],
+            prompt: [{ type: 'text', text: memberJoinNotice(membership.team) }],
             parent: captain,
             persona: memberPersona(membership.team, provisioning.name, provisioning.role),
             toolFilter: { deny: [...CAPTAIN_ONLY_TOOLS] },
