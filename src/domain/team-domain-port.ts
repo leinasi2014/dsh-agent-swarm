@@ -103,6 +103,14 @@ export interface TeamDomainPort {
   ): Promise<TeamState>
   findMembership(scope: TeamScope, sessionId: string): Promise<TeamMembership | undefined>
   requireMembership(scope: TeamScope, sessionId: string): Promise<TeamMembership>
+  /**
+   * Read-side membership resolution (F14): active-Team membership wins; a
+   * session captain of exactly one archived Team keeps read access to that
+   * terminal aggregate. Ambiguity fails loud with the same
+   * `TEAM_MEMBERSHIP_AMBIGUOUS` vocabulary as the active path.
+   */
+  findReadMembership(scope: TeamScope, sessionId: string): Promise<TeamMembership | undefined>
+  requireReadMembership(scope: TeamScope, sessionId: string): Promise<TeamMembership>
   provisionMember(
     scope: TeamScope,
     teamId: TeamId,
@@ -195,6 +203,18 @@ export interface TeamDomainPort {
     sessionId: string,
     eventSeq: number,
     tokens: number,
+  ): Promise<TeamBudget>
+  /**
+   * Fold one coalesced batch of usage events in a single transaction (M1C
+   * usage write coalescing). Entries only count while their event seq exceeds
+   * the session's durable usage cursor; the cursor moves to the highest
+   * folded seq, so replay and reload recovery never double-count.
+   */
+  recordSessionUsageBatch(
+    scope: TeamScope,
+    teamId: TeamId,
+    sessionId: string,
+    entries: readonly { readonly eventSeq: number; readonly tokens: number }[],
   ): Promise<TeamBudget>
   addMemory(
     scope: TeamScope,

@@ -56,3 +56,18 @@ export function actorMembership(team: TeamState, sessionId: string): TeamMembers
   if (member === undefined) throw new TeamDomainError('caller is not an active Team participant', 'TEAM_UNAUTHORIZED')
   return { team, role: 'member', name: member.name }
 }
+
+/**
+ * The read-side authority split (F14): mutations go through
+ * {@link actorMembership}, which rejects an archived Team outright, while
+ * reads (`snapshot`/`waitForChange`) resolve the archived captain so a
+ * terminal aggregate stays inspectable. Members removed at archive are not
+ * archived readers — their rows are terminal `removed` records.
+ */
+export function readerMembership(team: TeamState, sessionId: string): TeamMembership {
+  if (team.captainSessionId === sessionId) return { team, role: 'captain', name: 'captain' }
+  const member = team.members.find(candidate => candidate.sessionId === sessionId && candidate.phase === 'active')
+  if (team.phase !== 'active') throw new TeamDomainError('Team is archived', 'TEAM_ARCHIVED')
+  if (member === undefined) throw new TeamDomainError('caller is not an active Team participant', 'TEAM_UNAUTHORIZED')
+  return { team, role: 'member', name: member.name }
+}

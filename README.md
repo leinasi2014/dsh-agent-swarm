@@ -5,17 +5,18 @@
 ## 已实现的核心
 
 - `ctx.agentSwarm` 宿主服务，以及 14 个 `agent_swarm_*` 模型工具；
-- Captain、持续型成员、persona/tool-filter 隔离、未完成 provisioning 的持久 child 对账恢复（`listChildren` live-preferred 枚举 + `sessionPersistence.inspect` 官方四要素：父 Session、continuable descriptor、provider、初始 user 消息持久接受；全部匹配则孤儿复活为成员，任一不匹配则 failed 并显式 drain，不可判定维持失败收敛）、有限退休记录复用与卸载回收（F3）；
+- Captain、持续型成员、persona/tool-filter 隔离、未完成 provisioning 的持久 child 对账恢复（`listChildren` live-preferred 枚举 + `sessionPersistence.inspect` 官方四要素：父 Session、continuable descriptor、provider、初始 user 消息持久接受；全部匹配则孤儿复活为成员，任一不匹配则 failed 并显式 drain，不可判定维持失败收敛）、官方对齐的名字终身不可复用（`TEAM_MEMBER_NAME_TAKEN`，`failed`/`removed` 记录永久占用名字且计入 `maxMembers` 总数，F12）与有界卸载（`disposalTimeoutMs` 官方同名默认 5000，`AbortSignal.timeout` + `Promise.race` 包裹每个卸载 settle 步骤，超时报可见 `TEAM_DISPOSAL_TIMEOUT`，F4）；
 - 任务 DAG、优先级、自动事件调度和可注册 Scheduler Provider；
 - task `revision` CAS 与独立 `attemptId` fencing；attempt 历史按任务有界保留（`maxRetainedAttempts` 默认 64：current + 最近 N 条终态 attempt），终态迁移（审核落定/改派/成员移除/归档）在同一事务内最老先修剪——fencing 始终锚定在永不修剪的任务 `currentAttemptId` 上（被剪 id 的提交仍报 `TEAM_ATTEMPT_STALE`，不得复活），generation 从保留集最大值水位分配、跨修剪与重载严格递增；存量 schema-v1 记录（含 300 条 attempt 堆积）直接加载、由下一个终态迁移惰性修剪（F7，场景 18 测试关闭）；
 - `reserved → delivered` 分配检查点，失败时只回滚本次精确 attempt；
 - `submitted → review → completed` 强制审核门，可注册 Review Provider；
 - queued-before-delivered 邮箱、按消息 ID 串行派送和进程内重载重试；投递前在目标 Session 的持久 inbox/history 按稳定消息 id 折叠（`sessionPersistence.inspect` 对账 + 接收方 flush 后再确认），目标 Session 已接收而 Store 未确认的崩溃窗口只补确认、不重发（F2，场景 5 注入测试关闭）；邮箱准入按官方 per-target pending 语义（`maxPendingMessagesPerMember` 默认 64，仅计 queued-minus-delivered，超配额报官方码 `TEAM_MAILBOX_FULL`），delivered/cancelled 回执有界保留（`maxRetainedMessages` 默认 256）并在确认/取消时最老先修剪——修剪不动 queued 邮件、不破坏创建序 replay 与 revision 连续性，存量 schema-v1 记录（含 1024 条消息堆积）直接加载、由下一个终态迁移惰性修剪（F6，场景 17 测试关闭）；
-- request/retry/deadline 预算，以及从 DSH `assistant/message.usage` 按 event seq 去重的完整计费 token（uncached input、output、cache read/write）计量；
+- request/retry/deadline 预算，以及从 DSH `assistant/message.usage` 按 event seq 去重的完整计费 token（uncached input、output、cache read/write）计量；连续 usage 事件按 scope+session 微批合并为单次事务写（seq 游标幂等，replay/重载不双计）；
+- 歧义身份 fail-loud（同一 Session 命中多个活跃 Team 时 `TEAM_MEMBERSHIP_AMBIGUOUS`，F11）、`depthLimit` Provider 预检（provisioning 记录提交前拒绝，F15）与归档只读（归档后 captain 仍可读取终态快照、`waitForChange` 立即返回终态，变更类操作维持 `TEAM_ARCHIVED` 拒绝，F14）；
 - 结构化 Team memory、成员安全移除（同时取消其未投递收发邮件）、Team 归档；
 - revision 游标式 `agent_swarm_wait`，无需轮询状态；
 - **M1A 权威存储（ADR-0007）**：`TeamDomainPort` 是工具与编排消费的唯一 Team 聚合权威边界；生产 Provider `StorageDomainTeamStore` 通过官方 `ctx.storageDomain` 打开 `agent_swarm` 域，按“每个 Team 一条带版本聚合记录、每个迁移一条持久回执”存储，写入先经官方域写链达到后端持久化、再更新内存并通知等待者；`sessionPersistence` 与 `storageDomain` 为必需注入，任一缺失时插件保持 pending（fail closed），没有 workspace-JSON 或非持久回退；遗留 `FileTeamStore` 仅保留为只读离线迁移读取器与测试 fixture；
-- 49 项测试：20 项协议（含 F6：per-target pending 准入 + `TEAM_MAILBOX_FULL`、quota+10 发送/确认不失语、最老先修剪且不动 queued、取消路径修剪、存量 v1 1024 条消息记录兼容）、3 项 F7 attempt 保留（12 轮 claim/改派循环保留窗口有界 + team.json 字节有界、跨修剪与重载 generation 严格递增、被剪 id 仍 `TEAM_ATTEMPT_STALE`、completed 任务引用的 current attempt 不被修剪、存量 v1 300 条 attempt 记录惰性修剪）、13 项端口一致性/schema/版本/损坏/关闭/故障注入、5 项迁移（成功、目的非空、非法源、持久化失败、回执不一致）、2 项真实 rc.8 组合（真实官方存储栈 + JSONL 持久化 + continuable 成员 + 调度/审核 + 重载恢复 + 工作区篡改否认）、2 项 F2 邮箱崩溃窗口/幂等重扫、4 项 F3 provisioning 对账（场景 6 崩溃半边激活、四要素不匹配 failed+drain、证据不可判定维持现状、无 projection 注册表的 inspect-only 回退）。
+- 56 项测试：20 项协议（含 F6：per-target pending 准入 + `TEAM_MAILBOX_FULL`、quota+10 发送/确认不失语、最老先修剪且不动 queued、取消路径修剪、存量 v1 1024 条消息记录兼容；含 F12 语义更新的中断 provisioning 幂等恢复——退休名字永久占用 + 总数计入上限）、3 项 F7 attempt 保留（12 轮 claim/改派循环保留窗口有界 + team.json 字节有界、跨修剪与重载 generation 严格递增、被剪 id 仍 `TEAM_ATTEMPT_STALE`、completed 任务引用的 current attempt 不被修剪、存量 v1 300 条 attempt 记录惰性修剪）、13 项端口一致性/schema/版本/损坏/关闭/故障注入、5 项迁移（成功、目的非空、非法源、持久化失败、回执不一致）、3 项真实 rc.8 组合（真实官方存储栈 + JSONL 持久化 + continuable 成员 + 调度/审核 + 重载恢复（预算经游标 refold 后仍与 adapter 精确相等）+ 工作区篡改否认 + 场景 9 挂起 Provider 有界卸载）、2 项 F2 邮箱崩溃窗口/幂等重扫、4 项 F3 provisioning 对账（场景 6 崩溃半边激活、四要素不匹配 failed+drain、证据不可判定维持现状、无 projection 注册表的 inspect-only 回退）、5 项 F4/F11/F12/F14/usage 合并 M1C 伴随加固（歧义 fail-loud、名字终身占用 + 总数上限、归档只读终态读、usage 批次跨重开幂等）、1 项 F15 depthLimit 预检。
 
 ## Profile 组合（部署必读）
 
@@ -58,9 +59,9 @@ node scripts/migrate-legacy-team-store.mjs `
 
 ## DSH 边界
 
-官方 `packages/experimental/agent-team` 在目标提交中是 `private` 实验包，未发布到 npm；本插件不依赖、不影子注册 `ctx.agentTeams`。官方实验实现（Session-log 权威、target-side 去重、persisted-child 恢复、名字终身不可复用、pending-only 邮箱上限、`disposalTimeoutMs`）是对齐的语义目标，不是生产依赖。目标 rc.8 已发布 `ctx.workflowEngine`、`ctx.jobs`、`ctx.tokenMeter`、`ctx.storageDomain` 和 `ctx.workspaceRegistry`；本插件现已消费 `ctx.storageDomain`（Team 聚合权威）并将 `sessionPersistence` 设为必需注入，工作流桥（M2）、Token Meter 适配器（M3）与官方 Team backend adapter（等待官方包发布）仍是待实现项。
+官方 `packages/experimental/agent-team` 在目标提交中是 `private` 实验包，未发布到 npm；本插件不依赖、不影子注册 `ctx.agentTeams`。官方实验实现的语义目标正在逐项对齐落地：Session-log 权威、target-side 去重、persisted-child 恢复、pending-only 邮箱上限（M1B 已实现）；名字终身不可复用与 `disposalTimeoutMs` 有界卸载（M1C 已实现，官方同名同默认同错误码语义）。官方包本身不是生产依赖。目标 rc.8 已发布 `ctx.workflowEngine`、`ctx.jobs`、`ctx.tokenMeter`、`ctx.storageDomain` 和 `ctx.workspaceRegistry`；本插件现已消费 `ctx.storageDomain`（Team 聚合权威）并将 `sessionPersistence` 设为必需注入，工作流桥（M2）、Token Meter 适配器（M3）与官方 Team backend adapter（等待官方包发布）仍是待实现项。
 
-Worktree、命令审核、Reviewer Agent、远程 Worker、工作流和 UI 属于 Provider/Consumer 扩展。当前插件只提供 Scheduler/Review 注册契约，并可使用满足 continuable、persona、toolFilter 能力的 `ctx.subagents` Provider。官方 `ctx.workspaceRegistry` 管理 Workspace 实体和 Session 归属，但不提供按子成员创建时覆盖 cwd 的 lease；真实 Worktree 隔离仍需远程/独立 Session 组合，或 DSH 上游增加通用的 continuable-child workspace/cwd seam。`writeScopes` 仅为协调提示，不是文件系统授权。
+Worktree、命令审核、Reviewer Agent、远程 Worker、工作流和 UI 属于 Provider/Consumer 扩展。当前插件只提供 Scheduler/Review 注册契约，并可使用满足 continuable、depthLimit、persona、toolFilter 能力的 `ctx.subagents` Provider（缺任一能力在 `agent_swarm_add_member` 预检即拒绝）。官方 `ctx.workspaceRegistry` 管理 Workspace 实体和 Session 归属，但不提供按子成员创建时覆盖 cwd 的 lease；真实 Worktree 隔离仍需远程/独立 Session 组合，或 DSH 上游增加通用的 continuable-child workspace/cwd seam。`writeScopes` 仅为协调提示，不是文件系统授权。
 
 ## 自托管开发边界
 

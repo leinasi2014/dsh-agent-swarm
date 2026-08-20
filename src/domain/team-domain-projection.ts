@@ -10,7 +10,7 @@
  */
 import { expectDomain, TeamDomainError } from './error.js'
 import { isTaskReady } from './graph.js'
-import { actorMembership, nonEmpty, type TeamDomainDeps } from './team-domain-shared.js'
+import { actorMembership, readerMembership, nonEmpty, type TeamDomainDeps } from './team-domain-shared.js'
 import type { TeamId, TeamMemoryCategory, TeamState, TeamStatusSnapshot } from './types.js'
 import type { TeamScope } from './team-domain-port.js'
 
@@ -57,7 +57,10 @@ export async function snapshot(
 ): Promise<TeamStatusSnapshot> {
   const team = await deps.store.read(scope, teamId)
   if (team === undefined) throw new TeamDomainError(`team "${teamId}" not found`, 'TEAM_NOT_FOUND')
-  actorMembership(team, actorSessionId)
+  // F14 read/write authority split: reads resolve through the archived
+  // captain too, so a terminal aggregate stays inspectable while every
+  // mutation keeps rejecting with TEAM_ARCHIVED.
+  readerMembership(team, actorSessionId)
   return statusOf(team)
 }
 
@@ -72,8 +75,12 @@ export async function waitForChange(
   expectDomain(Number.isSafeInteger(afterRevision) && afterRevision >= 0, 'afterRevision must be a non-negative safe integer', 'TEAM_INPUT_INVALID')
   const before = await deps.store.read(scope, teamId)
   if (before === undefined) throw new TeamDomainError(`team "${teamId}" not found`, 'TEAM_NOT_FOUND')
-  actorMembership(before, actorSessionId)
-  const team = await deps.store.waitForChange(scope, teamId, afterRevision, signal)
-  actorMembership(team, actorSessionId)
+  readerMembership(before, actorSessionId)
+  // An archived Team is terminal (F14): no later revision can ever commit,
+  // so a caller whose cursor is already current resolves with the terminal
+  // snapshot immediately instead of waiting out its timeout. A superseded
+  // cursor still resolves through the ordinary store path.
+  const team = before.phase === 'archived' ? before : await deps.store.waitForChange(scope, teamId, afterRevision, signal)
+  readerMembership(team, actorSessionId)
   return statusOf(team)
 }

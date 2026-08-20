@@ -296,7 +296,7 @@ describe('TeamDomain over the official Storage Domain', () => {
     expect(budget.usedTokens).toBe(20)
   })
 
-  it('recovers interrupted provisioning idempotently and reuses one bounded retired slot', async () => {
+  it('recovers interrupted provisioning idempotently and keeps retired names occupied (F12)', async () => {
     await stack.close()
     stack = await openStorageStack(join(sandbox, 'storage'), () => tick++)
     const limited = new TeamDomain(stack.store, {
@@ -324,14 +324,24 @@ describe('TeamDomain over the official Storage Domain', () => {
     const afterIdempotentPass = await reloaded.snapshot(scope, team.id, 'captain-session')
     expect(afterIdempotentPass.team.revision).toBe(afterRecovery.team.revision)
 
-    const replacement = await reloaded.provisionMember(scope, team.id, 'captain-session', {
+    // F12 (M1C, official lifetime alignment): this test previously asserted
+    // one bounded retired-slot replacement — re-provisioning the failed
+    // member's name succeeded, replaced the slot and deleted the retired
+    // usage cursor. Official semantics keep a used name occupied for the
+    // Team's lifetime and count the retained record toward maxMembers, so
+    // those assertions were inverted: the same name is now taken, and even a
+    // fresh name cannot exceed the total roster bound.
+    await expect(reloaded.provisionMember(scope, team.id, 'captain-session', {
       name: 'worker', role: 'replacement', sessionId: 'member-replacement', provider: 'spawn',
-    })
-    expect(replacement).toMatchObject({ name: 'worker', sessionId: 'member-replacement', phase: 'provisioning' })
+    })).rejects.toMatchObject({ code: 'TEAM_MEMBER_NAME_TAKEN' })
+    await expect(reloaded.provisionMember(scope, team.id, 'captain-session', {
+      name: 'worker-two', role: 'replacement', sessionId: 'member-replacement', provider: 'spawn',
+    })).rejects.toMatchObject({ code: 'TEAM_MEMBER_LIMIT' })
     const afterReplacement = await reloaded.snapshot(scope, team.id, 'captain-session')
     expect(afterReplacement.team.members).toHaveLength(1)
-    expect(afterReplacement.team.members[0]?.sessionId).toBe('member-replacement')
-    expect(afterReplacement.team.usageCursors).not.toHaveProperty('member-orphan')
+    expect(afterReplacement.team.members[0]).toMatchObject({ sessionId: 'member-orphan', phase: 'failed' })
+    // The retired record's usage cursor is retained instead of deleted.
+    expect(afterReplacement.team.usageCursors['member-orphan']).toBe(-1)
   })
 
   it('scenario 7: fences a removed member before requeuing their task and cancelling mail', async () => {

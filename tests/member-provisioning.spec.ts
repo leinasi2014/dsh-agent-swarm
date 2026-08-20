@@ -308,4 +308,51 @@ describe('persisted-child provisioning reconciliation (F3)', () => {
       for (const fiber of fibers.toReversed()) await fiber.dispose()
     }
   }, 20_000)
+
+  /**
+   * F15: the runtime requests a delegation-depth cap for every member, so a
+   * provider without the `depthLimit` capability is incompatible up front.
+   * The preflight must reject at `addMember` — before any provisioning record
+   * commits and before the continuation manager is reached — instead of
+   * surfacing late at child start.
+   */
+  it('preflights the provider depthLimit capability before committing provisioning (F15)', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-provision-depth-'))
+    roots.push(sandbox)
+    const fibers: Fiber[] = []
+
+    try {
+      const stack = await mountCaptain(sandbox, fibers, 'depth-preflight-lead', 'Depth preflight team')
+      const prepare = vi.fn(() => Promise.resolve({}))
+      const unregister = stack.ctx.subagents.registerProvider({
+        name: 'no-depth',
+        capabilities: { outputSchema: false, depthLimit: false, toolFilter: true, persona: true },
+        inheritsParentContext: false,
+        start: () => Promise.reject(new Error('one-shot start must never run here')),
+        prepareContinuable: prepare,
+      })
+
+      const rejected = await stack.ctx.tools.execute({
+        signal: SIGNAL,
+        callId: CallId('depth-add'),
+        name: 'agent_swarm_add_member',
+        arguments: { name: 'shallow-worker', role: 'Exercise the depthLimit preflight.', provider: 'no-depth' },
+        agent: stack.lead,
+      })
+      expect(rejected).toMatchObject({
+        isError: true,
+        error: { info: { code: 'TEAM_MEMBER_PROVIDER_INCOMPATIBLE' } },
+      })
+      expect((rejected.error as { message: string }).message).toContain('depthLimit')
+
+      const snapshot = await stack.ctx.agentSwarm.domain.snapshot(
+        stack.ctx.agentSwarm.scopeOf(stack.lead), AgentSwarm.TeamId(stack.teamId), stack.lead.id,
+      )
+      expect(snapshot.team.members).toHaveLength(0)
+      expect(prepare).not.toHaveBeenCalled()
+      unregister()
+    } finally {
+      for (const fiber of fibers.toReversed()) await fiber.dispose()
+    }
+  }, 20_000)
 })

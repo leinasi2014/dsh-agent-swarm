@@ -332,6 +332,15 @@ describe('DSH rc.8 composition', () => {
         expect(reloaded).toMatchObject({ members: 1, tasks: 1, queued_messages: 0 })
         expect(JSON.stringify(adapter.requests)).toContain('Recover this queued message after reload.')
       }, { timeout: 5_000 })
+      // Additive M1C usage-coalescing evidence: the reload's recovery refolds
+      // each Session from its durable usage cursor, so replayed history never
+      // double-counts and the budget keeps matching the adapter exactly.
+      await vi.waitFor(async () => {
+        const settled = await ctx.agentSwarm.domain.snapshot(
+          ctx.agentSwarm.scopeOf(lead), AgentSwarm.TeamId(created.team_id), lead.id,
+        )
+        expect(settled.team.budget.usedTokens).toBe(adapter.billedTokens)
+      }, { timeout: 5_000 })
       await reloadedFiber.dispose()
       await vi.waitFor(() => {
         expect(ctx.agents.get(SessionId(added.session_id))).toBeUndefined()
@@ -410,4 +419,81 @@ describe('DSH rc.8 composition', () => {
       for (const fiber of fibers.toReversed()) await fiber.dispose()
     }
   }, 15_000)
+
+  it('scenario 9: bounded disposal fails loud when an admitted provider hangs', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-disposal-hang-'))
+    roots.push(sandbox)
+    const ctx = new Context()
+    const fibers: Fiber[] = []
+
+    try {
+      await mountDurableStack(ctx, join(sandbox, 'storage'), join(sandbox, 'sessions'))
+      fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
+      fibers.push(await ctx.plugin(SubagentService))
+      fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
+      const pluginFiber = await ctx.plugin(AgentSwarm, {
+        memberProvider: 'spawn',
+        memberMaxDepth: 1,
+        disposalTimeoutMs: 100,
+      })
+      fibers.push(pluginFiber)
+
+      ctx.llm.registerAdapter(['mock'], new ScriptedAdapter([textResponse('Captain ready.')]))
+      const lead = ctx.agentLoop.create(
+        SessionId('disposal-lead'),
+        { provider: 'mock', model: 'mock' },
+        { cwd: join(sandbox, 'workspace') },
+      )
+      const created = await successfulTool(ctx, lead, 'disposal-create', 'agent_swarm_create', {
+        name: 'Bounded disposal team',
+        description: 'Prove a hung provider cannot block unload past disposalTimeoutMs.',
+      }) as { team_id: string }
+
+      // A registered provider whose continuable preparation never settles is
+      // exactly a hung Provider: the admitted addMember operation can never
+      // settle, so an unbounded disposal would block unload forever.
+      const prepare = vi.fn(() => new Promise<never>(() => {}))
+      const unregister = ctx.subagents.registerProvider({
+        name: 'hung',
+        capabilities: { outputSchema: false, depthLimit: true, toolFilter: true, persona: true },
+        inheritsParentContext: false,
+        start: () => Promise.reject(new Error('one-shot start must never run here')),
+        prepareContinuable: prepare,
+      })
+      const pendingAdd = ctx.agentSwarm.addMember(
+        { agent: lead, signal: SIGNAL },
+        { name: 'hung-worker', role: 'Never settles.', provider: 'hung' },
+      )
+      await vi.waitFor(() => { expect(prepare).toHaveBeenCalled() }, { timeout: 5_000 })
+
+      // The runtime's own disposal contract fails loud within the bound: the
+      // bounded step records a diagnostic and surfaces a visible
+      // TEAM_DISPOSAL_TIMEOUT error instead of blocking unload forever.
+      // (The Cordis effect wrapper additionally logs this rejection at the
+      // plugin boundary — that surface belongs to the framework.)
+      const startedAt = Date.now()
+      const failure: unknown = await ctx.agentSwarm.dispose().then(() => undefined, error => error)
+      expect(Date.now() - startedAt).toBeLessThan(3_000)
+      expect(failure).toBeInstanceOf(AggregateError)
+      const aggregate = failure as AggregateError
+      const timeout = aggregate.errors.find(error => (error as { code?: string }).code === 'TEAM_DISPOSAL_TIMEOUT')
+      expect(timeout).toBeDefined()
+      expect((timeout as Error).message).toContain('member provisioning')
+
+      // Plugin unload itself stays bounded too (the re-entry returns
+      // immediately) and the admitted provisioning record stays durable
+      // evidence of the hung admission: recovery on the next load owns
+      // settling it.
+      const unloaded: unknown = await pluginFiber.dispose().then(() => 'resolved', error => error)
+      expect(unloaded).toBe('resolved')
+      const unitFile = await readFile(join(sandbox, 'storage', 'agent_swarm.json'), 'utf8')
+      expect(unitFile).toContain('hung-worker')
+      expect(unitFile).toContain(created.team_id)
+
+      unregister()
+      void pendingAdd
+    } finally {
+      for (const fiber of fibers.toReversed()) await fiber.dispose()
+    }
+  }, 10_000)
 })
