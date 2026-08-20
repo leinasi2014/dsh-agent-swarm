@@ -4,8 +4,11 @@
  * Queues peer messages durably before any delivery attempt (a queued
  * frame survives a crash and is never auto-resent) and acknowledges
  * delivery idempotently. The complete serialized message frame is
- * size-limited, not only its content. The M1B mailbox-retention
- * restructuring (F6) lands in this module.
+ * size-limited, not only its content. Admission follows the official
+ * per-target pending semantics (M1B/F6): only queued-minus-delivered
+ * mail counts toward `maxPendingMessagesPerMember`, and terminal
+ * (delivered/cancelled) receipts are separately bounded retained
+ * receipts, pruned oldest-first without touching queued mail.
  */
 import { randomUUID } from 'node:crypto'
 import { Buffer } from 'node:buffer'
@@ -26,12 +29,20 @@ export async function queueMessage(
   let committed!: TeamState['messages'][number]
   await deps.store.transact(scope, teamId, team => {
     const sender = actorMembership(team, senderSessionId)
-    expectDomain(team.messages.length < deps.limits.maxMessages, 'team message limit reached', 'TEAM_MESSAGE_LIMIT')
     const normalizedTarget = targetName.trim().toLowerCase()
     const targetSessionId = normalizedTarget === 'captain'
       ? team.captainSessionId
       : team.members.find(member => member.name === normalizedTarget && member.phase === 'active')?.sessionId
     expectDomain(targetSessionId !== undefined, `target "${targetName}" is not active`, 'TEAM_MESSAGE_TARGET_INVALID')
+    // Official per-target admission: only queued-minus-delivered mail
+    // occupies the quota; terminal receipts never block new sends.
+    const pendingForTarget = team.messages.filter(message =>
+      message.phase === 'queued' && message.targetSessionId === targetSessionId).length
+    expectDomain(
+      pendingForTarget < deps.limits.maxPendingMessagesPerMember,
+      `teammate "${normalizedTarget}" has ${pendingForTarget} pending messages`,
+      'TEAM_MAILBOX_FULL',
+    )
     const normalizedContent = nonEmpty(content, 'message', deps.limits.maxMessageBytes)
     const timestamp = deps.now()
     committed = {
@@ -73,6 +84,28 @@ export async function acknowledgeMessage(
     expectDomain(current.phase === 'queued', 'only queued mail can be acknowledged', 'TEAM_MESSAGE_PHASE_INVALID')
     committed = { ...current, phase: 'delivered', deliveredAt: deps.now() }
     team.messages[index] = committed
+    pruneRetainedMessages(team, deps.limits.maxRetainedMessages)
   })
   return structuredClone(committed)
+}
+
+/**
+ * Bound the retained delivered/cancelled receipts, pruning the oldest
+ * first. Queued mail is never pruned (it is still owed a delivery), and
+ * pruning removes whole entries from the front of the creation-ordered
+ * array, so the retained replay order, message identities and the store
+ * revision sequence stay continuous. Records persisted before this
+ * policy existed load unchanged; their receipts are pruned lazily by the
+ * next terminal transition that runs through here.
+ */
+export function pruneRetainedMessages(team: TeamState, maxRetainedMessages: number): void {
+  let excess = team.messages.filter(message => message.phase !== 'queued').length - maxRetainedMessages
+  for (let index = 0; index < team.messages.length && excess > 0;) {
+    if (team.messages[index]!.phase === 'queued') {
+      index += 1
+      continue
+    }
+    team.messages.splice(index, 1)
+    excess -= 1
+  }
 }

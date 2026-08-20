@@ -78,10 +78,10 @@ Exit: **met** — F1 and F5 are closed by the real storage composition (workspac
 
 - fold target inbox/history by stable Team message id before sending or acknowledging — **done (F2, 2026-08-20)**: `sessionPersistence.inspect` reconciliation, exact-frame folding, target flush before the delivered acknowledgement, scenario-5 crash-window and idempotent-rescan tests;
 - reconcile provisioning from persisted child descriptor, exact parent and admitted initial inbox/history, then activate or drain — **done (F3, 2026-08-20)**: official four-factor reconciliation (`listChildren` live-preferred enumeration + `sessionPersistence.inspect`), orphan re-activation with member tracking, explicit mismatch drain, indeterminate-evidence failed settlement, scenario-6 crash-window/mismatch/indeterminate tests;
-- count mailbox limits per target pending messages, bound retained receipts and preserve ordered replay;
+- count mailbox limits per target pending messages, bound retained receipts and preserve ordered replay — **done (F6, 2026-08-20)**: `maxPendingMessagesPerMember` (official default 64) counts queued-minus-delivered mail per target with the official `TEAM_MAILBOX_FULL` code, retained delivered/cancelled receipts are bounded (`maxRetainedMessages`) and pruned oldest-first without ever removing queued mail or breaking creation order/revision continuity, and pre-F6 schema-v1 records (including 1024-message populations) load unchanged (scenario-17 suite);
 - bound/prune attempt history without permitting stale attempt ids to become valid again.
 
-Exit: F2/F3 **closed**; F6 and the attempt-growth part of F7 are closed by real crash/fault injection.
+Exit: F2/F3/F6 **closed**; the attempt-growth part of F7 is closed by real crash/fault injection.
 
 ### M1C — lifecycle, coordination and input hardening
 

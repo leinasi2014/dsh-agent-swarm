@@ -86,7 +86,10 @@ export interface Config {
   reviewProvider?: string
   maxMembers?: number
   maxTasks?: number
-  maxMessages?: number
+  /** Per-target pending (queued-minus-delivered) mail quota, official default 64. */
+  maxPendingMessagesPerMember?: number
+  /** Team-wide bound on retained delivered/cancelled receipts. */
+  maxRetainedMessages?: number
   maxMessageBytes?: number
   maxTaskBytes?: number
   maxDependencies?: number
@@ -104,7 +107,8 @@ export const Config: z<Config> = z.object({
   reviewProvider: z.string().default('manual'),
   maxMembers: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxMembers),
   maxTasks: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxTasks),
-  maxMessages: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxMessages),
+  maxPendingMessagesPerMember: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxPendingMessagesPerMember),
+  maxRetainedMessages: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxRetainedMessages),
   maxMessageBytes: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxMessageBytes),
   maxTaskBytes: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxTaskBytes),
   maxDependencies: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxDependencies),
@@ -139,7 +143,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     limits: {
       maxMembers: config.maxMembers ?? DEFAULT_TEAM_LIMITS.maxMembers,
       maxTasks: config.maxTasks ?? DEFAULT_TEAM_LIMITS.maxTasks,
-      maxMessages: config.maxMessages ?? DEFAULT_TEAM_LIMITS.maxMessages,
+      maxPendingMessagesPerMember: config.maxPendingMessagesPerMember ?? DEFAULT_TEAM_LIMITS.maxPendingMessagesPerMember,
+      maxRetainedMessages: config.maxRetainedMessages ?? DEFAULT_TEAM_LIMITS.maxRetainedMessages,
       maxMessageBytes: config.maxMessageBytes ?? DEFAULT_TEAM_LIMITS.maxMessageBytes,
       maxTaskBytes: config.maxTaskBytes ?? DEFAULT_TEAM_LIMITS.maxTaskBytes,
       maxDependencies: config.maxDependencies ?? DEFAULT_TEAM_LIMITS.maxDependencies,

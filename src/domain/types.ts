@@ -134,10 +134,19 @@ export interface TeamState {
   readonly updatedAt: number
 }
 
+/**
+ * Deployment limits of one Team domain. Mailbox admission follows the
+ * official `maxPendingMessagesPerMember` semantics (only queued-minus-
+ * delivered mail counts, per target); terminal receipts are bounded
+ * separately by `maxRetainedMessages` (M1B/F6).
+ */
 export interface TeamLimits {
   readonly maxMembers: number
   readonly maxTasks: number
-  readonly maxMessages: number
+  /** Per-target pending (queued, not yet delivered/cancelled) mail quota. */
+  readonly maxPendingMessagesPerMember: number
+  /** Team-wide bound on retained delivered/cancelled receipts (oldest pruned). */
+  readonly maxRetainedMessages: number
   readonly maxMessageBytes: number
   readonly maxTaskBytes: number
   readonly maxDependencies: number
