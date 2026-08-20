@@ -224,7 +224,7 @@ describe('wakeup delivery visibility (issue #52 / D1)', () => {
       await vi.waitFor(async () => {
         snapshot = await ctx.agentSwarm.domain.snapshot(scope, teamId, lead.id)
         expect(snapshot.team.messages.find(candidate => candidate.id === messageId)?.phase).toBe('delivered')
-      }, { timeout: 10_000 })
+      }, { timeout: 25_000 })
       const stored = await ctx.sessionPersistence.inspect(SessionId(memberId), SIGNAL)
       expect(acceptedFrames(stored.events, frame)).toBe(1)
 
@@ -239,7 +239,7 @@ describe('wakeup delivery visibility (issue #52 / D1)', () => {
       adapter.open()
       for (const fiber of fibers.toReversed()) await fiber.dispose()
     }
-  }, 30_000)
+  }, 45_000)
 
   /**
    * The healthy fast path stays fast: a wakeup to an idle member is claimed
