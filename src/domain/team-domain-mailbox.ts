@@ -38,6 +38,17 @@ export async function queueMessage(
       ? team.captainSessionId
       : team.members.find(member => member.name === normalizedTarget && member.phase === 'active')?.sessionId
     expectDomain(targetSessionId !== undefined, `target "${targetName}" is not active`, 'TEAM_MESSAGE_TARGET_INVALID')
+    // Official admission order (agent-team `sendAdmitted`): a self-addressed
+    // target is rejected outright, before quota admission. Both self-send
+    // forms fold to this one comparison — the captain addressing the
+    // `captain` pseudo-name (any fold variant of it) and a member addressing
+    // its own name — because resolution has already collapsed the target to
+    // a session id (issue #61 / M1D regression review P2-2).
+    expectDomain(
+      targetSessionId !== senderSessionId,
+      'a Team member cannot message itself',
+      'TEAM_SELF_MESSAGE',
+    )
     // Official per-target admission: only queued-minus-delivered mail
     // occupies the quota; terminal receipts never block new sends.
     const pendingForTarget = team.messages.filter(message =>
