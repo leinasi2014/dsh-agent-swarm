@@ -41,6 +41,7 @@ const required = [
   'ref/jiuwenswarm/SOURCE_POINTER.json',
   'ref/jiuwenswarm/sync-reference.ps1',
   '.agents/skills/dsh-plugin-development/SKILL.md',
+  '.agents/skills/dsh-agent-swarm-operations/SKILL.md',
   '.gitattributes',
   '.editorconfig',
   '.oxlintrc.json',
@@ -124,6 +125,7 @@ for (const [file, phrases] of [
   ['docs/12-independent-review-management.md', ['Reviewer autonomy', 'Project-manager boundary']],
   ['docs/13-self-hosting-dogfood.md', ['stable control Profile', 'acceptance Profile', 'ADR-0008']],
   ['.agents/skills/dsh-plugin-development/SKILL.md', ['official-first compatibility gate', 'docs/11-official-first-development.md']],
+  ['.agents/skills/dsh-agent-swarm-operations/SKILL.md', ['当前状态快照', '经验教训库', '定时更新协议', 'CONTRIBUTING']],
 ]) {
   try {
     const content = await readFile(join(root, file), 'utf8')
