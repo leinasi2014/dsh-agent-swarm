@@ -132,3 +132,20 @@ These suites do **not** yet prove scenarios 5, 9, 10 or 14–20 in their full fa
 Security and milestone reviews follow `12-independent-review-management.md`. The reviewer receives the assembled source, official/reference evidence and permission needed to run diagnostics without a manager-imposed time/step/token limit. The report is preserved unchanged; the manager separately verifies findings, records triage and commissions regression re-review after fixes.
 
 M3 self-hosting acceptance requires an independent regression/security review of the stable/candidate boundary, Worker permissions, frozen evidence, merge/promotion ownership and rollback. The candidate's own report is input evidence, not the verdict.
+
+## 9. Engineering quality gates
+
+Mirrors the official DSH engineering family so code quality is machine-enforced rather than reviewer-dependent:
+
+| Gate | Tool | Command | Enforcement |
+|---|---|---|---|
+| Lint (correctness=error, suspicious=warn) | oxlint | `pnpm lint` | inside `pnpm verify`; staged files on pre-commit (lefthook) |
+| Copy-paste duplication (60 tokens / 6 lines) | jscpd | `pnpm verify:duplication` | inside `pnpm verify`; 0 clones |
+| Dead exports / dead dependencies | knip | `pnpm verify:exports` | inside `pnpm verify`; 0 findings |
+| Unused locals / parameters | tsc `noUnusedLocals`/`noUnusedParameters` | `pnpm typecheck` | typecheck lane |
+| Source file size | `scripts/verify-project.mjs` | `pnpm verify:structure` | 600-line ceiling for `src`/`scripts`/`tests` `.ts`; exceptions registered with reason + retiring milestone (currently `src/domain/team-domain.ts`, due M1B) |
+| Line endings / encoding | `.gitattributes` + verify-project | `pnpm verify:structure` | LF working tree (CRLF for `ps1`/`cmd`), UTF-8, final newline |
+| Full matrix on push/PR | GitHub Actions | `.github/workflows/verify.yml` | windows-latest: pinned reference syncs, official evidence checkout (`DSH_OFFICIAL_CHECKOUT`), `pnpm verify`, live Gate A verification, coverage |
+| Coverage visibility | `@vitest/coverage-v8` scoped to `src/**` | `pnpm test:coverage` | report-only at introduction (86.5% statements / 74.8% branches); thresholds may follow M1D |
+
+The verify chain is `verify:structure -> lint -> duplication -> exports -> typecheck -> typecheck:test -> test -> build -> artifact`. `verify-project.mjs` additionally asserts that the lint/duplication/export lanes stay wired into `pnpm verify`, that `packageManager` pins pnpm, and that every tooling file exists, so the gates cannot be silently deleted.

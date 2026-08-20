@@ -110,6 +110,8 @@ dsh --profile agent-swarm-check --dump-config
 
 真实 Profile 装配验收需要 rc.8 世系 DSH CLI 与上文存储栈组合；`--dump-config` 是独立于 `pnpm verify` 的部署门（本仓库如实区分两者）。
 
+工程门禁与官方 DSH 工具族对齐：`pnpm verify` 依次执行结构检查（含 src 600 行文件上限与例外登记）、oxlint（correctness=error/suspicious=warn）、jscpd 重复检测、knip 死导出检测、双类型检查（含 noUnused*）、测试、构建与产物校验；lefthook 在 pre-commit 对 staged 文件执行 lint；GitHub Actions（windows-latest）在 push/PR 上运行完整矩阵——pin 参考核验、官方证据 checkout（`DSH_OFFICIAL_CHECKOUT`）、`pnpm verify`、Gate A 联网核验与覆盖率报告（`pnpm test:coverage`，当前 src 语句覆盖 86.5%）。详见 [docs/08-testing-verification.md](docs/08-testing-verification.md) 第 9 节。
+
 典型模型流程：
 
 ```text

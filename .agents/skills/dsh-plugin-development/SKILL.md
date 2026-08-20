@@ -2,7 +2,7 @@
 name: dsh-plugin-development
 description: 证据驱动地设计、实现、重构、调试、验证和发布 DeepSeek Harness 插件。覆盖 Everything-is-a-plugin、capability seam、函数/Service 插件、inject/effect/event、工具、Bundle/Profile、Host/Client、持久化、Subagent、Workflow、Agent Team、真实组合测试与故障恢复。使用本 Skill 时必须完成可运行或可验证的开发步骤，不能只输出概念说明。
 metadata:
-  version: "1.4.0"
+  version: "1.4.1"
   date: "2026-08-20"
   dsh_source_commit: "141eb6fef83422698aef7a981029e843e8161534"
   dsh_release: "0.1.0-rc.8"
@@ -280,12 +280,15 @@ M1D 只允许单写入者 D1 dogfood。并行 D2 必须满足项目 M2/M3 和 AD
 至少执行与改动相匹配的检查：
 
 ```sh
+pnpm lint
 pnpm typecheck
 pnpm build
 pnpm verify
 node .agents/skills/dsh-plugin-development/scripts/verify-dsh-plugin.mjs .
 dsh --profile <check-profile> --dump-config
 ```
+
+本仓库的 `pnpm verify` 已内建工程门禁（`docs/08` §9）：oxlint、jscpd 重复检测、knip 死导出检测、`noUnused*` 类型检查、src 600 行文件上限（例外需在 `scripts/verify-project.mjs` 登记原因与归还里程碑）。新增源文件超限或引入重复/死代码会直接失败，不得为绕过检查而放宽配置。
 
 产品/模型可见改动需要真实 Loader 组合和 snapshot/e2e。Mock-only 单元测试不能证明 Bundle、依赖注入、Session 日志或模型文本正确。
 

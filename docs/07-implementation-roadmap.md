@@ -27,7 +27,8 @@ Implemented:
 - request/retry/deadline/cumulative token budgets using Session-event sequence folding;
 - manual structured Team memory, revision wait and safe removal/archive;
 - **M1A**: one `TeamDomainPort` consumed by tools and orchestration; required `sessionPersistence` + `storageDomain` injections with fail-closed composition; the `StorageDomainTeamStore` production Provider over the official `agent_swarm` Storage Domain (one versioned Team aggregate per record, durable migration receipts, per-workspace scope partition); `FileTeamStore` reduced to a read-only offline migration reader; explicit one-way migration CLI with empty-destination enforcement, durable read-back verification, receipt retention and untouched sources; workspace tamper-denial composition evidence;
-- 36 tests: 16 protocol, 13 port conformance/schema/version/corruption/close/fault, 5 migration, 2 real rc.8 composition.
+- 36 tests: 16 protocol, 13 port conformance/schema/version/corruption/close/fault, 5 migration, 2 real rc.8 composition;
+- engineering gates mirroring the official DSH toolchain (2026-08-20): oxlint/jscpd/knip lanes inside `pnpm verify`, `noUnused*` typecheck, a 600-line source ceiling with reasoned milestone-due exceptions (team-domain.ts due M1B), LF normalization, lefthook pre-commit lint, GitHub Actions full-matrix CI (references, official evidence, Gate A, coverage) and src-scoped coverage reporting — see `docs/08` §9.
 
 Not complete:
 
