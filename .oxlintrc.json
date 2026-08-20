@@ -17,6 +17,7 @@
   "ignorePatterns": [
     "**/lib/**",
     "**/node_modules/**",
+    "coverage/**",
     "ref/**",
     "**/*.mjs",
     "**/*.config.ts"
