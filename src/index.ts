@@ -65,6 +65,7 @@ export const inject = [
   'tools',
   'subagents',
   'agents',
+  'sessions',
   'systemPrompt',
   'sessionPersistence',
   'storageDomain',

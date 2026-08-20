@@ -110,7 +110,7 @@ The two reference repositories are both present and pinned, but their strengths 
 
 - the 0.1 core implements continuable members, DAG tasks, revision/attempt fencing, durable-before-delivery mailbox state, budgets, a mandatory review transition, structured memory records and provider registries;
 - real Agent idle state is only a wake signal; Scheduler availability currently checks Team ownership, not the live `agent.status` value;
-- target-side mailbox identity de-duplication across a process crash and persisted-child-aware provisioning recovery are not yet at official/community parity;
+- persisted-child-aware provisioning recovery is not yet at official/community parity; target-side mailbox identity de-duplication now folds the target's durable inbox/history on the stable framed message id before any resend (M1B/F2, following the official template in §7.1 but matching the exact framed text instead of merging `TeamMessageSource`);
 - Jiuwen workflow operators, human nodes, Worktree execution, distributed control/data planes, tiered team permissions, automatic Team-memory extraction, skill evolution and UI are not implemented;
 - the current memory API is manual structured storage, not Jiuwen personal/shared memory or automatic round-end extraction.
 - no stable-control/candidate-acceptance self-hosting pipeline is implemented; D0-D4 remain roadmap readiness labels.

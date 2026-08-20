@@ -32,10 +32,12 @@ Implemented:
 
 Not complete:
 
-- official Team backend adapter (experimental package unpublished), target-side cross-restart mailbox de-duplication, persisted-child-aware provisioning recovery, bounded disposal;
+- official Team backend adapter (experimental package unpublished), persisted-child-aware provisioning recovery, bounded disposal;
 - live Agent availability gating;
 - official Workflow/Jobs, Token Meter, Workspace and interaction integrations;
 - Worktree/remote/distributed execution, automatic memory extraction, Skill Evolution, tiered permission policy and UI.
+
+Target-side cross-restart mailbox de-duplication (F2) is implemented: delivery folds the target's durable inbox/history on the stable framed message id before any resend and flushes the accepting target before acknowledging (scenario-5 crash-window test).
 
 The current core remains usable only within its documented process-local limits. It is not evidence that later milestones are complete.
 
@@ -74,12 +76,12 @@ Exit: **met** — F1 and F5 are closed by the real storage composition (workspac
 
 ### M1B — crash-safe protocol
 
-- fold target inbox/history by stable Team message id before sending or acknowledging;
+- fold target inbox/history by stable Team message id before sending or acknowledging — **done (F2, 2026-08-20)**: `sessionPersistence.inspect` reconciliation, exact-frame folding, target flush before the delivered acknowledgement, scenario-5 crash-window and idempotent-rescan tests;
 - reconcile provisioning from persisted child descriptor, exact parent and admitted initial inbox/history, then activate or drain;
 - count mailbox limits per target pending messages, bound retained receipts and preserve ordered replay;
 - bound/prune attempt history without permitting stale attempt ids to become valid again.
 
-Exit: F2, F3, F6 and the attempt-growth part of F7 are closed by real crash/fault injection.
+Exit: F2 **closed**; F3, F6 and the attempt-growth part of F7 are closed by real crash/fault injection.
 
 ### M1C — lifecycle, coordination and input hardening
 
