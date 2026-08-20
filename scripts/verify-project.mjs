@@ -138,7 +138,7 @@ async function walk(dir) {
     const path = join(dir, name)
     const info = await stat(path)
     if (info.isDirectory()) {
-      if (name === 'node_modules' || name === 'lib' || name === 'source') continue
+      if (name === 'node_modules' || name === 'lib' || name === 'source' || name === 'official-evidence') continue
       await walk(path)
       continue
     }
