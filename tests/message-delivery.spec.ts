@@ -380,12 +380,21 @@ describe('target-side message de-duplication (F2)', () => {
         expect(stored.events.some(event => event.type === 'user/message' && carriesFrame(event.data, frame))).toBe(true)
       }, { timeout: 15_000 })
 
-      // Two reload-equivalent rescans while the ack store stays down.
+      // Two reload-equivalent rescans while the ack store stays down. The
+      // drain settles the child, which wakes the captain with a settlement
+      // notice turn — on a slow runner that notice can hold the captain
+      // `running` at the model gate before these recovery calls, no-op-ing
+      // them (0 ack attempts observed on three branches' CI). Each poll
+      // therefore releases held captain turns (the member is already cold;
+      // the captain is the root session and never settles) and re-drives
+      // the recovery path until the folds accumulate.
       ctx.subagents.interrupt(SessionId(memberSessionId), { kind: 'ancestor', agent: lead })
       await ctx.subagents.drainContinuableChildren(lead, [SessionId(memberSessionId)])
       await ctx.agentSwarm.recoverAgent(lead)
       await ctx.agentSwarm.recoverAgent(lead)
-      await vi.waitFor(() => {
+      await vi.waitFor(async () => {
+        adapter.open()
+        await ctx.agentSwarm.recoverAgent(lead)
         expect(acknowledge.mock.calls.length).toBeGreaterThanOrEqual(2)
       }, { timeout: 15_000 })
 
