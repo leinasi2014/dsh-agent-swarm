@@ -62,4 +62,18 @@ jobs:
           DSH_OFFICIAL_CHECKOUT: ${{ runner.temp }}/official-evidence
 
       - name: Coverage report
-        run: pnpm test:coverage
+        # Same signature-scoped retry as the gate: coverage re-runs vitest,
+        # so the official .dsh-mkdir Win32 race can strike here too (hit on
+        # 2026-08-21 after a fully green gate run).
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -Command "pnpm test:coverage" *> coverage-gate.log
+          $code = $LASTEXITCODE
+          Get-Content coverage-gate.log
+          if ($code -eq 0) { exit 0 }
+          if (-not (Select-String -Path coverage-gate.log -Pattern '\.dsh-mkdir-' -Quiet)) { exit $code }
+          Write-Host "::warning::verified-flake signature .dsh-mkdir detected in coverage; retrying once"
+          pwsh -NoProfile -Command "pnpm test:coverage" *> coverage-gate.log
+          $code = $LASTEXITCODE
+          Get-Content coverage-gate.log
+          exit $code
