@@ -2,7 +2,7 @@
 name: dsh-agent-swarm-operations
 description: dsh-agent-swarm 项目的开发流程、项目管理操作（GitHub issue/PR/里程碑/CI）、开发规范门禁与运维手册。在本仓库做任何任务接手、流程执行、PR/issue/里程碑操作、验证收尾或定时复盘时必须使用本 Skill；开发 DSH 插件本身另见 dsh-plugin-development。
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
   date: "2026-08-20"
   update_cadence: "每日 09:00 自动复盘更新（见第七节）"
 ---
@@ -13,13 +13,14 @@ metadata:
 
 ## 一、当前状态快照（定时更新区，改这里要同步 metadata.date）
 
-- **里程碑**：M1A 完成（F1/F5/F9 关闭，2026-08-20）；M1B 进行中（issue #3–#8：F2/F3/F6/F7、team-domain 拆分、exit 收尾）；下一站 M1C → M1D（独立回归审查 + D1 dogfood 门）。
+- **里程碑**：M1A/M1B/M1C 完成（2026-08-20；F1-F7/F9/F11-F15 关闭或决策落地，tag `m1b`/`m1c`）；**当前 M1D**（真实 rc.8 Profile + 独立回归审查 + D1 dogfood 门；前置：rc.8 CLI 环境）→ M2 → … → M9（client 压轴）。
 - **仓库**：`github.com/leinasi2014/dsh-agent-swarm`（私有，`main` 唯一集成分支、线性历史）；`codex/glm-review-fixes` 为 M0/M1A 历史快照分支，不再开发。
-- **证据基线**：官方 DSH `141eb6f`（rc.8）；`dsh-agent-teams` `801954d`；`jiuwenswarm` `20097e8`。开工前 `pnpm verify:gate-a`。
-- **门禁**：`pnpm verify` = 结构(含 600 行上限) → lint → 重复 → 死导出 → 类型×2 → 测试 → **场景审计** → 构建 → 产物；lefthook pre-commit；CI 全矩阵（windows-latest）。
-- **场景审计**：9/30 machine-proven（1,3,4,6,7,8,11,12,16）；21 个显式未证有里程碑归属（docs/08 §7 audit 行为唯一事实源）。
-- **覆盖率**：src 语句 86.5% / 分支 74.8%（runtime 75%，待 M1D 真实装配路径）。
-- **上次复盘**：2026-08-20（本版即首版）。
+- **证据基线**：官方 DSH `141eb6f`（rc.8）；`dsh-agent-teams` `801954d`；`jiuwenswarm` `56da762`。开工前 `pnpm verify:gate-a`（热上游按累计 diff 审计，见教训 16）。
+- **门禁**：`pnpm verify` = 结构(600 行上限，零例外) → lint → 重复 → 死导出 → 类型×2 → 测试 → **场景审计** → 构建 → 产物；lefthook pre-commit；CI 全矩阵；**合并一律 `node scripts/merge-guard.mjs <pr>`**。
+- **场景审计**：16/30 machine-proven；测试 78；`src/tools.ts` 594/600（扩前先拆）。
+- **开发模式**：PM 统筹 + 智能体并行 worktree（CONTRIBUTING §2a）+ 串行守卫合并；PM 迭代方法论见第八节。
+- **已知 flake**：官方包 `.dsh-mkdir-*` ENOENT（Win32 mkdir/rename 竞态，重跑即绿；高频则升级上游立案，见 M1C exit 报告 §3）。
+- **上次复盘**：2026-08-20（M1C exit 时更新）。
 
 ## 二、标准开发闭环（每个任务）
 
@@ -93,6 +94,10 @@ gh run list --limit 5 && gh run view <id> --log-failed | tail -30
 17. **绿灯 ≠ 正确（race/timeout 类）**：#13 的 boundedSettle 超时构造 bug（resolve/reject 命名颠倒）是绿灯通过的。规则：PM 审查 race/timeout 类 diff 必须**专看败者路径**——losing promise 的 rejection 是否被观察、超时分支是否真的 reject。
 18. **gh TLS 超时的幂等处置**：合并类命令失败后**先查实际状态再重试**（PR #29 合并已成功但删分支失败，盲目重试会双合并）。
 19. **worktree 并行开发模式（2026-08-20 启用）**：主树 = PM 专属（停 main，做审查/治理/合并），每个实现任务一个 `git worktree`（独立目录/分支/依赖/refs）。速度 2-3 倍且零树竞争。规范全文见 CONTRIBUTING §2a；上限 2-3 路，合并保持串行。
+20. **官方包 `.dsh-mkdir-*` ENOENT flake**：dsh-session-persistence-jsonl 在慢 Windows runner 上的 mkdir/rename 临时目录竞态，当日命中 4 次（main 基线可复现，非我方 diff）。规则：命中该签名直接重跑失败 job；频率持续偏高则升级为上游 issue + CI 级重试策略。
+21. **`gh pr merge` 非原子**：合并成功后的分支删除遇 TLS 超时会以非零退出（两次把 merge-guard 的收尾打成 stack trace）。规则：合并类命令失败后先查 PR 权威状态再定成败（守卫已内置该容错）。
+22. **并行 PR 的同文件冲突取"语义并集"**：#33/#35 同改 stranded 断言块——解冲突时按"匹配当前 API 面的一侧 + 保留对方的时序修复"取并集，逐 hunk 判断，不整文件取一侧。
+23. **结构化文本编辑用 Read+Edit，不玩 shell 花样**：heredoc 定界/pwsh 内联替换在含特殊字符时静默失败（本日两例）。规则：多行结构化内容一律 Write/Edit 工具。
 
 ## 七、定时更新协议（本 Skill 的自我维护）
 
@@ -102,3 +107,20 @@ gh run list --limit 5 && gh run view <id> --log-failed | tail -30
 - 无实质变化（无新提交/状态不变/无新教训）→ 不产生任何提交。
 - 有变化 → 按 CONTRIBUTING 标准流程：分支 `chore/skill-refresh-<date>` → `pnpm verify:structure` → PR → CI 绿 → rebase 合并。
 - 本 Skill 已登记在 `scripts/verify-project.mjs` 必需清单与章节断言中，不可被无声删除。
+
+## 八、PM 迭代方法论（2026-08-20，经 M1B/M1C 十轮迭代实证）
+
+```text
+定义（委派合同）→ 委派（智能体）→ 独立审查（PM）→ 守卫合并（机制）→ 收尾登记（GOALS/证据链）
+```
+
+实测：交付即审过 9/9、合并后返工 0、串行 45-60 分钟/issue → 2 路并行 ~25-30。
+
+1. **委派合同五要素**（质量的上游）：官方模板源码出处（精确到文件行号）＋红态证据要求（防假绿）＋红线清单与"不做 XXX（独立 issue）"＋停止点（PR 双绿即停，PM 持合并权）＋完成报告格式。并行加第六要素：冲突面预告。
+2. **判断项预授权**：允许智能体在红线边缘做工程判断，但必须显式申报留给 PM 裁决（范本：#14 帧模板运行时派生——申报后一审即过）。
+3. **审查三层**：外围（CI + 声明无触碰面的 diff 为空）→ 核心（关键逻辑逐行）→ 交叉（声明 vs 代码）；race/timeout 类必查败者路径。
+4. **机制 > 纪律**：任何靠人记住的规则终会失效（双绿两起险情→守卫三次真实拦截）。安全规则一律脚本化。
+5. **证据链前置**：为下游审查者从第一天积累 remediation 清单（每个 exit 报告都含 发现→issue→PR→提交 映射表）。
+6. **召回优于重建**：测试/代码竞态优先召回原作者智能体（上下文在作者手里，#33 从立案到根因修复一轮完成）。
+7. **状态彻底外化**：GOALS/教训库/exit 报告/memory——长会话经多次上下文压缩无损续跑的根基。
+8. **诚实局限**：#12 的三个测试竞态都逃过 PM 审查与首轮 CI——独立回归审查（M1D）是不可替代的第二道防线；单 PM 带宽是并行度上限。

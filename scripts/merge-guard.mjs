@@ -56,7 +56,19 @@ for (let poll = 0; poll < MAX_POLLS; poll += 1) {
       process.exit(1)
     }
     console.log(`merge-guard: PR #${pr} is fully green (${passed.length} checks) — rebase-merging`)
-    execFileSync('gh', ['pr', 'merge', pr, '--rebase', '--delete-branch'], { stdio: 'inherit' })
+    try {
+      execFileSync('gh', ['pr', 'merge', pr, '--rebase', '--delete-branch'], { stdio: 'inherit' })
+    } catch (error) {
+      // gh pr merge is not atomic across its post-merge steps: a TLS timeout
+      // during branch deletion can exit non-zero after the merge itself
+      // committed. Verify the authoritative PR state before failing loud.
+      const state = execFileSync('gh', ['pr', 'view', pr, '--json', 'state', '--jq', '.state'], { encoding: 'utf8' }).trim()
+      if (state === 'MERGED') {
+        console.warn(`merge-guard: PR #${pr} merged; post-merge cleanup reported an error (${String(error)}) — branch may need manual deletion`)
+        process.exit(0)
+      }
+      throw error
+    }
     process.exit(0)
   }
   if (failed.length > 0) {

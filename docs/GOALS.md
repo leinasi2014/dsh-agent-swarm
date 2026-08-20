@@ -10,25 +10,24 @@
 
 ## 当前开发目标
 
-**M1C — 生命周期、协调与输入加固（进行中，2026-08-20 接替 M1B；进度 3/5，#14/#15 并行 worktree 在途）**
+**M1D — 装配验收与放行（进行中，2026-08-20 接替 M1C）**
 
-关闭以下 issue（docs/07 M1C）：
+1. 真实 rc.8 Profile 装配 + `--dump-config` + 重载/恢复/有界关停验证（Windows）——**前置环境依赖：rc.8 世系 DSH CLI（用户侧准备，F16）**；
+2. `pnpm verify:gate-a` + 完整项目套件 + package artifact 检查；
+3. 委派独立 GLM-5.3 回归/安全审查（按 docs/12，审查员自主不设限；输入 = 原始报告 + intake + M1B/M1C exit 报告的 remediation diff 清单）；
+4. 通过后 M1 放行 + D1 单写入者 dogfood 门开放 + tag 里程碑。
 
-1. #13 F4 有界卸载（disposalTimeoutMs）+ 伴随组（F11 歧义 fail-loud / F12 名字复用决策 / F14 归档只读 / F15 depthLimit 预检 / usage 写合并）
-2. #19 官方兼容语义组（waitForChange 契约 / quiet 不冷唤醒+有序旁路 / keepInbox interrupt / Unicode 成员名）
-3. #12 F10 live-status 调度 + 搁浅自愈（邮箱优先、CAS 守卫回滚）
-4. #14 F8 不可信内容定界 + 首个模型可见快照测试
-5. #15 模型体验（noProgress 短路、任务列表过滤分页、紧凑输出 schema）
-
-退出标准（docs/07 M1C）：F4、F7(usage 部分)、F8、F10 与接受的伴随发现在生命周期/调度/prompt 快照/兼容测试中通过。
+退出标准（docs/07 M1D）：每个接受的 M1 blocker 关闭、无 P0/P1 回归、独立审查员掌握最终 verdict、仓库指向可复现提交。
 
 ## 上一目标（已完成的登记记录）
+
+**M1C — 生命周期、协调与输入加固（2026-08-20 完成）**：#12/#13/#14/#15/#19 全部关闭（含 CI 稳定化 PR #33）；F4/F7(usage)/F8/F10 与伴随组在生命周期/调度/prompt 快照/兼容测试中通过；78/78 测试、场景审计 16/30；tag `m1c`。证据：`docs/development/2026-08-20-m1c-exit-report.md`。
 
 **M1B — 崩溃安全协议（2026-08-20 完成）**：#7/#3/#4/#5/#6/#8 全部关闭；F2/F3/F6/F7 被真实崩溃/故障注入测试关闭；场景审计 12/30；tag `m1b`。证据：`docs/development/2026-08-20-m1b-exit-report.md`。
 
 ## 下一个目标（预登记，当前目标完成后生效）
 
-**M1D — 装配验收与放行**：真实 rc.8 Profile 装配 + `--dump-config` + 重载/恢复/有界关停（Windows）；委派独立 GLM-5.3 回归/安全审查（按 docs/12，审查员自主不设限，输入 = 原始报告 + intake + M1B/M1C remediation diff 清单）；通过后 D1 单写入者 dogfood 门开放。
+**M2 — 官方 Workflow/Jobs 编排模式**：`ctx.workflowEngine`/`ctx.jobs` 的 Team 桥 Consumer；`adaptive`/`workflow` 显式模式（单 owner）；Jiuwen phase/parallel/pipeline/nested/human 节点映射；Team 预算跨 run 共享；双 owner 故障测试。开工时先做 Gate A + issue 分解（注意：`src/tools.ts` 已 594/600 行，扩工具前先拆分）。
 
 ## 登记规则
 
