@@ -23,6 +23,7 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 import { AgentSwarmRuntime } from './runtime/orchestrator-runtime.js'
 import { registerAgentSwarmTools } from './tools.js'
 import { DEFAULT_TEAM_LIMITS } from './domain/team-domain.js'
+import { TeamBridgeWorkflowEngine } from './runtime/workflow/team-bridge-engine.js'
 
 export { AgentSwarmRuntime } from './runtime/orchestrator-runtime.js'
 export type {
@@ -35,6 +36,15 @@ export type {
   TeamSchedulerProvider,
   ToolExecutionAuthority,
 } from './runtime/orchestrator-runtime.js'
+export { TeamBridgeWorkflowEngine, validateBridgeMeta } from './runtime/workflow/team-bridge-engine.js'
+export type { BridgeEngineConfig } from './runtime/workflow/team-bridge-engine.js'
+export {
+  WorkflowRunOverlayStore,
+  workflowOverlayDomainSpec,
+  WORKFLOW_OVERLAY_DOMAIN_NAME,
+  WORKFLOW_OVERLAY_DOMAIN_VERSION,
+} from './storage/workflow-run-overlay.js'
+export type { WorkflowRunOverlayRecord, WorkflowRunOverlayState } from './storage/workflow-run-overlay.js'
 export { TeamDomainError } from './domain/error.js'
 export { AttemptId, TaskId, TeamId, TeamMessageId } from './domain/types.js'
 export type {
@@ -81,6 +91,9 @@ const DEFAULT_DISPOSAL_TIMEOUT_MS = 5_000
  */
 const DEFAULT_STRANDED_AFTER_MS = 60_000
 
+/** Bridge engine default total-agent ceiling (official engine default parity). */
+const DEFAULT_WORKFLOW_MAX_TOTAL_AGENTS = 1_000
+
 export interface Config {
   /** Mount all host contributions. */
   enabled?: boolean
@@ -120,6 +133,20 @@ export interface Config {
    * official-boundary rationale: docs/04 §8c.
    */
   strandedAfterMs?: number
+  /**
+   * Mount the Team bridge workflow engine (M2-1, issue #75): an
+   * implementation of the official abstract `WorkflowEngine` whose runs are
+   * backed by a Team aggregate, registered in an isolated `workflowEngine`
+   * service scope (never over the default-scope official engine) with the
+   * durable run overlay in the `agent_swarm_workflow` storage domain.
+   * Default false: when disabled no bridge service, overlay domain or
+   * listener exists and behavior is identical to the pre-bridge plugin.
+   */
+  workflowBridge?: boolean
+  /** Bridge engine ceiling for one run's total `agent()` calls (default 1000). */
+  workflowMaxTotalAgents?: number
+  /** Bridge run cancellation/disposal settlement grace in ms (default 5000). */
+  workflowDisposeGraceMs?: number
   /** Ordered system-prompt contribution. */
   promptSectionOrder?: number
 }
@@ -141,7 +168,10 @@ export const Config: z<Config> = z.object({
   maxDependencies: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxDependencies),
   maxMemories: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxMemories),
   disposalTimeoutMs: z.number().step(1).min(1).default(DEFAULT_DISPOSAL_TIMEOUT_MS),
-  strandedAfterMs: z.number().step(1).min(0).default(DEFAULT_STRANDED_AFTER_MS),
+  strandedAfterMs: z.number().step(0).min(0).default(DEFAULT_STRANDED_AFTER_MS),
+  workflowBridge: z.boolean().default(false),
+  workflowMaxTotalAgents: z.number().step(1).min(1).default(DEFAULT_WORKFLOW_MAX_TOTAL_AGENTS),
+  workflowDisposeGraceMs: z.number().step(1).min(1).default(DEFAULT_DISPOSAL_TIMEOUT_MS),
   promptSectionOrder: z.natural().default(118),
 })
 
@@ -207,4 +237,20 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     return () => undefined
   }, 'agent-swarm: activation recovery')
   ctx.effect(() => () => runtime.dispose(), 'agent-swarm: runtime disposal')
+
+  // M2-1 (issue #75): the Team bridge workflow engine. Registered in an
+  // isolated `workflowEngine` service scope (the official mechanism for a
+  // second implementation beside the default-scope official engine) and
+  // fail-closed on the overlay domain. Registered AFTER the runtime disposal
+  // effect so Cordis's LIFO teardown settles bridge runs before the runtime
+  // store closes (the bridge drives Team state through the runtime).
+  if (config.workflowBridge === true) {
+    const bridge = new TeamBridgeWorkflowEngine(ctx.isolate('workflowEngine'), runtime, {
+      maxTotalAgents: config.workflowMaxTotalAgents ?? DEFAULT_WORKFLOW_MAX_TOTAL_AGENTS,
+      disposeGraceMs: config.workflowDisposeGraceMs ?? DEFAULT_DISPOSAL_TIMEOUT_MS,
+    })
+    runtime.workflowBridge = bridge
+    await bridge.activate()
+    ctx.effect(() => () => bridge.dispose(), 'agent-swarm: workflow bridge disposal')
+  }
 }
