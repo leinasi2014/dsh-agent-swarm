@@ -60,7 +60,7 @@ Current limitations include one process/shared checkout, no remote member, no Wo
 
 ### Consequence for this project
 
-The official seam should own the canonical Team domain if it becomes a published product API. `dsh-agent-swarm` should add policy and providers around it. The current 0.1 runtime does **not** yet implement that adapter boundary: it constructs its own `TeamDomain` over a workspace `FileTeamStore`. ADR-0007 makes `TeamDomainPort`, official Storage Domain persistence and a one-way migration the first M1 stage; a future official backend can then replace the selected Provider without creating a second authority.
+The official seam should own the canonical Team domain if it becomes a published product API. `dsh-agent-swarm` should add policy and providers around it. Since M1A the runtime consumes one `TeamDomainPort` whose production Provider persists through the official Storage Domain (`agent_swarm` domain, one versioned Team aggregate per record); the workspace `FileTeamStore` survives only as a read-only migration reader. A future official backend can replace the selected Provider behind the same port without creating a second authority.
 
 ## 4. JiuwenSwarm / WorkSwarm
 

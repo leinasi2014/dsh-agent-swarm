@@ -414,7 +414,7 @@ dsh --profile <check-profile> --dump-config
 14. 每个功能分支/里程碑先通过 `docs/11-official-first-development.md` 的 Gate A；未通过不得写生产代码。
 15. 独立安全/架构审查遵循 `docs/12-independent-review-management.md`：用户未设置时不限制审查员时长、step、token、轮次或套餐消耗；项目经理只提供范围、解除真实阻塞、接收报告并核验证据，不催促提前收敛。
 16. 用户明确授权全权限审查时，将 `danger-full-access` 与 `approval=never` 固定在独立 Session，核对持久权限事件；临时修改未来 Session 默认值后立即恢复。运行时全权限不等于允许改生产源码，审查写入范围仍由任务约束。
-17. M1 依 ADR-0007 前移 Storage Domain：`sessionPersistence` 和 `storageDomain` 必须 fail-closed 注入，权威 Team aggregate 不得放在共享工作区；`FileTeamStore` 只能作为显式离线迁移读取器/测试 fixture，禁止双写回退。
+17. M1A 已实现 ADR-0007：`sessionPersistence` 和 `storageDomain` 是 fail-closed 必需注入（缺失组合中插件保持 pending）；权威 Team aggregate 位于官方 `agent_swarm` Storage Domain（`TeamDomainPort` → `StorageDomainTeamStore`，每 Team 一条版本化记录 + 迁移回执），绝不在共享工作区；`FileTeamStore` 只读（迁移读取器/fixture，无写路径）；迁移仅经 `scripts/migrate-legacy-team-store.mjs` 显式单向执行（空目的、读回校验、回执、源只读），禁止运行时自动迁移、双写或回退；该保护 denies ordinary workspace writer，不是对 unrestricted host access 的防御，存储 root 必须配置在工作区与 sandbox 根之外。
 18. 自托管依 ADR-0008 分级开放：M1D 后仅 D1 单写入者试运行；M2/M3 验收后才允许 D2 并行自我开发。
 19. Stable control、candidate Worktree/artifact、acceptance Profile/state/RPC、promotion/rollback 必须分权；candidate 不能批准或部署自身。
 20. Dogfood 管理只观察权威 Team/Job/lease/verification 状态和阶段报告，不轮询私有推理；失败通过 Lead 建立 fresh fenced task，不直接篡改 canonical state。

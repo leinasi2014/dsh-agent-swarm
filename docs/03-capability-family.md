@@ -12,8 +12,8 @@ Official DSH execution plane
                              │ consumed by
 Canonical Team port          │
   TeamDomainPort ────────────┘
-    ├─ current 0.1: workspace FileTeamStore (unsafe compatibility backend)
-    ├─ M1: ctx.storageDomain local Provider (one Team aggregate per record)
+    ├─ current: ctx.storageDomain local Provider (one Team aggregate per record)
+    ├─ legacy: read-only FileTeamStore migration reader (never runtime authority)
     └─ future: official ctx.agentTeams Provider after publication/promotion
                              │
 Project-owned orchestration overlay
@@ -64,26 +64,26 @@ Names are provisional until packages actually split. No new public service key o
 
 The first release publishes `ctx.agentSwarm` from the Bundle package because model tools already provide a real Consumer and host-side tests need the same authority path. It owns the compatibility domain, Scheduler/Review Provider registries, DSH lifecycle composition and durable projections. The default Providers are `priority-ready` and `manual`; external plugins register alternatives and dispose their registrations with their own Cordis fiber.
 
-The model-facing `agent_swarm_*` tools call this service. They never read or patch JSON directly. The file Store is a process-local implementation behind the internal `TeamStore` TypeScript interface. In 0.1, the runtime still hardcodes `new FileTeamStore()` below the shared workspace; it is not a deploy-time replaceable Provider and a workspace writer can tamper with Team authority. It is a compatibility backend awaiting M1 migration, not an acceptable durable production boundary.
+The model-facing `agent_swarm_*` tools call this service. They never read or patch persisted records directly. Since M1A the authoritative Store is `StorageDomainTeamStore`, a process-local Provider behind the `TeamAggregateStore` interface that opens the `agent_swarm` official Storage Domain and persists one versioned Team aggregate record per Team plus durable migration receipts; durability lands through the official domain write chain before any read or waiter observes a change. The legacy `FileTeamStore` is a read-only offline migration reader and test fixture; the runtime never constructs it, and a workspace writer can no longer reach Team authority.
 
 The selected Scheduler and Review Providers are validated before a task is committed. This preserves extension registration order during plugin activation while ensuring an unknown configured Provider cannot leave a durable task that will never run or be reviewable.
 
-### M1 authority boundary
+### M1 authority boundary (implemented in M1A)
 
-ADR-0007 moves storage integration ahead of Workflow and Token Meter integration:
+ADR-0007 moved storage integration ahead of Workflow and Token Meter integration; M1A implements it:
 
-- `sessionPersistence` and `storageDomain` become required injections;
-- tools and orchestration depend on one `TeamDomainPort`;
-- the local production Provider opens one namespaced official Storage Domain and retains one versioned Team aggregate per record so one Team revision remains one write boundary;
-- `FileTeamStore` is removed from the default runtime and retained only for explicit offline migration and fixtures;
-- migration refuses a nonempty destination and never dual-writes;
+- `sessionPersistence` and `storageDomain` are required injections (a Profile missing either keeps the plugin pending — fail closed, covered by composition tests);
+- tools and orchestration consume one `TeamDomainPort`, implemented by `TeamDomain` over one selected `TeamAggregateStore`;
+- the local production Provider opens the namespaced `agent_swarm` official Storage Domain and retains one versioned Team aggregate per record so one Team revision remains one write boundary; migration receipts are a second durable table;
+- `FileTeamStore` is removed from the default runtime and retained only as a read-only offline migration reader and fixture;
+- migration refuses a nonempty destination, verifies the durable read-back, retains a receipt and never dual-writes; the runtime performs no automatic migration or fallback;
 - the Provider remains process-local because official Storage Domain change visibility and write serialization are not distributed claims or leases.
 
 This is a host capability boundary, not cryptographic protection from a process with unrestricted host access. Coding members must receive workspace-scoped filesystem/shell permissions that cannot write the Harness storage root.
 
 ### Canonical Team domain
 
-Target ownership is official `ctx.agentTeams` when a supported published API is available, or one compatibility adapter during migration. Current 0.1 ownership is the private `TeamDomain`; the adapter described below is not yet wired:
+Target ownership is official `ctx.agentTeams` when a supported published API is available, or one compatibility adapter during migration. Current ownership is the private `TeamDomain` behind `TeamDomainPort`, persisted through the official Storage Domain Provider; the official adapter remains unwired until the experimental package is published:
 
 - Team membership and authority
 - durable roster

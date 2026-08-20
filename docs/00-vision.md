@@ -41,7 +41,7 @@ Architecture work is governed by `11-official-first-development.md`. At the veri
 
 1. 以其接口和持久语义作为长期对齐目标；
 2. 当前不把 `@deepseek-ai/dsh-experimental-agent-team` 声明为生产 peer dependency；
-3. 以 Adapter 隔离当前私有 backend、社区实现与未来可发布的官方 `ctx.agentTeams`；0.1 代码尚未完成这个 Adapter 抽取；
+3. 以 Adapter 隔离当前私有 backend、社区实现与未来可发布的官方 `ctx.agentTeams`；M1A 已完成 `TeamDomainPort` 抽取（工具与编排经端口消费唯一权威，生产 Provider 落在官方 Storage Domain），官方包发布后可在同一端口后替换 Provider 而不产生第二权威；
 4. 不重新定义一个同名 `ctx.agentTeams` 服务，避免加载冲突；
 5. 新增能力使用独立服务名，例如 Scheduler、Workspace、Budget、Review、Memory Provider Registry。
 

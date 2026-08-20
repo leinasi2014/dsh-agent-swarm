@@ -1,6 +1,6 @@
 # ADR-0007: M1 moves Team authority out of the shared workspace
 
-- Status: Accepted
+- Status: Accepted — implemented in M1A (2026-08-20)
 - Date: 2026-08-20
 - Evidence: official DSH `141eb6fef83422698aef7a981029e843e8161534`; GLM-5.3 findings F1–F10; JiuwenSwarm `152583aa305836e87481e6de8a5f34e8c7d0928b`
 

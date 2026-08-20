@@ -1,6 +1,6 @@
 # 07. Official-first implementation roadmap
 
-Rebased: 2026-08-20 against official DSH `141eb6fef83422698aef7a981029e843e8161534`, `dsh-agent-teams` `801954dd7be67213cf4adc1aeb6f97bd3daa12cc` and JiuwenSwarm `152583aa305836e87481e6de8a5f34e8c7d0928b`. ADR-0008 adds staged self-hosting readiness and renumbers the post-M2 milestones.
+Rebased: 2026-08-20 against official DSH `141eb6fef83422698aef7a981029e843e8161534`, `dsh-agent-teams` `801954dd7be67213cf4adc1aeb6f97bd3daa12cc` and JiuwenSwarm `20097e86f35e8b11be21e3bf76edaf97737301ed`. ADR-0008 adds staged self-hosting readiness and renumbers the post-M2 milestones.
 
 ## Gate A — required before every milestone
 
@@ -15,7 +15,7 @@ Every milestone first executes `11-official-first-development.md`:
 
 No milestone enters implementation without this record. A moved official ref reopens the gate.
 
-## Current factual baseline — 0.1
+## Current factual baseline — M1A complete
 
 Implemented:
 
@@ -25,14 +25,15 @@ Implemented:
 - adaptive priority Scheduler and external Scheduler registration contract;
 - mandatory submitted/review/completed transition and Review registration contract;
 - request/retry/deadline/cumulative token budgets using Session-event sequence folding;
-- manual structured Team memory, revision wait, safe removal/archive and local atomic JSON writes;
-- 16 protocol tests, 2 real rc.8 in-process composition tests and package/build gates.
+- manual structured Team memory, revision wait and safe removal/archive;
+- **M1A**: one `TeamDomainPort` consumed by tools and orchestration; required `sessionPersistence` + `storageDomain` injections with fail-closed composition; the `StorageDomainTeamStore` production Provider over the official `agent_swarm` Storage Domain (one versioned Team aggregate per record, durable migration receipts, per-workspace scope partition); `FileTeamStore` reduced to a read-only offline migration reader; explicit one-way migration CLI with empty-destination enforcement, durable read-back verification, receipt retention and untouched sources; workspace tamper-denial composition evidence;
+- 36 tests: 16 protocol, 13 port conformance/schema/version/corruption/close/fault, 5 migration, 2 real rc.8 composition.
 
 Not complete:
 
-- official Team backend adapter, target-side cross-restart mailbox de-duplication, persisted-child-aware provisioning recovery, bounded disposal and required persistence declaration;
+- official Team backend adapter (experimental package unpublished), target-side cross-restart mailbox de-duplication, persisted-child-aware provisioning recovery, bounded disposal;
 - live Agent availability gating;
-- official Workflow/Jobs, Token Meter, Storage Domain, Workspace and interaction integrations;
+- official Workflow/Jobs, Token Meter, Workspace and interaction integrations;
 - Worktree/remote/distributed execution, automatic memory extraction, Skill Evolution, tiered permission policy and UI.
 
 The current core remains usable only within its documented process-local limits. It is not evidence that later milestones are complete.
@@ -59,16 +60,16 @@ Gate A repeats at the start of M1 and every later milestone.
 
 ## M1 — canonical Team port and protocol hardening (next release blocker)
 
-### M1A — authority, port and migration
+### M1A — authority, port and migration — IMPLEMENTED (2026-08-20)
 
-- make `sessionPersistence` and `storageDomain` required;
-- define the `TeamDomainPort` consumed by tools and orchestration;
-- implement one local Provider over an official Storage Domain, one versioned Team aggregate per record;
-- remove workspace `FileTeamStore` from default runtime and retain it only as an offline migration reader/fixture;
-- migrate only into an empty destination, verify the committed record, retain a receipt and never dual-write;
-- keep the official private `ctx.agentTeams` package as a semantic target only.
+- `sessionPersistence` and `storageDomain` are required injections; a composition missing either keeps the plugin pending (composition-tested);
+- `TeamDomainPort` is the sole aggregate authority consumed by tools and orchestration;
+- `StorageDomainTeamStore` opens the official `agent_swarm` Storage Domain and stores one versioned Team aggregate per record plus migration receipts, partitioned by canonical workspace scope;
+- workspace `FileTeamStore` is removed from the default runtime and retained only as a read-only offline migration reader/fixture;
+- `scripts/migrate-legacy-team-store.mjs` migrates only into an empty destination, verifies the durable read-back, retains a receipt and never dual-writes; sources stay untouched;
+- the official private `ctx.agentTeams` package remains a semantic target only.
 
-Exit: F1 and F5 are closed; state tampering from an ordinary workspace writer is denied by the real filesystem/sandbox composition; port conformance, schema/version, migration, corruption and close tests pass.
+Exit: **met** — F1 and F5 are closed by the real storage composition (workspace files hold no Team authority; a decoy tamper file cannot change authoritative state); port conformance, schema/version, migration, corruption and close tests pass over the real official stack. Stated boundary: this denies ordinary workspace writers, not a process with unrestricted host access; the storage backend root must live outside team workspaces and sandbox roots. Full evidence: `docs/development/2026-08-20-glm53-m1a-report.md`.
 
 ### M1B — crash-safe protocol
 

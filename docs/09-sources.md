@@ -32,7 +32,8 @@ Verified target facts:
 - `@deepseek-ai/dsh-experimental-agent-team` is `private: true` and has no publish configuration;
 - official Agent Team injects Agents, Sessions, Session persistence and Subagents, and documents persisted-child-aware provisioning recovery, bounded disposal and target-session mailbox de-duplication;
 - `ctx.workspaceRegistry` is a Workspace identity/membership registry, not a per-child Worktree allocator or cwd override;
-- the installed plugin dependency tree currently does not install workflow/jobs/token-meter/storage-domain as runtime dependencies, so published availability is not the same as current integration.
+- since M1A this plugin consumes the official storage family directly: `@deepseek-ai/dsh-storage` (hub), `@deepseek-ai/dsh-storage-json` (json KV backend, deployment composition), `@deepseek-ai/dsh-storage-domain` (domain form, required peer) and `@deepseek-ai/dsh-session-persistence` (service definition, required peer) — all verified at rc.8 on npm and materialized in the evidence checkout (`packages/storage/*`, `packages/session/session-persistence`);
+- the installed plugin dependency tree still does not install workflow/jobs/token-meter as runtime dependencies, so their published availability is not the same as current integration.
 
 ### DeepSeek Harness community documentation
 
@@ -62,12 +63,12 @@ Read for implementation prior art, not framework truth.
 
 - URL: `https://github.com/openJiuwen-ai/jiuwenswarm`
 - Branch: `develop`
-- Commit: `152583aa305836e87481e6de8a5f34e8c7d0928b`
+- Commit: `20097e86f35e8b11be21e3bf76edaf97737301ed`
 - Develop package state observed: `workswarm` `0.2.5.beta1`
 - Local pointer: `ref/jiuwenswarm/SOURCE_POINTER.json`
 - Full local checkout: `ref/jiuwenswarm/source/`
 
-Live verification on 2026-08-20 found `develop` at this commit. The change from the previous `bddf335` pin affects gateway cron scheduling and server Session metadata only; it does not change the SwarmFlow, Team, Worktree, memory, Skill Evolution, permission or distributed-runtime evidence used by this project.
+Live verification on 2026-08-20 found `develop` at this commit and the pin was reviewed and updated the same day. Two deltas from the original `bddf335` pin were each diff-reviewed before adoption: `bddf335 → 152583aa` (gateway cron scheduling and server Session metadata) and `152583aa → 20097e86` (a single commit adding MCP connection-cache prewarm in `server/runtime/agent_adapter/interface_{code,deep}.py`, +78 lines). Neither delta touches the SwarmFlow, Team, Worktree, memory, Skill Evolution, permission or distributed-runtime evidence used by this project.
 
 Priority documents/concepts:
 

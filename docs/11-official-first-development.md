@@ -52,14 +52,14 @@ These are implemented-source facts, not a prediction of an unpublished roadmap. 
 |---|---|---|
 | Agent execution and lifecycle | `ctx.agents` / Agent Loop plugins | observer/Consumer only; never patch loop |
 | continuable members | `ctx.subagents` | Team member Provider adapter |
-| durable Session facts | Session + Session persistence | require durability; append/model messages through official paths |
+| durable Session facts | Session + Session persistence | required `sessionPersistence` injection since M1A; append/model messages through official paths |
 | deterministic workflow | `ctx.workflowEngine` | Team workflow bridge Consumer |
 | background run control | `ctx.jobs` | publish/cancel/wait long Team runs |
 | token/context measurement | `ctx.tokenMeter` | accounting adapter feeding one Team budget ledger |
-| application storage lifecycle | `ctx.storageDomain` | Team store Provider; distributed backend adds domain CAS/leases |
+| application storage lifecycle | `ctx.storageDomain` | consumed since M1A: `StorageDomainTeamStore` opens the `agent_swarm` domain as the Team aggregate authority; distributed backends add domain CAS/leases later |
 | Workspace identity/membership | `ctx.workspaceRegistry` | Workspace linkage; not Worktree/cwd isolation |
 | human interaction | questions/approval services | human workflow/review Providers |
-| Team roster/mailbox/task DAG | private experimental `ctx.agentTeams` | semantic target; current private backend behind one port until promotion |
+| Team roster/mailbox/task DAG | private experimental `ctx.agentTeams` | semantic target; current private backend behind one `TeamDomainPort` until promotion |
 | attempt fencing, scheduling, review, Team budget/memory policy | this plugin family | project-owned overlay, implemented as replaceable plugins |
 
 ## 5. Reference fusion rule

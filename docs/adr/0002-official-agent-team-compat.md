@@ -15,7 +15,7 @@ Official DSH source now includes an experimental Agent Team service with durable
 - Supply characterized adapters for supported backends.
 - When the official package becomes public, make it the preferred Provider and retire duplicated protocol state.
 
-Current implementation note (2026-08-20): this is an accepted target decision, not completed implementation. The 0.1 runtime constructs `TeamDomain(FileTeamStore)` directly and has no selectable official/community adapter. ADR-0007 fixes the M1 sequence: introduce `TeamDomainPort`, move the local Provider to official Storage Domain with one-way migration, then add conformance and crash-safety work before any future official backend replacement.
+Current implementation note (updated 2026-08-20, M1A): tools and orchestration now consume one `TeamDomainPort`; the production Provider persists the Team aggregate through the official Storage Domain (`StorageDomainTeamStore` over the `agent_swarm` domain), and the legacy workspace `FileTeamStore` is a read-only migration reader. The official `ctx.agentTeams` package remains private/unpublished, so the official backend adapter is still a future replacement behind the same port after an explicit one-authority migration; conformance suites for the port already exist (13 tests over the real official stack).
 
 ## Consequences
 
