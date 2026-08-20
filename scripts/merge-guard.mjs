@@ -27,7 +27,7 @@ function checks() {
   // gh reports mixed vocabulary across versions: the human table says
   // pass/fail/pending while the JSON says SUCCESS/FAILURE/PENDING (and
   // cancellation variants). Normalize both case and vocabulary.
-  const vocabulary = { success: 'pass', failure: 'fail', failed: 'fail', pending: 'pending', queued: 'pending', cancel: 'fail', canceled: 'fail', cancelled: 'fail', skipping: 'skipping', skipped: 'skipping', pass: 'pass', fail: 'fail' }
+  const vocabulary = { success: 'pass', failure: 'fail', failed: 'fail', pending: 'pending', queued: 'pending', in_progress: 'pending', running: 'pending', cancel: 'fail', canceled: 'fail', cancelled: 'fail', skipping: 'skipping', skipped: 'skipping', pass: 'pass', fail: 'fail' }
   for (const check of list) {
     const normalized = vocabulary[String(check.state).toLowerCase()]
     if (normalized === undefined) throw new Error(`merge-guard: unknown check state "${check.state}" (${check.name})`)
