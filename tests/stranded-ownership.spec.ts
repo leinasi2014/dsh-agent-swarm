@@ -131,11 +131,80 @@ describe('stranded-ownership self-healing over the real composition (issue #12)'
   }, 20_000)
 
   /**
+   * Issue #83 atomicity lock: the stranded self-heal's retry is ONE domain
+   * transition. A concurrent reader polling the authoritative store across
+   * the whole healing window observes the task `in_progress` throughout —
+   * never the transient `pending` the pre-fix cancel-then-reclaim pair
+   * exposed between its two transactions (the exact surface the CI failure
+   * read: a pending, revision-bumped task that "was auto-requeued").
+   */
+  it('keeps a healing owner\'s task continuously in_progress for concurrent readers', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-agent-swarm-stranded-atomic-'))
+    roots.push(sandbox)
+    const composition = await mount(sandbox, 200)
+    const { ctx } = composition
+    try {
+      const workerId = await addMember(composition, 'atomic-worker')
+      await holdAssignedTask(composition, 'Healed under observation')
+
+      const before = await snapshotOf(composition)
+      const taskBefore = before.team.tasks[0]!
+
+      // The parked wakeup keeps the interrupted owner live-and-idle (the
+      // legitimate heal setup of the first test): the retry is guaranteed to
+      // fire from the re-kick timer while the poll below reads the store.
+      const parked = await toolCall(ctx, composition.lead, 'send-wakeup', 'agent_swarm_send_message', {
+        target: 'atomic-worker', content: 'Parked work across the healing window.', delivery: 'wakeup',
+      })
+      expect(parked.isError).toBe(false)
+      const interrupted = await toolCall(ctx, composition.lead, 'interrupt', 'agent_swarm_interrupt_member', {
+        name: 'atomic-worker',
+      })
+      expect((interrupted.value as { previous_status: string }).previous_status).toBe('running')
+
+      // Poll the authoritative store across the healing window; the grace
+      // past, the re-kick timer fires the heal mid-loop. Each iteration
+      // yields a macrotask so the timer-driven pass can actually run.
+      const observed: string[] = []
+      let healed = false
+      for (let poll = 0; poll < 400 && !healed; poll += 1) {
+        const snapshot = await snapshotOf(composition)
+        const task = snapshot.team.tasks[0]!
+        observed.push(task.status)
+        if (task.currentAttemptId !== taskBefore.currentAttemptId) healed = true
+        else await new Promise(resolve => setTimeout(resolve, 1))
+      }
+      expect(healed).toBe(true)
+      expect(observed).not.toContain('pending')
+
+      const healedState = await snapshotOf(composition)
+      expect(healedState.team.tasks[0]).toMatchObject({ status: 'in_progress', ownerSessionId: workerId })
+      const oldAttempt = healedState.team.attempts.find(attempt => attempt.id === taskBefore.currentAttemptId)
+      expect(oldAttempt?.phase).toBe('stale')
+      expect(oldAttempt?.diagnostic).toContain('stranded')
+
+      await composition.pluginFiber.dispose()
+    } finally {
+      composition.adapter.open()
+      for (const fiber of composition.fibers.toReversed()) await fiber.dispose()
+    }
+  }, 20_000)
+
+  /**
    * F10 stranded self-healing, not-live owner: evidence only. A cold owner's
    * in_progress task is never auto-released across grace-elapsed passes — it
    * stays wakeup-resumable and reassignment stays a captain decision, with
    * the `stranded=owner-not-live` hint surfacing the fact in the status
    * projection.
+   *
+   * Issue #83 regression lock: the grace is allowed to elapse while the
+   * member still RUNS its held assignment turn (the CI coverage timing —
+   * there the claim-to-interrupt latency already exceeded the grace), so the
+   * interrupt's fresh idle edge meets a task that is past the task-age
+   * grace. Only the owner's own idle-stretch clock holds the self-heal back
+   * through the teardown window: firing there would requeue the task behind
+   * the captain's back (and, between the pre-fix heal's two domain
+   * transitions, expose it as `pending` to any reader).
    */
   it('exposes a not-live owner\'s stranded task as evidence without auto-releasing it', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-agent-swarm-stranded-cold-'))
@@ -148,6 +217,11 @@ describe('stranded-ownership self-healing over the real composition (issue #12)'
 
       const before = await snapshotOf(composition)
       const taskBefore = before.team.tasks[0]!
+
+      // Let the grace elapse while the member still runs its held
+      // assignment turn (issue #83's CI timing): the task is past the grace
+      // the instant the interrupt lands, exactly like a slow coverage run.
+      await new Promise(resolve => setTimeout(resolve, 400))
 
       // Drain the member cold (interrupt + drain) while it holds the task.
       ctx.subagents.interrupt(SessionId(workerId), { kind: 'ancestor', agent: composition.lead })

@@ -29,6 +29,14 @@ export interface SchedulingDeps {
   readonly schedulerProviders: () => Map<string, TeamSchedulerProvider>
   /** Stranded-ownership grace bound in ms; 0 disables automatic retry. */
   readonly strandedAfterMs: number
+  /**
+   * When the live owner's CURRENT idle stretch began (the observed
+   * `agent/status → idle` edge), or `undefined` when this runtime never
+   * observed an edge for it. The stranded grace consumes this latch so a
+   * teardown's fresh idle edge cannot fire the heal through the teardown
+   * window (issue #83).
+   */
+  readonly idleSince: (sessionId: string) => number | undefined
   readonly isClosing: () => boolean
   readonly trackTeamChildren: (captain: Agent, team: TeamState) => void
   readonly requestSchedule: (scope: TeamScope, teamId: TeamId, captain: Agent) => void
@@ -261,7 +269,7 @@ export class SchedulingPass {
       const task = snapshot.team.tasks.find(candidate => candidate.id === taskId)
       const attempt = snapshot.team.attempts.find(candidate => candidate.id === attemptId)
       if (task?.currentAttemptId !== attemptId) return
-      if (attempt?.phase !== 'running' || attempt.assignmentPhase !== 'reserved') return
+      if (attempt?.phase !== 'running' || attempt?.assignmentPhase !== 'reserved') return
       await this.deps.domain().cancelAttempt(scope, teamId, captainId, taskId, task.revision, diagnostic)
     } catch (error) {
       this.ctx.logger.error(`agent-swarm: exact assignment rollback failed: ${String(error)}`)
@@ -273,10 +281,20 @@ export class SchedulingPass {
    * §8c): a live-and-idle member still holding an open in_progress task lost
    * the turn that was executing it (model stopped early, keepInbox interrupt
    * settlement, restart). Past the configured grace the SAME owner retries
-   * under a fresh fenced attempt (reference scheduler discipline); the
-   * fenced attempt keeps the evidence in its diagnostic. A not-live owner is
-   * never auto-released — cold members stay wakeup-resumable and
-   * reassignment stays a captain decision surfaced as `stranded=` evidence.
+   * under a fresh fenced attempt (reference scheduler discipline); the fenced
+   * attempt keeps the evidence in its diagnostic. A not-live owner is never
+   * auto-released — cold members stay wakeup-resumable and reassignment
+   * stays a captain decision surfaced as `stranded=` evidence.
+   *
+   * Issue #83 hardening, two seams the pre-fix race exposed on a slow
+   * runner: the grace bounds the owner's CURRENT idle stretch (an idle edge
+   * from a captain teardown is age zero, so the heal cannot fire through the
+   * teardown window and re-drive the member the captain is tearing down),
+   * and the retry is one atomic domain transition — no reader and no
+   * scheduling lane can observe the task `pending` between the stale fence
+   * and the fresh attempt. If the owner still stops being live while the
+   * retry commits, the misfire is reversed (`reinstateAttempt`) and the
+   * evidence-only state is restored.
    */
   private async healStrandedOwnership(
     scope: TeamScope,
@@ -292,21 +310,26 @@ export class SchedulingPass {
       if (task.status !== 'in_progress' || task.ownerSessionId === undefined) continue
       const owner = this.ctx.agents.get(SessionId(task.ownerSessionId))
       if (owner === undefined || owner.status !== 'idle') continue
-      const deadline = task.updatedAt + this.deps.strandedAfterMs
+      const anchor = Math.max(task.updatedAt, this.deps.idleSince(task.ownerSessionId) ?? task.updatedAt)
+      const deadline = anchor + this.deps.strandedAfterMs
       if (Date.now() < deadline) {
         nextDeadline = nextDeadline === undefined ? deadline : Math.min(nextDeadline, deadline)
         continue
       }
       try {
-        const released = await this.deps.domain().cancelAttempt(
-          scope, teamId, captain.id, task.id, task.revision,
+        const retried = await this.deps.domain().retryAttempt(
+          scope, teamId, captain.id, task.id, task.revision, task.ownerSessionId,
           `stranded ownership self-heal: member ${task.ownerSessionId} is live and idle while task ${task.id} is still in_progress`,
         )
-        const claim = await this.deps.domain().claimTask(
-          scope, teamId, captain.id, task.id, released.revision, task.ownerSessionId,
-        )
-        await this.dispatchAssignment(scope, team, captain, claim.task, claim.attempt)
         acted = true
+        if (this.ctx.agents.get(SessionId(task.ownerSessionId)) === undefined) {
+          await this.deps.domain().reinstateAttempt(
+            scope, teamId, captain.id, task.id, retried.task.revision, retried.attempt.id,
+            `stranded ownership self-heal misfired: owner ${task.ownerSessionId} stopped being live during the retry; evidence restored`,
+          )
+          continue
+        }
+        await this.dispatchAssignment(scope, team, captain, retried.task, retried.attempt)
       } catch (error) {
         // A raced transition (stale revision, dependencies no longer
         // satisfied, budget exhausted) defers to the next pass.

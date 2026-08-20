@@ -70,6 +70,13 @@ export interface TaskAttempt {
   readonly phase: TaskAttemptPhase
   readonly assignmentPhase: 'reserved' | 'delivered'
   readonly assignmentDeliveredAt?: number
+  /**
+   * The attempt this one replaced in place through the atomic same-owner
+   * retry (issue #83): set only by `retryAttempt`, so a misfired retry whose
+   * premise died mid-flight can be reversed onto exactly the attempt it
+   * fenced. Absent on every other attempt shape.
+   */
+  readonly replacesAttemptId?: AttemptId
   readonly output?: string
   readonly evidence: string[]
   readonly diagnostic?: string

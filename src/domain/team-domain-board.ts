@@ -57,6 +57,21 @@ function assertCurrentAttempt(task: TeamTask, attemptId: AttemptId): void {
 }
 
 /**
+ * Fence one open attempt stale with the caller's diagnostic inside the
+ * running transaction — the one shape `cancelAttempt` and the in-place
+ * `retryAttempt` (issue #83) share.
+ */
+function fenceAttemptStale(team: TeamState, attemptId: AttemptId, diagnostic: string, timestamp: number): void {
+  const attempt = attemptOf(team, attemptId)
+  replaceAttempt(team, {
+    ...attempt,
+    phase: 'stale',
+    diagnostic: nonEmpty(diagnostic, 'reassignment diagnostic', 8_192),
+    updatedAt: timestamp,
+  })
+}
+
+/**
  * Generation watermark of one task: strictly above every generation that
  * was ever allocated, including generations whose attempts were pruned.
  * Because pruning only ever removes the oldest terminal attempts of a
@@ -106,6 +121,18 @@ export async function createTask(
   return structuredClone(committed)
 }
 
+/**
+ * Seat one fresh reserved attempt as its task's current execution and charge
+ * the request against the budget — the shared commit step of `claimTask` and
+ * the in-place `retryAttempt` (issue #83).
+ */
+function seatAttempt(team: TeamState, task: TeamTask, attempt: TaskAttempt): { task: TeamTask; attempt: TaskAttempt } {
+  replaceTask(team, task)
+  team.attempts.push(attempt)
+  Object.assign(team, { budget: { ...team.budget, usedRequests: team.budget.usedRequests + 1 } })
+  return { task: structuredClone(task), attempt: structuredClone(attempt) }
+}
+
 export async function claimTask(
   deps: TeamDomainDeps,
   scope: TeamScope,
@@ -115,8 +142,7 @@ export async function claimTask(
   expectedRevision: number,
   assigneeSessionId: string,
 ): Promise<{ task: TeamTask; attempt: TaskAttempt }> {
-  let committedTask!: TeamTask
-  let committedAttempt!: TaskAttempt
+  let seated!: { task: TeamTask; attempt: TaskAttempt }
   await deps.store.transact(scope, teamId, team => {
     const authority = actorMembership(team, actorSessionId)
     const assignee = actorMembership(team, assigneeSessionId)
@@ -131,7 +157,7 @@ export async function claimTask(
     budgetAvailable(team.budget, deps.now())
     const timestamp = deps.now()
     const generation = nextAttemptGeneration(team, taskId)
-    committedAttempt = {
+    const attempt: TaskAttempt = {
       id: AttemptId(`attempt-${randomUUID()}`),
       taskId,
       generation,
@@ -142,19 +168,16 @@ export async function claimTask(
       createdAt: timestamp,
       updatedAt: timestamp,
     }
-    committedTask = {
+    seated = seatAttempt(team, {
       ...current,
       revision: current.revision + 1,
       status: 'in_progress',
       ownerSessionId: assigneeSessionId,
-      currentAttemptId: committedAttempt.id,
+      currentAttemptId: attempt.id,
       updatedAt: timestamp,
-    }
-    replaceTask(team, committedTask)
-    team.attempts.push(committedAttempt)
-    Object.assign(team, { budget: { ...team.budget, usedRequests: team.budget.usedRequests + 1 } })
+    }, attempt)
   })
-  return { task: structuredClone(committedTask), attempt: structuredClone(committedAttempt) }
+  return seated
 }
 
 export async function acknowledgeAssignment(
@@ -300,19 +323,143 @@ export async function cancelAttempt(
     )
     const timestamp = deps.now()
     if (current.currentAttemptId !== undefined) {
-      const attempt = attemptOf(team, current.currentAttemptId)
-      replaceAttempt(team, {
-        ...attempt,
-        phase: 'stale',
-        diagnostic: nonEmpty(diagnostic, 'reassignment diagnostic', 8_192),
-        updatedAt: timestamp,
-      })
+      fenceAttemptStale(team, current.currentAttemptId, diagnostic, timestamp)
     }
     committed = clearTaskExecution(current, {
       revision: current.revision + 1,
       status: 'pending',
       updatedAt: timestamp,
     })
+    replaceTask(team, committed)
+    pruneRetainedAttempts(team, deps.limits.maxRetainedAttempts)
+  })
+  return structuredClone(committed)
+}
+
+/**
+ * Retry one live owner's open attempt in place (issue #83): stale the fenced
+ * attempt and allocate its same-owner successor inside ONE transaction, so
+ * the task is never observable as `pending` between the two transitions —
+ * not to a reader, and not to a scheduling pass's new-assignment lane, which
+ * could otherwise legitimately re-assign the transiently released task
+ * without a captain decision. The fresh attempt records the attempt it
+ * replaced, which is what lets {@link reinstateAttempt} reverse a misfired
+ * retry onto exactly the attempt it fenced.
+ */
+export async function retryAttempt(
+  deps: TeamDomainDeps,
+  scope: TeamScope,
+  teamId: TeamId,
+  captainSessionId: string,
+  taskId: TaskId,
+  expectedRevision: number,
+  assigneeSessionId: string,
+  diagnostic: string,
+): Promise<{ task: TeamTask; attempt: TaskAttempt }> {
+  let seated!: { task: TeamTask; attempt: TaskAttempt }
+  await deps.store.transact(scope, teamId, team => {
+    const authority = actorMembership(team, captainSessionId)
+    expectDomain(authority.role === 'captain', 'only the captain can retry an attempt', 'TEAM_CAPTAIN_REQUIRED')
+    actorMembership(team, assigneeSessionId)
+    const current = taskOf(team, taskId)
+    taskRevision(current, expectedRevision)
+    expectDomain(
+      current.status === 'in_progress' && current.currentAttemptId !== undefined && current.ownerSessionId === assigneeSessionId,
+      'only the current owner\'s open in_progress attempt can be retried in place',
+      'TEAM_TASK_NOT_REASSIGNABLE',
+    )
+    budgetAvailable(team.budget, deps.now())
+    const timestamp = deps.now()
+    const previous = attemptOf(team, current.currentAttemptId!)
+    fenceAttemptStale(team, previous.id, diagnostic, timestamp)
+    const attempt: TaskAttempt = {
+      id: AttemptId(`attempt-${randomUUID()}`),
+      taskId,
+      generation: nextAttemptGeneration(team, taskId),
+      memberSessionId: assigneeSessionId,
+      phase: 'running',
+      assignmentPhase: 'reserved',
+      replacesAttemptId: previous.id,
+      evidence: [],
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
+    seated = seatAttempt(team, {
+      ...current,
+      revision: current.revision + 1,
+      currentAttemptId: attempt.id,
+      updatedAt: timestamp,
+    }, attempt)
+  })
+  return seated
+}
+
+/**
+ * Reverse one misfired in-place retry (issue #83): the scheduler retried a
+ * live-and-idle owner, but the owner stopped being live while the retry
+ * committed — the premise of the heal is gone and a not-live owner is
+ * evidence-only, never an automatic requeue. The undelivered retry is
+ * cancelled and the attempt it fenced is reinstated as the task's current
+ * running attempt (its delivery checkpoint is preserved by the retry), all
+ * inside one transaction so the task stays continuously `in_progress` under
+ * the same owner. A retry whose frame was already acknowledged as delivered
+ * is not reversible — the member saw the assignment, so the retry stands.
+ */
+export async function reinstateAttempt(
+  deps: TeamDomainDeps,
+  scope: TeamScope,
+  teamId: TeamId,
+  captainSessionId: string,
+  taskId: TaskId,
+  expectedRevision: number,
+  misfiredAttemptId: AttemptId,
+  diagnostic: string,
+): Promise<TeamTask> {
+  let committed!: TeamTask
+  await deps.store.transact(scope, teamId, team => {
+    const authority = actorMembership(team, captainSessionId)
+    expectDomain(authority.role === 'captain', 'only the captain can reinstate an attempt', 'TEAM_CAPTAIN_REQUIRED')
+    const current = taskOf(team, taskId)
+    taskRevision(current, expectedRevision)
+    expectDomain(
+      current.status === 'in_progress' && current.currentAttemptId === misfiredAttemptId,
+      'only the task\'s current retry can be reversed',
+      'TEAM_ATTEMPT_STALE',
+    )
+    const misfired = attemptOf(team, misfiredAttemptId)
+    expectDomain(
+      misfired.phase === 'running' && misfired.assignmentPhase === 'reserved',
+      'only an undelivered retry can be reversed',
+      'TEAM_ATTEMPT_PHASE_INVALID',
+    )
+    const replacedId = misfired.replacesAttemptId
+    expectDomain(replacedId !== undefined, 'the retry records no replaced attempt', 'TEAM_ATTEMPT_STALE')
+    const replaced = attemptOf(team, replacedId!)
+    expectDomain(
+      replaced.taskId === taskId && replaced.memberSessionId === misfired.memberSessionId && replaced.phase === 'stale',
+      'the replaced attempt does not match the retry',
+      'TEAM_ATTEMPT_STALE',
+    )
+    const timestamp = deps.now()
+    replaceAttempt(team, {
+      ...misfired,
+      phase: 'cancelled',
+      diagnostic: nonEmpty(diagnostic, 'reassignment diagnostic', 8_192),
+      updatedAt: timestamp,
+    })
+    const { diagnostic: replacedDiagnostic, ...replacedWithoutDiagnostic } = replaced
+    void replacedDiagnostic
+    replaceAttempt(team, {
+      ...replacedWithoutDiagnostic,
+      phase: 'running',
+      updatedAt: timestamp,
+    })
+    committed = {
+      ...current,
+      revision: current.revision + 1,
+      currentAttemptId: replaced.id,
+      updatedAt: timestamp,
+    }
     replaceTask(team, committed)
     pruneRetainedAttempts(team, deps.limits.maxRetainedAttempts)
   })
