@@ -1,5 +1,4 @@
-import { readdir } from 'node:fs/promises'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
@@ -16,6 +15,9 @@ import {
 } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import Storage from '@deepseek-ai/dsh-storage'
+import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
+import * as StorageJson from '@deepseek-ai/dsh-storage-json'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -85,6 +87,15 @@ async function successfulTool(
   return result.value
 }
 
+/** Mount the official durable composition: persistence + storage stack + agent services. */
+async function mountDurableStack(ctx: Context, storageRoot: string, sessionRoot: string) {
+  await mountAgentLoopTestDependencies(ctx)
+  await ctx.plugin(JsonlSessionPersistence, { root: sessionRoot })
+  await ctx.plugin(Storage)
+  await ctx.plugin(StorageJson, { root: storageRoot })
+  await ctx.plugin(StorageDomain, { backend: 'json' })
+}
+
 describe('DSH rc.8 composition', () => {
   const roots: string[] = []
 
@@ -97,18 +108,16 @@ describe('DSH rc.8 composition', () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-composition-'))
     roots.push(sandbox)
     const workspace = join(sandbox, 'workspace')
-    const sessionRoot = join(sandbox, 'sessions')
+    const storageRoot = join(sandbox, 'storage')
     const ctx = new Context()
     const fibers: Fiber[] = []
 
     try {
-      await mountAgentLoopTestDependencies(ctx)
-      fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: sessionRoot }))
+      await mountDurableStack(ctx, storageRoot, join(sandbox, 'sessions'))
       fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
       fibers.push(await ctx.plugin(SubagentService))
       fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
       const pluginFiber = await ctx.plugin(AgentSwarm, {
-        stateDir: '.team-test',
         memberProvider: 'spawn',
         memberMaxDepth: 1,
         schedulerProvider: 'test-scheduler',
@@ -187,13 +196,20 @@ describe('DSH rc.8 composition', () => {
       expect(JSON.stringify(adapter.requests)).toContain('Composition proof')
       expect(schedulerCalls).toBeGreaterThan(0)
 
+      // Token accounting settles asynchronously; wait for exact equality
+      // instead of racing the accounting chain.
+      await vi.waitFor(async () => {
+        const settled = await ctx.agentSwarm.domain.snapshot(
+          ctx.agentSwarm.scopeOf(lead), AgentSwarm.TeamId(created.team_id), lead.id,
+        )
+        expect(settled.team.budget.usedTokens).toBe(adapter.billedTokens)
+      }, { timeout: 5_000 })
       const beforeReview = await ctx.agentSwarm.domain.snapshot(
-        ctx.agentSwarm.stateRoot(lead), AgentSwarm.TeamId(created.team_id), lead.id,
+        ctx.agentSwarm.scopeOf(lead), AgentSwarm.TeamId(created.team_id), lead.id,
       )
       const assignedTask = beforeReview.team.tasks[0]!
       const assignedAttempt = beforeReview.team.attempts.find(attempt => attempt.id === assignedTask.currentAttemptId)!
       expect(adapter.cacheTokens).toBe(150)
-      expect(beforeReview.team.budget.usedTokens).toBe(adapter.billedTokens)
       const staleResult = await ctx.tools.execute({
         signal: SIGNAL,
         callId: CallId('stale-submit'),
@@ -211,7 +227,7 @@ describe('DSH rc.8 composition', () => {
         error: { info: { name: 'TeamDomainError', code: 'TEAM_ATTEMPT_STALE' } },
       })
       const submitted = await ctx.agentSwarm.domain.submitTask(
-        ctx.agentSwarm.stateRoot(lead),
+        ctx.agentSwarm.scopeOf(lead),
         beforeReview.team.id,
         added.session_id,
         assignedTask.id,
@@ -255,31 +271,48 @@ describe('DSH rc.8 composition', () => {
       })
       const restoreReview = ctx.agentSwarm.registerReviewProvider('test-review', reviewProvider)
       const afterProviderFailures = await ctx.agentSwarm.domain.snapshot(
-        ctx.agentSwarm.stateRoot(lead), AgentSwarm.TeamId(created.team_id), lead.id,
+        ctx.agentSwarm.scopeOf(lead), AgentSwarm.TeamId(created.team_id), lead.id,
       )
       expect(afterProviderFailures.team.tasks).toHaveLength(1)
       restoreScheduler()
       restoreReview()
 
-      const stateFiles = await readdir(join(workspace, '.team-test'), { recursive: true })
-      expect(stateFiles.some(name => name.endsWith('.json'))).toBe(true)
+      // F1 evidence: authoritative state lives in the storage domain OUTSIDE
+      // the shared workspace; the workspace holds no Team state files.
+      const workspaceFiles = await readdir(workspace, { recursive: true }).catch(() => [] as string[])
+      expect(workspaceFiles.filter(name => name.includes('team') || name.endsWith('.json'))).toEqual([])
+      const unitFile = await readFile(join(storageRoot, 'agent_swarm.json'), 'utf8')
+      expect(unitFile).toContain(created.team_id)
+
+      // An ordinary workspace writer tampering with a decoy legacy state file
+      // cannot reach the authoritative aggregate.
+      const decoyDir = join(workspace, '.dsh-agent-swarm', created.team_id)
+      await mkdir(decoyDir, { recursive: true })
+      await writeFile(join(decoyDir, 'team.json'), JSON.stringify({
+        ...JSON.parse(unitFile).tables.teams[created.team_id]!.team,
+        captainSessionId: added.session_id,
+        budget: { usedTokens: 0, usedRequests: 0, usedRetries: 0 },
+      }), 'utf8')
+      const afterTamper = await successfulTool(ctx, lead, 'tamper-status', 'agent_swarm_status', {}) as {
+        used_tokens: number
+      }
+      expect(afterTamper.used_tokens).toBe(adapter.billedTokens)
 
       const firstRuntime = ctx.agentSwarm
-      await pluginFiber.dispose()
-      await vi.waitFor(() => {
-        expect(ctx.agents.get(SessionId(added.session_id))).toBeUndefined()
-      }, { timeout: 5_000 })
       await firstRuntime.domain.queueMessage(
-        firstRuntime.stateRoot(lead),
+        firstRuntime.scopeOf(lead),
         AgentSwarm.TeamId(created.team_id),
         lead.id,
         'runtime-worker',
         'Recover this queued message after reload.',
         'wakeup',
       )
+      await pluginFiber.dispose()
+      await vi.waitFor(() => {
+        expect(ctx.agents.get(SessionId(added.session_id))).toBeUndefined()
+      }, { timeout: 5_000 })
 
       const reloadedFiber = await ctx.plugin(AgentSwarm, {
-        stateDir: '.team-test',
         memberProvider: 'spawn',
         memberMaxDepth: 1,
       })
@@ -318,13 +351,11 @@ describe('DSH rc.8 composition', () => {
     const fibers: Fiber[] = []
 
     try {
-      await mountAgentLoopTestDependencies(ctx)
-      fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions') }))
+      await mountDurableStack(ctx, join(sandbox, 'storage'), join(sandbox, 'sessions'))
       fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
       fibers.push(await ctx.plugin(SubagentService))
       fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
       const pluginFiber = await ctx.plugin(AgentSwarm, {
-        stateDir: '.team-test',
         memberProvider: 'spawn',
         memberMaxDepth: 1,
       })
@@ -356,7 +387,7 @@ describe('DSH rc.8 composition', () => {
       expect(failedAdd).toMatchObject({ isError: true, error: { message: 'simulated activation commit failure' } })
 
       const snapshot = await ctx.agentSwarm.domain.snapshot(
-        ctx.agentSwarm.stateRoot(lead), AgentSwarm.TeamId(created.team_id), lead.id,
+        ctx.agentSwarm.scopeOf(lead), AgentSwarm.TeamId(created.team_id), lead.id,
       )
       const failedMember = snapshot.team.members[0]!
       expect(failedMember.phase).toBe('failed')

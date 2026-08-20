@@ -1,16 +1,20 @@
 import { randomUUID } from 'node:crypto'
+import { resolve } from 'node:path'
 import { Service, type Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { TokenUsage } from '@deepseek-ai/dsh-llm'
 import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-storage-domain'
 import type {} from '@deepseek-ai/dsh-subagent'
 import { TaskId, TeamId, TeamMessageId, type AttemptId, type TaskAttempt, type TeamLimits, type TeamMessage, type TeamState, type TeamTask } from '../domain/types.js'
-import { TeamDomain, type CreateTaskInput } from '../domain/team-domain.js'
+import { TeamDomain } from '../domain/team-domain.js'
+import type { CreateTaskInput, TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import { TeamDomainError } from '../domain/error.js'
-import { FileTeamStore, resolveStateRoot } from '../storage/team-store.js'
+import { StorageDomainTeamStore } from '../storage/storage-domain-team-store.js'
+import { teamDomainSpec } from '../storage/team-spec.js'
+import type { Domain } from '@deepseek-ai/dsh-storage-domain'
 
 export interface RuntimeConfig {
-  readonly stateDir: string
   readonly memberProvider: string
   readonly memberModel?: string
   readonly memberMaxDepth: number
@@ -119,12 +123,15 @@ Work only on this current attempt. When finished, call agent_swarm_submit_task w
 function memberPersona(team: TeamState, name: string, role: string): string {
   return `You are ${name}, an implementation member of the DSH team "${team.name}". Your role is: ${role}.
 
-Use the agent_swarm_* tools for Team state; never edit the state JSON directly. Work on only one assigned attempt at a time. Preserve the exact task revision and attempt id supplied in the assignment. Submit output plus evidence, message the captain when blocked, and stop immediately on a stale-attempt error. You may create dependency-aware tasks and communicate with peers, but captain-only administration and review tools are intentionally hidden.`
+Use the agent_swarm_* tools for all Team state; the authoritative Team aggregate lives in the host storage domain, outside this workspace, and is only reachable through those tools. Work on only one assigned attempt at a time. Preserve the exact task revision and attempt id supplied in the assignment. Submit output plus evidence, message the captain when blocked, and stop immediately on a stale-attempt error. You may create dependency-aware tasks and communicate with peers, but captain-only administration and review tools are intentionally hidden.`
 }
 
 /** DSH-facing runtime that composes the framework-neutral domain with continuable subagents. */
 export class AgentSwarmRuntime extends Service {
-  readonly domain: TeamDomain
+  private domainInstance?: TeamDomainPort
+  private storeInstance?: StorageDomainTeamStore
+  private domainHandle?: Domain<typeof teamDomainSpec>
+  private startPromise?: Promise<void>
   private readonly scheduling = new Map<string, Promise<void>>()
   private readonly usageAccounting = new Map<string, Promise<void>>()
   private readonly messageDeliveries = new Map<string, Promise<TeamMessage | undefined>>()
@@ -139,7 +146,6 @@ export class AgentSwarmRuntime extends Service {
     readonly config: RuntimeConfig,
   ) {
     super(ctx, 'agentSwarm')
-    this.domain = new TeamDomain(new FileTeamStore(), config.limits)
     this.schedulerProviders.set('priority-ready', {
       select: ({ readyTasks, availableMembers }) => availableMembers.flatMap((member, index) => {
         const task = readyTasks[index]
@@ -152,6 +158,38 @@ export class AgentSwarmRuntime extends Service {
         ...(input.diagnostic === undefined ? {} : { diagnostic: input.diagnostic }),
       }),
     })
+  }
+
+  /**
+   * Open the official Storage Domain and construct the authoritative Team
+   * port over it. Fail closed: an unavailable domain, missing backend route,
+   * version mismatch or invalid stored record fails plugin activation.
+   */
+  start(): Promise<void> {
+    this.startPromise ??= (async () => {
+      if (this.closing) throw new TeamDomainError('Team orchestrator is disposing', 'TEAM_RUNTIME_CLOSING')
+      const handle = await this.ctx.storageDomain.open(teamDomainSpec)
+      const store = new StorageDomainTeamStore(this.ctx, handle)
+      this.domainHandle = handle
+      this.storeInstance = store
+      this.domainInstance = new TeamDomain(store, this.config.limits)
+    })()
+    return this.startPromise
+  }
+
+  private async ensureReady(): Promise<void> {
+    if (this.domainInstance === undefined) await this.start()
+    if (this.domainInstance === undefined) {
+      throw new TeamDomainError('Team orchestrator storage did not start', 'TEAM_RUNTIME_NOT_STARTED')
+    }
+  }
+
+  /** The authoritative Team port. Throws before `start()` resolves. */
+  get domain(): TeamDomainPort {
+    if (this.domainInstance === undefined) {
+      throw new TeamDomainError('Team orchestrator storage did not start', 'TEAM_RUNTIME_NOT_STARTED')
+    }
+    return this.domainInstance
   }
 
   registerSchedulerProvider(name: string, provider: TeamSchedulerProvider): () => void {
@@ -170,8 +208,9 @@ export class AgentSwarmRuntime extends Service {
     return () => { if (this.reviewProviders.get(key) === provider) this.reviewProviders.delete(key) }
   }
 
-  stateRoot(agent: Agent): string {
-    return resolveStateRoot(workspaceOf(agent), this.config.stateDir)
+  /** Canonical workspace scope key partitioning this agent's Team namespace. */
+  scopeOf(agent: Agent): TeamScope {
+    return resolve(workspaceOf(agent))
   }
 
   private assertOpen(): void {
@@ -188,10 +227,11 @@ export class AgentSwarmRuntime extends Service {
   }
 
   async create(exec: ToolExecutionAuthority, name: string, description: string): Promise<TeamState> {
+    await this.ensureReady()
     this.assertOpen()
     const agent = requireAgent(exec)
     return await this.domain.createTeam(
-      this.stateRoot(agent), agent.id, name, description, agent.session.events.at(-1)?.seq ?? -1,
+      this.scopeOf(agent), agent.id, name, description, agent.session.events.at(-1)?.seq ?? -1,
     )
   }
 
@@ -199,14 +239,15 @@ export class AgentSwarmRuntime extends Service {
     exec: ToolExecutionAuthority,
     input: { name: string; role: string; provider?: string; model?: string },
   ): Promise<TeamState['members'][number]> {
+    await this.ensureReady()
     this.assertOpen()
     let completeOperation!: () => void
     const operation = new Promise<void>(resolve => { completeOperation = resolve })
     this.memberOperations.add(operation)
     try {
       const captain = requireAgent(exec)
-      const stateRoot = this.stateRoot(captain)
-      const membership = await this.domain.requireMembership(stateRoot, captain.id)
+      const scope = this.scopeOf(captain)
+      const membership = await this.domain.requireMembership(scope, captain.id)
       if (membership.role !== 'captain') throw new TeamDomainError('only the captain can add members', 'TEAM_CAPTAIN_REQUIRED')
 
       const providerName = input.provider ?? this.config.memberProvider
@@ -228,7 +269,7 @@ export class AgentSwarmRuntime extends Service {
       }
 
       const childId = SessionId(randomUUID())
-      const provisioning = await this.domain.provisionMember(stateRoot, membership.team.id, captain.id, {
+      const provisioning = await this.domain.provisionMember(scope, membership.team.id, captain.id, {
         name: input.name,
         role: input.role,
         sessionId: childId,
@@ -255,7 +296,7 @@ export class AgentSwarmRuntime extends Service {
           signal: exec.signal,
         })
       } catch (error) {
-        await this.domain.settleMember(stateRoot, membership.team.id, childId, {
+        await this.domain.settleMember(scope, membership.team.id, childId, {
           active: false,
           error: error instanceof Error ? error.message : String(error),
         })
@@ -263,14 +304,14 @@ export class AgentSwarmRuntime extends Service {
       }
 
       try {
-        const active = await this.domain.settleMember(stateRoot, membership.team.id, childId, { active: true })
+        const active = await this.domain.settleMember(scope, membership.team.id, childId, { active: true })
         this.trackChild(captain, childId)
         const child = this.ctx.agents.get(childId)
-        if (child !== undefined) await this.accountAgentUsage(stateRoot, membership.team.id, child)
-        this.requestSchedule(stateRoot, membership.team.id, captain)
+        if (child !== undefined) await this.accountAgentUsage(scope, membership.team.id, child)
+        this.requestSchedule(scope, membership.team.id, captain)
         return active
       } catch (error) {
-        await this.domain.settleMember(stateRoot, membership.team.id, childId, {
+        await this.domain.settleMember(scope, membership.team.id, childId, {
           active: false,
           error: `member activation did not commit: ${error instanceof Error ? error.message : String(error)}`,
         }).catch(settleError => {
@@ -292,50 +333,54 @@ export class AgentSwarmRuntime extends Service {
   }
 
   async createTask(exec: ToolExecutionAuthority, input: CreateTaskInput): Promise<TeamTask> {
+    await this.ensureReady()
     this.assertOpen()
     this.assertConfiguredProviders()
     const actor = requireAgent(exec)
-    const stateRoot = this.stateRoot(actor)
-    const membership = await this.domain.requireMembership(stateRoot, actor.id)
-    const task = await this.domain.createTask(stateRoot, membership.team.id, actor.id, input)
+    const scope = this.scopeOf(actor)
+    const membership = await this.domain.requireMembership(scope, actor.id)
+    const task = await this.domain.createTask(scope, membership.team.id, actor.id, input)
     const captain = this.ctx.agents.get(SessionId(membership.team.captainSessionId))
-    if (captain !== undefined) this.requestSchedule(stateRoot, membership.team.id, captain)
+    if (captain !== undefined) this.requestSchedule(scope, membership.team.id, captain)
     return task
   }
 
   async removeMember(exec: ToolExecutionAuthority, name: string, reason: string) {
+    await this.ensureReady()
     this.assertOpen()
     const captain = requireAgent(exec)
-    const stateRoot = this.stateRoot(captain)
-    const membership = await this.domain.requireMembership(stateRoot, captain.id)
-    const removed = await this.domain.removeMember(stateRoot, membership.team.id, captain.id, name, reason)
+    const scope = this.scopeOf(captain)
+    const membership = await this.domain.requireMembership(scope, captain.id)
+    const removed = await this.domain.removeMember(scope, membership.team.id, captain.id, name, reason)
     this.ctx.subagents.interrupt(SessionId(removed.member.sessionId), { kind: 'ancestor', agent: captain })
     await this.ctx.subagents.drainContinuableChildren(captain, [SessionId(removed.member.sessionId)])
-    this.requestSchedule(stateRoot, membership.team.id, captain)
+    this.requestSchedule(scope, membership.team.id, captain)
     return removed
   }
 
   async archive(exec: ToolExecutionAuthority, reason: string): Promise<TeamState> {
+    await this.ensureReady()
     this.assertOpen()
     const captain = requireAgent(exec)
-    const stateRoot = this.stateRoot(captain)
-    const membership = await this.domain.requireMembership(stateRoot, captain.id)
+    const scope = this.scopeOf(captain)
+    const membership = await this.domain.requireMembership(scope, captain.id)
     const activeIds = membership.team.members
       .filter(member => member.phase === 'active' || member.phase === 'provisioning')
       .map(member => SessionId(member.sessionId))
-    const archived = await this.domain.archiveTeam(stateRoot, membership.team.id, captain.id, reason)
+    const archived = await this.domain.archiveTeam(scope, membership.team.id, captain.id, reason)
     for (const id of activeIds) this.ctx.subagents.interrupt(id, { kind: 'ancestor', agent: captain })
     await this.ctx.subagents.drainContinuableChildren(captain, activeIds)
     return archived
   }
 
   async claimTask(exec: ToolExecutionAuthority, taskId: string, expectedRevision: number) {
+    await this.ensureReady()
     this.assertOpen()
     const actor = requireAgent(exec)
-    const stateRoot = this.stateRoot(actor)
-    const membership = await this.domain.requireMembership(stateRoot, actor.id)
+    const scope = this.scopeOf(actor)
+    const membership = await this.domain.requireMembership(scope, actor.id)
     return await this.domain.claimTask(
-      stateRoot, membership.team.id, actor.id, TaskId(taskId), expectedRevision,
+      scope, membership.team.id, actor.id, TaskId(taskId), expectedRevision,
     )
   }
 
@@ -343,12 +388,13 @@ export class AgentSwarmRuntime extends Service {
     exec: ToolExecutionAuthority,
     input: { taskId: string; expectedRevision: number; attemptId: string; output: string; evidence?: readonly string[] },
   ): Promise<TeamTask> {
+    await this.ensureReady()
     this.assertOpen()
     const actor = requireAgent(exec)
-    const stateRoot = this.stateRoot(actor)
-    const membership = await this.domain.requireMembership(stateRoot, actor.id)
+    const scope = this.scopeOf(actor)
+    const membership = await this.domain.requireMembership(scope, actor.id)
     return await this.domain.submitTask(
-      stateRoot,
+      scope,
       membership.team.id,
       actor.id,
       TaskId(input.taskId),
@@ -360,18 +406,19 @@ export class AgentSwarmRuntime extends Service {
   }
 
   async reassignTask(exec: ToolExecutionAuthority, taskId: string, expectedRevision: number, reason: string): Promise<TeamTask> {
+    await this.ensureReady()
     this.assertOpen()
     const captain = requireAgent(exec)
-    const stateRoot = this.stateRoot(captain)
-    const membership = await this.domain.requireMembership(stateRoot, captain.id)
+    const scope = this.scopeOf(captain)
+    const membership = await this.domain.requireMembership(scope, captain.id)
     const before = membership.team.tasks.find(task => task.id === taskId)
     const released = await this.domain.cancelAttempt(
-      stateRoot, membership.team.id, captain.id, TaskId(taskId), expectedRevision, reason,
+      scope, membership.team.id, captain.id, TaskId(taskId), expectedRevision, reason,
     )
     if (before?.ownerSessionId !== undefined) {
       this.ctx.subagents.interrupt(SessionId(before.ownerSessionId), { kind: 'ancestor', agent: captain })
     }
-    this.requestSchedule(stateRoot, membership.team.id, captain)
+    this.requestSchedule(scope, membership.team.id, captain)
     return released
   }
 
@@ -379,10 +426,11 @@ export class AgentSwarmRuntime extends Service {
     exec: ToolExecutionAuthority,
     input: { taskId: string; expectedRevision: number; attemptId: string; decision: 'accept' | 'reject'; diagnostic?: string },
   ): Promise<{ task: TeamTask; decision: 'accept' | 'reject' }> {
+    await this.ensureReady()
     this.assertOpen()
     const captain = requireAgent(exec)
-    const stateRoot = this.stateRoot(captain)
-    const membership = await this.domain.requireMembership(stateRoot, captain.id)
+    const scope = this.scopeOf(captain)
+    const membership = await this.domain.requireMembership(scope, captain.id)
     const taskBefore = membership.team.tasks.find(task => task.id === input.taskId)
     if (taskBefore === undefined) throw new TeamDomainError(`task "${input.taskId}" not found`, 'TEAM_TASK_NOT_FOUND')
     const attemptBefore = membership.team.attempts.find(attempt => attempt.id === input.attemptId)
@@ -402,7 +450,7 @@ export class AgentSwarmRuntime extends Service {
       signal: exec.signal,
     })
     const task = await this.domain.reviewTask(
-      stateRoot,
+      scope,
       membership.team.id,
       captain.id,
       TaskId(input.taskId),
@@ -411,7 +459,7 @@ export class AgentSwarmRuntime extends Service {
       outcome.decision,
       outcome.diagnostic,
     )
-    if (outcome.decision === 'reject') this.requestSchedule(stateRoot, membership.team.id, captain)
+    if (outcome.decision === 'reject') this.requestSchedule(scope, membership.team.id, captain)
     return { task, decision: outcome.decision }
   }
 
@@ -421,36 +469,39 @@ export class AgentSwarmRuntime extends Service {
     content: string,
     delivery: 'quiet' | 'wakeup',
   ): Promise<TeamMessage> {
+    await this.ensureReady()
     this.assertOpen()
     const sender = requireAgent(exec)
-    const stateRoot = this.stateRoot(sender)
-    const membership = await this.domain.requireMembership(stateRoot, sender.id)
+    const scope = this.scopeOf(sender)
+    const membership = await this.domain.requireMembership(scope, sender.id)
     const message = await this.domain.queueMessage(
-      stateRoot, membership.team.id, sender.id, target, content, delivery,
+      scope, membership.team.id, sender.id, target, content, delivery,
     )
     const captain = this.ctx.agents.get(SessionId(membership.team.captainSessionId))
     if (captain === undefined) return message
-    return await this.deliverQueuedMessage(stateRoot, membership.team.id, captain, message.id, exec.signal) ?? message
+    return await this.deliverQueuedMessage(scope, membership.team.id, captain, message.id, exec.signal) ?? message
   }
 
   async status(exec: ToolExecutionAuthority) {
+    await this.ensureReady()
     this.assertOpen()
     const actor = requireAgent(exec)
-    const stateRoot = this.stateRoot(actor)
-    const membership = await this.domain.requireMembership(stateRoot, actor.id)
-    return await this.domain.snapshot(stateRoot, membership.team.id, actor.id)
+    const scope = this.scopeOf(actor)
+    const membership = await this.domain.requireMembership(scope, actor.id)
+    return await this.domain.snapshot(scope, membership.team.id, actor.id)
   }
 
   async waitForChange(exec: ToolExecutionAuthority, afterRevision: number, timeoutMs: number) {
+    await this.ensureReady()
     this.assertOpen()
     const actor = requireAgent(exec)
     expectDomainTimeout(timeoutMs)
-    const stateRoot = this.stateRoot(actor)
-    const membership = await this.domain.requireMembership(stateRoot, actor.id)
+    const scope = this.scopeOf(actor)
+    const membership = await this.domain.requireMembership(scope, actor.id)
     const timeoutSignal = AbortSignal.timeout(timeoutMs)
     try {
       const snapshot = await this.domain.waitForChange(
-        stateRoot,
+        scope,
         membership.team.id,
         actor.id,
         afterRevision,
@@ -459,7 +510,7 @@ export class AgentSwarmRuntime extends Service {
       return { snapshot, changed: true }
     } catch (error) {
       if (timeoutSignal.aborted && !exec.signal.aborted) {
-        return { snapshot: await this.domain.snapshot(stateRoot, membership.team.id, actor.id), changed: false }
+        return { snapshot: await this.domain.snapshot(scope, membership.team.id, actor.id), changed: false }
       }
       throw error
     }
@@ -469,11 +520,12 @@ export class AgentSwarmRuntime extends Service {
     exec: ToolExecutionAuthority,
     limits: { tokenLimit?: number; requestLimit?: number; retryLimit?: number; deadlineAt?: number },
   ) {
+    await this.ensureReady()
     this.assertOpen()
     const captain = requireAgent(exec)
-    const stateRoot = this.stateRoot(captain)
-    const membership = await this.domain.requireMembership(stateRoot, captain.id)
-    return await this.domain.setBudget(stateRoot, membership.team.id, captain.id, limits)
+    const scope = this.scopeOf(captain)
+    const membership = await this.domain.requireMembership(scope, captain.id)
+    return await this.domain.setBudget(scope, membership.team.id, captain.id, limits)
   }
 
   async addMemory(
@@ -482,12 +534,13 @@ export class AgentSwarmRuntime extends Service {
     content: string,
     evidenceRefs: readonly string[],
   ) {
+    await this.ensureReady()
     this.assertOpen()
     const actor = requireAgent(exec)
-    const stateRoot = this.stateRoot(actor)
-    const membership = await this.domain.requireMembership(stateRoot, actor.id)
+    const scope = this.scopeOf(actor)
+    const membership = await this.domain.requireMembership(scope, actor.id)
     return await this.domain.addMemory(
-      stateRoot, membership.team.id, actor.id, category, content, evidenceRefs,
+      scope, membership.team.id, actor.id, category, content, evidenceRefs,
     )
   }
 
@@ -499,37 +552,37 @@ export class AgentSwarmRuntime extends Service {
 
   async recoverAgent(agent: Agent): Promise<void> {
     if (this.closing) return
-    const stateRoot = this.stateRoot(agent)
-    let membership = await this.domain.findMembership(stateRoot, agent.id)
+    const scope = this.scopeOf(agent)
+    let membership = await this.domain.findMembership(scope, agent.id)
     if (membership === undefined || this.closing) return
     if (membership.role === 'captain') {
       const recovered = await this.domain.recoverProvisioningMembers(
-        stateRoot,
+        scope,
         membership.team.id,
         agent.id,
         'member provisioning did not commit before runtime recovery',
       )
       if (recovered.length > 0) {
         this.ctx.logger.warn(`agent-swarm: recovered ${recovered.length} interrupted member provisioning record(s) for ${membership.team.id}`)
-        membership = await this.domain.requireMembership(stateRoot, agent.id)
+        membership = await this.domain.requireMembership(scope, agent.id)
       }
     }
     const captain = this.ctx.agents.get(SessionId(membership.team.captainSessionId))
     if (captain === undefined) return
     this.trackTeamChildren(captain, membership.team)
-    if (agent.status === 'idle') this.requestSchedule(stateRoot, membership.team.id, captain)
+    if (agent.status === 'idle') this.requestSchedule(scope, membership.team.id, captain)
   }
 
   observeSessionEvent(session: Session, event: SessionEvent): void {
     if (this.closing || event.type !== 'assistant/message' || event.data.usage === undefined) return
     const tokens = billedTokens(event.data.usage)
-    const stateRoot = resolveStateRoot(session.header.cwd ?? process.cwd(), this.config.stateDir)
-    const key = `${stateRoot}\0${session.id}`
+    const scope = resolve(session.header.cwd ?? process.cwd())
+    const key = `${scope}\0${session.id}`
     const previous = this.usageAccounting.get(key) ?? Promise.resolve()
     const next = previous.then(async () => {
-      const membership = await this.domain.findMembership(stateRoot, session.id)
+      const membership = await this.domain.findMembership(scope, session.id)
       if (membership === undefined) return
-      await this.domain.recordSessionUsage(stateRoot, membership.team.id, session.id, event.seq, tokens)
+      await this.domain.recordSessionUsage(scope, membership.team.id, session.id, event.seq, tokens)
     }).catch(error => {
       if (!this.closing) this.ctx.logger.warn(`agent-swarm: token accounting failed: ${String(error)}`)
     }).finally(() => {
@@ -538,10 +591,10 @@ export class AgentSwarmRuntime extends Service {
     this.usageAccounting.set(key, next)
   }
 
-  private requestSchedule(stateRoot: string, teamId: TeamId, captain: Agent): void {
-    const key = `${stateRoot}\0${teamId}`
+  private requestSchedule(scope: TeamScope, teamId: TeamId, captain: Agent): void {
+    const key = `${scope}\0${teamId}`
     const previous = this.scheduling.get(key) ?? Promise.resolve()
-    const next = previous.then(async () => { await this.schedulePass(stateRoot, teamId, captain) })
+    const next = previous.then(async () => { await this.schedulePass(scope, teamId, captain) })
       .catch(error => {
         if (!this.closing) this.ctx.logger.warn(`agent-swarm: scheduler failed for ${teamId}: ${String(error)}`)
       })
@@ -551,18 +604,16 @@ export class AgentSwarmRuntime extends Service {
     this.scheduling.set(key, next)
   }
 
-  private async schedulePass(stateRoot: string, teamId: TeamId, captain: Agent): Promise<void> {
+  private async schedulePass(scope: TeamScope, teamId: TeamId, captain: Agent): Promise<void> {
     if (this.closing) return
-    let snapshot = await this.domain.snapshot(stateRoot, teamId, captain.id)
+    let snapshot = await this.domain.snapshot(scope, teamId, captain.id)
     this.trackTeamChildren(captain, snapshot.team)
     const hadQueuedMail = snapshot.pendingMessageIds.length > 0
     for (const messageId of snapshot.pendingMessageIds) {
       if (this.closing) return
-      await this.deliverQueuedMessage(
-        stateRoot, teamId, captain, messageId, AbortSignal.timeout(30_000),
-      )
+      await this.deliverQueuedMessage(scope, teamId, captain, messageId, AbortSignal.timeout(30_000))
     }
-    if (hadQueuedMail) snapshot = await this.domain.snapshot(stateRoot, teamId, captain.id)
+    if (hadQueuedMail) snapshot = await this.domain.snapshot(scope, teamId, captain.id)
 
     const reserved = snapshot.team.tasks.flatMap(task => {
       if (task.status !== 'in_progress' || task.currentAttemptId === undefined) return []
@@ -571,9 +622,9 @@ export class AgentSwarmRuntime extends Service {
     })
     for (const { task, attempt } of reserved) {
       if (this.closing) return
-      await this.dispatchAssignment(stateRoot, snapshot.team, captain, task, attempt)
+      await this.dispatchAssignment(scope, snapshot.team, captain, task, attempt)
     }
-    if (reserved.length > 0) snapshot = await this.domain.snapshot(stateRoot, teamId, captain.id)
+    if (reserved.length > 0) snapshot = await this.domain.snapshot(scope, teamId, captain.id)
 
     const busy = new Set(snapshot.team.tasks
       .filter(task => ['in_progress', 'submitted', 'verifying'].includes(task.status))
@@ -604,17 +655,17 @@ export class AgentSwarmRuntime extends Service {
       seenTasks.add(task.id)
       let claim
       try {
-        claim = await this.domain.claimTask(stateRoot, teamId, captain.id, task.id, task.revision, member.sessionId)
+        claim = await this.domain.claimTask(scope, teamId, captain.id, task.id, task.revision, member.sessionId)
       } catch (error) {
         if (error instanceof TeamDomainError && ['TEAM_TASK_STALE_REVISION', 'TEAM_MEMBER_BUSY'].includes(error.code)) continue
         throw error
       }
-      await this.dispatchAssignment(stateRoot, snapshot.team, captain, claim.task, claim.attempt)
+      await this.dispatchAssignment(scope, snapshot.team, captain, claim.task, claim.attempt)
     }
   }
 
   private async dispatchAssignment(
-    stateRoot: string,
+    scope: TeamScope,
     team: TeamState,
     captain: Agent,
     task: TeamTask,
@@ -628,11 +679,11 @@ export class AgentSwarmRuntime extends Service {
         { source: { kind: 'plugin', plugin: 'dsh-agent-swarm' }, signal: AbortSignal.timeout(30_000) },
       )
       const member = this.ctx.agents.get(SessionId(attempt.memberSessionId))
-      if (member !== undefined) await this.accountAgentUsage(stateRoot, team.id, member)
-      await this.domain.acknowledgeAssignment(stateRoot, team.id, task.id, task.revision, attempt.id)
+      if (member !== undefined) await this.accountAgentUsage(scope, team.id, member)
+      await this.domain.acknowledgeAssignment(scope, team.id, task.id, task.revision, attempt.id)
     } catch (error) {
       await this.domain.cancelAttempt(
-        stateRoot,
+        scope,
         team.id,
         captain.id,
         task.id,
@@ -669,7 +720,7 @@ export class AgentSwarmRuntime extends Service {
         { source: { kind: 'plugin', plugin: 'dsh-agent-swarm' }, signal },
       )
       const target = this.ctx.agents.get(SessionId(message.targetSessionId))
-      if (target !== undefined) await this.accountAgentUsage(this.stateRoot(captain), team.id, target)
+      if (target !== undefined) await this.accountAgentUsage(this.scopeOf(captain), team.id, target)
       return true
     } catch (error) {
       this.ctx.logger.warn(`agent-swarm: message ${message.id} remains queued: ${String(error)}`)
@@ -678,17 +729,17 @@ export class AgentSwarmRuntime extends Service {
   }
 
   private async deliverQueuedMessage(
-    stateRoot: string,
+    scope: TeamScope,
     teamId: TeamId,
     captain: Agent,
     messageId: TeamMessageId,
     signal: AbortSignal,
   ): Promise<TeamMessage | undefined> {
-    const key = `${stateRoot}\0${teamId}\0${messageId}`
+    const key = `${scope}\0${teamId}\0${messageId}`
     const previous = this.messageDeliveries.get(key) ?? Promise.resolve(undefined)
     const next = previous.then(async () => {
       if (this.closing) return undefined
-      const snapshot = await this.domain.snapshot(stateRoot, teamId, captain.id)
+      const snapshot = await this.domain.snapshot(scope, teamId, captain.id)
       const message = snapshot.team.messages.find(candidate => candidate.id === messageId)
       if (message === undefined || message.phase !== 'queued') return message
       const sender = message.senderSessionId === captain.id
@@ -697,7 +748,7 @@ export class AgentSwarmRuntime extends Service {
       if (sender === undefined && message.targetSessionId === captain.id) return undefined
       const delivered = await this.deliverMessage(snapshot.team, sender ?? captain, message, signal)
       if (!delivered) return undefined
-      return await this.domain.acknowledgeMessage(stateRoot, teamId, message.id)
+      return await this.domain.acknowledgeMessage(scope, teamId, message.id)
     }).finally(() => {
       if (this.messageDeliveries.get(key) === next) this.messageDeliveries.delete(key)
     })
@@ -717,14 +768,14 @@ export class AgentSwarmRuntime extends Service {
     }
   }
 
-  private async accountAgentUsage(stateRoot: string, teamId: TeamId, agent: Agent): Promise<void> {
-    const snapshot = await this.domain.snapshot(stateRoot, teamId, agent.id)
+  private async accountAgentUsage(scope: TeamScope, teamId: TeamId, agent: Agent): Promise<void> {
+    const snapshot = await this.domain.snapshot(scope, teamId, agent.id)
     const afterSeq = snapshot.team.usageCursors[agent.id] ?? -1
     for (const event of agent.session.events) {
       if (event.seq <= afterSeq) continue
       if (event.type !== 'assistant/message' || event.data.usage === undefined) continue
       const tokens = billedTokens(event.data.usage)
-      await this.domain.recordSessionUsage(stateRoot, teamId, agent.id, event.seq, tokens)
+      await this.domain.recordSessionUsage(scope, teamId, agent.id, event.seq, tokens)
     }
   }
 
@@ -747,6 +798,14 @@ export class AgentSwarmRuntime extends Service {
       } catch (error) {
         failures.push(error)
       }
+    }
+    try {
+      // Reject revision waiters, stop listening to domain changes, then
+      // release the storage-domain unit so the name frees for a later open.
+      await this.storeInstance?.close()
+      await this.domainHandle?.close()
+    } catch (error) {
+      failures.push(error)
     }
     if (failures.length > 0) throw new AggregateError(failures, 'Team orchestrator disposal failed')
   }

@@ -1,10 +1,16 @@
 # Bundle layer for the durable host-only Team orchestrator.
+#
+# Durable Team mode composes the official storage stack — this patch adds only
+# the agent-swarm row. The deployment Profile must separately compose (in
+# order) the storage hub, a KV backend (e.g. dsh-storage-json with a root
+# OUTSIDE every team workspace), the dsh-storage-domain form routing to that
+# backend, and a session-persistence backend. Without those services this
+# plugin stays pending (fail closed); see README "Profile composition".
 - insert:
     - id: agent-swarm
       name: dsh-agent-swarm
       config:
         enabled: true
-        stateDir: .dsh-agent-swarm
         memberProvider: spawn
         memberMaxDepth: 1
         schedulerProvider: priority-ready

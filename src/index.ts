@@ -2,14 +2,22 @@
  * Durable Team orchestration for DeepSeek Harness.
  *
  * The host plugin composes a framework-neutral Team domain with DSH tools,
- * continuable subagents, Agent lifecycle events, and an ordered system-prompt
- * contribution. Richer workspace/workflow/distributed Providers remain
- * replaceable instead of being embedded in the Agent loop.
+ * continuable subagents, Agent lifecycle events, official Storage Domain
+ * persistence and an ordered system-prompt contribution. Richer
+ * workspace/workflow/distributed Providers remain replaceable instead of
+ * being embedded in the Agent loop.
+ *
+ * Durable Team mode fails closed: `sessionPersistence` and `storageDomain`
+ * are required injections, so a Profile without durable Session storage or
+ * the official Storage Domain form never activates this plugin. The
+ * authoritative Team aggregate lives in the `agent_swarm` storage domain —
+ * never in the shared workspace (ADR-0007).
  */
-import { isAbsolute } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-session-persistence'
+import type {} from '@deepseek-ai/dsh-storage-domain'
 import type {} from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { AgentSwarmRuntime } from './runtime/orchestrator-runtime.js'
@@ -38,15 +46,33 @@ export type {
   TeamStatusSnapshot,
   TeamTask,
 } from './domain/types.js'
+export type {
+  CreateTaskInput,
+  MigrationReceipt,
+  TeamAggregateStore,
+  TeamDomainPort,
+  TeamScope,
+  TeamTransaction,
+} from './domain/team-domain-port.js'
+export { StorageDomainTeamStore } from './storage/storage-domain-team-store.js'
+export { TEAM_DOMAIN_NAME, TEAM_DOMAIN_VERSION, teamDomainSpec } from './storage/team-spec.js'
+export { FileTeamStore, resolveStateRoot } from './storage/team-store.js'
+export { migrateLegacyTeamStore } from './migration/migrate-legacy-store.js'
+export type { MigrationOptions, MigrationReport, MigrationTeamOutcome } from './migration/migrate-legacy-store.js'
 
 export const name = 'agent-swarm'
-export const inject = ['tools', 'subagents', 'agents', 'systemPrompt'] as const
+export const inject = [
+  'tools',
+  'subagents',
+  'agents',
+  'systemPrompt',
+  'sessionPersistence',
+  'storageDomain',
+] as const
 
 export interface Config {
   /** Mount all host contributions. */
   enabled?: boolean
-  /** Workspace-relative durable state directory. */
-  stateDir?: string
   /** Continuable `ctx.subagents` Provider used for members. */
   memberProvider?: string
   /** Optional model override for every member. */
@@ -70,7 +96,6 @@ export interface Config {
 
 export const Config: z<Config> = z.object({
   enabled: z.boolean().default(true),
-  stateDir: z.string().default('.dsh-agent-swarm'),
   memberProvider: z.string().default('spawn'),
   memberModel: z.string(),
   memberMaxDepth: z.natural().default(1),
@@ -95,12 +120,8 @@ const usage = `Use agent_swarm_* when the user requests a coordinated multi-agen
 6. Treat write scopes as coordination hints, not filesystem authorization. Use status to reread authoritative state after any conflict.
 7. When waiting for another mutation, call agent_swarm_wait with the current Team revision instead of polling status.`
 
-export function apply(ctx: Context, config: Config): void {
+export async function apply(ctx: Context, config: Config): Promise<void> {
   if (config.enabled === false) return
-  const stateDir = config.stateDir ?? '.dsh-agent-swarm'
-  if (stateDir.trim() === '' || isAbsolute(stateDir) || stateDir.split(/[\\/]+/).includes('..')) {
-    throw new Error('agent-swarm: stateDir must be a non-empty workspace-relative path without parent traversal')
-  }
   const memberProvider = (config.memberProvider ?? 'spawn').trim()
   if (memberProvider === '') throw new Error('agent-swarm: memberProvider must not be empty')
   const schedulerProvider = (config.schedulerProvider ?? 'priority-ready').trim()
@@ -109,7 +130,6 @@ export function apply(ctx: Context, config: Config): void {
   if (reviewProvider === '') throw new Error('agent-swarm: reviewProvider must not be empty')
 
   const runtime = new AgentSwarmRuntime(ctx, {
-    stateDir,
     memberProvider,
     ...(config.memberModel === undefined ? {} : { memberModel: config.memberModel }),
     memberMaxDepth: config.memberMaxDepth ?? 1,
@@ -125,6 +145,11 @@ export function apply(ctx: Context, config: Config): void {
       maxMemories: config.maxMemories ?? DEFAULT_TEAM_LIMITS.maxMemories,
     },
   })
+
+  // Fail closed: the official Storage Domain must open (backend routed, unit
+  // version matching, stored records schema-valid) before any tool, prompt
+  // section or listener is registered.
+  await runtime.start()
 
   registerAgentSwarmTools(ctx, runtime)
   ctx.effect(() => ctx.systemPrompt.section({

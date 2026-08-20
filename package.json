@@ -25,6 +25,9 @@
   "engines": {
     "node": "^22.19.0 || >=24"
   },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -48,6 +51,8 @@
     "@deepseek-ai/dsh-agent": "^0.1.0-rc.8",
     "@deepseek-ai/dsh-llm": "^0.1.0-rc.8",
     "@deepseek-ai/dsh-session": "^0.1.0-rc.8",
+    "@deepseek-ai/dsh-session-persistence": "^0.1.0-rc.8",
+    "@deepseek-ai/dsh-storage-domain": "^0.1.0-rc.8",
     "@deepseek-ai/dsh-subagent": "^0.1.0-rc.8",
     "@deepseek-ai/dsh-system-prompt": "^0.1.0-rc.8",
     "@deepseek-ai/dsh-tools": "^0.1.0-rc.8",
@@ -60,13 +65,18 @@
     "@deepseek-ai/dsh-agent-loop-testkit": "0.1.0-rc.8",
     "@deepseek-ai/dsh-llm": "0.1.0-rc.8",
     "@deepseek-ai/dsh-session": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-session-persistence": "0.1.0-rc.8",
     "@deepseek-ai/dsh-session-persistence-jsonl": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-storage": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-storage-domain": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-storage-json": "0.1.0-rc.8",
     "@deepseek-ai/dsh-subagent": "0.1.0-rc.8",
     "@deepseek-ai/dsh-subagent-spawn-in-process": "0.1.0-rc.8",
     "@deepseek-ai/dsh-system-prompt": "0.1.0-rc.8",
     "@deepseek-ai/dsh-tools": "^0.1.0-rc.8",
     "@deepseek-ai/dsh-workspace": "0.1.0-rc.8",
     "@deepseek-ai/schemastery": "^3.18.1",
+    "zod": "^4.4.3",
     "@types/node": "^24.0.0",
     "tsdown": "^0.22.2",
     "typescript": "^5.9.3",

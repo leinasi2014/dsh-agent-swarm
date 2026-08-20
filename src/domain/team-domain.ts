@@ -18,7 +18,7 @@ import {
   type TeamStatusSnapshot,
   type TeamTask,
 } from './types.js'
-import type { TeamStore } from '../storage/team-store.js'
+import type { CreateTaskInput, TeamAggregateStore, TeamDomainPort, TeamScope } from './team-domain-port.js'
 
 export const DEFAULT_TEAM_LIMITS: TeamLimits = {
   maxMembers: 8,
@@ -109,19 +109,10 @@ function budgetAvailable(budget: TeamBudget, now: number): void {
   }
 }
 
-export interface CreateTaskInput {
-  readonly subject: string
-  readonly description: string
-  readonly acceptanceCriteria?: readonly string[]
-  readonly blockedBy?: readonly TaskId[]
-  readonly writeScopes?: readonly string[]
-  readonly priority?: number
-}
-
 /** Framework-neutral Team protocol used by the DSH tool and scheduler consumers. */
-export class TeamDomain {
+export class TeamDomain implements TeamDomainPort {
   constructor(
-    private readonly store: TeamStore,
+    private readonly store: TeamAggregateStore,
     private readonly limits: TeamLimits = DEFAULT_TEAM_LIMITS,
     private readonly now: () => number = Date.now,
   ) {
@@ -131,7 +122,7 @@ export class TeamDomain {
   }
 
   async createTeam(
-    stateRoot: string,
+    scope: TeamScope,
     captainSessionId: string,
     name: string,
     description: string,
@@ -159,12 +150,12 @@ export class TeamDomain {
       createdAt: timestamp,
       updatedAt: timestamp,
     }
-    await this.store.createUniqueForCaptain(stateRoot, team)
+    await this.store.createUniqueForCaptain(scope, team)
     return structuredClone(team)
   }
 
-  async findMembership(stateRoot: string, sessionId: string): Promise<TeamMembership | undefined> {
-    for (const team of await this.store.list(stateRoot)) {
+  async findMembership(scope: TeamScope, sessionId: string): Promise<TeamMembership | undefined> {
+    for (const team of await this.store.list(scope)) {
       if (team.phase !== 'active') continue
       if (team.captainSessionId === sessionId) return { team, role: 'captain', name: 'captain' }
       const member = team.members.find(candidate => candidate.sessionId === sessionId && candidate.phase === 'active')
@@ -173,20 +164,20 @@ export class TeamDomain {
     return undefined
   }
 
-  async requireMembership(stateRoot: string, sessionId: string): Promise<TeamMembership> {
-    const membership = await this.findMembership(stateRoot, sessionId)
+  async requireMembership(scope: TeamScope, sessionId: string): Promise<TeamMembership> {
+    const membership = await this.findMembership(scope, sessionId)
     if (membership === undefined) throw new TeamDomainError('caller does not belong to an active team', 'TEAM_NOT_JOINED')
     return membership
   }
 
   async provisionMember(
-    stateRoot: string,
+    scope: TeamScope,
     teamId: TeamId,
     captainSessionId: string,
     input: { name: string; role: string; sessionId: string; provider: string },
   ): Promise<TeamMember> {
     let committed!: TeamMember
-    await this.store.transact(stateRoot, teamId, team => {
+    await this.store.transact(scope, teamId, team => {
       const authority = actorMembership(team, captainSessionId)
       expectDomain(authority.role === 'captain', 'only the captain can add members', 'TEAM_CAPTAIN_REQUIRED')
       const occupiedMembers = team.members.filter(candidate => candidate.phase === 'active' || candidate.phase === 'provisioning')
@@ -218,13 +209,13 @@ export class TeamDomain {
   }
 
   async settleMember(
-    stateRoot: string,
+    scope: TeamScope,
     teamId: TeamId,
     sessionId: string,
     outcome: { active: true } | { active: false; error: string },
   ): Promise<TeamMember> {
     let committed!: TeamMember
-    await this.store.transact(stateRoot, teamId, team => {
+    await this.store.transact(scope, teamId, team => {
       const index = team.members.findIndex(candidate => candidate.sessionId === sessionId)
       expectDomain(index >= 0, 'provisioning member not found', 'TEAM_MEMBER_NOT_FOUND')
       const current = team.members[index]!
@@ -238,13 +229,13 @@ export class TeamDomain {
   }
 
   async recoverProvisioningMembers(
-    stateRoot: string,
+    scope: TeamScope,
     teamId: TeamId,
     captainSessionId: string,
     diagnostic: string,
   ): Promise<TeamMember[]> {
     const recovered: TeamMember[] = []
-    await this.store.transact(stateRoot, teamId, team => {
+    await this.store.transact(scope, teamId, team => {
       const authority = actorMembership(team, captainSessionId)
       expectDomain(authority.role === 'captain', 'only the captain can recover members', 'TEAM_CAPTAIN_REQUIRED')
       const reason = nonEmpty(diagnostic, 'member recovery diagnostic', 4_096)
@@ -260,7 +251,7 @@ export class TeamDomain {
   }
 
   async removeMember(
-    stateRoot: string,
+    scope: TeamScope,
     teamId: TeamId,
     captainSessionId: string,
     name: string,
@@ -268,7 +259,7 @@ export class TeamDomain {
   ): Promise<{ member: TeamMember; requeuedTaskIds: TaskId[] }> {
     let committedMember!: TeamMember
     const requeuedTaskIds: TaskId[] = []
-    await this.store.transact(stateRoot, teamId, team => {
+    await this.store.transact(scope, teamId, team => {
       const authority = actorMembership(team, captainSessionId)
       expectDomain(authority.role === 'captain', 'only the captain can remove members', 'TEAM_CAPTAIN_REQUIRED')
       const normalizedName = memberName(name)
@@ -305,13 +296,13 @@ export class TeamDomain {
   }
 
   async archiveTeam(
-    stateRoot: string,
+    scope: TeamScope,
     teamId: TeamId,
     captainSessionId: string,
     diagnostic: string,
   ): Promise<TeamState> {
     let committed!: TeamState
-    await this.store.transact(stateRoot, teamId, team => {
+    await this.store.transact(scope, teamId, team => {
       const authority = actorMembership(team, captainSessionId)
       expectDomain(authority.role === 'captain', 'only the captain can archive the Team', 'TEAM_CAPTAIN_REQUIRED')
       const timestamp = this.now()
@@ -344,9 +335,9 @@ export class TeamDomain {
     return structuredClone(committed)
   }
 
-  async createTask(stateRoot: string, teamId: TeamId, actorSessionId: string, input: CreateTaskInput): Promise<TeamTask> {
+  async createTask(scope: TeamScope, teamId: TeamId, actorSessionId: string, input: CreateTaskInput): Promise<TeamTask> {
     let committed!: TeamTask
-    await this.store.transact(stateRoot, teamId, team => {
+    await this.store.transact(scope, teamId, team => {
       actorMembership(team, actorSessionId)
       expectDomain(team.tasks.length < this.limits.maxTasks, 'team task limit reached', 'TEAM_TASK_LIMIT')
       const blockedBy = [...(input.blockedBy ?? [])]
@@ -374,7 +365,7 @@ export class TeamDomain {
   }
 
   async claimTask(
-    stateRoot: string,
+    scope: TeamScope,
     teamId: TeamId,
     actorSessionId: string,
     taskId: TaskId,
@@ -383,7 +374,7 @@ export class TeamDomain {
   ): Promise<{ task: TeamTask; attempt: TaskAttempt }> {
     let committedTask!: TeamTask
     let committedAttempt!: TaskAttempt
-    await this.store.transact(stateRoot, teamId, team => {
+    await this.store.transact(scope, teamId, team => {
       const authority = actorMembership(team, actorSessionId)
       const assignee = actorMembership(team, assigneeSessionId)
       if (actorSessionId !== assigneeSessionId) {
@@ -424,14 +415,14 @@ export class TeamDomain {
   }
 
   async acknowledgeAssignment(
-    stateRoot: string,
+    scope: TeamScope,
     teamId: TeamId,
     taskId: TaskId,
     expectedRevision: number,
     attemptId: AttemptId,
   ): Promise<TaskAttempt> {
     let committed!: TaskAttempt
-    await this.store.transact(stateRoot, teamId, team => {
+    await this.store.transact(scope, teamId, team => {
       const current = taskOf(team, taskId)
       taskRevision(current, expectedRevision)
       assertCurrentAttempt(current, attemptId)
@@ -453,7 +444,7 @@ export class TeamDomain {
   }
 
   async submitTask(
-    stateRoot: string,
+    scope: TeamScope,
     teamId: TeamId,
     actorSessionId: string,
     taskId: TaskId,
@@ -463,7 +454,7 @@ export class TeamDomain {
     evidence: readonly string[] = [],
   ): Promise<TeamTask> {
     let committed!: TeamTask
-    await this.store.transact(stateRoot, teamId, team => {
+    await this.store.transact(scope, teamId, team => {
       actorMembership(team, actorSessionId)
       const current = taskOf(team, taskId)
       taskRevision(current, expectedRevision)
@@ -493,7 +484,7 @@ export class TeamDomain {
   }
 
   async reviewTask(
-    stateRoot: string,
+    scope: TeamScope,
     teamId: TeamId,
     captainSessionId: string,
     taskId: TaskId,
@@ -503,7 +494,7 @@ export class TeamDomain {
     diagnostic?: string,
   ): Promise<TeamTask> {
     let committed!: TeamTask
-    await this.store.transact(stateRoot, teamId, team => {
+    await this.store.transact(scope, teamId, team => {
       const authority = actorMembership(team, captainSessionId)
       expectDomain(authority.role === 'captain', 'only the captain can review', 'TEAM_CAPTAIN_REQUIRED')
       const current = taskOf(team, taskId)
@@ -535,7 +526,7 @@ export class TeamDomain {
   }
 
   async cancelAttempt(
-    stateRoot: string,
+    scope: TeamScope,
     teamId: TeamId,
     captainSessionId: string,
     taskId: TaskId,
@@ -543,7 +534,7 @@ export class TeamDomain {
     diagnostic: string,
   ): Promise<TeamTask> {
     let committed!: TeamTask
-    await this.store.transact(stateRoot, teamId, team => {
+    await this.store.transact(scope, teamId, team => {
       const authority = actorMembership(team, captainSessionId)
       expectDomain(authority.role === 'captain', 'only the captain can reassign', 'TEAM_CAPTAIN_REQUIRED')
       const current = taskOf(team, taskId)
@@ -574,7 +565,7 @@ export class TeamDomain {
   }
 
   async queueMessage(
-    stateRoot: string,
+    scope: TeamScope,
     teamId: TeamId,
     senderSessionId: string,
     targetName: string,
@@ -582,7 +573,7 @@ export class TeamDomain {
     delivery: TeamMessageDelivery,
   ): Promise<TeamState['messages'][number]> {
     let committed!: TeamState['messages'][number]
-    await this.store.transact(stateRoot, teamId, team => {
+    await this.store.transact(scope, teamId, team => {
       const sender = actorMembership(team, senderSessionId)
       expectDomain(team.messages.length < this.limits.maxMessages, 'team message limit reached', 'TEAM_MESSAGE_LIMIT')
       const normalizedTarget = targetName.trim().toLowerCase()
@@ -613,9 +604,9 @@ export class TeamDomain {
     return structuredClone(committed)
   }
 
-  async acknowledgeMessage(stateRoot: string, teamId: TeamId, messageId: TeamMessageId): Promise<TeamState['messages'][number]> {
+  async acknowledgeMessage(scope: TeamScope, teamId: TeamId, messageId: TeamMessageId): Promise<TeamState['messages'][number]> {
     let committed!: TeamState['messages'][number]
-    await this.store.transact(stateRoot, teamId, team => {
+    await this.store.transact(scope, teamId, team => {
       const index = team.messages.findIndex(message => message.id === messageId)
       expectDomain(index >= 0, `message "${messageId}" not found`, 'TEAM_MESSAGE_NOT_FOUND')
       const current = team.messages[index]!
@@ -631,13 +622,13 @@ export class TeamDomain {
   }
 
   async setBudget(
-    stateRoot: string,
+    scope: TeamScope,
     teamId: TeamId,
     captainSessionId: string,
     limits: Pick<TeamBudget, 'tokenLimit' | 'requestLimit' | 'retryLimit' | 'deadlineAt'>,
   ): Promise<TeamBudget> {
     let committed!: TeamBudget
-    await this.store.transact(stateRoot, teamId, team => {
+    await this.store.transact(scope, teamId, team => {
       const authority = actorMembership(team, captainSessionId)
       expectDomain(authority.role === 'captain', 'only the captain can configure budget', 'TEAM_CAPTAIN_REQUIRED')
       for (const [name, value] of Object.entries(limits)) {
@@ -652,9 +643,9 @@ export class TeamDomain {
     return structuredClone(committed)
   }
 
-  async consumeTokens(stateRoot: string, teamId: TeamId, tokens: number): Promise<TeamBudget> {
+  async consumeTokens(scope: TeamScope, teamId: TeamId, tokens: number): Promise<TeamBudget> {
     let committed!: TeamBudget
-    await this.store.transact(stateRoot, teamId, team => {
+    await this.store.transact(scope, teamId, team => {
       expectDomain(Number.isSafeInteger(tokens) && tokens >= 0, 'tokens must be a non-negative safe integer', 'TEAM_BUDGET_INVALID')
       const next = team.budget.usedTokens + tokens
       expectDomain(team.budget.tokenLimit === undefined || next <= team.budget.tokenLimit, 'team token budget exceeded', 'TEAM_BUDGET_TOKENS')
@@ -665,14 +656,14 @@ export class TeamDomain {
   }
 
   async recordSessionUsage(
-    stateRoot: string,
+    scope: TeamScope,
     teamId: TeamId,
     sessionId: string,
     eventSeq: number,
     tokens: number,
   ): Promise<TeamBudget> {
     let committed!: TeamBudget
-    await this.store.transact(stateRoot, teamId, team => {
+    await this.store.transact(scope, teamId, team => {
       expectDomain(Number.isSafeInteger(eventSeq) && eventSeq >= 0, 'event seq must be a non-negative safe integer', 'TEAM_BUDGET_INVALID')
       expectDomain(Number.isSafeInteger(tokens) && tokens >= 0, 'tokens must be a non-negative safe integer', 'TEAM_BUDGET_INVALID')
       const known = team.captainSessionId === sessionId || team.members.some(member => member.sessionId === sessionId)
@@ -692,7 +683,7 @@ export class TeamDomain {
   }
 
   async addMemory(
-    stateRoot: string,
+    scope: TeamScope,
     teamId: TeamId,
     actorSessionId: string,
     category: TeamMemoryCategory,
@@ -700,7 +691,7 @@ export class TeamDomain {
     evidenceRefs: readonly string[],
   ): Promise<TeamState['memory'][number]> {
     let committed!: TeamState['memory'][number]
-    await this.store.transact(stateRoot, teamId, team => {
+    await this.store.transact(scope, teamId, team => {
       actorMembership(team, actorSessionId)
       expectDomain(team.memory.length < this.limits.maxMemories, 'team memory limit reached', 'TEAM_MEMORY_LIMIT')
       committed = {
@@ -716,8 +707,8 @@ export class TeamDomain {
     return structuredClone(committed)
   }
 
-  async snapshot(stateRoot: string, teamId: TeamId, actorSessionId: string): Promise<TeamStatusSnapshot> {
-    const team = await this.store.read(stateRoot, teamId)
+  async snapshot(scope: TeamScope, teamId: TeamId, actorSessionId: string): Promise<TeamStatusSnapshot> {
+    const team = await this.store.read(scope, teamId)
     if (team === undefined) throw new TeamDomainError(`team "${teamId}" not found`, 'TEAM_NOT_FOUND')
     actorMembership(team, actorSessionId)
     return {
@@ -728,17 +719,17 @@ export class TeamDomain {
   }
 
   async waitForChange(
-    stateRoot: string,
+    scope: TeamScope,
     teamId: TeamId,
     actorSessionId: string,
     afterRevision: number,
     signal: AbortSignal,
   ): Promise<TeamStatusSnapshot> {
     expectDomain(Number.isSafeInteger(afterRevision) && afterRevision >= 0, 'afterRevision must be a non-negative safe integer', 'TEAM_INPUT_INVALID')
-    const before = await this.store.read(stateRoot, teamId)
+    const before = await this.store.read(scope, teamId)
     if (before === undefined) throw new TeamDomainError(`team "${teamId}" not found`, 'TEAM_NOT_FOUND')
     actorMembership(before, actorSessionId)
-    const team = await this.store.waitForChange(stateRoot, teamId, afterRevision, signal)
+    const team = await this.store.waitForChange(scope, teamId, afterRevision, signal)
     actorMembership(team, actorSessionId)
     return {
       team,
