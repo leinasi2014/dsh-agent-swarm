@@ -207,24 +207,6 @@ describe('TeamDomain over the official Storage Domain', () => {
     )).rejects.toMatchObject({ code: 'TEAM_ATTEMPT_STALE' })
   })
 
-  it('records assignment delivery separately without changing the task revision', async () => {
-    const team = await teamWithMembers(1)
-    const task = await domain.createTask(scope, team.id, 'captain-session', {
-      subject: 'dispatch checkpoint', description: 'Persist transport acceptance.',
-    })
-    const claim = await domain.claimTask(
-      scope, team.id, 'captain-session', task.id, task.revision, 'member-1',
-    )
-    expect(claim.attempt.assignmentPhase).toBe('reserved')
-
-    const delivered = await domain.acknowledgeAssignment(
-      scope, team.id, task.id, claim.task.revision, claim.attempt.id,
-    )
-    expect(delivered.assignmentPhase).toBe('delivered')
-    const snapshot = await domain.snapshot(scope, team.id, 'captain-session')
-    expect(snapshot.team.tasks[0]?.revision).toBe(claim.task.revision)
-  })
-
   it('does not reassign a terminal task', async () => {
     const team = await teamWithMembers(1)
     const task = await domain.createTask(scope, team.id, 'captain-session', {

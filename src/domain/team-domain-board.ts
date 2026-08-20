@@ -2,11 +2,11 @@
  * Task board transitions of the Team protocol core.
  *
  * Owns task creation with dependency-graph admission, claiming under
- * revision CAS with a fresh fenced attempt, assignment-delivery
- * checkpoints, worker submission, the captain review gate and
- * reassignment/cancellation of open attempts. Task metadata CAS
- * (`revision`) and execution generation (`attemptId`) stay distinct
- * mechanisms, as in the port contract.
+ * revision CAS with a fresh fenced attempt, attempt-fenced
+ * assignment-delivery checkpoints, worker submission, the captain
+ * review gate and reassignment/cancellation of open attempts. Task
+ * metadata CAS (`revision`) and execution generation (`attemptId`)
+ * stay distinct mechanisms, as in the port contract.
  *
  * Retained attempt history is bounded per task (M1B/F7): terminal
  * transitions prune the oldest terminal attempts beyond the newest
@@ -162,13 +162,19 @@ export async function acknowledgeAssignment(
   scope: TeamScope,
   teamId: TeamId,
   taskId: TaskId,
-  expectedRevision: number,
   attemptId: AttemptId,
 ): Promise<TaskAttempt> {
   let committed!: TaskAttempt
   await deps.store.transact(scope, teamId, team => {
     const current = taskOf(team, taskId)
-    taskRevision(current, expectedRevision)
+    // Delivery is a property of the fenced attempt, not of the task
+    // metadata revision (issue #45): the fencing check below already
+    // rejects every acknowledgement whose generation lost a handoff, and
+    // the running-phase check rejects every settled attempt. A task
+    // revision CAS would additionally reject the checkpoint after any
+    // concurrent task write that left this attempt current — stranding it
+    // `reserved` and re-driving duplicate delivery — while protecting
+    // nothing the two attempt checks do not already prove.
     assertCurrentAttempt(current, attemptId)
     const attempt = attemptOf(team, attemptId)
     expectDomain(attempt.phase === 'running', 'attempt is not running', 'TEAM_ATTEMPT_PHASE_INVALID')

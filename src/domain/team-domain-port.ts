@@ -146,11 +146,21 @@ export interface TeamDomainPort {
     expectedRevision: number,
     assigneeSessionId?: string,
   ): Promise<{ task: TeamTask; attempt: TaskAttempt }>
+  /**
+   * Durable delivery checkpoint of one assignment attempt (issue #45):
+   * fenced by the exact `attemptId` only. The fencing reference
+   * (`currentAttemptId`) plus the running-phase check reject every
+   * acknowledgement whose generation lost a handoff or already settled;
+   * no task metadata revision is required or checked, so a concurrent
+   * task write that keeps this attempt current cannot strand the
+   * checkpoint in `reserved` (the duplicate re-dispatch face).
+   * Idempotent: acknowledging an already-delivered running attempt
+   * returns its committed record.
+   */
   acknowledgeAssignment(
     scope: TeamScope,
     teamId: TeamId,
     taskId: TaskId,
-    expectedRevision: number,
     attemptId: AttemptId,
   ): Promise<TaskAttempt>
   submitTask(
