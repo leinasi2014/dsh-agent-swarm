@@ -15,7 +15,7 @@ metadata:
 
 - **里程碑**：M1 全量收束（M1A-M1D，2026-08-21 放行：独立回归审查 PASS、tag `m1d`、D1 单写入者 dogfood 开放）；**当前 M2**（官方 WorkflowEngine/JobRegistry 桥）——#75 桥/#76 jobs 投影/#77 模式+双 owner 已关闭，#78 节点映射/#79 预算跨 run 在途 → M3 → … → M9（client 压轴）。
 - **仓库**：`github.com/leinasi2014/dsh-agent-swarm`（私有，`main` 唯一集成分支、线性历史）；`codex/glm-review-fixes` 为 M0/M1A 历史快照分支，不再开发。姊妹仓 dsh-canvas 双线并行（C-M1 已完成 tag `cm1`，C-M2 进行中）。
-- **证据基线**：官方 DSH `141eb6f`（rc.8，未漂移）；`dsh-agent-teams` `fe854d1`；`jiuwenswarm` `962f0a4`（Gate C 第五次 re-pin，双源同轮：装饰层 + 模式 canonical 化，零证据锚点变更）。开工前 `pnpm verify:gate-a`（热上游按累计 diff 审计，见教训 16）。
+- **证据基线**：官方 DSH `141eb6f`（rc.8，未漂移）；`dsh-agent-teams` `fe854d1`；`jiuwenswarm` `41b4119`（Gate C 第五次 re-pin，双源同轮：装饰层 + 模式 canonical 化，零证据锚点变更）。开工前 `pnpm verify:gate-a`（热上游按累计 diff 审计，见教训 16）。
 - **门禁**：`pnpm verify` = 结构(600 行上限，零例外) → lint → 重复 → 死导出 → 类型×2 → 测试 → **场景审计** → 构建 → 产物；lefthook pre-commit；CI 全矩阵（gate 与 coverage 步均带 `.dsh-mkdir` 签名重试）；**合并一律 `node scripts/merge-guard.mjs <pr>`**。
 - **场景审计**：18/32 machine-proven（新增 31 双 owner 对抗/32 模式）；测试 110；`src/tools.ts` 已拆分（46 行薄壳 + 6 域模块）。
 - **开发模式**：PM 统筹 + 智能体并行 worktree（CONTRIBUTING §2a）+ 串行守卫合并；PM 迭代方法论见第八节。
