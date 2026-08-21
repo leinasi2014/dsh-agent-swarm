@@ -70,6 +70,60 @@ export interface ReviewRootProvider {
   open(input: ReviewRootOpenInput): Promise<ReviewRootSession>
 }
 
+/** Result of one bounded root-family capability probe. */
+export interface ReviewRootAvailability {
+  readonly available: boolean
+  readonly diagnostic?: string
+}
+
+/** Optional capability declaration attached to a review-root registration. */
+export interface ReviewRootCapabilities {
+  /** Toolchain capabilities this family explicitly supplies. */
+  readonly provides: readonly string[]
+  /** Re-check ambient availability before task commit and root open. */
+  checkAvailability(input: { readonly signal: AbortSignal }): Promise<ReviewRootAvailability>
+}
+
+/** Options for an executable-backed Node/Python-style capability probe. */
+export interface ExecutableReviewRootCapabilitiesOptions {
+  readonly provides: readonly string[]
+  readonly executable: string
+  readonly args?: readonly string[]
+  readonly timeoutMs?: number
+}
+
+/** Assert one declared root capability without any fallback to another family. */
+export async function assertReviewRootCapabilityAvailable(input: {
+  readonly family: string
+  readonly capability: string
+  readonly capabilities: ReviewRootCapabilities | undefined
+  readonly signal: AbortSignal
+}): Promise<void> {
+  if (input.capabilities === undefined || !input.capabilities.provides.includes(input.capability)) {
+    throw new TeamDomainError(
+      `review root family "${input.family}" does not provide capability "${input.capability}"`,
+      'TEAM_REVIEW_ROOT_UNAVAILABLE',
+    )
+  }
+  let availability: ReviewRootAvailability
+  try {
+    availability = await input.capabilities.checkAvailability({ signal: input.signal })
+  } catch (error) {
+    if (input.signal.aborted) throw error
+    throw new TeamDomainError(
+      `review root family "${input.family}" capability probe failed: ${error instanceof Error ? error.message : String(error)}`,
+      'TEAM_REVIEW_ROOT_UNAVAILABLE',
+      { cause: error },
+    )
+  }
+  if (!availability.available) {
+    throw new TeamDomainError(
+      `review root family "${input.family}" capability "${input.capability}" is unavailable${availability.diagnostic === undefined ? '' : `: ${availability.diagnostic}`}`,
+      'TEAM_REVIEW_ROOT_UNAVAILABLE',
+    )
+  }
+}
+
 /** Check-in names are single safe segments: no traversal, no separators. */
 const SAFE_ARTIFACT_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
 
@@ -100,6 +154,59 @@ function capture(stream: NodeJS.ReadableStream | null | undefined): Capture {
 function decoded(state: Capture): string {
   const text = state.chunks.map(chunk => chunk.toString('utf8')).join('') + (state.truncated ? '…[captured output truncated]' : '')
   return text.replace(/\r\n/g, '\n')
+}
+
+/** Build a bounded fail-loud availability declaration for a toolchain executable. */
+export function executableReviewRootCapabilities(
+  options: ExecutableReviewRootCapabilitiesOptions,
+): ReviewRootCapabilities {
+  const provides = [...options.provides]
+  const args = [...(options.args ?? ['--version'])]
+  const timeoutMs = options.timeoutMs ?? 5_000
+  return {
+    provides,
+    checkAvailability({ signal }) {
+      signal.throwIfAborted()
+      return new Promise<ReviewRootAvailability>((resolve, reject) => {
+        let settled = false
+        let child: ReturnType<typeof spawn>
+        const finish = (outcome: ReviewRootAvailability): void => {
+          if (settled) return
+          settled = true
+          clearTimeout(timer)
+          signal.removeEventListener('abort', onAbort)
+          resolve(outcome)
+        }
+        const fail = (error: unknown): void => finish({
+          available: false,
+          diagnostic: `${options.executable} availability probe failed: ${error instanceof Error ? error.message : String(error)}`,
+        })
+        const onAbort = (): void => {
+          if (settled) return
+          settled = true
+          clearTimeout(timer)
+          child.kill()
+          reject(signal.reason)
+        }
+        const timer = setTimeout(() => {
+          child.kill()
+          finish({ available: false, diagnostic: `${options.executable} availability probe timed out after ${timeoutMs}ms` })
+        }, timeoutMs)
+        try {
+          child = spawn(options.executable, args, { windowsHide: true, stdio: 'ignore' })
+        } catch (error) {
+          fail(error)
+          return
+        }
+        signal.addEventListener('abort', onAbort, { once: true })
+        child.once('error', fail)
+        child.once('close', code => finish({
+          available: code === 0,
+          ...(code === 0 ? {} : { diagnostic: `${options.executable} availability probe exited ${code ?? 'without a code'}` }),
+        }))
+      })
+    },
+  }
 }
 
 /**
