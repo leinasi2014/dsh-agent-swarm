@@ -29,7 +29,7 @@ Use for explanation; verify against official source/installed package.
 
 ## Direct plugin reference
 
-`ref/dsh-agent-teams/source/` pinned to `801954dd7be67213cf4adc1aeb6f97bd3daa12cc`.
+`ref/dsh-agent-teams/source/` pinned to `fe854d19d20c88d9436d13338f86257f741955c9`.
 
 Use this checkout for DSH packaging, lifecycle, scheduler, mailbox, persistence,
 Host/Client and composition-test implementation examples. It is prior art, not

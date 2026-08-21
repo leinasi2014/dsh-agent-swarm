@@ -6,7 +6,7 @@ metadata:
   date: "2026-08-20"
   dsh_source_commit: "141eb6fef83422698aef7a981029e843e8161534"
   dsh_release: "0.1.0-rc.8"
-  direct_reference: "NanmiCoder/dsh-agent-teams@801954dd7be67213cf4adc1aeb6f97bd3daa12cc"
+  direct_reference: "NanmiCoder/dsh-agent-teams@fe854d19d20c88d9436d13338f86257f741955c9"
   architecture_reference: "openJiuwen-ai/jiuwenswarm@91c913726cedabb89cc6b538d9369e0ef1070578"
 ---
 
