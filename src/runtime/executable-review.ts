@@ -1,0 +1,177 @@
+/**
+ * Builtin `executable` review Provider (M3-2, issue #101; ADR-0008 D2).
+ *
+ * Executes the task's captain-declared verification commands inside an
+ * isolated review execution root and composes the review diagnostic
+ * EXCLUSIVELY from that execution (exit codes, durations, output
+ * summaries). Forced evidence retention: every review this Provider settles
+ * carries root-produced evidence; the reviewed party has no parameter path
+ * into the diagnostic — the worker's submission is checked in as the
+ * candidate artifact under review (data, never a verdict).
+ *
+ * Fail-loud family (docs/04 §5): a root that cannot be opened fails the
+ * review transaction immediately (`TEAM_REVIEW_ROOT_UNAVAILABLE`) — the
+ * task stays `submitted`, nothing settles and nothing hangs; a failed,
+ * unspawnable or timed-out command forces the reject path with the evidence
+ * attached; a passed command list never overrides a captain's reject
+ * request (verification is a floor, not a ceiling). The review
+ * transaction's existing semantics are untouched: `submitted` never
+ * completes itself — this Provider runs only inside the captain's review
+ * call, exactly like `manual` and the canvas human bridge.
+ */
+import type { ReviewProviderInput, ReviewProviderResult, TeamReviewProvider } from './providers.js'
+import type { ReviewCommandEvidence, ReviewRootProvider } from './review-root.js'
+import { TeamDomainError } from '../domain/error.js'
+
+/** Candidate artifact name the submitted output is checked in under. */
+export const CANDIDATE_OUTPUT_ARTIFACT = 'candidate-output.md'
+
+/** Bounded per-command output snippet inside the diagnostic. */
+const SNIPPET_CHARS = 400
+
+/** Hard diagnostic budget below the domain's 8192-byte bound. */
+const DIAGNOSTIC_BUDGET = 8_000
+
+export interface ExecutableReviewOptions {
+  /** Resolves the configured review-root Provider (undefined = missing). */
+  readonly resolveRoot: (name: string) => ReviewRootProvider | undefined
+  /** Configured review-root Provider name. */
+  readonly rootProviderName: () => string
+  /** Default per-command timeout when the task declares none. */
+  readonly defaultCommandTimeoutMs: number
+  /** Hard per-command timeout ceiling (the domain limit). */
+  readonly maxCommandTimeoutMs: number
+  /** Warn sink for best-effort root cleanup failures. */
+  readonly warn?: (message: string) => void
+}
+
+function snippet(text: string): string {
+  const normalized = text.trim()
+  if (normalized === '') return ''
+  return normalized.length <= SNIPPET_CHARS ? normalized : `${normalized.slice(0, SNIPPET_CHARS)}…[truncated]`
+}
+
+function commandFailed(evidence: ReviewCommandEvidence): boolean {
+  return evidence.timedOut || evidence.spawnError !== undefined || evidence.exitCode === null || evidence.exitCode !== 0
+}
+
+function failureReason(evidence: ReviewCommandEvidence): string {
+  if (evidence.timedOut) return 'timed out after the bounded deadline'
+  if (evidence.spawnError !== undefined) return `spawn error: ${evidence.spawnError}`
+  if (evidence.exitCode === null) return 'produced no exit code'
+  return `exit code ${evidence.exitCode}`
+}
+
+function effectiveTimeoutMs(command: { readonly timeoutMs?: number }, options: ExecutableReviewOptions): number {
+  const declared = command.timeoutMs ?? options.defaultCommandTimeoutMs
+  return Math.min(Math.max(Math.trunc(declared), 1), options.maxCommandTimeoutMs)
+}
+
+function evidenceLines(evidence: readonly ReviewCommandEvidence[], total: number): string[] {
+  return evidence.flatMap((item, index) => {
+    const lines = [
+      `[${index + 1}/${total}] exit=${item.exitCode === null ? 'none' : item.exitCode} ${item.timedOut ? 'TIMED-OUT ' : ''}${item.durationMs}ms cmd: ${item.command}`,
+    ]
+    const out = snippet(item.stdout)
+    const err = snippet(item.stderr)
+    if (err !== '') lines.push(`  stderr: ${err}`)
+    if (out !== '') lines.push(`  stdout: ${out}`)
+    if (item.spawnError !== undefined) lines.push(`  spawn-error: ${snippet(item.spawnError)}`)
+    return lines
+  })
+}
+
+/**
+ * Render the diagnostic. The verdict and provenance lines are kept
+ * tail-first outside the shrinking evidence budget so a bounded output can
+ * never push the decision basis out of the stored diagnostic.
+ */
+function renderDiagnostic(
+  label: string,
+  attemptId: string,
+  evidence: readonly ReviewCommandEvidence[],
+  total: number,
+  failedIndex: number | undefined,
+  requestedDecision: 'accept' | 'reject',
+): string {
+  const verdict = failedIndex === undefined
+    ? `verification PASSED: ${evidence.length}/${total} command(s) exited 0; captain request "${requestedDecision}" stands`
+    : `verification FAILED at command ${failedIndex + 1}/${total}: ${failureReason(evidence[failedIndex]!)}; rejected regardless of the captain request`
+  const lines = [
+    `executable review: review-root=${label} attempt=${attemptId} commands=${evidence.length}/${total}`,
+    ...evidenceLines(evidence, total),
+    verdict,
+    'evidence produced solely by the review execution root',
+  ]
+  let text = lines.join('\n')
+  if (text.length > DIAGNOSTIC_BUDGET) {
+    // Shrink snippets once, then hard-bound: the verdict stays the last line.
+    const verdictLine = lines[lines.length - 2]!
+    const provenance = lines[lines.length - 1]!
+    const header = lines[0]!
+    const compact = [header, ...evidence.map((item, index) =>
+      `[${index + 1}/${total}] exit=${item.exitCode === null ? 'none' : item.exitCode} ${item.timedOut ? 'TIMED-OUT ' : ''}${item.durationMs}ms cmd: ${item.command}`),
+    verdictLine, provenance].join('\n')
+    text = compact.length > DIAGNOSTIC_BUDGET ? `${compact.slice(0, DIAGNOSTIC_BUDGET)}\n…[diagnostic truncated]` : compact
+  }
+  return text
+}
+
+/** Compose the builtin `executable` review Provider over a root supply. */
+export function executableReview(options: ExecutableReviewOptions): TeamReviewProvider {
+  return {
+    async review(input: ReviewProviderInput): Promise<ReviewProviderResult> {
+      input.signal.throwIfAborted()
+      const name = options.rootProviderName()
+      const root = options.resolveRoot(name)
+      if (root === undefined) {
+        throw new TeamDomainError(`review execution root Provider "${name}" is unavailable`, 'TEAM_REVIEW_ROOT_PROVIDER_MISSING')
+      }
+      let session
+      try {
+        session = await root.open({
+          team: input.team,
+          task: input.task,
+          attempt: input.attempt,
+          signal: input.signal,
+        })
+      } catch (error) {
+        // Fail loud, uniform vocabulary: any root supply failure (builtin or
+        // third-party) fails the review transaction before anything settles.
+        if (error instanceof TeamDomainError) throw error
+        throw new TeamDomainError(
+          `review execution root unavailable: ${error instanceof Error ? error.message : String(error)}`,
+          'TEAM_REVIEW_ROOT_UNAVAILABLE',
+          { cause: error },
+        )
+      }
+      const evidence: ReviewCommandEvidence[] = []
+      let failedIndex: number | undefined
+      try {
+        if (input.attempt.output !== undefined && input.attempt.output !== '') {
+          await session.checkIn(CANDIDATE_OUTPUT_ARTIFACT, input.attempt.output)
+        }
+        for (const command of input.verification) {
+          input.signal.throwIfAborted()
+          const record = await session.run(command.command, {
+            timeoutMs: effectiveTimeoutMs(command, options),
+            signal: input.signal,
+          })
+          evidence.push(record)
+          if (commandFailed(record)) {
+            failedIndex = evidence.length - 1
+            break
+          }
+        }
+      } finally {
+        await session.close().catch(error => {
+          options.warn?.(`agent-swarm: review root cleanup failed: ${String(error)}`)
+        })
+      }
+      return {
+        decision: failedIndex === undefined ? input.requestedDecision : 'reject',
+        diagnostic: renderDiagnostic(session.label, input.attempt.id, evidence, input.verification.length, failedIndex, input.requestedDecision),
+      }
+    },
+  }
+}

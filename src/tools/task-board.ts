@@ -22,6 +22,18 @@ export function registerCreateTaskTool(ctx: Context, runtime: AgentSwarmRuntime)
       blocked_by: { type: 'array', items: { type: 'string' }, description: 'Existing task ids that must complete first.' },
       write_scopes: { type: 'array', items: { type: 'string' }, description: 'Advisory workspace-relative paths; not authorization.' },
       priority: { type: 'number', description: 'Higher values are scheduled first.' },
+      verification: {
+        type: 'array',
+        description: 'Captain-declared verification commands frozen into the task (M3-2): an executable review Provider runs them inside an isolated review root and records exit codes and output as the review evidence. Declared at commission time; the worker cannot change or dodge them.',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            command: { type: 'string', required: true, description: 'Shell command executed with the review root as cwd.' },
+            timeout_ms: { type: 'number', description: 'Per-command deadline in ms; bounded by the deployment ceiling.' },
+          },
+        },
+      },
     },
     output: {
       schema: {
@@ -43,6 +55,12 @@ export function registerCreateTaskTool(ctx: Context, runtime: AgentSwarmRuntime)
         ...(args.blocked_by === undefined ? {} : { blockedBy: args.blocked_by.map(TaskId) }),
         ...(args.write_scopes === undefined ? {} : { writeScopes: args.write_scopes }),
         ...(args.priority === undefined ? {} : { priority: args.priority }),
+        ...(args.verification === undefined ? {} : {
+          verification: args.verification.map(entry => ({
+            command: entry.command,
+            ...(entry.timeout_ms === undefined ? {} : { timeoutMs: entry.timeout_ms }),
+          })),
+        }),
       })
       return { task_id: task.id, revision: task.revision, status: task.status, ready: task.status === 'pending' }
     },

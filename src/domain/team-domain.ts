@@ -43,6 +43,8 @@ export const DEFAULT_TEAM_LIMITS: TeamLimits = {
   maxTaskBytes: 65_536,
   maxDependencies: 64,
   maxMemories: 512,
+  maxVerificationCommands: 16,
+  maxVerificationCommandMs: 600_000,
 }
 
 /** Framework-neutral Team protocol used by the DSH tool and scheduler consumers. */

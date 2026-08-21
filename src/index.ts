@@ -38,6 +38,15 @@ export type {
   TeamSchedulerProvider,
   ToolExecutionAuthority,
 } from './runtime/orchestrator-runtime.js'
+export type {
+  ReviewCommandEvidence,
+  ReviewRootOpenInput,
+  ReviewRootProvider,
+  ReviewRootSession,
+} from './runtime/review-root.js'
+export { tempReviewRootProvider } from './runtime/review-root.js'
+export { executableReview, CANDIDATE_OUTPUT_ARTIFACT } from './runtime/executable-review.js'
+export type { ExecutableReviewOptions } from './runtime/executable-review.js'
 export { OrchestrationOwnership } from './runtime/orchestration-ownership.js'
 export type { OrchestrationMode } from './runtime/orchestration-ownership.js'
 export { TeamBridgeWorkflowEngine, validateBridgeMeta } from './runtime/workflow/team-bridge-engine.js'
@@ -68,6 +77,7 @@ export type {
 } from './patterns/node-mapping.js'
 export { AttemptId, TaskId, TeamId, TeamMessageId } from './domain/types.js'
 export type {
+  ReviewVerificationCommand,
   TeamBudget,
   TeamMember,
   TeamMemoryEntry,
@@ -127,6 +137,14 @@ export interface Config {
   schedulerProvider?: string
   /** Registered verification/review Provider name. */
   reviewProvider?: string
+  /**
+   * Registered review execution root supply name (M3-2, issue #101):
+   * builtin `temp` (plain temp directory with candidate artifact check-in)
+   * or a #100-family Provider registered through
+   * `ctx.agentSwarm.registerReviewRootProvider`. Consumed by the `executable`
+   * review Provider. Default `temp`.
+   */
+  reviewRootProvider?: string
   maxMembers?: number
   maxTasks?: number
   /** Per-target pending (queued-minus-delivered) mail quota, official default 64. */
@@ -139,6 +157,10 @@ export interface Config {
   maxTaskBytes?: number
   maxDependencies?: number
   maxMemories?: number
+  /** Per-task bound on captain-declared verification commands (default 16, M3-2). */
+  maxVerificationCommands?: number
+  /** Hard per-command timeout ceiling for executable review in ms (default 600000, M3-2). */
+  maxVerificationCommandMs?: number
   /**
    * Bound for every disposal settlement step (F4), same name and default as
    * the official experimental config. Positive safe integer, default 5000.
@@ -205,6 +227,7 @@ export const Config: z<Config> = z.object({
   memberMaxDepth: z.natural().default(1),
   schedulerProvider: z.string().default('priority-ready'),
   reviewProvider: z.string().default('manual'),
+  reviewRootProvider: z.string().default('temp'),
   maxMembers: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxMembers),
   maxTasks: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxTasks),
   maxPendingMessagesPerMember: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxPendingMessagesPerMember),
@@ -214,6 +237,8 @@ export const Config: z<Config> = z.object({
   maxTaskBytes: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxTaskBytes),
   maxDependencies: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxDependencies),
   maxMemories: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxMemories),
+  maxVerificationCommands: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxVerificationCommands),
+  maxVerificationCommandMs: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxVerificationCommandMs),
   disposalTimeoutMs: z.number().step(1).min(1).default(DEFAULT_DISPOSAL_TIMEOUT_MS),
   strandedAfterMs: z.number().step(0).min(0).default(DEFAULT_STRANDED_AFTER_MS),
   orchestrationMode: z.union(['adaptive', 'workflow']).default('adaptive'),
@@ -229,7 +254,7 @@ const usage = `Use agent_swarm_* when the user requests a coordinated multi-agen
 2. Decompose the goal into tasks with explicit acceptance criteria and dependency ids. The event scheduler assigns ready tasks.
 3. Compose workflows on the task DAG itself: serial stages are dependency chains (a stage's join is every dependent naming its blockers); fan out through dependency-free same-layer tasks only — actual concurrency is bounded by the member count and mailbox quotas, never around them; hand pipeline artifacts through task outputs and Team mail; put human decisions at the review transaction (a submission waiting for review IS the human gate); a task whose dependency has not completed stays held — never skip or auto-fail it.
 4. Every task mutation uses the latest revision. Every worker submission also carries its exact attempt id; stale attempts stop immediately.
-5. A worker submission is evidence, not completion. The captain must call agent_swarm_review_task to accept or reject it.
+5. A worker submission is evidence, not completion. The captain must call agent_swarm_review_task to accept or reject it. When a task carries declared verification commands, an executable review Provider reruns them in an isolated review root and rejects on failure with root-produced evidence.
 6. Persist peer messages before delivery. A queued result is durable; never resend it automatically. Prefer quiet for information the recipient should read on its next turn; quiet mail to an inactive member stays queued until a wakeup or its own return, and wakeup is the delivery that resumes it.
 7. Treat write scopes as coordination hints, not filesystem authorization. Use agent_swarm_status for fixed Team counters and agent_swarm_list_tasks (with status/owner/ready filters and pagination) for task rows after any conflict.
 8. The captain may interrupt one member's current turn with agent_swarm_interrupt_member; the member keeps its inbox, tasks and membership, and a later wakeup resumes it.
@@ -242,8 +267,10 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   if (memberProvider === '') throw new Error('agent-swarm: memberProvider must not be empty')
   const schedulerProvider = (config.schedulerProvider ?? 'priority-ready').trim()
   const reviewProvider = (config.reviewProvider ?? 'manual').trim()
+  const reviewRootProvider = (config.reviewRootProvider ?? 'temp').trim()
   if (schedulerProvider === '') throw new Error('agent-swarm: schedulerProvider must not be empty')
   if (reviewProvider === '') throw new Error('agent-swarm: reviewProvider must not be empty')
+  if (reviewRootProvider === '') throw new Error('agent-swarm: reviewRootProvider must not be empty')
   const orchestrationMode = config.orchestrationMode ?? 'adaptive'
   if (orchestrationMode !== 'adaptive' && orchestrationMode !== 'workflow') {
     throw new Error(`agent-swarm: orchestrationMode must be "adaptive" or "workflow", got "${orchestrationMode}"`)
@@ -261,6 +288,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     memberMaxDepth: config.memberMaxDepth ?? 1,
     schedulerProvider,
     reviewProvider,
+    reviewRootProvider,
     orchestrationMode,
     limits: {
       maxMembers: config.maxMembers ?? DEFAULT_TEAM_LIMITS.maxMembers,
@@ -272,6 +300,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       maxTaskBytes: config.maxTaskBytes ?? DEFAULT_TEAM_LIMITS.maxTaskBytes,
       maxDependencies: config.maxDependencies ?? DEFAULT_TEAM_LIMITS.maxDependencies,
       maxMemories: config.maxMemories ?? DEFAULT_TEAM_LIMITS.maxMemories,
+      maxVerificationCommands: config.maxVerificationCommands ?? DEFAULT_TEAM_LIMITS.maxVerificationCommands,
+      maxVerificationCommandMs: config.maxVerificationCommandMs ?? DEFAULT_TEAM_LIMITS.maxVerificationCommandMs,
     },
     disposalTimeoutMs: config.disposalTimeoutMs ?? DEFAULT_DISPOSAL_TIMEOUT_MS,
     strandedAfterMs: config.strandedAfterMs ?? DEFAULT_STRANDED_AFTER_MS,

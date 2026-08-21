@@ -36,6 +36,19 @@ type TeamTaskStatus =
   | 'failed'
   | 'cancelled'
 
+/**
+ * One captain-declared deterministic verification command (M3-2, issue
+ * #101). The list is frozen task metadata: it is authored at task creation,
+ * survives every rework attempt of the same task unchanged, and is executed
+ * only inside a review execution root by the configured review Provider —
+ * never in a worker's workspace. `timeoutMs` bounds one execution and is
+ * itself bounded by {@link TeamLimits.maxVerificationCommandMs}.
+ */
+export interface ReviewVerificationCommand {
+  readonly command: string
+  readonly timeoutMs?: number
+}
+
 export interface TeamTask {
   readonly id: TaskId
   readonly revision: number
@@ -46,6 +59,12 @@ export interface TeamTask {
   readonly blockedBy: TaskId[]
   readonly writeScopes: string[]
   readonly priority: number
+  /**
+   * Captain-declared verification command list (absent when the task
+   * declares none — pre-#101 stored records and verification-free tasks keep
+   * a byte-identical stored shape). Consumed by executable review Providers.
+   */
+  readonly verification?: ReviewVerificationCommand[]
   readonly ownerSessionId?: string
   readonly currentAttemptId?: AttemptId
   readonly output?: string
@@ -149,7 +168,9 @@ export interface TeamState {
  * is bounded per task by `maxRetainedAttempts` (M1B/F7): only terminal
  * attempts (accepted/rejected/cancelled/stale) beyond the newest N of
  * their task are pruned, the referenced current attempt is never pruned,
- * and pruning can never revive a stale attempt id.
+ * and pruning can never revive a stale attempt id. Captain-declared
+ * verification commands are bounded by `maxVerificationCommands` with a
+ * hard per-command timeout ceiling of `maxVerificationCommandMs` (M3-2).
  */
 export interface TeamLimits {
   readonly maxMembers: number
@@ -164,6 +185,10 @@ export interface TeamLimits {
   readonly maxTaskBytes: number
   readonly maxDependencies: number
   readonly maxMemories: number
+  /** Per-task bound on captain-declared verification commands (M3-2). */
+  readonly maxVerificationCommands: number
+  /** Hard per-command timeout ceiling for executable review (M3-2). */
+  readonly maxVerificationCommandMs: number
 }
 
 export interface TeamMembership {

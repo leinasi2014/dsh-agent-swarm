@@ -4,7 +4,7 @@
  * the policies. Third-party plugins register through `ctx.agentSwarm`.
  */
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { TeamState, TeamTask, TaskAttempt } from '../domain/types.js'
+import type { ReviewVerificationCommand, TeamState, TeamTask, TaskAttempt } from '../domain/types.js'
 
 export interface SchedulerSelectionInput {
   readonly team: TeamState
@@ -29,6 +29,14 @@ export interface ReviewProviderInput {
   readonly attempt: TaskAttempt
   readonly requestedDecision: 'accept' | 'reject'
   readonly diagnostic?: string
+  /**
+   * The task's captain-declared verification commands (M3-2, issue #101),
+   * resolved from frozen task metadata — never from the review call. Empty
+   * when the task declares none; executable Providers decide their own
+   * vacuous-policy. Structural additions only: the canvas human bridge's
+   * subset projection stays compatible.
+   */
+  readonly verification: readonly ReviewVerificationCommand[]
   readonly signal: AbortSignal
 }
 

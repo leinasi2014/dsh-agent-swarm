@@ -25,6 +25,7 @@ import type {
   TeamState,
   TeamStatusSnapshot,
   TeamTask,
+  ReviewVerificationCommand,
 } from './types.js'
 
 /**
@@ -85,6 +86,14 @@ export interface CreateTaskInput {
   readonly blockedBy?: readonly TaskId[]
   readonly writeScopes?: readonly string[]
   readonly priority?: number
+  /**
+   * Captain-declared verification command list (M3-2, issue #101). Frozen
+   * task metadata — NOT a review-call parameter: the deterministic check
+   * set is part of the task contract, so it cannot drift across rework
+   * attempts and the reviewed party has no path to influence it at review
+   * time. Executed only inside a review execution root.
+   */
+  readonly verification?: readonly ReviewVerificationCommand[]
 }
 
 /**
