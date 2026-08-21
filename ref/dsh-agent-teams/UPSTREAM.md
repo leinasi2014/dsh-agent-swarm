@@ -2,7 +2,7 @@
 
 - Repository: `https://github.com/NanmiCoder/dsh-agent-teams`
 - Branch: `main`
-- Commit: `801954dd7be67213cf4adc1aeb6f97bd3daa12cc`
+- Commit: `fe854d19d20c88d9436d13338f86257f741955c9`
 - Package version: `0.1.8`
 - License: MIT
 

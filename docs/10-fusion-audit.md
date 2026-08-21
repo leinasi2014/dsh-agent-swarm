@@ -23,8 +23,8 @@ The independent GLM-5.3 review on 2026-08-20 issued `CONDITIONAL PASS` with P0 =
 | Source | Verified revision | Role |
 |---|---|---|
 | `deepseek-ai/deepseek-harness` | `141eb6fef83422698aef7a981029e843e8161534`; remote `HEAD` and `master` matched on 2026-08-20 | framework and published-service truth |
-| `NanmiCoder/dsh-agent-teams` | `801954dd7be67213cf4adc1aeb6f97bd3daa12cc`, version 0.1.8 | direct DSH Team implementation prior art |
-| `openJiuwen-ai/jiuwenswarm` | `36c7959cccc4e721240007c1211aa4ecbd34c22d`, WorkSwarm 0.2.5.beta1 | product architecture and failure-case prior art; the 2026-08-20 deltas from `bddf335` through `91c9137` (gateway cron/Session metadata, MCP connection-cache prewarm, proactive-context, frontend/cron/trace, MCP CLI surfacing) and the 2026-08-21 `36c7959` delta (AgentGroup hybrid-team packages — strictly additive overlay) were each diff-reviewed and touch none of the fused evidence surfaces |
+| `NanmiCoder/dsh-agent-teams` | `fe854d19d20c88d9436d13338f86257f741955c9`, version 0.1.9 | direct DSH Team implementation prior art |
+| `openJiuwen-ai/jiuwenswarm` | `962f0a4426041d54cef60e980a10491df84546ef`, WorkSwarm 0.2.5.beta1 | product architecture and failure-case prior art; the 2026-08-20 deltas from `bddf335` through `91c9137` (gateway cron/Session metadata, MCP connection-cache prewarm, proactive-context, frontend/cron/trace, MCP CLI surfacing) the 2026-08-21 `36c7959` delta (AgentGroup hybrid-team packages — strictly additive overlay) and the 2026-08-22 `962f0a4` delta (mode-system canonical naming plus not-adopted-domain web/tui work — SwarmFlow evidence files byte-untouched) were each diff-reviewed and touch none of the fused evidence surfaces |
 
 The official target publishes `ctx.workflowEngine`, `ctx.jobs`, `ctx.tokenMeter`, `ctx.storageDomain` and `ctx.workspaceRegistry`. Its Agent Team package is private/experimental and unpublished. These facts supersede earlier project text claiming that rc.8 had no public workflow or token-meter service.
 
