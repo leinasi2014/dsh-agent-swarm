@@ -30,6 +30,8 @@ export interface ModesPluginConfig {
   readonly workflowBridge?: boolean
   /** Stranded-ownership grace bound; small when a suite needs the window. */
   readonly strandedAfterMs?: number
+  /** Roster quota passthrough (node-mapping suite's fan-out backpressure). */
+  readonly maxMembers?: number
 }
 
 export interface ModesComposition {
@@ -151,6 +153,7 @@ export async function mountModesComposition(sandbox: string, config: ModesPlugin
     ...(config.orchestrationMode === undefined ? {} : { orchestrationMode: config.orchestrationMode }),
     ...(config.workflowBridge === undefined ? {} : { workflowBridge: config.workflowBridge }),
     ...(config.strandedAfterMs === undefined ? {} : { strandedAfterMs: config.strandedAfterMs }),
+    ...(config.maxMembers === undefined ? {} : { maxMembers: config.maxMembers }),
   }))
   const adapter = new GatedMemberAdapter()
   ctx.llm.registerAdapter(['mock'], adapter)
