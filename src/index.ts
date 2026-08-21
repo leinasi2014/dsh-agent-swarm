@@ -36,6 +36,8 @@ export type {
   TeamSchedulerProvider,
   ToolExecutionAuthority,
 } from './runtime/orchestrator-runtime.js'
+export { OrchestrationOwnership } from './runtime/orchestration-ownership.js'
+export type { OrchestrationMode } from './runtime/orchestration-ownership.js'
 export { TeamBridgeWorkflowEngine, validateBridgeMeta } from './runtime/workflow/team-bridge-engine.js'
 export type { BridgeEngineConfig } from './runtime/workflow/team-bridge-engine.js'
 export {
@@ -134,6 +136,20 @@ export interface Config {
    */
   strandedAfterMs?: number
   /**
+   * Explicit orchestration mode (M2-3, issue #77): `'adaptive'` (default) is
+   * the event-scheduling status quo — idle edges drive scheduling passes and
+   * stranded self-healing, byte-identical to the pre-mode plugin when no
+   * workflow run is live. `'workflow'` deactivates that autonomous event
+   * face (no idle listener is registered; no stranded heal or re-kick) and
+   * Teams advance only through workflow runs (requires `workflowBridge`:
+   * the combination without it fails activation — no driver would exist)
+   * plus explicit operations. While a workflow run owns a Team, the
+   * autonomous face defers to it in EITHER mode (single-owner discipline).
+   * Decisions: docs/04 §8g and
+   * docs/development/2026-08-21-m2c-modes-design.md.
+   */
+  orchestrationMode?: 'adaptive' | 'workflow'
+  /**
    * Mount the Team bridge workflow engine (M2-1, issue #75): an
    * implementation of the official abstract `WorkflowEngine` whose runs are
    * backed by a Team aggregate, registered in an isolated `workflowEngine`
@@ -169,6 +185,7 @@ export const Config: z<Config> = z.object({
   maxMemories: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxMemories),
   disposalTimeoutMs: z.number().step(1).min(1).default(DEFAULT_DISPOSAL_TIMEOUT_MS),
   strandedAfterMs: z.number().step(0).min(0).default(DEFAULT_STRANDED_AFTER_MS),
+  orchestrationMode: z.union(['adaptive', 'workflow']).default('adaptive'),
   workflowBridge: z.boolean().default(false),
   workflowMaxTotalAgents: z.number().step(1).min(1).default(DEFAULT_WORKFLOW_MAX_TOTAL_AGENTS),
   workflowDisposeGraceMs: z.number().step(1).min(1).default(DEFAULT_DISPOSAL_TIMEOUT_MS),
@@ -193,6 +210,16 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const reviewProvider = (config.reviewProvider ?? 'manual').trim()
   if (schedulerProvider === '') throw new Error('agent-swarm: schedulerProvider must not be empty')
   if (reviewProvider === '') throw new Error('agent-swarm: reviewProvider must not be empty')
+  const orchestrationMode = config.orchestrationMode ?? 'adaptive'
+  if (orchestrationMode !== 'adaptive' && orchestrationMode !== 'workflow') {
+    throw new Error(`agent-swarm: orchestrationMode must be "adaptive" or "workflow", got "${orchestrationMode}"`)
+  }
+  // M2-3 fail-closed combination (issue #77): workflow mode with no bridge
+  // leaves Teams without any orchestration driver — reject before the runtime
+  // constructs or opens anything (zero side effects).
+  if (orchestrationMode === 'workflow' && config.workflowBridge !== true) {
+    throw new Error('agent-swarm: orchestrationMode "workflow" requires workflowBridge: true (no orchestration driver would exist)')
+  }
 
   const runtime = new AgentSwarmRuntime(ctx, {
     memberProvider,
@@ -200,6 +227,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     memberMaxDepth: config.memberMaxDepth ?? 1,
     schedulerProvider,
     reviewProvider,
+    orchestrationMode,
     limits: {
       maxMembers: config.maxMembers ?? DEFAULT_TEAM_LIMITS.maxMembers,
       maxTasks: config.maxTasks ?? DEFAULT_TEAM_LIMITS.maxTasks,
@@ -226,9 +254,17 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     order: config.promptSectionOrder ?? 118,
     text: usage,
   }), 'agent-swarm: system prompt')
-  ctx.effect(() => ctx.on('agent/status', ({ agent, status }) => {
-    if (status === 'idle') runtime.observeAgentIdle(agent)
-  }), 'agent-swarm: idle scheduler')
+  // M2-3 (issue #77): the adaptive event face — idle edges drive scheduling
+  // passes (assignment delivery, reserved folds, stranded self-healing).
+  // `workflow` mode does not register it: Teams advance only through
+  // workflow runs and explicit operations there (the bridge's runs drive
+  // their own Teams through the runtime's ownership-gated seam, and the
+  // stranded heal/re-kick sections are mode-gated inside the pass).
+  if (orchestrationMode === 'adaptive') {
+    ctx.effect(() => ctx.on('agent/status', ({ agent, status }) => {
+      if (status === 'idle') runtime.observeAgentIdle(agent)
+    }), 'agent-swarm: idle scheduler')
+  }
   ctx.effect(() => ctx.on('session/event', (session, event) => {
     runtime.observeSessionEvent(session, event)
   }), 'agent-swarm: token accounting')
