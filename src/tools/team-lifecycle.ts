@@ -45,6 +45,11 @@ export function registerAddMemberTool(ctx: Context, runtime: AgentSwarmRuntime):
       role: { type: 'string', required: true, description: 'Member specialty and responsibility.' },
       provider: { type: 'string', description: 'Optional continuable subagent Provider; defaults to plugin config.' },
       model: { type: 'string', description: 'Optional member model override.' },
+      deny_tools: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Optional additional tool names to hide from this member (deny-only narrowing on top of the mandatory captain-only tools; there is no allow surface). Invalid or unknown tool names fail provisioning loudly.',
+      },
     },
     output: {
       schema: {
@@ -65,6 +70,7 @@ export function registerAddMemberTool(ctx: Context, runtime: AgentSwarmRuntime):
         role: args.role,
         ...(args.provider === undefined ? {} : { provider: args.provider }),
         ...(args.model === undefined ? {} : { model: args.model }),
+        ...(args.deny_tools === undefined ? {} : { denyTools: args.deny_tools }),
       })
       return {
         name: member.name,
