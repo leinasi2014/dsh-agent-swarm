@@ -223,6 +223,8 @@ export function verifyLedgerAnchors(input: {
 
 export function directoryContentDigest(directory: string): Promise<string>
 
+export function treeFileDigests(directory: string): Promise<Map<string, string>>
+
 export function reconcileInstalledProfile(input: {
   layout: ControlRootLayout
   pointer: LkgPointer
@@ -233,6 +235,8 @@ export function reconcileInstalledProfile(input: {
   reason?: string
   pointerGen?: number
   installedDir?: string
+  artifactFiles?: number
+  extraFiles?: string[]
   installedContentSha256?: string
   expectedContentSha256?: string
 }>

@@ -827,14 +827,39 @@ export async function directoryContentDigest(directory) {
 }
 
 /**
+ * Per-file digest map of a directory tree (files only, sorted, forward-slash
+ * relative paths) — the ground-truth form `reconcileInstalledProfile`
+ * compares, since pnpm's installed copy additionally carries layout-only
+ * `node_modules/.bin` shims inside the package directory (verified live:
+ * every artifact file is byte-identical, only those shims are extra).
+ */
+export async function treeFileDigests(directory) {
+  const files = new Map()
+  const walk = async dir => {
+    const entries = await readdir(dir, { withFileTypes: true }).catch(() => [])
+    entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+    for (const entry of entries) {
+      const path = join(dir, entry.name)
+      if (entry.isDirectory()) await walk(path)
+      else if (entry.isFile()) files.set(relative(directory, path).replaceAll('\\', '/'), await sha256File(path))
+    }
+  }
+  await walk(directory)
+  return files
+}
+
+/**
  * Reconcile the stable control Profile's INSTALLED plugin bytes against the
  * LKG pointer's generation tarball (issue #122, F3): before this check,
  * status only read dependency presence — a promote that died between
  * `installIntoStableProfile` and `establishGeneration` left the stable
  * Profile on candidate bytes with the pointer untouched and chainOk still
  * true, silently. The current generation tarball is extracted (through the
- * injectable `extract(tarball, destDir)`, tar-backed by default) and both
- * trees digested with `directoryContentDigest` for comparison.
+ * injectable `extract(tarball, destDir)`, tar-backed by default); EVERY file
+ * of the tarball's package/ tree must exist in the installed package with
+ * the exact same digest. Files pnpm adds inside the package directory
+ * (node_modules/.bin shims) are reported as informational `extraFiles`, not
+ * failures — the frozen artifact's own file set is the contract.
  */
 export async function reconcileInstalledProfile({ layout, pointer, extract }) {
   if (pointer === undefined) return { checked: false, reason: 'no LKG pointer — nothing to reconcile against' }
@@ -858,15 +883,28 @@ export async function reconcileInstalledProfile({ layout, pointer, extract }) {
   const scratch = await mkdtemp(join(tmpdir(), 'd2-reconcile-'))
   try {
     await extract(tarball, scratch)
-    const installedDigest = await directoryContentDigest(installedDir)
-    const expectedDigest = await directoryContentDigest(join(scratch, 'package'))
+    const expected = await treeFileDigests(join(scratch, 'package'))
+    const installed = await treeFileDigests(installedDir)
+    const missing = []
+    const mismatched = []
+    for (const [rel, digest] of expected) {
+      if (!installed.has(rel)) missing.push(rel)
+      else if (installed.get(rel) !== digest) mismatched.push(rel)
+    }
+    const extraFiles = [...installed.keys()].filter(rel => !expected.has(rel))
+    const matches = missing.length === 0 && mismatched.length === 0
+    const reason = matches ? undefined
+      : `artifact files missing: ${missing.join(', ')}; digest mismatch: ${mismatched.join(', ')}`
     return {
       checked: true,
-      matches: installedDigest === expectedDigest,
+      matches,
+      ...(reason !== undefined ? { reason } : {}),
       pointerGen: pointer.currentGen,
       installedDir,
-      installedContentSha256: installedDigest,
-      expectedContentSha256: expectedDigest,
+      artifactFiles: expected.size,
+      extraFiles,
+      installedContentSha256: await directoryContentDigest(installedDir),
+      expectedContentSha256: await directoryContentDigest(join(scratch, 'package')),
     }
   } finally {
     await rm(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => {})
