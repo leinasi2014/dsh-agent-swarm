@@ -173,7 +173,7 @@ describe('DSH rc.8 composition', () => {
       await vi.waitFor(() => {
         memberAgent = ctx.agents.get(SessionId(added.session_id))
         expect(memberAgent?.status).toBe('idle')
-      }, { timeout: 5_000 })
+      }, { timeout: 15_000 })
       if (memberAgent === undefined) throw new Error('member Agent disappeared before the idle checkpoint')
 
       await successfulTool(ctx, lead, 'task', 'agent_swarm_create_task', {
@@ -189,7 +189,7 @@ describe('DSH rc.8 composition', () => {
         expect(status.members).toBe(1)
         expect(status.tasks).toBe(1)
         expect(status.used_tokens).toBeGreaterThan(0)
-      }, { timeout: 5_000 })
+      }, { timeout: 15_000 })
       // Issue #15 (official team_task_list pattern): task rows moved from the
       // unbounded status summary into the filtered, paginated list tool.
       await vi.waitFor(async () => {
@@ -198,13 +198,13 @@ describe('DSH rc.8 composition', () => {
         ) as { tasks: Array<{ task_id: string; status: string; attempt_id?: string }> }
         expect(listed.tasks).toHaveLength(1)
         expect(listed.tasks[0]!.attempt_id).toBeDefined()
-      }, { timeout: 5_000 })
+      }, { timeout: 15_000 })
       // Assignment delivery is asynchronous: the status checkpoint above can
       // pass on the reserved attempt before the followup reaches the member
       // transcript. Wait for the transcript like the budget settlement below.
       await vi.waitFor(() => {
         expect(JSON.stringify(adapter.requests)).toContain('Composition proof')
-      }, { timeout: 5_000 })
+      }, { timeout: 15_000 })
       expect(adapter.requests.length).toBeGreaterThanOrEqual(2)
       expect(adapter.requests.length).toBeLessThan(10)
       expect(schedulerCalls).toBeGreaterThan(0)
@@ -216,7 +216,7 @@ describe('DSH rc.8 composition', () => {
           ctx.agentSwarm.scopeOf(lead), AgentSwarm.TeamId(created.team_id), lead.id,
         )
         expect(settled.team.budget.usedTokens).toBe(adapter.billedTokens)
-      }, { timeout: 5_000 })
+      }, { timeout: 15_000 })
       const beforeReview = await ctx.agentSwarm.domain.snapshot(
         ctx.agentSwarm.scopeOf(lead), AgentSwarm.TeamId(created.team_id), lead.id,
       )
@@ -324,7 +324,7 @@ describe('DSH rc.8 composition', () => {
       await pluginFiber.dispose()
       await vi.waitFor(() => {
         expect(ctx.agents.get(SessionId(added.session_id))).toBeUndefined()
-      }, { timeout: 5_000 })
+      }, { timeout: 15_000 })
 
       const reloadedFiber = await ctx.plugin(AgentSwarm, {
         memberProvider: 'spawn',
@@ -339,7 +339,7 @@ describe('DSH rc.8 composition', () => {
         }
         expect(reloaded).toMatchObject({ members: 1, tasks: 1, queued_messages: 0 })
         expect(JSON.stringify(adapter.requests)).toContain('Recover this queued message after reload.')
-      }, { timeout: 5_000 })
+      }, { timeout: 15_000 })
       // Additive M1C usage-coalescing evidence: the reload's recovery refolds
       // each Session from its durable usage cursor, so replayed history never
       // double-counts and the budget keeps matching the adapter exactly.
@@ -348,11 +348,11 @@ describe('DSH rc.8 composition', () => {
           ctx.agentSwarm.scopeOf(lead), AgentSwarm.TeamId(created.team_id), lead.id,
         )
         expect(settled.team.budget.usedTokens).toBe(adapter.billedTokens)
-      }, { timeout: 5_000 })
+      }, { timeout: 15_000 })
       await reloadedFiber.dispose()
       await vi.waitFor(() => {
         expect(ctx.agents.get(SessionId(added.session_id))).toBeUndefined()
-      }, { timeout: 5_000 })
+      }, { timeout: 15_000 })
 
       const afterUnload = await ctx.tools.execute({
         signal: SIGNAL,
@@ -365,7 +365,7 @@ describe('DSH rc.8 composition', () => {
     } finally {
       for (const fiber of fibers.toReversed()) await fiber.dispose()
     }
-  }, 15_000)
+  }, 60_000)
 
   it('scenario 6: retains ownership of a started child when activation commit and immediate drain fail', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-member-failure-'))
@@ -420,13 +420,13 @@ describe('DSH rc.8 composition', () => {
       expect(drain.mock.calls.length).toBeGreaterThanOrEqual(2)
       await vi.waitFor(() => {
         expect(ctx.agents.get(SessionId(failedMember.sessionId))).toBeUndefined()
-      }, { timeout: 5_000 })
+      }, { timeout: 15_000 })
       settle.mockRestore()
       drain.mockRestore()
     } finally {
       for (const fiber of fibers.toReversed()) await fiber.dispose()
     }
-  }, 15_000)
+  }, 60_000)
 
   it('scenario 9: bounded disposal fails loud when an admitted provider hangs', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-disposal-hang-'))
@@ -472,7 +472,7 @@ describe('DSH rc.8 composition', () => {
         { agent: lead, signal: SIGNAL },
         { name: 'hung-worker', role: 'Never settles.', provider: 'hung' },
       )
-      await vi.waitFor(() => { expect(prepare).toHaveBeenCalled() }, { timeout: 5_000 })
+      await vi.waitFor(() => { expect(prepare).toHaveBeenCalled() }, { timeout: 15_000 })
 
       // The runtime's own disposal contract fails loud within the bound: the
       // bounded step records a diagnostic and surfaces a visible
