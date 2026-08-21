@@ -134,7 +134,9 @@ export async function runPromote(args) {
     } else {
       step('compensate-reinstall', 'fail', `COMPENSATION FAILED at ${compensate.step} — stable Profile left on candidate bytes with the pointer at g${pointer.currentGen}; run status (installed-bytes reconciliation) and repair/rollback manually`)
     }
-    throw error
+    // The half-apply evidence (steps) must survive the throw — drill/tooling
+    // introspects `error.promoteResult` to assert the compensation ran.
+    throw Object.assign(error, { promoteResult: result })
   }
   step('establish-generation', 'ok', `lkg/g${gen} + pointer + ledger record seq ${established.ledgerRecord.seq}`)
   const probe = await probeStablePlane({ cli: args.cli, layout, port: args.port })
