@@ -111,11 +111,12 @@ describe('promotion ledger', () => {
     // A live drill run broke its ledger chain on this: the hash serialized
     // `missing:undefined` while JSON.stringify (the stored line) dropped the key.
     const ledgerPath = join(root, 'undefined-field', 'promotion-ledger.jsonl')
-    await appendLedgerRecord(ledgerPath, { action: 'promote', actor: 'test', toGen: 1, detail: { note: 'ok', missing: undefined } })
+    const context: Record<string, unknown> = { note: 'ok', missing: undefined }
+    await appendLedgerRecord(ledgerPath, { action: 'promote', actor: 'test', toGen: 1, record: context })
     await appendLedgerRecord(ledgerPath, { action: 'rollback', actor: 'test', toGen: 0 })
     const records = await readLedger(ledgerPath)
     expect((await verifyLedgerChain(records)).ok).toBe(true)
-    expect(records[0]?.detail).toEqual({ note: 'ok' })
+    expect(records[0]?.record).toEqual({ note: 'ok' })
   })
 })
 
