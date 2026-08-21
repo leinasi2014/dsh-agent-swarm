@@ -86,6 +86,10 @@ export class TeamDomain implements TeamDomainPort {
     return await roster.requireReadMembership(this.deps, scope, sessionId)
   }
 
+  async findAccountingMembership(scope: TeamScope, sessionId: string): Promise<TeamMembership | undefined> {
+    return await roster.findAccountingMembership(this.deps, scope, sessionId)
+  }
+
   async provisionMember(
     scope: TeamScope,
     teamId: TeamId,

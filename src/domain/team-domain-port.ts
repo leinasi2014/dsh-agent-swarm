@@ -111,6 +111,15 @@ export interface TeamDomainPort {
    */
   findReadMembership(scope: TeamScope, sessionId: string): Promise<TeamMembership | undefined>
   requireReadMembership(scope: TeamScope, sessionId: string): Promise<TeamMembership>
+  /**
+   * Usage-accounting membership resolution (issue #92): resolves exactly the
+   * Teams whose ledger `recordSessionUsageBatch` accepts — the captain or a
+   * roster row at any member phase, active Teams first, non-active Teams as
+   * the fallback tier. This is a billing face, not an authority face: the
+   * active-phase-only {@link findMembership} drops a `provisioning` member's
+   * first-turn usage (and drain-time usage) by resolving `undefined`.
+   */
+  findAccountingMembership(scope: TeamScope, sessionId: string): Promise<TeamMembership | undefined>
   provisionMember(
     scope: TeamScope,
     teamId: TeamId,
