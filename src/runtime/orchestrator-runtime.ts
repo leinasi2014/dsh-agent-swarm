@@ -537,6 +537,7 @@ export class AgentSwarmRuntime extends Service {
     const next = previous.then(async () => { await this.schedulingPass.run(scope, teamId, captain) })
       .catch(error => {
         if (!this.closing) this.ctx.logger.warn(`agent-swarm: scheduler failed for ${teamId}: ${String(error)}`)
+        this.orchestration.notePassFailure(scope, teamId, error)
       })
       .finally(() => {
         if (this.scheduling.get(key) === next) this.scheduling.delete(key)

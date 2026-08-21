@@ -31,6 +31,7 @@ import type { TeamDomainPort, TeamScope } from '../../domain/team-domain-port.js
 import { TeamId, type TeamStatusSnapshot } from '../../domain/types.js'
 import type { AgentSwarmRuntime } from '../orchestrator-runtime.js'
 import type { WorkflowRunOverlayStore } from '../../storage/workflow-run-overlay.js'
+import { resolveCarriedBudget } from './budget-carry.js'
 import type { AgentCall, AgentCallOutcome, ExecutorLimits } from './script-executor.js'
 import { BridgeScriptExecution } from './script-executor.js'
 
@@ -97,6 +98,15 @@ export class TeamRun implements WorkflowRun {
   private readonly memberIds = new Set<string>()
   /** Disposer of the run's idle-edge driver; absent before begin/after settle. */
   private idleDriver: (() => void) | undefined
+  /**
+   * The budget fatal that terminated this run (M2-5, issue #79): set when the
+   * Team's budget admission gate rejected the scheduling pass and the
+   * ownership signal routed the structured error here. First terminal source
+   * wins — a cancelled run never reclassifies as a budget error.
+   */
+  private budgetFatal: WorkflowError | undefined
+  /** Disposer of the run's budget-exhaustion watcher; lifecycle = ownership. */
+  private stopBudgetWatch: (() => void) | undefined
   private readonly scope: TeamScope
   private readonly info: WorkflowRunInfo
 
@@ -152,6 +162,16 @@ export class TeamRun implements WorkflowRun {
         )
         teamId = team.id
         this.teamId = teamId
+        // M2-5 (issue #79): the budget lifecycle is decoupled from this run —
+        // before the run's first claim can consume anything, the captain's
+        // carried ledger (their most recent prior run Team's final budget
+        // face, durable overlay + aggregate) is adopted onto the fresh Team.
+        // A carry failure is an establishment failure: the run settles error
+        // without ever publishing (a silently forked ledger is worse).
+        const carried = await resolveCarriedBudget(this.domain, this.deps.overlay, this.scope, this.parent.id)
+        if (carried !== undefined) {
+          await this.domain.adoptBudget(this.scope, TeamId(teamId), this.parent.id, carried)
+        }
         await this.deps.overlay.put({
           schemaVersion: 1,
           runId: this.id,
@@ -187,6 +207,10 @@ export class TeamRun implements WorkflowRun {
         this.settle({ value: null, stopReason: 'error', error: `Team bridge could not take orchestration ownership: ${String(error)}`, agentsStarted: 0 })
         return
       }
+      // The run's budget convergence signal (M2-5): a scheduling pass this
+      // Team rejected on the budget admission gate is routed here while the
+      // run owns the Team; detached with the ownership at the terminal edge.
+      this.stopBudgetWatch = this.deps.runtime.orchestration.watchBudget(this.id, error => { this.failBudget(error) })
       // The run's own clock: a member's idle edge drives one scheduling pass
       // for THIS Team only (ownership-gated). `startContinuable` resolves at
       // the join turn's inbox acceptance, so the operation-triggered pass of
@@ -244,6 +268,41 @@ export class TeamRun implements WorkflowRun {
   }
 
   /**
+   * Terminate the run on a structured budget exhaustion (M2-5, issue #79):
+   * the Team's admission gate rejected the scheduling pass, so no claim this
+   * script awaits can ever be seated — the run converges to a terminal
+   * `error` state carrying the structured `TEAM_BUDGET_*` code instead of
+   * parking forever. Mirrors {@link cancel} (hook-boundary death, aborted
+   * member waits, grace-bounded force-settle backstop) except the stop
+   * reason; idempotent, a prior cancel wins.
+   * @param error - the domain admission error (`TEAM_BUDGET_DEADLINE`,
+   *   `TEAM_BUDGET_REQUESTS`, `TEAM_BUDGET_TOKENS`, `TEAM_BUDGET_RETRIES`).
+   */
+  failBudget(error: TeamDomainError): void {
+    if (this.settled || this.terminalClaimed || this.cancelReason !== undefined || this.budgetFatal !== undefined) return
+    this.budgetFatal = new WorkflowError(
+      `workflow run stopped by the Team budget gate: ${error.code}: ${error.message}`,
+      'AGENT_START',
+      { cause: error },
+    )
+    this.executor?.fail(this.budgetFatal)
+    this.controller.abort(this.budgetFatal.message)
+    this.graceTimer = setTimeout(() => {
+      this.terminalClaimed = true
+      // The script can no longer speak: pair every stranded start before the
+      // run settles (a budget stop is a failed end, not a cancelled one).
+      this.endStrandedAgents('failed')
+      this.settle({
+        value: null,
+        stopReason: 'error',
+        error: this.budgetFatal!.message,
+        agentsStarted: this.executor?.startedCount ?? 0,
+      })
+    }, this.deps.disposeGraceMs)
+    this.graceTimer.unref()
+  }
+
+  /**
    * Cancel + bounded settle + Team teardown. Waits (at most the grace) for
    * the result and member quiescence, then archives the Team within the
    * disposal bound. Idempotent; safe on every path.
@@ -290,10 +349,10 @@ export class TeamRun implements WorkflowRun {
     this.deps.emitEvent('workflow/agent-end', this.info, { seq, ...info, outcome })
   }
 
-  /** Synthesize the missing `cancelled` end for every stranded started agent. */
-  private endStrandedAgents(): void {
+  /** Synthesize the missing terminal end for every stranded started agent. */
+  private endStrandedAgents(outcome: 'cancelled' | 'failed' = 'cancelled'): void {
     // Array.from snapshots the ledger: endAgent deletes entries while iterating.
-    for (const seq of Array.from(this.liveAgents.keys())) this.endAgent(seq, 'cancelled')
+    for (const seq of Array.from(this.liveAgents.keys())) this.endAgent(seq, outcome)
   }
 
   /**
@@ -391,6 +450,13 @@ export class TeamRun implements WorkflowRun {
         )
       }
     } catch (error: unknown) {
+      if (this.budgetFatal !== undefined) {
+        // The budget gate stopped this run (M2-5): the structured failure —
+        // not a cancellation — is what the script must die with.
+        this.endAgent(call.seq, 'failed')
+        await this.cancelTaskWorkBounded(created.id, memberSessionId)
+        throw this.budgetFatal
+      }
       if (this.cancelReason !== undefined) {
         this.endAgent(call.seq, 'cancelled')
         await this.cancelTaskWorkBounded(created.id, memberSessionId)
@@ -471,6 +537,8 @@ export class TeamRun implements WorkflowRun {
   private releaseDriving(): void {
     this.idleDriver?.()
     this.idleDriver = undefined
+    this.stopBudgetWatch?.()
+    this.stopBudgetWatch = undefined
     const teamId = this.teamId
     if (teamId !== undefined) this.deps.runtime.orchestration.release(this.scope, TeamId(teamId), this.id)
   }

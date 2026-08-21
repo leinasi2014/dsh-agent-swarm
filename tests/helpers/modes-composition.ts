@@ -32,6 +32,12 @@ export interface ModesPluginConfig {
   readonly strandedAfterMs?: number
   /** Roster quota passthrough (node-mapping suite's fan-out backpressure). */
   readonly maxMembers?: number
+  /**
+   * Fixed captain session id for the mounted lead (the reload suites remount
+   * the same sandbox and need the same durable captain identity); random by
+   * default.
+   */
+  readonly leadSessionId?: string
 }
 
 export interface ModesComposition {
@@ -158,7 +164,7 @@ export async function mountModesComposition(sandbox: string, config: ModesPlugin
   const adapter = new GatedMemberAdapter()
   ctx.llm.registerAdapter(['mock'], adapter)
   const lead = ctx.agentLoop.create(
-    SessionId(`modes-lead-${Math.random().toString(36).slice(2, 8)}`),
+    SessionId(config.leadSessionId ?? `modes-lead-${Math.random().toString(36).slice(2, 8)}`),
     { provider: 'mock', model: 'mock' },
     { cwd: join(sandbox, 'workspace') },
   )
