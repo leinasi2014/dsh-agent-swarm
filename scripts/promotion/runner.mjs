@@ -175,8 +175,49 @@ export async function stopPlane(boot, { waitExitMs = 20_000 } = {}) {
   return { exited, code: boot.child.exitCode }
 }
 
-/** Whether anything still listens on one port (residue assertion). */
+/**
+ * Every netstat row whose local address ends in `:<port>` (any state), parsed
+ * from netstat (Windows). This is the KERNEL truth about the port.
+ */
+export async function portRows(port) {
+  const { execFile } = await import('node:child_process')
+  const { promisify } = await import('node:util')
+  const target = `:${port}`
+  const rows = []
+  try {
+    const { stdout } = await promisify(execFile)('netstat', ['-ano', '-p', 'tcp'], { timeout: 10_000, windowsHide: true })
+    for (const line of stdout.split('\n')) {
+      const columns = line.trim().split(/\s+/)
+      if (columns.length >= 5 && columns[1]?.endsWith(target)) {
+        rows.push({ state: columns[3], pid: Number(columns[4]) })
+      }
+    }
+  } catch { /* netstat unavailable: no rows */ }
+  return rows
+}
+
+/**
+ * The pid LISTENING on one TCP port (Windows netstat).
+ */
+export async function listenerPid(port) {
+  for (const row of await portRows(port)) {
+    if (row.state === 'LISTENING') return row.pid
+  }
+  return undefined
+}
+
+/**
+ * Whether a port is free. On Windows this reads netstat (the kernel truth):
+ * a connect() probe from THIS process can spuriously COMPLETE against stale
+ * loopback tuples left by our own earlier client connections — observed
+ * live, connect "succeeds" for minutes while netstat shows zero rows — so
+ * the socket probe is only the non-Windows fallback.
+ */
 export async function portFree(port, host = '127.0.0.1') {
+  if (process.platform === 'win32') {
+    const rows = await portRows(port)
+    return !rows.some(row => row.state === 'LISTENING' || row.state === 'BOUND')
+  }
   const net = await import('node:net')
   return new Promise(resolveItem => {
     const socket = new net.Socket()
@@ -186,21 +227,6 @@ export async function portFree(port, host = '127.0.0.1') {
     socket.setTimeout(1_500, () => finish(true))
     socket.connect(port, host)
   })
-}
-
-/** The pid listening on one TCP port, parsed from netstat (Windows). */
-export async function listenerPid(port) {
-  const { execFile } = await import('node:child_process')
-  const { promisify } = await import('node:util')
-  const target = `:${port}`
-  try {
-    const { stdout } = await promisify(execFile)('netstat', ['-ano', '-p', 'tcp'], { timeout: 10_000, windowsHide: true })
-    for (const line of stdout.split('\n')) {
-      const columns = line.trim().split(/\s+/)
-      if (columns.length >= 5 && columns[3] === 'LISTENING' && columns[1].endsWith(target)) return Number(columns[4])
-    }
-  } catch { /* netstat unavailable: report none */ }
-  return undefined
 }
 
 /**
