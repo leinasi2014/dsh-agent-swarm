@@ -76,7 +76,6 @@ const SRC_FILE_LINE_LIMIT_EXCEPTIONS = new Map([
   // by M3-2: the tool-facing read surfaces (`waitForChange`,
   // `activePeerEvidence`) move to a wait-surface collaborator, returning the
   // file under the limit.
-  ['src/runtime/orchestrator-runtime.ts', ['M3-1 execution-root lifecycle wiring over a composition root at 599/600; split of the wait read surfaces retires it', 'M3-2']],
 ])
 
 const failures = []
