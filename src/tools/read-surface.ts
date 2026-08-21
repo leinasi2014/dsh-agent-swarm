@@ -1,11 +1,14 @@
 /**
  * Model-experience read surface tools (issue #74 split of src/tools.ts, shape
  * from issue #15 / docs/04 §8e): fixed-size Team counters and the paginated,
- * filtered task row list with evidence-only stranded hints.
+ * filtered task row list with evidence-only stranded hints. Issue #93 adds
+ * the jobs reader: the same filtered/paginated compact-JSON contract over the
+ * #76 TeamJobProjection (never over the authoritative domain directly).
  */
 import type { Context } from '@deepseek-ai/cordis'
+import type { JobSnapshot, JobStatus } from '@deepseek-ai/dsh-jobs'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { expectDomain } from '../domain/error.js'
+import { expectDomain, TeamDomainError } from '../domain/error.js'
 import type { TeamTask } from '../domain/types.js'
 import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
 import { compactJsonOutput, register } from './shared.js'
@@ -130,4 +133,100 @@ export function registerListTasksTool(ctx: Context, runtime: AgentSwarmRuntime):
       return { tasks, ...(cursor + limit < filtered.length ? { next_cursor: cursor + limit } : {}) }
     },
   }), 'list-tasks tool')
+}
+
+/**
+ * The status vocabulary the projection can emit (projection-derive maps every
+ * non-terminal task state to `running` and never fabricates `stopping`).
+ * A snapshot outside this set would violate the derivation contract, so the
+ * row builder fails loud instead of widening the canonical output schema.
+ */
+const PROJECTED_JOB_STATUSES = ['running', 'completed', 'failed', 'killed'] as const
+type ProjectedJobStatus = typeof PROJECTED_JOB_STATUSES[number]
+
+/** Narrow one official job status onto the projection's emitted vocabulary. */
+function projectedJobStatus(status: JobStatus): ProjectedJobStatus {
+  const narrow = PROJECTED_JOB_STATUSES.find(candidate => candidate === status)
+  if (narrow === undefined) {
+    throw new TeamDomainError(
+      `the Team job projection emitted the unsupported status ${JSON.stringify(status)}`,
+      'TEAM_JOBS_PROJECTION_INVALID',
+    )
+  }
+  return narrow
+}
+
+/** One compact projected job row: the official `JobSnapshot` read face, snake_cased. */
+const JOB_ROW_SCHEMA = {
+  type: 'object', additionalProperties: false,
+  properties: {
+    job_id: { type: 'string', required: true, description: 'Projection-issued id, reads team-task-N.' },
+    kind: { type: 'string', required: true },
+    label: { type: 'string', required: true, description: 'The task subject.' },
+    status: { type: 'string', required: true, enum: PROJECTED_JOB_STATUSES },
+    detail: { type: 'string', description: 'Task/attempt correlation plus the settling diagnostic.' },
+    started_at: { type: 'number', required: true, description: 'Epoch ms of the earliest attempt of the task.' },
+    finished_at: { type: 'number', description: 'Epoch ms of the terminal transition; absent while live.' },
+  },
+} as const
+
+const JOB_LIST_VALUE_SCHEMA = {
+  type: 'object', additionalProperties: false,
+  properties: {
+    jobs: { type: 'array', required: true, items: JOB_ROW_SCHEMA },
+    next_cursor: { type: 'number', description: 'Present only when more filtered rows exist.' },
+  },
+} as const
+
+/**
+ * `agent_swarm_list_jobs` (issue #93): the model-facing read face over the
+ * #76 TeamJobProjection. Reads ONLY projected snapshots (`list()` — the pure
+ * read that never marks a record `reported`), never the authoritative domain
+ * directly; projection/board consistency is the #76 dual-face tests' charge.
+ * Filters follow the projected record shape: `kind` and `status`. No team
+ * filter exists because the official `JobSnapshot` carries no team identity —
+ * the task correlation rides `detail` by design (#76). When the projection is
+ * not mounted (`jobsBridge: false`) the call fails loud with a structured
+ * error naming the enabling config: an empty list would assert "no jobs"
+ * where the honest statement is "no projection", and falling back to the
+ * domain would bypass the projection contract.
+ */
+export function registerListJobsTool(ctx: Context, runtime: AgentSwarmRuntime): void {
+  register(ctx, defineTool({
+    name: 'agent_swarm_list_jobs',
+    description: 'List background Team executions from the read-only jobs projection with optional kind/status filters and cursor pagination (limit 1-100, default 50; use next_cursor to continue). Every row is one Team task that has entered execution; create work as Team tasks and cancel through the Team face — this face never creates or cancels jobs. Requires the jobsBridge projection.',
+    parameters: {
+      kind: { type: 'string', description: 'Optional exact kind filter. This projection emits only "team-task".' },
+      status: { type: 'string', enum: [...PROJECTED_JOB_STATUSES], description: 'Optional exact status filter.' },
+      cursor: { type: 'integer', description: 'Zero-based result offset. Defaults to 0.' },
+      limit: { type: 'integer', description: 'Number of rows, 1 through 100. Defaults to 50.' },
+    },
+    output: compactJsonOutput(JOB_LIST_VALUE_SCHEMA),
+    async execute(args) {
+      const cursor = args.cursor ?? 0
+      const limit = args.limit ?? 50
+      expectDomain(Number.isSafeInteger(cursor) && cursor >= 0, 'cursor must be a non-negative safe integer', 'TEAM_INPUT_INVALID')
+      expectDomain(Number.isSafeInteger(limit) && limit >= 1 && limit <= 100, 'limit must be an integer from 1 through 100', 'TEAM_INPUT_INVALID')
+      const projection = runtime.jobsBridge
+      if (projection === undefined) {
+        throw new TeamDomainError(
+          'the jobs read surface is not mounted: enable config jobsBridge: true to project Team executions (this tool reads only the projection, never the authoritative domain)',
+          'TEAM_JOBS_BRIDGE_DISABLED',
+        )
+      }
+      const filtered = projection.list().filter((job: JobSnapshot) =>
+        (args.kind === undefined || job.kind === args.kind)
+        && (args.status === undefined || job.status === args.status))
+      const jobs = filtered.slice(cursor, cursor + limit).map((job: JobSnapshot) => ({
+        job_id: String(job.id),
+        kind: job.kind,
+        label: job.label,
+        status: projectedJobStatus(job.status),
+        ...(job.detail === undefined ? {} : { detail: job.detail }),
+        started_at: job.startedAt,
+        ...(job.finishedAt === undefined ? {} : { finished_at: job.finishedAt }),
+      }))
+      return { jobs, ...(cursor + limit < filtered.length ? { next_cursor: cursor + limit } : {}) }
+    },
+  }), 'list-jobs tool')
 }

@@ -188,7 +188,9 @@ export interface Config {
    * `jobs` service scope (never over the default-scope official registry).
    * The job face refuses `start`/`kill` — creation and cancellation stay on
    * the Team face. Default false: when disabled no bridge service or
-   * listener exists and behavior is identical to the pre-bridge plugin.
+   * listener exists; the `agent_swarm_list_jobs` read tool (issue #93) stays
+   * registered on the stable tool surface and fails that call with the
+   * structured `TEAM_JOBS_BRIDGE_DISABLED` naming this config.
    */
   jobsBridge?: boolean
   /** Ordered system-prompt contribution. */
@@ -230,7 +232,8 @@ const usage = `Use agent_swarm_* when the user requests a coordinated multi-agen
 6. Persist peer messages before delivery. A queued result is durable; never resend it automatically. Prefer quiet for information the recipient should read on its next turn; quiet mail to an inactive member stays queued until a wakeup or its own return, and wakeup is the delivery that resumes it.
 7. Treat write scopes as coordination hints, not filesystem authorization. Use agent_swarm_status for fixed Team counters and agent_swarm_list_tasks (with status/owner/ready filters and pagination) for task rows after any conflict.
 8. The captain may interrupt one member's current turn with agent_swarm_interrupt_member; the member keeps its inbox, tasks and membership, and a later wakeup resumes it.
-9. When waiting for another mutation, call agent_swarm_wait with the current Team revision instead of polling status. It returns no_progress immediately when no other member is running or provisioning: re-read status and the task list, wake the required members with wakeup messages, then wait again.`
+9. When waiting for another mutation, call agent_swarm_wait with the current Team revision instead of polling status. It returns no_progress immediately when no other member is running or provisioning: re-read status and the task list, wake the required members with wakeup messages, then wait again.
+10. Read background Team executions with agent_swarm_list_jobs (kind/status filters, pagination) — every row is one task that entered execution. The job face is read-only: create work as Team tasks and cancel through the Team face, never through the job face.`
 
 export async function apply(ctx: Context, config: Config): Promise<void> {
   if (config.enabled === false) return
