@@ -113,7 +113,12 @@ export async function runAcceptance(args) {
     const drillHome = isolation.domains.home
     const env = { DSH_HOME: drillHome }
     const version = await run(process.execPath, [args.cli, '--version'], { env })
-    const pluginAdd = await run(process.execPath, [args.cli, 'plugin', '--profile', args.profile, 'add', '-w', tarballPath], { env, timeoutMs: 10 * 60_000 })
+    // OQ-1 ruling: pnpm 9 default-runs the tarball's `postinstall: lefthook
+    // install` inside the Profile and fails (lefthook is a dev dependency,
+    // absent from the packed files). The plugin ships its lib prebuilt and
+    // needs no install-time scripts, so the acceptance lane installs with
+    // --ignore-scripts (recorded live in a3 evidence + the PR OQ table).
+    const pluginAdd = await run(process.execPath, [args.cli, 'plugin', '--profile', args.profile, 'add', '-w', '--ignore-scripts', tarballPath], { env, timeoutMs: 10 * 60_000 })
     await writeFile(join(drillHome, 'profiles', args.profile, 'cordis.patch.yml'), [
       `# M3-3 acceptance-domain storage isolation (issue #102): the web template's`,
       `# storage rows are re-rooted into THIS drill domain's dedicated roots — the`,
@@ -129,7 +134,7 @@ export async function runAcceptance(args) {
     const dump = await run(process.execPath, [args.cli, '--profile', args.profile, '--dump-config'], { env })
     const dumpOk = dump.code === 0 && dump.stdout.includes('dsh-agent-swarm') && dump.stdout.includes(forwardSlashes(isolation.domains.storageRoot)) && dump.stdout.includes(forwardSlashes(isolation.domains.sessionsRoot))
     const failClosedProfile = 'm3c-failclosed'
-    await run(process.execPath, [args.cli, 'plugin', '--profile', failClosedProfile, 'add', '-w', tarballPath], { env, timeoutMs: 10 * 60_000 })
+    await run(process.execPath, [args.cli, 'plugin', '--profile', failClosedProfile, 'add', '-w', '--ignore-scripts', tarballPath], { env, timeoutMs: 10 * 60_000 })
     await writeFile(join(drillHome, 'profiles', failClosedProfile, 'cordis.patch.yml'), [
       `# M3-3 fail-closed negative probe (M1D-1 §4 form): storage stack WITHOUT`,
       `# storage-domain — the plugin must stay pending and the boot must exit 1.`,
