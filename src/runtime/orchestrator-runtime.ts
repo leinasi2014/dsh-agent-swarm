@@ -20,7 +20,7 @@ import { TeamDomainError } from '../domain/error.js'
 import { StorageDomainTeamStore } from '../storage/storage-domain-team-store.js'
 import { teamDomainSpec } from '../storage/team-spec.js'
 import type { Domain } from '@deepseek-ai/dsh-storage-domain'
-import { expectDomainTimeout, requireAgent, workspaceOf, type ToolExecutionAuthority } from './authority.js'
+import { requireAgent, workspaceOf, type ToolExecutionAuthority } from './authority.js'
 import { boundedSettle } from './disposal.js'
 import { ExecutionRootSurface } from './execution-root-surface.js'
 import type { ExecutionRootResidue, TeamExecutionRootProvider } from './execution-roots.js'
@@ -34,6 +34,7 @@ import { runReviewTransaction } from './review-transaction.js'
 import { OrchestrationOwnership } from './orchestration-ownership.js'
 import { SchedulingPass } from './scheduling.js'
 import { UsageAccountant } from './usage-accounting.js'
+import { activePeerEvidence, status, waitForChange, type WaitSurfaceDeps } from './wait-surface.js'
 import type { RuntimeConfig } from './runtime-contract.js'
 import type { TeamJobProjection } from './jobs/team-job-projection.js'
 import type { TeamBridgeWorkflowEngine } from './workflow/team-bridge-engine.js'
@@ -54,11 +55,7 @@ export class AgentSwarmRuntime extends Service {
   /** Review execution root supply (M3-2): the #100 family's review face. */
   private readonly reviewRootProviders = new Map<string, ReviewRootProvider>()
   private readonly ownedChildren = new Map<string, Set<string>>()
-  /**
-   * Session id → its CURRENT idle stretch's start, latched at every observed
-   * `agent/status → idle` edge (issue #83: the stranded grace bounds the
-   * owner's idle stretch; absent entries fall back to the task clock).
-   */
+  /** Session id → its idle-stretch start, latched per `agent/status → idle` edge (issue #83; absent = task clock). */
   private readonly idleSince = new Map<string, number>()
   private readonly usage: UsageAccountant
   private readonly delivery: MessageDelivery
@@ -424,75 +421,23 @@ export class AgentSwarmRuntime extends Service {
   }
 
   async status(exec: ToolExecutionAuthority) {
-    await this.ensureReady()
-    this.assertOpen()
-    const actor = requireAgent(exec)
-    const scope = this.scopeOf(actor)
-    // F14 read path: reads resolve through the archived captain too, so the
-    // terminal aggregate stays inspectable after archive.
-    const membership = await this.domain.requireReadMembership(scope, actor.id)
-    return await this.domain.snapshot(scope, membership.team.id, actor.id)
+    return await status(this.waitDeps(), exec)
   }
 
   async waitForChange(exec: ToolExecutionAuthority, afterRevision: number, timeoutMs: number) {
-    await this.ensureReady()
-    this.assertOpen()
-    const actor = requireAgent(exec)
-    expectDomainTimeout(timeoutMs)
-    // Official parity: caller cancellation rejects before waiter registration.
-    exec.signal.throwIfAborted()
-    const scope = this.scopeOf(actor)
-    const membership = await this.domain.requireReadMembership(scope, actor.id)
-    const timeoutSignal = AbortSignal.timeout(timeoutMs)
-    try {
-      const snapshot = await this.domain.waitForChange(
-        scope,
-        membership.team.id,
-        actor.id,
-        afterRevision,
-        AbortSignal.any([exec.signal, timeoutSignal]),
-      )
-      // An archived Team resolves immediately even at a current cursor (it
-      // can never commit a later revision), so `changed` is derived from the
-      // authoritative revision, not from the wait having returned.
-      return { snapshot, changed: snapshot.team.revision > afterRevision }
-    } catch (error) {
-      if (timeoutSignal.aborted && !exec.signal.aborted) {
-        return { snapshot: await this.domain.snapshot(scope, membership.team.id, actor.id), changed: false }
-      }
-      // Issue #19, official `TEAM_WAIT_ABORTED` parity: caller cancellation
-      // surfaces as one structured domain error instead of a raw abort reason.
-      if (exec.signal.aborted) {
-        throw new TeamDomainError(
-          `agent_swarm_wait aborted: ${error instanceof Error ? error.message : String(error)}`,
-          'TEAM_WAIT_ABORTED',
-          { cause: error },
-        )
-      }
-      throw error
-    }
+    return await waitForChange(this.waitDeps(), exec, afterRevision, timeoutMs)
   }
 
-  /**
-   * Wait-progress evidence for the model-only no-progress short-circuit
-   * (issue #15, official `wait_agent` parity): whether any OTHER member is
-   * currently running or provisioning — the only peers that can produce the
-   * change a wait parks for — plus the current status snapshot so the
-   * short-circuit payload can answer with the authoritative cursor state.
-   * Read-only; `waitForChange` itself keeps its authoritative contract.
-   */
+  /** Issue #15 no-progress evidence; the read surface lives in `wait-surface.ts`. */
   async activePeerEvidence(exec: ToolExecutionAuthority): Promise<{ snapshot: TeamStatusSnapshot; activePeer: boolean }> {
-    await this.ensureReady()
-    this.assertOpen()
-    const actor = requireAgent(exec)
-    const scope = this.scopeOf(actor)
-    const membership = await this.domain.requireReadMembership(scope, actor.id)
-    const activePeer = membership.team.members.some(member =>
-      member.sessionId !== actor.id
-      && (member.phase === 'provisioning'
-        || (member.phase === 'active' && this.ctx.agents.get(SessionId(member.sessionId))?.status === 'running')))
-    const snapshot = await this.domain.snapshot(scope, membership.team.id, actor.id)
-    return { snapshot, activePeer }
+    return await activePeerEvidence(this.waitDeps(), exec)
+  }
+
+  private waitDeps(): WaitSurfaceDeps {
+    return {
+      ctx: this.ctx, domain: () => this.domain, isClosing: () => this.closing,
+      scopeOf: agent => this.scopeOf(agent), ensureReady: () => this.ensureReady(),
+    }
   }
 
   /**
