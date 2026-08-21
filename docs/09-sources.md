@@ -8,8 +8,8 @@ Recorded: 2026-08-20.
 
 - URL: `https://github.com/deepseek-ai/deepseek-harness`
 - Branch: `master`
-- Commit: `141eb6fef83422698aef7a981029e843e8161534`
-- Commit message: release `dsh@0.1.0-rc.8`
+- Commit: `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`
+- Commit message: release `dsh@0.1.1-rc.2`
 - Live verification: on 2026-08-20, `git ls-remote` returned this same SHA for remote `HEAD` and `refs/heads/master`; the clean local sparse checkout at `D:/Source/DSH/framework/deepseek-harness` was detached at the same commit
 - Materialized evidence: the sparse checkout now includes `.agents/notes/implemented` plus the relevant Workflow, Jobs, Token Meter, Storage, Workspace, interaction, Session, Skill, Compaction, Spill, Subagent and experimental Team source families. `OFFICIAL_BASELINE.json.evidenceFiles` and `verify-official-baseline.mjs` fail if the required Agent Notes/source evidence is no longer present.
 
@@ -62,7 +62,7 @@ The site currently labels rc.7 and itself states official source/release notes a
 
 - URL: `https://github.com/NanmiCoder/dsh-agent-teams`
 - Branch: `main`
-- Commit: `fe854d19d20c88d9436d13338f86257f741955c9`
+- Commit: `0c21e5d2f45ec1ea7c9ee89ffc4ee77d1cb9262e`
 - Version: `0.1.9`
 - Local pointer: `ref/dsh-agent-teams/SOURCE_POINTER.json`
 - Full local checkout: `ref/dsh-agent-teams/source/`

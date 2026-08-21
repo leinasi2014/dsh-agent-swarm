@@ -2,7 +2,7 @@
 
 - Upstream: `https://github.com/openJiuwen-ai/jiuwenswarm`
 - Branch observed: `develop`
-- Pinned commit: `962f0a4426041d54cef60e980a10491df84546ef`
+- Pinned commit: `1d45d2b4a08423365eae7c37b2afdae6614a97ad`
 - Local checkout: `source/`
 
 This repository is a product and architecture reference, not a DSH dependency.

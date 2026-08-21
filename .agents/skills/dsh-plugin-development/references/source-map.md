@@ -12,7 +12,7 @@ Read in order:
 6. generated subsystem docs and exported types
 7. tests and Agent Notes
 
-Recorded baseline: `deepseek-ai/deepseek-harness@141eb6fef83422698aef7a981029e843e8161534`.
+Recorded baseline: `deepseek-ai/deepseek-harness@b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`.
 
 On 2026-08-20, remote `HEAD` and `refs/heads/master` were verified at this same commit. At this baseline, inspect the public `workflow`, `jobs`, `token-meter`, `storage-domain`, `workspace`, interaction, skill, compaction and spill packages before inventing a seam. The experimental Agent Team package is private/unpublished.
 
@@ -29,7 +29,7 @@ Use for explanation; verify against official source/installed package.
 
 ## Direct plugin reference
 
-`ref/dsh-agent-teams/source/` pinned to `fe854d19d20c88d9436d13338f86257f741955c9`.
+`ref/dsh-agent-teams/source/` pinned to `0c21e5d2f45ec1ea7c9ee89ffc4ee77d1cb9262e`.
 
 Use this checkout for DSH packaging, lifecycle, scheduler, mailbox, persistence,
 Host/Client and composition-test implementation examples. It is prior art, not

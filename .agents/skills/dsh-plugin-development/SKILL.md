@@ -4,9 +4,9 @@ description: 证据驱动地设计、实现、重构、调试、验证和发布 
 metadata:
   version: "1.4.1"
   date: "2026-08-20"
-  dsh_source_commit: "141eb6fef83422698aef7a981029e843e8161534"
+  dsh_source_commit: "b150a551b8d465e31e418e1b2eaf5e79bbb7d28e"
   dsh_release: "0.1.0-rc.8"
-  direct_reference: "NanmiCoder/dsh-agent-teams@fe854d19d20c88d9436d13338f86257f741955c9"
+  direct_reference: "NanmiCoder/dsh-agent-teams@0c21e5d2f45ec1ea7c9ee89ffc4ee77d1cb9262e"
   architecture_reference: "openJiuwen-ai/jiuwenswarm@91c913726cedabb89cc6b538d9369e0ef1070578"
 ---
 

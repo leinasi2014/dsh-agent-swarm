@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-08-20
-- Evidence: Gate A PASS at official DSH `141eb6fef83422698aef7a981029e843e8161534`; `dsh-agent-teams` `801954dd7be67213cf4adc1aeb6f97bd3daa12cc`; JiuwenSwarm `152583aa305836e87481e6de8a5f34e8c7d0928b`
+- Evidence: Gate A PASS at official DSH `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`; `dsh-agent-teams` `801954dd7be67213cf4adc1aeb6f97bd3daa12cc`; JiuwenSwarm `152583aa305836e87481e6de8a5f34e8c7d0928b`
 - Depends on: ADR-0007 and complete M1 acceptance
 
 ## Context
