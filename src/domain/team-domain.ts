@@ -236,6 +236,15 @@ export class TeamDomain implements TeamDomainPort {
     return await budget.setBudget(this.deps, scope, teamId, captainSessionId, limits)
   }
 
+  async adoptBudget(
+    scope: TeamScope,
+    teamId: TeamId,
+    captainSessionId: string,
+    carried: TeamBudget,
+  ): Promise<TeamBudget> {
+    return await budget.adoptBudget(this.deps, scope, teamId, captainSessionId, carried)
+  }
+
   async consumeTokens(scope: TeamScope, teamId: TeamId, tokens: number): Promise<TeamBudget> {
     return await budget.consumeTokens(this.deps, scope, teamId, tokens)
   }

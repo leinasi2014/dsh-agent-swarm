@@ -15,6 +15,7 @@
  */
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { TeamDomainError } from '../domain/error.js'
+import { BUDGET_EXHAUSTION_CODES } from '../domain/team-domain-budget.js'
 import type { TeamScope } from '../domain/team-domain-port.js'
 import type { TeamId } from '../domain/types.js'
 
@@ -27,6 +28,13 @@ export type OrchestrationMode = 'adaptive' | 'workflow'
  */
 export class OrchestrationOwnership {
   private readonly owners = new Map<string, string>()
+  /**
+   * Budget-exhaustion watchers by runId (M2-5, issue #79): a run-owned Team
+   * whose scheduling pass was rejected by the budget admission gate gets the
+   * structured error routed to its owning run, so the run converges to a
+   * terminal state instead of parking on a claim that can never be seated.
+   */
+  private readonly budgetWatchers = new Map<string, (error: TeamDomainError) => void>()
 
   constructor(
     private readonly deps: {
@@ -99,8 +107,39 @@ export class OrchestrationOwnership {
     this.deps.requestSchedule(scope, teamId, captain)
   }
 
+  /**
+   * Register one run's budget-exhaustion watcher; the disposer detaches it
+   * (the run settles → `releaseDriving` → watcher gone, so a late pass
+   * failure after settlement is a silent no-op). The watcher is keyed by the
+   * runId, not the Team: only the owning run converges on it.
+   */
+  watchBudget(runId: string, onExhausted: (error: TeamDomainError) => void): () => void {
+    this.budgetWatchers.set(runId, onExhausted)
+    return () => {
+      if (this.budgetWatchers.get(runId) === onExhausted) this.budgetWatchers.delete(runId)
+    }
+  }
+
+  /**
+   * Observe one scheduling-pass failure (M2-5, issue #79): a pass rejected by
+   * the budget admission gate (`BUDGET_EXHAUSTION_CODES`) can never seat the
+   * pending claim it failed on, so the structured error is routed to the
+   * Team's owning run, which converges instead of parking on that claim.
+   * Every other failure — and every Team without a live run owner (all
+   * adaptive Teams) — is a no-op here: the pass's logged diagnostic remains
+   * the only effect, byte-identical to the pre-M2-5 behavior.
+   */
+  notePassFailure(scope: TeamScope, teamId: TeamId, error: unknown): void {
+    if (!(error instanceof TeamDomainError) || !BUDGET_EXHAUSTION_CODES.has(error.code)) return
+    const owner = this.owners.get(`${scope}\0${teamId}`)
+    if (owner === undefined) return
+    const watcher = this.budgetWatchers.get(owner)
+    if (watcher !== undefined) watcher(error)
+  }
+
   /** Drop every entry (runtime disposal path). */
   clear(): void {
     this.owners.clear()
+    this.budgetWatchers.clear()
   }
 }

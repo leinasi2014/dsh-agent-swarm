@@ -247,6 +247,21 @@ export interface TeamDomainPort {
     captainSessionId: string,
     limits: Pick<TeamBudget, 'tokenLimit' | 'requestLimit' | 'retryLimit' | 'deadlineAt'>,
   ): Promise<TeamBudget>
+  /**
+   * Seed one fresh Team's ledger with a prior Team's final budget face (M2-5,
+   * issue #79: the budget lifecycle is decoupled from the workflow run).
+   * Limits and used counters adopt together in one transaction; the target
+   * must still be the untouched fresh-Team default (`TEAM_BUDGET_INVALID`
+   * otherwise), so adoption can never overwrite a live ledger. Not a usage
+   * write: the per-session usage cursors and the M1B fold semantics are
+   * untouched.
+   */
+  adoptBudget(
+    scope: TeamScope,
+    teamId: TeamId,
+    captainSessionId: string,
+    carried: TeamBudget,
+  ): Promise<TeamBudget>
   consumeTokens(scope: TeamScope, teamId: TeamId, tokens: number): Promise<TeamBudget>
   recordSessionUsage(
     scope: TeamScope,

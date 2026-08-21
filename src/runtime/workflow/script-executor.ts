@@ -104,8 +104,14 @@ export class BridgeScriptExecution {
 
   private activeSlots = 0
   private readonly slotWaiters: { resolve(): void; reject(error: unknown): void }[] = []
-  private cancelReason: string | undefined
-  private cancelError: WorkflowError | undefined
+  /**
+   * The terminal state the script must die into, once set: cancellation
+   * (first reason wins) or a budget fatal (M2-5, issue #79 — the run's Team
+   * can no longer admit the assignment the parked hooks await). Both reject
+   * queued slot waiters and kill every future hook call; they differ only in
+   * the stop reason `drive()` settles with.
+   */
+  private terminal: { readonly error: WorkflowError; readonly stopReason: 'cancelled' | 'error' } | undefined
   private currentPhase: string | undefined
   private readonly context: vm.Context
   private readonly compiled: vm.Script
@@ -153,36 +159,51 @@ export class BridgeScriptExecution {
   }
 
   /**
-   * Whether the run has been cancelled. A METHOD, not an inline property
-   * read: `cancel()` mutates `cancelReason` concurrently and an inline read
-   * after an `await` gets narrowed by control flow into an always-false
+   * Whether the run was terminated. A METHOD, not an inline property read:
+   * `cancel()`/`fail()` mutate the terminal state concurrently and an inline
+   * read after an `await` gets narrowed by control flow into an always-false
    * comparison.
    */
-  private isCancelled(): boolean {
-    return this.cancelReason !== undefined
+  private isTerminated(): boolean {
+    return this.terminal !== undefined
   }
 
   /**
-   * Shared hook entry guard: after {@link cancel}, EVERY hook throws
-   * `CANCELLED` at its next call — cancellation is the next HOOK boundary,
-   * not just the next `agent()`.
+   * Shared hook entry guard: after {@link cancel} or {@link fail}, EVERY hook
+   * throws the terminal error at its next call — termination is the next HOOK
+   * boundary, not just the next `agent()`.
    */
-  private throwIfCancelled(): void {
-    if (this.isCancelled()) throw this.cancelledError()
+  private throwIfTerminated(): void {
+    if (this.isTerminated()) throw this.terminalError()
   }
 
   /**
    * Cancel the run: waiting `agent()` slots reject and every future hook call
    * throws `CANCELLED` — the script dies at its next await. A script that
    * never settles anyway is the RUN's problem: its grace bound force-settles
-   * the result. Idempotent; the first reason wins.
+   * the result. Idempotent; the first terminal state wins.
    * @param reason - human-readable cause carried on the CANCELLED error.
    */
   cancel(reason: string): void {
-    if (this.cancelReason !== undefined) return
-    this.cancelReason = reason
-    this.cancelError = new WorkflowError(`workflow run cancelled: ${reason}`, 'CANCELLED')
-    for (const waiter of this.slotWaiters.splice(0)) waiter.reject(this.cancelledError())
+    if (this.terminal !== undefined) return
+    this.terminal = {
+      error: new WorkflowError(`workflow run cancelled: ${reason}`, 'CANCELLED'),
+      stopReason: 'cancelled',
+    }
+    for (const waiter of this.slotWaiters.splice(0)) waiter.reject(this.terminal.error)
+  }
+
+  /**
+   * Fail the run with a fatal error (M2-5, issue #79): same machinery as
+   * {@link cancel} — queued slots reject, every future hook throws — but
+   * `drive()` settles `error` with this failure instead of `cancelled`. Used
+   * for the structured Team-budget exhaustion a parked `agent()` can never
+   * recover from. Idempotent; the first terminal state wins.
+   */
+  fail(fatal: WorkflowError): void {
+    if (this.terminal !== undefined) return
+    this.terminal = { error: fatal, stopReason: 'error' }
+    for (const waiter of this.slotWaiters.splice(0)) waiter.reject(fatal)
   }
 
   /**
@@ -193,17 +214,18 @@ export class BridgeScriptExecution {
    */
   async drive(): Promise<WorkflowResult> {
     try {
-      if (this.isCancelled()) throw this.cancelledError()
+      if (this.isTerminated()) throw this.terminalError()
       const scriptPromise = this.compiled.runInContext(this.context, { timeout: this.limits.syncTimeoutMs }) as Promise<unknown>
       const raw: unknown = await this.contain(Promise.resolve(scriptPromise))
-      // Cancelled while the body ran: a script that settled without touching
-      // another hook must still report `cancelled`.
-      if (this.isCancelled()) throw this.cancelledError()
+      // Terminated while the body ran: a script that settled without touching
+      // another hook must still report the terminal stop reason.
+      if (this.isTerminated()) throw this.terminalError()
       const value = raw === undefined ? null : this.materializeResult(raw)
       return { value, stopReason: 'completed', agentsStarted: this.started }
     } catch (error: unknown) {
-      if (this.isCancelled()) {
-        return { value: null, stopReason: 'cancelled', error: this.cancelledError().message, agentsStarted: this.started }
+      const terminal = this.terminal
+      if (terminal !== undefined) {
+        return { value: null, stopReason: terminal.stopReason, error: terminal.error.message, agentsStarted: this.started }
       }
       return { value: null, stopReason: 'error', error: renderThrown(error), agentsStarted: this.started }
     }
@@ -218,10 +240,11 @@ export class BridgeScriptExecution {
     return promise
   }
 
-  private cancelledError(): WorkflowError {
-    // cancel() arms cancelError before any caller can observe isCancelled().
-    /* v8 ignore next -- defensive fallback outside the cancel state machine */
-    return this.cancelError ?? new WorkflowError('workflow run cancelled', 'CANCELLED')
+  private terminalError(): WorkflowError {
+    // cancel()/fail() arm the terminal error before any caller can observe
+    // isTerminated().
+    /* v8 ignore next -- defensive fallback outside the terminal state machine */
+    return this.terminal?.error ?? new WorkflowError('workflow run cancelled', 'CANCELLED')
   }
 
   /** Materialize the script's return value; violations become RESULT_UNSERIALIZABLE. */
@@ -264,7 +287,7 @@ export class BridgeScriptExecution {
 
   /** The `agent(prompt, opts)` hook. */
   private async agent(rawPrompt: unknown, rawOpts: unknown): Promise<unknown> {
-    this.throwIfCancelled()
+    this.throwIfTerminated()
     if (typeof rawPrompt !== 'string' || rawPrompt.length === 0) {
       throw new WorkflowError('agent() requires a non-empty prompt string', 'INVALID_ARGUMENT')
     }
@@ -290,16 +313,16 @@ export class BridgeScriptExecution {
     try {
       // Re-check after the acquire: the await yields at least one microtask
       // tick, and a cancel() landing in that window must not start a member.
-      this.throwIfCancelled()
+      this.throwIfTerminated()
       let settled: AgentCallOutcome
       try {
         settled = await this.driver.drive(call)
       } catch (error: unknown) {
-        if (this.isCancelled()) throw this.cancelledError()
+        if (this.isTerminated()) throw this.terminalError()
         if (error instanceof WorkflowError) throw error
         throw new WorkflowError(`agent() could not start a child: ${renderThrown(error)}`, 'AGENT_START', { cause: error })
       }
-      if (this.isCancelled()) throw this.cancelledError()
+      if (this.isTerminated()) throw this.terminalError()
       return settled.outcome === 'completed' ? settled.output : null
     } finally {
       this.releaseSlot()
@@ -354,7 +377,7 @@ export class BridgeScriptExecution {
 
   /** The `parallel(thunks)` hook: each thunk caught → `null`; fatal errors propagate. */
   private async parallel(rawThunks: unknown): Promise<unknown[]> {
-    this.throwIfCancelled()
+    this.throwIfTerminated()
     if (!Array.isArray(rawThunks)) {
       throw new WorkflowError('parallel() requires an array of zero-argument functions', 'INVALID_ARGUMENT')
     }
@@ -380,7 +403,7 @@ export class BridgeScriptExecution {
 
   /** The `pipeline(items, ...stages)` hook: per-item stage chains, NO cross-stage barrier. */
   private async pipeline(rawItems: unknown, rawStages: unknown[]): Promise<unknown[]> {
-    this.throwIfCancelled()
+    this.throwIfTerminated()
     if (!Array.isArray(rawItems)) {
       throw new WorkflowError('pipeline() requires an items array', 'INVALID_ARGUMENT')
     }
@@ -419,7 +442,7 @@ export class BridgeScriptExecution {
 
   /** The `phase(title)` hook: sets the current label and notifies observers. */
   private phase(title: unknown): void {
-    this.throwIfCancelled()
+    this.throwIfTerminated()
     if (typeof title !== 'string' || title.length === 0) {
       throw new WorkflowError('phase() requires a non-empty title string', 'INVALID_ARGUMENT')
     }
@@ -429,7 +452,7 @@ export class BridgeScriptExecution {
 
   /** The `log(message)` hook: narration to observers. */
   private log(message: unknown): void {
-    this.throwIfCancelled()
+    this.throwIfTerminated()
     if (typeof message !== 'string') {
       throw new WorkflowError('log() requires a message string', 'INVALID_ARGUMENT')
     }
