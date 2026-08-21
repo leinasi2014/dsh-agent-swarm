@@ -102,13 +102,13 @@ async function createDefectiveCommit(repo, base) {
 async function createCorruptedTarball(sourceTarball, scratchDir) {
   const extractDir = join(scratchDir, 'x')
   await mkdir(extractDir, { recursive: true })
-  const extract = await run('tar', ['-xzf', sourceTarball, '-C', extractDir])
+  const extract = await run('tar', ['--force-local', '-xzf', sourceTarball, '-C', extractDir])
   if (extract.code !== 0) throw new Error(`tar extract failed: ${extract.stderr}`)
   const entry = join(extractDir, 'package', 'lib', 'index.mjs')
   const original = await readFile(entry, 'utf8')
   await writeFile(entry, `${original}\nthrow new Error('M3C drill-injected defect (P4b): the post-promotion health probe MUST fail on this artifact')\n`, 'utf8')
   const packed = join(scratchDir, 'dsh-agent-swarm-corrupted.tgz')
-  const pack = await run('tar', ['-czf', packed, '-C', extractDir, 'package'])
+  const pack = await run('tar', ['--force-local', '-czf', packed, '-C', extractDir, 'package'])
   if (pack.code !== 0) throw new Error(`tar pack failed: ${pack.stderr}`)
   return packed
 }

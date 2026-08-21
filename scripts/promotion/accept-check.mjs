@@ -85,7 +85,7 @@ export async function runAcceptance(input) {
     const laneResults = []
     let artifactCheck = { exitCode: null, note: 'not reached' }
     let packedEntries = []
-    const listing = await run('tar', ['-tzf', tarballPath])
+    const listing = await run('tar', ['--force-local', '-tzf', tarballPath])
     if (listing.code === 0) packedEntries = listing.stdout.split('\n').filter(Boolean)
     const entryOk = packedEntries.some(entry => entry.endsWith('package/lib/index.mjs')) && packedEntries.some(entry => entry.endsWith('package/cordis.patch.yml'))
     await withDetachedWorktree(args.repo, manifest.gitCommit, async verifyRoot => {
@@ -127,9 +127,9 @@ export async function runAcceptance(input) {
     await writeJsonFile(join(isolation.domains.evidence, 'a1-lanes.json'), { lanes, verificationRootCommit: manifest.gitCommit, laneResults })
     gate('a1-source-floor', a1Ok ? 'pass' : 'fail', a1Ok ? `all ${lanes.length} lanes green (${lanes.join(', ')})` : `failed lanes: ${laneResults.filter(result => result.exitCode !== 0).map(result => `${result.lane}(${result.exitCode})`).join(', ')}`, 'a1-lanes.json')
     const tarballDigest = await sha256File(tarballPath)
-    const a2Ok = tarballDigest === manifest.tarballSha256 && entryOk && artifactCheck.exitCode === 0
-    await writeJsonFile(join(isolation.domains.evidence, 'a2-artifact-integrity.json'), { tarballDigest, digestMatchesManifest: tarballDigest === manifest.tarballSha256, packedEntryCheck: entryOk, packedEntries, verifyPackageArtifact: { exitCode: artifactCheck.exitCode, stdout: artifactCheck.stdout, stderr: artifactCheck.stderr } })
-    gate('a2-artifact-integrity', a2Ok ? 'pass' : 'fail', `digest=${tarballDigest === manifest.tarballSha256} entries=${entryOk} artifactGate=${artifactCheck.exitCode}`, 'a2-artifact-integrity.json')
+    const a2Ok = tarballDigest === manifest.tarballSha256 && entryOk && artifactCheck.code === 0
+    await writeJsonFile(join(isolation.domains.evidence, 'a2-artifact-integrity.json'), { tarballDigest, digestMatchesManifest: tarballDigest === manifest.tarballSha256, packedEntryCheck: entryOk, packedEntries, verifyPackageArtifact: { exitCode: artifactCheck.code, stdout: artifactCheck.stdout, stderr: artifactCheck.stderr } })
+    gate('a2-artifact-integrity', a2Ok ? 'pass' : 'fail', `digest=${tarballDigest === manifest.tarballSha256} entries=${entryOk} artifactGate=${artifactCheck.code}`, 'a2-artifact-integrity.json')
 
     // ── A3: assembly in the drill home + fail-closed negative probe ──────
     const drillHome = isolation.domains.home
