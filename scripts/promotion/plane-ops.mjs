@@ -48,7 +48,9 @@ export async function installIntoStableProfile({ cli, layout, tarballPath }) {
   if (existing?.dependencies?.['dsh-agent-swarm'] !== undefined) {
     removeResult = await run(process.execPath, [cli, 'plugin', '--profile', PROFILE_NAME, 'remove', '-w', 'dsh-agent-swarm'], { env, timeoutMs: 10 * 60_000 })
   }
-  const addResult = await run(process.execPath, [cli, 'plugin', '--profile', PROFILE_NAME, 'add', '-w', tarballPath], { env, timeoutMs: 10 * 60_000 })
+  // OQ-1: --ignore-scripts — the packed postinstall (lefthook install) has
+  // no lefthook inside a Profile and the plugin ships prebuilt (see the PR table).
+  const addResult = await run(process.execPath, [cli, 'plugin', '--profile', PROFILE_NAME, 'add', '-w', '--ignore-scripts', tarballPath], { env, timeoutMs: 10 * 60_000 })
   if (addResult.code !== 0) {
     return { ok: false, step: 'add', addResult, removeResult }
   }

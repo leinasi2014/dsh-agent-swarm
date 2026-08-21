@@ -15,19 +15,35 @@ export const LANE_TIMEOUT_MS = 30 * 60_000
  * Run one command under a bounded timeout. Never throws on a non-zero exit —
  * the caller decides fail-loud vs evidence. Output is captured whole with a
  * 8 MiB per-stream ceiling so a runaway lane cannot exhaust memory.
+ *
+ * On Windows, `pnpm` (and other extensionless commands) resolve to `.cmd`
+ * shims that spawn() refuses without a shell since the CVE-2024-27980
+ * hardening — exactly why the official CLI shells out for pnpm
+ * (apps/cli/src/plugin.ts). Real executables (git/node/tar/powershell) spawn
+ * directly so process-tree teardown stays precise.
  */
 export function run(command, args, options = {}) {
   const timeoutMs = options.timeoutMs ?? LANE_TIMEOUT_MS
+  const useShell = process.platform === 'win32' && !/\.(exe|bat|com)$/i.test(command)
+    && !command.includes('/') && !command.includes('\\')
+  const quote = value => /[\s"^&|<>()!]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value
   return new Promise(resolve => {
     const startedAt = Date.now()
     let child
     try {
-      child = spawn(command, args, {
-        cwd: options.cwd,
-        env: options.env !== undefined ? { ...process.env, ...options.env } : process.env,
-        windowsHide: true,
-        shell: false,
-      })
+      child = useShell
+        ? spawn('cmd.exe', ['/d', '/s', '/c', [command, ...args].map(quote).join(' ')], {
+          cwd: options.cwd,
+          env: options.env !== undefined ? { ...process.env, ...options.env } : process.env,
+          windowsHide: true,
+          shell: false,
+        })
+        : spawn(command, args, {
+          cwd: options.cwd,
+          env: options.env !== undefined ? { ...process.env, ...options.env } : process.env,
+          windowsHide: true,
+          shell: false,
+        })
     } catch (error) {
       resolve({ code: null, stdout: '', stderr: String(error), durationMs: 0, timedOut: false, spawnError: String(error) })
       return
