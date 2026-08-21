@@ -81,6 +81,10 @@ ADR-0007 moved storage integration ahead of Workflow and Token Meter integration
 
 This is a host capability boundary, not cryptographic protection from a process with unrestricted host access. Coding members must receive workspace-scoped filesystem/shell permissions that cannot write the Harness storage root.
 
+### Member tool-permission policy (implemented in M5-2)
+
+The member host-tool surface is scoped through the official creation-window toolFilter seam only (`ctx.subagents` `toolFilter` → scoped `tools.restrict()`, snapshotted into the durable child descriptor; the followup face has no composition field — facts in `docs/09` §1). The plugin's overlay is deny-only and monotone: every member mandatorily loses the captain-only administration tools, and `agent_swarm_add_member` may declare additional `deny_tools` narrowing (union with the baseline, no allow surface, structural pre-commit validation, official unknown-name validation as the existence authority — F17, `docs/04` §8o). A declaration can lock a member out but never widen authority. Per-task tool rescoping, tiered allow/ask/deny policy and approval override remain future family work; the official rc.2 `ctx.credentials` seam stays a declared non-consumed boundary (secrets are env-injected deployment inputs, never Team state). The #100 execution root and #101 review root are disjoint authority planes the tool policy neither fences nor widens.
+
 ### Canonical Team domain
 
 Target ownership is official `ctx.agentTeams` when a supported published API is available, or one compatibility adapter during migration. Current ownership is the private `TeamDomain` behind `TeamDomainPort`, persisted through the official Storage Domain Provider; the official adapter remains unwired until the experimental package is published:
@@ -206,7 +210,7 @@ Self-hosting reuses the Bundle, RPC host, Team tools, Workflow/Jobs, Workspace a
 
 ## 5. Current package versus target family
 
-The package graph above is a target decomposition. The shipped 0.1 package is one host-only bundle containing domain, runtime, workspace file storage, tools, default Scheduler/Review providers, budget and manual memory. Scheduler, Review, review-root families and verification-command templates have runtime registration contracts. ADR-0007's Team Domain/Storage Domain authority split, the M2 Workflow/Jobs bridge, ADR-0008's M3 self-hosting slice and M4-2's multi-root verification-command family are implemented. Token Meter accounting, full permission/human interaction, Workspace/remote, memory, distributed and UI families remain later work.
+The package graph above is a target decomposition. The shipped 0.1 package is one host-only bundle containing domain, runtime, workspace file storage, tools, default Scheduler/Review providers, budget and manual memory. Scheduler, Review, review-root families and verification-command templates have runtime registration contracts. ADR-0007's Team Domain/Storage Domain authority split, the M2 Workflow/Jobs bridge, ADR-0008's M3 self-hosting slice, M4-2's multi-root verification-command family and the M5-2 member tool-permission declaration slice (F17: provisioning-time deny-only `deny_tools` on the official creation-window toolFilter seam) are implemented. Full tiered permission policy (allow/ask/deny language, approval override), human interaction, Workspace/remote, memory, distributed and UI families remain later work; per-task tool rescoping is a declared boundary, not a pending promise (the official followup face carries no composition field — `docs/04` §8o, `docs/09` §1).
 
 ## 6. Why this is not over-modularization
 

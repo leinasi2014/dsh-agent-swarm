@@ -24,8 +24,9 @@ import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import type { TeamId, TeamMember, TeamMembership } from '../domain/types.js'
 import { requireAgent, type ToolExecutionAuthority } from './authority.js'
 import type { RuntimeConfig } from './orchestrator-runtime.js'
-import { CAPTAIN_ONLY_TOOLS, memberJoinNotice, memberPersona } from './prompts.js'
+import { memberJoinNotice, memberPersona } from './prompts.js'
 import { messageAccepted } from './session-acceptance.js'
+import { memberToolDeny } from './tool-policy.js'
 
 const MISMATCH = 'persisted child Session does not match the provisioned continuation'
 const INTERRUPTED = 'member provisioning did not commit before runtime recovery'
@@ -58,7 +59,7 @@ export class MemberProvisioner {
 
   async addMember(
     exec: ToolExecutionAuthority,
-    input: { name: string; role: string; provider?: string; model?: string },
+    input: { name: string; role: string; provider?: string; model?: string; denyTools?: readonly string[] },
   ): Promise<TeamMember> {
     let completeOperation!: () => void
     const operation = new Promise<void>(settle => { completeOperation = settle })
@@ -90,6 +91,13 @@ export class MemberProvisioner {
           'TEAM_MEMBER_PROVIDER_INCOMPATIBLE',
         )
       }
+      // The F17 tool-policy declaration is validated and composed BEFORE any
+      // provisioning record commits (same preflight discipline as F15): a
+      // structurally invalid deny list rejects with no roster side effects.
+      // Tool-name EXISTENCE stays with the official creation-window
+      // `tools.restrict()` validation, whose failure settles this record
+      // failed below — loud either way, never a silently unfiltered member.
+      const deny = memberToolDeny(input.denyTools)
 
       const childId = SessionId(randomUUID())
       const provisioning = await this.deps.domain().provisionMember(scope, membership.team.id, captain.id, {
@@ -107,7 +115,10 @@ export class MemberProvisioner {
             prompt: [{ type: 'text', text: memberJoinNotice(membership.team) }],
             parent: captain,
             persona: memberPersona(membership.team, provisioning.name, provisioning.role),
-            toolFilter: { deny: [...CAPTAIN_ONLY_TOOLS] },
+            // M1A static baseline plus the F17 deny-only narrowing declaration
+            // (`deny_tools`); the union is monotone — captain-only tools stay
+            // mandatorily denied and no allow surface exists.
+            toolFilter: { deny },
             agentOptions: {
               ...(captain.options.provider === undefined ? {} : { provider: captain.options.provider }),
               ...(input.model ?? this.deps.config.memberModel ?? captain.options.model) === undefined
