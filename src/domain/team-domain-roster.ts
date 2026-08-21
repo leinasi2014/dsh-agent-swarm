@@ -120,6 +120,43 @@ export async function requireReadMembership(deps: TeamDomainDeps, scope: TeamSco
   return membership
 }
 
+/**
+ * The usage-accounting membership resolution (issue #92): a billing flush must
+ * resolve the Team that `recordSessionUsageBatch` itself would accept — the
+ * captain or a roster row at ANY member phase, in an active Team first — not
+ * the authority-facing active-phase-only match of {@link findMembership}. A
+ * member's first turn streams (and bills) while its roster row is still
+ * `provisioning` (the record commits before `startContinuable`, `active`
+ * settles only after the child accepts); an authority resolution there
+ * returned `undefined` and the flush silently discarded real usage, relying on
+ * a recovery refold that nothing guaranteed. Drain-time and post-archive usage
+ * faces the same asymmetry, so non-active Teams are a fallback tier exactly
+ * like the F14 read split. Ambiguity within one tier keeps failing loud with
+ * `TEAM_MEMBERSHIP_AMBIGUOUS`; a cross-tier match resolves to the live ledger.
+ */
+export async function findAccountingMembership(deps: TeamDomainDeps, scope: TeamScope, sessionId: string): Promise<TeamMembership | undefined> {
+  const activeMatches: TeamMembership[] = []
+  const settledMatches: TeamMembership[] = []
+  for (const team of await deps.store.list(scope)) {
+    if (team.captainSessionId === sessionId) {
+      ;(team.phase === 'active' ? activeMatches : settledMatches).push({ team, role: 'captain', name: 'captain' })
+      continue
+    }
+    const member = team.members.find(candidate => candidate.sessionId === sessionId)
+    if (member !== undefined) {
+      ;(team.phase === 'active' ? activeMatches : settledMatches).push({ team, role: 'member', name: member.name })
+    }
+  }
+  const matches = activeMatches.length > 0 ? activeMatches : settledMatches
+  if (matches.length > 1) {
+    throw new TeamDomainError(
+      `session "${sessionId}" belongs to multiple ${activeMatches.length > 0 ? 'active' : 'non-active'} teams: ${matches.map(match => match.team.id).join(', ')}`,
+      'TEAM_MEMBERSHIP_AMBIGUOUS',
+    )
+  }
+  return matches[0]
+}
+
 export async function provisionMember(
   deps: TeamDomainDeps,
   scope: TeamScope,

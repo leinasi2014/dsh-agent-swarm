@@ -578,7 +578,6 @@ export class AgentSwarmRuntime extends Service {
       boundedSettle(this.ctx, this.config.disposalTimeoutMs, label, operation, failures)
     await bound('member provisioning', this.provisioning.wait())
     await bound('scheduling', Promise.allSettled(this.scheduling.values()))
-    await bound('token accounting', this.usage.wait())
     await bound('message delivery', this.delivery.wait())
     for (const [captainId, childIds] of this.ownedChildren) {
       const captain = this.ctx.agents.get(SessionId(captainId))
@@ -588,6 +587,7 @@ export class AgentSwarmRuntime extends Service {
         this.ctx.subagents.drainContinuableChildren(captain, [...childIds].map(SessionId)),
       )
     }
+    await bound('token accounting', this.usage.wait()) // after the child drain: final usage lands during it (issue #92, docs/04 §8k)
     await bound('aggregate store close', (async () => {
       // Reject revision waiters, stop listening to domain changes, then
       // release the storage-domain unit so the name frees for a later open.

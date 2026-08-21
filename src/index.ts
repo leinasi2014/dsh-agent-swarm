@@ -23,6 +23,7 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 import { AgentSwarmRuntime } from './runtime/orchestrator-runtime.js'
 import { registerAgentSwarmTools } from './tools.js'
 import { DEFAULT_TEAM_LIMITS } from './domain/team-domain.js'
+import { recoverActiveRosters } from './runtime/usage-recovery.js'
 import { TeamBridgeWorkflowEngine } from './runtime/workflow/team-bridge-engine.js'
 import { TeamJobProjection } from './runtime/jobs/team-job-projection.js'
 
@@ -303,6 +304,14 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   }), 'agent-swarm: token accounting')
   ctx.effect(async () => {
     await Promise.all(ctx.agents.roots().map(agent => runtime.recoverAgent(agent)))
+    // Issue #92's durable net: after agent recovery, refold every active
+    // roster's usage from live logs and persisted history so a drop on the
+    // live path can never survive a reload as a permanent billed-token gap.
+    await recoverActiveRosters(ctx, {
+      domain: () => runtime.domain,
+      scopes: [...new Set(ctx.agents.roots().map(agent => runtime.scopeOf(agent)))],
+      teams: scope => runtime.listTeamAggregates(scope),
+    })
     return () => undefined
   }, 'agent-swarm: activation recovery')
   ctx.effect(() => () => runtime.dispose(), 'agent-swarm: runtime disposal')
