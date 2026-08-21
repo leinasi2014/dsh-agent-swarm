@@ -1,9 +1,9 @@
 {
   "repository": "https://github.com/deepseek-ai/deepseek-harness.git",
   "branch": "master",
-  "commit": "141eb6fef83422698aef7a981029e843e8161534",
-  "release": "0.1.0-rc.8",
-  "verifiedAt": "2026-08-20",
+  "commit": "528c682e061696f5a160f363f236ecbf53cbd006",
+  "release": "0.1.1-rc.1",
+  "verifiedAt": "2026-08-22",
   "evidenceFiles": [
     ".agents/notes/implemented/feature/2026-08-05-agent-teams.md",
     ".agents/notes/implemented/architecture/2026-08-18-experimental-agent-teams-packages.md",

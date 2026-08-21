@@ -12,7 +12,7 @@ Read in order:
 6. generated subsystem docs and exported types
 7. tests and Agent Notes
 
-Recorded baseline: `deepseek-ai/deepseek-harness@141eb6fef83422698aef7a981029e843e8161534`.
+Recorded baseline: `deepseek-ai/deepseek-harness@528c682e061696f5a160f363f236ecbf53cbd006`.
 
 On 2026-08-20, remote `HEAD` and `refs/heads/master` were verified at this same commit. At this baseline, inspect the public `workflow`, `jobs`, `token-meter`, `storage-domain`, `workspace`, interaction, skill, compaction and spill packages before inventing a seam. The experimental Agent Team package is private/unpublished.
 
