@@ -24,6 +24,7 @@ import { AgentSwarmRuntime } from './runtime/orchestrator-runtime.js'
 import { registerAgentSwarmTools } from './tools.js'
 import { DEFAULT_TEAM_LIMITS } from './domain/team-domain.js'
 import { TeamBridgeWorkflowEngine } from './runtime/workflow/team-bridge-engine.js'
+import { TeamJobProjection } from './runtime/jobs/team-job-projection.js'
 
 export { AgentSwarmRuntime } from './runtime/orchestrator-runtime.js'
 export type {
@@ -40,6 +41,9 @@ export { OrchestrationOwnership } from './runtime/orchestration-ownership.js'
 export type { OrchestrationMode } from './runtime/orchestration-ownership.js'
 export { TeamBridgeWorkflowEngine, validateBridgeMeta } from './runtime/workflow/team-bridge-engine.js'
 export type { BridgeEngineConfig } from './runtime/workflow/team-bridge-engine.js'
+export { TeamJobProjection } from './runtime/jobs/team-job-projection.js'
+export { TEAM_TASK_JOB_KIND } from './runtime/jobs/projection-derive.js'
+export type { DerivedTeamJob } from './runtime/jobs/projection-derive.js'
 export {
   WorkflowRunOverlayStore,
   workflowOverlayDomainSpec,
@@ -163,6 +167,17 @@ export interface Config {
   workflowMaxTotalAgents?: number
   /** Bridge run cancellation/disposal settlement grace in ms (default 5000). */
   workflowDisposeGraceMs?: number
+  /**
+   * Mount the Team bridge job registry (M2-2, issue #76): an implementation
+   * of the official abstract `JobRegistry` whose records are a READ-ONLY
+   * projection of the authoritative Team task board (derived from
+   * post-durability `domain/changed` snapshots), registered in an isolated
+   * `jobs` service scope (never over the default-scope official registry).
+   * The job face refuses `start`/`kill` — creation and cancellation stay on
+   * the Team face. Default false: when disabled no bridge service or
+   * listener exists and behavior is identical to the pre-bridge plugin.
+   */
+  jobsBridge?: boolean
   /** Ordered system-prompt contribution. */
   promptSectionOrder?: number
 }
@@ -189,6 +204,7 @@ export const Config: z<Config> = z.object({
   workflowBridge: z.boolean().default(false),
   workflowMaxTotalAgents: z.number().step(1).min(1).default(DEFAULT_WORKFLOW_MAX_TOTAL_AGENTS),
   workflowDisposeGraceMs: z.number().step(1).min(1).default(DEFAULT_DISPOSAL_TIMEOUT_MS),
+  jobsBridge: z.boolean().default(false),
   promptSectionOrder: z.natural().default(118),
 })
 
@@ -288,5 +304,19 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     runtime.workflowBridge = bridge
     await bridge.activate()
     ctx.effect(() => () => bridge.dispose(), 'agent-swarm: workflow bridge disposal')
+  }
+
+  // M2-2 (issue #76): the Team bridge job registry — a read-only projection
+  // of the authoritative task board onto the official `ctx.jobs` seam,
+  // registered in an isolated `jobs` service scope (never over the
+  // default-scope official registry). Independent of the workflow bridge:
+  // it projects every watched workspace scope, not only workflow-driven
+  // Teams. Registered after the runtime disposal effect so Cordis's LIFO
+  // teardown retires the projection before the aggregate store closes.
+  if (config.jobsBridge === true) {
+    const projection = new TeamJobProjection(ctx.isolate('jobs'), runtime)
+    runtime.jobsBridge = projection
+    await projection.activate()
+    ctx.effect(() => () => projection.dispose(), 'agent-swarm: jobs bridge disposal')
   }
 }

@@ -13,7 +13,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-storage-domain'
 import type {} from '@deepseek-ai/dsh-subagent'
-import { TaskId, type AttemptId, type TeamId, type TeamLimits, type TeamMessage, type TeamState, type TeamStatusSnapshot, type TeamTask } from '../domain/types.js'
+import { TaskId, type AttemptId, type TeamId, type TeamMessage, type TeamState, type TeamStatusSnapshot, type TeamTask } from '../domain/types.js'
 import { TeamDomain } from '../domain/team-domain.js'
 import type { CreateTaskInput, TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import { TeamDomainError } from '../domain/error.js'
@@ -26,44 +26,16 @@ import { interruptMember } from './member-control.js'
 import { MemberProvisioner } from './member-provisioning.js'
 import { MessageDelivery } from './message-delivery.js'
 import { manualReview, priorityReadyScheduler, type ReviewProviderInput, type ReviewProviderResult, type SchedulerDecision, type SchedulerSelectionInput, type TeamReviewProvider, type TeamSchedulerProvider } from './providers.js'
-import { OrchestrationOwnership, type OrchestrationMode } from './orchestration-ownership.js'
+import { OrchestrationOwnership } from './orchestration-ownership.js'
 import { SchedulingPass } from './scheduling.js'
 import { UsageAccountant } from './usage-accounting.js'
+import type { RuntimeConfig } from './runtime-contract.js'
+import type { TeamJobProjection } from './jobs/team-job-projection.js'
 import type { TeamBridgeWorkflowEngine } from './workflow/team-bridge-engine.js'
 
 export type { ToolExecutionAuthority }
 export type { ReviewProviderInput, ReviewProviderResult, SchedulerDecision, SchedulerSelectionInput, TeamReviewProvider, TeamSchedulerProvider }
-
-export interface RuntimeConfig {
-  readonly memberProvider: string
-  readonly memberModel?: string
-  readonly memberMaxDepth: number
-  readonly schedulerProvider: string
-  readonly reviewProvider: string
-  readonly limits: TeamLimits
-  /** Explicit orchestration mode (M2-3, issue #77; docs/04 §8g). */
-  readonly orchestrationMode: OrchestrationMode
-  /**
-   * Bound for every disposal settlement step (F4), aligned with the official
-   * experimental `disposalTimeoutMs` (default 5000). Positive safe integer.
-   */
-  readonly disposalTimeoutMs: number
-  /**
-   * Stranded-ownership grace bound (issue #12 / F10): a live-and-idle member
-   * holding an open in_progress task is retried under a fresh attempt once
-   * this many milliseconds elapsed since the task's last transition. Safe
-   * non-negative integer; 0 disables automatic retry (evidence-only
-   * `stranded=` hints remain). Decisions: docs/04 §8c.
-   */
-  readonly strandedAfterMs: number
-}
-
-declare module '@deepseek-ai/cordis' {
-  interface Context {
-    /** Authoritative host API; model tools are only one Consumer. */
-    agentSwarm: AgentSwarmRuntime
-  }
-}
+export type { RuntimeConfig } from './runtime-contract.js'
 
 /** DSH-facing runtime that composes the framework-neutral domain with continuable subagents. */
 export class AgentSwarmRuntime extends Service {
@@ -76,13 +48,9 @@ export class AgentSwarmRuntime extends Service {
   private readonly reviewProviders = new Map<string, TeamReviewProvider>()
   private readonly ownedChildren = new Map<string, Set<string>>()
   /**
-   * Session id → when its CURRENT idle stretch began, latched at every
-   * observed `agent/status → idle` edge (issue #83): the stranded grace
-   * bounds the owner's idle stretch, so the fresh edge of a captain teardown
-   * holds the self-heal back through the teardown window. An agent that runs
-   * again refreshes the latch at its next idle edge; entries never observed
-   * by this runtime are simply absent and the grace falls back to the task's
-   * last-transition clock.
+   * Session id → its CURRENT idle stretch's start, latched at every observed
+   * `agent/status → idle` edge (issue #83: the stranded grace bounds the
+   * owner's idle stretch; absent entries fall back to the task clock).
    */
   private readonly idleSince = new Map<string, number>()
   private readonly usage: UsageAccountant
@@ -101,6 +69,16 @@ export class AgentSwarmRuntime extends Service {
    * behavior is byte-identical to the pre-bridge plugin.
    */
   workflowBridge?: TeamBridgeWorkflowEngine
+
+  /**
+   * The Team bridge job projection (M2-2, issue #76), attached by plugin
+   * activation when `jobsBridge` is enabled. Registered in an isolated
+   * `jobs` service scope — never over the default-scope official registry —
+   * and strictly read-only over the authoritative aggregate. Absent
+   * (undefined) when the capability is disabled: default behavior is
+   * byte-identical to the pre-bridge plugin.
+   */
+  jobsBridge?: TeamJobProjection
 
   constructor(
     ctx: Context,
@@ -203,6 +181,25 @@ export class AgentSwarmRuntime extends Service {
     return resolve(workspaceOf(agent))
   }
 
+  /**
+   * Read-only enumeration of every Team aggregate in one workspace scope,
+   * straight from the authoritative store. Consumed by derived projections
+   * (the M2-2 jobs bridge's scope seeding); never a mutation path.
+   */
+  async listTeamAggregates(scope: TeamScope): Promise<TeamState[]> {
+    if (this.storeInstance === undefined) await this.start()
+    if (this.storeInstance === undefined) {
+      throw new TeamDomainError('Team orchestrator storage did not start', 'TEAM_RUNTIME_NOT_STARTED')
+    }
+    return await this.storeInstance.list(scope)
+  }
+
+  /** Latch one scope into the jobs projection (idempotent, best-effort). */
+  private watchJobsScope(scope: TeamScope): void {
+    if (this.jobsBridge === undefined) return
+    void this.jobsBridge.watchScope(scope)
+  }
+
   private assertOpen(): void {
     if (this.closing) throw new TeamDomainError('Team orchestrator is disposing', 'TEAM_RUNTIME_CLOSING')
   }
@@ -220,6 +217,7 @@ export class AgentSwarmRuntime extends Service {
     await this.ensureReady()
     this.assertOpen()
     const agent = requireAgent(exec)
+    this.watchJobsScope(this.scopeOf(agent))
     return await this.domain.createTeam(
       this.scopeOf(agent), agent.id, name, description, agent.session.events.at(-1)?.seq ?? -1,
     )
@@ -512,6 +510,7 @@ export class AgentSwarmRuntime extends Service {
   async recoverAgent(agent: Agent): Promise<void> {
     if (this.closing) return
     const scope = this.scopeOf(agent)
+    this.watchJobsScope(scope)
     let membership = await this.domain.findMembership(scope, agent.id)
     if (membership === undefined || this.closing) return
     if (membership.role === 'captain') {
