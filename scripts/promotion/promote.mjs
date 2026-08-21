@@ -109,7 +109,7 @@ export async function runPromote(args) {
   if (!probe.ok) {
     step('health-probe', 'fail', `stable plane unhealthy after promote: dump=${probe.evidence.dumpConfigOk} boot=${probe.evidence.bootReady} describe=${probe.evidence.describe?.ok} portFree=${probe.evidence.portFreeAfterTeardown}`)
     if (args.establish) {
-      throw new Error('g0 establishment health probe failed — no previous generation to roll back to; investigate the control Profile before any candidate work')
+      throw new Error(`g0 establishment health probe failed — no previous generation to roll back to; probe evidence: ${JSON.stringify(probe.evidence).slice(0, 800)}`)
     }
     const previousTarball = join(genDir(layout.lkgDir, pointer.currentGen), 'dsh-agent-swarm.tgz')
     const reinstall = await installIntoStableProfile({ cli: args.cli, layout, tarballPath: previousTarball })

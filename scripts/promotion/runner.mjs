@@ -188,12 +188,46 @@ export async function portFree(port, host = '127.0.0.1') {
   })
 }
 
-/** Bounded wait until one port is free (tree kill settles slightly after the main exit). */
-export async function waitPortFree(port, timeoutMs = 10_000, host = '127.0.0.1') {
+/** The pid listening on one TCP port, parsed from netstat (Windows). */
+export async function listenerPid(port) {
+  const { execFile } = await import('node:child_process')
+  const { promisify } = await import('node:util')
+  const target = `:${port}`
+  try {
+    const { stdout } = await promisify(execFile)('netstat', ['-ano', '-p', 'tcp'], { timeout: 10_000, windowsHide: true })
+    for (const line of stdout.split('\n')) {
+      const columns = line.trim().split(/\s+/)
+      if (columns.length >= 5 && columns[3] === 'LISTENING' && columns[1].endsWith(target)) return Number(columns[4])
+    }
+  } catch { /* netstat unavailable: report none */ }
+  return undefined
+}
+
+/**
+ * Bounded wait until one port is free (tree kill settles slightly after the
+ * main exit — a detached web child holds the socket until its heartbeat
+ * notices the dead parent, observed live >10s). `reclaim: true` additionally
+ * kills whatever STILL listens on the port once the grace elapsed: callers
+ * pass only their own dedicated drill-pool port, so any late listener is
+ * drill residue by construction and reclaiming it is bounded teardown, not a
+ * foreign kill.
+ */
+export async function waitPortFree(port, timeoutMs = 15_000, host = '127.0.0.1', options = {}) {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     if (await portFree(port, host)) return true
     await new Promise(resolve => setTimeout(resolve, 250))
+  }
+  if (options.reclaim === true) {
+    const pid = await listenerPid(port)
+    if (pid !== undefined && pid !== process.pid) {
+      killTree(pid)
+      const grace = Date.now() + 10_000
+      while (Date.now() < grace) {
+        if (await portFree(port, host)) return true
+        await new Promise(resolve => setTimeout(resolve, 250))
+      }
+    }
   }
   return await portFree(port, host)
 }

@@ -84,6 +84,6 @@ export async function probeStablePlane({ cli, layout, port }) {
   }
   const teardown = await stopPlane(boot)
   evidence.teardown = teardown
-  evidence.portFreeAfterTeardown = await waitPortFree(port)
+  evidence.portFreeAfterTeardown = await waitPortFree(port, 15_000, '127.0.0.1', { reclaim: true })
   return { ok: evidence.dumpConfigOk && boot.ready && describe.ok && teardown.exited && evidence.portFreeAfterTeardown, evidence }
 }

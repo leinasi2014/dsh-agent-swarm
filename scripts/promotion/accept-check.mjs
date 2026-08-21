@@ -181,7 +181,7 @@ export async function runAcceptance(args) {
     const boot3 = await bootPlane({ cli: args.cli, home: drillHome, profile: args.profile, port: args.port })
     const describe3 = boot3.ready ? await rpcCall(args.port, 'host.describe', {}) : { ok: false }
     const stopResult = await stopPlane(boot3)
-    const free = await waitPortFree(args.port)
+    const free = await waitPortFree(args.port, 15_000, '127.0.0.1', { reclaim: true })
     await writeJsonFile(join(isolation.domains.evidence, 'a6-reload-recovery-teardown.json'), { reloadBootReady: boot3.ready, reloadDescribeOk: describe3.ok, teardown: stopResult, portFreeAfterTeardown: free })
     gate('a6-reload-recovery-teardown', boot3.ready && describe3.ok && stopResult.exited && free ? 'pass' : 'fail', `reloadBoot=${boot3.ready} teardownExited=${stopResult.exited} portFree=${free}`, 'a6-reload-recovery-teardown.json')
   } catch (error) {
