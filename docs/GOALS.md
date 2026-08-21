@@ -12,29 +12,26 @@
 
 ## 当前开发目标
 
-**M2 — 官方 Workflow/Jobs 编排模式（2026-08-21 接替 M1D）**
+**M3 — 自托管安全纵切（D2 并行自我开发）（2026-08-21 接替 M2）**
 
-**入口门（开工前完成，M1D 回归审查 remediation）**：#60（P2-1 assignment 认领可见性——#52 claimed-gate 同构推广）、#61（P2-2 `TEAM_SELF_MESSAGE` 官方对齐）、#62（P3-4 fence 卫生清理）。
+**入口门（开工前完成）**：#92（计费缺口诊断——seq 游标 reorder-safe 修复，replay-safe 不回退）、#93（jobs 投影的模型面读工具暴露）、#94（官方 UI 消费方对 team-task 投影的核验）。
 
-1. `ctx.workflowEngine`/`ctx.jobs` 的 Team 桥 Consumer；
-2. `adaptive`/`workflow` 显式模式（单 owner）；Jiuwen phase/parallel/pipeline/nested/human 节点映射；
-3. Team 预算跨 run 共享；双 owner 故障测试；
-4. 开工先做 Gate A + issue 分解（注意：`src/tools.ts` 已 594/600 行，扩工具前先拆分）；
-5. 规划陷阱预登记已就位：`docs/development/2026-08-20-m2-planning-note.md`。
+1. 真实 per-attempt 执行根（每次尝试独立执行根隔离）；
+2. 独立可执行审查（Reviewer 与实现者分离的可执行验证面）；
+3. 候选验收 Profile 分离 + 外部晋升/回滚（ADR-0008 全文纪律）；
+4. 开工先做 Gate A + issue 分解 + ADR-0008 的 D2 前置条件逐项核验。
 
-**D1 单写入者 dogfood 已开放（2026-08-21 起）**：M1 放行即生效，约束与观察清单见 `docs/development/2026-08-21-m1d-exit-report.md` §4。
+**D1 单写入者 dogfood 持续**（2026-08-21 起开放；约束与观察清单见 `docs/development/2026-08-21-m1d-exit-report.md` §4，`.dsh-mkdir` 上游抖动与 P3-3 活性角落持续观察中）。
 
 ## 上一目标（已完成的登记记录）
 
-**M1D — 装配验收与放行（2026-08-21 完成）**：#37（M1D-1 双环境 Profile 装配，PR#48）、#38（M1D-2 重载/恢复/关停，PR#51，**发现 D1**）、#52（D1 修复：waking 确认仅认领形态，PR#54+追补 PR#56）、#39（独立 GLM-5.3 回归审查 **verdict PASS**，报告 `docs/reviews/2026-08-21-m1d-regression-review.md`）、#40（本出口报告）。伴随：CI 守卫修复 PR#57、测试窗口加固 PR#58、教训库 PR#59。审查非阻断项立案 #60/#61/#62（M2 入口门）。85/85 测试；tag `m1d`。证据：`docs/development/2026-08-21-m1d-exit-report.md`。**M1（M1A→M1D）全量收束：D1 单写入者 dogfood 开放。**
+**M2 — 官方 Workflow/Jobs 编排模式（2026-08-21 完成）**：入口门 #60/#61/#62 全关（PR#68/#67/#71）；#74 tools 拆分（PR#81）、#75 WorkflowEngine 桥（PR#85，isolate 注册 + agent_swarm_workflow overlay 域）、#76 JobRegistry 桥（PR#87，只读投影崩溃即重导）、#77 显式模式 + 双 owner 对抗（PR#86，变异法四重验证）、#78 节点类型映射（PR#89，纯构图糖非第二引擎）、#79 预算跨 run 结转（PR#90，单一唤醒账本）。伴随：#83 三重自愈缺陷修复（PR#84）、CI 守卫与窗口族加固、Gate C 第四次 re-pin、泳道扩容 3-6、教训 24-33。121 测试、场景审计 19/33；tag `m2`。尾巴转 M3 入口门 #93/#94。证据：`docs/development/2026-08-21-m2-exit-report.md`。
+
+**M1D — 装配验收与放行（2026-08-21 完成）**：#37（M1D-1 双环境 Profile 装配，PR#48）、#38（M1D-2 重载/恢复/关停，PR#51，**发现 D1**）、#52（D1 修复：waking 确认仅认领形态，PR#54+追补 PR#56）、#39（独立 GLM-5.3 回归审查 **verdict PASS**，报告 `docs/reviews/2026-08-21-m1d-regression-review.md`）、#40（出口报告）。伴随：CI 守卫修复 PR#57、测试窗口加固 PR#58、教训库 PR#59。审查非阻断项立案 #60/#61/#62（M2 入口门）。85/85 测试；tag `m1d`。证据：`docs/development/2026-08-21-m1d-exit-report.md`。**M1（M1A→M1D）全量收束：D1 单写入者 dogfood 开放。**
 
 **M1C — 生命周期、协调与输入加固（2026-08-20 完成）**：#12/#13/#14/#15/#19 全部关闭（含 CI 稳定化 PR #33）；F4/F7(usage)/F8/F10 与伴随组在生命周期/调度/prompt 快照/兼容测试中通过；78/78 测试、场景审计 16/30；tag `m1c`。证据：`docs/development/2026-08-20-m1c-exit-report.md`。
 
 **M1B — 崩溃安全协议（2026-08-20 完成）**：#7/#3/#4/#5/#6/#8 全部关闭；F2/F3/F6/F7 被真实崩溃/故障注入测试关闭；场景审计 12/30；tag `m1b`。证据：`docs/development/2026-08-20-m1b-exit-report.md`。
-
-## 下一个目标（预登记，当前目标完成后生效）
-
-**M3 — 自托管安全纵切（D2 并行自我开发）**：真实 per-attempt 执行根、独立可执行审查、候选验收 Profile 分离、外部晋升/回滚（ADR-0008）。入口条件：M2 完成且 D1 dogfood 无未决阻断发现。
 
 ## 登记规则
 
