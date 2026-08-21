@@ -65,6 +65,17 @@ export interface TeamTask {
    * a byte-identical stored shape). Consumed by executable review Providers.
    */
   readonly verification?: ReviewVerificationCommand[]
+  /**
+   * Creator-declared guaranteed minimum token allocation (M4-3, issue
+   * #129), absent when the task declares none (pre-M4-3 stored records keep
+   * a byte-identical stored shape). The declaration is durable task
+   * contract metadata; the reservation HOLD it produces is derived
+   * scheduling state — the sum of the reservations of `in_progress` tasks —
+   * never stored. A claim is reservation-admissible only while
+   * `usedTokens + holds (including this task) <= tokenLimit`; reservations
+   * are inert while no `tokenLimit` is configured.
+   */
+  readonly reservationTokens?: number
   readonly ownerSessionId?: string
   readonly currentAttemptId?: AttemptId
   readonly output?: string

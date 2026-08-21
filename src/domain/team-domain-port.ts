@@ -94,6 +94,16 @@ export interface CreateTaskInput {
    * time. Executed only inside a review execution root.
    */
   readonly verification?: readonly ReviewVerificationCommand[]
+  /**
+   * Creator-declared guaranteed minimum token allocation (M4-3, issue
+   * #129). Durable task contract metadata; the hold it produces is derived
+   * per evaluation (sum of the reservations of in_progress tasks), never
+   * stored. A claim is admitted only while the floor plus the outstanding
+   * holds fit the remaining budget (`TEAM_BUDGET_RESERVATION` otherwise —
+   * admission-postpone, never exhaustion); inert while no `tokenLimit` is
+   * configured.
+   */
+  readonly reservationTokens?: number
 }
 
 /**
@@ -215,6 +225,10 @@ export interface TeamDomainPort {
    * diagnostic and allocates the same-owner successor (recording the attempt
    * it replaced), so the task is continuously `in_progress` — never exposed
    * as `pending` to a reader or a scheduling lane between the transitions.
+   * Cost-aware retryLimit (M4-3, issue #129): the retry also charges one
+   * `usedRetries` (a failure-driven re-execution generation) alongside the
+   * request seat charge; no reservation re-admission happens (the task
+   * never leaves `in_progress`, so its hold is already accounted).
    * @returns the retried task and its fresh reserved attempt.
    * @throws {@link TeamDomainError} `TEAM_TASK_STALE_REVISION`,
    * `TEAM_TASK_NOT_REASSIGNABLE` (not the owner's open attempt),

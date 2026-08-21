@@ -6,27 +6,44 @@
  * cursor per session), plus the budget admission check task claiming must
  * pass. Usage arrives as coalesced per-session batches (M1C write
  * coalescing) that fold under the same cursor semantics in one transaction.
- * Budget semantics stay in one module so the M4 `ctx.tokenMeter`
+ * M4-3 (issue #129) adds the derived budget-policy faces over the same
+ * ledger: the non-throwing exhaustion predicate (budget-hold gating and
+ * evidence), reservation admission (a task's declared floor against the
+ * remaining budget and the outstanding in_progress holds), and the evidence
+ * hold hints. Budget semantics stay in one module so the M4 `ctx.tokenMeter`
  * adapter has a single seam to replace.
  */
 import { expectDomain, TeamDomainError } from './error.js'
 import { actorMembership, type TeamDomainDeps } from './team-domain-shared.js'
-import type { TeamBudget, TeamId } from './types.js'
+import type { TeamBudget, TeamId, TeamTask } from './types.js'
 import type { TeamScope } from './team-domain-port.js'
 
+/**
+ * The first budget-exhaustion code the face violates at `now`, or
+ * `undefined` when the Team may still admit new work (M4-3, issue #129).
+ * The non-throwing derivation behind {@link budgetAvailable}: callers that
+ * only need to OBSERVE the exhaustion state (the scheduler's budget-hold
+ * gating, the read surface's hold evidence) consume this predicate, while
+ * admission paths keep throwing through {@link budgetAvailable}.
+ */
+export function budgetExhaustion(budget: TeamBudget, now: number): TeamDomainError['code'] | undefined {
+  if (budget.deadlineAt !== undefined && now >= budget.deadlineAt) return 'TEAM_BUDGET_DEADLINE'
+  if (budget.requestLimit !== undefined && budget.usedRequests >= budget.requestLimit) return 'TEAM_BUDGET_REQUESTS'
+  if (budget.tokenLimit !== undefined && budget.usedTokens >= budget.tokenLimit) return 'TEAM_BUDGET_TOKENS'
+  if (budget.retryLimit !== undefined && budget.usedRetries >= budget.retryLimit) return 'TEAM_BUDGET_RETRIES'
+  return undefined
+}
+
+const EXHAUSTION_MESSAGES: Record<string, string> = {
+  TEAM_BUDGET_DEADLINE: 'team deadline has expired',
+  TEAM_BUDGET_REQUESTS: 'team request budget exhausted',
+  TEAM_BUDGET_TOKENS: 'team token budget exhausted',
+  TEAM_BUDGET_RETRIES: 'team retry budget exhausted',
+} as const
+
 export function budgetAvailable(budget: TeamBudget, now: number): void {
-  if (budget.deadlineAt !== undefined && now >= budget.deadlineAt) {
-    throw new TeamDomainError('team deadline has expired', 'TEAM_BUDGET_DEADLINE')
-  }
-  if (budget.requestLimit !== undefined && budget.usedRequests >= budget.requestLimit) {
-    throw new TeamDomainError('team request budget exhausted', 'TEAM_BUDGET_REQUESTS')
-  }
-  if (budget.tokenLimit !== undefined && budget.usedTokens >= budget.tokenLimit) {
-    throw new TeamDomainError('team token budget exhausted', 'TEAM_BUDGET_TOKENS')
-  }
-  if (budget.retryLimit !== undefined && budget.usedRetries >= budget.retryLimit) {
-    throw new TeamDomainError('team retry budget exhausted', 'TEAM_BUDGET_RETRIES')
-  }
+  const code = budgetExhaustion(budget, now)
+  if (code !== undefined) throw new TeamDomainError(EXHAUSTION_MESSAGES[code] ?? code, code)
 }
 
 /**
@@ -42,6 +59,68 @@ export const BUDGET_EXHAUSTION_CODES = new Set([
   'TEAM_BUDGET_TOKENS',
   'TEAM_BUDGET_RETRIES',
 ])
+
+/**
+ * The outstanding reservation hold of one Team (M4-3, issue #129): the sum
+ * of the declared `reservationTokens` of its `in_progress` tasks. Derived
+ * scheduling state, never stored — a hold exists exactly while unfinished
+ * execution may still spend, so settlement releases it by definition and a
+ * crash can never strand a phantom hold. The scheduler's new-assignment
+ * lane and `claimTask` derive the same value from the same authoritative
+ * tasks, so the two faces cannot diverge.
+ */
+export function outstandingReservationTokens(tasks: readonly TeamTask[]): number {
+  let sum = 0
+  for (const task of tasks) {
+    if (task.status === 'in_progress' && task.reservationTokens !== undefined) sum += task.reservationTokens
+  }
+  return sum
+}
+
+/**
+ * Whether one task's reservation floor is admissible against a budget face:
+ * trivially yes while no `tokenLimit` is configured (reservations are inert
+ * without a limit — documented), otherwise yes exactly while the remaining
+ * budget covers the outstanding holds PLUS this task's floor. Unreserved
+ * work (floor 0) is never blocked by the predicate: reservations guarantee
+ * minimums, they do not monopolize the remainder.
+ */
+export function reservationAdmissible(
+  budget: TeamBudget,
+  outstandingReserved: number,
+  taskReservation: number,
+): boolean {
+  if (budget.tokenLimit === undefined) return true
+  return budget.usedTokens + outstandingReserved + taskReservation <= budget.tokenLimit
+}
+
+/**
+ * Evidence-only hold hint of one task row (M4-3, issue #129), derived from
+ * the authoritative budget face and board — never stored, never a status:
+ *
+ * - `'budget'`: the task is mid-execution (`in_progress`) and the Team
+ *   budget face is exhausted — the degraded-continuation hold of docs/04
+ *   §8n. Not stranding: the owner may be perfectly live; the TEAM cannot
+ *   admit further spend, so no retry is attempted regardless of grace.
+ * - `'reservation'`: the task is `pending`, declares a reservation floor,
+ *   the face is not exhausted, and the floor is not currently admissible —
+ *   the scheduler postpones it until a hold releases or the limit rises.
+ */
+export function taskHoldEvidence(
+  budget: TeamBudget,
+  tasks: readonly TeamTask[],
+  task: TeamTask,
+  now: number,
+): 'budget' | 'reservation' | undefined {
+  if (task.status === 'in_progress') {
+    return budgetExhaustion(budget, now) === undefined ? undefined : 'budget'
+  }
+  if (task.status !== 'pending' || task.reservationTokens === undefined) return undefined
+  if (budgetExhaustion(budget, now) !== undefined) return undefined
+  return reservationAdmissible(budget, outstandingReservationTokens(tasks), task.reservationTokens)
+    ? undefined
+    : 'reservation'
+}
 
 /** Whether one budget face is the untouched fresh-Team default. */
 function isFreshBudget(budget: TeamBudget): boolean {

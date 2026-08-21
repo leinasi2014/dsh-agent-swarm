@@ -86,6 +86,9 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
         if (entry.timeoutMs !== undefined) integer(entry.timeoutMs, path, `tasks[${index}].verification[${command}].timeoutMs`, 1)
       })
     }
+    if (task.reservationTokens !== undefined) {
+      integer(task.reservationTokens, path, `tasks[${index}].reservationTokens`, 1)
+    }
     integer(task.priority, path, `tasks[${index}].priority`, Number.MIN_SAFE_INTEGER)
     if (task.ownerSessionId !== undefined) text(task.ownerSessionId, path, `tasks[${index}].ownerSessionId`)
     if (task.currentAttemptId !== undefined) text(task.currentAttemptId, path, `tasks[${index}].currentAttemptId`)

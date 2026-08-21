@@ -180,6 +180,7 @@ Official integration:
 
 Reference fusion:
 
+- M4-3 (issue #129) delivered the budget family's policy overlays (decisions in docs/04 §8n, design note `docs/development/2026-08-22-m4c-budget-family.md`): cost-aware retry economics (in-place retries charge the retry face, failed attempts bill once on the single ledger), Jiuwen's per-run reservations as per-task `reservation_tokens` floors over the one shared ledger (domain-enforced admission-postpone plus scheduler pre-selection, holds derived and released at settlement — no second ledger, no dynamic fan-out), degraded continuation with budget recovery (budget-hold evidence, stranded healing gated off under exhaustion, `set_budget` as the wired budget-release scheduling event), and the #79 carry interaction (reservations never carry; the carried face is the admission basis). The same change fixed a durable-boundary defect the storage-surface argument exposed: `verification` (#101) and `replacesAttemptId` (#83) were silently stripped at the official Storage Domain load path (zod strips undeclared keys; fact registered in docs/09 §1) — the table schema now declares every additive optional field, locked by the scenario-38 reload regression;
 - preserve Jiuwen shared budget spent/remaining behavior and per-run reservations;
 - preserve dsh-agent-teams process-local serialization cases while making backend capabilities explicit.
 

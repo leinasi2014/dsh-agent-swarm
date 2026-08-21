@@ -2,8 +2,8 @@
 name: dsh-plugin-development
 description: 证据驱动地设计、实现、重构、调试、验证和发布 DeepSeek Harness 插件。覆盖 Everything-is-a-plugin、capability seam、函数/Service 插件、inject/effect/event、工具、Bundle/Profile、Host/Client、持久化、Subagent、Workflow、Agent Team、真实组合测试与故障恢复。使用本 Skill 时必须完成可运行或可验证的开发步骤，不能只输出概念说明。
 metadata:
-  version: "1.4.1"
-  date: "2026-08-20"
+  version: "1.4.2"
+  date: "2026-08-22"
   dsh_source_commit: "b150a551b8d465e31e418e1b2eaf5e79bbb7d28e"
   dsh_release: "0.1.0-rc.8"
   direct_reference: "NanmiCoder/dsh-agent-teams@0c21e5d2f45ec1ea7c9ee89ffc4ee77d1cb9262e"
@@ -417,7 +417,7 @@ dsh --profile <check-profile> --dump-config
 14. 每个功能分支/里程碑先通过 `docs/11-official-first-development.md` 的 Gate A；未通过不得写生产代码。
 15. 独立安全/架构审查遵循 `docs/12-independent-review-management.md`：用户未设置时不限制审查员时长、step、token、轮次或套餐消耗；项目经理只提供范围、解除真实阻塞、接收报告并核验证据，不催促提前收敛。
 16. 用户明确授权全权限审查时，将 `danger-full-access` 与 `approval=never` 固定在独立 Session，核对持久权限事件；临时修改未来 Session 默认值后立即恢复。运行时全权限不等于允许改生产源码，审查写入范围仍由任务约束。
-17. M1A 已实现 ADR-0007：`sessionPersistence` 和 `storageDomain` 是 fail-closed 必需注入（缺失组合中插件保持 pending）；权威 Team aggregate 位于官方 `agent_swarm` Storage Domain（`TeamDomainPort` → `StorageDomainTeamStore`，每 Team 一条版本化记录 + 迁移回执），绝不在共享工作区；`FileTeamStore` 只读（迁移读取器/fixture，无写路径）；迁移仅经 `scripts/migrate-legacy-team-store.mjs` 显式单向执行（空目的、读回校验、回执、源只读），禁止运行时自动迁移、双写或回退；该保护 denies ordinary workspace writer，不是对 unrestricted host access 的防御，存储 root 必须配置在工作区与 sandbox 根之外。
+17. M1A 已实现 ADR-0007：`sessionPersistence` 和 `storageDomain` 是 fail-closed 必需注入（缺失组合中插件保持 pending）；权威 Team aggregate 位于官方 `agent_swarm` Storage Domain（`TeamDomainPort` → `StorageDomainTeamStore`，每 Team 一条版本化记录 + 迁移回执），绝不在共享工作区；`FileTeamStore` 只读（迁移读取器/fixture，无写路径）；迁移仅经 `scripts/migrate-legacy-team-store.mjs` 显式单向执行（空目的、读回校验、回执、源只读），禁止运行时自动迁移、双写或回退；该保护 denies ordinary workspace writer，不是对 unrestricted host access 的防御，存储 root 必须配置在工作区与 sandbox 根之外。持久边界事实（M4-3/#129 探针实证，docs/09 §1）：官方 storage-domain 的 `put` 原样存储记录，但加载路径按表 value schema zod 解析并**剥离未声明键**——向聚合新增可选字段时必须同时扩展 `src/storage/team-spec.ts` 的 zod 表 schema 与 `assertTeamState`，否则字段仅在单进程存活、重载即静默丢失（`verification`/`replacesAttemptId` 曾因此中招）。
 18. 自托管依 ADR-0008 分级开放：M1D 后仅 D1 单写入者试运行；M2/M3 验收后才允许 D2 并行自我开发。
 19. Stable control、candidate Worktree/artifact、acceptance Profile/state/RPC、promotion/rollback 必须分权；candidate 不能批准或部署自身。
 20. Dogfood 管理只观察权威 Team/Job/lease/verification 状态和阶段报告，不轮询私有推理；失败通过 Lead 建立 fresh fenced task，不直接篡改 canonical state。

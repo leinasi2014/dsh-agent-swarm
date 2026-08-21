@@ -41,6 +41,16 @@ const taskSchema = z.object({
   blockedBy: z.array(z.string().min(1)),
   writeScopes: z.array(z.string().min(1)),
   priority: z.number().int(),
+  // Durable-boundary additive optionals (M4-3, issue #129, declared here
+  // after the probe-proven strip defect — the official load path parses every
+  // stored record through this schema, and zod drops undeclared keys): the
+  // frozen verification list (#101) and the reservation floor. Absent fields
+  // parse; every pre-existing record is byte-identical.
+  verification: z.array(z.object({
+    command: z.string().min(1),
+    timeoutMs: z.number().int().min(1).optional(),
+  })).optional(),
+  reservationTokens: z.number().int().min(1).optional(),
   ownerSessionId: sessionId.optional(),
   currentAttemptId: z.string().min(1).optional(),
   output: z.string().min(1).optional(),
@@ -56,6 +66,8 @@ const attemptSchema = z.object({
   phase: z.enum(['running', 'submitted', 'verifying', 'accepted', 'rejected', 'cancelled', 'stale']),
   assignmentPhase: z.enum(['reserved', 'delivered']),
   assignmentDeliveredAt: timestamp.optional(),
+  // #83 in-place retry linkage — same durable-boundary declaration fix.
+  replacesAttemptId: z.string().min(1).optional(),
   output: z.string().min(1).optional(),
   evidence: z.array(z.string().min(1)),
   diagnostic: z.string().min(1).optional(),
