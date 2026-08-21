@@ -167,6 +167,8 @@ Converts “worker submitted output” into an independently accepted result. Pr
 
 A task reaches canonical completed only after the configured gate accepts it.
 
+Issue #128 extends this shipped seam without replacing it: review-root registrations may declare a toolchain family/capability probe; named verification templates compile before the authoritative task commit into the existing schema-v1 command list; and executable review aggregates ordered evidence across multiple root sessions. Node and Python each have a builtin family, while missing capabilities fail loudly. The official invariant registry is not used as a command runner because it owns relational runtime assertions, not review operations.
+
 ### TeamMemory
 
 Listens after an accepted round/task and writes structured experience through a memory service/provider. Suggested categories from Jiuwen prior art:
@@ -202,7 +204,7 @@ Self-hosting reuses the Bundle, RPC host, Team tools, Workflow/Jobs, Workspace a
 
 ## 5. Current package versus target family
 
-The package graph above is a target decomposition. The shipped 0.1 package is one host-only bundle containing domain, runtime, workspace file storage, tools, default Scheduler/Review providers, budget and manual memory. Only Scheduler and Review have runtime registration contracts. ADR-0007 fixes the next decomposition: Team Domain plus official Storage Domain Provider first, then crash/lifecycle hardening. Workflow/Jobs follows in M2; ADR-0008 inserts the self-hosting safety vertical at M3; Token Meter/accounting moves to M4. Full verification/permission, Workspace/remote, memory, distributed and UI families remain later work.
+The package graph above is a target decomposition. The shipped 0.1 package is one host-only bundle containing domain, runtime, workspace file storage, tools, default Scheduler/Review providers, budget and manual memory. Scheduler, Review, review-root families and verification-command templates have runtime registration contracts. ADR-0007's Team Domain/Storage Domain authority split, the M2 Workflow/Jobs bridge, ADR-0008's M3 self-hosting slice and M4-2's multi-root verification-command family are implemented. Token Meter accounting, full permission/human interaction, Workspace/remote, memory, distributed and UI families remain later work.
 
 ## 6. Why this is not over-modularization
 

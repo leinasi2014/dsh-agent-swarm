@@ -8,6 +8,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { TaskId } from '../domain/types.js'
 import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
+import type { VerificationDeclaration } from '../runtime/verification-commands.js'
 import { register } from './shared.js'
 
 /** `agent_swarm_create_task`. */
@@ -24,12 +25,25 @@ export function registerCreateTaskTool(ctx: Context, runtime: AgentSwarmRuntime)
       priority: { type: 'number', description: 'Higher values are scheduled first.' },
       verification: {
         type: 'array',
-        description: 'Captain-declared verification commands frozen into the task (M3-2): an executable review Provider runs them inside an isolated review root and records exit codes and output as the review evidence. Declared at commission time; the worker cannot change or dodge them.',
+        description: 'Captain-declared verification checks frozen into the task. Each entry is either a raw command or a named command-library template with parameters; templates expand before the task commit and may select a Node/Python root family.',
         items: {
           type: 'object',
           additionalProperties: false,
           properties: {
-            command: { type: 'string', required: true, description: 'Shell command executed with the review root as cwd.' },
+            command: { type: 'string', description: 'Raw shell command executed with the configured legacy review root as cwd; mutually exclusive with template.' },
+            template: { type: 'string', description: 'Registered template name such as node.test or python.lint; mutually exclusive with command.' },
+            parameters: {
+              type: 'array',
+              description: 'Named template parameters. Builtin templates accept the single parameter args.',
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  name: { type: 'string', required: true },
+                  value: { type: 'string', required: true },
+                },
+              },
+            },
             timeout_ms: { type: 'number', description: 'Per-command deadline in ms; bounded by the deployment ceiling.' },
           },
         },
@@ -57,9 +71,11 @@ export function registerCreateTaskTool(ctx: Context, runtime: AgentSwarmRuntime)
         ...(args.priority === undefined ? {} : { priority: args.priority }),
         ...(args.verification === undefined ? {} : {
           verification: args.verification.map(entry => ({
-            command: entry.command,
+            ...(entry.command === undefined ? {} : { command: entry.command }),
+            ...(entry.template === undefined ? {} : { template: entry.template }),
+            ...(entry.parameters === undefined ? {} : { parameters: entry.parameters }),
             ...(entry.timeout_ms === undefined ? {} : { timeoutMs: entry.timeout_ms }),
-          })),
+          } as VerificationDeclaration)),
         }),
       })
       return { task_id: task.id, revision: task.revision, status: task.status, ready: task.status === 'pending' }

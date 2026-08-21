@@ -1,6 +1,6 @@
 # 09. Source register and evidence policy
 
-Recorded: 2026-08-20.
+Recorded: 2026-08-22.
 
 ## 1. Primary framework sources
 
@@ -10,7 +10,7 @@ Recorded: 2026-08-20.
 - Branch: `master`
 - Commit: `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`
 - Commit message: release `dsh@0.1.1-rc.2`
-- Live verification: on 2026-08-20, `git ls-remote` returned this same SHA for remote `HEAD` and `refs/heads/master`; the clean local sparse checkout at `D:/Source/DSH/framework/deepseek-harness` was detached at the same commit
+- Live verification: on 2026-08-22, Gate A resolved remote `HEAD` and `refs/heads/master` to this same SHA and verified the materialized official evidence at the release anchor.
 - Materialized evidence: the sparse checkout now includes `.agents/notes/implemented` plus the relevant Workflow, Jobs, Token Meter, Storage, Workspace, interaction, Session, Skill, Compaction, Spill, Subagent and experimental Team source families. `OFFICIAL_BASELINE.json.evidenceFiles` and `verify-official-baseline.mjs` fail if the required Agent Notes/source evidence is no longer present.
 
 Priority files:
@@ -27,6 +27,8 @@ Priority files:
 - relevant `.agents/notes/implemented/**` records, especially Agent Teams packaging/behavior, Workflow durable runs/status disclosure, replay token meter, Jobs seam and Workspace context
 
 Verified target facts:
+
+- M4-2 (issue #128) assessed the official `@deepseek-ai/dsh-invariants` registry against its installed rc.2 manifest/types and the permitted rc.8 full-source subsystem, README, tests and implemented Agent Notes. Its stable public contract registers package-owned relational runtime assertions and lifecycle-owned listeners/startup checks; it is not a command runner or verification-result registry. Verification templates and multi-root command evidence therefore remain a project-owned Review overlay, with no official invariant companion registered and no official source modified. Evidence: `docs/development/2026-08-22-m4b-verification-family.md` §1/§6;
 
 - `@deepseek-ai/dsh-workflow`, `@deepseek-ai/dsh-jobs`, `@deepseek-ai/dsh-token-meter`, `@deepseek-ai/dsh-storage-domain` and `@deepseek-ai/dsh-workspace` are public rc.8 packages;
 - `@deepseek-ai/dsh-experimental-agent-team` is `private: true` and has no publish configuration;
@@ -71,11 +73,13 @@ Live verification on 2026-08-22 found `main` at `fe854d1` and re-pinned after a 
 
 Read for implementation prior art, not framework truth.
 
+M4-2 Gate A supersession (2026-08-22): the supplied sync script refreshed `main` to the recorded `0c21e5d` pointer and verified it as the branch tip. The older cumulative-diff paragraph above is retained as historical pin-review evidence; issue #128 uses the current checkout only as negative/behavioral evidence because it exposes repository verification practice but no verification-command runtime service.
+
 ## 3. Product architecture reference
 
 - URL: `https://github.com/openJiuwen-ai/jiuwenswarm`
 - Branch: `develop`
-- Commit: `962f0a4426041d54cef60e980a10491df84546ef`
+- Commit: `1d45d2b4a08423365eae7c37b2afdae6614a97ad`
 - Develop package state observed: `workswarm` `0.2.5.beta1`
 - Local pointer: `ref/jiuwenswarm/SOURCE_POINTER.json`
 - Full local checkout: `ref/jiuwenswarm/source/`
@@ -83,6 +87,8 @@ Read for implementation prior art, not framework truth.
 Live verification on 2026-08-22 found `develop` at this commit and the pin was reviewed and updated the same day. Seven deltas from the original `bddf335` pin were each diff-reviewed before adoption: `bddf335 → 152583aa` (gateway cron scheduling and server Session metadata), `152583aa → 20097e86` (a single commit adding MCP connection-cache prewarm in `server/runtime/agent_adapter/interface_{code,deep}.py`, +78 lines), `20097e86 → 99c4b9d` (context_engine proactive-context integration, 21 files, +5693 lines; the proactive domain is explicitly not adopted per docs/05 §7.2), `99c4b9d → 56da762` (three same-day commits: Harmony frontend platform routing, cron free-model adaptation and dump trace/title fixes, 19 files +841/-45 — all in gateway/frontend/cron/trace domains that are not adopted), `56da762 → 91c9137` (MCP friendly CLI connect-error surfacing plus a uv sync index CI fix, 8 files +497/-16, with two new MCP-guard unit tests — MCP runtime is not adopted per docs/05 §7.2) and `91c9137 → 36c7959` (2026-08-21, single commit: AgentGroup packages in hybrid team mode, 27 files +1061/-10 — strictly additive: strict package loader with path-escape guards, an optional `agent_group_name` enrichment branch appended after member enrich, session-immutable selection binding, multi-source conflict-reject instead of shadowing; the assembly.py and DESIGN.md §8 edits sit outside the evidence anchors cited by the security review and docs/10 §4, and the D-list registrations are in docs/05 §7.2). `36c7959 → 962f0a4` (2026-08-22, four commits, 95 files +6264/-1968: the mode system migrated to three-segment canonical names with a `DEPRECATION_MAP` silent mapping and lazy session-metadata migration plus six contract test groups, a skill-plaza web frontend rewrite, a `/persist` TUI command, and a workswarm branch double-merge — everything lands in the not-adopted web/tui/e2a domains or as compatible additive backend changes; the M2 node-mapping anchors in `workflow_state.py` and the TUI SwarmFlow guide are byte-untouched and their line numbers verified valid at the new pin; the referenced upstream web OAuth antipattern — bundling a client secret and non-CSPRNG state — is recorded here as a not-adopted-domain observation). None of the deltas touches the SwarmFlow, Team, Worktree, memory, Skill Evolution, permission or distributed-runtime evidence used by this project. The upstream `develop` branch moved repeatedly during the 2026-08-20/21 sessions; each re-pin was handled as a single cumulative diff review of the latest reviewed head — a hot upstream is handled by reviewing cumulative diffs, not per-commit chases.
 
 Priority documents/concepts:
+
+M4-2 Gate A supersession (2026-08-22): the supplied sync script refreshed `develop` to the recorded `1d45d2b` pointer and verified it as the branch tip. The older cumulative-diff paragraph above remains historical evidence through `962f0a4`; issue #128 consumes only the current pinned behavioral evidence for toolchain-specific Python verification and fail-loud missing-analyzer behavior, importing no Jiuwen runtime architecture or types.
 
 - Agent Team user guide
 - Distributed Team

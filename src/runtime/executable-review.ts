@@ -20,8 +20,20 @@
  * call, exactly like `manual` and the canvas human bridge.
  */
 import type { ReviewProviderInput, ReviewProviderResult, TeamReviewProvider } from './providers.js'
-import type { ReviewCommandEvidence, ReviewRootProvider } from './review-root.js'
+import {
+  assertReviewRootCapabilityAvailable,
+  type ReviewCommandEvidence,
+  type ReviewRootCapabilities,
+  type ReviewRootProvider,
+  type ReviewRootSession,
+} from './review-root.js'
 import { TeamDomainError } from '../domain/error.js'
+import { parseVerificationCommand } from './verification-commands.js'
+import {
+  aggregateVerificationEvidence,
+  type RoutedReviewCommandEvidence,
+  type VerificationEvidenceSummary,
+} from './verification-summary.js'
 
 /** Candidate artifact name the submitted output is checked in under. */
 export const CANDIDATE_OUTPUT_ARTIFACT = 'candidate-output.md'
@@ -35,6 +47,8 @@ const DIAGNOSTIC_BUDGET = 8_000
 export interface ExecutableReviewOptions {
   /** Resolves the configured review-root Provider (undefined = missing). */
   readonly resolveRoot: (name: string) => ReviewRootProvider | undefined
+  /** Resolves M4B capability metadata for a registered root family. */
+  readonly resolveRootCapabilities?: (name: string) => ReviewRootCapabilities | undefined
   /** Configured review-root Provider name. */
   readonly rootProviderName: () => string
   /** Default per-command timeout when the task declares none. */
@@ -43,6 +57,16 @@ export interface ExecutableReviewOptions {
   readonly maxCommandTimeoutMs: number
   /** Warn sink for best-effort root cleanup failures. */
   readonly warn?: (message: string) => void
+}
+
+/** Executable Provider result with its complete root-produced aggregation. */
+export interface ExecutableReviewResult extends ReviewProviderResult {
+  readonly verificationSummary: VerificationEvidenceSummary
+}
+
+/** Team Review Provider whose direct Consumer also receives structured evidence. */
+export interface ExecutableReviewProvider extends TeamReviewProvider {
+  review(input: ReviewProviderInput): Promise<ExecutableReviewResult>
 }
 
 function snippet(text: string): string {
@@ -67,10 +91,11 @@ function effectiveTimeoutMs(command: { readonly timeoutMs?: number }, options: E
   return Math.min(Math.max(Math.trunc(declared), 1), options.maxCommandTimeoutMs)
 }
 
-function evidenceLines(evidence: readonly ReviewCommandEvidence[], total: number): string[] {
-  return evidence.flatMap((item, index) => {
+function evidenceLines(records: readonly RoutedReviewCommandEvidence[], total: number): string[] {
+  return records.flatMap((record) => {
+    const item = record.evidence
     const lines = [
-      `[${index + 1}/${total}] exit=${item.exitCode === null ? 'none' : item.exitCode} ${item.timedOut ? 'TIMED-OUT ' : ''}${item.durationMs}ms cmd: ${item.command}`,
+      `[${record.index + 1}/${total}] root=${record.family}(${record.rootLabel}) exit=${item.exitCode === null ? 'none' : item.exitCode} ${item.timedOut ? 'TIMED-OUT ' : ''}${item.durationMs}ms cmd: ${item.command}`,
     ]
     const out = snippet(item.stdout)
     const err = snippet(item.stderr)
@@ -87,90 +112,174 @@ function evidenceLines(evidence: readonly ReviewCommandEvidence[], total: number
  * never push the decision basis out of the stored diagnostic.
  */
 function renderDiagnostic(
-  label: string,
   attemptId: string,
-  evidence: readonly ReviewCommandEvidence[],
-  total: number,
-  failedIndex: number | undefined,
-  requestedDecision: 'accept' | 'reject',
+  summary: VerificationEvidenceSummary,
 ): string {
-  const verdict = failedIndex === undefined
-    ? `verification PASSED: ${evidence.length}/${total} command(s) exited 0; captain request "${requestedDecision}" stands`
-    : `verification FAILED at command ${failedIndex + 1}/${total}: ${failureReason(evidence[failedIndex]!)}; rejected regardless of the captain request`
+  const failed = summary.failedCommandIndex === undefined
+    ? undefined
+    : summary.commands.find(command => command.index === summary.failedCommandIndex)?.evidence
+  const verdict = summary.failedCommandIndex === undefined
+    ? `verification PASSED: ${summary.executedCommands}/${summary.plannedCommands} command(s) exited 0; captain request "${summary.requestedDecision}" stands`
+    : `verification FAILED at command ${summary.failedCommandIndex + 1}/${summary.plannedCommands}: ${failureReason(failed!)}; rejected regardless of the captain request`
   const lines = [
-    `executable review: review-root=${label} attempt=${attemptId} commands=${evidence.length}/${total}`,
-    ...evidenceLines(evidence, total),
+    `executable review: attempt=${attemptId} roots=${summary.roots.length} commands=${summary.executedCommands}/${summary.plannedCommands}`,
+    ...evidenceLines(summary.commands, summary.plannedCommands),
     verdict,
     'evidence produced solely by the review execution root',
   ]
   let text = lines.join('\n')
   if (text.length > DIAGNOSTIC_BUDGET) {
-    // Shrink snippets once, then hard-bound: the verdict stays the last line.
+    // Shrink snippets once, then hard-bound only the evidence prefix. The
+    // verdict and provenance must survive even at the maximum command count.
     const verdictLine = lines[lines.length - 2]!
     const provenance = lines[lines.length - 1]!
     const header = lines[0]!
-    const compact = [header, ...evidence.map((item, index) =>
-      `[${index + 1}/${total}] exit=${item.exitCode === null ? 'none' : item.exitCode} ${item.timedOut ? 'TIMED-OUT ' : ''}${item.durationMs}ms cmd: ${item.command}`),
-    verdictLine, provenance].join('\n')
-    text = compact.length > DIAGNOSTIC_BUDGET ? `${compact.slice(0, DIAGNOSTIC_BUDGET)}\n…[diagnostic truncated]` : compact
+    const evidencePrefix = [header, ...summary.commands.map(record => {
+      const item = record.evidence
+      return `[${record.index + 1}/${summary.plannedCommands}] root=${record.family}(${record.rootLabel}) exit=${item.exitCode === null ? 'none' : item.exitCode} ${item.timedOut ? 'TIMED-OUT ' : ''}${item.durationMs}ms cmd: ${item.command}`
+    })].join('\n')
+    const tail = `${verdictLine}\n${provenance}`
+    const prefixBudget = Math.max(0, DIAGNOSTIC_BUDGET - tail.length - 1)
+    const marker = '…[evidence truncated]'
+    const boundedPrefix = evidencePrefix.length <= prefixBudget
+      ? evidencePrefix
+      : `${evidencePrefix.slice(0, Math.max(0, prefixBudget - marker.length))}${marker}`
+    text = boundedPrefix === '' ? tail : `${boundedPrefix}\n${tail}`
   }
   return text
 }
 
+interface ResolvedVerificationCommand {
+  readonly index: number
+  readonly family: string
+  readonly capability: string
+  readonly command: string
+  readonly routed: boolean
+  readonly timeoutMs?: number
+}
+
+function resolvedCommands(input: ReviewProviderInput, fallbackFamily: string): ResolvedVerificationCommand[] {
+  return input.verification.map((declaration, index) => {
+    const route = parseVerificationCommand(declaration.command)
+    return route === undefined
+      ? {
+          index,
+          family: fallbackFamily,
+          capability: 'raw',
+          command: declaration.command,
+          routed: false,
+          ...(declaration.timeoutMs === undefined ? {} : { timeoutMs: declaration.timeoutMs }),
+        }
+      : {
+          index,
+          family: route.family,
+          capability: route.capability,
+          command: route.command,
+          routed: true,
+          ...(declaration.timeoutMs === undefined ? {} : { timeoutMs: declaration.timeoutMs }),
+        }
+  })
+}
+
 /** Compose the builtin `executable` review Provider over a root supply. */
-export function executableReview(options: ExecutableReviewOptions): TeamReviewProvider {
+export function executableReview(options: ExecutableReviewOptions): ExecutableReviewProvider {
   return {
-    async review(input: ReviewProviderInput): Promise<ReviewProviderResult> {
+    async review(input: ReviewProviderInput): Promise<ExecutableReviewResult> {
       input.signal.throwIfAborted()
-      const name = options.rootProviderName()
-      const root = options.resolveRoot(name)
-      if (root === undefined) {
-        throw new TeamDomainError(`review execution root Provider "${name}" is unavailable`, 'TEAM_REVIEW_ROOT_PROVIDER_MISSING')
-      }
-      let session
-      try {
-        session = await root.open({
-          team: input.team,
-          task: input.task,
-          attempt: input.attempt,
-          signal: input.signal,
-        })
-      } catch (error) {
-        // Fail loud, uniform vocabulary: any root supply failure (builtin or
-        // third-party) fails the review transaction before anything settles.
-        if (error instanceof TeamDomainError) throw error
-        throw new TeamDomainError(
-          `review execution root unavailable: ${error instanceof Error ? error.message : String(error)}`,
-          'TEAM_REVIEW_ROOT_UNAVAILABLE',
-          { cause: error },
-        )
-      }
-      const evidence: ReviewCommandEvidence[] = []
-      let failedIndex: number | undefined
-      try {
+      const commands = resolvedCommands(input, options.rootProviderName())
+      const sessions = new Map<string, ReviewRootSession>()
+      const opened: ReviewRootSession[] = []
+      const openedRoots: Array<{ family: string; capability: string; label: string }> = []
+      const checkedAvailability = new Set<string>()
+      const evidence: RoutedReviewCommandEvidence[] = []
+      let failedCommandIndex: number | undefined
+      const openRoot = async (command: ResolvedVerificationCommand): Promise<ReviewRootSession> => {
+        const capabilities = options.resolveRootCapabilities?.(command.family)
+        if (command.routed && checkedAvailability.has(command.family)
+          && (capabilities === undefined || !capabilities.provides.includes(command.capability))) {
+          throw new TeamDomainError(
+            `review root family "${command.family}" does not provide capability "${command.capability}"`,
+            'TEAM_REVIEW_ROOT_UNAVAILABLE',
+          )
+        }
+        const existing = sessions.get(command.family)
+        if (existing !== undefined) return existing
+        const root = options.resolveRoot(command.family)
+        if (root === undefined) {
+          throw new TeamDomainError(`review execution root Provider "${command.family}" is unavailable`, 'TEAM_REVIEW_ROOT_PROVIDER_MISSING')
+        }
+        if (!checkedAvailability.has(command.family)) {
+          if (command.routed) {
+            await assertReviewRootCapabilityAvailable({
+              family: command.family,
+              capability: command.capability,
+              capabilities,
+              signal: input.signal,
+            })
+          }
+          checkedAvailability.add(command.family)
+        }
+        let session: ReviewRootSession
+        try {
+          session = await root.open({ team: input.team, task: input.task, attempt: input.attempt, signal: input.signal })
+        } catch (error) {
+          if (error instanceof TeamDomainError) throw error
+          throw new TeamDomainError(
+            `review execution root unavailable: ${error instanceof Error ? error.message : String(error)}`,
+            'TEAM_REVIEW_ROOT_UNAVAILABLE',
+            { cause: error },
+          )
+        }
+        sessions.set(command.family, session)
+        opened.push(session)
+        openedRoots.push({ family: command.family, capability: command.capability, label: session.label })
         if (input.attempt.output !== undefined && input.attempt.output !== '') {
           await session.checkIn(CANDIDATE_OUTPUT_ARTIFACT, input.attempt.output)
         }
-        for (const command of input.verification) {
+        return session
+      }
+      try {
+        if (commands.length === 0) {
+          const family = options.rootProviderName()
+          await openRoot({ index: 0, family, capability: 'raw', command: '', routed: false })
+        }
+        for (const command of commands) {
           input.signal.throwIfAborted()
+          const session = await openRoot(command)
           const record = await session.run(command.command, {
             timeoutMs: effectiveTimeoutMs(command, options),
             signal: input.signal,
           })
-          evidence.push(record)
+          evidence.push({
+            index: command.index,
+            family: command.family,
+            capability: command.capability,
+            rootLabel: session.label,
+            evidence: record,
+          })
           if (commandFailed(record)) {
-            failedIndex = evidence.length - 1
+            failedCommandIndex = command.index
             break
           }
         }
       } finally {
-        await session.close().catch(error => {
-          options.warn?.(`agent-swarm: review root cleanup failed: ${String(error)}`)
-        })
+        for (const session of opened.toReversed()) {
+          await session.close().catch(error => {
+            options.warn?.(`agent-swarm: review root cleanup failed: ${String(error)}`)
+          })
+        }
       }
+      const summary = aggregateVerificationEvidence({
+        requestedDecision: input.requestedDecision,
+        plannedCommands: commands.length,
+        commands: evidence,
+        openedRoots,
+        ...(failedCommandIndex === undefined ? {} : { failedCommandIndex }),
+      })
       return {
-        decision: failedIndex === undefined ? input.requestedDecision : 'reject',
-        diagnostic: renderDiagnostic(session.label, input.attempt.id, evidence, input.verification.length, failedIndex, input.requestedDecision),
+        decision: summary.finalDecision,
+        diagnostic: renderDiagnostic(input.attempt.id, summary),
+        verificationSummary: summary,
       }
     },
   }

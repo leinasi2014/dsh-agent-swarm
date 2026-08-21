@@ -1,6 +1,6 @@
 # 07. Official-first implementation roadmap
 
-Rebased: 2026-08-22 against official DSH `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`, `dsh-agent-teams` `0c21e5d2f45ec1ea7c9ee89ffc4ee77d1cb9262e` and JiuwenSwarm `962f0a4426041d54cef60e980a10491df84546ef`. ADR-0008 adds staged self-hosting readiness and renumbers the post-M2 milestones.
+Rebased: 2026-08-22 against official DSH `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`, `dsh-agent-teams` `0c21e5d2f45ec1ea7c9ee89ffc4ee77d1cb9262e` and JiuwenSwarm `1d45d2b4a08423365eae7c37b2afdae6614a97ad`. ADR-0008 adds staged self-hosting readiness and renumbers the post-M2 milestones.
 
 ## Gate A — required before every milestone
 
@@ -191,6 +191,8 @@ Exit:
 - local backend never claims cross-process safety.
 
 ## M5 — verification and permission Provider family
+
+Progress (2026-08-22, issue #128 / M4-2): the command-check half is now a real multi-root family. Review-root registration preserves #101's contract and optionally declares family capabilities; builtin Node/Python roots probe availability with no cross-family fallback. Named `typecheck/test/build/lint` templates compile before task persistence into the existing schema-v1 verification command list, including mixed-toolchain tasks. Executable review reuses one session per family, keeps declaration order/fail-fast semantics, and returns a versioned structured summary derived only from root evidence. The official invariants support service was assessed and not consumed because it registers package-owned relational assertions rather than verification operations. Permission, Reviewer Agent and human-approval Providers remain open; this increment does not claim the full M5 exit. Design: `docs/development/2026-08-22-m4b-verification-family.md`.
 
 Official integration:
 

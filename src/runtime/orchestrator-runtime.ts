@@ -1,17 +1,9 @@
-/**
- * DSH-facing Team orchestrator.
- *
- * Composes the framework-neutral Team domain with continuable subagents and
- * the official Storage Domain. This class owns lifecycle, the Provider
- * registries and tool-facing operations; provisioning, mailbox delivery,
- * token accounting and the scheduling pass (issue #12 / F10 discipline)
- * live in dedicated collaborators.
- */
+/** DSH-facing Team orchestrator over the domain and official DSH services. */
 import { resolve } from 'node:path'
 import { Service, type Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
-import type {} from '@deepseek-ai/dsh-storage-domain'
+import type { Domain } from '@deepseek-ai/dsh-storage-domain'
 import type {} from '@deepseek-ai/dsh-subagent'
 import { TaskId, type AttemptId, type TaskAttempt, type TeamId, type TeamMessage, type TeamState, type TeamStatusSnapshot, type TeamTask } from '../domain/types.js'
 import { TeamDomain } from '../domain/team-domain.js'
@@ -19,7 +11,6 @@ import type { CreateTaskInput, TeamDomainPort, TeamScope } from '../domain/team-
 import { TeamDomainError } from '../domain/error.js'
 import { StorageDomainTeamStore } from '../storage/storage-domain-team-store.js'
 import { teamDomainSpec } from '../storage/team-spec.js'
-import type { Domain } from '@deepseek-ai/dsh-storage-domain'
 import { requireAgent, workspaceOf, type ToolExecutionAuthority } from './authority.js'
 import { boundedSettle } from './disposal.js'
 import { ExecutionRootSurface } from './execution-root-surface.js'
@@ -29,7 +20,7 @@ import { MemberProvisioner } from './member-provisioning.js'
 import { MessageDelivery } from './message-delivery.js'
 import { manualReview, priorityReadyScheduler, type ReviewProviderInput, type ReviewProviderResult, type SchedulerDecision, type SchedulerSelectionInput, type TeamReviewProvider, type TeamSchedulerProvider } from './providers.js'
 import { executableReview } from './executable-review.js'
-import { tempReviewRootProvider, type ReviewRootProvider } from './review-root.js'
+import type { ReviewRootCapabilities, ReviewRootProvider } from './review-root.js'
 import { runReviewTransaction } from './review-transaction.js'
 import { OrchestrationOwnership } from './orchestration-ownership.js'
 import { SchedulingPass } from './scheduling.js'
@@ -38,6 +29,8 @@ import { activePeerEvidence, status, waitForChange, type WaitSurfaceDeps } from 
 import type { RuntimeConfig } from './runtime-contract.js'
 import type { TeamJobProjection } from './jobs/team-job-projection.js'
 import type { TeamBridgeWorkflowEngine } from './workflow/team-bridge-engine.js'
+import type { RuntimeCreateTaskInput, VerificationCommandTemplate } from './verification-commands.js'
+import { VerificationFamily } from './verification-family.js'
 
 export type { ToolExecutionAuthority }
 export type { ReviewProviderInput, ReviewProviderResult, SchedulerDecision, SchedulerSelectionInput, TeamReviewProvider, TeamSchedulerProvider }
@@ -52,8 +45,7 @@ export class AgentSwarmRuntime extends Service {
   private readonly scheduling = new Map<string, Promise<void>>()
   private readonly schedulerProviders = new Map<string, TeamSchedulerProvider>()
   private readonly reviewProviders = new Map<string, TeamReviewProvider>()
-  /** Review execution root supply (M3-2): the #100 family's review face. */
-  private readonly reviewRootProviders = new Map<string, ReviewRootProvider>()
+  private readonly verificationFamily = new VerificationFamily()
   private readonly ownedChildren = new Map<string, Set<string>>()
   /** Session id → its idle-stretch start, latched per `agent/status → idle` edge (issue #83; absent = task clock). */
   private readonly idleSince = new Map<string, number>()
@@ -101,10 +93,10 @@ export class AgentSwarmRuntime extends Service {
     this.orchestration = new OrchestrationOwnership({ mode: config.orchestrationMode, requestSchedule })
     this.schedulerProviders.set('priority-ready', priorityReadyScheduler())
     this.reviewProviders.set('manual', manualReview())
-    this.reviewRootProviders.set('temp', tempReviewRootProvider())
     const commandBound = config.limits.maxVerificationCommandMs
     this.reviewProviders.set('executable', executableReview({
-      resolveRoot: name => this.reviewRootProviders.get(name),
+      resolveRoot: name => this.verificationFamily.resolveRoot(name),
+      resolveRootCapabilities: name => this.verificationFamily.resolveCapabilities(name),
       rootProviderName: () => this.config.reviewRootProvider,
       defaultCommandTimeoutMs: commandBound,
       maxCommandTimeoutMs: commandBound,
@@ -204,12 +196,13 @@ export class AgentSwarmRuntime extends Service {
   }
 
   /** Register a review execution root supply (M3-2, docs/04 §5). */
-  registerReviewRootProvider(name: string, provider: ReviewRootProvider): () => void {
-    const key = name.trim()
-    if (key === '') throw new TeamDomainError('review root Provider name must not be empty', 'TEAM_INVALID_CONFIG')
-    if (this.reviewRootProviders.has(key)) throw new TeamDomainError(`review root Provider "${key}" is already registered`, 'TEAM_PROVIDER_DUPLICATE')
-    this.reviewRootProviders.set(key, provider)
-    return () => { if (this.reviewRootProviders.get(key) === provider) this.reviewRootProviders.delete(key) }
+  registerReviewRootProvider(name: string, provider: ReviewRootProvider, capabilities?: ReviewRootCapabilities): () => void {
+    return this.verificationFamily.registerRoot(name, provider, capabilities)
+  }
+
+  /** Register one named pre-commit verification command template. */
+  registerVerificationCommandTemplate(name: string, template: VerificationCommandTemplate): () => void {
+    return this.verificationFamily.registerTemplate(name, template)
   }
 
   /** Register one replaceable execution-root Provider (M3-1, issue #100). */
@@ -252,7 +245,7 @@ export class AgentSwarmRuntime extends Service {
     if (!this.reviewProviders.has(this.config.reviewProvider)) {
       throw new TeamDomainError(`review Provider "${this.config.reviewProvider}" is unavailable`, 'TEAM_REVIEW_PROVIDER_MISSING')
     }
-    if (!this.reviewRootProviders.has(this.config.reviewRootProvider)) {
+    if (!this.verificationFamily.hasRoot(this.config.reviewRootProvider)) {
       throw new TeamDomainError(`review root Provider "${this.config.reviewRootProvider}" is unavailable`, 'TEAM_REVIEW_ROOT_PROVIDER_MISSING')
     }
   }
@@ -276,14 +269,20 @@ export class AgentSwarmRuntime extends Service {
     return await this.provisioning.addMember(exec, input)
   }
 
-  async createTask(exec: ToolExecutionAuthority, input: CreateTaskInput): Promise<TeamTask> {
+  async createTask(exec: ToolExecutionAuthority, input: RuntimeCreateTaskInput): Promise<TeamTask> {
     await this.ensureReady()
     this.assertOpen()
     this.assertConfiguredProviders()
     const actor = requireAgent(exec)
     const scope = this.scopeOf(actor)
     const membership = await this.domain.requireMembership(scope, actor.id)
-    const task = await this.domain.createTask(scope, membership.team.id, actor.id, input)
+    const { verification, ...taskInput } = input
+    let domainInput: CreateTaskInput = taskInput
+    if (verification !== undefined) {
+      const compiled = await this.verificationFamily.compile(verification, this.config.limits.maxVerificationCommands, exec.signal)
+      domainInput = { ...taskInput, verification: compiled }
+    }
+    const task = await this.domain.createTask(scope, membership.team.id, actor.id, domainInput)
     const captain = this.ctx.agents.get(SessionId(membership.team.captainSessionId))
     if (captain !== undefined) this.requestSchedule(scope, membership.team.id, captain)
     return task

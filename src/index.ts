@@ -41,13 +41,39 @@ export type {
 } from './runtime/orchestrator-runtime.js'
 export type {
   ReviewCommandEvidence,
+  ReviewRootAvailability,
+  ReviewRootCapabilities,
   ReviewRootOpenInput,
   ReviewRootProvider,
   ReviewRootSession,
 } from './runtime/review-root.js'
-export { tempReviewRootProvider } from './runtime/review-root.js'
+export { executableReviewRootCapabilities, tempReviewRootProvider } from './runtime/review-root.js'
 export { executableReview, CANDIDATE_OUTPUT_ARTIFACT } from './runtime/executable-review.js'
-export type { ExecutableReviewOptions } from './runtime/executable-review.js'
+export type { ExecutableReviewOptions, ExecutableReviewProvider, ExecutableReviewResult } from './runtime/executable-review.js'
+export {
+  aggregateVerificationEvidence,
+} from './runtime/verification-summary.js'
+export type {
+  RoutedReviewCommandEvidence,
+  OpenedVerificationRoot,
+  VerificationEvidenceSummary,
+  VerificationRootSummary,
+} from './runtime/verification-summary.js'
+export {
+  builtinVerificationTemplates,
+  compileVerificationDeclarations,
+  encodeVerificationCommand,
+  parseVerificationCommand,
+} from './runtime/verification-commands.js'
+export type {
+  BuiltinVerificationTemplate,
+  RuntimeCreateTaskInput,
+  VerificationCommandRoute,
+  VerificationCommandTemplate,
+  VerificationDeclaration,
+  VerificationTemplateInvocation,
+  VerificationTemplateParameterValue,
+} from './runtime/verification-commands.js'
 export { OrchestrationOwnership } from './runtime/orchestration-ownership.js'
 export type { OrchestrationMode } from './runtime/orchestration-ownership.js'
 export type {
