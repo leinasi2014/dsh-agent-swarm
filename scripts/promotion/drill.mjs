@@ -28,7 +28,7 @@ import {
   activeTeamsFromUnitText, appendLedgerRecord, checkFencing, controlRootLayout,
   ledgerRecordHash, ledgerGenState, listNodeProcessesWindows, readLedger,
   readLkgPointer, reconcileInstalledProfile, REQUIRED_VERDICT_GATES, sha256File,
-  verifyLedgerAnchors, verifyLkgChain, writeJsonFile,
+  verifyLedgerAnchors, verifyLedgerChain, verifyLkgChain, writeJsonFile,
 } from './lib.mjs'
 import { extractTarball, git, run, waitPortFree } from './runner.mjs'
 import { probeStablePlane } from './plane-ops.mjs'
