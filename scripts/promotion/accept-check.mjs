@@ -85,7 +85,7 @@ export async function runAcceptance(input) {
     const laneResults = []
     let artifactCheck = { exitCode: null, note: 'not reached' }
     let packedEntries = []
-    const listing = await run('tar', ['--force-local', '-tzf', tarballPath])
+    const listing = await run('tar', ['--force-local', '-tzf', tarballPath.replaceAll('\\', '/')])
     if (listing.code === 0) packedEntries = listing.stdout.split('\n').filter(Boolean)
     const entryOk = packedEntries.some(entry => entry.endsWith('package/lib/index.mjs')) && packedEntries.some(entry => entry.endsWith('package/cordis.patch.yml'))
     await withDetachedWorktree(args.repo, manifest.gitCommit, async verifyRoot => {
