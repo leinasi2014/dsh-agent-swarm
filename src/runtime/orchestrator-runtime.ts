@@ -26,6 +26,7 @@ import { interruptMember } from './member-control.js'
 import { MemberProvisioner } from './member-provisioning.js'
 import { MessageDelivery } from './message-delivery.js'
 import { manualReview, priorityReadyScheduler, type ReviewProviderInput, type ReviewProviderResult, type SchedulerDecision, type SchedulerSelectionInput, type TeamReviewProvider, type TeamSchedulerProvider } from './providers.js'
+import { OrchestrationOwnership, type OrchestrationMode } from './orchestration-ownership.js'
 import { SchedulingPass } from './scheduling.js'
 import { UsageAccountant } from './usage-accounting.js'
 import type { TeamBridgeWorkflowEngine } from './workflow/team-bridge-engine.js'
@@ -40,6 +41,8 @@ export interface RuntimeConfig {
   readonly schedulerProvider: string
   readonly reviewProvider: string
   readonly limits: TeamLimits
+  /** Explicit orchestration mode (M2-3, issue #77; docs/04 §8g). */
+  readonly orchestrationMode: OrchestrationMode
   /**
    * Bound for every disposal settlement step (F4), aligned with the official
    * experimental `disposalTimeoutMs` (default 5000). Positive safe integer.
@@ -86,6 +89,8 @@ export class AgentSwarmRuntime extends Service {
   private readonly delivery: MessageDelivery
   private readonly provisioning: MemberProvisioner
   private readonly schedulingPass: SchedulingPass
+  /** Single-owner discipline registry and gates (M2-3). */
+  readonly orchestration: OrchestrationOwnership
   private closing = false
 
   /**
@@ -108,6 +113,8 @@ export class AgentSwarmRuntime extends Service {
     if (!Number.isSafeInteger(config.strandedAfterMs) || config.strandedAfterMs < 0) {
       throw new TeamDomainError('strandedAfterMs must be a safe non-negative integer', 'TEAM_INVALID_CONFIG')
     }
+    const requestSchedule = (scope: TeamScope, teamId: TeamId, captain: Agent): void => this.requestSchedule(scope, teamId, captain)
+    this.orchestration = new OrchestrationOwnership({ mode: config.orchestrationMode, requestSchedule })
     this.schedulerProviders.set('priority-ready', priorityReadyScheduler())
     this.reviewProviders.set('manual', manualReview())
     this.usage = new UsageAccountant(ctx, { domain: () => this.domain, isClosing: () => this.closing })
@@ -125,6 +132,7 @@ export class AgentSwarmRuntime extends Service {
       schedulerProviders: () => this.schedulerProviders,
       strandedAfterMs: this.config.strandedAfterMs,
       idleSince: sessionId => this.idleSince.get(sessionId),
+      eventFaceActive: (scope, teamId) => this.orchestration.eventFaceActive(scope, teamId),
       isClosing: () => this.closing,
       trackTeamChildren: (captain, team) => this.trackTeamChildren(captain, team),
       requestSchedule: (scope, teamId, captain) => this.requestSchedule(scope, teamId, captain),
@@ -513,7 +521,11 @@ export class AgentSwarmRuntime extends Service {
     const captain = this.ctx.agents.get(SessionId(membership.team.captainSessionId))
     if (captain === undefined) return
     this.trackTeamChildren(captain, membership.team)
-    if (agent.status === 'idle') this.requestSchedule(scope, membership.team.id, captain)
+    // Single-owner discipline (M2-3): autonomous drives defer to a live run
+    // owner; `workflow` mode deactivates the face entirely (docs/04 §8g).
+    if (agent.status === 'idle' && this.orchestration.eventFaceActive(scope, membership.team.id)) {
+      this.requestSchedule(scope, membership.team.id, captain)
+    }
   }
 
   observeSessionEvent(session: Session, event: SessionEvent): void {
@@ -560,6 +572,7 @@ export class AgentSwarmRuntime extends Service {
     this.closing = true
     this.schedulingPass.dispose()
     this.idleSince.clear()
+    this.orchestration.clear()
     const failures: unknown[] = []
     const bound = <T>(label: string, operation: Promise<T>): Promise<void> =>
       boundedSettle(this.ctx, this.config.disposalTimeoutMs, label, operation, failures)

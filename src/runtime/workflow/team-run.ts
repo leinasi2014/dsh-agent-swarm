@@ -89,6 +89,14 @@ export class TeamRun implements WorkflowRun {
   private inputSignal: AbortSignal | undefined
   private inputSignalAbort: (() => void) | undefined
   private archived = false
+  /**
+   * The run's member session ids (M2-3, issue #77): the run's own idle-edge
+   * driver watches exactly these, so the run — not the plugin's adaptive
+   * event face — is the clock that advances its Team.
+   */
+  private readonly memberIds = new Set<string>()
+  /** Disposer of the run's idle-edge driver; absent before begin/after settle. */
+  private idleDriver: (() => void) | undefined
   private readonly scope: TeamScope
   private readonly info: WorkflowRunInfo
 
@@ -165,6 +173,36 @@ export class TeamRun implements WorkflowRun {
         this.settle(this.cancelledResult(0))
         return
       }
+      // M2-3 single-owner discipline (issue #77): after the Team aggregate
+      // and the `running` overlay record are durable, and before
+      // `workflow/start` publishes, the run takes the Team's orchestration
+      // ownership — the autonomous event face (idle-edge passes, stranded
+      // heal, re-kick) defers to it from here until the run settles. A
+      // conflicting live owner settles this run `error` with zero
+      // publication (defensive: `createUniqueForCaptain` rejects a captain's
+      // second active Team first).
+      try {
+        this.deps.runtime.orchestration.acquire(this.scope, TeamId(teamId), this.id)
+      } catch (error: unknown) {
+        this.settle({ value: null, stopReason: 'error', error: `Team bridge could not take orchestration ownership: ${String(error)}`, agentsStarted: 0 })
+        return
+      }
+      // The run's own clock: a member's idle edge drives one scheduling pass
+      // for THIS Team only (ownership-gated). `startContinuable` resolves at
+      // the join turn's inbox acceptance, so the operation-triggered pass of
+      // `createTask`/`afterActivation` regularly meets a `running` member
+      // (live-status filter, issue #12/F10) — without this driver the task
+      // would stay `pending` in `workflow` mode, where the global idle
+      // listener does not exist.
+      this.idleDriver = this.deps.ctx.on('agent/status', ({ agent, status }) => {
+        if (status !== 'idle' || !this.memberIds.has(agent.id)) return
+        try {
+          this.deps.runtime.orchestration.drive(this.scope, TeamId(teamId), this.id, this.parent)
+        } catch {
+          // Ownership was already released on the terminal path — a settling
+          // run drives nothing. `driveOrchestration` has no other throw path.
+        }
+      })
       this.deps.emitEvent('workflow/start', this.info)
       const executor = new BridgeScriptExecution(
         this.meta,
@@ -232,6 +270,9 @@ export class TeamRun implements WorkflowRun {
         })(),
         sleep(this.deps.disposeGraceMs),
       ])
+      // Defensive M2-3 release: a run that somehow never settled must not
+      // keep its orchestration ownership past its own teardown.
+      this.releaseDriving()
       await this.archiveBounded('workflow disposed')
     })().then(
       () => { claimedResolve() },
@@ -271,6 +312,7 @@ export class TeamRun implements WorkflowRun {
           { name: `wf-agent-${call.seq}`, role: 'workflow agent', ...call.provider !== undefined ? { provider: call.provider } : {}, ...call.model !== undefined ? { model: call.model } : {} },
         )
         memberSessionId = member.sessionId
+        this.memberIds.add(memberSessionId)
       } catch (error: unknown) {
         if (this.cancelReason !== undefined) throw new WorkflowError(`workflow run cancelled: ${this.cancelReason}`, 'CANCELLED')
         if (error instanceof TeamDomainError && error.code === 'TEAM_MEMBER_LIMIT') {
@@ -421,6 +463,19 @@ export class TeamRun implements WorkflowRun {
   }
 
   /**
+   * Stop driving (M2-3, issue #77): detach the run's idle-edge driver and
+   * release the Team's orchestration ownership. Idempotent; called on the
+   * terminal settle path and defensively from `dispose` (a run whose result
+   * never settled still must not keep driving through teardown).
+   */
+  private releaseDriving(): void {
+    this.idleDriver?.()
+    this.idleDriver = undefined
+    const teamId = this.teamId
+    if (teamId !== undefined) this.deps.runtime.orchestration.release(this.scope, TeamId(teamId), this.id)
+  }
+
+  /**
    * First settle wins: commit the terminal overlay record durably, publish
    * `workflow/end` (exactly once), then release the holder's result.
    */
@@ -429,6 +484,10 @@ export class TeamRun implements WorkflowRun {
     this.terminalClaimed = true
     this.settled = true
     this.detachInputSignal()
+    // The run stops driving at its terminal edge (M2-3): detach the idle
+    // driver and release the orchestration ownership before any terminal
+    // publication, so no autonomous face races the teardown.
+    this.releaseDriving()
     if (this.graceTimer !== undefined) clearTimeout(this.graceTimer)
     const teamId = this.teamId
     void (async () => {

@@ -37,6 +37,16 @@ export interface SchedulingDeps {
    * window (issue #83).
    */
   readonly idleSince: (sessionId: string) => number | undefined
+  /**
+   * Whether the autonomous event face may drive this Team (M2-3, issue
+   * #77): `adaptive` mode and not workflow-run-owned. Gates the stranded
+   * self-healing (and with it the re-kick timers) — the one scheduling-pass
+   * section that makes autonomous retry decisions. Delivery sections
+   * (mailbox backlog, reserved folds, assignment dispatch) run in every
+   * pass on every Team: they are the run/operation's own consumption of
+   * the delivery mechanics, fenced by the revision CAS.
+   */
+  readonly eventFaceActive: (scope: TeamScope, teamId: TeamId) => boolean
   readonly isClosing: () => boolean
   readonly trackTeamChildren: (captain: Agent, team: TeamState) => void
   readonly requestSchedule: (scope: TeamScope, teamId: TeamId, captain: Agent) => void
@@ -295,6 +305,12 @@ export class SchedulingPass {
    * and the fresh attempt. If the owner still stops being live while the
    * retry commits, the misfire is reversed (`reinstateAttempt`) and the
    * evidence-only state is restored.
+   *
+   * M2-3 (issue #77): the heal is an AUTONOMOUS event-face decision, so it
+   * (and the re-kick timers only it arms) requires the event face to be
+   * active for this Team — `workflow` mode deactivates it globally and a
+   * workflow-run-owned Team defers its re-drive to its run. Delivery
+   * sections of the pass are unaffected.
    */
   private async healStrandedOwnership(
     scope: TeamScope,
@@ -303,6 +319,7 @@ export class SchedulingPass {
     team: TeamState,
   ): Promise<boolean> {
     if (this.deps.isClosing() || this.deps.strandedAfterMs <= 0) return false
+    if (!this.deps.eventFaceActive(scope, teamId)) return false
     let acted = false
     let nextDeadline: number | undefined
     for (const task of team.tasks) {
