@@ -288,8 +288,8 @@ async function main() {
   const processes = await listNodeProcessesWindows()
   const marker = args.dogfoodRoot.replaceAll('\\', '/').toLowerCase()
   const residue = processes.filter(item => item.pid !== process.pid && item.commandLine.replaceAll('\\', '/').toLowerCase().includes(marker))
-  const controlPortFree = await waitPortFree(args.controlPort, 20_000)
-  const acceptPortFree = await waitPortFree(args.acceptPort, 20_000)
+  const controlPortFree = await waitPortFree(args.controlPort, 20_000, '127.0.0.1', { reclaim: true })
+  const acceptPortFree = await waitPortFree(args.acceptPort, 20_000, '127.0.0.1', { reclaim: true })
   if (residue.length !== 0 || !controlPortFree || !acceptPortFree) {
     throw new Error(`P7 FAILED: residue=${residue.map(item => `pid ${item.pid}`).join(', ')} controlPortFree=${controlPortFree} acceptPortFree=${acceptPortFree}`)
   }
