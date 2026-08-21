@@ -14,7 +14,7 @@ import {
   type TokenUsage,
 } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
 import Storage from '@deepseek-ai/dsh-storage'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
@@ -88,12 +88,13 @@ async function successfulTool(
 }
 
 /** Mount the official durable composition: persistence + storage stack + agent services. */
-async function mountDurableStack(ctx: Context, storageRoot: string, sessionRoot: string) {
+async function mountDurableStack(ctx: Context, storageRoot: string, sessionDbPath: string): Promise<Fiber> {
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(JsonlSessionPersistence, { root: sessionRoot })
+  const persistenceFiber = await ctx.plugin(SqliteSessionPersistence, { path: sessionDbPath })
   await ctx.plugin(Storage)
   await ctx.plugin(StorageJson, { root: storageRoot })
   await ctx.plugin(StorageDomain, { backend: 'json' })
+  return persistenceFiber
 }
 
 describe('DSH rc.8 composition', () => {
@@ -113,7 +114,7 @@ describe('DSH rc.8 composition', () => {
     const fibers: Fiber[] = []
 
     try {
-      await mountDurableStack(ctx, storageRoot, join(sandbox, 'sessions'))
+      fibers.push(await mountDurableStack(ctx, storageRoot, join(sandbox, 'sessions', 'sessions.db')))
       fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
       fibers.push(await ctx.plugin(SubagentService))
       fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
@@ -169,12 +170,23 @@ describe('DSH rc.8 composition', () => {
       }) as { session_id: string; phase: string }
       expect(added.phase).toBe('active')
 
-      let memberAgent: Agent | undefined
-      await vi.waitFor(() => {
-        memberAgent = ctx.agents.get(SessionId(added.session_id))
-        expect(memberAgent?.status).toBe('idle')
+      // Issue #112 backend note: under the sqlite persistence backend the
+      // official continuable-child quiescent teardown (idle + settled →
+      // Activation dispose, cold-resumable) can retire the member Agent
+      // before a registry poll observes it resident-idle; the jsonl backend's
+      // flush latency kept it resident past this checkpoint. Assert the
+      // backend-agnostic form of the checkpoint instead: the member's initial
+      // provisioning turn completed durably (resident-idle, or persisted
+      // turn/end once the registry has retired the cold child).
+      await vi.waitFor(async () => {
+        const resident = ctx.agents.get(SessionId(added.session_id))
+        if (resident !== undefined) {
+          expect(resident.status).toBe('idle')
+          return
+        }
+        const persisted = await ctx.sessionPersistence.inspect(SessionId(added.session_id))
+        expect(persisted.events.some(event => event.type === 'turn/end')).toBe(true)
       }, { timeout: 15_000 })
-      if (memberAgent === undefined) throw new Error('member Agent disappeared before the idle checkpoint')
 
       await successfulTool(ctx, lead, 'task', 'agent_swarm_create_task', {
         subject: 'Composition proof',
@@ -223,6 +235,17 @@ describe('DSH rc.8 composition', () => {
       const assignedTask = beforeReview.team.tasks[0]!
       const assignedAttempt = beforeReview.team.attempts.find(attempt => attempt.id === assignedTask.currentAttemptId)!
       expect(adapter.cacheTokens).toBe(150)
+      // The member Agent may again be quiescent-cold here (its assignment
+      // turn settled; issue #112 backend note above) — re-attach through the
+      // official resume seam so the submission still carries the member's
+      // live session authority, and release the handle afterwards so the
+      // plugin-disposal drain checkpoint below sees the member gone.
+      const residentMember = ctx.agents.get(SessionId(added.session_id))
+      const resumedMember = residentMember === undefined
+        ? await ctx.agents.resume({ resumeSessionId: SessionId(added.session_id) })
+        : undefined
+      const memberAgent = residentMember ?? resumedMember?.agent
+      if (memberAgent === undefined) throw new Error('member Agent could not be re-attached for the member-face submit')
       const staleResult = await ctx.tools.execute({
         signal: SIGNAL,
         callId: CallId('stale-submit'),
@@ -239,6 +262,7 @@ describe('DSH rc.8 composition', () => {
         isError: true,
         error: { info: { name: 'TeamDomainError', code: 'TEAM_ATTEMPT_STALE' } },
       })
+      await resumedMember?.dispose()
       const submitted = await ctx.agentSwarm.domain.submitTask(
         ctx.agentSwarm.scopeOf(lead),
         beforeReview.team.id,
@@ -391,7 +415,7 @@ describe('DSH rc.8 composition', () => {
     const fibers: Fiber[] = []
 
     try {
-      await mountDurableStack(ctx, join(sandbox, 'storage'), join(sandbox, 'sessions'))
+      fibers.push(await mountDurableStack(ctx, join(sandbox, 'storage'), join(sandbox, 'sessions', 'sessions.db')))
       fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
       fibers.push(await ctx.plugin(SubagentService))
       fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
@@ -452,7 +476,7 @@ describe('DSH rc.8 composition', () => {
     const fibers: Fiber[] = []
 
     try {
-      await mountDurableStack(ctx, join(sandbox, 'storage'), join(sandbox, 'sessions'))
+      fibers.push(await mountDurableStack(ctx, join(sandbox, 'storage'), join(sandbox, 'sessions', 'sessions.db')))
       fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
       fibers.push(await ctx.plugin(SubagentService))
       fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))

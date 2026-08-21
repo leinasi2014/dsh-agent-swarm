@@ -22,7 +22,7 @@ import { Context, type Fiber } from '@deepseek-ai/cordis'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
 import Storage from '@deepseek-ai/dsh-storage'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
@@ -63,7 +63,7 @@ describe('explicit orchestration modes (M2-3, issue #77)', () => {
     const fibers: Fiber[] = []
     try {
       await mountAgentLoopTestDependencies(ctx)
-      fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions') }))
+      fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(sandbox, 'sessions', 'sessions.db') }))
       fibers.push(await ctx.plugin(Storage))
       fibers.push(await ctx.plugin(StorageJson, { root: join(sandbox, 'storage') }))
       fibers.push(await ctx.plugin(StorageDomain, { backend: 'json' }))

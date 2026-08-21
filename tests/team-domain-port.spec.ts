@@ -6,7 +6,7 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
 import Storage from '@deepseek-ai/dsh-storage'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
@@ -237,7 +237,7 @@ describe('TeamDomainPort provider over the official Storage Domain', () => {
       const noStorage = new Context()
       await mountAgentLoopTestDependencies(noStorage)
       const noStorageFibers = [
-        await noStorage.plugin(JsonlSessionPersistence, { root: join(sandboxPending, 'sessions-a') }),
+        await noStorage.plugin(SqliteSessionPersistence, { path: join(sandboxPending, 'sessions-a', 'sessions.db') }),
         noStorage.plugin(SubagentService),
         noStorage.plugin(SubagentSpawn, { providerName: 'spawn' }),
         noStorage.plugin(AgentSwarm, { memberProvider: 'spawn' }),
@@ -271,7 +271,7 @@ describe('TeamDomainPort provider over the official Storage Domain', () => {
     try {
       await mountAgentLoopTestDependencies(active)
       fibers.push(
-        await active.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions') }),
+        await active.plugin(SqliteSessionPersistence, { path: join(sandbox, 'sessions', 'sessions.db') }),
         await active.plugin(AgentLoop, { agents: [] }),
         await active.plugin(Storage),
         await active.plugin(StorageJson, { root: join(sandbox, 'active-storage') }),
