@@ -13,7 +13,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-storage-domain'
 import type {} from '@deepseek-ai/dsh-subagent'
-import { TaskId, type AttemptId, type TeamId, type TeamMessage, type TeamState, type TeamStatusSnapshot, type TeamTask } from '../domain/types.js'
+import { TaskId, type AttemptId, type TaskAttempt, type TeamId, type TeamMessage, type TeamState, type TeamStatusSnapshot, type TeamTask } from '../domain/types.js'
 import { TeamDomain } from '../domain/team-domain.js'
 import type { CreateTaskInput, TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import { TeamDomainError } from '../domain/error.js'
@@ -22,6 +22,8 @@ import { teamDomainSpec } from '../storage/team-spec.js'
 import type { Domain } from '@deepseek-ai/dsh-storage-domain'
 import { expectDomainTimeout, requireAgent, workspaceOf, type ToolExecutionAuthority } from './authority.js'
 import { boundedSettle } from './disposal.js'
+import { ExecutionRootSurface } from './execution-root-surface.js'
+import type { ExecutionRootResidue, TeamExecutionRootProvider } from './execution-roots.js'
 import { interruptMember } from './member-control.js'
 import { MemberProvisioner } from './member-provisioning.js'
 import { MessageDelivery } from './message-delivery.js'
@@ -64,6 +66,8 @@ export class AgentSwarmRuntime extends Service {
   private readonly schedulingPass: SchedulingPass
   /** Single-owner discipline registry and gates (M2-3). */
   readonly orchestration: OrchestrationOwnership
+  /** Per-attempt execution roots (M3-1, issue #100; docs/04 §8l). */
+  readonly executionRoots: ExecutionRootSurface
   private closing = false
 
   /**
@@ -109,6 +113,15 @@ export class AgentSwarmRuntime extends Service {
       maxCommandTimeoutMs: commandBound,
       warn: message => this.ctx.logger.warn(message),
     }))
+    this.executionRoots = new ExecutionRootSurface({
+      ctx,
+      enabled: () => config.executionRootsEnabled,
+      closing: () => this.closing,
+      providerName: () => config.executionRootProvider,
+      base: config.executionRootsBase,
+      domain: () => this.domain,
+      teams: scope => this.listTeamAggregates(scope),
+    })
     this.usage = new UsageAccountant(ctx, { domain: () => this.domain, isClosing: () => this.closing })
     this.delivery = new MessageDelivery(ctx, {
       domain: () => this.domain,
@@ -128,6 +141,9 @@ export class AgentSwarmRuntime extends Service {
       isClosing: () => this.closing,
       trackTeamChildren: (captain, team) => this.trackTeamChildren(captain, team),
       requestSchedule: (scope, teamId, captain) => this.requestSchedule(scope, teamId, captain),
+      executionRoots: () => this.executionRoots.roots,
+      executionRootsEnabled: () => this.config.executionRootsEnabled,
+      sweepExecutionRoots: (scope, teamId) => this.executionRoots.sweep(scope, teamId),
     })
     this.provisioning = new MemberProvisioner(ctx, {
       domain: () => this.domain,
@@ -197,6 +213,11 @@ export class AgentSwarmRuntime extends Service {
     if (this.reviewRootProviders.has(key)) throw new TeamDomainError(`review root Provider "${key}" is already registered`, 'TEAM_PROVIDER_DUPLICATE')
     this.reviewRootProviders.set(key, provider)
     return () => { if (this.reviewRootProviders.get(key) === provider) this.reviewRootProviders.delete(key) }
+  }
+
+  /** Register one replaceable execution-root Provider (M3-1, issue #100). */
+  registerExecutionRootProvider(name: string, provider: TeamExecutionRootProvider): () => void {
+    return this.executionRoots.registerProvider(name, provider)
   }
 
   /** Canonical workspace scope key partitioning this agent's Team namespace. */
@@ -280,6 +301,7 @@ export class AgentSwarmRuntime extends Service {
     const removed = await this.domain.removeMember(scope, membership.team.id, captain.id, name, reason)
     this.ctx.subagents.interrupt(SessionId(removed.member.sessionId), { kind: 'ancestor', agent: captain })
     await this.ctx.subagents.drainContinuableChildren(captain, [SessionId(removed.member.sessionId)])
+    await this.executionRoots.sweep(scope, membership.team.id)
     this.requestSchedule(scope, membership.team.id, captain)
     return removed
   }
@@ -296,18 +318,27 @@ export class AgentSwarmRuntime extends Service {
     const archived = await this.domain.archiveTeam(scope, membership.team.id, captain.id, reason)
     for (const id of activeIds) this.ctx.subagents.interrupt(id, { kind: 'ancestor', agent: captain })
     await this.ctx.subagents.drainContinuableChildren(captain, activeIds)
+    await this.executionRoots.sweep(scope, membership.team.id)
     return archived
   }
 
-  async claimTask(exec: ToolExecutionAuthority, taskId: string, expectedRevision: number) {
+  async claimTask(
+    exec: ToolExecutionAuthority,
+    taskId: string,
+    expectedRevision: number,
+  ): Promise<{ task: TeamTask; attempt: TaskAttempt; executionRoot?: { path: string; isolation: 'git-worktree' | 'temp-directory' } }> {
     await this.ensureReady()
     this.assertOpen()
     const actor = requireAgent(exec)
     const scope = this.scopeOf(actor)
     const membership = await this.domain.requireMembership(scope, actor.id)
-    return await this.domain.claimTask(
+    const claim = await this.domain.claimTask(
       scope, membership.team.id, actor.id, TaskId(taskId), expectedRevision,
     )
+    // M3-1 (issue #100): fence the fresh attempt into its execution root at
+    // claim time — attemptId is the fence key. A failed acquisition rolls the
+    // claim back under the team captain's compensating authority (docs/04 §8l).
+    return await this.executionRoots.settleClaim(scope, membership.team, claim)
   }
 
   async submitTask(
@@ -319,7 +350,7 @@ export class AgentSwarmRuntime extends Service {
     const actor = requireAgent(exec)
     const scope = this.scopeOf(actor)
     const membership = await this.domain.requireMembership(scope, actor.id)
-    return await this.domain.submitTask(
+    const task = await this.domain.submitTask(
       scope,
       membership.team.id,
       actor.id,
@@ -329,6 +360,8 @@ export class AgentSwarmRuntime extends Service {
       input.output,
       input.evidence,
     )
+    await this.executionRoots.sweep(scope, membership.team.id)
+    return task
   }
 
   async reassignTask(exec: ToolExecutionAuthority, taskId: string, expectedRevision: number, reason: string): Promise<TeamTask> {
@@ -344,6 +377,7 @@ export class AgentSwarmRuntime extends Service {
     if (before?.ownerSessionId !== undefined) {
       this.ctx.subagents.interrupt(SessionId(before.ownerSessionId), { kind: 'ancestor', agent: captain })
     }
+    await this.executionRoots.sweep(scope, membership.team.id)
     this.requestSchedule(scope, membership.team.id, captain)
     return released
   }
@@ -354,12 +388,20 @@ export class AgentSwarmRuntime extends Service {
   ): Promise<{ task: TeamTask; decision: 'accept' | 'reject' }> {
     await this.ensureReady()
     this.assertOpen()
-    return await runReviewTransaction({
+    const outcome = await runReviewTransaction({
       ctx: this.ctx, domain: () => this.domain,
       reviewProvider: () => this.reviewProviders.get(this.config.reviewProvider),
       reviewProviderName: () => this.config.reviewProvider, scopeOf: agent => this.scopeOf(agent),
       requestSchedule: (scope, teamId, captain) => this.requestSchedule(scope, teamId, captain),
     }, exec, input)
+    // M3-1 (issue #100): the review settling is a terminal transition —
+    // sweep the owner's execution roots from the authoritative snapshot.
+    const captain = requireAgent(exec)
+    const scope = this.scopeOf(captain)
+    const membership = await this.domain.requireMembership(scope, captain.id)
+    await this.executionRoots.sweep(scope, membership.team.id)
+    if (outcome.decision === 'reject') this.requestSchedule(scope, membership.team.id, captain)
+    return outcome
   }
 
   async sendMessage(
@@ -566,6 +608,18 @@ export class AgentSwarmRuntime extends Service {
     }
   }
 
+  /**
+   * Activation-recovery residue scan (M3-1, issue #100): fold every on-disk
+   * execution root of one scope against the authoritative aggregates. Called
+   * once per root-reachable scope at plugin activation; orphans are alarmed
+   * and marked reclaimable (never auto-deleted), reattachable roots are
+   * reported. Returns the report for observation (D1 root-residue metric).
+   */
+  async scanExecutionRootResidue(scope: TeamScope): Promise<ExecutionRootResidue[]> {
+    await this.ensureReady()
+    return await this.executionRoots.scan(scope)
+  }
+
   async dispose(): Promise<void> {
     if (this.closing) return
     this.closing = true
@@ -578,6 +632,7 @@ export class AgentSwarmRuntime extends Service {
     await bound('member provisioning', this.provisioning.wait())
     await bound('scheduling', Promise.allSettled(this.scheduling.values()))
     await bound('message delivery', this.delivery.wait())
+    await bound('execution roots', this.executionRoots.releaseAll('runtime disposal'))
     for (const [captainId, childIds] of this.ownedChildren) {
       const captain = this.ctx.agents.get(SessionId(captainId))
       if (captain === undefined) continue
