@@ -18,7 +18,7 @@ import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-test
 import { CallId, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
-import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -156,7 +156,7 @@ describe('target-side message de-duplication (F2)', () => {
 
     try {
       await mountAgentLoopTestDependencies(ctx)
-      await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions') })
+      fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(sandbox, 'sessions', 'sessions.db') }))
       await mountStorageStackOn(ctx, join(sandbox, 'storage'))
       fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
       fibers.push(await ctx.plugin(SubagentService))
@@ -304,7 +304,7 @@ describe('target-side message de-duplication (F2)', () => {
 
     try {
       await mountAgentLoopTestDependencies(ctx)
-      await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions') })
+      fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(sandbox, 'sessions', 'sessions.db') }))
       await mountStorageStackOn(ctx, join(sandbox, 'storage'))
       fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
       fibers.push(await ctx.plugin(SubagentService))
