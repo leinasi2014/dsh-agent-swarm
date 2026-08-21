@@ -26,6 +26,9 @@ import { interruptMember } from './member-control.js'
 import { MemberProvisioner } from './member-provisioning.js'
 import { MessageDelivery } from './message-delivery.js'
 import { manualReview, priorityReadyScheduler, type ReviewProviderInput, type ReviewProviderResult, type SchedulerDecision, type SchedulerSelectionInput, type TeamReviewProvider, type TeamSchedulerProvider } from './providers.js'
+import { executableReview } from './executable-review.js'
+import { tempReviewRootProvider, type ReviewRootProvider } from './review-root.js'
+import { runReviewTransaction } from './review-transaction.js'
 import { OrchestrationOwnership } from './orchestration-ownership.js'
 import { SchedulingPass } from './scheduling.js'
 import { UsageAccountant } from './usage-accounting.js'
@@ -46,6 +49,8 @@ export class AgentSwarmRuntime extends Service {
   private readonly scheduling = new Map<string, Promise<void>>()
   private readonly schedulerProviders = new Map<string, TeamSchedulerProvider>()
   private readonly reviewProviders = new Map<string, TeamReviewProvider>()
+  /** Review execution root supply (M3-2): the #100 family's review face. */
+  private readonly reviewRootProviders = new Map<string, ReviewRootProvider>()
   private readonly ownedChildren = new Map<string, Set<string>>()
   /**
    * Session id → its CURRENT idle stretch's start, latched at every observed
@@ -95,6 +100,15 @@ export class AgentSwarmRuntime extends Service {
     this.orchestration = new OrchestrationOwnership({ mode: config.orchestrationMode, requestSchedule })
     this.schedulerProviders.set('priority-ready', priorityReadyScheduler())
     this.reviewProviders.set('manual', manualReview())
+    this.reviewRootProviders.set('temp', tempReviewRootProvider())
+    const commandBound = config.limits.maxVerificationCommandMs
+    this.reviewProviders.set('executable', executableReview({
+      resolveRoot: name => this.reviewRootProviders.get(name),
+      rootProviderName: () => this.config.reviewRootProvider,
+      defaultCommandTimeoutMs: commandBound,
+      maxCommandTimeoutMs: commandBound,
+      warn: message => this.ctx.logger.warn(message),
+    }))
     this.usage = new UsageAccountant(ctx, { domain: () => this.domain, isClosing: () => this.closing })
     this.delivery = new MessageDelivery(ctx, {
       domain: () => this.domain,
@@ -176,6 +190,15 @@ export class AgentSwarmRuntime extends Service {
     return () => { if (this.reviewProviders.get(key) === provider) this.reviewProviders.delete(key) }
   }
 
+  /** Register a review execution root supply (M3-2, docs/04 §5). */
+  registerReviewRootProvider(name: string, provider: ReviewRootProvider): () => void {
+    const key = name.trim()
+    if (key === '') throw new TeamDomainError('review root Provider name must not be empty', 'TEAM_INVALID_CONFIG')
+    if (this.reviewRootProviders.has(key)) throw new TeamDomainError(`review root Provider "${key}" is already registered`, 'TEAM_PROVIDER_DUPLICATE')
+    this.reviewRootProviders.set(key, provider)
+    return () => { if (this.reviewRootProviders.get(key) === provider) this.reviewRootProviders.delete(key) }
+  }
+
   /** Canonical workspace scope key partitioning this agent's Team namespace. */
   scopeOf(agent: Agent): TeamScope {
     return resolve(workspaceOf(agent))
@@ -210,6 +233,9 @@ export class AgentSwarmRuntime extends Service {
     }
     if (!this.reviewProviders.has(this.config.reviewProvider)) {
       throw new TeamDomainError(`review Provider "${this.config.reviewProvider}" is unavailable`, 'TEAM_REVIEW_PROVIDER_MISSING')
+    }
+    if (!this.reviewRootProviders.has(this.config.reviewRootProvider)) {
+      throw new TeamDomainError(`review root Provider "${this.config.reviewRootProvider}" is unavailable`, 'TEAM_REVIEW_ROOT_PROVIDER_MISSING')
     }
   }
 
@@ -328,39 +354,12 @@ export class AgentSwarmRuntime extends Service {
   ): Promise<{ task: TeamTask; decision: 'accept' | 'reject' }> {
     await this.ensureReady()
     this.assertOpen()
-    const captain = requireAgent(exec)
-    const scope = this.scopeOf(captain)
-    const membership = await this.domain.requireMembership(scope, captain.id)
-    const taskBefore = membership.team.tasks.find(task => task.id === input.taskId)
-    if (taskBefore === undefined) throw new TeamDomainError(`task "${input.taskId}" not found`, 'TEAM_TASK_NOT_FOUND')
-    const attemptBefore = membership.team.attempts.find(attempt => attempt.id === input.attemptId)
-    if (attemptBefore === undefined) throw new TeamDomainError(`attempt "${input.attemptId}" not found`, 'TEAM_ATTEMPT_NOT_FOUND')
-    const provider = this.reviewProviders.get(this.config.reviewProvider)
-    if (provider === undefined) {
-      throw new TeamDomainError(`review Provider "${this.config.reviewProvider}" is unavailable`, 'TEAM_REVIEW_PROVIDER_MISSING')
-    }
-    const outcome = await provider.review({
-      captain,
-      workspace: workspaceOf(captain),
-      team: membership.team,
-      task: taskBefore,
-      attempt: attemptBefore,
-      requestedDecision: input.decision,
-      ...(input.diagnostic === undefined ? {} : { diagnostic: input.diagnostic }),
-      signal: exec.signal,
-    })
-    const task = await this.domain.reviewTask(
-      scope,
-      membership.team.id,
-      captain.id,
-      TaskId(input.taskId),
-      input.expectedRevision,
-      input.attemptId as AttemptId,
-      outcome.decision,
-      outcome.diagnostic,
-    )
-    if (outcome.decision === 'reject') this.requestSchedule(scope, membership.team.id, captain)
-    return { task, decision: outcome.decision }
+    return await runReviewTransaction({
+      ctx: this.ctx, domain: () => this.domain,
+      reviewProvider: () => this.reviewProviders.get(this.config.reviewProvider),
+      reviewProviderName: () => this.config.reviewProvider, scopeOf: agent => this.scopeOf(agent),
+      requestSchedule: (scope, teamId, captain) => this.requestSchedule(scope, teamId, captain),
+    }, exec, input)
   }
 
   async sendMessage(

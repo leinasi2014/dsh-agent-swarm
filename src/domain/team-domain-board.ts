@@ -30,10 +30,32 @@ import {
   replaceTask,
   type TeamDomainDeps,
 } from './team-domain-shared.js'
-import { AttemptId, TaskId, type TaskAttempt, type TeamId, type TeamState, type TeamTask } from './types.js'
+import { AttemptId, TaskId, type ReviewVerificationCommand, type TaskAttempt, type TeamId, type TeamState, type TeamTask } from './types.js'
 import type { CreateTaskInput, TeamScope } from './team-domain-port.js'
 
 const TERMINAL_ATTEMPT_PHASES = new Set(['accepted', 'rejected', 'cancelled', 'stale'])
+
+/**
+ * Normalize one captain-declared verification list (M3-2): bounded count,
+ * non-empty bounded command text, per-command timeout within the deployment
+ * ceiling. A stored list is always a private deep copy of the caller's.
+ */
+function normalizeVerification(
+  verification: readonly ReviewVerificationCommand[],
+  limits: { readonly maxVerificationCommands: number; readonly maxVerificationCommandMs: number },
+): ReviewVerificationCommand[] {
+  expectDomain(verification.length <= limits.maxVerificationCommands, 'task verification command limit reached', 'TEAM_TASK_VERIFICATION_LIMIT')
+  return verification.map(entry => {
+    const command = nonEmpty(entry.command, 'verification command', 2_048)
+    if (entry.timeoutMs === undefined) return { command }
+    expectDomain(
+      Number.isSafeInteger(entry.timeoutMs) && entry.timeoutMs >= 1 && entry.timeoutMs <= limits.maxVerificationCommandMs,
+      'verification command timeout must be a safe integer between 1 and the deployment ceiling',
+      'TEAM_INPUT_INVALID',
+    )
+    return { command, timeoutMs: entry.timeoutMs }
+  })
+}
 
 function taskOf(team: TeamState, id: TaskId): TeamTask {
   const task = team.tasks.find(candidate => candidate.id === id)
@@ -111,6 +133,7 @@ export async function createTask(
       blockedBy,
       writeScopes: [...(input.writeScopes ?? [])].map(value => nonEmpty(value, 'write scope', 1_024)),
       priority: input.priority ?? 0,
+      ...(input.verification === undefined ? {} : { verification: normalizeVerification(input.verification, deps.limits) }),
       createdAt: timestamp,
       updatedAt: timestamp,
     }

@@ -17,6 +17,13 @@ export interface RuntimeConfig {
   readonly memberMaxDepth: number
   readonly schedulerProvider: string
   readonly reviewProvider: string
+  /**
+   * Review execution root supply name (M3-2, issue #101): builtin `temp`
+   * (plain temp directory) or a registered #100-family Provider. Consumed
+   * by the `executable` review Provider; preflight-checked like the
+   * scheduler/review Provider names.
+   */
+  readonly reviewRootProvider: string
   /** Explicit orchestration mode (M2-3, issue #77; docs/04 §8g). */
   readonly orchestrationMode: OrchestrationMode
   readonly limits: TeamLimits

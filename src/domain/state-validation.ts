@@ -79,6 +79,13 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
     if (!TASK_STATUSES.has(String(task.status))) corrupt(path, `tasks[${index}].status is invalid`)
     stringList(task.blockedBy, path, `tasks[${index}].blockedBy`)
     stringList(task.writeScopes, path, `tasks[${index}].writeScopes`)
+    if (task.verification !== undefined) {
+      list(task.verification, path, `tasks[${index}].verification`).forEach((entryRaw, command) => {
+        const entry = record(entryRaw, path, `tasks[${index}].verification[${command}]`)
+        text(entry.command, path, `tasks[${index}].verification[${command}].command`)
+        if (entry.timeoutMs !== undefined) integer(entry.timeoutMs, path, `tasks[${index}].verification[${command}].timeoutMs`, 1)
+      })
+    }
     integer(task.priority, path, `tasks[${index}].priority`, Number.MIN_SAFE_INTEGER)
     if (task.ownerSessionId !== undefined) text(task.ownerSessionId, path, `tasks[${index}].ownerSessionId`)
     if (task.currentAttemptId !== undefined) text(task.currentAttemptId, path, `tasks[${index}].currentAttemptId`)
