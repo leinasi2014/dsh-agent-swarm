@@ -509,10 +509,11 @@ async function main() {
   // establishGeneration fails AFTER the stable Profile install.
   await rm(join(h7Layout.lkgDir, 'g1', 'lkg.json'), { force: true, maxRetries: 5, retryDelay: 100 })
   await mkdir(join(h7Layout.lkgDir, 'g1', 'lkg.json'), { recursive: true })
-  const h7 = await runPromote({ dogfoodRoot: h7Root, repo: args.repo, candidate: candidateId, cli: args.cli, port: args.controlPort, quiesceWindowMs: 100 }).catch(error => ({ thrown: String(error) }))
+  const h7 = await runPromote({ dogfoodRoot: h7Root, repo: args.repo, candidate: candidateId, cli: args.cli, port: args.controlPort, quiesceWindowMs: 100 })
+    .catch(error => ({ thrown: String(error), promoteResult: error?.promoteResult }))
   process.exitCode = 0
   const h7Compensated = h7.thrown !== undefined
-    && h7.steps?.some(step => step.name === 'compensate-reinstall' && step.outcome === 'ok')
+    && h7.promoteResult?.steps?.some(step => step.name === 'compensate-reinstall' && step.outcome === 'ok') === true
   const h7PointerAfter = await readLkgPointer(h7Layout.lkgDir)
   const h7Reconcile = await reconcileInstalledProfile({ layout: h7Layout, pointer: h7PointerAfter, extract: extractTarball })
   const h7LedgerAfter = await readLedger(h7Layout.ledgerPath)
@@ -524,7 +525,7 @@ async function main() {
   await drillRecord('H7', 'pass', `F3: establishGeneration failure after the stable install (injected: unwritable g1 gen-record path) left the copy pointer/ledger untouched and the promoter COMPENSATED by re-installing the previous generation g${h7PointerBefore.currentGen}; installed bytes reconcile with the pointer again`, {
     injectedFailure: 'lkg/g1/lkg.json pre-created as a directory — the generation-record write fails after the Profile install',
     thrown: String(h7.thrown).slice(0, 300),
-    compensateStep: h7.steps?.find(step => step.name === 'compensate-reinstall'),
+    compensateStep: h7.promoteResult?.steps?.find(step => step.name === 'compensate-reinstall'),
     pointerGenAfter: h7PointerAfter.currentGen,
     reconcileMatches: h7Reconcile.matches,
     forgedKit: { forgedDrillDir: h7Kit.forgedDrillDir, verdictDigest: h7Kit.verdictDigest },
