@@ -15,7 +15,7 @@ import { dirname, join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import {
   anchorLedgerTail, appendLedgerRecord, checkFencing, controlRootLayout,
-  crossCheckAcceptedVerdict, directoryContentDigest, establishGeneration,
+  crossCheckAcceptedVerdict, establishGeneration,
   ledgerAnchorTagNames, ledgerRecordHash, readLedger, readLkgPointer,
   reconcileInstalledProfile, REQUIRED_VERDICT_GATES, sha256File,
   verifyLedgerAnchors, verifyLedgerChain, verifyLkgChain, verifyVerdict, writeJsonFile,
@@ -252,12 +252,22 @@ describe('installed-bytes reconciliation and pointer/ledger repair (issue #122 F
     const matching = await reconcileInstalledProfile({ layout, pointer, extract: fakeExtractFrom(sourceDir) })
     expect(matching.checked).toBe(true)
     expect(matching.matches).toBe(true)
-    expect(matching.installedContentSha256).toBe(await directoryContentDigest(installedDir))
+    expect(matching.artifactFiles).toBe(2)
+    // pnpm layout artifacts inside the package dir (node_modules/.bin shims)
+    // are informational extras, not divergences — the artifact's own file set
+    // is the contract (verified live against a real Profile install)
+    await mkdir(join(installedDir, 'node_modules', '.bin'), { recursive: true })
+    await writeFile(join(installedDir, 'node_modules', '.bin', 'cordis.CMD'), '@echo off', 'utf8')
+    const withShim = await reconcileInstalledProfile({ layout, pointer, extract: fakeExtractFrom(sourceDir) })
+    expect(withShim.checked).toBe(true)
+    expect(withShim.matches).toBe(true)
+    expect(withShim.extraFiles).toEqual(['node_modules/.bin/cordis.CMD'])
     // a half-applied state (installed bytes ≠ pointer generation) is machine-detected
     await writeFile(join(installedDir, 'lib', 'index.mjs'), 'export {} // tampered', 'utf8')
     const divergent = await reconcileInstalledProfile({ layout, pointer, extract: fakeExtractFrom(sourceDir) })
     expect(divergent.checked).toBe(true)
     expect(divergent.matches).toBe(false)
+    expect(divergent.reason).toContain('digest mismatch: lib/index.mjs')
     // no stable Profile at all is reported unchecked, not a divergence
     const emptyLayout = await freshLayout()
     const none = await reconcileInstalledProfile({ layout: emptyLayout, pointer, extract: fakeExtractFrom(sourceDir) })
