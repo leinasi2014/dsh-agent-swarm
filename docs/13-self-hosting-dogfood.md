@@ -100,6 +100,7 @@ The manager reads structured facts rather than member reasoning:
 - live Agent status, lineage and abandoned ownership;
 - mailbox ids, pending/ack state and recovery outcome;
 - Workspace lease, exact cwd, branch, base and cleanup result;
+- execution-root lease state per attempt: acquired/released counts, the activation-scan residue report (orphan vs reattachable, `docs/04` §8l), the root-residue rate — orphaned roots over settled attempts — and the captain reclaim outcome for marked roots;
 - Job phase, cancellation, timeout and safe diagnostic;
 - test/review evidence, frozen commit/artifact digest and acceptance health;
 - token/request/context projections used for efficiency analysis;

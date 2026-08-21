@@ -26,6 +26,7 @@ import { DEFAULT_TEAM_LIMITS } from './domain/team-domain.js'
 import { recoverActiveRosters } from './runtime/usage-recovery.js'
 import { TeamBridgeWorkflowEngine } from './runtime/workflow/team-bridge-engine.js'
 import { TeamJobProjection } from './runtime/jobs/team-job-projection.js'
+import { defaultExecutionRootsBase, expectExecutionRootsBase } from './runtime/execution-roots.js'
 
 export { AgentSwarmRuntime } from './runtime/orchestrator-runtime.js'
 export type {
@@ -40,6 +41,14 @@ export type {
 } from './runtime/orchestrator-runtime.js'
 export { OrchestrationOwnership } from './runtime/orchestration-ownership.js'
 export type { OrchestrationMode } from './runtime/orchestration-ownership.js'
+export type {
+  ExecutionLease,
+  ExecutionRoot,
+  ExecutionRootIsolation,
+  ExecutionRootResidue,
+  TeamExecutionRootProvider,
+} from './runtime/execution-roots.js'
+export { ExecutionRoots, EXECUTION_ROOT_MARKER, gitWorktreeExecutionRoots } from './runtime/execution-roots.js'
 export { TeamBridgeWorkflowEngine, validateBridgeMeta } from './runtime/workflow/team-bridge-engine.js'
 export type { BridgeEngineConfig } from './runtime/workflow/team-bridge-engine.js'
 export { TeamJobProjection } from './runtime/jobs/team-job-projection.js'
@@ -194,6 +203,27 @@ export interface Config {
    * structured `TEAM_JOBS_BRIDGE_DISABLED` naming this config.
    */
   jobsBridge?: boolean
+  /**
+   * Mount per-attempt execution roots (M3-1, issue #100): every claimed
+   * attempt is fenced into an isolated physical working root (default
+   * Provider `git-worktree`: a detached git worktree of the Team workspace's
+   * repository, degrading to an independent temporary directory when the
+   * scope holds no repository — the capability difference is declared per
+   * root, never silent). The root's absolute path is declared in the
+   * assignment frame and the claim result (the official cwd seam: members
+   * pass it as the absolute `workdir`), released when the attempt settles,
+   * and crash residue is alarmed and marked reclaimable at activation —
+   * never auto-deleted. Default false: behavior is byte-identical to the
+   * pre-M3-1 plugin. Decisions: docs/04 §8l.
+   */
+  executionRoots?: boolean
+  /** Registered execution-root Provider name (default `git-worktree`). */
+  executionRootProvider?: string
+  /**
+   * Absolute base directory under which execution roots are laid out
+   * (default: a dedicated partition under the platform temp directory).
+   */
+  executionRootsBase?: string
   /** Ordered system-prompt contribution. */
   promptSectionOrder?: number
 }
@@ -221,6 +251,9 @@ export const Config: z<Config> = z.object({
   workflowMaxTotalAgents: z.number().step(1).min(1).default(DEFAULT_WORKFLOW_MAX_TOTAL_AGENTS),
   workflowDisposeGraceMs: z.number().step(1).min(1).default(DEFAULT_DISPOSAL_TIMEOUT_MS),
   jobsBridge: z.boolean().default(false),
+  executionRoots: z.boolean().default(false),
+  executionRootProvider: z.string().default('git-worktree'),
+  executionRootsBase: z.string(),
   promptSectionOrder: z.natural().default(118),
 })
 
@@ -254,6 +287,10 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   if (orchestrationMode === 'workflow' && config.workflowBridge !== true) {
     throw new Error('agent-swarm: orchestrationMode "workflow" requires workflowBridge: true (no orchestration driver would exist)')
   }
+  const executionRootsEnabled = config.executionRoots ?? false
+  const executionRootProvider = (config.executionRootProvider ?? 'git-worktree').trim()
+  if (executionRootProvider === '') throw new Error('agent-swarm: executionRootProvider must not be empty')
+  const executionRootsBase = expectExecutionRootsBase(config.executionRootsBase) ?? defaultExecutionRootsBase()
 
   const runtime = new AgentSwarmRuntime(ctx, {
     memberProvider,
@@ -275,6 +312,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     },
     disposalTimeoutMs: config.disposalTimeoutMs ?? DEFAULT_DISPOSAL_TIMEOUT_MS,
     strandedAfterMs: config.strandedAfterMs ?? DEFAULT_STRANDED_AFTER_MS,
+    executionRootsEnabled,
+    executionRootProvider,
+    executionRootsBase,
   })
 
   // Fail closed: the official Storage Domain must open (backend routed, unit
@@ -307,11 +347,20 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     // Issue #92's durable net: after agent recovery, refold every active
     // roster's usage from live logs and persisted history so a drop on the
     // live path can never survive a reload as a permanent billed-token gap.
+    const scopes = [...new Set(ctx.agents.roots().map(agent => runtime.scopeOf(agent)))]
     await recoverActiveRosters(ctx, {
       domain: () => runtime.domain,
-      scopes: [...new Set(ctx.agents.roots().map(agent => runtime.scopeOf(agent)))],
+      scopes,
       teams: scope => runtime.listTeamAggregates(scope),
     })
+    // M3-1 (issue #100): the execution-root residue scan — crash-left roots
+    // whose attempts no longer hold them are alarmed and marked reclaimable
+    // (kept for captain decision); roots of still-redrivable attempts report
+    // as reattachable. The report is the D1 dogfood root-residue observation
+    // input (docs/13 §5).
+    if (executionRootsEnabled) {
+      for (const scope of scopes) await runtime.scanExecutionRootResidue(scope)
+    }
     return () => undefined
   }, 'agent-swarm: activation recovery')
   ctx.effect(() => () => runtime.dispose(), 'agent-swarm: runtime disposal')

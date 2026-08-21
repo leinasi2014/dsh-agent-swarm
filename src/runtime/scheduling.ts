@@ -16,6 +16,7 @@ import { TaskId, type AttemptId, type TaskAttempt, type TeamId, type TeamState, 
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import { TeamDomainError } from '../domain/error.js'
 import { frameVisibility, waitForFrameClaim, type FrameVisibility } from './frame-visibility.js'
+import type { ExecutionRoots } from './execution-roots.js'
 import type { MessageDelivery } from './message-delivery.js'
 import { assignmentPrompt } from './prompts.js'
 import type { TeamSchedulerProvider } from './providers.js'
@@ -50,6 +51,16 @@ export interface SchedulingDeps {
   readonly isClosing: () => boolean
   readonly trackTeamChildren: (captain: Agent, team: TeamState) => void
   readonly requestSchedule: (scope: TeamScope, teamId: TeamId, captain: Agent) => void
+  /**
+   * Per-attempt execution roots (M3-1, issue #100): the manager that fences
+   * every dispatched assignment into its isolated working root and releases
+   * roots once their attempt settles.
+   */
+  readonly executionRoots: () => ExecutionRoots
+  /** Whether the execution-root capability is enabled for this runtime. */
+  readonly executionRootsEnabled: () => boolean
+  /** Release roots whose attempts settled (authority-derived sweep). */
+  readonly sweepExecutionRoots: (scope: TeamScope, teamId: TeamId) => Promise<void>
 }
 
 /**
@@ -173,7 +184,27 @@ export class SchedulingPass {
     task: TeamTask,
     attempt: TaskAttempt,
   ): Promise<void> {
-    const frame = assignmentPrompt(team, task, attempt.id)
+    // M3-1 (issue #100): fence this attempt into its execution root BEFORE
+    // the frame exists — the frame declares the deterministic root path, and
+    // a failed acquisition is a failed dispatch that rolls back exactly its
+    // own reservation (the claim-time discipline of §8c).
+    let executionRootPath: string | undefined
+    if (this.deps.executionRootsEnabled()) {
+      try {
+        executionRootPath = (await this.deps.executionRoots().acquire(scope, team.id, task.id, attempt.id)).path
+      } catch (error) {
+        await this.rollbackUndeliveredAssignment(
+          scope,
+          team.id,
+          captain.id,
+          task.id,
+          attempt.id,
+          `execution root acquisition failed: ${error instanceof Error ? error.message : String(error)}`,
+        )
+        return
+      }
+    }
+    const frame = assignmentPrompt(team, task, attempt.id, executionRootPath)
     try {
       await this.ctx.subagents.followup(
         captain,
@@ -224,8 +255,14 @@ export class SchedulingPass {
     task: TeamTask,
     attempt: TaskAttempt,
   ): Promise<boolean> {
+    // The frame identity recomputed here must stay byte-identical to the one
+    // dispatched — with execution roots enabled (M3-1) that includes the
+    // attempt's deterministic root path, derived the same pure way.
+    const executionRootPath = this.deps.executionRootsEnabled()
+      ? this.deps.executionRoots().declarationPathFor(scope, team.id, task.id, attempt.id)
+      : undefined
     const visibility: FrameVisibility = await frameVisibility(
-      this.ctx, attempt.memberSessionId, assignmentPrompt(team, task, attempt.id),
+      this.ctx, attempt.memberSessionId, assignmentPrompt(team, task, attempt.id, executionRootPath),
       AbortSignal.timeout(30_000), `assignment ${attempt.id}`,
     )
     if (visibility === 'absent') return false
@@ -252,6 +289,10 @@ export class SchedulingPass {
     } catch (error) {
       this.ctx.logger.warn(`agent-swarm: assignment acknowledgement deferred for ${task.id}: ${String(error)}`)
     }
+    // The delivered checkpoint closes this attempt's reinstate window, so any
+    // execution root still held by the stale attempt it replaced can now
+    // release (authority-derived; never blocks the delivery path).
+    await this.deps.sweepExecutionRoots(scope, teamId)
   }
 
   /**

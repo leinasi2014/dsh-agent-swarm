@@ -33,6 +33,17 @@ export interface RuntimeConfig {
    * `stranded=` hints remain). Decisions: docs/04 §8c.
    */
   readonly strandedAfterMs: number
+  /**
+   * Per-attempt execution roots (M3-1, issue #100; docs/04 §8l): when true,
+   * every claimed attempt is fenced into an isolated physical working root
+   * supplied by the configured Provider (default `git-worktree`), released
+   * when the attempt settles and scanned for crash residue at activation.
+   */
+  readonly executionRootsEnabled: boolean
+  /** Registered execution-root Provider name (default `git-worktree`). */
+  readonly executionRootProvider: string
+  /** Absolute base directory under which every execution root is laid out. */
+  readonly executionRootsBase: string
 }
 
 declare module '@deepseek-ai/cordis' {
