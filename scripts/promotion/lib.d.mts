@@ -6,7 +6,7 @@
  * exactly like the scripts/verify-official-baseline.d.mts precedent.
  */
 
-export type LedgerAction = 'gen-established' | 'accepted' | 'promote' | 'rollback' | 'reject'
+export type LedgerAction = 'gen-established' | 'accepted' | 'promote' | 'rollback' | 'reject' | 'repair'
 
 export interface ControlRootLayout {
   root: string
@@ -185,6 +185,57 @@ export function rollPointerBack(
 ): Promise<LedgerRecord>
 
 export function verifyVerdict(verdict: AcceptanceVerdict | undefined, manifest: CandidateManifest | undefined, evidenceBaseDir?: string): Promise<{ ok: boolean; failures: string[] }>
+
+/** The seven evidence-carrying gates a passing verdict must present (issue #122 F4; the eighth vocabulary name, acceptance-run, only appears on failed runs). */
+export const REQUIRED_VERDICT_GATES: string[]
+
+export function crossCheckAcceptedVerdict(input: {
+  verdict: AcceptanceVerdict | undefined
+  manifest: CandidateManifest | undefined
+  verdictDigest: string
+  ledgerRecords: LedgerRecord[]
+  drillsDir: string
+}): Promise<{ ok: boolean; failures: string[]; acceptedSeq: number | null; drillDir: string | null }>
+
+export function ledgerAnchorTagNames(gen: number, seq: number): string[]
+
+export function anchorLedgerTail(input: {
+  repo: string
+  gen: number
+  seq: number
+  tailRecordSha256: string
+  action: string
+}, deps?: { git?: ((cwd: string, args: string[]) => Promise<{ code: number | null; stdout: string; stderr: string }>) | undefined }): Promise<{ tagName: string; alreadyAnchored: boolean }>
+
+export function verifyLedgerAnchors(input: {
+  repo: string
+  records: LedgerRecord[]
+}, deps?: { git?: ((cwd: string, args: string[]) => Promise<{ code: number | null; stdout: string; stderr: string }>) | undefined }): Promise<{
+  checked: boolean
+  ok: boolean
+  failures: string[]
+  anchoredPromotions: number
+  latest: { seq: number; action: string; toGen: number | null; recordSha256: string } | null
+  anchorTag?: string
+  note?: string
+  preAnchorEra?: boolean
+}>
+
+export function directoryContentDigest(directory: string): Promise<string>
+
+export function reconcileInstalledProfile(input: {
+  layout: ControlRootLayout
+  pointer: LkgPointer
+  extract: ((tarball: string, destDir: string) => Promise<unknown>)
+}): Promise<{
+  checked: boolean
+  matches?: boolean
+  reason?: string
+  pointerGen?: number
+  installedDir?: string
+  installedContentSha256?: string
+  expectedContentSha256?: string
+}>
 
 export function activeTeamsFromUnitText(text: string | undefined): { teamId: string; phase: string }[]
 

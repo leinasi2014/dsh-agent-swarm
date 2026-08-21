@@ -10,6 +10,9 @@
  * which exercises the same contract against a real dogfood control root with
  * real pnpm installs, boots and RPC probes; that run's evidence chain is the
  * issue-#102 acceptance record, this suite is the machine-checked contract.
+ * The issue-#122 hardening adversarial suites (env seal, strict verdict +
+ * accepted-record cross-check, git chain-tail anchors, installed-bytes
+ * reconciliation + repair) live in tests/promotion-hardening.spec.ts.
  */
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -18,10 +21,11 @@ import { afterAll, describe, expect, it } from 'vitest'
 import {
   acceptanceIsolation, activeTeamsFromUnitText, appendLedgerRecord, checkFencing,
   controlRootLayout, establishGeneration, evaluateQuiesce, genDir, ledgerRecordHash,
-  readLedger, readLkgPointer, rollPointerBack, rpcCall, sha256File, stableStringify,
-  verifyArtifactAgainstManifest, verifyLkgChain, verifyLedgerChain, verifyVerdict,
-  writeJsonFile,
+  readLedger, readLkgPointer, REQUIRED_VERDICT_GATES, rollPointerBack,
+  rpcCall, sha256File, stableStringify, verifyArtifactAgainstManifest, verifyLkgChain,
+  verifyLedgerChain, verifyVerdict, writeJsonFile,
 } from '../scripts/promotion/lib.mjs'
+import type { AcceptanceVerdict, VerdictGate } from '../scripts/promotion/lib.mjs'
 
 const root = await mkdtemp(join(tmpdir(), 'm3c-contract-'))
 const commitA = 'a'.repeat(40)
@@ -215,9 +219,20 @@ describe('acceptance verdict verification', () => {
   const evidenceDir = join(root, 'evidence')
   const evidenceFile = join(evidenceDir, 'gate.json')
 
+  /** A FULL eight-vocabulary (seven evidence-carrying) passing verdict — the only form verifyVerdict accepts (F4). */
+  async function fullPassingVerdict(): Promise<AcceptanceVerdict> {
+    await mkdir(evidenceDir, { recursive: true })
+    const gates: VerdictGate[] = []
+    for (const name of REQUIRED_VERDICT_GATES) {
+      const file = `${name}.json`
+      await writeFile(join(evidenceDir, file), JSON.stringify({ gate: name, ok: true }), 'utf8')
+      gates.push({ gate: name, status: 'pass', evidencePath: file, evidenceSha256: await sha256File(join(evidenceDir, file)) })
+    }
+    return { schemaVersion: 1, candidateId: 'cand-1', tarballSha256: 'a'.repeat(64), overall: 'pass', gates, run: { drillDir: join(root, 'drill-1'), lanes: 'floor' } }
+  }
+
   it('accepts a fully-passing verdict bound to the exact candidate', async () => {
-    await writeJsonFile(evidenceFile, { ok: true })
-    const verdict = { schemaVersion: 1 as const, candidateId: 'cand-1', tarballSha256: 'a'.repeat(64), overall: 'pass' as const, gates: [{ gate: 'a1-source-floor', status: 'pass' as const, evidencePath: 'gate.json', evidenceSha256: await sha256File(evidenceFile) }], run: {} }
+    const verdict = await fullPassingVerdict()
     expect((await verifyVerdict(verdict, manifest, evidenceDir)).ok).toBe(true)
   })
 
@@ -265,6 +280,14 @@ describe('quiesce criteria (ADR-0008 decision 8)', () => {
     expect(active).toEqual([{ teamId: 'team-one', phase: 'running' }])
     expect(activeTeamsFromUnitText(JSON.stringify({ tables: { teams: { 'team-two': { phase: 'archived' } } } }))).toEqual([])
     expect(activeTeamsFromUnitText('}{ not json')).toEqual([{ teamId: '<unparseable-agent_swarm-unit>', phase: 'unknown' }])
+    // issue #122 F6: a parseable unit whose tables.teams key was pruned, and an
+    // EMPTY unit file, are corrupt/trimmed authority faces — fail safe as
+    // ACTIVE; only an absent file (fresh root, the domain never wrote state)
+    // reads quiet.
+    expect(activeTeamsFromUnitText('{}')).toEqual([{ teamId: '<missing-teams-table>', phase: 'unknown' }])
+    expect(activeTeamsFromUnitText(JSON.stringify({ tables: {} }))).toEqual([{ teamId: '<missing-teams-table>', phase: 'unknown' }])
+    expect(activeTeamsFromUnitText('')).toEqual([{ teamId: '<unparseable-agent_swarm-unit>', phase: 'unknown' }])
+    expect(activeTeamsFromUnitText(undefined)).toEqual([])
   })
 
   it('passes only when all three criteria are still', async () => {

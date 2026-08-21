@@ -89,7 +89,11 @@ export async function runAcceptance(input) {
     if (listing.code === 0) packedEntries = listing.stdout.split('\n').filter(Boolean)
     const entryOk = packedEntries.some(entry => entry.endsWith('package/lib/index.mjs')) && packedEntries.some(entry => entry.endsWith('package/cordis.patch.yml'))
     await withDetachedWorktree(args.repo, manifest.gitCommit, async verifyRoot => {
-      const install = await run('pnpm', ['install', '--frozen-lockfile'], { cwd: verifyRoot })
+      // Issue #122 F1: the verification root is the CANDIDATE's tree — its
+      // dependency lifecycle scripts must not execute with PM authority
+      // (the tarball-side installs already used --ignore-scripts; this
+      // closes the repo-side asymmetry the D2 review flagged).
+      const install = await run('pnpm', ['install', '--frozen-lockfile', '--ignore-scripts'], { cwd: verifyRoot })
       await writeFile(join(isolation.domains.evidence, 'a1-install.log'), install.stdout + install.stderr, 'utf8')
       if (install.code !== 0) {
         laneResults.push({ lane: 'install', exitCode: install.code, durationMs: install.durationMs })

@@ -6,6 +6,15 @@
 // with a corrupted artifact) → rollback → evidence packaging → zero-residue
 // assertion.
 //
+// Issue #122 adds the H-phase hardening injections between P6 and P7, one per
+// newly closed adversarial path, all live against the hardened code: H1 env
+// seal sentinel (F2), H3 whole-chain ledger recomputation vs the git anchor
+// (F5), H4 pointer/ledger divergence repair (F3), H5 installed-bytes
+// reconciliation + status CLI (F3), H6 pruned-authority fail-safe (F6), H7
+// half-applied promote compensation (F3). The P4b survival injection was
+// upgraded by F4: the bare single-gate verdict is now refused first (live
+// proof), then the strongest full forgery drives the probe-failure path.
+//
 // Every domain touched lives under the dogfood control root. ~/.dsh, the
 // host's running stable Profile and the real root's g0/g1 lineage are never
 // inputs to any injection: the survival injection targets a COPY root (lkg +
@@ -16,13 +25,17 @@ import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import {
-  controlRootLayout, ledgerRecordHash, listNodeProcessesWindows, readLedger,
-  readLkgPointer, sha256File, verifyLkgChain,
+  activeTeamsFromUnitText, appendLedgerRecord, checkFencing, controlRootLayout,
+  ledgerRecordHash, ledgerGenState, listNodeProcessesWindows, readLedger,
+  readLkgPointer, reconcileInstalledProfile, REQUIRED_VERDICT_GATES, sha256File,
+  verifyLedgerAnchors, verifyLkgChain, writeJsonFile,
 } from './lib.mjs'
-import { git, run, waitPortFree } from './runner.mjs'
+import { extractTarball, git, run, waitPortFree } from './runner.mjs'
 import { probeStablePlane } from './plane-ops.mjs'
+import { FLOOR_LANES } from './freeze.mjs'
 import { runAcceptance } from './accept-check.mjs'
 import { runPromote } from './promote.mjs'
+import { runRepair } from './repair.mjs'
 import { runRollback } from './rollback.mjs'
 
 function parseArgs(argv) {
@@ -151,12 +164,68 @@ async function main() {
     if (result.code !== 0) throw new Error(`freeze of ${candidateId} failed: ${(result.stderr || result.stdout).slice(0, 800)}`)
     return JSON.parse(result.stdout)
   }
-  const promoteCli = extraArgs => runPromote({ dogfoodRoot: args.dogfoodRoot, cli: args.cli, port: args.controlPort, quiesceWindowMs: args.quiesceWindowMs, ...extraArgs })
+  const promoteCli = extraArgs => runPromote({ dogfoodRoot: args.dogfoodRoot, repo: args.repo, cli: args.cli, port: args.controlPort, quiesceWindowMs: args.quiesceWindowMs, ...extraArgs })
   const stableProbe = async label => {
     const probe = await probeStablePlane({ cli: args.cli, layout, port: args.controlPort })
     await writeJsonEvidence(`stable-probe-${label}.json`, probe.evidence)
     if (!probe.ok) throw new Error(`stable plane probe ${label} failed`)
     return probe.evidence
+  }
+  /** Copy the lkg/ + ledger/ lineage into a fresh drill-only root (P4b/H-injection lineage). */
+  const copyLineage = async dstRoot => {
+    const dstLayout = controlRootLayout(dstRoot)
+    for (const dir of [dstLayout.controlHome, dstLayout.controlStorage, dstLayout.controlSessions, dstLayout.candidatesDir, dstLayout.drillsDir, dirname(dstLayout.ledgerPath), dstLayout.lkgDir]) {
+      await mkdir(dir, { recursive: true })
+    }
+    await copyFile(join(layout.lkgDir, 'lkg.json'), join(dstLayout.lkgDir, 'lkg.json'))
+    for (const entry of await readdir(layout.lkgDir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        await mkdir(join(dstLayout.lkgDir, entry.name), { recursive: true })
+        for (const file of await readdir(join(layout.lkgDir, entry.name))) {
+          await copyFile(join(layout.lkgDir, entry.name, file), join(dstLayout.lkgDir, entry.name, file))
+        }
+      }
+    }
+    await copyFile(layout.ledgerPath, dstLayout.ledgerPath)
+    return dstLayout
+  }
+  /**
+   * The strongest acceptance forgery kit (issue #122 F4 closes the bare form;
+   * this simulates a forger holding candidates/ + ledger write access): full
+   * eight-gate vocabulary verdict with digest-consistent evidence files inside
+   * the copy root's drills domain + an `accepted` ledger record whose
+   * verdictRef/drillDir bind it. Containment is then the health probe +
+   * auto-rollback, not the verdict check.
+   */
+  const forgeAcceptedKit = async (root, candidateId) => {
+    const kitLayout = controlRootLayout(root)
+    const candidateDir = join(kitLayout.candidatesDir, candidateId)
+    const manifest = JSON.parse(await readFile(join(candidateDir, 'manifest.json'), 'utf8'))
+    const drillSlug = `${stamp}-forge-${candidateId}`
+    const forgedDrillDir = join(kitLayout.drillsDir, drillSlug)
+    const forgedEvidence = join(forgedDrillDir, 'evidence')
+    await mkdir(forgedEvidence, { recursive: true })
+    const gates = []
+    for (const name of REQUIRED_VERDICT_GATES) {
+      const file = `${name}.json`
+      await writeFile(join(forgedEvidence, file), JSON.stringify({ gate: name, forged: true }, null, 2))
+      gates.push({ gate: name, status: 'pass', evidencePath: file, evidenceSha256: await sha256File(join(forgedEvidence, file)) })
+    }
+    const verdict = {
+      schemaVersion: 1, candidateId, tarballSha256: manifest.tarballSha256, overall: 'pass', gates,
+      run: { drillDir: forgedDrillDir, lanes: 'floor', laneList: FLOOR_LANES, cli: args.cli, port: args.acceptPort, profile: 'web', injected: true, finishedAt: new Date().toISOString() },
+    }
+    await writeJsonFile(join(candidateDir, 'acceptance-verdict.json'), verdict)
+    const verdictDigest = await sha256File(join(candidateDir, 'acceptance-verdict.json'))
+    const record = await appendLedgerRecord(kitLayout.ledgerPath, {
+      action: 'accepted', actor: 'drill-injection', candidateId,
+      gitCommit: manifest.gitCommit, gitTree: manifest.gitTree,
+      tarballSha256: manifest.tarballSha256, tarballBytes: manifest.tarballBytes,
+      fromGen: null, toGen: null,
+      record: { reason: 'drill full-forgery kit: eight-gate verdict + digest-consistent evidence + verdictRef binding — the strongest form a candidates/+ledger write-access forger can build; contained downstream by the health probe + auto-rollback (issue #122 F4/H7)', drillDir: forgedDrillDir },
+      profileIdentity: null, verdictRef: { candidateId, sha256: verdictDigest },
+    })
+    return { forgedDrillDir, verdictDigest, ledgerSeq: record.seq }
   }
 
   // ── P0: baseline — freeze main as g0, establish, stable health ──────────
@@ -217,21 +286,14 @@ async function main() {
   await git(args.repo, ['branch', '-D', defect.branch])
 
   // ── P4(b): post-promotion survival injection (drill-only stable COPY lineage) ──
+  // Issue #122 F4 changed this phase: the OLD bare single-gate forged verdict
+  // (the review's own demonstration of the promoter's weak check) is now
+  // REFUSED, so the phase first injects it to prove the refusal live, then
+  // upgrades the forgery to the strongest form (eight-gate vocabulary +
+  // digest-consistent evidence + a bound `accepted` ledger record) to drive
+  // the promoter into its probe-failure path exactly as before.
   const copyRoot = join(drillDir, 'stable-copy-root')
-  const copyLayout = controlRootLayout(copyRoot)
-  for (const dir of [copyLayout.controlHome, copyLayout.controlStorage, copyLayout.controlSessions, copyLayout.candidatesDir, copyLayout.drillsDir, dirname(copyLayout.ledgerPath), copyLayout.lkgDir]) {
-    await mkdir(dir, { recursive: true })
-  }
-  await copyFile(join(layout.lkgDir, 'lkg.json'), join(copyLayout.lkgDir, 'lkg.json'))
-  for (const entry of await readdir(layout.lkgDir, { withFileTypes: true })) {
-    if (entry.isDirectory()) {
-      await mkdir(join(copyLayout.lkgDir, entry.name), { recursive: true })
-      for (const file of await readdir(join(layout.lkgDir, entry.name))) {
-        await copyFile(join(layout.lkgDir, entry.name, file), join(copyLayout.lkgDir, entry.name, file))
-      }
-    }
-  }
-  await copyFile(layout.ledgerPath, copyLayout.ledgerPath)
+  const copyLayout = await copyLineage(copyRoot)
   const corruptedId = `${candidateId}-corrupted`
   const corruptedDir = join(copyLayout.candidatesDir, corruptedId)
   await mkdir(corruptedDir, { recursive: true })
@@ -241,9 +303,27 @@ async function main() {
   const corruptedBytes = (await stat(join(corruptedDir, 'dsh-agent-swarm.tgz'))).size
   const sourceManifest = JSON.parse(await readFile(join(layout.candidatesDir, candidateId, 'manifest.json'), 'utf8'))
   await writeFile(join(corruptedDir, 'manifest.json'), `${JSON.stringify({ ...sourceManifest, candidateId: corruptedId, tarballSha256: corruptedDigest, tarballBytes: corruptedBytes, builtBy: 'drill-injection@p4b', injected: 'P4(b) post-promotion survival injection: plugin entry throws on import; digests are self-consistent so promote reaches the health-probe step by design' }, null, 2)}\n`, 'utf8')
-  await writeFile(join(corruptedDir, 'acceptance-verdict.json'), `${JSON.stringify({ schemaVersion: 1, candidateId: corruptedId, tarballSha256: corruptedDigest, overall: 'pass', gates: [{ gate: 'injected', status: 'pass', detail: 'P4(b) forged verdict: the drill deliberately bypasses acceptance to drive the promoter into its probe-failure path' }], run: { injected: true, finishedAt: new Date().toISOString() } }, null, 2)}\n`, 'utf8')
+  // (1) BARE verdict + bound accepted record — the F4 refusal, live.
+  await writeFile(join(corruptedDir, 'acceptance-verdict.json'), `${JSON.stringify({ schemaVersion: 1, candidateId: corruptedId, tarballSha256: corruptedDigest, overall: 'pass', gates: [{ gate: 'injected', status: 'pass', detail: 'P4(b) bare forged verdict: single unnamed-vocabulary gate, no evidence — the pre-F4 promoter accepted exactly this form' }], run: { injected: true, finishedAt: new Date().toISOString() } }, null, 2)}\n`, 'utf8')
+  const bareDigest = await sha256File(join(corruptedDir, 'acceptance-verdict.json'))
+  await appendLedgerRecord(copyLayout.ledgerPath, {
+    action: 'accepted', actor: 'drill-injection', candidateId: corruptedId,
+    gitCommit: sourceManifest.gitCommit, gitTree: sourceManifest.gitTree,
+    tarballSha256: corruptedDigest, tarballBytes: corruptedBytes,
+    fromGen: null, toGen: null,
+    record: { reason: 'P4(b) bare-verdict injection layer: binds the bare verdict so the refusal must come from the gate-vocabulary/evidence rules, not the missing record', drillDir: join(copyLayout.drillsDir, `${stamp}-forge-bare-${corruptedId}`) },
+    profileIdentity: null, verdictRef: { candidateId: corruptedId, sha256: bareDigest },
+  })
+  const bareRefusal = await promoteCli({ dogfoodRoot: copyRoot, candidate: corruptedId, quiesceWindowMs: 100 }).catch(error => ({ refused: String(error) }))
+  process.exitCode = 0
+  const bareRefused = typeof bareRefusal?.refused === 'string'
+    && /acceptance verdict refused/.test(bareRefusal.refused)
+    && /required gate missing|evidencePath missing|unknown gate name/.test(bareRefusal.refused)
+  if (!bareRefused) throw new Error(`P4(b) FAILED: the bare single-gate verdict was not refused by the F4 rules (${String(bareRefusal?.refused ?? bareRefusal?.autoRolledBack).slice(0, 400)}`)
+  // (2) FULL forgery kit — reaches the probe by design.
+  const forged = await forgeAcceptedKit(copyRoot, corruptedId)
   const pointerBeforeP4b = await readLkgPointer(layout.lkgDir)
-  const p4b = await runPromote({ dogfoodRoot: copyRoot, candidate: corruptedId, cli: args.cli, port: args.controlPort, quiesceWindowMs: 100 }).catch(error => ({ thrown: String(error) }))
+  const p4b = await runPromote({ dogfoodRoot: copyRoot, repo: args.repo, candidate: corruptedId, cli: args.cli, port: args.controlPort, quiesceWindowMs: 100 }).catch(error => ({ thrown: String(error) }))
   process.exitCode = 0 // the failed promote settles exit 1 BY DESIGN; the drill continues
   const copyLedger = await readLedger(copyLayout.ledgerPath)
   const copyPointer = await readLkgPointer(copyLayout.lkgDir)
@@ -257,13 +337,15 @@ async function main() {
     throw new Error('P4(b) FAILED: the REAL root pointer was disturbed by the copy-root injection')
   }
   const stableAfterP4b = await stableProbe('after-p4b')
-  await drillRecord('P4b', 'pass', 'corrupted artifact promoted inside the drill-only stable COPY lineage reached the health probe, failed it, and the bounded auto-rollback restored g1 (failed g2 directory preserved as evidence); the REAL root pointer and lineage untouched', {
+  await drillRecord('P4b', 'pass', 'F4 live: the bare single-gate verdict (bound to an accepted ledger record) is REFUSED by the gate-vocabulary/evidence rules; the upgraded full eight-gate forgery then reached the health probe inside the drill-only stable COPY lineage, failed it, and the bounded auto-rollback restored g1 (failed g2 directory preserved as evidence); the REAL root pointer and lineage untouched', {
     injection: {
       type: 'post-promotion-survival',
-      mechanism: 'tarball repacked with an import-throwing plugin entry + self-consistent manifest/verdict (marked injected), promoted against a copied lkg/ledger lineage with a fresh control home',
-      expected: 'probe red → auto-rollback to previous generation → failed generation kept as evidence → real root untouched',
-      actual: `autoRolledBack=true, reprobeOk=${p4b.autoRollback?.reprobeOk}, copy pointer g${copyPointer.currentGen}, g2 preserved=${g2Preserved}`,
+      mechanism: 'tarball repacked with an import-throwing plugin entry + self-consistent manifest, driven twice: (1) bare single-gate verdict + bound accepted record → refused by F4 rules; (2) full eight-gate forgery + digest-consistent evidence + bound accepted record → probe red → auto-rollback',
+      expected: '(1) refusal naming the gate/evidence rules; (2) auto-rollback to previous generation → failed generation kept as evidence → real root untouched',
+      actual: `(1) refused: ${String(bareRefusal.refused).slice(0, 300)}; (2) autoRolledBack=true, reprobeOk=${p4b.autoRollback?.reprobeOk}, copy pointer g${copyPointer.currentGen}, g2 preserved=${g2Preserved}`,
     },
+    bareRefusal: String(bareRefusal.refused).slice(0, 500),
+    forgedKit: { forgedDrillDir: forged.forgedDrillDir, verdictDigest: forged.verdictDigest, acceptedLedgerSeq: forged.ledgerSeq },
     copyLedgerTail: copyLedger.slice(-3).map(record => ({ seq: record.seq, action: record.action, fromGen: record.fromGen, toGen: record.toGen, reason: record.record?.reason ?? null })),
     realRootPointerUntouched: { currentGen: pointerAfterP4b.currentGen, updatedAt: pointerAfterP4b.updatedAt },
     stableAfterP4b: { bootMs: stableAfterP4b.bootMs },
@@ -289,6 +371,165 @@ async function main() {
   await writeJsonEvidence('evidence-manifest.json', evidenceManifest)
   await drillRecord('P6', 'pass', `evidence manifest written (${Object.keys(evidenceManifest.drillEvidence).length} drill files, ${Object.keys(evidenceManifest.acceptanceEvidence).length} acceptance runs, ${Object.keys(evidenceManifest.candidates).length} candidate directories digested)`)
 
+  // ── H1..H7: hardening injections (issue #122) — each newly closed adversarial ──
+  // path injected once against the hardened code, live. All copy lineages stay
+  // inside the drill domain; the REAL root's pointer/ledger are never inputs.
+
+  // H1 (F2): a PM-session sentinel env var must be invisible inside
+  // promotion-lane children (the same spawn path the acceptance lanes use).
+  const sentinel = 'DSH_DRILL_SENTINEL_F2'
+  process.env[sentinel] = 'pm-secret-material'
+  try {
+    const probe = await run(process.execPath, ['-e', `console.log(process.env.${sentinel} === undefined ? 'sealed' : 'LEAKED', process.env.PATH === undefined ? 'no-path' : 'path-ok', process.env.TEMP === undefined ? 'no-temp' : 'temp-ok')`])
+    const sealed = probe.code === 0 && probe.stdout.trim() === 'sealed path-ok temp-ok'
+    if (!sealed) throw new Error(`H1 FAILED: promotion-lane child saw the PM session env (${probe.stdout.trim().slice(0, 200)})`)
+    await drillRecord('H1', 'pass', 'F2: PM-session sentinel env is invisible inside promotion-lane children (allowlist env), PATH/TEMP still flow', { laneProbe: probe.stdout.trim() })
+  } finally {
+    delete process.env[sentinel]
+  }
+
+  // H3 (F5): a whole-chain recomputation of the ledger (self-consistent
+  // hashes) must be exposed by the git chain-tail anchor; the untampered
+  // lineage must verify against its anchor.
+  const h3Root = join(drillDir, 'stable-copy-root-h3')
+  const h3Layout = await copyLineage(h3Root)
+  const h3Records = await readLedger(h3Layout.ledgerPath)
+  const anchorsOk = await verifyLedgerAnchors({ repo: args.repo, records: h3Records })
+  if (!anchorsOk.ok || anchorsOk.anchorTag === undefined) {
+    throw new Error(`H3 FAILED: the untampered lineage does not verify against its git anchor (${JSON.stringify(anchorsOk).slice(0, 300)})`)
+  }
+  const tampered = h3Records.map(record => ({ ...record }))
+  const promoteIndex = tampered.map(record => record.action).lastIndexOf('promote')
+  if (promoteIndex < 0) throw new Error('H3 FAILED: no promote record to tamper')
+  tampered[promoteIndex].candidateId = 'forged-by-write-access'
+  let h3PreviousHash = 'GENESIS'
+  const recomputed = tampered.map(record => {
+    const { seq, time, recordSha256: _oldHash, prevRecordSha256: _oldPrev, ...body } = record
+    const hash = ledgerRecordHash(h3PreviousHash, { ...body, seq, time })
+    const next = { ...record, prevRecordSha256: h3PreviousHash, recordSha256: hash }
+    h3PreviousHash = hash
+    return next
+  })
+  const chainSelfConsistent = verifyLedgerChain(recomputed).ok
+  const anchorsBroken = await verifyLedgerAnchors({ repo: args.repo, records: recomputed })
+  if (chainSelfConsistent !== true) throw new Error('H3 FAILED: fixture error — the recomputed chain is not even internally consistent')
+  if (anchorsBroken.ok !== false) throw new Error('H3 FAILED: a whole-chain recomputation was NOT exposed by the git chain-tail anchor')
+  await drillRecord('H3', 'pass', `F5: whole-chain ledger recomputation (internally self-consistent, forged candidateId on the seq-${tampered[promoteIndex].seq} promote record) is detected by the chain-tail anchor ${anchorsOk.anchorTag}; the untampered lineage verifies against it`, {
+    untamperedAnchor: { tag: anchorsOk.anchorTag, latest: anchorsOk.latest },
+    recomputedDetection: anchorsBroken.failures,
+  })
+
+  // H4 (F3): pointer/ledger generational divergence (crash between pointer
+  // write and ledger append) fences everything; repair re-anchors the pointer
+  // onto the ledger tail after explicit confirmation.
+  const h4Root = join(drillDir, 'stable-copy-root-h4')
+  const h4Layout = await copyLineage(h4Root)
+  const h4Ledger = await readLedger(h4Layout.ledgerPath)
+  const h4LedgerGen = ledgerGenState(h4Ledger).currentGen
+  const h4DivergentPointer = { ...(await readLkgPointer(h4Layout.lkgDir)), currentGen: h4LedgerGen + 2, prevGen: h4LedgerGen, currentTarballSha256: '0'.repeat(64), updatedAt: new Date().toISOString() }
+  await writeJsonFile(join(h4Layout.lkgDir, 'lkg.json'), h4DivergentPointer)
+  const fenced = checkFencing(await readLkgPointer(h4Layout.lkgDir), h4Ledger, { action: 'promote' })
+  const fencedRollback = checkFencing(await readLkgPointer(h4Layout.lkgDir), h4Ledger, { action: 'rollback', toGen: h4LedgerGen })
+  if (fenced.ok || fencedRollback.ok) throw new Error('H4 FAILED: fixture error — the divergent pointer did not fence promote/rollback')
+  const repairDryRun = await runRepair({ dogfoodRoot: h4Root })
+  const dryRunLeftDivergence = repairDryRun.divergences.pointerLedgerDiverged === true
+    && repairDryRun.actions.some(action => action.action === 're-anchor-pointer' && typeof action.detail === 'string')
+    && (await readLkgPointer(h4Layout.lkgDir)).currentGen === h4DivergentPointer.currentGen
+  if (!dryRunLeftDivergence) throw new Error('H4 FAILED: repair dry-run did not report the divergence untouched')
+  const repairRun = await runRepair({ dogfoodRoot: h4Root, yes: true })
+  const h4PointerAfter = await readLkgPointer(h4Layout.lkgDir)
+  const h4LedgerAfter = await readLedger(h4Layout.ledgerPath)
+  const repairRecord = h4LedgerAfter.find(record => record.action === 'repair')
+  const fencedAfter = checkFencing(h4PointerAfter, h4LedgerAfter, { action: 'promote' })
+  if (h4PointerAfter.currentGen !== h4LedgerGen || repairRecord === undefined || !fencedAfter.ok || !(await verifyLkgChain(h4Layout.lkgDir, h4LedgerAfter)).ok) {
+    throw new Error(`H4 FAILED: repair did not re-anchor cleanly (pointer g${h4PointerAfter?.currentGen} vs ledger g${h4LedgerGen}, repairRecord=${repairRecord !== undefined}, fencedAfter=${fencedAfter.ok})`)
+  }
+  await drillRecord('H4', 'pass', `F3: pointer/ledger divergence fenced both promote and rollback; repair dry-run reported without touching state; --yes re-anchored the pointer onto the ledger tail g${h4LedgerGen} with a repair ledger record (seq ${repairRecord.seq}); fencing passes again`, {
+    divergentPointerGen: h4DivergentPointer.currentGen,
+    reanchoredToGen: h4PointerAfter.currentGen,
+    repairLedgerSeq: repairRecord.seq,
+  })
+
+  // H5 (F3): the LIVE stable Profile's installed bytes reconcile with the
+  // pointer generation's tarball; a mutated expected tree must NOT reconcile
+  // (the comparison is not vacuous); the status CLI face exits green.
+  const reconcileLive = await reconcileInstalledProfile({ layout, pointer: await readLkgPointer(layout.lkgDir), extract: extractTarball })
+  if (reconcileLive.checked !== true || reconcileLive.matches !== true) {
+    throw new Error(`H5 FAILED: healthy stable Profile bytes do not reconcile with the pointer generation tarball (${JSON.stringify(reconcileLive).slice(0, 400)})`)
+  }
+  const reconcileNegative = await reconcileInstalledProfile({
+    layout, pointer: await readLkgPointer(layout.lkgDir),
+    extract: async (tarball, destDir) => {
+      await extractTarball(tarball, destDir)
+      const indexFile = join(destDir, 'package', 'lib', 'index.mjs')
+      await writeFile(indexFile, `${await readFile(indexFile, 'utf8')}\n// H5 mutation: a half-applied or tampered install\n`)
+    },
+  })
+  if (reconcileNegative.checked !== true || reconcileNegative.matches !== false) {
+    throw new Error('H5 FAILED: a mutated expected tree still reconciled — the comparison is vacuous')
+  }
+  const statusRun = await run(process.execPath, [join(import.meta.dirname, 'status.mjs'), '--dogfood-root', args.dogfoodRoot, '--repo', args.repo], { timeoutMs: 5 * 60_000 })
+  let statusParsed = null
+  try { statusParsed = JSON.parse(statusRun.stdout) } catch { /* reported below */ }
+  if (statusRun.code !== 0 || statusParsed?.ok !== true || statusParsed?.installedProfile?.matches !== true || statusParsed?.anchors?.anchorTag === undefined) {
+    throw new Error(`H5 FAILED: status CLI not green (exit ${statusRun.code}, ok=${statusParsed?.ok}, installedMatches=${statusParsed?.installedProfile?.matches}, anchor=${statusParsed?.anchors?.anchorTag}): ${(statusParsed?.chainFailures ?? statusRun.stderr).slice?.(0, 400) ?? String(statusParsed).slice(0, 400)}`)
+  }
+  await drillRecord('H5', 'pass', `F3: installed-bytes reconciliation matches live (installed digest ${reconcileLive.installedContentSha256.slice(0, 16)}… == g${reconcileLive.pointerGen} tarball tree); mutated-tree negative probe mismatches; status CLI exit 0 with chainOk + anchors (${statusParsed.anchors.anchorTag})`, {
+    live: { pointerGen: reconcileLive.pointerGen, installedContentSha256: reconcileLive.installedContentSha256, expectedContentSha256: reconcileLive.expectedContentSha256 },
+    negativeProbeMatches: reconcileNegative.matches,
+    statusExit: statusRun.code,
+  })
+
+  // H6 (F6): a pruned/empty agent_swarm authority unit fails safe as ACTIVE;
+  // an absent file (fresh root) still reads quiet.
+  const h6MissingTable = activeTeamsFromUnitText(JSON.stringify({ tables: {} }))
+  const h6EmptyFile = activeTeamsFromUnitText('')
+  const h6Absent = activeTeamsFromUnitText(undefined)
+  if (h6MissingTable.length === 0 || h6EmptyFile.length === 0 || h6Absent.length !== 0) {
+    throw new Error(`H6 FAILED: fail-safe faces wrong (missing-table=${h6MissingTable.length}, empty=${h6EmptyFile.length}, absent=${h6Absent.length})`)
+  }
+  await drillRecord('H6', 'pass', 'F6: parseable unit with tables.teams pruned and an empty unit file both read ACTIVE (fail-safe); an absent unit (fresh root) still reads quiet', {
+    missingTable: h6MissingTable, emptyFile: h6EmptyFile, absent: h6Absent,
+  })
+
+  // H7 (F3): a promote whose establishGeneration fails AFTER the stable
+  // Profile install must compensate by re-installing the previous
+  // generation's tarball — injected live via an unwritable gen-record path.
+  const h7Root = join(drillDir, 'stable-copy-root-h7')
+  const h7Layout = await copyLineage(h7Root)
+  await mkdir(join(h7Layout.candidatesDir, candidateId), { recursive: true })
+  for (const file of ['manifest.json', 'dsh-agent-swarm.tgz']) {
+    await copyFile(join(layout.candidatesDir, candidateId, file), join(h7Layout.candidatesDir, candidateId, file))
+  }
+  const h7Kit = await forgeAcceptedKit(h7Root, candidateId)
+  const h7PointerBefore = await readLkgPointer(h7Layout.lkgDir)
+  const h7LedgerBefore = await readLedger(h7Layout.ledgerPath)
+  // The copy lineage sits at g0 (post-P5 rollback), so this promote targets
+  // g1: make the g1 generation-record path UNWRITABLE (a directory) so
+  // establishGeneration fails AFTER the stable Profile install.
+  await rm(join(h7Layout.lkgDir, 'g1', 'lkg.json'), { force: true, maxRetries: 5, retryDelay: 100 })
+  await mkdir(join(h7Layout.lkgDir, 'g1', 'lkg.json'), { recursive: true })
+  const h7 = await runPromote({ dogfoodRoot: h7Root, repo: args.repo, candidate: candidateId, cli: args.cli, port: args.controlPort, quiesceWindowMs: 100 }).catch(error => ({ thrown: String(error) }))
+  process.exitCode = 0
+  const h7Compensated = h7.thrown !== undefined
+    && h7.steps?.some(step => step.name === 'compensate-reinstall' && step.outcome === 'ok')
+  const h7PointerAfter = await readLkgPointer(h7Layout.lkgDir)
+  const h7Reconcile = await reconcileInstalledProfile({ layout: h7Layout, pointer: h7PointerAfter, extract: extractTarball })
+  const h7LedgerAfter = await readLedger(h7Layout.ledgerPath)
+  const h7NoLedgerMove = h7LedgerAfter.length === h7LedgerBefore.length
+    && h7LedgerAfter.at(-1)?.seq === h7LedgerBefore.at(-1)?.seq
+  if (!h7Compensated || h7PointerAfter.currentGen !== h7PointerBefore.currentGen || h7PointerAfter.updatedAt !== h7PointerBefore.updatedAt || !h7NoLedgerMove || h7Reconcile.matches !== true) {
+    throw new Error(`H7 FAILED: compensated=${h7Compensated} pointer g${h7PointerAfter?.currentGen}@${h7PointerAfter?.updatedAt} (was g${h7PointerBefore.currentGen}@${h7PointerBefore.updatedAt}) noLedgerMove=${h7NoLedgerMove} reconcileMatches=${h7Reconcile.matches} thrown=${String(h7.thrown).slice(0, 200)}`)
+  }
+  await drillRecord('H7', 'pass', `F3: establishGeneration failure after the stable install (injected: unwritable g1 gen-record path) left the copy pointer/ledger untouched and the promoter COMPENSATED by re-installing the previous generation g${h7PointerBefore.currentGen}; installed bytes reconcile with the pointer again`, {
+    injectedFailure: 'lkg/g1/lkg.json pre-created as a directory — the generation-record write fails after the Profile install',
+    thrown: String(h7.thrown).slice(0, 300),
+    compensateStep: h7.steps?.find(step => step.name === 'compensate-reinstall'),
+    pointerGenAfter: h7PointerAfter.currentGen,
+    reconcileMatches: h7Reconcile.matches,
+    forgedKit: { forgedDrillDir: h7Kit.forgedDrillDir, verdictDigest: h7Kit.verdictDigest },
+  })
+
   // ── P7: zero-residue assertion + drill-domain cleanup ───────────────────
   const processes = await listNodeProcessesWindows()
   const marker = args.dogfoodRoot.replaceAll('\\', '/').toLowerCase()
@@ -302,15 +543,17 @@ async function main() {
     if (!entry.isDirectory()) continue
     const path = join(layout.drillsDir, entry.name)
     if (entry.name.endsWith('-m3c')) {
-      await rm(join(path, 'stable-copy-root'), { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => {})
+      for (const copyRootName of ['stable-copy-root', 'stable-copy-root-h3', 'stable-copy-root-h4', 'stable-copy-root-h7']) {
+        await rm(join(path, copyRootName), { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => {})
+      }
     }
     for (const disposable of ['home', 'workspace', 'storage-root', 'sessions-root']) {
       await rm(join(path, disposable), { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => {})
     }
   }
-  await drillRecord('P7', 'pass', `zero process residue (${residue.length} external processes reference the dogfood root), both drill ports free, disposable drill halves cleaned (evidence + ledger + lkg + candidates preserved)`, { residuePids: residue.map(item => item.pid), controlPortFree, acceptPortFree })
-  const finalStatus = { pointer: await readLkgPointer(layout.lkgDir), chainOk: (await verifyLkgChain(layout.lkgDir, await readLedger(layout.ledgerPath))).ok, ledgerRecords: (await readLedger(layout.ledgerPath)).length }
-  await writeJsonEvidence('drill-summary.json', { phases: ['P0', 'P1', 'P2', 'P3', 'P4a', 'P4b', 'P5', 'P6', 'P7'], finalStatus, drillLedger: drillLedgerPath })
+  await drillRecord('P7', 'pass', `zero process residue (${residue.length} external processes reference the dogfood root), both drill ports free, disposable drill halves + hardening copy lineages cleaned (evidence + ledger + lkg + candidates preserved)`, { residuePids: residue.map(item => item.pid), controlPortFree, acceptPortFree })
+  const finalStatus = { pointer: await readLkgPointer(layout.lkgDir), chainOk: (await verifyLkgChain(layout.lkgDir, await readLedger(layout.ledgerPath))).ok, ledgerRecords: (await readLedger(layout.ledgerPath)).length, anchors: await verifyLedgerAnchors({ repo: args.repo, records: await readLedger(layout.ledgerPath) }) }
+  await writeJsonEvidence('drill-summary.json', { phases: ['P0', 'P1', 'P2', 'P3', 'P4a', 'P4b', 'P5', 'P6', 'H1', 'H3', 'H4', 'H5', 'H6', 'H7', 'P7'], finalStatus, drillLedger: drillLedgerPath })
   console.log(JSON.stringify({ drill: 'pass', drillDir, ledgerPath: drillLedgerPath, finalStatus }, null, 2))
 }
 

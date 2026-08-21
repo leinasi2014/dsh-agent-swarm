@@ -63,7 +63,18 @@ async function main() {
   const manifestExisting = await stat(candidateDir).catch(() => undefined)
   if (manifestExisting !== undefined) throw new Error(`candidate directory already exists: ${candidateDir}`)
   await mkdir(candidateDir, { recursive: true })
-  const buildCommand = ['pnpm install --frozen-lockfile', 'pnpm build', 'pnpm pack']
+  // Issue #122 F1 (protection asymmetry closure): the repo-level install and
+  // the pack step run inside the CANDIDATE's worktree where the candidate
+  // commit controls package.json scripts — every dependency lifecycle script
+  // (postinstall/prepack/prepare) would execute with PM authority. Both now
+  // run script-free: `--ignore-scripts` on install, and
+  // npm_config_ignore_scripts=true around `pnpm pack` (pack rejects the flag
+  // itself; the config env skips prepack/postpack — verified live against a
+  // prepack-writing fixture). The plugin ships prebuilt and needs no
+  // install-time scripts (OQ-1); the remaining candidate-script surface is
+  // `pnpm build`/lanes, which is the verification's own execution — closed
+  // by the F2 env seal and the deployment-level demotion runbook (docs/13).
+  const buildCommand = ['pnpm install --frozen-lockfile --ignore-scripts', 'pnpm build', 'pnpm pack (npm_config_ignore_scripts=true)']
   const logs = {}
 
   let frozenPkg
@@ -74,13 +85,13 @@ async function main() {
     }
     logs['worktree-status.txt'] = clean.stdout === '' ? 'clean\n' : clean.stdout
     frozenPkg = JSON.parse(await readFile(join(worktree, 'package.json'), 'utf8'))
-    const install = await run('pnpm', ['install', '--frozen-lockfile'], { cwd: worktree })
+    const install = await run('pnpm', ['install', '--frozen-lockfile', '--ignore-scripts'], { cwd: worktree })
     logs['install.log'] = install.stdout + install.stderr
     if (install.code !== 0) throw new Error(`pnpm install failed in the freeze worktree (exit ${install.code}) — see ${candidateDir}/install.log`)
     const build = await run('pnpm', ['build'], { cwd: worktree })
     logs['build.log'] = build.stdout + build.stderr
     if (build.code !== 0) throw new Error(`pnpm build failed in the freeze worktree (exit ${build.code}) — see ${candidateDir}/build.log`)
-    const pack = await run('pnpm', ['pack', '--pack-destination', worktree], { cwd: worktree })
+    const pack = await run('pnpm', ['pack', '--pack-destination', worktree], { cwd: worktree, env: { npm_config_ignore_scripts: 'true' } })
     logs['pack.log'] = pack.stdout + pack.stderr
     if (pack.code !== 0) throw new Error(`pnpm pack failed in the freeze worktree (exit ${pack.code})`)
     const packed = /dsh-agent-swarm-[^\s]+\.tgz/.exec(pack.stdout)

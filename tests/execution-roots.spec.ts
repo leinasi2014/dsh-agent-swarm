@@ -12,10 +12,10 @@
  * parallel coding attempts).
  */
 import { execFile } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import { Context } from '@deepseek-ai/cordis'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -234,6 +234,33 @@ describe('execution-root crash residue detection (M3-1, issue #100)', () => {
     expect(stranger?.identity).toBeUndefined()
     expect(existsSync(foreign)).toBe(true)
     await recovered.releaseAll('test teardown')
+  }, 60_000)
+
+  it('issue #122 F9: a marker whose recorded path is not the directory it lives in cannot vouch for it', async () => {
+    const sandbox = await freshSandbox('marker-path')
+    const workspace = await initRepoWorkspace(sandbox)
+    const base = join(sandbox, 'roots')
+    const manager = managerOver(base)
+    const root = await manager.acquire(workspace, TEAM, TASK, attempt('dd'))
+    // A worker-controlled copy inside the SAME scanned scope partition: the
+    // marker claims a DIFFERENT directory. The F9 rule treats it as
+    // unreadable — the residue report calls it an orphan without identity
+    // instead of trusting the forged identity.
+    const forgedPath = join(dirname(root.path), 'zz-forged')
+    mkdirSync(forgedPath, { recursive: true })
+    const marker = JSON.parse(readFileSync(join(root.path, EXECUTION_ROOT_MARKER), 'utf8')) as Record<string, unknown>
+    writeFileSync(join(forgedPath, EXECUTION_ROOT_MARKER), JSON.stringify({ ...marker, path: root.path }), 'utf8')
+    // scan with a FRESH manager (zero live leases — the crash-test form; a
+    // leased root is skipped by design, and release would remove the root)
+    const recovered = managerOver(base)
+    const residues = await recovered.scanResidue(workspace, [teamFixture()])
+    const forged = residues.find(residue => residue.path === forgedPath)
+    expect(forged?.verdict).toBe('orphan')
+    expect(forged?.identity).toBeUndefined()
+    expect(forged?.reason).toContain('no readable execution-root marker')
+    // the legitimate marker (path matches its directory) still resolves normally
+    const honest = residues.find(residue => residue.path === root.path)
+    expect(honest?.identity?.attemptId).toBe(attempt('dd'))
   }, 60_000)
 
   it('derives the hold rule only from the authoritative aggregate', () => {
