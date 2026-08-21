@@ -12,6 +12,15 @@ import { join } from 'node:path'
 export const LANE_TIMEOUT_MS = 30 * 60_000
 
 /**
+ * Commands that resolve to `.cmd` shims on Windows — spawn() refuses those
+ * without a shell since the CVE-2024-27980 hardening, so they route through
+ * cmd.exe (the official CLI does the same for pnpm). Everything else (git,
+ * node, tar, powershell, taskkill) is a real executable and spawns directly,
+ * keeping argument quoting and process-tree teardown exact.
+ */
+const CMD_SHIMS = new Set(['pnpm', 'npx', 'pnpx', 'yarn'])
+
+/**
  * Run one command under a bounded timeout. Never throws on a non-zero exit —
  * the caller decides fail-loud vs evidence. Output is captured whole with a
  * 8 MiB per-stream ceiling so a runaway lane cannot exhaust memory.
@@ -24,8 +33,7 @@ export const LANE_TIMEOUT_MS = 30 * 60_000
  */
 export function run(command, args, options = {}) {
   const timeoutMs = options.timeoutMs ?? LANE_TIMEOUT_MS
-  const useShell = process.platform === 'win32' && !/\.(exe|bat|com)$/i.test(command)
-    && !command.includes('/') && !command.includes('\\')
+  const useShell = process.platform === 'win32' && CMD_SHIMS.has(command)
   const quote = value => /[\s"^&|<>()!]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value
   return new Promise(resolve => {
     const startedAt = Date.now()
