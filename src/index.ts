@@ -52,6 +52,19 @@ export {
 } from './storage/workflow-run-overlay.js'
 export type { WorkflowRunOverlayRecord, WorkflowRunOverlayState } from './storage/workflow-run-overlay.js'
 export { TeamDomainError } from './domain/error.js'
+export { compileNodePlan, applyNodePlan } from './patterns/node-mapping.js'
+export type {
+  AppliedNodePlan,
+  CompiledNodePlan,
+  CompiledReviewGate,
+  CompiledTaskInput,
+  CompiledTaskOp,
+  NodePlan,
+  PhaseDecl,
+  PipelineItemDecl,
+  PlanNodeDecl,
+  TaskStepDecl,
+} from './patterns/node-mapping.js'
 export { AttemptId, TaskId, TeamId, TeamMessageId } from './domain/types.js'
 export type {
   TeamBudget,
@@ -211,12 +224,13 @@ export const Config: z<Config> = z.object({
 const usage = `Use agent_swarm_* when the user requests a coordinated multi-agent Team.
 1. Create one Team, then add role-specific continuable members.
 2. Decompose the goal into tasks with explicit acceptance criteria and dependency ids. The event scheduler assigns ready tasks.
-3. Every task mutation uses the latest revision. Every worker submission also carries its exact attempt id; stale attempts stop immediately.
-4. A worker submission is evidence, not completion. The captain must call agent_swarm_review_task to accept or reject it.
-5. Persist peer messages before delivery. A queued result is durable; never resend it automatically. Prefer quiet for information the recipient should read on its next turn; quiet mail to an inactive member stays queued until a wakeup or its own return, and wakeup is the delivery that resumes it.
-6. Treat write scopes as coordination hints, not filesystem authorization. Use agent_swarm_status for fixed Team counters and agent_swarm_list_tasks (with status/owner/ready filters and pagination) for task rows after any conflict.
-7. The captain may interrupt one member's current turn with agent_swarm_interrupt_member; the member keeps its inbox, tasks and membership, and a later wakeup resumes it.
-8. When waiting for another mutation, call agent_swarm_wait with the current Team revision instead of polling status. It returns no_progress immediately when no other member is running or provisioning: re-read status and the task list, wake the required members with wakeup messages, then wait again.`
+3. Compose workflows on the task DAG itself: serial stages are dependency chains (a stage's join is every dependent naming its blockers); fan out through dependency-free same-layer tasks only — actual concurrency is bounded by the member count and mailbox quotas, never around them; hand pipeline artifacts through task outputs and Team mail; put human decisions at the review transaction (a submission waiting for review IS the human gate); a task whose dependency has not completed stays held — never skip or auto-fail it.
+4. Every task mutation uses the latest revision. Every worker submission also carries its exact attempt id; stale attempts stop immediately.
+5. A worker submission is evidence, not completion. The captain must call agent_swarm_review_task to accept or reject it.
+6. Persist peer messages before delivery. A queued result is durable; never resend it automatically. Prefer quiet for information the recipient should read on its next turn; quiet mail to an inactive member stays queued until a wakeup or its own return, and wakeup is the delivery that resumes it.
+7. Treat write scopes as coordination hints, not filesystem authorization. Use agent_swarm_status for fixed Team counters and agent_swarm_list_tasks (with status/owner/ready filters and pagination) for task rows after any conflict.
+8. The captain may interrupt one member's current turn with agent_swarm_interrupt_member; the member keeps its inbox, tasks and membership, and a later wakeup resumes it.
+9. When waiting for another mutation, call agent_swarm_wait with the current Team revision instead of polling status. It returns no_progress immediately when no other member is running or provisioning: re-read status and the task list, wake the required members with wakeup messages, then wait again.`
 
 export async function apply(ctx: Context, config: Config): Promise<void> {
   if (config.enabled === false) return
