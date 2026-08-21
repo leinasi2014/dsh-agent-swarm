@@ -85,7 +85,7 @@ Most of these already have a natural DSH home:
 | stateful member | `ctx.subagents` continuable child |
 | human node | `ctx.userQuestions` / `ctx.approval` |
 | background run | `ctx.jobs` |
-| token accounting | published `ctx.tokenMeter` projection + Team budget policy; direct Session folding remains a compatible 0.1 implementation detail |
+| token accounting | published `ctx.tokenMeter` faces characterized in M4-1 (issue #127): host-side metering only — the Team budget's per-seq Session fold stays the single measurement path, with parity proven and the failed-request chunk divergence declared |
 | context offload | `ctx.compaction` / spill |
 | skills | `ctx.skills`; evolution adds a writer/proposal Consumer |
 | shared state | Session log or `ctx.storageDomain` |

@@ -20,7 +20,7 @@ Project-owned orchestration overlay
   TaskRun/attempt fencing ─ Scheduler ─ Review ─ Team budget/memory checkpoints
        │                       │
        ├─ ctx.workflowEngine + ctx.jobs bridge (deterministic mode)
-       ├─ ctx.tokenMeter accounting adapter
+       ├─ ctx.tokenMeter boundary: host-side official metering face; Team measurement stays the plugin's per-seq fold (M4-1)
        ├─ ctx.storageDomain Store Provider
        ├─ ctx.workspaceRegistry linkage + real remote/worktree executor
        └─ questions/approval interaction Providers
@@ -150,7 +150,9 @@ Reserves and accounts limits for Team, workflow and task runs:
 - optional monetary cost;
 - member concurrency.
 
-Target rc.8 publishes `ctx.tokenMeter`. Its replay-aware Session projection measures current request/context usage; it is not by itself a cumulative Team budget ledger. The 0.1 implementation independently consumes committed `assistant/message.usage` Session events and persists a per-session sequence cursor. A future accounting adapter should consume the official projection where its semantics match, while preserving one cumulative Team ledger and avoiding double counting.
+Target publishes `ctx.tokenMeter` (`@deepseek-ai/dsh-token-meter`; published at rc.8 and fold-identical through 0.1.1-rc.2, where only the `ProjectionDefinition` contract shape changed). Its two faces are characterized and registered (`docs/development/2026-08-22-m4a-tokenmeter-design.md`, M4-1/issue #127): `measure()` reports current request/surface pressure for the NEXT request of one session (no cumulative total), and the `tokenUsage` session projection is a per-session cumulative fold of provider usage with chunk-early/message-final replacement semantics (a final `assistant/message` usage replaces its step's chunk sample; chunk-only usage from failed requests still counts; totals are deliberately non-monotone under corrections). Neither face is a Team budget ledger: there is no cross-session aggregation, admission, carry or per-event attribution.
+
+Boundary (decided, Option B of M4-1): the Team budget keeps exactly ONE measurement path — this plugin's own fold over committed `assistant/message.usage` events under durable per-session sequence cursors (M1B/#92 semantics; #79 carry) — and the official tokenMeter stays the host-side official metering face, not consumed by the budget, so double counting is excluded by construction. Parity is proven, not assumed: `tests/tokenmeter-parity.spec.ts` drives one real composition (official `SessionStore` + `SessionProjectionRegistry` + `TokenMeter` and the plugin's `UsageAccountant` over the same firehose) and pins numeric equality on every log shape where the faces are defined to agree — usage-bearing steps (equal or corrected samples), aborted-turn usage — plus the single declared divergence: a provider usage chunk from a request that failed before assembling content bills on the official face and deliberately does not bill the Team ledger. Re-evaluation trigger for consuming the official face as measurement source: it must first expose per-event usage attribution (or a monotone per-step settled-usage face); watermark-plus-delta folding over today's whole-value totals cannot preserve the M1B exactly-once cursor semantics (non-monotone corrections yield negative deltas; recovery loses seq attribution).
 
 ### TeamReview
 

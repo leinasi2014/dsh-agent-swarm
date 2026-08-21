@@ -10,7 +10,7 @@
 | `human()` / `human_session()` | `ctx.userQuestions` and `ctx.approval` | interaction Consumer |
 | `parallel` / `pipeline` | workflow scripts/operators | published workflow service, not Team core |
 | nested workflow | workflow composition | published workflow service |
-| token budget | `ctx.tokenMeter` projection + cumulative Team policy ledger | 0.1 direct Session folding / future official adapter |
+| token budget | `ctx.tokenMeter` projection + cumulative Team policy ledger | 0.1 direct Session folding; M4-1 (issue #127) decided the boundary — the fold stays the single measurement, the official faces stay host-side (parity proven, divergence declared) |
 | `isolation=worktree` | workspace lease Provider | `team-workspace-worktree` |
 | local/distributed Team | member Provider registry | local subagent / remote DSH providers |
 | registry reservation | remote member control plane | `team-member-remote` |
@@ -141,7 +141,7 @@ Newly verified capabilities (source files under `ref/jiuwenswarm/source/jiuwensw
 | Self-updater and multi-instance manager | conflicts with ADR-0008: promotion must stay with an external stable controller; a running plugin never updates itself |
 | Turn-level undo/redo, session fork/rewind/state-copy | official Sessions/fork + the Session log already own this domain |
 | MCP runtime and tool ownership model | official mcp-client package already provides it |
-| Monetary budgets | the reference has none either (only `swarmflow_budget` and WS byte limits) — M4 stays token/request/retry/deadline plus the tokenMeter adapter |
+| Monetary budgets | the reference has none either (only `swarmflow_budget` and WS byte limits) — M4 stays token/request/retry/deadline; the tokenMeter question was settled by the M4-1 boundary (official faces host-side, plugin fold remains the single measurement) |
 | E2A envelope / A2A bidirectional protocol stacks | remote-agent interop arrives through official subagent providers (ACP/codex/claude-code) in M6, not a parallel transport |
 | **AgentGroup packages in hybrid team mode** (upstream `36c7959`, 2026-08-21 review) | product concept candidate, not adopted: if pre-packaged expert teams (leader + predefined members + shared skills) are ever wanted, the landing surface is official Bundle/Profile composition, never the Team core; a hybrid roster must keep "predefined members are an initial roster snapshot, not a second authority" — same single-authority rule as `TeamDomainPort` |
 | **Session-immutable selection binding + multi-source conflict-reject** (same commit) | not adopted as features, but recorded as external corroboration: upstream's four-branch immutable-binding matrix (first-create optional / missing-inherit / switch-reject / late-reject) is a clean failure-mode sample for future session-bound config (budget/permission profiles), and its choice of conflict-reject over shadowing for same-named packages corroborates docs/10 §6's "single authority, reject ambiguity" conflict table; also note its prompt-ownership split (template snapshots keep capabilities only; `TeamMemberSpec.prompt` is the sole persistent truth) — the same capability/prompt separation as our "prompt is never authorization" boundary |
