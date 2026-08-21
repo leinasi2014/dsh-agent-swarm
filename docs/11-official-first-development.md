@@ -59,7 +59,7 @@ These are implemented-source facts, not a prediction of an unpublished roadmap. 
 | durable Session facts | Session + Session persistence | required `sessionPersistence` injection since M1A; append/model messages through official paths |
 | deterministic workflow | `ctx.workflowEngine` | Team workflow bridge Consumer |
 | background run control | `ctx.jobs` | publish/cancel/wait long Team runs |
-| token/context measurement | `ctx.tokenMeter` | accounting adapter feeding one Team budget ledger |
+| token/context measurement | `ctx.tokenMeter` | M4-1 (issue #127) boundary: `measure()` and the `tokenUsage` projection are host-side official faces, characterized and registered (`docs/09` §1); the Team budget keeps its own per-seq-cursor fold as the single measurement path, the official faces are not consumed by the budget, and parity plus the declared divergence are test-pinned; an official adapter re-opens only when the official face exposes per-event usage attribution |
 | application storage lifecycle | `ctx.storageDomain` | consumed since M1A: `StorageDomainTeamStore` opens the `agent_swarm` domain as the Team aggregate authority; distributed backends add domain CAS/leases later |
 | Workspace identity/membership | `ctx.workspaceRegistry` | Workspace linkage; not Worktree/cwd isolation |
 | human interaction | questions/approval services | human workflow/review Providers |

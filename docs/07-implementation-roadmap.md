@@ -175,8 +175,7 @@ Historical reports created before ADR-0008 retain their original milestone numbe
 
 Official integration:
 
-- define one token-measurement adapter and characterize `ctx.tokenMeter` current-request/context projections;
-- retain one cumulative Team budget ledger; remove or disable direct Session folding when the official adapter owns measurement;
+- M4-1 (issue #127) delivered the characterization and the selection: `ctx.tokenMeter`'s two faces are contract-registered (`docs/09` §1, design note `docs/development/2026-08-22-m4a-tokenmeter-design.md`) and the boundary decided is Option B — the plugin's per-seq-cursor Session fold stays the single measurement path of the one cumulative Team budget ledger, the official faces stay host-side and are not consumed by the budget (parity plus the declared failed-request-chunk divergence are pinned by `tests/tokenmeter-parity.spec.ts`); "remove or disable direct Session folding when the official adapter owns measurement" stays conditional and now has its registered trigger — the official face exposing per-event usage attribution;
 - retain the M1 `ctx.storageDomain` local Provider and add a separate atomic Store Provider only when a distributed Consumer exists.
 
 Reference fusion:
