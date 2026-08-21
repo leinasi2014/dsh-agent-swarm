@@ -466,7 +466,8 @@ export class AgentSwarmRuntime extends Service {
     const captain = requireAgent(exec)
     const scope = this.scopeOf(captain)
     const membership = await this.domain.requireMembership(scope, captain.id)
-    return await this.domain.setBudget(scope, membership.team.id, captain.id, limits)
+    const budget = await this.domain.setBudget(scope, membership.team.id, captain.id, limits)
+    return (this.requestSchedule(scope, membership.team.id, captain), budget) // §7 budget-release event (M4-3/#129): the recovery pass of held/postponed work
   }
 
   async addMemory(

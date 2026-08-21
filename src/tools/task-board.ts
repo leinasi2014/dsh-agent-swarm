@@ -48,6 +48,10 @@ export function registerCreateTaskTool(ctx: Context, runtime: AgentSwarmRuntime)
           },
         },
       },
+      reservation_tokens: {
+        type: 'number',
+        description: 'Guaranteed minimum token allocation for this task (M4-3): while a token limit is configured, the task is only claimed once the remaining budget covers this floor plus the reservations of every in-progress task; otherwise it waits (hold=reservation) until headroom frees or the limit rises. Inert without a token limit.',
+      },
     },
     output: {
       schema: {
@@ -77,6 +81,7 @@ export function registerCreateTaskTool(ctx: Context, runtime: AgentSwarmRuntime)
             ...(entry.timeout_ms === undefined ? {} : { timeoutMs: entry.timeout_ms }),
           } as VerificationDeclaration)),
         }),
+        ...(args.reservation_tokens === undefined ? {} : { reservationTokens: args.reservation_tokens }),
       })
       return { task_id: task.id, revision: task.revision, status: task.status, ready: task.status === 'pending' }
     },

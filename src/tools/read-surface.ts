@@ -9,6 +9,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { JobSnapshot, JobStatus } from '@deepseek-ai/dsh-jobs'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { expectDomain, TeamDomainError } from '../domain/error.js'
+import { taskHoldEvidence } from '../domain/team-domain-budget.js'
 import type { TeamTask } from '../domain/types.js'
 import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
 import { compactJsonOutput, register } from './shared.js'
@@ -30,6 +31,11 @@ const TASK_ROW_SCHEMA = {
     owner: { type: 'string', description: 'Member name, or captain when the captain holds it.' },
     attempt_id: { type: 'string' },
     stranded: { type: 'string', enum: ['idle-holder', 'owner-not-live'] },
+    hold: {
+      type: 'string',
+      enum: ['budget', 'reservation'],
+      description: 'Evidence-only budget hold (M4-3): budget = mid-execution while the Team budget face is exhausted (continues after the captain raises the budget); reservation = pending with a reservation floor that does not fit the remaining headroom.',
+    },
   },
 } as const
 
@@ -118,18 +124,22 @@ export function registerListTasksTool(ctx: Context, runtime: AgentSwarmRuntime):
           ? task.ownerSessionId === undefined
           : ownerNames.get(task.ownerSessionId ?? '') === args.owner))
         && (args.ready === undefined || readyIds.has(task.id) === args.ready))
-      const tasks = filtered.slice(cursor, cursor + limit).map(task => ({
-        task_id: task.id,
-        revision: task.revision,
-        subject: task.subject,
-        description: task.description,
-        status: task.status,
-        ready: readyIds.has(task.id),
-        blocked_by: task.blockedBy,
-        ...(task.ownerSessionId === undefined ? {} : { owner: ownerNames.get(task.ownerSessionId) ?? 'captain' }),
-        ...(task.currentAttemptId === undefined ? {} : { attempt_id: task.currentAttemptId }),
-        ...strandedHint(runtime, task),
-      }))
+      const tasks = filtered.slice(cursor, cursor + limit).map(task => {
+        const hold = taskHoldEvidence(snapshot.team.budget, snapshot.team.tasks, task, Date.now())
+        return {
+          task_id: task.id,
+          revision: task.revision,
+          subject: task.subject,
+          description: task.description,
+          status: task.status,
+          ready: readyIds.has(task.id),
+          blocked_by: task.blockedBy,
+          ...(task.ownerSessionId === undefined ? {} : { owner: ownerNames.get(task.ownerSessionId) ?? 'captain' }),
+          ...(task.currentAttemptId === undefined ? {} : { attempt_id: task.currentAttemptId }),
+          ...strandedHint(runtime, task),
+          ...(hold === undefined ? {} : { hold }),
+        }
+      })
       return { tasks, ...(cursor + limit < filtered.length ? { next_cursor: cursor + limit } : {}) }
     },
   }), 'list-tasks tool')

@@ -20,7 +20,7 @@
 import { randomUUID } from 'node:crypto'
 import { expectDomain, TeamDomainError } from './error.js'
 import { assertTaskGraph, isTaskReady } from './graph.js'
-import { budgetAvailable } from './team-domain-budget.js'
+import { budgetAvailable, outstandingReservationTokens, reservationAdmissible } from './team-domain-budget.js'
 import {
   actorMembership,
   attemptOf,
@@ -122,6 +122,13 @@ export async function createTask(
     const blockedBy = [...(input.blockedBy ?? [])]
     expectDomain(blockedBy.length <= deps.limits.maxDependencies, 'task dependency limit reached', 'TEAM_TASK_DEPENDENCY_LIMIT')
     expectDomain(Number.isSafeInteger(input.priority ?? 0), 'task priority must be a safe integer', 'TEAM_INPUT_INVALID')
+    if (input.reservationTokens !== undefined) {
+      expectDomain(
+        Number.isSafeInteger(input.reservationTokens) && input.reservationTokens > 0,
+        'reservationTokens must be a positive safe integer',
+        'TEAM_BUDGET_INVALID',
+      )
+    }
     const timestamp = deps.now()
     committed = {
       id: TaskId(`task-${team.nextTaskNumber}`),
@@ -134,6 +141,7 @@ export async function createTask(
       writeScopes: [...(input.writeScopes ?? [])].map(value => nonEmpty(value, 'write scope', 1_024)),
       priority: input.priority ?? 0,
       ...(input.verification === undefined ? {} : { verification: normalizeVerification(input.verification, deps.limits) }),
+      ...(input.reservationTokens === undefined ? {} : { reservationTokens: input.reservationTokens }),
       createdAt: timestamp,
       updatedAt: timestamp,
     }
@@ -178,6 +186,19 @@ export async function claimTask(
     expectDomain(isTaskReady(team.tasks, current), `task "${taskId}" is not ready`, 'TEAM_TASK_NOT_READY')
     expectDomain(!team.tasks.some(task => task.ownerSessionId === assigneeSessionId && ['in_progress', 'submitted', 'verifying'].includes(task.status)), 'assignee already owns open work', 'TEAM_MEMBER_BUSY')
     budgetAvailable(team.budget, deps.now())
+    // Reservation admission (M4-3, issue #129): the declared floor of this
+    // claim plus the outstanding holds of the in_progress tasks must fit the
+    // remaining budget. Deliberately NOT one of the BUDGET_EXHAUSTION_CODES:
+    // headroom may free when an in_progress task settles, so this is
+    // admission-postpone (the scheduler skips and retries the task next
+    // pass), never budget exhaustion (which converges run-owned Teams).
+    const floor = current.reservationTokens ?? 0
+    if (!reservationAdmissible(team.budget, outstandingReservationTokens(team.tasks), floor)) {
+      throw new TeamDomainError(
+        `task "${taskId}" reservation of ${floor} tokens exceeds the remaining budget headroom`,
+        'TEAM_BUDGET_RESERVATION',
+      )
+    }
     const timestamp = deps.now()
     const generation = nextAttemptGeneration(team, taskId)
     const attempt: TaskAttempt = {
@@ -413,6 +434,15 @@ export async function retryAttempt(
       currentAttemptId: attempt.id,
       updatedAt: timestamp,
     }, attempt)
+    // Cost-aware retryLimit (M4-3, issue #129): an in-place retry is a
+    // failure-driven re-execution generation, so it consumes one retry in
+    // the same transaction that seats it (alongside the request seat
+    // charge). Review rework keeps its own charge (docs/04 §5); captain
+    // reassignment and member-removal requeue stay deliberately uncharged —
+    // control acts, not failure-driven re-executions. No reservation
+    // re-admission: the task stays continuously in_progress, so its hold is
+    // already accounted.
+    Object.assign(team, { budget: { ...team.budget, usedRetries: team.budget.usedRetries + 1 } })
   })
   return seated
 }

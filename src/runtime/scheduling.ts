@@ -15,6 +15,7 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import { TaskId, type AttemptId, type TaskAttempt, type TeamId, type TeamState, type TeamTask } from '../domain/types.js'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import { TeamDomainError } from '../domain/error.js'
+import { budgetExhaustion, outstandingReservationTokens, reservationAdmissible } from '../domain/team-domain-budget.js'
 import { frameVisibility, waitForFrameClaim, type FrameVisibility } from './frame-visibility.js'
 import type { ExecutionRoots } from './execution-roots.js'
 import type { MessageDelivery } from './message-delivery.js'
@@ -119,13 +120,26 @@ export class SchedulingPass {
     }
     if (reserved.length > 0) snapshot = await this.deps.domain().snapshot(scope, teamId, captain.id)
 
-    // 3. Stranded-ownership self-healing (docs/04 §8c).
+    // 3. Stranded-ownership self-healing (docs/04 §8c). Skipped entirely
+    //    while the budget face is exhausted (M4-3, issue #129): a budget
+    //    hold is TEAM economics, not an owner-liveness defect — no retry
+    //    can pass admission, so the pre-M4-3 doomed retryAttempt calls and
+    //    per-pass warn noise are gone; open tasks surface as budget-hold
+    //    evidence and the §8n recovery pass re-drives them once the captain
+    //    raises the budget.
     if (await this.healStrandedOwnership(scope, teamId, captain, snapshot.team)) {
       snapshot = await this.deps.domain().snapshot(scope, teamId, captain.id)
     }
 
     // 4. New assignments: ownership-busy members and live running members
     //    are excluded; the configured Provider decides among the rest.
+    //    Budget-aware selection (M4-3, issue #129): ready tasks whose
+    //    declared reservation floor does not fit the remaining budget
+    //    (after the outstanding in_progress holds) are POSTPONED — never
+    //    offered to the Provider this pass; claimTask enforces the same
+    //    predicate authoritatively, and its `TEAM_BUDGET_RESERVATION` (a
+    //    racing settlement moved the face between filter and claim) is a
+    //    skip-and-next-pass like the stale-revision/member-busy races.
     const busy = new Set(snapshot.team.tasks
       .filter(task => ['in_progress', 'submitted', 'verifying'].includes(task.status))
       .map(task => task.ownerSessionId)
@@ -133,8 +147,10 @@ export class SchedulingPass {
     const members = snapshot.team.members
       .filter(member => member.phase === 'active' && !busy.has(member.sessionId) && memberAvailable(this.ctx, member.sessionId))
       .toSorted((left, right) => left.createdAt - right.createdAt)
+    const outstandingReserved = outstandingReservationTokens(snapshot.team.tasks)
     const ready = snapshot.team.tasks
-      .filter(task => snapshot.readyTaskIds.includes(task.id))
+      .filter(task => snapshot.readyTaskIds.includes(task.id)
+        && reservationAdmissible(snapshot.team.budget, outstandingReserved, task.reservationTokens ?? 0))
       .toSorted((left, right) => right.priority - left.priority || left.createdAt - right.createdAt)
 
     const provider = this.deps.schedulerProviders().get(this.deps.schedulerProvider())
@@ -159,7 +175,7 @@ export class SchedulingPass {
       try {
         claim = await this.deps.domain().claimTask(scope, teamId, captain.id, task.id, task.revision, member.sessionId)
       } catch (error) {
-        if (error instanceof TeamDomainError && ['TEAM_TASK_STALE_REVISION', 'TEAM_MEMBER_BUSY'].includes(error.code)) continue
+        if (error instanceof TeamDomainError && ['TEAM_TASK_STALE_REVISION', 'TEAM_MEMBER_BUSY', 'TEAM_BUDGET_RESERVATION'].includes(error.code)) continue
         throw error
       }
       await this.dispatchAssignment(scope, snapshot.team, captain, claim.task, claim.attempt)
@@ -360,6 +376,11 @@ export class SchedulingPass {
     team: TeamState,
   ): Promise<boolean> {
     if (this.deps.isClosing() || this.deps.strandedAfterMs <= 0) return false
+    // Budget-hold gating (M4-3, issue #129): stranding is an owner-liveness
+    // defect; an exhausted budget face is a TEAM-economics hold. While the
+    // face is exhausted no retry can pass admission, so the heal stays off
+    // entirely (no doomed domain calls, no re-kick arming) — docs/04 §8n.
+    if (budgetExhaustion(team.budget, Date.now()) !== undefined) return false
     if (!this.deps.eventFaceActive(scope, teamId)) return false
     let acted = false
     let nextDeadline: number | undefined
