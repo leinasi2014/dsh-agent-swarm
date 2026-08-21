@@ -93,7 +93,7 @@ Worktree、命令审核、Reviewer Agent、远程 Worker、工作流和 UI 属�
 
 ### 候选验收与外部晋升/回滚（M3-3，issue #102）
 
-`scripts/promotion/` 是外部控制面工具（刻意不入 tarball——ADR-0008 要求晋升控制器绝不来自候选工件，`src/` 零改动）：`freeze.mjs` 在干净 detached worktree 内构建冻结候选（`pnpm pack` tarball + manifest，完整性锚 = commit/tree SHA，工件身份 = tarball sha256）；`accept-check.mjs` 在一次性演练域（独立 DSH_HOME/存储根/会话根/端口，官方 web 模板 RPC 面 + fail-closed 负路径探针）执行 A0–A7 验收并产出纯证据 verdict（verdict 携带任何晋升动词即被拒）；`promote.mjs`/`rollback.mjs`/`status.mjs` 是唯一有权写 lkg/、ledger/ 与稳定控制 Profile 的外部 promoter——哈希链台账 + 数字指针 LKG 代际链（`lkg/g<N>/` 目录快照）、代际 fencing（陈旧/并发晋升拒绝）与 quiesce 三判据（无活跃 Team、会话根静默、无稳定进程），晋升后健康探针失败即有界自动回滚且失败代目录保留为证据。`drill.mjs` 是 P0–P7 端到端演练编排（含双型失败注入与零残留断言）。契约测试 `tests/promotion-contract.spec.ts`；决策记录 [docs/04-core-protocol.md](docs/04-core-protocol.md) §8m，设计注记 [docs/development/2026-08-21-m3c-acceptance-design.md](docs/development/2026-08-21-m3c-acceptance-design.md)。
+`scripts/promotion/` 是外部控制面工具（刻意不入 tarball——ADR-0008 要求晋升控制器绝不来自候选工件，`src/` 零改动）：`freeze.mjs` 在干净 detached worktree 内构建冻结候选（`pnpm pack` tarball + manifest，完整性锚 = commit/tree SHA，工件身份 = tarball sha256）；`accept-check.mjs` 在一次性演练域（独立 DSH_HOME/存储根/会话根/端口，官方 web 模板 RPC 面 + fail-closed 负路径探针）执行 A0–A7 验收并产出纯证据 verdict（verdict 携带任何晋升动词即被拒）；`promote.mjs`/`rollback.mjs`/`status.mjs` 是唯一有权写 lkg/、ledger/ 与稳定控制 Profile 的外部 promoter——哈希链台账 + 数字指针 LKG 代际链（`lkg/g<N>/` 目录快照）、代际 fencing（陈旧/并发晋升拒绝）与 quiesce 三判据（无活跃 Team、会话根静默、无稳定进程），晋升后健康探针失败即有界自动回滚且失败代目录保留为证据。`drill.mjs` 是 P0–P7 端到端演练编排（含双型失败注入、issue #122 的 H1–H7 加固对抗注入与零残留断言）。控制面安全加固（issue #122，D2 前置）：晋升泳道子进程一律 env 白名单（凭据不进验收域）；候选仓级 install/pack 无脚本执行（`--ignore-scripts` + `npm_config_ignore_scripts`）；promote 强制验收 gate 三重在场（命名+状态+证据 digest）并与台账 accepted 记录 verdictRef/drillDir 交叉；每次晋升打本地 `d2-ledger-<gen>` annotated tag 锚台账链尾（status `--repo` 校验）；半应用态有补偿重装 + status 已装字节对账 + `repair.mjs` 分歧修复；quiesce 对裁剪权威面 fail-safe。OS 级降权（低权账户/deny-write ACL）为部署选项，手册见 [docs/13](docs/13-self-hosting-dogfood.md) §9.3。契约测试 `tests/promotion-contract.spec.ts`；决策记录 [docs/04-core-protocol.md](docs/04-core-protocol.md) §8m，设计注记 [docs/development/2026-08-21-m3c-acceptance-design.md](docs/development/2026-08-21-m3c-acceptance-design.md)。
 
 ## 目录
 
@@ -107,7 +107,7 @@ Worktree、命令审核、Reviewer Agent、远程 Worker、工作流和 UI 属�
 │   └── tools.ts             # 模型工具 Consumer
 ├── scripts/
 │   ├── migrate-legacy-team-store.mjs   # 离线迁移 CLI
-│   └── promotion/                      # M3-3 外部晋升控制面（freeze/accept-check/promote/rollback/status/drill）
+│   └── promotion/                      # M3-3 外部晋升控制面（freeze/accept-check/promote/rollback/status/repair/drill）
 ├── tests/                   # 协议、端口一致性、迁移、真实 rc.8 组合
 ├── docs/                    # 架构、协议、ADR、路线图和验证证据
 ├── ref/

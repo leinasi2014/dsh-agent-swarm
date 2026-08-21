@@ -85,7 +85,7 @@ Ownership verification (2026-08-22, issue #102 closing the M3-3 gate; full mappi
 | serialized promotion, stale generation rejection | repo merge guard (merge queue) + M3-3 ledger/LKG generation fencing | delivered |
 | structured diagnostics redacted and linked to Team/task/run ids | #101 evidence face + M3-3 verdict/ledger fields | delivered |
 
-D2 opening still requires the independent security/regression review of the stable/candidate boundary (docs/08 §8) — the drill evidence is input to that review, not its substitute.
+D2 opening status (2026-08-22): the independent security review landed (`docs/reviews/2026-08-22-d2-security-review.md`, verdict CONDITIONAL) and its blocking findings F1–F5 were addressed by the control-plane hardening iteration 1 (issue #122, §9 below): env seal, script-free candidate installs, verdict three-fold-presence + accepted-record cross-check, chain-tail git anchors, half-applied compensation + installed-bytes reconciliation + repair, quiesce fail-safe. Full parallel-coding D2 opening still requires the OS-level demotion deployment decision (§9.3) or, per the review's fallback, promoting the D4 sandbox to a hard precondition.
 
 ### D3 and D4
 
@@ -154,4 +154,56 @@ These controls protect correctness and host availability; they are not billing p
 ## 8. Promotion rule
 
 The first releases use manual external promotion. Automation may later perform the mechanical switch only after all configured gates accept and only from a controller that is not loaded from the candidate artifact. No Agent, reviewer, candidate Profile, UI or prompt message can alone mark a candidate promoted.
+
+## 9. Control-plane hardening ops (issue #122, D2 precondition)
+
+The D2 security review (`docs/reviews/2026-08-22-d2-security-review.md`, verdict CONDITIONAL) found the candidate-execution boundary held only at the interface layer: candidate code executing in the freeze worktree, the acceptance verification root and the booted acceptance plane ran with the promoter's authority and inherited the PM session environment. Iteration 1 (issue #122) closes the executable part in code and documents the OS-level part here as a deployment runbook.
+
+### 9.1 Closed in code (verified by `tests/promotion-contract.spec.ts` and the P0–P7+H drill)
+
+| Face | Closure |
+|---|---|
+| env credential boundary (F2) | every promotion-lane child (`runner.mjs` `run`/`bootPlane`) spawns under an env allowlist (PATH/PATHEXT/SYSTEMROOT/COMSPEC/SYSTEMDRIVE/OS/TEMP/TMP/DSH_HOME) plus explicit injections — model keys, tokens and arbitrary PM session state are invisible to candidate code; verified live (pnpm/git/tar/CLI boot + `host.describe` all green under the sealed base) |
+| dependency lifecycle scripts (F1a) | repo-level installs in the freeze worktree and the acceptance verification root run `pnpm install --frozen-lockfile --ignore-scripts`; `pnpm pack` runs under `npm_config_ignore_scripts=true` (pack rejects the flag itself) so prepack/postpack cannot execute with PM authority — closing the asymmetry the review flagged (tarball-side installs already used the flag) |
+| verdict strength (F4) | promote accepts a verdict only with the full eight-name gate vocabulary (seven evidence-carrying gates, each name + `pass` + digest — three-fold presence), re-digested evidence against the accepted ledger record's drill evidence tree, and a verdict-file digest cross-check against that record's `verdictRef` |
+| chain-tail anchor (F5, OQ-11 reversal) | every successful promote writes a LOCAL annotated tag `d2-ledger-<gen>` (`.seq`-suffixed on gen-number reuse) whose message carries the promoting record's full `recordSha256`; `status --repo` verifies the latest promotion's tail against it, so a whole-chain recomputation is detectable without a key; tags are never pushed (credentials face stays out) |
+| half-applied promote (F3) | establishGeneration failure after the stable install triggers compensation re-install of the previous generation's tarball; `status` reconciles the installed Profile bytes against the pointer generation's tarball (deterministic content digest); `repair.mjs` re-anchors a pointer/ledger divergence onto the hash-chained ledger tail after explicit `--yes` (dry-run by default) and refuses a broken chain as evidence tampering |
+| quiesce fail-safe (F6) | a parseable authority unit with `tables.teams` pruned, or an empty unit file, counts as ACTIVE (blocks promotion); only an absent file (fresh root) reads quiet |
+| residue-report integrity (F9) | an execution-root marker whose recorded path does not match its directory is treated as unreadable (orphan without identity) — a worker-copied marker cannot steer residue reports |
+
+### 9.2 Residual candidate-script surface (honest statement)
+
+`pnpm build` in freeze, and the acceptance lanes (`pnpm <lane>`), still execute candidate-defined scripts with PM authority — that execution IS the verification. The env seal removes their credential visibility, and the promotion state machine refuses self-promotion, but file-write authority during those lanes equals the promoter's until the OS-level demotion below is deployed. Until then the D2 posture remains "controlled opening" (PM supervision, single-writer, candidate source = this team's loop).
+
+### 9.3 OS-level demotion runbook (deployment option — needs an environment decision)
+
+Full demotion runs the freeze/acceptance lanes under a principal that CANNOT write the protected faces. Two deployment forms; both are PM-side operational steps, deliberately not automated into the lanes:
+
+**Option A — low-privilege local account (recommended for the real dogfood root).**
+
+1. Create a dedicated local account, e.g. `d2lane` (no admin group membership).
+2. Grant it read/execute on the checkout and the dogfood root, deny write on the protected faces:
+
+```powershell
+# protected faces of the control plane (adjust <dogfood-root> to the real root)
+$root   = 'D:\Source\DSH\dogfood\dsh-agent-swarm'   # lkg/ ledger/ control/ live here
+$repo   = 'D:\Source\DSH\plugin\dsh-agent-swarm'    # stable checkout (promoter identity)
+# read/execute everything under the roots ...
+icacls $root /grant 'd2lane:(OI)(CI)RX'
+icacls $repo /grant 'd2lane:(OI)(CI)RX'
+# ... then deny write on the authoritative faces (test on a drill copy first)
+icacls "$root\lkg"        /deny 'd2lane:(OI)(CI)W'   # LKG generations + pointer
+icacls "$root\ledger"     /deny 'd2lane:(OI)(CI)W'   # promotion ledger (hash chain)
+icacls "$root\control"    /deny 'd2lane:(OI)(CI)W'   # stable control home/storage/sessions
+icacls "$root\candidates" /deny 'd2lane:(OI)(CI)W'   # frozen evidence (immutable once written)
+# the host stable face: the account's own writes must never reach it
+icacls "$env:USERPROFILE\.dsh" /deny 'd2lane:(OI)(CI)W'
+```
+
+3. Run the lanes as that account (`runas /user:d2lane` or a scheduled task carrying the lane command); the promoter itself stays on the PM identity.
+4. Verify the fence before relying on it: as `d2lane`, `echo x > <dogfood-root>\ledger\probe` must FAIL; as the PM it must succeed. Remove the probe file afterwards.
+
+**Option B — deny-write ACL on the drill domain (lighter, drill-applicable).** The same `icacls ... /deny` command set applied to a DRILL-ONLY dogfood root's `lkg`/`ledger`/`control`/`candidates` directories before the failure-injection phases; the drill then proves the injection cannot mutate the anchored faces even when the injected code holds the lane's authority. Applicable where creating accounts is not possible; it does not protect the host `~/.dsh` (that face needs Option A's separate principal).
+
+**Windows reality (why this is a runbook, not code):** creating principals, scheduled-task delegation and per-process tokens are host-administration decisions outside this repository's authority. The code-level guarantees (env seal, script-free installs, digest/anchor verification) hold regardless; this runbook closes the write-authority gap when the deployment chooses to. Until a deployment decision is made, this section is the honest record that OS-level demotion is NOT yet active on the real dogfood root.
 

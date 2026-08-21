@@ -16,11 +16,12 @@
 // candidates/<id>/, and throwaway acceptance domains under drills/<slug>/.
 // Nothing here ever touches ~/.dsh: every path derives from the dogfood root.
 import { createHash } from 'node:crypto'
-import { access, appendFile, copyFile, mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
+import { access, appendFile, copyFile, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 
 /** Ledger action vocabulary (the candidate lifecycle's external transitions). */
-export const LEDGER_ACTIONS = ['gen-established', 'accepted', 'promote', 'rollback', 'reject']
+export const LEDGER_ACTIONS = ['gen-established', 'accepted', 'promote', 'rollback', 'reject', 'repair']
 
 /** Canonical four-domain layout of one dogfood control root. */
 export function controlRootLayout(root) {
@@ -401,11 +402,36 @@ export async function rollPointerBack(lkgDir, ledgerPath, targetGen, details) {
 // ── acceptance verdict verification ──────────────────────────────────────────
 
 /**
- * Verify an acceptance verdict against the frozen manifest: every declared
- * gate must be `pass`, the verdict must bind the exact candidate (id and
- * tarball digest), and every referenced evidence file must exist with its
- * recorded digest. The verdict has NO promotion verb — promote refuses a
- * verdict carrying one (a candidate cannot smuggle a promotion claim).
+ * The acceptance-gate vocabulary (issue #122, F4). The eight gate names the
+ * acceptance lane may emit: the seven evidence-carrying A0–A6 gates a PASSING
+ * verdict must carry (name + `pass` status + evidence digest — three-fold
+ * presence), plus `acceptance-run`, the catch-all failure gate that only ever
+ * appears on a failed run (its presence in a verdict up for promotion is
+ * itself a refusal). Any gate name outside this vocabulary is refused — a
+ * forged verdict cannot shrink or rename the gate set (the P4b drill
+ * injection's bare single-gate form is rejected by exactly this rule).
+ */
+export const REQUIRED_VERDICT_GATES = [
+  'a0-freeze-discipline',
+  'a1-source-floor',
+  'a2-artifact-integrity',
+  'a3-assembly-fail-closed',
+  'a4-boot-load',
+  'a5-rpc-health',
+  'a6-reload-recovery-teardown',
+]
+const KNOWN_VERDICT_GATES = new Set([...REQUIRED_VERDICT_GATES, 'acceptance-run'])
+
+/**
+ * Verify an acceptance verdict against the frozen manifest (issue #122, F4 —
+ * the promoter's check is now AT LEAST as strong as the contract suite's
+ * self-check): the verdict must bind the exact candidate (id + tarball
+ * digest), carry no promotion verb, present every required gate exactly once
+ * with `pass` status AND a verified evidence digest (a bare verdict without
+ * evidence is refused), and only name gates from the known vocabulary. Every
+ * referenced evidence file must exist under `evidenceBaseDir` with its
+ * recorded digest; `evidenceBaseDir` is mandatory — digest re-verification
+ * may not be skipped.
  */
 export async function verifyVerdict(verdict, manifest, evidenceBaseDir) {
   const failures = []
@@ -414,34 +440,104 @@ export async function verifyVerdict(verdict, manifest, evidenceBaseDir) {
   if (verdict?.candidateId !== manifest?.candidateId) failures.push('verdict.candidateId does not match the manifest')
   if (verdict?.tarballSha256 !== manifest?.tarballSha256) failures.push('verdict.tarballSha256 does not match the manifest')
   if (verdict?.overall !== 'pass') failures.push(`verdict.overall is ${verdict?.overall}, not pass`)
+  if (evidenceBaseDir === undefined) failures.push('evidenceBaseDir is required — gate evidence digests must be re-verified, never skipped (F4)')
   if (!Array.isArray(verdict?.gates)) {
     failures.push('verdict.gates missing/not an array')
     return { ok: false, failures }
   }
   if (verdict.gates.length === 0) failures.push('verdict.gates empty')
+  const seen = new Map()
   for (const gate of verdict.gates) {
+    if (typeof gate?.gate !== 'string' || gate.gate === '') {
+      failures.push('verdict.gates carries an unnamed gate entry')
+      continue
+    }
+    seen.set(gate.gate, (seen.get(gate.gate) ?? 0) + 1)
+    if (!KNOWN_VERDICT_GATES.has(gate.gate)) {
+      failures.push(`gate ${gate.gate}: unknown gate name (vocabulary: ${[...KNOWN_VERDICT_GATES].join(', ')})`)
+    }
+    if (gate.gate === 'acceptance-run') {
+      failures.push('gate acceptance-run is present — it only ever appears on a failed acceptance run')
+    }
     if (gate.status !== 'pass') failures.push(`gate ${gate.gate}: ${gate.status}${gate.detail ? ` (${gate.detail})` : ''}`)
-    if (typeof gate.evidenceSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(gate.evidenceSha256)) continue
-    if (typeof gate.evidencePath !== 'string' || gate.evidencePath === '') continue
+    // F4 three-fold presence: gate name + pass status + evidence digest.
+    if (typeof gate.evidencePath !== 'string' || gate.evidencePath === '') {
+      failures.push(`gate ${gate.gate}: evidencePath missing — a bare verdict without per-gate evidence is refused (F4)`)
+    }
+    if (typeof gate.evidenceSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(gate.evidenceSha256)) {
+      failures.push(`gate ${gate.gate}: evidenceSha256 missing/not a sha256 hex digest (F4)`)
+    }
     if (evidenceBaseDir === undefined) continue
+    if (typeof gate.evidencePath !== 'string' || gate.evidencePath === '') continue
+    if (typeof gate.evidenceSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(gate.evidenceSha256)) continue
     const evidenceFile = resolve(evidenceBaseDir, gate.evidencePath)
     if (!isInside(evidenceBaseDir, evidenceFile)) { failures.push(`gate ${gate.gate}: evidence path escapes the evidence base`); continue }
     const actual = await sha256File(evidenceFile).catch(() => undefined)
     if (actual === undefined) failures.push(`gate ${gate.gate}: evidence file missing: ${gate.evidencePath}`)
     else if (actual !== gate.evidenceSha256) failures.push(`gate ${gate.gate}: evidence digest mismatch for ${gate.evidencePath}`)
   }
+  for (const required of REQUIRED_VERDICT_GATES) {
+    if (!seen.has(required)) failures.push(`required gate missing: ${required} (F4 enforces the full gate set)`)
+  }
+  for (const [name, count] of seen) {
+    if (count > 1) failures.push(`gate ${name} appears ${count} times — exactly one entry per gate`)
+  }
   return { ok: failures.length === 0, failures }
+}
+
+/**
+ * The promoter-side acceptance cross-check (issue #122, F4): a verdict file
+ * alone is not promotion input — it must be the SAME evidence the acceptance
+ * lane recorded. This binds the verdict file digest to the ledger's `accepted`
+ * record (`verdictRef.sha256`), binds that record's tarball digest to the
+ * manifest, binds the verdict's `run.drillDir` to the record's `drillDir`, and
+ * requires that drill directory to live inside the drills domain before its
+ * evidence tree is used as `evidenceBaseDir` for full digest re-verification.
+ * This closes the "silent promotion past acceptance" third form: a bare or
+ * forged verdict pre-written into candidates/<id>/ cannot pass without a
+ * matching, chain-protected accepted ledger record whose evidence re-digests.
+ */
+export async function crossCheckAcceptedVerdict({ verdict, manifest, verdictDigest, ledgerRecords, drillsDir }) {
+  const failures = []
+  const accepted = [...ledgerRecords].reverse().find(record => record.action === 'accepted' && record.candidateId === manifest.candidateId)
+  if (accepted === undefined) {
+    failures.push(`no 'accepted' ledger record for candidate ${manifest?.candidateId} — a candidate without recorded acceptance cannot promote (F4)`)
+  } else {
+    if (accepted.tarballSha256 !== manifest.tarballSha256) failures.push('accepted ledger record binds a different tarball digest than the manifest')
+    if (accepted.verdictRef?.sha256 !== verdictDigest) {
+      failures.push(`verdict file digest does not match the accepted ledger record's verdictRef (ledger ${accepted.verdictRef?.sha256 ?? 'absent'}, verdict file ${verdictDigest})`)
+    }
+  }
+  const drillDir = accepted?.record?.drillDir
+  if (typeof drillDir !== 'string' || drillDir === '') {
+    failures.push('accepted ledger record carries no drillDir — evidence location is unknown')
+  } else if (!isInside(drillsDir, drillDir)) {
+    failures.push(`accepted record drillDir ${drillDir} is not inside the drills domain — refusing foreign evidence`)
+  }
+  if (verdict?.run?.drillDir !== drillDir) {
+    failures.push(`verdict.run.drillDir (${String(verdict?.run?.drillDir)}) does not match the accepted ledger record's drillDir (${String(drillDir)})`)
+  }
+  if (typeof drillDir === 'string' && isInside(drillsDir, drillDir)) {
+    const verdictCheck = await verifyVerdict(verdict, manifest, join(drillDir, 'evidence'))
+    if (!verdictCheck.ok) failures.push(...verdictCheck.failures)
+  }
+  return { ok: failures.length === 0, failures, acceptedSeq: accepted?.seq ?? null, drillDir: drillDir ?? null }
 }
 
 // ── quiesce: the three pre-promotion stillness criteria (ADR-0008 decision 8) ─
 
 /**
  * Parse the stable `agent_swarm` storage unit text and list every team whose
- * phase is not archived. Unparseable content counts as ACTIVE (fail-safe: a
- * corrupt authority face must block promotion, never wave it through).
+ * phase is not archived. Fail-safe faces (issue #122, F6): unparseable
+ * content, an EMPTY file, or a parseable unit whose `tables.teams` key is
+ * absent/pruned all count as ACTIVE — a corrupt or trimmed authority face
+ * must block promotion, never wave it through. A unit the plugin actually
+ * wrote always carries `tables.teams` (the storage schema materializes the
+ * table even when empty); only an absent FILE (fresh root, the domain never
+ * wrote state) reads as quiet.
  */
 export function activeTeamsFromUnitText(text) {
-  if (text === undefined || text === null || text.trim() === '') return []
+  if (text === undefined || text === null) return []
   let parsed
   try {
     parsed = JSON.parse(text)
@@ -449,7 +545,7 @@ export function activeTeamsFromUnitText(text) {
     return [{ teamId: '<unparseable-agent_swarm-unit>', phase: 'unknown' }]
   }
   const teams = parsed?.tables?.teams
-  if (teams === undefined || teams === null) return []
+  if (teams === undefined || teams === null) return [{ teamId: '<missing-teams-table>', phase: 'unknown' }]
   if (typeof teams !== 'object') return [{ teamId: '<malformed-teams-table>', phase: 'unknown' }]
   return Object.entries(teams)
     .filter(([, team]) => team?.phase !== 'archived')
@@ -606,4 +702,173 @@ export function acceptanceIsolation(drillDir, control) {
     if (isInside(control.candidatesDir, path) || isInside(path, control.candidatesDir)) violations.push(`acceptance ${name} intersects the candidates domain`)
   }
   return { ok: violations.length === 0, violations, domains }
+}
+
+// ── ledger chain-tail anchors in git (issue #122, F5 — OQ-11 reversal) ───────
+
+/** Tag name candidates for one promotion record (gen number + unique seq). */
+export function ledgerAnchorTagNames(gen, seq) {
+  return [`d2-ledger-${gen}`, `d2-ledger-${gen}.${seq}`]
+}
+
+async function defaultGit(cwd, args) {
+  const { git } = await import('./runner.mjs')
+  return git(cwd, args)
+}
+
+/**
+ * Anchor one promotion's ledger tail as a LOCAL annotated git tag (never
+ * pushed — credentials face excluded, OQ-11's original reasoning). The sha256
+ * ledger chain has no key and no external fact: anyone with write access to
+ * the ledger could recompute the whole chain (the F5 forgery face). The tag
+ * message carries the promoting record's full `recordSha256`, so any later
+ * whole-chain recomputation changes that hash and the status-side
+ * `verifyLedgerAnchors` check fails against the immutable tag object.
+ *
+ * Names: `d2-ledger-<gen>` for the first promotion of a generation number;
+ * `d2-ledger-<gen>.<seq>` when that name is already taken by an earlier
+ * promotion of the same generation number (a rollback + re-promote reuses gen
+ * numbers; the ledger seq is unique). Re-anchoring the SAME record is a
+ * no-op.
+ */
+export async function anchorLedgerTail({ repo, gen, seq, tailRecordSha256, action }, deps = {}) {
+  const gitImpl = deps.git ?? defaultGit
+  const message = [
+    'D2 promotion-ledger chain-tail anchor (issue #122, F5; OQ-11 reversal)',
+    `action: ${action}`,
+    `gen: ${gen}`,
+    `ledgerSeq: ${seq}`,
+    `tailRecordSha256: ${tailRecordSha256}`,
+  ].join('\n')
+  for (const tagName of ledgerAnchorTagNames(gen, seq)) {
+    const existing = await gitImpl(repo, ['rev-parse', '-q', '--verify', `refs/tags/${tagName}`])
+    if (existing.code === 0) {
+      const show = await gitImpl(repo, ['for-each-ref', `refs/tags/${tagName}`, '--format=%(contents)'])
+      if (show.stdout.includes(tailRecordSha256)) return { tagName, alreadyAnchored: true }
+      continue // this name anchors an earlier promotion of the same gen — take the seq-suffixed name
+    }
+    // Annotated tags need a tagger identity; the lane env deliberately hides
+    // the user's global gitconfig, so identity is explicit and deterministic.
+    const tag = await gitImpl(repo, ['-c', 'user.name=d2-promoter', '-c', 'user.email=promoter@d2.invalid', 'tag', '-a', tagName, '-m', message])
+    if (tag.code !== 0) throw new Error(`ledger chain-tail anchor tag failed (${tagName}): ${tag.stderr || tag.stdout}`)
+    return { tagName, alreadyAnchored: false }
+  }
+  throw new Error(`both anchor tag names for gen ${gen} seq ${seq} already exist without carrying tail ${tailRecordSha256}`)
+}
+
+/**
+ * Verify the ledger's LATEST promotion/gen-establishment record against its
+ * git anchor (the "tail anchor" check status runs): the expected tag must
+ * exist and its message must carry that record's exact `recordSha256`.
+ * A tag for that generation carrying a DIFFERENT tail hash means the chain
+ * was recomputed after anchoring — fail. No tag at all is a failure only
+ * once the anchor era has begun (some d2-ledger tag exists); a lineage whose
+ * promotions all predate the feature reports `preAnchorEra: true`
+ * (informational, matches the legacy dogfood root).
+ */
+export async function verifyLedgerAnchors({ repo, records }, deps = {}) {
+  const gitImpl = deps.git ?? defaultGit
+  const promotions = records.filter(record => record.action === 'promote' || record.action === 'gen-established')
+  const result = { checked: true, ok: true, failures: [], anchoredPromotions: 0, latest: null }
+  if (promotions.length === 0) {
+    result.note = 'no promotion records to anchor'
+    return result
+  }
+  const latest = promotions.at(-1)
+  result.latest = { seq: latest.seq, action: latest.action, toGen: latest.toGen, recordSha256: latest.recordSha256 }
+  let found = null
+  for (const tagName of ledgerAnchorTagNames(latest.toGen, latest.seq)) {
+    const existing = await gitImpl(repo, ['rev-parse', '-q', '--verify', `refs/tags/${tagName}`])
+    if (existing.code !== 0) continue
+    const show = await gitImpl(repo, ['for-each-ref', `refs/tags/${tagName}`, '--format=%(contents)'])
+    if (show.stdout.includes(latest.recordSha256)) found = tagName
+    else if (found === null) {
+      result.failures.push(`anchor tag ${tagName} exists but carries a different chain tail than ledger seq ${latest.seq} (${latest.recordSha256.slice(0, 16)}…) — the ledger was recomputed after anchoring`)
+    }
+  }
+  if (found !== null) {
+    result.anchorTag = found
+    result.anchoredPromotions = 1
+    return result
+  }
+  const anyTag = await gitImpl(repo, ['tag', '-l', 'd2-ledger-*'])
+  if ((anyTag.stdout.trim() ?? '') !== '') {
+    result.failures.push(`latest promotion (seq ${latest.seq}, action ${latest.action}, toGen ${latest.toGen}) has no matching anchor tag — anchor it (see promote --repo) before proceeding`)
+    result.ok = false
+    return result
+  }
+  result.preAnchorEra = true
+  result.note = 'no d2-ledger anchors exist in the repo (pre-anchor-era lineage); informational'
+  return result
+}
+
+// ── installed-bytes reconciliation (issue #122, F3 machine check) ────────────
+
+/**
+ * Deterministic content digest of a directory tree: every FILE (symlinks
+ * skipped) visited in sorted order, hashed as `relpath\0sha256\n` lines and
+ * chained through sha256. Stable across runs and machines.
+ */
+export async function directoryContentDigest(directory) {
+  const lines = []
+  const walk = async dir => {
+    const entries = await readdir(dir, { withFileTypes: true }).catch(() => [])
+    entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+    for (const entry of entries) {
+      const path = join(dir, entry.name)
+      if (entry.isDirectory()) await walk(path)
+      else if (entry.isFile()) {
+        lines.push(`${relative(directory, path).replaceAll('\\', '/')}\0${await sha256File(path)}\n`)
+      }
+    }
+  }
+  await walk(directory)
+  return sha256Hex(lines.join(''))
+}
+
+/**
+ * Reconcile the stable control Profile's INSTALLED plugin bytes against the
+ * LKG pointer's generation tarball (issue #122, F3): before this check,
+ * status only read dependency presence — a promote that died between
+ * `installIntoStableProfile` and `establishGeneration` left the stable
+ * Profile on candidate bytes with the pointer untouched and chainOk still
+ * true, silently. The current generation tarball is extracted (through the
+ * injectable `extract(tarball, destDir)`, tar-backed by default) and both
+ * trees digested with `directoryContentDigest` for comparison.
+ */
+export async function reconcileInstalledProfile({ layout, pointer, extract }) {
+  if (pointer === undefined) return { checked: false, reason: 'no LKG pointer — nothing to reconcile against' }
+  if (extract === undefined) throw new Error('reconcileInstalledProfile: extract(tarball, destDir) is required')
+  const profileManifest = await stat(join(layout.controlProfileDir, 'package.json')).catch(() => undefined)
+  if (profileManifest === undefined) {
+    // No stable Profile at all (fresh root, or a drill copy lineage without a
+    // control home) — not an installed-bytes divergence, and controlHomePresent
+    // already reports it on the status face.
+    return { checked: false, reason: 'stable control Profile not installed (no profile package.json)', pointerGen: pointer.currentGen }
+  }
+  const installedDir = await realpath(join(layout.controlProfileDir, 'node_modules', 'dsh-agent-swarm')).catch(() => undefined)
+  if (installedDir === undefined) {
+    return { checked: true, matches: false, reason: 'stable Profile exists but has no dsh-agent-swarm package installed', pointerGen: pointer.currentGen }
+  }
+  const tarball = join(genDir(layout.lkgDir, pointer.currentGen), 'dsh-agent-swarm.tgz')
+  const tarInfo = await stat(tarball).catch(() => undefined)
+  if (tarInfo === undefined) {
+    return { checked: true, matches: false, reason: `current generation tarball missing: ${tarball}`, pointerGen: pointer.currentGen }
+  }
+  const scratch = await mkdtemp(join(tmpdir(), 'd2-reconcile-'))
+  try {
+    await extract(tarball, scratch)
+    const installedDigest = await directoryContentDigest(installedDir)
+    const expectedDigest = await directoryContentDigest(join(scratch, 'package'))
+    return {
+      checked: true,
+      matches: installedDigest === expectedDigest,
+      pointerGen: pointer.currentGen,
+      installedDir,
+      installedContentSha256: installedDigest,
+      expectedContentSha256: expectedDigest,
+    }
+  } finally {
+    await rm(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => {})
+  }
 }

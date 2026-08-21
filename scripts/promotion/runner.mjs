@@ -12,6 +12,34 @@ import { join } from 'node:path'
 export const LANE_TIMEOUT_MS = 30 * 60_000
 
 /**
+ * Environment allowlist for every promotion-lane child process (issue #122,
+ * F2): the freeze worktree, the acceptance verification root, the acceptance
+ * plane boots and the stable-plane probes all execute candidate-controlled
+ * code (candidate package scripts, candidate tests, candidate plugin code in
+ * a booted plane) — they must never inherit the PM session's environment
+ * (model-provider keys, tokens, arbitrary session state). Children receive
+ * only OS path/execution variables plus explicitly injected values (DSH_HOME
+ * and friends). Windows env names are case-insensitive, so the membership
+ * test upper-cases both sides. Verified live: pnpm install/build/test/pack,
+ * git (with `-c` identity overrides), tar, and the official CLI boot +
+ * host.describe RPC all run green under exactly this base (the CLI resolves
+ * the host account home through the OS API, not the USERPROFILE env).
+ */
+const ENV_ALLOWLIST = new Set([
+  'PATH', 'PATHEXT', 'SYSTEMROOT', 'COMSPEC', 'SYSTEMDRIVE', 'OS',
+  'TEMP', 'TMP', 'DSH_HOME',
+])
+
+/** The sealed child environment: allowlisted vars + explicit injections. */
+export function laneEnv(injections = {}) {
+  const env = {}
+  for (const [name, value] of Object.entries(process.env)) {
+    if (ENV_ALLOWLIST.has(name.toUpperCase())) env[name] = value
+  }
+  return { ...env, ...injections }
+}
+
+/**
  * Commands that resolve to `.cmd` shims on Windows — spawn() refuses those
  * without a shell since the CVE-2024-27980 hardening, so they route through
  * cmd.exe (the official CLI does the same for pnpm). Everything else (git,
@@ -42,13 +70,13 @@ export function run(command, args, options = {}) {
       child = useShell
         ? spawn('cmd.exe', ['/d', '/s', '/c', [command, ...args].map(quote).join(' ')], {
           cwd: options.cwd,
-          env: options.env !== undefined ? { ...process.env, ...options.env } : process.env,
+          env: laneEnv(options.env),
           windowsHide: true,
           shell: false,
         })
         : spawn(command, args, {
           cwd: options.cwd,
-          env: options.env !== undefined ? { ...process.env, ...options.env } : process.env,
+          env: laneEnv(options.env),
           windowsHide: true,
           shell: false,
         })
@@ -87,6 +115,17 @@ export function killTree(pid) {
 /** Git in one cwd; resolves with the run result (see `run`). */
 export function git(cwd, args, options = {}) {
   return run('git', ['-C', cwd, ...args], { timeoutMs: options.timeoutMs ?? 60_000, ...options })
+}
+
+/**
+ * Extract one .tgz tarball into `destDir` (tar must already exist). Windows
+ * forms follow the live-proven drill pattern (issue #102 P4b): forward
+ * slashes, `--force-local`, and destDir via cwd — the msys GNU tar mangles
+ * backslash drive-letter arguments and `-C` is operand-order dependent.
+ */
+export async function extractTarball(tarballPath, destDir) {
+  const posix = tarballPath.replaceAll('\\', '/')
+  return run('tar', ['--force-local', '-xzf', posix], { cwd: destDir, timeoutMs: 120_000 })
 }
 
 /**
@@ -136,7 +175,7 @@ export async function waitUntil(predicate, { timeoutMs = 60_000, intervalMs = 25
  */
 export async function bootPlane({ cli, home, profile = 'web', port, host = '127.0.0.1', readyTimeoutMs = 90_000, extraArgs = [] }) {
   const child = spawn(process.execPath, [cli, '--profile', profile, '--host', host, '--port', String(port), '--no-open', ...extraArgs], {
-    env: { ...process.env, DSH_HOME: home },
+    env: laneEnv({ DSH_HOME: home }),
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
   })

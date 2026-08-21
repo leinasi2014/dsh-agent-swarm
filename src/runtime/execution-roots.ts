@@ -22,7 +22,7 @@ import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { isAbsolute, join } from 'node:path'
+import { isAbsolute, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import type { Context } from '@deepseek-ai/cordis'
 import { TeamDomainError } from '../domain/error.js'
@@ -124,10 +124,22 @@ function readMarker(path: string): RootMarker | undefined {
     if (typeof marker.scope !== 'string' || typeof marker.teamId !== 'string' || typeof marker.taskId !== 'string') return undefined
     if (typeof marker.attemptId !== 'string' || typeof marker.path !== 'string') return undefined
     if (marker.isolation !== 'git-worktree' && marker.isolation !== 'temp-directory') return undefined
+    // Issue #122 F9: a marker whose recorded path does not match the
+    // directory it was read from cannot vouch for that directory — a worker
+    // writing a copied/forged marker must not steer residue reports for a
+    // path it never owned. Path comparison is case-insensitive on Windows.
+    if (!markerPathMatches(marker.path, path)) return undefined
     return raw as RootMarker
   } catch {
     return undefined
   }
+}
+
+/** Whether a marker's recorded path is the directory the marker lives in. */
+function markerPathMatches(recorded: string, actual: string): boolean {
+  const left = resolve(recorded)
+  const right = resolve(actual)
+  return process.platform === 'win32' ? left.toLowerCase() === right.toLowerCase() : left === right
 }
 
 /**
