@@ -310,7 +310,24 @@ describe('DSH rc.8 composition', () => {
       const afterTamper = await successfulTool(ctx, lead, 'tamper-status', 'agent_swarm_status', {}) as {
         used_tokens: number
       }
-      expect(afterTamper.used_tokens).toBe(adapter.billedTokens)
+      // Issue #114: the settlement checkpoint above cannot cover the captain's
+      // own report turns — every member turn completion makes the official
+      // subagents settlement notice wake the captain into one more billed turn
+      // AFTER the checkpoint, and the budget only reflects its usage event once
+      // the accounting flush commits. The probe evidence on CI (run 32482845037):
+      // the report turn's flush started 11ms before this status read and
+      // committed 6ms after it — 226 vs 249, converging to equality 58ms later.
+      // This is the async-settlement race the checkpoint comment already
+      // forbids asserting through, not a loss face: wait for exact equality
+      // exactly like the checkpoint, while every poll still proves the decoy
+      // workspace file cannot reach the authoritative budget.
+      await vi.waitFor(async () => {
+        const settled = await successfulTool(ctx, lead, `tamper-status-${Date.now()}`, 'agent_swarm_status', {}) as {
+          used_tokens: number
+        }
+        expect(settled.used_tokens).toBe(adapter.billedTokens)
+      }, { timeout: 15_000 })
+      expect(afterTamper.used_tokens).toBeLessThanOrEqual(adapter.billedTokens)
 
       const firstRuntime = ctx.agentSwarm
       await firstRuntime.domain.queueMessage(
