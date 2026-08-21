@@ -48,6 +48,7 @@
     "verify:scenarios": "node scripts/verify-test-scenarios.mjs",
     "verify:official": "node scripts/verify-official-baseline.mjs",
     "verify:references": "node scripts/verify-reference-baselines.mjs",
+    "verify:anchors": "node scripts/verify-doc-anchors.mjs",
     "verify:gate-a": "pnpm verify:official && pnpm verify:references",
     "verify:structure": "node scripts/verify-project.mjs",
     "verify:artifact": "node scripts/verify-package-artifact.mjs",
