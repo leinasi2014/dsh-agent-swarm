@@ -121,6 +121,7 @@ export async function runPromote(args) {
     })
     const reprobe = await probeStablePlane({ cli: args.cli, layout, port: args.port })
     result.autoRollback = { rollbackLedgerSeq: rollbackRecord.seq, reprobeOk: reprobe.ok }
+    result.autoRolledBack = true
     step('auto-rollback', reprobe.ok ? 'rolled-back' : 'rollback-probe-failed', `pointer back to g${pointer.currentGen}, ledger seq ${rollbackRecord.seq}, reprobe=${reprobe.ok}`)
     console.log(JSON.stringify({ promoted: false, autoRolledBack: true, ...result }, null, 2))
     process.exitCode = 1
