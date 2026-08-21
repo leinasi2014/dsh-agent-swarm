@@ -65,7 +65,7 @@ async function main() {
   await mkdir(candidateDir, { recursive: true })
   const buildCommand = ['pnpm install --frozen-lockfile', 'pnpm build', 'pnpm pack']
   const logs = {}
-  let packedTarball
+
   let frozenPkg
   await withDetachedWorktree(args.repo, commitSha, async worktree => {
     const clean = await git(worktree, ['status', '--porcelain'])
@@ -85,10 +85,11 @@ async function main() {
     if (pack.code !== 0) throw new Error(`pnpm pack failed in the freeze worktree (exit ${pack.code})`)
     const packed = /dsh-agent-swarm-[^\s]+\.tgz/.exec(pack.stdout)
     if (packed === null) throw new Error(`pnpm pack produced no dsh-agent-swarm tarball: ${pack.stdout}`)
-    packedTarball = join(worktree, packed[0])
+    // Copy OUT of the worktree while it still exists — withDetachedWorktree
+    // removes the worktree (and the packed tarball with it) on scope exit.
+    await copyFile(join(worktree, packed[0]), join(candidateDir, 'dsh-agent-swarm.tgz'))
   }, 'agent-swarm-freeze')
   const tarballPath = join(candidateDir, 'dsh-agent-swarm.tgz')
-  await copyFile(packedTarball, tarballPath)
   const tarballSha256 = await sha256File(tarballPath)
   const tarballBytes = (await stat(tarballPath)).size
   const manifest = {
