@@ -44,11 +44,18 @@ export function genDir(lkgDir, gen) {
   return join(lkgDir, `g${gen}`)
 }
 
-/** Deterministic JSON encoding for hashing (key-sorted, no ambient spacing). */
+/**
+ * Deterministic JSON encoding for hashing (key-sorted, no ambient spacing).
+ * Undefined handling matches JSON.stringify exactly — properties with the
+ * value undefined are DROPPED (array slots become null) — so a record's
+ * stored line and its recomputed hash agree even when a caller passed an
+ * undefined field (a live drill run broke its ledger chain on exactly that).
+ */
 export function stableStringify(value) {
+  if (value === undefined) return undefined
   if (value === null || typeof value !== 'object') return JSON.stringify(value)
-  if (Array.isArray(value)) return `[${value.map(item => stableStringify(item)).join(',')}]`
-  const keys = Object.keys(value).sort()
+  if (Array.isArray(value)) return `[${value.map(item => stableStringify(item) ?? 'null').join(',')}]`
+  const keys = Object.keys(value).filter(key => value[key] !== undefined).sort()
   return `{${keys.map(key => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(',')}}`
 }
 

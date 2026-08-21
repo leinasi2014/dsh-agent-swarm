@@ -106,6 +106,17 @@ describe('promotion ledger', () => {
     expect(ledgerRecordHash('GENESIS', { a: 1, b: 2 })).toBe(first) // key-order independent
     expect(stableStringify({ b: 2, a: 1 })).toBe('{"a":1,"b":2}')
   })
+
+  it('hashes undefined-valued fields exactly like the stored JSON line drops them', async () => {
+    // A live drill run broke its ledger chain on this: the hash serialized
+    // `missing:undefined` while JSON.stringify (the stored line) dropped the key.
+    const ledgerPath = join(root, 'undefined-field', 'promotion-ledger.jsonl')
+    await appendLedgerRecord(ledgerPath, { action: 'promote', actor: 'test', toGen: 1, detail: { note: 'ok', missing: undefined } })
+    await appendLedgerRecord(ledgerPath, { action: 'rollback', actor: 'test', toGen: 0 })
+    const records = await readLedger(ledgerPath)
+    expect((await verifyLedgerChain(records)).ok).toBe(true)
+    expect(records[0]?.detail).toEqual({ note: 'ok' })
+  })
 })
 
 describe('LKG generation chain', () => {
