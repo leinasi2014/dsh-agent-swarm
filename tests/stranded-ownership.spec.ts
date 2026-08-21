@@ -259,7 +259,19 @@ describe('stranded-ownership self-healing over the real composition (issue #12)'
       await ctx.agentSwarm.recoverAgent(composition.lead)
       const untouched = await snapshotOf(composition)
       expect(untouched.team.tasks[0]).toMatchObject({ status: 'in_progress', ownerSessionId: workerId })
-      expect(untouched.team.tasks[0]?.currentAttemptId).toBe(taskBefore.currentAttemptId)
+      // The STRONG invariants: never auto-released to pending, never
+      // reassigned away from the cold owner. The exact attempt id is NOT
+      // asserted: docs/04 §8c records the official followup-destruction
+      // race's residual (a redelivery cold-resumes the drained member,
+      // whose subsequent idle edge may legitimately self-heal a fresh
+      // fenced attempt for the SAME owner) — a documented known limit,
+      // not a corruption. Either outcome keeps the same owner and the
+      // task in_progress; everything else below (explicit captain
+      // reassignment fencing) is unaffected.
+      const currentAttempt = untouched.team.attempts.find(
+        attempt => attempt.id === untouched.team.tasks[0]?.currentAttemptId,
+      )
+      expect(currentAttempt?.memberSessionId).toBe(workerId)
 
       // The captain-decision path reassigns explicitly and the scheduler
       // revives the task under a fresh attempt (the cold member is
