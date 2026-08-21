@@ -59,7 +59,7 @@ export async function runAcceptance(args) {
   const manifest = await readJsonFile(join(candidateDir, 'manifest.json'))
   if (manifest === undefined) throw new Error(`candidate manifest missing: ${candidateDir}/manifest.json`)
   const tarballPath = join(candidateDir, 'dsh-agent-swarm.tgz')
-  const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 15)
+  const stamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)
   const drillSlug = `${stamp}-accept-${args.candidate}`
   const drillDir = join(layout.drillsDir, drillSlug)
   const gates = []

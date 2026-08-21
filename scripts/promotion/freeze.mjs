@@ -57,7 +57,7 @@ async function main() {
   const { commitSha, treeSha } = await resolveCommit(args.repo, args.commit)
   const toolRepo = resolve(import.meta.dirname, '..', '..')
   const toolHead = await git(toolRepo, ['rev-parse', 'HEAD'])
-  const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 15)
+  const stamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)
   const candidateId = args.candidateId ?? `${stamp}-${commitSha.slice(0, 8)}`
   const candidateDir = join(layout.candidatesDir, candidateId)
   const manifestExisting = await stat(candidateDir).catch(() => undefined)

@@ -121,7 +121,7 @@ async function main() {
   }
   const mainCommit = args.mainCommit ?? (await git(args.repo, ['rev-parse', 'origin/main'])).stdout.trim()
   const candidateCommit = args.candidateCommit ?? (await git(args.repo, ['rev-parse', 'HEAD'])).stdout.trim()
-  const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 15)
+  const stamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)
   const drillDir = join(layout.drillsDir, `${stamp}-m3c`)
   const evidenceDir = join(drillDir, 'evidence')
   await mkdir(evidenceDir, { recursive: true })
