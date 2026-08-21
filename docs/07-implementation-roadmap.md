@@ -1,6 +1,6 @@
 # 07. Official-first implementation roadmap
 
-Rebased: 2026-08-22 against official DSH `141eb6fef83422698aef7a981029e843e8161534`, `dsh-agent-teams` `fe854d19d20c88d9436d13338f86257f741955c9` and JiuwenSwarm `962f0a4426041d54cef60e980a10491df84546ef`. ADR-0008 adds staged self-hosting readiness and renumbers the post-M2 milestones.
+Rebased: 2026-08-22 against official DSH `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`, `dsh-agent-teams` `0c21e5d2f45ec1ea7c9ee89ffc4ee77d1cb9262e` and JiuwenSwarm `962f0a4426041d54cef60e980a10491df84546ef`. ADR-0008 adds staged self-hosting readiness and renumbers the post-M2 milestones.
 
 ## Gate A — required before every milestone
 
