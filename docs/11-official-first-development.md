@@ -12,7 +12,7 @@ Every design, feature, refactor, fix and milestone starts by checking the curren
 
 No production code begins until all items pass:
 
-1. Run `pnpm verify:gate-a`; it queries the official DSH remote and both reference branches, checks all clean local pins, verifies that required official Agent Notes/source evidence is materialized, and validates package visibility against `OFFICIAL_BASELINE.json`. Record the SHA, date and any drift.
+1. Run `pnpm verify:gate-a`; it proves the pinned official commit is a provable release (the `dsh-v<release>` tag landed on the pin or demonstrably contains it; in the npm-first/tag-pending window, the pin is still the verified remote tip or an ancestor of it), checks both reference pins and the clean local evidence checkouts, verifies that required official Agent Notes/source evidence is materialized, and validates package visibility against `OFFICIAL_BASELINE.json`. Record the release, SHA, date and any drift.
 2. Read official `AGENTS.md`, `docs/architecture.md`, package rules/map, the relevant subsystem document and relevant implemented Agent Notes.
 3. Inspect package manifests, publication/private status, exports, types, README and tests at that commit.
 4. Inspect installed package exports and the target Profile's actual plugin tree. A published package is not automatically installed or composed.
@@ -28,7 +28,11 @@ No production code begins until all items pass:
 
 Gate A is not satisfied by a remote SHA alone. The cited implemented Agent Notes and package source must exist in the local evidence checkout, and the project revision being reviewed must be committed or otherwise reproducibly identified.
 
-If the official remote moved, review the diff before retaining the old compatibility plan. If network access is unavailable, record the verification limitation and do not call a cached pin “current.”
+The official baseline is release-anchored, not HEAD-anchored. `OFFICIAL_BASELINE.json` pins a release merge commit, and `verify:official` must prove that pin is an official release — the release tag landed on the pin or demonstrably contains it (`git merge-base --is-ancestor`) — before any snapshot check counts. Official `master` advancing past the pin between releases is expected, keeps Gate A green, and is reported as a note only; it is not by itself a drift finding.
+
+A re-pin becomes due exactly when the official project publishes a newer release. Review the full diff from the pinned release to the new one before adopting it, then update `OFFICIAL_BASELINE.json` (commit, release, `evidenceFiles`, package visibility) together with the affected architecture/milestone documents in one change. `verify:official` surfaces a due re-pin as a warning, not a failure, so an open change set is not broken by an upstream release landing mid-review; the re-pin lands as its own reviewed change.
+
+Gate A is red only when the pin stops being a provable release: no release tag contains the pin and the pin is neither the remote tip nor a verified ancestor of it; the pinned release was superseded without its tag ever landing; or the pinning evidence itself (checkout at the pin, Agent Notes, package visibility) no longer holds. The expected CI red windows are therefore evidence failures and transient network failures — never mere master movement. During the official npm-published/tag-pending window Gate A stays green on the fallback anchor (the pin is the remote tip, or a verified ancestor of it) with an explicit warning, and upgrades to the tag anchor once the tag lands. If network access is unavailable, record the verification limitation and do not call a cached pin “current.”
 
 ## 3. Official direction at the verified rc.8 baseline
 
