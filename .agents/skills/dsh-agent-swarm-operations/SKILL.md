@@ -2,8 +2,8 @@
 name: dsh-agent-swarm-operations
 description: dsh-agent-swarm 项目的开发流程、项目管理操作（GitHub issue/PR/里程碑/CI）、开发规范门禁与运维手册。在本仓库做任何任务接手、流程执行、PR/issue/里程碑操作、验证收尾或定时复盘时必须使用本 Skill；开发 DSH 插件本身另见 dsh-plugin-development。
 metadata:
-  version: "1.1.0"
-  date: "2026-08-20"
+  version: "1.2.0"
+  date: "2026-08-21"
   update_cadence: "每日 09:00 自动复盘更新（见第七节）"
 ---
 
@@ -13,14 +13,14 @@ metadata:
 
 ## 一、当前状态快照（定时更新区，改这里要同步 metadata.date）
 
-- **里程碑**：M1A/M1B/M1C 完成（2026-08-20；F1-F7/F9/F11-F15 关闭或决策落地，tag `m1b`/`m1c`）；**当前 M1D**（真实 rc.8 Profile + 独立回归审查 + D1 dogfood 门；前置：rc.8 CLI 环境）→ M2 → … → M9（client 压轴）。
-- **仓库**：`github.com/leinasi2014/dsh-agent-swarm`（私有，`main` 唯一集成分支、线性历史）；`codex/glm-review-fixes` 为 M0/M1A 历史快照分支，不再开发。
-- **证据基线**：官方 DSH `141eb6f`（rc.8）；`dsh-agent-teams` `801954d`；`jiuwenswarm` `56da762`。开工前 `pnpm verify:gate-a`（热上游按累计 diff 审计，见教训 16）。
-- **门禁**：`pnpm verify` = 结构(600 行上限，零例外) → lint → 重复 → 死导出 → 类型×2 → 测试 → **场景审计** → 构建 → 产物；lefthook pre-commit；CI 全矩阵；**合并一律 `node scripts/merge-guard.mjs <pr>`**。
-- **场景审计**：16/30 machine-proven；测试 78；`src/tools.ts` 594/600（扩前先拆）。
+- **里程碑**：M1 全量收束（M1A-M1D，2026-08-21 放行：独立回归审查 PASS、tag `m1d`、D1 单写入者 dogfood 开放）；**当前 M2**（官方 WorkflowEngine/JobRegistry 桥）——#75 桥/#76 jobs 投影/#77 模式+双 owner 已关闭，#78 节点映射/#79 预算跨 run 在途 → M3 → … → M9（client 压轴）。
+- **仓库**：`github.com/leinasi2014/dsh-agent-swarm`（私有，`main` 唯一集成分支、线性历史）；`codex/glm-review-fixes` 为 M0/M1A 历史快照分支，不再开发。姊妹仓 dsh-canvas 双线并行（C-M1 已完成 tag `cm1`，C-M2 进行中）。
+- **证据基线**：官方 DSH `141eb6f`（rc.8，未漂移）；`dsh-agent-teams` `801954d`；`jiuwenswarm` `36c7959`（Gate C 第四次 re-pin，AgentGroup 纯加法）。开工前 `pnpm verify:gate-a`（热上游按累计 diff 审计，见教训 16）。
+- **门禁**：`pnpm verify` = 结构(600 行上限，零例外) → lint → 重复 → 死导出 → 类型×2 → 测试 → **场景审计** → 构建 → 产物；lefthook pre-commit；CI 全矩阵（gate 与 coverage 步均带 `.dsh-mkdir` 签名重试）；**合并一律 `node scripts/merge-guard.mjs <pr>`**。
+- **场景审计**：18/32 machine-proven（新增 31 双 owner 对抗/32 模式）；测试 110；`src/tools.ts` 已拆分（46 行薄壳 + 6 域模块）。
 - **开发模式**：PM 统筹 + 智能体并行 worktree（CONTRIBUTING §2a）+ 串行守卫合并；PM 迭代方法论见第八节。
 - **已知 flake**：官方包 `.dsh-mkdir-*` ENOENT（Win32 mkdir/rename 竞态，重跑即绿；高频则升级上游立案，见 M1C exit 报告 §3）。
-- **上次复盘**：2026-08-20（M1C exit 时更新）。
+- **上次复盘**：2026-08-21（M1 放行 + M2 过半时更新；并发会话检查：一次已结束的写入突发，非持续活跃）。
 
 ## 二、标准开发闭环（每个任务）
 
@@ -106,6 +106,8 @@ gh run list --limit 5 && gh run view <id> --log-failed | tail -30
 29. **结算通知竞态族（2026-08-21，PR#66/#72/#73 三例同根）**：凡测试"drain 成员 → 期待 captain 侧调度 pass/投递产物"的形态，drain 必然以结算通知唤醒 captain——慢 runner 上通知 turn 先行把 captain 挂在模型闸门，后续 recoverAgent 全部 no-op（正确产品语义：mid-work 不自调度），期待物永远 undefined/0。规则：这类断言一律在 waitFor 轮内 `adapter.open()` + 重驱动 `recoverAgent`（driveRecoveryPasses 哲学；成员已冷、captain 为根会话时开闸无结算风险）。症状签名：`expected 0 to be greater than or equal to N` / `expected undefined to be 'owner-not-live'` / F8 的 delivered 停滞。
 30. **分支删除必须在 `gh pr view --json state` == MERGED 之后**（2026-08-21 两次险情）：merge-guard 收尾报错（合并冲突/TLS）≠ 未合并，本地 `git branch -D` 若先于 MERGED 核验执行，就要从远端重建分支。规则：守卫输出后先查 state 再删分支；守卫遇 GitHub 合并冲突时流程 = 本地 rebase → 语义并集解冲突 → force-push → 重跑守卫。
 31. **并行泳道扩容的条件（2026-08-21，用户指示，PR#69/#20 双侧）**：上限 2-3 → 3-6。>3 路的前提：① 咨询性预审席位分摊一审（终审+合并权仍 PM 独占）；② 合同显式声明泳道避让面（冲突面同文件不并行）；③ 合并仍串行。实测 6 路期间 PM 带宽占用主要在 rebase 解冲突（同仓多泳道必碰 README/verify.yml/GOALS 等公共文件）——公共登记面尽量集中在 PM 侧收尾批量改，实现合同里禁碰。
+32. **rebase 并集后必须本地过结构门禁再推**（2026-08-21，PR#87 两次返工）：三路并集把 orchestrator-runtime 顶过 600 行上限，CI 两腿全红才发现；另一次并集残留 import 失配。规则：解完冲突先 `npx tsc -p tsconfig.json --noEmit` + `node scripts/verify-project.mjs` 全过再 push（新依赖还需 `pnpm install --frozen-lockfile`）。
+33. **会话活跃判定看"持续"而非"单次"**（2026-08-21 复盘实测）：`~/.dsh/sessions/` 的 mtime 单次写入突发（turn 结束）后静默 ≠ 持续活跃的 RPC 会话；二次轮询 2 分钟无刷新即可按已结束处理继续复盘。真正的持续刷新才会触发协议的停止条款。
 
 ## 七、定时更新协议（本 Skill 的自我维护）
 
