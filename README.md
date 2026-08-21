@@ -91,6 +91,10 @@ Worktree、命令审核、Reviewer Agent、远程 Worker、工作流和 UI 属�
 
 稳定控制 Profile 始终运行 last-known-good artifact；不得用运行中的 Profile 原地覆盖、热加载或批准自己的候选。模型使用不因套餐或响应速度被强制收敛，但并发、命令超时、重试循环、磁盘保留、取消和回滚仍作为故障保险。完整设计见 [docs/13-self-hosting-dogfood.md](docs/13-self-hosting-dogfood.md)。
 
+### 候选验收与外部晋升/回滚（M3-3，issue #102）
+
+`scripts/promotion/` 是外部控制面工具（刻意不入 tarball——ADR-0008 要求晋升控制器绝不来自候选工件，`src/` 零改动）：`freeze.mjs` 在干净 detached worktree 内构建冻结候选（`pnpm pack` tarball + manifest，完整性锚 = commit/tree SHA，工件身份 = tarball sha256）；`accept-check.mjs` 在一次性演练域（独立 DSH_HOME/存储根/会话根/端口，官方 web 模板 RPC 面 + fail-closed 负路径探针）执行 A0–A7 验收并产出纯证据 verdict（verdict 携带任何晋升动词即被拒）；`promote.mjs`/`rollback.mjs`/`status.mjs` 是唯一有权写 lkg/、ledger/ 与稳定控制 Profile 的外部 promoter——哈希链台账 + 数字指针 LKG 代际链（`lkg/g<N>/` 目录快照）、代际 fencing（陈旧/并发晋升拒绝）与 quiesce 三判据（无活跃 Team、会话根静默、无稳定进程），晋升后健康探针失败即有界自动回滚且失败代目录保留为证据。`drill.mjs` 是 P0–P7 端到端演练编排（含双型失败注入与零残留断言）。契约测试 `tests/promotion-contract.spec.ts`；决策记录 [docs/04-core-protocol.md](docs/04-core-protocol.md) §8m，设计注记 [docs/development/2026-08-21-m3c-acceptance-design.md](docs/development/2026-08-21-m3c-acceptance-design.md)。
+
 ## 目录
 
 ```text
@@ -102,7 +106,8 @@ Worktree、命令审核、Reviewer Agent、远程 Worker、工作流和 UI 属�
 │   ├── migration/           # 显式单向迁移与持久回执
 │   └── tools.ts             # 模型工具 Consumer
 ├── scripts/
-│   └── migrate-legacy-team-store.mjs   # 离线迁移 CLI
+│   ├── migrate-legacy-team-store.mjs   # 离线迁移 CLI
+│   └── promotion/                      # M3-3 外部晋升控制面（freeze/accept-check/promote/rollback/status/drill）
 ├── tests/                   # 协议、端口一致性、迁移、真实 rc.8 组合
 ├── docs/                    # 架构、协议、ADR、路线图和验证证据
 ├── ref/

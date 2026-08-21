@@ -72,6 +72,21 @@ Required:
 - merge queue serializes promotion and rejects stale attempt/lease generations;
 - structured diagnostics redact credentials and remain linked to Team/task/run ids.
 
+Ownership verification (2026-08-22, issue #102 closing the M3-3 gate; full mapping in `docs/04` §8m and the design note §5.2):
+
+| D2 requirement | Owner | Status |
+|---|---|---|
+| Workflow/Jobs single transition owner, durable run ids, cancellation/completion disclosure | M2-1/M2-2 (`docs/04` §8f/§8h) | delivered |
+| one immutable base revision + unique branch/Worktree/lease per attempt | M3-1 (#100, `docs/04` §8l) | delivered (prompt-level fence; hard sandbox is the held-open gap) |
+| out-of-process execution cwd/filesystem/shell roots equal the lease | #100 official-cwd seam + later sandbox work | declared gap — D2 parallel coding additionally needs the deployment sandbox decision |
+| command/check + independent Reviewer; completion cannot bypass | M3-2 (#101 executable review) | delivered |
+| frozen commit + package artifact digest before verification | M3-3 freeze lane (manifest: commit/tree SHA anchor + tarball sha256 identity) | delivered |
+| separate acceptance Profile/port/state root + health checks + deterministic rollback | M3-3 acceptance lane + promoter (`scripts/promotion/`, P0–P7 drill evidence) | delivered |
+| serialized promotion, stale generation rejection | repo merge guard (merge queue) + M3-3 ledger/LKG generation fencing | delivered |
+| structured diagnostics redacted and linked to Team/task/run ids | #101 evidence face + M3-3 verdict/ledger fields | delivered |
+
+D2 opening still requires the independent security/regression review of the stable/candidate boundary (docs/08 §8) — the drill evidence is input to that review, not its substitute.
+
 ### D3 and D4
 
 D3 adds accepted-evidence memory and approval-separated Skill Evolution. D4 adds distributed CAS/leases/fencing, remote observability, packaged release, migration and unattended rollback. Neither level is implied by successful local parallel dogfood.
