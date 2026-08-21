@@ -71,7 +71,7 @@ export function registerCreateTaskTool(ctx: Context, runtime: AgentSwarmRuntime)
 export function registerClaimTaskTool(ctx: Context, runtime: AgentSwarmRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_claim_task',
-    description: 'Claim one ready task for the calling Team participant using the exact current revision. Returns the attempt capability required for every later submission.',
+    description: 'Claim one ready task for the calling Team participant using the exact current revision. Returns the attempt capability required for every later submission, plus this attempt\'s isolated execution root when the capability is enabled.',
     parameters: {
       task_id: { type: 'string', required: true },
       expected_revision: { type: 'number', required: true },
@@ -84,9 +84,11 @@ export function registerClaimTaskTool(ctx: Context, runtime: AgentSwarmRuntime):
           revision: { type: 'number', required: true },
           attempt_id: { type: 'string', required: true },
           generation: { type: 'number', required: true },
+          execution_root: { type: 'string', description: 'Absolute path of this attempt\'s isolated execution root (present only when the capability is enabled).' },
+          execution_root_isolation: { type: 'string', description: 'How the root is isolated: git-worktree (a detached worktree of the Team workspace repository) or temp-directory (the workspace holds no repository).' },
         },
       },
-      render: (_args, value) => [{ type: 'text', text: `Claimed ${value.task_id} revision ${value.revision}; attempt=${value.attempt_id} generation=${value.generation}.` }],
+      render: (_args, value) => [{ type: 'text', text: `Claimed ${value.task_id} revision ${value.revision}; attempt=${value.attempt_id} generation=${value.generation}.${value.execution_root === undefined ? '' : ` Execution root: ${value.execution_root} (${value.execution_root_isolation}).`}` }],
     },
     async execute(args, exec) {
       const claim = await runtime.claimTask(exec, args.task_id, args.expected_revision)
@@ -95,6 +97,10 @@ export function registerClaimTaskTool(ctx: Context, runtime: AgentSwarmRuntime):
         revision: claim.task.revision,
         attempt_id: claim.attempt.id,
         generation: claim.attempt.generation,
+        ...(claim.executionRoot === undefined ? {} : {
+          execution_root: claim.executionRoot.path,
+          execution_root_isolation: claim.executionRoot.isolation,
+        }),
       }
     },
   }), 'claim-task tool')

@@ -63,7 +63,21 @@ const required = [
 // unless an exception below records why and which milestone retires it.
 // The registry is currently empty: every source file is within the limit.
 const SRC_FILE_LINE_LIMIT = 600
-const SRC_FILE_LINE_LIMIT_EXCEPTIONS = new Map()
+// Reasoned exceptions: `[reason, retiring milestone]`. Each entry is debt with
+// an owner and a deadline — the reason must name what pushed the file over and
+// the milestone whose work splits it back under the limit.
+const SRC_FILE_LINE_LIMIT_EXCEPTIONS = new Map([
+  // M3-1 (issue #100) wired the execution-root lifecycle into the composition
+  // root (claim/submit/review/reassign/remove/archive integration points, the
+  // Provider registry passthrough and the disposal settle). The generic
+  // manager already lives in `execution-roots.ts` and the claim/sweep/scan
+  // integration in `execution-root-surface.ts`; what remains in the runtime
+  // is the minimal call-site wiring over a file that sat at 599/600. Retired
+  // by M3-2: the tool-facing read surfaces (`waitForChange`,
+  // `activePeerEvidence`) move to a wait-surface collaborator, returning the
+  // file under the limit.
+  ['src/runtime/orchestrator-runtime.ts', ['M3-1 execution-root lifecycle wiring over a composition root at 599/600; split of the wait read surfaces retires it', 'M3-2']],
+])
 
 const failures = []
 for (const item of required) {

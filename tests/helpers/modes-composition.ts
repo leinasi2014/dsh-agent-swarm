@@ -38,6 +38,9 @@ export interface ModesPluginConfig {
    * default.
    */
   readonly leadSessionId?: string
+  /** Per-attempt execution-root co-config (M3-1, issue #100). */
+  readonly executionRoots?: boolean
+  readonly executionRootsBase?: string
 }
 
 export interface ModesComposition {
@@ -160,6 +163,8 @@ export async function mountModesComposition(sandbox: string, config: ModesPlugin
     ...(config.workflowBridge === undefined ? {} : { workflowBridge: config.workflowBridge }),
     ...(config.strandedAfterMs === undefined ? {} : { strandedAfterMs: config.strandedAfterMs }),
     ...(config.maxMembers === undefined ? {} : { maxMembers: config.maxMembers }),
+    ...(config.executionRoots === undefined ? {} : { executionRoots: config.executionRoots }),
+    ...(config.executionRootsBase === undefined ? {} : { executionRootsBase: config.executionRootsBase }),
   }))
   const adapter = new GatedMemberAdapter()
   ctx.llm.registerAdapter(['mock'], adapter)

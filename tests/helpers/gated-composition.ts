@@ -100,7 +100,7 @@ export async function mount(
   sandbox: string,
   strandedAfterMs: number,
   schedulerProvider: string = 'priority-ready',
-  pluginOptions: { jobsBridge?: boolean } = {},
+  pluginOptions: { jobsBridge?: boolean, executionRoots?: boolean, executionRootsBase?: string } = {},
 ): Promise<Composition> {
   const ctx = new Context()
   const fibers: Fiber[] = []
@@ -114,6 +114,8 @@ export async function mount(
   const pluginFiber = await ctx.plugin(AgentSwarm, {
     memberProvider: 'spawn', memberMaxDepth: 1, strandedAfterMs, schedulerProvider,
     jobsBridge: pluginOptions.jobsBridge === true,
+    ...(pluginOptions.executionRoots === undefined ? {} : { executionRoots: pluginOptions.executionRoots }),
+    ...(pluginOptions.executionRootsBase === undefined ? {} : { executionRootsBase: pluginOptions.executionRootsBase }),
   })
   fibers.push(pluginFiber)
   ctx.llm.registerAdapter(['mock'], adapter)
