@@ -1,0 +1,313 @@
+/*
+ * Swarm panel stylesheet — the --swarm-* theme contract (frozen S0,
+ * docs/development/2026-08-22-m9-ui-architecture-spec.md §5.4).
+ *
+ * COLOR CONTRACT (each host maps these on an ANCESTOR of .swarm-panel —
+ * mapping on .swarm-panel itself would race this file's own defaults):
+ *
+ *   --swarm-bg             panel background
+ *   --swarm-bg-raised      card/row background
+ *   --swarm-fg             primary text
+ *   --swarm-fg-muted       secondary text (labels, unknowns)
+ *   --swarm-border         hairline borders
+ *   --swarm-accent         emphasis (chips, focus rings)
+ *   --swarm-state-running  in-progress / submitted / verifying badge
+ *   --swarm-state-done     completed badge
+ *   --swarm-state-error    failed badge
+ *
+ * Non-color defaults this file owns (hosts may override on an ancestor):
+ *
+ *   --swarm-radius         corner radius (8px)
+ *   --swarm-mono           numeric/mono font stack
+ *
+ * Unmapped color variables degrade to the browser default (var() without a
+ * fallback computes to unset), so an unmapped host renders unstyled — never
+ * wrong-colored. No literal color appears in this file: that is the S0 gate
+ * (panel-css.spec.ts enforces it).
+ *
+ * Host mapping examples: examples/dsh-theme.css (DSH --dsw-alias-* tokens),
+ * examples/canvas-theme.md (Canvas Tailwind variables).
+ */
+
+.swarm-panel {
+  --swarm-radius: 8px;
+  --swarm-mono: ui-monospace, SFMono-Regular, Consolas, 'Courier New', monospace;
+
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--swarm-bg);
+  color: var(--swarm-fg);
+  border: 1px solid var(--swarm-border);
+  border-radius: var(--swarm-radius);
+}
+
+.swarm-panel__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.swarm-panel__title {
+  font-weight: 600;
+}
+
+.swarm-panel__refresh {
+  font: inherit;
+  color: var(--swarm-accent);
+  background: none;
+  border: none;
+  border-radius: var(--swarm-radius);
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.swarm-panel__refresh:focus-visible {
+  outline: 1px solid var(--swarm-accent);
+  outline-offset: 1px;
+}
+
+.swarm-panel__state,
+.swarm-panel__stale,
+.swarm-panel__degraded {
+  color: var(--swarm-fg-muted);
+  padding: 4px 0;
+}
+
+.swarm-panel__state--error {
+  color: var(--swarm-state-error);
+}
+
+.swarm-panel__stale {
+  border-left: 2px solid var(--swarm-state-error);
+  padding-left: 8px;
+}
+
+/* Counters row (StatusCounters) */
+
+.swarm-counters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 0;
+}
+
+.swarm-counter {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 4em;
+}
+
+.swarm-counter__label {
+  color: var(--swarm-fg-muted);
+  font-size: 0.85em;
+}
+
+.swarm-counter__value {
+  margin: 0;
+  font-family: var(--swarm-mono);
+  font-weight: 600;
+}
+
+/* Budget usage (BudgetMeter) */
+
+.swarm-budget {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  background: var(--swarm-bg-raised);
+  border: 1px solid var(--swarm-border);
+  border-radius: var(--swarm-radius);
+}
+
+.swarm-budget__title {
+  color: var(--swarm-fg-muted);
+  font-size: 0.85em;
+}
+
+.swarm-budget__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.swarm-budget__label {
+  color: var(--swarm-fg-muted);
+}
+
+.swarm-budget__value,
+.swarm-budget__observed {
+  font-family: var(--swarm-mono);
+}
+
+.swarm-budget__observed {
+  color: var(--swarm-fg-muted);
+  font-size: 0.85em;
+}
+
+/* Team summary card (TeamSummaryCard) */
+
+.swarm-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  background: var(--swarm-bg-raised);
+  border: 1px solid var(--swarm-border);
+  border-radius: var(--swarm-radius);
+}
+
+.swarm-card__header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.swarm-card__name {
+  font-weight: 600;
+}
+
+.swarm-card__chip {
+  color: var(--swarm-accent);
+  border: 1px solid var(--swarm-border);
+  border-radius: var(--swarm-radius);
+  padding: 1px 8px;
+  font-size: 0.85em;
+}
+
+.swarm-card__chip--muted {
+  color: var(--swarm-fg-muted);
+}
+
+.swarm-card__detail {
+  margin-left: auto;
+  font: inherit;
+  color: var(--swarm-accent);
+  background: none;
+  border: none;
+  border-radius: var(--swarm-radius);
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.swarm-card__detail:focus-visible {
+  outline: 1px solid var(--swarm-accent);
+  outline-offset: 1px;
+}
+
+/* Task board (TaskBoard) */
+
+.swarm-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.swarm-tasks__title {
+  color: var(--swarm-fg-muted);
+  font-size: 0.85em;
+}
+
+.swarm-tasks__list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+}
+
+.swarm-tasks__empty {
+  color: var(--swarm-fg-muted);
+  margin: 0;
+}
+
+.swarm-task {
+  background: var(--swarm-bg-raised);
+  border: 1px solid var(--swarm-border);
+  border-radius: var(--swarm-radius);
+}
+
+.swarm-task__body,
+.swarm-task__select {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+}
+
+.swarm-task__body {
+  box-sizing: border-box;
+}
+
+.swarm-task__select {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  border-radius: var(--swarm-radius);
+  text-align: start;
+  cursor: pointer;
+}
+
+.swarm-task__select:focus-visible {
+  outline: 1px solid var(--swarm-accent);
+  outline-offset: -1px;
+}
+
+.swarm-task__status {
+  flex: none;
+  font-size: 0.85em;
+  color: var(--swarm-fg-muted);
+}
+
+/* Status badge colors ride the --swarm-state-* contract variables; every
+ * status outside these selectors (pending, cancelled, unknown host statuses)
+ * keeps the default muted color above. */
+.swarm-task__status[data-status='ready'],
+.swarm-task__status[data-status='in_progress'],
+.swarm-task__status[data-status='submitted'],
+.swarm-task__status[data-status='verifying'] {
+  color: var(--swarm-state-running);
+}
+
+.swarm-task__status[data-status='completed'] {
+  color: var(--swarm-state-done);
+}
+
+.swarm-task__status[data-status='failed'] {
+  color: var(--swarm-state-error);
+}
+
+.swarm-task__title {
+  flex: 1 1 auto;
+  overflow-wrap: anywhere;
+}
+
+.swarm-task__meta {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  color: var(--swarm-fg-muted);
+  font-size: 0.85em;
+}
+
+/* Meta chips never shrink inside the meta row; hosts hook these classes for
+ * per-chip overrides. */
+.swarm-task__owner,
+.swarm-task__attempts,
+.swarm-task__blocked {
+  flex: none;
+}
+
+.swarm-task__blocked-rest {
+  color: var(--swarm-accent);
+}

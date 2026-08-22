@@ -1,0 +1,26 @@
+/*
+ * DSH host theme mapping example: --dsw-alias-* → --swarm-*.
+ *
+ * The DSH ui-panel plugin (S3) ships this mapping inside its browser bundle
+ * (a global stylesheet injected next to the slot registration). It maps on
+ * the PANEL ANCESTOR (here `:root`; any wrapper element works), never on
+ * `.swarm-panel` itself, so the shared stylesheet's own defaults keep their
+ * place in the cascade. Light/dark needs no extra rule: the official design
+ * platform flips `--dsw-alias-*` under `body[data-ds-dark-theme]` and this
+ * mapping just forwards the tokens.
+ *
+ * Token names verified against the official rc.8 design platform
+ * (packages/client/ui-theme/src/styles/design-platform.css).
+ */
+
+:root {
+  --swarm-bg: var(--dsw-alias-bg-layer-1);
+  --swarm-bg-raised: var(--dsw-alias-bg-overlay);
+  --swarm-fg: var(--dsw-alias-label-primary);
+  --swarm-fg-muted: var(--dsw-alias-label-secondary);
+  --swarm-border: var(--dsw-alias-border-l1);
+  --swarm-accent: var(--dsw-alias-brand-primary);
+  --swarm-state-running: var(--dsw-alias-brand-primary);
+  --swarm-state-done: var(--dsw-alias-state-success-primary);
+  --swarm-state-error: var(--dsw-alias-state-error-primary);
+}

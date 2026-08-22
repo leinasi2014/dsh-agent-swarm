@@ -1,5 +1,13 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "entry": ["scripts/*.mjs", "scripts/promotion/*.mjs", "tests/**/*.spec.ts"],
-  "project": ["src/**/*.ts", "scripts/**/*.mjs", "tests/**/*.ts"]
+  "workspaces": {
+    ".": {
+      "entry": ["scripts/*.mjs", "scripts/promotion/*.mjs", "tests/**/*.spec.ts"],
+      "project": ["src/**/*.ts", "scripts/**/*.mjs", "tests/**/*.ts"]
+    },
+    "packages/panel": {
+      "entry": ["tests/**/*.spec.{ts,tsx}"],
+      "project": ["src/**/*.{ts,tsx}", "tests/**/*.{ts,tsx}"]
+    }
+  }
 }

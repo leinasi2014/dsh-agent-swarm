@@ -2,7 +2,9 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   test: {
-    include: ['tests/**/*.spec.ts'],
+    // The panel workspace specs declare their own environment via
+    // `// @vitest-environment jsdom` docblocks (official client-plugin form).
+    include: ['tests/**/*.spec.ts', 'packages/*/tests/**/*.spec.{ts,tsx}'],
     exclude: ['ref/**', 'node_modules/**', 'lib/**'],
     testTimeout: 10_000,
     coverage: {

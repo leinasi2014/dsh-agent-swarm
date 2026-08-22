@@ -1,0 +1,5 @@
+# pnpm workspace: the plugin root plus the M9 UI shared component package
+# (docs/development/2026-08-22-m9-ui-architecture-spec.md §5). Additional UI
+# mount packages (packages/ui-panel, S3) join the same glob.
+packages:
+  - packages/*
