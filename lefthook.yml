@@ -4,6 +4,8 @@
 # Installed automatically on `pnpm install` via the postinstall script.
 pre-commit:
   jobs:
+    - name: worktree layout
+      run: node scripts/verify-worktree-layout.mjs
     - name: lint (staged)
       glob: '*.{ts,tsx,mts,cts,mjs,cjs,js}'
       run: node_modules/.bin/oxlint --no-error-on-unmatched-pattern {staged_files}

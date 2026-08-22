@@ -1,6 +1,7 @@
 node_modules/
 lib/
 coverage/
+.worktree/
 *.log
 .DS_Store
 ref/dsh-agent-teams/source/

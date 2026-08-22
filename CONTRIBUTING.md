@@ -22,20 +22,22 @@ pnpm verify:gate-a   # 官方 remote + 两个参考仓库 pin 联网核验
 
 ### 2a. 并行 worktree 隔离开发规范（2026-08-20 起，PM 多智能体委派默认模式）
 
-多任务并行时，每任务一个独立 git worktree，物理隔离杜绝树竞争：
+多任务并行时，每任务一个独立 git worktree，物理隔离杜绝树竞争。**仓库没有先落地主线门禁、或门禁不绿时，只允许主树单写入治理修复，严禁为安装门禁而先建 worktree。**
 
 **布局与生命周期**
 
 ```sh
-# 创建（主树在 main、干净状态下）
-git worktree add ..\dsh-agent-swarm-wt-<slug> -b <type>/<slug> main
+# 创建前置（主树在 main、干净状态下；不绿就停止）
+pnpm verify:worktrees
+# 只能创建在主仓内部；禁止 ../<repo>-wt-*、../<repo>-worktree-* 和任意自选目录
+git worktree add .worktree/<slug> -b <type>/<slug> main
 # 初始化（每个 worktree 独立执行；pnpm store 硬链接，秒级）
-cd ..\dsh-agent-swarm-wt-<slug> && pnpm install
+cd .worktree/<slug> && pnpm install
 pwsh -NoProfile -File ref/dsh-agent-teams/sync-reference.ps1
 pwsh -NoProfile -File ref/jiuwenswarm/sync-reference.ps1
 pnpm verify:structure   # 自检：refs/门禁就绪
 # 回收（PR 合并后）
-git worktree remove ..\dsh-agent-swarm-wt-<slug> && git branch -d <type>/<slug>
+git worktree remove .worktree/<slug> && git branch -d <type>/<slug>
 ```
 
 **分工纪律**
@@ -54,7 +56,7 @@ git worktree remove ..\dsh-agent-swarm-wt-<slug> && git branch -d <type>/<slug>
 ## 3. 提交与本地门禁
 
 - Conventional Commits：`feat|fix|docs|chore|refactor|test(scope): 摘要`，正文写“为什么”。
-- 提交前 lefthook 自动对 staged 文件跑 oxlint；**提 PR 前 `pnpm verify` 必须全绿**（结构/规模上限 → lint → 重复 → 死导出 → 双类型检查 → 测试 → 构建 → 产物）。
+- 提交前 lefthook 先跑 worktree 布局门禁，再对 staged 文件跑 oxlint；**提 PR 前 `pnpm verify` 必须全绿**（worktree 治理 → 结构/规模上限 → lint → 重复 → 死导出 → 双类型检查 → 测试 → 构建 → 产物）。
 - 新增 src 文件超过 600 行会直接失败；例外必须在 `scripts/verify-project.mjs` 登记原因与归还里程碑。
 
 ## 4. PR 流程

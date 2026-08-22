@@ -178,6 +178,7 @@ Mirrors the official DSH engineering family so code quality is machine-enforced 
 
 | Gate | Tool | Command | Enforcement |
 |---|---|---|---|
+| Worktree governance | `scripts/verify-worktree-layout.mjs` | `pnpm verify:worktrees` | must pass before creating a worktree; only direct children of `<repo>/.worktree/`, own branch, same Git common directory, no sibling legacy layouts; first lane in `pnpm verify` and pre-commit |
 | Lint (correctness=error, suspicious=warn) | oxlint | `pnpm lint` | inside `pnpm verify`; staged files on pre-commit (lefthook) |
 | Copy-paste duplication (60 tokens / 6 lines) | jscpd | `pnpm verify:duplication` | inside `pnpm verify`; 0 clones |
 | Dead exports / dead dependencies | knip | `pnpm verify:exports` | inside `pnpm verify`; 0 findings |
@@ -187,4 +188,4 @@ Mirrors the official DSH engineering family so code quality is machine-enforced 
 | Full matrix on push/PR | GitHub Actions | `.github/workflows/verify.yml` | windows-latest: pinned reference syncs, official evidence checkout (`DSH_OFFICIAL_CHECKOUT`), `pnpm verify`, live Gate A verification, coverage |
 | Coverage visibility | `@vitest/coverage-v8` scoped to `src/**` | `pnpm test:coverage` | report-only at introduction (86.5% statements / 74.8% branches); thresholds may follow M1D |
 
-The verify chain is `verify:structure -> lint -> duplication -> exports -> typecheck -> typecheck:test -> test -> build -> artifact`. `verify-project.mjs` additionally asserts that the lint/duplication/export lanes stay wired into `pnpm verify`, that `packageManager` pins pnpm, and that every tooling file exists, so the gates cannot be silently deleted.
+The verify chain is `verify:worktrees -> verify:structure -> lint -> duplication -> exports -> typecheck -> typecheck:test -> test -> scenarios -> build -> artifact`. `verify-project.mjs` additionally asserts that the worktree/lint/duplication/export lanes stay wired into `pnpm verify`, that `packageManager` pins pnpm, and that every tooling file exists, so the gates cannot be silently deleted. A repository that has not yet landed the worktree gate is single-writer only: install and verify it in the existing main checkout before creating the first task worktree.

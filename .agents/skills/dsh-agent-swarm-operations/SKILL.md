@@ -2,8 +2,8 @@
 name: dsh-agent-swarm-operations
 description: dsh-agent-swarm 项目的开发流程、项目管理操作（GitHub issue/PR/里程碑/CI）、开发规范门禁与运维手册。在本仓库做任何任务接手、流程执行、PR/issue/里程碑操作、验证收尾或定时复盘时必须使用本 Skill；开发 DSH 插件本身另见 dsh-plugin-development。
 metadata:
-  version: "1.2.0"
-  date: "2026-08-21"
+  version: "1.3.0"
+  date: "2026-08-23"
   update_cadence: "每日 09:00 自动复盘更新（见第七节）"
 ---
 
@@ -16,7 +16,7 @@ metadata:
 - **里程碑**：M1 全量收束（M1A-M1D，2026-08-21 放行：独立回归审查 PASS、tag `m1d`、D1 单写入者 dogfood 开放）；**当前 M2**（官方 WorkflowEngine/JobRegistry 桥）——#75 桥/#76 jobs 投影/#77 模式+双 owner 已关闭，#78 节点映射/#79 预算跨 run 在途 → M3 → … → M9（client 压轴）。
 - **仓库**：`github.com/leinasi2014/dsh-agent-swarm`（私有，`main` 唯一集成分支、线性历史）；`codex/glm-review-fixes` 为 M0/M1A 历史快照分支，不再开发。姊妹仓 dsh-canvas 双线并行（C-M1 已完成 tag `cm1`，C-M2 进行中）。
 - **证据基线**：官方 DSH `141eb6f`（rc.8，未漂移）；`dsh-agent-teams` `fe854d1`；`jiuwenswarm` `962f0a4`（Gate C 第五次 re-pin，双源同轮：装饰层 + 模式 canonical 化，零证据锚点变更）。开工前 `pnpm verify:gate-a`（热上游按累计 diff 审计，见教训 16）。
-- **门禁**：`pnpm verify` = 结构(600 行上限，零例外) → lint → 重复 → 死导出 → 类型×2 → 测试 → **场景审计** → 构建 → 产物；lefthook pre-commit；CI 全矩阵（gate 与 coverage 步均带 `.dsh-mkdir` 签名重试）；**合并一律 `node scripts/merge-guard.mjs <pr>`**。
+- **门禁**：`pnpm verify` = worktree 布局 → 结构(600 行上限，零例外) → lint → 重复 → 死导出 → 类型×2 → 测试 → **场景审计** → 构建 → 产物；lefthook pre-commit；CI 全矩阵（gate 与 coverage 步均带 `.dsh-mkdir` 签名重试）；**合并一律 `node scripts/merge-guard.mjs <pr>`**。
 - **场景审计**：18/32 machine-proven（新增 31 双 owner 对抗/32 模式）；测试 110；`src/tools.ts` 已拆分（46 行薄壳 + 6 域模块）。
 - **开发模式**：PM 统筹 + 智能体并行 worktree（CONTRIBUTING §2a）+ 串行守卫合并；PM 迭代方法论见第八节。
 - **已知 flake**：官方包 `.dsh-mkdir-*` ENOENT（Win32 mkdir/rename 竞态，重跑即绿；高频则升级上游立案，见 M1C exit 报告 §3）。
@@ -27,7 +27,7 @@ metadata:
 ```text
 1. 接 issue（milestone=M1x, labels=type/area/finding）
 2. Gate A 前置（里程碑首任务或官方可能漂移时）：pnpm verify:gate-a
-3. git switch -c <type>/<slug> main
+3. `pnpm verify:worktrees` 通过后，才可 `git worktree add .worktree/<slug> -b <type>/<slug> main`
 4. 实现 + 测试（新测试带 scenario N: 标签，若对应 docs/08 §3 场景）
 5. 本地 pnpm verify 全绿（管道会吞退出码，见教训 #1）
 6. gh pr create --body-file <file>（模板自动加载；body 含 ${{ }} 必须走文件，见教训 #4）
@@ -37,7 +37,7 @@ metadata:
 10. 文档同步在同 PR（README/docs/09/docs/10/roadmap/Skill，仅官方事实或所有权变化时）
 ```
 
-红线：不直接推 `main`；不 force push `main`；不用 merge commit（保持线性）；不绕过任何门禁（verify-project 会拒绝摘除泳道）；不动 `ref/`、官方证据 checkout、`docs/reviews/`（不可变审查证据）。
+红线：门禁未进主线或 `pnpm verify:worktrees` 不绿时严禁创建 worktree；任务树只能是 `<repo>/.worktree/<slug>` 的直接子目录；不直接推 `main`；不 force push `main`；不用 merge commit（保持线性）；不绕过任何门禁（verify-project 会拒绝摘除泳道）；不动 `ref/`、官方证据 checkout、`docs/reviews/`（不可变审查证据）。
 
 ## 三、项目管理操作速查（gh CLI）
 
@@ -58,6 +58,7 @@ gh run list --limit 5 && gh run view <id> --log-failed | tail -30
 
 | 门禁 | 命令 | 红线值 |
 |---|---|---|
+| Worktree 治理 | `pnpm verify:worktrees` | 创建前必绿；仅 `<repo>/.worktree/<slug>`；同一 common dir；开发树必须有独立分支；禁止仓库同级 legacy 目录 |
 | 结构/规模 | `pnpm verify:structure` | src `.ts` ≤600 行（例外登记于 verify-project.mjs，当前仅 team-domain.ts due M1B） |
 | Lint | `pnpm lint` | oxlint correctness=error/suspicious=warn，0/0 |
 | 重复 | `pnpm verify:duplication` | jscpd 0 克隆（60 token/6 行） |
@@ -93,7 +94,7 @@ gh run list --limit 5 && gh run view <id> --log-failed | tail -30
 16. **热上游不追提交**：jiuwenswarm 当日移动 4+ 次，逐提交 chase 一败再败。规则：Gate C 对热上游按**累计 diff 一次性审**（旧 pin → 最新 HEAD），审毕 pin 最新已审头（docs/09 有先例叙事）。
 17. **绿灯 ≠ 正确（race/timeout 类）**：#13 的 boundedSettle 超时构造 bug（resolve/reject 命名颠倒）是绿灯通过的。规则：PM 审查 race/timeout 类 diff 必须**专看败者路径**——losing promise 的 rejection 是否被观察、超时分支是否真的 reject。
 18. **gh TLS 超时的幂等处置**：合并类命令失败后**先查实际状态再重试**（PR #29 合并已成功但删分支失败，盲目重试会双合并）。
-19. **worktree 并行开发模式（2026-08-20 启用）**：主树 = PM 专属（停 main，做审查/治理/合并），每个实现任务一个 `git worktree`（独立目录/分支/依赖/refs）。速度 2-3 倍且零树竞争。规范全文见 CONTRIBUTING §2a；上限 2-3 路，合并保持串行。
+19. **worktree 并行开发模式（2026-08-20 启用，2026-08-23 门禁化）**：主树 = PM 专属（停 main，做审查/治理/合并），每个实现任务一个 `<repo>/.worktree/<slug>`（独立目录/分支/依赖/refs）。创建前必须通过 `pnpm verify:worktrees`；门禁未进入主线时仓库降级为单写入者，先在现有主树安装门禁，不能先建树再补规范。合并保持串行。
 20. **官方包 `.dsh-mkdir-*` ENOENT flake**：dsh-session-persistence-jsonl 在慢 Windows runner 上的 mkdir/rename 临时目录竞态，非我方 diff。规则：命中该签名直接重跑失败 job。CI 级签名重试已上线（PR#44 建、PR#57 修捕获缺陷——见教训 25）；持续高频仍需上游 issue。
 21. **`gh pr merge` 非原子**：合并成功后的分支删除遇 TLS 超时会以非零退出（两次把 merge-guard 的收尾打成 stack trace）。规则：合并类命令失败后先查 PR 权威状态再定成败（守卫已内置该容错）。
 22. **并行 PR 的同文件冲突取"语义并集"**：#33/#35 同改 stranded 断言块——解冲突时按"匹配当前 API 面的一侧 + 保留对方的时序修复"取并集，逐 hunk 判断，不整文件取一侧。

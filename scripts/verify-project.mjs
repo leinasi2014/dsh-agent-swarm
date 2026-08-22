@@ -37,6 +37,7 @@ const required = [
   'scripts/verify-official-baseline.mjs',
   'scripts/verify-reference-baselines.mjs',
   'scripts/merge-guard.mjs',
+  'scripts/verify-worktree-layout.mjs',
   'scripts/sync-official-evidence.ps1',
   'ref/dsh-agent-teams/SOURCE_POINTER.json',
   'ref/dsh-agent-teams/sync-reference.ps1',
@@ -97,6 +98,8 @@ try {
   if (!String(pkg.scripts?.verify ?? '').includes('pnpm verify:duplication')) failures.push('package.json: verify chain must include the duplication gate')
   if (!String(pkg.scripts?.verify ?? '').includes('pnpm verify:exports')) failures.push('package.json: verify chain must include the dead-export gate')
   if (!String(pkg.scripts?.verify ?? '').includes('pnpm verify:scenarios')) failures.push('package.json: verify chain must include the scenario-audit gate')
+  if (!String(pkg.scripts?.verify ?? '').includes('pnpm verify:worktrees')) failures.push('package.json: verify chain must include the worktree-layout gate')
+  if (!String(pkg.scripts?.['verify:worktrees'] ?? '').includes('test-worktree-layout-gate.mjs')) failures.push('package.json: worktree gate must keep its negative policy tests')
   if (pkg.files?.some(item => item === 'ref' || item.startsWith('ref/'))) failures.push('package.json: ref must not be published')
 } catch (error) {
   failures.push(`package.json: ${String(error)}`)
@@ -154,7 +157,7 @@ async function walk(dir) {
     const path = join(dir, name)
     const info = await stat(path)
     if (info.isDirectory()) {
-      if (name === 'node_modules' || name === 'lib' || name === 'source' || name === 'official-evidence') continue
+      if (name === '.worktree' || name === 'node_modules' || name === 'lib' || name === 'source' || name === 'official-evidence') continue
       await walk(path)
       continue
     }

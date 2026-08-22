@@ -15,21 +15,22 @@ No implementation phase may start until the Gate A record in `docs/11-official-f
 
 Repository work rules:
 
-1. Read `.agents/skills/dsh-plugin-development/SKILL.md` and only the referenced companion files needed for the task.
-2. Read `docs/00-vision.md`, `docs/03-capability-family.md`, and the relevant ADRs.
-3. Treat `ref/` as read-only evidence; refresh it only through the supplied sync scripts and update source pins together.
-4. Verify APIs against the target installed `@deepseek-ai/*` packages and the official DSH checkout. Secondary docs are not proof of a published API.
-5. Add behavior through plugins, services, providers, consumers, tools, events, storage forms, or Bundle composition. Do not patch Agent Loop for Team-specific behavior.
-6. Every registration must have lifecycle ownership and a disposer. Publish state only after its authoritative commit.
-7. Anything model-visible must be reconstructable from the Session log.
-8. Do not register a conflicting `ctx.agentTeams`; the official experimental seam is the compatibility target.
-9. Keep scheduler, workflow bridge, workspace, budget, review, memory, remote member, and UI concerns in replaceable plugins. Official stable services remain canonical; this project contributes Providers, Consumers, policy overlays and Bundle composition.
-10. Run `node scripts/verify-project.mjs` and the checks appropriate to the changed surface. Report commands actually run.
-11. Treat `ref/dsh-agent-teams` and `ref/jiuwenswarm` as behavior/failure-case sources only. Never import their runtime architecture when DSH already owns the capability.
-12. Update README, affected design docs, ADRs, source register, fusion audit, roadmap and Skill in the same change whenever official facts or integration ownership changes.
-13. Self-hosting follows `docs/adr/0008-self-hosting-dogfood-control-plane.md`: M1D permits only isolated single-writer dogfood; parallel coding requires M2/M3, real per-attempt execution roots, independent executable review and a separate candidate acceptance Profile.
-14. Never overwrite or mutable-link the running stable Profile to candidate output. Stable control, candidate Worktrees/artifacts, acceptance Profile/state/RPC and external promotion/rollback are separate authorities.
-15. Model usage is not bounded to save cost or force convergence unless the user requests it. Concurrency, command timeout, retry-loop detection, retention, cancellation and rollback remain mandatory fault containment.
+1. Before creating any task worktree, run `pnpm verify:worktrees` from the main checkout. The command must pass, `/.worktree/` must be ignored, and every registered task worktree must be a direct child of `<repo>/.worktree/` on its own branch. A repository without this versioned gate is single-writer only; bootstrap the gate in the existing main checkout and do not create a worktree to install the worktree gate.
+2. Read `.agents/skills/dsh-plugin-development/SKILL.md` and only the referenced companion files needed for the task.
+3. Read `docs/00-vision.md`, `docs/03-capability-family.md`, and the relevant ADRs.
+4. Treat `ref/` as read-only evidence; refresh it only through the supplied sync scripts and update source pins together.
+5. Verify APIs against the target installed `@deepseek-ai/*` packages and the official DSH checkout. Secondary docs are not proof of a published API.
+6. Add behavior through plugins, services, providers, consumers, tools, events, storage forms, or Bundle composition. Do not patch Agent Loop for Team-specific behavior.
+7. Every registration must have lifecycle ownership and a disposer. Publish state only after its authoritative commit.
+8. Anything model-visible must be reconstructable from the Session log.
+9. Do not register a conflicting `ctx.agentTeams`; the official experimental seam is the compatibility target.
+10. Keep scheduler, workflow bridge, workspace, budget, review, memory, remote member, and UI concerns in replaceable plugins. Official stable services remain canonical; this project contributes Providers, Consumers, policy overlays and Bundle composition.
+11. Run `node scripts/verify-project.mjs` and the checks appropriate to the changed surface. Report commands actually run.
+12. Treat `ref/dsh-agent-teams` and `ref/jiuwenswarm` as behavior/failure-case sources only. Never import their runtime architecture when DSH already owns the capability.
+13. Update README, affected design docs, ADRs, source register, fusion audit, roadmap and Skill in the same change whenever official facts or integration ownership changes.
+14. Self-hosting follows `docs/adr/0008-self-hosting-dogfood-control-plane.md`: M1D permits only isolated single-writer dogfood; parallel coding requires M2/M3, real per-attempt execution roots, independent executable review and a separate candidate acceptance Profile.
+15. Never overwrite or mutable-link the running stable Profile to candidate output. Stable control, candidate Worktrees/artifacts, acceptance Profile/state/RPC and external promotion/rollback are separate authorities.
+16. Model usage is not bounded to save cost or force convergence unless the user requests it. Concurrency, command timeout, retry-loop detection, retention, cancellation and rollback remain mandatory fault containment.
 
 Independent review governance:
 
