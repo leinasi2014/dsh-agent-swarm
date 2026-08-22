@@ -1,0 +1,25 @@
+{
+  "name": "@dsh-agent-swarm/panel",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Host-agnostic read-only Swarm panel components: pure React 18 function components over the SwarmPanelSnapshot contract with a single --swarm-* themed stylesheet",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.ts",
+    "./panel.css": "./src/panel.css",
+    "./package.json": "./package.json"
+  },
+  "peerDependencies": {
+    "react": "^18.2.0 || ^19.0.0"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/react": "^16.3.0",
+    "@types/react": "~18.3.1",
+    "@types/react-dom": "~18.3.1",
+    "jsdom": "^26.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  }
+}

@@ -57,6 +57,23 @@ const required = [
   'src/runtime/usage-accounting.ts',
   'src/runtime/message-delivery.ts',
   'src/runtime/member-provisioning.ts',
+  // M9 UI shared component package (S0 contract freeze + S1 MVP,
+  // docs/development/2026-08-22-m9-ui-architecture-spec.md §5/§9): the
+  // frozen contract faces are structural requirements, not conveniences.
+  'pnpm-workspace.yaml',
+  'packages/panel/package.json',
+  'packages/panel/tsconfig.json',
+  'packages/panel/src/types.ts',
+  'packages/panel/src/strings.ts',
+  'packages/panel/src/panel.css',
+  'packages/panel/src/index.ts',
+  'packages/panel/src/components/StatusCounters.tsx',
+  'packages/panel/src/components/BudgetMeter.tsx',
+  'packages/panel/src/components/TeamSummaryCard.tsx',
+  'packages/panel/src/components/TaskBoard.tsx',
+  'packages/panel/src/components/SwarmPanel.tsx',
+  'packages/panel/examples/dsh-theme.css',
+  'packages/panel/examples/canvas-theme.md',
 ]
 
 // Engineering guardrail: one source file may not exceed this line count

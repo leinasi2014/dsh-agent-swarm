@@ -3,7 +3,7 @@
   "minLines": 6,
   "mode": "mild",
   "format": ["typescript"],
-  "pattern": "**/*.ts",
+  "pattern": "**/*.{ts,tsx}",
   "ignore": ["**/tests/**", "**/*.config.ts"],
   "ignorePattern": [
     "(?s)/\\* jscpd:ignore-start \\*/.*?/\\* jscpd:ignore-end \\*/"
