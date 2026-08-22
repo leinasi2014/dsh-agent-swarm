@@ -53,6 +53,8 @@ if (!existsSync(ignorePath)) {
 if (mainRoot !== undefined && worktreeRoot !== undefined) {
   const seen = new Set()
   const mainCommon = comparable(realpathSync(resolve(mainRoot, git(['rev-parse', '--git-common-dir'], mainRoot))))
+  const mainHead = git(['rev-parse', 'HEAD'], mainRoot)
+  const mainTree = git(['rev-parse', `${mainHead}^{tree}`], mainRoot)
   const realMain = realpathSync(mainRoot)
   const realContainer = existsSync(worktreeRoot) ? realpathSync(worktreeRoot) : worktreeRoot
 
@@ -76,6 +78,13 @@ if (mainRoot !== undefined && worktreeRoot !== undefined) {
     const realPath = realpathSync(path)
     if (!insideDirectChild(realContainer, realPath)) failures.push(`worktree resolves outside ${realContainer}: ${path}`)
     if (gitOptional(['symbolic-ref', '--short', '-q', 'HEAD'], path) === '') failures.push(`development worktree must own a branch: ${path}`)
+    const taskHead = git(['rev-parse', 'HEAD'], path)
+    const taskTree = git(['rev-parse', `${taskHead}^{tree}`], path)
+    const cherry = taskHead === mainHead ? '' : gitOptional(['cherry', mainHead, taskHead], mainRoot)
+    const patchEquivalent = cherry !== '' && cherry.split(/\r?\n/u).every(line => line.startsWith('- '))
+    if (taskHead !== mainHead && (taskTree === mainTree || patchEquivalent)) {
+      failures.push(`completed worktree is still registered; archive its identity and remove the worktree: ${path}`)
+    }
   }
 
   const siblingPrefixes = [`${basename(realMain)}-wt-`, `${basename(realMain)}-worktree-`]

@@ -40,6 +40,8 @@ pnpm verify:structure   # 自检：refs/门禁就绪
 git worktree remove .worktree/<slug> && git branch -d <type>/<slug>
 ```
 
+智能体会话结束不等于任务完成。候选只能进入 `INTEGRATED`（主线验证通过）或 `ARCHIVED`（记录分支与精确 SHA、工作目录可重建）后回收；两种状态都必须在同一收尾动作中注销 worktree。`INTEGRATED` 还要删除已合并分支。门禁会拒绝仍注册但已与主树补丁等价的完成树，禁止把集成积压伪装成“完成会话”。
+
 **分工纪律**
 
 | 角色 | 领地 | 职责 |

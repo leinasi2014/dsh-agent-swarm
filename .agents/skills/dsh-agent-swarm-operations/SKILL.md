@@ -94,7 +94,7 @@ gh run list --limit 5 && gh run view <id> --log-failed | tail -30
 16. **热上游不追提交**：jiuwenswarm 当日移动 4+ 次，逐提交 chase 一败再败。规则：Gate C 对热上游按**累计 diff 一次性审**（旧 pin → 最新 HEAD），审毕 pin 最新已审头（docs/09 有先例叙事）。
 17. **绿灯 ≠ 正确（race/timeout 类）**：#13 的 boundedSettle 超时构造 bug（resolve/reject 命名颠倒）是绿灯通过的。规则：PM 审查 race/timeout 类 diff 必须**专看败者路径**——losing promise 的 rejection 是否被观察、超时分支是否真的 reject。
 18. **gh TLS 超时的幂等处置**：合并类命令失败后**先查实际状态再重试**（PR #29 合并已成功但删分支失败，盲目重试会双合并）。
-19. **worktree 并行开发模式（2026-08-20 启用，2026-08-23 门禁化）**：主树 = PM 专属（停 main，做审查/治理/合并），每个实现任务一个 `<repo>/.worktree/<slug>`（独立目录/分支/依赖/refs）。创建前必须通过 `pnpm verify:worktrees`；门禁未进入主线时仓库降级为单写入者，先在现有主树安装门禁，不能先建树再补规范。合并保持串行。
+19. **worktree 并行开发模式（2026-08-20 启用，2026-08-23 门禁化）**：主树 = PM 专属（停 main，做审查/治理/合并），每个实现任务一个 `<repo>/.worktree/<slug>`（独立目录/分支/依赖/refs）。创建前必须通过 `pnpm verify:worktrees`；门禁未进入主线时仓库降级为单写入者，先在现有主树安装门禁，不能先建树再补规范。会话结束不是完成；候选 `INTEGRATED` 或记录精确 SHA 后 `ARCHIVED` 时必须同动作注销工作树，已集成分支一并删除。门禁拒绝补丁已进入主树却仍注册的完成树。合并保持串行。
 20. **官方包 `.dsh-mkdir-*` ENOENT flake**：dsh-session-persistence-jsonl 在慢 Windows runner 上的 mkdir/rename 临时目录竞态，非我方 diff。规则：命中该签名直接重跑失败 job。CI 级签名重试已上线（PR#44 建、PR#57 修捕获缺陷——见教训 25）；持续高频仍需上游 issue。
 21. **`gh pr merge` 非原子**：合并成功后的分支删除遇 TLS 超时会以非零退出（两次把 merge-guard 的收尾打成 stack trace）。规则：合并类命令失败后先查 PR 权威状态再定成败（守卫已内置该容错）。
 22. **并行 PR 的同文件冲突取"语义并集"**：#33/#35 同改 stranded 断言块——解冲突时按"匹配当前 API 面的一侧 + 保留对方的时序修复"取并集，逐 hunk 判断，不整文件取一侧。
