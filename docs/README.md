@@ -28,7 +28,7 @@
 15. [10-fusion-audit.md](10-fusion-audit.md) — 参考融合的累计历史证据、现行 pin 与冲突审计；前向顺序以 GOALS/roadmap 为准
 
 ### 记录与决策层（已接受证据保持不可变）
-- [adr/](adr/) — 架构决策（ADR-0001..0009）；每份 ADR 自身的 Status 决定其为 proposed 或 accepted
+- [adr/](adr/) — 架构决策（ADR-0001..0009）；每份 ADR 自身的 Status 决定其为 proposed 或 accepted。Proposed ADR 是受审参考，不得单独成为生产实现或无关里程碑的强制门。
 - [development/](development/) — 有界实现设计与阶段完成报告；已接受的报告保持不可变，未接受且与现行架构冲突的前瞻方案可在有 Git 恢复身份、无现行引用的受审候选中 supersede 或删除
 - [reviews/](reviews/) — 独立审查报告（不可变）与 PM intake（分开成文）
 

@@ -7,7 +7,7 @@
 每个生产里程碑在编码前执行 `docs/11-official-first-development.md` 的 Official-first compatibility gate：
 
 - 验证目标官方 DSH release、安装包 exports/types/tests 和真实 Profile 组合；
-- 把官方 checkout 当作只读身份与装配宿主；即使插件物理嵌套于其目录内，两者仍是独立 Git、workspace、候选和发布权威；
+- 把官方 checkout 当作只读身份与装配宿主；插件保持独立 Git、workspace、候选和发布权威；
 - 复核两个 pinned reference checkout 的受影响行为与故障用例；
 - 把能力分类为 official stable、experimental/private、absent 或 project-owned overlay；
 - 明确 Service Definition、Provider、Consumer、唯一状态 owner、生命周期和失败语义；
@@ -15,215 +15,212 @@
 
 Gate A 只证明兼容性基线，不证明功能已实现。参考源更新必须审查旧 pin→新 pin 的实际差异；不得为过门而弱化校验。
 
-## 产品依赖图
+## Product dependency graph
 
 ```text
 G0 product/compatibility baseline
-  -> I1 headless captain liaison + durable effect correlation
-    -> I2 executable HumanInteraction Host producer
-      -> I3 canonical /swarm RPC + fixtures + real Profile proof
-        -> I4 DSH-native UI
-        -> I5 Canvas BFF/native UI consumer
+  -> P0 immutable package + real isolated official Profile proof
+    -> F1 frozen read contract floor (no further speculative expansion)
+      -> R1 / I2-R read-only Host projection
+        -> R2 / I3-R canonical read-only /swarm RPC
+          -> R3 / I4-R DSH Team read UI + open official Captain Chat
+          -> R4 / I5-R Canvas read consumer + open the same Captain Chat
 
-G0 -> F1 pre-I2/I3 producer contract floor
-I1 + F1 -> I2
+Existing I1a headless liaison
+  -> W1 operation-scoped durable effect acceptance
+    -> W2 I2-W/I3-W direct Host/RPC capabilities
+      -> I4-W/I5-W controls enabled only capability by capability
 
-I3/I5 do not unlock M6/M8 distributed claims by themselves.
-M6 Workspace/remote -> M8 distributed atomic Team
-I1/I3 accepted evidence -> M7 memory/Skill Evolution proposals
-I4/I5 + M6/M7/M8 evidence -> M9 migration/package/release
+R1-R4 do not require W1. One blocked effect never blocks unrelated reads.
+R2/R4 do not unlock M6/M8 distributed claims.
 ```
 
-共享合同、状态 schema、权限规则、RPC schema 和跨仓兼容属于串行 producer 面。Consumer 可针对冻结 fixtures 开发，但真实接线和默认启用必须等待所需 producer 证据。
+共享 schema、capability 名称、权限规则、RPC envelope 和跨仓 fixtures 属于串行 producer 面。Consumer 可以针对冻结 fixtures 开发；真实接线和默认启用必须等待对应 producer 证据。UI 的“打开 Captain Chat”进入官方 DSH Session，不是 `/swarm` 的隐式写操作。
 
 ## G0 — product and compatibility baseline
 
 ### Outcome
 
-冻结一个产品方向：用户安装的官方 DSH 是唯一 Agent Runtime/Profile/Session/preset 权威；Swarm 是纯插件和 Team/HumanInteraction 唯一 producer；DSH UI 与 Canvas 是宿主原生消费者。
+冻结产品方向：用户安装的官方 DSH 是唯一 Agent Runtime/Profile/Session/preset 权威；Swarm 是纯插件和 Team/HumanInteraction producer；DSH UI 与 Canvas 是宿主原生消费者。
 
-允许开发 checkout 在文件系统中嵌套于官方 DSH，但 G0 必须把它放在官方 workspace glob 之外（当前迁移目标为 `packages/.external/dsh-agent-swarm`），并由插件根 workspace boundary 解析自己的 pnpm/Vitest 工具链；不修改官方 manifest/lock/config，也不从物理路径推导兼容性。Gate A 必须通过 enclosing Git root、官方根 package identity、release 与 commit 发现只读宿主；真实验收由独立插件 artifact 经官方 Profile/Bundle Loader 装配完成。
-
-### Non-goals
-
-- 不迁移 H1–H4 生产代码；
-- 不实现 RPC/UI；
-- 不公开发布或执行远程变更；
-- 不重新开放并行仓库 worktree。
+开发 checkout 可以物理嵌套于官方 DSH，但必须位于官方 workspace glob 之外，并由插件根 workspace boundary 解析自己的工具链。不修改官方 manifest/lock/config，也不从物理路径推导兼容性。真实验收由独立插件 artifact 经官方 Profile/Bundle Loader 装配完成。
 
 ### Exit evidence
 
 - `docs/GOALS.md`、vision、capability architecture、roadmap 与 fusion/source 记录一致；
-- Gate A 对审查过的官方/reference identity 通过；
-- 新旧物理布局下 Gate A 都能发现并验证官方只读宿主，错误 override、非官方 root、错误 release/commit 和不可验证状态均 fail closed；
-- `pnpm verify:workspace` 证明 workspace root 与 Vitest 3.x 都解析自插件自身，父宿主工具链不可作为回退；
-- 独立插件 artifact 的真实 Profile/Bundle 装配能够证明加载、卸载和无官方工作区修改；
-- 旧 dual-host/Canvas-owned-Team 文档已删除或显式 supersede，且保留 Git 恢复身份；
-- 项目治理和文档链接通过，stable documents 没有动态任务状态。
+- Gate A 对审查过的 official/reference identity 通过；
+- plugin workspace 不借用父宿主工具链；
+- 旧 dual-host/Canvas-owned-Team 方向已删除或明确 supersede；
+- stable documents 不保存动态任务状态。
 
 Risk: S3/HIGH，原因是跨仓权威与兼容方向；需要精确候选的非作者审查。
 
-## I1 — Captain Liaison and durable effect correlation
+## P0 — immutable package and real Profile proof
 
 ### Outcome
 
-无 UI 时，root captain 是唯一 Human Liaison。成员通过持久 Team mail 路由问题和结果；用户 Message 与 typed review/control 经 additive HumanInteraction port 进入，所有 Team mutation 仍由 `TeamDomainPort` 提交。只有 effect 与 receipt 在同一权威事务提交，或 effect owner 提供持久幂等 identity/read-back 时，进程在 effect commit 与 receipt acknowledgement 之间丢失后才可 exactly-once reconcile；其他效果必须保持 visible unresolved/blocked。
+把“源码和测试存在”变成“用户拥有的官方 DSH 能装载这个独立插件候选”。从一个冻结 Git candidate 构建一次本地 tarball，记录 artifact digest，并只在 fresh isolated `DSH_HOME` 的官方 `web` Profile 中安装和验证。预发布阶段不宣称公共 npm/Git 安装入口。
 
 ### Required behavior
 
-- free text 是 advisory data，必须 injection-fenced，不能授权；
-- controls 按需携带 request identity、Team/task revision 与 attempt/member fence；
-- duplicate、stale、late、expired、cancelled、spoofed 请求确定性失败；
-- 对同事务 ledger 或官方持久 read-back 覆盖的效果，restart reconciliation 能区分 not-applied、applied、acknowledged，不重复 domain effect；legacy 或缺 read-back 的效果保持 unresolved；
-- 缺 question provider 时返回 visible held/unavailable，而不是编造答案；
-- 查询状态不能重启 idle/open work，继续与转派必须是显式 owner action。
-
-### Delivery order and architecture gate
-
-I1 is delivered as bounded dependent slices rather than one broad effect claim:
-
-1. **I1a — headless liaison and fail-closed quarantine:** typed request/admission/receipt contracts, caller and reviewer boundaries, Team-only mutation path, process-local replay refusal and secret-free `OUTCOME_UNKNOWN`.
-2. **I1b-1A — Team-v2 authority and first correlated effect:** after independent acceptance of [ADR-0009](adr/0009-i1b-v2-effect-ledger-authority.md), explicitly migrate the v1 Team authority into the single `agent_swarm_v2` aggregate, add an atomic bounded effect ledger, and prove `queueMessageOnce` plus member-question relay across real crash/reopen windows.
-3. **I1b-1B — mail controls:** reuse the accepted ledger for wake/correct mail. Answer mail waits for authoritative question-result read-back rather than inferring presentation state.
-4. **I1b-1C — task controls:** correlate the canonical Team reassignment and deterministic/provider-correlated review transition. Live interrupt and provider-side effects remain outside the claim until their official seams expose durable operation identity and query.
-
-The v2 migration is quiesced, validated and one-way: a host-owned lifecycle controller drains every runtime writer, reopens v1 only through a process-internal non-writing adapter, and v2 becomes the only runtime writer after cutover. Migration remains implementation-blocked until a plugin-external pre-plugin compatibility registry or verified retired-medium fence can stop an old artifact before v1 open/write; neither dual-write nor old-binary fallback is rollback. `ctx.userQuestions.ask`, `ctx.subagents.interrupt` and unconstrained Review Providers are explicit upstream blockers under the contracts in ADR-0009; their unknown outcomes remain held, not replayed.
-
-### Non-goals
-
-不加入 browser context、Host service、RPC、Canvas adapter、公开发布或 distributed claim。
+- package manifest、Bundle patch、packed files、peer resolution 和独立 workspace 均来自插件候选；
+- Profile 显式组合 Storage hub、KV backend、Storage Domain、Session persistence 和 Swarm；storage/session root 位于 Team workspace 与 sandbox root 之外；
+- `plugin add`、`--dump-config`、boot、service/tool presence、unload、reload 和 fail-closed missing-storage 证据绑定同一 artifact digest；
+- 官方 checkout 在验证前后 source-clean；用户默认 `~/.dsh` 不被测试触碰；
+- link 只允许开发诊断；接受和后续 Consumer 绑定 packed immutable artifact。
 
 ### Exit evidence
 
-Contract/domain/unit tests、真实 official interaction composition、quiesced v1→v2 migration/read-back/compatibility evidence、crash-window/replay/restart tests、model-visible data-boundary snapshots、完整受影响检查，以及 exact candidate 的独立安全/持久性审查。外部 seam blocker 必须以可复现的不可判定窗口保留为 fail-loud evidence，不能算作 exactly-once PASS。
+Artifact manifest/digest、隔离 Profile config、完整命令回执、真实 boot/service probe、reload/dispose、缺依赖负向组合、官方与插件 Git status read-back，以及精确候选的非作者审查。
 
-Risk: review、permission 与 durable control transition 为 S3/HIGH；纯 advisory Message path 为 S2/MEDIUM。
+Risk: S2/MEDIUM；若进入用户默认 Profile、发布或远端分发则升级 S3。
 
-## F1 — pre-I2/I3 producer contract floor
-
-### Outcome
-
-在不越过 I1b blocker 的前提下冻结 future Host/RPC 共用的最小 producer vocabulary：versioned strict schemas、canonical fixtures/digest、Cordis lifecycle service，以及 exact-root-authorized 的 bounded Team snapshot/receipt projection。`message.write`、`control.write` 和 `effect.cancel` 必须显式 `unavailable`，且在 payload inspection 或任何 I1a effect 前失败。
-
-### Boundaries
-
-- F1 可在 G0 后独立交付，但不会解锁 I2/I3；I2 仍要求已接受 I1 effect authority，I3 仍要求已接受 executable I2 Host；
-- 不 mint browser context/principal，不挂 network RPC，不调用 HumanInteraction effect gateway，不写 Team/overlay；
-- receipt projection 脱敏，不暴露 scope、Session/principal、body、diagnostic 或内部 result/message identity；
-- service unprovide/close/drain 必须在 authority domain teardown 前完成。
-
-### Exit evidence
-
-固定 digest 的 schema/fixture tests、exact-root/strict-input/bounded-redaction tests、三个 unavailable effect 的 zero-side-effect tests、Cordis provide/unprovide 与 admitted-read drain tests、完整受影响检查，以及精确候选的一个非作者审查。
-
-Risk: shared contract 为 S2/MEDIUM；由于写能力硬关闭，不继承 I1b 的 effect mutation 风险。
-
-## I2 — executable HumanInteraction Host producer
+## F1 — frozen pre-transport read contract floor
 
 ### Outcome
 
-提供一个内部 Host service：解析 exact live root captain 与 authoritative Team，签发有界 opaque context，把 browser-safe Message/five Control 翻译为 I1 操作，并从 durable overlay 投影有界脱敏 snapshot、receipt 与 timeline。
+保留现有 versioned strict schemas、canonical fixtures/digest、Cordis lifecycle service，以及 exact-root-authorized 的 bounded Team snapshot/receipt projection。`message.write`、`control.write` 和 `effect.cancel` 继续在 payload inspection 或任何 I1a effect 前返回 unavailable。
+
+### Boundary
+
+F1 已足以作为 read lane 的 vocabulary seed，但不是 Host/RPC 或用户价值。不得继续为假想 Consumer 增加 schema、context、principal、cursor、event stream 或 transport 层。下一次 contract 变更必须由 R1/R2 的真实 consumer acceptance 驱动，并产生新 digest/candidate。
+
+Risk: S2/MEDIUM shared contract；写能力硬关闭，不继承 effect mutation 风险。
+
+## R1 / I2-R — read-only Host producer
+
+### Outcome
+
+在 P0 和 F1 上提供最小内部 Host read service。Host 从官方 live root/session 和 authoritative Team 建立有界绑定，投影 UI 真正需要的 roster、task/attempt、budget、pending interaction 和 capability 状态；客户端不能提交 Agent/Session/principal 真相，也不能直读写 Storage Domain。
 
 ### Required behavior
 
-- context mint/refresh/rotation/revoke 有单一 lifecycle owner 和容量上限；
-- `authenticated-human` 只存在于已验证的 host principal seam；否则 privileged action 必须经 captain confirmation 或降级为 message-only；
-- client 只提交 plain untrusted payload，不能盖章 provenance、revision、attempt 或 principal；
-- read 必须 bounded、cursor-authenticated、projection-only，客户端不能直读写 Storage Domain；
-- abort、expiry、dispose、overlay restart 和 adapter failure 均 fail-closed，错误稳定且脱敏。
+- Host-owned binding 唯一关联官方 root Session、workspace scope 和 Team；caller hint 只用于查找，最终 identity 必须由 Host 解析；
+- reads bounded、strict、redacted、cursor/resync capable；projection 不复制 Team truth；
+- missing/deleted/archived/mismatched Team 和 Session switch 明确失败或投影 terminal state；
+- no human principal verifier、no direct effect gateway、no Team/overlay write；
+- close admission、drain、unprovide 和 authority teardown 顺序可执行验证。
 
 ### Exit evidence
 
-Host contract negative tests、真实 Cordis provide/dispose/reload composition、bounded-read/redaction、restart/replay/cancel、lifecycle leak checks，以及 exact candidate 的独立安全审查。
+Host contract negatives、真实 Cordis provide/dispose/reload、bounded/redaction、Session/Team mismatch、archive/reconnect、lifecycle leak checks，以及 exact candidate 非作者审查。
 
-Risk: identity、control authority 与 durable replay 为 S3/HIGH。
+Risk: S2/MEDIUM；读取身份若越界则升级 S3。
 
-## I3 — canonical `/swarm` RPC producer
+## R2 / I3-R — canonical read-only `/swarm` RPC
 
 ### Outcome
 
-在 I2 上发布唯一 browser-safe、versioned `/swarm` RPC namespace，提供 capability discovery、context、snapshot、Message、五 Controls、cancel、receipt 和 timeline；不得反射动态错误或接受 caller-minted authority。
+在 R1 上发布唯一 browser-safe、versioned `/swarm` read namespace：capability discovery、binding/status、snapshot、task/attempt page、receipt page 和 bounded resync/event cursor。所有 write capability 在协议中继续明确 unavailable。
 
 ### Contract gate
 
-- canonical JSON fixtures、schema/fixture digest、RPC version 和 capability set 是 immutable candidate artifacts；
-- request/result schemas 拒绝 unknown、oversized、cyclic、accessor/proxy-like 或矛盾数据，以各 runtime 可证明边界为准；
+- canonical JSON fixtures、schema/fixture digest、RPC version 和 capability set 是 immutable artifacts；
+- request/result 拒绝 unknown、oversized、cyclic、accessor/proxy-like 或矛盾数据；
+- browser 或 Canvas 不能上传 root Agent、captain Session、scope 或 principal 作为 authority；
 - transport origin/trust 不等于 human identity；
-- cancellation 在底层 Host operation 真实 settle 前不能释放 physical capacity；
-- production Host adapter 先把 caller hint 解析成 host-owned exact authority key，之后才可 mint/effect；
-- 真实官方 DSH Profile mount/unmount/reload 与 UI-absent operation 通过。
-
-### Non-goals
-
-不实现 UI、Canvas-specific interpretation、transcript projection、共享 React package 或公开发布。
+- official webserver route/upgrade lifecycle、mount/unmount/reload 和 no-UI operation 通过；
+- packed browser-safe consumer 不能导入 Host/storage/runtime-only module。
 
 ### Exit evidence
 
-RPC contract/transport/failure tests、packed browser-safe subpath consumer、distribution purity gate、真实 Profile handshake/lifecycle、fixtures/digest validation、完整项目检查和 exact-candidate 独立安全审查。
+RPC contract/transport/failure tests、packed consumer purity、真实官方 web Profile handshake/lifecycle、fixtures/digest validation、完整项目检查和 exact-candidate 独立安全审查。
 
-Risk: external request 与 identity boundary 为 S3/HIGH。
+Risk: external read boundary 为 S3/HIGH。
 
-## I4 — DSH-native minimum UI
+## R3 / I4-R — DSH Team read UI and official Captain Chat handoff
 
 ### Outcome
 
-使用官方 slots、components、locale 和 theme tokens 提供 DSH client plugin。它只消费 I3，展示 Message、五 Controls、pending question/review、receipt/timeline 与 stale/refresh/error 状态。
+使用官方 slots、components、locale 和 theme tokens 提供最小 DSH client plugin。它只消费 R2，展示 Team、成员、任务/attempt、预算、pending interaction、capability、stale/reconnect/error，并提供明确的“打开 Captain Chat”操作进入同一官方 DSH root Session。
 
-### Boundaries
-
-- DSH UI 只拥有 rendering 与 ephemeral view state；
-- 不解析 transcript，不持有 browser Team truth；
-- UI 缺席不影响 runtime progress；
-- polling/subscription cadence 有界，idle discovery 不能退化成 busy polling；
-- 每个 slot/service/subscription 都有 mount/dispose/HMR 证据。
+Captain Chat 是首个用户修正纵切：用户通过官方 Session 对 captain 说明修改，captain 再使用已有 `agent_swarm_*` 工具操作 Team。UI 不把聊天文本解释为 typed Control，不从 transcript 派生 Team truth，也不等待 direct `/swarm` writes 才提供价值。
 
 ### Exit evidence
 
-Fixture-driven component tests、受影响 controls 的 accessibility checks、真实 client bundle purity、mount/dispose/HMR、screenshot/interaction inspection，以及 final candidate 的一个非作者审查。
+Fixture-driven components、accessibility、official locale/theme、真实 client bundle purity、mount/dispose/HMR、Session handoff identity、screenshot/interaction inspection，以及 final candidate 非作者审查。
 
-Risk: 普通 UI 为 S2/MEDIUM；identity/privileged-control regression 继承 I3 的 S3 控制。
+Risk: ordinary UI 为 S2/MEDIUM；错误 Session handoff 为 S3/HIGH。
 
-## I5 — Canvas consumer integration
+## R4 / I5-R — Canvas read consumer
 
 ### Outcome
 
-Canvas 连接用户的官方 DSH，发现已接受 I3 capability，并渲染自己的 Canvas-native Team UI。BFF 提供 origin/token/rate-limit/transport 保护并透传 canonical envelope；它不成为 Team/HumanInteraction producer。
+Canvas 连接用户的同一官方 DSH，发现已接受 R2 capability，并以 Canvas-native 组件投影同一 Team read contract。Canvas 可以打开/聚焦同一官方 Captain Chat；Canvas BFF 只提供 origin/token/rate-limit/transport 保护，不成为 Team/HumanInteraction producer。
 
 ### Start gate
 
-Canvas 写入工作必须同时收到一个已接受 producer candidate 的：
-
-1. exact producer artifact identity；
-2. canonical schema、JSON fixtures 与 digest；
-3. `/swarm` RPC version 与 capability set；
-4. I1 crash-window machine evidence；
-5. 真实官方 DSH Profile mount/dispose/reload 与 UI-absent evidence。
+Canvas 必须收到已接受 producer candidate 的 exact artifact identity、canonical schemas/fixtures/digest、RPC version/capability set、真实 Profile mount/dispose/reload 证据，以及 DSH UI 使用的同一 read parity matrix。
 
 ### Boundaries
 
-- Swarm 是当前官方 DSH Session 的 capability，不是 Canvas 第三 engine；
-- Canvas 不创建私有 `DSH_HOME`、复制 presets、解析 captain transcript 为 Team truth，或把 Canvas token 当 DSH human principal；
-- Canvas graph/Director domain 仍由 Canvas 负责；
-- DSH 与 Canvas 共享 semantic fixtures/action parity，不强制共用 component library 或 visual skin。
+- Swarm 是当前官方 DSH Session capability，不是 Canvas 第三 engine；
+- Canvas 不创建私有 `DSH_HOME`、复制 presets、解析 captain transcript 或把 Canvas token 当 human principal；
+- Canvas graph/Director 继续由 Canvas 负责；
+- 两端共享 semantic fixtures，不强制共享 component library 或 visual skin；
+- read lane 不显示尚未接受的直接 Control 为可用。
 
 ### Exit evidence
 
-同 fixtures 上的 producer/consumer conformance、真实 handshake、Message/Control parity、stale/reconnect/abort tests、Canvas-native rendered interaction/accessibility，以及跨仓 S3 compatibility acceptance。
+Producer/consumer conformance、真实 handshake、same-Session captain-chat handoff、stale/reconnect/abort、Canvas-native rendering/accessibility，以及跨仓 S3 compatibility acceptance。
 
-Risk: cross-repository authority/identity boundary 为 S3/HIGH；普通 rendering 为 S2/MEDIUM。
+Risk: cross-repository identity boundary 为 S3/HIGH；ordinary rendering 为 S2/MEDIUM。
+
+## W0 — existing headless liaison baseline
+
+现有 I1a 保留：root captain 是唯一 Human Liaison；成员问题经持久 Team mail 路由；typed requests、receipts、caller authority、revision/attempt fences 和 `OUTCOME_UNKNOWN` quarantine 已定义。它不承诺跨重启 exactly-once，也不自动使 browser principal 或 direct Control 可用。
+
+W0 与 R1-R4 并行提供基础，不是 read lane 的前置 blocker。
+
+## W1 — operation-scoped durable effect acceptance
+
+### Outcome
+
+按操作而不是按“全部 HumanInteraction”开放写能力。每个 capability 单独冻结 identity、authority、atomicity/read-back、retry/reconcile、capacity、redaction、crash window 和 unsupported cases；未通过的操作保持 unavailable/held，不拖住已通过能力或 read lane。
+
+### Operation classes
+
+1. **Team-internal atomic effect**：mutation 与 applied evidence 可在同一 Team transaction 提交，例如 proposed `queueMessageOnce`；需要 accepted schema/migration decision。
+2. **Canonical-state reconcilable effect**：revision/attempt fencing 加 operation-specific authoritative read-back 能唯一分类 applied/not-applied/conflict；不能靠宽泛 transcript 推断。
+3. **External idempotent Provider effect**：Provider 必须给 stable operation identity、payload conflict refusal 和 authoritative query。
+4. **Opaque external effect**：当前 `userQuestions.ask`、`subagents.interrupt` 或 unconstrained review 等无 read-back 操作保持 unavailable/outcome-unknown。
+
+ADR-0009 仍是 proposed 方案，只约束选择其 v2 ledger 且需要处理 v1 media/old binary 的写 slice。Clean-profile v2、显式离线迁移、supported-backend conversion 和 downgrade policy 必须先做产品裁决；不得用该 proposal 阻断 reads，也不得未经接受实现其迁移控制面。
+
+### Exit evidence per capability
+
+真实持久存储与 process-boundary reopen、operation-specific fault matrix、authorized retry/read-back、conflict/capacity/redaction、capability fixture/digest、完整受影响检查，以及风险匹配的独立审查。
+
+Risk: durable control transition 为 S3/HIGH；pure advisory Message 若不直接 mutate Team 可单独降级评估。
+
+## W2 — Host/RPC/UI write projection
+
+### Outcome
+
+R1/R2 的 capability discovery 逐项公布 W1 已接受的 write operation。Host mint/refresh/revoke context 与 verified human principal 只为需要它的能力存在；RPC 和两个 UI 不能自行扩大 capability。
+
+### Rules
+
+- capability unavailable 是正常协议状态，不用自动 fallback 或自由文本冒充 Control；
+- unknown result 先 read-back/resync，禁止 blind retry；
+- context、principal、request id、Team/task revision、attempt 和 receipts 分别由正确 owner 提供；
+- DSH UI 和 Canvas 在同 fixtures 上做 action parity，但各用宿主 UI；
+- 新 capability 只增量审查其 contract/risk delta，不重复审查未变 read candidate。
+
+Risk: S3/HIGH。
 
 ## M6–M9 subsequent capability families
 
 - **M6 real Workspace and remote member**：实际 cwd/fs/tool roots 与 attempt lease 一致；late ACK、expiry、disconnect、conflict、cleanup failure 被围栏。产品 execution root 不授权仓库开发 worktree。
 - **M7 Team memory and Skill Evolution**：只有 accepted evidence 进入有界、可追溯 proposal；proposal、deterministic validation、approval、write 分离。
 - **M8 distributed atomic Team and observability**：Store Provider 提供 CAS、lease、fencing、idempotent mailbox 和 change feed；partition 停止不可证明工作；UI/log 仍是 projection。
-- **M9 migration, compatibility, packaging and release**：支持的 legacy import、官方 experimental Team migration trigger、immutable package artifact、compatibility matrix、upgrade/rollback 与 controlled release observation。
+- **M9 migration, compatibility, packaging and release**：支持的 legacy import、官方 experimental Team migration trigger、public immutable package、compatibility matrix、upgrade/rollback 与 controlled release observation。P0 是本地可安装证据，不等于 M9 public release。
 
-每个能力族有自己的 Gate A、failure-injection suite、recovery evidence 和风险分级审查。I1–I5 不暗示这些能力已经完成。
+这些能力族不得插队阻断 P0/R1-R4。每个能力族有自己的 Gate A、failure-injection suite、recovery evidence 和风险分级审查。
 
 ## Candidate salvage and supersession
 
-历史 feature branch 与 report 是 recovery/evidence input，不是当前 accepted candidate。新里程碑从 authoritative target 开始，只选择与本路线图兼容的 behavior/tests，排除 retired governance/ref-pin material，重跑当前 gates，冻结新 candidate 并接受当前风险对应审查。旧分支、测试计数或完成消息不能绕过该流程。
+历史 feature branch 与 report 是 recovery/evidence input，不是当前 accepted candidate。新里程碑从 authoritative target 开始，只选择与本路线图兼容的 behavior/tests，排除 retired governance/ref-pin material，重跑当前 gates，冻结新 candidate 并接受当前风险对应审查。
 
 凡是把 Team truth 交给 Canvas、从 transcript 派生 Team 状态、把 Swarm 作为第三 Runtime、把共享跨宿主 UI component 当权威，或恢复 raw worktree lifecycle command 的文档，都被本路线图和 project binding 取代。
 
@@ -232,6 +229,8 @@ Risk: cross-repository authority/identity boundary 为 S3/HIGH；普通 renderin
 - One state domain, one canonical owner; one transition, one owner.
 - Official stable seams are consumed, never shadowed.
 - Reference repositories contribute characterized behavior, not runtime duplication.
+- Read delivery and privileged write acceptance are separate dependency lanes.
+- One blocked effect blocks only its own capability.
 - UI and RPC are consumers/projections over durable Host/Team authority.
 - Shared contracts integrate before consumers; target-level checks read back the result.
 - Milestone status changes only with executable evidence and synchronized authoritative documentation.

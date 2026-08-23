@@ -222,12 +222,12 @@ documents:
     validation: pnpm-verify
   - documentId: i1b-v2-effect-ledger-decision
     path: docs/adr/0009-i1b-v2-effect-ledger-authority.md
-    role: stable-authority
+    role: reference
     subject: decision
     writeMode: human
     accountableOwner: architecture-owner
-    mutationAuthority: superseding-adr-only-after-acceptance
-    updateTriggers: effect-authority-or-storage-migration-reversal
+    mutationAuthority: reviewed-proposal-until-accepted
+    updateTriggers: proposal-review-or-effect-authority-decision
     validation: pnpm-verify
   - documentId: plugin-development-skill
     path: .agents/skills/dsh-plugin-development/SKILL.md

@@ -7,18 +7,31 @@
 - **不修改 Agent Loop**、不影子注册任何官方服务——单一权威状态经 `TeamDomainPort` 存于官方 Storage Domain（ADR-0007）。
 - 消费两个参考仓库的成熟机制（`dsh-agent-teams` 的团队协议、JiuwenSwarm 的预算/审核/调度思路），映射到 DSH 原生边界，不嵌入任何第二运行时。
 
-## 安装
+## 安装状态
 
-```bash
-# 在你的 DSH Profile 中组合插件（官方 plugin add 或 Profile yaml）
-dsh plugin add leinasi2014/dsh-agent-swarm
-# 或在 Profile 中声明：
-# plugins:
-#   - name: agent-swarm
-#     source: npm:@dsh-agent-swarm
+本项目目前是 `private` 的预发布插件，**没有已接受的公共 npm、Git shorthand 或插件市场安装入口**。不要使用仓库历史文档中的 `leinasi2014/dsh-agent-swarm` 或 `npm:@dsh-agent-swarm` 形式；它们不是当前可解析的发布身份。
+
+当前可执行的开发/验收路径是本地不可变 tarball：
+
+```powershell
+# 1. 在干净、冻结的候选上构建并打包；验收时记录 commit/tree/tarball digest。
+$candidateDir = 'D:\path\to\candidate-artifact'
+$env:npm_config_ignore_scripts = 'true'
+pnpm install --frozen-lockfile --ignore-scripts
+pnpm build
+pnpm pack --pack-destination $candidateDir
+
+# 2. 只装入 fresh isolated DSH_HOME 的官方 web Profile。
+$dshCli = 'D:\path\to\official-dsh\apps\cli\lib\bin.js'
+$tarball = Join-Path $candidateDir 'dsh-agent-swarm-0.1.0.tgz'
+$env:DSH_HOME = 'D:\path\to\fresh-isolated-dsh-home'
+node $dshCli plugin --profile web add -w --ignore-scripts $tarball
+node $dshCli --profile web --dump-config
 ```
 
-兼容范围由 `package.json` 的 peer dependencies、锁文件和 [docs/OFFICIAL_BASELINE.json](docs/OFFICIAL_BASELINE.json) 共同定义；不要从 README 中推断滚动版本状态。
+Profile 还必须组合官方 Storage hub、KV backend、Storage Domain 和 Session persistence，并把 storage/session root 放在 Team workspace 与 sandbox root 之外。当前可执行的冻结与隔离 Profile 验证入口是 `scripts/promotion/freeze.mjs` 和 `scripts/promotion/accept-check.mjs`；[P0 里程碑](docs/07-implementation-roadmap.md#p0--immutable-package-and-real-profile-proof) 要求把安装、启动、卸载、重载和缺存储负向证据绑定到同一 tarball digest，才可把这条路径称为受支持的本地安装。
+
+`link:<path>` 仅用于本地诊断，不能作为验收或发布身份。兼容范围由 `package.json` 的 peer dependencies、锁文件和 [docs/OFFICIAL_BASELINE.json](docs/OFFICIAL_BASELINE.json) 共同定义；不要从 README 中推断滚动版本状态。
 
 ### 快速开始
 
@@ -52,7 +65,7 @@ captain（插件驱动）：
 - [docs/04-core-protocol.md](docs/04-core-protocol.md) — 协议权威（每个决策段都可追溯到 issue/PR）
 - [docs/07-implementation-roadmap.md](docs/07-implementation-roadmap.md) — 里程碑与出口标准
 - [docs/11-official-first-development.md](docs/11-official-first-development.md) — official-first 开发门（Gate A/B/C）
-- [docs/adr/](docs/adr/) — 架构决策记录（ADR-0001..0008）
+- [docs/adr/](docs/adr/) — 架构决策记录（ADR-0001..0009；以各文件 `Status` 区分 proposed/accepted）
 
 ## 开发
 

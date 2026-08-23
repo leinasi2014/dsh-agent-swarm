@@ -13,6 +13,20 @@ The existing `agent_swarm` Storage Domain stores a `schemaVersion: 1` Team as on
 
 The official Storage Domain currently has no in-place domain-version migration seam. Reopening stamped v1 media with a bumped descriptor fails closed, while changing a same-version record layout is undefined. A silent optional field added to v1 would therefore evade, not satisfy, the versioned authority contract established by ADR-0007.
 
+## Proposal authority and applicability
+
+This ADR remains a proposal. It is registered as decision reference, not accepted stable authority, and cannot by itself block an independently safe read-only delivery slice or authorize migration code. Acceptance requires a later immutable candidate and independent architecture review; rejection or replacement does not reverse ADR-0007's existing single-Team-authority rule.
+
+The blocker described below applies only when a write capability depends on the proposed v2 effect ledger and the deployment may contain v1 media or admit a pre-v2 binary. It does not block:
+
+- packaging and real isolated-Profile proof of the existing plugin;
+- the already frozen read-only contract floor;
+- bounded read-only Host and `/swarm` RPC projections;
+- DSH-native or Canvas-native read consumers;
+- opening the same official DSH Session so the user can communicate with the root captain through official Chat.
+
+Those read/advisory slices mint no Team authority and keep every direct privileged write capability unavailable. Clean-profile v2, explicit offline migration, supported-backend conversion and downgrade policy are separate product decisions to evaluate before accepting this proposal; they must not be silently replaced by a universal online-migration requirement.
+
 ## Decision
 
 ### 1. Establish one v2 Team authority through explicit migration
@@ -145,4 +159,4 @@ This ADR does not authorize executable Host/RPC/browser/context/UI/Canvas work, 
 
 ## Consequences
 
-I1b-1A is larger than adding a second receipt table, because correctness requires the applied receipt and Team mutation to share one durability boundary. The migration and old-binary compatibility gate become prerequisites for code. In return, Team-internal effects can be classified after restart without duplicate mutations, while unsupported external effects remain honestly blocked instead of being inferred.
+If accepted for a deployment that carries v1 authority, I1b-1A is larger than adding a second receipt table, because correctness requires the applied receipt and Team mutation to share one durability boundary. The migration and old-binary compatibility gate become prerequisites for activating the affected write capabilities, not for the read lane. In return, Team-internal effects can be classified after restart without duplicate mutations, while unsupported external effects remain honestly blocked instead of being inferred.

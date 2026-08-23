@@ -42,12 +42,11 @@ UI 是末端投影型 Consumer；无浏览器、无 Canvas 或 UI 卸载时，Te
 下列名称定义稳定的依赖顺序和退出边界，不表示实时完成状态：
 
 1. **G0 — 产品与兼容基线**：统一官方单宿主、纯插件、单一 Team/HumanInteraction producer 和跨宿主消费边界；Gate A 与权威文档一致。
-2. **I1 — Captain Liaison 与 durable effect correlation**：完成无 UI 的用户→captain→member/Team→captain→用户闭环，以及控制 effect 的跨重启幂等判定。
-3. **I2 — HumanInteraction Host producer**：提供 context、Message/Control、问题/审查、receipt/timeline、redaction、刷新/撤销和恢复能力；客户端不能直写存储。
-4. **I3 — canonical `/swarm` RPC**：冻结版本化 schema、capability、fixtures 和错误语义，并在真实官方 DSH Profile 证明装配、卸载、重载和无 UI 运行。
-5. **I4 — DSH-native UI**：只消费 I3，使用官方组件、主题和生命周期，在 DSH 内提供最小可操作 Team 界面。
-6. **I5 — Canvas consumer**：Canvas BFF 和原生 UI 只透传/消费已接受的 I3 合同，使用 Canvas 自身组件与主题，并与 I4 运行同一 fixture/action-parity 矩阵。
-7. **M6–M9 后续能力族**：真实 Workspace/远程成员、自动记忆与 Skill Evolution、分布式原子 Team/可观测性，以及完整迁移、兼容、包装和发布。
+2. **P0 — 可安装 Profile 证明**：从独立插件候选构建不可变本地包，在隔离的官方 DSH `web` Profile 中证明安装、装配、启动、卸载和重载；预发布阶段不宣称公共 npm/Git 安装路径。
+3. **R1–R4 — 首个可用只读纵切**：最小 Host read projection → canonical `/swarm` read RPC → DSH-native Team read UI 与“打开官方 Captain Chat”→ Canvas-native read consumer。用户沟通进入同一官方 DSH Session，Team/UI 权威边界不变。
+4. **W1 — operation-scoped durable writes**：在现有 headless Captain Liaison 基础上，逐个操作证明身份、幂等、权威回读、失败窗口和恢复，再开放对应 Message/Control capability。一个未解决 effect 只阻断它自己的写能力。
+5. **W2 — Host/RPC/UI write projection**：I2/I3 的写面和两个 UI 的直接 Controls 只消费 W1 已接受的 capability；问题展示、interrupt 或其他不可判定外部效果继续明确 unavailable/held。
+6. **M6–M9 后续能力族**：真实 Workspace/远程成员、自动记忆与 Skill Evolution、分布式原子 Team/可观测性，以及完整迁移、兼容、包装和发布。
 
 详细依赖、非目标、风险和出口证据见 `docs/07-implementation-roadmap.md`。历史里程碑的实现事实由对应报告、ADR、Git commit/tag 和测试保存，不在本章程汇总成滚动状态。
 
@@ -66,7 +65,7 @@ UI 是末端投影型 Consumer；无浏览器、无 Canvas 或 UI 卸载时，Te
 
 - 在本仓库复制官方 DSH Runtime、Canvas Runtime 或参考项目 Runtime；
 - 以共享 React 组件强制两个宿主视觉一致；两端共享语义合同和 fixtures，各自遵守宿主组件与主题；
-- 让 I1–I5 顺带实现真实 Worktree/remote、分布式 Store、自动记忆或正式公开发布；
+- 让 P0/R1–R4/W1–W2 顺带实现真实 Worktree/remote、分布式 Store、自动记忆或正式公开发布；
 - 因历史候选存在而跳过当前基线重放、Gate A、选择性迁移、测试或审查。
 
 ## 章程变更

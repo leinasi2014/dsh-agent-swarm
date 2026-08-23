@@ -212,7 +212,9 @@ DSH-native and Canvas-native clients render roster, task DAG, attempts, workspac
 
 The producer contract may be frozen before executable I2 write authority exists, but only as a transport-neutral floor: versioned strict schemas, canonical fixtures and one digest; an internal Cordis-provided service; and bounded read-only Team/receipt projections derived from the two existing authorities. Its capability descriptor must state `snapshot.read` and `receipt.read` as available while `message.write`, `control.write` and `effect.cancel` remain `unavailable` with the `i1b-effect-correlation` blocker. The unavailable methods have no effect dependency and fail before payload inspection, so the floor cannot fabricate a receipt or mutate either domain.
 
-This floor is not an alternate Host, an RPC server or progress evidence for I2/I3. It mints no browser context/principal, mounts no route, and does not weaken ADR-0009. I2 still waits for the accepted I1 effect authority; I3 still waits for an accepted executable I2 Host and real Profile lifecycle evidence.
+This floor is not an alternate Host or an RPC server. It mints no browser context/principal and mounts no route. It is now frozen: do not add speculative fields or another lifecycle layer before a real consumer needs them.
+
+After package/Profile proof, the read lane may add the minimum Host session binding and transport needed to expose these projections to an actual DSH client. That lane keeps every direct write capability unavailable and therefore does not depend on ADR-0009. Each write capability has its own later gate: only an operation with accepted authority, recovery and identity evidence can move from unavailable to available.
 
 ### Bundle
 
@@ -224,7 +226,7 @@ Self-hosting reuses the Bundle, RPC host, Team tools, Workflow/Jobs, Workspace a
 
 ## 5. Current package versus target family
 
-The package graph above is a target decomposition. The current package is one host-only bundle containing the accepted Team domain/runtime, tools and optional Provider families. Accepted historical reports and tests, not this target diagram, decide which earlier capability slices shipped. Captain Liaison/effect correlation, executable HumanInteraction Host, canonical `/swarm` RPC, DSH-native UI and Canvas consumer are delivered in the G0→I5 order from `docs/07`; old feature branches are salvage input only and do not count as current implementation. Per-task tool rescoping remains a declared official-seam boundary (`docs/04` §8o, `docs/09` §1).
+The package graph above is a target decomposition. The current package is one host-only bundle containing the accepted Team domain/runtime, tools and optional Provider families. Accepted historical reports and tests, not this target diagram, decide which earlier capability slices shipped. The next product vertical is package/Profile proof followed by read-only Host, `/swarm` RPC, DSH-native Team projection and Canvas-native projection; direct Controls follow operation-scoped write acceptance. Old feature branches are salvage input only and do not count as current implementation. Per-task tool rescoping remains a declared official-seam boundary (`docs/04` §8o, `docs/09` §1).
 
 ## 6. Why this is not over-modularization
 
