@@ -97,9 +97,10 @@ async function writeFailureEvidence(evidenceDir, label, page, records, error) {
 }
 
 async function dismissOfficialTestingNotice(page) {
-  const button = page.getByRole('button', { name: /^(Continue|继续)$/u })
-  const present = await button.waitFor({ state: 'visible', timeout: 20_000 }).then(() => true, () => false)
+  const dialog = page.getByRole('dialog', { name: /^(Internal Testing Notice|内测声明)$/u })
+  const present = await dialog.waitFor({ state: 'visible', timeout: 60_000 }).then(() => true, () => false)
   if (!present) return { officialTestingNoticePresent: false, officialTestingNoticeDismissed: false }
+  const button = dialog.getByRole('button', { name: /^(Continue|继续)$/u })
   await button.focus()
   await page.keyboard.press('Enter')
   await button.waitFor({ state: 'hidden', timeout: 10_000 })
