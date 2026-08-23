@@ -20,6 +20,21 @@ export const REQUIRED_P0_GATES = [
   'resource-cleanup',
 ]
 
+export const EXPECTED_P0_OFFICIAL_COMMIT = 'b150a551b8d465e31e418e1b2eaf5e79bbb7d28e'
+export const EXPECTED_P0_OFFICIAL_TREE = '53915efe4e2126cc7779b73dfc8a3bcec5318c44'
+
+const REQUIRED_P0_COMMANDS = new Map([
+  ['cli-version', 0],
+  ['candidate-build', 0],
+  ['candidate-pack', 0],
+  ['artifact-list', 0],
+  ['profile-add', 0],
+  ['dump-config', 0],
+  ['profile-remove', 0],
+  ['missing-storage-add', 0],
+  ['missing-storage-boot', 1],
+])
+
 export async function sha256File(path) {
   return createHash('sha256').update(await readFile(path)).digest('hex')
 }
@@ -33,13 +48,21 @@ function requireString(value, label, failures) {
   if (typeof value !== 'string' || value.length === 0) failures.push(`${label} must be a non-empty string`)
 }
 
-export async function verifyP0Evidence(root, manifest) {
+function requireGitIdentity(value, label, failures) {
+  if (typeof value !== 'string' || !/^[0-9a-f]{40}$/u.test(value)) failures.push(`${label} must be a full lowercase Git object id`)
+}
+
+export async function verifyP0Evidence(root, manifest, expected = {}) {
   const failures = []
   if (manifest?.schemaVersion !== 1) failures.push('schemaVersion must be 1')
   if (manifest?.status !== 'pass') failures.push('status must be pass')
 
-  requireString(manifest?.candidate?.commit, 'candidate.commit', failures)
-  requireString(manifest?.candidate?.tree, 'candidate.tree', failures)
+  requireGitIdentity(manifest?.candidate?.commit, 'candidate.commit', failures)
+  requireGitIdentity(manifest?.candidate?.tree, 'candidate.tree', failures)
+  requireGitIdentity(expected.candidateCommit, 'expected.candidateCommit', failures)
+  requireGitIdentity(expected.candidateTree, 'expected.candidateTree', failures)
+  if (manifest?.candidate?.commit !== expected.candidateCommit) failures.push('candidate commit does not match the trusted expected commit')
+  if (manifest?.candidate?.tree !== expected.candidateTree) failures.push('candidate tree does not match the trusted expected tree')
   if (manifest?.candidate?.cleanBefore !== true || manifest?.candidate?.cleanAfter !== true) {
     failures.push('candidate must be clean before and after proof')
   }
@@ -64,10 +87,16 @@ export async function verifyP0Evidence(root, manifest) {
   }
 
   const official = manifest?.official
-  requireString(official?.commitBefore, 'official.commitBefore', failures)
-  requireString(official?.treeBefore, 'official.treeBefore', failures)
+  requireGitIdentity(official?.commitBefore, 'official.commitBefore', failures)
+  requireGitIdentity(official?.treeBefore, 'official.treeBefore', failures)
   if (official?.commitBefore !== official?.commitAfter || official?.treeBefore !== official?.treeAfter) {
     failures.push('official identity changed during proof')
+  }
+  if (official?.commitBefore !== EXPECTED_P0_OFFICIAL_COMMIT || official?.commitAfter !== EXPECTED_P0_OFFICIAL_COMMIT) {
+    failures.push('official commit does not match the fixed P0 baseline')
+  }
+  if (official?.treeBefore !== EXPECTED_P0_OFFICIAL_TREE || official?.treeAfter !== EXPECTED_P0_OFFICIAL_TREE) {
+    failures.push('official tree does not match the fixed P0 baseline')
   }
   if (official?.statusBefore !== '' || official?.statusAfter !== '') failures.push('official checkout was not clean')
   if (official?.version !== '0.1.1-rc.2') failures.push('official CLI version must be 0.1.1-rc.2')
@@ -111,6 +140,20 @@ export async function verifyP0Evidence(root, manifest) {
   const gates = new Map((manifest?.gates ?? []).map(gate => [gate.name, gate]))
   for (const name of REQUIRED_P0_GATES) {
     if (gates.get(name)?.status !== 'pass') failures.push(`required gate did not pass: ${name}`)
+  }
+  const commands = manifest?.commands
+  if (!Array.isArray(commands)) {
+    failures.push('commands must be an array')
+  } else {
+    for (const [name, expectedExitCode] of REQUIRED_P0_COMMANDS) {
+      const matches = commands.filter(command => command?.name === name)
+      if (matches.length !== 1) {
+        failures.push(`required command must appear exactly once: ${name}`)
+        continue
+      }
+      if (matches[0].timedOut === true) failures.push(`required command timed out: ${name}`)
+      if (matches[0].exitCode !== expectedExitCode) failures.push(`required command exit code mismatch: ${name}`)
+    }
   }
   if (manifest?.cleanup?.runtimeRemoved !== true || manifest?.cleanup?.portFree !== true) {
     failures.push('runtime resources were not fully cleaned')

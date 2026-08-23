@@ -29,4 +29,3 @@ export function verifySafeBundlePatch(text) {
   }
   return { ok: failures.length === 0, failures }
 }
-

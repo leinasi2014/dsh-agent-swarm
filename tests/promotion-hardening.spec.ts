@@ -86,6 +86,12 @@ describe('promotion-lane environment seal (issue #122 F2)', () => {
       delete process.env[sentinel]
     }
   })
+
+  it('reports a bounded child killed by the deadline as timed out', async () => {
+    const probe = await run(process.execPath, ['-e', 'setTimeout(() => {}, 60_000)'], { timeoutMs: 50 })
+    expect(probe.timedOut).toBe(true)
+    expect(probe.code).not.toBe(0)
+  }, 15_000)
 })
 
 describe('acceptance verdict strict form and accepted-record cross-check (issue #122 F4)', () => {

@@ -2,7 +2,10 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { REQUIRED_P0_GATES, sha256File, verifyP0Evidence } from './p0/evidence.mjs'
+import {
+  EXPECTED_P0_OFFICIAL_COMMIT, EXPECTED_P0_OFFICIAL_TREE,
+  REQUIRED_P0_GATES, sha256File, verifyP0Evidence,
+} from './p0/evidence.mjs'
 import { verifySafeBundlePatch } from './p0/bundle-shape.mjs'
 import { parsePluginInventoryResponse, pluginInventoryPayload } from './p0/inventory.mjs'
 
@@ -45,8 +48,8 @@ try {
     candidate: { commit: 'a'.repeat(40), tree: 'b'.repeat(40), cleanBefore: true, cleanAfter: true },
     artifact: { relativePath: 'artifact/dsh-agent-swarm.tgz', sha256: await sha256File(artifact), bytes: 16 },
     official: {
-      commitBefore: 'c'.repeat(40), commitAfter: 'c'.repeat(40),
-      treeBefore: 'd'.repeat(40), treeAfter: 'd'.repeat(40),
+      commitBefore: EXPECTED_P0_OFFICIAL_COMMIT, commitAfter: EXPECTED_P0_OFFICIAL_COMMIT,
+      treeBefore: EXPECTED_P0_OFFICIAL_TREE, treeAfter: EXPECTED_P0_OFFICIAL_TREE,
       statusBefore: '', statusAfter: '', version: '0.1.1-rc.2',
     },
     isolation: {
@@ -60,15 +63,32 @@ try {
       ],
       defaultDshHome: join(root, 'default-home'),
     },
+    commands: [
+      ['cli-version', 0], ['candidate-build', 0], ['candidate-pack', 0], ['artifact-list', 0],
+      ['profile-add', 0], ['dump-config', 0], ['profile-remove', 0], ['missing-storage-add', 0],
+      ['missing-storage-boot', 1],
+    ].map(([name, exitCode]) => ({ name, exitCode, durationMs: 1, timedOut: false })),
     gates: REQUIRED_P0_GATES.map(name => ({ name, status: 'pass' })),
     cleanup: { runtimeRemoved: true, portFree: true, artifactRetained: true, evidenceRetained: true },
   }
-  const positive = await verifyP0Evidence(root, structuredClone(base))
+  const expected = { candidateCommit: base.candidate.commit, candidateTree: base.candidate.tree }
+  const positive = await verifyP0Evidence(root, structuredClone(base), expected)
   if (!positive.ok) throw new Error(`positive fixture failed: ${positive.failures.join('; ')}`)
 
   const cases = [
     ['digest mismatch', manifest => { manifest.artifact.sha256 = '0'.repeat(64) }],
+    ['wrong candidate commit', manifest => { manifest.candidate.commit = '9'.repeat(40) }],
+    ['wrong candidate tree', manifest => { manifest.candidate.tree = '8'.repeat(40) }],
+    ['wrong official commit', manifest => {
+      manifest.official.commitBefore = '7'.repeat(40)
+      manifest.official.commitAfter = '7'.repeat(40)
+    }],
+    ['wrong official tree', manifest => {
+      manifest.official.treeBefore = '6'.repeat(40)
+      manifest.official.treeAfter = '6'.repeat(40)
+    }],
     ['missing gate', manifest => { manifest.gates = manifest.gates.filter(gate => gate.name !== 'reload') }],
+    ['timed-out required command', manifest => { manifest.commands.find(command => command.name === 'candidate-pack').timedOut = true }],
     ['dirty official', manifest => { manifest.official.statusAfter = ' M package.json' }],
     ['overlapping state', manifest => { manifest.isolation.storageRoot = join(manifest.isolation.workspaceRoot, 'storage') }],
     ['invalid probe URL', manifest => { manifest.isolation.probeModuleUrls[0] = 'https://example.invalid/probe.mjs' }],
@@ -77,7 +97,7 @@ try {
   for (const [label, mutate] of cases) {
     const manifest = structuredClone(base)
     mutate(manifest)
-    const result = await verifyP0Evidence(root, manifest)
+    const result = await verifyP0Evidence(root, manifest, expected)
     if (result.ok) throw new Error(`negative fixture unexpectedly passed: ${label}`)
   }
   console.log(`P0 Bundle/evidence gates: Typert payload + 1 positive/2 negative response cases; 1 safe Bundle + 4 unsafe Bundle cases; positive evidence + ${cases.length} negative evidence cases: PASS`)

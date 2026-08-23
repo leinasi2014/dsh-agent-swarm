@@ -65,6 +65,7 @@ export function run(command, args, options = {}) {
   const quote = value => /[\s"^&|<>()!]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value
   return new Promise(resolve => {
     const startedAt = Date.now()
+    let timedOut = false
     let child
     try {
       child = useShell
@@ -89,15 +90,18 @@ export function run(command, args, options = {}) {
     child.stdout.on('data', chunk => { if (stdout.length < 8 * 1024 * 1024) stdout += String(chunk) })
     child.stderr.on('data', chunk => { if (stderr.length < 8 * 1024 * 1024) stderr += String(chunk) })
     const timer = setTimeout(() => {
-      if (child.pid !== undefined && child.exitCode === null) killTree(child.pid)
+      if (child.pid !== undefined && child.exitCode === null) {
+        timedOut = true
+        killTree(child.pid)
+      }
     }, timeoutMs)
     child.on('error', error => {
       clearTimeout(timer)
-      resolve({ code: null, stdout, stderr, durationMs: Date.now() - startedAt, timedOut: false, spawnError: String(error) })
+      resolve({ code: null, stdout, stderr, durationMs: Date.now() - startedAt, timedOut, spawnError: String(error) })
     })
     child.on('close', code => {
       clearTimeout(timer)
-      resolve({ code, stdout, stderr, durationMs: Date.now() - startedAt, timedOut: false })
+      resolve({ code, stdout, stderr, durationMs: Date.now() - startedAt, timedOut })
     })
   })
 }

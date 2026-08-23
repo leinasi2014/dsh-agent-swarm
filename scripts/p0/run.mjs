@@ -4,13 +4,15 @@ import { basename, isAbsolute, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { rpcCall } from '../promotion/lib.mjs'
 import { bootPlane, run, stopPlane, waitPortFree, waitUntil } from '../promotion/runner.mjs'
-import { sha256File, verifyP0Evidence } from './evidence.mjs'
+import {
+  EXPECTED_P0_OFFICIAL_COMMIT as OFFICIAL_COMMIT,
+  EXPECTED_P0_OFFICIAL_TREE as OFFICIAL_TREE,
+  sha256File, verifyP0Evidence,
+} from './evidence.mjs'
 import { parsePluginInventoryResponse, pluginInventoryPayload } from './inventory.mjs'
 import { name as serviceProbeName } from './profile-probe.mjs'
 import { name as shutdownProbeName } from './shutdown-probe.mjs'
 
-const OFFICIAL_COMMIT = 'b150a551b8d465e31e418e1b2eaf5e79bbb7d28e'
-const OFFICIAL_TREE = '53915efe4e2126cc7779b73dfc8a3bcec5318c44'
 const OFFICIAL_VERSION = '0.1.1-rc.2'
 
 function parseArgs(argv) {
@@ -369,7 +371,10 @@ async function main() {
       cleanup: { runtimeRemoved, portFree, artifactRetained: true, evidenceRetained: true },
     }
     await writeFile(join(evidenceDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
-    const verified = await verifyP0Evidence(args.output, manifest)
+    const verified = await verifyP0Evidence(args.output, manifest, {
+      candidateCommit: candidateCommit.stdout.trim(),
+      candidateTree: candidateTree.stdout.trim(),
+    })
     if (!verified.ok) throw new Error(`P0 evidence gate failed: ${verified.failures.join('; ')}`)
   } catch (error) {
     proofError = error
