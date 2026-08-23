@@ -25,13 +25,16 @@ a duplicate close button.
 
 The Session header also contains a persistent “Show tool details” action
 immediately beside the Team button. It is the other side of the visible surface
-switch, but the plugin does not infer or store an official Tool-active state.
+switch at the safe width, but the plugin does not infer or store an official
+Tool-active state.
 Activating it releases any Team occupant, stops the Team read lifecycle, returns
 the Team controller to inactive and calls `openDetails()` without ever calling
 `closeDetails()`. The unchanged official Tool Details occupant then renders in
 the same column. Pressing it while Team is already inactive simply opens the
 official details column. The user returns to Team by pressing the adjacent Team
-button.
+button. Below the safe threshold, the action remains visible and focusable for
+layout stability but is `aria-disabled`; activation leaves Team unchanged and
+the persistent live region explains that Tool Details requires a wider window.
 
 ## Official seams and ownership
 
@@ -98,14 +101,15 @@ inspect private frame geometry to force docking.
 | expanded Peek | Team | retain the read generation and render compact Peek | compact Peek |
 | compact Peek | Team | stop reads and close | inactive |
 | docked expanded | adjacent Tool Details | release Team entry, stop reads and become inactive; do **not** call `closeDetails()`, then call `openDetails()` | official Tool Details |
-| inactive/Peek/compact | adjacent Tool Details | close any Team Peek/read state, release any Team entry without `closeDetails()`, then call `openDetails()` | official Tool Details |
+| inactive/Peek/compact at safe width | adjacent Tool Details | close any Team Peek/read state, release any Team entry without `closeDetails()`, then call `openDetails()` | official Tool Details |
+| any state below safe width | adjacent Tool Details | keep the current Team state; announce that Tool Details requires a wider window | unchanged |
 | expanded Team | Captain Chat | complete the fresh R2 binding proof, close/release Team through the coordinator, then navigate through official Sessions | inactive |
-| any Team surface | Session changes/disappears | release entry, close Team-opened details, abort old-root reads and clear presentation | inactive |
+| any Team surface | Session changes/disappears | if docked, call `closeDetails()` before releasing Team; abort old-root reads, move focus and clear presentation | inactive |
 | docked expanded | Team entry render error | fail inactive, stop reads and keep details open so the official occupant is the fallback | official Tool Details |
 | docked expanded | crosses below safe threshold | call `closeDetails()`, release Team entry, then commit Peek; retain the read generation | expanded Peek |
 | expanded Peek | crosses into safe threshold | register and verify Team winner, call `openDetails()`, then hide Peek; on any acquisition failure keep Peek unchanged | docked expanded or expanded Peek |
-| Swarm fiber | unload/HMR | close admission, advance coordinator epoch and clear desired state; stop reads; release entry/listeners/styles without `closeDetails()`; forbid late registration | official Tool Details in the still-open column |
-| official details declaration | collapse/redeclare | clear the old lease and entry identity; if the same live coordinator still desires docked Team for the same Session at safe width, acquire exactly one new lease | docked Team or zero Team entries |
+| Swarm fiber | unload/HMR | close admission, advance coordinator epoch and clear desired state; stop reads; release entry/listeners/styles without changing layout; forbid late registration | from docked: official Tool Details in the still-open column; from Peek/inactive: prior layout unchanged |
+| official details declaration | collapse/redeclare | clear the old lease and entry identity; if the same live coordinator still desires docked Team for the same Session at safe width, run the epoch-fenced two-phase rebind below | docked Team or visible Peek/inactive with zero Team entries |
 
 Opening is fail-closed. `slots.inject('details', ...)` does not unconditionally
 register Team. Its callback lends the coordinator one declaration-lifetime
@@ -124,6 +128,16 @@ has the same target, remains at safe width and still desires docked Team. Swarm
 unload first closes admission and clears desired state, so declaration changes
 cannot resurrect it; it then releases Team without closing the official column.
 
+Official redeclaration rebind is two-phase because the new layout store starts
+closed and its public actions are not wired until the new root first renders.
+Phase 1 registers Team under the new declaration, verifies the exact winner and
+keeps the prior Peek visible (or remains inactive). Phase 2 waits for the
+current public layout face to become callable, invokes exactly one
+`openDetails()` under the same coordinator/declaration epoch, and commits docked
+only after the real column is non-zero in Profile evidence. A stale epoch,
+timeout or call failure releases the tentative entry and keeps Peek visible (or
+inactive); it never leaves an invisible winning Team entry.
+
 The coordinator subscribes to the official Session list/current snapshot. A
 Session-scoped component returning `null` is not cleanup: the global slot
 contribution is disposed when the target changes. It handles only its exact
@@ -137,7 +151,9 @@ swallowed.
   Details remains open.
 - The adjacent “Show tool details” action is persistent and named. It has no
   `aria-pressed` or `aria-expanded`, remains usable without a selected tool and
-  lets the official panel render its own empty state.
+  lets the official panel render its own empty state at safe width. Below the
+  threshold it exposes `aria-disabled="true"`; keyboard or pointer activation
+  does not change the surface and announces the width requirement.
 - Tool handoff returns focus to the still-mounted Tool action. Its announcement
   is rendered in a persistent polite live region owned by the header action
   pair, never inside the disappearing Team occupant.
@@ -211,12 +227,17 @@ Author and non-author acceptance bind the exact package candidate and include:
   declaration collapse/rebind, entry-error fallback and idempotent disposal;
 - declaration lifecycle negatives proving inactive collapse/redeclare keeps
   zero Team entries, docked redeclaration reacquires exactly one, and Swarm
-  unload during a declaration gap can never register later;
+  unload during a declaration gap can never register later. Rebind also proves
+  exactly one current-face `openDetails()`, non-zero details width and Chat
+  reflow only after the layout face is wired; stale/failed rebind retains Peek
+  or inactive with zero Team entries;
 - Session switch and target disappearance proving entry release and physical
   read abort;
 - responsive tests proving atomic docked/Peek migration, real compact summary,
   and below-threshold zero Team details entries, zero details-column width,
-  restored Chat width and one Peek. Failed dock acquisition keeps Peek intact;
+  restored Chat width and one Peek. The persistent Tool action is focusable but
+  aria-disabled and announces its width requirement. Failed dock acquisition
+  keeps Peek intact;
 - locale tests switching DSH `zh -> en -> zh` while docked and Peek remain
   mounted; exhaustive enum and locale-aware time formatting; official theme
   `light -> dark -> system` token-resolution evidence with no plugin preference;
