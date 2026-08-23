@@ -18,13 +18,17 @@
 import { describe, expect, it } from 'vitest'
 import { dirname, join, resolve } from 'node:path'
 import {
+  collectOfficialBaselineEvidence,
   compareReleaseVersions,
   discoverOfficialCheckout,
   enclosingCheckoutCandidates,
   evaluateBaselineAnchor,
+  inspectOfficialCheckout,
   parseLsRemote,
   parseReleaseVersion,
   tagNameForRelease,
+  verifyLocalCheckout,
+  verifyReleaseReachability,
   type BaselineAnchorInput,
 } from '../scripts/verify-official-baseline.mjs'
 
@@ -321,5 +325,155 @@ describe('official checkout discovery', () => {
       },
     })).rejects.toThrow('DSH_OFFICIAL_CHECKOUT did not identify the pinned official DSH checkout')
     expect(inspected).toEqual([override])
+  })
+
+  it.each(['', ' ', '\t\r\n'])('treats an explicitly empty override as authoritative and invalid (%j)', async (override) => {
+    let inspected = false
+    await expect(discoverOfficialCheckout({
+      pluginRoot,
+      override,
+      baseline,
+      async inspect() {
+        inspected = true
+        return officialFacts
+      },
+    })).rejects.toThrow('DSH_OFFICIAL_CHECKOUT is empty')
+    expect(inspected).toBe(false)
+  })
+})
+
+describe('official checkout read-only boundary', () => {
+  const officialRoot = resolve(join('fixture', 'official'))
+  const evidenceRoot = resolve(join('fixture', 'temporary-bare-evidence'))
+
+  it('runs all reachability writes in a temporary bare repository and cleans it', async () => {
+    const trace: Array<{ args: string[], cwd: string | undefined }> = []
+    const removed: string[] = []
+    const reachable = await verifyReleaseReachability({
+      repository: 'https://example.invalid/official.git',
+      pin: PIN,
+      commit: NEWER_TIP,
+      async runGit(args, cwd) {
+        trace.push({ args, cwd })
+        return ''
+      },
+      async createEvidenceRepository() {
+        return evidenceRoot
+      },
+      async removeEvidenceRepository(directory) {
+        removed.push(directory)
+      },
+    })
+    expect(reachable).toBe(true)
+    expect(trace.map(call => call.args[0])).toEqual(['init', 'fetch', 'merge-base'])
+    expect(trace.every(call => call.cwd === evidenceRoot)).toBe(true)
+    expect(trace.some(call => call.args[0] === 'fetch' && call.args.includes(`${PIN}:refs/evidence/pin`))).toBe(true)
+    expect(removed).toEqual([evidenceRoot])
+  })
+
+  it('cleans the temporary repository when remote history cannot be fetched', async () => {
+    const removed: string[] = []
+    const reachable = await verifyReleaseReachability({
+      repository: 'https://example.invalid/official.git',
+      pin: PIN,
+      commit: NEWER_TIP,
+      async runGit(args) {
+        if (args[0] === 'fetch') throw new Error('offline')
+        return ''
+      },
+      async createEvidenceRepository() {
+        return evidenceRoot
+      },
+      async removeEvidenceRepository(directory) {
+        removed.push(directory)
+      },
+    })
+    expect(reachable).toBeNull()
+    expect(removed).toEqual([evidenceRoot])
+  })
+
+  it('limits the official checkout to read-only git commands', async () => {
+    const trace: Array<{ args: string[], cwd: string | undefined }> = []
+    const runGit = async (args: string[], cwd?: string): Promise<string> => {
+      trace.push({ args, cwd })
+      if (args.join(' ') === 'rev-parse --show-toplevel') return officialRoot
+      if (args.join(' ') === 'rev-parse HEAD') return PIN
+      if (args.join(' ') === 'show HEAD:package.json') {
+        return JSON.stringify({ name: '@deepseek-ai/dsh-root', version: '0.1.0-rc.8' })
+      }
+      if (args.join(' ') === 'status --porcelain') return ''
+      if (args[0] === 'show') return JSON.stringify({ name: '@deepseek-ai/example' })
+      throw new Error(`unexpected command ${args.join(' ')}`)
+    }
+    await inspectOfficialCheckout(officialRoot, runGit)
+    const local = await verifyLocalCheckout({
+      baseline: {
+        commit: PIN,
+        release: '0.1.0-rc.8',
+        packages: [{ path: 'packages/example', name: '@deepseek-ai/example', visibility: 'public' }],
+      },
+      checkout: officialRoot,
+      runGit,
+    })
+    expect(local.failures).toEqual([])
+    expect(trace.every(call => call.cwd === officialRoot)).toBe(true)
+    expect(new Set(trace.map(call => call.args[0]))).toEqual(new Set(['rev-parse', 'show', 'status']))
+  })
+})
+
+describe('official evidence aggregation', () => {
+  const remotePass = { failures: [], warnings: [], notes: [], anchorDetail: 'remote pass' }
+  const localPass = { failures: [] }
+
+  it('fails when remote evidence passes but local evidence fails', async () => {
+    const result = await collectOfficialBaselineEvidence({
+      async discover() { return 'official' },
+      async verifyRemote() { return remotePass },
+      async verifyLocal() { return { failures: ['local failed'] } },
+    })
+    expect(result.failures).toEqual(['local failed'])
+  })
+
+  it('still evaluates local evidence when remote evidence fails', async () => {
+    let localCalled = false
+    const result = await collectOfficialBaselineEvidence({
+      async discover() { return 'official' },
+      async verifyRemote() { return { ...remotePass, failures: ['remote failed'] } },
+      async verifyLocal() {
+        localCalled = true
+        return localPass
+      },
+    })
+    expect(localCalled).toBe(true)
+    expect(result.failures).toEqual(['remote failed'])
+  })
+
+  it('passes only when discovery and both evidence sides pass', async () => {
+    const result = await collectOfficialBaselineEvidence({
+      async discover() { return 'official' },
+      async verifyRemote() { return remotePass },
+      async verifyLocal() { return localPass },
+    })
+    expect(result.failures).toEqual([])
+    expect(result.anchorDetail).toBe('remote pass')
+  })
+
+  it('does not probe either evidence side after discovery fails', async () => {
+    let remoteCalled = false
+    let localCalled = false
+    const result = await collectOfficialBaselineEvidence({
+      async discover() { throw new Error('missing') },
+      async verifyRemote() {
+        remoteCalled = true
+        return remotePass
+      },
+      async verifyLocal() {
+        localCalled = true
+        return localPass
+      },
+    })
+    expect(result.failures.join(' ')).toContain('cannot discover official checkout')
+    expect(remoteCalled).toBe(false)
+    expect(localCalled).toBe(false)
   })
 })

@@ -7,8 +7,7 @@
 //    exactly on the pinned commit (both observed release flows — rc.8's
 //    141eb6f and 0.1.1-rc.1's 528c682 — tag the release merge SHA itself), or
 //    the tag's commit demonstrably contains the pin (`git merge-base
-//    --is-ancestor` after fetching just that commit into the evidence
-//    checkout, whose shallow boundary sits at the pin);
+//    --is-ancestor` inside a disposable bare evidence repository);
 // 2. tag-pending window (the official flow publishes npm before pushing the
 //    tag): the pin must still be the remote branch tip, or a verified
 //    ancestor of it, and the verdict carries an explicit warning;
@@ -21,8 +20,9 @@
 // The snapshot checks (checkout at the pin, clean tree, evidenceFiles,
 // package visibility) are unchanged from the HEAD-equality era.
 import { execFile } from 'node:child_process'
-import { readFile } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 
@@ -192,9 +192,10 @@ export function enclosingCheckoutCandidates(pluginRoot) {
  * never falls back to an enclosing repository.
  */
 export async function discoverOfficialCheckout({ pluginRoot, override, baseline, inspect }) {
-  const candidates = override === undefined || override.trim() === ''
-    ? enclosingCheckoutCandidates(pluginRoot)
-    : [resolve(override)]
+  if (override !== undefined && override.trim() === '') {
+    throw new Error('DSH_OFFICIAL_CHECKOUT is empty; refusing enclosing-repository fallback')
+  }
+  const candidates = override === undefined ? enclosingCheckoutCandidates(pluginRoot) : [resolve(override)]
   const pluginGitRoot = resolve(pluginRoot)
   const inspectedRoots = new Set()
 
@@ -214,8 +215,46 @@ export async function discoverOfficialCheckout({ pluginRoot, override, baseline,
     return checkout
   }
 
-  const source = override === undefined || override.trim() === '' ? 'enclosing repositories' : 'DSH_OFFICIAL_CHECKOUT'
+  const source = override === undefined ? 'enclosing repositories' : 'DSH_OFFICIAL_CHECKOUT'
   throw new Error(`${source} did not identify the pinned official DSH checkout`)
+}
+
+function emptyEvidence() {
+  return { failures: [], warnings: [], notes: [], anchorDetail: 'release anchor not evaluated' }
+}
+
+/**
+ * Keep discovery, remote release proof, and local checkout proof independent.
+ * Discovery failure blocks both dependent probes; once discovery succeeds,
+ * either evidence side still runs and either side can keep the verdict red.
+ */
+export async function collectOfficialBaselineEvidence({ discover, verifyRemote, verifyLocal }) {
+  const evidence = emptyEvidence()
+  let checkout
+  try {
+    checkout = await discover()
+  } catch (error) {
+    evidence.failures.push(`cannot discover official checkout: ${String(error)}`)
+    return evidence
+  }
+
+  try {
+    const remote = await verifyRemote()
+    evidence.failures.push(...remote.failures)
+    evidence.warnings.push(...remote.warnings)
+    evidence.notes.push(...remote.notes)
+    evidence.anchorDetail = remote.anchorDetail
+  } catch (error) {
+    evidence.failures.push(`cannot query official remote: ${String(error)}`)
+  }
+
+  try {
+    const local = await verifyLocal(checkout)
+    evidence.failures.push(...local.failures)
+  } catch (error) {
+    evidence.failures.push(`cannot verify discovered official checkout: ${String(error)}`)
+  }
+  return evidence
 }
 
 // ---------------------------------------------------------------------------
@@ -231,10 +270,10 @@ async function git(args, cwd) {
   return stdout.trim()
 }
 
-async function inspectOfficialCheckout(candidate) {
-  const checkout = await git(['rev-parse', '--show-toplevel'], candidate)
-  const head = await git(['rev-parse', 'HEAD'], checkout)
-  const manifest = JSON.parse(await git(['show', 'HEAD:package.json'], checkout))
+export async function inspectOfficialCheckout(candidate, runGit = git) {
+  const checkout = await runGit(['rev-parse', '--show-toplevel'], candidate)
+  const head = await runGit(['rev-parse', 'HEAD'], checkout)
+  const manifest = JSON.parse(await runGit(['show', 'HEAD:package.json'], checkout))
   return {
     root: checkout,
     head,
@@ -243,109 +282,120 @@ async function inspectOfficialCheckout(candidate) {
   }
 }
 
-async function verifyReleaseReachability(repository, checkout, pin, commit) {
-  // Fetch only the commits connecting `commit` to the pinned checkout: the
-  // evidence checkout is a depth-1 shallow clone rooted at the pin, so the
-  // fetch terminates at the existing shallow boundary. HEAD and the worktree
-  // stay untouched; only FETCH_HEAD and object storage are written, so the
-  // "detached at pin, clean tree" invariants below remain authoritative.
+export async function verifyReleaseReachability({
+  repository,
+  pin,
+  commit,
+  runGit = git,
+  createEvidenceRepository = () => mkdtemp(join(tmpdir(), 'dsh-official-release-')),
+  removeEvidenceRepository = directory => rm(directory, { recursive: true, force: true }),
+}) {
+  const evidenceRepository = await createEvidenceRepository()
   try {
-    await git(['fetch', '--quiet', '--no-tags', repository, commit], checkout)
+    await runGit(['init', '--bare', '--quiet'], evidenceRepository)
+    await runGit([
+      'fetch',
+      '--quiet',
+      '--no-tags',
+      '--filter=blob:none',
+      repository,
+      `${pin}:refs/evidence/pin`,
+      `${commit}:refs/evidence/target`,
+    ], evidenceRepository)
+    try {
+      await runGit(['merge-base', '--is-ancestor', 'refs/evidence/pin', 'refs/evidence/target'], evidenceRepository)
+      return true
+    } catch (error) {
+      // merge-base --is-ancestor exits 1 for "not an ancestor"; anything else
+      // is a real git failure and must not be read as a verdict.
+      return error.code === 1 ? false : null
+    }
   } catch {
     return null
+  } finally {
+    await removeEvidenceRepository(evidenceRepository)
   }
-  try {
-    await git(['merge-base', '--is-ancestor', pin, 'FETCH_HEAD'], checkout)
-    return true
-  } catch (error) {
-    // merge-base --is-ancestor exits 1 for "not an ancestor"; anything else
-    // is a real git failure and must not be read as a verdict.
-    return error.code === 1 ? false : null
+}
+
+async function verifyRemoteBaseline(baseline) {
+  const evidence = emptyEvidence()
+  const remote = await git(['ls-remote', baseline.repository, 'HEAD', `refs/heads/${baseline.branch}`, 'refs/tags/dsh-v*'])
+  const facts = parseLsRemote(remote, baseline.branch)
+  const input = {
+    pin: baseline.commit,
+    release: baseline.release,
+    branch: baseline.branch,
+    head: facts.head,
+    branchHead: facts.branchHead,
+    tags: facts.tags,
+    ancestry: { tag: null, head: null },
   }
+  let verdict = evaluateBaselineAnchor(input)
+  if (verdict.status === 'needs-ancestry') {
+    const request = verdict.ancestryRequest
+    const reachable = await verifyReleaseReachability({
+      repository: baseline.repository,
+      pin: input.pin,
+      commit: request.sha,
+    })
+    if (reachable === null) {
+      evidence.failures.push(`cannot prove that the pinned commit is contained in ${request.ref} (${request.sha}): the reachability check could not run (network failure or missing temporary evidence repository)`)
+    } else {
+      input.ancestry[request.fact] = reachable
+      verdict = evaluateBaselineAnchor(input)
+    }
+  }
+  evidence.warnings.push(...verdict.warnings)
+  evidence.notes.push(...verdict.notes)
+  if (verdict.status === 'pass') evidence.anchorDetail = verdict.detail
+  else evidence.failures.push(...verdict.failures)
+  return evidence
+}
+
+export async function verifyLocalCheckout({ baseline, checkout, runGit = git, readEvidenceFile = readFile }) {
+  const failures = []
+  const localHead = await runGit(['rev-parse', 'HEAD'], checkout)
+  if (localHead !== baseline.commit) failures.push(`official checkout HEAD is ${localHead}, baseline is ${baseline.commit}`)
+  const dirty = await runGit(['status', '--porcelain'], checkout)
+  if (dirty !== '') failures.push('official checkout is dirty')
+
+  for (const evidenceFile of baseline.evidenceFiles ?? []) {
+    try {
+      await readEvidenceFile(resolve(checkout, evidenceFile), 'utf8')
+    } catch {
+      failures.push(`official evidence file is not materialized in the checkout: ${evidenceFile}`)
+    }
+  }
+
+  for (const expected of baseline.packages) {
+    const raw = await runGit(['show', `${baseline.commit}:${expected.path}/package.json`], checkout)
+    const manifest = JSON.parse(raw)
+    if (manifest.name !== expected.name) {
+      failures.push(`${expected.path}: expected ${expected.name}, found ${manifest.name ?? 'unnamed'}`)
+    }
+    if (expected.visibility === 'private') {
+      if (manifest.private !== true) failures.push(`${expected.name}: expected private package`)
+      if (manifest.publishConfig !== undefined) failures.push(`${expected.name}: private package must not publish`)
+    } else if (manifest.private === true) {
+      failures.push(`${expected.name}: expected published/public package`)
+    }
+  }
+  return { failures }
 }
 
 async function main() {
   const baseline = JSON.parse(await readFile(resolve(root, 'docs/OFFICIAL_BASELINE.json'), 'utf8'))
-  const failures = []
-  const warnings = []
-  const notes = []
-  let anchorDetail = 'release anchor not evaluated'
-  let checkout
-
-  try {
-    checkout = await discoverOfficialCheckout({
+  const evidence = await collectOfficialBaselineEvidence({
+    discover: () => discoverOfficialCheckout({
       pluginRoot: root,
       override: process.env.DSH_OFFICIAL_CHECKOUT,
       baseline,
       inspect: inspectOfficialCheckout,
-    })
-  } catch (error) {
-    failures.push(`cannot discover official checkout: ${String(error)}`)
-  }
-
-  if (checkout !== undefined) {
-    try {
-      const remote = await git(['ls-remote', baseline.repository, 'HEAD', `refs/heads/${baseline.branch}`, 'refs/tags/dsh-v*'])
-      const facts = parseLsRemote(remote, baseline.branch)
-      const input = {
-        pin: baseline.commit,
-        release: baseline.release,
-        branch: baseline.branch,
-        head: facts.head,
-        branchHead: facts.branchHead,
-        tags: facts.tags,
-        ancestry: { tag: null, head: null },
-      }
-      let verdict = evaluateBaselineAnchor(input)
-      if (verdict.status === 'needs-ancestry') {
-        const request = verdict.ancestryRequest
-        const reachable = await verifyReleaseReachability(baseline.repository, checkout, input.pin, request.sha)
-        if (reachable === null) {
-          failures.push(`cannot prove that the pinned commit is contained in ${request.ref} (${request.sha}): the reachability check could not run (network failure or missing local history)`)
-        } else {
-          input.ancestry[request.fact] = reachable
-          verdict = evaluateBaselineAnchor(input)
-        }
-      }
-      warnings.push(...verdict.warnings)
-      notes.push(...verdict.notes)
-      if (verdict.status === 'pass') anchorDetail = verdict.detail
-      else failures.push(...verdict.failures)
-    } catch (error) {
-      failures.push(`cannot query official remote: ${String(error)}`)
-    }
-
-    try {
-      const localHead = await git(['rev-parse', 'HEAD'], checkout)
-      if (localHead !== baseline.commit) failures.push(`official checkout HEAD is ${localHead}, baseline is ${baseline.commit}`)
-      const dirty = await git(['status', '--porcelain'], checkout)
-      if (dirty !== '') failures.push('official checkout is dirty')
-
-      for (const evidenceFile of baseline.evidenceFiles ?? []) {
-        try {
-          await readFile(resolve(checkout, evidenceFile), 'utf8')
-        } catch {
-          failures.push(`official evidence file is not materialized in the checkout: ${evidenceFile}`)
-        }
-      }
-
-      for (const expected of baseline.packages) {
-        const raw = await git(['show', `${baseline.commit}:${expected.path}/package.json`], checkout)
-        const manifest = JSON.parse(raw)
-        if (manifest.name !== expected.name) {
-          failures.push(`${expected.path}: expected ${expected.name}, found ${manifest.name ?? 'unnamed'}`)
-        }
-        if (expected.visibility === 'private') {
-          if (manifest.private !== true) failures.push(`${expected.name}: expected private package`)
-          if (manifest.publishConfig !== undefined) failures.push(`${expected.name}: private package must not publish`)
-        } else if (manifest.private === true) {
-          failures.push(`${expected.name}: expected published/public package`)
-        }
-      }
-    } catch (error) {
-      failures.push(`cannot verify discovered official checkout: ${String(error)}`)
-    }
-  }
+    }),
+    verifyRemote: () => verifyRemoteBaseline(baseline),
+    verifyLocal: checkout => verifyLocalCheckout({ baseline, checkout }),
+  })
+  const { failures, warnings, notes, anchorDetail } = evidence
 
   if (failures.length > 0) {
     console.error('Official-first baseline verification failed:')

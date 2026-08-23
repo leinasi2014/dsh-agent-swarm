@@ -46,15 +46,16 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "verify:scenarios": "node scripts/verify-test-scenarios.mjs",
+    "verify:workspace": "node scripts/verify-workspace-boundary.mjs && node scripts/test-workspace-boundary-gate.mjs",
     "verify:official": "node scripts/verify-official-baseline.mjs",
     "verify:references": "node scripts/verify-reference-baselines.mjs",
     "verify:anchors": "node scripts/verify-doc-anchors.mjs",
     "verify:governance": "node scripts/verify-governance.mjs && node scripts/test-governance-gate.mjs",
     "verify:worktrees": "node scripts/verify-worktree-layout.mjs && node scripts/test-worktree-layout-gate.mjs",
-    "verify:gate-a": "pnpm verify:official && pnpm verify:references",
+    "verify:gate-a": "pnpm verify:workspace && pnpm verify:official && pnpm verify:references",
     "verify:structure": "node scripts/verify-project.mjs",
     "verify:artifact": "node scripts/verify-package-artifact.mjs",
-    "verify": "pnpm verify:governance && pnpm verify:worktrees && pnpm verify:structure && pnpm lint && pnpm verify:duplication && pnpm verify:exports && pnpm typecheck && pnpm typecheck:test && pnpm test && pnpm verify:scenarios && pnpm build && pnpm verify:artifact"
+    "verify": "pnpm verify:governance && pnpm verify:workspace && pnpm verify:worktrees && pnpm verify:structure && pnpm lint && pnpm verify:duplication && pnpm verify:exports && pnpm typecheck && pnpm typecheck:test && pnpm test && pnpm verify:scenarios && pnpm build && pnpm verify:artifact"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",

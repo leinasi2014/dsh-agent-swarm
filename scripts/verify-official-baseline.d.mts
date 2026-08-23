@@ -85,3 +85,39 @@ export function discoverOfficialCheckout(input: {
   baseline: OfficialCheckoutBaseline
   inspect(candidate: string): Promise<OfficialCheckoutFacts>
 }): Promise<string>
+
+export interface OfficialEvidenceResult {
+  failures: string[]
+  warnings: string[]
+  notes: string[]
+  anchorDetail: string
+}
+
+export function collectOfficialBaselineEvidence(input: {
+  discover(): Promise<string>
+  verifyRemote(): Promise<OfficialEvidenceResult>
+  verifyLocal(checkout: string): Promise<{ failures: string[] }>
+}): Promise<OfficialEvidenceResult>
+
+export type GitProbe = (args: string[], cwd?: string) => Promise<string>
+
+export function inspectOfficialCheckout(candidate: string, runGit?: GitProbe): Promise<OfficialCheckoutFacts>
+
+export function verifyReleaseReachability(input: {
+  repository: string
+  pin: string
+  commit: string
+  runGit?: GitProbe
+  createEvidenceRepository?: () => Promise<string>
+  removeEvidenceRepository?: (directory: string) => Promise<void>
+}): Promise<boolean | null>
+
+export function verifyLocalCheckout(input: {
+  baseline: OfficialCheckoutBaseline & {
+    evidenceFiles?: string[]
+    packages: Array<{ path: string, name: string, visibility: 'private' | 'public' }>
+  }
+  checkout: string
+  runGit?: GitProbe
+  readEvidenceFile?: (path: string, encoding: 'utf8') => Promise<unknown>
+}): Promise<{ failures: string[] }>

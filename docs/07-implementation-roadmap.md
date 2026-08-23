@@ -39,7 +39,7 @@ I4/I5 + M6/M7/M8 evidence -> M9 migration/package/release
 
 冻结一个产品方向：用户安装的官方 DSH 是唯一 Agent Runtime/Profile/Session/preset 权威；Swarm 是纯插件和 Team/HumanInteraction 唯一 producer；DSH UI 与 Canvas 是宿主原生消费者。
 
-允许开发 checkout 在文件系统中嵌套于官方 DSH，但 G0 不把该目录登记为官方 workspace package，不修改官方 manifest/lock/config，也不从物理路径推导兼容性。Gate A 必须通过 enclosing Git root、官方根 package identity、release 与 commit 发现只读宿主；真实验收由独立插件 artifact 经官方 Profile/Bundle Loader 装配完成。
+允许开发 checkout 在文件系统中嵌套于官方 DSH，但 G0 必须把它放在官方 workspace glob 之外（当前迁移目标为 `packages/.external/dsh-agent-swarm`），并由插件根 workspace boundary 解析自己的 pnpm/Vitest 工具链；不修改官方 manifest/lock/config，也不从物理路径推导兼容性。Gate A 必须通过 enclosing Git root、官方根 package identity、release 与 commit 发现只读宿主；真实验收由独立插件 artifact 经官方 Profile/Bundle Loader 装配完成。
 
 ### Non-goals
 
@@ -53,6 +53,7 @@ I4/I5 + M6/M7/M8 evidence -> M9 migration/package/release
 - `docs/GOALS.md`、vision、capability architecture、roadmap 与 fusion/source 记录一致；
 - Gate A 对审查过的官方/reference identity 通过；
 - 新旧物理布局下 Gate A 都能发现并验证官方只读宿主，错误 override、非官方 root、错误 release/commit 和不可验证状态均 fail closed；
+- `pnpm verify:workspace` 证明 workspace root 与 Vitest 3.x 都解析自插件自身，父宿主工具链不可作为回退；
 - 独立插件 artifact 的真实 Profile/Bundle 装配能够证明加载、卸载和无官方工作区修改；
 - 旧 dual-host/Canvas-owned-Team 文档已删除或显式 supersede，且保留 Git 恢复身份；
 - 项目治理和文档链接通过，stable documents 没有动态任务状态。

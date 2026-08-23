@@ -6,7 +6,7 @@
 
 以 official-first 的纯插件方式，为用户安装的完整官方 DeepSeek Harness 提供持久、可审查、可恢复的多 Agent 团队协作能力。官方 DSH 是唯一 Agent Runtime、Profile、Session、preset 和交互服务宿主；本插件通过公开 seam 组合 Team、Workflow、Jobs、Storage Domain、Subagent、问题/审批、Host/RPC 与 UI Consumer，不嵌入或维护第二套 Agent Runtime。
 
-源码可以物理嵌套于官方 DSH checkout 内以缩短兼容验证路径，但插件始终保持独立 Git、独立 package/workspace 和独立发布权威。物理嵌套不把插件变成官方 workspace member，也不授权修改官方 DSH 的源码、manifest、lock、配置或发布状态；官方 checkout 只作为版本身份与真实 Profile/Bundle 装配的只读验收宿主，具体目录不是兼容性证据。
+源码可以物理嵌套于官方 DSH checkout 内以缩短兼容验证路径，但目录必须避开官方 workspace glob，并由插件根 `pnpm-workspace.yaml` 固定独立工具链边界；插件始终保持独立 Git、独立 package/workspace 和独立发布权威。物理嵌套不把插件变成官方 workspace member，也不授权修改官方 DSH 的源码、manifest、lock、配置或发布状态；官方 checkout 只作为版本身份与真实 Profile/Bundle 装配的只读验收宿主，具体目录不是兼容性证据。
 
 在 Team 协作域内，`TeamDomainPort` 是 roster、task/DAG、attempt、mailbox 和 budget 的唯一写权威；本插件未来提供的 `HumanInteractionPort` 是 Team 人机请求、receipt 和 timeline 的唯一生产者。Canvas、官方 DSH UI、命令行和其他客户端都是消费者或宿主适配器，不能从 transcript、浏览器缓存或本地 Map 重建第二份 Team/HumanInteraction 真源。
 
