@@ -25,8 +25,8 @@ export function apply(ctx: ClientContext): void {
   ctx.on('connection/reset', () => { controller.connectionReset() })
   ctx.effect(() => ctx.locale.register(TEAM_DASHBOARD_NS, { zh, en }), 'swarm Team dashboard dictionaries')
 
-  ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
-    name: 'conversation.session.header.actions',
+  ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
+    name: 'conversation.session.header.utilities',
     id: 'swarm-team',
     order: 30,
     locale: TEAM_DASHBOARD_NS,

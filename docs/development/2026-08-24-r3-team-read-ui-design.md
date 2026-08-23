@@ -1,26 +1,27 @@
 # R3 Team read UI and Captain Chat handoff
 
-- Status: implementation candidate
-- Base: `768828ee21c16727bc0a7deae8c1a39e365d6481`
+- Status: presentation revision candidate
+- Base: `0a62e839670f5a0467bfa322c58f39b10aa8f894`
 - Official DSH: `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`
 - Lane: S2/MEDIUM UI consumer with one S3/HIGH identity-sensitive handoff
 - Scope: Swarm package only; official DSH remains a read-only validation host
 
 ## Outcome
 
-R3 adds the first DSH-native browser surface for the accepted R2 read contract. It is an additive Session-header action that opens an official overlay, not a replacement conversation view. The overlay reads only the packed public `/swarm/v1` client and shows the exact Host-projected Team, roster, tasks, attempts, budget, pending interactions and capability ceiling.
+R3 adds the first DSH-native browser surface for the accepted R2 read contract. Its current presentation is an icon-only Session-header utility that opens a plugin-owned, non-modal right Peek Drawer, not a replacement conversation view. At widths up to 720px the same drawer becomes a full-viewport surface. It reads only the packed public `/swarm/v1` client and shows the exact Host-projected Team, roster, tasks, attempts, budget, pending interactions and capability ceiling.
 
 The action can be invoked from any displayed Session, but the browser Session id is only a target hint. The R2 Host must independently prove that it is the exact live root Agent/Session/roots/workspace/Captain binding before any Team data renders.
 
 ## Official seams
 
-- `conversation.session.header.actions` is the additive, Session-scoped entry point. It receives the framework-owned `sessionId`; it does not replace the official header or Chat.
-- `shell.overlay` is the additive root-level floating layer. The panel uses the official `Modal`, `Button`, `Pill` and state primitives and only `--dsw-*` theme tokens.
+- `conversation.session.header.utilities` is the additive, Session-scoped right-header entry point. It receives the framework-owned `sessionId`; it does not replace the official header or Chat.
+- `shell.overlay` is the additive root-level floating layer. The direct plugin wrapper remains pointer-transparent and only the right drawer accepts pointer input, so the uncovered official Chat remains interactive. The drawer uses official `Button`, icons, `Pill`, state primitives and `--dsw-*` theme tokens; official DSH exposes no public Drawer primitive.
+- The drawer has no backdrop, focus trap or `aria-modal` claim. Escape and the close control restore focus to the active Team trigger. The 720px responsive rule changes only geometry, not data ownership or interaction authority.
 - `ctx.locale.register()` owns bilingual copy and follows the official live locale.
 - `ctx.sessions.open(rootSessionId)` is the only navigation operation. The plugin does not manipulate URLs, click DOM-owned tabs or import package-private Chat stores.
 - Cordis effects and slot registrations own unload. The read controller aborts every in-flight fetch and timer on close or disposal.
 
-The official conversation package exposes no public `setView` operation. Its view selection is a package-private Chat store action. R3 therefore keeps Chat authoritative and displays Team in an overlay; “Open Captain Chat” closes the overlay after official Session navigation rather than reaching into private view state.
+The official conversation package exposes no public `setView` operation. Its view selection is a package-private Chat store action. R3 therefore keeps Chat authoritative and displays Team in the Peek Drawer; “Open Captain Chat” closes the drawer after official Session navigation rather than reaching into private view state. The plugin does not register the single-owner `details` seat because doing so would replace official Tool Details.
 
 ## Read lifecycle
 
@@ -40,10 +41,10 @@ This is target-bound local-single-user navigation, not authentication or a human
 
 - packed server-to-client contract tests for every rendered field and capability ceiling;
 - strict pagination, mixed cursor, target switch, retry/stale and abort/dispose tests;
-- slot registration/unregistration, locale, keyboard/Escape and accessible dialog/controls;
+- slot registration/unregistration, locale, icon toggle state, non-modal semantics, keyboard/Escape focus return and accessible controls;
 - Captain handoff success plus forged root, non-Captain, Session switch and missing Session negatives;
 - packed client bundle purity and exact Host/client contract identity;
-- fresh isolated official Profile with a real live root/Captain Team, explicit browser locator/version, zero unclassified console/page errors, real render, screenshot, keyboard path, exact official `dsh.sessions.current` root binding after Chat handoff and reload, disable/unload and R0 proof. The fixture first adopts the path through official `workspace.create` and creates the root with that `workspaceId`; a test-only probe appends and flushes one empty closed turn only when the exact root has no existing turn, so the Session is nonblank without LLM/network or a fabricated human message and reload never duplicates it. Official list/accounting evidence must prove the attached Workspace, nonblank Session and exact root before UI acceptance. The fresh browser context then seeds only the pinned official SessionRuntime selection key before load; evidence binds its key/value and official source blob/digest, while R2 still independently reauthorizes the framework-emitted target hint. R0 follows the official loader rather than retaining a disabled UI: the disabled inventory row, absent Team action/dashboard and zero rendered Team data are required in the zero-console browser, while a runner-owned Node fetch must observe the exact rc.2 Host fallback triple (`405`, zero UTF-8 body bytes, null content-type) before owner/unregistered status is derived; remove proves package/inventory disappearance. The proof handles the optional official onboarding sequence only through its real accessible keyboard actions: Continue for the testing notice, then Configure later for API-key setup; it records both steps and never enters or fabricates a key;
+- fresh isolated official Profile with a real live root/Captain Team, explicit browser locator/version, zero unclassified console/page errors, desktop and 680px screenshots, desktop right-edge and narrow full-width geometry, real pointer access to the uncovered official Chat, keyboard close/focus return, exact official `dsh.sessions.current` root binding after Chat handoff and reload, disable/unload and R0 proof. The fixture first adopts the path through official `workspace.create` and creates the root with that `workspaceId`; a test-only probe appends and flushes one empty closed turn only when the exact root has no existing turn, so the Session is nonblank without LLM/network or a fabricated human message and reload never duplicates it. Official list/accounting evidence must prove the attached Workspace, nonblank Session and exact root before UI acceptance. The fresh browser context then seeds only the pinned official SessionRuntime selection key before load; evidence binds its key/value and official source blob/digest, while R2 still independently reauthorizes the framework-emitted target hint. R0 follows the official loader rather than retaining a disabled UI: the disabled inventory row, absent Team action/dashboard and zero rendered Team data are required in the zero-console browser, while a runner-owned Node fetch must observe the exact rc.2 Host fallback triple (`405`, zero UTF-8 body bytes, null content-type) before owner/unregistered status is derived; remove proves package/inventory disappearance. The proof handles the optional official onboarding sequence only through its real accessible keyboard actions: Continue for the testing notice, then Configure later for API-key setup; it records both steps and never enters or fabricates a key;
 - full project verification, clean official before/after evidence and non-author candidate review.
 
 ## Non-goals

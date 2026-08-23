@@ -1,10 +1,17 @@
-import { useEffect, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
-import { Button, Modal, Pill, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useEffect, useId, useState, useSyncExternalStore, type ReactNode } from 'react'
+import {
+  Button,
+  IconCloseOutline16,
+  IconRefreshOutline16,
+  Pill,
+  StateDot,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { SwarmHostReadProjectionV1 } from '../host/host-read-types.js'
 import type { TeamDashboardController, TeamDashboardState } from './team-dashboard-controller.js'
 import { TEAM_DASHBOARD_NS } from './team-dashboard-locales.js'
+import TEAM_DASHBOARD_STYLES from './team-dashboard-styles.js'
 
 export interface TeamDashboardOverlayInjected {
   readonly controller: TeamDashboardController
@@ -15,26 +22,35 @@ export type TeamDashboardOverlayProps = PropsRuntime<'shell.overlay'>
   & PropsLocale<typeof TEAM_DASHBOARD_NS>
   & TeamDashboardOverlayInjected
 
-const stack: CSSProperties = { display: 'grid', gap: 12 }
-const grid: CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }
-const card: CSSProperties = {
-  minWidth: 0,
-  padding: 12,
-  border: '1px solid var(--dsw-alias-border-l2)',
-  borderRadius: 12,
-  background: 'var(--dsw-alias-bg-base)',
-}
-const title: CSSProperties = { margin: '0 0 8px', fontSize: 14, color: 'var(--dsw-alias-text-primary)' }
-const list: CSSProperties = { display: 'grid', gap: 6, margin: 0, padding: 0, listStyle: 'none' }
-const row: CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, minWidth: 0 }
-const muted: CSSProperties = { color: 'var(--dsw-alias-text-secondary)', fontSize: 12 }
+type DashboardTab = 'overview' | 'members' | 'work' | 'diagnostics'
 
-/** Root overlay that renders only while the controller owns an open target. */
+/** Non-modal right Peek Drawer; the official Chat remains visible and interactive. */
 export function TeamDashboardOverlay({ controller, openCaptainChat, t }: TeamDashboardOverlayProps) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot)
   const [handoffBusy, setHandoffBusy] = useState(false)
+  const [tab, setTab] = useState<DashboardTab>('overview')
+  const headingId = useId()
+  const descriptionId = useId()
+
+  const closeAndRestoreFocus = (): void => {
+    const trigger = document.querySelector<HTMLButtonElement>('[data-swarm-team-trigger][aria-expanded="true"]')
+    controller.close()
+    queueMicrotask(() => { trigger?.focus() })
+  }
+
+  useEffect(() => {
+    if (!state.open) return
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return
+      event.preventDefault()
+      closeAndRestoreFocus()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => { document.removeEventListener('keydown', onKeyDown) }
+  }, [controller, state.open])
 
   useEffect(() => () => { controller.close() }, [controller])
+  useEffect(() => { if (!state.open) setTab('overview') }, [state.open])
 
   const handoff = (): void => {
     if (handoffBusy) return
@@ -45,27 +61,66 @@ export function TeamDashboardOverlay({ controller, openCaptainChat, t }: TeamDas
   }
 
   return (
-    <Modal
-      open={state.open}
-      onClose={() => { controller.close() }}
-      title={t('title')}
-      closeLabel={t('close')}
-      description={t('description')}
-      footer={(
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, width: '100%' }}>
-          <Button variant="ghost" onClick={() => { controller.refresh() }}>{t('refresh')}</Button>
-          <Button autoFocus variant="primary" disabled={state.data === undefined || handoffBusy} onClick={handoff}>
-            {handoffBusy ? t('openingChat') : t('openChat')}
-          </Button>
+    <>
+      <style>{TEAM_DASHBOARD_STYLES}</style>
+      {state.open && (
+        <div data-swarm-team-layer style={{ pointerEvents: 'none' }}>
+          <aside
+            id="swarm-team-peek-drawer"
+            role="complementary"
+            aria-labelledby={headingId}
+            aria-describedby={descriptionId}
+            data-swarm-team-drawer
+            data-swarm-team-dashboard
+            data-phase={state.phase}
+          >
+            <header data-swarm-team-header>
+              <div data-swarm-team-heading>
+                <h2 id={headingId}>{t('title')}</h2>
+                <p id={descriptionId}>{t('description')}</p>
+              </div>
+              <Button autoFocus size="sm" variant="toolbar" aria-label={t('close')} title={t('close')} onClick={closeAndRestoreFocus}>
+                <IconCloseOutline16 />
+              </Button>
+            </header>
+            <Tabs active={tab} select={setTab} t={t} />
+            <main data-swarm-team-body>
+              <div data-swarm-team-stack>
+                <Status state={state} t={t} />
+                {state.data === undefined
+                  ? <EmptyState state={state} t={t} controller={controller} />
+                  : <Dashboard data={state.data.projection} active={tab} t={t} />}
+              </div>
+            </main>
+            <footer data-swarm-team-footer>
+              <Button size="sm" variant="ghost" icon={<IconRefreshOutline16 />} onClick={() => { controller.refresh() }}>
+                {t('refresh')}
+              </Button>
+              <Button size="sm" variant="primary" disabled={state.data === undefined || handoffBusy} onClick={handoff}>
+                {handoffBusy ? t('openingChat') : t('openChat')}
+              </Button>
+            </footer>
+          </aside>
         </div>
       )}
-    >
-      <div style={stack} data-swarm-team-dashboard data-phase={state.phase}>
-        <Status state={state} t={t} />
-        {state.data === undefined ? <EmptyState state={state} t={t} controller={controller} /> : <Dashboard data={state.data.projection} t={t} />}
-        <p style={{ ...muted, margin: 0 }}>{t('trust')}</p>
-      </div>
-    </Modal>
+    </>
+  )
+}
+
+function Tabs({ active, select, t }: {
+  active: DashboardTab
+  select: (tab: DashboardTab) => void
+  t: TranslateNS<typeof TEAM_DASHBOARD_NS>
+}) {
+  const tabs: readonly DashboardTab[] = ['overview', 'members', 'work', 'diagnostics']
+  return (
+    <div role="tablist" aria-label={t('tabs.label')} data-swarm-team-tabs>
+      {tabs.map(tab => (
+        <button key={tab} type="button" role="tab" aria-selected={active === tab} onClick={() => { select(tab) }}>
+          {t(`tabs.${tab}`)}
+        </button>
+      ))}
+    </div>
   )
 }
 
@@ -76,9 +131,8 @@ function Status({ state, t }: { state: TeamDashboardState; t: TranslateNS<typeof
     : state.phase === 'reconnecting' ? t('reconnecting')
       : state.phase === 'stale' ? t('stale') : t('error')
   return (
-    <div role={failed ? 'alert' : 'status'} aria-live="polite" style={{ ...row, justifyContent: 'flex-start' }}>
-      <StateDot state={failed ? 'warning' : 'ongoing'} />
-      <span>{label}</span>
+    <div role={failed ? 'alert' : 'status'} aria-live="polite" data-swarm-team-row>
+      <span><StateDot state={failed ? 'warning' : 'ongoing'} /> {label}</span>
       {state.error === undefined ? null : <code title={state.error.message}>{state.error.code}</code>}
     </div>
   )
@@ -93,30 +147,23 @@ function EmptyState({ state, t, controller }: {
   return <Button variant="outline" onClick={() => { controller.reconnect() }}>{t('retry')}</Button>
 }
 
-function Dashboard({ data, t }: { data: SwarmHostReadProjectionV1; t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
-  return (
-    <div style={stack}>
-      <div style={grid}>
-        <Section heading={t('team')}>
-          <Fact label={data.team.name} value={data.team.phase} />
-          <Fact label={t('revision')} value={String(data.team.revision)} />
-          <Fact label={t('updated')} value={new Date(data.team.updatedAt).toLocaleString()} />
-        </Section>
-        <Section heading={t('budget')}>
-          <Fact label={t('usedTokens')} value={limit(data.budget.usedTokens, data.budget.tokenLimit)} />
-          <Fact label={t('usedRequests')} value={limit(data.budget.usedRequests, data.budget.requestLimit)} />
-          <Fact label={t('usedRetries')} value={limit(data.budget.usedRetries, data.budget.retryLimit)} />
-        </Section>
-      </div>
-      <div style={grid}>
-        <Section heading={`${t('members')} (${String(data.totals.roster)})`}>
-          <Rows empty={t('empty')} rows={data.roster.map(member => ({
-            key: member.name,
-            primary: member.name,
-            secondary: member.role,
-            state: member.phase,
-          }))} />
-        </Section>
+function Dashboard({ data, active, t }: {
+  data: SwarmHostReadProjectionV1
+  active: DashboardTab
+  t: TranslateNS<typeof TEAM_DASHBOARD_NS>
+}) {
+  if (active === 'members') {
+    return (
+      <Section heading={`${t('members')} (${String(data.totals.roster)})`}>
+        <Rows empty={t('empty')} rows={data.roster.map(member => ({
+          key: member.name, primary: member.name, secondary: member.role, state: member.phase,
+        }))} />
+      </Section>
+    )
+  }
+  if (active === 'work') {
+    return (
+      <div data-swarm-team-stack>
         <Section heading={`${t('tasks')} (${String(data.totals.tasks)})`}>
           <Rows empty={t('empty')} rows={data.tasks.map(task => ({
             key: task.id,
@@ -135,47 +182,84 @@ function Dashboard({ data, t }: { data: SwarmHostReadProjectionV1; t: TranslateN
             state: attempt.phase,
           }))} />
         </Section>
-        <Section heading={`${t('interactions')} (${String(data.totals.pendingInteractions)})`}>
-          <Rows empty={t('empty')} rows={data.pendingInteractions.map(interaction => ({
-            key: interaction.requestId,
-            primary: interaction.intent,
-            secondary: t('target', { kind: interaction.targetKind }),
-            state: interaction.status,
-          }))} />
-        </Section>
       </div>
-      <Section heading={t('capabilities')}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-          {data.capabilities.map(capability => (
-            <Pill key={capability.capability} active={capability.state === 'available'}>
-              {capability.capability}: {t(capability.state)}
-            </Pill>
-          ))}
-        </div>
+    )
+  }
+  if (active === 'diagnostics') {
+    return (
+      <div data-swarm-team-stack>
+        <Section heading={t('capabilities')}>
+          <div data-swarm-team-pills>
+            {data.capabilities.map(capability => (
+              <Pill key={capability.capability} active={capability.state === 'available'}>
+                {capability.capability}: {t(capability.state)}
+              </Pill>
+            ))}
+          </div>
+        </Section>
+        <details data-swarm-team-diagnostics>
+          <summary>{t('trustDetails')}</summary>
+          <p data-swarm-team-muted>{t('trust')}</p>
+        </details>
+      </div>
+    )
+  }
+  return <Overview data={data} t={t} />
+}
+
+function Overview({ data, t }: { data: SwarmHostReadProjectionV1; t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
+  return (
+    <div data-swarm-team-stack>
+      <div data-swarm-team-summary>
+        <Stat value={String(data.totals.roster)} label={t('members')} />
+        <Stat value={String(data.totals.tasks)} label={t('tasks')} />
+        <Stat value={String(data.totals.pendingInteractions)} label={t('interactions')} />
+      </div>
+      <Section heading={data.team.name}>
+        <Fact label={t('status')} value={data.team.phase} />
+        <Fact label={t('revision')} value={String(data.team.revision)} />
+        <Fact label={t('updated')} value={new Date(data.team.updatedAt).toLocaleString()} />
+      </Section>
+      <Section heading={t('budget')}>
+        <Fact label={t('usedTokens')} value={limit(data.budget.usedTokens, data.budget.tokenLimit)} />
+        <Fact label={t('usedRequests')} value={limit(data.budget.usedRequests, data.budget.requestLimit)} />
+        <Fact label={t('usedRetries')} value={limit(data.budget.usedRetries, data.budget.retryLimit)} />
+      </Section>
+      <Section heading={`${t('interactions')} (${String(data.totals.pendingInteractions)})`}>
+        <Rows empty={t('empty')} rows={data.pendingInteractions.map(interaction => ({
+          key: interaction.requestId,
+          primary: interaction.intent,
+          secondary: t('target', { kind: interaction.targetKind }),
+          state: interaction.status,
+        }))} />
       </Section>
     </div>
   )
 }
 
+function Stat({ value, label }: { value: string; label: string }) {
+  return <div data-swarm-team-stat><strong>{value}</strong><span>{label}</span></div>
+}
+
 function Section({ heading, children }: { heading: string; children: ReactNode }) {
-  return <section style={card}><h3 style={title}>{heading}</h3>{children}</section>
+  return <section data-swarm-team-section><h3>{heading}</h3>{children}</section>
 }
 
 function Fact({ label, value }: { label: string; value: string }) {
-  return <div style={row}><span style={muted}>{label}</span><span>{value}</span></div>
+  return <div data-swarm-team-row><span data-swarm-team-muted>{label}</span><span>{value}</span></div>
 }
 
 function Rows({ empty, rows }: {
   empty: string
   rows: readonly { readonly key: string; readonly primary: string; readonly secondary: string; readonly state: string }[]
 }) {
-  if (rows.length === 0) return <span style={muted}>{empty}</span>
+  if (rows.length === 0) return <span data-swarm-team-muted>{empty}</span>
   return (
-    <ul style={list}>
+    <ul data-swarm-team-list>
       {rows.map(item => (
-        <li key={item.key} style={row}>
-          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }} title={item.primary}>{item.primary}</span>
-          <span style={{ ...muted, whiteSpace: 'nowrap' }} title={item.secondary}>{item.state}</span>
+        <li key={item.key} data-swarm-team-row>
+          <span title={item.primary}>{item.primary}</span>
+          <span data-swarm-team-muted title={item.secondary}>{item.state}</span>
         </li>
       ))}
     </ul>
