@@ -216,13 +216,22 @@ async function readWorkspaceSessionAccounting({
   return fixture
 }
 
-function assertSessionFixture(target, expectedMode) {
+function assertSessionFixture(target, expectedMode, expectedEvents) {
   const fixture = target?.sessionFixture
-  const expectedEvents = [{ seq: 0, type: 'turn/start' }, { seq: 1, type: 'turn/end' }]
-  if (fixture?.mode !== expectedMode || JSON.stringify(fixture?.events) !== JSON.stringify(expectedEvents)
+  const events = fixture?.events
+  const shapeOk = Array.isArray(events) && events.length === 2
+    && events[0]?.type === 'turn/start' && Number.isSafeInteger(events[0]?.seq)
+    && events[0]?.turn === 1
+    && events[1]?.type === 'turn/end' && events[1]?.seq === events[0].seq + 1
+    && events[1]?.turn === 1 && JSON.stringify(events[1]?.reason) === JSON.stringify({ kind: 'completed' })
+  if (fixture?.mode !== expectedMode || !shapeOk
+    || (expectedEvents !== undefined && JSON.stringify(events) !== JSON.stringify(expectedEvents))
+    || (expectedMode === 'seeded' && fixture?.priorTurnStarts !== 0)
+    || (expectedMode === 'reused' && fixture?.priorTurnStarts !== 1)
     || fixture?.flushParticipated !== (expectedMode === 'seeded')) {
     throw new Error(`official closed-turn fixture mismatch: ${JSON.stringify(fixture)}`)
   }
+  return events
 }
 
 async function waitForTarget(probePath, rootSessionId, minimumCount) {
@@ -425,7 +434,7 @@ async function main() {
       port: args.port, evidenceDir, label: 'r3', workspaceRoot, rootSessionId, expectedCreated: true,
     })
     const targetReady = await waitForTarget(probePath, rootSessionId, 1)
-    assertSessionFixture(targetReady, 'seeded')
+    const seededEvents = assertSessionFixture(targetReady, 'seeded')
     const teamId = targetReady.teamId
     if (typeof teamId !== 'string' || teamId.length === 0 || targetReady.resumed !== false) {
       throw new Error(`fresh R2 captain Team was not created through the real runtime: ${JSON.stringify(targetReady)}`)
@@ -506,7 +515,7 @@ async function main() {
       expectedWorkspaceId: workspace.workspaceId, expectedCreated: false,
     })
     const reloadTarget = await waitForTarget(probePath, rootSessionId, 2)
-    assertSessionFixture(reloadTarget, 'reused')
+    assertSessionFixture(reloadTarget, 'reused', seededEvents)
     if (reloadTarget.teamId !== teamId || reloadTarget.resumed !== true) {
       throw new Error(`reload did not recover the same authoritative captain Team: ${JSON.stringify(reloadTarget)}`)
     }

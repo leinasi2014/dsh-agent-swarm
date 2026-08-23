@@ -55,23 +55,33 @@ async function bindTarget(ctx, signal) {
   const rootSessionId = process.env.DSH_SWARM_R2_ROOT_SESSION_ID
   if (rootSessionId === undefined || rootSessionId.length === 0) return
   const agent = await waitForRoot(ctx, rootSessionId, signal)
-  const existingTurn = agent.session.events.find(event => event.type === 'turn/start')
+  const priorEvents = agent.session.events
+  const priorTurnStarts = priorEvents.filter(event => event.type === 'turn/start').length
   let fixture
-  if (existingTurn === undefined) {
+  if (priorTurnStarts === 0) {
     const start = agent.session.append('turn/start', { turn: 1 })
     const end = agent.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     const flushParticipated = await ctx.sessions.flush(agent.session)
     fixture = {
       mode: 'seeded',
-      events: [start, end].map(event => ({ seq: event.seq, type: event.type })),
+      prefixEventCount: priorEvents.length,
+      priorTurnStarts,
+      events: [
+        { seq: start.seq, type: start.type, turn: start.data.turn },
+        { seq: end.seq, type: end.type, turn: end.data.turn, reason: end.data.reason },
+      ],
       flushParticipated,
     }
   } else {
     fixture = {
       mode: 'reused',
+      prefixEventCount: priorEvents.length,
+      priorTurnStarts,
       events: agent.session.events
         .filter(event => event.type === 'turn/start' || event.type === 'turn/end')
-        .map(event => ({ seq: event.seq, type: event.type })),
+        .map(event => event.type === 'turn/start'
+          ? { seq: event.seq, type: event.type, turn: event.data.turn }
+          : { seq: event.seq, type: event.type, turn: event.data.turn, reason: event.data.reason }),
       flushParticipated: false,
     }
   }
