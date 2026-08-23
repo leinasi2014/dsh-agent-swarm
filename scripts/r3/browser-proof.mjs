@@ -97,9 +97,12 @@ async function writeFailureEvidence(evidenceDir, label, page, records, error) {
 }
 
 async function dismissOfficialTestingNotice(page) {
-  const dialog = page.getByRole('dialog', { name: /^(Internal Testing Notice|内测声明)$/u })
-  const present = await dialog.waitFor({ state: 'visible', timeout: 60_000 }).then(() => true, () => false)
+  const title = page.getByText(/^(Internal Testing Notice|内测声明)$/u, { exact: true })
+  const present = await title.first().waitFor({ state: 'visible', timeout: 60_000 }).then(() => true, () => false)
   if (!present) return { officialTestingNoticePresent: false, officialTestingNoticeDismissed: false }
+  if (await title.count() !== 1) throw new Error('official testing notice title is not unique')
+  const dialog = title.locator('xpath=ancestor::*[@role="dialog"][1]')
+  if (await dialog.count() !== 1) throw new Error('official testing notice has no unique dialog ancestor')
   const button = dialog.getByRole('button', { name: /^(Continue|继续)$/u })
   await button.focus()
   await page.keyboard.press('Enter')
