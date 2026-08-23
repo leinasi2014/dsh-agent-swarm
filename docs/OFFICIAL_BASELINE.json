@@ -3,8 +3,10 @@
   "branch": "master",
   "commit": "b150a551b8d465e31e418e1b2eaf5e79bbb7d28e",
   "release": "0.1.1-rc.2",
-  "verifiedAt": "2026-08-22",
+  "verifiedAt": "2026-08-23",
   "evidenceFiles": [
+    "apps/cli/src/profile-boot.ts",
+    "docs/cordis-tutorial/01-first-plugin.md",
     ".agents/notes/implemented/feature/2026-08-05-agent-teams.md",
     ".agents/notes/implemented/architecture/2026-08-18-experimental-agent-teams-packages.md",
     ".agents/notes/implemented/feature/2026-08-10-durable-workflow-runs-in-chat.md",
@@ -12,6 +14,8 @@
     ".agents/notes/implemented/architecture/2026-07-26-job-registry-seam.md",
     ".agents/notes/implemented/feature/2026-06-24-workspace-context.md",
     "packages/storage/storage-domain/README.md",
+    "packages/storage/storage-domain/src/index.ts",
+    "packages/storage/storage/src/backend.ts",
     "packages/experimental/agent-team/README.md",
     "packages/experimental/agent-team/src/mailbox.ts",
     ".agents/notes/implemented/architecture/2026-08-19-session-projection-state-and-client-views.md"
