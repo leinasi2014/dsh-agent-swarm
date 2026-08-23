@@ -96,6 +96,16 @@ async function writeFailureEvidence(evidenceDir, label, page, records, error) {
   }, null, 2)}\n`, 'utf8').catch(() => {})
 }
 
+async function dismissOfficialTestingNotice(page) {
+  const button = page.getByRole('button', { name: /^(Continue|继续)$/u })
+  const present = await button.waitFor({ state: 'visible', timeout: 5_000 }).then(() => true, () => false)
+  if (!present) return { officialTestingNoticePresent: false, officialTestingNoticeDismissed: false }
+  await button.focus()
+  await page.keyboard.press('Enter')
+  await button.waitFor({ state: 'hidden', timeout: 10_000 })
+  return { officialTestingNoticePresent: true, officialTestingNoticeDismissed: true }
+}
+
 async function openReadyDashboard(page) {
   const team = await selectRootSession(page)
   await team.focus()
@@ -116,6 +126,7 @@ export async function runR3ActiveBrowserProof({
   const records = recordBrowser(page)
   try {
     await page.goto(`http://127.0.0.1:${String(port)}/`, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+    const notice = await dismissOfficialTestingNotice(page)
     if (await officialCurrentSessionId(page) !== rootSessionId) {
       throw new Error('official Session selection did not rehydrate the exact proof root')
     }
@@ -155,7 +166,7 @@ export async function runR3ActiveBrowserProof({
     assertReadOnlyRequests(records)
     assertCleanBrowser(records, 'active browser')
     const result = {
-      status: 'pass', rootSessionId, teamId, browser: identity,
+      status: 'pass', rootSessionId, teamId, browser: identity, ...notice,
       bootstrap: { ...bootstrapEvidence(rootSessionId, selectionSource), frameworkTargetObserved: true },
       keyboard: ['focus Team', 'Enter', 'focus Open Captain Chat', 'Enter', 'Escape after reload'],
       handoff: {
@@ -188,6 +199,7 @@ export async function runR3R0BrowserProof({ port, evidenceDir, rootSessionId, br
   const records = recordBrowser(page)
   try {
     await page.goto(`http://127.0.0.1:${String(port)}/`, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+    const notice = await dismissOfficialTestingNotice(page)
     const team = await selectRootSession(page)
     await team.click()
     await page.locator('[data-swarm-team-dashboard][data-phase="error"]').waitFor({ state: 'visible', timeout: 20_000 })
@@ -197,7 +209,7 @@ export async function runR3R0BrowserProof({ port, evidenceDir, rootSessionId, br
     await page.screenshot({ path: join(evidenceDir, 'r3-r0-fail-closed.png'), fullPage: false })
     assertCleanBrowser(records, 'R0 browser')
     const result = {
-      status: 'pass', browser: identity, bootstrap: bootstrapEvidence(rootSessionId, selectionSource),
+      status: 'pass', browser: identity, bootstrap: bootstrapEvidence(rootSessionId, selectionSource), ...notice,
       routeUnavailable: true, renderedData: false,
       requests: records.swarmRequests, consoleErrors: records.consoleErrors, pageErrors: records.pageErrors,
     }
@@ -219,13 +231,14 @@ export async function runR3RemovedBrowserProof({ port, evidenceDir, rootSessionI
   const records = recordBrowser(page)
   try {
     await page.goto(`http://127.0.0.1:${String(port)}/`, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+    const notice = await dismissOfficialTestingNotice(page)
     const rows = page.getByRole('treeitem')
     if (await rows.count() > 0) await rows.first().click()
     const absent = await page.getByRole('button', { name: TEAM_NAME }).count() === 0
     if (!absent) throw new Error('removed package left the Team client action mounted')
     assertCleanBrowser(records, 'removed browser')
     const result = {
-      status: 'pass', browser: identity, bootstrap: bootstrapEvidence(rootSessionId, selectionSource),
+      status: 'pass', browser: identity, bootstrap: bootstrapEvidence(rootSessionId, selectionSource), ...notice,
       teamActionAbsent: true,
       consoleErrors: records.consoleErrors, pageErrors: records.pageErrors,
     }

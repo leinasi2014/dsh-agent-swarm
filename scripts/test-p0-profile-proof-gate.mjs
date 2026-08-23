@@ -58,6 +58,7 @@ try {
     const content = relativePath === 'evidence/r3-browser-active.json'
       ? `${JSON.stringify({
           status: 'pass', rootSessionId: 'root', teamId: 'team', reload: true, browser,
+          officialTestingNoticePresent: true, officialTestingNoticeDismissed: true,
           bootstrap: { ...bootstrap, frameworkTargetObserved: true },
           handoff: {
             officialSessionSelected: true, officialSelectionSource: 'localStorage:dsh.sessions.current',
@@ -70,11 +71,13 @@ try {
       : relativePath === 'evidence/r3-browser-r0.json'
         ? `${JSON.stringify({
             status: 'pass', browser, bootstrap, routeUnavailable: true, renderedData: false,
+            officialTestingNoticePresent: true, officialTestingNoticeDismissed: true,
             consoleErrors: [], pageErrors: [],
           })}\n`
         : relativePath === 'evidence/r3-browser-removed.json'
           ? `${JSON.stringify({
               status: 'pass', browser, bootstrap, teamActionAbsent: true, consoleErrors: [], pageErrors: [],
+              officialTestingNoticePresent: true, officialTestingNoticeDismissed: true,
             })}\n`
           : relativePath.endsWith('.png') ? Buffer.alloc(1_024, 1) : `fixture evidence: ${relativePath}\n`
     await mkdir(dirname(path), { recursive: true })
@@ -154,6 +157,7 @@ try {
   const activeContent = await readFile(activePath)
   const nonReadContent = `${JSON.stringify({
     status: 'pass', rootSessionId: 'root', teamId: 'team', reload: true, browser,
+    officialTestingNoticePresent: true, officialTestingNoticeDismissed: true,
     bootstrap: { ...bootstrap, frameworkTargetObserved: true },
     handoff: {
       officialSessionSelected: true, officialSelectionSource: 'localStorage:dsh.sessions.current',
