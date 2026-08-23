@@ -11,6 +11,7 @@ export const REQUIRED_P0_GATES = [
   'dump-config',
   'boot-load',
   'service-tool-probe',
+  'r2-read-rpc-handshake',
   'unload',
   'reload',
   'r0-disable',

@@ -125,15 +125,34 @@ export type SwarmReadRpcEnvelope = SwarmReadRpcSuccess | SwarmReadRpcFailure
 
 /** Conservative browser-side envelope check; method values remain typed by the caller. */
 export function parseSwarmReadRpcEnvelope(value: unknown): SwarmReadRpcEnvelope {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('Swarm RPC response is not an object')
-  const record = value as Record<string, unknown>
+  const record = strictEnvelopeRecord(value, new Set(['schemaVersion', 'ok', 'value', 'error']))
   if (record.schemaVersion !== 1 || typeof record.ok !== 'boolean') throw new Error('Swarm RPC response has no versioned outcome')
   if (record.ok) {
+    if (Object.keys(record).length !== 3 || !Object.hasOwn(record, 'value')) throw new Error('Swarm RPC success has unknown fields')
     if (typeof record.value !== 'object' || record.value === null) throw new Error('Swarm RPC success has no value')
     return value as SwarmReadRpcSuccess
   }
+  if (Object.keys(record).length !== 3 || !Object.hasOwn(record, 'error')) throw new Error('Swarm RPC failure has unknown fields')
   if (typeof record.error !== 'object' || record.error === null) throw new Error('Swarm RPC failure has no error')
-  const error = record.error as Record<string, unknown>
+  const error = strictEnvelopeRecord(record.error, new Set(['code', 'message']))
+  if (Object.keys(error).length !== 2) throw new Error('Swarm RPC failure has unknown error fields')
   if (typeof error.code !== 'string' || typeof error.message !== 'string') throw new Error('Swarm RPC failure is malformed')
   return value as SwarmReadRpcFailure
+}
+
+function strictEnvelopeRecord(value: unknown, allowed: ReadonlySet<string>): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('Swarm RPC response is not an object')
+  let prototype: object | null
+  let keys: PropertyKey[]
+  try { prototype = Object.getPrototypeOf(value); keys = Reflect.ownKeys(value) } catch { throw new Error('Swarm RPC response is proxy-like') }
+  if (prototype !== Object.prototype && prototype !== null) throw new Error('Swarm RPC response is not plain data')
+  const record = Object.create(null) as Record<string, unknown>
+  for (const key of keys) {
+    if (typeof key !== 'string' || !allowed.has(key)) throw new Error('Swarm RPC response has an unknown field')
+    let descriptor: PropertyDescriptor | undefined
+    try { descriptor = Object.getOwnPropertyDescriptor(value, key) } catch { throw new Error('Swarm RPC response is proxy-like') }
+    if (descriptor === undefined || !Object.hasOwn(descriptor, 'value')) throw new Error('Swarm RPC response has an accessor field')
+    record[key] = descriptor.value
+  }
+  return record
 }

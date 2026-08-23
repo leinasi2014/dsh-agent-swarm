@@ -5,8 +5,10 @@ import {
   type SwarmReadRpcEnvelope,
   type SwarmReadRpcRequest,
 } from '../rpc/read-rpc-contract.js'
+import { assertSwarmReadRpcValue } from '../rpc/read-rpc-artifact.js'
 
 export * from '../rpc/read-rpc-contract.js'
+export * from '../rpc/read-rpc-artifact.js'
 
 export type SwarmFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 
@@ -29,6 +31,7 @@ export class SwarmReadClient {
     })
     const value = parseSwarmReadRpcEnvelope(await response.json())
     if (!response.ok && value.ok) throw new Error(`Swarm RPC returned HTTP ${String(response.status)} with a success body`)
+    if (value.ok) assertSwarmReadRpcValue(request.method, value.value)
     return value
   }
 }
