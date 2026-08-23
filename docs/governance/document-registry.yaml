@@ -220,6 +220,15 @@ documents:
     mutationAuthority: superseding-adr-only
     updateTriggers: accepted-control-plane-reversal
     validation: pnpm-verify
+  - documentId: i1b-v2-effect-ledger-decision
+    path: docs/adr/0009-i1b-v2-effect-ledger-authority.md
+    role: stable-authority
+    subject: decision
+    writeMode: human
+    accountableOwner: architecture-owner
+    mutationAuthority: superseding-adr-only-after-acceptance
+    updateTriggers: effect-authority-or-storage-migration-reversal
+    validation: pnpm-verify
   - documentId: plugin-development-skill
     path: .agents/skills/dsh-plugin-development/SKILL.md
     role: stable-authority

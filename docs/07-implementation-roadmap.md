@@ -69,13 +69,24 @@ Risk: S3/HIGH，原因是跨仓权威与兼容方向；需要精确候选的非�
 - 缺 question provider 时返回 visible held/unavailable，而不是编造答案；
 - 查询状态不能重启 idle/open work，继续与转派必须是显式 owner action。
 
+### Delivery order and architecture gate
+
+I1 is delivered as bounded dependent slices rather than one broad effect claim:
+
+1. **I1a — headless liaison and fail-closed quarantine:** typed request/admission/receipt contracts, caller and reviewer boundaries, Team-only mutation path, process-local replay refusal and secret-free `OUTCOME_UNKNOWN`.
+2. **I1b-1A — Team-v2 authority and first correlated effect:** after independent acceptance of [ADR-0009](adr/0009-i1b-v2-effect-ledger-authority.md), explicitly migrate the v1 Team authority into the single `agent_swarm_v2` aggregate, add an atomic bounded effect ledger, and prove `queueMessageOnce` plus member-question relay across real crash/reopen windows.
+3. **I1b-1B — mail controls:** reuse the accepted ledger for wake/correct mail. Answer mail waits for authoritative question-result read-back rather than inferring presentation state.
+4. **I1b-1C — task controls:** correlate the canonical Team reassignment and deterministic/provider-correlated review transition. Live interrupt and provider-side effects remain outside the claim until their official seams expose durable operation identity and query.
+
+The v2 migration is quiesced, validated, one-way and compatibility-fenced: v2 becomes the only writer, v1 remains read-only recovery evidence, and neither dual-write nor old-binary fallback is rollback. `ctx.userQuestions.ask`, `ctx.subagents.interrupt` and unconstrained Review Providers are explicit upstream blockers under the contracts in ADR-0009; their unknown outcomes remain held, not replayed.
+
 ### Non-goals
 
 不加入 browser context、Host service、RPC、Canvas adapter、公开发布或 distributed claim。
 
 ### Exit evidence
 
-Contract/domain/unit tests、真实 official interaction composition、crash-window/replay/restart tests、model-visible data-boundary snapshots、完整受影响检查，以及 exact candidate 的独立安全/持久性审查。
+Contract/domain/unit tests、真实 official interaction composition、quiesced v1→v2 migration/read-back/compatibility evidence、crash-window/replay/restart tests、model-visible data-boundary snapshots、完整受影响检查，以及 exact candidate 的独立安全/持久性审查。外部 seam blocker 必须以可复现的不可判定窗口保留为 fail-loud evidence，不能算作 exactly-once PASS。
 
 Risk: review、permission 与 durable control transition 为 S3/HIGH；纯 advisory Message path 为 S2/MEDIUM。
 
