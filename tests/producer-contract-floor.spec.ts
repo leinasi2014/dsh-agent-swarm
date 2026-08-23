@@ -168,6 +168,8 @@ describe('pre-I2/I3 canonical producer contract', () => {
     expect(AgentSwarm.SWARM_PRODUCER_PROTOCOL).toBe('dsh-agent-swarm/producer')
     expect(AgentSwarm.SWARM_PRODUCER_CONTRACT_VERSION).toBe(1)
     expect(AgentSwarm.SWARM_PRODUCER_NAMESPACE).toBe('/swarm')
+    expect(AgentSwarm.SWARM_PRODUCER_SCHEMA_DIALECT).toBe('https://json-schema.org/draft/2020-12/schema')
+    expect(AgentSwarm.SWARM_PRODUCER_CONTRACT_V1.schemaDialect).toBe(AgentSwarm.SWARM_PRODUCER_SCHEMA_DIALECT)
     expect(AgentSwarm.SWARM_PRODUCER_CAPABILITIES_V1).toEqual([
       { capability: 'snapshot.read', state: 'available' },
       { capability: 'receipt.read', state: 'available' },
@@ -183,7 +185,7 @@ describe('pre-I2/I3 canonical producer contract', () => {
     expect(AgentSwarm.canonicalJson({ z: 1, a: { y: 2, b: 3 } }))
       .toBe('{"a":{"b":3,"y":2},"z":1}')
     expect(AgentSwarm.SWARM_PRODUCER_CONTRACT_DIGEST_V1)
-      .toBe('70daa903431c1c5a2ddfe78ba1bd9eae385b6eeb222d9b901bc05e74e5211c97')
+      .toBe('1ab536b488ac0f1444cac7c50e66de4835933212c64389937587c680446294ff')
   })
 
   it('keeps every canonical fixture executable against its strict result or request schema', () => {

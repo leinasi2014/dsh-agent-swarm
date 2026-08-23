@@ -10,6 +10,7 @@ import { deepFreezeJson } from './frozen-json.js'
 export const SWARM_PRODUCER_PROTOCOL = 'dsh-agent-swarm/producer' as const
 export const SWARM_PRODUCER_CONTRACT_VERSION = 1 as const
 export const SWARM_PRODUCER_NAMESPACE = '/swarm' as const
+export const SWARM_PRODUCER_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
 export const SWARM_PRODUCER_EFFECT_BLOCKER = 'i1b-effect-correlation' as const
 
 export type SwarmProducerCapability =
@@ -30,6 +31,7 @@ export interface SwarmProducerDescriptionV1 {
   readonly protocol: typeof SWARM_PRODUCER_PROTOCOL
   readonly contractVersion: typeof SWARM_PRODUCER_CONTRACT_VERSION
   readonly namespace: typeof SWARM_PRODUCER_NAMESPACE
+  readonly schemaDialect: typeof SWARM_PRODUCER_SCHEMA_DIALECT
   readonly contractDigest: string
   readonly capabilities: readonly SwarmProducerCapabilityState[]
 }
@@ -134,16 +136,18 @@ export const SWARM_PRODUCER_CONTRACT_V1 = deepFreezeJson({
   protocol: SWARM_PRODUCER_PROTOCOL,
   contractVersion: SWARM_PRODUCER_CONTRACT_VERSION,
   namespace: SWARM_PRODUCER_NAMESPACE,
+  schemaDialect: SWARM_PRODUCER_SCHEMA_DIALECT,
   capabilities: SWARM_PRODUCER_CAPABILITIES_V1,
   schemas: {
     description: {
       type: 'object', additionalProperties: false,
-      required: ['schemaVersion', 'protocol', 'contractVersion', 'namespace', 'contractDigest', 'capabilities'],
+      required: ['schemaVersion', 'protocol', 'contractVersion', 'namespace', 'schemaDialect', 'contractDigest', 'capabilities'],
       properties: {
         schemaVersion: { const: 1 },
         protocol: { const: SWARM_PRODUCER_PROTOCOL },
         contractVersion: { const: SWARM_PRODUCER_CONTRACT_VERSION },
         namespace: { const: SWARM_PRODUCER_NAMESPACE },
+        schemaDialect: { const: SWARM_PRODUCER_SCHEMA_DIALECT },
         contractDigest: { type: 'string', pattern: '^[a-f0-9]{64}$' },
         capabilities: {
           type: 'array', minItems: 5, maxItems: 5,
@@ -259,6 +263,7 @@ const SWARM_PRODUCER_FIXTURE_PREIMAGE_V1 = deepFreezeJson({
     protocol: SWARM_PRODUCER_PROTOCOL,
     contractVersion: SWARM_PRODUCER_CONTRACT_VERSION,
     namespace: SWARM_PRODUCER_NAMESPACE,
+    schemaDialect: SWARM_PRODUCER_SCHEMA_DIALECT,
     contractDigest: CONTRACT_DIGEST_PREIMAGE,
     capabilities: SWARM_PRODUCER_CAPABILITIES_V1,
   } satisfies SwarmProducerDescriptionV1,

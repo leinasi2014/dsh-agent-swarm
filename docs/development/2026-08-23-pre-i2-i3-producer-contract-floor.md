@@ -23,7 +23,7 @@ Message, Control and cancel entry points exist only to make the negative capabil
 
 The immutable contract bundle has:
 
-1. protocol id and version;
+1. protocol id, version and explicit JSON Schema Draft 2020-12 dialect identity;
 2. one fixed capability descriptor (`snapshot.read` and `receipt.read` available; `message.write`, `control.write` and `effect.cancel` unavailable with blocker `i1b-effect-correlation`);
 3. strict JSON schemas for capability, snapshot and receipt-page results;
 4. canonical fixtures for all three results plus the three unavailable effect errors;
