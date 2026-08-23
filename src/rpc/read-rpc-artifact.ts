@@ -8,7 +8,7 @@ import {
 } from './read-rpc-contract.js'
 
 export const SWARM_READ_RPC_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
-export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '0731dc24290a95674514d2f1dc0d44c5278fbc1bdb6cb3c4c340f2920455489a' as const
+export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '445a2e386a6277693339b86a6b254543f5743603509636c730af9ff5ff0df4fc' as const
 
 const boundedString = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength, pattern: '\\S' })
 const nonNegativeInteger = { type: 'integer', minimum: 0 }
@@ -111,6 +111,28 @@ const interactionRow = {
     status: { enum: ['pending', 'acknowledged'] }, createdAt: nonNegativeInteger, updatedAt: nonNegativeInteger,
   },
 }
+const pageRows = { tasks: taskRow, attempts: attemptRow, pendingInteractions: interactionRow } as const
+const pageResultBase = {
+  type: 'object', additionalProperties: false,
+  required: [
+    'kind', 'entries', 'offset', 'limit', 'visibleTotal', 'authoritativeTotal', 'projectionTruncated',
+    'cursor', 'changed', 'resyncRequired', 'observedAt',
+  ],
+  properties: {
+    offset: nonNegativeInteger,
+    limit: { type: 'integer', minimum: 1, maximum: 50 }, visibleTotal: nonNegativeInteger,
+    authoritativeTotal: nonNegativeInteger, nextOffset: nonNegativeInteger,
+    projectionTruncated: { type: 'boolean' }, cursor, changed: { type: 'boolean' },
+    resyncRequired: { type: 'boolean' }, observedAt: nonNegativeInteger,
+  },
+}
+const pageResult = (kind: keyof typeof pageRows) => ({
+  ...pageResultBase,
+  properties: {
+    ...pageResultBase.properties,
+    kind: { const: kind }, entries: { type: 'array', maxItems: 50, items: pageRows[kind] },
+  },
+})
 const resultBase = {
   type: 'object', additionalProperties: false,
   required: ['binding', 'team', 'cursor', 'changed', 'resyncRequired'],
@@ -194,22 +216,7 @@ export const SWARM_READ_RPC_CONTRACT_V1 = deepFreezeJson({
           cursor, changed: { type: 'boolean' }, resyncRequired: { type: 'boolean' }, observedAt: nonNegativeInteger,
         },
       },
-      page: {
-        type: 'object', additionalProperties: false,
-        required: [
-          'kind', 'entries', 'offset', 'limit', 'visibleTotal', 'authoritativeTotal', 'projectionTruncated',
-          'cursor', 'changed', 'resyncRequired', 'observedAt',
-        ],
-        properties: {
-          kind: { enum: ['tasks', 'attempts', 'pendingInteractions'] },
-          entries: { type: 'array', maxItems: 50, items: { oneOf: [taskRow, attemptRow, interactionRow] } },
-          offset: nonNegativeInteger,
-          limit: { type: 'integer', minimum: 1, maximum: 50 }, visibleTotal: nonNegativeInteger,
-          authoritativeTotal: nonNegativeInteger, nextOffset: nonNegativeInteger,
-          projectionTruncated: { type: 'boolean' }, cursor, changed: { type: 'boolean' },
-          resyncRequired: { type: 'boolean' }, observedAt: nonNegativeInteger,
-        },
-      },
+      page: { oneOf: [pageResult('tasks'), pageResult('attempts'), pageResult('pendingInteractions')] },
       failure: {
         type: 'object', additionalProperties: false, required: ['schemaVersion', 'ok', 'error'],
         properties: {
@@ -319,6 +326,7 @@ function assertResultSemantics(method: string, value: Record<string, unknown>): 
   }
   if (method === 'page') {
     const entries = value.entries as unknown[]
+    assertPageEntryKind(value.kind, entries)
     const offset = value.offset as number
     const limit = value.limit as number
     const visible = value.visibleTotal as number
@@ -347,6 +355,15 @@ function assertResultSemantics(method: string, value: Record<string, unknown>): 
       throw new Error(`Swarm RPC ${collection} total contradicts its projection`)
     }
   }
+}
+
+function assertPageEntryKind(kind: unknown, entries: readonly unknown[]): void {
+  if (kind !== 'tasks' && kind !== 'attempts' && kind !== 'pendingInteractions') {
+    throw new Error('Swarm RPC page kind is not recognized')
+  }
+  entries.forEach((entry, index) => {
+    assertSchema(entry, pageRows[kind], `$.entries[${index}]`, { seen: new WeakSet<object>(), nodes: 0 })
+  })
 }
 
 function assertProducerCapabilities(value: unknown): void {

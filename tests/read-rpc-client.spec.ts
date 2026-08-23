@@ -17,6 +17,19 @@ async function expectRejectedCapabilities(value: unknown): Promise<void> {
   await expect(client.request({ schemaVersion: 1, method: 'capabilities' })).rejects.toThrow()
 }
 
+const taskRowFixture = {
+  id: 'task-fixture', revision: 1, subject: 'Fixture', status: 'pending',
+  blockedBy: [], priority: 1, createdAt: 1, updatedAt: 1,
+}
+const attemptRowFixture = {
+  id: 'attempt-fixture', taskId: 'task-fixture', generation: 1,
+  phase: 'running', assignmentPhase: 'reserved', createdAt: 1, updatedAt: 1,
+}
+const interactionRowFixture = {
+  requestId: 'request-fixture', intent: 'question', targetKind: 'captain',
+  status: 'pending', createdAt: 1, updatedAt: 1,
+}
+
 describe('R2 browser client', () => {
   it('freezes one independently verifiable schema and semantic-fixture digest', () => {
     const digest = createHash('sha256').update(canonicalSwarmReadRpcJson({
@@ -30,22 +43,27 @@ describe('R2 browser client', () => {
     expect(SWARM_READ_RPC_FIXTURES_V1.values.capabilities.capabilities).toHaveLength(7)
     expect(() => assertSwarmReadRpcValue('page', {
       ...SWARM_READ_RPC_FIXTURES_V1.values.page,
-      entries: [{
-        id: 'task-fixture', revision: 1, subject: 'Fixture', status: 'pending',
-        blockedBy: [], priority: 1, createdAt: 1, updatedAt: 1,
-      }],
+      entries: [taskRowFixture],
       visibleTotal: 1, authoritativeTotal: 1,
     })).not.toThrow()
     expect(() => assertSwarmReadRpcValue('page', {
       ...SWARM_READ_RPC_FIXTURES_V1.values.page,
       entries: [{ id: 'task-fixture', unknown: true }], visibleTotal: 1, authoritativeTotal: 1,
     })).toThrow()
+    for (const invalidPage of [
+      { kind: 'tasks', entries: [attemptRowFixture] },
+      { kind: 'attempts', entries: [taskRowFixture] },
+      { kind: 'pendingInteractions', entries: [attemptRowFixture] },
+      { kind: 'tasks', entries: [taskRowFixture, interactionRowFixture] },
+    ]) expect(() => assertSwarmReadRpcValue('page', {
+      ...SWARM_READ_RPC_FIXTURES_V1.values.page,
+      ...invalidPage,
+      visibleTotal: invalidPage.entries.length,
+      authoritativeTotal: invalidPage.entries.length,
+    })).toThrow()
     const partialPage = {
       ...SWARM_READ_RPC_FIXTURES_V1.values.page,
-      entries: [{
-        id: 'task-fixture', revision: 1, subject: 'Fixture', status: 'pending',
-        blockedBy: [], priority: 1, createdAt: 1, updatedAt: 1,
-      }],
+      entries: [taskRowFixture],
       visibleTotal: 2, authoritativeTotal: 2,
     }
     expect(() => assertSwarmReadRpcValue('page', partialPage)).toThrow() // remaining page omitted nextOffset

@@ -48,6 +48,36 @@ if (failures.length === 0) {
         failures.push(`built browser client rejects canonical ${method} server value: ${String(error)}`)
       }
     }
+    const task = {
+      id: 'task-packed', revision: 1, subject: 'Packed task', status: 'pending',
+      blockedBy: [], priority: 1, createdAt: 1, updatedAt: 1,
+    }
+    const attempt = {
+      id: 'attempt-packed', taskId: 'task-packed', generation: 1,
+      phase: 'running', assignmentPhase: 'reserved', createdAt: 1, updatedAt: 1,
+    }
+    const interaction = {
+      requestId: 'request-packed', intent: 'question', targetKind: 'captain',
+      status: 'pending', createdAt: 1, updatedAt: 1,
+    }
+    for (const invalid of [
+      { kind: 'tasks', entries: [attempt] },
+      { kind: 'attempts', entries: [interaction] },
+      { kind: 'pendingInteractions', entries: [task] },
+      { kind: 'tasks', entries: [task, attempt] },
+    ]) {
+      try {
+        client.assertSwarmReadRpcValue('page', {
+          ...client.SWARM_READ_RPC_FIXTURES_V1.values.page,
+          ...invalid,
+          visibleTotal: invalid.entries.length,
+          authoritativeTotal: invalid.entries.length,
+        })
+        failures.push(`built browser client accepted mismatched ${invalid.kind} page rows`)
+      } catch {
+        // Expected: the packed client keeps kind and row type coupled.
+      }
+    }
   } catch (error) {
     failures.push(`built browser client cannot be imported: ${String(error)}`)
   }
