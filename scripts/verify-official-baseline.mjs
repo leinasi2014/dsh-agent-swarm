@@ -270,10 +270,24 @@ async function git(args, cwd) {
   return stdout.trim()
 }
 
+const OFFICIAL_READ_COMMANDS = new Set(['rev-parse', 'show', 'status'])
+
+/**
+ * The official checkout is a read-only evidence host. The global Git flag
+ * prevents even optional index refresh/lock writes, and the command allowlist
+ * keeps future callers from routing mutation through this adapter.
+ */
+export async function officialCheckoutReadGit(args, cwd, runGit = git) {
+  if (!OFFICIAL_READ_COMMANDS.has(args[0])) {
+    throw new Error(`official checkout git command is not read-only: ${args[0] ?? 'missing'}`)
+  }
+  return runGit(['--no-optional-locks', ...args], cwd)
+}
+
 export async function inspectOfficialCheckout(candidate, runGit = git) {
-  const checkout = await runGit(['rev-parse', '--show-toplevel'], candidate)
-  const head = await runGit(['rev-parse', 'HEAD'], checkout)
-  const manifest = JSON.parse(await runGit(['show', 'HEAD:package.json'], checkout))
+  const checkout = await officialCheckoutReadGit(['rev-parse', '--show-toplevel'], candidate, runGit)
+  const head = await officialCheckoutReadGit(['rev-parse', 'HEAD'], checkout, runGit)
+  const manifest = JSON.parse(await officialCheckoutReadGit(['show', 'HEAD:package.json'], checkout, runGit))
   return {
     root: checkout,
     head,
@@ -354,9 +368,9 @@ async function verifyRemoteBaseline(baseline) {
 
 export async function verifyLocalCheckout({ baseline, checkout, runGit = git, readEvidenceFile = readFile }) {
   const failures = []
-  const localHead = await runGit(['rev-parse', 'HEAD'], checkout)
+  const localHead = await officialCheckoutReadGit(['rev-parse', 'HEAD'], checkout, runGit)
   if (localHead !== baseline.commit) failures.push(`official checkout HEAD is ${localHead}, baseline is ${baseline.commit}`)
-  const dirty = await runGit(['status', '--porcelain'], checkout)
+  const dirty = await officialCheckoutReadGit(['status', '--porcelain'], checkout, runGit)
   if (dirty !== '') failures.push('official checkout is dirty')
 
   for (const evidenceFile of baseline.evidenceFiles ?? []) {
@@ -368,7 +382,7 @@ export async function verifyLocalCheckout({ baseline, checkout, runGit = git, re
   }
 
   for (const expected of baseline.packages) {
-    const raw = await runGit(['show', `${baseline.commit}:${expected.path}/package.json`], checkout)
+    const raw = await officialCheckoutReadGit(['show', `${baseline.commit}:${expected.path}/package.json`], checkout, runGit)
     const manifest = JSON.parse(raw)
     if (manifest.name !== expected.name) {
       failures.push(`${expected.path}: expected ${expected.name}, found ${manifest.name ?? 'unnamed'}`)

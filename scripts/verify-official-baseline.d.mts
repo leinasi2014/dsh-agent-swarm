@@ -101,6 +101,8 @@ export function collectOfficialBaselineEvidence(input: {
 
 export type GitProbe = (args: string[], cwd?: string) => Promise<string>
 
+export function officialCheckoutReadGit(args: string[], cwd: string, runGit?: GitProbe): Promise<string>
+
 export function inspectOfficialCheckout(candidate: string, runGit?: GitProbe): Promise<OfficialCheckoutFacts>
 
 export function verifyReleaseReachability(input: {

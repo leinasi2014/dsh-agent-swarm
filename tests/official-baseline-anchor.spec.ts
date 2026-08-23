@@ -24,6 +24,7 @@ import {
   enclosingCheckoutCandidates,
   evaluateBaselineAnchor,
   inspectOfficialCheckout,
+  officialCheckoutReadGit,
   parseLsRemote,
   parseReleaseVersion,
   tagNameForRelease,
@@ -366,6 +367,7 @@ describe('official checkout read-only boundary', () => {
     })
     expect(reachable).toBe(true)
     expect(trace.map(call => call.args[0])).toEqual(['init', 'fetch', 'merge-base'])
+    expect(trace.some(call => call.args.includes('--no-optional-locks'))).toBe(false)
     expect(trace.every(call => call.cwd === evidenceRoot)).toBe(true)
     expect(trace.some(call => call.args[0] === 'fetch' && call.args.includes(`${PIN}:refs/evidence/pin`))).toBe(true)
     expect(removed).toEqual([evidenceRoot])
@@ -396,14 +398,16 @@ describe('official checkout read-only boundary', () => {
     const trace: Array<{ args: string[], cwd: string | undefined }> = []
     const runGit = async (args: string[], cwd?: string): Promise<string> => {
       trace.push({ args, cwd })
-      if (args.join(' ') === 'rev-parse --show-toplevel') return officialRoot
-      if (args.join(' ') === 'rev-parse HEAD') return PIN
-      if (args.join(' ') === 'show HEAD:package.json') {
+      expect(args[0]).toBe('--no-optional-locks')
+      const command = args.slice(1)
+      if (command.join(' ') === 'rev-parse --show-toplevel') return officialRoot
+      if (command.join(' ') === 'rev-parse HEAD') return PIN
+      if (command.join(' ') === 'show HEAD:package.json') {
         return JSON.stringify({ name: '@deepseek-ai/dsh-root', version: '0.1.0-rc.8' })
       }
-      if (args.join(' ') === 'status --porcelain') return ''
-      if (args[0] === 'show') return JSON.stringify({ name: '@deepseek-ai/example' })
-      throw new Error(`unexpected command ${args.join(' ')}`)
+      if (command.join(' ') === 'status --porcelain') return ''
+      if (command[0] === 'show') return JSON.stringify({ name: '@deepseek-ai/example' })
+      throw new Error(`unexpected command ${command.join(' ')}`)
     }
     await inspectOfficialCheckout(officialRoot, runGit)
     const local = await verifyLocalCheckout({
@@ -417,7 +421,18 @@ describe('official checkout read-only boundary', () => {
     })
     expect(local.failures).toEqual([])
     expect(trace.every(call => call.cwd === officialRoot)).toBe(true)
-    expect(new Set(trace.map(call => call.args[0]))).toEqual(new Set(['rev-parse', 'show', 'status']))
+    expect(trace.every(call => call.args[0] === '--no-optional-locks')).toBe(true)
+    expect(new Set(trace.map(call => call.args[1]))).toEqual(new Set(['rev-parse', 'show', 'status']))
+    expect(trace.some(call => call.args[1] === 'status' && call.args[0] === '--no-optional-locks')).toBe(true)
+  })
+
+  it('rejects a mutating command before invoking git against the official checkout', async () => {
+    let invoked = false
+    await expect(officialCheckoutReadGit(['fetch', 'origin'], officialRoot, async () => {
+      invoked = true
+      return ''
+    })).rejects.toThrow('not read-only')
+    expect(invoked).toBe(false)
   })
 })
 
@@ -446,6 +461,15 @@ describe('official evidence aggregation', () => {
     })
     expect(localCalled).toBe(true)
     expect(result.failures).toEqual(['remote failed'])
+  })
+
+  it('preserves both failures when remote and local evidence fail together', async () => {
+    const result = await collectOfficialBaselineEvidence({
+      async discover() { return 'official' },
+      async verifyRemote() { return { ...remotePass, failures: ['remote failed'] } },
+      async verifyLocal() { return { failures: ['local failed'] } },
+    })
+    expect(result.failures).toEqual(['remote failed', 'local failed'])
   })
 
   it('passes only when discovery and both evidence sides pass', async () => {
