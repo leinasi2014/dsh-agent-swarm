@@ -109,11 +109,16 @@ try {
     git(root, ['commit', '--no-gpg-sign', '-m', 'fixture'])
     git(root, ['remote', 'add', 'origin', 'https://example.invalid/authority.git'])
     git(root, ['remote', 'add', 'github', 'https://example.invalid/mirror.git'])
-    git(root, ['remote', 'set-url', 'origin', 'https://embedded-user@example.invalid/authority.git'])
+    const secretUserInfo = 'embedded-user'
+    const secretPushUrl = `https://${secretUserInfo}@example.invalid/authority.git`
+    git(root, ['remote', 'set-url', '--add', '--push', 'origin', secretPushUrl])
     const result = run(root, false)
     const output = `${result.stdout}\n${result.stderr}`
     if (result.status === 0 || !output.includes('remote origin: credential or userinfo in URL is forbidden')) {
       throw new Error(`credential-bearing-remote: expected redacted remote credential failure, got status ${result.status}`)
+    }
+    if (output.includes(secretPushUrl) || output.includes(secretUserInfo)) {
+      throw new Error('credential-bearing-remote: verifier output exposed push URL userinfo')
     }
   }
 

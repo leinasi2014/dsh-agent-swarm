@@ -1,3 +1,6 @@
+# Restricted YAML profile: two-space mappings, document entries introduced by
+# `  - documentId:`, and scalar governance fields indented by four spaces.
+# scripts/verify-governance.mjs is deliberately not a general YAML parser.
 schemaVersion: 1
 project: dsh-agent-swarm
 layoutPolicy: adapt-existing

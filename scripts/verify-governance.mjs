@@ -54,6 +54,8 @@ function scalar(value) {
   return value.trim().replace(/^['"]|['"]$/g, '')
 }
 
+// The project registry intentionally uses a restricted, line-oriented YAML
+// profile. This parser is a project gate for that profile, not a general YAML parser.
 function parseDocuments(registry) {
   const documents = []
   let current
@@ -247,13 +249,18 @@ if (!skipGit) {
         failures.push(`remote ${alias}: required authority alias is missing`)
         continue
       }
-      const urls = execFileSync('git', ['remote', 'get-url', '--all', alias], {
-        cwd: root,
-        encoding: 'utf8',
-        timeout: 30_000,
-        windowsHide: true,
-      }).split(/\r?\n/u).filter(Boolean)
-      if (urls.some(remoteHasEmbeddedCredential)) failures.push(`remote ${alias}: credential or userinfo in URL is forbidden`)
+      for (const directionArgs of [
+        ['remote', 'get-url', '--all', alias],
+        ['remote', 'get-url', '--push', '--all', alias],
+      ]) {
+        const urls = execFileSync('git', directionArgs, {
+          cwd: root,
+          encoding: 'utf8',
+          timeout: 30_000,
+          windowsHide: true,
+        }).split(/\r?\n/u).filter(Boolean)
+        if (urls.some(remoteHasEmbeddedCredential)) failures.push(`remote ${alias}: credential or userinfo in URL is forbidden`)
+      }
     }
   } catch (error) {
     failures.push(`isolation: unable to verify Git worktree state: ${String(error)}`)
