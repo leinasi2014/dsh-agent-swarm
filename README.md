@@ -25,7 +25,7 @@ node scripts/p0/run.mjs `
 node scripts/verify-p0-profile-proof.mjs --root $proof
 ```
 
-该入口使用官方 CLI 的真实 `plugin --profile web add -w --ignore-scripts <absolute-tgz>` 语法，在隔离 `DSH_HOME` 中组合官方 Storage hub、JSON KV、Storage Domain、Session persistence 和 Swarm；workspace/sandbox、storage 与 session roots 相互分离。它验证 dump、boot、Swarm service/17 个工具、优雅 unload、reload 和缺 Storage Domain 的 fail-closed 负向 Profile。运行态目录和端口随后清理，只保留同一 tarball、digest、命令回执与证据 manifest；不会读取或写入用户默认 `~/.dsh` Profile。
+该入口使用官方 CLI 的真实 `plugin --profile web add -w --ignore-scripts <absolute-tgz>` 语法。安装只贡献一个 `disabled: true` 的结构性 `cordis:group`，不会因 `plugin add` 自动启动 Swarm；Profile owner 必须在后一层对 `agent-swarm` 显式设置 `disabled: false` 才会激活其子插件。验收在隔离 `DSH_HOME` 中组合官方 Storage hub、JSON KV、Storage Domain、Session persistence 和 Swarm，且 workspace/sandbox、storage 与 session roots 相互分离。它重启验证默认禁用、显式启用、Swarm service/17 个工具、优雅 unload、reload、R0 再禁用、remove 后清单消失，以及显式启用但缺 Storage Domain 时 fail closed。运行态目录和端口随后清理，只保留同一 tarball、digest、命令回执与证据 manifest；不会读取或写入用户默认 `~/.dsh` Profile。
 
 `dsh plugin`、`--dump-config` 甚至某些帮助路径都可能初始化或修复 Profile，因此不要在用户默认 home 中“试一下”这些命令。[P0 里程碑](docs/07-implementation-roadmap.md#p0--immutable-package-and-real-profile-proof) 只有在上述 evidence gate 与精确候选的非作者审查均通过后完成。
 

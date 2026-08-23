@@ -1,10 +1,15 @@
 import { access, readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { verifySafeBundlePatch } from './p0/bundle-shape.mjs'
 
 const root = resolve(import.meta.dirname, '..')
 const pkg = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'))
 const failures = []
+
+const bundle = await readFile(resolve(root, 'cordis.patch.yml'), 'utf8')
+const bundleShape = verifySafeBundlePatch(bundle)
+for (const failure of bundleShape.failures) failures.push(`bundle safety shape: ${failure}`)
 
 for (const [label, relativePath] of [
   ['main', pkg.main],

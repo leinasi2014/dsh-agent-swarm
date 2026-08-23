@@ -1,7 +1,20 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { REQUIRED_P0_GATES, sha256File, verifyP0Evidence } from './p0/evidence.mjs'
+import { verifySafeBundlePatch } from './p0/bundle-shape.mjs'
+
+const safeBundle = await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
+if (!verifySafeBundlePatch(safeBundle).ok) throw new Error('repository Bundle does not match the default-disabled structural group')
+for (const [label, broken] of [
+  ['enabled by default', safeBundle.replace('disabled: true', 'disabled: false')],
+  ['plugin as group', safeBundle.replace('name: cordis:group', 'name: dsh-agent-swarm')],
+  ['missing structural flag', safeBundle.replace('      group: true\n', '')],
+  ['wrong child', safeBundle.replace('id: agent-swarm-runtime', 'id: alternate-runtime')],
+]) {
+  if (verifySafeBundlePatch(broken).ok) throw new Error(`unsafe Bundle fixture unexpectedly passed: ${label}`)
+}
 
 const root = await mkdtemp(join(tmpdir(), 'swarm-p0-evidence-gate-'))
 try {
@@ -22,6 +35,11 @@ try {
       runtimeRoot: join(root, 'runtime'), dshHome: join(root, 'runtime', 'home'),
       workspaceRoot: join(root, 'runtime', 'workspace'), sandboxRoot: join(root, 'runtime', 'workspace'),
       storageRoot: join(root, 'runtime', 'state', 'storage'), sessionRoot: join(root, 'runtime', 'state', 'sessions'),
+      probeModuleRoot: join(root, 'runtime', 'P0 probe 探针'),
+      probeModuleUrls: [
+        pathToFileURL(join(root, 'runtime', 'P0 probe 探针', 'shutdown probe.mjs')).href,
+        pathToFileURL(join(root, 'runtime', 'P0 probe 探针', 'service probe.mjs')).href,
+      ],
       defaultDshHome: join(root, 'default-home'),
     },
     gates: REQUIRED_P0_GATES.map(name => ({ name, status: 'pass' })),
@@ -35,6 +53,7 @@ try {
     ['missing gate', manifest => { manifest.gates = manifest.gates.filter(gate => gate.name !== 'reload') }],
     ['dirty official', manifest => { manifest.official.statusAfter = ' M package.json' }],
     ['overlapping state', manifest => { manifest.isolation.storageRoot = join(manifest.isolation.workspaceRoot, 'storage') }],
+    ['invalid probe URL', manifest => { manifest.isolation.probeModuleUrls[0] = 'https://example.invalid/probe.mjs' }],
     ['runtime retained', manifest => { manifest.cleanup.runtimeRemoved = false }],
   ]
   for (const [label, mutate] of cases) {
@@ -43,7 +62,7 @@ try {
     const result = await verifyP0Evidence(root, manifest)
     if (result.ok) throw new Error(`negative fixture unexpectedly passed: ${label}`)
   }
-  console.log(`P0 evidence gate positive fixture and ${cases.length} negative cases: PASS`)
+  console.log(`P0 Bundle/evidence gates: 1 safe Bundle + 4 unsafe Bundle cases; positive evidence + ${cases.length} negative evidence cases: PASS`)
 } finally {
   await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 }

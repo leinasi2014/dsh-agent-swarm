@@ -1,16 +1,20 @@
 import { createHash } from 'node:crypto'
 import { readFile, stat } from 'node:fs/promises'
 import { isAbsolute, relative, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 export const REQUIRED_P0_GATES = [
   'candidate-clean',
   'artifact-packed',
   'profile-add',
+  'default-disabled',
   'dump-config',
   'boot-load',
   'service-tool-probe',
   'unload',
   'reload',
+  'r0-disable',
+  'plugin-remove',
   'missing-storage-fail-closed',
   'official-clean',
   'resource-cleanup',
@@ -69,7 +73,7 @@ export async function verifyP0Evidence(root, manifest) {
   if (official?.version !== '0.1.1-rc.2') failures.push('official CLI version must be 0.1.1-rc.2')
 
   const isolation = manifest?.isolation
-  for (const key of ['runtimeRoot', 'dshHome', 'workspaceRoot', 'sandboxRoot', 'storageRoot', 'sessionRoot']) {
+  for (const key of ['runtimeRoot', 'dshHome', 'workspaceRoot', 'sandboxRoot', 'storageRoot', 'sessionRoot', 'probeModuleRoot']) {
     requireString(isolation?.[key], `isolation.${key}`, failures)
   }
   if (isolation !== undefined) {
@@ -89,6 +93,19 @@ export async function verifyP0Evidence(root, manifest) {
       && resolve(isolation.defaultDshHome).toLowerCase() === resolve(isolation.dshHome).toLowerCase()) {
       failures.push('isolated DSH_HOME equals the user default home')
     }
+    if (!Array.isArray(isolation.probeModuleUrls) || isolation.probeModuleUrls.length !== 2) {
+      failures.push('isolation.probeModuleUrls must contain the two file URLs')
+    } else {
+      for (const value of isolation.probeModuleUrls) {
+        try {
+          const path = fileURLToPath(value)
+          if (!inside(isolation.runtimeRoot, path)) failures.push('probe module URL escapes runtime root')
+          if (!/[\s]/u.test(path) || !/[^\x00-\x7F]/u.test(path)) failures.push('probe module URL path must exercise whitespace and non-ASCII decoding')
+        } catch {
+          failures.push('probe module URL must be a valid file URL')
+        }
+      }
+    }
   }
 
   const gates = new Map((manifest?.gates ?? []).map(gate => [gate.name, gate]))
@@ -103,4 +120,3 @@ export async function verifyP0Evidence(root, manifest) {
   }
   return { ok: failures.length === 0, failures }
 }
-

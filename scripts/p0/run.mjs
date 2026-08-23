@@ -1,6 +1,7 @@
-import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, isAbsolute, join, relative, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { rpcCall } from '../promotion/lib.mjs'
 import { bootPlane, run, stopPlane, waitPortFree, waitUntil } from '../promotion/runner.mjs'
 import { sha256File, verifyP0Evidence } from './evidence.mjs'
@@ -58,6 +59,43 @@ async function readProbe(path) {
   return text.split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line))
 }
 
+function profilePatchLines({ storageRoot, sessionRoot, workspaceRoot, shutdownProbeUrl, serviceProbeUrl, swarmEnabled }) {
+  const lines = [
+    '# P0 isolated official Profile proof; all roots are disposable.',
+    '- id: storage-json',
+    '  config:',
+    `    root: ${yamlString(storageRoot)}`,
+    '- id: session-persistence-jsonl',
+    '  config:',
+    `    root: ${yamlString(sessionRoot)}`,
+    '- id: sandbox-policy',
+    '  config:',
+    '    mode: workspace-write',
+    `    workspaceRoot: ${yamlString(workspaceRoot)}`,
+  ]
+  if (typeof swarmEnabled === 'boolean') {
+    lines.push('- id: agent-swarm', `  disabled: ${swarmEnabled ? 'false' : 'true'}`)
+  }
+  lines.push('- insert:', '    - id: agent-swarm-p0-shutdown-probe', `      name: ${yamlString(shutdownProbeUrl)}`)
+  if (serviceProbeUrl !== undefined) {
+    lines.push('    - id: agent-swarm-p0-profile-probe', `      name: ${yamlString(serviceProbeUrl)}`)
+  }
+  lines.push('')
+  return lines
+}
+
+async function readInventory(port, evidenceDir, label) {
+  const response = await rpcCall(port, 'pluginInventory/list', {})
+  const value = response.body?.result?.value
+  await writeFile(join(evidenceDir, `${label}.json`), `${JSON.stringify({ response, value }, null, 2)}\n`, 'utf8')
+  if (!response.ok || !Array.isArray(value?.entries)) throw new Error(`pluginInventory/list failed for ${label}`)
+  return value.entries
+}
+
+function swarmInventoryRow(entries) {
+  return entries.find(entry => entry?.moduleName === 'dsh-agent-swarm')
+}
+
 async function waitForExit(child, timeoutMs) {
   if (child.exitCode !== null) return true
   return await new Promise(resolveExit => {
@@ -90,11 +128,19 @@ async function main() {
   const sessionRoot = join(runtimeRoot, 'state', 'sessions')
   const probePath = join(runtimeRoot, 'probe.jsonl')
   const stopPath = join(runtimeRoot, 'stop.request')
+  const probeModuleRoot = join(runtimeRoot, 'P0 probe 探针')
+  const shutdownProbeModule = join(probeModuleRoot, 'shutdown probe.mjs')
+  const serviceProbeModule = join(probeModuleRoot, 'service probe.mjs')
   const defaultDshHome = join(homedir(), '.dsh')
   if (resolve(dshHome).toLowerCase() === resolve(defaultDshHome).toLowerCase()) throw new Error('isolated DSH_HOME equals the user default home')
   for (const path of [artifactDir, evidenceDir, dshHome, workspaceRoot, storageRoot, sessionRoot]) {
     await mkdir(path, { recursive: true })
   }
+  await mkdir(probeModuleRoot, { recursive: true })
+  await copyFile(join(args.repo, 'scripts', 'p0', 'shutdown-probe.mjs'), shutdownProbeModule)
+  await copyFile(join(args.repo, 'scripts', 'p0', 'profile-probe.mjs'), serviceProbeModule)
+  const shutdownProbeUrl = pathToFileURL(shutdownProbeModule).href
+  const serviceProbeUrl = pathToFileURL(serviceProbeModule).href
 
   const gates = []
   const commands = []
@@ -152,41 +198,50 @@ async function main() {
     const add = await execute('profile-add', process.execPath, addArgs, { cwd: workspaceRoot, env: { DSH_HOME: dshHome }, timeoutMs: 10 * 60_000 })
     if (add.code !== 0) throw new Error('official plugin add failed')
     const profilePatch = join(dshHome, 'profiles', 'web', 'cordis.patch.yml')
-    await writeFile(profilePatch, [
-      '# P0 isolated official Profile proof; all roots are disposable.',
-      '- id: storage-json',
-      '  config:',
-      `    root: ${yamlString(storageRoot)}`,
-      '- id: session-persistence-jsonl',
-      '  config:',
-      `    root: ${yamlString(sessionRoot)}`,
-      '- id: sandbox-policy',
-      '  config:',
-      '    mode: workspace-write',
-      `    workspaceRoot: ${yamlString(workspaceRoot)}`,
-      '- insert:',
-      '    - id: agent-swarm-p0-profile-probe',
-      `      name: ${yamlString(join(args.repo, 'scripts', 'p0', 'profile-probe.mjs'))}`,
-      '',
-    ].join('\n'), 'utf8')
+    await writeFile(profilePatch, profilePatchLines({
+      storageRoot, sessionRoot, workspaceRoot, shutdownProbeUrl,
+    }).join('\n'), 'utf8')
+    await writeFile(join(evidenceDir, 'profile-package-installed.json'), await readFile(join(dshHome, 'profiles', 'web', 'package.json')), 'utf8')
+    await writeFile(join(evidenceDir, 'profile-cordis-default-disabled.patch.yml'), await readFile(profilePatch), 'utf8')
     gate('profile-add', 'pass', 'official plugin forwarder installed the immutable tarball into fresh web Profile')
 
     const dump = await execute('dump-config', process.execPath, [args.cli, '--profile', 'web', '--dump-config'], {
       cwd: workspaceRoot, env: { DSH_HOME: dshHome },
     })
     const dumpOk = dump.code === 0 && dump.stdout.includes('dsh-agent-swarm')
+      && dump.stdout.includes('cordis:group') && dump.stdout.includes('disabled: true')
       && dump.stdout.includes(posix(storageRoot)) && dump.stdout.includes(posix(sessionRoot))
-      && dump.stdout.includes(posix(workspaceRoot)) && dump.stdout.includes('agent-swarm-p0-profile-probe')
-    if (!dumpOk) throw new Error('dump-config did not prove the Swarm layer and isolated roots')
-    gate('dump-config', 'pass', 'Swarm + storage/session/workspace/probe rows composed')
+      && dump.stdout.includes(posix(workspaceRoot)) && dump.stdout.includes('agent-swarm-p0-shutdown-probe')
+    if (!dumpOk) throw new Error('dump-config did not prove the default-disabled Swarm layer and isolated roots')
+    gate('dump-config', 'pass', 'default-disabled structural group + isolated roots + shutdown probe composed')
 
     const bootEnv = { DSH_SWARM_P0_PROBE_PATH: probePath, DSH_SWARM_P0_STOP_PATH: stopPath }
     await rm(stopPath, { force: true })
     liveBoot = await bootPlane({ cli: args.cli, home: dshHome, profile: 'web', port: args.port, cwd: workspaceRoot, env: bootEnv })
     if (!liveBoot.ready) throw new Error(`web Profile did not boot: ${liveBoot.stderr().slice(0, 2000)}`)
-    const hostDescribe = await rpcCall(args.port, 'host.describe', {})
-    if (!hostDescribe.ok) throw new Error('host.describe failed after boot')
-    gate('boot-load', 'pass', `official web Profile ready on 127.0.0.1:${args.port}`)
+    const defaultEntries = await readInventory(args.port, evidenceDir, 'inventory-default-disabled')
+    const defaultRow = swarmInventoryRow(defaultEntries)
+    if (defaultRow?.enabled !== false || defaultRow?.fiberPhase !== null) {
+      throw new Error(`installed Swarm was not inert by default: ${JSON.stringify(defaultRow)}`)
+    }
+    gate('default-disabled', 'pass', `entry=${defaultRow.entryId}; enabled=false; fiberPhase=null`)
+    const defaultStop = await gracefulStop(liveBoot, stopPath, args.port)
+    liveBoot = undefined
+    if (!defaultStop.graceful || !defaultStop.portFree) throw new Error(`default-disabled shutdown failed: ${JSON.stringify(defaultStop)}`)
+
+    await writeFile(profilePatch, profilePatchLines({
+      storageRoot, sessionRoot, workspaceRoot, shutdownProbeUrl, serviceProbeUrl, swarmEnabled: true,
+    }).join('\n'), 'utf8')
+    await writeFile(join(evidenceDir, 'profile-cordis-explicit-enabled.patch.yml'), await readFile(profilePatch), 'utf8')
+    await rm(stopPath, { force: true })
+    liveBoot = await bootPlane({ cli: args.cli, home: dshHome, profile: 'web', port: args.port, cwd: workspaceRoot, env: bootEnv })
+    if (!liveBoot.ready) throw new Error(`explicitly enabled web Profile did not boot: ${liveBoot.stderr().slice(0, 2000)}`)
+    const activeEntries = await readInventory(args.port, evidenceDir, 'inventory-explicit-enabled')
+    const activeRow = swarmInventoryRow(activeEntries)
+    if (activeRow?.enabled !== true || activeRow?.fiberPhase !== 'active') {
+      throw new Error(`explicitly enabled Swarm was not active: ${JSON.stringify(activeRow)}`)
+    }
+    gate('boot-load', 'pass', `entry=${activeRow.entryId}; enabled=true; fiberPhase=active`)
     const probeReady = await waitUntil(async () => (await readProbe(probePath)).some(entry => entry.phase === 'active'), { timeoutMs: 10_000 })
     if (!probeReady) throw new Error('service/tool probe did not activate')
     const firstActive = (await readProbe(probePath)).find(entry => entry.phase === 'active')
@@ -204,6 +259,9 @@ async function main() {
     await rm(stopPath, { force: true })
     liveBoot = await bootPlane({ cli: args.cli, home: dshHome, profile: 'web', port: args.port, cwd: workspaceRoot, env: bootEnv })
     if (!liveBoot.ready) throw new Error(`reload boot failed: ${liveBoot.stderr().slice(0, 2000)}`)
+    const reloadEntries = await readInventory(args.port, evidenceDir, 'inventory-reload-enabled')
+    const reloadRow = swarmInventoryRow(reloadEntries)
+    if (reloadRow?.enabled !== true || reloadRow?.fiberPhase !== 'active') throw new Error(`reload inventory mismatch: ${JSON.stringify(reloadRow)}`)
     const secondActive = await waitUntil(async () => (await readProbe(probePath)).filter(entry => entry.phase === 'active').length >= 2, { timeoutMs: 10_000 })
     const secondStop = await gracefulStop(liveBoot, stopPath, args.port)
     liveBoot = undefined
@@ -211,11 +269,49 @@ async function main() {
     if (!secondActive || !secondStop.graceful || !secondStop.portFree || !secondUnloaded) throw new Error('reload/dispose proof failed')
     gate('reload', 'pass', 'second boot activated the same artifact and second graceful unload completed')
 
+    await writeFile(profilePatch, profilePatchLines({
+      storageRoot, sessionRoot, workspaceRoot, shutdownProbeUrl, swarmEnabled: false,
+    }).join('\n'), 'utf8')
+    await writeFile(join(evidenceDir, 'profile-cordis-r0-disabled.patch.yml'), await readFile(profilePatch), 'utf8')
+    await rm(stopPath, { force: true })
+    liveBoot = await bootPlane({ cli: args.cli, home: dshHome, profile: 'web', port: args.port, cwd: workspaceRoot, env: bootEnv })
+    if (!liveBoot.ready) throw new Error(`R0-disabled web Profile did not boot: ${liveBoot.stderr().slice(0, 2000)}`)
+    const disabledEntries = await readInventory(args.port, evidenceDir, 'inventory-r0-disabled')
+    const disabledRow = swarmInventoryRow(disabledEntries)
+    if (disabledRow?.enabled !== false || disabledRow?.fiberPhase !== null) throw new Error(`R0 inventory mismatch: ${JSON.stringify(disabledRow)}`)
+    const disabledStop = await gracefulStop(liveBoot, stopPath, args.port)
+    liveBoot = undefined
+    if (!disabledStop.graceful || !disabledStop.portFree) throw new Error(`R0 shutdown failed: ${JSON.stringify(disabledStop)}`)
+    gate('r0-disable', 'pass', `entry=${disabledRow.entryId}; enabled=false; fiberPhase=null after restart`)
+
+    await writeFile(profilePatch, profilePatchLines({
+      storageRoot, sessionRoot, workspaceRoot, shutdownProbeUrl,
+    }).join('\n'), 'utf8')
+    await writeFile(join(evidenceDir, 'profile-cordis-plugin-removed.patch.yml'), await readFile(profilePatch), 'utf8')
+    const remove = await execute('profile-remove', process.execPath, [args.cli, 'plugin', '--profile', 'web', 'remove', 'dsh-agent-swarm'], {
+      cwd: workspaceRoot, env: { DSH_HOME: dshHome }, timeoutMs: 10 * 60_000,
+    })
+    if (remove.code !== 0) throw new Error('official plugin remove failed')
+    await writeFile(join(evidenceDir, 'profile-package-removed.json'), await readFile(join(dshHome, 'profiles', 'web', 'package.json')), 'utf8')
+    await rm(stopPath, { force: true })
+    liveBoot = await bootPlane({ cli: args.cli, home: dshHome, profile: 'web', port: args.port, cwd: workspaceRoot, env: bootEnv })
+    if (!liveBoot.ready) throw new Error(`post-remove web Profile did not boot: ${liveBoot.stderr().slice(0, 2000)}`)
+    const removedEntries = await readInventory(args.port, evidenceDir, 'inventory-plugin-removed')
+    const removedRow = swarmInventoryRow(removedEntries)
+    if (removedRow !== undefined) throw new Error(`removed Swarm remained in inventory: ${JSON.stringify(removedRow)}`)
+    const removedStop = await gracefulStop(liveBoot, stopPath, args.port)
+    liveBoot = undefined
+    if (!removedStop.graceful || !removedStop.portFree) throw new Error(`post-remove shutdown failed: ${JSON.stringify(removedStop)}`)
+    gate('plugin-remove', 'pass', 'package removed; no dsh-agent-swarm inventory row after restart')
+
     const failProfile = 'p0-missing-storage'
     const failAdd = await execute('missing-storage-add', process.execPath, [args.cli, 'plugin', '--profile', failProfile, 'add', '-w', '--ignore-scripts', tarball], {
       cwd: workspaceRoot, env: { DSH_HOME: dshHome }, timeoutMs: 10 * 60_000,
     })
     if (failAdd.code !== 0) throw new Error('failed to assemble missing-storage negative Profile')
+    const failPatch = join(dshHome, 'profiles', failProfile, 'cordis.patch.yml')
+    await writeFile(failPatch, ['- id: agent-swarm', '  disabled: false', ''].join('\n'), 'utf8')
+    await writeFile(join(evidenceDir, 'missing-storage-explicit-enabled.patch.yml'), await readFile(failPatch), 'utf8')
     const failBoot = await execute('missing-storage-boot', process.execPath, [args.cli, '--profile', failProfile], {
       cwd: workspaceRoot, env: { DSH_HOME: dshHome }, timeoutMs: 120_000,
     })
@@ -225,8 +321,6 @@ async function main() {
     }
     gate('missing-storage-fail-closed', 'pass', `exit=${failBoot.code}; pending on storageDomain`)
 
-    await writeFile(join(evidenceDir, 'profile-package.json'), await readFile(join(dshHome, 'profiles', 'web', 'package.json')), 'utf8')
-    await writeFile(join(evidenceDir, 'profile-cordis.patch.yml'), await readFile(profilePatch), 'utf8')
     await writeFile(join(evidenceDir, 'profile-probe.jsonl'), await readFile(probePath), 'utf8')
 
     const officialCommitAfter = await gitRead(args.official, ['rev-parse', 'HEAD'])
@@ -261,6 +355,7 @@ async function main() {
       },
       isolation: {
         runtimeRoot, dshHome, workspaceRoot, sandboxRoot: workspaceRoot, storageRoot, sessionRoot,
+        probeModuleRoot, probeModuleUrls: [shutdownProbeUrl, serviceProbeUrl],
         defaultDshHome, ambientDshHomeConfigured: typeof process.env.DSH_HOME === 'string',
       },
       commands,
