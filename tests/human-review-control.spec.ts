@@ -9,6 +9,7 @@
  * reload-durability and ambiguous-HumanReview cases are machine-proven.
  */
 import { mkdtemp, rm } from 'node:fs/promises'
+import { Buffer } from 'node:buffer'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
@@ -495,6 +496,27 @@ describe('typed control execution and free-text boundary', () => {
     const forgedError = await submitError(stack, forged)
     expect(forgedError.code).toBe('TEAM_INTERACTION_NO_PRINCIPAL')
     expect((await snapshot(stack)).team.revision).toBe(initial.team.revision)
+  })
+
+  it('bounds cancel diagnostics by UTF-8 bytes without splitting a code point', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-i1a-cancel-diagnostic-'))
+    roots.push(sandbox)
+    const stack = await mount(sandbox)
+    stacks.push(stack)
+    const current = await snapshot(stack)
+    const control = request(stack, {
+      requestId: 'human-cancel-diagnostic-00000001',
+      expectedTeamRevision: current.team.revision,
+    })
+    const receipt = await stack.ctx.agentSwarmHumanControl.cancel(
+      stack.scope,
+      control,
+      captainAdmission(stack),
+      '界'.repeat(1_000),
+    )
+    expect(Buffer.byteLength(receipt.diagnostic ?? '', 'utf8')).toBeLessThanOrEqual(2_048)
+    expect((receipt.diagnostic ?? '').endsWith('界')).toBe(true)
+    expect((receipt.diagnostic ?? '').includes('\uFFFD')).toBe(false)
   })
 
   it('typed wake, correction, interrupt, reassign and review execute through the authoritative port', async () => {

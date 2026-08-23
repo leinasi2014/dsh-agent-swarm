@@ -141,8 +141,28 @@ export function sameHumanInteractionRequest(left: HumanInteractionRequest, right
     && left.source.captainSessionId === right.source.captainSessionId
     && left.source.principalRef === right.source.principalRef
     && left.source.hostSurface === right.source.hostSurface
-    && JSON.stringify(left.target) === JSON.stringify(right.target)
-    && JSON.stringify(left.origin) === JSON.stringify(right.origin)
+    && sameTarget(left.target, right.target)
+    && sameOrigin(left.origin, right.origin)
+}
+
+function sameTarget(left: HumanInteractionTarget, right: HumanInteractionTarget): boolean {
+  if (left.kind !== right.kind) return false
+  switch (left.kind) {
+    case 'captain':
+    case 'team':
+      return true
+    case 'member':
+      return right.kind === 'member' && left.memberName === right.memberName
+    case 'task':
+      return right.kind === 'task' && left.taskId === right.taskId
+  }
+}
+
+function sameOrigin(left: HumanInteractionOrigin | undefined, right: HumanInteractionOrigin | undefined): boolean {
+  if (left === undefined || right === undefined) return left === right
+  return left.kind === right.kind
+    && left.memberSessionId === right.memberSessionId
+    && left.memberName === right.memberName
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -189,6 +209,7 @@ export interface RelayMemberQuestionInput {
 
 export interface PresentQuestionInput {
   readonly scope: string
+  readonly teamId: TeamId
   readonly requestId: string
   readonly captainSessionId: string
 }

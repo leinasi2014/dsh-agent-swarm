@@ -14,6 +14,7 @@
  * recommendation stays evidence-only (fails loud rather than fabricating a
  * verdict).
  */
+import { Buffer } from 'node:buffer'
 import { TeamDomainError } from '../domain/error.js'
 import type { ReviewProviderResult, TeamReviewProvider } from './providers.js'
 
@@ -36,14 +37,34 @@ export interface ReviewerAgentProvider {
   }): ReviewerAgentVerdict | Promise<ReviewerAgentVerdict>
 }
 
+const MAX_REVIEWER_EVIDENCE_IDS = 16
+const MAX_REVIEWER_EVIDENCE_ID_BYTES = 96
+const MAX_REVIEWER_DIAGNOSTIC_BYTES = 2_048
+const EVIDENCE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/
+
 /** A reviewer verdict must not smuggle a decision or a mutation handle. */
 export function reviewerAgentVerdictHasNoTeamMutation(value: unknown): value is ReviewerAgentVerdict {
   if (typeof value !== 'object' || value === null) return false
-  if ((value as { kind?: unknown }).kind !== 'evidence') return false
-  if ('decision' in value) return false
-  if ('teamDomainPort' in value) return false
-  if ('domain' in value) return false
-  return true
+  const verdict = value as Record<string, unknown>
+  if (verdict.kind !== 'evidence') return false
+  if (Object.keys(verdict).some(key => !['kind', 'evidenceIds', 'diagnostic', 'recommendation'].includes(key))) return false
+  if (!Array.isArray(verdict.evidenceIds)
+    || verdict.evidenceIds.length < 1
+    || verdict.evidenceIds.length > MAX_REVIEWER_EVIDENCE_IDS) return false
+  const ids = verdict.evidenceIds
+  if (!ids.every(id => typeof id === 'string'
+    && EVIDENCE_ID_PATTERN.test(id)
+    && Buffer.byteLength(id, 'utf8') <= MAX_REVIEWER_EVIDENCE_ID_BYTES)) return false
+  if (new Set(ids).size !== ids.length) return false
+  if (typeof verdict.diagnostic !== 'string'
+    || verdict.diagnostic.trim() === ''
+    || Buffer.byteLength(verdict.diagnostic, 'utf8') > MAX_REVIEWER_DIAGNOSTIC_BYTES) return false
+  return verdict.recommendation === undefined || verdict.recommendation === 'accept' || verdict.recommendation === 'reject'
+}
+
+/** Stable, safe evidence binding that the existing review diagnostic persists. */
+function reviewerEvidenceBinding(verdict: ReviewerAgentVerdict): string {
+  return `reviewer evidence [${verdict.evidenceIds.join(', ')}]: ${verdict.diagnostic.trim()}`
 }
 
 /** Turn a reviewer evidence verdict into an explicit HumanReviewProvider decision. */
@@ -56,13 +77,13 @@ export function toHumanReviewDecision(verdict: ReviewerAgentVerdict): ReviewProv
   }
   if (verdict.recommendation === undefined) {
     throw new TeamDomainError(
-      'reviewer evidence without an explicit recommendation cannot settle the review; only the review transaction can decide',
+      `reviewer evidence without an explicit recommendation cannot settle the review; ${reviewerEvidenceBinding(verdict)}`,
       'TEAM_REVIEWER_EVIDENCE_ONLY',
     )
   }
   return {
     decision: verdict.recommendation,
-    ...(verdict.diagnostic === '' ? {} : { diagnostic: verdict.diagnostic }),
+    diagnostic: reviewerEvidenceBinding(verdict),
   }
 }
 
@@ -83,12 +104,22 @@ export function reviewerAgentReviewProvider(resolve: () => ReviewerAgentProvider
           'TEAM_REVIEW_PROVIDER_MISSING',
         )
       }
-      const verdict = await provider.review({
-        workspace: input.workspace,
-        ...(input.diagnostic === undefined ? {} : { diagnostic: input.diagnostic }),
-        signal: input.signal,
-      })
-      return toHumanReviewDecision(verdict)
+      let verdict: ReviewerAgentVerdict
+      try {
+        verdict = await provider.review({
+          workspace: input.workspace,
+          ...(input.diagnostic === undefined ? {} : { diagnostic: input.diagnostic }),
+          signal: input.signal,
+        })
+      } catch {
+        throw new TeamDomainError('reviewer-agent Provider failed without producing valid evidence', 'TEAM_REVIEW_PROVIDER_FAILED')
+      }
+      try {
+        return toHumanReviewDecision(verdict)
+      } catch (error) {
+        if (error instanceof TeamDomainError) throw error
+        throw new TeamDomainError('reviewer-agent Provider produced unreadable evidence', 'TEAM_REVIEW_PROVIDER_FAILED')
+      }
     },
   }
 }

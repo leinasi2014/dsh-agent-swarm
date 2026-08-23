@@ -91,9 +91,13 @@ describe('Reviewer Agent / HumanReviewProvider boundary', () => {
       recommendation: 'reject',
     }
     expect(reviewerAgentVerdictHasNoTeamMutation(verdict)).toBe(true)
-    expect(reviewerAgentVerdictHasNoTeamMutation({ kind: 'evidence', evidenceIds: [], diagnostic: 'x', decision: 'accept' })).toBe(false)
-    expect(reviewerAgentVerdictHasNoTeamMutation({ kind: 'evidence', evidenceIds: [], diagnostic: 'x', teamDomainPort: {} })).toBe(false)
+    expect(reviewerAgentVerdictHasNoTeamMutation({ kind: 'evidence', evidenceIds: ['e1'], diagnostic: 'x', decision: 'accept' })).toBe(false)
+    expect(reviewerAgentVerdictHasNoTeamMutation({ kind: 'evidence', evidenceIds: ['e1'], diagnostic: 'x', teamDomainPort: {} })).toBe(false)
     expect(reviewerAgentVerdictHasNoTeamMutation({ kind: 'decision', decision: 'accept' })).toBe(false)
+    expect(reviewerAgentVerdictHasNoTeamMutation({ kind: 'evidence', evidenceIds: [], diagnostic: 'x', recommendation: 'accept' })).toBe(false)
+    expect(reviewerAgentVerdictHasNoTeamMutation({ kind: 'evidence', evidenceIds: ['e1', 'e1'], diagnostic: 'x', recommendation: 'accept' })).toBe(false)
+    expect(reviewerAgentVerdictHasNoTeamMutation({ kind: 'evidence', evidenceIds: ['e1'], diagnostic: '', recommendation: 'accept' })).toBe(false)
+    expect(reviewerAgentVerdictHasNoTeamMutation({ kind: 'evidence', evidenceIds: ['e1'], diagnostic: 'x', recommendation: 'maybe' })).toBe(false)
   })
   it('turns an explicit reviewer recommendation into a ReviewProviderResult', () => {
     const decision = toHumanReviewDecision({
@@ -102,11 +106,11 @@ describe('Reviewer Agent / HumanReviewProvider boundary', () => {
       diagnostic: 'verification root failed',
       recommendation: 'reject',
     })
-    expect(decision).toEqual({ decision: 'reject', diagnostic: 'verification root failed' })
+    expect(decision).toEqual({ decision: 'reject', diagnostic: 'reviewer evidence [e1]: verification root failed' })
   })
   it('fails loud when reviewer evidence has no recommendation', () => {
-    expect(() => toHumanReviewDecision({ kind: 'evidence', evidenceIds: [], diagnostic: 'ambiguous' }))
-      .toThrowError(expect.objectContaining({ code: 'TEAM_REVIEWER_EVIDENCE_ONLY' }))
+    expect(() => toHumanReviewDecision({ kind: 'evidence', evidenceIds: ['e1'], diagnostic: 'ambiguous' }))
+      .toThrowError(expect.objectContaining({ code: 'TEAM_REVIEWER_EVIDENCE_ONLY', message: expect.stringContaining('e1') }))
   })
 })
 function captainTurn(): ToolPermissionContext {

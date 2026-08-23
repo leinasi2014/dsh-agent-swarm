@@ -116,6 +116,7 @@ describe('SW-I1a Captain Liaison', () => {
 
     const executed = await present(liaison, {
       scope,
+      teamId: team.id,
       requestId: first.requestId,
       captainSessionId: 'captain-session',
     })
@@ -131,6 +132,7 @@ describe('SW-I1a Captain Liaison', () => {
     // Presenting the already-executed question is idempotent: no second answer.
     const executedAgain = await present(liaison, {
       scope,
+      teamId: team.id,
       requestId: first.requestId,
       captainSessionId: 'captain-session',
     })
@@ -150,6 +152,7 @@ describe('SW-I1a Captain Liaison', () => {
     // direct attempt before any user-interaction service is reached.
     await expect(present(liaison, {
       scope,
+      teamId: team.id,
       requestId: relayed.requestId,
       captainSessionId: 'member-1',
     })).rejects.toMatchObject({ code: 'TEAM_CAPTAIN_REQUIRED' })
@@ -161,6 +164,7 @@ describe('SW-I1a Captain Liaison', () => {
     // fabricated or routed.
     const failed = await present(liaison, {
       scope,
+      teamId: team.id,
       requestId: relayed.requestId,
       captainSessionId: 'captain-session',
     })
@@ -251,7 +255,7 @@ describe('SW-I1a Captain Liaison', () => {
     stack = await openStorageStack(storageRoot, () => tick++)
     humanDomain = await stack.ctx.storageDomain.open(humanInteractionDomainSpec)
     overlay = new HumanInteractionOverlayStore(stack.ctx, humanDomain)
-    const rebuilt = overlay.get(scope, 'human-relay-00000009')
+    const rebuilt = overlay.get(scope, team.id, 'human-relay-00000009')
     expect(rebuilt?.receipt.status).toBe('acknowledged')
     expect(rebuilt?.receipt.routedMessageId).toBe(first.routedMessageId)
 
@@ -292,6 +296,7 @@ describe('SW-I1a Captain Liaison', () => {
 
     await expect(present(liaison, {
       scope,
+      teamId: team.id,
       requestId: relayed.requestId,
       captainSessionId: 'captain-session',
     })).rejects.toMatchObject({ code: 'TEAM_INTERACTION_OUTCOME_UNKNOWN' })
@@ -301,6 +306,7 @@ describe('SW-I1a Captain Liaison', () => {
 
     await expect(present(liaison, {
       scope,
+      teamId: team.id,
       requestId: relayed.requestId,
       captainSessionId: 'captain-session',
     })).rejects.toMatchObject({ code: 'TEAM_INTERACTION_OUTCOME_UNKNOWN' })
@@ -321,5 +327,41 @@ describe('SW-I1a Captain Liaison', () => {
       team.id,
       { exec: { agent: CAPTAIN, signal: SIGNAL } },
     ))).not.toMatch(/private|secret-answer/)
+  })
+
+  it('treats a throwing presentation as outcome-unknown, survives expiry reconcile, and never leaks or asks twice', async () => {
+    const team = await teamWithMember()
+    let asks = 0
+    const liaison = new CaptainLiaison(stack.port, overlay, {
+      ask: async () => {
+        asks += 1
+        throw new Error('C:\\private\\questions token=secret-presentation')
+      },
+    }, () => tick++, CALLERS)
+    const relayed = await relay(liaison, {
+      ...relayInput(team.id, team.revision, 'human-presentation-unknown-00000011'),
+      expiresAt: tick + 100,
+    })
+
+    await expect(present(liaison, {
+      scope,
+      teamId: team.id,
+      requestId: relayed.requestId,
+      captainSessionId: 'captain-session',
+    })).rejects.toMatchObject({ code: 'TEAM_INTERACTION_OUTCOME_UNKNOWN' })
+    tick += 1_000
+    const reconciled = await liaison.reconcile(scope, team.id, { exec: { agent: CAPTAIN, signal: SIGNAL } })
+    expect(reconciled.find(item => item.requestId === relayed.requestId)).toMatchObject({
+      status: 'acknowledged',
+      code: 'TEAM_INTERACTION_OUTCOME_UNKNOWN',
+    })
+    await expect(present(liaison, {
+      scope,
+      teamId: team.id,
+      requestId: relayed.requestId,
+      captainSessionId: 'captain-session',
+    })).rejects.toMatchObject({ code: 'TEAM_INTERACTION_OUTCOME_UNKNOWN' })
+    expect(asks).toBe(1)
+    expect(JSON.stringify(reconciled)).not.toMatch(/private|secret-presentation/)
   })
 })

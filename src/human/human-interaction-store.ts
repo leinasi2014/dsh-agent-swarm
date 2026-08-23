@@ -1,7 +1,7 @@
 /**
  * The `agent_swarm_human` Storage Domain (SW-I1a): the additive
  * durable boundary of HumanInteraction request/receipt records. One record per
- * authoritative workspace scope + request id in the `interactions` table. The record family is correlation and
+ * authoritative workspace scope + Team id + request id in the `interactions` table. The record family is correlation and
  * audit only — Team membership/tasks/mailbox stay canonical in `agent_swarm`,
  * and relay Agents never write either domain directly.
  *
@@ -26,7 +26,11 @@ export const HUMAN_INTERACTION_DOMAIN_NAME = 'agent_swarm_human'
 export const HUMAN_INTERACTION_DOMAIN_VERSION = 1
 
 /** Collision-free durable/lock key; request ids are idempotent only inside one authoritative scope. */
-function humanInteractionKey(scope: string, requestId: string): string {
+function humanInteractionKey(scope: string, teamId: TeamId, requestId: string): string {
+  return JSON.stringify([scope, teamId, requestId])
+}
+
+function legacyHumanInteractionKey(scope: string, requestId: string): string {
   return JSON.stringify([scope, requestId])
 }
 
@@ -34,8 +38,8 @@ function humanInteractionKey(scope: string, requestId: string): string {
 class HumanInteractionOperationLocks {
   private readonly locks = new Map<string, Promise<void>>()
 
-  async run<T>(scope: string, requestId: string, operation: () => Promise<T>): Promise<T> {
-    const key = humanInteractionKey(scope, requestId)
+  async run<T>(scope: string, teamId: TeamId, requestId: string, operation: () => Promise<T>): Promise<T> {
+    const key = humanInteractionKey(scope, teamId, requestId)
     const previous = this.locks.get(key) ?? Promise.resolve()
     let release!: () => void
     const current = new Promise<void>(resolve => { release = resolve })
@@ -149,6 +153,9 @@ export class HumanInteractionOverlayStore {
   private readonly lifecycleLocks = new HumanInteractionOperationLocks()
   private readonly outcomeUnknown = new Set<string>()
   private storeClosed = false
+  private accepting = true
+  private admittedOperations = 0
+  private readonly drainWaiters = new Set<() => void>()
 
   constructor(
     _ctx: Context,
@@ -164,43 +171,68 @@ export class HumanInteractionOverlayStore {
   /** Lifecycle probe only; reveals no record and performs no durable access. */
   assertAvailable(): void {
     this.assertOpen()
+    if (!this.accepting) throw new TeamDomainError('human interaction surface is stopping', 'TEAM_INTERACTION_STOPPING')
+  }
+
+  /** Admit one public operation before it can touch Team or durable state. */
+  async runAdmitted<T>(operation: () => Promise<T>): Promise<T> {
+    this.assertAvailable()
+    this.admittedOperations += 1
+    try {
+      return await operation()
+    } finally {
+      this.admittedOperations -= 1
+      if (this.admittedOperations === 0) {
+        for (const resolve of this.drainWaiters) resolve()
+        this.drainWaiters.clear()
+      }
+    }
   }
 
   /** Serialize one complete request lifecycle across liaison and Control surfaces. */
-  async runRequestExclusive<T>(scope: string, requestId: string, operation: () => Promise<T>): Promise<T> {
+  async runRequestExclusive<T>(scope: string, teamId: TeamId, requestId: string, operation: () => Promise<T>): Promise<T> {
     this.assertOpen()
-    return await this.lifecycleLocks.run(scope, requestId, operation)
+    return await this.lifecycleLocks.run(scope, teamId, requestId, operation)
   }
 
-  get(scope: string, requestId: string): HumanInteractionRecord | undefined {
+  get(scope: string, teamId: TeamId, requestId: string): HumanInteractionRecord | undefined {
     this.assertOpen()
-    const record = this.interactions.get(humanInteractionKey(scope, requestId))
-    if (record !== undefined && record.scope !== scope) {
-      throw new TeamDomainError('human interaction durable key does not match its authoritative scope', 'TEAM_INTERACTION_SCOPE_MISMATCH')
+    const record = this.interactions.get(humanInteractionKey(scope, teamId, requestId))
+    if (record !== undefined && (record.scope !== scope || record.request.teamId !== teamId)) {
+      throw new TeamDomainError('human interaction durable key does not match its authority tuple', 'TEAM_INTERACTION_SCOPE_MISMATCH')
+    }
+    const legacy = this.interactions.get(legacyHumanInteractionKey(scope, requestId))
+    if (legacy !== undefined && legacy.request.teamId === teamId) {
+      throw new TeamDomainError('legacy human interaction key requires explicit migration', 'TEAM_INTERACTION_LEGACY_KEY_UNSUPPORTED')
     }
     return record === undefined ? undefined : structuredClone(record)
   }
 
   /** Process-local I1a quarantine for a possibly committed, uncorrelated effect. */
-  quarantine(scope: string, requestId: string): void {
+  quarantine(scope: string, teamId: TeamId, requestId: string): void {
     this.assertOpen()
-    this.outcomeUnknown.add(humanInteractionKey(scope, requestId))
+    this.outcomeUnknown.add(humanInteractionKey(scope, teamId, requestId))
   }
 
   /** Durable marker is also honored when the best-effort quarantine write succeeded. */
-  isOutcomeUnknown(scope: string, requestId: string): boolean {
+  isOutcomeUnknown(scope: string, teamId: TeamId, requestId: string): boolean {
     this.assertOpen()
-    if (this.outcomeUnknown.has(humanInteractionKey(scope, requestId))) return true
-    return this.get(scope, requestId)?.receipt.code === 'TEAM_INTERACTION_OUTCOME_UNKNOWN'
+    if (this.outcomeUnknown.has(humanInteractionKey(scope, teamId, requestId))) return true
+    return this.get(scope, teamId, requestId)?.receipt.code === 'TEAM_INTERACTION_OUTCOME_UNKNOWN'
   }
 
   /** List records filtered by workspace scope and/or Team, oldest first. */
   list(scope?: string, teamId?: TeamId): HumanInteractionRecord[] {
     this.assertOpen()
     return [...this.interactions.entries()]
-      .map(([, record]) => record)
-      .filter(record => scope === undefined || record.scope === scope)
-      .filter(record => teamId === undefined || record.request.teamId === teamId)
+      .filter(([, record]) => scope === undefined || record.scope === scope)
+      .filter(([, record]) => teamId === undefined || record.request.teamId === teamId)
+      .map(([key, record]) => {
+        if (key !== humanInteractionKey(record.scope, record.request.teamId, record.request.requestId)) {
+          throw new TeamDomainError('legacy or mismatched human interaction key requires explicit migration', 'TEAM_INTERACTION_LEGACY_KEY_UNSUPPORTED')
+        }
+        return record
+      })
       .toSorted((left, right) => left.createdAt - right.createdAt || left.request.requestId.localeCompare(right.request.requestId))
       .map(record => structuredClone(record))
   }
@@ -212,8 +244,12 @@ export class HumanInteractionOverlayStore {
    */
   async commitIfAbsent(record: HumanInteractionRecord): Promise<HumanInteractionRecord | undefined> {
     this.assertOpen()
-    return await this.operationLocks.run(record.scope, record.request.requestId, async () => {
-      const key = humanInteractionKey(record.scope, record.request.requestId)
+    return await this.operationLocks.run(record.scope, record.request.teamId, record.request.requestId, async () => {
+      const key = humanInteractionKey(record.scope, record.request.teamId, record.request.requestId)
+      const legacy = this.interactions.get(legacyHumanInteractionKey(record.scope, record.request.requestId))
+      if (legacy !== undefined && legacy.request.teamId === record.request.teamId) {
+        throw new TeamDomainError('legacy human interaction key requires explicit migration', 'TEAM_INTERACTION_LEGACY_KEY_UNSUPPORTED')
+      }
       const existing = this.interactions.get(key)
       if (existing !== undefined) return structuredClone(existing)
       await this.interactions.put(key, structuredClone(record))
@@ -231,8 +267,8 @@ export class HumanInteractionOverlayStore {
     previousUpdatedAt?: number,
   ): Promise<HumanInteractionRecord> {
     this.assertOpen()
-    return await this.operationLocks.run(record.scope, record.request.requestId, async () => {
-      const key = humanInteractionKey(record.scope, record.request.requestId)
+    return await this.operationLocks.run(record.scope, record.request.teamId, record.request.requestId, async () => {
+      const key = humanInteractionKey(record.scope, record.request.teamId, record.request.requestId)
       const existing = this.interactions.get(key)
       if (existing === undefined) {
         throw new TeamDomainError(`interaction "${record.request.requestId}" not found`, 'TEAM_INTERACTION_NOT_FOUND')
@@ -251,8 +287,39 @@ export class HumanInteractionOverlayStore {
     })
   }
 
-  /** Stop accepting operations (the domain handle itself is closed by the owner). */
+  /** Stop admission and wait for already admitted operations to settle. */
+  async stopAdmissionAndDrain(timeoutMs = 5_000): Promise<void> {
+    this.assertOpen()
+    this.accepting = false
+    if (this.admittedOperations === 0) return
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let drainResolve!: () => void
+    const drained = new Promise<void>(resolve => {
+      drainResolve = resolve
+      this.drainWaiters.add(resolve)
+    })
+    try {
+      await Promise.race([
+        drained,
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => reject(new TeamDomainError(
+            'human interaction operations did not drain before disposal timeout',
+            'TEAM_INTERACTION_DISPOSAL_TIMEOUT',
+          )), timeoutMs)
+        }),
+      ])
+    } finally {
+      if (timer !== undefined) clearTimeout(timer)
+      this.drainWaiters.delete(drainResolve)
+    }
+  }
+
+  /** Close only after a successful drain (the domain handle is owned by the caller). */
   close(): void {
+    if (this.admittedOperations !== 0) {
+      throw new TeamDomainError('cannot close human interaction overlay with admitted operations', 'TEAM_INTERACTION_DISPOSAL_TIMEOUT')
+    }
+    this.accepting = false
     this.storeClosed = true
     this.outcomeUnknown.clear()
   }
@@ -266,11 +333,12 @@ export class HumanInteractionOverlayStore {
 export async function quarantineInteractionOutcome(
   overlay: HumanInteractionOverlayStore,
   scope: string,
+  teamId: TeamId,
   requestId: string,
   now: () => number,
 ): Promise<void> {
-  overlay.quarantine(scope, requestId)
-  const current = overlay.get(scope, requestId)
+  overlay.quarantine(scope, teamId, requestId)
+  const current = overlay.get(scope, teamId, requestId)
   if (current === undefined || (current.receipt.status !== 'pending' && current.receipt.status !== 'acknowledged')) return
   const marked: HumanInteractionRecord = {
     ...current,

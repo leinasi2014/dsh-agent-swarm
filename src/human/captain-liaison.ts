@@ -65,16 +65,20 @@ export class CaptainLiaison implements HumanInteractionPort {
     input: RelayMemberQuestionInput,
     admission: HumanInteractionAdmission,
   ): Promise<HumanInteractionReceipt> {
-    this.overlay.assertAvailable()
-    const caller = this.requireLiveCaller(input.memberSessionId, admission, false, 'TEAM_INTERACTION_MEMBER_REQUIRED')
-    const membership = await this.team.requireMembership(input.scope, caller.id)
-    expectDomain(membership.team.id === input.teamId, 'caller is not a participant of this Team', 'TEAM_UNAUTHORIZED')
-    expectDomain(membership.role === 'member', 'only a delegated member may relay a question to the captain', 'TEAM_INTERACTION_MEMBER_REQUIRED')
-    return await this.overlay.runRequestExclusive(
-      input.scope,
-      input.requestId ?? '',
-      () => this.relayMemberQuestionLocked(input, membership),
-    )
+    this.validateRelayInput(input, admission)
+    const normalized = { ...input, requestId: input.requestId ?? `human-${randomUUID()}` }
+    return await this.overlay.runAdmitted(async () => {
+      const caller = this.requireLiveCaller(normalized.memberSessionId, admission, false, 'TEAM_INTERACTION_MEMBER_REQUIRED')
+      const membership = await this.team.requireMembership(normalized.scope, caller.id)
+      expectDomain(membership.team.id === normalized.teamId, 'caller is not a participant of this Team', 'TEAM_UNAUTHORIZED')
+      expectDomain(membership.role === 'member', 'only a delegated member may relay a question to the captain', 'TEAM_INTERACTION_MEMBER_REQUIRED')
+      return await this.overlay.runRequestExclusive(
+        normalized.scope,
+        normalized.teamId,
+        normalized.requestId,
+        () => this.relayMemberQuestionLocked(normalized, membership),
+      )
+    })
   }
 
   private async relayMemberQuestionLocked(
@@ -85,7 +89,7 @@ export class CaptainLiaison implements HumanInteractionPort {
     const body = boundedText(input.body, 'question')
     const requestId = input.requestId ?? `human-${randomUUID()}`
     expectDomain(/^human-[a-z0-9-]{8,80}$/.test(requestId), 'requestId is malformed', 'TEAM_INTERACTION_REQUEST_ID_INVALID')
-    const existing = this.overlay.get(input.scope, requestId)
+    const existing = this.overlay.get(input.scope, input.teamId, requestId)
     const now = this.now()
     const request: HumanInteractionRequest = {
       schemaVersion: 1,
@@ -111,7 +115,7 @@ export class CaptainLiaison implements HumanInteractionPort {
       ...(input.expiresAt === undefined ? {} : { expiresAt: input.expiresAt }),
     }
     if (existing !== undefined) {
-      if (this.overlay.isOutcomeUnknown(input.scope, requestId)) throw this.outcomeUnknown('question relay outcome is unknown')
+      if (this.overlay.isOutcomeUnknown(input.scope, input.teamId, requestId)) throw this.outcomeUnknown('question relay outcome is unknown')
       expectDomain(
         sameHumanInteractionRequest(existing.request, request),
         `requestId "${requestId}" already exists with a different payload`,
@@ -177,9 +181,9 @@ export class CaptainLiaison implements HumanInteractionPort {
       }
       await this.overlay.update(acknowledged, pending.receipt.updatedAt)
       return receiptOf(acknowledged)
-    } catch (error) {
-      await quarantineInteractionOutcome(this.overlay, input.scope, requestId, this.now)
-      throw this.outcomeUnknown('question mail may have committed but its receipt outcome is unknown', error)
+    } catch {
+      await quarantineInteractionOutcome(this.overlay, input.scope, input.teamId, requestId, this.now)
+      throw this.outcomeUnknown('question mail may have committed but its receipt outcome is unknown')
     }
   }
 
@@ -187,26 +191,30 @@ export class CaptainLiaison implements HumanInteractionPort {
     input: PresentQuestionInput,
     admission: HumanInteractionAdmission,
   ): Promise<HumanInteractionReceipt> {
-    this.overlay.assertAvailable()
-    const caller = this.requireLiveCaller(input.captainSessionId, admission, true, 'TEAM_CAPTAIN_REQUIRED')
-    const membership = await this.team.requireMembership(input.scope, caller.id)
-    expectDomain(membership.role === 'captain', 'only the root captain may present a human question', 'TEAM_CAPTAIN_REQUIRED')
-    return await this.overlay.runRequestExclusive(
-      input.scope,
-      input.requestId,
-      () => this.presentQuestionLocked(input, membership),
-    )
+    this.validatePresentInput(input, admission)
+    return await this.overlay.runAdmitted(async () => {
+      const caller = this.requireLiveCaller(input.captainSessionId, admission, true, 'TEAM_CAPTAIN_REQUIRED')
+      const membership = await this.team.requireMembership(input.scope, caller.id)
+      expectDomain(membership.role === 'captain', 'only the root captain may present a human question', 'TEAM_CAPTAIN_REQUIRED')
+      expectDomain(membership.team.id === input.teamId, 'caller is not the captain of this Team', 'TEAM_UNAUTHORIZED')
+      return await this.overlay.runRequestExclusive(
+        input.scope,
+        input.teamId,
+        input.requestId,
+        () => this.presentQuestionLocked(input, membership),
+      )
+    })
   }
 
   private async presentQuestionLocked(
     input: PresentQuestionInput,
     membership: Awaited<ReturnType<TeamDomainPort['requireMembership']>>,
   ): Promise<HumanInteractionReceipt> {
-    const record = this.overlay.get(input.scope, input.requestId)
+    const record = this.overlay.get(input.scope, input.teamId, input.requestId)
     if (record === undefined) {
       throw new TeamDomainError(`interaction "${input.requestId}" not found`, 'TEAM_INTERACTION_NOT_FOUND')
     }
-    if (this.overlay.isOutcomeUnknown(input.scope, input.requestId)) {
+    if (this.overlay.isOutcomeUnknown(input.scope, input.teamId, input.requestId)) {
       throw this.outcomeUnknown('question presentation outcome is unknown')
     }
     expectDomain(membership.team.id === record.request.teamId, 'caller is not a participant of this Team', 'TEAM_UNAUTHORIZED')
@@ -265,20 +273,9 @@ export class CaptainLiaison implements HumanInteractionPort {
     let answer: string
     try {
       answer = boundedText(await this.presentation.ask(question), 'answer')
-    } catch (error) {
-      const failed: HumanInteractionRecord = {
-        ...record,
-        receipt: {
-          ...record.receipt,
-          status: 'failed',
-          code: 'TEAM_INTERACTION_PRESENTATION_FAILED',
-          diagnostic: 'question presentation failed; no answer was accepted',
-          updatedAt: this.now(),
-        },
-        updatedAt: this.now(),
-      }
-      await this.overlay.update(failed, record.receipt.updatedAt).catch(() => undefined)
-      throw error
+    } catch {
+      await quarantineInteractionOutcome(this.overlay, input.scope, input.teamId, input.requestId, this.now)
+      throw this.outcomeUnknown('question presentation may have occurred but its outcome is unknown')
     }
 
     try {
@@ -304,9 +301,9 @@ export class CaptainLiaison implements HumanInteractionPort {
       }
       await this.overlay.update(executed, record.receipt.updatedAt)
       return receiptOf(executed)
-    } catch (error) {
-      await quarantineInteractionOutcome(this.overlay, input.scope, input.requestId, this.now)
-      throw this.outcomeUnknown('answer mail may have committed but its receipt outcome is unknown', error)
+    } catch {
+      await quarantineInteractionOutcome(this.overlay, input.scope, input.teamId, input.requestId, this.now)
+      throw this.outcomeUnknown('answer mail may have committed but its receipt outcome is unknown')
     }
   }
 
@@ -315,9 +312,11 @@ export class CaptainLiaison implements HumanInteractionPort {
     teamId: TeamId,
     admission: HumanInteractionAdmission,
   ): Promise<HumanInteractionReceipt[]> {
-    this.overlay.assertAvailable()
-    await this.authorizeCaptainForTeam(scope, teamId, admission)
-    return this.overlay.list(scope, teamId).map(receiptOf)
+    this.validateMaintenanceAdmission(scope, teamId, admission)
+    return await this.overlay.runAdmitted(async () => {
+      await this.authorizeCaptainForTeam(scope, teamId, admission)
+      return this.overlay.list(scope, teamId).map(receiptOf)
+    })
   }
 
   async reconcile(
@@ -325,13 +324,14 @@ export class CaptainLiaison implements HumanInteractionPort {
     teamId: TeamId,
     admission: HumanInteractionAdmission,
   ): Promise<HumanInteractionReceipt[]> {
-    this.overlay.assertAvailable()
-    await this.authorizeCaptainForTeam(scope, teamId, admission)
-    const now = this.now()
-    for (const record of this.overlay.list(scope, teamId)) {
-      await this.overlay.runRequestExclusive(scope, record.request.requestId, async () => {
-        const current = this.overlay.get(scope, record.request.requestId)
-        if (this.overlay.isOutcomeUnknown(scope, record.request.requestId)) return
+    this.validateMaintenanceAdmission(scope, teamId, admission)
+    return await this.overlay.runAdmitted(async () => {
+      await this.authorizeCaptainForTeam(scope, teamId, admission)
+      const now = this.now()
+      for (const record of this.overlay.list(scope, teamId)) {
+        await this.overlay.runRequestExclusive(scope, teamId, record.request.requestId, async () => {
+        const current = this.overlay.get(scope, teamId, record.request.requestId)
+        if (this.overlay.isOutcomeUnknown(scope, teamId, record.request.requestId)) return
         if (current?.request.expiresAt !== undefined && current.request.expiresAt <= now
           && (current.receipt.status === 'pending' || current.receipt.status === 'acknowledged')) {
           await this.overlay.update({
@@ -346,9 +346,10 @@ export class CaptainLiaison implements HumanInteractionPort {
             updatedAt: now,
           }, current.receipt.updatedAt)
         }
-      })
-    }
-    return this.overlay.list(scope, teamId).map(receiptOf)
+        })
+      }
+      return this.overlay.list(scope, teamId).map(receiptOf)
+    })
   }
 
   private requireLiveCaller(
@@ -405,12 +406,57 @@ export class CaptainLiaison implements HumanInteractionPort {
     }
   }
 
-  private outcomeUnknown(message: string, cause?: unknown): TeamDomainError {
+  private outcomeUnknown(message: string): TeamDomainError {
     return new TeamDomainError(
       `${message}; do not replay before I1b reconciliation`,
       'TEAM_INTERACTION_OUTCOME_UNKNOWN',
-      { cause },
     )
+  }
+
+  private validateRelayInput(input: RelayMemberQuestionInput, admission: HumanInteractionAdmission): void {
+    if (typeof input !== 'object' || input === null
+      || typeof input.scope !== 'string' || input.scope === ''
+      || typeof input.teamId !== 'string' || input.teamId === ''
+      || typeof input.memberSessionId !== 'string' || input.memberSessionId === ''
+      || typeof input.body !== 'string'
+      || !Number.isSafeInteger(input.expectedTeamRevision) || input.expectedTeamRevision < 1
+      || (input.requestId !== undefined && (typeof input.requestId !== 'string' || !/^human-[a-z0-9-]{8,80}$/.test(input.requestId)))
+      || (input.expiresAt !== undefined && (!Number.isSafeInteger(input.expiresAt) || input.expiresAt < 0))) {
+      throw new TeamDomainError('member-question input or admission is invalid', 'TEAM_INTERACTION_INVALID')
+    }
+    boundedText(input.body, 'question')
+    this.validateInteractionAdmission(admission)
+  }
+
+  private validatePresentInput(input: PresentQuestionInput, admission: HumanInteractionAdmission): void {
+    if (typeof input !== 'object' || input === null
+      || typeof input.scope !== 'string' || input.scope === ''
+      || typeof input.teamId !== 'string' || input.teamId === ''
+      || typeof input.requestId !== 'string' || !/^human-[a-z0-9-]{8,80}$/.test(input.requestId)
+      || typeof input.captainSessionId !== 'string' || input.captainSessionId === ''
+    ) {
+      throw new TeamDomainError('question presentation input or admission is invalid', 'TEAM_INTERACTION_INVALID')
+    }
+    this.validateInteractionAdmission(admission)
+  }
+
+  private validateMaintenanceAdmission(scope: TeamScope, teamId: TeamId, admission: HumanInteractionAdmission): void {
+    if (typeof scope !== 'string' || scope === '' || typeof teamId !== 'string' || teamId === ''
+    ) {
+      throw new TeamDomainError('interaction maintenance admission is invalid', 'TEAM_INTERACTION_INVALID')
+    }
+    this.validateInteractionAdmission(admission)
+  }
+
+  private validateInteractionAdmission(admission: HumanInteractionAdmission): void {
+    if (typeof admission !== 'object' || admission === null
+      || typeof admission.exec !== 'object' || admission.exec === null
+      || typeof admission.exec.agent !== 'object' || admission.exec.agent === null
+      || typeof admission.exec.agent.id !== 'string' || admission.exec.agent.id === ''
+      || typeof admission.exec.signal !== 'object' || admission.exec.signal === null
+      || typeof admission.exec.signal.aborted !== 'boolean') {
+      throw new TeamDomainError('interaction admission is invalid', 'TEAM_INTERACTION_INVALID')
+    }
   }
 
 }

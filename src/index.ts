@@ -403,6 +403,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const executionRootsBase = expectExecutionRootsBase(config.executionRootsBase) ?? defaultExecutionRootsBase()
   const toolPolicy = effectiveToolPolicy(config.toolPolicy)
   const memberToolPolicyDeny = [...(toolPolicy.ask ?? []), ...(toolPolicy.deny ?? [])]
+  const disposalTimeoutMs = config.disposalTimeoutMs ?? DEFAULT_DISPOSAL_TIMEOUT_MS
+  let drainHumanInteractions: (() => Promise<void>) | undefined
 
   const runtime = new AgentSwarmRuntime(ctx, {
     memberProvider,
@@ -425,7 +427,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       maxVerificationCommands: config.maxVerificationCommands ?? DEFAULT_TEAM_LIMITS.maxVerificationCommands,
       maxVerificationCommandMs: config.maxVerificationCommandMs ?? DEFAULT_TEAM_LIMITS.maxVerificationCommandMs,
     },
-    disposalTimeoutMs: config.disposalTimeoutMs ?? DEFAULT_DISPOSAL_TIMEOUT_MS,
+    disposalTimeoutMs,
     strandedAfterMs: config.strandedAfterMs ?? DEFAULT_STRANDED_AFTER_MS,
     executionRootsEnabled,
     executionRootProvider,
@@ -433,13 +435,12 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     memberToolPolicyDeny,
   })
 
-  // Fail closed: the official Storage Domain must open (backend routed, unit
-  // version matching, stored records schema-valid) before any tool, prompt
-  // section or listener is registered.
+  // Fail closed: official Storage Domain opens before tools/listeners.
   await runtime.start()
-  // Register first so LIFO teardown retires every later consumer and overlay
-  // before the authoritative Team store closes.
-  ctx.effect(() => () => runtime.dispose(), 'agent-swarm: runtime disposal')
+  ctx.effect(() => async () => {
+    await drainHumanInteractions?.()
+    await runtime.dispose()
+  }, 'agent-swarm: runtime disposal')
 
   registerAgentSwarmTools(ctx, runtime)
   // I1a permission boundary: project policy consumes the official
@@ -471,8 +472,6 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   // I1a human review stays inside the existing captain review transaction;
   // the provider produces a decision, TeamDomainPort owns the mutation.
   ctx.effect(() => runtime.registerReviewProvider('human', humanReviewProvider(ctx)), 'agent-swarm: human review provider')
-  // One effect owns the additive interaction overlay and both headless host
-  // surfaces. There is no RPC, browser, Canvas or UI dependency in this slice.
   let humanDomain: Domain<typeof humanInteractionDomainSpec> | undefined
   let humanOverlay: HumanInteractionOverlayStore | undefined
   let unprovideControl: (() => void) | undefined
@@ -482,6 +481,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     humanDomain = domain
     const overlay = new HumanInteractionOverlayStore(ctx, domain)
     humanOverlay = overlay
+    let drainPromise: Promise<void> | undefined
+    const drain = () => drainPromise ??= overlay.stopAdmissionAndDrain(disposalTimeoutMs)
+    drainHumanInteractions = drain
     const liaison = new CaptainLiaison(
       runtime.domain,
       overlay,
@@ -507,16 +509,20 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       unprovideControl = ctx.provide('agentSwarmHumanControl', humanControl)
       unprovideInteraction = ctx.provide('agentSwarmHumanInteraction', liaison)
       return async () => {
+        const drained = drain()
         await unprovideControl?.()
         await unprovideInteraction?.()
+        await drained
         overlay.close()
         await domain.close()
+        if (drainHumanInteractions === drain) drainHumanInteractions = undefined
       }
     }, 'agent-swarm: human interaction domain')
   } catch (error) {
     await unprovideControl?.()
     await unprovideInteraction?.()
     humanOverlay?.close()
+    drainHumanInteractions = undefined
     if (humanDomain !== undefined) await humanDomain.close()
     await runtime.dispose()
     throw error

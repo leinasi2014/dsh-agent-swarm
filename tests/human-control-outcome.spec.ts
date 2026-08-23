@@ -23,11 +23,14 @@ describe('SW-I1a uncertain effect outcome', () => {
       let quarantined = false
       const overlay = {
         assertAvailable() {},
-        async runRequestExclusive<T>(_scope: string, _requestId: string, operation: () => Promise<T>) {
+        async runAdmitted<T>(operation: () => Promise<T>) {
           return await operation()
         },
-        get(readScope: string, requestId: string) {
-          return readScope === scope && durable?.request.requestId === requestId
+        async runRequestExclusive<T>(_scope: string, _teamId: string, _requestId: string, operation: () => Promise<T>) {
+          return await operation()
+        },
+        get(readScope: string, readTeamId: string, requestId: string) {
+          return readScope === scope && readTeamId === teamId && durable?.request.requestId === requestId
             ? structuredClone(durable)
             : undefined
         },
@@ -95,8 +98,17 @@ describe('SW-I1a uncertain effect outcome', () => {
       }
       const admission = { kind: 'captain' as const, exec: { agent: captain, signal: SIGNAL } }
 
-      await expect(gateway.submit(scope, request, admission, SIGNAL))
-        .rejects.toMatchObject({ code: 'TEAM_INTERACTION_OUTCOME_UNKNOWN' })
+      let publicError: unknown
+      try {
+        await gateway.submit(scope, request, admission, SIGNAL)
+      } catch (error) {
+        publicError = error
+      }
+      expect(publicError).toMatchObject({ code: 'TEAM_INTERACTION_OUTCOME_UNKNOWN' })
+      const errorChain = publicError as Error & { cause?: unknown }
+      expect(JSON.stringify({ message: errorChain.message, cause: errorChain.cause })).not.toMatch(
+        /private|secret-after-commit|receipt medium unavailable/,
+      )
       expect(effectCount).toBe(1)
       expect(durable?.receipt.status).toBe('pending')
       expect(durable?.receipt.diagnostic).toBe(failure === 'post-effect-revision-read'
@@ -114,4 +126,57 @@ describe('SW-I1a uncertain effect outcome', () => {
       expect(durable?.receipt.status).toBe('pending')
     })
   }
+
+
+  it('rejects malformed source, host surface and admission before verifier, overlay or Team access', async () => {
+    const captain = { id: SessionId('captain-validation') } as Agent
+    const teamId = TeamId('team-validation')
+    const touches = { overlay: 0, team: 0, verifier: 0 }
+    const overlay = new Proxy({}, {
+      get() {
+        return () => {
+          touches.overlay += 1
+          throw new Error('overlay must not be touched')
+        }
+      },
+    })
+    const gateway = new HumanControlGateway({
+      ctx: { agents: { get: () => captain, roots: () => [captain] } } as unknown as Context,
+      domain: () => {
+        touches.team += 1
+        throw new Error('Team must not be touched')
+      },
+      overlay,
+      verifyHumanPrincipal: async () => {
+        touches.verifier += 1
+        return true
+      },
+      sendMessage: async () => { throw new Error('not used') },
+      interruptMember: async () => { throw new Error('not used') },
+      reassignTask: async () => { throw new Error('not used') },
+      reviewTask: async () => { throw new Error('not used') },
+    } as unknown as HumanControlGatewayDeps)
+    const base: HumanInteractionRequest = {
+      schemaVersion: 1,
+      requestId: 'human-validation-00000001',
+      teamId,
+      source: { kind: 'captain-mediated', captainSessionId: captain.id },
+      target: { kind: 'member', memberName: 'worker' },
+      intent: 'wake-member',
+      expectedTeamRevision: 1,
+      createdAt: 1,
+    }
+    const invalid: Array<{ request: HumanInteractionRequest; admission: unknown }> = [
+      { request: { ...base, source: null } as unknown as HumanInteractionRequest, admission: { kind: 'captain', exec: { agent: captain, signal: SIGNAL } } },
+      { request: { ...base, source: { kind: 'unknown', captainSessionId: captain.id } } as unknown as HumanInteractionRequest, admission: { kind: 'captain', exec: { agent: captain, signal: SIGNAL } } },
+      { request: { ...base, source: { kind: 'captain-mediated', captainSessionId: captain.id, hostSurface: null } } as unknown as HumanInteractionRequest, admission: { kind: 'captain', exec: { agent: captain, signal: SIGNAL } } },
+      { request: { ...base, source: { kind: 'authenticated-human', captainSessionId: captain.id, principalRef: 'p', hostSurface: 'x'.repeat(129) } }, admission: { kind: 'authenticated-human', principalRef: 'p' } },
+      { request: base, admission: null },
+    ]
+    for (const item of invalid) {
+      await expect(gateway.submit('workspace-validation', item.request, item.admission as never, SIGNAL))
+        .rejects.toMatchObject({ code: 'TEAM_INTERACTION_INVALID' })
+    }
+    expect(touches).toEqual({ overlay: 0, team: 0, verifier: 0 })
+  })
 })

@@ -29,7 +29,7 @@ import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlit
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import UserQuestionService, { type AskUserQuestionRequest, type UserQuestionProvider } from '@deepseek-ai/dsh-user-questions'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
 import type { HumanInteractionRequest } from '../src/index.js'
 import { truncateUtf8 } from '../src/human/human-control-gateway.js'
@@ -184,6 +184,7 @@ describe('assembled SW-I1a captain question presentation', () => {
 
     const presentInput = {
       scope: stack.scope,
+      teamId: stack.teamId,
       requestId: relayed.requestId,
       captainSessionId: stack.lead.id,
     }
@@ -250,6 +251,7 @@ describe('assembled SW-I1a captain question presentation', () => {
     const memberAdmission = { exec: { agent: member, signal: SIGNAL } }
     await expect(stack.ctx.agentSwarmHumanInteraction.presentQuestion({
       scope: stack.scope,
+      teamId: stack.teamId,
       requestId: relayed.requestId,
       captainSessionId: stack.lead.id,
     }, memberAdmission)).rejects.toMatchObject({ code: 'TEAM_CAPTAIN_REQUIRED' })
@@ -284,6 +286,7 @@ describe('assembled SW-I1a captain question presentation', () => {
 
     const presented = await stack.ctx.agentSwarmHumanInteraction.presentQuestion({
       scope: stack.scope,
+      teamId: stack.teamId,
       requestId: relayed.requestId,
       captainSessionId: stack.lead.id,
     }, captainAdmission(stack))
@@ -320,15 +323,62 @@ describe('assembled SW-I1a captain question presentation', () => {
       expect(relayed.status).toBe('acknowledged')
       await expect(stack.ctx.agentSwarmHumanInteraction.presentQuestion({
         scope: stack.scope,
+        teamId: stack.teamId,
         requestId: relayed.requestId,
         captainSessionId: stack.lead.id,
-      }, captainAdmission(stack))).rejects.toMatchObject({ code: 'TEAM_HUMAN_QUESTIONS_INVALID_ANSWER' })
+      }, captainAdmission(stack))).rejects.toMatchObject({ code: 'TEAM_INTERACTION_OUTCOME_UNKNOWN' })
     }
     expect((await snapshot(stack)).team.messages.filter(message => message.senderName === 'captain')).toHaveLength(0)
   }, 60_000)
 })
 
 describe('human domain lifecycle ownership', () => {
+  it('dispose rejects new admissions and drains an admitted control before closing overlay/domain', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-i1a-assembly-drain-'))
+    roots.push(sandbox)
+    const stack = await mount(sandbox, false)
+    stacks.push(stack)
+    await addMember(stack)
+    const current = await snapshot(stack)
+    let entered!: () => void
+    let release!: () => void
+    const effectEntered = new Promise<void>(resolve => { entered = resolve })
+    const effectBlocked = new Promise<void>(resolve => { release = resolve })
+    const originalSend = stack.ctx.agentSwarm.sendMessage.bind(stack.ctx.agentSwarm)
+    vi.spyOn(stack.ctx.agentSwarm, 'sendMessage').mockImplementation(async (...args) => {
+      entered()
+      await effectBlocked
+      return await originalSend(...args)
+    })
+    const control = stack.ctx.agentSwarmHumanControl
+    const request: HumanInteractionRequest = {
+      schemaVersion: 1,
+      requestId: 'human-dispose-drain-00000001',
+      teamId: stack.teamId,
+      source: { kind: 'captain-mediated', captainSessionId: stack.lead.id },
+      target: { kind: 'member', memberName: 'worker' },
+      intent: 'wake-member',
+      expectedTeamRevision: current.team.revision,
+      createdAt: Date.now(),
+    }
+    const executing = control.submit(stack.scope, request, { kind: 'captain', exec: { agent: stack.lead, signal: SIGNAL } }, SIGNAL)
+    await effectEntered
+    const disposing = stack.pluginFiber.dispose()
+    await new Promise<void>(resolve => setImmediate(resolve))
+    await expect(control.submit(
+      stack.scope,
+      { ...request, requestId: 'human-dispose-drain-00000002' },
+      { kind: 'captain', exec: { agent: stack.lead, signal: SIGNAL } },
+      SIGNAL,
+    )).rejects.toMatchObject({ code: 'TEAM_INTERACTION_STOPPING' })
+    release()
+    await expect(executing).resolves.toMatchObject({ status: 'executed' })
+    await expect(disposing).resolves.toBeUndefined()
+    stack.fibers.pop()
+    expect(stack.ctx.get('agentSwarmHumanControl')).toBeUndefined()
+    expect(stack.ctx.get('agentSwarmHumanInteraction')).toBeUndefined()
+  }, 45_000)
+
   it('mount/dispose: services are admitted, then unprovided before overlay/domain close', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-i1a-assembly-lifecycle-'))
     roots.push(sandbox)
@@ -446,6 +496,18 @@ describe('semantic utilities', () => {
       ...base,
       schemaVersion: 2,
     } as unknown as HumanInteractionRequest)).toBe(false)
+    const reorderedTarget = { memberName: 'worker', kind: 'member' } as const
+    const withOrigin: HumanInteractionRequest = {
+      ...base,
+      target: reorderedTarget,
+      origin: { kind: 'member', memberSessionId: 'member-util', memberName: 'worker' },
+    }
+    const reorderedOrigin = { memberName: 'worker', memberSessionId: 'member-util', kind: 'member' } as const
+    expect(AgentSwarm.sameHumanInteractionRequest(withOrigin, {
+      ...withOrigin,
+      target: { kind: 'member', memberName: 'worker' },
+      origin: reorderedOrigin,
+    })).toBe(true)
   })
 
   it('truncateUtf8 accumulates code points linearly and never splits a character', () => {

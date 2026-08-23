@@ -13,7 +13,7 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import { expectDomain } from '../domain/error.js'
 import type { CaptainQuestion, CaptainQuestionPresentation } from './human-interaction-contract.js'
 
-const H1_QUESTION_ID_PREFIX = 'question-'
+const QUESTION_ID_PREFIX = 'question-'
 
 /**
  * Build the official presentation adapter for `ctx.userQuestions`, or
@@ -30,7 +30,7 @@ export function officialCaptainQuestionPresentation(ctx: Context): CaptainQuesti
         'Human question presentation requires the exact live root captain from the durable record',
         'TEAM_INTERACTION_CAPTAIN_REQUIRED',
       )
-      const questionId = `${H1_QUESTION_ID_PREFIX}${question.requestId}`
+      const questionId = `${QUESTION_ID_PREFIX}${question.requestId}`
       const answer = await questions.ask({
         agent: captain,
         questions: [{ id: questionId, question: question.question }],
