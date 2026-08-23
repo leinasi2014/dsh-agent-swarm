@@ -1,8 +1,9 @@
 {
   "repository": "https://github.com/openJiuwen-ai/jiuwenswarm",
   "branch": "develop",
-  "commit": "1d45d2b4a08423365eae7c37b2afdae6614a97ad",
-  "recorded_at": "2026-08-22",
+  "commit": "e90d9ea80cdeccb84a1f92f296a85aa23e84133d",
+  "tree": "2cfc80a329f0686061a7e49534dbf09b2e84bcd2",
+  "recorded_at": "2026-08-23",
   "license": "Apache-2.0",
   "local_checkout": "source",
   "lfs_policy": "skip-smudge; upstream media objects are not required for source analysis",

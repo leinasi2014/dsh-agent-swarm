@@ -1,303 +1,200 @@
-# 07. Official-first implementation roadmap
+# 07. Official-first product delivery roadmap
 
-Rebased: 2026-08-22 against official DSH `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`, `dsh-agent-teams` `0c21e5d2f45ec1ea7c9ee89ffc4ee77d1cb9262e` and JiuwenSwarm `1d45d2b4a08423365eae7c37b2afdae6614a97ad`. ADR-0008 adds staged self-hosting readiness and renumbers the post-M2 milestones.
+本路线图定义稳定的产品里程碑、依赖、非目标、风险和出口证据，不保存当前任务、分支、候选、负责人或滚动进度。历史实现和验收事实由 `docs/development/`、`docs/reviews/`、ADR、Git commit/tag 与测试保存；执行中的状态由项目绑定指定的动态权威保存。
 
-## Gate A — required before every milestone
+## Gate A — every production milestone
 
-Every milestone first executes `11-official-first-development.md`:
+每个生产里程碑在编码前执行 `docs/11-official-first-development.md` 的 Official-first compatibility gate：
 
-- verify the current official remote and local/installed target;
-- review official rules, package map, subsystem docs, implemented Agent Notes, exports/types/tests and Profile composition;
-- classify capabilities as stable, experimental/private, absent or project overlay;
-- re-read affected behavior/failure cases in both reference repositories;
-- update ownership/conflict/migration tables;
-- reject Agent Loop patches, shadow services and dual canonical state.
+- 验证目标官方 DSH release、安装包 exports/types/tests 和真实 Profile 组合；
+- 复核两个 pinned reference checkout 的受影响行为与故障用例；
+- 把能力分类为 official stable、experimental/private、absent 或 project-owned overlay；
+- 明确 Service Definition、Provider、Consumer、唯一状态 owner、生命周期和失败语义；
+- 拒绝 Agent Loop patch、影子服务、私有 DSH Runtime 和双 canonical state。
 
-No milestone enters implementation without this record. A moved official ref reopens the gate.
+Gate A 只证明兼容性基线，不证明功能已实现。参考源更新必须审查旧 pin→新 pin 的实际差异；不得为过门而弱化校验。
 
-## Current factual baseline — M1A complete
+## 产品依赖图
 
-Implemented:
+```text
+G0 product/compatibility baseline
+  -> I1 headless captain liaison + durable effect correlation
+    -> I2 executable HumanInteraction Host producer
+      -> I3 canonical /swarm RPC + fixtures + real Profile proof
+        -> I4 DSH-native UI
+        -> I5 Canvas BFF/native UI consumer
 
-- host-only `ctx.agentSwarm` façade and 14 scoped model tools;
-- DSH continuable members with persona/tool filtering;
-- process-local task DAG, revision CAS, attempt fencing and dispatch checkpoints;
-- adaptive priority Scheduler and external Scheduler registration contract;
-- mandatory submitted/review/completed transition and Review registration contract;
-- request/retry/deadline/cumulative token budgets using Session-event sequence folding;
-- manual structured Team memory, revision wait and safe removal/archive;
-- **M1A**: one `TeamDomainPort` consumed by tools and orchestration; required `sessionPersistence` + `storageDomain` injections with fail-closed composition; the `StorageDomainTeamStore` production Provider over the official `agent_swarm` Storage Domain (one versioned Team aggregate per record, durable migration receipts, per-workspace scope partition); `FileTeamStore` reduced to a read-only offline migration reader; explicit one-way migration CLI with empty-destination enforcement, durable read-back verification, receipt retention and untouched sources; workspace tamper-denial composition evidence;
-- 36 tests: 16 protocol, 13 port conformance/schema/version/corruption/close/fault, 5 migration, 2 real rc.8 composition;
-- engineering gates mirroring the official DSH toolchain (2026-08-20): oxlint/jscpd/knip lanes inside `pnpm verify`, `noUnused*` typecheck, a 600-line source ceiling with reasoned milestone-due exceptions (team-domain.ts due M1B), LF normalization, lefthook pre-commit lint, GitHub Actions full-matrix CI (references, official evidence, Gate A, coverage) and src-scoped coverage reporting — see `docs/08` §9.
+I3/I5 do not unlock M6/M8 distributed claims by themselves.
+M6 Workspace/remote -> M8 distributed atomic Team
+I1/I3 accepted evidence -> M7 memory/Skill Evolution proposals
+I4/I5 + M6/M7/M8 evidence -> M9 migration/package/release
+```
 
-Not complete:
+共享合同、状态 schema、权限规则、RPC schema 和跨仓兼容属于串行 producer 面。Consumer 可针对冻结 fixtures 开发，但真实接线和默认启用必须等待所需 producer 证据。
 
-- official Team backend adapter (experimental package unpublished), persisted-child-aware provisioning recovery, bounded disposal;
-- live Agent availability gating;
-- official Workflow/Jobs, Token Meter, Workspace and interaction integrations;
-- Worktree/remote/distributed execution, automatic memory extraction, Skill Evolution, tiered permission policy and UI.
+## G0 — product and compatibility baseline
 
-Target-side cross-restart mailbox de-duplication (F2) is implemented: delivery folds the target's durable inbox/history on the stable framed message id before any resend and flushes the accepting target before acknowledging (scenario-5 crash-window test).
+### Outcome
 
-The current core remains usable only within its documented process-local limits. It is not evidence that later milestones are complete.
+冻结一个产品方向：用户安装的官方 DSH 是唯一 Agent Runtime/Profile/Session/preset 权威；Swarm 是纯插件和 Team/HumanInteraction 唯一 producer；DSH UI 与 Canvas 是宿主原生消费者。
 
-## M0 — governance and evidence baseline (release gate reopened)
+### Non-goals
 
-Deliverables:
+- 不迁移 H1–H4 生产代码；
+- 不实现 RPC/UI；
+- 不公开发布或执行远程变更；
+- 不重新开放并行仓库 worktree。
 
-- mandatory official-first constitution, source register, fusion audit and ADR;
-- two full pinned reference checkouts;
-- official stable/experimental capability ownership map;
-- superseded workflow/token-meter claims removed;
-- isolated repository and reproducible verification commands.
+### Exit evidence
 
-Exit:
+- `docs/GOALS.md`、vision、capability architecture、roadmap 与 fusion/source 记录一致；
+- Gate A 对审查过的官方/reference identity 通过；
+- 旧 dual-host/Canvas-owned-Team 文档已删除或显式 supersede，且保留 Git 恢复身份；
+- 项目治理和文档链接通过，stable documents 没有动态任务状态。
 
-- remote official HEAD/date and all three pins are recorded;
-- official implemented Agent Notes and relevant package sources are materially present in the sparse checkout and checked by `pnpm verify:gate-a`;
-- `rg` finds no known stale API claim;
-- README, Skill, architecture, audit and roadmap agree.
-- the repository has a reproducible initial commit; a zero-commit untracked worktree does not satisfy the evidence gate.
+Risk: S3/HIGH，原因是跨仓权威与兼容方向；需要精确候选的非作者审查。
 
-Gate A repeats at the start of M1 and every later milestone.
+## I1 — Captain Liaison and durable effect correlation
 
-## M1 — canonical Team port and protocol hardening (next release blocker)
+### Outcome
 
-### M1A — authority, port and migration — IMPLEMENTED (2026-08-20)
+无 UI 时，root captain 是唯一 Human Liaison。成员通过持久 Team mail 路由问题和结果；用户 Message 与 typed review/control 经 additive HumanInteraction port 进入，所有 Team mutation 仍由 `TeamDomainPort` 提交。进程在 effect commit 与 receipt acknowledgement 之间丢失后，已提交 effect 可 exactly-once reconcile。
 
-- `sessionPersistence` and `storageDomain` are required injections; a composition missing either keeps the plugin pending (composition-tested);
-- `TeamDomainPort` is the sole aggregate authority consumed by tools and orchestration;
-- `StorageDomainTeamStore` opens the official `agent_swarm` Storage Domain and stores one versioned Team aggregate per record plus migration receipts, partitioned by canonical workspace scope;
-- workspace `FileTeamStore` is removed from the default runtime and retained only as a read-only offline migration reader/fixture;
-- `scripts/migrate-legacy-team-store.mjs` migrates only into an empty destination, verifies the durable read-back, retains a receipt and never dual-writes; sources stay untouched;
-- the official private `ctx.agentTeams` package remains a semantic target only.
+### Required behavior
 
-Exit: **met** — F1 and F5 are closed by the real storage composition (workspace files hold no Team authority; a decoy tamper file cannot change authoritative state); port conformance, schema/version, migration, corruption and close tests pass over the real official stack. Stated boundary: this denies ordinary workspace writers, not a process with unrestricted host access; the storage backend root must live outside team workspaces and sandbox roots. Full evidence: `docs/development/2026-08-20-glm53-m1a-report.md`.
+- free text 是 advisory data，必须 injection-fenced，不能授权；
+- controls 按需携带 request identity、Team/task revision 与 attempt/member fence；
+- duplicate、stale、late、expired、cancelled、spoofed 请求确定性失败；
+- restart reconciliation 能区分 not-applied、applied、acknowledged，不重复 domain effect；
+- 缺 question provider 时返回 visible held/unavailable，而不是编造答案；
+- 查询状态不能重启 idle/open work，继续与转派必须是显式 owner action。
 
-### M1B — crash-safe protocol
+### Non-goals
 
-- fold target inbox/history by stable Team message id before sending or acknowledging — **done (F2, 2026-08-20)**: `sessionPersistence.inspect` reconciliation, exact-frame folding, target flush before the delivered acknowledgement, scenario-5 crash-window and idempotent-rescan tests;
-- reconcile provisioning from persisted child descriptor, exact parent and admitted initial inbox/history, then activate or drain — **done (F3, 2026-08-20)**: official four-factor reconciliation (`listChildren` live-preferred enumeration + `sessionPersistence.inspect`), orphan re-activation with member tracking, explicit mismatch drain, indeterminate-evidence failed settlement, scenario-6 crash-window/mismatch/indeterminate tests;
-- count mailbox limits per target pending messages, bound retained receipts and preserve ordered replay — **done (F6, 2026-08-20)**: `maxPendingMessagesPerMember` (official default 64) counts queued-minus-delivered mail per target with the official `TEAM_MAILBOX_FULL` code, retained delivered/cancelled receipts are bounded (`maxRetainedMessages`) and pruned oldest-first without ever removing queued mail or breaking creation order/revision continuity, and pre-F6 schema-v1 records (including 1024-message populations) load unchanged (scenario-17 suite);
-- bound/prune attempt history without permitting stale attempt ids to become valid again — **done (F7, 2026-08-20)**: `maxRetainedAttempts` (default 64 per task) keeps the current attempt plus the newest N terminal attempts, terminal transitions prune the oldest inside the same aggregate transaction, fencing stays keyed on the never-pruned task `currentAttemptId` (pruned ids remain `TEAM_ATTEMPT_STALE`), and generations allocate from a retained-maximum watermark that stays strictly monotonic across pruning and reloads; pre-F7 schema-v1 records (including 300-attempt populations) load unchanged (scenario-18 suite).
+不加入 browser context、Host service、RPC、Canvas adapter、公开发布或 distributed claim。
 
-Exit: F2/F3/F6/F7 **closed**; the usage write-coalescing companion of the retention cost belongs to M1C (#13).
+### Exit evidence
 
-### M1C — lifecycle, coordination and input hardening
+Contract/domain/unit tests、真实 official interaction composition、crash-window/replay/restart tests、model-visible data-boundary snapshots、完整受影响检查，以及 exact candidate 的独立安全/持久性审查。
 
-- configure bounded admission/disposal settlement and fail loud with diagnostics — **done (F4 + companions, 2026-08-20, #13)**: `disposalTimeoutMs` (official name/default 5000, positive safe integer) bounds every disposal settlement step (admitted provisioning/scheduling/usage/delivery waits, child drains, store close) through `AbortSignal.timeout` + `Promise.race`; a timeout records a diagnostic and surfaces a visible `TEAM_DISPOSAL_TIMEOUT` failure in the disposal `AggregateError` (scenario-9 hung-provider test);
-- feed actual live Agent status into availability and surface abandoned ownership for reassignment — **done (F10, 2026-08-20, #12)**: live-status candidate filtering (not-live or live-idle schedulable, `running` excluded with the `agent/status → idle` edge as the assignment wake), mailbox backlog before new assignments with per-member deferral to the next idle edge, `currentAttemptId`-guarded dispatch rollback and stranded-ownership self-healing past `strandedAfterMs` (decisions in `docs/04` §8c);
-- batch/coalesce usage writes while preserving sequence idempotency — **done (#13)**: consecutive usage events coalesce per scope+session into one batched transaction (`recordSessionUsageBatch`) under the unchanged per-session seq cursor, with reload/replay no-double-count tests at both domain and composition level;
-- keep the model-facing read surface compact — **done (model experience, 2026-08-20, #15)**: `agent_swarm_wait` short-circuits to `no_progress:{reason:'no-active-peer'}` when no other member is running or provisioning (window validation first), the new `agent_swarm_list_tasks` carries status/owner/ready filters with cursor pagination (limit 1-100), `agent_swarm_status` returns fixed-size counters without unrequested retained arrays, and the three affected tools declare complete canonical output schemas rendered as one compact JSON block (official `tool-agent-team` patterns; decisions in `docs/04` §8e);
-- delimit untrusted task/message fields as model data — **done (F8, 2026-08-20, #14)**: task subjects/descriptions/acceptance criteria and message bodies travel as fenced data blocks under an explicit "data, not instructions" declaration (fence one backtick longer than any internal run), the member persona states the data boundary, and the first model-visible snapshot suite plus the scenario-19 composition test lock the shapes and the unchanged authority checks (decisions in `docs/04` §8d);
-- reject ambiguous membership, preflight `depthLimit`, keep archived snapshots readable and decide official-compatible name/quiet semantics explicitly — **done (F11/F12/F14/F15 in #13; official-compat group in #19)**: `TEAM_MEMBERSHIP_AMBIGUOUS` fail-loud (F11), `depthLimit` provider preflight before provisioning commits (F15), archived read-only snapshots with immediate terminal `waitForChange` (F14), the F12 decision aligned with the official name lifetime (`TEAM_MEMBER_NAME_TAKEN`, total roster counts toward `maxMembers`; decision recorded in `docs/04` §8a), and the #19 official-compat semantics — quiet inactive-delivery per F13 (live targets receive quiet through non-waking inject; inactive targets keep quiet mail queued across every recovery path; wakeup alone cold-resumes), the official wait window (10000..3600000, `TEAM_INVALID_TIMEOUT`) with structured `TEAM_WAIT_ABORTED` cancellation, the captain-only keepInbox `agent_swarm_interrupt_member`, and Unicode member names through the reference NFC + `\p{L}\p{N}` fold with 64-codepoint rejection (decisions and divergences in `docs/04` §8b and the ADR-0002 appendix; scenario-20 suite).
+Risk: review、permission 与 durable control transition 为 S3/HIGH；纯 advisory Message path 为 S2/MEDIUM。
 
-Exit: F4, F8, F10 and accepted companion findings pass lifecycle, scheduling, prompt snapshot and compatibility tests. F4, F11-F15, usage coalescing, the #19 official-compat semantics group, F10 (live-status scheduling with stranded-ownership self-healing, #12), F8 (untrusted-content delimiting + prompt snapshots, #14) and the #15 tool-layer model-experience group are closed; every M1C issue is closed.
+## I2 — executable HumanInteraction Host producer
 
-### M1D — assembled acceptance
+### Outcome
 
-- boot a real rc.8-seam Profile with Storage Domain, KV backend, Session persistence and this Bundle;
-- prove clean load, `--dump-config`, reload, recovery and bounded teardown on Windows;
-- run `pnpm verify:gate-a`, the complete project suite and package artifact checks;
-- provide the original report, intake, exact remediation diff and test evidence to an autonomous GLM-5.3 regression/security review.
+提供一个内部 Host service：解析 exact live root captain 与 authoritative Team，签发有界 opaque context，把 browser-safe Message/five Control 翻译为 I1 操作，并从 durable overlay 投影有界脱敏 snapshot、receipt 与 timeline。
 
-Exit: every accepted M1 blocker is closed, no P0/P1 regression remains, the independent reviewer controls the final verdict, and the repository points to a committed reproducible revision.
+### Required behavior
 
-Dogfood gate D1: after this exit, an isolated last-known-good Profile may run a Lead, read-only reviewers and exactly one coding writer at a time. Promotion remains manual; parallel writers and automatic self-upgrade remain forbidden.
+- context mint/refresh/rotation/revoke 有单一 lifecycle owner 和容量上限；
+- `authenticated-human` 只存在于已验证的 host principal seam；否则 privileged action 必须经 captain confirmation 或降级为 message-only；
+- client 只提交 plain untrusted payload，不能盖章 provenance、revision、attempt 或 principal；
+- read 必须 bounded、cursor-authenticated、projection-only，客户端不能直读写 Storage Domain；
+- abort、expiry、dispose、overlay restart 和 adapter failure 均 fail-closed，错误稳定且脱敏。
 
-## M2 — official Workflow/Jobs orchestration mode
+### Exit evidence
 
-Official integration:
+Host contract negative tests、真实 Cordis provide/dispose/reload composition、bounded-read/redaction、restart/replay/cancel、lifecycle leak checks，以及 exact candidate 的独立安全审查。
 
-- implement a Consumer of `ctx.workflowEngine` and `ctx.jobs`;
-- store stable Workflow run/link ids in the orchestration overlay;
-- expose explicit `adaptive` or `workflow` mode; exactly one owner assigns, retries, cancels and settles an attempt;
-- project phases/events/status without copying Workflow state.
+Risk: identity、control authority 与 durable replay 为 S3/HIGH。
 
-Progress (2026-08-21, issue #75 / M2-1): the Team bridge workflow engine is implemented — an implementation of the official abstract `WorkflowEngine` registered in an isolated `workflowEngine` service scope (never over the default-scope official engine), whose runs are backed by a Team aggregate (captain = the start request's parent; every `agent()` call drives member provisioning, task creation, scheduler assignment, member submission and the captain review gate). The durable run overlay lives in the new `agent_swarm_workflow` Storage Domain and is the only run truth (nested Team runs have no official durable record — planning-note trap 1); crash recovery reclassifies interrupted runs evidence-only. Real-composition tests run the bridge beside the official `dsh-workflow/invariant` companion (event-stream pairing validated by the official checker) and cover run completion, bounded cancellation with synthesized agent ends, crash-recovery overlay reload, the synchronous official error surface, and default-off zero-change. Design note: `docs/development/2026-08-21-m2a-workflow-bridge-design.md`; protocol decisions: `docs/04` §8f. Progress (2026-08-21, issue #77 / M2-3): the explicit orchestration-mode surface is implemented — `orchestrationMode: 'adaptive' | 'workflow'` (default `adaptive` is byte-identical to main while no run is live; `workflow` deactivates the autonomous event face and requires the bridge, failing activation closed otherwise), a process-local per-Team orchestration ownership registry with structured `TEAM_ORCHESTRATION_OWNER_CONFLICT` (a live run owns its Team from the durable `running` overlay commit to its terminal settle; autonomous entries — idle-edge passes, stranded heal, re-kick — defer to the owner in either mode; the run drives its own Team through an ownership-gated idle driver because `startContinuable` resolves at the join turn's inbox acceptance), and mode switching argued as structured rejection at the seams plus controlled convergence at the dispose/reload boundary (no mid-flight switch API, deliberately). Dual-owner adversarial tests (docs/08 scenario 31) park a workflow run mid-assignment and attack the same Team from a second face — late stale claims, current-revision claims, foreign submits, bogus attempt ids, and a real operation-triggered scheduling pass — proving the unchanged revision CAS/attempt fencing rejects every latecomer with zero state corruption, exactly one assignment frame delivered (no double wake), and a single-counted shared budget; red→green is evidenced by local mutation runs (claim CAS, submit fences, ownership registry, mode gates). Design note: `docs/development/2026-08-21-m2c-modes-design.md`; protocol decisions: `docs/04` §8g. Progress (2026-08-21, issue #78 / M2-4): the Jiuwen node-type mapping is implemented as a pattern-layer composition aid over the task DAG — `src/patterns/node-mapping.ts` compiles the five Jiuwen node kinds (phase/parallel/pipeline/nested/human, plus the plain `task` base unit) into a topological `create_task`/`blocked_by` call sequence plus resolved human review-gate descriptors, applied through `runtime.createTask` only (the board stays the single authority; the builder holds no state; the #75 script realm and #77 mode surface are consumed, not changed). Fan-out rides the existing member/mailbox quotas as its only backpressure; failure holds the chain (reject → pending + retry charge; downstream `ready=false` until rework or explicit resolution); pipeline artifacts ride the upstream task's board output plus Team mail; nested self-Teams reuse the F11 face bounded by the ambiguity check and the delegation-depth cap; human legs gate at the review transaction's manual provider. Five-node real-composition tests plus compiler validation live in `tests/node-mapping.spec.ts` (docs/08 scenario 33). Design note: `docs/development/2026-08-21-m2d-node-mapping-design.md`; protocol decisions: `docs/04` §8i. Both M2 carry-overs are closed: the model-facing jobs reader landed with issue #93 as `agent_swarm_list_jobs`, and the official consumers' UI projection verification was closed at M3 entry (issue #94 — the official rc.8 web job list is shape-compatible with `team-task` records with zero field mismatch, but reads only the default-scope registry, so the isolated-scope projection stays invisible to it by design; counterpart record in `docs/09` §1).
+## I3 — canonical `/swarm` RPC producer
 
-Progress (2026-08-21, issue #76 / M2-2): the Team bridge job registry is implemented — `TeamJobProjection`, an implementation of the official abstract `JobRegistry` registered in an isolated `jobs` service scope (never over the default-scope official registry) behind `jobsBridge: true` (default false). The job face is a read-only projection of the authoritative task board: one `team-task-N` job per task that has entered execution (attempt generations and review-reject requeues are internal to the running job), first-wins terminal settlement (`completed`/`failed`/`killed`) derived from post-durability `domain/changed` snapshots and explicit `watchScope` seeds, with no projection store — crash recovery re-derives byte-identical records from the aggregate. `start`/`kill` refuse work loudly (creation and cancellation stay on the Team face — the projection is strictly one-way). Real-composition tests prove dual-face consistency with the M2-1 bridge (the same Team state change observed on the official `workflow/*` event stream and the official jobs face with the `dsh-jobs/invariant` companion composed over the projection), the cancellation→`killed` mapping with the refusal surface, crash-recovery rebuild, and default-off zero-change. Design note: `docs/development/2026-08-21-m2b-jobs-bridge-design.md`; protocol decisions: `docs/04` §8g.
+### Outcome
 
-Progress (2026-08-21, issue #78 / M2-4): the Jiuwen node-type mapping is implemented as a pattern-layer composition aid over the task DAG — `src/patterns/node-mapping.ts` compiles the five Jiuwen node kinds (phase/parallel/pipeline/nested/human, plus the plain `task` base unit) into a topological `create_task`/`blocked_by` call sequence plus resolved human review-gate descriptors, applied through `runtime.createTask` only (the board stays the single authority; the builder holds no state; the #75 script realm and #77 mode surface are consumed, not changed). Fan-out rides the existing member/mailbox quotas as its only backpressure; failure holds the chain (reject → pending + retry charge; downstream `ready=false` until rework or explicit resolution); pipeline artifacts ride the upstream task's board output plus Team mail; nested self-Teams reuse the F11 face bounded by the ambiguity check and the delegation-depth cap; human legs gate at the review transaction's manual provider. Five-node real-composition tests plus compiler validation live in `tests/node-mapping.spec.ts` (docs/08 scenario 33). Design note: `docs/development/2026-08-21-m2d-node-mapping-design.md`; protocol decisions: `docs/04` §8i. Both M2 carry-overs are closed: the model-facing jobs reader landed with issue #93 as `agent_swarm_list_jobs`, and the official consumers' UI projection verification was closed at M3 entry (issue #94 — the official rc.8 web job list is shape-compatible with `team-task` records with zero field mismatch, but reads only the default-scope registry, so the isolated-scope projection stays invisible to it by design; counterpart record in `docs/09` §1).
+在 I2 上发布唯一 browser-safe、versioned `/swarm` RPC namespace，提供 capability discovery、context、snapshot、Message、五 Controls、cancel、receipt 和 timeline；不得反射动态错误或接受 caller-minted authority。
 
-Progress (2026-08-22, issue #79 / M2-5): the Team budget is shared across runs and the wake-budget semantics are closed — the budget lifecycle is decoupled from the workflow run (a run still owns exactly one Team per the #75 mapping, but a captain's sequential runs consume one carried ledger: the new run's fresh Team adopts the most recent prior run Team's final budget face through the single-transaction domain `adoptBudget`, sourced purely from durable overlay+aggregate state, zero schema change); wake deliveries of both orchestration faces charge the single `claimTask`-seated ledger exactly once (audit conclusion: the bridge keeps no bypass counter — verified quantitatively, nothing to fold in); and a scheduling pass rejected by the budget admission gate routes its structured `TEAM_BUDGET_*` error through the orchestration-ownership registry to the owning run, which converges to a bounded `error` terminal (grace-backed, paired event stream, archived Team) instead of parking on the unseatable claim — adaptive Teams keep the logged-diagnostic-only behavior byte-identically. Real-composition tests (docs/08 scenario 33) prove cross-run continuity, both faces' single counting, exhaustion convergence and reload consistency with replayed usage batches folding free; red→green is evidenced by local mutation runs (notify no-op → convergence hangs; carry skip → run 2 starts from a zero ledger). Design note: `docs/development/2026-08-22-m2e-budget-runs-design.md`; protocol decisions: `docs/04` §8h.
+### Contract gate
 
-Reference fusion:
+- canonical JSON fixtures、schema/fixture digest、RPC version 和 capability set 是 immutable candidate artifacts；
+- request/result schemas 拒绝 unknown、oversized、cyclic、accessor/proxy-like 或矛盾数据，以各 runtime 可证明边界为准；
+- transport origin/trust 不等于 human identity；
+- cancellation 在底层 Host operation 真实 settle 前不能释放 physical capacity；
+- production Host adapter 先把 caller hint 解析成 host-owned exact authority key，之后才可 mint/effect；
+- 真实官方 DSH Profile mount/unmount/reload 与 UI-absent operation 通过。
 
-- map Jiuwen phase, parallel, pipeline, nested workflow and stateful-agent-session behavior to official Workflow scripts/events;
-- add human nodes through official questions/approval services;
-- keep Team budget shared across linked runs — done (M2-5, issue #79): sequential runs of one captain consume one carried ledger (`docs/04` §8h).
+### Non-goals
 
-Exit:
+不实现 UI、Canvas-specific interpretation、transcript projection、共享 React package 或公开发布。
 
-- deterministic and adaptive modes are replaceable by Profile config;
-- dual-owner fault tests prove no duplicate assignment/settlement;
-- cancellation, background completion wakeup, reload and status disclosure use official services;
-- worker-thread execution is documented as isolation from the event loop, not a security sandbox.
+### Exit evidence
 
-## M3 — supervised self-hosting safety vertical
+RPC contract/transport/failure tests、packed browser-safe subpath consumer、distribution purity gate、真实 Profile handshake/lifecycle、fixtures/digest validation、完整项目检查和 exact-candidate 独立安全审查。
 
-Official integration:
+Risk: external request 与 identity boundary 为 S3/HIGH。
 
-- compose M2 Workflow/Jobs observation with the canonical Team port; every long operation has a stable run id, cancellation and completion disclosure;
-- as a product self-hosting target, use `ctx.workspaceRegistry` only for identity/linkage and give each coding attempt an out-of-process DSH/ACP Session whose actual cwd and tool roots match a unique execution-root lease; this target does not authorize repository development worktrees, which remain disabled until the project binding and lifecycle gate are upgraded and independently accepted;
-- consume target-verified permission/sandbox/tool enforcement points and official interaction seams for the minimum command-check, independent Reviewer and optional human promotion gates;
-- keep the stable control Profile on a last-known-good artifact and load each frozen candidate into a separate acceptance Profile, port and state root.
+## I4 — DSH-native minimum UI
 
-Progress (2026-08-20, issue #93 / M3 entry gate): the model-facing jobs reader is implemented — `agent_swarm_list_jobs` (read-surface module group; the tool surface is now 17) reads only the #76 `TeamJobProjection` (`list()` snapshots, never the authoritative domain, never `read()`/`wait()` which mark `reported`), with kind/status filters determined by the projected `JobSnapshot` shape (no team field — correlation rides `detail`), list_tasks-aligned cursor pagination and compact-JSON canonical output, and the structured `TEAM_JOBS_BRIDGE_DISABLED` error when the projection is not mounted (fail loud over an empty-list lie or a domain fallback). Tests: `tests/jobs-reader.spec.ts`. Protocol decisions: `docs/04` §8h.
+### Outcome
 
-Progress (2026-08-22, issue #94 / M3 entry gate): the official consumers' UI projection verification is closed — official rc.8 does consume `ctx.jobs` in the web UI, through exactly one view (the `dsh-client-ui-jobs` session-header popover over whole-snapshot `session/jobs` frames pushed by the host-plane api-proxy), and the M2-2 `team-task` record shape renders losslessly in it: kind/label/detail/status all display (the `detail` correlation string replaces the generic status word; an unknown kind renders as its raw text — the designed open-string extension path), duration and ordering ride `startedAt`/`finishedAt`, the three wire-dropped fields (`ownerSession`/`reported`/`outputLimitBytes`) are dropped by design, and no field mismatch exists, so no fix issue was opened. Registered boundary (deliberate, not a defect): the official UI carrier reads only the default-scope registry while `TeamJobProjection` registers under `ctx.isolate('jobs')` — a same-process official web-app job list therefore shows no `team-task` rows (shape-compatible, scope-invisible); surfacing Team tasks there is a separate composition decision that must not take over the default-scope registry (#76 red line). Evidence and counterpart record: `docs/09` §1 (M3 entry gate bullet); fusion-audit registration: `docs/10` §5 jobs seam row.
+使用官方 slots、components、locale 和 theme tokens 提供 DSH client plugin。它只消费 I3，展示 Message、五 Controls、pending question/review、receipt/timeline 与 stale/refresh/error 状态。
 
-Progress (2026-08-21, issue #100 / M3-1): real per-attempt execution roots are implemented — a replaceable execution-root Provider seam (`registerExecutionRootProvider` + `executionRootProvider` config, builtin `git-worktree` reserved) whose default implementation fences each claimed attempt into a detached git worktree of the Team workspace's repository (declared per-root degradation to an independent temp directory when the scope holds no repository), with `attemptId` as the fence key: acquire at claim on both claim faces, release derived from authoritative snapshots after every terminal-adjacent surface (hold rule covers the issue-#83 reinstate window), and activation-recovery residue scanning that alarms and marks crash-left roots reclaimable without deleting them. The member-face injection rides the official cwd semantics argued from rc.8 source (child sessions inherit the parent's immutable header cwd; the bash `workdir` accepts absolute paths): the assignment frame's trusted header declares the deterministic absolute root and the self-claim tool result discloses it — no Agent Loop, exec-face or subagent-manager modification, and root records stay plugin-side state (no aggregate-schema change, ADR-0007 not engaged). Default off (`executionRoots: true` opts in; default behavior byte-identical). Fault tests: `tests/execution-roots.spec.ts` (docs/08 scenario 21). Protocol decisions and the ADR-0008 D2 mapping: `docs/04` §8l; fusion-audit registration: `docs/10` §4 worktree row. Known gap held open: prompt-level declaration, not a hard filesystem fence (later D2/D4 sandbox/remote-member work), and #101's review lane must not rely on roots surviving submission (release-at-submitted).
+### Boundaries
 
-Progress (2026-08-22, issue #102 / M3-3): candidate acceptance Profile separation and external promotion/rollback are implemented as external control-plane tooling `scripts/promotion/` (freeze, accept-check, promote, rollback, status and the P0–P7 drill over one contract core — deliberately NOT plugin source, per ADR-0008's controller-not-from-the-candidate rule; zero `src/` changes): the freeze lane builds the frozen candidate as a `pnpm pack` tarball in a clean detached worktree with a manifest anchoring integrity in the commit/tree SHA and artifact identity in the tarball sha256; the acceptance lane runs A0–A7 in a fresh throwaway drill domain (isolated DSH_HOME/storage/sessions/port, the official `web`-template RPC face, a fail-closed negative probe, a reload/teardown subset) and emits a verdict that is pure evidence — any promotion verb in a verdict is refused; the external promoter owns the hash-chained promotion ledger and the numeric-pointer LKG generation chain (`lkg/g<N>/` directory snapshots) behind generational fencing (stale/concurrent promote refused, pointer/ledger divergence refused) and the three quiesce criteria, with a failed post-promotion health probe triggering the bounded auto-rollback that preserves the failed generation as evidence. One controlled end-to-end drill (P0–P7) executed against a real dogfood control root with BOTH failure injections: a defective one-commit candidate rejected at the floor with the stable plane proven untouched, and a corrupted artifact whose promote (inside a drill-copied lineage only) failed the probe and auto-rolled back while the real root's pointer stayed byte-identical; rollback restored g0 with g1 preserved, and the run closed with a zero-process-residue assertion. Contract tests: `tests/promotion-contract.spec.ts` (docs/08 scenarios 27, 28, 35, 36); design note `docs/development/2026-08-21-m3c-acceptance-design.md` with OQ-1..12 resolved in the PR; protocol decisions: `docs/04` §8m; D2 ownership verification: `docs/13` §3. The independent security review landed (2026-08-22, CONDITIONAL) and its blocking findings F1-F5 were closed by the control-plane hardening iteration 1 (issue #122): promotion-lane env allowlist, script-free candidate installs/pack, strict verdict form (eight-gate vocabulary + per-gate evidence triple presence) cross-checked against the accepted ledger record, local `d2-ledger-<gen>` git chain-tail anchors (OQ-11 reversed), half-applied-promote compensation + installed-bytes reconciliation + a `repair` lane, and the quiesce/residue fail-safes — adversarial suites in `tests/promotion-hardening.spec.ts`, live injections H1-H7 in the P0-P7 drill rerun, OS-level demotion documented as a deployment runbook (docs/13 §9). D2 full parallel-coding opening still requires the #100 held-open sandbox decision or the docs/13 §9.3 deployment demotion.
+- DSH UI 只拥有 rendering 与 ephemeral view state；
+- 不解析 transcript，不持有 browser Team truth；
+- UI 缺席不影响 runtime progress；
+- polling/subscription cadence 有界，idle discovery 不能退化成 busy polling；
+- 每个 slot/service/subscription 都有 mount/dispose/HMR 证据。
 
-Reference fusion:
+### Exit evidence
 
-- implement Jiuwen's `isolation=worktree` behavior for the local dogfood path: immutable base, unique branch/lease, freeze, verify, merge gate and cleanup;
-- preserve `dsh-agent-teams` attempt fencing, status-driven scheduling, durable mailbox and lifecycle behavior while exposing failures as Team/Job evidence;
-- convert observed load, coordination, review and rollback failures into new canonical tasks rather than letting a candidate mutate control state.
+Fixture-driven component tests、受影响 controls 的 accessibility checks、真实 client bundle purity、mount/dispose/HMR、screenshot/interaction inspection，以及 final candidate 的一个非作者审查。
 
-Exit:
+Risk: 普通 UI 为 S2/MEDIUM；identity/privileged-control regression 继承 I3 的 S3 控制。
 
-- two coding members can work in parallel without sharing a mutable checkout, and shell/filesystem roots match the advertised lease;
-- canonical completion requires executable checks plus an independent Reviewer; frozen evidence cannot be rewritten by the Worker;
-- candidate build, artifact digest, isolated RPC/Profile boot, reload/recovery checks, rejection and rollback are reproducible;
-- the running control Profile is never overwritten or linked to mutable candidate output;
-- late attempt/lease updates, merge races, port conflicts, failed cleanup and candidate boot failure pass fault tests;
-- D2 supervised parallel self-development is approved by an independent security/regression review.
+## I5 — Canvas consumer integration
 
-M3 is a vertical dogfood slice, not completion of the full permission, remote Workspace or release product families. Their Providers are broadened and hardened in M5, M6 and M9.
+### Outcome
 
-Historical reports created before ADR-0008 retain their original milestone numbers. Interpret their old M3/M4/M5/M6/M7/M8 labels as current M4/M5/M6/M7/M8/M9 respectively; immutable reviewer reports are not rewritten.
+Canvas 连接用户的官方 DSH，发现已接受 I3 capability，并渲染自己的 Canvas-native Team UI。BFF 提供 origin/token/rate-limit/transport 保护并透传 canonical envelope；它不成为 Team/HumanInteraction producer。
 
-## M4 — accounting and scalable Store Providers
+### Start gate
 
-Official integration:
+Canvas 写入工作必须同时收到一个已接受 producer candidate 的：
 
-- M4-1 (issue #127) delivered the characterization and the selection: `ctx.tokenMeter`'s two faces are contract-registered (`docs/09` §1, design note `docs/development/2026-08-22-m4a-tokenmeter-design.md`) and the boundary decided is Option B — the plugin's per-seq-cursor Session fold stays the single measurement path of the one cumulative Team budget ledger, the official faces stay host-side and are not consumed by the budget (parity plus the declared failed-request-chunk divergence are pinned by `tests/tokenmeter-parity.spec.ts`); "remove or disable direct Session folding when the official adapter owns measurement" stays conditional and now has its registered trigger — the official face exposing per-event usage attribution;
-- retain the M1 `ctx.storageDomain` local Provider and add a separate atomic Store Provider only when a distributed Consumer exists.
+1. exact producer artifact identity；
+2. canonical schema、JSON fixtures 与 digest；
+3. `/swarm` RPC version 与 capability set；
+4. I1 crash-window machine evidence；
+5. 真实官方 DSH Profile mount/dispose/reload 与 UI-absent evidence。
 
-Reference fusion:
+### Boundaries
 
-- M4-3 (issue #129) delivered the budget family's policy overlays (decisions in docs/04 §8n, design note `docs/development/2026-08-22-m4c-budget-family.md`): cost-aware retry economics (in-place retries charge the retry face, failed attempts bill once on the single ledger), Jiuwen's per-run reservations as per-task `reservation_tokens` floors over the one shared ledger (domain-enforced admission-postpone plus scheduler pre-selection, holds derived and released at settlement — no second ledger, no dynamic fan-out), degraded continuation with budget recovery (budget-hold evidence, stranded healing gated off under exhaustion, `set_budget` as the wired budget-release scheduling event), and the #79 carry interaction (reservations never carry; the carried face is the admission basis). The same change fixed a durable-boundary defect the storage-surface argument exposed: `verification` (#101) and `replacesAttemptId` (#83) were silently stripped at the official Storage Domain load path (zod strips undeclared keys; fact registered in docs/09 §1) — the table schema now declares every additive optional field, locked by the scenario-38 reload regression;
-- preserve Jiuwen shared budget spent/remaining behavior and per-run reservations;
-- preserve dsh-agent-teams process-local serialization cases while making backend capabilities explicit.
+- Swarm 是当前官方 DSH Session 的 capability，不是 Canvas 第三 engine；
+- Canvas 不创建私有 `DSH_HOME`、复制 presets、解析 captain transcript 为 Team truth，或把 Canvas token 当 DSH human principal；
+- Canvas graph/Director domain 仍由 Canvas 负责；
+- DSH 与 Canvas 共享 semantic fixtures/action parity，不强制共用 component library 或 visual skin。
 
-Exit:
+### Exit evidence
 
-- replay/resume cannot double count tokens;
-- measurement backends pass one accounting conformance suite;
-- accounting replay tests and distributed-store CAS/lease/fencing conformance pass for the Providers that exist;
-- local backend never claims cross-process safety.
+同 fixtures 上的 producer/consumer conformance、真实 handshake、Message/Control parity、stale/reconnect/abort tests、Canvas-native rendered interaction/accessibility，以及跨仓 S3 compatibility acceptance。
 
-## M5 — verification and permission Provider family
+Risk: cross-repository authority/identity boundary 为 S3/HIGH；普通 rendering 为 S2/MEDIUM。
 
-Progress (2026-08-22, issue #128 / M4-2): the command-check half is now a real multi-root family. Review-root registration preserves #101's contract and optionally declares family capabilities; builtin Node/Python roots probe availability with no cross-family fallback. Named `typecheck/test/build/lint` templates compile before task persistence into the existing schema-v1 verification command list, including mixed-toolchain tasks. Executable review reuses one session per family, keeps declaration order/fail-fast semantics, and returns a versioned structured summary derived only from root evidence. The official invariants support service was assessed and not consumed because it registers package-owned relational assertions rather than verification operations. Permission, Reviewer Agent and human-approval Providers remain open; this increment does not claim the full M5 exit. Design: `docs/development/2026-08-22-m4b-verification-family.md`.
+## M6–M9 subsequent capability families
 
-Progress (2026-08-22, issue #136 / M5-2): the member tool-permission half has its first implemented slice. The official toolFilter seam is characterized end to end (creation-window scoping, durable descriptor snapshot/replay, loud unknown-name validation, no followup composition face — `docs/09` §1) and extended with the F17 deny-only declaration: `agent_swarm_add_member` accepts `deny_tools`, composed as a monotone union with the mandatory captain-only deny, structurally validated pre-commit, with tool-name existence left to the official creation-window authority. The official rc.2 `ctx.credentials` seam is assessed and recorded as a declared non-consumed boundary (no plugin-side secret consumer; env injection stays deployment-owned). Tiered allow/ask/deny policy, per-task rescoping (officially inexpressible today — declared boundary), Reviewer Agent and human-approval Providers remain open; this increment does not claim the full M5 exit. Design: `docs/development/2026-08-22-m5b-permission-family-design.md`.
+- **M6 real Workspace and remote member**：实际 cwd/fs/tool roots 与 attempt lease 一致；late ACK、expiry、disconnect、conflict、cleanup failure 被围栏。产品 execution root 不授权仓库开发 worktree。
+- **M7 Team memory and Skill Evolution**：只有 accepted evidence 进入有界、可追溯 proposal；proposal、deterministic validation、approval、write 分离。
+- **M8 distributed atomic Team and observability**：Store Provider 提供 CAS、lease、fencing、idempotent mailbox 和 change feed；partition 停止不可证明工作；UI/log 仍是 projection。
+- **M9 migration, compatibility, packaging and release**：支持的 legacy import、官方 experimental Team migration trigger、immutable package artifact、compatibility matrix、upgrade/rollback 与 controlled release observation。
 
-Official integration:
+每个能力族有自己的 Gate A、failure-injection suite、recovery evidence 和风险分级审查。I1–I5 不暗示这些能力已经完成。
 
-- command/check, Reviewer Agent and human approval Providers;
-- integrate official interaction/permission/sandbox/tool seams; domain authority remains final;
-- separate verification evidence/artifacts from mutable worker output.
+## Candidate salvage and supersession
 
-Reference fusion:
+历史 feature branch 与 report 是 recovery/evidence input，不是当前 accepted candidate。新里程碑从 authoritative target 开始，只选择与本路线图兼容的 behavior/tests，排除 retired governance/ref-pin material，重跑当前 gates，冻结新 candidate 并接受当前风险对应审查。旧分支、测试计数或完成消息不能绕过该流程。
 
-- adapt Jiuwen tiered allow/ask/deny and human-intervention behavior as policy requirements, not by importing its Permission Engine;
-- keep current mandatory review transition and add independent verification.
-
-Exit:
-
-- canonical completion cannot bypass the selected gate;
-- parameter/path policy, reviewer compromise, command timeout and approval replay tests pass;
-- prompt/tool descriptions are never treated as authorization.
-
-## M6 — real Workspace isolation and remote member Provider
-
-Official integration:
-
-- use `ctx.workspaceRegistry` for Workspace identity/membership only;
-- allocate per-attempt lease and start the actual execution Session/tool capability in the leased cwd;
-- first implementation uses a remote/out-of-process DSH/ACP Provider unless DSH has added a generic continuable-child Workspace/cwd seam;
-- propose that generic upstream seam rather than patch Agent Loop.
-
-Reference fusion:
-
-- implement Jiuwen's `isolation=worktree` product contract: unique branch/worktree, freeze, verify, merge gate and cleanup;
-- adapt distributed discovery/reservation/bootstrap/ACK failure cases;
-- preserve attempt fencing across lease generations.
-
-Exit:
-
-- two coding members never share a mutable checkout;
-- shell/fs/sandbox roots match the advertised cwd;
-- late ACK, expired lease, disconnect, merge conflict and cleanup-failure tests pass;
-- no prompt-only isolation claim remains.
-
-## M7 — automatic Team memory and Skill Evolution
-
-Official integration:
-
-- memory extractor consumes accepted task/run evidence and writes through the selected memory capability;
-- Team stores evidence/checkpoint ids rather than a second canonical memory copy;
-- Skill Evolution uses official skill and approval seams with proposal/validation/write separation.
-
-Reference fusion:
-
-- implement Jiuwen personal writable memory, shared read-only Team memory and accepted-round extraction semantics where compatible;
-- implement failure/user-correction/review-rejection signals, rails, proposal approval and deterministic validation.
-
-Exit:
-
-- extraction/evolution can be disabled without Team correctness changes;
-- provenance, de-duplication, visibility, size limits and malicious-memory tests pass;
-- no Agent silently rewrites a Skill without policy approval.
-
-Dogfood gate D3: accepted failure/review/user-correction evidence may now feed Team memory and Skill proposals, but validation and approval remain separate from the proposing Worker/candidate.
-
-## M8 — distributed atomic Team and observability
-
-Official integration:
-
-- add a Store Provider with domain CAS, leases, fencing, idempotent mailbox operations and change feeds;
-- add remote member metrics and Jobs/UI projections without making logs/UI authoritative.
-
-Reference fusion:
-
-- use Jiuwen reservation/bootstrap/teardown and partition failure cases;
-- retain `dsh-agent-teams` status-driven reuse, takeover and archive semantics.
-
-Exit:
-
-- multi-process fault tests prove single owner, stale-generation rejection and ordered idempotent delivery;
-- partitions stop unprovable work;
-- observability exposes stable ids, owners, phases, budgets and cancellation safely.
-
-## M9 — client, migration and release
-
-- optional client package projects authoritative roster/DAG/run/workspace/budget/review state;
-- migration tool imports supported community `.agent-teams` state through the canonical port;
-- official experimental Team promotion, if it occurred, triggers Gate C and a one-authority migration to the official backend;
-- publish compatibility matrix, upgrade/rollback notes and isolated Bundle defaults.
-
-Exit:
-
-- client mount/dispose and HMR tests pass;
-- UI is never required for runtime progress;
-- packed artifacts, local link, `--dump-config`, real Profile and model-visible snapshots pass;
-- experimental/remote/distributed Providers remain explicit opt-ins.
-
-Dogfood gate D4: unattended/distributed operation is allowed only after M8 ownership/fencing and M9 release/rollback evidence both pass. Local D2 success is not evidence of D4 readiness.
+凡是把 Team truth 交给 Canvas、从 transcript 派生 Team 状态、把 Swarm 作为第三 Runtime、把共享跨宿主 UI component 当权威，或恢复 raw worktree lifecycle command 的文档，都被本路线图和 project binding 取代。
 
 ## Permanent work rules
 
-- Every non-trivial milestone begins with an ADR/Agent Note containing the Gate A record.
-- Implement no abstraction without a current Consumer or second Provider.
-- Fix the introducing milestone before stacking dependent features.
 - One state domain, one canonical owner; one transition, one owner.
 - Official stable seams are consumed, never shadowed.
 - Reference repositories contribute characterized behavior, not runtime duplication.
-- Milestone status changes only with executable evidence and synchronized documentation.
-- Self-hosting follows ADR-0008: stable control and candidate acceptance Profiles are separate, promotion is externally owned, and no running plugin overwrites itself in place.
+- UI and RPC are consumers/projections over durable Host/Team authority.
+- Shared contracts integrate before consumers; target-level checks read back the result.
+- Milestone status changes only with executable evidence and synchronized authoritative documentation.
+- Self-hosting follows ADR-0008: stable control and candidate acceptance Profiles are separate, and promotion is externally owned.
+- Repository development remains `single-checkout` until a project-owned open/status/close/reconcile gate and its independent acceptance change the binding.

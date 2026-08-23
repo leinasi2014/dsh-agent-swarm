@@ -2,7 +2,7 @@
 
 ## 1. Goal
 
-`dsh-agent-swarm` 的目标是成为 **DSH 团队协作能力的插件化扩展层**：在不修改 Agent Loop、不引入第二套 Runtime 的前提下，融合 `dsh-agent-teams` 的 durable team protocol 与 JiuwenSwarm 的确定工作流、预算、Worktree、团队记忆、Skill Evolution、审核和分布式 Worker 思路。
+`dsh-agent-swarm` 的目标是成为 **官方 DSH 专属的 Team/HumanInteraction 插件化扩展层**：用户安装的官方 DSH 是唯一 Agent Runtime、Profile、Session 与 preset 权威；本插件在不修改 Agent Loop、不引入第二套 Runtime 的前提下，融合 `dsh-agent-teams` 的 durable team protocol 与 JiuwenSwarm 的确定工作流、预算、Worktree、团队记忆、Skill Evolution、审核和分布式 Worker 思路。
 
 最终用户体验应是：
 
@@ -15,8 +15,10 @@
   → Budget Policy 限制 token、请求、重试和时间
   → Task Run 通过 attempt fencing 防止陈旧写入
   → Review Gate 验证交付物
+  → root captain 作为 Human Liaison 处理用户沟通、修正和问题
   → Team Memory 提取决策、经验、成员能力和上下文
-  → UI/Tool Consumer 展示同一份权威状态
+  → Host/RPC 投影同一份权威状态与 HumanInteraction receipts
+  → DSH-native UI / Canvas-native UI 各自按宿主主题消费同一合同
   → 冻结候选在独立验收 Profile 中启动、验证、晋升或回滚
 ```
 
@@ -31,7 +33,7 @@ Consumer            提供工具、工作流桥、UI、命令和自动化
 Bundle              把推荐组合安装到 Profile
 ```
 
-`dsh-agent-swarm` 是项目名和未来 Bundle 名，不表示所有代码放进一个 npm 包。
+`dsh-agent-swarm` 是项目名和未来 Bundle 名，不表示所有代码放进一个 npm 包，也不表示一个独立 Agent Runtime。Swarm 是官方 DSH Session 的可选 Team capability；Canvas 等外部宿主只能通过版本化 Host/RPC 合同消费它，不能成为 Team/HumanInteraction producer。
 
 Architecture work is governed by `11-official-first-development.md`. At the verified rc.8 baseline, Workflow, Jobs, Token Meter, Storage Domain, Workspace and interaction are official stable capability families; the plugin must consume them rather than design parallel equivalents. Agent Team remains private/experimental, so its semantics guide a single compatibility port without becoming a production dependency.
 
@@ -57,7 +59,8 @@ Architecture work is governed by `11-official-first-development.md`. At the veri
 - Team memory extraction
 - Skill evolution signal bridge
 - Remote member providers and distributed atomic store
-- Host tools, commands, HTTP snapshots, optional Web UI
+- Captain Liaison、HumanInteraction producer、canonical Host/RPC
+- DSH-native UI 与按合同接入的 Canvas 等宿主原生 Consumer
 - Lifecycle, replay, failure recovery and real-composition tests
 - Stable-control/candidate-acceptance Profile composition for supervised self-hosting
 
@@ -67,6 +70,9 @@ Architecture work is governed by `11-official-first-development.md`. At the veri
 - Replacing existing DSH capabilities such as `ctx.subagents`、`ctx.workflowEngine`、`ctx.jobs`、`ctx.tokenMeter`、`ctx.storageDomain`、`ctx.workspaceRegistry` and interaction services; target-version exports must still be verified before integration
 - Modifying the DSH Agent Loop for team-specific behavior
 - Treating Web UI as the source of truth
+- Treating Canvas, transcript parsing, browser caches or a BFF as Team/HumanInteraction authority
+- Treating Swarm as a third Canvas engine or maintaining a private DSH home/preset tree
+- Requiring one shared React/CSS component library to make unlike hosts visually identical
 - Assuming local JSON files provide distributed transactions
 - Allowing a model’s “完成了” message to bypass verification
 - Sharing one mutable checkout among parallel coding workers without an explicit policy
@@ -87,4 +93,4 @@ A milestone is complete only when all of these are true:
 9. Gate A records the current official remote, implemented direction, exports/Profile evidence, reference mapping and conflict ownership before code begins.
 10. Self-hosting follows ADR-0008 readiness gates: stable control and candidate acceptance Profiles are separate, every coding attempt has a real isolated execution root, and promotion is externally owned and reversible.
 
-The current 0.1 implementation is intentionally smaller than this target. Its exact status and gaps are maintained in `10-fusion-audit.md`; target architecture is never evidence that a capability has shipped.
+The current implementation is intentionally smaller than this target. Its accepted historical evidence lives in reports, ADRs, commits/tags and tests; `10-fusion-audit.md` records reference coverage and gaps. Target architecture is never evidence that a capability has shipped.

@@ -29,7 +29,7 @@ Use for explanation; verify against official source/installed package.
 
 ## Direct plugin reference
 
-`ref/dsh-agent-teams/source/` pinned to `0c21e5d2f45ec1ea7c9ee89ffc4ee77d1cb9262e`.
+`ref/dsh-agent-teams/source/` pinned to `912aae5225d3d85fa841a1b0c8a5c77021876c25`.
 
 Use this checkout for DSH packaging, lifecycle, scheduler, mailbox, persistence,
 Host/Client and composition-test implementation examples. It is prior art, not
@@ -38,7 +38,7 @@ the framework contract.
 ## Jiuwen prior art
 
 `ref/jiuwenswarm/source/` pinned to
-`openJiuwen-ai/jiuwenswarm@152583aa305836e87481e6de8a5f34e8c7d0928b`.
+`openJiuwen-ai/jiuwenswarm@e90d9ea80cdeccb84a1f92f296a85aa23e84133d`.
 
 Use this checkout for SwarmFlow, Worktree, budgets, Team memory, Skill
 Evolution, tool-permission and distributed-Team concepts. Extract requirements

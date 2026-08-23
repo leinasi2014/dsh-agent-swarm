@@ -23,10 +23,15 @@ Project-owned orchestration overlay
        ├─ ctx.tokenMeter boundary: host-side official metering face; Team measurement stays the plugin's per-seq fold (M4-1)
        ├─ ctx.storageDomain Store Provider
        ├─ ctx.workspaceRegistry linkage + real remote/worktree executor
-       └─ questions/approval interaction Providers
+       └─ official questions/approval interaction Consumers
+                             │
+Project-owned HumanInteraction producer
+  Captain Liaison ─ request/effect receipt ─ Host context/redaction
+       └─ every Team mutation returns to TeamDomainPort
                              │
 Consumers and composition
-  scoped model tools ─ command/UI projections ─ recommended Bundle/Profile
+  scoped model tools ─ canonical /swarm RPC ─ DSH-native UI
+                                         └─ Canvas-native Consumer
                              │
 Self-hosting composition     │
   stable control Profile ─ frozen artifact ─ isolated acceptance Profile
@@ -35,6 +40,8 @@ Self-hosting composition     │
 ```
 
 Every vertical domain has one canonical owner. The overlay stores linkage/fencing/policy facts only; it never mirrors an official service's writable state. Adaptive scheduling and deterministic workflow are mutually exclusive transition owners for a run.
+
+Official DSH is the only runtime/Profile/Session/preset host. Within Team collaboration, `TeamDomainPort` owns Team state and the project-owned HumanInteraction overlay owns only request/effect/receipt correlation. RPC and UI are projections/commands over those owners. Canvas owns its graph/Director domain but never Team, captain, mail, review, budget or HumanInteraction truth.
 
 ADR-0008 adds a composition boundary, not a new canonical domain. The stable Profile runs a last-known-good artifact and owns admission. Workers write only leased Worktrees. Review Providers evaluate a frozen candidate, an isolated acceptance Profile proves real loading, and an external promotion controller selects or rolls back the stable artifact. Candidate logs, Git branches and Profile health are evidence linked to Team/Job ids, never writable Team truth.
 
@@ -52,8 +59,9 @@ dsh-agent-swarm                         recommended Bundle/composition
   ├─ dsh-team-review-*                  command/Agent/human Providers
   ├─ dsh-team-workspace-*               lease/remote execution Providers
   ├─ dsh-team-memory                    extraction/checkpoint Consumer
+  ├─ dsh-team-human-interaction         Captain Liaison + Host/RPC producer
   ├─ dsh-tool-agent-swarm               model Consumer
-  └─ dsh-ui-agent-swarm                 optional client Consumer
+  └─ dsh-ui-agent-swarm                 optional DSH-native client Consumer
 ```
 
 Names are provisional until packages actually split. No new public service key or durable format is committed without a current Consumer, official collision check and ADR.
@@ -198,7 +206,7 @@ Maps published DSH `ctx.workflowEngine` runs/events to Team task/run records and
 
 ### UI
 
-Renders roster, task DAG, attempts, workspaces, budget and gates from authoritative snapshots/events. UI actions call host contracts; they do not patch JSON files.
+DSH-native and Canvas-native clients render roster, task DAG, attempts, workspaces, budget, HumanInteraction receipts and gates from the same canonical Host/RPC contract. They use their own host component libraries, themes, lifecycle and accessibility controls. UI actions call Host contracts; they never patch JSON/Storage Domain, derive Team truth from transcripts or share a cross-host component package as an authority.
 
 ### Bundle
 
@@ -210,7 +218,7 @@ Self-hosting reuses the Bundle, RPC host, Team tools, Workflow/Jobs, Workspace a
 
 ## 5. Current package versus target family
 
-The package graph above is a target decomposition. The shipped 0.1 package is one host-only bundle containing domain, runtime, workspace file storage, tools, default Scheduler/Review providers, budget and manual memory. Scheduler, Review, review-root families and verification-command templates have runtime registration contracts. ADR-0007's Team Domain/Storage Domain authority split, the M2 Workflow/Jobs bridge, ADR-0008's M3 self-hosting slice, M4-2's multi-root verification-command family and the M5-2 member tool-permission declaration slice (F17: provisioning-time deny-only `deny_tools` on the official creation-window toolFilter seam) are implemented. Full tiered permission policy (allow/ask/deny language, approval override), human interaction, Workspace/remote, memory, distributed and UI families remain later work; per-task tool rescoping is a declared boundary, not a pending promise (the official followup face carries no composition field — `docs/04` §8o, `docs/09` §1).
+The package graph above is a target decomposition. The current package is one host-only bundle containing the accepted Team domain/runtime, tools and optional Provider families. Accepted historical reports and tests, not this target diagram, decide which earlier capability slices shipped. Captain Liaison/effect correlation, executable HumanInteraction Host, canonical `/swarm` RPC, DSH-native UI and Canvas consumer are delivered in the G0→I5 order from `docs/07`; old feature branches are salvage input only and do not count as current implementation. Per-task tool rescoping remains a declared official-seam boundary (`docs/04` §8o, `docs/09` §1).
 
 ## 6. Why this is not over-modularization
 

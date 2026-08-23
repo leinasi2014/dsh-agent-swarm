@@ -1,6 +1,8 @@
 # 10. Reference fusion, conflict and architecture audit
 
-Recorded and verified: 2026-08-20.
+Historical cumulative implementation evidence, last baseline-verified: 2026-08-23.
+
+This audit preserves the evidence behind earlier implementation decisions. Current product authority and forward ordering live in `docs/GOALS.md` and `docs/07-implementation-roadmap.md`; implementation-status prose here must not be used as a live task board or to restore an obsolete dual-host design.
 
 ## 1. Conclusion
 
@@ -27,8 +29,8 @@ The independent GLM-5.3 review on 2026-08-20 issued `CONDITIONAL PASS` with P0 =
 | Source | Verified revision | Role |
 |---|---|---|
 | `deepseek-ai/deepseek-harness` | release target `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`; permitted rc.8 full-source evidence `141eb6fef83422698aef7a981029e843e8161534` | framework and published-service truth; M4-2 checked installed rc.2 types plus the rc.8 invariants implementation/Agent Notes |
-| `NanmiCoder/dsh-agent-teams` | `0c21e5d2f45ec1ea7c9ee89ffc4ee77d1cb9262e`, version 0.1.9 | direct DSH Team implementation prior art; M4-2 found no verification-command runtime service to reuse |
-| `openJiuwen-ai/jiuwenswarm` | `1d45d2b4a08423365eae7c37b2afdae6614a97ad`, WorkSwarm 0.2.5.beta1 | product architecture and failure-case prior art; M4-2 consumes only toolchain-specific Python verification and fail-loud analyzer behavior, never its runtime architecture or types |
+| `NanmiCoder/dsh-agent-teams` | `912aae5225d3d85fa841a1b0c8a5c77021876c25`, version 0.1.13 | direct DSH Team implementation prior art; SW-G0 additionally reviewed idle-attempt parking, explicit resume and low-cadence activity discovery as I1/I4 failure/observability evidence, without importing its runtime or UI |
+| `openJiuwen-ai/jiuwenswarm` | `e90d9ea80cdeccb84a1f92f296a85aa23e84133d`, WorkSwarm 0.2.5.beta1 | product architecture and failure-case prior art; SW-G0 additionally reviewed persistent-subagent, restart cleanup and canonical mode deltas, importing no Jiuwen runtime architecture, persistence model or types |
 
 The official target publishes `ctx.workflowEngine`, `ctx.jobs`, `ctx.tokenMeter`, `ctx.storageDomain` and `ctx.workspaceRegistry`. Its Agent Team package is private/experimental and unpublished. These facts supersede earlier project text claiming that rc.8 had no public workflow or token-meter service.
 
@@ -78,7 +80,7 @@ The plugin adds useful behavior not present in that reference: mandatory review 
 | `ctx.tokenMeter` | No (boundary decided, M4-1) | contract characterized and registered (`docs/09` §1, design note `docs/development/2026-08-22-m4a-tokenmeter-design.md`): `measure()` is current-request pressure without a cumulative total; the `tokenUsage` projection is a per-session cumulative fold with chunk-early/message-final replacement (non-monotone, no per-event attribution, no Team semantics). Option B boundary: the plugin's per-seq-cursor fold stays the single measurement path, the official faces stay host-side, and parity plus the one declared divergence (failed-request chunk usage) are pinned by the real-composition `tests/tokenmeter-parity.spec.ts`; consuming the official face re-opens only when it exposes per-event usage attribution |
 | `ctx.storageDomain` | Yes | M1A: the authoritative Team aggregate lives in the official `agent_swarm` domain (`StorageDomainTeamStore`, one versioned record per Team plus migration receipts); the workspace `FileTeamStore` is a read-only migration reader |
 | `ctx.workspaceRegistry` | No | useful for Workspace identity only; insufficient for Worktree/cwd isolation |
-| questions/approval | No | required for Jiuwen-style human nodes and human review; the deterministic leg is executable (#101) and now supports capability-declared Node/Python root families, named templates and structured multi-command summaries (#128), while the human leg is externally bridged by the canvas repo's `canvas-review-bridge` Review Provider (subset projection of `ReviewProviderInput`) — the official questions/approval seam itself remains unconsumed |
+| questions/approval | No | required for human nodes and review; the deterministic leg is executable (#101) and supports capability-declared Node/Python root families, named templates and structured multi-command summaries (#128), but the production human leg remains a Swarm-owned gap for I1/I2. Canvas may consume the resulting contract after I3; it is not a Review Provider or authority source |
 | experimental `ctx.agentTeams` | No | correct not to depend on a private package; the future official backend replaces the selected Provider behind `TeamDomainPort` after an explicit one-authority migration |
 
 The design follows DSH's “everything is a plugin” principle at the outer execution seam, but is not yet thoroughly pluginized internally. Scheduler and Review are real Provider registries, and since M1A the aggregate store sits behind `TeamAggregateStore` with the official Storage Domain as its only production implementation. Budget accounting, memory, workflow, workspace and policy remain embedded or absent.

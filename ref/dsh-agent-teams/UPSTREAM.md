@@ -2,8 +2,8 @@
 
 - Repository: `https://github.com/NanmiCoder/dsh-agent-teams`
 - Branch: `main`
-- Commit: `0c21e5d2f45ec1ea7c9ee89ffc4ee77d1cb9262e`
-- Package version: `0.1.8`
+- Commit: `912aae5225d3d85fa841a1b0c8a5c77021876c25`
+- Package version: `0.1.13`
 - License: MIT
 
 ## Why this is the single local reference repository
@@ -40,3 +40,7 @@
 ```
 
 脚本将完整源码检出到 `source/` 并固定到上述提交。更新 pin 时必须同时修改 `SOURCE_POINTER.json`、本文件和 `docs/09-sources.md`，然后重新执行架构差异审查。
+
+## 0.1.9 → 0.1.13 reviewed delta
+
+该差异加入官方宿主 locale UI、idle attempt park/显式恢复、防状态查询 retry storm，以及 cardless Session 的低频发现探针。它为 I1 的暂停/恢复语义和 I4 的 UI 发现成本提供参考故障用例，不改变本项目的唯一 `TeamDomainPort` 权威，也不授权复制参考实现的 Scheduler、存储或 Client 状态。

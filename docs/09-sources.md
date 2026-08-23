@@ -67,8 +67,8 @@ The site currently labels rc.7 and itself states official source/release notes a
 
 - URL: `https://github.com/NanmiCoder/dsh-agent-teams`
 - Branch: `main`
-- Commit: `0c21e5d2f45ec1ea7c9ee89ffc4ee77d1cb9262e`
-- Version: `0.1.9`
+- Commit: `912aae5225d3d85fa841a1b0c8a5c77021876c25`
+- Version: `0.1.13`
 - Local pointer: `ref/dsh-agent-teams/SOURCE_POINTER.json`
 - Full local checkout: `ref/dsh-agent-teams/source/`
 
@@ -78,11 +78,13 @@ Read for implementation prior art, not framework truth.
 
 M4-2 Gate A supersession (2026-08-22): the supplied sync script refreshed `main` to the recorded `0c21e5d` pointer and verified it as the branch tip. The older cumulative-diff paragraph above is retained as historical pin-review evidence; issue #128 uses the current checkout only as negative/behavioral evidence because it exposes repository verification practice but no verification-command runtime service.
 
+SW-G0 Gate A supersession (2026-08-23): the cumulative `0c21e5d..912aae5` delta was reviewed before the supplied sync script materialized the new branch tip. Seven commits move the package from 0.1.9 to 0.1.13 and add official-host locale handling, bounded idle-attempt parking with explicit resume, and low-cadence cardless activity discovery. These are compatible failure/observability precedents for the I1/I4 slices; no reference runtime, Team authority, protocol type or UI component is imported. The package manifest, MIT license and recorded tree were verified at the new pin.
+
 ## 3. Product architecture reference
 
 - URL: `https://github.com/openJiuwen-ai/jiuwenswarm`
 - Branch: `develop`
-- Commit: `1d45d2b4a08423365eae7c37b2afdae6614a97ad`
+- Commit: `e90d9ea80cdeccb84a1f92f296a85aa23e84133d`
 - Develop package state observed: `workswarm` `0.2.5.beta1`
 - Local pointer: `ref/jiuwenswarm/SOURCE_POINTER.json`
 - Full local checkout: `ref/jiuwenswarm/source/`
@@ -92,6 +94,8 @@ Live verification on 2026-08-22 found `develop` at this commit and the pin was r
 Priority documents/concepts:
 
 M4-2 Gate A supersession (2026-08-22): the supplied sync script refreshed `develop` to the recorded `1d45d2b` pointer and verified it as the branch tip. The older cumulative-diff paragraph above remains historical evidence through `962f0a4`; issue #128 consumes only the current pinned behavioral evidence for toolchain-specific Python verification and fail-loud missing-analyzer behavior, importing no Jiuwen runtime architecture or types.
+
+SW-G0 Gate A supersession (2026-08-23): the cumulative `1d45d2b..e90d9ea` delta was reviewed before the supplied sync script materialized the new branch tip. Four commits add an optional persistent-subagent runtime, prompt/attachment restructuring, restart cleanup hardening and canonical Team Plan mode recognition. These remain product and failure-case prior art only. The plugin continues to use official DSH execution and its own single Team/HumanInteraction producer contract; no Jiuwen runtime, persistence model or types are adopted. The recorded tree, Apache-2.0 license and `workswarm` 0.2.5.beta1 package state were verified at the new pin.
 
 - Agent Team user guide
 - Distributed Team

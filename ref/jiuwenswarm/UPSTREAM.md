@@ -2,7 +2,7 @@
 
 - Upstream: `https://github.com/openJiuwen-ai/jiuwenswarm`
 - Branch observed: `develop`
-- Pinned commit: `1d45d2b4a08423365eae7c37b2afdae6614a97ad`
+- Pinned commit: `e90d9ea80cdeccb84a1f92f296a85aa23e84133d`
 - Local checkout: `source/`
 
 This repository is a product and architecture reference, not a DSH dependency.
@@ -18,3 +18,9 @@ source are authoritative.
 The pinned tree contains Git LFS videos. They are deliberately left as pointer
 files because the text source is sufficient for development analysis and some
 upstream media objects are unavailable.
+
+The reviewed delta adds an optional persistent subagent runtime, restructures
+prompt and attachment handling, hardens restart cleanup and recognizes the
+canonical Team Plan modes during capability assembly. It reinforces explicit
+delegation, lifecycle and plan-to-execution boundaries. None of its Python
+runtime, transport, persistence schema or public types is adopted here.

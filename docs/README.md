@@ -25,11 +25,11 @@
 
 ### 验证与审计
 14. [08-testing-verification.md](08-testing-verification.md) — 验证矩阵（场景审计、套件清单、门禁链）
-15. [10-fusion-audit.md](10-fusion-audit.md) — 参考融合现状、冲突、缺口与优化优先级
+15. [10-fusion-audit.md](10-fusion-audit.md) — 参考融合的累计历史证据、现行 pin 与冲突审计；前向顺序以 GOALS/roadmap 为准
 
-### 记录层（只增不改）
+### 记录层（已接受证据保持不可变）
 - [adr/](adr/) — 已接受的架构决策（ADR-0001..0008）
-- [development/](development/) — 有界实现委托与阶段完成报告（含各里程碑出口报告）
+- [development/](development/) — 有界实现设计与阶段完成报告；已接受的报告保持不可变，未接受且与现行架构冲突的前瞻方案可在有 Git 恢复身份、无现行引用的受审候选中 supersede 或删除
 - [reviews/](reviews/) — 独立审查报告（不可变）与 PM intake（分开成文）
 
 ## 权威与证据说明
@@ -38,6 +38,7 @@
 - 阶段报告、审查报告、ADR、Git commit/tag 是版本化历史证据，不是实时任务台账。
 - 官方兼容事实以 [OFFICIAL_BASELINE.json](OFFICIAL_BASELINE.json)、目标安装包和 Gate A 结果为准。
 - 当前任务、候选、审查与集成状态由项目绑定选定的外部 provider 或非提交式动态台账承担。
+- 历史记录中对已删除旧规范的引用只说明当时上下文，不会恢复旧治理权威；现行方法以项目 binding 和 `$manage-agile-software-development` 为准。
 
 ## 文档规则
 
