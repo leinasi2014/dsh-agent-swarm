@@ -1,12 +1,15 @@
-import { Button, IconUserOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { useSyncExternalStore, type RefObject } from 'react'
+import { Button, IconCodeOutline16, IconUserOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useId, useSyncExternalStore, type RefObject } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type { TeamDashboardController } from './team-dashboard-controller.js'
 import { TEAM_DASHBOARD_NS } from './team-dashboard-locales.js'
+import {
+  TEAM_DASHBOARD_SURFACE_ID,
+  type TeamDashboardSurfaceCoordinator,
+} from './team-dashboard-surface-coordinator.js'
 
 export interface TeamDashboardActionInjected {
-  readonly controller: TeamDashboardController
+  readonly coordinator: TeamDashboardSurfaceCoordinator
   readonly anchorRef: RefObject<HTMLSpanElement>
 }
 
@@ -15,26 +18,51 @@ export type TeamDashboardActionProps = PropsRuntime<'conversation.session.header
   & TeamDashboardActionInjected
 
 /** Additive Session-header entry; the official framework supplies the target hint. */
-export function TeamDashboardAction({ anchorRef, controller, sessionId, t }: TeamDashboardActionProps) {
-  const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot)
-  const active = state.open && state.targetSessionId === sessionId
+export function TeamDashboardAction({ anchorRef, coordinator, sessionId, t }: TeamDashboardActionProps) {
+  const state = useSyncExternalStore(coordinator.subscribe, coordinator.getSnapshot, coordinator.getSnapshot)
+  const descriptionId = useId()
+  const active = state.mode !== 'inactive' && state.targetSessionId === sessionId
+  const toolUnavailable = !state.safeWidth
+  const announcement = state.announcement === 'tool-shown'
+    ? t('action.toolDetailsShown')
+    : state.announcement === 'tool-unavailable-width'
+      ? t('action.toolDetailsUnavailable')
+      : state.announcement === 'tool-unavailable-runtime' ? t('action.toolDetailsUnavailableNow') : ''
 
   return (
-    <span ref={anchorRef} data-swarm-team-anchor>
+    <span ref={anchorRef} data-swarm-team-anchor data-swarm-team-actions data-swarm-team-session={sessionId}>
       <Button
         size="sm"
         variant="toolbar"
         aria-label={t('action.open')}
         title={t('action.open')}
-        aria-controls="swarm-team-peek-card"
+        aria-controls={TEAM_DASHBOARD_SURFACE_ID}
         aria-expanded={active}
         data-swarm-team-trigger
         data-active={active || undefined}
-        data-presentation={active ? state.presentation : undefined}
-        onClick={() => { controller.cycle(sessionId) }}
+        data-presentation={active ? state.mode : undefined}
+        onClick={() => { coordinator.cycle(sessionId) }}
       >
         <IconUserOutline16 />
       </Button>
+      <Button
+        size="sm"
+        variant="toolbar"
+        aria-label={t('action.toolDetails')}
+        title={toolUnavailable ? t('action.toolDetailsUnavailable') : t('action.toolDetails')}
+        aria-disabled={toolUnavailable}
+        aria-describedby={toolUnavailable ? descriptionId : undefined}
+        data-swarm-tool-trigger
+        onClick={() => { coordinator.showToolDetails() }}
+      >
+        <IconCodeOutline16 />
+      </Button>
+      <span id={descriptionId} data-swarm-team-visually-hidden>
+        {toolUnavailable ? t('action.toolDetailsUnavailable') : ''}
+      </span>
+      <span aria-live="polite" aria-atomic="true" data-swarm-team-visually-hidden data-announcement-revision={state.announcementRevision}>
+        {announcement}
+      </span>
     </span>
   )
 }

@@ -1,8 +1,11 @@
 const TEAM_DASHBOARD_STYLES = `
 [data-swarm-team-anchor] {
   display: inline-flex;
+  align-items: center;
+  gap: 2px;
 }
-[data-swarm-team-trigger] {
+[data-swarm-team-trigger],
+[data-swarm-tool-trigger] {
   width: 32px;
   min-width: 32px;
   height: 32px;
@@ -12,6 +15,10 @@ const TEAM_DASHBOARD_STYLES = `
 [data-swarm-team-trigger][data-active] {
   color: var(--dsw-alias-label-primary-bluish);
   background: var(--dsw-alias-interactive-bg-active);
+}
+[data-swarm-tool-trigger][aria-disabled='true'] {
+  opacity: .5;
+  cursor: not-allowed;
 }
 [data-swarm-team-layer] {
   position: absolute;
@@ -25,13 +32,22 @@ const TEAM_DASHBOARD_STYLES = `
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   width: min(420px, calc(100vw - 32px));
   max-height: calc(100dvh - 120px);
-  color: var(--dsw-alias-text-primary);
+  color: var(--dsw-alias-label-primary);
   background: var(--dsw-alias-bg-layer-1);
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 20px;
-  box-shadow: 0 10px 24px rgb(0 0 0 / 10%);
+  box-shadow: var(--dsw-shadow-lv3);
   font-family: var(--dsw-font-family);
   overflow: hidden;
+}
+[data-swarm-team-card][data-swarm-team-docked] {
+  position: relative;
+  width: 100%;
+  max-height: none;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
 }
 [data-swarm-team-card][data-presentation='compact'] {
   display: block;
@@ -84,14 +100,13 @@ const TEAM_DASHBOARD_STYLES = `
   border: 0;
   border-radius: 9px;
   color: var(--dsw-alias-label-secondary);
-  background: transparent;
   font: var(--dsw-font-xs-13);
   cursor: pointer;
 }
 [data-swarm-team-tabs] button:hover {
   background: var(--dsw-alias-interactive-bg-hover);
 }
-[data-swarm-team-tabs] button[aria-selected='true'] {
+[data-swarm-team-tabs] button[aria-pressed='true'] {
   color: var(--dsw-alias-label-primary);
   background: var(--dsw-alias-bg-base);
 }
@@ -112,7 +127,7 @@ const TEAM_DASHBOARD_STYLES = `
 [data-swarm-team-stat] {
   min-width: 0;
   padding: 12px;
-  border: 1px solid var(--dsw-alias-border-subtle);
+  border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 12px;
   background: var(--dsw-alias-bg-base);
 }
@@ -156,13 +171,23 @@ const TEAM_DASHBOARD_STYLES = `
   gap: 12px;
   min-width: 0;
   padding: 7px 0;
-  border-top: 1px solid var(--dsw-alias-border-subtle);
+  border-top: 1px solid var(--dsw-alias-border-l1);
 }
 [data-swarm-team-row]:first-child {
   padding-top: 0;
   border-top: 0;
 }
 [data-swarm-team-row] > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+[data-swarm-team-row-copy] {
+  display: grid;
+  gap: 2px;
+}
+[data-swarm-team-row-copy] > span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -194,8 +219,19 @@ const TEAM_DASHBOARD_STYLES = `
   border-top: 1px solid var(--dsw-alias-border-l2);
   background: var(--dsw-alias-bg-layer-1);
 }
+[data-swarm-team-visually-hidden] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
 @media (prefers-reduced-motion: no-preference) {
-  [data-swarm-team-card] { animation: swarm-team-peek-in 160ms ease-out; transform-origin: top right; }
+  [data-swarm-team-card]:not([data-swarm-team-docked]) { animation: swarm-team-peek-in 160ms ease-out; transform-origin: top right; }
   @keyframes swarm-team-peek-in {
     from { transform: translateY(-4px) scale(.985); opacity: 0; }
     to { transform: translateY(0) scale(1); opacity: 1; }

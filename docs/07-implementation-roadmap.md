@@ -133,6 +133,10 @@ Risk: external read boundary 为 S3/HIGH。
 
 ## R3 / I4-R — DSH Team read UI and official Captain Chat handoff
 
+Implementation state: code/build/unit candidate complete on 2026-08-24;
+immutable official Profile/browser evidence and final exact-SHA review remain
+the acceptance gate.
+
 ### Outcome
 
 使用官方 slots、components、locale 和 theme tokens 提供最小 DSH client plugin。它只消费 R2，展示 Team、成员、任务/attempt、预算、pending interaction、capability、stale/reconnect/error，并提供明确的“打开 Captain Chat”操作进入同一官方 DSH root Session。

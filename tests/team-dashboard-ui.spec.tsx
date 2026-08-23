@@ -7,8 +7,10 @@ import type { SwarmReadCapabilitiesV1 } from '../src/rpc/read-rpc-contract.js'
 import { SWARM_READ_RPC_FIXTURES_V1 } from '../src/rpc/read-rpc-artifact.js'
 import { TeamDashboardAction, type TeamDashboardActionProps } from '../src/client/TeamDashboardAction.js'
 import { TeamDashboardOverlay, type TeamDashboardOverlayProps } from '../src/client/TeamDashboardOverlay.js'
+import { TeamDashboardDetails, type TeamDashboardDetailsProps } from '../src/client/TeamDashboardDetails.js'
 import type { TeamDashboardState } from '../src/client/team-dashboard-controller.js'
 import { en } from '../src/client/team-dashboard-locales.js'
+import type { TeamDashboardSurfaceState } from '../src/client/team-dashboard-surface-coordinator.js'
 
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', async () => {
   const react = await import('react')
@@ -18,6 +20,7 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', async () => {
       react.createElement('button', { type: 'button', ...props }, children as ReactNode),
     Pill: ({ children }: { children?: ReactNode }) => react.createElement('span', {}, children),
     StateDot: () => react.createElement('span', { 'aria-hidden': 'true' }),
+    IconCodeOutline16: Icon,
     IconUserOutline16: Icon,
     IconRefreshOutline16: Icon,
     useAnchoredPosition: () => ({ left: 16, top: 48 }),
@@ -60,6 +63,60 @@ class FakeController {
   close = (): void => {
     this.closeCalls()
     this.state = { open: false, phase: 'closed' }
+    for (const listener of this.listeners) listener()
+  }
+}
+
+class FakeCoordinator {
+  readonly closeAndRestoreFocus = vi.fn(() => { this.close() })
+  readonly dismiss = vi.fn(() => { this.close() })
+  readonly showToolDetails = vi.fn()
+  private readonly listeners = new Set<() => void>()
+  private state: TeamDashboardSurfaceState
+
+  constructor(
+    private readonly controller: FakeController,
+    private readonly handoff: () => Promise<void> = async () => {},
+    safeWidth = false,
+  ) {
+    const controllerState = controller.getSnapshot()
+    this.state = {
+      mode: controllerState.open ? (controllerState.presentation === 'compact' ? 'compact' : 'peek') : 'inactive',
+      view: 'overview',
+      safeWidth,
+      targetSessionId: controllerState.targetSessionId,
+      announcement: undefined,
+      announcementRevision: 0,
+    }
+  }
+
+  getSnapshot = (): TeamDashboardSurfaceState => this.state
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener)
+    return () => { this.listeners.delete(listener) }
+  }
+  localeTag = (): 'en-US' => 'en-US'
+  openCaptainChat = async (): Promise<void> => { await this.handoff() }
+  selectView = (view: TeamDashboardSurfaceState['view']): void => { this.publish({ view }) }
+  commitDocked = (targetSessionId: string): void => {
+    this.publish({ mode: 'docked', safeWidth: true, targetSessionId })
+  }
+  cycle = (sessionId: string): void => {
+    this.controller.cycle(sessionId)
+    const controller = this.controller.getSnapshot()
+    this.publish({
+      mode: controller.open ? (controller.presentation === 'compact' ? 'compact' : 'peek') : 'inactive',
+      targetSessionId: controller.targetSessionId,
+    })
+  }
+
+  private close(): void {
+    this.controller.close()
+    this.publish({ mode: 'inactive', targetSessionId: undefined })
+  }
+
+  private publish(change: Partial<TeamDashboardSurfaceState>): void {
+    this.state = { ...this.state, ...change }
     for (const listener of this.listeners) listener()
   }
 }
@@ -114,10 +171,25 @@ afterEach(async () => {
 })
 
 describe('R3 DSH-native Team UI', () => {
+  it('commits one real complementary surface in the official Details seat without adding a main landmark', async () => {
+    const controller = new FakeController(readyState())
+    const coordinator = new FakeCoordinator(controller, async () => {}, true)
+    coordinator.commitDocked('session-fixture')
+    await render(<TeamDashboardDetails {...({
+      anchorRef: anchorRef(), controller, coordinator, localeTag: coordinator.localeTag,
+      sessionId: 'session-fixture', t,
+    } as unknown as TeamDashboardDetailsProps)} />)
+    expect(document.querySelectorAll('[data-swarm-team-dashboard]')).toHaveLength(1)
+    expect(document.querySelector('[data-swarm-team-dashboard]')?.getAttribute('role')).toBe('complementary')
+    expect(document.querySelector('[data-swarm-team-dashboard] main')).toBeNull()
+    expect(document.querySelector('[role="tablist"]')).toBeNull()
+  })
+
   it('renders every real read family in a non-modal anchored Peek Card and hands off only through the injected verifier', async () => {
     const controller = new FakeController(readyState())
     const handoff = vi.fn(async () => {})
-    await render(<TeamDashboardOverlay {...({ anchorRef: anchorRef(), controller, openCaptainChat: handoff, t } as unknown as TeamDashboardOverlayProps)} />)
+    const coordinator = new FakeCoordinator(controller, handoff)
+    await render(<TeamDashboardOverlay {...({ anchorRef: anchorRef(), controller, coordinator, localeTag: coordinator.localeTag, t } as unknown as TeamDashboardOverlayProps)} />)
 
     const card = document.querySelector('[data-swarm-team-card]')
     expect(card?.getAttribute('role')).toBe('complementary')
@@ -144,9 +216,10 @@ describe('R3 DSH-native Team UI', () => {
       error: { code: 'SWARM_RPC_TARGET_NOT_LIVE', message: 'not live' },
     })
     const anchor = anchorRef()
+    const coordinator = new FakeCoordinator(controller)
     await render(<>
-      <TeamDashboardAction {...({ anchorRef: anchor, controller, sessionId: 'missing', t } as unknown as TeamDashboardActionProps)} />
-      <TeamDashboardOverlay {...({ anchorRef: anchor, controller, openCaptainChat: vi.fn(), t } as unknown as TeamDashboardOverlayProps)} />
+      <TeamDashboardAction {...({ anchorRef: anchor, coordinator, sessionId: 'missing', t } as unknown as TeamDashboardActionProps)} />
+      <TeamDashboardOverlay {...({ anchorRef: anchor, controller, coordinator, localeTag: coordinator.localeTag, t } as unknown as TeamDashboardOverlayProps)} />
     </>)
 
     expect(document.querySelector('[role="alert"]')?.textContent).toContain('SWARM_RPC_TARGET_NOT_LIVE')
@@ -163,7 +236,8 @@ describe('R3 DSH-native Team UI', () => {
   it('handles a rejected Captain handoff without leaking an unhandled rejection or locking the action', async () => {
     const controller = new FakeController(readyState())
     const handoff = vi.fn(async () => { throw new Error('binding changed') })
-    await render(<TeamDashboardOverlay {...({ anchorRef: anchorRef(), controller, openCaptainChat: handoff, t } as unknown as TeamDashboardOverlayProps)} />)
+    const coordinator = new FakeCoordinator(controller, handoff)
+    await render(<TeamDashboardOverlay {...({ anchorRef: anchorRef(), controller, coordinator, localeTag: coordinator.localeTag, t } as unknown as TeamDashboardOverlayProps)} />)
 
     await act(async () => {
       button('Open Captain Chat').click()
@@ -176,9 +250,10 @@ describe('R3 DSH-native Team UI', () => {
 
   it('uses framework Session ids only as target hints and cycles expanded, compact, then closed', async () => {
     const controller = new FakeController({ open: false, phase: 'closed' })
+    const coordinator = new FakeCoordinator(controller)
     await render(<>
-      <TeamDashboardAction {...({ anchorRef: anchorRef(), controller, sessionId: 'root-from-framework', t } as unknown as TeamDashboardActionProps)} />
-      <TeamDashboardAction {...({ anchorRef: anchorRef(), controller, sessionId: 'other-root', t } as unknown as TeamDashboardActionProps)} />
+      <TeamDashboardAction {...({ anchorRef: anchorRef(), coordinator, sessionId: 'root-from-framework', t } as unknown as TeamDashboardActionProps)} />
+      <TeamDashboardAction {...({ anchorRef: anchorRef(), coordinator, sessionId: 'other-root', t } as unknown as TeamDashboardActionProps)} />
     </>)
     const triggers = [...document.querySelectorAll<HTMLButtonElement>('button[aria-label="Team"]')]
     await act(async () => { triggers[0]?.click() })
@@ -190,13 +265,14 @@ describe('R3 DSH-native Team UI', () => {
     expect(controller.closeCalls).toHaveBeenCalledTimes(1)
     await act(async () => { triggers[1]?.click() })
     expect(controller.openCalls).toEqual(['root-from-framework', 'other-root'])
-    expect(triggers[1]?.getAttribute('aria-controls')).toBe('swarm-team-peek-card')
+    expect(triggers[1]?.getAttribute('aria-controls')).toBe('swarm-team-surface')
   })
 
   it('renders compact mode as a real-data summary without the full controls', async () => {
     const controller = new FakeController({ ...readyState(), presentation: 'compact' })
+    const coordinator = new FakeCoordinator(controller)
     await render(<TeamDashboardOverlay {...({
-      anchorRef: anchorRef(), controller, openCaptainChat: vi.fn(), t,
+      anchorRef: anchorRef(), controller, coordinator, localeTag: coordinator.localeTag, t,
     } as unknown as TeamDashboardOverlayProps)} />)
 
     const card = document.querySelector('[data-swarm-team-card]')
@@ -212,29 +288,31 @@ describe('R3 DSH-native Team UI', () => {
   it('dismisses on an outside pointer without stealing focus and ignores the card and trigger', async () => {
     const controller = new FakeController(readyState())
     const anchor = anchorRef()
+    const coordinator = new FakeCoordinator(controller)
     await render(<>
       <button type="button" data-chat-composer>Composer</button>
-      <TeamDashboardAction {...({ anchorRef: anchor, controller, sessionId: 'session-fixture', t } as unknown as TeamDashboardActionProps)} />
-      <TeamDashboardOverlay {...({ anchorRef: anchor, controller, openCaptainChat: vi.fn(), t } as unknown as TeamDashboardOverlayProps)} />
+      <TeamDashboardAction {...({ anchorRef: anchor, coordinator, sessionId: 'session-fixture', t } as unknown as TeamDashboardActionProps)} />
+      <TeamDashboardOverlay {...({ anchorRef: anchor, controller, coordinator, localeTag: coordinator.localeTag, t } as unknown as TeamDashboardOverlayProps)} />
     </>)
 
     const card = document.querySelector<HTMLElement>('[data-swarm-team-card]')
     const trigger = labelledButton('Team')
     await act(async () => { card?.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })) })
     await act(async () => { trigger.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })) })
-    expect(controller.closeCalls).not.toHaveBeenCalled()
+    expect(coordinator.dismiss).not.toHaveBeenCalled()
 
     const composer = document.querySelector<HTMLButtonElement>('[data-chat-composer]')
     composer?.focus()
     await act(async () => { composer?.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })) })
-    expect(controller.closeCalls).toHaveBeenCalledTimes(1)
+    expect(coordinator.dismiss).toHaveBeenCalledTimes(1)
     expect(document.activeElement).toBe(composer)
   })
 
   it('marks a retained complete projection as stale instead of fresh', async () => {
     const state = { ...readyState(), phase: 'stale' as const, error: { code: 'SWARM_RPC_UNAVAILABLE', message: 'offline' } }
     const controller = new FakeController(state)
-    await render(<TeamDashboardOverlay {...({ anchorRef: anchorRef(), controller, openCaptainChat: vi.fn(), t } as unknown as TeamDashboardOverlayProps)} />)
+    const coordinator = new FakeCoordinator(controller)
+    await render(<TeamDashboardOverlay {...({ anchorRef: anchorRef(), controller, coordinator, localeTag: coordinator.localeTag, t } as unknown as TeamDashboardOverlayProps)} />)
     expect(document.querySelector('[role="alert"]')?.textContent).toContain('Showing the last complete projection')
     expect(document.querySelector('[data-swarm-team-card]')?.textContent).toContain('Fixture Team')
   })

@@ -1,6 +1,6 @@
 # R3 Team read UI, Tool Details handoff and Captain Chat
 
-- Status: architecture revision candidate
+- Status: implementation candidate; authoritative Profile acceptance pending
 - Supersedes presentation details in the earlier Peek-only revision of this document
 - Official DSH baseline: `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`
 - Lane: S3/HIGH for the reversible runtime replacement; S2/MEDIUM for the read-only UI
@@ -51,6 +51,10 @@ the persistent live region explains that Tool Details requires a wider window.
   Swarm does not read private layout stores, set widths, query official DOM or
   CSS-module classes, modify `grid-template-columns`, or import private Chat
   selection state.
+- Layout is a replaceable public service lease, not a constructor-lifetime
+  singleton. The coordinator survives official ui-layout HMR; a separate
+  `ctx.inject(['layout'], ...)` epoch attaches the current face, drops to Peek
+  if that face disappears and re-commits only through the replacement face.
 - `shell.overlay` remains the additive surface for expanded Peek fallback and
   compact summary.
 - Slot priority shadowing here is a bounded, reversible UI composition
@@ -70,8 +74,10 @@ current column open; an ordinary Team close deliberately closes it.
 ## Surface coordinator
 
 One non-React coordinator owns the temporary details entry, responsive mode,
-target Session and shutdown order. React components never register or dispose
-slots themselves.
+selected Team view, target Session and shutdown order. React components never
+register or dispose slots themselves. Keeping the selected view in this owner
+preserves it when the same expanded surface migrates between Peek and docked
+renderers.
 
 The controller continues to own Team data and the product presentation
 `expanded | compact`; the coordinator derives the concrete surface:
@@ -121,6 +127,12 @@ lower numeric rank rolls back acquisition. A fresh opening that cannot acquire
 or call `openDetails()` returns inactive; migration from an existing Peek keeps
 that Peek visible and its reads alive. Rapid inputs are serialized and there is
 at most one Team details entry.
+
+Winner verification is continuous, not only an acquisition-time assertion.
+The coordinator subscribes to the public `details` slot projection; if a later
+entry becomes the lower-priority winner, the exact Team lease is released and
+its hidden reads stop without closing the column now owned by that winner.
+Layout close failures during HMR never prevent entry, listener or read cleanup.
 
 Official declaration HMR and Swarm HMR are different lifecycles. An official
 collapse/redeclare may reacquire one lease only when the still-live coordinator
@@ -174,6 +186,10 @@ swallowed.
   title and stable controls id. If Session switching removes the focused Team
   region, focus is moved to a stable action in the newly current Session before
   teardown instead of falling to `body`.
+- Responsive and declaration-driven renderer replacement preserves the selected
+  view and, when the retiring Team surface held focus, moves focus to the
+  session-verified persistent Team trigger. Outside-pointer dismissal does not
+  steal focus from Chat; only an explicit Escape close restores the trigger.
 - The plugin does not claim keyboard resizing; the official rc.2 drag handle is
   pointer-owned.
 
