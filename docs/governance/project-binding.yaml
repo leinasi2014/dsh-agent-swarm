@@ -6,7 +6,7 @@ project:
 
 method:
   name: manage-agile-software-development
-  policyDigest: 2e456cbce7c68ea64da88103ee831eb1e78879cd
+  policyDigest: 931c8abf7ef689a20c3a9f7d4d562d5e9de0aa4e
   instructionAdapter: AGENTS.md
 
 authority:
