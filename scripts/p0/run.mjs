@@ -6,6 +6,8 @@ import { rpcCall } from '../promotion/lib.mjs'
 import { bootPlane, run, stopPlane, waitPortFree, waitUntil } from '../promotion/runner.mjs'
 import { sha256File, verifyP0Evidence } from './evidence.mjs'
 import { parsePluginInventoryResponse, pluginInventoryPayload } from './inventory.mjs'
+import { name as serviceProbeName } from './profile-probe.mjs'
+import { name as shutdownProbeName } from './shutdown-probe.mjs'
 
 const OFFICIAL_COMMIT = 'b150a551b8d465e31e418e1b2eaf5e79bbb7d28e'
 const OFFICIAL_TREE = '53915efe4e2126cc7779b73dfc8a3bcec5318c44'
@@ -77,9 +79,9 @@ function profilePatchLines({ storageRoot, sessionRoot, workspaceRoot, shutdownPr
   if (typeof swarmEnabled === 'boolean') {
     lines.push('- id: agent-swarm', `  disabled: ${swarmEnabled ? 'false' : 'true'}`)
   }
-  lines.push('- insert:', '    - id: agent-swarm-p0-shutdown-probe', `      name: ${yamlString(shutdownProbeUrl)}`)
+  lines.push('- insert:', `    - id: ${shutdownProbeName}`, `      name: ${yamlString(shutdownProbeUrl)}`)
   if (serviceProbeUrl !== undefined) {
-    lines.push('    - id: agent-swarm-p0-profile-probe', `      name: ${yamlString(serviceProbeUrl)}`)
+    lines.push(`    - id: ${serviceProbeName}`, `      name: ${yamlString(serviceProbeUrl)}`)
   }
   lines.push('')
   return lines
