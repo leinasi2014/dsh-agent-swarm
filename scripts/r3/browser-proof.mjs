@@ -223,17 +223,26 @@ export async function runR3R0BrowserProof({ port, evidenceDir, rootSessionId, br
   try {
     await page.goto(`http://127.0.0.1:${String(port)}/`, { waitUntil: 'domcontentloaded', timeout: 30_000 })
     const onboarding = await completeOfficialOnboarding(page)
-    const team = await selectRootSession(page)
-    await team.click()
-    await page.locator('[data-swarm-team-dashboard][data-phase="error"]').waitFor({ state: 'visible', timeout: 20_000 })
-    if (await page.locator('[data-swarm-team-dashboard] section').count() !== 0) {
-      throw new Error('R0 browser rendered Team data without an active read Host')
+    if (await officialCurrentSessionId(page) !== rootSessionId) {
+      throw new Error('R0 official Session selection did not rehydrate the exact proof root')
     }
+    const teamActionAbsent = await page.getByRole('button', { name: TEAM_NAME }).count() === 0
+    const dashboardAbsent = await page.locator('[data-swarm-team-dashboard]').count() === 0
+    if (!teamActionAbsent || !dashboardAbsent) throw new Error('R0-disabled plugin left a Team client surface mounted')
+    const route = await page.evaluate(async () => {
+      const response = await fetch('/swarm/v1', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ schemaVersion: 1, method: 'capabilities' }),
+      })
+      return { status: response.status, contentType: response.headers.get('content-type') }
+    })
+    if (route.status !== 404) throw new Error(`R0-disabled /swarm/v1 route returned ${route.status}, expected 404`)
     await page.screenshot({ path: join(evidenceDir, 'r3-r0-fail-closed.png'), fullPage: false })
     assertCleanBrowser(records, 'R0 browser')
     const result = {
       status: 'pass', browser: identity, bootstrap: bootstrapEvidence(rootSessionId, selectionSource), ...onboarding,
-      routeUnavailable: true, renderedData: false,
+      routeUnavailable: true, routeStatus: route.status, teamActionAbsent, renderedData: false,
       requests: records.swarmRequests, consoleErrors: records.consoleErrors, pageErrors: records.pageErrors,
     }
     await writeFile(join(evidenceDir, 'r3-browser-r0.json'), `${JSON.stringify(result, null, 2)}\n`, 'utf8')

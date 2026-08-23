@@ -75,7 +75,8 @@ try {
         })}\n`
       : relativePath === 'evidence/r3-browser-r0.json'
         ? `${JSON.stringify({
-            status: 'pass', browser, bootstrap, routeUnavailable: true, renderedData: false,
+            status: 'pass', browser, bootstrap, routeUnavailable: true, routeStatus: 404,
+            teamActionAbsent: true, renderedData: false,
             officialTestingNoticePresent: true, officialTestingNoticeDismissed: true,
             officialApiKeyOnboardingPresent: true, officialApiKeyOnboardingSkipped: true,
             consoleErrors: [], pageErrors: [],
