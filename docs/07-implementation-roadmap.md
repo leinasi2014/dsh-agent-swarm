@@ -58,14 +58,14 @@ Risk: S3/HIGH，原因是跨仓权威与兼容方向；需要精确候选的非�
 
 ### Outcome
 
-无 UI 时，root captain 是唯一 Human Liaison。成员通过持久 Team mail 路由问题和结果；用户 Message 与 typed review/control 经 additive HumanInteraction port 进入，所有 Team mutation 仍由 `TeamDomainPort` 提交。进程在 effect commit 与 receipt acknowledgement 之间丢失后，已提交 effect 可 exactly-once reconcile。
+无 UI 时，root captain 是唯一 Human Liaison。成员通过持久 Team mail 路由问题和结果；用户 Message 与 typed review/control 经 additive HumanInteraction port 进入，所有 Team mutation 仍由 `TeamDomainPort` 提交。只有 effect 与 receipt 在同一权威事务提交，或 effect owner 提供持久幂等 identity/read-back 时，进程在 effect commit 与 receipt acknowledgement 之间丢失后才可 exactly-once reconcile；其他效果必须保持 visible unresolved/blocked。
 
 ### Required behavior
 
 - free text 是 advisory data，必须 injection-fenced，不能授权；
 - controls 按需携带 request identity、Team/task revision 与 attempt/member fence；
 - duplicate、stale、late、expired、cancelled、spoofed 请求确定性失败；
-- restart reconciliation 能区分 not-applied、applied、acknowledged，不重复 domain effect；
+- 对同事务 ledger 或官方持久 read-back 覆盖的效果，restart reconciliation 能区分 not-applied、applied、acknowledged，不重复 domain effect；legacy 或缺 read-back 的效果保持 unresolved；
 - 缺 question provider 时返回 visible held/unavailable，而不是编造答案；
 - 查询状态不能重启 idle/open work，继续与转派必须是显式 owner action。
 
@@ -78,7 +78,7 @@ I1 is delivered as bounded dependent slices rather than one broad effect claim:
 3. **I1b-1B — mail controls:** reuse the accepted ledger for wake/correct mail. Answer mail waits for authoritative question-result read-back rather than inferring presentation state.
 4. **I1b-1C — task controls:** correlate the canonical Team reassignment and deterministic/provider-correlated review transition. Live interrupt and provider-side effects remain outside the claim until their official seams expose durable operation identity and query.
 
-The v2 migration is quiesced, validated, one-way and compatibility-fenced: v2 becomes the only writer, v1 remains read-only recovery evidence, and neither dual-write nor old-binary fallback is rollback. `ctx.userQuestions.ask`, `ctx.subagents.interrupt` and unconstrained Review Providers are explicit upstream blockers under the contracts in ADR-0009; their unknown outcomes remain held, not replayed.
+The v2 migration is quiesced, validated and one-way: a host-owned lifecycle controller drains every runtime writer, reopens v1 only through a process-internal non-writing adapter, and v2 becomes the only runtime writer after cutover. Migration remains implementation-blocked until a plugin-external pre-plugin compatibility registry or verified retired-medium fence can stop an old artifact before v1 open/write; neither dual-write nor old-binary fallback is rollback. `ctx.userQuestions.ask`, `ctx.subagents.interrupt` and unconstrained Review Providers are explicit upstream blockers under the contracts in ADR-0009; their unknown outcomes remain held, not replayed.
 
 ### Non-goals
 
