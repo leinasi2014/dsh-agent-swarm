@@ -8,7 +8,7 @@ import {
 } from './read-rpc-contract.js'
 
 export const SWARM_READ_RPC_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
-export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = 'c8fd56328319166462c1a1b9fda82e09707221d51af0a5228e9c1112ed3115a6' as const
+export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = 'e89f21f83418746ecf1153795409666cb9c4357efa2b22c71ebd368ca27d75ab' as const
 
 const boundedString = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength, pattern: '\\S' })
 const nonNegativeInteger = { type: 'integer', minimum: 0 }
@@ -64,6 +64,13 @@ const capability = {
     capability: { enum: ['binding.read', 'status.read', 'snapshot.read', 'page.read', 'message.write', 'control.write', 'effect.cancel'] },
     state: { enum: ['available', 'unavailable'] },
     blocker: { enum: ['listener-not-loopback', 'i1b-effect-correlation'] },
+  },
+}
+const producerCapability = {
+  type: 'object', additionalProperties: false, required: ['capability', 'state'],
+  properties: {
+    capability: { enum: ['snapshot.read', 'receipt.read', 'message.write', 'control.write', 'effect.cancel'] },
+    state: { enum: ['available', 'unavailable'] }, blocker: { const: 'i1b-effect-correlation' },
   },
 }
 const rosterRow = {
@@ -167,7 +174,7 @@ export const SWARM_READ_RPC_CONTRACT_V1 = deepFreezeJson({
         required: [...resultBase.required, 'budget', 'totals', 'truncated', 'capabilities', 'observedAt'],
         properties: {
           ...resultBase.properties, budget, totals, truncated: truncation,
-          capabilities: { type: 'array', maxItems: 16, items: { type: 'object' } }, observedAt: nonNegativeInteger,
+          capabilities: { type: 'array', maxItems: 5, items: producerCapability }, observedAt: nonNegativeInteger,
         },
       },
       snapshot: {
@@ -183,7 +190,7 @@ export const SWARM_READ_RPC_CONTRACT_V1 = deepFreezeJson({
           attempts: { type: 'array', maxItems: 200, items: attemptRow },
           budget,
           pendingInteractions: { type: 'array', maxItems: 100, items: interactionRow },
-          totals, truncated: truncation, capabilities: { type: 'array', maxItems: 16, items: { type: 'object' } },
+          totals, truncated: truncation, capabilities: { type: 'array', maxItems: 5, items: producerCapability },
           cursor, changed: { type: 'boolean' }, resyncRequired: { type: 'boolean' }, observedAt: nonNegativeInteger,
         },
       },
@@ -195,7 +202,8 @@ export const SWARM_READ_RPC_CONTRACT_V1 = deepFreezeJson({
         ],
         properties: {
           kind: { enum: ['tasks', 'attempts', 'pendingInteractions'] },
-          entries: { type: 'array', maxItems: 50 }, offset: nonNegativeInteger,
+          entries: { type: 'array', maxItems: 50, items: { oneOf: [taskRow, attemptRow, interactionRow] } },
+          offset: nonNegativeInteger,
           limit: { type: 'integer', minimum: 1, maximum: 50 }, visibleTotal: nonNegativeInteger,
           authoritativeTotal: nonNegativeInteger, nextOffset: nonNegativeInteger,
           projectionTruncated: { type: 'boolean' }, cursor, changed: { type: 'boolean' },
@@ -315,6 +323,16 @@ type JsonSchema = Record<string, unknown>
 function assertSchema(value: unknown, schema: JsonSchema, path: string, state: SchemaState): void {
   state.nodes += 1
   if (state.nodes > 10_000) throw new Error('Swarm RPC result exceeds the structural bound')
+  if (Array.isArray(schema.oneOf)) {
+    let matches = 0
+    for (const candidate of schema.oneOf) {
+      if (!isSchema(candidate)) continue
+      try { assertSchema(value, candidate, path, { seen: new WeakSet<object>(), nodes: state.nodes }) } catch { continue }
+      matches += 1
+    }
+    if (matches !== 1) throw new Error(`${path} does not match exactly one result shape`)
+    return
+  }
   if (Object.hasOwn(schema, 'const') && !Object.is(value, schema.const)) throw new Error(`${path} has the wrong constant`)
   if (Array.isArray(schema.enum) && !schema.enum.includes(value)) throw new Error(`${path} is outside the enum`)
   if (schema.type === 'string') {

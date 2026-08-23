@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import {
   canonicalSwarmReadRpcJson,
+  assertSwarmReadRpcValue,
   SWARM_READ_RPC_CONTRACT_DIGEST_V1,
   SWARM_READ_RPC_CONTRACT_V1,
   SWARM_READ_RPC_FIXTURES_V1,
@@ -27,6 +28,18 @@ describe('R2 browser client', () => {
     expect(Object.isFrozen(SWARM_READ_RPC_FIXTURES_V1.requests)).toBe(true)
     expect(SWARM_READ_RPC_CONTRACT_V1.schemas.request.oneOf).toHaveLength(5)
     expect(SWARM_READ_RPC_FIXTURES_V1.values.capabilities.capabilities).toHaveLength(7)
+    expect(() => assertSwarmReadRpcValue('page', {
+      ...SWARM_READ_RPC_FIXTURES_V1.values.page,
+      entries: [{
+        id: 'task-fixture', revision: 1, subject: 'Fixture', status: 'pending',
+        blockedBy: [], priority: 1, createdAt: 1, updatedAt: 1,
+      }],
+      visibleTotal: 1, authoritativeTotal: 1,
+    })).not.toThrow()
+    expect(() => assertSwarmReadRpcValue('page', {
+      ...SWARM_READ_RPC_FIXTURES_V1.values.page,
+      entries: [{ id: 'task-fixture', unknown: true }], visibleTotal: 1, authoritativeTotal: 1,
+    })).toThrow()
   })
 
   it('does no work before a request and sends only the versioned JSON envelope', async () => {
