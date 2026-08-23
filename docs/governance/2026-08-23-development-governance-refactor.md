@@ -10,6 +10,7 @@
 |---|---|---|
 | [项目管理与多智能体治理规范](2026-08-23-project-management-governance.md) | 权责、风险、派工、WIP、状态、审查复用、监督、暂停恢复、两日经验 | Git/CI/合并命令和技术实现 |
 | [项目开发规范](../development/2026-08-23-development-standard.md) | worktree、作者自证、候选、206 provider、CI、合并、主线复验、镜像、发布、合同、UI、cleanup | 谁裁决范围和多少并发 |
+| [代码质量与架构规范](../development/2026-08-23-code-quality-architecture-standard.md) | 行数基线、复杂度、抽象条件、模块边界、依赖方向和语言配置 | 项目派工、Git 状态和重复架构审批 |
 | Canvas 适配清单 | Canvas 旧治理迁移、surface CI、UI 放行和跨仓差异 | 重新定义通用规则 |
 
 冲突处理：管理决策先服从治理规范；具体实现服从开发规范；项目适配只能增加项目事实和更严格的必要约束，不能另造状态机或重复审批。
