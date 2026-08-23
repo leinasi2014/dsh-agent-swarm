@@ -8,7 +8,7 @@ import {
 } from './read-rpc-contract.js'
 
 export const SWARM_READ_RPC_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
-export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = 'e89f21f83418746ecf1153795409666cb9c4357efa2b22c71ebd368ca27d75ab' as const
+export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '0731dc24290a95674514d2f1dc0d44c5278fbc1bdb6cb3c4c340f2920455489a' as const
 
 const boundedString = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength, pattern: '\\S' })
 const nonNegativeInteger = { type: 'integer', minimum: 0 }
@@ -231,6 +231,25 @@ const readCapabilities = [
   { capability: 'control.write', state: 'unavailable', blocker: 'i1b-effect-correlation' },
   { capability: 'effect.cancel', state: 'unavailable', blocker: 'i1b-effect-correlation' },
 ]
+const projectionCapabilities = [
+  { capability: 'snapshot.read', state: 'available' },
+  { capability: 'receipt.read', state: 'available' },
+  { capability: 'message.write', state: 'unavailable', blocker: 'i1b-effect-correlation' },
+  { capability: 'control.write', state: 'unavailable', blocker: 'i1b-effect-correlation' },
+  { capability: 'effect.cancel', state: 'unavailable', blocker: 'i1b-effect-correlation' },
+]
+const fixtureCursor = `r1:${'a'.repeat(64)}`
+const fixtureBinding = { rootSessionId: 'session-fixture', teamId: 'team-fixture' }
+const fixtureTeam = {
+  id: 'team-fixture', name: 'Fixture Team', phase: 'active', revision: 7,
+  createdAt: 1_700_000_000_000, updatedAt: 1_700_000_000_100,
+}
+const fixtureResultBase = {
+  binding: fixtureBinding, team: fixtureTeam, cursor: fixtureCursor, changed: true, resyncRequired: false,
+}
+const fixtureTotals = { roster: 0, tasks: 0, attempts: 0, pendingInteractions: 0 }
+const fixtureTruncated = { roster: false, tasks: false, attempts: false, pendingInteractions: false }
+const fixtureBudget = { usedTokens: 12, usedRequests: 2, usedRetries: 0, tokenLimit: 1_000 }
 
 export const SWARM_READ_RPC_FIXTURES_V1 = deepFreezeJson({
   requests: {
@@ -247,9 +266,19 @@ export const SWARM_READ_RPC_FIXTURES_V1 = deepFreezeJson({
       trust: { mode: 'local-single-user-target-bound', principalBound: false, listener: 'loopback' },
       capabilities: readCapabilities,
     },
+    binding: fixtureResultBase,
+    status: {
+      ...fixtureResultBase, budget: fixtureBudget, totals: fixtureTotals, truncated: fixtureTruncated,
+      capabilities: projectionCapabilities, observedAt: 1_700_000_000_200,
+    },
+    snapshot: {
+      schemaVersion: 1, ...fixtureResultBase, roster: [], tasks: [], attempts: [], budget: fixtureBudget,
+      pendingInteractions: [], totals: fixtureTotals, truncated: fixtureTruncated,
+      capabilities: projectionCapabilities, observedAt: 1_700_000_000_200,
+    },
     page: {
       kind: 'tasks', entries: [], offset: 0, limit: 50, visibleTotal: 0, authoritativeTotal: 0,
-      projectionTruncated: false, cursor: `r1:${'a'.repeat(64)}`, changed: false,
+      projectionTruncated: false, cursor: fixtureCursor, changed: false,
       resyncRequired: false, observedAt: 1_700_000_000_000,
     },
     failure: {
@@ -295,9 +324,11 @@ function assertResultSemantics(method: string, value: Record<string, unknown>): 
     const visible = value.visibleTotal as number
     const authoritative = value.authoritativeTotal as number
     const next = value.nextOffset as number | undefined
-    if (entries.length > limit || visible < offset + entries.length || authoritative < visible
+    const expectedNext = offset + entries.length
+    const hasRemaining = expectedNext < visible
+    if (entries.length > limit || offset > visible || visible < expectedNext || authoritative < visible
       || (authoritative > visible && value.projectionTruncated !== true)
-      || (next !== undefined && (next <= offset || next > visible))) {
+      || (hasRemaining ? next !== expectedNext : next !== undefined)) {
       throw new Error('Swarm RPC page totals contradict its entries')
     }
     return
@@ -305,6 +336,7 @@ function assertResultSemantics(method: string, value: Record<string, unknown>): 
   const selected = value.binding as Record<string, unknown>
   const selectedTeam = value.team as Record<string, unknown>
   if (selected.teamId !== selectedTeam.id) throw new Error('Swarm RPC Team binding contradicts its Team')
+  if (method === 'status' || method === 'snapshot') assertProducerCapabilities(value.capabilities)
   if (method !== 'snapshot') return
   const totalsValue = value.totals as Record<string, number>
   const truncatedValue = value.truncated as Record<string, boolean>
@@ -315,6 +347,23 @@ function assertResultSemantics(method: string, value: Record<string, unknown>): 
       throw new Error(`Swarm RPC ${collection} total contradicts its projection`)
     }
   }
+}
+
+function assertProducerCapabilities(value: unknown): void {
+  const expected = [
+    ['snapshot.read', 'available', undefined], ['receipt.read', 'available', undefined],
+    ['message.write', 'unavailable', 'i1b-effect-correlation'],
+    ['control.write', 'unavailable', 'i1b-effect-correlation'],
+    ['effect.cancel', 'unavailable', 'i1b-effect-correlation'],
+  ] as const
+  const entries = value as Array<Record<string, unknown>>
+  if (entries.length !== expected.length) throw new Error('Swarm RPC projection capability set is incomplete')
+  entries.forEach((entry, index) => {
+    const row = expected[index]!
+    if (entry.capability !== row[0] || entry.state !== row[1] || entry.blocker !== row[2]) {
+      throw new Error('Swarm RPC projection capability state contradicts the frozen producer contract')
+    }
+  })
 }
 
 interface SchemaState { readonly seen: WeakSet<object>; nodes: number }

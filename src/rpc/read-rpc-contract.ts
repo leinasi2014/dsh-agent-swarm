@@ -70,7 +70,7 @@ export interface SwarmReadCapabilitiesV1 {
 
 export interface SwarmReadBindingV1 {
   readonly binding: SwarmHostReadProjectionV1['binding']
-  readonly team: Pick<SwarmHostReadProjectionV1['team'], 'id' | 'name' | 'phase' | 'revision' | 'updatedAt'>
+  readonly team: Pick<SwarmHostReadProjectionV1['team'], 'id' | 'name' | 'phase' | 'revision' | 'createdAt' | 'updatedAt'>
   readonly cursor: string
   readonly changed: boolean
   readonly resyncRequired: boolean

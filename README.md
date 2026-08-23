@@ -30,9 +30,9 @@ node scripts/verify-p0-profile-proof.mjs `
   --candidate-tree $candidateTree
 ```
 
-该入口使用官方 CLI 的真实 `plugin --profile web add -w --ignore-scripts <absolute-tgz>` 语法。安装只贡献一个 `disabled: true` 的结构性 `cordis:group`，不会因 `plugin add` 自动启动 Swarm；Profile owner 必须在后一层对 `agent-swarm` 显式设置 `disabled: false` 才会激活其子插件。验收在隔离 `DSH_HOME` 中组合官方 Storage hub、JSON KV、Storage Domain、Session persistence 和 Swarm，且 workspace/sandbox、storage 与 session roots 相互分离。它重启验证默认禁用、显式启用、Swarm service/17 个工具、优雅 unload、reload、R0 再禁用、remove 后清单消失，以及显式启用但缺 Storage Domain 时 fail closed。运行态目录和端口随后清理，只保留同一 tarball、digest、命令回执与证据 manifest；不会读取或写入用户默认 `~/.dsh` Profile。
+该入口使用官方 CLI 的真实 `plugin --profile web add -w --ignore-scripts <absolute-tgz>` 语法。安装只贡献一个 `disabled: true` 的结构性 `cordis:group`，不会因 `plugin add` 自动启动 Swarm；Profile owner 必须在后一层对 `agent-swarm` 显式设置 `disabled: false` 才会激活其子插件。验收在隔离 `DSH_HOME` 中组合官方 Storage hub、JSON KV、Storage Domain、Session persistence 和 Swarm，且 workspace/sandbox、storage 与 session roots 相互分离。它重启验证默认禁用、显式启用、Swarm service/17 个工具、官方 `session.create` 建立的 live root、通过真实 Swarm runtime 创建并在重启后恢复的 Captain Team，以及该 Team 的 binding/status/snapshot 和三类空态分页；同时覆盖优雅 unload、R0 再禁用、remove 后清单消失，以及显式启用但缺 Storage Domain 时 fail closed。运行态目录和端口随后清理，只保留同一 tarball、digest、关键命令/清单/R2 回执及逐文件 bytes+sha256 manifest；不会读取或写入用户默认 `~/.dsh` Profile。
 
-`dsh plugin`、`--dump-config` 甚至某些帮助路径都可能初始化或修复 Profile，因此不要在用户默认 home 中“试一下”这些命令。[P0 里程碑](docs/07-implementation-roadmap.md#p0--immutable-package-and-real-profile-proof) 只有在上述 evidence gate 与精确候选的非作者审查均通过后完成。
+`dsh plugin`、`--dump-config` 甚至某些帮助路径都可能初始化或修复 Profile，因此不要在用户默认 home 中“试一下”这些命令。上述流程只证明一个精确本地 tarball 能在隔离的官方 Profile 中完成预发布验收；它不构成公共安装、兼容承诺或发布证明。
 
 `link:<path>` 仅用于本地诊断，不能作为验收或发布身份。兼容范围由 `package.json` 的 peer dependencies、锁文件和 [docs/OFFICIAL_BASELINE.json](docs/OFFICIAL_BASELINE.json) 共同定义；不要从 README 中推断滚动版本状态。
 
@@ -60,7 +60,7 @@ captain（插件驱动）：
 - **编排桥**：官方 `WorkflowEngine`/`JobRegistry` 的 Team 桥（isolate 域注册，run overlay 为唯一 run 真相）、显式 `adaptive|workflow` 模式 + 单 owner 纪律（#77）；
 - **执行根**：per-attempt worktree 隔离 + attemptId 围栏 + 崩溃泄漏对账（#100）；
 - **自托管控制面**：候选冻结→验收→晋升→回滚的外部 promoter 全链（P0–P7 演练实证，#102/#122 加固）。
-- **本机只读 Team 接口（R2 candidate）**：versioned `POST /swarm/v1` 与 browser-safe `dsh-agent-swarm/client`；Host 每次重绑 official live root/Session/workspace/captain Team。该接口仅在 `127.0.0.1` listener、loopback socket 与同源 authority 可验证时可用，不提供用户认证、LAN trust 或任何 write capability；进入公开使用前仍需真实 official Profile 握手和非作者审查。
+- **本机只读 Team 接口**：versioned `POST /swarm/v1` 与 browser-safe `dsh-agent-swarm/client`；Host 每次重绑 official live root/Session/workspace/captain Team。该接口仅在 `127.0.0.1` listener、loopback socket 与同源 authority 可验证时可用，不提供用户认证、LAN trust 或任何 write capability。预发布证据只覆盖 README 所列隔离 Profile 流程，不外推为 LAN、多用户或写操作能力。
 
 ## 文档
 

@@ -40,6 +40,25 @@ describe('R2 browser client', () => {
       ...SWARM_READ_RPC_FIXTURES_V1.values.page,
       entries: [{ id: 'task-fixture', unknown: true }], visibleTotal: 1, authoritativeTotal: 1,
     })).toThrow()
+    const partialPage = {
+      ...SWARM_READ_RPC_FIXTURES_V1.values.page,
+      entries: [{
+        id: 'task-fixture', revision: 1, subject: 'Fixture', status: 'pending',
+        blockedBy: [], priority: 1, createdAt: 1, updatedAt: 1,
+      }],
+      visibleTotal: 2, authoritativeTotal: 2,
+    }
+    expect(() => assertSwarmReadRpcValue('page', partialPage)).toThrow() // remaining page omitted nextOffset
+    expect(() => assertSwarmReadRpcValue('page', { ...partialPage, nextOffset: 2 })).toThrow() // skipped index 1
+    expect(() => assertSwarmReadRpcValue('page', {
+      ...partialPage, visibleTotal: 1, authoritativeTotal: 1, nextOffset: 1,
+    })).toThrow() // terminal page advertised a continuation
+    expect(() => assertSwarmReadRpcValue('status', {
+      ...SWARM_READ_RPC_FIXTURES_V1.values.status,
+      capabilities: SWARM_READ_RPC_FIXTURES_V1.values.status.capabilities.map((entry, index) => index === 2
+        ? { ...entry, state: 'available', blocker: undefined }
+        : entry),
+    })).toThrow()
   })
 
   it('does no work before a request and sends only the versioned JSON envelope', async () => {

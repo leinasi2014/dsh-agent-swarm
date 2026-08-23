@@ -7,7 +7,7 @@ import { bootPlane, run, stopPlane, waitPortFree, waitUntil } from '../promotion
 import {
   EXPECTED_P0_OFFICIAL_COMMIT as OFFICIAL_COMMIT,
   EXPECTED_P0_OFFICIAL_TREE as OFFICIAL_TREE,
-  sha256File, verifyP0Evidence,
+  REQUIRED_P0_EVIDENCE_FILES, sha256File, verifyP0Evidence,
 } from './evidence.mjs'
 import { parsePluginInventoryResponse, pluginInventoryPayload } from './inventory.mjs'
 import { name as serviceProbeName } from './profile-probe.mjs'
@@ -110,6 +110,63 @@ async function readSwarmRpc(port, evidenceDir, label, body, headers = {}) {
   const value = await response.json()
   await writeFile(join(evidenceDir, `${label}.json`), `${JSON.stringify({ status: response.status, value }, null, 2)}\n`, 'utf8')
   return { status: response.status, value }
+}
+
+function requireSwarmValue(response, label) {
+  if (response.status !== 200 || response.value?.ok !== true || response.value?.schemaVersion !== 1) {
+    throw new Error(`${label} did not return a versioned success: ${JSON.stringify(response)}`)
+  }
+  return response.value.value
+}
+
+function assertReadBinding(value, rootSessionId, teamId, label) {
+  if (value?.binding?.rootSessionId !== rootSessionId || value?.binding?.teamId !== teamId
+    || value?.team?.id !== teamId || !Number.isSafeInteger(value?.team?.createdAt)
+    || typeof value?.cursor !== 'string') {
+    throw new Error(`${label} identity/cursor mismatch: ${JSON.stringify(value)}`)
+  }
+}
+
+function assertProducerCapabilities(value, label) {
+  const expected = [
+    ['snapshot.read', 'available', undefined],
+    ['receipt.read', 'available', undefined],
+    ['message.write', 'unavailable', 'i1b-effect-correlation'],
+    ['control.write', 'unavailable', 'i1b-effect-correlation'],
+    ['effect.cancel', 'unavailable', 'i1b-effect-correlation'],
+  ]
+  const actual = value?.capabilities?.map(entry => [entry.capability, entry.state, entry.blocker])
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error(`${label} producer capabilities drifted: ${JSON.stringify(actual)}`)
+  }
+}
+
+function assertReadPage(value, kind, cursor, visibleTotal, authoritativeTotal) {
+  if (value?.kind !== kind || value?.cursor !== cursor || value?.visibleTotal !== visibleTotal
+    || value?.authoritativeTotal !== authoritativeTotal || !Array.isArray(value?.entries)
+    || value.entries.length !== visibleTotal || value?.offset !== 0 || value?.nextOffset !== undefined) {
+    throw new Error(`${kind} page identity/cursor/totals mismatch: ${JSON.stringify(value)}`)
+  }
+}
+
+async function waitForTarget(probePath, rootSessionId, minimumCount) {
+  const ready = await waitUntil(async () => (await readProbe(probePath)).filter(
+    entry => entry.phase === 'r2-target-ready' && entry.rootSessionId === rootSessionId,
+  ).length >= minimumCount, { timeoutMs: 15_000 })
+  const entries = await readProbe(probePath)
+  if (!ready) throw new Error(`R2 live target did not become ready: ${JSON.stringify(entries)}`)
+  return entries.filter(entry => entry.phase === 'r2-target-ready' && entry.rootSessionId === rootSessionId).at(-1)
+}
+
+async function decisionEvidenceRecords(output) {
+  const records = []
+  for (const relativePath of REQUIRED_P0_EVIDENCE_FILES) {
+    const path = resolve(output, relativePath)
+    const fileStat = await stat(path)
+    if (!fileStat.isFile()) throw new Error(`required decision evidence is not a file: ${relativePath}`)
+    records.push({ relativePath, bytes: fileStat.size, sha256: await sha256File(path) })
+  }
+  return records
 }
 
 function swarmInventoryRow(entries) {
@@ -235,7 +292,12 @@ async function main() {
     if (!dumpOk) throw new Error('dump-config did not prove the default-disabled Swarm layer and isolated roots')
     gate('dump-config', 'pass', 'default-disabled structural group + isolated roots + shutdown probe composed')
 
-    const bootEnv = { DSH_SWARM_P0_PROBE_PATH: probePath, DSH_SWARM_P0_STOP_PATH: stopPath }
+    const rootSessionId = 'swarm-r2-profile-root'
+    const bootEnv = {
+      DSH_SWARM_P0_PROBE_PATH: probePath,
+      DSH_SWARM_P0_STOP_PATH: stopPath,
+      DSH_SWARM_R2_ROOT_SESSION_ID: rootSessionId,
+    }
     await rm(stopPath, { force: true })
     liveBoot = await bootPlane({ cli: args.cli, home: dshHome, profile: 'web', port: args.port, cwd: workspaceRoot, env: bootEnv })
     if (!liveBoot.ready) throw new Error(`web Profile did not boot: ${liveBoot.stderr().slice(0, 2000)}`)
@@ -271,6 +333,17 @@ async function main() {
     if (!servicesOk || !toolsOk) throw new Error(`service/tool probe mismatch: ${JSON.stringify(firstActive)}`)
     gate('service-tool-probe', 'pass', `${firstActive.tools.length} agent_swarm tools and required services active`)
 
+    const sessionCreate = await rpcCall(args.port, 'session.create', { sessionId: rootSessionId, cwd: workspaceRoot })
+    await writeFile(join(evidenceDir, 'r2-session-create.json'), `${JSON.stringify(sessionCreate, null, 2)}\n`, 'utf8')
+    if (!sessionCreate.ok || sessionCreate.body?.result?.value?.sessionId !== rootSessionId) {
+      throw new Error(`official session.create did not establish the exact R2 root: ${JSON.stringify(sessionCreate)}`)
+    }
+    const targetReady = await waitForTarget(probePath, rootSessionId, 1)
+    const teamId = targetReady.teamId
+    if (typeof teamId !== 'string' || teamId.length === 0 || targetReady.resumed !== false) {
+      throw new Error(`fresh R2 captain Team was not created through the real runtime: ${JSON.stringify(targetReady)}`)
+    }
+
     const capabilityHandshake = await readSwarmRpc(args.port, evidenceDir, 'r2-capabilities', {
       schemaVersion: 1, method: 'capabilities',
     }, { origin: `http://127.0.0.1:${args.port}`, 'sec-fetch-site': 'same-origin' })
@@ -292,7 +365,33 @@ async function main() {
     if (fakeTarget.status !== 404 || fakeTarget.value?.error?.code !== 'SWARM_RPC_TARGET_NOT_LIVE') {
       throw new Error(`R2 fake target did not fail closed: ${JSON.stringify(fakeTarget)}`)
     }
-    gate('r2-read-rpc-handshake', 'pass', 'official WebServer route: capabilities pass; forged Origin and fake target fail closed')
+    const trustedHeaders = { origin: `http://127.0.0.1:${args.port}`, 'sec-fetch-site': 'same-origin' }
+    const target = { rootSessionId, teamId }
+    const binding = requireSwarmValue(await readSwarmRpc(args.port, evidenceDir, 'r2-binding', {
+      schemaVersion: 1, method: 'binding', target,
+    }, trustedHeaders), 'R2 binding')
+    assertReadBinding(binding, rootSessionId, teamId, 'R2 binding')
+    const status = requireSwarmValue(await readSwarmRpc(args.port, evidenceDir, 'r2-status', {
+      schemaVersion: 1, method: 'status', target,
+    }, trustedHeaders), 'R2 status')
+    assertReadBinding(status, rootSessionId, teamId, 'R2 status')
+    assertProducerCapabilities(status, 'R2 status')
+    const snapshot = requireSwarmValue(await readSwarmRpc(args.port, evidenceDir, 'r2-snapshot', {
+      schemaVersion: 1, method: 'snapshot', target,
+    }, trustedHeaders), 'R2 snapshot')
+    assertReadBinding(snapshot, rootSessionId, teamId, 'R2 snapshot')
+    assertProducerCapabilities(snapshot, 'R2 snapshot')
+    if (binding.cursor !== status.cursor || status.cursor !== snapshot.cursor
+      || !Array.isArray(snapshot.tasks) || !Array.isArray(snapshot.attempts) || !Array.isArray(snapshot.pendingInteractions)) {
+      throw new Error('R2 binding/status/snapshot did not share one authoritative cursor and collections')
+    }
+    for (const kind of ['tasks', 'attempts', 'pendingInteractions']) {
+      const page = requireSwarmValue(await readSwarmRpc(args.port, evidenceDir, `r2-page-${kind}`, {
+        schemaVersion: 1, method: 'page', target, page: { kind, offset: 0, limit: 50 },
+      }, trustedHeaders), `R2 ${kind} page`)
+      assertReadPage(page, kind, snapshot.cursor, snapshot[kind].length, snapshot.totals[kind])
+    }
+    gate('r2-read-rpc-handshake', 'pass', 'real live root + captain Team: binding/status/snapshot and three pages pass; forged Origin and fake target fail closed')
     const firstStop = await gracefulStop(liveBoot, stopPath, args.port)
     liveBoot = undefined
     const firstUnloaded = await waitUntil(async () => (await readProbe(probePath)).filter(entry => entry.phase === 'unloaded').length >= 1, { timeoutMs: 5_000 })
@@ -306,6 +405,19 @@ async function main() {
     const reloadRow = swarmInventoryRow(reloadEntries)
     if (reloadRow?.enabled !== true || reloadRow?.fiberPhase !== 'active') throw new Error(`reload inventory mismatch: ${JSON.stringify(reloadRow)}`)
     const secondActive = await waitUntil(async () => (await readProbe(probePath)).filter(entry => entry.phase === 'active').length >= 2, { timeoutMs: 10_000 })
+    const reloadSessionCreate = await rpcCall(args.port, 'session.create', { sessionId: rootSessionId, cwd: workspaceRoot })
+    await writeFile(join(evidenceDir, 'r2-reload-session-create.json'), `${JSON.stringify(reloadSessionCreate, null, 2)}\n`, 'utf8')
+    if (!reloadSessionCreate.ok || reloadSessionCreate.body?.result?.value?.sessionId !== rootSessionId) {
+      throw new Error(`reload session.create did not resume the exact R2 root: ${JSON.stringify(reloadSessionCreate)}`)
+    }
+    const reloadTarget = await waitForTarget(probePath, rootSessionId, 2)
+    if (reloadTarget.teamId !== teamId || reloadTarget.resumed !== true) {
+      throw new Error(`reload did not recover the same authoritative captain Team: ${JSON.stringify(reloadTarget)}`)
+    }
+    const reloadBinding = requireSwarmValue(await readSwarmRpc(args.port, evidenceDir, 'r2-reload-binding', {
+      schemaVersion: 1, method: 'binding', target,
+    }, trustedHeaders), 'R2 reload binding')
+    assertReadBinding(reloadBinding, rootSessionId, teamId, 'R2 reload binding')
     const secondStop = await gracefulStop(liveBoot, stopPath, args.port)
     liveBoot = undefined
     const secondUnloaded = await waitUntil(async () => (await readProbe(probePath)).filter(entry => entry.phase === 'unloaded').length >= 2, { timeoutMs: 5_000 })
@@ -382,6 +494,7 @@ async function main() {
 
     const candidateStatusAfter = await gitRead(args.repo, ['status', '--porcelain', '--untracked-files=all'])
     if (candidateStatusAfter.stdout !== '') throw new Error(`candidate became dirty during proof: ${candidateStatusAfter.stdout}`)
+    const evidenceFiles = await decisionEvidenceRecords(args.output)
     manifest = {
       schemaVersion: 1,
       status: 'pass',
@@ -403,6 +516,7 @@ async function main() {
       },
       commands,
       gates,
+      evidenceFiles,
       cleanup: { runtimeRemoved, portFree, artifactRetained: true, evidenceRetained: true },
     }
     await writeFile(join(evidenceDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')

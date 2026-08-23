@@ -323,9 +323,9 @@ function selectCaptainTeam(teams: readonly TeamState[], rootSessionId: string): 
 }
 
 function bindingOf(projection: SwarmHostReadProjectionV1) {
-  const { id, name, phase, revision, updatedAt } = projection.team
+  const { id, name, phase, revision, createdAt, updatedAt } = projection.team
   return {
-    binding: projection.binding, team: { id, name, phase, revision, updatedAt },
+    binding: projection.binding, team: { id, name, phase, revision, createdAt, updatedAt },
     cursor: projection.cursor, changed: projection.changed, resyncRequired: projection.resyncRequired,
   }
 }
@@ -342,6 +342,7 @@ function pageOf(projection: SwarmHostReadProjectionV1, request: SwarmReadPageReq
   const offset = request.page.offset ?? 0
   const limit = request.page.limit ?? DEFAULT_PAGE_LIMIT
   const source = projection[kind]
+  if (offset > source.length) invalidRequest()
   const entries = source.slice(offset, offset + limit)
   const next = offset + entries.length
   return {

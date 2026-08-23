@@ -1,10 +1,10 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import {
   EXPECTED_P0_OFFICIAL_COMMIT, EXPECTED_P0_OFFICIAL_TREE,
-  REQUIRED_P0_GATES, sha256File, verifyP0Evidence,
+  REQUIRED_P0_EVIDENCE_FILES, REQUIRED_P0_GATES, sha256File, verifyP0Evidence,
 } from './p0/evidence.mjs'
 import { verifySafeBundlePatch } from './p0/bundle-shape.mjs'
 import { parsePluginInventoryResponse, pluginInventoryPayload } from './p0/inventory.mjs'
@@ -42,6 +42,14 @@ try {
   await mkdir(join(root, 'artifact'), { recursive: true })
   const artifact = join(root, 'artifact', 'dsh-agent-swarm.tgz')
   await writeFile(artifact, 'fixture artifact')
+  const evidenceFiles = []
+  for (const relativePath of REQUIRED_P0_EVIDENCE_FILES) {
+    const path = join(root, relativePath)
+    const content = `fixture evidence: ${relativePath}\n`
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, content, 'utf8')
+    evidenceFiles.push({ relativePath, bytes: Buffer.byteLength(content), sha256: await sha256File(path) })
+  }
   const base = {
     schemaVersion: 1,
     status: 'pass',
@@ -69,6 +77,7 @@ try {
       ['missing-storage-boot', 1],
     ].map(([name, exitCode]) => ({ name, exitCode, durationMs: 1, timedOut: false })),
     gates: REQUIRED_P0_GATES.map(name => ({ name, status: 'pass' })),
+    evidenceFiles,
     cleanup: { runtimeRemoved: true, portFree: true, artifactRetained: true, evidenceRetained: true },
   }
   const expected = { candidateCommit: base.candidate.commit, candidateTree: base.candidate.tree }
@@ -93,6 +102,8 @@ try {
     ['overlapping state', manifest => { manifest.isolation.storageRoot = join(manifest.isolation.workspaceRoot, 'storage') }],
     ['invalid probe URL', manifest => { manifest.isolation.probeModuleUrls[0] = 'https://example.invalid/probe.mjs' }],
     ['runtime retained', manifest => { manifest.cleanup.runtimeRemoved = false }],
+    ['missing decision evidence record', manifest => { manifest.evidenceFiles.shift() }],
+    ['wrong decision evidence digest', manifest => { manifest.evidenceFiles[0].sha256 = '1'.repeat(64) }],
   ]
   for (const [label, mutate] of cases) {
     const manifest = structuredClone(base)
@@ -100,6 +111,11 @@ try {
     const result = await verifyP0Evidence(root, manifest, expected)
     if (result.ok) throw new Error(`negative fixture unexpectedly passed: ${label}`)
   }
+  const tamperedPath = join(root, REQUIRED_P0_EVIDENCE_FILES[0])
+  await writeFile(tamperedPath, 'tampered decision evidence\n', 'utf8')
+  const tampered = await verifyP0Evidence(root, structuredClone(base), expected)
+  if (tampered.ok) throw new Error('tampered decision evidence file unexpectedly passed')
+  cases.push(['tampered decision evidence file'])
   console.log(`P0 Bundle/evidence gates: Typert payload + 1 positive/2 negative response cases; 1 safe Bundle + 4 unsafe Bundle cases; positive evidence + ${cases.length} negative evidence cases: PASS`)
 } finally {
   await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })

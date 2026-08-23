@@ -8,6 +8,7 @@ import type { TeamState } from '../src/domain/types.js'
 import type { AgentSwarmHostReadService } from '../src/host/host-read-service.js'
 import type { SwarmHostReadProjectionV1 } from '../src/host/host-read-types.js'
 import type { AgentSwarmRuntime } from '../src/runtime/orchestrator-runtime.js'
+import { SwarmReadClient } from '../src/client/index.js'
 import {
   AgentSwarmReadRpcService,
   evaluateSwarmRequestTrust,
@@ -35,7 +36,9 @@ const projection: SwarmHostReadProjectionV1 = {
   capabilities: [], cursor: CURSOR, changed: true, resyncRequired: false, observedAt: 3,
 }
 
-function rpcHarness(options: { host?: SwarmWebServer['host']; root?: Agent; captain?: string } = {}) {
+function rpcHarness(options: {
+  host?: SwarmWebServer['host']; root?: Agent; captain?: string; projection?: SwarmHostReadProjectionV1
+} = {}) {
   const root = options.root ?? ROOT
   let liveRoots: readonly Agent[] = [root]
   let session = root.session
@@ -46,7 +49,7 @@ function rpcHarness(options: { host?: SwarmWebServer['host']; root?: Agent; capt
   const hostRead = {
     read: vi.fn(async (input: { afterCursor?: string }) => {
       expect(initiator).toBe(root)
-      return { ...projection, binding: { rootSessionId: root.id, teamId: team.id },
+      return { ...(options.projection ?? projection), binding: { rootSessionId: root.id, teamId: team.id },
         changed: input.afterCursor !== CURSOR, resyncRequired: input.afterCursor !== undefined && input.afterCursor !== CURSOR }
     }),
   } as unknown as AgentSwarmHostReadService
@@ -116,8 +119,15 @@ describe('R2 local trust boundary', () => {
 describe('R2 authoritative target binding and wire contract', () => {
   it('rebinds the target hint to the exact live root and enters R1 with official withInitiator', async () => {
     const harness = rpcHarness()
-    await expect(harness.service.invoke({ schemaVersion: 1, method: 'binding', target: { rootSessionId: ROOT.id } }))
-      .resolves.toMatchObject({ binding: { rootSessionId: ROOT.id, teamId: 'team-r2' } })
+    const request = { schemaVersion: 1, method: 'binding', target: { rootSessionId: ROOT.id } } as const
+    const binding = await harness.service.invoke(request)
+    expect(binding).toMatchObject({
+      binding: { rootSessionId: ROOT.id, teamId: 'team-r2' }, team: { createdAt: 1 },
+    })
+    const packedShapeClient = new SwarmReadClient(async () => new Response(JSON.stringify({
+      schemaVersion: 1, ok: true, value: binding,
+    }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    await expect(packedShapeClient.request(request)).resolves.toMatchObject({ ok: true, value: binding })
     await expect(harness.service.invoke({
       schemaVersion: 1, method: 'page', target: { rootSessionId: ROOT.id }, afterCursor: CURSOR,
       page: { kind: 'tasks', offset: 0, limit: 1 },
@@ -158,6 +168,24 @@ describe('R2 authoritative target binding and wire contract', () => {
       { ...valid, method: 'page', page: { kind: 'tasks', offset: -1, limit: 51 } },
       { ...valid, method: 'unknown' },
     ]) await expect(service.invoke(input)).rejects.toMatchObject({ code: 'SWARM_RPC_INVALID_REQUEST' })
+  })
+
+  it('pages contiguously without omitted, skipped or terminal continuation offsets', async () => {
+    const tasks = Array.from({ length: 3 }, (_, index) => ({
+      ...projection.tasks[0]!, id: `task-${index + 1}`, revision: index + 1,
+    }))
+    const service = rpcHarness({
+      projection: { ...projection, tasks, totals: { ...projection.totals, tasks: 3 }, truncated: { ...projection.truncated, tasks: false } },
+    }).service
+    const call = async (offset: number) => await service.invoke({
+      schemaVersion: 1, method: 'page', target: { rootSessionId: ROOT.id }, page: { kind: 'tasks', offset, limit: 1 },
+    })
+    await expect(call(0)).resolves.toMatchObject({ entries: [{ id: 'task-1' }], nextOffset: 1 })
+    await expect(call(1)).resolves.toMatchObject({ entries: [{ id: 'task-2' }], nextOffset: 2 })
+    const terminal = await call(2) as unknown as Record<string, unknown>
+    expect(terminal).toMatchObject({ entries: [{ id: 'task-3' }] })
+    expect(terminal).not.toHaveProperty('nextOffset')
+    await expect(call(4)).rejects.toMatchObject({ code: 'SWARM_RPC_INVALID_REQUEST' })
   })
 })
 

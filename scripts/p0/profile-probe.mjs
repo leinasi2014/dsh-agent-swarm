@@ -10,7 +10,7 @@ export const inject = [
   'sessionPersistence',
 ]
 
-function append(phase, ctx) {
+function append(phase, ctx, detail = {}) {
   const path = process.env.DSH_SWARM_P0_PROBE_PATH
   if (path === undefined || path.length === 0) throw new Error('DSH_SWARM_P0_PROBE_PATH is required')
   const tools = ctx.tools.schemas().map(tool => tool.name).filter(tool => tool.startsWith('agent_swarm_')).sort()
@@ -25,12 +25,60 @@ function append(phase, ctx) {
       tools: ctx.tools !== undefined,
     },
     tools,
+    ...detail,
   })}\n`, 'utf8')
+}
+
+async function waitForRoot(ctx, sessionId, signal) {
+  while (!signal.aborted) {
+    const agent = ctx.agents.get(sessionId)
+    if (agent !== undefined && Array.from(ctx.agents.roots()).includes(agent)) return agent
+    await new Promise((resolve, reject) => {
+      const onAbort = () => {
+        clearTimeout(timer)
+        reject(signal.reason)
+      }
+      const timer = setTimeout(() => {
+        signal.removeEventListener('abort', onAbort)
+        resolve()
+      }, 25)
+      signal.addEventListener('abort', onAbort, { once: true })
+    })
+  }
+  signal.throwIfAborted()
+}
+
+async function bindTarget(ctx, signal) {
+  const rootSessionId = process.env.DSH_SWARM_R2_ROOT_SESSION_ID
+  if (rootSessionId === undefined || rootSessionId.length === 0) return
+  const agent = await waitForRoot(ctx, rootSessionId, signal)
+  const scope = ctx.agentSwarm.scopeOf(agent)
+  const membership = await ctx.agentSwarm.domain.findReadMembership(scope, agent.id)
+  const team = membership?.team ?? await ctx.agentSwarm.create(
+    { agent, signal },
+    'R2 isolated Profile team',
+    'Real captain Team for the read-only /swarm Profile proof.',
+  )
+  append('r2-target-ready', ctx, {
+    rootSessionId: agent.id,
+    teamId: team.id,
+    teamRevision: team.revision,
+    resumed: membership !== undefined,
+  })
 }
 
 export function apply(ctx) {
   append('active', ctx)
-  ctx.effect(() => () => {
-    append('unloaded', ctx)
+  ctx.effect(() => {
+    const controller = new AbortController()
+    void bindTarget(ctx, controller.signal).catch(error => {
+      if (!controller.signal.aborted) append('r2-target-error', ctx, {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    })
+    return () => {
+      controller.abort(new Error('profile probe unloaded'))
+      append('unloaded', ctx)
+    }
   })
 }

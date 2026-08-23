@@ -41,6 +41,13 @@ if (failures.length === 0) {
     const client = await import(pathToFileURL(clientPath).href)
     if (typeof client.SwarmReadClient !== 'function') failures.push('built browser client: missing SwarmReadClient')
     if (client.SWARM_READ_RPC_ENDPOINT !== '/swarm/v1') failures.push('built browser client: endpoint contract mismatch')
+    for (const method of ['capabilities', 'binding', 'status', 'snapshot', 'page']) {
+      try {
+        client.assertSwarmReadRpcValue(method, client.SWARM_READ_RPC_FIXTURES_V1.values[method])
+      } catch (error) {
+        failures.push(`built browser client rejects canonical ${method} server value: ${String(error)}`)
+      }
+    }
   } catch (error) {
     failures.push(`built browser client cannot be imported: ${String(error)}`)
   }

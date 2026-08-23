@@ -21,6 +21,32 @@ export const REQUIRED_P0_GATES = [
   'resource-cleanup',
 ]
 
+export const REQUIRED_P0_EVIDENCE_FILES = [
+  'evidence/dump-config.log',
+  'evidence/inventory-default-disabled.json',
+  'evidence/inventory-explicit-enabled.json',
+  'evidence/inventory-reload-enabled.json',
+  'evidence/inventory-r0-disabled.json',
+  'evidence/inventory-plugin-removed.json',
+  'evidence/missing-storage-add.log',
+  'evidence/missing-storage-boot.log',
+  'evidence/profile-add.log',
+  'evidence/profile-probe.jsonl',
+  'evidence/profile-remove.log',
+  'evidence/r2-binding.json',
+  'evidence/r2-capabilities.json',
+  'evidence/r2-fake-target.json',
+  'evidence/r2-forged-origin.json',
+  'evidence/r2-page-attempts.json',
+  'evidence/r2-page-pendingInteractions.json',
+  'evidence/r2-page-tasks.json',
+  'evidence/r2-reload-binding.json',
+  'evidence/r2-reload-session-create.json',
+  'evidence/r2-session-create.json',
+  'evidence/r2-snapshot.json',
+  'evidence/r2-status.json',
+]
+
 export const EXPECTED_P0_OFFICIAL_COMMIT = 'b150a551b8d465e31e418e1b2eaf5e79bbb7d28e'
 export const EXPECTED_P0_OFFICIAL_TREE = '53915efe4e2126cc7779b73dfc8a3bcec5318c44'
 
@@ -161,6 +187,43 @@ export async function verifyP0Evidence(root, manifest, expected = {}) {
   }
   if (manifest?.cleanup?.artifactRetained !== true || manifest?.cleanup?.evidenceRetained !== true) {
     failures.push('immutable artifact and evidence must be retained')
+  }
+
+  const evidenceFiles = manifest?.evidenceFiles
+  if (!Array.isArray(evidenceFiles)) {
+    failures.push('evidenceFiles must be an array')
+  } else {
+    const byPath = new Map()
+    for (const record of evidenceFiles) {
+      const relativePath = record?.relativePath
+      requireString(relativePath, 'evidenceFiles.relativePath', failures)
+      if (typeof relativePath !== 'string') continue
+      if (byPath.has(relativePath)) failures.push(`evidence file record is duplicated: ${relativePath}`)
+      byPath.set(relativePath, record)
+      if (isAbsolute(relativePath) || relativePath.split(/[\\/]/).includes('..') || !relativePath.startsWith('evidence/')) {
+        failures.push(`evidence file path must stay inside evidence/: ${relativePath}`)
+        continue
+      }
+      const evidencePath = resolve(root, relativePath)
+      const evidenceStat = await stat(evidencePath).catch(() => undefined)
+      if (evidenceStat === undefined || !evidenceStat.isFile()) {
+        failures.push(`evidence file is missing: ${relativePath}`)
+        continue
+      }
+      if (!Number.isSafeInteger(record.bytes) || record.bytes < 0 || evidenceStat.size !== record.bytes) {
+        failures.push(`evidence file byte count mismatch: ${relativePath}`)
+      }
+      if (typeof record.sha256 !== 'string' || !/^[0-9a-f]{64}$/u.test(record.sha256)
+        || await sha256File(evidencePath) !== record.sha256) {
+        failures.push(`evidence file digest mismatch: ${relativePath}`)
+      }
+    }
+    for (const relativePath of REQUIRED_P0_EVIDENCE_FILES) {
+      if (!byPath.has(relativePath)) failures.push(`required decision evidence is not declared: ${relativePath}`)
+    }
+    if (evidenceFiles.length !== REQUIRED_P0_EVIDENCE_FILES.length) {
+      failures.push('evidenceFiles must contain exactly the required decision evidence set')
+    }
   }
   return { ok: failures.length === 0, failures }
 }
