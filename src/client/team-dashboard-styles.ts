@@ -1,4 +1,7 @@
 const TEAM_DASHBOARD_STYLES = `
+[data-swarm-team-anchor] {
+  display: inline-flex;
+}
 [data-swarm-team-trigger] {
   width: 32px;
   min-width: 32px;
@@ -13,20 +16,20 @@ const TEAM_DASHBOARD_STYLES = `
 [data-swarm-team-layer] {
   position: absolute;
   inset: 0;
-  display: flex;
-  justify-content: flex-end;
   pointer-events: none;
 }
-[data-swarm-team-drawer] {
+[data-swarm-team-card] {
+  position: fixed;
   pointer-events: auto;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
-  width: min(420px, calc(100vw - 72px));
-  height: 100%;
+  width: min(420px, calc(100vw - 32px));
+  max-height: calc(100dvh - 100px);
   color: var(--dsw-alias-text-primary);
   background: var(--dsw-alias-bg-layer-1);
-  border-left: 1px solid var(--dsw-alias-border-l2);
-  box-shadow: -18px 0 48px rgb(0 0 0 / 14%);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 20px;
+  box-shadow: 0 18px 48px rgb(0 0 0 / 18%);
   font-family: var(--dsw-font-family);
   overflow: hidden;
 }
@@ -175,19 +178,20 @@ const TEAM_DASHBOARD_STYLES = `
   background: var(--dsw-alias-bg-layer-1);
 }
 @media (prefers-reduced-motion: no-preference) {
-  [data-swarm-team-drawer] { animation: swarm-team-peek-in 160ms ease-out; }
+  [data-swarm-team-card] { animation: swarm-team-peek-in 160ms ease-out; transform-origin: top right; }
   @keyframes swarm-team-peek-in {
-    from { transform: translateX(18px); opacity: 0; }
-    to { transform: translateX(0); opacity: 1; }
+    from { transform: translateY(-4px) scale(.985); opacity: 0; }
+    to { transform: translateY(0) scale(1); opacity: 1; }
   }
 }
 @media (max-width: 720px) {
-  [data-swarm-team-drawer] {
-    width: 100%;
-    border-left: 0;
-    box-shadow: none;
+  [data-swarm-team-card] {
+    left: 8px !important;
+    right: 8px;
+    width: auto;
+    max-height: calc(100dvh - 92px);
+    border-radius: 16px;
   }
-  [data-swarm-team-header] { padding-top: max(16px, env(safe-area-inset-top)); }
   [data-swarm-team-footer] { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
 }
 `

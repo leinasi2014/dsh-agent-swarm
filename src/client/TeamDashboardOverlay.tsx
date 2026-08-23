@@ -1,10 +1,11 @@
-import { useEffect, useId, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from 'react'
 import {
   Button,
   IconCloseOutline16,
   IconRefreshOutline16,
   Pill,
   StateDot,
+  useAnchoredPosition,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
@@ -14,6 +15,7 @@ import { TEAM_DASHBOARD_NS } from './team-dashboard-locales.js'
 import TEAM_DASHBOARD_STYLES from './team-dashboard-styles.js'
 
 export interface TeamDashboardOverlayInjected {
+  readonly anchorRef: RefObject<HTMLSpanElement>
   readonly controller: TeamDashboardController
   readonly openCaptainChat: () => Promise<void>
 }
@@ -24,16 +26,18 @@ export type TeamDashboardOverlayProps = PropsRuntime<'shell.overlay'>
 
 type DashboardTab = 'overview' | 'members' | 'work' | 'diagnostics'
 
-/** Non-modal right Peek Drawer; the official Chat remains visible and interactive. */
-export function TeamDashboardOverlay({ controller, openCaptainChat, t }: TeamDashboardOverlayProps) {
+/** Non-modal anchored Peek Card; the official Chat remains visible and interactive. */
+export function TeamDashboardOverlay({ anchorRef, controller, openCaptainChat, t }: TeamDashboardOverlayProps) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot)
   const [handoffBusy, setHandoffBusy] = useState(false)
   const [tab, setTab] = useState<DashboardTab>('overview')
+  const cardRef = useRef<HTMLElement>(null)
   const headingId = useId()
   const descriptionId = useId()
+  const position = useAnchoredPosition({ open: state.open, anchorRef, panelRef: cardRef, gap: 8, margin: 16 })
 
   const closeAndRestoreFocus = (): void => {
-    const trigger = document.querySelector<HTMLButtonElement>('[data-swarm-team-trigger][aria-expanded="true"]')
+    const trigger = anchorRef.current?.querySelector<HTMLButtonElement>('[data-swarm-team-trigger]')
     controller.close()
     queueMicrotask(() => { trigger?.focus() })
   }
@@ -48,6 +52,18 @@ export function TeamDashboardOverlay({ controller, openCaptainChat, t }: TeamDas
     document.addEventListener('keydown', onKeyDown)
     return () => { document.removeEventListener('keydown', onKeyDown) }
   }, [controller, state.open])
+
+  useEffect(() => {
+    if (!state.open) return
+    const onPointerDown = (event: PointerEvent): void => {
+      const target = event.target
+      if (!(target instanceof Node)) return
+      if (cardRef.current?.contains(target) === true || anchorRef.current?.contains(target) === true) return
+      controller.close()
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => { document.removeEventListener('pointerdown', onPointerDown) }
+  }, [anchorRef, controller, state.open])
 
   useEffect(() => () => { controller.close() }, [controller])
   useEffect(() => { if (!state.open) setTab('overview') }, [state.open])
@@ -66,20 +82,22 @@ export function TeamDashboardOverlay({ controller, openCaptainChat, t }: TeamDas
       {state.open && (
         <div data-swarm-team-layer style={{ pointerEvents: 'none' }}>
           <aside
-            id="swarm-team-peek-drawer"
+            ref={cardRef}
+            id="swarm-team-peek-card"
             role="complementary"
             aria-labelledby={headingId}
             aria-describedby={descriptionId}
-            data-swarm-team-drawer
+            data-swarm-team-card
             data-swarm-team-dashboard
             data-phase={state.phase}
+            style={{ ...position, visibility: position === null ? 'hidden' : 'visible' }}
           >
             <header data-swarm-team-header>
               <div data-swarm-team-heading>
                 <h2 id={headingId}>{t('title')}</h2>
                 <p id={descriptionId}>{t('description')}</p>
               </div>
-              <Button autoFocus size="sm" variant="toolbar" aria-label={t('close')} title={t('close')} onClick={closeAndRestoreFocus}>
+              <Button size="sm" variant="toolbar" aria-label={t('close')} title={t('close')} onClick={closeAndRestoreFocus}>
                 <IconCloseOutline16 />
               </Button>
             </header>

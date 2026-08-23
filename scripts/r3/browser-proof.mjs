@@ -143,7 +143,11 @@ export async function runR3ActiveBrowserProof({
     throw new Error('browser proof requires an exact nonblank root attached through the official Workspace API')
   }
   const { browser, identity } = await launchBrowser(browserExecutable)
-  const context = await browser.newContext({ locale: 'en-US', viewport: { width: 1440, height: 1000 } })
+  const context = await browser.newContext({
+    locale: 'en-US',
+    reducedMotion: 'reduce',
+    viewport: { width: 1440, height: 1000 },
+  })
   await seedOfficialSelection(context, rootSessionId)
   const page = await context.newPage()
   const records = recordBrowser(page)
@@ -158,42 +162,64 @@ export async function runR3ActiveBrowserProof({
     if (frameworkBinding?.body?.target?.rootSessionId !== rootSessionId) {
       throw new Error('official Session slot did not emit the exact proof root as the R2 target hint')
     }
-    const drawer = page.locator('[data-swarm-team-drawer]')
-    await drawer.waitFor({ state: 'visible' })
-    if (await drawer.getAttribute('aria-modal') === 'true') {
-      throw new Error('Team Peek Drawer unexpectedly claimed modal semantics')
+    const card = page.locator('[data-swarm-team-card]')
+    const teamTrigger = page.getByRole('button', { name: TEAM_NAME })
+    await card.waitFor({ state: 'visible' })
+    if (await card.getAttribute('aria-modal') === 'true') {
+      throw new Error('Team Peek Card unexpectedly claimed modal semantics')
     }
-    const desktopBox = await drawer.boundingBox()
+    if (await teamTrigger.getAttribute('aria-expanded') !== 'true' || !await teamTrigger.isVisible()) {
+      throw new Error('Team trigger did not remain visible and selected while its Peek Card was open')
+    }
+    const desktopBox = await card.boundingBox()
+    const desktopTriggerBox = await teamTrigger.boundingBox()
     const desktopHostBox = await page.locator('[data-shell-overlay]').boundingBox()
     if (desktopBox === null || desktopBox.width < 360 || desktopBox.width > 440
-      || desktopHostBox === null
-      || Math.abs(desktopBox.x + desktopBox.width - (desktopHostBox.x + desktopHostBox.width)) > 2) {
-      throw new Error(`unexpected desktop Team drawer geometry: ${JSON.stringify({ drawer: desktopBox, host: desktopHostBox })}`)
+      || desktopTriggerBox === null || desktopHostBox === null
+      || Math.abs(desktopBox.x + desktopBox.width - 1424) > 2
+      || desktopBox.y < desktopTriggerBox.y + desktopTriggerBox.height + 4
+      || desktopBox.y > desktopTriggerBox.y + desktopTriggerBox.height + 12
+      || desktopBox.y + desktopBox.height > 984) {
+      throw new Error(`unexpected desktop Team card geometry: ${JSON.stringify({ card: desktopBox, trigger: desktopTriggerBox, host: desktopHostBox })}`)
     }
     if (!await dashboard.getByText('R2 isolated Profile team', { exact: true }).isVisible()) {
       throw new Error('browser Team name did not come from the real R2 producer')
     }
-    const composer = page.getByRole('textbox').last()
-    await composer.click()
-    if (!await composer.evaluate(element => element === document.activeElement)) {
-      throw new Error('Team overlay prevented pointer interaction with the visible official Chat composer')
-    }
     await page.screenshot({ path: join(evidenceDir, 'r3-team-dashboard.png'), fullPage: false })
 
+    const composer = page.getByRole('textbox').last()
+    await composer.click()
+    await card.waitFor({ state: 'hidden', timeout: 10_000 })
+    if (!await composer.evaluate(element => element === document.activeElement)) {
+      throw new Error('outside dismissal prevented the original pointer from focusing the official Chat composer')
+    }
+    await teamTrigger.click()
+    await page.locator('[data-swarm-team-dashboard][data-phase="ready"]').waitFor({ state: 'visible', timeout: 20_000 })
+    await teamTrigger.click()
+    await card.waitFor({ state: 'hidden', timeout: 10_000 })
+    if (await teamTrigger.getAttribute('aria-expanded') !== 'false') {
+      throw new Error('second Team trigger click did not close its Peek Card')
+    }
+    await teamTrigger.click()
+    await page.locator('[data-swarm-team-dashboard][data-phase="ready"]').waitFor({ state: 'visible', timeout: 20_000 })
+
     await page.setViewportSize({ width: 680, height: 900 })
-    const narrowBox = await drawer.boundingBox()
+    const narrowBox = await card.boundingBox()
+    const narrowTriggerBox = await teamTrigger.boundingBox()
     const narrowHostBox = await page.locator('[data-shell-overlay]').boundingBox()
-    if (narrowBox === null || narrowHostBox === null
-      || Math.abs(narrowBox.x - narrowHostBox.x) > 2
-      || Math.abs(narrowBox.width - narrowHostBox.width) > 2) {
-      throw new Error(`unexpected narrow Team drawer geometry: ${JSON.stringify({ drawer: narrowBox, host: narrowHostBox })}`)
+    if (narrowBox === null || narrowTriggerBox === null || narrowHostBox === null
+      || Math.abs(narrowBox.x - 8) > 2
+      || Math.abs(narrowBox.width - 664) > 2
+      || narrowBox.y < narrowTriggerBox.y + narrowTriggerBox.height + 4
+      || narrowBox.y + narrowBox.height > 892
+      || !await teamTrigger.isVisible()) {
+      throw new Error(`unexpected narrow Team card geometry: ${JSON.stringify({ card: narrowBox, trigger: narrowTriggerBox, host: narrowHostBox })}`)
     }
     await page.screenshot({ path: join(evidenceDir, 'r3-team-dashboard-narrow.png'), fullPage: false })
     await page.setViewportSize({ width: 1440, height: 1000 })
 
     await page.keyboard.press('Escape')
-    await drawer.waitFor({ state: 'hidden', timeout: 10_000 })
-    const teamTrigger = page.getByRole('button', { name: TEAM_NAME })
+    await card.waitFor({ state: 'hidden', timeout: 10_000 })
     if (!await teamTrigger.evaluate(element => element === document.activeElement)) {
       throw new Error('Escape did not restore focus to the Team trigger')
     }
@@ -203,7 +229,7 @@ export async function runR3ActiveBrowserProof({
     const openChat = page.getByRole('button', { name: OPEN_CHAT })
     await openChat.focus()
     await page.keyboard.press('Enter')
-    await drawer.waitFor({ state: 'hidden', timeout: 20_000 })
+    await card.waitFor({ state: 'hidden', timeout: 20_000 })
     const selected = page.locator('[role="treeitem"][aria-selected="true"]')
     await selected.waitFor({ state: 'visible', timeout: 10_000 })
     await page.getByRole('textbox').last().waitFor({ state: 'visible', timeout: 10_000 })
@@ -215,7 +241,7 @@ export async function runR3ActiveBrowserProof({
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 })
     await openReadyDashboard(page)
     await page.keyboard.press('Escape')
-    await page.locator('[data-swarm-team-drawer]').waitFor({ state: 'hidden', timeout: 10_000 })
+    await page.locator('[data-swarm-team-card]').waitFor({ state: 'hidden', timeout: 10_000 })
     const reloadedSessionId = await officialCurrentSessionId(page)
     if (reloadedSessionId !== rootSessionId) {
       throw new Error(`official Session selection did not survive reload: ${String(reloadedSessionId)}`)
@@ -226,9 +252,12 @@ export async function runR3ActiveBrowserProof({
     const result = {
       status: 'pass', rootSessionId, teamId, browser: identity, fixture, ...onboarding,
       bootstrap: { ...bootstrapEvidence(rootSessionId, selectionSource), frameworkTargetObserved: true },
-      geometry: { desktop: { drawer: desktopBox, host: desktopHostBox }, narrow: { drawer: narrowBox, host: narrowHostBox } },
-      nonModal: { ariaModal: false, officialComposerPointerAccessible: true },
-      keyboard: ['focus Team', 'Enter', 'Escape with focus return', 'Enter', 'focus Open Captain Chat', 'Enter', 'Escape after reload'],
+      geometry: {
+        desktop: { card: desktopBox, trigger: desktopTriggerBox, host: desktopHostBox },
+        narrow: { card: narrowBox, trigger: narrowTriggerBox, host: narrowHostBox },
+      },
+      nonModal: { ariaModal: false, outsidePointerDismissed: true, officialComposerFocused: true },
+      keyboard: ['focus Team', 'Enter', 'outside click', 'trigger reopen', 'trigger close', 'trigger reopen', 'Escape with focus return', 'Enter', 'focus Open Captain Chat', 'Enter', 'Escape after reload'],
       handoff: {
         officialSessionSelected: true,
         officialSelectionSource: 'localStorage:dsh.sessions.current',

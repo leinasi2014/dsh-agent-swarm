@@ -2,6 +2,7 @@ import type { ClientContext, ISessions, SessionId } from '@deepseek-ai/dsh-clien
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+import type { RefObject } from 'react'
 import { SwarmReadClient } from './read-client.js'
 import { TeamDashboardController } from './team-dashboard-controller.js'
 import { TeamDashboardAction, type TeamDashboardActionInjected } from './TeamDashboardAction.js'
@@ -21,6 +22,7 @@ export function apply(ctx: ClientContext): void {
   const sessionsService = ctx.get('sessions') as ISessions | undefined
   if (sessionsService === undefined) throw new Error('swarm Team dashboard requires the official Sessions service')
   const controller = new TeamDashboardController(new SwarmReadClient())
+  const anchorRef: RefObject<HTMLSpanElement> = { current: null }
   ctx.effect(() => () => { controller.dispose() }, 'swarm Team dashboard controller')
   ctx.on('connection/reset', () => { controller.connectionReset() })
   ctx.effect(() => ctx.locale.register(TEAM_DASHBOARD_NS, { zh, en }), 'swarm Team dashboard dictionaries')
@@ -30,7 +32,7 @@ export function apply(ctx: ClientContext): void {
     id: 'swarm-team',
     order: 30,
     locale: TEAM_DASHBOARD_NS,
-    inject: (): TeamDashboardActionInjected => ({ controller }),
+    inject: (): TeamDashboardActionInjected => ({ anchorRef, controller }),
   }, TeamDashboardAction))
 
   ctx.slots.inject('shell.overlay', () => ctx.slots.register({
@@ -39,6 +41,7 @@ export function apply(ctx: ClientContext): void {
     order: 30,
     locale: TEAM_DASHBOARD_NS,
     inject: (): TeamDashboardOverlayInjected => ({
+      anchorRef,
       controller,
       openCaptainChat: async () => {
         await controller.openCaptainChat((rootSessionId) => {

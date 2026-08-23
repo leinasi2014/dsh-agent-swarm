@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, type ReactNode } from 'react'
+import { act, type ReactNode, type RefObject } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SwarmHostReadProjectionV1 } from '../src/host/host-read-types.js'
@@ -21,6 +21,7 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', async () => {
     IconUserOutline16: Icon,
     IconCloseOutline16: Icon,
     IconRefreshOutline16: Icon,
+    useAnchoredPosition: () => ({ left: 16, top: 48 }),
   }
 })
 
@@ -70,6 +71,10 @@ function readyState(): TeamDashboardState {
   }
 }
 
+function anchorRef(): RefObject<HTMLSpanElement> {
+  return { current: null }
+}
+
 async function render(node: ReactNode): Promise<void> {
   const container = document.createElement('div')
   document.body.append(container)
@@ -99,24 +104,24 @@ afterEach(async () => {
 })
 
 describe('R3 DSH-native Team UI', () => {
-  it('renders every real read family in a non-modal Peek Drawer and hands off only through the injected verifier', async () => {
+  it('renders every real read family in a non-modal anchored Peek Card and hands off only through the injected verifier', async () => {
     const controller = new FakeController(readyState())
     const handoff = vi.fn(async () => {})
-    await render(<TeamDashboardOverlay {...({ controller, openCaptainChat: handoff, t } as unknown as TeamDashboardOverlayProps)} />)
+    await render(<TeamDashboardOverlay {...({ anchorRef: anchorRef(), controller, openCaptainChat: handoff, t } as unknown as TeamDashboardOverlayProps)} />)
 
-    const drawer = document.querySelector('[data-swarm-team-drawer]')
-    expect(drawer?.getAttribute('role')).toBe('complementary')
-    expect(drawer?.getAttribute('aria-modal')).not.toBe('true')
+    const card = document.querySelector('[data-swarm-team-card]')
+    expect(card?.getAttribute('role')).toBe('complementary')
+    expect(card?.getAttribute('aria-modal')).not.toBe('true')
     expect(document.querySelector('[role="dialog"]')).toBeNull()
-    expect(drawer?.textContent).toContain('Fixture Team')
-    expect(drawer?.textContent).toContain('Budget')
-    expect(drawer?.textContent).toContain('Pending interactions')
+    expect(card?.textContent).toContain('Fixture Team')
+    expect(card?.textContent).toContain('Budget')
+    expect(card?.textContent).toContain('Pending interactions')
     await act(async () => { button('Members').click() })
-    expect(drawer?.textContent).toContain('Members (0)')
+    expect(card?.textContent).toContain('Members (0)')
     await act(async () => { button('Work').click() })
-    expect(drawer?.textContent).toContain('Attempts')
+    expect(card?.textContent).toContain('Attempts')
     await act(async () => { button('Details').click() })
-    expect(drawer?.textContent).toContain('Capabilities')
+    expect(card?.textContent).toContain('Capabilities')
     const chat = button('Open Captain Chat')
     expect(chat.disabled).toBe(false)
     await act(async () => { chat.click() })
@@ -128,9 +133,10 @@ describe('R3 DSH-native Team UI', () => {
       open: true, phase: 'error', targetSessionId: 'missing',
       error: { code: 'SWARM_RPC_TARGET_NOT_LIVE', message: 'not live' },
     })
+    const anchor = anchorRef()
     await render(<>
-      <TeamDashboardAction {...({ controller, sessionId: 'missing', t } as unknown as TeamDashboardActionProps)} />
-      <TeamDashboardOverlay {...({ controller, openCaptainChat: vi.fn(), t } as unknown as TeamDashboardOverlayProps)} />
+      <TeamDashboardAction {...({ anchorRef: anchor, controller, sessionId: 'missing', t } as unknown as TeamDashboardActionProps)} />
+      <TeamDashboardOverlay {...({ anchorRef: anchor, controller, openCaptainChat: vi.fn(), t } as unknown as TeamDashboardOverlayProps)} />
     </>)
 
     expect(document.querySelector('[role="alert"]')?.textContent).toContain('SWARM_RPC_TARGET_NOT_LIVE')
@@ -140,14 +146,14 @@ describe('R3 DSH-native Team UI', () => {
     const trigger = labelledButton('Team')
     trigger.focus()
     await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
-    expect(document.querySelector('[data-swarm-team-drawer]')).toBeNull()
+    expect(document.querySelector('[data-swarm-team-card]')).toBeNull()
     expect(document.activeElement).toBe(trigger)
   })
 
   it('handles a rejected Captain handoff without leaking an unhandled rejection or locking the action', async () => {
     const controller = new FakeController(readyState())
     const handoff = vi.fn(async () => { throw new Error('binding changed') })
-    await render(<TeamDashboardOverlay {...({ controller, openCaptainChat: handoff, t } as unknown as TeamDashboardOverlayProps)} />)
+    await render(<TeamDashboardOverlay {...({ anchorRef: anchorRef(), controller, openCaptainChat: handoff, t } as unknown as TeamDashboardOverlayProps)} />)
 
     await act(async () => {
       button('Open Captain Chat').click()
@@ -161,8 +167,8 @@ describe('R3 DSH-native Team UI', () => {
   it('uses framework Session ids only as target hints and toggles the current target', async () => {
     const controller = new FakeController({ open: false, phase: 'closed' })
     await render(<>
-      <TeamDashboardAction {...({ controller, sessionId: 'root-from-framework', t } as unknown as TeamDashboardActionProps)} />
-      <TeamDashboardAction {...({ controller, sessionId: 'other-root', t } as unknown as TeamDashboardActionProps)} />
+      <TeamDashboardAction {...({ anchorRef: anchorRef(), controller, sessionId: 'root-from-framework', t } as unknown as TeamDashboardActionProps)} />
+      <TeamDashboardAction {...({ anchorRef: anchorRef(), controller, sessionId: 'other-root', t } as unknown as TeamDashboardActionProps)} />
     </>)
     const triggers = [...document.querySelectorAll<HTMLButtonElement>('button[aria-label="Team"]')]
     await act(async () => { triggers[0]?.click() })
@@ -171,14 +177,36 @@ describe('R3 DSH-native Team UI', () => {
     expect(controller.closeCalls).toHaveBeenCalledTimes(1)
     await act(async () => { triggers[1]?.click() })
     expect(controller.openCalls).toEqual(['root-from-framework', 'other-root'])
-    expect(triggers[1]?.getAttribute('aria-controls')).toBe('swarm-team-peek-drawer')
+    expect(triggers[1]?.getAttribute('aria-controls')).toBe('swarm-team-peek-card')
+  })
+
+  it('dismisses on an outside pointer without stealing focus and ignores the card and trigger', async () => {
+    const controller = new FakeController(readyState())
+    const anchor = anchorRef()
+    await render(<>
+      <button type="button" data-chat-composer>Composer</button>
+      <TeamDashboardAction {...({ anchorRef: anchor, controller, sessionId: 'session-fixture', t } as unknown as TeamDashboardActionProps)} />
+      <TeamDashboardOverlay {...({ anchorRef: anchor, controller, openCaptainChat: vi.fn(), t } as unknown as TeamDashboardOverlayProps)} />
+    </>)
+
+    const card = document.querySelector<HTMLElement>('[data-swarm-team-card]')
+    const trigger = labelledButton('Team')
+    await act(async () => { card?.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })) })
+    await act(async () => { trigger.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })) })
+    expect(controller.closeCalls).not.toHaveBeenCalled()
+
+    const composer = document.querySelector<HTMLButtonElement>('[data-chat-composer]')
+    composer?.focus()
+    await act(async () => { composer?.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })) })
+    expect(controller.closeCalls).toHaveBeenCalledTimes(1)
+    expect(document.activeElement).toBe(composer)
   })
 
   it('marks a retained complete projection as stale instead of fresh', async () => {
     const state = { ...readyState(), phase: 'stale' as const, error: { code: 'SWARM_RPC_UNAVAILABLE', message: 'offline' } }
     const controller = new FakeController(state)
-    await render(<TeamDashboardOverlay {...({ controller, openCaptainChat: vi.fn(), t } as unknown as TeamDashboardOverlayProps)} />)
+    await render(<TeamDashboardOverlay {...({ anchorRef: anchorRef(), controller, openCaptainChat: vi.fn(), t } as unknown as TeamDashboardOverlayProps)} />)
     expect(document.querySelector('[role="alert"]')?.textContent).toContain('Showing the last complete projection')
-    expect(document.querySelector('[data-swarm-team-drawer]')?.textContent).toContain('Fixture Team')
+    expect(document.querySelector('[data-swarm-team-card]')?.textContent).toContain('Fixture Team')
   })
 })
