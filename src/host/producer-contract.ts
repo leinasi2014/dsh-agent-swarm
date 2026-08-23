@@ -122,7 +122,9 @@ export const SWARM_PRODUCER_CAPABILITIES_V1: readonly SwarmProducerCapabilitySta
 
 const nonNegativeInteger = { type: 'integer', minimum: 0 } as const
 const positiveInteger = { type: 'integer', minimum: 1 } as const
-const boundedString = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength }) as const
+const boundedString = (maxLength: number) => ({
+  type: 'string', minLength: 1, maxLength, pattern: '\\S',
+}) as const
 
 /**
  * Transport-neutral JSON Schema bundle. It is intentionally hand-authored:
@@ -134,6 +136,28 @@ export const SWARM_PRODUCER_CONTRACT_V1 = deepFreezeJson({
   namespace: SWARM_PRODUCER_NAMESPACE,
   capabilities: SWARM_PRODUCER_CAPABILITIES_V1,
   schemas: {
+    description: {
+      type: 'object', additionalProperties: false,
+      required: ['schemaVersion', 'protocol', 'contractVersion', 'namespace', 'contractDigest', 'capabilities'],
+      properties: {
+        schemaVersion: { const: 1 },
+        protocol: { const: SWARM_PRODUCER_PROTOCOL },
+        contractVersion: { const: SWARM_PRODUCER_CONTRACT_VERSION },
+        namespace: { const: SWARM_PRODUCER_NAMESPACE },
+        contractDigest: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        capabilities: {
+          type: 'array', minItems: 5, maxItems: 5,
+          prefixItems: [
+            capabilitySchema('snapshot.read', 'available'),
+            capabilitySchema('receipt.read', 'available'),
+            capabilitySchema('message.write', 'unavailable'),
+            capabilitySchema('control.write', 'unavailable'),
+            capabilitySchema('effect.cancel', 'unavailable'),
+          ],
+          items: false,
+        },
+      },
+    },
     snapshotRequest: {
       type: 'object', additionalProperties: false,
       required: ['teamId'],
@@ -222,8 +246,22 @@ export const SWARM_PRODUCER_CONTRACT_V1 = deepFreezeJson({
   },
 })
 
-/** Canonical examples; no fixture carries secrets or mutable host identity. */
-export const SWARM_PRODUCER_FIXTURES_V1 = deepFreezeJson({
+/**
+ * A fixed marker breaks the description digest's otherwise recursive input.
+ * The final fixture replaces only this marker with the derived digest.
+ */
+const CONTRACT_DIGEST_PREIMAGE = 'sha256:self' as const
+
+/** Canonical digest preimage; no fixture carries secrets or mutable host identity. */
+const SWARM_PRODUCER_FIXTURE_PREIMAGE_V1 = deepFreezeJson({
+  description: {
+    schemaVersion: 1,
+    protocol: SWARM_PRODUCER_PROTOCOL,
+    contractVersion: SWARM_PRODUCER_CONTRACT_VERSION,
+    namespace: SWARM_PRODUCER_NAMESPACE,
+    contractDigest: CONTRACT_DIGEST_PREIMAGE,
+    capabilities: SWARM_PRODUCER_CAPABILITIES_V1,
+  } satisfies SwarmProducerDescriptionV1,
   requests: {
     snapshot: { teamId: 'team-fixture' },
     receipts: { teamId: 'team-fixture', limit: 50 },
@@ -255,21 +293,50 @@ export const SWARM_PRODUCER_FIXTURES_V1 = deepFreezeJson({
 })
 
 export const SWARM_PRODUCER_CONTRACT_DIGEST_V1 = createHash('sha256')
-  .update(canonicalJson({ contract: SWARM_PRODUCER_CONTRACT_V1, fixtures: SWARM_PRODUCER_FIXTURES_V1 }))
+  .update(canonicalJson({ contract: SWARM_PRODUCER_CONTRACT_V1, fixtures: SWARM_PRODUCER_FIXTURE_PREIMAGE_V1 }))
   .digest('hex')
+
+/** Canonical examples; description is the exact result returned by describe(). */
+export const SWARM_PRODUCER_FIXTURES_V1 = deepFreezeJson({
+  ...SWARM_PRODUCER_FIXTURE_PREIMAGE_V1,
+  description: {
+    ...SWARM_PRODUCER_FIXTURE_PREIMAGE_V1.description,
+    contractDigest: SWARM_PRODUCER_CONTRACT_DIGEST_V1,
+  } satisfies SwarmProducerDescriptionV1,
+})
 
 /** Stable canonical JSON used by the digest and by contract conformance tests. */
 export function canonicalJson(value: unknown): string {
   return JSON.stringify(sortJson(value))
 }
 
-function unavailableFixture(
+export function unavailableFixture(
   capability: 'message.write' | 'control.write' | 'effect.cancel',
 ): SwarmProducerUnavailableErrorV1 {
   return {
     schemaVersion: 1,
     error: { code: 'SWARM_CAPABILITY_UNAVAILABLE', capability, blocker: SWARM_PRODUCER_EFFECT_BLOCKER },
   }
+}
+
+function capabilitySchema(
+  capability: SwarmProducerCapability,
+  state: 'available' | 'unavailable',
+): object {
+  return state === 'available'
+    ? {
+        type: 'object', additionalProperties: false,
+        required: ['capability', 'state'],
+        properties: { capability: { const: capability }, state: { const: state } },
+      }
+    : {
+        type: 'object', additionalProperties: false,
+        required: ['capability', 'state', 'blocker'],
+        properties: {
+          capability: { const: capability }, state: { const: state },
+          blocker: { const: SWARM_PRODUCER_EFFECT_BLOCKER },
+        },
+      }
 }
 
 function sortJson(value: unknown): unknown {

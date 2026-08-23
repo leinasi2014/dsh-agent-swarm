@@ -10,6 +10,72 @@ const ROOT = { id: 'root-session' } as unknown as Agent
 const CHILD = { id: 'child-session' } as unknown as Agent
 const OTHER_ROOT = { id: 'other-root-session' } as unknown as Agent
 
+type ContractSchema = Readonly<Record<string, unknown>>
+
+/** Executable conformance for the JSON Schema vocabulary used by this contract. */
+function assertConforms(value: unknown, schema: ContractSchema, path = '$'): void {
+  if (Array.isArray(schema.oneOf)) {
+    const matches = schema.oneOf.filter(candidate => {
+      try {
+        assertConforms(value, candidate as ContractSchema, path)
+        return true
+      } catch {
+        return false
+      }
+    })
+    if (matches.length !== 1) throw new Error(`${path} must match exactly one schema`)
+    return
+  }
+  if (Object.hasOwn(schema, 'const') && !Object.is(value, schema.const)) {
+    throw new Error(`${path} must equal ${String(schema.const)}`)
+  }
+  if (Array.isArray(schema.enum) && !schema.enum.includes(value)) {
+    throw new Error(`${path} is outside its enum`)
+  }
+  if (schema.type === 'string') {
+    if (typeof value !== 'string') throw new Error(`${path} must be a string`)
+    const length = [...value].length
+    if (typeof schema.minLength === 'number' && length < schema.minLength) throw new Error(`${path} is too short`)
+    if (typeof schema.maxLength === 'number' && length > schema.maxLength) throw new Error(`${path} is too long`)
+    if (typeof schema.pattern === 'string' && !new RegExp(schema.pattern, 'u').test(value)) {
+      throw new Error(`${path} does not match its pattern`)
+    }
+  }
+  if (schema.type === 'integer') {
+    if (!Number.isSafeInteger(value)) throw new Error(`${path} must be a safe integer`)
+    if (typeof schema.minimum === 'number' && (value as number) < schema.minimum) throw new Error(`${path} is too small`)
+    if (typeof schema.maximum === 'number' && (value as number) > schema.maximum) throw new Error(`${path} is too large`)
+  }
+  if (schema.type === 'boolean' && typeof value !== 'boolean') throw new Error(`${path} must be boolean`)
+  if (schema.type === 'array') {
+    if (!Array.isArray(value)) throw new Error(`${path} must be an array`)
+    if (typeof schema.minItems === 'number' && value.length < schema.minItems) throw new Error(`${path} has too few items`)
+    if (typeof schema.maxItems === 'number' && value.length > schema.maxItems) throw new Error(`${path} has too many items`)
+    const prefixItems = (schema.prefixItems ?? []) as ContractSchema[]
+    prefixItems.forEach((childSchema, index) => assertConforms(value[index], childSchema, `${path}[${index}]`))
+    if (schema.items === false && value.length > prefixItems.length) throw new Error(`${path} has unexpected items`)
+    if (schema.items !== undefined && schema.items !== false) {
+      value.forEach((item, index) => assertConforms(item, schema.items as ContractSchema, `${path}[${index}]`))
+    }
+  }
+  if (schema.type === 'object') {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error(`${path} must be an object`)
+    const record = value as Record<string, unknown>
+    const properties = (schema.properties ?? {}) as Record<string, ContractSchema>
+    for (const required of (schema.required ?? []) as string[]) {
+      if (!Object.hasOwn(record, required)) throw new Error(`${path}.${required} is required`)
+    }
+    if (schema.additionalProperties === false) {
+      for (const key of Object.keys(record)) {
+        if (!Object.hasOwn(properties, key)) throw new Error(`${path}.${key} is unknown`)
+      }
+    }
+    for (const [key, childSchema] of Object.entries(properties)) {
+      if (Object.hasOwn(record, key)) assertConforms(record[key], childSchema, `${path}.${key}`)
+    }
+  }
+}
+
 function teamState(): AgentSwarm.TeamState {
   return {
     schemaVersion: 1,
@@ -117,11 +183,39 @@ describe('pre-I2/I3 canonical producer contract', () => {
     expect(AgentSwarm.canonicalJson({ z: 1, a: { y: 2, b: 3 } }))
       .toBe('{"a":{"b":3,"y":2},"z":1}')
     expect(AgentSwarm.SWARM_PRODUCER_CONTRACT_DIGEST_V1)
-      .toBe('d32b4a9968b1083383e21f8abb9b3487846bf078b8cb632d43f4955d46a20ea5')
+      .toBe('70daa903431c1c5a2ddfe78ba1bd9eae385b6eeb222d9b901bc05e74e5211c97')
+  })
+
+  it('keeps every canonical fixture executable against its strict result or request schema', () => {
+    const { schemas } = AgentSwarm.SWARM_PRODUCER_CONTRACT_V1
+    const fixtures = AgentSwarm.SWARM_PRODUCER_FIXTURES_V1
+    const pairs = [
+      [fixtures.description, schemas.description],
+      [fixtures.requests.snapshot, schemas.snapshotRequest],
+      [fixtures.requests.receipts, schemas.receiptRequest],
+      [fixtures.snapshot, schemas.snapshot],
+      [fixtures.receiptPage, schemas.receiptPage],
+      [fixtures.unavailable.message, schemas.unavailableError],
+      [fixtures.unavailable.control, schemas.unavailableError],
+      [fixtures.unavailable.cancel, schemas.unavailableError],
+    ] as const
+    for (const [fixture, schema] of pairs) expect(() => assertConforms(fixture, schema)).not.toThrow()
+
+    expect(() => assertConforms({ teamId: '   ' }, schemas.snapshotRequest)).toThrow()
+    expect(() => assertConforms({ teamId: 'team', extra: true }, schemas.snapshotRequest)).toThrow()
+    expect(() => assertConforms({ teamId: '汉'.repeat(129) }, schemas.snapshotRequest)).toThrow()
   })
 
   it('requires the exact live root and returns bounded frozen redacted projections', async () => {
     const { service } = harness()
+    expect(service.describe()).toEqual(AgentSwarm.SWARM_PRODUCER_FIXTURES_V1.description)
+    await expect(service.readSnapshot({ teamId: '汉'.repeat(128) }, { agent: ROOT, signal: SIGNAL })).resolves.toBeDefined()
+    await expect(service.readSnapshot({ teamId: '汉'.repeat(129) }, { agent: ROOT, signal: SIGNAL }))
+      .rejects.toMatchObject({ code: 'SWARM_HOST_INVALID_REQUEST' })
+    await expect(service.readSnapshot({ teamId: '   ' }, { agent: ROOT, signal: SIGNAL }))
+      .rejects.toMatchObject({ code: 'SWARM_HOST_INVALID_REQUEST' })
+    await expect(service.readSnapshot({ teamId: 'team-floor', extra: true } as never, { agent: ROOT, signal: SIGNAL }))
+      .rejects.toMatchObject({ code: 'SWARM_HOST_INVALID_REQUEST' })
     await expect(service.readSnapshot({ teamId: 'team-floor' }, { agent: CHILD, signal: SIGNAL }))
       .rejects.toMatchObject({ code: 'SWARM_HOST_CAPTAIN_REQUIRED' })
     await expect(service.readSnapshot({ teamId: 'team-floor' }, { agent: OTHER_ROOT, signal: SIGNAL }))
@@ -159,9 +253,21 @@ describe('pre-I2/I3 canonical producer contract', () => {
       ownKeys: () => { traps.ownKeys += 1; throw new Error('must not inspect') },
       get: () => { traps.get += 1; throw new Error('must not inspect') },
     })
-    await expect(service.submitMessage(hostile)).rejects.toMatchObject({ code: 'SWARM_CAPABILITY_UNAVAILABLE' })
-    await expect(service.submitControl(hostile)).rejects.toMatchObject({ code: 'SWARM_CAPABILITY_UNAVAILABLE' })
-    await expect(service.cancelEffect(hostile)).rejects.toMatchObject({ code: 'SWARM_CAPABILITY_UNAVAILABLE' })
+    const messageError = await service.submitMessage(hostile).catch(error => error as Error & Record<string, unknown>)
+    const controlError = await service.submitControl(hostile).catch(error => error as Error & Record<string, unknown>)
+    const cancelError = await service.cancelEffect(hostile).catch(error => error as Error & Record<string, unknown>)
+    expect(messageError).toMatchObject({
+      code: 'SWARM_CAPABILITY_UNAVAILABLE', capability: 'message.write', blocker: 'i1b-effect-correlation',
+      result: AgentSwarm.SWARM_PRODUCER_FIXTURES_V1.unavailable.message,
+    })
+    expect(controlError).toMatchObject({
+      code: 'SWARM_CAPABILITY_UNAVAILABLE', capability: 'control.write', blocker: 'i1b-effect-correlation',
+      result: AgentSwarm.SWARM_PRODUCER_FIXTURES_V1.unavailable.control,
+    })
+    expect(cancelError).toMatchObject({
+      code: 'SWARM_CAPABILITY_UNAVAILABLE', capability: 'effect.cancel', blocker: 'i1b-effect-correlation',
+      result: AgentSwarm.SWARM_PRODUCER_FIXTURES_V1.unavailable.cancel,
+    })
     expect(traps).toEqual({ ownKeys: 0, get: 0 })
     expect(domainReads).not.toHaveBeenCalled()
     expect(overlayReads).not.toHaveBeenCalled()

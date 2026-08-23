@@ -27,7 +27,7 @@ The immutable contract bundle has:
 2. one fixed capability descriptor (`snapshot.read` and `receipt.read` available; `message.write`, `control.write` and `effect.cancel` unavailable with blocker `i1b-effect-correlation`);
 3. strict JSON schemas for capability, snapshot and receipt-page results;
 4. canonical fixtures for all three results plus the three unavailable effect errors;
-5. SHA-256 over canonical JSON `{contract, fixtures}`.
+5. SHA-256 over canonical JSON `{contract, fixturePreimage}`; the description's digest field uses the fixed `sha256:self` marker in that preimage, then the final canonical fixture replaces only that marker with the derived digest.
 
 Any content change changes the digest and therefore creates a new producer contract candidate. The namespace is recorded as `/swarm`, but this slice mounts no network transport.
 

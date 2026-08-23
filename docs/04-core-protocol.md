@@ -122,7 +122,7 @@ This contract does not turn every I1 action into exactly-once. Current `ctx.user
 
 ### 5c. Pre-I2/I3 producer contract floor
 
-Before the I1b blocker closes, the plugin may expose only a read contract floor. Its version-1 producer artifact binds protocol id `dsh-agent-swarm/producer`, future namespace `/swarm`, capability ordering, strict snapshot/receipt/error schemas, canonical fixtures and their SHA-256 digest. Any content change produces a new digest and candidate. The namespace is vocabulary only: this floor mounts no HTTP, upgrade or RPC route.
+Before the I1b blocker closes, the plugin may expose only a read contract floor. Its version-1 producer artifact binds protocol id `dsh-agent-swarm/producer`, future namespace `/swarm`, capability ordering, strict description/snapshot/receipt/error schemas, canonical fixtures and their SHA-256 digest. The description fixture carries that digest; its digest preimage substitutes the fixed `sha256:self` marker to avoid recursive hashing. Any other content change produces a new digest and candidate. The namespace is vocabulary only: this floor mounts no HTTP, upgrade or RPC route.
 
 The internal `agentSwarmProducerFloor` Cordis service authenticates reads with a caller-bound exact live root Agent, derives scope from that Agent, and calls `TeamDomainPort.snapshot` before reading the scope/Team-bound interaction overlay. Snapshot output is bounded counters/budget metadata; receipt output is a bounded newest window in chronological order. Both omit scope, captain/member Session ids, source/principal, bodies, diagnostics, internal message ids and task-result ids. They are projections and are never written back.
 

@@ -4,7 +4,6 @@
  * Reads are projections over the authoritative Team/HumanInteraction stores.
  * Effects are deliberately absent until the I1b authority blocker closes.
  */
-import { Buffer } from 'node:buffer'
 import { isProxy } from 'node:util/types'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -14,15 +13,13 @@ import { TeamId, type TeamStatusSnapshot } from '../domain/types.js'
 import type { HumanInteractionOverlayStore } from '../human/human-interaction-store.js'
 import { requireAgent, type ToolExecutionAuthority } from '../runtime/authority.js'
 import {
-  SWARM_PRODUCER_CAPABILITIES_V1,
-  SWARM_PRODUCER_CONTRACT_DIGEST_V1,
-  SWARM_PRODUCER_CONTRACT_VERSION,
   SWARM_PRODUCER_EFFECT_BLOCKER,
-  SWARM_PRODUCER_NAMESPACE,
-  SWARM_PRODUCER_PROTOCOL,
+  SWARM_PRODUCER_FIXTURES_V1,
+  unavailableFixture,
   type SwarmProducerDescriptionV1,
   type SwarmProducerReceiptPageV1,
   type SwarmProducerSnapshotV1,
+  type SwarmProducerUnavailableErrorV1,
 } from './producer-contract.js'
 import { deepFreezeJson } from './frozen-json.js'
 
@@ -51,14 +48,7 @@ export interface AgentSwarmProducerFloorDeps {
   readonly disposalTimeoutMs?: number
 }
 
-const DESCRIPTION: SwarmProducerDescriptionV1 = deepFreezeJson({
-  schemaVersion: 1,
-  protocol: SWARM_PRODUCER_PROTOCOL,
-  contractVersion: SWARM_PRODUCER_CONTRACT_VERSION,
-  namespace: SWARM_PRODUCER_NAMESPACE,
-  contractDigest: SWARM_PRODUCER_CONTRACT_DIGEST_V1,
-  capabilities: SWARM_PRODUCER_CAPABILITIES_V1,
-})
+const DESCRIPTION: SwarmProducerDescriptionV1 = SWARM_PRODUCER_FIXTURES_V1.description
 
 const DEFAULT_RECEIPT_LIMIT = 50
 const MAX_RECEIPT_LIMIT = 100
@@ -252,10 +242,14 @@ export function provideAgentSwarmProducerFloor(
 }
 
 function capabilityUnavailable(capability: 'message.write' | 'control.write' | 'effect.cancel'): TeamDomainError {
-  return new TeamDomainError(
+  return Object.assign(new TeamDomainError(
     `${capability} is unavailable while ${SWARM_PRODUCER_EFFECT_BLOCKER} remains unresolved`,
     'SWARM_CAPABILITY_UNAVAILABLE',
-  )
+  ), {
+    capability,
+    blocker: SWARM_PRODUCER_EFFECT_BLOCKER,
+    result: deepFreezeJson(unavailableFixture(capability)) as SwarmProducerUnavailableErrorV1,
+  })
 }
 
 function parseReadInput(input: unknown): SwarmProducerReadInput {
@@ -300,6 +294,6 @@ function strictOwnFields(input: unknown, allowed: ReadonlySet<string>): Record<s
   return result
 }
 
-function validBoundedString(value: unknown, maxBytes: number): value is string {
-  return typeof value === 'string' && value.trim() !== '' && Buffer.byteLength(value, 'utf8') <= maxBytes
+function validBoundedString(value: unknown, maxLength: number): value is string {
+  return typeof value === 'string' && value.trim() !== '' && [...value].length <= maxLength
 }
