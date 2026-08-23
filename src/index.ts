@@ -35,7 +35,7 @@ import { humanReviewProvider } from './human/human-review-provider.js'
 import { officialCaptainQuestionPresentation } from './human/official-question-presentation.js'
 import { effectiveToolPolicy, TeamPermissionSurface } from './runtime/permission-surface.js'
 import { reviewerAgentReviewProvider } from './runtime/reviewer-boundary.js'
-import { assembleAgentSwarmHostRead, assembleAgentSwarmProducerFloor } from './host/host-read-assembly.js'
+import { assembleAgentSwarmHostRead, assembleAgentSwarmProducerFloor, mountAgentSwarmReadRpc } from './host/host-read-assembly.js'
 import { AGENT_SWARM_USAGE_PROMPT } from './runtime/usage-prompt.js'
 
 export { AgentSwarmRuntime } from './runtime/orchestrator-runtime.js'
@@ -467,8 +467,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   ctx.effect(() => runtime.registerReviewProvider('human', humanReviewProvider(ctx)), 'agent-swarm: human review provider')
   let humanDomain: Domain<typeof humanInteractionDomainSpec> | undefined
   let humanOverlay: HumanInteractionOverlayStore | undefined
-  let unprovideControl: (() => void) | undefined
-  let unprovideInteraction: (() => void) | undefined
+  let unprovideControl: (() => void) | undefined, unprovideInteraction: (() => void) | undefined
   let disposeProducerFloor: (() => Promise<void>) | undefined, disposeHostRead: (() => Promise<void>) | undefined
   try {
     const domain = await ctx.storageDomain.open(humanInteractionDomainSpec)
@@ -504,6 +503,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       unprovideInteraction = ctx.provide('agentSwarmHumanInteraction', liaison)
       disposeProducerFloor = assembleAgentSwarmProducerFloor(ctx, runtime, overlay, disposalTimeoutMs)
       disposeHostRead = assembleAgentSwarmHostRead(ctx, runtime, overlay, disposalTimeoutMs)
+      mountAgentSwarmReadRpc(ctx, runtime, disposalTimeoutMs)
       return async () => {
         const drained = drain()
         await disposeHostRead?.()

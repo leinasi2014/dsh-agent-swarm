@@ -60,6 +60,7 @@ captain（插件驱动）：
 - **编排桥**：官方 `WorkflowEngine`/`JobRegistry` 的 Team 桥（isolate 域注册，run overlay 为唯一 run 真相）、显式 `adaptive|workflow` 模式 + 单 owner 纪律（#77）；
 - **执行根**：per-attempt worktree 隔离 + attemptId 围栏 + 崩溃泄漏对账（#100）；
 - **自托管控制面**：候选冻结→验收→晋升→回滚的外部 promoter 全链（P0–P7 演练实证，#102/#122 加固）。
+- **本机只读 Team 接口（R2 candidate）**：versioned `POST /swarm/v1` 与 browser-safe `dsh-agent-swarm/client`；Host 每次重绑 official live root/Session/workspace/captain Team。该接口仅在 `127.0.0.1` listener、loopback socket 与同源 authority 可验证时可用，不提供用户认证、LAN trust 或任何 write capability；进入公开使用前仍需真实 official Profile 握手和非作者审查。
 
 ## 文档
 

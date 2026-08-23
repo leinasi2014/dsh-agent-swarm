@@ -16,6 +16,8 @@ for (const [label, relativePath] of [
   ['types', pkg.types],
   ['exports[.].default', pkg.exports?.['.']?.default],
   ['exports[.].types', pkg.exports?.['.']?.types],
+  ['exports[./client].default', pkg.exports?.['./client']?.default],
+  ['exports[./client].types', pkg.exports?.['./client']?.types],
   ['bundle patch', pkg.dsh?.bundle?.patch],
 ]) {
   if (typeof relativePath !== 'string') {
@@ -26,6 +28,21 @@ for (const [label, relativePath] of [
     await access(resolve(root, relativePath))
   } catch {
     failures.push(`${label}: target does not exist: ${relativePath}`)
+  }
+}
+
+if (failures.length === 0) {
+  const clientPath = resolve(root, pkg.exports['./client'].default)
+  const clientSource = await readFile(clientPath, 'utf8')
+  for (const forbidden of ['node:', 'dsh-storage', 'host-read-service', 'read-rpc-service']) {
+    if (clientSource.includes(forbidden)) failures.push(`browser client imports forbidden Host/runtime surface: ${forbidden}`)
+  }
+  try {
+    const client = await import(pathToFileURL(clientPath).href)
+    if (typeof client.SwarmReadClient !== 'function') failures.push('built browser client: missing SwarmReadClient')
+    if (client.SWARM_READ_RPC_ENDPOINT !== '/swarm/v1') failures.push('built browser client: endpoint contract mismatch')
+  } catch (error) {
+    failures.push(`built browser client cannot be imported: ${String(error)}`)
   }
 }
 
@@ -46,5 +63,5 @@ if (failures.length > 0) {
   for (const failure of failures) console.error(`- ${failure}`)
   process.exitCode = 1
 } else {
-  console.log('Package entry, types, bundle patch, and runtime import: PASS')
+  console.log('Package entry, browser client, types, bundle patch, and runtime imports: PASS')
 }

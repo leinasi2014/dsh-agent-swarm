@@ -4,6 +4,7 @@ import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
 import { AgentSwarmHostReadService, provideAgentSwarmHostRead } from './host-read-service.js'
 
 export { assembleAgentSwarmProducerFloor } from './producer-floor-assembly.js'
+export { mountAgentSwarmReadRpc } from '../rpc/read-rpc-service.js'
 
 /** Assemble R1 only against official Host identity and authoritative stores. */
 export function assembleAgentSwarmHostRead(

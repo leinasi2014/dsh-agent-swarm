@@ -112,7 +112,7 @@ Risk: S2/MEDIUM；读取身份若越界则升级 S3。
 
 ### Outcome
 
-在 R1 上发布唯一 browser-safe、versioned `/swarm` read namespace：capability discovery、binding/status、snapshot、task/attempt page、receipt page 和 bounded resync/event cursor。所有 write capability 在协议中继续明确 unavailable。
+在 R1 上发布唯一 browser-safe、versioned `/swarm` read namespace：capability discovery、binding/status、snapshot、task/attempt/pending-interaction page 和 bounded projection resync cursor。所有 write capability 在协议中继续明确 unavailable。
 
 ### Contract gate
 
@@ -122,6 +122,8 @@ Risk: S2/MEDIUM；读取身份若越界则升级 S3。
 - transport origin/trust 不等于 human identity；
 - official webserver route/upgrade lifecycle、mount/unmount/reload 和 no-UI operation 通过；
 - packed browser-safe consumer 不能导入 Host/storage/runtime-only module。
+
+R2 的首个实现固定为本机单用户、只读、target-bound 而非 principal-bound。`rootSessionId`/`teamId` 只是查找提示；Host 每次独立核验 exact live root Agent、同一 live Session 对象、root registry、workspace cwd 和 Team captain，再经官方 `withInitiator` 进入 R1。由于官方 Connection handler 不提供 remote peer 或原始 Origin，R2 使用官方 raw `WebServer.register` exact route `/swarm/v1`，并在解析正文前同时要求 listener=`127.0.0.1`、socket 两端 loopback、Host 为实际 listener port、Origin（若存在）与 Host 完全同源且 Fetch Metadata 非 cross-site。listener 为 `0.0.0.0` 或上下文不可验证时所有 read capability unavailable/route fail closed；不得把它解释为 LAN trust 或 human principal。该兼容 seam 随官方 WebServer/request-context 变化重新走 Gate A。
 
 ### Exit evidence
 
