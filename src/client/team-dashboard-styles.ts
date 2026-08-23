@@ -33,6 +33,23 @@ const TEAM_DASHBOARD_STYLES = `
   font-family: var(--dsw-font-family);
   overflow: hidden;
 }
+[data-swarm-team-card][data-presentation='compact'] {
+  display: block;
+  width: min(300px, calc(100vw - 32px));
+}
+[data-swarm-team-compact] {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+[data-swarm-team-compact-stats] {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+[data-swarm-team-compact] [data-swarm-team-stat] {
+  padding: 9px;
+}
 [data-swarm-team-header] {
   display: flex;
   align-items: flex-start;
@@ -186,11 +203,16 @@ const TEAM_DASHBOARD_STYLES = `
 }
 @media (max-width: 720px) {
   [data-swarm-team-card] {
-    left: 8px !important;
-    right: 8px;
+    left: 0 !important;
+    right: 0;
     width: auto;
     max-height: calc(100dvh - 92px);
-    border-radius: 16px;
+    border-radius: 0;
+  }
+  [data-swarm-team-card][data-presentation='compact'] {
+    left: auto !important;
+    width: min(300px, calc(100vw - 16px));
+    border-radius: 16px 0 0 16px;
   }
   [data-swarm-team-footer] { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
 }

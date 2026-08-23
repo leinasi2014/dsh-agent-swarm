@@ -69,7 +69,28 @@ try {
             officialSessionSelected: true, officialSelectionSource: 'localStorage:dsh.sessions.current',
             currentSessionId: 'root', reloadedSessionId: 'root', chatTextboxVisible: true,
           },
-          keyboard: ['focus', 'enter', 'focus-chat', 'enter-chat', 'escape'],
+          geometry: {
+            desktop: {
+              card: { x: 1004, y: 60, width: 420, height: 600 },
+              trigger: { x: 1370, y: 20, width: 32, height: 32 },
+              host: { x: 0, y: 0, width: 1440, height: 1000 },
+            },
+            desktopCompact: {
+              card: { x: 1124, y: 60, width: 300, height: 180 },
+              trigger: { x: 1370, y: 20, width: 32, height: 32 },
+            },
+            narrow: {
+              card: { x: 0, y: 60, width: 680, height: 600 },
+              trigger: { x: 630, y: 20, width: 32, height: 32 },
+              host: { x: 0, y: 0, width: 680, height: 900 },
+            },
+          },
+          nonModal: { ariaModal: false, outsidePointerDismissed: true, officialComposerFocused: true },
+          keyboard: [
+            'focus Team', 'Enter', 'outside click', 'trigger reopen', 'trigger compact', 'trigger close',
+            'trigger reopen', 'Escape with focus return', 'Enter', 'focus Open Captain Chat',
+            'Enter', 'Escape after reload',
+          ],
           requests: [{ method: 'POST', body: { method: 'snapshot' } }],
           consoleErrors: [], pageErrors: [],
         })}\n`
@@ -202,6 +223,28 @@ try {
   activeRecord.bytes = activeContent.length
   activeRecord.sha256 = await sha256File(activePath)
   cases.push(['R3 browser detached/blank fixture'])
+  for (const [label, mutate] of [
+    ['R3 browser forged narrow geometry', value => { value.geometry.narrow.card.width = 664 }],
+    ['R3 browser missing compact geometry', value => { delete value.geometry.desktopCompact }],
+    ['R3 browser missing outside dismissal', value => { value.nonModal.outsidePointerDismissed = false }],
+    ['R3 browser missing trigger close path', value => {
+      value.keyboard = value.keyboard.filter(action => action !== 'trigger close')
+    }],
+  ]) {
+    const value = JSON.parse(activeContent.toString('utf8'))
+    mutate(value)
+    const content = `${JSON.stringify(value)}\n`
+    await writeFile(activePath, content)
+    activeRecord.bytes = Buffer.byteLength(content)
+    activeRecord.sha256 = await sha256File(activePath)
+    if ((await verifyP0Evidence(root, structuredClone(base), expected)).ok) {
+      throw new Error(`${label} unexpectedly passed`)
+    }
+    cases.push([label])
+  }
+  await writeFile(activePath, activeContent)
+  activeRecord.bytes = activeContent.length
+  activeRecord.sha256 = await sha256File(activePath)
   const r0Path = join(root, 'evidence/r3-browser-r0.json')
   const r0Record = base.evidenceFiles.find(record => record.relativePath === 'evidence/r3-browser-r0.json')
   const r0Content = await readFile(r0Path)

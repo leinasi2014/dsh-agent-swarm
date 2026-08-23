@@ -63,7 +63,7 @@ captain（插件驱动）：
 - **执行根**：per-attempt worktree 隔离 + attemptId 围栏 + 崩溃泄漏对账（#100）；
 - **自托管控制面**：候选冻结→验收→晋升→回滚的外部 promoter 全链（P0–P7 演练实证，#102/#122 加固）。
 - **本机只读 Team 接口**：versioned `POST /swarm/v1` 与 browser-safe `dsh-agent-swarm/client`；Host 每次重绑 official live root/Session/workspace/captain Team。该接口仅在 `127.0.0.1` listener、loopback socket 与同源 authority 可验证时可用，不提供用户认证、LAN trust 或任何 write capability。预发布证据只覆盖 README 所列隔离 Profile 流程，不外推为 LAN、多用户或写操作能力。
-- **DSH-native Team 面板**：官方 Session log 右侧的团队图标打开锚定式非模态 Peek Card；桌面为留有视口边距的右上浮卡，窄屏仅横向铺满并始终保留顶部团队图标。官方 Chat 保持可见，外部点击会关闭浮卡且原点击继续生效。面板只读展示真实 Team、成员、任务/attempt、预算、待处理交互和 capability，陈旧/重连/错误显式可见。“打开 Captain Chat”先重验 R2 binding，再通过官方 Session 导航回到同一 root Session；不解析 transcript，也不产生 Control。
+- **DSH-native Team 面板**：官方 Session log 右侧的团队图标控制锚定式非模态 Peek Card；第一次点击打开完整卡片，第二次收拢为只含真实团队名、状态和三项计数的右侧简略卡，第三次完全关闭，不设置重复的卡内关闭按钮。桌面完整卡为留有视口边距的右上浮卡，窄屏横向铺满但始终保留顶部团队图标；Esc 或外部点击也可直接关闭，且外部原点击继续生效。完整卡只读展示真实 Team、成员、任务/attempt、预算、待处理交互和 capability，陈旧/重连/错误显式可见。“打开 Captain Chat”先重验 R2 binding，再通过官方 Session 导航回到同一 root Session；不解析 transcript，也不产生 Control。
 
 ## 文档
 

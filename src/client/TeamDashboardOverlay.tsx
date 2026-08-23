@@ -1,7 +1,6 @@
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from 'react'
 import {
   Button,
-  IconCloseOutline16,
   IconRefreshOutline16,
   Pill,
   StateDot,
@@ -90,39 +89,71 @@ export function TeamDashboardOverlay({ anchorRef, controller, openCaptainChat, t
             data-swarm-team-card
             data-swarm-team-dashboard
             data-phase={state.phase}
+            data-presentation={state.presentation ?? 'expanded'}
             style={{ ...position, visibility: position === null ? 'hidden' : 'visible' }}
           >
-            <header data-swarm-team-header>
-              <div data-swarm-team-heading>
-                <h2 id={headingId}>{t('title')}</h2>
-                <p id={descriptionId}>{t('description')}</p>
-              </div>
-              <Button size="sm" variant="toolbar" aria-label={t('close')} title={t('close')} onClick={closeAndRestoreFocus}>
-                <IconCloseOutline16 />
-              </Button>
-            </header>
-            <Tabs active={tab} select={setTab} t={t} />
-            <main data-swarm-team-body>
-              <div data-swarm-team-stack>
-                <Status state={state} t={t} />
-                {state.data === undefined
-                  ? <EmptyState state={state} t={t} controller={controller} />
-                  : <Dashboard data={state.data.projection} active={tab} t={t} />}
-              </div>
-            </main>
-            <footer data-swarm-team-footer>
-              <Button size="sm" variant="ghost" icon={<IconRefreshOutline16 />} onClick={() => { controller.refresh() }}>
-                {t('refresh')}
-              </Button>
-              <Button size="sm" variant="primary" disabled={state.data === undefined || handoffBusy} onClick={handoff}>
-                {handoffBusy ? t('openingChat') : t('openChat')}
-              </Button>
-            </footer>
+            {state.presentation === 'compact'
+              ? <CompactCard state={state} headingId={headingId} descriptionId={descriptionId} t={t} />
+              : <>
+                <header data-swarm-team-header>
+                  <div data-swarm-team-heading>
+                    <h2 id={headingId}>{t('title')}</h2>
+                    <p id={descriptionId}>{t('description')}</p>
+                  </div>
+                </header>
+                <Tabs active={tab} select={setTab} t={t} />
+                <main data-swarm-team-body>
+                  <div data-swarm-team-stack>
+                    <Status state={state} t={t} />
+                    {state.data === undefined
+                      ? <EmptyState state={state} t={t} controller={controller} />
+                      : <Dashboard data={state.data.projection} active={tab} t={t} />}
+                  </div>
+                </main>
+                <footer data-swarm-team-footer>
+                  <Button size="sm" variant="ghost" icon={<IconRefreshOutline16 />} onClick={() => { controller.refresh() }}>
+                    {t('refresh')}
+                  </Button>
+                  <Button size="sm" variant="primary" disabled={state.data === undefined || handoffBusy} onClick={handoff}>
+                    {handoffBusy ? t('openingChat') : t('openChat')}
+                  </Button>
+                </footer>
+              </>}
           </aside>
         </div>
       )}
     </>
   )
+}
+
+function CompactCard({ state, headingId, descriptionId, t }: {
+  state: TeamDashboardState
+  headingId: string
+  descriptionId: string
+  t: TranslateNS<typeof TEAM_DASHBOARD_NS>
+}) {
+  const data = state.data?.projection
+  return (
+    <div data-swarm-team-compact>
+      <div data-swarm-team-heading>
+        <h2 id={headingId}>{data?.team.name ?? t('title')}</h2>
+        <p id={descriptionId}>{data?.team.phase ?? compactPhase(state, t)}</p>
+      </div>
+      <div data-swarm-team-compact-stats>
+        <Stat value={data === undefined ? '—' : String(data.totals.roster)} label={t('members')} />
+        <Stat value={data === undefined ? '—' : String(data.totals.tasks)} label={t('tasks')} />
+        <Stat value={data === undefined ? '—' : String(data.totals.pendingInteractions)} label={t('interactions')} />
+      </div>
+    </div>
+  )
+}
+
+function compactPhase(state: TeamDashboardState, t: TranslateNS<typeof TEAM_DASHBOARD_NS>): string {
+  if (state.phase === 'loading') return t('loading')
+  if (state.phase === 'reconnecting') return t('reconnecting')
+  if (state.phase === 'stale') return t('stale')
+  if (state.phase === 'error') return t('error')
+  return state.phase
 }
 
 function Tabs({ active, select, t }: {

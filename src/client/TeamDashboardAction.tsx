@@ -30,10 +30,8 @@ export function TeamDashboardAction({ anchorRef, controller, sessionId, t }: Tea
         aria-expanded={active}
         data-swarm-team-trigger
         data-active={active || undefined}
-        onClick={() => {
-          if (active) controller.close()
-          else controller.open(sessionId)
-        }}
+        data-presentation={active ? state.presentation : undefined}
+        onClick={() => { controller.cycle(sessionId) }}
       >
         <IconUserOutline16 />
       </Button>

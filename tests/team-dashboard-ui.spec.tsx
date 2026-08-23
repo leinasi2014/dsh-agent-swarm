@@ -19,7 +19,6 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', async () => {
     Pill: ({ children }: { children?: ReactNode }) => react.createElement('span', {}, children),
     StateDot: () => react.createElement('span', { 'aria-hidden': 'true' }),
     IconUserOutline16: Icon,
-    IconCloseOutline16: Icon,
     IconRefreshOutline16: Icon,
     useAnchoredPosition: () => ({ left: 16, top: 48 }),
   }
@@ -45,8 +44,18 @@ class FakeController {
   }
   open = (sessionId: string): void => {
     this.openCalls.push(sessionId)
-    this.state = { open: true, phase: 'loading', targetSessionId: sessionId }
+    this.state = { open: true, phase: 'loading', presentation: 'expanded', targetSessionId: sessionId }
     for (const listener of this.listeners) listener()
+  }
+  cycle = (sessionId: string): void => {
+    if (!this.state.open || this.state.targetSessionId !== sessionId) {
+      this.open(sessionId)
+    } else if (this.state.presentation !== 'compact') {
+      this.state = { ...this.state, presentation: 'compact' }
+      for (const listener of this.listeners) listener()
+    } else {
+      this.close()
+    }
   }
   close = (): void => {
     this.closeCalls()
@@ -63,6 +72,7 @@ function readyState(): TeamDashboardState {
   return {
     open: true,
     phase: 'ready',
+    presentation: 'expanded',
     targetSessionId: 'session-fixture',
     data: {
       capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as SwarmReadCapabilitiesV1,
@@ -164,7 +174,7 @@ describe('R3 DSH-native Team UI', () => {
     expect(button('Open Captain Chat').disabled).toBe(false)
   })
 
-  it('uses framework Session ids only as target hints and toggles the current target', async () => {
+  it('uses framework Session ids only as target hints and cycles expanded, compact, then closed', async () => {
     const controller = new FakeController({ open: false, phase: 'closed' })
     await render(<>
       <TeamDashboardAction {...({ anchorRef: anchorRef(), controller, sessionId: 'root-from-framework', t } as unknown as TeamDashboardActionProps)} />
@@ -174,10 +184,29 @@ describe('R3 DSH-native Team UI', () => {
     await act(async () => { triggers[0]?.click() })
     expect(triggers[0]?.getAttribute('aria-expanded')).toBe('true')
     await act(async () => { triggers[0]?.click() })
+    expect(controller.getSnapshot().presentation).toBe('compact')
+    expect(triggers[0]?.getAttribute('aria-expanded')).toBe('true')
+    await act(async () => { triggers[0]?.click() })
     expect(controller.closeCalls).toHaveBeenCalledTimes(1)
     await act(async () => { triggers[1]?.click() })
     expect(controller.openCalls).toEqual(['root-from-framework', 'other-root'])
     expect(triggers[1]?.getAttribute('aria-controls')).toBe('swarm-team-peek-card')
+  })
+
+  it('renders compact mode as a real-data summary without the full controls', async () => {
+    const controller = new FakeController({ ...readyState(), presentation: 'compact' })
+    await render(<TeamDashboardOverlay {...({
+      anchorRef: anchorRef(), controller, openCaptainChat: vi.fn(), t,
+    } as unknown as TeamDashboardOverlayProps)} />)
+
+    const card = document.querySelector('[data-swarm-team-card]')
+    expect(card?.getAttribute('data-presentation')).toBe('compact')
+    expect(card?.textContent).toContain('Fixture Team')
+    expect(card?.textContent).toContain('Members')
+    expect(card?.textContent).toContain('Tasks')
+    expect(card?.textContent).toContain('Pending interactions')
+    expect(document.querySelector('[role="tablist"]')).toBeNull()
+    expect([...document.querySelectorAll('button')].some(item => item.textContent?.includes('Open Captain Chat'))).toBe(false)
   })
 
   it('dismisses on an outside pointer without stealing focus and ignores the card and trigger', async () => {

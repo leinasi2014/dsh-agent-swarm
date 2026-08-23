@@ -196,9 +196,28 @@ export async function runR3ActiveBrowserProof({
     await teamTrigger.click()
     await page.locator('[data-swarm-team-dashboard][data-phase="ready"]').waitFor({ state: 'visible', timeout: 20_000 })
     await teamTrigger.click()
+    await page.locator('[data-swarm-team-card][data-presentation="compact"]').waitFor({ state: 'visible', timeout: 10_000 })
+    await page.waitForFunction(() => {
+      const element = document.querySelector('[data-swarm-team-card][data-presentation="compact"]')
+      if (!(element instanceof HTMLElement)) return false
+      return Math.abs(element.getBoundingClientRect().right - (window.innerWidth - 16)) <= 2
+    })
+    const compactBox = await card.boundingBox()
+    if (compactBox === null || compactBox.width < 260 || compactBox.width > 320
+      || Math.abs(compactBox.x + compactBox.width - 1424) > 2
+      || desktopTriggerBox === null
+      || compactBox.y < desktopTriggerBox.y + desktopTriggerBox.height + 4
+      || compactBox.y > desktopTriggerBox.y + desktopTriggerBox.height + 12
+      || compactBox.y + compactBox.height > 984
+      || await teamTrigger.getAttribute('aria-expanded') !== 'true'
+      || await page.getByRole('button', { name: OPEN_CHAT }).count() !== 0) {
+      throw new Error(`unexpected compact Team card: ${JSON.stringify({ card: compactBox, trigger: desktopTriggerBox })}`)
+    }
+    await page.screenshot({ path: join(evidenceDir, 'r3-team-dashboard-compact.png'), fullPage: false })
+    await teamTrigger.click()
     await card.waitFor({ state: 'hidden', timeout: 10_000 })
     if (await teamTrigger.getAttribute('aria-expanded') !== 'false') {
-      throw new Error('second Team trigger click did not close its Peek Card')
+      throw new Error('third Team trigger click did not close its compact Peek Card')
     }
     await teamTrigger.click()
     await page.locator('[data-swarm-team-dashboard][data-phase="ready"]').waitFor({ state: 'visible', timeout: 20_000 })
@@ -208,10 +227,10 @@ export async function runR3ActiveBrowserProof({
     const narrowTriggerBox = await teamTrigger.boundingBox()
     const narrowHostBox = await page.locator('[data-shell-overlay]').boundingBox()
     if (narrowBox === null || narrowTriggerBox === null || narrowHostBox === null
-      || Math.abs(narrowBox.x - 8) > 2
-      || Math.abs(narrowBox.width - 664) > 2
+      || Math.abs(narrowBox.x) > 2
+      || Math.abs(narrowBox.width - 680) > 2
       || narrowBox.y < narrowTriggerBox.y + narrowTriggerBox.height + 4
-      || narrowBox.y + narrowBox.height > 892
+      || narrowBox.y + narrowBox.height > 900
       || !await teamTrigger.isVisible()) {
       throw new Error(`unexpected narrow Team card geometry: ${JSON.stringify({ card: narrowBox, trigger: narrowTriggerBox, host: narrowHostBox })}`)
     }
@@ -254,10 +273,11 @@ export async function runR3ActiveBrowserProof({
       bootstrap: { ...bootstrapEvidence(rootSessionId, selectionSource), frameworkTargetObserved: true },
       geometry: {
         desktop: { card: desktopBox, trigger: desktopTriggerBox, host: desktopHostBox },
+        desktopCompact: { card: compactBox, trigger: desktopTriggerBox },
         narrow: { card: narrowBox, trigger: narrowTriggerBox, host: narrowHostBox },
       },
       nonModal: { ariaModal: false, outsidePointerDismissed: true, officialComposerFocused: true },
-      keyboard: ['focus Team', 'Enter', 'outside click', 'trigger reopen', 'trigger close', 'trigger reopen', 'Escape with focus return', 'Enter', 'focus Open Captain Chat', 'Enter', 'Escape after reload'],
+      keyboard: ['focus Team', 'Enter', 'outside click', 'trigger reopen', 'trigger compact', 'trigger close', 'trigger reopen', 'Escape with focus return', 'Enter', 'focus Open Captain Chat', 'Enter', 'Escape after reload'],
       handoff: {
         officialSessionSelected: true,
         officialSelectionSource: 'localStorage:dsh.sessions.current',

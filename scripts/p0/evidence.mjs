@@ -54,7 +54,9 @@ export const REQUIRED_P0_EVIDENCE_FILES = [
   'evidence/r3-browser-r0.json',
   'evidence/r3-browser-removed.json',
   'evidence/r3-r0-fail-closed.png',
+  'evidence/r3-team-dashboard-compact.png',
   'evidence/r3-team-dashboard.png',
+  'evidence/r3-team-dashboard-narrow.png',
   'evidence/r3-workspace-accounting.json',
   'evidence/r3-workspace-create.json',
 ]
@@ -268,6 +270,7 @@ async function verifyR3BrowserEvidence(root, failures) {
     || !Array.isArray(active?.keyboard) || active.keyboard.length < 5) {
     failures.push('R3 active browser evidence does not prove render/keyboard/handoff/reload')
   }
+  verifyPeekCardEvidence(active, failures)
   if (active?.fixture?.exactRoot !== true || active?.fixture?.workspaceAttached !== true
     || active?.fixture?.sessionNonBlank !== true
     || active?.fixture?.rootSessionId !== active?.rootSessionId
@@ -323,11 +326,69 @@ async function verifyR3BrowserEvidence(root, failures) {
     || !Array.isArray(removed?.pageErrors) || removed.pageErrors.length !== 0) {
     failures.push('R3 removed browser contains an unclassified console or page error')
   }
-  for (const relativePath of ['evidence/r3-team-dashboard.png', 'evidence/r3-r0-fail-closed.png']) {
+  for (const relativePath of [
+    'evidence/r3-team-dashboard.png',
+    'evidence/r3-team-dashboard-compact.png',
+    'evidence/r3-team-dashboard-narrow.png',
+    'evidence/r3-r0-fail-closed.png',
+  ]) {
     const screenshot = await stat(resolve(root, relativePath)).catch(() => undefined)
     if (screenshot === undefined || !screenshot.isFile() || screenshot.size < 1_024) {
       failures.push(`R3 browser screenshot is missing or implausibly small: ${relativePath}`)
     }
+  }
+}
+
+function verifyPeekCardEvidence(active, failures) {
+  const desktop = active?.geometry?.desktop
+  const desktopCompact = active?.geometry?.desktopCompact
+  const narrow = active?.geometry?.narrow
+  const desktopCard = desktop?.card
+  const desktopTrigger = desktop?.trigger
+  const compactCard = desktopCompact?.card
+  const compactTrigger = desktopCompact?.trigger
+  const narrowCard = narrow?.card
+  const narrowTrigger = narrow?.trigger
+  const validRect = value => value !== undefined
+    && ['x', 'y', 'width', 'height'].every(key => Number.isFinite(value[key]))
+    && value.width > 0 && value.height > 0
+  if (!validRect(desktopCard) || !validRect(desktopTrigger)
+    || desktopCard.width < 360 || desktopCard.width > 440
+    || Math.abs(desktopCard.x + desktopCard.width - 1424) > 2
+    || desktopCard.y < desktopTrigger.y + desktopTrigger.height + 4
+    || desktopCard.y > desktopTrigger.y + desktopTrigger.height + 12
+    || desktopCard.y + desktopCard.height > 984) {
+    failures.push('R3 active browser evidence does not prove desktop Peek Card anchor and viewport clearance')
+  }
+  if (!validRect(narrowCard) || !validRect(narrowTrigger)
+    || Math.abs(narrowCard.x) > 2 || Math.abs(narrowCard.width - 680) > 2
+    || narrowCard.y < narrowTrigger.y + narrowTrigger.height + 4
+    || narrowCard.y + narrowCard.height > 900) {
+    failures.push('R3 active browser evidence does not prove narrow full-width Peek Card below the trigger')
+  }
+  if (!validRect(compactCard) || !validRect(compactTrigger)
+    || compactCard.width < 260 || compactCard.width > 320
+    || Math.abs(compactCard.x + compactCard.width - 1424) > 2
+    || compactCard.y < compactTrigger.y + compactTrigger.height + 4
+    || compactCard.y > compactTrigger.y + compactTrigger.height + 12
+    || compactCard.y + compactCard.height > 984) {
+    failures.push('R3 active browser evidence does not prove the intermediate compact Team card')
+  }
+  if (active?.nonModal?.ariaModal !== false
+    || active?.nonModal?.outsidePointerDismissed !== true
+    || active?.nonModal?.officialComposerFocused !== true) {
+    failures.push('R3 active browser evidence does not prove non-modal outside dismissal with original Chat focus')
+  }
+  const requiredActions = [
+    'outside click',
+    'trigger reopen',
+    'trigger compact',
+    'trigger close',
+    'Escape with focus return',
+    'focus Open Captain Chat',
+  ]
+  if (!Array.isArray(active?.keyboard) || requiredActions.some(action => !active.keyboard.includes(action))) {
+    failures.push('R3 active browser evidence does not prove every required Peek Card close path')
   }
 }
 
