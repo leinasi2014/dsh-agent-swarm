@@ -63,7 +63,7 @@ captain（插件驱动）：
 - **执行根**：per-attempt worktree 隔离 + attemptId 围栏 + 崩溃泄漏对账（#100）；
 - **自托管控制面**：候选冻结→验收→晋升→回滚的外部 promoter 全链（P0–P7 演练实证，#102/#122 加固）。
 - **本机只读 Team 接口**：versioned `POST /swarm/v1` 与 browser-safe `dsh-agent-swarm/client`；Host 每次重绑 official live root/Session/workspace/captain Team。该接口仅在 `127.0.0.1` listener、loopback socket 与同源 authority 可验证时可用，不提供用户认证、LAN trust 或任何 write capability。预发布证据只覆盖 README 所列隔离 Profile 流程，不外推为 LAN、多用户或写操作能力。
-- **DSH-native Team 面板**：官方 Session log 右侧的团队图标保持“完整→简略→关闭”三段行为。安全宽屏下完整面板通过 DSH 公开 Slot 的临时低优先级 UI occupant 进入官方 `details` 列，Chat 真实收缩；面板内“显示工具详情”会释放 Team occupant、停止 Team 读取但保持右栏打开，使未被卸载或复制的官方 Tool Details 原位恢复。较小窗口继续使用锚定式非模态 Peek Card，简略态始终只显示真实团队名、状态和三项计数。插件卸载、HMR、Session 切换或 Team 渲染失败都会释放临时 occupant；不修改官方 WebUI 文件，不读取私有布局/Chat 状态。所有 Swarm 文案、枚举和时间格式跟随 DSH 当前语言，颜色、边框、阴影和字体只消费当前官方主题 Token。“打开 Captain Chat”仍先重验 R2 binding，再通过官方 Session 导航进入同一 root Session；不解析 transcript，也不产生 Control。
+- **DSH-native Team 面板**：官方 Session log 右侧是相邻的 Team 与 Tool Details 操作。Team 保持“完整→简略→关闭”三段行为；安全宽屏下完整面板通过 DSH 公开 Slot 的临时数值更低 shadow rank 进入官方 `details` 列，Chat 真实收缩。相邻 Tool Details 操作释放 Team、停止 Team 读取并打开原生右栏，使未被卸载或复制的官方 DetailsPanel 原位恢复；插件不维护 Tool 状态。较小窗口继续使用锚定式非模态 Peek Card，简略态始终只显示真实团队名、状态和三项计数。插件卸载、HMR、Session 切换或 Team 渲染失败都会释放临时 occupant；不修改官方 WebUI 文件，不读取私有布局/Chat 状态。所有 Swarm 文案、枚举和时间格式跟随 DSH 当前语言，颜色、边框、阴影和字体只消费当前官方主题 Token。“打开 Captain Chat”仍先重验 R2 binding，再通过官方 Session 导航进入同一 root Session；不解析 transcript，也不产生 Control。
 
 ## 文档
 

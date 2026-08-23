@@ -137,7 +137,7 @@ Risk: external read boundary 为 S3/HIGH。
 
 使用官方 slots、components、locale 和 theme tokens 提供最小 DSH client plugin。它只消费 R2，展示 Team、成员、任务/attempt、预算、pending interaction、capability、stale/reconnect/error，并提供明确的“打开 Captain Chat”操作进入同一官方 DSH root Session。
 
-安全宽屏的完整 Team 面板使用公开 Slot priority 语义临时占用官方 `details` 列，使 Chat 真实重排；Team 内的一次性“显示工具详情”动作释放该 occupant 但保持列打开，由原有官方 Tool Details 自动接管。插件不维护 Tool 状态，也不复制官方 DetailsPanel。较小窗口与简略态继续使用 `shell.overlay` Peek。DSH locale 是 Swarm UI 唯一语言权威，DSH theme token cascade 是唯一主题权威；插件不保存自己的语言或主题偏好。
+安全宽屏的完整 Team 面板使用公开 Slot priority 语义临时占用官方 `details` 列，使 Chat 真实重排；Session header 中紧邻 Team 的 Tool Details 操作释放该 occupant、停止 Team 读取并调用官方 `openDetails()`，由原有 DetailsPanel 自动接管。插件不维护 Tool 状态，也不复制官方 DetailsPanel。较小窗口与简略态继续使用 `shell.overlay` Peek。DSH locale 是 Swarm UI 唯一语言权威，DSH theme token cascade 是唯一主题权威；插件不保存自己的语言或主题偏好。
 
 Captain Chat 是首个用户修正纵切：用户通过官方 Session 对 captain 说明修改，captain 再使用已有 `agent_swarm_*` 工具操作 Team。UI 不把聊天文本解释为 typed Control，不从 transcript 派生 Team truth，也不等待 direct `/swarm` writes 才提供价值。
 

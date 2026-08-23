@@ -23,18 +23,21 @@ Card. `compact` is always the small right-side Peek Card containing only the
 real Team name, phase and member/task/pending counts. Neither Team surface has
 a duplicate close button.
 
-The wide-screen Team column includes a header action named “Show tool details”.
-It is a one-way handoff, not a second Tool Details implementation and not a
-two-way toggle. Activating it immediately releases the Team occupant, stops the
-Team read lifecycle and returns the Team controller to inactive, while leaving
-the official details column open. The unchanged official Tool Details occupant
-then renders in the same column. The user returns to Team by pressing the
-persistent Team button again.
+The Session header also contains a persistent “Show tool details” action
+immediately beside the Team button. It is the other side of the visible surface
+switch, but the plugin does not infer or store an official Tool-active state.
+Activating it releases any Team occupant, stops the Team read lifecycle, returns
+the Team controller to inactive and calls `openDetails()` without ever calling
+`closeDetails()`. The unchanged official Tool Details occupant then renders in
+the same column. Pressing it while Team is already inactive simply opens the
+official details column. The user returns to Team by pressing the adjacent Team
+button.
 
 ## Official seams and ownership
 
-- `conversation.session.header.utilities` remains the additive,
-  Session-scoped Team action seat. It receives the framework-owned `sessionId`.
+- `conversation.session.header.utilities` remains the additive, Session-scoped
+  action seat. One plugin registration renders the adjacent Team and Tool
+  Details actions as a stable pair and receives the framework-owned `sessionId`.
 - `details` is the official `single/session` column seat. Official
   `ui-conversation` occupies priority `0`. DSH's public Slot contract permits
   different-priority entries in one cell and renders the lowest live priority.
@@ -94,20 +97,32 @@ inspect private frame geometry to force docking.
 | docked expanded | Team | call `closeDetails()`, release Team entry, retain the read generation and render compact Peek | compact Peek |
 | expanded Peek | Team | retain the read generation and render compact Peek | compact Peek |
 | compact Peek | Team | stop reads and close | inactive |
-| docked expanded | Show tool details | release Team entry, stop reads and become inactive; do **not** call `closeDetails()` | official Tool Details |
+| docked expanded | adjacent Tool Details | release Team entry, stop reads and become inactive; do **not** call `closeDetails()`, then call `openDetails()` | official Tool Details |
+| inactive/Peek/compact | adjacent Tool Details | close any Team Peek/read state, release any Team entry without `closeDetails()`, then call `openDetails()` | official Tool Details |
 | expanded Team | Captain Chat | complete the fresh R2 binding proof, close/release Team through the coordinator, then navigate through official Sessions | inactive |
 | any Team surface | Session changes/disappears | release entry, close Team-opened details, abort old-root reads and clear presentation | inactive |
 | docked expanded | Team entry render error | fail inactive, stop reads and keep details open so the official occupant is the fallback | official Tool Details |
-| expanded | crosses responsive threshold | atomically migrate docked <-> Peek without restarting reads or rendering both | expanded |
-| active plugin | unload/HMR | stop admission/reads, release entries/listeners/styles and prevent later re-registration | official-only |
+| docked expanded | crosses below safe threshold | call `closeDetails()`, release Team entry, then commit Peek; retain the read generation | expanded Peek |
+| expanded Peek | crosses into safe threshold | register and verify Team winner, call `openDetails()`, then hide Peek; on any acquisition failure keep Peek unchanged | docked expanded or expanded Peek |
+| Swarm fiber | unload/HMR | close admission, advance coordinator epoch and clear desired state; stop reads; release entry/listeners/styles without `closeDetails()`; forbid late registration | official Tool Details in the still-open column |
+| official details declaration | collapse/redeclare | clear the old lease and entry identity; if the same live coordinator still desires docked Team for the same Session at safe width, acquire exactly one new lease | docked Team or zero Team entries |
 
-Opening is fail-closed. Registration occurs through
-`slots.inject('details', ...)` so it follows declaration
-collapse/redeclaration during official HMR. After registration, the coordinator
-checks the public slot-ledger winner. Priority collision, declaration mismatch,
-third-party lower-priority winner or `openDetails()` failure rolls back the Team
-entry and controller. Rapid inputs are serialized and there is at most one Team
-details entry.
+Opening is fail-closed. `slots.inject('details', ...)` does not unconditionally
+register Team. Its callback lends the coordinator one declaration-lifetime
+registration seat/factory. Only `desired === TEAM_DOCKED` may use that seat.
+Callback cleanup releases its exact entry, clears the identity and invalidates
+the old disposer. After registration, the coordinator checks the public
+slot-ledger winner. Priority collision, declaration mismatch or a third-party
+lower numeric rank rolls back acquisition. A fresh opening that cannot acquire
+or call `openDetails()` returns inactive; migration from an existing Peek keeps
+that Peek visible and its reads alive. Rapid inputs are serialized and there is
+at most one Team details entry.
+
+Official declaration HMR and Swarm HMR are different lifecycles. An official
+collapse/redeclare may reacquire one lease only when the still-live coordinator
+has the same target, remains at safe width and still desires docked Team. Swarm
+unload first closes admission and clears desired state, so declaration changes
+cannot resurrect it; it then releases Team without closing the official column.
 
 The coordinator subscribes to the official Session list/current snapshot. A
 Session-scoped component returning `null` is not cleanup: the global slot
@@ -120,18 +135,24 @@ swallowed.
 - The persistent Team button alone reports Team visibility through
   `aria-expanded`; it is false after Tool handoff even while official Tool
   Details remains open.
-- “Show tool details” is a named one-way action. It has no `aria-pressed` or
-  `aria-expanded`, remains usable without a selected tool and lets the official
-  panel render its own empty state.
-- Because the Tool action unmounts itself, handoff queues focus back to the
-  persistent Team button and announces “Tool details shown” through a polite
-  live region.
+- The adjacent “Show tool details” action is persistent and named. It has no
+  `aria-pressed` or `aria-expanded`, remains usable without a selected tool and
+  lets the official panel render its own empty state.
+- Tool handoff returns focus to the still-mounted Tool action. Its announcement
+  is rendered in a persistent polite live region owned by the header action
+  pair, never inside the disappearing Team occupant.
 - Tool rows may update the official hidden selection while Team is docked, but
   public DSH exposes no event for automatic takeover. The user explicitly
   presses “Show tool details” to reveal the current official selection.
-- Docked Team does not close on an outside Chat click. Escape closes only when
-  focus is in the Team column or its header controls and restores Team-button
-  focus. Peek modes retain their accepted outside-pointer and Escape behavior.
+- Docked Team does not close on an outside Chat click. Escape from the Team
+  surface is one serialized transaction: `closeDetails()`, release Team, stop
+  reads, become inactive and restore Team-button focus; it never passes through
+  compact. Peek modes retain their accepted outside-pointer and direct-close
+  Escape behavior.
+- Every Team surface is the one `role="complementary"` region with a resolvable
+  title and stable controls id. If Session switching removes the focused Team
+  region, focus is moved to a stable action in the newly current Session before
+  teardown instead of falling to `body`.
 - The plugin does not claim keyboard resizing; the official rc.2 drag handle is
   pointer-owned.
 
@@ -140,7 +161,9 @@ swallowed.
 Swarm registers complete `zh` and `en` dictionaries through official
 `ctx.locale` and binds every Team slot entry to that namespace. Mounted Team
 controls and surfaces update on the same page when DSH locale changes; the
-plugin stores no independent language preference.
+plugin stores no independent language preference. The persistent coordinator
+also subscribes to the public `ctx.locale` snapshot for the active locale id
+used by formatters; the injected `t` seat remains the text refresh mechanism.
 
 Finite protocol enums are translated through exhaustive locale-key maps.
 Business data and diagnostic identifiers (Team/member names, roles, subjects,
@@ -183,13 +206,17 @@ write method or execute a Team effect.
 Author and non-author acceptance bind the exact package candidate and include:
 
 - slot/coordinator tests for official priority `0` while inactive, one Team
-  priority `-1` winner while docked, rollback, close ordering, one-way Tool
-  handoff without `closeDetails()`, rapid-toggle uniqueness,
+  priority `-1` winner while docked, rollback, close ordering, adjacent Tool
+  handoff with zero `closeDetails()` delta, rapid-toggle uniqueness,
   declaration collapse/rebind, entry-error fallback and idempotent disposal;
+- declaration lifecycle negatives proving inactive collapse/redeclare keeps
+  zero Team entries, docked redeclaration reacquires exactly one, and Swarm
+  unload during a declaration gap can never register later;
 - Session switch and target disappearance proving entry release and physical
   read abort;
 - responsive tests proving atomic docked/Peek migration, real compact summary,
-  and no details entry or Tool action below the threshold;
+  and below-threshold zero Team details entries, zero details-column width,
+  restored Chat width and one Peek. Failed dock acquisition keeps Peek intact;
 - locale tests switching DSH `zh -> en -> zh` while docked and Peek remain
   mounted; exhaustive enum and locale-aware time formatting; official theme
   `light -> dark -> system` token-resolution evidence with no plugin preference;
@@ -203,7 +230,9 @@ Author and non-author acceptance bind the exact package candidate and include:
 - negative evidence rejects residual Team DOM/entries after Tool handoff,
   `closeDetails()` during Tool handoff, narrow details registration, duplicate
   trigger/entry, stale target reads, missing official fallback, locale/theme
-  drift, private layout/DOM access and official checkout changes.
+  drift, private layout/DOM access and official checkout changes. Tool handoff,
+  Team render error and Swarm unload separately prove the official priority-0
+  winner; unload additionally proves no read/listener and no later resurrection.
 
 ## Non-goals
 
