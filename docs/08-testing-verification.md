@@ -135,7 +135,7 @@ Logs are not the state source. UI snapshots and metrics derive from committed re
 
 ## 7. Current implementation verification
 
-The post-M1A core has forty-six executable suites / 287 tests (the per-suite bullets below cover the M1 lineage plus milestone additions; bridge, budget, promotion, verification-family, budget-family and SW-I1a decisions are also described in their docs/04 sections and design notes):
+The post-M1A core has forty-six executable suites / 289 tests (the per-suite bullets below cover the M1 lineage plus milestone additions; bridge, budget, promotion, verification-family, budget-family and SW-I1a decisions are also described in their docs/04 sections and design notes):
 
 - `tests/executable-review.spec.ts`: 17 tests preserve the twelve #101 executable-review/root-evidence cases and add five #128 cases: builtin template expansion and parameter rejection; a mixed Node/Python-family task preserving declaration order and candidate check-in; unavailable Python capability refusing before persistence with no root opened; version-1 summary completeness across a fail-fast command with exact planned/executed/skipped/root/provenance accounting; and diagnostic-budget truncation that retains the exact verdict and root-only provenance tail.
 
