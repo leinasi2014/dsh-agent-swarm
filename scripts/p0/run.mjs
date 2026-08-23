@@ -139,7 +139,10 @@ async function main() {
     await rename(join(artifactDir, basename(packedName)), tarball)
     const artifactSha256 = await sha256File(tarball)
     const artifactStat = await stat(tarball)
-    const listing = await execute('artifact-list', 'tar', ['--force-local', '-tzf', posix(tarball)])
+    // Run from the artifact directory with a basename: both Windows bsdtar
+    // and GNU tar accept this form, and no drive-letter colon needs special
+    // parsing (`--force-local` is GNU-only and fails on the official host).
+    const listing = await execute('artifact-list', 'tar', ['-tzf', basename(tarball)], { cwd: artifactDir })
     if (listing.code !== 0 || !listing.stdout.includes('package/lib/index.mjs') || !listing.stdout.includes('package/cordis.patch.yml')) {
       throw new Error('packed artifact is missing the runtime entry or Bundle patch')
     }
