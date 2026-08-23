@@ -24,7 +24,7 @@ G0 product/compatibility baseline
       -> R1 / I2-R read-only Host projection
         -> R2 / I3-R canonical read-only /swarm RPC
           -> R3 / I4-R DSH Team read UI + open official Captain Chat
-          -> R4 / I5-R Canvas read consumer + open the same Captain Chat
+            -> R4 / I5-R Canvas read consumer + open the same Captain Chat
 
 Existing I1a headless liaison
   -> W1 operation-scoped durable effect acceptance
@@ -146,11 +146,11 @@ Risk: ordinary UI 为 S2/MEDIUM；错误 Session handoff 为 S3/HIGH。
 
 ### Outcome
 
-Canvas 连接用户的同一官方 DSH，发现已接受 R2 capability，并以 Canvas-native 组件投影同一 Team read contract。Canvas 可以打开/聚焦同一官方 Captain Chat；Canvas BFF 只提供 origin/token/rate-limit/transport 保护，不成为 Team/HumanInteraction producer。
+Canvas 在已接受的 R3 candidate 基础上连接用户的同一官方 DSH，复用已接受的 R2 capability，并以 Canvas-native 组件投影同一 Team read contract。Canvas 可以打开/聚焦同一官方 Captain Chat；Canvas BFF 只提供 origin/token/rate-limit/transport 保护，不成为 Team/HumanInteraction producer。
 
 ### Start gate
 
-Canvas 必须收到已接受 producer candidate 的 exact artifact identity、canonical schemas/fixtures/digest、RPC version/capability set、真实 Profile mount/dispose/reload 证据，以及 DSH UI 使用的同一 read parity matrix。
+R4 只能在 exact R3 candidate 已接受后开始。Canvas 必须收到该 candidate 的 artifact identity、canonical schemas/fixtures/digest、RPC version/capability set、真实 Profile mount/dispose/reload 证据，以及 DSH UI/Canvas read parity evidence；Canvas 仍复用已接受的 R2 contract，不创建第二份 consumer contract。
 
 ### Boundaries
 
