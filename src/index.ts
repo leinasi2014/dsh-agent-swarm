@@ -16,8 +16,9 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-agent'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
-import type {} from '@deepseek-ai/dsh-storage-domain'
+import type { Domain } from '@deepseek-ai/dsh-storage-domain'
 import type {} from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { AgentSwarmRuntime } from './runtime/orchestrator-runtime.js'
@@ -27,6 +28,13 @@ import { recoverActiveRosters } from './runtime/usage-recovery.js'
 import { TeamBridgeWorkflowEngine } from './runtime/workflow/team-bridge-engine.js'
 import { TeamJobProjection } from './runtime/jobs/team-job-projection.js'
 import { defaultExecutionRootsBase, expectExecutionRootsBase } from './runtime/execution-roots.js'
+import { CaptainLiaison } from './human/captain-liaison.js'
+import { HumanControlGateway } from './human/human-control-gateway.js'
+import { HumanInteractionOverlayStore, humanInteractionDomainSpec } from './human/human-interaction-store.js'
+import { humanReviewProvider } from './human/human-review-provider.js'
+import { officialCaptainQuestionPresentation } from './human/official-question-presentation.js'
+import { effectiveToolPolicy, TeamPermissionSurface } from './runtime/permission-surface.js'
+import { reviewerAgentReviewProvider } from './runtime/reviewer-boundary.js'
 
 export { AgentSwarmRuntime } from './runtime/orchestrator-runtime.js'
 export type {
@@ -97,6 +105,14 @@ export {
 } from './storage/workflow-run-overlay.js'
 export type { WorkflowRunOverlayRecord, WorkflowRunOverlayState } from './storage/workflow-run-overlay.js'
 export { TeamDomainError } from './domain/error.js'
+export { HumanControlGateway } from './human/human-control-gateway.js'
+export type { HumanControlAdmission, HumanControlGatewayDeps } from './human/human-control-gateway.js'
+export { humanReviewProvider } from './human/human-review-provider.js'
+export { TeamPermissionSurface, effectiveToolPolicy, mergePreToolDecision } from './runtime/permission-surface.js'
+export type { ToolPolicyDeclaration } from './runtime/permission-surface.js'
+export type { HumanPrincipalVerifier } from './runtime/human-provenance.js'
+export { reviewerAgentReviewProvider } from './runtime/reviewer-boundary.js'
+export type { ReviewerAgentProvider, ReviewerAgentVerdict } from './runtime/reviewer-boundary.js'
 export { compileNodePlan, applyNodePlan } from './patterns/node-mapping.js'
 export type {
   AppliedNodePlan,
@@ -134,6 +150,34 @@ export { TEAM_DOMAIN_NAME, TEAM_DOMAIN_VERSION, teamDomainSpec } from './storage
 export { FileTeamStore, resolveStateRoot } from './storage/team-store.js'
 export { migrateLegacyTeamStore } from './migration/migrate-legacy-store.js'
 export type { MigrationOptions, MigrationReport, MigrationTeamOutcome } from './migration/migrate-legacy-store.js'
+export { CaptainLiaison } from './human/captain-liaison.js'
+export { officialCaptainQuestionPresentation } from './human/official-question-presentation.js'
+export {
+  HumanInteractionOverlayStore,
+  humanInteractionDomainSpec,
+  HUMAN_INTERACTION_DOMAIN_NAME,
+  HUMAN_INTERACTION_DOMAIN_VERSION,
+} from './human/human-interaction-store.js'
+export {
+  HUMAN_INTERACTION_CONTROL_INTENTS,
+  sameHumanInteractionRequest,
+} from './human/human-interaction-contract.js'
+export type {
+  CaptainQuestion,
+  CaptainQuestionPresentation,
+  HumanInteractionIntent,
+  HumanInteractionOrigin,
+  HumanInteractionPort,
+  HumanInteractionReceipt,
+  HumanInteractionAdmission,
+  HumanInteractionRecord,
+  HumanInteractionRequest,
+  HumanInteractionSource,
+  HumanInteractionStatus,
+  HumanInteractionTarget,
+  PresentQuestionInput,
+  RelayMemberQuestionInput,
+} from './human/human-interaction-contract.js'
 
 export const name = 'agent-swarm'
 export const inject = [
@@ -272,6 +316,14 @@ export interface Config {
    * (default: a dedicated partition under the platform temp directory).
    */
   executionRootsBase?: string
+  /**
+   * I1a tiered allow/ask/deny tool policy for this plugin's Team members.
+   * The plugin tool surface is allowed by default; unlisted host tools fail
+   * closed for Team participants unless explicitly allowed. `ask` is valid
+   * only for the live root captain through the official same-turn approval
+   * seam and becomes deny for delegated members.
+   */
+  toolPolicy?: { allow?: string[]; ask?: string[]; deny?: string[] }
   /** Ordered system-prompt contribution. */
   promptSectionOrder?: number
 }
@@ -305,6 +357,11 @@ export const Config: z<Config> = z.object({
   executionRoots: z.boolean().default(false),
   executionRootProvider: z.string().default('git-worktree'),
   executionRootsBase: z.string(),
+  toolPolicy: z.object({
+    allow: z.array(z.string()).default([]),
+    ask: z.array(z.string()).default([]),
+    deny: z.array(z.string()).default([]),
+  }).default({ allow: [], ask: [], deny: [] }),
   promptSectionOrder: z.natural().default(118),
 })
 
@@ -344,6 +401,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const executionRootProvider = (config.executionRootProvider ?? 'git-worktree').trim()
   if (executionRootProvider === '') throw new Error('agent-swarm: executionRootProvider must not be empty')
   const executionRootsBase = expectExecutionRootsBase(config.executionRootsBase) ?? defaultExecutionRootsBase()
+  const toolPolicy = effectiveToolPolicy(config.toolPolicy)
+  const memberToolPolicyDeny = [...(toolPolicy.ask ?? []), ...(toolPolicy.deny ?? [])]
 
   const runtime = new AgentSwarmRuntime(ctx, {
     memberProvider,
@@ -371,14 +430,97 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     executionRootsEnabled,
     executionRootProvider,
     executionRootsBase,
+    memberToolPolicyDeny,
   })
 
   // Fail closed: the official Storage Domain must open (backend routed, unit
   // version matching, stored records schema-valid) before any tool, prompt
   // section or listener is registered.
   await runtime.start()
+  // Register first so LIFO teardown retires every later consumer and overlay
+  // before the authoritative Team store closes.
+  ctx.effect(() => () => runtime.dispose(), 'agent-swarm: runtime disposal')
 
   registerAgentSwarmTools(ctx, runtime)
+  // I1a permission boundary: project policy consumes the official
+  // tools/pre-execute + approval seams. It cannot widen downstream denial.
+  let permission: TeamPermissionSurface | undefined
+  try {
+    permission = new TeamPermissionSurface({ ctx, runtime, policy: toolPolicy })
+    ctx.effect(() => {
+      const unprovidePermission = ctx.provide('agentSwarmPermission', permission!)
+      return async () => {
+        await unprovidePermission?.()
+        await permission!.dispose()
+      }
+    }, 'agent-swarm: permission surface')
+    ctx.effect(() => permission!.attachPreExecute(ctx), 'agent-swarm: team tool permission')
+    ctx.effect(
+      () => runtime.registerReviewProvider('reviewer-agent', reviewerAgentReviewProvider(() => permission!.reviewerAgent)),
+      'agent-swarm: reviewer-agent review provider',
+    )
+  } catch (error) {
+    await runtime.dispose()
+    throw error
+  }
+  if (permission === undefined) {
+    await runtime.dispose()
+    throw new Error('agent-swarm: permission surface was not assembled')
+  }
+
+  // I1a human review stays inside the existing captain review transaction;
+  // the provider produces a decision, TeamDomainPort owns the mutation.
+  ctx.effect(() => runtime.registerReviewProvider('human', humanReviewProvider(ctx)), 'agent-swarm: human review provider')
+  // One effect owns the additive interaction overlay and both headless host
+  // surfaces. There is no RPC, browser, Canvas or UI dependency in this slice.
+  let humanDomain: Domain<typeof humanInteractionDomainSpec> | undefined
+  let humanOverlay: HumanInteractionOverlayStore | undefined
+  let unprovideControl: (() => void) | undefined
+  let unprovideInteraction: (() => void) | undefined
+  try {
+    const domain = await ctx.storageDomain.open(humanInteractionDomainSpec)
+    humanDomain = domain
+    const overlay = new HumanInteractionOverlayStore(ctx, domain)
+    humanOverlay = overlay
+    const liaison = new CaptainLiaison(
+      runtime.domain,
+      overlay,
+      officialCaptainQuestionPresentation(ctx),
+      Date.now,
+      {
+        resolve: sessionId => ctx.agents.get(SessionId(sessionId)),
+        isRoot: agent => ctx.agents.roots().includes(agent),
+      },
+    )
+    const humanControl = new HumanControlGateway({
+      ctx,
+      domain: () => runtime.domain,
+      overlay,
+      now: Date.now,
+      sendMessage: (exec, target, content, delivery) => runtime.sendMessage(exec, target, content, delivery),
+      interruptMember: (exec, memberName) => runtime.interruptMember(exec, memberName),
+      reassignTask: (exec, taskId, expectedRevision, reason) => runtime.reassignTask(exec, taskId, expectedRevision, reason),
+      reviewTask: (exec, input) => runtime.reviewTask(exec, input),
+      verifyHumanPrincipal: (principalRef, request) => permission.verifyHumanPrincipal(principalRef, request),
+    })
+    ctx.effect(() => {
+      unprovideControl = ctx.provide('agentSwarmHumanControl', humanControl)
+      unprovideInteraction = ctx.provide('agentSwarmHumanInteraction', liaison)
+      return async () => {
+        await unprovideControl?.()
+        await unprovideInteraction?.()
+        overlay.close()
+        await domain.close()
+      }
+    }, 'agent-swarm: human interaction domain')
+  } catch (error) {
+    await unprovideControl?.()
+    await unprovideInteraction?.()
+    humanOverlay?.close()
+    if (humanDomain !== undefined) await humanDomain.close()
+    await runtime.dispose()
+    throw error
+  }
   ctx.effect(() => ctx.systemPrompt.section({
     name: 'agent-swarm:usage',
     order: config.promptSectionOrder ?? 118,
@@ -419,8 +561,6 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     }
     return () => undefined
   }, 'agent-swarm: activation recovery')
-  ctx.effect(() => () => runtime.dispose(), 'agent-swarm: runtime disposal')
-
   // M2-1 (issue #75): the Team bridge workflow engine. Registered in an
   // isolated `workflowEngine` service scope (the official mechanism for a
   // second implementation beside the default-scope official engine) and

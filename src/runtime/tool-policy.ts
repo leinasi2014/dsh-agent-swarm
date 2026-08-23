@@ -31,7 +31,7 @@ export const MAX_DENY_TOOLS = 64
  * control characters, fences and path-shaped strings — existence remains the
  * official seam's authority.
  */
-const TOOL_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/
+export const TOOL_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/
 
 /**
  * Compose one member's provisioning-time tool deny list: the mandatory

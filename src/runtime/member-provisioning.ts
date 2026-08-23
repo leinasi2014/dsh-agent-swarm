@@ -97,7 +97,10 @@ export class MemberProvisioner {
       // Tool-name EXISTENCE stays with the official creation-window
       // `tools.restrict()` validation, whose failure settles this record
       // failed below — loud either way, never a silently unfiltered member.
-      const deny = memberToolDeny(input.denyTools)
+      const deny = memberToolDeny([...new Set([
+        ...(input.denyTools ?? []),
+        ...(this.deps.config.memberToolPolicyDeny ?? []),
+      ])])
 
       const childId = SessionId(randomUUID())
       const provisioning = await this.deps.domain().provisionMember(scope, membership.team.id, captain.id, {

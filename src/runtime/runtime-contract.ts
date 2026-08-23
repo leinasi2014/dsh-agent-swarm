@@ -51,6 +51,8 @@ export interface RuntimeConfig {
   readonly executionRootProvider: string
   /** Absolute base directory under which every execution root is laid out. */
   readonly executionRootsBase: string
+  /** Effective ask + deny policy names hidden from delegated members. */
+  readonly memberToolPolicyDeny: readonly string[]
 }
 
 declare module '@deepseek-ai/cordis' {
