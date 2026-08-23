@@ -96,8 +96,10 @@ pnpm verify
 
 $official = 'D:\Source\DSH\deepseek-harness'
 $proof = Join-Path $env:TEMP ('dsh-swarm-p0-' + [guid]::NewGuid().ToString('N'))
+$candidateCommit = git rev-parse HEAD
+$candidateTree = git rev-parse 'HEAD^{tree}'
 pnpm p0:profile-proof -- --repo (Get-Location).Path --official $official --cli (Join-Path $official 'apps\cli\lib\bin.js') --output $proof --port 47940
-pnpm verify:p0-evidence -- --root $proof
+pnpm verify:p0-evidence -- --root $proof --candidate-commit $candidateCommit --candidate-tree $candidateTree
 ```
 
 The P0 proof is a deployment gate, not an ordinary unit-test fixture. It requires a clean branch-attached candidate, the exact official rc.2 checkout, a fresh absent output root and a free isolated port. It builds and packs once, installs the absolute tarball through the real official plugin forwarder, records the digest, probes the active `agentSwarm`/producer-floor/tool services, performs two graceful Profile lifecycles, and proves a Profile without Storage Domain fails pending. The official checkout must remain source/config/lock clean before and after. Runtime/Profile/workspace/state roots are removed after receipts are copied; the immutable tarball and evidence stay under `$proof`.
