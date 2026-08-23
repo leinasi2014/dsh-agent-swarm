@@ -97,17 +97,32 @@ async function writeFailureEvidence(evidenceDir, label, page, records, error) {
 }
 
 async function dismissOfficialTestingNotice(page) {
-  const title = page.getByText(/^(Internal Testing Notice|内测声明)$/u, { exact: true })
-  const present = await title.first().waitFor({ state: 'visible', timeout: 60_000 }).then(() => true, () => false)
+  const dialog = page.getByRole('dialog', { name: /^(Internal Testing Notice|内测声明)$/u })
+  const present = await dialog.waitFor({ state: 'visible', timeout: 60_000 }).then(() => true, () => false)
   if (!present) return { officialTestingNoticePresent: false, officialTestingNoticeDismissed: false }
-  if (await title.count() !== 1) throw new Error('official testing notice title is not unique')
-  const dialog = title.locator('xpath=ancestor::*[@role="dialog"][1]')
-  if (await dialog.count() !== 1) throw new Error('official testing notice has no unique dialog ancestor')
   const button = dialog.getByRole('button', { name: /^(Continue|继续)$/u })
   await button.focus()
   await page.keyboard.press('Enter')
   await button.waitFor({ state: 'hidden', timeout: 10_000 })
   return { officialTestingNoticePresent: true, officialTestingNoticeDismissed: true }
+}
+
+async function skipOfficialApiKeyOnboarding(page) {
+  const dialog = page.getByRole('dialog', { name: /^(Add an API key to get started|添加一个 API Key 开始使用)$/u })
+  const present = await dialog.waitFor({ state: 'visible', timeout: 60_000 }).then(() => true, () => false)
+  if (!present) return { officialApiKeyOnboardingPresent: false, officialApiKeyOnboardingSkipped: false }
+  const button = dialog.getByRole('button', { name: /^(Configure later|稍后配置)$/u })
+  await button.focus()
+  await page.keyboard.press('Enter')
+  await dialog.waitFor({ state: 'hidden', timeout: 10_000 })
+  return { officialApiKeyOnboardingPresent: true, officialApiKeyOnboardingSkipped: true }
+}
+
+async function completeOfficialOnboarding(page) {
+  return {
+    ...await dismissOfficialTestingNotice(page),
+    ...await skipOfficialApiKeyOnboarding(page),
+  }
 }
 
 async function openReadyDashboard(page) {
@@ -130,7 +145,7 @@ export async function runR3ActiveBrowserProof({
   const records = recordBrowser(page)
   try {
     await page.goto(`http://127.0.0.1:${String(port)}/`, { waitUntil: 'domcontentloaded', timeout: 30_000 })
-    const notice = await dismissOfficialTestingNotice(page)
+    const onboarding = await completeOfficialOnboarding(page)
     if (await officialCurrentSessionId(page) !== rootSessionId) {
       throw new Error('official Session selection did not rehydrate the exact proof root')
     }
@@ -170,7 +185,7 @@ export async function runR3ActiveBrowserProof({
     assertReadOnlyRequests(records)
     assertCleanBrowser(records, 'active browser')
     const result = {
-      status: 'pass', rootSessionId, teamId, browser: identity, ...notice,
+      status: 'pass', rootSessionId, teamId, browser: identity, ...onboarding,
       bootstrap: { ...bootstrapEvidence(rootSessionId, selectionSource), frameworkTargetObserved: true },
       keyboard: ['focus Team', 'Enter', 'focus Open Captain Chat', 'Enter', 'Escape after reload'],
       handoff: {
@@ -203,7 +218,7 @@ export async function runR3R0BrowserProof({ port, evidenceDir, rootSessionId, br
   const records = recordBrowser(page)
   try {
     await page.goto(`http://127.0.0.1:${String(port)}/`, { waitUntil: 'domcontentloaded', timeout: 30_000 })
-    const notice = await dismissOfficialTestingNotice(page)
+    const onboarding = await completeOfficialOnboarding(page)
     const team = await selectRootSession(page)
     await team.click()
     await page.locator('[data-swarm-team-dashboard][data-phase="error"]').waitFor({ state: 'visible', timeout: 20_000 })
@@ -213,7 +228,7 @@ export async function runR3R0BrowserProof({ port, evidenceDir, rootSessionId, br
     await page.screenshot({ path: join(evidenceDir, 'r3-r0-fail-closed.png'), fullPage: false })
     assertCleanBrowser(records, 'R0 browser')
     const result = {
-      status: 'pass', browser: identity, bootstrap: bootstrapEvidence(rootSessionId, selectionSource), ...notice,
+      status: 'pass', browser: identity, bootstrap: bootstrapEvidence(rootSessionId, selectionSource), ...onboarding,
       routeUnavailable: true, renderedData: false,
       requests: records.swarmRequests, consoleErrors: records.consoleErrors, pageErrors: records.pageErrors,
     }
@@ -235,14 +250,14 @@ export async function runR3RemovedBrowserProof({ port, evidenceDir, rootSessionI
   const records = recordBrowser(page)
   try {
     await page.goto(`http://127.0.0.1:${String(port)}/`, { waitUntil: 'domcontentloaded', timeout: 30_000 })
-    const notice = await dismissOfficialTestingNotice(page)
+    const onboarding = await completeOfficialOnboarding(page)
     const rows = page.getByRole('treeitem')
     if (await rows.count() > 0) await rows.first().click()
     const absent = await page.getByRole('button', { name: TEAM_NAME }).count() === 0
     if (!absent) throw new Error('removed package left the Team client action mounted')
     assertCleanBrowser(records, 'removed browser')
     const result = {
-      status: 'pass', browser: identity, bootstrap: bootstrapEvidence(rootSessionId, selectionSource), ...notice,
+      status: 'pass', browser: identity, bootstrap: bootstrapEvidence(rootSessionId, selectionSource), ...onboarding,
       teamActionAbsent: true,
       consoleErrors: records.consoleErrors, pageErrors: records.pageErrors,
     }

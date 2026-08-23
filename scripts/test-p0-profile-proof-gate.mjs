@@ -59,6 +59,7 @@ try {
       ? `${JSON.stringify({
           status: 'pass', rootSessionId: 'root', teamId: 'team', reload: true, browser,
           officialTestingNoticePresent: true, officialTestingNoticeDismissed: true,
+          officialApiKeyOnboardingPresent: true, officialApiKeyOnboardingSkipped: true,
           bootstrap: { ...bootstrap, frameworkTargetObserved: true },
           handoff: {
             officialSessionSelected: true, officialSelectionSource: 'localStorage:dsh.sessions.current',
@@ -72,12 +73,14 @@ try {
         ? `${JSON.stringify({
             status: 'pass', browser, bootstrap, routeUnavailable: true, renderedData: false,
             officialTestingNoticePresent: true, officialTestingNoticeDismissed: true,
+            officialApiKeyOnboardingPresent: true, officialApiKeyOnboardingSkipped: true,
             consoleErrors: [], pageErrors: [],
           })}\n`
         : relativePath === 'evidence/r3-browser-removed.json'
           ? `${JSON.stringify({
               status: 'pass', browser, bootstrap, teamActionAbsent: true, consoleErrors: [], pageErrors: [],
               officialTestingNoticePresent: true, officialTestingNoticeDismissed: true,
+              officialApiKeyOnboardingPresent: true, officialApiKeyOnboardingSkipped: true,
             })}\n`
           : relativePath.endsWith('.png') ? Buffer.alloc(1_024, 1) : `fixture evidence: ${relativePath}\n`
     await mkdir(dirname(path), { recursive: true })
@@ -158,6 +161,7 @@ try {
   const nonReadContent = `${JSON.stringify({
     status: 'pass', rootSessionId: 'root', teamId: 'team', reload: true, browser,
     officialTestingNoticePresent: true, officialTestingNoticeDismissed: true,
+    officialApiKeyOnboardingPresent: true, officialApiKeyOnboardingSkipped: true,
     bootstrap: { ...bootstrap, frameworkTargetObserved: true },
     handoff: {
       officialSessionSelected: true, officialSelectionSource: 'localStorage:dsh.sessions.current',

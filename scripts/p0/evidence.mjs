@@ -252,6 +252,7 @@ async function verifyR3BrowserEvidence(root, failures) {
   const active = await readJson('evidence/r3-browser-active.json')
   verifyBootstrap(active?.bootstrap, active?.rootSessionId, true, 'active', failures)
   verifyTestingNotice(active, 'active', failures)
+  verifyApiKeyOnboarding(active, 'active', failures)
   const browserIdentity = active?.browser
   if (browserIdentity?.engine !== 'chromium' || !isAbsolute(browserIdentity?.executablePath ?? '')
     || typeof browserIdentity?.version !== 'string' || browserIdentity.version.length === 0) {
@@ -281,6 +282,7 @@ async function verifyR3BrowserEvidence(root, failures) {
   const r0 = await readJson('evidence/r3-browser-r0.json')
   verifyBootstrap(r0?.bootstrap, active?.rootSessionId, false, 'R0', failures)
   verifyTestingNotice(r0, 'R0', failures)
+  verifyApiKeyOnboarding(r0, 'R0', failures)
   if (JSON.stringify(r0?.browser) !== JSON.stringify(browserIdentity)) {
     failures.push('R3 R0 browser identity differs from the active proof')
   }
@@ -294,6 +296,7 @@ async function verifyR3BrowserEvidence(root, failures) {
   const removed = await readJson('evidence/r3-browser-removed.json')
   verifyBootstrap(removed?.bootstrap, active?.rootSessionId, false, 'removed', failures)
   verifyTestingNotice(removed, 'removed', failures)
+  verifyApiKeyOnboarding(removed, 'removed', failures)
   if (JSON.stringify(removed?.browser) !== JSON.stringify(browserIdentity)) {
     failures.push('R3 removed browser identity differs from the active proof')
   }
@@ -326,5 +329,13 @@ function verifyTestingNotice(value, label, failures) {
     || typeof value?.officialTestingNoticeDismissed !== 'boolean'
     || (value.officialTestingNoticePresent && !value.officialTestingNoticeDismissed)) {
     failures.push(`R3 ${label} browser did not handle the official testing notice through its accessible action`)
+  }
+}
+
+function verifyApiKeyOnboarding(value, label, failures) {
+  if (typeof value?.officialApiKeyOnboardingPresent !== 'boolean'
+    || typeof value?.officialApiKeyOnboardingSkipped !== 'boolean'
+    || (value.officialApiKeyOnboardingPresent && !value.officialApiKeyOnboardingSkipped)) {
+    failures.push(`R3 ${label} browser did not skip the official API-key onboarding through Configure later`)
   }
 }
