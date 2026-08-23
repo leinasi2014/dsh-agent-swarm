@@ -25,6 +25,9 @@ G0 product/compatibility baseline
         -> I4 DSH-native UI
         -> I5 Canvas BFF/native UI consumer
 
+G0 -> F1 pre-I2/I3 producer contract floor
+I1 + F1 -> I2
+
 I3/I5 do not unlock M6/M8 distributed claims by themselves.
 M6 Workspace/remote -> M8 distributed atomic Team
 I1/I3 accepted evidence -> M7 memory/Skill Evolution proposals
@@ -95,6 +98,25 @@ The v2 migration is quiesced, validated and one-way: a host-owned lifecycle cont
 Contract/domain/unit tests、真实 official interaction composition、quiesced v1→v2 migration/read-back/compatibility evidence、crash-window/replay/restart tests、model-visible data-boundary snapshots、完整受影响检查，以及 exact candidate 的独立安全/持久性审查。外部 seam blocker 必须以可复现的不可判定窗口保留为 fail-loud evidence，不能算作 exactly-once PASS。
 
 Risk: review、permission 与 durable control transition 为 S3/HIGH；纯 advisory Message path 为 S2/MEDIUM。
+
+## F1 — pre-I2/I3 producer contract floor
+
+### Outcome
+
+在不越过 I1b blocker 的前提下冻结 future Host/RPC 共用的最小 producer vocabulary：versioned strict schemas、canonical fixtures/digest、Cordis lifecycle service，以及 exact-root-authorized 的 bounded Team snapshot/receipt projection。`message.write`、`control.write` 和 `effect.cancel` 必须显式 `unavailable`，且在 payload inspection 或任何 I1a effect 前失败。
+
+### Boundaries
+
+- F1 可在 G0 后独立交付，但不会解锁 I2/I3；I2 仍要求已接受 I1 effect authority，I3 仍要求已接受 executable I2 Host；
+- 不 mint browser context/principal，不挂 network RPC，不调用 HumanInteraction effect gateway，不写 Team/overlay；
+- receipt projection 脱敏，不暴露 scope、Session/principal、body、diagnostic 或内部 result/message identity；
+- service unprovide/close/drain 必须在 authority domain teardown 前完成。
+
+### Exit evidence
+
+固定 digest 的 schema/fixture tests、exact-root/strict-input/bounded-redaction tests、三个 unavailable effect 的 zero-side-effect tests、Cordis provide/unprovide 与 admitted-read drain tests、完整受影响检查，以及精确候选的一个非作者审查。
+
+Risk: shared contract 为 S2/MEDIUM；由于写能力硬关闭，不继承 I1b 的 effect mutation 风险。
 
 ## I2 — executable HumanInteraction Host producer
 

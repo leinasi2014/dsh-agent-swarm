@@ -208,6 +208,12 @@ Maps published DSH `ctx.workflowEngine` runs/events to Team task/run records and
 
 DSH-native and Canvas-native clients render roster, task DAG, attempts, workspaces, budget, HumanInteraction receipts and gates from the same canonical Host/RPC contract. They use their own host component libraries, themes, lifecycle and accessibility controls. UI actions call Host contracts; they never patch JSON/Storage Domain, derive Team truth from transcripts or share a cross-host component package as an authority.
 
+### Pre-I2/I3 producer contract floor
+
+The producer contract may be frozen before executable I2 write authority exists, but only as a transport-neutral floor: versioned strict schemas, canonical fixtures and one digest; an internal Cordis-provided service; and bounded read-only Team/receipt projections derived from the two existing authorities. Its capability descriptor must state `snapshot.read` and `receipt.read` as available while `message.write`, `control.write` and `effect.cancel` remain `unavailable` with the `i1b-effect-correlation` blocker. The unavailable methods have no effect dependency and fail before payload inspection, so the floor cannot fabricate a receipt or mutate either domain.
+
+This floor is not an alternate Host, an RPC server or progress evidence for I2/I3. It mints no browser context/principal, mounts no route, and does not weaken ADR-0009. I2 still waits for the accepted I1 effect authority; I3 still waits for an accepted executable I2 Host and real Profile lifecycle evidence.
+
 ### Bundle
 
 The Bundle chooses one coherent default composition. Each row remains replaceable by Profile patches.

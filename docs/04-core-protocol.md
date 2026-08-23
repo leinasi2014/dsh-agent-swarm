@@ -120,6 +120,14 @@ Team v2 places a bounded, secret-free applied-effect ledger in the same aggregat
 
 This contract does not turn every I1 action into exactly-once. Current `ctx.userQuestions.ask`, `ctx.subagents.interrupt` and unconstrained Review Providers lack durable operation-result read-back. Question presentation, member interrupt and non-deterministic or side-effecting provider execution remain blocked until their official owner exposes an idempotent operation identity and authoritative query. The migration itself is also blocked: the current system has no plugin-external pre-plugin compatibility registry or verified retired-medium fence capable of rejecting an old artifact before v1 open/write; the M3 promoter is not that mandatory gate. Transcript, Agent status, process memory and a private UI queue are not acceptable recovery evidence. Full migration, schema, rollback and seam requirements are in [ADR-0009](adr/0009-i1b-v2-effect-ledger-authority.md).
 
+### 5c. Pre-I2/I3 producer contract floor
+
+Before the I1b blocker closes, the plugin may expose only a read contract floor. Its version-1 producer artifact binds protocol id `dsh-agent-swarm/producer`, future namespace `/swarm`, capability ordering, strict snapshot/receipt/error schemas, canonical fixtures and their SHA-256 digest. Any content change produces a new digest and candidate. The namespace is vocabulary only: this floor mounts no HTTP, upgrade or RPC route.
+
+The internal `agentSwarmProducerFloor` Cordis service authenticates reads with a caller-bound exact live root Agent, derives scope from that Agent, and calls `TeamDomainPort.snapshot` before reading the scope/Team-bound interaction overlay. Snapshot output is bounded counters/budget metadata; receipt output is a bounded newest window in chronological order. Both omit scope, captain/member Session ids, source/principal, bodies, diagnostics, internal message ids and task-result ids. They are projections and are never written back.
+
+`message.write`, `control.write` and `effect.cancel` are closed capabilities. Their methods return `SWARM_CAPABILITY_UNAVAILABLE` with blocker `i1b-effect-correlation` before payload inspection and have no reference to the I1a effect gateways. Closing the service synchronously stops admission, unprovides it before the HumanInteraction domain closes, and waits a bounded interval for admitted reads. These semantics prove a safe shared contract floor only; they do not implement I2 context/principal/write admission, I3 transport, or restart-safe effects.
+
 ## 6. Mailbox
 
 The target protocol uses a stable id and sender identity. The sender/Lead stores queued state before delivery; the target Session persists the same identity; a delivered acknowledgement follows target durability.

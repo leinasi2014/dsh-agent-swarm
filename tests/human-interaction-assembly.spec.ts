@@ -9,8 +9,8 @@
  * - rejects malformed official answers (not exactly one, wrong question id,
  *   empty custom) before any answer mail is routed;
  * - owns the human overlay/domain lifecycle in ONE effect: mount readmits
- *   both headless services, dispose unprovides them before closing the
- *   overlay/domain, reload reopens the same durable overlay, and a mid-setup
+ *   both headless services plus the pre-I2/I3 read-only producer floor,
+ *   dispose unprovides them before closing the overlay/domain, reload reopens the same durable overlay, and a mid-setup
  *   provide conflict closes the just-opened domain instead of leaking it.
  *
  * Restart-safe reconciliation remains explicitly open: scenario 45 proves
@@ -377,6 +377,7 @@ describe('human domain lifecycle ownership', () => {
     stack.fibers.pop()
     expect(stack.ctx.get('agentSwarmHumanControl')).toBeUndefined()
     expect(stack.ctx.get('agentSwarmHumanInteraction')).toBeUndefined()
+    expect(stack.ctx.get('agentSwarmProducerFloor')).toBeUndefined()
   }, 45_000)
 
   it('mount/dispose: services are admitted, then unprovided before overlay/domain close', async () => {
@@ -386,13 +387,21 @@ describe('human domain lifecycle ownership', () => {
     stacks.push(stack)
     const interaction = stack.ctx.agentSwarmHumanInteraction
     const control = stack.ctx.agentSwarmHumanControl
+    const producerFloor = stack.ctx.agentSwarmProducerFloor
     expect(stack.ctx.get('agentSwarmHumanInteraction')).toBeDefined()
     expect(stack.ctx.get('agentSwarmHumanControl')).toBeDefined()
+    expect(stack.ctx.get('agentSwarmProducerFloor')).toBeDefined()
+    await expect(producerFloor.readSnapshot(
+      { teamId: stack.teamId },
+      { agent: stack.lead, signal: SIGNAL },
+    )).resolves.toMatchObject({ team: { id: stack.teamId } })
 
     await stack.pluginFiber.dispose()
     stack.fibers.pop()
     expect(stack.ctx.get('agentSwarmHumanInteraction')).toBeUndefined()
     expect(stack.ctx.get('agentSwarmHumanControl')).toBeUndefined()
+    expect(stack.ctx.get('agentSwarmProducerFloor')).toBeUndefined()
+    expect(() => producerFloor.describe()).toThrow(expect.objectContaining({ code: 'SWARM_HOST_CLOSED' }))
     await expect(interaction.listReceipts(stack.scope, stack.teamId, captainAdmission(stack)))
       .rejects.toMatchObject({ code: 'TEAM_INTERACTION_STORE_CLOSED' })
     await expect(control.submit(
@@ -429,6 +438,7 @@ describe('human domain lifecycle ownership', () => {
     stack.pluginFiber = reloadedFiber
     expect(stack.ctx.get('agentSwarmHumanInteraction')).toBeDefined()
     expect(stack.ctx.get('agentSwarmHumanControl')).toBeDefined()
+    expect(stack.ctx.get('agentSwarmProducerFloor')).toBeDefined()
     await expect(oldInteraction.listReceipts(stack.scope, stack.teamId, captainAdmission(stack)))
       .rejects.toMatchObject({ code: 'TEAM_INTERACTION_STORE_CLOSED' })
     expect((await stack.ctx.agentSwarmHumanInteraction.listReceipts(stack.scope, stack.teamId, captainAdmission(stack)))

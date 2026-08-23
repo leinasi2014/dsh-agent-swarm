@@ -35,6 +35,8 @@ import { humanReviewProvider } from './human/human-review-provider.js'
 import { officialCaptainQuestionPresentation } from './human/official-question-presentation.js'
 import { effectiveToolPolicy, TeamPermissionSurface } from './runtime/permission-surface.js'
 import { reviewerAgentReviewProvider } from './runtime/reviewer-boundary.js'
+import { assembleAgentSwarmProducerFloor } from './host/producer-floor-assembly.js'
+import { AGENT_SWARM_USAGE_PROMPT } from './runtime/usage-prompt.js'
 
 export { AgentSwarmRuntime } from './runtime/orchestrator-runtime.js'
 export type {
@@ -162,6 +164,8 @@ export {
   HUMAN_INTERACTION_CONTROL_INTENTS,
   sameHumanInteractionRequest,
 } from './human/human-interaction-contract.js'
+export * from './host/producer-contract.js'
+export * from './host/producer-floor-service.js'
 export type {
   CaptainQuestion,
   CaptainQuestionPresentation,
@@ -365,18 +369,6 @@ export const Config: z<Config> = z.object({
   promptSectionOrder: z.natural().default(118),
 })
 
-const usage = `Use agent_swarm_* when the user requests a coordinated multi-agent Team.
-1. Create one Team, then add role-specific continuable members.
-2. Decompose the goal into tasks with explicit acceptance criteria and dependency ids. The event scheduler assigns ready tasks.
-3. Compose workflows on the task DAG itself: serial stages are dependency chains (a stage's join is every dependent naming its blockers); fan out through dependency-free same-layer tasks only — actual concurrency is bounded by the member count and mailbox quotas, never around them; hand pipeline artifacts through task outputs and Team mail; put human decisions at the review transaction (a submission waiting for review IS the human gate); a task whose dependency has not completed stays held — never skip or auto-fail it.
-4. Every task mutation uses the latest revision. Every worker submission also carries its exact attempt id; stale attempts stop immediately.
-5. A worker submission is evidence, not completion. The captain must call agent_swarm_review_task to accept or reject it. When a task carries declared verification commands, an executable review Provider reruns them in an isolated review root and rejects on failure with root-produced evidence.
-6. Persist peer messages before delivery. A queued result is durable; never resend it automatically. Prefer quiet for information the recipient should read on its next turn; quiet mail to an inactive member stays queued until a wakeup or its own return, and wakeup is the delivery that resumes it.
-7. Treat write scopes as coordination hints, not filesystem authorization. Use agent_swarm_status for fixed Team counters and agent_swarm_list_tasks (with status/owner/ready filters and pagination) for task rows after any conflict.
-8. The captain may interrupt one member's current turn with agent_swarm_interrupt_member; the member keeps its inbox, tasks and membership, and a later wakeup resumes it.
-9. When waiting for another mutation, call agent_swarm_wait with the current Team revision instead of polling status. It returns no_progress immediately when no other member is running or provisioning: re-read status and the task list, wake the required members with wakeup messages, then wait again.
-10. Read background Team executions with agent_swarm_list_jobs (kind/status filters, pagination) — every row is one task that entered execution. The job face is read-only: create work as Team tasks and cancel through the Team face, never through the job face.`
-
 export async function apply(ctx: Context, config: Config): Promise<void> {
   if (config.enabled === false) return
   const memberProvider = (config.memberProvider ?? 'spawn').trim()
@@ -476,6 +468,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   let humanOverlay: HumanInteractionOverlayStore | undefined
   let unprovideControl: (() => void) | undefined
   let unprovideInteraction: (() => void) | undefined
+  let disposeProducerFloor: (() => Promise<void>) | undefined
   try {
     const domain = await ctx.storageDomain.open(humanInteractionDomainSpec)
     humanDomain = domain
@@ -508,8 +501,10 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     ctx.effect(() => {
       unprovideControl = ctx.provide('agentSwarmHumanControl', humanControl)
       unprovideInteraction = ctx.provide('agentSwarmHumanInteraction', liaison)
+      disposeProducerFloor = assembleAgentSwarmProducerFloor(ctx, runtime, overlay, disposalTimeoutMs)
       return async () => {
         const drained = drain()
+        await disposeProducerFloor?.()
         await unprovideControl?.()
         await unprovideInteraction?.()
         await drained
@@ -519,6 +514,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       }
     }, 'agent-swarm: human interaction domain')
   } catch (error) {
+    await disposeProducerFloor?.()
     await unprovideControl?.()
     await unprovideInteraction?.()
     humanOverlay?.close()
@@ -530,7 +526,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   ctx.effect(() => ctx.systemPrompt.section({
     name: 'agent-swarm:usage',
     order: config.promptSectionOrder ?? 118,
-    text: usage,
+    text: AGENT_SWARM_USAGE_PROMPT,
   }), 'agent-swarm: system prompt')
   // M2-3 (issue #77): the adaptive event face — idle edges drive scheduling
   // passes (assignment delivery, reserved folds, stranded self-healing).
