@@ -19,6 +19,7 @@ const required = [
   'src/migration/migrate-legacy-store.ts',
   'scripts/migrate-legacy-team-store.mjs',
   'scripts/p0/evidence.mjs',
+  'scripts/p0/inventory.mjs',
   'scripts/p0/bundle-shape.mjs',
   'scripts/p0/profile-probe.mjs',
   'scripts/p0/shutdown-probe.mjs',

@@ -4,6 +4,24 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { REQUIRED_P0_GATES, sha256File, verifyP0Evidence } from './p0/evidence.mjs'
 import { verifySafeBundlePatch } from './p0/bundle-shape.mjs'
+import { parsePluginInventoryResponse, pluginInventoryPayload } from './p0/inventory.mjs'
+
+if (JSON.stringify(pluginInventoryPayload()) !== JSON.stringify({ args: {} })) throw new Error('Typert inventory payload shape drifted')
+for (const invalidResponse of [
+  { ok: false, httpStatus: 200, body: { result: { ok: false, error: { code: 'internal', message: 'fixture' } } } },
+  { ok: true, httpStatus: 200, body: { result: { ok: true, value: {} } } },
+]) {
+  try {
+    parsePluginInventoryResponse(invalidResponse)
+    throw new Error('invalid inventory response unexpectedly passed')
+  } catch (error) {
+    if (error instanceof Error && error.message === 'invalid inventory response unexpectedly passed') throw error
+  }
+}
+const inventoryFixture = parsePluginInventoryResponse({
+  ok: true, httpStatus: 200, body: { result: { ok: true, value: { entries: [] } } },
+})
+if (inventoryFixture.length !== 0) throw new Error('valid empty inventory response did not pass')
 
 const safeBundle = await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
 if (!verifySafeBundlePatch(safeBundle).ok) throw new Error('repository Bundle does not match the default-disabled structural group')
@@ -62,7 +80,7 @@ try {
     const result = await verifyP0Evidence(root, manifest)
     if (result.ok) throw new Error(`negative fixture unexpectedly passed: ${label}`)
   }
-  console.log(`P0 Bundle/evidence gates: 1 safe Bundle + 4 unsafe Bundle cases; positive evidence + ${cases.length} negative evidence cases: PASS`)
+  console.log(`P0 Bundle/evidence gates: Typert payload + 1 positive/2 negative response cases; 1 safe Bundle + 4 unsafe Bundle cases; positive evidence + ${cases.length} negative evidence cases: PASS`)
 } finally {
   await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 }

@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url'
 import { rpcCall } from '../promotion/lib.mjs'
 import { bootPlane, run, stopPlane, waitPortFree, waitUntil } from '../promotion/runner.mjs'
 import { sha256File, verifyP0Evidence } from './evidence.mjs'
+import { parsePluginInventoryResponse, pluginInventoryPayload } from './inventory.mjs'
 
 const OFFICIAL_COMMIT = 'b150a551b8d465e31e418e1b2eaf5e79bbb7d28e'
 const OFFICIAL_TREE = '53915efe4e2126cc7779b73dfc8a3bcec5318c44'
@@ -85,11 +86,14 @@ function profilePatchLines({ storageRoot, sessionRoot, workspaceRoot, shutdownPr
 }
 
 async function readInventory(port, evidenceDir, label) {
-  const response = await rpcCall(port, 'pluginInventory/list', {})
+  const response = await rpcCall(port, 'pluginInventory/list', pluginInventoryPayload())
   const value = response.body?.result?.value
   await writeFile(join(evidenceDir, `${label}.json`), `${JSON.stringify({ response, value }, null, 2)}\n`, 'utf8')
-  if (!response.ok || !Array.isArray(value?.entries)) throw new Error(`pluginInventory/list failed for ${label}`)
-  return value.entries
+  try {
+    return parsePluginInventoryResponse(response)
+  } catch (error) {
+    throw new Error(`pluginInventory/list failed for ${label}: ${error instanceof Error ? error.message : String(error)}`)
+  }
 }
 
 function swarmInventoryRow(entries) {
