@@ -75,7 +75,8 @@ try {
         })}\n`
       : relativePath === 'evidence/r3-browser-r0.json'
         ? `${JSON.stringify({
-            status: 'pass', browser, bootstrap, routeUnavailable: true, routeStatus: 405,
+            status: 'pass', browser, bootstrap, routeUnavailable: true,
+            routeObserved: { status: 405, bodyBytes: 0, contentType: null },
             routeOwner: 'official-host-fallback', swarmRouteRegistered: false,
             teamActionAbsent: true, renderedData: false,
             officialTestingNoticePresent: true, officialTestingNoticeDismissed: true,
@@ -201,6 +202,30 @@ try {
   activeRecord.bytes = activeContent.length
   activeRecord.sha256 = await sha256File(activePath)
   cases.push(['R3 browser detached/blank fixture'])
+  const r0Path = join(root, 'evidence/r3-browser-r0.json')
+  const r0Record = base.evidenceFiles.find(record => record.relativePath === 'evidence/r3-browser-r0.json')
+  const r0Content = await readFile(r0Path)
+  const r0Base = JSON.parse(r0Content.toString('utf8'))
+  for (const [label, mutate] of [
+    ['R0 fallback nonempty body', value => { value.routeObserved.bodyBytes = 1 }],
+    ['R0 fallback fake content-type', value => { value.routeObserved.contentType = 'application/json' }],
+    ['R0 fallback fake owner', value => { value.routeOwner = 'dsh-agent-swarm' }],
+    ['R0 fallback fake registration', value => { value.swarmRouteRegistered = true }],
+  ]) {
+    const value = structuredClone(r0Base)
+    mutate(value)
+    const content = `${JSON.stringify(value)}\n`
+    await writeFile(r0Path, content)
+    r0Record.bytes = Buffer.byteLength(content)
+    r0Record.sha256 = await sha256File(r0Path)
+    if ((await verifyP0Evidence(root, structuredClone(base), expected)).ok) {
+      throw new Error(`${label} unexpectedly passed`)
+    }
+    cases.push([label])
+  }
+  await writeFile(r0Path, r0Content)
+  r0Record.bytes = r0Content.length
+  r0Record.sha256 = await sha256File(r0Path)
   console.log(`P0 Bundle/evidence gates: Typert payload + 1 positive/2 negative response cases; 1 safe Bundle + 4 unsafe Bundle cases; positive evidence + ${cases.length} negative evidence cases: PASS`)
 } finally {
   await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })

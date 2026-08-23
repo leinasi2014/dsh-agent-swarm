@@ -123,14 +123,19 @@ async function readDisabledSwarmRoute(port) {
     body: JSON.stringify({ schemaVersion: 1, method: 'capabilities' }),
     signal: AbortSignal.timeout(10_000),
   })
-  if (response.status !== 405) {
-    throw new Error(`R0-disabled /swarm/v1 returned ${response.status}, expected official Host fallback 405`)
+  const body = await response.text()
+  const observed = {
+    status: response.status,
+    bodyBytes: Buffer.byteLength(body, 'utf8'),
+    contentType: response.headers.get('content-type'),
+  }
+  if (observed.status !== 405 || observed.bodyBytes !== 0 || observed.contentType !== null) {
+    throw new Error(`R0-disabled /swarm/v1 did not match the exact official Host fallback: ${JSON.stringify(observed)}`)
   }
   return {
-    routeStatus: response.status,
+    routeObserved: observed,
     routeOwner: 'official-host-fallback',
     swarmRouteRegistered: false,
-    contentType: response.headers.get('content-type'),
   }
 }
 

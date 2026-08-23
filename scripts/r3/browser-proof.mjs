@@ -217,7 +217,9 @@ export async function runR3ActiveBrowserProof({
 export async function runR3R0BrowserProof({
   port, evidenceDir, rootSessionId, browserExecutable, selectionSource, routeEvidence,
 }) {
-  if (routeEvidence?.routeStatus !== 405 || routeEvidence?.routeOwner !== 'official-host-fallback'
+  if (routeEvidence?.routeObserved?.status !== 405 || routeEvidence?.routeObserved?.bodyBytes !== 0
+    || routeEvidence?.routeObserved?.contentType !== null
+    || routeEvidence?.routeOwner !== 'official-host-fallback'
     || routeEvidence?.swarmRouteRegistered !== false) {
     throw new Error('R0 browser proof requires the runner-owned exact official Host fallback evidence')
   }
