@@ -8,6 +8,7 @@ import {
   CaptainLiaison,
   humanInteractionDomainSpec,
   HumanInteractionOverlayStore,
+  TeamId,
 } from '../src/index.js'
 import { AttemptId } from '../src/domain/types.js'
 import type { TeamDomainPort } from '../src/domain/team-domain-port.js'
@@ -212,6 +213,45 @@ describe('SW-I1a Captain Liaison', () => {
     const after = await stack.port.snapshot(scope, team.id, 'captain-session')
     expect(after.team.messages).toHaveLength(1)
     expect(overlay.list(scope, team.id)).toHaveLength(1)
+  })
+
+  it('rejects malformed task fences before admission, Team or overlay access', async () => {
+    const touches = { team: 0, overlay: 0 }
+    const team = new Proxy({}, {
+      get() {
+        touches.team += 1
+        return () => { throw new Error('Team must not be touched') }
+      },
+    }) as unknown as TeamDomainPort
+    const isolatedOverlay = new Proxy({}, {
+      get() {
+        touches.overlay += 1
+        return () => { throw new Error('overlay must not be touched') }
+      },
+    }) as unknown as HumanInteractionOverlayStore
+    const liaison = new CaptainLiaison(team, isolatedOverlay, undefined, () => tick++, CALLERS)
+    const base = {
+      scope: 'workspace-validation',
+      teamId: TeamId('team-validation'),
+      memberSessionId: 'member-1',
+      body: 'Question',
+      expectedTeamRevision: 1,
+      requestId: 'human-task-validation-00000001',
+    }
+    const invalid = [
+      { ...base, taskId: 42 },
+      { ...base, taskId: 'task-1', expectedTaskRevision: 0 },
+      { ...base, taskId: 'task-1', expectedTaskRevision: 1.5 },
+      { ...base, taskId: 'task-1', attemptId: { forged: true } },
+      { ...base, expectedTaskRevision: 1 },
+    ]
+    for (const input of invalid) {
+      await expect(liaison.relayMemberQuestion(
+        input as unknown as Parameters<CaptainLiaison['relayMemberQuestion']>[0],
+        { exec: { agent: MEMBER, signal: SIGNAL } },
+      )).rejects.toMatchObject({ code: 'TEAM_INTERACTION_INVALID' })
+    }
+    expect(touches).toEqual({ team: 0, overlay: 0 })
   })
 
   it('rejects an already-expired request before commit and expires a pending answer without routing', async () => {

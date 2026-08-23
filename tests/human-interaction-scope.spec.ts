@@ -90,6 +90,40 @@ describe('SW-I1a interaction scope ownership', () => {
     expect(overlay.get(scopeB, teamB, pendingB.request.requestId)?.receipt.diagnostic).toBeUndefined()
   })
 
+  it('strictly rejects unknown or malformed fields before any durable write or update', async () => {
+    const scope = 'workspace-strict'
+    const teamId = TeamId('team-strict')
+    const valid = record(scope, teamId, 'pending')
+    const injectedMarker = 'C:\\private\\medium token=secret-marker'
+    const invalidRecords: HumanInteractionRecord[] = [
+      { ...valid, injectedMarker } as unknown as HumanInteractionRecord,
+      {
+        ...valid,
+        request: { ...valid.request, source: { ...valid.request.source, injectedMarker } },
+      } as unknown as HumanInteractionRecord,
+      {
+        ...valid,
+        request: { ...valid.request, target: { kind: 'member', memberName: { injectedMarker } } },
+      } as unknown as HumanInteractionRecord,
+    ]
+    for (const invalid of invalidRecords) {
+      await expect(overlay.commitIfAbsent(invalid)).rejects.toMatchObject({ code: 'TEAM_INTERACTION_INVALID' })
+    }
+    expect(overlay.list(scope, teamId)).toEqual([])
+    expect([...domain.table('interactions').entries()]).toEqual([])
+
+    await overlay.commitIfAbsent(valid)
+    const invalidUpdate = {
+      ...valid,
+      receipt: { ...valid.receipt, diagnostic: 'safe', updatedAt: 2, injectedMarker },
+      updatedAt: 2,
+    } as unknown as HumanInteractionRecord
+    await expect(overlay.update(invalidUpdate, 1)).rejects.toMatchObject({ code: 'TEAM_INTERACTION_INVALID' })
+    const stored = overlay.get(scope, teamId, valid.request.requestId)
+    expect(stored?.receipt.diagnostic).toBeUndefined()
+    expect(JSON.stringify([...domain.table('interactions').entries()])).not.toContain('secret-marker')
+  })
+
   it('same request id is independent across Teams in one scope and cannot be read, cancelled or updated across Team authority', async () => {
     const scope = 'workspace-shared'
     const teamA = TeamId('team-a')

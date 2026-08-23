@@ -4,6 +4,8 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import { describe, expect, it } from 'vitest'
 import {
   HumanControlGateway,
+  AttemptId,
+  TaskId,
   TeamId,
   type HumanControlGatewayDeps,
   type HumanInteractionRecord,
@@ -166,17 +168,44 @@ describe('SW-I1a uncertain effect outcome', () => {
       expectedTeamRevision: 1,
       createdAt: 1,
     }
+    const taskBase: HumanInteractionRequest = {
+      ...base,
+      requestId: 'human-validation-task-00000001',
+      target: { kind: 'task', taskId: TaskId('task-validation') },
+      intent: 'reassign-task',
+      expectedTaskRevision: 1,
+      attemptId: AttemptId('attempt-validation'),
+    }
+    const injectedMarker = 'private-path-C:\\secret token=marker'
     const invalid: Array<{ request: HumanInteractionRequest; admission: unknown }> = [
       { request: { ...base, source: null } as unknown as HumanInteractionRequest, admission: { kind: 'captain', exec: { agent: captain, signal: SIGNAL } } },
       { request: { ...base, source: { kind: 'unknown', captainSessionId: captain.id } } as unknown as HumanInteractionRequest, admission: { kind: 'captain', exec: { agent: captain, signal: SIGNAL } } },
       { request: { ...base, source: { kind: 'captain-mediated', captainSessionId: captain.id, hostSurface: null } } as unknown as HumanInteractionRequest, admission: { kind: 'captain', exec: { agent: captain, signal: SIGNAL } } },
       { request: { ...base, source: { kind: 'authenticated-human', captainSessionId: captain.id, principalRef: 'p', hostSurface: 'x'.repeat(129) } }, admission: { kind: 'authenticated-human', principalRef: 'p' } },
       { request: base, admission: null },
+      { request: { ...base, injectedMarker } as unknown as HumanInteractionRequest, admission: { kind: 'captain', exec: { agent: captain, signal: SIGNAL } } },
+      { request: { ...base, source: { ...base.source, injectedMarker } } as unknown as HumanInteractionRequest, admission: { kind: 'captain', exec: { agent: captain, signal: SIGNAL } } },
+      { request: { ...base, target: { kind: 'member', memberName: 'worker', injectedMarker } } as unknown as HumanInteractionRequest, admission: { kind: 'captain', exec: { agent: captain, signal: SIGNAL } } },
+      { request: base, admission: { kind: 'captain', exec: { agent: captain, signal: SIGNAL }, injectedMarker } },
+      { request: { ...base, target: { kind: 'member', memberName: { injectedMarker } } } as unknown as HumanInteractionRequest, admission: { kind: 'captain', exec: { agent: captain, signal: SIGNAL } } },
+      { request: { ...taskBase, target: { kind: 'task', taskId: { injectedMarker } } } as unknown as HumanInteractionRequest, admission: { kind: 'captain', exec: { agent: captain, signal: SIGNAL } } },
+      { request: { ...taskBase, attemptId: { injectedMarker } } as unknown as HumanInteractionRequest, admission: { kind: 'captain', exec: { agent: captain, signal: SIGNAL } } },
     ]
     for (const item of invalid) {
-      await expect(gateway.submit('workspace-validation', item.request, item.admission as never, SIGNAL))
-        .rejects.toMatchObject({ code: 'TEAM_INTERACTION_INVALID' })
+      let thrown: unknown
+      try {
+        await gateway.submit('workspace-validation', item.request, item.admission as never, SIGNAL)
+      } catch (error) {
+        thrown = error
+      }
+      expect(thrown).toMatchObject({ code: 'TEAM_INTERACTION_INVALID' })
+      expect(JSON.stringify(thrown)).not.toContain(injectedMarker)
     }
+    await expect(gateway.cancel(
+      'workspace-validation',
+      { ...base, injectedMarker } as unknown as HumanInteractionRequest,
+      { kind: 'captain', exec: { agent: captain, signal: SIGNAL } },
+    )).rejects.toMatchObject({ code: 'TEAM_INTERACTION_INVALID' })
     expect(touches).toEqual({ overlay: 0, team: 0, verifier: 0 })
   })
 })

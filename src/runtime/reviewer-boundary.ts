@@ -64,7 +64,7 @@ export function reviewerAgentVerdictHasNoTeamMutation(value: unknown): value is 
 
 /** Stable, safe evidence binding that the existing review diagnostic persists. */
 function reviewerEvidenceBinding(verdict: ReviewerAgentVerdict): string {
-  return `reviewer evidence [${verdict.evidenceIds.join(', ')}]: ${verdict.diagnostic.trim()}`
+  return `reviewer evidence [${verdict.evidenceIds.join(', ')}]; recommendation=${verdict.recommendation}; provenance=reviewer-agent`
 }
 
 /** Turn a reviewer evidence verdict into an explicit HumanReviewProvider decision. */
@@ -77,7 +77,7 @@ export function toHumanReviewDecision(verdict: ReviewerAgentVerdict): ReviewProv
   }
   if (verdict.recommendation === undefined) {
     throw new TeamDomainError(
-      `reviewer evidence without an explicit recommendation cannot settle the review; ${reviewerEvidenceBinding(verdict)}`,
+      'reviewer evidence without an explicit recommendation cannot settle the review',
       'TEAM_REVIEWER_EVIDENCE_ONLY',
     )
   }

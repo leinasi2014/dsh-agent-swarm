@@ -1,4 +1,3 @@
-import { Buffer } from 'node:buffer'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -7,7 +6,6 @@ import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import type { TaskId, TeamId, TeamMessage, TeamTask } from '../domain/types.js'
 import type { ToolExecutionAuthority } from '../runtime/authority.js'
 import {
-  HUMAN_INTERACTION_CONTROL_INTENTS,
   HUMAN_INTERACTION_ID_PATTERN,
   sameHumanInteractionRequest,
   type HumanInteractionReceipt,
@@ -16,21 +14,22 @@ import {
 } from './human-interaction-contract.js'
 import type { HumanInteractionOverlayStore } from './human-interaction-store.js'
 import { quarantineInteractionOutcome } from './human-interaction-store.js'
+import {
+  parseCancelDiagnostic,
+  parseHumanControlAdmission,
+  parseHumanControlRequest,
+  parseHumanControlScope,
+  parseHumanControlSignal,
+  type HumanControlAdmission,
+} from './human-control-validation.js'
+export { truncateUtf8 } from './human-control-validation.js'
+export type { HumanControlAdmission } from './human-control-validation.js'
 declare module '@deepseek-ai/cordis' {
   interface Context {
     /** Assembled SW-I1a typed Control surface. */
     agentSwarmHumanControl: HumanControlGateway
   }
 }
-const MAX_BODY_BYTES = 4_096
-const MAX_DIAGNOSTIC_BYTES = 2_048
-const MAX_MEMBER_NAME_BYTES = 64
-const MAX_TASK_ID_BYTES = 128
-const MAX_ATTEMPT_ID_BYTES = 128
-const MAX_SESSION_BYTES = 256
-const MAX_PRINCIPAL_BYTES = 256
-const MAX_HOST_SURFACE_BYTES = 128
-
 export interface HumanControlGatewayDeps {
   readonly ctx: Context
   readonly domain: () => TeamDomainPort
@@ -47,33 +46,8 @@ export interface HumanControlGatewayDeps {
   readonly verifyHumanPrincipal?: (principalRef: string, request: HumanInteractionRequest) => boolean | Promise<boolean>
 }
 
-export type HumanControlAdmission =
-  | { readonly kind: 'captain'; readonly exec: ToolExecutionAuthority }
-  | { readonly kind: 'authenticated-human'; readonly principalRef: string }
-
-function bounded(value: string, maxBytes: number): boolean {
-  return value !== '' && Buffer.byteLength(value, 'utf8') <= maxBytes
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
 function receiptOf(record: HumanInteractionRecord): HumanInteractionReceipt {
   return structuredClone(record.receipt)
-}
-
-export function truncateUtf8(value: string, maxBytes: number): string {
-  if (Buffer.byteLength(value, 'utf8') <= maxBytes) return value
-  const parts: string[] = []
-  let bytes = 0
-  for (const codePoint of value) {
-    const size = Buffer.byteLength(codePoint, 'utf8')
-    if (bytes + size > maxBytes) break
-    parts.push(codePoint)
-    bytes += size
-  }
-  return parts.join('')
 }
 
 /** Headless typed Control handler backed by the durable interaction overlay. */
@@ -86,20 +60,20 @@ export class HumanControlGateway {
     admission: HumanControlAdmission,
     signal: AbortSignal,
   ): Promise<HumanInteractionReceipt> {
-    this.validateScope(scope)
-    this.validateRequest(request)
-    this.validateAdmission(admission)
-    this.validateSignal(signal)
-    if (signal.aborted) {
+    const normalizedScope = parseHumanControlScope(scope)
+    const normalizedRequest = parseHumanControlRequest(request)
+    const normalizedAdmission = parseHumanControlAdmission(admission)
+    const normalizedSignal = parseHumanControlSignal(signal)
+    if (normalizedSignal.aborted) {
       throw new TeamDomainError('control request was aborted before admission', 'TEAM_INTERACTION_ABORTED')
     }
     return await this.deps.overlay.runAdmitted(async () => {
-      const captain = await this.authorize(scope, request, admission)
+      const captain = await this.authorize(normalizedScope, normalizedRequest, normalizedAdmission)
       return await this.deps.overlay.runRequestExclusive(
-        scope,
-        request.teamId,
-        request.requestId,
-        () => this.submitLocked(scope, request, signal, captain),
+        normalizedScope,
+        normalizedRequest.teamId,
+        normalizedRequest.requestId,
+        () => this.submitLocked(normalizedScope, normalizedRequest, normalizedSignal, captain),
       )
     })
   }
@@ -110,17 +84,17 @@ export class HumanControlGateway {
     admission: HumanControlAdmission,
     diagnostic = 'cancelled by Human Control',
   ): Promise<HumanInteractionReceipt> {
-    this.validateScope(scope)
-    this.validateRequest(request)
-    this.validateAdmission(admission)
-    const safeDiagnostic = this.cancelDiagnostic(diagnostic)
+    const normalizedScope = parseHumanControlScope(scope)
+    const normalizedRequest = parseHumanControlRequest(request)
+    const normalizedAdmission = parseHumanControlAdmission(admission)
+    const safeDiagnostic = parseCancelDiagnostic(diagnostic)
     return await this.deps.overlay.runAdmitted(async () => {
-      await this.authorize(scope, request, admission)
+      await this.authorize(normalizedScope, normalizedRequest, normalizedAdmission)
       return await this.deps.overlay.runRequestExclusive(
-        scope,
-        request.teamId,
-        request.requestId,
-        () => this.cancelLocked(scope, request, safeDiagnostic),
+        normalizedScope,
+        normalizedRequest.teamId,
+        normalizedRequest.requestId,
+        () => this.cancelLocked(normalizedScope, normalizedRequest, safeDiagnostic),
       )
     })
   }
@@ -228,127 +202,6 @@ export class HumanControlGateway {
       throw this.error(committed.receipt.status === 'cancelled' ? 'TEAM_INTERACTION_CANCELLED' : 'TEAM_INTERACTION_EXPIRED', diagnostic, record.request)
     }
     throw this.duplicateError(record.request, committed)
-  }
-
-  private validateRequest(request: HumanInteractionRequest): void {
-    if (!isRecord(request)) throw this.error('TEAM_INTERACTION_INVALID', 'request must be an object')
-    if (request.schemaVersion !== 1) throw this.error('TEAM_INTERACTION_INVALID', 'schemaVersion must be 1', request)
-    if (typeof request.requestId !== 'string' || !HUMAN_INTERACTION_ID_PATTERN.test(request.requestId)) {
-      throw this.error('TEAM_INTERACTION_REQUEST_ID_INVALID', 'requestId is malformed', request)
-    }
-    if (typeof request.teamId !== 'string' || !bounded(request.teamId, MAX_TASK_ID_BYTES)) throw this.error('TEAM_INTERACTION_INVALID', 'teamId is invalid', request)
-    if (!isRecord(request.source)
-      || (request.source.kind !== 'captain-mediated' && request.source.kind !== 'authenticated-human')) {
-      throw this.error('TEAM_INTERACTION_INVALID', 'source is invalid', request)
-    }
-    if (typeof request.source.captainSessionId !== 'string' || !bounded(request.source.captainSessionId, MAX_SESSION_BYTES)) {
-      throw this.error('TEAM_INTERACTION_INVALID', 'captainSessionId is invalid', request)
-    }
-    if (request.source.hostSurface !== undefined
-      && (typeof request.source.hostSurface !== 'string' || !bounded(request.source.hostSurface, MAX_HOST_SURFACE_BYTES))) {
-      throw this.error('TEAM_INTERACTION_INVALID', 'hostSurface is invalid', request)
-    }
-    if (request.source.kind === 'captain-mediated' && request.source.principalRef !== undefined) {
-      throw this.error('TEAM_INTERACTION_INVALID', 'captain-mediated source cannot carry a principalRef', request)
-    }
-    if (request.source.kind === 'authenticated-human'
-      && (typeof request.source.principalRef !== 'string' || !bounded(request.source.principalRef, MAX_PRINCIPAL_BYTES))) {
-      throw this.error('TEAM_INTERACTION_INVALID', 'principalRef is invalid', request)
-    }
-    if (!isRecord(request.target)
-      || (request.target.kind !== 'captain' && request.target.kind !== 'team'
-        && request.target.kind !== 'member' && request.target.kind !== 'task')) {
-      throw this.error('TEAM_INTERACTION_TARGET_INVALID', 'target is invalid', request)
-    }
-    if (request.origin !== undefined && (!isRecord(request.origin)
-      || request.origin.kind !== 'member'
-      || typeof request.origin.memberSessionId !== 'string'
-      || !bounded(request.origin.memberSessionId, MAX_SESSION_BYTES)
-      || typeof request.origin.memberName !== 'string'
-      || !bounded(request.origin.memberName, MAX_MEMBER_NAME_BYTES))) {
-      throw this.error('TEAM_INTERACTION_INVALID', 'origin is invalid', request)
-    }
-    if (request.origin !== undefined) throw this.error('TEAM_INTERACTION_INVALID', 'typed Controls cannot carry a member-question origin', request)
-    if (!HUMAN_INTERACTION_CONTROL_INTENTS.includes(request.intent as typeof HUMAN_INTERACTION_CONTROL_INTENTS[number])) {
-      throw this.error('TEAM_INTERACTION_INVALID', 'intent is not a typed Control', request)
-    }
-    if (!Number.isSafeInteger(request.createdAt) || request.createdAt < 0) {
-      throw this.error('TEAM_INTERACTION_INVALID', 'createdAt is invalid', request)
-    }
-    if (request.expiresAt !== undefined && (!Number.isSafeInteger(request.expiresAt) || request.expiresAt <= request.createdAt)) {
-      throw this.error('TEAM_INTERACTION_INVALID', 'expiresAt is invalid', request)
-    }
-    if (!Number.isSafeInteger(request.expectedTeamRevision) || request.expectedTeamRevision < 1) {
-      throw this.error('TEAM_INTERACTION_INVALID', 'expectedTeamRevision is invalid', request)
-    }
-    if (request.body !== undefined && (typeof request.body !== 'string' || !bounded(request.body, MAX_BODY_BYTES))) {
-      throw this.error('TEAM_INTERACTION_INVALID', 'body is invalid', request)
-    }
-    if (request.diagnostic !== undefined && (typeof request.diagnostic !== 'string' || !bounded(request.diagnostic, MAX_DIAGNOSTIC_BYTES))) {
-      throw this.error('TEAM_INTERACTION_INVALID', 'diagnostic is too large', request)
-    }
-    if (request.intent === 'review-task' && request.decision !== 'accept' && request.decision !== 'reject') {
-      throw this.error('TEAM_INTERACTION_INVALID', 'review-task requires decision accept or reject', request)
-    }
-    if (request.intent !== 'review-task' && request.decision !== undefined) {
-      throw this.error('TEAM_INTERACTION_INVALID', 'only review-task may carry a decision', request)
-    }
-    if (request.intent === 'interrupt-member' || request.intent === 'wake-member') {
-      expectDomain(request.expectedTaskRevision === undefined && request.attemptId === undefined, 'member control cannot carry task fences', 'TEAM_INTERACTION_TARGET_INVALID')
-      expectDomain(request.target.kind === 'member', 'member control requires a member target', 'TEAM_INTERACTION_TARGET_INVALID')
-      expectDomain(
-        request.target.kind === 'member' && bounded(request.target.memberName, MAX_MEMBER_NAME_BYTES),
-        'memberName is invalid',
-        'TEAM_INTERACTION_TARGET_INVALID',
-      )
-    }
-    if (request.intent === 'correct-task' || request.intent === 'reassign-task' || request.intent === 'review-task') {
-      expectDomain(request.target.kind === 'task', 'task control requires a task target', 'TEAM_INTERACTION_TARGET_INVALID')
-      expectDomain(request.attemptId !== undefined && bounded(request.attemptId, MAX_ATTEMPT_ID_BYTES), 'attemptId is invalid', 'TEAM_INTERACTION_TARGET_INVALID')
-      expectDomain(Number.isSafeInteger(request.expectedTaskRevision) && (request.expectedTaskRevision ?? 0) >= 1, 'expectedTaskRevision is invalid', 'TEAM_INTERACTION_TARGET_INVALID')
-      expectDomain(
-        request.target.kind === 'task' && bounded(request.target.taskId, MAX_TASK_ID_BYTES),
-        'taskId is invalid',
-        'TEAM_INTERACTION_TARGET_INVALID',
-      )
-    }
-  }
-
-  private validateAdmission(admission: HumanControlAdmission): void {
-    if (!isRecord(admission) || (admission.kind !== 'captain' && admission.kind !== 'authenticated-human')) {
-      throw this.error('TEAM_INTERACTION_INVALID', 'admission is invalid')
-    }
-    if (admission.kind === 'captain') {
-      if (!isRecord(admission.exec) || !isRecord(admission.exec.signal)
-        || typeof admission.exec.signal.aborted !== 'boolean'
-        || !isRecord(admission.exec.agent)
-        || typeof admission.exec.agent.id !== 'string'
-        || admission.exec.agent.id === '') {
-        throw this.error('TEAM_INTERACTION_INVALID', 'captain admission is invalid')
-      }
-      return
-    }
-    if (typeof admission.principalRef !== 'string' || !bounded(admission.principalRef, MAX_PRINCIPAL_BYTES)) {
-      throw this.error('TEAM_INTERACTION_INVALID', 'human admission principal is invalid')
-    }
-  }
-
-  private validateSignal(signal: AbortSignal): void {
-    if (!isRecord(signal) || typeof signal.aborted !== 'boolean') {
-      throw this.error('TEAM_INTERACTION_INVALID', 'control signal is invalid')
-    }
-  }
-
-  private validateScope(scope: TeamScope): void {
-    if (typeof scope !== 'string' || scope === '' || Buffer.byteLength(scope, 'utf8') > 4_096) {
-      throw this.error('TEAM_INTERACTION_INVALID', 'scope is invalid')
-    }
-  }
-
-  private cancelDiagnostic(value: unknown): string {
-    if (typeof value !== 'string') throw this.error('TEAM_INTERACTION_INVALID', 'cancel diagnostic must be a string')
-    const normalized = value.trim() || 'cancelled by Human Control'
-    return truncateUtf8(normalized, MAX_DIAGNOSTIC_BYTES)
   }
 
   private async authorize(

@@ -15,7 +15,7 @@ import { Buffer } from 'node:buffer'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { expectDomain, TeamDomainError } from '../domain/error.js'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
-import type { TaskId, TeamId, TeamMessageId } from '../domain/types.js'
+import type { AttemptId, TaskId, TeamId, TeamMessageId } from '../domain/types.js'
 import { HumanInteractionOverlayStore } from './human-interaction-store.js'
 import {
   sameHumanInteractionRequest,
@@ -49,6 +49,10 @@ function boundedText(value: string, label: string): string {
   return normalized
 }
 
+function invalidRelayInput(): TeamDomainError {
+  return new TeamDomainError('member-question input or admission is invalid', 'TEAM_INTERACTION_INVALID')
+}
+
 export class CaptainLiaison implements HumanInteractionPort {
   constructor(
     private readonly team: TeamDomainPort,
@@ -65,8 +69,8 @@ export class CaptainLiaison implements HumanInteractionPort {
     input: RelayMemberQuestionInput,
     admission: HumanInteractionAdmission,
   ): Promise<HumanInteractionReceipt> {
-    this.validateRelayInput(input, admission)
-    const normalized = { ...input, requestId: input.requestId ?? `human-${randomUUID()}` }
+    const parsed = this.parseRelayInput(input, admission)
+    const normalized = { ...parsed, requestId: parsed.requestId ?? `human-${randomUUID()}` }
     return await this.overlay.runAdmitted(async () => {
       const caller = this.requireLiveCaller(normalized.memberSessionId, admission, false, 'TEAM_INTERACTION_MEMBER_REQUIRED')
       const membership = await this.team.requireMembership(normalized.scope, caller.id)
@@ -413,19 +417,41 @@ export class CaptainLiaison implements HumanInteractionPort {
     )
   }
 
-  private validateRelayInput(input: RelayMemberQuestionInput, admission: HumanInteractionAdmission): void {
-    if (typeof input !== 'object' || input === null
-      || typeof input.scope !== 'string' || input.scope === ''
-      || typeof input.teamId !== 'string' || input.teamId === ''
-      || typeof input.memberSessionId !== 'string' || input.memberSessionId === ''
-      || typeof input.body !== 'string'
-      || !Number.isSafeInteger(input.expectedTeamRevision) || input.expectedTeamRevision < 1
-      || (input.requestId !== undefined && (typeof input.requestId !== 'string' || !/^human-[a-z0-9-]{8,80}$/.test(input.requestId)))
-      || (input.expiresAt !== undefined && (!Number.isSafeInteger(input.expiresAt) || input.expiresAt < 0))) {
-      throw new TeamDomainError('member-question input or admission is invalid', 'TEAM_INTERACTION_INVALID')
+  private parseRelayInput(input: RelayMemberQuestionInput, admission: HumanInteractionAdmission): RelayMemberQuestionInput {
+    if (typeof input !== 'object' || input === null || Array.isArray(input)) throw invalidRelayInput()
+    const candidate = input as unknown as Record<string, unknown>
+    const allowed = [
+      'scope', 'teamId', 'memberSessionId', 'body', 'requestId', 'expectedTeamRevision',
+      'taskId', 'expectedTaskRevision', 'attemptId', 'expiresAt',
+    ]
+    if (Object.keys(candidate).some(key => !allowed.includes(key))
+      || typeof candidate.scope !== 'string' || candidate.scope === '' || Buffer.byteLength(candidate.scope, 'utf8') > 4_096
+      || typeof candidate.teamId !== 'string' || candidate.teamId === '' || Buffer.byteLength(candidate.teamId, 'utf8') > 128
+      || typeof candidate.memberSessionId !== 'string' || candidate.memberSessionId === '' || Buffer.byteLength(candidate.memberSessionId, 'utf8') > 256
+      || typeof candidate.body !== 'string'
+      || !Number.isSafeInteger(candidate.expectedTeamRevision) || (candidate.expectedTeamRevision as number) < 1
+      || (candidate.requestId !== undefined && (typeof candidate.requestId !== 'string' || !/^human-[a-z0-9-]{8,80}$/.test(candidate.requestId)))
+      || (candidate.taskId !== undefined && (typeof candidate.taskId !== 'string' || candidate.taskId === '' || Buffer.byteLength(candidate.taskId, 'utf8') > 128))
+      || (candidate.expectedTaskRevision !== undefined && (!Number.isSafeInteger(candidate.expectedTaskRevision) || (candidate.expectedTaskRevision as number) < 1))
+      || (candidate.attemptId !== undefined && (typeof candidate.attemptId !== 'string' || candidate.attemptId === '' || Buffer.byteLength(candidate.attemptId, 'utf8') > 128))
+      || (candidate.expiresAt !== undefined && (!Number.isSafeInteger(candidate.expiresAt) || (candidate.expiresAt as number) < 0))
+      || (candidate.taskId === undefined && (candidate.expectedTaskRevision !== undefined || candidate.attemptId !== undefined))) {
+      throw invalidRelayInput()
     }
-    boundedText(input.body, 'question')
+    const body = boundedText(candidate.body, 'question')
     this.validateInteractionAdmission(admission)
+    return {
+      scope: candidate.scope,
+      teamId: candidate.teamId as TeamId,
+      memberSessionId: candidate.memberSessionId,
+      body,
+      ...(candidate.requestId === undefined ? {} : { requestId: candidate.requestId }),
+      expectedTeamRevision: candidate.expectedTeamRevision as number,
+      ...(candidate.taskId === undefined ? {} : { taskId: candidate.taskId as TaskId }),
+      ...(candidate.expectedTaskRevision === undefined ? {} : { expectedTaskRevision: candidate.expectedTaskRevision as number }),
+      ...(candidate.attemptId === undefined ? {} : { attemptId: candidate.attemptId as AttemptId }),
+      ...(candidate.expiresAt === undefined ? {} : { expiresAt: candidate.expiresAt as number }),
+    }
   }
 
   private validatePresentInput(input: PresentQuestionInput, admission: HumanInteractionAdmission): void {

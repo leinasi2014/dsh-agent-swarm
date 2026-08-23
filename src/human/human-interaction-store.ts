@@ -10,6 +10,7 @@
  * the interaction record family owns its own schema lifecycle.
  */
 
+import { Buffer } from 'node:buffer'
 import { z } from 'zod'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineDomain, domainTable, type Domain } from '@deepseek-ai/dsh-storage-domain'
@@ -18,6 +19,7 @@ import type { TeamId } from '../domain/types.js'
 import {
   HUMAN_INTERACTION_ID_PATTERN,
   type HumanInteractionRecord,
+  type HumanInteractionRequest,
 } from './human-interaction-contract.js'
 
 /** Storage Domain unit/table names must satisfy the official `UNIT_NAME_RE`. */
@@ -55,33 +57,48 @@ class HumanInteractionOperationLocks {
   }
 }
 
+const boundedText = (maxBytes: number) => z.string().min(1).refine(
+  value => Buffer.byteLength(value, 'utf8') <= maxBytes,
+  `must not exceed ${maxBytes} UTF-8 bytes`,
+)
+const requestIdSchema = z.string().regex(HUMAN_INTERACTION_ID_PATTERN).refine(
+  value => Buffer.byteLength(value, 'utf8') <= 96,
+  'must not exceed 96 UTF-8 bytes',
+)
 const timestamp = z.number().int().min(0)
-const sessionId = z.string().min(1)
+const sessionId = boundedText(256)
 
-const sourceSchema = z.object({
-  kind: z.enum(['captain-mediated', 'authenticated-human']),
-  captainSessionId: sessionId,
-  principalRef: z.string().min(1).optional(),
-  hostSurface: z.string().min(1).optional(),
-})
+const sourceSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('captain-mediated'),
+    captainSessionId: sessionId,
+    hostSurface: boundedText(128).optional(),
+  }).strict(),
+  z.object({
+    kind: z.literal('authenticated-human'),
+    captainSessionId: sessionId,
+    principalRef: boundedText(256),
+    hostSurface: boundedText(128).optional(),
+  }).strict(),
+])
 
 const targetSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('captain') }),
-  z.object({ kind: z.literal('team') }),
-  z.object({ kind: z.literal('member'), memberName: z.string().min(1) }),
-  z.object({ kind: z.literal('task'), taskId: z.string().min(1) }),
+  z.object({ kind: z.literal('captain') }).strict(),
+  z.object({ kind: z.literal('team') }).strict(),
+  z.object({ kind: z.literal('member'), memberName: boundedText(64) }).strict(),
+  z.object({ kind: z.literal('task'), taskId: boundedText(128) }).strict(),
 ])
 
 const originSchema = z.object({
   kind: z.literal('member'),
   memberSessionId: sessionId,
-  memberName: z.string().min(1),
-})
+  memberName: boundedText(64),
+}).strict()
 
 const requestSchema = z.object({
   schemaVersion: z.literal(1),
-  requestId: z.string().regex(HUMAN_INTERACTION_ID_PATTERN),
-  teamId: z.string().min(1),
+  requestId: requestIdSchema,
+  teamId: boundedText(128),
   source: sourceSchema,
   target: targetSchema,
   intent: z.enum([
@@ -94,42 +111,59 @@ const requestSchema = z.object({
       'review-task',
     ]),
   origin: originSchema.optional(),
-  body: z.string().min(1).optional(),
+  body: boundedText(4_096).optional(),
   expectedTeamRevision: z.number().int().min(1),
   expectedTaskRevision: z.number().int().min(1).optional(),
-  attemptId: z.string().min(1).optional(),
+  attemptId: boundedText(128).optional(),
   decision: z.enum(['accept', 'reject']).optional(),
-  diagnostic: z.string().min(1).optional(),
+  diagnostic: boundedText(2_048).optional(),
   createdAt: timestamp,
   expiresAt: timestamp.optional(),
-})
+}).strict()
 
 const receiptSchema = z.object({
-  requestId: z.string().regex(HUMAN_INTERACTION_ID_PATTERN),
-  teamId: z.string().min(1),
+  requestId: requestIdSchema,
+  teamId: boundedText(128),
   status: z.enum(['pending', 'acknowledged', 'executed', 'rejected', 'failed', 'expired', 'cancelled']),
-  routedMessageId: z.string().min(1).optional(),
-  answerMessageId: z.string().min(1).optional(),
-  resultingTaskId: z.string().min(1).optional(),
+  routedMessageId: boundedText(128).optional(),
+  answerMessageId: boundedText(128).optional(),
+  resultingTaskId: boundedText(128).optional(),
   resultingTeamRevision: z.number().int().min(1).optional(),
-  code: z.string().min(1).optional(),
-  diagnostic: z.string().min(1).optional(),
+  code: boundedText(128).optional(),
+  diagnostic: boundedText(2_048).optional(),
   updatedAt: timestamp,
-})
+}).strict()
 
 const recordSchema = z.object({
   schemaVersion: z.literal(1),
-  scope: z.string().min(1),
+  scope: boundedText(4_096),
   request: requestSchema,
   receipt: receiptSchema,
   createdAt: timestamp,
   updatedAt: timestamp,
-})
+}).strict()
 
 // Single contained type-erasure: the zod object owns runtime validation at
 // the durable boundary; `HumanInteractionRecord` is its precise in-memory
 // projection (the team-spec/workflow-overlay pattern).
 const storedRecordSchema = recordSchema as unknown as z.ZodType<HumanInteractionRecord>
+
+/** One strict request shape authority shared by public normalization and durable writes. */
+export function parseHumanInteractionRequestRecord(value: unknown): HumanInteractionRequest {
+  try {
+    return structuredClone(requestSchema.parse(value) as HumanInteractionRequest)
+  } catch {
+    throw new TeamDomainError('human interaction request failed strict validation', 'TEAM_INTERACTION_INVALID')
+  }
+}
+
+function parseStoredRecord(value: unknown): HumanInteractionRecord {
+  try {
+    return structuredClone(storedRecordSchema.parse(value))
+  } catch {
+    throw new TeamDomainError('human interaction record failed strict validation', 'TEAM_INTERACTION_INVALID')
+  }
+}
 
 /** The `agent_swarm_human` domain spec opened through `ctx.storageDomain`. */
 export const humanInteractionDomainSpec = defineDomain({
@@ -244,15 +278,16 @@ export class HumanInteractionOverlayStore {
    */
   async commitIfAbsent(record: HumanInteractionRecord): Promise<HumanInteractionRecord | undefined> {
     this.assertOpen()
-    return await this.operationLocks.run(record.scope, record.request.teamId, record.request.requestId, async () => {
-      const key = humanInteractionKey(record.scope, record.request.teamId, record.request.requestId)
-      const legacy = this.interactions.get(legacyHumanInteractionKey(record.scope, record.request.requestId))
-      if (legacy !== undefined && legacy.request.teamId === record.request.teamId) {
+    const normalized = parseStoredRecord(record)
+    return await this.operationLocks.run(normalized.scope, normalized.request.teamId, normalized.request.requestId, async () => {
+      const key = humanInteractionKey(normalized.scope, normalized.request.teamId, normalized.request.requestId)
+      const legacy = this.interactions.get(legacyHumanInteractionKey(normalized.scope, normalized.request.requestId))
+      if (legacy !== undefined && legacy.request.teamId === normalized.request.teamId) {
         throw new TeamDomainError('legacy human interaction key requires explicit migration', 'TEAM_INTERACTION_LEGACY_KEY_UNSUPPORTED')
       }
       const existing = this.interactions.get(key)
       if (existing !== undefined) return structuredClone(existing)
-      await this.interactions.put(key, structuredClone(record))
+      await this.interactions.put(key, normalized)
       return undefined
     })
   }
@@ -267,23 +302,24 @@ export class HumanInteractionOverlayStore {
     previousUpdatedAt?: number,
   ): Promise<HumanInteractionRecord> {
     this.assertOpen()
-    return await this.operationLocks.run(record.scope, record.request.teamId, record.request.requestId, async () => {
-      const key = humanInteractionKey(record.scope, record.request.teamId, record.request.requestId)
+    const normalized = parseStoredRecord(record)
+    return await this.operationLocks.run(normalized.scope, normalized.request.teamId, normalized.request.requestId, async () => {
+      const key = humanInteractionKey(normalized.scope, normalized.request.teamId, normalized.request.requestId)
       const existing = this.interactions.get(key)
       if (existing === undefined) {
-        throw new TeamDomainError(`interaction "${record.request.requestId}" not found`, 'TEAM_INTERACTION_NOT_FOUND')
+        throw new TeamDomainError(`interaction "${normalized.request.requestId}" not found`, 'TEAM_INTERACTION_NOT_FOUND')
       }
       if (previousUpdatedAt !== undefined && existing.receipt.updatedAt !== previousUpdatedAt) {
         throw new TeamDomainError(
-          `interaction "${record.request.requestId}" changed since it was read`,
+          `interaction "${normalized.request.requestId}" changed since it was read`,
           'TEAM_INTERACTION_STATE_CONFLICT',
         )
       }
-      if (existing.scope !== record.scope || existing.request.teamId !== record.request.teamId) {
+      if (existing.scope !== normalized.scope || existing.request.teamId !== normalized.request.teamId) {
         throw new TeamDomainError('interaction authority tuple cannot change', 'TEAM_INTERACTION_SCOPE_MISMATCH')
       }
-      await this.interactions.put(key, structuredClone(record))
-      return structuredClone(record)
+      await this.interactions.put(key, normalized)
+      return structuredClone(normalized)
     })
   }
 

@@ -106,11 +106,24 @@ describe('Reviewer Agent / HumanReviewProvider boundary', () => {
       diagnostic: 'verification root failed',
       recommendation: 'reject',
     })
-    expect(decision).toEqual({ decision: 'reject', diagnostic: 'reviewer evidence [e1]: verification root failed' })
+    expect(decision).toEqual({
+      decision: 'reject',
+      diagnostic: 'reviewer evidence [e1]; recommendation=reject; provenance=reviewer-agent',
+    })
   })
-  it('fails loud when reviewer evidence has no recommendation', () => {
-    expect(() => toHumanReviewDecision({ kind: 'evidence', evidenceIds: ['e1'], diagnostic: 'ambiguous' }))
-      .toThrowError(expect.objectContaining({ code: 'TEAM_REVIEWER_EVIDENCE_ONLY', message: expect.stringContaining('e1') }))
+  it('fails loud without exposing free reviewer diagnostics when evidence has no recommendation', () => {
+    const injected = 'C:\\private\\review token=secret-reviewer'
+    let thrown: unknown
+    try {
+      toHumanReviewDecision({ kind: 'evidence', evidenceIds: ['e1'], diagnostic: injected })
+    } catch (error) {
+      thrown = error
+    }
+    expect(thrown).toMatchObject({
+      code: 'TEAM_REVIEWER_EVIDENCE_ONLY',
+      message: 'reviewer evidence without an explicit recommendation cannot settle the review',
+    })
+    expect(JSON.stringify(thrown)).not.toMatch(/private|secret-reviewer/)
   })
 })
 function captainTurn(): ToolPermissionContext {

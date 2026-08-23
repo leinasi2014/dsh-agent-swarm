@@ -269,11 +269,16 @@ describe('Reviewer Agent real review transaction', () => {
     const unregisterNoRec = stack.ctx.agentSwarmPermission.registerReviewerAgentProvider({
       kind: 'reviewer-agent',
       name: 'no-recommendation',
-      review: async () => ({ kind: 'evidence', evidenceIds: ['e1'], diagnostic: 'ambiguous' }),
+      review: async () => ({
+        kind: 'evidence',
+        evidenceIds: ['e1'],
+        diagnostic: 'C:\\private\\review-error token=secret-review-error',
+      }),
     })
     const noRec = await review()
     expect(noRec.isError).toBe(true)
     expect(errorCode(noRec.error)).toBe('TEAM_REVIEWER_EVIDENCE_ONLY')
+    expect(JSON.stringify(noRec.error)).not.toMatch(/private|secret-review-error/)
     expect(await taskStatus()).toBe('submitted')
     unregisterNoRec()
     // A mutation-handle verdict is rejected by the boundary, not executed.
@@ -295,7 +300,12 @@ describe('Reviewer Agent real review transaction', () => {
       name: 'evidence-reviewer',
       review: async ({ workspace }) => {
         seen.push(workspace)
-        return { kind: 'evidence', evidenceIds: ['e1'], diagnostic: 'evidence only', recommendation: 'accept' }
+        return {
+          kind: 'evidence',
+          evidenceIds: ['e1'],
+          diagnostic: 'C:\\private\\review-provider token=secret-reviewer',
+          recommendation: 'accept',
+        }
       },
     })
     const good = await review()
@@ -304,7 +314,8 @@ describe('Reviewer Agent real review transaction', () => {
     expect(await taskStatus()).toBe('completed')
     const reviewed = await snapshot(stack)
     expect(reviewed.team.attempts.find(attempt => attempt.id === submitAttempt)?.diagnostic)
-      .toBe('reviewer evidence [e1]: evidence only')
+      .toBe('reviewer evidence [e1]; recommendation=accept; provenance=reviewer-agent')
+    expect(JSON.stringify(reviewed)).not.toMatch(/private|secret-reviewer/)
     unregisterGood()
   }, 30_000)
 })
