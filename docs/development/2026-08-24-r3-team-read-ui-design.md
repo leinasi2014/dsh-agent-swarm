@@ -130,13 +130,16 @@ cannot resurrect it; it then releases Team without closing the official column.
 
 Official redeclaration rebind is two-phase because the new layout store starts
 closed and its public actions are not wired until the new root first renders.
-Phase 1 registers Team under the new declaration, verifies the exact winner and
-keeps the prior Peek visible (or remains inactive). Phase 2 waits for the
-current public layout face to become callable, invokes exactly one
-`openDetails()` under the same coordinator/declaration epoch, and commits docked
-only after the real column is non-zero in Profile evidence. A stale epoch,
-timeout or call failure releases the tentative entry and keeps Peek visible (or
-inactive); it never leaves an invisible winning Team entry.
+Phase 1 registers a tentative Team entry under the new declaration, verifies the
+exact winner and keeps the prior Peek visible (or remains inactive). That
+tentative component renders `null`: it has no complementary region, stable id,
+focus target or Team read surface. Phase 2 waits for one public render
+opportunity, invokes exactly one `openDetails()` through the current public
+layout face under the same coordinator/declaration epoch, then atomically
+unmounts Peek and enables the docked Team component. A stale epoch, timeout or
+call failure releases the tentative entry and keeps Peek visible (or inactive),
+so there is always exactly one accessible Team surface. Non-zero column width
+and Chat reflow are Profile acceptance evidence, not runtime DOM/layout probes.
 
 The coordinator subscribes to the official Session list/current snapshot. A
 Session-scoped component returning `null` is not cleanup: the global slot
@@ -153,7 +156,9 @@ swallowed.
   `aria-pressed` or `aria-expanded`, remains usable without a selected tool and
   lets the official panel render its own empty state at safe width. Below the
   threshold it exposes `aria-disabled="true"`; keyboard or pointer activation
-  does not change the surface and announces the width requirement.
+  does not change the surface and announces the width requirement. A persistent
+  localized explanation is also linked with `aria-describedby`, so keyboard
+  focus reveals the reason before activation.
 - Tool handoff returns focus to the still-mounted Tool action. Its announcement
   is rendered in a persistent polite live region owned by the header action
   pair, never inside the disappearing Team occupant.
@@ -229,8 +234,9 @@ Author and non-author acceptance bind the exact package candidate and include:
   zero Team entries, docked redeclaration reacquires exactly one, and Swarm
   unload during a declaration gap can never register later. Rebind also proves
   exactly one current-face `openDetails()`, non-zero details width and Chat
-  reflow only after the layout face is wired; stale/failed rebind retains Peek
-  or inactive with zero Team entries;
+  reflow only after the layout face is wired; before commit the tentative entry
+  renders null and Peek is the only id/complementary/focus surface. Stale/failed
+  rebind retains Peek or inactive with zero Team entries;
 - Session switch and target disappearance proving entry release and physical
   read abort;
 - responsive tests proving atomic docked/Peek migration, real compact summary,
@@ -250,7 +256,7 @@ Author and non-author acceptance bind the exact package candidate and include:
   non-read RPC;
 - negative evidence rejects residual Team DOM/entries after Tool handoff,
   `closeDetails()` during Tool handoff, narrow details registration, duplicate
-  trigger/entry, stale target reads, missing official fallback, locale/theme
+  trigger/entry/surface or transition-time ids, stale target reads, missing official fallback, locale/theme
   drift, private layout/DOM access and official checkout changes. Tool handoff,
   Team render error and Swarm unload separately prove the official priority-0
   winner; unload additionally proves no read/listener and no later resurrection.
