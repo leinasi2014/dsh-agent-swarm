@@ -297,7 +297,8 @@ async function verifyR3BrowserEvidence(root, failures) {
   if (JSON.stringify(r0?.browser) !== JSON.stringify(browserIdentity)) {
     failures.push('R3 R0 browser identity differs from the active proof')
   }
-  if (r0?.status !== 'pass' || r0?.routeUnavailable !== true || r0?.routeStatus !== 404
+  if (r0?.status !== 'pass' || r0?.routeUnavailable !== true || r0?.routeStatus !== 405
+    || r0?.routeOwner !== 'official-host-fallback' || r0?.swarmRouteRegistered !== false
     || r0?.teamActionAbsent !== true || r0?.renderedData !== false) {
     failures.push('R3 R0 browser evidence does not prove fail-closed no-data rendering')
   }

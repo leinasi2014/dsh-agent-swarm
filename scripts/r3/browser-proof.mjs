@@ -237,12 +237,14 @@ export async function runR3R0BrowserProof({ port, evidenceDir, rootSessionId, br
       })
       return { status: response.status, contentType: response.headers.get('content-type') }
     })
-    if (route.status !== 404) throw new Error(`R0-disabled /swarm/v1 route returned ${route.status}, expected 404`)
+    if (route.status !== 405) throw new Error(`R0-disabled /swarm/v1 route returned ${route.status}, expected official Host fallback 405`)
     await page.screenshot({ path: join(evidenceDir, 'r3-r0-fail-closed.png'), fullPage: false })
     assertCleanBrowser(records, 'R0 browser')
     const result = {
       status: 'pass', browser: identity, bootstrap: bootstrapEvidence(rootSessionId, selectionSource), ...onboarding,
-      routeUnavailable: true, routeStatus: route.status, teamActionAbsent, renderedData: false,
+      routeUnavailable: true, routeStatus: route.status,
+      routeOwner: 'official-host-fallback', swarmRouteRegistered: false,
+      teamActionAbsent, renderedData: false,
       requests: records.swarmRequests, consoleErrors: records.consoleErrors, pageErrors: records.pageErrors,
     }
     await writeFile(join(evidenceDir, 'r3-browser-r0.json'), `${JSON.stringify(result, null, 2)}\n`, 'utf8')

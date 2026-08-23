@@ -547,7 +547,7 @@ async function main() {
       port: args.port, evidenceDir, rootSessionId, browserExecutable: args.browserExecutable,
       selectionSource,
     })
-    gate('r3-browser-r0', 'pass', 'R0 removed the Team action, returned /swarm/v1 404 and rendered no Team data')
+    gate('r3-browser-r0', 'pass', 'R0 removed the Team action, exposed only the official Host 405 fallback and rendered no Team data')
     const disabledStop = await gracefulStop(liveBoot, stopPath, args.port)
     liveBoot = undefined
     if (!disabledStop.graceful || !disabledStop.portFree) throw new Error(`R0 shutdown failed: ${JSON.stringify(disabledStop)}`)
