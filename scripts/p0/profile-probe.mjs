@@ -5,6 +5,7 @@ export const inject = [
   'agentSwarm',
   'agentSwarmProducerFloor',
   'agentSwarmReadRpc',
+  'agents',
   'tools',
   'storageDomain',
   'sessionPersistence',
