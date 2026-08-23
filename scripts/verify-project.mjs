@@ -18,6 +18,11 @@ const required = [
   'src/storage/team-store.ts',
   'src/migration/migrate-legacy-store.ts',
   'scripts/migrate-legacy-team-store.mjs',
+  'scripts/p0/evidence.mjs',
+  'scripts/p0/profile-probe.mjs',
+  'scripts/p0/run.mjs',
+  'scripts/verify-p0-profile-proof.mjs',
+  'scripts/test-p0-profile-proof-gate.mjs',
   'tests/team-domain-port.spec.ts',
   'tests/migration.spec.ts',
   'tests/helpers/storage-stack.ts',
@@ -103,8 +108,10 @@ try {
   if (!String(pkg.scripts?.verify ?? '').includes('pnpm verify:scenarios')) failures.push('package.json: verify chain must include the scenario-audit gate')
   if (!String(pkg.scripts?.verify ?? '').includes('pnpm verify:worktrees')) failures.push('package.json: verify chain must include the worktree-layout gate')
   if (!String(pkg.scripts?.verify ?? '').includes('pnpm verify:governance')) failures.push('package.json: verify chain must include the governance gate')
+  if (!String(pkg.scripts?.verify ?? '').includes('pnpm verify:p0-fixtures')) failures.push('package.json: verify chain must include the P0 evidence gate fixtures')
   if (!String(pkg.scripts?.['verify:governance'] ?? '').includes('test-governance-gate.mjs')) failures.push('package.json: governance gate must keep its negative policy tests')
   if (!String(pkg.scripts?.['verify:worktrees'] ?? '').includes('test-worktree-layout-gate.mjs')) failures.push('package.json: worktree gate must keep its negative policy tests')
+  if (pkg.scripts?.['p0:profile-proof'] !== 'node scripts/p0/run.mjs') failures.push('package.json: P0 Profile proof entry is missing')
   if (pkg.files?.some(item => item === 'ref' || item.startsWith('ref/'))) failures.push('package.json: ref must not be published')
 } catch (error) {
   failures.push(`package.json: ${String(error)}`)

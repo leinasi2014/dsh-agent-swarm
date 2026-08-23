@@ -90,18 +90,19 @@ Scenario 46 is a required future gate defined by ADR-0009, not evidence of curre
 
 ## 4. Real Profile verification
 
-```sh
-pnpm install
+```powershell
 pnpm verify:gate-a
-pnpm build
 pnpm verify
 
-dsh plugin --profile agent-swarm-check add link:/absolute/path/to/dsh-agent-swarm
-dsh --profile agent-swarm-check --dump-config
-dsh --profile agent-swarm-check "调用 agent_swarm_status"
+$official = 'D:\Source\DSH\deepseek-harness'
+$proof = Join-Path $env:TEMP ('dsh-swarm-p0-' + [guid]::NewGuid().ToString('N'))
+pnpm p0:profile-proof -- --repo (Get-Location).Path --official $official --cli (Join-Path $official 'apps\cli\lib\bin.js') --output $proof --port 47940
+pnpm verify:p0-evidence -- --root $proof
 ```
 
-For Web/client packages, start an isolated port and inspect browser console plus mount/dispose behavior. Do not test against the user’s normal Profile while developing.
+The P0 proof is a deployment gate, not an ordinary unit-test fixture. It requires a clean branch-attached candidate, the exact official rc.2 checkout, a fresh absent output root and a free isolated port. It builds and packs once, installs the absolute tarball through the real official plugin forwarder, records the digest, probes the active `agentSwarm`/producer-floor/tool services, performs two graceful Profile lifecycles, and proves a Profile without Storage Domain fails pending. The official checkout must remain source/config/lock clean before and after. Runtime/Profile/workspace/state roots are removed after receipts are copied; the immutable tarball and evidence stay under `$proof`.
+
+`dsh plugin`, dump and help paths may initialize, heal or rewrite Profile material. Every such command therefore receives the proof's explicit isolated `DSH_HOME`; never run this gate against the user's normal Profile. `link:` remains diagnostic only and cannot satisfy P0.
 
 ### Self-hosting Profile verification
 
@@ -203,8 +204,9 @@ Mirrors the official DSH engineering family so code quality is machine-enforced 
 | Dead exports / dead dependencies | knip | `pnpm verify:exports` | inside `pnpm verify`; 0 findings |
 | Unused locals / parameters | tsc `noUnusedLocals`/`noUnusedParameters` | `pnpm typecheck` | typecheck lane |
 | Source file size | `scripts/verify-project.mjs` | `pnpm verify:structure` | 600-line ceiling for `src`/`scripts`/`tests` `.ts`; exceptions registered with reason + retiring milestone (currently zero exceptions) |
+| P0 evidence contract | `scripts/p0/evidence.mjs` + negative fixtures | `pnpm verify:p0-fixtures` | deterministic manifest/digest/isolation/official-clean/cleanup checks are inside `pnpm verify`; the real Profile run remains explicit |
 | Line endings / encoding | `.gitattributes` + verify-project | `pnpm verify:structure` | LF working tree (CRLF for `ps1`/`cmd`), UTF-8, final newline |
 | Mirror CI evidence | GitHub Actions | `.github/workflows/verify.yml` | windows-latest: pinned reference syncs, official evidence checkout (`DSH_OFFICIAL_CHECKOUT`), `pnpm verify`, live Gate A verification, coverage; mirror CI does not prove authority-target integration |
 | Coverage visibility | `@vitest/coverage-v8` scoped to `src/**` | `pnpm test:coverage` | report-only unless an accepted quality profile sets a threshold |
 
-The verify chain is `verify:governance -> verify:worktrees -> verify:structure -> lint -> duplication -> exports -> typecheck -> typecheck:test -> test -> scenarios -> build -> artifact`. `verify-project.mjs` asserts that the governance/layout/lint/duplication/export lanes stay wired into `pnpm verify`, that `packageManager` pins pnpm, and that every tooling file exists. The layout verifier is retained as a compatibility guard, but repository worktree open/status/close/reconcile is `NOT_CONFIGURED`; no task worktree may be allocated until those lifecycle controls, their negative tests, the binding generation and independent acceptance land together.
+The verify chain is `verify:governance -> verify:worktrees -> verify:structure -> verify:p0-fixtures -> lint -> duplication -> exports -> typecheck -> typecheck:test -> test -> scenarios -> build -> artifact`. `verify-project.mjs` asserts that the governance/layout/P0-fixture/lint/duplication/export lanes stay wired into `pnpm verify`, that `packageManager` pins pnpm, and that every tooling file exists. The real `p0:profile-proof` is deliberately not implicit in ordinary `pnpm verify`: it performs a one-artifact external Profile acceptance and needs an exact official checkout, fresh isolated roots and a bound port. The layout verifier is retained as a compatibility guard, but repository worktree open/status/close/reconcile is `NOT_CONFIGURED`; no task worktree may be allocated until those lifecycle controls, their negative tests, the binding generation and independent acceptance land together.

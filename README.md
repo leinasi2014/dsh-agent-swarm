@@ -11,25 +11,23 @@
 
 本项目目前是 `private` 的预发布插件，**没有已接受的公共 npm、Git shorthand 或插件市场安装入口**。不要使用仓库历史文档中的 `leinasi2014/dsh-agent-swarm` 或 `npm:@dsh-agent-swarm` 形式；它们不是当前可解析的发布身份。
 
-当前可执行的开发/验收路径是本地不可变 tarball：
+当前可执行的验收路径是从干净、冻结的插件候选构建一次本地不可变 tarball，再装入 fresh isolated official Profile。命令必须从本仓库运行；`--output` 必须是尚不存在的新目录：
 
 ```powershell
-# 1. 在干净、冻结的候选上构建并打包；验收时记录 commit/tree/tarball digest。
-$candidateDir = 'D:\path\to\candidate-artifact'
-$env:npm_config_ignore_scripts = 'true'
-pnpm install --frozen-lockfile --ignore-scripts
-pnpm build
-pnpm pack --pack-destination $candidateDir
-
-# 2. 只装入 fresh isolated DSH_HOME 的官方 web Profile。
-$dshCli = 'D:\path\to\official-dsh\apps\cli\lib\bin.js'
-$tarball = Join-Path $candidateDir 'dsh-agent-swarm-0.1.0.tgz'
-$env:DSH_HOME = 'D:\path\to\fresh-isolated-dsh-home'
-node $dshCli plugin --profile web add -w --ignore-scripts $tarball
-node $dshCli --profile web --dump-config
+$official = 'D:\Source\DSH\deepseek-harness'
+$proof = Join-Path $env:TEMP ('dsh-swarm-p0-' + [guid]::NewGuid().ToString('N'))
+node scripts/p0/run.mjs `
+  --repo (Get-Location).Path `
+  --official $official `
+  --cli (Join-Path $official 'apps\cli\lib\bin.js') `
+  --output $proof `
+  --port 47940
+node scripts/verify-p0-profile-proof.mjs --root $proof
 ```
 
-Profile 还必须组合官方 Storage hub、KV backend、Storage Domain 和 Session persistence，并把 storage/session root 放在 Team workspace 与 sandbox root 之外。当前可执行的冻结与隔离 Profile 验证入口是 `scripts/promotion/freeze.mjs` 和 `scripts/promotion/accept-check.mjs`；[P0 里程碑](docs/07-implementation-roadmap.md#p0--immutable-package-and-real-profile-proof) 要求把安装、启动、卸载、重载和缺存储负向证据绑定到同一 tarball digest，才可把这条路径称为受支持的本地安装。
+该入口使用官方 CLI 的真实 `plugin --profile web add -w --ignore-scripts <absolute-tgz>` 语法，在隔离 `DSH_HOME` 中组合官方 Storage hub、JSON KV、Storage Domain、Session persistence 和 Swarm；workspace/sandbox、storage 与 session roots 相互分离。它验证 dump、boot、Swarm service/17 个工具、优雅 unload、reload 和缺 Storage Domain 的 fail-closed 负向 Profile。运行态目录和端口随后清理，只保留同一 tarball、digest、命令回执与证据 manifest；不会读取或写入用户默认 `~/.dsh` Profile。
+
+`dsh plugin`、`--dump-config` 甚至某些帮助路径都可能初始化或修复 Profile，因此不要在用户默认 home 中“试一下”这些命令。[P0 里程碑](docs/07-implementation-roadmap.md#p0--immutable-package-and-real-profile-proof) 只有在上述 evidence gate 与精确候选的非作者审查均通过后完成。
 
 `link:<path>` 仅用于本地诊断，不能作为验收或发布身份。兼容范围由 `package.json` 的 peer dependencies、锁文件和 [docs/OFFICIAL_BASELINE.json](docs/OFFICIAL_BASELINE.json) 共同定义；不要从 README 中推断滚动版本状态。
 

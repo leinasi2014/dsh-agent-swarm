@@ -173,9 +173,10 @@ export async function waitUntil(predicate, { timeoutMs = 60_000, intervalMs = 25
  * health route. Returns the live child plus probe evidence; the CALLER owns
  * teardown via `stopPlane` (bounded tree kill + port-free check).
  */
-export async function bootPlane({ cli, home, profile = 'web', port, host = '127.0.0.1', readyTimeoutMs = 90_000, extraArgs = [] }) {
+export async function bootPlane({ cli, home, profile = 'web', port, host = '127.0.0.1', readyTimeoutMs = 90_000, extraArgs = [], cwd, env = {} }) {
   const child = spawn(process.execPath, [cli, '--profile', profile, '--host', host, '--port', String(port), '--no-open', ...extraArgs], {
-    env: laneEnv({ DSH_HOME: home }),
+    cwd,
+    env: laneEnv({ DSH_HOME: home, ...env }),
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
   })
