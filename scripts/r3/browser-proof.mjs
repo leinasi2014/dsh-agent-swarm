@@ -98,7 +98,7 @@ async function writeFailureEvidence(evidenceDir, label, page, records, error) {
 
 async function dismissOfficialTestingNotice(page) {
   const button = page.getByRole('button', { name: /^(Continue|继续)$/u })
-  const present = await button.waitFor({ state: 'visible', timeout: 5_000 }).then(() => true, () => false)
+  const present = await button.waitFor({ state: 'visible', timeout: 20_000 }).then(() => true, () => false)
   if (!present) return { officialTestingNoticePresent: false, officialTestingNoticeDismissed: false }
   await button.focus()
   await page.keyboard.press('Enter')
