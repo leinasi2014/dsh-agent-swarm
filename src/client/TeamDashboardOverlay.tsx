@@ -33,7 +33,7 @@ export function TeamDashboardOverlay({ anchorRef, controller, openCaptainChat, t
   const cardRef = useRef<HTMLElement>(null)
   const headingId = useId()
   const descriptionId = useId()
-  const position = useAnchoredPosition({ open: state.open, anchorRef, panelRef: cardRef, gap: 32, margin: 16 })
+  const position = useAnchoredPosition({ open: state.open, anchorRef, panelRef: cardRef, gap: 44, margin: 16 })
 
   const closeAndRestoreFocus = (): void => {
     const trigger = anchorRef.current?.querySelector<HTMLButtonElement>('[data-swarm-team-trigger]')

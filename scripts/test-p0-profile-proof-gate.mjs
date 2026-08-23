@@ -71,16 +71,16 @@ try {
           },
           geometry: {
             desktop: {
-              card: { x: 1004, y: 84, width: 420, height: 600 },
+              card: { x: 1004, y: 96, width: 420, height: 600 },
               trigger: { x: 1370, y: 20, width: 32, height: 32 },
               host: { x: 0, y: 0, width: 1440, height: 1000 },
             },
             desktopCompact: {
-              card: { x: 1124, y: 84, width: 300, height: 180 },
+              card: { x: 1124, y: 96, width: 300, height: 180 },
               trigger: { x: 1370, y: 20, width: 32, height: 32 },
             },
             narrow: {
-              card: { x: 0, y: 84, width: 680, height: 600 },
+              card: { x: 0, y: 96, width: 680, height: 600 },
               trigger: { x: 630, y: 20, width: 32, height: 32 },
               host: { x: 0, y: 0, width: 680, height: 900 },
             },

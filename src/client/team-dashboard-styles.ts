@@ -24,7 +24,7 @@ const TEAM_DASHBOARD_STYLES = `
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   width: min(420px, calc(100vw - 32px));
-  max-height: calc(100dvh - 100px);
+  max-height: calc(100dvh - 120px);
   color: var(--dsw-alias-text-primary);
   background: var(--dsw-alias-bg-layer-1);
   border: 1px solid var(--dsw-alias-border-l2);
@@ -206,7 +206,7 @@ const TEAM_DASHBOARD_STYLES = `
     left: 0 !important;
     right: 0;
     width: auto;
-    max-height: calc(100dvh - 92px);
+    max-height: calc(100dvh - 108px);
     border-radius: 0;
   }
   [data-swarm-team-card][data-presentation='compact'] {
