@@ -16,8 +16,11 @@
  * - red: the pinned release was superseded without its tag ever landing.
  */
 import { describe, expect, it } from 'vitest'
+import { dirname, join, resolve } from 'node:path'
 import {
   compareReleaseVersions,
+  discoverOfficialCheckout,
+  enclosingCheckoutCandidates,
   evaluateBaselineAnchor,
   parseLsRemote,
   parseReleaseVersion,
@@ -78,7 +81,7 @@ describe('ls-remote output parsing', () => {
     ].join('\n')
     const facts = parseLsRemote(output, 'master')
     expect(facts.branchHead).toBe(PIN)
-    expect(facts.tags.map(tag => tag.name).sort()).toEqual(['dsh-v0.1.0-rc.7', 'dsh-v0.1.0-rc.8', 'dsh-v0.1.1-rc.1'])
+    expect(facts.tags.map(tag => tag.name).toSorted()).toEqual(['dsh-v0.1.0-rc.7', 'dsh-v0.1.0-rc.8', 'dsh-v0.1.1-rc.1'])
   })
 
   it('uses the peeled line as the commit of an annotated tag', () => {
@@ -241,5 +244,82 @@ describe('release anchor: reachability escalation protocol', () => {
     })
     expect(settled.status).toBe('pass')
     expect(settled.anchor).toBe('pending-tag-history')
+  })
+})
+
+describe('official checkout discovery', () => {
+  const pluginRoot = resolve(join('fixture', 'official', 'nested', 'independent', 'dsh-agent-swarm'))
+  const officialRoot = resolve(join('fixture', 'official'))
+  const baseline = { commit: PIN, release: '0.1.0-rc.8' }
+  const officialFacts = {
+    root: officialRoot,
+    head: PIN,
+    packageName: '@deepseek-ai/dsh-root',
+    packageVersion: baseline.release,
+  }
+
+  it('searches outside the independent plugin and accepts an enclosing exact official identity', async () => {
+    const inspected: string[] = []
+    const checkout = await discoverOfficialCheckout({
+      pluginRoot,
+      baseline,
+      async inspect(candidate) {
+        inspected.push(candidate)
+        if (candidate === dirname(pluginRoot)) return officialFacts
+        throw new Error('not a git worktree')
+      },
+    })
+    expect(checkout).toBe(officialRoot)
+    expect(inspected).toEqual([dirname(pluginRoot)])
+    expect(enclosingCheckoutCandidates(pluginRoot)[0]).toBe(dirname(pluginRoot))
+  })
+
+  it('rejects an enclosing git root with a non-official package identity', async () => {
+    await expect(discoverOfficialCheckout({
+      pluginRoot,
+      baseline,
+      async inspect() {
+        return { ...officialFacts, packageName: 'unrelated-monorepo' }
+      },
+    })).rejects.toThrow('enclosing repositories did not identify the pinned official DSH checkout')
+  })
+
+  it('rejects an official-looking root at the wrong commit or release', async () => {
+    let call = 0
+    await expect(discoverOfficialCheckout({
+      pluginRoot,
+      baseline,
+      async inspect() {
+        call += 1
+        return call === 1
+          ? { ...officialFacts, head: UNRELATED }
+          : { ...officialFacts, packageVersion: '0.1.0-rc.7' }
+      },
+    })).rejects.toThrow('enclosing repositories did not identify the pinned official DSH checkout')
+  })
+
+  it('fails closed when git or the package identity cannot be inspected', async () => {
+    await expect(discoverOfficialCheckout({
+      pluginRoot,
+      baseline,
+      async inspect() {
+        throw new Error('unverifiable')
+      },
+    })).rejects.toThrow('enclosing repositories did not identify the pinned official DSH checkout')
+  })
+
+  it('does not fall back when an explicit override is invalid', async () => {
+    const override = resolve(join('fixture', 'wrong-override'))
+    const inspected: string[] = []
+    await expect(discoverOfficialCheckout({
+      pluginRoot,
+      override,
+      baseline,
+      async inspect(candidate) {
+        inspected.push(candidate)
+        return candidate === override ? { ...officialFacts, head: UNRELATED } : officialFacts
+      },
+    })).rejects.toThrow('DSH_OFFICIAL_CHECKOUT did not identify the pinned official DSH checkout')
+    expect(inspected).toEqual([override])
   })
 })

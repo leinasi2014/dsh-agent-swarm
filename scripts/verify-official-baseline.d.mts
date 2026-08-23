@@ -64,3 +64,24 @@ export function compareReleaseVersions(a: string, b: string): number
 export function parseLsRemote(output: string, branch: string): LsRemoteFacts
 
 export function evaluateBaselineAnchor(input: BaselineAnchorInput): BaselineAnchorVerdict
+
+export interface OfficialCheckoutBaseline {
+  commit: string
+  release: string
+}
+
+export interface OfficialCheckoutFacts {
+  root: string
+  head: string
+  packageName?: string
+  packageVersion?: string
+}
+
+export function enclosingCheckoutCandidates(pluginRoot: string): string[]
+
+export function discoverOfficialCheckout(input: {
+  pluginRoot: string
+  override?: string
+  baseline: OfficialCheckoutBaseline
+  inspect(candidate: string): Promise<OfficialCheckoutFacts>
+}): Promise<string>

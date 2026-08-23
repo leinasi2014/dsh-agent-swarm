@@ -8,6 +8,8 @@ Every design, feature, refactor, fix and milestone starts by checking the curren
 
 “Official-first” does not mean importing every official package. It means that official stable Service Definitions own their domains; this project contributes Providers, Consumers, policy overlays and Bundle composition. An official experimental/private package is a semantic compatibility target but is not a production dependency until officially promoted. A genuinely absent capability may receive a generic project seam only after the absence and ownership boundary are recorded.
 
+The plugin checkout may be physically nested under the official checkout, but it remains an independent Git repository, package workspace, candidate stream and release authority. The official checkout is a read-only evidence and Profile/Bundle acceptance host: no plugin task may modify its source, manifests, lockfiles or configuration. Gate A discovers that host from enclosing Git identity plus the pinned official root package, release and commit; directory names and persisted absolute paths are not evidence.
+
 ## 2. Gate A — mandatory pre-development evidence
 
 No production code begins until all items pass:

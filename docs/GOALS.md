@@ -6,6 +6,8 @@
 
 以 official-first 的纯插件方式，为用户安装的完整官方 DeepSeek Harness 提供持久、可审查、可恢复的多 Agent 团队协作能力。官方 DSH 是唯一 Agent Runtime、Profile、Session、preset 和交互服务宿主；本插件通过公开 seam 组合 Team、Workflow、Jobs、Storage Domain、Subagent、问题/审批、Host/RPC 与 UI Consumer，不嵌入或维护第二套 Agent Runtime。
 
+源码可以物理嵌套于官方 DSH checkout 内以缩短兼容验证路径，但插件始终保持独立 Git、独立 package/workspace 和独立发布权威。物理嵌套不把插件变成官方 workspace member，也不授权修改官方 DSH 的源码、manifest、lock、配置或发布状态；官方 checkout 只作为版本身份与真实 Profile/Bundle 装配的只读验收宿主，具体目录不是兼容性证据。
+
 在 Team 协作域内，`TeamDomainPort` 是 roster、task/DAG、attempt、mailbox 和 budget 的唯一写权威；本插件未来提供的 `HumanInteractionPort` 是 Team 人机请求、receipt 和 timeline 的唯一生产者。Canvas、官方 DSH UI、命令行和其他客户端都是消费者或宿主适配器，不能从 transcript、浏览器缓存或本地 Map 重建第二份 Team/HumanInteraction 真源。
 
 ## 稳定范围
@@ -25,6 +27,7 @@ UI 是末端投影型 Consumer；无浏览器、无 Canvas 或 UI 卸载时，Te
 ## 产品红线
 
 - 不修改 Agent Loop 来实现 Team 专属行为，不影子注册官方服务。
+- 不因物理共址修改官方 DSH 的源码、manifest、lock 或配置；所有兼容与性能修正只进入本插件的独立候选。
 - 不携带私有 DSH 内核、私有 `DSH_HOME` 或第二套 preset；安装和运行始终基于用户拥有的官方 DSH。
 - 不把 Swarm 表示为与 Agent provider/engine 并列的第三 Runtime；它是当前官方 DSH Session 的可选 Team capability。
 - 不维护两个可写 canonical 状态机；所有 Team 状态变更经过 `TeamDomainPort`，所有 HumanInteraction 记录经过唯一 producer。
