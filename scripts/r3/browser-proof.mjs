@@ -3,7 +3,12 @@ import { join } from 'node:path'
 import { chromium } from 'playwright'
 
 const TEAM_NAME = /^(Team|团队)$/u
+const TOOL_DETAILS = /^(Tool details|工具详情)$/u
 const OPEN_CHAT = /^(Open Captain Chat|打开 Captain 对话)$/u
+const SETTINGS = /^(Settings|设置)$/u
+const SETTINGS_DIALOG = /^(Settings|设置)$/u
+const CLOSE_DETAILS = /^(Close details|关闭详情)$/u
+const TOOL_DETAILS_WIDE_ONLY = /^(Tool details require a wider window\.|窗口加宽后才能显示工具详情。)$/u
 
 async function launchBrowser(executablePath) {
   const browser = await chromium.launch({
@@ -135,6 +140,95 @@ async function openReadyDashboard(page) {
   return dashboard
 }
 
+async function frameState(page) {
+  return await page.locator('[data-shell-overlay]').evaluate((overlay) => {
+    const frame = overlay.parentElement
+    if (!(frame instanceof HTMLElement)) throw new Error('official AppFrame parent is unavailable')
+    const columns = getComputedStyle(frame).gridTemplateColumns
+      .split(/\s+/u)
+      .map(value => Number.parseFloat(value))
+    const box = frame.getBoundingClientRect()
+    return {
+      collapsed: frame.hasAttribute('data-details-collapsed'),
+      columns,
+      box: { x: box.x, y: box.y, width: box.width, height: box.height },
+    }
+  })
+}
+
+function detailsWidth(state) {
+  return state.columns.at(-1) ?? 0
+}
+
+async function beginDetailsTransitionTrace(page) {
+  await page.locator('[data-shell-overlay]').evaluate((overlay) => {
+    const frame = overlay.parentElement
+    if (!(frame instanceof HTMLElement)) throw new Error('official AppFrame parent is unavailable')
+    const trace = []
+    const sample = () => {
+      trace.push({
+        collapsed: frame.hasAttribute('data-details-collapsed'),
+        columns: getComputedStyle(frame).gridTemplateColumns,
+      })
+    }
+    const observer = new MutationObserver(sample)
+    observer.observe(frame, { attributes: true, attributeFilter: ['data-details-collapsed', 'style'] })
+    sample()
+    globalThis.__swarmDetailsTransitionProof = { observer, trace }
+  })
+}
+
+async function endDetailsTransitionTrace(page) {
+  return await page.evaluate(() => {
+    const proof = globalThis.__swarmDetailsTransitionProof
+    if (proof === undefined) throw new Error('details transition trace was not started')
+    proof.observer.disconnect()
+    delete globalThis.__swarmDetailsTransitionProof
+    return proof.trace
+  })
+}
+
+async function openSettings(page) {
+  const trigger = page.getByRole('button', { name: SETTINGS, exact: true })
+  await trigger.click()
+  const dialog = page.getByRole('dialog', { name: SETTINGS_DIALOG })
+  await dialog.waitFor({ state: 'visible', timeout: 10_000 })
+  return dialog
+}
+
+async function switchLanguage(page, from, to, expectedLang) {
+  const dialog = page.getByRole('dialog', { name: SETTINGS_DIALOG })
+  await dialog.getByRole('button', { name: from, exact: true }).click()
+  await page.getByRole('menuitem', { name: to, exact: true }).click()
+  await page.getByRole('dialog', { name: SETTINGS_DIALOG }).waitFor({ state: 'visible', timeout: 10_000 })
+  await page.waitForFunction(lang => document.documentElement.lang === lang, expectedLang)
+}
+
+async function themeState(page) {
+  return await page.locator('[data-swarm-team-card]').evaluate((card) => {
+    const cardStyle = getComputedStyle(card)
+    const bodyStyle = getComputedStyle(document.body)
+    return {
+      dark: document.body.hasAttribute('data-ds-dark-theme'),
+      cardBackground: cardStyle.backgroundColor,
+      cardColor: cardStyle.color,
+      layerToken: cardStyle.getPropertyValue('--dsw-alias-bg-layer-1').trim(),
+      baseToken: bodyStyle.getPropertyValue('--dsw-alias-bg-base').trim(),
+    }
+  })
+}
+
+async function chooseTheme(page, name, dark) {
+  const dialog = page.getByRole('dialog', { name: SETTINGS_DIALOG })
+  const button = dialog.getByRole('button', { name, exact: true })
+  await button.click()
+  await page.waitForFunction((expected) => document.body.hasAttribute('data-ds-dark-theme') === expected, dark)
+  if (await button.getAttribute('aria-pressed') !== 'true') {
+    throw new Error(`${name} theme control did not become selected`)
+  }
+  return await themeState(page)
+}
+
 export async function runR3ActiveBrowserProof({
   port, evidenceDir, rootSessionId, teamId, browserExecutable, selectionSource, fixture,
 }) {
@@ -164,37 +258,66 @@ export async function runR3ActiveBrowserProof({
     }
     const card = page.locator('[data-swarm-team-card]')
     const teamTrigger = page.getByRole('button', { name: TEAM_NAME })
+    const toolTrigger = page.getByRole('button', { name: TOOL_DETAILS })
+    const actionPair = page.locator('[data-swarm-team-actions]')
     await card.waitFor({ state: 'visible' })
     if (await card.getAttribute('aria-modal') === 'true') {
-      throw new Error('Team Peek Card unexpectedly claimed modal semantics')
+      throw new Error('Team dashboard unexpectedly claimed modal semantics')
     }
-    if (await teamTrigger.getAttribute('aria-expanded') !== 'true' || !await teamTrigger.isVisible()) {
-      throw new Error('Team trigger did not remain visible and selected while its Peek Card was open')
+    if (await teamTrigger.getAttribute('aria-expanded') !== 'true'
+      || !await teamTrigger.isVisible() || !await toolTrigger.isVisible()
+      || await actionPair.count() !== 1) {
+      throw new Error('persistent Team / Tool details action pair was not visible beside the Session utilities')
     }
     const desktopBox = await card.boundingBox()
     const desktopTriggerBox = await teamTrigger.boundingBox()
-    const desktopHostBox = await page.locator('[data-shell-overlay]').boundingBox()
-    if (desktopBox === null || desktopBox.width < 360 || desktopBox.width > 440
-      || desktopTriggerBox === null || desktopHostBox === null
-      || Math.abs(desktopBox.x + desktopBox.width - 1424) > 2
-      || desktopBox.y < desktopTriggerBox.y + desktopTriggerBox.height + 40
-      || desktopBox.y > desktopTriggerBox.y + desktopTriggerBox.height + 48
-      || desktopBox.y + desktopBox.height > 984) {
-      throw new Error(`unexpected desktop Team card geometry: ${JSON.stringify({ card: desktopBox, trigger: desktopTriggerBox, host: desktopHostBox })}`)
+    const desktopFrame = await frameState(page)
+    const desktopDetailsWidth = detailsWidth(desktopFrame)
+    const composer = page.getByRole('textbox').last()
+    const desktopComposerBox = await composer.boundingBox()
+    if (desktopBox === null || desktopTriggerBox === null || desktopComposerBox === null
+      || desktopFrame.collapsed || desktopDetailsWidth < 300 || desktopDetailsWidth > 440
+      || await page.locator('[data-swarm-team-docked]').count() !== 1
+      || Math.abs(desktopBox.width - desktopDetailsWidth) > 2
+      || Math.abs(desktopBox.x + desktopBox.width - desktopFrame.box.width) > 2
+      || Math.abs(desktopBox.y - desktopFrame.box.y) > 2
+      || Math.abs(desktopBox.height - desktopFrame.box.height) > 2
+      || desktopComposerBox.x + desktopComposerBox.width > desktopBox.x + 2) {
+      throw new Error(`wide Team did not own the official details column with Chat reflow: ${JSON.stringify({ card: desktopBox, trigger: desktopTriggerBox, frame: desktopFrame, composer: desktopComposerBox })}`)
     }
     if (!await dashboard.getByText('R2 isolated Profile team', { exact: true }).isVisible()) {
       throw new Error('browser Team name did not come from the real R2 producer')
     }
     await page.screenshot({ path: join(evidenceDir, 'r3-team-dashboard.png'), fullPage: false })
 
-    const composer = page.getByRole('textbox').last()
     await composer.click()
-    await card.waitFor({ state: 'hidden', timeout: 10_000 })
+    await card.waitFor({ state: 'visible', timeout: 10_000 })
     if (!await composer.evaluate(element => element === document.activeElement)) {
-      throw new Error('outside dismissal prevented the original pointer from focusing the official Chat composer')
+      throw new Error('docked Team prevented the official Chat composer from receiving focus')
     }
+
+    await beginDetailsTransitionTrace(page)
+    await toolTrigger.click()
+    await card.waitFor({ state: 'hidden', timeout: 10_000 })
+    const officialClose = page.getByRole('button', { name: CLOSE_DETAILS })
+    await officialClose.waitFor({ state: 'visible', timeout: 10_000 })
+    const toolFrame = await frameState(page)
+    const transitionTrace = await endDetailsTransitionTrace(page)
+    const traceCollapsed = transitionTrace.some(sample => sample.collapsed
+      || Number.parseFloat(sample.columns.split(/\s+/u).at(-1) ?? '0') < 1)
+    if (toolFrame.collapsed || Math.abs(detailsWidth(toolFrame) - desktopDetailsWidth) > 2
+      || traceCollapsed || await teamTrigger.getAttribute('aria-expanded') !== 'false'
+      || !await toolTrigger.evaluate(element => element === document.activeElement)
+      || await page.getByText('Click a tool row in the message flow to view its details', { exact: true }).count() !== 1) {
+      throw new Error(`Tool details handoff closed or replaced the official details column: ${JSON.stringify({ frame: toolFrame, transitionTrace })}`)
+    }
+    await page.screenshot({ path: join(evidenceDir, 'r3-tool-details.png'), fullPage: false })
+
     await teamTrigger.click()
     await page.locator('[data-swarm-team-dashboard][data-phase="ready"]').waitFor({ state: 'visible', timeout: 20_000 })
+    if (await page.locator('[data-swarm-team-docked]').count() !== 1 || (await frameState(page)).collapsed) {
+      throw new Error('Team did not reacquire the official details column after Tool details')
+    }
     await teamTrigger.click()
     await page.locator('[data-swarm-team-card][data-presentation="compact"]').waitFor({ state: 'visible', timeout: 10_000 })
     await page.waitForFunction(() => {
@@ -203,15 +326,17 @@ export async function runR3ActiveBrowserProof({
       return Math.abs(element.getBoundingClientRect().right - (window.innerWidth - 16)) <= 2
     })
     const compactBox = await card.boundingBox()
+    const compactFrame = await frameState(page)
     if (compactBox === null || compactBox.width < 260 || compactBox.width > 320
       || Math.abs(compactBox.x + compactBox.width - 1424) > 2
       || desktopTriggerBox === null
       || compactBox.y < desktopTriggerBox.y + desktopTriggerBox.height + 40
       || compactBox.y > desktopTriggerBox.y + desktopTriggerBox.height + 48
       || compactBox.y + compactBox.height > 984
+      || !compactFrame.collapsed || detailsWidth(compactFrame) !== 0
       || await teamTrigger.getAttribute('aria-expanded') !== 'true'
       || await page.getByRole('button', { name: OPEN_CHAT }).count() !== 0) {
-      throw new Error(`unexpected compact Team card: ${JSON.stringify({ card: compactBox, trigger: desktopTriggerBox })}`)
+      throw new Error(`unexpected compact Team Peek: ${JSON.stringify({ card: compactBox, trigger: desktopTriggerBox, frame: compactFrame })}`)
     }
     await page.screenshot({ path: join(evidenceDir, 'r3-team-dashboard-compact.png'), fullPage: false })
     await teamTrigger.click()
@@ -221,23 +346,94 @@ export async function runR3ActiveBrowserProof({
     }
     await teamTrigger.click()
     await page.locator('[data-swarm-team-dashboard][data-phase="ready"]').waitFor({ state: 'visible', timeout: 20_000 })
+    if (await page.locator('[data-swarm-team-docked]').count() !== 1) {
+      throw new Error('fourth Team trigger click did not restore the docked Team surface')
+    }
 
     await page.setViewportSize({ width: 680, height: 900 })
+    await page.locator('[data-swarm-team-card][data-presentation="expanded"]:not([data-swarm-team-docked])')
+      .waitFor({ state: 'visible', timeout: 10_000 })
     const narrowBox = await card.boundingBox()
     const narrowTriggerBox = await teamTrigger.boundingBox()
-    const narrowHostBox = await page.locator('[data-shell-overlay]').boundingBox()
-    if (narrowBox === null || narrowTriggerBox === null || narrowHostBox === null
+    const narrowFrame = await frameState(page)
+    if (narrowBox === null || narrowTriggerBox === null
       || Math.abs(narrowBox.x) > 2
       || Math.abs(narrowBox.width - 680) > 2
       || narrowBox.y < narrowTriggerBox.y + narrowTriggerBox.height + 40
       || narrowBox.y > narrowTriggerBox.y + narrowTriggerBox.height + 48
       || narrowBox.y + narrowBox.height > 900
+      || !narrowFrame.collapsed || detailsWidth(narrowFrame) !== 0
+      || await page.locator('[data-swarm-team-docked]').count() !== 0
+      || await toolTrigger.getAttribute('aria-disabled') !== 'true'
       || !await teamTrigger.isVisible()) {
-      throw new Error(`unexpected narrow Team card geometry: ${JSON.stringify({ card: narrowBox, trigger: narrowTriggerBox, host: narrowHostBox })}`)
+      throw new Error(`unexpected narrow Team Peek: ${JSON.stringify({ card: narrowBox, trigger: narrowTriggerBox, frame: narrowFrame })}`)
+    }
+    await toolTrigger.focus()
+    await page.keyboard.press('Enter')
+    const narrowAnnouncement = page.locator('[aria-live="polite"][data-swarm-team-visually-hidden]')
+    await narrowAnnouncement.filter({ hasText: TOOL_DETAILS_WIDE_ONLY }).waitFor({ state: 'attached', timeout: 10_000 })
+    const narrowAfterTool = await frameState(page)
+    if (narrowAfterTool.collapsed !== true
+      || await page.locator('[data-swarm-team-dashboard][data-presentation="expanded"]:not([data-swarm-team-docked])').count() !== 1
+      || await teamTrigger.getAttribute('aria-expanded') !== 'true'
+      || !await toolTrigger.evaluate(element => element === document.activeElement)) {
+      throw new Error('narrow Tool details activation changed or dismissed the Team Peek')
     }
     await page.screenshot({ path: join(evidenceDir, 'r3-team-dashboard-narrow.png'), fullPage: false })
     await page.setViewportSize({ width: 1440, height: 1000 })
+    await page.locator('[data-swarm-team-docked]').waitFor({ state: 'visible', timeout: 10_000 })
 
+    const localeIdentity = await dashboard.elementHandle()
+    await openSettings(page)
+    await switchLanguage(page, 'English', '中文', 'zh-CN')
+    await page.getByRole('heading', { name: '智能体团队', exact: true }).waitFor({ state: 'visible', timeout: 10_000 })
+    const zhSameDashboard = await localeIdentity.evaluate((element, current) => element === current,
+      await dashboard.elementHandle())
+    if (!zhSameDashboard || await page.getByRole('button', { name: '团队', exact: true }).count() !== 1
+      || await page.getByRole('button', { name: '工具详情', exact: true }).count() !== 1) {
+      throw new Error('DSH locale switch remounted Team or left its action copy in English')
+    }
+    await page.keyboard.press('Escape')
+    await page.screenshot({ path: join(evidenceDir, 'r3-team-dashboard-locale-zh.png'), fullPage: false })
+    await openSettings(page)
+    await switchLanguage(page, '中文', 'English', 'en')
+    await page.getByRole('heading', { name: 'Agent Team', exact: true }).waitFor({ state: 'visible', timeout: 10_000 })
+    const enSameDashboard = await localeIdentity.evaluate((element, current) => element === current,
+      await dashboard.elementHandle())
+    if (!enSameDashboard || await page.getByRole('button', { name: 'Team', exact: true }).count() !== 1
+      || await page.getByRole('button', { name: 'Tool details', exact: true }).count() !== 1) {
+      throw new Error('DSH locale switch back to English remounted Team or left stale copy')
+    }
+    await page.keyboard.press('Escape')
+
+    await page.emulateMedia({ colorScheme: 'light' })
+    await openSettings(page)
+    const lightTheme = await chooseTheme(page, 'Light', false)
+    const darkTheme = await chooseTheme(page, 'Dark', true)
+    if (darkTheme.layerToken === lightTheme.layerToken
+      || darkTheme.cardBackground === lightTheme.cardBackground
+      || darkTheme.cardColor === lightTheme.cardColor) {
+      throw new Error(`Team surface did not consume DSH theme tokens: ${JSON.stringify({ lightTheme, darkTheme })}`)
+    }
+    await page.screenshot({ path: join(evidenceDir, 'r3-team-dashboard-theme-dark.png'), fullPage: false })
+    const systemLightTheme = await chooseTheme(page, 'System', false)
+    if (systemLightTheme.layerToken !== lightTheme.layerToken
+      || systemLightTheme.cardBackground !== lightTheme.cardBackground) {
+      throw new Error(`System-light theme did not resolve through the same DSH tokens: ${JSON.stringify({ lightTheme, systemLightTheme })}`)
+    }
+    await page.emulateMedia({ colorScheme: 'dark' })
+    await page.waitForFunction(() => document.body.hasAttribute('data-ds-dark-theme'))
+    const systemDarkTheme = await themeState(page)
+    if (systemDarkTheme.layerToken !== darkTheme.layerToken
+      || systemDarkTheme.cardBackground !== darkTheme.cardBackground) {
+      throw new Error(`System-dark theme did not resolve through the same DSH tokens: ${JSON.stringify({ darkTheme, systemDarkTheme })}`)
+    }
+    await page.emulateMedia({ colorScheme: 'light' })
+    await page.waitForFunction(() => !document.body.hasAttribute('data-ds-dark-theme'))
+    await page.keyboard.press('Escape')
+
+    const refresh = page.getByRole('button', { name: 'Refresh', exact: true })
+    await refresh.focus()
     await page.keyboard.press('Escape')
     await card.waitFor({ state: 'hidden', timeout: 10_000 })
     if (!await teamTrigger.evaluate(element => element === document.activeElement)) {
@@ -273,12 +469,22 @@ export async function runR3ActiveBrowserProof({
       status: 'pass', rootSessionId, teamId, browser: identity, fixture, ...onboarding,
       bootstrap: { ...bootstrapEvidence(rootSessionId, selectionSource), frameworkTargetObserved: true },
       geometry: {
-        desktop: { card: desktopBox, trigger: desktopTriggerBox, host: desktopHostBox },
-        desktopCompact: { card: compactBox, trigger: desktopTriggerBox },
-        narrow: { card: narrowBox, trigger: narrowTriggerBox, host: narrowHostBox },
+        desktop: { card: desktopBox, trigger: desktopTriggerBox, frame: desktopFrame, composer: desktopComposerBox },
+        toolDetails: { frame: toolFrame, transitionTrace },
+        desktopCompact: { card: compactBox, trigger: desktopTriggerBox, frame: compactFrame },
+        narrow: { card: narrowBox, trigger: narrowTriggerBox, frame: narrowFrame },
       },
-      nonModal: { ariaModal: false, outsidePointerDismissed: true, officialComposerFocused: true },
-      keyboard: ['focus Team', 'Enter', 'outside click', 'trigger reopen', 'trigger compact', 'trigger close', 'trigger reopen', 'Escape with focus return', 'Enter', 'focus Open Captain Chat', 'Enter', 'Escape after reload'],
+      nonModal: { ariaModal: false, dockedChatInteractionPreserved: true, officialComposerFocused: true },
+      surfaces: {
+        wideTeamUsesOfficialDetailsColumn: true,
+        toolHandoffKeptDetailsOpen: true,
+        toolHandoffFocusRetained: true,
+        narrowTeamUsesPeek: true,
+        narrowToolStayedFocusableAndDisabled: true,
+      },
+      locale: { sequence: ['en', 'zh-CN', 'en'], sameDashboardElement: true },
+      theme: { light: lightTheme, dark: darkTheme, systemLight: systemLightTheme, systemDark: systemDarkTheme },
+      keyboard: ['focus Team', 'Enter', 'focus Chat while docked', 'focus Tool details', 'Enter', 'trigger reopen', 'trigger compact', 'trigger close', 'trigger reopen', 'narrow Tool details Enter', 'Escape with focus return', 'Enter', 'focus Open Captain Chat', 'Enter', 'Escape after reload'],
       handoff: {
         officialSessionSelected: true,
         officialSelectionSource: 'localStorage:dsh.sessions.current',

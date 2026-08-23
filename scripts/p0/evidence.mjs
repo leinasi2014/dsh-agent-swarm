@@ -55,8 +55,11 @@ export const REQUIRED_P0_EVIDENCE_FILES = [
   'evidence/r3-browser-removed.json',
   'evidence/r3-r0-fail-closed.png',
   'evidence/r3-team-dashboard-compact.png',
+  'evidence/r3-team-dashboard-locale-zh.png',
   'evidence/r3-team-dashboard.png',
   'evidence/r3-team-dashboard-narrow.png',
+  'evidence/r3-team-dashboard-theme-dark.png',
+  'evidence/r3-tool-details.png',
   'evidence/r3-workspace-accounting.json',
   'evidence/r3-workspace-create.json',
 ]
@@ -270,7 +273,7 @@ async function verifyR3BrowserEvidence(root, failures) {
     || !Array.isArray(active?.keyboard) || active.keyboard.length < 5) {
     failures.push('R3 active browser evidence does not prove render/keyboard/handoff/reload')
   }
-  verifyPeekCardEvidence(active, failures)
+  verifyTeamSurfaceEvidence(active, failures)
   if (active?.fixture?.exactRoot !== true || active?.fixture?.workspaceAttached !== true
     || active?.fixture?.sessionNonBlank !== true
     || active?.fixture?.rootSessionId !== active?.rootSessionId
@@ -330,6 +333,9 @@ async function verifyR3BrowserEvidence(root, failures) {
     'evidence/r3-team-dashboard.png',
     'evidence/r3-team-dashboard-compact.png',
     'evidence/r3-team-dashboard-narrow.png',
+    'evidence/r3-tool-details.png',
+    'evidence/r3-team-dashboard-locale-zh.png',
+    'evidence/r3-team-dashboard-theme-dark.png',
     'evidence/r3-r0-fail-closed.png',
   ]) {
     const screenshot = await stat(resolve(root, relativePath)).catch(() => undefined)
@@ -339,12 +345,15 @@ async function verifyR3BrowserEvidence(root, failures) {
   }
 }
 
-function verifyPeekCardEvidence(active, failures) {
+function verifyTeamSurfaceEvidence(active, failures) {
   const desktop = active?.geometry?.desktop
+  const toolDetails = active?.geometry?.toolDetails
   const desktopCompact = active?.geometry?.desktopCompact
   const narrow = active?.geometry?.narrow
   const desktopCard = desktop?.card
   const desktopTrigger = desktop?.trigger
+  const desktopFrame = desktop?.frame
+  const desktopComposer = desktop?.composer
   const compactCard = desktopCompact?.card
   const compactTrigger = desktopCompact?.trigger
   const narrowCard = narrow?.card
@@ -352,19 +361,35 @@ function verifyPeekCardEvidence(active, failures) {
   const validRect = value => value !== undefined
     && ['x', 'y', 'width', 'height'].every(key => Number.isFinite(value[key]))
     && value.width > 0 && value.height > 0
-  if (!validRect(desktopCard) || !validRect(desktopTrigger)
-    || desktopCard.width < 360 || desktopCard.width > 440
-    || Math.abs(desktopCard.x + desktopCard.width - 1424) > 2
-    || desktopCard.y < desktopTrigger.y + desktopTrigger.height + 40
-    || desktopCard.y > desktopTrigger.y + desktopTrigger.height + 48
-    || desktopCard.y + desktopCard.height > 984) {
-    failures.push('R3 active browser evidence does not prove desktop Peek Card anchor and viewport clearance')
+  const validFrame = value => value !== undefined && value.collapsed === false
+    && validRect(value.box) && Array.isArray(value.columns) && value.columns.length === 3
+    && value.columns.every(Number.isFinite)
+  const validCollapsedFrame = value => value !== undefined && value.collapsed === true
+    && validRect(value.box) && Array.isArray(value.columns) && value.columns.length === 3
+    && value.columns.every(Number.isFinite) && value.columns.at(-1) === 0
+  const desktopDetailsWidth = desktopFrame?.columns?.at(-1)
+  if (!validRect(desktopCard) || !validRect(desktopTrigger) || !validRect(desktopComposer)
+    || !validFrame(desktopFrame) || desktopDetailsWidth < 300 || desktopDetailsWidth > 440
+    || Math.abs(desktopCard.width - desktopDetailsWidth) > 2
+    || Math.abs(desktopCard.x + desktopCard.width - desktopFrame.box.width) > 2
+    || Math.abs(desktopCard.y - desktopFrame.box.y) > 2
+    || Math.abs(desktopCard.height - desktopFrame.box.height) > 2
+    || desktopComposer.x + desktopComposer.width > desktopCard.x + 2) {
+    failures.push('R3 active browser evidence does not prove wide Team ownership of the official details column with Chat reflow')
+  }
+  const toolFrame = toolDetails?.frame
+  const toolTrace = toolDetails?.transitionTrace
+  if (!validFrame(toolFrame) || Math.abs((toolFrame?.columns?.at(-1) ?? 0) - desktopDetailsWidth) > 2
+    || !Array.isArray(toolTrace) || toolTrace.length === 0
+    || toolTrace.some(sample => sample?.collapsed !== false
+      || Number.parseFloat(sample?.columns?.split(/\s+/u).at(-1) ?? '0') < 1)) {
+    failures.push('R3 active browser evidence does not prove zero-collapse handoff to official Tool details')
   }
   if (!validRect(narrowCard) || !validRect(narrowTrigger)
     || Math.abs(narrowCard.x) > 2 || Math.abs(narrowCard.width - 680) > 2
     || narrowCard.y < narrowTrigger.y + narrowTrigger.height + 40
     || narrowCard.y > narrowTrigger.y + narrowTrigger.height + 48
-    || narrowCard.y + narrowCard.height > 900) {
+    || narrowCard.y + narrowCard.height > 900 || !validCollapsedFrame(narrow?.frame)) {
     failures.push('R3 active browser evidence does not prove narrow full-width Peek Card below the trigger')
   }
   if (!validRect(compactCard) || !validRect(compactTrigger)
@@ -372,24 +397,46 @@ function verifyPeekCardEvidence(active, failures) {
     || Math.abs(compactCard.x + compactCard.width - 1424) > 2
     || compactCard.y < compactTrigger.y + compactTrigger.height + 40
     || compactCard.y > compactTrigger.y + compactTrigger.height + 48
-    || compactCard.y + compactCard.height > 984) {
+    || compactCard.y + compactCard.height > 984 || !validCollapsedFrame(desktopCompact?.frame)) {
     failures.push('R3 active browser evidence does not prove the intermediate compact Team card')
   }
   if (active?.nonModal?.ariaModal !== false
-    || active?.nonModal?.outsidePointerDismissed !== true
+    || active?.nonModal?.dockedChatInteractionPreserved !== true
     || active?.nonModal?.officialComposerFocused !== true) {
-    failures.push('R3 active browser evidence does not prove non-modal outside dismissal with original Chat focus')
+    failures.push('R3 active browser evidence does not prove non-modal docked Team with interactive Chat')
+  }
+  if (active?.surfaces?.wideTeamUsesOfficialDetailsColumn !== true
+    || active?.surfaces?.toolHandoffKeptDetailsOpen !== true
+    || active?.surfaces?.toolHandoffFocusRetained !== true
+    || active?.surfaces?.narrowTeamUsesPeek !== true
+    || active?.surfaces?.narrowToolStayedFocusableAndDisabled !== true) {
+    failures.push('R3 active browser evidence does not prove the wide/Tool/narrow surface contract')
+  }
+  if (JSON.stringify(active?.locale?.sequence) !== JSON.stringify(['en', 'zh-CN', 'en'])
+    || active?.locale?.sameDashboardElement !== true) {
+    failures.push('R3 active browser evidence does not prove in-place en -> zh -> en localization')
+  }
+  const theme = active?.theme
+  if (theme?.light?.dark !== false || theme?.dark?.dark !== true
+    || theme?.systemLight?.dark !== false || theme?.systemDark?.dark !== true
+    || theme?.light?.layerToken === theme?.dark?.layerToken
+    || theme?.light?.cardBackground === theme?.dark?.cardBackground
+    || theme?.light?.layerToken !== theme?.systemLight?.layerToken
+    || theme?.dark?.layerToken !== theme?.systemDark?.layerToken) {
+    failures.push('R3 active browser evidence does not prove DSH light/dark/system token resolution')
   }
   const requiredActions = [
-    'outside click',
+    'focus Chat while docked',
+    'focus Tool details',
     'trigger reopen',
     'trigger compact',
     'trigger close',
+    'narrow Tool details Enter',
     'Escape with focus return',
     'focus Open Captain Chat',
   ]
   if (!Array.isArray(active?.keyboard) || requiredActions.some(action => !active.keyboard.includes(action))) {
-    failures.push('R3 active browser evidence does not prove every required Peek Card close path')
+    failures.push('R3 active browser evidence does not prove every required Team surface keyboard path')
   }
 }
 

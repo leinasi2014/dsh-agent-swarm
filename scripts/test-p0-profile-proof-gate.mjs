@@ -71,24 +71,43 @@ try {
           },
           geometry: {
             desktop: {
-              card: { x: 1004, y: 96, width: 420, height: 600 },
-              trigger: { x: 1370, y: 20, width: 32, height: 32 },
-              host: { x: 0, y: 0, width: 1440, height: 1000 },
+              card: { x: 1080, y: 0, width: 360, height: 1000 },
+              trigger: { x: 1000, y: 20, width: 32, height: 32 },
+              frame: { collapsed: false, columns: [220, 860, 360], box: { x: 0, y: 0, width: 1440, height: 1000 } },
+              composer: { x: 300, y: 800, width: 700, height: 100 },
+            },
+            toolDetails: {
+              frame: { collapsed: false, columns: [220, 860, 360], box: { x: 0, y: 0, width: 1440, height: 1000 } },
+              transitionTrace: [{ collapsed: false, columns: '220px 860px 360px' }],
             },
             desktopCompact: {
               card: { x: 1124, y: 96, width: 300, height: 180 },
               trigger: { x: 1370, y: 20, width: 32, height: 32 },
+              frame: { collapsed: true, columns: [220, 1220, 0], box: { x: 0, y: 0, width: 1440, height: 1000 } },
             },
             narrow: {
               card: { x: 0, y: 96, width: 680, height: 600 },
               trigger: { x: 630, y: 20, width: 32, height: 32 },
-              host: { x: 0, y: 0, width: 680, height: 900 },
+              frame: { collapsed: true, columns: [60, 620, 0], box: { x: 0, y: 0, width: 680, height: 900 } },
             },
           },
-          nonModal: { ariaModal: false, outsidePointerDismissed: true, officialComposerFocused: true },
+          nonModal: { ariaModal: false, dockedChatInteractionPreserved: true, officialComposerFocused: true },
+          surfaces: {
+            wideTeamUsesOfficialDetailsColumn: true, toolHandoffKeptDetailsOpen: true,
+            toolHandoffFocusRetained: true,
+            narrowTeamUsesPeek: true, narrowToolStayedFocusableAndDisabled: true,
+          },
+          locale: { sequence: ['en', 'zh-CN', 'en'], sameDashboardElement: true },
+          theme: {
+            light: { dark: false, layerToken: '#fff', cardBackground: 'rgb(255, 255, 255)' },
+            dark: { dark: true, layerToken: '#111', cardBackground: 'rgb(17, 17, 17)' },
+            systemLight: { dark: false, layerToken: '#fff', cardBackground: 'rgb(255, 255, 255)' },
+            systemDark: { dark: true, layerToken: '#111', cardBackground: 'rgb(17, 17, 17)' },
+          },
           keyboard: [
-            'focus Team', 'Enter', 'outside click', 'trigger reopen', 'trigger compact', 'trigger close',
-            'trigger reopen', 'Escape with focus return', 'Enter', 'focus Open Captain Chat',
+            'focus Team', 'Enter', 'focus Chat while docked', 'focus Tool details', 'trigger reopen',
+            'trigger compact', 'trigger close', 'trigger reopen', 'narrow Tool details Enter',
+            'Escape with focus return', 'Enter', 'focus Open Captain Chat',
             'Enter', 'Escape after reload',
           ],
           requests: [{ method: 'POST', body: { method: 'snapshot' } }],
@@ -226,7 +245,7 @@ try {
   for (const [label, mutate] of [
     ['R3 browser forged narrow geometry', value => { value.geometry.narrow.card.width = 664 }],
     ['R3 browser missing compact geometry', value => { delete value.geometry.desktopCompact }],
-    ['R3 browser missing outside dismissal', value => { value.nonModal.outsidePointerDismissed = false }],
+    ['R3 browser missing Tool handoff', value => { value.surfaces.toolHandoffKeptDetailsOpen = false }],
     ['R3 browser missing trigger close path', value => {
       value.keyboard = value.keyboard.filter(action => action !== 'trigger close')
     }],
