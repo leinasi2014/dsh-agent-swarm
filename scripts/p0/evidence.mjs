@@ -245,11 +245,25 @@ async function verifyR3BrowserEvidence(root, failures) {
     }
   }
   const active = await readJson('evidence/r3-browser-active.json')
+  const browserIdentity = active?.browser
+  if (browserIdentity?.engine !== 'chromium' || !isAbsolute(browserIdentity?.executablePath ?? '')
+    || typeof browserIdentity?.version !== 'string' || browserIdentity.version.length === 0) {
+    failures.push('R3 active browser evidence must record the Chromium executable locator and version')
+  }
   if (active?.status !== 'pass' || active?.handoff?.officialSessionSelected !== true
     || active?.handoff?.chatTextboxVisible !== true || active?.reload !== true
     || typeof active?.rootSessionId !== 'string' || typeof active?.teamId !== 'string'
     || !Array.isArray(active?.keyboard) || active.keyboard.length < 5) {
     failures.push('R3 active browser evidence does not prove render/keyboard/handoff/reload')
+  }
+  if (active?.handoff?.officialSelectionSource !== 'localStorage:dsh.sessions.current'
+    || active?.handoff?.currentSessionId !== active?.rootSessionId
+    || active?.handoff?.reloadedSessionId !== active?.rootSessionId) {
+    failures.push('R3 Captain handoff is not bound to the exact official root Session selection')
+  }
+  if (!Array.isArray(active?.consoleErrors) || active.consoleErrors.length !== 0
+    || !Array.isArray(active?.pageErrors) || active.pageErrors.length !== 0) {
+    failures.push('R3 active browser contains an unclassified console or page error')
   }
   const requests = active?.requests
   const allowed = new Set(['capabilities', 'binding', 'status', 'snapshot', 'page'])
@@ -258,12 +272,26 @@ async function verifyR3BrowserEvidence(root, failures) {
   )) failures.push('R3 active browser evidence contains no read requests or a non-read request')
 
   const r0 = await readJson('evidence/r3-browser-r0.json')
+  if (JSON.stringify(r0?.browser) !== JSON.stringify(browserIdentity)) {
+    failures.push('R3 R0 browser identity differs from the active proof')
+  }
   if (r0?.status !== 'pass' || r0?.routeUnavailable !== true || r0?.renderedData !== false) {
     failures.push('R3 R0 browser evidence does not prove fail-closed no-data rendering')
   }
+  if (!Array.isArray(r0?.consoleErrors) || r0.consoleErrors.length !== 0
+    || !Array.isArray(r0?.pageErrors) || r0.pageErrors.length !== 0) {
+    failures.push('R3 R0 browser contains an unclassified console or page error')
+  }
   const removed = await readJson('evidence/r3-browser-removed.json')
+  if (JSON.stringify(removed?.browser) !== JSON.stringify(browserIdentity)) {
+    failures.push('R3 removed browser identity differs from the active proof')
+  }
   if (removed?.status !== 'pass' || removed?.teamActionAbsent !== true) {
     failures.push('R3 removed browser evidence does not prove client action disposal')
+  }
+  if (!Array.isArray(removed?.consoleErrors) || removed.consoleErrors.length !== 0
+    || !Array.isArray(removed?.pageErrors) || removed.pageErrors.length !== 0) {
+    failures.push('R3 removed browser contains an unclassified console or page error')
   }
   for (const relativePath of ['evidence/r3-team-dashboard.png', 'evidence/r3-r0-fail-closed.png']) {
     const screenshot = await stat(resolve(root, relativePath)).catch(() => undefined)

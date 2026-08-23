@@ -126,6 +126,20 @@ describe('R3 DSH-native Team UI', () => {
     expect(document.querySelector('[role="dialog"]')).toBeNull()
   })
 
+  it('handles a rejected Captain handoff without leaking an unhandled rejection or locking the action', async () => {
+    const controller = new FakeController(readyState())
+    const handoff = vi.fn(async () => { throw new Error('binding changed') })
+    await render(<TeamDashboardOverlay {...({ controller, openCaptainChat: handoff, t } as unknown as TeamDashboardOverlayProps)} />)
+
+    await act(async () => {
+      button('Open Captain Chat').click()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(handoff).toHaveBeenCalledTimes(1)
+    expect(button('Open Captain Chat').disabled).toBe(false)
+  })
+
   it('uses the framework Session id only as the header action target hint', async () => {
     const controller = new FakeController({ open: false, phase: 'closed' })
     await render(<TeamDashboardAction {...({ controller, sessionId: 'root-from-framework', t } as unknown as TeamDashboardActionProps)} />)

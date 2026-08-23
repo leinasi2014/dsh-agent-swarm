@@ -26,7 +26,7 @@ The official conversation package exposes no public `setView` operation. Its vie
 
 1. Opening captures one target root Session hint and creates one bounded refresh generation.
 2. The controller checks the packed R2 capability response, then requests binding and snapshot.
-3. Tasks, attempts and pending interactions are read through strict pages. Every page must retain the same binding/cursor, `nextOffset` must advance exactly, and the terminal page must omit it. A cursor change discards the partial aggregate and restarts once from a fresh snapshot.
+3. Tasks, attempts and pending interactions are read through strict pages bounded by the R1 ceilings (100/200/100 rows). Every page must retain the same cursor, totals and truncation state, `nextOffset` must advance exactly, stable row ids cannot repeat, and the terminal aggregate must equal `visibleTotal`. A cursor change discards the partial aggregate and restarts once from a fresh snapshot.
 4. A successful refresh schedules a bounded poll. A later failure preserves the last complete projection as stale, reports the bounded error and retries. Initial failure has no data and renders an error state.
 5. Close, Session-target change, plugin unload and component unmount abort physical requests. No hidden closed panel performs reads.
 
@@ -43,7 +43,7 @@ This is target-bound local-single-user navigation, not authentication or a human
 - slot registration/unregistration, locale, keyboard/Escape and accessible dialog/controls;
 - Captain handoff success plus forged root, non-Captain, Session switch and missing Session negatives;
 - packed client bundle purity and exact Host/client contract identity;
-- fresh isolated official Profile with a real live root/Captain Team, real browser render, screenshot, keyboard path, Chat handoff, reload, disable/unload and R0 proof;
+- fresh isolated official Profile with a real live root/Captain Team, explicit browser locator/version, zero unclassified console/page errors, real render, screenshot, keyboard path, exact official `dsh.sessions.current` root binding after Chat handoff and reload, disable/unload and R0 proof;
 - full project verification, clean official before/after evidence and non-author candidate review.
 
 ## Non-goals

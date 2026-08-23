@@ -33,6 +33,13 @@ type PageEntries = {
   pendingInteractions: SwarmHostReadProjectionV1['pendingInteractions']
 }
 
+const PAGE_LIMIT = 50
+const PAGE_CEILINGS: Readonly<Record<SwarmReadPageKind, number>> = Object.freeze({
+  tasks: 100,
+  attempts: 200,
+  pendingInteractions: 100,
+})
+
 const browserSchedule: TeamDashboardSchedule = {
   set: (delayMs, callback) => globalThis.setTimeout(callback, delayMs),
   clear: handle => globalThis.clearTimeout(handle as ReturnType<typeof setTimeout>),
@@ -188,9 +195,9 @@ export class TeamDashboardController {
     const snapshot = await this.readSnapshot(target, previousCursor, signal)
     assertIdentity(binding, snapshot)
     const [tasks, attempts, pendingInteractions] = await Promise.all([
-      this.readAllPages('tasks', target, snapshot.cursor, signal),
-      this.readAllPages('attempts', target, snapshot.cursor, signal),
-      this.readAllPages('pendingInteractions', target, snapshot.cursor, signal),
+      this.readAllPages('tasks', target, snapshot, signal),
+      this.readAllPages('attempts', target, snapshot, signal),
+      this.readAllPages('pendingInteractions', target, snapshot, signal),
     ])
     return {
       capabilities,
@@ -235,29 +242,51 @@ export class TeamDashboardController {
   private async readAllPages<K extends SwarmReadPageKind>(
     kind: K,
     target: { readonly rootSessionId: string; readonly teamId: string },
-    cursor: string,
+    snapshot: SwarmHostReadProjectionV1,
     signal: AbortSignal,
   ): Promise<PageEntries[K]> {
     const entries: unknown[] = []
+    const ids = new Set<string>()
+    const ceiling = PAGE_CEILINGS[kind]
+    const expectedVisible = snapshot[kind].length
+    const expectedAuthoritative = snapshot.totals[kind]
+    const expectedTruncated = snapshot.truncated[kind]
+    if (expectedVisible > ceiling) throw new DashboardReadError('SWARM_UI_PAGE_LIMIT', 'Snapshot exceeds the read projection ceiling')
     let offset = 0
-    for (;;) {
+    for (let pageNumber = 1; pageNumber <= Math.ceil(ceiling / PAGE_LIMIT); pageNumber += 1) {
       const page = await this.value({
         schemaVersion: 1,
         method: 'page',
         target,
-        afterCursor: cursor,
-        page: { kind, offset, limit: 50 },
+        afterCursor: snapshot.cursor,
+        page: { kind, offset, limit: PAGE_LIMIT },
       }, signal) as SwarmReadPageV1
-      if (page.kind !== kind || page.cursor !== cursor || page.offset !== offset) {
+      if (page.kind !== kind || page.cursor !== snapshot.cursor || page.offset !== offset) {
         throw new DashboardReadError('SWARM_UI_CURSOR_CHANGED', 'Team projection changed while paging')
       }
+      if (page.limit !== PAGE_LIMIT || page.visibleTotal !== expectedVisible
+        || page.authoritativeTotal !== expectedAuthoritative || page.projectionTruncated !== expectedTruncated) {
+        throw new DashboardReadError('SWARM_UI_PAGE_INVALID', 'Team page totals drifted from the snapshot')
+      }
+      for (const entry of page.entries) {
+        const id = pageEntryId(kind, entry)
+        if (ids.has(id)) throw new DashboardReadError('SWARM_UI_PAGE_INVALID', 'Team pages repeated a stable row id')
+        ids.add(id)
+      }
       entries.push(...page.entries)
-      if (page.nextOffset === undefined) return Object.freeze(entries) as PageEntries[K]
+      if (entries.length > ceiling) throw new DashboardReadError('SWARM_UI_PAGE_LIMIT', 'Team pages exceed the read projection ceiling')
+      if (page.nextOffset === undefined) {
+        if (entries.length !== expectedVisible) {
+          throw new DashboardReadError('SWARM_UI_PAGE_INVALID', 'Terminal Team page did not complete the visible projection')
+        }
+        return Object.freeze(entries) as PageEntries[K]
+      }
       if (page.nextOffset !== offset + page.entries.length || page.nextOffset <= offset) {
         throw new DashboardReadError('SWARM_UI_PAGE_INVALID', 'Team page did not advance exactly')
       }
       offset = page.nextOffset
     }
+    throw new DashboardReadError('SWARM_UI_PAGE_LIMIT', 'Team paging exceeded the bounded projection page count')
   }
 
   private async value(request: Parameters<SwarmReadClientMount['request']>[0], signal: AbortSignal): Promise<unknown> {
@@ -302,6 +331,12 @@ export class TeamDashboardController {
   private assertLive(): void {
     if (this.disposed) throw new Error('Team dashboard controller is disposed')
   }
+}
+
+function pageEntryId(kind: SwarmReadPageKind, entry: SwarmReadPageV1['entries'][number]): string {
+  if (kind === 'tasks') return (entry as PageEntries['tasks'][number]).id
+  if (kind === 'attempts') return (entry as PageEntries['attempts'][number]).id
+  return (entry as PageEntries['pendingInteractions'][number]).requestId
 }
 
 function assertIdentity(binding: SwarmReadBindingV1, snapshot: SwarmHostReadProjectionV1): void {

@@ -164,6 +164,40 @@ describe('TeamDashboardController', () => {
     controller.dispose()
   })
 
+  it('rejects a stable row id repeated across otherwise canonical pages', async () => {
+    const seen: SwarmReadRpcRequest[] = []
+    const normal = goodFetch(seen)
+    const fetcher: SwarmFetch = async (input, init) => {
+      const request = requestOf(init)
+      const response = await normal(input, init)
+      if (request.method !== 'page' || request.page.kind !== 'tasks' || request.page.offset !== 50) return response
+      const envelope = await response.json() as { value: Record<string, unknown> }
+      return success({ ...envelope.value, entries: [tasks[0]] })
+    }
+    const controller = new TeamDashboardController(new SwarmReadClient(fetcher), new ManualSchedule())
+    controller.open('root-1')
+    await waitFor(() => controller.getSnapshot().phase === 'error')
+    expect(controller.getSnapshot().error?.code).toBe('SWARM_UI_PAGE_INVALID')
+    controller.dispose()
+  })
+
+  it('rejects a page total that exceeds or drifts from the frozen snapshot ceiling', async () => {
+    const seen: SwarmReadRpcRequest[] = []
+    const normal = goodFetch(seen)
+    const fetcher: SwarmFetch = async (input, init) => {
+      const request = requestOf(init)
+      const response = await normal(input, init)
+      if (request.method !== 'page' || request.page.kind !== 'tasks' || request.page.offset !== 0) return response
+      const envelope = await response.json() as { value: Record<string, unknown> }
+      return success({ ...envelope.value, visibleTotal: 101, authoritativeTotal: 101, nextOffset: 50 })
+    }
+    const controller = new TeamDashboardController(new SwarmReadClient(fetcher), new ManualSchedule())
+    controller.open('root-1')
+    await waitFor(() => controller.getSnapshot().phase === 'error')
+    expect(controller.getSnapshot().error?.code).toBe('SWARM_UI_PAGE_INVALID')
+    controller.dispose()
+  })
+
   it('keeps the last complete projection stale after a reconnect failure', async () => {
     const seen: SwarmReadRpcRequest[] = []
     const schedule = new ManualSchedule()

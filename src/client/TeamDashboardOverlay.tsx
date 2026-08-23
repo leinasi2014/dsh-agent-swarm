@@ -39,7 +39,9 @@ export function TeamDashboardOverlay({ controller, openCaptainChat, t }: TeamDas
   const handoff = (): void => {
     if (handoffBusy) return
     setHandoffBusy(true)
-    void openCaptainChat().finally(() => { setHandoffBusy(false) })
+    void openCaptainChat()
+      .catch(() => { /* The controller publishes the fail-closed stale/error state. */ })
+      .finally(() => { setHandoffBusy(false) })
   }
 
   return (

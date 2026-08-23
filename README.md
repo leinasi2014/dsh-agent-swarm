@@ -16,6 +16,7 @@
 ```powershell
 $official = 'D:\Source\DSH\deepseek-harness'
 $proof = Join-Path $env:TEMP ('dsh-swarm-p0-' + [guid]::NewGuid().ToString('N'))
+$browser = 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
 $candidateCommit = git rev-parse HEAD
 $candidateTree = git rev-parse 'HEAD^{tree}'
 node scripts/p0/run.mjs `
@@ -23,6 +24,7 @@ node scripts/p0/run.mjs `
   --official $official `
   --cli (Join-Path $official 'apps\cli\lib\bin.js') `
   --output $proof `
+  --browser-executable $browser `
   --port 47940
 node scripts/verify-p0-profile-proof.mjs `
   --root $proof `
@@ -30,7 +32,7 @@ node scripts/verify-p0-profile-proof.mjs `
   --candidate-tree $candidateTree
 ```
 
-该入口使用官方 CLI 的真实 `plugin --profile web add -w --ignore-scripts <absolute-tgz>` 语法。安装只贡献一个 `disabled: true` 的结构性 `cordis:group`，不会因 `plugin add` 自动启动 Swarm；Profile owner 必须在后一层对 `agent-swarm` 显式设置 `disabled: false` 才会激活其子插件。验收在隔离 `DSH_HOME` 中组合官方 Storage hub、JSON KV、Storage Domain、Session persistence 和 Swarm，且 workspace/sandbox、storage 与 session roots 相互分离。它重启验证默认禁用、显式启用、Swarm service/17 个工具、官方 `session.create` 建立的 live root、通过真实 Swarm runtime 创建并在重启后恢复的 Captain Team，以及该 Team 的 binding/status/snapshot 和三类分页。真实 Chromium 还会验证 DSH-native Team 面板、官方主题/locale、键盘打开、截图、同一 Session 的 Captain Chat handoff、reload，以及 R0 无数据 fail-closed 和 remove 后客户端入口消失；同时覆盖优雅 unload、显式启用但缺 Storage Domain 时 fail closed。运行态目录和端口随后清理，只保留同一 tarball、digest、关键命令/清单/R2/R3 回执、截图及逐文件 bytes+sha256 manifest；不会读取或写入用户默认 `~/.dsh` Profile。
+该入口使用官方 CLI 的真实 `plugin --profile web add -w --ignore-scripts <absolute-tgz>` 语法。安装只贡献一个 `disabled: true` 的结构性 `cordis:group`，不会因 `plugin add` 自动启动 Swarm；Profile owner 必须在后一层对 `agent-swarm` 显式设置 `disabled: false` 才会激活其子插件。验收在隔离 `DSH_HOME` 中组合官方 Storage hub、JSON KV、Storage Domain、Session persistence 和 Swarm，且 workspace/sandbox、storage 与 session roots 相互分离。它重启验证默认禁用、显式启用、Swarm service/17 个工具、官方 `session.create` 建立的 live root、通过真实 Swarm runtime 创建并在重启后恢复的 Captain Team，以及该 Team 的 binding/status/snapshot 和三类分页。由 `--browser-executable` 显式定位的真实 Chromium 还会验证 DSH-native Team 面板、官方主题/locale、键盘打开、截图、同一 Session 的 Captain Chat handoff、reload，以及 R0 无数据 fail-closed 和 remove 后客户端入口消失；其 locator/version 会写入证据。同时覆盖优雅 unload、显式启用但缺 Storage Domain 时 fail closed。运行态目录和端口随后清理，只保留同一 tarball、digest、关键命令/清单/R2/R3 回执、截图及逐文件 bytes+sha256 manifest；不会读取或写入用户默认 `~/.dsh` Profile。
 
 `dsh plugin`、`--dump-config` 甚至某些帮助路径都可能初始化或修复 Profile，因此不要在用户默认 home 中“试一下”这些命令。上述流程只证明一个精确本地 tarball 能在隔离的官方 Profile 中完成预发布验收；它不构成公共安装、兼容承诺或发布证明。
 

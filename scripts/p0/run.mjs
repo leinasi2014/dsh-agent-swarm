@@ -32,6 +32,7 @@ function parseArgs(argv) {
     else if (argument === '--cli') args.cli = resolve(next())
     else if (argument === '--output') args.output = resolve(next())
     else if (argument === '--port') args.port = Number(next())
+    else if (argument === '--browser-executable') args.browserExecutable = resolve(next())
     else throw new Error(`unknown argument ${argument}`)
   }
   for (const required of ['repo', 'official', 'cli', 'output']) {
@@ -197,6 +198,10 @@ async function main() {
   const args = parseArgs(process.argv.slice(2))
   const outputExists = await stat(args.output).then(() => true, () => false)
   if (outputExists) throw new Error(`output must be fresh and absent: ${args.output}`)
+  if (args.browserExecutable !== undefined
+    && !await stat(args.browserExecutable).then(value => value.isFile(), () => false)) {
+    throw new Error(`--browser-executable is not a file: ${args.browserExecutable}`)
+  }
   if (!pathInside(args.output, join(args.output, 'runtime'))) throw new Error('invalid output/runtime relationship')
 
   const artifactDir = join(args.output, 'artifact')
@@ -396,7 +401,9 @@ async function main() {
       assertReadPage(page, kind, snapshot.cursor, snapshot[kind].length, snapshot.totals[kind])
     }
     gate('r2-read-rpc-handshake', 'pass', 'real live root + captain Team: binding/status/snapshot and three pages pass; forged Origin and fake target fail closed')
-    await runR3ActiveBrowserProof({ port: args.port, evidenceDir, rootSessionId, teamId })
+    await runR3ActiveBrowserProof({
+      port: args.port, evidenceDir, rootSessionId, teamId, browserExecutable: args.browserExecutable,
+    })
     gate('r3-browser-active', 'pass', 'real browser rendered the live Team, used keyboard controls, handed off to official Captain Chat and survived reload')
     const firstStop = await gracefulStop(liveBoot, stopPath, args.port)
     liveBoot = undefined
@@ -440,7 +447,7 @@ async function main() {
     const disabledEntries = await readInventory(args.port, evidenceDir, 'inventory-r0-disabled')
     const disabledRow = swarmInventoryRow(disabledEntries)
     if (disabledRow?.enabled !== false || disabledRow?.fiberPhase !== null) throw new Error(`R0 inventory mismatch: ${JSON.stringify(disabledRow)}`)
-    await runR3R0BrowserProof({ port: args.port, evidenceDir })
+    await runR3R0BrowserProof({ port: args.port, evidenceDir, browserExecutable: args.browserExecutable })
     gate('r3-browser-r0', 'pass', 'R0 kept the client read surface fail-closed with no Team data')
     const disabledStop = await gracefulStop(liveBoot, stopPath, args.port)
     liveBoot = undefined
@@ -462,7 +469,7 @@ async function main() {
     const removedEntries = await readInventory(args.port, evidenceDir, 'inventory-plugin-removed')
     const removedRow = swarmInventoryRow(removedEntries)
     if (removedRow !== undefined) throw new Error(`removed Swarm remained in inventory: ${JSON.stringify(removedRow)}`)
-    await runR3RemovedBrowserProof({ port: args.port, evidenceDir })
+    await runR3RemovedBrowserProof({ port: args.port, evidenceDir, browserExecutable: args.browserExecutable })
     gate('r3-browser-removed', 'pass', 'package removal disposed the Team client action')
     const removedStop = await gracefulStop(liveBoot, stopPath, args.port)
     liveBoot = undefined

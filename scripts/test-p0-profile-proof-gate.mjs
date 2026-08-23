@@ -43,19 +43,27 @@ try {
   const artifact = join(root, 'artifact', 'dsh-agent-swarm.tgz')
   await writeFile(artifact, 'fixture artifact')
   const evidenceFiles = []
+  const browser = { engine: 'chromium', executablePath: join(root, 'browser', 'chrome.exe'), version: '1.2.3.4' }
   for (const relativePath of REQUIRED_P0_EVIDENCE_FILES) {
     const path = join(root, relativePath)
     const content = relativePath === 'evidence/r3-browser-active.json'
       ? `${JSON.stringify({
-          status: 'pass', rootSessionId: 'root', teamId: 'team', reload: true,
-          handoff: { officialSessionSelected: true, chatTextboxVisible: true },
+          status: 'pass', rootSessionId: 'root', teamId: 'team', reload: true, browser,
+          handoff: {
+            officialSessionSelected: true, officialSelectionSource: 'localStorage:dsh.sessions.current',
+            currentSessionId: 'root', reloadedSessionId: 'root', chatTextboxVisible: true,
+          },
           keyboard: ['focus', 'enter', 'focus-chat', 'enter-chat', 'escape'],
           requests: [{ method: 'POST', body: { method: 'snapshot' } }],
+          consoleErrors: [], pageErrors: [],
         })}\n`
       : relativePath === 'evidence/r3-browser-r0.json'
-        ? `${JSON.stringify({ status: 'pass', routeUnavailable: true, renderedData: false })}\n`
+        ? `${JSON.stringify({
+            status: 'pass', browser, routeUnavailable: true, renderedData: false,
+            consoleErrors: [], pageErrors: [],
+          })}\n`
         : relativePath === 'evidence/r3-browser-removed.json'
-          ? `${JSON.stringify({ status: 'pass', teamActionAbsent: true })}\n`
+          ? `${JSON.stringify({ status: 'pass', browser, teamActionAbsent: true, consoleErrors: [], pageErrors: [] })}\n`
           : relativePath.endsWith('.png') ? Buffer.alloc(1_024, 1) : `fixture evidence: ${relativePath}\n`
     await mkdir(dirname(path), { recursive: true })
     await writeFile(path, content)
@@ -132,7 +140,19 @@ try {
   const activePath = join(root, 'evidence/r3-browser-active.json')
   const activeRecord = base.evidenceFiles.find(record => record.relativePath === 'evidence/r3-browser-active.json')
   const activeContent = await readFile(activePath)
-  await writeFile(activePath, `${JSON.stringify({ status: 'pass', requests: [{ method: 'POST', body: { method: 'control.write' } }] })}\n`)
+  const nonReadContent = `${JSON.stringify({
+    status: 'pass', rootSessionId: 'root', teamId: 'team', reload: true, browser,
+    handoff: {
+      officialSessionSelected: true, officialSelectionSource: 'localStorage:dsh.sessions.current',
+      currentSessionId: 'root', reloadedSessionId: 'root', chatTextboxVisible: true,
+    },
+    keyboard: ['focus', 'enter', 'focus-chat', 'enter-chat', 'escape'],
+    requests: [{ method: 'POST', body: { method: 'control.write' } }],
+    consoleErrors: [], pageErrors: [],
+  })}\n`
+  await writeFile(activePath, nonReadContent)
+  activeRecord.bytes = Buffer.byteLength(nonReadContent)
+  activeRecord.sha256 = await sha256File(activePath)
   if ((await verifyP0Evidence(root, structuredClone(base), expected)).ok) {
     throw new Error('R3 browser non-read request unexpectedly passed')
   }
