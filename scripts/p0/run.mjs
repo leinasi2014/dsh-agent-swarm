@@ -116,6 +116,24 @@ async function readSwarmRpc(port, evidenceDir, label, body, headers = {}) {
   return { status: response.status, value }
 }
 
+async function readDisabledSwarmRoute(port) {
+  const response = await fetch(`http://127.0.0.1:${port}/swarm/v1`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ schemaVersion: 1, method: 'capabilities' }),
+    signal: AbortSignal.timeout(10_000),
+  })
+  if (response.status !== 405) {
+    throw new Error(`R0-disabled /swarm/v1 returned ${response.status}, expected official Host fallback 405`)
+  }
+  return {
+    routeStatus: response.status,
+    routeOwner: 'official-host-fallback',
+    swarmRouteRegistered: false,
+    contentType: response.headers.get('content-type'),
+  }
+}
+
 function requireSwarmValue(response, label) {
   if (response.status !== 200 || response.value?.ok !== true || response.value?.schemaVersion !== 1) {
     throw new Error(`${label} did not return a versioned success: ${JSON.stringify(response)}`)
@@ -543,9 +561,10 @@ async function main() {
     const disabledEntries = await readInventory(args.port, evidenceDir, 'inventory-r0-disabled')
     const disabledRow = swarmInventoryRow(disabledEntries)
     if (disabledRow?.enabled !== false || disabledRow?.fiberPhase !== null) throw new Error(`R0 inventory mismatch: ${JSON.stringify(disabledRow)}`)
+    const r0RouteEvidence = await readDisabledSwarmRoute(args.port)
     await runR3R0BrowserProof({
       port: args.port, evidenceDir, rootSessionId, browserExecutable: args.browserExecutable,
-      selectionSource,
+      selectionSource, routeEvidence: r0RouteEvidence,
     })
     gate('r3-browser-r0', 'pass', 'R0 removed the Team action, exposed only the official Host 405 fallback and rendered no Team data')
     const disabledStop = await gracefulStop(liveBoot, stopPath, args.port)

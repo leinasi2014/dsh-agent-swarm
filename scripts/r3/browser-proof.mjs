@@ -214,7 +214,13 @@ export async function runR3ActiveBrowserProof({
   }
 }
 
-export async function runR3R0BrowserProof({ port, evidenceDir, rootSessionId, browserExecutable, selectionSource }) {
+export async function runR3R0BrowserProof({
+  port, evidenceDir, rootSessionId, browserExecutable, selectionSource, routeEvidence,
+}) {
+  if (routeEvidence?.routeStatus !== 405 || routeEvidence?.routeOwner !== 'official-host-fallback'
+    || routeEvidence?.swarmRouteRegistered !== false) {
+    throw new Error('R0 browser proof requires the runner-owned exact official Host fallback evidence')
+  }
   const { browser, identity } = await launchBrowser(browserExecutable)
   const context = await browser.newContext({ locale: 'en-US', viewport: { width: 1280, height: 900 } })
   await seedOfficialSelection(context, rootSessionId)
@@ -229,21 +235,11 @@ export async function runR3R0BrowserProof({ port, evidenceDir, rootSessionId, br
     const teamActionAbsent = await page.getByRole('button', { name: TEAM_NAME }).count() === 0
     const dashboardAbsent = await page.locator('[data-swarm-team-dashboard]').count() === 0
     if (!teamActionAbsent || !dashboardAbsent) throw new Error('R0-disabled plugin left a Team client surface mounted')
-    const route = await page.evaluate(async () => {
-      const response = await fetch('/swarm/v1', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ schemaVersion: 1, method: 'capabilities' }),
-      })
-      return { status: response.status, contentType: response.headers.get('content-type') }
-    })
-    if (route.status !== 405) throw new Error(`R0-disabled /swarm/v1 route returned ${route.status}, expected official Host fallback 405`)
     await page.screenshot({ path: join(evidenceDir, 'r3-r0-fail-closed.png'), fullPage: false })
     assertCleanBrowser(records, 'R0 browser')
     const result = {
       status: 'pass', browser: identity, bootstrap: bootstrapEvidence(rootSessionId, selectionSource), ...onboarding,
-      routeUnavailable: true, routeStatus: route.status,
-      routeOwner: 'official-host-fallback', swarmRouteRegistered: false,
+      routeUnavailable: true, ...routeEvidence,
       teamActionAbsent, renderedData: false,
       requests: records.swarmRequests, consoleErrors: records.consoleErrors, pageErrors: records.pageErrors,
     }
