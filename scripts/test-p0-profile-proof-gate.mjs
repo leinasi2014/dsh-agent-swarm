@@ -44,11 +44,21 @@ try {
   await writeFile(artifact, 'fixture artifact')
   const evidenceFiles = []
   const browser = { engine: 'chromium', executablePath: join(root, 'browser', 'chrome.exe'), version: '1.2.3.4' }
+  const selectionSource = {
+    relativePath: 'packages/client/runtime/src/client/sessions/service.ts',
+    gitBlob: 'c66da4e0d3376d4d23f403d6651769fa53cee5fe',
+    sha256: 'a4531ae9de0423400d3c641a5115a4a97b852276781a53fc2cfdbd4e34ba6b82',
+  }
+  const bootstrap = {
+    key: 'dsh.sessions.current', value: { sessionId: 'root' },
+    purpose: 'isolated-proof-initial-ui-selection', authority: false, officialSource: selectionSource,
+  }
   for (const relativePath of REQUIRED_P0_EVIDENCE_FILES) {
     const path = join(root, relativePath)
     const content = relativePath === 'evidence/r3-browser-active.json'
       ? `${JSON.stringify({
           status: 'pass', rootSessionId: 'root', teamId: 'team', reload: true, browser,
+          bootstrap: { ...bootstrap, frameworkTargetObserved: true },
           handoff: {
             officialSessionSelected: true, officialSelectionSource: 'localStorage:dsh.sessions.current',
             currentSessionId: 'root', reloadedSessionId: 'root', chatTextboxVisible: true,
@@ -59,11 +69,13 @@ try {
         })}\n`
       : relativePath === 'evidence/r3-browser-r0.json'
         ? `${JSON.stringify({
-            status: 'pass', browser, routeUnavailable: true, renderedData: false,
+            status: 'pass', browser, bootstrap, routeUnavailable: true, renderedData: false,
             consoleErrors: [], pageErrors: [],
           })}\n`
         : relativePath === 'evidence/r3-browser-removed.json'
-          ? `${JSON.stringify({ status: 'pass', browser, teamActionAbsent: true, consoleErrors: [], pageErrors: [] })}\n`
+          ? `${JSON.stringify({
+              status: 'pass', browser, bootstrap, teamActionAbsent: true, consoleErrors: [], pageErrors: [],
+            })}\n`
           : relativePath.endsWith('.png') ? Buffer.alloc(1_024, 1) : `fixture evidence: ${relativePath}\n`
     await mkdir(dirname(path), { recursive: true })
     await writeFile(path, content)
@@ -142,6 +154,7 @@ try {
   const activeContent = await readFile(activePath)
   const nonReadContent = `${JSON.stringify({
     status: 'pass', rootSessionId: 'root', teamId: 'team', reload: true, browser,
+    bootstrap: { ...bootstrap, frameworkTargetObserved: true },
     handoff: {
       officialSessionSelected: true, officialSelectionSource: 'localStorage:dsh.sessions.current',
       currentSessionId: 'root', reloadedSessionId: 'root', chatTextboxVisible: true,

@@ -57,6 +57,11 @@ export const REQUIRED_P0_EVIDENCE_FILES = [
 
 export const EXPECTED_P0_OFFICIAL_COMMIT = 'b150a551b8d465e31e418e1b2eaf5e79bbb7d28e'
 export const EXPECTED_P0_OFFICIAL_TREE = '53915efe4e2126cc7779b73dfc8a3bcec5318c44'
+const EXPECTED_SESSION_SELECTION_SOURCE = Object.freeze({
+  relativePath: 'packages/client/runtime/src/client/sessions/service.ts',
+  gitBlob: 'c66da4e0d3376d4d23f403d6651769fa53cee5fe',
+  sha256: 'a4531ae9de0423400d3c641a5115a4a97b852276781a53fc2cfdbd4e34ba6b82',
+})
 
 const REQUIRED_P0_COMMANDS = new Map([
   ['cli-version', 0],
@@ -245,6 +250,7 @@ async function verifyR3BrowserEvidence(root, failures) {
     }
   }
   const active = await readJson('evidence/r3-browser-active.json')
+  verifyBootstrap(active?.bootstrap, active?.rootSessionId, true, 'active', failures)
   const browserIdentity = active?.browser
   if (browserIdentity?.engine !== 'chromium' || !isAbsolute(browserIdentity?.executablePath ?? '')
     || typeof browserIdentity?.version !== 'string' || browserIdentity.version.length === 0) {
@@ -272,6 +278,7 @@ async function verifyR3BrowserEvidence(root, failures) {
   )) failures.push('R3 active browser evidence contains no read requests or a non-read request')
 
   const r0 = await readJson('evidence/r3-browser-r0.json')
+  verifyBootstrap(r0?.bootstrap, active?.rootSessionId, false, 'R0', failures)
   if (JSON.stringify(r0?.browser) !== JSON.stringify(browserIdentity)) {
     failures.push('R3 R0 browser identity differs from the active proof')
   }
@@ -283,6 +290,7 @@ async function verifyR3BrowserEvidence(root, failures) {
     failures.push('R3 R0 browser contains an unclassified console or page error')
   }
   const removed = await readJson('evidence/r3-browser-removed.json')
+  verifyBootstrap(removed?.bootstrap, active?.rootSessionId, false, 'removed', failures)
   if (JSON.stringify(removed?.browser) !== JSON.stringify(browserIdentity)) {
     failures.push('R3 removed browser identity differs from the active proof')
   }
@@ -298,5 +306,14 @@ async function verifyR3BrowserEvidence(root, failures) {
     if (screenshot === undefined || !screenshot.isFile() || screenshot.size < 1_024) {
       failures.push(`R3 browser screenshot is missing or implausibly small: ${relativePath}`)
     }
+  }
+}
+
+function verifyBootstrap(value, rootSessionId, requireFrameworkTarget, label, failures) {
+  if (value?.key !== 'dsh.sessions.current' || value?.value?.sessionId !== rootSessionId
+    || value?.purpose !== 'isolated-proof-initial-ui-selection' || value?.authority !== false
+    || JSON.stringify(value?.officialSource) !== JSON.stringify(EXPECTED_SESSION_SELECTION_SOURCE)
+    || (requireFrameworkTarget && value?.frameworkTargetObserved !== true)) {
+    failures.push(`R3 ${label} browser bootstrap is not bound to the pinned official Session selection seam`)
   }
 }

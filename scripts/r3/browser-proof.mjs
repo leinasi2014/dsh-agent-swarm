@@ -69,6 +69,33 @@ async function officialCurrentSessionId(page) {
   try { return JSON.parse(raw).sessionId } catch { return undefined }
 }
 
+async function seedOfficialSelection(context, rootSessionId) {
+  await context.addInitScript((sessionId) => {
+    if (globalThis.location.protocol === 'http:' || globalThis.location.protocol === 'https:') {
+      globalThis.localStorage.setItem('dsh.sessions.current', JSON.stringify({ sessionId }))
+    }
+  }, rootSessionId)
+}
+
+function bootstrapEvidence(rootSessionId, selectionSource) {
+  return {
+    key: 'dsh.sessions.current',
+    value: { sessionId: rootSessionId },
+    purpose: 'isolated-proof-initial-ui-selection',
+    authority: false,
+    officialSource: selectionSource,
+  }
+}
+
+async function writeFailureEvidence(evidenceDir, label, page, records, error) {
+  await page.screenshot({ path: join(evidenceDir, `${label}-failure.png`), fullPage: false }).catch(() => {})
+  await writeFile(join(evidenceDir, `${label}-failure.json`), `${JSON.stringify({
+    status: 'fail', error: error instanceof Error ? error.message : String(error),
+    url: page.url(), consoleErrors: records.consoleErrors, pageErrors: records.pageErrors,
+    requests: records.swarmRequests,
+  }, null, 2)}\n`, 'utf8').catch(() => {})
+}
+
 async function openReadyDashboard(page) {
   const team = await selectRootSession(page)
   await team.focus()
@@ -79,14 +106,24 @@ async function openReadyDashboard(page) {
   return dashboard
 }
 
-export async function runR3ActiveBrowserProof({ port, evidenceDir, rootSessionId, teamId, browserExecutable }) {
+export async function runR3ActiveBrowserProof({
+  port, evidenceDir, rootSessionId, teamId, browserExecutable, selectionSource,
+}) {
   const { browser, identity } = await launchBrowser(browserExecutable)
   const context = await browser.newContext({ locale: 'en-US', viewport: { width: 1440, height: 1000 } })
+  await seedOfficialSelection(context, rootSessionId)
   const page = await context.newPage()
   const records = recordBrowser(page)
   try {
     await page.goto(`http://127.0.0.1:${String(port)}/`, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+    if (await officialCurrentSessionId(page) !== rootSessionId) {
+      throw new Error('official Session selection did not rehydrate the exact proof root')
+    }
     const dashboard = await openReadyDashboard(page)
+    const frameworkBinding = records.swarmRequests.find(request => request.body?.method === 'binding')
+    if (frameworkBinding?.body?.target?.rootSessionId !== rootSessionId) {
+      throw new Error('official Session slot did not emit the exact proof root as the R2 target hint')
+    }
     const dialog = page.getByRole('dialog', { name: 'Agent Team' })
     await dialog.waitFor({ state: 'visible' })
     if (!await dashboard.getByText('R2 isolated Profile team', { exact: true }).isVisible()) {
@@ -119,6 +156,7 @@ export async function runR3ActiveBrowserProof({ port, evidenceDir, rootSessionId
     assertCleanBrowser(records, 'active browser')
     const result = {
       status: 'pass', rootSessionId, teamId, browser: identity,
+      bootstrap: { ...bootstrapEvidence(rootSessionId, selectionSource), frameworkTargetObserved: true },
       keyboard: ['focus Team', 'Enter', 'focus Open Captain Chat', 'Enter', 'Escape after reload'],
       handoff: {
         officialSessionSelected: true,
@@ -134,14 +172,18 @@ export async function runR3ActiveBrowserProof({ port, evidenceDir, rootSessionId
     }
     await writeFile(join(evidenceDir, 'r3-browser-active.json'), `${JSON.stringify(result, null, 2)}\n`, 'utf8')
     return result
+  } catch (error) {
+    await writeFailureEvidence(evidenceDir, 'r3-browser-active', page, records, error)
+    throw error
   } finally {
     await browser.close()
   }
 }
 
-export async function runR3R0BrowserProof({ port, evidenceDir, browserExecutable }) {
+export async function runR3R0BrowserProof({ port, evidenceDir, rootSessionId, browserExecutable, selectionSource }) {
   const { browser, identity } = await launchBrowser(browserExecutable)
   const context = await browser.newContext({ locale: 'en-US', viewport: { width: 1280, height: 900 } })
+  await seedOfficialSelection(context, rootSessionId)
   const page = await context.newPage()
   const records = recordBrowser(page)
   try {
@@ -155,19 +197,24 @@ export async function runR3R0BrowserProof({ port, evidenceDir, browserExecutable
     await page.screenshot({ path: join(evidenceDir, 'r3-r0-fail-closed.png'), fullPage: false })
     assertCleanBrowser(records, 'R0 browser')
     const result = {
-      status: 'pass', browser: identity, routeUnavailable: true, renderedData: false,
+      status: 'pass', browser: identity, bootstrap: bootstrapEvidence(rootSessionId, selectionSource),
+      routeUnavailable: true, renderedData: false,
       requests: records.swarmRequests, consoleErrors: records.consoleErrors, pageErrors: records.pageErrors,
     }
     await writeFile(join(evidenceDir, 'r3-browser-r0.json'), `${JSON.stringify(result, null, 2)}\n`, 'utf8')
     return result
+  } catch (error) {
+    await writeFailureEvidence(evidenceDir, 'r3-browser-r0', page, records, error)
+    throw error
   } finally {
     await browser.close()
   }
 }
 
-export async function runR3RemovedBrowserProof({ port, evidenceDir, browserExecutable }) {
+export async function runR3RemovedBrowserProof({ port, evidenceDir, rootSessionId, browserExecutable, selectionSource }) {
   const { browser, identity } = await launchBrowser(browserExecutable)
   const context = await browser.newContext({ locale: 'en-US' })
+  await seedOfficialSelection(context, rootSessionId)
   const page = await context.newPage()
   const records = recordBrowser(page)
   try {
@@ -178,11 +225,15 @@ export async function runR3RemovedBrowserProof({ port, evidenceDir, browserExecu
     if (!absent) throw new Error('removed package left the Team client action mounted')
     assertCleanBrowser(records, 'removed browser')
     const result = {
-      status: 'pass', browser: identity, teamActionAbsent: true,
+      status: 'pass', browser: identity, bootstrap: bootstrapEvidence(rootSessionId, selectionSource),
+      teamActionAbsent: true,
       consoleErrors: records.consoleErrors, pageErrors: records.pageErrors,
     }
     await writeFile(join(evidenceDir, 'r3-browser-removed.json'), `${JSON.stringify(result, null, 2)}\n`, 'utf8')
     return result
+  } catch (error) {
+    await writeFailureEvidence(evidenceDir, 'r3-browser-removed', page, records, error)
+    throw error
   } finally {
     await browser.close()
   }

@@ -252,6 +252,13 @@ async function main() {
       && officialTreeBefore.stdout.trim() === OFFICIAL_TREE && officialStatusBefore.stdout === ''
     if (!candidateCleanBefore) throw new Error(`candidate checkout is not clean: ${candidateStatusBefore.stdout}`)
     if (!officialBaselineOk) throw new Error('official checkout identity/cleanliness does not match the P0 baseline')
+    const selectionSourcePath = 'packages/client/runtime/src/client/sessions/service.ts'
+    const selectionSourceBlob = await gitRead(args.official, ['rev-parse', `HEAD:${selectionSourcePath}`])
+    const selectionSource = {
+      relativePath: selectionSourcePath,
+      gitBlob: selectionSourceBlob.stdout.trim(),
+      sha256: await sha256File(join(args.official, ...selectionSourcePath.split('/'))),
+    }
     gate('candidate-clean', 'pass', `${candidateCommit.stdout.trim()} / ${candidateTree.stdout.trim()}`)
 
     const version = await execute('cli-version', process.execPath, [args.cli, '--version'], { cwd: workspaceRoot })
@@ -402,7 +409,8 @@ async function main() {
     }
     gate('r2-read-rpc-handshake', 'pass', 'real live root + captain Team: binding/status/snapshot and three pages pass; forged Origin and fake target fail closed')
     await runR3ActiveBrowserProof({
-      port: args.port, evidenceDir, rootSessionId, teamId, browserExecutable: args.browserExecutable,
+      port: args.port, evidenceDir, rootSessionId, teamId,
+      browserExecutable: args.browserExecutable, selectionSource,
     })
     gate('r3-browser-active', 'pass', 'real browser rendered the live Team, used keyboard controls, handed off to official Captain Chat and survived reload')
     const firstStop = await gracefulStop(liveBoot, stopPath, args.port)
@@ -447,7 +455,10 @@ async function main() {
     const disabledEntries = await readInventory(args.port, evidenceDir, 'inventory-r0-disabled')
     const disabledRow = swarmInventoryRow(disabledEntries)
     if (disabledRow?.enabled !== false || disabledRow?.fiberPhase !== null) throw new Error(`R0 inventory mismatch: ${JSON.stringify(disabledRow)}`)
-    await runR3R0BrowserProof({ port: args.port, evidenceDir, browserExecutable: args.browserExecutable })
+    await runR3R0BrowserProof({
+      port: args.port, evidenceDir, rootSessionId, browserExecutable: args.browserExecutable,
+      selectionSource,
+    })
     gate('r3-browser-r0', 'pass', 'R0 kept the client read surface fail-closed with no Team data')
     const disabledStop = await gracefulStop(liveBoot, stopPath, args.port)
     liveBoot = undefined
@@ -469,7 +480,10 @@ async function main() {
     const removedEntries = await readInventory(args.port, evidenceDir, 'inventory-plugin-removed')
     const removedRow = swarmInventoryRow(removedEntries)
     if (removedRow !== undefined) throw new Error(`removed Swarm remained in inventory: ${JSON.stringify(removedRow)}`)
-    await runR3RemovedBrowserProof({ port: args.port, evidenceDir, browserExecutable: args.browserExecutable })
+    await runR3RemovedBrowserProof({
+      port: args.port, evidenceDir, rootSessionId, browserExecutable: args.browserExecutable,
+      selectionSource,
+    })
     gate('r3-browser-removed', 'pass', 'package removal disposed the Team client action')
     const removedStop = await gracefulStop(liveBoot, stopPath, args.port)
     liveBoot = undefined
