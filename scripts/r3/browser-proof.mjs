@@ -136,8 +136,12 @@ async function openReadyDashboard(page) {
 }
 
 export async function runR3ActiveBrowserProof({
-  port, evidenceDir, rootSessionId, teamId, browserExecutable, selectionSource,
+  port, evidenceDir, rootSessionId, teamId, browserExecutable, selectionSource, fixture,
 }) {
+  if (fixture?.exactRoot !== true || fixture?.workspaceAttached !== true
+    || fixture?.sessionNonBlank !== true || fixture?.rootSessionId !== rootSessionId) {
+    throw new Error('browser proof requires an exact nonblank root attached through the official Workspace API')
+  }
   const { browser, identity } = await launchBrowser(browserExecutable)
   const context = await browser.newContext({ locale: 'en-US', viewport: { width: 1440, height: 1000 } })
   await seedOfficialSelection(context, rootSessionId)
@@ -185,7 +189,7 @@ export async function runR3ActiveBrowserProof({
     assertReadOnlyRequests(records)
     assertCleanBrowser(records, 'active browser')
     const result = {
-      status: 'pass', rootSessionId, teamId, browser: identity, ...onboarding,
+      status: 'pass', rootSessionId, teamId, browser: identity, fixture, ...onboarding,
       bootstrap: { ...bootstrapEvidence(rootSessionId, selectionSource), frameworkTargetObserved: true },
       keyboard: ['focus Team', 'Enter', 'focus Open Captain Chat', 'Enter', 'Escape after reload'],
       handoff: {

@@ -53,11 +53,15 @@ try {
     key: 'dsh.sessions.current', value: { sessionId: 'root' },
     purpose: 'isolated-proof-initial-ui-selection', authority: false, officialSource: selectionSource,
   }
+  const fixture = {
+    exactRoot: true, workspaceAttached: true, sessionNonBlank: true,
+    rootSessionId: 'root', workspaceId: 'workspace', workspacePath: join(root, 'runtime', 'workspace'),
+  }
   for (const relativePath of REQUIRED_P0_EVIDENCE_FILES) {
     const path = join(root, relativePath)
     const content = relativePath === 'evidence/r3-browser-active.json'
       ? `${JSON.stringify({
-          status: 'pass', rootSessionId: 'root', teamId: 'team', reload: true, browser,
+          status: 'pass', rootSessionId: 'root', teamId: 'team', reload: true, browser, fixture,
           officialTestingNoticePresent: true, officialTestingNoticeDismissed: true,
           officialApiKeyOnboardingPresent: true, officialApiKeyOnboardingSkipped: true,
           bootstrap: { ...bootstrap, frameworkTargetObserved: true },
@@ -159,7 +163,7 @@ try {
   const activeRecord = base.evidenceFiles.find(record => record.relativePath === 'evidence/r3-browser-active.json')
   const activeContent = await readFile(activePath)
   const nonReadContent = `${JSON.stringify({
-    status: 'pass', rootSessionId: 'root', teamId: 'team', reload: true, browser,
+    status: 'pass', rootSessionId: 'root', teamId: 'team', reload: true, browser, fixture,
     officialTestingNoticePresent: true, officialTestingNoticeDismissed: true,
     officialApiKeyOnboardingPresent: true, officialApiKeyOnboardingSkipped: true,
     bootstrap: { ...bootstrap, frameworkTargetObserved: true },
@@ -181,6 +185,20 @@ try {
   activeRecord.bytes = activeContent.length
   activeRecord.sha256 = await sha256File(activePath)
   cases.push(['R3 browser non-read request'])
+  const detachedFixtureContent = `${JSON.stringify({
+    ...JSON.parse(activeContent.toString('utf8')),
+    fixture: { ...fixture, sessionNonBlank: false },
+  })}\n`
+  await writeFile(activePath, detachedFixtureContent)
+  activeRecord.bytes = Buffer.byteLength(detachedFixtureContent)
+  activeRecord.sha256 = await sha256File(activePath)
+  if ((await verifyP0Evidence(root, structuredClone(base), expected)).ok) {
+    throw new Error('R3 browser detached/blank fixture unexpectedly passed')
+  }
+  await writeFile(activePath, activeContent)
+  activeRecord.bytes = activeContent.length
+  activeRecord.sha256 = await sha256File(activePath)
+  cases.push(['R3 browser detached/blank fixture'])
   console.log(`P0 Bundle/evidence gates: Typert payload + 1 positive/2 negative response cases; 1 safe Bundle + 4 unsafe Bundle cases; positive evidence + ${cases.length} negative evidence cases: PASS`)
 } finally {
   await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })

@@ -153,6 +153,78 @@ function assertReadPage(value, kind, cursor, visibleTotal, authoritativeTotal) {
   }
 }
 
+function requireOfficialValue(response, label) {
+  if (!response.ok || response.body?.result?.ok !== true) {
+    throw new Error(`${label} failed: ${JSON.stringify(response)}`)
+  }
+  return response.body.result.value
+}
+
+async function createOfficialWorkspaceSession({
+  port, evidenceDir, label, workspaceRoot, rootSessionId, expectedWorkspaceId, expectedCreated,
+}) {
+  const workspaceResponse = await rpcCall(port, 'workspace.create', { path: workspaceRoot })
+  await writeFile(join(evidenceDir, `${label}-workspace-create.json`), `${JSON.stringify(workspaceResponse, null, 2)}\n`, 'utf8')
+  const workspaceValue = requireOfficialValue(workspaceResponse, `${label} workspace.create`)
+  const workspace = workspaceValue?.workspace
+  if (typeof workspace?.workspaceId !== 'string' || workspace.workspaceId.length === 0
+    || workspace.path !== workspaceRoot || workspaceValue.created !== expectedCreated
+    || (expectedWorkspaceId !== undefined && workspace.workspaceId !== expectedWorkspaceId)) {
+    throw new Error(`${label} workspace.create identity/path mismatch: ${JSON.stringify(workspaceValue)}`)
+  }
+
+  const sessionResponse = await rpcCall(port, 'session.create', {
+    sessionId: rootSessionId,
+    workspaceId: workspace.workspaceId,
+  })
+  await writeFile(join(evidenceDir, `${label === 'r3' ? 'r2' : 'r2-reload'}-session-create.json`), `${JSON.stringify(sessionResponse, null, 2)}\n`, 'utf8')
+  const sessionValue = requireOfficialValue(sessionResponse, `${label} session.create`)
+  if (sessionValue?.sessionId !== rootSessionId) {
+    throw new Error(`${label} session.create did not establish the exact root: ${JSON.stringify(sessionValue)}`)
+  }
+  return workspace
+}
+
+async function readWorkspaceSessionAccounting({
+  port, evidenceDir, label, workspaceRoot, workspaceId, rootSessionId,
+}) {
+  const workspaceResponse = await rpcCall(port, 'workspace.list', {})
+  const sessionResponse = await rpcCall(port, 'session.list', {})
+  const workspaces = requireOfficialValue(workspaceResponse, `${label} workspace.list`)?.items
+  const sessions = requireOfficialValue(sessionResponse, `${label} session.list`)?.items
+  const workspace = Array.isArray(workspaces)
+    ? workspaces.find(entry => entry.workspaceId === workspaceId)
+    : undefined
+  const session = Array.isArray(sessions)
+    ? sessions.find(entry => entry.sessionId === rootSessionId)
+    : undefined
+  const fixture = {
+    exactRoot: session?.sessionId === rootSessionId,
+    workspaceAttached: workspace?.path === workspaceRoot && workspace?.sessionIds?.includes(rootSessionId) === true
+      && session?.cwd === workspaceRoot,
+    sessionNonBlank: session?.blank === false,
+    rootSessionId,
+    workspaceId,
+    workspacePath: workspaceRoot,
+  }
+  await writeFile(join(evidenceDir, `${label}-workspace-accounting.json`), `${JSON.stringify({
+    workspaceResponse, sessionResponse, workspace, session, fixture,
+  }, null, 2)}\n`, 'utf8')
+  if (!fixture.exactRoot || !fixture.workspaceAttached || !fixture.sessionNonBlank) {
+    throw new Error(`${label} official Workspace/Session accounting mismatch: ${JSON.stringify({ workspace, session })}`)
+  }
+  return fixture
+}
+
+function assertSessionFixture(target, expectedMode) {
+  const fixture = target?.sessionFixture
+  const expectedEvents = [{ seq: 0, type: 'turn/start' }, { seq: 1, type: 'turn/end' }]
+  if (fixture?.mode !== expectedMode || JSON.stringify(fixture?.events) !== JSON.stringify(expectedEvents)
+    || fixture?.flushParticipated !== (expectedMode === 'seeded')) {
+    throw new Error(`official closed-turn fixture mismatch: ${JSON.stringify(fixture)}`)
+  }
+}
+
 async function waitForTarget(probePath, rootSessionId, minimumCount) {
   const ready = await waitUntil(async () => (await readProbe(probePath)).filter(
     entry => entry.phase === 'r2-target-ready' && entry.rootSessionId === rootSessionId,
@@ -349,16 +421,19 @@ async function main() {
     if (!servicesOk || !toolsOk) throw new Error(`service/tool probe mismatch: ${JSON.stringify(firstActive)}`)
     gate('service-tool-probe', 'pass', `${firstActive.tools.length} agent_swarm tools and required services active`)
 
-    const sessionCreate = await rpcCall(args.port, 'session.create', { sessionId: rootSessionId, cwd: workspaceRoot })
-    await writeFile(join(evidenceDir, 'r2-session-create.json'), `${JSON.stringify(sessionCreate, null, 2)}\n`, 'utf8')
-    if (!sessionCreate.ok || sessionCreate.body?.result?.value?.sessionId !== rootSessionId) {
-      throw new Error(`official session.create did not establish the exact R2 root: ${JSON.stringify(sessionCreate)}`)
-    }
+    const workspace = await createOfficialWorkspaceSession({
+      port: args.port, evidenceDir, label: 'r3', workspaceRoot, rootSessionId, expectedCreated: true,
+    })
     const targetReady = await waitForTarget(probePath, rootSessionId, 1)
+    assertSessionFixture(targetReady, 'seeded')
     const teamId = targetReady.teamId
     if (typeof teamId !== 'string' || teamId.length === 0 || targetReady.resumed !== false) {
       throw new Error(`fresh R2 captain Team was not created through the real runtime: ${JSON.stringify(targetReady)}`)
     }
+    const browserFixture = await readWorkspaceSessionAccounting({
+      port: args.port, evidenceDir, label: 'r3', workspaceRoot,
+      workspaceId: workspace.workspaceId, rootSessionId,
+    })
 
     const capabilityHandshake = await readSwarmRpc(args.port, evidenceDir, 'r2-capabilities', {
       schemaVersion: 1, method: 'capabilities',
@@ -410,7 +485,7 @@ async function main() {
     gate('r2-read-rpc-handshake', 'pass', 'real live root + captain Team: binding/status/snapshot and three pages pass; forged Origin and fake target fail closed')
     await runR3ActiveBrowserProof({
       port: args.port, evidenceDir, rootSessionId, teamId,
-      browserExecutable: args.browserExecutable, selectionSource,
+      browserExecutable: args.browserExecutable, selectionSource, fixture: browserFixture,
     })
     gate('r3-browser-active', 'pass', 'real browser rendered the live Team, used keyboard controls, handed off to official Captain Chat and survived reload')
     const firstStop = await gracefulStop(liveBoot, stopPath, args.port)
@@ -426,15 +501,19 @@ async function main() {
     const reloadRow = swarmInventoryRow(reloadEntries)
     if (reloadRow?.enabled !== true || reloadRow?.fiberPhase !== 'active') throw new Error(`reload inventory mismatch: ${JSON.stringify(reloadRow)}`)
     const secondActive = await waitUntil(async () => (await readProbe(probePath)).filter(entry => entry.phase === 'active').length >= 2, { timeoutMs: 10_000 })
-    const reloadSessionCreate = await rpcCall(args.port, 'session.create', { sessionId: rootSessionId, cwd: workspaceRoot })
-    await writeFile(join(evidenceDir, 'r2-reload-session-create.json'), `${JSON.stringify(reloadSessionCreate, null, 2)}\n`, 'utf8')
-    if (!reloadSessionCreate.ok || reloadSessionCreate.body?.result?.value?.sessionId !== rootSessionId) {
-      throw new Error(`reload session.create did not resume the exact R2 root: ${JSON.stringify(reloadSessionCreate)}`)
-    }
+    const reloadWorkspace = await createOfficialWorkspaceSession({
+      port: args.port, evidenceDir, label: 'r3-reload', workspaceRoot, rootSessionId,
+      expectedWorkspaceId: workspace.workspaceId, expectedCreated: false,
+    })
     const reloadTarget = await waitForTarget(probePath, rootSessionId, 2)
+    assertSessionFixture(reloadTarget, 'reused')
     if (reloadTarget.teamId !== teamId || reloadTarget.resumed !== true) {
       throw new Error(`reload did not recover the same authoritative captain Team: ${JSON.stringify(reloadTarget)}`)
     }
+    await readWorkspaceSessionAccounting({
+      port: args.port, evidenceDir, label: 'r3-reload', workspaceRoot,
+      workspaceId: reloadWorkspace.workspaceId, rootSessionId,
+    })
     const reloadBinding = requireSwarmValue(await readSwarmRpc(args.port, evidenceDir, 'r2-reload-binding', {
       schemaVersion: 1, method: 'binding', target,
     }, trustedHeaders), 'R2 reload binding')

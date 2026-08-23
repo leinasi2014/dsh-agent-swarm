@@ -48,11 +48,15 @@ export const REQUIRED_P0_EVIDENCE_FILES = [
   'evidence/r2-session-create.json',
   'evidence/r2-snapshot.json',
   'evidence/r2-status.json',
+  'evidence/r3-reload-workspace-accounting.json',
+  'evidence/r3-reload-workspace-create.json',
   'evidence/r3-browser-active.json',
   'evidence/r3-browser-r0.json',
   'evidence/r3-browser-removed.json',
   'evidence/r3-r0-fail-closed.png',
   'evidence/r3-team-dashboard.png',
+  'evidence/r3-workspace-accounting.json',
+  'evidence/r3-workspace-create.json',
 ]
 
 export const EXPECTED_P0_OFFICIAL_COMMIT = 'b150a551b8d465e31e418e1b2eaf5e79bbb7d28e'
@@ -263,6 +267,13 @@ async function verifyR3BrowserEvidence(root, failures) {
     || typeof active?.rootSessionId !== 'string' || typeof active?.teamId !== 'string'
     || !Array.isArray(active?.keyboard) || active.keyboard.length < 5) {
     failures.push('R3 active browser evidence does not prove render/keyboard/handoff/reload')
+  }
+  if (active?.fixture?.exactRoot !== true || active?.fixture?.workspaceAttached !== true
+    || active?.fixture?.sessionNonBlank !== true
+    || active?.fixture?.rootSessionId !== active?.rootSessionId
+    || typeof active?.fixture?.workspaceId !== 'string' || active.fixture.workspaceId.length === 0
+    || typeof active?.fixture?.workspacePath !== 'string' || !isAbsolute(active.fixture.workspacePath)) {
+    failures.push('R3 active browser fixture does not prove the exact nonblank root is attached to an official Workspace')
   }
   if (active?.handoff?.officialSelectionSource !== 'localStorage:dsh.sessions.current'
     || active?.handoff?.currentSessionId !== active?.rootSessionId

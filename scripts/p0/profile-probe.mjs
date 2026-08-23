@@ -9,6 +9,7 @@ export const inject = [
   'tools',
   'storageDomain',
   'sessionPersistence',
+  'sessions',
 ]
 
 function append(phase, ctx, detail = {}) {
@@ -23,6 +24,7 @@ function append(phase, ctx, detail = {}) {
       agentSwarmReadRpc: ctx.agentSwarmReadRpc !== undefined,
       storageDomain: ctx.storageDomain !== undefined,
       sessionPersistence: ctx.sessionPersistence !== undefined,
+      sessions: ctx.sessions !== undefined,
       tools: ctx.tools !== undefined,
     },
     tools,
@@ -53,6 +55,30 @@ async function bindTarget(ctx, signal) {
   const rootSessionId = process.env.DSH_SWARM_R2_ROOT_SESSION_ID
   if (rootSessionId === undefined || rootSessionId.length === 0) return
   const agent = await waitForRoot(ctx, rootSessionId, signal)
+  const existingTurn = agent.session.events.find(event => event.type === 'turn/start')
+  let fixture
+  if (existingTurn === undefined) {
+    const start = agent.session.append('turn/start', { turn: 1 })
+    const end = agent.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    const flushParticipated = await ctx.sessions.flush(agent.session)
+    fixture = {
+      mode: 'seeded',
+      events: [start, end].map(event => ({ seq: event.seq, type: event.type })),
+      flushParticipated,
+    }
+  } else {
+    fixture = {
+      mode: 'reused',
+      events: agent.session.events
+        .filter(event => event.type === 'turn/start' || event.type === 'turn/end')
+        .map(event => ({ seq: event.seq, type: event.type })),
+      flushParticipated: false,
+    }
+  }
+  append('r3-session-fixture-ready', ctx, {
+    rootSessionId: agent.id,
+    fixture,
+  })
   const scope = ctx.agentSwarm.scopeOf(agent)
   const membership = await ctx.agentSwarm.domain.findReadMembership(scope, agent.id)
   const team = membership?.team ?? await ctx.agentSwarm.create(
@@ -65,6 +91,7 @@ async function bindTarget(ctx, signal) {
     teamId: team.id,
     teamRevision: team.revision,
     resumed: membership !== undefined,
+    sessionFixture: fixture,
   })
 }
 
