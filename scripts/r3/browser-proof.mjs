@@ -164,9 +164,11 @@ export async function runR3ActiveBrowserProof({
       throw new Error('Team Peek Drawer unexpectedly claimed modal semantics')
     }
     const desktopBox = await drawer.boundingBox()
+    const desktopHostBox = await page.locator('[data-shell-overlay]').boundingBox()
     if (desktopBox === null || desktopBox.width < 360 || desktopBox.width > 440
-      || Math.abs(desktopBox.x + desktopBox.width - 1440) > 2) {
-      throw new Error(`unexpected desktop Team drawer geometry: ${JSON.stringify(desktopBox)}`)
+      || desktopHostBox === null
+      || Math.abs(desktopBox.x + desktopBox.width - (desktopHostBox.x + desktopHostBox.width)) > 2) {
+      throw new Error(`unexpected desktop Team drawer geometry: ${JSON.stringify({ drawer: desktopBox, host: desktopHostBox })}`)
     }
     if (!await dashboard.getByText('R2 isolated Profile team', { exact: true }).isVisible()) {
       throw new Error('browser Team name did not come from the real R2 producer')
@@ -180,8 +182,11 @@ export async function runR3ActiveBrowserProof({
 
     await page.setViewportSize({ width: 680, height: 900 })
     const narrowBox = await drawer.boundingBox()
-    if (narrowBox === null || Math.abs(narrowBox.x) > 2 || Math.abs(narrowBox.width - 680) > 2) {
-      throw new Error(`unexpected narrow Team drawer geometry: ${JSON.stringify(narrowBox)}`)
+    const narrowHostBox = await page.locator('[data-shell-overlay]').boundingBox()
+    if (narrowBox === null || narrowHostBox === null
+      || Math.abs(narrowBox.x - narrowHostBox.x) > 2
+      || Math.abs(narrowBox.width - narrowHostBox.width) > 2) {
+      throw new Error(`unexpected narrow Team drawer geometry: ${JSON.stringify({ drawer: narrowBox, host: narrowHostBox })}`)
     }
     await page.screenshot({ path: join(evidenceDir, 'r3-team-dashboard-narrow.png'), fullPage: false })
     await page.setViewportSize({ width: 1440, height: 1000 })
@@ -221,7 +226,7 @@ export async function runR3ActiveBrowserProof({
     const result = {
       status: 'pass', rootSessionId, teamId, browser: identity, fixture, ...onboarding,
       bootstrap: { ...bootstrapEvidence(rootSessionId, selectionSource), frameworkTargetObserved: true },
-      geometry: { desktop: desktopBox, narrow: narrowBox },
+      geometry: { desktop: { drawer: desktopBox, host: desktopHostBox }, narrow: { drawer: narrowBox, host: narrowHostBox } },
       nonModal: { ariaModal: false, officialComposerPointerAccessible: true },
       keyboard: ['focus Team', 'Enter', 'Escape with focus return', 'Enter', 'focus Open Captain Chat', 'Enter', 'Escape after reload'],
       handoff: {
