@@ -140,7 +140,7 @@ Exit:
 Official integration:
 
 - compose M2 Workflow/Jobs observation with the canonical Team port; every long operation has a stable run id, cancellation and completion disclosure;
-- use `ctx.workspaceRegistry` only for identity/linkage and start each coding attempt in an out-of-process DSH/ACP Session whose actual cwd and tool roots match a unique Worktree lease;
+- as a product self-hosting target, use `ctx.workspaceRegistry` only for identity/linkage and give each coding attempt an out-of-process DSH/ACP Session whose actual cwd and tool roots match a unique execution-root lease; this target does not authorize repository development worktrees, which remain disabled until the project binding and lifecycle gate are upgraded and independently accepted;
 - consume target-verified permission/sandbox/tool enforcement points and official interaction seams for the minimum command-check, independent Reviewer and optional human promotion gates;
 - keep the stable control Profile on a last-known-good artifact and load each frozen candidate into a separate acceptance Profile, port and state root.
 

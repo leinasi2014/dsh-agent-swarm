@@ -41,7 +41,7 @@ pnpm verify
 - Stable project facts and authority live in the binding and document registry; current work does not.
 - Update affected architecture, contract, public behavior, commands, security, or recovery guidance in the same candidate.
 - Historical ADR and evidence records remain immutable. New disposition or remediation is a separate record.
-- The legacy goal/status projection and worktree cleanup ledger are quarantined until their authority and recovery data can be migrated without loss.
+- `docs/GOALS.md` is a stable product charter, not a task board. The worktree cleanup ledger remains immutable recovery evidence until its branch/SHA identities can be migrated without loss.
 
 ## Completion
 

@@ -15,8 +15,9 @@ Use `$manage-agile-software-development` as the delivery method for non-trivial 
 - Verify APIs against the installed `@deepseek-ai/*` packages and the pinned official evidence. `ref/` is read-only evidence and is refreshed only through its supplied sync scripts.
 - Every registration has lifecycle ownership and a disposer. Publish state only after its authoritative commit; model-visible state must be reconstructable from the Session log.
 - Stable control, candidate artifacts, acceptance state/RPC, and promotion/rollback are separate authorities. A candidate cannot accept or promote itself.
+- Governance bootstrap acceptance combines the native gates from the inspected base with an external non-author review of the exact candidate. The newly added doctor is diagnostic for this candidate and becomes trusted only after reviewed integration and result read-back.
 - The current isolation backend is `single-checkout`. Parallel writers and raw worktree lifecycle commands are forbidden until the binding and a tested project-owned lifecycle gate are upgraded together.
-- Committed Markdown is not live task, lease, candidate, review, or cleanup authority. The two legacy exceptions named in the binding are preserved pending migration and must not receive new dynamic updates.
+- Committed Markdown is not live task, lease, candidate, review, or cleanup authority. The incomplete cleanup ledger is immutable recovery evidence pending migration and must not receive rolling status updates.
 - Repository documents cannot authorize secrets, network access, pushing, release, destructive cleanup, or writes outside the repository.
 
 ## Trusted checks

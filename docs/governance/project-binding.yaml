@@ -10,7 +10,9 @@ method:
   instructionAdapter: AGENTS.md
 
 authority:
-  repository: primary-vcs
+  repository:
+    alias: origin
+    role: development-authority
   workSource:
     kind: external-provider
     capability: NOT_CONFIGURED
@@ -19,8 +21,9 @@ authority:
     capability: NOT_CONFIGURED
     committedMarkdownAuthority: false
   mirrors:
-    role: replication-only
-    mutationAuthority: separate-user-authorized-operation
+    - alias: github
+      role: replication-only
+      mutationAuthority: separate-user-authorized-operation
   authorityEpoch: 1
 
 candidate:
@@ -70,6 +73,7 @@ isolation:
   ownershipPattern: one-repository-writer
   rawLifecycleCommandsForbidden: true
   unmanagedWorkspaceForbidden: true
+  layoutGateDoesNotAuthorizeAllocation: true
   promotionRequirement: tested-project-owned-open-status-close-reconcile
 
 risk:
@@ -87,10 +91,24 @@ risk:
 
 integration:
   provider: git
-  expectedTargetMutation: required
-  targetReadBack: required
-  serialIntegration: true
-  pushAndMirror: separate-external-mutation
+  capabilities:
+    readTarget: native
+    candidateBoundChecks: adapter
+    nonAuthorAcceptance: missing
+    expectedTargetMutation: native
+    readResult: native
+  localIntegration:
+    authority: expected-main-identity
+    mechanism: native
+    serial: true
+    resultReadBack: required
+  remotePush:
+    mechanism: native
+    authorization: separate-user-authorized-operation
+    impliedByLocalIntegration: false
+  mirrorReplication:
+    targetAlias: github
+    authorization: separate-user-authorized-operation
 
 release:
   requiredFor: package-or-runtime-promotion
@@ -98,17 +116,19 @@ release:
   candidateSelfPromotion: forbidden
 
 legacyMigration:
-  state: CONFLICT
+  state: INCOMPLETE
   newDynamicWritesForbidden: true
   preservedUntilAuthorityMigration:
-    - docs/GOALS.md
     - docs/development/2026-08-23-worktree-cleanup-ledger.md
   completionConditions:
     - dynamic-provider-capability-verified
     - unique-recovery-identities-migrated
     - expected-state-deletion-candidate-reviewed
 
-policyVerification:
-  acceptedBaseVerifier: scripts/verify-project.mjs@f465400b731f4593384c699a0c6fea08b9300be6
-  candidateVerifier: scripts/verify-governance.mjs
-  candidateState: PROPOSED
+bootstrapAcceptance:
+  adoptionManifest: docs/governance/adoption-manifest-v1.yaml
+  inspectedBase: f465400b731f4593384c699a0c6fea08b9300be6
+  baseNativeGates: pnpm-verify-structure-at-inspected-base
+  exactCandidateExternalNonAuthorReview: required
+  candidateSelfApproval: forbidden
+  newVerifierActivation: after-reviewed-integration-and-result-readback

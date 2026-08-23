@@ -1,5 +1,7 @@
 # 08. Testing and verification
 
+Repository development isolation and product runtime execution roots are different authorities. Worktree scenarios in this document test the plugin's per-attempt execution-root capability; they do not authorize repository worktree allocation. The project binding currently permits one branch-attached checkout and one writer only, and a layout check passing does not change that policy.
+
 ## 1. Test layers
 
 | Layer | Purpose | Examples |
@@ -178,14 +180,14 @@ Mirrors the official DSH engineering family so code quality is machine-enforced 
 
 | Gate | Tool | Command | Enforcement |
 |---|---|---|---|
-| Worktree governance | `scripts/verify-worktree-layout.mjs` | `pnpm verify:worktrees` | must pass before creating a worktree; only direct children of `<repo>/.worktree/`, own branch, same Git common directory, no sibling legacy layouts; first lane in `pnpm verify` and pre-commit |
+| Repository layout compatibility | `scripts/verify-worktree-layout.mjs` | `pnpm verify:worktrees` | validates the accepted root/layout assumptions only; PASS does not authorize allocation, and `pnpm verify:governance` still requires exactly one branch-attached checkout |
 | Lint (correctness=error, suspicious=warn) | oxlint | `pnpm lint` | inside `pnpm verify`; staged files on pre-commit (lefthook) |
 | Copy-paste duplication (60 tokens / 6 lines) | jscpd | `pnpm verify:duplication` | inside `pnpm verify`; 0 clones |
 | Dead exports / dead dependencies | knip | `pnpm verify:exports` | inside `pnpm verify`; 0 findings |
 | Unused locals / parameters | tsc `noUnusedLocals`/`noUnusedParameters` | `pnpm typecheck` | typecheck lane |
 | Source file size | `scripts/verify-project.mjs` | `pnpm verify:structure` | 600-line ceiling for `src`/`scripts`/`tests` `.ts`; exceptions registered with reason + retiring milestone (currently zero exceptions) |
 | Line endings / encoding | `.gitattributes` + verify-project | `pnpm verify:structure` | LF working tree (CRLF for `ps1`/`cmd`), UTF-8, final newline |
-| Full matrix on push/PR | GitHub Actions | `.github/workflows/verify.yml` | windows-latest: pinned reference syncs, official evidence checkout (`DSH_OFFICIAL_CHECKOUT`), `pnpm verify`, live Gate A verification, coverage |
-| Coverage visibility | `@vitest/coverage-v8` scoped to `src/**` | `pnpm test:coverage` | report-only at introduction (86.5% statements / 74.8% branches); thresholds may follow M1D |
+| Mirror CI evidence | GitHub Actions | `.github/workflows/verify.yml` | windows-latest: pinned reference syncs, official evidence checkout (`DSH_OFFICIAL_CHECKOUT`), `pnpm verify`, live Gate A verification, coverage; mirror CI does not prove authority-target integration |
+| Coverage visibility | `@vitest/coverage-v8` scoped to `src/**` | `pnpm test:coverage` | report-only unless an accepted quality profile sets a threshold |
 
-The verify chain is `verify:worktrees -> verify:structure -> lint -> duplication -> exports -> typecheck -> typecheck:test -> test -> scenarios -> build -> artifact`. `verify-project.mjs` additionally asserts that the worktree/lint/duplication/export lanes stay wired into `pnpm verify`, that `packageManager` pins pnpm, and that every tooling file exists, so the gates cannot be silently deleted. A repository that has not yet landed the worktree gate is single-writer only: install and verify it in the existing main checkout before creating the first task worktree.
+The verify chain is `verify:governance -> verify:worktrees -> verify:structure -> lint -> duplication -> exports -> typecheck -> typecheck:test -> test -> scenarios -> build -> artifact`. `verify-project.mjs` asserts that the governance/layout/lint/duplication/export lanes stay wired into `pnpm verify`, that `packageManager` pins pnpm, and that every tooling file exists. The layout verifier is retained as a compatibility guard, but repository worktree open/status/close/reconcile is `NOT_CONFIGURED`; no task worktree may be allocated until those lifecycle controls, their negative tests, the binding generation and independent acceptance land together.

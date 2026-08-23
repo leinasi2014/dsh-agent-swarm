@@ -1,6 +1,7 @@
 schemaVersion: 1
 project: dsh-agent-swarm
 layoutPolicy: adapt-existing
+legalRoles: stable-authority|dynamic-authority|evidence|projection|reference
 
 documents:
   - documentId: project-binding
@@ -8,125 +9,242 @@ documents:
     role: stable-authority
     subject: governance
     writeMode: human
+    accountableOwner: governance-owner
+    mutationAuthority: expected-target-reviewed-candidate
+    updateTriggers: project-authority-or-capability-change
+    validation: pnpm-verify-governance
   - documentId: document-registry
     path: docs/governance/document-registry.yaml
     role: stable-authority
     subject: documentation
     writeMode: human
+    accountableOwner: governance-owner
+    mutationAuthority: expected-target-reviewed-candidate
+    updateTriggers: document-authority-or-layout-change
+    validation: pnpm-verify-governance
+  - documentId: adoption-manifest-v1
+    path: docs/governance/adoption-manifest-v1.yaml
+    role: evidence
+    subject: governance
+    writeMode: human
+    accountableOwner: governance-owner
+    mutationAuthority: immutable-new-manifest-required
+    updateTriggers: none
+    validation: pnpm-verify-governance
   - documentId: root-agent-instructions
     path: AGENTS.md
-    role: instruction-adapter
+    role: projection
     subject: instruction
     writeMode: human
+    accountableOwner: governance-owner
+    mutationAuthority: same-candidate-as-source-authority
+    updateTriggers: binding-or-project-red-line-change
+    validation: pnpm-verify-governance
     sourceAuthority: project-binding
+    refreshPolicy: same-candidate-as-source-change
+    expiryPolicy: invalid-on-source-authority-change
   - documentId: claude-instructions
     path: CLAUDE.md
-    role: instruction-adapter
+    role: projection
     subject: instruction
     writeMode: human
+    accountableOwner: governance-owner
+    mutationAuthority: same-candidate-as-source-authority
+    updateTriggers: root-agent-instruction-change
+    validation: pnpm-verify-governance
     sourceAuthority: root-agent-instructions
+    refreshPolicy: same-candidate-as-source-change
+    expiryPolicy: invalid-on-source-authority-change
   - documentId: contributor-guide
     path: CONTRIBUTING.md
     role: projection
     subject: contributor
     writeMode: human
+    accountableOwner: governance-owner
+    mutationAuthority: same-candidate-as-source-authority
+    updateTriggers: binding-or-trusted-command-change
+    validation: pnpm-verify-governance
     sourceAuthority: project-binding
+    refreshPolicy: same-candidate-as-source-change
+    expiryPolicy: invalid-on-source-authority-change
   - documentId: project-readme
     path: README.md
     role: projection
     subject: user
     writeMode: human
-    sourceAuthority: product-vision
+    accountableOwner: product-owner
+    mutationAuthority: same-candidate-as-source-authority
+    updateTriggers: public-behavior-or-installation-change
+    validation: pnpm-verify-governance
+    sourceAuthority: product-charter
+    refreshPolicy: same-candidate-as-source-change
+    expiryPolicy: invalid-on-source-authority-change
   - documentId: documentation-index
     path: docs/README.md
     role: projection
     subject: user
     writeMode: human
+    accountableOwner: documentation-owner
+    mutationAuthority: same-candidate-as-registry
+    updateTriggers: registered-path-or-reading-order-change
+    validation: pnpm-verify-governance
     sourceAuthority: document-registry
+    refreshPolicy: same-candidate-as-source-change
+    expiryPolicy: invalid-on-source-authority-change
+  - documentId: product-charter
+    path: docs/GOALS.md
+    role: stable-authority
+    subject: project
+    writeMode: human
+    accountableOwner: product-owner
+    mutationAuthority: user-authorized-reviewed-candidate
+    updateTriggers: product-outcome-or-scope-change
+    validation: pnpm-verify-governance
   - documentId: product-vision
     path: docs/00-vision.md
     role: stable-authority
     subject: architecture
     writeMode: human
+    accountableOwner: product-owner
+    mutationAuthority: expected-target-reviewed-candidate
+    updateTriggers: product-boundary-or-compatibility-change
+    validation: pnpm-verify-governance
   - documentId: capability-family
     path: docs/03-capability-family.md
     role: stable-authority
     subject: architecture
     writeMode: human
+    accountableOwner: architecture-owner
+    mutationAuthority: expected-target-reviewed-candidate
+    updateTriggers: capability-ownership-or-service-boundary-change
+    validation: pnpm-verify-governance
   - documentId: core-protocol
     path: docs/04-core-protocol.md
     role: stable-authority
     subject: contract
     writeMode: human
+    accountableOwner: protocol-owner
+    mutationAuthority: expected-target-reviewed-candidate
+    updateTriggers: protocol-state-or-error-contract-change
+    validation: pnpm-verify-governance
   - documentId: workspace-architecture
     path: docs/06-workspace-distributed.md
     role: stable-authority
     subject: architecture
     writeMode: human
+    accountableOwner: architecture-owner
+    mutationAuthority: expected-target-reviewed-candidate
+    updateTriggers: workspace-or-distributed-boundary-change
+    validation: pnpm-verify-governance
+  - documentId: implementation-roadmap
+    path: docs/07-implementation-roadmap.md
+    role: reference
+    subject: project
+    writeMode: human
+    accountableOwner: product-owner
+    mutationAuthority: expected-target-reviewed-candidate
+    updateTriggers: milestone-definition-or-exit-criteria-change
+    validation: pnpm-verify-governance
+  - documentId: testing-verification
+    path: docs/08-testing-verification.md
+    role: stable-authority
+    subject: quality
+    writeMode: human
+    accountableOwner: quality-owner
+    mutationAuthority: expected-target-reviewed-candidate
+    updateTriggers: verification-command-or-evidence-contract-change
+    validation: pnpm-verify
   - documentId: source-register
     path: docs/09-sources.md
     role: reference
     subject: architecture
     writeMode: human
+    accountableOwner: compatibility-owner
+    mutationAuthority: gate-a-reviewed-candidate
+    updateTriggers: official-or-reference-pin-change
+    validation: pnpm-verify-gate-a
+  - documentId: fusion-audit
+    path: docs/10-fusion-audit.md
+    role: reference
+    subject: architecture
+    writeMode: human
+    accountableOwner: architecture-owner
+    mutationAuthority: expected-target-reviewed-candidate
+    updateTriggers: integration-ownership-or-gap-change
+    validation: pnpm-verify-structure
   - documentId: official-first-policy
     path: docs/11-official-first-development.md
     role: stable-authority
     subject: contributor
     writeMode: human
+    accountableOwner: compatibility-owner
+    mutationAuthority: expected-target-reviewed-candidate
+    updateTriggers: official-baseline-or-compatibility-policy-change
+    validation: pnpm-verify-gate-a
   - documentId: self-hosting-policy
     path: docs/13-self-hosting-dogfood.md
     role: stable-authority
     subject: operations
     writeMode: human
+    accountableOwner: operations-owner
+    mutationAuthority: expected-target-reviewed-candidate
+    updateTriggers: control-candidate-promotion-or-recovery-change
+    validation: pnpm-verify
   - documentId: official-baseline
     path: docs/OFFICIAL_BASELINE.json
     role: reference
     subject: contract
     writeMode: external-readonly
+    accountableOwner: compatibility-owner
+    mutationAuthority: gate-a-reviewed-candidate
+    updateTriggers: official-release-change
+    validation: pnpm-verify-gate-a
   - documentId: reviewer-autonomy-decision
     path: docs/adr/0006-independent-reviewer-autonomy.md
     role: stable-authority
     subject: decision
     writeMode: human
+    accountableOwner: governance-owner
+    mutationAuthority: superseding-adr-only
+    updateTriggers: accepted-review-governance-reversal
+    validation: pnpm-verify-governance
   - documentId: self-hosting-decision
     path: docs/adr/0008-self-hosting-dogfood-control-plane.md
     role: stable-authority
     subject: decision
     writeMode: human
-  - documentId: implementation-roadmap-legacy-projection
-    path: docs/07-implementation-roadmap.md
-    role: projection
-    subject: project
+    accountableOwner: architecture-owner
+    mutationAuthority: superseding-adr-only
+    updateTriggers: accepted-control-plane-reversal
+    validation: pnpm-verify
+  - documentId: plugin-development-skill
+    path: .agents/skills/dsh-plugin-development/SKILL.md
+    role: stable-authority
+    subject: contributor
     writeMode: human
-    migrationState: CONFLICT
-  - documentId: goals-legacy-projection
-    path: docs/GOALS.md
-    role: projection
-    subject: project
-    writeMode: human
-    migrationState: CONFLICT
+    accountableOwner: architecture-owner
+    mutationAuthority: expected-target-reviewed-candidate
+    updateTriggers: dsh-technical-contract-or-project-red-line-change
+    validation: pnpm-verify-structure
   - documentId: worktree-cleanup-recovery-evidence
     path: docs/development/2026-08-23-worktree-cleanup-ledger.md
     role: evidence
     subject: recovery
     writeMode: human
-    mutationPolicy: immutable-until-migrated
+    accountableOwner: recovery-owner
+    mutationAuthority: immutable-until-migrated-by-reviewed-candidate
+    updateTriggers: recovery-migration-completion
+    validation: pnpm-verify-governance
 
 domains:
   governance:
+    accountableOwner: governance-owner
     writerCount: 1
-    paths:
-      - AGENTS.md
-      - CLAUDE.md
-      - CONTRIBUTING.md
-      - docs/governance
+    paths: AGENTS.md|CLAUDE.md|CONTRIBUTING.md|docs/governance
   product-architecture:
+    accountableOwner: architecture-owner
     writerCount: 1
-    paths:
-      - docs/00-vision.md
-      - docs/03-capability-family.md
-      - docs/04-core-protocol.md
-      - docs/06-workspace-distributed.md
+    paths: docs/00-vision.md|docs/03-capability-family.md|docs/04-core-protocol.md|docs/06-workspace-distributed.md
 
 checks:
   entryPoint: pnpm-verify-governance

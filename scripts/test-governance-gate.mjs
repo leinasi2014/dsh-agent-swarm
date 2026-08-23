@@ -11,18 +11,23 @@ const sandbox = mkdtempSync(join(tmpdir(), 'swarm-governance-gate-'))
 function copyFixture(name) {
   const root = join(sandbox, name)
   mkdirSync(root, { recursive: true })
-  for (const item of ['AGENTS.md', 'CLAUDE.md', 'CONTRIBUTING.md', 'README.md', 'LICENSE', 'docs']) {
+  for (const item of ['.agents', 'AGENTS.md', 'CLAUDE.md', 'CONTRIBUTING.md', 'README.md', 'LICENSE', 'docs']) {
     cpSync(join(sourceRoot, item), join(root, item), { recursive: true })
   }
   return root
 }
 
-function run(root) {
-  return spawnSync(process.execPath, [verifier, '--root', root, '--skip-git'], {
+function run(root, skipGit = true) {
+  return spawnSync(process.execPath, [verifier, '--root', root, ...(skipGit ? ['--skip-git'] : [])], {
     encoding: 'utf8',
     timeout: 30_000,
     windowsHide: true,
   })
+}
+
+function git(root, args) {
+  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: 30_000, windowsHide: true })
+  if (result.status !== 0) throw new Error(`git fixture command failed: ${args[0]}`)
 }
 
 function mutate(root, path, change) {
@@ -75,11 +80,48 @@ try {
     mutate(root, 'docs/governance/project-binding.yaml', content => content.replace('backend: single-checkout', 'backend: git-worktree'))
   }, 'missing or changed declaration backend: single-checkout')
 
+  expectFailure('candidate-self-approval', root => {
+    mutate(root, 'docs/governance/project-binding.yaml', content => content.replace('candidateSelfApproval: forbidden', 'candidateSelfApproval: allowed'))
+  }, 'missing or changed declaration candidateSelfApproval: forbidden')
+
+  expectFailure('missing-accountable-owner', root => {
+    mutate(root, 'docs/governance/document-registry.yaml', content => content.replace('    accountableOwner: governance-owner\n', ''))
+  }, 'incomplete document entry project-binding')
+
+  expectFailure('illegal-role', root => {
+    mutate(root, 'docs/governance/document-registry.yaml', content => content.replace('    role: stable-authority', '    role: instruction-adapter'))
+  }, 'illegal role instruction-adapter')
+
+  expectFailure('projection-refresh-contract', root => {
+    mutate(root, 'docs/governance/document-registry.yaml', content => content.replace('    refreshPolicy: same-candidate-as-source-change\n', ''))
+  }, 'projection root-agent-instructions requires sourceAuthority, refreshPolicy, and expiryPolicy')
+
+  expectFailure('projection-source-authority', root => {
+    mutate(root, 'docs/governance/document-registry.yaml', content => content.replace('    sourceAuthority: project-binding', '    sourceAuthority: missing-authority'))
+  }, 'references unknown sourceAuthority missing-authority')
+
+  {
+    const root = copyFixture('credential-bearing-remote')
+    git(root, ['init'])
+    git(root, ['config', 'user.name', 'Governance Fixture'])
+    git(root, ['config', 'user.email', 'fixture@example.invalid'])
+    git(root, ['add', '.'])
+    git(root, ['commit', '--no-gpg-sign', '-m', 'fixture'])
+    git(root, ['remote', 'add', 'origin', 'https://example.invalid/authority.git'])
+    git(root, ['remote', 'add', 'github', 'https://example.invalid/mirror.git'])
+    git(root, ['remote', 'set-url', 'origin', 'https://embedded-user@example.invalid/authority.git'])
+    const result = run(root, false)
+    const output = `${result.stdout}\n${result.stderr}`
+    if (result.status === 0 || !output.includes('remote origin: credential or userinfo in URL is forbidden')) {
+      throw new Error(`credential-bearing-remote: expected redacted remote credential failure, got status ${result.status}`)
+    }
+  }
+
   expectFailure('registry-escape', root => {
-    mutate(root, 'docs/governance/document-registry.yaml', content => `${content}\n  - documentId: escaped\n    path: ../../outside.md\n    role: stable-authority\n    subject: governance\n    writeMode: human\n`)
+    mutate(root, 'docs/governance/document-registry.yaml', content => `${content}\n  - documentId: escaped\n    path: ../../outside.md\n    role: stable-authority\n    subject: governance\n    writeMode: human\n    accountableOwner: governance-owner\n    mutationAuthority: expected-target-reviewed-candidate\n    updateTriggers: test\n    validation: pnpm-verify-governance\n`)
   }, 'path escapes the project root')
 
-  console.log('Governance gate positive fixture and 8 negative policy cases: PASS')
+  console.log('Governance gate positive fixture and 14 negative policy cases: PASS')
 } finally {
   rmSync(sandbox, { recursive: true, force: true })
 }

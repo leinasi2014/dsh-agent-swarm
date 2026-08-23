@@ -1,28 +1,11 @@
 # dsh-agent-swarm
 
 [![verify](https://github.com/leinasi2014/dsh-agent-swarm/actions/workflows/verify.yml/badge.svg)](https://github.com/leinasi2014/dsh-agent-swarm/actions/workflows/verify.yml)
-[![milestone](https://img.shields.io/badge/milestone-M5%20in%20progress-blue)](https://github.com/leinasi2014/dsh-agent-swarm/milestones)
-[![official](https://img.shields.io/badge/DSH-0.1.1--rc.2-orange)](docs/OFFICIAL_BASELINE.json)
-[![tests](https://img.shields.io/badge/tests-226%20passing-brightgreen)](docs/08-testing-verification.md)
 
 面向 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）的**持久化多 Agent 团队编排插件**：崩溃安全的任务协作层——任务 DAG、attempt 围栏、审核门、持久邮箱、预算计量、可执行审查，全部构建在官方服务 seam 之上。
 
 - **不修改 Agent Loop**、不影子注册任何官方服务——单一权威状态经 `TeamDomainPort` 存于官方 Storage Domain（ADR-0007）。
 - 消费两个参考仓库的成熟机制（`dsh-agent-teams` 的团队协议、JiuwenSwarm 的预算/审核/调度思路），映射到 DSH 原生边界，不嵌入任何第二运行时。
-
-## 状态
-
-M1–M4 已完成（独立安全/回归审查 PASS），M5 进行中。每个里程碑都有出口报告、tag 与可复现验收：
-
-| 里程碑 | 内容 | tag | 出口报告 |
-|---|---|---|---|
-| M1 | 崩溃安全协议 + 独立回归审查 + D1 dogfood 开放 | `m1d` | [report](docs/development/2026-08-21-m1d-exit-report.md) |
-| M2 | 官方 WorkflowEngine/JobRegistry 桥 + 双 owner 围栏 | `m2` | [report](docs/development/2026-08-21-m2-exit-report.md) |
-| M3 | 自托管安全纵切（执行根/可执行审查/晋升回滚演练） | `m3` | [report](docs/development/2026-08-22-m3-exit-report.md) |
-| M4 | 预算与验证能力族 | `m4` | [report](docs/development/2026-08-22-m4-exit-report.md) |
-| M5 | Workspace 隔离与权限族 | — | 进行中 |
-
-当前基线：226 项测试 / 25 个机器证明场景（docs/08 §7）。
 
 ## 安装
 
@@ -35,7 +18,7 @@ dsh plugin add leinasi2014/dsh-agent-swarm
 #     source: npm:@dsh-agent-swarm
 ```
 
-要求：DSH `0.1.1-rc.2` 世系（`docs/OFFICIAL_BASELINE.json` 为 Gate A 权威基线）。
+兼容范围由 `package.json` 的 peer dependencies、锁文件和 [docs/OFFICIAL_BASELINE.json](docs/OFFICIAL_BASELINE.json) 共同定义；不要从 README 中推断滚动版本状态。
 
 ### 快速开始
 

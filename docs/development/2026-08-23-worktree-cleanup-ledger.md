@@ -1,6 +1,6 @@
 # 2026-08-23 worktree cleanup ledger
 
-Status: `ARCHIVED_WORKTREE_ONLY`. The worktree directories were retired after all writers stopped. These records preserve local candidate identity; they do **not** mean the candidates were reviewed, accepted, merged, or released.
+Migration status: `INCOMPLETE`. The worktree directories were retired after all writers stopped, but candidate disposition and migration into a trusted dynamic recovery authority are not complete. These immutable records preserve local candidate identity; they do **not** mean the candidates were reviewed, accepted, merged, released, or safe to delete. Every named branch and exact SHA remains recovery evidence, and this adoption does not delete any branch.
 
 | Archived branch | Exact candidate SHA |
 |---|---|
@@ -24,4 +24,4 @@ Status: `ARCHIVED_WORKTREE_ONLY`. The worktree directories were retired after al
 
 Two interrupted trees were made recoverable before retirement: the host-service contract baseline was preserved at `62defca141854886a59f7c7dcf8d2d3a8025db67`, and the H4a3 integration delta was preserved at `cafee9a6c467fd808d48f2b9856cbe151ccc4348`.
 
-To resume one candidate, first pass `pnpm verify:worktrees`, then recreate only that branch under `.worktree/<task>`. After review, close it as `INTEGRATED` or keep the branch/SHA as `ARCHIVED`; either outcome removes the worktree in the same closeout action.
+The repository binding currently selects `single-checkout`; `pnpm verify:worktrees` is only a layout compatibility check and does not authorize recreation. Resume or dispose a candidate only through a later reviewed recovery candidate after project-owned open/status/close/reconcile and a generation-bound dynamic ledger are configured. Until then, preserve every branch/SHA and do not recreate or delete its worktree through raw lifecycle commands.

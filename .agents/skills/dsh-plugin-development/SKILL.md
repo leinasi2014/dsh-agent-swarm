@@ -10,6 +10,8 @@ metadata:
 
 本 Skill 面向真正执行开发任务的 Agent。目标是把框架理论转化成正确的包结构、服务接口、生命周期、持久语义、测试和 Profile 验证。任何结论都必须能追溯到当前项目、目标安装包、官方 DSH 源码或固定参考源。
 
+仓库开发隔离由 `docs/governance/project-binding.yaml` 唯一决定，当前为 `single-checkout` 单写者。本文的 Worktree/执行根内容描述插件产品能力与隔离测试，不授权创建开发 worktree；布局门 PASS 也不开放并行写入。
+
 ## 何时使用
 
 以下任务必须启用本 Skill：
@@ -262,14 +264,14 @@ Bundle 修改后重启 Profile。不要手写用户 profile 的 bundle manifest�
 插件用自己组成开发 Team 时，必须把控制面与候选面分开：
 
 - stable control Profile 只加载 last-known-good artifact；
-- 每个编码 attempt 使用独立 Worktree 和真实匹配的 Session cwd/FS/tool roots；
+- 当前仓库只允许一个编码 writer 在已绑定 checkout 中工作；产品的隔离执行根只能作为受测运行时能力使用，不能反向授权并行仓库写入；
 - 提交后冻结 commit 和 package digest，Reviewer 不审查 Worker 仍可改写的目录；
 - candidate 只进入独立 acceptance Profile/port/state root；
 - promotion/rollback 由 candidate 运行时之外的控制器拥有；
 - 运行中的 stable Profile 不得原地覆盖、mutable link 或用自身候选热重载；
 - candidate/Worker 无权修改 stable storage、credentials、官方/ref evidence 或批准自身。
 
-M1D 只允许单写入者 D1 dogfood。并行 D2 必须满足项目 M2/M3 和 ADR-0008。模型不因费用或响应速度被强制收敛，但命令超时、并发、重试循环、保留上限、取消和回滚仍是故障边界。
+仓库 dogfood 同样服从绑定的 `single-checkout`。启用并行 writer 必须先落地项目自有 open/status/close/reconcile、负向测试和新绑定世代，再由非作者验收；产品里程碑或 ADR 的运行时就绪结论不能替代该门。模型不因费用或响应速度被强制收敛，但命令超时、并发、重试循环、保留上限、取消和回滚仍是故障边界。
 
 ## Step 9：验证
 
@@ -403,7 +405,7 @@ dsh --profile <check-profile> --dump-config
 4. Jiuwen 功能必须先映射到已有 DSH seam；只有确实缺失时设计通用新 seam。
 5. Scheduler、Workspace、Budget、Review、Memory、Remote Member、UI 都是插件；不塞回 Team core。
 6. `revision` 与 `attemptId` 均保留。
-7. 首个 Worktree 实现优先用独立 DSH/ACP Session 的真实 cwd，不做 Prompt 假隔离。
+7. 实现产品执行根能力时必须验证独立 DSH/ACP Session 的真实 cwd/FS/tool root，不做 Prompt 假隔离；这不授权开发 worktree。
 8. 跨进程状态需要 atomic claim/lease/fencing Provider。
 9. Canonical task completed 必须服从配置的 Review Gate。
 10. 每个阶段按 `docs/07-implementation-roadmap.md` 的 exit criteria 验收。
@@ -414,8 +416,8 @@ dsh --profile <check-profile> --dump-config
 15. 独立安全/架构审查按 `$manage-agile-software-development` 与 `docs/governance/project-binding.yaml` 的风险分级执行；审查范围、权限、候选身份和验收问题由工作包明确，项目经理接收报告并核验证据，不改写结论。
 16. 用户明确授权全权限审查时，将 `danger-full-access` 与 `approval=never` 固定在独立 Session，核对持久权限事件；临时修改未来 Session 默认值后立即恢复。运行时全权限不等于允许改生产源码，审查写入范围仍由任务约束。
 17. M1A 已实现 ADR-0007：`sessionPersistence` 和 `storageDomain` 是 fail-closed 必需注入（缺失组合中插件保持 pending）；权威 Team aggregate 位于官方 `agent_swarm` Storage Domain（`TeamDomainPort` → `StorageDomainTeamStore`，每 Team 一条版本化记录 + 迁移回执），绝不在共享工作区；`FileTeamStore` 只读（迁移读取器/fixture，无写路径）；迁移仅经 `scripts/migrate-legacy-team-store.mjs` 显式单向执行（空目的、读回校验、回执、源只读），禁止运行时自动迁移、双写或回退；该保护 denies ordinary workspace writer，不是对 unrestricted host access 的防御，存储 root 必须配置在工作区与 sandbox 根之外。持久边界事实（M4-3/#129 探针实证，docs/09 §1）：官方 storage-domain 的 `put` 原样存储记录，但加载路径按表 value schema zod 解析并**剥离未声明键**——向聚合新增可选字段时必须同时扩展 `src/storage/team-spec.ts` 的 zod 表 schema 与 `assertTeamState`，否则字段仅在单进程存活、重载即静默丢失（`verification`/`replacesAttemptId` 曾因此中招）。
-18. 自托管依 ADR-0008 分级开放：M1D 后仅 D1 单写入者试运行；M2/M3 验收后才允许 D2 并行自我开发。
-19. Stable control、candidate Worktree/artifact、acceptance Profile/state/RPC、promotion/rollback 必须分权；candidate 不能批准或部署自身。
+18. 自托管运行时依 ADR-0008 分级；仓库开发始终以项目绑定为准，当前只允许单写者，任何 D2 并行开发都处于 `NOT_CONFIGURED`。
+19. Stable control、candidate commit/artifact、acceptance Profile/state/RPC、promotion/rollback 必须分权；candidate 不能批准或部署自身。
 20. Dogfood 管理只观察权威 Team/Job/lease/verification 状态和阶段报告，不轮询私有推理；失败通过 Lead 建立 fresh fenced task，不直接篡改 canonical state。
 21. Skill Evolution 只能消费 accepted evidence，并分离 proposal、deterministic validation、approval 和 write；Agent 不得自行扩大授权它的 Skill。
 22. 不为节约套餐或响应速度限制健康开发/审查的 token、step 或时间；仍必须实施故障型 concurrency/timeout/retry/retention/cancel/rollback 控制。

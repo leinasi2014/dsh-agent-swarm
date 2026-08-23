@@ -27,6 +27,7 @@ const required = [
   'docs/10-fusion-audit.md',
   'docs/11-official-first-development.md',
   'docs/13-self-hosting-dogfood.md',
+  'docs/governance/adoption-manifest-v1.yaml',
   'docs/governance/project-binding.yaml',
   'docs/governance/document-registry.yaml',
   'docs/GOALS.md',
@@ -141,10 +142,11 @@ for (const [file, phrases] of [
   ['CLAUDE.md', ['$manage-agile-software-development', 'AGENTS.md']],
   ['docs/07-implementation-roadmap.md', ['Gate A', 'Official-first']],
   ['docs/13-self-hosting-dogfood.md', ['stable control Profile', 'acceptance Profile', 'ADR-0008']],
-  ['docs/GOALS.md', ['总目标', '当前开发目标', '下一个目标']],
+  ['docs/GOALS.md', ['产品目标', '稳定范围', '产品红线', '能力演进顺序', '章程变更']],
   ['.agents/skills/dsh-plugin-development/SKILL.md', ['official-first compatibility gate', 'docs/11-official-first-development.md']],
-  ['docs/governance/project-binding.yaml', ['backend: single-checkout', 'parallelWriterCapability: NOT_CONFIGURED']],
-  ['docs/governance/document-registry.yaml', ['documentId: project-binding', 'stableDocumentFirewall: enabled']],
+  ['docs/governance/project-binding.yaml', ['backend: single-checkout', 'parallelWriterCapability: NOT_CONFIGURED', 'exactCandidateExternalNonAuthorReview: required']],
+  ['docs/governance/document-registry.yaml', ['documentId: project-binding', 'stableDocumentFirewall: enabled', 'accountableOwner:']],
+  ['docs/governance/adoption-manifest-v1.yaml', ['inspectedBase: f465400b731f4593384c699a0c6fea08b9300be6', 'branchDeletion: forbidden-by-this-manifest']],
 ]) {
   try {
     const content = await readFile(join(root, file), 'utf8')

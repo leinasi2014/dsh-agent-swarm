@@ -20,7 +20,7 @@
 9. [11-official-first-development.md](11-official-first-development.md) — official-first 开发门（Gate A/B/C 纪律）
 10. [OFFICIAL_BASELINE.json](OFFICIAL_BASELINE.json) — 机读官方基线（`pnpm verify:gate-a` 的权威输入）
 11. [09-sources.md](09-sources.md) — 源码钉住与证据政策
-12. [governance/project-binding.yaml](governance/project-binding.yaml) 与 [governance/document-registry.yaml](governance/document-registry.yaml) — 通用敏捷开发方法的项目绑定与文档权威登记
+12. [governance/project-binding.yaml](governance/project-binding.yaml)、[governance/document-registry.yaml](governance/document-registry.yaml) 与 [governance/adoption-manifest-v1.yaml](governance/adoption-manifest-v1.yaml) — 通用敏捷开发方法的项目绑定、文档权威登记与不可变接管清单
 13. [13-self-hosting-dogfood.md](13-self-hosting-dogfood.md) — 分级自托管：D1/D2 dogfood、稳定/候选 Profile、自我改进控制回路
 
 ### 验证与审计
@@ -32,12 +32,12 @@
 - [development/](development/) — 有界实现委托与阶段完成报告（含各里程碑出口报告）
 - [reviews/](reviews/) — 独立审查报告（不可变）与 PM intake（分开成文）
 
-## 当前状态速查
+## 权威与证据说明
 
-- **里程碑**：M1–M4 完成（tag `m1d`/`m2`/`m3`/`m4`），M5 进行中——见 [GOALS.md](GOALS.md)
-- **官方基线**：DSH `0.1.1-rc.2` @ `b150a55`（release 锚定，Gate A 持续核验）
-- **测试**：226 项 / 25 个机器证明场景
-- **决策登记**：docs/04 §8a–§8o（F1–F17 发现编号体系）
+- [GOALS.md](GOALS.md) 只保存稳定产品章程，不登记滚动进度。
+- 阶段报告、审查报告、ADR、Git commit/tag 是版本化历史证据，不是实时任务台账。
+- 官方兼容事实以 [OFFICIAL_BASELINE.json](OFFICIAL_BASELINE.json)、目标安装包和 Gate A 结果为准。
+- 当前任务、候选、审查与集成状态由项目绑定选定的外部 provider 或非提交式动态台账承担。
 
 ## 文档规则
 
