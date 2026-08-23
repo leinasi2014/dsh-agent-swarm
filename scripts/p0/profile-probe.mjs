@@ -4,6 +4,7 @@ export const name = 'agent-swarm-p0-profile-probe'
 export const inject = [
   'agentSwarm',
   'agentSwarmProducerFloor',
+  'agentSwarmReadRpc',
   'tools',
   'storageDomain',
   'sessionPersistence',
@@ -18,6 +19,7 @@ function append(phase, ctx) {
     services: {
       agentSwarm: ctx.agentSwarm !== undefined,
       agentSwarmProducerFloor: ctx.agentSwarmProducerFloor !== undefined,
+      agentSwarmReadRpc: ctx.agentSwarmReadRpc !== undefined,
       storageDomain: ctx.storageDomain !== undefined,
       sessionPersistence: ctx.sessionPersistence !== undefined,
       tools: ctx.tools !== undefined,

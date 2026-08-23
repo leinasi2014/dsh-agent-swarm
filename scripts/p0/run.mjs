@@ -100,6 +100,18 @@ async function readInventory(port, evidenceDir, label) {
   }
 }
 
+async function readSwarmRpc(port, evidenceDir, label, body, headers = {}) {
+  const response = await fetch(`http://127.0.0.1:${port}/swarm/v1`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...headers },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(10_000),
+  })
+  const value = await response.json()
+  await writeFile(join(evidenceDir, `${label}.json`), `${JSON.stringify({ status: response.status, value }, null, 2)}\n`, 'utf8')
+  return { status: response.status, value }
+}
+
 function swarmInventoryRow(entries) {
   return entries.find(entry => entry?.moduleName === 'dsh-agent-swarm')
 }
@@ -258,6 +270,29 @@ async function main() {
       && ['agent_swarm_create', 'agent_swarm_status', 'agent_swarm_send_message', 'agent_swarm_list_tasks'].every(name => firstActive.tools.includes(name))
     if (!servicesOk || !toolsOk) throw new Error(`service/tool probe mismatch: ${JSON.stringify(firstActive)}`)
     gate('service-tool-probe', 'pass', `${firstActive.tools.length} agent_swarm tools and required services active`)
+
+    const capabilityHandshake = await readSwarmRpc(args.port, evidenceDir, 'r2-capabilities', {
+      schemaVersion: 1, method: 'capabilities',
+    }, { origin: `http://127.0.0.1:${args.port}`, 'sec-fetch-site': 'same-origin' })
+    if (capabilityHandshake.status !== 200
+      || capabilityHandshake.value?.ok !== true
+      || capabilityHandshake.value?.value?.trust?.mode !== 'local-single-user-target-bound'
+      || capabilityHandshake.value?.value?.trust?.principalBound !== false) {
+      throw new Error(`R2 capability handshake mismatch: ${JSON.stringify(capabilityHandshake)}`)
+    }
+    const forgedOrigin = await readSwarmRpc(args.port, evidenceDir, 'r2-forged-origin', {
+      schemaVersion: 1, method: 'capabilities',
+    }, { origin: 'http://attacker.invalid', 'sec-fetch-site': 'cross-site' })
+    if (forgedOrigin.status !== 403 || forgedOrigin.value?.ok !== false) {
+      throw new Error(`R2 forged Origin did not fail closed: ${JSON.stringify(forgedOrigin)}`)
+    }
+    const fakeTarget = await readSwarmRpc(args.port, evidenceDir, 'r2-fake-target', {
+      schemaVersion: 1, method: 'snapshot', target: { rootSessionId: 'session-not-live' },
+    })
+    if (fakeTarget.status !== 404 || fakeTarget.value?.error?.code !== 'SWARM_RPC_TARGET_NOT_LIVE') {
+      throw new Error(`R2 fake target did not fail closed: ${JSON.stringify(fakeTarget)}`)
+    }
+    gate('r2-read-rpc-handshake', 'pass', 'official WebServer route: capabilities pass; forged Origin and fake target fail closed')
     const firstStop = await gracefulStop(liveBoot, stopPath, args.port)
     liveBoot = undefined
     const firstUnloaded = await waitUntil(async () => (await readProbe(probePath)).filter(entry => entry.phase === 'unloaded').length >= 1, { timeoutMs: 5_000 })
