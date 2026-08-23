@@ -29,7 +29,7 @@ const TEAM_DASHBOARD_STYLES = `
   background: var(--dsw-alias-bg-layer-1);
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 20px;
-  box-shadow: 0 18px 48px rgb(0 0 0 / 18%);
+  box-shadow: 0 10px 24px rgb(0 0 0 / 10%);
   font-family: var(--dsw-font-family);
   overflow: hidden;
 }

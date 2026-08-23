@@ -355,22 +355,23 @@ function verifyPeekCardEvidence(active, failures) {
   if (!validRect(desktopCard) || !validRect(desktopTrigger)
     || desktopCard.width < 360 || desktopCard.width > 440
     || Math.abs(desktopCard.x + desktopCard.width - 1424) > 2
-    || desktopCard.y < desktopTrigger.y + desktopTrigger.height + 4
-    || desktopCard.y > desktopTrigger.y + desktopTrigger.height + 12
+    || desktopCard.y < desktopTrigger.y + desktopTrigger.height + 28
+    || desktopCard.y > desktopTrigger.y + desktopTrigger.height + 36
     || desktopCard.y + desktopCard.height > 984) {
     failures.push('R3 active browser evidence does not prove desktop Peek Card anchor and viewport clearance')
   }
   if (!validRect(narrowCard) || !validRect(narrowTrigger)
     || Math.abs(narrowCard.x) > 2 || Math.abs(narrowCard.width - 680) > 2
-    || narrowCard.y < narrowTrigger.y + narrowTrigger.height + 4
+    || narrowCard.y < narrowTrigger.y + narrowTrigger.height + 28
+    || narrowCard.y > narrowTrigger.y + narrowTrigger.height + 36
     || narrowCard.y + narrowCard.height > 900) {
     failures.push('R3 active browser evidence does not prove narrow full-width Peek Card below the trigger')
   }
   if (!validRect(compactCard) || !validRect(compactTrigger)
     || compactCard.width < 260 || compactCard.width > 320
     || Math.abs(compactCard.x + compactCard.width - 1424) > 2
-    || compactCard.y < compactTrigger.y + compactTrigger.height + 4
-    || compactCard.y > compactTrigger.y + compactTrigger.height + 12
+    || compactCard.y < compactTrigger.y + compactTrigger.height + 28
+    || compactCard.y > compactTrigger.y + compactTrigger.height + 36
     || compactCard.y + compactCard.height > 984) {
     failures.push('R3 active browser evidence does not prove the intermediate compact Team card')
   }

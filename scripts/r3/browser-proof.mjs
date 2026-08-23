@@ -177,8 +177,8 @@ export async function runR3ActiveBrowserProof({
     if (desktopBox === null || desktopBox.width < 360 || desktopBox.width > 440
       || desktopTriggerBox === null || desktopHostBox === null
       || Math.abs(desktopBox.x + desktopBox.width - 1424) > 2
-      || desktopBox.y < desktopTriggerBox.y + desktopTriggerBox.height + 4
-      || desktopBox.y > desktopTriggerBox.y + desktopTriggerBox.height + 12
+      || desktopBox.y < desktopTriggerBox.y + desktopTriggerBox.height + 28
+      || desktopBox.y > desktopTriggerBox.y + desktopTriggerBox.height + 36
       || desktopBox.y + desktopBox.height > 984) {
       throw new Error(`unexpected desktop Team card geometry: ${JSON.stringify({ card: desktopBox, trigger: desktopTriggerBox, host: desktopHostBox })}`)
     }
@@ -206,8 +206,8 @@ export async function runR3ActiveBrowserProof({
     if (compactBox === null || compactBox.width < 260 || compactBox.width > 320
       || Math.abs(compactBox.x + compactBox.width - 1424) > 2
       || desktopTriggerBox === null
-      || compactBox.y < desktopTriggerBox.y + desktopTriggerBox.height + 4
-      || compactBox.y > desktopTriggerBox.y + desktopTriggerBox.height + 12
+      || compactBox.y < desktopTriggerBox.y + desktopTriggerBox.height + 28
+      || compactBox.y > desktopTriggerBox.y + desktopTriggerBox.height + 36
       || compactBox.y + compactBox.height > 984
       || await teamTrigger.getAttribute('aria-expanded') !== 'true'
       || await page.getByRole('button', { name: OPEN_CHAT }).count() !== 0) {
@@ -229,7 +229,8 @@ export async function runR3ActiveBrowserProof({
     if (narrowBox === null || narrowTriggerBox === null || narrowHostBox === null
       || Math.abs(narrowBox.x) > 2
       || Math.abs(narrowBox.width - 680) > 2
-      || narrowBox.y < narrowTriggerBox.y + narrowTriggerBox.height + 4
+      || narrowBox.y < narrowTriggerBox.y + narrowTriggerBox.height + 28
+      || narrowBox.y > narrowTriggerBox.y + narrowTriggerBox.height + 36
       || narrowBox.y + narrowBox.height > 900
       || !await teamTrigger.isVisible()) {
       throw new Error(`unexpected narrow Team card geometry: ${JSON.stringify({ card: narrowBox, trigger: narrowTriggerBox, host: narrowHostBox })}`)
