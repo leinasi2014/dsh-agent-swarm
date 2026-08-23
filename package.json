@@ -12,8 +12,8 @@
       "default": "./lib/index.mjs"
     },
     "./client": {
-      "types": "./lib/types/client/index.d.ts",
-      "default": "./lib/client.mjs"
+      "types": "./lib/types/client/plugin-entry.d.ts",
+      "default": "./lib/client.js"
     },
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
@@ -36,6 +36,16 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-primitives"
+      ],
+      "platform": "web"
     }
   },
   "scripts": {
@@ -67,6 +77,12 @@
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/dsh-agent": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-locale": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-runtime": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-conversation": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-layout": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-slots": "^0.1.1-rc.2",
     "@deepseek-ai/dsh-jobs": "^0.1.1-rc.2",
     "@deepseek-ai/dsh-llm": "^0.1.1-rc.2",
     "@deepseek-ai/dsh-session": "^0.1.1-rc.2",
@@ -77,7 +93,9 @@
     "@deepseek-ai/dsh-tools": "^0.1.1-rc.2",
     "@deepseek-ai/dsh-user-questions": "^0.1.1-rc.2",
     "@deepseek-ai/dsh-workflow": "^0.1.1-rc.2",
-    "@deepseek-ai/schemastery": "^3.18.1"
+    "@deepseek-ai/schemastery": "^3.18.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/dsh-user-questions": {
@@ -89,6 +107,10 @@
     "@deepseek-ai/dsh-agent": "0.1.1-rc.2",
     "@deepseek-ai/dsh-agent-loop": "0.1.1-rc.2",
     "@deepseek-ai/dsh-agent-loop-testkit": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-locale": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-runtime": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-conversation": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-layout": "0.1.1-rc.2",
     "@deepseek-ai/dsh-invariants": "0.1.1-rc.2",
     "@deepseek-ai/dsh-jobs": "0.1.1-rc.2",
     "@deepseek-ai/dsh-llm": "0.1.1-rc.2",
@@ -109,11 +131,18 @@
     "@deepseek-ai/dsh-workflow": "0.1.1-rc.2",
     "@deepseek-ai/schemastery": "^3.18.1",
     "@types/node": "^24.0.0",
+    "@types/jsdom": "30.0.0",
+    "@types/react": "~18.3.1",
+    "@types/react-dom": "~18.3.0",
     "@vitest/coverage-v8": "^3.2.4",
     "jscpd": "^5.0.16",
+    "jsdom": "30.0.1",
     "knip": "^6.32.2",
     "lefthook": "^2.1.10",
     "oxlint": "^1.79.0",
+    "playwright": "1.61.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
     "tsdown": "^0.22.2",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"

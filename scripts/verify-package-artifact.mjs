@@ -1,6 +1,7 @@
 import { access, readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { runInNewContext } from 'node:vm'
 import { verifySafeBundlePatch } from './p0/bundle-shape.mjs'
 
 const root = resolve(import.meta.dirname, '..')
@@ -38,8 +39,38 @@ if (failures.length === 0) {
     if (clientSource.includes(forbidden)) failures.push(`browser client imports forbidden Host/runtime surface: ${forbidden}`)
   }
   try {
-    const client = await import(pathToFileURL(clientPath).href)
+    let registration
+    runInNewContext(clientSource, {
+      window: {
+        __ModuleLoader__: {
+          load(value) { registration = value },
+        },
+      },
+    }, { filename: clientPath, timeout: 10_000 })
+    if (registration?.id !== pkg.name || typeof registration?.factory !== 'function') {
+      throw new Error('client bundle did not register its exact package id')
+    }
+    const requested = []
+    const modules = {
+      '@deepseek-ai/dsh-client-ui-primitives': {
+        Button() {}, Modal() {}, Pill() {}, StateDot() {},
+      },
+      'react/jsx-runtime': { jsx() {}, jsxs() {} },
+      'react': { useEffect() {}, useState() {}, useSyncExternalStore() {} },
+    }
+    const client = registration.factory((specifier) => {
+      requested.push(specifier)
+      if (!Object.hasOwn(modules, specifier)) throw new Error(`unexpected external ${specifier}`)
+      return modules[specifier]
+    })
+    if (JSON.stringify(requested) !== JSON.stringify(Object.keys(modules))) {
+      failures.push(`built browser client external request order/roster drifted: ${requested.join(', ')}`)
+    }
     if (typeof client.SwarmReadClient !== 'function') failures.push('built browser client: missing SwarmReadClient')
+    if (typeof client.TeamDashboardController !== 'function') failures.push('built browser client: missing TeamDashboardController')
+    if (typeof client.apply !== 'function' || !Array.isArray(client.inject)) {
+      failures.push('built browser client: missing Cordis client plugin face')
+    }
     if (client.SWARM_READ_RPC_ENDPOINT !== '/swarm/v1') failures.push('built browser client: endpoint contract mismatch')
     for (const method of ['capabilities', 'binding', 'status', 'snapshot', 'page']) {
       try {

@@ -12,6 +12,9 @@ import {
 import { parsePluginInventoryResponse, pluginInventoryPayload } from './inventory.mjs'
 import { name as serviceProbeName } from './profile-probe.mjs'
 import { name as shutdownProbeName } from './shutdown-probe.mjs'
+import {
+  runR3ActiveBrowserProof, runR3R0BrowserProof, runR3RemovedBrowserProof,
+} from '../r3/browser-proof.mjs'
 
 const OFFICIAL_VERSION = '0.1.1-rc.2'
 
@@ -266,8 +269,9 @@ async function main() {
     // and GNU tar accept this form, and no drive-letter colon needs special
     // parsing (`--force-local` is GNU-only and fails on the official host).
     const listing = await execute('artifact-list', 'tar', ['-tzf', basename(tarball)], { cwd: artifactDir })
-    if (listing.code !== 0 || !listing.stdout.includes('package/lib/index.mjs') || !listing.stdout.includes('package/cordis.patch.yml')) {
-      throw new Error('packed artifact is missing the runtime entry or Bundle patch')
+    if (listing.code !== 0 || !listing.stdout.includes('package/lib/index.mjs')
+      || !listing.stdout.includes('package/lib/client.js') || !listing.stdout.includes('package/cordis.patch.yml')) {
+      throw new Error('packed artifact is missing the Host entry, browser client or Bundle patch')
     }
     gate('artifact-packed', 'pass', `sha256=${artifactSha256} bytes=${artifactStat.size}`)
 
@@ -392,6 +396,8 @@ async function main() {
       assertReadPage(page, kind, snapshot.cursor, snapshot[kind].length, snapshot.totals[kind])
     }
     gate('r2-read-rpc-handshake', 'pass', 'real live root + captain Team: binding/status/snapshot and three pages pass; forged Origin and fake target fail closed')
+    await runR3ActiveBrowserProof({ port: args.port, evidenceDir, rootSessionId, teamId })
+    gate('r3-browser-active', 'pass', 'real browser rendered the live Team, used keyboard controls, handed off to official Captain Chat and survived reload')
     const firstStop = await gracefulStop(liveBoot, stopPath, args.port)
     liveBoot = undefined
     const firstUnloaded = await waitUntil(async () => (await readProbe(probePath)).filter(entry => entry.phase === 'unloaded').length >= 1, { timeoutMs: 5_000 })
@@ -434,6 +440,8 @@ async function main() {
     const disabledEntries = await readInventory(args.port, evidenceDir, 'inventory-r0-disabled')
     const disabledRow = swarmInventoryRow(disabledEntries)
     if (disabledRow?.enabled !== false || disabledRow?.fiberPhase !== null) throw new Error(`R0 inventory mismatch: ${JSON.stringify(disabledRow)}`)
+    await runR3R0BrowserProof({ port: args.port, evidenceDir })
+    gate('r3-browser-r0', 'pass', 'R0 kept the client read surface fail-closed with no Team data')
     const disabledStop = await gracefulStop(liveBoot, stopPath, args.port)
     liveBoot = undefined
     if (!disabledStop.graceful || !disabledStop.portFree) throw new Error(`R0 shutdown failed: ${JSON.stringify(disabledStop)}`)
@@ -454,6 +462,8 @@ async function main() {
     const removedEntries = await readInventory(args.port, evidenceDir, 'inventory-plugin-removed')
     const removedRow = swarmInventoryRow(removedEntries)
     if (removedRow !== undefined) throw new Error(`removed Swarm remained in inventory: ${JSON.stringify(removedRow)}`)
+    await runR3RemovedBrowserProof({ port: args.port, evidenceDir })
+    gate('r3-browser-removed', 'pass', 'package removal disposed the Team client action')
     const removedStop = await gracefulStop(liveBoot, stopPath, args.port)
     liveBoot = undefined
     if (!removedStop.graceful || !removedStop.portFree) throw new Error(`post-remove shutdown failed: ${JSON.stringify(removedStop)}`)

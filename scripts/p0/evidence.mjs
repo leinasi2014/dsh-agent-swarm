@@ -12,6 +12,9 @@ export const REQUIRED_P0_GATES = [
   'boot-load',
   'service-tool-probe',
   'r2-read-rpc-handshake',
+  'r3-browser-active',
+  'r3-browser-r0',
+  'r3-browser-removed',
   'unload',
   'reload',
   'r0-disable',
@@ -45,6 +48,11 @@ export const REQUIRED_P0_EVIDENCE_FILES = [
   'evidence/r2-session-create.json',
   'evidence/r2-snapshot.json',
   'evidence/r2-status.json',
+  'evidence/r3-browser-active.json',
+  'evidence/r3-browser-r0.json',
+  'evidence/r3-browser-removed.json',
+  'evidence/r3-r0-fail-closed.png',
+  'evidence/r3-team-dashboard.png',
 ]
 
 export const EXPECTED_P0_OFFICIAL_COMMIT = 'b150a551b8d465e31e418e1b2eaf5e79bbb7d28e'
@@ -225,5 +233,42 @@ export async function verifyP0Evidence(root, manifest, expected = {}) {
       failures.push('evidenceFiles must contain exactly the required decision evidence set')
     }
   }
+  await verifyR3BrowserEvidence(root, failures)
   return { ok: failures.length === 0, failures }
+}
+
+async function verifyR3BrowserEvidence(root, failures) {
+  const readJson = async (relativePath) => {
+    try { return JSON.parse(await readFile(resolve(root, relativePath), 'utf8')) } catch {
+      failures.push(`R3 browser evidence is not valid JSON: ${relativePath}`)
+      return undefined
+    }
+  }
+  const active = await readJson('evidence/r3-browser-active.json')
+  if (active?.status !== 'pass' || active?.handoff?.officialSessionSelected !== true
+    || active?.handoff?.chatTextboxVisible !== true || active?.reload !== true
+    || typeof active?.rootSessionId !== 'string' || typeof active?.teamId !== 'string'
+    || !Array.isArray(active?.keyboard) || active.keyboard.length < 5) {
+    failures.push('R3 active browser evidence does not prove render/keyboard/handoff/reload')
+  }
+  const requests = active?.requests
+  const allowed = new Set(['capabilities', 'binding', 'status', 'snapshot', 'page'])
+  if (!Array.isArray(requests) || requests.length === 0 || requests.some(
+    request => request?.method !== 'POST' || !allowed.has(request?.body?.method),
+  )) failures.push('R3 active browser evidence contains no read requests or a non-read request')
+
+  const r0 = await readJson('evidence/r3-browser-r0.json')
+  if (r0?.status !== 'pass' || r0?.routeUnavailable !== true || r0?.renderedData !== false) {
+    failures.push('R3 R0 browser evidence does not prove fail-closed no-data rendering')
+  }
+  const removed = await readJson('evidence/r3-browser-removed.json')
+  if (removed?.status !== 'pass' || removed?.teamActionAbsent !== true) {
+    failures.push('R3 removed browser evidence does not prove client action disposal')
+  }
+  for (const relativePath of ['evidence/r3-team-dashboard.png', 'evidence/r3-r0-fail-closed.png']) {
+    const screenshot = await stat(resolve(root, relativePath)).catch(() => undefined)
+    if (screenshot === undefined || !screenshot.isFile() || screenshot.size < 1_024) {
+      failures.push(`R3 browser screenshot is missing or implausibly small: ${relativePath}`)
+    }
+  }
 }

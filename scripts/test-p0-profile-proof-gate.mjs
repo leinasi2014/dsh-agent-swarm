@@ -45,9 +45,20 @@ try {
   const evidenceFiles = []
   for (const relativePath of REQUIRED_P0_EVIDENCE_FILES) {
     const path = join(root, relativePath)
-    const content = `fixture evidence: ${relativePath}\n`
+    const content = relativePath === 'evidence/r3-browser-active.json'
+      ? `${JSON.stringify({
+          status: 'pass', rootSessionId: 'root', teamId: 'team', reload: true,
+          handoff: { officialSessionSelected: true, chatTextboxVisible: true },
+          keyboard: ['focus', 'enter', 'focus-chat', 'enter-chat', 'escape'],
+          requests: [{ method: 'POST', body: { method: 'snapshot' } }],
+        })}\n`
+      : relativePath === 'evidence/r3-browser-r0.json'
+        ? `${JSON.stringify({ status: 'pass', routeUnavailable: true, renderedData: false })}\n`
+        : relativePath === 'evidence/r3-browser-removed.json'
+          ? `${JSON.stringify({ status: 'pass', teamActionAbsent: true })}\n`
+          : relativePath.endsWith('.png') ? Buffer.alloc(1_024, 1) : `fixture evidence: ${relativePath}\n`
     await mkdir(dirname(path), { recursive: true })
-    await writeFile(path, content, 'utf8')
+    await writeFile(path, content)
     evidenceFiles.push({ relativePath, bytes: Buffer.byteLength(content), sha256: await sha256File(path) })
   }
   const base = {
@@ -112,10 +123,23 @@ try {
     if (result.ok) throw new Error(`negative fixture unexpectedly passed: ${label}`)
   }
   const tamperedPath = join(root, REQUIRED_P0_EVIDENCE_FILES[0])
+  const originalTamperedContent = await readFile(tamperedPath)
   await writeFile(tamperedPath, 'tampered decision evidence\n', 'utf8')
   const tampered = await verifyP0Evidence(root, structuredClone(base), expected)
   if (tampered.ok) throw new Error('tampered decision evidence file unexpectedly passed')
+  await writeFile(tamperedPath, originalTamperedContent)
   cases.push(['tampered decision evidence file'])
+  const activePath = join(root, 'evidence/r3-browser-active.json')
+  const activeRecord = base.evidenceFiles.find(record => record.relativePath === 'evidence/r3-browser-active.json')
+  const activeContent = await readFile(activePath)
+  await writeFile(activePath, `${JSON.stringify({ status: 'pass', requests: [{ method: 'POST', body: { method: 'control.write' } }] })}\n`)
+  if ((await verifyP0Evidence(root, structuredClone(base), expected)).ok) {
+    throw new Error('R3 browser non-read request unexpectedly passed')
+  }
+  await writeFile(activePath, activeContent)
+  activeRecord.bytes = activeContent.length
+  activeRecord.sha256 = await sha256File(activePath)
+  cases.push(['R3 browser non-read request'])
   console.log(`P0 Bundle/evidence gates: Typert payload + 1 positive/2 negative response cases; 1 safe Bundle + 4 unsafe Bundle cases; positive evidence + ${cases.length} negative evidence cases: PASS`)
 } finally {
   await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
