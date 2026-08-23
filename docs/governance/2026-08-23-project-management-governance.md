@@ -1,6 +1,6 @@
 # 项目管理与多智能体治理规范
 
-状态：`REVISED / RE_REVIEW_REQUIRED`
+状态：`APPROVED / IMPLEMENTATION_PENDING`
 
 本文件只回答：谁负责、怎样拆分和派工、允许多少并发、何时审查/复审、如何判定任务完成、异常时怎样暂停和恢复。Git、worktree、CI、合并与发布的技术执行见《项目开发规范》。
 

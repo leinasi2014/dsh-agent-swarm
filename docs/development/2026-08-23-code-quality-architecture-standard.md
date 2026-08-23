@@ -1,6 +1,6 @@
 # 代码质量与架构规范
 
-状态：`DRAFT / REVIEW_REQUIRED`
+状态：`APPROVED / IMPLEMENTATION_PENDING`
 
 本文件属于《项目开发规范》的技术子规范，回答代码应如何组织、何时拆分、怎样控制复杂度和依赖。它不负责项目派工、角色审批、Git 状态机或发布流程。
 

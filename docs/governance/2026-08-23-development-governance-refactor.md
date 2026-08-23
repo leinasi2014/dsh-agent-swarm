@@ -1,6 +1,6 @@
 # 双项目治理与开发流程重构索引
 
-状态：`REVISED / RE_REVIEW_REQUIRED`
+状态：`APPROVED / IMPLEMENTATION_PENDING`
 
 本文件只保存文档分层、缺陷归属、实施顺序和审查基线，不重复项目管理规则或开发技术规范。
 
@@ -110,7 +110,8 @@ Phase 1 后恢复 LOW；只有 reviewEnforcement 非 missing 时恢复 MEDIUM。
 - 初稿：Swarm `bb54e445...`、Canvas `0afde101...`；安全、状态机、执行性和 GLM-5.3 均要求修改。
 - 敏捷修订：Swarm `fbe38927...`、Canvas `7c0955cb...`；取消重型治理平台、LOW重复审查、同步镜像阻塞和全量UI前置。
 - delta 修订：补 trusted check/review issuer、cleanup intent/result、receipt 耐久载体、MEDIUM放行条件和现有 promotion 复用边界。
-- 当前版本：等待分层文档的最终 delta 复审；未宣称 APPROVED，未启动远端变更或全流程重构。
+- 最终代码治理候选：Swarm `39b6987fdecdb948dc739291bda39555291de22e`、Canvas `431ffcfa79616ce169297429c8caa596de20f4cf`；安全、状态/生命周期、执行性三名独立 reviewer 与 DSH `zai-coding-cn/glm-5.3` 均为 `APPROVED`。
+- 本状态提交只记录 verdict，不改变被审规则正文；后续进入 Phase 0/1 实施，不因状态行变化重复审查。
 
 ## 7. 最终退出标准
 
