@@ -1,7 +1,7 @@
 /** R2/I3-R trust, target binding, strict wire input and lifecycle evidence. */
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import type { Context } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TeamState } from '../src/domain/types.js'
@@ -11,6 +11,7 @@ import type { AgentSwarmRuntime } from '../src/runtime/orchestrator-runtime.js'
 import {
   AgentSwarmReadRpcService,
   evaluateSwarmRequestTrust,
+  mountAgentSwarmReadRpc,
   type SwarmWebServer,
 } from '../src/rpc/read-rpc-service.js'
 
@@ -187,5 +188,27 @@ describe('R2 HTTP lifecycle', () => {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ schemaVersion: 1, method: 'capabilities' }),
     })).status).toBe(503)
+  })
+
+  it('waits for both WebServer and R1, then unmounts and can remount without a stale route', async () => {
+    const ctx = new Context()
+    const harness = rpcHarness()
+    const unregister = vi.fn()
+    const webServer = { ...harness.webServer, register: vi.fn(() => unregister) }
+    mountAgentSwarmReadRpc(ctx, {} as AgentSwarmRuntime, 1_000)
+    const unprovideWeb = ctx.provide('webServer', webServer as never)
+    await new Promise<void>(resolve => setImmediate(resolve))
+    expect(ctx.get('agentSwarmReadRpc')).toBeUndefined()
+    const unprovideHost = ctx.provide('agentSwarmHostRead', harness.hostRead)
+    await vi.waitFor(() => expect(ctx.get('agentSwarmReadRpc')).toBeDefined())
+    expect(webServer.register).toHaveBeenCalledTimes(1)
+    await unprovideHost?.()
+    await vi.waitFor(() => expect(ctx.get('agentSwarmReadRpc')).toBeUndefined())
+    expect(unregister).toHaveBeenCalledTimes(1)
+    const unprovideReloadedHost = ctx.provide('agentSwarmHostRead', harness.hostRead)
+    await vi.waitFor(() => expect(ctx.get('agentSwarmReadRpc')).toBeDefined())
+    expect(webServer.register).toHaveBeenCalledTimes(2)
+    await unprovideReloadedHost?.()
+    await unprovideWeb?.()
   })
 })

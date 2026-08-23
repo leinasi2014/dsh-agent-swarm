@@ -202,7 +202,7 @@ export class AgentSwarmReadRpcService {
 
 /** Host mount: optional WebServer composition, one exact route and bounded drain. */
 export function mountAgentSwarmReadRpc(ctx: Context, runtime: AgentSwarmRuntime, disposalTimeoutMs: number): void {
-  ctx.inject(['webServer'], (webCtx) => {
+  ctx.inject(['webServer', 'agentSwarmHostRead'], (webCtx) => {
     const webServer = webCtx.get('webServer') as unknown as SwarmWebServer | undefined
     const hostRead = webCtx.get('agentSwarmHostRead') as AgentSwarmHostReadService | undefined
     if (webServer === undefined || hostRead === undefined) return
