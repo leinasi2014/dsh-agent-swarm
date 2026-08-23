@@ -378,6 +378,7 @@ describe('human domain lifecycle ownership', () => {
     expect(stack.ctx.get('agentSwarmHumanControl')).toBeUndefined()
     expect(stack.ctx.get('agentSwarmHumanInteraction')).toBeUndefined()
     expect(stack.ctx.get('agentSwarmProducerFloor')).toBeUndefined()
+    expect(stack.ctx.get('agentSwarmHostRead')).toBeUndefined()
   }, 45_000)
 
   it('mount/dispose: services are admitted, then unprovided before overlay/domain close', async () => {
@@ -388,9 +389,15 @@ describe('human domain lifecycle ownership', () => {
     const interaction = stack.ctx.agentSwarmHumanInteraction
     const control = stack.ctx.agentSwarmHumanControl
     const producerFloor = stack.ctx.agentSwarmProducerFloor
+    const hostRead = stack.ctx.agentSwarmHostRead
     expect(stack.ctx.get('agentSwarmHumanInteraction')).toBeDefined()
     expect(stack.ctx.get('agentSwarmHumanControl')).toBeDefined()
     expect(stack.ctx.get('agentSwarmProducerFloor')).toBeDefined()
+    expect(stack.ctx.get('agentSwarmHostRead')).toBeDefined()
+    await expect(hostRead.read({ teamId: stack.teamId }))
+      .rejects.toMatchObject({ code: 'SWARM_HOST_INITIATOR_REQUIRED' })
+    await expect(stack.ctx.agents.withInitiator(stack.lead, () => hostRead.read({ teamId: stack.teamId })))
+      .resolves.toMatchObject({ binding: { rootSessionId: stack.lead.id, teamId: stack.teamId } })
     await expect(producerFloor.readSnapshot(
       { teamId: stack.teamId },
       { agent: stack.lead, signal: SIGNAL },
@@ -401,6 +408,9 @@ describe('human domain lifecycle ownership', () => {
     expect(stack.ctx.get('agentSwarmHumanInteraction')).toBeUndefined()
     expect(stack.ctx.get('agentSwarmHumanControl')).toBeUndefined()
     expect(stack.ctx.get('agentSwarmProducerFloor')).toBeUndefined()
+    expect(stack.ctx.get('agentSwarmHostRead')).toBeUndefined()
+    await expect(hostRead.read({ teamId: stack.teamId }))
+      .rejects.toMatchObject({ code: 'SWARM_HOST_READ_CLOSED' })
     expect(() => producerFloor.describe()).toThrow(expect.objectContaining({ code: 'SWARM_HOST_CLOSED' }))
     await expect(interaction.listReceipts(stack.scope, stack.teamId, captainAdmission(stack)))
       .rejects.toMatchObject({ code: 'TEAM_INTERACTION_STORE_CLOSED' })
@@ -439,6 +449,7 @@ describe('human domain lifecycle ownership', () => {
     expect(stack.ctx.get('agentSwarmHumanInteraction')).toBeDefined()
     expect(stack.ctx.get('agentSwarmHumanControl')).toBeDefined()
     expect(stack.ctx.get('agentSwarmProducerFloor')).toBeDefined()
+    expect(stack.ctx.get('agentSwarmHostRead')).toBeDefined()
     await expect(oldInteraction.listReceipts(stack.scope, stack.teamId, captainAdmission(stack)))
       .rejects.toMatchObject({ code: 'TEAM_INTERACTION_STORE_CLOSED' })
     expect((await stack.ctx.agentSwarmHumanInteraction.listReceipts(stack.scope, stack.teamId, captainAdmission(stack)))

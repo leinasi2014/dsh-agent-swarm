@@ -35,7 +35,7 @@ import { humanReviewProvider } from './human/human-review-provider.js'
 import { officialCaptainQuestionPresentation } from './human/official-question-presentation.js'
 import { effectiveToolPolicy, TeamPermissionSurface } from './runtime/permission-surface.js'
 import { reviewerAgentReviewProvider } from './runtime/reviewer-boundary.js'
-import { assembleAgentSwarmProducerFloor } from './host/producer-floor-assembly.js'
+import { assembleAgentSwarmHostRead, assembleAgentSwarmProducerFloor } from './host/host-read-assembly.js'
 import { AGENT_SWARM_USAGE_PROMPT } from './runtime/usage-prompt.js'
 
 export { AgentSwarmRuntime } from './runtime/orchestrator-runtime.js'
@@ -166,6 +166,7 @@ export {
 } from './human/human-interaction-contract.js'
 export * from './host/producer-contract.js'
 export * from './host/producer-floor-service.js'
+export * from './host/host-read-service.js'
 export type {
   CaptainQuestion,
   CaptainQuestionPresentation,
@@ -468,7 +469,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   let humanOverlay: HumanInteractionOverlayStore | undefined
   let unprovideControl: (() => void) | undefined
   let unprovideInteraction: (() => void) | undefined
-  let disposeProducerFloor: (() => Promise<void>) | undefined
+  let disposeProducerFloor: (() => Promise<void>) | undefined, disposeHostRead: (() => Promise<void>) | undefined
   try {
     const domain = await ctx.storageDomain.open(humanInteractionDomainSpec)
     humanDomain = domain
@@ -502,8 +503,10 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       unprovideControl = ctx.provide('agentSwarmHumanControl', humanControl)
       unprovideInteraction = ctx.provide('agentSwarmHumanInteraction', liaison)
       disposeProducerFloor = assembleAgentSwarmProducerFloor(ctx, runtime, overlay, disposalTimeoutMs)
+      disposeHostRead = assembleAgentSwarmHostRead(ctx, runtime, overlay, disposalTimeoutMs)
       return async () => {
         const drained = drain()
+        await disposeHostRead?.()
         await disposeProducerFloor?.()
         await unprovideControl?.()
         await unprovideInteraction?.()
@@ -514,6 +517,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       }
     }, 'agent-swarm: human interaction domain')
   } catch (error) {
+    await disposeHostRead?.()
     await disposeProducerFloor?.()
     await unprovideControl?.()
     await unprovideInteraction?.()
