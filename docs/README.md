@@ -20,7 +20,7 @@
 9. [11-official-first-development.md](11-official-first-development.md) — official-first 开发门（Gate A/B/C 纪律）
 10. [OFFICIAL_BASELINE.json](OFFICIAL_BASELINE.json) — 机读官方基线（`pnpm verify:gate-a` 的权威输入）
 11. [09-sources.md](09-sources.md) — 源码钉住与证据政策
-12. [12-independent-review-management.md](12-independent-review-management.md) — 独立审查员自治与 PM 边界
+12. [governance/project-binding.yaml](governance/project-binding.yaml) 与 [governance/document-registry.yaml](governance/document-registry.yaml) — 通用敏捷开发方法的项目绑定与文档权威登记
 13. [13-self-hosting-dogfood.md](13-self-hosting-dogfood.md) — 分级自托管：D1/D2 dogfood、稳定/候选 Profile、自我改进控制回路
 
 ### 验证与审计

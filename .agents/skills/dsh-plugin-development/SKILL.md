@@ -2,12 +2,8 @@
 name: dsh-plugin-development
 description: 证据驱动地设计、实现、重构、调试、验证和发布 DeepSeek Harness 插件。覆盖 Everything-is-a-plugin、capability seam、函数/Service 插件、inject/effect/event、工具、Bundle/Profile、Host/Client、持久化、Subagent、Workflow、Agent Team、真实组合测试与故障恢复。使用本 Skill 时必须完成可运行或可验证的开发步骤，不能只输出概念说明。
 metadata:
-  version: "1.4.2"
-  date: "2026-08-22"
-  dsh_source_commit: "b150a551b8d465e31e418e1b2eaf5e79bbb7d28e"
-  dsh_release: "0.1.0-rc.8"
-  direct_reference: "NanmiCoder/dsh-agent-teams@0c21e5d2f45ec1ea7c9ee89ffc4ee77d1cb9262e"
-  architecture_reference: "openJiuwen-ai/jiuwenswarm@91c913726cedabb89cc6b538d9369e0ef1070578"
+  version: "1.5.0"
+  evidence_authority: "docs/OFFICIAL_BASELINE.json and ref/*/SOURCE_POINTER.json"
 ---
 
 # DSH 插件开发
@@ -230,7 +226,7 @@ Service 包 default-export Service class。用 TypeScript declaration merging �
 
 - 使用 `ctx.subagents` Provider，不自行复制 Agent lifecycle。
 - one-shot 与 continuable child 语义不同；continuable 的唯一消息队列是 Agent inbox。
-- 先核对目标 DSH 版本是否真的发布通用 workflow 服务；存在时复用它承载确定工作流，不存在时保留显式 Provider 边界并记录缺口，绝不能把 Team Scheduler 伪装成私有工作流引擎。已核验的 rc.8 发布 `ctx.workflowEngine`；项目文档不得再声称它不存在。
+- 先核对目标 DSH 版本是否真的发布通用 workflow 服务；存在时复用它承载确定工作流，不存在时保留显式 Provider 边界并记录缺口，绝不能把 Team Scheduler 伪装成私有工作流引擎。发布与装配事实只由 `docs/OFFICIAL_BASELINE.json`、目标安装包导出和实际 Profile 共同证明。
 - 长工具/工作流使用 `ctx.jobs` 提供观察、取消、等待和完成通知。
 - Human node 使用 `ctx.userQuestions` / `ctx.approval`。
 - Agent Team 优先对齐官方 `ctx.agentTeams`；实验包未发布时通过 adapter 隔离。
@@ -403,7 +399,7 @@ dsh --profile <check-profile> --dump-config
 
 1. `ref/` 两个 checkout 均只读；更新通过各自 sync 脚本并记录 pin。
 2. 不依赖未发布的 `@deepseek-ai/dsh-experimental-agent-team` 作为正式 peer。
-3. 不注册冲突的 `ctx.agentTeams`；通过 adapter 对齐。当前 0.1 仍硬编码私有 `TeamDomain(FileTeamStore)`，不得把 adapter 描述为已完成。
+3. 不注册冲突的 `ctx.agentTeams`；通过 adapter 对齐。适配完成状态必须由当前实现、测试和 `docs/10-fusion-audit.md` 证明，不得固化在本 Skill。
 4. Jiuwen 功能必须先映射到已有 DSH seam；只有确实缺失时设计通用新 seam。
 5. Scheduler、Workspace、Budget、Review、Memory、Remote Member、UI 都是插件；不塞回 Team core。
 6. `revision` 与 `attemptId` 均保留。
@@ -411,11 +407,11 @@ dsh --profile <check-profile> --dump-config
 8. 跨进程状态需要 atomic claim/lease/fencing Provider。
 9. Canonical task completed 必须服从配置的 Review Gate。
 10. 每个阶段按 `docs/07-implementation-roadmap.md` 的 exit criteria 验收。
-11. rc.8 已发布 `ctx.workflowEngine`、`ctx.jobs`、`ctx.tokenMeter`、`ctx.storageDomain` 和 `ctx.workspaceRegistry`；“已发布”“Profile 已装配”“本插件已接入”必须分别陈述。
+11. 服务的发布状态以 `docs/OFFICIAL_BASELINE.json` 与目标安装包为准；“已发布”“Profile 已装配”“本插件已接入”必须分别陈述。
 12. `ctx.workspaceRegistry` 不是 Worktree lease 或 continuable child cwd override；没有真实执行 cwd/FS capability 变化时不得宣称 Worktree 隔离。
 13. 官方/ref 事实变化时，同一次修改必须更新 README、受影响的设计文档、ADR、`docs/09-sources.md`、审计基线和本 Skill，并全文检索旧结论。
 14. 每个功能分支/里程碑先通过 `docs/11-official-first-development.md` 的 Gate A；未通过不得写生产代码。
-15. 独立安全/架构审查遵循 `docs/12-independent-review-management.md`：用户未设置时不限制审查员时长、step、token、轮次或套餐消耗；项目经理只提供范围、解除真实阻塞、接收报告并核验证据，不催促提前收敛。
+15. 独立安全/架构审查按 `$manage-agile-software-development` 与 `docs/governance/project-binding.yaml` 的风险分级执行；审查范围、权限、候选身份和验收问题由工作包明确，项目经理接收报告并核验证据，不改写结论。
 16. 用户明确授权全权限审查时，将 `danger-full-access` 与 `approval=never` 固定在独立 Session，核对持久权限事件；临时修改未来 Session 默认值后立即恢复。运行时全权限不等于允许改生产源码，审查写入范围仍由任务约束。
 17. M1A 已实现 ADR-0007：`sessionPersistence` 和 `storageDomain` 是 fail-closed 必需注入（缺失组合中插件保持 pending）；权威 Team aggregate 位于官方 `agent_swarm` Storage Domain（`TeamDomainPort` → `StorageDomainTeamStore`，每 Team 一条版本化记录 + 迁移回执），绝不在共享工作区；`FileTeamStore` 只读（迁移读取器/fixture，无写路径）；迁移仅经 `scripts/migrate-legacy-team-store.mjs` 显式单向执行（空目的、读回校验、回执、源只读），禁止运行时自动迁移、双写或回退；该保护 denies ordinary workspace writer，不是对 unrestricted host access 的防御，存储 root 必须配置在工作区与 sandbox 根之外。持久边界事实（M4-3/#129 探针实证，docs/09 §1）：官方 storage-domain 的 `put` 原样存储记录，但加载路径按表 value schema zod 解析并**剥离未声明键**——向聚合新增可选字段时必须同时扩展 `src/storage/team-spec.ts` 的 zod 表 schema 与 `assertTeamState`，否则字段仅在单进程存活、重载即静默丢失（`verification`/`replacesAttemptId` 曾因此中招）。
 18. 自托管依 ADR-0008 分级开放：M1D 后仅 D1 单写入者试运行；M2/M3 验收后才允许 D2 并行自我开发。

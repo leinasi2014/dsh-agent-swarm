@@ -74,12 +74,11 @@ captain（插件驱动）：
 ## 开发
 
 ```bash
-pnpm install && pnpm verify     # 全链：结构→lint→重复→死导出→类型×2→测试→场景审计→构建→产物
+pnpm install && pnpm verify     # 全链：治理→结构→lint→重复→死导出→类型×2→测试→场景审计→构建→产物
 pnpm verify:gate-a              # 官方基线三方核验（remote/checkout/packages）
-node scripts/merge-guard.mjs <pr>  # 唯一合并通道（双绿守卫）
 ```
 
-贡献流程：worktree 隔离开发 → PR → CI 双绿 → merge-guard 合并（[CONTRIBUTING.md](CONTRIBUTING.md)）。所有规则同源于 [AGENTS.md](AGENTS.md)。
+当前采用单检出单写者；候选、审查、串行集成和外部推送边界见 [CONTRIBUTING.md](CONTRIBUTING.md)，项目绑定与权威入口见 [AGENTS.md](AGENTS.md)。
 
 ## 许可
 

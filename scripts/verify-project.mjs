@@ -26,8 +26,9 @@ const required = [
   'docs/09-sources.md',
   'docs/10-fusion-audit.md',
   'docs/11-official-first-development.md',
-  'docs/12-independent-review-management.md',
   'docs/13-self-hosting-dogfood.md',
+  'docs/governance/project-binding.yaml',
+  'docs/governance/document-registry.yaml',
   'docs/GOALS.md',
   'docs/OFFICIAL_BASELINE.json',
   'docs/adr/0005-official-first-pure-plugin-integration.md',
@@ -38,13 +39,14 @@ const required = [
   'scripts/verify-reference-baselines.mjs',
   'scripts/merge-guard.mjs',
   'scripts/verify-worktree-layout.mjs',
+  'scripts/verify-governance.mjs',
+  'scripts/test-governance-gate.mjs',
   'scripts/sync-official-evidence.ps1',
   'ref/dsh-agent-teams/SOURCE_POINTER.json',
   'ref/dsh-agent-teams/sync-reference.ps1',
   'ref/jiuwenswarm/SOURCE_POINTER.json',
   'ref/jiuwenswarm/sync-reference.ps1',
   '.agents/skills/dsh-plugin-development/SKILL.md',
-  '.agents/skills/dsh-agent-swarm-operations/SKILL.md',
   '.gitattributes',
   '.editorconfig',
   '.oxlintrc.json',
@@ -99,6 +101,8 @@ try {
   if (!String(pkg.scripts?.verify ?? '').includes('pnpm verify:exports')) failures.push('package.json: verify chain must include the dead-export gate')
   if (!String(pkg.scripts?.verify ?? '').includes('pnpm verify:scenarios')) failures.push('package.json: verify chain must include the scenario-audit gate')
   if (!String(pkg.scripts?.verify ?? '').includes('pnpm verify:worktrees')) failures.push('package.json: verify chain must include the worktree-layout gate')
+  if (!String(pkg.scripts?.verify ?? '').includes('pnpm verify:governance')) failures.push('package.json: verify chain must include the governance gate')
+  if (!String(pkg.scripts?.['verify:governance'] ?? '').includes('test-governance-gate.mjs')) failures.push('package.json: governance gate must keep its negative policy tests')
   if (!String(pkg.scripts?.['verify:worktrees'] ?? '').includes('test-worktree-layout-gate.mjs')) failures.push('package.json: worktree gate must keep its negative policy tests')
   if (pkg.files?.some(item => item === 'ref' || item.startsWith('ref/'))) failures.push('package.json: ref must not be published')
 } catch (error) {
@@ -133,14 +137,14 @@ try {
 }
 
 for (const [file, phrases] of [
-  ['AGENTS.md', ['official-first', 'docs/11-official-first-development.md']],
-  ['CLAUDE.md', ['official-first', 'pure plugins']],
+  ['AGENTS.md', ['$manage-agile-software-development', 'docs/governance/project-binding.yaml', 'official DSH']],
+  ['CLAUDE.md', ['$manage-agile-software-development', 'AGENTS.md']],
   ['docs/07-implementation-roadmap.md', ['Gate A', 'Official-first']],
-  ['docs/12-independent-review-management.md', ['Reviewer autonomy', 'Project-manager boundary']],
   ['docs/13-self-hosting-dogfood.md', ['stable control Profile', 'acceptance Profile', 'ADR-0008']],
   ['docs/GOALS.md', ['总目标', '当前开发目标', '下一个目标']],
   ['.agents/skills/dsh-plugin-development/SKILL.md', ['official-first compatibility gate', 'docs/11-official-first-development.md']],
-  ['.agents/skills/dsh-agent-swarm-operations/SKILL.md', ['当前状态快照', '经验教训库', '定时更新协议', 'CONTRIBUTING']],
+  ['docs/governance/project-binding.yaml', ['backend: single-checkout', 'parallelWriterCapability: NOT_CONFIGURED']],
+  ['docs/governance/document-registry.yaml', ['documentId: project-binding', 'stableDocumentFirewall: enabled']],
 ]) {
   try {
     const content = await readFile(join(root, file), 'utf8')

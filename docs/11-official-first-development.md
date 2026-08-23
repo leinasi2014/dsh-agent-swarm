@@ -134,7 +134,7 @@ A change cannot enter a milestone as complete until:
 
 Self-hosting acceptance additionally requires ADR-0008: last-known-good control and candidate acceptance Profiles are separate; candidate evidence is frozen; promotion is externally owned and reversible; real Worker cwd/tool roots and control-root denial are tested. M1D permits D1 single-writer dogfood only. Parallel D2 operation requires the M2 and M3 exits.
 
-Security/architecture milestones also require an independent review commissioned under `12-independent-review-management.md`. Reviewer depth and completion remain reviewer-owned; the project manager triages evidence only after the report is complete.
+Security/architecture milestones also require the risk-scaled independent review selected by `$manage-agile-software-development` and `docs/governance/project-binding.yaml`. Reviewer scope and access remain bounded by the user-authorized work package; the project manager triages evidence only after the report is complete.
 
 ## 9. Gate C — official update response
 

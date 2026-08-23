@@ -1,0 +1,114 @@
+bindingVersion: 1
+project:
+  identity: dsh-agent-swarm
+  deliveryLane: S2-contracted
+  integrationRef: refs/heads/main
+
+method:
+  name: manage-agile-software-development
+  policyDigest: 2e456cbce7c68ea64da88103ee831eb1e78879cd
+  instructionAdapter: AGENTS.md
+
+authority:
+  repository: primary-vcs
+  workSource:
+    kind: external-provider
+    capability: NOT_CONFIGURED
+  dynamicStatus:
+    kind: external-provider-or-git-common-dir-ledger
+    capability: NOT_CONFIGURED
+    committedMarkdownAuthority: false
+  mirrors:
+    role: replication-only
+    mutationAuthority: separate-user-authorized-operation
+  authorityEpoch: 1
+
+candidate:
+  identityScheme: git-commit-sha
+  baseIdentity: git-commit-sha
+  evidenceStore:
+    capability: NOT_CONFIGURED
+  recoveryArchive: reachable-git-ref-or-user-approved-artifact
+
+documentation:
+  schemaVersion: 1
+  registry: docs/governance/document-registry.yaml
+  layoutPolicy: adapt-existing
+  sharedAuthorityWriterCount: 1
+  checks: pnpm-verify-governance
+  liveStatusInCommittedMarkdown: forbidden
+
+executionProfiles:
+  internal:
+    statusReturn: parent-or-selected-provider
+    artifactReturn: exact-git-commit
+  external:
+    identityAndCapabilityProbe: NOT_CONFIGURED
+    acknowledgement: NOT_CONFIGURED
+    statusAndLease: NOT_CONFIGURED
+    artifactAndHandoffReturn: exact-git-commit-and-evidence
+
+technical:
+  requirementAuthority:
+    - package.json
+    - pnpm-lock.yaml
+    - docs/OFFICIAL_BASELINE.json
+  resolvedIdentity:
+    - package.json
+    - pnpm-lock.yaml
+    - .github/workflows/verify.yml
+  trustedEntryPoints:
+    governance: pnpm-verify-governance
+    structure: pnpm-verify-structure
+    full: pnpm-verify
+    compatibility: pnpm-verify-gate-a
+  observedCapabilityAuthority: dynamic-redacted-receipt
+
+isolation:
+  backend: single-checkout
+  parallelWriterCapability: NOT_CONFIGURED
+  ownershipPattern: one-repository-writer
+  rawLifecycleCommandsForbidden: true
+  unmanagedWorkspaceForbidden: true
+  promotionRequirement: tested-project-owned-open-status-close-reconcile
+
+risk:
+  classifier: change-surface-and-recovery-impact
+  low:
+    review: author-self-review
+  medium:
+    review: one-non-author
+  high:
+    review: bounded-independent-specialist
+    roleSeparation:
+      - implementer
+      - acceptor
+      - promoter
+
+integration:
+  provider: git
+  expectedTargetMutation: required
+  targetReadBack: required
+  serialIntegration: true
+  pushAndMirror: separate-external-mutation
+
+release:
+  requiredFor: package-or-runtime-promotion
+  immutableArtifact: required
+  candidateSelfPromotion: forbidden
+
+legacyMigration:
+  state: CONFLICT
+  newDynamicWritesForbidden: true
+  preservedUntilAuthorityMigration:
+    - docs/GOALS.md
+    - docs/development/2026-08-23-worktree-cleanup-ledger.md
+  completionConditions:
+    - dynamic-provider-capability-verified
+    - unique-recovery-identities-migrated
+    - expected-state-deletion-candidate-reviewed
+
+policyVerification:
+  acceptedBaseVerifier: scripts/verify-project.mjs@f465400b731f4593384c699a0c6fea08b9300be6
+  candidateVerifier: scripts/verify-governance.mjs
+  candidateState: PROPOSED

@@ -1,0 +1,135 @@
+schemaVersion: 1
+project: dsh-agent-swarm
+layoutPolicy: adapt-existing
+
+documents:
+  - documentId: project-binding
+    path: docs/governance/project-binding.yaml
+    role: stable-authority
+    subject: governance
+    writeMode: human
+  - documentId: document-registry
+    path: docs/governance/document-registry.yaml
+    role: stable-authority
+    subject: documentation
+    writeMode: human
+  - documentId: root-agent-instructions
+    path: AGENTS.md
+    role: instruction-adapter
+    subject: instruction
+    writeMode: human
+    sourceAuthority: project-binding
+  - documentId: claude-instructions
+    path: CLAUDE.md
+    role: instruction-adapter
+    subject: instruction
+    writeMode: human
+    sourceAuthority: root-agent-instructions
+  - documentId: contributor-guide
+    path: CONTRIBUTING.md
+    role: projection
+    subject: contributor
+    writeMode: human
+    sourceAuthority: project-binding
+  - documentId: project-readme
+    path: README.md
+    role: projection
+    subject: user
+    writeMode: human
+    sourceAuthority: product-vision
+  - documentId: documentation-index
+    path: docs/README.md
+    role: projection
+    subject: user
+    writeMode: human
+    sourceAuthority: document-registry
+  - documentId: product-vision
+    path: docs/00-vision.md
+    role: stable-authority
+    subject: architecture
+    writeMode: human
+  - documentId: capability-family
+    path: docs/03-capability-family.md
+    role: stable-authority
+    subject: architecture
+    writeMode: human
+  - documentId: core-protocol
+    path: docs/04-core-protocol.md
+    role: stable-authority
+    subject: contract
+    writeMode: human
+  - documentId: workspace-architecture
+    path: docs/06-workspace-distributed.md
+    role: stable-authority
+    subject: architecture
+    writeMode: human
+  - documentId: source-register
+    path: docs/09-sources.md
+    role: reference
+    subject: architecture
+    writeMode: human
+  - documentId: official-first-policy
+    path: docs/11-official-first-development.md
+    role: stable-authority
+    subject: contributor
+    writeMode: human
+  - documentId: self-hosting-policy
+    path: docs/13-self-hosting-dogfood.md
+    role: stable-authority
+    subject: operations
+    writeMode: human
+  - documentId: official-baseline
+    path: docs/OFFICIAL_BASELINE.json
+    role: reference
+    subject: contract
+    writeMode: external-readonly
+  - documentId: reviewer-autonomy-decision
+    path: docs/adr/0006-independent-reviewer-autonomy.md
+    role: stable-authority
+    subject: decision
+    writeMode: human
+  - documentId: self-hosting-decision
+    path: docs/adr/0008-self-hosting-dogfood-control-plane.md
+    role: stable-authority
+    subject: decision
+    writeMode: human
+  - documentId: implementation-roadmap-legacy-projection
+    path: docs/07-implementation-roadmap.md
+    role: projection
+    subject: project
+    writeMode: human
+    migrationState: CONFLICT
+  - documentId: goals-legacy-projection
+    path: docs/GOALS.md
+    role: projection
+    subject: project
+    writeMode: human
+    migrationState: CONFLICT
+  - documentId: worktree-cleanup-recovery-evidence
+    path: docs/development/2026-08-23-worktree-cleanup-ledger.md
+    role: evidence
+    subject: recovery
+    writeMode: human
+    mutationPolicy: immutable-until-migrated
+
+domains:
+  governance:
+    writerCount: 1
+    paths:
+      - AGENTS.md
+      - CLAUDE.md
+      - CONTRIBUTING.md
+      - docs/governance
+  product-architecture:
+    writerCount: 1
+    paths:
+      - docs/00-vision.md
+      - docs/03-capability-family.md
+      - docs/04-core-protocol.md
+      - docs/06-workspace-distributed.md
+
+checks:
+  entryPoint: pnpm-verify-governance
+  linkScope: registered-markdown
+  stableDocumentFirewall: enabled
+  protectedLegacyDeletion: enabled

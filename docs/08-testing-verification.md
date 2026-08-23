@@ -168,7 +168,7 @@ The unproven set still contains the full failure windows this section cares abou
 
 ## 8. Independent review gate
 
-Security and milestone reviews follow `12-independent-review-management.md`. The reviewer receives the assembled source, official/reference evidence and permission needed to run diagnostics without a manager-imposed time/step/token limit. The report is preserved unchanged; the manager separately verifies findings, records triage and commissions regression re-review after fixes.
+Security and milestone reviews follow `$manage-agile-software-development` as bound by `docs/governance/project-binding.yaml`. The reviewer receives the assembled source, official/reference evidence and task-authorized diagnostic access. The report is preserved unchanged; the manager separately verifies findings, records triage and commissions regression re-review after fixes.
 
 M3 self-hosting acceptance requires an independent regression/security review of the stable/candidate boundary, Worker permissions, frozen evidence, merge/promotion ownership and rollback. The candidate's own report is input evidence, not the verdict.
 

@@ -14,7 +14,7 @@ A project manager can mistakenly optimize a security review for latency, token v
 - The project manager commissions scope, configures access, observes coarse status, removes real blockers, receives reports and verifies evidence; it does not pressure convergence or edit conclusions in flight.
 - Explicit full-access review uses a dedicated Session with durable `danger-full-access` and `approval=never` facts. Temporary future-session defaults are restored immediately.
 - Full runtime permission does not expand allowed project writes. Reviewers normally write only their report and never combine independent review with silent fixes.
-- Intervention criteria and review/remediation/re-review stages are defined in `docs/12-independent-review-management.md`.
+- Review, remediation, candidate invalidation and re-review follow `$manage-agile-software-development` under `docs/governance/project-binding.yaml`; this ADR preserves the project-specific independence decision.
 
 ## Consequences
 
