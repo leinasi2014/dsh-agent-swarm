@@ -134,6 +134,28 @@ export class MemberProvisioner {
             ? 'captain-inherited' as const
             : 'unresolved' as const
 
+      if ((llmProvider === undefined) !== (model === undefined)) {
+        throw new TeamDomainError(
+          'member LLM selection must resolve both a Provider and model before provisioning',
+          'TEAM_MEMBER_MODEL_INVALID',
+        )
+      }
+      if (llmProvider !== undefined && model !== undefined) {
+        const llm = this.ctx.get('llm')
+        if (llm === undefined) {
+          throw new TeamDomainError('official DSH LLM registry is unavailable', 'TEAM_MEMBER_MODEL_INVALID')
+        }
+        try {
+          await llm.resolveModelInfo(llmProvider, model, exec.signal)
+        } catch (cause) {
+          throw new TeamDomainError(
+            `member LLM route ${JSON.stringify(llmProvider)}/${JSON.stringify(model)} is unavailable`,
+            'TEAM_MEMBER_MODEL_INVALID',
+            { cause },
+          )
+        }
+      }
+
       const childId = SessionId(randomUUID())
       const provisioning = await this.deps.domain().provisionMember(scope, membership.team.id, captain.id, {
         name: input.name,

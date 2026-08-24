@@ -22,7 +22,7 @@ LoopX `main` at `fd237116eec247ec4f5e6f0e774ba1281b4a31c8` contributes three com
 
 ## Canonical schema
 
-All new fields are additive optionals in schema version 1 so existing records reopen unchanged. The Storage Domain zod schema and `assertTeamState` must declare every field in the same change because the official load path strips undeclared object keys.
+All new **Storage Domain** fields are additive optionals in schema version 1 so existing records reopen unchanged. This storage-compatibility claim does not imply R2 wire compatibility. The Storage Domain zod schema and `assertTeamState` must declare every field in the same change because the official load path strips undeclared object keys.
 
 `TeamMember` adds:
 
@@ -58,7 +58,9 @@ Memory content is data, never instructions. Search results do not change tasks, 
 
 Skill assignment is a creation-time intent snapshot. The plugin validates names against the official scoped Skill catalog before any roster record commits and adds a short instruction to the member persona to load those Skills through the official Skill tool when relevant. “Assigned” must not be rendered as “loaded”.
 
-The Captain member projection exposes name, role, phase, Session ID, runtime Provider, LLM selection/source, creation-time denied tools and assigned Skills. Raw member errors, credentials and paths never enter that projection. A separate bounded Captain memory projection exposes memory content; it is not mixed into member rows and does not perform semantic inference.
+The Captain member projection exposes name, role, phase, Session ID, runtime Provider, LLM selection/source, creation-time denied tools and assigned Skills. Raw member errors, credentials and paths never enter that projection. Role text is bounded to 256 code points with an explicit truncation marker. A separate Captain memory projection exposes at most 100 records; content is bounded to 2,048 code points and evidence to 64 references of 512 code points, again with explicit truncation markers. It is not mixed into member rows and does not perform semantic inference.
+
+Explicit LLM Provider/model declarations are resolved through the official DSH LLM registry before a child identity or provisioning record is allocated. An absent route or half-declared pair fails `TEAM_MEMBER_MODEL_INVALID` with zero roster/name side effects. The runtime still owns the final child start and durable descriptor.
 
 Per-task dynamic tool re-authorization is `NOT_SUPPORTED` on the current official continuation seam: `toolFilter` is fixed at `startContinuable`, and follow-up has no composition field. Task prose cannot expand or narrow authority. A future official follow-up composition seam is the re-evaluation trigger.
 
@@ -84,3 +86,9 @@ Provider credentials stay in official DSH Models settings. Settings changes affe
 5. A4: optional LLM re-ranking behind the Settings flag; deterministic fallback remains sufficient for availability.
 
 Acceptance requires old-record reopen, N/N+1 bounds, cross-member denial, invalid Skill/model failure before commit, no runtime/LLM Provider confusion, no secret/raw-error projection, HMR/dispose stability, full project checks, a real official DSH Profile proof and one exact-candidate non-author QA.
+
+## R2 compatibility decision
+
+M7-A is a private pre-release supersession of the R2 schema-v1 artifact, not a backward-compatible extension for already-independent v1 clients. Strict old clients correctly reject the new member/memory projection. During this pre-release phase, the DSH UI, Canvas and any other consumer must upgrade as one exact plugin/package/digest set and fail closed when `SWARM_READ_RPC_CONTRACT_DIGEST_V1` differs.
+
+Before M9 permits independently versioned or public consumers, the project must either freeze the final v1 shape or introduce a negotiated v2 route/artifact. A published v1 must never be silently changed in place.

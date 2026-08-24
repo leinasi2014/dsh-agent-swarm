@@ -227,32 +227,42 @@ function project(
 ): SwarmHostReadProjectionV1 {
   const team = snapshot.team
   const memberNames = new Map(team.members.map(member => [member.sessionId, member.name]))
-  const roster = team.members.slice(0, MAX_ROSTER).map(member => ({
-    name: member.name,
-    role: member.role,
-    phase: member.phase,
-    sessionId: member.sessionId,
-    runtimeProvider: member.provider,
-    ...(member.llmProvider === undefined ? {} : { llmProvider: member.llmProvider }),
-    ...(member.model === undefined ? {} : { model: member.model }),
-    ...(member.modelSource === undefined ? {} : { modelSource: member.modelSource }),
-    deniedTools: [...(member.deniedTools ?? [])],
-    assignedSkills: [...(member.assignedSkills ?? [])],
-    dynamicTaskToolPolicy: 'unsupported' as const,
-    createdAt: member.createdAt,
-  }))
+  const roster = team.members.slice(0, MAX_ROSTER).map(member => {
+    const role = boundedText(member.role, 256)
+    return {
+      name: member.name,
+      role: role.value,
+      roleTruncated: role.truncated,
+      phase: member.phase,
+      sessionId: member.sessionId,
+      runtimeProvider: member.provider,
+      ...(member.llmProvider === undefined ? {} : { llmProvider: member.llmProvider }),
+      ...(member.model === undefined ? {} : { model: member.model }),
+      ...(member.modelSource === undefined ? {} : { modelSource: member.modelSource }),
+      deniedTools: [...(member.deniedTools ?? [])],
+      assignedSkills: [...(member.assignedSkills ?? [])],
+      dynamicTaskToolPolicy: 'unsupported' as const,
+      createdAt: member.createdAt,
+    }
+  })
   const memory = team.memory.toSorted((left, right) => right.createdAt - left.createdAt || right.id.localeCompare(left.id))
     .slice(0, MAX_MEMORY)
-    .map(entry => ({
-      id: entry.id,
-      scope: entry.scope ?? 'team',
-      category: entry.category,
-      content: entry.content,
-      evidenceRefs: [...entry.evidenceRefs],
-      ...optionalName('ownerName', displayName(entry.ownerSessionId, rootSessionId, memberNames)),
-      ...optionalName('authorName', displayName(entry.authorSessionId, rootSessionId, memberNames)),
-      createdAt: entry.createdAt,
-    }))
+    .map(entry => {
+      const content = boundedText(entry.content, 2_048)
+      const evidence = entry.evidenceRefs.slice(0, 64).map(value => boundedText(value, 512))
+      return {
+        id: entry.id,
+        scope: entry.scope ?? 'team',
+        category: entry.category,
+        content: content.value,
+        contentTruncated: content.truncated,
+        evidenceRefs: evidence.map(value => value.value),
+        evidenceTruncated: entry.evidenceRefs.length > evidence.length || evidence.some(value => value.truncated),
+        ...optionalName('ownerName', displayName(entry.ownerSessionId, rootSessionId, memberNames)),
+        ...optionalName('authorName', displayName(entry.authorSessionId, rootSessionId, memberNames)),
+        createdAt: entry.createdAt,
+      }
+    })
   const tasks = team.tasks.toSorted(newestFirst).slice(0, MAX_TASKS).map(task => ({
     id: task.id,
     revision: task.revision,
@@ -351,4 +361,11 @@ function displayName(
 
 function optionalName<K extends 'ownerName' | 'memberName' | 'authorName'>(key: K, value: string | undefined): Partial<Record<K, string>> {
   return value === undefined ? {} : { [key]: value } as Record<K, string>
+}
+
+function boundedText(value: string, maxCodePoints: number): { readonly value: string; readonly truncated: boolean } {
+  const codePoints = [...value]
+  return codePoints.length <= maxCodePoints
+    ? { value, truncated: false }
+    : { value: codePoints.slice(0, maxCodePoints).join(''), truncated: true }
 }

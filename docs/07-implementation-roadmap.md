@@ -222,11 +222,13 @@ Risk: S3/HIGH。
 
 M7-A is the next bounded product slice after the accepted R3 read UI candidate. Its accepted design is `docs/development/2026-08-24-m7a-memory-member-profile.md`.
 
-- **A0** extends schema-v1 additively and proves Storage Domain reopen, authorization and bounds.
+- **A0** extends Storage Domain schema-v1 additively and proves reopen, authorization and bounds; this is not an R2 wire-compatibility claim.
 - **A1** adds shared/personal memory writes plus deterministic bounded list/search.
 - **A2** separates runtime Provider from LLM Provider/model, persists creation-time deny and Skill assignment snapshots, and publishes a bounded Captain member projection.
 - **A3** installs the official `agent-swarm` Settings namespace and adds member/memory read UI with DSH locale/theme behavior.
 - **A4** optionally re-ranks authorized Team-memory candidates through the configured official DSH LLM route; failure is an explicit deterministic fallback and does not block A0–A3.
+
+M7-A privately supersedes the pre-release R2 schema-v1 artifact. DSH UI and Canvas must consume the same exact package/digest and fail closed on mismatch. M9 must freeze public v1 or introduce negotiated v2 before independently versioned consumers are supported.
 
 Per-task tool re-authorization, automatic memory extraction, vector indexes, Skill self-evolution and a separate Memory Service remain deferred. They do not block this vertical slice.
 

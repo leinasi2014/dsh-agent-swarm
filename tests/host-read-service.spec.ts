@@ -4,6 +4,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { describe, expect, it, vi } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
 import { TeamDomainError } from '../src/domain/error.js'
+import { assertSwarmReadRpcValue } from '../src/rpc/read-rpc-artifact.js'
 
 const NOW = 1_700_000_000_500
 const ROOT = {
@@ -295,6 +296,29 @@ describe('R1 Host read producer', () => {
     expect(result.truncated).toEqual({ roster: true, tasks: true, attempts: true, pendingInteractions: true })
     expect(result.memory).toHaveLength(100)
     expect(result).toMatchObject({ memoryTotal: 101, memoryTruncated: true })
+  })
+
+  it('bounds long member and memory fields explicitly before the strict RPC contract', async () => {
+    const role = '职'.repeat(2_048)
+    const content = '忆'.repeat(16_384)
+    const evidenceRefs = Array.from({ length: 65 }, (_, index) => `${index}-${'证'.repeat(2_045)}`)
+    const bounded = harness({ team: teamState({
+      members: [{
+        name: 'worker', role, sessionId: CHILD.id, provider: 'spawn', phase: 'active', createdAt: NOW - 100,
+      }],
+      memory: [{
+        id: 'memory-long', category: 'context', content, evidenceRefs, scope: 'team',
+        authorSessionId: ROOT.id, createdAt: NOW - 20,
+      }],
+    }) })
+    const result = await bounded.service.read()
+    expect([...result.roster[0]!.role]).toHaveLength(256)
+    expect(result.roster[0]!.roleTruncated).toBe(true)
+    expect([...(result.memory?.[0]?.content ?? '')]).toHaveLength(2_048)
+    expect(result.memory?.[0]).toMatchObject({ contentTruncated: true, evidenceTruncated: true })
+    expect(result.memory?.[0]?.evidenceRefs).toHaveLength(64)
+    expect([...(result.memory?.[0]?.evidenceRefs[0] ?? '')]).toHaveLength(512)
+    expect(() => assertSwarmReadRpcValue('snapshot', result)).not.toThrow()
   })
 
   it('detects a root removal or Session change during an admitted read', async () => {

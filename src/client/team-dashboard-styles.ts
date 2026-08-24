@@ -21,7 +21,7 @@ const TEAM_DASHBOARD_STYLES = `
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   width: 100%;
   height: 100%;
-  min-width: 300px;
+  min-width: 0;
   border-left: 1px solid var(--dsw-alias-border-l2);
   color: var(--dsw-alias-label-primary);
   background: var(--dsw-alias-bg-base);
@@ -77,7 +77,7 @@ const TEAM_DASHBOARD_STYLES = `
 }
 [data-swarm-team-tabs] {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 4px;
   margin: 12px 16px 0;
   padding: 4px;
@@ -172,6 +172,14 @@ const TEAM_DASHBOARD_STYLES = `
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+[data-swarm-team-row] > span:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+[data-swarm-team-memory-content] {
+  overflow-wrap: anywhere;
 }
 [data-swarm-team-row-copy] {
   display: grid;

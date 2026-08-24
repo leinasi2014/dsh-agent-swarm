@@ -121,12 +121,12 @@ function Dashboard({ data, active, localeTag, t }: {
             {data.roster.map(member => (
               <section key={member.name} data-swarm-team-section>
                 <h3>{member.name} · {enumLabel(member.phase, t)}</h3>
-                <Fact label={t('memberRole')} value={member.role} />
+                <Fact label={t('memberRole')} value={`${member.role}${member.roleTruncated === true ? ` (${t('truncated')})` : ''}`} />
                 <Fact label={t('sessionId')} value={member.sessionId ?? t('unresolved')} />
                 <Fact label={t('runtimeProvider')} value={member.runtimeProvider ?? t('unresolved')} />
                 <Fact label={t('llmProvider')} value={member.llmProvider ?? t('inherited')} />
                 <Fact label={t('model')} value={member.model ?? t('inherited')} />
-                <Fact label={t('modelSource')} value={member.modelSource ?? t('unresolved')} />
+                <Fact label={t('modelSource')} value={member.modelSource === undefined ? t('unresolved') : enumLabel(member.modelSource, t)} />
                 <Fact label={t('deniedTools')} value={(member.deniedTools ?? []).join(', ') || t('noneDeclared')} />
                 <Fact label={t('assignedSkills')} value={(member.assignedSkills ?? []).join(', ') || t('noneDeclared')} />
                 <Fact label={t('dynamicTaskTools')} value={t('unsupported')} />
@@ -170,10 +170,10 @@ function Dashboard({ data, active, localeTag, t }: {
             {memory.map(entry => (
               <section key={entry.id} data-swarm-team-section>
                 <h3>{enumLabel(entry.scope, t)} · {enumLabel(entry.category, t)}</h3>
-                <p>{entry.content}</p>
+                <p data-swarm-team-memory-content>{entry.content}{entry.contentTruncated === true ? ` (${t('truncated')})` : ''}</p>
                 <Fact label={t('memoryOwner')} value={entry.ownerName ?? t('team')} />
                 <Fact label={t('memoryAuthor')} value={entry.authorName ?? t('unresolved')} />
-                <Fact label={t('memoryEvidence')} value={entry.evidenceRefs.join(', ') || t('noneDeclared')} />
+                <Fact label={t('memoryEvidence')} value={`${entry.evidenceRefs.join(', ') || t('noneDeclared')}${entry.evidenceTruncated === true ? ` (${t('truncated')})` : ''}`} />
               </section>
             ))}
             {data.memoryTruncated === true ? <span data-swarm-team-muted>{t('memoryTruncated')}</span> : null}
@@ -283,6 +283,7 @@ type WireEnum = SwarmHostReadProjectionV1['team']['phase']
   | SwarmHostReadProjectionV1['pendingInteractions'][number]['targetKind']
   | NonNullable<SwarmHostReadProjectionV1['memory']>[number]['scope']
   | NonNullable<SwarmHostReadProjectionV1['memory']>[number]['category']
+  | NonNullable<SwarmHostReadProjectionV1['roster'][number]['modelSource']>
 
 const WIRE_ENUM_KEYS = {
   active: 'enum.active', archived: 'enum.archived', provisioning: 'enum.provisioning', failed: 'enum.failed', removed: 'enum.removed',
@@ -291,6 +292,8 @@ const WIRE_ENUM_KEYS = {
   rejected: 'enum.rejected', stale: 'enum.stale', acknowledged: 'enum.acknowledged', captain: 'enum.captain',
   team: 'enum.team', member: 'enum.member', task: 'enum.task',
   decision: 'enum.decision', lesson: 'enum.lesson', context: 'enum.context',
+  explicit: 'enum.explicit', 'member-default': 'enum.member-default',
+  'captain-inherited': 'enum.captain-inherited', unresolved: 'enum.unresolved',
 } as const satisfies Record<WireEnum, TeamDashboardKey>
 
 function enumLabel(value: WireEnum, t: TranslateNS<typeof TEAM_DASHBOARD_NS>): string {

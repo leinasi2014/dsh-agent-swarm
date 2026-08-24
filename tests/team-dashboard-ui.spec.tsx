@@ -8,7 +8,7 @@ import { SWARM_READ_RPC_FIXTURES_V1 } from '../src/rpc/read-rpc-artifact.js'
 import { TeamDashboardAction, type TeamDashboardActionProps } from '../src/client/TeamDashboardAction.js'
 import { TeamDashboardDetails, type TeamDashboardDetailsProps } from '../src/client/TeamDashboardDetails.js'
 import type { TeamDashboardState } from '../src/client/team-dashboard-controller.js'
-import { en } from '../src/client/team-dashboard-locales.js'
+import { en, zh } from '../src/client/team-dashboard-locales.js'
 import TEAM_DASHBOARD_STYLES from '../src/client/team-dashboard-styles.js'
 import type { TeamDashboardSurfaceState } from '../src/client/team-dashboard-surface-coordinator.js'
 
@@ -100,18 +100,20 @@ class FakeCoordinator {
   }
 }
 
-function t(key: keyof typeof en, params?: Record<string, unknown>): string {
-  return en[key].replace(/\{(\w+)\}/gu, (match, name: string) => name in (params ?? {}) ? String(params?.[name]) : match)
+function translate(dictionary: Record<keyof typeof en, string>) {
+  return (key: keyof typeof en, params?: Record<string, unknown>): string => dictionary[key]
+    .replace(/\{(\w+)\}/gu, (match, name: string) => name in (params ?? {}) ? String(params?.[name]) : match)
 }
+const t = translate(en)
 
-function readyState(): TeamDashboardState {
+function readyState(projection: SwarmHostReadProjectionV1 = SWARM_READ_RPC_FIXTURES_V1.values.snapshot as SwarmHostReadProjectionV1): TeamDashboardState {
   return {
     open: true,
     phase: 'ready',
     targetSessionId: 'session-fixture',
     data: {
       capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as SwarmReadCapabilitiesV1,
-      projection: SWARM_READ_RPC_FIXTURES_V1.values.snapshot as SwarmHostReadProjectionV1,
+      projection,
     },
   }
 }
@@ -188,12 +190,45 @@ describe('R3 DSH-native Team UI', () => {
     expect(panel?.textContent).toContain('Pending interactions')
     await act(async () => { button('Members').click() })
     expect(panel?.textContent).toContain('Members (0)')
+    await act(async () => { button('Memory').click() })
+    expect(panel?.textContent).toContain('Memory (0)')
     await act(async () => { button('Work').click() })
     expect(panel?.textContent).toContain('Attempts')
     await act(async () => { button('Details').click() })
     expect(panel?.textContent).toContain('Capabilities')
     await act(async () => { button('Open Captain Chat').click() })
     expect(handoff).toHaveBeenCalledTimes(1)
+  })
+
+  it('localizes member selection sources and memory records without remapping wire truth', async () => {
+    const projection = {
+      ...(SWARM_READ_RPC_FIXTURES_V1.values.snapshot as SwarmHostReadProjectionV1),
+      roster: [{
+        name: 'worker', role: 'reviewer', phase: 'active' as const, sessionId: 'member-1',
+        runtimeProvider: 'spawn', llmProvider: 'mock', model: 'model', modelSource: 'explicit' as const,
+        deniedTools: [], assignedSkills: ['review-skill'], dynamicTaskToolPolicy: 'unsupported' as const,
+        createdAt: 1,
+      }],
+      memory: [{
+        id: 'memory-1', scope: 'team' as const, category: 'decision' as const,
+        content: 'Keep one authority.', evidenceRefs: ['task-1'], authorName: 'captain', createdAt: 2,
+      }],
+      memoryTotal: 1,
+      memoryTruncated: false,
+      totals: { ...(SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals), roster: 1 },
+    }
+    const controller = new FakeController(readyState(projection))
+    const coordinator = new FakeCoordinator(controller)
+    await render(<TeamDashboardDetails {...({
+      anchorRef: anchorRef(), controller, coordinator, localeTag: coordinator.localeTag,
+      sessionId: 'session-fixture', t: translate(zh),
+    } as unknown as TeamDashboardDetailsProps)} />)
+    await act(async () => { button('成员').click() })
+    expect(document.querySelector('[data-swarm-team-panel]')?.textContent).toContain('明确指定')
+    await act(async () => { button('记忆').click() })
+    const copy = document.querySelector('[data-swarm-team-panel]')?.textContent ?? ''
+    expect(copy).toContain('团队 · 决策')
+    expect(copy).toContain('Keep one authority.')
   })
 
   it('shows error/retry and closes from Escape only while focus is inside Team', async () => {
@@ -270,7 +305,8 @@ describe('R3 DSH-native Team UI', () => {
     expect(TEAM_DASHBOARD_STYLES).not.toMatch(/position:\s*fixed|box-shadow|swarm-team-peek|presentation='compact'|swarm-team-layer/u)
     expect(TEAM_DASHBOARD_STYLES).toContain('[data-swarm-team-panel]')
     expect(TEAM_DASHBOARD_STYLES).toContain('background: var(--dsw-alias-bg-base)')
-    expect(TEAM_DASHBOARD_STYLES).toContain('min-width: 300px')
+    expect(TEAM_DASHBOARD_STYLES).toContain('grid-template-columns: repeat(5, minmax(0, 1fr))')
+    expect(TEAM_DASHBOARD_STYLES).toContain('overflow-wrap: anywhere')
     expect(TEAM_DASHBOARD_STYLES).toContain('padding: 14px 12px 12px')
     expect(TEAM_DASHBOARD_STYLES).toContain('border-bottom: 1px solid var(--dsw-alias-border-l2)')
   })

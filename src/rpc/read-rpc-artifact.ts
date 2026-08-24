@@ -8,7 +8,7 @@ import {
 } from './read-rpc-contract.js'
 
 export const SWARM_READ_RPC_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
-export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '32018a6b5faaa2630d6dd9898623a29215377dcba7eec4d8db49d7f82d3814a0' as const
+export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = 'bd0d68edb671554bc5fc1c9eab625ffc694c0335eaf56780bb93df4e18589e09' as const
 
 const boundedString = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength, pattern: '\\S' })
 const nonNegativeInteger = { type: 'integer', minimum: 0 }
@@ -77,7 +77,7 @@ const rosterRow = {
   type: 'object', additionalProperties: false,
   required: ['name', 'role', 'phase', 'createdAt'],
   properties: {
-    name: boundedString(64), role: boundedString(256),
+    name: boundedString(64), role: boundedString(256), roleTruncated: { type: 'boolean' },
     phase: { enum: ['provisioning', 'active', 'failed', 'removed'] },
     sessionId: boundedString(256), runtimeProvider: boundedString(128),
     llmProvider: boundedString(128), model: boundedString(256),
@@ -94,8 +94,9 @@ const memoryRow = {
   properties: {
     id: boundedString(128), scope: { enum: ['team', 'member'] },
     category: { enum: ['decision', 'lesson', 'member', 'context'] },
-    content: boundedString(2_048),
+    content: boundedString(2_048), contentTruncated: { type: 'boolean' },
     evidenceRefs: { type: 'array', maxItems: 64, items: boundedString(512) },
+    evidenceTruncated: { type: 'boolean' },
     ownerName: boundedString(64), authorName: boundedString(64), createdAt: nonNegativeInteger,
   },
 }

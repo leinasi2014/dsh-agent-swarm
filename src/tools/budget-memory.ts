@@ -147,6 +147,7 @@ export function registerListMemoryTool(ctx: Context, runtime: AgentSwarmRuntime)
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 32) throw new Error('limit must be a safe integer from 1 to 32')
       const cursor = args.cursor ?? 0
       if (!Number.isSafeInteger(cursor) || cursor < 0) throw new Error('cursor must be a non-negative safe integer')
+      if (args.query !== undefined && [...args.query].length > 2_048) throw new Error('query must contain at most 2048 code points')
       const result = await runtime.listMemory(exec, {
         scope: (args.scope ?? 'team') as 'team' | 'personal' | 'all',
         ...(args.category === undefined ? {} : { category: args.category as 'decision' | 'lesson' | 'member' | 'context' }),

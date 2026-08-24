@@ -56,6 +56,7 @@ export const en = {
   'unresolved': 'Unresolved',
   'inherited': 'Inherited',
   'noneDeclared': 'None declared',
+  'truncated': 'truncated',
   'available': 'available',
   'unavailable': 'unavailable',
   'owner': 'Owner: {name}',
@@ -85,6 +86,10 @@ export const en = {
   'enum.decision': 'Decision',
   'enum.lesson': 'Lesson',
   'enum.context': 'Context',
+  'enum.explicit': 'Explicit',
+  'enum.member-default': 'Member default',
+  'enum.captain-inherited': 'Inherited from Captain',
+  'enum.unresolved': 'Unresolved',
 } as const
 
 export const zh: Record<keyof typeof en, string> = {
@@ -143,6 +148,7 @@ export const zh: Record<keyof typeof en, string> = {
   'unresolved': '未解析',
   'inherited': '继承',
   'noneDeclared': '未声明',
+  'truncated': '已截断',
   'available': '可用',
   'unavailable': '不可用',
   'owner': '负责人：{name}',
@@ -172,6 +178,10 @@ export const zh: Record<keyof typeof en, string> = {
   'enum.decision': '决策',
   'enum.lesson': '经验',
   'enum.context': '上下文',
+  'enum.explicit': '明确指定',
+  'enum.member-default': '成员默认值',
+  'enum.captain-inherited': '继承 Captain',
+  'enum.unresolved': '未解析',
 }
 
 export type TeamDashboardKey = keyof typeof en

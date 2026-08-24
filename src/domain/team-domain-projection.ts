@@ -14,6 +14,8 @@ import { actorMembership, readerMembership, nonEmpty, type TeamDomainDeps } from
 import type { TeamId, TeamMemoryCategory, TeamState, TeamStatusSnapshot } from './types.js'
 import type { TeamScope } from './team-domain-port.js'
 
+const MAX_MEMORY_EVIDENCE_REFS = 64
+
 /** One authoritative aggregate plus its derived readiness/mailbox projections. */
 function statusOf(team: TeamState): TeamStatusSnapshot {
   return {
@@ -47,6 +49,7 @@ export async function addMemory(
       expectDomain(options.ownerSessionId === undefined, 'team memory cannot declare an owner', 'TEAM_INPUT_INVALID')
     }
     expectDomain(team.memory.length < deps.limits.maxMemories, 'team memory limit reached', 'TEAM_MEMORY_LIMIT')
+    expectDomain(evidenceRefs.length <= MAX_MEMORY_EVIDENCE_REFS, `memory may contain at most ${MAX_MEMORY_EVIDENCE_REFS} evidence references`, 'TEAM_INPUT_INVALID')
     committed = {
       id: `memory-${team.nextMemoryNumber}`,
       category,

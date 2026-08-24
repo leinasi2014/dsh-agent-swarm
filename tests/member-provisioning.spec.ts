@@ -356,6 +356,60 @@ describe('persisted-child provisioning reconciliation (F3)', () => {
     }
   }, 20_000)
 
+  it('preflights the official LLM Provider/model before occupying a member name', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-provision-model-'))
+    roots.push(sandbox)
+    const fibers: Fiber[] = []
+
+    try {
+      const stack = await mountCaptain(sandbox, fibers, 'model-preflight-lead', 'Model preflight team')
+      const rejected = await stack.ctx.tools.execute({
+        signal: SIGNAL,
+        callId: CallId('model-add-invalid'),
+        name: 'agent_swarm_add_member',
+        arguments: {
+          name: 'model-worker', role: 'Must not occupy the name.',
+          llm_provider: 'missing-provider', model: 'missing-model',
+        },
+        agent: stack.lead,
+      })
+      expect(rejected).toMatchObject({
+        isError: true,
+        error: { info: { code: 'TEAM_MEMBER_MODEL_INVALID' } },
+      })
+      const beforeRetry = await stack.ctx.agentSwarm.domain.snapshot(
+        stack.ctx.agentSwarm.scopeOf(stack.lead), AgentSwarm.TeamId(stack.teamId), stack.lead.id,
+      )
+      expect(beforeRetry.team.members).toHaveLength(0)
+
+      const accepted = await stack.ctx.tools.execute({
+        signal: SIGNAL,
+        callId: CallId('model-add-valid'),
+        name: 'agent_swarm_add_member',
+        arguments: {
+          name: 'model-worker', role: 'Use the validated route.',
+          llm_provider: 'mock', model: 'mock', deny_tools: ['agent_swarm_add_memory'],
+        },
+        agent: stack.lead,
+      })
+      expect(accepted).toMatchObject({
+        isError: false,
+        value: {
+          name: 'model-worker', llm_provider: 'mock', model: 'mock',
+        },
+      })
+      const afterRetry = await stack.ctx.agentSwarm.domain.snapshot(
+        stack.ctx.agentSwarm.scopeOf(stack.lead), AgentSwarm.TeamId(stack.teamId), stack.lead.id,
+      )
+      expect(afterRetry.team.members[0]).toMatchObject({
+        name: 'model-worker', phase: 'active', llmProvider: 'mock', model: 'mock', modelSource: 'explicit',
+      })
+      expect(afterRetry.team.members[0]?.deniedTools).toContain('agent_swarm_add_memory')
+    } finally {
+      for (const fiber of fibers.toReversed()) await fiber.dispose()
+    }
+  }, 20_000)
+
   it('issue #47: a post-activation accounting failure keeps the committed active member and never drains the live child', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-provision-p1-'))
     roots.push(sandbox)

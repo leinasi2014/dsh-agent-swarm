@@ -25,6 +25,7 @@ export interface SwarmHostReadProjectionV1 {
   readonly roster: readonly {
     readonly name: string
     readonly role: string
+    readonly roleTruncated?: boolean
     readonly phase: 'provisioning' | 'active' | 'failed' | 'removed'
     readonly sessionId?: string
     /** Continuable subagent runtime Provider, not the LLM route. */
@@ -43,7 +44,9 @@ export interface SwarmHostReadProjectionV1 {
     readonly scope: 'team' | 'member'
     readonly category: 'decision' | 'lesson' | 'member' | 'context'
     readonly content: string
+    readonly contentTruncated?: boolean
     readonly evidenceRefs: readonly string[]
+    readonly evidenceTruncated?: boolean
     readonly ownerName?: string
     readonly authorName?: string
     readonly createdAt: number
