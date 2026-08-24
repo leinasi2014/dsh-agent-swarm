@@ -73,9 +73,12 @@
     "verify:knowledge-graph:extractor": "node scripts/test-knowledge-graph-extractor.mjs",
     "verify:knowledge-graph:reconcile": "node scripts/test-knowledge-graph-reconcile.mjs && node scripts/knowledge-graph/reconcile-source.mjs",
     "verify:knowledge-graph:semantic": "node scripts/test-knowledge-graph-assignment-delivery.mjs && node scripts/knowledge-graph/reconcile-assignment-delivery.mjs",
+    "verify:knowledge-graph:registry": "node scripts/test-agent-tool-registry.mjs",
+    "generate:knowledge-graph": "node scripts/generate-knowledge-graph.mjs",
+    "verify:knowledge-graph": "pnpm verify:knowledge-graph:bootstrap && pnpm verify:knowledge-graph:extractor && pnpm verify:knowledge-graph:reconcile && pnpm verify:knowledge-graph:semantic && pnpm verify:knowledge-graph:registry && node scripts/verify-knowledge-graph.mjs",
     "verify:worktrees": "node scripts/verify-worktree-layout.mjs && node scripts/test-worktree-layout-gate.mjs",
     "verify:gate-a": "pnpm verify:workspace && pnpm verify:official && pnpm verify:references",
-    "verify:structure": "node scripts/verify-project.mjs",
+    "verify:structure": "node scripts/verify-project.mjs && node scripts/verify-knowledge-graph.mjs",
     "verify:artifact": "node scripts/test-package-artifact-policy.mjs && node scripts/verify-package-artifact.mjs",
     "verify": "pnpm verify:governance && pnpm verify:workspace && pnpm verify:worktrees && pnpm verify:structure && pnpm verify:p0-fixtures && pnpm lint && pnpm verify:duplication && pnpm verify:exports && pnpm typecheck && pnpm typecheck:test && pnpm test && pnpm verify:scenarios && pnpm build && pnpm verify:artifact"
   },

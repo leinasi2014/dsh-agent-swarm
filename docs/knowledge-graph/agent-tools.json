@@ -1,0 +1,522 @@
+{
+  "schemaVersion": 1,
+  "facetCount": 13,
+  "families": [
+    "team-lifecycle",
+    "task",
+    "mailbox",
+    "read",
+    "budget-memory"
+  ],
+  "functionalFacets": {
+    "tool": {
+      "title": "Model-facing tool surface",
+      "sourceAnchors": [{ "file": "src/tools.ts", "symbol": "registerAgentSwarmTools" }],
+      "testAnchors": [{ "file": "tests/tool-policy.spec.ts" }],
+      "relatedToolIds": [
+        "tool:agent_swarm_add_member", "tool:agent_swarm_add_memory", "tool:agent_swarm_add_personal_memory", "tool:agent_swarm_archive", "tool:agent_swarm_claim_task", "tool:agent_swarm_create", "tool:agent_swarm_create_task", "tool:agent_swarm_interrupt_member", "tool:agent_swarm_list_jobs", "tool:agent_swarm_list_memory", "tool:agent_swarm_list_tasks", "tool:agent_swarm_reassign_task", "tool:agent_swarm_remove_member", "tool:agent_swarm_review_task", "tool:agent_swarm_send_message", "tool:agent_swarm_set_budget", "tool:agent_swarm_status", "tool:agent_swarm_submit_task", "tool:agent_swarm_wait"
+      ],
+      "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT"]
+    },
+    "team": {
+      "title": "Team lifecycle authority",
+      "sourceAnchors": [{ "file": "src/domain/team-domain.ts", "symbol": "TeamDomain" }],
+      "testAnchors": [{ "file": "tests/team-domain.spec.ts" }],
+      "relatedToolIds": ["tool:agent_swarm_add_member", "tool:agent_swarm_archive", "tool:agent_swarm_create", "tool:agent_swarm_interrupt_member", "tool:agent_swarm_remove_member"],
+      "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT"]
+    },
+    "member": {
+      "title": "Member provisioning and lifecycle",
+      "sourceAnchors": [{ "file": "src/runtime/member-provisioning.ts", "symbol": "MemberProvisioner.addMember" }],
+      "testAnchors": [{ "file": "tests/member-provisioning.spec.ts" }],
+      "relatedToolIds": ["tool:agent_swarm_add_member", "tool:agent_swarm_interrupt_member", "tool:agent_swarm_remove_member"],
+      "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT"]
+    },
+    "task": {
+      "title": "Task board and attempt fencing",
+      "sourceAnchors": [{ "file": "src/domain/team-domain-board.ts", "symbol": "claimTask" }],
+      "testAnchors": [{ "file": "tests/team-assignment-checkpoint.spec.ts" }, { "file": "tests/model-experience.spec.ts" }],
+      "relatedToolIds": ["tool:agent_swarm_claim_task", "tool:agent_swarm_create_task", "tool:agent_swarm_reassign_task", "tool:agent_swarm_review_task", "tool:agent_swarm_submit_task"],
+      "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT"]
+    },
+    "message": {
+      "title": "Durable Team mailbox and wakeup delivery",
+      "sourceAnchors": [{ "file": "src/domain/team-domain-mailbox.ts", "symbol": "queueMessage" }, { "file": "src/runtime/message-delivery.ts", "symbol": "MessageDelivery.deliverQueuedMessage" }],
+      "testAnchors": [{ "file": "tests/message-delivery.spec.ts" }],
+      "relatedToolIds": ["tool:agent_swarm_send_message", "tool:agent_swarm_wait"],
+      "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT"]
+    },
+    "memory": {
+      "title": "Team and personal memory",
+      "sourceAnchors": [{ "file": "src/runtime/memory-operations.ts", "symbol": "MemoryOperations.list" }, { "file": "src/runtime/memory-query.ts", "symbol": "lexicalScore" }],
+      "testAnchors": [{ "file": "tests/memory-member-profile.spec.ts" }],
+      "relatedToolIds": ["tool:agent_swarm_add_memory", "tool:agent_swarm_add_personal_memory", "tool:agent_swarm_list_memory"],
+      "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT"]
+    },
+    "budget": {
+      "title": "Budget limits, usage, and reservation admission",
+      "sourceAnchors": [{ "file": "src/domain/team-domain-budget.ts", "symbol": "setBudget" }],
+      "testAnchors": [{ "file": "tests/budget-family.spec.ts" }],
+      "relatedToolIds": ["tool:agent_swarm_set_budget"],
+      "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT"]
+    },
+    "permission": {
+      "title": "Caller identity and monotone tool permission policy",
+      "sourceAnchors": [{ "file": "src/runtime/permission-policy.ts", "symbol": "decideToolPermission" }, { "file": "src/runtime/permission-surface.ts", "symbol": "TeamPermissionSurface.attachPreExecute" }],
+      "testAnchors": [{ "file": "tests/permission-boundary.spec.ts" }, { "file": "tests/permission-real-composition.spec.ts" }],
+      "relatedToolIds": [
+        "tool:agent_swarm_add_member", "tool:agent_swarm_add_memory", "tool:agent_swarm_add_personal_memory", "tool:agent_swarm_archive", "tool:agent_swarm_claim_task", "tool:agent_swarm_create", "tool:agent_swarm_create_task", "tool:agent_swarm_interrupt_member", "tool:agent_swarm_list_jobs", "tool:agent_swarm_list_memory", "tool:agent_swarm_list_tasks", "tool:agent_swarm_reassign_task", "tool:agent_swarm_remove_member", "tool:agent_swarm_review_task", "tool:agent_swarm_send_message", "tool:agent_swarm_set_budget", "tool:agent_swarm_status", "tool:agent_swarm_submit_task", "tool:agent_swarm_wait"
+      ],
+      "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT"]
+    },
+    "workflow": {
+      "title": "Workflow bridge and scripted Team runs",
+      "sourceAnchors": [{ "file": "src/runtime/workflow/team-bridge-engine.ts", "symbol": "TeamBridgeWorkflowEngine" }, { "file": "src/runtime/workflow/team-run.ts", "symbol": "TeamRun" }],
+      "testAnchors": [{ "file": "tests/workflow-bridge.spec.ts" }],
+      "relatedToolIds": ["tool:agent_swarm_create_task", "tool:agent_swarm_review_task", "tool:agent_swarm_submit_task"],
+      "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT"]
+    },
+    "jobs": {
+      "title": "Read-only Team jobs projection",
+      "sourceAnchors": [{ "file": "src/runtime/jobs/team-job-projection.ts", "symbol": "TeamJobProjection" }],
+      "testAnchors": [{ "file": "tests/jobs-reader.spec.ts" }, { "file": "tests/jobs-bridge.spec.ts" }],
+      "relatedToolIds": ["tool:agent_swarm_list_jobs"],
+      "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT", "CONFIG_DISABLED_BY_DEFAULT"]
+    },
+    "rpc": {
+      "title": "Versioned bounded read RPC",
+      "sourceAnchors": [{ "file": "src/rpc/read-rpc-service.ts", "symbol": "mountAgentSwarmReadRpc" }, { "file": "src/rpc/read-rpc-contract.ts", "symbol": "SWARM_READ_RPC_VERSION" }],
+      "testAnchors": [{ "file": "tests/read-rpc-service.spec.ts" }, { "file": "tests/read-rpc-client.spec.ts" }],
+      "relatedToolIds": ["tool:agent_swarm_list_jobs", "tool:agent_swarm_list_tasks", "tool:agent_swarm_status"],
+      "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT"]
+    },
+    "ui": {
+      "title": "Team dashboard UI projection",
+      "sourceAnchors": [{ "file": "src/client/team-dashboard-plugin.ts", "symbol": "apply" }, { "file": "src/client/team-dashboard-controller.ts", "symbol": "TeamDashboardController" }],
+      "testAnchors": [{ "file": "tests/team-dashboard-ui.spec.tsx" }, { "file": "tests/team-dashboard-controller.spec.ts" }],
+      "relatedToolIds": ["tool:agent_swarm_list_jobs", "tool:agent_swarm_list_tasks", "tool:agent_swarm_status"],
+      "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT"]
+    },
+    "config": {
+      "title": "Plugin configuration and feature switches",
+      "sourceAnchors": [{ "file": "src/index.ts", "symbol": "Config" }],
+      "testAnchors": [{ "file": "tests/agent-swarm-settings.spec.tsx" }, { "file": "tests/dsh-composition.spec.ts" }],
+      "relatedToolIds": ["tool:agent_swarm_add_member", "tool:agent_swarm_claim_task", "tool:agent_swarm_list_jobs", "tool:agent_swarm_list_memory"],
+      "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT"]
+    }
+  },
+  "entries": [
+    {
+      "id": "tool:agent_swarm_add_member",
+      "family": "team-lifecycle",
+      "source": { "module": "src/tools/team-lifecycle.ts", "symbol": "registerAddMemberTool" },
+      "ownerAuthority": "domain:agent-swarm",
+      "callerPermissionClass": { "caller": "captain-only", "defaultPolicy": "allow", "source": { "file": "src/runtime/permission-policy.ts", "symbol": "decideToolPermission" } },
+      "operation": "mutation",
+      "domainTransactionEffect": { "kind": "domain-transaction+external-effect", "summary": "Provisions a continuable subagent and commits the member roster under Team authority." },
+      "availability": { "state": "registered", "conditions": ["plugin enabled", "required injections mounted", "configured continuable provider available"] },
+      "bounds": [
+        { "name": "member name code points", "value": "1..64", "source": { "file": "src/tools/team-lifecycle.ts", "symbol": "registerAddMemberTool" } }
+      ],
+      "recoveryFailure": "Provisioning validation fails before roster commit; post-provision commit failure is compensated by member teardown, while unknown provider state fails loud.",
+      "testAnchors": [{ "file": "tests/member-provisioning.spec.ts" }],
+      "documentationAnchors": [{ "file": "docs/04-core-protocol.md" }],
+      "maturity": {
+        "implementation": { "state": "implemented", "evidence": ["src/tools/team-lifecycle.ts"] },
+        "verification": { "state": "composition-anchored", "evidence": ["tests/member-provisioning.spec.ts"] },
+        "acceptance": { "state": "not-asserted", "evidence": [] },
+        "availability": { "state": "source-registered", "evidence": ["src/tools/team-lifecycle.ts"] }
+      },
+      "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT", "PER_TOOL_DEEP_SEMANTICS_DEFERRED"]
+    },
+    {
+      "id": "tool:agent_swarm_add_memory",
+      "family": "budget-memory",
+      "source": { "module": "src/tools/budget-memory.ts", "symbol": "registerAddMemoryTool" },
+      "ownerAuthority": "domain:agent-swarm",
+      "callerPermissionClass": { "caller": "team-participant", "defaultPolicy": "allow", "source": { "file": "src/runtime/permission-policy.ts", "symbol": "PLUGIN_TOOL_NAMES" } },
+      "operation": "mutation",
+      "domainTransactionEffect": { "kind": "domain-transaction", "summary": "Appends bounded durable Team memory to the canonical Team aggregate." },
+      "availability": { "state": "registered", "conditions": ["plugin enabled", "active Team", "required injections mounted"] },
+      "bounds": [],
+      "recoveryFailure": "Validation or durable commit failure returns an error and does not publish a memory id; callers must read authoritative memory before uncertain retry.",
+      "testAnchors": [{ "file": "tests/memory-member-profile.spec.ts" }],
+      "documentationAnchors": [{ "file": "docs/04-core-protocol.md" }],
+      "maturity": {
+        "implementation": { "state": "implemented", "evidence": ["src/tools/budget-memory.ts"] },
+        "verification": { "state": "unit-anchored", "evidence": ["tests/memory-member-profile.spec.ts"] },
+        "acceptance": { "state": "not-asserted", "evidence": [] },
+        "availability": { "state": "source-registered", "evidence": ["src/tools/budget-memory.ts"] }
+      },
+      "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT", "PER_TOOL_DEEP_SEMANTICS_DEFERRED"]
+    },
+    {
+      "id": "tool:agent_swarm_add_personal_memory",
+      "family": "budget-memory",
+      "source": { "module": "src/tools/budget-memory.ts", "symbol": "registerAddPersonalMemoryTool" },
+      "ownerAuthority": "domain:agent-swarm",
+      "callerPermissionClass": { "caller": "team-participant", "defaultPolicy": "allow", "source": { "file": "src/runtime/permission-policy.ts", "symbol": "PLUGIN_TOOL_NAMES" } },
+      "operation": "mutation",
+      "domainTransactionEffect": { "kind": "domain-transaction", "summary": "Appends personal memory fenced to the live caller or a captain-selected active member." },
+      "availability": { "state": "registered", "conditions": ["plugin enabled", "active Team", "required injections mounted"] },
+      "bounds": [],
+      "recoveryFailure": "Ownership mismatch and inactive owners fail closed; commit failure publishes no successful result and requires authoritative read-back before retry.",
+      "testAnchors": [{ "file": "tests/memory-member-profile.spec.ts" }],
+      "documentationAnchors": [{ "file": "docs/04-core-protocol.md" }],
+      "maturity": {
+        "implementation": { "state": "implemented", "evidence": ["src/tools/budget-memory.ts"] },
+        "verification": { "state": "unit-anchored", "evidence": ["tests/memory-member-profile.spec.ts"] },
+        "acceptance": { "state": "not-asserted", "evidence": [] },
+        "availability": { "state": "source-registered", "evidence": ["src/tools/budget-memory.ts"] }
+      },
+      "evidenceGaps": ["NO_DIRECT_TEST", "NO_COMPOSITION_TEST", "NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT", "PER_TOOL_DEEP_SEMANTICS_DEFERRED"]
+    },
+    {
+      "id": "tool:agent_swarm_archive",
+      "family": "team-lifecycle",
+      "source": { "module": "src/tools/team-lifecycle.ts", "symbol": "registerArchiveTool" },
+      "ownerAuthority": "domain:agent-swarm",
+      "callerPermissionClass": { "caller": "captain-only", "defaultPolicy": "allow", "source": { "file": "src/runtime/permission-policy.ts", "symbol": "decideToolPermission" } },
+      "operation": "mutation",
+      "domainTransactionEffect": { "kind": "domain-transaction+external-effect", "summary": "Irreversibly archives Team state, fences unfinished work, cancels queued mail, then drains members." },
+      "availability": { "state": "registered", "conditions": ["plugin enabled", "live captain", "active Team"] },
+      "bounds": [],
+      "recoveryFailure": "The durable archive transition is authoritative; member drain failures remain explicit cleanup failures and must not resurrect the Team.",
+      "testAnchors": [],
+      "documentationAnchors": [{ "file": "docs/04-core-protocol.md" }],
+      "maturity": {
+        "implementation": { "state": "implemented", "evidence": ["src/tools/team-lifecycle.ts"] },
+        "verification": { "state": "none", "evidence": [] },
+        "acceptance": { "state": "not-asserted", "evidence": [] },
+        "availability": { "state": "source-registered", "evidence": ["src/tools/team-lifecycle.ts"] }
+      },
+      "evidenceGaps": ["NO_DIRECT_TEST", "NO_COMPOSITION_TEST", "NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT", "PER_TOOL_DEEP_SEMANTICS_DEFERRED"]
+    },
+    {
+      "id": "tool:agent_swarm_claim_task",
+      "family": "task",
+      "source": { "module": "src/tools/task-board.ts", "symbol": "registerClaimTaskTool" },
+      "ownerAuthority": "domain:agent-swarm",
+      "callerPermissionClass": { "caller": "team-participant", "defaultPolicy": "allow", "source": { "file": "src/runtime/permission-policy.ts", "symbol": "PLUGIN_TOOL_NAMES" } },
+      "operation": "mutation",
+      "domainTransactionEffect": { "kind": "domain-transaction+external-effect", "summary": "Revision-CAS claims a ready task, creates an attempt fence, and optionally allocates an execution root before delivery." },
+      "availability": { "state": "registered", "conditions": ["plugin enabled", "ready task", "budget and membership guards pass"] },
+      "bounds": [],
+      "recoveryFailure": "Stale revision or unavailable work fails before ownership transfer; assignment delivery uses the D1 exact-read-back recovery closure, while execution-root availability remains configuration-dependent.",
+      "testAnchors": [{ "file": "tests/model-experience.spec.ts" }, { "file": "tests/assignment-visibility.spec.ts" }],
+      "documentationAnchors": [{ "file": "docs/04-core-protocol.md" }, { "file": "docs/08-testing-verification.md" }],
+      "maturity": {
+        "implementation": { "state": "implemented", "evidence": ["src/tools/task-board.ts"] },
+        "verification": { "state": "composition-anchored", "evidence": ["tests/model-experience.spec.ts", "tests/assignment-visibility.spec.ts"] },
+        "acceptance": { "state": "not-asserted", "evidence": [] },
+        "availability": { "state": "source-registered", "evidence": ["src/tools/task-board.ts"] }
+      },
+      "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT", "PER_TOOL_DEEP_SEMANTICS_DEFERRED"]
+    },
+    {
+      "id": "tool:agent_swarm_create",
+      "family": "team-lifecycle",
+      "source": { "module": "src/tools/team-lifecycle.ts", "symbol": "registerCreateTool" },
+      "ownerAuthority": "domain:agent-swarm",
+      "callerPermissionClass": { "caller": "captain-only", "defaultPolicy": "allow", "source": { "file": "src/runtime/permission-policy.ts", "symbol": "decideToolPermission" } },
+      "operation": "mutation",
+      "domainTransactionEffect": { "kind": "domain-transaction", "summary": "Creates one durable Team aggregate and binds the live calling agent as captain." },
+      "availability": { "state": "registered", "conditions": ["plugin enabled", "required injections mounted", "captain has no active Team in workspace"] },
+      "bounds": [],
+      "recoveryFailure": "Duplicate active ownership and validation fail closed; durable commit failure publishes no Team result.",
+      "testAnchors": [{ "file": "tests/dsh-composition.spec.ts" }],
+      "documentationAnchors": [{ "file": "docs/04-core-protocol.md" }],
+      "maturity": {
+        "implementation": { "state": "implemented", "evidence": ["src/tools/team-lifecycle.ts"] },
+        "verification": { "state": "composition-anchored", "evidence": ["tests/dsh-composition.spec.ts"] },
+        "acceptance": { "state": "not-asserted", "evidence": [] },
+        "availability": { "state": "source-registered", "evidence": ["src/tools/team-lifecycle.ts"] }
+      },
+      "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT", "PER_TOOL_DEEP_SEMANTICS_DEFERRED"]
+    },
+    {
+      "id": "tool:agent_swarm_create_task",
+      "family": "task",
+      "source": { "module": "src/tools/task-board.ts", "symbol": "registerCreateTaskTool" },
+      "ownerAuthority": "domain:agent-swarm",
+      "callerPermissionClass": { "caller": "team-participant", "defaultPolicy": "allow", "source": { "file": "src/runtime/permission-policy.ts", "symbol": "PLUGIN_TOOL_NAMES" } },
+      "operation": "mutation",
+      "domainTransactionEffect": { "kind": "domain-transaction", "summary": "Commits a dependency-aware task and may trigger priority-ready scheduling." },
+      "availability": { "state": "registered", "conditions": ["plugin enabled", "active Team", "task and dependency bounds pass"] },
+      "bounds": [],
+      "recoveryFailure": "Invalid dependencies, verification declarations, reservation floors, or size limits fail before task commit; scheduling follows committed state.",
+      "testAnchors": [{ "file": "tests/assignment-visibility.spec.ts" }],
+      "documentationAnchors": [{ "file": "docs/04-core-protocol.md" }],
+      "maturity": {
+        "implementation": { "state": "implemented", "evidence": ["src/tools/task-board.ts"] },
+        "verification": { "state": "composition-anchored", "evidence": ["tests/assignment-visibility.spec.ts"] },
+        "acceptance": { "state": "not-asserted", "evidence": [] },
+        "availability": { "state": "source-registered", "evidence": ["src/tools/task-board.ts"] }
+      },
+      "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT", "PER_TOOL_DEEP_SEMANTICS_DEFERRED"]
+    },
+    {
+      "id": "tool:agent_swarm_interrupt_member",
+      "family": "team-lifecycle",
+      "source": { "module": "src/tools/team-lifecycle.ts", "symbol": "registerInterruptMemberTool" },
+      "ownerAuthority": "domain:agent-swarm",
+      "callerPermissionClass": { "caller": "captain-only", "defaultPolicy": "allow", "source": { "file": "src/runtime/permission-policy.ts", "symbol": "decideToolPermission" } },
+      "operation": "mutation",
+      "domainTransactionEffect": { "kind": "external-effect", "summary": "Cancels one member turn through the continuable subagent boundary while preserving inbox, ownership, and roster state." },
+      "availability": { "state": "registered", "conditions": ["plugin enabled", "live captain", "host proves an unmatched aged tool call"] },
+      "bounds": [],
+      "recoveryFailure": "Admission fails without host evidence; an interrupt transport failure preserves canonical Team ownership and must be observed before retry.",
+      "testAnchors": [{ "file": "tests/official-compat-semantics.spec.ts" }],
+      "documentationAnchors": [{ "file": "docs/04-core-protocol.md" }],
+      "maturity": {
+        "implementation": { "state": "implemented", "evidence": ["src/tools/team-lifecycle.ts"] },
+        "verification": { "state": "composition-anchored", "evidence": ["tests/official-compat-semantics.spec.ts"] },
+        "acceptance": { "state": "not-asserted", "evidence": [] },
+        "availability": { "state": "source-registered", "evidence": ["src/tools/team-lifecycle.ts"] }
+      },
+      "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT", "PER_TOOL_DEEP_SEMANTICS_DEFERRED"]
+    },
+    {
+      "id": "tool:agent_swarm_list_jobs",
+      "family": "read",
+      "source": { "module": "src/tools/read-surface.ts", "symbol": "registerListJobsTool" },
+      "ownerAuthority": "domain:agent-swarm",
+      "callerPermissionClass": { "caller": "team-participant", "defaultPolicy": "allow", "source": { "file": "src/runtime/permission-policy.ts", "symbol": "PLUGIN_TOOL_NAMES" } },
+      "operation": "read",
+      "domainTransactionEffect": { "kind": "projection-read", "summary": "Reads the non-authoritative Team jobs projection and never creates or cancels jobs." },
+      "availability": { "state": "config-disabled-by-default", "conditions": ["plugin enabled", "jobsBridge=true", "jobs projection mounted"] },
+      "bounds": [
+        { "name": "page limit", "value": "1..100 (default 50)", "source": { "file": "src/tools/read-surface.ts", "symbol": "registerListJobsTool" } }
+      ],
+      "recoveryFailure": "Fails loud with TEAM_JOBS_BRIDGE_DISABLED when the projection is absent; invalid cursor or limit fails before projection read.",
+      "testAnchors": [{ "file": "tests/jobs-reader.spec.ts" }],
+      "documentationAnchors": [{ "file": "docs/08-testing-verification.md" }],
+      "maturity": {
+        "implementation": { "state": "implemented", "evidence": ["src/tools/read-surface.ts"] },
+        "verification": { "state": "composition-anchored", "evidence": ["tests/jobs-reader.spec.ts"] },
+        "acceptance": { "state": "not-asserted", "evidence": [] },
+        "availability": { "state": "config-disabled-by-default", "evidence": ["src/index.ts", "src/tools/read-surface.ts"] }
+      },
+      "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT", "CONFIG_DISABLED_BY_DEFAULT", "PER_TOOL_DEEP_SEMANTICS_DEFERRED"]
+    },
+    {
+      "id": "tool:agent_swarm_list_memory",
+      "family": "budget-memory",
+      "source": { "module": "src/tools/budget-memory.ts", "symbol": "registerListMemoryTool" },
+      "ownerAuthority": "domain:agent-swarm",
+      "callerPermissionClass": { "caller": "team-participant", "defaultPolicy": "allow", "source": { "file": "src/runtime/permission-policy.ts", "symbol": "PLUGIN_TOOL_NAMES" } },
+      "operation": "read",
+      "domainTransactionEffect": { "kind": "authoritative-read", "summary": "Reads authorized Team or personal memories; semantic ranking may degrade explicitly to deterministic ranking." },
+      "availability": { "state": "registered", "conditions": ["plugin enabled", "active Team", "semantic provider optional"] },
+      "bounds": [
+        { "name": "page limit", "value": "1..32 (default 8)", "source": { "file": "src/tools/budget-memory.ts", "symbol": "registerListMemoryTool" } },
+        { "name": "query code points", "value": "0..2048", "source": { "file": "src/tools/budget-memory.ts", "symbol": "registerListMemoryTool" } }
+      ],
+      "recoveryFailure": "Authorization, cursor, and bound failures are terminal for the call; semantic provider failure returns an explicit degraded deterministic strategy.",
+      "testAnchors": [{ "file": "tests/memory-member-profile.spec.ts" }],
+      "documentationAnchors": [{ "file": "docs/04-core-protocol.md" }],
+      "maturity": {
+        "implementation": { "state": "implemented", "evidence": ["src/tools/budget-memory.ts"] },
+        "verification": { "state": "unit-anchored", "evidence": ["tests/memory-member-profile.spec.ts"] },
+        "acceptance": { "state": "not-asserted", "evidence": [] },
+        "availability": { "state": "source-registered", "evidence": ["src/tools/budget-memory.ts"] }
+      },
+      "evidenceGaps": ["NO_DIRECT_TEST", "NO_COMPOSITION_TEST", "NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT", "PER_TOOL_DEEP_SEMANTICS_DEFERRED"]
+    },
+    {
+      "id": "tool:agent_swarm_list_tasks",
+      "family": "read",
+      "source": { "module": "src/tools/read-surface.ts", "symbol": "registerListTasksTool" },
+      "ownerAuthority": "domain:agent-swarm",
+      "callerPermissionClass": { "caller": "team-participant", "defaultPolicy": "allow", "source": { "file": "src/runtime/permission-policy.ts", "symbol": "PLUGIN_TOOL_NAMES" } },
+      "operation": "read",
+      "domainTransactionEffect": { "kind": "authoritative-read", "summary": "Reads filtered task rows from the canonical Team aggregate with cursor pagination." },
+      "availability": { "state": "registered", "conditions": ["plugin enabled", "active Team"] },
+      "bounds": [
+        { "name": "page limit", "value": "1..100 (default 50)", "source": { "file": "src/tools/read-surface.ts", "symbol": "registerListTasksTool" } }
+      ],
+      "recoveryFailure": "Invalid filters, cursor, or limit fail before the read; retries are read-only and use the returned revision/cursor context.",
+      "testAnchors": [{ "file": "tests/model-experience.spec.ts" }],
+      "documentationAnchors": [{ "file": "docs/08-testing-verification.md" }],
+      "maturity": {
+        "implementation": { "state": "implemented", "evidence": ["src/tools/read-surface.ts"] },
+        "verification": { "state": "composition-anchored", "evidence": ["tests/model-experience.spec.ts"] },
+        "acceptance": { "state": "not-asserted", "evidence": [] },
+        "availability": { "state": "source-registered", "evidence": ["src/tools/read-surface.ts"] }
+      },
+      "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT", "PER_TOOL_DEEP_SEMANTICS_DEFERRED"]
+    },
+    {
+      "id": "tool:agent_swarm_reassign_task",
+      "family": "task",
+      "source": { "module": "src/tools/task-board.ts", "symbol": "registerReassignTaskTool" },
+      "ownerAuthority": "domain:agent-swarm",
+      "callerPermissionClass": { "caller": "captain-only", "defaultPolicy": "allow", "source": { "file": "src/runtime/permission-policy.ts", "symbol": "decideToolPermission" } },
+      "operation": "mutation",
+      "domainTransactionEffect": { "kind": "domain-transaction+external-effect", "summary": "Fences the current attempt, returns the task to pending, and interrupts the prior assignee before fresh scheduling." },
+      "availability": { "state": "registered", "conditions": ["plugin enabled", "live captain", "exact task revision"] },
+      "bounds": [],
+      "recoveryFailure": "Revision or attempt mismatch fails closed; the fenced Team transition remains authoritative if later interruption or rescheduling fails.",
+      "testAnchors": [],
+      "documentationAnchors": [{ "file": "docs/04-core-protocol.md" }],
+      "maturity": {
+        "implementation": { "state": "implemented", "evidence": ["src/tools/task-board.ts"] },
+        "verification": { "state": "none", "evidence": [] },
+        "acceptance": { "state": "not-asserted", "evidence": [] },
+        "availability": { "state": "source-registered", "evidence": ["src/tools/task-board.ts"] }
+      },
+      "evidenceGaps": ["NO_DIRECT_TEST", "NO_COMPOSITION_TEST", "NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT", "PER_TOOL_DEEP_SEMANTICS_DEFERRED"]
+    },
+    {
+      "id": "tool:agent_swarm_remove_member",
+      "family": "team-lifecycle",
+      "source": { "module": "src/tools/team-lifecycle.ts", "symbol": "registerRemoveMemberTool" },
+      "ownerAuthority": "domain:agent-swarm",
+      "callerPermissionClass": { "caller": "captain-only", "defaultPolicy": "allow", "source": { "file": "src/runtime/permission-policy.ts", "symbol": "decideToolPermission" } },
+      "operation": "mutation",
+      "domainTransactionEffect": { "kind": "domain-transaction+external-effect", "summary": "Fences member attempts, requeues tasks, cancels queued mail, commits roster removal, then interrupts and drains the child." },
+      "availability": { "state": "registered", "conditions": ["plugin enabled", "live captain", "active member"] },
+      "bounds": [],
+      "recoveryFailure": "The fenced Team mutation is authoritative once committed; interruption or drain failure remains explicit cleanup work and cannot restore ownership.",
+      "testAnchors": [],
+      "documentationAnchors": [{ "file": "docs/04-core-protocol.md" }],
+      "maturity": {
+        "implementation": { "state": "implemented", "evidence": ["src/tools/team-lifecycle.ts"] },
+        "verification": { "state": "none", "evidence": [] },
+        "acceptance": { "state": "not-asserted", "evidence": [] },
+        "availability": { "state": "source-registered", "evidence": ["src/tools/team-lifecycle.ts"] }
+      },
+      "evidenceGaps": ["NO_DIRECT_TEST", "NO_COMPOSITION_TEST", "NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT", "PER_TOOL_DEEP_SEMANTICS_DEFERRED"]
+    },
+    {
+      "id": "tool:agent_swarm_review_task",
+      "family": "task",
+      "source": { "module": "src/tools/task-board.ts", "symbol": "registerReviewTaskTool" },
+      "ownerAuthority": "domain:agent-swarm",
+      "callerPermissionClass": { "caller": "captain-only", "defaultPolicy": "allow", "source": { "file": "src/runtime/permission-policy.ts", "symbol": "decideToolPermission" } },
+      "operation": "mutation",
+      "domainTransactionEffect": { "kind": "domain-transaction+external-effect", "summary": "Runs the configured review provider and accepts or rejects the exact submitted attempt through the canonical review gate." },
+      "availability": { "state": "registered", "conditions": ["plugin enabled", "live captain", "submitted exact attempt", "review provider available"] },
+      "bounds": [],
+      "recoveryFailure": "Provider failure does not self-accept; stale attempts fail closed and an unknown verification result requires authoritative task read-back before retry.",
+      "testAnchors": [{ "file": "tests/model-experience.spec.ts" }],
+      "documentationAnchors": [{ "file": "docs/04-core-protocol.md" }, { "file": "docs/08-testing-verification.md" }],
+      "maturity": {
+        "implementation": { "state": "implemented", "evidence": ["src/tools/task-board.ts"] },
+        "verification": { "state": "composition-anchored", "evidence": ["tests/model-experience.spec.ts"] },
+        "acceptance": { "state": "not-asserted", "evidence": [] },
+        "availability": { "state": "source-registered", "evidence": ["src/tools/task-board.ts"] }
+      },
+      "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT", "PER_TOOL_DEEP_SEMANTICS_DEFERRED"]
+    },
+    {
+      "id": "tool:agent_swarm_send_message",
+      "family": "mailbox",
+      "source": { "module": "src/tools/mailbox.ts", "symbol": "registerSendMessageTool" },
+      "ownerAuthority": "domain:agent-swarm",
+      "callerPermissionClass": { "caller": "team-participant", "defaultPolicy": "allow", "source": { "file": "src/runtime/permission-policy.ts", "symbol": "PLUGIN_TOOL_NAMES" } },
+      "operation": "mutation",
+      "domainTransactionEffect": { "kind": "domain-transaction+external-effect", "summary": "Persists a Team message before quiet or wakeup best-effort delivery to the continuable recipient." },
+      "availability": { "state": "registered", "conditions": ["plugin enabled", "active Team", "authorized target"] },
+      "bounds": [],
+      "recoveryFailure": "A queued result is durable and must not be resent; delivery failure preserves queued authority for later retry or cold resume.",
+      "testAnchors": [{ "file": "tests/message-delivery.spec.ts" }],
+      "documentationAnchors": [{ "file": "docs/04-core-protocol.md" }],
+      "maturity": {
+        "implementation": { "state": "implemented", "evidence": ["src/tools/mailbox.ts"] },
+        "verification": { "state": "composition-anchored", "evidence": ["tests/message-delivery.spec.ts"] },
+        "acceptance": { "state": "not-asserted", "evidence": [] },
+        "availability": { "state": "source-registered", "evidence": ["src/tools/mailbox.ts"] }
+      },
+      "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT", "PER_TOOL_DEEP_SEMANTICS_DEFERRED"]
+    },
+    {
+      "id": "tool:agent_swarm_set_budget",
+      "family": "budget-memory",
+      "source": { "module": "src/tools/budget-memory.ts", "symbol": "registerSetBudgetTool" },
+      "ownerAuthority": "domain:agent-swarm",
+      "callerPermissionClass": { "caller": "captain-only", "defaultPolicy": "allow", "source": { "file": "src/runtime/permission-policy.ts", "symbol": "decideToolPermission" } },
+      "operation": "mutation",
+      "domainTransactionEffect": { "kind": "domain-transaction", "summary": "Updates Team token, request, retry, and deadline limits while retaining accumulated usage." },
+      "availability": { "state": "registered", "conditions": ["plugin enabled", "live captain", "active Team"] },
+      "bounds": [],
+      "recoveryFailure": "Invalid limits fail before mutation; durable commit failure retains prior limits and usage and must be read back before retry.",
+      "testAnchors": [],
+      "documentationAnchors": [{ "file": "docs/04-core-protocol.md" }],
+      "maturity": {
+        "implementation": { "state": "implemented", "evidence": ["src/tools/budget-memory.ts"] },
+        "verification": { "state": "none", "evidence": [] },
+        "acceptance": { "state": "not-asserted", "evidence": [] },
+        "availability": { "state": "source-registered", "evidence": ["src/tools/budget-memory.ts"] }
+      },
+      "evidenceGaps": ["NO_DIRECT_TEST", "NO_COMPOSITION_TEST", "NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT", "PER_TOOL_DEEP_SEMANTICS_DEFERRED"]
+    },
+    {
+      "id": "tool:agent_swarm_status",
+      "family": "read",
+      "source": { "module": "src/tools/read-surface.ts", "symbol": "registerStatusTool" },
+      "ownerAuthority": "domain:agent-swarm",
+      "callerPermissionClass": { "caller": "team-participant", "defaultPolicy": "allow", "source": { "file": "src/runtime/permission-policy.ts", "symbol": "PLUGIN_TOOL_NAMES" } },
+      "operation": "read",
+      "domainTransactionEffect": { "kind": "authoritative-read", "summary": "Reads a fixed-size Team counter summary without embedding unbounded task rows." },
+      "availability": { "state": "registered", "conditions": ["plugin enabled", "active Team"] },
+      "bounds": [
+        { "name": "task rows embedded", "value": 0, "source": { "file": "src/tools/read-surface.ts", "symbol": "registerStatusTool" } }
+      ],
+      "recoveryFailure": "Read or authorization failure has no mutation; callers may retry after checking active Team identity.",
+      "testAnchors": [{ "file": "tests/model-experience.spec.ts" }],
+      "documentationAnchors": [{ "file": "docs/08-testing-verification.md" }],
+      "maturity": {
+        "implementation": { "state": "implemented", "evidence": ["src/tools/read-surface.ts"] },
+        "verification": { "state": "composition-anchored", "evidence": ["tests/model-experience.spec.ts"] },
+        "acceptance": { "state": "not-asserted", "evidence": [] },
+        "availability": { "state": "source-registered", "evidence": ["src/tools/read-surface.ts"] }
+      },
+      "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT", "PER_TOOL_DEEP_SEMANTICS_DEFERRED"]
+    },
+    {
+      "id": "tool:agent_swarm_submit_task",
+      "family": "task",
+      "source": { "module": "src/tools/task-board.ts", "symbol": "registerSubmitTaskTool" },
+      "ownerAuthority": "domain:agent-swarm",
+      "callerPermissionClass": { "caller": "team-participant", "defaultPolicy": "allow", "source": { "file": "src/runtime/permission-policy.ts", "symbol": "PLUGIN_TOOL_NAMES" } },
+      "operation": "mutation",
+      "domainTransactionEffect": { "kind": "domain-transaction", "summary": "Submits the exact current attempt and evidence for captain review without completing the canonical task." },
+      "availability": { "state": "registered", "conditions": ["plugin enabled", "calling participant owns exact current attempt"] },
+      "bounds": [],
+      "recoveryFailure": "Stale attempt or revision fails closed and the caller must stop; commit failure does not imply submission and requires authoritative task read-back.",
+      "testAnchors": [{ "file": "tests/dsh-composition.spec.ts" }],
+      "documentationAnchors": [{ "file": "docs/04-core-protocol.md" }],
+      "maturity": {
+        "implementation": { "state": "implemented", "evidence": ["src/tools/task-board.ts"] },
+        "verification": { "state": "composition-anchored", "evidence": ["tests/dsh-composition.spec.ts"] },
+        "acceptance": { "state": "not-asserted", "evidence": [] },
+        "availability": { "state": "source-registered", "evidence": ["src/tools/task-board.ts"] }
+      },
+      "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT", "PER_TOOL_DEEP_SEMANTICS_DEFERRED"]
+    },
+    {
+      "id": "tool:agent_swarm_wait",
+      "family": "mailbox",
+      "source": { "module": "src/tools/mailbox.ts", "symbol": "registerWaitTool" },
+      "ownerAuthority": "domain:agent-swarm",
+      "callerPermissionClass": { "caller": "team-participant", "defaultPolicy": "allow", "source": { "file": "src/runtime/permission-policy.ts", "symbol": "PLUGIN_TOOL_NAMES" } },
+      "operation": "read",
+      "domainTransactionEffect": { "kind": "revision-wait", "summary": "Waits without polling for an authoritative Team revision change and returns unchanged at timeout." },
+      "availability": { "state": "registered", "conditions": ["plugin enabled", "active Team", "another member can make progress or immediate no_progress"] },
+      "bounds": [
+        { "name": "timeout milliseconds", "value": "10000..3600000 (default 30000)", "source": { "file": "src/tools/mailbox.ts", "symbol": "registerWaitTool" } }
+      ],
+      "recoveryFailure": "Caller cancellation fails with TEAM_WAIT_ABORTED; timeout is an unchanged read result and no_progress returns immediately when waiting cannot help.",
+      "testAnchors": [{ "file": "tests/model-experience.spec.ts" }, { "file": "tests/official-compat-semantics.spec.ts" }],
+      "documentationAnchors": [{ "file": "docs/04-core-protocol.md" }, { "file": "docs/08-testing-verification.md" }],
+      "maturity": {
+        "implementation": { "state": "implemented", "evidence": ["src/tools/mailbox.ts"] },
+        "verification": { "state": "composition-anchored", "evidence": ["tests/model-experience.spec.ts", "tests/official-compat-semantics.spec.ts"] },
+        "acceptance": { "state": "not-asserted", "evidence": [] },
+        "availability": { "state": "source-registered", "evidence": ["src/tools/mailbox.ts"] }
+      },
+      "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT", "PER_TOOL_DEEP_SEMANTICS_DEFERRED"]
+    }
+  ]
+}
