@@ -14,9 +14,23 @@ const root = fileURLToPath(new URL('..', import.meta.url))
 const schemaPath = resolve(root, 'docs/knowledge-graph/schema/manifest.schema.json')
 const sandbox = await mkdtemp(join(tmpdir(), 'swarm-knowledge-graph-'))
 const recoveryId = 'service:runtime-recovery'
+const sourceFactAuthority = { id: 'authority:source-tree', kind: 'authority' }
+
+const mechanicalAuthority = () => ({
+  id: sourceFactAuthority.id, kind: sourceFactAuthority.kind, classification: 'mechanical', factAuthority: sourceFactAuthority,
+  title: 'Source fact authority', anchors: [{ file: 'package.json' }],
+  config: { gates: [], defaultState: 'not-applicable', blockerCodes: [] },
+  inject: { required: [], optional: [], provides: [] }, lifecycle: {},
+  maturity: {
+    implementation: { state: 'implemented', evidence: [] }, verification: { state: 'none', evidence: [] },
+    acceptance: { state: 'not-candidate' }, availability: { state: 'unavailable', conditions: ['mechanical fixture'], blockers: [] },
+  },
+  security: { callerIdentity: 'unclassified', mutation: 'unclassified', dataClasses: ['unclassified'], guards: [], redlines: [] },
+  bounds: [], tags: [],
+})
 
 const authority = (id, kind, title, file) => ({
-  id, kind, title, anchors: [{ file }], ownerAuthority: { id, kind },
+  id, kind, classification: 'reviewed', factAuthority: sourceFactAuthority, title, anchors: [{ file }], ownerAuthority: { id, kind },
   config: { gates: [], defaultState: 'not-applicable', blockerCodes: [] },
   inject: { required: [], optional: [], provides: [] }, lifecycle: {},
   maturity: {
@@ -31,7 +45,7 @@ const authority = (id, kind, title, file) => ({
 
 function node(id, kind, title, owner, extra = {}) {
   return {
-    id, kind, title, anchors: [{ file: 'src/index.ts' }], ownerAuthority: owner,
+    id, kind, classification: 'reviewed', factAuthority: sourceFactAuthority, title, anchors: [{ file: 'src/index.ts' }], ownerAuthority: owner,
     config: { gates: [], defaultState: 'enabled', blockerCodes: [] },
     inject: { required: [], optional: [], provides: [] }, lifecycle: {},
     maturity: {
@@ -40,7 +54,7 @@ function node(id, kind, title, owner, extra = {}) {
       acceptance: { state: 'candidate' },
       availability: { state: 'always-registered', conditions: [], blockers: [] },
     },
-    security: { authoritySource: owner, callerIdentity: 'internal-provider', mutation: 'read', dataClasses: ['team'], guards: [], redlines: [] },
+    security: { authoritySource: owner, callerIdentity: 'internal-provider', mutation: 'none', dataClasses: ['team'], guards: [], redlines: [] },
     bounds: [], tags: [], ...extra,
   }
 }
@@ -49,7 +63,9 @@ function minimalManifest() {
   const team = { id: 'domain:agent-swarm', kind: 'domain' }
   const session = { id: 'official-authority:session', kind: 'official-authority' }
   const recovery = { id: 'service:runtime-recovery', kind: 'service' }
+  const guard = { id: 'guard:membership', kind: 'guard' }
   const nodes = [
+    mechanicalAuthority(),
     authority(team.id, team.kind, 'Team domain', 'src/domain/team-domain.ts'),
     node('entity:attempt', 'entity', 'Attempt', team),
     node('fence:attempt-id', 'fence', 'Attempt fence', team),
@@ -59,13 +75,14 @@ function minimalManifest() {
     node('checkpoint:session-accepted', 'checkpoint', 'Session accepted frame', session),
     node('consumer:assignment', 'consumer', 'Assignment consumer', team),
     node('provider:subagent', 'provider', 'Official Subagent provider', session),
-    node(recovery.id, recovery.kind, 'Runtime recovery service', team, { lifecycle: { recoveryOwner: recovery } }),
+    node(recovery.id, recovery.kind, 'Runtime recovery service', team, { lifecycle: { recoveryOwner: recovery }, security: { authoritySource: team, callerIdentity: 'internal-provider', mutation: 'read', dataClasses: ['team'], guards: [], redlines: [] } }),
+    node(guard.id, guard.kind, 'Membership guard', team),
     node('state-predicate:attempt-reserved', 'state-predicate', 'Attempt is reserved', team, {
       contract: { nodeKind: 'state-predicate', predicate: { entity: { id: 'entity:attempt', kind: 'entity' }, field: { schema: { id: 'entity:attempt', kind: 'entity' }, selector: 'attemptId' }, operator: 'present' } },
     }),
-    node('transaction:acknowledge-assignment', 'transaction', 'Acknowledge assignment', team),
+    node('transaction:acknowledge-assignment', 'transaction', 'Acknowledge assignment', team, { security: { authoritySource: team, callerIdentity: 'internal-provider', mutation: 'domain-transaction', dataClasses: ['team'], guards: [guard], redlines: [] } }),
   ].sort((a, b) => a.id.localeCompare(b.id))
-  const edge = (id, type, from, to, extra = {}) => ({ id, type, from, to, anchors: [{ file: 'src/index.ts' }], ...extra })
+  const edge = (id, type, from, to, extra = {}) => ({ id, type, classification: 'reviewed', from, to, anchors: [{ file: 'src/index.ts' }], ...extra })
   const edges = [
     edge('edge:assignment/branch', 'contains', { id: 'flow:assignment', kind: 'flow' }, { id: 'flow-branch:assignment/normal', kind: 'flow-branch' }),
     edge('edge:attempt/authority', 'persists-in', { id: 'entity:attempt', kind: 'entity' }, team),
@@ -74,6 +91,9 @@ function minimalManifest() {
     edge('edge:recovery/fence', 'reads', recovery, { id: 'fence:attempt-id', kind: 'fence' }),
     edge('edge:recovery/predicate', 'reads', recovery, { id: 'state-predicate:attempt-reserved', kind: 'state-predicate' }),
     edge('edge:recovery/transaction', 'calls', recovery, { id: 'transaction:acknowledge-assignment', kind: 'transaction' }),
+    edge('edge:owner/recovery', 'owns', team, recovery),
+    edge('edge:owner/transaction', 'owns', team, { id: 'transaction:acknowledge-assignment', kind: 'transaction' }),
+    edge('edge:guard/transaction', 'guards', guard, { id: 'transaction:acknowledge-assignment', kind: 'transaction' }),
     edge('edge:runtime/subagent-effect', 'calls', recovery, { id: 'provider:subagent', kind: 'provider' }, {
       crash: {
         flow: { id: 'flow:assignment', kind: 'flow' }, branch: { id: 'flow-branch:assignment/normal', kind: 'flow-branch' }, ordinal: 0,
@@ -87,11 +107,57 @@ function minimalManifest() {
     edge('edge:transaction/attempt', 'mutates', { id: 'transaction:acknowledge-assignment', kind: 'transaction' }, { id: 'entity:attempt', kind: 'entity' }),
   ].sort((a, b) => a.id.localeCompare(b.id))
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     project: { id: 'dsh-agent-swarm', sourceRoot: 'src', packageManifest: 'package.json' },
     inventoryPolicy: { sourceGlobs: ['src/**/*.ts', 'src/**/*.tsx'], importedAssetGlobs: [], excludedFiles: [] },
     nodes, edges, exceptions: [],
   }
+}
+
+function claimListManifest() {
+  const manifest = minimalManifest()
+  const team = { id: 'domain:agent-swarm', kind: 'domain' }
+  const task = { id: 'entity:task', kind: 'entity' }
+  const guard = { id: 'guard:task-revision', kind: 'guard' }
+  const transaction = { id: 'transaction:claim-task', kind: 'transaction' }
+  const claim = { id: 'tool:agent_swarm_claim_task', kind: 'model-tool' }
+  const list = { id: 'tool:agent_swarm_list_tasks', kind: 'model-tool' }
+  const toolsModule = {
+    ...mechanicalAuthority(), id: 'module:src/tools.ts', kind: 'module', title: 'src/tools.ts',
+    anchors: [{ file: 'src/tools.ts', selector: 'source-module' }],
+  }
+  manifest.nodes.push(
+    toolsModule,
+    node(task.id, task.kind, 'Task', team),
+    node(guard.id, guard.kind, 'Task revision guard', team),
+    node(transaction.id, transaction.kind, 'Claim task transaction', team, {
+      security: { authoritySource: team, callerIdentity: 'internal-provider', mutation: 'domain-transaction', dataClasses: ['team'], guards: [guard], redlines: [] },
+    }),
+    node(claim.id, claim.kind, 'Claim task', team, {
+      security: { authoritySource: team, callerIdentity: 'exec-agent', mutation: 'domain-transaction', dataClasses: ['team'], guards: [guard], redlines: [] },
+      bounds: [{ name: 'expected task revision', kind: 'revision', value: { min: 0 }, source: { file: 'src/domain/team-domain-board.ts', symbol: 'claimTask', selector: 'expectedRevision' } }],
+    }),
+    node(list.id, list.kind, 'List tasks', team, {
+      security: { authoritySource: team, callerIdentity: 'exec-agent', mutation: 'read', dataClasses: ['team'], guards: [guard], redlines: [] },
+      bounds: [{ name: 'maximum tasks', kind: 'items', value: { min: 1, max: 1000 }, source: { file: 'src/domain/team-domain.ts', symbol: 'TeamDomainLimits', selector: 'maxTasks' } }],
+    }),
+  )
+  const edge = (id, type, from, to) => ({ id, type, classification: 'reviewed', from, to, anchors: [{ file: 'src/index.ts' }] })
+  manifest.edges.push(
+    { id: 'edge:module/claim-task', type: 'contains', classification: 'mechanical', from: { id: toolsModule.id, kind: toolsModule.kind }, to: claim, anchors: [{ file: 'src/tools/task-board.ts', symbol: 'registerClaimTaskTool' }] },
+    edge('edge:claim-task/guard', 'guards', guard, claim),
+    edge('edge:claim-task/bound', 'bounded-by', claim, guard),
+    edge('edge:claim-task/trigger', 'triggers', claim, transaction),
+    edge('edge:claim-task/mutation', 'mutates', transaction, task),
+    edge('edge:list-tasks/read', 'reads', list, task),
+    edge('edge:owner/claim-task', 'owns', team, claim),
+    edge('edge:owner/list-tasks', 'owns', team, list),
+    edge('edge:owner/task', 'owns', team, task),
+    edge('edge:owner/transaction-claim-task', 'owns', team, transaction),
+  )
+  manifest.nodes.sort((a, b) => a.id.localeCompare(b.id))
+  manifest.edges.sort((a, b) => a.id.localeCompare(b.id))
+  return manifest
 }
 
 function expectCode(name, code, action) {
@@ -111,10 +177,59 @@ try {
   validateSchema(manifest)
   const summary = validateManifestSemantics(root, manifest)
   if (summary.digest !== graphDigest(manifest)) throw new Error('positive: digest mismatch')
+  const semanticContrast = claimListManifest()
+  validateSchema(semanticContrast)
+  validateManifestSemantics(root, semanticContrast)
+  expectCode('reviewed-claim-declared-none', 'KG_REVIEWED_CALLABLE_MODE_REQUIRED', () => {
+    const broken = structuredClone(semanticContrast)
+    broken.nodes.find(item => item.id === 'tool:agent_swarm_claim_task').security.mutation = 'none'
+    broken.edges = broken.edges.filter(item => item.id !== 'edge:claim-task/trigger')
+    validateManifestSemantics(root, broken)
+  })
+  expectCode('reviewed-list-missing-bound', 'KG_REVIEWED_READ_BOUND', () => {
+    const broken = structuredClone(semanticContrast)
+    broken.nodes.find(item => item.id === 'tool:agent_swarm_list_tasks').bounds = []
+    validateManifestSemantics(root, broken)
+  })
+  {
+    const mechanical = structuredClone(manifest)
+    const source = mechanical.nodes.find(item => item.id === 'authority:source-tree')
+    source.security.authoritySource = { id: 'authority:source-tree', kind: 'authority' }
+    expectCode('mechanical-security-authority', 'KG_SCHEMA_MISMATCH', () => validateSchema(mechanical))
+  }
+  {
+    const mechanical = structuredClone(manifest)
+    const source = mechanical.nodes.find(item => item.id === 'authority:source-tree')
+    source.ownerAuthority = { id: 'authority:source-tree', kind: 'authority' }
+    expectCode('mechanical-runtime-owner', 'KG_SCHEMA_MISMATCH', () => validateSchema(mechanical))
+  }
+  {
+    const mechanical = structuredClone(manifest)
+    const source = mechanical.nodes.find(item => item.id === 'authority:source-tree')
+    source.security.mutation = 'none'
+    expectCode('mechanical-classified-security', 'KG_SCHEMA_MISMATCH', () => validateSchema(mechanical))
+  }
+  {
+    const mechanicalEdge = structuredClone(manifest)
+    mechanicalEdge.edges.find(item => item.id === 'edge:recovery/checkpoint').classification = 'mechanical'
+    expectCode('mechanical-runtime-edge', 'KG_SCHEMA_MISMATCH', () => validateSchema(mechanicalEdge))
+  }
+  {
+    const mixed = structuredClone(semanticContrast)
+    mixed.edges.push({
+      id: 'edge:reviewed-to-mechanical', type: 'reads', classification: 'reviewed',
+      from: { id: 'tool:agent_swarm_list_tasks', kind: 'model-tool' },
+      to: { id: 'authority:source-tree', kind: 'authority' },
+      anchors: [{ file: 'src/tools/read-surface.ts', symbol: 'registerListTasksTool' }],
+    })
+    mixed.edges.sort((left, right) => left.id.localeCompare(right.id))
+    expectCode('mixed-edge-classification', 'KG_EDGE_CLASSIFICATION', () => validateManifestSemantics(root, mixed))
+  }
 
   const once = renderAtlas(manifest, summary.digest)
   const twice = renderAtlas(parseStrictJson(canonicalJson(manifest), 'roundtrip'), summary.digest)
   if (JSON.stringify([...once]) !== JSON.stringify([...twice])) throw new Error('positive: generation is nondeterministic')
+  if (!once.get('availability.md').includes('MECHANICAL / UNCLASSIFIED')) throw new Error('positive: mechanical classification is not visible in generated guidance')
   const output = join(sandbox, 'generated')
   await writeGeneratedFiles(output, once)
   await compareGeneratedFiles(output, twice)
@@ -172,7 +287,7 @@ try {
     crash.committedAfter = []
     crash.recoveryTransactions = []
     broken.edges = broken.edges.filter(item => item.id !== 'edge:recovery/transaction')
-    broken.edges.push({ id: 'edge:recovery/invalid-mutation', type: 'mutates', from: { id: recoveryId, kind: 'service' }, to: { id: 'transaction:acknowledge-assignment', kind: 'transaction' }, anchors: [{ file: 'src/index.ts' }] })
+    broken.edges.push({ id: 'edge:recovery/invalid-mutation', type: 'mutates', classification: 'reviewed', from: { id: recoveryId, kind: 'service' }, to: { id: 'transaction:acknowledge-assignment', kind: 'transaction' }, anchors: [{ file: 'src/index.ts' }] })
     broken.edges.sort((a, b) => a.id.localeCompare(b.id))
     validateManifestSemantics(root, broken)
   })
@@ -211,8 +326,8 @@ try {
   expectCode('multiple-state-owners', 'KG_MULTIPLE_OWNERS', () => {
     const broken = structuredClone(manifest)
     broken.edges.push(
-      { id: 'edge:attempt/owner-official', type: 'owns', from: { id: 'official-authority:session', kind: 'official-authority' }, to: { id: 'entity:attempt', kind: 'entity' }, anchors: [{ file: 'src/index.ts' }] },
-      { id: 'edge:attempt/owner-team', type: 'owns', from: { id: 'domain:agent-swarm', kind: 'domain' }, to: { id: 'entity:attempt', kind: 'entity' }, anchors: [{ file: 'src/index.ts' }] },
+      { id: 'edge:attempt/owner-official', type: 'owns', classification: 'reviewed', from: { id: 'official-authority:session', kind: 'official-authority' }, to: { id: 'entity:attempt', kind: 'entity' }, anchors: [{ file: 'src/index.ts' }] },
+      { id: 'edge:attempt/owner-team', type: 'owns', classification: 'reviewed', from: { id: 'domain:agent-swarm', kind: 'domain' }, to: { id: 'entity:attempt', kind: 'entity' }, anchors: [{ file: 'src/index.ts' }] },
     )
     broken.edges.sort((a, b) => a.id.localeCompare(b.id))
     validateManifestSemantics(root, broken)
@@ -280,7 +395,7 @@ try {
     if (!(error instanceof KnowledgeGraphError) || error.code !== 'KG_SCHEMA_MISMATCH') throw error
   }
 
-  console.log('Knowledge graph KG0 positive fixture, 34 negative cases, and 2 limit-boundary checks: PASS')
+  console.log('Knowledge graph KG0 positive fixture, 37 negative cases, and 2 limit-boundary checks: PASS')
 } finally {
   await rm(sandbox, { recursive: true, force: true })
 }

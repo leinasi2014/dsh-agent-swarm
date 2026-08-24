@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://dsh-agent-swarm.invalid/schema/knowledge-graph-manifest-v1.json",
-  "title": "dsh-agent-swarm knowledge graph manifest v1",
+  "$id": "https://dsh-agent-swarm.invalid/schema/knowledge-graph-manifest-v2.json",
+  "title": "dsh-agent-swarm knowledge graph manifest v2",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "project", "inventoryPolicy", "nodes", "edges", "exceptions"],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "project": {
       "type": "object",
       "additionalProperties": false,
@@ -158,14 +158,14 @@
     },
     "security": {
       "type": "object", "additionalProperties": false,
-      "required": ["authoritySource", "callerIdentity", "mutation", "dataClasses", "guards", "redlines"],
+      "required": ["callerIdentity", "mutation", "dataClasses", "guards", "redlines"],
       "properties": {
         "authoritySource": { "$ref": "#/$defs/authorityRef" },
-        "callerIdentity": { "enum": ["exec-agent", "live-root-session", "host-attested-human", "internal-provider", "none"] },
-        "mutation": { "enum": ["none", "read", "domain-transaction", "external-effect"] },
+        "callerIdentity": { "enum": ["unclassified", "exec-agent", "live-root-session", "host-attested-human", "internal-provider", "none"] },
+        "mutation": { "enum": ["unclassified", "none", "read", "domain-transaction", "external-effect"] },
         "dataClasses": {
-          "type": "array", "uniqueItems": true,
-          "items": { "enum": ["public", "workspace", "session", "team", "personal", "secret-excluded"] }
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": { "enum": ["unclassified", "public", "workspace", "session", "team", "personal", "secret-excluded"] }
         },
         "guards": { "type": "array", "items": { "$ref": "#/$defs/guardRef" }, "uniqueItems": true },
         "redlines": { "type": "array", "items": { "$ref": "#/$defs/redlineRef" }, "uniqueItems": true }
@@ -224,10 +224,12 @@
     "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
     "node": {
       "type": "object", "additionalProperties": false,
-      "required": ["id", "kind", "title", "anchors", "ownerAuthority", "config", "inject", "lifecycle", "maturity", "security", "bounds", "tags"],
+      "required": ["id", "kind", "classification", "factAuthority", "title", "anchors", "config", "inject", "lifecycle", "maturity", "security", "bounds", "tags"],
       "properties": {
         "id": { "$ref": "#/$defs/stableId" },
         "kind": { "$ref": "#/$defs/nodeKind" },
+        "classification": { "enum": ["mechanical", "reviewed"] },
+        "factAuthority": { "$ref": "#/$defs/authorityRef" },
         "title": { "type": "string", "minLength": 1, "maxLength": 512 },
         "anchors": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/anchor" } },
         "ownerAuthority": { "$ref": "#/$defs/authorityRef" },
@@ -269,7 +271,51 @@
           ]
         },
         "tags": { "type": "array", "maxItems": 64, "items": { "type": "string", "maxLength": 128, "pattern": "^[a-z][a-z0-9-]*$" }, "uniqueItems": true }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "classification": { "const": "mechanical" } }, "required": ["classification"] },
+          "then": {
+            "properties": {
+              "ownerAuthority": false,
+              "factAuthority": { "type": "object", "properties": { "id": { "const": "authority:source-tree" }, "kind": { "const": "authority" } } },
+              "security": {
+                "type": "object",
+                "properties": {
+                  "authoritySource": false,
+                  "callerIdentity": { "const": "unclassified" },
+                  "mutation": { "const": "unclassified" },
+                  "dataClasses": { "const": ["unclassified"] },
+                  "guards": { "type": "array", "maxItems": 0 },
+                  "redlines": { "type": "array", "maxItems": 0 }
+                }
+              },
+              "maturity": {
+                "type": "object",
+                "properties": {
+                  "verification": { "type": "object", "properties": { "state": { "const": "none" }, "evidence": { "type": "array", "maxItems": 0 } } },
+                  "acceptance": { "type": "object", "properties": { "state": { "const": "not-candidate" } } }
+                }
+              }
+            }
+          },
+          "else": {
+            "required": ["ownerAuthority"],
+            "properties": {
+              "security": {
+                "type": "object",
+                "required": ["authoritySource"],
+                "properties": {
+                  "authoritySource": { "type": "object", "properties": { "id": { "not": { "const": "authority:source-tree" } } } },
+                  "callerIdentity": { "not": { "const": "unclassified" } },
+                  "mutation": { "not": { "const": "unclassified" } },
+                  "dataClasses": { "type": "array", "not": { "contains": { "const": "unclassified" } } }
+                }
+              }
+            }
+          }
+        }
+      ]
     },
     "idempotency": {
       "type": "object", "additionalProperties": false, "required": ["domainTag", "components"],
@@ -324,16 +370,28 @@
       ]
     },
     "edge": {
-      "type": "object", "additionalProperties": false, "required": ["id", "type", "from", "to", "anchors"],
+      "type": "object", "additionalProperties": false, "required": ["id", "type", "classification", "from", "to", "anchors"],
       "properties": {
         "id": { "$ref": "#/$defs/stableId" },
-        "type": { "enum": ["contains", "exports", "registers", "provides", "consumes", "requires-inject", "optionally-injects", "configured-by", "owns", "reads", "mutates", "persists-in", "emits", "listens", "projects", "exposes", "triggers", "calls", "transitions", "checkpoints", "recovers", "guards", "bounded-by", "verified-by", "documented-by", "accepted-by", "blocked-by", "supersedes", "violates"] },
+        "type": { "enum": ["contains", "imports", "exports", "registers", "provides", "consumes", "requires-inject", "optionally-injects", "configured-by", "owns", "reads", "mutates", "persists-in", "emits", "listens", "projects", "exposes", "triggers", "calls", "transitions", "checkpoints", "recovers", "guards", "bounded-by", "verified-by", "documented-by", "accepted-by", "blocked-by", "supersedes", "violates"] },
+        "classification": { "enum": ["mechanical", "reviewed"] },
         "from": { "$ref": "#/$defs/ref" },
         "to": { "$ref": "#/$defs/ref" },
         "anchors": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/anchor" } },
         "contract": { "enum": ["required", "optional", "read-only", "mutation", "projection"] },
         "crash": { "$ref": "#/$defs/crash" }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "classification": { "const": "mechanical" } }, "required": ["classification"] },
+          "then": {
+            "properties": {
+              "type": { "enum": ["contains", "imports", "exports", "registers", "provides", "consumes", "requires-inject", "optionally-injects", "configured-by", "listens", "exposes", "calls"] },
+              "crash": false
+            }
+          }
+        }
+      ]
     },
     "exception": {
       "type": "object", "additionalProperties": false, "required": ["id", "scope", "rule", "owner", "reason", "expiry", "evidence"],

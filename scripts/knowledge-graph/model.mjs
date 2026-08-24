@@ -11,6 +11,7 @@ const dynamicKeys = new Set([
 
 const edgeKinds = {
   contains: [['package', '*'], ['entrypoint', '*'], ['module', '*'], ['domain', '*'], ['flow', 'flow-branch']],
+  imports: [['module', 'module'], ['module', 'package'], ['module', 'artifact']],
   exports: [['package', 'entrypoint'], ['entrypoint', '*'], ['module', '*']],
   registers: [['entrypoint', '*'], ['module', '*'], ['consumer', '*']],
   provides: [['provider', 'service'], ['provider', 'provider-registry'], ['entrypoint', 'service']],
@@ -40,6 +41,11 @@ const edgeKinds = {
   supersedes: [['*', '*']],
   violates: [['*', 'redline']],
 }
+
+const mechanicalEdgeKinds = new Set([
+  'contains', 'imports', 'exports', 'registers', 'provides', 'consumes', 'requires-inject',
+  'optionally-injects', 'configured-by', 'listens', 'exposes', 'calls',
+])
 
 function assertNoDynamicKeys(value, path = '$') {
   if (Array.isArray(value)) return value.forEach((item, index) => assertNoDynamicKeys(item, `${path}[${index}]`))
@@ -96,11 +102,71 @@ function validateOwnershipEdges(nodes, edges) {
   for (const [target, owners] of ownership) {
     if (new Set(owners).size > 1) fail('KG_MULTIPLE_OWNERS', `${target} has multiple ownership edges`)
     const node = nodes.get(target)
-    if (node.ownerAuthority.id !== owners[0]) fail('KG_OWNER_EDGE', `${target} ownership edge conflicts with ownerAuthority`)
+    if (node.classification !== 'reviewed' || node.ownerAuthority?.id !== owners[0]) fail('KG_OWNER_EDGE', `${target} ownership edge conflicts with reviewed ownerAuthority`)
   }
   for (const edge of edges.filter(item => item.type === 'persists-in')) {
     const source = nodes.get(edge.from.id)
-    if (source.ownerAuthority.id !== edge.to.id) fail('KG_OWNER_EDGE', `${edge.id} persists in a different authority than ${source.id}.ownerAuthority`)
+    if (source.ownerAuthority?.id !== edge.to.id) fail('KG_OWNER_EDGE', `${edge.id} persists in a different authority than ${source.id}.ownerAuthority`)
+  }
+}
+
+function validateClassification(nodes, edges) {
+  for (const node of nodes.values()) {
+    const mechanical = node.classification === 'mechanical'
+    if (mechanical) {
+      if (node.ownerAuthority !== undefined || node.security.authoritySource !== undefined) fail('KG_MECHANICAL_RUNTIME_AUTHORITY', `${node.id} mechanical fact cannot claim runtime authority`)
+      if (node.factAuthority.id !== 'authority:source-tree' || node.factAuthority.kind !== 'authority') fail('KG_MECHANICAL_FACT_AUTHORITY', `${node.id} mechanical fact must bind source-tree fact authority`)
+      if (node.security.callerIdentity !== 'unclassified' || node.security.mutation !== 'unclassified' || node.security.dataClasses.length !== 1 || node.security.dataClasses[0] !== 'unclassified') {
+        fail('KG_MECHANICAL_SECURITY', `${node.id} mechanical fact must keep runtime security unclassified`)
+      }
+      if (node.maturity.verification.state !== 'none' || node.maturity.verification.evidence.length !== 0 || node.maturity.acceptance.state !== 'not-candidate') {
+        fail('KG_MECHANICAL_MATURITY', `${node.id} mechanical fact cannot claim verification or acceptance`)
+      }
+      continue
+    }
+    if (node.classification !== 'reviewed') fail('KG_CLASSIFICATION', `${node.id} has unknown classification`)
+    if (node.ownerAuthority === undefined || node.ownerAuthority.id === 'authority:source-tree') fail('KG_REVIEWED_OWNER', `${node.id} reviewed fact requires a runtime owner distinct from source-tree`)
+    if (node.security.authoritySource === undefined || node.security.authoritySource.id === 'authority:source-tree') fail('KG_REVIEWED_SECURITY', `${node.id} reviewed fact requires runtime security authority`)
+    if (node.security.callerIdentity === 'unclassified' || node.security.mutation === 'unclassified' || node.security.dataClasses.includes('unclassified')) {
+      fail('KG_REVIEWED_SECURITY', `${node.id} reviewed security cannot be unclassified`)
+    }
+  }
+  for (const edge of edges) {
+    const from = nodes.get(edge.from.id)
+    const to = nodes.get(edge.to.id)
+    if (edge.classification === 'mechanical') {
+      if (!mechanicalEdgeKinds.has(edge.type) || edge.crash !== undefined) fail('KG_MECHANICAL_EDGE', `${edge.id} mechanical edge carries runtime semantics`)
+    } else if (edge.classification === 'reviewed') {
+      if (from?.classification !== 'reviewed' || to?.classification !== 'reviewed') fail('KG_EDGE_CLASSIFICATION', `${edge.id} reviewed edge endpoints must be reviewed`)
+    } else fail('KG_CLASSIFICATION', `${edge.id} has unknown classification`)
+  }
+  for (const node of nodes.values()) {
+    if (node.classification !== 'reviewed') continue
+    if (['model-tool', 'rpc-method'].includes(node.kind) && node.security.mutation === 'none') {
+      fail('KG_REVIEWED_CALLABLE_MODE_REQUIRED', `${node.id} reviewed callable must declare read, domain-transaction, or external-effect semantics`)
+    }
+    if (node.security.mutation === 'none' && ['model-tool', 'service', 'consumer', 'rpc-method', 'public-capability'].includes(node.kind) && edges.some(edge => edge.classification === 'reviewed' && ['mutates', 'triggers', 'transitions'].includes(edge.type) && edge.from.id === node.id)) {
+      fail('KG_REVIEWED_SECURITY_CONFLICT', `${node.id} invokes mutation semantics while declaring mutation:none`)
+    }
+    if (!['read', 'domain-transaction', 'external-effect'].includes(node.security.mutation)) continue
+    const owns = edges.filter(edge => edge.classification === 'reviewed' && edge.type === 'owns' && edge.from.id === node.ownerAuthority.id && edge.to.id === node.id)
+    if (owns.length !== 1) fail('KG_REVIEWED_OWNER_CLOSURE', `${node.id} reviewed runtime claim requires exactly one owner edge`)
+    if (node.security.mutation === 'read' && !edges.some(edge => edge.classification === 'reviewed' && edge.type === 'reads' && edge.from.id === node.id)) {
+      fail('KG_REVIEWED_READ_CLOSURE', `${node.id} reviewed read claim requires a reads edge`)
+    }
+    if (node.security.mutation === 'read' && ['model-tool', 'rpc-method', 'public-capability'].includes(node.kind) && node.bounds.length === 0) {
+      fail('KG_REVIEWED_READ_BOUND', `${node.id} reviewed public read claim requires an explicit response bound`)
+    }
+    if (node.security.mutation === 'external-effect' && !edges.some(edge => edge.classification === 'reviewed' && edge.type === 'calls' && edge.from.id === node.id && edge.to.kind === 'provider')) {
+      fail('KG_REVIEWED_EFFECT_CLOSURE', `${node.id} reviewed external effect requires a Provider call`)
+    }
+    if (node.security.mutation === 'domain-transaction') {
+      if (node.security.guards.length === 0) fail('KG_REVIEWED_MUTATION_GUARD', `${node.id} reviewed domain mutation requires a guard`)
+      const closed = node.kind === 'transaction'
+        ? edges.some(edge => edge.classification === 'reviewed' && edge.type === 'mutates' && edge.from.id === node.id)
+        : edges.some(edge => edge.classification === 'reviewed' && ['triggers', 'mutates'].includes(edge.type) && edge.from.id === node.id && edge.to.kind === 'transaction')
+      if (!closed) fail('KG_REVIEWED_MUTATION_CLOSURE', `${node.id} reviewed domain mutation requires typed transaction closure`)
+    }
   }
 }
 
@@ -187,9 +253,19 @@ export function validateManifestSemantics(root, manifest) {
   const nodes = new Map(manifest.nodes.map(node => [node.id, node]))
   for (const node of manifest.nodes) {
     for (const anchor of node.anchors) assertAnchor(root, anchor, node.id)
-    const authority = nodes.get(node.ownerAuthority.id)
-    if (!authority || authority.kind !== node.ownerAuthority.kind || !['authority', 'official-authority', 'domain'].includes(authority.kind)) {
-      fail('KG_OWNER_AUTHORITY', `${node.id} has an unresolved or mistyped ownerAuthority`)
+    const factAuthority = nodes.get(node.factAuthority.id)
+    if (!factAuthority || factAuthority.kind !== node.factAuthority.kind || !['authority', 'official-authority', 'domain'].includes(factAuthority.kind)) {
+      fail('KG_FACT_AUTHORITY', `${node.id} has an unresolved or mistyped factAuthority`)
+    }
+    if (node.classification === 'reviewed') {
+      const authority = nodes.get(node.ownerAuthority.id)
+      if (!authority || authority.kind !== node.ownerAuthority.kind || !['authority', 'official-authority', 'domain'].includes(authority.kind)) {
+        fail('KG_OWNER_AUTHORITY', `${node.id} has an unresolved or mistyped ownerAuthority`)
+      }
+      const securityAuthority = nodes.get(node.security.authoritySource.id)
+      if (!securityAuthority || securityAuthority.kind !== node.security.authoritySource.kind || !['authority', 'official-authority', 'domain'].includes(securityAuthority.kind)) {
+        fail('KG_SECURITY_AUTHORITY', `${node.id} has an unresolved or mistyped security authority`)
+      }
     }
     if (node.lifecycle.recoveryOwner) {
       const owner = nodes.get(node.lifecycle.recoveryOwner.id)
@@ -225,6 +301,7 @@ export function validateManifestSemantics(root, manifest) {
 
   validateOwnershipEdges(nodes, manifest.edges)
   validateCrashContracts(nodes, manifest.edges)
+  validateClassification(nodes, manifest.edges)
 
   for (const exception of manifest.exceptions) {
     exception.evidence.forEach(anchor => assertAnchor(root, anchor, exception.id))

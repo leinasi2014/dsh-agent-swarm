@@ -49,9 +49,10 @@ function renderMermaid(nodes, edges) {
 }
 
 function renderNodeTable(nodes) {
-  const lines = ['| Stable id | Kind | Implementation | Verification | Acceptance | Availability | Owner |', '|---|---|---|---|---|---|---|']
+  const lines = ['| Stable id | Kind | Classification | Implementation | Verification | Acceptance | Availability | Owner |', '|---|---|---|---|---|---|---|---|']
   for (const node of nodes) {
-    lines.push(`| \`${escapeTable(node.id)}\` | ${node.kind} | ${node.maturity.implementation.state} | ${node.maturity.verification.state} | ${node.maturity.acceptance.state} | ${node.maturity.availability.state} | \`${escapeTable(node.ownerAuthority.id)}\` |`)
+    const classification = node.classification === 'mechanical' ? 'MECHANICAL / UNCLASSIFIED' : 'REVIEWED'
+    lines.push(`| \`${escapeTable(node.id)}\` | ${node.kind} | ${classification} | ${node.maturity.implementation.state} | ${node.maturity.verification.state} | ${node.maturity.acceptance.state} | ${node.maturity.availability.state} | \`${escapeTable(node.ownerAuthority?.id ?? '(unclassified)')}\` |`)
   }
   return lines.join('\n')
 }

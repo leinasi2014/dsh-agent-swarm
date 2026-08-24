@@ -55,7 +55,7 @@ Canonical graph arrays are sorted by stable `id`; set-like fields are sorted by 
 
 ```ts
 interface KnowledgeGraphManifestV1 {
-  schemaVersion: 1
+  schemaVersion: 2
   project: {
     id: 'dsh-agent-swarm'
     sourceRoot: 'src'
@@ -189,7 +189,7 @@ interface AcceptanceEvidenceRefV1 {
 }
 
 interface AcceptanceReceiptV1 {
-  schemaVersion: 1
+  schemaVersion: 2
   receiptId: string
   candidate: { commit: string; tree: string; artifactSha256: string; authorIdentityRef: string }
   officialBaseline: { identity: string; digestSha256: string }
@@ -696,6 +696,8 @@ The complete atlas later adds family-specific state and redline diagrams generat
 
 ### KG1 — complete source inventory
 
+- **KG1-C is only the mechanical skeleton, not KG1 completion.** Its nodes and edges record extractor-backed source shape with `classification: mechanical`, `factAuthority: authority:source-tree`, no `ownerAuthority`, no runtime `security.authoritySource`, `unclassified` security, `verification: none` and `acceptance: not-candidate`. Mechanical edges may encode structure such as contains/imports/exports/registers, but never runtime ownership, reads, mutation, crash or recovery semantics. `--seed` emits only this skeleton and must never overwrite reviewed records.
+- **KG1-D performs the reviewed semantic closure.** A reviewed node gains a non-source runtime owner and classified security only when an accepted contract and exact source evidence support it. Reviewed semantic edges connect reviewed endpoints and close authority, guards, bounds, transactions, effects, checkpoints, fences, recovery and traceability. Until KG1-D completes, KG1-C inventory success must not be reported as KG1 success.
 - Populate every `src` module, all 19 tools, package/public exports, TeamDomain public methods/entities/enums, Config/defaults, inject/provide/get, Provider registries, Domains, RPC, Client slots/surfaces/Settings, events/listeners and lifecycle resources.
 - Fill owner, security, bounds, crash/recovery and all four maturity axes; use exact blockers rather than optimistic defaults.
 - Exit: extractor-to-graph and graph-to-anchor set equality passes; zero unexplained modules/public symbols; inventory matrix review confirms every capability family.
