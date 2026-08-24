@@ -70,6 +70,7 @@
     "verify:p0-fixtures": "node scripts/test-p0-profile-proof-gate.mjs",
     "verify:governance": "node scripts/verify-governance.mjs && node scripts/test-governance-gate.mjs",
     "verify:knowledge-graph:bootstrap": "node scripts/test-knowledge-graph-gate.mjs",
+    "verify:knowledge-graph:extractor": "node scripts/test-knowledge-graph-extractor.mjs",
     "verify:worktrees": "node scripts/verify-worktree-layout.mjs && node scripts/test-worktree-layout-gate.mjs",
     "verify:gate-a": "pnpm verify:workspace && pnpm verify:official && pnpm verify:references",
     "verify:structure": "node scripts/verify-project.mjs",
