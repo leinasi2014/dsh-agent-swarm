@@ -287,10 +287,12 @@ interface CrashContractV1 {
   ordinal: number
   phase: 'trigger' | 'transaction' | 'external-effect' | 'checkpoint' | 'recovery'
   durability: 'none' | 'atomic-commit' | 'external-unknown' | 'durable-readback'
+  recoveryMode: 'state-changing' | 'observe-block'
   expectedBefore: readonly StatePredicateRefV1[]
   committedAfter: readonly StatePredicateRefV1[]
   checkpoint?: CheckpointRefV1
   fences: readonly FenceRefV1[]
+  recoveryTransactions: readonly NodeRefV1<'transaction'>[]
   failureCode: string
   authoritativePostState: 'unchanged' | 'committed' | 'unknown'
   idempotency?: IdempotencyTupleV1
@@ -329,7 +331,7 @@ interface GraphEdgeV1 {
 
 Only edges on effectful flows carry `crash`. `external-effect` defaults to authoritative post-state `unknown` unless exact provider semantics prove otherwise. `flow`, `branch`, ordinal, predicates, checkpoint, fences and recovery owner must close to canonical nodes; the branch must belong to the same flow and ordinals must be unique/contiguous within it. Recovery names one typed executable owner and an exact read-back/fence rule. An authority/domain is never an executor: when an authority exposes recovery, a separate service or transaction node performs it.
 
-Every entity, state and checkpoint has exactly one `ownerAuthority`. For each before/checkpoint/fence/after ref, the recovery owner must have a typed `reads` path to the ref and onward to that ref's unique owner. A state-changing recovery must call a typed transaction whose `mutates` edges name every target entity/state/checkpoint and close to each target's unique authority. One recovery may read several evidence/state authorities and mutate several explicit targets; there is no whole-flow single-authority constraint. A pure observe/block recovery may have zero `mutates`, but it still reads every predicate/checkpoint/fence used by its decision. Every external effect has an explicit `calls` edge to its Provider. A graph edge cannot downgrade an unknown effect to unchanged or authorize a blind retry.
+Every entity, state and checkpoint has exactly one `ownerAuthority`. For each before/checkpoint/fence/after ref, the recovery owner must have a typed `reads` path to the ref and onward to that ref's unique owner. A `state-changing` recovery has a nonempty `committedAfter` and nonempty `recoveryTransactions`; the owner must `calls` each listed typed transaction, and those transactions' `mutates` edges name every committed target entity/state/checkpoint and close to each target's unique authority. An `observe-block` recovery has empty `committedAfter` and `recoveryTransactions`, but still reads every predicate/checkpoint/fence used by its decision. The per-contract transaction list permits one executable recovery service to support several flows without attributing an unrelated transaction to an observe-only branch. A Service/Provider/Consumer never uses `mutates` to point at a transaction; execution uses `calls`, while only the transaction mutates state targets. The mode is explicit so an empty array cannot silently bypass a required transaction. One recovery may read several evidence/state authorities and mutate several explicit targets; there is no whole-flow single-authority constraint. Every external effect has an explicit `calls` edge to its Provider. A graph edge cannot downgrade an unknown effect to unchanged or authorize a blind retry.
 
 The JSON Schema fixes the reference-kind matrix:
 
@@ -534,7 +536,7 @@ The graph may preserve historical acceptance evidence only when it is bound to i
 
 `generate-knowledge-graph --check` validates the manifest, renders into a temporary directory, compares the expected file set and bytes, and reports a bounded semantic diff. It never rewrites the worktree in check mode. Manual generated edits, missing outputs, extra outputs, generator-version drift or changed manifest digest fail.
 
-The write command is explicit and local: `pnpm generate:knowledge-graph`. After generation, the candidate must include manifest/schema/generator/test changes and all generated deltas together. A generator that is unavailable reports `NOT_CONFIGURED`; it cannot declare stale outputs green.
+The write command is explicit and local: `pnpm generate:knowledge-graph`. Its output request must be the exact canonical repository-relative path `docs/generated/knowledge-graph`; absolute, escaped, normalized-equivalent, symlink/junction and unknown-entry targets fail closed, and the generator never deletes an unknown file or directory. After generation, the candidate must include manifest/schema/generator/test changes and all generated deltas together. A generator that is unavailable reports `NOT_CONFIGURED`; it cannot declare stale outputs green.
 
 ### 5.6 Negative self-tests
 
@@ -543,7 +545,7 @@ Fixture tests must prove rejection of at least:
 - a twentieth registered tool absent from the graph, a graph-only tool, duplicate tool name and registration-policy set mismatch;
 - one unowned `src` module, unresolved symbol/export, absolute/escaped path and case/Unicode collision;
 - illegal edge kinds, dangling endpoints, duplicate mutation owners and inject closure failure;
-- bogus guard/redline kind, authority/domain masquerading as recovery executor, nonexistent/non-executable recovery owner, missing official Session read, wrong target authority, one entity/state/checkpoint with multiple owners, free-text before/after state, invalid entity selector/value, unordered/empty/invalid idempotency tuple, unclosed flow branch/checkpoint/fence;
+- bogus guard/redline kind, authority/domain masquerading as recovery executor, nonexistent/non-executable recovery owner, missing official Session read, wrong target authority, one entity/state/checkpoint with multiple owners, state-changing recovery with empty `committedAfter`/`recoveryTransactions` or a missing transaction call, observe-block recovery with nonempty committed/transaction lists, a non-transaction executor using `mutates` to point at a transaction, free-text before/after state, invalid entity selector/value, idempotency source/kind mismatch or unordered/empty tuple, unclosed flow branch/checkpoint/fence;
 - missing Provider disposer, optional inject without blocker, and lifecycle recovery without an owner;
 - Config interface/Zod/default/gate drift and a disabled feature projected as always available;
 - domain enum/public port method/schema drift;
@@ -722,11 +724,11 @@ No milestone may close on document existence, fixture-only proof, empty state or
 
 The smallest safe implementation order is schema/fixtures → read-only extractor → generator check → manifest population. Do not begin by manually writing hundreds of capability nodes without extractor feedback.
 
-Before KG0 implementation, the architecture owner must freeze:
+KG0 freezes these tooling decisions:
 
-1. whether JSON Schema validation uses an existing project dependency or a narrowly added dev dependency;
-2. the accepted-base execution mechanism for a candidate that changes the graph verifier;
-3. the exact stable diagnostic-code namespace;
-4. generated atlas size caps and partition thresholds.
+1. JSON Schema is executed by dev-only Ajv `8.20.0` in strict mode; RFC 8785 JCS uses dev-only `canonicalize` `4.0.0`; the project parser rejects duplicate keys before validation. Neither dependency enters the plugin runtime dependency set.
+2. A candidate that introduces or changes the graph verifier is checked by the previously accepted governance/structure gates plus the verifier's negative fixtures, then receives non-author review against its immutable Git tree. The changed verifier is not wired into the trusted project chain until that candidate is accepted and read back.
+3. Stable diagnostics use the `KG_` namespace and negative fixtures assert the exact code.
+4. Each Mermaid projection is capped at 30 nodes and 60 edges; the complete normalized graph remains available in `atlas.json`.
 
-These choices change tooling, not the single-authority boundary above. Missing choices are `NOT_CONFIGURED` for implementation and do not authorize source/script changes in this proposal.
+These choices change tooling, not the single-authority boundary above. A later dependency, verifier-generation or cap change creates a new candidate and invalidates acceptance that depends on the old tooling identity.

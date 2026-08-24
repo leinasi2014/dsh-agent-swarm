@@ -1,0 +1,362 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dsh-agent-swarm.invalid/schema/knowledge-graph-manifest-v1.json",
+  "title": "dsh-agent-swarm knowledge graph manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "project", "inventoryPolicy", "nodes", "edges", "exceptions"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "sourceRoot", "packageManifest"],
+      "properties": {
+        "id": { "const": "dsh-agent-swarm" },
+        "sourceRoot": { "const": "src" },
+        "packageManifest": { "const": "package.json" }
+      }
+    },
+    "inventoryPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceGlobs", "importedAssetGlobs", "excludedFiles"],
+      "properties": {
+        "sourceGlobs": {
+          "type": "array",
+          "prefixItems": [{ "const": "src/**/*.ts" }, { "const": "src/**/*.tsx" }],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "importedAssetGlobs": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/repositoryPath" }, "uniqueItems": true },
+        "excludedFiles": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/exceptionRef" }, "uniqueItems": true }
+      }
+    },
+    "nodes": { "type": "array", "maxItems": 5000, "items": { "$ref": "#/$defs/node" } },
+    "edges": { "type": "array", "maxItems": 20000, "items": { "$ref": "#/$defs/edge" } },
+    "exceptions": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/exception" } }
+  },
+  "$defs": {
+    "stableId": { "type": "string", "maxLength": 256, "pattern": "^[a-z][a-z0-9._/-]*:[a-z0-9][a-z0-9._/-]*$" },
+    "repositoryPath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._*?{}!/-]+$"
+    },
+    "nodeKind": {
+      "enum": [
+        "package", "entrypoint", "module", "public-capability", "model-tool", "service",
+        "provider-registry", "provider", "consumer", "authority", "official-authority", "domain",
+        "entity", "state", "state-predicate", "transaction", "flow", "flow-branch", "checkpoint",
+        "fence", "guard", "event", "config-key", "injection", "rpc-route", "rpc-method", "ui-slot",
+        "ui-surface", "settings-section", "separately-verified-boundary", "artifact", "test", "document",
+        "gate", "redline"
+      ]
+    },
+    "authorityKind": { "enum": ["authority", "official-authority", "domain"] },
+    "recoveryOwnerKind": { "enum": ["service", "provider", "consumer", "transaction"] },
+    "ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind"],
+      "properties": { "id": { "$ref": "#/$defs/stableId" }, "kind": { "$ref": "#/$defs/nodeKind" } }
+    },
+    "authorityRef": {
+      "allOf": [
+        { "$ref": "#/$defs/ref" },
+        { "type": "object", "properties": { "kind": { "$ref": "#/$defs/authorityKind" } } }
+      ]
+    },
+    "recoveryOwnerRef": {
+      "allOf": [
+        { "$ref": "#/$defs/ref" },
+        { "type": "object", "properties": { "kind": { "$ref": "#/$defs/recoveryOwnerKind" } } }
+      ]
+    },
+    "typedRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind"],
+      "properties": { "id": { "$ref": "#/$defs/stableId" }, "kind": { "type": "string" } }
+    },
+    "exceptionRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": { "id": { "$ref": "#/$defs/stableId" } }
+    },
+    "anchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file"],
+      "properties": {
+        "file": { "$ref": "#/$defs/repositoryPath" },
+        "symbol": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "exportName": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "selector": { "type": "string", "minLength": 1, "maxLength": 512, "not": { "pattern": "(?:^|:)\\d+(?:$|:)" } }
+      }
+    },
+    "implementationMaturity": {
+      "type": "object", "additionalProperties": false, "required": ["state", "evidence"],
+      "properties": { "state": { "enum": ["absent", "declared", "implemented"] }, "evidence": { "$ref": "#/$defs/idArray" } }
+    },
+    "verificationMaturity": {
+      "type": "object", "additionalProperties": false, "required": ["state", "evidence"],
+      "properties": { "state": { "enum": ["none", "static", "unit", "composition", "real-profile"] }, "evidence": { "$ref": "#/$defs/idArray" } }
+    },
+    "acceptanceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["locator", "schema", "receiptSha256"],
+      "properties": {
+        "locator": {
+          "type": "object", "additionalProperties": false, "required": ["kind", "storeId", "objectId"],
+          "properties": {
+            "kind": { "enum": ["repository-object", "evidence-store-object"] },
+            "storeId": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$" },
+            "objectId": { "type": "string", "pattern": "^[a-f0-9]{40,128}$" }
+          }
+        },
+        "schema": {
+          "type": "object", "additionalProperties": false, "required": ["id", "sha256"],
+          "properties": { "id": { "const": "dsh-agent-swarm/acceptance-receipt/v1" }, "sha256": { "$ref": "#/$defs/sha256" } }
+        },
+        "receiptSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "acceptanceMaturity": {
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false, "required": ["state"],
+          "properties": { "state": { "enum": ["not-candidate", "candidate", "rejected", "superseded"] } }
+        },
+        {
+          "type": "object", "additionalProperties": false, "required": ["state", "receipt"],
+          "properties": { "state": { "const": "accepted" }, "receipt": { "$ref": "#/$defs/acceptanceRef" } }
+        }
+      ]
+    },
+    "availabilityMaturity": {
+      "type": "object", "additionalProperties": false, "required": ["state", "conditions", "blockers"],
+      "properties": {
+        "state": { "enum": ["always-registered", "config-gated", "optional-injection", "profile-dependent", "package-exported", "unavailable"] },
+        "conditions": { "type": "array", "maxItems": 64, "items": { "type": "string", "maxLength": 1024 }, "uniqueItems": true },
+        "blockers": { "type": "array", "maxItems": 64, "items": { "type": "string", "maxLength": 1024 }, "uniqueItems": true }
+      }
+    },
+    "maturity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["implementation", "verification", "acceptance", "availability"],
+      "properties": {
+        "implementation": { "$ref": "#/$defs/implementationMaturity" },
+        "verification": { "$ref": "#/$defs/verificationMaturity" },
+        "acceptance": { "$ref": "#/$defs/acceptanceMaturity" },
+        "availability": { "$ref": "#/$defs/availabilityMaturity" }
+      }
+    },
+    "security": {
+      "type": "object", "additionalProperties": false,
+      "required": ["authoritySource", "callerIdentity", "mutation", "dataClasses", "guards", "redlines"],
+      "properties": {
+        "authoritySource": { "$ref": "#/$defs/authorityRef" },
+        "callerIdentity": { "enum": ["exec-agent", "live-root-session", "host-attested-human", "internal-provider", "none"] },
+        "mutation": { "enum": ["none", "read", "domain-transaction", "external-effect"] },
+        "dataClasses": {
+          "type": "array", "uniqueItems": true,
+          "items": { "enum": ["public", "workspace", "session", "team", "personal", "secret-excluded"] }
+        },
+        "guards": { "type": "array", "items": { "$ref": "#/$defs/guardRef" }, "uniqueItems": true },
+        "redlines": { "type": "array", "items": { "$ref": "#/$defs/redlineRef" }, "uniqueItems": true }
+      }
+    },
+    "guardRef": {
+      "allOf": [{ "$ref": "#/$defs/ref" }, { "type": "object", "properties": { "kind": { "const": "guard" } } }]
+    },
+    "redlineRef": {
+      "allOf": [{ "$ref": "#/$defs/ref" }, { "type": "object", "properties": { "kind": { "const": "redline" } } }]
+    },
+    "bound": {
+      "type": "object", "additionalProperties": false, "required": ["name", "kind", "value", "source"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "kind": { "enum": ["bytes", "items", "time-ms", "depth", "concurrency", "retention", "pagination", "revision", "attempt-fence"] },
+        "value": {
+          "oneOf": [
+            { "type": "number" },
+            {
+              "type": "object", "additionalProperties": false, "minProperties": 1,
+              "properties": { "min": { "type": "number" }, "max": { "type": "number" }, "default": { "type": "number" } }
+            }
+          ]
+        },
+        "source": { "$ref": "#/$defs/anchor" }
+      }
+    },
+    "statePredicate": {
+      "type": "object", "additionalProperties": false, "required": ["entity", "field", "operator"],
+      "properties": {
+        "entity": { "$ref": "#/$defs/entityRef" },
+        "field": {
+          "type": "object", "additionalProperties": false, "required": ["schema", "selector"],
+          "properties": { "schema": { "$ref": "#/$defs/entityRef" }, "selector": { "type": "string", "minLength": 1, "maxLength": 512 } }
+        },
+        "operator": { "enum": ["eq", "neq", "in", "present", "absent"] },
+        "value": {
+          "oneOf": [
+            { "type": ["string", "number", "boolean", "null"] },
+            { "type": "array", "items": { "type": ["string", "number", "boolean"] } }
+          ]
+        }
+      }
+    },
+    "entityRef": {
+      "allOf": [{ "$ref": "#/$defs/ref" }, { "type": "object", "properties": { "kind": { "const": "entity" } } }]
+    },
+    "flowRef": { "allOf": [{ "$ref": "#/$defs/ref" }, { "type": "object", "properties": { "kind": { "const": "flow" } } }] },
+    "branchRef": { "allOf": [{ "$ref": "#/$defs/ref" }, { "type": "object", "properties": { "kind": { "const": "flow-branch" } } }] },
+    "predicateRef": { "allOf": [{ "$ref": "#/$defs/ref" }, { "type": "object", "properties": { "kind": { "const": "state-predicate" } } }] },
+    "checkpointRef": { "allOf": [{ "$ref": "#/$defs/ref" }, { "type": "object", "properties": { "kind": { "const": "checkpoint" } } }] },
+    "fenceRef": { "allOf": [{ "$ref": "#/$defs/ref" }, { "type": "object", "properties": { "kind": { "const": "fence" } } }] },
+    "configRef": { "allOf": [{ "$ref": "#/$defs/ref" }, { "type": "object", "properties": { "kind": { "const": "config-key" } } }] },
+    "idArray": { "type": "array", "maxItems": 512, "items": { "$ref": "#/$defs/stableId" }, "uniqueItems": true },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "node": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "kind", "title", "anchors", "ownerAuthority", "config", "inject", "lifecycle", "maturity", "security", "bounds", "tags"],
+      "properties": {
+        "id": { "$ref": "#/$defs/stableId" },
+        "kind": { "$ref": "#/$defs/nodeKind" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "anchors": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/anchor" } },
+        "ownerAuthority": { "$ref": "#/$defs/authorityRef" },
+        "config": {
+          "type": "object", "additionalProperties": false, "required": ["gates", "defaultState", "blockerCodes"],
+          "properties": {
+            "gates": { "type": "array", "items": { "$ref": "#/$defs/configRef" }, "uniqueItems": true },
+            "defaultState": { "enum": ["enabled", "disabled", "conditional", "not-applicable"] },
+            "blockerCodes": { "type": "array", "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" }, "uniqueItems": true }
+          }
+        },
+        "inject": {
+          "type": "object", "additionalProperties": false, "required": ["required", "optional", "provides"],
+          "properties": { "required": { "$ref": "#/$defs/idArray" }, "optional": { "$ref": "#/$defs/idArray" }, "provides": { "$ref": "#/$defs/idArray" } }
+        },
+        "lifecycle": {
+          "type": "object", "additionalProperties": false,
+          "properties": {
+            "admissionOwner": { "$ref": "#/$defs/stableId" },
+            "registrationOwner": { "$ref": "#/$defs/stableId" },
+            "disposerOwner": { "$ref": "#/$defs/stableId" },
+            "drainOwner": { "$ref": "#/$defs/stableId" },
+            "recoveryOwner": { "$ref": "#/$defs/recoveryOwnerRef" }
+          }
+        },
+        "maturity": { "$ref": "#/$defs/maturity" },
+        "security": { "$ref": "#/$defs/security" },
+        "bounds": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/bound" } },
+        "contract": {
+          "oneOf": [
+            {
+              "type": "object", "additionalProperties": false, "required": ["nodeKind", "predicate"],
+              "properties": { "nodeKind": { "const": "state-predicate" }, "predicate": { "$ref": "#/$defs/statePredicate" } }
+            },
+            {
+              "type": "object", "additionalProperties": false, "required": ["nodeKind", "flow"],
+              "properties": { "nodeKind": { "const": "flow-branch" }, "flow": { "$ref": "#/$defs/flowRef" } }
+            }
+          ]
+        },
+        "tags": { "type": "array", "maxItems": 64, "items": { "type": "string", "maxLength": 128, "pattern": "^[a-z][a-z0-9-]*$" }, "uniqueItems": true }
+      }
+    },
+    "idempotency": {
+      "type": "object", "additionalProperties": false, "required": ["domainTag", "components"],
+      "properties": {
+        "domainTag": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "components": {
+          "type": "array", "minItems": 1, "maxItems": 32,
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["source", "kind", "selector"],
+            "properties": {
+              "source": { "$ref": "#/$defs/ref" },
+              "kind": { "enum": ["argument", "entity-field", "transaction-input"] },
+              "selector": { "type": "string", "minLength": 1, "maxLength": 512 }
+            }
+          }
+        }
+      }
+    },
+    "crash": {
+      "type": "object", "additionalProperties": false,
+      "required": ["flow", "branch", "ordinal", "phase", "durability", "recoveryMode", "expectedBefore", "committedAfter", "fences", "recoveryTransactions", "failureCode", "authoritativePostState", "retryRule", "recoveryOwner"],
+      "properties": {
+        "flow": { "$ref": "#/$defs/flowRef" },
+        "branch": { "$ref": "#/$defs/branchRef" },
+        "ordinal": { "type": "integer", "minimum": 0 },
+        "phase": { "enum": ["trigger", "transaction", "external-effect", "checkpoint", "recovery"] },
+        "durability": { "enum": ["none", "atomic-commit", "external-unknown", "durable-readback"] },
+        "recoveryMode": { "enum": ["state-changing", "observe-block"] },
+        "expectedBefore": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/predicateRef" } },
+        "committedAfter": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/predicateRef" } },
+        "checkpoint": { "$ref": "#/$defs/checkpointRef" },
+        "fences": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/fenceRef" } },
+        "recoveryTransactions": {
+          "type": "array", "maxItems": 32, "uniqueItems": true,
+          "items": { "allOf": [{ "$ref": "#/$defs/ref" }, { "type": "object", "properties": { "kind": { "const": "transaction" } } }] }
+        },
+        "failureCode": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+        "authoritativePostState": { "enum": ["unchanged", "committed", "unknown"] },
+        "idempotency": { "$ref": "#/$defs/idempotency" },
+        "retryRule": { "enum": ["never", "exact-readback-first", "same-fenced-operation"] },
+        "recoveryOwner": { "$ref": "#/$defs/recoveryOwnerRef" }
+      },
+      "allOf": [
+        {
+          "if": { "type": "object", "properties": { "recoveryMode": { "const": "state-changing" } }, "required": ["recoveryMode"] },
+          "then": { "type": "object", "properties": { "committedAfter": { "type": "array", "minItems": 1 }, "recoveryTransactions": { "type": "array", "minItems": 1 } } }
+        },
+        {
+          "if": { "type": "object", "properties": { "recoveryMode": { "const": "observe-block" } }, "required": ["recoveryMode"] },
+          "then": { "type": "object", "properties": { "committedAfter": { "type": "array", "maxItems": 0 }, "recoveryTransactions": { "type": "array", "maxItems": 0 } } }
+        }
+      ]
+    },
+    "edge": {
+      "type": "object", "additionalProperties": false, "required": ["id", "type", "from", "to", "anchors"],
+      "properties": {
+        "id": { "$ref": "#/$defs/stableId" },
+        "type": { "enum": ["contains", "exports", "registers", "provides", "consumes", "requires-inject", "optionally-injects", "configured-by", "owns", "reads", "mutates", "persists-in", "emits", "listens", "projects", "exposes", "triggers", "calls", "transitions", "checkpoints", "recovers", "guards", "bounded-by", "verified-by", "documented-by", "accepted-by", "blocked-by", "supersedes", "violates"] },
+        "from": { "$ref": "#/$defs/ref" },
+        "to": { "$ref": "#/$defs/ref" },
+        "anchors": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/anchor" } },
+        "contract": { "enum": ["required", "optional", "read-only", "mutation", "projection"] },
+        "crash": { "$ref": "#/$defs/crash" }
+      }
+    },
+    "exception": {
+      "type": "object", "additionalProperties": false, "required": ["id", "scope", "rule", "owner", "reason", "expiry", "evidence"],
+      "properties": {
+        "id": { "$ref": "#/$defs/stableId" },
+        "scope": { "type": "string", "minLength": 1, "maxLength": 512, "not": { "const": "*" } },
+        "rule": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "owner": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 2048 },
+        "expiry": {
+          "oneOf": [
+            {
+              "type": "object", "additionalProperties": false, "required": ["kind", "value"],
+              "properties": { "kind": { "const": "date" }, "value": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" } }
+            },
+            {
+              "type": "object", "additionalProperties": false, "required": ["kind", "value"],
+              "properties": { "kind": { "const": "milestone" }, "value": { "type": "string", "minLength": 1 } }
+            }
+          ]
+        },
+        "evidence": { "type": "array", "minItems": 1, "maxItems": 64, "items": { "$ref": "#/$defs/anchor" } }
+      }
+    }
+  }
+}
