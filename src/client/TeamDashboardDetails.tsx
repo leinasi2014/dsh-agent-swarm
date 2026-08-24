@@ -7,7 +7,7 @@ import {
   type TeamDashboardSurfaceCoordinator,
 } from './team-dashboard-surface-coordinator.js'
 import { TEAM_DASHBOARD_NS } from './team-dashboard-locales.js'
-import { TeamDashboardExpanded } from './TeamDashboardOverlay.js'
+import { TeamDashboardContent } from './TeamDashboardContent.js'
 
 interface TeamDashboardDetailsInjected {
   readonly anchorRef: RefObject<HTMLSpanElement>
@@ -52,13 +52,11 @@ export function TeamDashboardDetails({ anchorRef, controller, coordinator, local
       role="complementary"
       aria-labelledby={headingId}
       aria-describedby={descriptionId}
-      data-swarm-team-card
+      data-swarm-team-panel
       data-swarm-team-dashboard
-      data-swarm-team-docked
       data-phase={state.phase}
-      data-presentation="expanded"
     >
-      <TeamDashboardExpanded
+      <TeamDashboardContent
         controller={controller}
         coordinator={coordinator}
         descriptionId={descriptionId}

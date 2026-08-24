@@ -1,286 +1,196 @@
-# R3 Team read UI, Tool Details handoff and Captain Chat
+# R3 Team read UI — official three-column contract
 
-- Status: implementation candidate; authoritative Profile acceptance pending
-- Supersedes presentation details in the earlier Peek-only revision of this document
-- Official DSH baseline: `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`
-- Lane: S3/HIGH for the reversible runtime replacement; S2/MEDIUM for the read-only UI
-- Scope: Swarm package only; official DSH remains an unchanged validation host
+Status: accepted product direction; implemented candidate requires exact-artifact browser proof and one non-author review.
 
-## Outcome
+Last reviewed: 2026-08-24.
 
-R3 adds a DSH-native browser consumer for the accepted R2 read contract. The
-Session-header Team button remains immediately after Session log and keeps the
-three-step product interaction:
+## 1. Decision
 
-```text
-closed -> expanded -> compact -> closed
-```
+The Team dashboard has one presentation only: the official DSH `details`
+column. Opening Team acquires that public Slot seat and calls the public Layout
+face; the official AppFrame recomputes `sidebar | Chat | details`, so Chat
+really narrows. Pressing the Team icon again closes Team directly.
 
-`expanded` is responsive. At a proven safe wide-screen threshold it is a real
-DSH details-column surface, so the official center Chat is recomputed rather
-than covered. Below that threshold it is the existing non-modal anchored Peek
-Card. `compact` is always the small right-side Peek Card containing only the
-real Team name, phase and member/task/pending counts. Neither Team surface has
-a duplicate close button.
-
-The Session header also contains a persistent “Show tool details” action
-immediately beside the Team button. It is the other side of the visible surface
-switch at the safe width, but the plugin does not infer or store an official
-Tool-active state.
-Activating it releases any Team occupant, stops the Team read lifecycle, returns
-the Team controller to inactive and calls `openDetails()` without ever calling
-`closeDetails()`. The unchanged official Tool Details occupant then renders in
-the same column. Pressing it while Team is already inactive simply opens the
-official details column. The user returns to Team by pressing the adjacent Team
-button. Below the safe threshold, the action remains visible and focusable for
-layout stability but is `aria-disabled`; activation leaves Team unchanged and
-the persistent live region explains that Tool Details requires a wider window.
-
-## Official seams and ownership
-
-- `conversation.session.header.utilities` remains the additive, Session-scoped
-  action seat. One plugin registration renders the adjacent Team and Tool
-  Details actions as a stable pair and receives the framework-owned `sessionId`.
-- `details` is the official `single/session` column seat. Official
-  `ui-conversation` occupies priority `0`. DSH's public Slot contract permits
-  different-priority entries in one cell and renders the lowest live priority.
-  Swarm may register a temporary priority `-1` occupant only while
-  `expanded` is docked. It declares no child slot and never registers
-  `conversation.details.tool`.
-- `ctx.layout.openDetails()` and `closeDetails()` are the only layout writes.
-  Swarm does not read private layout stores, set widths, query official DOM or
-  CSS-module classes, modify `grid-template-columns`, or import private Chat
-  selection state.
-- Layout is a replaceable public service lease, not a constructor-lifetime
-  singleton. The coordinator survives official ui-layout HMR; a separate
-  `ctx.inject(['layout'], ...)` epoch attaches the current face, drops to Peek
-  if that face disappears and re-commits only through the replacement face.
-- `shell.overlay` remains the additive surface for expanded Peek fallback and
-  compact summary.
-- Slot priority shadowing here is a bounded, reversible UI composition
-  operation. It does not shadow an official Service, canonical state,
-  authorization owner or Agent Runtime. Official Tool Details remains
-  registered and automatically becomes the winner when Team releases its
-  temporary entry.
-- `ctx.sessions.open(rootSessionId)` remains the only Captain Chat navigation
-  operation.
-
-The plugin can prove restoration of the official Tool Details occupant and its
-functionality. The public layout face does not expose the prior details
-open/closed state, rendered width or a restore token, so R3 does not claim to
-restore arbitrary historic layout geometry. Tool handoff deliberately keeps the
-current column open; an ordinary Team close deliberately closes it.
-
-## Surface coordinator
-
-One non-React coordinator owns the temporary details entry, responsive mode,
-selected Team view, target Session and shutdown order. React components never
-register or dispose slots themselves. Keeping the selected view in this owner
-preserves it when the same expanded surface migrates between Peek and docked
-renderers.
-
-The controller continues to own Team data and the product presentation
-`expanded | compact`; the coordinator derives the concrete surface:
+The former anchored Peek, compact card, three-click cycle, viewport-owned
+`1440px` gate and `shell.overlay` registration are removed. Swarm does not
+render a floating Team surface at any width and does not keep a second visual
+implementation as a fallback.
 
 ```text
-expanded + safe wide frame -> TEAM_DOCKED
-expanded + smaller frame   -> TEAM_PEEK
-compact                    -> TEAM_COMPACT_PEEK
-closed                     -> INACTIVE
+inactive --Team--> docked Team --Team--> inactive
+                    |
+                    +--Tool details--> official Tool Details
 ```
 
-The initial safe threshold is 1440 CSS px. It is intentionally above the
-official rc.2 maximum-sidebar + minimum-center + default-details sum
-(`420 + 640 + 360 = 1420`). The real Profile proof must verify that the DSH
-AppFrame occupies the tested viewport and that the details column remains
-non-zero. If a future host embeds a narrower AppFrame or official geometry
-changes, Gate A revises the threshold or falls back to Peek; the plugin does not
-inspect private frame geometry to force docking.
+There is no Team close button. The persistent Team icon remains the direct
+toggle. Escape closes only when focus is inside Team or its adjacent action
+pair and restores focus to the Team icon.
 
-### Transitions
+## 2. Official ownership boundaries
 
-| Current | Event | Ordered behavior | Next |
-|---|---|---|---|
-| inactive | Team at safe width | register `details/-1`, verify Team is the public slot winner, start/open Team reads, call `openDetails()` | docked expanded |
-| inactive | Team below threshold | start/open reads without a details registration | expanded Peek |
-| docked expanded | Team | call `closeDetails()`, release Team entry, retain the read generation and render compact Peek | compact Peek |
-| expanded Peek | Team | retain the read generation and render compact Peek | compact Peek |
-| compact Peek | Team | stop reads and close | inactive |
-| docked expanded | adjacent Tool Details | release Team entry, stop reads and become inactive; do **not** call `closeDetails()`, then call `openDetails()` | official Tool Details |
-| inactive/Peek/compact at safe width | adjacent Tool Details | close any Team Peek/read state, release any Team entry without `closeDetails()`, then call `openDetails()` | official Tool Details |
-| any state below safe width | adjacent Tool Details | keep the current Team state; announce that Tool Details requires a wider window | unchanged |
-| expanded Team | Captain Chat | complete the fresh R2 binding proof, close/release Team through the coordinator, then navigate through official Sessions | inactive |
-| any Team surface | Session changes/disappears | if docked, call `closeDetails()` before releasing Team; abort old-root reads, move focus and clear presentation | inactive |
-| docked expanded | Team entry render error | fail inactive, stop reads and keep details open so the official occupant is the fallback | official Tool Details |
-| docked expanded | crosses below safe threshold | call `closeDetails()`, release Team entry, then commit Peek; retain the read generation | expanded Peek |
-| expanded Peek | crosses into safe threshold | register and verify Team winner, call `openDetails()`, then hide Peek; on any acquisition failure keep Peek unchanged | docked expanded or expanded Peek |
-| Swarm fiber | unload/HMR | close admission, advance coordinator epoch and clear desired state; stop reads; release entry/listeners/styles without changing layout; forbid late registration | from docked: official Tool Details in the still-open column; from Peek/inactive: prior layout unchanged |
-| official details declaration | collapse/redeclare | clear the old lease and entry identity; if the same live coordinator still desires docked Team for the same Session at safe width, run the epoch-fenced two-phase rebind below | docked Team or visible Peek/inactive with zero Team entries |
+Swarm consumes these public rc.2 seams:
 
-Opening is fail-closed. `slots.inject('details', ...)` does not unconditionally
-register Team. Its callback lends the coordinator one declaration-lifetime
-registration seat/factory. Only `desired === TEAM_DOCKED` may use that seat.
-Callback cleanup releases its exact entry, clears the identity and invalidates
-the old disposer. After registration, the coordinator checks the public
-slot-ledger winner. Priority collision, declaration mismatch or a third-party
-lower numeric rank rolls back acquisition. A fresh opening that cannot acquire
-or call `openDetails()` returns inactive; migration from an existing Peek keeps
-that Peek visible and its reads alive. Rapid inputs are serialized and there is
-at most one Team details entry.
+- `conversation.session.header.utilities`: persistent adjacent Team and Tool
+  actions;
+- `details`: temporary priority `-1` Team occupant;
+- `ILayout.openDetails()` / `closeDetails()`: request official column state;
+- official Sessions service: exact Session target and Captain navigation;
+- official LocaleRuntime and DSH theme tokens.
 
-Winner verification is continuous, not only an acquisition-time assertion.
-The coordinator subscribes to the public `details` slot projection; if a later
-entry becomes the lower-priority winner, the exact Team lease is released and
-its hidden reads stop without closing the column now owned by that winner.
-Layout close failures during HMR never prevent entry, listener or read cleanup.
+The priority-0 official DetailsPanel remains registered. Team only shadows it
+while its own entry is the public Slot winner. Releasing Team restores the
+unchanged official occupant; Swarm never copies Tool Details or stores Tool
+selection/state.
 
-Official declaration HMR and Swarm HMR are different lifecycles. An official
-collapse/redeclare may reacquire one lease only when the still-live coordinator
-has the same target, remains at safe width and still desires docked Team. Swarm
-unload first closes admission and clears desired state, so declaration changes
-cannot resurrect it; it then releases Team without closing the official column.
+Swarm does not modify official DSH source, private stores, DOM structure,
+inline grid styles, CSS breakpoints, or panel preferences. It does not inject a
+runtime grid override. Gate A must be revisited if the public Slot, Layout,
+Session, Locale, or token contracts change.
 
-Official redeclaration rebind is two-phase because the new layout store starts
-closed and its public actions are not wired until the new root first renders.
-Phase 1 registers a tentative Team entry under the new declaration, verifies the
-exact winner and keeps the prior Peek visible (or remains inactive). That
-tentative component renders `null`: it has no complementary region, stable id,
-focus target or Team read surface. Phase 2 waits for one public render
-opportunity, invokes exactly one `openDetails()` through the current public
-layout face under the same coordinator/declaration epoch, then atomically
-unmounts Peek and enables the docked Team component. A stale epoch, timeout or
-call failure releases the tentative entry and keeps Peek visible (or inactive),
-so there is always exactly one accessible Team surface. Non-zero column width
-and Chat reflow are Profile acceptance evidence, not runtime DOM/layout probes.
+## 3. Responsive behavior belongs to DSH
 
-The coordinator subscribes to the official Session list/current snapshot. A
-Session-scoped component returning `null` is not cleanup: the global slot
-contribution is disposed when the target changes. It handles only its exact
-entry identity on `slots.onEntryError`; official or third-party errors are not
-swallowed.
+The official AppFrame owns concession. At the pinned baseline it targets a
+640px Chat center, a minimum 300px details track, and a 56px collapsed sidebar.
+Consequently the host can derive the details track to zero below its supported
+three-column width even when `openDetails()` retains the preference.
 
-## Interaction and accessibility
+That host decision is not replaced by Peek. While the host has details
+conceded:
 
-- The persistent Team button alone reports Team visibility through
-  `aria-expanded`; it is false after Tool handoff even while official Tool
-  Details remains open.
-- The adjacent “Show tool details” action is persistent and named. It has no
-  `aria-pressed` or `aria-expanded`, remains usable without a selected tool and
-  lets the official panel render its own empty state at safe width. Below the
-  threshold it exposes `aria-disabled="true"`; keyboard or pointer activation
-  does not change the surface and announces the width requirement. A persistent
-  localized explanation is also linked with `aria-describedby`, so keyboard
-  focus reveals the reason before activation.
-- Tool handoff returns focus to the still-mounted Tool action. Its announcement
-  is rendered in a persistent polite live region owned by the header action
-  pair, never inside the disappearing Team occupant.
-- Tool rows may update the official hidden selection while Team is docked, but
-  public DSH exposes no event for automatic takeover. The user explicitly
-  presses “Show tool details” to reveal the current official selection.
-- Docked Team does not close on an outside Chat click. Escape from the Team
-  surface is one serialized transaction: `closeDetails()`, release Team, stop
-  reads, become inactive and restore Team-button focus; it never passes through
-  compact. Peek modes retain their accepted outside-pointer and direct-close
-  Escape behavior.
-- Every Team surface is the one `role="complementary"` region with a resolvable
-  title and stable controls id. If Session switching removes the focused Team
-  region, focus is moved to a stable action in the newly current Session before
-  teardown instead of falling to `body`.
-- Responsive and declaration-driven renderer replacement preserves the selected
-  view and, when the retiring Team surface held focus, moves focus to the
-  session-verified persistent Team trigger. Outside-pointer dismissal does not
-  steal focus from Chat; only an explicit Escape close restores the trigger.
-- The plugin does not claim keyboard resizing; the official rc.2 drag handle is
-  pointer-owned.
+- the Team entry and read generation remain attached to the selected Session;
+- no floating Team UI appears;
+- the Team icon remains active and can close the request;
+- widening the host automatically restores the same official details column;
+- Tool Details has the same official visibility limitation.
 
-## Locale and theme
+The browser proof covers both a width where the official details track is
+visible and a narrow width where it is officially zero. A narrow screenshot is
+evidence of host concession and absence of floating fallback, not evidence that
+Team is visible there.
 
-Swarm registers complete `zh` and `en` dictionaries through official
-`ctx.locale` and binds every Team slot entry to that namespace. Mounted Team
-controls and surfaces update on the same page when DSH locale changes; the
-plugin stores no independent language preference. The persistent coordinator
-also subscribes to the public `ctx.locale` snapshot for the active locale id
-used by formatters; the injected `t` seat remains the text refresh mechanism.
+## 4. State and lifecycle ownership
 
-Finite protocol enums are translated through exhaustive locale-key maps.
-Business data and diagnostic identifiers (Team/member names, roles, subjects,
-intent, IDs, error codes and capability IDs) remain verbatim. Dates and
-localized numbers use an explicit `zh-CN | en-US` mapping derived from the
-active DSH locale, never parameterless browser/OS formatting.
+`TeamDashboardController` owns only read lifecycle:
 
-Swarm uses official primitives and tokens only. It stores no theme preference,
-writes no global theme class and follows the live DSH token cascade. Every
-color, border, shadow, font and status treatment must resolve to a token present
-in the pinned official baseline; CSS color literals, self-owned
-`prefers-color-scheme` branches and unknown `--dsw-*` names fail verification.
-Docked and Peek surfaces share one token set.
+```text
+closed | loading | ready | stale | reconnecting | error
+```
 
-## Read lifecycle
+It has no presentation enum and no UI cycle. Opening starts the exact
+Session-bound read; closing aborts requests and timers. The surface coordinator
+is the sole owner of the temporary details entry and the two-state UI contract:
 
-1. Opening captures one target root Session hint and creates one bounded
-   refresh generation.
-2. The controller checks packed R2 capabilities, binding and snapshot.
-3. Tasks, attempts and pending interactions use the unchanged strict bounded
-   pagination and cursor invariants.
-4. Successful refresh schedules a bounded poll. Later failure preserves the
-   last complete stale projection; initial failure renders an explicit error.
-5. Close, Tool handoff, Session change, unload and disposal abort physical
-   requests. No hidden or handed-off Team panel reads.
+```text
+inactive | docked
+```
 
-## Captain Chat handoff
+The coordinator commits `docked` only after all of these succeed:
 
-Captain handoff re-reads packed R2 binding for the exact root Session and Team,
-verifies panel identity and the official Session list, then calls
-`ctx.sessions.open(rootSessionId)`. Deleted, archived, switched or mismatched
-targets fail closed and leave the Team surface visible.
+1. the official `details` declaration is live;
+2. the current public Layout face exists;
+3. the priority `-1` entry registers exactly once;
+4. that entry is the public winner;
+5. the controller accepts the exact target Session;
+6. `openDetails()` succeeds.
 
-This remains target-bound local-single-user navigation, not authentication or a
-human principal. It does not parse Chat, manufacture Control, call a `/swarm`
-write method or execute a Team effect.
+Any failure rolls back the entry and reads. Entry render failure, priority
+loss, Session replacement, Layout replacement, declaration replacement,
+disable, HMR, or unload fails closed instead of switching presentation. Rebind
+requires an explicit new Team click; there is no hidden Peek/read continuation.
 
-## Verification
+## 5. Team and Tool handoff
 
-Author and non-author acceptance bind the exact package candidate and include:
+On the adjacent Tool action:
 
-- slot/coordinator tests for official priority `0` while inactive, one Team
-  priority `-1` winner while docked, rollback, close ordering, adjacent Tool
-  handoff with zero `closeDetails()` delta, rapid-toggle uniqueness,
-  declaration collapse/rebind, entry-error fallback and idempotent disposal;
-- declaration lifecycle negatives proving inactive collapse/redeclare keeps
-  zero Team entries, docked redeclaration reacquires exactly one, and Swarm
-  unload during a declaration gap can never register later. Rebind also proves
-  exactly one current-face `openDetails()`, non-zero details width and Chat
-  reflow only after the layout face is wired; before commit the tentative entry
-  renders null and Peek is the only id/complementary/focus surface. Stale/failed
-  rebind retains Peek or inactive with zero Team entries;
-- Session switch and target disappearance proving entry release and physical
-  read abort;
-- responsive tests proving atomic docked/Peek migration, real compact summary,
-  and below-threshold zero Team details entries, zero details-column width,
-  restored Chat width and one Peek. The persistent Tool action is focusable but
-  aria-disabled and announces its width requirement. Failed dock acquisition
-  keeps Peek intact;
-- locale tests switching DSH `zh -> en -> zh` while docked and Peek remain
-  mounted; exhaustive enum and locale-aware time formatting; official theme
-  `light -> dark -> system` token-resolution evidence with no plugin preference;
-- existing R2 strict read, Captain handoff, bundle-purity and lifecycle tests;
-- a fresh official Profile proving real third-column Chat reflow; Team/Tool
-  handoff at unchanged non-zero column width; official DetailsPanel, empty or
-  selected-tool content and official close behavior; Team reopen; three-click
-  expanded -> compact -> closed; 680px Peek; Session switch; HMR/reload/disable/
-  unload/R0; zero stale reads, duplicate entries, unclassified errors or
-  non-read RPC;
-- negative evidence rejects residual Team DOM/entries after Tool handoff,
-  `closeDetails()` during Tool handoff, narrow details registration, duplicate
-  trigger/entry/surface or transition-time ids, stale target reads, missing official fallback, locale/theme
-  drift, private layout/DOM access and official checkout changes. Tool handoff,
-  Team render error and Swarm unload separately prove the official priority-0
-  winner; unload additionally proves no read/listener and no later resurrection.
+```text
+release Team entry
+-> stop Team reads and publish inactive
+-> call official openDetails()
+-> official priority-0 DetailsPanel is visible when host geometry permits
+```
 
-## Non-goals
+The coordinator deliberately does not call `closeDetails()` during this
+handoff. At a host width that already supports details, the track never reaches
+zero and focus remains on the Tool action. If the Layout call fails, Team is
+reacquired and its read is restarted; otherwise the failure is announced in
+the action pair's live region.
 
-No official DSH source/config/lock change, permanent replacement of Tool
-Details, automatic tool-row takeover, Tool-state mirror, historic layout-width
-restoration, Team mutation, human-principal claim, direct effect, Chat parsing,
-Canvas component reuse, Canvas theme integration, public package release or
-private official import is part of this slice.
+This is not a claim that Swarm can keep official Tool Details visible below the
+host's own concession threshold. The public Layout API exposes no rendered
+width or close event, and this design does not add a private DOM bridge.
+
+## 6. Content, language, theme, and trust
+
+The details content is read-only and renders the complete bounded R2
+projection: Team, roster, tasks, attempts, budget, pending interactions and
+capabilities, including loading/reconnect/stale/error states.
+
+- DSH language is the only i18n authority. Locale changes rerender the mounted
+  Team panel in place; Swarm stores no locale preference.
+- DSH theme tokens are the only theme authority. Swarm stores no theme state
+  and defines no independent palette.
+- R2 remains local-single-user, target-bound and read-only. The UI cannot
+  mutate Team authority.
+- Captain Chat revalidates the exact R2 binding immediately before calling the
+  official Session navigation face.
+
+## 7. Accessibility and interaction
+
+- Team and Tool are named 32px toolbar actions in one persistent action pair.
+- Team exposes `aria-controls` and two-state `aria-expanded`.
+- The panel is `role="complementary"`, never a dialog and never modal.
+- Chat remains interactive while the host renders all three columns.
+- Team views are keyboard-operable; stale/error state is announced with the
+  existing status/alert semantics.
+- Escape is scoped to focus inside Team/actions; ordinary Chat interaction does
+  not dismiss Team.
+- There is no outside-pointer dismissal because the panel is not a floating
+  surface.
+
+## 8. Acceptance evidence
+
+Author evidence must prove:
+
+- controller has no presentation/compact cycle;
+- coordinator has exactly `inactive | docked` and one details entry;
+- first Team action opens the official track and second action closes it;
+- Team to Tool handoff has no `closeDetails()` or zero-width transition at a
+  supported wide viewport;
+- source, rendered DOM and shipped styles contain no Team floating layer,
+  fixed card, compact mode, shadow, Peek animation, or narrow overlay fallback;
+- official Chat geometry narrows when wide Team opens and remains interactive;
+- narrow host geometry derives details to zero with no floating Team surface,
+  then widening restores the same official presentation;
+- Session switch, entry loss, Layout/declaration replacement, HMR, disable,
+  unload and removal leave no Team entry/read/style residue;
+- locale `en -> zh -> en`, light/dark/system tokens, Captain Chat identity,
+  reload, R0-disabled and removed-package paths remain clean;
+- packed artifact and real official Profile carry the exact reviewed candidate.
+
+The final claim is E4 only after the representative official Profile/browser
+flow passes. Component tests alone establish no user-visible layout claim.
+
+## 9. Rejected alternatives
+
+- Anchored Peek or compact cards: rejected because they do not reflow Chat and
+  created two user-visible products for one action.
+- A third click state: rejected; Team is a direct open/close toggle.
+- Plugin-owned safe-width gate: rejected; it duplicated and contradicted the
+  official AppFrame concession policy.
+- Runtime DOM/CSS grid patch: rejected for this slice because it would become a
+  version-bound shadow layout authority and still could not observe official
+  Tool Details closure through the public API.
+- Modifying official DSH source: forbidden by the project boundary.
+
+## 10. Documentation impact
+
+```yaml
+documentationImpact:
+  affectedAuthorities:
+    - r3-team-read-ui-design
+    - implementation-roadmap
+    - testing-verification
+    - source-register
+  disposition: updated
+  rationale: replaces Peek/compact/width-gated presentation with one official details-column contract
+```

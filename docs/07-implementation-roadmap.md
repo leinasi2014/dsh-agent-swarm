@@ -141,13 +141,13 @@ the acceptance gate.
 
 使用官方 slots、components、locale 和 theme tokens 提供最小 DSH client plugin。它只消费 R2，展示 Team、成员、任务/attempt、预算、pending interaction、capability、stale/reconnect/error，并提供明确的“打开 Captain Chat”操作进入同一官方 DSH root Session。
 
-安全宽屏的完整 Team 面板使用公开 Slot priority 语义临时占用官方 `details` 列，使 Chat 真实重排；Session header 中紧邻 Team 的 Tool Details 操作释放该 occupant、停止 Team 读取并调用官方 `openDetails()`，由原有 DetailsPanel 自动接管。插件不维护 Tool 状态，也不复制官方 DetailsPanel。较小窗口与简略态继续使用 `shell.overlay` Peek；Tool 操作保留稳定位置但因官方无公开窄屏 Details presentation 而明确禁用并播报宽度要求。DSH locale 是 Swarm UI 唯一语言权威，DSH theme token cascade 是唯一主题权威；插件不保存自己的语言或主题偏好。
+完整 Team 面板只使用公开 Slot priority 语义临时占用官方 `details` 列，使 Chat 在宿主允许三栏时真实重排；Team 图标是直接的打开/关闭二态开关，不再存在 `shell.overlay` Peek、compact 卡片、三段点击或插件自有宽度门槛。Session header 中紧邻 Team 的 Tool Details 操作释放该 occupant、停止 Team 读取并调用官方 `openDetails()`，由原有 DetailsPanel 自动接管；插件不维护 Tool 状态，也不复制官方 DetailsPanel。较小窗口是否将 details 派生为 0 完全服从官方 AppFrame concession，Swarm 不用浮层兜底、不注入私有 DOM/CSS 布局补丁；窗口重新可容纳时官方栏自动恢复。DSH locale 是 Swarm UI 唯一语言权威，DSH theme token cascade 是唯一主题权威；插件不保存自己的语言或主题偏好。
 
 Captain Chat 是首个用户修正纵切：用户通过官方 Session 对 captain 说明修改，captain 再使用已有 `agent_swarm_*` 工具操作 Team。UI 不把聊天文本解释为 typed Control，不从 transcript 派生 Team truth，也不等待 direct `/swarm` writes 才提供价值。
 
 ### Exit evidence
 
-Fixture-driven components、accessibility、mounted locale live switch、official theme-token resolution、真实 client bundle purity、动态 details occupant 的 winner/rollback/entry-error、Team→Tool 单向移交、Session/viewport 切换、mount/dispose/HMR、Session handoff identity、宽屏 Chat reflow 与窄屏 Peek screenshot/interaction inspection，以及 final candidate 非作者审查。只能宣称恢复官方 occupant/功能，不能宣称恢复公开 API 未提供的历史栏宽或开闭状态。
+Fixture-driven components、accessibility、mounted locale live switch、official theme-token resolution、真实 client bundle purity、动态 details occupant 的 winner/rollback/entry-error、Team→Tool 单向移交、Session/viewport 切换、mount/dispose/HMR、Session handoff identity、宽屏 Chat reflow、直接二态关闭，以及窄屏官方 details concession 与“无浮层回退”截图/交互检查，并完成 final candidate 非作者审查。只能宣称恢复官方 occupant/功能，不能宣称恢复公开 API 未提供的历史栏宽、开闭状态或窄屏 Tool 可见性。
 
 Risk: ordinary UI 为 S2/MEDIUM；错误 Session handoff 为 S3/HIGH。
 

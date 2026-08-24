@@ -143,7 +143,7 @@ describe('TeamDashboardController', () => {
     await waitFor(() => controller.getSnapshot().phase === 'ready')
 
     const state = controller.getSnapshot()
-    expect(state.presentation).toBe('expanded')
+    expect(state.open).toBe(true)
     expect(state.data?.projection.tasks).toHaveLength(51)
     expect(state.data?.projection.attempts).toEqual(attempts)
     expect(state.data?.projection.pendingInteractions).toEqual(interactions)
@@ -152,21 +152,6 @@ describe('TeamDashboardController', () => {
     ])
     expect(seen.every(request => ['capabilities', 'binding', 'snapshot', 'page'].includes(request.method))).toBe(true)
     expect(schedule.pending.size).toBe(1)
-    controller.dispose()
-  })
-
-  it('cycles the same target from expanded to compact to closed without restarting reads', async () => {
-    const seen: SwarmReadRpcRequest[] = []
-    const controller = new TeamDashboardController(new SwarmReadClient(goodFetch(seen)), new ManualSchedule())
-    controller.cycle('root-1')
-    await waitFor(() => controller.getSnapshot().phase === 'ready')
-    const reads = seen.length
-
-    controller.cycle('root-1')
-    expect(controller.getSnapshot().presentation).toBe('compact')
-    expect(seen).toHaveLength(reads)
-    controller.cycle('root-1')
-    expect(controller.getSnapshot()).toEqual({ open: false, phase: 'closed' })
     controller.dispose()
   })
 

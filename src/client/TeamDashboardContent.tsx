@@ -1,107 +1,17 @@
-import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from 'react'
+import { useState, useSyncExternalStore, type ReactNode } from 'react'
 import {
   Button,
   IconRefreshOutline16,
   Pill,
   StateDot,
-  useAnchoredPosition,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
-import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SwarmHostReadProjectionV1 } from '../host/host-read-types.js'
 import type { TeamDashboardController, TeamDashboardState } from './team-dashboard-controller.js'
-import {
-  TEAM_DASHBOARD_SURFACE_ID,
-  type TeamDashboardSurfaceCoordinator,
-  type TeamDashboardView,
-} from './team-dashboard-surface-coordinator.js'
+import type { TeamDashboardSurfaceCoordinator, TeamDashboardView } from './team-dashboard-surface-coordinator.js'
 import { TEAM_DASHBOARD_NS, type TeamDashboardKey } from './team-dashboard-locales.js'
-import TEAM_DASHBOARD_STYLES from './team-dashboard-styles.js'
 
-export interface TeamDashboardOverlayInjected {
-  readonly anchorRef: RefObject<HTMLSpanElement>
-  readonly controller: TeamDashboardController
-  readonly coordinator: TeamDashboardSurfaceCoordinator
-  readonly localeTag: () => 'zh-CN' | 'en-US'
-}
-
-export type TeamDashboardOverlayProps = PropsRuntime<'shell.overlay'>
-  & PropsLocale<typeof TEAM_DASHBOARD_NS>
-  & TeamDashboardOverlayInjected
-
-/** Non-modal anchored Peek Card; the official Chat remains visible and interactive. */
-export function TeamDashboardOverlay({ anchorRef, controller, coordinator, localeTag, t }: TeamDashboardOverlayProps) {
-  const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot)
-  const surface = useSyncExternalStore(coordinator.subscribe, coordinator.getSnapshot, coordinator.getSnapshot)
-  const cardRef = useRef<HTMLElement>(null)
-  const headingId = useId()
-  const descriptionId = useId()
-  const showPeek = surface.mode === 'peek' || surface.mode === 'compact'
-  const position = useAnchoredPosition({ open: showPeek, anchorRef, panelRef: cardRef, gap: 44, margin: 16 })
-
-  const closeAndRestoreFocus = (): void => {
-    coordinator.closeAndRestoreFocus()
-  }
-
-  useEffect(() => {
-    if (!showPeek) return
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape' || event.defaultPrevented) return
-      event.preventDefault()
-      closeAndRestoreFocus()
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => { document.removeEventListener('keydown', onKeyDown) }
-  }, [coordinator, showPeek])
-
-  useEffect(() => {
-    if (!showPeek) return
-    const onPointerDown = (event: PointerEvent): void => {
-      const target = event.target
-      if (!(target instanceof Node)) return
-      if (cardRef.current?.contains(target) === true || anchorRef.current?.contains(target) === true) return
-      coordinator.dismiss()
-    }
-    document.addEventListener('pointerdown', onPointerDown)
-    return () => { document.removeEventListener('pointerdown', onPointerDown) }
-  }, [anchorRef, coordinator, showPeek])
-
-  return (
-    <>
-      <style>{TEAM_DASHBOARD_STYLES}</style>
-      {showPeek && state.open && (
-        <div data-swarm-team-layer style={{ pointerEvents: 'none' }}>
-          <aside
-            ref={cardRef}
-            id={TEAM_DASHBOARD_SURFACE_ID}
-            role="complementary"
-            aria-labelledby={headingId}
-            aria-describedby={descriptionId}
-            data-swarm-team-card
-            data-swarm-team-dashboard
-            data-phase={state.phase}
-            data-presentation={surface.mode === 'compact' ? 'compact' : 'expanded'}
-            style={{ ...position, visibility: position === null ? 'hidden' : 'visible' }}
-          >
-            {surface.mode === 'compact'
-              ? <CompactCard state={state} headingId={headingId} descriptionId={descriptionId} localeTag={localeTag} t={t} />
-              : <TeamDashboardExpanded
-                  controller={controller}
-                  coordinator={coordinator}
-                  descriptionId={descriptionId}
-                  headingId={headingId}
-                  localeTag={localeTag}
-                  state={state}
-                  t={t}
-                />}
-          </aside>
-        </div>
-      )}
-    </>
-  )
-}
-
-export function TeamDashboardExpanded({ controller, coordinator, descriptionId, headingId, localeTag, state, t }: {
+export function TeamDashboardContent({ controller, coordinator, descriptionId, headingId, localeTag, state, t }: {
   readonly controller: TeamDashboardController
   readonly coordinator: TeamDashboardSurfaceCoordinator
   readonly descriptionId: string
@@ -144,38 +54,6 @@ export function TeamDashboardExpanded({ controller, coordinator, descriptionId, 
       </Button>
     </footer>
   </>
-}
-
-function CompactCard({ state, headingId, descriptionId, localeTag, t }: {
-  state: TeamDashboardState
-  headingId: string
-  descriptionId: string
-  localeTag: () => 'zh-CN' | 'en-US'
-  t: TranslateNS<typeof TEAM_DASHBOARD_NS>
-}) {
-  const data = state.data?.projection
-  const number = new Intl.NumberFormat(localeTag())
-  return (
-    <div data-swarm-team-compact>
-      <div data-swarm-team-heading>
-        <h2 id={headingId}>{data?.team.name ?? t('title')}</h2>
-        <p id={descriptionId}>{data === undefined ? compactPhase(state, t) : enumLabel(data.team.phase, t)}</p>
-      </div>
-      <div data-swarm-team-compact-stats>
-        <Stat value={data === undefined ? '—' : number.format(data.totals.roster)} label={t('members')} />
-        <Stat value={data === undefined ? '—' : number.format(data.totals.tasks)} label={t('tasks')} />
-        <Stat value={data === undefined ? '—' : number.format(data.totals.pendingInteractions)} label={t('interactions')} />
-      </div>
-    </div>
-  )
-}
-
-function compactPhase(state: TeamDashboardState, t: TranslateNS<typeof TEAM_DASHBOARD_NS>): string {
-  if (state.phase === 'loading') return t('loading')
-  if (state.phase === 'reconnecting') return t('reconnecting')
-  if (state.phase === 'stale') return t('stale')
-  if (state.phase === 'error') return t('error')
-  return state.phase
 }
 
 function ViewSwitch({ active, select, t }: {

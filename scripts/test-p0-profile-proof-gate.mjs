@@ -80,13 +80,11 @@ try {
               frame: { collapsed: false, columns: [220, 860, 360], box: { x: 0, y: 0, width: 1440, height: 1000 } },
               transitionTrace: [{ collapsed: false, columns: '220px 860px 360px' }],
             },
-            desktopCompact: {
-              card: { x: 1124, y: 96, width: 300, height: 180 },
-              trigger: { x: 1370, y: 20, width: 32, height: 32 },
+            closed: {
               frame: { collapsed: true, columns: [220, 1220, 0], box: { x: 0, y: 0, width: 1440, height: 1000 } },
             },
             narrow: {
-              card: { x: 0, y: 96, width: 680, height: 600 },
+              panel: null,
               trigger: { x: 630, y: 20, width: 32, height: 32 },
               frame: { collapsed: true, columns: [60, 620, 0], box: { x: 0, y: 0, width: 680, height: 900 } },
             },
@@ -95,7 +93,7 @@ try {
           surfaces: {
             wideTeamUsesOfficialDetailsColumn: true, toolHandoffKeptDetailsOpen: true,
             toolHandoffFocusRetained: true,
-            narrowTeamUsesPeek: true, narrowToolStayedFocusableAndDisabled: true,
+            narrowTeamUsesOfficialConcession: true, floatingTeamSurfaceAbsent: true,
           },
           locale: { sequence: ['en', 'zh-CN', 'en'], sameDashboardElement: true },
           theme: {
@@ -106,7 +104,7 @@ try {
           },
           keyboard: [
             'focus Team', 'Enter', 'focus Chat while docked', 'focus Tool details', 'trigger reopen',
-            'trigger compact', 'trigger close', 'trigger reopen', 'narrow Tool details Enter',
+            'trigger close', 'trigger reopen',
             'Escape with focus return', 'Enter', 'focus Open Captain Chat',
             'Enter', 'Escape after reload',
           ],
@@ -243,8 +241,8 @@ try {
   activeRecord.sha256 = await sha256File(activePath)
   cases.push(['R3 browser detached/blank fixture'])
   for (const [label, mutate] of [
-    ['R3 browser forged narrow geometry', value => { value.geometry.narrow.card.width = 664 }],
-    ['R3 browser missing compact geometry', value => { delete value.geometry.desktopCompact }],
+    ['R3 browser forged narrow geometry', value => { value.geometry.narrow.frame.collapsed = false }],
+    ['R3 browser missing closed geometry', value => { delete value.geometry.closed }],
     ['R3 browser missing Tool handoff', value => { value.surfaces.toolHandoffKeptDetailsOpen = false }],
     ['R3 browser missing trigger close path', value => {
       value.keyboard = value.keyboard.filter(action => action !== 'trigger close')

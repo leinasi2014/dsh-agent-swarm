@@ -54,7 +54,6 @@ export const REQUIRED_P0_EVIDENCE_FILES = [
   'evidence/r3-browser-r0.json',
   'evidence/r3-browser-removed.json',
   'evidence/r3-r0-fail-closed.png',
-  'evidence/r3-team-dashboard-compact.png',
   'evidence/r3-team-dashboard-locale-zh.png',
   'evidence/r3-team-dashboard.png',
   'evidence/r3-team-dashboard-narrow.png',
@@ -331,7 +330,6 @@ async function verifyR3BrowserEvidence(root, failures) {
   }
   for (const relativePath of [
     'evidence/r3-team-dashboard.png',
-    'evidence/r3-team-dashboard-compact.png',
     'evidence/r3-team-dashboard-narrow.png',
     'evidence/r3-tool-details.png',
     'evidence/r3-team-dashboard-locale-zh.png',
@@ -348,15 +346,13 @@ async function verifyR3BrowserEvidence(root, failures) {
 function verifyTeamSurfaceEvidence(active, failures) {
   const desktop = active?.geometry?.desktop
   const toolDetails = active?.geometry?.toolDetails
-  const desktopCompact = active?.geometry?.desktopCompact
+  const closed = active?.geometry?.closed
   const narrow = active?.geometry?.narrow
   const desktopCard = desktop?.card
   const desktopTrigger = desktop?.trigger
   const desktopFrame = desktop?.frame
   const desktopComposer = desktop?.composer
-  const compactCard = desktopCompact?.card
-  const compactTrigger = desktopCompact?.trigger
-  const narrowCard = narrow?.card
+  const narrowPanel = narrow?.panel
   const narrowTrigger = narrow?.trigger
   const validRect = value => value !== undefined
     && ['x', 'y', 'width', 'height'].every(key => Number.isFinite(value[key]))
@@ -385,20 +381,9 @@ function verifyTeamSurfaceEvidence(active, failures) {
       || Number.parseFloat(sample?.columns?.split(/\s+/u).at(-1) ?? '0') < 1)) {
     failures.push('R3 active browser evidence does not prove zero-collapse handoff to official Tool details')
   }
-  if (!validRect(narrowCard) || !validRect(narrowTrigger)
-    || Math.abs(narrowCard.x) > 2 || Math.abs(narrowCard.width - 680) > 2
-    || narrowCard.y < narrowTrigger.y + narrowTrigger.height + 40
-    || narrowCard.y > narrowTrigger.y + narrowTrigger.height + 48
-    || narrowCard.y + narrowCard.height > 900 || !validCollapsedFrame(narrow?.frame)) {
-    failures.push('R3 active browser evidence does not prove narrow full-width Peek Card below the trigger')
-  }
-  if (!validRect(compactCard) || !validRect(compactTrigger)
-    || compactCard.width < 260 || compactCard.width > 320
-    || Math.abs(compactCard.x + compactCard.width - 1424) > 2
-    || compactCard.y < compactTrigger.y + compactTrigger.height + 40
-    || compactCard.y > compactTrigger.y + compactTrigger.height + 48
-    || compactCard.y + compactCard.height > 984 || !validCollapsedFrame(desktopCompact?.frame)) {
-    failures.push('R3 active browser evidence does not prove the intermediate compact Team card')
+  if (narrowPanel !== null || !validRect(narrowTrigger) || !validCollapsedFrame(narrow?.frame)
+    || !validCollapsedFrame(closed?.frame)) {
+    failures.push('R3 active browser evidence does not prove direct Team close and host-owned narrow details concession')
   }
   if (active?.nonModal?.ariaModal !== false
     || active?.nonModal?.dockedChatInteractionPreserved !== true
@@ -408,8 +393,8 @@ function verifyTeamSurfaceEvidence(active, failures) {
   if (active?.surfaces?.wideTeamUsesOfficialDetailsColumn !== true
     || active?.surfaces?.toolHandoffKeptDetailsOpen !== true
     || active?.surfaces?.toolHandoffFocusRetained !== true
-    || active?.surfaces?.narrowTeamUsesPeek !== true
-    || active?.surfaces?.narrowToolStayedFocusableAndDisabled !== true) {
+    || active?.surfaces?.narrowTeamUsesOfficialConcession !== true
+    || active?.surfaces?.floatingTeamSurfaceAbsent !== true) {
     failures.push('R3 active browser evidence does not prove the wide/Tool/narrow surface contract')
   }
   if (JSON.stringify(active?.locale?.sequence) !== JSON.stringify(['en', 'zh-CN', 'en'])
@@ -429,9 +414,7 @@ function verifyTeamSurfaceEvidence(active, failures) {
     'focus Chat while docked',
     'focus Tool details',
     'trigger reopen',
-    'trigger compact',
     'trigger close',
-    'narrow Tool details Enter',
     'Escape with focus return',
     'focus Open Captain Chat',
   ]

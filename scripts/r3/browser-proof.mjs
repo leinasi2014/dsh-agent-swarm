@@ -8,7 +8,6 @@ const OPEN_CHAT = /^(Open Captain Chat|打开 Captain 对话)$/u
 const SETTINGS = /^(Settings|设置)$/u
 const SETTINGS_DIALOG = /^(Settings|设置)$/u
 const CLOSE_DETAILS = /^(Close details|关闭详情)$/u
-const TOOL_DETAILS_WIDE_ONLY = /^(Tool details require a wider window\.|窗口加宽后才能显示工具详情。)$/u
 
 async function launchBrowser(executablePath) {
   const browser = await chromium.launch({
@@ -205,7 +204,7 @@ async function switchLanguage(page, from, to, expectedLang) {
 }
 
 async function themeState(page) {
-  return await page.locator('[data-swarm-team-card]').evaluate((card) => {
+  return await page.locator('[data-swarm-team-panel]').evaluate((card) => {
     const cardStyle = getComputedStyle(card)
     const bodyStyle = getComputedStyle(document.body)
     return {
@@ -256,12 +255,12 @@ export async function runR3ActiveBrowserProof({
     if (frameworkBinding?.body?.target?.rootSessionId !== rootSessionId) {
       throw new Error('official Session slot did not emit the exact proof root as the R2 target hint')
     }
-    const card = page.locator('[data-swarm-team-card]')
+    const panel = page.locator('[data-swarm-team-panel]')
     const teamTrigger = page.getByRole('button', { name: TEAM_NAME })
     const toolTrigger = page.getByRole('button', { name: TOOL_DETAILS })
     const actionPair = page.locator('[data-swarm-team-actions]')
-    await card.waitFor({ state: 'visible' })
-    if (await card.getAttribute('aria-modal') === 'true') {
+    await panel.waitFor({ state: 'visible' })
+    if (await panel.getAttribute('aria-modal') === 'true') {
       throw new Error('Team dashboard unexpectedly claimed modal semantics')
     }
     if (await teamTrigger.getAttribute('aria-expanded') !== 'true'
@@ -269,7 +268,7 @@ export async function runR3ActiveBrowserProof({
       || await actionPair.count() !== 1) {
       throw new Error('persistent Team / Tool details action pair was not visible beside the Session utilities')
     }
-    const desktopBox = await card.boundingBox()
+    const desktopBox = await panel.boundingBox()
     const desktopTriggerBox = await teamTrigger.boundingBox()
     const desktopFrame = await frameState(page)
     const desktopDetailsWidth = detailsWidth(desktopFrame)
@@ -277,7 +276,7 @@ export async function runR3ActiveBrowserProof({
     const desktopComposerBox = await composer.boundingBox()
     if (desktopBox === null || desktopTriggerBox === null || desktopComposerBox === null
       || desktopFrame.collapsed || desktopDetailsWidth < 300 || desktopDetailsWidth > 440
-      || await page.locator('[data-swarm-team-docked]').count() !== 1
+      || await page.locator('[data-swarm-team-panel]').count() !== 1
       || Math.abs(desktopBox.width - desktopDetailsWidth) > 2
       || Math.abs(desktopBox.x + desktopBox.width - desktopFrame.box.width) > 2
       || Math.abs(desktopBox.y - desktopFrame.box.y) > 2
@@ -291,14 +290,14 @@ export async function runR3ActiveBrowserProof({
     await page.screenshot({ path: join(evidenceDir, 'r3-team-dashboard.png'), fullPage: false })
 
     await composer.click()
-    await card.waitFor({ state: 'visible', timeout: 10_000 })
+    await panel.waitFor({ state: 'visible', timeout: 10_000 })
     if (!await composer.evaluate(element => element === document.activeElement)) {
       throw new Error('docked Team prevented the official Chat composer from receiving focus')
     }
 
     await beginDetailsTransitionTrace(page)
     await toolTrigger.click()
-    await card.waitFor({ state: 'hidden', timeout: 10_000 })
+    await panel.waitFor({ state: 'hidden', timeout: 10_000 })
     const officialClose = page.getByRole('button', { name: CLOSE_DETAILS })
     await officialClose.waitFor({ state: 'visible', timeout: 10_000 })
     const toolFrame = await frameState(page)
@@ -315,73 +314,40 @@ export async function runR3ActiveBrowserProof({
 
     await teamTrigger.click()
     await page.locator('[data-swarm-team-dashboard][data-phase="ready"]').waitFor({ state: 'visible', timeout: 20_000 })
-    if (await page.locator('[data-swarm-team-docked]').count() !== 1 || (await frameState(page)).collapsed) {
+    if (await page.locator('[data-swarm-team-panel]').count() !== 1 || (await frameState(page)).collapsed) {
       throw new Error('Team did not reacquire the official details column after Tool details')
     }
     await teamTrigger.click()
-    await page.locator('[data-swarm-team-card][data-presentation="compact"]').waitFor({ state: 'visible', timeout: 10_000 })
-    await page.waitForFunction(() => {
-      const element = document.querySelector('[data-swarm-team-card][data-presentation="compact"]')
-      if (!(element instanceof HTMLElement)) return false
-      return Math.abs(element.getBoundingClientRect().right - (window.innerWidth - 16)) <= 2
-    })
-    const compactBox = await card.boundingBox()
-    const compactFrame = await frameState(page)
-    if (compactBox === null || compactBox.width < 260 || compactBox.width > 320
-      || Math.abs(compactBox.x + compactBox.width - 1424) > 2
-      || desktopTriggerBox === null
-      || compactBox.y < desktopTriggerBox.y + desktopTriggerBox.height + 40
-      || compactBox.y > desktopTriggerBox.y + desktopTriggerBox.height + 48
-      || compactBox.y + compactBox.height > 984
-      || !compactFrame.collapsed || detailsWidth(compactFrame) !== 0
-      || await teamTrigger.getAttribute('aria-expanded') !== 'true'
-      || await page.getByRole('button', { name: OPEN_CHAT }).count() !== 0) {
-      throw new Error(`unexpected compact Team Peek: ${JSON.stringify({ card: compactBox, trigger: desktopTriggerBox, frame: compactFrame })}`)
-    }
-    await page.screenshot({ path: join(evidenceDir, 'r3-team-dashboard-compact.png'), fullPage: false })
-    await teamTrigger.click()
-    await card.waitFor({ state: 'hidden', timeout: 10_000 })
+    await panel.waitFor({ state: 'hidden', timeout: 10_000 })
+    const closedFrame = await frameState(page)
     if (await teamTrigger.getAttribute('aria-expanded') !== 'false') {
-      throw new Error('third Team trigger click did not close its compact Peek Card')
+      throw new Error('second Team trigger click did not close the official Team column')
+    }
+    if (!closedFrame.collapsed || detailsWidth(closedFrame) !== 0
+      || await page.locator('[data-swarm-team-card], [data-swarm-team-layer]').count() !== 0) {
+      throw new Error(`closed Team left a details or floating surface: ${JSON.stringify(closedFrame)}`)
     }
     await teamTrigger.click()
     await page.locator('[data-swarm-team-dashboard][data-phase="ready"]').waitFor({ state: 'visible', timeout: 20_000 })
-    if (await page.locator('[data-swarm-team-docked]').count() !== 1) {
-      throw new Error('fourth Team trigger click did not restore the docked Team surface')
+    if (await page.locator('[data-swarm-team-panel]').count() !== 1) {
+      throw new Error('third Team trigger click did not restore the official Team surface')
     }
 
     await page.setViewportSize({ width: 680, height: 900 })
-    await page.locator('[data-swarm-team-card][data-presentation="expanded"]:not([data-swarm-team-docked])')
-      .waitFor({ state: 'visible', timeout: 10_000 })
-    const narrowBox = await card.boundingBox()
+    await panel.waitFor({ state: 'hidden', timeout: 10_000 })
+    const narrowBox = await panel.boundingBox()
     const narrowTriggerBox = await teamTrigger.boundingBox()
     const narrowFrame = await frameState(page)
-    if (narrowBox === null || narrowTriggerBox === null
-      || Math.abs(narrowBox.x) > 2
-      || Math.abs(narrowBox.width - 680) > 2
-      || narrowBox.y < narrowTriggerBox.y + narrowTriggerBox.height + 40
-      || narrowBox.y > narrowTriggerBox.y + narrowTriggerBox.height + 48
-      || narrowBox.y + narrowBox.height > 900
+    if (narrowTriggerBox === null || narrowBox !== null
       || !narrowFrame.collapsed || detailsWidth(narrowFrame) !== 0
-      || await page.locator('[data-swarm-team-docked]').count() !== 0
-      || await toolTrigger.getAttribute('aria-disabled') !== 'true'
+      || await page.locator('[data-swarm-team-dashboard]').count() !== 1
+      || await page.locator('[data-swarm-team-card], [data-swarm-team-layer]').count() !== 0
       || !await teamTrigger.isVisible()) {
-      throw new Error(`unexpected narrow Team Peek: ${JSON.stringify({ card: narrowBox, trigger: narrowTriggerBox, frame: narrowFrame })}`)
-    }
-    await toolTrigger.focus()
-    await page.keyboard.press('Enter')
-    const narrowAnnouncement = page.locator('[aria-live="polite"][data-swarm-team-visually-hidden]')
-    await narrowAnnouncement.filter({ hasText: TOOL_DETAILS_WIDE_ONLY }).waitFor({ state: 'attached', timeout: 10_000 })
-    const narrowAfterTool = await frameState(page)
-    if (narrowAfterTool.collapsed !== true
-      || await page.locator('[data-swarm-team-dashboard][data-presentation="expanded"]:not([data-swarm-team-docked])').count() !== 1
-      || await teamTrigger.getAttribute('aria-expanded') !== 'true'
-      || !await toolTrigger.evaluate(element => element === document.activeElement)) {
-      throw new Error('narrow Tool details activation changed or dismissed the Team Peek')
+      throw new Error(`narrow Team did not follow the official details concession: ${JSON.stringify({ panel: narrowBox, trigger: narrowTriggerBox, frame: narrowFrame })}`)
     }
     await page.screenshot({ path: join(evidenceDir, 'r3-team-dashboard-narrow.png'), fullPage: false })
     await page.setViewportSize({ width: 1440, height: 1000 })
-    await page.locator('[data-swarm-team-docked]').waitFor({ state: 'visible', timeout: 10_000 })
+    await panel.waitFor({ state: 'visible', timeout: 10_000 })
 
     const localeIdentity = await dashboard.elementHandle()
     await openSettings(page)
@@ -435,7 +401,7 @@ export async function runR3ActiveBrowserProof({
     const refresh = page.getByRole('button', { name: 'Refresh', exact: true })
     await refresh.focus()
     await page.keyboard.press('Escape')
-    await card.waitFor({ state: 'hidden', timeout: 10_000 })
+    await panel.waitFor({ state: 'hidden', timeout: 10_000 })
     if (!await teamTrigger.evaluate(element => element === document.activeElement)) {
       throw new Error('Escape did not restore focus to the Team trigger')
     }
@@ -445,7 +411,7 @@ export async function runR3ActiveBrowserProof({
     const openChat = page.getByRole('button', { name: OPEN_CHAT })
     await openChat.focus()
     await page.keyboard.press('Enter')
-    await card.waitFor({ state: 'hidden', timeout: 20_000 })
+    await panel.waitFor({ state: 'hidden', timeout: 20_000 })
     const selected = page.locator('[role="treeitem"][aria-selected="true"]')
     await selected.waitFor({ state: 'visible', timeout: 10_000 })
     await page.getByRole('textbox').last().waitFor({ state: 'visible', timeout: 10_000 })
@@ -457,7 +423,7 @@ export async function runR3ActiveBrowserProof({
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 })
     await openReadyDashboard(page)
     await page.keyboard.press('Escape')
-    await page.locator('[data-swarm-team-card]').waitFor({ state: 'hidden', timeout: 10_000 })
+    await page.locator('[data-swarm-team-panel]').waitFor({ state: 'hidden', timeout: 10_000 })
     const reloadedSessionId = await officialCurrentSessionId(page)
     if (reloadedSessionId !== rootSessionId) {
       throw new Error(`official Session selection did not survive reload: ${String(reloadedSessionId)}`)
@@ -471,20 +437,20 @@ export async function runR3ActiveBrowserProof({
       geometry: {
         desktop: { card: desktopBox, trigger: desktopTriggerBox, frame: desktopFrame, composer: desktopComposerBox },
         toolDetails: { frame: toolFrame, transitionTrace },
-        desktopCompact: { card: compactBox, trigger: desktopTriggerBox, frame: compactFrame },
-        narrow: { card: narrowBox, trigger: narrowTriggerBox, frame: narrowFrame },
+        closed: { frame: closedFrame },
+        narrow: { panel: narrowBox, trigger: narrowTriggerBox, frame: narrowFrame },
       },
       nonModal: { ariaModal: false, dockedChatInteractionPreserved: true, officialComposerFocused: true },
       surfaces: {
         wideTeamUsesOfficialDetailsColumn: true,
         toolHandoffKeptDetailsOpen: true,
         toolHandoffFocusRetained: true,
-        narrowTeamUsesPeek: true,
-        narrowToolStayedFocusableAndDisabled: true,
+        narrowTeamUsesOfficialConcession: true,
+        floatingTeamSurfaceAbsent: true,
       },
       locale: { sequence: ['en', 'zh-CN', 'en'], sameDashboardElement: true },
       theme: { light: lightTheme, dark: darkTheme, systemLight: systemLightTheme, systemDark: systemDarkTheme },
-      keyboard: ['focus Team', 'Enter', 'focus Chat while docked', 'focus Tool details', 'Enter', 'trigger reopen', 'trigger compact', 'trigger close', 'trigger reopen', 'narrow Tool details Enter', 'Escape with focus return', 'Enter', 'focus Open Captain Chat', 'Enter', 'Escape after reload'],
+      keyboard: ['focus Team', 'Enter', 'focus Chat while docked', 'focus Tool details', 'Enter', 'trigger reopen', 'trigger close', 'trigger reopen', 'Escape with focus return', 'Enter', 'focus Open Captain Chat', 'Enter', 'Escape after reload'],
       handoff: {
         officialSessionSelected: true,
         officialSelectionSource: 'localStorage:dsh.sessions.current',

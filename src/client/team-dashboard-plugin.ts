@@ -8,7 +8,6 @@ import { SwarmReadClient } from './read-client.js'
 import { TeamDashboardController } from './team-dashboard-controller.js'
 import { TeamDashboardSurfaceCoordinator } from './team-dashboard-surface-coordinator.js'
 import { TeamDashboardAction, type TeamDashboardActionInjected } from './TeamDashboardAction.js'
-import { TeamDashboardOverlay, type TeamDashboardOverlayInjected } from './TeamDashboardOverlay.js'
 import { en, TEAM_DASHBOARD_NS, zh, type TeamDashboardKey } from './team-dashboard-locales.js'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -49,17 +48,4 @@ export function apply(ctx: ClientContext): void {
     locale: TEAM_DASHBOARD_NS,
     inject: (): TeamDashboardActionInjected => ({ anchorRef, coordinator }),
   }, TeamDashboardAction))
-
-  ctx.slots.inject('shell.overlay', () => ctx.slots.register({
-    name: 'shell.overlay',
-    id: 'swarm-team-dashboard',
-    order: 30,
-    locale: TEAM_DASHBOARD_NS,
-    inject: (): TeamDashboardOverlayInjected => ({
-      anchorRef,
-      controller,
-      coordinator,
-      localeTag: coordinator.localeTag,
-    }),
-  }, TeamDashboardOverlay))
 }

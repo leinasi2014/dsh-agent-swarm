@@ -16,55 +16,15 @@ const TEAM_DASHBOARD_STYLES = `
   color: var(--dsw-alias-label-primary-bluish);
   background: var(--dsw-alias-interactive-bg-active);
 }
-[data-swarm-tool-trigger][aria-disabled='true'] {
-  opacity: .5;
-  cursor: not-allowed;
-}
-[data-swarm-team-layer] {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-[data-swarm-team-card] {
-  position: fixed;
-  pointer-events: auto;
+[data-swarm-team-panel] {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
-  width: min(420px, calc(100vw - 32px));
-  max-height: calc(100dvh - 120px);
+  width: 100%;
+  height: 100%;
   color: var(--dsw-alias-label-primary);
   background: var(--dsw-alias-bg-layer-1);
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 20px;
-  box-shadow: var(--dsw-shadow-lv3);
   font-family: var(--dsw-font-family);
   overflow: hidden;
-}
-[data-swarm-team-card][data-swarm-team-docked] {
-  position: relative;
-  width: 100%;
-  max-height: none;
-  height: 100%;
-  border: 0;
-  border-radius: 0;
-  box-shadow: none;
-}
-[data-swarm-team-card][data-presentation='compact'] {
-  display: block;
-  width: min(300px, calc(100vw - 32px));
-}
-[data-swarm-team-compact] {
-  display: grid;
-  gap: 14px;
-  padding: 16px;
-}
-[data-swarm-team-compact-stats] {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-}
-[data-swarm-team-compact] [data-swarm-team-stat] {
-  padding: 9px;
 }
 [data-swarm-team-header] {
   display: flex;
@@ -229,28 +189,6 @@ const TEAM_DASHBOARD_STYLES = `
   clip: rect(0 0 0 0);
   white-space: nowrap;
   border: 0;
-}
-@media (prefers-reduced-motion: no-preference) {
-  [data-swarm-team-card]:not([data-swarm-team-docked]) { animation: swarm-team-peek-in 160ms ease-out; transform-origin: top right; }
-  @keyframes swarm-team-peek-in {
-    from { transform: translateY(-4px) scale(.985); opacity: 0; }
-    to { transform: translateY(0) scale(1); opacity: 1; }
-  }
-}
-@media (max-width: 720px) {
-  [data-swarm-team-card] {
-    left: 0 !important;
-    right: 0;
-    width: auto;
-    max-height: calc(100dvh - 108px);
-    border-radius: 0;
-  }
-  [data-swarm-team-card][data-presentation='compact'] {
-    left: auto !important;
-    width: min(300px, calc(100vw - 16px));
-    border-radius: 16px 0 0 16px;
-  }
-  [data-swarm-team-footer] { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
 }
 `
 

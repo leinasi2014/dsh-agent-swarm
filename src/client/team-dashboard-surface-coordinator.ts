@@ -7,25 +7,18 @@ import { TeamDashboardDetails } from './TeamDashboardDetails.js'
 import type { TeamDashboardController } from './team-dashboard-controller.js'
 import { TEAM_DASHBOARD_NS } from './team-dashboard-locales.js'
 
-const TEAM_DASHBOARD_SAFE_WIDTH = 1440
 export const TEAM_DASHBOARD_SURFACE_ID = 'swarm-team-surface'
 
-export type TeamDashboardSurfaceMode = 'inactive' | 'peek' | 'compact' | 'docked'
+type TeamDashboardSurfaceMode = 'inactive' | 'docked'
 export type TeamDashboardView = 'overview' | 'members' | 'work' | 'diagnostics'
-export type TeamDashboardAnnouncement = 'tool-shown' | 'tool-unavailable-width' | 'tool-unavailable-runtime' | undefined
+export type TeamDashboardAnnouncement = 'tool-shown' | 'tool-unavailable-runtime' | undefined
 
 export interface TeamDashboardSurfaceState {
   readonly mode: TeamDashboardSurfaceMode
   readonly view: TeamDashboardView
-  readonly safeWidth: boolean
   readonly targetSessionId: string | undefined
   readonly announcement: TeamDashboardAnnouncement
   readonly announcementRevision: number
-}
-
-export interface TeamDashboardViewport {
-  getSnapshot(): boolean
-  subscribe(listener: () => void): () => void
 }
 
 export interface TeamDashboardFrameSchedule {
@@ -39,7 +32,6 @@ interface SurfaceCoordinatorOptions {
   readonly locale: LocaleRuntime
   readonly controller: TeamDashboardController
   readonly anchorRef: RefObject<HTMLSpanElement>
-  readonly viewport?: TeamDashboardViewport
   readonly frames?: TeamDashboardFrameSchedule
 }
 
@@ -48,52 +40,35 @@ const browserFrames: TeamDashboardFrameSchedule = {
   cancel: handle => globalThis.cancelAnimationFrame(handle as number),
 }
 
-class BrowserTeamDashboardViewport implements TeamDashboardViewport {
-  private readonly query = globalThis.matchMedia(`(min-width: ${String(TEAM_DASHBOARD_SAFE_WIDTH)}px)`)
-
-  getSnapshot = (): boolean => this.query.matches
-
-  subscribe = (listener: () => void): (() => void) => {
-    this.query.addEventListener('change', listener)
-    return () => { this.query.removeEventListener('change', listener) }
-  }
-}
-
-const initialState = (safeWidth: boolean): TeamDashboardSurfaceState => Object.freeze({
+const INACTIVE: TeamDashboardSurfaceState = Object.freeze({
   mode: 'inactive',
   view: 'overview',
-  safeWidth,
   targetSessionId: undefined,
   announcement: undefined,
   announcementRevision: 0,
 })
 
-/** One non-React owner for the reversible details lease and Team surface transitions. */
+/** One non-React owner for the reversible official-details lease. */
 export class TeamDashboardSurfaceCoordinator {
   private readonly listeners = new Set<() => void>()
-  private readonly viewport: TeamDashboardViewport
   private readonly frames: TeamDashboardFrameSchedule
-  private state: TeamDashboardSurfaceState
+  private state: TeamDashboardSurfaceState = INACTIVE
   private declarationLive = false
   private declarationEpoch = 0
   private layoutEpoch = 0
   private layout: ILayout | undefined
   private entry: StoredEntry | undefined
   private disposeEntry: (() => void) | undefined
-  private pendingFrame: unknown
   private announcementFrame: unknown
   private mounted = false
   private disposed = false
   private offController = (): void => {}
-  private offViewport = (): void => {}
   private offSessions = (): void => {}
   private offEntryError = (): void => {}
   private offSlot = (): void => {}
 
   constructor(private readonly options: SurfaceCoordinatorOptions) {
-    this.viewport = options.viewport ?? new BrowserTeamDashboardViewport()
     this.frames = options.frames ?? browserFrames
-    this.state = initialState(this.viewport.getSnapshot())
   }
 
   getSnapshot = (): TeamDashboardSurfaceState => this.state
@@ -109,7 +84,6 @@ export class TeamDashboardSurfaceCoordinator {
     if (this.mounted) throw new Error('Team dashboard surface coordinator is already mounted')
     this.mounted = true
     this.offController = this.options.controller.subscribe(() => { this.onControllerChange() })
-    this.offViewport = this.viewport.subscribe(() => { this.onViewportChange() })
     this.offSessions = this.options.sessions.list.subscribe(() => { this.onSessionsChange() })
     this.offEntryError = this.options.slots.onEntryError((key, entry) => {
       if (key !== 'details' || entry !== this.entry) return
@@ -124,17 +98,11 @@ export class TeamDashboardSurfaceCoordinator {
     if (this.disposed) return () => {}
     const epoch = ++this.layoutEpoch
     this.layout = layout
-    if (this.declarationLive && this.shouldDock()) this.acquireDocked(true, this.declarationEpoch, epoch)
     return () => {
       if (epoch !== this.layoutEpoch) return
       this.layoutEpoch += 1
       this.layout = undefined
-      this.cancelPendingFrame()
-      if (this.state.mode !== 'docked') return
-      const hadFocus = this.dashboardHasFocus()
-      this.releaseEntry()
-      this.publish({ mode: 'peek', targetSessionId: this.options.controller.getSnapshot().targetSessionId })
-      this.restoreTriggerAfterReplacement(hadFocus, this.state.targetSessionId)
+      this.failClosedAfterReplacement()
     }
   }
 
@@ -143,83 +111,55 @@ export class TeamDashboardSurfaceCoordinator {
     if (this.disposed) return () => {}
     const epoch = ++this.declarationEpoch
     this.declarationLive = true
-    if (this.shouldDock() && this.layout !== undefined) this.acquireDocked(true, epoch, this.layoutEpoch)
     return () => {
       if (epoch !== this.declarationEpoch) return
       this.declarationEpoch += 1
       this.declarationLive = false
-      this.cancelPendingFrame()
-      const wasDocked = this.state.mode === 'docked'
-      const hadFocus = this.dashboardHasFocus()
-      this.releaseEntry()
-      if (wasDocked && this.options.controller.getSnapshot().open) {
-        this.publish({ mode: 'peek', targetSessionId: this.state.targetSessionId })
-        this.restoreTriggerAfterReplacement(hadFocus, this.state.targetSessionId)
-      }
+      this.failClosedAfterReplacement()
     }
   }
 
-  cycle(targetSessionId: string): void {
+  private failClosedAfterReplacement(): void {
+    const hadFocus = this.dashboardHasFocus()
+    const target = this.options.controller.getSnapshot().targetSessionId
+    this.releaseEntry()
+    this.options.controller.close()
+    this.publish({ mode: 'inactive', targetSessionId: undefined })
+    this.restoreTriggerAfterReplacement(hadFocus, target)
+  }
+
+  toggle(targetSessionId: string): void {
     this.assertLive()
     const current = this.options.controller.getSnapshot()
-    if (!current.open || current.targetSessionId !== targetSessionId) {
-      if (current.open) this.closeTeam(false)
-      if (this.state.safeWidth) {
-        if (!this.acquireForFreshOpen(targetSessionId)) return
-      } else {
-        this.options.controller.open(targetSessionId)
-        this.publish({ mode: 'peek', targetSessionId, view: 'overview' })
-      }
+    if (current.open && current.targetSessionId === targetSessionId) {
+      this.closeTeam(false)
       return
     }
-    if (current.presentation !== 'compact') {
-      if (this.state.mode === 'docked') {
-        this.closeDetailsBestEffort()
-      }
-      this.releaseEntry()
-      this.options.controller.cycle(targetSessionId)
-      this.publish({ mode: 'compact', targetSessionId })
-      return
-    }
-    this.closeTeam(false)
+    if (current.open) this.closeTeam(false)
+    if (!this.acquireForFreshOpen(targetSessionId)) this.announce('tool-unavailable-runtime')
   }
 
   showToolDetails(): void {
     this.assertLive()
-    if (!this.state.safeWidth) {
-      this.announce('tool-unavailable-width')
-      return
-    }
     const layout = this.layout
     if (layout === undefined) {
       this.announce('tool-unavailable-runtime')
       return
     }
     const previous = this.options.controller.getSnapshot()
-    const previousMode = this.state.mode
-    const previousTarget = this.state.targetSessionId
-    this.cancelPendingFrame()
+    const previousTarget = previous.targetSessionId
     this.releaseEntry()
     this.publish({ mode: 'inactive', targetSessionId: undefined })
     if (previous.open) this.options.controller.close()
     try {
+      // Keep the official column open during the Team -> Tool occupant handoff.
       layout.openDetails()
     } catch {
-      if (previous.open && previousTarget !== undefined) {
-        this.options.controller.open(previousTarget)
-        this.publish({
-          mode: previousMode === 'compact' ? 'compact' : 'peek',
-          targetSessionId: previousTarget,
-        })
-      }
+      if (previous.open && previousTarget !== undefined) this.restoreAfterFailedHandoff(previousTarget)
       this.announce('tool-unavailable-runtime')
       return
     }
     this.announce('tool-shown')
-  }
-
-  dismiss(): void {
-    this.closeTeam(false)
   }
 
   selectView(view: TeamDashboardView): void {
@@ -232,7 +172,6 @@ export class TeamDashboardSurfaceCoordinator {
   }
 
   async openCaptainChat(): Promise<void> {
-    const previousMode = this.state.mode
     const target = this.state.targetSessionId
     await this.options.controller.openCaptainChat((rootSessionId) => {
       const sessions = this.options.sessions.list.getSnapshot()
@@ -240,14 +179,12 @@ export class TeamDashboardSurfaceCoordinator {
         throw new Error('Captain Session is no longer in the official Session list')
       }
       try {
-        if (previousMode === 'docked') this.closeDetailsBestEffort()
+        this.closeDetailsBestEffort()
         this.releaseEntry()
         this.publish({ mode: 'inactive', targetSessionId: undefined })
         this.options.sessions.open(rootSessionId as SessionId)
       } catch (error) {
-        if (target !== undefined && this.options.controller.getSnapshot().open) {
-          this.restoreAfterFailedHandoff(previousMode, target)
-        }
+        if (target !== undefined && this.options.controller.getSnapshot().open) this.restoreAfterFailedHandoff(target)
         throw error
       }
     })
@@ -255,8 +192,7 @@ export class TeamDashboardSurfaceCoordinator {
 
   private acquireForFreshOpen(targetSessionId: string): boolean {
     const layout = this.layout
-    if (!this.declarationLive || layout === undefined) return false
-    if (!this.registerTentative()) return false
+    if (!this.declarationLive || layout === undefined || !this.registerTentative()) return false
     try {
       this.options.controller.open(targetSessionId)
       layout.openDetails()
@@ -268,43 +204,6 @@ export class TeamDashboardSurfaceCoordinator {
       this.publish({ mode: 'inactive', targetSessionId: undefined })
       return false
     }
-  }
-
-  private acquireDocked(rebinding: boolean, epoch = this.declarationEpoch, layoutEpoch = this.layoutEpoch): boolean {
-    if (!this.declarationLive || !this.shouldDock() || !this.registerTentative()) return false
-    const layout = this.layout
-    const controllerTarget = this.options.controller.getSnapshot().targetSessionId
-    const restoreFocusAfterCommit = rebinding && this.state.mode === 'peek' && this.dashboardHasFocus()
-    if (layout === undefined || layoutEpoch !== this.layoutEpoch) {
-      this.releaseEntry()
-      return false
-    }
-    if (!rebinding) {
-      try {
-        layout.openDetails()
-        this.publish({ mode: 'docked', targetSessionId: controllerTarget })
-        return true
-      } catch {
-        this.releaseEntry()
-        return false
-      }
-    }
-    this.cancelPendingFrame()
-    this.pendingFrame = this.frames.request(() => {
-      this.pendingFrame = undefined
-      if (this.disposed || epoch !== this.declarationEpoch || layoutEpoch !== this.layoutEpoch || !this.shouldDock() || this.entry === undefined) {
-        this.releaseEntry()
-        return
-      }
-      try {
-        layout.openDetails()
-        this.publish({ mode: 'docked', targetSessionId: controllerTarget })
-        this.restoreTriggerAfterReplacement(restoreFocusAfterCommit, controllerTarget)
-      } catch {
-        this.releaseEntry()
-      }
-    })
-    return false
   }
 
   private registerTentative(): boolean {
@@ -341,37 +240,9 @@ export class TeamDashboardSurfaceCoordinator {
     return this.options.slots.entriesOfSlot('details')[0] === entry
   }
 
-  private shouldDock(): boolean {
-    const controller = this.options.controller.getSnapshot()
-    return controller.open && controller.presentation === 'expanded' && this.state.safeWidth
-  }
-
-  private onViewportChange(): void {
-    if (this.disposed) return
-    const safeWidth = this.viewport.getSnapshot()
-    if (safeWidth === this.state.safeWidth) return
-    this.publish({ safeWidth })
-    const controller = this.options.controller.getSnapshot()
-    if (!controller.open || controller.presentation !== 'expanded') return
-    if (!safeWidth && this.state.mode === 'docked') {
-      const hadFocus = this.dashboardHasFocus()
-      this.closeDetailsBestEffort()
-      this.releaseEntry()
-      this.publish({ mode: 'peek', targetSessionId: controller.targetSessionId })
-      this.restoreTriggerAfterReplacement(hadFocus, controller.targetSessionId)
-      return
-    }
-    if (safeWidth && this.state.mode === 'peek') {
-      const hadFocus = this.dashboardHasFocus()
-      if (this.acquireDocked(false)) {
-        this.restoreTriggerAfterReplacement(hadFocus, controller.targetSessionId)
-      }
-    }
-  }
-
   private onSessionsChange(): void {
     const target = this.state.targetSessionId
-    if (target === undefined || this.state.mode === 'inactive') return
+    if (target === undefined || !this.options.controller.getSnapshot().open) return
     const sessions = this.options.sessions.list.getSnapshot()
     if (sessions.current === target && Object.hasOwn(sessions.byId, target)) return
     const hadFocus = this.dashboardHasFocus()
@@ -383,14 +254,13 @@ export class TeamDashboardSurfaceCoordinator {
     if (this.disposed) return
     const controller = this.options.controller.getSnapshot()
     if (controller.open || this.state.mode === 'inactive') return
-    if (this.state.mode === 'docked') this.closeDetailsBestEffort()
+    this.closeDetailsBestEffort()
     this.releaseEntry()
     this.publish({ mode: 'inactive', targetSessionId: undefined })
   }
 
   private closeTeam(restoreFocus: boolean): void {
-    if (this.state.mode === 'docked') this.closeDetailsBestEffort()
-    this.cancelPendingFrame()
+    if (this.options.controller.getSnapshot().open) this.closeDetailsBestEffort()
     this.releaseEntry()
     this.publish({ mode: 'inactive', targetSessionId: undefined })
     this.options.controller.close()
@@ -399,21 +269,17 @@ export class TeamDashboardSurfaceCoordinator {
     })
   }
 
-  private restoreAfterFailedHandoff(mode: TeamDashboardSurfaceMode, targetSessionId: string): void {
-    if (mode === 'docked' && this.state.safeWidth && this.declarationLive) {
-      if (this.registerTentative()) {
-        try {
-          const layout = this.layout
-          if (layout === undefined) throw new Error('Layout service is unavailable')
-          layout.openDetails()
-          this.publish({ mode: 'docked', targetSessionId })
-          return
-        } catch {
-          this.releaseEntry()
-        }
-      }
+  private restoreAfterFailedHandoff(targetSessionId: string): void {
+    if (!this.declarationLive || this.layout === undefined || !this.registerTentative()) return
+    try {
+      if (!this.options.controller.getSnapshot().open) this.options.controller.open(targetSessionId)
+      this.layout.openDetails()
+      this.publish({ mode: 'docked', targetSessionId })
+    } catch {
+      this.releaseEntry()
+      this.options.controller.close()
+      this.publish({ mode: 'inactive' })
     }
-    this.publish({ mode: mode === 'compact' ? 'compact' : 'peek', targetSessionId })
   }
 
   private announce(announcement: Exclude<TeamDashboardAnnouncement, undefined>): void {
@@ -434,18 +300,15 @@ export class TeamDashboardSurfaceCoordinator {
   }
 
   private onTeamEntryLoss(): void {
-    const wasDocked = this.state.mode === 'docked'
     const hadFocus = this.dashboardHasFocus()
-    this.cancelPendingFrame()
     this.releaseEntry()
-    if (!wasDocked) return
     this.publish({ mode: 'inactive', targetSessionId: undefined })
     this.options.controller.close()
     this.restoreTriggerAfterReplacement(hadFocus, this.options.sessions.list.getSnapshot().current)
   }
 
   private closeDetailsBestEffort(): void {
-    try { this.layout?.closeDetails() } catch { /* Resource cleanup must still converge during layout HMR. */ }
+    try { this.layout?.closeDetails() } catch { /* Cleanup still converges during Layout replacement. */ }
   }
 
   private dashboardHasFocus(): boolean {
@@ -463,9 +326,7 @@ export class TeamDashboardSurfaceCoordinator {
   }
 
   private publish(change: Partial<TeamDashboardSurfaceState>): void {
-    const next: TeamDashboardSurfaceState = Object.freeze({ ...this.state, ...change })
-    if (next === this.state) return
-    this.state = next
+    this.state = Object.freeze({ ...this.state, ...change })
     for (const listener of this.listeners) listener()
   }
 
@@ -476,18 +337,11 @@ export class TeamDashboardSurfaceCoordinator {
     dispose?.()
   }
 
-  private cancelPendingFrame(): void {
-    if (this.pendingFrame === undefined) return
-    this.frames.cancel(this.pendingFrame)
-    this.pendingFrame = undefined
-  }
-
   private dispose(): void {
     if (this.disposed) return
     this.disposed = true
     this.declarationEpoch += 1
     this.declarationLive = false
-    this.cancelPendingFrame()
     if (this.announcementFrame !== undefined) {
       this.frames.cancel(this.announcementFrame)
       this.announcementFrame = undefined
@@ -495,13 +349,12 @@ export class TeamDashboardSurfaceCoordinator {
     this.offEntryError()
     this.offSlot()
     this.offSessions()
-    this.offViewport()
     this.offController()
     this.layoutEpoch += 1
     this.layout = undefined
     this.releaseEntry()
     this.options.controller.dispose()
-    this.state = initialState(this.state.safeWidth)
+    this.state = INACTIVE
     this.listeners.clear()
   }
 

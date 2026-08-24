@@ -8,7 +8,6 @@ import type {
 import { SwarmReadClient, type SwarmReadClientMount } from './read-client.js'
 
 export type TeamDashboardPhase = 'closed' | 'loading' | 'ready' | 'stale' | 'reconnecting' | 'error'
-export type TeamDashboardPresentation = 'expanded' | 'compact'
 
 export interface TeamDashboardData {
   readonly capabilities: SwarmReadCapabilitiesV1
@@ -18,7 +17,6 @@ export interface TeamDashboardData {
 export interface TeamDashboardState {
   readonly open: boolean
   readonly phase: TeamDashboardPhase
-  readonly presentation?: TeamDashboardPresentation
   readonly targetSessionId?: string
   readonly data?: TeamDashboardData
   readonly error?: { readonly code: string; readonly message: string }
@@ -85,22 +83,8 @@ export class TeamDashboardController {
     this.assertLive()
     if (targetSessionId.length === 0) throw new Error('Team dashboard target Session is empty')
     this.stopActive()
-    this.publish({ open: true, phase: 'loading', presentation: 'expanded', targetSessionId })
+    this.publish({ open: true, phase: 'loading', targetSessionId })
     void this.load(targetSessionId, false)
-  }
-
-  /** Cycle one target through expanded, compact, then closed without restarting reads. */
-  cycle(targetSessionId: string): void {
-    this.assertLive()
-    if (!this.state.open || this.state.targetSessionId !== targetSessionId) {
-      this.open(targetSessionId)
-      return
-    }
-    if (this.state.presentation !== 'compact') {
-      this.publish({ ...this.state, presentation: 'compact' })
-      return
-    }
-    this.close()
   }
 
   close(): void {
@@ -187,7 +171,6 @@ export class TeamDashboardController {
       this.publish({
         open: true,
         phase: 'ready',
-        presentation: this.state.presentation ?? 'expanded',
         targetSessionId,
         data,
       })
