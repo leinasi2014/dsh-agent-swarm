@@ -72,6 +72,7 @@
     "verify:knowledge-graph:bootstrap": "node scripts/test-knowledge-graph-gate.mjs",
     "verify:knowledge-graph:extractor": "node scripts/test-knowledge-graph-extractor.mjs",
     "verify:knowledge-graph:reconcile": "node scripts/test-knowledge-graph-reconcile.mjs && node scripts/knowledge-graph/reconcile-source.mjs",
+    "verify:knowledge-graph:semantic": "node scripts/test-knowledge-graph-assignment-delivery.mjs && node scripts/knowledge-graph/reconcile-assignment-delivery.mjs",
     "verify:worktrees": "node scripts/verify-worktree-layout.mjs && node scripts/test-worktree-layout-gate.mjs",
     "verify:gate-a": "pnpm verify:workspace && pnpm verify:official && pnpm verify:references",
     "verify:structure": "node scripts/verify-project.mjs",

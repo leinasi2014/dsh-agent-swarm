@@ -77,10 +77,19 @@ assert.deepEqual({
 })
 
 const summary = reconcileSourceManifest(facts, manifest)
-assert.equal(summary.nodeCount, manifest.nodes.length)
-assert.equal(summary.edgeCount, manifest.edges.length)
-assert(manifest.nodes.every(item => item.classification === 'mechanical'
-  && item.ownerAuthority === undefined
+assert.equal(summary.nodeCount, 871)
+assert.equal(summary.edgeCount, 1432)
+assert.equal(summary.manifestNodeCount, manifest.nodes.length)
+assert.equal(summary.manifestEdgeCount, manifest.edges.length)
+const mechanicalNodes = manifest.nodes.filter(item => item.classification === 'mechanical')
+const reviewedNodes = manifest.nodes.filter(item => item.classification === 'reviewed')
+const mechanicalEdges = manifest.edges.filter(item => item.classification === 'mechanical')
+const reviewedEdges = manifest.edges.filter(item => item.classification === 'reviewed')
+assert.equal(mechanicalNodes.length, 870)
+assert.equal(reviewedNodes.length, 63)
+assert.equal(mechanicalEdges.length, 1432)
+assert.equal(reviewedEdges.length, 139)
+assert(mechanicalNodes.every(item => item.ownerAuthority === undefined
   && item.security.authoritySource === undefined
   && item.security.callerIdentity === 'unclassified'
   && item.security.mutation === 'unclassified'
@@ -88,7 +97,11 @@ assert(manifest.nodes.every(item => item.classification === 'mechanical'
   && item.security.dataClasses[0] === 'unclassified'
   && item.maturity.verification.state === 'none'
   && item.maturity.acceptance.state === 'not-candidate'))
-assert(manifest.edges.every(item => item.classification === 'mechanical' && item.crash === undefined))
+assert(mechanicalEdges.every(item => item.crash === undefined))
+assert(reviewedNodes.every(item => item.security.callerIdentity !== 'unclassified'
+  && item.security.mutation !== 'unclassified'
+  && item.maturity.acceptance.state !== 'accepted'))
+assert(reviewedEdges.every(item => item.crash === undefined || item.classification === 'reviewed'))
 {
   const promoted = structuredClone(manifest)
   const module = promoted.nodes.find(item => item.id === 'module:src/index.ts')
@@ -107,7 +120,7 @@ assert(manifest.edges.every(item => item.classification === 'mechanical' && item
   })
   promoted.nodes.sort((left, right) => left.id.localeCompare(right.id))
   const promotedSummary = reconcileSourceManifest(facts, promoted)
-  assert.equal(promotedSummary.nodeCount, manifest.nodes.length)
+  assert.equal(promotedSummary.nodeCount, 871)
   assert.equal(promotedSummary.manifestNodeCount, manifest.nodes.length + 1)
   const drifted = structuredClone(promoted)
   drifted.nodes.find(item => item.id === 'module:src/index.ts').anchors[0].selector = 'stale-reviewed-source-anchor'
@@ -139,7 +152,7 @@ expectCode('KG_RECONCILE_ANCHOR', candidate => { candidate.nodes.find(item => it
 expectCode('KG_RECONCILE_DUPLICATE', candidate => candidate.nodes.push(structuredClone(candidate.nodes[0])))
 expectCode('KG_RECONCILE_POLICY', candidate => candidate.inventoryPolicy.excludedFiles.push('src/index.ts'))
 expectCode('KG_RECONCILE_EDGE_MISSING', candidate => candidate.edges = candidate.edges.filter(item => item.id !== 'edge:package-module/src/index.ts'))
-expectCode('KG_RECONCILE_EDGE_EXTRA', candidate => candidate.edges.push({ ...structuredClone(candidate.edges[0]), id: 'edge:not-backed/by-source' }))
+expectCode('KG_RECONCILE_EDGE_EXTRA', candidate => candidate.edges.push({ ...structuredClone(candidate.edges.find(item => item.classification === 'mechanical')), id: 'edge:not-backed/by-source' }))
 expectCode('KG_RECONCILE_EDGE_TYPE', candidate => { candidate.edges.find(item => item.id === 'edge:package-module/src/index.ts').type = 'exports' })
 expectCode('KG_RECONCILE_ENDPOINT', candidate => { candidate.edges.find(item => item.id === 'edge:package-module/src/index.ts').to = { id: 'module:src/tools.ts', kind: 'module' } })
 expectCode('KG_RECONCILE_EDGE_MISSING', candidate => { candidate.edges = candidate.edges.filter(item => item.id !== 'edge:import/src/index.ts/011') })

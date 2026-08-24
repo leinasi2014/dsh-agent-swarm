@@ -157,8 +157,11 @@ function validateClassification(nodes, edges) {
     if (node.security.mutation === 'read' && ['model-tool', 'rpc-method', 'public-capability'].includes(node.kind) && node.bounds.length === 0) {
       fail('KG_REVIEWED_READ_BOUND', `${node.id} reviewed public read claim requires an explicit response bound`)
     }
-    if (node.security.mutation === 'external-effect' && !edges.some(edge => edge.classification === 'reviewed' && edge.type === 'calls' && edge.from.id === node.id && edge.to.kind === 'provider')) {
-      fail('KG_REVIEWED_EFFECT_CLOSURE', `${node.id} reviewed external effect requires a Provider call`)
+    if (node.security.mutation === 'external-effect') {
+      const closed = node.kind === 'provider'
+        ? edges.some(edge => edge.classification === 'reviewed' && edge.type === 'calls' && edge.to.id === node.id)
+        : edges.some(edge => edge.classification === 'reviewed' && edge.type === 'calls' && edge.from.id === node.id && edge.to.kind === 'provider')
+      if (!closed) fail('KG_REVIEWED_EFFECT_CLOSURE', `${node.id} reviewed external effect requires an executable-to-Provider call boundary`)
     }
     if (node.security.mutation === 'domain-transaction') {
       if (node.security.guards.length === 0) fail('KG_REVIEWED_MUTATION_GUARD', `${node.id} reviewed domain mutation requires a guard`)
