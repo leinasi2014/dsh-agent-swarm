@@ -164,7 +164,7 @@ export class TeamDashboardController {
       try {
         data = await this.readComplete(targetSessionId, abort.signal)
       } catch (error) {
-        if (!(error instanceof DashboardReadError) || error.code !== 'SWARM_UI_CURSOR_CHANGED') throw error
+        if (!shouldRetryInitialRead(error, abort.signal)) throw error
         data = await this.readComplete(targetSessionId, abort.signal)
       }
       if (!this.isCurrent(generation, targetSessionId, abort)) return
@@ -356,6 +356,15 @@ function normalizeError(error: unknown): { readonly code: string; readonly messa
   if (error instanceof DashboardReadError) return Object.freeze({ code: error.code, message: error.message })
   if (error instanceof Error) return Object.freeze({ code: 'SWARM_UI_READ_FAILED', message: error.message })
   return Object.freeze({ code: 'SWARM_UI_READ_FAILED', message: String(error) })
+}
+
+/** Retry one admission-time transport/cursor race before exposing an empty error surface. */
+function shouldRetryInitialRead(error: unknown, signal: AbortSignal): boolean {
+  if (signal.aborted) return false
+  if (error instanceof DashboardReadError) {
+    return error.code === 'SWARM_UI_CURSOR_CHANGED' || error.code === 'SWARM_RPC_CURSOR_CHANGED'
+  }
+  return error instanceof Error
 }
 
 function withoutError(state: TeamDashboardState, phase: TeamDashboardPhase): TeamDashboardState {

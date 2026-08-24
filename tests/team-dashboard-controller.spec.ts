@@ -165,6 +165,28 @@ describe('TeamDashboardController', () => {
     controller.dispose()
   })
 
+  it('recovers from one admission-time transport failure before publishing an empty error surface', async () => {
+    const seen: SwarmReadRpcRequest[] = []
+    const phases: string[] = []
+    const normal = goodFetch(seen)
+    let first = true
+    const fetcher: SwarmFetch = async (input, init) => {
+      if (first) {
+        first = false
+        throw new TypeError('transient fetch failure')
+      }
+      return await normal(input, init)
+    }
+    const controller = new TeamDashboardController(new SwarmReadClient(fetcher), new ManualSchedule())
+    const unsubscribe = controller.subscribe(() => { phases.push(controller.getSnapshot().phase) })
+    controller.open('root-1')
+    await waitFor(() => controller.getSnapshot().phase === 'ready')
+    expect(phases).not.toContain('error')
+    expect(controller.getSnapshot().data?.projection.roster).toHaveLength(1)
+    unsubscribe()
+    controller.dispose()
+  })
+
   it('rejects a stable row id repeated across otherwise canonical pages', async () => {
     const seen: SwarmReadRpcRequest[] = []
     const normal = goodFetch(seen)
