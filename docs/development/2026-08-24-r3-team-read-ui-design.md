@@ -149,6 +149,20 @@ capabilities, including loading/reconnect/stale/error states.
 
 ## 8. Acceptance evidence
 
+### 8.1 Accepted low-severity collapse-animation residual
+
+`OPEN / LOW / NON_BLOCKING` — during the official details-track close
+transition, dense Team text may remain visible for a short frame while the
+host grid narrows, producing a brief compressed or stacked-text effect. The
+center divider pill is the official DSH details resize handle and is not part
+of this defect. The residual is visual only: Team state, reads, focus return,
+Slot release and details closure still converge correctly. Candidate
+`df3b566` retained a 300px Team content layout and releases the Team occupant
+before requesting host closure, but user validation still observed the visual
+artifact. Defer further work until a bounded fix can be proven without
+patching official DSH, replacing its animation authority, or adding another
+presentation mode.
+
 Author evidence must prove:
 
 - controller has no presentation/compact cycle;
