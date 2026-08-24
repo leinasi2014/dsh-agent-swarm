@@ -2,7 +2,7 @@
 
 - Upstream: `https://github.com/openJiuwen-ai/jiuwenswarm`
 - Branch observed: `develop`
-- Pinned commit: `403fe354ad9ffbce36683a9b223ba9a36179bc06`
+- Pinned commit: `59e42de913cf837e04fea1aa79d555d82dc10316`
 - Local checkout: `source/`
 
 This repository is a product and architecture reference, not a DSH dependency.
@@ -37,3 +37,10 @@ operations behind per-user AgentServer adapters, propagates authenticated
 This reinforces business-state ownership at the authenticated runtime and UI
 as projection. It remains behavior evidence only: no Jiuwen adapter, runtime,
 storage schema or frontend state type is adopted by this plugin.
+
+The `59e42de9` supersession adds macOS bundle repair, Artifact and ToolPanel
+presentation, one-shot cron conflict handling, caller-supplied `DeepAgentSpec`,
+responsive Web UI work and Team task presentation. Review confirmed that the
+Team permission rails, member reporting and distributed-runtime evidence used
+by this plugin are unchanged. The declarative Agent specification is supporting
+composition evidence only; no Jiuwen runtime, policy or public type is adopted.

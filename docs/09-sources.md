@@ -88,7 +88,7 @@ SW-G0 Gate A supersession (2026-08-23): the cumulative `0c21e5d..912aae5` delta 
 
 - URL: `https://github.com/openJiuwen-ai/jiuwenswarm`
 - Branch: `develop`
-- Commit: `403fe354ad9ffbce36683a9b223ba9a36179bc06`
+- Commit: `59e42de913cf837e04fea1aa79d555d82dc10316`
 - Develop package state observed: `workswarm` `0.2.5.beta1`
 - Local pointer: `ref/jiuwenswarm/SOURCE_POINTER.json`
 - Full local checkout: `ref/jiuwenswarm/source/`
@@ -104,6 +104,8 @@ SW-G0 Gate A supersession (2026-08-23): the cumulative `1d45d2b..e90d9ea` delta 
 M7 Gate A supersession (2026-08-24): the cumulative `e90d9ea..4c2122c` delta was reviewed before the supplied sync script materialized the branch tip. Two commits add an Autofix PR command and a Web plugin/MCP market with extension and skill pickers (63 files, +8689/-106). The delta does not touch the Team, memory, Skill Evolution, Worktree, permission or distributed-runtime evidence consumed here. The picker is UI prior art only; this plugin continues to use DSH's official settings, skills, LLM and plugin seams and adopts no Jiuwen runtime, persistence schema, connector store or public types. Tree `18c88d836350fd798252ea17fad50f926c302965`, Apache-2.0 license and `workswarm` `0.2.5.beta1` were verified at the new pin.
 
 M7-A Gate A supersession (2026-08-24): the cumulative `4c2122c..403fe354` delta was reviewed before re-pinning. Two commits add history/subagent replay UI and move Gateway-owned business state into per-user AgentServer adapters (143 files, +19829/-6077). The only core Swarm changes propagate an authenticated `user_id` into request context/tools and preserve project binding; the new memory adapter explicitly resolves memory inside the user AgentServer rather than letting a stateless Gateway choose a workspace. This reinforces, but does not change, M7-A's existing root/captain binding, single TeamDomain authority and optional official-DSH-model query design. No upstream runtime, adapter, storage schema, UI type or permission implementation is imported. Tree `6b83e579da5a62973e88eee339ddfdfed044f914`, Apache-2.0 license and `workswarm` `0.2.5.beta1` were verified at the new pin.
+
+DBG-021 Gate A supersession (2026-08-24): the cumulative `403fe354..59e42de9` delta was reviewed and the remote `develop` tip was frozen immediately before re-pinning. Five commits add macOS bundle repair, Artifact/ToolPanel presentation, one-shot cron conflict handling, caller-supplied `DeepAgentSpec`, responsive Web UI work and Team task presentation. The Team permission rails, member `report` behavior and distributed-runtime evidence consumed by this plugin are unchanged, so the delta neither resolves nor redefines DBG-021. `DeepAgentSpec` is retained only as supporting evidence for a declarative composition boundary; no Jiuwen runtime, permission policy, persistence schema or public type is adopted. Tree `3d94037da970698428b62018bcfdbd9fba0dc857`, Apache-2.0 license and `workswarm` `0.2.5.beta1` were verified at the new pin.
 
 - Agent Team user guide
 - Distributed Team
