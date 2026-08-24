@@ -1,7 +1,8 @@
-# DBG-021 — continuable-member `report` host-plane boundary
+# DBG-021 — continuable-child `report` host-plane boundary
 
 Status: `IMPLEMENTED_CANDIDATE / REVIEW_PENDING`  
 Base: `f9f7df74b0ef79139552b6096034468cb2ae059d`  
+Corrective base: `4cdce15ec5161016f385b7afde841f7fed67a54e`
 Scope: `dsh-agent-swarm` only; official DSH remains read-only.
 
 ## 1. Defect
@@ -16,12 +17,14 @@ The two layers were individually behaving as designed but their composition was 
 
 The Team policy abstains, rather than grants, only when all of these facts hold for the concrete call:
 
-1. `exec.agent` is the exact live Agent registered for an active Team member;
+1. `exec.agent` is the exact live Agent registered by the Host;
 2. `exec.name === 'report'`;
-3. the member Session's durable `parentSession` exactly equals that Team's `captainSessionId`;
+3. the Session has a durable `parentSession`, proving it is a child rather than a root;
 4. `ctx.tools.get('report', exec.agent)` exists and is not the global `ctx.tools.get('report')`, proving that the resolved definition is child-scoped.
 
-The listener returns `await next()`. It never manufactures `{ kind: 'allow' }`, so downstream DSH policy, approval handling and monotonic guards remain authoritative. Captain calls, wrong-parent sessions, global same-name tools and every ordinary unlisted host tool continue through the existing fail-closed Team classification.
+These checks run before Team membership resolution. The capability is role-independent Host authority: a continuable child may Captain a Team, or simultaneously be a parent-Team member and a sub-Team Captain. Resolving an implicit Team first would wrongly deny the former and throw `TEAM_MEMBERSHIP_AMBIGUOUS` for the latter.
+
+The listener returns `await next()`. It never manufactures `{ kind: 'allow' }`, so downstream DSH policy, approval handling and monotonic guards remain authoritative. Root Sessions, global same-name tools and every ordinary unlisted host tool receive no exemption and continue through the existing Team classification when applicable.
 
 This exception belongs in the permission composition surface, not in `DEFAULT_TOOL_POLICY`: `report` is owned and authorized by official `ctx.subagents.reportFrom()`, not by the plugin's Team aggregate. The official tool re-verifies the exact live Activation and derives the only recipient from durable lineage; it accepts no recipient argument and cannot mutate Team state.
 
@@ -39,14 +42,15 @@ Removing or contradicting the official report guidance in a member persona was r
 
 `tests/permission-report-composition.spec.ts` mounts the published rc.2 report package with the real ToolRuntime, Subagent service/provider, Agent Loop and Swarm plugin and proves:
 
-1. a live member resolves a child-scoped report, reports to its exact Captain and leaves the Team snapshot byte-equivalent;
+1. a live member resolves a child-scoped report, reports to its direct parent and leaves the Team snapshot byte-equivalent;
 2. a downstream scoped guard still denies and produces no parent report;
-3. a mismatched durable parent does not receive the exemption;
-4. a global same-name report and an ordinary unlisted host tool remain denied for a member;
-5. the existing unrelated-agent and monotonic-denial behavior remains intact.
+3. an independent continuable child that Captains a Team still reports to its direct parent and leaves its Team unchanged;
+4. a parent-Team member that also Captains a sub-Team reports without first hitting implicit-membership ambiguity, while both Teams remain unchanged;
+5. a root Captain receives no exemption for a global same-name report, and both that tool and an ordinary unlisted host tool remain denied;
+6. the existing unrelated-agent and monotonic-denial behavior remains intact.
 
 The test-only dependency is exact `@deepseek-ai/dsh-tool-subagent-report@0.1.1-rc.2`, matching the project's official compatibility baseline. No production dependency or official DSH source change is introduced.
 
 ## 5. Residual boundary
 
-The official `ToolExecution` contract exposes the resolved tool name and caller but no package/provenance identifier. The local-versus-global definition identity check is therefore the strongest available non-invasive proof of child scoping. A future official definition-origin or capability marker should replace that structural check if one is published; until then, the exact Team membership, lineage and scoped-definition conjunction prevents a name-only widening.
+The official `ToolExecution` contract exposes the resolved tool name and caller but no package/provenance identifier. The local-versus-global definition identity check is therefore the strongest available non-invasive proof of child scoping. A future official definition-origin or capability marker should replace that structural check if one is published; until then, the exact-live Agent, durable child lineage and scoped-definition conjunction prevent a name-only widening without coupling Host authority to a Team role.

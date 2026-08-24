@@ -110,10 +110,7 @@ export class TeamPermissionSurface {
    * domain/storage failure is NOT treated as unrelated: it fails loud so an
    * authority-resolution problem can never widen an unrelated call path.
    */
-  async resolveTeamRole(agent: Agent | undefined): Promise<{
-    role: 'captain' | 'member'
-    captainSessionId: string
-  } | undefined> {
+  async resolveTeamRole(agent: Agent | undefined): Promise<{ role: 'captain' | 'member' } | undefined> {
     if (agent === undefined) return undefined
     const live = this.deps.ctx.agents.get(agent.id)
     if (live !== agent) return undefined
@@ -121,7 +118,7 @@ export class TeamPermissionSurface {
     try {
       const membership = await this.deps.runtime.domain.findMembership(scope, agent.id)
       if (membership === undefined) return undefined
-      return { role: membership.role, captainSessionId: membership.team.captainSessionId }
+      return { role: membership.role }
     } catch (error) {
       if (error instanceof TeamDomainError) throw error
       throw new TeamDomainError(
@@ -134,18 +131,17 @@ export class TeamPermissionSurface {
   /**
    * The official child-scoped `report` capability is installed together with
    * its mandatory guidance and deliberately survives the global child
-   * `toolFilter`. Abstain only when all authority and provenance facts agree:
-   * this is an exact live Team member, its durable parent is this Team's
-   * captain, and the resolved definition is child-scoped rather than the
-   * global same-name definition. The official report tool and every later
-   * policy/guard remain authoritative because the caller returns `next()`.
+   * `toolFilter`. This is a role-independent Host-plane capability: a
+   * continuable child may itself captain a Team or simultaneously be a member
+   * of a parent Team. Recognize it before Team membership resolution so those
+   * legitimate roles cannot turn the capability into an ambiguous Team lookup.
+   * The official report tool and every later policy/guard remain authoritative
+   * because the caller returns `next()`.
    */
-  private isScopedMemberReport(exec: ToolExecution, role: {
-    role: 'captain' | 'member'
-    captainSessionId: string
-  }): boolean {
-    if (role.role !== 'member' || exec.name !== 'report' || exec.agent === undefined) return false
-    if (exec.agent.session.header.parentSession !== role.captainSessionId) return false
+  private isScopedChildReport(exec: ToolExecution): boolean {
+    if (exec.name !== 'report' || exec.agent === undefined) return false
+    if (this.deps.ctx.agents.get(exec.agent.id) !== exec.agent) return false
+    if (exec.agent.session.header.parentSession === undefined) return false
     const scoped = this.deps.ctx.tools.get('report', exec.agent)
     return scoped !== undefined && scoped !== this.deps.ctx.tools.get('report')
   }
@@ -172,9 +168,9 @@ export class TeamPermissionSurface {
    */
   attachPreExecute(ctx: Context): () => void {
     return ctx.on('tools/pre-execute', async (exec: ToolExecution, next: () => Promise<PreToolDecision>) => {
+      if (this.isScopedChildReport(exec)) return await next()
       const role = await this.resolveTeamRole(exec.agent)
       if (role === undefined) return await next()
-      if (this.isScopedMemberReport(exec, role)) return await next()
       const context = {
         callerRole: role.role === 'captain' ? ('captain' as const) : ('delegated-member' as const),
         // pre-execute only runs for a concrete tool call inside the current

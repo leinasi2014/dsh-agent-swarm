@@ -12,6 +12,7 @@ import * as SubagentReport from '@deepseek-ai/dsh-tool-subagent-report'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  SIGNAL,
   addMember,
   mount,
   snapshotOf,
@@ -93,6 +94,19 @@ async function setupOfficialReport(): Promise<{
   return { composition, memberId, member: await liveMember(composition, memberId) }
 }
 
+async function startOfficialChild(composition: Composition, label: string): Promise<Agent> {
+  const started = await composition.ctx.subagents.startContinuable({
+    provider: 'spawn',
+    label,
+    request: {
+      prompt: [{ type: 'text', text: label }],
+      parent: composition.lead,
+    },
+    signal: SIGNAL,
+  })
+  return await liveMember(composition, started.childId)
+}
+
 describe('DBG-021: official report is a child-scoped host-plane channel', () => {
   it('passes the official member report to its exact captain without mutating Team state', async () => {
     const { composition, memberId, member } = await setupOfficialReport()
@@ -130,45 +144,71 @@ describe('DBG-021: official report is a child-scoped host-plane channel', () => 
     }
   }, 30_000)
 
-  it('does not exempt a scoped report when the durable Team captain mismatches its parent', async () => {
-    const { composition, memberId, member } = await setupOfficialReport()
-    const domain = composition.ctx.agentSwarm.domain
-    const findMembership = domain.findMembership.bind(domain)
-    const actual = await findMembership(composition.scope, memberId)
-    if (actual === undefined) throw new Error('member membership is missing')
-    const spy = vi.spyOn(domain, 'findMembership').mockImplementation(async (scope, sessionId) => {
-      if (sessionId !== memberId) return await findMembership(scope, sessionId)
-      return { ...actual, team: { ...actual.team, captainSessionId: 'different-captain' } }
+  it('lets a continuable child Captain report to its direct parent without mutating its Team', async () => {
+    const composition = await newComposition()
+    composition.fibers.push(await composition.ctx.plugin(SubagentReport, { reportDelivery: 'quiet' }))
+    const child = await startOfficialChild(composition, 'independent child Captain')
+    const childTeam = await composition.ctx.agentSwarm.create(
+      { agent: child, signal: SIGNAL },
+      'Child-owned Team',
+      'Prove that Host-plane report is role independent.',
+    )
+    const scope = composition.ctx.agentSwarm.scopeOf(child)
+    const before = await composition.ctx.agentSwarm.domain.snapshot(scope, childTeam.id, child.id)
+
+    const result = await toolCall(composition.ctx, child, 'child-captain-report', GLOBAL_REPORT, {
+      output: 'child Captain handoff',
     })
-    try {
-      const result = await toolCall(composition.ctx, member, 'member-report-wrong-parent', GLOBAL_REPORT, {
-        output: 'must not arrive',
-      })
-      expect(result.isError).toBe(true)
-      expect((result.error as { message?: string }).message ?? '').toContain('denied by the Team tool policy')
-      expect(reports(composition.lead)).toHaveLength(0)
-    } finally {
-      spy.mockRestore()
-    }
+
+    expect(result.isError).toBe(false)
+    const delivered = reports(composition.lead)
+    expect(delivered).toHaveLength(1)
+    expect(delivered[0]).toMatchObject({ sender: child.id })
+    expect(delivered[0]?.text).toContain('child Captain handoff')
+    expect(await composition.ctx.agentSwarm.domain.snapshot(scope, childTeam.id, child.id)).toEqual(before)
   }, 30_000)
 
-  it('keeps global same-name and ordinary unlisted host tools fail-closed for members', async () => {
+  it('bypasses membership ambiguity when a parent-Team member also Captains a sub-Team', async () => {
+    const { composition, memberId, member } = await setupOfficialReport()
+    const subTeam = await composition.ctx.agentSwarm.create(
+      { agent: member, signal: SIGNAL },
+      'Member sub-Team',
+      'Exercise the valid member-plus-Captain overlap.',
+    )
+    await expect(composition.ctx.agentSwarm.domain.findMembership(composition.scope, memberId))
+      .rejects.toMatchObject({ code: 'TEAM_MEMBERSHIP_AMBIGUOUS' })
+    const parentBefore = await snapshotOf(composition)
+    const childBefore = await composition.ctx.agentSwarm.domain.snapshot(composition.scope, subTeam.id, member.id)
+
+    const result = await toolCall(composition.ctx, member, 'ambiguous-member-report', GLOBAL_REPORT, {
+      output: 'ambiguous membership handoff',
+    })
+
+    expect(result.isError).toBe(false)
+    const delivered = reports(composition.lead)
+    expect(delivered).toHaveLength(1)
+    expect(delivered[0]).toMatchObject({ sender: memberId })
+    expect(delivered[0]?.text).toContain('ambiguous membership handoff')
+    expect(await snapshotOf(composition)).toEqual(parentBefore)
+    expect(await composition.ctx.agentSwarm.domain.snapshot(composition.scope, subTeam.id, member.id)).toEqual(childBefore)
+  }, 30_000)
+
+  it('keeps a root Captain global report and ordinary unlisted host tool fail-closed', async () => {
     const composition = await newComposition()
     const reportExecutions = { count: 0 }
     const probeExecutions = { count: 0 }
     registerFixtureTool(composition.ctx, GLOBAL_REPORT, reportExecutions)
     registerFixtureTool(composition.ctx, UNLISTED_TOOL, probeExecutions)
-    const memberId = await addMember(composition, 'global-report-worker')
-    const member = await liveMember(composition, memberId)
 
-    expect(composition.ctx.tools.get(GLOBAL_REPORT, member)).toBe(composition.ctx.tools.get(GLOBAL_REPORT))
-    const reportResult = await toolCall(composition.ctx, member, 'member-global-report', GLOBAL_REPORT, {
+    expect(composition.lead.session.header.parentSession).toBeUndefined()
+    expect(composition.ctx.tools.get(GLOBAL_REPORT, composition.lead)).toBe(composition.ctx.tools.get(GLOBAL_REPORT))
+    const reportResult = await toolCall(composition.ctx, composition.lead, 'captain-global-report', GLOBAL_REPORT, {
       output: 'must not execute',
     })
     expect(reportResult.isError).toBe(true)
     expect((reportResult.error as { message?: string }).message ?? '').toContain('denied by the Team tool policy')
 
-    const unlistedResult = await toolCall(composition.ctx, member, 'member-unlisted-probe', UNLISTED_TOOL, {})
+    const unlistedResult = await toolCall(composition.ctx, composition.lead, 'captain-unlisted-probe', UNLISTED_TOOL, {})
     expect(unlistedResult.isError).toBe(true)
     expect((unlistedResult.error as { message?: string }).message ?? '').toContain('denied by the Team tool policy')
     expect(reportExecutions.count).toBe(0)
