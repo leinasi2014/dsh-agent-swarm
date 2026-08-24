@@ -1,7 +1,8 @@
 # Git hooks (lefthook). Local checkpoints stay fast: staged lint only.
 # `pnpm verify` and CI own the full gate matrix (typecheck, tests, build,
 # duplication, dead exports, structure, official baseline).
-# Installed automatically on `pnpm install` via the postinstall script.
+# Run `pnpm exec lefthook install` explicitly in a development checkout.
+# Published packages must not execute development-only install hooks.
 pre-commit:
   jobs:
     - name: worktree layout

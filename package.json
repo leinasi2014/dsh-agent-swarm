@@ -52,7 +52,6 @@
   },
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('lib',{recursive:true,force:true})\"",
-    "postinstall": "lefthook install",
     "build": "pnpm clean && tsc -p tsconfig.json && tsdown",
     "lint": "oxlint .",
     "verify:duplication": "jscpd src",
@@ -73,7 +72,7 @@
     "verify:worktrees": "node scripts/verify-worktree-layout.mjs && node scripts/test-worktree-layout-gate.mjs",
     "verify:gate-a": "pnpm verify:workspace && pnpm verify:official && pnpm verify:references",
     "verify:structure": "node scripts/verify-project.mjs",
-    "verify:artifact": "node scripts/verify-package-artifact.mjs",
+    "verify:artifact": "node scripts/test-package-artifact-policy.mjs && node scripts/verify-package-artifact.mjs",
     "verify": "pnpm verify:governance && pnpm verify:workspace && pnpm verify:worktrees && pnpm verify:structure && pnpm verify:p0-fixtures && pnpm lint && pnpm verify:duplication && pnpm verify:exports && pnpm typecheck && pnpm typecheck:test && pnpm test && pnpm verify:scenarios && pnpm build && pnpm verify:artifact"
   },
   "peerDependencies": {

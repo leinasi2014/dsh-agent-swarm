@@ -3,10 +3,13 @@ import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { verifySafeBundlePatch } from './p0/bundle-shape.mjs'
+import { verifyPublishedLifecycleScripts } from './package-artifact-policy.mjs'
 
 const root = resolve(import.meta.dirname, '..')
 const pkg = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'))
 const failures = []
+
+failures.push(...verifyPublishedLifecycleScripts(pkg))
 
 const bundle = await readFile(resolve(root, 'cordis.patch.yml'), 'utf8')
 const bundleShape = verifySafeBundlePatch(bundle)
@@ -131,5 +134,5 @@ if (failures.length > 0) {
   for (const failure of failures) console.error(`- ${failure}`)
   process.exitCode = 1
 } else {
-  console.log('Package entry, browser client, types, bundle patch, and runtime imports: PASS')
+  console.log('Package manifest lifecycle, entry, browser client, types, bundle patch, and runtime imports: PASS')
 }
