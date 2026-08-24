@@ -287,6 +287,7 @@ async function verifyR3BrowserEvidence(root, failures) {
     || JSON.stringify(active?.populated?.initial?.scopes) !== JSON.stringify(['team', 'member'])
     || active?.populated?.reload?.persistedReadback !== true
     || active?.populated?.fixture?.source !== 'synthetic-authoritative-storage-fixture'
+    || active?.populated?.fixture?.mode !== 'seeded'
     || active?.populated?.fixture?.claimCeiling !== 'member profile and memory projection/persistence; not live subagent execution') {
     failures.push('R3 active browser evidence does not prove representative populated member/memory readback with an explicit claim ceiling')
   }
@@ -332,7 +333,8 @@ async function verifyR3BrowserEvidence(root, failures) {
     || profileReload?.populated?.rosterCount !== 1 || profileReload?.populated?.memoryCount !== 2
     || profileReload?.settings?.persistedReadback !== true
     || Object.entries(expectedSettings).some(([field, value]) => profileReload?.settings?.[field] !== value)
-    || profileReload?.representative?.source !== 'synthetic-authoritative-storage-fixture') {
+    || profileReload?.representative?.source !== 'synthetic-authoritative-storage-fixture'
+    || profileReload?.representative?.mode !== 'reused') {
     failures.push('R3 profile-reload browser evidence does not prove populated Team and Settings persistence after Host restart')
   }
   if (!Array.isArray(profileReload?.consoleErrors) || profileReload.consoleErrors.length !== 0
@@ -352,7 +354,7 @@ async function verifyR3BrowserEvidence(root, failures) {
     && routeObserved?.contentType === null
   if (r0?.status !== 'pass' || r0?.routeUnavailable !== true || !officialFallbackObserved
     || r0?.routeOwner !== 'official-host-fallback' || r0?.swarmRouteRegistered !== false
-    || r0?.teamActionAbsent !== true || r0?.renderedData !== false) {
+    || r0?.teamActionAbsent !== true || r0?.settingsCardAbsent !== true || r0?.renderedData !== false) {
     failures.push('R3 R0 browser evidence does not prove fail-closed no-data rendering')
   }
   if (!Array.isArray(r0?.consoleErrors) || r0.consoleErrors.length !== 0
@@ -366,7 +368,7 @@ async function verifyR3BrowserEvidence(root, failures) {
   if (JSON.stringify(removed?.browser) !== JSON.stringify(browserIdentity)) {
     failures.push('R3 removed browser identity differs from the active proof')
   }
-  if (removed?.status !== 'pass' || removed?.teamActionAbsent !== true) {
+  if (removed?.status !== 'pass' || removed?.teamActionAbsent !== true || removed?.settingsCardAbsent !== true) {
     failures.push('R3 removed browser evidence does not prove client action disposal')
   }
   if (!Array.isArray(removed?.consoleErrors) || removed.consoleErrors.length !== 0
@@ -453,7 +455,7 @@ function verifyTeamSurfaceEvidence(active, failures) {
     failures.push('R3 active browser evidence does not prove the wide/Tool/narrow surface contract')
   }
   if (JSON.stringify(active?.locale?.sequence) !== JSON.stringify(['en', 'zh-CN', 'en'])
-    || active?.locale?.sameDashboardElement !== true) {
+    || active?.locale?.sameDashboardElement !== true || active?.locale?.settingsFollowedDsh !== true) {
     failures.push('R3 active browser evidence does not prove in-place en -> zh -> en localization')
   }
   const theme = active?.theme

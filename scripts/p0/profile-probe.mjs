@@ -96,7 +96,9 @@ async function bindTarget(ctx, signal) {
     'R2 isolated Profile team',
     'Real captain Team for the read-only /swarm Profile proof.',
   )
-  const representative = await ensureRepresentativeTeam(ctx, scope, team.id, agent.id)
+  const representative = await ensureRepresentativeTeam(
+    ctx, scope, team.id, agent.id, membership === undefined,
+  )
   append('r2-target-ready', ctx, {
     rootSessionId: agent.id,
     teamId: team.id,
@@ -121,10 +123,11 @@ const REPRESENTATIVE_MEMBER = {
 const TEAM_MEMORY = 'P0 shared decision: keep browser evidence claim-local.'
 const PERSONAL_MEMORY = 'P0 personal lesson: verify populated state after reload.'
 
-async function ensureRepresentativeTeam(ctx, scope, teamId, captainSessionId) {
+async function ensureRepresentativeTeam(ctx, scope, teamId, captainSessionId, seed) {
   let snapshot = await ctx.agentSwarm.domain.snapshot(scope, teamId, captainSessionId)
   let member = snapshot.team.members.find(candidate => candidate.name === REPRESENTATIVE_MEMBER.name)
   if (member === undefined) {
+    if (!seed) throw new Error('representative member did not survive Profile restart')
     member = await ctx.agentSwarm.domain.provisionMember(scope, teamId, captainSessionId, REPRESENTATIVE_MEMBER)
     member = await ctx.agentSwarm.domain.settleMember(scope, teamId, member.sessionId, { active: true })
   }
@@ -140,19 +143,30 @@ async function ensureRepresentativeTeam(ctx, scope, teamId, captainSessionId) {
 
   snapshot = await ctx.agentSwarm.domain.snapshot(scope, teamId, captainSessionId)
   if (!snapshot.team.memory.some(entry => entry.scope === 'team' && entry.content === TEAM_MEMORY)) {
+    if (!seed) throw new Error('representative Team memory did not survive Profile restart')
     await ctx.agentSwarm.domain.addMemory(
       scope, teamId, captainSessionId, 'decision', TEAM_MEMORY, ['p0:team-memory'],
     )
   }
   if (!snapshot.team.memory.some(entry => entry.scope === 'member'
     && entry.ownerSessionId === REPRESENTATIVE_MEMBER.sessionId && entry.content === PERSONAL_MEMORY)) {
+    if (!seed) throw new Error('representative personal memory did not survive Profile restart')
     await ctx.agentSwarm.domain.addMemory(
       scope, teamId, REPRESENTATIVE_MEMBER.sessionId, 'lesson', PERSONAL_MEMORY, ['p0:personal-memory'],
       { scope: 'member', ownerSessionId: REPRESENTATIVE_MEMBER.sessionId },
     )
   }
   snapshot = await ctx.agentSwarm.domain.snapshot(scope, teamId, captainSessionId)
+  if (snapshot.team.members.length !== 1 || snapshot.team.memory.length !== 2) {
+    throw new Error(`representative fixture cardinality drifted: ${JSON.stringify({
+      roster: snapshot.team.members.length, memory: snapshot.team.memory.length,
+    })}`)
+  }
+  const memories = snapshot.team.memory
+    .filter(entry => entry.content === TEAM_MEMORY || entry.content === PERSONAL_MEMORY)
+    .toSorted((left, right) => left.content.localeCompare(right.content))
   return {
+    mode: seed ? 'seeded' : 'reused',
     source: 'synthetic-authoritative-storage-fixture',
     claimCeiling: 'member profile and memory projection/persistence; not live subagent execution',
     member: {
@@ -169,6 +183,7 @@ async function ensureRepresentativeTeam(ctx, scope, teamId, captainSessionId) {
     },
     rosterCount: snapshot.team.members.length,
     memoryCount: snapshot.team.memory.length,
+    memoryIds: memories.map(entry => entry.id),
     teamMemory: TEAM_MEMORY,
     personalMemory: PERSONAL_MEMORY,
   }

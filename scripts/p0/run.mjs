@@ -484,6 +484,9 @@ async function main() {
     if (typeof teamId !== 'string' || teamId.length === 0 || targetReady.resumed !== false) {
       throw new Error(`fresh R2 captain Team was not created through the real runtime: ${JSON.stringify(targetReady)}`)
     }
+    if (targetReady.representative?.mode !== 'seeded') {
+      throw new Error(`fresh representative Team data was not seeded exactly once: ${JSON.stringify(targetReady.representative)}`)
+    }
     const browserFixture = await readWorkspaceSessionAccounting({
       port: args.port, evidenceDir, label: 'r3', workspaceRoot,
       workspaceId: workspace.workspaceId, rootSessionId,
@@ -565,6 +568,13 @@ async function main() {
     assertSessionFixture(reloadTarget, 'reused', seededEvents)
     if (reloadTarget.teamId !== teamId || reloadTarget.resumed !== true) {
       throw new Error(`reload did not recover the same authoritative captain Team: ${JSON.stringify(reloadTarget)}`)
+    }
+    if (reloadTarget.representative?.mode !== 'reused'
+      || reloadTarget.representative?.member?.sessionId !== targetReady.representative?.member?.sessionId
+      || JSON.stringify(reloadTarget.representative?.memoryIds) !== JSON.stringify(targetReady.representative?.memoryIds)) {
+      throw new Error(`reload did not strictly reuse the original representative member/memory identities: ${JSON.stringify({
+        initial: targetReady.representative, reload: reloadTarget.representative,
+      })}`)
     }
     const reloadBrowserFixture = await readWorkspaceSessionAccounting({
       port: args.port, evidenceDir, label: 'r3-reload', workspaceRoot,

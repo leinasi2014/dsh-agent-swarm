@@ -96,12 +96,12 @@ try {
             toolHandoffFocusRetained: true,
             narrowTeamUsesOfficialConcession: true, floatingTeamSurfaceAbsent: true,
           },
-          locale: { sequence: ['en', 'zh-CN', 'en'], sameDashboardElement: true },
+          locale: { sequence: ['en', 'zh-CN', 'en'], sameDashboardElement: true, settingsFollowedDsh: true },
           populated: {
             initial: { member: 'profile-reviewer', rosterCount: 1, memoryCount: 2, scopes: ['team', 'member'], persistedReadback: false },
             reload: { member: 'profile-reviewer', rosterCount: 1, memoryCount: 2, scopes: ['team', 'member'], persistedReadback: true },
             fixture: {
-              source: 'synthetic-authoritative-storage-fixture',
+              source: 'synthetic-authoritative-storage-fixture', mode: 'seeded',
               claimCeiling: 'member profile and memory projection/persistence; not live subagent execution',
             },
           },
@@ -138,7 +138,7 @@ try {
               officialTestingNoticePresent: true, officialTestingNoticeDismissed: true,
               officialApiKeyOnboardingPresent: true, officialApiKeyOnboardingSkipped: true,
               bootstrap: { ...bootstrap, frameworkTargetObserved: true },
-              representative: { source: 'synthetic-authoritative-storage-fixture' },
+              representative: { source: 'synthetic-authoritative-storage-fixture', mode: 'reused' },
               populated: { member: 'profile-reviewer', rosterCount: 1, memoryCount: 2, scopes: ['team', 'member'] },
               settings: {
                 memoryQueryMaxCandidates: '7', memoryQueryTimeoutMs: '3000',
@@ -153,14 +153,14 @@ try {
             status: 'pass', browser, bootstrap, routeUnavailable: true,
             routeObserved: { status: 405, bodyBytes: 0, contentType: null },
             routeOwner: 'official-host-fallback', swarmRouteRegistered: false,
-            teamActionAbsent: true, renderedData: false,
+            teamActionAbsent: true, settingsCardAbsent: true, renderedData: false,
             officialTestingNoticePresent: true, officialTestingNoticeDismissed: true,
             officialApiKeyOnboardingPresent: true, officialApiKeyOnboardingSkipped: true,
             consoleErrors: [], pageErrors: [],
           })}\n`
         : relativePath === 'evidence/r3-browser-removed.json'
           ? `${JSON.stringify({
-              status: 'pass', browser, bootstrap, teamActionAbsent: true, consoleErrors: [], pageErrors: [],
+              status: 'pass', browser, bootstrap, teamActionAbsent: true, settingsCardAbsent: true, consoleErrors: [], pageErrors: [],
               officialTestingNoticePresent: true, officialTestingNoticeDismissed: true,
               officialApiKeyOnboardingPresent: true, officialApiKeyOnboardingSkipped: true,
             })}\n`
@@ -289,6 +289,8 @@ try {
     ['R3 browser missing personal memory', value => { value.populated.initial.scopes = ['team'] }],
     ['R3 browser missing populated reload readback', value => { value.populated.reload.persistedReadback = false }],
     ['R3 browser missing Settings reload readback', value => { value.settings.reload.persistedReadback = false }],
+    ['R3 browser populated fixture not seeded', value => { value.populated.fixture.mode = 'reused' }],
+    ['R3 browser Settings locale not followed', value => { value.locale.settingsFollowedDsh = false }],
   ]) {
     const value = JSON.parse(activeContent.toString('utf8'))
     mutate(value)
@@ -304,6 +306,22 @@ try {
   await writeFile(activePath, activeContent)
   activeRecord.bytes = activeContent.length
   activeRecord.sha256 = await sha256File(activePath)
+  const profileReloadPath = join(root, 'evidence/r3-browser-profile-reload.json')
+  const profileReloadRecord = base.evidenceFiles.find(record => record.relativePath === 'evidence/r3-browser-profile-reload.json')
+  const profileReloadContent = await readFile(profileReloadPath)
+  const repairedReload = JSON.parse(profileReloadContent.toString('utf8'))
+  repairedReload.representative.mode = 'seeded'
+  const repairedReloadContent = `${JSON.stringify(repairedReload)}\n`
+  await writeFile(profileReloadPath, repairedReloadContent)
+  profileReloadRecord.bytes = Buffer.byteLength(repairedReloadContent)
+  profileReloadRecord.sha256 = await sha256File(profileReloadPath)
+  if ((await verifyP0Evidence(root, structuredClone(base), expected)).ok) {
+    throw new Error('Profile reload repaired fixture unexpectedly passed')
+  }
+  cases.push(['Profile reload repaired fixture'])
+  await writeFile(profileReloadPath, profileReloadContent)
+  profileReloadRecord.bytes = profileReloadContent.length
+  profileReloadRecord.sha256 = await sha256File(profileReloadPath)
   const r0Path = join(root, 'evidence/r3-browser-r0.json')
   const r0Record = base.evidenceFiles.find(record => record.relativePath === 'evidence/r3-browser-r0.json')
   const r0Content = await readFile(r0Path)
@@ -313,6 +331,7 @@ try {
     ['R0 fallback fake content-type', value => { value.routeObserved.contentType = 'application/json' }],
     ['R0 fallback fake owner', value => { value.routeOwner = 'dsh-agent-swarm' }],
     ['R0 fallback fake registration', value => { value.swarmRouteRegistered = true }],
+    ['R0 Settings card still mounted', value => { value.settingsCardAbsent = false }],
   ]) {
     const value = structuredClone(r0Base)
     mutate(value)
@@ -328,6 +347,19 @@ try {
   await writeFile(r0Path, r0Content)
   r0Record.bytes = r0Content.length
   r0Record.sha256 = await sha256File(r0Path)
+  const removedPath = join(root, 'evidence/r3-browser-removed.json')
+  const removedRecord = base.evidenceFiles.find(record => record.relativePath === 'evidence/r3-browser-removed.json')
+  const removedContent = await readFile(removedPath)
+  const removedMounted = JSON.parse(removedContent.toString('utf8'))
+  removedMounted.settingsCardAbsent = false
+  const removedMountedContent = `${JSON.stringify(removedMounted)}\n`
+  await writeFile(removedPath, removedMountedContent)
+  removedRecord.bytes = Buffer.byteLength(removedMountedContent)
+  removedRecord.sha256 = await sha256File(removedPath)
+  if ((await verifyP0Evidence(root, structuredClone(base), expected)).ok) {
+    throw new Error('removed Settings card still mounted unexpectedly passed')
+  }
+  cases.push(['removed Settings card still mounted'])
   console.log(`P0 Bundle/evidence gates: Typert payload + 1 positive/2 negative response cases; 1 safe Bundle + 4 unsafe Bundle cases; positive evidence + ${cases.length} negative evidence cases: PASS`)
 } finally {
   await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })

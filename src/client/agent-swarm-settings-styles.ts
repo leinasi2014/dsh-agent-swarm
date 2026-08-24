@@ -24,7 +24,7 @@ const AGENT_SWARM_SETTINGS_STYLES = `
 [data-swarm-settings-input]:focus-visible { outline: none; border-color: var(--dsw-alias-brand-primary); }
 [data-swarm-settings-hint] { margin: 0; color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 1.5; }
 [data-swarm-settings-hint][data-invalid='true'] { color: var(--dsw-alias-label-error); }
-[data-swarm-settings-toggle] { display: flex; align-items: center; gap: 8px; color: var(--dsw-alias-label-primary); font-size: 13px; }
+[data-swarm-settings-toggle] { flex: 1; display: flex; align-items: center; gap: 8px; color: var(--dsw-alias-label-primary); font-size: 13px; }
 [data-swarm-settings-readonly] { margin: 12px 0 0; color: var(--dsw-alias-label-tertiary); font-size: 12px; }
 [data-swarm-settings-footer] { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 12px 0 4px; border-top: 1px solid var(--dsw-alias-border-l2); }
 [data-swarm-settings-failed] { flex: 1; margin: 0; color: var(--dsw-alias-label-error); font-size: 12px; }

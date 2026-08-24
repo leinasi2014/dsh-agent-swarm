@@ -49,6 +49,8 @@ export function AgentSwarmSettingsCard(props: AgentSwarmSettingsCardProps) {
               value={state.fields.memorySemanticEnabled}
               disabled={disabled}
               onEdit={props.edit}
+              onReset={props.resetField}
+              t={props.t}
             />
             <TextField field="memorySemanticProvider" label={props.t('semanticProvider')} hint={props.t('semanticProviderHint')} invalidHint={props.t('semanticRouteRequired')} value={state.fields.memorySemanticProvider} disabled={disabled} {...props} />
             <TextField field="memorySemanticModel" label={props.t('semanticModel')} hint={props.t('semanticModelHint')} invalidHint={props.t('semanticRouteRequired')} value={state.fields.memorySemanticModel} disabled={disabled} {...props} />
@@ -81,13 +83,19 @@ function BooleanField(props: {
   value: AgentSwarmSettingsFieldState
   disabled: boolean
   onEdit: (field: AgentSwarmSettingsField, text: string) => void
+  onReset: (field: AgentSwarmSettingsField) => void
+  t: (key: AgentSwarmSettingsLocaleKey) => string
 }) {
   return (
     <div data-swarm-settings-field>
-      <label data-swarm-settings-toggle>
-        <input type="checkbox" checked={props.value.text === 'true'} disabled={props.disabled} onChange={event => { props.onEdit(props.field, event.target.checked ? 'true' : 'false') }} />
-        <span>{props.label}</span>
-      </label>
+      <div data-swarm-settings-field-head>
+        <label data-swarm-settings-toggle>
+          <input type="checkbox" checked={props.value.text === 'true'} disabled={props.disabled} onChange={event => { props.onEdit(props.field, event.target.checked ? 'true' : 'false') }} />
+          <span>{props.label}</span>
+        </label>
+        {props.value.overridden ? <span data-swarm-settings-badge>{props.t('overridden')}</span> : null}
+        {props.value.overridden ? <button type="button" data-swarm-settings-reset disabled={props.disabled} onClick={() => { props.onReset(props.field) }}>{props.t('reset')}</button> : null}
+      </div>
       <p data-swarm-settings-hint>{props.hint}</p>
     </div>
   )

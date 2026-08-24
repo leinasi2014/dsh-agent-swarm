@@ -154,6 +154,13 @@ describe('Agent Swarm official Plugins settings contribution', () => {
       memberSkills: ['review-code', 'verify-ui'],
     })
     expect(face.hooks.agentSwarmSettings.getSnapshot()).toMatchObject({ dirty: false, failed: false })
+
+    face.resetField('memorySemanticEnabled')
+    face.save()
+    await waitForSaved(face)
+    expect(scope.writes).toContain('unset:memorySemanticEnabled')
+    expect(scope.getSnapshot().value?.memorySemanticEnabled).toBe(false)
+    expect(Object.hasOwn(scope.getSnapshot().user ?? {}, 'memorySemanticEnabled')).toBe(false)
   })
 
   it('blocks a semantic enable without both DSH routing fields', () => {

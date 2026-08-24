@@ -466,6 +466,10 @@ export async function runR3ActiveBrowserProof({
       || await page.getByRole('button', { name: '工具详情', exact: true }).count() !== 1) {
       throw new Error('DSH locale switch remounted Team or left its action copy in English')
     }
+    const zhSettingsDialog = page.getByRole('dialog', { name: '设置', exact: true })
+    await zhSettingsDialog.getByRole('button', { name: '插件', exact: true }).click()
+    await zhSettingsDialog.getByRole('tab', { name: '插件配置', exact: true }).click()
+    await zhSettingsDialog.getByRole('button', { name: '展开 Agent Swarm 设置', exact: true }).waitFor({ state: 'visible' })
     await page.keyboard.press('Escape')
     await page.screenshot({ path: join(evidenceDir, 'r3-team-dashboard-locale-zh.png'), fullPage: false })
     await openSettings(page)
@@ -534,7 +538,7 @@ export async function runR3ActiveBrowserProof({
       memoryQueryMaxCandidates: '7', memoryQueryTimeoutMs: '3000',
       memberDenyTools: 'agent_swarm_list_tasks', memberSkills: 'dsh-plugin-development',
     })
-    await page.keyboard.press('Escape')
+    await teamTrigger.click()
     await page.locator('[data-swarm-team-panel]').waitFor({ state: 'hidden', timeout: 10_000 })
     const reloadedSessionId = await officialCurrentSessionId(page)
     if (reloadedSessionId !== rootSessionId) {
@@ -560,11 +564,11 @@ export async function runR3ActiveBrowserProof({
         narrowTeamUsesOfficialConcession: true,
         floatingTeamSurfaceAbsent: true,
       },
-      locale: { sequence: ['en', 'zh-CN', 'en'], sameDashboardElement: true },
+      locale: { sequence: ['en', 'zh-CN', 'en'], sameDashboardElement: true, settingsFollowedDsh: true },
       populated: { initial: populated, reload: populatedReload, fixture: representative },
       settings: { initial: settings, reload: settingsReload },
       theme: { light: lightTheme, dark: darkTheme, systemLight: systemLightTheme, systemDark: systemDarkTheme },
-      keyboard: ['focus Team', 'Enter', 'focus Chat while docked', 'focus Tool details', 'Enter', 'trigger reopen', 'trigger close', 'trigger reopen', 'Escape with focus return', 'Enter', 'focus Open Captain Chat', 'Enter', 'Escape after reload'],
+      keyboard: ['focus Team', 'Enter', 'focus Chat while docked', 'focus Tool details', 'Enter', 'trigger reopen', 'trigger close', 'trigger reopen', 'Escape with focus return', 'Enter', 'focus Open Captain Chat', 'Enter', 'Team trigger after reload'],
       handoff: {
         officialSessionSelected: true,
         officialSelectionSource: 'localStorage:dsh.sessions.current',
@@ -623,6 +627,17 @@ export async function runR3ReloadBrowserProof({
   }
 }
 
+async function assertAgentSwarmSettingsAbsent(page) {
+  const dialog = await openSettings(page)
+  await dialog.getByRole('button', { name: PLUGINS, exact: true }).click()
+  await dialog.getByRole('tab', { name: PLUGIN_CONFIGURATION, exact: true }).click()
+  await dialog.getByText('Shell', { exact: true }).waitFor({ state: 'visible', timeout: 20_000 })
+  const absent = await dialog.locator('[data-swarm-settings-card]').count() === 0
+  await page.keyboard.press('Escape')
+  if (!absent) throw new Error('disabled or removed Agent Swarm left its Settings card mounted')
+  return true
+}
+
 export async function runR3R0BrowserProof({
   port, evidenceDir, rootSessionId, browserExecutable, selectionSource, routeEvidence,
 }) {
@@ -646,12 +661,13 @@ export async function runR3R0BrowserProof({
     const teamActionAbsent = await page.getByRole('button', { name: TEAM_NAME }).count() === 0
     const dashboardAbsent = await page.locator('[data-swarm-team-dashboard]').count() === 0
     if (!teamActionAbsent || !dashboardAbsent) throw new Error('R0-disabled plugin left a Team client surface mounted')
+    const settingsCardAbsent = await assertAgentSwarmSettingsAbsent(page)
     await page.screenshot({ path: join(evidenceDir, 'r3-r0-fail-closed.png'), fullPage: false })
     assertCleanBrowser(records, 'R0 browser')
     const result = {
       status: 'pass', browser: identity, bootstrap: bootstrapEvidence(rootSessionId, selectionSource), ...onboarding,
       routeUnavailable: true, ...routeEvidence,
-      teamActionAbsent, renderedData: false,
+      teamActionAbsent, settingsCardAbsent, renderedData: false,
       requests: records.swarmRequests, consoleErrors: records.consoleErrors, pageErrors: records.pageErrors,
     }
     await writeFile(join(evidenceDir, 'r3-browser-r0.json'), `${JSON.stringify(result, null, 2)}\n`, 'utf8')
@@ -677,10 +693,11 @@ export async function runR3RemovedBrowserProof({ port, evidenceDir, rootSessionI
     if (await rows.count() > 0) await rows.first().click()
     const absent = await page.getByRole('button', { name: TEAM_NAME }).count() === 0
     if (!absent) throw new Error('removed package left the Team client action mounted')
+    const settingsCardAbsent = await assertAgentSwarmSettingsAbsent(page)
     assertCleanBrowser(records, 'removed browser')
     const result = {
       status: 'pass', browser: identity, bootstrap: bootstrapEvidence(rootSessionId, selectionSource), ...onboarding,
-      teamActionAbsent: true,
+      teamActionAbsent: true, settingsCardAbsent,
       consoleErrors: records.consoleErrors, pageErrors: records.pageErrors,
     }
     await writeFile(join(evidenceDir, 'r3-browser-removed.json'), `${JSON.stringify(result, null, 2)}\n`, 'utf8')
