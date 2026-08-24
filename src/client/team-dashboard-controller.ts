@@ -364,7 +364,7 @@ function shouldRetryInitialRead(error: unknown, signal: AbortSignal): boolean {
   if (error instanceof DashboardReadError) {
     return error.code === 'SWARM_UI_CURSOR_CHANGED' || error.code === 'SWARM_RPC_CURSOR_CHANGED'
   }
-  return error instanceof Error
+  return error instanceof TypeError
 }
 
 function withoutError(state: TeamDashboardState, phase: TeamDashboardPhase): TeamDashboardState {

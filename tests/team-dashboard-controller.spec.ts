@@ -187,6 +187,58 @@ describe('TeamDashboardController', () => {
     controller.dispose()
   })
 
+  it('does not retry a deterministic protocol error', async () => {
+    let calls = 0
+    const fetcher: SwarmFetch = async () => {
+      calls += 1
+      throw new Error('invalid response envelope')
+    }
+    const controller = new TeamDashboardController(new SwarmReadClient(fetcher), new ManualSchedule())
+    controller.open('root-1')
+    await waitFor(() => controller.getSnapshot().phase === 'error')
+    expect(calls).toBe(1)
+    expect(controller.getSnapshot().error).toEqual({
+      code: 'SWARM_UI_READ_FAILED',
+      message: 'invalid response envelope',
+    })
+    controller.dispose()
+  })
+
+  it('preserves a deterministic RPC denial without retrying it', async () => {
+    const seen: SwarmReadRpcRequest[] = []
+    const fetcher: SwarmFetch = async (_input, init) => {
+      const request = requestOf(init)
+      seen.push(request)
+      if (request.method === 'capabilities') return success(capabilities)
+      return Response.json({
+        schemaVersion: 1,
+        ok: false,
+        error: { code: 'SWARM_RPC_FORBIDDEN', message: 'read denied' },
+      }, { status: 403 })
+    }
+    const controller = new TeamDashboardController(new SwarmReadClient(fetcher), new ManualSchedule())
+    controller.open('root-1')
+    await waitFor(() => controller.getSnapshot().phase === 'error')
+    expect(seen.map(request => request.method)).toEqual(['capabilities', 'binding'])
+    expect(controller.getSnapshot().error).toEqual({ code: 'SWARM_RPC_FORBIDDEN', message: 'read denied' })
+    controller.dispose()
+  })
+
+  it('bounds repeated transport failure to one immediate retry', async () => {
+    let calls = 0
+    const schedule = new ManualSchedule()
+    const fetcher: SwarmFetch = async () => {
+      calls += 1
+      throw new TypeError('offline')
+    }
+    const controller = new TeamDashboardController(new SwarmReadClient(fetcher), schedule)
+    controller.open('root-1')
+    await waitFor(() => controller.getSnapshot().phase === 'error')
+    expect(calls).toBe(2)
+    expect(schedule.pending.size).toBe(1)
+    controller.dispose()
+  })
+
   it('rejects a stable row id repeated across otherwise canonical pages', async () => {
     const seen: SwarmReadRpcRequest[] = []
     const normal = goodFetch(seen)
