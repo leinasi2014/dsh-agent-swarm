@@ -110,7 +110,10 @@ export class TeamPermissionSurface {
    * domain/storage failure is NOT treated as unrelated: it fails loud so an
    * authority-resolution problem can never widen an unrelated call path.
    */
-  async resolveTeamRole(agent: Agent | undefined): Promise<{ role: 'captain' | 'member' } | undefined> {
+  async resolveTeamRole(agent: Agent | undefined): Promise<{
+    role: 'captain' | 'member'
+    captainSessionId: string
+  } | undefined> {
     if (agent === undefined) return undefined
     const live = this.deps.ctx.agents.get(agent.id)
     if (live !== agent) return undefined
@@ -118,7 +121,7 @@ export class TeamPermissionSurface {
     try {
       const membership = await this.deps.runtime.domain.findMembership(scope, agent.id)
       if (membership === undefined) return undefined
-      return { role: membership.role }
+      return { role: membership.role, captainSessionId: membership.team.captainSessionId }
     } catch (error) {
       if (error instanceof TeamDomainError) throw error
       throw new TeamDomainError(
@@ -126,6 +129,25 @@ export class TeamPermissionSurface {
         'TEAM_PERMISSION_RESOLUTION_FAILED',
       )
     }
+  }
+
+  /**
+   * The official child-scoped `report` capability is installed together with
+   * its mandatory guidance and deliberately survives the global child
+   * `toolFilter`. Abstain only when all authority and provenance facts agree:
+   * this is an exact live Team member, its durable parent is this Team's
+   * captain, and the resolved definition is child-scoped rather than the
+   * global same-name definition. The official report tool and every later
+   * policy/guard remain authoritative because the caller returns `next()`.
+   */
+  private isScopedMemberReport(exec: ToolExecution, role: {
+    role: 'captain' | 'member'
+    captainSessionId: string
+  }): boolean {
+    if (role.role !== 'member' || exec.name !== 'report' || exec.agent === undefined) return false
+    if (exec.agent.session.header.parentSession !== role.captainSessionId) return false
+    const scoped = this.deps.ctx.tools.get('report', exec.agent)
+    return scoped !== undefined && scoped !== this.deps.ctx.tools.get('report')
   }
 
   /**
@@ -152,6 +174,7 @@ export class TeamPermissionSurface {
     return ctx.on('tools/pre-execute', async (exec: ToolExecution, next: () => Promise<PreToolDecision>) => {
       const role = await this.resolveTeamRole(exec.agent)
       if (role === undefined) return await next()
+      if (this.isScopedMemberReport(exec, role)) return await next()
       const context = {
         callerRole: role.role === 'captain' ? ('captain' as const) : ('delegated-member' as const),
         // pre-execute only runs for a concrete tool call inside the current
