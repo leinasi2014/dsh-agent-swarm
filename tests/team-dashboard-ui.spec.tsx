@@ -303,6 +303,7 @@ describe('R3 DSH-native Team UI', () => {
 
   it('uses official Details chrome without floating, compact, shadow, or Peek rules', () => {
     expect(TEAM_DASHBOARD_STYLES).not.toMatch(/position:\s*fixed|box-shadow|swarm-team-peek|presentation='compact'|swarm-team-layer/u)
+    expect(TEAM_DASHBOARD_STYLES).not.toContain('border-left')
     expect(TEAM_DASHBOARD_STYLES).toContain('[data-swarm-team-panel]')
     expect(TEAM_DASHBOARD_STYLES).toContain('background: var(--dsw-alias-bg-base)')
     expect(TEAM_DASHBOARD_STYLES).toContain('grid-template-columns: repeat(5, minmax(0, 1fr))')
