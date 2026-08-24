@@ -2,6 +2,12 @@ import { lstat, readFile, readdir, realpath } from 'node:fs/promises'
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
+import { extractConfigFacts } from './extractors/config.mjs'
+import { extractDomainFacts } from './extractors/domains.mjs'
+import { extractExportFacts } from './extractors/exports.mjs'
+import { extractRegistryFacts } from './extractors/registries.mjs'
+import { extractRpcClientEventFacts } from './extractors/rpc-client-events.mjs'
+import { callBinding, declarationKey, symbolComesFrom } from './extractors/ast.mjs'
 
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx'])
 const CODE_IMPORT_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mts', '.cts', '.mjs', '.cjs'])
@@ -656,20 +662,25 @@ function extractPermissionPolicy(sourceRecords, context, diagnostics) {
   return { file: record.path, names }
 }
 
-function propertyCall(node) {
-  if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) return undefined
-  return { receiver: node.expression.expression, method: node.expression.name.text, arguments: node.arguments }
-}
-
-function isContextReceiver(node) {
-  if (ts.isIdentifier(node)) return /ctx$/iu.test(node.text)
-  return ts.isPropertyAccessExpression(node) && node.name.text === 'ctx'
-}
-
-function extractDependencyAndProviderFacts(sourceRecords, context, diagnostics) {
+function extractDependencyAndProviderFacts(sourceRecords, context, diagnostics, registryFacts) {
   const injections = []
   const providerRegistrations = []
   const providerRegistryMethods = []
+  const providerMethodKeys = new Set()
+  const provenProviderMethods = new Set([
+    ...(registryFacts?.registryExtensions ?? []),
+    ...(registryFacts?.registryFacades ?? []),
+  ].map(item => `${item.file}|${item.containingSymbol}|${item.method}`))
+  for (const record of sourceRecords) visit(record.sourceFile, node => {
+    if (!ts.isMethodDeclaration(node)) return
+    const method = propertyNameText(node.name)
+    if (method === undefined) return
+    if (!provenProviderMethods.has(`${record.path}|${containingSymbol(node)}|${method}`)) return
+    const symbol = context.checker.getSymbolAtLocation(node.name)
+    const key = declarationKey(symbol)
+    if (key !== undefined) providerMethodKeys.add(key)
+    providerRegistryMethods.push({ methodSymbol: method, file: record.path, containingSymbol: containingSymbol(node), anchor: sourcePosition(record.sourceFile, node) })
+  })
   for (const record of sourceRecords) {
     for (const statement of record.sourceFile.statements) {
       if (ts.isVariableStatement(statement)) {
@@ -696,15 +707,10 @@ function extractDependencyAndProviderFacts(sourceRecords, context, diagnostics) 
       }
     }
     visit(record.sourceFile, (node) => {
-      if (ts.isMethodDeclaration(node)) {
-        const method = propertyNameText(node.name)
-        if (method !== undefined && (method === 'registerProvider' || PROVIDER_METHOD.test(method))) {
-          providerRegistryMethods.push({ methodSymbol: method, file: record.path, containingSymbol: containingSymbol(node), anchor: sourcePosition(record.sourceFile, node) })
-        }
-      }
-      const call = propertyCall(node)
+      const call = callBinding(node, context.checker)
       if (call === undefined) return
-      const contextCall = isContextReceiver(call.receiver)
+      const contextCall = ['provide', 'get', 'inject'].includes(call.method)
+        && symbolComesFrom(call.symbol, '@deepseek-ai/cordis')
       if (contextCall && ['provide', 'get'].includes(call.method)) {
         const service = call.arguments[0] === undefined ? undefined : literalText(call.arguments[0])
         if (service === undefined) {
@@ -728,7 +734,9 @@ function extractDependencyAndProviderFacts(sourceRecords, context, diagnostics) 
           injections.push({ kind: 'ctx-inject', mode: 'optional', service, file: record.path, containingSymbol: containingSymbol(node), anchor: sourcePosition(record.sourceFile, node) })
         }
       }
-      if (call.method === 'registerProvider' || PROVIDER_METHOD.test(call.method)) {
+      const providerMethodKey = declarationKey(call.symbol)
+      if (providerMethodKey !== undefined && providerMethodKeys.has(providerMethodKey)) {
+        const methodDeclarationFile = call.symbol?.declarations?.map(declaration => context.recordBySourceFile.get(declaration.getSourceFile())?.path).find(Boolean) ?? null
         const providerName = call.arguments[0] === undefined ? undefined : literalText(call.arguments[0])
         if (providerName === undefined) {
           diagnostics.push(diagnostic(
@@ -745,9 +753,13 @@ function extractDependencyAndProviderFacts(sourceRecords, context, diagnostics) 
           containingSymbol: containingSymbol(node),
           providerName: providerName ?? null,
           staticName: providerName !== undefined,
-          receiverSymbol: call.receiver.getText(record.sourceFile),
+          receiverSymbol: call.receiver?.getText(record.sourceFile) ?? null,
+          methodDeclarationFile,
           anchor: sourcePosition(record.sourceFile, node),
         })
+      } else if (call.method === 'registerProvider' || PROVIDER_METHOD.test(call.method)) {
+        const locallyDeclared = call.symbol?.declarations?.some(declaration => context.recordBySourceFile.has(declaration.getSourceFile())) ?? false
+        if (locallyDeclared) diagnostics.push(diagnostic('KG_EXTRACT_PROVIDER_CALL_WRONG_ORIGIN', 'error', record.path, containingSymbol(node), `${call.method} is not bound to a proven registry extension or façade`))
       }
     })
   }
@@ -888,7 +900,11 @@ export async function extractSourceFacts(rootInput, options = {}) {
   const sourcesByAbsolutePath = new Map(sourceRecords.map(record => [slash(resolve(record.absolutePath)), record]))
   const sourcesByFoldedAbsolutePath = new Map(sourceRecords.map(record => [slash(resolve(record.absolutePath)).toLowerCase(), record]))
   const staticContext = collectStaticContext(sourceRecords)
-  const context = { ...staticContext, sourcesByAbsolutePath, sourcesByFoldedAbsolutePath }
+  const context = {
+    ...staticContext, root, checker, program,
+    sourcesByAbsolutePath, sourcesByFoldedAbsolutePath,
+    recordBySourceFile: new Map(sourceRecords.map(record => [record.sourceFile, record])),
+  }
   const modules = sourceRecords.map(record => extractModuleFacts(record, context, diagnostics)).sort((left, right) => compareText(left.path, right.path))
   const { definitions, byName, byFunctionSymbol } = extractToolDefinitions(sourceRecords, checker, diagnostics)
   const registrations = extractRegistrationOrder(sourceRecords, checker, byName, byFunctionSymbol, diagnostics)
@@ -904,8 +920,12 @@ export async function extractSourceFacts(rootInput, options = {}) {
   }
   const toolDefinitionsByName = new Map(definitions.map(item => [item.name, item]))
   const tools = registrations.map(registration => ({ ...toolDefinitionsByName.get(registration.toolName), ...registration }))
-  const dependenciesAndProviders = extractDependencyAndProviderFacts(sourceRecords, context, diagnostics)
-  const exportsFacts = await extractExports(root, sourceRecords, diagnostics)
+  const registryFacts = extractRegistryFacts(sourceRecords, context, diagnostics)
+  const dependenciesAndProviders = extractDependencyAndProviderFacts(sourceRecords, context, diagnostics, registryFacts)
+  const configFacts = extractConfigFacts(sourceRecords, context, diagnostics)
+  const domainFacts = extractDomainFacts(sourceRecords, context, diagnostics)
+  const rpcClientEventFacts = extractRpcClientEventFacts(sourceRecords, context, diagnostics)
+  const exportsFacts = await extractExportFacts(root, sourceRecords, context, diagnostics)
   sortDiagnostics(diagnostics)
   return {
     schemaVersion: 1,
@@ -922,6 +942,16 @@ export async function extractSourceFacts(rootInput, options = {}) {
       providerRegistryMethods: dependenciesAndProviders.providerRegistryMethods.length,
       packageExports: exportsFacts.packageExports.length,
       publicApiExportDeclarations: exportsFacts.publicApiExports.length,
+      registries: registryFacts.registries.length,
+      serviceDefinitions: registryFacts.serviceDefinitions.length,
+      configKeys: configFacts.config.schema.properties.length,
+      domains: domainFacts.domains.length,
+      domainPortMethods: domainFacts.teamDomainPort.methods.length,
+      rpcMethods: rpcClientEventFacts.rpc.methods.values.length,
+      clientSlots: rpcClientEventFacts.client.slots.length,
+      lifecycleListeners: rpcClientEventFacts.lifecycle.listeners.length,
+      reachableRootExports: exportsFacts.reachableRootExports.length,
+      reachablePublicApiExports: exportsFacts.reachablePublicApiExports.length,
     },
     modules,
     toolDefinitions: definitions,
@@ -929,6 +959,10 @@ export async function extractSourceFacts(rootInput, options = {}) {
     toolRegistrationOrder: registrations,
     permissionPolicy,
     ...dependenciesAndProviders,
+    ...registryFacts,
+    ...configFacts,
+    ...domainFacts,
+    ...rpcClientEventFacts,
     ...exportsFacts,
     diagnostics,
   }
