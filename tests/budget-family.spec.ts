@@ -383,10 +383,10 @@ describe('Budget family: degraded continuation (M4-3, real composition)', () => 
     // The captain interrupts the assignment turn (keepInbox): the member
     // converges live-and-idle holding an open in_progress task — the exact
     // stranded-heal trigger shape — while the budget face is exhausted.
-    const interrupted = await toolCall(ctx, lead, 'interrupt', 'agent_swarm_interrupt_member', {
-      name: 'degraded-holder',
-    })
-    expect(interrupted.isError).toBeFalsy()
+    const interrupted = await ctx.agentSwarm.interruptMember(
+      { agent: lead, signal: AbortSignal.timeout(30_000) }, 'degraded-holder',
+    )
+    expect(interrupted.previousStatus).toBe('running')
     await vi.waitFor(() => {
       const member = ctx.agents.get(SessionId(workerId))
       expect(member).toBeDefined()

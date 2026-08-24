@@ -87,11 +87,10 @@ describe('stranded-ownership self-healing over the real composition (issue #12)'
 
       // The captain interrupts the running turn (keepInbox): the member
       // converges live-and-idle while the task stays in_progress.
-      const interrupted = await toolCall(ctx, composition.lead, 'interrupt', 'agent_swarm_interrupt_member', {
-        name: 'stranded-worker',
-      })
-      expect(interrupted.isError).toBe(false)
-      expect((interrupted.value as { previous_status: string }).previous_status).toBe('running')
+      const interrupted = await ctx.agentSwarm.interruptMember(
+        { agent: composition.lead, signal: SIGNAL }, 'stranded-worker',
+      )
+      expect(interrupted.previousStatus).toBe('running')
       await vi.waitFor(() => {
         const member = ctx.agents.get(SessionId(workerId))
         expect(member).toBeDefined()
@@ -157,10 +156,10 @@ describe('stranded-ownership self-healing over the real composition (issue #12)'
         target: 'atomic-worker', content: 'Parked work across the healing window.', delivery: 'wakeup',
       })
       expect(parked.isError).toBe(false)
-      const interrupted = await toolCall(ctx, composition.lead, 'interrupt', 'agent_swarm_interrupt_member', {
-        name: 'atomic-worker',
-      })
-      expect((interrupted.value as { previous_status: string }).previous_status).toBe('running')
+      const interrupted = await ctx.agentSwarm.interruptMember(
+        { agent: composition.lead, signal: SIGNAL }, 'atomic-worker',
+      )
+      expect(interrupted.previousStatus).toBe('running')
 
       // Poll the authoritative store across the healing window; the grace
       // past, the re-kick timer fires the heal mid-loop. Each iteration

@@ -390,10 +390,18 @@ describe('official compatibility semantics over the real composition (issue #19)
       // settlement notice for it, and the member's assignment turn.
       expect(adapter.requests.length).toBe(3)
 
-      // Captain-only interrupt through the model tool.
-      const interrupted = await toolCall(ctx, lead, 'interrupt', 'agent_swarm_interrupt_member', { name: 'runaway-worker' })
-      expect(interrupted.isError).toBe(false)
-      expect(interrupted.value).toMatchObject({ name: 'runaway-worker', previous_status: 'running' })
+      // The model tool is fail-closed without host-derived runaway evidence.
+      // This fixture holds a model request, not an unmatched long-running
+      // tool call, so model prose cannot authorize the cancellation.
+      const unconfirmed = await toolCall(ctx, lead, 'interrupt-unconfirmed', 'agent_swarm_interrupt_member', {
+        name: 'runaway-worker',
+      })
+      expect(unconfirmed.isError).toBe(true)
+
+      // The trusted host seam (used by attested Human Control) retains the
+      // official keepInbox semantics independently of the guarded model tool.
+      const interrupted = await ctx.agentSwarm.interruptMember({ agent: lead, signal: SIGNAL }, 'runaway-worker')
+      expect(interrupted).toMatchObject({ name: 'runaway-worker', previousStatus: 'running' })
 
       // The cancelled turn converges to idle without draining the member:
       // the parked assignment keeps the Activation waiting, no new turn runs.

@@ -15,7 +15,7 @@ import { requireAgent, workspaceOf, type ToolExecutionAuthority } from './author
 import { boundedSettle } from './disposal.js'
 import { ExecutionRootSurface } from './execution-root-surface.js'
 import type { ExecutionRootResidue, TeamExecutionRootProvider } from './execution-roots.js'
-import { interruptMember } from './member-control.js'
+import { interruptMember, type ModelInterruptAdmission, type RunawayToolEvidence } from './member-control.js'
 import { MemberProvisioner } from './member-provisioning.js'
 import { type MemoryQueryInput } from './memory-query.js'
 import { MemoryOperations } from './memory-operations.js'
@@ -443,14 +443,15 @@ export class AgentSwarmRuntime extends Service {
   async interruptMember(
     exec: ToolExecutionAuthority,
     name: string,
-  ): Promise<{ name: string; previousStatus: 'running' | 'idle' | 'inactive' }> {
+    admission?: ModelInterruptAdmission,
+  ): Promise<{ name: string; previousStatus: 'running' | 'idle' | 'inactive'; evidence?: RunawayToolEvidence }> {
     return await interruptMember({
       ctx: this.ctx,
       domain: () => this.domain,
       isClosing: () => this.closing,
       scopeOf: agent => this.scopeOf(agent),
       ensureReady: () => this.ensureReady(),
-    }, exec, name)
+    }, exec, name, admission)
   }
 
   async setBudget(

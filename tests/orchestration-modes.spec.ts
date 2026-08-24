@@ -242,9 +242,10 @@ return { done: true, out }`,
       })
       expect(parked.isError).toBe(false)
       expect((parked.value as { phase: string }).phase).toBe('queued')
-      const interrupted = await toolCall(ctx, lead, 'interrupt', 'agent_swarm_interrupt_member', { name: workerName })
-      expect(interrupted.isError).toBe(false)
-      expect((interrupted.value as { previous_status: string }).previous_status).toBe('running')
+      const interrupted = await ctx.agentSwarm.interruptMember(
+        { agent: lead, signal: AbortSignal.timeout(30_000) }, workerName,
+      )
+      expect(interrupted.previousStatus).toBe('running')
       const member = ctx.agents.get(SessionId(taskBefore.ownerSessionId!))
       await vi.waitFor(() => {
         expect(member).toBeDefined()

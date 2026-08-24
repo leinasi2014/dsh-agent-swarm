@@ -159,7 +159,7 @@ export function registerArchiveTool(ctx: Context, runtime: AgentSwarmRuntime): v
 export function registerInterruptMemberTool(ctx: Context, runtime: AgentSwarmRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_interrupt_member',
-    description: 'Captain-only. Cancel one member\'s current turn while keeping its pending inbox, task ownership and roster membership; a later wakeup message resumes it.',
+    description: 'Captain-only emergency control. Cancel one member\'s current turn while keeping its pending inbox, task ownership and roster membership. The Host admits this model tool only when the target current turn contains an unmatched tool call older than the safety threshold; model-written claims, silence, planning time, missing file changes, and wait returns are never evidence. Direct-user stops use authenticated Human Control instead.',
     parameters: {
       name: { type: 'string', required: true, description: 'Active member name.' },
     },
@@ -169,13 +169,27 @@ export function registerInterruptMemberTool(ctx: Context, runtime: AgentSwarmRun
         properties: {
           name: { type: 'string', required: true },
           previous_status: { type: 'string', required: true, enum: ['running', 'idle', 'inactive'] },
+          evidence: {
+            type: 'object', required: true, additionalProperties: false,
+            properties: {
+              call_id: { type: 'string', required: true },
+              tool_name: { type: 'string', required: true },
+              age_ms: { type: 'number', required: true },
+            },
+          },
         },
       },
-      render: (_args, value) => [{ type: 'text', text: `Interrupted ${value.name}; previous_status=${value.previous_status}. Inbox, ownership and membership are preserved.` }],
+      render: (_args, value) => [{ type: 'text', text: `Interrupted ${value.name}; previous_status=${value.previous_status}; host evidence=${value.evidence.tool_name}/${value.evidence.call_id} age_ms=${value.evidence.age_ms}. Inbox, ownership and membership are preserved.` }],
     },
     async execute(args, exec) {
-      const interrupted = await runtime.interruptMember(exec, args.name)
-      return { name: interrupted.name, previous_status: interrupted.previousStatus }
+      const interrupted = await runtime.interruptMember(exec, args.name, { source: 'model' })
+      const evidence = interrupted.evidence
+      if (evidence === undefined) throw new Error('model interrupt admitted without host evidence')
+      return {
+        name: interrupted.name,
+        previous_status: interrupted.previousStatus,
+        evidence: { call_id: evidence.callId, tool_name: evidence.toolName, age_ms: evidence.ageMs },
+      }
     },
   }), 'interrupt-member tool')
 }

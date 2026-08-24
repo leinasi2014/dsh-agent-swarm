@@ -61,6 +61,7 @@ captain（插件驱动）：
 - **团队/个人记忆**：有界持久写入与授权查询；可在 DSH「设置 → 插件 → 插件配置 → Agent Swarm」中选择官方 Provider/model、候选上限和超时，用于重排已授权 Team 候选，故障时显式回退确定性检索。
 - **成员配置与详情**：分离子智能体运行 Provider 和 LLM Provider/model，持久化创建时 deny 快照与 Skill 指派；每任务动态工具改权在当前 DSH continuation seam 上明确为不支持。
 - **调度**：事件驱动（idle 边沿/任务图变更/预算释放）、搁浅自愈（live-idle 重试、cold owner 证据暴露）、可替换 Scheduler Provider；
+- **中断控制**：模型侧 `interrupt_member` 只在 Host 从目标当前 turn 读到持续至少 10 分钟且尚未结算的真实工具调用时开放；沉默、规划时间、无文件/Git 变化和 wait 次数均不能授权。直接用户停止走带 Host 身份证明的 Human Control，不接受模型自述证据；
 - **编排桥**：官方 `WorkflowEngine`/`JobRegistry` 的 Team 桥（isolate 域注册，run overlay 为唯一 run 真相）、显式 `adaptive|workflow` 模式 + 单 owner 纪律（#77）；
 - **执行根**：per-attempt worktree 隔离 + attemptId 围栏 + 崩溃泄漏对账（#100）；
 - **自托管控制面**：候选冻结→验收→晋升→回滚的外部 promoter 全链（P0–P7 演练实证，#102/#122 加固）。
