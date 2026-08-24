@@ -114,7 +114,7 @@ export function registerListMemoryTool(ctx: Context, runtime: AgentSwarmRuntime)
       query: { type: 'string' },
       semantic: { type: 'boolean' },
       cursor: { type: 'number' },
-      limit: { type: 'number', description: '1-32; defaults to 8.' },
+      limit: { type: 'number', description: '1-8; defaults to 8.' },
     },
     output: {
       schema: {
@@ -133,6 +133,7 @@ export function registerListMemoryTool(ctx: Context, runtime: AgentSwarmRuntime)
                 category: { type: 'string', required: true },
                 content: { type: 'string', required: true },
                 evidence_refs: { type: 'array', items: { type: 'string' }, required: true },
+                evidence_refs_truncated: { type: 'boolean' },
                 owner_session_id: { type: 'string' },
                 created_at: { type: 'number', required: true },
               },
@@ -140,11 +141,23 @@ export function registerListMemoryTool(ctx: Context, runtime: AgentSwarmRuntime)
           },
         },
       },
-      render: (_args, value) => [{ type: 'text', text: `Memory query returned ${value.entries.length} record(s) via ${value.strategy}${value.degraded === undefined ? '' : ` (${value.degraded})`}.` }],
+      render: (_args, value) => [{
+        type: 'text',
+        text: JSON.stringify({
+          ...value,
+          entries: value.entries.map(entry => ({
+            ...entry,
+            evidence_refs: entry.evidence_refs.slice(0, 8).map(reference => [...reference].slice(0, 512).join('')),
+            ...(entry.evidence_refs.length > 8 || entry.evidence_refs.some(reference => [...reference].length > 512)
+              ? { evidence_refs_truncated: true }
+              : {}),
+          })),
+        }),
+      }],
     },
     async execute(args, exec) {
       const limit = args.limit ?? 8
-      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 32) throw new Error('limit must be a safe integer from 1 to 32')
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 8) throw new Error('limit must be a safe integer from 1 to 8')
       const cursor = args.cursor ?? 0
       if (!Number.isSafeInteger(cursor) || cursor < 0) throw new Error('cursor must be a non-negative safe integer')
       if (args.query !== undefined && [...args.query].length > 2_048) throw new Error('query must contain at most 2048 code points')

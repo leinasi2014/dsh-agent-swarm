@@ -2,7 +2,7 @@
 
 - Upstream: `https://github.com/openJiuwen-ai/jiuwenswarm`
 - Branch observed: `develop`
-- Pinned commit: `59e42de913cf837e04fea1aa79d555d82dc10316`
+- Pinned commit: `2cc2048b74b794adf7e1839f5169b1a42759f08d`
 - Local checkout: `source/`
 
 This repository is a product and architecture reference, not a DSH dependency.
@@ -44,3 +44,8 @@ responsive Web UI work and Team task presentation. Review confirmed that the
 Team permission rails, member reporting and distributed-runtime evidence used
 by this plugin are unchanged. The declarative Agent specification is supporting
 composition evidence only; no Jiuwen runtime, policy or public type is adopted.
+
+The `2cc2048b` supersession adds a Python ForkServer fast path, restructures the
+code-mode prompt and browser rail, forwards Web MCP calls, and fixes Feishu Team
+reply presentation. Review found no change to the Team, memory, permission,
+worktree or durable-runtime semantics consumed by this plugin.
