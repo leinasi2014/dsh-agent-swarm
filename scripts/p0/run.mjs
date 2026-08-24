@@ -448,8 +448,11 @@ async function main() {
     if (!probeReady) throw new Error('service/tool probe did not activate')
     const firstActive = (await readProbe(probePath)).find(entry => entry.phase === 'active')
     const servicesOk = Object.values(firstActive?.services ?? {}).every(value => value === true)
-    const toolsOk = Array.isArray(firstActive?.tools) && firstActive.tools.length === 17
-      && ['agent_swarm_create', 'agent_swarm_status', 'agent_swarm_send_message', 'agent_swarm_list_tasks'].every(name => firstActive.tools.includes(name))
+    const toolsOk = Array.isArray(firstActive?.tools) && firstActive.tools.length === 19
+      && [
+        'agent_swarm_create', 'agent_swarm_status', 'agent_swarm_send_message', 'agent_swarm_list_tasks',
+        'agent_swarm_add_personal_memory', 'agent_swarm_list_memory',
+      ].every(name => firstActive.tools.includes(name))
     if (!servicesOk || !toolsOk) throw new Error(`service/tool probe mismatch: ${JSON.stringify(firstActive)}`)
     gate('service-tool-probe', 'pass', `${firstActive.tools.length} agent_swarm tools and required services active`)
 
