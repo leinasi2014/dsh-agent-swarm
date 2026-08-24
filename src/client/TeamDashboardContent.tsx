@@ -35,6 +35,16 @@ export function TeamDashboardContent({ controller, coordinator, descriptionId, h
         <h2 id={headingId}>{t('title')}</h2>
         <p id={descriptionId}>{t('description')}</p>
       </div>
+      <button
+        type="button"
+        data-swarm-team-close
+        aria-label={t('close')}
+        onClick={() => { coordinator.closeAndRestoreFocus() }}
+      >
+        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden>
+          <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      </button>
     </header>
     <ViewSwitch active={surface.view} select={view => { coordinator.selectView(view) }} t={t} />
     <div data-swarm-team-body data-swarm-team-view={surface.view}>

@@ -59,6 +59,22 @@ const TEAM_DASHBOARD_STYLES = `
   white-space: nowrap;
   border: 0;
 }
+[data-swarm-team-close] {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+[data-swarm-team-close]:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
 [data-swarm-team-tabs] {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

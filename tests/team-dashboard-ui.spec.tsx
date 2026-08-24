@@ -162,6 +162,18 @@ describe('R3 DSH-native Team UI', () => {
     expect(document.querySelector('[role="dialog"]')).toBeNull()
   })
 
+  it('closes from the official-style header action through the coordinator', async () => {
+    const controller = new FakeController(readyState())
+    const coordinator = new FakeCoordinator(controller)
+    await render(<TeamDashboardDetails {...({
+      anchorRef: anchorRef(), controller, coordinator, localeTag: coordinator.localeTag,
+      sessionId: 'session-fixture', t,
+    } as unknown as TeamDashboardDetailsProps)} />)
+    await act(async () => { labelledButton('Close Team details').click() })
+    expect(controller.closeCalls).toHaveBeenCalledTimes(1)
+    expect(document.querySelector('[data-swarm-team-panel]')).toBeNull()
+  })
+
   it('renders every read family and hands off only through the injected verifier', async () => {
     const controller = new FakeController(readyState())
     const handoff = vi.fn(async () => {})
