@@ -21,7 +21,7 @@ const TEAM_DASHBOARD_STYLES = `
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   width: 100%;
   height: 100%;
-  min-width: 0;
+  min-width: 300px;
   border-left: 1px solid var(--dsw-alias-border-l2);
   color: var(--dsw-alias-label-primary);
   background: var(--dsw-alias-bg-base);

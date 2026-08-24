@@ -270,6 +270,7 @@ describe('R3 DSH-native Team UI', () => {
     expect(TEAM_DASHBOARD_STYLES).not.toMatch(/position:\s*fixed|box-shadow|swarm-team-peek|presentation='compact'|swarm-team-layer/u)
     expect(TEAM_DASHBOARD_STYLES).toContain('[data-swarm-team-panel]')
     expect(TEAM_DASHBOARD_STYLES).toContain('background: var(--dsw-alias-bg-base)')
+    expect(TEAM_DASHBOARD_STYLES).toContain('min-width: 300px')
     expect(TEAM_DASHBOARD_STYLES).toContain('padding: 14px 12px 12px')
     expect(TEAM_DASHBOARD_STYLES).toContain('border-bottom: 1px solid var(--dsw-alias-border-l2)')
   })

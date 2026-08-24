@@ -260,10 +260,11 @@ export class TeamDashboardSurfaceCoordinator {
   }
 
   private closeTeam(restoreFocus: boolean): void {
-    if (this.options.controller.getSnapshot().open) this.closeDetailsBestEffort()
+    const wasOpen = this.options.controller.getSnapshot().open
     this.releaseEntry()
     this.publish({ mode: 'inactive', targetSessionId: undefined })
     this.options.controller.close()
+    if (wasOpen) this.closeDetailsBestEffort()
     if (restoreFocus) queueMicrotask(() => {
       this.options.anchorRef.current?.querySelector<HTMLButtonElement>('[data-swarm-team-trigger]')?.focus()
     })
