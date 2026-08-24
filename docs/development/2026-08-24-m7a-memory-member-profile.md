@@ -1,6 +1,6 @@
 # M7-A Team memory and member profile vertical slice
 
-Status: `ACCEPTED_FOR_IMPLEMENTATION`
+Status: `IMPLEMENTED`
 
 ## Outcome
 
@@ -68,6 +68,8 @@ Per-task dynamic tool re-authorization is `NOT_SUPPORTED` on the current officia
 
 Namespace: `agent-swarm`, installed with `installSettingsSection` and falling back to composition config when no Settings service exists.
 
+The browser plugin contributes the keyed `agent-swarm` card through the official `settings.plugin.item` extension seam. It therefore appears in DSH Settings → Plugins → Plugin configuration only while the Host serves the same namespace. The card stages edits, validates semantic-route and numeric constraints, writes through `ctx.settingsScope`, reads the Host user layer back before clearing the draft, and follows the active DSH locale. It never edits the official DSH checkout or owns a second settings document.
+
 The first section contains:
 
 - semantic memory search enabled;
@@ -85,7 +87,7 @@ Provider credentials stay in official DSH Models settings. Settings changes affe
 4. A3: official Settings, Team UI projection, i18n and lifecycle tests.
 5. A4: optional LLM re-ranking behind the Settings flag; deterministic fallback remains sufficient for availability.
 
-Acceptance requires old-record reopen, N/N+1 bounds, cross-member denial, invalid Skill/model failure before commit, no runtime/LLM Provider confusion, no secret/raw-error projection, HMR/dispose stability, full project checks, a real official DSH Profile proof and one exact-candidate non-author QA.
+Acceptance requires old-record reopen, N/N+1 bounds, cross-member denial, invalid Skill/model failure before commit, no runtime/LLM Provider confusion, no secret/raw-error projection, HMR/dispose stability, full project checks, a real official DSH Profile proof and one exact-candidate non-author QA. The Profile proof is scenario-bound: an empty Team proves only the empty branch. Member/profile acceptance requires one representative active member with visible Provider/model/deny/Skill fields; memory acceptance requires both one Team and one personal record with owner/evidence; Settings acceptance requires a real UI save plus read-back after page reload and after an official Profile restart. Synthetic P0 members prove bounded projection and persistence, not live subagent execution.
 
 ## R2 compatibility decision
 

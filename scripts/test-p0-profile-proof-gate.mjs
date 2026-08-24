@@ -97,6 +97,26 @@ try {
             narrowTeamUsesOfficialConcession: true, floatingTeamSurfaceAbsent: true,
           },
           locale: { sequence: ['en', 'zh-CN', 'en'], sameDashboardElement: true },
+          populated: {
+            initial: { member: 'profile-reviewer', rosterCount: 1, memoryCount: 2, scopes: ['team', 'member'], persistedReadback: false },
+            reload: { member: 'profile-reviewer', rosterCount: 1, memoryCount: 2, scopes: ['team', 'member'], persistedReadback: true },
+            fixture: {
+              source: 'synthetic-authoritative-storage-fixture',
+              claimCeiling: 'member profile and memory projection/persistence; not live subagent execution',
+            },
+          },
+          settings: {
+            initial: {
+              memoryQueryMaxCandidates: '7', memoryQueryTimeoutMs: '3000',
+              memberDenyTools: 'agent_swarm_list_tasks', memberSkills: 'dsh-plugin-development',
+              persistedReadback: true,
+            },
+            reload: {
+              memoryQueryMaxCandidates: '7', memoryQueryTimeoutMs: '3000',
+              memberDenyTools: 'agent_swarm_list_tasks', memberSkills: 'dsh-plugin-development',
+              persistedReadback: true,
+            },
+          },
           theme: {
             light: { dark: false, layerToken: '#fff', cardBackground: 'rgb(255, 255, 255)' },
             dark: { dark: true, layerToken: '#111', cardBackground: 'rgb(17, 17, 17)' },
@@ -112,7 +132,23 @@ try {
           requests: [{ method: 'POST', body: { method: 'snapshot' } }],
           consoleErrors: [], pageErrors: [],
         })}\n`
-      : relativePath === 'evidence/r3-browser-r0.json'
+        : relativePath === 'evidence/r3-browser-profile-reload.json'
+          ? `${JSON.stringify({
+              status: 'pass', rootSessionId: 'root', teamId: 'team', browser, fixture,
+              officialTestingNoticePresent: true, officialTestingNoticeDismissed: true,
+              officialApiKeyOnboardingPresent: true, officialApiKeyOnboardingSkipped: true,
+              bootstrap: { ...bootstrap, frameworkTargetObserved: true },
+              representative: { source: 'synthetic-authoritative-storage-fixture' },
+              populated: { member: 'profile-reviewer', rosterCount: 1, memoryCount: 2, scopes: ['team', 'member'] },
+              settings: {
+                memoryQueryMaxCandidates: '7', memoryQueryTimeoutMs: '3000',
+                memberDenyTools: 'agent_swarm_list_tasks', memberSkills: 'dsh-plugin-development',
+                persistedReadback: true,
+              },
+              requests: [{ method: 'POST', body: { method: 'snapshot' } }],
+              consoleErrors: [], pageErrors: [],
+            })}\n`
+          : relativePath === 'evidence/r3-browser-r0.json'
         ? `${JSON.stringify({
             status: 'pass', browser, bootstrap, routeUnavailable: true,
             routeObserved: { status: 405, bodyBytes: 0, contentType: null },
@@ -249,6 +285,10 @@ try {
     ['R3 browser missing trigger close path', value => {
       value.keyboard = value.keyboard.filter(action => action !== 'trigger close')
     }],
+    ['R3 browser missing populated member', value => { value.populated.initial.rosterCount = 0 }],
+    ['R3 browser missing personal memory', value => { value.populated.initial.scopes = ['team'] }],
+    ['R3 browser missing populated reload readback', value => { value.populated.reload.persistedReadback = false }],
+    ['R3 browser missing Settings reload readback', value => { value.settings.reload.persistedReadback = false }],
   ]) {
     const value = JSON.parse(activeContent.toString('utf8'))
     mutate(value)

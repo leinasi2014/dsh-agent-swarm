@@ -13,7 +13,7 @@ import { parsePluginInventoryResponse, pluginInventoryPayload } from './inventor
 import { name as serviceProbeName } from './profile-probe.mjs'
 import { name as shutdownProbeName } from './shutdown-probe.mjs'
 import {
-  runR3ActiveBrowserProof, runR3R0BrowserProof, runR3RemovedBrowserProof,
+  runR3ActiveBrowserProof, runR3R0BrowserProof, runR3ReloadBrowserProof, runR3RemovedBrowserProof,
 } from '../r3/browser-proof.mjs'
 
 const OFFICIAL_VERSION = '0.1.1-rc.2'
@@ -165,6 +165,25 @@ function assertProducerCapabilities(value, label) {
   const actual = value?.capabilities?.map(entry => [entry.capability, entry.state, entry.blocker])
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
     throw new Error(`${label} producer capabilities drifted: ${JSON.stringify(actual)}`)
+  }
+}
+
+function assertRepresentativeSnapshot(value, representative, label) {
+  const member = value?.roster?.find(entry => entry.name === representative?.member?.name)
+  const memory = value?.memory ?? []
+  const profileMatches = member?.phase === 'active'
+    && member?.sessionId === representative?.member?.sessionId
+    && member?.runtimeProvider === representative?.member?.provider
+    && member?.llmProvider === representative?.member?.llmProvider
+    && member?.model === representative?.member?.model
+    && member?.modelSource === representative?.member?.modelSource
+    && JSON.stringify(member?.deniedTools) === JSON.stringify(representative?.member?.deniedTools)
+    && JSON.stringify(member?.assignedSkills) === JSON.stringify(representative?.member?.assignedSkills)
+  const memoryMatches = memory.some(entry => entry.scope === 'team' && entry.content === representative?.teamMemory)
+    && memory.some(entry => entry.scope === 'member' && entry.ownerName === representative?.member?.name
+      && entry.content === representative?.personalMemory)
+  if (!profileMatches || !memoryMatches || value?.totals?.roster !== 1 || value?.memoryTotal !== 2) {
+    throw new Error(`${label} did not expose the exact representative member and two memory scopes: ${JSON.stringify(value)}`)
   }
 }
 
@@ -507,6 +526,7 @@ async function main() {
     }, trustedHeaders), 'R2 snapshot')
     assertReadBinding(snapshot, rootSessionId, teamId, 'R2 snapshot')
     assertProducerCapabilities(snapshot, 'R2 snapshot')
+    assertRepresentativeSnapshot(snapshot, targetReady.representative, 'R2 snapshot')
     if (binding.cursor !== status.cursor || status.cursor !== snapshot.cursor
       || !Array.isArray(snapshot.tasks) || !Array.isArray(snapshot.attempts) || !Array.isArray(snapshot.pendingInteractions)) {
       throw new Error('R2 binding/status/snapshot did not share one authoritative cursor and collections')
@@ -521,8 +541,9 @@ async function main() {
     await runR3ActiveBrowserProof({
       port: args.port, evidenceDir, rootSessionId, teamId,
       browserExecutable: args.browserExecutable, selectionSource, fixture: browserFixture,
+      representative: targetReady.representative,
     })
-    gate('r3-browser-active', 'pass', 'real browser rendered the live Team, used keyboard controls, handed off to official Captain Chat and survived reload')
+    gate('r3-browser-active', 'pass', 'real browser rendered representative member + Team/personal memory, read them back after reload, used keyboard controls and handed off to official Captain Chat')
     const firstStop = await gracefulStop(liveBoot, stopPath, args.port)
     liveBoot = undefined
     const firstUnloaded = await waitUntil(async () => (await readProbe(probePath)).filter(entry => entry.phase === 'unloaded').length >= 1, { timeoutMs: 5_000 })
@@ -545,7 +566,7 @@ async function main() {
     if (reloadTarget.teamId !== teamId || reloadTarget.resumed !== true) {
       throw new Error(`reload did not recover the same authoritative captain Team: ${JSON.stringify(reloadTarget)}`)
     }
-    await readWorkspaceSessionAccounting({
+    const reloadBrowserFixture = await readWorkspaceSessionAccounting({
       port: args.port, evidenceDir, label: 'r3-reload', workspaceRoot,
       workspaceId: reloadWorkspace.workspaceId, rootSessionId,
     })
@@ -553,6 +574,17 @@ async function main() {
       schemaVersion: 1, method: 'binding', target,
     }, trustedHeaders), 'R2 reload binding')
     assertReadBinding(reloadBinding, rootSessionId, teamId, 'R2 reload binding')
+    const reloadSnapshot = requireSwarmValue(await readSwarmRpc(args.port, evidenceDir, 'r2-reload-snapshot', {
+      schemaVersion: 1, method: 'snapshot', target,
+    }, trustedHeaders), 'R2 reload snapshot')
+    assertReadBinding(reloadSnapshot, rootSessionId, teamId, 'R2 reload snapshot')
+    assertRepresentativeSnapshot(reloadSnapshot, reloadTarget.representative, 'R2 reload snapshot')
+    await runR3ReloadBrowserProof({
+      port: args.port, evidenceDir, rootSessionId, teamId,
+      browserExecutable: args.browserExecutable, selectionSource, fixture: reloadBrowserFixture,
+      representative: reloadTarget.representative,
+    })
+    gate('r3-browser-profile-reload', 'pass', 'a fresh browser after official Profile restart read back the same populated Team and persisted Agent Swarm settings')
     const secondStop = await gracefulStop(liveBoot, stopPath, args.port)
     liveBoot = undefined
     const secondUnloaded = await waitUntil(async () => (await readProbe(probePath)).filter(entry => entry.phase === 'unloaded').length >= 2, { timeoutMs: 5_000 })

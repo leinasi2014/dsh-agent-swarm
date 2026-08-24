@@ -13,6 +13,7 @@ export const REQUIRED_P0_GATES = [
   'service-tool-probe',
   'r2-read-rpc-handshake',
   'r3-browser-active',
+  'r3-browser-profile-reload',
   'r3-browser-r0',
   'r3-browser-removed',
   'unload',
@@ -44,6 +45,7 @@ export const REQUIRED_P0_EVIDENCE_FILES = [
   'evidence/r2-page-pendingInteractions.json',
   'evidence/r2-page-tasks.json',
   'evidence/r2-reload-binding.json',
+  'evidence/r2-reload-snapshot.json',
   'evidence/r2-reload-session-create.json',
   'evidence/r2-session-create.json',
   'evidence/r2-snapshot.json',
@@ -51,6 +53,7 @@ export const REQUIRED_P0_EVIDENCE_FILES = [
   'evidence/r3-reload-workspace-accounting.json',
   'evidence/r3-reload-workspace-create.json',
   'evidence/r3-browser-active.json',
+  'evidence/r3-browser-profile-reload.json',
   'evidence/r3-browser-r0.json',
   'evidence/r3-browser-removed.json',
   'evidence/r3-r0-fail-closed.png',
@@ -58,6 +61,12 @@ export const REQUIRED_P0_EVIDENCE_FILES = [
   'evidence/r3-team-dashboard.png',
   'evidence/r3-team-dashboard-narrow.png',
   'evidence/r3-team-dashboard-theme-dark.png',
+  'evidence/r3-team-populated-members.png',
+  'evidence/r3-team-populated-memory.png',
+  'evidence/r3-settings-agent-swarm.png',
+  'evidence/r3-profile-reload-populated-members.png',
+  'evidence/r3-profile-reload-populated-memory.png',
+  'evidence/r3-profile-reload-settings.png',
   'evidence/r3-tool-details.png',
   'evidence/r3-workspace-accounting.json',
   'evidence/r3-workspace-create.json',
@@ -272,6 +281,25 @@ async function verifyR3BrowserEvidence(root, failures) {
     || !Array.isArray(active?.keyboard) || active.keyboard.length < 5) {
     failures.push('R3 active browser evidence does not prove render/keyboard/handoff/reload')
   }
+  if (active?.populated?.initial?.member !== 'profile-reviewer'
+    || active?.populated?.initial?.rosterCount !== 1
+    || active?.populated?.initial?.memoryCount !== 2
+    || JSON.stringify(active?.populated?.initial?.scopes) !== JSON.stringify(['team', 'member'])
+    || active?.populated?.reload?.persistedReadback !== true
+    || active?.populated?.fixture?.source !== 'synthetic-authoritative-storage-fixture'
+    || active?.populated?.fixture?.claimCeiling !== 'member profile and memory projection/persistence; not live subagent execution') {
+    failures.push('R3 active browser evidence does not prove representative populated member/memory readback with an explicit claim ceiling')
+  }
+  const expectedSettings = {
+    memoryQueryMaxCandidates: '7', memoryQueryTimeoutMs: '3000',
+    memberDenyTools: 'agent_swarm_list_tasks', memberSkills: 'dsh-plugin-development',
+  }
+  if (active?.settings?.initial?.persistedReadback !== true
+    || active?.settings?.reload?.persistedReadback !== true
+    || Object.entries(expectedSettings).some(([field, value]) => active?.settings?.initial?.[field] !== value
+      || active?.settings?.reload?.[field] !== value)) {
+    failures.push('R3 active browser evidence does not prove Agent Swarm Settings save and page-reload readback')
+  }
   verifyTeamSurfaceEvidence(active, failures)
   if (active?.fixture?.exactRoot !== true || active?.fixture?.workspaceAttached !== true
     || active?.fixture?.sessionNonBlank !== true
@@ -294,6 +322,23 @@ async function verifyR3BrowserEvidence(root, failures) {
   if (!Array.isArray(requests) || requests.length === 0 || requests.some(
     request => request?.method !== 'POST' || !allowed.has(request?.body?.method),
   )) failures.push('R3 active browser evidence contains no read requests or a non-read request')
+
+  const profileReload = await readJson('evidence/r3-browser-profile-reload.json')
+  verifyBootstrap(profileReload?.bootstrap, active?.rootSessionId, true, 'profile-reload', failures)
+  verifyTestingNotice(profileReload, 'profile-reload', failures)
+  verifyApiKeyOnboarding(profileReload, 'profile-reload', failures)
+  if (profileReload?.status !== 'pass' || profileReload?.teamId !== active?.teamId
+    || profileReload?.populated?.member !== 'profile-reviewer'
+    || profileReload?.populated?.rosterCount !== 1 || profileReload?.populated?.memoryCount !== 2
+    || profileReload?.settings?.persistedReadback !== true
+    || Object.entries(expectedSettings).some(([field, value]) => profileReload?.settings?.[field] !== value)
+    || profileReload?.representative?.source !== 'synthetic-authoritative-storage-fixture') {
+    failures.push('R3 profile-reload browser evidence does not prove populated Team and Settings persistence after Host restart')
+  }
+  if (!Array.isArray(profileReload?.consoleErrors) || profileReload.consoleErrors.length !== 0
+    || !Array.isArray(profileReload?.pageErrors) || profileReload.pageErrors.length !== 0) {
+    failures.push('R3 profile-reload browser contains an unclassified console or page error')
+  }
 
   const r0 = await readJson('evidence/r3-browser-r0.json')
   verifyBootstrap(r0?.bootstrap, active?.rootSessionId, false, 'R0', failures)
@@ -334,6 +379,12 @@ async function verifyR3BrowserEvidence(root, failures) {
     'evidence/r3-tool-details.png',
     'evidence/r3-team-dashboard-locale-zh.png',
     'evidence/r3-team-dashboard-theme-dark.png',
+    'evidence/r3-team-populated-members.png',
+    'evidence/r3-team-populated-memory.png',
+    'evidence/r3-settings-agent-swarm.png',
+    'evidence/r3-profile-reload-populated-members.png',
+    'evidence/r3-profile-reload-populated-memory.png',
+    'evidence/r3-profile-reload-settings.png',
     'evidence/r3-r0-fail-closed.png',
   ]) {
     const screenshot = await stat(resolve(root, relativePath)).catch(() => undefined)

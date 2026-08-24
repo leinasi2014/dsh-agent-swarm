@@ -8,6 +8,12 @@ const OPEN_CHAT = /^(Open Captain Chat|打开 Captain 对话)$/u
 const SETTINGS = /^(Settings|设置)$/u
 const SETTINGS_DIALOG = /^(Settings|设置)$/u
 const CLOSE_DETAILS = /^(Close details|关闭详情)$/u
+const MEMBERS = /^(Members|成员)$/u
+const MEMORY = /^(Memory|记忆)$/u
+const PLUGINS = /^(Plugins|插件)$/u
+const PLUGIN_CONFIGURATION = /^(Plugin configuration|插件配置)$/u
+const SHOW_SWARM_SETTINGS = /^(Show Agent Swarm settings|展开 Agent Swarm 设置)$/u
+const HIDE_SWARM_SETTINGS = /^(Hide Agent Swarm settings|收起 Agent Swarm 设置)$/u
 
 async function launchBrowser(executablePath) {
   const browser = await chromium.launch({
@@ -228,12 +234,108 @@ async function chooseTheme(page, name, dark) {
   return await themeState(page)
 }
 
+async function assertPopulatedTeamData(page, evidenceDir, capturePrefix) {
+  const dashboard = page.locator('[data-swarm-team-dashboard][data-phase="ready"]')
+  await dashboard.getByRole('button', { name: MEMBERS, exact: true }).click()
+  const memberBody = dashboard.locator('[data-swarm-team-body][data-swarm-team-view="members"]')
+  await memberBody.getByRole('heading', { name: /profile-reviewer.*Active/u }).waitFor({ state: 'visible' })
+  for (const value of [
+    'Review member for populated browser acceptance.',
+    'p0-profile-reviewer-session',
+    'spawn',
+    'p0-provider',
+    'p0-model',
+    'agent_swarm_list_tasks',
+    'dsh-plugin-development',
+  ]) {
+    if (await memberBody.getByText(value, { exact: true }).count() < 1) {
+      throw new Error(`populated member profile did not render ${value}`)
+    }
+  }
+  if (capturePrefix !== undefined) await page.screenshot({ path: join(evidenceDir, `${capturePrefix}-members.png`), fullPage: false })
+
+  await dashboard.getByRole('button', { name: MEMORY, exact: true }).click()
+  const memoryBody = dashboard.locator('[data-swarm-team-body][data-swarm-team-view="memory"]')
+  for (const value of [
+    'P0 shared decision: keep browser evidence claim-local.',
+    'P0 personal lesson: verify populated state after reload.',
+    'p0:team-memory',
+    'p0:personal-memory',
+  ]) {
+    await memoryBody.getByText(value, { exact: true }).waitFor({ state: 'visible' })
+  }
+  if (capturePrefix !== undefined) await page.screenshot({ path: join(evidenceDir, `${capturePrefix}-memory.png`), fullPage: false })
+  return {
+    member: 'profile-reviewer',
+    rosterCount: 1,
+    memoryCount: 2,
+    scopes: ['team', 'member'],
+    persistedReadback: capturePrefix === undefined,
+  }
+}
+
+async function openAgentSwarmSettings(page) {
+  const dialog = await openSettings(page)
+  await dialog.getByRole('button', { name: PLUGINS, exact: true }).click()
+  await dialog.getByRole('tab', { name: PLUGIN_CONFIGURATION, exact: true }).click()
+  const card = dialog.locator('[data-swarm-settings-card]')
+  await card.waitFor({ state: 'visible', timeout: 20_000 })
+  if (await card.getAttribute('data-open') !== 'true') {
+    await card.getByRole('button', { name: SHOW_SWARM_SETTINGS }).click()
+  }
+  await card.getByRole('button', { name: HIDE_SWARM_SETTINGS }).waitFor({ state: 'visible' })
+  return { dialog, card }
+}
+
+async function assertAgentSwarmSettings(page, expected, screenshotPath) {
+  const { card } = await openAgentSwarmSettings(page)
+  for (const [field, value] of Object.entries(expected)) {
+    const input = card.locator(`#swarm-settings-${field}`)
+    await input.waitFor({ state: 'visible' })
+    if (await input.inputValue() !== value) {
+      throw new Error(`Agent Swarm setting ${field} did not read back ${value}`)
+    }
+  }
+  if (screenshotPath !== undefined) await page.screenshot({ path: screenshotPath, fullPage: false })
+  await page.keyboard.press('Escape')
+  return { ...expected, persistedReadback: true }
+}
+
+async function configureAgentSwarmSettings(page, evidenceDir) {
+  const expected = {
+    memoryQueryMaxCandidates: '7',
+    memoryQueryTimeoutMs: '3000',
+    memberDenyTools: 'agent_swarm_list_tasks',
+    memberSkills: 'dsh-plugin-development',
+  }
+  const { card } = await openAgentSwarmSettings(page)
+  for (const [field, value] of Object.entries(expected)) {
+    await card.locator(`#swarm-settings-${field}`).fill(value)
+  }
+  const save = card.getByRole('button', { name: 'Save', exact: true })
+  if (await save.isDisabled()) throw new Error('Agent Swarm settings Save stayed disabled for valid representative values')
+  await save.click()
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-swarm-settings-action="save"]')
+    return button instanceof HTMLButtonElement && button.disabled
+      && document.querySelector('[data-swarm-settings-pending]') === null
+  })
+  await page.screenshot({ path: join(evidenceDir, 'r3-settings-agent-swarm.png'), fullPage: false })
+  await page.keyboard.press('Escape')
+  return await assertAgentSwarmSettings(page, expected)
+}
+
 export async function runR3ActiveBrowserProof({
-  port, evidenceDir, rootSessionId, teamId, browserExecutable, selectionSource, fixture,
+  port, evidenceDir, rootSessionId, teamId, browserExecutable, selectionSource, fixture, representative,
 }) {
   if (fixture?.exactRoot !== true || fixture?.workspaceAttached !== true
     || fixture?.sessionNonBlank !== true || fixture?.rootSessionId !== rootSessionId) {
     throw new Error('browser proof requires an exact nonblank root attached through the official Workspace API')
+  }
+  if (representative?.source !== 'synthetic-authoritative-storage-fixture'
+    || representative?.rosterCount !== 1 || representative?.memoryCount !== 2
+    || representative?.member?.phase !== 'active') {
+    throw new Error(`browser proof requires the pinned populated Team fixture: ${JSON.stringify(representative)}`)
   }
   const { browser, identity } = await launchBrowser(browserExecutable)
   const context = await browser.newContext({
@@ -288,6 +390,9 @@ export async function runR3ActiveBrowserProof({
       throw new Error('browser Team name did not come from the real R2 producer')
     }
     await page.screenshot({ path: join(evidenceDir, 'r3-team-dashboard.png'), fullPage: false })
+    const populated = await assertPopulatedTeamData(page, evidenceDir, 'r3-team-populated')
+    await dashboard.getByRole('button', { name: /^(Overview|概览)$/u, exact: true }).click()
+    const settings = await configureAgentSwarmSettings(page, evidenceDir)
 
     await composer.click()
     await panel.waitFor({ state: 'visible', timeout: 10_000 })
@@ -424,6 +529,11 @@ export async function runR3ActiveBrowserProof({
 
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 })
     await openReadyDashboard(page)
+    const populatedReload = await assertPopulatedTeamData(page, evidenceDir)
+    const settingsReload = await assertAgentSwarmSettings(page, {
+      memoryQueryMaxCandidates: '7', memoryQueryTimeoutMs: '3000',
+      memberDenyTools: 'agent_swarm_list_tasks', memberSkills: 'dsh-plugin-development',
+    })
     await page.keyboard.press('Escape')
     await page.locator('[data-swarm-team-panel]').waitFor({ state: 'hidden', timeout: 10_000 })
     const reloadedSessionId = await officialCurrentSessionId(page)
@@ -451,6 +561,8 @@ export async function runR3ActiveBrowserProof({
         floatingTeamSurfaceAbsent: true,
       },
       locale: { sequence: ['en', 'zh-CN', 'en'], sameDashboardElement: true },
+      populated: { initial: populated, reload: populatedReload, fixture: representative },
+      settings: { initial: settings, reload: settingsReload },
       theme: { light: lightTheme, dark: darkTheme, systemLight: systemLightTheme, systemDark: systemDarkTheme },
       keyboard: ['focus Team', 'Enter', 'focus Chat while docked', 'focus Tool details', 'Enter', 'trigger reopen', 'trigger close', 'trigger reopen', 'Escape with focus return', 'Enter', 'focus Open Captain Chat', 'Enter', 'Escape after reload'],
       handoff: {
@@ -471,6 +583,42 @@ export async function runR3ActiveBrowserProof({
     await writeFailureEvidence(evidenceDir, 'r3-browser-active', page, records, error)
     throw error
   } finally {
+    await browser.close()
+  }
+}
+
+export async function runR3ReloadBrowserProof({
+  port, evidenceDir, rootSessionId, teamId, browserExecutable, selectionSource, fixture, representative,
+}) {
+  const { browser, identity } = await launchBrowser(browserExecutable)
+  const context = await browser.newContext({ locale: 'en-US', viewport: { width: 1440, height: 1000 } })
+  await seedOfficialSelection(context, rootSessionId)
+  const page = await context.newPage()
+  const records = recordBrowser(page)
+  try {
+    await page.goto(`http://127.0.0.1:${String(port)}/`, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+    const onboarding = await completeOfficialOnboarding(page)
+    await openReadyDashboard(page)
+    const populated = await assertPopulatedTeamData(page, evidenceDir, 'r3-profile-reload-populated')
+    const settings = await assertAgentSwarmSettings(page, {
+      memoryQueryMaxCandidates: '7', memoryQueryTimeoutMs: '3000',
+      memberDenyTools: 'agent_swarm_list_tasks', memberSkills: 'dsh-plugin-development',
+    }, join(evidenceDir, 'r3-profile-reload-settings.png'))
+    assertReadOnlyRequests(records)
+    assertCleanBrowser(records, 'profile-reload browser')
+    const result = {
+      status: 'pass', rootSessionId, teamId, browser: identity, fixture, representative,
+      ...onboarding, bootstrap: { ...bootstrapEvidence(rootSessionId, selectionSource), frameworkTargetObserved: true },
+      populated, settings, requests: records.swarmRequests,
+      consoleErrors: records.consoleErrors, pageErrors: records.pageErrors,
+    }
+    await writeFile(join(evidenceDir, 'r3-browser-profile-reload.json'), `${JSON.stringify(result, null, 2)}\n`, 'utf8')
+    return result
+  } catch (error) {
+    await writeFailureEvidence(evidenceDir, 'r3-browser-profile-reload', page, records, error)
+    throw error
+  } finally {
+    await context.close()
     await browser.close()
   }
 }
