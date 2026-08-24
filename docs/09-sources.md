@@ -88,7 +88,7 @@ SW-G0 Gate A supersession (2026-08-23): the cumulative `0c21e5d..912aae5` delta 
 
 - URL: `https://github.com/openJiuwen-ai/jiuwenswarm`
 - Branch: `develop`
-- Commit: `e90d9ea80cdeccb84a1f92f296a85aa23e84133d`
+- Commit: `4c2122c6247d28b262ccdb2d426f3bc21a504ed7`
 - Develop package state observed: `workswarm` `0.2.5.beta1`
 - Local pointer: `ref/jiuwenswarm/SOURCE_POINTER.json`
 - Full local checkout: `ref/jiuwenswarm/source/`
@@ -100,6 +100,8 @@ Priority documents/concepts:
 M4-2 Gate A supersession (2026-08-22): the supplied sync script refreshed `develop` to the recorded `1d45d2b` pointer and verified it as the branch tip. The older cumulative-diff paragraph above remains historical evidence through `962f0a4`; issue #128 consumes only the current pinned behavioral evidence for toolchain-specific Python verification and fail-loud missing-analyzer behavior, importing no Jiuwen runtime architecture or types.
 
 SW-G0 Gate A supersession (2026-08-23): the cumulative `1d45d2b..e90d9ea` delta was reviewed before the supplied sync script materialized the new branch tip. Four commits add an optional persistent-subagent runtime, prompt/attachment restructuring, restart cleanup hardening and canonical Team Plan mode recognition. These remain product and failure-case prior art only. The plugin continues to use official DSH execution and its own single Team/HumanInteraction producer contract; no Jiuwen runtime, persistence model or types are adopted. The recorded tree, Apache-2.0 license and `workswarm` 0.2.5.beta1 package state were verified at the new pin.
+
+M7 Gate A supersession (2026-08-24): the cumulative `e90d9ea..4c2122c` delta was reviewed before the supplied sync script materialized the branch tip. Two commits add an Autofix PR command and a Web plugin/MCP market with extension and skill pickers (63 files, +8689/-106). The delta does not touch the Team, memory, Skill Evolution, Worktree, permission or distributed-runtime evidence consumed here. The picker is UI prior art only; this plugin continues to use DSH's official settings, skills, LLM and plugin seams and adopts no Jiuwen runtime, persistence schema, connector store or public types. Tree `18c88d836350fd798252ea17fad50f926c302965`, Apache-2.0 license and `workswarm` `0.2.5.beta1` were verified at the new pin.
 
 - Agent Team user guide
 - Distributed Team

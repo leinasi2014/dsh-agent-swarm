@@ -2,7 +2,7 @@
 
 - Upstream: `https://github.com/openJiuwen-ai/jiuwenswarm`
 - Branch observed: `develop`
-- Pinned commit: `e90d9ea80cdeccb84a1f92f296a85aa23e84133d`
+- Pinned commit: `4c2122c6247d28b262ccdb2d426f3bc21a504ed7`
 - Local checkout: `source/`
 
 This repository is a product and architecture reference, not a DSH dependency.
@@ -24,3 +24,9 @@ prompt and attachment handling, hardens restart cleanup and recognizes the
 canonical Team Plan modes during capability assembly. It reinforces explicit
 delegation, lifecycle and plan-to-execution boundaries. None of its Python
 runtime, transport, persistence schema or public types is adopted here.
+
+The 2026-08-24 supersession adds an Autofix PR command and a Web plugin/MCP
+market with skill and extension pickers. It does not change the Team, memory,
+Skill Evolution, Worktree, permission or distributed-runtime evidence consumed
+by this project. Its picker UI is presentation prior art only; DSH's official
+settings, skills and plugin seams remain authoritative for this plugin.
