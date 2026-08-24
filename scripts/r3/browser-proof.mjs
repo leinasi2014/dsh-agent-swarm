@@ -336,14 +336,16 @@ export async function runR3ActiveBrowserProof({
     await page.setViewportSize({ width: 680, height: 900 })
     await panel.waitFor({ state: 'hidden', timeout: 10_000 })
     const narrowBox = await panel.boundingBox()
+    const narrowPanelVisible = await panel.isVisible()
     const narrowTriggerBox = await teamTrigger.boundingBox()
     const narrowFrame = await frameState(page)
-    if (narrowTriggerBox === null || narrowBox !== null
+    if (narrowTriggerBox === null || narrowPanelVisible
+      || (narrowBox !== null && narrowBox.width > 0)
       || !narrowFrame.collapsed || detailsWidth(narrowFrame) !== 0
       || await page.locator('[data-swarm-team-dashboard]').count() !== 1
       || await page.locator('[data-swarm-team-card], [data-swarm-team-layer]').count() !== 0
       || !await teamTrigger.isVisible()) {
-      throw new Error(`narrow Team did not follow the official details concession: ${JSON.stringify({ panel: narrowBox, trigger: narrowTriggerBox, frame: narrowFrame })}`)
+      throw new Error(`narrow Team did not follow the official details concession: ${JSON.stringify({ panel: narrowBox, panelVisible: narrowPanelVisible, trigger: narrowTriggerBox, frame: narrowFrame })}`)
     }
     await page.screenshot({ path: join(evidenceDir, 'r3-team-dashboard-narrow.png'), fullPage: false })
     await page.setViewportSize({ width: 1440, height: 1000 })
@@ -438,7 +440,7 @@ export async function runR3ActiveBrowserProof({
         desktop: { card: desktopBox, trigger: desktopTriggerBox, frame: desktopFrame, composer: desktopComposerBox },
         toolDetails: { frame: toolFrame, transitionTrace },
         closed: { frame: closedFrame },
-        narrow: { panel: narrowBox, trigger: narrowTriggerBox, frame: narrowFrame },
+        narrow: { panel: narrowBox, panelVisible: narrowPanelVisible, trigger: narrowTriggerBox, frame: narrowFrame },
       },
       nonModal: { ariaModal: false, dockedChatInteractionPreserved: true, officialComposerFocused: true },
       surfaces: {

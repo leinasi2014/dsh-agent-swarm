@@ -84,7 +84,8 @@ try {
               frame: { collapsed: true, columns: [220, 1220, 0], box: { x: 0, y: 0, width: 1440, height: 1000 } },
             },
             narrow: {
-              panel: null,
+              panel: { x: 680, y: 0, width: 0, height: 900 },
+              panelVisible: false,
               trigger: { x: 630, y: 20, width: 32, height: 32 },
               frame: { collapsed: true, columns: [60, 620, 0], box: { x: 0, y: 0, width: 680, height: 900 } },
             },
@@ -242,6 +243,7 @@ try {
   cases.push(['R3 browser detached/blank fixture'])
   for (const [label, mutate] of [
     ['R3 browser forged narrow geometry', value => { value.geometry.narrow.frame.collapsed = false }],
+    ['R3 browser forged narrow visibility', value => { value.geometry.narrow.panelVisible = true }],
     ['R3 browser missing closed geometry', value => { delete value.geometry.closed }],
     ['R3 browser missing Tool handoff', value => { value.surfaces.toolHandoffKeptDetailsOpen = false }],
     ['R3 browser missing trigger close path', value => {

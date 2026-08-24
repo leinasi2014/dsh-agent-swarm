@@ -357,6 +357,9 @@ function verifyTeamSurfaceEvidence(active, failures) {
   const validRect = value => value !== undefined
     && ['x', 'y', 'width', 'height'].every(key => Number.isFinite(value[key]))
     && value.width > 0 && value.height > 0
+  const validHiddenPanel = value => value === null || (value !== undefined
+    && ['x', 'y', 'width', 'height'].every(key => Number.isFinite(value[key]))
+    && value.width === 0 && value.height >= 0)
   const validFrame = value => value !== undefined && value.collapsed === false
     && validRect(value.box) && Array.isArray(value.columns) && value.columns.length === 3
     && value.columns.every(Number.isFinite)
@@ -381,7 +384,8 @@ function verifyTeamSurfaceEvidence(active, failures) {
       || Number.parseFloat(sample?.columns?.split(/\s+/u).at(-1) ?? '0') < 1)) {
     failures.push('R3 active browser evidence does not prove zero-collapse handoff to official Tool details')
   }
-  if (narrowPanel !== null || !validRect(narrowTrigger) || !validCollapsedFrame(narrow?.frame)
+  if (narrow?.panelVisible !== false || !validHiddenPanel(narrowPanel)
+    || !validRect(narrowTrigger) || !validCollapsedFrame(narrow?.frame)
     || !validCollapsedFrame(closed?.frame)) {
     failures.push('R3 active browser evidence does not prove direct Team close and host-owned narrow details concession')
   }
