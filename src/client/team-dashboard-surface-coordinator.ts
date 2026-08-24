@@ -11,7 +11,7 @@ export const TEAM_DASHBOARD_SURFACE_ID = 'swarm-team-surface'
 
 type TeamDashboardSurfaceMode = 'inactive' | 'docked'
 export type TeamDashboardView = 'overview' | 'members' | 'work' | 'diagnostics'
-export type TeamDashboardAnnouncement = 'tool-shown' | 'tool-unavailable-runtime' | undefined
+export type TeamDashboardAnnouncement = 'tool-selected' | 'tool-unavailable-runtime' | undefined
 
 export interface TeamDashboardSurfaceState {
   readonly mode: TeamDashboardSurfaceMode
@@ -159,7 +159,7 @@ export class TeamDashboardSurfaceCoordinator {
       this.announce('tool-unavailable-runtime')
       return
     }
-    this.announce('tool-shown')
+    this.announce('tool-selected')
   }
 
   selectView(view: TeamDashboardView): void {

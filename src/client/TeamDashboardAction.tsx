@@ -22,8 +22,8 @@ export type TeamDashboardActionProps = PropsRuntime<'conversation.session.header
 export function TeamDashboardAction({ anchorRef, coordinator, sessionId, t }: TeamDashboardActionProps) {
   const state = useSyncExternalStore(coordinator.subscribe, coordinator.getSnapshot, coordinator.getSnapshot)
   const active = state.mode === 'docked' && state.targetSessionId === sessionId
-  const announcement = state.announcement === 'tool-shown'
-    ? t('action.toolDetailsShown')
+  const announcement = state.announcement === 'tool-selected'
+    ? t('action.toolDetailsSelected')
     : state.announcement === 'tool-unavailable-runtime' ? t('action.toolDetailsUnavailableNow') : ''
 
   return (

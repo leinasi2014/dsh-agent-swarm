@@ -3,7 +3,7 @@ export const TEAM_DASHBOARD_NS = 'swarm.team-dashboard' as const
 export const en = {
   'action.open': 'Team',
   'action.toolDetails': 'Tool details',
-  'action.toolDetailsShown': 'Tool details shown.',
+  'action.toolDetailsSelected': 'Tool details selected.',
   'action.toolDetailsUnavailableNow': 'Tool details are temporarily unavailable.',
   'title': 'Agent Team',
   'description': 'Read-only local Team status for this Captain Session.',
@@ -67,7 +67,7 @@ export const en = {
 export const zh: Record<keyof typeof en, string> = {
   'action.open': '团队',
   'action.toolDetails': '工具详情',
-  'action.toolDetailsShown': '已显示工具详情。',
+  'action.toolDetailsSelected': '已切换到工具详情。',
   'action.toolDetailsUnavailableNow': '工具详情暂时不可用。',
   'title': '智能体团队',
   'description': '当前 Captain 会话的本机只读团队状态。',
