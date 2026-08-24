@@ -17,6 +17,8 @@ import { ExecutionRootSurface } from './execution-root-surface.js'
 import type { ExecutionRootResidue, TeamExecutionRootProvider } from './execution-roots.js'
 import { interruptMember } from './member-control.js'
 import { MemberProvisioner } from './member-provisioning.js'
+import { type MemoryQueryInput } from './memory-query.js'
+import { MemoryOperations } from './memory-operations.js'
 import { MessageDelivery } from './message-delivery.js'
 import { manualReview, priorityReadyScheduler, type ReviewProviderInput, type ReviewProviderResult, type SchedulerDecision, type SchedulerSelectionInput, type TeamReviewProvider, type TeamSchedulerProvider } from './providers.js'
 import { executableReview } from './executable-review.js'
@@ -52,6 +54,7 @@ export class AgentSwarmRuntime extends Service {
   private readonly usage: UsageAccountant
   private readonly delivery: MessageDelivery
   private readonly provisioning: MemberProvisioner
+  private readonly memory: MemoryOperations
   private readonly schedulingPass: SchedulingPass
   /** Single-owner discipline registry and gates (M2-3). */
   readonly orchestration: OrchestrationOwnership
@@ -59,23 +62,10 @@ export class AgentSwarmRuntime extends Service {
   readonly executionRoots: ExecutionRootSurface
   private closing = false
 
-  /**
-   * The Team bridge workflow engine (M2-1, issue #75), attached by plugin
-   * activation when `workflowBridge` is enabled. Registered in an isolated
-   * `workflowEngine` service scope — never over the default-scope official
-   * engine. Absent (undefined) when the capability is disabled: default
-   * behavior is byte-identical to the pre-bridge plugin.
-   */
+  /** Optional isolated Team bridge workflow engine (M2-1, issue #75). */
   workflowBridge?: TeamBridgeWorkflowEngine
 
-  /**
-   * The Team bridge job projection (M2-2, issue #76), attached by plugin
-   * activation when `jobsBridge` is enabled. Registered in an isolated
-   * `jobs` service scope — never over the default-scope official registry —
-   * and strictly read-only over the authoritative aggregate. Absent
-   * (undefined) when the capability is disabled: default behavior is
-   * byte-identical to the pre-bridge plugin.
-   */
+  /** Optional isolated read-only Team job projection (M2-2, issue #76). */
   jobsBridge?: TeamJobProjection
 
   constructor(
@@ -145,13 +135,16 @@ export class AgentSwarmRuntime extends Service {
         this.requestSchedule(scope, teamId, captain)
       },
     })
+    this.memory = new MemoryOperations(ctx, {
+      ready: () => this.ensureReady(),
+      assertOpen: () => this.assertOpen(),
+      domain: () => this.domain,
+      scopeOf: agent => this.scopeOf(agent),
+      settings: () => config.currentSettings().memory,
+    })
   }
 
-  /**
-   * Open the official Storage Domain and construct the authoritative Team
-   * port over it. Fail closed: an unavailable domain, missing backend route,
-   * version mismatch or invalid stored record fails plugin activation.
-   */
+  /** Open the official Storage Domain and fail closed on every assembly/storage mismatch. */
   start(): Promise<void> {
     this.startPromise ??= (async () => {
       if (this.closing) throw new TeamDomainError('Team orchestrator is disposing', 'TEAM_RUNTIME_CLOSING')
@@ -262,7 +255,10 @@ export class AgentSwarmRuntime extends Service {
 
   async addMember(
     exec: ToolExecutionAuthority,
-    input: { name: string; role: string; provider?: string; model?: string; denyTools?: readonly string[] },
+    input: {
+      name: string; role: string; provider?: string; llmProvider?: string; model?: string
+      denyTools?: readonly string[]; skills?: readonly string[]
+    },
   ): Promise<TeamState['members'][number]> {
     await this.ensureReady()
     this.assertOpen()
@@ -475,15 +471,23 @@ export class AgentSwarmRuntime extends Service {
     category: 'decision' | 'lesson' | 'member' | 'context',
     content: string,
     evidenceRefs: readonly string[],
+    options?: { readonly scope?: 'team' | 'member'; readonly ownerSessionId?: string },
   ) {
-    await this.ensureReady()
-    this.assertOpen()
-    const actor = requireAgent(exec)
-    const scope = this.scopeOf(actor)
-    const membership = await this.domain.requireMembership(scope, actor.id)
-    return await this.domain.addMemory(
-      scope, membership.team.id, actor.id, category, content, evidenceRefs,
-    )
+    return await this.memory.add(exec, category, content, evidenceRefs, options)
+  }
+
+  async listMemory(exec: ToolExecutionAuthority, input: MemoryQueryInput) {
+    return await this.memory.list(exec, input)
+  }
+
+  async addPersonalMemory(
+    exec: ToolExecutionAuthority,
+    category: 'decision' | 'lesson' | 'member' | 'context',
+    content: string,
+    evidenceRefs: readonly string[],
+    ownerName?: string,
+  ) {
+    return await this.memory.addPersonal(exec, category, content, evidenceRefs, ownerName)
   }
 
   observeAgentIdle(agent: Agent): void {
@@ -531,12 +535,7 @@ export class AgentSwarmRuntime extends Service {
     this.scheduling.set(key, next)
   }
 
-  /**
-   * Evidence-only stranded-ownership hint consumed by the status projection
-   * (issue #12 / F10): `stranded=idle-holder` while the owner is live and
-   * idle, `stranded=owner-not-live` when it is cold. Never mutates
-   * authoritative state — decisions in docs/04 §8c.
-   */
+  /** Evidence-only stranded-ownership hint; never mutates Team state (issue #12/F10). */
   strandedEvidence(task: TeamTask): string {
     return this.schedulingPass.strandedEvidence(task)
   }

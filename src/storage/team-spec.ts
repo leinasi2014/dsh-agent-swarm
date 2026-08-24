@@ -26,6 +26,11 @@ const memberSchema = z.object({
   role: z.string().min(1),
   sessionId,
   provider: z.string().min(1),
+  llmProvider: z.string().min(1).optional(),
+  model: z.string().min(1).optional(),
+  modelSource: z.enum(['explicit', 'member-default', 'captain-inherited', 'unresolved']).optional(),
+  deniedTools: z.array(z.string().min(1)).optional(),
+  assignedSkills: z.array(z.string().min(1)).optional(),
   phase: z.enum(['provisioning', 'active', 'failed', 'removed']),
   createdAt: timestamp,
   error: z.string().min(1).optional(),
@@ -103,6 +108,9 @@ const memorySchema = z.object({
   category: z.enum(['decision', 'lesson', 'member', 'context']),
   content: z.string().min(1),
   evidenceRefs: z.array(z.string().min(1)),
+  scope: z.enum(['team', 'member']).optional(),
+  ownerSessionId: sessionId.optional(),
+  authorSessionId: sessionId.optional(),
   createdAt: timestamp,
 })
 

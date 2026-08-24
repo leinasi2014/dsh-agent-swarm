@@ -18,6 +18,7 @@ import type {
   TeamMember,
   TeamMemoryCategory,
   TeamMemoryEntry,
+  TeamMemberProvisionInput,
   TeamMessage,
   TeamMessageDelivery,
   TeamMessageId,
@@ -143,7 +144,7 @@ export interface TeamDomainPort {
     scope: TeamScope,
     teamId: TeamId,
     captainSessionId: string,
-    input: { name: string; role: string; sessionId: string; provider: string },
+    input: TeamMemberProvisionInput,
   ): Promise<TeamMember>
   settleMember(
     scope: TeamScope,
@@ -324,6 +325,7 @@ export interface TeamDomainPort {
     category: TeamMemoryCategory,
     content: string,
     evidenceRefs: readonly string[],
+    options?: { readonly scope?: 'team' | 'member'; readonly ownerSessionId?: string },
   ): Promise<TeamMemoryEntry>
   snapshot(scope: TeamScope, teamId: TeamId, actorSessionId: string): Promise<TeamStatusSnapshot>
   waitForChange(

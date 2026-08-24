@@ -10,7 +10,7 @@ import { TEAM_DASHBOARD_NS } from './team-dashboard-locales.js'
 export const TEAM_DASHBOARD_SURFACE_ID = 'swarm-team-surface'
 
 type TeamDashboardSurfaceMode = 'inactive' | 'docked'
-export type TeamDashboardView = 'overview' | 'members' | 'work' | 'diagnostics'
+export type TeamDashboardView = 'overview' | 'members' | 'memory' | 'work' | 'diagnostics'
 export type TeamDashboardAnnouncement = 'tool-selected' | 'tool-unavailable-runtime' | undefined
 
 export interface TeamDashboardSurfaceState {

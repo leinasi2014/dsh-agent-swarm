@@ -62,6 +62,13 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
     text(member.role, path, `members[${index}].role`)
     text(member.sessionId, path, `members[${index}].sessionId`)
     text(member.provider, path, `members[${index}].provider`)
+    if (member.llmProvider !== undefined) text(member.llmProvider, path, `members[${index}].llmProvider`)
+    if (member.model !== undefined) text(member.model, path, `members[${index}].model`)
+    if (member.modelSource !== undefined && !['explicit', 'member-default', 'captain-inherited', 'unresolved'].includes(String(member.modelSource))) {
+      corrupt(path, `members[${index}].modelSource is invalid`)
+    }
+    if (member.deniedTools !== undefined) unique(stringList(member.deniedTools, path, `members[${index}].deniedTools`), path, `members[${index}].deniedTools`)
+    if (member.assignedSkills !== undefined) unique(stringList(member.assignedSkills, path, `members[${index}].assignedSkills`), path, `members[${index}].assignedSkills`)
     if (!MEMBER_PHASES.has(String(member.phase))) corrupt(path, `members[${index}].phase is invalid`)
     integer(member.createdAt, path, `members[${index}].createdAt`)
     if (member.error !== undefined) text(member.error, path, `members[${index}].error`)
@@ -176,6 +183,11 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
     if (!MEMORY_CATEGORIES.has(String(entry.category))) corrupt(path, `memory[${index}].category is invalid`)
     text(entry.content, path, `memory[${index}].content`)
     stringList(entry.evidenceRefs, path, `memory[${index}].evidenceRefs`)
+    if (entry.scope !== undefined && entry.scope !== 'team' && entry.scope !== 'member') corrupt(path, `memory[${index}].scope is invalid`)
+    const effectiveScope = entry.scope ?? 'team'
+    if (effectiveScope === 'member') text(entry.ownerSessionId, path, `memory[${index}].ownerSessionId`)
+    if (effectiveScope === 'team' && entry.ownerSessionId !== undefined) corrupt(path, `memory[${index}].ownerSessionId is only valid for member scope`)
+    if (entry.authorSessionId !== undefined) text(entry.authorSessionId, path, `memory[${index}].authorSessionId`)
     integer(entry.createdAt, path, `memory[${index}].createdAt`)
     return entry
   })

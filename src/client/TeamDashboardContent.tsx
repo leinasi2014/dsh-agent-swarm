@@ -71,7 +71,7 @@ function ViewSwitch({ active, select, t }: {
   select: (tab: TeamDashboardView) => void
   t: TranslateNS<typeof TEAM_DASHBOARD_NS>
 }) {
-  const tabs: readonly TeamDashboardView[] = ['overview', 'members', 'work', 'diagnostics']
+  const tabs: readonly TeamDashboardView[] = ['overview', 'members', 'memory', 'work', 'diagnostics']
   return (
     <nav aria-label={t('tabs.label')} data-swarm-team-tabs>
       {tabs.map(tab => (
@@ -116,9 +116,24 @@ function Dashboard({ data, active, localeTag, t }: {
   if (active === 'members') {
     return (
       <Section heading={`${t('members')} (${number.format(data.totals.roster)})`}>
-        <Rows empty={t('empty')} rows={data.roster.map(member => ({
-            key: member.name, primary: member.name, secondary: member.role, state: enumLabel(member.phase, t),
-        }))} />
+        {data.roster.length === 0 ? <span data-swarm-team-muted>{t('empty')}</span> : (
+          <div data-swarm-team-stack>
+            {data.roster.map(member => (
+              <section key={member.name} data-swarm-team-section>
+                <h3>{member.name} · {enumLabel(member.phase, t)}</h3>
+                <Fact label={t('memberRole')} value={member.role} />
+                <Fact label={t('sessionId')} value={member.sessionId ?? t('unresolved')} />
+                <Fact label={t('runtimeProvider')} value={member.runtimeProvider ?? t('unresolved')} />
+                <Fact label={t('llmProvider')} value={member.llmProvider ?? t('inherited')} />
+                <Fact label={t('model')} value={member.model ?? t('inherited')} />
+                <Fact label={t('modelSource')} value={member.modelSource ?? t('unresolved')} />
+                <Fact label={t('deniedTools')} value={(member.deniedTools ?? []).join(', ') || t('noneDeclared')} />
+                <Fact label={t('assignedSkills')} value={(member.assignedSkills ?? []).join(', ') || t('noneDeclared')} />
+                <Fact label={t('dynamicTaskTools')} value={t('unsupported')} />
+              </section>
+            ))}
+          </div>
+        )}
       </Section>
     )
   }
@@ -144,6 +159,27 @@ function Dashboard({ data, active, localeTag, t }: {
           }))} />
         </Section>
       </div>
+    )
+  }
+  if (active === 'memory') {
+    const memory = data.memory ?? []
+    return (
+      <Section heading={`${t('memory')} (${number.format(data.memoryTotal ?? memory.length)})`}>
+        {memory.length === 0 ? <span data-swarm-team-muted>{t('empty')}</span> : (
+          <div data-swarm-team-stack>
+            {memory.map(entry => (
+              <section key={entry.id} data-swarm-team-section>
+                <h3>{enumLabel(entry.scope, t)} · {enumLabel(entry.category, t)}</h3>
+                <p>{entry.content}</p>
+                <Fact label={t('memoryOwner')} value={entry.ownerName ?? t('team')} />
+                <Fact label={t('memoryAuthor')} value={entry.authorName ?? t('unresolved')} />
+                <Fact label={t('memoryEvidence')} value={entry.evidenceRefs.join(', ') || t('noneDeclared')} />
+              </section>
+            ))}
+            {data.memoryTruncated === true ? <span data-swarm-team-muted>{t('memoryTruncated')}</span> : null}
+          </div>
+        )}
+      </Section>
     )
   }
   if (active === 'diagnostics') {
@@ -245,6 +281,8 @@ type WireEnum = SwarmHostReadProjectionV1['team']['phase']
   | SwarmHostReadProjectionV1['attempts'][number]['phase']
   | SwarmHostReadProjectionV1['pendingInteractions'][number]['status']
   | SwarmHostReadProjectionV1['pendingInteractions'][number]['targetKind']
+  | NonNullable<SwarmHostReadProjectionV1['memory']>[number]['scope']
+  | NonNullable<SwarmHostReadProjectionV1['memory']>[number]['category']
 
 const WIRE_ENUM_KEYS = {
   active: 'enum.active', archived: 'enum.archived', provisioning: 'enum.provisioning', failed: 'enum.failed', removed: 'enum.removed',
@@ -252,6 +290,7 @@ const WIRE_ENUM_KEYS = {
   completed: 'enum.completed', cancelled: 'enum.cancelled', running: 'enum.running', accepted: 'enum.accepted',
   rejected: 'enum.rejected', stale: 'enum.stale', acknowledged: 'enum.acknowledged', captain: 'enum.captain',
   team: 'enum.team', member: 'enum.member', task: 'enum.task',
+  decision: 'enum.decision', lesson: 'enum.lesson', context: 'enum.context',
 } as const satisfies Record<WireEnum, TeamDashboardKey>
 
 function enumLabel(value: WireEnum, t: TranslateNS<typeof TEAM_DASHBOARD_NS>): string {

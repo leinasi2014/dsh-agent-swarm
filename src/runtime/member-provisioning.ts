@@ -59,7 +59,10 @@ export class MemberProvisioner {
 
   async addMember(
     exec: ToolExecutionAuthority,
-    input: { name: string; role: string; provider?: string; model?: string; denyTools?: readonly string[] },
+    input: {
+      name: string; role: string; provider?: string; llmProvider?: string; model?: string
+      denyTools?: readonly string[]; skills?: readonly string[]
+    },
   ): Promise<TeamMember> {
     let completeOperation!: () => void
     const operation = new Promise<void>(settle => { completeOperation = settle })
@@ -70,7 +73,8 @@ export class MemberProvisioner {
       const membership = await this.deps.domain().requireMembership(scope, captain.id)
       if (membership.role !== 'captain') throw new TeamDomainError('only the captain can add members', 'TEAM_CAPTAIN_REQUIRED')
 
-      const providerName = input.provider ?? this.deps.config.memberProvider
+      const live = this.deps.config.currentSettings()
+      const providerName = input.provider ?? live.memberProvider ?? this.deps.config.memberProvider
       const provider = this.ctx.subagents.getProvider(providerName)
       if (provider === undefined) {
         throw new TeamDomainError(
@@ -98,9 +102,37 @@ export class MemberProvisioner {
       // `tools.restrict()` validation, whose failure settles this record
       // failed below — loud either way, never a silently unfiltered member.
       const deny = memberToolDeny([...new Set([
-        ...(input.denyTools ?? []),
+        ...(input.denyTools ?? live.memberDenyTools ?? []),
         ...(this.deps.config.memberToolPolicyDeny ?? []),
       ])])
+      const assignedSkills = [...new Set(input.skills ?? live.memberSkills ?? [])]
+      for (const name of assignedSkills) {
+        if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name)) {
+          throw new TeamDomainError(`invalid Skill name "${name}"`, 'TEAM_INPUT_INVALID')
+        }
+      }
+      if (assignedSkills.length > 32) throw new TeamDomainError('at most 32 Skills may be assigned to one member', 'TEAM_INPUT_INVALID')
+      if (assignedSkills.length > 0) {
+        const skills = this.ctx.get('skills')
+        if (skills === undefined) throw new TeamDomainError('official DSH Skill Registry is unavailable', 'TEAM_INPUT_INVALID')
+        const available = new Set((await skills.list({
+          cwd: captain.session.header.cwd,
+          scope: captain,
+          signal: exec.signal,
+        })).map(skill => skill.name))
+        const missing = assignedSkills.filter(name => !available.has(name))
+        if (missing.length > 0) throw new TeamDomainError(`assigned Skills are unavailable: ${missing.join(', ')}`, 'TEAM_INPUT_INVALID')
+      }
+
+      const llmProvider = input.llmProvider ?? live.memberLlmProvider ?? captain.options.provider
+      const model = input.model ?? live.memberModel ?? this.deps.config.memberModel ?? captain.options.model
+      const modelSource = input.llmProvider !== undefined || input.model !== undefined
+        ? 'explicit' as const
+        : live.memberLlmProvider !== undefined || live.memberModel !== undefined || this.deps.config.memberModel !== undefined
+          ? 'member-default' as const
+          : captain.options.provider !== undefined || captain.options.model !== undefined
+            ? 'captain-inherited' as const
+            : 'unresolved' as const
 
       const childId = SessionId(randomUUID())
       const provisioning = await this.deps.domain().provisionMember(scope, membership.team.id, captain.id, {
@@ -108,6 +140,11 @@ export class MemberProvisioner {
         role: input.role,
         sessionId: childId,
         provider: providerName,
+        ...(llmProvider === undefined ? {} : { llmProvider }),
+        ...(model === undefined ? {} : { model }),
+        modelSource,
+        deniedTools: deny,
+        assignedSkills,
       })
       try {
         await this.ctx.subagents.startContinuable({
@@ -117,16 +154,14 @@ export class MemberProvisioner {
           request: {
             prompt: [{ type: 'text', text: memberJoinNotice(membership.team) }],
             parent: captain,
-            persona: memberPersona(membership.team, provisioning.name, provisioning.role),
+            persona: memberPersona(membership.team, provisioning.name, provisioning.role, assignedSkills),
             // M1A static baseline plus the F17 deny-only narrowing declaration
             // (`deny_tools`); the union is monotone — captain-only tools stay
             // mandatorily denied and no allow surface exists.
             toolFilter: { deny },
             agentOptions: {
-              ...(captain.options.provider === undefined ? {} : { provider: captain.options.provider }),
-              ...(input.model ?? this.deps.config.memberModel ?? captain.options.model) === undefined
-                ? {}
-                : { model: input.model ?? this.deps.config.memberModel ?? captain.options.model },
+              ...(llmProvider === undefined ? {} : { provider: llmProvider }),
+              ...(model === undefined ? {} : { model }),
             },
             maxDepth: this.deps.config.memberMaxDepth,
           },

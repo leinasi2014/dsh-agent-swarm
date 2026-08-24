@@ -25,7 +25,7 @@ import { CAPTAIN_ONLY_TOOLS } from './prompts.js'
 import { MAX_DENY_TOOLS, TOOL_NAME_PATTERN } from './tool-policy.js'
 
 /**
- * The complete model-facing `agent_swarm_*` tool surface (17 tools). The
+ * The complete model-facing `agent_swarm_*` tool surface (19 tools). The
  * effective policy keeps these in the default `allow` tier so the plugin's
  * own Team protocol remains usable out of the box; every other tool is
  * unlisted and therefore fail-closed for plugin Team participants unless an
@@ -38,6 +38,8 @@ const PLUGIN_TOOL_NAMES = [
   'agent_swarm_submit_task',
   'agent_swarm_send_message',
   'agent_swarm_add_memory',
+  'agent_swarm_add_personal_memory',
+  'agent_swarm_list_memory',
   'agent_swarm_status',
   'agent_swarm_list_tasks',
   'agent_swarm_list_jobs',

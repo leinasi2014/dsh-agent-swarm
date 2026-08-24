@@ -50,7 +50,7 @@ captain（插件驱动）：
   5. agent_swarm_review_task       → 你审核 accept/reject
 ```
 
-完整工具面（17 个 `agent_swarm_*`）：见 [docs/04-core-protocol.md](docs/04-core-protocol.md) §4。
+完整工具面（19 个 `agent_swarm_*`）：见 [docs/04-core-protocol.md](docs/04-core-protocol.md) §4。
 
 ## 核心能力
 
@@ -58,6 +58,8 @@ captain（插件驱动）：
 - **审核门**：`submitted` 绝不自行完成——captain `review_task` 是唯一 accept/reject 权威，支持可执行审查（验证命令在隔离审查根执行，证据不可伪造，#101）；
 - **持久邮箱**：queued-before-delivered、按消息 ID 目标侧去重、quiet/wakeup 两种语义（wakeup 的 `delivered` 仅在模型可见后提交，#52/D1）；
 - **预算**：token/request/retry/deadline 四限 + 官方对齐的完整计费 token 计量（seq 游标幂等，插件账本为唯一计量路径，#127 边界声明）；
+- **团队/个人记忆**：有界持久写入与授权查询；可选用 DSH Settings 配置的官方 Provider/model 重排已授权 Team 候选，故障时显式回退确定性检索。
+- **成员配置与详情**：分离子智能体运行 Provider 和 LLM Provider/model，持久化创建时 deny 快照与 Skill 指派；每任务动态工具改权在当前 DSH continuation seam 上明确为不支持。
 - **调度**：事件驱动（idle 边沿/任务图变更/预算释放）、搁浅自愈（live-idle 重试、cold owner 证据暴露）、可替换 Scheduler Provider；
 - **编排桥**：官方 `WorkflowEngine`/`JobRegistry` 的 Team 桥（isolate 域注册，run overlay 为唯一 run 真相）、显式 `adaptive|workflow` 模式 + 单 owner 纪律（#77）；
 - **执行根**：per-attempt worktree 隔离 + attemptId 围栏 + 崩溃泄漏对账（#100）；

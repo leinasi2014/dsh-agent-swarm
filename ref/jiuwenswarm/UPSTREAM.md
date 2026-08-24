@@ -2,7 +2,7 @@
 
 - Upstream: `https://github.com/openJiuwen-ai/jiuwenswarm`
 - Branch observed: `develop`
-- Pinned commit: `4c2122c6247d28b262ccdb2d426f3bc21a504ed7`
+- Pinned commit: `403fe354ad9ffbce36683a9b223ba9a36179bc06`
 - Local checkout: `source/`
 
 This repository is a product and architecture reference, not a DSH dependency.
@@ -30,3 +30,10 @@ market with skill and extension pickers. It does not change the Team, memory,
 Skill Evolution, Worktree, permission or distributed-runtime evidence consumed
 by this project. Its picker UI is presentation prior art only; DSH's official
 settings, skills and plugin seams remain authoritative for this plugin.
+
+The later `403fe354` supersession moves user-state config, memory and project
+operations behind per-user AgentServer adapters, propagates authenticated
+`user_id` only to routed tools, and adds fenced subagent-history replay UI.
+This reinforces business-state ownership at the authenticated runtime and UI
+as projection. It remains behavior evidence only: no Jiuwen adapter, runtime,
+storage schema or frontend state type is adopted by this plugin.

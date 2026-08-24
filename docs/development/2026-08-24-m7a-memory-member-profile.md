@@ -1,0 +1,86 @@
+# M7-A Team memory and member profile vertical slice
+
+Status: `ACCEPTED_FOR_IMPLEMENTATION`
+
+## Outcome
+
+Deliver one bounded M7 slice without creating a second Agent runtime or a second memory authority:
+
+- shared Team memory and member-owned personal memory remain records inside the authoritative `TeamDomainPort` aggregate;
+- model tools can add and query memories, while the Captain UI receives only a bounded read projection;
+- member creation records the runtime Provider separately from the LLM Provider/model, plus the creation-time deny snapshot and assigned Skill names;
+- the official DSH Settings namespace owns optional semantic-query routing and future-member defaults;
+- the official DSH Skill and LLM registries remain the availability and execution authorities.
+
+The existing `TeamMember.provider` field is the continuable subagent runtime Provider. It is not an LLM Provider and must be labelled `runtimeProvider` in every new projection.
+
+## Accepted source lessons
+
+JiuwenSwarm contributes behavioral prior art only: personal/shared memory separation, bounded retrieval, evidence-bearing results, write-time masking and reviewed promotion. No Jiuwen runtime, transport or storage schema is imported.
+
+LoopX `main` at `fd237116eec247ec4f5e6f0e774ba1281b4a31c8` contributes three compatible principles: the dashboard is a projection rather than truth; a Provider supplies observations but does not own domain transitions; recalled memory is advisory evidence, not authorization or current task state. No LoopX runtime or public type is imported.
+
+## Canonical schema
+
+All new fields are additive optionals in schema version 1 so existing records reopen unchanged. The Storage Domain zod schema and `assertTeamState` must declare every field in the same change because the official load path strips undeclared object keys.
+
+`TeamMember` adds:
+
+- `llmProvider`, `model` and `modelSource`;
+- `deniedTools`, the exact creation-time deny snapshot;
+- `assignedSkills`, names only. Skill bodies and source paths remain official DSH Skill Registry state.
+
+`TeamMemoryEntry` adds:
+
+- `scope: team | member` (missing on an old record means `team`);
+- `ownerSessionId` for member scope;
+- `authorSessionId` for audit attribution.
+
+Team memory is visible to active Team participants. Personal memory is visible to its owner and the Captain; another member cannot read it. Archived Team memory remains readable only through the existing archived-Captain read boundary. Removing a member does not delete their memory.
+
+## Tool surface
+
+- `agent_swarm_add_memory`: compatible shared-memory writer.
+- `agent_swarm_add_personal_memory`: writes only the caller's personal memory; the Captain may specify an existing member owner.
+- `agent_swarm_list_memory`: bounded deterministic list/search with scope, category, cursor and limit.
+- optional semantic re-ranking considers only the already-authorized bounded candidate set and may return only candidate IDs. Timeout, missing route, malformed output or cancellation never becomes a false empty result; the response declares deterministic fallback and its diagnostic.
+
+Memory content is data, never instructions. Search results do not change tasks, permissions, Skills or member configuration.
+
+## Member creation and detail
+
+`agent_swarm_add_member` accepts:
+
+- `provider`: retained compatibility name for the continuable subagent runtime Provider;
+- `llm_provider`, `model`;
+- `deny_tools`;
+- `skills`.
+
+Skill assignment is a creation-time intent snapshot. The plugin validates names against the official scoped Skill catalog before any roster record commits and adds a short instruction to the member persona to load those Skills through the official Skill tool when relevant. “Assigned” must not be rendered as “loaded”.
+
+The Captain member projection exposes name, role, phase, Session ID, runtime Provider, LLM selection/source, creation-time denied tools and assigned Skills. Raw member errors, credentials and paths never enter that projection. A separate bounded Captain memory projection exposes memory content; it is not mixed into member rows and does not perform semantic inference.
+
+Per-task dynamic tool re-authorization is `NOT_SUPPORTED` on the current official continuation seam: `toolFilter` is fixed at `startContinuable`, and follow-up has no composition field. Task prose cannot expand or narrow authority. A future official follow-up composition seam is the re-evaluation trigger.
+
+## Official Settings
+
+Namespace: `agent-swarm`, installed with `installSettingsSection` and falling back to composition config when no Settings service exists.
+
+The first section contains:
+
+- semantic memory search enabled;
+- semantic Provider/model;
+- candidate and timeout bounds; result count and semantic output size remain fixed tool/runtime limits;
+- default future-member runtime Provider, LLM Provider/model, denied tools and assigned Skills.
+
+Provider credentials stay in official DSH Models settings. Settings changes affect subsequent queries and future member creation; they do not mutate existing members. A semantic helper call may be provider-billed and is not silently folded into Team execution token usage.
+
+## Delivery sequence and acceptance
+
+1. A0: additive schema, validation, authorization and reopen tests.
+2. A1: shared/personal add and deterministic bounded query tools.
+3. A2: member creation snapshot and bounded Captain projection.
+4. A3: official Settings, Team UI projection, i18n and lifecycle tests.
+5. A4: optional LLM re-ranking behind the Settings flag; deterministic fallback remains sufficient for availability.
+
+Acceptance requires old-record reopen, N/N+1 bounds, cross-member denial, invalid Skill/model failure before commit, no runtime/LLM Provider confusion, no secret/raw-error projection, HMR/dispose stability, full project checks, a real official DSH Profile proof and one exact-candidate non-author QA.

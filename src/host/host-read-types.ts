@@ -26,8 +26,30 @@ export interface SwarmHostReadProjectionV1 {
     readonly name: string
     readonly role: string
     readonly phase: 'provisioning' | 'active' | 'failed' | 'removed'
+    readonly sessionId?: string
+    /** Continuable subagent runtime Provider, not the LLM route. */
+    readonly runtimeProvider?: string
+    readonly llmProvider?: string
+    readonly model?: string
+    readonly modelSource?: 'explicit' | 'member-default' | 'captain-inherited' | 'unresolved'
+    readonly deniedTools?: readonly string[]
+    readonly assignedSkills?: readonly string[]
+    readonly dynamicTaskToolPolicy?: 'unsupported'
     readonly createdAt: number
   }[]
+  /** Captain-authorized bounded memory projection; semantic search remains a model tool. */
+  readonly memory?: readonly {
+    readonly id: string
+    readonly scope: 'team' | 'member'
+    readonly category: 'decision' | 'lesson' | 'member' | 'context'
+    readonly content: string
+    readonly evidenceRefs: readonly string[]
+    readonly ownerName?: string
+    readonly authorName?: string
+    readonly createdAt: number
+  }[]
+  readonly memoryTotal?: number
+  readonly memoryTruncated?: boolean
   readonly tasks: readonly {
     readonly id: string
     readonly revision: number

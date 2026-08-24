@@ -185,14 +185,14 @@ Issue #128 extends this shipped seam without replacing it: review-root registrat
 
 ### TeamMemory
 
-Listens after an accepted round/task and writes structured experience through a memory service/provider. Suggested categories from Jiuwen prior art:
+The M7-A vertical slice keeps schema-v1 Team memory inside the authoritative aggregate and separates shared Team records from member-owned personal records. Model tools provide bounded deterministic retrieval; optional official-DSH-model re-ranking may reorder only the already-authorized Team candidate set and fails back explicitly. Categories remain:
 
 - decision
 - lesson
 - member
 - context
 
-Memory extraction is not Team state and must not block task commit unless explicitly configured as a required postcondition.
+Automatic extraction is still deferred and must not block task commit unless explicitly accepted as a required postcondition. A later standalone memory service replaces the Team array only through a one-way migration; it must never dual-write as a second canonical store. Skill assignment stores names only and delegates catalog/load authority to the official DSH Skill Registry.
 
 ## 4. Consumer packages
 
@@ -226,7 +226,7 @@ Self-hosting reuses the Bundle, RPC host, Team tools, Workflow/Jobs, Workspace a
 
 ## 5. Current package versus target family
 
-The package graph above is a target decomposition. The current package is one host-only bundle containing the accepted Team domain/runtime, tools and optional Provider families. Accepted historical reports and tests, not this target diagram, decide which earlier capability slices shipped. The next product vertical is package/Profile proof followed by read-only Host, `/swarm` RPC, DSH-native Team projection and Canvas-native projection; direct Controls follow operation-scoped write acceptance. Old feature branches are salvage input only and do not count as current implementation. Per-task tool rescoping remains a declared official-seam boundary (`docs/04` §8o, `docs/09` §1).
+The package graph above is a target decomposition. The current package is one host-only bundle containing the accepted Team domain/runtime, tools and optional Provider families. Accepted historical reports and tests, not this target diagram, decide which earlier capability slices shipped. M7-A adds the bounded memory/member-profile slice described above; Canvas remains a consumer of the accepted Host/RPC contract. Direct Controls follow operation-scoped write acceptance. Old feature branches are salvage input only and do not count as current implementation. Per-task tool rescoping remains a declared official-seam boundary (`docs/04` §8o, `docs/09` §1).
 
 ## 6. Why this is not over-modularization
 

@@ -24,6 +24,7 @@ import {
   type TeamBudget,
   type TeamLimits,
   type TeamMember,
+  type TeamMemberProvisionInput,
   type TeamMembership,
   type TeamMemoryCategory,
   type TeamMessageDelivery,
@@ -96,7 +97,7 @@ export class TeamDomain implements TeamDomainPort {
     scope: TeamScope,
     teamId: TeamId,
     captainSessionId: string,
-    input: { name: string; role: string; sessionId: string; provider: string },
+    input: TeamMemberProvisionInput,
   ): Promise<TeamMember> {
     return await roster.provisionMember(this.deps, scope, teamId, captainSessionId, input)
   }
@@ -281,8 +282,9 @@ export class TeamDomain implements TeamDomainPort {
     category: TeamMemoryCategory,
     content: string,
     evidenceRefs: readonly string[],
+    options?: { readonly scope?: 'team' | 'member'; readonly ownerSessionId?: string },
   ): Promise<TeamState['memory'][number]> {
-    return await projection.addMemory(this.deps, scope, teamId, actorSessionId, category, content, evidenceRefs)
+    return await projection.addMemory(this.deps, scope, teamId, actorSessionId, category, content, evidenceRefs, options)
   }
 
   async snapshot(scope: TeamScope, teamId: TeamId, actorSessionId: string): Promise<TeamStatusSnapshot> {

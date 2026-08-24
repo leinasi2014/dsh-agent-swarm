@@ -218,6 +218,18 @@ R1/R2 的 capability discovery 逐项公布 W1 已接受的 write operation。Ho
 
 Risk: S3/HIGH。
 
+## M7-A — Team memory and member profile vertical slice
+
+M7-A is the next bounded product slice after the accepted R3 read UI candidate. Its accepted design is `docs/development/2026-08-24-m7a-memory-member-profile.md`.
+
+- **A0** extends schema-v1 additively and proves Storage Domain reopen, authorization and bounds.
+- **A1** adds shared/personal memory writes plus deterministic bounded list/search.
+- **A2** separates runtime Provider from LLM Provider/model, persists creation-time deny and Skill assignment snapshots, and publishes a bounded Captain member projection.
+- **A3** installs the official `agent-swarm` Settings namespace and adds member/memory read UI with DSH locale/theme behavior.
+- **A4** optionally re-ranks authorized Team-memory candidates through the configured official DSH LLM route; failure is an explicit deterministic fallback and does not block A0–A3.
+
+Per-task tool re-authorization, automatic memory extraction, vector indexes, Skill self-evolution and a separate Memory Service remain deferred. They do not block this vertical slice.
+
 ## M6–M9 subsequent capability families
 
 - **M6 real Workspace and remote member**：实际 cwd/fs/tool roots 与 attempt lease 一致；late ACK、expiry、disconnect、conflict、cleanup failure 被围栏。产品 execution root 不授权仓库开发 worktree。

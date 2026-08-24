@@ -140,7 +140,14 @@ describe('R1 Host read producer', () => {
     expect(result).toMatchObject({
       binding: { rootSessionId: ROOT.id, teamId: 'team-r1' },
       team: { id: 'team-r1', phase: 'active', revision: 9 },
-      roster: [{ name: 'worker', role: 'developer', phase: 'active' }],
+      roster: [{
+        name: 'worker', role: 'developer', phase: 'active', sessionId: CHILD.id,
+        runtimeProvider: 'secret-provider', deniedTools: [], assignedSkills: [],
+        dynamicTaskToolPolicy: 'unsupported',
+      }],
+      memory: [{ id: 'memory-1', scope: 'team', category: 'context', content: 'secret memory' }],
+      memoryTotal: 1,
+      memoryTruncated: false,
       tasks: [{ id: 'task-1', subject: 'Visible subject', ownerName: 'worker', currentAttemptId: 'attempt-1' }],
       attempts: [{ id: 'attempt-1', memberName: 'worker', phase: 'running' }],
       pendingInteractions: [{
@@ -158,10 +165,10 @@ describe('R1 Host read producer', () => {
     expect(Object.isFrozen(result.tasks)).toBe(true)
     const serialized = JSON.stringify(result)
     for (const secret of [
-      'secret\\workspace', 'secret-provider', 'secret member error', 'private description', 'secret task body',
+      'secret\\workspace', 'secret member error', 'private description', 'secret task body',
       'secret criterion', 'secret/write/scope', 'secret verification command', 'secret output',
-      'secret attempt output', 'secret evidence', 'secret diagnostic', 'secret memory', 'secret-principal',
-      'secret-host', 'secret body', 'secret receipt diagnostic', CHILD.id,
+      'secret attempt output', 'secret evidence', 'secret diagnostic', 'secret-principal',
+      'secret-host', 'secret body', 'secret receipt diagnostic',
     ]) expect(serialized).not.toContain(secret)
   })
 
@@ -271,7 +278,11 @@ describe('R1 Host read producer', () => {
       phase: 'running' as const, assignmentPhase: 'delivered' as const,
       evidence: [], createdAt: index, updatedAt: index,
     }))
-    const bounded = harness({ team: teamState({ members, tasks, attempts }) })
+    const memory = Array.from({ length: 101 }, (_, index) => ({
+      id: `memory-${index}`, category: 'context' as const, content: `memory ${index}`,
+      evidenceRefs: [], createdAt: index,
+    }))
+    const bounded = harness({ team: teamState({ members, tasks, attempts, memory }) })
     bounded.overlayList.mockReturnValue(Array.from({ length: 101 }, (_, index) => ({
       ...interactions()[0]!,
       request: { ...interactions()[0]!.request, requestId: `human-r1-${String(index).padStart(8, '0')}` },
@@ -282,6 +293,8 @@ describe('R1 Host read producer', () => {
       .toEqual([100, 100, 200, 100])
     expect(result.totals).toEqual({ roster: 101, tasks: 101, attempts: 201, pendingInteractions: 101 })
     expect(result.truncated).toEqual({ roster: true, tasks: true, attempts: true, pendingInteractions: true })
+    expect(result.memory).toHaveLength(100)
+    expect(result).toMatchObject({ memoryTotal: 101, memoryTruncated: true })
   })
 
   it('detects a root removal or Session change during an admitted read', async () => {

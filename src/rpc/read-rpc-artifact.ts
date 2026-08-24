@@ -8,7 +8,7 @@ import {
 } from './read-rpc-contract.js'
 
 export const SWARM_READ_RPC_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
-export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '445a2e386a6277693339b86a6b254543f5743603509636c730af9ff5ff0df4fc' as const
+export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '32018a6b5faaa2630d6dd9898623a29215377dcba7eec4d8db49d7f82d3814a0' as const
 
 const boundedString = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength, pattern: '\\S' })
 const nonNegativeInteger = { type: 'integer', minimum: 0 }
@@ -74,10 +74,29 @@ const producerCapability = {
   },
 }
 const rosterRow = {
-  type: 'object', additionalProperties: false, required: ['name', 'role', 'phase', 'createdAt'],
+  type: 'object', additionalProperties: false,
+  required: ['name', 'role', 'phase', 'createdAt'],
   properties: {
     name: boundedString(64), role: boundedString(256),
-    phase: { enum: ['provisioning', 'active', 'failed', 'removed'] }, createdAt: nonNegativeInteger,
+    phase: { enum: ['provisioning', 'active', 'failed', 'removed'] },
+    sessionId: boundedString(256), runtimeProvider: boundedString(128),
+    llmProvider: boundedString(128), model: boundedString(256),
+    modelSource: { enum: ['explicit', 'member-default', 'captain-inherited', 'unresolved'] },
+    deniedTools: { type: 'array', maxItems: 256, items: boundedString(256) },
+    assignedSkills: { type: 'array', maxItems: 32, items: boundedString(128) },
+    dynamicTaskToolPolicy: { const: 'unsupported' },
+    createdAt: nonNegativeInteger,
+  },
+}
+const memoryRow = {
+  type: 'object', additionalProperties: false,
+  required: ['id', 'scope', 'category', 'content', 'evidenceRefs', 'createdAt'],
+  properties: {
+    id: boundedString(128), scope: { enum: ['team', 'member'] },
+    category: { enum: ['decision', 'lesson', 'member', 'context'] },
+    content: boundedString(2_048),
+    evidenceRefs: { type: 'array', maxItems: 64, items: boundedString(512) },
+    ownerName: boundedString(64), authorName: boundedString(64), createdAt: nonNegativeInteger,
   },
 }
 const taskRow = {
@@ -208,6 +227,9 @@ export const SWARM_READ_RPC_CONTRACT_V1 = deepFreezeJson({
         properties: {
           schemaVersion: { const: 1 }, binding, team,
           roster: { type: 'array', maxItems: 100, items: rosterRow },
+          memory: { type: 'array', maxItems: 100, items: memoryRow },
+          memoryTotal: nonNegativeInteger,
+          memoryTruncated: { type: 'boolean' },
           tasks: { type: 'array', maxItems: 100, items: taskRow },
           attempts: { type: 'array', maxItems: 200, items: attemptRow },
           budget,

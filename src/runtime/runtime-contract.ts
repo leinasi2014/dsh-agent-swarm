@@ -10,6 +10,7 @@
 import type { TeamLimits } from '../domain/types.js'
 import type { OrchestrationMode } from './orchestration-ownership.js'
 import type { AgentSwarmRuntime } from './orchestrator-runtime.js'
+import type { AgentSwarmLiveSettings } from './settings.js'
 
 export interface RuntimeConfig {
   readonly memberProvider: string
@@ -53,6 +54,7 @@ export interface RuntimeConfig {
   readonly executionRootsBase: string
   /** Effective ask + deny policy names hidden from delegated members. */
   readonly memberToolPolicyDeny: readonly string[]
+  readonly currentSettings: () => AgentSwarmLiveSettings
 }
 
 declare module '@deepseek-ai/cordis' {

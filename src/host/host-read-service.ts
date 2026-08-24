@@ -32,6 +32,7 @@ export interface AgentSwarmHostReadDeps {
 }
 
 const MAX_ROSTER = 100
+const MAX_MEMORY = 100
 const MAX_TASKS = 100
 const MAX_ATTEMPTS = 200
 const MAX_PENDING_INTERACTIONS = 100
@@ -230,8 +231,28 @@ function project(
     name: member.name,
     role: member.role,
     phase: member.phase,
+    sessionId: member.sessionId,
+    runtimeProvider: member.provider,
+    ...(member.llmProvider === undefined ? {} : { llmProvider: member.llmProvider }),
+    ...(member.model === undefined ? {} : { model: member.model }),
+    ...(member.modelSource === undefined ? {} : { modelSource: member.modelSource }),
+    deniedTools: [...(member.deniedTools ?? [])],
+    assignedSkills: [...(member.assignedSkills ?? [])],
+    dynamicTaskToolPolicy: 'unsupported' as const,
     createdAt: member.createdAt,
   }))
+  const memory = team.memory.toSorted((left, right) => right.createdAt - left.createdAt || right.id.localeCompare(left.id))
+    .slice(0, MAX_MEMORY)
+    .map(entry => ({
+      id: entry.id,
+      scope: entry.scope ?? 'team',
+      category: entry.category,
+      content: entry.content,
+      evidenceRefs: [...entry.evidenceRefs],
+      ...optionalName('ownerName', displayName(entry.ownerSessionId, rootSessionId, memberNames)),
+      ...optionalName('authorName', displayName(entry.authorSessionId, rootSessionId, memberNames)),
+      createdAt: entry.createdAt,
+    }))
   const tasks = team.tasks.toSorted(newestFirst).slice(0, MAX_TASKS).map(task => ({
     id: task.id,
     revision: task.revision,
@@ -277,6 +298,9 @@ function project(
       createdAt: team.createdAt, updatedAt: team.updatedAt,
     },
     roster,
+    memory,
+    memoryTotal: team.memory.length,
+    memoryTruncated: team.memory.length > MAX_MEMORY,
     tasks,
     attempts,
     budget: { ...team.budget },
@@ -325,6 +349,6 @@ function displayName(
   return memberNames.get(sessionId)
 }
 
-function optionalName<K extends 'ownerName' | 'memberName'>(key: K, value: string | undefined): Partial<Record<K, string>> {
+function optionalName<K extends 'ownerName' | 'memberName' | 'authorName'>(key: K, value: string | undefined): Partial<Record<K, string>> {
   return value === undefined ? {} : { [key]: value } as Record<K, string>
 }

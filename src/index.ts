@@ -20,6 +20,8 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { Domain } from '@deepseek-ai/dsh-storage-domain'
 import type {} from '@deepseek-ai/dsh-subagent'
+import type {} from '@deepseek-ai/dsh-skill'
+import type {} from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { AgentSwarmRuntime } from './runtime/orchestrator-runtime.js'
 import { registerAgentSwarmTools } from './tools.js'
@@ -37,154 +39,12 @@ import { effectiveToolPolicy, TeamPermissionSurface } from './runtime/permission
 import { reviewerAgentReviewProvider } from './runtime/reviewer-boundary.js'
 import { assembleAgentSwarmHostRead, assembleAgentSwarmProducerFloor, mountAgentSwarmReadRpc } from './host/host-read-assembly.js'
 import { AGENT_SWARM_USAGE_PROMPT } from './runtime/usage-prompt.js'
+import { AGENT_SWARM_SETTINGS_NAMESPACE, installAgentSwarmSettings } from './runtime/settings.js'
 
-export { AgentSwarmRuntime } from './runtime/orchestrator-runtime.js'
-export type {
-  ReviewProviderInput,
-  ReviewProviderResult,
-  RuntimeConfig,
-  SchedulerDecision,
-  SchedulerSelectionInput,
-  TeamReviewProvider,
-  TeamSchedulerProvider,
-  ToolExecutionAuthority,
-} from './runtime/orchestrator-runtime.js'
-export type {
-  ReviewCommandEvidence,
-  ReviewRootAvailability,
-  ReviewRootCapabilities,
-  ReviewRootOpenInput,
-  ReviewRootProvider,
-  ReviewRootSession,
-} from './runtime/review-root.js'
-export { executableReviewRootCapabilities, tempReviewRootProvider } from './runtime/review-root.js'
-export { executableReview, CANDIDATE_OUTPUT_ARTIFACT } from './runtime/executable-review.js'
-export type { ExecutableReviewOptions, ExecutableReviewProvider, ExecutableReviewResult } from './runtime/executable-review.js'
-export {
-  aggregateVerificationEvidence,
-} from './runtime/verification-summary.js'
-export type {
-  RoutedReviewCommandEvidence,
-  OpenedVerificationRoot,
-  VerificationEvidenceSummary,
-  VerificationRootSummary,
-} from './runtime/verification-summary.js'
-export {
-  builtinVerificationTemplates,
-  compileVerificationDeclarations,
-  encodeVerificationCommand,
-  parseVerificationCommand,
-} from './runtime/verification-commands.js'
-export type {
-  BuiltinVerificationTemplate,
-  RuntimeCreateTaskInput,
-  VerificationCommandRoute,
-  VerificationCommandTemplate,
-  VerificationDeclaration,
-  VerificationTemplateInvocation,
-  VerificationTemplateParameterValue,
-} from './runtime/verification-commands.js'
-export { OrchestrationOwnership } from './runtime/orchestration-ownership.js'
-export type { OrchestrationMode } from './runtime/orchestration-ownership.js'
-export type {
-  ExecutionLease,
-  ExecutionRoot,
-  ExecutionRootIsolation,
-  ExecutionRootResidue,
-  TeamExecutionRootProvider,
-} from './runtime/execution-roots.js'
-export { ExecutionRoots, EXECUTION_ROOT_MARKER, gitWorktreeExecutionRoots } from './runtime/execution-roots.js'
-export { TeamBridgeWorkflowEngine, validateBridgeMeta } from './runtime/workflow/team-bridge-engine.js'
-export type { BridgeEngineConfig } from './runtime/workflow/team-bridge-engine.js'
-export { TeamJobProjection } from './runtime/jobs/team-job-projection.js'
-export { TEAM_TASK_JOB_KIND } from './runtime/jobs/projection-derive.js'
-export type { DerivedTeamJob } from './runtime/jobs/projection-derive.js'
-export {
-  WorkflowRunOverlayStore,
-  workflowOverlayDomainSpec,
-  WORKFLOW_OVERLAY_DOMAIN_NAME,
-  WORKFLOW_OVERLAY_DOMAIN_VERSION,
-} from './storage/workflow-run-overlay.js'
-export type { WorkflowRunOverlayRecord, WorkflowRunOverlayState } from './storage/workflow-run-overlay.js'
-export { TeamDomainError } from './domain/error.js'
-export { HumanControlGateway } from './human/human-control-gateway.js'
-export type { HumanControlAdmission, HumanControlGatewayDeps } from './human/human-control-gateway.js'
-export { humanReviewProvider } from './human/human-review-provider.js'
-export { TeamPermissionSurface, effectiveToolPolicy, mergePreToolDecision } from './runtime/permission-surface.js'
-export type { ToolPolicyDeclaration } from './runtime/permission-surface.js'
-export type { HumanPrincipalVerifier } from './runtime/human-provenance.js'
-export { reviewerAgentReviewProvider } from './runtime/reviewer-boundary.js'
-export type { ReviewerAgentProvider, ReviewerAgentVerdict } from './runtime/reviewer-boundary.js'
-export { compileNodePlan, applyNodePlan } from './patterns/node-mapping.js'
-export type {
-  AppliedNodePlan,
-  CompiledNodePlan,
-  CompiledReviewGate,
-  CompiledTaskInput,
-  CompiledTaskOp,
-  NodePlan,
-  PhaseDecl,
-  PipelineItemDecl,
-  PlanNodeDecl,
-  TaskStepDecl,
-} from './patterns/node-mapping.js'
-export { AttemptId, TaskId, TeamId, TeamMessageId } from './domain/types.js'
-export type {
-  ReviewVerificationCommand,
-  TeamBudget,
-  TeamMember,
-  TeamMemoryEntry,
-  TeamMessage,
-  TeamState,
-  TeamStatusSnapshot,
-  TeamTask,
-} from './domain/types.js'
-export type {
-  CreateTaskInput,
-  MigrationReceipt,
-  TeamAggregateStore,
-  TeamDomainPort,
-  TeamScope,
-  TeamTransaction,
-} from './domain/team-domain-port.js'
-export { StorageDomainTeamStore } from './storage/storage-domain-team-store.js'
-export { TEAM_DOMAIN_NAME, TEAM_DOMAIN_VERSION, teamDomainSpec } from './storage/team-spec.js'
-export { FileTeamStore, resolveStateRoot } from './storage/team-store.js'
-export { migrateLegacyTeamStore } from './migration/migrate-legacy-store.js'
-export type { MigrationOptions, MigrationReport, MigrationTeamOutcome } from './migration/migrate-legacy-store.js'
-export { CaptainLiaison } from './human/captain-liaison.js'
-export { officialCaptainQuestionPresentation } from './human/official-question-presentation.js'
-export {
-  HumanInteractionOverlayStore,
-  humanInteractionDomainSpec,
-  HUMAN_INTERACTION_DOMAIN_NAME,
-  HUMAN_INTERACTION_DOMAIN_VERSION,
-} from './human/human-interaction-store.js'
-export {
-  HUMAN_INTERACTION_CONTROL_INTENTS,
-  sameHumanInteractionRequest,
-} from './human/human-interaction-contract.js'
-export * from './host/producer-contract.js'
-export * from './host/producer-floor-service.js'
-export * from './host/host-read-service.js'
-export type {
-  CaptainQuestion,
-  CaptainQuestionPresentation,
-  HumanInteractionIntent,
-  HumanInteractionOrigin,
-  HumanInteractionPort,
-  HumanInteractionReceipt,
-  HumanInteractionAdmission,
-  HumanInteractionRecord,
-  HumanInteractionRequest,
-  HumanInteractionSource,
-  HumanInteractionStatus,
-  HumanInteractionTarget,
-  PresentQuestionInput,
-  RelayMemberQuestionInput,
-} from './human/human-interaction-contract.js'
+export * from './public-api.js'
 
 export const name = 'agent-swarm'
+export { AGENT_SWARM_SETTINGS_NAMESPACE }
 export const inject = [
   'tools',
   'subagents',
@@ -215,6 +75,18 @@ export interface Config {
   memberProvider?: string
   /** Optional model override for every member. */
   memberModel?: string
+  /** Optional LLM Provider override for future members. */
+  memberLlmProvider?: string
+  /** Default additional deny-only tools for future members. */
+  memberDenyTools?: string[]
+  /** Default official DSH Skill assignments for future members. */
+  memberSkills?: string[]
+  /** Enable optional official-DSH-model re-ranking of bounded Team memory candidates. */
+  memorySemanticEnabled?: boolean
+  memorySemanticProvider?: string
+  memorySemanticModel?: string
+  memoryQueryMaxCandidates?: number
+  memoryQueryTimeoutMs?: number
   /** Absolute child delegation depth cap. */
   memberMaxDepth?: number
   /** Registered scheduling Provider name. */
@@ -337,6 +209,14 @@ export const Config: z<Config> = z.object({
   enabled: z.boolean().default(true),
   memberProvider: z.string().default('spawn'),
   memberModel: z.string(),
+  memberLlmProvider: z.string(),
+  memberDenyTools: z.array(z.string()).default([]),
+  memberSkills: z.array(z.string()).default([]),
+  memorySemanticEnabled: z.boolean().default(false),
+  memorySemanticProvider: z.string(),
+  memorySemanticModel: z.string(),
+  memoryQueryMaxCandidates: z.number().step(1).min(1).max(128).default(32),
+  memoryQueryTimeoutMs: z.number().step(1).min(1000).max(120000).default(15000),
   memberMaxDepth: z.natural().default(1),
   schedulerProvider: z.string().default('priority-ready'),
   reviewProvider: z.string().default('manual'),
@@ -397,6 +277,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const toolPolicy = effectiveToolPolicy(config.toolPolicy)
   const memberToolPolicyDeny = [...(toolPolicy.ask ?? []), ...(toolPolicy.deny ?? [])]
   const disposalTimeoutMs = config.disposalTimeoutMs ?? DEFAULT_DISPOSAL_TIMEOUT_MS
+  const currentSettings = installAgentSwarmSettings(ctx, Config, config, memberProvider)
   let drainHumanInteractions: (() => Promise<void>) | undefined
 
   const runtime = new AgentSwarmRuntime(ctx, {
@@ -426,6 +307,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     executionRootProvider,
     executionRootsBase,
     memberToolPolicyDeny,
+    currentSettings,
   })
 
   // Fail closed: official Storage Domain opens before tools/listeners.

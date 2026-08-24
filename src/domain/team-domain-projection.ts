@@ -31,16 +31,30 @@ export async function addMemory(
   category: TeamMemoryCategory,
   content: string,
   evidenceRefs: readonly string[],
+  options: { readonly scope?: 'team' | 'member'; readonly ownerSessionId?: string } = {},
 ): Promise<TeamState['memory'][number]> {
   let committed!: TeamState['memory'][number]
   await deps.store.transact(scope, teamId, team => {
-    actorMembership(team, actorSessionId)
+    const actor = actorMembership(team, actorSessionId)
+    const memoryScope = options.scope ?? 'team'
+    let ownerSessionId: string | undefined
+    if (memoryScope === 'member') {
+      ownerSessionId = options.ownerSessionId ?? actorSessionId
+      const owner = team.members.find(member => member.sessionId === ownerSessionId && member.phase === 'active')
+      expectDomain(owner !== undefined, 'personal memory owner must be an active Team member', 'TEAM_MEMBER_NOT_FOUND')
+      expectDomain(actor.role === 'captain' || ownerSessionId === actorSessionId, 'members may write only their own personal memory', 'TEAM_UNAUTHORIZED')
+    } else {
+      expectDomain(options.ownerSessionId === undefined, 'team memory cannot declare an owner', 'TEAM_INPUT_INVALID')
+    }
     expectDomain(team.memory.length < deps.limits.maxMemories, 'team memory limit reached', 'TEAM_MEMORY_LIMIT')
     committed = {
       id: `memory-${team.nextMemoryNumber}`,
       category,
       content: nonEmpty(content, 'memory content', 16_384),
       evidenceRefs: [...evidenceRefs].map(value => nonEmpty(value, 'memory evidence reference', 2_048)),
+      scope: memoryScope,
+      ...(ownerSessionId === undefined ? {} : { ownerSessionId }),
+      authorSessionId: actorSessionId,
       createdAt: deps.now(),
     }
     team.memory.push(committed)

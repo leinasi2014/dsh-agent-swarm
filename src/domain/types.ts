@@ -22,9 +22,30 @@ export interface TeamMember {
   readonly role: string
   readonly sessionId: string
   readonly provider: string
+  /** Optional LLM Provider route; `provider` above is the subagent runtime Provider. */
+  readonly llmProvider?: string
+  readonly model?: string
+  readonly modelSource?: 'explicit' | 'member-default' | 'captain-inherited' | 'unresolved'
+  /** Exact deny-only creation snapshot applied to the durable child descriptor. */
+  readonly deniedTools?: string[]
+  /** Creation-time Skill assignment intent; official DSH remains the Skill authority. */
+  readonly assignedSkills?: string[]
   readonly phase: TeamMemberPhase
   readonly createdAt: number
   readonly error?: string
+}
+
+export interface TeamMemberProvisionInput {
+  readonly name: string
+  readonly role: string
+  readonly sessionId: string
+  /** Continuable subagent runtime Provider. */
+  readonly provider: string
+  readonly llmProvider?: string
+  readonly model?: string
+  readonly modelSource?: 'explicit' | 'member-default' | 'captain-inherited' | 'unresolved'
+  readonly deniedTools?: readonly string[]
+  readonly assignedSkills?: readonly string[]
 }
 
 type TeamTaskStatus =
@@ -147,6 +168,11 @@ export interface TeamMemoryEntry {
   readonly category: TeamMemoryCategory
   readonly content: string
   readonly evidenceRefs: string[]
+  /** Missing on legacy records means `team`. */
+  readonly scope?: 'team' | 'member'
+  /** Required for member-scoped records. */
+  readonly ownerSessionId?: string
+  readonly authorSessionId?: string
   readonly createdAt: number
 }
 

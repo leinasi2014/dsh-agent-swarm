@@ -22,7 +22,7 @@ import {
   replaceTask,
   type TeamDomainDeps,
 } from './team-domain-shared.js'
-import { TeamId, type TaskId, type TeamMember, type TeamMembership, type TeamState } from './types.js'
+import { TeamId, type TaskId, type TeamMember, type TeamMemberProvisionInput, type TeamMembership, type TeamState } from './types.js'
 import type { TeamScope } from './team-domain-port.js'
 
 export async function createTeam(
@@ -162,7 +162,7 @@ export async function provisionMember(
   scope: TeamScope,
   teamId: TeamId,
   captainSessionId: string,
-  input: { name: string; role: string; sessionId: string; provider: string },
+  input: TeamMemberProvisionInput,
 ): Promise<TeamMember> {
   let committed!: TeamMember
   await deps.store.transact(scope, teamId, team => {
@@ -186,6 +186,11 @@ export async function provisionMember(
       role: nonEmpty(input.role, 'member role', 2_048),
       sessionId: input.sessionId,
       provider: nonEmpty(input.provider, 'member provider', 128),
+      ...(input.llmProvider === undefined ? {} : { llmProvider: nonEmpty(input.llmProvider, 'member LLM provider', 128) }),
+      ...(input.model === undefined ? {} : { model: nonEmpty(input.model, 'member model', 256) }),
+      ...(input.modelSource === undefined ? {} : { modelSource: input.modelSource }),
+      ...(input.deniedTools === undefined ? {} : { deniedTools: [...input.deniedTools] }),
+      ...(input.assignedSkills === undefined ? {} : { assignedSkills: [...input.assignedSkills] }),
       phase: 'provisioning',
       createdAt: timestamp,
     }
