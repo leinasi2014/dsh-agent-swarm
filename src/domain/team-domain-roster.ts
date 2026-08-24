@@ -180,6 +180,10 @@ export async function provisionMember(
       'TEAM_MEMBER_NAME_TAKEN',
     )
     expectDomain(team.members.length < deps.limits.maxMembers, 'team member limit reached', 'TEAM_MEMBER_LIMIT')
+    const deniedTools = input.deniedTools?.map(value => nonEmpty(value, 'denied tool name', 256))
+    const assignedSkills = input.assignedSkills?.map(value => nonEmpty(value, 'assigned Skill name', 128))
+    expectDomain((deniedTools?.length ?? 0) <= 256, 'member denied tool snapshot is too large', 'TEAM_INPUT_INVALID')
+    expectDomain((assignedSkills?.length ?? 0) <= 32, 'member assigned Skill snapshot is too large', 'TEAM_INPUT_INVALID')
     const timestamp = deps.now()
     committed = {
       name,
@@ -189,8 +193,8 @@ export async function provisionMember(
       ...(input.llmProvider === undefined ? {} : { llmProvider: nonEmpty(input.llmProvider, 'member LLM provider', 128) }),
       ...(input.model === undefined ? {} : { model: nonEmpty(input.model, 'member model', 256) }),
       ...(input.modelSource === undefined ? {} : { modelSource: input.modelSource }),
-      ...(input.deniedTools === undefined ? {} : { deniedTools: [...input.deniedTools] }),
-      ...(input.assignedSkills === undefined ? {} : { assignedSkills: [...input.assignedSkills] }),
+      ...(deniedTools === undefined ? {} : { deniedTools }),
+      ...(assignedSkills === undefined ? {} : { assignedSkills }),
       phase: 'provisioning',
       createdAt: timestamp,
     }

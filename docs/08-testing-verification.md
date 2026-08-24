@@ -146,7 +146,7 @@ Logs are not the state source. UI snapshots and metrics derive from committed re
 
 ## 7. Current implementation verification
 
-The post-M1A core has 54 executable suites / 364 tests (the per-suite bullets below cover the M1 lineage plus milestone additions; bridge, budget, promotion, verification-family, budget-family, SW-I1a, R1/R2 and M7-A decisions are also described in their docs/04 sections and design notes):
+The post-M1A core has 54 executable suites / 365 tests (the per-suite bullets below cover the M1 lineage plus milestone additions; bridge, budget, promotion, verification-family, budget-family, SW-I1a, R1/R2 and M7-A decisions are also described in their docs/04 sections and design notes):
 
 - `tests/memory-member-profile.spec.ts`: 5 M7-A tests prove additive member runtime/LLM selection, deny and Skill snapshots survive a full Storage Domain reopen; personal memory rejects cross-member writes and is filtered from another member while the Captain may inspect it; shared and personal records survive reopen; semantic-disabled queries return explicit deterministic fallback rather than false empty success; configured semantic ranking accepts only ids from the authorized candidate allowlist; raw Provider failures are replaced by one stable fallback diagnostic. Companion Host/provisioning/UI tests prove browser-bound truncation metadata, strict RPC acceptance, invalid LLM route zero-side-effect preflight, five-tab layout and translated model-source labels;
 

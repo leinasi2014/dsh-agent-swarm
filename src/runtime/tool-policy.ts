@@ -24,6 +24,8 @@ import { CAPTAIN_ONLY_TOOLS } from './prompts.js'
 
 /** Bound on one declaration: a deny list longer than every global tool set is a mistake. */
 export const MAX_DENY_TOOLS = 64
+/** R2/member-profile bound; tool names are ASCII under TOOL_NAME_PATTERN. */
+export const MAX_DENY_TOOL_NAME_LENGTH = 256
 
 /**
  * Structural tool-name shape. Deliberately permissive toward real tool names
@@ -49,8 +51,8 @@ export function memberToolDeny(declared?: readonly string[]): string[] {
   }
   const seen = new Set<string>()
   for (const name of declared) {
-    if (typeof name !== 'string' || name.trim() === '' || !TOOL_NAME_PATTERN.test(name)) {
-      throw new TeamDomainError(`deny_tools entries must be non-empty tool names matching ${String(TOOL_NAME_PATTERN)} (got ${JSON.stringify(name)})`, 'TEAM_TOOL_POLICY_INVALID')
+    if (typeof name !== 'string' || name.trim() === '' || name.length > MAX_DENY_TOOL_NAME_LENGTH || !TOOL_NAME_PATTERN.test(name)) {
+      throw new TeamDomainError(`deny_tools entries must be non-empty tool names of at most ${MAX_DENY_TOOL_NAME_LENGTH} characters matching ${String(TOOL_NAME_PATTERN)} (got ${JSON.stringify(name)})`, 'TEAM_TOOL_POLICY_INVALID')
     }
     if (seen.has(name)) {
       throw new TeamDomainError(`deny_tools must not repeat a tool name (${JSON.stringify(name)})`, 'TEAM_TOOL_POLICY_INVALID')

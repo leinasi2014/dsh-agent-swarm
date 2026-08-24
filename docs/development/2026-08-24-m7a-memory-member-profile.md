@@ -56,7 +56,7 @@ Memory content is data, never instructions. Search results do not change tasks, 
 - `deny_tools`;
 - `skills`.
 
-Skill assignment is a creation-time intent snapshot. The plugin validates names against the official scoped Skill catalog before any roster record commits and adds a short instruction to the member persona to load those Skills through the official Skill tool when relevant. “Assigned” must not be rendered as “loaded”.
+Skill assignment is a creation-time intent snapshot. The plugin validates names (including the 128-character R2 bound) against the official scoped Skill catalog before any roster record commits and adds a short instruction to the member persona to load those Skills through the official Skill tool when relevant. “Assigned” must not be rendered as “loaded”. Denied tool names likewise satisfy the 256-character R2 bound before commit.
 
 The Captain member projection exposes name, role, phase, Session ID, runtime Provider, LLM selection/source, creation-time denied tools and assigned Skills. Raw member errors, credentials and paths never enter that projection. Role text is bounded to 256 code points with an explicit truncation marker. A separate Captain memory projection exposes at most 100 records; content is bounded to 2,048 code points and evidence to 64 references of 512 code points, again with explicit truncation markers. It is not mixed into member rows and does not perform semantic inference.
 

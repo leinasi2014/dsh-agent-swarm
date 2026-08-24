@@ -107,7 +107,7 @@ export class MemberProvisioner {
       ])])
       const assignedSkills = [...new Set(input.skills ?? live.memberSkills ?? [])]
       for (const name of assignedSkills) {
-        if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name)) {
+        if (name.length > 128 || !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name)) {
           throw new TeamDomainError(`invalid Skill name "${name}"`, 'TEAM_INPUT_INVALID')
         }
       }

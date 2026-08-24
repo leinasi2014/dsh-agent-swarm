@@ -363,6 +363,21 @@ describe('persisted-child provisioning reconciliation (F3)', () => {
 
     try {
       const stack = await mountCaptain(sandbox, fibers, 'model-preflight-lead', 'Model preflight team')
+      const invalidSkill = await stack.ctx.tools.execute({
+        signal: SIGNAL,
+        callId: CallId('member-skill-invalid'),
+        name: 'agent_swarm_add_member',
+        arguments: {
+          name: 'model-worker', role: 'Must not occupy the name.',
+          skills: [`s${'a'.repeat(128)}`],
+        },
+        agent: stack.lead,
+      })
+      expect(invalidSkill).toMatchObject({ isError: true, error: { info: { code: 'TEAM_INPUT_INVALID' } } })
+      expect((await stack.ctx.agentSwarm.domain.snapshot(
+        stack.ctx.agentSwarm.scopeOf(stack.lead), AgentSwarm.TeamId(stack.teamId), stack.lead.id,
+      )).team.members).toHaveLength(0)
+
       const rejected = await stack.ctx.tools.execute({
         signal: SIGNAL,
         callId: CallId('model-add-invalid'),

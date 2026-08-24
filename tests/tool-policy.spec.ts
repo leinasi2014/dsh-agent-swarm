@@ -33,7 +33,7 @@ import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
 import { CAPTAIN_ONLY_TOOLS } from '../src/runtime/prompts.js'
-import { MAX_DENY_TOOLS, memberToolDeny } from '../src/runtime/tool-policy.js'
+import { MAX_DENY_TOOL_NAME_LENGTH, MAX_DENY_TOOLS, memberToolDeny } from '../src/runtime/tool-policy.js'
 import { mountStorageStackOn } from './helpers/storage-stack.js'
 
 const SIGNAL = new AbortController().signal
@@ -144,6 +144,7 @@ describe('member tool-policy composition (unit)', () => {
     ['path-shaped name', ['../etc/passwd']],
     ['fenced name', ['not`a`tool']],
     ['spaced name', ['agent swarm']],
+    ['overlong name', ['a'.repeat(MAX_DENY_TOOL_NAME_LENGTH + 1)]],
   ])('rejects a structurally invalid declaration (%s) with TEAM_TOOL_POLICY_INVALID', (_label, declared) => {
     expect(() => memberToolDeny(declared as string[])).toThrowError(expect.objectContaining({ code: 'TEAM_TOOL_POLICY_INVALID' }))
   })
@@ -249,5 +250,11 @@ describe('member tool-policy surface (real composition)', () => {
       stack.ctx.agentSwarm.scopeOf(stack.lead), AgentSwarm.TeamId(stack.teamId), stack.lead.id,
     )
     expect(snapshot.team.members).toHaveLength(0)
+
+    const retry = await addMember(stack, 'add-valid-after-invalid', {
+      name: 'invalid-worker',
+      role: 'The rejected declaration did not occupy this name.',
+    })
+    expect(retry).toMatchObject({ isError: false, value: { name: 'invalid-worker', phase: 'active' } })
   }, 20_000)
 })
