@@ -6,7 +6,7 @@
  * listener first resolves the caller as an exact live root captain or an
  * active delegated member of one of this plugin's Teams; unrelated agents
  * simply pass through `next()` untouched. For Team participants the
- * project-owned decision (deny > ask > allow, unlisted fail-closed) is
+ * project-owned decision (deny > ask > allow; unlisted host tools inherit) is
  * merged monotonically with whatever downstream `next()` and the official
  * monotonic guard stage decide, so a later guard can still deny but nothing
  * can widen an `ask`/`deny` back to allow.
