@@ -67,7 +67,7 @@ The v2 attempt lifecycle becomes:
 
 ```text
 reserved
-   │ exact assignment frame claimed + durable checkpoint
+   │ official assistant execution evidence
    ▼
 running ── official turn settles without submit ──> parked
    │                                                │
@@ -85,7 +85,7 @@ Minimum v2 fields:
 
 ```ts
 type TaskAttemptPhase =
-  | 'running' | 'parked' | 'submitted' | 'verifying'
+  | 'reserved' | 'running' | 'parked' | 'submitted' | 'verifying'
   | 'accepted' | 'rejected' | 'cancelled' | 'stale'
 
 interface ParkedAttemptState {
@@ -163,7 +163,7 @@ One bounded scheduling pass keeps the existing order—reconcile durable debt, d
 9. Submission, cancellation, reassignment and any transition that terminalizes or replaces the current Attempt atomically terminalize its nonterminal continuation intent as `superseded` or `cancelled`. The effect dispatcher and target pre-model gate both revalidate the exact current task revision, attempt generation and nonterminal intent before send/claim. A terminal intent is evidence only and can never wake an Attempt.
 10. Claiming the wake does not prove model dispatch. The `agent/request` pre-model gate flushes the exact claimed assignment `user/message`, CASes `claimed -> dispatch-pending`, retains the Attempt as `parked`, checkpoints the exact Session turn/message/step identity and then calls `next()`.
 11. A global/prepend plugin-owned `llm/stream` dispatch witness first requires process-local `isAgentLoopRequest(options)`, resolves `sessionId` to the identical live Agent/Session, reconstructs the single open turn/step from Session events and matches that exact Team-owned `dispatch-pending` epoch. After another exact Session flush and before its downstream `next()`, it CASes `dispatch-pending -> dispatch-entered`, reads back, then delegates to the official LLM waterfall. This is an admission witness, not proof of a provider result: if the process dies before outcome evidence, recovery changes it to `dispatch-unknown` and uses Provider read-back or an explicit forward decision. The intent settles and the Attempt becomes `running` only after official assistant execution evidence for that exact step. A durable `turn/end` without assistant output settles the wake but leaves the task parked with the exact error/wait evidence.
-12. Gate A and real Loader sentinels must prove the witness wraps every configured terminal adapter and short-circuit route for Team-owned requests. A capability digest binds official build, Loader graph and witness registration to each epoch. HMR/graph change revokes admission, drains admitted calls and reruns the sentinels. If assistant output or `turn/end` appears without the matching entered receipt, the route becomes `dispatch-unknown` and autonomous recovery is disabled for that Profile. It never infers not-dispatched. If ordering cannot be established, the capability is unavailable rather than weakening the boundary or modifying official DSH.
+12. Gate A and real Loader sentinels must prove the witness wraps every configured terminal adapter and short-circuit route for Team-owned requests. A capability digest binds official build, Loader graph and witness registration to each epoch. HMR/graph change revokes admission, drains admitted calls and reruns the sentinels. If assistant output or a non-repair `turn/end` appears without the matching entered receipt, the route becomes `dispatch-unknown` and autonomous recovery is disabled for that Profile. It never infers not-dispatched. If ordering cannot be established, the capability is unavailable rather than weakening the boundary or modifying official DSH.
 13. The same witness covers initial, continuation and recovery epochs. A recovery trigger never replays the original assignment: after the new trigger message is claimed and flushed, one CAS settles the old proven-not-entered epoch and binds a new `kind=recovery` ordinal to the new turn/step/message before it may reach `dispatch-pending`. Repeated trigger claims return the existing epoch.
 
 ```text
@@ -194,8 +194,8 @@ Continuation intent recovery is deterministic:
 | `admitted`, effect/frame proven absent | Publish the exact byte-identical frame once under the persisted `resumeEffectId`; do not create another effect or intent. |
 | `admitted`, frame pending | Preserve and wait; do not create or resend another identity. |
 | `claimed`, exact current parked Attempt | Flush the exact assignment message, CAS intent to `dispatch-pending`, retain Attempt `parked`, checkpoint Session/turn/step, then allow the official request waterfall to continue. |
-| `dispatch-pending`, valid bound witness capability, no assistant output/`turn/end`, process died before witness commit | Downstream model dispatch was not admitted. Because the original assignment message is already durable, enqueue the v2 ledger's separate once-only recovery trigger derived from the same effect; never replay/append the assignment frame again. |
-| `dispatch-pending`, assistant output/`turn/end` exists or witness capability/ordering is absent, changed or ambiguous | CAS `dispatch-unknown`, revoke autonomous recovery for the Profile and require read-back/explicit decision. Never infer not-dispatched. |
+| `dispatch-pending`, valid bound witness capability, no assistant output, and either no `turn/end` or exact cold `load/prepare` read-back appended `turn/end {kind:'interrupted'}` for this epoch's formerly open turn/step | Downstream model dispatch was not admitted. Treat the synthetic interrupted closer as crash repair, enqueue the v2 ledger's separate once-only recovery trigger and never replay/append the assignment frame again. |
+| `dispatch-pending`, assistant output, any non-interrupted/non-cold-repair `turn/end`, or witness/repair capability/ordering absent, changed or ambiguous | CAS `dispatch-unknown`, revoke autonomous recovery for the Profile and require read-back/explicit decision. Never infer not-dispatched. |
 | `dispatch-entered`, assistant output/turn-end is absent after process death | CAS to `dispatch-unknown`; reconcile by Provider request identity when available, otherwise escalate this true blocker for an explicit forward decision. Never retry blindly. |
 | `dispatch-entered`, exact assistant output/execution boundary exists | CAS Attempt to `running`, settle the intent receipt and release the current slot. |
 | `dispatch-entered`, exact turn ended without assistant output | Settle the wake receipt, release the slot and keep/return the Attempt `parked` with the classified error/wait evidence. |
@@ -254,6 +254,7 @@ Recovery is read-back-first and preserves the attempt unless a stronger fence sa
 | Assignment `reserved`, frame claimed | Acknowledge delivery idempotently; do not resend. |
 | Assignment `reserved`, frame pending | Wait for an official claim/status edge; do not resend or self-wake. |
 | Assignment `reserved`, frame proven absent | Redeliver once under the same attempt/frame identity. |
+| Top-level Attempt `reserved`, assignment delivered, dispatch epoch pending/entered/unknown | Apply the common dispatch fold; pending plus exact cold synthetic `interrupted` repair remains proven-not-entered, entered/ambiguous stays unknown, and only assistant evidence produces `running`. |
 | `running`, owner officially live/running | Preserve; no elapsed-time action. |
 | `running`, exact turn settled, no submit | CAS to `parked`, retain root and ownership. |
 | `parked`, no resume intent | Preserve indefinitely or until a declared dependency, deadline or authorized Team decision supplies a typed intent; no retry timer. |
@@ -263,11 +264,11 @@ Recovery is read-back-first and preserves the attempt unless a stronger fence sa
 | Hard distributed lease expired with valid fencing Provider | Revoke old token, reconcile effects, then a policy-authorized fresh attempt may take over. |
 | External effect response lost | Query operation receipt/read-back before retry; unknown remains blocking. |
 
-Execution roots remain attempt-owned through `running` and `parked`. They release only after exact accepted/rejected/cancelled/stale terminal read-back and the existing handoff/retention rules. A restart never falls back to an older generation's root.
+Execution roots remain attempt-owned through `reserved`, `running` and `parked`. They release only after exact accepted/rejected/cancelled/stale terminal read-back and the existing handoff/retention rules. A restart never falls back to an older generation's root.
 
 ## 9. Completion and archival
 
-Whole-Team completion remains derived and review-owned. In addition to the blueprint predicate, any current `parked` attempt, nonterminal continuation intent for the current Attempt, suspected unresolved recovery, or unknown lease/effect outcome blocks completion. A `superseded` or `cancelled` continuation receipt is retained as evidence but does not block completion. `idle`, heartbeat expiry, task deadline, model prose and file presence cannot complete a task. Only the configured review/acceptance gate may produce `accepted/completed`.
+Whole-Team completion remains derived and review-owned. In addition to the blueprint predicate, any current `reserved` or `parked` Attempt, nonterminal continuation/dispatch intent for the current Attempt, suspected unresolved recovery, or unknown lease/effect outcome blocks completion. A `superseded` or `cancelled` receipt is retained as evidence but does not block completion. `idle`, heartbeat expiry, task deadline, model prose and file presence cannot complete a task. Only the configured review/acceptance gate may produce `accepted/completed`.
 
 Archival is a separate captain-authorized action. A captain may cancel or explicitly waive parked work only through a typed transition that identifies the exact task revision and attempt; archival never silently converts parked work into success.
 
@@ -301,10 +302,10 @@ strandedAfterMs: 0   # deprecated compatibility field; no hidden default retry
 v1 aggregate migration into the blueprint's v2 authority uses exact evidence:
 
 1. terminal and submitted/verifying attempts retain their exact phases and identities;
-2. `running/reserved` remains delivery debt and uses the existing exact visibility fold;
-3. `running/delivered` plus a proven live/running owner remains `running`;
-4. `running/delivered` plus a proven settled or absent owner becomes `parked` with the corresponding evidence reason;
-5. ambiguous runtime/Session evidence becomes `parked(migration-unknown)` or explicit recovery debt and blocks completion;
+2. legacy `running/reserved` maps to v2 top-level `reserved` delivery debt and uses the exact visibility fold;
+3. legacy `running/delivered` plus exact assistant execution evidence maps to `running`;
+4. legacy `running/delivered` plus a proven settled owner and no ambiguous dispatch maps to `parked` with the corresponding evidence reason;
+5. legacy delivered state without exact execution/settlement evidence becomes explicit dispatch/recovery debt and blocks completion;
 6. existing stale/retry history is preserved; migration never creates another generation;
 7. user-media cutover remains blocked by ADR-0009's pre-plugin retirement fence. This ADR grants no migration authority.
 
@@ -316,7 +317,7 @@ No product code may implement this ADR until one unique non-author QA accepts th
 
 1. official DSH remains the only Agent Loop;
 2. no timer, prompt, token counter, file-diff check or plan counter can interrupt or rotate a healthy attempt;
-3. `running -> parked -> running` preserves one attempt/root and is CAS/read-back fenced;
+3. initial `reserved -> running` requires assistant execution evidence, and later `running -> parked -> running` preserves one attempt/root and is CAS/read-back fenced;
 4. resume, reassign, interrupt, deadline and lease-expiry have distinct authority and effects;
 5. every requested/admitted/claimed/dispatch-pending/dispatch-entered/dispatch-unknown/settled/superseded/cancelled continuation and restart branch has one recovery decision;
 6. parked/recovery/unknown states block completion;
@@ -325,12 +326,12 @@ No product code may implement this ADR until one unique non-author QA accepts th
 9. candidate/review/dependency/integration receipts bind immutable digests and reject post-accept mutation or expected-target races;
 10. task scopes cover all required artifact families, required capabilities are preflighted, and every fault route reruns from a clean generation without old process/port/root leakage.
 11. normal Team work and typed same-attempt continuation require no external-manager approval, while every intervention route first classifies product, environment/capability, harness, authority, external-wait or outcome-unknown evidence.
-12. continue-vs-submit/reassign/cancel, concurrent principal requests, multi-round continuation, admission/effect/frame/request kill points and old-intent/new-generation races have one CAS/recovery decision; terminal receipts cannot wake or block completion.
+12. continue-vs-submit/reassign/cancel, concurrent principal requests, multi-round continuation, admission/effect/frame/request/cold-repair kill points and old-intent/new-generation races have one CAS/recovery decision; terminal receipts cannot wake or block completion.
 
 After architecture acceptance, implementation proceeds as vertical slices:
 
 1. change default/config semantics and add negative tests proving no timer-driven retry;
-2. add v2 parked state and exact idle-settlement transition over a fresh isolated Profile;
+2. add v2 `reserved`/`parked` states, assistant-evidence admission to `running`, and exact idle-settlement transition over a fresh isolated Profile;
 3. add typed member/Team same-attempt continuation intent, per-task continuation policy, message visibility fold and UI/RPC projection;
 4. add enforced artifact namespaces, capability preflight, immutable candidate/review roots and expected-target integration receipts;
 5. add restart/migration reconciliation and root retention tests;
