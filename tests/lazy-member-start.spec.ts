@@ -24,6 +24,21 @@ describe('lazy member materialization', () => {
       expect(adapter.requests).toHaveLength(0)
       expect(ctx.agents.get(SessionId(memberId))).toBeUndefined()
       expect((await snapshotOf(composition)).team.members[0]?.phase).toBe('provisioning')
+
+      // A declared lazy member is already an addressable durable mailbox
+      // target even though it has no live Session yet. The message stays
+      // queued and must not bootstrap an unassigned model turn; the first
+      // assignment below remains the member's first user frame.
+      const queued = await toolCall(ctx, lead, 'lazy-message-before-assignment', 'agent_swarm_send_message', {
+        target: 'lazy-worker', content: 'Context queued before your first assignment.', delivery: 'wakeup',
+      })
+      expect(queued).toMatchObject({ isError: false, value: { phase: 'queued' } })
+      expect(adapter.requests).toHaveLength(0)
+      expect((await snapshotOf(composition)).team.messages).toMatchObject([{
+        targetSessionId: memberId,
+        phase: 'queued',
+      }])
+
       const wait = await toolCall(ctx, lead, 'lazy-wait', 'agent_swarm_wait', {
         after_revision: (await snapshotOf(composition)).team.revision,
         timeout_seconds: 10,
@@ -54,6 +69,7 @@ describe('lazy member materialization', () => {
       expect(userMessages[0]?.data.content).toEqual([
         { type: 'text', text: assignmentPrompt(snapshot.team, task, attempt.id) },
       ])
+      expect(JSON.stringify(userMessages[0])).not.toContain('Context queued before your first assignment.')
       expect(JSON.stringify(userMessages)).not.toContain('Wait for a task assignment')
     } finally {
       adapter.open()

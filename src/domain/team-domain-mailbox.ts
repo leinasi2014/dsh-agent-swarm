@@ -36,8 +36,9 @@ export async function queueMessage(
     const normalizedTarget = foldMemberName(targetName)
     const targetSessionId = normalizedTarget === 'captain'
       ? team.captainSessionId
-      : team.members.find(member => member.name === normalizedTarget && member.phase === 'active')?.sessionId
-    expectDomain(targetSessionId !== undefined, `target "${targetName}" is not active`, 'TEAM_MESSAGE_TARGET_INVALID')
+      : team.members.find(member => member.name === normalizedTarget
+        && (member.phase === 'provisioning' || member.phase === 'active'))?.sessionId
+    expectDomain(targetSessionId !== undefined, `target "${targetName}" is not available`, 'TEAM_MESSAGE_TARGET_INVALID')
     // Official admission order (agent-team `sendAdmitted`): a self-addressed
     // target is rejected outright, before quota admission. Both self-send
     // forms fold to this one comparison — the captain addressing the
