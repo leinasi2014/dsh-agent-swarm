@@ -539,4 +539,32 @@ describe('official compatibility semantics over the real composition (issue #19)
       for (const fiber of fibers.toReversed()) await fiber.dispose()
     }
   }, 15_000)
+
+  it('wakes a coordination-cursor wait when the Team deadline expires without a revision', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-agent-swarm-wait-deadline-'))
+    roots.push(sandbox)
+    const { ctx, fibers, pluginFiber, lead } = await mount(sandbox)
+    try {
+      const teamId = AgentSwarm.TeamId(await createTeam(ctx, lead, 'create-deadline'))
+      const scope = ctx.agentSwarm.scopeOf(lead)
+      await ctx.agentSwarm.domain.setBudget(scope, teamId, lead.id, { deadlineAt: Date.now() + 250 })
+      const status = await toolCall(ctx, lead, 'status-deadline', 'agent_swarm_status', {})
+      const cursor = (status.value as { coordination_cursor: string }).coordination_cursor
+      const before = await ctx.agentSwarm.domain.snapshot(scope, teamId, lead.id)
+      const startedAt = Date.now()
+
+      const woken = await ctx.agentSwarm.waitForChange(
+        { agent: lead, signal: SIGNAL }, before.team.revision, 10_000, cursor,
+      )
+      expect(woken.changed).toBe(true)
+      expect(woken.coordinationCursor).not.toBe(cursor)
+      expect(woken.snapshot.team.revision).toBe(before.team.revision)
+      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(100)
+      expect(Date.now() - startedAt).toBeLessThan(2_000)
+
+      await pluginFiber.dispose()
+    } finally {
+      for (const fiber of fibers.toReversed()) await fiber.dispose()
+    }
+  }, 10_000)
 })

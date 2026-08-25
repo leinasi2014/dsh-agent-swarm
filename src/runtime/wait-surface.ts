@@ -45,6 +45,7 @@ export function coordinationCursorOf(snapshot: TeamStatusSnapshot): string {
     tokensExhausted: team.budget.tokenLimit !== undefined && team.budget.usedTokens >= team.budget.tokenLimit,
     requestsExhausted: team.budget.requestLimit !== undefined && team.budget.usedRequests >= team.budget.requestLimit,
     retriesExhausted: team.budget.retryLimit !== undefined && team.budget.usedRetries >= team.budget.retryLimit,
+    deadlineExhausted: team.budget.deadlineAt !== undefined && Date.now() >= team.budget.deadlineAt,
   }
   const operational = {
     id: team.id, name: team.name, description: team.description,
@@ -104,23 +105,54 @@ export async function waitForChange(
   const scope = deps.scopeOf(actor)
   const membership = await deps.domain().requireReadMembership(scope, actor.id)
   const timeoutSignal = AbortSignal.timeout(timeoutMs)
-  try {
-    let cursorRevision = afterRevision
+  if (afterCursor !== undefined) {
+    let snapshot = await deps.domain().snapshot(scope, membership.team.id, actor.id)
     while (true) {
-      const snapshot = await deps.domain().waitForChange(
-        scope,
-        membership.team.id,
-        actor.id,
-        cursorRevision,
-        AbortSignal.any([exec.signal, timeoutSignal]),
-      )
       const coordinationCursor = coordinationCursorOf(snapshot)
-      if (afterCursor === undefined) {
-        return { snapshot, changed: snapshot.team.revision > afterRevision, coordinationCursor }
-      }
       if (coordinationCursor !== afterCursor) return { snapshot, changed: true, coordinationCursor }
       if (snapshot.team.phase === 'archived') return { snapshot, changed: false, coordinationCursor }
-      cursorRevision = snapshot.team.revision
+      const deadlineAt = snapshot.team.budget.deadlineAt
+      const deadlineDelay = deadlineAt === undefined
+        ? undefined
+        : Math.max(1, Math.min(timeoutMs, deadlineAt - Date.now()))
+      const deadlineSignal = deadlineDelay === undefined ? undefined : AbortSignal.timeout(deadlineDelay)
+      try {
+        snapshot = await deps.domain().waitForChange(
+          scope,
+          membership.team.id,
+          actor.id,
+          snapshot.team.revision,
+          AbortSignal.any([exec.signal, timeoutSignal, ...(deadlineSignal === undefined ? [] : [deadlineSignal])]),
+        )
+      } catch (error) {
+        if (exec.signal.aborted) {
+          throw new TeamDomainError(
+            `agent_swarm_wait aborted: ${error instanceof Error ? error.message : String(error)}`,
+            'TEAM_WAIT_ABORTED',
+            { cause: error },
+          )
+        }
+        snapshot = await deps.domain().snapshot(scope, membership.team.id, actor.id)
+        const wakeCursor = coordinationCursorOf(snapshot)
+        if (wakeCursor !== afterCursor) return { snapshot, changed: true, coordinationCursor: wakeCursor }
+        if (timeoutSignal.aborted) return { snapshot, changed: false, coordinationCursor: wakeCursor }
+        if (deadlineSignal?.aborted) continue
+        throw error
+      }
+    }
+  }
+  try {
+    const snapshot = await deps.domain().waitForChange(
+      scope,
+      membership.team.id,
+      actor.id,
+      afterRevision,
+      AbortSignal.any([exec.signal, timeoutSignal]),
+    )
+    return {
+      snapshot,
+      changed: snapshot.team.revision > afterRevision,
+      coordinationCursor: coordinationCursorOf(snapshot),
     }
   } catch (error) {
     if (timeoutSignal.aborted && !exec.signal.aborted) {
