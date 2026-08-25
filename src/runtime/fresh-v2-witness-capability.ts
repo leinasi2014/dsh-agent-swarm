@@ -39,13 +39,18 @@ export class FreshV2WitnessCapability {
     return this.active.digest
   }
 
-  /** Publish once after all A1b listeners are installed and the route sentinel passes. */
+  /** Publish once, lazily, after the target route and all A1b listeners exist. */
   async activate(): Promise<string> {
     if (this.active !== undefined || this.revokedReason !== undefined) {
       throw new TeamDomainError('fresh-v2 witness capability cannot be republished in a live Profile', 'TEAM_RUNTIME_NOT_STARTED')
     }
     const providers = this.providerIds()
-    await this.probe(providers)
+    try {
+      await this.probe(providers)
+    } catch (error) {
+      this.revokedReason = 'initial LLM listener-order sentinel failed'
+      throw error
+    }
     const digest = canonicalV2Digest('dsh-agent-swarm/a1b/model-dispatch-witness/v2', {
       artifactContract: this.artifactContract,
       hostContract: this.hostContract,
@@ -58,6 +63,7 @@ export class FreshV2WitnessCapability {
 
   /** Re-probe ordering before admission, but never accept a changed provider topology. */
   async assertCurrent(): Promise<string> {
+    if (this.active === undefined && this.revokedReason === undefined) return await this.activate()
     const active = this.requireActive()
     const providers = this.providerIds()
     if (providers.length !== active.providers.length
@@ -81,6 +87,7 @@ export class FreshV2WitnessCapability {
   }
 
   revoke(reason = 'official LLM topology changed'): void {
+    if (this.active === undefined) return
     this.active = undefined
     this.revokedReason ??= reason
   }

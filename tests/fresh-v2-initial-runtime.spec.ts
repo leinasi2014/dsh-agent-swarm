@@ -129,7 +129,7 @@ describe('A1b fresh-v2 official AgentLoop vertical', () => {
     roots.push(sandbox)
     const mounted = await mountFreshV2Composition(sandbox, () => new FailingStreamAdapter())
     try {
-      expect(mounted.ctx.agentSwarmV2Initial.witnessCapabilityDigest).toMatch(/^[0-9a-f]{64}$/)
+      expect(await mounted.ctx.agentSwarmV2Initial.assertWitnessCapabilityCurrent()).toMatch(/^[0-9a-f]{64}$/)
       const disposeRoute = mounted.ctx.llm.registerAdapter(['changed-route'], new FailingStreamAdapter())
       await expect(mounted.ctx.agentSwarmV2Initial.assertWitnessCapabilityCurrent())
         .rejects.toMatchObject({ code: 'TEAM_RUNTIME_NOT_STARTED' })

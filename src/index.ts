@@ -364,7 +364,6 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     ctx.effect(() => ctx.on('llm/adapters-updated', () => {
       runtime.revokeWitnessCapability()
     }), 'agent-swarm: fresh-v2 provider topology revocation')
-    await runtime.activateWitnessCapability()
     return
   }
   const schedulerProvider = (config.schedulerProvider ?? 'priority-ready').trim()

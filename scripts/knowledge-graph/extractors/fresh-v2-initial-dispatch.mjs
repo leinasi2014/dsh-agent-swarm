@@ -11,7 +11,6 @@ const REQUIRED = Object.freeze({
     "ctx.on('llm/stream'",
     "ctx.on('session/event'",
     "ctx.on('llm/adapters-updated'",
-    'await runtime.activateWitnessCapability()',
   ],
   'src/runtime/fresh-v2-initial-runtime.ts': [
     'createAndReserveInitialAssignment(',
