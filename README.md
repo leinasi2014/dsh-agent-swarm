@@ -63,7 +63,7 @@ captain（插件驱动）：
 - **调度**：事件驱动（idle 边沿/任务图变更/预算释放）、搁浅自愈（live-idle 重试、cold owner 证据暴露）、可替换 Scheduler Provider；
 - **中断控制**：模型侧 `interrupt_member` 只在 Host 从目标当前 turn 读到持续至少 10 分钟且尚未结算的真实工具调用时开放；沉默、规划时间、无文件/Git 变化和 wait 次数均不能授权。直接用户停止走带 Host 身份证明的 Human Control，不接受模型自述证据；
 - **编排桥**：官方 `WorkflowEngine`/`JobRegistry` 的 Team 桥（isolate 域注册，run overlay 为唯一 run 真相）、显式 `adaptive|workflow` 模式 + 单 owner 纪律（#77）；
-- **执行根**：per-attempt worktree 隔离 + attemptId 围栏 + 崩溃泄漏对账（#100）；
+- **执行根**：per-attempt worktree 隔离 + attemptId 围栏 + 重指派工作树继承 + 已接受依赖制品注入 + 崩溃泄漏对账（#100）；
 - **自托管控制面**：候选冻结→验收→晋升→回滚的外部 promoter 全链（P0–P7 演练实证，#102/#122 加固）。
 - **本机只读 Team 接口**：versioned `POST /swarm/v1` 与 browser-safe `dsh-agent-swarm/client`；Host 每次重绑 official live root/Session/workspace/captain Team。该接口仅在 `127.0.0.1` listener、loopback socket 与同源 authority 可验证时可用，不提供用户认证、LAN trust 或任何 write capability。预发布证据只覆盖 README 所列隔离 Profile 流程，不外推为 LAN、多用户或写操作能力。
 - **DSH-native Team 面板**：官方 Session log 右侧是相邻的 Team 与 Tool Details 操作。Team 是直接的打开/关闭二态开关；面板通过 DSH 公开 Slot 的临时优先级进入官方 `details` 列，宿主允许三栏时 Chat 真实收缩。相邻 Tool Details 操作释放 Team、停止 Team 读取并打开原生右栏，使原有 DetailsPanel 原位接管；插件不维护或复制 Tool 状态。较小窗口完全服从官方 AppFrame 将 details 收缩为零的响应式规则，窗口重新可容纳时自动恢复；插件没有 Peek、compact、悬浮卡片或私有 DOM/CSS 布局补丁。卸载、HMR、Session 切换或 Team 渲染失败都会释放临时 occupant；不修改官方 WebUI 文件，不读取私有布局/Chat 状态。所有 Swarm 文案、枚举和时间格式跟随 DSH 当前语言，颜色、边框和字体只消费当前官方主题 Token。“打开 Captain Chat”仍先重验 R2 binding，再通过官方 Session 导航进入同一 root Session；不解析 transcript，也不产生 Control。

@@ -235,6 +235,8 @@ export class SchedulingPass {
     if (this.deps.executionRootsEnabled()) {
       try {
         executionRootPath = (await this.deps.executionRoots().acquire(scope, team.id, task.id, attempt.id)).path
+        this.deps.executionRoots().inheritLatestAttempt(scope, team, task, attempt)
+        this.deps.executionRoots().inheritCompletedDependencies(scope, team, task, attempt)
       } catch (error) {
         await this.rollbackUndeliveredAssignment(
           scope,

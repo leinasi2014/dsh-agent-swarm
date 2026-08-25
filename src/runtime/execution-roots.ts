@@ -28,6 +28,13 @@ import type { Context } from '@deepseek-ai/cordis'
 import { TeamDomainError } from '../domain/error.js'
 import type { AttemptId, TaskId, TeamId, TeamState } from '../domain/types.js'
 import type { TeamScope } from '../domain/team-domain-port.js'
+import {
+  copyDependencyScopes,
+  copyPredecessorRoot,
+  writeDependencyReceipt,
+} from './execution-root-handoff.js'
+
+export { EXECUTION_ROOT_DEPENDENCIES, EXECUTION_ROOT_HANDOFF } from './execution-root-handoff.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -154,12 +161,27 @@ function markerPathMatches(recorded: string, actual: string): boolean {
 export function attemptHoldsExecutionRoot(team: TeamState, attemptId: AttemptId): boolean {
   const attempt = team.attempts.find(candidate => candidate.id === attemptId)
   if (attempt === undefined) return false
-  if (attempt.phase === 'running') return true
-  if (attempt.phase !== 'stale') return false
+  if (team.phase === 'archived') return false
+  // Submitted roots are the executable candidate, and accepted roots are the
+  // durable dependency artifact. They stay until Team archival instead of
+  // collapsing a real file tree into the member's short textual summary.
+  if (['running', 'submitted', 'verifying', 'accepted'].includes(attempt.phase)) return true
+  if (attempt.assignmentPhase !== 'delivered') return false
   const task = team.tasks.find(candidate => candidate.id === attempt.taskId)
-  if (task?.currentAttemptId === undefined) return false
+  if (task === undefined || task.status === 'completed') return false
+  // Keep exactly the newest delivered terminal generation as a recovery
+  // source while the task is pending or its successor has not yet become
+  // model-visible. Once the successor is delivered, the normal sweep may
+  // reclaim the predecessor.
+  const newestDelivered = team.attempts
+    .filter(candidate => candidate.taskId === attempt.taskId && candidate.assignmentPhase === 'delivered')
+    .toSorted((left, right) => right.generation - left.generation)[0]
+  if (newestDelivered?.id !== attempt.id) return false
+  if (task.currentAttemptId === undefined) return task.status === 'pending'
   const successor = team.attempts.find(candidate => candidate.id === task.currentAttemptId)
-  return successor?.assignmentPhase === 'reserved' && successor.replacesAttemptId === attempt.id
+  return successor !== undefined
+    && successor.generation > attempt.generation
+    && successor.assignmentPhase === 'reserved'
 }
 
 /** One bounded git invocation; a non-zero exit rejects with stderr context. */
@@ -338,6 +360,61 @@ export class ExecutionRoots {
   }
 
   /**
+   * Seed a fresh generation from the newest delivered predecessor of the same
+   * task. This is an attempt handoff, not cross-task integration: the new
+   * generation has the same write authority, while `.git`, dependency caches
+   * and root-control markers are never copied.
+   */
+  inheritLatestAttempt(
+    scope: TeamScope,
+    team: TeamState,
+    task: { readonly id: TaskId },
+    attempt: { readonly id: AttemptId; readonly generation: number },
+  ): { readonly sourceAttemptId: AttemptId; readonly copiedEntries: number } | undefined {
+    const target = this.leaseOf(scope, team.id, task.id, attempt.id)
+    if (target === undefined) return undefined
+    const predecessor = team.attempts
+      .filter(candidate => candidate.taskId === task.id
+        && candidate.generation < attempt.generation
+        && candidate.assignmentPhase === 'delivered')
+      .toSorted((left, right) => right.generation - left.generation)
+      .find(candidate => existsSync(this.declarationPathFor(scope, team.id, task.id, candidate.id)))
+    if (predecessor === undefined) return undefined
+    const sourcePath = this.declarationPathFor(scope, team.id, task.id, predecessor.id)
+    const copiedEntries = copyPredecessorRoot(sourcePath, target.path, predecessor.id, attempt.id)
+    return { sourceAttemptId: predecessor.id, copiedEntries }
+  }
+
+  /** Materialize accepted direct blockers by their declared write scopes. */
+  inheritCompletedDependencies(
+    scope: TeamScope,
+    team: TeamState,
+    task: { readonly id: TaskId; readonly blockedBy: readonly TaskId[] },
+    attempt: { readonly id: AttemptId },
+  ): readonly { readonly taskId: TaskId; readonly attemptId: AttemptId; readonly copiedScopes: readonly string[] }[] {
+    const target = this.leaseOf(scope, team.id, task.id, attempt.id)
+    if (target === undefined || task.blockedBy.length === 0) return []
+    const inherited: { taskId: TaskId; attemptId: AttemptId; copiedScopes: string[] }[] = []
+    for (const dependencyId of task.blockedBy) {
+      const dependency = team.tasks.find(candidate => candidate.id === dependencyId)
+      const dependencyAttempt = dependency?.currentAttemptId === undefined
+        ? undefined
+        : team.attempts.find(candidate => candidate.id === dependency.currentAttemptId)
+      if (dependency?.status !== 'completed' || dependencyAttempt?.phase !== 'accepted') {
+        throw new TeamDomainError(`dependency ${dependencyId} has no accepted execution artifact`, 'TEAM_EXECUTION_ROOT_DEPENDENCY_MISSING')
+      }
+      const sourceRoot = this.declarationPathFor(scope, team.id, dependency.id, dependencyAttempt.id)
+      if (!existsSync(join(sourceRoot, EXECUTION_ROOT_MARKER))) {
+        throw new TeamDomainError(`dependency ${dependencyId} execution artifact is unavailable`, 'TEAM_EXECUTION_ROOT_DEPENDENCY_MISSING')
+      }
+      const copiedScopes = copyDependencyScopes(sourceRoot, target.path, dependency.id, dependency.writeScopes)
+      inherited.push({ taskId: dependency.id, attemptId: dependencyAttempt.id, copiedScopes })
+    }
+    writeDependencyReceipt(target.path, attempt.id, inherited)
+    return inherited
+  }
+
+  /**
    * Reclaim one fence tuple's root through the handle of the root that
    * supplied it. The logical lease always ends; a failed physical reclaim
    * leaves disk residue the activation scan reports (the lease map is the
@@ -370,11 +447,54 @@ export class ExecutionRoots {
     return released
   }
 
+  /** Captain-authorized Team archival reclaims every verified Team root. */
+  async reclaimTeam(scope: TeamScope, teamId: TeamId, reason: string): Promise<number> {
+    if (!this.deps.enabled()) return 0
+    const teamPath = join(scopeDirectory(this.deps.base, scope), segment(teamId))
+    if (!existsSync(teamPath)) return 0
+    const identities: RootMarker[] = []
+    for (const taskEntry of readdirSync(teamPath, { withFileTypes: true })) {
+      if (!taskEntry.isDirectory()) continue
+      const taskPath = join(teamPath, taskEntry.name)
+      for (const attemptEntry of readdirSync(taskPath, { withFileTypes: true })) {
+        if (!attemptEntry.isDirectory()) continue
+        const marker = readMarker(join(taskPath, attemptEntry.name))
+        if (marker?.scope === scope && marker.teamId === teamId) identities.push(marker)
+      }
+    }
+    let reclaimed = 0
+    for (const marker of identities) {
+      const taskId = marker.taskId as TaskId
+      const attemptId = marker.attemptId as AttemptId
+      const fence = ExecutionRoots.fence(scope, teamId, taskId, attemptId)
+      const leased = this.leases.get(fence)
+      try {
+        if (leased !== undefined) {
+          await this.release(scope, teamId, taskId, attemptId, reason)
+        } else {
+          const root = await this.provider().acquire(scope, teamId, taskId, attemptId)
+          await root.release()
+        }
+        reclaimed += 1
+      } catch (error) {
+        this.ctx.logger.warn(`agent-swarm: archived Team root reclaim failed for ${marker.path} (${reason}): ${String(error)}`)
+      }
+    }
+    return reclaimed
+  }
+
   /** Release every live lease (runtime disposal path). */
   async releaseAll(reason: string): Promise<void> {
     for (const { lease } of this.leases.values()) {
       await this.release(lease.scope, lease.teamId, lease.taskId, lease.attemptId, reason)
     }
+  }
+
+  /** Drop process-local handles while preserving roots for restart recovery. */
+  async detachAll(): Promise<void> {
+    await Promise.allSettled(this.inflight.values())
+    this.inflight.clear()
+    this.leases.clear()
   }
 
   /**

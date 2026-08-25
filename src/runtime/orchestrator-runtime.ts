@@ -369,7 +369,7 @@ export class AgentSwarmRuntime extends Service {
     const archived = await this.domain.archiveTeam(scope, membership.team.id, captain.id, reason)
     for (const id of activeIds) this.ctx.subagents.interrupt(id, { kind: 'ancestor', agent: captain })
     await this.ctx.subagents.drainContinuableChildren(captain, activeIds)
-    await this.executionRoots.sweep(scope, membership.team.id)
+    await this.executionRoots.reclaimTeam(scope, membership.team.id, `Team archived: ${reason}`)
     return archived
   }
 
@@ -643,7 +643,10 @@ export class AgentSwarmRuntime extends Service {
     await bound('member provisioning', this.provisioning.wait())
     await bound('scheduling', Promise.allSettled(this.scheduling.values()))
     await bound('message delivery', this.delivery.wait())
-    await bound('execution roots', this.executionRoots.releaseAll('runtime disposal'))
+    // Attempt roots are durable recovery artifacts. Runtime disposal drops
+    // process-local handles but leaves physical roots for activation scan and
+    // successor handoff; task settlement/archive owns actual reclamation.
+    await bound('execution roots', this.executionRoots.detachAll())
     for (const [captainId, childIds] of this.ownedChildren) {
       const captain = this.ctx.agents.get(SessionId(captainId))
       if (captain === undefined) continue

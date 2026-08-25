@@ -24,6 +24,8 @@ import * as AgentSwarm from '../src/index.js'
 import {
   attemptHoldsExecutionRoot,
   deterministicRootPath,
+  EXECUTION_ROOT_DEPENDENCIES,
+  EXECUTION_ROOT_HANDOFF,
   EXECUTION_ROOT_MARKER,
   ExecutionRoots,
   gitWorktreeExecutionRoots,
@@ -181,6 +183,119 @@ describe('execution-root provider isolation (M3-1, issue #100)', () => {
     await roots.releaseAll('test teardown')
   })
 
+  it('seeds a replacement generation from the newest delivered predecessor before reclaim', async () => {
+    const sandbox = await freshSandbox('handoff')
+    const scope = join(sandbox, 'workspace')
+    const base = join(sandbox, 'roots')
+    const roots = managerOver(base)
+    const previous = attempt('a1')
+    const successor = attempt('a2')
+    const source = await roots.acquire(scope, TEAM, TASK, previous)
+    writeFileSync(join(source.path, 'package.json'), '{"name":"recovered"}\n', 'utf8')
+    mkdirSync(join(source.path, 'server'), { recursive: true })
+    writeFileSync(join(source.path, 'server', 'index.js'), 'export const recovered = true\n', 'utf8')
+    mkdirSync(join(source.path, 'node_modules'), { recursive: true })
+    writeFileSync(join(source.path, 'node_modules', 'discarded.js'), 'cache\n', 'utf8')
+
+    const task: TeamTask = {
+      id: TASK, revision: 4, subject: 's', description: 'd', acceptanceCriteria: [],
+      status: 'in_progress', blockedBy: [], writeScopes: [], priority: 0,
+      ownerSessionId: 'member-2', currentAttemptId: successor,
+      createdAt: 1, updatedAt: 2,
+    }
+    const handoffTeam = teamFixture({
+      tasks: [task],
+      attempts: [
+        { id: previous, taskId: TASK, generation: 1, memberSessionId: 'member-1', phase: 'stale', assignmentPhase: 'delivered', evidence: [], createdAt: 1, updatedAt: 2 },
+        { id: successor, taskId: TASK, generation: 2, memberSessionId: 'member-2', phase: 'running', assignmentPhase: 'reserved', evidence: [], createdAt: 2, updatedAt: 2 },
+      ],
+    })
+    const target = await roots.acquire(scope, TEAM, TASK, successor)
+    expect(roots.inheritLatestAttempt(scope, handoffTeam, task, handoffTeam.attempts[1]!)).toEqual({
+      sourceAttemptId: previous,
+      copiedEntries: 2,
+    })
+    expect(readFileSync(join(target.path, 'package.json'), 'utf8')).toContain('recovered')
+    expect(readFileSync(join(target.path, 'server', 'index.js'), 'utf8')).toContain('recovered = true')
+    expect(existsSync(join(target.path, 'node_modules', 'discarded.js'))).toBe(false)
+    expect(JSON.parse(readFileSync(join(target.path, EXECUTION_ROOT_HANDOFF), 'utf8'))).toMatchObject({
+      sourceAttemptId: previous,
+      targetAttemptId: successor,
+      copiedEntries: 2,
+    })
+
+    const delivered = teamFixture({
+      tasks: [task],
+      attempts: [
+        handoffTeam.attempts[0]!,
+        { ...handoffTeam.attempts[1]!, assignmentPhase: 'delivered' },
+      ],
+    })
+    await roots.sweepSettledAttempts(scope, TEAM, delivered)
+    expect(existsSync(source.path)).toBe(false)
+    expect(existsSync(target.path)).toBe(true)
+    await roots.releaseAll('test teardown')
+  })
+
+  it('materializes accepted blocker artifacts by declared write scope for a dependent task', async () => {
+    const sandbox = await freshSandbox('dependencies')
+    const scope = join(sandbox, 'workspace')
+    const roots = managerOver(join(sandbox, 'roots'))
+    const dependencyAttemptId = attempt('d1')
+    const targetAttemptId = attempt('d2')
+    const targetTaskId = TaskId('task-2')
+    const source = await roots.acquire(scope, TEAM, TASK, dependencyAttemptId)
+    mkdirSync(join(source.path, 'public'), { recursive: true })
+    writeFileSync(join(source.path, 'public', 'index.html'), '<h1>accepted</h1>\n', 'utf8')
+    writeFileSync(join(source.path, 'private-note.txt'), 'must not cross scope\n', 'utf8')
+    const target = await roots.acquire(scope, TEAM, targetTaskId, targetAttemptId)
+    const dependencyTask: TeamTask = {
+      id: TASK, revision: 5, subject: 'dependency', description: 'd', acceptanceCriteria: [],
+      status: 'completed', blockedBy: [], writeScopes: ['public/'], priority: 0,
+      currentAttemptId: dependencyAttemptId, output: 'accepted frontend', createdAt: 1, updatedAt: 2,
+    }
+    const targetTask: TeamTask = {
+      id: targetTaskId, revision: 2, subject: 'qa', description: 'd', acceptanceCriteria: [],
+      status: 'in_progress', blockedBy: [TASK], writeScopes: ['tests/'], priority: 0,
+      ownerSessionId: 'qa-1', currentAttemptId: targetAttemptId, createdAt: 2, updatedAt: 3,
+    }
+    const state = teamFixture({
+      tasks: [dependencyTask, targetTask],
+      attempts: [
+        { id: dependencyAttemptId, taskId: TASK, generation: 1, memberSessionId: 'worker-1', phase: 'accepted', assignmentPhase: 'delivered', evidence: [], output: 'accepted frontend', createdAt: 1, updatedAt: 2 },
+        { id: targetAttemptId, taskId: targetTaskId, generation: 1, memberSessionId: 'qa-1', phase: 'running', assignmentPhase: 'reserved', evidence: [], createdAt: 2, updatedAt: 3 },
+      ],
+    })
+    expect(roots.inheritCompletedDependencies(scope, state, targetTask, state.attempts[1]!)).toEqual([{
+      taskId: TASK,
+      attemptId: dependencyAttemptId,
+      copiedScopes: ['public/'],
+    }])
+    expect(readFileSync(join(target.path, 'public', 'index.html'), 'utf8')).toContain('accepted')
+    expect(existsSync(join(target.path, 'private-note.txt'))).toBe(false)
+    expect(JSON.parse(readFileSync(join(target.path, EXECUTION_ROOT_DEPENDENCIES), 'utf8'))).toMatchObject({
+      targetAttemptId,
+      dependencies: [{ taskId: TASK, attemptId: dependencyAttemptId, copiedScopes: ['public/'] }],
+    })
+    await roots.releaseAll('test teardown')
+  })
+
+  it('preserves roots on runtime detach and reclaims verified roots after Team archival', async () => {
+    const sandbox = await freshSandbox('archive')
+    const scope = join(sandbox, 'workspace')
+    const base = join(sandbox, 'roots')
+    const roots = managerOver(base)
+    const key = attempt('e1')
+    const lease = await roots.acquire(scope, TEAM, TASK, key)
+    writeFileSync(join(lease.path, 'durable.txt'), 'survives restart\n', 'utf8')
+    await roots.detachAll()
+    expect(existsSync(join(lease.path, 'durable.txt'))).toBe(true)
+
+    const recovered = managerOver(base)
+    expect(await recovered.reclaimTeam(scope, TEAM, 'Team archived')).toBe(1)
+    expect(existsSync(lease.path)).toBe(false)
+  })
+
   it('fails loud on a foreign occupant of the deterministic root path', async () => {
     const sandbox = await freshSandbox('conflict')
     const scope = join(sandbox, 'w')
@@ -266,7 +381,16 @@ describe('execution-root crash residue detection (M3-1, issue #100)', () => {
   it('derives the hold rule only from the authoritative aggregate', () => {
     const running = RUNNING
     expect(attemptHoldsExecutionRoot(teamFixture(), running)).toBe(true)
-    for (const phase of ['submitted', 'verifying', 'accepted', 'rejected', 'cancelled'] as const) {
+    for (const phase of ['submitted', 'verifying', 'accepted'] as const) {
+      const durable = teamFixture({
+        attempts: [{
+          id: running, taskId: TASK, generation: 1, memberSessionId: 'member-1',
+          phase, assignmentPhase: 'delivered', evidence: [], createdAt: 1, updatedAt: 1,
+        }],
+      })
+      expect(attemptHoldsExecutionRoot(durable, running)).toBe(true)
+    }
+    for (const phase of ['rejected', 'cancelled'] as const) {
       const settled = teamFixture({
         attempts: [{
           id: running, taskId: TASK, generation: 1, memberSessionId: 'member-1',
@@ -275,6 +399,18 @@ describe('execution-root crash residue detection (M3-1, issue #100)', () => {
       })
       expect(attemptHoldsExecutionRoot(settled, running)).toBe(false)
     }
+    const pendingTasks: TeamTask[] = [{
+      id: TASK, revision: 4, subject: 's', description: 'd', acceptanceCriteria: [],
+      status: 'pending', blockedBy: [], writeScopes: [], priority: 0,
+      createdAt: 1, updatedAt: 2,
+    }]
+    expect(attemptHoldsExecutionRoot(teamFixture({
+      tasks: pendingTasks,
+      attempts: [{
+        id: running, taskId: TASK, generation: 1, memberSessionId: 'member-1',
+        phase: 'stale', assignmentPhase: 'delivered', evidence: [], createdAt: 1, updatedAt: 2,
+      }],
+    }), running)).toBe(true)
     // A stale attempt holds exactly through the reinstate window: successor
     // still reserved and naming it as the attempt it replaced.
     const successor = attempt('ce')
@@ -305,7 +441,7 @@ describe('execution-root crash residue detection (M3-1, issue #100)', () => {
 })
 
 describe('execution-root composition wiring (M3-1, issue #100)', () => {
-  it('scenario 21 (seam): the dispatched assignment frame declares the deterministic root and submit reclaims it', async () => {
+  it('scenario 21 (seam): the dispatched assignment frame declares the deterministic root and submit preserves its candidate tree', async () => {
     const sandbox = await freshSandbox('compose')
     const workspace = await initRepoWorkspace(sandbox)
     const base = join(sandbox, 'roots')
@@ -371,15 +507,15 @@ describe('execution-root composition wiring (M3-1, issue #100)', () => {
       }, { timeout: 10_000 })
 
       // Submission (the member's real agent_swarm_submit_task) settles the
-      // attempt and the sweep reclaims the root; the shared workspace
-      // checkout itself was never touched.
+      // attempt but preserves its executable candidate tree for review and
+      // downstream dependency use; the shared workspace stays untouched.
       adapter.submit = true
       await vi.waitFor(async () => {
         adapter.open()
         await new Promise(resolve => setTimeout(resolve, 120))
         const settled = await ctx.agentSwarm.domain.snapshot(scope, teamId, composition.lead.id)
         expect(settled.team.tasks.find((candidate: TeamTask) => candidate.id === claimed.id)?.status).toBe('submitted')
-        expect(existsSync(expectedPath)).toBe(false)
+        expect(existsSync(expectedPath)).toBe(true)
       }, { timeout: 20_000 })
       expect(readdirSync(workspace).includes('tracked.txt')).toBe(true)
     } finally {

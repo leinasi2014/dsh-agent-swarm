@@ -2,7 +2,7 @@
 
 Status: **PROPOSED / UNVERIFIED**. This P0 slice is a design candidate only. It changes no runtime, source schema, public API, stable architecture authority, official DSH checkout, or reference checkout. The accepted authorities remain `docs/00-vision.md`, `docs/03-capability-family.md`, `docs/04-core-protocol.md`, `docs/11-official-first-development.md`, and the registered source pins.
 
-Candidate base: repository commit `82c3ac97d1e741bf58ee884605f026c544a7d13f`. Official DSH `0.1.1-rc.2` / `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e` passes, and the Jiuwen registered pin and local detached clean checkout both equal `59e42de913cf837e04fea1aa79d555d82dc10316`. Gate A remote freshness nevertheless reports upstream `HEAD` and `refs/heads/develop` at `2cc2048b74b794adf7e1839f5169b1a42759f08d`; this is a remote movement to review, not a local checkout mismatch and not permission to update the pin. Production implementation requires review of the exact `59e42de… → 2cc2048…` delta and a source-pin-owner decision on whether to update. This proposal uses only the accepted pinned mapping and explicitly labelled benchmark patterns; implementation remains blocked until Gate A and the milestone-specific non-author acceptance pass.
+Candidate base: repository commit `82c3ac97d1e741bf58ee884605f026c544a7d13f`. Official DSH `0.1.1-rc.2` / `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e` passes. The Jiuwen reference is now reviewed and pinned at `9ac2fa5e7d60142146448bd1395ec2165292beaa`; the `2cc2048… → 9ac2fa5…` delta adds Agent template/plugin composition and runtime/upload/restart fixes without changing the Team CAS, mailbox, memory, worktree or attempt-recovery semantics consumed here. Gate A passes for the exact pin; implementation candidates still require their milestone-specific non-author acceptance.
 
 ```yaml
 documentationImpact:
@@ -82,7 +82,7 @@ Do not adopt or infer:
 
 ### 2.5 Reviewed-drift receipt and Gate A consumption
 
-The current Gate A state is `FAIL/CONFLICT` only on remote freshness: registered pin and clean local checkout are `59e42de…`, while observed remote HEAD/develop are `2cc2048…`. A production-code work package cannot waive this with prose. Review consists of one non-self-referential canonical core plus two external attestations:
+Gate A currently passes with official DSH `b150a55…` and the reviewed Jiuwen pin `9ac2fa5…`. Future remote movement reopens the same freshness review; prose cannot waive a failing gate. Architecture review consists of one non-self-referential canonical core plus two external attestations:
 
 ```ts
 interface ReviewedDriftCoreV1 {
@@ -607,7 +607,7 @@ Real acceptance must use an isolated Profile, official Loader composition, offic
 
 ### A0 — source drift and architecture admission
 
-- Implement and accept the reviewed-drift receipt/verifier contract in §2.5; review exact Jiuwen `59e42de… → 2cc2048…`, and let the source-pin owner decide retain/repin. Gate A must pass for the exact candidate before production code.
+- Preserve the reviewed-drift receipt/verifier contract in §2.5; current Jiuwen pin `9ac2fa5…` is reviewed and Gate A passes. Any later upstream movement must be reviewed and repinned before production code resumes.
 - Non-author architecture review accepts the DSH boundary, pre-model causal gate, recovery decisions, no-second-loop invariant, ADR-0009 merge and public compatibility decision.
 - Update registered architecture/contract/roadmap/audit documents in one reviewed candidate; no source yet.
 

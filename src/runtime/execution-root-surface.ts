@@ -61,6 +61,8 @@ export class ExecutionRootSurface {
     if (!this.deps.enabled()) return claim
     try {
       const lease = await this.roots.acquire(scope, team.id, claim.task.id, claim.attempt.id)
+      this.roots.inheritLatestAttempt(scope, team, claim.task, claim.attempt)
+      this.roots.inheritCompletedDependencies(scope, team, claim.task, claim.attempt)
       return { ...claim, executionRoot: { path: lease.path, isolation: lease.isolation } }
     } catch (error) {
       const diagnostic = `execution root acquisition failed: ${error instanceof Error ? error.message : String(error)}`
@@ -99,8 +101,18 @@ export class ExecutionRootSurface {
     return await this.roots.scanResidue(scope, await this.deps.teams(scope))
   }
 
+  /** Reclaim every verified root after the captain commits Team archival. */
+  reclaimTeam(scope: TeamScope, teamId: TeamId, reason: string): Promise<number> {
+    return this.roots.reclaimTeam(scope, teamId, reason)
+  }
+
   /** Release every live lease (runtime disposal path, F4-bounded). */
   releaseAll(reason: string): Promise<void> {
     return this.roots.releaseAll(reason)
+  }
+
+  /** Preserve physical roots across plugin restart; only live handles end. */
+  detachAll(): Promise<void> {
+    return this.roots.detachAll()
   }
 }

@@ -2,7 +2,7 @@
 
 - Upstream: `https://github.com/openJiuwen-ai/jiuwenswarm`
 - Branch observed: `develop`
-- Pinned commit: `2cc2048b74b794adf7e1839f5169b1a42759f08d`
+- Pinned commit: `9ac2fa5e7d60142146448bd1395ec2165292beaa`
 - Local checkout: `source/`
 
 This repository is a product and architecture reference, not a DSH dependency.
@@ -49,3 +49,10 @@ The `2cc2048b` supersession adds a Python ForkServer fast path, restructures the
 code-mode prompt and browser rail, forwards Web MCP calls, and fixes Feishu Team
 reply presentation. Review found no change to the Team, memory, permission,
 worktree or durable-runtime semantics consumed by this plugin.
+
+The `9ac2fa5e` supersession adds loadable Agent templates and plugin packages,
+an Agent/plugin creator surface, AgentServer adapter and upload/restart fixes,
+plus test hardening. It reinforces declarative composition and stable runtime
+identity but does not add or change the attempt-artifact handoff, Team CAS,
+mailbox, memory, worktree or distributed-recovery semantics consumed here. No
+Jiuwen runtime, plugin manifest, rail or public type is adopted.
