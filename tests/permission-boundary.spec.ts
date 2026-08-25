@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import {
   decideToolPermission,
   DEFAULT_TOOL_PERMISSION,
+  DEFAULT_TOOL_POLICY,
   MAX_TOOL_POLICY_NAMES,
   memberToolPolicyFilter,
   mergeToolPolicy,
@@ -25,6 +26,13 @@ import {
   type ReviewerAgentVerdict,
 } from '../src/runtime/reviewer-boundary.js'
 describe('tiered allow/ask/deny decision model (pure)', () => {
+  it('keeps the official Code Mode transport usable while inner tools remain policy-controlled', () => {
+    expect(decideToolPermission(DEFAULT_TOOL_POLICY, 'run_code', captainTurn())).toBe('allow')
+    expect(decideToolPermission(DEFAULT_TOOL_POLICY, 'run_code', {
+      ...captainTurn(), callerRole: 'delegated-member',
+    })).toBe('allow')
+    expect(decideToolPermission(DEFAULT_TOOL_POLICY, 'bash', captainTurn())).toBe('deny')
+  })
   it('fails closed by default: an unlisted tool is deny and maps to a deny PreToolDecision', () => {
     const decision = decideToolPermission({}, 'agent_swarm_unknown', {
       callerRole: 'captain',

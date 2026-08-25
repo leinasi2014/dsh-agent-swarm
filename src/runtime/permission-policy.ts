@@ -25,13 +25,16 @@ import { CAPTAIN_ONLY_TOOLS } from './prompts.js'
 import { MAX_DENY_TOOLS, TOOL_NAME_PATTERN } from './tool-policy.js'
 
 /**
- * The complete model-facing `agent_swarm_*` tool surface (19 tools). The
- * effective policy keeps these in the default `allow` tier so the plugin's
- * own Team protocol remains usable out of the box; every other tool is
- * unlisted and therefore fail-closed for plugin Team participants unless an
- * operator explicitly allows it.
+ * The complete model-facing `agent_swarm_*` tool surface (19 tools), plus the
+ * official Code Mode transport. `run_code` is presentation infrastructure:
+ * every sub-dispatch still re-enters the official pre-execute pipeline, so
+ * allowing the wrapper does not widen any inner tool decision. Without this
+ * transport a Code Mode Captain becomes unable to call even the allowed Team
+ * tools immediately after creating a Team. Every other host tool stays
+ * unlisted and therefore fail-closed unless an operator explicitly allows it.
  */
 const PLUGIN_TOOL_NAMES = [
+  'run_code',
   ...CAPTAIN_ONLY_TOOLS,
   'agent_swarm_claim_task',
   'agent_swarm_create_task',
