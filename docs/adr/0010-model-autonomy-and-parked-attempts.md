@@ -9,7 +9,7 @@
 
 ## 1. Outcome and non-goals
 
-The Team control plane governs identity, ownership, permissions, durable intent, evidence, recovery and acceptance. It does not prescribe how an LLM reasons, how many plans it may form, or how soon it must modify a file. Different providers and models may plan deeply, act immediately, revise a plan after new evidence, or spend a whole valid turn on diagnosis.
+The Team control plane governs identity, ownership, permissions, durable intent, evidence, recovery and acceptance. Within the task's declared authority envelope, the member and Team leader autonomously plan, coordinate, checkpoint and continue the work without manager approval. The control plane does not prescribe how an LLM reasons, how many plans it may form, or how soon it must modify a file. Different providers and models may plan deeply, act immediately, revise a plan after new evidence, or spend a whole valid turn on diagnosis.
 
 This decision replaces one unsafe inference in the current plugin: an official member becoming `idle` while retaining an `in_progress` task does not prove that the attempt failed or was abandoned. The target state is neutral and durable: the attempt becomes `parked`, retains its identity and execution root, and continues only through an explicit fenced resume. A new generation is created only by explicit reassignment/retry authority or by a proven hard-lease takeover in a future distributed Provider.
 
@@ -92,6 +92,10 @@ interface ParkedAttemptState {
   parkedAt: number
   parkedReason: 'turn-settled' | 'owner-not-live' | 'migration-unknown'
   lastSessionSeq?: number
+  continuationPolicy: 'team-autonomous' | 'captain' | 'human'
+  continuationEffectId?: string
+  checkpointDigest?: string
+  wakeCondition?: string
   resumeEffectId?: string
 }
 ```
@@ -105,18 +109,19 @@ One bounded scheduling pass keeps the existing order—reconcile durable debt, d
 1. `running` with an official live `running` owner is left alone regardless of elapsed time, token count, silence, planning style or file changes.
 2. `running` whose exact owning turn settles without submission is CAS-transitioned to `parked`; no retry generation is created and no timer is armed.
 3. `parked` is excluded from ordinary ready-task selection. It retains its task ownership, attempt ID, evidence and execution root.
-4. `resumeAttempt(teamId, taskId, expectedRevision, attemptId)` is an explicit capability. Captain authorization is required for the first product slice; a later member-self-resume capability requires its own policy decision.
-5. Resume commits a durable `resume_requested` effect for the same tuple, then sends one typed, byte-identical wake through official continuable-child/mailbox seams. When the frame is claimed, the pre-model gate atomically changes `parked -> running`, checkpoints the exact Session sequence/effect ID, reads it back, then permits the official model request.
-6. A pending resume frame is not resent. A claimed frame settles idempotently. A proven-absent frame may be redelivered once under the same effect ID. Unknown visibility blocks.
-7. `reassignTask` is distinct from resume: it fences the old attempt `stale`, creates a fresh generation and transfers ownership under the existing captain-only CAS contract.
+4. `resumeAttempt(teamId, taskId, expectedRevision, attemptId)` is an explicit capability. The default `team-autonomous` policy permits the owning member or Team leader to request same-attempt continuation within the already granted task authority. `captain` and `human` are explicit per-task restrictions for sensitive work; they are not global defaults.
+5. Before its turn settles, a member may persist a semantic checkpoint and a typed `continue_requested` intent that names the same task/attempt fence, an idempotency key and the next runnable condition. The control plane may admit that exact continuation once after the official turn settles; mere `idle`, elapsed time or an unresolved task is never a continuation intent.
+6. Resume commits a durable `resume_requested` effect for the same tuple, then sends one typed, byte-identical wake through official continuable-child/mailbox seams. When the frame is claimed, the pre-model gate atomically changes `parked -> running`, checkpoints the exact Session sequence/effect ID, reads it back, then permits the official model request.
+7. A pending resume frame is not resent. A claimed frame settles idempotently. A proven-absent frame may be redelivered once under the same effect ID. Unknown visibility blocks.
+8. `reassignTask` is distinct from resume: it fences the old attempt `stale`, creates a fresh generation and transfers ownership under the existing captain-only CAS contract.
 
 ```text
 agent/status idle
   -> read exact task/attempt/session evidence
   -> CAS running -> parked
-  -> publish projection; no self-wake
+  -> publish projection; no timer or inferred self-wake
 
-captain resume
+durable member continuation intent or Team-authorized resume
   -> CAS durable resume intent (same attempt)
   -> official wakeup admission
   -> target frame claimed + Session flush
@@ -125,6 +130,23 @@ captain resume
 ```
 
 Normal Team messages cannot impersonate a resume intent. They may be queued or delivered according to mailbox semantics, but task tools continue rejecting work against a `parked` attempt until the exact resume transition succeeds.
+
+### 5.1 Low-interference supervision boundary
+
+The external manager observes canonical state and intervenes only after a concrete blocking signal. It does not inspect private reasoning or supervise ordinary planning, timing, tool choice or file cadence. Before any interrupt, reassignment, corrective prompt or product-code change, the manager classifies the evidence:
+
+| Classification | Required manager behavior |
+|---|---|
+| Normal/in-flight Team work | No action. Preserve the member, attempt and execution root. |
+| Declared external wait or dependency wait | Wait or notify only; do not treat it as a defect. |
+| Product/plugin defect with reproducible evidence | Preserve the failed generation, assign one bounded fix, then rerun from a clean generation. |
+| Environment, provider, tool or capability unavailable | Correct or hold only the affected path; do not mutate product code to hide the environment problem. |
+| Test harness or oracle defect | Correct and freeze the harness candidate, then rerun the same route cleanly. |
+| New authority, permission or human decision required | Ask the smallest exact question and keep unrelated Team work running. |
+| External effect outcome unknown | Read back/reconcile the exact operation identity; never retry blindly. |
+| Repeated completed observable failures with no new decision-relevant evidence | Project `suspected_loop` and ask the Team leader to diagnose; do not automatically interrupt or mint a generation. |
+
+The Team leader may reprioritize, coordinate, resume and correct work inside the pre-authorized Team/task envelope without external approval. Escalation is required only when the remedy changes authority, budget/deadline policy, member ownership/generation, accepted scope, or invokes an otherwise unavailable external capability.
 
 ## 6. Heartbeat, lease, progress and timeout separation
 
@@ -158,9 +180,9 @@ Recovery is read-back-first and preserves the attempt unless a stronger fence sa
 | Assignment `reserved`, frame proven absent | Redeliver once under the same attempt/frame identity. |
 | `running`, owner officially live/running | Preserve; no elapsed-time action. |
 | `running`, exact turn settled, no submit | CAS to `parked`, retain root and ownership. |
-| `parked`, no resume intent | Preserve indefinitely or until an explicit deadline/control decision; no retry timer. |
+| `parked`, no resume intent | Preserve indefinitely or until a declared dependency, deadline or authorized Team decision supplies a typed intent; no retry timer. |
 | `parked`, resume frame pending/claimed/absent | Apply the exact message-visibility fold; settle same attempt only after claim/read-back. |
-| Owner not live after restart, Session evidence proves settled | `parked(owner-not-live)`; captain chooses resume or reassign. |
+| Owner not live after restart, Session evidence proves settled | `parked(owner-not-live)`; apply the stored continuation policy. Team-autonomous continuation keeps the same attempt; reassignment still requires its distinct authority. |
 | Liveness/Session evidence ambiguous | `parked(migration-unknown)` or explicit recovery debt; fail closed, never mint a generation. |
 | Hard distributed lease expired with valid fencing Provider | Revoke old token, reconcile effects, then a policy-authorized fresh attempt may take over. |
 | External effect response lost | Query operation receipt/read-back before retry; unknown remains blocking. |
@@ -191,10 +213,11 @@ The accepted implementation changes the safe default:
 
 ```yaml
 idleRecoveryPolicy: manual
+continuationPolicy: team-autonomous
 strandedAfterMs: 0   # deprecated compatibility field; no hidden default retry
 ```
 
-- New and absent configuration defaults to `manual`; no elapsed-time retry exists.
+- New and absent configuration defaults to `manual` idle recovery and `team-autonomous` explicit continuation. `manual` means that idle time cannot fabricate retry authority; it does not require a human to approve ordinary same-attempt continuation.
 - A legacy explicit positive `strandedAfterMs` is not silently treated as the new default. During the compatibility window it is accepted only with explicit `idleRecoveryPolicy: legacy-timed-retry`, emits a deprecation warning, remains local-only, and is excluded from release acceptance for the new architecture.
 - A configuration that supplies a positive legacy delay without the explicit legacy policy fails closed with an actionable migration message.
 - The legacy policy is removed at the v2 cutover after a published compatibility window; it never enters the v2 durable schema.
@@ -225,12 +248,13 @@ No product code may implement this ADR until one unique non-author QA accepts th
 8. tests cover different model styles, long reasoning, long tools, explicit pause/resume, restart, duplicate resume, late old attempt, deadline, transport unknown and unique QA acceptance.
 9. candidate/review/dependency/integration receipts bind immutable digests and reject post-accept mutation or expected-target races;
 10. task scopes cover all required artifact families, required capabilities are preflighted, and every fault route reruns from a clean generation without old process/port/root leakage.
+11. normal Team work and typed same-attempt continuation require no external-manager approval, while every intervention route first classifies product, environment/capability, harness, authority, external-wait or outcome-unknown evidence.
 
 After architecture acceptance, implementation proceeds as vertical slices:
 
 1. change default/config semantics and add negative tests proving no timer-driven retry;
 2. add v2 parked state and exact idle-settlement transition over a fresh isolated Profile;
-3. add typed same-attempt resume intent, message visibility fold and UI/RPC projection;
+3. add typed member/Team same-attempt continuation intent, per-task continuation policy, message visibility fold and UI/RPC projection;
 4. add enforced artifact namespaces, capability preflight, immutable candidate/review roots and expected-target integration receipts;
 5. add restart/migration reconciliation and root retention tests;
 6. run a clean multi-member long task across these test-specific routes: deep-planning model, immediate-action model, long tool call, intentional park/resume, crash while parked, duplicate resume, explicit reassign and review rejection/rework;

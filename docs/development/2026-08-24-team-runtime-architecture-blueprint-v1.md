@@ -248,13 +248,21 @@ Long work therefore permits either a long official turn or explicit continuation
 official turn (duration chosen by model/runtime)
   -> submit, or durable semantic checkpoint/question when continuation is needed
   -> parked/waiting with the same attempt fence
-  -> explicit event/message/answer/deadline decision
+  -> typed member continuation intent, Team event/message, answer or declared deadline decision
   -> bounded control tick -> resume same attempt or explicitly reassign
 ```
 
+The default continuation authority is `team-autonomous`: an owning member may checkpoint and request its own same-attempt continuation, and the Team leader may coordinate or resume ordinary work inside the existing task envelope. `captain` or `human` continuation is selected only for a task whose authority or risk requires it. The manager does not approve normal planning or continuation and cannot infer a wake merely from idle time, elapsed time, token use, file cadence or an unresolved task.
+
+### 7.1 Low-interference manager and blocker triage
+
+The management surface is event-driven and read-mostly. It leaves normal/in-flight work alone and intervenes only after authoritative state exposes a concrete blocker. Before mutation, interruption, reassignment or a corrective prompt, one bounded diagnosis classifies the route as product defect, environment/provider/tool/capability failure, test-harness/oracle defect, declared dependency/external wait, authority/human gate, or external-effect outcome unknown. Each class has a different remedy; an environment or harness failure must not be hidden by changing product code, and an unknown external outcome must be reconciled rather than retried.
+
+Repeated completed failures with no new decision-relevant evidence may produce an evidence-only `suspected_loop` notification to the Team leader. It does not itself authorize interruption or a new generation. Reassignment, acceptance-scope change, new permissions/capabilities, budget/deadline policy changes and review rejection remain explicit authority boundaries. Unrelated Team work continues while one route is held or escalated.
+
 `ctx.jobs` exposes this run and its current wait reason, next eligible wake, cancel request and last durable checkpoint. Cancellation changes admission first, then interrupts/drains official children, then records the outcome; it never deletes evidence before the effect settles.
 
-### 7.1 Dispatch capability and artifact contract
+### 7.2 Dispatch capability and artifact contract
 
 Before a task can be assigned, its contract must name every artifact family required by its acceptance criteria and a non-overlapping writable namespace for each family. Examples are product source, task-local tests, evidence, generated data and documentation. A scope is enforced by the execution-root Provider or the task remains explicitly advisory-only; the UI and test report must not claim technical isolation from prompt compliance alone. Accepted dependencies are mounted or copied read-only into a consumer root. A consumer cannot modify the producer's accepted root.
 
@@ -269,7 +277,7 @@ task contract
   -> model work inside the same official Agent Loop
 ```
 
-### 7.2 Candidate, review and integration authority
+### 7.3 Candidate, review and integration authority
 
 Submission freezes a content-addressed candidate, not a mutable author directory. The minimum receipt binds Team/task/attempt generation, source tree digest, artifact/package digest when applicable, declared evidence digests, write-scope policy and source build identity. The author root becomes read-only or is no longer used as review authority after submission. A later followup cannot mutate an accepted candidate; additional work requires a new candidate or fresh attempt according to the task state.
 
@@ -326,9 +334,10 @@ Once the member has activated, ordinary attempt continuation follows ADR-0010 ra
 |---|---|
 | `running`, official owner is live/running or has an in-flight tool | Preserve the exact attempt regardless of elapsed time, reasoning style, token use or file activity. |
 | Official owning turn settled without submission | CAS `running -> parked`; retain ownership, root, checkpoint and generation; arm no retry timer. |
-| `parked`, no resume intent | Preserve indefinitely unless an explicit task deadline or captain decision applies. |
+| `parked`, no resume intent | Preserve indefinitely unless a declared dependency/deadline or authorized Team decision supplies a typed intent. |
 | `parked`, exact resume frame pending | Wait; no resend, new attempt or self-wake. |
 | `parked`, exact resume frame claimed | Flush/read back, then CAS `parked -> running` on the same attempt and permit the official model request. |
+| `parked`, exact `team-autonomous` continuation intent exists | Admit one same-attempt resume effect under its idempotency key; no manager approval and no periodic wake. |
 | Resume delivery outcome unknown | Query exact Session/effect evidence; block until pending/claimed/absent is proven. |
 | Captain explicitly reassigns or review rejects for rework | Fence the old attempt and create a fresh generation under the declared policy. |
 | Accepted candidate receives stale followup/write | Reject mutation; accepted digest and dependency snapshots remain unchanged. |
@@ -343,7 +352,7 @@ Recovery uses per-authority monotonic cursors and exact identities. Different Se
 
 This architecture is not a safe additive v1 field patch. The official storage-domain load path strips undeclared Zod keys, current validation requires `schemaVersion: 1`, and ADR-0009 already records that a same-version layout change is undefined. Lazy activation therefore merges into ADR-0009's single `agent_swarm_v2` authority and effect-ledger design; it does not create an intermediate domain, side activation table or competing migration.
 
-Runtime configuration migrates separately from Team media. New or absent configuration uses `idleRecoveryPolicy: manual`; `strandedAfterMs` defaults to `0` and is deprecated. A positive legacy value is accepted only with an explicit `idleRecoveryPolicy: legacy-timed-retry`, emits a warning and is excluded from v2 release acceptance. Positive delay without the legacy opt-in fails closed. Migration never converts elapsed idle time into a retry or a new attempt.
+Runtime configuration migrates separately from Team media. New or absent configuration uses `idleRecoveryPolicy: manual` and `continuationPolicy: team-autonomous`; `manual` prohibits timer-inferred retry and does not require human approval for typed continuation inside existing task authority. `strandedAfterMs` defaults to `0` and is deprecated. A positive legacy value is accepted only with an explicit `idleRecoveryPolicy: legacy-timed-retry`, emits a warning and is excluded from v2 release acceptance. Positive delay without the legacy opt-in fails closed. Migration never converts elapsed idle time into a retry or a new attempt.
 
 Delivery deliberately separates **fresh/empty v2** from **user-media cutover** so the real lazy vertical can run before destructive migration authority exists:
 
@@ -591,7 +600,7 @@ stateDiagram-v2
   Running --> Running: model reasoning, tools or long official turn
   Running --> Submitted: submit immutable candidate
   Running --> Parked: official turn settled without submit
-  Parked --> ResumeIntent: captain resume with exact revision + attemptId
+  Parked --> ResumeIntent: member checkpoint intent or Team-authorized resume\nexact revision + attemptId
   ResumeIntent --> Parked: frame pending or outcome unknown
   ResumeIntent --> Running: frame claimed + Session flush + CAS read-back
   Parked --> Stale: explicit reassign / review-owned rework policy
@@ -651,7 +660,8 @@ sequenceDiagram
 | Crash recovery | every §9 decision branch over real Session persistence/child descriptors/Storage Domain and execution roots | absent/pending never duplicate; mismatch/unknown never redeclare/reuse; drain failure quarantines; claimed work never rolls back |
 | Scheduler | bounded finite tick, priority/DAG/concurrency/budget, declared member activation, coalesced rerun latch | Workflow/adaptive dual owner, control-operation bound, timer storm, no-progress selfwake, partition without lease, duplicate decision; long healthy model turns are never rotated by a control timer |
 | Mailbox | queue while declared; exact delivery after active; dedupe/replay | arbitrary message cannot become task claim; queued/pending frame cannot publish delivered |
-| Model autonomy/continuation | long and immediate model styles both stay in their official turns; settled open Attempt parks and explicitly resumes with the same fence/root | prompt timer, idle timer, token/file/plan heuristic, duplicate resume, stale followup, late old Attempt, heartbeat-as-progress, cancel/delete race |
+| Model autonomy/continuation | long and immediate model styles both stay in their official turns; settled open Attempt parks and resumes under typed `team-autonomous` intent with the same fence/root and no manager approval | prompt timer, idle timer, token/file/plan heuristic, inferred self-wake, duplicate resume, stale followup, late old Attempt, heartbeat-as-progress, cancel/delete race |
+| Intervention triage | normal/in-flight work remains untouched; each proven blocker receives the remedy for product, environment/capability, harness, wait, authority or outcome-unknown class | manager prompt/reassign on elapsed time; product edit for environment/harness failure; blind retry of unknown effect; unrelated Team work stopped |
 | Human/long run | question→receipt→same-attempt resume, Job wait/cancel, Provider-backed heartbeat lease renewal | forged answer, expired attempt, heartbeat-as-completion, opaque effect without read-back remains unknown/blocked, cancel/delete race |
 | Candidate/review | submit freezes tree/artifact/evidence digests; reviewer uses independent read-only root; accept binds candidate/revision/reviewer | author-root or post-accept mutation, review-generated data changing candidate, digest mismatch, stale followup, same-author acceptance |
 | Dependency/integration | accepted dependency receipt and expected-target integration produce one read-back result digest; QA evidence names it | producer drift, copied scope mismatch, concurrent target movement, response loss without query, QA against mutable/temp-only composition |
@@ -684,9 +694,10 @@ Real acceptance must use an isolated Profile, official Loader composition, offic
 - Real composition proves exact persona/tool/Skill-intent policy, target-side capability receipts, artifact namespace enforcement, usage attribution, removal/archive/disposal and no Session-id reuse after mismatch/unknown.
 - Submit/review freezes an immutable candidate; dependency handoff and formal expected-target integration produce a read-back result digest before QA.
 
-### A3 — workflow, heartbeat and long-running continuation
+### A3 — workflow, heartbeat and autonomous long-running continuation
 
-- Jobs projects bounded ticks and durable waits; real long official turns, `running -> parked -> running` same-attempt continuation, hard restart, pending-frame, duplicate resume, stale followup, late-old-attempt, lease/heartbeat and explicit reassign tests pass.
+- Jobs projects bounded ticks and durable waits; real long official turns, member-declared `running -> parked -> running` same-attempt continuation without manager approval, Team-leader coordination, hard restart, pending-frame, duplicate resume, stale followup, late-old-attempt, lease/heartbeat and explicit reassign tests pass.
+- Blocker-triage routes prove normal work is untouched and product, environment/capability, harness, external wait, authority and outcome-unknown evidence are neither conflated nor repaired through the wrong layer.
 - Adaptive and Workflow modes prove one orchestration owner per attempt.
 - Each fault route starts from a new clean generation, binds dynamic ports/process ownership and preserves failed evidence; API and browser acceptance identify the same integrated result digest.
 
@@ -720,5 +731,6 @@ Real acceptance must use an isolated Profile, official Loader composition, offic
 8. Do D1-D7 mark every authority, durable commit, external effect, failure and recovery edge, with source anchors/fault tests/milestones in the coverage table?
 9. Does every fault route preserve the failed generation and rerun the same scenario from a clean baseline with process/port/root disposition?
 10. Does every milestone require real composition and an independent candidate-bound acceptance result?
+11. Is ordinary work and typed same-attempt continuation autonomous within the Team/task envelope, with external-manager intervention restricted to evidence-classified blockers and authority-changing decisions?
 
 No implementation should begin from this document until Gate A passes and these questions receive an accepted, non-author verdict bound to the exact candidate.
