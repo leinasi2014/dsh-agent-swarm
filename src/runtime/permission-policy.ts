@@ -13,7 +13,8 @@
  * seam (design note `docs/development/2026-08-22-m5b-permission-family-design.md`,
  * docs/04 §8o/§8p).
  *
- * Fail-closed defaults: an unlisted tool is `deny`; an `ask` decision is
+ * Host-owned tools inherit the official DSH decision by default; this overlay
+ * narrows them only through explicit `ask`/`deny` tiers. An `ask` decision is
  * granted only when the caller is the live root captain, the call is a
  * concrete same-turn tool call inside an open turn, and an approval seam is
  * available. Delegated members are pinned to approval `'never'` by the
@@ -30,11 +31,13 @@ import { MAX_DENY_TOOLS, TOOL_NAME_PATTERN } from './tool-policy.js'
  * every sub-dispatch still re-enters the official pre-execute pipeline, so
  * allowing the wrapper does not widen any inner tool decision. Without this
  * transport a Code Mode Captain becomes unable to call even the allowed Team
- * tools immediately after creating a Team. Every other host tool stays
- * unlisted and therefore fail-closed unless an operator explicitly allows it.
+ * tools immediately after creating a Team. Inner host tools inherit the
+ * official preset, sandbox, approval and guard decisions; the Team overlay
+ * never widens a downstream deny.
  */
+const HOST_TRANSPORT_TOOL_NAMES = ['run_code'] as const
+
 const PLUGIN_TOOL_NAMES = [
-  'run_code',
   ...CAPTAIN_ONLY_TOOLS,
   'agent_swarm_claim_task',
   'agent_swarm_create_task',
@@ -49,8 +52,10 @@ const PLUGIN_TOOL_NAMES = [
   'agent_swarm_wait',
 ] as const
 
-/** Default effective policy: the plugin's own tool surface is allowed. */
-export const DEFAULT_TOOL_POLICY: ToolPolicyDeclaration = { allow: [...PLUGIN_TOOL_NAMES] }
+/** Default effective policy: Team tools plus host inheritance. */
+export const DEFAULT_TOOL_POLICY: ToolPolicyDeclaration = {
+  allow: [...HOST_TRANSPORT_TOOL_NAMES, ...PLUGIN_TOOL_NAMES],
+}
 
 /** One tool-classification decision. */
 export type ToolPermissionDecision = 'allow' | 'ask' | 'deny'
@@ -80,8 +85,8 @@ export interface ToolPermissionContext {
   readonly approvalSeamAvailable: boolean
 }
 
-/** Unlisted tools fail closed. */
-export const DEFAULT_TOOL_PERMISSION: ToolPermissionDecision = 'deny'
+/** Unlisted host tools inherit official DSH authority through the downstream merge. */
+export const DEFAULT_TOOL_PERMISSION: ToolPermissionDecision = 'allow'
 
 /** Global bound for every tier (same as the existing deny declaration bound). */
 export const MAX_TOOL_POLICY_NAMES = MAX_DENY_TOOLS
@@ -182,13 +187,16 @@ export function mergeToolPolicy(
   }
 }
 
-/** The decision for one tool call, fail-closed by default. */
+/** The Team-overlay decision for one tool call; downstream DSH guards remain authoritative. */
 export function decideToolPermission(
   declaration: ToolPolicyDeclaration,
   toolName: string,
   context: ToolPermissionContext,
 ): ToolPermissionDecision {
   validateToolPolicyDeclaration(declaration)
+  // The official child-scoped report is handled before this classifier. Any
+  // remaining global/root report is not a Team return channel.
+  if (toolName === 'report') return 'deny'
   if (context.callerRole === 'delegated-member' && (CAPTAIN_ONLY_TOOLS as readonly string[]).includes(toolName)) return 'deny'
   const declared = decisionFor(declaration, toolName) ?? DEFAULT_TOOL_PERMISSION
   if (declared === 'deny') return 'deny'
@@ -220,8 +228,8 @@ export function toPreToolDecision(decision: ToolPermissionDecision, toolName: st
  * The provisioning-time official `toolFilter` for a delegated member:
  * baseline captain-only tools, declared deny names, AND every asked name
  * (a delegated child is pinned to approval `'never'`, so an ask degenerates
- * to deny). `allow` names have no filter effect: unlisted host tools are
- * already visible by default, and this model never widens the official mask.
+ * to deny). `allow` names have no filter effect: unlisted host tools inherit
+ * the official preset and guards, and this model never widens their decision.
  */
 export function memberToolPolicyFilter(declaration?: ToolPolicyDeclaration): { readonly deny: readonly string[] } {
   const validated = validateToolPolicyDeclaration(declaration)

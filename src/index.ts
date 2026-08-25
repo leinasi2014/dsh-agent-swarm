@@ -197,8 +197,8 @@ export interface Config {
   executionRootsBase?: string
   /**
    * I1a tiered allow/ask/deny tool policy for this plugin's Team members.
-   * The plugin tool surface is allowed by default; unlisted host tools fail
-   * closed for Team participants unless explicitly allowed. `ask` is valid
+   * Plugin tools are allowed and unlisted host tools inherit the official DSH
+   * preset/sandbox/guard decision by default; explicit deny/ask only narrows. `ask` is valid
    * only for the live root captain through the official same-turn approval
    * seam and becomes deny for delegated members.
    */

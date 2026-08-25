@@ -193,7 +193,7 @@ describe('DBG-021: official report is a child-scoped host-plane channel', () => 
     expect(await composition.ctx.agentSwarm.domain.snapshot(composition.scope, subTeam.id, member.id)).toEqual(childBefore)
   }, 30_000)
 
-  it('keeps a root Captain global report and ordinary unlisted host tool fail-closed', async () => {
+  it('denies a root Captain global report while ordinary host tools inherit official authority', async () => {
     const composition = await newComposition()
     const reportExecutions = { count: 0 }
     const probeExecutions = { count: 0 }
@@ -209,9 +209,8 @@ describe('DBG-021: official report is a child-scoped host-plane channel', () => 
     expect((reportResult.error as { message?: string }).message ?? '').toContain('denied by the Team tool policy')
 
     const unlistedResult = await toolCall(composition.ctx, composition.lead, 'captain-unlisted-probe', UNLISTED_TOOL, {})
-    expect(unlistedResult.isError).toBe(true)
-    expect((unlistedResult.error as { message?: string }).message ?? '').toContain('denied by the Team tool policy')
+    expect(unlistedResult.isError).toBe(false)
     expect(reportExecutions.count).toBe(0)
-    expect(probeExecutions.count).toBe(0)
+    expect(probeExecutions.count).toBe(1)
   }, 30_000)
 })

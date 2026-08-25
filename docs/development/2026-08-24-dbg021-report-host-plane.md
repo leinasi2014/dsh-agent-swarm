@@ -1,5 +1,12 @@
 # DBG-021 — continuable-child `report` host-plane boundary
 
+> Historical note (superseded 2026-08-25): this report diagnosed the scoped
+> `report` exception while the Team overlay still denied every unlisted host
+> tool. Real Code Mode acceptance later proved that default unusable for both
+> captains and members. Current policy inherits official DSH decisions for
+> unlisted host tools, keeps explicit Team `ask`/`deny` narrowing, and still
+> denies the global/root `report`; the scoped child channel remains unchanged.
+
 Status: `IMPLEMENTED_CANDIDATE / REVIEW_PENDING`  
 Base: `f9f7df74b0ef79139552b6096034468cb2ae059d`  
 Corrective base: `4cdce15ec5161016f385b7afde841f7fed67a54e`

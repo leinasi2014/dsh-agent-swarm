@@ -26,14 +26,17 @@ import {
   type ReviewerAgentVerdict,
 } from '../src/runtime/reviewer-boundary.js'
 describe('tiered allow/ask/deny decision model (pure)', () => {
-  it('keeps the official Code Mode transport usable while inner tools remain policy-controlled', () => {
+  it('keeps Code Mode and official host tools usable while explicit Team policy can narrow them', () => {
     expect(decideToolPermission(DEFAULT_TOOL_POLICY, 'run_code', captainTurn())).toBe('allow')
     expect(decideToolPermission(DEFAULT_TOOL_POLICY, 'run_code', {
       ...captainTurn(), callerRole: 'delegated-member',
     })).toBe('allow')
-    expect(decideToolPermission(DEFAULT_TOOL_POLICY, 'bash', captainTurn())).toBe('deny')
+    expect(decideToolPermission(DEFAULT_TOOL_POLICY, 'bash', captainTurn())).toBe('allow')
+    expect(decideToolPermission(DEFAULT_TOOL_POLICY, 'bash', {
+      ...captainTurn(), callerRole: 'delegated-member',
+    })).toBe('allow')
   })
-  it('fails closed by default: an unlisted tool is deny and maps to a deny PreToolDecision', () => {
+  it('inherits unlisted host tools through the downstream official DSH policy', () => {
     const decision = decideToolPermission({}, 'agent_swarm_unknown', {
       callerRole: 'captain',
       sameTurnConcreteToolCall: true,
@@ -41,8 +44,8 @@ describe('tiered allow/ask/deny decision model (pure)', () => {
       approvalSeamAvailable: true,
     })
     expect(decision).toBe(DEFAULT_TOOL_PERMISSION)
-    expect(decision).toBe('deny')
-    expect(toPreToolDecision(decision, 'agent_swarm_unknown')).toMatchObject({ kind: 'deny' })
+    expect(decision).toBe('allow')
+    expect(toPreToolDecision(decision, 'agent_swarm_unknown')).toMatchObject({ kind: 'allow' })
     expect(MAX_TOOL_POLICY_NAMES).toBe(64)
   })
   it('is monotone: deny outranks ask outranks allow, and merging never widens', () => {
