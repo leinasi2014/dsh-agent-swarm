@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { assertTeamStateV2 } from '../src/domain/state-validation-v2.js'
 import { TeamV2StartDomain } from '../src/domain/team-domain-v2-start.js'
-import type { TeamStateV2 } from '../src/domain/team-state-v2.js'
+import { DispatchId, TeamEffectId, type TeamStateV2 } from '../src/domain/team-state-v2.js'
 import { AttemptId, TaskId, TeamId, type TeamState } from '../src/domain/types.js'
 import { transformTeamV1ToV2 } from '../src/migration/team-v1-to-v2.js'
 import { canonicalV2, canonicalV2Digest, legacyManifestSetDigest } from '../src/protocol/canonical-v2.js'
@@ -86,6 +86,7 @@ describe('A1a strict fresh-v2 foundation', () => {
     sandboxes.push(sandbox)
     const root = join(sandbox, 'storage')
     let clock = now
+    let attemptNumber = 0
     stack = await openV2StorageStack(root, BINDING, () => clock++)
     await stack.store.initializeFreshAuthority()
     return {
@@ -93,7 +94,7 @@ describe('A1a strict fresh-v2 foundation', () => {
       domain: new TeamV2StartDomain(stack.store, {
         now: () => clock++,
         newTeamId: () => 'team-fresh-v2-0001',
-        newAttemptId: () => 'attempt-fresh-v2-0001',
+        newAttemptId: () => `attempt-fresh-v2-${String(++attemptNumber).padStart(4, '0')}`,
       }),
     }
   }
@@ -202,10 +203,39 @@ describe('A1a strict fresh-v2 foundation', () => {
     expect(await domain.settleInitialAssignment(
       '/workspace', team.id, member.sessionId, task.id, reserved.value.attempt.id, checkpoint,
     )).toEqual(settled)
+    await expect(domain.settleInitialAssignment(
+      '/workspace', team.id, member.sessionId, task.id, reserved.value.attempt.id,
+      { ...checkpoint, witnessCapabilityDigest: '9'.repeat(64) },
+    )).rejects.toMatchObject({ code: 'TEAM_ATTEMPT_STALE' })
+
+    const otherMember = await domain.declareMember('/workspace', team.id, 'captain-1', {
+      name: 'other', role: 'implementation', sessionId: 'member-2', provider: 'spawn',
+      modelSource: 'unresolved', deniedTools: [], assignedSkills: [], maxDepth: 2,
+    })
+    const otherTask = await domain.createTask('/workspace', team.id, 'captain-1', {
+      subject: 'Other', description: 'Independent work',
+    })
+    const otherReserved = await domain.reserveInitialAssignment(
+      '/workspace', team.id, 'captain-1', otherTask.id, otherTask.revision, otherMember.sessionId, PROMPT_DIGEST,
+    )
+    const otherCheckpoint = {
+      ...checkpoint,
+      dispatchId: 'dispatch-initial-2',
+      effectId: 'effect-initial-2',
+      messageSeq: 5,
+      turn: 2,
+      step: 1,
+    }
+    await domain.settleInitialAssignment(
+      '/workspace', team.id, otherMember.sessionId, otherTask.id, otherReserved.attempt.id, otherCheckpoint,
+    )
+    await expect(domain.settleInitialAssignment(
+      '/workspace', team.id, member.sessionId, otherTask.id, otherReserved.attempt.id, otherCheckpoint,
+    )).rejects.toMatchObject({ code: 'TEAM_ATTEMPT_STALE' })
 
     const persisted = stack!.store.read('/workspace', team.id)!
     assertTeamStateV2(persisted, 'persisted')
-    expect(persisted.attempts).toHaveLength(1)
+    expect(persisted.attempts).toHaveLength(2)
   })
 
   it('rejects every broken declared -> starting tuple without changing the authoritative Team', async () => {
@@ -233,6 +263,13 @@ describe('A1a strict fresh-v2 foundation', () => {
       ['assignment is already delivered', draft => {
         draft.attempts[0]!.assignmentPhase = 'delivered'
         draft.attempts[0]!.assignmentDeliveredAt = 1
+      }],
+      ['starting attempt already has a dispatch epoch', draft => {
+        draft.attempts[0]!.dispatchEpochs.push({
+          dispatchId: DispatchId('dispatch-premature'), kind: 'initial', ordinal: 1,
+          effectId: TeamEffectId('effect-premature'), targetSessionId: 'member-1',
+          witnessCapabilityDigest: WITNESS_DIGEST, phase: 'frame-pending', createdAt: 1, updatedAt: 1,
+        })
       }],
       ['two members name the same starting attempt', draft => {
         draft.members.push({ ...structuredClone(draft.members[0]!), name: 'worker-2', sessionId: 'member-2' })
@@ -267,6 +304,27 @@ describe('A1a strict fresh-v2 foundation', () => {
     expect(await domain.failInitialAssignment(
       '/workspace', team.id, member.sessionId, task.id, reserved.attempt.id, 'child start failed',
     )).toEqual(failed)
+    await expect(domain.failInitialAssignment(
+      '/workspace', team.id, member.sessionId, task.id, reserved.attempt.id, 'another diagnostic',
+    )).rejects.toMatchObject({ code: 'TEAM_ATTEMPT_STALE' })
+
+    const unrelated = await domain.createTask('/workspace', team.id, 'captain-1', {
+      subject: 'Unrelated', description: 'Remain pending',
+    })
+    await expect(domain.failInitialAssignment(
+      '/workspace', team.id, member.sessionId, unrelated.id, reserved.attempt.id, 'child start failed',
+    )).rejects.toMatchObject({ code: 'TEAM_ATTEMPT_STALE' })
+
+    const successor = await domain.declareMember('/workspace', team.id, 'captain-1', {
+      name: 'successor', role: 'implementation', sessionId: 'member-2', provider: 'spawn',
+      modelSource: 'unresolved', deniedTools: [], assignedSkills: [], maxDepth: 2,
+    })
+    await domain.reserveInitialAssignment(
+      '/workspace', team.id, 'captain-1', failed.task.id, failed.task.revision, successor.sessionId, PROMPT_DIGEST,
+    )
+    await expect(domain.failInitialAssignment(
+      '/workspace', team.id, member.sessionId, task.id, reserved.attempt.id, 'child start failed',
+    )).rejects.toMatchObject({ code: 'TEAM_ATTEMPT_STALE' })
 
     const persisted = stack!.store.read('/workspace', team.id)!
     const malformed = structuredClone(persisted) as TeamStateV2 & { extra?: true }

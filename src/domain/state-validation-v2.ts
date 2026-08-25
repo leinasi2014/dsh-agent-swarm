@@ -294,7 +294,8 @@ export function assertTeamStateV2(value: unknown, path: string): asserts value i
         || task.ownerSessionId !== member.sessionId
         || attempt.memberSessionId !== member.sessionId
         || attempt.phase !== 'reserved'
-        || attempt.assignmentPhase !== 'reserved') {
+        || attempt.assignmentPhase !== 'reserved'
+        || attempt.dispatchEpochs.length !== 0) {
         fail(path, `member ${member.name} starting attempt tuple is inconsistent`)
       }
       startingIds.push(member.startingAttemptId!)

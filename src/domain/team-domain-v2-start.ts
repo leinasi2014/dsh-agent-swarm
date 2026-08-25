@@ -289,10 +289,17 @@ export class TeamV2StartDomain {
       const attempt = attemptOf(team, attemptId)
       const existing = attempt.dispatchEpochs[0]
       if (member.phase === 'active' && attempt.assignmentPhase === 'delivered' && existing !== undefined) {
-        if (existing.dispatchId !== checkpoint.dispatchId || existing.effectId !== checkpoint.effectId
+        if (task.status !== 'in_progress' || task.currentAttemptId !== attemptId
+          || task.ownerSessionId !== memberSessionId
+          || attempt.taskId !== taskId || attempt.memberSessionId !== memberSessionId
+          || member.initialPromptDigest !== checkpoint.initialPromptDigest
+          || member.initialMessageSeq !== checkpoint.messageSeq
+          || existing.kind !== 'initial' || existing.ordinal !== 1 || existing.recoveryOf !== undefined
+          || existing.targetSessionId !== memberSessionId
+          || existing.dispatchId !== checkpoint.dispatchId || existing.effectId !== checkpoint.effectId
           || existing.turn !== checkpoint.turn || existing.step !== checkpoint.step
           || existing.messageSeq !== checkpoint.messageSeq
-          || member.initialPromptDigest !== checkpoint.initialPromptDigest) {
+          || existing.witnessCapabilityDigest !== checkpoint.witnessCapabilityDigest) {
           throw new TeamDomainError('initial assignment checkpoint conflicts with the committed tuple', 'TEAM_ATTEMPT_STALE')
         }
         result = { member, attempt, dispatch: existing }
@@ -357,6 +364,13 @@ export class TeamV2StartDomain {
       const attempt = attemptOf(team, attemptId)
       const reason = requireText(diagnostic, 'initial assignment diagnostic', 8_192)
       if (member.phase === 'failed' && attempt.phase === 'cancelled' && task.status === 'pending') {
+        if (attempt.taskId !== taskId || attempt.memberSessionId !== memberSessionId
+          || attempt.assignmentPhase !== 'reserved' || attempt.dispatchEpochs.length !== 0
+          || task.ownerSessionId !== undefined || task.currentAttemptId !== undefined
+          || member.startingAttemptId !== undefined
+          || member.error !== reason || attempt.diagnostic !== reason) {
+          throw new TeamDomainError('initial assignment failure conflicts with the committed tuple', 'TEAM_ATTEMPT_STALE')
+        }
         result = { member, task, attempt }
         return
       }
