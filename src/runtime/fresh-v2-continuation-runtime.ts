@@ -107,49 +107,55 @@ export class FreshV2ContinuationRuntime implements ContinuationRuntime {
         const current = currentContinuationAttempt(team, attempt.memberSessionId)
         if (current === undefined) continue
         const checkpoint = continuationCheckpointOf(current)
-        let inspection: Awaited<ReturnType<Context['sessionPersistence']['inspect']>>
+        let preparation: Awaited<ReturnType<Context['sessionPersistence']['prepare']>>
         try {
-          inspection = await this.ctx.sessionPersistence.inspect(
+          preparation = await this.ctx.sessionPersistence.prepare(
             memberSessionId, AbortSignal.timeout(CONTINUATION_DELIVERY_TIMEOUT_MS),
           )
         } catch (error: unknown) {
+          if (this.ctx.agents.get(memberSessionId) !== undefined
+            || this.ctx.sessions.get(memberSessionId) !== undefined) continue
           this.ctx.logger.warn(
-            `agent-swarm: cold continuation inspection failed for ${attempt.memberSessionId}: ${String(error)}`,
+            `agent-swarm: cold continuation preparation failed for ${attempt.memberSessionId}: ${String(error)}`,
           )
           continue
         }
-        if (this.ctx.agents.get(memberSessionId) !== undefined || this.ctx.sessions.get(memberSessionId) !== undefined) continue
-        const evidence = foldEnteredContinuationRecovery(
-          inspection.events, checkpoint, continuationFrameDigest(this.frameOf(current)),
-        )
-        if (evidence.kind === 'dispatch-unknown') {
-          await this.recoveryDomain.markDispatchUnknown(scope, team.id, {
-            checkpoint,
-            diagnostic: evidence.reason,
-          })
-          continue
-        }
-        if (evidence.kind === 'turn-end-evidence') {
-          await this.recoveryDomain.settleTurnEndEvidence(scope, team.id, {
+        try {
+          if (this.ctx.agents.get(memberSessionId) !== undefined
+            || this.ctx.sessions.get(memberSessionId) !== undefined) continue
+          const evidence = foldEnteredContinuationRecovery(
+            preparation.session.events, checkpoint, continuationFrameDigest(this.frameOf(current)),
+          )
+          if (evidence.kind === 'dispatch-unknown') {
+            await this.recoveryDomain.markDispatchUnknown(scope, team.id, {
+              checkpoint,
+              diagnostic: evidence.reason,
+            })
+            continue
+          }
+          if (evidence.kind === 'turn-end-evidence') {
+            await this.recoveryDomain.settleTurnEndEvidence(scope, team.id, {
+              checkpoint,
+              eventSeq: evidence.eventSeq,
+              reason: evidence.reason,
+            })
+            continue
+          }
+          if (evidence.turnEndSeq !== undefined) {
+            await this.recoveryDomain.settleAssistantAndPark(scope, team.id, {
+              checkpoint,
+              assistantEventSeq: evidence.eventSeq,
+              turnEndSeq: evidence.turnEndSeq,
+            })
+            continue
+          }
+          await this.domain.settleAssistantEvidence(scope, team.id, {
             checkpoint,
             eventSeq: evidence.eventSeq,
-            reason: evidence.reason,
+            eventType: 'assistant/message',
           })
-          continue
-        }
-        await this.domain.settleAssistantEvidence(scope, team.id, {
-          checkpoint,
-          eventSeq: evidence.eventSeq,
-          eventType: 'assistant/message',
-        })
-        if (evidence.turnEndSeq !== undefined) {
-          await this.domain.parkAfterTurn(scope, team.id, {
-            taskId: current.task.id,
-            attemptId: current.attempt.id,
-            memberSessionId: attempt.memberSessionId,
-            settledTurn: checkpoint.turn,
-            turnEndSeq: evidence.turnEndSeq,
-          })
+        } finally {
+          preparation[Symbol.dispose]()
         }
       }
     }

@@ -15,20 +15,27 @@ import { FRESH_V2_ARTIFACT_CONTRACT, mountFreshV2Composition } from './helpers/f
 import { openV2StorageStack } from './helpers/storage-stack.js'
 
 class NoopAdapter extends LlmAdapter {
+  readonly requests: GenerateOptions[] = []
+
   override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
     return Promise.resolve({ provider, id: model, name: model })
   }
-  override async * stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
+  override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    this.requests.push(options)
     yield { type: 'finish', reason: { kind: 'stop' } }
   }
 }
 
 const roots: string[] = []
 
-async function seedEnteredContinuation(sandbox: string, outcome: 'assistant' | 'interrupted'): Promise<{
+async function seedEnteredContinuation(
+  sandbox: string,
+  outcome: 'assistant-closed' | 'assistant-open' | 'interrupted',
+): Promise<{
   readonly workspace: string
   readonly teamId: string
   readonly attemptId: string
+  readonly memberSessionId: string
 }> {
   const workspace = resolve(sandbox, 'workspace')
   const binding = { artifactContract: FRESH_V2_ARTIFACT_CONTRACT, legacyManifestCapacity: 0 }
@@ -115,7 +122,7 @@ async function seedEnteredContinuation(sandbox: string, outcome: 'assistant' | '
       id: MessageId('message-cold-entered'), role: 'user', content: [{ type: 'text', text: frame }],
       source: { kind: 'plugin', plugin: 'dsh-agent-swarm' },
     }, { surfaceOp: 'append' })
-    if (outcome === 'assistant') {
+    if (outcome !== 'interrupted') {
       session.append('assistant/message', {
         turn: 2,
         step: 1,
@@ -124,12 +131,19 @@ async function seedEnteredContinuation(sandbox: string, outcome: 'assistant' | '
           source: { kind: 'model', provider: 'mock', model: 'mock' },
         }),
       }, { surfaceOp: 'append' })
-      session.append('step/end', { turn: 2, step: 1 })
-      session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
+      if (outcome === 'assistant-closed') {
+        session.append('step/end', { turn: 2, step: 1 })
+        session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
+      }
     }
     await sessionCtx.sessionPersistence.create(session.header)
     await sessionCtx.sessionPersistence.append(session.id, session.events)
-    return { workspace, teamId: team.id, attemptId: reserved.attempt.id }
+    return {
+      workspace,
+      teamId: team.id,
+      attemptId: reserved.attempt.id,
+      memberSessionId: member.sessionId,
+    }
   } finally {
     for (const fiber of sessionFibers.toReversed()) await fiber.dispose()
     await stack.close()
@@ -142,7 +156,8 @@ describe('A2a clean-process cold entered-dispatch reconciliation', () => {
   })
 
   it.each([
-    ['assistant', 'settled', 'turn-settled'],
+    ['assistant-closed', 'settled', 'turn-settled'],
+    ['assistant-open', 'settled', 'turn-settled'],
     ['interrupted', 'dispatch-unknown', 'migration-unknown'],
   ] as const)('folds %s evidence on a fresh runtime', async (outcome, dispatchPhase, parkedReason) => {
     const sandbox = await mkdtemp(join(tmpdir(), `dsh-swarm-a2a-restart-${outcome}-`))
@@ -154,13 +169,68 @@ describe('A2a clean-process cold entered-dispatch reconciliation', () => {
       const attempt = snapshot.attempts.find(candidate => candidate.id === seeded.attemptId)!
       expect(attempt).toMatchObject({ phase: 'parked', parked: { parkedReason } })
       expect(attempt.dispatchEpochs.at(-1)).toMatchObject({ phase: dispatchPhase })
-      if (outcome === 'assistant') {
+      expect(mounted.adapter.requests).toHaveLength(0)
+      if (outcome !== 'interrupted') {
         expect(attempt).not.toHaveProperty('currentContinuationIntent')
         expect(snapshot.interactionEffects).toContainEqual(expect.objectContaining({ status: 'settled' }))
+        if (outcome === 'assistant-open') {
+          const physical = await mounted.ctx.sessionPersistence.readFrom(SessionId(seeded.memberSessionId), 0)
+          expect(physical.events.at(-1)).toMatchObject({
+            type: 'turn/end',
+            data: { turn: 2, reason: { kind: 'interrupted' } },
+          })
+          expect(attempt.parked?.lastSessionSeq).toBe(physical.events.at(-1)?.seq)
+        }
       } else {
         expect(attempt).toMatchObject({ currentContinuationIntent: { phase: 'dispatch-unknown' } })
         expect(snapshot.interactionEffects).toContainEqual(expect.objectContaining({ status: 'applied' }))
       }
+    } finally {
+      for (const fiber of mounted.fibers.toReversed()) await fiber.dispose().catch(() => undefined)
+    }
+  }, 30_000)
+
+  it('holds the official unpublished Session reservation through the atomic Team mutation', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-swarm-a2a-restart-reservation-'))
+    roots.push(sandbox)
+    const seeded = await seedEnteredContinuation(sandbox, 'assistant-open')
+    let testContext!: Context
+    let releaseFirst!: () => void
+    let acquiredFirst!: () => void
+    const firstAcquired = new Promise<void>(resolveAcquired => { acquiredFirst = resolveAcquired })
+    const firstRelease = new Promise<void>(resolveRelease => { releaseFirst = resolveRelease })
+    let originalPrepare!: Context['sessionPersistence']['prepare']
+    const mounting = mountFreshV2Composition(sandbox, () => new NoopAdapter(), {}, async ctx => {
+      testContext = ctx
+      originalPrepare = ctx.sessionPersistence.prepare.bind(ctx.sessionPersistence)
+      let first = true
+      ctx.sessionPersistence.prepare = async (id, signal) => {
+        const preparation = await originalPrepare(id, signal)
+        if (!first) return preparation
+        first = false
+        acquiredFirst()
+        await firstRelease
+        return preparation
+      }
+    })
+    await firstAcquired
+    let competingSettled = false
+    const competing = originalPrepare(SessionId(seeded.memberSessionId)).then(preparation => {
+      competingSettled = true
+      return preparation
+    })
+    await new Promise(resolveWait => setTimeout(resolveWait, 25))
+    expect(competingSettled).toBe(false)
+    expect(testContext.sessions.get(SessionId(seeded.memberSessionId))).toBeUndefined()
+    releaseFirst()
+    const mounted = await mounting
+    const competingPreparation = await competing
+    competingPreparation[Symbol.dispose]()
+    try {
+      const attempt = mounted.ctx.agentSwarmV2Initial.snapshot(seeded.workspace, seeded.teamId)!
+        .attempts.find(candidate => candidate.id === seeded.attemptId)!
+      expect(attempt).toMatchObject({ phase: 'parked', parked: { parkedReason: 'turn-settled' } })
+      expect(attempt.dispatchEpochs.at(-1)).toMatchObject({ phase: 'settled' })
     } finally {
       for (const fiber of mounted.fibers.toReversed()) await fiber.dispose().catch(() => undefined)
     }

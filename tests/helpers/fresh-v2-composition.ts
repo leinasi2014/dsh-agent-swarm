@@ -115,6 +115,7 @@ export async function mountFreshV2Composition<T extends LlmAdapter>(
   sandbox: string,
   makeAdapter: (ctx: Context, workspace: string) => T,
   config: Partial<AgentSwarm.Config> = {},
+  beforePlugin?: (ctx: Context) => void | Promise<void>,
 ): Promise<FreshV2Composition<T>> {
   const workspace = resolve(sandbox, 'workspace')
   const storageRoot = join(sandbox, 'storage')
@@ -129,6 +130,7 @@ export async function mountFreshV2Composition<T extends LlmAdapter>(
   fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
   const adapter = makeAdapter(ctx, workspace)
   ctx.llm.registerAdapter(['mock'], adapter)
+  await beforePlugin?.(ctx)
   const pluginFiber = await ctx.plugin(AgentSwarm, {
     memberProvider: 'spawn',
     memberMaxDepth: 1,

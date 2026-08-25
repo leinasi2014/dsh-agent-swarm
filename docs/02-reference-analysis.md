@@ -64,7 +64,7 @@ The official seam should own the canonical Team domain if it becomes a published
 
 ## 4. JiuwenSwarm / WorkSwarm
 
-The registered JiuwenSwarm checkout (`ea3b740173c74e4cd4e8939ae546cfec3ebb7d80`) contributes useful concepts:
+The registered JiuwenSwarm checkout (`e99393616946aef6d3fb655b5735cb52bff7809f`) contributes useful concepts:
 
 - SwarmFlow: deterministic script-driven multi-agent workflow;
 - parallel, pipeline, nested workflow and stateful agent session primitives;

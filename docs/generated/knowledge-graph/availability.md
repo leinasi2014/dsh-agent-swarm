@@ -2,9 +2,9 @@
 
 # Availability
 
-Manifest digest: `7b53add489619bc9e251c03bca500a2fef347f492eb007033aa55374455a3ad2`
+Manifest digest: `de78175cbb0c5c34f900ba9b2ccdebf1644e3daebb23bd92cdd9023ff6a57b01`
 
-Curated tool-registry digest: `2be0d810910262b9935483648c28293ae224bd13898cd2e4effb11b8e13e2129`
+Curated tool-registry digest: `283582c7136106164f285f14766ed25004dff20b51ed1b76248a0cb59849ce8d`
 
 > Claim ceiling: the registry is a reviewed capability overlay over exact source extraction. Per-tool deep semantic closure, acceptance, and real-Profile evidence remain explicit gaps; the complete mechanical graph is retained in `atlas.json`.
 

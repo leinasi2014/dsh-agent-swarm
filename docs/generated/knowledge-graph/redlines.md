@@ -2,9 +2,9 @@
 
 # Redlines
 
-Manifest digest: `7b53add489619bc9e251c03bca500a2fef347f492eb007033aa55374455a3ad2`
+Manifest digest: `de78175cbb0c5c34f900ba9b2ccdebf1644e3daebb23bd92cdd9023ff6a57b01`
 
-Curated tool-registry digest: `2be0d810910262b9935483648c28293ae224bd13898cd2e4effb11b8e13e2129`
+Curated tool-registry digest: `283582c7136106164f285f14766ed25004dff20b51ed1b76248a0cb59849ce8d`
 
 > Claim ceiling: the registry is a reviewed capability overlay over exact source extraction. Per-tool deep semantic closure, acceptance, and real-Profile evidence remain explicit gaps; the complete mechanical graph is retained in `atlas.json`.
 
@@ -55,7 +55,7 @@ flowchart LR
 | Stable capability id | Permission guard | Failure boundary | Unclosed evidence |
 |---|---|---|---|
 | `tool:agent_swarm_claim_task` | team-participant | Stale revision or unavailable work fails before ownership transfer; assignment delivery uses the D1 exact-read-back recovery closure, while execution-root availability remains configuration-dependent. | NO_REAL_PROFILE_EVIDENCE<br>PROFILE_DEPENDENT<br>PER_TOOL_DEEP_SEMANTICS_DEFERRED |
-| `tool:agent_swarm_continue_task` | team-participant | Stale revision, owner, Attempt, or competing intent fails before mutation; a cold entered dispatch folds exact terminal evidence or becomes durable dispatch-unknown without retry. Pre-dispatch cold recovery remains unaccepted. | NO_REAL_PROFILE_EVIDENCE<br>PROFILE_DEPENDENT<br>CONFIG_DISABLED_BY_DEFAULT<br>PER_TOOL_DEEP_SEMANTICS_DEFERRED |
+| `tool:agent_swarm_continue_task` | team-participant | Stale revision, owner, Attempt, or competing intent fails before mutation; a cold entered dispatch holds the official unpublished Session reservation while one Team transaction folds exact terminal evidence, or becomes durable dispatch-unknown without retry. Pre-dispatch cold recovery remains unaccepted. | NO_REAL_PROFILE_EVIDENCE<br>PROFILE_DEPENDENT<br>CONFIG_DISABLED_BY_DEFAULT<br>PER_TOOL_DEEP_SEMANTICS_DEFERRED |
 | `tool:agent_swarm_create_task` | team-participant | Invalid dependencies, verification declarations, reservation floors, or size limits fail before task commit; scheduling follows committed state. | NO_REAL_PROFILE_EVIDENCE<br>PROFILE_DEPENDENT<br>PER_TOOL_DEEP_SEMANTICS_DEFERRED |
 | `tool:agent_swarm_reassign_task` | captain-only | Revision or attempt mismatch fails closed; the fenced Team transition remains authoritative if later interruption or rescheduling fails. | NO_DIRECT_TEST<br>NO_COMPOSITION_TEST<br>NO_REAL_PROFILE_EVIDENCE<br>PROFILE_DEPENDENT<br>PER_TOOL_DEEP_SEMANTICS_DEFERRED |
 | `tool:agent_swarm_review_task` | captain-only | Provider failure does not self-accept; stale attempts fail closed and an unknown verification result requires authoritative task read-back before retry. | NO_REAL_PROFILE_EVIDENCE<br>PROFILE_DEPENDENT<br>PER_TOOL_DEEP_SEMANTICS_DEFERRED |

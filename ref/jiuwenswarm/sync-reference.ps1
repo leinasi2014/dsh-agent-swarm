@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 $Repository = "https://github.com/openJiuwen-ai/jiuwenswarm.git"
-$Commit = "ea3b740173c74e4cd4e8939ae546cfec3ebb7d80"
+$Commit = "e99393616946aef6d3fb655b5735cb52bff7809f"
 $Target = Join-Path $PSScriptRoot "source"
 
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {

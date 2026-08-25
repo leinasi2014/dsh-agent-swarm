@@ -232,7 +232,7 @@
       "bounds": [
         { "name": "nonterminal continuation intents per Attempt", "value": 1, "source": { "file": "src/domain/team-domain-v2-continuation.ts", "symbol": "TeamV2ContinuationDomain" } }
       ],
-      "recoveryFailure": "Stale revision, owner, Attempt, or competing intent fails before mutation; a cold entered dispatch folds exact terminal evidence or becomes durable dispatch-unknown without retry. Pre-dispatch cold recovery remains unaccepted.",
+      "recoveryFailure": "Stale revision, owner, Attempt, or competing intent fails before mutation; a cold entered dispatch holds the official unpublished Session reservation while one Team transaction folds exact terminal evidence, or becomes durable dispatch-unknown without retry. Pre-dispatch cold recovery remains unaccepted.",
       "testAnchors": [{ "file": "tests/fresh-v2-continuation-domain.spec.ts" }, { "file": "tests/fresh-v2-continuation-fold.spec.ts" }, { "file": "tests/fresh-v2-continuation-runtime.spec.ts" }, { "file": "tests/fresh-v2-continuation-recovery-fold.spec.ts" }, { "file": "tests/fresh-v2-continuation-restart.spec.ts" }],
       "documentationAnchors": [{ "file": "docs/adr/0010-model-autonomy-and-parked-attempts.md" }, { "file": "docs/development/2026-08-24-team-runtime-architecture-blueprint-v1.md" }],
       "maturity": {

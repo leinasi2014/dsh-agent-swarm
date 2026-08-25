@@ -2,7 +2,7 @@
 
 - Upstream: `https://github.com/openJiuwen-ai/jiuwenswarm`
 - Branch observed: `develop`
-- Pinned commit: `ea3b740173c74e4cd4e8939ae546cfec3ebb7d80`
+- Pinned commit: `e99393616946aef6d3fb655b5735cb52bff7809f`
 - Local checkout: `source/`
 
 This repository is a product and architecture reference, not a DSH dependency.
@@ -72,3 +72,11 @@ timeline presentation. It does not change the Team domain, Scheduler,
 Worktree, permissions, Team Memory, Skill Evolution, distributed control plane
 or cold-recovery evidence consumed here. `/compact` transport bounds are not
 model-thinking deadlines and `/btw` is not adopted as a second model loop.
+
+The `e9939361` supersession contains two reviewed commits. They move the
+conversation-start Git snapshot into stable system context and repair the
+Agent/plugin creator hot-load path, including real load/unload plus Rail
+callback smoke. The Team, mailbox, recovery, scheduler, human-node, memory,
+distributed-runtime and permission-rail sources consumed by this project do
+not change. A stable prompt snapshot is not live Git or dispatch evidence, and
+hot-load validation is not cold-recovery proof; neither changes A2a-R1.
