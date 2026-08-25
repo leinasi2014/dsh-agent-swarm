@@ -351,6 +351,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     ctx.effect(() => async () => { await runtime.dispose() }, 'agent-swarm: fresh-v2 runtime disposal')
     attachFreshV2Hooks(ctx, runtime)
     await runtime.reconcileColdDispatches()
+    await runtime.driveColdRecoveries()
     ctx.effect(() => ctx.provide('agentSwarmV2Initial', runtime), 'agent-swarm: fresh-v2 inspection service')
     registerInitialAgentSwarmTools(ctx, runtime)
     return

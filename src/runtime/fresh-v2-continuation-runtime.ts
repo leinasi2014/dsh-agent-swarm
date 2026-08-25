@@ -25,9 +25,9 @@ import { requireAgent, workspaceOf, type ToolExecutionAuthority } from './author
 import {
   claimedContinuationFrame,
   continuationCheckpointOf,
-  continuationFrame,
   continuationFrameDigest,
   currentContinuationAttempt,
+  frameOfContinuation,
   type CurrentContinuationAttempt,
 } from './fresh-v2-continuation-fold.js'
 import { assistantEvidenceAt } from './fresh-v2-session-fold.js'
@@ -38,12 +38,14 @@ import {
   foldEnteredContinuationRecovery,
   foldPendingContinuationRecovery,
 } from './fresh-v2-continuation-recovery-fold.js'
+import { FreshV2RecoveryDriver } from './fresh-v2-recovery-driver.js'
 
 const CONTINUATION_DELIVERY_TIMEOUT_MS = 30_000
 
 export class FreshV2ContinuationRuntime implements ContinuationRuntime {
   private readonly domain: TeamV2ContinuationDomain
   private readonly recoveryDomain: TeamV2ContinuationRecoveryDomain
+  private readonly recoveryDriver: FreshV2RecoveryDriver
   private readonly modelPermits = new Map<string, FreshV2ModelPermit>()
   private readonly dispatchStreams = new Set<Promise<void>>()
   private readonly delivering = new Set<string>()
@@ -57,6 +59,7 @@ export class FreshV2ContinuationRuntime implements ContinuationRuntime {
   ) {
     this.domain = new TeamV2ContinuationDomain(store)
     this.recoveryDomain = new TeamV2ContinuationRecoveryDomain(store)
+    this.recoveryDriver = new FreshV2RecoveryDriver(ctx, store, witness, this.recoveryDomain)
   }
 
   async continueTask(exec: ToolExecutionAuthority, input: {
@@ -155,6 +158,9 @@ export class FreshV2ContinuationRuntime implements ContinuationRuntime {
               )
               continue
             }
+            if (await this.recoveryDriver.reconcileClaimed(
+              scope, team, attempt.memberSessionId, beforeRepair!.events, afterRepair.events,
+            )) continue
             const evidence = foldPendingContinuationRecovery(
               beforeRepair!.events, afterRepair.events, checkpoint, continuationFrameDigest(this.frameOf(current)),
             )
@@ -215,6 +221,8 @@ export class FreshV2ContinuationRuntime implements ContinuationRuntime {
     }
   }
 
+  async driveColdRecoveries(): Promise<void> { await this.recoveryDriver.driveAllLiveCaptains() }
+
   /** Returns true only when this request is the exact continuation dispatch. */
   async beforeAgentRequest(input: {
     readonly agent: Agent
@@ -227,6 +235,10 @@ export class FreshV2ContinuationRuntime implements ContinuationRuntime {
     const membership = findFreshV2Membership(this.store, scope, input.agent.id)
     if (membership?.role !== 'member') return false
     await this.witness.assertCurrent()
+    if (await this.recoveryDriver.beforeAgentRequest(scope, membership.team, input)) {
+      this.modelPermits.set(input.agent.id, { signal: input.signal, turn: input.turn, step: input.step })
+      return true
+    }
     const currentTask = currentFreshV2TaskAttempt(membership.team, input.agent.id)
     if (currentTask === undefined) return false
     let current = currentContinuationAttempt(membership.team, input.agent.id)
@@ -359,6 +371,7 @@ export class FreshV2ContinuationRuntime implements ContinuationRuntime {
 
   async foldAgentIdle(agent: Agent): Promise<void> {
     if (this.closing || agent.status !== 'idle') return
+    if (this.ctx.agents.roots().includes(agent)) await this.recoveryDriver.driveForCaptain(agent)
     const scope = this.scopeOf(agent)
     const membership = findFreshV2Membership(this.store, scope, agent.id)
     if (membership?.role !== 'member') return
@@ -481,15 +494,7 @@ export class FreshV2ContinuationRuntime implements ContinuationRuntime {
   }
 
   private frameOf(current: CurrentContinuationAttempt): string {
-    return continuationFrame({
-      teamId: current.team.id,
-      taskId: current.task.id,
-      attemptId: current.attempt.id,
-      continuationEffectId: current.intent.continuationEffectId,
-      resumeEffectId: current.intent.resumeEffectId!,
-      dispatchId: current.dispatch.dispatchId,
-      ordinal: current.dispatch.ordinal,
-    })
+    return frameOfContinuation(current)
   }
 
   private scopeOf(agent: Agent): string { return resolve(workspaceOf(agent)) }

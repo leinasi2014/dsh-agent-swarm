@@ -138,6 +138,79 @@ export class TeamV2ContinuationRecoveryDomain {
     return structuredClone(result)
   }
 
+  /** Bind one durably claimed recovery frame and atomically replace the proven-not-entered authority. */
+  async claimRecoveryFrame(scope: TeamScope, teamId: TeamId, input: {
+    readonly checkpoint: ContinuationDispatchCheckpoint
+    readonly recoveryDispatchId: DispatchId
+    readonly frameMessageId: string
+    readonly messageSeq: number
+    readonly turn: number
+    readonly step: number
+  }): Promise<{ attempt: TaskAttemptV2; recovery: ModelDispatchEpoch }> {
+    const frameMessageId = requireText(input.frameMessageId, 'recovery frame message id')
+    if (![input.messageSeq, input.turn, input.step].every(Number.isSafeInteger)
+      || input.messageSeq < 0 || input.turn < 1 || input.step < 1) {
+      throw new TeamDomainError('recovery Session fence is invalid', 'TEAM_INPUT_INVALID')
+    }
+    let result!: { attempt: TaskAttemptV2; recovery: ModelDispatchEpoch }
+    await this.store.transact(scope, teamId, team => {
+      const task = team.tasks.find(candidate => candidate.id === input.checkpoint.taskId)
+      const attempt = team.attempts.find(candidate => candidate.id === input.checkpoint.attemptId)
+      const recovery = attempt?.dispatchEpochs.find(candidate => candidate.dispatchId === input.recoveryDispatchId)
+      const old = attempt?.dispatchEpochs.find(candidate => candidate.dispatchId === input.checkpoint.dispatchId)
+      const intent = attempt?.currentContinuationIntent
+      const recoveryReceiptIndex = team.interactionEffects.findIndex(effect => effect.effectId === recovery?.effectId)
+      const oldReceiptIndex = team.interactionEffects.findIndex(effect => effect.effectId === old?.effectId)
+      const recoveryReceipt = team.interactionEffects[recoveryReceiptIndex]
+      const oldReceipt = team.interactionEffects[oldReceiptIndex]
+      if (task === undefined || attempt === undefined || task.currentAttemptId !== attempt.id
+        || task.status !== 'in_progress' || attempt.phase !== 'parked' || intent === undefined
+        || recovery?.kind !== 'recovery' || old === undefined || recovery.recoveryOf !== old.dispatchId
+        || recoveryReceipt?.kind !== 'continuation-recovery' || recoveryReceipt.dispatchId !== recovery.dispatchId
+        || oldReceipt?.kind !== 'continuation' || oldReceipt.dispatchId !== old.dispatchId
+        || old.frameMessageId !== input.checkpoint.frameMessageId || old.messageSeq !== input.checkpoint.messageSeq
+        || old.turn !== input.checkpoint.turn || old.step !== input.checkpoint.step
+        || old.witnessCapabilityDigest !== input.checkpoint.witnessCapabilityDigest) {
+        throw new TeamDomainError('recovery claim lost its exact old/new authority tuple', 'TEAM_ATTEMPT_STALE')
+      }
+      if (intent.currentDispatchId === recovery.dispatchId && intent.resumeEffectId === recovery.effectId
+        && intent.phase === 'dispatch-pending' && recovery.phase === 'dispatch-pending'
+        && recovery.frameMessageId === frameMessageId && recovery.messageSeq === input.messageSeq
+        && recovery.turn === input.turn && recovery.step === input.step && old.phase === 'superseded'
+        && oldReceipt.status === 'superseded') {
+        result = { attempt, recovery }
+        return
+      }
+      requireContinuationCheckpointTuple(team, input.checkpoint)
+      if (intent.phase !== 'dispatch-pending' || old.phase !== 'dispatch-pending'
+        || recovery.phase !== 'frame-pending' || recoveryReceipt.status !== 'applied'
+        || oldReceipt.status !== 'applied') {
+        throw new TeamDomainError('recovery frame is not claimable', 'TEAM_ATTEMPT_STALE')
+      }
+      const timestamp = this.now()
+      const superseded: ModelDispatchEpoch = { ...old, phase: 'superseded', updatedAt: timestamp }
+      const claimed: ModelDispatchEpoch = {
+        ...recovery, frameMessageId, messageSeq: input.messageSeq, turn: input.turn, step: input.step,
+        phase: 'dispatch-pending', updatedAt: timestamp,
+      }
+      const next: TaskAttemptV2 = {
+        ...attempt,
+        currentContinuationIntent: {
+          ...intent, resumeEffectId: claimed.effectId, currentDispatchId: claimed.dispatchId, phase: 'dispatch-pending',
+        },
+        dispatchEpochs: attempt.dispatchEpochs.map(epoch => epoch.dispatchId === superseded.dispatchId
+          ? superseded : epoch.dispatchId === claimed.dispatchId ? claimed : epoch),
+        updatedAt: timestamp,
+      }
+      replaceV2Attempt(team, next)
+      team.interactionEffects[oldReceiptIndex] = {
+        ...oldReceipt, status: 'superseded', resultingTeamRevision: team.revision + 1,
+      }
+      result = { attempt: next, recovery: claimed }
+    })
+    return structuredClone(result)
+  }
+
   async markDispatchUnknown(scope: TeamScope, teamId: TeamId, input: {
     readonly checkpoint: ContinuationDispatchCheckpoint
     readonly diagnostic: string

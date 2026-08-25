@@ -293,7 +293,8 @@ export function assertTeamStateV2(value: unknown, path: string): asserts value i
         }
       } else {
         if (intent.resumeEffectId === undefined || intent.currentDispatchId === undefined || dispatch === undefined
-          || dispatch.kind !== 'continuation' || dispatch.effectId !== intent.resumeEffectId) {
+          || (dispatch.kind !== 'continuation' && dispatch.kind !== 'recovery')
+          || dispatch.effectId !== intent.resumeEffectId) {
           fail(path, `attempt ${attempt.id} continuation intent lost its admitted dispatch tuple`)
         }
         const expectedDispatchPhase = intent.phase === 'admitted'
@@ -303,10 +304,18 @@ export function assertTeamStateV2(value: unknown, path: string): asserts value i
           fail(path, `attempt ${attempt.id} continuation intent/dispatch phases are inconsistent`)
         }
         const reservation = team.interactionEffects.find(effect => effect.effectId === intent.resumeEffectId)
-        if (reservation?.kind !== 'continuation' || reservation.status !== 'applied'
-          || reservation.requestId !== intent.continuationEffectId
+        const validReservation = dispatch.kind === 'continuation'
+          ? reservation?.kind === 'continuation' && reservation.requestId === intent.continuationEffectId
+          : reservation?.kind === 'continuation-recovery' && reservation.recoveryOf === dispatch.recoveryOf
+        if (!validReservation || reservation?.status !== 'applied'
           || reservation.dispatchId !== intent.currentDispatchId) {
           fail(path, `attempt ${attempt.id} continuation intent lacks its active reservation`)
+        }
+        if (dispatch.kind === 'recovery') {
+          const recovered = attempt.dispatchEpochs.find(epoch => epoch.dispatchId === dispatch.recoveryOf)
+          if (recovered?.phase !== 'superseded') {
+            fail(path, `attempt ${attempt.id} active recovery did not supersede its prior dispatch`)
+          }
         }
       }
     } else if (attempt.parked?.currentContinuationIntentId !== undefined) {
@@ -435,9 +444,11 @@ export function assertTeamStateV2(value: unknown, path: string): asserts value i
       }
       if (effect.status === 'applied') {
         const intent = attempt.currentContinuationIntent
-        if (dispatch.phase !== 'frame-pending' || intent === undefined
-          || intent.currentDispatchId !== effect.recoveryOf
-          || intent.phase !== 'dispatch-pending') {
+        const staged = dispatch.phase === 'frame-pending' && intent?.currentDispatchId === effect.recoveryOf
+          && intent.phase === 'dispatch-pending'
+        const active = intent?.currentDispatchId === dispatch.dispatchId && intent.resumeEffectId === effect.effectId
+          && intent.phase === dispatch.phase && recovered?.phase === 'superseded'
+        if (!staged && !active) {
           fail(path, `continuation recovery effect ${effect.effectId} is not an exact pending reservation`)
         }
       }

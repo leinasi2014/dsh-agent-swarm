@@ -156,11 +156,11 @@ try {
   const actual = await extractSourceFacts(repositoryRoot)
   assert.deepEqual(errorCodes(actual), [], `actual repository diagnostics: ${JSON.stringify(actual.diagnostics)}`)
   assert.deepEqual(actual.counts, {
-    discoveredModules: 122,
-    parsedModules: 122,
+    discoveredModules: 123,
+    parsedModules: 123,
     toolDefinitions: 20,
     tools: 20,
-    imports: 698,
+    imports: 713,
     injections: 34,
     providerRegistrations: 6,
     providerRegistryMethods: 11,

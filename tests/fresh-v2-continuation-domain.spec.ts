@@ -437,5 +437,27 @@ describe('A2a same-Attempt continuation domain', () => {
       dispatchId: recoveryDispatchId, recoveryOf: dispatchId,
     }))
     assertTeamStateV2(persisted, 'pending-recovery-reservation')
+
+    const claimed = await recovery.claimRecoveryFrame(SCOPE, fixture.teamId, {
+      checkpoint, recoveryDispatchId, frameMessageId: 'official-recovery-message', messageSeq: 17, turn: 3, step: 1,
+    })
+    expect(claimed).toMatchObject({
+      attempt: { currentContinuationIntent: {
+        currentDispatchId: recoveryDispatchId, resumeEffectId: recoveryEffectId, phase: 'dispatch-pending',
+      } },
+      recovery: {
+        dispatchId: recoveryDispatchId, kind: 'recovery', phase: 'dispatch-pending',
+        frameMessageId: 'official-recovery-message', messageSeq: 17, turn: 3, step: 1,
+      },
+    })
+    expect(claimed.attempt.dispatchEpochs.at(-2)).toMatchObject({ dispatchId, phase: 'superseded' })
+    expect(await recovery.claimRecoveryFrame(SCOPE, fixture.teamId, {
+      checkpoint, recoveryDispatchId, frameMessageId: 'official-recovery-message', messageSeq: 17, turn: 3, step: 1,
+    })).toEqual(claimed)
+    const switched = stack!.store.read(SCOPE, fixture.teamId)!
+    expect(switched.interactionEffects).toContainEqual(expect.objectContaining({
+      effectId: resumeEffectId, kind: 'continuation', status: 'superseded', dispatchId,
+    }))
+    assertTeamStateV2(switched, 'claimed-recovery-authority')
   })
 })

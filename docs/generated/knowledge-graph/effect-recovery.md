@@ -2,7 +2,7 @@
 
 # Effects and recovery
 
-Manifest digest: `7235e0c2e18f734d08125d6fb242613054ad4e8e09ef66c5d0d81fc412405edc`
+Manifest digest: `3d56ed6999b4b748d94a03d24bbffb25a07dc00ade18c5ed143555156dec35c1`
 
 Curated tool-registry digest: `c5d326eaafe8ee14415e4ad0f73e97f429ef152cd80f5192e2747529fad49c09`
 
@@ -138,12 +138,12 @@ flowchart LR
   n_666c6f772d6272616e63683a66726573682d76322d696e697469616c2d64697370617463682f636f6c642d64697370617463682d656e74657265642d756e636c6173736966696564["cold dispatch entered unclassified"]
   n_666c6f772d6272616e63683a66726573682d76322d696e697469616c2d64697370617463682f636f6c642d64697370617463682d70656e64696e672d7265636f766572792d7265736572766564["cold dispatch pending recovery reserved"]
   n_666c6f772d6272616e63683a66726573682d76322d696e697469616c2d64697370617463682f636f6c642d65766964656e63652d756e7265666f6c646564["cold evidence unrefolded"]
-  n_666c6f772d6272616e63683a66726573682d76322d696e697469616c2d64697370617463682f636f6c642d7265636f766572792d747269676765722d756e64656c697665726564["cold recovery trigger undelivered"]
+  n_666c6f772d6272616e63683a66726573682d76322d696e697469616c2d64697370617463682f636f6c642d7265636f766572792d636c61696d65642d666f6c646564["cold recovery claimed folded"]
+  n_666c6f772d6272616e63683a66726573682d76322d696e697469616c2d64697370617463682f636f6c642d7265636f766572792d70656e64696e672d6361706162696c6974792d626c6f636b6564["cold recovery pending capability blocked"]
   n_666c6f772d6272616e63683a66726573682d76322d696e697469616c2d64697370617463682f636f6c642d7374617274696e672d756e7265636f6e63696c6564["cold starting unreconciled"]
   n_666c6f772d6272616e63683a66726573682d76322d696e697469616c2d64697370617463682f64697370617463682d70656e64696e672d68656c64["dispatch pending held"]
   n_666c6f772d6272616e63683a66726573682d76322d696e697469616c2d64697370617463682f646f776e73747265616d2d6661696c65642d61667465722d656e7465726564["downstream failed after entered"]
   n_666c6f772d6272616e63683a66726573682d76322d696e697469616c2d64697370617463682f7072652d6d6f64656c2d626172726965722d72656a6563746564["pre model barrier rejected"]
-  n_666c6f772d6272616e63683a66726573682d76322d696e697469616c2d64697370617463682f70726f76696465722d73746172742d72656a6563746564["provider start rejected"]
 ```
 
 _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
@@ -174,14 +174,16 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `flow-branch:fresh-v2-initial-dispatch/cold-dispatch-entered-unclassified` | flow-branch | REVIEWED | absent | none | not-candidate | unavailable | `domain:agent-swarm` |
 | `flow-branch:fresh-v2-initial-dispatch/cold-dispatch-pending-recovery-reserved` | flow-branch | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `flow-branch:fresh-v2-initial-dispatch/cold-evidence-unrefolded` | flow-branch | REVIEWED | absent | none | not-candidate | unavailable | `domain:agent-swarm` |
-| `flow-branch:fresh-v2-initial-dispatch/cold-recovery-trigger-undelivered` | flow-branch | REVIEWED | absent | none | not-candidate | unavailable | `domain:agent-swarm` |
+| `flow-branch:fresh-v2-initial-dispatch/cold-recovery-claimed-folded` | flow-branch | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `flow-branch:fresh-v2-initial-dispatch/cold-recovery-pending-capability-blocked` | flow-branch | REVIEWED | absent | none | not-candidate | unavailable | `domain:agent-swarm` |
 | `flow-branch:fresh-v2-initial-dispatch/cold-starting-unreconciled` | flow-branch | REVIEWED | absent | none | not-candidate | unavailable | `domain:agent-swarm` |
 | `flow-branch:fresh-v2-initial-dispatch/dispatch-pending-held` | flow-branch | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `flow-branch:fresh-v2-initial-dispatch/downstream-failed-after-entered` | flow-branch | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `flow-branch:fresh-v2-initial-dispatch/pre-model-barrier-rejected` | flow-branch | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `flow-branch:fresh-v2-initial-dispatch/provider-start-rejected` | flow-branch | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `flow-branch:fresh-v2-initial-dispatch/provider-start-result-unknown` | flow-branch | REVIEWED | absent | none | not-candidate | unavailable | `domain:agent-swarm` |
-| `flow-branch:fresh-v2-online-continuation/cold-recovery-trigger-undelivered` | flow-branch | REVIEWED | absent | none | not-candidate | unavailable | `domain:agent-swarm` |
+| `flow-branch:fresh-v2-initial-dispatch/recovery-trigger-delivered-and-claimed` | flow-branch | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `flow-branch:fresh-v2-online-continuation/cold-recovery-pending-capability-blocked` | flow-branch | REVIEWED | absent | none | not-candidate | unavailable | `domain:agent-swarm` |
 | `flow:assignment-delivery` | flow | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
 | `flow:fresh-v2-initial-dispatch` | flow | REVIEWED | implemented | real-profile | candidate | config-gated | `domain:agent-swarm` |
 | `flow:fresh-v2-online-continuation` | flow | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
@@ -239,6 +241,7 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `service:deepseek-ai/dsh-client-ui-settings-plugins` | service | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `service:fresh-v2-continuation-runtime` | service | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `service:fresh-v2-initial-runtime` | service | REVIEWED | implemented | real-profile | candidate | config-gated | `domain:agent-swarm` |
+| `service:fresh-v2-recovery-driver` | service | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `service:layout` | service | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `service:llm` | service | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `service:locale` | service | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
@@ -285,6 +288,7 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `transaction:claim-task` | transaction | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
 | `transaction:fresh-v2-admit-continuation` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `transaction:fresh-v2-claim-continuation-frame` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `transaction:fresh-v2-claim-recovery-frame` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `transaction:fresh-v2-create-reserve-initial` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `transaction:fresh-v2-enter-continuation-dispatch` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `transaction:fresh-v2-enter-initial-dispatch` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |

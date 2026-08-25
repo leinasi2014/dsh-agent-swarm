@@ -116,6 +116,7 @@ export async function mountFreshV2Composition<T extends LlmAdapter>(
   makeAdapter: (ctx: Context, workspace: string) => T,
   config: Partial<AgentSwarm.Config> = {},
   beforePlugin?: (ctx: Context) => void | Promise<void>,
+  leadSessionId?: SessionId,
 ): Promise<FreshV2Composition<T>> {
   const workspace = resolve(sandbox, 'workspace')
   const storageRoot = join(sandbox, 'storage')
@@ -141,7 +142,7 @@ export async function mountFreshV2Composition<T extends LlmAdapter>(
   })
   fibers.push(pluginFiber)
   const lead = ctx.agentLoop.create(
-    SessionId(`a1b-lead-${Date.now()}-${Math.random()}`),
+    leadSessionId ?? SessionId(`a1b-lead-${Date.now()}-${Math.random()}`),
     { provider: 'mock', model: 'mock' },
     { cwd: workspace },
   )

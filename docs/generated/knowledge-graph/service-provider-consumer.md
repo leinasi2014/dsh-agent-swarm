@@ -2,7 +2,7 @@
 
 # Service, Provider and Consumer
 
-Manifest digest: `7235e0c2e18f734d08125d6fb242613054ad4e8e09ef66c5d0d81fc412405edc`
+Manifest digest: `3d56ed6999b4b748d94a03d24bbffb25a07dc00ade18c5ed143555156dec35c1`
 
 Curated tool-registry digest: `c5d326eaafe8ee14415e4ad0f73e97f429ef152cd80f5192e2747529fad49c09`
 
@@ -229,6 +229,7 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `service:deepseek-ai/dsh-client-ui-settings-plugins` | service | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `service:fresh-v2-continuation-runtime` | service | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `service:fresh-v2-initial-runtime` | service | REVIEWED | implemented | real-profile | candidate | config-gated | `domain:agent-swarm` |
+| `service:fresh-v2-recovery-driver` | service | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `service:layout` | service | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `service:llm` | service | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `service:locale` | service | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |

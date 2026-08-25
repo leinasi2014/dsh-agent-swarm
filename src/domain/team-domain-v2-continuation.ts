@@ -83,6 +83,22 @@ function sameContinuationReceipt(
     && sameMemberPrincipal(receipt.continuationRequestedBy, intent.requestedBy)
 }
 
+function sameRecoveryReceipt(
+  receipt: TeamStateV2['interactionEffects'][number],
+  dispatch: ModelDispatchEpoch,
+  taskId: TaskId,
+  attemptId: AttemptId,
+): boolean {
+  return receipt.effectId === dispatch.effectId
+    && receipt.kind === 'continuation-recovery'
+    && receipt.taskId === taskId
+    && receipt.attemptId === attemptId
+    && receipt.dispatchId === dispatch.dispatchId
+    && receipt.recoveryOf === dispatch.recoveryOf
+    && receipt.recoveryProofTurnEndSeq === dispatch.recoveryProofTurnEndSeq
+    && receipt.recoveryProofDigest === dispatch.recoveryProofDigest
+}
+
 export interface ContinuationTuple {
   readonly task: TeamTask
   readonly attempt: TaskAttemptV2
@@ -102,7 +118,8 @@ function requireContinuationTuple(
   const dispatch = attempt.dispatchEpochs.find(candidate => candidate.dispatchId === dispatchId)
   if (task.status !== 'in_progress' || attempt.phase !== 'parked'
     || intent?.continuationEffectId !== continuationEffectId || intent.currentDispatchId !== dispatchId
-    || dispatch === undefined || dispatch.kind !== 'continuation' || dispatch.targetSessionId !== attempt.memberSessionId) {
+    || dispatch === undefined || (dispatch.kind !== 'continuation' && dispatch.kind !== 'recovery')
+    || dispatch.targetSessionId !== attempt.memberSessionId) {
     throw new TeamDomainError('continuation tuple is stale', 'TEAM_ATTEMPT_STALE')
   }
   return { task, attempt, intent, dispatch }
@@ -157,11 +174,13 @@ export function settleContinuationEpoch(
   }
   const reservationIndex = team.interactionEffects.findIndex(effect => effect.effectId === checkpoint.resumeEffectId)
   const reservation = team.interactionEffects[reservationIndex]
-  if (reservation?.status !== 'applied'
-    || !sameContinuationReceipt(
+  const matchingReceipt = reservation !== undefined && (tuple.dispatch.kind === 'continuation'
+    ? sameContinuationReceipt(
       reservation, tuple.intent, checkpoint.taskId, checkpoint.attemptId,
       checkpoint.resumeEffectId, checkpoint.dispatchId,
-    )) {
+    )
+    : sameRecoveryReceipt(reservation, tuple.dispatch, checkpoint.taskId, checkpoint.attemptId))
+  if (reservation?.status !== 'applied' || !matchingReceipt) {
     throw new TeamDomainError('continuation dispatch lost its reserved receipt tuple', 'TEAM_STATE_CORRUPT')
   }
   const settled: ModelDispatchEpoch = { ...tuple.dispatch, ...evidence, phase: 'settled', updatedAt: timestamp }

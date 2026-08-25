@@ -15,6 +15,11 @@ interface ContinuationFrameIdentity {
   readonly ordinal: number
 }
 
+interface ContinuationRecoveryFrameIdentity extends ContinuationFrameIdentity {
+  readonly recoveryOf: string
+  readonly recoveryProofDigest: string
+}
+
 export function continuationFrame(identity: ContinuationFrameIdentity): string {
   const envelope = canonicalV2({
     type: 'agent-swarm/continue-attempt',
@@ -28,6 +33,23 @@ export function continuationFrame(identity: ContinuationFrameIdentity): string {
     ordinal: identity.ordinal,
   })
   return `<agent-swarm-continuation>${envelope}</agent-swarm-continuation>\nContinue the exact same Team task and Attempt. Re-read durable Team state and stay within the existing authority envelope. Request another continuation before this turn settles if more work remains; task submission is not available in this experimental slice.`
+}
+
+function continuationRecoveryFrame(identity: ContinuationRecoveryFrameIdentity): string {
+  const envelope = canonicalV2({
+    type: 'agent-swarm/recover-attempt',
+    version: 1,
+    teamId: identity.teamId,
+    taskId: identity.taskId,
+    attemptId: identity.attemptId,
+    continuationEffectId: identity.continuationEffectId,
+    recoveryEffectId: identity.resumeEffectId,
+    recoveryDispatchId: identity.dispatchId,
+    recoveryOf: identity.recoveryOf,
+    ordinal: identity.ordinal,
+    recoveryProofDigest: identity.recoveryProofDigest,
+  })
+  return `<agent-swarm-recovery>${envelope}</agent-swarm-recovery>\nRecover the exact same Team task and Attempt after a proven non-entry boundary. Re-read durable Team state and continue only under the recovery dispatch authority.`
 }
 
 export function continuationFrameDigest(text: string): string {
@@ -86,12 +108,47 @@ export function claimedContinuationFrame(
   }
 }
 
+/** Fold one exact recovery user frame from durable history, including an already-closed cold step. */
+export function durableClaimedContinuationFrame(
+  events: readonly SessionEvent[],
+  expectedFrameDigest: string,
+): ClaimedContinuationFrame | undefined {
+  const matches = events.flatMap(event => {
+    const text = continuationPluginFrameText(event)
+    return text !== undefined && continuationFrameDigest(text) === expectedFrameDigest ? [event] : []
+  })
+  if (matches.length === 0) return undefined
+  if (matches.length !== 1 || matches[0]!.type !== 'user/message') {
+    throw new TeamDomainError('durable recovery frame is duplicated or ambiguous', 'TEAM_ASSIGNMENT_NOT_CLAIMED')
+  }
+  const message = matches[0]!
+  const starts = events.flatMap(event => event.type === 'step/start' && event.seq < message.seq ? [event] : [])
+  const start = starts.at(-1)
+  if (start === undefined || events.some(event => event.type === 'step/end'
+    && event.seq > start.seq && event.seq < message.seq
+    && event.data.turn === start.data.turn && event.data.step === start.data.step)) {
+    throw new TeamDomainError('durable recovery frame lacks one containing step', 'TEAM_ASSIGNMENT_NOT_CLAIMED')
+  }
+  return {
+    messageId: message.data.id,
+    messageSeq: message.seq,
+    turn: start.data.turn,
+    step: start.data.step,
+    frameDigest: expectedFrameDigest,
+  }
+}
+
 export interface CurrentContinuationAttempt {
   readonly team: TeamStateV2
   readonly task: TeamTask
   readonly attempt: TaskAttemptV2
   readonly intent: ContinuationIntent
   readonly dispatch: ModelDispatchEpoch
+}
+
+export interface StagedContinuationRecovery {
+  readonly current: CurrentContinuationAttempt
+  readonly recovery: ModelDispatchEpoch
 }
 
 export function currentContinuationAttempt(team: TeamStateV2, sessionId: string): CurrentContinuationAttempt | undefined {
@@ -105,6 +162,57 @@ export function currentContinuationAttempt(team: TeamStateV2, sessionId: string)
     : attempt?.dispatchEpochs.find(candidate => candidate.dispatchId === intent.currentDispatchId)
   if (attempt === undefined || intent === undefined || dispatch === undefined) return undefined
   return { team, task, attempt, intent, dispatch }
+}
+
+export function stagedContinuationRecovery(
+  team: TeamStateV2,
+  sessionId: string,
+): StagedContinuationRecovery | undefined {
+  const current = currentContinuationAttempt(team, sessionId)
+  if (current === undefined || current.intent.phase !== 'dispatch-pending'
+    || current.dispatch.phase !== 'dispatch-pending') return undefined
+  const recoveries = current.attempt.dispatchEpochs.filter(epoch => epoch.kind === 'recovery'
+    && epoch.phase === 'frame-pending' && epoch.recoveryOf === current.dispatch.dispatchId)
+  return recoveries.length === 1 ? { current, recovery: recoveries[0]! } : undefined
+}
+
+export function frameOfContinuation(current: CurrentContinuationAttempt): string {
+  const identity = {
+    teamId: current.team.id,
+    taskId: current.task.id,
+    attemptId: current.attempt.id,
+    continuationEffectId: current.intent.continuationEffectId,
+    resumeEffectId: current.intent.resumeEffectId!,
+    dispatchId: current.dispatch.dispatchId,
+    ordinal: current.dispatch.ordinal,
+  }
+  if (current.dispatch.kind !== 'recovery') return continuationFrame(identity)
+  if (current.dispatch.recoveryOf === undefined || current.dispatch.recoveryProofDigest === undefined) {
+    throw new TeamDomainError('active recovery dispatch lacks its proof identity', 'TEAM_STATE_CORRUPT')
+  }
+  return continuationRecoveryFrame({
+    ...identity,
+    recoveryOf: current.dispatch.recoveryOf,
+    recoveryProofDigest: current.dispatch.recoveryProofDigest,
+  })
+}
+
+export function frameOfStagedRecovery(staged: StagedContinuationRecovery): string {
+  const { current, recovery } = staged
+  if (recovery.recoveryOf === undefined || recovery.recoveryProofDigest === undefined) {
+    throw new TeamDomainError('staged recovery lacks its proof identity', 'TEAM_STATE_CORRUPT')
+  }
+  return continuationRecoveryFrame({
+    teamId: current.team.id,
+    taskId: current.task.id,
+    attemptId: current.attempt.id,
+    continuationEffectId: current.intent.continuationEffectId,
+    resumeEffectId: recovery.effectId,
+    dispatchId: recovery.dispatchId,
+    recoveryOf: recovery.recoveryOf,
+    ordinal: recovery.ordinal,
+    recoveryProofDigest: recovery.recoveryProofDigest,
+  })
 }
 
 export function continuationCheckpointOf(current: CurrentContinuationAttempt): ContinuationDispatchCheckpoint {

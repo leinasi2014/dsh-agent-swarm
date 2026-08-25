@@ -9,6 +9,7 @@ const REQUIRED = Object.freeze({
     'if (config.experimentalFreshV2 === true)',
     'attachFreshV2Hooks(ctx, runtime)',
     'await runtime.reconcileColdDispatches()',
+    'await runtime.driveColdRecoveries()',
   ],
   'src/runtime/fresh-v2-hooks.ts': [
     "ctx.on('agent/request'",
@@ -56,6 +57,14 @@ const REQUIRED = Object.freeze({
   ],
   'src/domain/team-domain-v2-continuation-recovery.ts': [
     'async reserveProvenNotEntered(',
+    'async claimRecoveryFrame(',
+  ],
+  'src/runtime/fresh-v2-recovery-driver.ts': [
+    'export class FreshV2RecoveryDriver',
+    'this.ctx.subagents.followup(',
+    'this.domain.claimRecoveryFrame(',
+    'foldPendingContinuationRecovery(',
+    'this.domain.reserveProvenNotEntered(',
   ],
   'src/runtime/fresh-v2-continuation-recovery-fold.ts': [
     'export function foldPendingContinuationRecovery(',
@@ -71,8 +80,11 @@ const REQUIRED = Object.freeze({
   ],
   'src/runtime/fresh-v2-continuation-fold.ts': [
     'export function continuationFrame(',
+    'function continuationRecoveryFrame(',
     'export function claimedContinuationFrame(',
+    'export function durableClaimedContinuationFrame(',
     'export function currentContinuationAttempt(',
+    'export function stagedContinuationRecovery(',
   ],
   'src/runtime/fresh-v2-session-fold.ts': [
     'export function initialPromptDigest(',
@@ -98,6 +110,9 @@ const REQUIRED = Object.freeze({
   ],
   'tests/fresh-v2-continuation-restart.spec.ts': [
     'reserves exactly one recovery epoch for a cold pending dispatch without replaying the frame or Provider call',
+    'delivers one typed recovery trigger and enters Provider only after atomic recovery handoff',
+    'cold-folds a claimed recovery frame without redelivery and stages its next safe recovery',
+    'fails closed on a durably pending recovery inbox frame instead of duplicating it',
   ],
   'tests/fresh-v2-continuation-fold.spec.ts': [
     "describe('A2a exact continuation-frame fold'",
@@ -155,7 +170,7 @@ export async function extractFreshV2InitialDispatchFacts(rootInput, options = {}
     files,
     absentRecoveryBranches: [
       'cold-starting-unreconciled',
-      'cold-recovery-trigger-undelivered',
+      'cold-recovery-pending-capability-blocked',
       'cold-dispatch-entered-unclassified',
       'cold-evidence-unrefolded',
       'provider-start-result-unknown',
