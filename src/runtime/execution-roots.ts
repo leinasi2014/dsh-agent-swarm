@@ -149,6 +149,15 @@ function markerPathMatches(recorded: string, actual: string): boolean {
   return process.platform === 'win32' ? left.toLowerCase() === right.toLowerCase() : left === right
 }
 
+/** Whether a readable marker owns the exact authoritative fence tuple. */
+function markerOwns(marker: RootMarker | undefined, scope: TeamScope, teamId: TeamId, taskId: TaskId, attemptId: AttemptId): boolean {
+  return marker !== undefined
+    && marker.scope === scope
+    && marker.teamId === teamId
+    && marker.taskId === taskId
+    && marker.attemptId === attemptId
+}
+
 /**
  * Whether an attempt still holds its execution root, derived ONLY from the
  * authoritative aggregate: `running` attempts hold; every settled phase
@@ -377,10 +386,15 @@ export class ExecutionRoots {
       .filter(candidate => candidate.taskId === task.id
         && candidate.generation < attempt.generation
         && candidate.assignmentPhase === 'delivered')
-      .toSorted((left, right) => right.generation - left.generation)
-      .find(candidate => existsSync(this.declarationPathFor(scope, team.id, task.id, candidate.id)))
+      .toSorted((left, right) => right.generation - left.generation)[0]
     if (predecessor === undefined) return undefined
     const sourcePath = this.declarationPathFor(scope, team.id, task.id, predecessor.id)
+    if (!markerOwns(readMarker(sourcePath), scope, team.id, task.id, predecessor.id)) {
+      throw new TeamDomainError(
+        `newest delivered predecessor ${predecessor.id} execution artifact is unavailable`,
+        'TEAM_EXECUTION_ROOT_HANDOFF_MISSING',
+      )
+    }
     const copiedEntries = copyPredecessorRoot(sourcePath, target.path, predecessor.id, attempt.id)
     return { sourceAttemptId: predecessor.id, copiedEntries }
   }
@@ -404,7 +418,7 @@ export class ExecutionRoots {
         throw new TeamDomainError(`dependency ${dependencyId} has no accepted execution artifact`, 'TEAM_EXECUTION_ROOT_DEPENDENCY_MISSING')
       }
       const sourceRoot = this.declarationPathFor(scope, team.id, dependency.id, dependencyAttempt.id)
-      if (!existsSync(join(sourceRoot, EXECUTION_ROOT_MARKER))) {
+      if (!markerOwns(readMarker(sourceRoot), scope, team.id, dependency.id, dependencyAttempt.id)) {
         throw new TeamDomainError(`dependency ${dependencyId} execution artifact is unavailable`, 'TEAM_EXECUTION_ROOT_DEPENDENCY_MISSING')
       }
       const copiedScopes = copyDependencyScopes(sourceRoot, target.path, dependency.id, dependency.writeScopes)
