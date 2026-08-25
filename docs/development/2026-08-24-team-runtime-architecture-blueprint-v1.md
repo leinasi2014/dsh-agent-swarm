@@ -1,8 +1,8 @@
 # Team runtime architecture blueprint v1
 
-Status: **PROPOSED / UNVERIFIED**. This P0 slice is a design candidate only. It changes no runtime, source schema, public API, stable architecture authority, official DSH checkout, or reference checkout. The accepted authorities remain `docs/00-vision.md`, `docs/03-capability-family.md`, `docs/04-core-protocol.md`, `docs/11-official-first-development.md`, and the registered source pins.
+Status: **PROPOSED / REVIEW_REQUIRED**. This design candidate changes no runtime, source schema, public API, stable architecture authority, official DSH checkout, or reference checkout. The accepted authorities remain `docs/00-vision.md`, `docs/03-capability-family.md`, `docs/04-core-protocol.md`, `docs/11-official-first-development.md`, and the registered source pins. [ADR-0010](../adr/0010-model-autonomy-and-parked-attempts.md) is the normative correction for model autonomy, parked attempts, explicit continuation and timeout semantics; it supersedes any time-driven progress or idle-means-failure implication in this blueprint. The 2026-08-25 R10 audit is treated as partial evidence only: it proves a real three-member DAG and functional API/browser paths, but it does not prove durable continuation, restart recovery, immutable acceptance or formal integration.
 
-Candidate base: repository commit `82c3ac97d1e741bf58ee884605f026c544a7d13f`. Official DSH `0.1.1-rc.2` / `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e` passes. The Jiuwen reference is now reviewed and pinned at `9ac2fa5e7d60142146448bd1395ec2165292beaa`; the `2cc2048… → 9ac2fa5…` delta adds Agent template/plugin composition and runtime/upload/restart fixes without changing the Team CAS, mailbox, memory, worktree or attempt-recovery semantics consumed here. Gate A passes for the exact pin; implementation candidates still require their milestone-specific non-author acceptance.
+Candidate base: repository commit `b87979c9f96c654f95a4fd95f18326cfd23d2d70`. Official DSH `0.1.1-rc.2` / `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e` is the untouched verification host. JiuwenSwarm is reviewed and pinned at `9ac2fa5e7d60142146448bd1395ec2165292beaa`; dsh-agent-teams is reviewed and pinned at `912aae5225d3d85fa841a1b0c8a5c77021876c25` / `0.1.13`. Gate A passes for those registered pins; implementation candidates still require milestone-specific non-author acceptance.
 
 ```yaml
 documentationImpact:
@@ -59,7 +59,7 @@ These are requirements to translate, not implementation to copy. The plugin must
 No pinned LoopX source exists in this repository, so the following is a benchmark-derived design hypothesis, not source authority:
 
 - an external **bounded tick** reads durable state, performs a finite number of transitions/effects, records progress, then returns;
-- long-running work advances through repeated explicit wakeups rather than one immortal model turn;
+- long-running work may use one long official turn or many turns according to the selected model/runtime; correctness cannot require one immortal turn, because durable checkpoints and explicit continuation must make later turns and process recovery possible;
 - heartbeat is liveness/lease evidence with expiry, not proof of work or completion;
 - interaction pauses are durable states, and an answer schedules a new bounded tick;
 - retry and resume start from durable checkpoints and idempotency keys.
@@ -76,63 +76,15 @@ Do not adopt or infer:
 - a scheduler-local task ledger, UI-side mailbox, or transcript parser;
 - an in-memory mutex described as distributed CAS/lease;
 - heartbeat as task ownership, acceptance, or completion;
+- elapsed reasoning time, plan count, silence, token growth or missing file changes as task failure, abandonment or interrupt authority;
+- a prompt-level first-output deadline, progress counter or hidden replacement for the official DSH Agent Loop;
 - a workflow engine and adaptive scheduler both assigning/retrying one attempt;
 - prompt-only permissions, prompt-only filesystem isolation, or prompt-declared skills as authority;
 - automatic legacy migration, dual write, runtime fallback, or old-binary rollback after cutover.
 
-### 2.5 Reviewed-drift receipt and Gate A consumption
+### 2.5 Gate A consumption
 
-Gate A currently passes with official DSH `b150a55…` and the reviewed Jiuwen pin `9ac2fa5…`. Future remote movement reopens the same freshness review; prose cannot waive a failing gate. Architecture review consists of one non-self-referential canonical core plus two external attestations:
-
-```ts
-interface ReviewedDriftCoreV1 {
-  schemaVersion: 1
-  source: { repositoryUrl: string; ref: 'refs/heads/develop' }
-  fromPin: { commit: string; tree: string }
-  observedRemote: { commit: string; tree: string }
-  mergeBase: string
-  diffScope: Array<{ path: string; status: 'added' | 'modified' | 'deleted'; blobBefore?: string; blobAfter?: string }>
-  diffDigest: string
-  consumedClaimRegistryDigest: string
-  consumedClaims: Array<{ claimId: string; path: string; locator: string; anchorBlob: string; impact: 'none' | 'confirm' | 'change' }>
-  candidate: { commit: string; tree: string; documentDigest: string }
-  disposition: 'retain' | 'repin'
-  generatedAt: string
-}
-
-interface DriftOwnerAttestationV1 {
-  schemaVersion: 1
-  role: 'source-pin-owner'
-  identityRef: string
-  coreDigest: string
-  candidate: { commit: string; tree: string; documentDigest: string }
-  authentication: TrustedIdentityProof
-  attestedAt: string
-}
-
-interface DriftReviewAttestationV1 {
-  schemaVersion: 1
-  role: 'non-author-reviewer'
-  identityRef: string
-  coreDigest: string
-  candidate: { commit: string; tree: string; documentDigest: string }
-  verdict: 'accept' | 'reject'
-  authentication: TrustedIdentityProof
-  attestedAt: string
-}
-```
-
-Strict parsing first rejects unknown/missing fields, unknown enums, non-NFC strings, non-lowercase 40/64-hex object IDs or digests, duplicate paths/claims and non-canonical path separators. `diffScope` is sorted by normalized UTF-8 path bytes then status/blob tuple; `consumedClaims` is sorted by `claimId`, and must cover the complete project claim registry whose canonical digest is `consumedClaimRegistryDigest` — omission is failure, not “unaffected.” `diffDigest` is the same domain-separated SHA-256 construction over JCS(`diffScope`) with tag `dsh-agent-swarm/reviewed-drift/diff-scope/v1`; `consumedClaimRegistryDigest` uses tag `dsh-agent-swarm/reviewed-drift/claim-registry/v1` over JCS of the complete, canonically sorted registry. `candidate.documentDigest` is SHA-256 of the candidate document's exact UTF-8 bytes. The canonical core bytes are RFC 8785 JCS UTF-8. The non-self-referential identity is:
-
-```text
-coreDigest = SHA-256(
-  UTF-8("dsh-agent-swarm/reviewed-drift/core/v1") || 0x00 || UTF-8(JCS(core))
-)
-```
-
-`TrustedIdentityProof` is not a free-form name. `identityRef` must resolve through a trusted identity registry configured by the project binding, and `authentication` must verify either a registry-approved signature/key or an immutable repository-governance mapping bound to the same candidate and `coreDigest`. A signature proof signs the RFC 8785 JCS UTF-8 attestation payload, excluding only `authentication`, under the role-specific domain tag `dsh-agent-swarm/reviewed-drift/{owner|review}/attestation/v1`; the payload contains the exact `identityRef`, `coreDigest` and candidate tuple. If that capability is `NOT_CONFIGURED`, Gate A remains FAIL; agents cannot fill strings to simulate it.
-
-The trusted Gate A verifier recomputes repository URL/ref, from commit/tree, remote commit/tree, merge-base, exact canonical path/status/blob scope, `diffDigest`, the complete claim registry/digest and every claim impact. It requires both attestations to bind the same `coreDigest` and identical candidate commit/tree/document digest, requires owner identity != reviewer identity, and requires `review.verdict === 'accept'`; forged/untrusted identity, same-author review, `reject`, reordered scope, omitted claim, candidate/diff/anchor/remote movement or any non-canonical encoding fails closed. Only then is the core disposition applied. `retain` keeps `SOURCE_POINTER` and the clean local checkout at `fromPin`; `repin` is a separate reviewed candidate that updates pointer/checkout and affected authorities. The receipt/attestations are immutable evidence, never a floating bypass or authority to fetch/write refs.
+Gate A currently passes with official DSH `b150a55…`, Jiuwen `9ac2fa5…`, and dsh-agent-teams `912aae5…`. The existing project verifier and registered source pointers remain the single authority for those identities. This architecture does not define another cryptographic receipt format or identity registry. Any pin, remote tree, claim anchor, official package export or target Profile change reruns the existing gate and reopens only the affected compatibility decision. A Gate A result authorizes neither source mutation nor architecture acceptance; the exact architecture candidate still requires one non-author verdict.
 
 ## 3. Current code anchors and gaps
 
@@ -262,7 +214,7 @@ One bounded scheduler tick performs, in order:
 8. perform bounded official effects; checkpoint or leave explicit debt;
 9. publish a Jobs/change projection and return.
 
-Every tick has fixed configuration ceilings for wall time, selected decisions, external effects and recovery records, plus an abort signal. One process keeps at most one running tick and one coalesced `rerunRequested` latch per Team; `(teamId, observedRevision, orchestrationOwner, reasonClass)` deduplicates admissions. A tick that commits no transition, acknowledges no debt and observes no newer revision records bounded `no_progress` Jobs evidence, clears its latch and schedules **no self-wake**. Only a new authoritative revision/event, an explicit human/control result, a lease deadline owned by an external timer, or an official Agent status edge may request another tick. There is no `setInterval` polling loop or recursive tick.
+Every tick is a finite control-plane operation: it has project-configured limits for selected decisions, effects, records and disposal, plus an abort signal. A wall-time bound may protect the control operation or an external call, but it never measures model thinking and never rotates a healthy Attempt. One process keeps at most one running tick and one coalesced `rerunRequested` latch per Team; `(teamId, observedRevision, orchestrationOwner, reasonClass)` deduplicates admissions. A tick that commits no transition, acknowledges no debt and observes no newer revision records `no_progress` Jobs evidence, clears its latch and schedules **no self-wake**. Only a new authoritative revision/event, an explicit human/control result, a declared task deadline, a lease event owned by an accepted Provider, or an official Agent status edge may request another tick. There is no `setInterval` polling loop or recursive tick.
 
 Ticks are serialized per Team in the current process, but that is not distributed exclusion. A multi-host milestone requires store-side atomic CAS plus lease/fencing token. On lease uncertainty or partition, stop new work; target-side accepted frames may only be reconciled, never duplicated.
 
@@ -290,15 +242,50 @@ A worker question becomes a durable, typed interaction request correlated to `te
 
 Heartbeat means “the owner renewed liveness for lease generation N at cursor C.” It does not mean progress, result, correctness or acceptance. Missing heartbeats expire only a lease/admission right; task reassignment still creates a fresh attempt and rejects late old updates.
 
-Long work therefore follows:
+Long work therefore permits either a long official turn or explicit continuation:
 
 ```text
-bounded turn -> durable checkpoint or question -> idle/wait
-  -> explicit event/message/answer/timer wakeup -> bounded tick
-  -> same fenced attempt or fresh retry attempt -> bounded turn
+official turn (duration chosen by model/runtime)
+  -> submit, or durable semantic checkpoint/question when continuation is needed
+  -> parked/waiting with the same attempt fence
+  -> explicit event/message/answer/deadline decision
+  -> bounded control tick -> resume same attempt or explicitly reassign
 ```
 
 `ctx.jobs` exposes this run and its current wait reason, next eligible wake, cancel request and last durable checkpoint. Cancellation changes admission first, then interrupts/drains official children, then records the outcome; it never deletes evidence before the effect settles.
+
+### 7.1 Dispatch capability and artifact contract
+
+Before a task can be assigned, its contract must name every artifact family required by its acceptance criteria and a non-overlapping writable namespace for each family. Examples are product source, task-local tests, evidence, generated data and documentation. A scope is enforced by the execution-root Provider or the task remains explicitly advisory-only; the UI and test report must not claim technical isolation from prompt compliance alone. Accepted dependencies are mounted or copied read-only into a consumer root. A consumer cannot modify the producer's accepted root.
+
+Dispatch also checks only the capabilities that affect the task: resolved provider/model route, required tools, requested Skills, browser/runtime availability, execution-root containment and evidence-return mechanism. `assignedSkills` proves validated intent only. `loadedSkills` or a browser/tool capability may be reported only from target-side or host-attested evidence. If a required capability is absent, the task enters a typed hold before model work; it is not allowed to replace a real-browser criterion with HTTP or mock evidence.
+
+```text
+task contract
+  -> validate artifact namespaces and required capabilities
+  -> CAS reserve Attempt + immutable execution-root policy
+  -> official DSH assignment
+  -> target-side capability/load receipts
+  -> model work inside the same official Agent Loop
+```
+
+### 7.2 Candidate, review and integration authority
+
+Submission freezes a content-addressed candidate, not a mutable author directory. The minimum receipt binds Team/task/attempt generation, source tree digest, artifact/package digest when applicable, declared evidence digests, write-scope policy and source build identity. The author root becomes read-only or is no longer used as review authority after submission. A later followup cannot mutate an accepted candidate; additional work requires a new candidate or fresh attempt according to the task state.
+
+The reviewer tests the frozen candidate from an independent read-only review root. Test-created data, logs and screenshots live in review evidence, never in the author candidate. Acceptance binds candidate digest, task revision, reviewer identity and verdict. Downstream dependency materialization records source candidate digest, accepted revision, copied/mounted scopes and target digest, and verifies them before work.
+
+Formal integration is a separate serial operation:
+
+```text
+accepted candidate(s) + expected integration target digest
+  -> integrate once
+  -> read back result digest and dependency manifest
+  -> run QA only against that result digest
+  -> preserve integration receipt or reconcile an unknown result
+```
+
+A QA Attempt that merely copies producer files into its own temporary root is a development smoke, not formal integration. UI/API completion claims must identify the one integrated digest they tested.
 
 ## 8. Whole-Team completion
 
@@ -306,13 +293,15 @@ Whole-Team completion is a derived snapshot predicate, not a worker report and n
 
 - every required task is terminal and accepted/completed under the configured review gate;
 - no task is pending/ready/in_progress/submitted/verifying and no current attempt has delivery/review debt;
+- no current attempt is `parked`, no resume intent is pending, and no recovery/effect/integration result is `unknown`;
 - no member is `starting` or legacy `provisioning`;
 - no queued wakeup mailbox item, unresolved required HumanInteraction, workflow-owned step, budget/retry recovery action, or admitted scheduler/effect operation remains;
 - no official child turn is running for a Team-owned attempt; unknown liveness makes completion pending;
 - declared members with no assigned task and no typed activation intent are quiescent and do not block completion;
 - failed/removed members do not block unless they leave an unresolved task/message/interaction obligation.
+- every required accepted task names an immutable candidate digest, and the required integrated result plus its target-level QA receipt exist and identify the same result digest.
 
-Completion evaluation is a pure derived predicate over one read-back snapshot; the domain never writes a synthetic `complete` transition. Only the runtime owner may publish the cursor/revision-bound completion projection after it verifies official liveness and all external-debt faces. UI/RPC merely consume it. Archive remains a separate captain-authorized transition; completion does not auto-delete Sessions, Team state, memory or evidence.
+Completion evaluation is a pure derived predicate over one read-back snapshot; the domain never writes a synthetic `complete` transition. Only the runtime owner may publish the cursor/revision-bound completion projection after it verifies official liveness, candidate/integration receipts and all external-debt faces. UI/RPC merely consume it. Archive remains a separate captain-authorized transition; completion does not auto-delete Sessions, Team state, memory or evidence.
 
 ## 9. Crash windows, recovery and idempotency
 
@@ -331,11 +320,30 @@ Completion evaluation is a pure derived predicate over one read-back snapshot; t
 
 The recovery owner evaluates at most one bounded classification/effect step per record per tick. Every destructive branch requires exact child identity and terminal read-back. There is no generic “rollback to declared”: after `starting` commits, retry stays on the same tuple or terminalizes/quarantines that member identity.
 
+Once the member has activated, ordinary attempt continuation follows ADR-0010 rather than the legacy `strandedAfterMs` self-heal:
+
+| Exact observation | Required decision |
+|---|---|
+| `running`, official owner is live/running or has an in-flight tool | Preserve the exact attempt regardless of elapsed time, reasoning style, token use or file activity. |
+| Official owning turn settled without submission | CAS `running -> parked`; retain ownership, root, checkpoint and generation; arm no retry timer. |
+| `parked`, no resume intent | Preserve indefinitely unless an explicit task deadline or captain decision applies. |
+| `parked`, exact resume frame pending | Wait; no resend, new attempt or self-wake. |
+| `parked`, exact resume frame claimed | Flush/read back, then CAS `parked -> running` on the same attempt and permit the official model request. |
+| Resume delivery outcome unknown | Query exact Session/effect evidence; block until pending/claimed/absent is proven. |
+| Captain explicitly reassigns or review rejects for rework | Fence the old attempt and create a fresh generation under the declared policy. |
+| Accepted candidate receives stale followup/write | Reject mutation; accepted digest and dependency snapshots remain unchanged. |
+| Process restarts with an open attempt | Reopen Team/Session/mailbox/root authorities, classify exact state, then preserve, park or resume; never redo accepted work. |
+| External mutation or integration response is lost | Query operation/result identity before retry; an unknown result blocks duplicate execution. |
+
+Test-attempt generations are evidence boundaries. A product, harness or oracle failure remains failed. Its corrective candidate is frozen separately and the same scenario reruns from an isolated fresh namespace or authoritative deterministic reset. Screenshots, logs, data and ports from a failed generation cannot be overwritten and presented as the passing generation.
+
 Recovery uses per-authority monotonic cursors and exact identities. Different Sessions provide a partial order only through explicit edges such as parent/child identity, Team transaction revision, task/attempt tuple, mailbox message ID and delivered checkpoint, or interaction request/receipt ID. Equal timestamps and lexical Session IDs establish no causal edge.
 
 ## 10. Storage schema and migration
 
 This architecture is not a safe additive v1 field patch. The official storage-domain load path strips undeclared Zod keys, current validation requires `schemaVersion: 1`, and ADR-0009 already records that a same-version layout change is undefined. Lazy activation therefore merges into ADR-0009's single `agent_swarm_v2` authority and effect-ledger design; it does not create an intermediate domain, side activation table or competing migration.
+
+Runtime configuration migrates separately from Team media. New or absent configuration uses `idleRecoveryPolicy: manual`; `strandedAfterMs` defaults to `0` and is deprecated. A positive legacy value is accepted only with an explicit `idleRecoveryPolicy: legacy-timed-retry`, emits a warning and is excluded from v2 release acceptance. Positive delay without the legacy opt-in fails closed. Migration never converts elapsed idle time into a retry or a new attempt.
 
 Delivery deliberately separates **fresh/empty v2** from **user-media cutover** so the real lazy vertical can run before destructive migration authority exists:
 
@@ -374,6 +382,7 @@ Host RPC returns a versioned bounded snapshot and delta cursor containing:
 - queued/delivered message counts and exact IDs only where authorized;
 - interaction wait reason, Job/run status, budget/lease/heartbeat age and recovery debt;
 - capability availability (`configured`, `not_configured`, `degraded`, `unknown`) for provider, skills, personal memory and distributed fencing.
+- candidate/review/integration identities and evidence availability, never mutable author-root paths as acceptance authority.
 
 RPC commands carry expected revision/fence/idempotency key and call the same Host service/`TeamDomainPort`; they never mutate projection caches. Client reconnect requests a fresh snapshot then deltas from a cursor. A cursor gap triggers refetch, not event reordering. Browser clocks, row order, optimistic state and transcript parsing never determine authority or completion.
 
@@ -381,7 +390,7 @@ RPC commands carry expected revision/fence/idempotency key and call the same Hos
 
 ### 12.1 Domain/store minimum
 
-- `src/domain/types.ts`: v2 member/profile/start-fence shapes; retain task revision and attempt generation.
+- `src/domain/types.ts`: v2 member/profile/start-fence shapes plus `parked` and durable resume/effect/candidate identities; retain task revision and attempt generation.
 - `src/domain/team-domain-port.ts`, `src/domain/team-domain.ts`, `src/domain/team-domain-roster.ts`, `src/domain/team-domain-board.ts`: declare/reserve/settle/fail first-assignment transactions and bidirectional starting-attempt validation.
 - `src/domain/state-validation.ts`, `src/storage/team-spec.ts`, `src/storage/team-store.ts`: strict v2 schema and explicit v1 read-only migration boundary.
 - ADR-0009 migration/controller surfaces: fresh-v2 authority record, pure transformer, reviewed receipts, later cutover fence; no parallel authority.
@@ -391,19 +400,20 @@ Risk: member and attempt live in one aggregate today, which is favorable for ato
 ### 12.2 Runtime minimum
 
 - `src/runtime/member-provisioning.ts`: become declaration/profile validation plus initial-start reconciler; remove `memberJoinNotice` only after compatible migration.
-- `src/runtime/scheduling.ts`: include declared members, route first assignment to `startContinuable`, keep active-member `followup` unchanged, reuse frame visibility.
+- `src/runtime/scheduling.ts`: include declared members, route first assignment to `startContinuable`, keep active-member `followup` unchanged, reuse frame visibility, and remove default time-driven idle retry.
 - `src/runtime/orchestrator-runtime.ts`: add returns after declaration; task creation/recovery/events request bounded ticks; disposal drains starting effects.
 - agent-scoped runtime listener: gate exact starting assignment in official `agent/request`, flush claimed Session input, settle/read back, and call `next()` only on success.
 - `src/runtime/prompts.ts`: reuse exact `assignmentPrompt` as the first user message; persona remains identity data.
 - `src/runtime/frame-visibility.ts`, `src/runtime/session-acceptance.ts`: share exact initial/followup target-side checkpoint logic.
-- `src/runtime/execution-roots.ts`, usage accounting and Jobs projection: bind acquisition/accounting/run disclosure to the initial attempt without inventing another owner.
+- `src/runtime/execution-roots.ts`, usage accounting and Jobs projection: bind acquisition/accounting/run disclosure to the initial attempt without inventing another owner; enforce the resolved write policy, freeze submitted candidates and retain parked roots.
+- candidate/review/integration services: content-addressed submit, independent read-only review materialization, accepted dependency receipt and expected-target integration/read-back; these are Consumers of Team authority, not another task ledger.
 
 Risks: delayed-start profile durability, official child-ID collision semantics, target claim observability, usage attribution before active membership, remove/archive of declared/starting members, and disposal during start all require fault tests. Process-local serialization must not be marketed as distributed safety.
 
 ### 12.3 API/projection minimum
 
 - `src/tools/team-lifecycle.ts`: preserve input names where possible; output `phase: declared` and document asynchronous activation. This is observable compatibility change and needs versioned snapshots/docs.
-- read/status/list projections: expose durable vs runtime state and activation debt without unbounded arrays.
+- read/status/list projections: expose durable vs runtime state, parked/resume debt, capability receipts and immutable candidate/integration identity without unbounded arrays.
 - workflow bridge: declare members/tasks in an order that lets the selected orchestration owner drive the first assignment; no duplicate scheduler ownership.
 - HumanInteraction/UI/RPC: join by stable IDs only; no copied task/member authority.
 
@@ -573,6 +583,50 @@ sequenceDiagram
   Note over O,N: FAIL at any pre-cutover point preserves v1 and blocks admission; FAIL after cutover requires forward repair, never old-binary fallback
 ```
 
+### D6 — model-autonomous park, same-attempt resume and explicit reassign
+
+```mermaid
+stateDiagram-v2
+  [*] --> Running: assignment claimed / same fenced Attempt
+  Running --> Running: model reasoning, tools or long official turn
+  Running --> Submitted: submit immutable candidate
+  Running --> Parked: official turn settled without submit
+  Parked --> ResumeIntent: captain resume with exact revision + attemptId
+  ResumeIntent --> Parked: frame pending or outcome unknown
+  ResumeIntent --> Running: frame claimed + Session flush + CAS read-back
+  Parked --> Stale: explicit reassign / review-owned rework policy
+  Stale --> Running: fresh generation, new Attempt
+  Submitted --> Verifying: independent read-only review root
+  Verifying --> Accepted: candidate digest + verdict committed
+  Verifying --> Stale: rejection creates explicit rework generation
+```
+
+Elapsed time, planning style, token growth, file changes, control ticks and UI polls create no edge in this state machine. A declared task deadline may authorize a separate cancel/reassign decision, but cannot silently masquerade as `parked -> running` or completion.
+
+### D7 — immutable candidate, dependency handoff and formal integration
+
+```mermaid
+sequenceDiagram
+  participant A as Author Attempt root
+  participant D as AUTH TeamDomainPort
+  participant C as Candidate store
+  participant R as Independent reviewer
+  participant I as Serial integrator
+  participant Q as QA Attempt
+
+  A->>C: freeze tree/artifact/evidence digests
+  C-->>D: DC candidate receipt bound to task/attempt generation
+  D-->>A: submitted; author root no longer acceptance authority
+  R->>C: materialize read-only candidate
+  R->>D: DC verdict(candidate digest, task revision)
+  D-->>I: accepted candidate identities
+  I->>I: verify expected target digest; integrate once
+  I->>D: DC source→result receipt or outcome-unknown
+  D-->>Q: materialize exact integrated result digest
+  Q->>D: API/browser/fault evidence bound to result digest
+  Note over A,Q: stale followups cannot mutate accepted content; lost integration responses are queried before retry
+```
+
 ### Diagram coverage table
 
 | Diagram ID | State / authority covered | Source anchors | Required fault tests | Milestone |
@@ -580,35 +634,41 @@ sequenceDiagram
 | D1 | DSH Session/Agent Loop/Subagent versus TeamDomain and UI/RPC containers | `docs/11-official-first-development.md` §4; official `docs/architecture.md:76-84`; `src/domain/types.ts:153-171` | shadow Team authority, transcript/UI write attempt, missing official seam, effect unknown | A0, A1b |
 | D2 | `declared → starting/reserved → active/delivered`, pre-model causal gate | `src/runtime/member-provisioning.ts:159-190`; `src/runtime/scheduling.ts:196-311`; official `packages/core/agent-loop/src/agent.ts:282-287,457-460`; `src/runtime/frame-visibility.ts:49-110` | flush failure, settle/read-back failure, concurrent settle, model-dispatch-before-settle sentinel | A1b |
 | D3 | no-child/absent/pending/claimed/mismatch/unknown recovery and root ownership | `src/runtime/member-provisioning.ts:188-245`; `src/runtime/frame-visibility.ts`; `src/runtime/execution-roots.ts`; official Subagent Provider publication contract | every decision branch, child-id collision, drain failure, root release/quarantine, no resend/redeclare/reuse | A1b, A2 |
-| D4 | bounded adaptive/Workflow tick, human wait, heartbeat lease, runtime completion | `src/runtime/scheduling.ts:88-182`; `src/runtime/orchestrator-runtime.ts:496-531`; `src/runtime/jobs/team-job-projection.ts`; `src/human/human-interaction-contract.ts` | tick/effect/time bounds, dedupe latch, no-progress no-selfwake, dual owner, expired lease, opaque human unknown, false completion | A2, A3, A4 |
+| D4 | bounded adaptive/Workflow tick, human wait, heartbeat lease, runtime completion | `src/runtime/scheduling.ts:88-182`; `src/runtime/orchestrator-runtime.ts:496-531`; `src/runtime/jobs/team-job-projection.ts`; `src/human/human-interaction-contract.ts` | control-operation/effect/disposal bounds, dedupe latch, no-progress no-selfwake, dual owner, expired lease, opaque human unknown, false completion | A2, A3, A4 |
 | D5 | ADR-0009 single v2 authority, user-media cutover, old binary exclusion | `docs/adr/0009-i1b-v2-effect-ledger-authority.md` §§1-2; `src/storage/team-spec.ts`; `src/storage/team-store.ts` | partial migration/receipt, changed source, registry/fence restart, real old artifact denied before open/write, no fallback | A1a, A5 |
+| D6 | official model autonomy, parked same-attempt continuation, explicit reassign/rework | ADR-0010; `src/runtime/usage-prompt.ts`; official Agent status/Session evidence | long reasoning, long tool, idle settlement, duplicate resume, stale followup, deadline decision, late old attempt | A2, A3 |
+| D7 | immutable candidate/review/dependency/integration/QA identities | project binding integration contract; execution-root and review Providers | post-submit mutation, digest mismatch, lost response, expected-target race, harness failure generation, consumer source drift | A2, A3 |
 
 ## 14. Test matrix
 
 | Layer | Required positive evidence | Required negative/fault evidence |
 |---|---|---|
-| Gate A drift | canonical `ReviewedDriftCoreV1` plus trusted owner/reviewer attestations validate exact from-pin/remote tree/diff/complete claim registry and accepted retain/repin disposition | forged/untrusted identity, same author, review `reject`, reordered scope, claim omission, remote/candidate/diff/claim movement, unknown fields or non-canonical bytes fail closed; receipt cannot write refs |
+| Gate A compatibility | project verifier validates official baseline, target package exports and clean registered reference pins | changed/missing pin, dirty reference, absent official export or mismatched Profile blocks only the affected compatibility claim; the gate cannot mutate sources or self-accept architecture |
 | Pure domain | declaration; atomic starting+claim; atomic active+delivered; later followup attempt | stale task revision, wrong member phase, wrong attempt, double settle, double fail, broken bidirectional start invariant, DAG/budget/member-busy races |
 | Schema/migration | strict fresh-v2 authority, pure deterministic v1→v2 vectors, isolated fresh Profile reopen, active/terminal mapping | undeclared-key stripping, provisioning ambiguity, occupied destination, partial receipt, dual writer; user-media path remains blocked without external fence |
-| Provider contract | exact preallocated child ID/profile/persona/tool filter/assigned-Skill intent and initial assignment | missing provider/capability, model drift, unknown deny tool, unavailable Skill Registry/name, assigned-without-loaded-proof, child-ID collision |
+| Provider/dispatch contract | exact preallocated child ID/profile/persona/tool filter/assigned-Skill intent, resolved artifact namespaces and required capabilities | missing browser/tool/provider, model drift, unknown deny tool, unavailable Skill Registry/name, assigned-without-loaded-proof, overlapping/uncovered artifact family, root/path escape, child-ID collision |
 | Prompt/session causal gate | exact assignment user/message is flushed and active/delivered read back before model dispatch; later assignment uses followup | every pre-next failure rejects model dispatch; committed-write/response-loss read-back preserves active/delivered + once-only resume; starting debt settles idempotently; no blind rewrite/rollback/resend; unrelated requests delegate |
 | Crash recovery | every §9 decision branch over real Session persistence/child descriptors/Storage Domain and execution roots | absent/pending never duplicate; mismatch/unknown never redeclare/reuse; drain failure quarantines; claimed work never rolls back |
-| Scheduler | bounded finite tick, priority/DAG/concurrency/budget, declared member activation, coalesced rerun latch | Workflow/adaptive dual owner, wall/effect/record bound, timer storm, no-progress selfwake, partition without lease, duplicate decision |
+| Scheduler | bounded finite tick, priority/DAG/concurrency/budget, declared member activation, coalesced rerun latch | Workflow/adaptive dual owner, control-operation bound, timer storm, no-progress selfwake, partition without lease, duplicate decision; long healthy model turns are never rotated by a control timer |
 | Mailbox | queue while declared; exact delivery after active; dedupe/replay | arbitrary message cannot become task claim; queued/pending frame cannot publish delivered |
-| Human/long run | question→receipt→resume, Job wait/cancel, heartbeat lease renewal | forged answer, expired attempt, heartbeat-as-completion, opaque effect without read-back remains unknown/blocked, cancel/delete race |
+| Model autonomy/continuation | long and immediate model styles both stay in their official turns; settled open Attempt parks and explicitly resumes with the same fence/root | prompt timer, idle timer, token/file/plan heuristic, duplicate resume, stale followup, late old Attempt, heartbeat-as-progress, cancel/delete race |
+| Human/long run | question→receipt→same-attempt resume, Job wait/cancel, Provider-backed heartbeat lease renewal | forged answer, expired attempt, heartbeat-as-completion, opaque effect without read-back remains unknown/blocked, cancel/delete race |
+| Candidate/review | submit freezes tree/artifact/evidence digests; reviewer uses independent read-only root; accept binds candidate/revision/reviewer | author-root or post-accept mutation, review-generated data changing candidate, digest mismatch, stale followup, same-author acceptance |
+| Dependency/integration | accepted dependency receipt and expected-target integration produce one read-back result digest; QA evidence names it | producer drift, copied scope mismatch, concurrent target movement, response loss without query, QA against mutable/temp-only composition |
+| Test generations | a failed harness/product route is preserved, corrected candidate is frozen and the same scenario passes from a fresh deterministic baseline | patching a failed generation in place, overwritten screenshot/log/data, fixed ports owned by an unknown process, old Session/store/root leakage |
 | Memory | accepted-evidence Team proposal; scoped personal memory Provider | raw output/report auto-write, cross-member leak, prompt/profile storage, missing provenance |
 | Completion | runtime publishes revision-bound completion projection after exact domain/liveness read-back; declared-unused member is quiescent | domain/UI cannot publish completion; starting/reserved/queued/unknown blocks; worker report alone never completes |
 | UI/RPC | snapshot/delta cursor and reconnect | cursor gap refetch, no wall-clock ordering, no UI/transcript mutation authority |
 | Lifecycle | dispose/reload/HMR with zero duplicate listeners/timers/children | hung start/drain bounded and visible; no orphan is silently deleted |
 
-Real acceptance must use an isolated Profile, official Loader composition, official Storage Domain and Session persistence, continuable provider, exact frozen artifact, fresh state root/port/Session/Team/member/task/attempt, and a non-author QA. Mock-only tests cannot accept model-visible delivery, recovery, RPC composition or whole-Team completion.
+Real acceptance must use an isolated Profile, official Loader composition, official Storage Domain and Session persistence, continuable provider, exact frozen artifact, fresh state root/dynamically owned ports/Session/Team/member/task/attempt, formal integrated result digest, and a non-author QA. Every fault route gets a new test-attempt generation and proves process/port/root disposition. Mock-only tests cannot accept model-visible delivery, recovery, RPC composition or whole-Team completion.
 
 ## 15. Milestones and real exit gates
 
 ### A0 — source drift and architecture admission
 
-- Preserve the reviewed-drift receipt/verifier contract in §2.5; current Jiuwen pin `9ac2fa5…` is reviewed and Gate A passes. Any later upstream movement must be reviewed and repinned before production code resumes.
-- Non-author architecture review accepts the DSH boundary, pre-model causal gate, recovery decisions, no-second-loop invariant, ADR-0009 merge and public compatibility decision.
+- Existing Gate A passes against official DSH `b150a55…`, Jiuwen `9ac2fa5…` and dsh-agent-teams `912aae5…`. Any later affected pin/export/Profile movement reruns the project verifier before production code resumes.
+- One non-author architecture review accepts the DSH boundary, model-autonomy/parked protocol, immutable candidate/integration path, pre-model causal gate, recovery decisions, no-second-loop invariant, ADR-0009 merge and public compatibility decision.
 - Update registered architecture/contract/roadmap/audit documents in one reviewed candidate; no source yet.
 
 ### A1 — fresh-v2 foundation and first runnable lazy vertical
@@ -620,13 +680,15 @@ Real acceptance must use an isolated Profile, official Loader composition, offic
 ### A2 — complete first-start recovery and bounded run control
 
 - Accept every §9 recovery branch, execution-root retain/release/quarantine rule and same-tuple idempotency over real cold restart.
-- Enforce tick wall/decision/effect/recovery bounds, deduped/coalesced wake admission and no-progress/no-selfwake.
-- Real composition proves exact persona/tool/Skill-intent policy, usage attribution, removal/archive/disposal and no Session-id reuse after mismatch/unknown.
+- Enforce decision/effect/recovery/disposal bounds, deduped/coalesced wake admission and no-progress/no-selfwake without a model-thinking timer.
+- Real composition proves exact persona/tool/Skill-intent policy, target-side capability receipts, artifact namespace enforcement, usage attribution, removal/archive/disposal and no Session-id reuse after mismatch/unknown.
+- Submit/review freezes an immutable candidate; dependency handoff and formal expected-target integration produce a read-back result digest before QA.
 
 ### A3 — workflow, heartbeat and long-running continuation
 
-- Jobs projects bounded ticks and durable waits; real interrupt/resume, pending-frame, late-old-attempt, lease/heartbeat and long-duration soak tests pass.
+- Jobs projects bounded ticks and durable waits; real long official turns, `running -> parked -> running` same-attempt continuation, hard restart, pending-frame, duplicate resume, stale followup, late-old-attempt, lease/heartbeat and explicit reassign tests pass.
 - Adaptive and Workflow modes prove one orchestration owner per attempt.
+- Each fault route starts from a new clean generation, binds dynamic ports/process ownership and preserves failed evidence; API and browser acceptance identify the same integrated result digest.
 
 ### A4 — memory, human continuation and completion projections
 
@@ -652,9 +714,11 @@ Real acceptance must use an isolated Profile, official Loader composition, offic
 2. Does every no-child/absent/pending/claimed/mismatch/unknown branch have one identity, root owner, release rule and recovery owner without redeclare/Session-id reuse?
 3. Is `startingAttemptId` bidirectionally validated and atomically cleared/terminalized rather than becoming redundant drift?
 4. Does fresh-v2 A1b run the real lazy vertical before migration, while user-media cutover stays blocked on the external old-binary fence?
-5. Does the reviewed-drift receipt invalidate on any remote/diff/candidate movement and require source-pin-owner plus non-author acceptance?
-6. Are bounded tick/no-progress, two-stage tool denial, Activation terminology, opaque human effects and runtime-only completion explicit and testable?
-7. Do D1-D5 mark every authority, durable commit, external effect, failure and recovery edge, with source anchors/fault tests/milestones in the coverage table?
-8. Does every milestone require real composition and an independent candidate-bound acceptance result?
+5. Does Gate A remain the existing source/export compatibility verifier without creating a second identity system or allowing the candidate to accept itself?
+6. Can no elapsed-time, plan, token, file-change or UI/heartbeat heuristic rotate a healthy Attempt, while an officially settled open Attempt parks and resumes under the same fence?
+7. Are write scopes enforced, required capabilities host-attested, submitted candidates immutable, and QA bound to one formal integration result digest?
+8. Do D1-D7 mark every authority, durable commit, external effect, failure and recovery edge, with source anchors/fault tests/milestones in the coverage table?
+9. Does every fault route preserve the failed generation and rerun the same scenario from a clean baseline with process/port/root disposition?
+10. Does every milestone require real composition and an independent candidate-bound acceptance result?
 
 No implementation should begin from this document until Gate A passes and these questions receive an accepted, non-author verdict bound to the exact candidate.

@@ -229,6 +229,24 @@ documents:
     mutationAuthority: reviewed-proposal-until-accepted
     updateTriggers: proposal-review-or-effect-authority-decision
     validation: pnpm-verify
+  - documentId: model-autonomy-parked-attempts-decision
+    path: docs/adr/0010-model-autonomy-and-parked-attempts.md
+    role: reference
+    subject: decision
+    writeMode: human
+    accountableOwner: architecture-owner
+    mutationAuthority: reviewed-proposal-until-accepted
+    updateTriggers: proposal-review-or-attempt-continuation-decision
+    validation: pnpm-verify
+  - documentId: team-runtime-architecture-blueprint-v1
+    path: docs/development/2026-08-24-team-runtime-architecture-blueprint-v1.md
+    role: reference
+    subject: architecture
+    writeMode: human
+    accountableOwner: architecture-owner
+    mutationAuthority: reviewed-proposal-until-accepted
+    updateTriggers: architecture-review-or-runtime-boundary-change
+    validation: pnpm-verify
   - documentId: plugin-development-skill
     path: .agents/skills/dsh-plugin-development/SKILL.md
     role: stable-authority
