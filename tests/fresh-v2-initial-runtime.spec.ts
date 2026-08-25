@@ -185,7 +185,7 @@ describe('A1b fresh-v2 official AgentLoop vertical', () => {
       await vi.waitFor(() => {
         const snapshot = ctx.agentSwarmV2Initial.snapshot(workspace, teamId!)!
         expect(snapshot.attempts[0]).toMatchObject({
-          phase: 'running',
+          phase: 'parked',
           dispatchEpochs: [{ phase: 'settled', assistantEvidenceType: 'assistant/message' }],
         })
       }, { timeout: 10_000 })
@@ -217,7 +217,7 @@ describe('A1b fresh-v2 official AgentLoop vertical', () => {
       fibers.push(pluginFiber)
       expect(ctx.agentSwarmV2Initial.snapshot(workspace, teamId)).toMatchObject({
         id: teamId,
-        attempts: [{ phase: 'running', dispatchEpochs: [{ phase: 'settled' }] }],
+        attempts: [{ phase: 'parked', dispatchEpochs: [{ phase: 'settled' }] }],
       })
       expect(adapter.requests.filter(request => request.sessionId === childId)).toHaveLength(1)
     } finally {
@@ -463,10 +463,11 @@ describe('A1b fresh-v2 official AgentLoop vertical', () => {
       await vi.waitFor(() => {
         expect(adapter.requests.filter(request => request.sessionId === added.session_id)).toHaveLength(2)
         expect(probeCalls).toBe(1)
+        expect(ctx.agentSwarmV2Initial.snapshot(workspace, created.team_id)!.attempts[0]!.phase).toBe('parked')
       }, { timeout: 10_000 })
       const snapshot = ctx.agentSwarmV2Initial.snapshot(workspace, created.team_id)!
       expect(snapshot.attempts[0]).toMatchObject({
-        phase: 'running',
+        phase: 'parked',
         dispatchEpochs: [{ phase: 'settled', assistantEvidenceType: 'assistant/message' }],
       })
       expect(snapshot.attempts[0]!.dispatchEpochs).toHaveLength(1)

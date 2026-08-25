@@ -20,7 +20,7 @@ const sourceErrors = facts.diagnostics.filter(item => item.severity === 'error')
 if (sourceErrors.length > 0) throw new Error(`source extraction failed: ${JSON.stringify(sourceErrors)}`)
 
 const summary = validateAgentToolRegistryAgainstFacts(registry, facts)
-if (summary.toolCount !== 19 || summary.facetCount !== 13 || AGENT_TOOL_FACETS.length !== 13 || AGENT_TOOL_FUNCTIONAL_FACETS.length !== 13) throw new Error('positive closure did not retain 19 tools and 13 functional facets')
+if (summary.toolCount !== 20 || summary.facetCount !== 14 || AGENT_TOOL_FACETS.length !== 13 || AGENT_TOOL_FUNCTIONAL_FACETS.length !== 14) throw new Error('positive closure did not retain 20 tools and 14 functional facets')
 
 function expectCode(label, code, callback) {
   try {
@@ -89,4 +89,4 @@ for (const entry of registry.entries) {
 }
 if (first.edges.some(edge => edge.type === 'reads' || edge.type === 'mutates' || edge.type === 'verified-by')) throw new Error('registry overlay must not infer state authority or verification from capability metadata')
 
-console.log('Agent tool registry 19-tool/13-functional-facet closure, overlay determinism, and 9 negative cases: PASS')
+console.log('Agent tool registry 20-tool/14-functional-facet closure, overlay determinism, and 9 negative cases: PASS')

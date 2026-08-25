@@ -156,11 +156,11 @@ try {
   const actual = await extractSourceFacts(repositoryRoot)
   assert.deepEqual(errorCodes(actual), [], `actual repository diagnostics: ${JSON.stringify(actual.diagnostics)}`)
   assert.deepEqual(actual.counts, {
-    discoveredModules: 112,
-    parsedModules: 112,
-    toolDefinitions: 19,
-    tools: 19,
-    imports: 630,
+    discoveredModules: 120,
+    parsedModules: 120,
+    toolDefinitions: 20,
+    tools: 20,
+    imports: 685,
     injections: 34,
     providerRegistrations: 6,
     providerRegistryMethods: 11,
@@ -173,23 +173,24 @@ try {
     domainPortMethods: 30,
     rpcMethods: 5,
     clientSlots: 6,
-    lifecycleListeners: 25,
+    lifecycleListeners: 27,
     reachableRootExports: 170,
     reachablePublicApiExports: 165,
   }, 'KG1 walking-skeleton drift lock; replace with graph reconciliation in a later milestone')
-  assert.equal(actual.counts.tools, 19)
-  assert.equal(actual.counts.toolDefinitions, 19)
+  assert.equal(actual.counts.tools, 20)
+  assert.equal(actual.counts.toolDefinitions, 20)
   assert.equal(actual.counts.discoveredModules, actual.counts.parsedModules)
   assert.equal(actual.modules.length, actual.counts.discoveredModules)
   const { stdout: rgFiles } = await execFileAsync('rg', ['--files', 'src'], { cwd: repositoryRoot })
   const rgModuleCount = rgFiles.split(/\r?\n/u).filter(path => /\.(?:ts|tsx)$/u.test(path)).length
   assert.equal(actual.counts.discoveredModules, rgModuleCount, 'extractor module inventory must equal rg --files src')
   assert.deepEqual(actual.tools.map(item => item.name).sort(), [...actual.permissionPolicy.names].sort())
-  assert.deepEqual(actual.tools.map(item => item.registrationOrder), Array.from({ length: 19 }, (_, index) => index + 1))
+  assert.deepEqual(actual.tools.map(item => item.registrationOrder), Array.from({ length: 20 }, (_, index) => index + 1))
   assert.deepEqual(actual.tools.map(item => item.name), [
     'agent_swarm_create',
     'agent_swarm_add_member',
     'agent_swarm_create_task',
+    'agent_swarm_continue_task',
     'agent_swarm_remove_member',
     'agent_swarm_archive',
     'agent_swarm_claim_task',
@@ -268,10 +269,10 @@ try {
     JSON.stringify(item.names), JSON.stringify(item.effectiveExports),
   ].join('|'))
   // Exact candidate drift locks over complete normalized tuple sets; later graph reconciliation replaces these KG1 locks.
-  assertTupleSetDigest(externalRegistryTuples, 'df65210ba8154485531b822e4535ed8c91ac03f3ef534c26f3296484f54de053', 'external registries')
+  assertTupleSetDigest(externalRegistryTuples, '3b0f48569410d3d127327734f95538241ef1f75288ebebbbbf54460bab7cb9ee', 'external registries')
   assertTupleSetDigest(rpcTuples, 'dd9e8353c0564d866d2f19b1310e7e870d5a997761e82c81b7255223a79565ad', 'RPC')
-  assertTupleSetDigest(listenerTuples, '76d6589f1fea48abe75694c965b746924f31ce2fd7f0e9a1e78d99ac0179d88e', 'listeners')
-  assertTupleSetDigest(effectTuples, '2ffa99db1e0259ed7d339026f17a4e5896d412c8c5dca0c2bf7d9e408368fb8a', 'effects')
+  assertTupleSetDigest(listenerTuples, '68c5dcc5e030131d74a8ed1b99dae38e86f298d59b89a9b93642661a1a24f8ec', 'listeners')
+  assertTupleSetDigest(effectTuples, '0c2f4dc23b978a1f13c675f818d72ba7920ab91293a18071fb90f4c9431a7422', 'effects')
   assertTupleSetDigest(exportTuples(actual.reachableRootExports), '771c964630864102e1ba31e13263513fc900dd90fe0bf3568ba6f1ce022a5236', 'root reachable exports')
   assertTupleSetDigest(exportTuples(actual.reachablePublicApiExports), 'a2520120278763b6cb98c2aab04470e65ff0ee6f591d5302e8b394809bb9bec5', 'public API reachable exports')
   assertTupleSetDigest(reexportLayerTuples, '95640ddda8f6299cc065dbb119489e375ea2cbe38ce26792c601ab5b2c7cd60e', 're-export semantic layers')
@@ -310,7 +311,7 @@ try {
   assert.deepEqual(actual.serviceDefinitions.map(item => `${item.classSymbol}:${item.serviceName}`), ['AgentSwarmRuntime:agentSwarm'])
   assert.ok(actual.registryExtensions.every(item => item.duplicateRule.startsWith('dominating-') && item.disposer.startsWith('identity-guarded:')))
   assert.ok(actual.registryExtensions.every(item => item.boundedNameRules.length > 0))
-  assert.equal(actual.externalRegistryUses.length, 39)
+  assert.equal(actual.externalRegistryUses.length, 41)
   assert.ok(actual.externalRegistryUses.some(item => item.receiver === 'this.ctx.subagents' && item.method === 'startContinuable'))
   assert.ok(actual.externalRegistryUses.some(item => item.receiver === 'this.ctx.subagents' && item.method === 'list'))
   assert.deepEqual(actual.registryFacades.map(item => `${item.method}->${item.targetMethod}`), [
@@ -412,9 +413,11 @@ try {
   assert.ok(actual.lifecycle.listeners.some(item => item.event === 'agent/status' && item.disposerOwner === 'ctx.effect'))
   assert.ok(actual.lifecycle.listeners.some(item => item.event === 'domain/changed' && item.receiver === 'ctx'))
   assert.deepEqual(actual.lifecycle.systemPrompts.map(item => item.fields.name), ['agent-swarm:usage'])
-  assert.equal(actual.lifecycle.effects.length, 28)
+  assert.equal(actual.lifecycle.effects.length, 30)
   assert.ok(actual.lifecycle.effects.some(item => item.label === 'agent-swarm: fresh-v2 model dispatch witness'))
   assert.ok(actual.lifecycle.effects.some(item => item.label === 'agent-swarm: fresh-v2 provider topology revocation'))
+  assert.ok(actual.lifecycle.effects.some(item => item.label === 'agent-swarm: fresh-v2 continuation claim evidence'))
+  assert.ok(actual.lifecycle.effects.some(item => item.label === 'agent-swarm: fresh-v2 continuation quiescence'))
   assert.ok(actual.lifecycle.effects.some(item => item.label === 'agent-swarm: human interaction domain' && item.cleanup === 'returned-cleanup'))
   assert.ok(actual.lifecycle.effects.some(item => item.label === 'agent-swarm: activation recovery' && item.async === true))
   assert.ok(actual.lifecycle.effects.some(item => item.label === 'agent-swarm: workflow bridge disposal'))
@@ -636,14 +639,14 @@ try {
     expectCode(await extractSourceFacts(repositoryLink, { expectedToolCount: 0 }), 'KG_EXTRACT_REPOSITORY_REPARSE_POINT')
   }
 
-  const twentyTools = Array.from({ length: 20 }, (_, index) => [
+  const twentyOneTools = Array.from({ length: 21 }, (_, index) => [
     `registerTool${String(index + 1).padStart(2, '0')}Tool`,
     `'agent_swarm_tool_${String(index + 1).padStart(2, '0')}'`,
   ])
-  const twentyRoot = await fixtureRoot('twenty-tools', { tools: twentyTools })
-  const twenty = await extractSourceFacts(twentyRoot)
-  assert.equal(twenty.counts.tools, 20)
-  expectCode(twenty, 'KG_EXTRACT_TOOL_COUNT')
+  const twentyOneRoot = await fixtureRoot('twenty-one-tools', { tools: twentyOneTools })
+  const twentyOne = await extractSourceFacts(twentyOneRoot)
+  assert.equal(twentyOne.counts.tools, 21)
+  expectCode(twentyOne, 'KG_EXTRACT_TOOL_COUNT')
 
   const duplicateRoot = await fixtureRoot('duplicate', {
     tools: [

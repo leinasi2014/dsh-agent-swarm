@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "facetCount": 13,
+  "facetCount": 14,
   "families": [
     "team-lifecycle",
     "task",
@@ -14,7 +14,7 @@
       "sourceAnchors": [{ "file": "src/tools.ts", "symbol": "registerAgentSwarmTools" }],
       "testAnchors": [{ "file": "tests/tool-policy.spec.ts" }],
       "relatedToolIds": [
-        "tool:agent_swarm_add_member", "tool:agent_swarm_add_memory", "tool:agent_swarm_add_personal_memory", "tool:agent_swarm_archive", "tool:agent_swarm_claim_task", "tool:agent_swarm_create", "tool:agent_swarm_create_task", "tool:agent_swarm_interrupt_member", "tool:agent_swarm_list_jobs", "tool:agent_swarm_list_memory", "tool:agent_swarm_list_tasks", "tool:agent_swarm_reassign_task", "tool:agent_swarm_remove_member", "tool:agent_swarm_review_task", "tool:agent_swarm_send_message", "tool:agent_swarm_set_budget", "tool:agent_swarm_status", "tool:agent_swarm_submit_task", "tool:agent_swarm_wait"
+        "tool:agent_swarm_add_member", "tool:agent_swarm_add_memory", "tool:agent_swarm_add_personal_memory", "tool:agent_swarm_archive", "tool:agent_swarm_claim_task", "tool:agent_swarm_continue_task", "tool:agent_swarm_create", "tool:agent_swarm_create_task", "tool:agent_swarm_interrupt_member", "tool:agent_swarm_list_jobs", "tool:agent_swarm_list_memory", "tool:agent_swarm_list_tasks", "tool:agent_swarm_reassign_task", "tool:agent_swarm_remove_member", "tool:agent_swarm_review_task", "tool:agent_swarm_send_message", "tool:agent_swarm_set_budget", "tool:agent_swarm_status", "tool:agent_swarm_submit_task", "tool:agent_swarm_wait"
       ],
       "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT"]
     },
@@ -36,8 +36,15 @@
       "title": "Task board and attempt fencing",
       "sourceAnchors": [{ "file": "src/domain/team-domain-board.ts", "symbol": "claimTask" }],
       "testAnchors": [{ "file": "tests/team-assignment-checkpoint.spec.ts" }, { "file": "tests/model-experience.spec.ts" }],
-      "relatedToolIds": ["tool:agent_swarm_claim_task", "tool:agent_swarm_create_task", "tool:agent_swarm_reassign_task", "tool:agent_swarm_review_task", "tool:agent_swarm_submit_task"],
+      "relatedToolIds": ["tool:agent_swarm_claim_task", "tool:agent_swarm_continue_task", "tool:agent_swarm_create_task", "tool:agent_swarm_reassign_task", "tool:agent_swarm_review_task", "tool:agent_swarm_submit_task"],
       "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT"]
+    },
+    "continuation": {
+      "title": "Explicit same-Attempt continuation and official dispatch fencing",
+      "sourceAnchors": [{ "file": "src/domain/team-domain-v2-continuation.ts", "symbol": "TeamV2ContinuationDomain" }, { "file": "src/runtime/fresh-v2-continuation-runtime.ts", "symbol": "FreshV2ContinuationRuntime" }],
+      "testAnchors": [{ "file": "tests/fresh-v2-continuation-domain.spec.ts" }, { "file": "tests/fresh-v2-continuation-fold.spec.ts" }, { "file": "tests/fresh-v2-continuation-runtime.spec.ts" }],
+      "relatedToolIds": ["tool:agent_swarm_continue_task"],
+      "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT", "CONFIG_DISABLED_BY_DEFAULT"]
     },
     "message": {
       "title": "Durable Team mailbox and wakeup delivery",
@@ -65,7 +72,7 @@
       "sourceAnchors": [{ "file": "src/runtime/permission-policy.ts", "symbol": "decideToolPermission" }, { "file": "src/runtime/permission-surface.ts", "symbol": "TeamPermissionSurface.attachPreExecute" }],
       "testAnchors": [{ "file": "tests/permission-boundary.spec.ts" }, { "file": "tests/permission-real-composition.spec.ts" }],
       "relatedToolIds": [
-        "tool:agent_swarm_add_member", "tool:agent_swarm_add_memory", "tool:agent_swarm_add_personal_memory", "tool:agent_swarm_archive", "tool:agent_swarm_claim_task", "tool:agent_swarm_create", "tool:agent_swarm_create_task", "tool:agent_swarm_interrupt_member", "tool:agent_swarm_list_jobs", "tool:agent_swarm_list_memory", "tool:agent_swarm_list_tasks", "tool:agent_swarm_reassign_task", "tool:agent_swarm_remove_member", "tool:agent_swarm_review_task", "tool:agent_swarm_send_message", "tool:agent_swarm_set_budget", "tool:agent_swarm_status", "tool:agent_swarm_submit_task", "tool:agent_swarm_wait"
+        "tool:agent_swarm_add_member", "tool:agent_swarm_add_memory", "tool:agent_swarm_add_personal_memory", "tool:agent_swarm_archive", "tool:agent_swarm_claim_task", "tool:agent_swarm_continue_task", "tool:agent_swarm_create", "tool:agent_swarm_create_task", "tool:agent_swarm_interrupt_member", "tool:agent_swarm_list_jobs", "tool:agent_swarm_list_memory", "tool:agent_swarm_list_tasks", "tool:agent_swarm_reassign_task", "tool:agent_swarm_remove_member", "tool:agent_swarm_review_task", "tool:agent_swarm_send_message", "tool:agent_swarm_set_budget", "tool:agent_swarm_status", "tool:agent_swarm_submit_task", "tool:agent_swarm_wait"
       ],
       "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT"]
     },
@@ -212,6 +219,29 @@
         "availability": { "state": "source-registered", "evidence": ["src/tools/task-board.ts"] }
       },
       "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT", "PER_TOOL_DEEP_SEMANTICS_DEFERRED"]
+    },
+    {
+      "id": "tool:agent_swarm_continue_task",
+      "family": "task",
+      "source": { "module": "src/tools/continuation.ts", "symbol": "registerContinueTaskTool" },
+      "ownerAuthority": "domain:agent-swarm",
+      "callerPermissionClass": { "caller": "team-participant", "defaultPolicy": "allow", "source": { "file": "src/runtime/permission-policy.ts", "symbol": "PLUGIN_TOOL_NAMES" } },
+      "operation": "mutation",
+      "domainTransactionEffect": { "kind": "domain-transaction+external-effect", "summary": "Persists one member-authored same-Attempt continuation intent, then admits one fenced official continuable-child wake only after durable turn settlement and quiescence." },
+      "availability": { "state": "config-disabled-by-default", "conditions": ["plugin enabled", "experimentalFreshV2 true", "calling member owns exact running task and Attempt", "current turn settles completed or max-tokens", "exact live Captain available for immediate online delivery"] },
+      "bounds": [
+        { "name": "nonterminal continuation intents per Attempt", "value": 1, "source": { "file": "src/domain/team-domain-v2-continuation.ts", "symbol": "TeamV2ContinuationDomain" } }
+      ],
+      "recoveryFailure": "Stale revision, owner, Attempt, or competing intent fails before mutation; an admitted effect with unknown delivery outcome is preserved and never blindly resent. Cold recovery remains unaccepted.",
+      "testAnchors": [{ "file": "tests/fresh-v2-continuation-domain.spec.ts" }, { "file": "tests/fresh-v2-continuation-fold.spec.ts" }, { "file": "tests/fresh-v2-continuation-runtime.spec.ts" }],
+      "documentationAnchors": [{ "file": "docs/adr/0010-model-autonomy-and-parked-attempts.md" }, { "file": "docs/development/2026-08-24-team-runtime-architecture-blueprint-v1.md" }],
+      "maturity": {
+        "implementation": { "state": "implemented", "evidence": ["src/tools/continuation.ts", "src/domain/team-domain-v2-continuation.ts", "src/runtime/fresh-v2-continuation-runtime.ts"] },
+        "verification": { "state": "official-composition-anchored", "evidence": ["tests/fresh-v2-continuation-domain.spec.ts", "tests/fresh-v2-continuation-fold.spec.ts", "tests/fresh-v2-continuation-runtime.spec.ts"] },
+        "acceptance": { "state": "not-asserted", "evidence": [] },
+        "availability": { "state": "config-disabled-by-default", "evidence": ["src/index.ts"] }
+      },
+      "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT", "CONFIG_DISABLED_BY_DEFAULT", "PER_TOOL_DEEP_SEMANTICS_DEFERRED"]
     },
     {
       "id": "tool:agent_swarm_create",

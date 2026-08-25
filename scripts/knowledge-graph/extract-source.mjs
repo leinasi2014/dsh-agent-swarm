@@ -608,8 +608,17 @@ function extractRegistrationOrder(sourceRecords, checker, definitionByName, defi
       return
     }
     activeAggregators.add(functionNode)
-    for (const statement of functionNode.body.statements) {
-      if (!ts.isExpressionStatement(statement) || !ts.isCallExpression(statement.expression) || !ts.isIdentifier(statement.expression.expression)) continue
+    const walkStatement = (statement) => {
+      if (ts.isIfStatement(statement)) {
+        walkStatement(statement.thenStatement)
+        if (statement.elseStatement !== undefined) walkStatement(statement.elseStatement)
+        return
+      }
+      if (ts.isBlock(statement)) {
+        for (const child of statement.statements) walkStatement(child)
+        return
+      }
+      if (!ts.isExpressionStatement(statement) || !ts.isCallExpression(statement.expression) || !ts.isIdentifier(statement.expression.expression)) return
       const localCall = statement.expression.expression.text
       const callSymbol = resolvedSymbol(statement.expression.expression, checker)
       const definition = callSymbol === undefined ? undefined : definitionsByFunctionSymbol.get(callSymbol)
@@ -621,14 +630,14 @@ function extractRegistrationOrder(sourceRecords, checker, definitionByName, defi
           registrationOrder: registrations.length + 1,
           anchor: sourcePosition(toolsModule.sourceFile, statement),
         })
-        continue
+        return
       }
       const declaration = callSymbol?.valueDeclaration ?? callSymbol?.declarations?.[0]
       if (ts.isFunctionDeclaration(declaration)
         && declaration.getSourceFile() === toolsModule.sourceFile
         && declaration.body !== undefined) {
         walkRegistrationFunction(declaration)
-        continue
+        return
       }
       diagnostics.push(diagnostic(
         'KG_EXTRACT_TOOL_REGISTRATION_UNKNOWN',
@@ -637,6 +646,9 @@ function extractRegistrationOrder(sourceRecords, checker, definitionByName, defi
         localCall,
         'registration call symbol does not bind to one tool declaration or local registration aggregator',
       ))
+    }
+    for (const statement of functionNode.body.statements) {
+      walkStatement(statement)
     }
     activeAggregators.delete(functionNode)
   }
@@ -938,7 +950,7 @@ export async function extractSourceFacts(rootInput, options = {}) {
   const policyDiff = compareSets(registeredNames, permissionNames)
   for (const name of policyDiff.leftOnly) diagnostics.push(diagnostic('KG_EXTRACT_PERMISSION_TOOL_MISSING', 'error', permissionPolicy.file, name, 'registered tool is absent from permission policy'))
   for (const name of policyDiff.rightOnly) diagnostics.push(diagnostic('KG_EXTRACT_PERMISSION_TOOL_EXTRA', 'error', permissionPolicy.file, name, 'permission policy names a tool that is not registered'))
-  const expectedToolCount = options.expectedToolCount ?? 19
+  const expectedToolCount = options.expectedToolCount ?? 20
   if (registrations.length !== expectedToolCount) {
     diagnostics.push(diagnostic('KG_EXTRACT_TOOL_COUNT', 'error', 'src/tools.ts', 'registerAgentSwarmTools', `expected ${expectedToolCount} registered tools, found ${registrations.length}`))
   }

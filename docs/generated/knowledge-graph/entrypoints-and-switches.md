@@ -2,9 +2,9 @@
 
 # Entrypoints and switches
 
-Manifest digest: `fe332cc0e1a7493e66591f6961f76dfdf97eccff20afcbebfb60f1ffbdbe24ed`
+Manifest digest: `102d6f7aa00c4e166cabfbba9ae9b9a36dcfc46bde78b2b4015c7ae1f2f4a7c2`
 
-Curated tool-registry digest: `331defbb12c4ac44efa0bdd7b16007d003dfa3704477b0c2c925d9cc1b665783`
+Curated tool-registry digest: `4783f01c6944ac92630bed586de73942dd486d5f2e4a152f41a5feb045518e44`
 
 > Claim ceiling: the registry is a reviewed capability overlay over exact source extraction. Per-tool deep semantic closure, acceptance, and real-Profile evidence remain explicit gaps; the complete mechanical graph is retained in `atlas.json`.
 
@@ -12,7 +12,7 @@ Curated tool-registry digest: `331defbb12c4ac44efa0bdd7b16007d003dfa3704477b0c2c
 
 | Functional facet | Title | Source anchors | Test anchors | Related tools | Evidence gaps |
 |---|---|---|---|---|---|
-| `tool` | Model-facing tool surface | src/tools.ts#registerAgentSwarmTools | tests/tool-policy.spec.ts | tool:agent_swarm_add_member<br>tool:agent_swarm_add_memory<br>tool:agent_swarm_add_personal_memory<br>tool:agent_swarm_archive<br>tool:agent_swarm_claim_task<br>tool:agent_swarm_create<br>tool:agent_swarm_create_task<br>tool:agent_swarm_interrupt_member<br>tool:agent_swarm_list_jobs<br>tool:agent_swarm_list_memory<br>tool:agent_swarm_list_tasks<br>tool:agent_swarm_reassign_task<br>tool:agent_swarm_remove_member<br>tool:agent_swarm_review_task<br>tool:agent_swarm_send_message<br>tool:agent_swarm_set_budget<br>tool:agent_swarm_status<br>tool:agent_swarm_submit_task<br>tool:agent_swarm_wait | NO_REAL_PROFILE_EVIDENCE<br>PROFILE_DEPENDENT |
+| `tool` | Model-facing tool surface | src/tools.ts#registerAgentSwarmTools | tests/tool-policy.spec.ts | tool:agent_swarm_add_member<br>tool:agent_swarm_add_memory<br>tool:agent_swarm_add_personal_memory<br>tool:agent_swarm_archive<br>tool:agent_swarm_claim_task<br>tool:agent_swarm_continue_task<br>tool:agent_swarm_create<br>tool:agent_swarm_create_task<br>tool:agent_swarm_interrupt_member<br>tool:agent_swarm_list_jobs<br>tool:agent_swarm_list_memory<br>tool:agent_swarm_list_tasks<br>tool:agent_swarm_reassign_task<br>tool:agent_swarm_remove_member<br>tool:agent_swarm_review_task<br>tool:agent_swarm_send_message<br>tool:agent_swarm_set_budget<br>tool:agent_swarm_status<br>tool:agent_swarm_submit_task<br>tool:agent_swarm_wait | NO_REAL_PROFILE_EVIDENCE<br>PROFILE_DEPENDENT |
 | `config` | Plugin configuration and feature switches | src/index.ts#Config | tests/agent-swarm-settings.spec.tsx<br>tests/dsh-composition.spec.ts | tool:agent_swarm_add_member<br>tool:agent_swarm_claim_task<br>tool:agent_swarm_list_jobs<br>tool:agent_swarm_list_memory | NO_REAL_PROFILE_EVIDENCE<br>PROFILE_DEPENDENT |
 
 ## Tool families
@@ -43,6 +43,7 @@ flowchart LR
 flowchart LR
   n_66616d696c793a7461736b["task"]
   n_66616d696c793a7461736b --> n_746f6f6c3a6167656e745f737761726d5f636c61696d5f7461736b["agent_swarm_claim_task"]
+  n_66616d696c793a7461736b --> n_746f6f6c3a6167656e745f737761726d5f636f6e74696e75655f7461736b["agent_swarm_continue_task"]
   n_66616d696c793a7461736b --> n_746f6f6c3a6167656e745f737761726d5f6372656174655f7461736b["agent_swarm_create_task"]
   n_66616d696c793a7461736b --> n_746f6f6c3a6167656e745f737761726d5f726561737369676e5f7461736b["agent_swarm_reassign_task"]
   n_66616d696c793a7461736b --> n_746f6f6c3a6167656e745f737761726d5f7265766965775f7461736b["agent_swarm_review_task"]
@@ -52,6 +53,7 @@ flowchart LR
 | Stable capability id | Source module | Symbol | Availability / switches |
 |---|---|---|---|
 | `tool:agent_swarm_claim_task` | src/tools/task-board.ts | registerClaimTaskTool | registered: plugin enabled; ready task; budget and membership guards pass |
+| `tool:agent_swarm_continue_task` | src/tools/continuation.ts | registerContinueTaskTool | config-disabled-by-default: plugin enabled; experimentalFreshV2 true; calling member owns exact running task and Attempt; current turn settles completed or max-tokens; exact live Captain available for immediate online delivery |
 | `tool:agent_swarm_create_task` | src/tools/task-board.ts | registerCreateTaskTool | registered: plugin enabled; active Team; task and dependency bounds pass |
 | `tool:agent_swarm_reassign_task` | src/tools/task-board.ts | registerReassignTaskTool | registered: plugin enabled; live captain; exact task revision |
 | `tool:agent_swarm_review_task` | src/tools/task-board.ts | registerReviewTaskTool | registered: plugin enabled; live captain; submitted exact attempt; review provider available |

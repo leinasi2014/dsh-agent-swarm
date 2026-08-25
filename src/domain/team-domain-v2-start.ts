@@ -13,6 +13,7 @@ import {
 } from './team-state-v2.js'
 import { AttemptId, TaskId, TeamId, type TeamTask } from './types.js'
 import type { TeamScope } from './team-domain-port.js'
+import { replaceV2Attempt } from './team-domain-v2-shared.js'
 
 function requireText(value: string, label: string, maximum: number): string {
   const normalized = value.trim()
@@ -55,12 +56,6 @@ function replaceTask(team: TeamStateV2, task: TeamTask): void {
   const index = team.tasks.findIndex(candidate => candidate.id === task.id)
   if (index < 0) throw new TeamDomainError(`task "${task.id}" not found`, 'TEAM_TASK_NOT_FOUND')
   team.tasks[index] = task
-}
-
-function replaceAttempt(team: TeamStateV2, attempt: TaskAttemptV2): void {
-  const index = team.attempts.findIndex(candidate => candidate.id === attempt.id)
-  if (index < 0) throw new TeamDomainError(`attempt "${attempt.id}" is stale`, 'TEAM_ATTEMPT_STALE')
-  team.attempts[index] = attempt
 }
 
 function requireInitialDispatchTuple(
@@ -446,7 +441,7 @@ export class TeamV2StartDomain {
         updatedAt: timestamp,
       }
       replaceMember(team, active)
-      replaceAttempt(team, delivered)
+      replaceV2Attempt(team, delivered)
       result = { member: active, attempt: delivered, dispatch }
     })
     return structuredClone(result)
@@ -491,7 +486,7 @@ export class TeamV2StartDomain {
       void _startingAttemptId; void _owner; void _attempt; void _target
       const pending: TeamTask = { ...released, revision: task.revision + 1, status: 'pending', updatedAt: timestamp }
       replaceMember(team, failed)
-      replaceAttempt(team, cancelled)
+      replaceV2Attempt(team, cancelled)
       replaceTask(team, pending)
       result = { member: failed, task: pending, attempt: cancelled }
     })
@@ -528,7 +523,7 @@ export class TeamV2StartDomain {
         dispatchEpochs: [entered, ...attempt.dispatchEpochs.slice(1)],
         updatedAt: this.now(),
       }
-      replaceAttempt(team, nextAttempt)
+      replaceV2Attempt(team, nextAttempt)
       result = { attempt: nextAttempt, dispatch: entered }
     })
     return structuredClone(result)
@@ -577,7 +572,7 @@ export class TeamV2StartDomain {
         evidence: [...attempt.evidence, `session:${memberSessionId}:event:${evidence.eventSeq}:${evidence.eventType}`],
         updatedAt: timestamp,
       }
-      replaceAttempt(team, running)
+      replaceV2Attempt(team, running)
       result = { attempt: running, dispatch: settled }
     })
     return structuredClone(result)

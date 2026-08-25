@@ -95,6 +95,7 @@ const dispatchEpochSchema = z.object({
   effectId: text,
   recoveryOf: text.optional(),
   targetSessionId: sessionId,
+  frameMessageId: text.optional(),
   turn: z.number().int().min(1).optional(),
   step: z.number().int().min(1).optional(),
   messageSeq: z.number().int().min(0).optional(),
@@ -153,6 +154,12 @@ const effectSchema = z.object({
   attemptId: text.optional(),
   dispatchId: text.optional(),
   decision: z.enum(['accept', 'reject']).optional(),
+  continuationEffectId: text.optional(),
+  continuationRequestedBy: principalSchema.optional(),
+  continuationRequestedAt: timestamp.optional(),
+  continuationExpectedTaskRevision: z.number().int().min(1).optional(),
+  continuationCheckpointDigest: digest.optional(),
+  continuationWakeCondition: text.optional(),
 }).strict()
 
 const budgetSchema = z.strictObject({
@@ -256,7 +263,12 @@ export function assertTeamStateV2(value: unknown, path: string): asserts value i
       if (intent.attemptId !== attempt.id || intent.taskId !== attempt.taskId || !NONTERMINAL_INTENTS.has(intent.phase)) {
         fail(path, `attempt ${attempt.id} current continuation intent is stale or terminal`)
       }
-      if (attempt.parked?.currentContinuationIntentId !== intent.continuationEffectId) {
+      const preParkRequest = intent.phase === 'requested' && attempt.phase === 'running'
+      if (preParkRequest) {
+        if (attempt.parked !== undefined || intent.resumeEffectId !== undefined || intent.currentDispatchId !== undefined) {
+          fail(path, `attempt ${attempt.id} pre-park continuation request carries admitted effect state`)
+        }
+      } else if (attempt.parked?.currentContinuationIntentId !== intent.continuationEffectId) {
         fail(path, `attempt ${attempt.id} continuation slot does not match parked metadata`)
       }
     } else if (attempt.parked?.currentContinuationIntentId !== undefined) {
@@ -270,6 +282,12 @@ export function assertTeamStateV2(value: unknown, path: string): asserts value i
     for (const epoch of attempt.dispatchEpochs) {
       allDispatchIds.push(epoch.dispatchId)
       if (epoch.targetSessionId !== attempt.memberSessionId) fail(path, `dispatch ${epoch.dispatchId} targets another member`)
+      if (epoch.kind === 'initial' && epoch.frameMessageId !== undefined) {
+        fail(path, `initial dispatch ${epoch.dispatchId} carries a continuation inbox identity`)
+      }
+      if (epoch.kind === 'continuation' && epoch.phase !== 'frame-pending' && epoch.frameMessageId === undefined) {
+        fail(path, `continuation dispatch ${epoch.dispatchId} lacks its official inbox identity`)
+      }
       const bound = epoch.turn !== undefined && epoch.step !== undefined && epoch.messageSeq !== undefined
       if (['dispatch-pending', 'dispatch-entered', 'dispatch-unknown', 'settled'].includes(epoch.phase) && !bound) {
         fail(path, `dispatch ${epoch.dispatchId} lacks its Session turn/step/message fence`)

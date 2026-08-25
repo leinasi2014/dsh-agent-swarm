@@ -78,6 +78,8 @@ Worker steps:
 5. report blocker or completion;
 6. stop immediately on stale-attempt rejection.
 
+Experimental fresh-v2 adds one conditionally registered member tool, `agent_swarm_continue_task`. It does not start a private loop or infer continuation from idle time: the live owning member records one fenced intent during its current official turn; the runtime waits for durable turn settlement and official idle; the exact root Captain delivers a typed plugin-source frame through official `subagents.followup`; the target's official inbox claim and Session flush bind the new turn; and the common one-shot Agent Loop/`llm/stream` witness must commit `dispatch-entered` before the Provider is called. Exact assistant evidence settles the receipt and returns the same Attempt to running. The current implementation is online-only and config-disabled by default; cold restart and ambiguous delivery reconciliation remain unavailable rather than retried blindly.
+
 The worker does not mark the canonical task completed when a review gate exists. It marks the run submitted.
 
 ## 5. Review transaction

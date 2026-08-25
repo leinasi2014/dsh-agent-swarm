@@ -35,6 +35,7 @@ export const AGENT_TOOL_FUNCTIONAL_FACETS = Object.freeze([
   'team',
   'member',
   'task',
+  'continuation',
   'message',
   'memory',
   'budget',
@@ -230,7 +231,7 @@ export function validateAgentToolRegistry(root, registry) {
   for (const entry of registry.entries) validateEntry(root, entry, families)
   const facetNames = Object.keys(registry.functionalFacets)
   if (canonicalJson(facetNames) !== canonicalJson(AGENT_TOOL_FUNCTIONAL_FACETS)) {
-    fail('KG_TOOL_REGISTRY_FUNCTIONAL_FACETS', 'functional facets must be the canonical ordered 13-facet set', { actual: facetNames })
+    fail('KG_TOOL_REGISTRY_FUNCTIONAL_FACETS', 'functional facets must be the canonical ordered 14-facet set', { actual: facetNames })
   }
   const entryIds = new Set(ids)
   for (const facetName of AGENT_TOOL_FUNCTIONAL_FACETS) {
@@ -263,7 +264,7 @@ export function validateAgentToolRegistryAgainstFacts(registry, facts) {
       fail('KG_TOOL_REGISTRY_SOURCE_MISMATCH', `${id} source module/symbol differs from the extractor`, { curated: entry.source, extracted: { module: tool.file, symbol: tool.registrationFunction } })
     }
   }
-  if (registry.entries.length !== 19 || facts.tools.length !== 19) fail('KG_TOOL_REGISTRY_TOOL_COUNT', `expected the closed 19-tool surface; registry=${registry.entries.length}, extractor=${facts.tools.length}`)
+  if (registry.entries.length !== 20 || facts.tools.length !== 20) fail('KG_TOOL_REGISTRY_TOOL_COUNT', `expected the closed 20-tool surface; registry=${registry.entries.length}, extractor=${facts.tools.length}`)
   return { toolCount: registry.entries.length, facetCount: AGENT_TOOL_FUNCTIONAL_FACETS.length }
 }
 

@@ -2,9 +2,9 @@
 
 # Domain and state
 
-Manifest digest: `fe332cc0e1a7493e66591f6961f76dfdf97eccff20afcbebfb60f1ffbdbe24ed`
+Manifest digest: `102d6f7aa00c4e166cabfbba9ae9b9a36dcfc46bde78b2b4015c7ae1f2f4a7c2`
 
-Curated tool-registry digest: `331defbb12c4ac44efa0bdd7b16007d003dfa3704477b0c2c925d9cc1b665783`
+Curated tool-registry digest: `4783f01c6944ac92630bed586de73942dd486d5f2e4a152f41a5feb045518e44`
 
 > Claim ceiling: the registry is a reviewed capability overlay over exact source extraction. Per-tool deep semantic closure, acceptance, and real-Profile evidence remain explicit gaps; the complete mechanical graph is retained in `atlas.json`.
 
@@ -14,7 +14,7 @@ Curated tool-registry digest: `331defbb12c4ac44efa0bdd7b16007d003dfa3704477b0c2c
 |---|---|---|---|---|---|
 | `team` | Team lifecycle authority | src/domain/team-domain.ts#TeamDomain | tests/team-domain.spec.ts | tool:agent_swarm_add_member<br>tool:agent_swarm_archive<br>tool:agent_swarm_create<br>tool:agent_swarm_interrupt_member<br>tool:agent_swarm_remove_member | NO_REAL_PROFILE_EVIDENCE<br>PROFILE_DEPENDENT |
 | `member` | Member provisioning and lifecycle | src/runtime/member-provisioning.ts#MemberProvisioner.addMember | tests/member-provisioning.spec.ts | tool:agent_swarm_add_member<br>tool:agent_swarm_interrupt_member<br>tool:agent_swarm_remove_member | NO_REAL_PROFILE_EVIDENCE<br>PROFILE_DEPENDENT |
-| `task` | Task board and attempt fencing | src/domain/team-domain-board.ts#claimTask | tests/team-assignment-checkpoint.spec.ts<br>tests/model-experience.spec.ts | tool:agent_swarm_claim_task<br>tool:agent_swarm_create_task<br>tool:agent_swarm_reassign_task<br>tool:agent_swarm_review_task<br>tool:agent_swarm_submit_task | NO_REAL_PROFILE_EVIDENCE<br>PROFILE_DEPENDENT |
+| `task` | Task board and attempt fencing | src/domain/team-domain-board.ts#claimTask | tests/team-assignment-checkpoint.spec.ts<br>tests/model-experience.spec.ts | tool:agent_swarm_claim_task<br>tool:agent_swarm_continue_task<br>tool:agent_swarm_create_task<br>tool:agent_swarm_reassign_task<br>tool:agent_swarm_review_task<br>tool:agent_swarm_submit_task | NO_REAL_PROFILE_EVIDENCE<br>PROFILE_DEPENDENT |
 | `message` | Durable Team mailbox and wakeup delivery | src/domain/team-domain-mailbox.ts#queueMessage<br>src/runtime/message-delivery.ts#MessageDelivery.deliverQueuedMessage | tests/message-delivery.spec.ts | tool:agent_swarm_send_message<br>tool:agent_swarm_wait | NO_REAL_PROFILE_EVIDENCE<br>PROFILE_DEPENDENT |
 | `memory` | Team and personal memory | src/runtime/memory-operations.ts#MemoryOperations.list<br>src/runtime/memory-query.ts#lexicalScore | tests/memory-member-profile.spec.ts | tool:agent_swarm_add_memory<br>tool:agent_swarm_add_personal_memory<br>tool:agent_swarm_list_memory | NO_REAL_PROFILE_EVIDENCE<br>PROFILE_DEPENDENT |
 | `budget` | Budget limits, usage, and reservation admission | src/domain/team-domain-budget.ts#setBudget | tests/budget-family.spec.ts | tool:agent_swarm_set_budget | NO_REAL_PROFILE_EVIDENCE<br>PROFILE_DEPENDENT |
@@ -47,6 +47,7 @@ flowchart LR
 flowchart LR
   n_66616d696c793a7461736b["task"]
   n_66616d696c793a7461736b --> n_746f6f6c3a6167656e745f737761726d5f636c61696d5f7461736b["agent_swarm_claim_task"]
+  n_66616d696c793a7461736b --> n_746f6f6c3a6167656e745f737761726d5f636f6e74696e75655f7461736b["agent_swarm_continue_task"]
   n_66616d696c793a7461736b --> n_746f6f6c3a6167656e745f737761726d5f6372656174655f7461736b["agent_swarm_create_task"]
   n_66616d696c793a7461736b --> n_746f6f6c3a6167656e745f737761726d5f726561737369676e5f7461736b["agent_swarm_reassign_task"]
   n_66616d696c793a7461736b --> n_746f6f6c3a6167656e745f737761726d5f7265766965775f7461736b["agent_swarm_review_task"]
@@ -56,6 +57,7 @@ flowchart LR
 | Stable capability id | Operation | Domain relation | Transaction / effect summary |
 |---|---|---|---|
 | `tool:agent_swarm_claim_task` | mutation | domain-transaction+external-effect | Revision-CAS claims a ready task, creates an attempt fence, and optionally allocates an execution root before delivery. |
+| `tool:agent_swarm_continue_task` | mutation | domain-transaction+external-effect | Persists one member-authored same-Attempt continuation intent, then admits one fenced official continuable-child wake only after durable turn settlement and quiescence. |
 | `tool:agent_swarm_create_task` | mutation | domain-transaction | Commits a dependency-aware task and may trigger priority-ready scheduling. |
 | `tool:agent_swarm_reassign_task` | mutation | domain-transaction+external-effect | Fences the current attempt, returns the task to pending, and interrupts the prior assignee before fresh scheduling. |
 | `tool:agent_swarm_review_task` | mutation | domain-transaction+external-effect | Runs the configured review provider and accepts or rejects the exact submitted attempt through the canonical review gate. |
@@ -133,6 +135,8 @@ flowchart LR
   n_656e746974793a6167656e742d737761726d2f6d6967726174696f6e72656365697074["MigrationReceipt record"]
   n_656e746974793a6167656e742d737761726d2f7465616d7265636f7264["TeamRecord record"]
   n_656e746974793a636c69656e742d73657474696e67732f6167656e74737761726d73657474696e6773646f63756d656e74["AgentSwarmSettingsDocument: memberDenyTools, memberLlmProvider, memberModel, memberProvider, memberSkills, memoryQueryMaxCandidates, memoryQueryTimeoutMs, memorySemanticEnabled, memorySemanticModel, memorySemanticProvider"]
+  n_656e746974793a66726573682d76322d636f6e74696e756174696f6e2d656666656374["Idempotent admitted continuation effect receipt"]
+  n_656e746974793a66726573682d76322d636f6e74696e756174696f6e2d696e74656e74["Durable member-authored continuation intent"]
   n_656e746974793a66726573682d76322d696e697469616c2d61737369676e6d656e742d6672616d65["Exact initial assignment Session frame"]
   n_656e746974793a66726573682d76322d6d6f64656c2d64697370617463682d65706f6368["Fresh-v2 model dispatch epoch"]
   n_656e746974793a66726573682d76322d7461736b2d617474656d7074["Fresh-v2 task Attempt"]
@@ -141,8 +145,6 @@ flowchart LR
   n_656e746974793a7270632d736368656d612f737761726d5f726561645f7270635f66697874757265735f7631["RPC schema SWARM_READ_RPC_FIXTURES_V1"]
   n_656e746974793a7270632d736368656d612f737761726d7265616462696e64696e677631["RPC schema SwarmReadBindingV1"]
   n_656e746974793a7270632d736368656d612f737761726d726561646361706162696c697469657372657175657374["RPC schema SwarmReadCapabilitiesRequest"]
-  n_656e746974793a7270632d736368656d612f737761726d726561646361706162696c69746965737631["RPC schema SwarmReadCapabilitiesV1"]
-  n_656e746974793a7270632d736368656d612f737761726d726561646361706162696c697479["RPC schema SwarmReadCapability"]
   n_646f6d61696e3a6167656e742d737761726d -->|contains| n_656e746974793a6167656e742d737761726d2f6d6967726174696f6e72656365697074
   n_646f6d61696e3a6167656e742d737761726d -->|contains| n_656e746974793a6167656e742d737761726d2f7465616d7265636f7264
   n_646f6d61696e3a6167656e742d737761726d2d68756d616e -->|contains| n_656e746974793a6167656e742d737761726d2d68756d616e2f68756d616e696e746572616374696f6e7265636f7264
@@ -151,6 +153,8 @@ flowchart LR
   n_646f6d61696e3a6167656e742d737761726d2d776f726b666c6f77 -->|contains| n_656e746974793a6167656e742d737761726d2d776f726b666c6f772f776f726b666c6f7772756e6f7665726c61797265636f7264
   n_646f6d61696e3a6167656e742d737761726d -->|owns| n_636865636b706f696e743a66726573682d76322d64697370617463682d656e74657265642d726561646261636b
   n_646f6d61696e3a6167656e742d737761726d -->|owns| n_636865636b706f696e743a66726573682d76322d64697370617463682d70656e64696e672d726561646261636b
+  n_646f6d61696e3a6167656e742d737761726d -->|owns| n_656e746974793a66726573682d76322d636f6e74696e756174696f6e2d656666656374
+  n_646f6d61696e3a6167656e742d737761726d -->|owns| n_656e746974793a66726573682d76322d636f6e74696e756174696f6e2d696e74656e74
   n_646f6d61696e3a6167656e742d737761726d -->|owns| n_656e746974793a66726573682d76322d6d6f64656c2d64697370617463682d65706f6368
   n_646f6d61696e3a6167656e742d737761726d -->|owns| n_656e746974793a66726573682d76322d7461736b2d617474656d7074
   n_646f6d61696e3a6167656e742d737761726d -->|owns| n_636865636b706f696e743a617474656d70742d64656c697665726564
@@ -181,6 +185,8 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `entity:agent-swarm/migrationreceipt` | entity | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `entity:agent-swarm/teamrecord` | entity | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `entity:client-settings/agentswarmsettingsdocument` | entity | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `entity:fresh-v2-continuation-effect` | entity | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `entity:fresh-v2-continuation-intent` | entity | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `entity:fresh-v2-initial-assignment-frame` | entity | REVIEWED | implemented | composition | candidate | config-gated | `official-authority:session` |
 | `entity:fresh-v2-model-dispatch-epoch` | entity | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `entity:fresh-v2-task-attempt` | entity | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
@@ -267,6 +273,12 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `state:discriminant/workflowrunoverlayrecord/schemaversion` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `state:discriminant/workflowrunoverlayrecord/state` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `state:discriminant/workflowrunoverlayrecord/stopreason` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `state:fresh-v2-continuation/admitted` | state | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `state:fresh-v2-continuation/dispatch-entered` | state | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `state:fresh-v2-continuation/dispatch-pending` | state | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `state:fresh-v2-continuation/parked` | state | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `state:fresh-v2-continuation/requested` | state | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `state:fresh-v2-continuation/running-evidenced` | state | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `state:fresh-v2-initial/dispatch-entered` | state | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `state:fresh-v2-initial/dispatch-pending` | state | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `state:fresh-v2-initial/failed-requeued` | state | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
@@ -294,8 +306,15 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `transaction:acknowledge-assignment` | transaction | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
 | `transaction:cancel-undelivered-assignment` | transaction | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
 | `transaction:claim-task` | transaction | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
+| `transaction:fresh-v2-admit-continuation` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `transaction:fresh-v2-claim-continuation-frame` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `transaction:fresh-v2-create-reserve-initial` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `transaction:fresh-v2-enter-continuation-dispatch` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `transaction:fresh-v2-enter-initial-dispatch` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `transaction:fresh-v2-fail-initial` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `transaction:fresh-v2-park-after-turn` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `transaction:fresh-v2-record-continuation-frame` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `transaction:fresh-v2-request-continuation` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `transaction:fresh-v2-settle-assistant-evidence` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `transaction:fresh-v2-settle-continuation-evidence` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `transaction:fresh-v2-settle-initial-assignment` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |

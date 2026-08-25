@@ -91,6 +91,9 @@ export function buildFreshV2InitialDispatchSlice(facts) {
   const domainFile = 'src/domain/team-domain-v2-start.ts'
   const foldFile = 'src/runtime/fresh-v2-session-fold.ts'
   const capabilityFile = 'src/runtime/fresh-v2-witness-capability.ts'
+  const continuationRuntimeFile = 'src/runtime/fresh-v2-continuation-runtime.ts'
+  const continuationDomainFile = 'src/domain/team-domain-v2-continuation.ts'
+  const continuationFoldFile = 'src/runtime/fresh-v2-continuation-fold.ts'
   const flow = ref('flow:fresh-v2-initial-dispatch', 'flow')
   const service = ref('service:fresh-v2-initial-runtime', 'service')
   const attempt = ref('entity:fresh-v2-task-attempt', 'entity')
@@ -144,6 +147,36 @@ export function buildFreshV2InitialDispatchSlice(facts) {
     profile: ref('test:a1b-official-profile-smoke', 'test'),
   }
   const document = ref('document:fresh-v2-runtime-blueprint', 'document')
+  const continuationFlow = ref('flow:fresh-v2-online-continuation', 'flow')
+  const continuationService = ref('service:fresh-v2-continuation-runtime', 'service')
+  const continuationIntent = ref('entity:fresh-v2-continuation-intent', 'entity')
+  const continuationFrame = ref('event:fresh-v2-continuation-frame', 'event')
+  const continuationEffect = ref('entity:fresh-v2-continuation-effect', 'entity')
+  const followupProvider = ref('provider:official-subagent-continuation-followup', 'provider')
+  const continuationGuard = ref('guard:fresh-v2-continuation-exact-attempt', 'guard')
+  const continuationTransactions = {
+    request: ref('transaction:fresh-v2-request-continuation', 'transaction'),
+    park: ref('transaction:fresh-v2-park-after-turn', 'transaction'),
+    admit: ref('transaction:fresh-v2-admit-continuation', 'transaction'),
+    accept: ref('transaction:fresh-v2-record-continuation-frame', 'transaction'),
+    claim: ref('transaction:fresh-v2-claim-continuation-frame', 'transaction'),
+    enter: ref('transaction:fresh-v2-enter-continuation-dispatch', 'transaction'),
+    evidence: ref('transaction:fresh-v2-settle-continuation-evidence', 'transaction'),
+  }
+  const continuationStates = {
+    requested: ref('state:fresh-v2-continuation/requested', 'state'),
+    parked: ref('state:fresh-v2-continuation/parked', 'state'),
+    admitted: ref('state:fresh-v2-continuation/admitted', 'state'),
+    pending: ref('state:fresh-v2-continuation/dispatch-pending', 'state'),
+    entered: ref('state:fresh-v2-continuation/dispatch-entered', 'state'),
+    running: ref('state:fresh-v2-continuation/running-evidenced', 'state'),
+  }
+  const continuationTests = {
+    domain: ref('test:fresh-v2-continuation-domain', 'test'),
+    runtime: ref('test:fresh-v2-continuation-runtime', 'test'),
+    fold: ref('test:fresh-v2-continuation-fold', 'test'),
+  }
+  const coldContinuation = ref('flow-branch:fresh-v2-online-continuation/cold-recovery-absent', 'flow-branch')
   const implementedBranches = [
     'provider-start-rejected',
     'pre-model-barrier-rejected',
@@ -191,13 +224,32 @@ export function buildFreshV2InitialDispatchSlice(facts) {
     node(facts, tests.foundation.id, tests.foundation.kind, 'Fresh-v2 domain state invariant tests', contracts, 'tests/team-v2-foundation.spec.ts', 'fresh-v2-foundation-tests', { verification: 'unit', evidence: [], security: security(contracts) }),
     node(facts, tests.profile.id, tests.profile.kind, 'Isolated official DSH Profile install/restart smoke', contracts, 'scripts/a1b/run-profile-smoke.mjs', 'a1b-profile-smoke', { verification: 'real-profile', evidence: [], security: security(contracts) }),
     node(facts, document.id, document.kind, 'Fresh-v2 runtime architecture blueprint', contracts, 'docs/development/2026-08-24-team-runtime-architecture-blueprint-v1.md', 'fresh-v2-blueprint', { verification: 'static', evidence: [], security: security(contracts) }),
+    node(facts, continuationFlow.id, continuationFlow.kind, 'Fresh-v2 explicit online same-Attempt continuation', team, continuationRuntimeFile, 'online-continuation-flow', { verification: 'composition', evidence: [continuationTests.domain.id, continuationTests.runtime.id, continuationTests.fold.id] }),
+    node(facts, continuationService.id, continuationService.kind, 'Fresh-v2 continuation runtime', team, continuationRuntimeFile, 'continuation-runtime', { verification: 'composition', evidence: [continuationTests.runtime.id], mutation: 'external-effect', security: security(agentLoop, 'external-effect') }),
+    node(facts, continuationIntent.id, continuationIntent.kind, 'Durable member-authored continuation intent', team, continuationDomainFile, 'continuation-intent'),
+    node(facts, continuationFrame.id, continuationFrame.kind, 'Typed official continuation inbox frame', session, continuationFoldFile, 'continuation-frame', { security: security(session) }),
+    node(facts, continuationEffect.id, continuationEffect.kind, 'Idempotent admitted continuation effect receipt', team, continuationDomainFile, 'continuation-effect'),
+    node(facts, followupProvider.id, followupProvider.kind, 'Official continuable Subagent followup provider', subagent, continuationRuntimeFile, 'official-followup-provider', { security: security(subagent, 'external-effect') }),
+    node(facts, continuationGuard.id, continuationGuard.kind, 'Exact current task, Attempt, member principal and continuation identity fence', team, continuationDomainFile, 'continuation-exact-attempt'),
+    node(facts, continuationTransactions.request.id, continuationTransactions.request.kind, 'Persist member-authored continuation request', team, continuationDomainFile, 'request-continuation', { security: security(team, 'domain-transaction', { guards: [continuationGuard] }) }),
+    node(facts, continuationTransactions.park.id, continuationTransactions.park.kind, 'Park exact Attempt after durable turn settlement', team, continuationDomainFile, 'park-after-turn', { security: security(session, 'domain-transaction', { guards: [continuationGuard] }) }),
+    node(facts, continuationTransactions.admit.id, continuationTransactions.admit.kind, 'Admit one fenced continuation effect', team, continuationDomainFile, 'admit-continuation', { security: security(agentLoop, 'domain-transaction', { guards: [continuationGuard] }) }),
+    node(facts, continuationTransactions.accept.id, continuationTransactions.accept.kind, 'Record official followup acceptance identity', team, continuationDomainFile, 'record-continuation-frame', { security: security(subagent, 'domain-transaction', { guards: [continuationGuard] }) }),
+    node(facts, continuationTransactions.claim.id, continuationTransactions.claim.kind, 'Claim exact official continuation inbox frame', team, continuationDomainFile, 'claim-continuation-frame', { security: security(session, 'domain-transaction', { guards: [continuationGuard] }) }),
+    node(facts, continuationTransactions.enter.id, continuationTransactions.enter.kind, 'Enter exact continuation provider dispatch', team, continuationDomainFile, 'enter-continuation-dispatch', { security: security(agentLoop, 'domain-transaction', { guards: [continuationGuard] }) }),
+    node(facts, continuationTransactions.evidence.id, continuationTransactions.evidence.kind, 'Settle continuation assistant evidence', team, continuationDomainFile, 'settle-continuation-evidence', { security: security(session, 'domain-transaction', { guards: [continuationGuard] }) }),
+    ...Object.entries(continuationStates).map(([name, value]) => node(facts, value.id, value.kind, `Fresh-v2 continuation ${name} state`, team, continuationDomainFile, `continuation-state-${name}`)),
+    node(facts, continuationTests.domain.id, continuationTests.domain.kind, 'Fresh-v2 continuation domain invariant tests', contracts, 'tests/fresh-v2-continuation-domain.spec.ts', 'continuation-domain-tests', { verification: 'unit', evidence: [], security: security(contracts) }),
+    node(facts, continuationTests.runtime.id, continuationTests.runtime.kind, 'Fresh-v2 official Agent Loop continuation composition test', contracts, 'tests/fresh-v2-continuation-runtime.spec.ts', 'continuation-runtime-test', { verification: 'composition', evidence: [], security: security(contracts) }),
+    node(facts, continuationTests.fold.id, continuationTests.fold.kind, 'Fresh-v2 continuation frame source and identity fold tests', contracts, 'tests/fresh-v2-continuation-fold.spec.ts', 'continuation-fold-tests', { verification: 'unit', evidence: [], security: security(contracts) }),
+    node(facts, coldContinuation.id, coldContinuation.kind, 'Cold recovery of admitted continuation remains absent', team, continuationRuntimeFile, 'cold-continuation-absent', { maturity: absentMaturity('A2b cold recovery and ambiguous delivery reconciliation'), contract: { nodeKind: 'flow-branch', flow: continuationFlow }, defaultState: 'disabled' }),
     ...implementedBranches.map(name => node(facts, `flow-branch:fresh-v2-initial-dispatch/${name}`, 'flow-branch', name.replaceAll('-', ' '), team, runtimeFile, `branch-${name}`, { contract: { nodeKind: 'flow-branch', flow } })),
     ...absentBranches.map(name => node(facts, `flow-branch:fresh-v2-initial-dispatch/${name}`, 'flow-branch', name.replaceAll('-', ' '), team, runtimeFile, `absent-${name}`, { maturity: absentMaturity(`A2 recovery slice: ${name}`), contract: { nodeKind: 'flow-branch', flow }, defaultState: 'disabled' })),
   ]
 
   const edges = []
   const add = (...items) => edges.push(...items)
-  for (const owned of [service, flow, attempt, dispatch, ...Object.values(tx), checkpoints.pending, checkpoints.entered, fences.attempt, fences.dispatch, guards.activation, ...Object.values(predicates), ...Object.values(states)]) {
+  for (const owned of [service, flow, attempt, dispatch, ...Object.values(tx), checkpoints.pending, checkpoints.entered, fences.attempt, fences.dispatch, guards.activation, ...Object.values(predicates), ...Object.values(states), continuationService, continuationFlow, continuationIntent, continuationEffect, continuationGuard, ...Object.values(continuationTransactions), ...Object.values(continuationStates), coldContinuation]) {
     add(edge(facts, `edge:fresh-v2-owner/${owned.id.replace(':', '/')}`, 'owns', team, owned, runtimeFile, `owner-${owned.id}`))
   }
   add(
@@ -257,6 +309,39 @@ export function buildFreshV2InitialDispatchSlice(facts) {
     edge(facts, 'edge:fresh-v2/flow-verified-foundation', 'verified-by', flow, tests.foundation, domainFile, 'verified-foundation'),
     edge(facts, 'edge:fresh-v2/flow-verified-profile', 'verified-by', flow, tests.profile, 'scripts/a1b/run-profile-smoke.mjs', 'verified-profile'),
     edge(facts, 'edge:fresh-v2/flow-documented-blueprint', 'documented-by', flow, document, 'docs/development/2026-08-24-team-runtime-architecture-blueprint-v1.md', 'documented-blueprint'),
+    edge(facts, 'edge:fresh-v2-continuation/flow-contains-cold-gap', 'contains', continuationFlow, coldContinuation, continuationRuntimeFile, 'continuation-cold-gap'),
+    edge(facts, 'edge:fresh-v2-continuation/service-calls-request', 'calls', continuationService, continuationTransactions.request, continuationRuntimeFile, 'continuation-calls-request'),
+    edge(facts, 'edge:fresh-v2-continuation/exact-attempt-guards-flow', 'guards', continuationGuard, continuationFlow, continuationDomainFile, 'continuation-guard-flow'),
+    edge(facts, 'edge:fresh-v2-continuation/request-mutates-intent', 'mutates', continuationTransactions.request, continuationIntent, continuationDomainFile, 'continuation-request-intent'),
+    edge(facts, 'edge:fresh-v2-continuation/request-transitions-requested', 'transitions', continuationTransactions.request, continuationStates.requested, continuationDomainFile, 'continuation-requested'),
+    edge(facts, 'edge:fresh-v2-continuation/turn-settlement-calls-park', 'calls', continuationService, continuationTransactions.park, continuationRuntimeFile, 'continuation-calls-park'),
+    edge(facts, 'edge:fresh-v2-continuation/park-mutates-attempt', 'mutates', continuationTransactions.park, attempt, continuationDomainFile, 'continuation-park-attempt'),
+    edge(facts, 'edge:fresh-v2-continuation/park-transitions-parked', 'transitions', continuationTransactions.park, continuationStates.parked, continuationDomainFile, 'continuation-parked'),
+    edge(facts, 'edge:fresh-v2-continuation/quiescence-calls-admit', 'calls', continuationService, continuationTransactions.admit, continuationRuntimeFile, 'continuation-calls-admit'),
+    edge(facts, 'edge:fresh-v2-continuation/admit-mutates-effect', 'mutates', continuationTransactions.admit, continuationEffect, continuationDomainFile, 'continuation-admit-effect'),
+    edge(facts, 'edge:fresh-v2-continuation/admit-transitions-admitted', 'transitions', continuationTransactions.admit, continuationStates.admitted, continuationDomainFile, 'continuation-admitted'),
+    edge(facts, 'edge:fresh-v2-continuation/service-calls-followup', 'calls', continuationService, followupProvider, continuationRuntimeFile, 'continuation-followup'),
+    edge(facts, 'edge:fresh-v2-continuation/followup-emits-frame', 'emits', followupProvider, continuationFrame, continuationRuntimeFile, 'continuation-frame-emitted'),
+    edge(facts, 'edge:fresh-v2-continuation/service-calls-accept', 'calls', continuationService, continuationTransactions.accept, continuationRuntimeFile, 'continuation-calls-accept'),
+    edge(facts, 'edge:fresh-v2-continuation/accept-mutates-dispatch', 'mutates', continuationTransactions.accept, dispatch, continuationDomainFile, 'continuation-accept-dispatch'),
+    edge(facts, 'edge:fresh-v2-continuation/accept-transitions-pending', 'transitions', continuationTransactions.accept, continuationStates.pending, continuationDomainFile, 'continuation-frame-pending'),
+    edge(facts, 'edge:fresh-v2-continuation/session-triggers-claim', 'triggers', session, continuationTransactions.claim, continuationRuntimeFile, 'continuation-inbox-claim'),
+    edge(facts, 'edge:fresh-v2-continuation/claim-listens-frame', 'listens', continuationTransactions.claim, continuationFrame, continuationDomainFile, 'continuation-claim-frame'),
+    edge(facts, 'edge:fresh-v2-continuation/claim-mutates-dispatch', 'mutates', continuationTransactions.claim, dispatch, continuationDomainFile, 'continuation-claim-dispatch'),
+    edge(facts, 'edge:fresh-v2-continuation/claim-transitions-dispatch-pending', 'transitions', continuationTransactions.claim, continuationStates.pending, continuationDomainFile, 'continuation-dispatch-pending'),
+    edge(facts, 'edge:fresh-v2-continuation/agent-loop-calls-enter', 'calls', agentLoop, continuationTransactions.enter, continuationRuntimeFile, 'continuation-enter'),
+    edge(facts, 'edge:fresh-v2-continuation/enter-mutates-dispatch', 'mutates', continuationTransactions.enter, dispatch, continuationDomainFile, 'continuation-enter-dispatch'),
+    edge(facts, 'edge:fresh-v2-continuation/enter-transitions-entered', 'transitions', continuationTransactions.enter, continuationStates.entered, continuationDomainFile, 'continuation-entered'),
+    edge(facts, 'edge:fresh-v2-continuation/service-calls-evidence', 'calls', continuationService, continuationTransactions.evidence, continuationRuntimeFile, 'continuation-evidence'),
+    edge(facts, 'edge:fresh-v2-continuation/evidence-mutates-attempt', 'mutates', continuationTransactions.evidence, attempt, continuationDomainFile, 'continuation-evidence-attempt'),
+    edge(facts, 'edge:fresh-v2-continuation/evidence-mutates-dispatch', 'mutates', continuationTransactions.evidence, dispatch, continuationDomainFile, 'continuation-evidence-dispatch'),
+    edge(facts, 'edge:fresh-v2-continuation/evidence-transitions-running', 'transitions', continuationTransactions.evidence, continuationStates.running, continuationDomainFile, 'continuation-running'),
+    edge(facts, 'edge:fresh-v2-owner/official-followup-provider', 'owns', subagent, followupProvider, continuationRuntimeFile, 'owner-followup-provider'),
+    edge(facts, 'edge:fresh-v2-owner/session-continuation-frame', 'owns', session, continuationFrame, continuationFoldFile, 'owner-continuation-frame'),
+    edge(facts, 'edge:fresh-v2-continuation/flow-verified-domain', 'verified-by', continuationFlow, continuationTests.domain, continuationDomainFile, 'continuation-verified-domain'),
+    edge(facts, 'edge:fresh-v2-continuation/flow-verified-runtime', 'verified-by', continuationFlow, continuationTests.runtime, continuationRuntimeFile, 'continuation-verified-runtime'),
+    edge(facts, 'edge:fresh-v2-continuation/flow-verified-fold', 'verified-by', continuationFlow, continuationTests.fold, continuationFoldFile, 'continuation-verified-fold'),
+    edge(facts, 'edge:fresh-v2-continuation/flow-documented-blueprint', 'documented-by', continuationFlow, document, 'docs/development/2026-08-24-team-runtime-architecture-blueprint-v1.md', 'continuation-documented-blueprint'),
   )
   nodes.sort((left, right) => compareText(left.id, right.id))
   edges.sort((left, right) => compareText(left.id, right.id))

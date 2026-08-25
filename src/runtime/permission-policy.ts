@@ -26,7 +26,8 @@ import { CAPTAIN_ONLY_TOOLS } from './prompts.js'
 import { MAX_DENY_TOOLS, TOOL_NAME_PATTERN } from './tool-policy.js'
 
 /**
- * The complete model-facing `agent_swarm_*` tool surface (19 tools), plus the
+ * The complete model-facing `agent_swarm_*` tool surface (19 default tools
+ * plus one experimental fresh-v2 continuation tool), plus the
  * official Code Mode transport. `run_code` is presentation infrastructure:
  * every sub-dispatch still re-enters the official pre-execute pipeline, so
  * allowing the wrapper does not widen any inner tool decision. Without this
@@ -41,6 +42,7 @@ const PLUGIN_TOOL_NAMES = [
   ...CAPTAIN_ONLY_TOOLS,
   'agent_swarm_claim_task',
   'agent_swarm_create_task',
+  'agent_swarm_continue_task',
   'agent_swarm_submit_task',
   'agent_swarm_send_message',
   'agent_swarm_add_memory',

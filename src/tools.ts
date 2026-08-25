@@ -1,6 +1,7 @@
 /**
  * Reassembly point for the model-facing `agent_swarm_*` tool Consumer
- * (issue #74): the 19 tools live in cohesive `src/tools/` modules and this
+ * (issue #74): 19 default tools plus one experimental fresh-v2 continuation
+ * tool live in cohesive `src/tools/` modules and this
  * thin shell preserves both the public export surface and the exact
  * registration order of the pre-split file, so `src/index.ts` and the
  * README-declared 17-tool surface observe zero change (issue #93 appended the
@@ -27,15 +28,17 @@ import { registerAddMemoryTool, registerAddPersonalMemoryTool, registerListMemor
 import { registerListJobsTool, registerListTasksTool, registerStatusTool } from './tools/read-surface.js'
 import type { InitialTeamLifecycleRuntime } from './tools/team-lifecycle.js'
 import type { InitialTaskBoardRuntime } from './tools/task-board.js'
+import { registerContinueTaskTool, type ContinuationRuntime } from './tools/continuation.js'
 
 /** Register the unchanged public walking-skeleton tools shared by v1 and fresh-v2. */
 export function registerInitialAgentSwarmTools(
   ctx: Context,
-  runtime: InitialTeamLifecycleRuntime & InitialTaskBoardRuntime,
+  runtime: InitialTeamLifecycleRuntime & InitialTaskBoardRuntime & Partial<ContinuationRuntime>,
 ): void {
   registerCreateTool(ctx, runtime)
   registerAddMemberTool(ctx, runtime)
   registerCreateTaskTool(ctx, runtime)
+  if (runtime.continueTask !== undefined) registerContinueTaskTool(ctx, runtime as ContinuationRuntime)
 }
 
 /** Register the model-facing Consumer over the Team orchestrator runtime. */

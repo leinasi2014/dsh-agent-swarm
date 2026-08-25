@@ -42,6 +42,7 @@ import { assembleAgentSwarmHostRead, assembleAgentSwarmProducerFloor, mountAgent
 import { AGENT_SWARM_USAGE_PROMPT } from './runtime/usage-prompt.js'
 import { AGENT_SWARM_SETTINGS_NAMESPACE, installAgentSwarmSettings } from './runtime/settings.js'
 import { FreshV2InitialRuntime } from './runtime/fresh-v2-initial-runtime.js'
+import { attachFreshV2Hooks } from './runtime/fresh-v2-hooks.js'
 
 export * from './public-api.js'
 
@@ -350,20 +351,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     ctx.effect(() => async () => { await runtime.dispose() }, 'agent-swarm: fresh-v2 runtime disposal')
     ctx.effect(() => ctx.provide('agentSwarmV2Initial', runtime), 'agent-swarm: fresh-v2 inspection service')
     registerInitialAgentSwarmTools(ctx, runtime)
-    ctx.effect(() => ctx.on('agent/request', async ({ agent, turn, step, signal }, next) => {
-      await runtime.beforeAgentRequest({ agent, turn, step, signal })
-      return await next()
-    }, { global: true, prepend: true }), 'agent-swarm: fresh-v2 assignment pre-model gate')
-    ctx.effect(() => ctx.on('llm/stream', (options, next) => runtime.wrapModelStream(options, next), {
-      global: true,
-      prepend: true,
-    }), 'agent-swarm: fresh-v2 model dispatch witness')
-    ctx.effect(() => ctx.on('session/event', (session, event) => {
-      runtime.observeSessionEvent(session, event)
-    }, { global: true }), 'agent-swarm: fresh-v2 assistant evidence')
-    ctx.effect(() => ctx.on('llm/adapters-updated', () => {
-      runtime.revokeWitnessCapability()
-    }), 'agent-swarm: fresh-v2 provider topology revocation')
+    attachFreshV2Hooks(ctx, runtime)
     return
   }
   const schedulerProvider = (config.schedulerProvider ?? 'priority-ready').trim()

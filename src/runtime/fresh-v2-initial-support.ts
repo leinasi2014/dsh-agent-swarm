@@ -63,6 +63,12 @@ export interface CurrentInitialAttempt {
   readonly dispatch?: ModelDispatchEpoch
 }
 
+export interface CurrentFreshV2TaskAttempt {
+  readonly task: TeamTask
+  readonly attempt: TaskAttemptV2
+  readonly member: TeamMemberV2
+}
+
 export function findFreshV2Membership(
   store: StorageDomainTeamStoreV2,
   scope: string,
@@ -83,6 +89,18 @@ export function currentFreshV2InitialAttempt(
   team: TeamStateV2,
   sessionId: string,
 ): CurrentInitialAttempt | undefined {
+  const current = currentFreshV2TaskAttempt(team, sessionId)
+  if (current === undefined) return undefined
+  return {
+    ...current,
+    ...(current.attempt.dispatchEpochs[0] === undefined ? {} : { dispatch: current.attempt.dispatchEpochs[0] }),
+  }
+}
+
+export function currentFreshV2TaskAttempt(
+  team: TeamStateV2,
+  sessionId: string,
+): CurrentFreshV2TaskAttempt | undefined {
   const member = team.members.find(candidate => candidate.sessionId === sessionId)
   if (member === undefined) return undefined
   const tasks = team.tasks.filter(task => task.ownerSessionId === sessionId
@@ -92,10 +110,5 @@ export function currentFreshV2InitialAttempt(
   const task = tasks[0]!
   const attempt = team.attempts.find(candidate => candidate.id === task.currentAttemptId)
   if (attempt === undefined) throw new TeamDomainError('current task lacks its Attempt', 'TEAM_STATE_CORRUPT')
-  return {
-    task,
-    attempt,
-    member,
-    ...(attempt.dispatchEpochs[0] === undefined ? {} : { dispatch: attempt.dispatchEpochs[0] }),
-  }
+  return { task, attempt, member }
 }

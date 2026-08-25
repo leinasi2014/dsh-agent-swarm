@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
-import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { SessionId, type Session, type SessionEvent, type UserMessage } from '@deepseek-ai/dsh-session'
 import type { Domain } from '@deepseek-ai/dsh-storage-domain'
 import type {} from '@deepseek-ai/dsh-subagent'
 import { TeamDomainError } from '../domain/error.js'
@@ -14,7 +14,7 @@ import {
   type CreateTaskV2Input,
   type InitialDispatchCheckpoint,
 } from '../domain/team-domain-v2-start.js'
-import type { TeamMemberV2, TeamStateV2 } from '../domain/team-state-v2.js'
+import type { ContinuationIntent, TeamMemberV2, TeamStateV2 } from '../domain/team-state-v2.js'
 import { AttemptId, type TeamTask } from '../domain/types.js'
 import { StorageDomainTeamStoreV2 } from '../storage/storage-domain-team-store-v2.js'
 import { teamDomainSpecV2 } from '../storage/team-spec-v2.js'
@@ -34,6 +34,10 @@ import { assignmentPrompt, memberPersona } from './prompts.js'
 import { memberToolDeny } from './tool-policy.js'
 import type { RuntimeCreateTaskInput } from './verification-commands.js'
 import { FreshV2WitnessCapability } from './fresh-v2-witness-capability.js'
+import { FreshV2ContinuationRuntime } from './fresh-v2-continuation-runtime.js'
+import type { ContinuationRuntime } from '../tools/continuation.js'
+import { consumeFreshV2ModelPermit, type FreshV2ModelPermit } from './fresh-v2-model-permit.js'
+import { FreshV2EvidenceCoordinator } from './fresh-v2-evidence-coordinator.js'
 
 export interface FreshV2InitialConfig {
   readonly artifactContract: string
@@ -51,19 +55,15 @@ export interface FreshV2InitialConfig {
   readonly disposalTimeoutMs: number
 }
 
-export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, InitialTaskBoardRuntime {
+export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, InitialTaskBoardRuntime, ContinuationRuntime {
   private domainHandle?: Domain<typeof teamDomainSpecV2>
   private store?: StorageDomainTeamStoreV2
   private domain?: TeamV2StartDomain
+  private continuation?: FreshV2ContinuationRuntime
   private readonly children = new Map<string, Set<string>>()
   private readonly dispatchStreams = new Set<Promise<void>>()
-  private readonly evidenceChains = new Map<string, Promise<void>>()
-  private readonly modelPermits = new Map<string, {
-    readonly signal: AbortSignal
-    readonly turn: number
-    readonly step: number
-  }>()
-  private readonly backgroundFailures: Array<{ readonly sessionId: string; readonly error: unknown }> = []
+  private readonly evidence: FreshV2EvidenceCoordinator
+  private readonly modelPermits = new Map<string, FreshV2ModelPermit>()
   private closing = false
   private readonly witnessCapability: FreshV2WitnessCapability
 
@@ -75,6 +75,14 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
       throw new TeamDomainError('fresh-v2 host contract must be a lowercase Git SHA or SHA-256 digest', 'TEAM_INVALID_CONFIG')
     }
     this.witnessCapability = new FreshV2WitnessCapability(ctx, config.artifactContract, config.hostContract)
+    this.evidence = new FreshV2EvidenceCoordinator(ctx, {
+      assistant: async (session, event) => { await this.foldAssistantEvidence(session, event) },
+      turnEnd: async (session, event) => { await this.requireContinuation().foldTurnEnd(session, event) },
+      inboxClaimed: async (agent, message) => { await this.requireContinuation().foldInboxClaimed(agent, message) },
+      agentIdle: async agent => { await this.requireContinuation().foldAgentIdle(agent) },
+      isClosing: () => this.closing,
+      describeError: describeFreshV2Error,
+    })
   }
 
   get witnessCapabilityDigest(): string { return this.witnessCapability.digest }
@@ -99,6 +107,7 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
     this.domainHandle = handle
     this.store = store
     this.domain = new TeamV2StartDomain(store, { maxMembers: this.config.maxMembers })
+    this.continuation = new FreshV2ContinuationRuntime(this.ctx, store, this.witnessCapability)
   }
 
   scopeOf(agent: Agent): string {
@@ -271,6 +280,19 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
     return reserved.task
   }
 
+  async continueTask(exec: ToolExecutionAuthority, input: {
+    readonly taskId: string
+    readonly expectedRevision: number
+    readonly attemptId: string
+    readonly idempotencyKey: string
+    readonly checkpointDigest?: string
+    readonly wakeCondition?: string
+  }): Promise<ContinuationIntent> {
+    this.assertOpen()
+    await this.evidence.drainSession(requireAgent(exec).id)
+    return await this.requireContinuation().continueTask(exec, input)
+  }
+
   async beforeAgentRequest(input: {
     readonly agent: Agent
     readonly turn: number
@@ -278,6 +300,8 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
     readonly signal: AbortSignal
   }): Promise<void> {
     if (this.closing) return
+    await this.evidence.drainSession(input.agent.id)
+    if (await this.requireContinuation().beforeAgentRequest(input)) return
     const scope = this.scopeOf(input.agent)
     const membership = this.findMembership(scope, input.agent.id)
     if (membership?.role !== 'member') return
@@ -289,7 +313,7 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
       return
     }
     if (current.dispatch?.phase === 'dispatch-entered') {
-      await this.drainSessionEvidence(input.agent.id)
+      await this.evidence.drainSession(input.agent.id)
       const afterEvidence = this.findMembership(scope, input.agent.id)
       if (afterEvidence?.role !== 'member') {
         throw new TeamDomainError('initial assignment membership changed', 'TEAM_ATTEMPT_STALE')
@@ -356,6 +380,8 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
   wrapModelStream(options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk> {
     const sentinel = this.witnessCapability.intercept(options)
     if (sentinel !== undefined) return sentinel
+    const continuation = this.continuation?.wrapModelStream(options, next)
+    if (continuation !== undefined) return continuation
     if (!this.ownsInitialModelDispatch(options)) return next()
     return (async function* (runtime: FreshV2InitialRuntime): AsyncIterable<StreamChunk> {
       let complete!: () => void
@@ -399,41 +425,19 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
   }
 
   observeSessionEvent(session: Session, event: SessionEvent): void {
-    if (this.closing || event.type !== 'assistant/message') return
-    const durability = this.ctx.sessions.flush(session)
-    const previous = this.evidenceChains.get(session.id) ?? Promise.resolve()
-    const chain = previous.then(async () => {
-      if (this.closing) return
-      await this.foldAssistantEvidence(session, event, durability)
-    }).catch((error: unknown) => {
-      this.backgroundFailures.push({ sessionId: session.id, error })
-      this.ctx.logger.error(`agent-swarm: fresh-v2 assistant evidence fold failed: ${describeFreshV2Error(error)}`)
-    })
-    this.evidenceChains.set(session.id, chain)
-    void chain.finally(() => {
-      if (this.evidenceChains.get(session.id) === chain) this.evidenceChains.delete(session.id)
-    })
+    this.evidence.observeSessionEvent(session, event)
+  }
+
+  observeInboxClaimed(agent: Agent, message: UserMessage): void {
+    this.evidence.observeInboxClaimed(agent, message)
+  }
+
+  observeAgentIdle(agent: Agent): void {
+    this.evidence.observeAgentIdle(agent)
   }
 
   async drainEvidence(): Promise<void> {
-    await Promise.allSettled(this.evidenceChains.values())
-    if (this.backgroundFailures.length > 0) {
-      throw new AggregateError(
-        this.backgroundFailures.map(failure => failure.error),
-        `fresh-v2 assistant evidence fold failed: ${this.backgroundFailures.map(failure => describeFreshV2Error(failure.error)).join('; ')}`,
-      )
-    }
-  }
-
-  private async drainSessionEvidence(sessionId: string): Promise<void> {
-    await this.evidenceChains.get(sessionId)
-    const failures = this.backgroundFailures.filter(failure => failure.sessionId === sessionId)
-    if (failures.length > 0) {
-      throw new AggregateError(
-        failures.map(failure => failure.error),
-        `fresh-v2 assistant evidence for ${sessionId} is not durable`,
-      )
-    }
+    await this.evidence.drain()
   }
 
   private async compensateUncommittedInitial(
@@ -460,6 +464,7 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
     this.closing = true
     this.witnessCapability.revoke('fresh-v2 runtime is closing', true)
     this.modelPermits.clear()
+    await this.continuation?.dispose()
     const failures: unknown[] = []
     for (const [captainId, childIds] of this.children) {
       const captain = this.ctx.agents.get(SessionId(captainId))
@@ -491,17 +496,7 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
   }
 
   private async enterModelDispatch(options: GenerateOptions): Promise<void> {
-    if (options.sessionId === undefined) throw new TeamDomainError('AgentLoop request lacks Session identity', 'TEAM_STATE_CORRUPT')
-    const permit = this.modelPermits.get(options.sessionId)
-    if (permit === undefined || options.signal !== permit.signal) {
-      throw new TeamDomainError('AgentLoop request lacks its exact model-dispatch permit', 'TEAM_ATTEMPT_STALE')
-    }
-    this.modelPermits.delete(options.sessionId)
-    const agent = this.ctx.agents.get(SessionId(options.sessionId))
-    const session = this.ctx.sessions.get(SessionId(options.sessionId))
-    if (agent === undefined || session === undefined || agent.session !== session) {
-      throw new TeamDomainError('AgentLoop request does not resolve to one exact live Agent/Session', 'TEAM_STATE_CORRUPT')
-    }
+    const { agent, session } = consumeFreshV2ModelPermit(this.ctx, this.modelPermits, options, 'model-dispatch')
     const scope = this.scopeOf(agent)
     const membership = this.findMembership(scope, agent.id)
     if (membership?.role !== 'member') {
@@ -538,11 +533,8 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
   private async foldAssistantEvidence(
     session: Session,
     event: SessionEvent<'assistant/message'>,
-    durability: Promise<boolean>,
   ): Promise<void> {
-    if (!await durability) {
-      throw new TeamDomainError('assistant evidence requires durable Session persistence', 'TEAM_RUNTIME_NOT_STARTED')
-    }
+    if (await this.requireContinuation().foldAssistantEvidence(session, event)) return
     const scope = resolve(session.header.cwd ?? process.cwd())
     const membership = this.findMembership(scope, session.id)
     if (membership?.role !== 'member') return
@@ -585,6 +577,11 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
   private requireDomain(): TeamV2StartDomain {
     if (this.domain === undefined) throw new TeamDomainError('fresh-v2 runtime has not started', 'TEAM_RUNTIME_NOT_STARTED')
     return this.domain
+  }
+
+  private requireContinuation(): FreshV2ContinuationRuntime {
+    if (this.continuation === undefined) throw new TeamDomainError('fresh-v2 runtime has not started', 'TEAM_RUNTIME_NOT_STARTED')
+    return this.continuation
   }
 
   private assertOpen(): void {

@@ -2,9 +2,9 @@
 
 # Authority and permission
 
-Manifest digest: `fe332cc0e1a7493e66591f6961f76dfdf97eccff20afcbebfb60f1ffbdbe24ed`
+Manifest digest: `102d6f7aa00c4e166cabfbba9ae9b9a36dcfc46bde78b2b4015c7ae1f2f4a7c2`
 
-Curated tool-registry digest: `331defbb12c4ac44efa0bdd7b16007d003dfa3704477b0c2c925d9cc1b665783`
+Curated tool-registry digest: `4783f01c6944ac92630bed586de73942dd486d5f2e4a152f41a5feb045518e44`
 
 > Claim ceiling: the registry is a reviewed capability overlay over exact source extraction. Per-tool deep semantic closure, acceptance, and real-Profile evidence remain explicit gaps; the complete mechanical graph is retained in `atlas.json`.
 
@@ -13,7 +13,7 @@ Curated tool-registry digest: `331defbb12c4ac44efa0bdd7b16007d003dfa3704477b0c2c
 | Functional facet | Title | Source anchors | Test anchors | Related tools | Evidence gaps |
 |---|---|---|---|---|---|
 | `team` | Team lifecycle authority | src/domain/team-domain.ts#TeamDomain | tests/team-domain.spec.ts | tool:agent_swarm_add_member<br>tool:agent_swarm_archive<br>tool:agent_swarm_create<br>tool:agent_swarm_interrupt_member<br>tool:agent_swarm_remove_member | NO_REAL_PROFILE_EVIDENCE<br>PROFILE_DEPENDENT |
-| `permission` | Caller identity and monotone tool permission policy | src/runtime/permission-policy.ts#decideToolPermission<br>src/runtime/permission-surface.ts#TeamPermissionSurface.attachPreExecute | tests/permission-boundary.spec.ts<br>tests/permission-real-composition.spec.ts | tool:agent_swarm_add_member<br>tool:agent_swarm_add_memory<br>tool:agent_swarm_add_personal_memory<br>tool:agent_swarm_archive<br>tool:agent_swarm_claim_task<br>tool:agent_swarm_create<br>tool:agent_swarm_create_task<br>tool:agent_swarm_interrupt_member<br>tool:agent_swarm_list_jobs<br>tool:agent_swarm_list_memory<br>tool:agent_swarm_list_tasks<br>tool:agent_swarm_reassign_task<br>tool:agent_swarm_remove_member<br>tool:agent_swarm_review_task<br>tool:agent_swarm_send_message<br>tool:agent_swarm_set_budget<br>tool:agent_swarm_status<br>tool:agent_swarm_submit_task<br>tool:agent_swarm_wait | NO_REAL_PROFILE_EVIDENCE<br>PROFILE_DEPENDENT |
+| `permission` | Caller identity and monotone tool permission policy | src/runtime/permission-policy.ts#decideToolPermission<br>src/runtime/permission-surface.ts#TeamPermissionSurface.attachPreExecute | tests/permission-boundary.spec.ts<br>tests/permission-real-composition.spec.ts | tool:agent_swarm_add_member<br>tool:agent_swarm_add_memory<br>tool:agent_swarm_add_personal_memory<br>tool:agent_swarm_archive<br>tool:agent_swarm_claim_task<br>tool:agent_swarm_continue_task<br>tool:agent_swarm_create<br>tool:agent_swarm_create_task<br>tool:agent_swarm_interrupt_member<br>tool:agent_swarm_list_jobs<br>tool:agent_swarm_list_memory<br>tool:agent_swarm_list_tasks<br>tool:agent_swarm_reassign_task<br>tool:agent_swarm_remove_member<br>tool:agent_swarm_review_task<br>tool:agent_swarm_send_message<br>tool:agent_swarm_set_budget<br>tool:agent_swarm_status<br>tool:agent_swarm_submit_task<br>tool:agent_swarm_wait | NO_REAL_PROFILE_EVIDENCE<br>PROFILE_DEPENDENT |
 
 ## Tool families
 
@@ -43,6 +43,7 @@ flowchart LR
 flowchart LR
   n_66616d696c793a7461736b["task"]
   n_66616d696c793a7461736b --> n_746f6f6c3a6167656e745f737761726d5f636c61696d5f7461736b["agent_swarm_claim_task"]
+  n_66616d696c793a7461736b --> n_746f6f6c3a6167656e745f737761726d5f636f6e74696e75655f7461736b["agent_swarm_continue_task"]
   n_66616d696c793a7461736b --> n_746f6f6c3a6167656e745f737761726d5f6372656174655f7461736b["agent_swarm_create_task"]
   n_66616d696c793a7461736b --> n_746f6f6c3a6167656e745f737761726d5f726561737369676e5f7461736b["agent_swarm_reassign_task"]
   n_66616d696c793a7461736b --> n_746f6f6c3a6167656e745f737761726d5f7265766965775f7461736b["agent_swarm_review_task"]
@@ -52,6 +53,7 @@ flowchart LR
 | Stable capability id | Capability authority (not state authority) | Caller class | Default policy |
 |---|---|---|---|
 | `tool:agent_swarm_claim_task` | domain:agent-swarm | team-participant | allow |
+| `tool:agent_swarm_continue_task` | domain:agent-swarm | team-participant | allow |
 | `tool:agent_swarm_create_task` | domain:agent-swarm | team-participant | allow |
 | `tool:agent_swarm_reassign_task` | domain:agent-swarm | captain-only | allow |
 | `tool:agent_swarm_review_task` | domain:agent-swarm | captain-only | allow |
@@ -122,6 +124,7 @@ flowchart LR
   n_67756172643a636c61696d65642d6672616d652d6f6e6c792d61636b6e6f776c656467656d656e74["claimed"]
   n_67756172643a65786163742d63757272656e742d617474656d7074["current"]
   n_67756172643a65786163742d7461736b2d7265766973696f6e["revision"]
+  n_67756172643a66726573682d76322d636f6e74696e756174696f6e2d65786163742d617474656d7074["Exact current task, Attempt, member principal and continuation identity fence"]
   n_67756172643a66726573682d76322d6578706572696d656e74616c2d61637469766174696f6e["Fresh-v2 is explicit and isolated from v1 activation"]
   n_67756172643a66726573682d76322d66697865642d70726f66696c652d7769746e6573732d6361706162696c697479["Fixed-Profile host, artifact, Provider and listener-order witness"]
   n_67756172643a66726573682d76322d6f6666696369616c2d6167656e742d6c6f6f702d72657175657374["Exact official Agent Loop AbortSignal permit and Session coordinates"]
@@ -138,7 +141,7 @@ flowchart LR
   n_6f6666696369616c2d617574686f726974793a6167656e742d6c6f6f70["Official DSH Agent Loop execution authority"]
   n_6f6666696369616c2d617574686f726974793a6c6c6d2d72756e74696d65["Official DSH LLM registry and stream waterfall authority"]
   n_6f6666696369616c2d617574686f726974793a73657373696f6e["Official Session event/history authority"]
-  n_6f6666696369616c2d617574686f726974793a7375626167656e74["Official continuable Subagent admission authority"]
+  n_646f6d61696e3a6167656e742d737761726d -->|owns| n_67756172643a66726573682d76322d636f6e74696e756174696f6e2d65786163742d617474656d7074
   n_646f6d61696e3a6167656e742d737761726d -->|owns| n_67756172643a66726573682d76322d6578706572696d656e74616c2d61637469766174696f6e
   n_6f6666696369616c2d617574686f726974793a6c6c6d2d72756e74696d65 -->|owns| n_6361706162696c6974793a66726573682d76322d6d6f64656c2d64697370617463682d7769746e657373
   n_6f6666696369616c2d617574686f726974793a6c6c6d2d72756e74696d65 -->|owns| n_67756172643a66726573682d76322d66697865642d70726f66696c652d7769746e6573732d6361706162696c697479
@@ -150,7 +153,6 @@ flowchart LR
   n_646f6d61696e3a6167656e742d737761726d -->|owns| n_67756172643a65786163742d63757272656e742d617474656d7074
   n_646f6d61696e3a6167656e742d737761726d -->|owns| n_67756172643a65786163742d7461736b2d7265766973696f6e
   n_646f6d61696e3a6167656e742d737761726d -->|owns| n_67756172643a6d656d6265722d6861732d6e6f2d6f70656e2d776f726b
-  n_6f6666696369616c2d617574686f726974793a7375626167656e74 -->|owns| n_67756172643a6f6666696369616c2d6c6976652d6469726563742d706172656e742d61646d697373696f6e
   n_646f6d61696e3a6167656e742d737761726d -->|owns| n_67756172643a7461736b2d7265616479
 ```
 
@@ -171,6 +173,7 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `guard:claimed-frame-only-acknowledgement` | guard | REVIEWED | implemented | static | candidate | always-registered | `official-authority:session` |
 | `guard:exact-current-attempt` | guard | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
 | `guard:exact-task-revision` | guard | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
+| `guard:fresh-v2-continuation-exact-attempt` | guard | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `guard:fresh-v2-experimental-activation` | guard | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `guard:fresh-v2-fixed-profile-witness-capability` | guard | REVIEWED | implemented | composition | candidate | config-gated | `official-authority:llm-runtime` |
 | `guard:fresh-v2-official-agent-loop-request` | guard | REVIEWED | implemented | composition | candidate | config-gated | `official-authority:agent-loop` |
@@ -659,6 +662,7 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `tool:agent_swarm_add_personal_memory` | model-tool | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `tool:agent_swarm_archive` | model-tool | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `tool:agent_swarm_claim_task` | model-tool | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
+| `tool:agent_swarm_continue_task` | model-tool | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | config-gated | `(unclassified)` |
 | `tool:agent_swarm_create` | model-tool | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `tool:agent_swarm_create_task` | model-tool | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `tool:agent_swarm_interrupt_member` | model-tool | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |

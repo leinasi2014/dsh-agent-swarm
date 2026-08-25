@@ -145,7 +145,7 @@ async function firstBoot(ctx, signal, identityRef) {
     await ctx.agentSwarmV2Initial.drainEvidence()
     const value = ctx.agentSwarmV2Initial.snapshot(workspace, created.team_id)
     const attempt = value?.attempts[0]
-    return attempt?.phase === 'running' && attempt.dispatchEpochs[0]?.phase === 'settled' ? value : undefined
+    return attempt?.phase === 'parked' && attempt.dispatchEpochs[0]?.phase === 'settled' ? value : undefined
   }, signal)
   const persisted = await waitFor(async () => {
     const child = await ctx.sessionPersistence.load(added.session_id).catch(() => undefined)
@@ -167,8 +167,8 @@ async function restartBoot(ctx, signal, identityRef, entries) {
   if (identity === undefined) throw new Error('A1b restart probe lacks the first-boot identity')
   const workspace = resolve(requiredEnv('DSH_SWARM_A1B_WORKSPACE'))
   const snapshot = ctx.agentSwarmV2Initial.snapshot(workspace, identity.teamId)
-  if (snapshot?.attempts[0]?.phase !== 'running' || snapshot.attempts[0].dispatchEpochs[0]?.phase !== 'settled') {
-    throw new Error(`A1b restart state did not reopen as running/settled: ${JSON.stringify(snapshot)}`)
+  if (snapshot?.attempts[0]?.phase !== 'parked' || snapshot.attempts[0].dispatchEpochs[0]?.phase !== 'settled') {
+    throw new Error(`A1b restart state did not reopen as parked/settled: ${JSON.stringify(snapshot)}`)
   }
   await new Promise((resolveWait, reject) => {
     const timer = setTimeout(resolveWait, 500)
@@ -196,6 +196,7 @@ export function apply(ctx) {
   const tools = swarmTools(ctx)
   if (JSON.stringify(tools) !== JSON.stringify([
     'agent_swarm_add_member',
+    'agent_swarm_continue_task',
     'agent_swarm_create',
     'agent_swarm_create_task',
   ])) throw new Error(`fresh-v2 Profile exposed unexpected tools: ${JSON.stringify(tools)}`)

@@ -7,6 +7,8 @@
 - Supersedes after acceptance: the default time-driven stranded self-heal in `docs/04-core-protocol.md` §8c
 - Does not modify: official DSH, its Agent Loop, provider reasoning behavior, or user media
 
+Implementation snapshot (not acceptance): the config-gated A2a online member-self-continuation slice now implements `running -> requested -> parked -> admitted -> frame-pending -> dispatch-pending -> dispatch-entered -> settled/running` over official Session, Subagent followup/inbox and Agent Loop seams. Domain and official-composition tests cover same-Attempt identity, exact member principal, duplicate/conflicting requests, durable target claim, provider dispatch evidence and rejection of an ordinary unframed later wake. Cold restart recovery, unknown-delivery reconciliation, Team-leader/human request principals and submit/reassign/cancel competition remain absent; therefore this ADR remains Proposed.
+
 ## 1. Outcome and non-goals
 
 The Team control plane governs identity, ownership, permissions, durable intent, evidence, recovery and acceptance. Within the task's declared authority envelope, the member and Team leader autonomously plan, coordinate, checkpoint and continue the work without manager approval. The control plane does not prescribe how an LLM reasons, how many plans it may form, or how soon it must modify a file. Different providers and models may plan deeply, act immediately, revise a plan after new evidence, or spend a whole valid turn on diagnosis.

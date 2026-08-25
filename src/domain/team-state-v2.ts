@@ -12,10 +12,11 @@ declare const continuationEffectIdBrand: unique symbol
 declare const teamEffectIdBrand: unique symbol
 
 export type DispatchId = string & { readonly [dispatchIdBrand]: true }
-type ContinuationEffectId = string & { readonly [continuationEffectIdBrand]: true }
+export type ContinuationEffectId = string & { readonly [continuationEffectIdBrand]: true }
 export type TeamEffectId = string & { readonly [teamEffectIdBrand]: true }
 
 export const DispatchId = (value: string): DispatchId => value as DispatchId
+export const ContinuationEffectId = (value: string): ContinuationEffectId => value as ContinuationEffectId
 export const TeamEffectId = (value: string): TeamEffectId => value as TeamEffectId
 
 export type TeamMemberPhaseV2 = 'declared' | 'starting' | 'active' | 'failed' | 'removed'
@@ -50,7 +51,7 @@ export interface ParkedAttemptState {
   readonly currentContinuationIntentId?: ContinuationEffectId
 }
 
-type ContinuationPrincipal =
+export type ContinuationPrincipal =
   | { readonly kind: 'member'; readonly memberId: string; readonly memberSessionId: string }
   | { readonly kind: 'team-leader'; readonly captainSessionId: string }
   | { readonly kind: 'authenticated-human'; readonly subjectId: string; readonly attestationDigest: string }
@@ -66,7 +67,7 @@ type ContinuationIntentPhase =
   | 'superseded'
   | 'cancelled'
 
-interface ContinuationIntent {
+export interface ContinuationIntent {
   readonly continuationEffectId: ContinuationEffectId
   readonly taskId: string
   readonly attemptId: AttemptId
@@ -97,6 +98,8 @@ export interface ModelDispatchEpoch {
   readonly effectId: TeamEffectId
   readonly recoveryOf?: DispatchId
   readonly targetSessionId: string
+  /** Exact official inbox identity returned by continuable-child admission. */
+  readonly frameMessageId?: string
   readonly turn?: number
   readonly step?: number
   readonly messageSeq?: number
@@ -150,6 +153,12 @@ interface TeamEffectReceiptV2 {
   readonly attemptId?: AttemptId
   readonly dispatchId?: DispatchId
   readonly decision?: 'accept' | 'reject'
+  readonly continuationEffectId?: ContinuationEffectId
+  readonly continuationRequestedBy?: ContinuationPrincipal
+  readonly continuationRequestedAt?: number
+  readonly continuationExpectedTaskRevision?: number
+  readonly continuationCheckpointDigest?: string
+  readonly continuationWakeCondition?: string
 }
 
 export interface TeamStateV2 {

@@ -213,10 +213,13 @@ export function buildMechanicalInventory(facts) {
   }
   for (const tool of facts.tools) {
     const toolRef = { id: `tool:${idPart(tool.name)}`, kind: 'model-tool' }
+    const conditionalContinuation = tool.name === 'agent_swarm_continue_task'
     nodes.push(node(toolRef.id, toolRef.kind, tool.name, {
       file: tool.file, symbol: tool.registrationFunction, selector: semanticSelector(`define-tool:${tool.name}`, tool),
     }, {
-      maturity: maturity('always-registered', ['registerAgentSwarmTools static registration'], []),
+      maturity: conditionalContinuation
+        ? maturity('config-gated', ['experimentalFreshV2 conditional registration'], ['CONFIG_DISABLED_BY_DEFAULT'])
+        : maturity('always-registered', ['registerAgentSwarmTools static registration'], []),
       lifecycle: { registrationOwner: 'module:src/tools.ts' }, tags: ['inventory', 'model-tool'],
     }))
     const owner = moduleRef(tool.file)

@@ -12,6 +12,12 @@ const summary = reconcileFreshV2InitialDispatchSlice(facts, sourceFacts, manifes
 assert.equal(summary.sliceId, 'kg1-d2-fresh-v2-initial-dispatch')
 assert(slice.nodes.some(item => item.id === 'guard:fresh-v2-official-agent-loop-request'))
 assert(slice.edges.some(item => item.id === 'edge:fresh-v2/official-permit-guards-enter'))
+assert(slice.nodes.some(item => item.id === 'flow:fresh-v2-online-continuation'))
+assert(slice.nodes.some(item => item.id === 'transaction:fresh-v2-request-continuation'))
+assert(slice.nodes.some(item => item.id === 'flow-branch:fresh-v2-online-continuation/cold-recovery-absent'
+  && item.maturity.implementation.state === 'absent'))
+assert(slice.edges.some(item => item.id === 'edge:fresh-v2-continuation/service-calls-followup'))
+assert(slice.edges.some(item => item.id === 'edge:fresh-v2-continuation/evidence-transitions-running'))
 for (const name of facts.absentRecoveryBranches) {
   const branch = slice.nodes.find(item => item.id === `flow-branch:fresh-v2-initial-dispatch/${name}`)
   assert.equal(branch?.maturity.implementation.state, 'absent')

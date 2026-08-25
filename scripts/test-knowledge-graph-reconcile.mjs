@@ -68,27 +68,27 @@ assert.deepEqual({
   reachableRootExports: facts.reachableRootExports.length,
   reachablePublicApiExports: facts.reachablePublicApiExports.length,
 }, {
-  modules: 112, imports: 630, packageExports: 6, tools: 19, injections: 34,
+  modules: 120, imports: 685, packageExports: 6, tools: 20, injections: 34,
   registries: 7, builtins: 15, extensions: 7, facades: 4, providerCalls: 6, registryMethods: 11,
   config: 43, effectiveConfig: 97, domains: 4, domainPort: 30, stateUnions: 14, discriminants: 45,
   rpcRoutes: 1, rpcMethods: 5, rpcSchemas: 23, rpcCapabilities: 3, rpcRuntimeCapabilities: 1, rpcBounds: 5,
-  clientEntrypoints: 2, clientSlots: 6, listeners: 25, effects: 28, systemPrompts: 1,
+  clientEntrypoints: 2, clientSlots: 6, listeners: 27, effects: 30, systemPrompts: 1,
   reexportLayers: 66, reachableRootExports: 170, reachablePublicApiExports: 165,
 })
 
 const summary = reconcileSourceManifest(facts, manifest)
-assert.equal(summary.nodeCount, 935)
-assert.equal(summary.edgeCount, 1659)
+assert.equal(summary.nodeCount, 948)
+assert.equal(summary.edgeCount, 1729)
 assert.equal(summary.manifestNodeCount, manifest.nodes.length)
 assert.equal(summary.manifestEdgeCount, manifest.edges.length)
 const mechanicalNodes = manifest.nodes.filter(item => item.classification === 'mechanical')
 const reviewedNodes = manifest.nodes.filter(item => item.classification === 'reviewed')
 const mechanicalEdges = manifest.edges.filter(item => item.classification === 'mechanical')
 const reviewedEdges = manifest.edges.filter(item => item.classification === 'reviewed')
-assert.equal(mechanicalNodes.length, 934)
-assert.equal(reviewedNodes.length, 114)
-assert.equal(mechanicalEdges.length, 1659)
-assert.equal(reviewedEdges.length, 234)
+assert.equal(mechanicalNodes.length, 947)
+assert.equal(reviewedNodes.length, 138)
+assert.equal(mechanicalEdges.length, 1729)
+assert.equal(reviewedEdges.length, 286)
 assert(mechanicalNodes.every(item => item.ownerAuthority === undefined
   && item.security.authoritySource === undefined
   && item.security.callerIdentity === 'unclassified'
@@ -120,20 +120,21 @@ assert(reviewedEdges.every(item => item.crash === undefined || item.classificati
   })
   promoted.nodes.sort((left, right) => left.id.localeCompare(right.id))
   const promotedSummary = reconcileSourceManifest(facts, promoted)
-  assert.equal(promotedSummary.nodeCount, 935)
+  assert.equal(promotedSummary.nodeCount, 948)
   assert.equal(promotedSummary.manifestNodeCount, manifest.nodes.length + 1)
   const drifted = structuredClone(promoted)
   drifted.nodes.find(item => item.id === 'module:src/index.ts').anchors[0].selector = 'stale-reviewed-source-anchor'
   assert.throws(() => reconcileSourceManifest(facts, drifted), error => error instanceof KnowledgeGraphError && error.code === 'KG_RECONCILE_ANCHOR')
 }
-for (const toolId of ['tool:agent_swarm_claim_task', 'tool:agent_swarm_list_tasks']) {
+for (const toolId of ['tool:agent_swarm_claim_task', 'tool:agent_swarm_continue_task', 'tool:agent_swarm_list_tasks']) {
   const tool = manifest.nodes.find(item => item.id === toolId)
   assert.equal(tool.classification, 'mechanical')
   assert.equal(tool.security.mutation, 'unclassified')
 }
+assert.equal(manifest.nodes.find(item => item.id === 'tool:agent_swarm_continue_task').maturity.availability.state, 'config-gated')
 const registrationEdges = manifest.edges.filter(item => item.id.startsWith('edge:tool-registration/'))
-assert.equal(registrationEdges.length, 19)
-assert.equal(new Set(registrationEdges.map(item => item.id.slice('edge:tool-registration/'.length, 'edge:tool-registration/'.length + 2))).size, 19)
+assert.equal(registrationEdges.length, 20)
+assert.equal(new Set(registrationEdges.map(item => item.id.slice('edge:tool-registration/'.length, 'edge:tool-registration/'.length + 2))).size, 20)
 assert(registrationEdges.every(item => /^edge:tool-registration\/[0-9]{2}-/u.test(item.id)
   && !item.id.includes('undefined')
   && !item.anchors.some(anchor => anchor.selector?.includes('undefined'))))
