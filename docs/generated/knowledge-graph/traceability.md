@@ -2,9 +2,9 @@
 
 # Traceability
 
-Manifest digest: `88842fac70f4eabe45ab2d9738f328ef3b1faf22c7e19f85765b2d8415421a3c`
+Manifest digest: `7b53add489619bc9e251c03bca500a2fef347f492eb007033aa55374455a3ad2`
 
-Curated tool-registry digest: `4783f01c6944ac92630bed586de73942dd486d5f2e4a152f41a5feb045518e44`
+Curated tool-registry digest: `2be0d810910262b9935483648c28293ae224bd13898cd2e4effb11b8e13e2129`
 
 > Claim ceiling: the registry is a reviewed capability overlay over exact source extraction. Per-tool deep semantic closure, acceptance, and real-Profile evidence remain explicit gaps; the complete mechanical graph is retained in `atlas.json`.
 
@@ -64,7 +64,7 @@ flowchart LR
 | Stable capability id | Source | Test anchors | Documentation anchors |
 |---|---|---|---|
 | `tool:agent_swarm_claim_task` | src/tools/task-board.ts#registerClaimTaskTool | tests/model-experience.spec.ts<br>tests/assignment-visibility.spec.ts | docs/04-core-protocol.md<br>docs/08-testing-verification.md |
-| `tool:agent_swarm_continue_task` | src/tools/continuation.ts#registerContinueTaskTool | tests/fresh-v2-continuation-domain.spec.ts<br>tests/fresh-v2-continuation-fold.spec.ts<br>tests/fresh-v2-continuation-runtime.spec.ts | docs/adr/0010-model-autonomy-and-parked-attempts.md<br>docs/development/2026-08-24-team-runtime-architecture-blueprint-v1.md |
+| `tool:agent_swarm_continue_task` | src/tools/continuation.ts#registerContinueTaskTool | tests/fresh-v2-continuation-domain.spec.ts<br>tests/fresh-v2-continuation-fold.spec.ts<br>tests/fresh-v2-continuation-runtime.spec.ts<br>tests/fresh-v2-continuation-recovery-fold.spec.ts<br>tests/fresh-v2-continuation-restart.spec.ts | docs/adr/0010-model-autonomy-and-parked-attempts.md<br>docs/development/2026-08-24-team-runtime-architecture-blueprint-v1.md |
 | `tool:agent_swarm_create_task` | src/tools/task-board.ts#registerCreateTaskTool | tests/assignment-visibility.spec.ts | docs/04-core-protocol.md |
 | `tool:agent_swarm_reassign_task` | src/tools/task-board.ts#registerReassignTaskTool | — | docs/04-core-protocol.md |
 | `tool:agent_swarm_review_task` | src/tools/task-board.ts#registerReviewTaskTool | tests/model-experience.spec.ts | docs/04-core-protocol.md<br>docs/08-testing-verification.md |
@@ -231,6 +231,7 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `module:src/domain/team-domain-projection.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/domain/team-domain-roster.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/domain/team-domain-shared.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `module:src/domain/team-domain-v2-continuation-recovery.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/domain/team-domain-v2-continuation.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/domain/team-domain-v2-shared.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/domain/team-domain-v2-start.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
@@ -268,6 +269,7 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `module:src/runtime/execution-roots.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/runtime/frame-visibility.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/runtime/fresh-v2-continuation-fold.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `module:src/runtime/fresh-v2-continuation-recovery-fold.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/runtime/fresh-v2-continuation-runtime.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/runtime/fresh-v2-evidence-coordinator.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/runtime/fresh-v2-hooks.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |

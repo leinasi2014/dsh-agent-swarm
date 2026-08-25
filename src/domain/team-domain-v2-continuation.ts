@@ -16,7 +16,7 @@ import { AttemptId, TaskId, TeamId, type TeamTask } from './types.js'
 import type { TeamScope } from './team-domain-port.js'
 import { replaceV2Attempt } from './team-domain-v2-shared.js'
 
-const requireText = (value: string, label: string, maximum = 512): string => {
+export const requireText = (value: string, label: string, maximum = 512): string => {
   const normalized = value.trim()
   if (normalized.length === 0 || Buffer.byteLength(normalized, 'utf8') > maximum) {
     throw new TeamDomainError(`${label} is empty or too large`, 'TEAM_INPUT_INVALID')
@@ -83,13 +83,20 @@ function sameContinuationReceipt(
     && sameMemberPrincipal(receipt.continuationRequestedBy, intent.requestedBy)
 }
 
+export interface ContinuationTuple {
+  readonly task: TeamTask
+  readonly attempt: TaskAttemptV2
+  readonly intent: ContinuationIntent
+  readonly dispatch: ModelDispatchEpoch
+}
+
 function requireContinuationTuple(
   team: TeamStateV2,
   taskId: TaskId,
   attemptId: AttemptId,
   continuationEffectId: ContinuationEffectId,
   dispatchId: DispatchId,
-): { task: TeamTask; attempt: TaskAttemptV2; intent: ContinuationIntent; dispatch: ModelDispatchEpoch } {
+): ContinuationTuple {
   const { task, attempt } = currentTuple(team, taskId, attemptId)
   const intent = attempt.currentContinuationIntent
   const dispatch = attempt.dispatchEpochs.find(candidate => candidate.dispatchId === dispatchId)
@@ -112,6 +119,56 @@ export interface ContinuationDispatchCheckpoint {
   readonly turn: number
   readonly step: number
   readonly witnessCapabilityDigest: string
+}
+
+export function requireContinuationCheckpointTuple(
+  team: TeamStateV2,
+  checkpoint: ContinuationDispatchCheckpoint,
+): ContinuationTuple {
+  const tuple = requireContinuationTuple(
+    team, checkpoint.taskId, checkpoint.attemptId, checkpoint.continuationEffectId, checkpoint.dispatchId,
+  )
+  if (tuple.dispatch.effectId !== checkpoint.resumeEffectId
+    || tuple.dispatch.frameMessageId !== checkpoint.frameMessageId
+    || tuple.dispatch.turn !== checkpoint.turn || tuple.dispatch.step !== checkpoint.step
+    || tuple.dispatch.messageSeq !== checkpoint.messageSeq
+    || tuple.dispatch.witnessCapabilityDigest !== checkpoint.witnessCapabilityDigest) {
+    throw new TeamDomainError('continuation checkpoint tuple is stale', 'TEAM_ATTEMPT_STALE')
+  }
+  return tuple
+}
+
+type ContinuationTerminalEvidence =
+  | { readonly assistantEvidenceSeq: number; readonly assistantEvidenceType: 'assistant/message' }
+  | {
+    readonly turnEndEvidenceSeq: number
+    readonly turnEndEvidenceReason: 'completed' | 'aborted' | 'blocked' | 'error' | 'max-tokens'
+  }
+
+export function settleContinuationEpoch(
+  team: TeamStateV2,
+  checkpoint: ContinuationDispatchCheckpoint,
+  evidence: ContinuationTerminalEvidence,
+  timestamp: number,
+): { readonly tuple: ContinuationTuple; readonly settled: ModelDispatchEpoch } {
+  const tuple = requireContinuationCheckpointTuple(team, checkpoint)
+  if (tuple.dispatch.phase !== 'dispatch-entered' || tuple.intent.phase !== 'dispatch-entered') {
+    throw new TeamDomainError('continuation terminal-evidence tuple is stale', 'TEAM_ATTEMPT_STALE')
+  }
+  const reservationIndex = team.interactionEffects.findIndex(effect => effect.effectId === checkpoint.resumeEffectId)
+  const reservation = team.interactionEffects[reservationIndex]
+  if (reservation?.status !== 'applied'
+    || !sameContinuationReceipt(
+      reservation, tuple.intent, checkpoint.taskId, checkpoint.attemptId,
+      checkpoint.resumeEffectId, checkpoint.dispatchId,
+    )) {
+    throw new TeamDomainError('continuation dispatch lost its reserved receipt tuple', 'TEAM_STATE_CORRUPT')
+  }
+  const settled: ModelDispatchEpoch = { ...tuple.dispatch, ...evidence, phase: 'settled', updatedAt: timestamp }
+  team.interactionEffects[reservationIndex] = {
+    ...reservation, status: 'settled', resultingTeamRevision: team.revision + 1,
+  }
+  return { tuple, settled }
 }
 
 export class TeamV2ContinuationDomain {
@@ -480,40 +537,11 @@ export class TeamV2ContinuationDomain {
     }
     let result!: { attempt: TaskAttemptV2; dispatch: ModelDispatchEpoch }
     await this.store.transact(scope, teamId, team => {
-      const checkpoint = input.checkpoint
-      const tuple = requireContinuationTuple(
-        team, checkpoint.taskId, checkpoint.attemptId, checkpoint.continuationEffectId, checkpoint.dispatchId,
-      )
-      if (tuple.dispatch.phase !== 'dispatch-entered' || tuple.intent.phase !== 'dispatch-entered'
-        || tuple.dispatch.effectId !== checkpoint.resumeEffectId
-        || tuple.dispatch.frameMessageId !== checkpoint.frameMessageId
-        || tuple.dispatch.turn !== checkpoint.turn || tuple.dispatch.step !== checkpoint.step
-        || tuple.dispatch.messageSeq !== checkpoint.messageSeq
-        || tuple.dispatch.witnessCapabilityDigest !== checkpoint.witnessCapabilityDigest) {
-        throw new TeamDomainError('continuation assistant-evidence tuple is stale', 'TEAM_ATTEMPT_STALE')
-      }
-      const reservationIndex = team.interactionEffects.findIndex(effect => effect.effectId === checkpoint.resumeEffectId)
-      const reservation = team.interactionEffects[reservationIndex]
-      if (reservation?.status !== 'applied'
-        || !sameContinuationReceipt(
-          reservation, tuple.intent, checkpoint.taskId, checkpoint.attemptId,
-          checkpoint.resumeEffectId, checkpoint.dispatchId,
-        )) {
-        throw new TeamDomainError('continuation dispatch lost its reserved receipt tuple', 'TEAM_STATE_CORRUPT')
-      }
       const timestamp = this.now()
-      const settled: ModelDispatchEpoch = {
-        ...tuple.dispatch,
-        phase: 'settled',
+      const { tuple, settled } = settleContinuationEpoch(team, input.checkpoint, {
         assistantEvidenceSeq: input.eventSeq,
         assistantEvidenceType: input.eventType,
-        updatedAt: timestamp,
-      }
-      const receipt = {
-        ...reservation,
-        status: 'settled' as const,
-        resultingTeamRevision: team.revision + 1,
-      }
+      }, timestamp)
       const { parked: _parked, currentContinuationIntent: _intent, ...unparked } = tuple.attempt
       void _parked; void _intent
       const running: TaskAttemptV2 = {
@@ -524,9 +552,9 @@ export class TeamV2ContinuationDomain {
         updatedAt: timestamp,
       }
       replaceV2Attempt(team, running)
-      team.interactionEffects[reservationIndex] = receipt
       result = { attempt: running, dispatch: settled }
     })
     return structuredClone(result)
   }
+
 }

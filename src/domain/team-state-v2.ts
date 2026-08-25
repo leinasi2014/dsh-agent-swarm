@@ -106,6 +106,8 @@ export interface ModelDispatchEpoch {
   readonly witnessCapabilityDigest: string
   readonly assistantEvidenceSeq?: number
   readonly assistantEvidenceType?: 'assistant/message'
+  readonly turnEndEvidenceSeq?: number
+  readonly turnEndEvidenceReason?: 'completed' | 'aborted' | 'blocked' | 'error' | 'max-tokens'
   readonly phase: ModelDispatchPhase
   readonly createdAt: number
   readonly updatedAt: number

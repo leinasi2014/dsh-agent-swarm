@@ -15,6 +15,11 @@ import {
 
 export type TeamV2Transaction<T> = (draft: TeamStateV2) => T | Promise<T>
 
+export interface StoredTeamV2 {
+  readonly scope: TeamScope
+  readonly team: TeamStateV2
+}
+
 function withLock<T>(locks: Map<string, Promise<void>>, key: string, operation: () => Promise<T>): Promise<T> {
   const previous = locks.get(key)
   let release!: () => void
@@ -148,6 +153,17 @@ export class StorageDomainTeamStoreV2 {
       if (record.workspace !== scope) continue
       assertTeamStateV2(record.team, `${teamId}/list`)
       result.push(structuredClone(record.team))
+    }
+    return result
+  }
+
+  /** Enumerate detached authoritative aggregates for one bounded startup reconciliation pass. */
+  listAll(): StoredTeamV2[] {
+    this.requireAuthority()
+    const result: StoredTeamV2[] = []
+    for (const [teamId, record] of [...this.teams.entries()].toSorted((left, right) => left[0].localeCompare(right[0]))) {
+      assertTeamStateV2(record.team, `${teamId}/list-all`)
+      result.push({ scope: record.workspace, team: structuredClone(record.team) })
     }
     return result
   }

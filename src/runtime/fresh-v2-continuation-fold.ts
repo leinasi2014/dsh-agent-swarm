@@ -34,7 +34,7 @@ export function continuationFrameDigest(text: string): string {
   return canonicalV2Digest('dsh-agent-swarm/a2a/continuation-frame/v1', { text })
 }
 
-function pluginFrameText(event: SessionEvent): string | undefined {
+export function continuationPluginFrameText(event: SessionEvent): string | undefined {
   if (event.type !== 'user/message' || event.data.source.kind !== 'plugin'
     || event.data.source.plugin !== 'dsh-agent-swarm' || event.data.content.length !== 1) return undefined
   const block = event.data.content[0]
@@ -67,7 +67,7 @@ export function claimedContinuationFrame(
   }
   const matches = session.events.flatMap(event => {
     if (event.seq <= start.seq || event.type !== 'user/message') return []
-    const text = pluginFrameText(event)
+    const text = continuationPluginFrameText(event)
     if (text === undefined || continuationFrameDigest(text) !== expectedFrameDigest
       || (expectedMessageId !== undefined && event.data.id !== expectedMessageId)) return []
     return [{ event, text }]

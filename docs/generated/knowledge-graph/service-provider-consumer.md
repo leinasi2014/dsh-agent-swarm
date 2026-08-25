@@ -2,9 +2,9 @@
 
 # Service, Provider and Consumer
 
-Manifest digest: `88842fac70f4eabe45ab2d9738f328ef3b1faf22c7e19f85765b2d8415421a3c`
+Manifest digest: `7b53add489619bc9e251c03bca500a2fef347f492eb007033aa55374455a3ad2`
 
-Curated tool-registry digest: `4783f01c6944ac92630bed586de73942dd486d5f2e4a152f41a5feb045518e44`
+Curated tool-registry digest: `2be0d810910262b9935483648c28293ae224bd13898cd2e4effb11b8e13e2129`
 
 > Claim ceiling: the registry is a reviewed capability overlay over exact source extraction. Per-tool deep semantic closure, acceptance, and real-Profile evidence remain explicit gaps; the complete mechanical graph is retained in `atlas.json`.
 

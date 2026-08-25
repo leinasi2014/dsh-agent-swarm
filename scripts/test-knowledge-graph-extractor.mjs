@@ -156,11 +156,11 @@ try {
   const actual = await extractSourceFacts(repositoryRoot)
   assert.deepEqual(errorCodes(actual), [], `actual repository diagnostics: ${JSON.stringify(actual.diagnostics)}`)
   assert.deepEqual(actual.counts, {
-    discoveredModules: 120,
-    parsedModules: 120,
+    discoveredModules: 122,
+    parsedModules: 122,
     toolDefinitions: 20,
     tools: 20,
-    imports: 685,
+    imports: 697,
     injections: 34,
     providerRegistrations: 6,
     providerRegistryMethods: 11,
@@ -269,9 +269,9 @@ try {
     JSON.stringify(item.names), JSON.stringify(item.effectiveExports),
   ].join('|'))
   // Exact candidate drift locks over complete normalized tuple sets; later graph reconciliation replaces these KG1 locks.
-  assertTupleSetDigest(externalRegistryTuples, '779139218941b3172710a86283ba43d81f1ba5c4e237e9619f939366c67597cc', 'external registries')
+  assertTupleSetDigest(externalRegistryTuples, 'c3e0c009504df119e1a739948aa418a7c629875e7501573d43f0f1fc77c29092', 'external registries')
   assertTupleSetDigest(rpcTuples, 'dd9e8353c0564d866d2f19b1310e7e870d5a997761e82c81b7255223a79565ad', 'RPC')
-  assertTupleSetDigest(listenerTuples, '68c5dcc5e030131d74a8ed1b99dae38e86f298d59b89a9b93642661a1a24f8ec', 'listeners')
+  assertTupleSetDigest(listenerTuples, '71b5435abc8739ad326cb24105620a0235c1a16e3d4dedf1251fe335d2780edc', 'listeners')
   assertTupleSetDigest(effectTuples, '0c2f4dc23b978a1f13c675f818d72ba7920ab91293a18071fb90f4c9431a7422', 'effects')
   assertTupleSetDigest(exportTuples(actual.reachableRootExports), '771c964630864102e1ba31e13263513fc900dd90fe0bf3568ba6f1ce022a5236', 'root reachable exports')
   assertTupleSetDigest(exportTuples(actual.reachablePublicApiExports), 'a2520120278763b6cb98c2aab04470e65ff0ee6f591d5302e8b394809bb9bec5', 'public API reachable exports')
@@ -311,7 +311,7 @@ try {
   assert.deepEqual(actual.serviceDefinitions.map(item => `${item.classSymbol}:${item.serviceName}`), ['AgentSwarmRuntime:agentSwarm'])
   assert.ok(actual.registryExtensions.every(item => item.duplicateRule.startsWith('dominating-') && item.disposer.startsWith('identity-guarded:')))
   assert.ok(actual.registryExtensions.every(item => item.boundedNameRules.length > 0))
-  assert.equal(actual.externalRegistryUses.length, 42)
+  assert.equal(actual.externalRegistryUses.length, 44)
   assert.ok(actual.externalRegistryUses.some(item => item.receiver === 'this.ctx.subagents' && item.method === 'startContinuable'))
   assert.ok(actual.externalRegistryUses.some(item => item.receiver === 'this.ctx.subagents' && item.method === 'list'))
   assert.deepEqual(actual.registryFacades.map(item => `${item.method}->${item.targetMethod}`), [

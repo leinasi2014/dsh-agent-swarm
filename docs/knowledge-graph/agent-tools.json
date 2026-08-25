@@ -41,8 +41,8 @@
     },
     "continuation": {
       "title": "Explicit same-Attempt continuation and official dispatch fencing",
-      "sourceAnchors": [{ "file": "src/domain/team-domain-v2-continuation.ts", "symbol": "TeamV2ContinuationDomain" }, { "file": "src/runtime/fresh-v2-continuation-runtime.ts", "symbol": "FreshV2ContinuationRuntime" }],
-      "testAnchors": [{ "file": "tests/fresh-v2-continuation-domain.spec.ts" }, { "file": "tests/fresh-v2-continuation-fold.spec.ts" }, { "file": "tests/fresh-v2-continuation-runtime.spec.ts" }],
+      "sourceAnchors": [{ "file": "src/domain/team-domain-v2-continuation.ts", "symbol": "TeamV2ContinuationDomain" }, { "file": "src/domain/team-domain-v2-continuation-recovery.ts", "symbol": "TeamV2ContinuationRecoveryDomain" }, { "file": "src/runtime/fresh-v2-continuation-runtime.ts", "symbol": "FreshV2ContinuationRuntime" }, { "file": "src/runtime/fresh-v2-continuation-recovery-fold.ts", "symbol": "foldEnteredContinuationRecovery" }],
+      "testAnchors": [{ "file": "tests/fresh-v2-continuation-domain.spec.ts" }, { "file": "tests/fresh-v2-continuation-fold.spec.ts" }, { "file": "tests/fresh-v2-continuation-runtime.spec.ts" }, { "file": "tests/fresh-v2-continuation-recovery-fold.spec.ts" }, { "file": "tests/fresh-v2-continuation-restart.spec.ts" }],
       "relatedToolIds": ["tool:agent_swarm_continue_task"],
       "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT", "CONFIG_DISABLED_BY_DEFAULT"]
     },
@@ -232,12 +232,12 @@
       "bounds": [
         { "name": "nonterminal continuation intents per Attempt", "value": 1, "source": { "file": "src/domain/team-domain-v2-continuation.ts", "symbol": "TeamV2ContinuationDomain" } }
       ],
-      "recoveryFailure": "Stale revision, owner, Attempt, or competing intent fails before mutation; an admitted effect with unknown delivery outcome is preserved and never blindly resent. Cold recovery remains unaccepted.",
-      "testAnchors": [{ "file": "tests/fresh-v2-continuation-domain.spec.ts" }, { "file": "tests/fresh-v2-continuation-fold.spec.ts" }, { "file": "tests/fresh-v2-continuation-runtime.spec.ts" }],
+      "recoveryFailure": "Stale revision, owner, Attempt, or competing intent fails before mutation; a cold entered dispatch folds exact terminal evidence or becomes durable dispatch-unknown without retry. Pre-dispatch cold recovery remains unaccepted.",
+      "testAnchors": [{ "file": "tests/fresh-v2-continuation-domain.spec.ts" }, { "file": "tests/fresh-v2-continuation-fold.spec.ts" }, { "file": "tests/fresh-v2-continuation-runtime.spec.ts" }, { "file": "tests/fresh-v2-continuation-recovery-fold.spec.ts" }, { "file": "tests/fresh-v2-continuation-restart.spec.ts" }],
       "documentationAnchors": [{ "file": "docs/adr/0010-model-autonomy-and-parked-attempts.md" }, { "file": "docs/development/2026-08-24-team-runtime-architecture-blueprint-v1.md" }],
       "maturity": {
-        "implementation": { "state": "implemented", "evidence": ["src/tools/continuation.ts", "src/domain/team-domain-v2-continuation.ts", "src/runtime/fresh-v2-continuation-runtime.ts"] },
-        "verification": { "state": "official-composition-anchored", "evidence": ["tests/fresh-v2-continuation-domain.spec.ts", "tests/fresh-v2-continuation-fold.spec.ts", "tests/fresh-v2-continuation-runtime.spec.ts"] },
+        "implementation": { "state": "implemented", "evidence": ["src/tools/continuation.ts", "src/domain/team-domain-v2-continuation.ts", "src/domain/team-domain-v2-continuation-recovery.ts", "src/runtime/fresh-v2-continuation-runtime.ts", "src/runtime/fresh-v2-continuation-recovery-fold.ts"] },
+        "verification": { "state": "official-composition-anchored", "evidence": ["tests/fresh-v2-continuation-domain.spec.ts", "tests/fresh-v2-continuation-fold.spec.ts", "tests/fresh-v2-continuation-runtime.spec.ts", "tests/fresh-v2-continuation-recovery-fold.spec.ts", "tests/fresh-v2-continuation-restart.spec.ts"] },
         "acceptance": { "state": "not-asserted", "evidence": [] },
         "availability": { "state": "config-disabled-by-default", "evidence": ["src/index.ts"] }
       },

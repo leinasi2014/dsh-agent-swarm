@@ -4,6 +4,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId, type Session, type SessionEvent, type UserMessage } from '@deepseek-ai/dsh-session'
 import { TeamDomainError } from '../domain/error.js'
+import { TeamV2ContinuationRecoveryDomain } from '../domain/team-domain-v2-continuation-recovery.js'
 import {
   TeamV2ContinuationDomain,
   type ContinuationDispatchCheckpoint,
@@ -33,11 +34,13 @@ import { assistantEvidenceAt } from './fresh-v2-session-fold.js'
 import { currentFreshV2TaskAttempt, findFreshV2Membership } from './fresh-v2-initial-support.js'
 import type { FreshV2WitnessCapability } from './fresh-v2-witness-capability.js'
 import { consumeFreshV2ModelPermit, type FreshV2ModelPermit } from './fresh-v2-model-permit.js'
+import { foldEnteredContinuationRecovery } from './fresh-v2-continuation-recovery-fold.js'
 
 const CONTINUATION_DELIVERY_TIMEOUT_MS = 30_000
 
 export class FreshV2ContinuationRuntime implements ContinuationRuntime {
   private readonly domain: TeamV2ContinuationDomain
+  private readonly recoveryDomain: TeamV2ContinuationRecoveryDomain
   private readonly modelPermits = new Map<string, FreshV2ModelPermit>()
   private readonly dispatchStreams = new Set<Promise<void>>()
   private readonly delivering = new Set<string>()
@@ -50,6 +53,7 @@ export class FreshV2ContinuationRuntime implements ContinuationRuntime {
     private readonly witness: FreshV2WitnessCapability,
   ) {
     this.domain = new TeamV2ContinuationDomain(store)
+    this.recoveryDomain = new TeamV2ContinuationRecoveryDomain(store)
   }
 
   async continueTask(exec: ToolExecutionAuthority, input: {
@@ -87,6 +91,68 @@ export class FreshV2ContinuationRuntime implements ContinuationRuntime {
       ...(input.checkpointDigest === undefined ? {} : { checkpointDigest: input.checkpointDigest }),
       ...(input.wakeCondition === undefined ? {} : { wakeCondition: input.wakeCondition }),
     })
+  }
+
+  /** Reconcile exact entered continuations once from durable state before normal admission opens. */
+  async reconcileColdEnteredDispatches(): Promise<void> {
+    this.assertOpen()
+    for (const { scope, team } of this.store.listAll()) {
+      for (const attempt of team.attempts) {
+        const intent = attempt.currentContinuationIntent
+        const dispatch = intent?.currentDispatchId === undefined
+          ? undefined : attempt.dispatchEpochs.find(candidate => candidate.dispatchId === intent.currentDispatchId)
+        if (intent?.phase !== 'dispatch-entered' || dispatch?.phase !== 'dispatch-entered') continue
+        const memberSessionId = SessionId(attempt.memberSessionId)
+        if (this.ctx.agents.get(memberSessionId) !== undefined || this.ctx.sessions.get(memberSessionId) !== undefined) continue
+        const current = currentContinuationAttempt(team, attempt.memberSessionId)
+        if (current === undefined) continue
+        const checkpoint = continuationCheckpointOf(current)
+        let inspection: Awaited<ReturnType<Context['sessionPersistence']['inspect']>>
+        try {
+          inspection = await this.ctx.sessionPersistence.inspect(
+            memberSessionId, AbortSignal.timeout(CONTINUATION_DELIVERY_TIMEOUT_MS),
+          )
+        } catch (error: unknown) {
+          this.ctx.logger.warn(
+            `agent-swarm: cold continuation inspection failed for ${attempt.memberSessionId}: ${String(error)}`,
+          )
+          continue
+        }
+        if (this.ctx.agents.get(memberSessionId) !== undefined || this.ctx.sessions.get(memberSessionId) !== undefined) continue
+        const evidence = foldEnteredContinuationRecovery(
+          inspection.events, checkpoint, continuationFrameDigest(this.frameOf(current)),
+        )
+        if (evidence.kind === 'dispatch-unknown') {
+          await this.recoveryDomain.markDispatchUnknown(scope, team.id, {
+            checkpoint,
+            diagnostic: evidence.reason,
+          })
+          continue
+        }
+        if (evidence.kind === 'turn-end-evidence') {
+          await this.recoveryDomain.settleTurnEndEvidence(scope, team.id, {
+            checkpoint,
+            eventSeq: evidence.eventSeq,
+            reason: evidence.reason,
+          })
+          continue
+        }
+        await this.domain.settleAssistantEvidence(scope, team.id, {
+          checkpoint,
+          eventSeq: evidence.eventSeq,
+          eventType: 'assistant/message',
+        })
+        if (evidence.turnEndSeq !== undefined) {
+          await this.domain.parkAfterTurn(scope, team.id, {
+            taskId: current.task.id,
+            attemptId: current.attempt.id,
+            memberSessionId: attempt.memberSessionId,
+            settledTurn: checkpoint.turn,
+            turnEndSeq: evidence.turnEndSeq,
+          })
+        }
+      }
+    }
   }
 
   /** Returns true only when this request is the exact continuation dispatch. */

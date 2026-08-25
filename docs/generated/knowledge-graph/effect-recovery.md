@@ -2,9 +2,9 @@
 
 # Effects and recovery
 
-Manifest digest: `88842fac70f4eabe45ab2d9738f328ef3b1faf22c7e19f85765b2d8415421a3c`
+Manifest digest: `7b53add489619bc9e251c03bca500a2fef347f492eb007033aa55374455a3ad2`
 
-Curated tool-registry digest: `4783f01c6944ac92630bed586de73942dd486d5f2e4a152f41a5feb045518e44`
+Curated tool-registry digest: `2be0d810910262b9935483648c28293ae224bd13898cd2e4effb11b8e13e2129`
 
 > Claim ceiling: the registry is a reviewed capability overlay over exact source extraction. Per-tool deep semantic closure, acceptance, and real-Profile evidence remain explicit gaps; the complete mechanical graph is retained in `atlas.json`.
 
@@ -56,7 +56,7 @@ flowchart LR
 | Stable capability id | Effect | Recovery / failure | Explicit evidence gaps |
 |---|---|---|---|
 | `tool:agent_swarm_claim_task` | domain-transaction+external-effect | Stale revision or unavailable work fails before ownership transfer; assignment delivery uses the D1 exact-read-back recovery closure, while execution-root availability remains configuration-dependent. | NO_REAL_PROFILE_EVIDENCE<br>PROFILE_DEPENDENT<br>PER_TOOL_DEEP_SEMANTICS_DEFERRED |
-| `tool:agent_swarm_continue_task` | domain-transaction+external-effect | Stale revision, owner, Attempt, or competing intent fails before mutation; an admitted effect with unknown delivery outcome is preserved and never blindly resent. Cold recovery remains unaccepted. | NO_REAL_PROFILE_EVIDENCE<br>PROFILE_DEPENDENT<br>CONFIG_DISABLED_BY_DEFAULT<br>PER_TOOL_DEEP_SEMANTICS_DEFERRED |
+| `tool:agent_swarm_continue_task` | domain-transaction+external-effect | Stale revision, owner, Attempt, or competing intent fails before mutation; a cold entered dispatch folds exact terminal evidence or becomes durable dispatch-unknown without retry. Pre-dispatch cold recovery remains unaccepted. | NO_REAL_PROFILE_EVIDENCE<br>PROFILE_DEPENDENT<br>CONFIG_DISABLED_BY_DEFAULT<br>PER_TOOL_DEEP_SEMANTICS_DEFERRED |
 | `tool:agent_swarm_create_task` | domain-transaction | Invalid dependencies, verification declarations, reservation floors, or size limits fail before task commit; scheduling follows committed state. | NO_REAL_PROFILE_EVIDENCE<br>PROFILE_DEPENDENT<br>PER_TOOL_DEEP_SEMANTICS_DEFERRED |
 | `tool:agent_swarm_reassign_task` | domain-transaction+external-effect | Revision or attempt mismatch fails closed; the fenced Team transition remains authoritative if later interruption or rescheduling fails. | NO_DIRECT_TEST<br>NO_COMPOSITION_TEST<br>NO_REAL_PROFILE_EVIDENCE<br>PROFILE_DEPENDENT<br>PER_TOOL_DEEP_SEMANTICS_DEFERRED |
 | `tool:agent_swarm_review_task` | domain-transaction+external-effect | Provider failure does not self-accept; stale attempts fail closed and an unknown verification result requires authoritative task read-back before retry. | NO_REAL_PROFILE_EVIDENCE<br>PROFILE_DEPENDENT<br>PER_TOOL_DEEP_SEMANTICS_DEFERRED |

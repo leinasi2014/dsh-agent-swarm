@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { assertTeamStateV2 } from '../src/domain/state-validation-v2.js'
 import { TeamV2ContinuationDomain, type ContinuationDispatchCheckpoint } from '../src/domain/team-domain-v2-continuation.js'
+import { TeamV2ContinuationRecoveryDomain } from '../src/domain/team-domain-v2-continuation-recovery.js'
 import { TeamV2StartDomain } from '../src/domain/team-domain-v2-start.js'
 import {
   ContinuationEffectId,
@@ -315,5 +316,67 @@ describe('A2a same-Attempt continuation domain', () => {
       currentContinuationIntent: { continuationEffectId, phase: 'requested' },
       dispatchEpochs: [expect.objectContaining({ kind: 'initial', phase: 'settled' })],
     })
+  })
+
+  it('terminalizes an entered continuation as unknown without releasing its once-only reservation', async () => {
+    const fixture = await runningAttempt()
+    const continuationEffectId = ContinuationEffectId('continuation-a2a-unknown')
+    const resumeEffectId = TeamEffectId('effect-continuation-a2a-unknown')
+    const dispatchId = DispatchId('dispatch-continuation-a2a-unknown')
+    await fixture.continuation.requestMemberContinuation(SCOPE, fixture.teamId, {
+      taskId: fixture.taskId,
+      expectedTaskRevision: fixture.taskRevision,
+      attemptId: fixture.attemptId,
+      continuationEffectId,
+      principal: { kind: 'member', memberId: 'worker', memberSessionId: 'member-1' },
+    })
+    await fixture.continuation.parkAfterTurn(SCOPE, fixture.teamId, {
+      taskId: fixture.taskId, attemptId: fixture.attemptId, memberSessionId: 'member-1',
+      settledTurn: 1, turnEndSeq: 11,
+    })
+    await fixture.continuation.admitRequested(SCOPE, fixture.teamId, {
+      taskId: fixture.taskId, attemptId: fixture.attemptId, memberSessionId: 'member-1',
+      continuationEffectId, resumeEffectId, dispatchId, witnessCapabilityDigest: WITNESS_DIGEST,
+    })
+    await fixture.continuation.recordFrameAccepted(SCOPE, fixture.teamId, {
+      taskId: fixture.taskId, attemptId: fixture.attemptId, continuationEffectId, dispatchId,
+      frameMessageId: 'official-message-a2a-unknown',
+    })
+    const checkpoint: ContinuationDispatchCheckpoint = {
+      taskId: fixture.taskId,
+      attemptId: fixture.attemptId,
+      continuationEffectId,
+      dispatchId,
+      resumeEffectId,
+      frameMessageId: 'official-message-a2a-unknown',
+      messageSeq: 13,
+      turn: 2,
+      step: 1,
+      witnessCapabilityDigest: WITNESS_DIGEST,
+    }
+    await fixture.continuation.claimFrame(SCOPE, fixture.teamId, checkpoint)
+    await fixture.continuation.enterDispatch(SCOPE, fixture.teamId, checkpoint)
+
+    const recovery = new TeamV2ContinuationRecoveryDomain(stack!.store, () => 900)
+    const unknown = await recovery.markDispatchUnknown(SCOPE, fixture.teamId, {
+      checkpoint,
+      diagnostic: 'model entered but no durable assistant evidence exists after restart',
+    })
+    expect(unknown).toMatchObject({
+      attempt: {
+        phase: 'parked', parked: { parkedReason: 'migration-unknown' },
+        currentContinuationIntent: { phase: 'dispatch-unknown' },
+      },
+      dispatch: { phase: 'dispatch-unknown' },
+    })
+    expect(await recovery.markDispatchUnknown(SCOPE, fixture.teamId, {
+      checkpoint,
+      diagnostic: 'same replay does not change the once-only record',
+    })).toEqual(unknown)
+    const persisted = stack!.store.read(SCOPE, fixture.teamId)!
+    expect(persisted.interactionEffects).toContainEqual(expect.objectContaining({
+      effectId: resumeEffectId, status: 'applied', dispatchId,
+    }))
+    assertTeamStateV2(persisted, 'dispatch-unknown-continuation')
   })
 })

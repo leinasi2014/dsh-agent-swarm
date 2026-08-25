@@ -38,7 +38,6 @@ import { FreshV2ContinuationRuntime } from './fresh-v2-continuation-runtime.js'
 import type { ContinuationRuntime } from '../tools/continuation.js'
 import { consumeFreshV2ModelPermit, type FreshV2ModelPermit } from './fresh-v2-model-permit.js'
 import { FreshV2EvidenceCoordinator } from './fresh-v2-evidence-coordinator.js'
-
 export interface FreshV2InitialConfig {
   readonly artifactContract: string
   readonly hostContract: string
@@ -108,6 +107,7 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
     this.store = store
     this.domain = new TeamV2StartDomain(store, { maxMembers: this.config.maxMembers })
     this.continuation = new FreshV2ContinuationRuntime(this.ctx, store, this.witnessCapability)
+    await this.continuation.reconcileColdEnteredDispatches()
   }
 
   scopeOf(agent: Agent): string {
