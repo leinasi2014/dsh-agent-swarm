@@ -116,12 +116,27 @@ interface ContinuationIntent {
   checkpointDigest?: string
   wakeCondition?: string
   resumeEffectId?: string
-  targetSessionId?: string
+  currentDispatchId?: string
+  phase: ContinuationIntentPhase
+}
+
+type ModelDispatchPhase =
+  | 'frame-pending' | 'frame-claimed' | 'dispatch-pending'
+  | 'dispatch-entered' | 'dispatch-unknown'
+  | 'settled' | 'superseded' | 'cancelled'
+
+interface ModelDispatchEpoch {
+  dispatchId: string
+  kind: 'initial' | 'continuation' | 'recovery'
+  ordinal: number
+  effectId: string
+  recoveryOf?: string
+  targetSessionId: string
   turn?: number
   step?: number
-  assignmentMessageSeq?: number
-  dispatchWitnessRevision?: number
-  phase: ContinuationIntentPhase
+  messageSeq?: number
+  witnessCapabilityDigest: string
+  phase: ModelDispatchPhase
 }
 ```
 
@@ -130,6 +145,8 @@ The stored reason is evidence classification, not a policy verdict. A `running` 
 `continuationPolicy` grants who may request continuation; it is never itself an intent or wake condition. `team-autonomous` admits the owning `member` or the `team-leader`; `captain` admits only the `team-leader`; `human` admits only an `authenticated-human`. The root Captain is the Team leader's official DSH Session and is not misrepresented as a `TeamMember`. An Attempt has at most one nonterminal `ContinuationIntent`, identified by `teamId + taskId + attemptId + continuationEffectId`. All principals use the same CAS slot. Repeating the same identity is idempotent; a different concurrent identity receives the authoritative existing intent/conflict and cannot enqueue another wake.
 
 No model tool, RPC or public payload accepts `requestedBy`. For a member call, runtime derives the principal from the exact live `exec.agent`, roster row and current Attempt owner. For a Team-leader call, it derives the exact live root Agent instance, root registration and `team.captainSessionId`. Human continuation is NOT_CONFIGURED unless the existing host-only `HumanPrincipalVerifier` and an accepted write gateway produce an opaque attestation for the concrete request; Captain prose, a browser field or a copied subject ID cannot mint one. The domain admission CAS revalidates the attestation, policy, live roster/root binding, current revision, Attempt owner/generation and intent slot. Forged, stale, replayed or old-generation principals fail before mutation.
+
+`ModelDispatchEpoch` is the common dispatch authority for both first assignment and continuation. Initial assignment settlement creates `kind=initial`; a claimed continuation creates `kind=continuation`; a proven-not-entered crash recovery terminalizes the old epoch and creates `kind=recovery` with the next ordinal. The same witness, result fold, unknown rule and bounded receipt ledger apply to every kind. Thus first assignment has no weaker crash semantics than later continuation.
 
 ## 5. Scheduling and continuation protocol
 
@@ -145,8 +162,9 @@ One bounded scheduling pass keeps the existing order—reconcile durable debt, d
 8. `reassignTask` is distinct from resume: it fences the old attempt `stale`, creates a fresh generation and transfers ownership under the existing captain-only CAS contract.
 9. Submission, cancellation, reassignment and any transition that terminalizes or replaces the current Attempt atomically terminalize its nonterminal continuation intent as `superseded` or `cancelled`. The effect dispatcher and target pre-model gate both revalidate the exact current task revision, attempt generation and nonterminal intent before send/claim. A terminal intent is evidence only and can never wake an Attempt.
 10. Claiming the wake does not prove model dispatch. The `agent/request` pre-model gate flushes the exact claimed assignment `user/message`, CASes `claimed -> dispatch-pending`, retains the Attempt as `parked`, checkpoints the exact Session turn/message/step identity and then calls `next()`.
-11. A plugin-owned `llm/stream` dispatch witness handles only that exact Team-owned Session/turn/step. After another exact Session flush and before its downstream `next()`, it CASes `dispatch-pending -> dispatch-entered`, reads back, then delegates to the official LLM waterfall. This is an admission witness, not proof of a provider result: if the process dies before outcome evidence, recovery changes it to `dispatch-unknown` and uses Provider read-back or an explicit forward decision. The intent settles and the Attempt becomes `running` only after official assistant execution evidence for that exact step. A durable `turn/end` without assistant output settles the wake but leaves the task parked with the exact error/wait evidence.
-12. Gate A and real Loader tests must prove the witness wraps the terminal adapter path for Team-owned requests and cannot be bypassed by configured short-circuit middleware. If that ordering cannot be established for a Profile, autonomous continuation is unavailable for that Profile rather than weakening the boundary or modifying official DSH.
+11. A global/prepend plugin-owned `llm/stream` dispatch witness first requires process-local `isAgentLoopRequest(options)`, resolves `sessionId` to the identical live Agent/Session, reconstructs the single open turn/step from Session events and matches that exact Team-owned `dispatch-pending` epoch. After another exact Session flush and before its downstream `next()`, it CASes `dispatch-pending -> dispatch-entered`, reads back, then delegates to the official LLM waterfall. This is an admission witness, not proof of a provider result: if the process dies before outcome evidence, recovery changes it to `dispatch-unknown` and uses Provider read-back or an explicit forward decision. The intent settles and the Attempt becomes `running` only after official assistant execution evidence for that exact step. A durable `turn/end` without assistant output settles the wake but leaves the task parked with the exact error/wait evidence.
+12. Gate A and real Loader sentinels must prove the witness wraps every configured terminal adapter and short-circuit route for Team-owned requests. A capability digest binds official build, Loader graph and witness registration to each epoch. HMR/graph change revokes admission, drains admitted calls and reruns the sentinels. If assistant output or `turn/end` appears without the matching entered receipt, the route becomes `dispatch-unknown` and autonomous recovery is disabled for that Profile. It never infers not-dispatched. If ordering cannot be established, the capability is unavailable rather than weakening the boundary or modifying official DSH.
+13. The same witness covers initial, continuation and recovery epochs. A recovery trigger never replays the original assignment: after the new trigger message is claimed and flushed, one CAS settles the old proven-not-entered epoch and binds a new `kind=recovery` ordinal to the new turn/step/message before it may reach `dispatch-pending`. Repeated trigger claims return the existing epoch.
 
 ```text
 agent/status idle
@@ -176,7 +194,8 @@ Continuation intent recovery is deterministic:
 | `admitted`, effect/frame proven absent | Publish the exact byte-identical frame once under the persisted `resumeEffectId`; do not create another effect or intent. |
 | `admitted`, frame pending | Preserve and wait; do not create or resend another identity. |
 | `claimed`, exact current parked Attempt | Flush the exact assignment message, CAS intent to `dispatch-pending`, retain Attempt `parked`, checkpoint Session/turn/step, then allow the official request waterfall to continue. |
-| `dispatch-pending`, process died before the exact plugin `llm/stream` witness committed | Downstream model dispatch was not admitted. Because the original assignment message is already durable, enqueue the v2 ledger's separate once-only recovery trigger derived from the same effect; never replay/append the assignment frame again. |
+| `dispatch-pending`, valid bound witness capability, no assistant output/`turn/end`, process died before witness commit | Downstream model dispatch was not admitted. Because the original assignment message is already durable, enqueue the v2 ledger's separate once-only recovery trigger derived from the same effect; never replay/append the assignment frame again. |
+| `dispatch-pending`, assistant output/`turn/end` exists or witness capability/ordering is absent, changed or ambiguous | CAS `dispatch-unknown`, revoke autonomous recovery for the Profile and require read-back/explicit decision. Never infer not-dispatched. |
 | `dispatch-entered`, assistant output/turn-end is absent after process death | CAS to `dispatch-unknown`; reconcile by Provider request identity when available, otherwise escalate this true blocker for an explicit forward decision. Never retry blindly. |
 | `dispatch-entered`, exact assistant output/execution boundary exists | CAS Attempt to `running`, settle the intent receipt and release the current slot. |
 | `dispatch-entered`, exact turn ended without assistant output | Settle the wake receipt, release the slot and keep/return the Attempt `parked` with the classified error/wait evidence. |
@@ -203,7 +222,7 @@ The external manager observes canonical state and intervenes only after a concre
 | External effect outcome unknown | Read back/reconcile the exact operation identity; never retry blindly. |
 | Repeated completed observable failures with no new decision-relevant evidence | Project `suspected_loop` and ask the Team leader to diagnose; do not automatically interrupt or mint a generation. |
 
-The Team leader may reprioritize, coordinate, resume and correct work inside the pre-authorized Team/task envelope without external approval. Escalation is required only when the remedy changes authority, budget/deadline policy, member ownership/generation, accepted scope, or invokes an otherwise unavailable external capability.
+The Team leader may reprioritize, coordinate, resume, reassign and create a replacement generation inside the pre-authorized Team/task policy without external-manager approval. Escalation is required only when the remedy needs new authority or permissions, changes budget/deadline policy or accepted scope, invokes an unavailable external capability, or must decide an external effect whose outcome remains unknown.
 
 ## 6. Heartbeat, lease, progress and timeout separation
 

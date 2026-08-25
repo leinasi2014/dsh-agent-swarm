@@ -178,17 +178,21 @@ Each terminal method checks the full tuple `teamId + taskId + task.currentAttemp
 
 ### 4.3 Pre-model causal gate
 
-Target-side history must not race Team settlement. Register an agent-scoped listener on the official `agent/request` waterfall (or an upstream-equivalent pre-dispatch seam with the same ordering). Official `packages/core/agent-loop/src/agent.ts:282-287` appends the messages claimed for the step as durable `user/message` events before request construction, and `:457-460` awaits the waterfall before provider/model preparation and dispatch. For the exact initial-assignment frame of a mapped member, the listener handles either still-`starting` debt or an already-idempotently-settled `active/delivered` checkpoint:
+Target-side history must not race Team settlement. Initial assignment and later continuation use the same common `DispatchEpoch`; neither path may infer model dispatch from frame claim, Agent status or `request/header`. An epoch is identified by `teamId + taskId + attemptId + dispatchOrdinal`, binds `kind=initial|continuation|recovery`, effect identity, exact Session/turn/step and assignment/recovery message sequence, and follows `frame-pending -> frame-claimed -> dispatch-pending -> dispatch-entered -> settled|dispatch-unknown|superseded`. Its receipts live in the same bounded ADR-0009 effect ledger.
+
+Register an agent-scoped listener on the official `agent/request` waterfall (or an upstream-equivalent pre-dispatch seam with the same ordering). Official `packages/core/agent-loop/src/agent.ts:282-287` appends the messages claimed for the step as durable `user/message` events before request construction, and `:457-460` awaits the waterfall before provider/model preparation and dispatch. For the exact initial-assignment frame of a mapped member, the listener handles either still-`starting` debt or an already-idempotently-settled `active/delivered` checkpoint:
 
 1. read the exact Team/member/task/attempt tuple and reconstruct the frozen assignment frame/digest;
 2. locate the exact just-claimed `user/message` in that Session and require it to match `startingAttemptId` and `initialPromptDigest` — unrelated requests delegate immediately;
 3. await `ctx.sessions.flush(child.session)` so the claimed user/message and its sequence are durable;
-4. when still `starting`, call idempotent `settleInitialAssignment(...)`; when another recovery caller already settled, skip the write; in both cases read back the same fence and require member `active`, no `startingAttemptId`, attempt `running/delivered`, and the exact `initialMessageSeq`/prompt digest;
-5. only after that read-back call `next()` so the official Agent Loop may issue the model request.
+4. when still `starting`, one Team transaction calls idempotent `settleInitialAssignment(...)` and persists the exact initial `DispatchEpoch` as `dispatch-pending`; when another recovery caller already settled, require that same epoch; read back member `active`, no `startingAttemptId`, attempt `delivered` but not yet execution-proven, and the exact Session/turn/step/message/digest fence;
+5. only after that read-back call `next()` so the official Agent Loop may build the model request. The common `llm/stream` witness described in §7 then owns `dispatch-pending -> dispatch-entered` before downstream model dispatch; only assistant execution evidence makes the Attempt `running`.
 
-If flush, evidence classification, settle response or read-back fails or is `unknown`, the listener does **not** call `next()`: it throws a structured, secret-free activation-debt error and rejects that model request before dispatch. The authoritative post-state is then explicitly **unknown**: a failure before the settle write is proven leaves `starting/reserved`, but a lost response/read-back may mean the write already committed `active/delivered`. Recovery performs exact read-back only. Exact `starting/reserved` may invoke the idempotent settle; exact `active/delivered` is preserved and may queue the once-only resume below; any mismatch/unknown remains blocked. It never writes again, rolls back or resends merely because the caller saw an error. Scheduler and recovery ticks are only concurrent callers; `TeamDomainPort` remains the unique writer and the exact tuple CAS/read-back makes one result authoritative.
+If flush, evidence classification, settle response or read-back fails or is `unknown`, the listener does **not** call `next()`: it throws a structured, secret-free activation-debt error and rejects that model request before dispatch. The authoritative post-state is then explicitly **unknown**: a failure before the settle write is proven leaves `starting/reserved`, but a lost response/read-back may mean the write already committed `active/delivered + dispatch-pending`. Recovery performs exact read-back only. Exact `starting/reserved` may invoke the idempotent settle; exact `active/delivered + pending epoch` uses the common proven-not-entered recovery-epoch rule; entered/ambiguous stays unknown. It never writes again, rolls back or resends merely because the caller saw an error. Scheduler and recovery ticks are only concurrent callers; `TeamDomainPort` remains the unique writer and the exact tuple CAS/read-back makes one result authoritative.
 
-If recovery later proves the exact initial user/message was claimed but its model request was blocked, it queues one durable once-only `activation-resume` wake through the v2 Team effect ledger, keyed by `attemptId + initialMessageSeq`; the existing mailbox delivers a trusted system frame that tells the child to continue the already-recorded assignment. Target-side acceptance/claim is reconciled like other exact Team mail. It never resends the assignment, and a crash cannot enqueue a second wake. Without the v2 once-only ledger, recovery stays blocked rather than issuing an opaque wake.
+If recovery finds an initial or continuation epoch still `dispatch-pending`, the common witness did not admit downstream model dispatch. It queues one durable once-only recovery trigger through the v2 Team effect ledger, keyed by `attemptId + oldDispatchOrdinal + recoveryOrdinal`; it never resends the assignment. On trigger claim, the target flushes the new recovery message, and one CAS terminalizes the old epoch as proven-not-entered while creating the next `kind=recovery` epoch bound to the new official turn/step/message sequence in `dispatch-pending`. Replayed claims return the same epoch/receipt. The new epoch must pass the same `llm/stream` witness. If the old epoch is `dispatch-entered` or the witness receipt is absent/ambiguous, recovery is `dispatch-unknown`, not an automatic trigger. Without the v2 once-only ledger, recovery stays blocked rather than issuing an opaque wake.
+
+The dispatch witness is a global/prepend `llm/stream` listener that first requires process-local `isAgentLoopRequest(options)`, resolves `options.sessionId` to the exact live Agent and identical Session object, reconstructs the single open turn/step from Session events, and matches one current Team-owned `dispatch-pending` epoch. It flushes that Session, CASes/read-backs `dispatch-entered`, then calls downstream `next()`. A stored witness-capability digest binds the official build, Loader graph and listener registration used for the epoch. HMR/plugin-graph change revokes admission, drains admitted calls, reruns a sentinel across every configured terminal or short-circuit route, and only then republishes capability. If assistant output or `turn/end` appears for a Team-owned pending epoch without its matching `dispatch-entered` receipt, runtime marks `dispatch-unknown`, revokes autonomous recovery for that Profile and never assumes the model was not called.
 
 ### 4.4 Runtime status is a projection
 
@@ -266,7 +270,7 @@ On `settled/superseded/cancelled`, the terminal receipt moves atomically into AD
 
 The management surface is event-driven and read-mostly. It leaves normal/in-flight work alone and intervenes only after authoritative state exposes a concrete blocker. Before mutation, interruption, reassignment or a corrective prompt, one bounded diagnosis classifies the route as product defect, environment/provider/tool/capability failure, test-harness/oracle defect, declared dependency/external wait, authority/human gate, or external-effect outcome unknown. Each class has a different remedy; an environment or harness failure must not be hidden by changing product code, and an unknown external outcome must be reconciled rather than retried.
 
-Repeated completed failures with no new decision-relevant evidence may produce an evidence-only `suspected_loop` notification to the Team leader. It does not itself authorize interruption or a new generation. Reassignment, acceptance-scope change, new permissions/capabilities, budget/deadline policy changes and review rejection remain explicit authority boundaries. Unrelated Team work continues while one route is held or escalated.
+Repeated completed failures with no new decision-relevant evidence may produce an evidence-only `suspected_loop` notification to the Team leader. It does not itself authorize interruption or a new generation. The Team leader may reassign or create a replacement generation when the declared Team/task policy already grants it; that is internal coordination, not an external-manager gate. Acceptance-scope change, new permissions/capabilities, budget/deadline policy changes and unresolved external outcomes remain escalation boundaries. Unrelated Team work continues while one route is held or escalated.
 
 `ctx.jobs` exposes this run and its current wait reason, next eligible wake, cancel request and last durable checkpoint. Cancellation changes admission first, then interrupts/drains official children, then records the outcome; it never deletes evidence before the effect settles.
 
@@ -326,11 +330,11 @@ Completion evaluation is a pure derived predicate over one read-back snapshot; t
 | No child exists in live enumeration **and** Session persistence proves the preallocated id absent | Re-run `startContinuable` with the same child id, provider/profile, exact assignment frame and same Team/member/task/attempt tuple. Provider pre-publication failure must quiesce before another bounded retry. | The exact attempt owns its acquired/reattached root; retain it across retry. If root acquisition itself is retryable, keep the same tuple and bounded debt. | `starting/reserved/start-needed`; do not allocate a new attempt, return the member to `declared`, or mint a new Session id. |
 | Matching continuable child and exact frame is `absent` | Freeze the minimum safe repair: deliver the **same byte-identical frame** once through official `followup`, using the existing attempt/digest as identity; then let the pre-model gate classify/settle. | Same attempt retains the same root. | `starting/reserved/frame-delivery-needed`; never call `startContinuable` again and never create a second assignment identity. |
 | Matching child and frame is `pending` (accepted in inbox but not claimed) | Do nothing except observe a later official status/request edge. | Same attempt retains root. | `starting/reserved/frame-pending`; no resend, acknowledgement, activation or self-wake polling. |
-| Matching child and frame is `claimed` | Flush the exact target Session, idempotently settle `active + delivered`, read back, then allow the pre-model gate to call `next()` or schedule the one resume wake if the original request was already blocked. | Ownership transfers from activation debt to the now-delivered running attempt; root remains until ordinary attempt terminal/review release. | Settlement/read-back debt only; never roll back accepted work. |
+| Matching child and frame is `claimed` | Flush the exact target Session; atomically settle `active + delivered` and create/read the initial `dispatch-pending` epoch; only then call `next()`. Common dispatch witness/recovery rules decide `entered/running/unknown`. | Ownership transfers from activation debt to the delivered but not yet execution-proven attempt; root remains until ordinary attempt terminal/review release. | Dispatch-epoch debt; frame claim never proves model execution and accepted work never rolls back. |
 | Exact descriptor/parent/provider/profile conflicts | Quarantine and drain only the precisely identified mismatched child. After confirmed drain, `failInitialAssignment` atomically makes member `failed`, attempt `cancelled`, task `pending`; a replacement member needs a fresh name/session identity. | Retain root while drain is unresolved; release only after terminal Team read-back, preserving residue evidence on cleanup failure. | `activation-mismatch` or `drain-unknown`; never return to `declared` and never reuse that Session id. |
 | Child/session/frame evidence is unavailable, ambiguous or corrupt | Fail closed and block. Do not drain an unproven target and do not retry any effect. | Attempt retains/quarantines root as recovery evidence. | `activation-evidence-unknown`; never return to `declared`, reuse the Session id, resend, or publish pass/completion. |
-| Pre-model flush/settle response/read-back fails | Reject that exact model request before dispatch; classify authoritative post-state only by exact read-back. If `starting/reserved`, settle idempotently; if exact `active/delivered`, preserve it and use once-only resume; otherwise block. | Attempt retains root under either nonterminal classification. | `pre-model-post-state-unknown`; never infer unchanged state, write/rollback again or resend from a caller error. |
-| `active/delivered` commit exists but caller response was lost | Read back and return/project the same result. | Ordinary running attempt owns root. | No debt; no second child/start/settle. |
+| Pre-model flush/settle response/read-back fails | Reject that exact model request before dispatch; classify authoritative post-state only by exact read-back. If `starting/reserved`, settle idempotently; if exact `active/delivered + dispatch-pending`, use common proven-not-entered epoch recovery; if entered/ambiguous, mark unknown; otherwise block. | Attempt retains root under every nonterminal classification. | `pre-model-post-state-unknown`; never infer unchanged state, write/rollback again or resend from a caller error. |
+| `active/delivered + dispatch epoch` commit exists but caller response was lost | Read back and fold the exact epoch: pending may create one recovery epoch, entered becomes unknown until outcome evidence, settled returns the recorded result. | Delivered attempt owns root; it is `running` only after execution evidence. | No second child/start/assignment; recovery trigger uses a new ordinal and never repeats assignment text. |
 | Later active-member followup is reserved | Keep the existing path: pending is not resent, claimed acknowledges, proven absent redelivers once. | Ordinary attempt root rules apply. | This does not enter member `starting` again. |
 | Human/external effect lacks authoritative read-back | Keep the typed interaction/effect `outcome-unknown`. | Unrelated attempt root follows its own state; no inference from it. | Block retry/completion until an official read-back seam or an authorized forward decision exists. |
 
@@ -489,6 +493,7 @@ sequenceDiagram
   participant X as Execution-root Provider
   participant C as FX official Subagent manager
   participant L as AUTH official Agent Loop
+  participant W as Team dispatch witness
   participant S as AUTH Session persistence
   participant M as FX model Provider
 
@@ -502,11 +507,16 @@ sequenceDiagram
   L->>K: official agent/request waterfall before model dispatch
   K->>S: flush exact child Session through initialMessageSeq
   S-->>K: DC flush success
-  K->>D: settleInitialAssignment(exact tuple, seq, digest)
-  D-->>K: DC read-back: member=active, attempt=delivered
+  K->>D: settleInitialAssignment + initial dispatch-pending epoch
+  D-->>K: DC read-back: member=active, attempt=delivered, epoch pending
   K-->>L: next()
-  L->>M: FX model request
-  Note over D,M: FAIL before next(): reject model dispatch; post-state may be starting/reserved OR active/delivered. REC exact-readbacks only; no blind rewrite/rollback/resend
+  L->>W: marked llm/stream request + exact live Session/open step
+  W->>S: flush exact Session
+  W->>D: CAS dispatch-pending -> dispatch-entered; read back
+  W->>M: downstream next() / FX model request
+  M-->>L: assistant stream evidence
+  L->>D: CAS attempt running + settle epoch receipt
+  Note over D,M: FAIL before witness commit: proven-not-entered recovery epoch, never replay assignment. FAIL after witness without outcome: dispatch-unknown, no blind retry
 ```
 
 ### D3 — first-start failure classification and recovery
@@ -532,8 +542,8 @@ sequenceDiagram
     R-->>D: keep DC debt; no resend and no self-wake
   else frame claimed
     R->>P: DC flush claimed message
-    R->>D: idempotent settle active + delivered
-    D-->>R: DC exact read-back; normal attempt owns root
+    R->>D: idempotent settle active + delivered + initial dispatch-pending epoch
+    D-->>R: DC exact read-back; common dispatch witness/recovery owns next decision
   else descriptor mismatch
     R->>C: FX drain exact mismatched child
     alt drain confirmed
@@ -676,10 +686,10 @@ sequenceDiagram
 | Layer | Required positive evidence | Required negative/fault evidence |
 |---|---|---|
 | Gate A compatibility | project verifier validates official baseline, target package exports and clean registered reference pins | changed/missing pin, dirty reference, absent official export or mismatched Profile blocks only the affected compatibility claim; the gate cannot mutate sources or self-accept architecture |
-| Pure domain | declaration; atomic starting+claim; atomic active+delivered; later followup attempt | stale task revision, wrong member phase, wrong attempt, double settle, double fail, broken bidirectional start invariant, DAG/budget/member-busy races |
+| Pure domain | declaration; atomic starting+claim; atomic active+delivered+initial dispatch epoch; continuation/recovery epoch ordinal and bounded receipts | stale task revision, wrong member phase/attempt/epoch, double settle/fail, replayed assignment/recovery trigger, broken bidirectional start invariant, DAG/budget/member-busy races |
 | Schema/migration | strict fresh-v2 authority, pure deterministic v1→v2 vectors, isolated fresh Profile reopen, active/terminal mapping | undeclared-key stripping, provisioning ambiguity, occupied destination, partial receipt, dual writer; user-media path remains blocked without external fence |
 | Provider/dispatch contract | exact preallocated child ID/profile/persona/tool filter/assigned-Skill intent, resolved artifact namespaces and required capabilities | missing browser/tool/provider, model drift, unknown deny tool, unavailable Skill Registry/name, assigned-without-loaded-proof, overlapping/uncovered artifact family, root/path escape, child-ID collision |
-| Prompt/session causal gate | exact assignment user/message is flushed and active/delivered read back before model dispatch; later assignment uses followup | every pre-next failure rejects model dispatch; committed-write/response-loss read-back preserves active/delivered + once-only resume; starting debt settles idempotently; no blind rewrite/rollback/resend; unrelated requests delegate |
+| Prompt/session causal gate | initial, continuation and recovery messages are flushed; one common dispatch epoch is read back pending, then the marked `llm/stream` witness commits entered before downstream model dispatch | every agent-request/prepareCall/witness/downstream kill point; pending creates a new recovery ordinal without assignment replay; entered without outcome is unknown; bypass/HMR revokes Profile capability; unrelated/unmarked requests delegate |
 | Crash recovery | every §9 decision branch over real Session persistence/child descriptors/Storage Domain and execution roots | absent/pending never duplicate; mismatch/unknown never redeclare/reuse; drain failure quarantines; claimed work never rolls back |
 | Scheduler | bounded finite tick, priority/DAG/concurrency/budget, declared member activation, coalesced rerun latch | Workflow/adaptive dual owner, control-operation bound, timer storm, no-progress selfwake, partition without lease, duplicate decision; long healthy model turns are never rotated by a control timer |
 | Mailbox | queue while declared; exact delivery after active; dedupe/replay | arbitrary message cannot become task claim; queued/pending frame cannot publish delivered |
@@ -707,8 +717,8 @@ Real acceptance must use an isolated Profile, official Loader composition, offic
 ### A1 — fresh-v2 foundation and first runnable lazy vertical
 
 - **A1a:** implement strict empty-v2 schema/authority record, starting-attempt invariants, pure v1→v2 transformer and canonical vectors. It does not touch user media or open a v1 writer.
-- **A1b:** in a fresh isolated Profile, run the real `add_member → declared → first assignment start → pre-model gate → active/delivered → model work` vertical over official Loader, Session persistence and Storage Domain.
-- Pass domain CAS, provider failure, Session flush, read-back, schema strip/reopen and no-blank-turn tests. This is the first runnable product slice; it does not wait for user-media migration.
+- **A1b:** in a fresh isolated Profile, run the real `add_member → declared → first assignment start → pre-model gate → active/delivered + initial dispatch-pending → llm/stream witness entered → assistant evidence → running` vertical over official Loader, Session persistence and Storage Domain.
+- Pass domain CAS, marked-request/live-Session/open-step binding, configured short-circuit sentinel, witness capability/HMR drain, provider failure, Session flush, read-back, schema strip/reopen and no-blank-turn tests. This is the first runnable product slice; it does not wait for user-media migration.
 
 ### A2 — complete first-start recovery and bounded run control
 
@@ -744,7 +754,7 @@ Real acceptance must use an isolated Profile, official Loader composition, offic
 
 ## 16. QA questions for this proposal
 
-1. Does the official pre-model waterfall flush the exact claimed assignment and read back `active/delivered` before `next()`, while every failure rejects dispatch and exact recovery distinguishes `starting/reserved` from already-committed `active/delivered` without blind rewrite/rollback/resend?
+1. Do initial, continuation and recovery paths flush their exact message, bind one dispatch epoch, and require the marked `llm/stream` witness to commit `dispatch-entered` before downstream model dispatch, while pending/entered/unknown crash recovery never replays an assignment or retries an unknown effect?
 2. Does every no-child/absent/pending/claimed/mismatch/unknown branch have one identity, root owner, release rule and recovery owner without redeclare/Session-id reuse?
 3. Is `startingAttemptId` bidirectionally validated and atomically cleared/terminalized rather than becoming redundant drift?
 4. Does fresh-v2 A1b run the real lazy vertical before migration, while user-media cutover stays blocked on the external old-binary fence?
