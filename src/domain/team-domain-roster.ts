@@ -205,6 +205,17 @@ export async function provisionMember(
   return structuredClone(committed)
 }
 
+/** Settle every queued mailbox debt that can no longer reach one member. */
+function cancelQueuedMemberMessages(team: TeamState, sessionIds: ReadonlySet<string>): void {
+  for (let index = 0; index < team.messages.length; index += 1) {
+    const message = team.messages[index]!
+    if (message.phase === 'queued'
+      && (sessionIds.has(message.targetSessionId) || sessionIds.has(message.senderSessionId))) {
+      team.messages[index] = { ...message, phase: 'cancelled' }
+    }
+  }
+}
+
 export async function settleMember(
   deps: TeamDomainDeps,
   scope: TeamScope,
@@ -222,6 +233,10 @@ export async function settleMember(
       ? { ...current, phase: 'active' }
       : { ...current, phase: 'failed', error: nonEmpty(outcome.error, 'member error', 4_096) }
     team.members[index] = committed
+    if (!outcome.active) {
+      cancelQueuedMemberMessages(team, new Set([sessionId]))
+      pruneRetainedMessages(team, deps.limits.maxRetainedMessages)
+    }
   })
   return structuredClone(committed)
 }
@@ -238,13 +253,17 @@ export async function recoverProvisioningMembers(
     const authority = actorMembership(team, captainSessionId)
     expectDomain(authority.role === 'captain', 'only the captain can recover members', 'TEAM_CAPTAIN_REQUIRED')
     const reason = nonEmpty(diagnostic, 'member recovery diagnostic', 4_096)
+    const failedSessionIds = new Set<string>()
     for (let index = 0; index < team.members.length; index += 1) {
       const member = team.members[index]!
       if (member.phase !== 'provisioning') continue
       const failed = { ...member, phase: 'failed' as const, error: reason }
       team.members[index] = failed
       recovered.push(failed)
+      failedSessionIds.add(member.sessionId)
     }
+    cancelQueuedMemberMessages(team, failedSessionIds)
+    pruneRetainedMessages(team, deps.limits.maxRetainedMessages)
   })
   return structuredClone(recovered)
 }
@@ -285,12 +304,7 @@ export async function removeMember(
       replaceTask(team, requeued)
       requeuedTaskIds.push(task.id)
     }
-    for (let messageIndex = 0; messageIndex < team.messages.length; messageIndex += 1) {
-      const message = team.messages[messageIndex]!
-      if (message.phase === 'queued' && (message.targetSessionId === current.sessionId || message.senderSessionId === current.sessionId)) {
-        team.messages[messageIndex] = { ...message, phase: 'cancelled' }
-      }
-    }
+    cancelQueuedMemberMessages(team, new Set([current.sessionId]))
     pruneRetainedMessages(team, deps.limits.maxRetainedMessages)
     pruneRetainedAttempts(team, deps.limits.maxRetainedAttempts)
   })

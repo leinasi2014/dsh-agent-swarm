@@ -71,6 +71,16 @@ describe('lazy member materialization', () => {
       ])
       expect(JSON.stringify(userMessages[0])).not.toContain('Context queued before your first assignment.')
       expect(JSON.stringify(userMessages)).not.toContain('Wait for a task assignment')
+
+      adapter.open()
+      await vi.waitFor(async () => {
+        const settled = await snapshotOf(composition)
+        expect(settled.team.messages[0]?.phase).toBe('delivered')
+        const replay = await ctx.sessionPersistence.inspect(SessionId(memberId))
+        const modelVisible = replay.events.slice(replay.meta.seedLength ?? 0)
+          .filter(event => event.type === 'user/message')
+        expect(JSON.stringify(modelVisible.slice(1))).toContain('Context queued before your first assignment.')
+      }, { timeout: 15_000 })
     } finally {
       adapter.open()
       for (const fiber of composition.fibers.toReversed()) await fiber.dispose()
@@ -123,6 +133,41 @@ describe('lazy member materialization', () => {
       })
       expect(rejected).toMatchObject({ isError: true, error: { info: { code: 'TEAM_INPUT_INVALID' } } })
       expect((await snapshotOf(composition)).team.members).toHaveLength(0)
+    } finally {
+      for (const fiber of composition.fibers.toReversed()) await fiber.dispose()
+    }
+  })
+
+  it('cancels queued mail when a lazy declaration settles failed or recovery retires it', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-swarm-lazy-mail-failure-'))
+    roots.push(sandbox)
+    const composition = await mount(sandbox, 60_000, 'priority-ready', { lazyMemberStart: true })
+    const { ctx, lead } = composition
+    try {
+      const firstId = await addMember(composition, 'failed-worker')
+      const secondId = await addMember(composition, 'recovered-worker')
+      for (const target of ['failed-worker', 'recovered-worker']) {
+        const sent = await toolCall(ctx, lead, `queue-${target}`, 'agent_swarm_send_message', {
+          target, content: `Queued for ${target}.`, delivery: 'wakeup',
+        })
+        expect(sent).toMatchObject({ isError: false, value: { phase: 'queued' } })
+      }
+
+      const before = await snapshotOf(composition)
+      const scope = ctx.agentSwarm.scopeOf(lead)
+      await ctx.agentSwarm.domain.settleMember(
+        scope, before.team.id, firstId, { active: false, error: 'provisioning failed' },
+      )
+      await ctx.agentSwarm.domain.recoverProvisioningMembers(
+        scope, before.team.id, lead.id, 'runtime recovery retired provisioning',
+      )
+
+      const after = await ctx.agentSwarm.domain.snapshot(scope, before.team.id, lead.id)
+      expect(after.team.members.find(member => member.sessionId === firstId)?.phase).toBe('failed')
+      expect(after.team.members.find(member => member.sessionId === secondId)?.phase).toBe('failed')
+      expect(after.team.messages).toHaveLength(2)
+      expect(after.team.messages.every(message => message.phase === 'cancelled')).toBe(true)
+      expect(after.pendingMessageIds).toHaveLength(0)
     } finally {
       for (const fiber of composition.fibers.toReversed()) await fiber.dispose()
     }
