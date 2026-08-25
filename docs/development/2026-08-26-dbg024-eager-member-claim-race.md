@@ -1,8 +1,8 @@
 # DBG-024 — Eager member start races the first authoritative assignment
 
-Status: `VERIFIED_PROFILE_MITIGATION / PRODUCT_DEFAULT_IMPLEMENTED / PROFILE_REPROOF_PENDING`
+Status: `VERIFIED_PROFILE_MITIGATION / PRODUCT_DEFAULT_IMPLEMENTED / OMITTED_DEFAULT_PROFILE_PROVEN`
 
-Observed: 2026-08-26 in two fresh official DSH `web` Profile runs.
+Observed: 2026-08-26 in three fresh official DSH `web` Profile runs.
 
 Scope: `dsh-agent-swarm`; official DSH source remained unchanged. The Captain used the
 configured `zai-coding-cn / glm-5.3` route and the member used an explicit OpenAI-compatible
@@ -46,7 +46,35 @@ Legacy-v1 now defaults to lazy first-assignment startup. `lazyMemberStart: false
 explicit compatibility opt-out; fresh-v2 accepts omitted/`true` and rejects `false` because it
 has no eager mode. The submission fence remains unchanged and no timing delay was added. The
 existing mixed-Provider Profile run above used explicit `true`, so it proves the behavioral
-mitigation but not the omitted-key product default; a new clean GLM-5.3 Captain + DSV4F member
-Profile run with the key absent is required before the Profile claim is upgraded. Until a
-per-member start policy is durable, setting changes are supported only after quiescing Teams so
-no member remains `provisioning`.
+mitigation but not the omitted-key product default.
+
+## Omitted-key product-default proof
+
+The exact candidate at repository commit `8c6373350f2b0ba8162af423ed59e4c396571ab0`
+was packed as `dsh-agent-swarm-0.1.0.tgz` with SHA-256
+`ED59A73C63758AD2E142C97DFE86D001AE96F017B3B4353355447BE0AC3D1A27`, installed into the
+official `web` Profile, and the `lazyMemberStart` key was absent from Profile configuration.
+Official DSH source stayed clean at
+`b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`.
+
+The clean run used a new Captain Session, Team, member Session, task and Attempt in an empty
+workspace. The GLM-5.3 Captain created the Team and assigned the only task to an explicitly
+routed `dsv4f-207 / DeepSeek-V4-Flash-0731` member. Physical member Session evidence proves:
+
+- the first user message was the exact assignment frame, not a join notice;
+- the request header and model-authored records used the requested Provider and model;
+- the member invoked `pwsh`, then called `agent_swarm_submit_task` once successfully;
+- Team authority ended with assignment `delivered`, Attempt `accepted`, task `completed`, one
+  request and zero retries;
+- the Captain reviewed and accepted the submission, and no infrastructure error occurred.
+
+Authoritative run identities: Captain Session
+`session-758d134b-bab9-43e4-b00e-0846538d8b3e`, Team
+`team-6a951b95-37df-42a5-aaca-c6207e4f93cf`, member Session
+`425f380f-9a9e-4b3d-afdb-b4310312e708`, task `task-1`, Attempt
+`attempt-8d77ab5a-6402-47b3-b83f-cabb408a425d`.
+
+This upgrades the omitted-key legacy product-default claim from pending to proven for a
+quiescent Profile install. Until a per-member start policy is durable, setting changes remain
+supported only after quiescing Teams so no member remains `provisioning`; arbitrary in-flight
+upgrade compatibility is still not claimed.
