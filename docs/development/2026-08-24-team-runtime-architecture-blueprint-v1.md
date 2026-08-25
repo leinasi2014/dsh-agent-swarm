@@ -254,7 +254,11 @@ official turn (duration chosen by model/runtime)
 
 The default continuation authority is `team-autonomous`: an owning member may checkpoint and request its own same-attempt continuation, and the Team leader may coordinate or resume ordinary work inside the existing task envelope. `captain` or `human` continuation is selected only for a task whose authority or risk requires it. The manager does not approve normal planning or continuation and cannot infer a wake merely from idle time, elapsed time, token use, file cadence or an unresolved task.
 
-The policy grants request authority only. It never constitutes a request. Each Attempt has one CAS-protected current continuation slot with lifecycle `requested -> admitted -> claimed -> settled` and terminal alternatives `superseded | cancelled`. Member and Team-leader requests compete in that same slot. Submit/cancel/reassign or any current-Attempt replacement atomically terminalizes an unresolved intent, and both effect dispatch and the target pre-model gate reject a terminal or old-generation identity. After restart, only the exact persisted nonterminal intent may continue; a stored policy or merely parked task cannot synthesize one.
+The policy grants request authority only. It never constitutes a request. `team-autonomous` permits the owning member and root-Captain Team leader, `captain` permits only that Team leader, and `human` permits only an authenticated human principal; the root Captain Session is not fabricated as a Team member. Each Attempt has one CAS-protected current continuation slot with lifecycle `requested -> admitted -> claimed -> dispatch-pending -> settled`, plus `dispatch-unknown` and terminal `superseded | cancelled` branches. All principals compete in that same slot. Submit/cancel/reassign or any current-Attempt replacement atomically terminalizes an unresolved intent, and both effect dispatch and the target pre-model gate reject a terminal or old-generation identity. After restart, only the exact persisted nonterminal intent may continue; a stored policy or merely parked task cannot synthesize one.
+
+Admission requires the exact Attempt to be current and `parked`, its prior official turn durably settled, and no live/in-flight owner. The same v2 Team transaction writes `admitted` and the once-only effect identity. A proven-absent frame is published under that identity; pending waits; claimed moves to `dispatch-pending` while the Attempt remains parked. Claim and `agent/status=running` do not prove model dispatch. The exact Session sequence is reconciled as follows: no `request/header` after process death proves the official model stream was not invoked and admits one ledger-backed recovery wake; a request header with no assistant/turn-end evidence is `dispatch-unknown` and requires Provider read-back or an explicit forward decision; assistant execution evidence changes the Attempt to `running` and settles the intent; a turn ending without model output settles the wake and leaves the Attempt parked with classified evidence.
+
+On `settled/superseded/cancelled`, the terminal receipt moves atomically into ADR-0009's bounded effect ledger and the current slot clears. A later round checks the slot and ledger: an old identity returns its receipt, a new identity may use the empty slot, and capacity exhaustion fails closed under the ledger's retention rules. This supports repeated autonomous continuation without an unbounded parallel history.
 
 ### 7.1 Low-interference manager and blocker triage
 
@@ -338,9 +342,14 @@ Once the member has activated, ordinary attempt continuation follows ADR-0010 ra
 | Official owning turn settled without submission | CAS `running -> parked`; retain ownership, root, checkpoint and generation; arm no retry timer. |
 | `parked`, no resume intent | Preserve indefinitely unless a declared dependency/deadline or authorized Team decision supplies a typed intent. |
 | `parked`, exact resume frame pending | Wait; no resend, new attempt or self-wake. |
-| `parked`, exact resume frame claimed | Flush/read back, then CAS `parked -> running` on the same attempt and permit the official model request. |
-| `parked`, exact current `team-autonomous` continuation intent is `requested` | CAS it to `admitted` and create one same-attempt resume effect under its idempotency key; no manager approval and no periodic wake. |
-| Continuation request races another member/leader request | One CAS identity wins; same identity is idempotent and a different identity receives the current conflict without another wake. |
+| `parked`, exact resume frame claimed | Flush/read back, CAS intent to `dispatch-pending` while retaining `parked`, then permit the official request waterfall; only later official assistant execution evidence may produce `running`. |
+| `parked`, prior turn settled, no live/in-flight owner, exact current continuation intent is `requested` | In one v2 transaction CAS it to `admitted` and persist one same-attempt resume effect identity; no manager approval and no periodic wake. |
+| `running` or owner live/in-flight while a request exists | Preserve `requested`; never admit an overlapping wake. |
+| Continuation request races another authorized principal | One CAS identity wins; same identity is idempotent and a different identity receives the current conflict without another wake. |
+| `admitted`, frame proven absent/pending/claimed | Publish exact frame once under the stored effect / wait / move to `dispatch-pending` while retaining `parked`; claim is not execution proof. |
+| `dispatch-pending`, process dies before exact request/header | Official ordering proves no stream invocation; issue the one ledger-backed recovery wake for the same intent. |
+| `dispatch-pending`, request/header exists but no output/end | Mark `dispatch-unknown`; Provider read-back or explicit forward decision is required, with no blind retry. |
+| `dispatch-pending`, exact assistant execution evidence or no-output turn/end exists | Move Attempt to `running` and settle, or settle and retain `parked` with classified evidence, respectively. |
 | Submit/cancel/reassign/current-Attempt replacement races a continuation | The task transition and intent `superseded/cancelled` settlement are one authoritative transaction; dispatch/pre-model gates fence any late wake. |
 | Restart finds old intent beside terminal or newer-generation Attempt | Preserve its receipt, terminalize it if needed and prohibit wake; policy alone cannot recreate an intent. |
 | Resume delivery outcome unknown | Query exact Session/effect evidence; block until pending/claimed/absent is proven. |
@@ -606,8 +615,10 @@ stateDiagram-v2
   Running --> Submitted: submit immutable candidate
   Running --> Parked: official turn settled without submit
   Parked --> ResumeIntent: member checkpoint intent or Team-authorized resume\nexact revision + attemptId
-  ResumeIntent --> Parked: frame pending or outcome unknown
-  ResumeIntent --> Running: frame claimed + Session flush + CAS read-back
+  ResumeIntent --> Parked: frame pending or request outcome unknown
+  ResumeIntent --> DispatchPending: frame claimed + Session flush
+  DispatchPending --> Running: official assistant execution evidence + CAS
+  DispatchPending --> Parked: no-output turn end / classified evidence
   ResumeIntent --> Superseded: submit/reassign/cancel or newer generation wins CAS
   Parked --> Stale: explicit reassign / review-owned rework policy
   Stale --> Running: fresh generation, new Attempt
@@ -651,7 +662,7 @@ sequenceDiagram
 | D3 | no-child/absent/pending/claimed/mismatch/unknown recovery and root ownership | `src/runtime/member-provisioning.ts:188-245`; `src/runtime/frame-visibility.ts`; `src/runtime/execution-roots.ts`; official Subagent Provider publication contract | every decision branch, child-id collision, drain failure, root release/quarantine, no resend/redeclare/reuse | A1b, A2 |
 | D4 | bounded adaptive/Workflow tick, human wait, heartbeat lease, runtime completion | `src/runtime/scheduling.ts:88-182`; `src/runtime/orchestrator-runtime.ts:496-531`; `src/runtime/jobs/team-job-projection.ts`; `src/human/human-interaction-contract.ts` | control-operation/effect/disposal bounds, dedupe latch, no-progress no-selfwake, dual owner, expired lease, opaque human unknown, false completion | A2, A3, A4 |
 | D5 | ADR-0009 single v2 authority, user-media cutover, old binary exclusion | `docs/adr/0009-i1b-v2-effect-ledger-authority.md` §§1-2; `src/storage/team-spec.ts`; `src/storage/team-store.ts` | partial migration/receipt, changed source, registry/fence restart, real old artifact denied before open/write, no fallback | A1a, A5 |
-| D6 | official model autonomy, parked same-attempt continuation, explicit reassign/rework | ADR-0010; `src/runtime/usage-prompt.ts`; official Agent status/Session evidence | long reasoning, long tool, idle settlement, duplicate/member-leader race, continue-vs-submit/reassign/cancel, request-before-crash, stale followup, deadline decision, old intent/new generation | A2, A3 |
+| D6 | official model autonomy, parked same-attempt continuation, explicit reassign/rework | ADR-0010; `src/runtime/usage-prompt.ts`; official Agent status/Session evidence | long reasoning/tool, principal authorization, multi-round continuation, duplicate/principal race, continue-vs-submit/reassign/cancel, admission/effect/frame/next/prepareCall/request kill points, stale followup, old intent/new generation | A2, A3 |
 | D7 | immutable candidate/review/dependency/integration/QA identities | project binding integration contract; execution-root and review Providers | post-submit mutation, digest mismatch, lost response, expected-target race, harness failure generation, consumer source drift | A2, A3 |
 
 ## 14. Test matrix
@@ -666,7 +677,7 @@ sequenceDiagram
 | Crash recovery | every §9 decision branch over real Session persistence/child descriptors/Storage Domain and execution roots | absent/pending never duplicate; mismatch/unknown never redeclare/reuse; drain failure quarantines; claimed work never rolls back |
 | Scheduler | bounded finite tick, priority/DAG/concurrency/budget, declared member activation, coalesced rerun latch | Workflow/adaptive dual owner, control-operation bound, timer storm, no-progress selfwake, partition without lease, duplicate decision; long healthy model turns are never rotated by a control timer |
 | Mailbox | queue while declared; exact delivery after active; dedupe/replay | arbitrary message cannot become task claim; queued/pending frame cannot publish delivered |
-| Model autonomy/continuation | long and immediate model styles both stay in their official turns; settled open Attempt parks and resumes under one CAS-protected typed `team-autonomous` intent with the same fence/root and no manager approval | prompt timer, idle timer, token/file/plan heuristic, inferred self-wake, duplicate/member-leader race, continue-vs-submit/reassign/cancel, request-before-crash, old intent/new generation, stale followup, heartbeat-as-progress |
+| Model autonomy/continuation | long and immediate model styles both stay in their official turns; repeated settled-open rounds park and resume under one CAS-protected typed intent/ledger receipt with the same fence/root and no manager approval | prompt/idle/token/file/plan heuristic, unauthorized principal, duplicate/principal race, continue-vs-submit/reassign/cancel, admission/effect/frame/next/prepareCall/request kill points, blind retry of dispatch-unknown, old intent/new generation |
 | Intervention triage | normal/in-flight work remains untouched; each proven blocker receives the remedy for product, environment/capability, harness, wait, authority or outcome-unknown class | manager prompt/reassign on elapsed time; product edit for environment/harness failure; blind retry of unknown effect; unrelated Team work stopped |
 | Human/long run | question→receipt→same-attempt resume, Job wait/cancel, Provider-backed heartbeat lease renewal | forged answer, expired attempt, heartbeat-as-completion, opaque effect without read-back remains unknown/blocked, cancel/delete race |
 | Candidate/review | submit freezes tree/artifact/evidence digests; reviewer uses independent read-only root; accept binds candidate/revision/reviewer | author-root or post-accept mutation, review-generated data changing candidate, digest mismatch, stale followup, same-author acceptance |
@@ -702,7 +713,7 @@ Real acceptance must use an isolated Profile, official Loader composition, offic
 
 ### A3 — workflow, heartbeat and autonomous long-running continuation
 
-- Jobs projects bounded ticks and durable waits; real long official turns, member-declared `running -> parked -> running` same-attempt continuation without manager approval, Team-leader coordination, hard restart, pending-frame, duplicate/member-leader request, continue-vs-submit/reassign/cancel, request-before-crash, old-intent/new-generation, stale followup, lease/heartbeat and explicit reassign tests pass.
+- Jobs projects bounded ticks and durable waits; real long official turns and repeated member-declared `running -> parked -> running` rounds work without manager approval. Principal authorization, Team-leader coordination, hard restart, pending/absent/claimed frame, admission/effect/frame/`next()`/`prepareCall`/request kill points, duplicate/principal request, continue-vs-submit/reassign/cancel, dispatch-unknown, old-intent/new-generation, stale followup, lease/heartbeat and explicit reassign tests pass.
 - Blocker-triage routes prove normal work is untouched and product, environment/capability, harness, external wait, authority and outcome-unknown evidence are neither conflated nor repaired through the wrong layer.
 - Adaptive and Workflow modes prove one orchestration owner per attempt.
 - Each fault route starts from a new clean generation, binds dynamic ports/process ownership and preserves failed evidence; API and browser acceptance identify the same integrated result digest.
@@ -738,6 +749,6 @@ Real acceptance must use an isolated Profile, official Loader composition, offic
 9. Does every fault route preserve the failed generation and rerun the same scenario from a clean baseline with process/port/root disposition?
 10. Does every milestone require real composition and an independent candidate-bound acceptance result?
 11. Is ordinary work and typed same-attempt continuation autonomous within the Team/task envelope, with external-manager intervention restricted to evidence-classified blockers and authority-changing decisions?
-12. Does one CAS-protected continuation slot make member/leader races, submit/reassign/cancel competition, crash recovery and old-intent/new-generation recovery deterministic, while terminal receipts neither wake work nor block completion?
+12. Does one CAS-protected continuation slot plus the bounded v2 receipt ledger make principal authorization, multiple continuation rounds, submit/reassign/cancel competition, every admission-to-request crash window and old-intent/new-generation recovery deterministic, while claim alone never proves model dispatch and terminal receipts neither wake work nor block completion?
 
 No implementation should begin from this document until Gate A passes and these questions receive an accepted, non-author verdict bound to the exact candidate.

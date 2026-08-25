@@ -93,32 +93,36 @@ interface ParkedAttemptState {
   parkedReason: 'turn-settled' | 'owner-not-live' | 'migration-unknown'
   lastSessionSeq?: number
   continuationPolicy: 'team-autonomous' | 'captain' | 'human'
-  continuationEffectId?: string
-  checkpointDigest?: string
-  wakeCondition?: string
-  resumeEffectId?: string
+  currentContinuationIntentId?: string
 }
 
 type ContinuationIntentPhase =
-  | 'requested' | 'admitted' | 'claimed' | 'settled'
+  | 'requested' | 'admitted' | 'claimed' | 'dispatch-pending'
+  | 'dispatch-unknown' | 'settled'
   | 'superseded' | 'cancelled'
+
+type ContinuationPrincipal =
+  | { kind: 'member'; memberId: string; memberSessionId: string }
+  | { kind: 'team-leader'; captainSessionId: string }
+  | { kind: 'authenticated-human'; subjectId: string }
 
 interface ContinuationIntent {
   continuationEffectId: string
   taskId: string
   attemptId: string
   expectedTaskRevision: number
-  requestedByMemberId: string
+  requestedBy: ContinuationPrincipal
   requestedAt: number
   checkpointDigest?: string
   wakeCondition?: string
+  resumeEffectId?: string
   phase: ContinuationIntentPhase
 }
 ```
 
 The stored reason is evidence classification, not a policy verdict. A `running` attempt may move to `parked` only when the official Session/status evidence proves that the owning turn settled and the task is still the same `in_progress` revision/attempt. A raced submit/review/reassign wins through CAS.
 
-`continuationPolicy` grants who may request continuation; it is never itself an intent or wake condition. An Attempt has at most one nonterminal `ContinuationIntent`, identified by `teamId + taskId + attemptId + continuationEffectId`. Member and Team-leader requests use the same CAS slot. Repeating the same identity is idempotent; a different concurrent identity receives the authoritative existing intent/conflict and cannot enqueue another wake.
+`continuationPolicy` grants who may request continuation; it is never itself an intent or wake condition. `team-autonomous` admits the owning `member` or the `team-leader`; `captain` admits only the `team-leader`; `human` admits only an `authenticated-human`. The root Captain is the Team leader's official DSH Session and is not misrepresented as a `TeamMember`. An Attempt has at most one nonterminal `ContinuationIntent`, identified by `teamId + taskId + attemptId + continuationEffectId`. All principals use the same CAS slot. Repeating the same identity is idempotent; a different concurrent identity receives the authoritative existing intent/conflict and cannot enqueue another wake.
 
 ## 5. Scheduling and continuation protocol
 
@@ -128,11 +132,12 @@ One bounded scheduling pass keeps the existing order—reconcile durable debt, d
 2. `running` whose exact owning turn settles without submission is CAS-transitioned to `parked`; no retry generation is created and no timer is armed.
 3. `parked` is excluded from ordinary ready-task selection. It retains its task ownership, attempt ID, evidence and execution root.
 4. `resumeAttempt(teamId, taskId, expectedRevision, attemptId)` is an explicit capability. The default `team-autonomous` policy permits the owning member or Team leader to request same-attempt continuation within the already granted task authority. `captain` and `human` are explicit per-task restrictions for sensitive work; they are not global defaults.
-5. Before its turn settles, a member may persist a semantic checkpoint and a typed `continue_requested` intent that names the same task/attempt fence, an idempotency key and the next runnable condition. The control plane may admit that exact continuation once after the official turn settles; mere `idle`, elapsed time or an unresolved task is never a continuation intent.
-6. Resume commits a durable `resume_requested` effect for the same tuple, then sends one typed, byte-identical wake through official continuable-child/mailbox seams. When the frame is claimed, the pre-model gate atomically changes `parked -> running`, checkpoints the exact Session sequence/effect ID, reads it back, then permits the official model request.
+5. Before its turn settles, a member may persist a semantic checkpoint and a typed `continue_requested` intent that names the same task/attempt fence, an idempotency key and the next runnable condition. Admission requires the exact current revision/Attempt to be `parked`, the owning turn to be durably settled, and official evidence of no live/in-flight owner. Mere `idle`, elapsed time, policy or an unresolved task is never an intent or admission fact.
+6. One v2 Team transaction CASes `requested -> admitted` and persists the `resumeEffectId`/once-only effect intent. The dispatcher then sends one typed, byte-identical wake through official continuable-child/mailbox seams. It never exposes `admitted` without a recoverable effect identity.
 7. A pending resume frame is not resent. A claimed frame settles idempotently. A proven-absent frame may be redelivered once under the same effect ID. Unknown visibility blocks.
 8. `reassignTask` is distinct from resume: it fences the old attempt `stale`, creates a fresh generation and transfers ownership under the existing captain-only CAS contract.
 9. Submission, cancellation, reassignment and any transition that terminalizes or replaces the current Attempt atomically terminalize its nonterminal continuation intent as `superseded` or `cancelled`. The effect dispatcher and target pre-model gate both revalidate the exact current task revision, attempt generation and nonterminal intent before send/claim. A terminal intent is evidence only and can never wake an Attempt.
+10. Claiming the wake does not prove model dispatch. The pre-model gate CASes `claimed -> dispatch-pending`, retains the Attempt as `parked`, checkpoints the exact Session turn/message/step identity and then calls `next()`. The intent settles and the Attempt becomes `running` only after official Session evidence for that exact step records an `assistant/chunk`/assistant result, or another official execution boundary proves the request ran. A durable `turn/end` without model output settles the wake but leaves the task parked with the exact error/wait evidence.
 
 ```text
 agent/status idle
@@ -144,7 +149,9 @@ durable member continuation intent or Team-authorized resume
   -> CAS durable resume intent (same attempt)
   -> official wakeup admission
   -> target frame claimed + Session flush
-  -> CAS parked -> running + receipt
+  -> CAS intent -> dispatch-pending; Attempt remains parked
+  -> official assistant execution evidence
+  -> CAS Attempt -> running + terminal intent receipt
   -> official Agent Loop continues
 ```
 
@@ -154,14 +161,22 @@ Continuation intent recovery is deterministic:
 
 | Exact intent observation | Decision |
 |---|---|
-| `requested`, exact current open Attempt | One bounded tick may CAS it to `admitted` and create the once-only resume effect. |
+| `requested`, exact current `parked` Attempt whose prior turn is settled and owner is not live/in-flight | One v2 Team transaction may CAS it to `admitted` and persist the once-only resume effect identity. |
+| `requested`, Attempt still `running` or owner live/in-flight | Preserve the request; do not admit or wake until the exact parked/settled evidence exists. |
+| `admitted`, effect/frame proven absent | Publish the exact byte-identical frame once under the persisted `resumeEffectId`; do not create another effect or intent. |
 | `admitted`, frame pending | Preserve and wait; do not create or resend another identity. |
-| `claimed`, exact current open Attempt | Flush/read back, CAS Attempt to `running`, then settle the intent. |
+| `claimed`, exact current parked Attempt | Flush/read back, CAS intent to `dispatch-pending`, retain Attempt `parked`, then allow the official request waterfall to continue. |
+| `dispatch-pending`, exact Session has no request/header for the checkpointed step and process died | The official ordering proves no model stream dispatch; enqueue the v2 ledger's once-only continuation-recovery wake derived from the same effect identity. |
+| `dispatch-pending`, request/header exists but no assistant output/turn-end and process died | CAS to `dispatch-unknown`; reconcile by Provider request identity when available, otherwise escalate this true blocker for an explicit forward decision. Never retry blindly. |
+| `dispatch-pending`, exact assistant output/execution boundary exists | CAS Attempt to `running`, settle the intent receipt and release the current slot. |
+| `dispatch-pending`, exact turn ended without model output | Settle the wake receipt, release the slot and keep/return the Attempt `parked` with the classified error/wait evidence. |
 | Response/effect visibility unknown | Read back the same intent/effect/frame identity; block only that route until known. |
 | Same intent identity repeated | Return the existing result idempotently. |
-| Different member/leader request races with a nonterminal intent | CAS rejects it and returns the current intent; the Team may explicitly supersede only through an authorized state transition. |
+| Different principal request races with a nonterminal intent | CAS rejects it and returns the current intent; the Team may explicitly supersede only through an authorized state transition. |
 | Intent belongs to an accepted, cancelled, stale, replaced or otherwise terminal Attempt | CAS it to `superseded`/`cancelled`, preserve the receipt and prohibit wake delivery. |
-| Crash after request but before admission | Reopen `requested`; policy alone creates nothing. Admit only if the exact Attempt is still current and open. |
+| Crash after request but before admission | Reopen `requested`; policy alone creates nothing. Admit only if the exact Attempt is still current, `parked`, settled and has no live/in-flight owner. |
+
+Settling, superseding or cancelling an intent atomically appends its terminal receipt to ADR-0009's bounded v2 effect ledger and clears the current slot. A later request first checks both the slot and retained receipts: an old identity returns its recorded result, while a new identity may occupy an empty slot. Ledger capacity exhaustion fails closed and requires the ledger's declared retention/compaction procedure; it never drops a live idempotency record. This permits multiple sequential continuation rounds on one Attempt without losing dedupe evidence or creating an unbounded second history.
 
 ### 5.1 Low-interference supervision boundary
 
@@ -213,7 +228,7 @@ Recovery is read-back-first and preserves the attempt unless a stronger fence sa
 | `running`, owner officially live/running | Preserve; no elapsed-time action. |
 | `running`, exact turn settled, no submit | CAS to `parked`, retain root and ownership. |
 | `parked`, no resume intent | Preserve indefinitely or until a declared dependency, deadline or authorized Team decision supplies a typed intent; no retry timer. |
-| `parked`, resume frame pending/claimed/absent | Apply the exact message-visibility fold; settle same attempt only after claim/read-back. |
+| `parked`, continuation requested/admitted/claimed/dispatch-pending | Apply the exact intent/effect/Session fold; claim alone never proves model dispatch and `dispatch-unknown` blocks blind retry. |
 | Owner not live after restart, Session evidence proves settled | `parked(owner-not-live)`; preserve the same attempt. Apply an exact persisted intent if present; `continuationPolicy` alone never creates one. Reassignment still requires its distinct authority. |
 | Liveness/Session evidence ambiguous | `parked(migration-unknown)` or explicit recovery debt; fail closed, never mint a generation. |
 | Hard distributed lease expired with valid fencing Provider | Revoke old token, reconcile effects, then a policy-authorized fresh attempt may take over. |
@@ -274,14 +289,14 @@ No product code may implement this ADR until one unique non-author QA accepts th
 2. no timer, prompt, token counter, file-diff check or plan counter can interrupt or rotate a healthy attempt;
 3. `running -> parked -> running` preserves one attempt/root and is CAS/read-back fenced;
 4. resume, reassign, interrupt, deadline and lease-expiry have distinct authority and effects;
-5. every requested/admitted/claimed/settled/superseded/cancelled/unknown continuation and restart branch has one recovery decision;
+5. every requested/admitted/claimed/dispatch-pending/dispatch-unknown/settled/superseded/cancelled continuation and restart branch has one recovery decision;
 6. parked/recovery/unknown states block completion;
 7. default configuration disables time-driven idle retry and handles explicit legacy config without silent semantic change;
 8. tests cover different model styles, long reasoning, long tools, explicit pause/resume, restart, duplicate resume, late old attempt, deadline, transport unknown and unique QA acceptance.
 9. candidate/review/dependency/integration receipts bind immutable digests and reject post-accept mutation or expected-target races;
 10. task scopes cover all required artifact families, required capabilities are preflighted, and every fault route reruns from a clean generation without old process/port/root leakage.
 11. normal Team work and typed same-attempt continuation require no external-manager approval, while every intervention route first classifies product, environment/capability, harness, authority, external-wait or outcome-unknown evidence.
-12. continue-vs-submit/reassign/cancel, concurrent member/leader requests, request-before-crash and old-intent/new-generation races have one CAS winner; terminal receipts cannot wake or block completion.
+12. continue-vs-submit/reassign/cancel, concurrent principal requests, multi-round continuation, admission/effect/frame/request kill points and old-intent/new-generation races have one CAS/recovery decision; terminal receipts cannot wake or block completion.
 
 After architecture acceptance, implementation proceeds as vertical slices:
 
