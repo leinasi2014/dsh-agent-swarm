@@ -66,17 +66,17 @@ pending -> in_progress -> submitted -> verifying -> completed
 The v2 attempt lifecycle becomes:
 
 ```text
-reserved
-   │ official assistant execution evidence
-   ▼
-running ── official turn settles without submit ──> parked
-   │                                                │
-   │ submit                                         │ explicit resume, same fence
-   ▼                                                ▼
-submitted -> verifying -> accepted              running
-                 │
-                 └─ reject/reassign -> stale or rejected
-                                      + fresh generation
+reserved ── official assistant execution evidence ──> running
+    │                                                   │
+    │ non-repair turn end, no assistant                 │ turn settles without submit
+    ▼                                                   ▼
+  parked ── explicit typed resume + assistant evidence ─┘
+
+running ── submit ──> submitted ──> verifying ──> accepted
+                                       │
+                                       └─ reject/reassign ──> stale/rejected
+                                                                  │
+                                                                  └─ fresh generation -> reserved
 ```
 
 `parked` means only: the exact attempt still owns the task and root, no Team-owned member turn is currently executing it, and continuation requires an explicit durable resume intent. It is not failure, completion, cancellation, retry eligibility or proof that the model was stuck.
@@ -144,7 +144,7 @@ The stored reason is evidence classification, not a policy verdict. A `running` 
 
 `continuationPolicy` grants who may request continuation; it is never itself an intent or wake condition. `team-autonomous` admits the owning `member` or the `team-leader`; `captain` admits only the `team-leader`; `human` admits only an `authenticated-human`. The root Captain is the Team leader's official DSH Session and is not misrepresented as a `TeamMember`. An Attempt has at most one nonterminal `ContinuationIntent`, identified by `teamId + taskId + attemptId + continuationEffectId`. All principals use the same CAS slot. Repeating the same identity is idempotent; a different concurrent identity receives the authoritative existing intent/conflict and cannot enqueue another wake.
 
-No model tool, RPC or public payload accepts `requestedBy`. For a member call, runtime derives the principal from the exact live `exec.agent`, roster row and current Attempt owner. For a Team-leader call, it derives the exact live root Agent instance, root registration and `team.captainSessionId`. Human continuation is NOT_CONFIGURED unless the existing host-only `HumanPrincipalVerifier` and an accepted write gateway produce an opaque attestation for the concrete request; Captain prose, a browser field or a copied subject ID cannot mint one. The domain admission CAS revalidates the attestation, policy, live roster/root binding, current revision, Attempt owner/generation and intent slot. Forged, stale, replayed or old-generation principals fail before mutation.
+No model tool, RPC or public payload accepts `requestedBy`. At request creation, a member principal is derived from the exact live `exec.agent`, roster row and current Attempt owner; a Team-leader principal is derived from the exact live root Agent instance, root registration and `team.captainSessionId`. Human continuation is NOT_CONFIGURED unless the existing host-only `HumanPrincipalVerifier` and an accepted write gateway produce an opaque attestation for the concrete request; Captain prose, a browser field or a copied subject ID cannot mint one. Later admission/restart revalidates the stored member/team-leader principal against the current nonterminal durable roster, captain binding, Attempt owner, policy, revision/generation and intent slot; it does not require that Agent to be currently resident. Human attestation is revalidated by its host verifier when required. Separately, wake admission requires proof that no live/in-flight owner exists. Forged, stale, replayed or old-generation principals fail before mutation.
 
 `ModelDispatchEpoch` is the common dispatch authority for both first assignment and continuation. Initial assignment settlement creates `kind=initial`; a claimed continuation creates `kind=continuation`; a proven-not-entered crash recovery terminalizes the old epoch and creates `kind=recovery` with the next ordinal. The same witness, result fold, unknown rule and bounded receipt ledger apply to every kind. Thus first assignment has no weaker crash semantics than later continuation.
 
@@ -194,7 +194,8 @@ Continuation intent recovery is deterministic:
 | `admitted`, effect/frame proven absent | Publish the exact byte-identical frame once under the persisted `resumeEffectId`; do not create another effect or intent. |
 | `admitted`, frame pending | Preserve and wait; do not create or resend another identity. |
 | `claimed`, exact current parked Attempt | Flush the exact assignment message, CAS intent to `dispatch-pending`, retain Attempt `parked`, checkpoint Session/turn/step, then allow the official request waterfall to continue. |
-| `dispatch-pending`, valid bound witness capability, no assistant output, and either no `turn/end` or exact cold `load/prepare` read-back appended `turn/end {kind:'interrupted'}` for this epoch's formerly open turn/step | Downstream model dispatch was not admitted. Treat the synthetic interrupted closer as crash repair, enqueue the v2 ledger's separate once-only recovery trigger and never replay/append the assignment frame again. |
+| `dispatch-pending`, valid bound witness capability, no assistant output, and either (a) the original Activation/request is exactly quiesced/fenced with no live Agent/Session owner or (b) exclusive cold `load/prepare` read-back appended `turn/end {kind:'interrupted'}` for this epoch's formerly open turn/step | Downstream model dispatch was not admitted. Treat the exact quiescence/cold repair as proven-not-entered, enqueue the v2 ledger's separate once-only recovery trigger and never replay/append the assignment frame again. |
+| `dispatch-pending`, original Activation/request remains live/in-flight or quiescence is unknown | Preserve pending; do not admit recovery or another wake. |
 | `dispatch-pending`, assistant output, any non-interrupted/non-cold-repair `turn/end`, or witness/repair capability/ordering absent, changed or ambiguous | CAS `dispatch-unknown`, revoke autonomous recovery for the Profile and require read-back/explicit decision. Never infer not-dispatched. |
 | `dispatch-entered`, assistant output/turn-end is absent after process death | CAS to `dispatch-unknown`; reconcile by Provider request identity when available, otherwise escalate this true blocker for an explicit forward decision. Never retry blindly. |
 | `dispatch-entered`, exact assistant output/execution boundary exists | CAS Attempt to `running`, settle the intent receipt and release the current slot. |
