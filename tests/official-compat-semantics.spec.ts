@@ -567,4 +567,36 @@ describe('official compatibility semantics over the real composition (issue #19)
       for (const fiber of fibers.toReversed()) await fiber.dispose()
     }
   }, 10_000)
+
+  it('does not timer-poll when the supplied cursor already includes an expired deadline', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-agent-swarm-wait-expired-'))
+    roots.push(sandbox)
+    const { ctx, fibers, pluginFiber, lead } = await mount(sandbox)
+    try {
+      const teamId = AgentSwarm.TeamId(await createTeam(ctx, lead, 'create-expired'))
+      const scope = ctx.agentSwarm.scopeOf(lead)
+      await ctx.agentSwarm.domain.setBudget(scope, teamId, lead.id, { deadlineAt: Date.now() - 1 })
+      const status = await toolCall(ctx, lead, 'status-expired', 'agent_swarm_status', {})
+      const cursor = (status.value as { coordination_cursor: string }).coordination_cursor
+      const before = await ctx.agentSwarm.domain.snapshot(scope, teamId, lead.id)
+      const domainWait = vi.spyOn(ctx.agentSwarm.domain, 'waitForChange')
+      const waiting = ctx.agentSwarm.waitForChange(
+        { agent: lead, signal: SIGNAL }, before.team.revision, 10_000, cursor,
+      )
+
+      await new Promise(resolve => setTimeout(resolve, 100))
+      expect(domainWait).toHaveBeenCalledTimes(1)
+      await toolCall(ctx, lead, 'task-expired', 'agent_swarm_create_task', {
+        subject: 'Wake expired cursor', description: 'Only a real Team change wakes this wait.',
+      })
+      const woken = await waiting
+      expect(woken.changed).toBe(true)
+      expect(domainWait).toHaveBeenCalledTimes(1)
+
+      domainWait.mockRestore()
+      await pluginFiber.dispose()
+    } finally {
+      for (const fiber of fibers.toReversed()) await fiber.dispose()
+    }
+  }, 10_000)
 })

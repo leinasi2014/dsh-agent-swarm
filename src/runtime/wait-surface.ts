@@ -112,9 +112,10 @@ export async function waitForChange(
       if (coordinationCursor !== afterCursor) return { snapshot, changed: true, coordinationCursor }
       if (snapshot.team.phase === 'archived') return { snapshot, changed: false, coordinationCursor }
       const deadlineAt = snapshot.team.budget.deadlineAt
-      const deadlineDelay = deadlineAt === undefined
+      const now = Date.now()
+      const deadlineDelay = deadlineAt === undefined || deadlineAt <= now
         ? undefined
-        : Math.max(1, Math.min(timeoutMs, deadlineAt - Date.now()))
+        : Math.min(timeoutMs, deadlineAt - now)
       const deadlineSignal = deadlineDelay === undefined ? undefined : AbortSignal.timeout(deadlineDelay)
       try {
         snapshot = await deps.domain().waitForChange(
