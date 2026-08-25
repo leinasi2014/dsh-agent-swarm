@@ -45,6 +45,7 @@ import { FreshV2EvidenceCoordinator } from './fresh-v2-evidence-coordinator.js'
 import { FreshV2TaskControlRuntime } from './fresh-v2-task-control-runtime.js'
 import type { FreshV2InitialConfig } from './fresh-v2-initial-config.js'
 import { ownsFreshV2InitialModelDispatch } from './fresh-v2-initial-model-gate.js'
+import { FreshV2InitialOutcomeRecovery } from './fresh-v2-initial-outcome-recovery.js'
 export type { FreshV2InitialConfig } from './fresh-v2-initial-config.js'
 
 export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, InitialTaskBoardRuntime, ContinuationRuntime, SubmitTaskRuntime, ReassignTaskRuntime {
@@ -53,6 +54,7 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
   private domain?: TeamV2StartDomain
   private continuation?: FreshV2ContinuationRuntime
   private taskControl?: FreshV2TaskControlRuntime
+  private initialOutcomes?: FreshV2InitialOutcomeRecovery
   private readonly children = new Map<string, Set<string>>()
   private readonly dispatchStreams = new Set<Promise<void>>()
   private readonly evidence: FreshV2EvidenceCoordinator
@@ -71,7 +73,7 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
     this.witnessCapability = new FreshV2WitnessCapability(ctx, config.artifactContract, config.hostContract)
     this.evidence = new FreshV2EvidenceCoordinator(ctx, {
       assistant: async (session, event) => { await this.foldAssistantEvidence(session, event) },
-      turnEnd: async (session, event) => { await this.requireContinuation().foldTurnEnd(session, event) },
+      turnEnd: async (session, event) => { await this.foldTurnEndEvidence(session, event) },
       inboxClaimed: async (agent, message) => { await this.requireContinuation().foldInboxClaimed(agent, message) },
       agentIdle: async agent => { await this.requireContinuation().foldAgentIdle(agent) },
       isClosing: () => this.closing,
@@ -101,18 +103,16 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
     this.domainHandle = handle
     this.store = store
     this.domain = new TeamV2StartDomain(store, { maxMembers: this.config.maxMembers })
+    this.initialOutcomes = new FreshV2InitialOutcomeRecovery(this.ctx, store)
     this.continuation = new FreshV2ContinuationRuntime(this.ctx, store, this.witnessCapability)
     this.taskControl = new FreshV2TaskControlRuntime(this.ctx, store, agent => this.scopeOf(agent))
   }
-  async reconcileColdDispatches(): Promise<void> { this.assertOpen(); await this.requireContinuation().reconcileColdDispatches() } async driveColdRecoveries(): Promise<void> { this.assertOpen(); await this.requireContinuation().driveColdRecoveries() }
+  async reconcileColdDispatches(): Promise<void> { this.assertOpen(); await this.requireInitialOutcomes().reconcileColdDispatches(); await this.requireContinuation().reconcileColdDispatches() }
+  async driveColdRecoveries(): Promise<void> { this.assertOpen(); await this.requireContinuation().driveColdRecoveries() }
 
-  scopeOf(agent: Agent): string {
-    return resolve(workspaceOf(agent))
-  }
+  scopeOf(agent: Agent): string { return resolve(workspaceOf(agent)) }
 
-  snapshot(scope: string, teamId: string): TeamStateV2 | undefined {
-    return this.requireStore().read(scope, teamId as TeamStateV2['id'])
-  }
+  snapshot(scope: string, teamId: string): TeamStateV2 | undefined { return this.requireStore().read(scope, teamId as TeamStateV2['id']) }
 
   async create(exec: ToolExecutionAuthority, name: string, description: string): Promise<TeamStateV2> {
     this.assertOpen()
@@ -553,9 +553,12 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
     )
   }
 
-  private findMembership(scope: string, sessionId: string): FreshV2Membership | undefined {
-    return findFreshV2Membership(this.requireStore(), scope, sessionId)
+  private async foldTurnEndEvidence(session: Session, event: SessionEvent<'turn/end'>): Promise<void> {
+    await this.requireContinuation().foldTurnEnd(session, event)
+    await this.requireInitialOutcomes().foldTurnEnd(session, event)
   }
+
+  private findMembership(scope: string, sessionId: string): FreshV2Membership | undefined { return findFreshV2Membership(this.requireStore(), scope, sessionId) }
 
   private requireCaptain(scope: string, sessionId: string): Extract<FreshV2Membership, { readonly role: 'captain' }> {
     const membership = this.findMembership(scope, sessionId)
@@ -563,9 +566,12 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
     return membership
   }
 
-  private currentInitialAttempt(team: TeamStateV2, sessionId: string): CurrentInitialAttempt | undefined {
-    return currentFreshV2InitialAttempt(team, sessionId)
+  private requireInitialOutcomes(): FreshV2InitialOutcomeRecovery {
+    if (this.initialOutcomes === undefined) throw new TeamDomainError('fresh-v2 initial outcome recovery is not started', 'TEAM_RUNTIME_NOT_STARTED')
+    return this.initialOutcomes
   }
+
+  private currentInitialAttempt(team: TeamStateV2, sessionId: string): CurrentInitialAttempt | undefined { return currentFreshV2InitialAttempt(team, sessionId) }
 
   private requireStore(): StorageDomainTeamStoreV2 {
     if (this.store === undefined) throw new TeamDomainError('fresh-v2 runtime has not started', 'TEAM_RUNTIME_NOT_STARTED')

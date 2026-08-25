@@ -156,11 +156,11 @@ try {
   const actual = await extractSourceFacts(repositoryRoot)
   assert.deepEqual(errorCodes(actual), [], `actual repository diagnostics: ${JSON.stringify(actual.diagnostics)}`)
   assert.deepEqual(actual.counts, {
-    discoveredModules: 128,
-    parsedModules: 128,
+    discoveredModules: 131,
+    parsedModules: 131,
     toolDefinitions: 20,
     tools: 20,
-    imports: 746,
+    imports: 764,
     injections: 34,
     providerRegistrations: 6,
     providerRegistryMethods: 11,
@@ -269,7 +269,7 @@ try {
     JSON.stringify(item.names), JSON.stringify(item.effectiveExports),
   ].join('|'))
   // Exact candidate drift locks over complete normalized tuple sets; later graph reconciliation replaces these KG1 locks.
-  assertTupleSetDigest(externalRegistryTuples, 'b8b170bbb86e98c40372025b774c94f7881d0a951e3da13d6fc6bdc68b2f4fd9', 'external registries')
+  assertTupleSetDigest(externalRegistryTuples, '5a9e76008a38da3d0dd571df1a04fcb33c726d35babfa8c527b9c005fa97d2ec', 'external registries')
   assertTupleSetDigest(rpcTuples, 'dd9e8353c0564d866d2f19b1310e7e870d5a997761e82c81b7255223a79565ad', 'RPC')
   assertTupleSetDigest(listenerTuples, '71b5435abc8739ad326cb24105620a0235c1a16e3d4dedf1251fe335d2780edc', 'listeners')
   assertTupleSetDigest(effectTuples, '0c2f4dc23b978a1f13c675f818d72ba7920ab91293a18071fb90f4c9431a7422', 'effects')
@@ -311,7 +311,7 @@ try {
   assert.deepEqual(actual.serviceDefinitions.map(item => `${item.classSymbol}:${item.serviceName}`), ['AgentSwarmRuntime:agentSwarm'])
   assert.ok(actual.registryExtensions.every(item => item.duplicateRule.startsWith('dominating-') && item.disposer.startsWith('identity-guarded:')))
   assert.ok(actual.registryExtensions.every(item => item.boundedNameRules.length > 0))
-  assert.equal(actual.externalRegistryUses.length, 46)
+  assert.equal(actual.externalRegistryUses.length, 49)
   assert.ok(actual.externalRegistryUses.some(item => item.receiver === 'this.ctx.subagents' && item.method === 'startContinuable'))
   assert.ok(actual.externalRegistryUses.some(item => item.receiver === 'this.ctx.subagents' && item.method === 'list'))
   assert.deepEqual(actual.registryFacades.map(item => `${item.method}->${item.targetMethod}`), [

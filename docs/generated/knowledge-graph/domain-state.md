@@ -2,7 +2,7 @@
 
 # Domain and state
 
-Manifest digest: `fdf552d1c6cfd19835bdf09a135ec37e2264db7e2b3691c5b29e77cd71429b13`
+Manifest digest: `fc0cc4aa97f6a8b91ed58003c5fee20f407698473ee731f42aefdbffd04852f2`
 
 Curated tool-registry digest: `2af060c2441600f775e82097e626303c8fd607845230f4c489473bcecd4d7878`
 
@@ -282,7 +282,9 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `state:fresh-v2-continuation/running-evidenced` | state | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `state:fresh-v2-initial/dispatch-entered` | state | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `state:fresh-v2-initial/dispatch-pending` | state | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `state:fresh-v2-initial/dispatch-unknown` | state | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `state:fresh-v2-initial/failed-requeued` | state | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `state:fresh-v2-initial/parked-turn-settled` | state | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `state:fresh-v2-initial/running-evidenced` | state | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `state:fresh-v2-initial/start-reserved` | state | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `state:rpc-union/swarmreadcapability` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
@@ -314,6 +316,9 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `transaction:fresh-v2-enter-continuation-dispatch` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `transaction:fresh-v2-enter-initial-dispatch` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `transaction:fresh-v2-fail-initial` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `transaction:fresh-v2-initial-mark-unknown` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `transaction:fresh-v2-initial-settle-assistant-and-park` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `transaction:fresh-v2-initial-settle-turn-end` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `transaction:fresh-v2-park-after-turn` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `transaction:fresh-v2-reassign-current-attempt` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `transaction:fresh-v2-record-continuation-frame` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |

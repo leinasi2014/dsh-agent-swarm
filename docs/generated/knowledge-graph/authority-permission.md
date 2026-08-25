@@ -2,7 +2,7 @@
 
 # Authority and permission
 
-Manifest digest: `fdf552d1c6cfd19835bdf09a135ec37e2264db7e2b3691c5b29e77cd71429b13`
+Manifest digest: `fc0cc4aa97f6a8b91ed58003c5fee20f407698473ee731f42aefdbffd04852f2`
 
 Curated tool-registry digest: `2af060c2441600f775e82097e626303c8fd607845230f4c489473bcecd4d7878`
 

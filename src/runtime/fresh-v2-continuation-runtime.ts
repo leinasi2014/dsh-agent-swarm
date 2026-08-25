@@ -371,6 +371,40 @@ export class FreshV2ContinuationRuntime implements ContinuationRuntime {
     if (membership?.role !== 'member') return
     const current = currentFreshV2TaskAttempt(membership.team, session.id)
     const last = current?.attempt.dispatchEpochs.at(-1)
+    const entered = current === undefined ? undefined : currentContinuationAttempt(membership.team, session.id)
+    if (entered?.intent.phase === 'dispatch-entered' && entered.dispatch.phase === 'dispatch-entered'
+      && entered.dispatch.turn === event.data.turn) {
+      const checkpoint = continuationCheckpointOf(entered)
+      const evidence = foldEnteredContinuationRecovery(
+        session.events,
+        checkpoint,
+        continuationFrameDigest(this.frameOf(entered)),
+      )
+      if (evidence.kind === 'dispatch-unknown') {
+        await this.recoveryDomain.markDispatchUnknown(scope, membership.team.id, {
+          checkpoint,
+          diagnostic: evidence.reason,
+        })
+      } else if (evidence.kind === 'turn-end-evidence') {
+        await this.recoveryDomain.settleTurnEndEvidence(scope, membership.team.id, {
+          checkpoint,
+          eventSeq: evidence.eventSeq,
+          reason: evidence.reason,
+        })
+      } else if (evidence.turnEndSeq !== undefined) {
+        await this.recoveryDomain.settleAssistantAndPark(scope, membership.team.id, {
+          checkpoint,
+          assistantEventSeq: evidence.eventSeq,
+          turnEndSeq: evidence.turnEndSeq,
+        })
+      } else {
+        await this.recoveryDomain.markDispatchUnknown(scope, membership.team.id, {
+          checkpoint,
+          diagnostic: 'continuation assistant evidence lacks the observed terminal turn boundary',
+        })
+      }
+      return
+    }
     if (current === undefined || current.attempt.phase !== 'running' || last?.phase !== 'settled'
       || last.turn !== event.data.turn) return
     await this.domain.parkAfterTurn(scope, membership.team.id, {

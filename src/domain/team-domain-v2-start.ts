@@ -44,7 +44,7 @@ function replaceMember(team: TeamStateV2, member: TeamMemberV2): void {
   team.members[index] = member
 }
 
-function requireInitialDispatchTuple(
+export function requireInitialDispatchTuple(
   team: TeamStateV2,
   memberSessionId: string,
   taskId: TaskId,

@@ -17,7 +17,7 @@ export function initialPromptDigest(text: string): string {
   return canonicalV2Digest('dsh-agent-swarm/a1b/initial-prompt/v1', { text })
 }
 
-function promptText(event: SessionEvent): string | undefined {
+export function initialFrameText(event: SessionEvent): string | undefined {
   if (event.type !== 'user/message' || event.data.source.kind !== 'user'
     || event.data.content.length !== 1) return undefined
   const block = event.data.content[0]
@@ -35,7 +35,7 @@ export function currentStepContainsInitialFrame(
   if (startSeq === undefined) return false
   return session.events.some(event => {
     if (event.seq <= startSeq) return false
-    const text = promptText(event)
+    const text = initialFrameText(event)
     return text !== undefined && initialPromptDigest(text) === expectedPromptDigest
   })
 }
@@ -59,7 +59,7 @@ export function claimedInitialFrame(
   }
   const matches = session.events.flatMap(event => {
     if (event.seq <= start.seq) return []
-    const text = promptText(event)
+    const text = initialFrameText(event)
     if (text === undefined || initialPromptDigest(text) !== expectedPromptDigest) return []
     return [{ event, text }]
   })

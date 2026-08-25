@@ -34,6 +34,8 @@ const REQUIRED = Object.freeze({
     'ownsFreshV2InitialModelDispatch(',
     'enterInitialDispatch(',
     'settleInitialAssistantEvidence(',
+    'this.requireInitialOutcomes().reconcileColdDispatches()',
+    'this.requireInitialOutcomes().foldTurnEnd(session, event)',
     'retireTurnPermit(session.id, event.data.turn)',
     'this.requireTaskControl().submitTask(',
     'this.requireTaskControl().reassignTask(',
@@ -60,6 +62,21 @@ const REQUIRED = Object.freeze({
     'async failInitialAssignment(',
     'async enterInitialDispatch(',
     'async settleInitialAssistantEvidence(',
+  ],
+  'src/domain/team-domain-v2-initial-outcome.ts': [
+    'export class TeamV2InitialOutcomeDomain',
+    'async settleTurnEnd(',
+    'async markUnknown(',
+    'async settleAssistantAndPark(',
+  ],
+  'src/runtime/fresh-v2-initial-outcome-fold.ts': [
+    'export function foldEnteredInitialOutcome(',
+  ],
+  'src/runtime/fresh-v2-initial-outcome-recovery.ts': [
+    'export class FreshV2InitialOutcomeRecovery',
+    'async foldTurnEnd(',
+    'async reconcileColdDispatches()',
+    'this.ctx.sessionPersistence.prepare(',
   ],
   'src/domain/team-state-v2.ts': [
     'export interface ModelDispatchEpoch',
@@ -133,7 +150,11 @@ const REQUIRED = Object.freeze({
   ],
   'tests/fresh-v2-initial-runtime.spec.ts': [
     'keeps add_member dormant, witnesses provider entry, then admits running from durable assistant evidence',
-    'does not report running when the official adapter fails at iteration',
+    'settles an entered initial dispatch from the durable Provider error boundary without reporting running',
+  ],
+  'tests/fresh-v2-initial-outcome-restart.spec.ts': [
+    "describe('fresh-v2 initial entered-outcome cold reconciliation'",
+    'folds %s without replay and stays idempotent after a second restart',
   ],
   'tests/fresh-v2-task-control-runtime.spec.ts': [
     'accepts submit only through a real official Agent Loop tool-call after assistant evidence',
@@ -153,6 +174,7 @@ const REQUIRED = Object.freeze({
   ],
   'tests/fresh-v2-continuation-runtime.spec.ts': [
     'runs two official turns under one Attempt and refuses a later unframed wake',
+    'settles an entered continuation from its durable Provider error boundary without replay',
   ],
   'tests/fresh-v2-continuation-restart.spec.ts': [
     'reserves exactly one recovery epoch for a cold pending dispatch without replaying the frame or Provider call',
@@ -217,8 +239,6 @@ export async function extractFreshV2InitialDispatchFacts(rootInput, options = {}
     absentRecoveryBranches: [
       'cold-starting-unreconciled',
       'cold-recovery-pending-capability-blocked',
-      'cold-dispatch-entered-unclassified',
-      'cold-evidence-unrefolded',
       'provider-start-result-unknown',
     ],
   }

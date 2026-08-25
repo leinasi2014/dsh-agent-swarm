@@ -122,6 +122,16 @@ export function foldEnteredContinuationRecovery(
     && event.data.turn === checkpoint.turn && event.data.step === checkpoint.step)
   const turnEnds = events.flatMap(event => event.type === 'turn/end'
     && event.data.turn === checkpoint.turn && event.seq > checkpoint.messageSeq ? [event] : [])
+  const partialOutputs = events.filter(event => event.type === 'assistant/chunk'
+    && event.seq > checkpoint.messageSeq
+    && event.data.turn === checkpoint.turn && event.data.step === checkpoint.step
+    && ['text-delta', 'reasoning-delta', 'tool-call-delta', 'block-end'].includes(event.data.chunk.type))
+  if (partialOutputs.length > 0 && assistants.length === 0) {
+    return {
+      kind: 'dispatch-unknown',
+      reason: 'continuation model dispatch has partial assistant output without an exact durable result',
+    }
+  }
   if (assistants.length === 0 && turnEnds.length === 1 && turnEnds[0]!.data.reason.kind !== 'interrupted') {
     return {
       kind: 'turn-end-evidence',

@@ -92,6 +92,9 @@ export function buildFreshV2InitialDispatchSlice(facts, mechanical) {
   const foldFile = 'src/runtime/fresh-v2-session-fold.ts'
   const capabilityFile = 'src/runtime/fresh-v2-witness-capability.ts'
   const continuationRuntimeFile = 'src/runtime/fresh-v2-continuation-runtime.ts'
+  const initialOutcomeDomainFile = 'src/domain/team-domain-v2-initial-outcome.ts'
+  const initialOutcomeFoldFile = 'src/runtime/fresh-v2-initial-outcome-fold.ts'
+  const initialOutcomeRuntimeFile = 'src/runtime/fresh-v2-initial-outcome-recovery.ts'
   const recoveryRuntimeFile = 'src/runtime/fresh-v2-recovery-driver.ts'
   const continuationDomainFile = 'src/domain/team-domain-v2-continuation.ts'
   const recoveryDomainFile = 'src/domain/team-domain-v2-continuation-recovery.ts'
@@ -143,6 +146,8 @@ export function buildFreshV2InitialDispatchSlice(facts, mechanical) {
     entered: ref('state:fresh-v2-initial/dispatch-entered', 'state'),
     running: ref('state:fresh-v2-initial/running-evidenced', 'state'),
     failed: ref('state:fresh-v2-initial/failed-requeued', 'state'),
+    parked: ref('state:fresh-v2-initial/parked-turn-settled', 'state'),
+    unknown: ref('state:fresh-v2-initial/dispatch-unknown', 'state'),
   }
   const tests = {
     runtime: ref('test:fresh-v2-initial-runtime', 'test'),
@@ -150,9 +155,18 @@ export function buildFreshV2InitialDispatchSlice(facts, mechanical) {
     fold: ref('test:fresh-v2-session-fold', 'test'),
     foundation: ref('test:team-v2-foundation', 'test'),
     profile: ref('test:a1b-official-profile-smoke', 'test'),
+    initialOutcomeRestart: ref('test:fresh-v2-initial-outcome-restart', 'test'),
   }
   const document = ref('document:fresh-v2-runtime-blueprint', 'document')
   const continuationFlow = ref('flow:fresh-v2-online-continuation', 'flow')
+  const initialOutcomeFlow = ref('flow-branch:fresh-v2-initial-dispatch/entered-outcome-recovery', 'flow-branch')
+  const initialOutcomeService = ref('service:fresh-v2-initial-outcome-recovery', 'service')
+  const sessionReadback = ref('provider:official-session-readback', 'provider')
+  const initialOutcomeTransactions = {
+    turnEnd: ref('transaction:fresh-v2-initial-settle-turn-end', 'transaction'),
+    unknown: ref('transaction:fresh-v2-initial-mark-unknown', 'transaction'),
+    assistant: ref('transaction:fresh-v2-initial-settle-assistant-and-park', 'transaction'),
+  }
   const continuationService = ref('service:fresh-v2-continuation-runtime', 'service')
   const continuationIntent = ref('entity:fresh-v2-continuation-intent', 'entity')
   const continuationFrame = ref('event:fresh-v2-continuation-frame', 'event')
@@ -214,6 +228,9 @@ export function buildFreshV2InitialDispatchSlice(facts, mechanical) {
     'cold-recovery-claimed-folded',
     'downstream-failed-after-entered',
     'assistant-evidence-undurable',
+    'cold-entered-exact-assistant-folded',
+    'cold-entered-exact-terminal-folded',
+    'cold-entered-ambiguous-outcome-unknown',
   ]
   const absentBranches = facts.absentRecoveryBranches
 
@@ -221,7 +238,7 @@ export function buildFreshV2InitialDispatchSlice(facts, mechanical) {
     node(facts, agentLoop.id, agentLoop.kind, 'Official DSH Agent Loop execution authority', agentLoop, 'src/index.ts', 'official-agent-loop-authority', { verification: 'real-profile', evidence: [tests.profile.id], security: security(agentLoop) }),
     node(facts, llm.id, llm.kind, 'Official DSH LLM registry and stream waterfall authority', llm, capabilityFile, 'official-llm-authority', { verification: 'composition', evidence: [tests.runtime.id, tests.witness.id], security: security(llm) }),
     node(facts, service.id, service.kind, 'Fresh-v2 initial dispatch runtime', team, runtimeFile, 'fresh-v2-runtime', { verification: 'real-profile', evidence: [tests.runtime.id, tests.profile.id], mutation: 'external-effect', security: security(agentLoop, 'external-effect', { guards: [guards.official] }) }),
-    node(facts, flow.id, flow.kind, 'Fresh-v2 first member assignment and model dispatch', team, runtimeFile, 'fresh-v2-initial-flow', { verification: 'real-profile', evidence: [tests.runtime.id, tests.witness.id, tests.fold.id, tests.foundation.id, tests.profile.id] }),
+    node(facts, flow.id, flow.kind, 'Fresh-v2 first member assignment and model dispatch', team, runtimeFile, 'fresh-v2-initial-flow', { verification: 'real-profile', evidence: [tests.runtime.id, tests.witness.id, tests.fold.id, tests.foundation.id, tests.profile.id, tests.initialOutcomeRestart.id] }),
     node(facts, attempt.id, attempt.kind, 'Fresh-v2 task Attempt', team, 'src/domain/team-state-v2.ts', 'fresh-v2-attempt'),
     node(facts, dispatch.id, dispatch.kind, 'Fresh-v2 model dispatch epoch', team, 'src/domain/team-state-v2.ts', 'fresh-v2-dispatch-epoch'),
     node(facts, frame.id, frame.kind, 'Exact initial assignment Session frame', session, foldFile, 'fresh-v2-initial-frame', { security: security(session) }),
@@ -255,6 +272,12 @@ export function buildFreshV2InitialDispatchSlice(facts, mechanical) {
     node(facts, tests.foundation.id, tests.foundation.kind, 'Fresh-v2 domain state invariant tests', contracts, 'tests/team-v2-foundation.spec.ts', 'fresh-v2-foundation-tests', { verification: 'unit', evidence: [], security: security(contracts) }),
     node(facts, tests.profile.id, tests.profile.kind, 'Isolated official DSH Profile install/restart smoke', contracts, 'scripts/a1b/run-profile-smoke.mjs', 'a1b-profile-smoke', { verification: 'real-profile', evidence: [], security: security(contracts) }),
     node(facts, document.id, document.kind, 'Fresh-v2 runtime architecture blueprint', contracts, 'docs/development/2026-08-24-team-runtime-architecture-blueprint-v1.md', 'fresh-v2-blueprint', { verification: 'static', evidence: [], security: security(contracts) }),
+    node(facts, initialOutcomeFlow.id, initialOutcomeFlow.kind, 'Fold an entered initial dispatch from exact durable Session outcome evidence without replay', team, initialOutcomeRuntimeFile, 'initial-outcome-flow', { verification: 'composition', evidence: [tests.runtime.id, tests.initialOutcomeRestart.id], contract: { nodeKind: 'flow-branch', flow } }),
+    node(facts, initialOutcomeService.id, initialOutcomeService.kind, 'Fresh-v2 initial entered-outcome online and cold recovery', team, initialOutcomeRuntimeFile, 'initial-outcome-recovery', { verification: 'composition', evidence: [tests.runtime.id, tests.initialOutcomeRestart.id], mutation: 'external-effect', security: security(session, 'external-effect') }),
+    node(facts, initialOutcomeTransactions.turnEnd.id, initialOutcomeTransactions.turnEnd.kind, 'Settle an entered initial dispatch from exact non-interrupted turn-end evidence', team, initialOutcomeDomainFile, 'initial-settle-turn-end', { security: security(session, 'domain-transaction', { guards: [guards.official] }) }),
+    node(facts, initialOutcomeTransactions.unknown.id, initialOutcomeTransactions.unknown.kind, 'Mark an entered initial dispatch unknown when durable result identity is unsafe', team, initialOutcomeDomainFile, 'initial-mark-unknown', { security: security(session, 'domain-transaction', { guards: [guards.official] }) }),
+    node(facts, initialOutcomeTransactions.assistant.id, initialOutcomeTransactions.assistant.kind, 'Settle and park an initial Attempt from exact durable assistant and turn boundary', team, initialOutcomeDomainFile, 'initial-settle-assistant-park', { security: security(session, 'domain-transaction', { guards: [guards.official] }) }),
+    node(facts, tests.initialOutcomeRestart.id, tests.initialOutcomeRestart.kind, 'Fresh-v2 initial entered-outcome cold restart and no-replay tests', contracts, 'tests/fresh-v2-initial-outcome-restart.spec.ts', 'initial-outcome-restart-tests', { verification: 'composition', evidence: [], security: security(contracts) }),
     node(facts, continuationFlow.id, continuationFlow.kind, 'Fresh-v2 explicit online same-Attempt continuation', team, continuationRuntimeFile, 'online-continuation-flow', { verification: 'composition', evidence: [continuationTests.domain.id, continuationTests.runtime.id, continuationTests.fold.id] }),
     node(facts, continuationService.id, continuationService.kind, 'Fresh-v2 continuation runtime', team, continuationRuntimeFile, 'continuation-runtime', { verification: 'composition', evidence: [continuationTests.runtime.id], mutation: 'external-effect', security: security(agentLoop, 'external-effect') }),
     node(facts, continuationIntent.id, continuationIntent.kind, 'Durable member-authored continuation intent', team, continuationDomainFile, 'continuation-intent'),
@@ -295,7 +318,7 @@ export function buildFreshV2InitialDispatchSlice(facts, mechanical) {
 
   const edges = []
   const add = (...items) => edges.push(...items)
-  for (const owned of [service, flow, attempt, dispatch, ...Object.values(tx), checkpoints.pending, checkpoints.entered, fences.attempt, fences.dispatch, guards.activation, ...Object.values(predicates), ...Object.values(states), continuationService, recoveryService, continuationFlow, continuationIntent, continuationEffect, continuationGuard, recoveryClaim, ...Object.values(continuationTransactions), ...Object.values(continuationStates), coldContinuation, taskControlFlow, taskControlService, submitTransaction, reassignTransaction, terminalControlFence]) {
+  for (const owned of [service, flow, attempt, dispatch, ...Object.values(tx), checkpoints.pending, checkpoints.entered, fences.attempt, fences.dispatch, guards.activation, ...Object.values(predicates), ...Object.values(states), initialOutcomeFlow, initialOutcomeService, ...Object.values(initialOutcomeTransactions), continuationService, recoveryService, continuationFlow, continuationIntent, continuationEffect, continuationGuard, recoveryClaim, ...Object.values(continuationTransactions), ...Object.values(continuationStates), coldContinuation, taskControlFlow, taskControlService, submitTransaction, reassignTransaction, terminalControlFence]) {
     add(edge(facts, `edge:fresh-v2-owner/${owned.id.replace(':', '/')}`, 'owns', team, owned, runtimeFile, `owner-${owned.id}`))
   }
   add(
@@ -355,6 +378,25 @@ export function buildFreshV2InitialDispatchSlice(facts, mechanical) {
     edge(facts, 'edge:fresh-v2/flow-verified-foundation', 'verified-by', flow, tests.foundation, domainFile, 'verified-foundation'),
     edge(facts, 'edge:fresh-v2/flow-verified-profile', 'verified-by', flow, tests.profile, 'scripts/a1b/run-profile-smoke.mjs', 'verified-profile'),
     edge(facts, 'edge:fresh-v2/flow-documented-blueprint', 'documented-by', flow, document, 'docs/development/2026-08-24-team-runtime-architecture-blueprint-v1.md', 'documented-blueprint'),
+    edge(facts, 'edge:fresh-v2-initial-outcome/flow-contained', 'contains', flow, initialOutcomeFlow, initialOutcomeRuntimeFile, 'initial-outcome-contained'),
+    edge(facts, 'edge:fresh-v2-initial-outcome/service-reads-session', 'reads', initialOutcomeService, session, initialOutcomeRuntimeFile, 'initial-outcome-reads-session'),
+    edge(facts, 'edge:fresh-v2-initial-outcome/service-calls-session-readback', 'calls', initialOutcomeService, sessionReadback, initialOutcomeRuntimeFile, 'initial-outcome-session-readback'),
+    edge(facts, 'edge:fresh-v2-initial-outcome/session-triggers-turn-end', 'triggers', session, initialOutcomeTransactions.turnEnd, initialOutcomeRuntimeFile, 'initial-outcome-turn-end'),
+    edge(facts, 'edge:fresh-v2-initial-outcome/service-calls-turn-end', 'calls', initialOutcomeService, initialOutcomeTransactions.turnEnd, initialOutcomeRuntimeFile, 'initial-outcome-calls-turn-end'),
+    edge(facts, 'edge:fresh-v2-initial-outcome/service-calls-unknown', 'calls', initialOutcomeService, initialOutcomeTransactions.unknown, initialOutcomeRuntimeFile, 'initial-outcome-calls-unknown'),
+    edge(facts, 'edge:fresh-v2-initial-outcome/service-calls-assistant', 'calls', initialOutcomeService, initialOutcomeTransactions.assistant, initialOutcomeRuntimeFile, 'initial-outcome-calls-assistant'),
+    edge(facts, 'edge:fresh-v2-initial-outcome/turn-end-mutates-dispatch', 'mutates', initialOutcomeTransactions.turnEnd, dispatch, initialOutcomeDomainFile, 'initial-outcome-turn-end-dispatch'),
+    edge(facts, 'edge:fresh-v2-initial-outcome/turn-end-mutates-attempt', 'mutates', initialOutcomeTransactions.turnEnd, attempt, initialOutcomeDomainFile, 'initial-outcome-turn-end-attempt'),
+    edge(facts, 'edge:fresh-v2-initial-outcome/turn-end-transitions-parked', 'transitions', initialOutcomeTransactions.turnEnd, states.parked, initialOutcomeDomainFile, 'initial-outcome-turn-end-parked'),
+    edge(facts, 'edge:fresh-v2-initial-outcome/unknown-mutates-dispatch', 'mutates', initialOutcomeTransactions.unknown, dispatch, initialOutcomeDomainFile, 'initial-outcome-unknown-dispatch'),
+    edge(facts, 'edge:fresh-v2-initial-outcome/unknown-mutates-attempt', 'mutates', initialOutcomeTransactions.unknown, attempt, initialOutcomeDomainFile, 'initial-outcome-unknown-attempt'),
+    edge(facts, 'edge:fresh-v2-initial-outcome/unknown-transitions-dispatch', 'transitions', initialOutcomeTransactions.unknown, states.unknown, initialOutcomeDomainFile, 'initial-outcome-unknown-state'),
+    edge(facts, 'edge:fresh-v2-initial-outcome/assistant-mutates-attempt', 'mutates', initialOutcomeTransactions.assistant, attempt, initialOutcomeDomainFile, 'initial-outcome-assistant-attempt'),
+    edge(facts, 'edge:fresh-v2-initial-outcome/assistant-mutates-dispatch', 'mutates', initialOutcomeTransactions.assistant, dispatch, initialOutcomeDomainFile, 'initial-outcome-assistant-dispatch'),
+    edge(facts, 'edge:fresh-v2-initial-outcome/assistant-transitions-parked', 'transitions', initialOutcomeTransactions.assistant, states.parked, initialOutcomeDomainFile, 'initial-outcome-assistant-parked'),
+    edge(facts, 'edge:fresh-v2-initial-outcome/flow-verified-runtime', 'verified-by', initialOutcomeFlow, tests.runtime, runtimeFile, 'initial-outcome-verified-runtime'),
+    edge(facts, 'edge:fresh-v2-initial-outcome/flow-verified-restart', 'verified-by', initialOutcomeFlow, tests.initialOutcomeRestart, initialOutcomeFoldFile, 'initial-outcome-verified-restart'),
+    edge(facts, 'edge:fresh-v2-initial-outcome/flow-documented-blueprint', 'documented-by', initialOutcomeFlow, document, 'docs/development/2026-08-24-team-runtime-architecture-blueprint-v1.md', 'initial-outcome-documented-blueprint'),
     edge(facts, 'edge:fresh-v2-continuation/flow-contains-cold-gap', 'contains', continuationFlow, coldContinuation, continuationRuntimeFile, 'continuation-cold-gap'),
     edge(facts, 'edge:fresh-v2-continuation/recovery-driver-calls-followup', 'calls', recoveryService, followupProvider, recoveryRuntimeFile, 'recovery-followup'),
     edge(facts, 'edge:fresh-v2-continuation/recovery-followup-emits-frame', 'emits', followupProvider, recoveryFrame, recoveryRuntimeFile, 'recovery-frame-emitted'),

@@ -23,7 +23,10 @@ class TwoTurnContinuationAdapter extends LlmAdapter {
   readonly entries: Array<{ readonly attemptId?: string; readonly generation?: number; readonly dispatch?: string }> = []
   childId?: string
 
-  constructor(private readonly snapshot: () => TeamStateV2 | undefined) { super() }
+  constructor(
+    private readonly snapshot: () => TeamStateV2 | undefined,
+    private readonly failContinuation = false,
+  ) { super() }
 
   override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
     return Promise.resolve({ provider, id: model, name: model })
@@ -58,6 +61,7 @@ class TwoTurnContinuationAdapter extends LlmAdapter {
       yield { type: 'finish', reason: { kind: 'tool-calls' } }
       return
     }
+    if (childOrdinal === 3 && this.failContinuation) throw new Error('injected continuation Provider failure')
     yield* textResponse(childOrdinal === 2 ? 'Initial turn checkpoint complete.' : 'Continuation turn complete.')
   }
 }
@@ -162,6 +166,53 @@ describe('A2a official same-Attempt continuation vertical', () => {
       expect(ctx.agentSwarmV2Initial.snapshot(workspace, teamId)!.attempts[0]).toMatchObject({
         id: snapshot.attempts[0]!.id, generation: 1, phase: 'parked',
       })
+    } finally {
+      for (const fiber of mounted?.fibers.toReversed() ?? []) await fiber.dispose().catch(() => undefined)
+    }
+  }, 30_000)
+
+  it('settles an entered continuation from its durable Provider error boundary without replay', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-swarm-a2a-runtime-error-'))
+    roots.push(sandbox)
+    let teamId: string | undefined
+    let mounted: FreshV2Composition<TwoTurnContinuationAdapter> | undefined
+    try {
+      mounted = await mountFreshV2Composition(sandbox, (ctx: Context, workspace: string) => new TwoTurnContinuationAdapter(
+        () => teamId === undefined ? undefined : ctx.agentSwarmV2Initial.snapshot(workspace, teamId),
+        true,
+      ))
+      const { ctx, workspace, lead, adapter } = mounted
+      const team = await freshV2ToolCall(ctx, lead, 'a2a-error-create', 'agent_swarm_create', {
+        name: 'A2a Error Team', description: 'Settle one entered Provider error without replay.',
+      }) as { team_id: string }
+      teamId = team.team_id
+      const member = await freshV2ToolCall(ctx, lead, 'a2a-error-member', 'agent_swarm_add_member', {
+        name: 'worker', role: 'Reach the continuation Provider once.',
+      }) as { session_id: string }
+      adapter.childId = member.session_id
+      await freshV2ToolCall(ctx, lead, 'a2a-error-task', 'agent_swarm_create_task', {
+        subject: 'Fail continuation once',
+        description: 'Request one continuation whose Provider fails before producing an assistant message.',
+        target_member: 'worker',
+      })
+
+      await vi.waitFor(() => {
+        expect(adapter.requests.filter(request => request.sessionId === member.session_id)).toHaveLength(3)
+        const snapshot = ctx.agentSwarmV2Initial.snapshot(workspace, teamId!)!
+        expect(snapshot.attempts[0]).toMatchObject({
+          phase: 'parked',
+          parked: { parkedReason: 'turn-settled' },
+          dispatchEpochs: [
+            { phase: 'settled' },
+            { phase: 'settled', turnEndEvidenceReason: 'error' },
+          ],
+        })
+        expect(snapshot.interactionEffects).toContainEqual(expect.objectContaining({
+          kind: 'continuation', status: 'settled',
+        }))
+      }, { timeout: 15_000 })
+      await ctx.agentSwarmV2Initial.drainEvidence()
+      expect(adapter.requests.filter(request => request.sessionId === member.session_id)).toHaveLength(3)
     } finally {
       for (const fiber of mounted?.fibers.toReversed() ?? []) await fiber.dispose().catch(() => undefined)
     }

@@ -234,7 +234,7 @@ describe('A1b fresh-v2 official AgentLoop vertical', () => {
     }
   })
 
-  it('does not report running when the official adapter fails at iteration', async () => {
+  it('settles an entered initial dispatch from the durable Provider error boundary without reporting running', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-swarm-a1b-failure-'))
     roots.push(sandbox)
     const mounted = await mountFreshV2Composition(sandbox, () => new FailingStreamAdapter())
@@ -256,11 +256,17 @@ describe('A1b fresh-v2 official AgentLoop vertical', () => {
       await vi.waitFor(() => {
         const snapshot = ctx.agentSwarmV2Initial.snapshot(workspace, created.team_id)!
         expect(snapshot.attempts[0]).toMatchObject({
-          phase: 'reserved',
-          dispatchEpochs: [{ phase: 'dispatch-entered' }],
+          phase: 'parked',
+          parked: { parkedReason: 'turn-settled' },
+          dispatchEpochs: [{
+            phase: 'settled',
+            turnEndEvidenceReason: 'error',
+          }],
         })
         expect(snapshot.attempts[0]!.dispatchEpochs[0]).not.toHaveProperty('assistantEvidenceSeq')
       }, { timeout: 10_000 })
+      await ctx.agentSwarmV2Initial.drainEvidence()
+      expect(adapter.requests.filter(request => request.sessionId === added.session_id)).toHaveLength(1)
     } finally {
       for (const fiber of mounted.fibers.toReversed()) await fiber.dispose().catch(() => undefined)
     }
