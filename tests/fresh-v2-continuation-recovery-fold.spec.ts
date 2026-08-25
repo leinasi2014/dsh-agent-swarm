@@ -127,4 +127,98 @@ describe('A2a cold pending-continuation recovery fold', () => {
     ))
       .toMatchObject({ kind: 'not-proven', reason: expect.stringContaining('interrupted') })
   })
+
+  it('fails closed for every ambiguous or conflicting physical recovery boundary', () => {
+    const exact = () => {
+      const session = enteredSession()
+      const before = [...session.events]
+      session.append('step/end', { turn: 2, step: 1 })
+      session.append('turn/end', { turn: 2, reason: { kind: 'interrupted' } })
+      return { before, after: [...session.events] }
+    }
+    const prefix = exact()
+    expect(foldPendingContinuationRecovery(
+      prefix.before,
+      [{ ...prefix.after[0]!, seq: 99 }, ...prefix.after.slice(1)],
+      checkpoint,
+      continuationFrameDigest(frame),
+    )).toMatchObject({ kind: 'not-proven', reason: expect.stringContaining('prefix changed') })
+
+    const missingStep = exact()
+    expect(foldPendingContinuationRecovery(
+      missingStep.before, missingStep.after, { ...checkpoint, step: 2 }, continuationFrameDigest(frame),
+    )).toMatchObject({ kind: 'not-proven', reason: expect.stringContaining('step is missing or ambiguous') })
+
+    const ambiguousStart = enteredSession()
+    ambiguousStart.append('step/start', { turn: 2, step: 1 })
+    const ambiguousStartBefore = [...ambiguousStart.events]
+    ambiguousStart.append('step/end', { turn: 2, step: 1 })
+    ambiguousStart.append('turn/end', { turn: 2, reason: { kind: 'interrupted' } })
+    expect(foldPendingContinuationRecovery(
+      ambiguousStartBefore, ambiguousStart.events, checkpoint, continuationFrameDigest(frame),
+    )).toMatchObject({ kind: 'not-proven', reason: expect.stringContaining('step is missing or ambiguous') })
+
+    const wrongFrame = exact()
+    expect(foldPendingContinuationRecovery(
+      wrongFrame.before, wrongFrame.after, { ...checkpoint, frameMessageId: 'wrong-frame' },
+      continuationFrameDigest(frame),
+    )).toMatchObject({ kind: 'not-proven', reason: expect.stringContaining('frame fence') })
+
+    const duplicateFrame = enteredSession()
+    duplicateFrame.append('user/message', {
+      id: MessageId('message-recovery-duplicate'), role: 'user', content: [{ type: 'text', text: frame }],
+      source: { kind: 'plugin', plugin: 'dsh-agent-swarm' },
+    }, { surfaceOp: 'append' })
+    const duplicateBefore = [...duplicateFrame.events]
+    duplicateFrame.append('step/end', { turn: 2, step: 1 })
+    duplicateFrame.append('turn/end', { turn: 2, reason: { kind: 'interrupted' } })
+    expect(foldPendingContinuationRecovery(
+      duplicateBefore, duplicateFrame.events, checkpoint, continuationFrameDigest(frame),
+    )).toMatchObject({ kind: 'not-proven', reason: expect.stringContaining('duplicated') })
+
+    const missingBoundary = enteredSession()
+    const missingBoundaryBefore = [...missingBoundary.events]
+    missingBoundary.append('turn/end', { turn: 2, reason: { kind: 'interrupted' } })
+    expect(foldPendingContinuationRecovery(
+      missingBoundaryBefore, missingBoundary.events, checkpoint, continuationFrameDigest(frame),
+    )).toMatchObject({ kind: 'not-proven', reason: expect.stringContaining('step boundary') })
+
+    const ambiguousBoundary = enteredSession()
+    const ambiguousBoundaryBefore = [...ambiguousBoundary.events]
+    ambiguousBoundary.append('step/end', { turn: 2, step: 1 })
+    ambiguousBoundary.append('step/end', { turn: 2, step: 1 })
+    ambiguousBoundary.append('turn/end', { turn: 2, reason: { kind: 'interrupted' } })
+    expect(foldPendingContinuationRecovery(
+      ambiguousBoundaryBefore, ambiguousBoundary.events, checkpoint, continuationFrameDigest(frame),
+    )).toMatchObject({ kind: 'not-proven', reason: expect.stringContaining('step boundary') })
+
+    const duplicateEnd = enteredSession()
+    const duplicateEndBefore = [...duplicateEnd.events]
+    duplicateEnd.append('step/end', { turn: 2, step: 1 })
+    duplicateEnd.append('turn/end', { turn: 2, reason: { kind: 'interrupted' } })
+    duplicateEnd.append('turn/end', { turn: 2, reason: { kind: 'interrupted' } })
+    expect(foldPendingContinuationRecovery(
+      duplicateEndBefore, duplicateEnd.events, checkpoint, continuationFrameDigest(frame),
+    )).toMatchObject({ kind: 'not-proven', reason: expect.stringContaining('one exact cold interrupted') })
+
+    const nonTail = enteredSession()
+    const nonTailBefore = [...nonTail.events]
+    nonTail.append('step/end', { turn: 2, step: 1 })
+    nonTail.append('turn/end', { turn: 2, reason: { kind: 'interrupted' } })
+    nonTail.append('step/end', { turn: 99, step: 1 })
+    expect(foldPendingContinuationRecovery(
+      nonTailBefore, nonTail.events, checkpoint, continuationFrameDigest(frame),
+    )).toMatchObject({ kind: 'not-proven', reason: expect.stringContaining('physical tail') })
+
+    const unexpectedRepair = enteredSession()
+    const unexpectedRepairBefore = [...unexpectedRepair.events]
+    unexpectedRepair.append('request/header', {
+      header: { config: { provider: 'mock', model: 'mock' } }, reason: 'initial',
+    })
+    unexpectedRepair.append('step/end', { turn: 2, step: 1 })
+    unexpectedRepair.append('turn/end', { turn: 2, reason: { kind: 'interrupted' } })
+    expect(foldPendingContinuationRecovery(
+      unexpectedRepairBefore, unexpectedRepair.events, checkpoint, continuationFrameDigest(frame),
+    )).toMatchObject({ kind: 'not-proven', reason: expect.stringContaining('unexpected physical event') })
+  })
 })

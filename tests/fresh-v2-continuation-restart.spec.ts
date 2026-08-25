@@ -284,13 +284,22 @@ describe('A2a fresh-composition cold entered-dispatch reconciliation', () => {
       for (const fiber of first.fibers.toReversed()) await fiber.dispose().catch(() => undefined)
     }
 
-    const second = await mountFreshV2Composition(sandbox, () => new NoopAdapter())
+    const second = await mountFreshV2Composition(sandbox, () => new NoopAdapter(), {}, async ctx => {
+      const originalFollowup = ctx.subagents.followup.bind(ctx.subagents)
+      ctx.subagents.followup = async (...args) => {
+        followupCalls += 1
+        return await originalFollowup(...args)
+      }
+    })
     try {
       const attempt = second.ctx.agentSwarmV2Initial.snapshot(seeded.workspace, seeded.teamId)!
         .attempts.find(candidate => candidate.id === seeded.attemptId)!
       expect(attempt.dispatchEpochs).toHaveLength(3)
       expect(attempt.dispatchEpochs.at(-1)).toMatchObject({ kind: 'recovery', phase: 'frame-pending' })
       expect(second.adapter.requests).toHaveLength(0)
+      expect(followupCalls).toBe(0)
+      const physical = await second.ctx.sessionPersistence.readFrom(SessionId(seeded.memberSessionId), 0)
+      expect(physical.events.filter(event => event.type === 'user/message')).toHaveLength(1)
     } finally {
       for (const fiber of second.fibers.toReversed()) await fiber.dispose().catch(() => undefined)
     }
