@@ -432,6 +432,8 @@ describe('A2a fresh-composition cold entered-dispatch reconciliation', () => {
     }
 
     let followupCalls = 0
+    let priorRecoveryEffectId!: string
+    let nextRecoveryDispatchId!: string
     const second = await mountFreshV2Composition(sandbox, () => new NoopAdapter(), {}, async ctx => {
       const originalFollowup = ctx.subagents.followup.bind(ctx.subagents)
       ctx.subagents.followup = async (...args) => {
@@ -450,11 +452,50 @@ describe('A2a fresh-composition cold entered-dispatch reconciliation', () => {
       expect(attempt.dispatchEpochs.at(-1)).toMatchObject({
         kind: 'recovery', phase: 'frame-pending', recoveryOf: attempt.dispatchEpochs.at(-2)!.dispatchId,
       })
+      priorRecoveryEffectId = attempt.dispatchEpochs.at(-2)!.effectId
+      nextRecoveryDispatchId = attempt.dispatchEpochs.at(-1)!.dispatchId
       expect(attempt.currentContinuationIntent).toMatchObject({
         currentDispatchId: attempt.dispatchEpochs.at(-2)!.dispatchId, phase: 'dispatch-pending',
       })
     } finally {
       for (const fiber of second.fibers.toReversed()) await fiber.dispose().catch(() => undefined)
+    }
+
+    let recoveryOfRecoveryFollowups = 0
+    const agentErrors: string[] = []
+    const third = await mountFreshV2Composition(
+      sandbox,
+      () => new NoopAdapter(),
+      {},
+      async ctx => {
+        ctx.on('agent/error', ({ error }) => { agentErrors.push(String(error)) }, { global: true })
+        const originalFollowup = ctx.subagents.followup.bind(ctx.subagents)
+        ctx.subagents.followup = async (...args) => {
+          recoveryOfRecoveryFollowups += 1
+          return await originalFollowup(...args)
+        }
+      },
+      SessionId('captain-cold'),
+    )
+    try {
+      await third.ctx.agentSwarmV2Initial.driveColdRecoveries()
+      await waitUntil(() => third.adapter.requests.some(request => request.sessionId === seeded.memberSessionId)
+        || agentErrors.length > 0, 'recovery-of-recovery Provider request or error')
+      expect(agentErrors).toEqual([])
+      await third.ctx.agentSwarmV2Initial.drainEvidence()
+      const team = third.ctx.agentSwarmV2Initial.snapshot(seeded.workspace, seeded.teamId)!
+      const attempt = team.attempts.find(candidate => candidate.id === seeded.attemptId)!
+      expect(recoveryOfRecoveryFollowups).toBe(1)
+      expect(third.adapter.requests.filter(request => request.sessionId === seeded.memberSessionId)).toHaveLength(1)
+      expect(attempt.dispatchEpochs.at(-2)).toMatchObject({ kind: 'recovery', phase: 'superseded' })
+      expect(attempt.dispatchEpochs.at(-1)).toMatchObject({
+        dispatchId: nextRecoveryDispatchId, kind: 'recovery', phase: 'settled',
+      })
+      expect(team.interactionEffects).toContainEqual(expect.objectContaining({
+        effectId: priorRecoveryEffectId, kind: 'continuation-recovery', status: 'superseded',
+      }))
+    } finally {
+      for (const fiber of third.fibers.toReversed()) await fiber.dispose().catch(() => undefined)
     }
   }, 30_000)
 

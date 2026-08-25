@@ -163,11 +163,20 @@ export class TeamV2ContinuationRecoveryDomain {
       const oldReceiptIndex = team.interactionEffects.findIndex(effect => effect.effectId === old?.effectId)
       const recoveryReceipt = team.interactionEffects[recoveryReceiptIndex]
       const oldReceipt = team.interactionEffects[oldReceiptIndex]
+      const oldReceiptMatches = old?.kind === 'continuation'
+        ? oldReceipt?.kind === 'continuation' && oldReceipt.dispatchId === old.dispatchId
+          && oldReceipt.requestId === intent?.continuationEffectId
+        : old?.kind === 'recovery'
+          ? oldReceipt?.kind === 'continuation-recovery' && oldReceipt.dispatchId === old.dispatchId
+            && oldReceipt.recoveryOf === old.recoveryOf
+            && oldReceipt.recoveryProofTurnEndSeq === old.recoveryProofTurnEndSeq
+            && oldReceipt.recoveryProofDigest === old.recoveryProofDigest
+          : false
       if (task === undefined || attempt === undefined || task.currentAttemptId !== attempt.id
         || task.status !== 'in_progress' || attempt.phase !== 'parked' || intent === undefined
         || recovery?.kind !== 'recovery' || old === undefined || recovery.recoveryOf !== old.dispatchId
         || recoveryReceipt?.kind !== 'continuation-recovery' || recoveryReceipt.dispatchId !== recovery.dispatchId
-        || oldReceipt?.kind !== 'continuation' || oldReceipt.dispatchId !== old.dispatchId
+        || oldReceipt === undefined || !oldReceiptMatches
         || old.frameMessageId !== input.checkpoint.frameMessageId || old.messageSeq !== input.checkpoint.messageSeq
         || old.turn !== input.checkpoint.turn || old.step !== input.checkpoint.step
         || old.witnessCapabilityDigest !== input.checkpoint.witnessCapabilityDigest) {

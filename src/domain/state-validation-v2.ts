@@ -313,8 +313,12 @@ export function assertTeamStateV2(value: unknown, path: string): asserts value i
         }
         if (dispatch.kind === 'recovery') {
           const recovered = attempt.dispatchEpochs.find(epoch => epoch.dispatchId === dispatch.recoveryOf)
+          const recoveredReceipt = team.interactionEffects.find(effect => effect.effectId === recovered?.effectId)
           if (recovered?.phase !== 'superseded') {
             fail(path, `attempt ${attempt.id} active recovery did not supersede its prior dispatch`)
+          }
+          if (recoveredReceipt?.status !== 'superseded') {
+            fail(path, `attempt ${attempt.id} active recovery did not supersede its prior receipt`)
           }
         }
       }

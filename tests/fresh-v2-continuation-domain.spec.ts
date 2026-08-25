@@ -459,5 +459,53 @@ describe('A2a same-Attempt continuation domain', () => {
       effectId: resumeEffectId, kind: 'continuation', status: 'superseded', dispatchId,
     }))
     assertTeamStateV2(switched, 'claimed-recovery-authority')
+
+    const recoveryCheckpoint: ContinuationDispatchCheckpoint = {
+      ...checkpoint,
+      dispatchId: recoveryDispatchId,
+      resumeEffectId: recoveryEffectId,
+      frameMessageId: 'official-recovery-message',
+      messageSeq: 17,
+      turn: 3,
+      step: 1,
+    }
+    const nextRecoveryEffectId = TeamEffectId('effect:attempt-a2a-domain-0001:recovery:4')
+    const nextRecoveryDispatchId = DispatchId('dispatch:attempt-a2a-domain-0001:recovery:4')
+    await recovery.reserveProvenNotEntered(SCOPE, fixture.teamId, {
+      checkpoint: recoveryCheckpoint,
+      recoveryEffectId: nextRecoveryEffectId,
+      recoveryDispatchId: nextRecoveryDispatchId,
+      recoveryProofTurnEndSeq: 20,
+      recoveryProofDigest: 'a'.repeat(64),
+    })
+    const recoveryOfRecovery = await recovery.claimRecoveryFrame(SCOPE, fixture.teamId, {
+      checkpoint: recoveryCheckpoint,
+      recoveryDispatchId: nextRecoveryDispatchId,
+      frameMessageId: 'official-recovery-message-2',
+      messageSeq: 22,
+      turn: 4,
+      step: 1,
+    })
+    expect(recoveryOfRecovery.recovery).toMatchObject({
+      dispatchId: nextRecoveryDispatchId,
+      recoveryOf: recoveryDispatchId,
+      phase: 'dispatch-pending',
+    })
+    expect(await recovery.claimRecoveryFrame(SCOPE, fixture.teamId, {
+      checkpoint: recoveryCheckpoint,
+      recoveryDispatchId: nextRecoveryDispatchId,
+      frameMessageId: 'official-recovery-message-2',
+      messageSeq: 22,
+      turn: 4,
+      step: 1,
+    })).toEqual(recoveryOfRecovery)
+    const switchedAgain = stack!.store.read(SCOPE, fixture.teamId)!
+    expect(switchedAgain.interactionEffects).toContainEqual(expect.objectContaining({
+      effectId: recoveryEffectId,
+      kind: 'continuation-recovery',
+      status: 'superseded',
+      dispatchId: recoveryDispatchId,
+    }))
+    assertTeamStateV2(switchedAgain, 'claimed-recovery-of-recovery-authority')
   })
 })
