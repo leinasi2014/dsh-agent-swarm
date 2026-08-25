@@ -5,11 +5,25 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { TeamMemberV2 } from '../domain/team-state-v2.js'
+import type { TeamState } from '../domain/types.js'
+import type { ToolExecutionAuthority } from '../runtime/authority.js'
 import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
 import { register } from './shared.js'
 
+export interface InitialTeamLifecycleRuntime {
+  create(exec: ToolExecutionAuthority, name: string, description: string): Promise<Pick<TeamState, 'id' | 'name' | 'revision'>>
+  addMember(
+    exec: ToolExecutionAuthority,
+    input: {
+      name: string; role: string; provider?: string; llmProvider?: string; model?: string
+      denyTools?: readonly string[]; skills?: readonly string[]
+    },
+  ): Promise<TeamMemberV2 | TeamState['members'][number]>
+}
+
 /** `agent_swarm_create`. */
-export function registerCreateTool(ctx: Context, runtime: AgentSwarmRuntime): void {
+export function registerCreateTool(ctx: Context, runtime: InitialTeamLifecycleRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_create',
     description: 'Create one durable DSH Team. The calling Agent becomes captain; one captain may own one active Team per workspace.',
@@ -36,7 +50,7 @@ export function registerCreateTool(ctx: Context, runtime: AgentSwarmRuntime): vo
 }
 
 /** `agent_swarm_add_member`. */
-export function registerAddMemberTool(ctx: Context, runtime: AgentSwarmRuntime): void {
+export function registerAddMemberTool(ctx: Context, runtime: InitialTeamLifecycleRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_add_member',
     description: 'Captain-only. Create a durable continuable DSH subagent member with an isolated persona and Team-safe tool permissions.',

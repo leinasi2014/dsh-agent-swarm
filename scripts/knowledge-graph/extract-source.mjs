@@ -594,29 +594,53 @@ function extractRegistrationOrder(sourceRecords, checker, definitionByName, defi
     return []
   }
   const registrations = []
-  for (const statement of rootFunction.body.statements) {
-    if (!ts.isExpressionStatement(statement) || !ts.isCallExpression(statement.expression) || !ts.isIdentifier(statement.expression.expression)) continue
-    const localCall = statement.expression.expression.text
-    const callSymbol = resolvedSymbol(statement.expression.expression, checker)
-    const definition = callSymbol === undefined ? undefined : definitionsByFunctionSymbol.get(callSymbol)
-    if (definition === undefined || definition === null) {
+  const activeAggregators = new Set()
+  const walkRegistrationFunction = (functionNode) => {
+    if (functionNode.body === undefined) return
+    if (activeAggregators.has(functionNode)) {
+      diagnostics.push(diagnostic(
+        'KG_EXTRACT_TOOL_REGISTRATION_CYCLE',
+        'error',
+        toolsModule.path,
+        functionNode.name?.text,
+        'tool registration aggregators form a recursive cycle',
+      ))
+      return
+    }
+    activeAggregators.add(functionNode)
+    for (const statement of functionNode.body.statements) {
+      if (!ts.isExpressionStatement(statement) || !ts.isCallExpression(statement.expression) || !ts.isIdentifier(statement.expression.expression)) continue
+      const localCall = statement.expression.expression.text
+      const callSymbol = resolvedSymbol(statement.expression.expression, checker)
+      const definition = callSymbol === undefined ? undefined : definitionsByFunctionSymbol.get(callSymbol)
+      if (definition !== undefined && definition !== null) {
+        registrations.push({
+          toolName: definition.name,
+          registrationFunction: definition.containingFunction,
+          localCall,
+          registrationOrder: registrations.length + 1,
+          anchor: sourcePosition(toolsModule.sourceFile, statement),
+        })
+        continue
+      }
+      const declaration = callSymbol?.valueDeclaration ?? callSymbol?.declarations?.[0]
+      if (ts.isFunctionDeclaration(declaration)
+        && declaration.getSourceFile() === toolsModule.sourceFile
+        && declaration.body !== undefined) {
+        walkRegistrationFunction(declaration)
+        continue
+      }
       diagnostics.push(diagnostic(
         'KG_EXTRACT_TOOL_REGISTRATION_UNKNOWN',
         'error',
         toolsModule.path,
         localCall,
-        'registration call symbol does not bind to exactly one extracted defineTool container declaration',
+        'registration call symbol does not bind to one tool declaration or local registration aggregator',
       ))
-      continue
     }
-    registrations.push({
-      toolName: definition.name,
-      registrationFunction: definition.containingFunction,
-      localCall,
-      registrationOrder: registrations.length + 1,
-      anchor: sourcePosition(toolsModule.sourceFile, statement),
-    })
+    activeAggregators.delete(functionNode)
   }
+  walkRegistrationFunction(rootFunction)
   const seen = new Set()
   for (const registration of registrations) {
     if (seen.has(registration.toolName)) {

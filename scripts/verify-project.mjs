@@ -88,6 +88,22 @@ const SRC_FILE_LINE_LIMIT_EXCEPTIONS = new Map([
   // by M3-2: the tool-facing read surfaces (`waitForChange`,
   // `activePeerEvidence`) move to a wait-surface collaborator, returning the
   // file under the limit.
+  ['src/domain/team-domain-board.ts', [
+    'accepted v1 board aggregate predates the v2 walking skeleton and is unchanged by A1b',
+    'retire with the v1 domain after v2 completion/review cutover',
+  ]],
+  ['src/runtime/orchestrator-runtime.ts', [
+    'accepted v1 orchestration composition predates A1b and remains isolated from the experimental v2 path',
+    'retire with the v1 runtime after v2 completion/review cutover',
+  ]],
+  ['tests/official-compat-semantics.spec.ts', [
+    'accepted v1 compatibility corpus is unchanged by A1b and kept intact for historical regression coverage',
+    'split in the v1 retirement/compatibility archive slice after v2 cutover',
+  ]],
+  ['tests/team-domain.spec.ts', [
+    'accepted v1 aggregate regression corpus is unchanged by A1b and kept intact for historical regression coverage',
+    'split in the v1 retirement/compatibility archive slice after v2 cutover',
+  ]],
 ])
 
 const failures = []

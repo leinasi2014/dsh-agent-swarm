@@ -2,7 +2,7 @@
 
 # Traceability
 
-Manifest digest: `2592b328010d51522d913c905eb3383011f8c631c880206b52c3267cfb840363`
+Manifest digest: `07cd7c570692a0431fd057bc99e48282131b3473568d16f44b513b497cdc5bdd`
 
 Curated tool-registry digest: `331defbb12c4ac44efa0bdd7b16007d003dfa3704477b0c2c925d9cc1b665783`
 
@@ -123,6 +123,7 @@ flowchart LR
   n_61727469666163743a7061636b6167652d7265736f757263652f636f726469732e70617463682e796d6c["Package resource ./cordis.patch.yml"]
   n_61727469666163743a7061636b6167652d7265736f757263652f7061636b6167652e6a736f6e["Package resource ./package.json"]
   n_646f63756d656e743a636f72652d70726f746f636f6c["Registered core protocol"]
+  n_646f63756d656e743a66726573682d76322d72756e74696d652d626c75657072696e74["Fresh-v2 runtime architecture blueprint"]
   n_646f63756d656e743a6f6666696369616c2d626173656c696e65["Registered official release baseline"]
   n_646f63756d656e743a736f757263652d7265676973746572["Official source register"]
   n_646f63756d656e743a74657374696e672d766572696669636174696f6e["Registered verification contract"]
@@ -143,13 +144,12 @@ flowchart LR
   n_6d6f64756c653a7372632f636c69656e742f7465616d64617368626f61726464657461696c732e747378["src/client/TeamDashboardDetails.tsx"]
   n_6d6f64756c653a7372632f646f6d61696e2f6572726f722e7473["src/domain/error.ts"]
   n_6d6f64756c653a7372632f646f6d61696e2f67726170682e7473["src/domain/graph.ts"]
+  n_6d6f64756c653a7372632f646f6d61696e2f73746174652d76616c69646174696f6e2d76322e7473["src/domain/state-validation-v2.ts"]
   n_6d6f64756c653a7372632f646f6d61696e2f73746174652d76616c69646174696f6e2e7473["src/domain/state-validation.ts"]
   n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d626f6172642e7473["src/domain/team-domain-board.ts"]
   n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d6275646765742e7473["src/domain/team-domain-budget.ts"]
   n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d6d61696c626f782e7473["src/domain/team-domain-mailbox.ts"]
   n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d706f72742e7473["src/domain/team-domain-port.ts"]
-  n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d70726f6a656374696f6e2e7473["src/domain/team-domain-projection.ts"]
-  n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d726f737465722e7473["src/domain/team-domain-roster.ts"]
   n_6d6f64756c653a7372632f636c69656e742f6167656e74737761726d73657474696e6773636172642e747378 -->|imports| n_6d6f64756c653a7372632f636c69656e742f6167656e742d737761726d2d73657474696e67732d636f6e74726f6c6c65722e7473
   n_6d6f64756c653a7372632f636c69656e742f6167656e74737761726d73657474696e6773636172642e747378 -->|imports| n_6d6f64756c653a7372632f636c69656e742f6167656e742d737761726d2d73657474696e67732d6c6f63616c65732e7473
   n_6d6f64756c653a7372632f636c69656e742f6167656e74737761726d73657474696e6773636172642e747378 -->|imports| n_6d6f64756c653a7372632f636c69656e742f6167656e742d737761726d2d73657474696e67732d7374796c65732e7473
@@ -176,6 +176,8 @@ flowchart LR
   n_6d6f64756c653a7372632f636c69656e742f7465616d64617368626f61726464657461696c732e747378 -->|imports| n_6d6f64756c653a7372632f636c69656e742f7465616d2d64617368626f6172642d6c6f63616c65732e7473
   n_6d6f64756c653a7372632f636c69656e742f7465616d64617368626f61726464657461696c732e747378 -->|imports| n_6d6f64756c653a7372632f636c69656e742f7465616d64617368626f617264636f6e74656e742e747378
   n_6d6f64756c653a7372632f646f6d61696e2f67726170682e7473 -->|imports| n_6d6f64756c653a7372632f646f6d61696e2f6572726f722e7473
+  n_6d6f64756c653a7372632f646f6d61696e2f73746174652d76616c69646174696f6e2d76322e7473 -->|imports| n_6d6f64756c653a7372632f646f6d61696e2f6572726f722e7473
+  n_6d6f64756c653a7372632f646f6d61696e2f73746174652d76616c69646174696f6e2d76322e7473 -->|imports| n_6d6f64756c653a7372632f646f6d61696e2f67726170682e7473
   n_6d6f64756c653a7372632f646f6d61696e2f73746174652d76616c69646174696f6e2e7473 -->|imports| n_6d6f64756c653a7372632f646f6d61696e2f6572726f722e7473
   n_6d6f64756c653a7372632f646f6d61696e2f73746174652d76616c69646174696f6e2e7473 -->|imports| n_6d6f64756c653a7372632f646f6d61696e2f67726170682e7473
   n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d626f6172642e7473 -->|imports| n_6d6f64756c653a7372632f646f6d61696e2f6572726f722e7473
@@ -186,13 +188,6 @@ flowchart LR
   n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d6275646765742e7473 -->|imports| n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d706f72742e7473
   n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d6d61696c626f782e7473 -->|imports| n_6d6f64756c653a7372632f646f6d61696e2f6572726f722e7473
   n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d6d61696c626f782e7473 -->|imports| n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d706f72742e7473
-  n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d70726f6a656374696f6e2e7473 -->|imports| n_6d6f64756c653a7372632f646f6d61696e2f6572726f722e7473
-  n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d70726f6a656374696f6e2e7473 -->|imports| n_6d6f64756c653a7372632f646f6d61696e2f67726170682e7473
-  n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d70726f6a656374696f6e2e7473 -->|imports| n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d706f72742e7473
-  n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d726f737465722e7473 -->|imports| n_6d6f64756c653a7372632f646f6d61696e2f6572726f722e7473
-  n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d726f737465722e7473 -->|imports| n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d626f6172642e7473
-  n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d726f737465722e7473 -->|imports| n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d6d61696c626f782e7473
-  n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d726f737465722e7473 -->|imports| n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d706f72742e7473
   n_6d6f64756c653a7372632f636c69656e742f696e6465782e7473 -->|exports| n_6d6f64756c653a7372632f636c69656e742f726561642d636c69656e742e7473
   n_6d6f64756c653a7372632f636c69656e742f696e6465782e7473 -->|exports| n_6d6f64756c653a7372632f636c69656e742f7465616d2d64617368626f6172642d636f6e74726f6c6c65722e7473
   n_6d6f64756c653a7372632f636c69656e742f706c7567696e2d656e7472792e7473 -->|exports| n_6d6f64756c653a7372632f636c69656e742f696e6465782e7473
@@ -206,6 +201,7 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `artifact:package-resource/cordis.patch.yml` | artifact | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
 | `artifact:package-resource/package.json` | artifact | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
 | `document:core-protocol` | document | REVIEWED | implemented | static | candidate | always-registered | `authority:project-contracts` |
+| `document:fresh-v2-runtime-blueprint` | document | REVIEWED | implemented | static | candidate | config-gated | `authority:project-contracts` |
 | `document:official-baseline` | document | REVIEWED | implemented | static | candidate | always-registered | `authority:project-contracts` |
 | `document:source-register` | document | REVIEWED | implemented | static | candidate | always-registered | `authority:project-contracts` |
 | `document:testing-verification` | document | REVIEWED | implemented | static | candidate | always-registered | `authority:project-contracts` |
@@ -226,6 +222,7 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `module:src/client/teamdashboarddetails.tsx` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/domain/error.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/domain/graph.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `module:src/domain/state-validation-v2.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/domain/state-validation.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/domain/team-domain-board.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/domain/team-domain-budget.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
@@ -234,7 +231,9 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `module:src/domain/team-domain-projection.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/domain/team-domain-roster.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/domain/team-domain-shared.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `module:src/domain/team-domain-v2-start.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/domain/team-domain.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `module:src/domain/team-state-v2.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/domain/types.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/host/frozen-json.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/host/host-read-assembly.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
@@ -252,7 +251,9 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `module:src/human/official-question-presentation.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/index.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/migration/migrate-legacy-store.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `module:src/migration/team-v1-to-v2.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/patterns/node-mapping.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `module:src/protocol/canonical-v2.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/public-api.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/rpc/read-rpc-artifact.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/rpc/read-rpc-contract.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
@@ -260,14 +261,19 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `module:src/runtime/authority.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/runtime/disposal.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/runtime/executable-review.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `module:src/runtime/execution-root-handoff.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/runtime/execution-root-surface.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/runtime/execution-roots.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/runtime/frame-visibility.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `module:src/runtime/fresh-v2-initial-runtime.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `module:src/runtime/fresh-v2-initial-support.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `module:src/runtime/fresh-v2-session-fold.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/runtime/human-provenance.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/runtime/jobs/projection-derive.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/runtime/jobs/team-job-projection.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/runtime/member-control.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/runtime/member-provisioning.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `module:src/runtime/member-skill-policy.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/runtime/memory-operations.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/runtime/memory-query.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/runtime/message-delivery.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
@@ -297,7 +303,9 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `module:src/runtime/workflow/script-executor.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/runtime/workflow/team-bridge-engine.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/runtime/workflow/team-run.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `module:src/storage/storage-domain-team-store-v2.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/storage/storage-domain-team-store.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `module:src/storage/team-spec-v2.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/storage/team-spec.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/storage/team-store.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/storage/workflow-run-overlay.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
@@ -705,10 +713,11 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `public-capability:reexport-layer/59-src/public-api.ts` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
 | `public-capability:reexport-layer/60-src/public-api.ts` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
 | `public-capability:reexport-layer/61-src/public-api.ts` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
-| `public-capability:reexport-layer/62-src/runtime/orchestrator-runtime.ts` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
+| `public-capability:reexport-layer/62-src/runtime/execution-roots.ts` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
 | `public-capability:reexport-layer/63-src/runtime/orchestrator-runtime.ts` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
 | `public-capability:reexport-layer/64-src/runtime/orchestrator-runtime.ts` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
-| `public-capability:reexport-layer/65-src/runtime/permission-surface.ts` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
+| `public-capability:reexport-layer/65-src/runtime/orchestrator-runtime.ts` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
+| `public-capability:reexport-layer/66-src/runtime/permission-surface.ts` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
 | `public-capability:rpc-constant/swarm_read_rpc_contract_digest_v1` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
 | `public-capability:rpc-constant/swarm_read_rpc_endpoint` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
 | `public-capability:rpc-constant/swarm_read_rpc_namespace` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
@@ -741,6 +750,7 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `public-capability:rpc-runtime/agentswarmreadrpcservice/status.read` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | profile-dependent | `(unclassified)` |
 | `public-capability:team-domain-port/acknowledgeassignment` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `public-capability:team-domain-port/acknowledgemessage` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
+| `public-capability:team-domain-port/activateinitialassignment` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `public-capability:team-domain-port/addmemory` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `public-capability:team-domain-port/adoptbudget` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `public-capability:team-domain-port/archiveteam` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
@@ -768,9 +778,13 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `public-capability:team-domain-port/snapshot` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `public-capability:team-domain-port/submittask` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `public-capability:team-domain-port/waitforchange` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
+| `test:a1b-official-profile-smoke` | test | REVIEWED | implemented | real-profile | candidate | config-gated | `authority:project-contracts` |
 | `test:assignment-visibility` | test | REVIEWED | implemented | composition | candidate | always-registered | `authority:project-contracts` |
+| `test:fresh-v2-initial-runtime` | test | REVIEWED | implemented | unit | candidate | config-gated | `authority:project-contracts` |
+| `test:fresh-v2-session-fold` | test | REVIEWED | implemented | unit | candidate | config-gated | `authority:project-contracts` |
 | `test:scheduling-discipline` | test | REVIEWED | implemented | composition | candidate | always-registered | `authority:project-contracts` |
 | `test:team-assignment-checkpoint` | test | REVIEWED | implemented | unit | candidate | always-registered | `authority:project-contracts` |
+| `test:team-v2-foundation` | test | REVIEWED | implemented | unit | candidate | config-gated | `authority:project-contracts` |
 | `tool:agent_swarm_add_member` | model-tool | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `tool:agent_swarm_add_memory` | model-tool | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `tool:agent_swarm_add_personal_memory` | model-tool | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |

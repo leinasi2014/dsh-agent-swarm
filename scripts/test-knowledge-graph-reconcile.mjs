@@ -68,27 +68,27 @@ assert.deepEqual({
   reachableRootExports: facts.reachableRootExports.length,
   reachablePublicApiExports: facts.reachablePublicApiExports.length,
 }, {
-  modules: 99, imports: 531, packageExports: 6, tools: 19, injections: 29,
+  modules: 111, imports: 626, packageExports: 6, tools: 19, injections: 32,
   registries: 7, builtins: 15, extensions: 7, facades: 4, providerCalls: 6, registryMethods: 11,
-  config: 38, effectiveConfig: 32, domains: 3, domainPort: 29, stateUnions: 9, discriminants: 24,
+  config: 42, effectiveConfig: 96, domains: 4, domainPort: 30, stateUnions: 14, discriminants: 45,
   rpcRoutes: 1, rpcMethods: 5, rpcSchemas: 23, rpcCapabilities: 3, rpcRuntimeCapabilities: 1, rpcBounds: 5,
-  clientEntrypoints: 2, clientSlots: 6, listeners: 19, effects: 21, systemPrompts: 1,
-  reexportLayers: 65, reachableRootExports: 170, reachablePublicApiExports: 165,
+  clientEntrypoints: 2, clientSlots: 6, listeners: 24, effects: 27, systemPrompts: 1,
+  reexportLayers: 66, reachableRootExports: 170, reachablePublicApiExports: 165,
 })
 
 const summary = reconcileSourceManifest(facts, manifest)
-assert.equal(summary.nodeCount, 871)
-assert.equal(summary.edgeCount, 1432)
+assert.equal(summary.nodeCount, 931)
+assert.equal(summary.edgeCount, 1649)
 assert.equal(summary.manifestNodeCount, manifest.nodes.length)
 assert.equal(summary.manifestEdgeCount, manifest.edges.length)
 const mechanicalNodes = manifest.nodes.filter(item => item.classification === 'mechanical')
 const reviewedNodes = manifest.nodes.filter(item => item.classification === 'reviewed')
 const mechanicalEdges = manifest.edges.filter(item => item.classification === 'mechanical')
 const reviewedEdges = manifest.edges.filter(item => item.classification === 'reviewed')
-assert.equal(mechanicalNodes.length, 870)
-assert.equal(reviewedNodes.length, 63)
-assert.equal(mechanicalEdges.length, 1432)
-assert.equal(reviewedEdges.length, 139)
+assert.equal(mechanicalNodes.length, 930)
+assert.equal(reviewedNodes.length, 110)
+assert.equal(mechanicalEdges.length, 1649)
+assert.equal(reviewedEdges.length, 226)
 assert(mechanicalNodes.every(item => item.ownerAuthority === undefined
   && item.security.authoritySource === undefined
   && item.security.callerIdentity === 'unclassified'
@@ -120,7 +120,7 @@ assert(reviewedEdges.every(item => item.crash === undefined || item.classificati
   })
   promoted.nodes.sort((left, right) => left.id.localeCompare(right.id))
   const promotedSummary = reconcileSourceManifest(facts, promoted)
-  assert.equal(promotedSummary.nodeCount, 871)
+  assert.equal(promotedSummary.nodeCount, 931)
   assert.equal(promotedSummary.manifestNodeCount, manifest.nodes.length + 1)
   const drifted = structuredClone(promoted)
   drifted.nodes.find(item => item.id === 'module:src/index.ts').anchors[0].selector = 'stale-reviewed-source-anchor'

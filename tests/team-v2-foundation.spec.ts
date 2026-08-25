@@ -238,6 +238,91 @@ describe('A1a strict fresh-v2 foundation', () => {
     expect(persisted.attempts).toHaveLength(2)
   })
 
+  it('creates and reserves a targeted initial task in one transaction under contention', async () => {
+    const { domain } = await fresh(180)
+    const team = await domain.createTeam('/workspace', 'captain-1', 'Team', 'Description')
+    const member = await domain.declareMember('/workspace', team.id, 'captain-1', {
+      name: 'worker', role: 'implementation', sessionId: 'member-1', provider: 'spawn',
+      modelSource: 'unresolved', deniedTools: [], assignedSkills: [], maxDepth: 2,
+    })
+    const input = {
+      subject: 'Atomic work',
+      description: 'Exactly one caller may create and reserve this task.',
+      targetMemberSessionId: member.sessionId,
+    }
+    const races = await Promise.allSettled([
+      domain.createAndReserveInitialAssignment(
+        '/workspace', team.id, 'captain-1', input, TaskId('task-1'), member.sessionId,
+        PROMPT_DIGEST, AttemptId('attempt-atomic-1'),
+      ),
+      domain.createAndReserveInitialAssignment(
+        '/workspace', team.id, 'captain-1', input, TaskId('task-1'), member.sessionId,
+        PROMPT_DIGEST, AttemptId('attempt-atomic-2'),
+      ),
+    ])
+    expect(races.filter(result => result.status === 'fulfilled')).toHaveLength(1)
+    expect(races.filter(result => result.status === 'rejected')).toHaveLength(1)
+    const persisted = stack!.store.read('/workspace', team.id)!
+    expect(persisted.tasks).toHaveLength(1)
+    expect(persisted.attempts).toHaveLength(1)
+    expect(persisted.nextTaskNumber).toBe(2)
+    expect(persisted.tasks[0]).toMatchObject({ id: 'task-1', status: 'in_progress' })
+    expect(persisted.members[0]).toMatchObject({ phase: 'starting' })
+    assertTeamStateV2(persisted, 'atomic-create-reserve')
+  })
+
+  it('admits the model only through dispatch-entered and marks running only from exact assistant evidence', async () => {
+    const { domain } = await fresh(220)
+    const team = await domain.createTeam('/workspace', 'captain-1', 'Team', 'Description')
+    const member = await domain.declareMember('/workspace', team.id, 'captain-1', {
+      name: 'worker', role: 'implementation', sessionId: 'member-1', provider: 'spawn',
+      modelSource: 'unresolved', deniedTools: [], assignedSkills: [], maxDepth: 2,
+    })
+    const task = await domain.createTask('/workspace', team.id, 'captain-1', { subject: 'Work', description: 'Do work' })
+    const reserved = await domain.reserveInitialAssignment(
+      '/workspace', team.id, 'captain-1', task.id, task.revision, member.sessionId, PROMPT_DIGEST,
+      AttemptId('attempt-preallocated-1'),
+    )
+    expect(reserved.attempt.id).toBe('attempt-preallocated-1')
+    const checkpoint = {
+      initialPromptDigest: PROMPT_DIGEST,
+      messageSeq: 7,
+      turn: 1,
+      step: 1,
+      witnessCapabilityDigest: WITNESS_DIGEST,
+      dispatchId: 'dispatch-preallocated-1',
+      effectId: 'effect-preallocated-1',
+    }
+    await domain.settleInitialAssignment(
+      '/workspace', team.id, member.sessionId, task.id, reserved.attempt.id, checkpoint,
+    )
+    const entered = await domain.enterInitialDispatch(
+      '/workspace', team.id, member.sessionId, task.id, reserved.attempt.id, checkpoint,
+    )
+    expect(entered).toMatchObject({ attempt: { phase: 'reserved' }, dispatch: { phase: 'dispatch-entered' } })
+    expect(await domain.enterInitialDispatch(
+      '/workspace', team.id, member.sessionId, task.id, reserved.attempt.id, checkpoint,
+    )).toEqual(entered)
+
+    const running = await domain.settleInitialAssistantEvidence(
+      '/workspace', team.id, member.sessionId, task.id, reserved.attempt.id, checkpoint,
+      { eventSeq: 11, eventType: 'assistant/message' },
+    )
+    expect(running).toMatchObject({
+      attempt: { phase: 'running' },
+      dispatch: { phase: 'settled', assistantEvidenceSeq: 11, assistantEvidenceType: 'assistant/message' },
+    })
+    expect(await domain.settleInitialAssistantEvidence(
+      '/workspace', team.id, member.sessionId, task.id, reserved.attempt.id, checkpoint,
+      { eventSeq: 11, eventType: 'assistant/message' },
+    )).toEqual(running)
+    await expect(domain.settleInitialAssistantEvidence(
+      '/workspace', team.id, member.sessionId, task.id, reserved.attempt.id, checkpoint,
+      { eventSeq: 12, eventType: 'assistant/message' },
+    )).rejects.toMatchObject({ code: 'TEAM_ATTEMPT_STALE' })
+    assertTeamStateV2(stack!.store.read('/workspace', team.id)!, 'running-read-back')
+  })
+
   it('rejects every broken declared -> starting tuple without changing the authoritative Team', async () => {
     const { domain } = await fresh(300)
     const team = await domain.createTeam('/workspace', 'captain-1', 'Team', 'Description')

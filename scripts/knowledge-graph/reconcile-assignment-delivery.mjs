@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { canonicalJson } from './canonical.mjs'
@@ -76,8 +76,10 @@ function reviewedItems(manifest, expected) {
   const nodeIds = new Set(expected.nodes.map(item => item.id))
   const edgeIds = new Set(expected.edges.map(item => item.id))
   return {
-    nodes: manifest.nodes.filter(item => item.classification === 'reviewed' || nodeIds.has(item.id)),
-    edges: manifest.edges.filter(item => item.classification === 'reviewed' || edgeIds.has(item.id)),
+    nodes: manifest.nodes.filter(item => nodeIds.has(item.id)
+      || (item.classification === 'reviewed' && !item.tags?.includes('kg1-d2'))),
+    edges: manifest.edges.filter(item => edgeIds.has(item.id)
+      || (item.classification === 'reviewed' && !item.id.startsWith('edge:fresh-v2'))),
   }
 }
 
@@ -108,6 +110,11 @@ async function main() {
   const root = process.cwd()
   const candidateMode = process.argv.includes('--candidate')
   const result = await buildAssignmentDeliveryCandidate(root)
+  if (process.argv.includes('--update')) {
+    await writeFile(resolve(root, 'docs/knowledge-graph/manifest.json'), `${canonicalJson(result.manifest)}\n`, 'utf8')
+    process.stdout.write(`knowledge graph assignment-delivery semantic slice updated (${result.slice.nodes.length} nodes, ${result.slice.edges.length} edges)\n`)
+    return
+  }
   if (candidateMode) {
     const text = `${canonicalJson(result.manifest)}\n`
     if (process.argv.includes('--length-only')) {

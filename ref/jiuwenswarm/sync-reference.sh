@@ -2,7 +2,7 @@
 set -eu
 
 repository='https://github.com/openJiuwen-ai/jiuwenswarm.git'
-commit='9ac2fa5e7d60142146448bd1395ec2165292beaa'
+commit='74b745c210c3884b80f6163d6dba3ea71f9f5a52'
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 target="$script_dir/source"
 

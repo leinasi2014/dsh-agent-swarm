@@ -156,24 +156,24 @@ try {
   const actual = await extractSourceFacts(repositoryRoot)
   assert.deepEqual(errorCodes(actual), [], `actual repository diagnostics: ${JSON.stringify(actual.diagnostics)}`)
   assert.deepEqual(actual.counts, {
-    discoveredModules: 99,
-    parsedModules: 99,
+    discoveredModules: 111,
+    parsedModules: 111,
     toolDefinitions: 19,
     tools: 19,
-    imports: 531,
-    injections: 29,
+    imports: 626,
+    injections: 32,
     providerRegistrations: 6,
     providerRegistryMethods: 11,
     packageExports: 6,
     publicApiExportDeclarations: 48,
     registries: 7,
     serviceDefinitions: 1,
-    configKeys: 38,
-    domains: 3,
-    domainPortMethods: 29,
+    configKeys: 42,
+    domains: 4,
+    domainPortMethods: 30,
     rpcMethods: 5,
     clientSlots: 6,
-    lifecycleListeners: 19,
+    lifecycleListeners: 24,
     reachableRootExports: 170,
     reachablePublicApiExports: 165,
   }, 'KG1 walking-skeleton drift lock; replace with graph reconciliation in a later milestone')
@@ -215,8 +215,8 @@ try {
   const injectionServices = kind => actual.injections.filter(item => item.kind === kind).map(item => item.service).sort()
   assert.deepEqual(injectionServices('static-inject'), ['agents', 'locale', 'sessionPersistence', 'sessions', 'sessions', 'settingsScope', 'slots', 'storageDomain', 'subagents', 'systemPrompt', 'tools'])
   assert.deepEqual(injectionServices('ctx-inject'), ['agentSwarmHostRead', 'layout', 'webServer'])
-  assert.deepEqual(injectionServices('ctx-provide'), ['agentSwarmHostRead', 'agentSwarmHumanControl', 'agentSwarmHumanInteraction', 'agentSwarmPermission', 'agentSwarmProducerFloor', 'agentSwarmReadRpc'])
-  assert.deepEqual(injectionServices('ctx-get'), ['agentSwarmHostRead', 'approval', 'layout', 'llm', 'sessions', 'skills', 'userQuestions', 'userQuestions', 'webServer'])
+  assert.deepEqual(injectionServices('ctx-provide'), ['agentSwarmHostRead', 'agentSwarmHumanControl', 'agentSwarmHumanInteraction', 'agentSwarmPermission', 'agentSwarmProducerFloor', 'agentSwarmReadRpc', 'agentSwarmV2Initial'])
+  assert.deepEqual(injectionServices('ctx-get'), ['agentSwarmHostRead', 'approval', 'layout', 'llm', 'llm', 'llm', 'sessions', 'skills', 'userQuestions', 'userQuestions', 'webServer'])
   assert.deepEqual(actual.providerRegistrations.map(item => `${item.file}|${item.methodSymbol}|${item.providerName}`).sort(), [
     'src/index.ts|registerReviewProvider|human',
     'src/index.ts|registerReviewProvider|reviewer-agent',
@@ -268,13 +268,13 @@ try {
     JSON.stringify(item.names), JSON.stringify(item.effectiveExports),
   ].join('|'))
   // Exact candidate drift locks over complete normalized tuple sets; later graph reconciliation replaces these KG1 locks.
-  assertTupleSetDigest(externalRegistryTuples, '8de8607e6b79cbc65784d6f3cd873f43bf97a8371c08f4535c8395d26543ceca', 'external registries')
+  assertTupleSetDigest(externalRegistryTuples, 'df65210ba8154485531b822e4535ed8c91ac03f3ef534c26f3296484f54de053', 'external registries')
   assertTupleSetDigest(rpcTuples, 'dd9e8353c0564d866d2f19b1310e7e870d5a997761e82c81b7255223a79565ad', 'RPC')
-  assertTupleSetDigest(listenerTuples, 'cf0e35765e5d4f2d8615aaec7f6b830d08c144cc84cfedd1642968be94ea6562', 'listeners')
-  assertTupleSetDigest(effectTuples, '14086b97923f7736dda5943ffad0ccbfdc1df66c1092bcbf449ec3f36178d5e4', 'effects')
+  assertTupleSetDigest(listenerTuples, '5f546441cbce16f0dd68e69dfb30eae7e5d222a29c27ea2c961993be72c906e1', 'listeners')
+  assertTupleSetDigest(effectTuples, '1789d566d50aa6c4272f4790defd88d3757679befe514594249aaf03e8215e84', 'effects')
   assertTupleSetDigest(exportTuples(actual.reachableRootExports), '771c964630864102e1ba31e13263513fc900dd90fe0bf3568ba6f1ce022a5236', 'root reachable exports')
   assertTupleSetDigest(exportTuples(actual.reachablePublicApiExports), 'a2520120278763b6cb98c2aab04470e65ff0ee6f591d5302e8b394809bb9bec5', 'public API reachable exports')
-  assertTupleSetDigest(reexportLayerTuples, '6df69c398da3b1cc23834b6686dbd3e0cbfe7fb810f4131c862c613c8544c3fe', 're-export semantic layers')
+  assertTupleSetDigest(reexportLayerTuples, '95640ddda8f6299cc065dbb119489e375ea2cbe38ce26792c601ab5b2c7cd60e', 're-export semantic layers')
   assert.deepEqual(actual.packageExports.map(item => `${item.subpath}|${item.condition}|${item.target}`), [
     '.|default|./lib/index.mjs',
     '.|types|./lib/types/index.d.ts',
@@ -310,7 +310,7 @@ try {
   assert.deepEqual(actual.serviceDefinitions.map(item => `${item.classSymbol}:${item.serviceName}`), ['AgentSwarmRuntime:agentSwarm'])
   assert.ok(actual.registryExtensions.every(item => item.duplicateRule.startsWith('dominating-') && item.disposer.startsWith('identity-guarded:')))
   assert.ok(actual.registryExtensions.every(item => item.boundedNameRules.length > 0))
-  assert.equal(actual.externalRegistryUses.length, 32)
+  assert.equal(actual.externalRegistryUses.length, 39)
   assert.ok(actual.externalRegistryUses.some(item => item.receiver === 'this.ctx.subagents' && item.method === 'startContinuable'))
   assert.ok(actual.externalRegistryUses.some(item => item.receiver === 'this.ctx.subagents' && item.method === 'list'))
   assert.deepEqual(actual.registryFacades.map(item => `${item.method}->${item.targetMethod}`), [
@@ -322,7 +322,8 @@ try {
   const configKeys = actual.config.schema.properties.map(item => item.key)
   assert.deepEqual(configKeys, [
     'disposalTimeoutMs', 'enabled', 'executionRootProvider', 'executionRoots', 'executionRootsBase',
-    'jobsBridge', 'maxDependencies', 'maxMembers', 'maxMemories', 'maxMessageBytes',
+    'experimentalFreshV2', 'freshV2ArtifactContract', 'freshV2LegacyManifestCapacity',
+    'jobsBridge', 'lazyMemberStart', 'maxDependencies', 'maxMembers', 'maxMemories', 'maxMessageBytes',
     'maxPendingMessagesPerMember', 'maxRetainedAttempts', 'maxRetainedMessages', 'maxTaskBytes',
     'maxTasks', 'maxVerificationCommandMs', 'maxVerificationCommands', 'memberDenyTools',
     'memberLlmProvider', 'memberMaxDepth', 'memberModel', 'memberProvider', 'memberSkills',
@@ -347,13 +348,14 @@ try {
   assert.ok(actual.config.effectiveConsumptions.some(item => item.key === 'schedulerProvider' && item.fallback === 'priority-ready'))
   assert.deepEqual(actual.domains.map(item => `${item.name}@${item.version}:${item.tables.map(table => table.table).join(',')}`), [
     'agent_swarm_human@1:interactions',
+    'agent_swarm_v2@1:authority,teams',
     'agent_swarm@1:migration_receipts,teams',
     'agent_swarm_workflow@1:runs',
   ])
   assert.deepEqual(actual.teamDomainPort.methods.map(item => item.name), [
     'createTeam', 'findMembership', 'requireMembership', 'findReadMembership', 'requireReadMembership',
     'findAccountingMembership', 'provisionMember', 'settleMember', 'recoverProvisioningMembers',
-    'removeMember', 'archiveTeam', 'createTask', 'claimTask', 'acknowledgeAssignment', 'submitTask',
+    'removeMember', 'archiveTeam', 'createTask', 'claimTask', 'acknowledgeAssignment', 'activateInitialAssignment', 'submitTask',
     'reviewTask', 'cancelAttempt', 'retryAttempt', 'reinstateAttempt', 'queueMessage', 'acknowledgeMessage',
     'setBudget', 'adoptBudget', 'consumeTokens', 'recordSessionUsage', 'recordSessionUsageBatch',
     'addMemory', 'snapshot', 'waitForChange',
@@ -410,7 +412,8 @@ try {
   assert.ok(actual.lifecycle.listeners.some(item => item.event === 'agent/status' && item.disposerOwner === 'ctx.effect'))
   assert.ok(actual.lifecycle.listeners.some(item => item.event === 'domain/changed' && item.receiver === 'ctx'))
   assert.deepEqual(actual.lifecycle.systemPrompts.map(item => item.fields.name), ['agent-swarm:usage'])
-  assert.equal(actual.lifecycle.effects.length, 21)
+  assert.equal(actual.lifecycle.effects.length, 27)
+  assert.ok(actual.lifecycle.effects.some(item => item.label === 'agent-swarm: fresh-v2 model dispatch witness'))
   assert.ok(actual.lifecycle.effects.some(item => item.label === 'agent-swarm: human interaction domain' && item.cleanup === 'returned-cleanup'))
   assert.ok(actual.lifecycle.effects.some(item => item.label === 'agent-swarm: activation recovery' && item.async === true))
   assert.ok(actual.lifecycle.effects.some(item => item.label === 'agent-swarm: workflow bridge disposal'))
@@ -452,6 +455,22 @@ try {
   assert.deepEqual(errorCodes(aliasFacts), [])
   assert.equal(aliasFacts.tools[0].localCall, 'firstTool')
   assert.equal(aliasFacts.tools[0].registrationFunction, 'registerOneTool')
+
+  const nestedRegistrationRoot = await fixtureRoot('nested-registration')
+  await put(nestedRegistrationRoot, 'src/tools.ts', `
+    import { registerOneTool } from './tools/registerOneTool.js'
+    import { registerTwoTool } from './tools/registerTwoTool.js'
+    export function registerInitialAgentSwarmTools(ctx: unknown, runtime: unknown): void {
+      registerOneTool(ctx, runtime)
+    }
+    export function registerAgentSwarmTools(ctx: unknown, runtime: unknown): void {
+      registerInitialAgentSwarmTools(ctx, runtime)
+      registerTwoTool(ctx, runtime)
+    }
+  `)
+  const nestedRegistration = await extractSourceFacts(nestedRegistrationRoot, { expectedToolCount: 2 })
+  assert.deepEqual(errorCodes(nestedRegistration), [])
+  assert.deepEqual(nestedRegistration.tools.map(item => item.name), ['agent_swarm_one', 'agent_swarm_two'])
 
   const localSameNameRoot = await fixtureRoot('local-define-tool', { tools: [['registerOneTool', "'agent_swarm_one'"]] })
   await put(localSameNameRoot, 'src/tools/registerOneTool.ts', `

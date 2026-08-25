@@ -99,6 +99,8 @@ const dispatchEpochSchema = z.object({
   step: z.number().int().min(1).optional(),
   messageSeq: z.number().int().min(0).optional(),
   witnessCapabilityDigest: digest,
+  assistantEvidenceSeq: z.number().int().min(0).optional(),
+  assistantEvidenceType: z.literal('assistant/message').optional(),
   phase: z.enum([
     'frame-pending', 'frame-claimed', 'dispatch-pending', 'dispatch-entered',
     'dispatch-unknown', 'settled', 'superseded', 'cancelled',
@@ -272,8 +274,20 @@ export function assertTeamStateV2(value: unknown, path: string): asserts value i
       if (['dispatch-pending', 'dispatch-entered', 'dispatch-unknown', 'settled'].includes(epoch.phase) && !bound) {
         fail(path, `dispatch ${epoch.dispatchId} lacks its Session turn/step/message fence`)
       }
+      const hasAssistantEvidence = epoch.assistantEvidenceSeq !== undefined
+        && epoch.assistantEvidenceType !== undefined
+      if ((epoch.assistantEvidenceSeq !== undefined) !== (epoch.assistantEvidenceType !== undefined)) {
+        fail(path, `dispatch ${epoch.dispatchId} carries a partial assistant evidence fence`)
+      }
+      if ((epoch.phase === 'settled') !== hasAssistantEvidence) {
+        fail(path, `dispatch ${epoch.dispatchId} assistant evidence does not match its phase`)
+      }
       if (epoch.kind === 'recovery' && epoch.recoveryOf === undefined) fail(path, `recovery dispatch ${epoch.dispatchId} lacks recoveryOf`)
       if (epoch.kind !== 'recovery' && epoch.recoveryOf !== undefined) fail(path, `non-recovery dispatch ${epoch.dispatchId} has recoveryOf`)
+    }
+    if (attempt.phase === 'running'
+      && (attempt.assignmentPhase !== 'delivered' || !attempt.dispatchEpochs.some(epoch => epoch.phase === 'settled'))) {
+      fail(path, `running attempt ${attempt.id} lacks settled model-dispatch evidence`)
     }
   }
   unique(allDispatchIds, path, 'dispatch ids')

@@ -23,6 +23,7 @@ import type { TaskAttempt, TeamId, TeamMember, TeamMembership, TeamTask } from '
 import { requireAgent, type ToolExecutionAuthority } from './authority.js'
 import type { RuntimeConfig } from './orchestrator-runtime.js'
 import { memberJoinNotice, memberPersona } from './prompts.js'
+import { resolveAssignedSkills } from './member-skill-policy.js'
 import { framePredicate } from './frame-visibility.js'
 import { messageAccepted, messageClaimed, messagePending } from './session-acceptance.js'
 import { memberToolDeny } from './tool-policy.js'
@@ -113,24 +114,13 @@ export class MemberProvisioner {
           throw new TeamDomainError(`member deny tool "${unknown}" is unavailable`, 'TEAM_INPUT_INVALID')
         }
       }
-      const assignedSkills = [...new Set(input.skills ?? live.memberSkills ?? [])]
-      for (const name of assignedSkills) {
-        if (name.length > 128 || !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name)) {
-          throw new TeamDomainError(`invalid Skill name "${name}"`, 'TEAM_INPUT_INVALID')
-        }
-      }
-      if (assignedSkills.length > 32) throw new TeamDomainError('at most 32 Skills may be assigned to one member', 'TEAM_INPUT_INVALID')
-      if (assignedSkills.length > 0) {
-        const skills = this.ctx.get('skills')
-        if (skills === undefined) throw new TeamDomainError('official DSH Skill Registry is unavailable', 'TEAM_INPUT_INVALID')
-        const available = new Set((await skills.list({
-          cwd: captain.session.header.cwd,
-          scope: captain,
-          signal: exec.signal,
-        })).map(skill => skill.name))
-        const missing = assignedSkills.filter(name => !available.has(name))
-        if (missing.length > 0) throw new TeamDomainError(`assigned Skills are unavailable: ${missing.join(', ')}`, 'TEAM_INPUT_INVALID')
-      }
+      const assignedSkills = await resolveAssignedSkills(
+        this.ctx,
+        captain,
+        exec.signal,
+        input.skills ?? live.memberSkills ?? [],
+        'at most 32 Skills may be assigned to one member',
+      )
 
       const llmProvider = input.llmProvider ?? live.memberLlmProvider ?? captain.options.provider
       const model = input.model ?? live.memberModel ?? this.deps.config.memberModel ?? captain.options.model

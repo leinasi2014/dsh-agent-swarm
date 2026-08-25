@@ -25,12 +25,22 @@ import {
 import { registerSendMessageTool, registerWaitTool } from './tools/mailbox.js'
 import { registerAddMemoryTool, registerAddPersonalMemoryTool, registerListMemoryTool, registerSetBudgetTool } from './tools/budget-memory.js'
 import { registerListJobsTool, registerListTasksTool, registerStatusTool } from './tools/read-surface.js'
+import type { InitialTeamLifecycleRuntime } from './tools/team-lifecycle.js'
+import type { InitialTaskBoardRuntime } from './tools/task-board.js'
 
-/** Register the model-facing Consumer over the Team orchestrator runtime. */
-export function registerAgentSwarmTools(ctx: Context, runtime: AgentSwarmRuntime): void {
+/** Register the unchanged public walking-skeleton tools shared by v1 and fresh-v2. */
+export function registerInitialAgentSwarmTools(
+  ctx: Context,
+  runtime: InitialTeamLifecycleRuntime & InitialTaskBoardRuntime,
+): void {
   registerCreateTool(ctx, runtime)
   registerAddMemberTool(ctx, runtime)
   registerCreateTaskTool(ctx, runtime)
+}
+
+/** Register the model-facing Consumer over the Team orchestrator runtime. */
+export function registerAgentSwarmTools(ctx: Context, runtime: AgentSwarmRuntime): void {
+  registerInitialAgentSwarmTools(ctx, runtime)
   registerRemoveMemberTool(ctx, runtime)
   registerArchiveTool(ctx, runtime)
   registerClaimTaskTool(ctx, runtime)

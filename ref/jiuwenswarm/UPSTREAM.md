@@ -2,7 +2,7 @@
 
 - Upstream: `https://github.com/openJiuwen-ai/jiuwenswarm`
 - Branch observed: `develop`
-- Pinned commit: `9ac2fa5e7d60142146448bd1395ec2165292beaa`
+- Pinned commit: `74b745c210c3884b80f6163d6dba3ea71f9f5a52`
 - Local checkout: `source/`
 
 This repository is a product and architecture reference, not a DSH dependency.
@@ -56,3 +56,11 @@ plus test hardening. It reinforces declarative composition and stable runtime
 identity but does not add or change the attempt-artifact handoff, Team CAS,
 mailbox, memory, worktree or distributed-recovery semantics consumed here. No
 Jiuwen runtime, plugin manifest, rail or public type is adopted.
+
+The `74b745c2` supersession contains two reviewed changes: a Skill-library Web
+UI/OAuth revision and a per-workspace Gateway singleton enforced by an
+OS-backed lifetime file lock. The UI change does not alter the Team execution
+semantics consumed here. The singleton fix reinforces one authoritative
+orchestrator per workspace and crash-released ownership, but this plugin maps
+that lesson onto official DSH Profile/runtime ownership; it does not adopt the
+Jiuwen Gateway, lock implementation, scheduler or persistence schema.

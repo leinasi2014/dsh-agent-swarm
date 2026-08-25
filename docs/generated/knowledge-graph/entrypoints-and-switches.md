@@ -2,7 +2,7 @@
 
 # Entrypoints and switches
 
-Manifest digest: `2592b328010d51522d913c905eb3383011f8c631c880206b52c3267cfb840363`
+Manifest digest: `07cd7c570692a0431fd057bc99e48282131b3473568d16f44b513b497cdc5bdd`
 
 Curated tool-registry digest: `331defbb12c4ac44efa0bdd7b16007d003dfa3704477b0c2c925d9cc1b665783`
 
@@ -114,7 +114,11 @@ flowchart LR
   n_636f6e6669672d6b65793a657865637574696f6e726f6f7470726f7669646572["Config executionRootProvider"]
   n_636f6e6669672d6b65793a657865637574696f6e726f6f7473["Config executionRoots"]
   n_636f6e6669672d6b65793a657865637574696f6e726f6f747362617365["Config executionRootsBase"]
+  n_636f6e6669672d6b65793a6578706572696d656e74616c66726573687632["Config experimentalFreshV2"]
+  n_636f6e6669672d6b65793a667265736876326172746966616374636f6e7472616374["Config freshV2ArtifactContract"]
+  n_636f6e6669672d6b65793a667265736876326c65676163796d616e69666573746361706163697479["Config freshV2LegacyManifestCapacity"]
   n_636f6e6669672d6b65793a6a6f6273627269646765["Config jobsBridge"]
+  n_636f6e6669672d6b65793a6c617a796d656d6265727374617274["Config lazyMemberStart"]
   n_636f6e6669672d6b65793a6d6178646570656e64656e63696573["Config maxDependencies"]
   n_636f6e6669672d6b65793a6d61786d656d62657273["Config maxMembers"]
   n_636f6e6669672d6b65793a6d61786d656d6f72696573["Config maxMemories"]
@@ -135,10 +139,6 @@ flowchart LR
   n_636f6e6669672d6b65793a6d656d6f727971756572796d617863616e64696461746573["Config memoryQueryMaxCandidates"]
   n_636f6e6669672d6b65793a6d656d6f7279717565727974696d656f75746d73["Config memoryQueryTimeoutMs"]
   n_636f6e6669672d6b65793a6d656d6f727973656d616e746963656e61626c6564["Config memorySemanticEnabled"]
-  n_636f6e6669672d6b65793a6d656d6f727973656d616e7469636d6f64656c["Config memorySemanticModel"]
-  n_636f6e6669672d6b65793a6d656d6f727973656d616e74696370726f7669646572["Config memorySemanticProvider"]
-  n_636f6e6669672d6b65793a6f726368657374726174696f6e6d6f6465["Config orchestrationMode"]
-  n_636f6e6669672d6b65793a70726f6d707473656374696f6e6f72646572["Config promptSectionOrder"]
 ```
 
 _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
@@ -150,7 +150,11 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `config-key:executionrootprovider` | config-key | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | config-gated | `(unclassified)` |
 | `config-key:executionroots` | config-key | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | config-gated | `(unclassified)` |
 | `config-key:executionrootsbase` | config-key | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | config-gated | `(unclassified)` |
+| `config-key:experimentalfreshv2` | config-key | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | config-gated | `(unclassified)` |
+| `config-key:freshv2artifactcontract` | config-key | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | config-gated | `(unclassified)` |
+| `config-key:freshv2legacymanifestcapacity` | config-key | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | config-gated | `(unclassified)` |
 | `config-key:jobsbridge` | config-key | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | config-gated | `(unclassified)` |
+| `config-key:lazymemberstart` | config-key | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | config-gated | `(unclassified)` |
 | `config-key:maxdependencies` | config-key | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | config-gated | `(unclassified)` |
 | `config-key:maxmembers` | config-key | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | config-gated | `(unclassified)` |
 | `config-key:maxmemories` | config-key | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | config-gated | `(unclassified)` |

@@ -63,6 +63,34 @@ function replaceAttempt(team: TeamStateV2, attempt: TaskAttemptV2): void {
   team.attempts[index] = attempt
 }
 
+function requireInitialDispatchTuple(
+  team: TeamStateV2,
+  memberSessionId: string,
+  taskId: TaskId,
+  attemptId: AttemptId,
+  checkpoint: InitialDispatchCheckpoint,
+  staleMessage: string,
+): { member: TeamMemberV2; task: TeamTask; attempt: TaskAttemptV2; dispatch: ModelDispatchEpoch } {
+  const member = memberOf(team, memberSessionId)
+  const task = taskOf(team, taskId)
+  const attempt = attemptOf(team, attemptId)
+  const dispatch = attempt.dispatchEpochs[0]
+  if (member.phase !== 'active' || task.status !== 'in_progress'
+    || task.currentAttemptId !== attemptId || task.ownerSessionId !== memberSessionId
+    || attempt.memberSessionId !== memberSessionId || attempt.assignmentPhase !== 'delivered'
+    || dispatch === undefined || dispatch.kind !== 'initial' || dispatch.ordinal !== 1
+    || dispatch.targetSessionId !== memberSessionId
+    || member.initialPromptDigest !== checkpoint.initialPromptDigest
+    || member.initialMessageSeq !== checkpoint.messageSeq
+    || dispatch.dispatchId !== checkpoint.dispatchId || dispatch.effectId !== checkpoint.effectId
+    || dispatch.turn !== checkpoint.turn || dispatch.step !== checkpoint.step
+    || dispatch.messageSeq !== checkpoint.messageSeq
+    || dispatch.witnessCapabilityDigest !== checkpoint.witnessCapabilityDigest) {
+    throw new TeamDomainError(staleMessage, 'TEAM_ATTEMPT_STALE')
+  }
+  return { member, task, attempt, dispatch }
+}
+
 function requireCaptain(team: TeamStateV2, sessionId: string): void {
   if (team.captainSessionId !== sessionId || team.phase !== 'active') {
     throw new TeamDomainError('only the active Team captain may perform this transition', 'TEAM_CAPTAIN_REQUIRED')
@@ -73,6 +101,62 @@ function nextGeneration(team: TeamStateV2, taskId: string): number {
   return team.attempts.reduce((maximum, attempt) => attempt.taskId === taskId
     ? Math.max(maximum, attempt.generation)
     : maximum, 0) + 1
+}
+
+function prepareInitialReservation(
+  team: TeamStateV2,
+  task: TeamTask,
+  readyTasks: readonly TeamTask[],
+  memberSessionId: string,
+  initialPromptDigest: string,
+  attemptId: AttemptId,
+  budgetTimestamp: number,
+  timestamp: number,
+): { task: TeamTask; member: TeamMemberV2; attempt: TaskAttemptV2 } {
+  const member = memberOf(team, memberSessionId)
+  if (member.phase !== 'declared') throw new TeamDomainError('member is not declared', 'TEAM_MEMBER_PHASE_INVALID')
+  if (!isTaskReady(readyTasks, task)) throw new TeamDomainError('task is not ready', 'TEAM_TASK_NOT_READY')
+  if (task.targetMemberSessionId !== undefined && task.targetMemberSessionId !== memberSessionId) {
+    throw new TeamDomainError('task targets another member', 'TEAM_TASK_ASSIGNEE_MISMATCH')
+  }
+  if (team.tasks.some(candidate => candidate.ownerSessionId === memberSessionId
+    && ['in_progress', 'submitted', 'verifying'].includes(candidate.status))) {
+    throw new TeamDomainError('member already owns open work', 'TEAM_MEMBER_BUSY')
+  }
+  budgetAvailable(team.budget, budgetTimestamp)
+  const floor = task.reservationTokens ?? 0
+  if (!reservationAdmissible(team.budget, outstandingReservationTokens(team.tasks), floor)) {
+    throw new TeamDomainError('task reservation exceeds remaining budget', 'TEAM_BUDGET_RESERVATION')
+  }
+  const attempt: TaskAttemptV2 = {
+    id: attemptId,
+    taskId: task.id,
+    generation: nextGeneration(team, task.id),
+    memberSessionId,
+    phase: 'reserved',
+    assignmentPhase: 'reserved',
+    dispatchEpochs: [],
+    evidence: [],
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  }
+  return {
+    attempt,
+    task: {
+      ...task,
+      revision: task.revision + 1,
+      status: 'in_progress',
+      ownerSessionId: memberSessionId,
+      currentAttemptId: attempt.id,
+      updatedAt: timestamp,
+    },
+    member: {
+      ...member,
+      phase: 'starting',
+      startingAttemptId: attempt.id,
+      initialPromptDigest: requireDigest(initialPromptDigest, 'initial prompt digest'),
+    },
+  }
 }
 
 export interface DeclareMemberV2Input {
@@ -88,6 +172,31 @@ export interface DeclareMemberV2Input {
   readonly maxDepth: number
 }
 
+export type CreateTaskV2Input = Pick<TeamTask, 'subject' | 'description'>
+  & Partial<Pick<TeamTask,
+    'acceptanceCriteria' | 'blockedBy' | 'writeScopes' | 'priority'
+    | 'targetMemberSessionId' | 'verification' | 'reservationTokens'>>
+
+/** Build the exact pending task shape used by both preview and commit paths. */
+export function draftTaskV2(team: TeamStateV2, input: CreateTaskV2Input, timestamp: number): TeamTask {
+  return {
+    id: TaskId(`task-${team.nextTaskNumber}`),
+    revision: 1,
+    subject: requireText(input.subject, 'task subject', 512),
+    description: requireText(input.description, 'task description', 64_000),
+    acceptanceCriteria: [...(input.acceptanceCriteria ?? [])],
+    status: 'pending',
+    blockedBy: [...(input.blockedBy ?? [])],
+    writeScopes: [...(input.writeScopes ?? [])],
+    priority: input.priority ?? 0,
+    ...(input.verification === undefined ? {} : { verification: structuredClone(input.verification) }),
+    ...(input.reservationTokens === undefined ? {} : { reservationTokens: input.reservationTokens }),
+    ...(input.targetMemberSessionId === undefined ? {} : { targetMemberSessionId: input.targetMemberSessionId }),
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  }
+}
+
 export interface InitialDispatchCheckpoint {
   readonly initialPromptDigest: string
   readonly messageSeq: number
@@ -96,6 +205,11 @@ export interface InitialDispatchCheckpoint {
   readonly witnessCapabilityDigest: string
   readonly dispatchId: string
   readonly effectId: string
+}
+
+export interface InitialAssistantEvidence {
+  readonly eventSeq: number
+  readonly eventType: 'assistant/message'
 }
 
 /** Pure v2 first-start transactions; Agent/Session I/O remains in A1b. */
@@ -183,30 +297,50 @@ export class TeamV2StartDomain {
     scope: TeamScope,
     teamId: TeamId,
     captainSessionId: string,
-    input: Pick<TeamTask, 'subject' | 'description'> & Partial<Pick<TeamTask, 'acceptanceCriteria' | 'blockedBy' | 'writeScopes' | 'priority' | 'targetMemberSessionId'>>,
+    input: CreateTaskV2Input,
   ): Promise<TeamTask> {
     let committed!: TeamTask
     await this.store.transact(scope, teamId, team => {
       requireCaptain(team, captainSessionId)
       const timestamp = this.now()
-      committed = {
-        id: TaskId(`task-${team.nextTaskNumber}`),
-        revision: 1,
-        subject: requireText(input.subject, 'task subject', 512),
-        description: requireText(input.description, 'task description', 64_000),
-        acceptanceCriteria: [...(input.acceptanceCriteria ?? [])],
-        status: 'pending',
-        blockedBy: [...(input.blockedBy ?? [])],
-        writeScopes: [...(input.writeScopes ?? [])],
-        priority: input.priority ?? 0,
-        ...(input.targetMemberSessionId === undefined ? {} : { targetMemberSessionId: input.targetMemberSessionId }),
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      }
+      committed = draftTaskV2(team, input, timestamp)
       team.tasks.push(committed)
       Object.assign(team, { nextTaskNumber: team.nextTaskNumber + 1 })
     })
     return structuredClone(committed)
+  }
+
+  async createAndReserveInitialAssignment(
+    scope: TeamScope,
+    teamId: TeamId,
+    captainSessionId: string,
+    input: CreateTaskV2Input,
+    expectedTaskId: TaskId,
+    memberSessionId: string,
+    initialPromptDigest: string,
+    attemptId: AttemptId,
+  ): Promise<{ task: TeamTask; member: TeamMemberV2; attempt: TaskAttemptV2 }> {
+    let result!: { task: TeamTask; member: TeamMemberV2; attempt: TaskAttemptV2 }
+    await this.store.transact(scope, teamId, team => {
+      requireCaptain(team, captainSessionId)
+      const timestamp = this.now()
+      const task = draftTaskV2(team, input, timestamp)
+      if (task.id !== expectedTaskId) {
+        throw new TeamDomainError('task allocation changed before initial reservation', 'TEAM_TASK_STALE_REVISION')
+      }
+      const reserved = prepareInitialReservation(
+        team, task, [...team.tasks, task], memberSessionId, initialPromptDigest, attemptId, timestamp, timestamp,
+      )
+      team.tasks.push(reserved.task)
+      replaceMember(team, reserved.member)
+      team.attempts.push(reserved.attempt)
+      Object.assign(team, {
+        nextTaskNumber: team.nextTaskNumber + 1,
+        budget: { ...team.budget, usedRequests: team.budget.usedRequests + 1 },
+      })
+      result = reserved
+    })
+    return structuredClone(result)
   }
 
   async reserveInitialAssignment(
@@ -217,59 +351,28 @@ export class TeamV2StartDomain {
     expectedTaskRevision: number,
     memberSessionId: string,
     initialPromptDigest: string,
+    reservedAttemptId?: AttemptId,
   ): Promise<{ task: TeamTask; member: TeamMemberV2; attempt: TaskAttemptV2 }> {
     let result!: { task: TeamTask; member: TeamMemberV2; attempt: TaskAttemptV2 }
     await this.store.transact(scope, teamId, team => {
       requireCaptain(team, captainSessionId)
       const task = taskOf(team, taskId)
       if (task.revision !== expectedTaskRevision) throw new TeamDomainError('stale task revision', 'TEAM_TASK_STALE_REVISION')
-      const member = memberOf(team, memberSessionId)
-      if (member.phase !== 'declared') throw new TeamDomainError('member is not declared', 'TEAM_MEMBER_PHASE_INVALID')
-      if (!isTaskReady(team.tasks, task)) throw new TeamDomainError('task is not ready', 'TEAM_TASK_NOT_READY')
-      if (task.targetMemberSessionId !== undefined && task.targetMemberSessionId !== memberSessionId) {
-        throw new TeamDomainError('task targets another member', 'TEAM_TASK_ASSIGNEE_MISMATCH')
-      }
-      if (team.tasks.some(candidate => candidate.ownerSessionId === memberSessionId
-        && ['in_progress', 'submitted', 'verifying'].includes(candidate.status))) {
-        throw new TeamDomainError('member already owns open work', 'TEAM_MEMBER_BUSY')
-      }
-      budgetAvailable(team.budget, this.now())
-      const floor = task.reservationTokens ?? 0
-      if (!reservationAdmissible(team.budget, outstandingReservationTokens(team.tasks), floor)) {
-        throw new TeamDomainError('task reservation exceeds remaining budget', 'TEAM_BUDGET_RESERVATION')
-      }
-      const timestamp = this.now()
-      const attempt: TaskAttemptV2 = {
-        id: AttemptId(this.deps.newAttemptId?.() ?? `attempt-${randomUUID()}`),
-        taskId,
-        generation: nextGeneration(team, taskId),
+      const reserved = prepareInitialReservation(
+        team,
+        task,
+        team.tasks,
         memberSessionId,
-        phase: 'reserved',
-        assignmentPhase: 'reserved',
-        dispatchEpochs: [],
-        evidence: [],
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      }
-      const reservedTask: TeamTask = {
-        ...task,
-        revision: task.revision + 1,
-        status: 'in_progress',
-        ownerSessionId: memberSessionId,
-        currentAttemptId: attempt.id,
-        updatedAt: timestamp,
-      }
-      const starting: TeamMemberV2 = {
-        ...member,
-        phase: 'starting',
-        startingAttemptId: attempt.id,
-        initialPromptDigest: requireDigest(initialPromptDigest, 'initial prompt digest'),
-      }
-      replaceTask(team, reservedTask)
-      replaceMember(team, starting)
-      team.attempts.push(attempt)
+        initialPromptDigest,
+        reservedAttemptId ?? AttemptId(this.deps.newAttemptId?.() ?? `attempt-${randomUUID()}`),
+        this.now(),
+        this.now(),
+      )
+      replaceTask(team, reserved.task)
+      replaceMember(team, reserved.member)
+      team.attempts.push(reserved.attempt)
       Object.assign(team, { budget: { ...team.budget, usedRequests: team.budget.usedRequests + 1 } })
-      result = { task: reservedTask, member: starting, attempt }
+      result = reserved
     })
     return structuredClone(result)
   }
@@ -391,6 +494,91 @@ export class TeamV2StartDomain {
       replaceAttempt(team, cancelled)
       replaceTask(team, pending)
       result = { member: failed, task: pending, attempt: cancelled }
+    })
+    return structuredClone(result)
+  }
+
+
+  async enterInitialDispatch(
+    scope: TeamScope,
+    teamId: TeamId,
+    memberSessionId: string,
+    taskId: TaskId,
+    attemptId: AttemptId,
+    checkpoint: InitialDispatchCheckpoint,
+  ): Promise<{ attempt: TaskAttemptV2; dispatch: ModelDispatchEpoch }> {
+    let result!: { attempt: TaskAttemptV2; dispatch: ModelDispatchEpoch }
+    await this.store.transact(scope, teamId, team => {
+      const { attempt, dispatch } = requireInitialDispatchTuple(
+        team, memberSessionId, taskId, attemptId, checkpoint, 'initial model-dispatch tuple is stale',
+      )
+      if (attempt.phase !== 'reserved') {
+        throw new TeamDomainError('initial model-dispatch tuple is stale', 'TEAM_ATTEMPT_STALE')
+      }
+      if (dispatch.phase === 'dispatch-entered') {
+        result = { attempt, dispatch }
+        return
+      }
+      if (dispatch.phase !== 'dispatch-pending') {
+        throw new TeamDomainError('initial model-dispatch is not pending', 'TEAM_ATTEMPT_STALE')
+      }
+      const entered: ModelDispatchEpoch = { ...dispatch, phase: 'dispatch-entered', updatedAt: this.now() }
+      const nextAttempt: TaskAttemptV2 = {
+        ...attempt,
+        dispatchEpochs: [entered, ...attempt.dispatchEpochs.slice(1)],
+        updatedAt: this.now(),
+      }
+      replaceAttempt(team, nextAttempt)
+      result = { attempt: nextAttempt, dispatch: entered }
+    })
+    return structuredClone(result)
+  }
+
+  async settleInitialAssistantEvidence(
+    scope: TeamScope,
+    teamId: TeamId,
+    memberSessionId: string,
+    taskId: TaskId,
+    attemptId: AttemptId,
+    checkpoint: InitialDispatchCheckpoint,
+    evidence: InitialAssistantEvidence,
+  ): Promise<{ attempt: TaskAttemptV2; dispatch: ModelDispatchEpoch }> {
+    if (!Number.isSafeInteger(evidence.eventSeq) || evidence.eventSeq < 0) {
+      throw new TeamDomainError('assistant evidence sequence is invalid', 'TEAM_INPUT_INVALID')
+    }
+    let result!: { attempt: TaskAttemptV2; dispatch: ModelDispatchEpoch }
+    await this.store.transact(scope, teamId, team => {
+      const { attempt, dispatch } = requireInitialDispatchTuple(
+        team, memberSessionId, taskId, attemptId, checkpoint, 'initial assistant-evidence tuple is stale',
+      )
+      if (dispatch.phase === 'settled' && attempt.phase === 'running') {
+        if (dispatch.assistantEvidenceSeq !== evidence.eventSeq
+          || dispatch.assistantEvidenceType !== evidence.eventType) {
+          throw new TeamDomainError('initial assistant evidence conflicts with the committed tuple', 'TEAM_ATTEMPT_STALE')
+        }
+        result = { attempt, dispatch }
+        return
+      }
+      if (dispatch.phase !== 'dispatch-entered' || attempt.phase !== 'reserved') {
+        throw new TeamDomainError('initial model-dispatch has not entered', 'TEAM_ATTEMPT_STALE')
+      }
+      const timestamp = this.now()
+      const settled: ModelDispatchEpoch = {
+        ...dispatch,
+        phase: 'settled',
+        assistantEvidenceSeq: evidence.eventSeq,
+        assistantEvidenceType: evidence.eventType,
+        updatedAt: timestamp,
+      }
+      const running: TaskAttemptV2 = {
+        ...attempt,
+        phase: 'running',
+        dispatchEpochs: [settled, ...attempt.dispatchEpochs.slice(1)],
+        evidence: [...attempt.evidence, `session:${memberSessionId}:event:${evidence.eventSeq}:${evidence.eventType}`],
+        updatedAt: timestamp,
+      }
+      replaceAttempt(team, running)
+      result = { attempt: running, dispatch: settled }
     })
     return structuredClone(result)
   }

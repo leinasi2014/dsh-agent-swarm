@@ -314,7 +314,12 @@ function buildDispatchProof(node, checker) {
   const frameCall = frameIndex < 0 ? undefined : variableInitializer(statements[frameIndex], 'frame')
   const followupIndex = frameIndex + 1
   const followupTry = statements[followupIndex]
-  const followupCall = followupTry && ts.isTryStatement(followupTry) ? directAwaitedCall(followupTry.tryBlock.statements[0]) : undefined
+  const deliveryCalls = followupTry && ts.isTryStatement(followupTry)
+    ? callsWithin(followupTry.tryBlock, call => boundCall(call, checker, 'followup', '@deepseek-ai/dsh-subagent/lib/types/index.d.ts')) : []
+  const startCalls = followupTry && ts.isTryStatement(followupTry)
+    ? callsWithin(followupTry.tryBlock, call => boundCall(call, checker, 'startAssignedMember', '/src/runtime/scheduling.ts')) : []
+  const followupCall = deliveryCalls.length === 1 ? deliveryCalls[0] : undefined
+  const startCall = startCalls.length === 1 ? startCalls[0] : undefined
   const followupTimeoutMs = followupCall === undefined ? undefined : exactFollowupOptions(followupCall.arguments[3], checker)
   const followupExact = followupCall !== undefined
     && boundCall(followupCall, checker, 'followup', '@deepseek-ai/dsh-subagent/lib/types/index.d.ts')
@@ -323,16 +328,41 @@ function buildDispatchProof(node, checker) {
     && exactSessionId(followupCall.arguments[1], checker, 'attempt.memberSessionId')
     && exactFollowupPayload(followupCall.arguments[2])
     && followupTimeoutMs !== undefined
+  const startTimeoutMs = startCall === undefined ? undefined : timeoutValue(startCall.arguments[5], checker)
+  const lazyStartExact = startCall !== undefined
+    && startCall.arguments.length === 6
+    && startCall.arguments.slice(0, 5).every((argument, index) => pathOf(argument) === ['captain', 'scope', 'team', 'owner', 'frame'][index])
+    && startTimeoutMs !== undefined
   const catchStatements = followupTry && ts.isTryStatement(followupTry) ? followupTry.catchClause?.block.statements ?? [] : []
-  const rollbackCall = catchStatements.length === 2 ? directAwaitedCall(catchStatements[0]) : undefined
+  const rollbackCalls = followupTry && ts.isTryStatement(followupTry)
+    ? callsWithin(followupTry.catchClause?.block, call => boundCall(call, checker, 'rollbackUndeliveredAssignment', '/src/runtime/scheduling.ts')) : []
+  const rollbackCall = rollbackCalls.length === 1 ? rollbackCalls[0] : undefined
   const rollbackDiagnostic = rollbackCall?.arguments[5] === undefined ? undefined : unwrapExpression(rollbackCall.arguments[5])
-  const catchRollbackReturn = rollbackCall !== undefined
+  const catchRollbackReturn = rollbackCall !== undefined && catchStatements.length >= 2
     && boundCall(rollbackCall, checker, 'rollbackUndeliveredAssignment', '/src/runtime/scheduling.ts')
     && rollbackCall.arguments.length === 6
     && rollbackCall.arguments.slice(0, 5).every((argument, index) => pathOf(argument) === ['scope', 'team.id', 'captain.id', 'task.id', 'attempt.id'][index])
     && rollbackDiagnostic !== undefined && ts.isTemplateExpression(rollbackDiagnostic)
     && rollbackDiagnostic.head.text === 'assignment delivery failed: '
-    && directBareReturn(catchStatements[1])
+    && directBareReturn(catchStatements.at(-1))
+  const provisioningFailure = catchStatements.find(ts.isIfStatement)
+  const provisioningFailureCalls = provisioningFailure === undefined ? [] : callsWithin(provisioningFailure, () => true)
+  const settleFailure = provisioningFailureCalls.find(call => boundCall(call, checker, 'settleMember', '/src/domain/team-domain-port.ts'))
+  const sweepFailure = provisioningFailureCalls.find(call => boundCall(call, checker, 'sweepExecutionRoots', '/src/runtime/scheduling.ts'))
+  const scheduleFailure = provisioningFailureCalls.find(call => boundCall(call, checker, 'requestSchedule', '/src/runtime/scheduling.ts'))
+  const settleState = settleFailure?.arguments[3] === undefined ? undefined : unwrapExpression(settleFailure.arguments[3])
+  const settleActive = settleState && ts.isObjectLiteralExpression(settleState) ? propertyValue(property(settleState, 'active')) : undefined
+  const settleError = settleState && ts.isObjectLiteralExpression(settleState) ? propertyValue(property(settleState, 'error')) : undefined
+  const lazyFailureExact = provisioningFailure !== undefined
+    && settleFailure !== undefined && settleFailure.arguments.length === 4
+    && settleFailure.arguments.slice(0, 3).every((argument, index) => pathOf(argument) === ['scope', 'team.id', 'owner.sessionId'][index])
+    && settleState !== undefined && ts.isObjectLiteralExpression(settleState) && settleState.properties.length === 2
+    && settleActive?.kind === ts.SyntaxKind.FalseKeyword && pathOf(settleError) === 'diagnostic'
+    && sweepFailure !== undefined && exactPaths(sweepFailure, ['scope', 'team.id'])
+    && scheduleFailure !== undefined && exactPaths(scheduleFailure, ['scope', 'team.id', 'captain'])
+    && callsWithin(provisioningFailure.thenStatement, () => true).length >= 3
+    && (ts.isBlock(provisioningFailure.thenStatement)
+      && directBareReturn(provisioningFailure.thenStatement.statements.at(-1)))
   const waitIndex = followupIndex + 1
   const waitTry = statements[waitIndex]
   const waitStatements = waitTry && ts.isTryStatement(waitTry) ? waitTry.tryBlock.statements : []
@@ -357,11 +387,20 @@ function buildDispatchProof(node, checker) {
     && directBareReturn(waitIf.thenStatement)
   const waitErrorReturns = waitTry !== undefined && ts.isTryStatement(waitTry)
     && directBareReturn(waitTry.catchClause?.block.statements.at(-1))
-  const ackCall = directAwaitedCall(statements[waitIndex + 1])
-  const ackExact = ackCall !== undefined && boundCall(ackCall, checker, 'commitAssignmentAcknowledgement', '/src/runtime/scheduling.ts')
-    && exactPaths(ackCall, ['scope', 'team.id', 'task', 'attempt.id'])
-    && waitIndex + 1 === statements.length - 1
-    && callsWithin(node.body, call => boundCall(call, checker, 'commitAssignmentAcknowledgement', '/src/runtime/scheduling.ts')).length === 1
+  const postWait = statements.slice(waitIndex + 1)
+  const activationCalls = callsWithin(node.body, call => boundCall(call, checker, 'activateInitialAssignment', '/src/domain/team-domain-port.ts'))
+  const ackCalls = callsWithin(node.body, call => boundCall(call, checker, 'commitAssignmentAcknowledgement', '/src/runtime/scheduling.ts'))
+  const activationCall = activationCalls.length === 1 ? activationCalls[0] : undefined
+  const ackCall = ackCalls.length === 1 ? ackCalls[0] : undefined
+  const postWaitBranch = postWait.find(ts.isIfStatement)
+  const acknowledgementElse = postWaitBranch?.elseStatement !== undefined && ts.isBlock(postWaitBranch.elseStatement)
+    && postWaitBranch.elseStatement.statements.length === 1
+    ? directAwaitedCall(postWaitBranch.elseStatement.statements[0]) : undefined
+  const ackExact = postWaitBranch !== undefined
+    && activationCall !== undefined && exactPaths(activationCall, ['scope', 'team.id', 'attempt.memberSessionId', 'task.id', 'attempt.id'])
+    && ackCall !== undefined && exactPaths(ackCall, ['scope', 'team.id', 'task', 'attempt.id'])
+    && acknowledgementElse === ackCall
+    && activationCall.pos > waitTry.end && ackCall.pos > waitTry.end
   return {
     frameArguments: frameCall && ts.isCallExpression(frameCall) ? callArguments(frameCall) : [],
     frameBound: frameCall !== undefined && ts.isCallExpression(frameCall)
@@ -370,6 +409,9 @@ function buildDispatchProof(node, checker) {
     followupExact,
     followupArguments: followupCall === undefined ? [] : callArguments(followupCall),
     followupTimeoutMs,
+    lazyStartExact,
+    lazyStartTimeoutMatchesFollowup: startTimeoutMs === followupTimeoutMs,
+    lazyProvisioningFailureSettlesThenReturns: lazyFailureExact,
     rejectedRollbackThenReturn: catchRollbackReturn,
     successWaitAfterFollowup: waitIndex === followupIndex + 1,
     waitExact,

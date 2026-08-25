@@ -101,6 +101,8 @@ export interface ModelDispatchEpoch {
   readonly step?: number
   readonly messageSeq?: number
   readonly witnessCapabilityDigest: string
+  readonly assistantEvidenceSeq?: number
+  readonly assistantEvidenceType?: 'assistant/message'
   readonly phase: ModelDispatchPhase
   readonly createdAt: number
   readonly updatedAt: number

@@ -2,7 +2,7 @@
 
 # Service, Provider and Consumer
 
-Manifest digest: `2592b328010d51522d913c905eb3383011f8c631c880206b52c3267cfb840363`
+Manifest digest: `07cd7c570692a0431fd057bc99e48282131b3473568d16f44b513b497cdc5bdd`
 
 Curated tool-registry digest: `331defbb12c4ac44efa0bdd7b16007d003dfa3704477b0c2c925d9cc1b665783`
 
@@ -139,8 +139,8 @@ flowchart LR
   n_70726f76696465723a6275696c74696e2f7372632f72756e74696d652f766572696669636174696f6e2d66616d696c792e74732f74656d706c617465732f707974686f6e2e74797065636865636b["Builtin Provider python.typecheck"]
   n_70726f76696465723a6374782f30382d7372632f686f73742f686f73742d726561642d736572766963652e74732d6167656e74737761726d686f737472656164["ctx.provide agentSwarmHostRead"]
   n_70726f76696465723a6374782f30392d7372632f686f73742f70726f64756365722d666c6f6f722d736572766963652e74732d6167656e74737761726d70726f6475636572666c6f6f72["ctx.provide agentSwarmProducerFloor"]
-  n_70726f76696465723a6374782f31392d7372632f696e6465782e74732d6167656e74737761726d7065726d697373696f6e["ctx.provide agentSwarmPermission"]
-  n_70726f76696465723a6374782f32302d7372632f696e6465782e74732d6167656e74737761726d68756d616e636f6e74726f6c["ctx.provide agentSwarmHumanControl"]
+  n_70726f76696465723a6374782f32302d7372632f696e6465782e74732d6167656e74737761726d7632696e697469616c["ctx.provide agentSwarmV2Initial"]
+  n_70726f76696465723a6374782f32312d7372632f696e6465782e74732d6167656e74737761726d7065726d697373696f6e["ctx.provide agentSwarmPermission"]
   n_70726f76696465723a6275696c74696e2f7372632f72756e74696d652f657865637574696f6e2d726f6f74732e74732f70726f7669646572732f6769742d776f726b74726565 -->|provides| n_70726f76696465722d72656769737472793a7372632f72756e74696d652f657865637574696f6e2d726f6f74732e74732f657865637574696f6e726f6f74732f70726f766964657273
   n_70726f76696465723a6275696c74696e2f7372632f72756e74696d652f6f7263686573747261746f722d72756e74696d652e74732f72657669657770726f7669646572732f6d616e75616c -->|provides| n_70726f76696465722d72656769737472793a7372632f72756e74696d652f6f7263686573747261746f722d72756e74696d652e74732f6167656e74737761726d72756e74696d652f72657669657770726f766964657273
   n_70726f76696465723a6275696c74696e2f7372632f72756e74696d652f6f7263686573747261746f722d72756e74696d652e74732f72657669657770726f7669646572732f65786563757461626c65 -->|provides| n_70726f76696465722d72656769737472793a7372632f72756e74696d652f6f7263686573747261746f722d72756e74696d652e74732f6167656e74737761726d72756e74696d652f72657669657770726f766964657273
@@ -190,12 +190,14 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `provider:builtin/src/runtime/verification-family.ts/templates/python.typecheck` | provider | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `provider:ctx/08-src/host/host-read-service.ts-agentswarmhostread` | provider | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `provider:ctx/09-src/host/producer-floor-service.ts-agentswarmproducerfloor` | provider | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
-| `provider:ctx/19-src/index.ts-agentswarmpermission` | provider | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
-| `provider:ctx/20-src/index.ts-agentswarmhumancontrol` | provider | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
-| `provider:ctx/21-src/index.ts-agentswarmhumaninteraction` | provider | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
-| `provider:ctx/26-src/rpc/read-rpc-service.ts-agentswarmreadrpc` | provider | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
+| `provider:ctx/20-src/index.ts-agentswarmv2initial` | provider | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
+| `provider:ctx/21-src/index.ts-agentswarmpermission` | provider | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
+| `provider:ctx/22-src/index.ts-agentswarmhumancontrol` | provider | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
+| `provider:ctx/23-src/index.ts-agentswarmhumaninteraction` | provider | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
+| `provider:ctx/28-src/rpc/read-rpc-service.ts-agentswarmreadrpc` | provider | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `provider:official-session-readback` | provider | REVIEWED | implemented | composition | candidate | always-registered | `official-authority:session` |
 | `provider:official-subagent-followup` | provider | REVIEWED | implemented | static | candidate | always-registered | `official-authority:subagent` |
+| `provider:official-subagent-start-continuable` | provider | REVIEWED | implemented | composition | candidate | config-gated | `official-authority:subagent` |
 | `provider:registry-extension/src/runtime/execution-roots.ts/executionroots/registerprovider` | provider | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `provider:registry-extension/src/runtime/orchestrator-runtime.ts/agentswarmruntime/registerreviewprovider` | provider | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `provider:registry-extension/src/runtime/orchestrator-runtime.ts/agentswarmruntime/registerschedulerprovider` | provider | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
@@ -211,6 +213,7 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `service:agentswarmpermission` | service | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `service:agentswarmproducerfloor` | service | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `service:agentswarmreadrpc` | service | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `service:agentswarmv2initial` | service | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `service:approval` | service | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `service:assignment-frame-visibility` | service | REVIEWED | implemented | composition | candidate | always-registered | `domain:agent-swarm` |
 | `service:assignment-scheduling` | service | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
@@ -221,6 +224,7 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `service:deepseek-ai/dsh-client-ui-primitives` | service | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `service:deepseek-ai/dsh-client-ui-settings` | service | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `service:deepseek-ai/dsh-client-ui-settings-plugins` | service | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `service:fresh-v2-initial-runtime` | service | REVIEWED | implemented | real-profile | candidate | config-gated | `domain:agent-swarm` |
 | `service:layout` | service | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `service:llm` | service | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `service:locale` | service | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |

@@ -22,7 +22,7 @@ export const AGENT_TOOL_FACETS = Object.freeze([
   'maturity',
 ])
 
-export const AGENT_TOOL_FAMILIES = Object.freeze([
+const AGENT_TOOL_FAMILIES = Object.freeze([
   'team-lifecycle',
   'task',
   'mailbox',
@@ -46,7 +46,7 @@ export const AGENT_TOOL_FUNCTIONAL_FACETS = Object.freeze([
   'config',
 ])
 
-export const AGENT_TOOL_EVIDENCE_GAPS = Object.freeze([
+const AGENT_TOOL_EVIDENCE_GAPS = Object.freeze([
   'NO_DIRECT_TEST',
   'NO_COMPOSITION_TEST',
   'NO_REAL_PROFILE_EVIDENCE',

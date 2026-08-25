@@ -1,4 +1,4 @@
-import { relative, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import ts from 'typescript'
 
 export function compareText(left, right) {
@@ -60,7 +60,7 @@ function importDeclarationOf(node) {
 }
 
 /** Resolve imports through aliases, const aliases, and object destructuring. */
-export function bindingOrigin(node, checker, seen = new Set()) {
+function bindingOrigin(node, checker, seen = new Set()) {
   const value = unwrap(node)
   if (value === undefined) return undefined
   if (ts.isPropertyAccessExpression(value)) {
@@ -117,7 +117,7 @@ export function bindingOrigin(node, checker, seen = new Set()) {
   return undefined
 }
 
-export function declarationModules(symbol) {
+function declarationModules(symbol) {
   return [...new Set((symbol?.declarations ?? []).map(declaration => {
     const file = slash(declaration.getSourceFile().fileName)
     const marker = '/node_modules/'
@@ -196,20 +196,6 @@ export function callShape(node) {
     return { receiver: expression.expression, method: expression.name.text, arguments: node.arguments, node }
   }
   return undefined
-}
-
-export function recordForNode(node, context) {
-  return context.recordBySourceFile.get(node.getSourceFile())
-}
-
-export function fileOf(node, context) {
-  return recordForNode(node, context)?.path ?? slash(relative(context.root, node.getSourceFile().fileName))
-}
-
-export function findDeclarations(records, predicate) {
-  const found = []
-  for (const record of records) visit(record.sourceFile, node => { if (predicate(node, record)) found.push({ node, record }) })
-  return found
 }
 
 function identifierValue(node, context, stack) {

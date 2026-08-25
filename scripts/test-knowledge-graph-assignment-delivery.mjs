@@ -50,7 +50,7 @@ const summary = reconcileAssignmentDeliverySlice(facts, sourceFacts, manifest)
 assert.deepEqual({ nodes: summary.nodeCount, edges: summary.edgeCount }, { nodes: 63, edges: 139 })
 assert.equal(facts.callables.length, 14)
 assert.equal(facts.official.callables.length, 6)
-assert.equal(facts.digest, 'd8441548137dac2ae42ff1ca38572ee397cdabf99943d817bcbd879ad8e3aff3')
+assert.equal(facts.digest, 'db0493f50f5b32aaeee1ac3cda02d0a66e2ce10fade8e04f9b7f17829dafdfc1')
 assert.deepEqual(facts.bounds, { followupTimeoutMs: 30000, waitTimeoutMs: 30000, visibilityTimeoutMs: 30000, claimGraceMs: 5000 })
 assert.equal(slice.nodes.find(item => item.id === 'provider:official-subagent-followup').security.mutation, 'external-effect')
 assert.equal(node(manifest, 'service:assignment-scheduling').ownerAuthority.id, 'domain:agent-swarm')
@@ -161,8 +161,8 @@ expectManifestCode('KG_SEMANTIC_RECOVERY_MUTATION', candidate => {
 
 await expectSourceCode(
   'KG_SEMANTIC_SOURCE_CALL', 'src/runtime/scheduling.ts',
-  '    const frame = assignmentPrompt(team, task, attempt.id, executionRootPath)\n    try {\n      await this.ctx.subagents.followup(',
-  '    const localFollowup = async (..._args: unknown[]): Promise<void> => undefined\n    const frame = assignmentPrompt(team, task, attempt.id, executionRootPath)\n    try {\n      await localFollowup(',
+  '        await this.ctx.subagents.followup(',
+  '        await localFollowup(',
 )
 await expectSourceCode(
   'KG_SEMANTIC_CONTROL_FLOW', 'src/runtime/scheduling.ts',
@@ -176,13 +176,13 @@ await expectSourceCode(
 )
 await expectSourceCode(
   'KG_SEMANTIC_CONTROL_FLOW', 'src/runtime/scheduling.ts',
-  '    await this.commitAssignmentAcknowledgement(scope, team.id, task, attempt.id)\n  }\n\n  /**\n   * Fold one reserved attempt',
-  '    return\n    await this.commitAssignmentAcknowledgement(scope, team.id, task, attempt.id)\n  }\n\n  /**\n   * Fold one reserved attempt',
+  '    } else {\n      await this.commitAssignmentAcknowledgement(scope, team.id, task, attempt.id)\n    }',
+  '    } else {\n      return\n      await this.commitAssignmentAcknowledgement(scope, team.id, task, attempt.id)\n    }',
 )
 await expectSourceCode(
   'KG_SEMANTIC_CONTROL_FLOW', 'src/runtime/scheduling.ts',
-  '    await this.commitAssignmentAcknowledgement(scope, team.id, task, attempt.id)\n  }\n\n  /**\n   * Fold one reserved attempt',
-  '    if (false) await this.commitAssignmentAcknowledgement(scope, team.id, task, attempt.id)\n  }\n\n  /**\n   * Fold one reserved attempt',
+  '    } else {\n      await this.commitAssignmentAcknowledgement(scope, team.id, task, attempt.id)\n    }',
+  '    } else {\n      if (false) await this.commitAssignmentAcknowledgement(scope, team.id, task, attempt.id)\n    }',
 )
 await expectSourceCode(
   'KG_SEMANTIC_CONTROL_FLOW', 'src/runtime/scheduling.ts',
@@ -227,8 +227,8 @@ await expectSourceCode(
 )
 await expectSourceCode(
   'KG_SEMANTIC_CONTROL_FLOW', 'src/runtime/scheduling.ts',
-  '      await this.ctx.subagents.followup(\n        captain,',
-  '      await this.ctx.subagents.followup(\n        task as never,',
+  '        await this.ctx.subagents.followup(\n          captain,',
+  '        await this.ctx.subagents.followup(\n          task as never,',
 )
 await expectSourceCode(
   'KG_SEMANTIC_CONTROL_FLOW', 'src/runtime/scheduling.ts',

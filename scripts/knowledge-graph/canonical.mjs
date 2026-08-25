@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import canonicalize from 'canonicalize'
 import { fail } from './diagnostics.mjs'
 
-export const GRAPH_DIGEST_TAG = 'dsh-agent-swarm/knowledge-graph/v1'
+const GRAPH_DIGEST_TAG = 'dsh-agent-swarm/knowledge-graph/v1'
 
 export function canonicalJson(value) {
   const result = canonicalize(value)

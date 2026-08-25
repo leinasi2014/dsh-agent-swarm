@@ -1,4 +1,5 @@
 import { realpathSync } from 'node:fs'
+import { readFile, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import { canonicalJson } from './canonical.mjs'
@@ -56,10 +57,40 @@ export function reconcileSourceManifest(facts, manifest) {
   }
 }
 
+function mergeReviewedItems(expectedItems, currentItems, structuralKeys) {
+  const reviewed = new Map(currentItems
+    .filter(item => item.classification === 'reviewed')
+    .map(item => [item.id, item]))
+  const merged = expectedItems.map(expected => {
+    const overlay = reviewed.get(expected.id)
+    if (overlay === undefined) return expected
+    reviewed.delete(expected.id)
+    const result = { ...expected, ...overlay }
+    for (const key of structuralKeys) {
+      if (expected[key] === undefined) delete result[key]
+      else result[key] = structuredClone(expected[key])
+    }
+    return result
+  })
+  merged.push(...reviewed.values())
+  return merged.sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0)
+}
+
+/** Refresh extractor-owned inventory while preserving reviewed semantic overlays. */
+export function mergeMechanicalInventory(current, expected) {
+  return {
+    ...expected,
+    exceptions: structuredClone(current.exceptions ?? expected.exceptions ?? []),
+    nodes: mergeReviewedItems(expected.nodes, current.nodes, ['id', 'kind', 'anchors', 'factAuthority']),
+    edges: mergeReviewedItems(expected.edges, current.edges, ['id', 'from', 'to', 'type', 'anchors', 'factAuthority']),
+  }
+}
+
 function parseArgs(argv) {
-  const result = { root: fileURLToPath(new URL('../..', import.meta.url)), seed: false, seedOffset: 0, seedLength: undefined }
+  const result = { root: fileURLToPath(new URL('../..', import.meta.url)), seed: false, update: false, seedOffset: 0, seedLength: undefined }
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === '--seed') result.seed = true
+    else if (argv[index] === '--update') result.update = true
     else if (argv[index] === '--seed-offset' && argv[index + 1]) result.seedOffset = Number(argv[++index])
     else if (argv[index] === '--seed-length' && argv[index + 1]) result.seedLength = Number(argv[++index])
     else if (argv[index] === '--root' && argv[index + 1]) result.root = argv[++index]
@@ -68,6 +99,7 @@ function parseArgs(argv) {
   if (!Number.isSafeInteger(result.seedOffset) || result.seedOffset < 0 || (result.seedLength !== undefined && (!Number.isSafeInteger(result.seedLength) || result.seedLength < 1))) {
     throw new Error('seed offset/length must be non-negative/positive safe integers')
   }
+  if (result.seed && result.update) throw new Error('--seed and --update are mutually exclusive')
   return result
 }
 
@@ -82,7 +114,17 @@ async function main() {
     process.stdout.write(`${seeded.slice(args.seedOffset, args.seedLength === undefined ? undefined : args.seedOffset + args.seedLength)}\n`)
     return
   }
-  const { manifest } = await loadKnowledgeGraph(root, 'docs/knowledge-graph/manifest.json', 'docs/knowledge-graph/schema/manifest.schema.json')
+  const manifestPath = resolve(root, 'docs/knowledge-graph/manifest.json')
+  const manifest = args.update
+    ? JSON.parse(await readFile(manifestPath, 'utf8'))
+    : (await loadKnowledgeGraph(root, 'docs/knowledge-graph/manifest.json', 'docs/knowledge-graph/schema/manifest.schema.json')).manifest
+  if (args.update) {
+    const candidate = mergeMechanicalInventory(manifest, buildMechanicalInventory(facts))
+    const summary = reconcileSourceManifest(facts, candidate)
+    await writeFile(manifestPath, `${canonicalJson(candidate)}\n`, 'utf8')
+    console.log(`Knowledge graph source inventory update: PASS (${summary.nodeCount} nodes, ${summary.edgeCount} edges)`)
+    return
+  }
   const summary = reconcileSourceManifest(facts, manifest)
   console.log(`Knowledge graph source/manifest set equality: PASS (${summary.nodeCount} nodes, ${summary.edgeCount} edges)`)
 }

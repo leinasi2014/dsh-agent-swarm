@@ -4,7 +4,7 @@ import { posix } from 'node:path'
 
 const compareText = (left, right) => left < right ? -1 : left > right ? 1 : 0
 
-export function idPart(value) {
+function idPart(value) {
   const normalized = String(value).normalize('NFC').toLowerCase()
     .replaceAll(/[^a-z0-9._/-]+/gu, '-')
     .replaceAll(/-+/gu, '-')

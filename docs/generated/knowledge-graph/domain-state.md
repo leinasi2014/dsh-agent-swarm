@@ -2,7 +2,7 @@
 
 # Domain and state
 
-Manifest digest: `2592b328010d51522d913c905eb3383011f8c631c880206b52c3267cfb840363`
+Manifest digest: `07cd7c570692a0431fd057bc99e48282131b3473568d16f44b513b497cdc5bdd`
 
 Curated tool-registry digest: `331defbb12c4ac44efa0bdd7b16007d003dfa3704477b0c2c925d9cc1b665783`
 
@@ -117,15 +117,25 @@ flowchart LR
   n_617574686f726974793a736f757263652d74726565["Repository source-tree authority"]
   n_636865636b706f696e743a617474656d70742d64656c697665726564["Delivered attempt Team checkpoint"]
   n_636865636b706f696e743a617474656d70742d7265736572766564["Reserved attempt durable Team checkpoint"]
+  n_636865636b706f696e743a66726573682d76322d61737369676e6d656e742d6672616d652d64757261626c65["Initial assignment Session frame is durable"]
+  n_636865636b706f696e743a66726573682d76322d617373697374616e742d65766964656e63652d64757261626c65["Assistant evidence Session flush succeeded"]
+  n_636865636b706f696e743a66726573682d76322d64697370617463682d656e74657265642d726561646261636b["Dispatch-entered Team read-back succeeded"]
+  n_636865636b706f696e743a66726573682d76322d64697370617463682d70656e64696e672d726561646261636b["Dispatch-pending Team read-back succeeded"]
   n_636865636b706f696e743a73657373696f6e2d6672616d652d636c61696d6564["Claimed exact Session frame checkpoint"]
   n_646f6d61696e3a6167656e742d737761726d["Storage Domain agent_swarm v1"]
   n_646f6d61696e3a6167656e742d737761726d2d68756d616e["Storage Domain agent_swarm_human v1"]
+  n_646f6d61696e3a6167656e742d737761726d2d7632["Storage Domain agent_swarm_v2 v1"]
   n_646f6d61696e3a6167656e742d737761726d2d776f726b666c6f77["Storage Domain agent_swarm_workflow v1"]
   n_656e746974793a6167656e742d737761726d2d68756d616e2f68756d616e696e746572616374696f6e7265636f7264["HumanInteractionRecord record"]
+  n_656e746974793a6167656e742d737761726d2d76322f66726573687632617574686f726974797265636f7264["FreshV2AuthorityRecord record"]
+  n_656e746974793a6167656e742d737761726d2d76322f7465616d7265636f72647632["TeamRecordV2 record"]
   n_656e746974793a6167656e742d737761726d2d776f726b666c6f772f776f726b666c6f7772756e6f7665726c61797265636f7264["WorkflowRunOverlayRecord record"]
   n_656e746974793a6167656e742d737761726d2f6d6967726174696f6e72656365697074["MigrationReceipt record"]
   n_656e746974793a6167656e742d737761726d2f7465616d7265636f7264["TeamRecord record"]
   n_656e746974793a636c69656e742d73657474696e67732f6167656e74737761726d73657474696e6773646f63756d656e74["AgentSwarmSettingsDocument: memberDenyTools, memberLlmProvider, memberModel, memberProvider, memberSkills, memoryQueryMaxCandidates, memoryQueryTimeoutMs, memorySemanticEnabled, memorySemanticModel, memorySemanticProvider"]
+  n_656e746974793a66726573682d76322d696e697469616c2d61737369676e6d656e742d6672616d65["Exact initial assignment Session frame"]
+  n_656e746974793a66726573682d76322d6d6f64656c2d64697370617463682d65706f6368["Fresh-v2 model dispatch epoch"]
+  n_656e746974793a66726573682d76322d7461736b2d617474656d7074["Fresh-v2 task Attempt"]
   n_656e746974793a7270632d736368656d612f6167656e74737761726d7265616472706364657073["RPC schema AgentSwarmReadRpcDeps"]
   n_656e746974793a7270632d736368656d612f737761726d5f726561645f7270635f636f6e74726163745f7631["RPC schema SWARM_READ_RPC_CONTRACT_V1"]
   n_656e746974793a7270632d736368656d612f737761726d5f726561645f7270635f66697874757265735f7631["RPC schema SWARM_READ_RPC_FIXTURES_V1"]
@@ -133,20 +143,16 @@ flowchart LR
   n_656e746974793a7270632d736368656d612f737761726d726561646361706162696c697469657372657175657374["RPC schema SwarmReadCapabilitiesRequest"]
   n_656e746974793a7270632d736368656d612f737761726d726561646361706162696c69746965737631["RPC schema SwarmReadCapabilitiesV1"]
   n_656e746974793a7270632d736368656d612f737761726d726561646361706162696c697479["RPC schema SwarmReadCapability"]
-  n_656e746974793a7270632d736368656d612f737761726d726561646361706162696c6974797374617465["RPC schema SwarmReadCapabilityState"]
-  n_656e746974793a7270632d736368656d612f737761726d72656164706167656b696e64["RPC schema SwarmReadPageKind"]
-  n_656e746974793a7270632d736368656d612f737761726d726561647061676572657175657374["RPC schema SwarmReadPageRequest"]
-  n_656e746974793a7270632d736368656d612f737761726d72656164706167657631["RPC schema SwarmReadPageV1"]
-  n_656e746974793a7270632d736368656d612f737761726d72656164727063656e76656c6f7065["RPC schema SwarmReadRpcEnvelope"]
-  n_656e746974793a7270632d736368656d612f737761726d726561647270636661696c757265["RPC schema SwarmReadRpcFailure"]
-  n_656e746974793a7270632d736368656d612f737761726d726561647270636d6574686f64["RPC schema SwarmReadRpcMethod"]
-  n_656e746974793a7270632d736368656d612f737761726d7265616472706372657175657374["RPC schema SwarmReadRpcRequest"]
-  n_656e746974793a7270632d736368656d612f737761726d7265616472706373756363657373["RPC schema SwarmReadRpcSuccess"]
-  n_656e746974793a7270632d736368656d612f737761726d7265616472706376616c7565["RPC schema SwarmReadRpcValue"]
   n_646f6d61696e3a6167656e742d737761726d -->|contains| n_656e746974793a6167656e742d737761726d2f6d6967726174696f6e72656365697074
   n_646f6d61696e3a6167656e742d737761726d -->|contains| n_656e746974793a6167656e742d737761726d2f7465616d7265636f7264
   n_646f6d61696e3a6167656e742d737761726d2d68756d616e -->|contains| n_656e746974793a6167656e742d737761726d2d68756d616e2f68756d616e696e746572616374696f6e7265636f7264
+  n_646f6d61696e3a6167656e742d737761726d2d7632 -->|contains| n_656e746974793a6167656e742d737761726d2d76322f66726573687632617574686f726974797265636f7264
+  n_646f6d61696e3a6167656e742d737761726d2d7632 -->|contains| n_656e746974793a6167656e742d737761726d2d76322f7465616d7265636f72647632
   n_646f6d61696e3a6167656e742d737761726d2d776f726b666c6f77 -->|contains| n_656e746974793a6167656e742d737761726d2d776f726b666c6f772f776f726b666c6f7772756e6f7665726c61797265636f7264
+  n_646f6d61696e3a6167656e742d737761726d -->|owns| n_636865636b706f696e743a66726573682d76322d64697370617463682d656e74657265642d726561646261636b
+  n_646f6d61696e3a6167656e742d737761726d -->|owns| n_636865636b706f696e743a66726573682d76322d64697370617463682d70656e64696e672d726561646261636b
+  n_646f6d61696e3a6167656e742d737761726d -->|owns| n_656e746974793a66726573682d76322d6d6f64656c2d64697370617463682d65706f6368
+  n_646f6d61696e3a6167656e742d737761726d -->|owns| n_656e746974793a66726573682d76322d7461736b2d617474656d7074
   n_646f6d61696e3a6167656e742d737761726d -->|owns| n_636865636b706f696e743a617474656d70742d64656c697665726564
   n_646f6d61696e3a6167656e742d737761726d -->|owns| n_636865636b706f696e743a617474656d70742d7265736572766564
 ```
@@ -159,15 +165,25 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `authority:source-tree` | authority | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
 | `checkpoint:attempt-delivered` | checkpoint | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
 | `checkpoint:attempt-reserved` | checkpoint | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
+| `checkpoint:fresh-v2-assignment-frame-durable` | checkpoint | REVIEWED | implemented | composition | candidate | config-gated | `official-authority:session` |
+| `checkpoint:fresh-v2-assistant-evidence-durable` | checkpoint | REVIEWED | implemented | composition | candidate | config-gated | `official-authority:session` |
+| `checkpoint:fresh-v2-dispatch-entered-readback` | checkpoint | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `checkpoint:fresh-v2-dispatch-pending-readback` | checkpoint | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `checkpoint:session-frame-claimed` | checkpoint | REVIEWED | implemented | static | candidate | always-registered | `official-authority:session` |
 | `domain:agent-swarm` | domain | REVIEWED | implemented | composition | candidate | always-registered | `domain:agent-swarm` |
 | `domain:agent-swarm-human` | domain | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
+| `domain:agent-swarm-v2` | domain | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `domain:agent-swarm-workflow` | domain | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `entity:agent-swarm-human/humaninteractionrecord` | entity | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `entity:agent-swarm-v2/freshv2authorityrecord` | entity | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `entity:agent-swarm-v2/teamrecordv2` | entity | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `entity:agent-swarm-workflow/workflowrunoverlayrecord` | entity | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `entity:agent-swarm/migrationreceipt` | entity | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `entity:agent-swarm/teamrecord` | entity | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `entity:client-settings/agentswarmsettingsdocument` | entity | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `entity:fresh-v2-initial-assignment-frame` | entity | REVIEWED | implemented | composition | candidate | config-gated | `official-authority:session` |
+| `entity:fresh-v2-model-dispatch-epoch` | entity | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `entity:fresh-v2-task-attempt` | entity | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `entity:rpc-schema/agentswarmreadrpcdeps` | entity | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `entity:rpc-schema/swarm_read_rpc_contract_v1` | entity | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `entity:rpc-schema/swarm_read_rpc_fixtures_v1` | entity | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
@@ -197,10 +213,20 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `entity:team-task` | entity | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
 | `fence:current-attempt-id` | fence | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
 | `fence:exact-assignment-frame` | fence | REVIEWED | implemented | static | candidate | always-registered | `official-authority:session` |
+| `fence:fresh-v2-current-attempt-tuple` | fence | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `fence:fresh-v2-dispatch-identity` | fence | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `fence:fresh-v2-initial-prompt-digest` | fence | REVIEWED | implemented | composition | candidate | config-gated | `official-authority:session` |
 | `fence:task-revision` | fence | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
+| `official-authority:agent-loop` | official-authority | REVIEWED | implemented | real-profile | candidate | config-gated | `official-authority:agent-loop` |
 | `official-authority:session` | official-authority | REVIEWED | implemented | static | candidate | always-registered | `official-authority:session` |
 | `official-authority:subagent` | official-authority | REVIEWED | implemented | static | candidate | always-registered | `official-authority:subagent` |
 | `state:attempt-assignment-phase` | state | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
+| `state:discriminant/continuationintent/phase` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `state:discriminant/continuationprincipal/kind` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `state:discriminant/freshv2authorityrecord/authorityepoch` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `state:discriminant/freshv2authorityrecord/origin` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `state:discriminant/freshv2authorityrecord/schemaversion` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `state:discriminant/freshv2authorityrecord/teamschemaversion` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `state:discriminant/humaninteractionorigin/kind` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `state:discriminant/humaninteractionreceipt/status` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `state:discriminant/humaninteractionrecord/schemaversion` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
@@ -209,31 +235,56 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `state:discriminant/humaninteractionrequest/schemaversion` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `state:discriminant/humaninteractionsource/kind` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `state:discriminant/humaninteractiontarget/kind` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `state:discriminant/modeldispatchepoch/assistantevidencetype` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `state:discriminant/modeldispatchepoch/kind` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `state:discriminant/modeldispatchepoch/phase` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `state:discriminant/parkedattemptstate/continuationpolicy` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `state:discriminant/parkedattemptstate/parkedreason` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `state:discriminant/taskattempt/assignmentphase` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `state:discriminant/taskattempt/phase` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `state:discriminant/taskattemptv2/assignmentphase` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `state:discriminant/taskattemptv2/phase` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `state:discriminant/teameffectreceiptv2/decision` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `state:discriminant/teameffectreceiptv2/kind` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `state:discriminant/teameffectreceiptv2/status` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `state:discriminant/teameffectreceiptv2/step` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `state:discriminant/teammember/modelsource` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `state:discriminant/teammember/phase` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `state:discriminant/teammemberprovisioninput/modelsource` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `state:discriminant/teammembership/role` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `state:discriminant/teammemberv2/modelsource` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `state:discriminant/teammemberv2/phase` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `state:discriminant/teammemoryentry/category` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `state:discriminant/teammemoryentry/scope` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `state:discriminant/teammessage/delivery` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `state:discriminant/teammessage/phase` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `state:discriminant/teamstate/phase` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `state:discriminant/teamstate/schemaversion` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `state:discriminant/teamstatev2/phase` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `state:discriminant/teamstatev2/schemaversion` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `state:discriminant/teamtask/status` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `state:discriminant/workflowrunoverlayrecord/schemaversion` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `state:discriminant/workflowrunoverlayrecord/state` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `state:discriminant/workflowrunoverlayrecord/stopreason` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `state:fresh-v2-initial/dispatch-entered` | state | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `state:fresh-v2-initial/dispatch-pending` | state | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `state:fresh-v2-initial/failed-requeued` | state | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `state:fresh-v2-initial/running-evidenced` | state | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `state:fresh-v2-initial/start-reserved` | state | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `state:rpc-union/swarmreadcapability` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `state:rpc-union/swarmreadpagekind` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `state:rpc-union/swarmreadrpcmethod` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `state:session-frame-visibility` | state | REVIEWED | implemented | static | candidate | always-registered | `official-authority:session` |
 | `state:team-budget-used-requests` | state | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
+| `state:union/continuationintentphase` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `state:union/continuationpolicy` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `state:union/humaninteractionintent` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `state:union/humaninteractionstatus` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `state:union/modeldispatchphase` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `state:union/taskattemptphase` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `state:union/taskattemptphasev2` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `state:union/teammemberphase` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `state:union/teammemberphasev2` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `state:union/teammemorycategory` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `state:union/teammessagedelivery` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `state:union/teammessagephase` | state | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
@@ -242,3 +293,8 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `transaction:acknowledge-assignment` | transaction | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
 | `transaction:cancel-undelivered-assignment` | transaction | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
 | `transaction:claim-task` | transaction | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
+| `transaction:fresh-v2-create-reserve-initial` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `transaction:fresh-v2-enter-initial-dispatch` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `transaction:fresh-v2-fail-initial` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `transaction:fresh-v2-settle-assistant-evidence` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `transaction:fresh-v2-settle-initial-assignment` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |

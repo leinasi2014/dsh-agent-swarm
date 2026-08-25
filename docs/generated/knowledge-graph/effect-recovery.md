@@ -2,7 +2,7 @@
 
 # Effects and recovery
 
-Manifest digest: `2592b328010d51522d913c905eb3383011f8c631c880206b52c3267cfb840363`
+Manifest digest: `07cd7c570692a0431fd057bc99e48282131b3473568d16f44b513b497cdc5bdd`
 
 Curated tool-registry digest: `331defbb12c4ac44efa0bdd7b16007d003dfa3704477b0c2c925d9cc1b665783`
 
@@ -114,9 +114,16 @@ flowchart LR
 flowchart LR
   n_636865636b706f696e743a617474656d70742d64656c697665726564["Delivered attempt Team checkpoint"]
   n_636865636b706f696e743a617474656d70742d7265736572766564["Reserved attempt durable Team checkpoint"]
+  n_636865636b706f696e743a66726573682d76322d61737369676e6d656e742d6672616d652d64757261626c65["Initial assignment Session frame is durable"]
+  n_636865636b706f696e743a66726573682d76322d617373697374616e742d65766964656e63652d64757261626c65["Assistant evidence Session flush succeeded"]
+  n_636865636b706f696e743a66726573682d76322d64697370617463682d656e74657265642d726561646261636b["Dispatch-entered Team read-back succeeded"]
+  n_636865636b706f696e743a66726573682d76322d64697370617463682d70656e64696e672d726561646261636b["Dispatch-pending Team read-back succeeded"]
   n_636865636b706f696e743a73657373696f6e2d6672616d652d636c61696d6564["Claimed exact Session frame checkpoint"]
   n_66656e63653a63757272656e742d617474656d70742d6964["Task currentAttemptId exact fence"]
   n_66656e63653a65786163742d61737369676e6d656e742d6672616d65["Byte-exact assignment frame identity fence"]
+  n_66656e63653a66726573682d76322d63757272656e742d617474656d70742d7475706c65["Exact task/Attempt/member causal tuple"]
+  n_66656e63653a66726573682d76322d64697370617463682d6964656e74697479["Exact dispatch id/effect/turn/step identity"]
+  n_66656e63653a66726573682d76322d696e697469616c2d70726f6d70742d646967657374["Exact initial prompt digest"]
   n_66656e63653a7461736b2d7265766973696f6e["Task revision CAS fence"]
   n_666c6f772d6272616e63683a61737369676e6d656e742d64656c69766572792f616273656e74["Assignment absent"]
   n_666c6f772d6272616e63683a61737369676e6d656e742d64656c69766572792f61646d697373696f6e2d72656a6563746564["Assignment admission rejected"]
@@ -125,30 +132,16 @@ flowchart LR
   n_666c6f772d6272616e63683a61737369676e6d656e742d64656c69766572792f636c61696d6564["Assignment claimed"]
   n_666c6f772d6272616e63683a61737369676e6d656e742d64656c69766572792f70656e64696e67["Assignment pending"]
   n_666c6f772d6272616e63683a61737369676e6d656e742d64656c69766572792f756e6b6e6f776e["Assignment unknown"]
-  n_666c6f773a61737369676e6d656e742d64656c6976657279["Claim, deliver, observe, acknowledge or recover assignment"]
-  n_70726f76696465723a6275696c74696e2f7372632f72756e74696d652f657865637574696f6e2d726f6f74732e74732f70726f7669646572732f6769742d776f726b74726565["Builtin Provider git-worktree"]
-  n_70726f76696465723a6275696c74696e2f7372632f72756e74696d652f6f7263686573747261746f722d72756e74696d652e74732f72657669657770726f7669646572732f65786563757461626c65["Builtin Provider executable"]
-  n_70726f76696465723a6275696c74696e2f7372632f72756e74696d652f6f7263686573747261746f722d72756e74696d652e74732f72657669657770726f7669646572732f6d616e75616c["Builtin Provider manual"]
-  n_70726f76696465723a6275696c74696e2f7372632f72756e74696d652f6f7263686573747261746f722d72756e74696d652e74732f7363686564756c657270726f7669646572732f7072696f726974792d7265616479["Builtin Provider priority-ready"]
-  n_70726f76696465723a6275696c74696e2f7372632f72756e74696d652f766572696669636174696f6e2d66616d696c792e74732f726f6f74732f6e6f6465["Builtin Provider node"]
-  n_70726f76696465723a6275696c74696e2f7372632f72756e74696d652f766572696669636174696f6e2d66616d696c792e74732f726f6f74732f707974686f6e["Builtin Provider python"]
-  n_70726f76696465723a6275696c74696e2f7372632f72756e74696d652f766572696669636174696f6e2d66616d696c792e74732f726f6f74732f74656d70["Builtin Provider temp"]
-  n_70726f76696465723a6275696c74696e2f7372632f72756e74696d652f766572696669636174696f6e2d66616d696c792e74732f74656d706c617465732f6e6f64652e6275696c64["Builtin Provider node.build"]
-  n_70726f76696465723a6275696c74696e2f7372632f72756e74696d652f766572696669636174696f6e2d66616d696c792e74732f74656d706c617465732f6e6f64652e6c696e74["Builtin Provider node.lint"]
-  n_70726f76696465723a6275696c74696e2f7372632f72756e74696d652f766572696669636174696f6e2d66616d696c792e74732f74656d706c617465732f6e6f64652e74657374["Builtin Provider node.test"]
-  n_70726f76696465723a6275696c74696e2f7372632f72756e74696d652f766572696669636174696f6e2d66616d696c792e74732f74656d706c617465732f6e6f64652e74797065636865636b["Builtin Provider node.typecheck"]
-  n_70726f76696465723a6275696c74696e2f7372632f72756e74696d652f766572696669636174696f6e2d66616d696c792e74732f74656d706c617465732f707974686f6e2e6275696c64["Builtin Provider python.build"]
-  n_70726f76696465723a6275696c74696e2f7372632f72756e74696d652f766572696669636174696f6e2d66616d696c792e74732f74656d706c617465732f707974686f6e2e6c696e74["Builtin Provider python.lint"]
-  n_70726f76696465723a6275696c74696e2f7372632f72756e74696d652f766572696669636174696f6e2d66616d696c792e74732f74656d706c617465732f707974686f6e2e74657374["Builtin Provider python.test"]
-  n_70726f76696465723a6275696c74696e2f7372632f72756e74696d652f766572696669636174696f6e2d66616d696c792e74732f74656d706c617465732f707974686f6e2e74797065636865636b["Builtin Provider python.typecheck"]
-  n_70726f76696465723a6374782f30382d7372632f686f73742f686f73742d726561642d736572766963652e74732d6167656e74737761726d686f737472656164["ctx.provide agentSwarmHostRead"]
-  n_666c6f773a61737369676e6d656e742d64656c6976657279 -->|contains| n_666c6f772d6272616e63683a61737369676e6d656e742d64656c69766572792f616273656e74
-  n_666c6f773a61737369676e6d656e742d64656c6976657279 -->|contains| n_666c6f772d6272616e63683a61737369676e6d656e742d64656c69766572792f61646d697373696f6e2d72656a6563746564
-  n_666c6f773a61737369676e6d656e742d64656c6976657279 -->|contains| n_666c6f772d6272616e63683a61737369676e6d656e742d64656c69766572792f61646d697373696f6e2d756e6b6e6f776e
-  n_666c6f773a61737369676e6d656e742d64656c6976657279 -->|contains| n_666c6f772d6272616e63683a61737369676e6d656e742d64656c69766572792f636c61696d2d7265736572766564
-  n_666c6f773a61737369676e6d656e742d64656c6976657279 -->|contains| n_666c6f772d6272616e63683a61737369676e6d656e742d64656c69766572792f636c61696d6564
-  n_666c6f773a61737369676e6d656e742d64656c6976657279 -->|contains| n_666c6f772d6272616e63683a61737369676e6d656e742d64656c69766572792f70656e64696e67
-  n_666c6f773a61737369676e6d656e742d64656c6976657279 -->|contains| n_666c6f772d6272616e63683a61737369676e6d656e742d64656c69766572792f756e6b6e6f776e
+  n_666c6f772d6272616e63683a66726573682d76322d696e697469616c2d64697370617463682f617373697374616e742d65766964656e63652d756e64757261626c65["assistant evidence undurable"]
+  n_666c6f772d6272616e63683a66726573682d76322d696e697469616c2d64697370617463682f636f6c642d64697370617463682d656e74657265642d756e636c6173736966696564["cold dispatch entered unclassified"]
+  n_666c6f772d6272616e63683a66726573682d76322d696e697469616c2d64697370617463682f636f6c642d64697370617463682d70656e64696e672d756e7265636f7665726564["cold dispatch pending unrecovered"]
+  n_666c6f772d6272616e63683a66726573682d76322d696e697469616c2d64697370617463682f636f6c642d65766964656e63652d756e7265666f6c646564["cold evidence unrefolded"]
+  n_666c6f772d6272616e63683a66726573682d76322d696e697469616c2d64697370617463682f636f6c642d7374617274696e672d756e7265636f6e63696c6564["cold starting unreconciled"]
+  n_666c6f772d6272616e63683a66726573682d76322d696e697469616c2d64697370617463682f64697370617463682d70656e64696e672d68656c64["dispatch pending held"]
+  n_666c6f772d6272616e63683a66726573682d76322d696e697469616c2d64697370617463682f646f776e73747265616d2d6661696c65642d61667465722d656e7465726564["downstream failed after entered"]
+  n_666c6f772d6272616e63683a66726573682d76322d696e697469616c2d64697370617463682f7072652d6d6f64656c2d626172726965722d72656a6563746564["pre model barrier rejected"]
+  n_666c6f772d6272616e63683a66726573682d76322d696e697469616c2d64697370617463682f70726f76696465722d73746172742d72656a6563746564["provider start rejected"]
+  n_666c6f772d6272616e63683a66726573682d76322d696e697469616c2d64697370617463682f70726f76696465722d73746172742d726573756c742d756e6b6e6f776e["provider start result unknown"]
 ```
 
 _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
@@ -157,9 +150,16 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 |---|---|---|---|---|---|---|---|
 | `checkpoint:attempt-delivered` | checkpoint | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
 | `checkpoint:attempt-reserved` | checkpoint | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
+| `checkpoint:fresh-v2-assignment-frame-durable` | checkpoint | REVIEWED | implemented | composition | candidate | config-gated | `official-authority:session` |
+| `checkpoint:fresh-v2-assistant-evidence-durable` | checkpoint | REVIEWED | implemented | composition | candidate | config-gated | `official-authority:session` |
+| `checkpoint:fresh-v2-dispatch-entered-readback` | checkpoint | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `checkpoint:fresh-v2-dispatch-pending-readback` | checkpoint | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `checkpoint:session-frame-claimed` | checkpoint | REVIEWED | implemented | static | candidate | always-registered | `official-authority:session` |
 | `fence:current-attempt-id` | fence | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
 | `fence:exact-assignment-frame` | fence | REVIEWED | implemented | static | candidate | always-registered | `official-authority:session` |
+| `fence:fresh-v2-current-attempt-tuple` | fence | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `fence:fresh-v2-dispatch-identity` | fence | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `fence:fresh-v2-initial-prompt-digest` | fence | REVIEWED | implemented | composition | candidate | config-gated | `official-authority:session` |
 | `fence:task-revision` | fence | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
 | `flow-branch:assignment-delivery/absent` | flow-branch | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
 | `flow-branch:assignment-delivery/admission-rejected` | flow-branch | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
@@ -168,7 +168,18 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `flow-branch:assignment-delivery/claimed` | flow-branch | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
 | `flow-branch:assignment-delivery/pending` | flow-branch | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
 | `flow-branch:assignment-delivery/unknown` | flow-branch | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
+| `flow-branch:fresh-v2-initial-dispatch/assistant-evidence-undurable` | flow-branch | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `flow-branch:fresh-v2-initial-dispatch/cold-dispatch-entered-unclassified` | flow-branch | REVIEWED | absent | none | not-candidate | unavailable | `domain:agent-swarm` |
+| `flow-branch:fresh-v2-initial-dispatch/cold-dispatch-pending-unrecovered` | flow-branch | REVIEWED | absent | none | not-candidate | unavailable | `domain:agent-swarm` |
+| `flow-branch:fresh-v2-initial-dispatch/cold-evidence-unrefolded` | flow-branch | REVIEWED | absent | none | not-candidate | unavailable | `domain:agent-swarm` |
+| `flow-branch:fresh-v2-initial-dispatch/cold-starting-unreconciled` | flow-branch | REVIEWED | absent | none | not-candidate | unavailable | `domain:agent-swarm` |
+| `flow-branch:fresh-v2-initial-dispatch/dispatch-pending-held` | flow-branch | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `flow-branch:fresh-v2-initial-dispatch/downstream-failed-after-entered` | flow-branch | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `flow-branch:fresh-v2-initial-dispatch/pre-model-barrier-rejected` | flow-branch | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `flow-branch:fresh-v2-initial-dispatch/provider-start-rejected` | flow-branch | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `flow-branch:fresh-v2-initial-dispatch/provider-start-result-unknown` | flow-branch | REVIEWED | absent | none | not-candidate | unavailable | `domain:agent-swarm` |
 | `flow:assignment-delivery` | flow | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
+| `flow:fresh-v2-initial-dispatch` | flow | REVIEWED | implemented | real-profile | candidate | config-gated | `domain:agent-swarm` |
 | `provider:builtin/src/runtime/execution-roots.ts/providers/git-worktree` | provider | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `provider:builtin/src/runtime/orchestrator-runtime.ts/reviewproviders/executable` | provider | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `provider:builtin/src/runtime/orchestrator-runtime.ts/reviewproviders/manual` | provider | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
@@ -186,12 +197,14 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `provider:builtin/src/runtime/verification-family.ts/templates/python.typecheck` | provider | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `provider:ctx/08-src/host/host-read-service.ts-agentswarmhostread` | provider | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `provider:ctx/09-src/host/producer-floor-service.ts-agentswarmproducerfloor` | provider | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
-| `provider:ctx/19-src/index.ts-agentswarmpermission` | provider | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
-| `provider:ctx/20-src/index.ts-agentswarmhumancontrol` | provider | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
-| `provider:ctx/21-src/index.ts-agentswarmhumaninteraction` | provider | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
-| `provider:ctx/26-src/rpc/read-rpc-service.ts-agentswarmreadrpc` | provider | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
+| `provider:ctx/20-src/index.ts-agentswarmv2initial` | provider | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
+| `provider:ctx/21-src/index.ts-agentswarmpermission` | provider | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
+| `provider:ctx/22-src/index.ts-agentswarmhumancontrol` | provider | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
+| `provider:ctx/23-src/index.ts-agentswarmhumaninteraction` | provider | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
+| `provider:ctx/28-src/rpc/read-rpc-service.ts-agentswarmreadrpc` | provider | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `provider:official-session-readback` | provider | REVIEWED | implemented | composition | candidate | always-registered | `official-authority:session` |
 | `provider:official-subagent-followup` | provider | REVIEWED | implemented | static | candidate | always-registered | `official-authority:subagent` |
+| `provider:official-subagent-start-continuable` | provider | REVIEWED | implemented | composition | candidate | config-gated | `official-authority:subagent` |
 | `provider:registry-extension/src/runtime/execution-roots.ts/executionroots/registerprovider` | provider | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `provider:registry-extension/src/runtime/orchestrator-runtime.ts/agentswarmruntime/registerreviewprovider` | provider | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `provider:registry-extension/src/runtime/orchestrator-runtime.ts/agentswarmruntime/registerschedulerprovider` | provider | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
@@ -207,6 +220,7 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `service:agentswarmpermission` | service | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `service:agentswarmproducerfloor` | service | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `service:agentswarmreadrpc` | service | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `service:agentswarmv2initial` | service | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `service:approval` | service | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `service:assignment-frame-visibility` | service | REVIEWED | implemented | composition | candidate | always-registered | `domain:agent-swarm` |
 | `service:assignment-scheduling` | service | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
@@ -217,6 +231,7 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `service:deepseek-ai/dsh-client-ui-primitives` | service | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `service:deepseek-ai/dsh-client-ui-settings` | service | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `service:deepseek-ai/dsh-client-ui-settings-plugins` | service | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `service:fresh-v2-initial-runtime` | service | REVIEWED | implemented | real-profile | candidate | config-gated | `domain:agent-swarm` |
 | `service:layout` | service | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `service:llm` | service | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `service:locale` | service | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
@@ -247,6 +262,11 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `state-predicate:attempt-assignment-reserved` | state-predicate | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
 | `state-predicate:attempt-phase-running` | state-predicate | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
 | `state-predicate:attempt-phase-stale` | state-predicate | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
+| `state-predicate:fresh-v2-initial/dispatch-entered` | state-predicate | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `state-predicate:fresh-v2-initial/dispatch-pending` | state-predicate | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `state-predicate:fresh-v2-initial/failed-requeued` | state-predicate | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `state-predicate:fresh-v2-initial/running-evidenced` | state-predicate | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `state-predicate:fresh-v2-initial/start-reserved` | state-predicate | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `state-predicate:session-frame-absent` | state-predicate | REVIEWED | implemented | static | candidate | always-registered | `official-authority:session` |
 | `state-predicate:session-frame-claimed` | state-predicate | REVIEWED | implemented | static | candidate | always-registered | `official-authority:session` |
 | `state-predicate:session-frame-pending` | state-predicate | REVIEWED | implemented | static | candidate | always-registered | `official-authority:session` |
@@ -256,3 +276,8 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `transaction:acknowledge-assignment` | transaction | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
 | `transaction:cancel-undelivered-assignment` | transaction | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
 | `transaction:claim-task` | transaction | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
+| `transaction:fresh-v2-create-reserve-initial` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `transaction:fresh-v2-enter-initial-dispatch` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `transaction:fresh-v2-fail-initial` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `transaction:fresh-v2-settle-assistant-evidence` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `transaction:fresh-v2-settle-initial-assignment` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |

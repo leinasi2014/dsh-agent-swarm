@@ -23,8 +23,9 @@ import type {} from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-system-prompt'
+import { TeamDomainError } from './domain/error.js'
 import { AgentSwarmRuntime } from './runtime/orchestrator-runtime.js'
-import { registerAgentSwarmTools } from './tools.js'
+import { registerAgentSwarmTools, registerInitialAgentSwarmTools } from './tools.js'
 import { DEFAULT_TEAM_LIMITS } from './domain/team-domain.js'
 import { recoverActiveRosters } from './runtime/usage-recovery.js'
 import { TeamBridgeWorkflowEngine } from './runtime/workflow/team-bridge-engine.js'
@@ -40,6 +41,7 @@ import { reviewerAgentReviewProvider } from './runtime/reviewer-boundary.js'
 import { assembleAgentSwarmHostRead, assembleAgentSwarmProducerFloor, mountAgentSwarmReadRpc } from './host/host-read-assembly.js'
 import { AGENT_SWARM_USAGE_PROMPT } from './runtime/usage-prompt.js'
 import { AGENT_SWARM_SETTINGS_NAMESPACE, installAgentSwarmSettings } from './runtime/settings.js'
+import { FreshV2InitialRuntime } from './runtime/fresh-v2-initial-runtime.js'
 
 export * from './public-api.js'
 
@@ -77,6 +79,12 @@ export interface Config {
   memberModel?: string
   /** Experimental: declare members without a model turn until first assignment. */
   lazyMemberStart?: boolean
+  /** A1b-only isolated fresh-v2 walking skeleton; default false and never opens v1. */
+  experimentalFreshV2?: boolean
+  /** Exact lowercase SHA-256 of the A1b candidate artifact/config contract. */
+  freshV2ArtifactContract?: string
+  /** Reserved legacy-manifest capacity bound for the fresh-v2 authority record. */
+  freshV2LegacyManifestCapacity?: number
   /** Optional LLM Provider override for future members. */
   memberLlmProvider?: string
   /** Default additional deny-only tools for future members. */
@@ -212,6 +220,9 @@ export const Config: z<Config> = z.object({
   memberProvider: z.string().default('spawn'),
   memberModel: z.string(),
   lazyMemberStart: z.boolean().default(false),
+  experimentalFreshV2: z.boolean().default(false),
+  freshV2ArtifactContract: z.string(),
+  freshV2LegacyManifestCapacity: z.natural().default(0),
   memberLlmProvider: z.string(),
   memberDenyTools: z.array(z.string()).default([]),
   memberSkills: z.array(z.string()).default([]),
@@ -253,10 +264,98 @@ export const Config: z<Config> = z.object({
   promptSectionOrder: z.natural().default(118),
 })
 
+function rejectUnsupportedFreshV2Config(config: Config): void {
+  const unsupported: string[] = []
+  const reject = (changed: boolean, key: keyof Config): void => {
+    if (changed) unsupported.push(key)
+  }
+  reject(config.lazyMemberStart === true, 'lazyMemberStart')
+  reject(config.memorySemanticEnabled === true, 'memorySemanticEnabled')
+  reject(config.memorySemanticProvider !== undefined, 'memorySemanticProvider')
+  reject(config.memorySemanticModel !== undefined, 'memorySemanticModel')
+  reject(config.memoryQueryMaxCandidates !== undefined && config.memoryQueryMaxCandidates !== 32, 'memoryQueryMaxCandidates')
+  reject(config.memoryQueryTimeoutMs !== undefined && config.memoryQueryTimeoutMs !== 15_000, 'memoryQueryTimeoutMs')
+  reject(config.schedulerProvider !== undefined && config.schedulerProvider !== 'priority-ready', 'schedulerProvider')
+  reject(config.reviewProvider !== undefined && config.reviewProvider !== 'manual', 'reviewProvider')
+  reject(config.reviewRootProvider !== undefined && config.reviewRootProvider !== 'temp', 'reviewRootProvider')
+  reject(config.maxTasks !== undefined && config.maxTasks !== DEFAULT_TEAM_LIMITS.maxTasks, 'maxTasks')
+  reject(config.maxPendingMessagesPerMember !== undefined
+    && config.maxPendingMessagesPerMember !== DEFAULT_TEAM_LIMITS.maxPendingMessagesPerMember, 'maxPendingMessagesPerMember')
+  reject(config.maxRetainedMessages !== undefined
+    && config.maxRetainedMessages !== DEFAULT_TEAM_LIMITS.maxRetainedMessages, 'maxRetainedMessages')
+  reject(config.maxRetainedAttempts !== undefined
+    && config.maxRetainedAttempts !== DEFAULT_TEAM_LIMITS.maxRetainedAttempts, 'maxRetainedAttempts')
+  reject(config.maxMessageBytes !== undefined && config.maxMessageBytes !== DEFAULT_TEAM_LIMITS.maxMessageBytes, 'maxMessageBytes')
+  reject(config.maxTaskBytes !== undefined && config.maxTaskBytes !== DEFAULT_TEAM_LIMITS.maxTaskBytes, 'maxTaskBytes')
+  reject(config.maxDependencies !== undefined && config.maxDependencies !== DEFAULT_TEAM_LIMITS.maxDependencies, 'maxDependencies')
+  reject(config.maxMemories !== undefined && config.maxMemories !== DEFAULT_TEAM_LIMITS.maxMemories, 'maxMemories')
+  reject(config.strandedAfterMs !== undefined && config.strandedAfterMs !== DEFAULT_STRANDED_AFTER_MS, 'strandedAfterMs')
+  reject(config.orchestrationMode !== undefined && config.orchestrationMode !== 'adaptive', 'orchestrationMode')
+  reject(config.workflowBridge === true, 'workflowBridge')
+  reject(config.workflowMaxTotalAgents !== undefined
+    && config.workflowMaxTotalAgents !== DEFAULT_WORKFLOW_MAX_TOTAL_AGENTS, 'workflowMaxTotalAgents')
+  reject(config.workflowDisposeGraceMs !== undefined
+    && config.workflowDisposeGraceMs !== DEFAULT_DISPOSAL_TIMEOUT_MS, 'workflowDisposeGraceMs')
+  reject(config.jobsBridge === true, 'jobsBridge')
+  reject(config.executionRoots === true, 'executionRoots')
+  reject(config.executionRootProvider !== undefined && config.executionRootProvider !== 'git-worktree', 'executionRootProvider')
+  reject(config.executionRootsBase !== undefined, 'executionRootsBase')
+  reject((config.toolPolicy?.allow?.length ?? 0) > 0
+    || (config.toolPolicy?.ask?.length ?? 0) > 0
+    || (config.toolPolicy?.deny?.length ?? 0) > 0, 'toolPolicy')
+  reject(config.promptSectionOrder !== undefined && config.promptSectionOrder !== 118, 'promptSectionOrder')
+  if (unsupported.length > 0) {
+    throw new TeamDomainError(
+      `fresh-v2 A1b does not implement configured capabilities: ${unsupported.join(', ')}`,
+      'TEAM_EXPERIMENTAL_UNSUPPORTED_CONFIG',
+    )
+  }
+}
+
 export async function apply(ctx: Context, config: Config): Promise<void> {
   if (config.enabled === false) return
   const memberProvider = (config.memberProvider ?? 'spawn').trim()
   if (memberProvider === '') throw new Error('agent-swarm: memberProvider must not be empty')
+  if (config.experimentalFreshV2 === true) {
+    rejectUnsupportedFreshV2Config(config)
+    if (ctx.get('llm') === undefined) {
+      throw new TeamDomainError('fresh-v2 A1b requires the official LLM registry', 'TEAM_RUNTIME_NOT_STARTED')
+    }
+    const artifactContract = config.freshV2ArtifactContract?.trim()
+    if (artifactContract === undefined || !/^[0-9a-f]{64}$/.test(artifactContract)) {
+      throw new Error('agent-swarm: experimentalFreshV2 requires freshV2ArtifactContract as a lowercase SHA-256 digest')
+    }
+    const runtime = new FreshV2InitialRuntime(ctx, {
+      artifactContract,
+      legacyManifestCapacity: config.freshV2LegacyManifestCapacity ?? 0,
+      memberProvider,
+      ...(config.memberLlmProvider === undefined ? {} : { memberLlmProvider: config.memberLlmProvider }),
+      ...(config.memberModel === undefined ? {} : { memberModel: config.memberModel }),
+      memberDenyTools: config.memberDenyTools ?? [],
+      memberSkills: config.memberSkills ?? [],
+      memberMaxDepth: config.memberMaxDepth ?? 1,
+      maxMembers: config.maxMembers ?? DEFAULT_TEAM_LIMITS.maxMembers,
+      maxVerificationCommands: config.maxVerificationCommands ?? DEFAULT_TEAM_LIMITS.maxVerificationCommands,
+      maxVerificationCommandMs: config.maxVerificationCommandMs ?? DEFAULT_TEAM_LIMITS.maxVerificationCommandMs,
+      disposalTimeoutMs: config.disposalTimeoutMs ?? DEFAULT_DISPOSAL_TIMEOUT_MS,
+    })
+    await runtime.start()
+    ctx.effect(() => async () => { await runtime.dispose() }, 'agent-swarm: fresh-v2 runtime disposal')
+    ctx.effect(() => ctx.provide('agentSwarmV2Initial', runtime), 'agent-swarm: fresh-v2 inspection service')
+    registerInitialAgentSwarmTools(ctx, runtime)
+    ctx.effect(() => ctx.on('agent/request', async ({ agent, turn, step, signal }, next) => {
+      await runtime.beforeAgentRequest({ agent, turn, step, signal })
+      return await next()
+    }, { global: true, prepend: true }), 'agent-swarm: fresh-v2 assignment pre-model gate')
+    ctx.effect(() => ctx.on('llm/stream', (options, next) => runtime.wrapModelStream(options, next), {
+      global: true,
+      prepend: true,
+    }), 'agent-swarm: fresh-v2 model dispatch witness')
+    ctx.effect(() => ctx.on('session/event', (session, event) => {
+      runtime.observeSessionEvent(session, event)
+    }, { global: true }), 'agent-swarm: fresh-v2 assistant evidence')
+    return
+  }
   const schedulerProvider = (config.schedulerProvider ?? 'priority-ready').trim()
   const reviewProvider = (config.reviewProvider ?? 'manual').trim()
   const reviewRootProvider = (config.reviewRootProvider ?? 'temp').trim()

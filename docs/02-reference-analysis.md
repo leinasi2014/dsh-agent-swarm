@@ -64,7 +64,7 @@ The official seam should own the canonical Team domain if it becomes a published
 
 ## 4. JiuwenSwarm / WorkSwarm
 
-The latest upstream design contributes useful concepts:
+The registered JiuwenSwarm checkout (`74b745c210c3884b80f6163d6dba3ea71f9f5a52`) contributes useful concepts:
 
 - SwarmFlow: deterministic script-driven multi-agent workflow;
 - parallel, pipeline, nested workflow and stateful agent session primitives;
@@ -91,6 +91,8 @@ Most of these already have a natural DSH home:
 | shared state | Session log or `ctx.storageDomain` |
 | remote worker | subagent DSH SDK/ACP Provider or Team Member Provider |
 
+Evidence limit: the checkout directly proves these application-level shapes, Skill visibility/reload rails and long-run workload patterns. Its Team runtime/mailbox implementation is partly supplied by the pinned `openjiuwen` dependency, so this repository alone does not prove process-crash durable mailbox CAS, exactly-once delivery or complete cold recovery. Those properties require this plugin's own DSH composition tests.
+
 ## 5. Combined insight
 
 The correct synthesis is not “dsh-agent-teams plus JiuwenSwarm code.” It is:
@@ -99,10 +101,11 @@ The correct synthesis is not “dsh-agent-teams plus JiuwenSwarm code.” It is:
 Official DSH seams define the execution world.
 Community dsh-agent-teams contributes proven Team coordination mechanics.
 JiuwenSwarm contributes product-level orchestration features and failure cases.
+LoopX contributes durable control-state/writeback/idempotency patterns at reviewed commit `fd237116eec247ec4f5e6f0e774ba1281b4a31c8`, not a scheduler or Agent Loop to embed.
 New plugins connect those concepts without duplicating the seams DSH already owns.
 ```
 
-For self-hosting, the direct reference contributes Team durability/fencing/lifecycle cases and Jiuwen contributes Worktree/permission/review/distributed behavior. Neither reference becomes the control or deployment runtime. ADR-0008 composes those behaviors through official DSH Profiles, RPC, Workflow/Jobs, Workspace linkage, Subagent Providers and interaction seams while an external last-known-good controller owns candidate promotion.
+For self-hosting, the direct reference contributes Team durability/fencing/lifecycle cases, Jiuwen contributes Worktree/permission/review/distributed behavior, and LoopX contributes typed state/evidence/writeback and narrow-gate patterns. None becomes the control or deployment runtime. In particular, LoopX heartbeat cadence and external-host timeout are not member-thinking deadlines or evidence authorizing interruption. ADR-0008 composes the accepted behaviors through official DSH Profiles, RPC, Workflow/Jobs, Workspace linkage, Subagent Providers and interaction seams while an external last-known-good controller owns candidate promotion.
 
 ## 6. Current fusion status
 

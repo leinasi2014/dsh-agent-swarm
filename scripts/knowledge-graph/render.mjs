@@ -230,5 +230,3 @@ export function renderAtlas(manifest, digest, toolRegistry) {
   })}\n`)
   return files
 }
-
-export const generatedFileNames = [...viewSpecs.map(spec => spec.file), 'atlas.json'].sort()

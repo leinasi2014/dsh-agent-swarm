@@ -6,13 +6,18 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { TaskId } from '../domain/types.js'
+import { TaskId, type TeamTask } from '../domain/types.js'
+import type { ToolExecutionAuthority } from '../runtime/authority.js'
 import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
-import type { VerificationDeclaration } from '../runtime/verification-commands.js'
+import type { RuntimeCreateTaskInput, VerificationDeclaration } from '../runtime/verification-commands.js'
 import { register } from './shared.js'
 
+export interface InitialTaskBoardRuntime {
+  createTask(exec: ToolExecutionAuthority, input: RuntimeCreateTaskInput): Promise<TeamTask>
+}
+
 /** `agent_swarm_create_task`. */
-export function registerCreateTaskTool(ctx: Context, runtime: AgentSwarmRuntime): void {
+export function registerCreateTaskTool(ctx: Context, runtime: InitialTaskBoardRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_create_task',
     description: 'Create one dependency-aware Team task. Ready unowned tasks are assigned automatically by priority, or strictly to target_member when declared.',
