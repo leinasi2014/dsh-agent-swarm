@@ -97,7 +97,7 @@ interface ParkedAttemptState {
 }
 
 type ContinuationIntentPhase =
-  | 'requested' | 'admitted' | 'claimed' | 'dispatch-pending'
+  | 'requested' | 'admitted' | 'claimed' | 'dispatch-pending' | 'dispatch-entered'
   | 'dispatch-unknown' | 'settled'
   | 'superseded' | 'cancelled'
 
@@ -116,6 +116,11 @@ interface ContinuationIntent {
   checkpointDigest?: string
   wakeCondition?: string
   resumeEffectId?: string
+  targetSessionId?: string
+  turn?: number
+  step?: number
+  assignmentMessageSeq?: number
+  dispatchWitnessRevision?: number
   phase: ContinuationIntentPhase
 }
 ```
@@ -123,6 +128,8 @@ interface ContinuationIntent {
 The stored reason is evidence classification, not a policy verdict. A `running` attempt may move to `parked` only when the official Session/status evidence proves that the owning turn settled and the task is still the same `in_progress` revision/attempt. A raced submit/review/reassign wins through CAS.
 
 `continuationPolicy` grants who may request continuation; it is never itself an intent or wake condition. `team-autonomous` admits the owning `member` or the `team-leader`; `captain` admits only the `team-leader`; `human` admits only an `authenticated-human`. The root Captain is the Team leader's official DSH Session and is not misrepresented as a `TeamMember`. An Attempt has at most one nonterminal `ContinuationIntent`, identified by `teamId + taskId + attemptId + continuationEffectId`. All principals use the same CAS slot. Repeating the same identity is idempotent; a different concurrent identity receives the authoritative existing intent/conflict and cannot enqueue another wake.
+
+No model tool, RPC or public payload accepts `requestedBy`. For a member call, runtime derives the principal from the exact live `exec.agent`, roster row and current Attempt owner. For a Team-leader call, it derives the exact live root Agent instance, root registration and `team.captainSessionId`. Human continuation is NOT_CONFIGURED unless the existing host-only `HumanPrincipalVerifier` and an accepted write gateway produce an opaque attestation for the concrete request; Captain prose, a browser field or a copied subject ID cannot mint one. The domain admission CAS revalidates the attestation, policy, live roster/root binding, current revision, Attempt owner/generation and intent slot. Forged, stale, replayed or old-generation principals fail before mutation.
 
 ## 5. Scheduling and continuation protocol
 
@@ -137,7 +144,9 @@ One bounded scheduling pass keeps the existing order—reconcile durable debt, d
 7. A pending resume frame is not resent. A claimed frame settles idempotently. A proven-absent frame may be redelivered once under the same effect ID. Unknown visibility blocks.
 8. `reassignTask` is distinct from resume: it fences the old attempt `stale`, creates a fresh generation and transfers ownership under the existing captain-only CAS contract.
 9. Submission, cancellation, reassignment and any transition that terminalizes or replaces the current Attempt atomically terminalize its nonterminal continuation intent as `superseded` or `cancelled`. The effect dispatcher and target pre-model gate both revalidate the exact current task revision, attempt generation and nonterminal intent before send/claim. A terminal intent is evidence only and can never wake an Attempt.
-10. Claiming the wake does not prove model dispatch. The pre-model gate CASes `claimed -> dispatch-pending`, retains the Attempt as `parked`, checkpoints the exact Session turn/message/step identity and then calls `next()`. The intent settles and the Attempt becomes `running` only after official Session evidence for that exact step records an `assistant/chunk`/assistant result, or another official execution boundary proves the request ran. A durable `turn/end` without model output settles the wake but leaves the task parked with the exact error/wait evidence.
+10. Claiming the wake does not prove model dispatch. The `agent/request` pre-model gate flushes the exact claimed assignment `user/message`, CASes `claimed -> dispatch-pending`, retains the Attempt as `parked`, checkpoints the exact Session turn/message/step identity and then calls `next()`.
+11. A plugin-owned `llm/stream` dispatch witness handles only that exact Team-owned Session/turn/step. After another exact Session flush and before its downstream `next()`, it CASes `dispatch-pending -> dispatch-entered`, reads back, then delegates to the official LLM waterfall. This is an admission witness, not proof of a provider result: if the process dies before outcome evidence, recovery changes it to `dispatch-unknown` and uses Provider read-back or an explicit forward decision. The intent settles and the Attempt becomes `running` only after official assistant execution evidence for that exact step. A durable `turn/end` without assistant output settles the wake but leaves the task parked with the exact error/wait evidence.
+12. Gate A and real Loader tests must prove the witness wraps the terminal adapter path for Team-owned requests and cannot be bypassed by configured short-circuit middleware. If that ordering cannot be established for a Profile, autonomous continuation is unavailable for that Profile rather than weakening the boundary or modifying official DSH.
 
 ```text
 agent/status idle
@@ -150,7 +159,8 @@ durable member continuation intent or Team-authorized resume
   -> official wakeup admission
   -> target frame claimed + Session flush
   -> CAS intent -> dispatch-pending; Attempt remains parked
-  -> official assistant execution evidence
+  -> llm/stream witness flush + CAS dispatch-entered before downstream next()
+  -> official assistant execution evidence (or dispatch-unknown recovery)
   -> CAS Attempt -> running + terminal intent receipt
   -> official Agent Loop continues
 ```
@@ -165,11 +175,11 @@ Continuation intent recovery is deterministic:
 | `requested`, Attempt still `running` or owner live/in-flight | Preserve the request; do not admit or wake until the exact parked/settled evidence exists. |
 | `admitted`, effect/frame proven absent | Publish the exact byte-identical frame once under the persisted `resumeEffectId`; do not create another effect or intent. |
 | `admitted`, frame pending | Preserve and wait; do not create or resend another identity. |
-| `claimed`, exact current parked Attempt | Flush/read back, CAS intent to `dispatch-pending`, retain Attempt `parked`, then allow the official request waterfall to continue. |
-| `dispatch-pending`, exact Session has no request/header for the checkpointed step and process died | The official ordering proves no model stream dispatch; enqueue the v2 ledger's once-only continuation-recovery wake derived from the same effect identity. |
-| `dispatch-pending`, request/header exists but no assistant output/turn-end and process died | CAS to `dispatch-unknown`; reconcile by Provider request identity when available, otherwise escalate this true blocker for an explicit forward decision. Never retry blindly. |
-| `dispatch-pending`, exact assistant output/execution boundary exists | CAS Attempt to `running`, settle the intent receipt and release the current slot. |
-| `dispatch-pending`, exact turn ended without model output | Settle the wake receipt, release the slot and keep/return the Attempt `parked` with the classified error/wait evidence. |
+| `claimed`, exact current parked Attempt | Flush the exact assignment message, CAS intent to `dispatch-pending`, retain Attempt `parked`, checkpoint Session/turn/step, then allow the official request waterfall to continue. |
+| `dispatch-pending`, process died before the exact plugin `llm/stream` witness committed | Downstream model dispatch was not admitted. Because the original assignment message is already durable, enqueue the v2 ledger's separate once-only recovery trigger derived from the same effect; never replay/append the assignment frame again. |
+| `dispatch-entered`, assistant output/turn-end is absent after process death | CAS to `dispatch-unknown`; reconcile by Provider request identity when available, otherwise escalate this true blocker for an explicit forward decision. Never retry blindly. |
+| `dispatch-entered`, exact assistant output/execution boundary exists | CAS Attempt to `running`, settle the intent receipt and release the current slot. |
+| `dispatch-entered`, exact turn ended without assistant output | Settle the wake receipt, release the slot and keep/return the Attempt `parked` with the classified error/wait evidence. |
 | Response/effect visibility unknown | Read back the same intent/effect/frame identity; block only that route until known. |
 | Same intent identity repeated | Return the existing result idempotently. |
 | Different principal request races with a nonterminal intent | CAS rejects it and returns the current intent; the Team may explicitly supersede only through an authorized state transition. |
@@ -289,7 +299,7 @@ No product code may implement this ADR until one unique non-author QA accepts th
 2. no timer, prompt, token counter, file-diff check or plan counter can interrupt or rotate a healthy attempt;
 3. `running -> parked -> running` preserves one attempt/root and is CAS/read-back fenced;
 4. resume, reassign, interrupt, deadline and lease-expiry have distinct authority and effects;
-5. every requested/admitted/claimed/dispatch-pending/dispatch-unknown/settled/superseded/cancelled continuation and restart branch has one recovery decision;
+5. every requested/admitted/claimed/dispatch-pending/dispatch-entered/dispatch-unknown/settled/superseded/cancelled continuation and restart branch has one recovery decision;
 6. parked/recovery/unknown states block completion;
 7. default configuration disables time-driven idle retry and handles explicit legacy config without silent semantic change;
 8. tests cover different model styles, long reasoning, long tools, explicit pause/resume, restart, duplicate resume, late old attempt, deadline, transport unknown and unique QA acceptance.
