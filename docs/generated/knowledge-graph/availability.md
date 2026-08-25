@@ -2,7 +2,7 @@
 
 # Availability
 
-Manifest digest: `5dd09bc6a3db9f195b78af4d5b43d9fe1a21abe41157edcab4f5c1ce95a67fc3`
+Manifest digest: `9964a3d8d210b47c22ddd099231f2d62b41a5d43ff566d78c51a20f4f46bcc58`
 
 Curated tool-registry digest: `2af060c2441600f775e82097e626303c8fd607845230f4c489473bcecd4d7878`
 
@@ -114,6 +114,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
+  n_61727469666163743a6462672d3032342d6f6d69747465642d64656661756c742d70726f66696c652d65766964656e6365["DBG-024 omitted-key official Profile evidence authority"]
   n_61727469666163743a7061636b6167652d7265736f757263652f636f726469732e70617463682e796d6c["Package resource ./cordis.patch.yml"]
   n_61727469666163743a7061636b6167652d7265736f757263652f7061636b6167652e6a736f6e["Package resource ./package.json"]
   n_617574686f726974793a70726f6a6563742d636f6e747261637473["Registered project contract authority"]
@@ -143,13 +144,15 @@ flowchart LR
   n_636f6e6669672d6b65793a6d61786d6573736167656279746573["Config maxMessageBytes"]
   n_636f6e6669672d6b65793a6d617870656e64696e676d657373616765737065726d656d626572["Config maxPendingMessagesPerMember"]
   n_636f6e6669672d6b65793a6d617872657461696e6564617474656d707473["Config maxRetainedAttempts"]
-  n_636f6e6669672d6b65793a6d617872657461696e65646d65737361676573["Config maxRetainedMessages"]
+  n_617574686f726974793a70726f6a6563742d636f6e747261637473 -->|owns| n_61727469666163743a6462672d3032342d6f6d69747465642d64656661756c742d70726f66696c652d65766964656e6365
+  n_617574686f726974793a70726f6a6563742d636f6e747261637473 -->|owns| n_636f6e6669672d6b65793a6c617a796d656d6265727374617274
 ```
 
 _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 
 | Stable id | Kind | Classification | Implementation | Verification | Acceptance | Availability | Owner |
 |---|---|---|---|---|---|---|---|
+| `artifact:dbg-024-omitted-default-profile-evidence` | artifact | REVIEWED | implemented | real-profile | candidate | always-registered | `authority:project-contracts` |
 | `artifact:package-resource/cordis.patch.yml` | artifact | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
 | `artifact:package-resource/package.json` | artifact | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
 | `authority:project-contracts` | authority | REVIEWED | implemented | static | candidate | always-registered | `authority:project-contracts` |
@@ -172,7 +175,7 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `config-key:freshv2hostcontract` | config-key | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | config-gated | `(unclassified)` |
 | `config-key:freshv2legacymanifestcapacity` | config-key | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | config-gated | `(unclassified)` |
 | `config-key:jobsbridge` | config-key | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | config-gated | `(unclassified)` |
-| `config-key:lazymemberstart` | config-key | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | config-gated | `(unclassified)` |
+| `config-key:lazymemberstart` | config-key | REVIEWED | implemented | composition | candidate | always-registered | `authority:project-contracts` |
 | `config-key:maxdependencies` | config-key | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | config-gated | `(unclassified)` |
 | `config-key:maxmembers` | config-key | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | config-gated | `(unclassified)` |
 | `config-key:maxmemories` | config-key | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | config-gated | `(unclassified)` |
@@ -355,10 +358,14 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `flow-branch:fresh-v2-initial-dispatch/provider-start-result-unknown` | flow-branch | REVIEWED | absent | none | not-candidate | unavailable | `domain:agent-swarm` |
 | `flow-branch:fresh-v2-initial-dispatch/recovery-trigger-delivered-and-claimed` | flow-branch | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `flow-branch:fresh-v2-online-continuation/cold-recovery-pending-capability-blocked` | flow-branch | REVIEWED | absent | none | not-candidate | unavailable | `domain:agent-swarm` |
+| `flow-branch:member-startup-policy/fresh-v2-eager-rejected` | flow-branch | REVIEWED | implemented | unit | candidate | always-registered | `domain:agent-swarm` |
+| `flow-branch:member-startup-policy/legacy-eager-explicit-opt-out` | flow-branch | REVIEWED | implemented | composition | candidate | always-registered | `domain:agent-swarm` |
+| `flow-branch:member-startup-policy/legacy-lazy-default` | flow-branch | REVIEWED | implemented | real-profile | candidate | always-registered | `domain:agent-swarm` |
 | `flow:assignment-delivery` | flow | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
 | `flow:fresh-v2-initial-dispatch` | flow | REVIEWED | implemented | real-profile | candidate | config-gated | `domain:agent-swarm` |
 | `flow:fresh-v2-online-continuation` | flow | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `flow:fresh-v2-task-control-competition` | flow | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `flow:member-startup-policy` | flow | REVIEWED | implemented | composition | candidate | always-registered | `domain:agent-swarm` |
 | `guard:attempt-running-reserved` | guard | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
 | `guard:budget-reservation-admissible` | guard | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
 | `guard:captain-or-self-membership` | guard | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
@@ -369,7 +376,10 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `guard:fresh-v2-experimental-activation` | guard | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `guard:fresh-v2-fixed-profile-witness-capability` | guard | REVIEWED | implemented | composition | candidate | config-gated | `official-authority:llm-runtime` |
 | `guard:fresh-v2-official-agent-loop-request` | guard | REVIEWED | implemented | composition | candidate | config-gated | `official-authority:agent-loop` |
+| `guard:fresh-v2-reject-eager-member-start` | guard | REVIEWED | implemented | unit | candidate | always-registered | `authority:project-contracts` |
 | `guard:fresh-v2-terminal-control-wins` | guard | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `guard:legacy-member-start-eager-opt-out` | guard | REVIEWED | implemented | composition | candidate | always-registered | `domain:agent-swarm` |
+| `guard:legacy-member-start-lazy-default` | guard | REVIEWED | implemented | composition | candidate | always-registered | `domain:agent-swarm` |
 | `guard:member-has-no-open-work` | guard | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
 | `guard:official-live-direct-parent-admission` | guard | REVIEWED | implemented | static | candidate | always-registered | `official-authority:subagent` |
 | `guard:rpc-bound/src/client/team-dashboard-controller.ts/page_limit` | guard | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
@@ -1088,6 +1098,7 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `service:fresh-v2-recovery-driver` | service | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `service:fresh-v2-task-control-runtime` | service | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `service:layout` | service | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `service:legacy-member-provisioning` | service | REVIEWED | implemented | real-profile | candidate | always-registered | `domain:agent-swarm` |
 | `service:llm` | service | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `service:locale` | service | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `service:official-subagent-continuation` | service | REVIEWED | implemented | static | candidate | always-registered | `official-authority:subagent` |
@@ -1217,9 +1228,11 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `test:fresh-v2-initial-outcome-restart` | test | REVIEWED | implemented | composition | candidate | config-gated | `authority:project-contracts` |
 | `test:fresh-v2-initial-runtime` | test | REVIEWED | implemented | unit | candidate | config-gated | `authority:project-contracts` |
 | `test:fresh-v2-session-fold` | test | REVIEWED | implemented | unit | candidate | config-gated | `authority:project-contracts` |
+| `test:fresh-v2-startup-policy` | test | REVIEWED | implemented | unit | candidate | always-registered | `authority:project-contracts` |
 | `test:fresh-v2-task-control-domain` | test | REVIEWED | implemented | unit | candidate | config-gated | `authority:project-contracts` |
 | `test:fresh-v2-task-control-runtime` | test | REVIEWED | implemented | composition | candidate | config-gated | `authority:project-contracts` |
 | `test:fresh-v2-witness-capability` | test | REVIEWED | implemented | unit | candidate | config-gated | `authority:project-contracts` |
+| `test:lazy-member-start` | test | REVIEWED | implemented | composition | candidate | always-registered | `authority:project-contracts` |
 | `test:scheduling-discipline` | test | REVIEWED | implemented | composition | candidate | always-registered | `authority:project-contracts` |
 | `test:team-assignment-checkpoint` | test | REVIEWED | implemented | unit | candidate | always-registered | `authority:project-contracts` |
 | `test:team-v2-foundation` | test | REVIEWED | implemented | unit | candidate | config-gated | `authority:project-contracts` |

@@ -2,7 +2,7 @@
 
 # Entrypoints and switches
 
-Manifest digest: `5dd09bc6a3db9f195b78af4d5b43d9fe1a21abe41157edcab4f5c1ce95a67fc3`
+Manifest digest: `9964a3d8d210b47c22ddd099231f2d62b41a5d43ff566d78c51a20f4f46bcc58`
 
 Curated tool-registry digest: `2af060c2441600f775e82097e626303c8fd607845230f4c489473bcecd4d7878`
 
@@ -157,7 +157,7 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `config-key:freshv2hostcontract` | config-key | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | config-gated | `(unclassified)` |
 | `config-key:freshv2legacymanifestcapacity` | config-key | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | config-gated | `(unclassified)` |
 | `config-key:jobsbridge` | config-key | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | config-gated | `(unclassified)` |
-| `config-key:lazymemberstart` | config-key | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | config-gated | `(unclassified)` |
+| `config-key:lazymemberstart` | config-key | REVIEWED | implemented | composition | candidate | always-registered | `authority:project-contracts` |
 | `config-key:maxdependencies` | config-key | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | config-gated | `(unclassified)` |
 | `config-key:maxmembers` | config-key | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | config-gated | `(unclassified)` |
 | `config-key:maxmemories` | config-key | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | config-gated | `(unclassified)` |

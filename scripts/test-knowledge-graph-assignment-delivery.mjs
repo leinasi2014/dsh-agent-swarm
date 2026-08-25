@@ -46,11 +46,22 @@ async function expectSourceCode(code, file, replace, replacement, official = fal
   )
 }
 
+async function expectProfileCode(code, replace, replacement) {
+  const file = 'docs/development/2026-08-26-dbg024-eager-member-claim-race.md'
+  const source = await readFile(resolve(root, file), 'utf8')
+  const changed = source.replace(replace, replacement)
+  assert.notEqual(changed, source, `profile fixture did not match ${file}`)
+  await assert.rejects(
+    () => extractAssignmentDeliveryFacts(root, { profileEvidenceText: changed }),
+    error => error instanceof KnowledgeGraphError && error.code === code,
+  )
+}
+
 const summary = reconcileAssignmentDeliverySlice(facts, sourceFacts, manifest)
-assert.deepEqual({ nodes: summary.nodeCount, edges: summary.edgeCount }, { nodes: 63, edges: 139 })
-assert.equal(facts.callables.length, 14)
-assert.equal(facts.official.callables.length, 6)
-assert.equal(facts.digest, 'db0493f50f5b32aaeee1ac3cda02d0a66e2ce10fade8e04f9b7f17829dafdfc1')
+assert.deepEqual({ nodes: summary.nodeCount, edges: summary.edgeCount }, { nodes: 75, edges: 170 })
+assert.equal(facts.callables.length, 17)
+assert.equal(facts.official.callables.length, 8)
+assert.equal(facts.digest, '720f5c92699fcf9c8ed689a5614ecf163ba778ac13067b8f0387dfa292c66197')
 assert.deepEqual(facts.bounds, { followupTimeoutMs: 30000, waitTimeoutMs: 30000, visibilityTimeoutMs: 30000, claimGraceMs: 5000 })
 assert.equal(slice.nodes.find(item => item.id === 'provider:official-subagent-followup').security.mutation, 'external-effect')
 assert.equal(node(manifest, 'service:assignment-scheduling').ownerAuthority.id, 'domain:agent-swarm')
@@ -85,6 +96,11 @@ for (const state of ['pending', 'unknown']) {
 }
 assert(edge(manifest, 'edge:claim/mutates-budget'))
 assert(edge(manifest, 'edge:claim/transitions-budget-used-requests'))
+assert.equal(node(manifest, 'flow-branch:member-startup-policy/legacy-lazy-default').maturity.verification.state, 'real-profile')
+assert.equal(node(manifest, 'flow-branch:member-startup-policy/legacy-eager-explicit-opt-out').maturity.verification.state, 'composition')
+assert.equal(node(manifest, 'flow-branch:member-startup-policy/fresh-v2-eager-rejected').maturity.verification.state, 'unit')
+assert.equal(edge(manifest, 'edge:member-startup/lazy-accepted-profile').to.id, 'artifact:dbg-024-omitted-default-profile-evidence')
+assert.equal(manifest.edges.some(item => item.from.id === 'flow-branch:member-startup-policy/fresh-v2-eager-rejected' && item.to.id === 'artifact:dbg-024-omitted-default-profile-evidence'), false)
 assert.equal(validateManifestSemantics(root, manifest).nodeCount, manifest.nodes.length)
 
 expectManifestCode('KG_SEMANTIC_AUTHORITY', candidate => {
@@ -143,6 +159,12 @@ expectManifestCode('KG_SEMANTIC_EDGE_EXTRA', candidate => {
 })
 expectManifestCode('KG_SEMANTIC_RECOVERY_MUTATION', candidate => {
   candidate.edges = candidate.edges.filter(item => item.id !== 'edge:claim/mutates-budget')
+})
+expectManifestCode('KG_SEMANTIC_EDGE_MISSING', candidate => {
+  candidate.edges = candidate.edges.filter(item => item.id !== 'edge:member-startup/lazy-accepted-profile')
+})
+expectManifestCode('KG_SEMANTIC_TRACE', candidate => {
+  node(candidate, 'guard:fresh-v2-reject-eager-member-start').maturity.verification.state = 'real-profile'
 })
 
 {
@@ -292,6 +314,38 @@ await expectSourceCode(
 await expectSourceCode(
   'KG_SEMANTIC_FRAME_PROOF', 'src/runtime/prompts.ts',
   'Attempt capability: ${attemptId}', 'Attempt capability: omitted',
+)
+await expectSourceCode(
+  'KG_SEMANTIC_STARTUP_POLICY', 'src/index.ts',
+  'lazyMemberStart: z.boolean().default(true)', 'lazyMemberStart: z.boolean().default(false)',
+)
+await expectSourceCode(
+  'KG_SEMANTIC_STARTUP_POLICY', 'src/index.ts',
+  "reject(config.lazyMemberStart === false, 'lazyMemberStart')", "reject(config.lazyMemberStart === true, 'lazyMemberStart')",
+)
+await expectSourceCode(
+  'KG_SEMANTIC_STARTUP_POLICY', 'src/runtime/member-provisioning.ts',
+  '      if (!this.deps.config.lazyMemberStart) {\n        try {\n          await this.ctx.subagents.startContinuable({',
+  '      if (true) {\n        try {\n          await this.ctx.subagents.startContinuable({',
+)
+await expectSourceCode(
+  'KG_SEMANTIC_STARTUP_POLICY', 'src/runtime/member-provisioning.ts',
+  "prompt: [{ type: 'text', text: assignmentFrame }]", "prompt: [{ type: 'text', text: memberJoinNotice(team) }]",
+)
+await expectSourceCode(
+  'KG_SEMANTIC_STARTUP_TEST_TRACE', 'tests/lazy-member-start.spec.ts',
+  'defaults omitted legacy configuration to lazy start and delivers the assignment before model execution',
+  'defaults configuration without proving the startup boundary',
+)
+await expectSourceCode(
+  'KG_SEMANTIC_STARTUP_TEST_TRACE', 'tests/fresh-v2-initial-runtime.spec.ts',
+  'resolves lazy startup by default and rejects eager startup from fresh-v2 configuration',
+  'checks a generic fresh-v2 configuration',
+)
+await expectProfileCode(
+  'KG_SEMANTIC_PROFILE_EVIDENCE',
+  '`lazyMemberStart` key was absent from Profile configuration',
+  '`lazyMemberStart` key was explicitly true in Profile configuration',
 )
 
 process.stdout.write(`knowledge graph assignment-delivery fixtures passed (${summary.nodeCount} nodes, ${summary.edgeCount} edges)\n`)

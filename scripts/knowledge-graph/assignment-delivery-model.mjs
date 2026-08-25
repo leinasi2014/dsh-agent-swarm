@@ -69,6 +69,20 @@ function contractAnchor(facts, file, selector, digestKey) {
   return { file, selector: `${selector}-${facts.contractSlices[digestKey].slice(0, 16)}` }
 }
 
+function testAnchor(facts, file, selector) {
+  const item = facts.tests.find(candidate => candidate.file === file)
+  if (item === undefined) fail('KG_SEMANTIC_TEST_TRACE', `missing test anchor ${file}`)
+  return { file, selector: `${selector}-${item.semanticDigest.slice(0, 16)}` }
+}
+
+function startupAnchor(facts, file, selector) {
+  return { file, selector: `${selector}-${facts.proofs.startup.digest.slice(0, 16)}` }
+}
+
+function profileEvidenceAnchor(facts, selector) {
+  return { file: facts.profileEvidence.file, selector: `${selector}-${facts.profileEvidence.semanticDigest.slice(0, 16)}` }
+}
+
 function predicate(id, title, entity, selector, operator, value, owner, anchor) {
   return node(id, 'state-predicate', title, owner, [anchor], {
     contract: {
@@ -78,8 +92,8 @@ function predicate(id, title, entity, selector, operator, value, owner, anchor) 
   })
 }
 
-function branch(id, title, flow, owner, anchor) {
-  return node(id, 'flow-branch', title, owner, [anchor], { contract: { nodeKind: 'flow-branch', flow } })
+function branch(id, title, flow, owner, anchor, options = {}) {
+  return node(id, 'flow-branch', title, owner, [anchor], { ...options, contract: { nodeKind: 'flow-branch', flow } })
 }
 
 function crash(flow, branchRef, options) {
@@ -99,6 +113,8 @@ export function buildAssignmentDeliverySlice(facts, mechanicalInventory) {
   validateAssignmentDeliveryFacts(facts)
   const mechanicalDomain = mechanicalInventory.nodes.find(item => item.id === team.id)
   if (mechanicalDomain === undefined) fail('KG_SEMANTIC_TEAM_DOMAIN', 'mechanical Team domain fact is missing')
+  const mechanicalStartupConfig = mechanicalInventory.nodes.find(item => item.id === 'config-key:lazymemberstart')
+  if (mechanicalStartupConfig === undefined) fail('KG_SEMANTIC_STARTUP_CONFIG', 'mechanical lazyMemberStart config fact is missing')
   const claimAnchor = sourceAnchor(facts, 'src/domain/team-domain-board.ts#claimTask', 'claim-task')
   const ackAnchor = sourceAnchor(facts, 'src/domain/team-domain-board.ts#acknowledgeAssignment', 'acknowledge-assignment')
   const cancelAnchor = sourceAnchor(facts, 'src/domain/team-domain-board.ts#cancelAttempt', 'cancel-attempt')
@@ -109,13 +125,32 @@ export function buildAssignmentDeliverySlice(facts, mechanicalInventory) {
   const waitAnchor = sourceAnchor(facts, 'src/runtime/frame-visibility.ts#waitForFrameClaim', 'wait-frame-claim')
   const claimedAnchor = sourceAnchor(facts, 'src/runtime/session-acceptance.ts#messageClaimed', 'message-claimed')
   const seatAnchor = sourceAnchor(facts, 'src/domain/team-domain-board.ts#seatAttempt', 'seat-attempt-budget')
+  const addMemberAnchor = sourceAnchor(facts, 'src/runtime/member-provisioning.ts#MemberProvisioner.addMember', 'member-add-startup-policy')
+  const startAssignedAnchor = sourceAnchor(facts, 'src/runtime/member-provisioning.ts#MemberProvisioner.startAssignedMember', 'member-first-assignment-start')
+  const freshRejectAnchor = sourceAnchor(facts, 'src/index.ts#rejectUnsupportedFreshV2Config', 'fresh-v2-eager-rejection')
+  const startupConfigAnchor = startupAnchor(facts, 'src/index.ts', 'lazy-member-start-default')
   const flow = ref('flow:assignment-delivery', 'flow')
   const branchRefs = Object.fromEntries(['claim-reserved', 'admission-rejected', 'admission-unknown', 'claimed', 'absent', 'pending', 'unknown'].map(name => [name, ref(`flow-branch:assignment-delivery/${name}`, 'flow-branch')]))
   const scheduling = ref('service:assignment-scheduling', 'service')
   const frameRead = ref('service:assignment-frame-visibility', 'service')
   const continuation = ref('service:official-subagent-continuation', 'service')
   const followup = ref('provider:official-subagent-followup', 'provider')
+  const startContinuable = ref('provider:official-subagent-start-continuable', 'provider')
   const sessionRead = ref('provider:official-session-readback', 'provider')
+  const startupFlow = ref('flow:member-startup-policy', 'flow')
+  const startupService = ref('service:legacy-member-provisioning', 'service')
+  const startupBranches = {
+    lazy: ref('flow-branch:member-startup-policy/legacy-lazy-default', 'flow-branch'),
+    eager: ref('flow-branch:member-startup-policy/legacy-eager-explicit-opt-out', 'flow-branch'),
+    freshReject: ref('flow-branch:member-startup-policy/fresh-v2-eager-rejected', 'flow-branch'),
+  }
+  const startupGuards = {
+    lazy: ref('guard:legacy-member-start-lazy-default', 'guard'),
+    eager: ref('guard:legacy-member-start-eager-opt-out', 'guard'),
+    freshReject: ref('guard:fresh-v2-reject-eager-member-start', 'guard'),
+  }
+  const startupConfig = ref('config-key:lazymemberstart', 'config-key')
+  const profileEvidence = ref('artifact:dbg-024-omitted-default-profile-evidence', 'artifact')
   const task = ref('entity:team-task', 'entity')
   const attempt = ref('entity:task-attempt', 'entity')
   const budget = ref('entity:team-request-budget', 'entity')
@@ -163,6 +198,8 @@ export function buildAssignmentDeliverySlice(facts, mechanicalInventory) {
     visibility: ref('test:assignment-visibility', 'test'),
     checkpoint: ref('test:team-assignment-checkpoint', 'test'),
     discipline: ref('test:scheduling-discipline', 'test'),
+    lazyStartup: ref('test:lazy-member-start', 'test'),
+    freshStartup: ref('test:fresh-v2-startup-policy', 'test'),
   }
   const docRefs = {
     core: ref('document:core-protocol', 'document'),
@@ -178,8 +215,16 @@ export function buildAssignmentDeliverySlice(facts, mechanicalInventory) {
     security: security(team, 'none', { callerIdentity: 'none', dataClasses: ['team', 'secret-excluded'] }),
     tags: ['assignment-delivery', 'authority', 'kg1-d1'],
   }
+  const reviewedStartupConfig = {
+    ...mechanicalStartupConfig,
+    classification: 'reviewed', ownerAuthority: contracts,
+    maturity: maturity('composition', [testRefs.lazyStartup.id, testRefs.freshStartup.id]),
+    security: security(contracts, 'none', { callerIdentity: 'none', dataClasses: ['public'] }),
+    tags: ['member-startup-policy', 'config', 'kg1-d1'],
+  }
   const nodes = [
     reviewedDomain,
+    reviewedStartupConfig,
     node(session.id, session.kind, 'Official Session event/history authority', session, [officialAnchor(facts, 'official-session-authority')], { security: security(session, 'none', { callerIdentity: 'none', dataClasses: ['session', 'secret-excluded'] }), tags: ['authority', 'official', 'session'] }),
     node(subagent.id, subagent.kind, 'Official continuable Subagent admission authority', subagent, [officialAnchor(facts, 'official-subagent-authority')], { security: security(subagent, 'none', { callerIdentity: 'none', dataClasses: ['session', 'secret-excluded'] }), tags: ['authority', 'official', 'subagent'] }),
     node(contracts.id, contracts.kind, 'Registered project contract authority', contracts, [{ file: 'docs/governance/document-registry.yaml', selector: 'stable-document-registry' }], { security: security(contracts, 'none', { callerIdentity: 'none', dataClasses: ['public'] }), tags: ['authority', 'contract'] }),
@@ -259,11 +304,45 @@ export function buildAssignmentDeliverySlice(facts, mechanicalInventory) {
       return node(value.id, value.kind, name.replaceAll('-', ' '), owner, [name === 'parent' ? officialAnchor(facts, 'official-parent-admission') : name === 'claimed' ? claimedAnchor : claimAnchor], { security: security(owner) })
     }),
     ...Object.entries(redlines).map(([name, value]) => node(value.id, value.kind, name.replaceAll('-', ' '), name === 'storage' ? team : contracts, [name === 'storage' ? contractAnchor(facts, 'docs/04-core-protocol.md', 'team-authority-boundary', 'recovery') : contractAnchor(facts, 'docs/04-core-protocol.md', `assignment-redline-${name}`, 'scheduling')], { security: security(name === 'storage' ? team : contracts, 'none', { callerIdentity: 'none', dataClasses: ['public'] }) })),
+    node(startupFlow.id, startupFlow.kind, 'Select legacy lazy/eager member startup or reject eager fresh-v2', team, [addMemberAnchor, freshRejectAnchor], {
+      verification: 'composition', evidence: [testRefs.lazyStartup.id, testRefs.freshStartup.id],
+      tags: ['member-startup-policy', 'assignment-delivery', 'kg1-d1'],
+    }),
+    node(startupService.id, startupService.kind, 'Legacy member declaration and first-assignment materialization', team, [addMemberAnchor, startAssignedAnchor], {
+      verification: 'real-profile', evidence: [testRefs.lazyStartup.id, profileEvidence.id],
+      security: security(subagent, 'external-effect', { authoritySource: subagent, dataClasses: ['team', 'session', 'secret-excluded'] }),
+      tags: ['member-startup-policy', 'legacy-v1', 'kg1-d1'],
+    }),
+    branch(startupBranches.lazy.id, 'Legacy omitted/default true waits for first authoritative assignment', startupFlow, team, startAssignedAnchor, {
+      verification: 'real-profile', evidence: [testRefs.lazyStartup.id, profileEvidence.id], tags: ['member-startup-policy', 'legacy-v1', 'kg1-d1'],
+    }),
+    branch(startupBranches.eager.id, 'Legacy explicit false preserves eager join-turn compatibility', startupFlow, team, addMemberAnchor, {
+      verification: 'composition', evidence: [testRefs.lazyStartup.id], tags: ['member-startup-policy', 'legacy-v1', 'kg1-d1'],
+    }),
+    branch(startupBranches.freshReject.id, 'Fresh-v2 explicit false is rejected before runtime admission', startupFlow, team, freshRejectAnchor, {
+      verification: 'unit', evidence: [testRefs.freshStartup.id], tags: ['member-startup-policy', 'fresh-v2-config', 'kg1-d1'],
+    }),
+    node(startupGuards.lazy.id, startupGuards.lazy.kind, 'Omitted or true lazy member startup selection', team, [startupConfigAnchor, startAssignedAnchor], {
+      verification: 'composition', evidence: [testRefs.lazyStartup.id], tags: ['member-startup-policy', 'legacy-v1', 'kg1-d1'],
+    }),
+    node(startupGuards.eager.id, startupGuards.eager.kind, 'Explicit false eager legacy compatibility selection', team, [addMemberAnchor], {
+      verification: 'composition', evidence: [testRefs.lazyStartup.id], tags: ['member-startup-policy', 'legacy-v1', 'kg1-d1'],
+    }),
+    node(startupGuards.freshReject.id, startupGuards.freshReject.kind, 'Fresh-v2 rejects explicit eager member startup', contracts, [freshRejectAnchor], {
+      verification: 'unit', evidence: [testRefs.freshStartup.id], security: security(contracts, 'none', { callerIdentity: 'none', dataClasses: ['public'] }),
+      tags: ['member-startup-policy', 'fresh-v2-config', 'kg1-d1'],
+    }),
+    node(profileEvidence.id, profileEvidence.kind, 'DBG-024 omitted-key official Profile evidence authority', contracts, [profileEvidenceAnchor(facts, 'omitted-default-profile-proof')], {
+      verification: 'real-profile', evidence: [], security: security(contracts, 'none', { callerIdentity: 'none', dataClasses: ['public', 'session', 'secret-excluded'] }),
+      tags: ['member-startup-policy', 'legacy-v1', 'profile-evidence', 'kg1-d1'],
+    }),
     node(flow.id, flow.kind, 'Claim, deliver, observe, acknowledge or recover assignment', team, [dispatchAnchor, claimAnchor]),
     ...Object.entries(branchRefs).map(([name, value]) => branch(value.id, `Assignment ${name.replaceAll('-', ' ')}`, flow, team, name === 'claim-reserved' ? claimAnchor : name === 'admission-rejected' ? rollbackAnchor : name === 'claimed' ? ackAnchor : visibilityAnchor)),
     node(testRefs.visibility.id, testRefs.visibility.kind, 'Assignment visibility composition test', contracts, [{ file: 'tests/assignment-visibility.spec.ts', selector: `test-${facts.tests.find(item => item.file === 'tests/assignment-visibility.spec.ts').semanticDigest.slice(0, 16)}` }], { verification: 'composition', security: security(contracts, 'none', { callerIdentity: 'none', dataClasses: ['public'] }) }),
     node(testRefs.checkpoint.id, testRefs.checkpoint.kind, 'Assignment checkpoint domain test', contracts, [{ file: 'tests/team-assignment-checkpoint.spec.ts', selector: `test-${facts.tests.find(item => item.file === 'tests/team-assignment-checkpoint.spec.ts').semanticDigest.slice(0, 16)}` }], { verification: 'unit', security: security(contracts, 'none', { callerIdentity: 'none', dataClasses: ['public'] }) }),
     node(testRefs.discipline.id, testRefs.discipline.kind, 'Scheduling rollback composition test', contracts, [{ file: 'tests/scheduling-discipline.spec.ts', selector: `test-${facts.tests.find(item => item.file === 'tests/scheduling-discipline.spec.ts').semanticDigest.slice(0, 16)}` }], { verification: 'composition', security: security(contracts, 'none', { callerIdentity: 'none', dataClasses: ['public'] }) }),
+    node(testRefs.lazyStartup.id, testRefs.lazyStartup.kind, 'Legacy lazy-default and eager-opt-out composition tests', contracts, [testAnchor(facts, 'tests/lazy-member-start.spec.ts', 'legacy-startup-policy-tests')], { verification: 'composition', security: security(contracts, 'none', { callerIdentity: 'none', dataClasses: ['public'] }), tags: ['member-startup-policy', 'legacy-v1', 'kg1-d1'] }),
+    node(testRefs.freshStartup.id, testRefs.freshStartup.kind, 'Fresh-v2 eager startup rejection configuration test', contracts, [testAnchor(facts, 'tests/fresh-v2-initial-runtime.spec.ts', 'fresh-v2-startup-policy-test')], { verification: 'unit', security: security(contracts, 'none', { callerIdentity: 'none', dataClasses: ['public'] }), tags: ['member-startup-policy', 'fresh-v2-config', 'kg1-d1'] }),
     node(docRefs.core.id, docRefs.core.kind, 'Registered core protocol', contracts, [contractAnchor(facts, 'docs/04-core-protocol.md', 'assignment-delivery-contract', 'scheduling')], { security: security(contracts, 'none', { callerIdentity: 'none', dataClasses: ['public'] }) }),
     node(docRefs.testing.id, docRefs.testing.kind, 'Registered verification contract', contracts, [contractAnchor(facts, 'docs/08-testing-verification.md', 'assignment-verification-contract', 'verification')], { security: security(contracts, 'none', { callerIdentity: 'none', dataClasses: ['public'] }) }),
     node(docRefs.baseline.id, docRefs.baseline.kind, 'Registered official release baseline', contracts, [officialAnchor(facts, 'official-release-baseline')], { security: security(contracts, 'none', { callerIdentity: 'none', dataClasses: ['public'] }) }),
@@ -367,7 +446,28 @@ export function buildAssignmentDeliverySlice(facts, mechanicalInventory) {
     add(edge(`edge:guard/${edgeName}`, 'guards', guard, target, name === 'parent' ? officialAnchor(facts, 'official-admission-guard') : name === 'claimed' ? claimedAnchor : claimAnchor))
   }
   for (const branchRef of Object.values(branchRefs)) add(edge(`edge:flow/${branchRef.id.split('/').at(-1)}`, 'contains', flow, branchRef, dispatchAnchor))
+  for (const [name, branchRef] of Object.entries(startupBranches)) {
+    const anchor = name === 'lazy' ? startAssignedAnchor : name === 'eager' ? addMemberAnchor : freshRejectAnchor
+    const edgeName = name.replace(/[A-Z]/gu, value => `-${value.toLowerCase()}`)
+    add(edge(`edge:member-startup/contains-${edgeName}`, 'contains', startupFlow, branchRef, anchor))
+  }
   add(
+    edge('edge:member-startup/configures-service', 'configured-by', startupService, startupConfig, startupConfigAnchor),
+    edge('edge:member-startup/lazy-guard-config', 'configured-by', startupGuards.lazy, startupConfig, startupConfigAnchor),
+    edge('edge:member-startup/eager-guard-config', 'configured-by', startupGuards.eager, startupConfig, startupConfigAnchor),
+    edge('edge:member-startup/fresh-reject-guard-config', 'configured-by', startupGuards.freshReject, startupConfig, freshRejectAnchor),
+    edge('edge:member-startup/lazy-guard', 'guards', startupGuards.lazy, startupBranches.lazy, startAssignedAnchor),
+    edge('edge:member-startup/eager-guard', 'guards', startupGuards.eager, startupBranches.eager, addMemberAnchor),
+    edge('edge:member-startup/fresh-reject-guard', 'guards', startupGuards.freshReject, startupBranches.freshReject, freshRejectAnchor),
+    edge('edge:member-startup/lazy-calls-provisioner', 'calls', startupBranches.lazy, startupService, startAssignedAnchor),
+    edge('edge:member-startup/eager-calls-provisioner', 'calls', startupBranches.eager, startupService, addMemberAnchor),
+    edge('edge:member-startup/provisioner-calls-official-start', 'calls', startupService, startContinuable, startAssignedAnchor),
+    edge('edge:member-startup/lazy-verified-test', 'verified-by', startupBranches.lazy, testRefs.lazyStartup, startAssignedAnchor),
+    edge('edge:member-startup/lazy-accepted-profile', 'accepted-by', startupBranches.lazy, profileEvidence, profileEvidenceAnchor(facts, 'legacy-lazy-profile-proof')),
+    edge('edge:member-startup/eager-verified-test', 'verified-by', startupBranches.eager, testRefs.lazyStartup, addMemberAnchor),
+    edge('edge:member-startup/fresh-reject-verified-test', 'verified-by', startupBranches.freshReject, testRefs.freshStartup, freshRejectAnchor),
+    edge('edge:member-startup/documented-core', 'documented-by', startupFlow, docRefs.core, contractAnchor(facts, 'docs/04-core-protocol.md', 'member-startup-contract', 'scheduling')),
+    edge('edge:member-startup/documented-testing', 'documented-by', startupFlow, docRefs.testing, contractAnchor(facts, 'docs/08-testing-verification.md', 'member-startup-tests', 'verification')),
     edge('edge:flow/trigger-claim', 'triggers', claimTx, flow, claimAnchor),
     edge('edge:recovery/admission-rejected', 'recovers', scheduling, branchRefs['admission-rejected'], rollbackAnchor),
     edge('edge:recovery/admission-unknown', 'recovers', scheduling, branchRefs['admission-unknown'], visibilityAnchor),
@@ -413,7 +513,7 @@ export function mergeAssignmentDeliverySlice(manifest, slice) {
   const ids = new Set(slice.nodes.map(item => item.id))
   const edgeIds = new Set(slice.edges.map(item => item.id))
   const retiredNodeIds = new Set(['flow-branch:assignment-delivery/pending-or-unknown'])
-  const retiredEdgeIds = new Set(['edge:guard/runningReserved', 'edge:scheduling/calls-claim', 'edge:flow/pending-or-unknown', 'edge:recovery/pending-or-unknown', 'edge:owner/flow-branch/assignment-delivery/pending-or-unknown'])
+  const retiredEdgeIds = new Set(['edge:guard/runningReserved', 'edge:scheduling/calls-claim', 'edge:flow/pending-or-unknown', 'edge:recovery/pending-or-unknown', 'edge:owner/flow-branch/assignment-delivery/pending-or-unknown', 'edge:member-startup/contains-freshReject'])
   const merged = structuredClone(manifest)
   merged.nodes = [...merged.nodes.filter(item => !ids.has(item.id) && !retiredNodeIds.has(item.id)), ...structuredClone(slice.nodes)].sort((left, right) => compareText(left.id, right.id))
   merged.edges = [...merged.edges.filter(item => !edgeIds.has(item.id) && !retiredEdgeIds.has(item.id)), ...structuredClone(slice.edges)].sort((left, right) => compareText(left.id, right.id))

@@ -2,7 +2,7 @@
 
 # Authority and permission
 
-Manifest digest: `5dd09bc6a3db9f195b78af4d5b43d9fe1a21abe41157edcab4f5c1ce95a67fc3`
+Manifest digest: `9964a3d8d210b47c22ddd099231f2d62b41a5d43ff566d78c51a20f4f46bcc58`
 
 Curated tool-registry digest: `2af060c2441600f775e82097e626303c8fd607845230f4c489473bcecd4d7878`
 
@@ -128,7 +128,10 @@ flowchart LR
   n_67756172643a66726573682d76322d6578706572696d656e74616c2d61637469766174696f6e["Fresh-v2 is explicit and isolated from v1 activation"]
   n_67756172643a66726573682d76322d66697865642d70726f66696c652d7769746e6573732d6361706162696c697479["Fixed-Profile host, artifact, Provider and listener-order witness"]
   n_67756172643a66726573682d76322d6f6666696369616c2d6167656e742d6c6f6f702d72657175657374["Exact official Agent Loop AbortSignal permit and Session coordinates"]
+  n_67756172643a66726573682d76322d72656a6563742d65616765722d6d656d6265722d7374617274["Fresh-v2 rejects explicit eager member startup"]
   n_67756172643a66726573682d76322d7465726d696e616c2d636f6e74726f6c2d77696e73["Task revision, Attempt, actor and one-shot model permit fail-closed fence"]
+  n_67756172643a6c65676163792d6d656d6265722d73746172742d65616765722d6f70742d6f7574["Explicit false eager legacy compatibility selection"]
+  n_67756172643a6c65676163792d6d656d6265722d73746172742d6c617a792d64656661756c74["Omitted or true lazy member startup selection"]
   n_67756172643a6d656d6265722d6861732d6e6f2d6f70656e2d776f726b["available"]
   n_67756172643a6f6666696369616c2d6c6976652d6469726563742d706172656e742d61646d697373696f6e["parent"]
   n_67756172643a7270632d626f756e642f7372632f636c69656e742f7465616d2d64617368626f6172642d636f6e74726f6c6c65722e74732f706167655f6c696d6974["PAGE_LIMIT = 50"]
@@ -138,22 +141,18 @@ flowchart LR
   n_67756172643a7270632d626f756e642f7372632f7270632f726561642d7270632d736572766963652e74732f6d61785f706167655f6c696d6974["MAX_PAGE_LIMIT = 50"]
   n_67756172643a7270632d687474702f30312d7372632f636c69656e742f726561642d636c69656e742e7473["client-fetch POST"]
   n_67756172643a7270632d687474702f30322d7372632f7270632f726561642d7270632d736572766963652e7473["route-handler POST"]
-  n_67756172643a7461736b2d7265616479["ready"]
-  n_6f6666696369616c2d617574686f726974793a6167656e742d6c6f6f70["Official DSH Agent Loop execution authority"]
-  n_6f6666696369616c2d617574686f726974793a6c6c6d2d72756e74696d65["Official DSH LLM registry and stream waterfall authority"]
   n_646f6d61696e3a6167656e742d737761726d -->|owns| n_67756172643a66726573682d76322d636f6e74696e756174696f6e2d65786163742d617474656d7074
   n_646f6d61696e3a6167656e742d737761726d -->|owns| n_67756172643a66726573682d76322d6578706572696d656e74616c2d61637469766174696f6e
   n_646f6d61696e3a6167656e742d737761726d -->|owns| n_67756172643a66726573682d76322d7465726d696e616c2d636f6e74726f6c2d77696e73
-  n_6f6666696369616c2d617574686f726974793a6c6c6d2d72756e74696d65 -->|owns| n_6361706162696c6974793a66726573682d76322d6d6f64656c2d64697370617463682d7769746e657373
-  n_6f6666696369616c2d617574686f726974793a6c6c6d2d72756e74696d65 -->|owns| n_67756172643a66726573682d76322d66697865642d70726f66696c652d7769746e6573732d6361706162696c697479
-  n_6f6666696369616c2d617574686f726974793a6167656e742d6c6f6f70 -->|owns| n_67756172643a66726573682d76322d6f6666696369616c2d6167656e742d6c6f6f702d72657175657374
   n_646f6d61696e3a6167656e742d737761726d -->|owns| n_67756172643a617474656d70742d72756e6e696e672d7265736572766564
   n_646f6d61696e3a6167656e742d737761726d -->|owns| n_67756172643a6275646765742d7265736572766174696f6e2d61646d69737369626c65
   n_646f6d61696e3a6167656e742d737761726d -->|owns| n_67756172643a6361707461696e2d6f722d73656c662d6d656d62657273686970
   n_646f6d61696e3a6167656e742d737761726d -->|owns| n_67756172643a65786163742d63757272656e742d617474656d7074
   n_646f6d61696e3a6167656e742d737761726d -->|owns| n_67756172643a65786163742d7461736b2d7265766973696f6e
+  n_617574686f726974793a70726f6a6563742d636f6e747261637473 -->|owns| n_67756172643a66726573682d76322d72656a6563742d65616765722d6d656d6265722d7374617274
+  n_646f6d61696e3a6167656e742d737761726d -->|owns| n_67756172643a6c65676163792d6d656d6265722d73746172742d65616765722d6f70742d6f7574
+  n_646f6d61696e3a6167656e742d737761726d -->|owns| n_67756172643a6c65676163792d6d656d6265722d73746172742d6c617a792d64656661756c74
   n_646f6d61696e3a6167656e742d737761726d -->|owns| n_67756172643a6d656d6265722d6861732d6e6f2d6f70656e2d776f726b
-  n_646f6d61696e3a6167656e742d737761726d -->|owns| n_67756172643a7461736b2d7265616479
 ```
 
 _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
@@ -177,7 +176,10 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `guard:fresh-v2-experimental-activation` | guard | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `guard:fresh-v2-fixed-profile-witness-capability` | guard | REVIEWED | implemented | composition | candidate | config-gated | `official-authority:llm-runtime` |
 | `guard:fresh-v2-official-agent-loop-request` | guard | REVIEWED | implemented | composition | candidate | config-gated | `official-authority:agent-loop` |
+| `guard:fresh-v2-reject-eager-member-start` | guard | REVIEWED | implemented | unit | candidate | always-registered | `authority:project-contracts` |
 | `guard:fresh-v2-terminal-control-wins` | guard | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `guard:legacy-member-start-eager-opt-out` | guard | REVIEWED | implemented | composition | candidate | always-registered | `domain:agent-swarm` |
+| `guard:legacy-member-start-lazy-default` | guard | REVIEWED | implemented | composition | candidate | always-registered | `domain:agent-swarm` |
 | `guard:member-has-no-open-work` | guard | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
 | `guard:official-live-direct-parent-admission` | guard | REVIEWED | implemented | static | candidate | always-registered | `official-authority:subagent` |
 | `guard:rpc-bound/src/client/team-dashboard-controller.ts/page_limit` | guard | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |

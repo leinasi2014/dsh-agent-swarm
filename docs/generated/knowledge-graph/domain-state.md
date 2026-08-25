@@ -2,7 +2,7 @@
 
 # Domain and state
 
-Manifest digest: `5dd09bc6a3db9f195b78af4d5b43d9fe1a21abe41157edcab4f5c1ce95a67fc3`
+Manifest digest: `9964a3d8d210b47c22ddd099231f2d62b41a5d43ff566d78c51a20f4f46bcc58`
 
 Curated tool-registry digest: `2af060c2441600f775e82097e626303c8fd607845230f4c489473bcecd4d7878`
 

@@ -8,21 +8,26 @@ import { callBinding, compareText, visit } from './ast.mjs'
 
 const SLICE_ID = 'assignment-delivery-recovery-v1'
 const SOURCE_FILES = [
+  'src/index.ts',
   'src/domain/team-domain-board.ts',
   'src/domain/team-domain-port.ts',
   'src/domain/types.ts',
   'src/runtime/frame-visibility.ts',
+  'src/runtime/member-provisioning.ts',
   'src/runtime/prompts.ts',
   'src/runtime/scheduling.ts',
   'src/runtime/session-acceptance.ts',
 ]
 const TEST_FILES = [
   'tests/assignment-visibility.spec.ts',
+  'tests/fresh-v2-initial-runtime.spec.ts',
+  'tests/lazy-member-start.spec.ts',
   'tests/scheduling-discipline.spec.ts',
   'tests/team-assignment-checkpoint.spec.ts',
 ]
 
 const functionSpecs = [
+  ['src/index.ts', undefined, 'rejectUnsupportedFreshV2Config'],
   ['src/domain/team-domain-board.ts', undefined, 'acknowledgeAssignment'],
   ['src/domain/team-domain-board.ts', undefined, 'claimTask'],
   ['src/domain/team-domain-board.ts', undefined, 'cancelAttempt'],
@@ -30,6 +35,8 @@ const functionSpecs = [
   ['src/runtime/frame-visibility.ts', undefined, 'framePredicate'],
   ['src/runtime/frame-visibility.ts', undefined, 'frameVisibility'],
   ['src/runtime/frame-visibility.ts', undefined, 'waitForFrameClaim'],
+  ['src/runtime/member-provisioning.ts', 'MemberProvisioner', 'addMember'],
+  ['src/runtime/member-provisioning.ts', 'MemberProvisioner', 'startAssignedMember'],
   ['src/runtime/prompts.ts', undefined, 'assignmentPrompt'],
   ['src/runtime/scheduling.ts', 'SchedulingPass', 'commitAssignmentAcknowledgement'],
   ['src/runtime/scheduling.ts', 'SchedulingPass', 'dispatchAssignment'],
@@ -40,12 +47,14 @@ const functionSpecs = [
 ]
 
 const officialSpecs = [
+  ['packages/subagent/subagent/src/continuation.ts', 'SubagentContinuationManager', 'startContinuable'],
   ['packages/subagent/subagent/src/continuation.ts', 'SubagentContinuationManager', 'admitWaking'],
   ['packages/subagent/subagent/src/continuation.ts', 'SubagentContinuationManager', 'coldResume'],
   ['packages/subagent/subagent/src/continuation.ts', 'SubagentContinuationManager', 'followup'],
   ['packages/subagent/subagent/src/continuation.ts', 'SubagentContinuationManager', 'submit'],
   ['packages/subagent/subagent/src/continuation.ts', 'SubagentContinuationManager', 'submitAdmitted'],
   ['packages/subagent/subagent/src/index.ts', 'SubagentRuntime', 'followup'],
+  ['packages/subagent/subagent/src/index.ts', 'SubagentRuntime', 'startContinuable'],
 ]
 
 function declarationName(node) {
@@ -673,6 +682,85 @@ function claimGraceMs(waitNode, checker) {
     && declaration.getSourceFile() === waitNode.getSourceFile() ? numericValue(declaration.initializer) : undefined
 }
 
+function propertyName(node) {
+  return node && (ts.isIdentifier(node) || ts.isStringLiteral(node)) ? node.text : undefined
+}
+
+function negatedPath(node, expected) {
+  const current = unwrapExpression(node)
+  return ts.isPrefixUnaryExpression(current)
+    && current.operator === ts.SyntaxKind.ExclamationToken
+    && pathOf(current.operand) === expected
+}
+
+function enclosingIf(node, boundary) {
+  let current = node.parent
+  while (current !== undefined && current !== boundary) {
+    if (ts.isIfStatement(current)) return current
+    current = current.parent
+  }
+  return undefined
+}
+
+function callArgumentHasProperty(call, name, predicate) {
+  let matched = false
+  for (const argument of call.arguments) {
+    visit(argument, candidate => {
+      if (ts.isPropertyAssignment(candidate) && propertyName(candidate.name) === name && predicate(candidate.initializer)) matched = true
+    })
+  }
+  return matched
+}
+
+function configDefaultTrue(sourceFile) {
+  let matched = false
+  visit(sourceFile, candidate => {
+    if (!ts.isVariableDeclaration(candidate) || propertyName(candidate.name) !== 'Config' || candidate.initializer === undefined) return
+    visit(candidate.initializer, property => {
+      if (!ts.isPropertyAssignment(property) || propertyName(property.name) !== 'lazyMemberStart') return
+      const initializer = unwrapExpression(property.initializer)
+      if (!ts.isCallExpression(initializer) || !ts.isPropertyAccessExpression(initializer.expression) || initializer.expression.name.text !== 'default') return
+      matched = initializer.arguments.length === 1 && initializer.arguments[0].kind === ts.SyntaxKind.TrueKeyword
+    })
+  })
+  return matched
+}
+
+function buildStartupPolicyProof(records, callableNodes, callables, checker) {
+  const nodeById = new Map(callables.map((fact, index) => [fact.id, callableNodes[index]]))
+  const reject = nodeById.get('src/index.ts#rejectUnsupportedFreshV2Config')
+  const addMember = nodeById.get('src/runtime/member-provisioning.ts#MemberProvisioner.addMember')
+  const startAssigned = nodeById.get('src/runtime/member-provisioning.ts#MemberProvisioner.startAssignedMember')
+  const eagerCalls = callsWithin(addMember, call => pathOf(call.expression) === 'this.ctx.subagents.startContinuable')
+  const assignedCalls = callsWithin(startAssigned, call => pathOf(call.expression) === 'this.ctx.subagents.startContinuable')
+  const eagerCall = eagerCalls[0]
+  const assignedCall = assignedCalls[0]
+  let freshRejectsFalse = false
+  visit(reject, candidate => {
+    if (!ts.isCallExpression(candidate) || pathOf(candidate.expression) !== 'reject' || candidate.arguments.length !== 2) return
+    const condition = unwrapExpression(candidate.arguments[0])
+    freshRejectsFalse ||= ts.isBinaryExpression(condition)
+      && condition.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken
+      && pathOf(condition.left) === 'config.lazyMemberStart'
+      && condition.right.kind === ts.SyntaxKind.FalseKeyword
+      && ts.isStringLiteral(candidate.arguments[1]) && candidate.arguments[1].text === 'lazyMemberStart'
+  })
+  return {
+    configDefaultTrue: configDefaultTrue(records.get('src/index.ts')),
+    freshRejectsFalse,
+    eagerStartOnlyUnderExplicitFalse: eagerCalls.length === 1
+      && eagerCall !== undefined
+      && negatedPath(enclosingIf(eagerCall, addMember)?.expression, 'this.deps.config.lazyMemberStart'),
+    eagerUsesJoinNotice: eagerCall !== undefined && callArgumentHasProperty(eagerCall, 'text', value => {
+      const current = unwrapExpression(value)
+      return ts.isCallExpression(current) && pathOf(current.expression) === 'memberJoinNotice'
+    }),
+    assignmentStartExactlyOnce: assignedCalls.length === 1,
+    assignmentStartsWithFrame: assignedCall !== undefined
+      && callArgumentHasProperty(assignedCall, 'text', value => pathOf(value) === 'assignmentFrame'),
+  }
+}
+
 function buildProofs(callableNodes, callables, checker, officialNodes, officialCallables, officialChecker) {
   const nodeById = new Map(callables.map((fact, index) => [fact.id, callableNodes[index]]))
   const dispatch = buildDispatchProof(nodeById.get('src/runtime/scheduling.ts#SchedulingPass.dispatchAssignment'), checker)
@@ -798,6 +886,7 @@ export function validateAssignmentDeliveryFacts(facts) {
   requireCall(officialFact('#SubagentContinuationManager.submit'), 'admitWaking', '/packages/subagent/subagent/src/continuation.ts')
   requireCall(officialFact('#SubagentContinuationManager.followup'), 'submitAdmitted', '/packages/subagent/subagent/src/continuation.ts')
   requireCall(officialFact('#SubagentRuntime.followup'), 'followup', '/packages/subagent/subagent/src/continuation.ts')
+  requireCall(officialFact('#SubagentRuntime.startContinuable'), 'startContinuable', '/packages/subagent/subagent/src/continuation.ts')
 
   requireProof(facts.proofs.prompt, 'KG_SEMANTIC_FRAME_PROOF', 'trusted assignment prompt identity')
   if (!facts.proofs.frameRebuildExact) fail('KG_SEMANTIC_FRAME_PROOF', 'dispatch and recovery do not rebuild the same assignmentPrompt arguments')
@@ -815,6 +904,7 @@ export function validateAssignmentDeliveryFacts(facts) {
   requireProof(facts.proofs.frame, 'KG_SEMANTIC_FRAME_PROOF', 'exact frame predicate')
   requireProof(facts.proofs.seat, 'KG_SEMANTIC_BUDGET_ATOMIC', 'claim seatAttempt atomic budget charge')
   requireProof(facts.proofs.official, 'KG_SEMANTIC_OFFICIAL_CONTROL_FLOW', 'official inbox admission')
+  requireProof(facts.proofs.startup, 'KG_SEMANTIC_STARTUP_POLICY', 'member startup policy')
   requireProof(facts.bounds, 'KG_SEMANTIC_BOUND', 'assignment delivery bounds')
   if (JSON.stringify(facts.proofs.rollback.cancelArguments) !== JSON.stringify(['scope', 'teamId', 'captainId', 'taskId', 'task.revision', 'diagnostic'])) {
     fail('KG_SEMANTIC_ROLLBACK_PROOF', 'rollback cancelAttempt must use fresh task.revision', { arguments: facts.proofs.rollback.cancelArguments })
@@ -827,6 +917,17 @@ export function validateAssignmentDeliveryFacts(facts) {
   }
   if (requiredContracts.get('i1b-v2-effect-ledger-decision')?.role === 'stable-authority') fail('KG_SEMANTIC_CONTRACT_UNSTABLE', 'proposal document cannot masquerade as a stable assignment contract')
   if (!facts.tests.every(item => item.titles.length > 0)) fail('KG_SEMANTIC_TEST_TRACE', 'assignment slice test trace is incomplete')
+  const tests = new Map(facts.tests.map(item => [item.file, item]))
+  const lazyTitles = tests.get('tests/lazy-member-start.spec.ts')?.titles ?? []
+  if (!lazyTitles.includes('defaults omitted legacy configuration to lazy start and delivers the assignment before model execution')
+    || !lazyTitles.includes('keeps eager legacy startup available only through explicit false')) {
+    fail('KG_SEMANTIC_STARTUP_TEST_TRACE', 'legacy lazy/eager startup evidence titles drifted')
+  }
+  const freshTitles = tests.get('tests/fresh-v2-initial-runtime.spec.ts')?.titles ?? []
+  if (!freshTitles.includes('resolves lazy startup by default and rejects eager startup from fresh-v2 configuration')) {
+    fail('KG_SEMANTIC_STARTUP_TEST_TRACE', 'fresh-v2 startup rejection evidence title drifted')
+  }
+  requireProof(facts.profileEvidence, 'KG_SEMANTIC_PROFILE_EVIDENCE', 'DBG-024 omitted-key Profile evidence authority')
   return facts
 }
 
@@ -888,10 +989,14 @@ export async function extractAssignmentDeliveryFacts(rootInput, options = {}) {
   const contracts = registry.filter(item => ['core-protocol', 'testing-verification', 'i1b-v2-effect-ledger-decision'].includes(item.documentId))
   const coreText = await readFile(resolve(root, 'docs/04-core-protocol.md'), 'utf8')
   const testingText = await readFile(resolve(root, 'docs/08-testing-verification.md'), 'utf8')
+  const profileEvidenceFile = 'docs/development/2026-08-26-dbg024-eager-member-claim-race.md'
+  const profileEvidenceText = options.profileEvidenceText ?? await readFile(resolve(root, profileEvidenceFile), 'utf8')
+  const profileEvidenceSection = markdownSection(profileEvidenceText, '## Omitted-key product-default proof')
   const contractSlices = {
     scheduling: taggedSha256('dsh-agent-swarm/kg1-d1/contract/v1', markdownSection(coreText, '## 7. Scheduling')),
     recovery: taggedSha256('dsh-agent-swarm/kg1-d1/contract/v1', markdownSection(coreText, '## 8. Recovery')),
-    verification: taggedSha256('dsh-agent-swarm/kg1-d1/contract/v1', testingText.split(/\r?\n/u).filter(line => line.includes('tests/assignment-visibility.spec.ts') || line.includes('tests/team-assignment-checkpoint.spec.ts') || line.includes('tests/scheduling-discipline.spec.ts'))),
+    verification: taggedSha256('dsh-agent-swarm/kg1-d1/contract/v1', testingText.split(/\r?\n/u).filter(line => line.includes('tests/assignment-visibility.spec.ts') || line.includes('tests/team-assignment-checkpoint.spec.ts') || line.includes('tests/scheduling-discipline.spec.ts') || line.includes('tests/lazy-member-start.spec.ts') || line.includes('fresh-v2 configuration cases'))),
+    profileEvidence: taggedSha256('dsh-agent-swarm/kg1-d1/profile-evidence/v1', profileEvidenceSection),
   }
 
   const baseline = JSON.parse(await readFile(resolve(root, 'docs/OFFICIAL_BASELINE.json'), 'utf8'))
@@ -925,9 +1030,23 @@ export async function extractAssignmentDeliveryFacts(rootInput, options = {}) {
     },
     contracts,
     contractSlices,
+    profileEvidence: {
+      file: profileEvidenceFile,
+      semanticDigest: contractSlices.profileEvidence,
+      omittedKey: profileEvidenceSection.includes('`lazyMemberStart` key was absent from Profile configuration'),
+      candidateBound: profileEvidenceSection.includes('`8c6373350f2b0ba8162af423ed59e4c396571ab0`'),
+      artifactBound: profileEvidenceSection.includes('`ED59A73C63758AD2E142C97DFE86D001AE96F017B3B4353355447BE0AC3D1A27`'),
+      legacyIdentityBound: profileEvidenceSection.includes('`session-758d134b-bab9-43e4-b00e-0846538d8b3e`')
+        && profileEvidenceSection.includes('`team-6a951b95-37df-42a5-aaca-c6207e4f93cf`')
+        && profileEvidenceSection.includes('`425f380f-9a9e-4b3d-afdb-b4310312e708`')
+        && profileEvidenceSection.includes('`attempt-8d77ab5a-6402-47b3-b83f-cabb408a425d`'),
+      firstFrameBound: profileEvidenceSection.includes('the first user message was the exact assignment frame, not a join notice'),
+    },
     tests: TEST_FILES.map(file => testFact(file, records.get(file), checker)).sort((left, right) => compareText(left.file, right.file)),
   }
   facts.proofs = buildProofs(callableNodes, callables, checker, officialNodes, officialCallables, officialChecker)
+  facts.proofs.startup = buildStartupPolicyProof(records, callableNodes, callables, checker)
+  facts.proofs.startup.digest = taggedSha256('dsh-agent-swarm/kg1-d1/startup-policy/v1', facts.proofs.startup)
   facts.bounds = facts.proofs.bounds
   facts.digest = taggedSha256('dsh-agent-swarm/kg1-d1/raw-semantic-facts/v1', facts)
   return options.validate === false ? facts : validateAssignmentDeliveryFacts(facts)

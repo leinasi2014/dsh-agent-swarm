@@ -2,7 +2,7 @@
 
 # Traceability
 
-Manifest digest: `5dd09bc6a3db9f195b78af4d5b43d9fe1a21abe41157edcab4f5c1ce95a67fc3`
+Manifest digest: `9964a3d8d210b47c22ddd099231f2d62b41a5d43ff566d78c51a20f4f46bcc58`
 
 Curated tool-registry digest: `2af060c2441600f775e82097e626303c8fd607845230f4c489473bcecd4d7878`
 
@@ -122,6 +122,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
+  n_61727469666163743a6462672d3032342d6f6d69747465642d64656661756c742d70726f66696c652d65766964656e6365["DBG-024 omitted-key official Profile evidence authority"]
   n_61727469666163743a7061636b6167652d7265736f757263652f636f726469732e70617463682e796d6c["Package resource ./cordis.patch.yml"]
   n_61727469666163743a7061636b6167652d7265736f757263652f7061636b6167652e6a736f6e["Package resource ./package.json"]
   n_6361706162696c6974793a66726573682d76322d6d6f64656c2d64697370617463682d7769746e657373["Network-free per-Provider model dispatch witness capability"]
@@ -151,7 +152,6 @@ flowchart LR
   n_6d6f64756c653a7372632f646f6d61696e2f73746174652d76616c69646174696f6e2e7473["src/domain/state-validation.ts"]
   n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d626f6172642e7473["src/domain/team-domain-board.ts"]
   n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d6275646765742e7473["src/domain/team-domain-budget.ts"]
-  n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d6d61696c626f782e7473["src/domain/team-domain-mailbox.ts"]
   n_6d6f64756c653a7372632f636c69656e742f6167656e74737761726d73657474696e6773636172642e747378 -->|imports| n_6d6f64756c653a7372632f636c69656e742f6167656e742d737761726d2d73657474696e67732d636f6e74726f6c6c65722e7473
   n_6d6f64756c653a7372632f636c69656e742f6167656e74737761726d73657474696e6773636172642e747378 -->|imports| n_6d6f64756c653a7372632f636c69656e742f6167656e742d737761726d2d73657474696e67732d6c6f63616c65732e7473
   n_6d6f64756c653a7372632f636c69656e742f6167656e74737761726d73657474696e6773636172642e747378 -->|imports| n_6d6f64756c653a7372632f636c69656e742f6167656e742d737761726d2d73657474696e67732d7374796c65732e7473
@@ -186,7 +186,6 @@ flowchart LR
   n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d626f6172642e7473 -->|imports| n_6d6f64756c653a7372632f646f6d61696e2f67726170682e7473
   n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d626f6172642e7473 -->|imports| n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d6275646765742e7473
   n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d6275646765742e7473 -->|imports| n_6d6f64756c653a7372632f646f6d61696e2f6572726f722e7473
-  n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d6d61696c626f782e7473 -->|imports| n_6d6f64756c653a7372632f646f6d61696e2f6572726f722e7473
   n_6d6f64756c653a7372632f636c69656e742f696e6465782e7473 -->|exports| n_6d6f64756c653a7372632f636c69656e742f726561642d636c69656e742e7473
   n_6d6f64756c653a7372632f636c69656e742f696e6465782e7473 -->|exports| n_6d6f64756c653a7372632f636c69656e742f7465616d2d64617368626f6172642d636f6e74726f6c6c65722e7473
   n_6d6f64756c653a7372632f636c69656e742f706c7567696e2d656e7472792e7473 -->|exports| n_6d6f64756c653a7372632f636c69656e742f696e6465782e7473
@@ -197,6 +196,7 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 
 | Stable id | Kind | Classification | Implementation | Verification | Acceptance | Availability | Owner |
 |---|---|---|---|---|---|---|---|
+| `artifact:dbg-024-omitted-default-profile-evidence` | artifact | REVIEWED | implemented | real-profile | candidate | always-registered | `authority:project-contracts` |
 | `artifact:package-resource/cordis.patch.yml` | artifact | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
 | `artifact:package-resource/package.json` | artifact | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
 | `capability:fresh-v2-model-dispatch-witness` | public-capability | REVIEWED | implemented | composition | candidate | config-gated | `official-authority:llm-runtime` |
@@ -808,9 +808,11 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `test:fresh-v2-initial-outcome-restart` | test | REVIEWED | implemented | composition | candidate | config-gated | `authority:project-contracts` |
 | `test:fresh-v2-initial-runtime` | test | REVIEWED | implemented | unit | candidate | config-gated | `authority:project-contracts` |
 | `test:fresh-v2-session-fold` | test | REVIEWED | implemented | unit | candidate | config-gated | `authority:project-contracts` |
+| `test:fresh-v2-startup-policy` | test | REVIEWED | implemented | unit | candidate | always-registered | `authority:project-contracts` |
 | `test:fresh-v2-task-control-domain` | test | REVIEWED | implemented | unit | candidate | config-gated | `authority:project-contracts` |
 | `test:fresh-v2-task-control-runtime` | test | REVIEWED | implemented | composition | candidate | config-gated | `authority:project-contracts` |
 | `test:fresh-v2-witness-capability` | test | REVIEWED | implemented | unit | candidate | config-gated | `authority:project-contracts` |
+| `test:lazy-member-start` | test | REVIEWED | implemented | composition | candidate | always-registered | `authority:project-contracts` |
 | `test:scheduling-discipline` | test | REVIEWED | implemented | composition | candidate | always-registered | `authority:project-contracts` |
 | `test:team-assignment-checkpoint` | test | REVIEWED | implemented | unit | candidate | always-registered | `authority:project-contracts` |
 | `test:team-v2-foundation` | test | REVIEWED | implemented | unit | candidate | config-gated | `authority:project-contracts` |
