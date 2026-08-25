@@ -2,7 +2,7 @@
 
 # Traceability
 
-Manifest digest: `07cd7c570692a0431fd057bc99e48282131b3473568d16f44b513b497cdc5bdd`
+Manifest digest: `1fd0bd29b5af8f8b8f9637c3e8f0d7fcf665d823fa7574db3b8e8b6d0aae0ffe`
 
 Curated tool-registry digest: `331defbb12c4ac44efa0bdd7b16007d003dfa3704477b0c2c925d9cc1b665783`
 
@@ -122,6 +122,7 @@ flowchart LR
 flowchart LR
   n_61727469666163743a7061636b6167652d7265736f757263652f636f726469732e70617463682e796d6c["Package resource ./cordis.patch.yml"]
   n_61727469666163743a7061636b6167652d7265736f757263652f7061636b6167652e6a736f6e["Package resource ./package.json"]
+  n_6361706162696c6974793a66726573682d76322d6d6f64656c2d64697370617463682d7769746e657373["Network-free per-Provider model dispatch witness capability"]
   n_646f63756d656e743a636f72652d70726f746f636f6c["Registered core protocol"]
   n_646f63756d656e743a66726573682d76322d72756e74696d652d626c75657072696e74["Fresh-v2 runtime architecture blueprint"]
   n_646f63756d656e743a6f6666696369616c2d626173656c696e65["Registered official release baseline"]
@@ -149,7 +150,6 @@ flowchart LR
   n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d626f6172642e7473["src/domain/team-domain-board.ts"]
   n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d6275646765742e7473["src/domain/team-domain-budget.ts"]
   n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d6d61696c626f782e7473["src/domain/team-domain-mailbox.ts"]
-  n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d706f72742e7473["src/domain/team-domain-port.ts"]
   n_6d6f64756c653a7372632f636c69656e742f6167656e74737761726d73657474696e6773636172642e747378 -->|imports| n_6d6f64756c653a7372632f636c69656e742f6167656e742d737761726d2d73657474696e67732d636f6e74726f6c6c65722e7473
   n_6d6f64756c653a7372632f636c69656e742f6167656e74737761726d73657474696e6773636172642e747378 -->|imports| n_6d6f64756c653a7372632f636c69656e742f6167656e742d737761726d2d73657474696e67732d6c6f63616c65732e7473
   n_6d6f64756c653a7372632f636c69656e742f6167656e74737761726d73657474696e6773636172642e747378 -->|imports| n_6d6f64756c653a7372632f636c69656e742f6167656e742d737761726d2d73657474696e67732d7374796c65732e7473
@@ -183,11 +183,8 @@ flowchart LR
   n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d626f6172642e7473 -->|imports| n_6d6f64756c653a7372632f646f6d61696e2f6572726f722e7473
   n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d626f6172642e7473 -->|imports| n_6d6f64756c653a7372632f646f6d61696e2f67726170682e7473
   n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d626f6172642e7473 -->|imports| n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d6275646765742e7473
-  n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d626f6172642e7473 -->|imports| n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d706f72742e7473
   n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d6275646765742e7473 -->|imports| n_6d6f64756c653a7372632f646f6d61696e2f6572726f722e7473
-  n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d6275646765742e7473 -->|imports| n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d706f72742e7473
   n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d6d61696c626f782e7473 -->|imports| n_6d6f64756c653a7372632f646f6d61696e2f6572726f722e7473
-  n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d6d61696c626f782e7473 -->|imports| n_6d6f64756c653a7372632f646f6d61696e2f7465616d2d646f6d61696e2d706f72742e7473
   n_6d6f64756c653a7372632f636c69656e742f696e6465782e7473 -->|exports| n_6d6f64756c653a7372632f636c69656e742f726561642d636c69656e742e7473
   n_6d6f64756c653a7372632f636c69656e742f696e6465782e7473 -->|exports| n_6d6f64756c653a7372632f636c69656e742f7465616d2d64617368626f6172642d636f6e74726f6c6c65722e7473
   n_6d6f64756c653a7372632f636c69656e742f706c7567696e2d656e7472792e7473 -->|exports| n_6d6f64756c653a7372632f636c69656e742f696e6465782e7473
@@ -200,6 +197,7 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 |---|---|---|---|---|---|---|---|
 | `artifact:package-resource/cordis.patch.yml` | artifact | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
 | `artifact:package-resource/package.json` | artifact | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
+| `capability:fresh-v2-model-dispatch-witness` | public-capability | REVIEWED | implemented | composition | candidate | config-gated | `official-authority:llm-runtime` |
 | `document:core-protocol` | document | REVIEWED | implemented | static | candidate | always-registered | `authority:project-contracts` |
 | `document:fresh-v2-runtime-blueprint` | document | REVIEWED | implemented | static | candidate | config-gated | `authority:project-contracts` |
 | `document:official-baseline` | document | REVIEWED | implemented | static | candidate | always-registered | `authority:project-contracts` |
@@ -268,6 +266,7 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `module:src/runtime/fresh-v2-initial-runtime.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/runtime/fresh-v2-initial-support.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/runtime/fresh-v2-session-fold.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
+| `module:src/runtime/fresh-v2-witness-capability.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/runtime/human-provenance.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/runtime/jobs/projection-derive.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `module:src/runtime/jobs/team-job-projection.ts` | module | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |

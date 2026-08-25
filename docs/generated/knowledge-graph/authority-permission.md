@@ -2,7 +2,7 @@
 
 # Authority and permission
 
-Manifest digest: `07cd7c570692a0431fd057bc99e48282131b3473568d16f44b513b497cdc5bdd`
+Manifest digest: `1fd0bd29b5af8f8b8f9637c3e8f0d7fcf665d823fa7574db3b8e8b6d0aae0ffe`
 
 Curated tool-registry digest: `331defbb12c4ac44efa0bdd7b16007d003dfa3704477b0c2c925d9cc1b665783`
 
@@ -111,6 +111,7 @@ flowchart LR
 flowchart LR
   n_617574686f726974793a70726f6a6563742d636f6e747261637473["Registered project contract authority"]
   n_617574686f726974793a736f757263652d74726565["Repository source-tree authority"]
+  n_6361706162696c6974793a66726573682d76322d6d6f64656c2d64697370617463682d7769746e657373["Network-free per-Provider model dispatch witness capability"]
   n_646f6d61696e3a6167656e742d737761726d["Storage Domain agent_swarm v1"]
   n_646f6d61696e3a6167656e742d737761726d2d68756d616e["Storage Domain agent_swarm_human v1"]
   n_646f6d61696e3a6167656e742d737761726d2d7632["Storage Domain agent_swarm_v2 v1"]
@@ -122,6 +123,7 @@ flowchart LR
   n_67756172643a65786163742d63757272656e742d617474656d7074["current"]
   n_67756172643a65786163742d7461736b2d7265766973696f6e["revision"]
   n_67756172643a66726573682d76322d6578706572696d656e74616c2d61637469766174696f6e["Fresh-v2 is explicit and isolated from v1 activation"]
+  n_67756172643a66726573682d76322d66697865642d70726f66696c652d7769746e6573732d6361706162696c697479["Fixed-Profile host, artifact, Provider and listener-order witness"]
   n_67756172643a66726573682d76322d6f6666696369616c2d6167656e742d6c6f6f702d72657175657374["Exact official Agent Loop AbortSignal permit and Session coordinates"]
   n_67756172643a6d656d6265722d6861732d6e6f2d6f70656e2d776f726b["available"]
   n_67756172643a6f6666696369616c2d6c6976652d6469726563742d706172656e742d61646d697373696f6e["parent"]
@@ -134,12 +136,12 @@ flowchart LR
   n_67756172643a7270632d687474702f30322d7372632f7270632f726561642d7270632d736572766963652e7473["route-handler POST"]
   n_67756172643a7461736b2d7265616479["ready"]
   n_6f6666696369616c2d617574686f726974793a6167656e742d6c6f6f70["Official DSH Agent Loop execution authority"]
+  n_6f6666696369616c2d617574686f726974793a6c6c6d2d72756e74696d65["Official DSH LLM registry and stream waterfall authority"]
   n_6f6666696369616c2d617574686f726974793a73657373696f6e["Official Session event/history authority"]
   n_6f6666696369616c2d617574686f726974793a7375626167656e74["Official continuable Subagent admission authority"]
-  n_7075626c69632d6361706162696c6974793a6578706f72742f7075626c69632d6170692f6167656e74737761726d686f73747265616464657073["public-api export AgentSwarmHostReadDeps (type)"]
-  n_7075626c69632d6361706162696c6974793a6578706f72742f7075626c69632d6170692f6167656e74737761726d686f73747265616473657276696365["public-api export AgentSwarmHostReadService (type+value)"]
-  n_7075626c69632d6361706162696c6974793a6578706f72742f7075626c69632d6170692f6167656e74737761726d70726f6475636572666c6f6f7264657073["public-api export AgentSwarmProducerFloorDeps (type)"]
   n_646f6d61696e3a6167656e742d737761726d -->|owns| n_67756172643a66726573682d76322d6578706572696d656e74616c2d61637469766174696f6e
+  n_6f6666696369616c2d617574686f726974793a6c6c6d2d72756e74696d65 -->|owns| n_6361706162696c6974793a66726573682d76322d6d6f64656c2d64697370617463682d7769746e657373
+  n_6f6666696369616c2d617574686f726974793a6c6c6d2d72756e74696d65 -->|owns| n_67756172643a66726573682d76322d66697865642d70726f66696c652d7769746e6573732d6361706162696c697479
   n_6f6666696369616c2d617574686f726974793a6167656e742d6c6f6f70 -->|owns| n_67756172643a66726573682d76322d6f6666696369616c2d6167656e742d6c6f6f702d72657175657374
   n_646f6d61696e3a6167656e742d737761726d -->|owns| n_67756172643a617474656d70742d72756e6e696e672d7265736572766564
   n_646f6d61696e3a6167656e742d737761726d -->|owns| n_67756172643a6275646765742d7265736572766174696f6e2d61646d69737369626c65
@@ -158,6 +160,7 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 |---|---|---|---|---|---|---|---|
 | `authority:project-contracts` | authority | REVIEWED | implemented | static | candidate | always-registered | `authority:project-contracts` |
 | `authority:source-tree` | authority | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
+| `capability:fresh-v2-model-dispatch-witness` | public-capability | REVIEWED | implemented | composition | candidate | config-gated | `official-authority:llm-runtime` |
 | `domain:agent-swarm` | domain | REVIEWED | implemented | composition | candidate | always-registered | `domain:agent-swarm` |
 | `domain:agent-swarm-human` | domain | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `domain:agent-swarm-v2` | domain | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
@@ -169,6 +172,7 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `guard:exact-current-attempt` | guard | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
 | `guard:exact-task-revision` | guard | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
 | `guard:fresh-v2-experimental-activation` | guard | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `guard:fresh-v2-fixed-profile-witness-capability` | guard | REVIEWED | implemented | composition | candidate | config-gated | `official-authority:llm-runtime` |
 | `guard:fresh-v2-official-agent-loop-request` | guard | REVIEWED | implemented | composition | candidate | config-gated | `official-authority:agent-loop` |
 | `guard:member-has-no-open-work` | guard | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
 | `guard:official-live-direct-parent-admission` | guard | REVIEWED | implemented | static | candidate | always-registered | `official-authority:subagent` |
@@ -181,6 +185,7 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `guard:rpc-http/02-src/rpc/read-rpc-service.ts` | guard | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
 | `guard:task-ready` | guard | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
 | `official-authority:agent-loop` | official-authority | REVIEWED | implemented | real-profile | candidate | config-gated | `official-authority:agent-loop` |
+| `official-authority:llm-runtime` | official-authority | REVIEWED | implemented | composition | candidate | config-gated | `official-authority:llm-runtime` |
 | `official-authority:session` | official-authority | REVIEWED | implemented | static | candidate | always-registered | `official-authority:session` |
 | `official-authority:subagent` | official-authority | REVIEWED | implemented | static | candidate | always-registered | `official-authority:subagent` |
 | `public-capability:export/public-api/agentswarmhostreaddeps` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |

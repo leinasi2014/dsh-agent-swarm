@@ -22,6 +22,7 @@ import { mountStorageStackOn } from './storage-stack.js'
 
 export const FRESH_V2_SIGNAL = new AbortController().signal
 export const FRESH_V2_ARTIFACT_CONTRACT = 'a'.repeat(64)
+export const FRESH_V2_HOST_CONTRACT = 'b'.repeat(40)
 
 export async function freshV2ToolCall(
   ctx: Context,
@@ -133,6 +134,7 @@ export async function mountFreshV2Composition<T extends LlmAdapter>(
     memberMaxDepth: 1,
     experimentalFreshV2: true,
     freshV2ArtifactContract: FRESH_V2_ARTIFACT_CONTRACT,
+    freshV2HostContract: FRESH_V2_HOST_CONTRACT,
     ...config,
   })
   fibers.push(pluginFiber)

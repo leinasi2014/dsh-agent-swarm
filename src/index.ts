@@ -83,6 +83,7 @@ export interface Config {
   experimentalFreshV2?: boolean
   /** Exact lowercase SHA-256 of the A1b candidate artifact/config contract. */
   freshV2ArtifactContract?: string
+  freshV2HostContract?: string
   /** Reserved legacy-manifest capacity bound for the fresh-v2 authority record. */
   freshV2LegacyManifestCapacity?: number
   /** Optional LLM Provider override for future members. */
@@ -222,6 +223,7 @@ export const Config: z<Config> = z.object({
   lazyMemberStart: z.boolean().default(false),
   experimentalFreshV2: z.boolean().default(false),
   freshV2ArtifactContract: z.string(),
+  freshV2HostContract: z.string(),
   freshV2LegacyManifestCapacity: z.natural().default(0),
   memberLlmProvider: z.string(),
   memberDenyTools: z.array(z.string()).default([]),
@@ -325,8 +327,13 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     if (artifactContract === undefined || !/^[0-9a-f]{64}$/.test(artifactContract)) {
       throw new Error('agent-swarm: experimentalFreshV2 requires freshV2ArtifactContract as a lowercase SHA-256 digest')
     }
+    const hostContract = config.freshV2HostContract?.trim()
+    if (hostContract === undefined || (!/^[0-9a-f]{40}$/.test(hostContract) && !/^[0-9a-f]{64}$/.test(hostContract))) {
+      throw new Error('agent-swarm: experimentalFreshV2 requires freshV2HostContract as an exact lowercase Git SHA or SHA-256 digest')
+    }
     const runtime = new FreshV2InitialRuntime(ctx, {
       artifactContract,
+      hostContract,
       legacyManifestCapacity: config.freshV2LegacyManifestCapacity ?? 0,
       memberProvider,
       ...(config.memberLlmProvider === undefined ? {} : { memberLlmProvider: config.memberLlmProvider }),
@@ -354,6 +361,10 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     ctx.effect(() => ctx.on('session/event', (session, event) => {
       runtime.observeSessionEvent(session, event)
     }, { global: true }), 'agent-swarm: fresh-v2 assistant evidence')
+    ctx.effect(() => ctx.on('llm/adapters-updated', () => {
+      runtime.revokeWitnessCapability()
+    }), 'agent-swarm: fresh-v2 provider topology revocation')
+    await runtime.activateWitnessCapability()
     return
   }
   const schedulerProvider = (config.schedulerProvider ?? 'priority-ready').trim()

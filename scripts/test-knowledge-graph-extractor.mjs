@@ -156,24 +156,24 @@ try {
   const actual = await extractSourceFacts(repositoryRoot)
   assert.deepEqual(errorCodes(actual), [], `actual repository diagnostics: ${JSON.stringify(actual.diagnostics)}`)
   assert.deepEqual(actual.counts, {
-    discoveredModules: 111,
-    parsedModules: 111,
+    discoveredModules: 112,
+    parsedModules: 112,
     toolDefinitions: 19,
     tools: 19,
-    imports: 626,
-    injections: 32,
+    imports: 630,
+    injections: 34,
     providerRegistrations: 6,
     providerRegistryMethods: 11,
     packageExports: 6,
     publicApiExportDeclarations: 48,
     registries: 7,
     serviceDefinitions: 1,
-    configKeys: 42,
+    configKeys: 43,
     domains: 4,
     domainPortMethods: 30,
     rpcMethods: 5,
     clientSlots: 6,
-    lifecycleListeners: 24,
+    lifecycleListeners: 25,
     reachableRootExports: 170,
     reachablePublicApiExports: 165,
   }, 'KG1 walking-skeleton drift lock; replace with graph reconciliation in a later milestone')
@@ -216,7 +216,7 @@ try {
   assert.deepEqual(injectionServices('static-inject'), ['agents', 'locale', 'sessionPersistence', 'sessions', 'sessions', 'settingsScope', 'slots', 'storageDomain', 'subagents', 'systemPrompt', 'tools'])
   assert.deepEqual(injectionServices('ctx-inject'), ['agentSwarmHostRead', 'layout', 'webServer'])
   assert.deepEqual(injectionServices('ctx-provide'), ['agentSwarmHostRead', 'agentSwarmHumanControl', 'agentSwarmHumanInteraction', 'agentSwarmPermission', 'agentSwarmProducerFloor', 'agentSwarmReadRpc', 'agentSwarmV2Initial'])
-  assert.deepEqual(injectionServices('ctx-get'), ['agentSwarmHostRead', 'approval', 'layout', 'llm', 'llm', 'llm', 'sessions', 'skills', 'userQuestions', 'userQuestions', 'webServer'])
+  assert.deepEqual(injectionServices('ctx-get'), ['agentSwarmHostRead', 'approval', 'layout', 'llm', 'llm', 'llm', 'llm', 'llm', 'sessions', 'skills', 'userQuestions', 'userQuestions', 'webServer'])
   assert.deepEqual(actual.providerRegistrations.map(item => `${item.file}|${item.methodSymbol}|${item.providerName}`).sort(), [
     'src/index.ts|registerReviewProvider|human',
     'src/index.ts|registerReviewProvider|reviewer-agent',
@@ -270,8 +270,8 @@ try {
   // Exact candidate drift locks over complete normalized tuple sets; later graph reconciliation replaces these KG1 locks.
   assertTupleSetDigest(externalRegistryTuples, 'df65210ba8154485531b822e4535ed8c91ac03f3ef534c26f3296484f54de053', 'external registries')
   assertTupleSetDigest(rpcTuples, 'dd9e8353c0564d866d2f19b1310e7e870d5a997761e82c81b7255223a79565ad', 'RPC')
-  assertTupleSetDigest(listenerTuples, '5f546441cbce16f0dd68e69dfb30eae7e5d222a29c27ea2c961993be72c906e1', 'listeners')
-  assertTupleSetDigest(effectTuples, '1789d566d50aa6c4272f4790defd88d3757679befe514594249aaf03e8215e84', 'effects')
+  assertTupleSetDigest(listenerTuples, '3d307d9f11f2554b927de45e7d50b01301375517cb0d4277978fad8549a5c4a0', 'listeners')
+  assertTupleSetDigest(effectTuples, '2ffa99db1e0259ed7d339026f17a4e5896d412c8c5dca0c2bf7d9e408368fb8a', 'effects')
   assertTupleSetDigest(exportTuples(actual.reachableRootExports), '771c964630864102e1ba31e13263513fc900dd90fe0bf3568ba6f1ce022a5236', 'root reachable exports')
   assertTupleSetDigest(exportTuples(actual.reachablePublicApiExports), 'a2520120278763b6cb98c2aab04470e65ff0ee6f591d5302e8b394809bb9bec5', 'public API reachable exports')
   assertTupleSetDigest(reexportLayerTuples, '95640ddda8f6299cc065dbb119489e375ea2cbe38ce26792c601ab5b2c7cd60e', 're-export semantic layers')
@@ -322,7 +322,7 @@ try {
   const configKeys = actual.config.schema.properties.map(item => item.key)
   assert.deepEqual(configKeys, [
     'disposalTimeoutMs', 'enabled', 'executionRootProvider', 'executionRoots', 'executionRootsBase',
-    'experimentalFreshV2', 'freshV2ArtifactContract', 'freshV2LegacyManifestCapacity',
+    'experimentalFreshV2', 'freshV2ArtifactContract', 'freshV2HostContract', 'freshV2LegacyManifestCapacity',
     'jobsBridge', 'lazyMemberStart', 'maxDependencies', 'maxMembers', 'maxMemories', 'maxMessageBytes',
     'maxPendingMessagesPerMember', 'maxRetainedAttempts', 'maxRetainedMessages', 'maxTaskBytes',
     'maxTasks', 'maxVerificationCommandMs', 'maxVerificationCommands', 'memberDenyTools',
@@ -412,8 +412,9 @@ try {
   assert.ok(actual.lifecycle.listeners.some(item => item.event === 'agent/status' && item.disposerOwner === 'ctx.effect'))
   assert.ok(actual.lifecycle.listeners.some(item => item.event === 'domain/changed' && item.receiver === 'ctx'))
   assert.deepEqual(actual.lifecycle.systemPrompts.map(item => item.fields.name), ['agent-swarm:usage'])
-  assert.equal(actual.lifecycle.effects.length, 27)
+  assert.equal(actual.lifecycle.effects.length, 28)
   assert.ok(actual.lifecycle.effects.some(item => item.label === 'agent-swarm: fresh-v2 model dispatch witness'))
+  assert.ok(actual.lifecycle.effects.some(item => item.label === 'agent-swarm: fresh-v2 provider topology revocation'))
   assert.ok(actual.lifecycle.effects.some(item => item.label === 'agent-swarm: human interaction domain' && item.cleanup === 'returned-cleanup'))
   assert.ok(actual.lifecycle.effects.some(item => item.label === 'agent-swarm: activation recovery' && item.async === true))
   assert.ok(actual.lifecycle.effects.some(item => item.label === 'agent-swarm: workflow bridge disposal'))

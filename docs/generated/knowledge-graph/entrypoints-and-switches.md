@@ -2,7 +2,7 @@
 
 # Entrypoints and switches
 
-Manifest digest: `07cd7c570692a0431fd057bc99e48282131b3473568d16f44b513b497cdc5bdd`
+Manifest digest: `1fd0bd29b5af8f8b8f9637c3e8f0d7fcf665d823fa7574db3b8e8b6d0aae0ffe`
 
 Curated tool-registry digest: `331defbb12c4ac44efa0bdd7b16007d003dfa3704477b0c2c925d9cc1b665783`
 
@@ -116,6 +116,7 @@ flowchart LR
   n_636f6e6669672d6b65793a657865637574696f6e726f6f747362617365["Config executionRootsBase"]
   n_636f6e6669672d6b65793a6578706572696d656e74616c66726573687632["Config experimentalFreshV2"]
   n_636f6e6669672d6b65793a667265736876326172746966616374636f6e7472616374["Config freshV2ArtifactContract"]
+  n_636f6e6669672d6b65793a66726573687632686f7374636f6e7472616374["Config freshV2HostContract"]
   n_636f6e6669672d6b65793a667265736876326c65676163796d616e69666573746361706163697479["Config freshV2LegacyManifestCapacity"]
   n_636f6e6669672d6b65793a6a6f6273627269646765["Config jobsBridge"]
   n_636f6e6669672d6b65793a6c617a796d656d6265727374617274["Config lazyMemberStart"]
@@ -138,7 +139,6 @@ flowchart LR
   n_636f6e6669672d6b65793a6d656d626572736b696c6c73["Config memberSkills"]
   n_636f6e6669672d6b65793a6d656d6f727971756572796d617863616e64696461746573["Config memoryQueryMaxCandidates"]
   n_636f6e6669672d6b65793a6d656d6f7279717565727974696d656f75746d73["Config memoryQueryTimeoutMs"]
-  n_636f6e6669672d6b65793a6d656d6f727973656d616e746963656e61626c6564["Config memorySemanticEnabled"]
 ```
 
 _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
@@ -152,6 +152,7 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `config-key:executionrootsbase` | config-key | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | config-gated | `(unclassified)` |
 | `config-key:experimentalfreshv2` | config-key | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | config-gated | `(unclassified)` |
 | `config-key:freshv2artifactcontract` | config-key | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | config-gated | `(unclassified)` |
+| `config-key:freshv2hostcontract` | config-key | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | config-gated | `(unclassified)` |
 | `config-key:freshv2legacymanifestcapacity` | config-key | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | config-gated | `(unclassified)` |
 | `config-key:jobsbridge` | config-key | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | config-gated | `(unclassified)` |
 | `config-key:lazymemberstart` | config-key | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | config-gated | `(unclassified)` |

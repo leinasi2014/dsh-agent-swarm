@@ -55,7 +55,7 @@ async function tree(root) {
   return output.sort()
 }
 
-function patchLines({ storageRoot, sessionRoot, workspaceRoot, probeUrl, artifactContract }) {
+function patchLines({ storageRoot, sessionRoot, workspaceRoot, probeUrl, artifactContract, hostContract }) {
   return [
     '# A1b isolated official Profile development smoke; all roots are disposable.',
     '- id: storage-json',
@@ -77,6 +77,7 @@ function patchLines({ storageRoot, sessionRoot, workspaceRoot, probeUrl, artifac
     '    memberMaxDepth: 1',
     '    experimentalFreshV2: true',
     `    freshV2ArtifactContract: ${artifactContract}`,
+    `    freshV2HostContract: ${hostContract}`,
     '- insert:',
     `    - id: ${probeName}`,
     `      name: ${yamlString(probeUrl)}`,
@@ -123,6 +124,11 @@ async function main() {
     const tarball = join(artifactRoot, 'dsh-agent-swarm.tgz')
     await rename(join(artifactRoot, basename(packed)), tarball)
     const artifactContract = await sha256File(tarball)
+    const hostContract = (await run('git', ['rev-parse', 'HEAD'], {
+      cwd: args.official,
+      timeoutMs: 60_000,
+    })).stdout.trim()
+    if (!/^[0-9a-f]{40}$/.test(hostContract)) throw new Error(`official host has no exact Git contract: ${hostContract}`)
     await execute('profile-add', process.execPath, [args.cli, 'plugin', '--profile', 'web', 'add', '-w', '--ignore-scripts', tarball], {
       cwd: workspaceRoot,
       env: { DSH_HOME: dshHome },
@@ -135,6 +141,7 @@ async function main() {
       workspaceRoot,
       probeUrl: pathToFileURL(probeModule).href,
       artifactContract,
+      hostContract,
     }).join('\n'), 'utf8')
     await writeFile(join(evidenceRoot, 'profile.patch.yml'), await readFile(patchPath), 'utf8')
 

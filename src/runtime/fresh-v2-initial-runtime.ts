@@ -16,7 +16,6 @@ import {
 } from '../domain/team-domain-v2-start.js'
 import type { TeamMemberV2, TeamStateV2 } from '../domain/team-state-v2.js'
 import { AttemptId, type TeamTask } from '../domain/types.js'
-import { canonicalV2Digest } from '../protocol/canonical-v2.js'
 import { StorageDomainTeamStoreV2 } from '../storage/storage-domain-team-store-v2.js'
 import { teamDomainSpecV2 } from '../storage/team-spec-v2.js'
 import type { InitialTaskBoardRuntime } from '../tools/task-board.js'
@@ -34,9 +33,11 @@ import { resolveAssignedSkills } from './member-skill-policy.js'
 import { assignmentPrompt, memberPersona } from './prompts.js'
 import { memberToolDeny } from './tool-policy.js'
 import type { RuntimeCreateTaskInput } from './verification-commands.js'
+import { FreshV2WitnessCapability } from './fresh-v2-witness-capability.js'
 
 export interface FreshV2InitialConfig {
   readonly artifactContract: string
+  readonly hostContract: string
   readonly legacyManifestCapacity: number
   readonly memberProvider: string
   readonly memberLlmProvider?: string
@@ -50,7 +51,6 @@ export interface FreshV2InitialConfig {
   readonly disposalTimeoutMs: number
 }
 
-/** A1b walking skeleton over the official Subagent, AgentLoop, Session and LLM seams. */
 export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, InitialTaskBoardRuntime {
   private domainHandle?: Domain<typeof teamDomainSpecV2>
   private store?: StorageDomainTeamStoreV2
@@ -65,18 +65,22 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
   }>()
   private readonly backgroundFailures: Array<{ readonly sessionId: string; readonly error: unknown }> = []
   private closing = false
-
-  readonly witnessCapabilityDigest: string
+  private readonly witnessCapability: FreshV2WitnessCapability
 
   constructor(private readonly ctx: Context, readonly config: FreshV2InitialConfig) {
     if (!/^[0-9a-f]{64}$/.test(config.artifactContract)) {
       throw new TeamDomainError('fresh-v2 artifact contract must be a lowercase SHA-256 digest', 'TEAM_INVALID_CONFIG')
     }
-    this.witnessCapabilityDigest = canonicalV2Digest(
-      'dsh-agent-swarm/a1b/model-dispatch-witness/v1',
-      { artifactContract: config.artifactContract },
-    )
+    if (!/^[0-9a-f]{40}$/.test(config.hostContract) && !/^[0-9a-f]{64}$/.test(config.hostContract)) {
+      throw new TeamDomainError('fresh-v2 host contract must be a lowercase Git SHA or SHA-256 digest', 'TEAM_INVALID_CONFIG')
+    }
+    this.witnessCapability = new FreshV2WitnessCapability(ctx, config.artifactContract, config.hostContract)
   }
+
+  get witnessCapabilityDigest(): string { return this.witnessCapability.digest }
+  async activateWitnessCapability(): Promise<string> { return await this.witnessCapability.activate() }
+  async assertWitnessCapabilityCurrent(): Promise<string> { return await this.witnessCapability.assertCurrent() }
+  revokeWitnessCapability(): void { this.witnessCapability.revoke() }
 
   async start(): Promise<void> {
     if (this.domain !== undefined) return
@@ -277,6 +281,7 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
     const scope = this.scopeOf(input.agent)
     const membership = this.findMembership(scope, input.agent.id)
     if (membership?.role !== 'member') return
+    await this.witnessCapability.assertCurrent()
     let current = this.currentInitialAttempt(membership.team, input.agent.id)
     if (current === undefined) return
     if (current.attempt.phase === 'running' && current.dispatch?.phase === 'settled') {
@@ -336,10 +341,6 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
         || settled.dispatch.dispatchId !== checkpoint.dispatchId) {
         throw new TeamDomainError('initial assignment checkpoint read-back failed', 'TEAM_MIGRATION_VERIFY_FAILED')
       }
-      // The official Agent Loop gives this waterfall the exact turn AbortSignal.
-      // Retain that process-local object identity as the cross-package dispatch
-      // authority: an installed plugin may resolve a second dsh-llm module, so
-      // its private isAgentLoopRequest WeakSet cannot see the Host's marker.
       this.modelPermits.set(input.agent.id, {
         signal: input.signal,
         turn: input.turn,
@@ -353,6 +354,8 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
   }
 
   wrapModelStream(options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk> {
+    const sentinel = this.witnessCapability.intercept(options)
+    if (sentinel !== undefined) return sentinel
     if (!this.ownsInitialModelDispatch(options)) return next()
     return (async function* (runtime: FreshV2InitialRuntime): AsyncIterable<StreamChunk> {
       let complete!: () => void
@@ -372,8 +375,6 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
 
   private ownsInitialModelDispatch(options: GenerateOptions): boolean {
     if (options.sessionId === undefined) return false
-    const permit = this.modelPermits.get(options.sessionId)
-    if (permit === undefined || options.signal !== permit.signal) return false
     const agent = this.ctx.agents.get(SessionId(options.sessionId))
     const session = this.ctx.sessions.get(SessionId(options.sessionId))
     if (agent === undefined || session === undefined || agent.session !== session) return false
@@ -382,6 +383,11 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
     const current = this.currentInitialAttempt(membership.team, agent.id)
     if (current === undefined) return false
     if (current.attempt.phase === 'running' && current.dispatch?.phase === 'settled') return false
+    if (current.dispatch !== undefined) this.witnessCapability.assertDigest(current.dispatch.witnessCapabilityDigest)
+    const permit = this.modelPermits.get(options.sessionId)
+    if (permit === undefined || options.signal !== permit.signal) {
+      throw new TeamDomainError('Team model request lacks its exact one-shot Agent Loop permit', 'TEAM_ATTEMPT_STALE')
+    }
     if (current.attempt.phase !== 'reserved' || current.dispatch === undefined
       || (current.dispatch.phase !== 'dispatch-pending' && current.dispatch.phase !== 'dispatch-entered')) {
       throw new TeamDomainError('Team model request lacks its exact dispatch fence', 'TEAM_ATTEMPT_STALE')
@@ -394,9 +400,6 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
 
   observeSessionEvent(session: Session, event: SessionEvent): void {
     if (this.closing || event.type !== 'assistant/message') return
-    // Start the official durability barrier synchronously while this exact
-    // Session is still entered. The fire-and-forget observer may run its fold
-    // after a fast child has already settled and left the live Session store.
     const durability = this.ctx.sessions.flush(session)
     const previous = this.evidenceChains.get(session.id) ?? Promise.resolve()
     const chain = previous.then(async () => {
@@ -455,6 +458,7 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
   async dispose(): Promise<void> {
     if (this.closing) return
     this.closing = true
+    this.witnessCapability.revoke('fresh-v2 runtime is closing')
     this.modelPermits.clear()
     const failures: unknown[] = []
     for (const [captainId, childIds] of this.children) {
@@ -492,9 +496,6 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
     if (permit === undefined || options.signal !== permit.signal) {
       throw new TeamDomainError('AgentLoop request lacks its exact model-dispatch permit', 'TEAM_ATTEMPT_STALE')
     }
-    // One official Agent request authorizes one provider entry. Consume before
-    // the durable witness so any uncertain failure remains pending for A2
-    // reconciliation instead of being retried through an unfenced second call.
     this.modelPermits.delete(options.sessionId)
     const agent = this.ctx.agents.get(SessionId(options.sessionId))
     const session = this.ctx.sessions.get(SessionId(options.sessionId))
@@ -513,6 +514,7 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
       throw new TeamDomainError('owned model dispatch lost its exact Attempt', 'TEAM_ATTEMPT_STALE')
     }
     const checkpoint = initialCheckpointOf(current.member, dispatch)
+    this.witnessCapability.assertDigest(checkpoint.witnessCapabilityDigest)
     const before = claimedInitialFrame(session, checkpoint.turn, checkpoint.step, checkpoint.initialPromptDigest)
     if (before.messageSeq !== checkpoint.messageSeq) throw new TeamDomainError('dispatch message sequence changed', 'TEAM_ATTEMPT_STALE')
     options.signal?.throwIfAborted()

@@ -10,6 +10,8 @@ const REQUIRED = Object.freeze({
     "ctx.on('agent/request'",
     "ctx.on('llm/stream'",
     "ctx.on('session/event'",
+    "ctx.on('llm/adapters-updated'",
+    'await runtime.activateWitnessCapability()',
   ],
   'src/runtime/fresh-v2-initial-runtime.ts': [
     'createAndReserveInitialAssignment(',
@@ -37,6 +39,12 @@ const REQUIRED = Object.freeze({
     'export function initialPromptDigest(',
     'export function claimedInitialFrame(',
     'export function assistantEvidenceAt(',
+  ],
+  'src/runtime/fresh-v2-witness-capability.ts': [
+    'async activate(): Promise<string>',
+    'async assertCurrent(): Promise<string>',
+    'this.revoke(\'official LLM provider topology changed\')',
+    'intercept(options: GenerateOptions)',
   ],
   'tests/fresh-v2-initial-runtime.spec.ts': [
     'keeps add_member dormant, witnesses provider entry, then admits running from durable assistant evidence',

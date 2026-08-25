@@ -18,6 +18,7 @@ import { FreshV2InitialRuntime, type FreshV2InitialConfig } from '../src/runtime
 import {
   FailingStreamAdapter,
   FRESH_V2_ARTIFACT_CONTRACT,
+  FRESH_V2_HOST_CONTRACT,
   FRESH_V2_SIGNAL,
   freshV2ToolCall,
   mountFreshV2Composition,
@@ -29,6 +30,7 @@ const SIGNAL = FRESH_V2_SIGNAL
 const ARTIFACT_CONTRACT = FRESH_V2_ARTIFACT_CONTRACT
 const INITIAL_CONFIG: FreshV2InitialConfig = {
   artifactContract: ARTIFACT_CONTRACT,
+  hostContract: FRESH_V2_HOST_CONTRACT,
   legacyManifestCapacity: 0,
   memberProvider: 'spawn',
   memberDenyTools: [],
@@ -112,12 +114,47 @@ describe('A1b fresh-v2 official AgentLoop vertical', () => {
     await expect(AgentSwarm.apply(new Context(), {
       experimentalFreshV2: true,
       freshV2ArtifactContract: ARTIFACT_CONTRACT,
+      freshV2HostContract: FRESH_V2_HOST_CONTRACT,
       jobsBridge: true,
     })).rejects.toMatchObject({ code: 'TEAM_EXPERIMENTAL_UNSUPPORTED_CONFIG' })
     await expect(AgentSwarm.apply(new Context(), {
       experimentalFreshV2: true,
       freshV2ArtifactContract: ARTIFACT_CONTRACT,
+      freshV2HostContract: FRESH_V2_HOST_CONTRACT,
     })).rejects.toMatchObject({ code: 'TEAM_RUNTIME_NOT_STARTED' })
+  })
+
+  it('revokes the fixed-Profile witness after provider topology mutation', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-swarm-a1b-topology-'))
+    roots.push(sandbox)
+    const mounted = await mountFreshV2Composition(sandbox, () => new FailingStreamAdapter())
+    try {
+      expect(mounted.ctx.agentSwarmV2Initial.witnessCapabilityDigest).toMatch(/^[0-9a-f]{64}$/)
+      const disposeRoute = mounted.ctx.llm.registerAdapter(['changed-route'], new FailingStreamAdapter())
+      await expect(mounted.ctx.agentSwarmV2Initial.assertWitnessCapabilityCurrent())
+        .rejects.toMatchObject({ code: 'TEAM_RUNTIME_NOT_STARTED' })
+      disposeRoute()
+      await expect(mounted.ctx.agentSwarmV2Initial.assertWitnessCapabilityCurrent())
+        .rejects.toMatchObject({ code: 'TEAM_RUNTIME_NOT_STARTED' })
+    } finally {
+      for (const fiber of mounted.fibers.toReversed()) await fiber.dispose().catch(() => undefined)
+    }
+  })
+
+  it('rejects a newly prepended short-circuit route before Team admission', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-swarm-a1b-listener-'))
+    roots.push(sandbox)
+    const mounted = await mountFreshV2Composition(sandbox, () => new FailingStreamAdapter())
+    const disposeListener = mounted.ctx.on('llm/stream', (_options, _next) => (async function* () {
+      yield { type: 'finish', reason: { kind: 'stop' } } as StreamChunk
+    })(), { global: true, prepend: true })
+    try {
+      await expect(mounted.ctx.agentSwarmV2Initial.assertWitnessCapabilityCurrent())
+        .rejects.toMatchObject({ code: 'TEAM_RUNTIME_NOT_STARTED' })
+    } finally {
+      await disposeListener()
+      for (const fiber of mounted.fibers.toReversed()) await fiber.dispose().catch(() => undefined)
+    }
   })
 
   it('keeps add_member dormant, witnesses provider entry, then admits running from durable assistant evidence', async () => {
@@ -169,6 +206,14 @@ describe('A1b fresh-v2 official AgentLoop vertical', () => {
         && event.data.content.some(block => block.type === 'text' && block.text.includes('Team assignment from captain.')))
       expect(assignmentMessages).toHaveLength(1)
 
+      let replayDownstreamCalls = 0
+      const replayOptions = adapter.requests.find(request => request.sessionId === childId)!
+      await expect(async () => await collect(ctx.agentSwarmV2Initial.wrapModelStream(replayOptions, () => (async function* () {
+        replayDownstreamCalls += 1
+        yield { type: 'finish', reason: { kind: 'stop' } } as StreamChunk
+      })()))).rejects.toMatchObject({ code: 'TEAM_ATTEMPT_STALE' })
+      expect(replayDownstreamCalls).toBe(0)
+
       adapter.open()
       await vi.waitFor(() => {
         const snapshot = ctx.agentSwarmV2Initial.snapshot(workspace, teamId!)!
@@ -200,6 +245,7 @@ describe('A1b fresh-v2 official AgentLoop vertical', () => {
         memberProvider: 'spawn',
         experimentalFreshV2: true,
         freshV2ArtifactContract: ARTIFACT_CONTRACT,
+        freshV2HostContract: FRESH_V2_HOST_CONTRACT,
       })
       fibers.push(pluginFiber)
       expect(ctx.agentSwarmV2Initial.snapshot(workspace, teamId)).toMatchObject({
