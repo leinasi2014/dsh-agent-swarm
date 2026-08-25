@@ -30,7 +30,7 @@ import {
   replaceTask,
   type TeamDomainDeps,
 } from './team-domain-shared.js'
-import { AttemptId, TaskId, type ReviewVerificationCommand, type TaskAttempt, type TeamId, type TeamState, type TeamTask } from './types.js'
+import { AttemptId, TaskId, type ReviewVerificationCommand, type TaskAttempt, type TeamId, type TeamMember, type TeamState, type TeamTask } from './types.js'
 import type { CreateTaskInput, TeamScope } from './team-domain-port.js'
 
 const TERMINAL_ATTEMPT_PHASES = new Set(['accepted', 'rejected', 'cancelled', 'stale'])
@@ -176,10 +176,14 @@ export async function claimTask(
   let seated!: { task: TeamTask; attempt: TaskAttempt }
   await deps.store.transact(scope, teamId, team => {
     const authority = actorMembership(team, actorSessionId)
-    const assignee = actorMembership(team, assigneeSessionId)
     if (actorSessionId !== assigneeSessionId) {
       expectDomain(authority.role === 'captain', 'only the captain can assign another member', 'TEAM_CAPTAIN_REQUIRED')
-      expectDomain(assignee.role === 'member', 'captain cannot be a scheduler target', 'TEAM_ASSIGNEE_INVALID')
+      const assignee = team.members.find(candidate =>
+        candidate.sessionId === assigneeSessionId
+        && (candidate.phase === 'provisioning' || candidate.phase === 'active'))
+      expectDomain(assignee !== undefined, 'scheduler target is not an available Team member', 'TEAM_ASSIGNEE_INVALID')
+    } else {
+      actorMembership(team, assigneeSessionId)
     }
     const current = taskOf(team, taskId)
     taskRevision(current, expectedRevision)
@@ -260,6 +264,52 @@ export async function acknowledgeAssignment(
   return structuredClone(committed)
 }
 
+/** Atomically activate a declared member with its first claimed assignment. */
+export async function activateInitialAssignment(
+  deps: TeamDomainDeps,
+  scope: TeamScope,
+  teamId: TeamId,
+  memberSessionId: string,
+  taskId: TaskId,
+  attemptId: AttemptId,
+): Promise<{ member: TeamMember; attempt: TaskAttempt }> {
+  let committedMember!: TeamMember
+  let committedAttempt!: TaskAttempt
+  await deps.store.transact(scope, teamId, team => {
+    const memberIndex = team.members.findIndex(candidate => candidate.sessionId === memberSessionId)
+    expectDomain(memberIndex >= 0, 'declared member not found', 'TEAM_MEMBER_NOT_FOUND')
+    const member = team.members[memberIndex]!
+    const task = taskOf(team, taskId)
+    assertCurrentAttempt(task, attemptId)
+    const attempt = attemptOf(team, attemptId)
+    expectDomain(
+      task.ownerSessionId === memberSessionId && attempt.memberSessionId === memberSessionId,
+      'initial assignment does not belong to the declared member',
+      'TEAM_TASK_OWNER_REQUIRED',
+    )
+    expectDomain(attempt.phase === 'running', 'attempt is not running', 'TEAM_ATTEMPT_PHASE_INVALID')
+    if (member.phase === 'active' && attempt.assignmentPhase === 'delivered') {
+      committedMember = member
+      committedAttempt = attempt
+      return
+    }
+    expectDomain(member.phase === 'provisioning', 'member is not awaiting its initial assignment', 'TEAM_MEMBER_PHASE_INVALID')
+    const timestamp = deps.now()
+    committedMember = { ...member, phase: 'active' }
+    committedAttempt = attempt.assignmentPhase === 'delivered'
+      ? attempt
+      : {
+          ...attempt,
+          assignmentPhase: 'delivered',
+          assignmentDeliveredAt: timestamp,
+          updatedAt: timestamp,
+        }
+    team.members[memberIndex] = committedMember
+    replaceAttempt(team, committedAttempt)
+  })
+  return { member: structuredClone(committedMember), attempt: structuredClone(committedAttempt) }
+}
+
 export async function submitTask(
   deps: TeamDomainDeps,
   scope: TeamScope,
@@ -280,6 +330,11 @@ export async function submitTask(
     expectDomain(current.ownerSessionId === actorSessionId, 'only the current owner can submit', 'TEAM_TASK_OWNER_REQUIRED')
     const attempt = attemptOf(team, attemptId)
     expectDomain(attempt.phase === 'running', 'attempt is not running', 'TEAM_ATTEMPT_PHASE_INVALID')
+    expectDomain(
+      attempt.assignmentPhase === 'delivered',
+      'task assignment has not reached the member model',
+      'TEAM_ASSIGNMENT_NOT_DELIVERED',
+    )
     const timestamp = deps.now()
     const normalizedOutput = nonEmpty(output, 'task output', deps.limits.maxTaskBytes)
     replaceAttempt(team, {

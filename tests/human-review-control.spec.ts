@@ -195,6 +195,7 @@ describe('HumanReviewProvider over official ctx.userQuestions', () => {
     const claim = await stack.ctx.agentSwarm.domain.claimTask(
       stack.scope, stack.teamId, stack.lead.id, task.id, task.revision, stack.lead.id,
     )
+    await stack.ctx.agentSwarm.domain.acknowledgeAssignment(stack.scope, stack.teamId, task.id, claim.attempt.id)
     const submitted = await stack.ctx.agentSwarm.domain.submitTask(
       stack.scope, stack.teamId, stack.lead.id, task.id, claim.task.revision, claim.attempt.id, 'evidence',
     )
@@ -222,6 +223,7 @@ describe('HumanReviewProvider over official ctx.userQuestions', () => {
     const claim = await stack.ctx.agentSwarm.domain.claimTask(
       stack.scope, stack.teamId, stack.lead.id, task.id, task.revision, stack.lead.id,
     )
+    await stack.ctx.agentSwarm.domain.acknowledgeAssignment(stack.scope, stack.teamId, task.id, claim.attempt.id)
     const submitted = await stack.ctx.agentSwarm.domain.submitTask(
       stack.scope, stack.teamId, stack.lead.id, task.id, claim.task.revision, claim.attempt.id, 'evidence',
     )
@@ -565,6 +567,9 @@ describe('typed control execution and free-text boundary', () => {
     )
     const reviewClaim = await stack.ctx.agentSwarm.domain.claimTask(
       stack.scope, stack.teamId, stack.lead.id, reviewTask.id, reviewTask.revision, stack.lead.id,
+    )
+    await stack.ctx.agentSwarm.domain.acknowledgeAssignment(
+      stack.scope, stack.teamId, reviewTask.id, reviewClaim.attempt.id,
     )
     const reviewSubmitted = await stack.ctx.agentSwarm.domain.submitTask(
       stack.scope, stack.teamId, stack.lead.id, reviewTask.id, reviewClaim.task.revision, reviewClaim.attempt.id, 'review output',

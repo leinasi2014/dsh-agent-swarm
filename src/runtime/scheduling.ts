@@ -12,7 +12,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import { TaskId, type AttemptId, type TaskAttempt, type TeamId, type TeamState, type TeamTask } from '../domain/types.js'
+import { TaskId, type AttemptId, type TaskAttempt, type TeamId, type TeamMember, type TeamState, type TeamTask } from '../domain/types.js'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import { TeamDomainError } from '../domain/error.js'
 import { budgetExhaustion, outstandingReservationTokens, reservationAdmissible } from '../domain/team-domain-budget.js'
@@ -62,6 +62,15 @@ export interface SchedulingDeps {
   readonly executionRootsEnabled: () => boolean
   /** Release roots whose attempts settled (authority-derived sweep). */
   readonly sweepExecutionRoots: (scope: TeamScope, teamId: TeamId) => Promise<void>
+  /** Materialize a dormant declared member with its first assignment frame. */
+  readonly startAssignedMember: (
+    captain: Agent,
+    scope: TeamScope,
+    team: TeamState,
+    member: TeamMember,
+    frame: string,
+    signal: AbortSignal,
+  ) => Promise<void>
 }
 
 /**
@@ -97,6 +106,15 @@ export class SchedulingPass {
     const hadQueuedMail = snapshot.pendingMessageIds.length > 0
     for (const messageId of snapshot.pendingMessageIds) {
       if (this.deps.isClosing()) return
+      const queued = snapshot.team.messages.find(message => message.id === messageId)
+      const target = queued === undefined
+        ? undefined
+        : snapshot.team.members.find(member => member.sessionId === queued.targetSessionId)
+      // A declared member has no Session yet. Its first model-visible user
+      // frame must remain the authoritative assignment; queued peer mail is
+      // retained and delivered after that activation instead of creating an
+      // unassigned bootstrap turn or blocking the first assignment forever.
+      if (target?.phase === 'provisioning') continue
       await this.deps.delivery().deliverQueuedMessage(scope, teamId, captain, messageId, AbortSignal.timeout(30_000))
     }
     if (hadQueuedMail) snapshot = await this.deps.domain().snapshot(scope, teamId, captain.id)
@@ -115,6 +133,11 @@ export class SchedulingPass {
     })
     for (const { task, attempt } of reserved) {
       if (this.deps.isClosing()) return
+      const owner = snapshot.team.members.find(member => member.sessionId === attempt.memberSessionId)
+      if (owner?.phase === 'provisioning') {
+        await this.dispatchAssignment(scope, snapshot.team, captain, task, attempt)
+        continue
+      }
       if (await this.settleReservedAssignment(scope, snapshot.team, task, attempt)) continue
       await this.dispatchAssignment(scope, snapshot.team, captain, task, attempt)
     }
@@ -145,7 +168,8 @@ export class SchedulingPass {
       .map(task => task.ownerSessionId)
       .filter((value): value is string => value !== undefined))
     const members = snapshot.team.members
-      .filter(member => member.phase === 'active' && !busy.has(member.sessionId) && memberAvailable(this.ctx, member.sessionId))
+      .filter(member => (member.phase === 'provisioning' || member.phase === 'active')
+        && !busy.has(member.sessionId) && memberAvailable(this.ctx, member.sessionId))
       .toSorted((left, right) => left.createdAt - right.createdAt)
     const outstandingReserved = outstandingReservationTokens(snapshot.team.tasks)
     const ready = snapshot.team.tasks
@@ -222,14 +246,17 @@ export class SchedulingPass {
     }
     const frame = assignmentPrompt(team, task, attempt.id, executionRootPath)
     try {
-      await this.ctx.subagents.followup(
-        captain,
-        SessionId(attempt.memberSessionId),
-        [{ type: 'text', text: frame }],
-        { source: { kind: 'plugin', plugin: 'dsh-agent-swarm' }, signal: AbortSignal.timeout(30_000) },
-      )
-      const member = this.ctx.agents.get(SessionId(attempt.memberSessionId))
-      if (member !== undefined) await this.deps.usage().accountAgentUsage(scope, team.id, member)
+      const owner = team.members.find(member => member.sessionId === attempt.memberSessionId)
+      if (owner?.phase === 'provisioning') {
+        await this.deps.startAssignedMember(captain, scope, team, owner, frame, AbortSignal.timeout(30_000))
+      } else {
+        await this.ctx.subagents.followup(
+          captain,
+          SessionId(attempt.memberSessionId),
+          [{ type: 'text', text: frame }],
+          { source: { kind: 'plugin', plugin: 'dsh-agent-swarm' }, signal: AbortSignal.timeout(30_000) },
+        )
+      }
     } catch (error) {
       await this.rollbackUndeliveredAssignment(
         scope,
@@ -252,7 +279,22 @@ export class SchedulingPass {
       this.ctx.logger.warn(`agent-swarm: assignment claim wait failed for ${task.id}: ${String(error)}`)
       return
     }
-    await this.commitAssignmentAcknowledgement(scope, team.id, task, attempt.id)
+    const declaredOwner = team.members.find(member => member.sessionId === attempt.memberSessionId)?.phase === 'provisioning'
+    if (declaredOwner) {
+      try {
+        await this.deps.domain().activateInitialAssignment(
+          scope, team.id, attempt.memberSessionId, task.id, attempt.id,
+        )
+      } catch (error) {
+        this.ctx.logger.warn(`agent-swarm: initial assignment activation deferred for ${task.id}: ${String(error)}`)
+        return
+      }
+      await this.deps.sweepExecutionRoots(scope, team.id)
+    } else {
+      await this.commitAssignmentAcknowledgement(scope, team.id, task, attempt.id)
+    }
+    const member = this.ctx.agents.get(SessionId(attempt.memberSessionId))
+    if (member !== undefined) await this.deps.usage().accountAgentUsage(scope, team.id, member)
   }
 
   /**

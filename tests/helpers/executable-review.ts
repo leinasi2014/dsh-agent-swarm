@@ -97,6 +97,14 @@ export async function claimAndSubmit(
   })
   if (claim.isError) throw new Error(`claim failed: ${JSON.stringify(claim.error)}`)
   const claimed = claim.value as { attempt_id: string; revision: number }
+  const snapshot = await composition.ctx.agentSwarm.domain.snapshot(
+    composition.scope, AgentSwarm.TeamId(composition.teamId), composition.lead.id,
+  )
+  const task = snapshot.team.tasks.find(candidate => candidate.id === taskId)
+  if (task === undefined) throw new Error(`claimed task ${taskId} disappeared`)
+  await composition.ctx.agentSwarm.domain.acknowledgeAssignment(
+    composition.scope, snapshot.team.id, task.id, AgentSwarm.AttemptId(claimed.attempt_id),
+  )
   const submit = await toolCall(composition.ctx, composition.lead, `submit-${Date.now()}`, 'agent_swarm_submit_task', {
     task_id: taskId,
     expected_revision: claimed.revision,

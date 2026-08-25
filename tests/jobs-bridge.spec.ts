@@ -70,20 +70,17 @@ class MemberAdapter extends LlmAdapter {
     return Promise.resolve({ provider, id: model, name: model })
   }
 
-  private lastUserText(options: GenerateOptions): string {
-    for (let index = options.messages.length - 1; index >= 0; index -= 1) {
-      const message = options.messages[index]!
-      if (message.role !== 'user') continue
-      return message.content
+  private userText(options: GenerateOptions): string {
+    return options.messages
+      .filter(message => message.role === 'user')
+      .flatMap(message => message.content
         .filter((block): block is Extract<typeof block, { type: 'text' }> => block.type === 'text')
-        .map(block => block.text)
-        .join('\n')
-    }
-    return ''
+        .map(block => block.text))
+      .join('\n')
   }
 
   override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    const text = this.lastUserText(options)
+    const text = this.userText(options)
     const assignment = ASSIGNMENT_RE.exec(text)
     if (this.options.submit && assignment !== null) {
       const [, taskId, revision, attemptId] = assignment

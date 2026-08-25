@@ -75,6 +75,8 @@ export interface Config {
   memberProvider?: string
   /** Optional model override for every member. */
   memberModel?: string
+  /** Experimental: declare members without a model turn until first assignment. */
+  lazyMemberStart?: boolean
   /** Optional LLM Provider override for future members. */
   memberLlmProvider?: string
   /** Default additional deny-only tools for future members. */
@@ -209,6 +211,7 @@ export const Config: z<Config> = z.object({
   enabled: z.boolean().default(true),
   memberProvider: z.string().default('spawn'),
   memberModel: z.string(),
+  lazyMemberStart: z.boolean().default(false),
   memberLlmProvider: z.string(),
   memberDenyTools: z.array(z.string()).default([]),
   memberSkills: z.array(z.string()).default([]),
@@ -283,6 +286,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const runtime = new AgentSwarmRuntime(ctx, {
     memberProvider,
     ...(config.memberModel === undefined ? {} : { memberModel: config.memberModel }),
+    lazyMemberStart: config.lazyMemberStart ?? false,
     memberMaxDepth: config.memberMaxDepth ?? 1,
     schedulerProvider,
     reviewProvider,
@@ -428,6 +432,10 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   ctx.effect(() => ctx.on('session/event', (session, event) => {
     runtime.observeSessionEvent(session, event)
   }), 'agent-swarm: token accounting')
+  ctx.effect(() => ctx.on('agent/request', async ({ agent, signal }, next) => {
+    await runtime.observeAgentRequest(agent, signal)
+    return await next()
+  }), 'agent-swarm: assignment pre-model gate')
   ctx.effect(async () => {
     await Promise.all(ctx.agents.roots().map(agent => runtime.recoverAgent(agent)))
     // Issue #92's durable net: after agent recovery, refold every active

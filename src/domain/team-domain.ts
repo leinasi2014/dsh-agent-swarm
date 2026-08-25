@@ -158,6 +158,16 @@ export class TeamDomain implements TeamDomainPort {
     return await board.acknowledgeAssignment(this.deps, scope, teamId, taskId, attemptId)
   }
 
+  async activateInitialAssignment(
+    scope: TeamScope,
+    teamId: TeamId,
+    memberSessionId: string,
+    taskId: TaskId,
+    attemptId: AttemptId,
+  ): Promise<{ member: TeamMember; attempt: TaskAttempt }> {
+    return await board.activateInitialAssignment(this.deps, scope, teamId, memberSessionId, taskId, attemptId)
+  }
+
   async submitTask(
     scope: TeamScope,
     teamId: TeamId,

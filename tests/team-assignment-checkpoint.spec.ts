@@ -129,4 +129,72 @@ describe('TeamDomain assignment-delivery checkpoint (attempt-fenced, issue #45)'
     await expect(domain.acknowledgeAssignment(scope, team.id, task.id, oldClaim.attempt.id))
       .rejects.toMatchObject({ code: 'TEAM_ATTEMPT_STALE' })
   })
+
+  it('rejects submission until the exact assignment is delivered', async () => {
+    const team = await teamWithMembers(1)
+    const task = await domain.createTask(scope, team.id, 'captain-session', {
+      subject: 'delivery-gated task', description: 'Must not execute before delivery.',
+    })
+    const claim = await domain.claimTask(
+      scope, team.id, 'captain-session', task.id, task.revision, 'member-1',
+    )
+
+    await expect(domain.submitTask(
+      scope, team.id, 'member-1', task.id, claim.task.revision, claim.attempt.id, 'premature output', [],
+    )).rejects.toMatchObject({ code: 'TEAM_ASSIGNMENT_NOT_DELIVERED' })
+
+    const reserved = await domain.snapshot(scope, team.id, 'captain-session')
+    expect(reserved.team.tasks[0]).toMatchObject({
+      status: 'in_progress', currentAttemptId: claim.attempt.id, revision: claim.task.revision,
+    })
+    expect(reserved.team.attempts[0]).toMatchObject({
+      id: claim.attempt.id, phase: 'running', assignmentPhase: 'reserved',
+    })
+
+    await domain.acknowledgeAssignment(scope, team.id, task.id, claim.attempt.id)
+    const submitted = await domain.submitTask(
+      scope, team.id, 'member-1', task.id, claim.task.revision, claim.attempt.id, 'delivered output', [],
+    )
+    expect(submitted.status).toBe('submitted')
+  })
+
+  it('activates a declared member and delivers its first fenced attempt in one idempotent transaction', async () => {
+    const team = await domain.createTeam(scope, 'captain-session', 'Lazy team', 'Atomic first assignment')
+    await domain.provisionMember(scope, team.id, 'captain-session', {
+      name: 'lazy-worker', role: 'Start only with real work', sessionId: 'lazy-member', provider: 'spawn',
+    })
+    const task = await domain.createTask(scope, team.id, 'captain-session', {
+      subject: 'first assignment', description: 'Cross the activation edge atomically.',
+    })
+    const claim = await domain.claimTask(scope, team.id, 'captain-session', task.id, task.revision, 'lazy-member')
+
+    const activated = await domain.activateInitialAssignment(
+      scope, team.id, 'lazy-member', task.id, claim.attempt.id,
+    )
+    expect(activated.member.phase).toBe('active')
+    expect(activated.attempt.assignmentPhase).toBe('delivered')
+
+    const repeated = await domain.activateInitialAssignment(
+      scope, team.id, 'lazy-member', task.id, claim.attempt.id,
+    )
+    expect(repeated).toEqual(activated)
+  })
+
+  it('heals a raced delivered checkpoint while activating the declared owner', async () => {
+    const team = await domain.createTeam(scope, 'captain-session', 'Race team', 'Close the split checkpoint window')
+    await domain.provisionMember(scope, team.id, 'captain-session', {
+      name: 'race-worker', role: 'Race the observers', sessionId: 'race-member', provider: 'spawn',
+    })
+    const task = await domain.createTask(scope, team.id, 'captain-session', {
+      subject: 'raced assignment', description: 'Simulate a legacy acknowledgement winning first.',
+    })
+    const claim = await domain.claimTask(scope, team.id, 'captain-session', task.id, task.revision, 'race-member')
+    await domain.acknowledgeAssignment(scope, team.id, task.id, claim.attempt.id)
+
+    const healed = await domain.activateInitialAssignment(
+      scope, team.id, 'race-member', task.id, claim.attempt.id,
+    )
+    expect(healed.member.phase).toBe('active')
+    expect(healed.attempt.assignmentPhase).toBe('delivered')
+  })
 })

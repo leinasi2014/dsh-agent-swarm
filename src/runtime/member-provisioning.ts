@@ -1,17 +1,15 @@
 /**
  * Continuable member provisioning.
  *
- * One admitted operation at a time: the durable provisioning record commits
- * before the child starts, activation settles only after `startContinuable`
- * accepted, and every failure path settles the record failed and drains the
- * uncommitted child.
+ * One admitted operation at a time. The stable eager mode preserves the
+ * existing join-turn contract; opt-in lazy mode leaves a durable declaration
+ * dormant until a real assignment and activates it atomically with that
+ * assignment's delivered checkpoint.
  *
  * The persisted-child reconciliation recovery (M1B/F3) also lives here: an
- * interrupted `provisioning` record is reconciled against the durable child
- * facts (official experimental `reconcileProvisioning` template) — exact
- * parent Session, continuable descriptor, matching provider and a durably
- * accepted initial user prompt — and the member is activated or the orphan
- * child is explicitly drained.
+ * Recovery distinguishes a legitimate lazy declaration from a partially
+ * materialized child and verifies the exact fenced assignment before lazy
+ * activation. Eager recovery retains the established descriptor checks.
  */
 import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
@@ -21,11 +19,12 @@ import type {} from '@deepseek-ai/dsh-session-persistence'
 import { foldSubagentDescriptor, SubagentError, type SubagentListEntry } from '@deepseek-ai/dsh-subagent'
 import { TeamDomainError } from '../domain/error.js'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
-import type { TeamId, TeamMember, TeamMembership } from '../domain/types.js'
+import type { TaskAttempt, TeamId, TeamMember, TeamMembership, TeamTask } from '../domain/types.js'
 import { requireAgent, type ToolExecutionAuthority } from './authority.js'
 import type { RuntimeConfig } from './orchestrator-runtime.js'
 import { memberJoinNotice, memberPersona } from './prompts.js'
-import { messageAccepted } from './session-acceptance.js'
+import { framePredicate } from './frame-visibility.js'
+import { messageAccepted, messageClaimed, messagePending } from './session-acceptance.js'
 import { memberToolDeny } from './tool-policy.js'
 
 const MISMATCH = 'persisted child Session does not match the provisioned continuation'
@@ -34,7 +33,9 @@ const RECONCILE_TIMEOUT_MS = 30_000
 
 /** Evidence verdict for one interrupted provisioning record's child. */
 type ChildVerdict =
-  | { readonly kind: 'activate' }
+  | { readonly kind: 'absent' }
+  | { readonly kind: 'pending' }
+  | { readonly kind: 'claimed' }
   | { readonly kind: 'failed'; readonly error: string; readonly drain: boolean }
 
 function describe(error: unknown): string {
@@ -53,7 +54,8 @@ export class MemberProvisioner {
       config: RuntimeConfig
       scopeOf: (agent: Agent) => TeamScope
       trackChild: (captain: Agent, childId: string) => void
-      afterActivation: (scope: TeamScope, teamId: TeamId, captain: Agent, childId: SessionId) => Promise<void>
+      afterDeclaration: (scope: TeamScope, teamId: TeamId, captain: Agent, childId: SessionId) => Promise<void>
+      assignmentFrame: (scope: TeamScope, team: TeamMembership['team'], task: TeamTask, attempt: TaskAttempt) => string
     },
   ) {}
 
@@ -105,6 +107,12 @@ export class MemberProvisioner {
         ...(input.denyTools ?? live.memberDenyTools ?? []),
         ...(this.deps.config.memberToolPolicyDeny ?? []),
       ])])
+      if (this.deps.config.lazyMemberStart) {
+        const unknown = deny.find(name => this.ctx.tools.get(name, captain) === undefined && this.ctx.tools.get(name) === undefined)
+        if (unknown !== undefined) {
+          throw new TeamDomainError(`member deny tool "${unknown}" is unavailable`, 'TEAM_INPUT_INVALID')
+        }
+      }
       const assignedSkills = [...new Set(input.skills ?? live.memberSkills ?? [])]
       for (const name of assignedSkills) {
         if (name.length > 128 || !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name)) {
@@ -168,72 +176,93 @@ export class MemberProvisioner {
         deniedTools: deny,
         assignedSkills,
       })
-      try {
-        await this.ctx.subagents.startContinuable({
-          provider: providerName,
-          label: `agent-swarm:${membership.team.id}:${provisioning.name}`,
-          childId,
-          request: {
-            prompt: [{ type: 'text', text: memberJoinNotice(membership.team) }],
-            parent: captain,
-            persona: memberPersona(membership.team, provisioning.name, provisioning.role, assignedSkills),
-            // M1A static baseline plus the F17 deny-only narrowing declaration
-            // (`deny_tools`); the union is monotone — captain-only tools stay
-            // mandatorily denied and no allow surface exists.
-            toolFilter: { deny },
-            agentOptions: {
-              ...(llmProvider === undefined ? {} : { provider: llmProvider }),
-              ...(model === undefined ? {} : { model }),
-            },
-            maxDepth: this.deps.config.memberMaxDepth,
-          },
-          signal: exec.signal,
-        })
-      } catch (error) {
-        await this.deps.domain().settleMember(scope, membership.team.id, childId, {
-          active: false,
-          error: error instanceof Error ? error.message : String(error),
-        })
-        throw error
-      }
-
-      try {
-        const active = await this.deps.domain().settleMember(scope, membership.team.id, childId, { active: true })
-        this.deps.trackChild(captain, childId)
+      if (!this.deps.config.lazyMemberStart) {
         try {
-          await this.deps.afterActivation(scope, membership.team.id, captain, childId)
-        } catch (activationError) {
-          // Post-activation accounting is cursor-based and refolds through
-          // the recovery path, so a failure AFTER the durable active
-          // settlement must not roll the member back (issue #47: the
-          // compensating settle would only fail with TEAM_MEMBER_PHASE_INVALID,
-          // drain a live member and poison the name for retries under the
-          // lifetime-occupation rule). Degrade to a warning: the roster's
-          // active settlement is authoritative.
-          this.ctx.logger.warn(
-            `agent-swarm: post-activation accounting failed for ${childId} (member stays active; usage refolds on recovery): ${String(activationError)}`,
-          )
+          await this.ctx.subagents.startContinuable({
+            provider: providerName,
+            label: `agent-swarm:${membership.team.id}:${provisioning.name}`,
+            childId,
+            request: {
+              prompt: [{ type: 'text', text: memberJoinNotice(membership.team) }],
+              parent: captain,
+              persona: memberPersona(membership.team, provisioning.name, provisioning.role, assignedSkills),
+              toolFilter: { deny },
+              agentOptions: {
+                ...(llmProvider === undefined ? {} : { provider: llmProvider }),
+                ...(model === undefined ? {} : { model }),
+              },
+              maxDepth: this.deps.config.memberMaxDepth,
+            },
+            signal: exec.signal,
+          })
+        } catch (error) {
+          await this.deps.domain().settleMember(scope, membership.team.id, childId, {
+            active: false, error: describe(error),
+          })
+          throw error
         }
-        return active
-      } catch (error) {
-        await this.deps.domain().settleMember(scope, membership.team.id, childId, {
-          active: false,
-          error: `member activation did not commit: ${error instanceof Error ? error.message : String(error)}`,
-        }).catch(settleError => {
-          this.ctx.logger.warn(`agent-swarm: failed to settle uncommitted child ${childId}: ${String(settleError)}`)
-        })
-        let drained = false
-        await this.ctx.subagents.drainContinuableChildren(captain, [childId]).then(() => {
-          drained = true
-        }).catch(drainError => {
-          this.ctx.logger.warn(`agent-swarm: failed to drain uncommitted child ${childId}: ${String(drainError)}`)
-        })
-        if (!drained) this.deps.trackChild(captain, childId)
-        throw error
+        try {
+          const active = await this.deps.domain().settleMember(scope, membership.team.id, childId, { active: true })
+          this.deps.trackChild(captain, childId)
+          await this.deps.afterDeclaration(scope, membership.team.id, captain, childId).catch(error => {
+            this.ctx.logger.warn(`agent-swarm: post-activation accounting failed for ${childId} (member stays active): ${String(error)}`)
+          })
+          return active
+        } catch (error) {
+          await this.deps.domain().settleMember(scope, membership.team.id, childId, {
+            active: false, error: `member activation did not commit: ${describe(error)}`,
+          }).catch(settleError => {
+            this.ctx.logger.warn(`agent-swarm: failed to settle uncommitted child ${childId}: ${String(settleError)}`)
+          })
+          let drained = false
+          await this.ctx.subagents.drainContinuableChildren(captain, [childId]).then(() => { drained = true }).catch(drainError => {
+            this.ctx.logger.warn(`agent-swarm: failed to drain uncommitted child ${childId}: ${String(drainError)}`)
+          })
+          if (!drained) this.deps.trackChild(captain, childId)
+          throw error
+        }
       }
+      await this.deps.afterDeclaration(scope, membership.team.id, captain, childId)
+      return provisioning
     } finally {
       completeOperation()
       this.operations.delete(operation)
+    }
+  }
+
+  /** Start a declared member with its first authoritative assignment. */
+  async startAssignedMember(
+    captain: Agent,
+    _scope: TeamScope,
+    team: TeamMembership['team'],
+    member: TeamMember,
+    assignmentFrame: string,
+    signal: AbortSignal,
+  ): Promise<void> {
+    try {
+      await this.ctx.subagents.startContinuable({
+        provider: member.provider,
+        label: `agent-swarm:${team.id}:${member.name}`,
+        childId: SessionId(member.sessionId),
+        request: {
+          prompt: [{ type: 'text', text: assignmentFrame }],
+          parent: captain,
+          persona: memberPersona(team, member.name, member.role, member.assignedSkills ?? []),
+          toolFilter: { deny: [...(member.deniedTools ?? [])] },
+          agentOptions: {
+            ...(member.llmProvider === undefined ? {} : { provider: member.llmProvider }),
+            ...(member.model === undefined ? {} : { model: member.model }),
+          },
+          maxDepth: this.deps.config.memberMaxDepth,
+        },
+        signal,
+      })
+      this.deps.trackChild(captain, member.sessionId)
+    } catch (error) {
+      await this.ctx.subagents.drainContinuableChildren(captain, [SessionId(member.sessionId)]).catch(drainError => {
+        this.ctx.logger.warn(`agent-swarm: failed to drain unstarted member ${member.sessionId}: ${String(drainError)}`)
+      })
+      throw error
     }
   }
 
@@ -268,8 +297,56 @@ export class MemberProvisioner {
     try {
       for (const member of interrupted) {
         if (this.ctx.agents.get(SessionId(member.sessionId)) !== undefined) continue
-        const verdict = await this.childVerdict(captain, member)
-        const outcome = verdict.kind === 'activate' ? { active: true } as const : { active: false, error: verdict.error } as const
+        if (!this.deps.config.lazyMemberStart) {
+          let verdict = await this.childVerdict(captain, member)
+          if (verdict.kind === 'absent') {
+            verdict = { kind: 'failed', error: `${INTERRUPTED}: provisioning did not leave a resumable child Session`, drain: false }
+          }
+          const active = verdict.kind === 'claimed' || verdict.kind === 'pending'
+          const outcome = active
+            ? { active: true } as const
+            : { active: false, error: verdict.kind === 'failed' ? verdict.error : INTERRUPTED } as const
+          await this.deps.domain().settleMember(scope, membership.team.id, member.sessionId, outcome)
+          settled += 1
+          if (active) {
+            activated += 1
+            this.deps.trackChild(captain, member.sessionId)
+          } else if (verdict.kind === 'failed' && verdict.drain) {
+            await this.ctx.subagents.drainContinuableChildren(captain, [SessionId(member.sessionId)]).catch(error => {
+              this.ctx.logger.warn(`agent-swarm: failed to drain mismatched provisioning child ${member.sessionId}: ${String(error)}`)
+            })
+          }
+          continue
+        }
+        const task = membership.team.tasks.find(candidate =>
+          candidate.ownerSessionId === member.sessionId
+          && candidate.status === 'in_progress'
+          && candidate.currentAttemptId !== undefined)
+        const attempt = task?.currentAttemptId === undefined
+          ? undefined
+          : membership.team.attempts.find(candidate => candidate.id === task.currentAttemptId)
+        // A provisioning row without an open first assignment is a valid
+        // dormant declaration, not an interrupted child creation.
+        if (task === undefined || attempt?.phase !== 'running' || attempt.assignmentPhase !== 'reserved') continue
+        const frame = this.deps.assignmentFrame(scope, membership.team, task, attempt)
+        const verdict = await this.childVerdict(captain, member, frame)
+        if (verdict.kind === 'absent') continue
+        if (verdict.kind === 'pending') {
+          this.deps.trackChild(captain, member.sessionId)
+          await this.wakeRecoveredAssignment(captain, member.sessionId)
+          continue
+        }
+        if (verdict.kind === 'claimed') {
+          await this.deps.domain().activateInitialAssignment(
+            scope, membership.team.id, member.sessionId, task.id, attempt.id,
+          )
+          settled += 1
+          activated += 1
+          this.deps.trackChild(captain, member.sessionId)
+          await this.wakeRecoveredAssignment(captain, member.sessionId)
+          continue
+        }
+        const outcome = { active: false, error: verdict.error } as const
         try {
           await this.deps.domain().settleMember(scope, membership.team.id, member.sessionId, outcome)
         } catch (error) {
@@ -279,16 +356,17 @@ export class MemberProvisioner {
           throw error
         }
         settled += 1
-        if (verdict.kind === 'activate') {
-          activated += 1
-          this.deps.trackChild(captain, member.sessionId)
-        } else if (verdict.drain) {
+        if (verdict.drain) {
           await this.ctx.subagents.drainContinuableChildren(captain, [SessionId(member.sessionId)]).catch(error => {
             this.ctx.logger.warn(`agent-swarm: failed to drain mismatched provisioning child ${member.sessionId}: ${String(error)}`)
           })
         }
       }
     } catch (error) {
+      if (this.deps.config.lazyMemberStart) {
+        this.ctx.logger.warn(`agent-swarm: lazy member reconciliation deferred without changing dormant declarations: ${String(error)}`)
+        return settled
+      }
       const recovered = await this.deps.domain().recoverProvisioningMembers(
         scope,
         membership.team.id,
@@ -317,7 +395,7 @@ export class MemberProvisioner {
    * `@deepseek-ai/dsh-session-projection`) keeps full reconciliation over
    * the inspect-only path, with one logged warning.
    */
-  private async childVerdict(captain: Agent, member: TeamMember): Promise<ChildVerdict> {
+  private async childVerdict(captain: Agent, member: TeamMember, frame?: string): Promise<ChildVerdict> {
     let entry: SubagentListEntry | undefined
     let enumerationAbsent = false
     try {
@@ -334,7 +412,7 @@ export class MemberProvisioner {
       }
     }
     if (entry === undefined && !enumerationAbsent) {
-      return { kind: 'failed', error: `${INTERRUPTED}: provisioning did not leave a resumable child Session`, drain: false }
+      return { kind: 'absent' }
     }
     if (entry?.kind === 'diagnostic') {
       return entry.reason === 'corrupt'
@@ -348,6 +426,7 @@ export class MemberProvisioner {
     try {
       stored = await this.ctx.sessionPersistence.inspect(SessionId(member.sessionId), AbortSignal.timeout(RECONCILE_TIMEOUT_MS))
     } catch (error) {
+      if ((error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') return { kind: 'absent' }
       return { kind: 'failed', error: `${INTERRUPTED}: reconciliation could not verify the persisted child (child Session recovery failed: ${describe(error)})`, drain: false }
     }
     const suffix = stored.events.slice(stored.meta.seedLength ?? 0)
@@ -366,9 +445,26 @@ export class MemberProvisioner {
     if (descriptor.provider !== member.provider) {
       return { kind: 'failed', error: `${INTERRUPTED}: ${MISMATCH} (child provider "${descriptor.provider}" is not the provisioned provider "${member.provider}")`, drain: true }
     }
-    if (!messageAccepted(suffix, message => message.source.kind === 'user')) {
-      return { kind: 'failed', error: `${INTERRUPTED}: ${MISMATCH} (no initial user prompt was durably accepted)`, drain: true }
+    if (frame === undefined) {
+      return messageAccepted(suffix, message => message.source.kind === 'user')
+        ? { kind: 'claimed' }
+        : { kind: 'failed', error: `${INTERRUPTED}: ${MISMATCH} (no initial user prompt was durably accepted)`, drain: true }
     }
-    return { kind: 'activate' }
+    const predicate = framePredicate(frame)
+    if (messageClaimed(suffix, predicate)) return { kind: 'claimed' }
+    if (messagePending(suffix, predicate)) return { kind: 'pending' }
+    return { kind: 'failed', error: `${INTERRUPTED}: ${MISMATCH} (exact initial assignment was not durably accepted)`, drain: true }
+  }
+
+  /** Cold-resume an accepted first assignment without duplicating that assignment. */
+  private async wakeRecoveredAssignment(captain: Agent, memberSessionId: string): Promise<void> {
+    await this.ctx.subagents.followup(
+      captain,
+      SessionId(memberSessionId),
+      [{ type: 'text', text: 'Resume the already assigned task from durable Team state; do not reinterpret or duplicate its scope.' }],
+      { source: { kind: 'plugin', plugin: 'dsh-agent-swarm' }, signal: AbortSignal.timeout(RECONCILE_TIMEOUT_MS) },
+    ).catch(error => {
+      this.ctx.logger.warn(`agent-swarm: recovered assignment wake deferred for ${memberSessionId}: ${String(error)}`)
+    })
   }
 }

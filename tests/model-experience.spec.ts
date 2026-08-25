@@ -315,6 +315,9 @@ describe('tool-layer model experience over the real composition (issue #15)', ()
         .toEqual(['task-3'])
 
       const claimedSnapshot = (await snapshotOf(composition)).team.tasks[0]!
+      await ctx.agentSwarm.domain.acknowledgeAssignment(
+        composition.scope, (await snapshotOf(composition)).team.id, claimedSnapshot.id, claimedSnapshot.currentAttemptId!,
+      )
       const submitted = await toolCall(ctx, memberAgent, 'submit', 'agent_swarm_submit_task', {
         task_id: 'task-1',
         expected_revision: claimedSnapshot.revision,

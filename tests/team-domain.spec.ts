@@ -83,6 +83,7 @@ describe('TeamDomain over the official Storage Domain', () => {
     const claim = await domain.claimTask(
       scope, team.id, 'captain-session', task.id, task.revision, 'member-1',
     )
+    await domain.acknowledgeAssignment(scope, team.id, task.id, claim.attempt.id)
     const submitted = await domain.submitTask(
       scope,
       team.id,
@@ -215,6 +216,7 @@ describe('TeamDomain over the official Storage Domain', () => {
     const claim = await domain.claimTask(
       scope, team.id, 'captain-session', task.id, task.revision, 'member-1',
     )
+    await domain.acknowledgeAssignment(scope, team.id, task.id, claim.attempt.id)
     const submitted = await domain.submitTask(
       scope, team.id, 'member-1', task.id, claim.task.revision, claim.attempt.id, 'done',
     )

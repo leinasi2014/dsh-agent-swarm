@@ -87,7 +87,7 @@ export async function waitForChange(
 /**
  * Wait-progress evidence for the model-only no-progress short-circuit
  * (issue #15, official `wait_agent` parity): whether any OTHER member is
- * currently running or provisioning — the only peers that can produce the
+ * currently running or materializing a claimed first assignment — the peers that can produce the
  * change a wait parks for — plus the current status snapshot so the
  * short-circuit payload can answer with the authoritative cursor state.
  * Read-only; `waitForChange` itself keeps its authoritative contract.
@@ -100,7 +100,9 @@ export async function activePeerEvidence(deps: WaitSurfaceDeps, exec: ToolExecut
   const membership = await deps.domain().requireReadMembership(scope, actor.id)
   const activePeer = membership.team.members.some(member =>
     member.sessionId !== actor.id
-    && (member.phase === 'provisioning'
+    && ((member.phase === 'provisioning'
+      && (deps.ctx.agents.get(SessionId(member.sessionId))?.status === 'running'
+        || membership.team.tasks.some(task => task.ownerSessionId === member.sessionId && task.status === 'in_progress')))
       || (member.phase === 'active' && deps.ctx.agents.get(SessionId(member.sessionId))?.status === 'running')))
   const snapshot = await deps.domain().snapshot(scope, membership.team.id, actor.id)
   return { snapshot, activePeer }

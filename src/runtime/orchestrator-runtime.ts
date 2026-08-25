@@ -27,6 +27,9 @@ import { runReviewTransaction } from './review-transaction.js'
 import { OrchestrationOwnership } from './orchestration-ownership.js'
 import { SchedulingPass } from './scheduling.js'
 import { UsageAccountant } from './usage-accounting.js'
+import { framePredicate } from './frame-visibility.js'
+import { assignmentPrompt } from './prompts.js'
+import { messageClaimed } from './session-acceptance.js'
 import { activePeerEvidence, status, waitForChange, type WaitSurfaceDeps } from './wait-surface.js'
 import type { RuntimeConfig } from './runtime-contract.js'
 import type { TeamJobProjection } from './jobs/team-job-projection.js'
@@ -123,17 +126,27 @@ export class AgentSwarmRuntime extends Service {
       executionRoots: () => this.executionRoots.roots,
       executionRootsEnabled: () => this.config.executionRootsEnabled,
       sweepExecutionRoots: (scope, teamId) => this.executionRoots.sweep(scope, teamId),
+      startAssignedMember: (captain, scope, team, member, frame, signal) =>
+        this.provisioning.startAssignedMember(captain, scope, team, member, frame, signal),
     })
     this.provisioning = new MemberProvisioner(ctx, {
       domain: () => this.domain,
       config,
       scopeOf: agent => this.scopeOf(agent),
       trackChild: (captain, childId) => this.trackChild(captain, childId),
-      afterActivation: async (scope, teamId, captain, childId) => {
+      afterDeclaration: async (scope, teamId, captain, childId) => {
         const child = this.ctx.agents.get(childId)
         if (child !== undefined) await this.usage.accountAgentUsage(scope, teamId, child)
         this.requestSchedule(scope, teamId, captain)
       },
+      assignmentFrame: (scope, team, task, attempt) => assignmentPrompt(
+        team,
+        task,
+        attempt.id,
+        this.config.executionRootsEnabled
+          ? this.executionRoots.roots.declarationPathFor(scope, team.id, task.id, attempt.id)
+          : undefined,
+      ),
     })
     this.memory = new MemoryOperations(ctx, {
       ready: () => this.ensureReady(),
@@ -219,6 +232,46 @@ export class AgentSwarmRuntime extends Service {
       throw new TeamDomainError('Team orchestrator storage did not start', 'TEAM_RUNTIME_NOT_STARTED')
     }
     return await this.storeInstance.list(scope)
+  }
+
+  /**
+   * Pre-model assignment gate. The official AgentLoop has already claimed
+   * the current user frame into Session history when `agent/request` runs,
+   * but has not called the model yet. Flush that exact frame first, then
+   * checkpoint only its fenced reserved attempt as delivered. A pending
+   * followup behind another turn cannot pass the exact-frame predicate.
+   */
+  async observeAgentRequest(agent: Agent, signal: AbortSignal): Promise<void> {
+    if (this.closing) return
+    await this.ensureReady()
+    const scope = this.scopeOf(agent)
+    const membership = await this.domain.findAccountingMembership(scope, agent.id)
+    if (membership?.role !== 'member' || membership.team.phase !== 'active') return
+    const snapshot = await this.domain.snapshot(scope, membership.team.id, membership.team.captainSessionId)
+    const task = snapshot.team.tasks.find(candidate =>
+      candidate.ownerSessionId === agent.id
+      && candidate.status === 'in_progress'
+      && candidate.currentAttemptId !== undefined)
+    if (task?.currentAttemptId === undefined) return
+    const attempt = snapshot.team.attempts.find(candidate => candidate.id === task.currentAttemptId)
+    if (attempt?.phase !== 'running' || attempt.assignmentPhase !== 'reserved') return
+    const executionRootPath = this.config.executionRootsEnabled
+      ? this.executionRoots.roots.declarationPathFor(scope, snapshot.team.id, task.id, attempt.id)
+      : undefined
+    const frame = assignmentPrompt(snapshot.team, task, attempt.id, executionRootPath)
+    if (!messageClaimed(agent.session.events, framePredicate(frame))) return
+    signal.throwIfAborted()
+    await this.ctx.sessions.flush(agent.session)
+    signal.throwIfAborted()
+    if (!messageClaimed(agent.session.events, framePredicate(frame))) return
+    const member = snapshot.team.members.find(candidate => candidate.sessionId === agent.id)
+    if (member?.phase === 'provisioning') {
+      await this.domain.activateInitialAssignment(scope, snapshot.team.id, agent.id, task.id, attempt.id)
+      const captain = this.ctx.agents.get(SessionId(snapshot.team.captainSessionId))
+      if (captain !== undefined) this.trackChild(captain, agent.id)
+      return
+    }
+    await this.domain.acknowledgeAssignment(scope, snapshot.team.id, task.id, attempt.id)
   }
 
   /** Latch one scope into the jobs projection (idempotent, best-effort). */
@@ -549,7 +602,7 @@ export class AgentSwarmRuntime extends Service {
 
   private trackTeamChildren(captain: Agent, team: TeamState): void {
     for (const member of team.members) {
-      if (member.phase === 'active') this.trackChild(captain, member.sessionId)
+      if (member.phase === 'provisioning' || member.phase === 'active') this.trackChild(captain, member.sessionId)
     }
   }
 

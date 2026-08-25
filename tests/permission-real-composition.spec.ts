@@ -241,6 +241,12 @@ describe('Reviewer Agent real review transaction', () => {
         submitAttempt = claimValue.attempt_id
       }
     }
+    const deliverySnapshot = await snapshot(stack)
+    const deliveryTask = deliverySnapshot.team.tasks.find(task => task.id === createdValue.task_id)
+    if (deliveryTask === undefined) throw new Error('review task disappeared before delivery acknowledgement')
+    await stack.ctx.agentSwarm.domain.acknowledgeAssignment(
+      stack.scope, stack.teamId, deliveryTask.id, AgentSwarm.AttemptId(submitAttempt),
+    )
     const submit = await callTool(stack.ctx, member, 'rv-submit', 'agent_swarm_submit_task', {
       task_id: createdValue.task_id,
       expected_revision: submitFence,

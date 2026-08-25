@@ -192,6 +192,13 @@ export interface TeamDomainPort {
     taskId: TaskId,
     attemptId: AttemptId,
   ): Promise<TaskAttempt>
+  activateInitialAssignment(
+    scope: TeamScope,
+    teamId: TeamId,
+    memberSessionId: string,
+    taskId: TaskId,
+    attemptId: AttemptId,
+  ): Promise<{ member: TeamMember; attempt: TaskAttempt }>
   submitTask(
     scope: TeamScope,
     teamId: TeamId,

@@ -148,6 +148,9 @@ describe('agent_swarm_list_jobs over the TeamJobProjection (issue #93)', () => {
 
       // An accepted submission settles the row completed from the durable
       // aggregate fields (finished_at lands, started_at never moves).
+      await ctx.agentSwarm.domain.acknowledgeAssignment(
+        composition.scope, (await snapshotOf(composition)).team.id, claimedSnapshot.id, claimedSnapshot.currentAttemptId!,
+      )
       const submitted = await toolCall(ctx, memberAgent, 'submit-alpha', 'agent_swarm_submit_task', {
         task_id: 'task-1',
         expected_revision: claimedSnapshot.revision,

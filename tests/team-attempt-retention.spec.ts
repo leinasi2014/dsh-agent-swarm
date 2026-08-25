@@ -147,6 +147,7 @@ describe('TeamDomain attempt retention (F7)', () => {
       revision = released.revision
     }
     const final = await limited.claimTask(scope, team.id, 'captain-session', task.id, revision, 'member-1')
+    await limited.acknowledgeAssignment(scope, team.id, task.id, final.attempt.id)
     const submitted = await limited.submitTask(
       scope, team.id, 'member-1', task.id, final.task.revision, final.attempt.id, 'done', ['test:unit'],
     )

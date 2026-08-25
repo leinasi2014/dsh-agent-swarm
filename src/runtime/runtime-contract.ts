@@ -15,6 +15,7 @@ import type { AgentSwarmLiveSettings } from './settings.js'
 export interface RuntimeConfig {
   readonly memberProvider: string
   readonly memberModel?: string
+  readonly lazyMemberStart: boolean
   readonly memberMaxDepth: number
   readonly schedulerProvider: string
   readonly reviewProvider: string

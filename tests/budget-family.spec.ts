@@ -106,6 +106,7 @@ describe('Budget family: retry economics (M4-3, real storage stack)', () => {
       subject: 'rework target', description: 'Rejected once.',
     })
     const claimB = await stack.port.claimTask(scope, team.id, second, taskB.id, taskB.revision)
+    await stack.port.acknowledgeAssignment(scope, team.id, taskB.id, claimB.attempt.id)
     const submittedB = await stack.port.submitTask(scope, team.id, second, taskB.id, claimB.task.revision, claimB.attempt.id, 'partial work')
     await stack.port.reviewTask(scope, team.id, 'captain-session', taskB.id, submittedB.revision, claimB.attempt.id, 'reject', 'needs rework')
     expect((await budgetOf()).usedRetries).toBe(1)
@@ -212,6 +213,7 @@ describe('Budget family: reservation admission (M4-3, real storage stack)', () =
 
     // Settlement releases the hold: submitting the holder frees its 600, so
     // the postponed floor becomes admissible for the third member.
+    await stack.port.acknowledgeAssignment(scope, team.id, holder.id, holderClaim.attempt.id)
     const submitted = await stack.port.submitTask(
       scope, team.id, members[0]!, holder.id, holderClaim.task.revision, holderClaim.attempt.id, 'holder output',
     )
