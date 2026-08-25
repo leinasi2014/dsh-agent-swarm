@@ -30,7 +30,7 @@ The independent GLM-5.3 review on 2026-08-20 issued `CONDITIONAL PASS` with P0 =
 |---|---|---|
 | `deepseek-ai/deepseek-harness` | release target `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`; permitted rc.8 full-source evidence `141eb6fef83422698aef7a981029e843e8161534` | framework and published-service truth; M4-2 checked installed rc.2 types plus the rc.8 invariants implementation/Agent Notes |
 | `NanmiCoder/dsh-agent-teams` | `912aae5225d3d85fa841a1b0c8a5c77021876c25`, version 0.1.13 | direct DSH Team implementation prior art; SW-G0 additionally reviewed idle-attempt parking, explicit resume and low-cadence activity discovery as I1/I4 failure/observability evidence, without importing its runtime or UI |
-| `openJiuwen-ai/jiuwenswarm` | `e90d9ea80cdeccb84a1f92f296a85aa23e84133d`, WorkSwarm 0.2.5.beta1 | product architecture and failure-case prior art; SW-G0 additionally reviewed persistent-subagent, restart cleanup and canonical mode deltas, importing no Jiuwen runtime architecture, persistence model or types |
+| `openJiuwen-ai/jiuwenswarm` | current registered pin `ea3b740173c74e4cd4e8939ae546cfec3ebb7d80`, WorkSwarm 0.2.5.beta1 | product architecture and failure-case prior art; the latest reviewed delta adds Web slash-command presentation and exact-Session non-chat command routing without changing the Team/runtime evidence consumed here; no Jiuwen runtime architecture, persistence model or types are imported |
 
 The official target publishes `ctx.workflowEngine`, `ctx.jobs`, `ctx.tokenMeter`, `ctx.storageDomain` and `ctx.workspaceRegistry`. Its Agent Team package is private/experimental and unpublished. These facts supersede earlier project text claiming that rc.8 had no public workflow or token-meter service.
 

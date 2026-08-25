@@ -2,7 +2,7 @@
 
 # Redlines
 
-Manifest digest: `07e305828aaaacf54a29c304df6361f54c10bd3847b42da8fbc88f36bf8e3543`
+Manifest digest: `fe332cc0e1a7493e66591f6961f76dfdf97eccff20afcbebfb60f1ffbdbe24ed`
 
 Curated tool-registry digest: `331defbb12c4ac44efa0bdd7b16007d003dfa3704477b0c2c925d9cc1b665783`
 

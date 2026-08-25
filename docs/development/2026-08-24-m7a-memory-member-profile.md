@@ -18,7 +18,7 @@ The existing `TeamMember.provider` field is the continuable subagent runtime Pro
 
 JiuwenSwarm contributes behavioral prior art only: personal/shared memory separation, bounded retrieval, evidence-bearing results, write-time masking and reviewed promotion. No Jiuwen runtime, transport or storage schema is imported.
 
-LoopX `main` at `fd237116eec247ec4f5e6f0e774ba1281b4a31c8` contributes three compatible principles: the dashboard is a projection rather than truth; a Provider supplies observations but does not own domain transitions; recalled memory is advisory evidence, not authorization or current task state. No LoopX runtime or public type is imported.
+LoopX `main` at focused reviewed commit `6aa2fb8a9fb97f0bfa6ee8b0ca6fabf6265bbe95` contributes three compatible principles: the dashboard is a projection rather than truth; a Provider supplies observations but does not own domain transitions; recalled memory is advisory evidence, not authorization or current task state. No LoopX runtime or public type is imported.
 
 ## Canonical schema
 

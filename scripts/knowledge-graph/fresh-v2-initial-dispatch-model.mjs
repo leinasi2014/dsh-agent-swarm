@@ -138,6 +138,7 @@ export function buildFreshV2InitialDispatchSlice(facts) {
   }
   const tests = {
     runtime: ref('test:fresh-v2-initial-runtime', 'test'),
+    witness: ref('test:fresh-v2-witness-capability', 'test'),
     fold: ref('test:fresh-v2-session-fold', 'test'),
     foundation: ref('test:team-v2-foundation', 'test'),
     profile: ref('test:a1b-official-profile-smoke', 'test'),
@@ -154,9 +155,9 @@ export function buildFreshV2InitialDispatchSlice(facts) {
 
   const nodes = [
     node(facts, agentLoop.id, agentLoop.kind, 'Official DSH Agent Loop execution authority', agentLoop, 'src/index.ts', 'official-agent-loop-authority', { verification: 'real-profile', evidence: [tests.profile.id], security: security(agentLoop) }),
-    node(facts, llm.id, llm.kind, 'Official DSH LLM registry and stream waterfall authority', llm, capabilityFile, 'official-llm-authority', { verification: 'composition', evidence: [tests.runtime.id], security: security(llm) }),
+    node(facts, llm.id, llm.kind, 'Official DSH LLM registry and stream waterfall authority', llm, capabilityFile, 'official-llm-authority', { verification: 'composition', evidence: [tests.runtime.id, tests.witness.id], security: security(llm) }),
     node(facts, service.id, service.kind, 'Fresh-v2 initial dispatch runtime', team, runtimeFile, 'fresh-v2-runtime', { verification: 'real-profile', evidence: [tests.runtime.id, tests.profile.id], mutation: 'external-effect', security: security(agentLoop, 'external-effect', { guards: [guards.official] }) }),
-    node(facts, flow.id, flow.kind, 'Fresh-v2 first member assignment and model dispatch', team, runtimeFile, 'fresh-v2-initial-flow', { verification: 'real-profile', evidence: [tests.runtime.id, tests.fold.id, tests.foundation.id, tests.profile.id] }),
+    node(facts, flow.id, flow.kind, 'Fresh-v2 first member assignment and model dispatch', team, runtimeFile, 'fresh-v2-initial-flow', { verification: 'real-profile', evidence: [tests.runtime.id, tests.witness.id, tests.fold.id, tests.foundation.id, tests.profile.id] }),
     node(facts, attempt.id, attempt.kind, 'Fresh-v2 task Attempt', team, 'src/domain/team-state-v2.ts', 'fresh-v2-attempt'),
     node(facts, dispatch.id, dispatch.kind, 'Fresh-v2 model dispatch epoch', team, 'src/domain/team-state-v2.ts', 'fresh-v2-dispatch-epoch'),
     node(facts, frame.id, frame.kind, 'Exact initial assignment Session frame', session, foldFile, 'fresh-v2-initial-frame', { security: security(session) }),
@@ -177,7 +178,7 @@ export function buildFreshV2InitialDispatchSlice(facts) {
     node(facts, guards.activation.id, guards.activation.kind, 'Fresh-v2 is explicit and isolated from v1 activation', team, 'src/index.ts', 'experimental-activation'),
     node(facts, guards.official.id, guards.official.kind, 'Exact official Agent Loop AbortSignal permit and Session coordinates', agentLoop, runtimeFile, 'official-loop-permit', { security: security(agentLoop) }),
     node(facts, guards.capability.id, guards.capability.kind, 'Fixed-Profile host, artifact, Provider and listener-order witness', llm, capabilityFile, 'fixed-profile-capability', { security: security(llm) }),
-    node(facts, capability.id, capability.kind, 'Network-free per-Provider model dispatch witness capability', llm, capabilityFile, 'model-dispatch-capability', { verification: 'composition', evidence: [tests.runtime.id], security: security(llm) }),
+    node(facts, capability.id, capability.kind, 'Network-free per-Provider model dispatch witness capability', llm, capabilityFile, 'model-dispatch-capability', { verification: 'composition', evidence: [tests.runtime.id, tests.witness.id], security: security(llm) }),
     predicate(facts, predicates.start.id, 'Member starting with reserved undelivered Attempt and no dispatch epoch', 'compound.startReserved', 'true', domainFile),
     predicate(facts, predicates.pending.id, 'Member active with delivered reserved Attempt and dispatch-pending', 'compound.dispatchPending', 'true', domainFile),
     predicate(facts, predicates.entered.id, 'Exact dispatch epoch entered the provider boundary', 'compound.dispatchEntered', 'true', domainFile),
@@ -185,6 +186,7 @@ export function buildFreshV2InitialDispatchSlice(facts) {
     predicate(facts, predicates.failed.id, 'Rejected start failed member, cancelled Attempt and requeued task', 'compound.failedRequeued', 'true', domainFile),
     ...Object.entries(states).map(([name, value]) => node(facts, value.id, value.kind, `Fresh-v2 initial ${name} state`, team, domainFile, `state-${name}`)),
     node(facts, tests.runtime.id, tests.runtime.kind, 'Fresh-v2 official Agent Loop composition tests', contracts, 'tests/fresh-v2-initial-runtime.spec.ts', 'fresh-v2-runtime-tests', { verification: 'unit', evidence: [], security: security(contracts) }),
+    node(facts, tests.witness.id, tests.witness.kind, 'Fresh-v2 witness topology and activation-race tests', contracts, 'tests/fresh-v2-witness-capability.spec.ts', 'fresh-v2-witness-tests', { verification: 'unit', evidence: [], security: security(contracts) }),
     node(facts, tests.fold.id, tests.fold.kind, 'Fresh-v2 Session fold tests', contracts, 'tests/fresh-v2-session-fold.spec.ts', 'fresh-v2-fold-tests', { verification: 'unit', evidence: [], security: security(contracts) }),
     node(facts, tests.foundation.id, tests.foundation.kind, 'Fresh-v2 domain state invariant tests', contracts, 'tests/team-v2-foundation.spec.ts', 'fresh-v2-foundation-tests', { verification: 'unit', evidence: [], security: security(contracts) }),
     node(facts, tests.profile.id, tests.profile.kind, 'Isolated official DSH Profile install/restart smoke', contracts, 'scripts/a1b/run-profile-smoke.mjs', 'a1b-profile-smoke', { verification: 'real-profile', evidence: [], security: security(contracts) }),
@@ -233,6 +235,7 @@ export function buildFreshV2InitialDispatchSlice(facts) {
     edge(facts, 'edge:fresh-v2/capability-guards-enter', 'guards', guards.capability, tx.enter, capabilityFile, 'capability-guards-enter'),
     edge(facts, 'edge:fresh-v2/service-exposes-capability', 'exposes', service, capability, capabilityFile, 'service-exposes-capability'),
     edge(facts, 'edge:fresh-v2/capability-verified-runtime', 'verified-by', capability, tests.runtime, capabilityFile, 'capability-verified-runtime'),
+    edge(facts, 'edge:fresh-v2/capability-verified-witness', 'verified-by', capability, tests.witness, capabilityFile, 'capability-verified-witness'),
     edge(facts, 'edge:fresh-v2/agent-loop-calls-enter', 'calls', agentLoop, tx.enter, runtimeFile, 'agent-loop-enter'),
     edge(facts, 'edge:fresh-v2/enter-checkpoints-entered', 'checkpoints', tx.enter, checkpoints.entered, runtimeFile, 'enter-readback'),
     edge(facts, 'edge:fresh-v2/enter-transitions-entered', 'transitions', tx.enter, states.entered, domainFile, 'enter-state'),
@@ -249,6 +252,7 @@ export function buildFreshV2InitialDispatchSlice(facts) {
     edge(facts, 'edge:fresh-v2/service-reads-dispatch-fence', 'reads', service, fences.dispatch, runtimeFile, 'reads-dispatch-fence'),
     ...Object.entries(predicates).map(([name, value]) => edge(facts, `edge:fresh-v2/service-reads-${name}-predicate`, 'reads', service, value, runtimeFile, `reads-${name}-predicate`)),
     edge(facts, 'edge:fresh-v2/flow-verified-runtime', 'verified-by', flow, tests.runtime, runtimeFile, 'verified-runtime'),
+    edge(facts, 'edge:fresh-v2/flow-verified-witness', 'verified-by', flow, tests.witness, capabilityFile, 'verified-witness'),
     edge(facts, 'edge:fresh-v2/flow-verified-fold', 'verified-by', flow, tests.fold, foldFile, 'verified-fold'),
     edge(facts, 'edge:fresh-v2/flow-verified-foundation', 'verified-by', flow, tests.foundation, domainFile, 'verified-foundation'),
     edge(facts, 'edge:fresh-v2/flow-verified-profile', 'verified-by', flow, tests.profile, 'scripts/a1b/run-profile-smoke.mjs', 'verified-profile'),

@@ -2,7 +2,7 @@
 
 - Upstream: `https://github.com/openJiuwen-ai/jiuwenswarm`
 - Branch observed: `develop`
-- Pinned commit: `74b745c210c3884b80f6163d6dba3ea71f9f5a52`
+- Pinned commit: `ea3b740173c74e4cd4e8939ae546cfec3ebb7d80`
 - Local checkout: `source/`
 
 This repository is a product and architecture reference, not a DSH dependency.
@@ -64,3 +64,11 @@ semantics consumed here. The singleton fix reinforces one authoritative
 orchestrator per workspace and crash-released ownership, but this plugin maps
 that lesson onto official DSH Profile/runtime ownership; it does not adopt the
 Jiuwen Gateway, lock implementation, scheduler or persistence schema.
+
+The `ea3b7401` supersession is one reviewed Web slash-command commit. It adds a
+static command catalog, source-labelled send intent, exact-Session lookup for
+non-chat commands, context-processor restoration on context rebuild, and Web
+timeline presentation. It does not change the Team domain, Scheduler,
+Worktree, permissions, Team Memory, Skill Evolution, distributed control plane
+or cold-recovery evidence consumed here. `/compact` transport bounds are not
+model-thinking deadlines and `/btw` is not adopted as a second model loop.

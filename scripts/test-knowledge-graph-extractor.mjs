@@ -270,7 +270,7 @@ try {
   // Exact candidate drift locks over complete normalized tuple sets; later graph reconciliation replaces these KG1 locks.
   assertTupleSetDigest(externalRegistryTuples, 'df65210ba8154485531b822e4535ed8c91ac03f3ef534c26f3296484f54de053', 'external registries')
   assertTupleSetDigest(rpcTuples, 'dd9e8353c0564d866d2f19b1310e7e870d5a997761e82c81b7255223a79565ad', 'RPC')
-  assertTupleSetDigest(listenerTuples, '3d307d9f11f2554b927de45e7d50b01301375517cb0d4277978fad8549a5c4a0', 'listeners')
+  assertTupleSetDigest(listenerTuples, '76d6589f1fea48abe75694c965b746924f31ce2fd7f0e9a1e78d99ac0179d88e', 'listeners')
   assertTupleSetDigest(effectTuples, '2ffa99db1e0259ed7d339026f17a4e5896d412c8c5dca0c2bf7d9e408368fb8a', 'effects')
   assertTupleSetDigest(exportTuples(actual.reachableRootExports), '771c964630864102e1ba31e13263513fc900dd90fe0bf3568ba6f1ce022a5236', 'root reachable exports')
   assertTupleSetDigest(exportTuples(actual.reachablePublicApiExports), 'a2520120278763b6cb98c2aab04470e65ff0ee6f591d5302e8b394809bb9bec5', 'public API reachable exports')

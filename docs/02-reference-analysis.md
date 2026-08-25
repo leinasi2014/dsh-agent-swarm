@@ -64,7 +64,7 @@ The official seam should own the canonical Team domain if it becomes a published
 
 ## 4. JiuwenSwarm / WorkSwarm
 
-The registered JiuwenSwarm checkout (`74b745c210c3884b80f6163d6dba3ea71f9f5a52`) contributes useful concepts:
+The registered JiuwenSwarm checkout (`ea3b740173c74e4cd4e8939ae546cfec3ebb7d80`) contributes useful concepts:
 
 - SwarmFlow: deterministic script-driven multi-agent workflow;
 - parallel, pipeline, nested workflow and stateful agent session primitives;
@@ -101,7 +101,7 @@ The correct synthesis is not “dsh-agent-teams plus JiuwenSwarm code.” It is:
 Official DSH seams define the execution world.
 Community dsh-agent-teams contributes proven Team coordination mechanics.
 JiuwenSwarm contributes product-level orchestration features and failure cases.
-LoopX contributes durable control-state/writeback/idempotency patterns at reviewed commit `fd237116eec247ec4f5e6f0e774ba1281b4a31c8`, not a scheduler or Agent Loop to embed.
+LoopX contributes durable control-state/writeback/idempotency patterns at focused reviewed commit `6aa2fb8a9fb97f0bfa6ee8b0ca6fabf6265bbe95`, not a scheduler or Agent Loop to embed. Its native DSH adapter independently confirms the same split used here: DSH owns Agent/Session/model/tool execution, while the plugin contributes only bounded coordination state and exact-Session continuation.
 New plugins connect those concepts without duplicating the seams DSH already owns.
 ```
 

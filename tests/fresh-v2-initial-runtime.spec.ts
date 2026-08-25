@@ -124,39 +124,6 @@ describe('A1b fresh-v2 official AgentLoop vertical', () => {
     })).rejects.toMatchObject({ code: 'TEAM_RUNTIME_NOT_STARTED' })
   })
 
-  it('revokes the fixed-Profile witness after provider topology mutation', async () => {
-    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-swarm-a1b-topology-'))
-    roots.push(sandbox)
-    const mounted = await mountFreshV2Composition(sandbox, () => new FailingStreamAdapter())
-    try {
-      expect(await mounted.ctx.agentSwarmV2Initial.assertWitnessCapabilityCurrent()).toMatch(/^[0-9a-f]{64}$/)
-      const disposeRoute = mounted.ctx.llm.registerAdapter(['changed-route'], new FailingStreamAdapter())
-      await expect(mounted.ctx.agentSwarmV2Initial.assertWitnessCapabilityCurrent())
-        .rejects.toMatchObject({ code: 'TEAM_RUNTIME_NOT_STARTED' })
-      disposeRoute()
-      await expect(mounted.ctx.agentSwarmV2Initial.assertWitnessCapabilityCurrent())
-        .rejects.toMatchObject({ code: 'TEAM_RUNTIME_NOT_STARTED' })
-    } finally {
-      for (const fiber of mounted.fibers.toReversed()) await fiber.dispose().catch(() => undefined)
-    }
-  })
-
-  it('rejects a newly prepended short-circuit route before Team admission', async () => {
-    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-swarm-a1b-listener-'))
-    roots.push(sandbox)
-    const mounted = await mountFreshV2Composition(sandbox, () => new FailingStreamAdapter())
-    const disposeListener = mounted.ctx.on('llm/stream', (_options, _next) => (async function* () {
-      yield { type: 'finish', reason: { kind: 'stop' } } as StreamChunk
-    })(), { global: true, prepend: true })
-    try {
-      await expect(mounted.ctx.agentSwarmV2Initial.assertWitnessCapabilityCurrent())
-        .rejects.toMatchObject({ code: 'TEAM_RUNTIME_NOT_STARTED' })
-    } finally {
-      await disposeListener()
-      for (const fiber of mounted.fibers.toReversed()) await fiber.dispose().catch(() => undefined)
-    }
-  })
-
   it('keeps add_member dormant, witnesses provider entry, then admits running from durable assistant evidence', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-swarm-a1b-'))
     roots.push(sandbox)

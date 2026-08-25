@@ -458,7 +458,7 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
   async dispose(): Promise<void> {
     if (this.closing) return
     this.closing = true
-    this.witnessCapability.revoke('fresh-v2 runtime is closing')
+    this.witnessCapability.revoke('fresh-v2 runtime is closing', true)
     this.modelPermits.clear()
     const failures: unknown[] = []
     for (const [captainId, childIds] of this.children) {

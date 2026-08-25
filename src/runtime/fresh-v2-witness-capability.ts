@@ -21,7 +21,9 @@ export class FreshV2WitnessCapability {
   private readonly sentinels = new WeakSet<GenerateOptions>()
   private readonly captured = new WeakSet<GenerateOptions>()
   private active: ActiveWitnessCapability | undefined
+  private activation: Promise<string> | undefined
   private revokedReason?: string
+  private topologyGeneration = 0
 
   constructor(
     private readonly ctx: Context,
@@ -44,21 +46,35 @@ export class FreshV2WitnessCapability {
     if (this.active !== undefined || this.revokedReason !== undefined) {
       throw new TeamDomainError('fresh-v2 witness capability cannot be republished in a live Profile', 'TEAM_RUNTIME_NOT_STARTED')
     }
+    if (this.activation !== undefined) return await this.activation
+    const generation = this.topologyGeneration
     const providers = this.providerIds()
-    try {
+    const activation = (async (): Promise<string> => {
       await this.probe(providers)
+      const current = this.providerIds()
+      if (this.revokedReason !== undefined || generation !== this.topologyGeneration
+        || current.length !== providers.length
+        || current.some((provider, index) => provider !== providers[index])) {
+        throw new TeamDomainError('fresh-v2 witness topology changed during activation', 'TEAM_RUNTIME_NOT_STARTED')
+      }
+      const digest = canonicalV2Digest('dsh-agent-swarm/a1b/model-dispatch-witness/v2', {
+        artifactContract: this.artifactContract,
+        hostContract: this.hostContract,
+        listenerGraph: LISTENER_GRAPH_CONTRACT,
+        providers,
+      })
+      this.active = { digest, providers }
+      return digest
+    })()
+    this.activation = activation
+    try {
+      return await activation
     } catch (error) {
-      this.revokedReason = 'initial LLM listener-order sentinel failed'
+      this.revokedReason ??= 'initial LLM listener-order sentinel failed'
       throw error
+    } finally {
+      if (this.activation === activation) this.activation = undefined
     }
-    const digest = canonicalV2Digest('dsh-agent-swarm/a1b/model-dispatch-witness/v2', {
-      artifactContract: this.artifactContract,
-      hostContract: this.hostContract,
-      listenerGraph: LISTENER_GRAPH_CONTRACT,
-      providers,
-    })
-    this.active = { digest, providers }
-    return digest
   }
 
   /** Re-probe ordering before admission, but never accept a changed provider topology. */
@@ -86,8 +102,9 @@ export class FreshV2WitnessCapability {
     }
   }
 
-  revoke(reason = 'official LLM topology changed'): void {
-    if (this.active === undefined) return
+  revoke(reason = 'official LLM topology changed', force = false): void {
+    this.topologyGeneration += 1
+    if (!force && this.active === undefined && this.activation === undefined) return
     this.active = undefined
     this.revokedReason ??= reason
   }

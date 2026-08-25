@@ -2,7 +2,7 @@
 
 Status: **PROPOSED / REVIEW_REQUIRED**. This design candidate changes no runtime, source schema, public API, stable architecture authority, official DSH checkout, or reference checkout. The accepted authorities remain `docs/00-vision.md`, `docs/03-capability-family.md`, `docs/04-core-protocol.md`, `docs/11-official-first-development.md`, and the registered source pins. [ADR-0010](../adr/0010-model-autonomy-and-parked-attempts.md) is the normative correction for model autonomy, parked attempts, explicit continuation and timeout semantics; it supersedes any time-driven progress or idle-means-failure implication in this blueprint. The 2026-08-25 R10 audit is treated as partial evidence only: it proves a real three-member DAG and functional API/browser paths, but it does not prove durable continuation, restart recovery, immutable acceptance or formal integration.
 
-Accepted A1a base: repository commit `e72f0344191360aef56b9055da63cb88544ba64e`. A1b remains an unfrozen implementation candidate until a clean frozen Profile proof and non-author verdict exist. Its isolated mutable-candidate development smoke now passes the real official Loader/Profile, first dispatch, durable assistant evidence and restart-without-replay path; that `DEV_SMOKE_ONLY` result is diagnostic evidence, not candidate acceptance. Official DSH `0.1.1-rc.2` / `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e` is the untouched verification host. JiuwenSwarm is reviewed and pinned at `74b745c210c3884b80f6163d6dba3ea71f9f5a52`; dsh-agent-teams is reviewed and pinned at `912aae5225d3d85fa841a1b0c8a5c77021876c25` / `0.1.13`. LoopX is a remote, non-dependency reference reviewed at `fd237116eec247ec4f5e6f0e774ba1281b4a31c8`. Gate A passes for the locally registered pins; implementation candidates still require milestone-specific non-author acceptance.
+Accepted A1a base: repository commit `e72f0344191360aef56b9055da63cb88544ba64e`. A1b remains an unfrozen implementation candidate until a clean frozen Profile proof and non-author verdict exist. Its isolated mutable-candidate development smoke now passes the real official Loader/Profile, first dispatch, durable assistant evidence and restart-without-replay path; that `DEV_SMOKE_ONLY` result is diagnostic evidence, not candidate acceptance. Official DSH `0.1.1-rc.2` / `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e` is the untouched verification host. JiuwenSwarm is reviewed and pinned at `ea3b740173c74e4cd4e8939ae546cfec3ebb7d80`; dsh-agent-teams is reviewed and pinned at `912aae5225d3d85fa841a1b0c8a5c77021876c25` / `0.1.13`. LoopX is a remote, non-dependency reference whose relevant control-plane and native-DSH surfaces were reviewed at `6aa2fb8a9fb97f0bfa6ee8b0ca6fabf6265bbe95`. Gate A passes for the locally registered pins; implementation candidates still require milestone-specific non-author acceptance.
 
 ```yaml
 documentationImpact:
@@ -56,13 +56,15 @@ These are requirements to translate, not implementation to copy. The plugin must
 
 ### 2.3 LoopX patterns worth retaining
 
-LoopX is registered as a remote read-only reference at exact reviewed commit `fd237116eec247ec4f5e6f0e774ba1281b4a31c8`; it is not a dependency or a local runtime authority. Its reusable behavior-level principles are:
+LoopX is registered as a remote read-only reference at focused reviewed commit `6aa2fb8a9fb97f0bfa6ee8b0ca6fabf6265bbe95`; it is not a dependency or a local runtime authority. Its reusable behavior-level principles are:
 
 - an external **bounded tick** reads durable state, performs a finite number of transitions/effects, records progress, then returns;
 - long-running work may use one long official turn or many turns according to the selected model/runtime; correctness cannot require one immortal turn, because durable checkpoints and explicit continuation must make later turns and process recovery possible;
 - heartbeat is liveness/lease evidence with expiry, not proof of work or completion;
 - interaction pauses are durable states, and an answer schedules a new bounded tick;
 - retry and resume start from durable checkpoints and idempotency keys.
+- recommendations and bounded action projections guide an autonomous member but do not become hidden whitelists; hard restrictions require typed authority contracts;
+- automatic continuation binds one exact Session, is single-flight, revalidates authority immediately before model entry, and yields to newer human input.
 
 The project should reuse this state/evidence shape through the existing DSH seams. LoopX's `run_loopx_turn_once`-style timeout bounds an external host invocation owned by LoopX; it is not a model-thinking deadline and must not be applied to DSH Agent Loop turns. Heartbeat cadence and quota admission are execution/control-plane policy, not proof that a member is idle, failed or replaceable. The plugin must not copy a perpetual polling daemon, private queue, private Session runtime, second scheduler, or an unbounded recursive prompt loop. A later remote delta cannot change a claim until its exact commit is reviewed and registered.
 
@@ -84,7 +86,7 @@ Do not adopt or infer:
 
 ### 2.5 Gate A consumption
 
-Gate A currently passes with official DSH `b150a55…`, Jiuwen `74b745c…`, and dsh-agent-teams `912aae5…`. The existing project verifier and registered source pointers remain the single authority for those identities. This architecture does not define another cryptographic receipt format or identity registry. Any pin, remote tree, claim anchor, official package export or target Profile change reruns the existing gate and reopens only the affected compatibility decision. A Gate A result authorizes neither source mutation nor architecture acceptance; the exact architecture candidate still requires one non-author verdict.
+Gate A currently passes with official DSH `b150a55…`, Jiuwen `ea3b740…`, and dsh-agent-teams `912aae5…`. The existing project verifier and registered source pointers remain the single authority for those identities. This architecture does not define another cryptographic receipt format or identity registry. Any pin, remote tree, claim anchor, official package export or target Profile change reruns the existing gate and reopens only the affected compatibility decision. A Gate A result authorizes neither source mutation nor architecture acceptance; the exact architecture candidate still requires one non-author verdict.
 
 ### 2.6 2026-08-25 reference recheck and delivery decision
 
@@ -726,7 +728,7 @@ Real acceptance must use an isolated Profile, official Loader composition, offic
 
 ### A0 — source drift and architecture admission
 
-- Existing Gate A passes against official DSH `b150a55…`, Jiuwen `74b745c…` and dsh-agent-teams `912aae5…`. Any later affected pin/export/Profile movement reruns the project verifier before production code resumes.
+- Existing Gate A passes against official DSH `b150a55…`, Jiuwen `ea3b740…` and dsh-agent-teams `912aae5…`. Any later affected pin/export/Profile movement reruns the project verifier before production code resumes.
 - One non-author architecture review accepts the DSH boundary, model-autonomy/parked protocol, immutable candidate/integration path, pre-model causal gate, recovery decisions, no-second-loop invariant, ADR-0009 merge and public compatibility decision.
 - Update registered architecture/contract/roadmap/audit documents in one reviewed candidate; no source yet.
 

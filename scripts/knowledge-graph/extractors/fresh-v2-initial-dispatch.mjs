@@ -49,6 +49,13 @@ const REQUIRED = Object.freeze({
     'keeps add_member dormant, witnesses provider entry, then admits running from durable assistant evidence',
     'does not report running when the official adapter fails at iteration',
   ],
+  'tests/fresh-v2-witness-capability.spec.ts': [
+    'revokes after provider topology mutation and never republishes',
+    'rejects a newly prepended short-circuit route before Team admission',
+    'cannot publish stale capability when topology changes during activation',
+    'singleflights concurrent first capability assertions',
+    'cannot publish capability after disposal starts during activation',
+  ],
   'tests/fresh-v2-session-fold.spec.ts': ['describe('],
   'tests/team-v2-foundation.spec.ts': ['describe('],
   'scripts/a1b/run-profile-smoke.mjs': ['A1b official Profile DEV_SMOKE PASS'],

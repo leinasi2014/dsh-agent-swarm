@@ -88,7 +88,7 @@ SW-G0 Gate A supersession (2026-08-23): the cumulative `0c21e5d..912aae5` delta 
 
 - URL: `https://github.com/openJiuwen-ai/jiuwenswarm`
 - Branch: `develop`
-- Commit: `59e42de913cf837e04fea1aa79d555d82dc10316`
+- Commit: `ea3b740173c74e4cd4e8939ae546cfec3ebb7d80`
 - Develop package state observed: `workswarm` `0.2.5.beta1`
 - Local pointer: `ref/jiuwenswarm/SOURCE_POINTER.json`
 - Full local checkout: `ref/jiuwenswarm/source/`
@@ -107,6 +107,8 @@ M7-A Gate A supersession (2026-08-24): the cumulative `4c2122c..403fe354` delta 
 
 DBG-021 Gate A supersession (2026-08-24): the cumulative `403fe354..59e42de9` delta was reviewed and the remote `develop` tip was frozen immediately before re-pinning. Five commits add macOS bundle repair, Artifact/ToolPanel presentation, one-shot cron conflict handling, caller-supplied `DeepAgentSpec`, responsive Web UI work and Team task presentation. The Team permission rails, member `report` behavior and distributed-runtime evidence consumed by this plugin are unchanged, so the delta neither resolves nor redefines DBG-021. `DeepAgentSpec` is retained only as supporting evidence for a declarative composition boundary; no Jiuwen runtime, permission policy, persistence schema or public type is adopted. Tree `3d94037da970698428b62018bcfdbd9fba0dc857`, Apache-2.0 license and `workswarm` `0.2.5.beta1` were verified at the new pin.
 
+A1b Gate A supersession (2026-08-25): the single `74b745c..ea3b740` commit adds Web slash-command discovery/presentation, source-labelled send intent, exact-Session lookup for non-chat commands, context-processor restoration during Session context rebuild, and related tests. It does not touch the Team domain, Scheduler, Worktree, permissions, Team Memory, Skill Evolution, distributed control plane or cold recovery consumed by this project. `/compact`'s RPC timeout is a transport bound rather than a model-thinking deadline; `/btw` remains behavior prior art and is not adopted as a second model loop. Tree `94b6311c62b85b267ecb9e4e6e5f7e3719655605` was verified before re-pinning.
+
 - Agent Team user guide
 - Distributed Team
 - TUI SwarmFlow guide
@@ -122,10 +124,12 @@ Read for feature concepts and operational failure cases. Do not import OpenJiuwe
 
 - URL: `https://github.com/huangruiteng/loopx`
 - Branch: `main`
-- Reviewed commit: `fd237116eec247ec4f5e6f0e774ba1281b4a31c8`
-- Reviewed documents: `docs/architecture.md`, `docs/state-interaction-model.md`, `loopx/capabilities/reward_memory/README.zh-CN.md`
+- Focused reviewed commit: `6aa2fb8a9fb97f0bfa6ee8b0ca6fabf6265bbe95`
+- Reviewed documents/surfaces: `docs/architecture.md`, `docs/state-interaction-model.md`, `docs/integrations/deepseek-harness-control-plane-adapter.md`, `loopx/control_plane/coordination/`, `loopx/capabilities/reward_memory/README.zh-CN.md`
 
 M7-A adopts only behavior-level principles: UI is a projection, Provider observations do not own domain transitions, and memory is advisory evidence rather than authorization or live task truth. The repository is not a runtime dependency and no LoopX schema or public type is copied. Recheck the remote commit before changing a claim derived from this source.
+
+A1b focused refresh (2026-08-25): LoopX now ships an optional native DSH adapter and a coordination slice. Both independently reinforce this project's existing boundaries: DSH retains Agent/Session/model/tool/provider authority; activation binds one exact Session; automatic continuation is single-flight, revalidated immediately before model entry, and yields to human input; authority, leases, write scopes and idempotency live in typed contracts rather than prompts or UI. The new “guided autonomy” rule also matches ADR-0010: recommendations steer work but cannot silently become execution whitelists. These are corroborating test ideas for A2/A3, not new A1b product nodes and not a reason to embed LoopX's scheduler, Goal/Todo store, CLI, heartbeat cadence or Runtime.
 
 When behavior is uncertain:
 

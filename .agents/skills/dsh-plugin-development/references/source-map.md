@@ -38,7 +38,7 @@ the framework contract.
 ## Jiuwen prior art
 
 `ref/jiuwenswarm/source/` pinned to
-`openJiuwen-ai/jiuwenswarm@e90d9ea80cdeccb84a1f92f296a85aa23e84133d`.
+`openJiuwen-ai/jiuwenswarm@ea3b740173c74e4cd4e8939ae546cfec3ebb7d80`.
 
 Use this checkout for SwarmFlow, Worktree, budgets, Team memory, Skill
 Evolution, tool-permission and distributed-Team concepts. Extract requirements
