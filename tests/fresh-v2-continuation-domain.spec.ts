@@ -379,4 +379,63 @@ describe('A2a same-Attempt continuation domain', () => {
     }))
     assertTeamStateV2(persisted, 'dispatch-unknown-continuation')
   })
+
+  it('reserves one deterministic recovery epoch while retaining the old pending authority', async () => {
+    const fixture = await runningAttempt()
+    const continuationEffectId = ContinuationEffectId('continuation-a2a-recovery-reservation')
+    const resumeEffectId = TeamEffectId('effect-continuation-a2a-recovery-reservation')
+    const dispatchId = DispatchId('dispatch-continuation-a2a-recovery-reservation')
+    await fixture.continuation.requestMemberContinuation(SCOPE, fixture.teamId, {
+      taskId: fixture.taskId, expectedTaskRevision: fixture.taskRevision, attemptId: fixture.attemptId,
+      continuationEffectId,
+      principal: { kind: 'member', memberId: 'worker', memberSessionId: 'member-1' },
+    })
+    await fixture.continuation.parkAfterTurn(SCOPE, fixture.teamId, {
+      taskId: fixture.taskId, attemptId: fixture.attemptId, memberSessionId: 'member-1',
+      settledTurn: 1, turnEndSeq: 11,
+    })
+    await fixture.continuation.admitRequested(SCOPE, fixture.teamId, {
+      taskId: fixture.taskId, attemptId: fixture.attemptId, memberSessionId: 'member-1',
+      continuationEffectId, resumeEffectId, dispatchId, witnessCapabilityDigest: WITNESS_DIGEST,
+    })
+    await fixture.continuation.recordFrameAccepted(SCOPE, fixture.teamId, {
+      taskId: fixture.taskId, attemptId: fixture.attemptId, continuationEffectId, dispatchId,
+      frameMessageId: 'official-message-a2a-recovery-reservation',
+    })
+    const checkpoint: ContinuationDispatchCheckpoint = {
+      taskId: fixture.taskId, attemptId: fixture.attemptId, continuationEffectId, dispatchId, resumeEffectId,
+      frameMessageId: 'official-message-a2a-recovery-reservation', messageSeq: 13, turn: 2, step: 1,
+      witnessCapabilityDigest: WITNESS_DIGEST,
+    }
+    await fixture.continuation.claimFrame(SCOPE, fixture.teamId, checkpoint)
+
+    const recovery = new TeamV2ContinuationRecoveryDomain(stack!.store, () => 900)
+    const recoveryEffectId = TeamEffectId('effect:attempt-a2a-domain-0001:recovery:3')
+    const recoveryDispatchId = DispatchId('dispatch:attempt-a2a-domain-0001:recovery:3')
+    const reserved = await recovery.reserveProvenNotEntered(SCOPE, fixture.teamId, {
+      checkpoint, recoveryEffectId, recoveryDispatchId,
+      recoveryProofTurnEndSeq: 15,
+      recoveryProofDigest: '9'.repeat(64),
+    })
+    expect(reserved.recovery).toMatchObject({
+      dispatchId: recoveryDispatchId, effectId: recoveryEffectId, recoveryOf: dispatchId,
+      recoveryProofTurnEndSeq: 15, recoveryProofDigest: '9'.repeat(64),
+      kind: 'recovery', ordinal: 3, phase: 'frame-pending',
+    })
+    expect(reserved.attempt.currentContinuationIntent).toMatchObject({
+      currentDispatchId: dispatchId, resumeEffectId, phase: 'dispatch-pending',
+    })
+    expect(await recovery.reserveProvenNotEntered(SCOPE, fixture.teamId, {
+      checkpoint, recoveryEffectId, recoveryDispatchId,
+      recoveryProofTurnEndSeq: 15,
+      recoveryProofDigest: '9'.repeat(64),
+    })).toEqual(reserved)
+    const persisted = stack!.store.read(SCOPE, fixture.teamId)!
+    expect(persisted.attempts[0]!.dispatchEpochs).toHaveLength(3)
+    expect(persisted.interactionEffects).toContainEqual(expect.objectContaining({
+      effectId: recoveryEffectId, kind: 'continuation-recovery', status: 'applied',
+      dispatchId: recoveryDispatchId, recoveryOf: dispatchId,
+    }))
+    assertTeamStateV2(persisted, 'pending-recovery-reservation')
+  })
 })

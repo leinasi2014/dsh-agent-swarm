@@ -2,9 +2,9 @@
 
 # Effects and recovery
 
-Manifest digest: `de78175cbb0c5c34f900ba9b2ccdebf1644e3daebb23bd92cdd9023ff6a57b01`
+Manifest digest: `7235e0c2e18f734d08125d6fb242613054ad4e8e09ef66c5d0d81fc412405edc`
 
-Curated tool-registry digest: `283582c7136106164f285f14766ed25004dff20b51ed1b76248a0cb59849ce8d`
+Curated tool-registry digest: `c5d326eaafe8ee14415e4ad0f73e97f429ef152cd80f5192e2747529fad49c09`
 
 > Claim ceiling: the registry is a reviewed capability overlay over exact source extraction. Per-tool deep semantic closure, acceptance, and real-Profile evidence remain explicit gaps; the complete mechanical graph is retained in `atlas.json`.
 
@@ -136,14 +136,14 @@ flowchart LR
   n_666c6f772d6272616e63683a61737369676e6d656e742d64656c69766572792f756e6b6e6f776e["Assignment unknown"]
   n_666c6f772d6272616e63683a66726573682d76322d696e697469616c2d64697370617463682f617373697374616e742d65766964656e63652d756e64757261626c65["assistant evidence undurable"]
   n_666c6f772d6272616e63683a66726573682d76322d696e697469616c2d64697370617463682f636f6c642d64697370617463682d656e74657265642d756e636c6173736966696564["cold dispatch entered unclassified"]
-  n_666c6f772d6272616e63683a66726573682d76322d696e697469616c2d64697370617463682f636f6c642d64697370617463682d70656e64696e672d756e7265636f7665726564["cold dispatch pending unrecovered"]
+  n_666c6f772d6272616e63683a66726573682d76322d696e697469616c2d64697370617463682f636f6c642d64697370617463682d70656e64696e672d7265636f766572792d7265736572766564["cold dispatch pending recovery reserved"]
   n_666c6f772d6272616e63683a66726573682d76322d696e697469616c2d64697370617463682f636f6c642d65766964656e63652d756e7265666f6c646564["cold evidence unrefolded"]
+  n_666c6f772d6272616e63683a66726573682d76322d696e697469616c2d64697370617463682f636f6c642d7265636f766572792d747269676765722d756e64656c697665726564["cold recovery trigger undelivered"]
   n_666c6f772d6272616e63683a66726573682d76322d696e697469616c2d64697370617463682f636f6c642d7374617274696e672d756e7265636f6e63696c6564["cold starting unreconciled"]
   n_666c6f772d6272616e63683a66726573682d76322d696e697469616c2d64697370617463682f64697370617463682d70656e64696e672d68656c64["dispatch pending held"]
   n_666c6f772d6272616e63683a66726573682d76322d696e697469616c2d64697370617463682f646f776e73747265616d2d6661696c65642d61667465722d656e7465726564["downstream failed after entered"]
   n_666c6f772d6272616e63683a66726573682d76322d696e697469616c2d64697370617463682f7072652d6d6f64656c2d626172726965722d72656a6563746564["pre model barrier rejected"]
   n_666c6f772d6272616e63683a66726573682d76322d696e697469616c2d64697370617463682f70726f76696465722d73746172742d72656a6563746564["provider start rejected"]
-  n_666c6f772d6272616e63683a66726573682d76322d696e697469616c2d64697370617463682f70726f76696465722d73746172742d726573756c742d756e6b6e6f776e["provider start result unknown"]
 ```
 
 _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
@@ -172,15 +172,16 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `flow-branch:assignment-delivery/unknown` | flow-branch | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
 | `flow-branch:fresh-v2-initial-dispatch/assistant-evidence-undurable` | flow-branch | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `flow-branch:fresh-v2-initial-dispatch/cold-dispatch-entered-unclassified` | flow-branch | REVIEWED | absent | none | not-candidate | unavailable | `domain:agent-swarm` |
-| `flow-branch:fresh-v2-initial-dispatch/cold-dispatch-pending-unrecovered` | flow-branch | REVIEWED | absent | none | not-candidate | unavailable | `domain:agent-swarm` |
+| `flow-branch:fresh-v2-initial-dispatch/cold-dispatch-pending-recovery-reserved` | flow-branch | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `flow-branch:fresh-v2-initial-dispatch/cold-evidence-unrefolded` | flow-branch | REVIEWED | absent | none | not-candidate | unavailable | `domain:agent-swarm` |
+| `flow-branch:fresh-v2-initial-dispatch/cold-recovery-trigger-undelivered` | flow-branch | REVIEWED | absent | none | not-candidate | unavailable | `domain:agent-swarm` |
 | `flow-branch:fresh-v2-initial-dispatch/cold-starting-unreconciled` | flow-branch | REVIEWED | absent | none | not-candidate | unavailable | `domain:agent-swarm` |
 | `flow-branch:fresh-v2-initial-dispatch/dispatch-pending-held` | flow-branch | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `flow-branch:fresh-v2-initial-dispatch/downstream-failed-after-entered` | flow-branch | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `flow-branch:fresh-v2-initial-dispatch/pre-model-barrier-rejected` | flow-branch | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `flow-branch:fresh-v2-initial-dispatch/provider-start-rejected` | flow-branch | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `flow-branch:fresh-v2-initial-dispatch/provider-start-result-unknown` | flow-branch | REVIEWED | absent | none | not-candidate | unavailable | `domain:agent-swarm` |
-| `flow-branch:fresh-v2-online-continuation/cold-recovery-absent` | flow-branch | REVIEWED | absent | none | not-candidate | unavailable | `domain:agent-swarm` |
+| `flow-branch:fresh-v2-online-continuation/cold-recovery-trigger-undelivered` | flow-branch | REVIEWED | absent | none | not-candidate | unavailable | `domain:agent-swarm` |
 | `flow:assignment-delivery` | flow | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
 | `flow:fresh-v2-initial-dispatch` | flow | REVIEWED | implemented | real-profile | candidate | config-gated | `domain:agent-swarm` |
 | `flow:fresh-v2-online-continuation` | flow | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |

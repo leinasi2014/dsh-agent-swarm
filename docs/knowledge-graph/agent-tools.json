@@ -41,7 +41,7 @@
     },
     "continuation": {
       "title": "Explicit same-Attempt continuation and official dispatch fencing",
-      "sourceAnchors": [{ "file": "src/domain/team-domain-v2-continuation.ts", "symbol": "TeamV2ContinuationDomain" }, { "file": "src/domain/team-domain-v2-continuation-recovery.ts", "symbol": "TeamV2ContinuationRecoveryDomain" }, { "file": "src/runtime/fresh-v2-continuation-runtime.ts", "symbol": "FreshV2ContinuationRuntime" }, { "file": "src/runtime/fresh-v2-continuation-recovery-fold.ts", "symbol": "foldEnteredContinuationRecovery" }],
+      "sourceAnchors": [{ "file": "src/domain/team-domain-v2-continuation.ts", "symbol": "TeamV2ContinuationDomain" }, { "file": "src/domain/team-domain-v2-continuation-recovery.ts", "symbol": "TeamV2ContinuationRecoveryDomain" }, { "file": "src/runtime/fresh-v2-continuation-runtime.ts", "symbol": "FreshV2ContinuationRuntime" }, { "file": "src/runtime/fresh-v2-continuation-recovery-fold.ts", "symbol": "foldEnteredContinuationRecovery" }, { "file": "src/runtime/fresh-v2-continuation-recovery-fold.ts", "symbol": "foldPendingContinuationRecovery" }],
       "testAnchors": [{ "file": "tests/fresh-v2-continuation-domain.spec.ts" }, { "file": "tests/fresh-v2-continuation-fold.spec.ts" }, { "file": "tests/fresh-v2-continuation-runtime.spec.ts" }, { "file": "tests/fresh-v2-continuation-recovery-fold.spec.ts" }, { "file": "tests/fresh-v2-continuation-restart.spec.ts" }],
       "relatedToolIds": ["tool:agent_swarm_continue_task"],
       "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT", "CONFIG_DISABLED_BY_DEFAULT"]

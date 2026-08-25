@@ -34,7 +34,10 @@ import { assistantEvidenceAt } from './fresh-v2-session-fold.js'
 import { currentFreshV2TaskAttempt, findFreshV2Membership } from './fresh-v2-initial-support.js'
 import type { FreshV2WitnessCapability } from './fresh-v2-witness-capability.js'
 import { consumeFreshV2ModelPermit, type FreshV2ModelPermit } from './fresh-v2-model-permit.js'
-import { foldEnteredContinuationRecovery } from './fresh-v2-continuation-recovery-fold.js'
+import {
+  foldEnteredContinuationRecovery,
+  foldPendingContinuationRecovery,
+} from './fresh-v2-continuation-recovery-fold.js'
 
 const CONTINUATION_DELIVERY_TIMEOUT_MS = 30_000
 
@@ -93,20 +96,35 @@ export class FreshV2ContinuationRuntime implements ContinuationRuntime {
     })
   }
 
-  /** Reconcile exact entered continuations once from durable state before normal admission opens. */
-  async reconcileColdEnteredDispatches(): Promise<void> {
+  /** Reconcile exact cold continuations once from durable state before normal admission opens. */
+  async reconcileColdDispatches(): Promise<void> {
     this.assertOpen()
     for (const { scope, team } of this.store.listAll()) {
       for (const attempt of team.attempts) {
         const intent = attempt.currentContinuationIntent
         const dispatch = intent?.currentDispatchId === undefined
           ? undefined : attempt.dispatchEpochs.find(candidate => candidate.dispatchId === intent.currentDispatchId)
-        if (intent?.phase !== 'dispatch-entered' || dispatch?.phase !== 'dispatch-entered') continue
+        const entered = intent?.phase === 'dispatch-entered' && dispatch?.phase === 'dispatch-entered'
+        const pending = intent?.phase === 'dispatch-pending' && dispatch?.phase === 'dispatch-pending'
+        if (!entered && !pending) continue
         const memberSessionId = SessionId(attempt.memberSessionId)
         if (this.ctx.agents.get(memberSessionId) !== undefined || this.ctx.sessions.get(memberSessionId) !== undefined) continue
         const current = currentContinuationAttempt(team, attempt.memberSessionId)
         if (current === undefined) continue
         const checkpoint = continuationCheckpointOf(current)
+        let beforeRepair: Awaited<ReturnType<Context['sessionPersistence']['readFrom']>> | undefined
+        if (pending) {
+          const witnessDigest = await this.witness.assertCurrent()
+          if (witnessDigest !== checkpoint.witnessCapabilityDigest) {
+            this.ctx.logger.warn(
+              `agent-swarm: cold pending continuation witness changed for ${attempt.memberSessionId}; recovery remains blocked`,
+            )
+            continue
+          }
+          beforeRepair = await this.ctx.sessionPersistence.readFrom(
+            memberSessionId, 0, AbortSignal.timeout(CONTINUATION_DELIVERY_TIMEOUT_MS),
+          )
+        }
         let preparation: Awaited<ReturnType<Context['sessionPersistence']['prepare']>>
         try {
           preparation = await this.ctx.sessionPersistence.prepare(
@@ -123,6 +141,42 @@ export class FreshV2ContinuationRuntime implements ContinuationRuntime {
         try {
           if (this.ctx.agents.get(memberSessionId) !== undefined
             || this.ctx.sessions.get(memberSessionId) !== undefined) continue
+          if (pending) {
+            const afterRepair = await this.ctx.sessionPersistence.readFrom(
+              memberSessionId, 0, AbortSignal.timeout(CONTINUATION_DELIVERY_TIMEOUT_MS),
+            )
+            const preparedEvents = preparation.session.events.at(-1)?.type === 'session/end-seed'
+              && preparation.session.events.at(-1)?.seq === afterRepair.events.length
+              ? preparation.session.events.slice(0, -1)
+              : preparation.session.events
+            if (JSON.stringify(preparedEvents) !== JSON.stringify(afterRepair.events)) {
+              this.ctx.logger.warn(
+                `agent-swarm: cold pending continuation ${dispatch.dispatchId} physical repair read-back changed`,
+              )
+              continue
+            }
+            const evidence = foldPendingContinuationRecovery(
+              beforeRepair!.events, afterRepair.events, checkpoint, continuationFrameDigest(this.frameOf(current)),
+            )
+            if (evidence.kind !== 'proven-not-entered') {
+              this.ctx.logger.warn(
+                `agent-swarm: cold pending continuation ${dispatch.dispatchId} remains blocked: ${evidence.reason}`,
+              )
+              continue
+            }
+            if (this.ctx.agents.get(memberSessionId) !== undefined
+              || this.ctx.sessions.get(memberSessionId) !== undefined) continue
+            this.witness.assertDigest(checkpoint.witnessCapabilityDigest)
+            const ordinal = dispatch.ordinal + 1
+            await this.recoveryDomain.reserveProvenNotEntered(scope, team.id, {
+              checkpoint,
+              recoveryEffectId: TeamEffectId(`effect:${attempt.id}:recovery:${ordinal}`),
+              recoveryDispatchId: DispatchId(`dispatch:${attempt.id}:recovery:${ordinal}`),
+              recoveryProofTurnEndSeq: evidence.interruptedTurnEndSeq,
+              recoveryProofDigest: evidence.proofDigest,
+            })
+            continue
+          }
           const evidence = foldEnteredContinuationRecovery(
             preparation.session.events, checkpoint, continuationFrameDigest(this.frameOf(current)),
           )

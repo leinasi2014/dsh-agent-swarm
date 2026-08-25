@@ -5,7 +5,10 @@ import type { ContinuationDispatchCheckpoint } from '../src/domain/team-domain-v
 import { ContinuationEffectId, DispatchId, TeamEffectId } from '../src/domain/team-state-v2.js'
 import { AttemptId, TaskId } from '../src/domain/types.js'
 import { continuationFrame, continuationFrameDigest } from '../src/runtime/fresh-v2-continuation-fold.js'
-import { foldEnteredContinuationRecovery } from '../src/runtime/fresh-v2-continuation-recovery-fold.js'
+import {
+  foldEnteredContinuationRecovery,
+  foldPendingContinuationRecovery,
+} from '../src/runtime/fresh-v2-continuation-recovery-fold.js'
 
 const frame = continuationFrame({
   teamId: 'team-recovery', taskId: 'task-recovery', attemptId: 'attempt-recovery',
@@ -87,5 +90,41 @@ describe('A2a cold entered-continuation recovery fold', () => {
     session.append('turn/end', { turn: 2, reason: { kind: 'blocked' } })
     expect(foldEnteredContinuationRecovery(session.events, checkpoint, continuationFrameDigest(frame)))
       .toEqual({ kind: 'turn-end-evidence', eventSeq: 4, reason: 'blocked' })
+  })
+})
+
+describe('A2a cold pending-continuation recovery fold', () => {
+  it('requires the exact frame and one interrupted cold boundary with no assistant evidence', () => {
+    const exact = enteredSession()
+    const exactBefore = [...exact.events]
+    exact.append('step/end', { turn: 2, step: 1 })
+    exact.append('turn/end', { turn: 2, reason: { kind: 'interrupted' } })
+    expect(foldPendingContinuationRecovery(exactBefore, exact.events, checkpoint, continuationFrameDigest(frame)))
+      .toMatchObject({ kind: 'proven-not-entered', interruptedTurnEndSeq: 4, proofDigest: expect.any(String) })
+
+    const assistant = enteredSession()
+    assistant.append('assistant/message', {
+      turn: 2,
+      step: 1,
+      message: createMessage({
+        role: 'assistant', content: [{ type: 'text', text: 'unexpected' }],
+        source: { kind: 'model', provider: 'mock', model: 'mock' },
+      }),
+    }, { surfaceOp: 'append' })
+    const assistantBefore = [...assistant.events]
+    assistant.append('step/end', { turn: 2, step: 1 })
+    assistant.append('turn/end', { turn: 2, reason: { kind: 'interrupted' } })
+    expect(foldPendingContinuationRecovery(
+      assistantBefore, assistant.events, checkpoint, continuationFrameDigest(frame),
+    )).toMatchObject({ kind: 'not-proven', reason: expect.stringContaining('downstream') })
+
+    const ordinaryEnd = enteredSession()
+    const ordinaryBefore = [...ordinaryEnd.events]
+    ordinaryEnd.append('step/end', { turn: 2, step: 1 })
+    ordinaryEnd.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
+    expect(foldPendingContinuationRecovery(
+      ordinaryBefore, ordinaryEnd.events, checkpoint, continuationFrameDigest(frame),
+    ))
+      .toMatchObject({ kind: 'not-proven', reason: expect.stringContaining('interrupted') })
   })
 })

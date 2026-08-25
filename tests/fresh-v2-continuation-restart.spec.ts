@@ -11,7 +11,12 @@ import { TeamV2ContinuationDomain } from '../src/domain/team-domain-v2-continuat
 import { TeamV2StartDomain } from '../src/domain/team-domain-v2-start.js'
 import { ContinuationEffectId, DispatchId, TeamEffectId } from '../src/domain/team-state-v2.js'
 import { continuationFrame } from '../src/runtime/fresh-v2-continuation-fold.js'
-import { FRESH_V2_ARTIFACT_CONTRACT, mountFreshV2Composition } from './helpers/fresh-v2-composition.js'
+import { canonicalV2Digest } from '../src/protocol/canonical-v2.js'
+import {
+  FRESH_V2_ARTIFACT_CONTRACT,
+  FRESH_V2_HOST_CONTRACT,
+  mountFreshV2Composition,
+} from './helpers/fresh-v2-composition.js'
 import { openV2StorageStack } from './helpers/storage-stack.js'
 
 class NoopAdapter extends LlmAdapter {
@@ -27,10 +32,21 @@ class NoopAdapter extends LlmAdapter {
 }
 
 const roots: string[] = []
+const ACTIVE_WITNESS_DIGEST = canonicalV2Digest('dsh-agent-swarm/a1b/model-dispatch-witness/v2', {
+  artifactContract: FRESH_V2_ARTIFACT_CONTRACT,
+  hostContract: FRESH_V2_HOST_CONTRACT,
+  listenerGraph: {
+    agentRequest: 'global-prepend',
+    llmStream: 'global-prepend',
+    sessionEvent: 'global',
+    topologyPolicy: 'revoke-until-profile-restart',
+  },
+  providers: ['mock'],
+})
 
 async function seedEnteredContinuation(
   sandbox: string,
-  outcome: 'assistant-closed' | 'assistant-open' | 'interrupted',
+  outcome: 'assistant-closed' | 'assistant-open' | 'interrupted' | 'pending-interrupted',
 ): Promise<{
   readonly workspace: string
   readonly teamId: string
@@ -61,7 +77,7 @@ async function seedEnteredContinuation(
     )
     const initial = {
       initialPromptDigest: '1'.repeat(64), messageSeq: 2, turn: 1, step: 1,
-      witnessCapabilityDigest: '2'.repeat(64), dispatchId: 'dispatch-cold-initial', effectId: 'effect-cold-initial',
+      witnessCapabilityDigest: ACTIVE_WITNESS_DIGEST, dispatchId: 'dispatch-cold-initial', effectId: 'effect-cold-initial',
     }
     await start.settleInitialAssignment(workspace, team.id, member.sessionId, task.id, reserved.attempt.id, initial)
     await start.enterInitialDispatch(workspace, team.id, member.sessionId, task.id, reserved.attempt.id, initial)
@@ -84,7 +100,7 @@ async function seedEnteredContinuation(
     })
     await continuation.admitRequested(workspace, team.id, {
       taskId: currentTask.id, attemptId: reserved.attempt.id, memberSessionId: member.sessionId,
-      continuationEffectId, resumeEffectId, dispatchId, witnessCapabilityDigest: '2'.repeat(64),
+      continuationEffectId, resumeEffectId, dispatchId, witnessCapabilityDigest: ACTIVE_WITNESS_DIGEST,
     })
     const frame = continuationFrame({
       teamId: team.id, taskId: currentTask.id, attemptId: reserved.attempt.id,
@@ -97,10 +113,10 @@ async function seedEnteredContinuation(
     const checkpoint = {
       taskId: currentTask.id, attemptId: reserved.attempt.id, continuationEffectId, dispatchId, resumeEffectId,
       frameMessageId: 'message-cold-entered', messageSeq: 2, turn: 2, step: 1,
-      witnessCapabilityDigest: '2'.repeat(64),
+      witnessCapabilityDigest: ACTIVE_WITNESS_DIGEST,
     }
     await continuation.claimFrame(workspace, team.id, checkpoint)
-    await continuation.enterDispatch(workspace, team.id, checkpoint)
+    if (outcome !== 'pending-interrupted') await continuation.enterDispatch(workspace, team.id, checkpoint)
 
     await mountAgentLoopTestDependencies(sessionCtx)
     sessionFibers.push(await sessionCtx.plugin(SqliteSessionPersistence, {
@@ -122,7 +138,7 @@ async function seedEnteredContinuation(
       id: MessageId('message-cold-entered'), role: 'user', content: [{ type: 'text', text: frame }],
       source: { kind: 'plugin', plugin: 'dsh-agent-swarm' },
     }, { surfaceOp: 'append' })
-    if (outcome !== 'interrupted') {
+    if (outcome === 'assistant-closed' || outcome === 'assistant-open') {
       session.append('assistant/message', {
         turn: 2,
         step: 1,
@@ -233,6 +249,50 @@ describe('A2a fresh-composition cold entered-dispatch reconciliation', () => {
       expect(attempt.dispatchEpochs.at(-1)).toMatchObject({ phase: 'settled' })
     } finally {
       for (const fiber of mounted.fibers.toReversed()) await fiber.dispose().catch(() => undefined)
+    }
+  }, 30_000)
+
+  it('reserves exactly one recovery epoch for a cold pending dispatch without replaying the frame or Provider call', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-swarm-a2a-restart-pending-'))
+    roots.push(sandbox)
+    const seeded = await seedEnteredContinuation(sandbox, 'pending-interrupted')
+    let followupCalls = 0
+    const first = await mountFreshV2Composition(sandbox, () => new NoopAdapter(), {}, async ctx => {
+      const originalFollowup = ctx.subagents.followup.bind(ctx.subagents)
+      ctx.subagents.followup = async (...args) => {
+        followupCalls += 1
+        return await originalFollowup(...args)
+      }
+    })
+    try {
+      const snapshot = first.ctx.agentSwarmV2Initial.snapshot(seeded.workspace, seeded.teamId)!
+      const attempt = snapshot.attempts.find(candidate => candidate.id === seeded.attemptId)!
+      expect(attempt.currentContinuationIntent).toMatchObject({ phase: 'dispatch-pending' })
+      expect(attempt.dispatchEpochs).toHaveLength(3)
+      expect(attempt.dispatchEpochs.at(-2)).toMatchObject({ kind: 'continuation', phase: 'dispatch-pending' })
+      expect(attempt.dispatchEpochs.at(-1)).toMatchObject({
+        kind: 'recovery', phase: 'frame-pending', recoveryOf: 'dispatch-cold-entered',
+      })
+      expect(snapshot.interactionEffects).toContainEqual(expect.objectContaining({
+        kind: 'continuation-recovery', status: 'applied', recoveryOf: 'dispatch-cold-entered',
+      }))
+      expect(first.adapter.requests).toHaveLength(0)
+      expect(followupCalls).toBe(0)
+      const physical = await first.ctx.sessionPersistence.readFrom(SessionId(seeded.memberSessionId), 0)
+      expect(physical.events.filter(event => event.type === 'user/message')).toHaveLength(1)
+    } finally {
+      for (const fiber of first.fibers.toReversed()) await fiber.dispose().catch(() => undefined)
+    }
+
+    const second = await mountFreshV2Composition(sandbox, () => new NoopAdapter())
+    try {
+      const attempt = second.ctx.agentSwarmV2Initial.snapshot(seeded.workspace, seeded.teamId)!
+        .attempts.find(candidate => candidate.id === seeded.attemptId)!
+      expect(attempt.dispatchEpochs).toHaveLength(3)
+      expect(attempt.dispatchEpochs.at(-1)).toMatchObject({ kind: 'recovery', phase: 'frame-pending' })
+      expect(second.adapter.requests).toHaveLength(0)
+    } finally {
+      for (const fiber of second.fibers.toReversed()) await fiber.dispose().catch(() => undefined)
     }
   }, 30_000)
 })

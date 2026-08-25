@@ -107,8 +107,8 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
     this.store = store
     this.domain = new TeamV2StartDomain(store, { maxMembers: this.config.maxMembers })
     this.continuation = new FreshV2ContinuationRuntime(this.ctx, store, this.witnessCapability)
-    await this.continuation.reconcileColdEnteredDispatches()
   }
+  async reconcileColdDispatches(): Promise<void> { this.assertOpen(); await this.requireContinuation().reconcileColdDispatches() }
 
   scopeOf(agent: Agent): string {
     return resolve(workspaceOf(agent))

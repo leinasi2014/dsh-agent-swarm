@@ -2,9 +2,9 @@
 
 # Entrypoints and switches
 
-Manifest digest: `de78175cbb0c5c34f900ba9b2ccdebf1644e3daebb23bd92cdd9023ff6a57b01`
+Manifest digest: `7235e0c2e18f734d08125d6fb242613054ad4e8e09ef66c5d0d81fc412405edc`
 
-Curated tool-registry digest: `283582c7136106164f285f14766ed25004dff20b51ed1b76248a0cb59849ce8d`
+Curated tool-registry digest: `c5d326eaafe8ee14415e4ad0f73e97f429ef152cd80f5192e2747529fad49c09`
 
 > Claim ceiling: the registry is a reviewed capability overlay over exact source extraction. Per-tool deep semantic closure, acceptance, and real-Profile evidence remain explicit gaps; the complete mechanical graph is retained in `atlas.json`.
 

@@ -2,9 +2,9 @@
 
 # Availability
 
-Manifest digest: `de78175cbb0c5c34f900ba9b2ccdebf1644e3daebb23bd92cdd9023ff6a57b01`
+Manifest digest: `7235e0c2e18f734d08125d6fb242613054ad4e8e09ef66c5d0d81fc412405edc`
 
-Curated tool-registry digest: `283582c7136106164f285f14766ed25004dff20b51ed1b76248a0cb59849ce8d`
+Curated tool-registry digest: `c5d326eaafe8ee14415e4ad0f73e97f429ef152cd80f5192e2747529fad49c09`
 
 > Claim ceiling: the registry is a reviewed capability overlay over exact source extraction. Per-tool deep semantic closure, acceptance, and real-Profile evidence remain explicit gaps; the complete mechanical graph is retained in `atlas.json`.
 
@@ -339,15 +339,16 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `flow-branch:assignment-delivery/unknown` | flow-branch | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
 | `flow-branch:fresh-v2-initial-dispatch/assistant-evidence-undurable` | flow-branch | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `flow-branch:fresh-v2-initial-dispatch/cold-dispatch-entered-unclassified` | flow-branch | REVIEWED | absent | none | not-candidate | unavailable | `domain:agent-swarm` |
-| `flow-branch:fresh-v2-initial-dispatch/cold-dispatch-pending-unrecovered` | flow-branch | REVIEWED | absent | none | not-candidate | unavailable | `domain:agent-swarm` |
+| `flow-branch:fresh-v2-initial-dispatch/cold-dispatch-pending-recovery-reserved` | flow-branch | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `flow-branch:fresh-v2-initial-dispatch/cold-evidence-unrefolded` | flow-branch | REVIEWED | absent | none | not-candidate | unavailable | `domain:agent-swarm` |
+| `flow-branch:fresh-v2-initial-dispatch/cold-recovery-trigger-undelivered` | flow-branch | REVIEWED | absent | none | not-candidate | unavailable | `domain:agent-swarm` |
 | `flow-branch:fresh-v2-initial-dispatch/cold-starting-unreconciled` | flow-branch | REVIEWED | absent | none | not-candidate | unavailable | `domain:agent-swarm` |
 | `flow-branch:fresh-v2-initial-dispatch/dispatch-pending-held` | flow-branch | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `flow-branch:fresh-v2-initial-dispatch/downstream-failed-after-entered` | flow-branch | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `flow-branch:fresh-v2-initial-dispatch/pre-model-barrier-rejected` | flow-branch | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `flow-branch:fresh-v2-initial-dispatch/provider-start-rejected` | flow-branch | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `flow-branch:fresh-v2-initial-dispatch/provider-start-result-unknown` | flow-branch | REVIEWED | absent | none | not-candidate | unavailable | `domain:agent-swarm` |
-| `flow-branch:fresh-v2-online-continuation/cold-recovery-absent` | flow-branch | REVIEWED | absent | none | not-candidate | unavailable | `domain:agent-swarm` |
+| `flow-branch:fresh-v2-online-continuation/cold-recovery-trigger-undelivered` | flow-branch | REVIEWED | absent | none | not-candidate | unavailable | `domain:agent-swarm` |
 | `flow:assignment-delivery` | flow | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
 | `flow:fresh-v2-initial-dispatch` | flow | REVIEWED | implemented | real-profile | candidate | config-gated | `domain:agent-swarm` |
 | `flow:fresh-v2-online-continuation` | flow | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |

@@ -95,6 +95,8 @@ const dispatchEpochSchema = z.object({
   ordinal: z.number().int().min(1),
   effectId: text,
   recoveryOf: text.optional(),
+  recoveryProofTurnEndSeq: z.number().int().min(0).optional(),
+  recoveryProofDigest: digest.optional(),
   targetSessionId: sessionId,
   frameMessageId: text.optional(),
   turn: z.number().int().min(1).optional(),
@@ -147,7 +149,7 @@ const messageSchema = z.object({
 
 const effectSchema = z.object({
   effectId: text,
-  kind: z.enum(['interaction', 'model-dispatch', 'continuation']),
+  kind: z.enum(['interaction', 'model-dispatch', 'continuation', 'continuation-recovery']),
   status: z.enum(['applied', 'settled', 'superseded', 'cancelled']),
   appliedAt: timestamp,
   resultingTeamRevision: z.number().int().min(1),
@@ -156,6 +158,9 @@ const effectSchema = z.object({
   taskId: text.optional(),
   attemptId: text.optional(),
   dispatchId: text.optional(),
+  recoveryOf: text.optional(),
+  recoveryProofTurnEndSeq: z.number().int().min(0).optional(),
+  recoveryProofDigest: digest.optional(),
   decision: z.enum(['accept', 'reject']).optional(),
   continuationEffectId: text.optional(),
   continuationRequestedBy: principalSchema.optional(),
@@ -318,7 +323,8 @@ export function assertTeamStateV2(value: unknown, path: string): asserts value i
       if (epoch.kind === 'initial' && epoch.frameMessageId !== undefined) {
         fail(path, `initial dispatch ${epoch.dispatchId} carries a continuation inbox identity`)
       }
-      if (epoch.kind === 'continuation' && epoch.phase !== 'frame-pending' && epoch.frameMessageId === undefined) {
+      if ((epoch.kind === 'continuation' || epoch.kind === 'recovery')
+        && epoch.phase !== 'frame-pending' && epoch.frameMessageId === undefined) {
         fail(path, `continuation dispatch ${epoch.dispatchId} lacks its official inbox identity`)
       }
       const bound = epoch.turn !== undefined && epoch.step !== undefined && epoch.messageSeq !== undefined
@@ -341,9 +347,26 @@ export function assertTeamStateV2(value: unknown, path: string): asserts value i
       if ((epoch.phase === 'settled') !== (hasAssistantEvidence || hasTurnEndEvidence)) {
         fail(path, `dispatch ${epoch.dispatchId} terminal evidence does not match its phase`)
       }
-      if (epoch.kind === 'recovery' && epoch.recoveryOf === undefined) fail(path, `recovery dispatch ${epoch.dispatchId} lacks recoveryOf`)
-      if (epoch.kind !== 'recovery' && epoch.recoveryOf !== undefined) fail(path, `non-recovery dispatch ${epoch.dispatchId} has recoveryOf`)
+      if (epoch.kind === 'recovery' && (epoch.recoveryOf === undefined
+        || epoch.recoveryProofTurnEndSeq === undefined || epoch.recoveryProofDigest === undefined)) {
+        fail(path, `recovery dispatch ${epoch.dispatchId} lacks its cold proof fence`)
+      }
+      if (epoch.kind === 'recovery') {
+        const receipt = team.interactionEffects.find(effect => effect.effectId === epoch.effectId)
+        if (receipt?.kind !== 'continuation-recovery' || receipt.dispatchId !== epoch.dispatchId
+          || receipt.recoveryOf !== epoch.recoveryOf) {
+          fail(path, `recovery dispatch ${epoch.dispatchId} lacks its recovery receipt`)
+        }
+      }
+      if (epoch.kind !== 'recovery' && (epoch.recoveryOf !== undefined
+        || epoch.recoveryProofTurnEndSeq !== undefined || epoch.recoveryProofDigest !== undefined)) {
+        fail(path, `non-recovery dispatch ${epoch.dispatchId} has recovery metadata`)
+      }
     }
+    const stagedRecoveries = attempt.dispatchEpochs.filter(epoch => epoch.kind === 'recovery'
+      && epoch.phase === 'frame-pending'
+      && epoch.recoveryOf === attempt.currentContinuationIntent?.currentDispatchId)
+    if (stagedRecoveries.length > 1) fail(path, `attempt ${attempt.id} has competing staged recovery reservations`)
     if (attempt.phase === 'running'
       && (attempt.assignmentPhase !== 'delivered' || !attempt.dispatchEpochs.some(epoch => epoch.phase === 'settled'))) {
       fail(path, `running attempt ${attempt.id} lacks settled model-dispatch evidence`)
@@ -394,6 +417,32 @@ export function assertTeamStateV2(value: unknown, path: string): asserts value i
 
   for (const effect of team.interactionEffects) {
     if (effect.resultingTeamRevision > team.revision) fail(path, `effect ${effect.effectId} names a future Team revision`)
+    if (effect.kind === 'continuation-recovery') {
+      if (effect.requestId === undefined || effect.taskId === undefined || effect.attemptId === undefined
+        || effect.dispatchId === undefined || effect.recoveryOf === undefined
+        || effect.recoveryProofTurnEndSeq === undefined || effect.recoveryProofDigest === undefined) {
+        fail(path, `continuation recovery effect ${effect.effectId} lacks its complete tuple`)
+      }
+      const attempt = attempts.get(effect.attemptId)
+      const dispatch = attempt?.dispatchEpochs.find(epoch => epoch.dispatchId === effect.dispatchId)
+      const recovered = attempt?.dispatchEpochs.find(epoch => epoch.dispatchId === effect.recoveryOf)
+      if (attempt === undefined || attempt.taskId !== effect.taskId || dispatch?.kind !== 'recovery'
+        || dispatch.effectId !== effect.effectId || dispatch.recoveryOf !== effect.recoveryOf
+        || dispatch.recoveryProofTurnEndSeq !== effect.recoveryProofTurnEndSeq
+        || dispatch.recoveryProofDigest !== effect.recoveryProofDigest
+        || recovered === undefined || recovered.ordinal >= dispatch.ordinal) {
+        fail(path, `continuation recovery effect ${effect.effectId} lost its Attempt/dispatch tuple`)
+      }
+      if (effect.status === 'applied') {
+        const intent = attempt.currentContinuationIntent
+        if (dispatch.phase !== 'frame-pending' || intent === undefined
+          || intent.currentDispatchId !== effect.recoveryOf
+          || intent.phase !== 'dispatch-pending') {
+          fail(path, `continuation recovery effect ${effect.effectId} is not an exact pending reservation`)
+        }
+      }
+      continue
+    }
     if (effect.kind !== 'continuation') continue
     if (effect.requestId === undefined || effect.taskId === undefined || effect.attemptId === undefined
       || effect.dispatchId === undefined || effect.continuationEffectId !== effect.requestId

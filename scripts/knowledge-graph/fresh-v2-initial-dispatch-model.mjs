@@ -176,11 +176,12 @@ export function buildFreshV2InitialDispatchSlice(facts) {
     runtime: ref('test:fresh-v2-continuation-runtime', 'test'),
     fold: ref('test:fresh-v2-continuation-fold', 'test'),
   }
-  const coldContinuation = ref('flow-branch:fresh-v2-online-continuation/cold-recovery-absent', 'flow-branch')
+  const coldContinuation = ref('flow-branch:fresh-v2-online-continuation/cold-recovery-trigger-undelivered', 'flow-branch')
   const implementedBranches = [
     'provider-start-rejected',
     'pre-model-barrier-rejected',
     'dispatch-pending-held',
+    'cold-dispatch-pending-recovery-reserved',
     'downstream-failed-after-entered',
     'assistant-evidence-undurable',
   ]
@@ -242,7 +243,7 @@ export function buildFreshV2InitialDispatchSlice(facts) {
     node(facts, continuationTests.domain.id, continuationTests.domain.kind, 'Fresh-v2 continuation domain invariant tests', contracts, 'tests/fresh-v2-continuation-domain.spec.ts', 'continuation-domain-tests', { verification: 'unit', evidence: [], security: security(contracts) }),
     node(facts, continuationTests.runtime.id, continuationTests.runtime.kind, 'Fresh-v2 official Agent Loop continuation composition test', contracts, 'tests/fresh-v2-continuation-runtime.spec.ts', 'continuation-runtime-test', { verification: 'composition', evidence: [], security: security(contracts) }),
     node(facts, continuationTests.fold.id, continuationTests.fold.kind, 'Fresh-v2 continuation frame source and identity fold tests', contracts, 'tests/fresh-v2-continuation-fold.spec.ts', 'continuation-fold-tests', { verification: 'unit', evidence: [], security: security(contracts) }),
-    node(facts, coldContinuation.id, coldContinuation.kind, 'Cold recovery of admitted continuation remains absent', team, continuationRuntimeFile, 'cold-continuation-absent', { maturity: absentMaturity('A2b cold recovery and ambiguous delivery reconciliation'), contract: { nodeKind: 'flow-branch', flow: continuationFlow }, defaultState: 'disabled' }),
+    node(facts, coldContinuation.id, coldContinuation.kind, 'Recovery reservation is durable but trigger delivery remains absent', team, continuationRuntimeFile, 'cold-recovery-trigger-undelivered', { maturity: absentMaturity('A2a-R1c recovery trigger delivery and claim'), contract: { nodeKind: 'flow-branch', flow: continuationFlow }, defaultState: 'disabled' }),
     ...implementedBranches.map(name => node(facts, `flow-branch:fresh-v2-initial-dispatch/${name}`, 'flow-branch', name.replaceAll('-', ' '), team, runtimeFile, `branch-${name}`, { contract: { nodeKind: 'flow-branch', flow } })),
     ...absentBranches.map(name => node(facts, `flow-branch:fresh-v2-initial-dispatch/${name}`, 'flow-branch', name.replaceAll('-', ' '), team, runtimeFile, `absent-${name}`, { maturity: absentMaturity(`A2 recovery slice: ${name}`), contract: { nodeKind: 'flow-branch', flow }, defaultState: 'disabled' })),
   ]

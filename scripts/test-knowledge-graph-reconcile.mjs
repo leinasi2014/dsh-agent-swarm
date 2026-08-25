@@ -68,7 +68,7 @@ assert.deepEqual({
   reachableRootExports: facts.reachableRootExports.length,
   reachablePublicApiExports: facts.reachablePublicApiExports.length,
 }, {
-  modules: 122, imports: 697, packageExports: 6, tools: 20, injections: 34,
+  modules: 122, imports: 698, packageExports: 6, tools: 20, injections: 34,
   registries: 7, builtins: 15, extensions: 7, facades: 4, providerCalls: 6, registryMethods: 11,
   config: 43, effectiveConfig: 97, domains: 4, domainPort: 30, stateUnions: 14, discriminants: 46,
   rpcRoutes: 1, rpcMethods: 5, rpcSchemas: 23, rpcCapabilities: 3, rpcRuntimeCapabilities: 1, rpcBounds: 5,
@@ -78,7 +78,7 @@ assert.deepEqual({
 
 const summary = reconcileSourceManifest(facts, manifest)
 assert.equal(summary.nodeCount, 951)
-assert.equal(summary.edgeCount, 1744)
+assert.equal(summary.edgeCount, 1745)
 assert.equal(summary.manifestNodeCount, manifest.nodes.length)
 assert.equal(summary.manifestEdgeCount, manifest.edges.length)
 const mechanicalNodes = manifest.nodes.filter(item => item.classification === 'mechanical')
@@ -86,9 +86,9 @@ const reviewedNodes = manifest.nodes.filter(item => item.classification === 'rev
 const mechanicalEdges = manifest.edges.filter(item => item.classification === 'mechanical')
 const reviewedEdges = manifest.edges.filter(item => item.classification === 'reviewed')
 assert.equal(mechanicalNodes.length, 950)
-assert.equal(reviewedNodes.length, 138)
-assert.equal(mechanicalEdges.length, 1744)
-assert.equal(reviewedEdges.length, 286)
+assert.equal(reviewedNodes.length, 139)
+assert.equal(mechanicalEdges.length, 1745)
+assert.equal(reviewedEdges.length, 288)
 assert(mechanicalNodes.every(item => item.ownerAuthority === undefined
   && item.security.authoritySource === undefined
   && item.security.callerIdentity === 'unclassified'

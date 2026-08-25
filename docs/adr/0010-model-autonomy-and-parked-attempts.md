@@ -7,7 +7,7 @@
 - Supersedes after acceptance: the default time-driven stranded self-heal in `docs/04-core-protocol.md` §8c
 - Does not modify: official DSH, its Agent Loop, provider reasoning behavior, or user media
 
-Implementation snapshot (not acceptance): the config-gated A2a online member-self-continuation slice now implements `running -> requested -> parked -> admitted -> frame-pending -> dispatch-pending -> dispatch-entered -> settled/running` over official Session, Subagent followup/inbox and Agent Loop seams. Domain and official-composition tests cover same-Attempt identity, exact member principal, duplicate/conflicting requests, durable target claim, provider dispatch evidence and rejection of an ordinary unframed later wake. Cold restart recovery, unknown-delivery reconciliation, Team-leader/human request principals and submit/reassign/cancel competition remain absent; therefore this ADR remains Proposed.
+Implementation snapshot (not acceptance): the config-gated A2a online member-self-continuation slice implements `running -> requested -> parked -> admitted -> frame-pending -> dispatch-pending -> dispatch-entered -> settled/running` over official Session, Subagent followup/inbox and Agent Loop seams. Accepted A2a-R1a folds entered cold outcomes. The current R1b candidate additionally stages one proof-bound, deterministic recovery reservation after exact physical cold repair while retaining the old pending epoch as current. It deliberately performs no recovery followup or Provider call. Recovery-trigger delivery/claim, cold frame-pending reconciliation, Team-leader/human request principals and submit/reassign/cancel competition remain absent; therefore this ADR remains Proposed.
 
 ## 1. Outcome and non-goals
 

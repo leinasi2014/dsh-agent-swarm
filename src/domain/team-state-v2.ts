@@ -97,6 +97,8 @@ export interface ModelDispatchEpoch {
   readonly ordinal: number
   readonly effectId: TeamEffectId
   readonly recoveryOf?: DispatchId
+  readonly recoveryProofTurnEndSeq?: number
+  readonly recoveryProofDigest?: string
   readonly targetSessionId: string
   /** Exact official inbox identity returned by continuable-child admission. */
   readonly frameMessageId?: string
@@ -145,7 +147,7 @@ export interface TaskAttemptV2 {
 
 interface TeamEffectReceiptV2 {
   readonly effectId: TeamEffectId
-  readonly kind: 'interaction' | 'model-dispatch' | 'continuation'
+  readonly kind: 'interaction' | 'model-dispatch' | 'continuation' | 'continuation-recovery'
   readonly status: 'applied' | 'settled' | 'superseded' | 'cancelled'
   readonly appliedAt: number
   readonly resultingTeamRevision: number
@@ -154,6 +156,9 @@ interface TeamEffectReceiptV2 {
   readonly taskId?: string
   readonly attemptId?: AttemptId
   readonly dispatchId?: DispatchId
+  readonly recoveryOf?: DispatchId
+  readonly recoveryProofTurnEndSeq?: number
+  readonly recoveryProofDigest?: string
   readonly decision?: 'accept' | 'reject'
   readonly continuationEffectId?: ContinuationEffectId
   readonly continuationRequestedBy?: ContinuationPrincipal
