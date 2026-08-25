@@ -464,8 +464,11 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
     this.closing = true
     this.witnessCapability.revoke('fresh-v2 runtime is closing', true)
     this.modelPermits.clear()
-    await this.continuation?.dispose()
     const failures: unknown[] = []
+    await boundedSettle(
+      this.ctx, this.config.disposalTimeoutMs, 'fresh-v2 continuation streams',
+      this.continuation?.dispose() ?? Promise.resolve(), failures,
+    )
     for (const [captainId, childIds] of this.children) {
       const captain = this.ctx.agents.get(SessionId(captainId))
       if (captain === undefined) continue

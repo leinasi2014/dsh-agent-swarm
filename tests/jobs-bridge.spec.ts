@@ -229,7 +229,12 @@ return { done: true, out }`,
       // publishes agent-start while the job face registers the execution.
       const live = await vi.waitFor(() => {
         const registered = jobs.list().filter(job => job.status === 'running')
-        expect(registered.length).toBeGreaterThanOrEqual(1)
+        const diagnostic = {
+          run: bridge.overlay.get(run.runId),
+          jobs: jobs.list(),
+          workflowEvents: tree.workflowEvents.map(event => event.name),
+        }
+        expect(registered.length, JSON.stringify(diagnostic)).toBeGreaterThanOrEqual(1)
         expect(tree.workflowEvents.some(event => event.name === 'workflow/agent-start')).toBe(true)
         return registered[0]!
       }, { timeout: 15_000 })

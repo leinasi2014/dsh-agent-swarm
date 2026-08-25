@@ -5,7 +5,13 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { assertTeamStateV2 } from '../src/domain/state-validation-v2.js'
 import { TeamV2ContinuationDomain, type ContinuationDispatchCheckpoint } from '../src/domain/team-domain-v2-continuation.js'
 import { TeamV2StartDomain } from '../src/domain/team-domain-v2-start.js'
-import { ContinuationEffectId, DispatchId, TeamEffectId } from '../src/domain/team-state-v2.js'
+import {
+  ContinuationEffectId,
+  DispatchId,
+  MAX_V2_EFFECT_RECEIPTS,
+  TeamEffectId,
+  type TeamStateV2,
+} from '../src/domain/team-state-v2.js'
 import { AttemptId, TaskId, type TeamId } from '../src/domain/types.js'
 import { openV2StorageStack, type V2StorageStack } from './helpers/storage-stack.js'
 
@@ -197,6 +203,12 @@ describe('A2a same-Attempt continuation domain', () => {
     const first = await fixture.continuation.requestMemberContinuation(SCOPE, fixture.teamId, input)
     expect(await fixture.continuation.requestMemberContinuation(SCOPE, fixture.teamId, input)).toEqual(first)
     await expect(fixture.continuation.requestMemberContinuation(SCOPE, fixture.teamId, {
+      ...input, checkpointDigest: '4'.repeat(64),
+    })).rejects.toMatchObject({ code: 'TEAM_CONTINUATION_CONFLICT' })
+    await expect(fixture.continuation.requestMemberContinuation(SCOPE, fixture.teamId, {
+      ...input, wakeCondition: 'Different semantic request under the same key.',
+    })).rejects.toMatchObject({ code: 'TEAM_CONTINUATION_CONFLICT' })
+    await expect(fixture.continuation.requestMemberContinuation(SCOPE, fixture.teamId, {
       ...input, continuationEffectId: ContinuationEffectId('continuation-a2a-other'),
     })).rejects.toMatchObject({ code: 'TEAM_CONTINUATION_CONFLICT' })
     await expect(fixture.continuation.requestMemberContinuation(SCOPE, fixture.teamId, {
@@ -228,5 +240,90 @@ describe('A2a same-Attempt continuation domain', () => {
       frameMessageId: 'official-message-wrong',
     })).rejects.toMatchObject({ code: 'TEAM_TASK_NOT_FOUND' })
     expect(stack!.store.read(SCOPE, fixture.teamId)).toEqual(before)
+  })
+
+  it('fails closed at receipt capacity and rejects inconsistent continuation phase tuples', async () => {
+    const fixture = await runningAttempt()
+    const continuationEffectId = ContinuationEffectId('continuation-a2a-capacity')
+    const requested = await fixture.continuation.requestMemberContinuation(SCOPE, fixture.teamId, {
+      taskId: fixture.taskId,
+      expectedTaskRevision: fixture.taskRevision,
+      attemptId: fixture.attemptId,
+      continuationEffectId,
+      principal: { kind: 'member', memberId: 'worker', memberSessionId: 'member-1' },
+      checkpointDigest: '5'.repeat(64),
+      wakeCondition: 'Preserve this exact request identity.',
+    })
+    expect(requested.phase).toBe('requested')
+    await fixture.continuation.parkAfterTurn(SCOPE, fixture.teamId, {
+      taskId: fixture.taskId,
+      attemptId: fixture.attemptId,
+      memberSessionId: 'member-1',
+      settledTurn: 1,
+      turnEndSeq: 11,
+    })
+    const resumeEffectId = TeamEffectId('effect-continuation-capacity')
+    const dispatchId = DispatchId('dispatch-continuation-capacity')
+    await fixture.continuation.admitRequested(SCOPE, fixture.teamId, {
+      taskId: fixture.taskId,
+      attemptId: fixture.attemptId,
+      memberSessionId: 'member-1',
+      continuationEffectId,
+      resumeEffectId,
+      dispatchId,
+      witnessCapabilityDigest: WITNESS_DIGEST,
+    })
+
+    const admitted = stack!.store.read(SCOPE, fixture.teamId)!
+    const missingEffect = structuredClone(admitted) as TeamStateV2
+    Object.assign(missingEffect.attempts[0]!.currentContinuationIntent!, { resumeEffectId: undefined })
+    expect(() => assertTeamStateV2(missingEffect, 'missing continuation effect')).toThrow(/admitted dispatch tuple/)
+    const mismatchedPhase = structuredClone(admitted) as TeamStateV2
+    Object.assign(mismatchedPhase.attempts[0]!.dispatchEpochs[1]!, { phase: 'dispatch-pending' })
+    expect(() => assertTeamStateV2(mismatchedPhase, 'mismatched continuation phase')).toThrow(/phases are inconsistent/)
+
+    await fixture.continuation.recordFrameAccepted(SCOPE, fixture.teamId, {
+      taskId: fixture.taskId,
+      attemptId: fixture.attemptId,
+      continuationEffectId,
+      dispatchId,
+      frameMessageId: 'official-message-capacity',
+    })
+    const checkpoint: ContinuationDispatchCheckpoint = {
+      taskId: fixture.taskId,
+      attemptId: fixture.attemptId,
+      continuationEffectId,
+      dispatchId,
+      resumeEffectId,
+      frameMessageId: 'official-message-capacity',
+      messageSeq: 13,
+      turn: 2,
+      step: 1,
+      witnessCapabilityDigest: WITNESS_DIGEST,
+    }
+    await fixture.continuation.claimFrame(SCOPE, fixture.teamId, checkpoint)
+    await fixture.continuation.enterDispatch(SCOPE, fixture.teamId, checkpoint)
+    await stack!.store.transact(SCOPE, fixture.teamId, team => {
+      Object.assign(team, {
+        interactionEffects: Array.from({ length: MAX_V2_EFFECT_RECEIPTS }, (_value, index) => ({
+          effectId: TeamEffectId(`effect-filled-${index}`),
+          kind: 'interaction' as const,
+          status: 'applied' as const,
+          appliedAt: index,
+          resultingTeamRevision: team.revision + 1,
+          requestId: `request-filled-${index}`,
+        })),
+      })
+    })
+    const before = stack!.store.read(SCOPE, fixture.teamId)!
+    await expect(fixture.continuation.settleAssistantEvidence(SCOPE, fixture.teamId, {
+      checkpoint, eventSeq: 15, eventType: 'assistant/message',
+    })).rejects.toMatchObject({ code: 'TEAM_RESOURCE_LIMIT' })
+    expect(stack!.store.read(SCOPE, fixture.teamId)).toEqual(before)
+    expect(before.interactionEffects).toHaveLength(MAX_V2_EFFECT_RECEIPTS)
+    expect(before.attempts[0]).toMatchObject({
+      currentContinuationIntent: { continuationEffectId, phase: 'dispatch-entered' },
+      dispatchEpochs: [expect.anything(), expect.objectContaining({ dispatchId, phase: 'dispatch-entered' })],
+    })
   })
 })

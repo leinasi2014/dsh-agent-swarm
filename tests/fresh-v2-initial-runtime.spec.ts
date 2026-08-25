@@ -109,6 +109,14 @@ describe('A1b fresh-v2 official AgentLoop vertical', () => {
     expect(downstreamCalls).toBe(1)
   })
 
+  it('bounds continuation-stream disposal instead of hanging plugin shutdown', async () => {
+    const runtime = new FreshV2InitialRuntime(new Context(), { ...INITIAL_CONFIG, disposalTimeoutMs: 25 })
+    Object.assign(runtime, { continuation: { dispose: () => new Promise<void>(() => {}) } })
+    const startedAt = Date.now()
+    await expect(runtime.dispose()).rejects.toThrow(/fresh-v2 runtime disposal failed/)
+    expect(Date.now() - startedAt).toBeLessThan(1_000)
+  })
+
   it('keeps the default v1 activation contract and rejects unsupported fresh-v2 configuration', async () => {
     expect(AgentSwarm.inject).not.toContain('llm')
     await expect(AgentSwarm.apply(new Context(), {

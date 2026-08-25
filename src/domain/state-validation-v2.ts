@@ -271,6 +271,24 @@ export function assertTeamStateV2(value: unknown, path: string): asserts value i
       } else if (attempt.parked?.currentContinuationIntentId !== intent.continuationEffectId) {
         fail(path, `attempt ${attempt.id} continuation slot does not match parked metadata`)
       }
+      const dispatch = intent.currentDispatchId === undefined
+        ? undefined : attempt.dispatchEpochs.find(epoch => epoch.dispatchId === intent.currentDispatchId)
+      if (intent.phase === 'requested') {
+        if (intent.resumeEffectId !== undefined || intent.currentDispatchId !== undefined || dispatch !== undefined) {
+          fail(path, `attempt ${attempt.id} requested continuation carries admitted dispatch state`)
+        }
+      } else {
+        if (intent.resumeEffectId === undefined || intent.currentDispatchId === undefined || dispatch === undefined
+          || dispatch.kind !== 'continuation' || dispatch.effectId !== intent.resumeEffectId) {
+          fail(path, `attempt ${attempt.id} continuation intent lost its admitted dispatch tuple`)
+        }
+        const expectedDispatchPhase = intent.phase === 'admitted'
+          ? 'frame-pending'
+          : intent.phase === 'claimed' ? 'frame-claimed' : intent.phase
+        if (dispatch.phase !== expectedDispatchPhase) {
+          fail(path, `attempt ${attempt.id} continuation intent/dispatch phases are inconsistent`)
+        }
+      }
     } else if (attempt.parked?.currentContinuationIntentId !== undefined) {
       fail(path, `attempt ${attempt.id} names a missing continuation intent`)
     }

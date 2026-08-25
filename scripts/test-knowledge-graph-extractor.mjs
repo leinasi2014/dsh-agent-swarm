@@ -269,7 +269,7 @@ try {
     JSON.stringify(item.names), JSON.stringify(item.effectiveExports),
   ].join('|'))
   // Exact candidate drift locks over complete normalized tuple sets; later graph reconciliation replaces these KG1 locks.
-  assertTupleSetDigest(externalRegistryTuples, '3b0f48569410d3d127327734f95538241ef1f75288ebebbbbf54460bab7cb9ee', 'external registries')
+  assertTupleSetDigest(externalRegistryTuples, '779139218941b3172710a86283ba43d81f1ba5c4e237e9619f939366c67597cc', 'external registries')
   assertTupleSetDigest(rpcTuples, 'dd9e8353c0564d866d2f19b1310e7e870d5a997761e82c81b7255223a79565ad', 'RPC')
   assertTupleSetDigest(listenerTuples, '68c5dcc5e030131d74a8ed1b99dae38e86f298d59b89a9b93642661a1a24f8ec', 'listeners')
   assertTupleSetDigest(effectTuples, '0c2f4dc23b978a1f13c675f818d72ba7920ab91293a18071fb90f4c9431a7422', 'effects')
@@ -311,7 +311,7 @@ try {
   assert.deepEqual(actual.serviceDefinitions.map(item => `${item.classSymbol}:${item.serviceName}`), ['AgentSwarmRuntime:agentSwarm'])
   assert.ok(actual.registryExtensions.every(item => item.duplicateRule.startsWith('dominating-') && item.disposer.startsWith('identity-guarded:')))
   assert.ok(actual.registryExtensions.every(item => item.boundedNameRules.length > 0))
-  assert.equal(actual.externalRegistryUses.length, 41)
+  assert.equal(actual.externalRegistryUses.length, 42)
   assert.ok(actual.externalRegistryUses.some(item => item.receiver === 'this.ctx.subagents' && item.method === 'startContinuable'))
   assert.ok(actual.externalRegistryUses.some(item => item.receiver === 'this.ctx.subagents' && item.method === 'list'))
   assert.deepEqual(actual.registryFacades.map(item => `${item.method}->${item.targetMethod}`), [

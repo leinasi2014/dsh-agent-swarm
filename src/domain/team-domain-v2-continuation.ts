@@ -106,6 +106,10 @@ export class TeamV2ContinuationDomain {
     readonly checkpointDigest?: string
     readonly wakeCondition?: string
   }): Promise<ContinuationIntent> {
+    const requestedCheckpointDigest = input.checkpointDigest === undefined
+      ? undefined : requireDigest(input.checkpointDigest, 'checkpoint digest')
+    const requestedWakeCondition = input.wakeCondition === undefined
+      ? undefined : requireText(input.wakeCondition, 'wake condition', 2_048)
     let result!: ContinuationIntent
     await this.store.transact(scope, teamId, team => {
       const { task, attempt } = currentTuple(team, input.taskId, input.attemptId)
@@ -122,7 +126,9 @@ export class TeamV2ContinuationDomain {
           || settledReceipt.attemptId !== attempt.id || settledReceipt.taskId !== task.id
           || settledReceipt.dispatchId === undefined
           || settledReceipt.continuationRequestedAt === undefined
-          || settledReceipt.continuationExpectedTaskRevision === undefined) {
+          || settledReceipt.continuationExpectedTaskRevision === undefined
+          || settledReceipt.continuationCheckpointDigest !== requestedCheckpointDigest
+          || settledReceipt.continuationWakeCondition !== requestedWakeCondition) {
           throw new TeamDomainError('settled continuation identity conflicts with this request', 'TEAM_CONTINUATION_CONFLICT')
         }
         result = {
@@ -147,7 +153,9 @@ export class TeamV2ContinuationDomain {
       const existing = attempt.currentContinuationIntent
       if (existing !== undefined) {
         if (existing.continuationEffectId !== input.continuationEffectId
-          || !sameMemberPrincipal(existing.requestedBy, input.principal)) {
+          || !sameMemberPrincipal(existing.requestedBy, input.principal)
+          || existing.checkpointDigest !== requestedCheckpointDigest
+          || existing.wakeCondition !== requestedWakeCondition) {
           throw new TeamDomainError('another continuation intent already owns this Attempt slot', 'TEAM_CONTINUATION_CONFLICT')
         }
         result = existing
@@ -163,11 +171,11 @@ export class TeamV2ContinuationDomain {
         expectedTaskRevision: task.revision,
         requestedBy: input.principal,
         requestedAt: this.now(),
-        ...(input.checkpointDigest === undefined ? {} : {
-          checkpointDigest: requireDigest(input.checkpointDigest, 'checkpoint digest'),
+        ...(requestedCheckpointDigest === undefined ? {} : {
+          checkpointDigest: requestedCheckpointDigest,
         }),
-        ...(input.wakeCondition === undefined ? {} : {
-          wakeCondition: requireText(input.wakeCondition, 'wake condition', 2_048),
+        ...(requestedWakeCondition === undefined ? {} : {
+          wakeCondition: requestedWakeCondition,
         }),
         phase: 'requested',
       }
@@ -426,6 +434,12 @@ export class TeamV2ContinuationDomain {
         || tuple.dispatch.witnessCapabilityDigest !== checkpoint.witnessCapabilityDigest) {
         throw new TeamDomainError('continuation assistant-evidence tuple is stale', 'TEAM_ATTEMPT_STALE')
       }
+      if (team.interactionEffects.length >= MAX_V2_EFFECT_RECEIPTS) {
+        throw new TeamDomainError(
+          'Team exhausted its bounded effect receipt ledger; continuation settlement cannot discard idempotency evidence',
+          'TEAM_RESOURCE_LIMIT',
+        )
+      }
       const timestamp = this.now()
       const settled: ModelDispatchEpoch = {
         ...tuple.dispatch,
@@ -465,7 +479,7 @@ export class TeamV2ContinuationDomain {
         updatedAt: timestamp,
       }
       replaceV2Attempt(team, running)
-      Object.assign(team, { interactionEffects: [...team.interactionEffects, receipt].slice(-MAX_V2_EFFECT_RECEIPTS) })
+      Object.assign(team, { interactionEffects: [...team.interactionEffects, receipt] })
       result = { attempt: running, dispatch: settled }
     })
     return structuredClone(result)
