@@ -125,6 +125,20 @@ describe('A2a same-Attempt continuation domain', () => {
       attempt: { id: fixture.attemptId, phase: 'parked', currentContinuationIntent: { phase: 'admitted' } },
       dispatch: { kind: 'continuation', ordinal: 2, phase: 'frame-pending' },
     })
+    expect(stack!.store.read(SCOPE, fixture.teamId)!.interactionEffects).toContainEqual(expect.objectContaining({
+      effectId: resumeEffectId, requestId: continuationEffectId, kind: 'continuation', status: 'applied',
+    }))
+    const admittedState = stack!.store.read(SCOPE, fixture.teamId)!
+    const missingEffect = structuredClone(admittedState) as TeamStateV2
+    Object.assign(missingEffect.attempts[0]!.currentContinuationIntent!, { resumeEffectId: undefined })
+    expect(() => assertTeamStateV2(missingEffect, 'missing continuation effect')).toThrow(/admitted dispatch tuple/)
+    const mismatchedPhase = structuredClone(admittedState) as TeamStateV2
+    Object.assign(mismatchedPhase.attempts[0]!.dispatchEpochs[1]!, { phase: 'dispatch-pending' })
+    expect(() => assertTeamStateV2(mismatchedPhase, 'mismatched continuation phase')).toThrow(/phases are inconsistent/)
+    const missingReservation = structuredClone(admittedState) as TeamStateV2
+    missingReservation.interactionEffects.splice(0, 1)
+    expect(() => assertTeamStateV2(missingReservation, 'missing continuation reservation'))
+      .toThrow(/active reservation|Attempt\/dispatch tuple/)
 
     const accepted = await fixture.continuation.recordFrameAccepted(SCOPE, fixture.teamId, {
       taskId: fixture.taskId,
@@ -178,6 +192,15 @@ describe('A2a same-Attempt continuation domain', () => {
     expect(replayed).toMatchObject({
       phase: 'settled', continuationEffectId, attemptId: fixture.attemptId, resumeEffectId, currentDispatchId: dispatchId,
     })
+    await expect(fixture.continuation.requestMemberContinuation(SCOPE, fixture.teamId, {
+      taskId: fixture.taskId,
+      expectedTaskRevision: fixture.taskRevision,
+      attemptId: fixture.attemptId,
+      continuationEffectId,
+      principal: { kind: 'member', memberId: 'worker', memberSessionId: 'member-1' },
+      checkpointDigest: '3'.repeat(64),
+      wakeCondition: 'A different settled semantic request must not reuse this key.',
+    })).rejects.toMatchObject({ code: 'TEAM_CONTINUATION_CONFLICT' })
     expect(stack!.store.read(SCOPE, fixture.teamId)!.attempts[0]).not.toHaveProperty('currentContinuationIntent')
 
     const parked = await fixture.continuation.parkAfterTurn(SCOPE, fixture.teamId, {
@@ -262,47 +285,6 @@ describe('A2a same-Attempt continuation domain', () => {
       settledTurn: 1,
       turnEndSeq: 11,
     })
-    const resumeEffectId = TeamEffectId('effect-continuation-capacity')
-    const dispatchId = DispatchId('dispatch-continuation-capacity')
-    await fixture.continuation.admitRequested(SCOPE, fixture.teamId, {
-      taskId: fixture.taskId,
-      attemptId: fixture.attemptId,
-      memberSessionId: 'member-1',
-      continuationEffectId,
-      resumeEffectId,
-      dispatchId,
-      witnessCapabilityDigest: WITNESS_DIGEST,
-    })
-
-    const admitted = stack!.store.read(SCOPE, fixture.teamId)!
-    const missingEffect = structuredClone(admitted) as TeamStateV2
-    Object.assign(missingEffect.attempts[0]!.currentContinuationIntent!, { resumeEffectId: undefined })
-    expect(() => assertTeamStateV2(missingEffect, 'missing continuation effect')).toThrow(/admitted dispatch tuple/)
-    const mismatchedPhase = structuredClone(admitted) as TeamStateV2
-    Object.assign(mismatchedPhase.attempts[0]!.dispatchEpochs[1]!, { phase: 'dispatch-pending' })
-    expect(() => assertTeamStateV2(mismatchedPhase, 'mismatched continuation phase')).toThrow(/phases are inconsistent/)
-
-    await fixture.continuation.recordFrameAccepted(SCOPE, fixture.teamId, {
-      taskId: fixture.taskId,
-      attemptId: fixture.attemptId,
-      continuationEffectId,
-      dispatchId,
-      frameMessageId: 'official-message-capacity',
-    })
-    const checkpoint: ContinuationDispatchCheckpoint = {
-      taskId: fixture.taskId,
-      attemptId: fixture.attemptId,
-      continuationEffectId,
-      dispatchId,
-      resumeEffectId,
-      frameMessageId: 'official-message-capacity',
-      messageSeq: 13,
-      turn: 2,
-      step: 1,
-      witnessCapabilityDigest: WITNESS_DIGEST,
-    }
-    await fixture.continuation.claimFrame(SCOPE, fixture.teamId, checkpoint)
-    await fixture.continuation.enterDispatch(SCOPE, fixture.teamId, checkpoint)
     await stack!.store.transact(SCOPE, fixture.teamId, team => {
       Object.assign(team, {
         interactionEffects: Array.from({ length: MAX_V2_EFFECT_RECEIPTS }, (_value, index) => ({
@@ -316,14 +298,22 @@ describe('A2a same-Attempt continuation domain', () => {
       })
     })
     const before = stack!.store.read(SCOPE, fixture.teamId)!
-    await expect(fixture.continuation.settleAssistantEvidence(SCOPE, fixture.teamId, {
-      checkpoint, eventSeq: 15, eventType: 'assistant/message',
+    const resumeEffectId = TeamEffectId('effect-continuation-capacity')
+    const dispatchId = DispatchId('dispatch-continuation-capacity')
+    await expect(fixture.continuation.admitRequested(SCOPE, fixture.teamId, {
+      taskId: fixture.taskId,
+      attemptId: fixture.attemptId,
+      memberSessionId: 'member-1',
+      continuationEffectId,
+      resumeEffectId,
+      dispatchId,
+      witnessCapabilityDigest: WITNESS_DIGEST,
     })).rejects.toMatchObject({ code: 'TEAM_RESOURCE_LIMIT' })
     expect(stack!.store.read(SCOPE, fixture.teamId)).toEqual(before)
     expect(before.interactionEffects).toHaveLength(MAX_V2_EFFECT_RECEIPTS)
     expect(before.attempts[0]).toMatchObject({
-      currentContinuationIntent: { continuationEffectId, phase: 'dispatch-entered' },
-      dispatchEpochs: [expect.anything(), expect.objectContaining({ dispatchId, phase: 'dispatch-entered' })],
+      currentContinuationIntent: { continuationEffectId, phase: 'requested' },
+      dispatchEpochs: [expect.objectContaining({ kind: 'initial', phase: 'settled' })],
     })
   })
 })

@@ -4,6 +4,7 @@ import { assertTaskGraph } from './graph.js'
 import {
   MAX_V2_DISPATCH_EPOCHS_PER_ATTEMPT,
   MAX_V2_EFFECT_RECEIPTS,
+  type ContinuationPrincipal,
   type TeamStateV2,
 } from './team-state-v2.js'
 
@@ -211,6 +212,12 @@ function unique(values: readonly string[], path: string, label: string): void {
   if (new Set(values).size !== values.length) fail(path, `${label} contains duplicate identities`)
 }
 
+function principalIdentity(principal: ContinuationPrincipal): string {
+  if (principal.kind === 'member') return `member:${principal.memberId}:${principal.memberSessionId}`
+  if (principal.kind === 'team-leader') return `team-leader:${principal.captainSessionId}`
+  return `authenticated-human:${principal.subjectId}:${principal.attestationDigest}`
+}
+
 const LIVE_TASKS = new Set(['in_progress', 'submitted', 'verifying'])
 const EXECUTION_BOUND_TASKS = new Set([...LIVE_TASKS, 'completed'])
 const NONTERMINAL_INTENTS = new Set(['requested', 'admitted', 'claimed', 'dispatch-pending', 'dispatch-entered', 'dispatch-unknown'])
@@ -287,6 +294,12 @@ export function assertTeamStateV2(value: unknown, path: string): asserts value i
           : intent.phase === 'claimed' ? 'frame-claimed' : intent.phase
         if (dispatch.phase !== expectedDispatchPhase) {
           fail(path, `attempt ${attempt.id} continuation intent/dispatch phases are inconsistent`)
+        }
+        const reservation = team.interactionEffects.find(effect => effect.effectId === intent.resumeEffectId)
+        if (reservation?.kind !== 'continuation' || reservation.status !== 'applied'
+          || reservation.requestId !== intent.continuationEffectId
+          || reservation.dispatchId !== intent.currentDispatchId) {
+          fail(path, `attempt ${attempt.id} continuation intent lacks its active reservation`)
         }
       }
     } else if (attempt.parked?.currentContinuationIntentId !== undefined) {
@@ -371,6 +384,37 @@ export function assertTeamStateV2(value: unknown, path: string): asserts value i
 
   for (const effect of team.interactionEffects) {
     if (effect.resultingTeamRevision > team.revision) fail(path, `effect ${effect.effectId} names a future Team revision`)
+    if (effect.kind !== 'continuation') continue
+    if (effect.requestId === undefined || effect.taskId === undefined || effect.attemptId === undefined
+      || effect.dispatchId === undefined || effect.continuationEffectId !== effect.requestId
+      || effect.continuationRequestedBy === undefined || effect.continuationRequestedAt === undefined
+      || effect.continuationExpectedTaskRevision === undefined) {
+      fail(path, `continuation effect ${effect.effectId} lacks its complete request tuple`)
+    }
+    const attempt = attempts.get(effect.attemptId)
+    const dispatch = attempt?.dispatchEpochs.find(epoch => epoch.dispatchId === effect.dispatchId)
+    if (attempt === undefined || attempt.taskId !== effect.taskId || dispatch?.effectId !== effect.effectId
+      || dispatch.kind !== 'continuation') {
+      fail(path, `continuation effect ${effect.effectId} lost its Attempt/dispatch tuple`)
+    }
+    if (effect.status === 'applied') {
+      const intent = attempt.currentContinuationIntent
+      if (intent === undefined || intent.phase === 'requested'
+        || intent.continuationEffectId !== effect.requestId
+        || intent.resumeEffectId !== effect.effectId || intent.currentDispatchId !== effect.dispatchId
+        || intent.requestedAt !== effect.continuationRequestedAt
+        || intent.expectedTaskRevision !== effect.continuationExpectedTaskRevision
+        || intent.checkpointDigest !== effect.continuationCheckpointDigest
+        || intent.wakeCondition !== effect.continuationWakeCondition
+        || principalIdentity(intent.requestedBy) !== principalIdentity(effect.continuationRequestedBy)) {
+        fail(path, `continuation effect ${effect.effectId} is not an exact active reservation`)
+      }
+    } else if (effect.status === 'settled') {
+      if (dispatch.phase !== 'settled'
+        || attempt.currentContinuationIntent?.continuationEffectId === effect.requestId) {
+        fail(path, `continuation effect ${effect.effectId} settlement is inconsistent`)
+      }
+    }
   }
   try {
     assertTaskGraph(team.tasks)

@@ -230,7 +230,7 @@ return { done: true, out }`,
       const live = await vi.waitFor(() => {
         const registered = jobs.list().filter(job => job.status === 'running')
         const diagnostic = {
-          run: bridge.overlay.get(run.runId),
+          run: bridge.overlay.get(run.id),
           jobs: jobs.list(),
           workflowEvents: tree.workflowEvents.map(event => event.name),
         }

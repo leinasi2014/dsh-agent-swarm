@@ -60,6 +60,29 @@ function requireMemberPrincipal(team: TeamStateV2, principal: ContinuationPrinci
   }
 }
 
+function sameContinuationReceipt(
+  receipt: TeamStateV2['interactionEffects'][number],
+  intent: ContinuationIntent,
+  taskId: TaskId,
+  attemptId: AttemptId,
+  effectId: TeamEffectId,
+  dispatchId: DispatchId,
+): boolean {
+  return receipt.effectId === effectId
+    && receipt.kind === 'continuation'
+    && receipt.requestId === intent.continuationEffectId
+    && receipt.taskId === taskId
+    && receipt.attemptId === attemptId
+    && receipt.dispatchId === dispatchId
+    && receipt.continuationEffectId === intent.continuationEffectId
+    && receipt.continuationRequestedAt === intent.requestedAt
+    && receipt.continuationExpectedTaskRevision === intent.expectedTaskRevision
+    && receipt.continuationCheckpointDigest === intent.checkpointDigest
+    && receipt.continuationWakeCondition === intent.wakeCondition
+    && receipt.continuationRequestedBy !== undefined
+    && sameMemberPrincipal(receipt.continuationRequestedBy, intent.requestedBy)
+}
+
 function requireContinuationTuple(
   team: TeamStateV2,
   taskId: TaskId,
@@ -263,7 +286,10 @@ export class TeamV2ContinuationDomain {
       if (intent.phase === 'admitted' && intent.resumeEffectId === input.resumeEffectId
         && intent.currentDispatchId === input.dispatchId) {
         const existing = attempt.dispatchEpochs.find(epoch => epoch.dispatchId === input.dispatchId)
-        if (existing === undefined || existing.effectId !== input.resumeEffectId) {
+        const reservation = team.interactionEffects.find(effect => effect.effectId === input.resumeEffectId)
+        if (existing === undefined || existing.effectId !== input.resumeEffectId
+          || reservation?.status !== 'applied'
+          || !sameContinuationReceipt(reservation, intent, task.id, attempt.id, input.resumeEffectId, input.dispatchId)) {
           throw new TeamDomainError('admitted continuation lost its effect tuple', 'TEAM_STATE_CORRUPT')
         }
         result = { attempt, dispatch: existing }
@@ -279,12 +305,23 @@ export class TeamV2ContinuationDomain {
       if (attempt.dispatchEpochs.length >= MAX_V2_DISPATCH_EPOCHS_PER_ATTEMPT) {
         throw new TeamDomainError('Attempt exhausted its bounded dispatch history', 'TEAM_RESOURCE_LIMIT')
       }
+      const resumeEffectId = TeamEffectId(requireText(input.resumeEffectId, 'resume effect id'))
+      const dispatchId = DispatchId(requireText(input.dispatchId, 'dispatch id'))
+      if (team.interactionEffects.some(effect => effect.effectId === resumeEffectId)) {
+        throw new TeamDomainError('continuation resume effect identity is already occupied', 'TEAM_CONTINUATION_CONFLICT')
+      }
+      if (team.interactionEffects.length >= MAX_V2_EFFECT_RECEIPTS) {
+        throw new TeamDomainError(
+          'Team exhausted its bounded effect receipt ledger before continuation admission',
+          'TEAM_RESOURCE_LIMIT',
+        )
+      }
       const timestamp = this.now()
       const dispatch: ModelDispatchEpoch = {
-        dispatchId: DispatchId(requireText(input.dispatchId, 'dispatch id')),
+        dispatchId,
         kind: 'continuation',
         ordinal: attempt.dispatchEpochs.length + 1,
-        effectId: TeamEffectId(requireText(input.resumeEffectId, 'resume effect id')),
+        effectId: resumeEffectId,
         targetSessionId: attempt.memberSessionId,
         witnessCapabilityDigest: requireDigest(input.witnessCapabilityDigest, 'witness capability digest'),
         phase: 'frame-pending',
@@ -301,6 +338,27 @@ export class TeamV2ContinuationDomain {
         updatedAt: timestamp,
       }
       replaceV2Attempt(team, next)
+      team.interactionEffects.push({
+        effectId: resumeEffectId,
+        kind: 'continuation',
+        status: 'applied',
+        appliedAt: timestamp,
+        resultingTeamRevision: team.revision + 1,
+        requestId: intent.continuationEffectId,
+        taskId: task.id,
+        attemptId: attempt.id,
+        dispatchId,
+        continuationEffectId: intent.continuationEffectId,
+        continuationRequestedBy: intent.requestedBy,
+        continuationRequestedAt: intent.requestedAt,
+        continuationExpectedTaskRevision: intent.expectedTaskRevision,
+        ...(intent.checkpointDigest === undefined ? {} : {
+          continuationCheckpointDigest: intent.checkpointDigest,
+        }),
+        ...(intent.wakeCondition === undefined ? {} : {
+          continuationWakeCondition: intent.wakeCondition,
+        }),
+      })
       result = { attempt: next, dispatch }
     })
     return structuredClone(result)
@@ -434,11 +492,14 @@ export class TeamV2ContinuationDomain {
         || tuple.dispatch.witnessCapabilityDigest !== checkpoint.witnessCapabilityDigest) {
         throw new TeamDomainError('continuation assistant-evidence tuple is stale', 'TEAM_ATTEMPT_STALE')
       }
-      if (team.interactionEffects.length >= MAX_V2_EFFECT_RECEIPTS) {
-        throw new TeamDomainError(
-          'Team exhausted its bounded effect receipt ledger; continuation settlement cannot discard idempotency evidence',
-          'TEAM_RESOURCE_LIMIT',
-        )
+      const reservationIndex = team.interactionEffects.findIndex(effect => effect.effectId === checkpoint.resumeEffectId)
+      const reservation = team.interactionEffects[reservationIndex]
+      if (reservation?.status !== 'applied'
+        || !sameContinuationReceipt(
+          reservation, tuple.intent, checkpoint.taskId, checkpoint.attemptId,
+          checkpoint.resumeEffectId, checkpoint.dispatchId,
+        )) {
+        throw new TeamDomainError('continuation dispatch lost its reserved receipt tuple', 'TEAM_STATE_CORRUPT')
       }
       const timestamp = this.now()
       const settled: ModelDispatchEpoch = {
@@ -449,25 +510,9 @@ export class TeamV2ContinuationDomain {
         updatedAt: timestamp,
       }
       const receipt = {
-        effectId: checkpoint.resumeEffectId,
-        kind: 'continuation' as const,
+        ...reservation,
         status: 'settled' as const,
-        appliedAt: timestamp,
         resultingTeamRevision: team.revision + 1,
-        requestId: checkpoint.continuationEffectId,
-        taskId: checkpoint.taskId,
-        attemptId: checkpoint.attemptId,
-        dispatchId: checkpoint.dispatchId,
-        continuationEffectId: tuple.intent.continuationEffectId,
-        continuationRequestedBy: tuple.intent.requestedBy,
-        continuationRequestedAt: tuple.intent.requestedAt,
-        continuationExpectedTaskRevision: tuple.intent.expectedTaskRevision,
-        ...(tuple.intent.checkpointDigest === undefined ? {} : {
-          continuationCheckpointDigest: tuple.intent.checkpointDigest,
-        }),
-        ...(tuple.intent.wakeCondition === undefined ? {} : {
-          continuationWakeCondition: tuple.intent.wakeCondition,
-        }),
       }
       const { parked: _parked, currentContinuationIntent: _intent, ...unparked } = tuple.attempt
       void _parked; void _intent
@@ -479,7 +524,7 @@ export class TeamV2ContinuationDomain {
         updatedAt: timestamp,
       }
       replaceV2Attempt(team, running)
-      Object.assign(team, { interactionEffects: [...team.interactionEffects, receipt] })
+      team.interactionEffects[reservationIndex] = receipt
       result = { attempt: running, dispatch: settled }
     })
     return structuredClone(result)
