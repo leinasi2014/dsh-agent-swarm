@@ -12,6 +12,7 @@ import { expectDomain, TeamDomainError } from '../domain/error.js'
 import { taskHoldEvidence } from '../domain/team-domain-budget.js'
 import type { TeamTask } from '../domain/types.js'
 import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
+import { coordinationCursorOf } from '../runtime/wait-surface.js'
 import { compactJsonOutput, register } from './shared.js'
 
 /** One compact task row (issue #15): the `team_task_list` view over our CAS fields. */
@@ -66,6 +67,7 @@ export function registerStatusTool(ctx: Context, runtime: AgentSwarmRuntime): vo
         team_id: { type: 'string', required: true },
         name: { type: 'string', required: true },
         revision: { type: 'number', required: true },
+        coordination_cursor: { type: 'string', required: true },
         members: { type: 'number', required: true },
         tasks: { type: 'number', required: true },
         completed_tasks: { type: 'number', required: true },
@@ -83,6 +85,7 @@ export function registerStatusTool(ctx: Context, runtime: AgentSwarmRuntime): vo
         team_id: snapshot.team.id,
         name: snapshot.team.name,
         revision: snapshot.team.revision,
+        coordination_cursor: coordinationCursorOf(snapshot),
         members: snapshot.team.members.filter(member => member.phase === 'active').length,
         tasks: snapshot.team.tasks.length,
         completed_tasks: snapshot.team.tasks.filter(task => task.status === 'completed').length,

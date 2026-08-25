@@ -7,15 +7,17 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { TeamStatusSnapshot } from '../domain/types.js'
 import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
+import { coordinationCursorOf } from '../runtime/wait-surface.js'
 import { compactJsonOutput, register } from './shared.js'
 
 /** Official `NO_ACTIVE_PEER_MESSAGE` shape, adapted to this plugin's tool names. */
 const NO_ACTIVE_PEER_MESSAGE = 'No other Team member is running or provisioning. agent_swarm_wait cannot make progress or wake inactive members. Re-read the Team with agent_swarm_status and agent_swarm_list_tasks, then use agent_swarm_send_message with delivery "wakeup" to resume each required inactive member before waiting again.'
 
-function projectWait(result: { changed: boolean; snapshot: TeamStatusSnapshot }) {
+function projectWait(result: { changed: boolean; snapshot: TeamStatusSnapshot; coordinationCursor: string }) {
   return {
     changed: result.changed,
     revision: result.snapshot.team.revision,
+    coordination_cursor: result.coordinationCursor,
     ready_task_ids: result.snapshot.readyTaskIds,
     queued_messages: result.snapshot.pendingMessageIds.length,
   }
@@ -55,9 +57,10 @@ export function registerSendMessageTool(ctx: Context, runtime: AgentSwarmRuntime
 export function registerWaitTool(ctx: Context, runtime: AgentSwarmRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_wait',
-    description: 'Wait without polling until the authoritative Team revision exceeds after_revision, or return unchanged at timeout. Returns no_progress immediately when no other member is running or provisioning — waiting cannot help then. Caller cancellation fails with TEAM_WAIT_ABORTED.',
+    description: 'Wait without polling for a work-relevant Team change. Pass both the latest after_revision and after_cursor; pure usage or telemetry revisions are skipped. Returns no_progress immediately when no other member is running or provisioning. Caller cancellation fails with TEAM_WAIT_ABORTED.',
     parameters: {
       after_revision: { type: 'number', required: true },
+      after_cursor: { type: 'string', description: 'Latest coordination_cursor from status or wait. Omit only for legacy revision-only behavior.' },
       timeout_ms: { type: 'number', description: '10000..3600000; defaults to 30000.' },
     },
     output: compactJsonOutput({
@@ -73,6 +76,7 @@ export function registerWaitTool(ctx: Context, runtime: AgentSwarmRuntime): void
           },
         },
         revision: { type: 'number', required: true },
+        coordination_cursor: { type: 'string', required: true },
         ready_task_ids: { type: 'array', required: true, items: { type: 'string' } },
         queued_messages: { type: 'number', required: true },
       },
@@ -83,23 +87,28 @@ export function registerWaitTool(ctx: Context, runtime: AgentSwarmRuntime): void
       // model-only no-progress shortcut, so invalid timeouts still surface
       // TEAM_INVALID_TIMEOUT instead of a misleading no_progress value.
       if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 10_000 || timeoutMs > 3_600_000) {
-        return projectWait(await runtime.waitForChange(exec, args.after_revision, timeoutMs))
+        return projectWait(await runtime.waitForChange(exec, args.after_revision, timeoutMs, args.after_cursor))
       }
       const evidence = await runtime.activePeerEvidence(exec)
       // The shortcut only covers a current cursor: this domain's wait is
       // level-triggered (docs/04 §8b), so a caller whose cursor is already
       // surpassed must still observe changed=true through the real wait,
       // which resolves immediately without parking.
-      if (!evidence.activePeer && evidence.snapshot.team.revision <= args.after_revision) {
+      const coordinationCursor = coordinationCursorOf(evidence.snapshot)
+      const cursorIsCurrent = args.after_cursor === undefined
+        ? evidence.snapshot.team.revision <= args.after_revision
+        : coordinationCursor === args.after_cursor
+      if (!evidence.activePeer && cursorIsCurrent) {
         return {
           changed: false,
           no_progress: { reason: 'no-active-peer' as const, message: NO_ACTIVE_PEER_MESSAGE },
           revision: evidence.snapshot.team.revision,
+          coordination_cursor: coordinationCursor,
           ready_task_ids: evidence.snapshot.readyTaskIds,
           queued_messages: evidence.snapshot.pendingMessageIds.length,
         }
       }
-      return projectWait(await runtime.waitForChange(exec, args.after_revision, timeoutMs))
+      return projectWait(await runtime.waitForChange(exec, args.after_revision, timeoutMs, args.after_cursor))
     },
   }), 'wait tool')
 }

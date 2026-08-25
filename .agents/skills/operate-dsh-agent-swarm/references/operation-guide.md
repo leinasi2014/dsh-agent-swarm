@@ -36,8 +36,8 @@ Repeat this bounded loop until every required task reaches an accepted terminal 
 1. Read `agent_swarm_status`, then page/filter `agent_swarm_list_tasks`; use `agent_swarm_list_jobs` only when the projection is enabled and execution detail is relevant.
 2. Act on ready work, dependency changes, submitted review candidates, explicit holds, or authoritative stranded evidence.
 3. Send `quiet` context that can wait. Send one `wakeup` when an inactive member must resume; do not duplicate already queued content.
-4. Call `agent_swarm_wait(after_revision: <current Team revision>)` instead of polling. A returned revision change may be unrelated activity, not elapsed time or proof of a stall.
-5. If wait returns `no_progress`, re-read `agent_swarm_status` and `agent_swarm_list_tasks`, wake each required inactive member once, then wait from the new revision. Do not infer failure from silence, planning time, missing file changes, or the number of waits.
+4. Call `agent_swarm_wait(after_revision: <latest revision>, after_cursor: <latest coordination_cursor>)` instead of polling. Pure usage/telemetry revisions are skipped; a returned work-relevant change is still not elapsed time or proof of a stall.
+5. If wait returns `no_progress`, re-read `agent_swarm_status` and `agent_swarm_list_tasks`, wake each required inactive member once, then wait from the returned revision and coordination cursor. Do not infer failure from silence, planning time, missing file changes, or the number of waits.
 6. Review submitted attempts against their frozen acceptance criteria and verification evidence. Rejected work proceeds through a fresh fenced attempt; accepted captain review is the canonical completion gate.
 
 ## Recovery and lifecycle boundaries

@@ -501,4 +501,42 @@ describe('official compatibility semantics over the real composition (issue #19)
       for (const fiber of fibers.toReversed()) await fiber.dispose()
     }
   }, 30_000)
+
+  it('skips usage-only revisions when a coordination cursor is supplied', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-agent-swarm-wait-cursor-'))
+    roots.push(sandbox)
+    const { ctx, fibers, pluginFiber, lead } = await mount(sandbox)
+    try {
+      const teamId = AgentSwarm.TeamId(await createTeam(ctx, lead, 'create-cursor'))
+      const scope = ctx.agentSwarm.scopeOf(lead)
+      const status = await toolCall(ctx, lead, 'status-cursor', 'agent_swarm_status', {})
+      expect(status.isError).toBe(false)
+      const cursor = (status.value as { coordination_cursor: string }).coordination_cursor
+      const before = await ctx.agentSwarm.domain.snapshot(scope, teamId, lead.id)
+      const waiting = ctx.agentSwarm.waitForChange(
+        { agent: lead, signal: SIGNAL }, before.team.revision, 10_000, cursor,
+      )
+      let settled = false
+      void waiting.finally(() => { settled = true })
+
+      const usageSeq = (before.team.usageCursors[lead.id] ?? -1) + 1
+      await ctx.agentSwarm.domain.recordSessionUsageBatch(
+        scope, teamId, lead.id, [{ eventSeq: usageSeq, tokens: 100 }],
+      )
+      await new Promise(resolve => setTimeout(resolve, 100))
+      expect(settled).toBe(false)
+
+      await toolCall(ctx, lead, 'task-cursor', 'agent_swarm_create_task', {
+        subject: 'Wake only for work', description: 'A task transition is coordination-relevant.',
+      })
+      const woken = await waiting
+      expect(woken.changed).toBe(true)
+      expect(woken.coordinationCursor).not.toBe(cursor)
+      expect(woken.snapshot.team.revision).toBeGreaterThan(before.team.revision + 1)
+
+      await pluginFiber.dispose()
+    } finally {
+      for (const fiber of fibers.toReversed()) await fiber.dispose()
+    }
+  }, 15_000)
 })

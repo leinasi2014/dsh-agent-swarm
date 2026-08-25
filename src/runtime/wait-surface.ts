@@ -12,6 +12,7 @@
  * membership reads. `orchestrator-runtime.ts` keeps identically-shaped thin
  * delegations, so the public surface is unchanged.
  */
+import { createHash } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -27,6 +28,53 @@ export interface WaitSurfaceDeps {
   readonly isClosing: () => boolean
   readonly scopeOf: (agent: Agent) => TeamScope
   readonly ensureReady: () => Promise<void>
+}
+
+/**
+ * Cursor for changes that can alter coordination decisions. Raw usage and
+ * persistence timestamps are deliberately excluded; budget exhaustion is
+ * retained so crossing a configured limit still wakes the captain.
+ */
+export function coordinationCursorOf(snapshot: TeamStatusSnapshot): string {
+  const { team } = snapshot
+  const budget = {
+    tokenLimit: team.budget.tokenLimit,
+    requestLimit: team.budget.requestLimit,
+    retryLimit: team.budget.retryLimit,
+    deadlineAt: team.budget.deadlineAt,
+    tokensExhausted: team.budget.tokenLimit !== undefined && team.budget.usedTokens >= team.budget.tokenLimit,
+    requestsExhausted: team.budget.requestLimit !== undefined && team.budget.usedRequests >= team.budget.requestLimit,
+    retriesExhausted: team.budget.retryLimit !== undefined && team.budget.usedRetries >= team.budget.retryLimit,
+  }
+  const operational = {
+    id: team.id, name: team.name, description: team.description,
+    captainSessionId: team.captainSessionId, phase: team.phase,
+    members: team.members.map(member => ({
+      name: member.name, role: member.role, sessionId: member.sessionId,
+      provider: member.provider, llmProvider: member.llmProvider, model: member.model,
+      modelSource: member.modelSource, deniedTools: member.deniedTools,
+      assignedSkills: member.assignedSkills, phase: member.phase, error: member.error,
+    })),
+    tasks: team.tasks.map(task => ({
+      id: task.id, revision: task.revision, status: task.status,
+      blockedBy: task.blockedBy, priority: task.priority,
+      ownerSessionId: task.ownerSessionId, currentAttemptId: task.currentAttemptId,
+      reservationTokens: task.reservationTokens,
+    })),
+    attempts: team.attempts.map(attempt => ({
+      id: attempt.id, taskId: attempt.taskId, generation: attempt.generation,
+      memberSessionId: attempt.memberSessionId, phase: attempt.phase,
+      assignmentPhase: attempt.assignmentPhase, replacesAttemptId: attempt.replacesAttemptId,
+    })),
+    messages: team.messages.map(message => ({
+      id: message.id, targetSessionId: message.targetSessionId,
+      delivery: message.delivery, phase: message.phase,
+    })),
+    memoryIds: team.memory.map(entry => entry.id), budget,
+    readyTaskIds: snapshot.readyTaskIds,
+    pendingMessageIds: snapshot.pendingMessageIds,
+  }
+  return createHash('sha256').update(JSON.stringify(operational)).digest('hex')
 }
 
 export async function status(deps: WaitSurfaceDeps, exec: ToolExecutionAuthority): Promise<TeamStatusSnapshot> {
@@ -45,7 +93,8 @@ export async function waitForChange(
   exec: ToolExecutionAuthority,
   afterRevision: number,
   timeoutMs: number,
-): Promise<{ snapshot: TeamStatusSnapshot; changed: boolean }> {
+  afterCursor?: string,
+): Promise<{ snapshot: TeamStatusSnapshot; changed: boolean; coordinationCursor: string }> {
   await deps.ensureReady()
   if (deps.isClosing()) throw new TeamDomainError('Team orchestrator is disposing', 'TEAM_RUNTIME_CLOSING')
   const actor = requireAgent(exec)
@@ -56,20 +105,27 @@ export async function waitForChange(
   const membership = await deps.domain().requireReadMembership(scope, actor.id)
   const timeoutSignal = AbortSignal.timeout(timeoutMs)
   try {
-    const snapshot = await deps.domain().waitForChange(
-      scope,
-      membership.team.id,
-      actor.id,
-      afterRevision,
-      AbortSignal.any([exec.signal, timeoutSignal]),
-    )
-    // An archived Team resolves immediately even at a current cursor (it
-    // can never commit a later revision), so `changed` is derived from the
-    // authoritative revision, not from the wait having returned.
-    return { snapshot, changed: snapshot.team.revision > afterRevision }
+    let cursorRevision = afterRevision
+    while (true) {
+      const snapshot = await deps.domain().waitForChange(
+        scope,
+        membership.team.id,
+        actor.id,
+        cursorRevision,
+        AbortSignal.any([exec.signal, timeoutSignal]),
+      )
+      const coordinationCursor = coordinationCursorOf(snapshot)
+      if (afterCursor === undefined) {
+        return { snapshot, changed: snapshot.team.revision > afterRevision, coordinationCursor }
+      }
+      if (coordinationCursor !== afterCursor) return { snapshot, changed: true, coordinationCursor }
+      if (snapshot.team.phase === 'archived') return { snapshot, changed: false, coordinationCursor }
+      cursorRevision = snapshot.team.revision
+    }
   } catch (error) {
     if (timeoutSignal.aborted && !exec.signal.aborted) {
-      return { snapshot: await deps.domain().snapshot(scope, membership.team.id, actor.id), changed: false }
+      const snapshot = await deps.domain().snapshot(scope, membership.team.id, actor.id)
+      return { snapshot, changed: false, coordinationCursor: coordinationCursorOf(snapshot) }
     }
     // Issue #19, official `TEAM_WAIT_ABORTED` parity: caller cancellation
     // surfaces as one structured domain error instead of a raw abort reason.

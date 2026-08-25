@@ -472,8 +472,8 @@ export class AgentSwarmRuntime extends Service {
     return await status(this.waitDeps(), exec)
   }
 
-  async waitForChange(exec: ToolExecutionAuthority, afterRevision: number, timeoutMs: number) {
-    return await waitForChange(this.waitDeps(), exec, afterRevision, timeoutMs)
+  async waitForChange(exec: ToolExecutionAuthority, afterRevision: number, timeoutMs: number, afterCursor?: string) {
+    return await waitForChange(this.waitDeps(), exec, afterRevision, timeoutMs, afterCursor)
   }
 
   /** Issue #15 no-progress evidence; the read surface lives in `wait-surface.ts`. */
