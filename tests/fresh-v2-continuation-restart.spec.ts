@@ -150,7 +150,7 @@ async function seedEnteredContinuation(
   }
 }
 
-describe('A2a clean-process cold entered-dispatch reconciliation', () => {
+describe('A2a fresh-composition cold entered-dispatch reconciliation', () => {
   afterEach(async () => {
     for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   })
