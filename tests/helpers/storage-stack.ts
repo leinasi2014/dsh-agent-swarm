@@ -17,6 +17,8 @@ import type { TeamDomainPort } from '../../src/domain/team-domain-port.js'
 import { StorageDomainTeamStore } from '../../src/storage/storage-domain-team-store.js'
 import { teamDomainSpec } from '../../src/storage/team-spec.js'
 import { TeamDomain } from '../../src/domain/team-domain.js'
+import { StorageDomainTeamStoreV2 } from '../../src/storage/storage-domain-team-store-v2.js'
+import { teamDomainSpecV2 } from '../../src/storage/team-spec-v2.js'
 
 /** One opened storage composition over the real official plugins. */
 export interface StorageStack {
@@ -26,6 +28,74 @@ export interface StorageStack {
   readonly port: TeamDomainPort
   /** Tear the whole composition down in reverse mount order. */
   close(): Promise<void>
+}
+
+/** Isolated A1 fresh-v2 stack; it never opens the production v1 domain. */
+export interface V2StorageStack {
+  readonly ctx: Context
+  readonly domain: Domain<typeof teamDomainSpecV2>
+  readonly store: StorageDomainTeamStoreV2
+  close(): Promise<void>
+}
+
+export async function openV2StorageStack(
+  root: string,
+  binding: { readonly artifactContract: string; readonly legacyManifestCapacity: number },
+  now: () => number = Date.now,
+): Promise<V2StorageStack> {
+  const ctx = new Context()
+  const fibers: Fiber[] = []
+  try {
+    fibers.push(await ctx.plugin(Storage))
+    fibers.push(await ctx.plugin(StorageJson, { root }))
+    fibers.push(await ctx.plugin(StorageDomain, { backend: 'json' }))
+    const domain = await ctx.storageDomain.open(teamDomainSpecV2)
+    const store = new StorageDomainTeamStoreV2(ctx, domain, binding, now)
+    return {
+      ctx,
+      domain,
+      store,
+      async close() {
+        await store.close()
+        await domain.close()
+        for (const fiber of fibers.toReversed()) await fiber.dispose()
+      },
+    }
+  } catch (error) {
+    for (const fiber of fibers.toReversed()) await fiber.dispose()
+    throw error
+  }
+}
+
+/** Open the isolated v2 store over the fault-injecting in-memory backend. */
+export async function openV2FaultableStack(
+  backend: FaultableBackend,
+  binding: { readonly artifactContract: string; readonly legacyManifestCapacity: number },
+  now: () => number = Date.now,
+): Promise<V2StorageStack> {
+  const ctx = new Context()
+  const fibers: Fiber[] = []
+  try {
+    fibers.push(await ctx.plugin(Storage))
+    ctx.storage.backend.register('faultable-v2', backend)
+    ctx.provide(storageBackendServiceKey('faultable-v2'), backend)
+    fibers.push(await ctx.plugin(StorageDomain, { backend: 'faultable-v2' }))
+    const domain = await ctx.storageDomain.open(teamDomainSpecV2)
+    const store = new StorageDomainTeamStoreV2(ctx, domain, binding, now)
+    return {
+      ctx,
+      domain,
+      store,
+      async close() {
+        await store.close()
+        await domain.close()
+        for (const fiber of fibers.toReversed()) await fiber.dispose()
+      },
+    }
+  } catch (error) {
+    for (const fiber of fibers.toReversed()) await fiber.dispose()
+    throw error
+  }
 }
 
 async function openOn(ctx: Context, fibers: Fiber[], now: () => number): Promise<StorageStack> {
