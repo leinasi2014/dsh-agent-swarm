@@ -50,7 +50,7 @@ captain（插件驱动）：
   5. agent_swarm_review_task       → 你审核 accept/reject
 ```
 
-默认工具面为 19 个 `agent_swarm_*`；`experimentalFreshV2` 另条件注册第 20 个 `agent_swarm_continue_task`，仅用于尚未接受的 fresh-v2 同 Attempt 续跑纵切。见 [docs/04-core-protocol.md](docs/04-core-protocol.md) §4。
+规范清单是跨两个互斥运行模式的 20 个不同 `agent_swarm_*` 工具定义，不代表任一时刻同时暴露 20 个工具。默认模式实时注册 19 个；`experimentalFreshV2=true` 时改为仅注册 6 个纵切工具：`agent_swarm_create`、`agent_swarm_add_member`、`agent_swarm_create_task`、`agent_swarm_continue_task`、`agent_swarm_submit_task`、`agent_swarm_reassign_task`。fresh-v2 不是“默认 19 个再加 1 个”。见 [docs/04-core-protocol.md](docs/04-core-protocol.md) §4。
 
 ## 核心能力
 

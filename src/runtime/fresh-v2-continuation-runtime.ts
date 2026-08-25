@@ -384,6 +384,12 @@ export class FreshV2ContinuationRuntime implements ContinuationRuntime {
     if (agent?.session === session && agent.status === 'idle') await this.foldAgentIdle(agent)
   }
 
+  /** Retire only the exact permit for the Session turn that has durably ended. */
+  retireTurnPermit(sessionId: string, turn: number): void {
+    const permit = this.modelPermits.get(sessionId)
+    if (permit?.turn === turn) retireFreshV2ModelPermit(this.modelPermits, this.retiredModelSignals, sessionId)
+  }
+
   async foldAgentIdle(agent: Agent): Promise<void> {
     if (this.closing || agent.status !== 'idle') return
     if (this.ctx.agents.roots().includes(agent)) await this.recoveryDriver.driveForCaptain(agent)

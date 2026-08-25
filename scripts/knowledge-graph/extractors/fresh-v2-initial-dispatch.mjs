@@ -34,6 +34,7 @@ const REQUIRED = Object.freeze({
     'ownsFreshV2InitialModelDispatch(',
     'enterInitialDispatch(',
     'settleInitialAssistantEvidence(',
+    'retireTurnPermit(session.id, event.data.turn)',
     'this.requireTaskControl().submitTask(',
     'this.requireTaskControl().reassignTask(',
   ],
@@ -75,6 +76,7 @@ const REQUIRED = Object.freeze({
     'this.recoveryDomain.reserveProvenNotEntered(',
     'currentStepContainsContinuationFrame(',
     'ownsFreshV2ModelPermit(',
+    'retireTurnPermit(sessionId: string, turn: number)',
   ],
   'src/domain/team-domain-v2-task-control.ts': [
     'function closeAttemptControl(',
@@ -137,7 +139,7 @@ const REQUIRED = Object.freeze({
     'accepts submit only through a real official Agent Loop tool-call after assistant evidence',
     'fences captain reassignment before interrupting an entered Provider',
     'blocks Provider entry when captain reassigns after agent/request issued its one-shot permit',
-    'retires the stale exact signal without poisoning a later permit for the same member',
+    'This ordinary unframed followup must remain usable after permit retirement.',
   ],
   'tests/fresh-v2-task-control-domain.spec.ts': [
     'rejects submission until official assistant execution evidence makes the Attempt running',

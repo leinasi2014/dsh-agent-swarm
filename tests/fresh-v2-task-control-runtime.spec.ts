@@ -16,11 +16,6 @@ import {
   WitnessProbeAdapter,
 } from './helpers/fresh-v2-composition.js'
 import type { TeamStateV2 } from '../src/domain/team-state-v2.js'
-import {
-  ownsFreshV2ModelPermit,
-  retireFreshV2ModelPermit,
-  type FreshV2ModelPermit,
-} from '../src/runtime/fresh-v2-model-permit.js'
 
 class SubmitTaskAdapter extends LlmAdapter {
   readonly requests: GenerateOptions[] = []
@@ -151,8 +146,12 @@ describe('fresh-v2 official Agent Loop task-control races', () => {
     const blocked = new Promise<void>(resolve => { unblock = resolve })
     const gateEntered = new Promise<void>(resolve => { entered = resolve })
     let targetId: string | undefined
-    const disposeGate = mounted.ctx.on('agent/request', async ({ agent }, next) => {
-      if (agent.id === targetId) {
+    let oldSignal: AbortSignal | undefined
+    let holdFirstRequest = true
+    const disposeGate = mounted.ctx.on('agent/request', async ({ agent, signal }, next) => {
+      if (agent.id === targetId && holdFirstRequest) {
+        holdFirstRequest = false
+        oldSignal = signal
         entered()
         await blocked
       }
@@ -181,27 +180,32 @@ describe('fresh-v2 official Agent Loop task-control races', () => {
       await new Promise(resolve => setTimeout(resolve, 50))
       expect(adapter.requests.filter(request => request.sessionId === targetId)).toHaveLength(0)
       expect(ctx.agentSwarmV2Initial.snapshot(workspace, teamId)!.tasks[0]!.status).toBe('pending')
+      await vi.waitFor(async () => {
+        const persisted = await ctx.sessionPersistence.load(SessionId(targetId!))
+        expect(persisted.events.some(event => event.type === 'turn/end')).toBe(true)
+      }, { timeout: 10_000 })
+      adapter.open()
+      await ctx.subagents.followup(
+        lead,
+        SessionId(targetId),
+        [{ type: 'text', text: 'This ordinary unframed followup must remain usable after permit retirement.' }],
+        { source: { kind: 'plugin', plugin: 'test' }, signal: AbortSignal.timeout(5_000) },
+      )
+      await vi.waitFor(() => {
+        expect(adapter.requests.filter(request => request.sessionId === targetId)).toHaveLength(1)
+      }, { timeout: 10_000 })
+      const laterRequest = adapter.requests.find(request => request.sessionId === targetId)!
+      await expect(async () => {
+        for await (const _chunk of ctx.llm.stream({ ...laterRequest, signal: oldSignal! })) {
+          // A retired signal must fail before any Provider chunk is observable.
+        }
+      }).rejects.toMatchObject({ code: 'TEAM_ATTEMPT_STALE' })
+      expect(adapter.requests.filter(request => request.sessionId === targetId)).toHaveLength(1)
     } finally {
       unblock()
       await disposeGate()
       mounted.adapter.open()
       for (const fiber of mounted.fibers.toReversed()) await fiber.dispose().catch(() => undefined)
     }
-  })
-
-  it('retires the stale exact signal without poisoning a later permit for the same member', () => {
-    const memberId = 'member-permit-reuse'
-    const oldSignal = new AbortController().signal
-    const nextSignal = new AbortController().signal
-    const permits = new Map<string, FreshV2ModelPermit>([[memberId, { signal: oldSignal, turn: 1, step: 1 }]])
-    const retired = new WeakSet<AbortSignal>()
-    retireFreshV2ModelPermit(permits, retired, memberId)
-    expect(() => ownsFreshV2ModelPermit(
-      permits, retired, { sessionId: memberId, signal: oldSignal } as GenerateOptions, 'test',
-    )).toThrowError(expect.objectContaining({ code: 'TEAM_ATTEMPT_STALE' }))
-    permits.set(memberId, { signal: nextSignal, turn: 2, step: 1 })
-    expect(ownsFreshV2ModelPermit(
-      permits, retired, { sessionId: memberId, signal: nextSignal } as GenerateOptions, 'test',
-    )).toBe(true)
-  })
+  }, 30_000)
 })

@@ -36,7 +36,11 @@ import type { RuntimeCreateTaskInput } from './verification-commands.js'
 import { FreshV2WitnessCapability } from './fresh-v2-witness-capability.js'
 import { FreshV2ContinuationRuntime } from './fresh-v2-continuation-runtime.js'
 import type { ContinuationRuntime } from '../tools/continuation.js'
-import { consumeFreshV2ModelPermit, type FreshV2ModelPermit } from './fresh-v2-model-permit.js'
+import {
+  consumeFreshV2ModelPermit,
+  retireFreshV2ModelPermit,
+  type FreshV2ModelPermit,
+} from './fresh-v2-model-permit.js'
 import { FreshV2EvidenceCoordinator } from './fresh-v2-evidence-coordinator.js'
 import { FreshV2TaskControlRuntime } from './fresh-v2-task-control-runtime.js'
 import type { FreshV2InitialConfig } from './fresh-v2-initial-config.js'
@@ -409,6 +413,13 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
   }
 
   observeSessionEvent(session: Session, event: SessionEvent): void {
+    if (event.type === 'turn/end') {
+      const permit = this.modelPermits.get(session.id)
+      if (permit?.turn === event.data.turn) {
+        retireFreshV2ModelPermit(this.modelPermits, this.retiredModelSignals, session.id)
+      }
+      this.continuation?.retireTurnPermit(session.id, event.data.turn)
+    }
     this.evidence.observeSessionEvent(session, event)
   }
 

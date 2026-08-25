@@ -10,7 +10,7 @@
   ],
   "functionalFacets": {
     "tool": {
-      "title": "Model-facing tool surface",
+      "title": "Cross-mode static union of model-facing tools; default live surface is 19 and fresh-v2 live surface is the exclusive 6-tool vertical slice",
       "sourceAnchors": [{ "file": "src/tools.ts", "symbol": "registerAgentSwarmTools" }],
       "testAnchors": [{ "file": "tests/tool-policy.spec.ts" }],
       "relatedToolIds": [
