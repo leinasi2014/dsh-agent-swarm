@@ -53,6 +53,7 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
   private readonly dispatchStreams = new Set<Promise<void>>()
   private readonly evidence: FreshV2EvidenceCoordinator
   private readonly modelPermits = new Map<string, FreshV2ModelPermit>()
+  private readonly retiredModelSignals = new WeakSet<AbortSignal>()
   private closing = false
   private readonly witnessCapability: FreshV2WitnessCapability
 
@@ -403,7 +404,7 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
     if (options.sessionId === undefined) return false
     return ownsFreshV2InitialModelDispatch({
       ctx: this.ctx, store: this.requireStore(), scopeOf: agent => this.scopeOf(agent),
-      permits: this.modelPermits, witness: this.witnessCapability,
+      permits: this.modelPermits, retiredSignals: this.retiredModelSignals, witness: this.witnessCapability,
     }, options)
   }
 

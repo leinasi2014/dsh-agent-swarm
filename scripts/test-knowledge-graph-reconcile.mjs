@@ -85,10 +85,10 @@ const mechanicalNodes = manifest.nodes.filter(item => item.classification === 'm
 const reviewedNodes = manifest.nodes.filter(item => item.classification === 'reviewed')
 const mechanicalEdges = manifest.edges.filter(item => item.classification === 'mechanical')
 const reviewedEdges = manifest.edges.filter(item => item.classification === 'reviewed')
-assert.equal(mechanicalNodes.length, 957)
-assert.equal(reviewedNodes.length, 153)
+assert.equal(mechanicalNodes.length, 955)
+assert.equal(reviewedNodes.length, 156)
 assert.equal(mechanicalEdges.length, 1801)
-assert.equal(reviewedEdges.length, 319)
+assert.equal(reviewedEdges.length, 331)
 assert(mechanicalNodes.every(item => item.ownerAuthority === undefined
   && item.security.authoritySource === undefined
   && item.security.callerIdentity === 'unclassified'

@@ -13,9 +13,13 @@ export interface FreshV2ModelPermit {
 /** True only for the exact pending AgentLoop permit; any competing signal fails closed. */
 export function ownsFreshV2ModelPermit(
   permits: ReadonlyMap<string, FreshV2ModelPermit>,
+  retiredSignals: WeakSet<AbortSignal>,
   options: GenerateOptions,
   label: string,
 ): boolean {
+  if (options.signal !== undefined && retiredSignals.has(options.signal)) {
+    throw new TeamDomainError(`AgentLoop request reused a retired ${label} permit`, 'TEAM_ATTEMPT_STALE')
+  }
   if (options.sessionId === undefined) return false
   const permit = permits.get(options.sessionId)
   if (permit === undefined) return false
@@ -23,6 +27,19 @@ export function ownsFreshV2ModelPermit(
     throw new TeamDomainError(`AgentLoop request conflicts with its ${label} permit`, 'TEAM_ATTEMPT_STALE')
   }
   return true
+}
+
+/** Retire a pending permit without allowing its late exact signal to fall through. */
+export function retireFreshV2ModelPermit(
+  permits: Map<string, FreshV2ModelPermit>,
+  retiredSignals: WeakSet<AbortSignal>,
+  sessionId: string | undefined,
+): void {
+  if (sessionId === undefined) return
+  const permit = permits.get(sessionId)
+  if (permit === undefined) return
+  permits.delete(sessionId)
+  retiredSignals.add(permit.signal)
 }
 
 /** Consume one exact AgentLoop permit and resolve its identical live Agent/Session pair. */

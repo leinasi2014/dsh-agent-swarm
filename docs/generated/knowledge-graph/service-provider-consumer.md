@@ -2,9 +2,9 @@
 
 # Service, Provider and Consumer
 
-Manifest digest: `38d6d41a95aedd42346d251edcabd8c7bb888b2ce13506f0f96f33e8772c53ea`
+Manifest digest: `92dbfb0fd99777c2c886708c26dda33e4d66aac660f2981eff35b319ec165135`
 
-Curated tool-registry digest: `c5d326eaafe8ee14415e4ad0f73e97f429ef152cd80f5192e2747529fad49c09`
+Curated tool-registry digest: `8aad8870092e06d5ac8f3b0c48ade4e08e99c64765eb5f32b6d27e1730e9394c`
 
 > Claim ceiling: the registry is a reviewed capability overlay over exact source extraction. Per-tool deep semantic closure, acceptance, and real-Profile evidence remain explicit gaps; the complete mechanical graph is retained in `atlas.json`.
 
@@ -113,6 +113,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
+  n_636f6e73756d65723a66726573682d76322d746f6f6c2d726567697374726174696f6e["Fresh-v2 model-tool registration surface in src/tools.ts"]
   n_636f6e73756d65723a72656769737472792d6661636164652f7372632f72756e74696d652f657865637574696f6e2d726f6f742d737572666163652e74732f657865637574696f6e726f6f74737572666163652f726567697374657270726f7669646572["Registry façade ExecutionRootSurface.registerProvider"]
   n_636f6e73756d65723a72656769737472792d6661636164652f7372632f72756e74696d652f6f7263686573747261746f722d72756e74696d652e74732f6167656e74737761726d72756e74696d652f7265676973746572657865637574696f6e726f6f7470726f7669646572["Registry façade AgentSwarmRuntime.registerExecutionRootProvider"]
   n_636f6e73756d65723a72656769737472792d6661636164652f7372632f72756e74696d652f6f7263686573747261746f722d72756e74696d652e74732f6167656e74737761726d72756e74696d652f7265676973746572726576696577726f6f7470726f7669646572["Registry façade AgentSwarmRuntime.registerReviewRootProvider"]
@@ -142,7 +143,6 @@ flowchart LR
   n_70726f76696465723a6374782f30382d7372632f686f73742f686f73742d726561642d736572766963652e74732d6167656e74737761726d686f737472656164["ctx.provide agentSwarmHostRead"]
   n_70726f76696465723a6374782f30392d7372632f686f73742f70726f64756365722d666c6f6f722d736572766963652e74732d6167656e74737761726d70726f6475636572666c6f6f72["ctx.provide agentSwarmProducerFloor"]
   n_70726f76696465723a6374782f32302d7372632f696e6465782e74732d6167656e74737761726d7632696e697469616c["ctx.provide agentSwarmV2Initial"]
-  n_70726f76696465723a6374782f32312d7372632f696e6465782e74732d6167656e74737761726d7065726d697373696f6e["ctx.provide agentSwarmPermission"]
   n_70726f76696465723a6275696c74696e2f7372632f72756e74696d652f657865637574696f6e2d726f6f74732e74732f70726f7669646572732f6769742d776f726b74726565 -->|provides| n_70726f76696465722d72656769737472793a7372632f72756e74696d652f657865637574696f6e2d726f6f74732e74732f657865637574696f6e726f6f74732f70726f766964657273
   n_70726f76696465723a6275696c74696e2f7372632f72756e74696d652f6f7263686573747261746f722d72756e74696d652e74732f72657669657770726f7669646572732f6d616e75616c -->|provides| n_70726f76696465722d72656769737472793a7372632f72756e74696d652f6f7263686573747261746f722d72756e74696d652e74732f6167656e74737761726d72756e74696d652f72657669657770726f766964657273
   n_70726f76696465723a6275696c74696e2f7372632f72756e74696d652f6f7263686573747261746f722d72756e74696d652e74732f72657669657770726f7669646572732f65786563757461626c65 -->|provides| n_70726f76696465722d72656769737472793a7372632f72756e74696d652f6f7263686573747261746f722d72756e74696d652e74732f6167656e74737761726d72756e74696d652f72657669657770726f766964657273
@@ -164,6 +164,7 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 
 | Stable id | Kind | Classification | Implementation | Verification | Acceptance | Availability | Owner |
 |---|---|---|---|---|---|---|---|
+| `consumer:fresh-v2-tool-registration` | consumer | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `consumer:registry-facade/src/runtime/execution-root-surface.ts/executionrootsurface/registerprovider` | consumer | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `consumer:registry-facade/src/runtime/orchestrator-runtime.ts/agentswarmruntime/registerexecutionrootprovider` | consumer | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `consumer:registry-facade/src/runtime/orchestrator-runtime.ts/agentswarmruntime/registerreviewrootprovider` | consumer | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
@@ -270,11 +271,11 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `tool:agent_swarm_list_jobs` | model-tool | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `tool:agent_swarm_list_memory` | model-tool | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `tool:agent_swarm_list_tasks` | model-tool | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
-| `tool:agent_swarm_reassign_task` | model-tool | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
+| `tool:agent_swarm_reassign_task` | model-tool | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `tool:agent_swarm_remove_member` | model-tool | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `tool:agent_swarm_review_task` | model-tool | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `tool:agent_swarm_send_message` | model-tool | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `tool:agent_swarm_set_budget` | model-tool | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
 | `tool:agent_swarm_status` | model-tool | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
-| `tool:agent_swarm_submit_task` | model-tool | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |
+| `tool:agent_swarm_submit_task` | model-tool | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `tool:agent_swarm_wait` | model-tool | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | always-registered | `(unclassified)` |

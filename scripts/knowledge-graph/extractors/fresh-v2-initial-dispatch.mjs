@@ -10,6 +10,12 @@ const REQUIRED = Object.freeze({
     'attachFreshV2Hooks(ctx, runtime)',
     'await runtime.reconcileColdDispatches()',
     'await runtime.driveColdRecoveries()',
+    'registerFreshV2AgentSwarmTools(ctx, runtime)',
+  ],
+  'src/tools.ts': [
+    'export function registerFreshV2AgentSwarmTools(',
+    'registerSubmitTaskTool(ctx, runtime)',
+    'registerReassignTaskTool(ctx, runtime)',
   ],
   'src/runtime/fresh-v2-hooks.ts': [
     "ctx.on('agent/request'",
@@ -40,6 +46,7 @@ const REQUIRED = Object.freeze({
     'export function ownsFreshV2ModelPermit(',
     'AgentLoop request conflicts with its',
     'export function consumeFreshV2ModelPermit(',
+    'export function retireFreshV2ModelPermit(',
   ],
   'src/runtime/fresh-v2-evidence-coordinator.ts': [
     "event.type !== 'assistant/message'",
@@ -127,12 +134,14 @@ const REQUIRED = Object.freeze({
     'does not report running when the official adapter fails at iteration',
   ],
   'tests/fresh-v2-task-control-runtime.spec.ts': [
-    'keeps member submission authoritative when an already-entered Provider returns late',
+    'accepts submit only through a real official Agent Loop tool-call after assistant evidence',
     'fences captain reassignment before interrupting an entered Provider',
     'blocks Provider entry when captain reassigns after agent/request issued its one-shot permit',
+    'retires the stale exact signal without poisoning a later permit for the same member',
   ],
   'tests/fresh-v2-task-control-domain.spec.ts': [
-    'lets exact member submission win over an entered initial dispatch',
+    'rejects submission until official assistant execution evidence makes the Attempt running',
+    'lets the exact member submit a running Attempt without completing the task',
     'atomically supersedes continuation and staged recovery receipts when captain reassigns',
     'derives submit and reassign authority from the exact Team actor',
   ],

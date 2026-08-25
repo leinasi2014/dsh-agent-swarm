@@ -34,7 +34,12 @@ import {
 import { assistantEvidenceAt } from './fresh-v2-session-fold.js'
 import { currentFreshV2TaskAttempt, findFreshV2Membership } from './fresh-v2-initial-support.js'
 import type { FreshV2WitnessCapability } from './fresh-v2-witness-capability.js'
-import { consumeFreshV2ModelPermit, ownsFreshV2ModelPermit, type FreshV2ModelPermit } from './fresh-v2-model-permit.js'
+import {
+  consumeFreshV2ModelPermit,
+  ownsFreshV2ModelPermit,
+  retireFreshV2ModelPermit,
+  type FreshV2ModelPermit,
+} from './fresh-v2-model-permit.js'
 import {
   foldEnteredContinuationRecovery,
   foldPendingContinuationRecovery,
@@ -48,6 +53,7 @@ export class FreshV2ContinuationRuntime implements ContinuationRuntime {
   private readonly recoveryDomain: TeamV2ContinuationRecoveryDomain
   private readonly recoveryDriver: FreshV2RecoveryDriver
   private readonly modelPermits = new Map<string, FreshV2ModelPermit>()
+  private readonly retiredModelSignals = new WeakSet<AbortSignal>()
   private readonly dispatchStreams = new Set<Promise<void>>()
   private readonly delivering = new Set<string>()
   private readonly deliveryUnknown = new Set<string>()
@@ -412,33 +418,38 @@ export class FreshV2ContinuationRuntime implements ContinuationRuntime {
   }
 
   private ownsModelDispatch(options: GenerateOptions): boolean {
-    const hasPermit = ownsFreshV2ModelPermit(this.modelPermits, options, 'continuation')
+    const hasPermit = ownsFreshV2ModelPermit(this.modelPermits, this.retiredModelSignals, options, 'continuation')
     if (options.sessionId === undefined) return false
-    const agent = this.ctx.agents.get(SessionId(options.sessionId))
-    const session = this.ctx.sessions.get(SessionId(options.sessionId))
-    if (agent === undefined || session === undefined || agent.session !== session) {
-      if (hasPermit) throw new TeamDomainError('continuation permit lost its exact Agent/Session', 'TEAM_ATTEMPT_STALE')
-      return false
+    try {
+      const agent = this.ctx.agents.get(SessionId(options.sessionId))
+      const session = this.ctx.sessions.get(SessionId(options.sessionId))
+      if (agent === undefined || session === undefined || agent.session !== session) {
+        if (hasPermit) throw new TeamDomainError('continuation permit lost its exact Agent/Session', 'TEAM_ATTEMPT_STALE')
+        return false
+      }
+      const membership = findFreshV2Membership(this.store, this.scopeOf(agent), agent.id)
+      if (membership?.role !== 'member') {
+        if (hasPermit) throw new TeamDomainError('continuation permit lost Team membership', 'TEAM_ATTEMPT_STALE')
+        return false
+      }
+      const current = currentContinuationAttempt(membership.team, agent.id)
+      if (current === undefined) {
+        if (hasPermit) throw new TeamDomainError('continuation permit lost its exact Attempt', 'TEAM_ATTEMPT_STALE')
+        return false
+      }
+      this.witness.assertDigest(current.dispatch.witnessCapabilityDigest)
+      const permit = this.modelPermits.get(agent.id)
+      if (permit === undefined) throw new TeamDomainError('continuation permit disappeared', 'TEAM_ATTEMPT_STALE')
+      if (current.attempt.phase !== 'parked' || current.intent.phase !== 'dispatch-pending'
+        || current.dispatch.phase !== 'dispatch-pending'
+        || current.dispatch.turn !== permit.turn || current.dispatch.step !== permit.step) {
+        throw new TeamDomainError('continuation model request lacks its exact dispatch fence', 'TEAM_ATTEMPT_STALE')
+      }
+      return true
+    } catch (error) {
+      if (hasPermit) retireFreshV2ModelPermit(this.modelPermits, this.retiredModelSignals, options.sessionId)
+      throw error
     }
-    const membership = findFreshV2Membership(this.store, this.scopeOf(agent), agent.id)
-    if (membership?.role !== 'member') {
-      if (hasPermit) throw new TeamDomainError('continuation permit lost Team membership', 'TEAM_ATTEMPT_STALE')
-      return false
-    }
-    const current = currentContinuationAttempt(membership.team, agent.id)
-    if (current === undefined) {
-      if (hasPermit) throw new TeamDomainError('continuation permit lost its exact Attempt', 'TEAM_ATTEMPT_STALE')
-      return false
-    }
-    this.witness.assertDigest(current.dispatch.witnessCapabilityDigest)
-    const permit = this.modelPermits.get(agent.id)
-    if (permit === undefined) throw new TeamDomainError('continuation permit disappeared', 'TEAM_ATTEMPT_STALE')
-    if (current.attempt.phase !== 'parked' || current.intent.phase !== 'dispatch-pending'
-      || current.dispatch.phase !== 'dispatch-pending'
-      || current.dispatch.turn !== permit.turn || current.dispatch.step !== permit.step) {
-      throw new TeamDomainError('continuation model request lacks its exact dispatch fence', 'TEAM_ATTEMPT_STALE')
-    }
-    return true
   }
 
   private async enterModelDispatch(options: GenerateOptions): Promise<void> {

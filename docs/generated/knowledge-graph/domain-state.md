@@ -2,9 +2,9 @@
 
 # Domain and state
 
-Manifest digest: `38d6d41a95aedd42346d251edcabd8c7bb888b2ce13506f0f96f33e8772c53ea`
+Manifest digest: `92dbfb0fd99777c2c886708c26dda33e4d66aac660f2981eff35b319ec165135`
 
-Curated tool-registry digest: `c5d326eaafe8ee14415e4ad0f73e97f429ef152cd80f5192e2747529fad49c09`
+Curated tool-registry digest: `8aad8870092e06d5ac8f3b0c48ade4e08e99c64765eb5f32b6d27e1730e9394c`
 
 > Claim ceiling: the registry is a reviewed capability overlay over exact source extraction. Per-tool deep semantic closure, acceptance, and real-Profile evidence remain explicit gaps; the complete mechanical graph is retained in `atlas.json`.
 
@@ -59,7 +59,7 @@ flowchart LR
 | `tool:agent_swarm_claim_task` | mutation | domain-transaction+external-effect | Revision-CAS claims a ready task, creates an attempt fence, and optionally allocates an execution root before delivery. |
 | `tool:agent_swarm_continue_task` | mutation | domain-transaction+external-effect | Persists one member-authored same-Attempt continuation intent, then admits one fenced official continuable-child wake only after durable turn settlement and quiescence. |
 | `tool:agent_swarm_create_task` | mutation | domain-transaction | Commits a dependency-aware task and may trigger priority-ready scheduling. |
-| `tool:agent_swarm_reassign_task` | mutation | domain-transaction+external-effect | Fences the current attempt, returns the task to pending, and interrupts the prior assignee before fresh scheduling. |
+| `tool:agent_swarm_reassign_task` | mutation | domain-transaction+external-effect | Fences the current attempt, returns the task to pending with an optional eligibility pin, then interrupts the prior assignee; successor admission is separate. |
 | `tool:agent_swarm_review_task` | mutation | domain-transaction+external-effect | Runs the configured review provider and accepts or rejects the exact submitted attempt through the canonical review gate. |
 | `tool:agent_swarm_submit_task` | mutation | domain-transaction | Submits the exact current attempt and evidence for captain review without completing the canonical task. |
 

@@ -199,6 +199,8 @@ export function apply(ctx) {
     'agent_swarm_continue_task',
     'agent_swarm_create',
     'agent_swarm_create_task',
+    'agent_swarm_reassign_task',
+    'agent_swarm_submit_task',
   ])) throw new Error(`fresh-v2 Profile exposed unexpected tools: ${JSON.stringify(tools)}`)
   const identityRef = { value: readIdentity() }
   const { adapter, entries } = createAdapter(ctx, () => identityRef.value)

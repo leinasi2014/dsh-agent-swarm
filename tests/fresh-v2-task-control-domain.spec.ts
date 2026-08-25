@@ -120,8 +120,31 @@ describe('fresh-v2 atomic submit and reassignment fences', () => {
     return { ...fixture, taskRevision: current.revision }
   }
 
-  it('lets exact member submission win over an entered initial dispatch', async () => {
+  async function runningInitial() {
     const fixture = await enteredInitial()
+    const initial = stack!.store.read(SCOPE, fixture.teamId)!.attempts[0]!.dispatchEpochs[0]!
+    await fixture.start.settleInitialAssistantEvidence(
+      SCOPE, fixture.teamId, 'member-1', fixture.taskId, fixture.attemptId,
+      {
+        initialPromptDigest: PROMPT_DIGEST, messageSeq: initial.messageSeq!, turn: initial.turn!, step: initial.step!,
+        witnessCapabilityDigest: WITNESS_DIGEST, dispatchId: initial.dispatchId, effectId: initial.effectId,
+      },
+      { eventSeq: 10, eventType: 'assistant/message' },
+    )
+    return fixture
+  }
+
+  it('rejects submission until official assistant execution evidence makes the Attempt running', async () => {
+    const fixture = await enteredInitial()
+    await expect(fixture.control.submitTask(SCOPE, fixture.teamId, 'member-1', {
+      taskId: fixture.taskId, expectedTaskRevision: fixture.taskRevision, attemptId: fixture.attemptId,
+      output: 'premature', evidence: [],
+    })).rejects.toMatchObject({ code: 'TEAM_ATTEMPT_PHASE_INVALID' })
+    expect(stack!.store.read(SCOPE, fixture.teamId)!.attempts[0]).toMatchObject({ phase: 'reserved' })
+  })
+
+  it('lets the exact member submit a running Attempt without completing the task', async () => {
+    const fixture = await runningInitial()
     const submitted = await fixture.control.submitTask(SCOPE, fixture.teamId, 'member-1', {
       taskId: fixture.taskId, expectedTaskRevision: fixture.taskRevision, attemptId: fixture.attemptId,
       output: 'finished', evidence: ['test:pass'],
@@ -130,7 +153,7 @@ describe('fresh-v2 atomic submit and reassignment fences', () => {
     const state = stack!.store.read(SCOPE, fixture.teamId)!
     expect(state.attempts[0]).toMatchObject({ phase: 'submitted', output: 'finished' })
     expect(state.attempts[0]).not.toHaveProperty('currentContinuationIntent')
-    expect(state.attempts[0]!.dispatchEpochs[0]).toMatchObject({ phase: 'superseded' })
+    expect(state.attempts[0]!.dispatchEpochs[0]).toMatchObject({ phase: 'settled' })
   })
 
   it('derives submit and reassign authority from the exact Team actor', async () => {
@@ -166,16 +189,14 @@ describe('fresh-v2 atomic submit and reassignment fences', () => {
     ])
   })
 
-  it('lets exact member submission supersede an entered continuation without completing the task', async () => {
+  it('rejects submission while a continuation has entered but lacks assistant execution evidence', async () => {
     const fixture = await runningContinuation(false)
-    const submitted = await fixture.control.submitTask(SCOPE, fixture.teamId, 'member-1', {
+    await expect(fixture.control.submitTask(SCOPE, fixture.teamId, 'member-1', {
       taskId: fixture.taskId, expectedTaskRevision: fixture.taskRevision, attemptId: fixture.attemptId,
       output: 'candidate', evidence: [],
-    })
-    expect(submitted.status).toBe('submitted')
+    })).rejects.toMatchObject({ code: 'TEAM_ATTEMPT_PHASE_INVALID' })
     const state = stack!.store.read(SCOPE, fixture.teamId)!
-    expect(state.attempts[0]).toMatchObject({ phase: 'submitted' })
-    expect(state.attempts[0]!.dispatchEpochs.at(-1)).toMatchObject({ phase: 'superseded' })
-    expect(state.interactionEffects[0]).toMatchObject({ status: 'superseded' })
+    expect(state.attempts[0]).toMatchObject({ phase: 'parked' })
+    expect(state.attempts[0]!.dispatchEpochs.at(-1)).toMatchObject({ phase: 'dispatch-entered' })
   })
 })

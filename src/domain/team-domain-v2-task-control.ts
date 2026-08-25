@@ -59,15 +59,7 @@ function closeAttemptControl(
 }
 
 function submissionAdmissible(attempt: TaskAttemptV2): boolean {
-  if (attempt.phase === 'running') return true
-  if (attempt.phase === 'reserved') {
-    const initial = attempt.dispatchEpochs[0]
-    return initial?.kind === 'initial' && initial.phase === 'dispatch-entered'
-  }
-  if (attempt.phase === 'parked') {
-    return attempt.currentContinuationIntent?.phase === 'dispatch-entered'
-  }
-  return false
+  return attempt.phase === 'running'
 }
 
 /** Atomic v2 task submission and captain reassignment fences. */

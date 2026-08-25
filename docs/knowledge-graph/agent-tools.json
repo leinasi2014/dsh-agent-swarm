@@ -383,19 +383,19 @@
       "ownerAuthority": "domain:agent-swarm",
       "callerPermissionClass": { "caller": "captain-only", "defaultPolicy": "allow", "source": { "file": "src/runtime/permission-policy.ts", "symbol": "decideToolPermission" } },
       "operation": "mutation",
-      "domainTransactionEffect": { "kind": "domain-transaction+external-effect", "summary": "Fences the current attempt, returns the task to pending, and interrupts the prior assignee before fresh scheduling." },
+      "domainTransactionEffect": { "kind": "domain-transaction+external-effect", "summary": "Fences the current attempt, returns the task to pending with an optional eligibility pin, then interrupts the prior assignee; successor admission is separate." },
       "availability": { "state": "registered", "conditions": ["plugin enabled", "live captain", "exact task revision"] },
       "bounds": [],
       "recoveryFailure": "Revision or attempt mismatch fails closed; the fenced Team transition remains authoritative if later interruption or rescheduling fails.",
-      "testAnchors": [],
-      "documentationAnchors": [{ "file": "docs/04-core-protocol.md" }],
+      "testAnchors": [{ "file": "tests/fresh-v2-task-control-domain.spec.ts" }, { "file": "tests/fresh-v2-task-control-runtime.spec.ts" }],
+      "documentationAnchors": [{ "file": "docs/04-core-protocol.md" }, { "file": "docs/adr/0010-model-autonomy-and-parked-attempts.md" }, { "file": "docs/08-testing-verification.md" }],
       "maturity": {
         "implementation": { "state": "implemented", "evidence": ["src/tools/task-board.ts"] },
-        "verification": { "state": "none", "evidence": [] },
+        "verification": { "state": "composition-anchored", "evidence": ["tests/fresh-v2-task-control-domain.spec.ts", "tests/fresh-v2-task-control-runtime.spec.ts"] },
         "acceptance": { "state": "not-asserted", "evidence": [] },
         "availability": { "state": "source-registered", "evidence": ["src/tools/task-board.ts"] }
       },
-      "evidenceGaps": ["NO_DIRECT_TEST", "NO_COMPOSITION_TEST", "NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT", "PER_TOOL_DEEP_SEMANTICS_DEFERRED"]
+      "evidenceGaps": ["NO_REAL_PROFILE_EVIDENCE", "PROFILE_DEPENDENT", "PER_TOOL_DEEP_SEMANTICS_DEFERRED"]
     },
     {
       "id": "tool:agent_swarm_remove_member",
@@ -515,11 +515,11 @@
       "availability": { "state": "registered", "conditions": ["plugin enabled", "calling participant owns exact current attempt"] },
       "bounds": [],
       "recoveryFailure": "Stale attempt or revision fails closed and the caller must stop; commit failure does not imply submission and requires authoritative task read-back.",
-      "testAnchors": [{ "file": "tests/dsh-composition.spec.ts" }],
-      "documentationAnchors": [{ "file": "docs/04-core-protocol.md" }],
+      "testAnchors": [{ "file": "tests/dsh-composition.spec.ts" }, { "file": "tests/fresh-v2-task-control-domain.spec.ts" }, { "file": "tests/fresh-v2-task-control-runtime.spec.ts" }],
+      "documentationAnchors": [{ "file": "docs/04-core-protocol.md" }, { "file": "docs/adr/0010-model-autonomy-and-parked-attempts.md" }, { "file": "docs/08-testing-verification.md" }],
       "maturity": {
         "implementation": { "state": "implemented", "evidence": ["src/tools/task-board.ts"] },
-        "verification": { "state": "composition-anchored", "evidence": ["tests/dsh-composition.spec.ts"] },
+        "verification": { "state": "composition-anchored", "evidence": ["tests/dsh-composition.spec.ts", "tests/fresh-v2-task-control-domain.spec.ts", "tests/fresh-v2-task-control-runtime.spec.ts"] },
         "acceptance": { "state": "not-asserted", "evidence": [] },
         "availability": { "state": "source-registered", "evidence": ["src/tools/task-board.ts"] }
       },

@@ -85,7 +85,7 @@ function predicate(facts, id, title, selector, value, file) {
   })
 }
 
-export function buildFreshV2InitialDispatchSlice(facts) {
+export function buildFreshV2InitialDispatchSlice(facts, mechanical) {
   validateFreshV2InitialDispatchFacts(facts)
   const runtimeFile = 'src/runtime/fresh-v2-initial-runtime.ts'
   const domainFile = 'src/domain/team-domain-v2-start.ts'
@@ -98,6 +98,7 @@ export function buildFreshV2InitialDispatchSlice(facts) {
   const continuationFoldFile = 'src/runtime/fresh-v2-continuation-fold.ts'
   const taskControlFile = 'src/domain/team-domain-v2-task-control.ts'
   const taskControlRuntimeFile = 'src/runtime/fresh-v2-task-control-runtime.ts'
+  const toolsFile = 'src/tools.ts'
   const flow = ref('flow:fresh-v2-initial-dispatch', 'flow')
   const service = ref('service:fresh-v2-initial-runtime', 'service')
   const attempt = ref('entity:fresh-v2-task-attempt', 'entity')
@@ -193,6 +194,17 @@ export function buildFreshV2InitialDispatchSlice(facts) {
   const terminalControlFence = ref('guard:fresh-v2-terminal-control-wins', 'guard')
   const taskControlTests = ref('test:fresh-v2-task-control-domain', 'test')
   const taskControlRuntimeTests = ref('test:fresh-v2-task-control-runtime', 'test')
+  const toolsModule = ref('consumer:fresh-v2-tool-registration', 'consumer')
+  const submitTool = ref('tool:agent_swarm_submit_task', 'model-tool')
+  const reassignTool = ref('tool:agent_swarm_reassign_task', 'model-tool')
+  const reviewedTool = (tool, title, options) => {
+    const extracted = mechanical?.nodes.find(item => item.id === tool.id)
+    if (extracted === undefined) fail('KG_FRESH_V2_SOURCE', `fresh-v2 tool source identity is missing: ${tool.id}`)
+    return {
+      ...node(facts, tool.id, tool.kind, title, team, toolsFile, tool.id, options),
+      anchors: structuredClone(extracted.anchors),
+    }
+  }
   const implementedBranches = [
     'provider-start-rejected',
     'pre-model-barrier-rejected',
@@ -274,6 +286,9 @@ export function buildFreshV2InitialDispatchSlice(facts) {
     node(facts, terminalControlFence.id, terminalControlFence.kind, 'Task revision, Attempt, actor and one-shot model permit fail-closed fence', team, taskControlFile, 'terminal-control-fence'),
     node(facts, taskControlTests.id, taskControlTests.kind, 'Fresh-v2 task-control domain race tests', contracts, 'tests/fresh-v2-task-control-domain.spec.ts', 'task-control-domain-tests', { verification: 'unit', evidence: [], security: security(contracts) }),
     node(facts, taskControlRuntimeTests.id, taskControlRuntimeTests.kind, 'Fresh-v2 task-control official Agent Loop race tests', contracts, 'tests/fresh-v2-task-control-runtime.spec.ts', 'task-control-runtime-tests', { verification: 'composition', evidence: [], security: security(contracts) }),
+    node(facts, toolsModule.id, toolsModule.kind, 'Fresh-v2 model-tool registration surface in src/tools.ts', team, toolsFile, 'fresh-v2-tool-registration', { verification: 'composition', evidence: [taskControlRuntimeTests.id] }),
+    reviewedTool(submitTool, 'Fresh-v2 exact running-Attempt submission tool', { verification: 'composition', evidence: [taskControlTests.id, taskControlRuntimeTests.id], security: security(team, 'domain-transaction', { guards: [terminalControlFence] }) }),
+    reviewedTool(reassignTool, 'Fresh-v2 captain fence/release reassignment tool', { verification: 'composition', evidence: [taskControlTests.id, taskControlRuntimeTests.id], security: security(team, 'external-effect', { guards: [terminalControlFence] }) }),
     ...implementedBranches.map(name => node(facts, `flow-branch:fresh-v2-initial-dispatch/${name}`, 'flow-branch', name.replaceAll('-', ' '), team, runtimeFile, `branch-${name}`, { contract: { nodeKind: 'flow-branch', flow } })),
     ...absentBranches.map(name => node(facts, `flow-branch:fresh-v2-initial-dispatch/${name}`, 'flow-branch', name.replaceAll('-', ' '), team, runtimeFile, `absent-${name}`, { maturity: absentMaturity(`A2 recovery slice: ${name}`), contract: { nodeKind: 'flow-branch', flow }, defaultState: 'disabled' })),
   ]
@@ -392,6 +407,18 @@ export function buildFreshV2InitialDispatchSlice(facts) {
     edge(facts, 'edge:fresh-v2-task-control/reassign-mutates-dispatch', 'mutates', reassignTransaction, dispatch, taskControlFile, 'reassign-mutates-dispatch'),
     edge(facts, 'edge:fresh-v2-task-control/flow-verified-domain', 'verified-by', taskControlFlow, taskControlTests, taskControlFile, 'task-control-verified-domain'),
     edge(facts, 'edge:fresh-v2-task-control/flow-verified-composition', 'verified-by', taskControlFlow, taskControlRuntimeTests, taskControlRuntimeFile, 'task-control-verified-composition'),
+    edge(facts, 'edge:fresh-v2-task-control/registers-submit-tool', 'registers', toolsModule, submitTool, toolsFile, 'register-fresh-v2-submit-tool'),
+    edge(facts, 'edge:fresh-v2-task-control/registers-reassign-tool', 'registers', toolsModule, reassignTool, toolsFile, 'register-fresh-v2-reassign-tool'),
+    edge(facts, 'edge:fresh-v2-task-control/owner-tools-module', 'owns', team, toolsModule, toolsFile, 'owner-fresh-v2-tools-module'),
+    edge(facts, 'edge:fresh-v2-task-control/owner-submit-tool', 'owns', team, submitTool, toolsFile, 'owner-fresh-v2-submit-tool'),
+    edge(facts, 'edge:fresh-v2-task-control/owner-reassign-tool', 'owns', team, reassignTool, toolsFile, 'owner-fresh-v2-reassign-tool'),
+    edge(facts, 'edge:fresh-v2-task-control/submit-tool-mutates', 'mutates', submitTool, submitTransaction, toolsFile, 'fresh-v2-submit-tool-transaction'),
+    edge(facts, 'edge:fresh-v2-task-control/reassign-tool-mutates', 'mutates', reassignTool, reassignTransaction, toolsFile, 'fresh-v2-reassign-tool-transaction'),
+    edge(facts, 'edge:fresh-v2-task-control/reassign-tool-calls-interrupt', 'calls', reassignTool, interruptProvider, toolsFile, 'fresh-v2-reassign-tool-interrupt'),
+    edge(facts, 'edge:fresh-v2-task-control/submit-tool-verified-domain', 'verified-by', submitTool, taskControlTests, taskControlFile, 'submit-tool-verified-domain'),
+    edge(facts, 'edge:fresh-v2-task-control/submit-tool-verified-runtime', 'verified-by', submitTool, taskControlRuntimeTests, taskControlRuntimeFile, 'submit-tool-verified-runtime'),
+    edge(facts, 'edge:fresh-v2-task-control/reassign-tool-verified-domain', 'verified-by', reassignTool, taskControlTests, taskControlFile, 'reassign-tool-verified-domain'),
+    edge(facts, 'edge:fresh-v2-task-control/reassign-tool-verified-runtime', 'verified-by', reassignTool, taskControlRuntimeTests, taskControlRuntimeFile, 'reassign-tool-verified-runtime'),
     edge(facts, 'edge:fresh-v2-task-control/flow-documented-blueprint', 'documented-by', taskControlFlow, document, 'docs/development/2026-08-24-team-runtime-architecture-blueprint-v1.md', 'task-control-documented-blueprint'),
   )
   nodes.sort((left, right) => compareText(left.id, right.id))

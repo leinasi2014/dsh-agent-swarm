@@ -192,12 +192,12 @@ export function registerSubmitTaskTool(ctx: Context, runtime: SubmitTaskRuntime)
 export function registerReassignTaskTool(ctx: Context, runtime: ReassignTaskRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_reassign_task',
-    description: 'Captain-only. Fence the current attempt before interruption and return the task to pending. target_member strictly routes the fresh attempt to that member.',
+    description: 'Captain-only. Atomically fence the current attempt, optionally pin the only eligible member for the next independently admitted attempt, return the task to pending, then interrupt the prior owner. This call does not create or dispatch the successor attempt.',
     parameters: {
       task_id: { type: 'string', required: true },
       expected_revision: { type: 'number', required: true },
       reason: { type: 'string', required: true },
-      target_member: { type: 'string', description: 'Optional exact Team member name for the fresh attempt.' },
+      target_member: { type: 'string', description: 'Optional eligibility pin for the next independently admitted attempt; this call does not start it.' },
     },
     output: {
       schema: {
