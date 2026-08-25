@@ -60,6 +60,7 @@ export function coordinationCursorOf(snapshot: TeamStatusSnapshot): string {
       id: task.id, revision: task.revision, status: task.status,
       blockedBy: task.blockedBy, priority: task.priority,
       ownerSessionId: task.ownerSessionId, currentAttemptId: task.currentAttemptId,
+      targetMemberSessionId: task.targetMemberSessionId,
       reservationTokens: task.reservationTokens,
     })),
     attempts: team.attempts.map(attempt => ({

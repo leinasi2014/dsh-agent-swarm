@@ -55,10 +55,30 @@ export interface TeamReviewProvider {
  */
 export function priorityReadyScheduler(): TeamSchedulerProvider {
   return {
-    select: ({ readyTasks, availableMembers }) => availableMembers.flatMap((member, index) => {
-      const task = readyTasks[index]
-      return task === undefined ? [] : [{ taskId: task.id, memberSessionId: member.sessionId }]
-    }),
+    select: ({ readyTasks, availableMembers }) => {
+      const decisions: SchedulerDecision[] = []
+      const remainingMembers = new Map(availableMembers.map(member => [member.sessionId, member]))
+      const remainingTasks = new Set(readyTasks.map(task => task.id))
+
+      // Strict assignments go first so generic work cannot occupy a named
+      // member while their targeted task is ready.
+      for (const task of readyTasks) {
+        if (task.targetMemberSessionId === undefined || !remainingTasks.has(task.id)) continue
+        const member = remainingMembers.get(task.targetMemberSessionId)
+        if (member === undefined) continue
+        decisions.push({ taskId: task.id, memberSessionId: member.sessionId })
+        remainingMembers.delete(member.sessionId)
+        remainingTasks.delete(task.id)
+      }
+      for (const task of readyTasks) {
+        if (!remainingTasks.has(task.id) || task.targetMemberSessionId !== undefined) continue
+        const member = remainingMembers.values().next().value as TeamState['members'][number] | undefined
+        if (member === undefined) break
+        decisions.push({ taskId: task.id, memberSessionId: member.sessionId })
+        remainingMembers.delete(member.sessionId)
+      }
+      return decisions
+    },
   }
 }
 

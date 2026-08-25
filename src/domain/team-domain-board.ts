@@ -129,6 +129,13 @@ export async function createTask(
         'TEAM_BUDGET_INVALID',
       )
     }
+    if (input.targetMemberSessionId !== undefined) {
+      const authority = actorMembership(team, actorSessionId)
+      expectDomain(authority.role === 'captain', 'only the captain can target another member', 'TEAM_CAPTAIN_REQUIRED')
+      const target = team.members.find(member => member.sessionId === input.targetMemberSessionId
+        && (member.phase === 'provisioning' || member.phase === 'active'))
+      expectDomain(target !== undefined, 'task assignment target is not an available Team member', 'TEAM_ASSIGNEE_INVALID')
+    }
     const timestamp = deps.now()
     committed = {
       id: TaskId(`task-${team.nextTaskNumber}`),
@@ -142,6 +149,7 @@ export async function createTask(
       priority: input.priority ?? 0,
       ...(input.verification === undefined ? {} : { verification: normalizeVerification(input.verification, deps.limits) }),
       ...(input.reservationTokens === undefined ? {} : { reservationTokens: input.reservationTokens }),
+      ...(input.targetMemberSessionId === undefined ? {} : { targetMemberSessionId: input.targetMemberSessionId }),
       createdAt: timestamp,
       updatedAt: timestamp,
     }
@@ -187,6 +195,11 @@ export async function claimTask(
     }
     const current = taskOf(team, taskId)
     taskRevision(current, expectedRevision)
+    expectDomain(
+      current.targetMemberSessionId === undefined || current.targetMemberSessionId === assigneeSessionId,
+      `task "${taskId}" is assigned to another Team member`,
+      'TEAM_TASK_ASSIGNEE_MISMATCH',
+    )
     expectDomain(isTaskReady(team.tasks, current), `task "${taskId}" is not ready`, 'TEAM_TASK_NOT_READY')
     expectDomain(!team.tasks.some(task => task.ownerSessionId === assigneeSessionId && ['in_progress', 'submitted', 'verifying'].includes(task.status)), 'assignee already owns open work', 'TEAM_MEMBER_BUSY')
     budgetAvailable(team.budget, deps.now())
@@ -408,6 +421,7 @@ export async function cancelAttempt(
   taskId: TaskId,
   expectedRevision: number,
   diagnostic: string,
+  targetMemberSessionId?: string,
 ): Promise<TeamTask> {
   let committed!: TeamTask
   await deps.store.transact(scope, teamId, team => {
@@ -415,6 +429,11 @@ export async function cancelAttempt(
     expectDomain(authority.role === 'captain', 'only the captain can reassign', 'TEAM_CAPTAIN_REQUIRED')
     const current = taskOf(team, taskId)
     taskRevision(current, expectedRevision)
+    if (targetMemberSessionId !== undefined) {
+      const target = team.members.find(member => member.sessionId === targetMemberSessionId
+        && (member.phase === 'provisioning' || member.phase === 'active'))
+      expectDomain(target !== undefined, 'task assignment target is not an available Team member', 'TEAM_ASSIGNEE_INVALID')
+    }
     expectDomain(
       ['in_progress', 'submitted', 'verifying'].includes(current.status) && current.currentAttemptId !== undefined,
       'only an open execution attempt can be reassigned',
@@ -429,6 +448,11 @@ export async function cancelAttempt(
       status: 'pending',
       updatedAt: timestamp,
     })
+    const { targetMemberSessionId: _previousTarget, ...released } = committed
+    committed = released
+    if (targetMemberSessionId !== undefined) {
+      committed = { ...committed, targetMemberSessionId }
+    }
     replaceTask(team, committed)
     pruneRetainedAttempts(team, deps.limits.maxRetainedAttempts)
   })

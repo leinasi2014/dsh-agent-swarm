@@ -193,6 +193,9 @@ export class SchedulingPass {
       if (member === undefined || task === undefined || seenMembers.has(member.sessionId) || seenTasks.has(task.id)) {
         throw new TeamDomainError('scheduler Provider returned an invalid or duplicate decision', 'TEAM_SCHEDULER_DECISION_INVALID')
       }
+      if (task.targetMemberSessionId !== undefined && task.targetMemberSessionId !== member.sessionId) {
+        throw new TeamDomainError('scheduler Provider violated a strict task assignment', 'TEAM_SCHEDULER_DECISION_INVALID')
+      }
       seenMembers.add(member.sessionId)
       seenTasks.add(task.id)
       let claim

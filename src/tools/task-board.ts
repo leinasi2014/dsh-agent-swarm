@@ -15,7 +15,7 @@ import { register } from './shared.js'
 export function registerCreateTaskTool(ctx: Context, runtime: AgentSwarmRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_create_task',
-    description: 'Create one dependency-aware Team task. Ready unowned tasks are assigned automatically to available members by priority.',
+    description: 'Create one dependency-aware Team task. Ready unowned tasks are assigned automatically by priority, or strictly to target_member when declared.',
     parameters: {
       subject: { type: 'string', required: true, description: 'Short task title.' },
       description: { type: 'string', required: true, description: 'Complete work instructions.' },
@@ -23,6 +23,7 @@ export function registerCreateTaskTool(ctx: Context, runtime: AgentSwarmRuntime)
       blocked_by: { type: 'array', items: { type: 'string' }, description: 'Existing task ids that must complete first.' },
       write_scopes: { type: 'array', items: { type: 'string' }, description: 'Advisory workspace-relative paths; not authorization.' },
       priority: { type: 'number', description: 'Higher values are scheduled first.' },
+      target_member: { type: 'string', description: 'Optional exact Team member name. The task waits for this member and never falls back to another member.' },
       verification: {
         type: 'array',
         description: 'Captain-declared verification checks frozen into the task. Each entry is either a raw command or a named command-library template with parameters; templates expand before the task commit and may select a Node/Python root family.',
@@ -73,6 +74,7 @@ export function registerCreateTaskTool(ctx: Context, runtime: AgentSwarmRuntime)
         ...(args.blocked_by === undefined ? {} : { blockedBy: args.blocked_by.map(TaskId) }),
         ...(args.write_scopes === undefined ? {} : { writeScopes: args.write_scopes }),
         ...(args.priority === undefined ? {} : { priority: args.priority }),
+        ...(args.target_member === undefined ? {} : { targetMemberName: args.target_member }),
         ...(args.verification === undefined ? {} : {
           verification: args.verification.map(entry => ({
             ...(entry.command === undefined ? {} : { command: entry.command }),
@@ -168,11 +170,12 @@ export function registerSubmitTaskTool(ctx: Context, runtime: AgentSwarmRuntime)
 export function registerReassignTaskTool(ctx: Context, runtime: AgentSwarmRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_reassign_task',
-    description: 'Captain-only. Fence the current attempt before interruption, return the task to pending, and let the scheduler create a fresh attempt.',
+    description: 'Captain-only. Fence the current attempt before interruption and return the task to pending. target_member strictly routes the fresh attempt to that member.',
     parameters: {
       task_id: { type: 'string', required: true },
       expected_revision: { type: 'number', required: true },
       reason: { type: 'string', required: true },
+      target_member: { type: 'string', description: 'Optional exact Team member name for the fresh attempt.' },
     },
     output: {
       schema: {
@@ -186,7 +189,7 @@ export function registerReassignTaskTool(ctx: Context, runtime: AgentSwarmRuntim
       render: (_args, value) => [{ type: 'text', text: `Fenced and released ${value.task_id}; revision=${value.revision}, status=${value.status}.` }],
     },
     async execute(args, exec) {
-      const task = await runtime.reassignTask(exec, args.task_id, args.expected_revision, args.reason)
+      const task = await runtime.reassignTask(exec, args.task_id, args.expected_revision, args.reason, args.target_member)
       return { task_id: task.id, revision: task.revision, status: task.status }
     },
   }), 'reassign-task tool')

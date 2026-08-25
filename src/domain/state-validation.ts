@@ -97,6 +97,7 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
       integer(task.reservationTokens, path, `tasks[${index}].reservationTokens`, 1)
     }
     integer(task.priority, path, `tasks[${index}].priority`, Number.MIN_SAFE_INTEGER)
+    if (task.targetMemberSessionId !== undefined) text(task.targetMemberSessionId, path, `tasks[${index}].targetMemberSessionId`)
     if (task.ownerSessionId !== undefined) text(task.ownerSessionId, path, `tasks[${index}].ownerSessionId`)
     if (task.currentAttemptId !== undefined) text(task.currentAttemptId, path, `tasks[${index}].currentAttemptId`)
     if (task.output !== undefined) text(task.output, path, `tasks[${index}].output`)
@@ -105,6 +106,12 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
     return task
   })
   unique(tasks.map(task => task.id as string), path, 'task ids')
+  for (const task of tasks) {
+    if (task.targetMemberSessionId !== undefined
+      && !members.some(member => member.sessionId === task.targetMemberSessionId)) {
+      corrupt(path, `task ${String(task.id)} assignment target is not a Team member`)
+    }
+  }
 
   const attempts = list(team.attempts, path, 'attempts').map((raw, index) => {
     const attempt = record(raw, path, `attempts[${index}]`)

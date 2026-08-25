@@ -201,8 +201,9 @@ export class TeamDomain implements TeamDomainPort {
     taskId: TaskId,
     expectedRevision: number,
     diagnostic: string,
+    targetMemberSessionId?: string,
   ): Promise<TeamTask> {
-    return await board.cancelAttempt(this.deps, scope, teamId, captainSessionId, taskId, expectedRevision, diagnostic)
+    return await board.cancelAttempt(this.deps, scope, teamId, captainSessionId, taskId, expectedRevision, diagnostic, targetMemberSessionId)
   }
 
   async retryAttempt(

@@ -97,6 +97,8 @@ export interface TeamTask {
    * are inert while no `tokenLimit` is configured.
    */
   readonly reservationTokens?: number
+  /** Captain-selected member that alone may claim this task. */
+  readonly targetMemberSessionId?: string
   readonly ownerSessionId?: string
   readonly currentAttemptId?: AttemptId
   readonly output?: string

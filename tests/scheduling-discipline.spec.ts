@@ -60,7 +60,8 @@ describe('live-status scheduling discipline over the real composition (issue #12
 
       const followup = spyFollowup(composition)
       const task = await toolCall(ctx, composition.lead, 'task-running', 'agent_swarm_create_task', {
-        subject: 'Must wait for an idle member', description: 'Created while both members are running.',
+        subject: 'Must wait for the targeted idle member', description: 'Created while both members are running.',
+        target_member: 'beta-worker',
       })
       expect(task.isError).toBe(false)
       // Both members are live and running: the pass must not claim for either.
@@ -73,18 +74,20 @@ describe('live-status scheduling discipline over the real composition (issue #12
       adapter.open()
       await vi.waitFor(async () => {
         const snapshot = await snapshotOf(composition)
-        expect(snapshot.team.tasks[0]).toMatchObject({ status: 'in_progress', ownerSessionId: alphaId })
+        expect(snapshot.team.tasks[0]).toMatchObject({
+          status: 'in_progress', ownerSessionId: betaId, targetMemberSessionId: betaId,
+        })
       }, { timeout: 15_000 })
 
-      // The owner now runs its held assignment turn; a second task created
-      // in that state routes to the idle member, never to the running owner.
+      // The targeted owner now runs its held assignment turn; an untargeted
+      // second task routes to the remaining idle member.
       const second = await toolCall(ctx, composition.lead, 'task-idle', 'agent_swarm_create_task', {
         subject: 'Routes to the idle member', description: 'The running owner is excluded by ownership and status.',
       })
       expect(second.isError).toBe(false)
       await vi.waitFor(async () => {
         const snapshot = await snapshotOf(composition)
-        expect(snapshot.team.tasks[1]).toMatchObject({ status: 'in_progress', ownerSessionId: betaId })
+        expect(snapshot.team.tasks[1]).toMatchObject({ status: 'in_progress', ownerSessionId: alphaId })
       }, { timeout: 15_000 })
 
       followup.restore()

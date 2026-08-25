@@ -105,6 +105,8 @@ export interface CreateTaskInput {
    * configured.
    */
   readonly reservationTokens?: number
+  /** Optional strict assignment target; the scheduler must not fall back. */
+  readonly targetMemberSessionId?: string
 }
 
 /**
@@ -226,6 +228,7 @@ export interface TeamDomainPort {
     taskId: TaskId,
     expectedRevision: number,
     diagnostic: string,
+    targetMemberSessionId?: string,
   ): Promise<TeamTask>
   /**
    * Retry the current owner's open `in_progress` attempt in place (issue

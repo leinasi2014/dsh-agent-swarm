@@ -291,16 +291,18 @@ export async function removeMember(
     team.members[index] = committedMember
 
     for (const task of team.tasks) {
-      if (task.ownerSessionId !== current.sessionId || !['in_progress', 'submitted', 'verifying'].includes(task.status)) continue
-      if (task.currentAttemptId !== undefined) {
+      const ownsOpenAttempt = task.ownerSessionId === current.sessionId
+        && ['in_progress', 'submitted', 'verifying'].includes(task.status)
+      const isPendingTarget = task.status === 'pending' && task.targetMemberSessionId === current.sessionId
+      if (!ownsOpenAttempt && !isPendingTarget) continue
+      if (ownsOpenAttempt && task.currentAttemptId !== undefined) {
         const attempt = attemptOf(team, task.currentAttemptId)
         replaceAttempt(team, { ...attempt, phase: 'stale', diagnostic: reason, updatedAt: timestamp })
       }
-      const requeued = clearTaskExecution(task, {
-        revision: task.revision + 1,
-        status: 'pending',
-        updatedAt: timestamp,
-      })
+      const cleared = ownsOpenAttempt
+        ? clearTaskExecution(task, { revision: task.revision + 1, status: 'pending', updatedAt: timestamp })
+        : { ...task, revision: task.revision + 1, updatedAt: timestamp }
+      const { targetMemberSessionId: _removedTarget, ...requeued } = cleared
       replaceTask(team, requeued)
       requeuedTaskIds.push(task.id)
     }

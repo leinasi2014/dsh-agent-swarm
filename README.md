@@ -45,7 +45,7 @@ node scripts/verify-p0-profile-proof.mjs `
 captain（插件驱动）：
   1. agent_swarm_create            → 建团队（captain = 当前会话）
   2. agent_swarm_add_member ×3     → continuable 成员（persona/工具围栏）
-  3. agent_swarm_create_task ×N    → 任务 DAG（blockedBy 依赖 + 验收标准）
+  3. agent_swarm_create_task ×N    → 任务 DAG（blockedBy 依赖 + 验收标准；职责固定时声明 target_member）
   4. （调度器自动指派 → 成员执行 → agent_swarm_submit_task）
   5. agent_swarm_review_task       → 你审核 accept/reject
 ```
@@ -54,7 +54,7 @@ captain（插件驱动）：
 
 ## 核心能力
 
-- **任务板**：DAG 依赖、优先级、revision CAS + attemptId 双围栏（后到者 fail-loud，`TEAM_TASK_STALE_REVISION` / `TEAM_ATTEMPT_STALE`）；
+- **任务板**：DAG 依赖、优先级、可选严格成员定向（阻塞期间持久且不回退）、revision CAS + attemptId 双围栏（后到者 fail-loud，`TEAM_TASK_STALE_REVISION` / `TEAM_ATTEMPT_STALE`）；
 - **审核门**：`submitted` 绝不自行完成——captain `review_task` 是唯一 accept/reject 权威，支持可执行审查（验证命令在隔离审查根执行，证据不可伪造，#101）；
 - **持久邮箱**：queued-before-delivered、按消息 ID 目标侧去重、quiet/wakeup 两种语义（wakeup 的 `delivered` 仅在模型可见后提交，#52/D1）；
 - **预算**：token/request/retry/deadline 四限 + 官方对齐的完整计费 token 计量（seq 游标幂等，插件账本为唯一计量路径，#127 边界声明）；

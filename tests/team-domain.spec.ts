@@ -73,6 +73,36 @@ describe('TeamDomain over the official Storage Domain', () => {
     expect(rejected).toMatchObject({ reason: { code: 'TEAM_TASK_STALE_REVISION' } })
   })
 
+  it('persists a strict assignment across DAG blocking and rejects the wrong member', async () => {
+    const team = await teamWithMembers()
+    const blocker = await domain.createTask(scope, team.id, 'captain-session', {
+      subject: 'blocker', description: 'Finish before targeted work.',
+    })
+    const targeted = await domain.createTask(scope, team.id, 'captain-session', {
+      subject: 'targeted', description: 'Only worker 2 may execute.',
+      blockedBy: [blocker.id], targetMemberSessionId: 'member-2',
+    })
+    expect(targeted.targetMemberSessionId).toBe('member-2')
+    await expect(domain.claimTask(
+      scope, team.id, 'captain-session', targeted.id, targeted.revision, 'member-1',
+    )).rejects.toMatchObject({ code: 'TEAM_TASK_ASSIGNEE_MISMATCH' })
+
+    const blockerClaim = await domain.claimTask(
+      scope, team.id, 'captain-session', blocker.id, blocker.revision, 'member-1',
+    )
+    await domain.acknowledgeAssignment(scope, team.id, blocker.id, blockerClaim.attempt.id)
+    const submitted = await domain.submitTask(
+      scope, team.id, 'member-1', blocker.id, blockerClaim.task.revision, blockerClaim.attempt.id, 'done',
+    )
+    await domain.reviewTask(
+      scope, team.id, 'captain-session', blocker.id, submitted.revision, blockerClaim.attempt.id, 'accept',
+    )
+    const claim = await domain.claimTask(
+      scope, team.id, 'captain-session', targeted.id, targeted.revision, 'member-2',
+    )
+    expect(claim.task).toMatchObject({ ownerSessionId: 'member-2', targetMemberSessionId: 'member-2' })
+  })
+
   it('requires review acceptance before canonical completion', async () => {
     const team = await teamWithMembers(1)
     const task = await domain.createTask(scope, team.id, 'captain-session', {
@@ -124,7 +154,9 @@ describe('TeamDomain over the official Storage Domain', () => {
       task.id,
       oldClaim.task.revision,
       'captain reassigned the task',
+      'member-2',
     )
+    expect(released.targetMemberSessionId).toBe('member-2')
     const newClaim = await domain.claimTask(
       scope, team.id, 'captain-session', task.id, released.revision, 'member-2',
     )
