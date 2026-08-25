@@ -143,6 +143,25 @@ describe('A2a official same-Attempt continuation vertical', () => {
       expect(ctx.agentSwarmV2Initial.snapshot(workspace, teamId)!.attempts[0]).toMatchObject({
         id: snapshot.attempts[0]!.id, generation: 1, phase: 'parked',
       })
+
+      const originalFrame = continuationFrames[0]!
+      if (originalFrame.type !== 'user/message') throw new Error('expected one durable continuation frame')
+      const originalText = originalFrame.data.content.find(block => block.type === 'text')
+      if (originalText?.type !== 'text') throw new Error('expected a text continuation frame')
+      await ctx.subagents.followup(
+        lead,
+        SessionId(member.session_id),
+        [{ type: 'text', text: originalText.text }],
+        { source: { kind: 'plugin', plugin: 'dsh-agent-swarm' }, signal: AbortSignal.timeout(5_000) },
+      )
+      await vi.waitFor(async () => {
+        const afterStaleTypedWake = await ctx.sessionPersistence.load(SessionId(member.session_id))
+        expect(afterStaleTypedWake.events.some(event => event.type === 'turn/end' && event.data.turn === 4)).toBe(true)
+      }, { timeout: 10_000 })
+      expect(adapter.requests.filter(request => request.sessionId === member.session_id)).toHaveLength(3)
+      expect(ctx.agentSwarmV2Initial.snapshot(workspace, teamId)!.attempts[0]).toMatchObject({
+        id: snapshot.attempts[0]!.id, generation: 1, phase: 'parked',
+      })
     } finally {
       for (const fiber of mounted?.fibers.toReversed() ?? []) await fiber.dispose().catch(() => undefined)
     }

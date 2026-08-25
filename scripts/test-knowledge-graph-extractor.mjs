@@ -156,11 +156,11 @@ try {
   const actual = await extractSourceFacts(repositoryRoot)
   assert.deepEqual(errorCodes(actual), [], `actual repository diagnostics: ${JSON.stringify(actual.diagnostics)}`)
   assert.deepEqual(actual.counts, {
-    discoveredModules: 123,
-    parsedModules: 123,
+    discoveredModules: 128,
+    parsedModules: 128,
     toolDefinitions: 20,
     tools: 20,
-    imports: 713,
+    imports: 746,
     injections: 34,
     providerRegistrations: 6,
     providerRegistryMethods: 11,
@@ -269,13 +269,13 @@ try {
     JSON.stringify(item.names), JSON.stringify(item.effectiveExports),
   ].join('|'))
   // Exact candidate drift locks over complete normalized tuple sets; later graph reconciliation replaces these KG1 locks.
-  assertTupleSetDigest(externalRegistryTuples, 'd8b2de2df5714e351412320b5086ac010df663c22b30e90e61d774e7ad76d438', 'external registries')
+  assertTupleSetDigest(externalRegistryTuples, 'b8b170bbb86e98c40372025b774c94f7881d0a951e3da13d6fc6bdc68b2f4fd9', 'external registries')
   assertTupleSetDigest(rpcTuples, 'dd9e8353c0564d866d2f19b1310e7e870d5a997761e82c81b7255223a79565ad', 'RPC')
   assertTupleSetDigest(listenerTuples, '71b5435abc8739ad326cb24105620a0235c1a16e3d4dedf1251fe335d2780edc', 'listeners')
   assertTupleSetDigest(effectTuples, '0c2f4dc23b978a1f13c675f818d72ba7920ab91293a18071fb90f4c9431a7422', 'effects')
   assertTupleSetDigest(exportTuples(actual.reachableRootExports), '771c964630864102e1ba31e13263513fc900dd90fe0bf3568ba6f1ce022a5236', 'root reachable exports')
   assertTupleSetDigest(exportTuples(actual.reachablePublicApiExports), 'a2520120278763b6cb98c2aab04470e65ff0ee6f591d5302e8b394809bb9bec5', 'public API reachable exports')
-  assertTupleSetDigest(reexportLayerTuples, '95640ddda8f6299cc065dbb119489e375ea2cbe38ce26792c601ab5b2c7cd60e', 're-export semantic layers')
+  assertTupleSetDigest(reexportLayerTuples, '7d97e3d1a334a7457423a698df7641c35ed6c6386fd211493dacdfb4de9e8e3e', 're-export semantic layers')
   assert.deepEqual(actual.packageExports.map(item => `${item.subpath}|${item.condition}|${item.target}`), [
     '.|default|./lib/index.mjs',
     '.|types|./lib/types/index.d.ts',

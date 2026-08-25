@@ -337,7 +337,8 @@ export function assertTeamStateV2(value: unknown, path: string): asserts value i
         fail(path, `initial dispatch ${epoch.dispatchId} carries a continuation inbox identity`)
       }
       if ((epoch.kind === 'continuation' || epoch.kind === 'recovery')
-        && epoch.phase !== 'frame-pending' && epoch.frameMessageId === undefined) {
+        && !['frame-pending', 'superseded', 'cancelled'].includes(epoch.phase)
+        && epoch.frameMessageId === undefined) {
         fail(path, `continuation dispatch ${epoch.dispatchId} lacks its official inbox identity`)
       }
       const bound = epoch.turn !== undefined && epoch.step !== undefined && epoch.messageSeq !== undefined

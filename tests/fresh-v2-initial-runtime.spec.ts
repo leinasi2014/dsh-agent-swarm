@@ -530,4 +530,5 @@ describe('A1b fresh-v2 official AgentLoop vertical', () => {
       for (const fiber of mounted.fibers.toReversed()) await fiber.dispose().catch(() => undefined)
     }
   })
+
 })

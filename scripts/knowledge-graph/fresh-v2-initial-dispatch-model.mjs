@@ -96,6 +96,8 @@ export function buildFreshV2InitialDispatchSlice(facts) {
   const continuationDomainFile = 'src/domain/team-domain-v2-continuation.ts'
   const recoveryDomainFile = 'src/domain/team-domain-v2-continuation-recovery.ts'
   const continuationFoldFile = 'src/runtime/fresh-v2-continuation-fold.ts'
+  const taskControlFile = 'src/domain/team-domain-v2-task-control.ts'
+  const taskControlRuntimeFile = 'src/runtime/fresh-v2-task-control-runtime.ts'
   const flow = ref('flow:fresh-v2-initial-dispatch', 'flow')
   const service = ref('service:fresh-v2-initial-runtime', 'service')
   const attempt = ref('entity:fresh-v2-task-attempt', 'entity')
@@ -157,6 +159,7 @@ export function buildFreshV2InitialDispatchSlice(facts) {
   const continuationEffect = ref('entity:fresh-v2-continuation-effect', 'entity')
   const recoveryService = ref('service:fresh-v2-recovery-driver', 'service')
   const followupProvider = ref('provider:official-subagent-continuation-followup', 'provider')
+  const interruptProvider = ref('provider:official-subagent-interrupt', 'provider')
   const continuationGuard = ref('guard:fresh-v2-continuation-exact-attempt', 'guard')
   const continuationTransactions = {
     request: ref('transaction:fresh-v2-request-continuation', 'transaction'),
@@ -183,6 +186,13 @@ export function buildFreshV2InitialDispatchSlice(facts) {
   }
   const recoveryClaim = ref('transaction:fresh-v2-claim-recovery-frame', 'transaction')
   const coldContinuation = ref('flow-branch:fresh-v2-online-continuation/cold-recovery-pending-capability-blocked', 'flow-branch')
+  const taskControlFlow = ref('flow:fresh-v2-task-control-competition', 'flow')
+  const taskControlService = ref('service:fresh-v2-task-control-runtime', 'service')
+  const submitTransaction = ref('transaction:fresh-v2-submit-current-attempt', 'transaction')
+  const reassignTransaction = ref('transaction:fresh-v2-reassign-current-attempt', 'transaction')
+  const terminalControlFence = ref('guard:fresh-v2-terminal-control-wins', 'guard')
+  const taskControlTests = ref('test:fresh-v2-task-control-domain', 'test')
+  const taskControlRuntimeTests = ref('test:fresh-v2-task-control-runtime', 'test')
   const implementedBranches = [
     'provider-start-rejected',
     'pre-model-barrier-rejected',
@@ -256,13 +266,21 @@ export function buildFreshV2InitialDispatchSlice(facts) {
     node(facts, continuationTests.fold.id, continuationTests.fold.kind, 'Fresh-v2 continuation frame source and identity fold tests', contracts, 'tests/fresh-v2-continuation-fold.spec.ts', 'continuation-fold-tests', { verification: 'unit', evidence: [], security: security(contracts) }),
     node(facts, continuationTests.restart.id, continuationTests.restart.kind, 'Fresh-v2 recovery delivery, cold claim and pending no-duplicate composition tests', contracts, 'tests/fresh-v2-continuation-restart.spec.ts', 'continuation-restart-tests', { verification: 'composition', evidence: [], security: security(contracts) }),
     node(facts, coldContinuation.id, coldContinuation.kind, 'Durably pending recovery frame cannot be resumed through an official exact-MessageId seam', team, recoveryRuntimeFile, 'cold-recovery-pending-capability-blocked', { maturity: absentMaturity('Official DSH exposes no public resume-only operation for an existing pending recovery MessageId'), contract: { nodeKind: 'flow-branch', flow: continuationFlow }, defaultState: 'disabled' }),
+    node(facts, taskControlFlow.id, taskControlFlow.kind, 'Atomic submit and captain-reassign competition with live model dispatch', team, taskControlFile, 'task-control-competition', { verification: 'composition', evidence: [taskControlTests.id, taskControlRuntimeTests.id] }),
+    node(facts, taskControlService.id, taskControlService.kind, 'Fresh-v2 submit/reassign authority adapter', team, taskControlRuntimeFile, 'task-control-runtime', { verification: 'composition', evidence: [taskControlRuntimeTests.id], mutation: 'external-effect', security: security(team, 'external-effect', { guards: [terminalControlFence] }) }),
+    node(facts, interruptProvider.id, interruptProvider.kind, 'Official Subagent interrupt provider', subagent, taskControlRuntimeFile, 'official-subagent-interrupt', { security: security(subagent, 'external-effect') }),
+    node(facts, submitTransaction.id, submitTransaction.kind, 'Submit exact current Attempt and supersede all open dispatch authority', team, taskControlFile, 'submit-current-attempt', { security: security(team, 'domain-transaction', { guards: [terminalControlFence] }) }),
+    node(facts, reassignTransaction.id, reassignTransaction.kind, 'Reassign exact current Attempt before interrupting its member', team, taskControlFile, 'reassign-current-attempt', { security: security(team, 'domain-transaction', { guards: [terminalControlFence] }) }),
+    node(facts, terminalControlFence.id, terminalControlFence.kind, 'Task revision, Attempt, actor and one-shot model permit fail-closed fence', team, taskControlFile, 'terminal-control-fence'),
+    node(facts, taskControlTests.id, taskControlTests.kind, 'Fresh-v2 task-control domain race tests', contracts, 'tests/fresh-v2-task-control-domain.spec.ts', 'task-control-domain-tests', { verification: 'unit', evidence: [], security: security(contracts) }),
+    node(facts, taskControlRuntimeTests.id, taskControlRuntimeTests.kind, 'Fresh-v2 task-control official Agent Loop race tests', contracts, 'tests/fresh-v2-task-control-runtime.spec.ts', 'task-control-runtime-tests', { verification: 'composition', evidence: [], security: security(contracts) }),
     ...implementedBranches.map(name => node(facts, `flow-branch:fresh-v2-initial-dispatch/${name}`, 'flow-branch', name.replaceAll('-', ' '), team, runtimeFile, `branch-${name}`, { contract: { nodeKind: 'flow-branch', flow } })),
     ...absentBranches.map(name => node(facts, `flow-branch:fresh-v2-initial-dispatch/${name}`, 'flow-branch', name.replaceAll('-', ' '), team, runtimeFile, `absent-${name}`, { maturity: absentMaturity(`A2 recovery slice: ${name}`), contract: { nodeKind: 'flow-branch', flow }, defaultState: 'disabled' })),
   ]
 
   const edges = []
   const add = (...items) => edges.push(...items)
-  for (const owned of [service, flow, attempt, dispatch, ...Object.values(tx), checkpoints.pending, checkpoints.entered, fences.attempt, fences.dispatch, guards.activation, ...Object.values(predicates), ...Object.values(states), continuationService, recoveryService, continuationFlow, continuationIntent, continuationEffect, continuationGuard, recoveryClaim, ...Object.values(continuationTransactions), ...Object.values(continuationStates), coldContinuation]) {
+  for (const owned of [service, flow, attempt, dispatch, ...Object.values(tx), checkpoints.pending, checkpoints.entered, fences.attempt, fences.dispatch, guards.activation, ...Object.values(predicates), ...Object.values(states), continuationService, recoveryService, continuationFlow, continuationIntent, continuationEffect, continuationGuard, recoveryClaim, ...Object.values(continuationTransactions), ...Object.values(continuationStates), coldContinuation, taskControlFlow, taskControlService, submitTransaction, reassignTransaction, terminalControlFence]) {
     add(edge(facts, `edge:fresh-v2-owner/${owned.id.replace(':', '/')}`, 'owns', team, owned, runtimeFile, `owner-${owned.id}`))
   }
   add(
@@ -356,6 +374,7 @@ export function buildFreshV2InitialDispatchSlice(facts) {
     edge(facts, 'edge:fresh-v2-continuation/evidence-mutates-dispatch', 'mutates', continuationTransactions.evidence, dispatch, continuationDomainFile, 'continuation-evidence-dispatch'),
     edge(facts, 'edge:fresh-v2-continuation/evidence-transitions-running', 'transitions', continuationTransactions.evidence, continuationStates.running, continuationDomainFile, 'continuation-running'),
     edge(facts, 'edge:fresh-v2-owner/official-followup-provider', 'owns', subagent, followupProvider, continuationRuntimeFile, 'owner-followup-provider'),
+    edge(facts, 'edge:fresh-v2-owner/official-interrupt-provider', 'owns', subagent, interruptProvider, taskControlRuntimeFile, 'owner-interrupt-provider'),
     edge(facts, 'edge:fresh-v2-owner/session-continuation-frame', 'owns', session, continuationFrame, continuationFoldFile, 'owner-continuation-frame'),
     edge(facts, 'edge:fresh-v2-owner/session-recovery-frame', 'owns', session, recoveryFrame, continuationFoldFile, 'owner-recovery-frame'),
     edge(facts, 'edge:fresh-v2-continuation/flow-verified-domain', 'verified-by', continuationFlow, continuationTests.domain, continuationDomainFile, 'continuation-verified-domain'),
@@ -363,6 +382,17 @@ export function buildFreshV2InitialDispatchSlice(facts) {
     edge(facts, 'edge:fresh-v2-continuation/flow-verified-fold', 'verified-by', continuationFlow, continuationTests.fold, continuationFoldFile, 'continuation-verified-fold'),
     edge(facts, 'edge:fresh-v2-continuation/flow-verified-restart', 'verified-by', continuationFlow, continuationTests.restart, recoveryRuntimeFile, 'continuation-verified-restart'),
     edge(facts, 'edge:fresh-v2-continuation/flow-documented-blueprint', 'documented-by', continuationFlow, document, 'docs/development/2026-08-24-team-runtime-architecture-blueprint-v1.md', 'continuation-documented-blueprint'),
+    edge(facts, 'edge:fresh-v2-task-control/service-calls-submit', 'calls', taskControlService, submitTransaction, taskControlRuntimeFile, 'task-control-calls-submit'),
+    edge(facts, 'edge:fresh-v2-task-control/service-calls-reassign', 'calls', taskControlService, reassignTransaction, taskControlRuntimeFile, 'task-control-calls-reassign'),
+    edge(facts, 'edge:fresh-v2-task-control/service-calls-interrupt', 'calls', taskControlService, interruptProvider, taskControlRuntimeFile, 'task-control-calls-interrupt'),
+    edge(facts, 'edge:fresh-v2-task-control/fence-guards-flow', 'guards', terminalControlFence, taskControlFlow, taskControlFile, 'task-control-guard'),
+    edge(facts, 'edge:fresh-v2-task-control/submit-mutates-attempt', 'mutates', submitTransaction, attempt, taskControlFile, 'submit-mutates-attempt'),
+    edge(facts, 'edge:fresh-v2-task-control/submit-mutates-dispatch', 'mutates', submitTransaction, dispatch, taskControlFile, 'submit-mutates-dispatch'),
+    edge(facts, 'edge:fresh-v2-task-control/reassign-mutates-attempt', 'mutates', reassignTransaction, attempt, taskControlFile, 'reassign-mutates-attempt'),
+    edge(facts, 'edge:fresh-v2-task-control/reassign-mutates-dispatch', 'mutates', reassignTransaction, dispatch, taskControlFile, 'reassign-mutates-dispatch'),
+    edge(facts, 'edge:fresh-v2-task-control/flow-verified-domain', 'verified-by', taskControlFlow, taskControlTests, taskControlFile, 'task-control-verified-domain'),
+    edge(facts, 'edge:fresh-v2-task-control/flow-verified-composition', 'verified-by', taskControlFlow, taskControlRuntimeTests, taskControlRuntimeFile, 'task-control-verified-composition'),
+    edge(facts, 'edge:fresh-v2-task-control/flow-documented-blueprint', 'documented-by', taskControlFlow, document, 'docs/development/2026-08-24-team-runtime-architecture-blueprint-v1.md', 'task-control-documented-blueprint'),
   )
   nodes.sort((left, right) => compareText(left.id, right.id))
   edges.sort((left, right) => compareText(left.id, right.id))

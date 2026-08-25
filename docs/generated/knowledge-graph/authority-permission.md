@@ -2,7 +2,7 @@
 
 # Authority and permission
 
-Manifest digest: `9fdbe8adede5f563d22b0e761ad42e0587567cb3fcda89ead1c81c511c2dee0f`
+Manifest digest: `38d6d41a95aedd42346d251edcabd8c7bb888b2ce13506f0f96f33e8772c53ea`
 
 Curated tool-registry digest: `c5d326eaafe8ee14415e4ad0f73e97f429ef152cd80f5192e2747529fad49c09`
 
@@ -128,6 +128,7 @@ flowchart LR
   n_67756172643a66726573682d76322d6578706572696d656e74616c2d61637469766174696f6e["Fresh-v2 is explicit and isolated from v1 activation"]
   n_67756172643a66726573682d76322d66697865642d70726f66696c652d7769746e6573732d6361706162696c697479["Fixed-Profile host, artifact, Provider and listener-order witness"]
   n_67756172643a66726573682d76322d6f6666696369616c2d6167656e742d6c6f6f702d72657175657374["Exact official Agent Loop AbortSignal permit and Session coordinates"]
+  n_67756172643a66726573682d76322d7465726d696e616c2d636f6e74726f6c2d77696e73["Task revision, Attempt, actor and one-shot model permit fail-closed fence"]
   n_67756172643a6d656d6265722d6861732d6e6f2d6f70656e2d776f726b["available"]
   n_67756172643a6f6666696369616c2d6c6976652d6469726563742d706172656e742d61646d697373696f6e["parent"]
   n_67756172643a7270632d626f756e642f7372632f636c69656e742f7465616d2d64617368626f6172642d636f6e74726f6c6c65722e74732f706167655f6c696d6974["PAGE_LIMIT = 50"]
@@ -140,16 +141,15 @@ flowchart LR
   n_67756172643a7461736b2d7265616479["ready"]
   n_6f6666696369616c2d617574686f726974793a6167656e742d6c6f6f70["Official DSH Agent Loop execution authority"]
   n_6f6666696369616c2d617574686f726974793a6c6c6d2d72756e74696d65["Official DSH LLM registry and stream waterfall authority"]
-  n_6f6666696369616c2d617574686f726974793a73657373696f6e["Official Session event/history authority"]
   n_646f6d61696e3a6167656e742d737761726d -->|owns| n_67756172643a66726573682d76322d636f6e74696e756174696f6e2d65786163742d617474656d7074
   n_646f6d61696e3a6167656e742d737761726d -->|owns| n_67756172643a66726573682d76322d6578706572696d656e74616c2d61637469766174696f6e
+  n_646f6d61696e3a6167656e742d737761726d -->|owns| n_67756172643a66726573682d76322d7465726d696e616c2d636f6e74726f6c2d77696e73
   n_6f6666696369616c2d617574686f726974793a6c6c6d2d72756e74696d65 -->|owns| n_6361706162696c6974793a66726573682d76322d6d6f64656c2d64697370617463682d7769746e657373
   n_6f6666696369616c2d617574686f726974793a6c6c6d2d72756e74696d65 -->|owns| n_67756172643a66726573682d76322d66697865642d70726f66696c652d7769746e6573732d6361706162696c697479
   n_6f6666696369616c2d617574686f726974793a6167656e742d6c6f6f70 -->|owns| n_67756172643a66726573682d76322d6f6666696369616c2d6167656e742d6c6f6f702d72657175657374
   n_646f6d61696e3a6167656e742d737761726d -->|owns| n_67756172643a617474656d70742d72756e6e696e672d7265736572766564
   n_646f6d61696e3a6167656e742d737761726d -->|owns| n_67756172643a6275646765742d7265736572766174696f6e2d61646d69737369626c65
   n_646f6d61696e3a6167656e742d737761726d -->|owns| n_67756172643a6361707461696e2d6f722d73656c662d6d656d62657273686970
-  n_6f6666696369616c2d617574686f726974793a73657373696f6e -->|owns| n_67756172643a636c61696d65642d6672616d652d6f6e6c792d61636b6e6f776c656467656d656e74
   n_646f6d61696e3a6167656e742d737761726d -->|owns| n_67756172643a65786163742d63757272656e742d617474656d7074
   n_646f6d61696e3a6167656e742d737761726d -->|owns| n_67756172643a65786163742d7461736b2d7265766973696f6e
   n_646f6d61696e3a6167656e742d737761726d -->|owns| n_67756172643a6d656d6265722d6861732d6e6f2d6f70656e2d776f726b
@@ -177,6 +177,7 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `guard:fresh-v2-experimental-activation` | guard | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `guard:fresh-v2-fixed-profile-witness-capability` | guard | REVIEWED | implemented | composition | candidate | config-gated | `official-authority:llm-runtime` |
 | `guard:fresh-v2-official-agent-loop-request` | guard | REVIEWED | implemented | composition | candidate | config-gated | `official-authority:agent-loop` |
+| `guard:fresh-v2-terminal-control-wins` | guard | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `guard:member-has-no-open-work` | guard | REVIEWED | implemented | static | candidate | always-registered | `domain:agent-swarm` |
 | `guard:official-live-direct-parent-admission` | guard | REVIEWED | implemented | static | candidate | always-registered | `official-authority:subagent` |
 | `guard:rpc-bound/src/client/team-dashboard-controller.ts/page_limit` | guard | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | unavailable | `(unclassified)` |
@@ -589,10 +590,11 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `public-capability:reexport-layer/60-src/public-api.ts` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
 | `public-capability:reexport-layer/61-src/public-api.ts` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
 | `public-capability:reexport-layer/62-src/runtime/execution-roots.ts` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
-| `public-capability:reexport-layer/63-src/runtime/orchestrator-runtime.ts` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
+| `public-capability:reexport-layer/63-src/runtime/fresh-v2-initial-runtime.ts` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
 | `public-capability:reexport-layer/64-src/runtime/orchestrator-runtime.ts` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
 | `public-capability:reexport-layer/65-src/runtime/orchestrator-runtime.ts` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
-| `public-capability:reexport-layer/66-src/runtime/permission-surface.ts` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
+| `public-capability:reexport-layer/66-src/runtime/orchestrator-runtime.ts` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
+| `public-capability:reexport-layer/67-src/runtime/permission-surface.ts` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
 | `public-capability:rpc-constant/swarm_read_rpc_contract_digest_v1` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
 | `public-capability:rpc-constant/swarm_read_rpc_endpoint` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |
 | `public-capability:rpc-constant/swarm_read_rpc_namespace` | public-capability | MECHANICAL / UNCLASSIFIED | implemented | none | not-candidate | package-exported | `(unclassified)` |

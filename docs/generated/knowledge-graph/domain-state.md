@@ -2,7 +2,7 @@
 
 # Domain and state
 
-Manifest digest: `9fdbe8adede5f563d22b0e761ad42e0587567cb3fcda89ead1c81c511c2dee0f`
+Manifest digest: `38d6d41a95aedd42346d251edcabd8c7bb888b2ce13506f0f96f33e8772c53ea`
 
 Curated tool-registry digest: `c5d326eaafe8ee14415e4ad0f73e97f429ef152cd80f5192e2747529fad49c09`
 
@@ -315,8 +315,10 @@ _View capped at 30 nodes and 60 edges; use atlas.json for the complete graph._
 | `transaction:fresh-v2-enter-initial-dispatch` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `transaction:fresh-v2-fail-initial` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `transaction:fresh-v2-park-after-turn` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `transaction:fresh-v2-reassign-current-attempt` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `transaction:fresh-v2-record-continuation-frame` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `transaction:fresh-v2-request-continuation` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `transaction:fresh-v2-settle-assistant-evidence` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `transaction:fresh-v2-settle-continuation-evidence` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
 | `transaction:fresh-v2-settle-initial-assignment` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |
+| `transaction:fresh-v2-submit-current-attempt` | transaction | REVIEWED | implemented | composition | candidate | config-gated | `domain:agent-swarm` |

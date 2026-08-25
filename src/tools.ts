@@ -28,10 +28,11 @@ import { registerAddMemoryTool, registerAddPersonalMemoryTool, registerListMemor
 import { registerListJobsTool, registerListTasksTool, registerStatusTool } from './tools/read-surface.js'
 import type { InitialTeamLifecycleRuntime } from './tools/team-lifecycle.js'
 import type { InitialTaskBoardRuntime } from './tools/task-board.js'
+import type { ReassignTaskRuntime, SubmitTaskRuntime } from './tools/task-board.js'
 import { registerContinueTaskTool, type ContinuationRuntime } from './tools/continuation.js'
 
 /** Register the unchanged public walking-skeleton tools shared by v1 and fresh-v2. */
-export function registerInitialAgentSwarmTools(
+function registerInitialAgentSwarmTools(
   ctx: Context,
   runtime: InitialTeamLifecycleRuntime & InitialTaskBoardRuntime & Partial<ContinuationRuntime>,
 ): void {
@@ -39,6 +40,16 @@ export function registerInitialAgentSwarmTools(
   registerAddMemberTool(ctx, runtime)
   registerCreateTaskTool(ctx, runtime)
   if (runtime.continueTask !== undefined) registerContinueTaskTool(ctx, runtime as ContinuationRuntime)
+}
+
+/** Register the currently implemented fresh-v2 model control surface. */
+export function registerFreshV2AgentSwarmTools(
+  ctx: Context,
+  runtime: InitialTeamLifecycleRuntime & InitialTaskBoardRuntime & ContinuationRuntime & SubmitTaskRuntime & ReassignTaskRuntime,
+): void {
+  registerInitialAgentSwarmTools(ctx, runtime)
+  registerSubmitTaskTool(ctx, runtime)
+  registerReassignTaskTool(ctx, runtime)
 }
 
 /** Register the model-facing Consumer over the Team orchestrator runtime. */

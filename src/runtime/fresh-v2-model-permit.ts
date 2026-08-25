@@ -10,6 +10,21 @@ export interface FreshV2ModelPermit {
   readonly step: number
 }
 
+/** True only for the exact pending AgentLoop permit; any competing signal fails closed. */
+export function ownsFreshV2ModelPermit(
+  permits: ReadonlyMap<string, FreshV2ModelPermit>,
+  options: GenerateOptions,
+  label: string,
+): boolean {
+  if (options.sessionId === undefined) return false
+  const permit = permits.get(options.sessionId)
+  if (permit === undefined) return false
+  if (options.signal !== permit.signal) {
+    throw new TeamDomainError(`AgentLoop request conflicts with its ${label} permit`, 'TEAM_ATTEMPT_STALE')
+  }
+  return true
+}
+
 /** Consume one exact AgentLoop permit and resolve its identical live Agent/Session pair. */
 export function consumeFreshV2ModelPermit(
   ctx: Context,

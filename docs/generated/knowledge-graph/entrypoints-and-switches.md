@@ -2,7 +2,7 @@
 
 # Entrypoints and switches
 
-Manifest digest: `9fdbe8adede5f563d22b0e761ad42e0587567cb3fcda89ead1c81c511c2dee0f`
+Manifest digest: `38d6d41a95aedd42346d251edcabd8c7bb888b2ce13506f0f96f33e8772c53ea`
 
 Curated tool-registry digest: `c5d326eaafe8ee14415e4ad0f73e97f429ef152cd80f5192e2747529fad49c09`
 

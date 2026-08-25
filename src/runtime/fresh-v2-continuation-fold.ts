@@ -4,6 +4,7 @@ import type { ContinuationDispatchCheckpoint } from '../domain/team-domain-v2-co
 import type { ContinuationIntent, ModelDispatchEpoch, TaskAttemptV2, TeamStateV2 } from '../domain/team-state-v2.js'
 import type { TeamTask } from '../domain/types.js'
 import { canonicalV2, canonicalV2Digest } from '../protocol/canonical-v2.js'
+import { currentOpenStepStartSeq } from './fresh-v2-session-step.js'
 
 interface ContinuationFrameIdentity {
   readonly teamId: string
@@ -32,7 +33,7 @@ export function continuationFrame(identity: ContinuationFrameIdentity): string {
     dispatchId: identity.dispatchId,
     ordinal: identity.ordinal,
   })
-  return `<agent-swarm-continuation>${envelope}</agent-swarm-continuation>\nContinue the exact same Team task and Attempt. Re-read durable Team state and stay within the existing authority envelope. Request another continuation before this turn settles if more work remains; task submission is not available in this experimental slice.`
+  return `<agent-swarm-continuation>${envelope}</agent-swarm-continuation>\nContinue the exact same Team task and Attempt. Re-read durable Team state and stay within the existing authority envelope. Submit with agent_swarm_submit_task when the task is finished; otherwise request another continuation before this turn settles.`
 }
 
 function continuationRecoveryFrame(identity: ContinuationRecoveryFrameIdentity): string {
@@ -49,7 +50,7 @@ function continuationRecoveryFrame(identity: ContinuationRecoveryFrameIdentity):
     ordinal: identity.ordinal,
     recoveryProofDigest: identity.recoveryProofDigest,
   })
-  return `<agent-swarm-recovery>${envelope}</agent-swarm-recovery>\nRecover the exact same Team task and Attempt after a proven non-entry boundary. Re-read durable Team state and continue only under the recovery dispatch authority.`
+  return `<agent-swarm-recovery>${envelope}</agent-swarm-recovery>\nRecover the exact same Team task and Attempt after a proven non-entry boundary. Re-read durable Team state and continue only under the recovery dispatch authority; submit only when the task is finished.`
 }
 
 export function continuationFrameDigest(text: string): string {
@@ -61,6 +62,18 @@ export function continuationPluginFrameText(event: SessionEvent): string | undef
     || event.data.source.plugin !== 'dsh-agent-swarm' || event.data.content.length !== 1) return undefined
   const block = event.data.content[0]
   return block?.type === 'text' ? block.text : undefined
+}
+
+/** Detect any plugin-owned continuation/recovery frame in the current open step. */
+export function currentStepContainsContinuationFrame(session: Session, turn: number, step: number): boolean {
+  const startSeq = currentOpenStepStartSeq(session, turn, step)
+  if (startSeq === undefined) return false
+  return session.events.some(event => {
+    if (event.seq <= startSeq) return false
+    const text = continuationPluginFrameText(event)
+    return text?.startsWith('<agent-swarm-continuation>') === true
+      || text?.startsWith('<agent-swarm-recovery>') === true
+  })
 }
 
 export interface ClaimedContinuationFrame {

@@ -18,11 +18,11 @@ import type { ContinuationIntent, TeamMemberV2, TeamStateV2 } from '../domain/te
 import { AttemptId, type TeamTask } from '../domain/types.js'
 import { StorageDomainTeamStoreV2 } from '../storage/storage-domain-team-store-v2.js'
 import { teamDomainSpecV2 } from '../storage/team-spec-v2.js'
-import type { InitialTaskBoardRuntime } from '../tools/task-board.js'
+import type { InitialTaskBoardRuntime, ReassignTaskRuntime, SubmitTaskRuntime } from '../tools/task-board.js'
 import type { InitialTeamLifecycleRuntime } from '../tools/team-lifecycle.js'
 import { requireAgent, workspaceOf, type ToolExecutionAuthority } from './authority.js'
 import { boundedSettle } from './disposal.js'
-import { assistantEvidenceAt, claimedInitialFrame, initialPromptDigest } from './fresh-v2-session-fold.js'
+import { assistantEvidenceAt, claimedInitialFrame, currentStepContainsInitialFrame, initialPromptDigest } from './fresh-v2-session-fold.js'
 import {
   compileInitialVerification, currentFreshV2InitialAttempt, describeFreshV2Error,
   findFreshV2Membership, initialCheckpointOf,
@@ -38,27 +38,17 @@ import { FreshV2ContinuationRuntime } from './fresh-v2-continuation-runtime.js'
 import type { ContinuationRuntime } from '../tools/continuation.js'
 import { consumeFreshV2ModelPermit, type FreshV2ModelPermit } from './fresh-v2-model-permit.js'
 import { FreshV2EvidenceCoordinator } from './fresh-v2-evidence-coordinator.js'
-export interface FreshV2InitialConfig {
-  readonly artifactContract: string
-  readonly hostContract: string
-  readonly legacyManifestCapacity: number
-  readonly memberProvider: string
-  readonly memberLlmProvider?: string
-  readonly memberModel?: string
-  readonly memberDenyTools: readonly string[]
-  readonly memberSkills: readonly string[]
-  readonly memberMaxDepth: number
-  readonly maxMembers: number
-  readonly maxVerificationCommands: number
-  readonly maxVerificationCommandMs: number
-  readonly disposalTimeoutMs: number
-}
+import { FreshV2TaskControlRuntime } from './fresh-v2-task-control-runtime.js'
+import type { FreshV2InitialConfig } from './fresh-v2-initial-config.js'
+import { ownsFreshV2InitialModelDispatch } from './fresh-v2-initial-model-gate.js'
+export type { FreshV2InitialConfig } from './fresh-v2-initial-config.js'
 
-export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, InitialTaskBoardRuntime, ContinuationRuntime {
+export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, InitialTaskBoardRuntime, ContinuationRuntime, SubmitTaskRuntime, ReassignTaskRuntime {
   private domainHandle?: Domain<typeof teamDomainSpecV2>
   private store?: StorageDomainTeamStoreV2
   private domain?: TeamV2StartDomain
   private continuation?: FreshV2ContinuationRuntime
+  private taskControl?: FreshV2TaskControlRuntime
   private readonly children = new Map<string, Set<string>>()
   private readonly dispatchStreams = new Set<Promise<void>>()
   private readonly evidence: FreshV2EvidenceCoordinator
@@ -107,6 +97,7 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
     this.store = store
     this.domain = new TeamV2StartDomain(store, { maxMembers: this.config.maxMembers })
     this.continuation = new FreshV2ContinuationRuntime(this.ctx, store, this.witnessCapability)
+    this.taskControl = new FreshV2TaskControlRuntime(this.ctx, store, agent => this.scopeOf(agent))
   }
   async reconcileColdDispatches(): Promise<void> { this.assertOpen(); await this.requireContinuation().reconcileColdDispatches() } async driveColdRecoveries(): Promise<void> { this.assertOpen(); await this.requireContinuation().driveColdRecoveries() }
 
@@ -293,6 +284,9 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
     return await this.requireContinuation().continueTask(exec, input)
   }
 
+  async submitTask(exec: ToolExecutionAuthority, input: Parameters<SubmitTaskRuntime['submitTask']>[1]): Promise<TeamTask> { this.assertOpen(); await this.evidence.drainSession(requireAgent(exec).id); return await this.requireTaskControl().submitTask(exec, input) }
+  async reassignTask(exec: ToolExecutionAuthority, taskId: string, expectedRevision: number, reason: string, targetMemberName?: string): Promise<TeamTask> { this.assertOpen(); return await this.requireTaskControl().reassignTask(exec, taskId, expectedRevision, reason, targetMemberName) }
+
   async beforeAgentRequest(input: {
     readonly agent: Agent
     readonly turn: number
@@ -307,7 +301,13 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
     if (membership?.role !== 'member') return
     await this.witnessCapability.assertCurrent()
     let current = this.currentInitialAttempt(membership.team, input.agent.id)
-    if (current === undefined) return
+    if (current === undefined) {
+      if (membership.member.initialPromptDigest !== undefined
+        && currentStepContainsInitialFrame(input.agent.session, input.turn, input.step, membership.member.initialPromptDigest)) {
+        throw new TeamDomainError('initial assignment frame was superseded', 'TEAM_ATTEMPT_STALE')
+      }
+      return
+    }
     if (current.attempt.phase === 'running' && current.dispatch?.phase === 'settled') {
       this.modelPermits.delete(input.agent.id)
       return
@@ -401,27 +401,10 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
 
   private ownsInitialModelDispatch(options: GenerateOptions): boolean {
     if (options.sessionId === undefined) return false
-    const agent = this.ctx.agents.get(SessionId(options.sessionId))
-    const session = this.ctx.sessions.get(SessionId(options.sessionId))
-    if (agent === undefined || session === undefined || agent.session !== session) return false
-    const membership = this.findMembership(this.scopeOf(agent), agent.id)
-    if (membership?.role !== 'member') return false
-    const current = this.currentInitialAttempt(membership.team, agent.id)
-    if (current === undefined) return false
-    if (current.attempt.phase === 'running' && current.dispatch?.phase === 'settled') return false
-    if (current.dispatch !== undefined) this.witnessCapability.assertDigest(current.dispatch.witnessCapabilityDigest)
-    const permit = this.modelPermits.get(options.sessionId)
-    if (permit === undefined || options.signal !== permit.signal) {
-      throw new TeamDomainError('Team model request lacks its exact one-shot Agent Loop permit', 'TEAM_ATTEMPT_STALE')
-    }
-    if (current.attempt.phase !== 'reserved' || current.dispatch === undefined
-      || (current.dispatch.phase !== 'dispatch-pending' && current.dispatch.phase !== 'dispatch-entered')) {
-      throw new TeamDomainError('Team model request lacks its exact dispatch fence', 'TEAM_ATTEMPT_STALE')
-    }
-    if (current.dispatch.turn !== permit.turn || current.dispatch.step !== permit.step) {
-      throw new TeamDomainError('Team model request does not match its official Agent Loop permit', 'TEAM_ATTEMPT_STALE')
-    }
-    return true
+    return ownsFreshV2InitialModelDispatch({
+      ctx: this.ctx, store: this.requireStore(), scopeOf: agent => this.scopeOf(agent),
+      permits: this.modelPermits, witness: this.witnessCapability,
+    }, options)
   }
 
   observeSessionEvent(session: Session, event: SessionEvent): void {
@@ -587,13 +570,12 @@ export class FreshV2InitialRuntime implements InitialTeamLifecycleRuntime, Initi
     return this.continuation
   }
 
+  private requireTaskControl(): FreshV2TaskControlRuntime {
+    if (this.taskControl === undefined) throw new TeamDomainError('fresh-v2 runtime has not started', 'TEAM_RUNTIME_NOT_STARTED')
+    return this.taskControl
+  }
+
   private assertOpen(): void {
     if (this.closing) throw new TeamDomainError('fresh-v2 runtime is closing', 'TEAM_RUNTIME_CLOSING')
-  }
-}
-
-declare module '@deepseek-ai/cordis' {
-  interface Context {
-    agentSwarmV2Initial: FreshV2InitialRuntime
   }
 }

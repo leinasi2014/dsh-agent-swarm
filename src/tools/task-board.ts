@@ -16,6 +16,23 @@ export interface InitialTaskBoardRuntime {
   createTask(exec: ToolExecutionAuthority, input: RuntimeCreateTaskInput): Promise<TeamTask>
 }
 
+export interface SubmitTaskRuntime {
+  submitTask(
+    exec: ToolExecutionAuthority,
+    input: { taskId: string; expectedRevision: number; attemptId: string; output: string; evidence?: readonly string[] },
+  ): Promise<TeamTask>
+}
+
+export interface ReassignTaskRuntime {
+  reassignTask(
+    exec: ToolExecutionAuthority,
+    taskId: string,
+    expectedRevision: number,
+    reason: string,
+    targetMemberName?: string,
+  ): Promise<TeamTask>
+}
+
 /** `agent_swarm_create_task`. */
 export function registerCreateTaskTool(ctx: Context, runtime: InitialTaskBoardRuntime): void {
   register(ctx, defineTool({
@@ -135,7 +152,7 @@ export function registerClaimTaskTool(ctx: Context, runtime: AgentSwarmRuntime):
 }
 
 /** `agent_swarm_submit_task`. */
-export function registerSubmitTaskTool(ctx: Context, runtime: AgentSwarmRuntime): void {
+export function registerSubmitTaskTool(ctx: Context, runtime: SubmitTaskRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_submit_task',
     description: 'Submit the current execution attempt for independent captain review. This never completes the canonical task by itself. A stale attempt must stop immediately.',
@@ -172,7 +189,7 @@ export function registerSubmitTaskTool(ctx: Context, runtime: AgentSwarmRuntime)
 }
 
 /** `agent_swarm_reassign_task`. */
-export function registerReassignTaskTool(ctx: Context, runtime: AgentSwarmRuntime): void {
+export function registerReassignTaskTool(ctx: Context, runtime: ReassignTaskRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_reassign_task',
     description: 'Captain-only. Fence the current attempt before interruption and return the task to pending. target_member strictly routes the fresh attempt to that member.',

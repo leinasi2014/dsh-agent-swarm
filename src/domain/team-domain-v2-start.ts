@@ -13,15 +13,7 @@ import {
 } from './team-state-v2.js'
 import { AttemptId, TaskId, TeamId, type TeamTask } from './types.js'
 import type { TeamScope } from './team-domain-port.js'
-import { replaceV2Attempt } from './team-domain-v2-shared.js'
-
-function requireText(value: string, label: string, maximum: number): string {
-  const normalized = value.trim()
-  if (normalized.length === 0 || Buffer.byteLength(normalized, 'utf8') > maximum) {
-    throw new TeamDomainError(`${label} is empty or too large`, 'TEAM_INPUT_INVALID')
-  }
-  return normalized
-}
+import { replaceV2Attempt, replaceV2Task, requireV2Text } from './team-domain-v2-shared.js'
 
 function requireDigest(value: string, label: string): string {
   if (!/^[0-9a-f]{64}$/.test(value)) throw new TeamDomainError(`${label} is not a canonical SHA-256 digest`, 'TEAM_INPUT_INVALID')
@@ -50,12 +42,6 @@ function replaceMember(team: TeamStateV2, member: TeamMemberV2): void {
   const index = team.members.findIndex(candidate => candidate.sessionId === member.sessionId)
   if (index < 0) throw new TeamDomainError('Team member not found', 'TEAM_MEMBER_NOT_FOUND')
   team.members[index] = member
-}
-
-function replaceTask(team: TeamStateV2, task: TeamTask): void {
-  const index = team.tasks.findIndex(candidate => candidate.id === task.id)
-  if (index < 0) throw new TeamDomainError(`task "${task.id}" not found`, 'TEAM_TASK_NOT_FOUND')
-  team.tasks[index] = task
 }
 
 function requireInitialDispatchTuple(
@@ -177,8 +163,8 @@ export function draftTaskV2(team: TeamStateV2, input: CreateTaskV2Input, timesta
   return {
     id: TaskId(`task-${team.nextTaskNumber}`),
     revision: 1,
-    subject: requireText(input.subject, 'task subject', 512),
-    description: requireText(input.description, 'task description', 64_000),
+    subject: requireV2Text(input.subject, 'task subject', 512),
+    description: requireV2Text(input.description, 'task description', 64_000),
     acceptanceCriteria: [...(input.acceptanceCriteria ?? [])],
     status: 'pending',
     blockedBy: [...(input.blockedBy ?? [])],
@@ -227,9 +213,9 @@ export class TeamV2StartDomain {
       schemaVersion: 2,
       id: TeamId(this.deps.newTeamId?.() ?? `team-${randomUUID()}`),
       revision: 1,
-      name: requireText(name, 'team name', 128),
-      description: requireText(description, 'team description', 16_384),
-      captainSessionId: requireText(captainSessionId, 'captain Session id', 512),
+      name: requireV2Text(name, 'team name', 128),
+      description: requireV2Text(description, 'team description', 16_384),
+      captainSessionId: requireV2Text(captainSessionId, 'captain Session id', 512),
       phase: 'active',
       members: [],
       tasks: [],
@@ -257,24 +243,24 @@ export class TeamV2StartDomain {
     let committed!: TeamMemberV2
     await this.store.transact(scope, teamId, team => {
       requireCaptain(team, captainSessionId)
-      const name = requireText(input.name, 'member name', 128)
+      const name = requireV2Text(input.name, 'member name', 128)
       if (team.members.some(member => member.name === name || member.sessionId === input.sessionId)) {
         throw new TeamDomainError('member name or Session identity is already occupied', 'TEAM_MEMBER_NAME_TAKEN')
       }
       if (team.members.length >= (this.deps.maxMembers ?? 64)) throw new TeamDomainError('team member limit reached', 'TEAM_MEMBER_LIMIT')
       if (!Number.isSafeInteger(input.maxDepth) || input.maxDepth < 0) throw new TeamDomainError('member maxDepth is invalid', 'TEAM_INPUT_INVALID')
-      const deniedTools = [...input.deniedTools].map(value => requireText(value, 'denied tool', 256))
-      const assignedSkills = [...input.assignedSkills].map(value => requireText(value, 'assigned Skill', 128))
+      const deniedTools = [...input.deniedTools].map(value => requireV2Text(value, 'denied tool', 256))
+      const assignedSkills = [...input.assignedSkills].map(value => requireV2Text(value, 'assigned Skill', 128))
       if (new Set(deniedTools).size !== deniedTools.length || new Set(assignedSkills).size !== assignedSkills.length) {
         throw new TeamDomainError('member profile lists contain duplicates', 'TEAM_INPUT_INVALID')
       }
       committed = {
         name,
-        role: requireText(input.role, 'member role', 2_048),
-        sessionId: requireText(input.sessionId, 'member Session id', 512),
-        provider: requireText(input.provider, 'member Provider', 128),
-        ...(input.llmProvider === undefined ? {} : { llmProvider: requireText(input.llmProvider, 'member LLM Provider', 128) }),
-        ...(input.model === undefined ? {} : { model: requireText(input.model, 'member model', 256) }),
+        role: requireV2Text(input.role, 'member role', 2_048),
+        sessionId: requireV2Text(input.sessionId, 'member Session id', 512),
+        provider: requireV2Text(input.provider, 'member Provider', 128),
+        ...(input.llmProvider === undefined ? {} : { llmProvider: requireV2Text(input.llmProvider, 'member LLM Provider', 128) }),
+        ...(input.model === undefined ? {} : { model: requireV2Text(input.model, 'member model', 256) }),
         modelSource: input.modelSource,
         deniedTools,
         assignedSkills,
@@ -363,7 +349,7 @@ export class TeamV2StartDomain {
         this.now(),
         this.now(),
       )
-      replaceTask(team, reserved.task)
+      replaceV2Task(team, reserved.task)
       replaceMember(team, reserved.member)
       team.attempts.push(reserved.attempt)
       Object.assign(team, { budget: { ...team.budget, usedRequests: team.budget.usedRequests + 1 } })
@@ -412,10 +398,10 @@ export class TeamV2StartDomain {
       }
       const timestamp = this.now()
       const dispatch: ModelDispatchEpoch = {
-        dispatchId: DispatchId(requireText(checkpoint.dispatchId, 'dispatch id', 256)),
+        dispatchId: DispatchId(requireV2Text(checkpoint.dispatchId, 'dispatch id', 256)),
         kind: 'initial',
         ordinal: 1,
-        effectId: TeamEffectId(requireText(checkpoint.effectId, 'dispatch effect id', 256)),
+        effectId: TeamEffectId(requireV2Text(checkpoint.effectId, 'dispatch effect id', 256)),
         targetSessionId: memberSessionId,
         turn: checkpoint.turn,
         step: checkpoint.step,
@@ -460,7 +446,7 @@ export class TeamV2StartDomain {
       const member = memberOf(team, memberSessionId)
       const task = taskOf(team, taskId)
       const attempt = attemptOf(team, attemptId)
-      const reason = requireText(diagnostic, 'initial assignment diagnostic', 8_192)
+      const reason = requireV2Text(diagnostic, 'initial assignment diagnostic', 8_192)
       if (member.phase === 'failed' && attempt.phase === 'cancelled' && task.status === 'pending') {
         if (attempt.taskId !== taskId || attempt.memberSessionId !== memberSessionId
           || attempt.assignmentPhase !== 'reserved' || attempt.dispatchEpochs.length !== 0
@@ -487,7 +473,7 @@ export class TeamV2StartDomain {
       const pending: TeamTask = { ...released, revision: task.revision + 1, status: 'pending', updatedAt: timestamp }
       replaceMember(team, failed)
       replaceV2Attempt(team, cancelled)
-      replaceTask(team, pending)
+      replaceV2Task(team, pending)
       result = { member: failed, task: pending, attempt: cancelled }
     })
     return structuredClone(result)

@@ -25,9 +25,21 @@ const REQUIRED = Object.freeze({
     'failInitialAssignment(',
     'settleInitialAssignment(',
     'this.modelPermits.set(input.agent.id',
-    'options.signal !== permit.signal',
+    'ownsFreshV2InitialModelDispatch(',
     'enterInitialDispatch(',
     'settleInitialAssistantEvidence(',
+    'this.requireTaskControl().submitTask(',
+    'this.requireTaskControl().reassignTask(',
+  ],
+  'src/runtime/fresh-v2-initial-model-gate.ts': [
+    'export function ownsFreshV2InitialModelDispatch(',
+    'ownsFreshV2ModelPermit(',
+    'initial dispatch permit lost its exact Attempt',
+  ],
+  'src/runtime/fresh-v2-model-permit.ts': [
+    'export function ownsFreshV2ModelPermit(',
+    'AgentLoop request conflicts with its',
+    'export function consumeFreshV2ModelPermit(',
   ],
   'src/runtime/fresh-v2-evidence-coordinator.ts': [
     "event.type !== 'assistant/message'",
@@ -54,6 +66,19 @@ const REQUIRED = Object.freeze({
     'this.domain.enterDispatch(',
     'this.domain.settleAssistantEvidence(',
     'this.recoveryDomain.reserveProvenNotEntered(',
+    'currentStepContainsContinuationFrame(',
+    'ownsFreshV2ModelPermit(',
+  ],
+  'src/domain/team-domain-v2-task-control.ts': [
+    'function closeAttemptControl(',
+    'async submitTask(',
+    'async reassignTask(',
+  ],
+  'src/runtime/fresh-v2-task-control-runtime.ts': [
+    'export class FreshV2TaskControlRuntime',
+    'this.domain.submitTask(',
+    'this.domain.reassignTask(',
+    'this.ctx.subagents.interrupt(',
   ],
   'src/domain/team-domain-v2-continuation-recovery.ts': [
     'async reserveProvenNotEntered(',
@@ -100,6 +125,16 @@ const REQUIRED = Object.freeze({
   'tests/fresh-v2-initial-runtime.spec.ts': [
     'keeps add_member dormant, witnesses provider entry, then admits running from durable assistant evidence',
     'does not report running when the official adapter fails at iteration',
+  ],
+  'tests/fresh-v2-task-control-runtime.spec.ts': [
+    'keeps member submission authoritative when an already-entered Provider returns late',
+    'fences captain reassignment before interrupting an entered Provider',
+    'blocks Provider entry when captain reassigns after agent/request issued its one-shot permit',
+  ],
+  'tests/fresh-v2-task-control-domain.spec.ts': [
+    'lets exact member submission win over an entered initial dispatch',
+    'atomically supersedes continuation and staged recovery receipts when captain reassigns',
+    'derives submit and reassign authority from the exact Team actor',
   ],
   'tests/fresh-v2-continuation-domain.spec.ts': [
     'persists request before parking, admits one effect, and returns the same Attempt to running only after assistant evidence',

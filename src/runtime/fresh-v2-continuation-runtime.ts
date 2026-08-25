@@ -27,13 +27,14 @@ import {
   continuationCheckpointOf,
   continuationFrameDigest,
   currentContinuationAttempt,
+  currentStepContainsContinuationFrame,
   frameOfContinuation,
   type CurrentContinuationAttempt,
 } from './fresh-v2-continuation-fold.js'
 import { assistantEvidenceAt } from './fresh-v2-session-fold.js'
 import { currentFreshV2TaskAttempt, findFreshV2Membership } from './fresh-v2-initial-support.js'
 import type { FreshV2WitnessCapability } from './fresh-v2-witness-capability.js'
-import { consumeFreshV2ModelPermit, type FreshV2ModelPermit } from './fresh-v2-model-permit.js'
+import { consumeFreshV2ModelPermit, ownsFreshV2ModelPermit, type FreshV2ModelPermit } from './fresh-v2-model-permit.js'
 import {
   foldEnteredContinuationRecovery,
   foldPendingContinuationRecovery,
@@ -233,16 +234,24 @@ export class FreshV2ContinuationRuntime implements ContinuationRuntime {
     if (this.closing) return false
     const scope = this.scopeOf(input.agent)
     const membership = findFreshV2Membership(this.store, scope, input.agent.id)
-    if (membership?.role !== 'member') return false
+    const typedFrame = currentStepContainsContinuationFrame(input.agent.session, input.turn, input.step)
+    if (membership?.role !== 'member') {
+      if (typedFrame) throw new TeamDomainError('typed continuation frame lost Team authority', 'TEAM_ATTEMPT_STALE')
+      return false
+    }
     await this.witness.assertCurrent()
     if (await this.recoveryDriver.beforeAgentRequest(scope, membership.team, input)) {
       this.modelPermits.set(input.agent.id, { signal: input.signal, turn: input.turn, step: input.step })
       return true
     }
     const currentTask = currentFreshV2TaskAttempt(membership.team, input.agent.id)
-    if (currentTask === undefined) return false
+    if (currentTask === undefined) {
+      if (typedFrame) throw new TeamDomainError('typed continuation frame lost its current Attempt', 'TEAM_ATTEMPT_STALE')
+      return false
+    }
     let current = currentContinuationAttempt(membership.team, input.agent.id)
     if (current === undefined) {
+      if (typedFrame) throw new TeamDomainError('typed continuation frame was superseded', 'TEAM_ATTEMPT_STALE')
       if (currentTask.attempt.phase === 'reserved') return false
       const last = currentTask.attempt.dispatchEpochs.at(-1)
       if (currentTask.attempt.phase === 'running' && last?.phase === 'settled' && last.turn === input.turn) return false
@@ -403,19 +412,27 @@ export class FreshV2ContinuationRuntime implements ContinuationRuntime {
   }
 
   private ownsModelDispatch(options: GenerateOptions): boolean {
+    const hasPermit = ownsFreshV2ModelPermit(this.modelPermits, options, 'continuation')
     if (options.sessionId === undefined) return false
     const agent = this.ctx.agents.get(SessionId(options.sessionId))
     const session = this.ctx.sessions.get(SessionId(options.sessionId))
-    if (agent === undefined || session === undefined || agent.session !== session) return false
+    if (agent === undefined || session === undefined || agent.session !== session) {
+      if (hasPermit) throw new TeamDomainError('continuation permit lost its exact Agent/Session', 'TEAM_ATTEMPT_STALE')
+      return false
+    }
     const membership = findFreshV2Membership(this.store, this.scopeOf(agent), agent.id)
-    if (membership?.role !== 'member') return false
+    if (membership?.role !== 'member') {
+      if (hasPermit) throw new TeamDomainError('continuation permit lost Team membership', 'TEAM_ATTEMPT_STALE')
+      return false
+    }
     const current = currentContinuationAttempt(membership.team, agent.id)
-    if (current === undefined) return false
+    if (current === undefined) {
+      if (hasPermit) throw new TeamDomainError('continuation permit lost its exact Attempt', 'TEAM_ATTEMPT_STALE')
+      return false
+    }
     this.witness.assertDigest(current.dispatch.witnessCapabilityDigest)
     const permit = this.modelPermits.get(agent.id)
-    if (permit === undefined || options.signal !== permit.signal) {
-      throw new TeamDomainError('continuation model request lacks its exact one-shot Agent Loop permit', 'TEAM_ATTEMPT_STALE')
-    }
+    if (permit === undefined) throw new TeamDomainError('continuation permit disappeared', 'TEAM_ATTEMPT_STALE')
     if (current.attempt.phase !== 'parked' || current.intent.phase !== 'dispatch-pending'
       || current.dispatch.phase !== 'dispatch-pending'
       || current.dispatch.turn !== permit.turn || current.dispatch.step !== permit.step) {

@@ -25,7 +25,7 @@ import type {} from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { TeamDomainError } from './domain/error.js'
 import { AgentSwarmRuntime } from './runtime/orchestrator-runtime.js'
-import { registerAgentSwarmTools, registerInitialAgentSwarmTools } from './tools.js'
+import { registerAgentSwarmTools, registerFreshV2AgentSwarmTools } from './tools.js'
 import { DEFAULT_TEAM_LIMITS } from './domain/team-domain.js'
 import { recoverActiveRosters } from './runtime/usage-recovery.js'
 import { TeamBridgeWorkflowEngine } from './runtime/workflow/team-bridge-engine.js'
@@ -353,7 +353,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     await runtime.reconcileColdDispatches()
     await runtime.driveColdRecoveries()
     ctx.effect(() => ctx.provide('agentSwarmV2Initial', runtime), 'agent-swarm: fresh-v2 inspection service')
-    registerInitialAgentSwarmTools(ctx, runtime)
+    registerFreshV2AgentSwarmTools(ctx, runtime)
     return
   }
   const schedulerProvider = (config.schedulerProvider ?? 'priority-ready').trim()

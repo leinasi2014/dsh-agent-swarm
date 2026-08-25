@@ -22,6 +22,11 @@ assert(slice.nodes.some(item => item.id === 'flow-branch:fresh-v2-online-continu
 assert(slice.edges.some(item => item.id === 'edge:fresh-v2-continuation/service-calls-followup'))
 assert(slice.edges.some(item => item.id === 'edge:fresh-v2-continuation/evidence-transitions-running'))
 assert(slice.edges.some(item => item.id === 'edge:fresh-v2-continuation/recovery-claim-mutates-dispatch'))
+assert(slice.nodes.some(item => item.id === 'flow:fresh-v2-task-control-competition'
+  && item.maturity.implementation.state === 'implemented'))
+assert(slice.nodes.some(item => item.id === 'transaction:fresh-v2-submit-current-attempt'))
+assert(slice.nodes.some(item => item.id === 'transaction:fresh-v2-reassign-current-attempt'))
+assert(slice.edges.some(item => item.id === 'edge:fresh-v2-task-control/flow-verified-composition'))
 for (const name of facts.absentRecoveryBranches) {
   const branch = slice.nodes.find(item => item.id === `flow-branch:fresh-v2-initial-dispatch/${name}`)
   assert.equal(branch?.maturity.implementation.state, 'absent')
@@ -45,7 +50,7 @@ for (const name of facts.absentRecoveryBranches) {
   const file = 'src/runtime/fresh-v2-initial-runtime.ts'
   const source = await readFile(resolve(root, file), 'utf8')
   await assert.rejects(
-    () => extractFreshV2InitialDispatchFacts(root, { sourceOverrides: { [file]: source.replaceAll('options.signal !== permit.signal', 'false') } }),
+    () => extractFreshV2InitialDispatchFacts(root, { sourceOverrides: { [file]: source.replaceAll('ownsFreshV2InitialModelDispatch(', 'missingInitialModelGate(') } }),
     error => error instanceof KnowledgeGraphError && error.code === 'KG_FRESH_V2_CONTROL_FLOW',
   )
 }

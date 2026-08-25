@@ -1,6 +1,7 @@
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { canonicalV2Digest } from '../protocol/canonical-v2.js'
 import { TeamDomainError } from '../domain/error.js'
+import { currentOpenStepStartSeq } from './fresh-v2-session-step.js'
 
 export interface ClaimedInitialFrame {
   readonly turn: number
@@ -21,6 +22,22 @@ function promptText(event: SessionEvent): string | undefined {
     || event.data.content.length !== 1) return undefined
   const block = event.data.content[0]
   return block?.type === 'text' ? block.text : undefined
+}
+
+/** Detect an initial assignment in one open current step after its Team Attempt lost authority. */
+export function currentStepContainsInitialFrame(
+  session: Session,
+  turn: number,
+  step: number,
+  expectedPromptDigest: string,
+): boolean {
+  const startSeq = currentOpenStepStartSeq(session, turn, step)
+  if (startSeq === undefined) return false
+  return session.events.some(event => {
+    if (event.seq <= startSeq) return false
+    const text = promptText(event)
+    return text !== undefined && initialPromptDigest(text) === expectedPromptDigest
+  })
 }
 
 /** Fold one exact still-open AgentLoop step and its unique assignment frame. */
