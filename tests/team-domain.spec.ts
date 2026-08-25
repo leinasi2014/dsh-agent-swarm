@@ -103,6 +103,63 @@ describe('TeamDomain over the official Storage Domain', () => {
     expect(claim.task).toMatchObject({ ownerSessionId: 'member-2', targetMemberSessionId: 'member-2' })
   })
 
+  it('releases pending targets when provisioning fails, recovery fails, or an active member is removed', async () => {
+    const team = await teamWithMembers()
+    await domain.provisionMember(scope, team.id, 'captain-session', {
+      name: 'pending-failure', role: 'pending failure', sessionId: 'member-pending-failure', provider: 'spawn',
+    })
+    const failedTarget = await domain.createTask(scope, team.id, 'captain-session', {
+      subject: 'failed target', description: 'Must become schedulable again.',
+      targetMemberSessionId: 'member-pending-failure',
+    })
+    await domain.settleMember(scope, team.id, 'member-pending-failure', { active: false, error: 'provisioning failed' })
+
+    await domain.provisionMember(scope, team.id, 'captain-session', {
+      name: 'recovery-failure', role: 'recovery failure', sessionId: 'member-recovery-failure', provider: 'spawn',
+    })
+    const recoveredTarget = await domain.createTask(scope, team.id, 'captain-session', {
+      subject: 'recovered target', description: 'Bulk recovery must release it.',
+      targetMemberSessionId: 'member-recovery-failure',
+    })
+    await domain.recoverProvisioningMembers(scope, team.id, 'captain-session', 'recovery failed')
+
+    await domain.provisionMember(scope, team.id, 'captain-session', {
+      name: 'claimed-failure', role: 'claimed failure', sessionId: 'member-claimed-failure', provider: 'spawn',
+    })
+    const claimedTarget = await domain.createTask(scope, team.id, 'captain-session', {
+      subject: 'claimed failed target', description: 'The open attempt must be fenced.',
+      targetMemberSessionId: 'member-claimed-failure',
+    })
+    const claimed = await domain.claimTask(
+      scope, team.id, 'captain-session', claimedTarget.id, claimedTarget.revision, 'member-claimed-failure',
+    )
+    await domain.settleMember(scope, team.id, 'member-claimed-failure', { active: false, error: 'initial assignment failed' })
+
+    const removedTarget = await domain.createTask(scope, team.id, 'captain-session', {
+      subject: 'removed target', description: 'Member removal must release it.', targetMemberSessionId: 'member-2',
+    })
+    await domain.removeMember(scope, team.id, 'captain-session', 'worker-2', 'member removed')
+    const snapshot = await domain.snapshot(scope, team.id, 'captain-session')
+    for (const taskId of [failedTarget.id, recoveredTarget.id, claimedTarget.id, removedTarget.id]) {
+      expect(snapshot.team.tasks.find(task => task.id === taskId)).toMatchObject({ status: 'pending' })
+      expect(snapshot.team.tasks.find(task => task.id === taskId)?.targetMemberSessionId).toBeUndefined()
+    }
+    expect(snapshot.team.attempts.find(attempt => attempt.id === claimed.attempt.id)?.phase).toBe('stale')
+  })
+
+  it('clears a previous strict target when captain reassigns without a replacement', async () => {
+    const team = await teamWithMembers()
+    const task = await domain.createTask(scope, team.id, 'captain-session', {
+      subject: 'target then release', description: 'Return to generic scheduling.', targetMemberSessionId: 'member-1',
+    })
+    const claim = await domain.claimTask(scope, team.id, 'captain-session', task.id, task.revision, 'member-1')
+    const released = await domain.cancelAttempt(
+      scope, team.id, 'captain-session', task.id, claim.task.revision, 'clear strict target',
+    )
+    expect(released).toMatchObject({ status: 'pending' })
+    expect(released.targetMemberSessionId).toBeUndefined()
+  })
+
   it('requires review acceptance before canonical completion', async () => {
     const team = await teamWithMembers(1)
     const task = await domain.createTask(scope, team.id, 'captain-session', {

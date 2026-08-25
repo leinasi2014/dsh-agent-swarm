@@ -216,6 +216,37 @@ function cancelQueuedMemberMessages(team: TeamState, sessionIds: ReadonlySet<str
   }
 }
 
+/** Release work that can no longer reach a failed provisioning member. */
+function requeueUnavailableMemberTasks(
+  team: TeamState,
+  sessionIds: ReadonlySet<string>,
+  diagnostic: string,
+  timestamp: number,
+): void {
+  for (const task of team.tasks) {
+    const ownsOpenAttempt = task.ownerSessionId !== undefined
+      && sessionIds.has(task.ownerSessionId)
+      && ['in_progress', 'submitted', 'verifying'].includes(task.status)
+    const hasUnavailableTarget = task.targetMemberSessionId !== undefined
+      && sessionIds.has(task.targetMemberSessionId)
+      && (task.status === 'pending' || ownsOpenAttempt)
+    if (!ownsOpenAttempt && !hasUnavailableTarget) continue
+    if (ownsOpenAttempt && task.currentAttemptId !== undefined) {
+      const attempt = attemptOf(team, task.currentAttemptId)
+      replaceAttempt(team, { ...attempt, phase: 'stale', diagnostic, updatedAt: timestamp })
+    }
+    const cleared = ownsOpenAttempt
+      ? clearTaskExecution(task, { revision: task.revision + 1, status: 'pending', updatedAt: timestamp })
+      : { ...task, revision: task.revision + 1, updatedAt: timestamp }
+    if (!hasUnavailableTarget) {
+      replaceTask(team, cleared)
+      continue
+    }
+    const { targetMemberSessionId: _failedTarget, ...requeued } = cleared
+    replaceTask(team, requeued)
+  }
+}
+
 export async function settleMember(
   deps: TeamDomainDeps,
   scope: TeamScope,
@@ -229,13 +260,18 @@ export async function settleMember(
     expectDomain(index >= 0, 'provisioning member not found', 'TEAM_MEMBER_NOT_FOUND')
     const current = team.members[index]!
     expectDomain(current.phase === 'provisioning', 'member is no longer provisioning', 'TEAM_MEMBER_PHASE_INVALID')
-    committed = outcome.active
-      ? { ...current, phase: 'active' }
-      : { ...current, phase: 'failed', error: nonEmpty(outcome.error, 'member error', 4_096) }
-    team.members[index] = committed
-    if (!outcome.active) {
+    if (outcome.active) {
+      committed = { ...current, phase: 'active' }
+      team.members[index] = committed
+    } else {
+      const error = nonEmpty(outcome.error, 'member error', 4_096)
+      committed = { ...current, phase: 'failed', error }
+      team.members[index] = committed
+      const timestamp = deps.now()
+      requeueUnavailableMemberTasks(team, new Set([sessionId]), error, timestamp)
       cancelQueuedMemberMessages(team, new Set([sessionId]))
       pruneRetainedMessages(team, deps.limits.maxRetainedMessages)
+      pruneRetainedAttempts(team, deps.limits.maxRetainedAttempts)
     }
   })
   return structuredClone(committed)
@@ -262,8 +298,10 @@ export async function recoverProvisioningMembers(
       recovered.push(failed)
       failedSessionIds.add(member.sessionId)
     }
+    requeueUnavailableMemberTasks(team, failedSessionIds, reason, deps.now())
     cancelQueuedMemberMessages(team, failedSessionIds)
     pruneRetainedMessages(team, deps.limits.maxRetainedMessages)
+    pruneRetainedAttempts(team, deps.limits.maxRetainedAttempts)
   })
   return structuredClone(recovered)
 }

@@ -261,6 +261,14 @@ export class SchedulingPass {
         )
       }
     } catch (error) {
+      const owner = team.members.find(member => member.sessionId === attempt.memberSessionId)
+      if (owner?.phase === 'provisioning') {
+        const diagnostic = `initial assignment delivery failed: ${error instanceof Error ? error.message : String(error)}`
+        await this.deps.domain().settleMember(scope, team.id, owner.sessionId, { active: false, error: diagnostic })
+        await this.deps.sweepExecutionRoots(scope, team.id)
+        this.deps.requestSchedule(scope, team.id, captain)
+        return
+      }
       await this.rollbackUndeliveredAssignment(
         scope,
         team.id,
