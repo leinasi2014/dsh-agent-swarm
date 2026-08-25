@@ -134,6 +134,7 @@ async function mountTree(sandbox: string, options: {
   fibers.push(await ctx.plugin(AgentSwarm, {
     memberProvider: 'spawn',
     memberMaxDepth: 1,
+    lazyMemberStart: false,
     schedulerProvider: 'priority-ready',
     reviewProvider: 'manual',
     workflowBridge: options.workflowBridge,

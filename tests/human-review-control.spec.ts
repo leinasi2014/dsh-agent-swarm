@@ -62,7 +62,7 @@ async function mount(sandbox: string, reviewProvider = 'manual'): Promise<Stack>
   fibers.push(await ctx.plugin(SubagentService))
   fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
   if (reviewProvider === 'human') fibers.push(await ctx.plugin(UserQuestionService))
-  const pluginFiber = await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1, reviewProvider })
+  const pluginFiber = await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1, reviewProvider, lazyMemberStart: false })
   fibers.push(pluginFiber)
   ctx.llm.registerAdapter(['mock'], new ImmediateAdapter())
   const lead = ctx.agentLoop.create(
@@ -465,7 +465,7 @@ describe('PM-required concurrency and durability', () => {
 
     await stack.pluginFiber.dispose()
     stack.fibers.pop()
-    const reloadedFiber = await stack.ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1 })
+    const reloadedFiber = await stack.ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1, lazyMemberStart: false })
     stack.fibers.push(reloadedFiber)
     stack.pluginFiber = reloadedFiber
 

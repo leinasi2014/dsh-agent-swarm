@@ -80,7 +80,7 @@ interface Stack extends BaseMount {
 
 async function mount(sandbox: string, withQuestions = true): Promise<Stack> {
   const base = await mountBase(sandbox, withQuestions)
-  const pluginFiber = await base.ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1 })
+  const pluginFiber = await base.ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1, lazyMemberStart: false })
   base.fibers.push(pluginFiber)
   const lead = base.ctx.agentLoop.create(
     SessionId(`i1a-assembly-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
@@ -443,7 +443,7 @@ describe('human domain lifecycle ownership', () => {
 
     await stack.pluginFiber.dispose()
     stack.fibers.pop()
-    const reloadedFiber = await stack.ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1 })
+    const reloadedFiber = await stack.ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1, lazyMemberStart: false })
     stack.fibers.push(reloadedFiber)
     stack.pluginFiber = reloadedFiber
     expect(stack.ctx.get('agentSwarmHumanInteraction')).toBeDefined()
@@ -462,7 +462,7 @@ describe('human domain lifecycle ownership', () => {
     const base = await mountBase(sandbox, true)
     const conflictDisposer = base.ctx.reflect.provide('agentSwarmHumanControl', {})
     try {
-      await expect(base.ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1 })).rejects.toThrow()
+      await expect(base.ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1, lazyMemberStart: false })).rejects.toThrow()
       // The failing setup opened `agent_swarm_human` before the provide
       // conflict; the single owner effect must have closed it, so the name is
       // free again and a fresh open succeeds.
@@ -482,7 +482,7 @@ describe('human domain lifecycle ownership', () => {
     let conflictDisposed = false
     try {
       // control provide succeeds first; interaction provide throws second.
-      await expect(base.ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1 })).rejects.toThrow()
+      await expect(base.ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1, lazyMemberStart: false })).rejects.toThrow()
       // Remove the pre-seeded conflict so only plugin-owned admissions remain visible.
       await conflictDisposer()
       conflictDisposed = true

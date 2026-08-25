@@ -121,6 +121,7 @@ describe('DSH rc.8 composition', () => {
       const pluginFiber = await ctx.plugin(AgentSwarm, {
         memberProvider: 'spawn',
         memberMaxDepth: 1,
+        lazyMemberStart: false,
         schedulerProvider: 'test-scheduler',
         reviewProvider: 'test-review',
       })
@@ -370,6 +371,7 @@ describe('DSH rc.8 composition', () => {
       const reloadedFiber = await ctx.plugin(AgentSwarm, {
         memberProvider: 'spawn',
         memberMaxDepth: 1,
+        lazyMemberStart: false,
       })
       fibers.push(reloadedFiber)
       await vi.waitFor(async () => {
@@ -422,6 +424,7 @@ describe('DSH rc.8 composition', () => {
       const pluginFiber = await ctx.plugin(AgentSwarm, {
         memberProvider: 'spawn',
         memberMaxDepth: 1,
+        lazyMemberStart: false,
       })
       fibers.push(pluginFiber)
 
@@ -483,6 +486,7 @@ describe('DSH rc.8 composition', () => {
       const pluginFiber = await ctx.plugin(AgentSwarm, {
         memberProvider: 'spawn',
         memberMaxDepth: 1,
+        lazyMemberStart: false,
         disposalTimeoutMs: 100,
       })
       fibers.push(pluginFiber)

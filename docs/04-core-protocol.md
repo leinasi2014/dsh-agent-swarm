@@ -57,6 +57,8 @@ read task + member + budget + workspace policy
 
 If dispatch fails, rollback only resources owned by this exact transaction. A later reassignment or new run wins and must not be reverted by the old rollback.
 
+Legacy-v1 now defaults member startup to the first authoritative assignment: `add_member` commits an addressable `provisioning` declaration without opening a Provider turn, and the scheduler materializes the continuable child with the assignment as its first user frame. `lazyMemberStart: false` is an explicit compatibility opt-out for fixtures or deployments that still require the historical eager join turn; fresh-v2 is intrinsically lazy and rejects that eager request. The submission fence is unchanged. Because the legacy aggregate does not yet persist the start policy per member, changing this setting across versions requires a quiescent Team with no `provisioning` rows; arbitrary in-flight upgrade compatibility is not claimed.
+
 ## 4. Worker protocol
 
 A worker receives:

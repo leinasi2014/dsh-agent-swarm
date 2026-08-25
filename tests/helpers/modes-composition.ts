@@ -157,6 +157,7 @@ export async function mountModesComposition(sandbox: string, config: ModesPlugin
   fibers.push(await ctx.plugin(AgentSwarm, {
     memberProvider: 'spawn',
     memberMaxDepth: 1,
+    lazyMemberStart: false,
     schedulerProvider: 'priority-ready',
     reviewProvider: 'manual',
     ...(config.orchestrationMode === undefined ? {} : { orchestrationMode: config.orchestrationMode }),

@@ -156,7 +156,7 @@ describe('wakeup delivery visibility (issue #52 / D1)', () => {
       fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
       fibers.push(await ctx.plugin(SubagentService))
       fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
-      fibers.push(await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1 }))
+      fibers.push(await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1, lazyMemberStart: false }))
       ctx.llm.registerAdapter(['mock'], adapter)
       const lead = ctx.agentLoop.create(
         SessionId('d1-lead'),
@@ -261,7 +261,7 @@ describe('wakeup delivery visibility (issue #52 / D1)', () => {
       fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
       fibers.push(await ctx.plugin(SubagentService))
       fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
-      fibers.push(await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1 }))
+      fibers.push(await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1, lazyMemberStart: false }))
       ctx.llm.registerAdapter(['mock'], adapter)
       const lead = ctx.agentLoop.create(
         SessionId('d1-prompt-lead'),

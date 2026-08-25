@@ -73,7 +73,7 @@ async function mountCaptain(
   fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
   fibers.push(await ctx.plugin(SubagentService))
   fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
-  fibers.push(await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1 }))
+  fibers.push(await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1, lazyMemberStart: false }))
   ctx.llm.registerAdapter(['mock'], new ImmediateAdapter())
   const lead = ctx.agentLoop.create(
     SessionId(leadId),

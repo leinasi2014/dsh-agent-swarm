@@ -44,6 +44,7 @@ export async function mountExecutableReview(
   fibers.push(await ctx.plugin(AgentSwarm, {
     memberProvider: 'spawn',
     memberMaxDepth: 1,
+    lazyMemberStart: false,
     schedulerProvider: 'priority-ready',
     reviewProvider: 'executable',
     ...(pluginOptions.reviewRootProvider === undefined ? {} : { reviewRootProvider: pluginOptions.reviewRootProvider }),

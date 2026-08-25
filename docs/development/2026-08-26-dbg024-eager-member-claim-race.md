@@ -1,6 +1,6 @@
 # DBG-024 — Eager member start races the first authoritative assignment
 
-Status: `VERIFIED_PROFILE_MITIGATION / V2_DESIGN_INVARIANT`
+Status: `VERIFIED_PROFILE_MITIGATION / PRODUCT_DEFAULT_IMPLEMENTED / PROFILE_REPROOF_PENDING`
 
 Observed: 2026-08-26 in two fresh official DSH `web` Profile runs.
 
@@ -42,9 +42,11 @@ Authoritative run identities: Captain Session
 
 ## Product decision
 
-For legacy-v1 acceptance Profiles, `lazyMemberStart: true` is required. Do not weaken the
-submission fence and do not add timing delays. The experimental fresh-v2 runtime already owns a
-lazy first-assignment vertical. A separate compatibility slice must make lazy start the legacy
-product default while retaining `false` as an explicit opt-out and adjusting fresh-v2's
-unsupported-config check; that default change is deliberately not mixed into the current
-outcome-recovery candidate.
+Legacy-v1 now defaults to lazy first-assignment startup. `lazyMemberStart: false` remains an
+explicit compatibility opt-out; fresh-v2 accepts omitted/`true` and rejects `false` because it
+has no eager mode. The submission fence remains unchanged and no timing delay was added. The
+existing mixed-Provider Profile run above used explicit `true`, so it proves the behavioral
+mitigation but not the omitted-key product default; a new clean GLM-5.3 Captain + DSV4F member
+Profile run with the key absent is required before the Profile claim is upgraded. Until a
+per-member start policy is durable, setting changes are supported only after quiescing Teams so
+no member remains `provisioning`.

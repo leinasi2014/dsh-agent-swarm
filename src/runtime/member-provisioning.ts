@@ -1,10 +1,10 @@
 /**
  * Continuable member provisioning.
  *
- * One admitted operation at a time. The stable eager mode preserves the
- * existing join-turn contract; opt-in lazy mode leaves a durable declaration
- * dormant until a real assignment and activates it atomically with that
- * assignment's delivered checkpoint.
+ * One admitted operation at a time. The default lazy mode leaves a durable
+ * declaration dormant until a real assignment and activates it atomically
+ * with that assignment's delivered checkpoint. Legacy eager startup remains
+ * available only through the explicit compatibility opt-out.
  *
  * The persisted-child reconciliation recovery (M1B/F3) also lives here: an
  * Recovery distinguishes a legitimate lazy declaration from a partially

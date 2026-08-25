@@ -117,7 +117,10 @@ describe('A1b fresh-v2 official AgentLoop vertical', () => {
     expect(Date.now() - startedAt).toBeLessThan(1_000)
   })
 
-  it('keeps the default v1 activation contract and rejects unsupported fresh-v2 configuration', async () => {
+  it('resolves lazy startup by default and rejects eager startup from fresh-v2 configuration', async () => {
+    expect(AgentSwarm.Config({}).lazyMemberStart).toBe(true)
+    expect(AgentSwarm.Config({ lazyMemberStart: false }).lazyMemberStart).toBe(false)
+    expect(() => AgentSwarm.Config({ lazyMemberStart: 'false' as never })).toThrow()
     expect(AgentSwarm.inject).not.toContain('llm')
     await expect(AgentSwarm.apply(new Context(), {
       experimentalFreshV2: true,
@@ -125,6 +128,18 @@ describe('A1b fresh-v2 official AgentLoop vertical', () => {
       freshV2HostContract: FRESH_V2_HOST_CONTRACT,
       jobsBridge: true,
     })).rejects.toMatchObject({ code: 'TEAM_EXPERIMENTAL_UNSUPPORTED_CONFIG' })
+    await expect(AgentSwarm.apply(new Context(), {
+      experimentalFreshV2: true,
+      freshV2ArtifactContract: ARTIFACT_CONTRACT,
+      freshV2HostContract: FRESH_V2_HOST_CONTRACT,
+      lazyMemberStart: false,
+    })).rejects.toMatchObject({ code: 'TEAM_EXPERIMENTAL_UNSUPPORTED_CONFIG' })
+    await expect(AgentSwarm.apply(new Context(), {
+      experimentalFreshV2: true,
+      freshV2ArtifactContract: ARTIFACT_CONTRACT,
+      freshV2HostContract: FRESH_V2_HOST_CONTRACT,
+      lazyMemberStart: true,
+    })).rejects.toMatchObject({ code: 'TEAM_RUNTIME_NOT_STARTED' })
     await expect(AgentSwarm.apply(new Context(), {
       experimentalFreshV2: true,
       freshV2ArtifactContract: ARTIFACT_CONTRACT,

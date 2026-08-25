@@ -59,7 +59,7 @@ captain（插件驱动）：
 - **持久邮箱**：queued-before-delivered、按消息 ID 目标侧去重、quiet/wakeup 两种语义（wakeup 的 `delivered` 仅在模型可见后提交，#52/D1）；
 - **预算**：token/request/retry/deadline 四限 + 官方对齐的完整计费 token 计量（seq 游标幂等，插件账本为唯一计量路径，#127 边界声明）；
 - **团队/个人记忆**：有界持久写入与授权查询；可在 DSH「设置 → 插件 → 插件配置 → Agent Swarm」中选择官方 Provider/model、候选上限和超时，用于重排已授权 Team 候选，故障时显式回退确定性检索。
-- **成员配置与详情**：分离子智能体运行 Provider 和 LLM Provider/model，持久化创建时 deny 快照与 Skill 指派；每任务动态工具改权在当前 DSH continuation seam 上明确为不支持。
+- **成员配置与详情**：分离子智能体运行 Provider 和 LLM Provider/model，持久化创建时 deny 快照与 Skill 指派；成员默认延迟到首个任务指派才启动，避免无任务 join turn 与抢跑提交，旧 eager 行为仅由高级静态配置 `lazyMemberStart: false` 显式恢复；每任务动态工具改权在当前 DSH continuation seam 上明确为不支持。
 - **调度**：事件驱动（idle 边沿/任务图变更/预算释放）、搁浅自愈（live-idle 重试、cold owner 证据暴露）、可替换 Scheduler Provider；
 - **Fresh-v2 显式续跑（实验）**：成员在当前官方 turn 内持久化一次同 Attempt 续跑意图；只有 durable turn settlement、官方 idle、Captain `followup` 接受、目标 inbox claim、Session flush 和 `llm/stream` 派发见证全部成立，assistant 证据才让同一 Attempt 回到 running。当前只验证在线路径；冷启动恢复、未知投递对账和正式 Profile 验收仍未完成，默认关闭。
 - **中断控制**：模型侧 `interrupt_member` 只在 Host 从目标当前 turn 读到持续至少 10 分钟且尚未结算的真实工具调用时开放；沉默、规划时间、无文件/Git 变化和 wait 次数均不能授权。直接用户停止走带 Host 身份证明的 Human Control，不接受模型自述证据；

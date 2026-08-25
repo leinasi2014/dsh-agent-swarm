@@ -14,10 +14,10 @@ describe('lazy member materialization', () => {
     await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
   })
 
-  it('does not call a model until the first assignment and delivers that frame before model execution', async () => {
+  it('defaults omitted legacy configuration to lazy start and delivers the assignment before model execution', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-swarm-lazy-member-'))
     roots.push(sandbox)
-    const composition = await mount(sandbox, 60_000, 'priority-ready', { lazyMemberStart: true })
+    const composition = await mount(sandbox, 60_000, 'priority-ready', { useProductLazyDefault: true })
     const { ctx, adapter, lead } = composition
     try {
       const memberId = await addMember(composition, 'lazy-worker')
@@ -81,6 +81,27 @@ describe('lazy member materialization', () => {
           .filter(event => event.type === 'user/message')
         expect(JSON.stringify(modelVisible.slice(1))).toContain('Context queued before your first assignment.')
       }, { timeout: 15_000 })
+    } finally {
+      adapter.open()
+      for (const fiber of composition.fibers.toReversed()) await fiber.dispose()
+    }
+  }, 20_000)
+
+  it('keeps eager legacy startup available only through explicit false', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-swarm-eager-member-'))
+    roots.push(sandbox)
+    const composition = await mount(sandbox, 60_000, 'priority-ready', { lazyMemberStart: false })
+    const { ctx, adapter } = composition
+    try {
+      const memberId = await addMember(composition, 'eager-worker')
+      await vi.waitFor(async () => {
+        expect(adapter.requests.length).toBeGreaterThanOrEqual(1)
+        expect((await snapshotOf(composition)).team.members[0]?.phase).toBe('active')
+      }, { timeout: 15_000 })
+      const stored = await ctx.sessionPersistence.inspect(SessionId(memberId))
+      const userMessages = stored.events.slice(stored.meta.seedLength ?? 0)
+        .filter(event => event.type === 'user/message')
+      expect(JSON.stringify(userMessages[0])).toContain('Wait for a task assignment')
     } finally {
       adapter.open()
       for (const fiber of composition.fibers.toReversed()) await fiber.dispose()

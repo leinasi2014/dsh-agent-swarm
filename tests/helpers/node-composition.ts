@@ -161,6 +161,7 @@ export async function mountNodeComposition(sandbox: string, config: { maxMembers
   fibers.push(await ctx.plugin(AgentSwarm, {
     memberProvider: 'spawn',
     memberMaxDepth: 1,
+    lazyMemberStart: false,
     schedulerProvider: 'priority-ready',
     reviewProvider: 'manual',
     orchestrationMode: 'adaptive',

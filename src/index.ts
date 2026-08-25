@@ -78,7 +78,7 @@ export interface Config {
   memberProvider?: string
   /** Optional model override for every member. */
   memberModel?: string
-  /** Experimental: declare members without a model turn until first assignment. */
+  /** Declare members without a model turn until first assignment; default true. False preserves legacy eager startup. */
   lazyMemberStart?: boolean
   /** A1b-only isolated fresh-v2 walking skeleton; default false and never opens v1. */
   experimentalFreshV2?: boolean
@@ -221,7 +221,7 @@ export const Config: z<Config> = z.object({
   enabled: z.boolean().default(true),
   memberProvider: z.string().default('spawn'),
   memberModel: z.string(),
-  lazyMemberStart: z.boolean().default(false),
+  lazyMemberStart: z.boolean().default(true),
   experimentalFreshV2: z.boolean().default(false),
   freshV2ArtifactContract: z.string(),
   freshV2HostContract: z.string(),
@@ -272,7 +272,7 @@ function rejectUnsupportedFreshV2Config(config: Config): void {
   const reject = (changed: boolean, key: keyof Config): void => {
     if (changed) unsupported.push(key)
   }
-  reject(config.lazyMemberStart === true, 'lazyMemberStart')
+  reject(config.lazyMemberStart === false, 'lazyMemberStart')
   reject(config.memorySemanticEnabled === true, 'memorySemanticEnabled')
   reject(config.memorySemanticProvider !== undefined, 'memorySemanticProvider')
   reject(config.memorySemanticModel !== undefined, 'memorySemanticModel')
@@ -385,7 +385,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const runtime = new AgentSwarmRuntime(ctx, {
     memberProvider,
     ...(config.memberModel === undefined ? {} : { memberModel: config.memberModel }),
-    lazyMemberStart: config.lazyMemberStart ?? false,
+    lazyMemberStart: config.lazyMemberStart ?? true,
     memberMaxDepth: config.memberMaxDepth ?? 1,
     schedulerProvider,
     reviewProvider,

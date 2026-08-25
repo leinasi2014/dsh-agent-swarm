@@ -88,7 +88,7 @@ async function mount(sandbox: string): Promise<Stack> {
   fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
   fibers.push(await ctx.plugin(SubagentService))
   fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
-  fibers.push(await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1 }))
+  fibers.push(await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1, lazyMemberStart: false }))
   ctx.llm.registerAdapter(['mock'], new ImmediateAdapter())
   const lead = ctx.agentLoop.create(
     SessionId(`lifecycle-lead-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
@@ -124,7 +124,7 @@ async function mountConflictFixture(sandbox: string): Promise<Fiber[]> {
   // overwrite another owner. The fake provider is explicitly removed after
   // the failure so the same context/durable root can be reused cleanly.
   const unprovideConflict = ctx.provide('agentSwarmPermission', { fake: true } as never)
-  await expect(ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1 })).rejects.toThrow()
+  await expect(ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1, lazyMemberStart: false })).rejects.toThrow()
   unprovideConflict()
   return fibers
 }

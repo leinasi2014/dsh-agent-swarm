@@ -92,6 +92,7 @@ async function mount(
   const pluginFiber = await ctx.plugin(AgentSwarm, {
     memberProvider: 'spawn',
     memberMaxDepth: 1,
+    lazyMemberStart: false,
     ...(options.toolPolicy === undefined ? {} : { toolPolicy: options.toolPolicy }),
     ...(options.reviewProvider === undefined ? {} : { reviewProvider: options.reviewProvider }),
     ...(options.orchestrationMode === undefined ? {} : { orchestrationMode: options.orchestrationMode }),
