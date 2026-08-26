@@ -326,6 +326,7 @@ describe('Reviewer Agent real review transaction', () => {
     unregisterGood()
   }, 30_000)
 })
+
 describe('real ToolRuntime + approval composition (SW-I1a)', () => {
   it('allow-once grants one concrete captain tool call in the same open turn', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-perm-allow-'))
