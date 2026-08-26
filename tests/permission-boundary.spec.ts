@@ -20,10 +20,12 @@ import {
 } from '../src/runtime/permission-policy.js'
 import { assertFreeTextNotAuthorization } from '../src/runtime/human-provenance.js'
 import {
+  reviewerCandidateIdentity,
   reviewerAgentVerdictHasNoTeamMutation,
   toHumanReviewDecision,
   type ReviewerAgentVerdict,
 } from '../src/runtime/reviewer-boundary.js'
+import { AttemptId, TaskId, TeamId, type TaskAttempt, type TeamState, type TeamTask } from '../src/domain/types.js'
 describe('tiered allow/ask/deny decision model (pure)', () => {
   it('fails closed by default: an unlisted tool is deny and maps to a deny PreToolDecision', () => {
     const decision = decideToolPermission({}, 'agent_swarm_unknown', {
@@ -83,6 +85,33 @@ describe('human provenance boundary (no Agent-mintable attestation)', () => {
   })
 })
 describe('Reviewer Agent / HumanReviewProvider boundary', () => {
+  it('freezes a secret-free candidate identity from the current authoritative attempt', () => {
+    const candidate = reviewerFixture({ output: 'output token=private-output', evidence: ['alpha', 'beta'] })
+    const identity = reviewerCandidateIdentity(candidate)
+    expect(identity).toMatchObject({
+      teamId: 'team-reviewer', teamRevision: 9, taskId: 'task-reviewer', taskRevision: 4,
+      attemptId: 'attempt-reviewer', attemptGeneration: 2, memberSessionId: 'member-reviewer',
+    })
+    expect(identity.outputSha256).toMatch(/^[a-f0-9]{64}$/)
+    expect(identity.evidenceSha256).toMatch(/^[a-f0-9]{64}$/)
+    expect(JSON.stringify(identity)).not.toMatch(/private-output|alpha|beta/)
+    expect(reviewerCandidateIdentity(reviewerFixture({ evidence: ['beta', 'alpha'] })).evidenceSha256)
+      .not.toBe(identity.evidenceSha256)
+    expect(reviewerCandidateIdentity(reviewerFixture({ evidence: ['a', 'bc'] })).evidenceSha256)
+      .not.toBe(reviewerCandidateIdentity(reviewerFixture({ evidence: ['ab', 'c'] })).evidenceSha256)
+    expect(Object.isFrozen(identity)).toBe(true)
+  })
+  it('fails loud before a reviewer can see a stale or inconsistent candidate', () => {
+    const candidate = reviewerFixture()
+    expect(() => reviewerCandidateIdentity({ ...candidate, task: { ...candidate.task } }))
+      .toThrowError(expect.objectContaining({ code: 'TEAM_REVIEW_CANDIDATE_INVALID' }))
+    expect(() => reviewerCandidateIdentity({ ...candidate, attempt: { ...candidate.attempt, taskId: TaskId('other-task') } }))
+      .toThrowError(expect.objectContaining({ code: 'TEAM_REVIEW_CANDIDATE_INVALID' }))
+    expect(() => reviewerCandidateIdentity({
+      ...candidate,
+      task: { ...candidate.task, currentAttemptId: AttemptId('replacement-attempt') },
+    })).toThrowError(expect.objectContaining({ code: 'TEAM_REVIEW_CANDIDATE_INVALID' }))
+  })
   it('accepts only evidence verdicts without a decision or mutation handle', () => {
     const verdict: ReviewerAgentVerdict = {
       kind: 'evidence',
@@ -132,5 +161,32 @@ function captainTurn(): ToolPermissionContext {
     sameTurnConcreteToolCall: true,
     openTurn: true,
     approvalSeamAvailable: true,
+  }
+}
+
+function reviewerFixture(overrides: { output?: string; evidence?: string[] } = {}): {
+  readonly team: TeamState
+  readonly task: TeamTask
+  readonly attempt: TaskAttempt
+} {
+  const task: TeamTask = {
+    id: TaskId('task-reviewer'), revision: 4, subject: 'Review', description: 'Review candidate',
+    acceptanceCriteria: [], status: 'submitted', blockedBy: [], writeScopes: [], priority: 0,
+    currentAttemptId: AttemptId('attempt-reviewer'), createdAt: 1, updatedAt: 2,
+  }
+  const attempt: TaskAttempt = {
+    id: AttemptId('attempt-reviewer'), taskId: task.id, generation: 2, memberSessionId: 'member-reviewer',
+    phase: 'submitted', assignmentPhase: 'delivered', output: overrides.output ?? 'candidate output',
+    evidence: overrides.evidence ?? ['evidence-1'], createdAt: 1, updatedAt: 2,
+  }
+  return {
+    team: {
+      schemaVersion: 1, id: TeamId('team-reviewer'), revision: 9, name: 'Reviewer team', description: 'Test team',
+      captainSessionId: 'captain-reviewer', phase: 'active', members: [], tasks: [task], attempts: [attempt], messages: [],
+      budget: { usedTokens: 0, usedRequests: 0, usedRetries: 0 }, usageCursors: {}, memory: [],
+      nextTaskNumber: 2, nextMemoryNumber: 1, createdAt: 1, updatedAt: 2,
+    },
+    task,
+    attempt,
   }
 }

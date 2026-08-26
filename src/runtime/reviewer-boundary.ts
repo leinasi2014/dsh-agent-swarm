@@ -15,8 +15,10 @@
  * verdict).
  */
 import { Buffer } from 'node:buffer'
+import { createHash } from 'node:crypto'
 import { TeamDomainError } from '../domain/error.js'
-import type { ReviewProviderResult, TeamReviewProvider } from './providers.js'
+import type { TaskAttempt, TeamState, TeamTask } from '../domain/types.js'
+import type { ReviewProviderInput, ReviewProviderResult, TeamReviewProvider } from './providers.js'
 
 /** What a Reviewer Agent may return: evidence, optionally a recommendation. */
 export interface ReviewerAgentVerdict {
@@ -26,6 +28,23 @@ export interface ReviewerAgentVerdict {
   readonly recommendation?: 'accept' | 'reject'
 }
 
+/**
+ * Immutable, secret-free reference to the exact submitted candidate under
+ * review. It is derived solely from the authoritative ReviewProviderInput;
+ * the output and evidence themselves never cross this Provider boundary.
+ */
+export interface ReviewerCandidateIdentity {
+  readonly teamId: string
+  readonly teamRevision: number
+  readonly taskId: string
+  readonly taskRevision: number
+  readonly attemptId: string
+  readonly attemptGeneration: number
+  readonly memberSessionId: string
+  readonly outputSha256: string
+  readonly evidenceSha256: string
+}
+
 /** Reviewer Agent Provider contract: no Team mutation surface. */
 export interface ReviewerAgentProvider {
   readonly kind: 'reviewer-agent'
@@ -33,6 +52,7 @@ export interface ReviewerAgentProvider {
   review(input: {
     readonly workspace: string
     readonly diagnostic?: string
+    readonly candidate: ReviewerCandidateIdentity
     readonly signal: AbortSignal
   }): ReviewerAgentVerdict | Promise<ReviewerAgentVerdict>
 }
@@ -41,6 +61,76 @@ const MAX_REVIEWER_EVIDENCE_IDS = 16
 const MAX_REVIEWER_EVIDENCE_ID_BYTES = 96
 const MAX_REVIEWER_DIAGNOSTIC_BYTES = 2_048
 const EVIDENCE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/
+
+function candidateError(): never {
+  throw new TeamDomainError(
+    'reviewer candidate identity is stale or inconsistent with the authoritative Team snapshot',
+    'TEAM_REVIEW_CANDIDATE_INVALID',
+  )
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0
+}
+
+function isSafeNonNegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+}
+
+/** SHA-256 with length-prefixed UTF-8 parts, so order and boundaries cannot collide. */
+function candidateDigest(parts: readonly (string | undefined)[]): string {
+  const hash = createHash('sha256')
+  for (const part of parts) {
+    const bytes = Buffer.from(part ?? '', 'utf8')
+    hash.update(part === undefined ? 'u:' : 's:')
+    hash.update(String(bytes.length))
+    hash.update(':')
+    hash.update(bytes)
+  }
+  return hash.digest('hex')
+}
+
+function evidenceDigest(evidence: readonly string[]): string {
+  return candidateDigest(['reviewer-candidate-evidence-v1', String(evidence.length), ...evidence])
+}
+
+function sameAuthoritativeTask(team: TeamState, task: TeamTask): boolean {
+  return team.tasks.filter(candidate => candidate.id === task.id).length === 1
+    && team.tasks.find(candidate => candidate.id === task.id) === task
+}
+
+function sameAuthoritativeAttempt(team: TeamState, attempt: TaskAttempt): boolean {
+  return team.attempts.filter(candidate => candidate.id === attempt.id).length === 1
+    && team.attempts.find(candidate => candidate.id === attempt.id) === attempt
+}
+
+/**
+ * Freeze the candidate identity before invoking a Reviewer Agent. Exact
+ * membership checks make a stale copy, replaced attempt, or cross-task
+ * splice fail before the reviewer can consume it.
+ */
+export function reviewerCandidateIdentity(input: Pick<ReviewProviderInput, 'team' | 'task' | 'attempt'>): ReviewerCandidateIdentity {
+  const { team, task, attempt } = input
+  if (!isNonEmptyString(team.id) || !isSafeNonNegativeInteger(team.revision)
+    || !isNonEmptyString(task.id) || !isSafeNonNegativeInteger(task.revision)
+    || !isNonEmptyString(attempt.id) || !isSafeNonNegativeInteger(attempt.generation)
+    || !isNonEmptyString(attempt.memberSessionId)
+    || !sameAuthoritativeTask(team, task) || !sameAuthoritativeAttempt(team, attempt)
+    || attempt.taskId !== task.id || task.currentAttemptId !== attempt.id
+    || task.status !== 'submitted' || attempt.phase !== 'submitted'
+    || !Array.isArray(attempt.evidence) || !attempt.evidence.every(isNonEmptyString)) candidateError()
+  return Object.freeze({
+    teamId: team.id,
+    teamRevision: team.revision,
+    taskId: task.id,
+    taskRevision: task.revision,
+    attemptId: attempt.id,
+    attemptGeneration: attempt.generation,
+    memberSessionId: attempt.memberSessionId,
+    outputSha256: candidateDigest(['reviewer-candidate-output-v1', attempt.output]),
+    evidenceSha256: evidenceDigest(attempt.evidence),
+  })
+}
 
 /** A reviewer verdict must not smuggle a decision or a mutation handle. */
 export function reviewerAgentVerdictHasNoTeamMutation(value: unknown): value is ReviewerAgentVerdict {
@@ -104,11 +194,15 @@ export function reviewerAgentReviewProvider(resolve: () => ReviewerAgentProvider
           'TEAM_REVIEW_PROVIDER_MISSING',
         )
       }
+      // Validate and freeze before entering the provider failure boundary: a
+      // stale candidate is a transaction/input fault, never a reviewer fault.
+      const candidate = reviewerCandidateIdentity(input)
       let verdict: ReviewerAgentVerdict
       try {
         verdict = await provider.review({
           workspace: input.workspace,
           ...(input.diagnostic === undefined ? {} : { diagnostic: input.diagnostic }),
+          candidate,
           signal: input.signal,
         })
       } catch {
