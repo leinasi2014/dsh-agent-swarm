@@ -527,6 +527,14 @@ async function main() {
       || !Array.isArray(snapshot.tasks) || !Array.isArray(snapshot.attempts) || !Array.isArray(snapshot.pendingInteractions)) {
       throw new Error('R2 binding/status/snapshot did not share one authoritative cursor and collections')
     }
+    const terminalIdentity = {
+      teamId: snapshot.team.id,
+      teamRevision: snapshot.team.revision,
+      memberSessionIds: snapshot.team.members.map(member => member.sessionId),
+      taskIds: snapshot.tasks.map(task => task.id),
+      attempts: snapshot.attempts.map(attempt => ({ id: attempt.id, taskId: attempt.taskId, phase: attempt.phase, memberSessionId: attempt.memberSessionId })),
+      taskStates: snapshot.tasks.map(task => ({ id: task.id, status: task.status, currentAttemptId: task.currentAttemptId })),
+    }
     for (const kind of ['tasks', 'attempts', 'pendingInteractions']) {
       const page = requireSwarmValue(await readSwarmRpc(args.port, evidenceDir, `r2-page-${kind}`, {
         schemaVersion: 1, method: 'page', target, page: { kind, offset: 0, limit: 50 },
@@ -571,6 +579,19 @@ async function main() {
       schemaVersion: 1, method: 'binding', target,
     }, trustedHeaders), 'R2 reload binding')
     assertReadBinding(reloadBinding, rootSessionId, teamId, 'R2 reload binding')
+    const reloadSnapshot = requireSwarmValue(await readSwarmRpc(args.port, evidenceDir, 'r2-reload-snapshot', {
+      schemaVersion: 1, method: 'snapshot', target,
+    }, trustedHeaders), 'R2 reload snapshot')
+    const reloadIdentity = {
+      teamId: reloadSnapshot.team.id, teamRevision: reloadSnapshot.team.revision,
+      memberSessionIds: reloadSnapshot.team.members.map(member => member.sessionId), taskIds: reloadSnapshot.tasks.map(task => task.id),
+      attempts: reloadSnapshot.attempts.map(attempt => ({ id: attempt.id, taskId: attempt.taskId, phase: attempt.phase, memberSessionId: attempt.memberSessionId })),
+      taskStates: reloadSnapshot.tasks.map(task => ({ id: task.id, status: task.status, currentAttemptId: task.currentAttemptId })),
+    }
+    if (JSON.stringify(reloadIdentity) !== JSON.stringify(terminalIdentity)
+      || reloadIdentity.taskStates.some(task => task.status !== 'completed') || reloadIdentity.attempts.some(attempt => attempt.phase !== 'accepted')) {
+      throw new Error(`W0 reload terminal identity changed or repeated work: ${JSON.stringify({ terminalIdentity, reloadIdentity })}`)
+    }
     const secondStop = await gracefulStop(liveBoot, stopPath, args.port)
     liveBoot = undefined
     const secondUnloaded = await waitUntil(async () => (await readProbe(probePath)).filter(entry => entry.phase === 'unloaded').length >= 2, { timeoutMs: 5_000 })
