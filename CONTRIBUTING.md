@@ -5,6 +5,7 @@ This repository uses `$manage-agile-software-development` with the project adapt
 ## Before implementation
 
 - Confirm the requested outcome, affected surfaces, risk, and evidence required for completion.
+- Register one compact Feature Pipeline for each independently acceptable capability. Ordinary local failures stay in its author loop; frozen-candidate or real-path failures create a linked correction generation.
 - Read the relevant product/architecture authorities from [docs/governance/document-registry.yaml](docs/governance/document-registry.yaml).
 - Run the cheap `pnpm verify:isolation:status` before opening a write lane, freezing a candidate, and integrating. Run `pnpm verify:policy` only when governance, instructions, or document authority changes; the full `pnpm verify:isolation` only when isolation policy/layout changes; and `pnpm verify:compatibility` only when official/reference facts are decision-bearing. Reuse unchanged receipts otherwise.
 - Treat `ref/` as read-only evidence.
@@ -14,6 +15,8 @@ This repository uses `$manage-agile-software-development` with the project adapt
 The accepted backend is currently `single-checkout`, with one writer for repository mutations. Parallel write packages are `NOT_CONFIGURED`. Do not call raw worktree lifecycle commands or create an unmanaged workspace. A future worktree backend requires project-owned open/status/close/reconcile entry points, negative tests, a binding generation change, and independent acceptance.
 
 Independent read-only investigation may run concurrently. Shared contracts, governance, document registry, integration, promotion, and destructive cleanup each have one writer.
+
+The project direction owner intervenes only when outcome, official boundary, architecture, shared contract, authority, or contradictory real evidence changes. Normal implementation, QA pass, bounded repair, and candidate freeze remain with the Feature Pipeline lead.
 
 ## Candidate and review
 

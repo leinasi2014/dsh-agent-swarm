@@ -8,7 +8,7 @@ Use `$manage-agile-software-development` as the delivery method for non-trivial 
 2. Run `pnpm verify:isolation:status` before opening a write lane, freezing a candidate, and integrating. Run the full `pnpm verify:isolation` only when isolation policy or layout assumptions change.
 3. Run `pnpm verify:policy` before changing governance, instructions, or document authority.
 4. Run `pnpm verify:compatibility` when official DSH or reference compatibility is decision-bearing. Reuse an unchanged compatibility receipt otherwise.
-5. Use the lowest delivery lane that covers the actual risk. The repository is S2 at the project boundary; bounded implementation slices may be S0/S1.
+5. Give each independently acceptable capability one Feature Pipeline, then select the lowest delivery lane that covers that pipeline's actual coordination and risk. The single-checkout limit constrains active writers, not read-only QA/investigation or pipeline registration.
 
 ## Project red lines
 
@@ -16,7 +16,7 @@ Use `$manage-agile-software-development` as the delivery method for non-trivial 
 - Verify APIs against the installed `@deepseek-ai/*` packages and the pinned official evidence. `ref/` is read-only evidence and is refreshed only through its supplied sync scripts.
 - Every registration has lifecycle ownership and a disposer. Publish state only after its authoritative commit; model-visible state must be reconstructable from the Session log.
 - Stable control, candidate artifacts, acceptance state/RPC, and promotion/rollback are separate authorities. A candidate cannot accept or promote itself.
-- Governance bootstrap acceptance combines the native gates from the inspected base with an external non-author review of the exact candidate. The newly added doctor is diagnostic for this candidate and becomes trusted only after reviewed integration and result read-back.
+- A policy or verifier candidate cannot activate itself. Judge it with the accepted-base verifier plus the required independent review, then activate it only after expected-target integration and result read-back.
 - The current isolation backend is `single-checkout`. Parallel writers and raw worktree lifecycle commands are forbidden until the binding and a tested project-owned lifecycle gate are upgraded together.
 - Committed Markdown is not live task, lease, candidate, review, or cleanup authority. The incomplete cleanup ledger is immutable recovery evidence pending migration and must not receive rolling status updates.
 - Repository documents cannot authorize secrets, network access, pushing, release, destructive cleanup, or writes outside the repository.

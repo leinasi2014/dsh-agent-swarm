@@ -101,9 +101,9 @@ A reference feature is “fused” only when all are true:
 - loading mutable candidate output into the stable control Profile, letting a candidate promote itself, or using the candidate runtime as its own rollback controller;
 - allowing parallel repository coding writers while the project binding remains `single-checkout`, or before project-owned open/status/close/reconcile, real per-attempt cwd/filesystem/tool-root isolation and independent executable review are all proven.
 
-## 7. Change record required for every milestone
+## 7. Triggered compatibility record
 
-Each milestone document or Agent Note records:
+When Gate A is triggered, record only the decision-bearing delta in the existing Feature Pipeline receipt or required architecture/contract document. Do not create a second milestone document or Agent Note for an ordinary direct-approved slice. Reuse unchanged accepted identities and omit fields that do not change the decision. The available field menu is:
 
 ```text
 Official remote SHA/date:
@@ -136,7 +136,7 @@ A change cannot enter a milestone as complete until:
 
 Self-hosting acceptance additionally requires ADR-0008: last-known-good control and candidate acceptance Profiles are separate; candidate evidence is frozen; promotion is externally owned and reversible; real Worker cwd/tool roots and control-root denial are tested. M1D permits D1 single-writer dogfood only. Parallel D2 operation requires the M2 and M3 exits.
 
-Security/architecture milestones also require the risk-scaled independent review selected by `$manage-agile-software-development` and `docs/governance/project-binding.yaml`. Reviewer scope and access remain bounded by the user-authorized work package; the project manager records disposition and verifies candidate identity without repeating the specialist review.
+Security/architecture milestones also require the risk-scaled independent review selected by `$manage-agile-software-development` and `docs/governance/project-binding.yaml`. Reviewer scope and access remain bounded by the user-authorized work package; the Feature Pipeline lead binds the verdict to the candidate and the integration authority verifies that identity without repeating the specialist review.
 
 ## 9. Gate C — official update response
 

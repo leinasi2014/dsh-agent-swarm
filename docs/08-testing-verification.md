@@ -184,7 +184,7 @@ The unproven set still contains the full failure windows this section cares abou
 
 ## 8. Independent review gate
 
-Security and milestone reviews follow `$manage-agile-software-development` as bound by `docs/governance/project-binding.yaml`. The reviewer receives the assembled source, applicable official/reference evidence and task-authorized diagnostic access. The report is preserved unchanged; the manager verifies identity and records disposition. Corrections receive delta review unless architecture, risk or the reviewed boundary changes.
+Candidate acceptance follows `$manage-agile-software-development` as bound by `docs/governance/project-binding.yaml`: LOW uses author proof unless upgraded, MEDIUM uses one non-author final-candidate review, and HIGH uses one bounded specialist round for affected domains. QA and semantic review may be combined by one qualified non-author when privilege separation is unnecessary. The Feature Pipeline lead binds the verdict to the exact candidate and the integration authority reads it back; no duplicate manager approval is added. Corrections receive delta review unless architecture, risk or the reviewed boundary changes.
 
 M3 self-hosting acceptance requires an independent regression/security review of the stable/candidate boundary, Worker permissions, frozen evidence, merge/promotion ownership and rollback. The candidate's own report is input evidence, not the verdict.
 

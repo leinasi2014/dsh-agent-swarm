@@ -1,13 +1,14 @@
 bindingVersion: 1
 project:
   identity: dsh-agent-swarm
-  deliveryLane: S2-contracted
   integrationRef: refs/heads/main
 
 method:
   name: manage-agile-software-development
-  policyDigest: ec4cf729e38b6273146b5e24263424ef65007c1d
+  policyDigest: 49fb49a41d9595ab08bcb87efa2b01703f6e5151
   instructionAdapter: AGENTS.md
+  candidateSelfActivation: forbidden
+  activation: reviewed-integration-and-result-readback
 
 authority:
   repository:
@@ -24,7 +25,7 @@ authority:
     - alias: github
       role: replication-only
       mutationAuthority: separate-user-authorized-operation
-  authorityEpoch: 1
+  authorityEpoch: 2
 
 candidate:
   identityScheme: git-commit-sha
@@ -51,9 +52,6 @@ deliveryPipelines:
   defectAndReworkAuthority:
     kind: selected-dynamic-provider
     capability: NOT_CONFIGURED
-  knowledgeModel:
-    role: projection
-    sourceAuthority: selected-dynamic-provider
   integrationAuthority: expected-main-identity
   fallback:
     scope: one-active-session
@@ -153,11 +151,3 @@ legacyMigration:
     - dynamic-provider-capability-verified
     - unique-recovery-identities-migrated
     - expected-state-deletion-candidate-reviewed
-
-bootstrapAcceptance:
-  adoptionManifest: docs/governance/adoption-manifest-v1.yaml
-  inspectedBase: f465400b731f4593384c699a0c6fea08b9300be6
-  baseNativeGates: pnpm-verify-structure-at-inspected-base
-  exactCandidateExternalNonAuthorReview: required
-  candidateSelfApproval: forbidden
-  newVerifierActivation: after-reviewed-integration-and-result-readback

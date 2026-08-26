@@ -204,12 +204,21 @@ documents:
     validation: pnpm-verify-compatibility
   - documentId: reviewer-autonomy-decision
     path: docs/adr/0006-independent-reviewer-autonomy.md
-    role: stable-authority
+    role: reference
     subject: decision
     writeMode: human
     accountableOwner: governance-owner
     mutationAuthority: superseding-adr-only
     updateTriggers: accepted-review-governance-reversal
+    validation: pnpm-verify-policy
+  - documentId: feature-pipeline-acceptance-decision
+    path: docs/adr/0010-risk-scaled-feature-pipeline-acceptance.md
+    role: stable-authority
+    subject: decision
+    writeMode: human
+    accountableOwner: governance-owner
+    mutationAuthority: superseding-adr-only
+    updateTriggers: feature-pipeline-or-acceptance-governance-reversal
     validation: pnpm-verify-policy
   - documentId: self-hosting-decision
     path: docs/adr/0008-self-hosting-dogfood-control-plane.md
