@@ -29,8 +29,10 @@ export interface VerificationTemplateInvocation {
 export type VerificationDeclaration = ReviewVerificationCommand | VerificationTemplateInvocation
 
 /** Task input accepted by the runtime before template compilation. */
-export type RuntimeCreateTaskInput = Omit<CreateTaskInput, 'verification'> & {
+export type RuntimeCreateTaskInput = Omit<CreateTaskInput, 'verification' | 'targetMemberSessionId'> & {
   readonly verification?: readonly VerificationDeclaration[]
+  /** Stable Team member name; runtime resolves it to the sole durable identity. */
+  readonly targetMemberName?: string
 }
 
 /** Stateless command template registered on the runtime. */

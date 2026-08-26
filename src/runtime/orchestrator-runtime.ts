@@ -9,7 +9,6 @@ import { TaskId, type AttemptId, type TaskAttempt, type TeamId, type TeamMessage
 import { TeamDomain } from '../domain/team-domain.js'
 import type { CreateTaskInput, TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import { TeamDomainError } from '../domain/error.js'
-import { normalizeMemberName } from '../domain/team-domain-shared.js'
 import { StorageDomainTeamStore } from '../storage/storage-domain-team-store.js'
 import { teamDomainSpec } from '../storage/team-spec.js'
 import { requireAgent, workspaceOf, type ToolExecutionAuthority } from './authority.js'
@@ -32,6 +31,7 @@ import type { TeamJobProjection } from './jobs/team-job-projection.js'
 import type { TeamBridgeWorkflowEngine } from './workflow/team-bridge-engine.js'
 import type { RuntimeCreateTaskInput, VerificationCommandTemplate } from './verification-commands.js'
 import { VerificationFamily } from './verification-family.js'
+import { resolveTaskTarget } from './task-targeting.js'
 
 export type { ToolExecutionAuthority }
 export type { ReviewProviderInput, ReviewProviderResult, SchedulerDecision, SchedulerSelectionInput, TeamReviewProvider, TeamSchedulerProvider }
@@ -270,34 +270,26 @@ export class AgentSwarmRuntime extends Service {
     return await this.provisioning.addMember(exec, input)
   }
 
-  async createTask(exec: ToolExecutionAuthority, input: RuntimeCreateTaskInput & { readonly targetMemberName?: string }): Promise<TeamTask> {
-    await this.ensureReady()
-    this.assertOpen()
-    this.assertConfiguredProviders()
-    const actor = requireAgent(exec)
-    const scope = this.scopeOf(actor)
+  async createTask(exec: ToolExecutionAuthority, input: RuntimeCreateTaskInput): Promise<TeamTask> {
+    await this.ensureReady(); this.assertOpen(); this.assertConfiguredProviders()
+    const actor = requireAgent(exec), scope = this.scopeOf(actor)
     const membership = await this.domain.requireMembership(scope, actor.id)
     const { verification, targetMemberName, ...taskInput } = input
     let domainInput: CreateTaskInput = taskInput
     if (targetMemberName !== undefined) {
-      const target = membership.team.members.find(member => member.name === normalizeMemberName(targetMemberName)
-        && (member.phase === 'provisioning' || member.phase === 'active'))
-      if (target === undefined) throw new TeamDomainError(`Team member "${targetMemberName}" is unavailable`, 'TEAM_ASSIGNEE_INVALID')
-      domainInput = { ...domainInput, targetMemberSessionId: target.sessionId }
+      domainInput = { ...domainInput, targetMemberSessionId: resolveTaskTarget(membership.team.members, targetMemberName) }
     }
     if (verification !== undefined) {
       const compiled = await this.verificationFamily.compile(verification, this.config.limits.maxVerificationCommands, exec.signal)
       domainInput = { ...domainInput, verification: compiled }
     }
     const task = await this.domain.createTask(scope, membership.team.id, actor.id, domainInput)
-    const captain = this.ctx.agents.get(SessionId(membership.team.captainSessionId))
-    if (captain !== undefined) this.requestSchedule(scope, membership.team.id, captain)
+    const captain = this.ctx.agents.get(SessionId(membership.team.captainSessionId)); if (captain !== undefined) this.requestSchedule(scope, membership.team.id, captain)
     return task
   }
 
   async removeMember(exec: ToolExecutionAuthority, name: string, reason: string) {
-    await this.ensureReady()
-    this.assertOpen()
+    await this.ensureReady(); this.assertOpen()
     const captain = requireAgent(exec)
     const scope = this.scopeOf(captain)
     const membership = await this.domain.requireMembership(scope, captain.id)
@@ -373,16 +365,10 @@ export class AgentSwarmRuntime extends Service {
     const captain = requireAgent(exec)
     const scope = this.scopeOf(captain)
     const membership = await this.domain.requireMembership(scope, captain.id)
-    const target = targetMemberName === undefined
-      ? undefined
-      : membership.team.members.find(member => member.name === normalizeMemberName(targetMemberName)
-        && (member.phase === 'provisioning' || member.phase === 'active'))
-    if (targetMemberName !== undefined && target === undefined) {
-      throw new TeamDomainError(`Team member "${targetMemberName}" is unavailable`, 'TEAM_ASSIGNEE_INVALID')
-    }
+    const targetMemberSessionId = targetMemberName === undefined ? undefined : resolveTaskTarget(membership.team.members, targetMemberName)
     const before = membership.team.tasks.find(task => task.id === taskId)
     const released = await this.domain.cancelAttempt(
-      scope, membership.team.id, captain.id, TaskId(taskId), expectedRevision, reason, target?.sessionId,
+      scope, membership.team.id, captain.id, TaskId(taskId), expectedRevision, reason, targetMemberSessionId,
     )
     if (before?.ownerSessionId !== undefined) {
       this.ctx.subagents.interrupt(SessionId(before.ownerSessionId), { kind: 'ancestor', agent: captain })
