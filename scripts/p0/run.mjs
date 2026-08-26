@@ -678,6 +678,19 @@ async function main() {
     if (!verified.ok) throw new Error(`P0 evidence gate failed: ${verified.failures.join('; ')}`)
   } catch (error) {
     proofError = error
+    // Evidence is intentionally retained even though the disposable runtime
+    // is removed in finally.  This is the only failure handoff surface for a
+    // fresh-only Profile run; do not include env, prompts, or process args.
+    const failure = {
+      schemaVersion: 1,
+      status: 'fail',
+      phase: gates.at(-1)?.name ?? 'bootstrap',
+      error: error instanceof Error ? error.message.replaceAll(/(?:api[_-]?key|token|secret)\s*[:=]\s*\S+/giu, '[redacted]') : String(error),
+      gates,
+      commands,
+    }
+    await writeFile(join(evidenceDir, 'failure.json'), `${JSON.stringify(failure, null, 2)}\n`, 'utf8').catch(() => undefined)
+    await copyFile(probePath, join(evidenceDir, 'profile-probe.failure.jsonl')).catch(() => undefined)
   } finally {
     if (liveBoot !== undefined) await stopPlane(liveBoot).catch(() => undefined)
     if (await stat(runtimeRoot).then(() => true, () => false)) {

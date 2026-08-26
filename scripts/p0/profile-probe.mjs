@@ -180,7 +180,9 @@ export function apply(ctx) {
     const controller = new AbortController()
     void bindTarget(ctx, controller.signal).catch(error => {
       if (!controller.signal.aborted) append('r2-target-error', ctx, {
-        error: error instanceof Error ? error.message : String(error),
+        // Keep this deliberately secret-free: a Profile probe must never
+        // serialize stacks, environment, prompt text, or adapter options.
+        error: error instanceof Error ? error.message.replaceAll(/(?:api[_-]?key|token|secret)\s*[:=]\s*\S+/giu, '[redacted]') : String(error),
       })
     })
     return () => {
