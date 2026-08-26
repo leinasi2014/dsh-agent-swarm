@@ -17,6 +17,7 @@
  * only the process-local quarantine and durable-marker evidence ceiling.
  */
 import { mkdtemp, rm } from 'node:fs/promises'
+import { Buffer } from 'node:buffer'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
@@ -329,6 +330,83 @@ describe('assembled SW-I1a captain question presentation', () => {
       }, captainAdmission(stack))).rejects.toMatchObject({ code: 'TEAM_INTERACTION_OUTCOME_UNKNOWN' })
     }
     expect((await snapshot(stack)).team.messages.filter(message => message.senderName === 'captain')).toHaveLength(0)
+  }, 60_000)
+})
+
+describe('assembled SW-I2 bounded receipt pages', () => {
+  it('pages one durable Team snapshot with authenticated cursors and fails closed across authority boundaries', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-i2-receipt-page-'))
+    roots.push(sandbox)
+    const stack = await mount(sandbox, false)
+    stacks.push(stack)
+    const memberId = await addMember(stack)
+    const member = liveMember(stack, memberId)
+    const requestIds = Array.from({ length: 5 }, (_, index) => `human-page-${String(index + 1).padStart(8, '0')}`)
+    for (const requestId of requestIds) await relayQuestion(stack, memberId, requestId, `question ${requestId}`)
+    // scenario-evidence: 47
+    const read = (cursor?: string, limit = 2) => stack.ctx.agentSwarmHumanInteraction.pageReceipts({
+      scope: stack.scope, teamId: stack.teamId, limit, ...(cursor === undefined ? {} : { cursor }),
+    }, captainAdmission(stack))
+    const first = await read()
+    expect(first.items.map(receipt => receipt.requestId)).toEqual(requestIds.slice(0, 2))
+    expect(first.nextCursor).toEqual(expect.any(String))
+    expect(JSON.stringify(first)).not.toMatch(/question human-|captainSessionId|principalRef|storage/i)
+    expect(Buffer.byteLength(JSON.stringify(first), 'utf8')).toBeLessThan(64 * 1_024)
+    const insertedAfterSnapshot = 'human-page-00000006'
+    await relayQuestion(stack, memberId, insertedAfterSnapshot, 'inserted after first page')
+    const second = await read(first.nextCursor)
+    const third = await read(second.nextCursor)
+    expect(second.items.map(receipt => receipt.requestId)).toEqual(requestIds.slice(2, 4))
+    expect(third.items.map(receipt => receipt.requestId)).toEqual(requestIds.slice(4))
+    expect(third.nextCursor).toBeUndefined()
+    const freshAfterInsert = await read(undefined, 50)
+    expect(freshAfterInsert.items.map(receipt => receipt.requestId)).toEqual([...requestIds, insertedAfterSnapshot])
+
+    const cursor = first.nextCursor as string
+    const tampered = `${cursor.slice(0, -1)}${cursor.endsWith('a') ? 'b' : 'a'}`
+    await expect(stack.ctx.agentSwarmHumanInteraction.pageReceipts({
+      scope: stack.scope,
+      teamId: stack.teamId,
+      limit: 2,
+      cursor: tampered,
+    }, captainAdmission(stack))).rejects.toMatchObject({ code: 'TEAM_INTERACTION_CURSOR_INVALID' })
+    await expect(stack.ctx.agentSwarmHumanInteraction.pageReceipts({
+      scope: stack.scope,
+      teamId: AgentSwarm.TeamId('team-cross-authority'),
+      limit: 2,
+      cursor,
+    }, captainAdmission(stack))).rejects.toMatchObject({ code: 'TEAM_INTERACTION_CURSOR_INVALID' })
+    await expect(stack.ctx.agentSwarmHumanInteraction.pageReceipts({
+      scope: stack.scope,
+      teamId: stack.teamId,
+      limit: 2,
+    }, { exec: { agent: member, signal: SIGNAL } })).rejects.toMatchObject({ code: 'TEAM_CAPTAIN_REQUIRED' })
+    await expect(read(undefined, 0)).rejects.toMatchObject({ code: 'TEAM_INTERACTION_PAGE_INVALID' })
+    const unknownInput = { scope: stack.scope, teamId: stack.teamId, limit: 2, unexpected: true }
+    await expect(stack.ctx.agentSwarmHumanInteraction.pageReceipts(
+      unknownInput as unknown as AgentSwarm.HumanInteractionReceiptPageInput, captainAdmission(stack),
+    ))
+      .rejects.toMatchObject({ code: 'TEAM_INTERACTION_PAGE_INVALID' })
+    const aborted = new AbortController()
+    aborted.abort()
+    await expect(stack.ctx.agentSwarmHumanInteraction.pageReceipts(
+      { scope: stack.scope, teamId: stack.teamId, limit: 2 }, { exec: { agent: stack.lead, signal: aborted.signal } },
+    ))
+      .rejects.toMatchObject({ code: 'TEAM_INTERACTION_ABORTED' })
+
+    await stack.pluginFiber.dispose()
+    stack.fibers.pop()
+    const reloadedFiber = await stack.ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1 })
+    stack.fibers.push(reloadedFiber)
+    stack.pluginFiber = reloadedFiber
+    await expect(stack.ctx.agentSwarmHumanInteraction.pageReceipts({
+      scope: stack.scope,
+      teamId: stack.teamId,
+      limit: 2,
+      cursor,
+    }, captainAdmission(stack))).rejects.toMatchObject({ code: 'TEAM_INTERACTION_CURSOR_INVALID' })
+    const fresh = await read()
+    expect(fresh.items.map(receipt => receipt.requestId)).toEqual(requestIds.slice(0, 2))
   }, 60_000)
 })
 

@@ -168,7 +168,7 @@ export type {
   HumanInteractionIntent,
   HumanInteractionOrigin,
   HumanInteractionPort,
-  HumanInteractionReceipt,
+  HumanInteractionReceipt, HumanInteractionReceiptPage, HumanInteractionReceiptPageInput, HumanInteractionReceiptProjection,
   HumanInteractionAdmission,
   HumanInteractionRecord,
   HumanInteractionRequest,

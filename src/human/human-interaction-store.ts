@@ -36,6 +36,21 @@ function legacyHumanInteractionKey(scope: string, requestId: string): string {
   return JSON.stringify([scope, requestId])
 }
 
+export interface HumanInteractionPageKey {
+  readonly createdAt: number
+  readonly requestId: string
+}
+
+export interface HumanInteractionRecordPage {
+  readonly records: HumanInteractionRecord[]
+  readonly upperBound?: HumanInteractionPageKey
+  readonly hasMore: boolean
+}
+
+function comparePageKey(left: HumanInteractionPageKey, right: HumanInteractionPageKey): number {
+  return left.createdAt - right.createdAt || left.requestId.localeCompare(right.requestId)
+}
+
 /** Shared process-local serializer for one scope-bound interaction request. */
 class HumanInteractionOperationLocks {
   private readonly locks = new Map<string, Promise<void>>()
@@ -269,6 +284,47 @@ export class HumanInteractionOverlayStore {
       })
       .toSorted((left, right) => left.createdAt - right.createdAt || left.request.requestId.localeCompare(right.request.requestId))
       .map(record => structuredClone(record))
+  }
+
+  /**
+   * Scan one immutable receipt snapshot with bounded retained memory. The
+   * caller supplies an authenticated upper/after key; this store never owns
+   * cursor authority and never exposes durable keys.
+   */
+  pageRecords(
+    scope: string,
+    teamId: TeamId,
+    limit: number,
+    after?: HumanInteractionPageKey,
+    snapshotUpper?: HumanInteractionPageKey,
+  ): HumanInteractionRecordPage {
+    this.assertOpen()
+    let upperBound = snapshotUpper
+    const selected: HumanInteractionRecord[] = []
+    for (const [key, record] of this.interactions.entries()) {
+      if (record.scope !== scope || record.request.teamId !== teamId) continue
+      if (key !== humanInteractionKey(record.scope, record.request.teamId, record.request.requestId)) {
+        throw new TeamDomainError('legacy or mismatched human interaction key requires explicit migration', 'TEAM_INTERACTION_LEGACY_KEY_UNSUPPORTED')
+      }
+      const pageKey = { createdAt: record.createdAt, requestId: record.request.requestId }
+      if (snapshotUpper === undefined && (upperBound === undefined || comparePageKey(pageKey, upperBound) > 0)) {
+        upperBound = pageKey
+      }
+      if (after !== undefined && comparePageKey(pageKey, after) <= 0) continue
+      if (snapshotUpper !== undefined && comparePageKey(pageKey, snapshotUpper) > 0) continue
+      const insertion = selected.findIndex(candidate => comparePageKey(pageKey, {
+        createdAt: candidate.createdAt,
+        requestId: candidate.request.requestId,
+      }) < 0)
+      if (insertion === -1) selected.push(record)
+      else selected.splice(insertion, 0, record)
+      if (selected.length > limit + 1) selected.pop()
+    }
+    return {
+      records: selected.slice(0, limit).map(record => structuredClone(record)),
+      ...(upperBound === undefined ? {} : { upperBound: { ...upperBound } }),
+      hasMore: selected.length > limit,
+    }
   }
 
   /**

@@ -113,6 +113,21 @@ export interface HumanInteractionReceipt {
   readonly updatedAt: number
 }
 
+/** Secret-free Host read projection; request bodies and principal data never cross this face. */
+export type HumanInteractionReceiptProjection = Omit<HumanInteractionReceipt, 'diagnostic'>
+
+export interface HumanInteractionReceiptPageInput {
+  readonly scope: string
+  readonly teamId: TeamId
+  readonly limit: number
+  readonly cursor?: string
+}
+
+export interface HumanInteractionReceiptPage {
+  readonly items: readonly HumanInteractionReceiptProjection[]
+  readonly nextCursor?: string
+}
+
 /** One durable request + receipt pair in the additive overlay. */
 export interface HumanInteractionRecord {
   readonly schemaVersion: 1
@@ -223,6 +238,7 @@ export interface HumanInteractionAdmission {
 export interface HumanInteractionPort {
   relayMemberQuestion(input: RelayMemberQuestionInput, admission: HumanInteractionAdmission): Promise<HumanInteractionReceipt>
   presentQuestion(input: PresentQuestionInput, admission: HumanInteractionAdmission): Promise<HumanInteractionReceipt>
+  pageReceipts(input: HumanInteractionReceiptPageInput, admission: HumanInteractionAdmission): Promise<HumanInteractionReceiptPage>
   listReceipts(scope: string, teamId: TeamId, admission: HumanInteractionAdmission): Promise<HumanInteractionReceipt[]>
   reconcile(scope: string, teamId: TeamId, admission: HumanInteractionAdmission): Promise<HumanInteractionReceipt[]>
 }

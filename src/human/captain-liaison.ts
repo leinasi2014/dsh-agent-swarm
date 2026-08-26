@@ -24,12 +24,15 @@ import {
   type HumanInteractionPort,
   type HumanInteractionAdmission,
   type HumanInteractionReceipt,
+  type HumanInteractionReceiptPage,
+  type HumanInteractionReceiptPageInput,
   type HumanInteractionRecord,
   type HumanInteractionRequest,
   type PresentQuestionInput,
   type RelayMemberQuestionInput,
 } from './human-interaction-contract.js'
 import { quarantineInteractionOutcome } from './human-interaction-store.js'
+import { HumanInteractionReceiptPager } from './human-receipt-page.js'
 
 /** Advisory payload bound (bounded, secret-free, injection-fenced by the existing mailbox frame). */
 const MAX_HUMAN_INTERACTION_BODY_BYTES = 4_096
@@ -54,6 +57,8 @@ function invalidRelayInput(): TeamDomainError {
 }
 
 export class CaptainLiaison implements HumanInteractionPort {
+  private readonly receiptPager: HumanInteractionReceiptPager
+
   constructor(
     private readonly team: TeamDomainPort,
     private readonly overlay: HumanInteractionOverlayStore,
@@ -63,7 +68,9 @@ export class CaptainLiaison implements HumanInteractionPort {
       readonly resolve: (sessionId: string) => Agent | undefined
       readonly isRoot: (agent: Agent) => boolean
     } = { resolve: () => undefined, isRoot: () => false },
-  ) {}
+  ) {
+    this.receiptPager = new HumanInteractionReceiptPager(overlay)
+  }
 
   async relayMemberQuestion(
     input: RelayMemberQuestionInput,
@@ -321,6 +328,18 @@ export class CaptainLiaison implements HumanInteractionPort {
       await this.authorizeCaptainForTeam(scope, teamId, admission)
       return this.overlay.list(scope, teamId).map(receiptOf)
     })
+  }
+
+  async pageReceipts(
+    input: HumanInteractionReceiptPageInput,
+    admission: HumanInteractionAdmission,
+  ): Promise<HumanInteractionReceiptPage> {
+    this.validateInteractionAdmission(admission)
+    return await this.overlay.runAdmitted(async () => await this.receiptPager.page(input, async ({ scope, teamId }) => {
+      if (admission.exec.signal.aborted) throw new TeamDomainError('receipt page read was aborted', 'TEAM_INTERACTION_ABORTED')
+      await this.authorizeCaptainForTeam(scope, teamId, admission)
+      if (admission.exec.signal.aborted) throw new TeamDomainError('receipt page read was aborted', 'TEAM_INTERACTION_ABORTED')
+    }))
   }
 
   async reconcile(

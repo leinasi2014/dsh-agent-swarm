@@ -102,6 +102,7 @@ Risk: review、permission 与 durable control transition 为 S3/HIGH；纯 advis
 - `authenticated-human` 只存在于已验证的 host principal seam；否则 privileged action 必须经 captain confirmation 或降级为 message-only；
 - client 只提交 plain untrusted payload，不能盖章 provenance、revision、attempt 或 principal；
 - read 必须 bounded、cursor-authenticated、projection-only，客户端不能直读写 Storage Domain；
+- receipt read 的首个纵切由内部 `pageReceipts` 承担；旧 `listReceipts` 只保留内部维护兼容，不得直接发布为 Host/RPC/browser 接口；
 - abort、expiry、dispose、overlay restart 和 adapter failure 均 fail-closed，错误稳定且脱敏。
 
 ### Exit evidence
