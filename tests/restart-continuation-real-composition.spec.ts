@@ -331,4 +331,108 @@ describe('real restart continuation over the current Team authority', () => {
       if (second !== undefined) await dispose(second)
     }
   }, 60_000)
+
+  it('lists bounded Team memories from the single durable aggregate after a full SQLite and Storage reopen', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-memory-list-reload-'))
+    roots.push(sandbox)
+    let first: Mounted | undefined
+    let second: Mounted | undefined
+    try {
+      first = await mount(sandbox, 0)
+      first.ctx.llm.registerAdapter(['mock'], new InitialAdapter())
+      const leadA = first.ctx.agentLoop.create(CAPTAIN, { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+      const created = await tool(first.ctx, leadA, 'memory-create', 'agent_swarm_create', {
+        name: 'Memory list reload', description: 'Prove bounded durable Team-memory reads.',
+      })
+      expect(created.isError).toBe(false)
+      const teamId = (created.value as { team_id: string }).team_id
+      const added = await tool(first.ctx, leadA, 'memory-member', 'agent_swarm_add_member', {
+        name: 'reader', role: 'Read the Team memory ledger.',
+      })
+      expect(added.isError).toBe(false)
+      const memberId = (added.value as { session_id: string }).session_id
+      await vi.waitFor(async () => {
+        expect((await snapshot(first!.ctx, leadA, teamId)).team.members).toContainEqual(expect.objectContaining({ sessionId: memberId, phase: 'active' }))
+      }, { timeout: 15_000 })
+      const resident = first.ctx.agents.get(SessionId(memberId))
+      const resumedMember = resident === undefined ? await first.ctx.agents.resume({ resumeSessionId: SessionId(memberId) }) : undefined
+      const member = resident ?? resumedMember?.agent
+      if (member === undefined) throw new Error('member was not resumable for Team-memory read proof')
+      try {
+        expect(await tool(first.ctx, member, 'memory-add-member', 'agent_swarm_add_memory', {
+          category: 'lesson', content: 'Use durable evidence.', evidence_refs: Array.from({ length: 33 }, (_value, index) => `attempt-${index + 1}`),
+        })).toMatchObject({ isError: false })
+        expect(await tool(first.ctx, leadA, 'memory-add-captain', 'agent_swarm_add_memory', {
+          category: 'decision', content: 'Review before release.', evidence_refs: ['review-1'],
+        })).toMatchObject({ isError: false })
+        expect(await tool(first.ctx, leadA, 'memory-add-context', 'agent_swarm_add_memory', {
+          category: 'context', content: 'Canvas handoff context.', evidence_refs: [],
+        })).toMatchObject({ isError: false })
+
+        const beforeRead = await snapshot(first.ctx, leadA, teamId)
+        const memberRead = await tool(first.ctx, member, 'memory-member-read', 'agent_swarm_list_memory', {})
+        expect(memberRead).toMatchObject({ isError: false })
+        expect((memberRead.value as { memories: Array<{ memory_id: string }> }).memories.map(row => row.memory_id))
+          .toEqual(['memory-1', 'memory-2', 'memory-3'])
+        const page = await tool(first.ctx, leadA, 'memory-page', 'agent_swarm_list_memory', { limit: 2 })
+        expect(page).toMatchObject({ isError: false, value: { next_cursor: 2 } })
+        expect((page.value as { memories: Array<{ category: string; content: string; evidence_refs: string[]; evidence_refs_truncated: boolean; created_at: number }> }).memories)
+          .toEqual([
+            expect.objectContaining({
+              category: 'lesson', content: 'Use durable evidence.',
+              evidence_refs: Array.from({ length: 32 }, (_value, index) => `attempt-${index + 1}`), evidence_refs_truncated: true,
+            }),
+            expect.objectContaining({ category: 'decision', content: 'Review before release.', evidence_refs: ['review-1'], evidence_refs_truncated: false }),
+          ])
+        const page2 = await tool(first.ctx, leadA, 'memory-page-2', 'agent_swarm_list_memory', { cursor: 2, limit: 2 })
+        expect(page2).toMatchObject({ isError: false })
+        expect([
+          ...(page.value as { memories: Array<{ memory_id: string }> }).memories,
+          ...(page2.value as { memories: Array<{ memory_id: string }> }).memories,
+        ].map(row => row.memory_id)).toEqual(['memory-1', 'memory-2', 'memory-3'])
+        const filtered = await tool(first.ctx, leadA, 'memory-filter', 'agent_swarm_list_memory', { category: 'decision', query: 'REVIEW' })
+        expect(filtered).toMatchObject({ isError: false, value: { memories: [expect.objectContaining({ memory_id: 'memory-2' })] } })
+        for (const args of [{ cursor: -1 }, { limit: 0 }, { limit: 101 }, { query: '   ' }, { query: 'x'.repeat(1_025) }]) {
+          expect(await tool(first.ctx, leadA, `memory-invalid-${JSON.stringify(args)}`, 'agent_swarm_list_memory', args))
+            .toMatchObject({ isError: true, error: { info: { code: 'TEAM_INPUT_INVALID' } } })
+        }
+        const outsider = first.ctx.agentLoop.create(SessionId('memory-outsider'), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+        expect(await tool(first.ctx, outsider, 'memory-outsider', 'agent_swarm_list_memory', {}))
+          .toMatchObject({ isError: true, error: { info: { code: 'TEAM_NOT_JOINED' } } })
+        expect(await snapshot(first.ctx, leadA, teamId)).toEqual(beforeRead)
+      } finally {
+        await resumedMember?.dispose()
+      }
+
+      await dispose(first)
+      first = undefined
+      second = await mount(sandbox, 0)
+      const resumedCaptain = await second.ctx.agents.resume({ resumeSessionId: CAPTAIN })
+      try {
+        const reloaded = await tool(second.ctx, resumedCaptain.agent, 'memory-reload', 'agent_swarm_list_memory', { cursor: 2, limit: 2 })
+        expect(reloaded).toMatchObject({
+          isError: false,
+          value: { memories: [expect.objectContaining({ memory_id: 'memory-3', category: 'context', content: 'Canvas handoff context.', evidence_refs: [] })] },
+        })
+        expect((await snapshot(second.ctx, resumedCaptain.agent, teamId)).team.memory).toHaveLength(3)
+        expect(await tool(second.ctx, resumedCaptain.agent, 'memory-archive', 'agent_swarm_archive', {
+          reason: 'Close the read-authority proof.',
+        })).toMatchObject({ isError: false })
+        expect(await tool(second.ctx, resumedCaptain.agent, 'memory-archived-captain', 'agent_swarm_list_memory', {}))
+          .toMatchObject({ isError: false, value: { memories: expect.any(Array) } })
+        const resumedReader = await second.ctx.agents.resume({ resumeSessionId: SessionId(memberId) })
+        try {
+          expect(await tool(second.ctx, resumedReader.agent, 'memory-archived-member', 'agent_swarm_list_memory', {}))
+            .toMatchObject({ isError: true, error: { info: { code: 'TEAM_NOT_JOINED' } } })
+        } finally {
+          await resumedReader.dispose()
+        }
+      } finally {
+        await resumedCaptain.dispose()
+      }
+    } finally {
+      if (first !== undefined) await dispose(first)
+      if (second !== undefined) await dispose(second)
+    }
+  }, 60_000)
 })

@@ -3,14 +3,15 @@
  * from issue #15 / docs/04 §8e): fixed-size Team counters and the paginated,
  * filtered task row list with evidence-only stranded hints. Issue #93 adds
  * the jobs reader: the same filtered/paginated compact-JSON contract over the
- * #76 TeamJobProjection (never over the authoritative domain directly).
+ * #76 TeamJobProjection (never over the authoritative domain directly). The
+ * memory reader is a bounded projection of the same authoritative aggregate.
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { JobSnapshot, JobStatus } from '@deepseek-ai/dsh-jobs'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { expectDomain, TeamDomainError } from '../domain/error.js'
 import { taskHoldEvidence } from '../domain/team-domain-budget.js'
-import type { TeamTask } from '../domain/types.js'
+import type { TeamMemoryEntry, TeamTask } from '../domain/types.js'
 import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
 import { compactJsonOutput, register } from './shared.js'
 
@@ -47,6 +48,49 @@ const TASK_LIST_VALUE_SCHEMA = {
     next_cursor: { type: 'number', description: 'Present only when more filtered rows exist.' },
   },
 } as const
+
+/** One durable Team-memory row, in its stored creation order. */
+const MEMORY_ROW_SCHEMA = {
+  type: 'object', additionalProperties: false,
+  properties: {
+    memory_id: { type: 'string', required: true },
+    category: { type: 'string', required: true, enum: ['decision', 'lesson', 'member', 'context'] },
+    content: { type: 'string', required: true },
+    evidence_refs: { type: 'array', required: true, items: { type: 'string' } },
+    evidence_refs_truncated: { type: 'boolean', required: true },
+    created_at: { type: 'number', required: true },
+  },
+} as const
+
+const MEMORY_LIST_VALUE_SCHEMA = {
+  type: 'object', additionalProperties: false,
+  properties: {
+    memories: { type: 'array', required: true, items: MEMORY_ROW_SCHEMA },
+    next_cursor: { type: 'number', description: 'Present only when more filtered rows exist.' },
+  },
+} as const
+
+/** Shared bounded cursor contract for aggregate-backed list readers. */
+function pageWindow(args: { cursor?: number; limit?: number }): { cursor: number; limit: number } {
+  const cursor = args.cursor ?? 0
+  const limit = args.limit ?? 50
+  expectDomain(Number.isSafeInteger(cursor) && cursor >= 0, 'cursor must be a non-negative safe integer', 'TEAM_INPUT_INVALID')
+  expectDomain(Number.isSafeInteger(limit) && limit >= 1 && limit <= 100, 'limit must be an integer from 1 through 100', 'TEAM_INPUT_INVALID')
+  return { cursor, limit }
+}
+
+/** Preserve evidence order while bounding one reader row from legacy input. */
+function memoryRow(memory: TeamMemoryEntry) {
+  const evidenceRefs = memory.evidenceRefs.slice(0, 32)
+  return {
+    memory_id: memory.id,
+    category: memory.category,
+    content: memory.content,
+    evidence_refs: evidenceRefs,
+    evidence_refs_truncated: evidenceRefs.length < memory.evidenceRefs.length,
+    created_at: memory.createdAt,
+  }
+}
 
 /** Adapt the evidence-only stranded hint (docs/04 §8c) into one row field. */
 function strandedHint(runtime: AgentSwarmRuntime, task: TeamTask):
@@ -112,10 +156,7 @@ export function registerListTasksTool(ctx: Context, runtime: AgentSwarmRuntime):
     },
     output: compactJsonOutput(TASK_LIST_VALUE_SCHEMA),
     async execute(args, exec) {
-      const cursor = args.cursor ?? 0
-      const limit = args.limit ?? 50
-      expectDomain(Number.isSafeInteger(cursor) && cursor >= 0, 'cursor must be a non-negative safe integer', 'TEAM_INPUT_INVALID')
-      expectDomain(Number.isSafeInteger(limit) && limit >= 1 && limit <= 100, 'limit must be an integer from 1 through 100', 'TEAM_INPUT_INVALID')
+      const { cursor, limit } = pageWindow(args)
       const snapshot = await runtime.status(exec)
       const ownerNames = new Map(snapshot.team.members.map(member => [member.sessionId, member.name]))
       const readyIds = new Set(snapshot.readyTaskIds)
@@ -145,6 +186,36 @@ export function registerListTasksTool(ctx: Context, runtime: AgentSwarmRuntime):
       return { tasks, ...(cursor + limit < filtered.length ? { next_cursor: cursor + limit } : {}) }
     },
   }), 'list-tasks tool')
+}
+
+/** `agent_swarm_list_memory`: bounded, membership-authorized Team memory reads. */
+export function registerListMemoryTool(ctx: Context, runtime: AgentSwarmRuntime): void {
+  register(ctx, defineTool({
+    name: 'agent_swarm_list_memory',
+    description: 'List durable Team memories in creation order with optional category and case-insensitive content-substring filters. Rows are bounded by cursor pagination (limit 1-100, default 50); use next_cursor to continue. This reads the current Team only and never performs semantic search or changes memory.',
+    parameters: {
+      category: { type: 'string', enum: ['decision', 'lesson', 'member', 'context'], description: 'Optional exact category filter.' },
+      query: { type: 'string', description: 'Optional case-insensitive literal substring filter over memory content; not semantic search.' },
+      cursor: { type: 'integer', description: 'Zero-based result offset. Defaults to 0.' },
+      limit: { type: 'integer', description: 'Number of rows, 1 through 100. Defaults to 50.' },
+    },
+    output: compactJsonOutput(MEMORY_LIST_VALUE_SCHEMA),
+    async execute(args, exec) {
+      const { cursor, limit } = pageWindow(args)
+      const query = args.query?.trim()
+      expectDomain(query === undefined || (query !== '' && [...query].length <= 1_024), 'query must contain at most 1024 non-whitespace characters', 'TEAM_INPUT_INVALID')
+      const normalizedQuery = query?.toLowerCase()
+      // `status` is the established reader-membership/runtime readiness
+      // boundary. This projection intentionally only slices its durable
+      // aggregate: no list call writes state or invents a second memory owner.
+      const snapshot = await runtime.status(exec)
+      const filtered = snapshot.team.memory.filter(memory =>
+        (args.category === undefined || memory.category === args.category)
+        && (normalizedQuery === undefined || memory.content.toLowerCase().includes(normalizedQuery)))
+      const memories = filtered.slice(cursor, cursor + limit).map(memoryRow)
+      return { memories, ...(cursor + limit < filtered.length ? { next_cursor: cursor + limit } : {}) }
+    },
+  }), 'list-memory tool')
 }
 
 /**

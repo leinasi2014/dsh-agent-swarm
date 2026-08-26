@@ -62,7 +62,7 @@ The plugin adds useful behavior not present in that reference: mandatory review 
 | human and approval nodes | Missing | published interaction seams are not consumed |
 | Worktree option | Partial | M3-1 (issue #100): per-attempt execution roots exist as a replaceable Provider seam (builtin `git-worktree`: detached worktree of the Team workspace's repository, declared temp-directory degradation without one) with `attemptId` as the fence key, claim-time acquire, authority-derived release, and activation residue scanning (alarm + reclaimable marker, no auto-delete). The official cwd/exec seam facts make a per-child cwd override unavailable (registered in `docs/09` §1), so the member-face injection declares the deterministic absolute root through the assignment frame and claim result — Jiuwen's teammate-worktree product behavior, reimplemented on official seams, not code copied; the branch/lease/freeze/merge-gate half remains future M3 work |
 | local/distributed Team and reservation/ACK | Missing | current Store and locks are process-local |
-| personal plus shared Team memory and round-end extraction | Partial | only manual structured Team entries exist; no personal/shared visibility split or automatic extraction |
+| personal plus shared Team memory and round-end extraction | Partial | manual structured Team entries now have a bounded current-Team reader (category/literal substring filters and cursor pagination) but no personal/shared visibility split, semantic retrieval or automatic extraction |
 | tiered allow/ask/deny permissions | Partial | member tool visibility/execution deny list plus domain authority checks exist; since M5-2 (issue #136) the deny tier is a captain-declared, deny-only, monotone narrowing on the official creation-window toolFilter seam (`deny_tools`, F17 — durable descriptor snapshot, structural pre-commit rejection, official loud unknown-name validation as the existence authority; `docs/04` §8o); still missing: allow/ask tiers, team policy language, approval override, per-task rescoping (officially inexpressible — declared boundary) |
 | Skill Evolution | Missing | no signal/proposal/approval/write pipeline |
 | Team UI/monitoring tree | Missing | no client package |
@@ -71,7 +71,7 @@ The plugin adds useful behavior not present in that reference: mandatory review 
 
 | Official seam | Used now | Assessment |
 |---|---|---|
-| `ctx.tools` | Yes | 14 model tools are scoped and disposed through Cordis effects |
+| `ctx.tools` | Yes | 18 model tools are scoped and disposed through Cordis effects |
 | `ctx.subagents` | Yes | correct reuse of continuable child lifecycle; no second Agent runtime |
 | `ctx.agents` / status events | Yes, partial semantics | lifecycle wakeup is native, but live status is not passed into Scheduler availability |
 | Session events | Yes | token events are folded by sequence; model-visible followups enter normal inbox/history |

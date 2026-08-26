@@ -50,7 +50,7 @@ captain（插件驱动）：
   5. agent_swarm_review_task       → 你审核 accept/reject
 ```
 
-完整工具面（17 个 `agent_swarm_*`）：见 [docs/04-core-protocol.md](docs/04-core-protocol.md) §4。
+完整工具面（18 个 `agent_swarm_*`）：见 [docs/04-core-protocol.md](docs/04-core-protocol.md) §4。
 
 ## 核心能力
 

@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   decideToolPermission,
+  DEFAULT_TOOL_POLICY,
   DEFAULT_TOOL_PERMISSION,
   MAX_TOOL_POLICY_NAMES,
   memberToolPolicyFilter,
@@ -38,6 +39,10 @@ describe('tiered allow/ask/deny decision model (pure)', () => {
     expect(decision).toBe('allow')
     expect(toPreToolDecision(decision, 'agent_swarm_unknown')).toMatchObject({ kind: 'allow' })
     expect(decideToolPermission({}, 'run_code', captainTurn())).toBe('allow')
+    // New plugin tools must be explicitly listed in the default overlay, not
+    // merely inherit the same apparent `allow` from the unlisted-host fallback.
+    expect(DEFAULT_TOOL_POLICY.allow).toContain('agent_swarm_list_memory')
+    expect(decideToolPermission(DEFAULT_TOOL_POLICY, 'agent_swarm_list_memory', captainTurn())).toBe('allow')
     expect(decideToolPermission({}, 'report', captainTurn())).toBe('deny')
     expect(MAX_TOOL_POLICY_NAMES).toBe(64)
   })
