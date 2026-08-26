@@ -265,6 +265,22 @@ function assertSessionFixture(target, expectedMode, expectedEvents) {
   return events
 }
 
+function canonicalTerminalIdentity(team) {
+  const identity = {
+    id: team?.id, revision: team?.revision, captainSessionId: team?.captainSessionId, phase: team?.phase,
+    members: team?.members?.map(member => ({ name: member.name, sessionId: member.sessionId, provider: member.provider, phase: member.phase })),
+    tasks: team?.tasks?.map(task => ({ id: task.id, revision: task.revision, status: task.status, ownerSessionId: task.ownerSessionId, currentAttemptId: task.currentAttemptId })),
+    attempts: team?.attempts?.map(attempt => ({ id: attempt.id, taskId: attempt.taskId, generation: attempt.generation, memberSessionId: attempt.memberSessionId, phase: attempt.phase, assignmentPhase: attempt.assignmentPhase })),
+    budget: team?.budget,
+    usageCursors: Object.fromEntries(Object.entries(team?.usageCursors ?? {}).sort(([left], [right]) => left.localeCompare(right))),
+  }
+  if (identity.phase !== 'active' || identity.members?.length !== 1 || identity.tasks?.length !== 1 || identity.attempts?.length !== 1
+    || identity.tasks[0]?.status !== 'completed' || identity.attempts[0]?.phase !== 'accepted') {
+    throw new Error(`W0 terminal Team shape is not exactly one accepted completion: ${JSON.stringify(identity)}`)
+  }
+  return identity
+}
+
 async function waitForTarget(probePath, rootSessionId, minimumCount) {
   const ready = await waitUntil(async () => (await readProbe(probePath)).filter(
     entry => entry.phase === 'r2-target-ready' && entry.rootSessionId === rootSessionId,
@@ -584,8 +600,8 @@ async function main() {
       teamId: reloadSnapshot.team.id, teamRevision: reloadSnapshot.team.revision,
       roster: reloadSnapshot.roster, tasks: reloadSnapshot.tasks, attempts: reloadSnapshot.attempts,
     }
-    const exactInitial = e2eReady?.e2e?.team
-    const exactReload = reloadE2e?.e2e?.team
+    const exactInitial = canonicalTerminalIdentity(e2eReady?.e2e?.team)
+    const exactReload = canonicalTerminalIdentity(reloadE2e?.e2e?.team)
     if (JSON.stringify(reloadIdentity) !== JSON.stringify(terminalIdentity)
       || JSON.stringify(exactReload) !== JSON.stringify(exactInitial)
       || reloadIdentity.tasks.some(task => task.status !== 'completed') || reloadIdentity.attempts.some(attempt => attempt.phase !== 'accepted')) {
