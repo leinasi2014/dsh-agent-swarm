@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import * as SubagentReport from '@deepseek-ai/dsh-tool-subagent-report'
+import { CodeRuntime, type CodeRunRequest, type CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -11,6 +12,12 @@ import { addMember, mount, snapshotOf, toolCall, type Composition } from './help
 
 const roots: string[] = []
 const stacks: Composition[] = []
+class FakeRuntime extends CodeRuntime {
+  readonly language = 'typescript'
+  readonly isolation = 'test'
+  behavior: (request: CodeRunRequest) => Promise<CodeRunResult> = async () => ({ logs: [] })
+  run(request: CodeRunRequest): Promise<CodeRunResult> { return this.behavior(request) }
+}
 afterEach(async () => {
   for (const composition of stacks.splice(0).toReversed()) for (const fiber of composition.fibers.toReversed()) await fiber.dispose()
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })))
@@ -76,6 +83,33 @@ describe('official member tool transport', () => {
       expect(denied.isError).toBe(true)
       expect((denied.error as { message?: string }).message).toContain('downstream host guard')
       expect(calls).toBe(1)
+    } finally { off() }
+  }, 30_000)
+
+  it('bridges official run_code into nested pre-execute: inherited success and downstream denial preserve Team state', async () => {
+    const value = await stack()
+    await value.ctx.plugin(FakeRuntime)
+    const runtime = value.ctx.codeRuntime as FakeRuntime
+    let calls = 0
+    value.ctx.effect(() => value.ctx.tools.register(defineTool({
+      name: 'transport_probe', description: 'fixture', parameters: {},
+      output: { schema: { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean', required: true } } }, render: () => [] },
+      execute: async () => { calls += 1; return { ok: true } },
+    })))
+    const member = await memberOf(value, await addMember(value, 'code-worker'))
+    member.ctx.tools.presentAs('code')
+    runtime.behavior = async request => ({ logs: [], value: await request.bindings[0]!.functions.transport_probe!({}) })
+    const before = await snapshotOf(value)
+    const pass = await toolCall(value.ctx, member, 'code-pass', 'run_code', { code: 'return await tools.transport_probe({})', description: 'probe' })
+    expect(pass.isError).toBe(false)
+    expect(calls).toBe(1)
+    expect(await snapshotOf(value)).toEqual(before)
+    const off = value.ctx.tools.guard(exec => exec.name === 'transport_probe' ? 'nested guard' : undefined)
+    try {
+      const denied = await toolCall(value.ctx, member, 'code-denied', 'run_code', { code: 'return await tools.transport_probe({})', description: 'probe' })
+      expect(denied.isError).toBe(true)
+      expect(calls).toBe(1)
+      expect(await snapshotOf(value)).toEqual(before)
     } finally { off() }
   }, 30_000)
 })
