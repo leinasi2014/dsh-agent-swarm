@@ -70,5 +70,12 @@ describe('official member tool transport', () => {
     const inherited = await toolCall(value.ctx, value.lead, 'inherited-host-tool', 'transport_probe', {})
     expect(inherited.isError).toBe(false)
     expect(calls).toBe(1)
+    const off = value.ctx.tools.guard(exec => exec.name === 'transport_probe' ? 'downstream host guard' : undefined)
+    try {
+      const denied = await toolCall(value.ctx, value.lead, 'inherited-host-tool-denied', 'transport_probe', {})
+      expect(denied.isError).toBe(true)
+      expect((denied.error as { message?: string }).message).toContain('downstream host guard')
+      expect(calls).toBe(1)
+    } finally { off() }
   }, 30_000)
 })
