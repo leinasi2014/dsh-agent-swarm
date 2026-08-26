@@ -13,6 +13,9 @@ on:
       - 'scripts/verify-isolation-status.mjs'
       - 'scripts/verify-worktree-layout.mjs'
       - 'scripts/test-worktree-layout-gate.mjs'
+      - 'scripts/worktree-lifecycle-core.mjs'
+      - 'scripts/worktree-lifecycle.mjs'
+      - 'scripts/test-worktree-lifecycle-gate.mjs'
       - 'package.json'
       - '.github/workflows/isolation.yml'
   push:
@@ -27,6 +30,9 @@ on:
       - 'scripts/verify-isolation-status.mjs'
       - 'scripts/verify-worktree-layout.mjs'
       - 'scripts/test-worktree-layout-gate.mjs'
+      - 'scripts/worktree-lifecycle-core.mjs'
+      - 'scripts/worktree-lifecycle.mjs'
+      - 'scripts/test-worktree-lifecycle-gate.mjs'
       - 'package.json'
       - '.github/workflows/isolation.yml'
 

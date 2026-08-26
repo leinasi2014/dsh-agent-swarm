@@ -3,6 +3,7 @@ import {
   LifecycleError,
   closeAllocation,
   openAllocation,
+  recoverAuthorityLock,
   reconcileAllocations,
   statusReport,
 } from './worktree-lifecycle-core.mjs'
@@ -15,7 +16,7 @@ function parse(argv) {
     if (!token.startsWith('--')) throw new LifecycleError('INVALID_ARGUMENT', `unexpected argument: ${token}`)
     const key = token.slice(2).replace(/-([a-z])/gu, (_, letter) => letter.toUpperCase())
     if (Object.hasOwn(options, key)) throw new LifecycleError('INVALID_ARGUMENT', `duplicate option: ${token}`)
-    if (key === 'json' || key === 'repair') {
+    if (key === 'json' || key === 'repair' || key === 'recoverLock') {
       options[key] = true
       continue
     }
@@ -28,7 +29,7 @@ function parse(argv) {
     open: new Set(['command', 'id', 'branch', 'base', 'owner', 'json']),
     status: new Set(['command', 'json']),
     close: new Set(['command', 'id', 'generation', 'owner', 'outcome', 'archiveRef', 'json']),
-    reconcile: new Set(['command', 'repair', 'json']),
+    reconcile: new Set(['command', 'repair', 'recoverLock', 'json']),
     help: new Set(['command']),
     '--help': new Set(['command']),
   }[command]
@@ -51,7 +52,7 @@ Usage:
   pnpm isolation open --id <slug> --branch <branch> --owner <id> [--base <sha>] [--json]
   pnpm isolation status [--json]
   pnpm isolation close --id <slug> --generation <n> --owner <id> --outcome <integrated|archived> [--archive-ref <ref>] [--json]
-  pnpm isolation reconcile [--repair] [--json]
+  pnpm isolation reconcile [--repair] [--recover-lock] [--json]
 
 Raw git worktree add/remove/move/prune commands are forbidden for development lanes.
 The authority ledger lives under the repository Git common directory, not in committed Markdown.`
@@ -70,6 +71,10 @@ function print(value, json) {
   if (Array.isArray(value?.actions)) {
     console.log(`Reconcile: ${value.actions.length} action(s)${value.state ? `; revision ${value.state.revision}` : ''}`)
     for (const action of value.actions) console.log(`- ${action.id}: ${action.from} -> ${action.to}${action.unsafe ? ' (unsafe)' : ''}`)
+    return
+  }
+  if (typeof value?.recovered === 'boolean') {
+    console.log(`Lock recovery: ${value.recovered ? 'recovered' : value.reason}`)
     return
   }
   console.log(`${value.id}: ${value.state} generation=${value.generation} branch=${value.branch}`)
@@ -103,8 +108,11 @@ try {
       })
       break
     case 'reconcile':
-      result = reconcileAllocations({ cwd: process.cwd(), repair: options.repair === true })
-      if (result.actions.some(action => action.unsafe === true)) process.exitCode = 1
+      if (options.recoverLock === true && options.repair === true) throw new LifecycleError('INVALID_ARGUMENT', '--repair and --recover-lock are separate operations')
+      result = options.recoverLock === true
+        ? recoverAuthorityLock({ cwd: process.cwd() })
+        : reconcileAllocations({ cwd: process.cwd(), repair: options.repair === true })
+      if (Array.isArray(result.actions) && result.actions.some(action => action.unsafe === true)) process.exitCode = 1
       break
     case 'help':
     case '--help':

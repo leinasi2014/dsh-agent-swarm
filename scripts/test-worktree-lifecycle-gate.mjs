@@ -1,6 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { hostname, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
 const cli = resolve('scripts/worktree-lifecycle.mjs')
@@ -61,6 +61,11 @@ try {
   const initial = json(['status'])
   if (!initial.healthy || initial.allocations.length !== 0) throw new Error('empty authority must be healthy')
 
+  writeFileSync(join(repo, 'primary-dirty.txt'), 'dirty\n')
+  expectFailure('dirty primary rejects mutation before lock acquisition', ['open', '--id', 'dirty-primary', '--branch', 'test/dirty-primary', '--owner', 'writer-a'], 'PRIMARY_DIRTY')
+  if (existsSync(join(resolve(repo, git(['rev-parse', '--git-common-dir'])), 'dsh-agent-swarm-isolation', 'v1', 'lock'))) throw new Error('rejected primary mutation left an authority lock')
+  rmSync(join(repo, 'primary-dirty.txt'))
+
   expectFailure('invalid id', ['open', '--id', '../escape', '--branch', 'test/escape', '--owner', 'writer-a'], 'INVALID_ID')
   expectFailure('invalid branch', ['open', '--id', 'bad-branch', '--branch', '-bad', '--owner', 'writer-a'], 'INVALID_BRANCH')
   const first = json(['open', '--id', 'alpha', '--branch', 'test/alpha', '--owner', 'writer-a'])
@@ -89,16 +94,34 @@ try {
   git(['update-ref', 'refs/archive/alpha-2', archiveCandidate])
   expectFailure('wrong archive ref', ['close', '--id', 'alpha', '--generation', '2', '--owner', 'writer-a', '--outcome', 'archived', '--archive-ref', 'refs/archive/missing'], 'OUTCOME_UNPROVEN')
   const archived = json(['close', '--id', 'alpha', '--generation', '2', '--owner', 'writer-a', '--outcome', 'archived', '--archive-ref', 'refs/archive/alpha-2'])
-  if (archived.state !== 'CLOSED' || archived.outcome !== 'archived') throw new Error('archive close failed')
+  if (archived.state !== 'CLOSED' || archived.outcome !== 'archived' || archived.archiveRef !== 'refs/archive/alpha-2') throw new Error('archive close did not persist archive proof')
+  git(['update-ref', 'refs/archive/alpha-2', 'HEAD'])
+  expectFailure('closed archive ref must remain durable', ['status'], 'OUTCOME_UNPROVEN')
+  git(['update-ref', 'refs/archive/alpha-2', archiveCandidate])
 
   const beta = json(['open', '--id', 'beta', '--branch', 'test/beta', '--owner', 'writer-b'])
+  expectFailure('writer cannot load lifecycle mutation from its own checkout', ['close', '--id', 'beta', '--generation', String(beta.generation), '--owner', 'writer-b', '--outcome', 'integrated'], 'MUTATION_REQUIRES_PRIMARY', beta.path)
   const gamma = json(['open', '--id', 'gamma', '--branch', 'test/gamma', '--owner', 'writer-c'])
   expectFailure('writer capacity', ['open', '--id', 'delta', '--branch', 'test/delta', '--owner', 'writer-d'], 'CAPACITY_EXCEEDED')
+  const deltaPath = join(repo, '.worktree', 'delta')
+  git(['worktree', 'add', deltaPath, '-b', 'test/delta'])
+  const overCapacity = JSON.parse(readFileSync(authorityStatePath(), 'utf8'))
+  overCapacity.allocations.delta = {
+    id: 'delta', generation: 1, state: 'ACTIVE', owner: 'writer-d', base: git(['rev-parse', 'HEAD']),
+    branch: 'test/delta', path: deltaPath, candidate: null, outcome: null, archiveRef: null, result: 'opened', updatedAt: new Date().toISOString(),
+  }
+  writeFileSync(authorityStatePath(), `${JSON.stringify(overCapacity, null, 2)}\n`)
+  expectFailure('observed over-capacity state', ['status'], 'CAPACITY_EXCEEDED')
+  git(['worktree', 'remove', deltaPath])
+  git(['branch', '-D', 'test/delta'])
+  delete overCapacity.allocations.delta
+  writeFileSync(authorityStatePath(), `${JSON.stringify(overCapacity, null, 2)}\n`)
   json(['close', '--id', 'gamma', '--generation', String(gamma.generation), '--owner', 'writer-c', '--outcome', 'integrated'])
   const statePath = authorityStatePath()
   const state = JSON.parse(readFileSync(statePath, 'utf8'))
   state.allocations.beta.state = 'OPENING'
   writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`)
+  expectFailure('transitional status is not healthy', ['status'], 'RESULT_UNKNOWN')
   const preview = json(['reconcile'])
   if (preview.actions[0]?.to !== 'ACTIVE') throw new Error('read-only reconcile did not identify deterministic OPENING repair')
   const unchanged = JSON.parse(readFileSync(statePath, 'utf8'))
@@ -113,6 +136,29 @@ try {
   expectFailure('corrupt allocation schema', ['status'], 'AUTHORITY_CORRUPT')
   writeFileSync(statePath, validState)
 
+  const managedContainer = join(repo, '.worktree')
+  const escapedContainer = join(fixtureRoot, 'escaped-container')
+  renameSync(managedContainer, escapedContainer)
+  symlinkSync(escapedContainer, managedContainer, process.platform === 'win32' ? 'junction' : 'dir')
+  expectFailure('junction container escapes the primary checkout', ['status'], 'PATH_ESCAPE')
+  rmSync(managedContainer, { recursive: true, force: true })
+  renameSync(escapedContainer, managedContainer)
+
+  const escapedBeta = join(fixtureRoot, 'escaped-beta')
+  renameSync(beta.path, escapedBeta)
+  symlinkSync(escapedBeta, beta.path, process.platform === 'win32' ? 'junction' : 'dir')
+  expectFailure('junction allocation escapes the managed container', ['status'], 'PATH_ESCAPE')
+  rmSync(beta.path, { recursive: true, force: true })
+  renameSync(escapedBeta, beta.path)
+
+  const rawDirectory = join(repo, '.worktree', 'raw-dir')
+  mkdirSync(rawDirectory)
+  expectFailure('unregistered directory status', ['status'], 'RAW_WORKTREE_DETECTED')
+  expectFailure('unregistered directory reconcile', ['reconcile'], 'UNMANAGED')
+  expectFailure('unregistered directory freezes open', ['open', '--id', 'delta', '--branch', 'test/delta', '--owner', 'writer-d'], 'RAW_WORKTREE_DETECTED')
+  expectFailure('unregistered directory freezes close', ['close', '--id', 'beta', '--generation', String(beta.generation), '--owner', 'writer-b', '--outcome', 'integrated'], 'RAW_WORKTREE_DETECTED')
+  rmSync(rawDirectory, { recursive: true })
+
   const raw = join(repo, '.worktree', 'raw')
   git(['worktree', 'add', raw, '-b', 'test/raw'])
   expectFailure('raw worktree', ['status'], 'RAW_WORKTREE_DETECTED')
@@ -120,18 +166,23 @@ try {
   git(['branch', '-D', 'test/raw'])
 
   const lockPath = join(resolve(repo, git(['rev-parse', '--git-common-dir'])), 'dsh-agent-swarm-isolation', 'v1', 'lock')
-  mkdirSync(lockPath)
+  writeFileSync(lockPath, 'not-json\n')
   expectFailure('busy authority lock', ['close', '--id', 'beta', '--generation', String(beta.generation), '--owner', 'writer-b', '--outcome', 'integrated'], 'LOCK_BUSY')
+  expectFailure('ownerless lock is not broken', ['reconcile', '--recover-lock'], 'LOCK_OWNER_UNKNOWN')
   rmSync(lockPath, { recursive: true })
 
-  const ambiguous = JSON.parse(readFileSync(statePath, 'utf8'))
-  ambiguous.allocations.beta.state = 'UNKNOWN'
-  writeFileSync(statePath, `${JSON.stringify(ambiguous, null, 2)}\n`)
-  expectFailure('unknown freezes open', ['open', '--id', 'delta', '--branch', 'test/delta', '--owner', 'writer-d'], 'RESULT_UNKNOWN')
+  writeFileSync(lockPath, `${JSON.stringify({ schemaVersion: 1, hostname: hostname(), pid: 2_147_483_647, startedAt: new Date(0).toISOString(), nonce: 'dead-owner' })}\n`)
+  const recoveredLock = json(['reconcile', '--recover-lock'])
+  if (recoveredLock.recovered !== true) throw new Error('proved-dead lock was not recovered')
+
+  git(['worktree', 'remove', beta.path])
+  expectFailure('missing ACTIVE allocation freezes open', ['open', '--id', 'delta', '--branch', 'test/delta', '--owner', 'writer-d'], 'ALLOCATION_DRIFT')
+  expectFailure('missing ACTIVE allocation status', ['status'], 'ALLOCATION_DRIFT')
   expectFailure('ambiguous repair', ['reconcile', '--repair'], 'REPAIR_UNSAFE')
+  expectFailure('unknown freezes open', ['open', '--id', 'delta', '--branch', 'test/delta', '--owner', 'writer-d'], 'RESULT_UNKNOWN')
   const classified = JSON.parse(readFileSync(statePath, 'utf8'))
   if (classified.allocations.beta.state !== 'UNKNOWN') throw new Error('unsafe reconcile did not persist UNKNOWN classification')
-  console.log('Project-owned isolation lifecycle: 1 positive lifecycle and 15 negative/recovery cases: PASS')
+  console.log('Project-owned isolation lifecycle: positive open/close/archive/recovery and 29 negative cases: PASS')
 } finally {
   rmSync(fixtureRoot, { recursive: true, force: true })
 }
