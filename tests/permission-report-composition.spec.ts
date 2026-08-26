@@ -47,6 +47,11 @@ function reports(agent: Agent): string[] {
 describe('official member tool transport', () => {
   it('passes only the child-scoped official report and preserves a downstream denial', async () => {
     const value = await stack()
+    value.ctx.effect(() => value.ctx.tools.register(defineTool({
+      name: 'report', description: 'global report fixture', parameters: { output: { type: 'string', required: true } },
+      output: { schema: { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean', required: true } } }, render: () => [] },
+      execute: async () => ({ ok: true }),
+    })))
     value.fibers.push(await value.ctx.plugin(SubagentReport, { reportDelivery: 'quiet' }))
     const member = await memberOf(value, await addMember(value, 'report-worker'))
     expect(value.ctx.tools.get('report', member)).not.toBe(value.ctx.tools.get('report'))
@@ -67,13 +72,23 @@ describe('official member tool transport', () => {
   it('denies root global report and inherits an ordinary host tool', async () => {
     const value = await stack()
     let calls = 0
+    let globalReportCalls = 0
+    value.ctx.effect(() => value.ctx.tools.register(defineTool({
+      name: 'report', description: 'global report fixture', parameters: { output: { type: 'string', required: true } },
+      output: { schema: { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean', required: true } } }, render: () => [] },
+      execute: async () => { globalReportCalls += 1; return { ok: true } },
+    })))
     value.ctx.effect(() => value.ctx.tools.register(defineTool({
       name: 'transport_probe', description: 'fixture', parameters: {},
       output: { schema: { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean', required: true } } }, render: () => [] },
       execute: async () => { calls += 1; return { ok: true } },
     })))
+    const before = await snapshotOf(value)
     const report = await toolCall(value.ctx, value.lead, 'root-report', 'report', { output: 'nope' })
     expect(report.isError).toBe(true)
+    expect((report.error as { message?: string }).message).toContain('denied by the Team tool policy')
+    expect(globalReportCalls).toBe(0)
+    expect(await snapshotOf(value)).toEqual(before)
     const inherited = await toolCall(value.ctx, value.lead, 'inherited-host-tool', 'transport_probe', {})
     expect(inherited.isError).toBe(false)
     expect(calls).toBe(1)
