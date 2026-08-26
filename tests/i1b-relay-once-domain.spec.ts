@@ -1,5 +1,5 @@
 /** I1b-1A: canonical Team aggregate relay-once evidence, no overlay fake. */
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -7,7 +7,7 @@ import { DEFAULT_TEAM_LIMITS, TeamDomain } from '../src/domain/team-domain.js'
 import { queueMessageOnce } from '../src/domain/team-domain-interaction.js'
 import type { TeamDomainDeps } from '../src/domain/team-domain-shared.js'
 import { TeamId, type TeamState } from '../src/domain/types.js'
-import { openStorageStack, type StorageStack } from './helpers/storage-stack.js'
+import { openStorageStack, type StorageStack, unitFilePath } from './helpers/storage-stack.js'
 
 const stacks: StorageStack[] = []
 const roots: string[] = []
@@ -119,5 +119,36 @@ describe('I1b relay-once Team aggregate authority', () => {
     expect(after?.messages).toHaveLength(1)
     expect(after?.interactionEffects).toHaveLength(1)
     expect(after?.interactionEffects?.[0]).toMatchObject({ effectId: first.effect.effectId, resultingTeamRevision: first.effect.resultingTeamRevision })
+  })
+
+  it('fails a real durable reopen on an unknown effect field without returning its value', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-i1b-unknown-effect-'))
+    roots.push(root)
+    const storageRoot = join(root, 'storage')
+    const stack = await openStorageStack(storageRoot)
+    stacks.push(stack)
+    const scope = join(root, 'scope')
+    const team = await stack.port.createTeam(scope, 'captain-strict', 'I1b strict', 'Durable strict parsing')
+    await stack.port.provisionMember(scope, team.id, 'captain-strict', { name: 'worker', role: 'Worker', sessionId: 'worker-strict', provider: 'spawn' })
+    await stack.port.settleMember(scope, team.id, 'worker-strict', { active: true })
+    await new TeamDomain(stack.store).queueMemberQuestionRelayOnce(scope, team.id, 'worker-strict', 'human-i1b-strict-00000001', 'durable relay')
+    await stack.close()
+    stacks.splice(stacks.indexOf(stack), 1)
+
+    const secret = 'never-return-this-durable-secret'
+    const file = unitFilePath(storageRoot)
+    const unit = JSON.parse(await readFile(file, 'utf8')) as { tables: { teams: Record<string, { team: { interactionEffects: Array<Record<string, unknown>> } }> } }
+    unit.tables.teams[team.id]!.team.interactionEffects[0]!.unexpectedSecretMarker = secret
+    await writeFile(file, JSON.stringify(unit), 'utf8')
+
+    let failed: unknown
+    try {
+      const reopened = await openStorageStack(storageRoot)
+      await reopened.close()
+    } catch (error) {
+      failed = error
+    }
+    expect(failed).toBeDefined()
+    expect(String(failed)).not.toContain(secret)
   })
 })

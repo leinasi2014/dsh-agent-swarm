@@ -119,7 +119,7 @@ const interactionEffectSchema = z.object({
   messageId: z.string().min(1),
   resultingTeamRevision: z.number().int().min(1),
   committedAt: timestamp,
-})
+}).strict()
 
 const teamFields = {
     id: teamIdSchema,

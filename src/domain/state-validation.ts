@@ -7,6 +7,10 @@ const ATTEMPT_PHASES = new Set(['running', 'submitted', 'verifying', 'accepted',
 const MEMBER_PHASES = new Set(['provisioning', 'active', 'failed', 'removed'])
 const MESSAGE_PHASES = new Set(['queued', 'delivered', 'cancelled'])
 const MEMORY_CATEGORIES = new Set(['decision', 'lesson', 'member', 'context'])
+const INTERACTION_EFFECT_KEYS = new Set([
+  'effectId', 'requestId', 'step', 'bindingDigest', 'senderSessionId', 'targetSessionId',
+  'bodyDigest', 'delivery', 'messageId', 'resultingTeamRevision', 'committedAt',
+])
 
 function corrupt(path: string, detail: string): never {
   throw new TeamDomainError(`invalid Team state at ${path}: ${detail}`, 'TEAM_STATE_CORRUPT')
@@ -15,6 +19,10 @@ function corrupt(path: string, detail: string): never {
 function record(value: unknown, path: string, label: string): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) corrupt(path, `${label} must be an object`)
   return value as Record<string, unknown>
+}
+
+function exactKeys(value: Record<string, unknown>, path: string, allowed: ReadonlySet<string>): void {
+  for (const key of Object.keys(value)) if (!allowed.has(key)) corrupt(path, `unknown field ${JSON.stringify(key)}`)
 }
 
 function text(value: unknown, path: string, label: string): string {
@@ -172,6 +180,7 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
   if (team.schemaVersion === 2) {
     const effects = list(team.interactionEffects, path, 'interactionEffects').map((raw, index) => {
       const effect = record(raw, path, `interactionEffects[${index}]`)
+      exactKeys(effect, `${path}.interactionEffects[${index}]`, INTERACTION_EFFECT_KEYS)
       const effectId = text(effect.effectId, path, `interactionEffects[${index}].effectId`)
       if (!/^i1b:[a-f0-9]{64}$/.test(effectId)) corrupt(path, `interactionEffects[${index}].effectId is malformed`)
       text(effect.requestId, path, `interactionEffects[${index}].requestId`)

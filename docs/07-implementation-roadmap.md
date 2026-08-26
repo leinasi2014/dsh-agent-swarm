@@ -192,7 +192,7 @@ W0 与 R1-R4 并行提供基础，不是 read lane 的前置 blocker。
 
 ### Operation classes
 
-1. **Team-internal atomic effect**：mutation 与 applied evidence 可在同一 Team transaction 提交，例如 proposed `queueMessageOnce`；需要 accepted schema/migration decision。
+1. **Team-internal atomic effect**：mutation 与 applied evidence 可在同一 Team transaction 提交，例如已接受的 `queueMessageOnce`；其 schema/migration 决策只覆盖该窄例，不外推为通用 effect capability。
 2. **Canonical-state reconcilable effect**：revision/attempt fencing 加 operation-specific authoritative read-back 能唯一分类 applied/not-applied/conflict；不能靠宽泛 transcript 推断。
 3. **External idempotent Provider effect**：Provider 必须给 stable operation identity、payload conflict refusal 和 authoritative query。
 4. **Opaque external effect**：当前 `userQuestions.ask`、`subagents.interrupt` 或 unconstrained review 等无 read-back 操作保持 unavailable/outcome-unknown。
