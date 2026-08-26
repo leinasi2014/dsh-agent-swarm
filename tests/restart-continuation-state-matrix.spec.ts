@@ -92,6 +92,7 @@ describe('restart continuation state matrix over one Team authority', () => {
         await second.ctx.agentSwarm.recoverAgent(resumed.agent)
         await new Promise(resolve => setTimeout(resolve, 150))
         expect(follows.filter(text => text.includes('Team assignment from captain.'))).toHaveLength(1)
+        expect(adapter.memberRequests).toBe(1)
         const persisted = await second.ctx.sessionPersistence.inspect(SessionId(memberId), RESTART_SIGNAL)
         expect(userTexts(persisted.events).filter(text => text.includes('Team assignment from captain.'))).toHaveLength(1)
       } finally {
