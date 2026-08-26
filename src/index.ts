@@ -438,7 +438,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     await runtime.dispose()
   }, 'agent-swarm: runtime disposal')
   // Mounted second so reverse disposal closes Host admission before Team authority.
-  ctx.effect(() => mountHostContext(ctx, runtime, {
+  const disposeHostContext = ctx.effect(() => mountHostContext(ctx, runtime, {
     maxActive: config.maxHostContexts ?? DEFAULT_MAX_HOST_CONTEXTS,
     ttlMs: config.hostContextTtlMs ?? DEFAULT_HOST_CONTEXT_TTL_MS,
   }), 'agent-swarm: Host context lifecycle')
@@ -461,10 +461,12 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       'agent-swarm: reviewer-agent review provider',
     )
   } catch (error) {
+    await disposeHostContext()
     await runtime.dispose()
     throw error
   }
   if (permission === undefined) {
+    await disposeHostContext()
     await runtime.dispose()
     throw new Error('agent-swarm: permission surface was not assembled')
   }
@@ -524,6 +526,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     humanOverlay?.close()
     drainHumanInteractions = undefined
     if (humanDomain !== undefined) await humanDomain.close()
+    await disposeHostContext()
     await runtime.dispose()
     throw error
   }

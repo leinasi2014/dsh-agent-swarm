@@ -13,6 +13,7 @@ import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
+import { AgentSwarmRuntime } from '../src/runtime/orchestrator-runtime.js'
 import { mountStorageStackOn } from './helpers/storage-stack.js'
 
 class GatedAdapter extends LlmAdapter {
@@ -169,6 +170,40 @@ function rejectedResults<T>(results: PromiseSettledResult<T>[]): PromiseRejected
 }
 
 describe('SW-I2-H1 Host opaque context lifecycle', () => {
+  it('closes Host admission before Team runtime disposal when later activation fails', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-host-context-activation-failure-'))
+    roots.push(sandbox)
+    const ctx = new Context()
+    await mountAgentLoopTestDependencies(ctx)
+    fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(sandbox, 'sessions', 'sessions.db') }))
+    await mountStorageStackOn(ctx, join(sandbox, 'storage'))
+    fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
+    fibers.push(await ctx.plugin(SubagentService))
+    fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
+
+    const originalProvide = ctx.provide.bind(ctx)
+    vi.spyOn(ctx, 'provide').mockImplementation(((name: string, value: unknown) => {
+      if (name === 'agentSwarmPermission') throw new Error('injected permission assembly failure')
+      return originalProvide(name as never, value as never)
+    }) as Context['provide'])
+
+    const originalDispose = AgentSwarmRuntime.prototype.dispose
+    const hostCodesAtRuntimeDisposal: Array<string | undefined> = []
+    vi.spyOn(AgentSwarmRuntime.prototype, 'dispose').mockImplementation(async function (this: AgentSwarmRuntime) {
+      const closedProbe = rejected(ctx.agentSwarmHostContext.mint({
+        captain: {} as Agent,
+        signal: new AbortController().signal,
+      }))
+      hostCodesAtRuntimeDisposal.push(codeOf(await closedProbe))
+      await originalDispose.call(this)
+    })
+
+    await expect(ctx.plugin(AgentSwarm, {
+      memberProvider: 'spawn', memberMaxDepth: 1, maxHostContexts: 1, hostContextTtlMs: 60_000,
+    })).rejects.toThrow('injected permission assembly failure')
+    expect(hostCodesAtRuntimeDisposal[0]).toBe('TEAM_HOST_CONTEXT_CLOSED')
+  })
+
   it('scenario 48: exposes no internal authority and binds lifecycle to the exact live root and authoritative Team', async () => {
     const stack = await mountHost(2)
     const otherCaptain = await addCaptain(stack)
