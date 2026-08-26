@@ -96,7 +96,10 @@ async function waitForRoot(ctx, sessionId, signal) {
 }
 
 async function tool(ctx, agent, name, arguments_) {
-  const result = await ctx.tools.execute({ signal: AbortSignal.timeout(8_000), callId: `dev-smoke-${name}-${Date.now()}`, name, arguments: arguments_, agent })
+  const result = await Promise.race([
+    ctx.tools.execute({ signal: AbortSignal.timeout(8_000), callId: `dev-smoke-${name}-${Date.now()}`, name, arguments: arguments_, agent }),
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`DEV_SMOKE_TIMEOUT:${name}`)), 8_000)),
+  ])
   if (result.isError) throw new Error(`${name} failed: ${JSON.stringify(result.error)}`)
   return result.value
 }
