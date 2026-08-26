@@ -10,6 +10,15 @@ method:
   candidateSelfActivation: forbidden
   activation: reviewed-integration-and-result-readback
 
+# Transitional compatibility facts consumed only by the verifier accepted at
+# the inspected base. This bridge has no delivery authority and must be removed
+# by the next reviewed candidate after this verifier is integrated and read back.
+acceptedBaseVerifierBridge:
+  policyDigest: ec4cf729e38b6273146b5e24263424ef65007c1d
+  exactCandidateExternalNonAuthorReview: required
+  candidateSelfApproval: forbidden
+  newVerifierActivation: after-reviewed-integration-and-result-readback
+
 authority:
   repository:
     alias: origin

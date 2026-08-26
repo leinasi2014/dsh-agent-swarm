@@ -160,7 +160,8 @@ for (const phrase of [
 ]) {
   if (!binding.includes(phrase)) failures.push(`${bindingPath}: missing or changed declaration ${phrase}`)
 }
-if (!/^\s{2}policyDigest:\s+[0-9a-f]{40}\s*$/mu.test(binding)) failures.push(`${bindingPath}: method policyDigest must be one lowercase 40-hex commit identity`)
+const methodBlock = binding.match(/^method:\s*\r?\n((?:^[ \t].*(?:\r?\n|$))*)/mu)?.[1] ?? ''
+if (!/^\s{2}policyDigest:\s+[0-9a-f]{40}\s*$/mu.test(methodBlock)) failures.push(`${bindingPath}: method policyDigest must be one lowercase 40-hex commit identity`)
 if (/^\s{2}deliveryLane\s*:/mu.test(binding)) failures.push(`${bindingPath}: a project-global deliveryLane is forbidden; classify each Feature Pipeline`)
 if (/candidateState\s*:/u.test(binding)) failures.push(`${bindingPath}: dynamic candidateState is forbidden in stable binding`)
 if (/https?:\/\//iu.test(binding) || /[A-Za-z]:[\\/]/u.test(binding) || /\/(?:Users|home)\//u.test(binding)) {

@@ -43,6 +43,6 @@
 ## 文档规则
 
 - 协议决策进 docs/04 的编号决策段，不散落在 README 或代码注释；
-- `reviews/` 一经写入不可修改（审查证据完整性）；PM 的裁决与排期写独立的 intake 文件；
+- 已接受的 `reviews/` 历史证据保持不可修改；新候选只保留风险所需的一次验收结论，普通处置与排期留在流水线动态权威，不另造 PM intake；
 - 只有 Service、共享契约、权限、迁移、发布或昂贵恢复等实质边界未决时，才在实现前增加设计/决策工件；普通 `DIRECT_EXECUTION_READY` 功能使用流水线短卡直接进入最小纵切；
 - 只有官方分类、release pin 或引用事实实际变化时，`OFFICIAL_BASELINE.json` 与受影响的 docs/09 内容才在同一候选更新；普通 Gate A 重跑复用动态 receipt。
