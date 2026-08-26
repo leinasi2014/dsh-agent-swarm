@@ -10,7 +10,40 @@ export const inject = [
   'storageDomain',
   'sessionPersistence',
   'sessions',
+  'agentLoop',
+  'llm',
 ]
+
+// Deliberately local-only test adapter.  It is registered only by the disposable
+// smoke Profile and never claims to be an external provider or model.
+function devSmokeAdapter() {
+  let call = 0
+  return {
+    async resolveModel(provider, model) { return { provider, id: model, name: model } },
+    async * stream(options) {
+      const text = options.messages.filter(message => message.role === 'user')
+        .flatMap(message => message.content).filter(block => block.type === 'text')
+        .map(block => block.text).join('\n')
+      const match = /Task: (task-[a-z0-9-]+), revision (\d+)\nAttempt capability: (\S+)/.exec(text)
+      if (match !== null) {
+        const [, taskId, revision, attemptId] = match
+        const args = JSON.stringify({ task_id: taskId, expected_revision: Number(revision), attempt_id: attemptId, output: `DEV_SMOKE completed ${taskId}.` })
+        const id = `dev-smoke-submit-${++call}`
+        yield { type: 'block-start', index: 0, blockType: 'tool-call' }
+        yield { type: 'tool-call-delta', index: 0, id, name: 'agent_swarm_submit_task', argumentsDelta: args }
+        yield { type: 'block-end', index: 0, block: { type: 'tool-call', id, name: 'agent_swarm_submit_task', arguments: args } }
+        yield { type: 'usage', usage: { inputTokens: 1, outputTokens: 1 } }
+        yield { type: 'finish', reason: { kind: 'tool-calls' } }
+        return
+      }
+      yield { type: 'block-start', index: 0, blockType: 'text' }
+      yield { type: 'text-delta', index: 0, text: 'DEV_SMOKE ready.' }
+      yield { type: 'block-end', index: 0, block: { type: 'text', text: 'DEV_SMOKE ready.' } }
+      yield { type: 'usage', usage: { inputTokens: 1, outputTokens: 1 } }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    },
+  }
+}
 
 function append(phase, ctx, detail = {}) {
   const path = process.env.DSH_SWARM_P0_PROBE_PATH
@@ -33,9 +66,20 @@ function append(phase, ctx, detail = {}) {
 }
 
 async function waitForRoot(ctx, sessionId, signal) {
+  let created = false
   while (!signal.aborted) {
     const agent = ctx.agents.get(sessionId)
     if (agent !== undefined && Array.from(ctx.agents.roots()).includes(agent)) return agent
+    // The official RPC owns durable session creation.  Once it exists, attach
+    // an actual AgentLoop root using the isolated DEV_SMOKE adapter.
+    if (!created) {
+      try {
+        ctx.llm.registerAdapter(['dev-smoke'], devSmokeAdapter())
+        const root = ctx.agentLoop.create(sessionId, { provider: 'dev-smoke', model: 'DEV_SMOKE' }, { cwd: process.env.DSH_SWARM_P0_WORKSPACE_ROOT })
+        created = true
+        if (Array.from(ctx.agents.roots()).includes(root)) return root
+      } catch { /* persisted session may not exist yet; retry */ }
+    }
     await new Promise((resolve, reject) => {
       const onAbort = () => {
         clearTimeout(timer)
@@ -49,6 +93,29 @@ async function waitForRoot(ctx, sessionId, signal) {
     })
   }
   signal.throwIfAborted()
+}
+
+async function tool(ctx, agent, name, arguments_) {
+  const result = await ctx.tools.execute({ signal: new AbortController().signal, callId: `dev-smoke-${name}-${Date.now()}`, name, arguments: arguments_, agent })
+  if (result.isError) throw new Error(`${name} failed: ${JSON.stringify(result.error)}`)
+  return result.value
+}
+
+async function exerciseRealAgentLoop(ctx, agent, team) {
+  if (team.tasks.length > 0) return { resumed: true, team }
+  const member = await tool(ctx, agent, 'agent_swarm_add_member', { name: 'dev-smoke-member', role: 'Submit exactly one DEV_SMOKE task.' })
+  const created = await tool(ctx, agent, 'agent_swarm_create_task', { subject: 'DEV_SMOKE real Agent Loop', description: 'Member must submit using agent_swarm_submit_task.', acceptance_criteria: ['one real submit', 'captain accepts'] })
+  const deadline = Date.now() + 15_000
+  let task
+  while (Date.now() < deadline) {
+    const snapshot = await ctx.agentSwarm.domain.snapshot(ctx.agentSwarm.scopeOf(agent), team.id, agent.id)
+    task = snapshot.team.tasks.find(candidate => candidate.id === created.task_id)
+    if (task?.status === 'submitted') break
+    await new Promise(resolve => setTimeout(resolve, 50))
+  }
+  if (task?.status !== 'submitted' || task.currentAttemptId === undefined) throw new Error(`DEV_SMOKE member did not submit: ${JSON.stringify(task)}`)
+  const reviewed = await tool(ctx, agent, 'agent_swarm_review_task', { task_id: task.id, expected_revision: task.revision, attempt_id: task.currentAttemptId, decision: 'accept', diagnostic: 'DEV_SMOKE captain review bound to submitted attempt.' })
+  return { resumed: false, memberSessionId: member.session_id, taskId: task.id, review: reviewed }
 }
 
 async function bindTarget(ctx, signal) {
@@ -96,6 +163,8 @@ async function bindTarget(ctx, signal) {
     'R2 isolated Profile team',
     'Real captain Team for the read-only /swarm Profile proof.',
   )
+  const e2e = await exerciseRealAgentLoop(ctx, agent, team)
+  append('w0-agent-loop-e2e', ctx, { rootSessionId: agent.id, teamId: team.id, e2e })
   append('r2-target-ready', ctx, {
     rootSessionId: agent.id,
     teamId: team.id,

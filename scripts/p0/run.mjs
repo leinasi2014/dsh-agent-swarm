@@ -417,6 +417,7 @@ async function main() {
       DSH_SWARM_P0_PROBE_PATH: probePath,
       DSH_SWARM_P0_STOP_PATH: stopPath,
       DSH_SWARM_R2_ROOT_SESSION_ID: rootSessionId,
+      DSH_SWARM_P0_WORKSPACE_ROOT: workspaceRoot,
     }
     await rm(stopPath, { force: true })
     liveBoot = await bootPlane({ cli: args.cli, home: dshHome, profile: 'web', port: args.port, cwd: workspaceRoot, env: bootEnv })
@@ -462,6 +463,11 @@ async function main() {
     if (typeof teamId !== 'string' || teamId.length === 0 || targetReady.resumed !== false) {
       throw new Error(`fresh R2 captain Team was not created through the real runtime: ${JSON.stringify(targetReady)}`)
     }
+    const e2eReady = (await readProbe(probePath)).find(entry => entry.phase === 'w0-agent-loop-e2e')
+    if (e2eReady?.e2e?.resumed !== false || e2eReady?.e2e?.review?.status !== 'completed') {
+      throw new Error(`W0 real Agent Loop did not create/member-submit/review: ${JSON.stringify(e2eReady)}`)
+    }
+    gate('w0-real-agent-loop', 'pass', 'DEV_SMOKE isolated adapter drove member agent_swarm_submit_task; captain accepted exact attempt')
     const browserFixture = await readWorkspaceSessionAccounting({
       port: args.port, evidenceDir, label: 'r3', workspaceRoot,
       workspaceId: workspace.workspaceId, rootSessionId,
@@ -542,6 +548,8 @@ async function main() {
     if (reloadTarget.teamId !== teamId || reloadTarget.resumed !== true) {
       throw new Error(`reload did not recover the same authoritative captain Team: ${JSON.stringify(reloadTarget)}`)
     }
+    const reloadE2e = (await readProbe(probePath)).filter(entry => entry.phase === 'w0-agent-loop-e2e').at(-1)
+    if (reloadE2e?.e2e?.resumed !== true) throw new Error(`W0 reload repeated a task, submit, or review: ${JSON.stringify(reloadE2e)}`)
     await readWorkspaceSessionAccounting({
       port: args.port, evidenceDir, label: 'r3-reload', workspaceRoot,
       workspaceId: reloadWorkspace.workspaceId, rootSessionId,
