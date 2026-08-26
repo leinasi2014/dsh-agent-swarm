@@ -63,7 +63,7 @@ export function priorityReadyScheduler(): TeamSchedulerProvider {
         if (available.delete(task.targetMemberSessionId)) decisions.push({ taskId: task.id, memberSessionId: task.targetMemberSessionId })
       }
       const generic = readyTasks.filter(task => task.targetMemberSessionId === undefined)
-      for (const [index, member] of available.values().entries()) {
+      for (const [index, member] of [...available.values()].entries()) {
         const task = generic[index]
         if (task !== undefined) decisions.push({ taskId: task.id, memberSessionId: member.sessionId })
       }
