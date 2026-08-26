@@ -33,157 +33,12 @@ import { HumanControlGateway } from './human/human-control-gateway.js'
 import { HumanInteractionOverlayStore, humanInteractionDomainSpec } from './human/human-interaction-store.js'
 import { humanReviewProvider } from './human/human-review-provider.js'
 import { officialCaptainQuestionPresentation } from './human/official-question-presentation.js'
+import { DEFAULT_HOST_CONTEXT_TTL_MS, DEFAULT_MAX_HOST_CONTEXTS, mountHostContext } from './human/host-context-service.js'
 import { effectiveToolPolicy, TeamPermissionSurface } from './runtime/permission-surface.js'
 import { reviewerAgentReviewProvider } from './runtime/reviewer-boundary.js'
 import { assembleAgentSwarmHostRead, assembleAgentSwarmProducerFloor, mountAgentSwarmReadRpc } from './host/host-read-assembly.js'
 import { AGENT_SWARM_USAGE_PROMPT } from './runtime/usage-prompt.js'
-
-export { AgentSwarmRuntime } from './runtime/orchestrator-runtime.js'
-export type {
-  ReviewProviderInput,
-  ReviewProviderResult,
-  RuntimeConfig,
-  SchedulerDecision,
-  SchedulerSelectionInput,
-  TeamReviewProvider,
-  TeamSchedulerProvider,
-  ToolExecutionAuthority,
-} from './runtime/orchestrator-runtime.js'
-export type {
-  ReviewCommandEvidence,
-  ReviewRootAvailability,
-  ReviewRootCapabilities,
-  ReviewRootOpenInput,
-  ReviewRootProvider,
-  ReviewRootSession,
-} from './runtime/review-root.js'
-export { executableReviewRootCapabilities, tempReviewRootProvider } from './runtime/review-root.js'
-export { executableReview, CANDIDATE_OUTPUT_ARTIFACT } from './runtime/executable-review.js'
-export type { ExecutableReviewOptions, ExecutableReviewProvider, ExecutableReviewResult } from './runtime/executable-review.js'
-export {
-  aggregateVerificationEvidence,
-} from './runtime/verification-summary.js'
-export type {
-  RoutedReviewCommandEvidence,
-  OpenedVerificationRoot,
-  VerificationEvidenceSummary,
-  VerificationRootSummary,
-} from './runtime/verification-summary.js'
-export {
-  builtinVerificationTemplates,
-  compileVerificationDeclarations,
-  encodeVerificationCommand,
-  parseVerificationCommand,
-} from './runtime/verification-commands.js'
-export type {
-  BuiltinVerificationTemplate,
-  RuntimeCreateTaskInput,
-  VerificationCommandRoute,
-  VerificationCommandTemplate,
-  VerificationDeclaration,
-  VerificationTemplateInvocation,
-  VerificationTemplateParameterValue,
-} from './runtime/verification-commands.js'
-export { OrchestrationOwnership } from './runtime/orchestration-ownership.js'
-export type { OrchestrationMode } from './runtime/orchestration-ownership.js'
-export type {
-  ExecutionLease,
-  ExecutionRoot,
-  ExecutionRootIsolation,
-  ExecutionRootResidue,
-  TeamExecutionRootProvider,
-} from './runtime/execution-roots.js'
-export { ExecutionRoots, EXECUTION_ROOT_MARKER, gitWorktreeExecutionRoots } from './runtime/execution-roots.js'
-export { TeamBridgeWorkflowEngine, validateBridgeMeta } from './runtime/workflow/team-bridge-engine.js'
-export type { BridgeEngineConfig } from './runtime/workflow/team-bridge-engine.js'
-export { TeamJobProjection } from './runtime/jobs/team-job-projection.js'
-export { TEAM_TASK_JOB_KIND } from './runtime/jobs/projection-derive.js'
-export type { DerivedTeamJob } from './runtime/jobs/projection-derive.js'
-export {
-  WorkflowRunOverlayStore,
-  workflowOverlayDomainSpec,
-  WORKFLOW_OVERLAY_DOMAIN_NAME,
-  WORKFLOW_OVERLAY_DOMAIN_VERSION,
-} from './storage/workflow-run-overlay.js'
-export type { WorkflowRunOverlayRecord, WorkflowRunOverlayState } from './storage/workflow-run-overlay.js'
-export { TeamDomainError } from './domain/error.js'
-export { HumanControlGateway } from './human/human-control-gateway.js'
-export type { HumanControlAdmission, HumanControlGatewayDeps } from './human/human-control-gateway.js'
-export { humanReviewProvider } from './human/human-review-provider.js'
-export { TeamPermissionSurface, effectiveToolPolicy, mergePreToolDecision } from './runtime/permission-surface.js'
-export type { ToolPolicyDeclaration } from './runtime/permission-surface.js'
-export type { HumanPrincipalVerifier } from './runtime/human-provenance.js'
-export { reviewerAgentReviewProvider } from './runtime/reviewer-boundary.js'
-export type { ReviewerAgentProvider, ReviewerAgentVerdict } from './runtime/reviewer-boundary.js'
-export { compileNodePlan, applyNodePlan } from './patterns/node-mapping.js'
-export type {
-  AppliedNodePlan,
-  CompiledNodePlan,
-  CompiledReviewGate,
-  CompiledTaskInput,
-  CompiledTaskOp,
-  NodePlan,
-  PhaseDecl,
-  PipelineItemDecl,
-  PlanNodeDecl,
-  TaskStepDecl,
-} from './patterns/node-mapping.js'
-export { AttemptId, TaskId, TeamId, TeamMessageId } from './domain/types.js'
-export type {
-  ReviewVerificationCommand,
-  TeamBudget,
-  TeamMember,
-  TeamMemoryEntry,
-  TeamMessage,
-  TeamState,
-  TeamStatusSnapshot,
-  TeamTask,
-} from './domain/types.js'
-export type {
-  CreateTaskInput,
-  MigrationReceipt,
-  TeamAggregateStore,
-  TeamDomainPort,
-  TeamScope,
-  TeamTransaction,
-} from './domain/team-domain-port.js'
-export { StorageDomainTeamStore } from './storage/storage-domain-team-store.js'
-export { TEAM_DOMAIN_NAME, TEAM_DOMAIN_VERSION, teamDomainSpec } from './storage/team-spec.js'
-export { FileTeamStore, resolveStateRoot } from './storage/team-store.js'
-export { migrateLegacyTeamStore } from './migration/migrate-legacy-store.js'
-export type { MigrationOptions, MigrationReport, MigrationTeamOutcome } from './migration/migrate-legacy-store.js'
-export { CaptainLiaison } from './human/captain-liaison.js'
-export { officialCaptainQuestionPresentation } from './human/official-question-presentation.js'
-export {
-  HumanInteractionOverlayStore,
-  humanInteractionDomainSpec,
-  HUMAN_INTERACTION_DOMAIN_NAME,
-  HUMAN_INTERACTION_DOMAIN_VERSION,
-} from './human/human-interaction-store.js'
-export {
-  HUMAN_INTERACTION_CONTROL_INTENTS,
-  sameHumanInteractionRequest,
-} from './human/human-interaction-contract.js'
-export * from './host/producer-contract.js'
-export * from './host/producer-floor-service.js'
-export * from './host/host-read-service.js'
-export type {
-  CaptainQuestion,
-  CaptainQuestionPresentation,
-  HumanInteractionIntent,
-  HumanInteractionOrigin,
-  HumanInteractionPort,
-  HumanInteractionReceipt,
-  HumanInteractionReceiptPage, HumanInteractionReceiptPageInput, HumanInteractionReceiptProjection,
-  HumanInteractionAdmission,
-  HumanInteractionRecord,
-  HumanInteractionRequest,
-  HumanInteractionSource,
-  HumanInteractionStatus,
-  HumanInteractionTarget,
-  PresentQuestionInput,
-  RelayMemberQuestionInput,
-} from './human/human-interaction-contract.js'
+export * from './public-api.js'
 export const name = 'agent-swarm'
 export const inject = [
   'tools',
@@ -245,6 +100,10 @@ export interface Config {
   maxVerificationCommands?: number
   /** Hard per-command timeout ceiling for executable review in ms (default 600000, M3-2). */
   maxVerificationCommandMs?: number
+  /** Maximum active process-local Host contexts (SW-I2-H1). */
+  maxHostContexts?: number
+  /** Lifetime of one process-local Host context generation in ms. */
+  hostContextTtlMs?: number
   /**
    * Bound for every disposal settlement step (F4), same name and default as
    * the official experimental config. Positive safe integer, default 5000.
@@ -352,6 +211,8 @@ export const Config: z<Config> = z.object({
   maxMemories: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxMemories),
   maxVerificationCommands: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxVerificationCommands),
   maxVerificationCommandMs: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxVerificationCommandMs),
+  maxHostContexts: z.number().step(1).min(1).default(DEFAULT_MAX_HOST_CONTEXTS),
+  hostContextTtlMs: z.number().step(1).min(1).default(DEFAULT_HOST_CONTEXT_TTL_MS),
   disposalTimeoutMs: z.number().step(1).min(1).default(DEFAULT_DISPOSAL_TIMEOUT_MS),
   strandedAfterMs: z.number().step(0).min(0).default(DEFAULT_STRANDED_AFTER_MS),
   orchestrationMode: z.union(['adaptive', 'workflow']).default('adaptive'),
@@ -434,7 +295,11 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     await drainHumanInteractions?.()
     await runtime.dispose()
   }, 'agent-swarm: runtime disposal')
-
+  // Mounted second so reverse disposal closes Host admission before Team authority.
+  const disposeHostContext = ctx.effect(() => mountHostContext(ctx, runtime, {
+    maxActive: config.maxHostContexts ?? DEFAULT_MAX_HOST_CONTEXTS,
+    ttlMs: config.hostContextTtlMs ?? DEFAULT_HOST_CONTEXT_TTL_MS,
+  }), 'agent-swarm: Host context lifecycle')
   registerAgentSwarmTools(ctx, runtime)
   // I1a permission boundary: project policy consumes the official
   // tools/pre-execute + approval seams. It cannot widen downstream denial.
@@ -454,10 +319,12 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       'agent-swarm: reviewer-agent review provider',
     )
   } catch (error) {
+    await disposeHostContext()
     await runtime.dispose()
     throw error
   }
   if (permission === undefined) {
+    await disposeHostContext()
     await runtime.dispose()
     throw new Error('agent-swarm: permission surface was not assembled')
   }
@@ -524,6 +391,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     humanOverlay?.close()
     drainHumanInteractions = undefined
     if (humanDomain !== undefined) await humanDomain.close()
+    await disposeHostContext()
     await runtime.dispose()
     throw error
   }
