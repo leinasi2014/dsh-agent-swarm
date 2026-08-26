@@ -1,11 +1,8 @@
 # Git hooks (lefthook). Local checkpoints stay fast: staged lint only.
-# `pnpm verify` and CI own the full gate matrix (typecheck, tests, build,
-# duplication, dead exports, structure, official baseline).
+# Candidate and claim-triggered CI workflows own the wider gate matrix.
 # Installed automatically on `pnpm install` via the postinstall script.
 pre-commit:
   jobs:
-    - name: worktree layout
-      run: node scripts/verify-worktree-layout.mjs
     - name: lint (staged)
       glob: '*.{ts,tsx,mts,cts,mjs,cjs,js}'
       run: node_modules/.bin/oxlint --no-error-on-unmatched-pattern {staged_files}

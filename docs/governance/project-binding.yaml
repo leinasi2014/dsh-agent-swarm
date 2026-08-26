@@ -6,7 +6,7 @@ project:
 
 method:
   name: manage-agile-software-development
-  policyDigest: 931c8abf7ef689a20c3a9f7d4d562d5e9de0aa4e
+  policyDigest: ec4cf729e38b6273146b5e24263424ef65007c1d
   instructionAdapter: AGENTS.md
 
 authority:
@@ -32,6 +32,33 @@ candidate:
   evidenceStore:
     capability: NOT_CONFIGURED
   recoveryArchive: reachable-git-ref-or-user-approved-artifact
+
+deliveryPipelines:
+  registryAuthority:
+    kind: selected-executor-native-task-provider
+    capability: NOT_CONFIGURED
+  projectDirectionOwner: product-and-architecture-owner
+  coordinationOwner: pipeline-capacity-and-integration-scheduler
+  dependencyAuthority:
+    kind: dynamic-provider-projection
+    capability: NOT_CONFIGURED
+  roleCombinationPolicy: risk-scaled
+  capacityPolicy:
+    registered: unbounded-by-method
+    activeWriters: 1
+    readOnlySupport: executor-capacity
+  candidateAndEvidenceAuthority: git-commit-plus-check-receipts
+  defectAndReworkAuthority:
+    kind: selected-dynamic-provider
+    capability: NOT_CONFIGURED
+  knowledgeModel:
+    role: projection
+    sourceAuthority: selected-dynamic-provider
+  integrationAuthority: expected-main-identity
+  fallback:
+    scope: one-active-session
+    record: existing-task-envelope
+    parallelWriter: forbidden
 
 documentation:
   schemaVersion: 1
@@ -61,10 +88,11 @@ technical:
     - pnpm-lock.yaml
     - .github/workflows/verify.yml
   trustedEntryPoints:
-    governance: pnpm-verify-governance
+    policy: pnpm-verify-policy
+    isolation: pnpm-verify-isolation
     structure: pnpm-verify-structure
-    full: pnpm-verify
-    compatibility: pnpm-verify-gate-a
+    candidate: pnpm-verify-candidate
+    compatibility: pnpm-verify-compatibility
   observedCapabilityAuthority: dynamic-redacted-receipt
 
 isolation:

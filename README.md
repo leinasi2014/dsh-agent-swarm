@@ -57,8 +57,10 @@ captain（插件驱动）：
 ## 开发
 
 ```bash
-pnpm install && pnpm verify     # 全链：治理→结构→lint→重复→死导出→类型×2→测试→场景审计→构建→产物
-pnpm verify:gate-a              # 官方基线三方核验（remote/checkout/packages）
+pnpm install && pnpm verify:candidate  # 冻结候选：结构→lint→重复→死导出→类型×2→测试→场景→构建→产物
+pnpm verify:policy                    # 治理/指令/文档权威变化时
+pnpm verify:isolation                 # 隔离策略或布局变化时
+pnpm verify:compatibility             # 官方/ref 兼容性参与决策时
 ```
 
 当前采用单检出单写者；候选、审查、串行集成和外部推送边界见 [CONTRIBUTING.md](CONTRIBUTING.md)，项目绑定与权威入口见 [AGENTS.md](AGENTS.md)。

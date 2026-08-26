@@ -84,6 +84,10 @@ try {
     mutate(root, 'docs/governance/project-binding.yaml', content => content.replace('candidateSelfApproval: forbidden', 'candidateSelfApproval: allowed'))
   }, 'missing or changed declaration candidateSelfApproval: forbidden')
 
+  expectFailure('missing-pipeline-direction-owner', root => {
+    mutate(root, 'docs/governance/project-binding.yaml', content => content.replace('projectDirectionOwner: product-and-architecture-owner', 'projectDirectionOwner: missing'))
+  }, 'missing or changed declaration projectDirectionOwner: product-and-architecture-owner')
+
   expectFailure('missing-accountable-owner', root => {
     mutate(root, 'docs/governance/document-registry.yaml', content => content.replace('    accountableOwner: governance-owner\n', ''))
   }, 'incomplete document entry project-binding')
@@ -126,7 +130,7 @@ try {
     mutate(root, 'docs/governance/document-registry.yaml', content => `${content}\n  - documentId: escaped\n    path: ../../outside.md\n    role: stable-authority\n    subject: governance\n    writeMode: human\n    accountableOwner: governance-owner\n    mutationAuthority: expected-target-reviewed-candidate\n    updateTriggers: test\n    validation: pnpm-verify-governance\n`)
   }, 'path escapes the project root')
 
-  console.log('Governance gate positive fixture and 14 negative policy cases: PASS')
+  console.log('Governance gate positive fixture and 15 negative policy cases: PASS')
 } finally {
   rmSync(sandbox, { recursive: true, force: true })
 }

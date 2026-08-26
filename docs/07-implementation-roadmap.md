@@ -2,9 +2,9 @@
 
 本路线图定义稳定的产品里程碑、依赖、非目标、风险和出口证据，不保存当前任务、分支、候选、负责人或滚动进度。历史实现和验收事实由 `docs/development/`、`docs/reviews/`、ADR、Git commit/tag 与测试保存；执行中的状态由项目绑定指定的动态权威保存。
 
-## Gate A — every production milestone
+## Gate A — compatibility receipt for production milestones
 
-每个生产里程碑在编码前执行 `docs/11-official-first-development.md` 的 Official-first compatibility gate：
+每个生产里程碑在编码前必须有覆盖其能力边界的有效 compatibility receipt。只有 official/ref/Profile/pin/lockfile/seam 事实发生变化或真实证据冲突时才重跑 `docs/11-official-first-development.md` 的 Gate A；否则复用身份未变化的回执：
 
 - 验证目标官方 DSH release、安装包 exports/types/tests 和真实 Profile 组合；
 - 复核两个 pinned reference checkout 的受影响行为与故障用例；
@@ -12,7 +12,7 @@
 - 明确 Service Definition、Provider、Consumer、唯一状态 owner、生命周期和失败语义；
 - 拒绝 Agent Loop patch、影子服务、私有 DSH Runtime 和双 canonical state。
 
-Gate A 只证明兼容性基线，不证明功能已实现。参考源更新必须审查旧 pin→新 pin 的实际差异；不得为过门而弱化校验。
+Gate A 只证明兼容性基线，不证明功能已实现。参考源更新必须审查旧 pin→新 pin 的实际差异；失败只冻结受影响的 compatibility/re-pin 流水线，不阻塞由未变化 pin 支撑的无关功能，也不得为过门而弱化校验。
 
 ## 产品依赖图
 

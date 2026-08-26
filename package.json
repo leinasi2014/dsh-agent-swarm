@@ -49,12 +49,18 @@
     "verify:official": "node scripts/verify-official-baseline.mjs",
     "verify:references": "node scripts/verify-reference-baselines.mjs",
     "verify:anchors": "node scripts/verify-doc-anchors.mjs",
-    "verify:governance": "node scripts/verify-governance.mjs && node scripts/test-governance-gate.mjs",
-    "verify:worktrees": "node scripts/verify-worktree-layout.mjs && node scripts/test-worktree-layout-gate.mjs",
-    "verify:gate-a": "pnpm verify:official && pnpm verify:references",
+    "verify:policy": "node scripts/verify-governance.mjs && node scripts/test-governance-gate.mjs",
+    "verify:policy:declared": "node scripts/verify-governance.mjs --skip-git && node scripts/test-governance-gate.mjs",
+    "verify:governance": "pnpm verify:policy",
+    "verify:isolation": "node scripts/verify-worktree-layout.mjs && node scripts/test-worktree-layout-gate.mjs",
+    "verify:worktrees": "pnpm verify:isolation",
+    "verify:compatibility": "pnpm verify:official && pnpm verify:references",
+    "verify:gate-a": "pnpm verify:compatibility",
     "verify:structure": "node scripts/verify-project.mjs",
     "verify:artifact": "node scripts/verify-package-artifact.mjs",
-    "verify": "pnpm verify:governance && pnpm verify:worktrees && pnpm verify:structure && pnpm lint && pnpm verify:duplication && pnpm verify:exports && pnpm typecheck && pnpm typecheck:test && pnpm test && pnpm verify:scenarios && pnpm build && pnpm verify:artifact"
+    "verify:engineering": "pnpm verify:structure && pnpm lint && pnpm verify:duplication && pnpm verify:exports && pnpm typecheck && pnpm typecheck:test && pnpm test && pnpm verify:scenarios && pnpm build && pnpm verify:artifact",
+    "verify:candidate": "pnpm verify:engineering",
+    "verify": "pnpm verify:candidate"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",

@@ -1,0 +1,56 @@
+# Compatibility evidence is intentionally separate from ordinary feature CI.
+name: compatibility
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: '17 3 * * 1'
+  pull_request:
+    paths:
+      - 'docs/OFFICIAL_BASELINE.json'
+      - 'docs/09-sources.md'
+      - 'ref/**'
+      - 'pnpm-lock.yaml'
+      - 'cordis.patch.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'docs/OFFICIAL_BASELINE.json'
+      - 'docs/09-sources.md'
+      - 'ref/**'
+      - 'pnpm-lock.yaml'
+      - 'cordis.patch.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compatibility:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Materialize pinned reference checkouts
+        run: |
+          pwsh ./ref/dsh-agent-teams/sync-reference.ps1
+          pwsh ./ref/jiuwenswarm/sync-reference.ps1
+
+      - name: Materialize official evidence checkout
+        run: pwsh ./scripts/sync-official-evidence.ps1 -Target "${{ runner.temp }}/official-evidence"
+
+      - name: Verify official and reference compatibility
+        run: pnpm verify:compatibility
+        env:
+          DSH_OFFICIAL_CHECKOUT: ${{ runner.temp }}/official-evidence

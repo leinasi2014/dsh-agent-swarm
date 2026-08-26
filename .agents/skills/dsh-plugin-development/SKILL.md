@@ -88,7 +88,7 @@ node --version
 pnpm --version
 ```
 
-若仓库提供 `verify:gate-a`（本项目提供），在 Step 1 先运行它；其他仓库按 Step 1 手工完成同等证据门。
+若 Step 1 的兼容性触发条件命中，运行仓库的 `verify:compatibility`；否则复用身份未变化的兼容性回执。
 
 读取：
 
@@ -101,7 +101,9 @@ pnpm --version
 
 ## Step 1：建立证据基线
 
-这是编码前的强制 official-first compatibility gate。按优先级取证：
+这是触发式 official-first compatibility gate。以下任一情况命中时重新取证：官方 Service/package/export/types/Profile 事实参与本次决策；baseline、reference pin、lockfile 或目标 Profile 改变；真实运行结果与缓存分类冲突；新增 seam、状态 owner 或潜在 shadowing。其余功能切片复用以 official baseline digest、两个 reference pin、lockfile 与受影响能力为键的已接受回执，不重复远端扫描。
+
+触发时按优先级取证：
 
 1. 查询官方 `deepseek-ai/deepseek-harness` 远端 HEAD/目标分支和两个参考分支，记录当前 SHA 与本地 pin 是否一致；
 2. 读取官方根/包级规则、`docs/architecture.md`、包清单、相关 subsystem 和 implemented Agent Notes，确定已实现功能与明确开发方向；
@@ -112,11 +114,13 @@ pnpm --version
 7. `ref/dsh-agent-teams/source/` 用于可移植的 Team 协议与故障用例；
 8. `ref/jiuwenswarm/source/` 用于产品能力、执行流程和故障模型。
 
-Developer Preview 期间 API 会变化。不要凭记忆写包名、服务 key 或类型。官方仓库与目标安装版本冲突时，以目标部署导出的 API 为执行边界，并记录官方新方向、版本差异和兼容层。没有完成这一步、没有写清权威 owner 和冲突处理，不得开始实现。
+Developer Preview 期间 API 会变化。不要凭记忆写包名、服务 key 或类型。官方仓库与目标安装版本冲突时，以目标部署导出的 API 为执行边界，并记录官方新方向、版本差异和兼容层。Reference 上游移动只冻结受影响的 re-pin/compatibility 流水线，不阻塞已由未变化 pin 支撑的无关实现。
 
 ## Step 2：写一页实现设计
 
-编码前写清：
+新增/改变 Service、Provider、共享契约、权威状态、权限、生命周期或失败语义时，编码前写一页设计。普通局部切片只需流水线短卡：outcome、owner、代表性验收、immutable base、影响面、适用条件门。
+
+一页设计写清：
 
 ```text
 唯一职责：
@@ -275,18 +279,19 @@ Bundle 修改后重启 Profile。不要手写用户 profile 的 bundle manifest�
 
 ## Step 9：验证
 
-至少执行与改动相匹配的检查：
+迭代中只执行与改动相匹配的检查；冻结功能/集成候选时执行一次候选工程门。条件门只在其 claim 命中时运行：
 
 ```sh
-pnpm lint
-pnpm typecheck
-pnpm build
-pnpm verify
+pnpm test -- <affected-test>
+pnpm verify:candidate
+pnpm verify:policy          # governance/instruction/document authority changed
+pnpm verify:isolation       # isolation policy/layout changed
+pnpm verify:compatibility   # official/reference compatibility is decision-bearing
 node .agents/skills/dsh-plugin-development/scripts/verify-dsh-plugin.mjs .
 dsh --profile <check-profile> --dump-config
 ```
 
-本仓库的 `pnpm verify` 已内建工程门禁（`docs/08` §9）：oxlint、jscpd 重复检测、knip 死导出检测、`noUnused*` 类型检查、src 600 行文件上限（例外需在 `scripts/verify-project.mjs` 登记原因与归还里程碑）。新增源文件超限或引入重复/死代码会直接失败，不得为绕过检查而放宽配置。
+本仓库的 `pnpm verify:candidate`（`pnpm verify` 为兼容别名）包含工程门禁（`docs/08` §9）：oxlint、jscpd 重复检测、knip 死导出检测、`noUnused*` 类型检查、测试、场景审计、构建、artifact 和 src 600 行上限。`verify-dsh-plugin`、真实 Profile、coverage 与 promotion 仅在变更的产品/部署 claim 需要时运行，不重复证明无关事实。
 
 产品/模型可见改动需要真实 Loader 组合和 snapshot/e2e。Mock-only 单元测试不能证明 Bundle、依赖注入、Session 日志或模型文本正确。
 
@@ -411,8 +416,8 @@ dsh --profile <check-profile> --dump-config
 10. 每个阶段按 `docs/07-implementation-roadmap.md` 的 exit criteria 验收。
 11. 服务的发布状态以 `docs/OFFICIAL_BASELINE.json` 与目标安装包为准；“已发布”“Profile 已装配”“本插件已接入”必须分别陈述。
 12. `ctx.workspaceRegistry` 不是 Worktree lease 或 continuable child cwd override；没有真实执行 cwd/FS capability 变化时不得宣称 Worktree 隔离。
-13. 官方/ref 事实变化时，同一次修改必须更新 README、受影响的设计文档、ADR、`docs/09-sources.md`、审计基线和本 Skill，并全文检索旧结论。
-14. 每个功能分支/里程碑先通过 `docs/11-official-first-development.md` 的 Gate A；未通过不得写生产代码。
+13. 官方/ref 事实变化时，同一候选只更新受影响的注册权威文档、`docs/09-sources.md` 和必要的审计基线，并全文检索旧结论；不机械触碰无关 README、ADR、roadmap 或 Skill。
+14. `docs/11-official-first-development.md` 的 Gate A 由兼容性触发条件启动；未命中时复用身份未变化的回执。Gate A 失败只阻塞受影响的兼容/re-pin 流水线，不冻结无关功能。
 15. 独立安全/架构审查按 `$manage-agile-software-development` 与 `docs/governance/project-binding.yaml` 的风险分级执行；审查范围、权限、候选身份和验收问题由工作包明确，项目经理接收报告并核验证据，不改写结论。
 16. 用户明确授权全权限审查时，将 `danger-full-access` 与 `approval=never` 固定在独立 Session，核对持久权限事件；临时修改未来 Session 默认值后立即恢复。运行时全权限不等于允许改生产源码，审查写入范围仍由任务约束。
 17. M1A 已实现 ADR-0007：`sessionPersistence` 和 `storageDomain` 是 fail-closed 必需注入（缺失组合中插件保持 pending）；权威 Team aggregate 位于官方 `agent_swarm` Storage Domain（`TeamDomainPort` → `StorageDomainTeamStore`，每 Team 一条版本化记录 + 迁移回执），绝不在共享工作区；`FileTeamStore` 只读（迁移读取器/fixture，无写路径）；迁移仅经 `scripts/migrate-legacy-team-store.mjs` 显式单向执行（空目的、读回校验、回执、源只读），禁止运行时自动迁移、双写或回退；该保护 denies ordinary workspace writer，不是对 unrestricted host access 的防御，存储 root 必须配置在工作区与 sandbox 根之外。持久边界事实（M4-3/#129 探针实证，docs/09 §1）：官方 storage-domain 的 `put` 原样存储记录，但加载路径按表 value schema zod 解析并**剥离未声明键**——向聚合新增可选字段时必须同时扩展 `src/storage/team-spec.ts` 的 zod 表 schema 与 `assertTeamState`，否则字段仅在单进程存活、重载即静默丢失（`verification`/`replacesAttemptId` 曾因此中招）。

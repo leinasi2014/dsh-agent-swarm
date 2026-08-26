@@ -55,6 +55,7 @@ const required = [
   'knip.json',
   'lefthook.yml',
   '.github/workflows/verify.yml',
+  '.github/workflows/compatibility.yml',
   'src/runtime/authority.ts',
   'src/runtime/providers.ts',
   'src/runtime/prompts.ts',
@@ -97,14 +98,29 @@ try {
   if (pkg.dsh?.bundle?.patch !== './cordis.patch.yml') failures.push('package.json: missing dsh.bundle.patch')
   if (pkg.type !== 'module') failures.push('package.json: ESM type is required')
   if (typeof pkg.packageManager !== 'string' || !pkg.packageManager.startsWith('pnpm@')) failures.push('package.json: packageManager must pin a pnpm version')
-  if (!String(pkg.scripts?.verify ?? '').includes('pnpm lint')) failures.push('package.json: verify chain must include the lint gate')
-  if (!String(pkg.scripts?.verify ?? '').includes('pnpm verify:duplication')) failures.push('package.json: verify chain must include the duplication gate')
-  if (!String(pkg.scripts?.verify ?? '').includes('pnpm verify:exports')) failures.push('package.json: verify chain must include the dead-export gate')
-  if (!String(pkg.scripts?.verify ?? '').includes('pnpm verify:scenarios')) failures.push('package.json: verify chain must include the scenario-audit gate')
-  if (!String(pkg.scripts?.verify ?? '').includes('pnpm verify:worktrees')) failures.push('package.json: verify chain must include the worktree-layout gate')
-  if (!String(pkg.scripts?.verify ?? '').includes('pnpm verify:governance')) failures.push('package.json: verify chain must include the governance gate')
-  if (!String(pkg.scripts?.['verify:governance'] ?? '').includes('test-governance-gate.mjs')) failures.push('package.json: governance gate must keep its negative policy tests')
-  if (!String(pkg.scripts?.['verify:worktrees'] ?? '').includes('test-worktree-layout-gate.mjs')) failures.push('package.json: worktree gate must keep its negative policy tests')
+  const verify = String(pkg.scripts?.verify ?? '')
+  const candidate = String(pkg.scripts?.['verify:candidate'] ?? '')
+  const engineering = String(pkg.scripts?.['verify:engineering'] ?? '')
+  if (!verify.includes('pnpm verify:candidate')) failures.push('package.json: verify must route to the candidate gate')
+  if (!candidate.includes('pnpm verify:engineering')) failures.push('package.json: candidate gate must route to the engineering gate')
+  for (const [script, label] of [
+    ['pnpm verify:structure', 'structure'],
+    ['pnpm lint', 'lint'],
+    ['pnpm verify:duplication', 'duplication'],
+    ['pnpm verify:exports', 'dead-export'],
+    ['pnpm typecheck', 'typecheck'],
+    ['pnpm typecheck:test', 'test-typecheck'],
+    ['pnpm test', 'test'],
+    ['pnpm verify:scenarios', 'scenario-audit'],
+    ['pnpm build', 'build'],
+    ['pnpm verify:artifact', 'artifact'],
+  ]) {
+    if (!engineering.includes(script)) failures.push(`package.json: engineering gate must include the ${label} gate`)
+  }
+  if (!String(pkg.scripts?.['verify:policy'] ?? '').includes('test-governance-gate.mjs')) failures.push('package.json: policy gate must keep its negative policy tests')
+  if (!String(pkg.scripts?.['verify:policy:declared'] ?? '').includes('--skip-git')) failures.push('package.json: declared policy gate must skip authority-remote observation')
+  if (!String(pkg.scripts?.['verify:isolation'] ?? '').includes('test-worktree-layout-gate.mjs')) failures.push('package.json: isolation gate must keep its negative policy tests')
+  if (!String(pkg.scripts?.['verify:compatibility'] ?? '').includes('verify:references')) failures.push('package.json: compatibility gate must keep reference verification')
   if (pkg.files?.some(item => item === 'ref' || item.startsWith('ref/'))) failures.push('package.json: ref must not be published')
 } catch (error) {
   failures.push(`package.json: ${String(error)}`)

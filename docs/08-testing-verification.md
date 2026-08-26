@@ -15,19 +15,19 @@ Repository development isolation and product runtime execution roots are differe
 | E2E | real model/provider behavior where needed | continuable child and remote worker |
 | Client | projection, dispose, navigation | panel mounts/unmounts; no duplicate polling |
 
-## 2. Minimum gate for every package
+## 2. Claim-routed minimum evidence
 
-- `pnpm verify:gate-a` completed at the start of development, with official/reference remotes, materialized evidence, clean pins and package baseline recorded or a visible network limitation;
-- official stable/experimental ownership and Profile composition reviewed; no service/state-machine shadowing;
-- strict typecheck;
-- build from clean tree;
-- package exports point to real artifacts;
-- Bundle patch parses and row name resolves;
-- each registration disappears on dispose;
-- invalid configuration fails visibly;
-- README/JSDoc updated with behavior;
-- known limitations documented;
-- no credentials or machine-specific absolute paths.
+Every change runs affected checks, proves the real boundary it changes, preserves secret/path hygiene, and updates only affected registered authorities. During iteration, lint/type/unit failures stay in the author loop. At frozen candidate time, `pnpm verify:candidate` runs once.
+
+Additional gates are conditional:
+
+- `pnpm verify:compatibility` when official/reference API, ownership, Profile composition, pins, lockfile or a new seam is decision-bearing;
+- `pnpm verify:policy` when governance, instructions or document authority changes;
+- `pnpm verify:isolation` when repository isolation policy/layout changes;
+- clean build/export/Bundle/dispose/real Profile evidence when the changed claim crosses those boundaries;
+- coverage or promotion drills only when an accepted quality/release profile requires them.
+
+An upstream evidence drift freezes its compatibility/re-pin pipeline, not unrelated features already backed by an unchanged accepted receipt.
 
 ## 3. Team protocol matrix
 
@@ -92,9 +92,8 @@ Scenario 46 is a required future gate defined by ADR-0009, not evidence of curre
 
 ```sh
 pnpm install
-pnpm verify:gate-a
-pnpm build
-pnpm verify
+pnpm verify:compatibility  # only when the Profile/API compatibility claim changed
+pnpm verify:candidate
 
 dsh plugin --profile agent-swarm-check add link:/absolute/path/to/dsh-agent-swarm
 dsh --profile agent-swarm-check --dump-config
@@ -175,9 +174,9 @@ The post-M1A core has forty-six executable suites / 289 tests (the per-suite bul
 
 - `tests/captain-liaison.spec.ts`, `tests/human-interaction-assembly.spec.ts`, `tests/human-review-control.spec.ts`, `tests/human-control-reuse.spec.ts`, `tests/human-control-outcome.spec.ts`, `tests/human-interaction-scope.spec.ts`, `tests/permission-boundary.spec.ts`, `tests/permission-lifecycle.spec.ts` and `tests/permission-real-composition.spec.ts`: 63 SW-I1a tests prove scenarios 40-45 over direct durable-domain and real plugin compositions: caller-bound member/captain liaison, official question presentation, the five fenced typed controls, strict exact-key runtime normalization before verifier/Team/durable access, secret-free reviewer evidence binding, lifecycle admission/drain and reload behavior, scope-and-Team-bound idempotency with legacy-key fail-loud behavior, forged expiry/cancel zero-side-effect rejection, concurrent presentation serialization, and secret-free outcome-unknown quarantine that blocks replay/cancel/expiry without claiming restart reconciliation.
 
-`pnpm verify` additionally runs strict source/test typechecks, a clean build, structural checks and package-artifact import/exports checks. The offline migration CLI was additionally exercised end-to-end on a real legacy fixture (migrate → idempotent re-run → explicit miss → exit codes). A real CLI Profile remains a separate deployment gate because the DSH CLI is not installed in every development shell.
+`pnpm verify:candidate` additionally runs strict source/test typechecks, a clean build, structural checks and package-artifact import/exports checks. The offline migration CLI was additionally exercised end-to-end on a real legacy fixture (migrate → idempotent re-run → explicit miss → exit codes). A real CLI Profile remains a separate deployment gate because the DSH CLI is not installed in every development shell.
 
-Scenario coverage is machine-audited (`pnpm verify:scenarios`, wired into `pnpm verify`): tests prove a §3 scenario either with an `it('scenario N: …')` title (exact match) or a `// scenario-evidence: N` marker at the proving assertion, and the line below is the single source of truth that must equal the evidence found in tests, in both directions — claiming a scenario without a proving test fails the gate, and so does a proving test the docs forget to claim.
+Scenario coverage is machine-audited (`pnpm verify:scenarios`, wired into `pnpm verify:candidate`): tests prove a §3 scenario either with an `it('scenario N: …')` title (exact match) or a `// scenario-evidence: N` marker at the proving assertion, and the line below is the single source of truth that must equal the evidence found in tests, in both directions — claiming a scenario without a proving test fails the gate, and so does a proving test the docs forget to claim.
 
 Scenario audit: implemented = 1-9, 11, 12, 16-21, 27, 28, 31-45; not yet proven = 10, 13-15, 22-26, 29, 30, 46.
 
@@ -185,7 +184,7 @@ The unproven set still contains the full failure windows this section cares abou
 
 ## 8. Independent review gate
 
-Security and milestone reviews follow `$manage-agile-software-development` as bound by `docs/governance/project-binding.yaml`. The reviewer receives the assembled source, official/reference evidence and task-authorized diagnostic access. The report is preserved unchanged; the manager separately verifies findings, records triage and commissions regression re-review after fixes.
+Security and milestone reviews follow `$manage-agile-software-development` as bound by `docs/governance/project-binding.yaml`. The reviewer receives the assembled source, applicable official/reference evidence and task-authorized diagnostic access. The report is preserved unchanged; the manager verifies identity and records disposition. Corrections receive delta review unless architecture, risk or the reviewed boundary changes.
 
 M3 self-hosting acceptance requires an independent regression/security review of the stable/candidate boundary, Worker permissions, frozen evidence, merge/promotion ownership and rollback. The candidate's own report is input evidence, not the verdict.
 
@@ -195,14 +194,16 @@ Mirrors the official DSH engineering family so code quality is machine-enforced 
 
 | Gate | Tool | Command | Enforcement |
 |---|---|---|---|
-| Repository layout compatibility | `scripts/verify-worktree-layout.mjs` | `pnpm verify:worktrees` | validates the accepted root/layout assumptions only; PASS does not authorize allocation, and `pnpm verify:governance` still requires exactly one branch-attached checkout |
-| Lint (correctness=error, suspicious=warn) | oxlint | `pnpm lint` | inside `pnpm verify`; staged files on pre-commit (lefthook) |
-| Copy-paste duplication (60 tokens / 6 lines) | jscpd | `pnpm verify:duplication` | inside `pnpm verify`; 0 clones |
-| Dead exports / dead dependencies | knip | `pnpm verify:exports` | inside `pnpm verify`; 0 findings |
+| Policy contract | governance verifier + negative fixtures | `pnpm verify:policy` | claim-triggered locally; mirror CI uses declared-only mode because it cannot observe the authority remotes |
+| Repository layout compatibility | worktree verifier + negative fixtures | `pnpm verify:isolation` | claim-triggered locally and run in CI; PASS does not authorize allocation |
+| Lint (correctness=error, suspicious=warn) | oxlint | `pnpm lint` | candidate engineering gate; staged files on pre-commit |
+| Copy-paste duplication (60 tokens / 6 lines) | jscpd | `pnpm verify:duplication` | candidate engineering gate; 0 clones |
+| Dead exports / dead dependencies | knip | `pnpm verify:exports` | candidate engineering gate; 0 findings |
 | Unused locals / parameters | tsc `noUnusedLocals`/`noUnusedParameters` | `pnpm typecheck` | typecheck lane |
 | Source file size | `scripts/verify-project.mjs` | `pnpm verify:structure` | 600-line ceiling for `src`/`scripts`/`tests` `.ts`; exceptions registered with reason + retiring milestone (currently zero exceptions) |
 | Line endings / encoding | `.gitattributes` + verify-project | `pnpm verify:structure` | LF working tree (CRLF for `ps1`/`cmd`), UTF-8, final newline |
-| Mirror CI evidence | GitHub Actions | `.github/workflows/verify.yml` | windows-latest: pinned reference syncs, official evidence checkout (`DSH_OFFICIAL_CHECKOUT`), `pnpm verify`, live Gate A verification, coverage; mirror CI does not prove authority-target integration |
+| Mirror CI evidence | GitHub Actions | `.github/workflows/verify.yml` | windows-latest: declared policy, isolation and one candidate-engineering pass; mirror CI does not prove authority-target integration |
+| Compatibility evidence | GitHub Actions | `.github/workflows/compatibility.yml` | path/schedule/manual-triggered official/reference verification; separate from ordinary candidate CI |
 | Coverage visibility | `@vitest/coverage-v8` scoped to `src/**` | `pnpm test:coverage` | report-only unless an accepted quality profile sets a threshold |
 
-The verify chain is `verify:governance -> verify:worktrees -> verify:structure -> lint -> duplication -> exports -> typecheck -> typecheck:test -> test -> scenarios -> build -> artifact`. `verify-project.mjs` asserts that the governance/layout/lint/duplication/export lanes stay wired into `pnpm verify`, that `packageManager` pins pnpm, and that every tooling file exists. The layout verifier is retained as a compatibility guard, but repository worktree open/status/close/reconcile is `NOT_CONFIGURED`; no task worktree may be allocated until those lifecycle controls, their negative tests, the binding generation and independent acceptance land together.
+The default candidate chain is `verify:candidate -> verify:engineering -> structure -> lint -> duplication -> exports -> typecheck -> typecheck:test -> test -> scenarios -> build -> artifact`. Policy, isolation, compatibility, coverage and promotion remain separately callable claim gates. `verify-project.mjs` asserts both the engineering chain and existence of the separate guarded lanes. Repository worktree open/status/close/reconcile remains `NOT_CONFIGURED`; no task worktree may be allocated until those lifecycle controls, negative tests, a binding generation and independent acceptance land together.

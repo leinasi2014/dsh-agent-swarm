@@ -5,8 +5,8 @@ Use `$manage-agile-software-development` as the delivery method for non-trivial 
 ## Bootstrap
 
 1. Read the binding, the affected registered authorities, and `.agents/skills/dsh-plugin-development/SKILL.md` for DSH-specific engineering.
-2. Run `pnpm verify:governance` before changing governance, instructions, document authority, or isolation policy.
-3. Run `pnpm verify:gate-a` when official DSH or reference compatibility is decision-bearing.
+2. Run `pnpm verify:policy` before changing governance, instructions, or document authority; run `pnpm verify:isolation` when isolation policy or layout assumptions change.
+3. Run `pnpm verify:compatibility` when official DSH or reference compatibility is decision-bearing. Reuse an unchanged compatibility receipt otherwise.
 4. Use the lowest delivery lane that covers the actual risk. The repository is S2 at the project boundary; bounded implementation slices may be S0/S1.
 
 ## Project red lines
@@ -22,9 +22,10 @@ Use `$manage-agile-software-development` as the delivery method for non-trivial 
 
 ## Trusted checks
 
-- Governance: `pnpm verify:governance`
+- Policy: `pnpm verify:policy`
+- Isolation: `pnpm verify:isolation`
 - Structure: `pnpm verify:structure`
-- Full local acceptance: `pnpm verify`
-- Official/reference evidence: `pnpm verify:gate-a`
+- Engineering candidate: `pnpm verify:candidate` (`pnpm verify` is an alias)
+- Official/reference compatibility: `pnpm verify:compatibility`
 
 Report the exact commands run and any `NOT_CONFIGURED`, `FLAKY`, or blocked evidence. Preserve unrelated, dirty, untracked, and uniquely recoverable state.

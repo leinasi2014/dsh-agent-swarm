@@ -18,7 +18,7 @@
 
 ### 治理与门禁（贡献者必读）
 9. [11-official-first-development.md](11-official-first-development.md) — official-first 开发门（Gate A/B/C 纪律）
-10. [OFFICIAL_BASELINE.json](OFFICIAL_BASELINE.json) — 机读官方基线（`pnpm verify:gate-a` 的权威输入）
+10. [OFFICIAL_BASELINE.json](OFFICIAL_BASELINE.json) — 机读官方基线（`pnpm verify:compatibility` 的权威输入）
 11. [09-sources.md](09-sources.md) — 源码钉住与证据政策
 12. [governance/project-binding.yaml](governance/project-binding.yaml)、[governance/document-registry.yaml](governance/document-registry.yaml) 与 [governance/adoption-manifest-v1.yaml](governance/adoption-manifest-v1.yaml) — 通用敏捷开发方法的项目绑定、文档权威登记与不可变接管清单
 13. [13-self-hosting-dogfood.md](13-self-hosting-dogfood.md) — 分级自托管：D1/D2 dogfood、稳定/候选 Profile、自我改进控制回路

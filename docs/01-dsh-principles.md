@@ -138,6 +138,6 @@ For this project, authoritative Team state is non-Session application data and t
 
 ## 12. Official-first is an implementation gate
 
-Before design or code, run `pnpm verify:gate-a`, read the materially present implemented Agent Notes and package exports/tests, inspect the target Profile, and update the ownership/conflict map. If a stable official Service Definition owns the capability, this project may only supply a Provider, Consumer, policy overlay or Bundle row. A new project Service requires evidence that the target lacks an owner and an ADR explaining how it avoids current and experimental service keys. See `11-official-first-development.md`.
+Before design or code, check the accepted compatibility classification for the affected capability. Run `pnpm verify:compatibility` only when official/reference facts, pins, lockfile, target Profile, a new seam or contradictory runtime evidence makes a fresh receipt necessary. If a stable official Service Definition owns the capability, this project may only supply a Provider, Consumer, policy overlay or Bundle row. A new project Service requires evidence that the target lacks an owner and an ADR explaining how it avoids current and experimental service keys. See `11-official-first-development.md`.
 
 For self-hosting, the same gate must classify DSH RPC/Profile composition, Workflow/Jobs, Workspace identity versus real execution roots, permission/review owners and promotion/rollback. ADR-0008 readiness labels are evidence gates; a configuration toggle or successful model response cannot advance D0-D4.

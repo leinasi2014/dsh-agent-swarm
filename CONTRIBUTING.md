@@ -6,7 +6,7 @@ This repository uses `$manage-agile-software-development` with the project adapt
 
 - Confirm the requested outcome, affected surfaces, risk, and evidence required for completion.
 - Read the relevant product/architecture authorities from [docs/governance/document-registry.yaml](docs/governance/document-registry.yaml).
-- Run `pnpm verify:governance`. Run `pnpm verify:gate-a` when official/reference facts are decision-bearing.
+- Run `pnpm verify:policy` only when governance, instructions, or document authority changes. Run `pnpm verify:isolation` when isolation policy/layout changes, and `pnpm verify:compatibility` when official/reference facts are decision-bearing. Reuse unchanged receipts otherwise.
 - Treat `ref/` as read-only evidence.
 
 ## Isolation and ownership
@@ -25,16 +25,14 @@ Independent read-only investigation may run concurrently. Shared contracts, gove
 
 ## Checks
 
-Use the smallest affected set, then the full chain when preparing an integration candidate:
+Use the smallest affected checks during implementation, then run the engineering candidate gate once when freezing an integration candidate:
 
 ```text
-pnpm verify:governance
-pnpm verify:structure
-pnpm test
-pnpm verify
+pnpm test -- <affected-test>
+pnpm verify:candidate
 ```
 
-`pnpm verify` covers governance, repository layout, lint, duplication, dead exports, type checks, tests, scenario checks, build, and package-artifact validation. Run `pnpm test:coverage`, `pnpm verify:gate-a`, or promotion drills when the changed claim requires them.
+`pnpm verify:candidate` covers structure, lint, duplication, dead exports, type checks, tests, scenario checks, build, and package-artifact validation; `pnpm verify` remains its compatibility alias. Policy, isolation, compatibility, coverage, and promotion drills are separate claim-triggered gates.
 
 ## Documentation
 

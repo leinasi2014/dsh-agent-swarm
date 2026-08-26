@@ -134,6 +134,7 @@ const adoptionManifest = readRequired(adoptionManifestPath)
 
 for (const phrase of [
   'name: manage-agile-software-development',
+  'policyDigest: ec4cf729e38b6273146b5e24263424ef65007c1d',
   'integrationRef: refs/heads/main',
   'backend: single-checkout',
   'parallelWriterCapability: NOT_CONFIGURED',
@@ -151,6 +152,12 @@ for (const phrase of [
   'exactCandidateExternalNonAuthorReview: required',
   'candidateSelfApproval: forbidden',
   'newVerifierActivation: after-reviewed-integration-and-result-readback',
+  'projectDirectionOwner: product-and-architecture-owner',
+  'coordinationOwner: pipeline-capacity-and-integration-scheduler',
+  'roleCombinationPolicy: risk-scaled',
+  'candidateAndEvidenceAuthority: git-commit-plus-check-receipts',
+  'integrationAuthority: expected-main-identity',
+  'parallelWriter: forbidden',
 ]) {
   if (!binding.includes(phrase)) failures.push(`${bindingPath}: missing or changed declaration ${phrase}`)
 }
