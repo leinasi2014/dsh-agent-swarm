@@ -257,6 +257,15 @@ describe('R1 Host read producer', () => {
     expect(equivalent.cursor).toBe(first.cursor)
   })
 
+  it('includes a directed target in the cursor while omitting the field for untargeted work', async () => {
+    const directed = await harness().service.read()
+    const { targetMemberSessionId: _target, ...untargetedTask } = teamState().tasks[0]!
+    const untargetedState = teamState({ tasks: [untargetedTask] })
+    const untargeted = await harness({ team: untargetedState }).service.read()
+    expect(directed.cursor).not.toBe(untargeted.cursor)
+    expect(Object.hasOwn(untargeted.tasks[0]!, 'targetMemberName')).toBe(false)
+  })
+
   it('bounds every collection while preserving authoritative totals', async () => {
     const members = Array.from({ length: 101 }, (_, index) => ({
       name: `member-${index}`, role: 'worker', sessionId: `member-session-${index}`,
