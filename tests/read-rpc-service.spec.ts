@@ -26,6 +26,7 @@ const projection: SwarmHostReadProjectionV1 = {
   roster: [],
   tasks: [{
     id: 'task-1', revision: 1, subject: 'Visible', status: 'in_progress', blockedBy: [], priority: 1,
+    targetMemberName: 'worker',
     createdAt: 1, updatedAt: 2,
   }],
   attempts: [],

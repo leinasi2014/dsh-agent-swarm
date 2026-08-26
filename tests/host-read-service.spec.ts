@@ -37,6 +37,7 @@ function teamState(overrides: Partial<AgentSwarm.TeamState> = {}): AgentSwarm.Te
       description: 'secret task body', acceptanceCriteria: ['secret criterion'], status: 'in_progress',
       blockedBy: [], writeScopes: ['secret/write/scope'], priority: 2,
       verification: [{ command: 'secret verification command' }], reservationTokens: 123,
+      targetMemberSessionId: CHILD.id,
       ownerSessionId: CHILD.id, currentAttemptId: AgentSwarm.AttemptId('attempt-1'), output: 'secret output',
       createdAt: NOW - 90, updatedAt: NOW - 40,
     }],
@@ -141,7 +142,7 @@ describe('R1 Host read producer', () => {
       binding: { rootSessionId: ROOT.id, teamId: 'team-r1' },
       team: { id: 'team-r1', phase: 'active', revision: 9 },
       roster: [{ name: 'worker', role: 'developer', phase: 'active' }],
-      tasks: [{ id: 'task-1', subject: 'Visible subject', ownerName: 'worker', currentAttemptId: 'attempt-1' }],
+      tasks: [{ id: 'task-1', subject: 'Visible subject', ownerName: 'worker', targetMemberName: 'worker', currentAttemptId: 'attempt-1' }],
       attempts: [{ id: 'attempt-1', memberName: 'worker', phase: 'running' }],
       pendingInteractions: [{
         requestId: 'human-r1-00000001', intent: 'member-question', targetKind: 'member',
@@ -163,6 +164,7 @@ describe('R1 Host read producer', () => {
       'secret attempt output', 'secret evidence', 'secret diagnostic', 'secret memory', 'secret-principal',
       'secret-host', 'secret body', 'secret receipt diagnostic', CHILD.id,
     ]) expect(serialized).not.toContain(secret)
+    expect(serialized).not.toContain('targetMemberSessionId')
   })
 
   it('keeps caller fields strict and never accepts identity, scope or principal claims', async () => {
