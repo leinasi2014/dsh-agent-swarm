@@ -224,7 +224,7 @@ Risk: S3/HIGH。
 ## M6–M9 subsequent capability families
 
 - **M6 real Workspace and remote member**：实际 cwd/fs/tool roots 与 attempt lease 一致；late ACK、expiry、disconnect、conflict、cleanup failure 被围栏。产品 execution root 不授权仓库开发 worktree。
-- **M7 Team memory and Skill Evolution**：只有 accepted evidence 进入有界、可追溯 proposal；proposal、deterministic validation、approval、write 分离。
+- **M7 Team memory and Skill Evolution**：只有 accepted evidence 进入有界、可追溯 proposal；proposal、deterministic validation、approval、write 分离。已实现同族纵切：**member private memory**（2026-08-26，成员私有、append-only、owning-member 授权，持久化于 `agent_swarm_member_private_memory` 插件自有 Storage Domain，绝不动 Team 聚合/共享 memory，无任意总条数限制；设计 `docs/development/2026-08-26-member-private-memory-design.md`，协议契约 `docs/04` §8p）。
 - **M8 distributed atomic Team and observability**：Store Provider 提供 CAS、lease、fencing、idempotent mailbox 和 change feed；partition 停止不可证明工作；UI/log 仍是 projection。
 - **M9 migration, compatibility, packaging and release**：支持的 legacy import、官方 experimental Team migration trigger、public immutable package、compatibility matrix、upgrade/rollback 与 controlled release observation。P0 是本地可安装证据，不等于 M9 public release。
 

@@ -27,6 +27,8 @@ import { DEFAULT_TEAM_LIMITS } from './domain/team-domain.js'
 import { recoverActiveRosters } from './runtime/usage-recovery.js'
 import { TeamBridgeWorkflowEngine } from './runtime/workflow/team-bridge-engine.js'
 import { TeamJobProjection } from './runtime/jobs/team-job-projection.js'
+import { MemberPrivateMemoryService } from './runtime/member-private-memory-service.js'
+import { MemberPrivateMemoryStore, privateMemoryDomainSpec } from './storage/member-private-memory.js'
 import { defaultExecutionRootsBase, expectExecutionRootsBase } from './runtime/execution-roots.js'
 import { CaptainLiaison } from './human/captain-liaison.js'
 import { HumanControlGateway } from './human/human-control-gateway.js'
@@ -296,12 +298,53 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     await drainHumanInteractions?.()
     await runtime.dispose()
   }, 'agent-swarm: runtime disposal')
+  // The plugin-owned member-private-memory sibling service (2026-08-26): a
+  // separate Storage Domain from `agent_swarm` (workflow/human overlay
+  // precedent) so the authoritative Team aggregate keeps its frozen version stamp.
+  // The `AgentSwarmRuntime` is deliberately untouched; the store + service are
+  // local composition here, provided for consumers/tests and closed on teardown and
+  // on every later apply-failure path through `closePrivateMemory`.
+  let privateMemoryDomain: Domain<typeof privateMemoryDomainSpec> | undefined
+  let privateMemoryStore: MemberPrivateMemoryStore | undefined
+  let privateMemoryService: MemberPrivateMemoryService | undefined
+  let unprovidePrivateMemory: (() => void) | undefined
+  const closePrivateMemory = async (): Promise<void> => {
+    const unprovide = unprovidePrivateMemory
+    unprovidePrivateMemory = undefined
+    await unprovide?.()
+    privateMemoryService = undefined
+    privateMemoryStore?.close()
+    privateMemoryStore = undefined
+    if (privateMemoryDomain !== undefined) {
+      await privateMemoryDomain.close()
+      privateMemoryDomain = undefined
+    }
+  }
+  try {
+    const domain = await ctx.storageDomain.open(privateMemoryDomainSpec)
+    privateMemoryDomain = domain
+    privateMemoryStore = new MemberPrivateMemoryStore(ctx, domain)
+    privateMemoryService = new MemberPrivateMemoryService({
+      domain: () => runtime.domain,
+      scopeOf: agent => runtime.scopeOf(agent),
+      store: () => privateMemoryStore,
+      liveAgent: id => ctx.agents.get(SessionId(id)),
+    })
+    ctx.effect(() => {
+      unprovidePrivateMemory = ctx.provide('agentSwarmPrivateMemory', privateMemoryService!)
+      return () => closePrivateMemory()
+    }, 'agent-swarm: member private memory service')
+  } catch (error) {
+    await closePrivateMemory()
+    await runtime.dispose()
+    throw error
+  }
   // Mounted second so reverse disposal closes Host admission before Team authority.
   const disposeHostContext = ctx.effect(() => mountHostContext(ctx, runtime, {
     maxActive: config.maxHostContexts ?? DEFAULT_MAX_HOST_CONTEXTS,
     ttlMs: config.hostContextTtlMs ?? DEFAULT_HOST_CONTEXT_TTL_MS,
   }), 'agent-swarm: Host context lifecycle')
-  registerAgentSwarmTools(ctx, runtime)
+  registerAgentSwarmTools(ctx, runtime, privateMemoryService)
   // I1a permission boundary: project policy consumes the official
   // tools/pre-execute + approval seams. It cannot widen downstream denial.
   let permission: TeamPermissionSurface | undefined
@@ -320,11 +363,13 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       'agent-swarm: reviewer-agent review provider',
     )
   } catch (error) {
+    await closePrivateMemory()
     await disposeHostContext()
     await runtime.dispose()
     throw error
   }
   if (permission === undefined) {
+    await closePrivateMemory()
     await disposeHostContext()
     await runtime.dispose()
     throw new Error('agent-swarm: permission surface was not assembled')
@@ -392,6 +437,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     humanOverlay?.close()
     drainHumanInteractions = undefined
     if (humanDomain !== undefined) await humanDomain.close()
+    await closePrivateMemory()
     await disposeHostContext()
     await runtime.dispose()
     throw error

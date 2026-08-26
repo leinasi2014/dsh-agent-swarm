@@ -101,7 +101,7 @@ const MEMBER_PROFILE_LIST_VALUE_SCHEMA = {
 } as const
 
 /** Shared bounded cursor contract for aggregate-backed list readers. */
-function pageWindow(args: { cursor?: number; limit?: number }): { cursor: number; limit: number } {
+export function pageWindow(args: { cursor?: number; limit?: number }): { cursor: number; limit: number } {
   const cursor = args.cursor ?? 0
   const limit = args.limit ?? 50
   expectDomain(Number.isSafeInteger(cursor) && cursor >= 0, 'cursor must be a non-negative safe integer', 'TEAM_INPUT_INVALID')

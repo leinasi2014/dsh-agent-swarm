@@ -26,10 +26,13 @@ import { CAPTAIN_ONLY_TOOLS } from './prompts.js'
 import { MAX_DENY_TOOLS, TOOL_NAME_PATTERN } from './tool-policy.js'
 
 /**
- * The complete model-facing `agent_swarm_*` tool surface (19 tools). The
+ * The complete model-facing `agent_swarm_*` tool surface (21 tools). The
  * effective policy keeps the plugin protocol and Code Mode transport visible.
- * Other unlisted host tools inherit the official downstream preset and its
- * guards; this overlay only narrows explicit/captain-only cases.
+ * The original 19 tools stay a stable prefix; the two member-private-memory
+ * tools (2026-08-26) are appended at the end so DEFAULT_TOOL_POLICY explicitly
+ * allows them (never relying on an unlisted default). Other unlisted host tools
+ * inherit the official downstream preset and its guards; this overlay only
+ * narrows explicit/captain-only cases.
  */
 const PLUGIN_TOOL_NAMES = [
   // Code Mode dispatches its inner calls back through pre-execute.  Keeping
@@ -47,6 +50,8 @@ const PLUGIN_TOOL_NAMES = [
   'agent_swarm_wait',
   'agent_swarm_list_memory',
   'agent_swarm_list_members',
+  'agent_swarm_add_private_memory',
+  'agent_swarm_list_private_memory',
 ] as const
 
 /** Default effective policy: the plugin's own tool surface is allowed. */

@@ -16,6 +16,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineDomain, domainTable, type Domain } from '@deepseek-ai/dsh-storage-domain'
 import { TeamDomainError } from '../domain/error.js'
 import type { TeamId } from '../domain/types.js'
+import { CommitSequence } from '../util/commit-sequence.js'
 import {
   HUMAN_INTERACTION_ID_PATTERN,
   type HumanInteractionRecord,
@@ -68,23 +69,6 @@ class HumanInteractionOperationLocks {
     } finally {
       release()
       if (this.locks.get(key) === tail) this.locks.delete(key)
-    }
-  }
-}
-
-class HumanInteractionCommitSequence {
-  private tail: Promise<void> = Promise.resolve()
-
-  async run<T>(operation: () => Promise<T>): Promise<T> {
-    const previous = this.tail
-    let release!: () => void
-    const current = new Promise<void>(resolve => { release = resolve })
-    this.tail = previous.then(() => current)
-    await previous
-    try {
-      return await operation()
-    } finally {
-      release()
     }
   }
 }
@@ -217,7 +201,7 @@ export class HumanInteractionOverlayStore {
   private readonly interactions: ReturnType<Domain<typeof humanInteractionDomainSpec>['table']>
   private readonly operationLocks = new HumanInteractionOperationLocks()
   private readonly lifecycleLocks = new HumanInteractionOperationLocks()
-  private readonly commitSequence = new HumanInteractionCommitSequence()
+  private readonly commitSequence = new CommitSequence()
   private readonly recordSequences = new Map<string, number>()
   private nextRecordSequence = 0
   private readonly outcomeUnknown = new Set<string>()

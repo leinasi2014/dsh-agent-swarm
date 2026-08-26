@@ -1,4 +1,16 @@
 /** Stable public exports kept separate from the Host composition root. */
+import type {} from '@deepseek-ai/cordis'
+import type { MemberPrivateMemoryService } from './runtime/member-private-memory-service.js'
+
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    /** The sibling owning-member private-memory service (2026-08-26). */
+    agentSwarmPrivateMemory: MemberPrivateMemoryService
+  }
+}
+
+export { MemberPrivateMemoryService } from './runtime/member-private-memory-service.js'
+export type { MemberPrivateMemoryServiceDeps } from './runtime/member-private-memory-service.js'
 export { AgentSwarmRuntime } from './runtime/orchestrator-runtime.js'
 export type {
   ReviewProviderInput,
@@ -66,6 +78,16 @@ export {
 } from './storage/workflow-run-overlay.js'
 export type { WorkflowRunOverlayRecord, WorkflowRunOverlayState } from './storage/workflow-run-overlay.js'
 export { TeamDomainError } from './domain/error.js'
+export {
+  MemberPrivateMemoryStore,
+  PRIVATE_MEMORY_DOMAIN_NAME,
+  PRIVATE_MEMORY_DOMAIN_VERSION,
+  privateMemoryDomainSpec,
+} from './storage/member-private-memory.js'
+export type {
+  MemberPrivateMemoryRecord,
+  PrivateMemoryPage,
+} from './storage/member-private-memory.js'
 export { deriveRestartSafeAttemptBinding, parseRestartSafeAttemptBinding } from './runtime/restart-binding.js'
 export type { RestartSafeAttemptBinding } from './runtime/restart-binding.js'
 export { HumanControlGateway } from './human/human-control-gateway.js'

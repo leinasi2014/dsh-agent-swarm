@@ -45,6 +45,18 @@ describe('tiered allow/ask/deny decision model (pure)', () => {
     expect(decideToolPermission(DEFAULT_TOOL_POLICY, 'agent_swarm_list_memory', captainTurn())).toBe('allow')
     expect(DEFAULT_TOOL_POLICY.allow).toContain('agent_swarm_list_members')
     expect(decideToolPermission(DEFAULT_TOOL_POLICY, 'agent_swarm_list_members', captainTurn())).toBe('allow')
+    // The two member-private-memory tools (2026-08-26) are explicitly listed in
+    // the default overlay (never relying on the unlisted-host fallback), and are
+    // APPENDED after the original 19-tool surface — never inserted mid-prefix.
+    expect(DEFAULT_TOOL_POLICY.allow).toContain('agent_swarm_add_private_memory')
+    expect(decideToolPermission(DEFAULT_TOOL_POLICY, 'agent_swarm_add_private_memory', captainTurn())).toBe('allow')
+    expect(DEFAULT_TOOL_POLICY.allow).toContain('agent_swarm_list_private_memory')
+    expect(decideToolPermission(DEFAULT_TOOL_POLICY, 'agent_swarm_list_private_memory', captainTurn())).toBe('allow')
+    expect(DEFAULT_TOOL_POLICY.allow!.slice(-3)).toEqual([
+      'agent_swarm_list_members',
+      'agent_swarm_add_private_memory',
+      'agent_swarm_list_private_memory',
+    ])
     expect(decideToolPermission({}, 'report', captainTurn())).toBe('deny')
     expect(MAX_TOOL_POLICY_NAMES).toBe(64)
   })
