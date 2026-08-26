@@ -22,15 +22,19 @@ export class LifecycleError extends Error {
     this.code = code
   }
 }
-function git(args, cwd, optional = false) {
+function git(args, cwd, optional = false, { quiet = false } = {}) {
   try {
     return execFileSync('git', args, {
       cwd,
       encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
+      // `worktree remove` can report one line per failed descendant on Windows.
+      // Its output is not lifecycle evidence, so do not let a pipe buffer turn a
+      // completed Git removal into a JavaScript failure.
+      stdio: quiet ? 'ignore' : ['ignore', 'pipe', 'pipe'],
+      maxBuffer: 64 * 1024 * 1024,
       timeout: 30_000,
       windowsHide: true,
-    }).trim()
+    }).trim?.() ?? ''
   } catch (error) {
     if (optional) return ''
     throw new LifecycleError('GIT_FAILED', `git ${args[0]} failed: ${String(error.stderr ?? error.message).trim()}`)
@@ -242,6 +246,34 @@ function allocationPath(repository, id) {
   const path = resolve(repository.worktreeRoot, id)
   if (!directChild(repository.worktreeRoot, path)) throw new LifecycleError('PATH_ESCAPE', 'allocation path escapes .worktree')
   return path
+}
+
+function removableCloseResidue(repository, allocation, records) {
+  if (records.some(record => comparable(record.path) === comparable(allocation.path))) return false
+  if (!existsSync(allocation.path) || existsSync(join(allocation.path, '.git'))) return false
+  try {
+    assertRealContainer(repository)
+    const realContainer = realpathSync(repository.worktreeRoot)
+    const realAllocation = realpathSync(allocation.path)
+    return allocation.path === allocationPath(repository, allocation.id)
+      && comparable(realAllocation) === comparable(allocation.path)
+      && directChild(realContainer, realAllocation)
+      && outcomeStillProven(repository, allocation)
+  } catch {
+    return false
+  }
+}
+
+function removeCloseResidue(repository, allocation, records) {
+  if (!removableCloseResidue(repository, allocation, records)) {
+    throw new LifecycleError('REPAIR_UNSAFE', 'close residue is not a proven project-owned unregistered worktree directory')
+  }
+  try {
+    rmSync(allocation.path, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })
+  } catch (error) {
+    throw new LifecycleError('ALLOCATION_DRIFT', `proven close residue could not be removed: ${String(error.message ?? error)}`)
+  }
+  if (existsSync(allocation.path)) throw new LifecycleError('ALLOCATION_DRIFT', 'proven close residue remained after removal')
 }
 
 function assertRealContainer(repository) {
@@ -463,9 +495,18 @@ export function closeAllocation({ cwd, id, generation, owner, outcome, archiveRe
     const closing = { ...disposition, state: 'CLOSING', result: 'close-intent-recorded', updatedAt: new Date().toISOString() }
     state = writeState(repository, { ...state, allocations: { ...state.allocations, [id]: closing } })
     try {
-      git(['worktree', 'remove', allocation.path], repository.primaryRoot)
+      let removeError
+      try {
+        git(['worktree', 'remove', allocation.path], repository.primaryRoot, false, { quiet: true })
+      } catch (error) {
+        removeError = error
+      }
       const remaining = parseWorktrees(git(['worktree', 'list', '--porcelain', '-z'], repository.primaryRoot))
+      if (existsSync(allocation.path) && removableCloseResidue(repository, closing, remaining)) {
+        removeCloseResidue(repository, closing, remaining)
+      }
       if (existsSync(allocation.path) || remaining.some(record => comparable(record.path) === comparable(allocation.path))) {
+        if (removeError instanceof Error) throw removeError
         throw new LifecycleError('ALLOCATION_DRIFT', 'worktree removal failed read-back')
       }
       const closed = { ...closing, state: 'CLOSED', result: 'closed', updatedAt: new Date().toISOString() }
@@ -516,6 +557,10 @@ export function reconcileAllocations({ cwd, repair = false } = {}) {
         && outcomeStillProven(repository, allocation)) {
         actions.push({ id: allocation.id, from: allocation.state, to: 'CLOSED' })
         nextAllocations[allocation.id] = { ...allocation, state: 'CLOSED', result: 'reconciled-close', updatedAt: new Date().toISOString() }
+      } else if (!observed.registered && observed.pathExists && allocation.state === 'CLOSING'
+        && removableCloseResidue(repository, allocation, records)) {
+        actions.push({ id: allocation.id, from: allocation.state, to: 'CLOSED', removeResidue: allocation.path })
+        nextAllocations[allocation.id] = { ...allocation, state: 'CLOSED', result: 'reconciled-close-residue', updatedAt: new Date().toISOString() }
       } else if (['OPENING', 'CLOSING', 'UNKNOWN'].includes(allocation.state)) {
         actions.push({ id: allocation.id, from: allocation.state, to: 'UNKNOWN', unsafe: true })
         nextAllocations[allocation.id] = { ...allocation, state: 'UNKNOWN', result: 'repair-unsafe', updatedAt: new Date().toISOString() }
@@ -551,7 +596,13 @@ export function reconcileAllocations({ cwd, repair = false } = {}) {
         writeState(repository, { ...state, allocations: nextAllocations, history: nextHistory })
         throw new LifecycleError('REPAIR_UNSAFE', 'reconcile classified an ambiguous lifecycle state as UNKNOWN; no Git repair was applied')
       }
-      for (const action of actions) if (action.deleteBranch && !gitSucceeds(['update-ref', '-d', `refs/heads/${action.deleteBranch}`, action.base], repository.primaryRoot)) throw new LifecycleError('ALLOCATION_DRIFT', 'empty OPENING branch changed during reconciliation')
+      for (const action of actions) {
+        if (action.deleteBranch && !gitSucceeds(['update-ref', '-d', `refs/heads/${action.deleteBranch}`, action.base], repository.primaryRoot)) throw new LifecycleError('ALLOCATION_DRIFT', 'empty OPENING branch changed during reconciliation')
+        if (action.removeResidue) {
+          const allocation = state.allocations[action.id]
+          removeCloseResidue(repository, allocation, primaryFacts(repository).records)
+        }
+      }
       return { actions, state: writeState(repository, { ...state, allocations: nextAllocations, history: nextHistory }) }
     }
     return { actions, state }

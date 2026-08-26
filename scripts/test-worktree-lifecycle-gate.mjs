@@ -185,6 +185,33 @@ try {
   git(['worktree', 'remove', raw])
   git(['branch', '-D', 'test/raw'])
 
+  // Git can unregister a worktree before a large recursive removal finishes.
+  // Model that exact post-Git window with a node_modules-sized residue that has
+  // no .git marker: repair owns the proven directory and must finish close.
+  const residue = json(['open', '--id', 'large-residue', '--branch', 'test/large-residue', '--owner', 'writer-r'])
+  writeFileSync(join(residue.path, 'residue.txt'), 'residue\n')
+  git(['add', 'residue.txt'], residue.path)
+  git(['commit', '--no-gpg-sign', '-m', 'feat: large close residue'], residue.path)
+  const residueCandidate = git(['rev-parse', 'HEAD'], residue.path)
+  git(['cherry-pick', residueCandidate])
+  git(['worktree', 'remove', residue.path])
+  mkdirSync(join(residue.path, 'node_modules', 'fixture'), { recursive: true })
+  for (let index = 0; index < 4_096; index += 1) writeFileSync(join(residue.path, 'node_modules', 'fixture', `derived-${index}.txt`), 'x\n')
+  const residueState = JSON.parse(readFileSync(statePath, 'utf8'))
+  residueState.allocations['large-residue'] = {
+    ...residueState.allocations['large-residue'], state: 'CLOSING', candidate: residueCandidate,
+    outcome: 'integrated', archiveRef: null, integrationHead: git(['rev-parse', 'HEAD']), result: 'close-intent-recorded', updatedAt: new Date().toISOString(),
+  }
+  writeFileSync(statePath, `${JSON.stringify(residueState, null, 2)}\n`)
+  const residuePreview = json(['reconcile'])
+  if (!residuePreview.actions.some(action => action.id === 'large-residue' && action.to === 'CLOSED' && action.removeResidue === residue.path && action.unsafe !== true)) {
+    throw new Error('large unregistered close residue was not deterministically repairable')
+  }
+  if (!existsSync(join(residue.path, 'node_modules', 'fixture', 'derived-4095.txt'))) throw new Error('read-only residue reconcile mutated the fixture')
+  json(['reconcile', '--repair'])
+  const residueAfter = JSON.parse(readFileSync(statePath, 'utf8')).allocations['large-residue']
+  if (residueAfter.state !== 'CLOSED' || existsSync(residue.path)) throw new Error('large unregistered close residue repair did not finish close')
+
   const lockPath = join(resolve(repo, git(['rev-parse', '--git-common-dir'])), 'dsh-agent-swarm-isolation', 'v1', 'lock')
   writeFileSync(lockPath, 'not-json\n')
   expectFailure('busy authority lock', ['close', '--id', 'beta', '--generation', String(beta.generation), '--owner', 'writer-b', '--outcome', 'integrated'], 'LOCK_BUSY')
