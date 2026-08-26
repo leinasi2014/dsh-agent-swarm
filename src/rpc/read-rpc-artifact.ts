@@ -8,7 +8,7 @@ import {
 } from './read-rpc-contract.js'
 
 export const SWARM_READ_RPC_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
-export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '445a2e386a6277693339b86a6b254543f5743603509636c730af9ff5ff0df4fc' as const
+export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '9c908858c60700d2b092d935a57bdca7fcb8764bc180cafd3876ab64d04779d5' as const
 
 const boundedString = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength, pattern: '\\S' })
 const nonNegativeInteger = { type: 'integer', minimum: 0 }
