@@ -33,7 +33,7 @@ class Adapter extends LlmAdapter {
   open(): void { this.opened = true; this.openFn() }
   override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> { return Promise.resolve({ provider, id: model, name: model }) }
   private text(options: GenerateOptions): string {
-    const message = [...options.messages].reverse().find(candidate => candidate.role === 'user')
+    const message = options.messages.toReversed().find(candidate => candidate.role === 'user')
     return message?.content.filter((block): block is Extract<typeof block, { type: 'text' }> => block.type === 'text').map(block => block.text).join('\n') ?? ''
   }
   private async wait(signal: AbortSignal | undefined): Promise<void> {

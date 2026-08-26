@@ -34,6 +34,21 @@ type ModelInterruptReceipt = {
   previousStatus: 'running' | 'idle' | 'inactive'
   evidenceKind: 'host-confirmed-tool-timeout'
 }
+type InterruptTarget = { captain: Agent; name: string; sessionId: string }
+
+/** Authorize and bind one active roster target; callers resolve live state after this final await. */
+async function bindInterruptTarget(deps: MemberControlDeps, exec: ToolExecutionAuthority, name: string): Promise<InterruptTarget> {
+  await deps.ensureReady()
+  if (deps.isClosing()) throw new TeamDomainError('Team orchestrator is disposing', 'TEAM_RUNTIME_CLOSING')
+  const captain = requireAgent(exec)
+  const membership = await deps.domain().requireMembership(deps.scopeOf(captain), captain.id)
+  if (membership.role !== 'captain') throw new TeamDomainError('only the captain can interrupt members', 'TEAM_CAPTAIN_REQUIRED')
+  const normalized = foldMemberName(name)
+  if (normalized === 'captain') throw new TeamDomainError('the captain cannot interrupt itself', 'TEAM_INVALID_TARGET')
+  const target = membership.team.members.find(member => member.name === normalized && member.phase === 'active')
+  if (target === undefined) throw new TeamDomainError(`active member "${normalized}" not found`, 'TEAM_MEMBER_NOT_FOUND')
+  return { captain, name: normalized, sessionId: target.sessionId }
+}
 
 /** A tool call that is still open in the exact currently-running step. */
 type LiveToolCall = Extract<SessionEvent, { type: 'tool/call' }>
@@ -104,27 +119,12 @@ export async function interruptMember(
   exec: ToolExecutionAuthority,
   name: string,
 ): Promise<{ name: string; previousStatus: 'running' | 'idle' | 'inactive' }> {
-  await deps.ensureReady()
-  if (deps.isClosing()) throw new TeamDomainError('Team orchestrator is disposing', 'TEAM_RUNTIME_CLOSING')
-  const captain = requireAgent(exec)
-  const scope = deps.scopeOf(captain)
-  const membership = await deps.domain().requireMembership(scope, captain.id)
-  if (membership.role !== 'captain') {
-    throw new TeamDomainError('only the captain can interrupt members', 'TEAM_CAPTAIN_REQUIRED')
-  }
-  const normalizedName = foldMemberName(name)
-  if (normalizedName === 'captain') {
-    throw new TeamDomainError('the captain cannot interrupt itself', 'TEAM_INVALID_TARGET')
-  }
-  const target = membership.team.members.find(member => member.name === normalizedName && member.phase === 'active')
-  if (target === undefined) {
-    throw new TeamDomainError(`active member "${normalizedName}" not found`, 'TEAM_MEMBER_NOT_FOUND')
-  }
+  const target = await bindInterruptTarget(deps, exec, name)
   const live = deps.ctx.agents.get(SessionId(target.sessionId))
-  if (live === undefined) return { name: normalizedName, previousStatus: 'inactive' }
+  if (live === undefined) return { name: target.name, previousStatus: 'inactive' }
   const previousStatus = live.status
-  deps.ctx.subagents.interrupt(SessionId(target.sessionId), { kind: 'ancestor', agent: captain })
-  return { name: normalizedName, previousStatus }
+  deps.ctx.subagents.interrupt(SessionId(target.sessionId), { kind: 'ancestor', agent: target.captain })
+  return { name: target.name, previousStatus }
 }
 
 /**
@@ -137,30 +137,13 @@ export async function interruptMemberFromModel(
   exec: ToolExecutionAuthority,
   name: string,
 ): Promise<ModelInterruptReceipt> {
-  await deps.ensureReady()
-  if (deps.isClosing()) throw new TeamDomainError('Team orchestrator is disposing', 'TEAM_RUNTIME_CLOSING')
-  const captain = requireAgent(exec)
-  const scope = deps.scopeOf(captain)
-  // This is the final await. Resolve the active roster row and live Agent
-  // after it, then keep the evidence check and cancellation one synchronous
-  // critical section so no stale target/evidence survives an await boundary.
-  const membership = await deps.domain().requireMembership(scope, captain.id)
-  if (membership.role !== 'captain') {
-    throw new TeamDomainError('only the captain can interrupt members', 'TEAM_CAPTAIN_REQUIRED')
-  }
-  const normalizedName = foldMemberName(name)
-  if (normalizedName === 'captain') {
-    throw new TeamDomainError('the captain cannot interrupt itself', 'TEAM_INVALID_TARGET')
-  }
-  const target = membership.team.members.find(member => member.name === normalizedName && member.phase === 'active')
-  if (target === undefined) {
-    throw new TeamDomainError(`active member "${normalizedName}" not found`, 'TEAM_MEMBER_NOT_FOUND')
-  }
+  // bindInterruptTarget's membership await is this path's final await.
+  const target = await bindInterruptTarget(deps, exec, name)
   const live = deps.ctx.agents.get(SessionId(target.sessionId))
   if (live === undefined || live.id !== SessionId(target.sessionId) || !modelTimeoutEvidence(deps, live)) {
     throw new TeamDomainError('Host-confirmed timeout evidence is required to interrupt a member', 'TEAM_INTERRUPT_EVIDENCE_REQUIRED')
   }
   const previousStatus = live.status
-  deps.ctx.subagents.interrupt(SessionId(target.sessionId), { kind: 'ancestor', agent: captain })
-  return { name: normalizedName, previousStatus, evidenceKind: 'host-confirmed-tool-timeout' }
+  deps.ctx.subagents.interrupt(SessionId(target.sessionId), { kind: 'ancestor', agent: target.captain })
+  return { name: target.name, previousStatus, evidenceKind: 'host-confirmed-tool-timeout' }
 }
