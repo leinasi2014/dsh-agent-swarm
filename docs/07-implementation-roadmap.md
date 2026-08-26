@@ -105,7 +105,7 @@ Risk: review、permission 与 durable control transition 为 S3/HIGH；纯 advis
 - receipt read 的首个纵切由内部 `pageReceipts` 承担；旧 `listReceipts` 只保留内部维护兼容，不得直接发布为 Host/RPC/browser 接口；
 - abort、expiry、dispose、overlay restart 和 adapter failure 均 fail-closed，错误稳定且脱敏。
 
-首个已实现纵切 **SWARM-P1-02** 仅覆盖进程内 Host opaque context 生命周期：调用方必须提供 host 持有的 exact live root `Agent` 对象，Team 从既有 P0/M0 权威域反查；接口不接受 Canvas/client 自报的 Team、captain、provenance 或 principal。reload 后旧 token 失效只表示 fail-closed，不构成跨重启 authority migration 或 effect exactly-once。P1-01/I1b 的 durable effect correlation、`authenticated-human` privileged admission，以及 Message/五 Controls/RPC/UI/Canvas 仍是依赖或后续纵切，不在 P1-02 重复实现。
+I2 epic 的首个已实现纵切 **SW-I2-H1** 仅覆盖进程内 Host opaque context 生命周期：调用方必须提供 host 持有的 exact live root `Agent` 对象，Team 从既有 P0/M0 权威域反查；接口不接受 Canvas/client 自报的 Team、captain、provenance 或 principal，成功值也不返回 captain/session/principal/internal authority。reload 后旧 token 失效只表示 fail-closed，不构成跨重启 authority migration 或 effect exactly-once。P1-01/I1b 的 durable effect correlation、`authenticated-human` privileged admission，以及 Message/五 Controls/RPC/UI/Canvas 仍是依赖或后续纵切，不在 H1 重复实现。
 
 ### Exit evidence
 

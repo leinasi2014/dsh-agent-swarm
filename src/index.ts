@@ -242,7 +242,7 @@ export interface Config {
   maxVerificationCommands?: number
   /** Hard per-command timeout ceiling for executable review in ms (default 600000, M3-2). */
   maxVerificationCommandMs?: number
-  /** Maximum active process-local Host contexts (SWARM-P1-02). */
+  /** Maximum active process-local Host contexts (SW-I2-H1). */
   maxHostContexts?: number
   /** Lifetime of one process-local Host context generation in ms. */
   hostContextTtlMs?: number

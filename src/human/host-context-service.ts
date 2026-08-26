@@ -1,4 +1,4 @@
-/** SWARM-P1-02 internal, process-local Host opaque context lifecycle. */
+/** SW-I2-H1 internal, process-local Host opaque context lifecycle. */
 import { randomBytes } from 'node:crypto'
 import { Service, type Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -20,7 +20,6 @@ export interface HostContextGrant {
   /** Random bearer value with no embedded identity or authority fields. */
   readonly token: string
   readonly teamId: TeamId
-  readonly captainSessionId: string
   readonly generation: number
   readonly issuedAt: number
   readonly expiresAt: number
@@ -94,7 +93,6 @@ class HostContextService extends Service implements HostContextPort {
     const record: HostContextRecord = {
       token: this.nextToken(),
       teamId: authorized.teamId,
-      captainSessionId: authorized.captain.id,
       generation: 1,
       issuedAt: now,
       expiresAt: this.deadline(now),
@@ -150,19 +148,47 @@ class HostContextService extends Service implements HostContextPort {
     this.assertOpen()
     this.assertNotAborted(authority.signal)
     this.assertLiveRoot(authority.captain)
-    const scope = this.runtime.scopeOf(authority.captain)
-    const membership = await this.runtime.domain.requireMembership(scope, authority.captain.id)
+    let scope: TeamScope
+    try {
+      scope = this.runtime.scopeOf(authority.captain)
+    } catch {
+      this.assertOpen()
+      this.assertNotAborted(authority.signal)
+      return this.authorityUnavailable()
+    }
+    let membership: Awaited<ReturnType<AgentSwarmRuntime['domain']['requireMembership']>>
+    try {
+      membership = await this.runtime.domain.requireMembership(scope, authority.captain.id)
+    } catch {
+      this.assertOpen()
+      this.assertNotAborted(authority.signal)
+      return this.authorityUnavailable()
+    }
     this.assertOpen()
     this.assertNotAborted(authority.signal)
     this.assertLiveRoot(authority.captain)
-    if (membership.role !== 'captain') {
+    let role: typeof membership.role
+    let teamId: TeamId
+    try {
+      role = membership.role
+      teamId = membership.team.id
+    } catch {
+      return this.authorityUnavailable()
+    }
+    if (role !== 'captain') {
       throw new TeamDomainError('Host context requires the exact live root captain', 'TEAM_HOST_CONTEXT_CAPTAIN_REQUIRED')
     }
-    return { captain: authority.captain, scope, teamId: membership.team.id }
+    return { captain: authority.captain, scope, teamId }
   }
 
   private assertLiveRoot(captain: Agent): void {
-    if (this.ctx.agents.get(captain.id) !== captain || !this.ctx.agents.roots().includes(captain)) {
+    let exact = false
+    try {
+      exact = this.ctx.agents.get(captain.id) === captain && this.ctx.agents.roots().includes(captain)
+    } catch {
+      return this.authorityUnavailable()
+    }
+    if (!exact) {
       throw new TeamDomainError('Host context requires the exact live root captain', 'TEAM_HOST_CONTEXT_CAPTAIN_REQUIRED')
     }
   }
@@ -228,7 +254,6 @@ class HostContextService extends Service implements HostContextPort {
     return Object.freeze({
       token: record.token,
       teamId: record.teamId,
-      captainSessionId: record.captainSessionId,
       generation: record.generation,
       issuedAt: record.issuedAt,
       expiresAt: record.expiresAt,
@@ -241,6 +266,10 @@ class HostContextService extends Service implements HostContextPort {
 
   private assertNotAborted(signal: AbortSignal): void {
     if (signal.aborted) throw new TeamDomainError('Host context operation was aborted', 'TEAM_HOST_CONTEXT_ABORTED')
+  }
+
+  private authorityUnavailable(): never {
+    throw new TeamDomainError('Host context authority is unavailable', 'TEAM_HOST_CONTEXT_AUTHORITY_UNAVAILABLE')
   }
 }
 
