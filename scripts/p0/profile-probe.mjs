@@ -16,7 +16,7 @@ export const inject = [
 
 // Deliberately local-only test adapter.  It is registered only by the disposable
 // smoke Profile and never claims to be an external provider or model.
-function devSmokeAdapter() {
+function devSmokeAdapter(ctx) {
   let call = 0
   return {
     async resolveModel(provider, model) { return { provider, id: model, name: model } },
@@ -25,6 +25,7 @@ function devSmokeAdapter() {
         .flatMap(message => message.content).filter(block => block.type === 'text')
         .map(block => block.text).join('\n')
       const match = /Task: (task-[a-z0-9-]+), revision (\d+)\nAttempt capability: (\S+)/.exec(text)
+      append('w0-member-model-turn', ctx, { assignmentFrame: match !== null })
       if (match !== null) {
         const [, taskId, revision, attemptId] = match
         const args = JSON.stringify({ task_id: taskId, expected_revision: Number(revision), attempt_id: attemptId, output: `DEV_SMOKE completed ${taskId}.` })
@@ -74,7 +75,7 @@ async function waitForRoot(ctx, sessionId, signal) {
     // an actual AgentLoop root using the isolated DEV_SMOKE adapter.
     if (!created) {
       try {
-        ctx.llm.registerAdapter(['dev-smoke'], devSmokeAdapter())
+        ctx.llm.registerAdapter(['dev-smoke'], devSmokeAdapter(ctx))
         const root = ctx.agentLoop.create(sessionId, { provider: 'dev-smoke', model: 'DEV_SMOKE' }, { cwd: process.env.DSH_SWARM_P0_WORKSPACE_ROOT })
         created = true
         if (Array.from(ctx.agents.roots()).includes(root)) return root
