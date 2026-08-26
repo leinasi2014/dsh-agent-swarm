@@ -64,7 +64,7 @@ describe('official member tool transport', () => {
     } finally { off() }
   }, 30_000)
 
-  it('denies root global report and inherits an ordinary host tool (run_code is covered by policy assertions)', async () => {
+  it('denies root global report and inherits an ordinary host tool', async () => {
     const value = await stack()
     let calls = 0
     value.ctx.effect(() => value.ctx.tools.register(defineTool({
