@@ -46,7 +46,7 @@ class HangingAdapter extends LlmAdapter {
   }
 
   private latestText(options: GenerateOptions): string {
-    const latest = [...options.messages].reverse().find(message => message.role === 'user')
+    const latest = options.messages.toReversed().find(message => message.role === 'user')
     return latest?.content
       .filter((block): block is Extract<typeof block, { type: 'text' }> => block.type === 'text')
       .map(block => block.text)
