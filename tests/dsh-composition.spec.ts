@@ -408,6 +408,57 @@ describe('DSH rc.8 composition', () => {
     }
   }, 60_000)
 
+  it('routes a canonical directed task through the real default scheduler and official member/captain executors', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-directed-composition-'))
+    roots.push(sandbox)
+    const ctx = new Context()
+    const fibers: Fiber[] = []
+    try {
+      fibers.push(await mountDurableStack(ctx, join(sandbox, 'storage'), join(sandbox, 'sessions', 'sessions.db')))
+      fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
+      fibers.push(await ctx.plugin(SubagentService))
+      fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
+      fibers.push(await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1 }))
+      // The model transport is deterministic; tool registration/execution,
+      // runtime, default scheduler, continuable child inbox, storage-domain
+      // aggregate, member submission, and captain review are all real.
+      const adapter = new ScriptedAdapter([textResponse('Alpha ready.'), textResponse('Beta ready.'), textResponse('Alpha assigned.')])
+      ctx.llm.registerAdapter(['mock'], adapter)
+      const lead = ctx.agentLoop.create(SessionId('directed-composition-lead'), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+      const created = await successfulTool(ctx, lead, 'directed-create', 'agent_swarm_create', { name: 'Directed composition', description: 'Exercise canonical target routing.' }) as { team_id: string }
+      const alpha = await successfulTool(ctx, lead, 'directed-add-alpha', 'agent_swarm_add_member', { name: 'alpha', role: 'Target worker' }) as { session_id: string }
+      const beta = await successfulTool(ctx, lead, 'directed-add-beta', 'agent_swarm_add_member', { name: 'beta', role: 'Non-target worker' }) as { session_id: string }
+      const deliveries: Array<{ childId: string; text: string }> = []
+      const rawFollowup = ctx.subagents.followup.bind(ctx.subagents)
+      const followup = vi.spyOn(ctx.subagents, 'followup').mockImplementation(async (parent, childId, content, options) => { deliveries.push({ childId, text: content.filter(block => block.type === 'text').map(block => block.text).join('\n') }); return await rawFollowup(parent, childId, content, options) })
+      const task = await successfulTool(ctx, lead, 'directed-task', 'agent_swarm_create_task', { subject: 'Alpha-only composition proof', description: 'This assignment must reach alpha exactly once.', target_member: 'alpha' }) as { task_id: string }
+      let assignedTask: { id: string; revision: number; currentAttemptId?: string } | undefined
+      await vi.waitFor(async () => {
+        const snapshot = await ctx.agentSwarm.domain.snapshot(ctx.agentSwarm.scopeOf(lead), AgentSwarm.TeamId(created.team_id), lead.id)
+        const current = snapshot.team.tasks.find(candidate => candidate.id === task.task_id)!
+        expect(current).toMatchObject({ ownerSessionId: alpha.session_id, status: 'in_progress' })
+        expect(current.currentAttemptId).toBeDefined()
+        expect(snapshot.team.attempts.filter(attempt => attempt.taskId === current.id)).toEqual([expect.objectContaining({ memberSessionId: alpha.session_id })])
+        assignedTask = current
+        expect(deliveries.filter(delivery => delivery.text.includes('Alpha-only composition proof'))).toEqual([expect.objectContaining({ childId: alpha.session_id })])
+      }, { timeout: 15_000 })
+      expect(deliveries.some(delivery => delivery.childId === beta.session_id && delivery.text.includes('Alpha-only composition proof'))).toBe(false)
+      followup.mockRestore()
+      const resident = ctx.agents.get(SessionId(alpha.session_id))
+      const resumed = resident === undefined ? await ctx.agents.resume({ resumeSessionId: SessionId(alpha.session_id) }) : undefined
+      const member = resident ?? resumed?.agent
+      if (member === undefined || assignedTask?.currentAttemptId === undefined) throw new Error('alpha member or assignment attempt unavailable')
+      const submitted = await successfulTool(ctx, member, 'directed-submit', 'agent_swarm_submit_task', { task_id: assignedTask.id, expected_revision: assignedTask.revision, attempt_id: assignedTask.currentAttemptId, output: 'Alpha completed the directed work.' }) as { status: string; revision: number }
+      expect(submitted.status).toBe('submitted'); await resumed?.dispose()
+      const reviewed = await successfulTool(ctx, lead, 'directed-review', 'agent_swarm_review_task', { task_id: assignedTask.id, expected_revision: submitted.revision, attempt_id: assignedTask.currentAttemptId, decision: 'accept' }) as { status: string; decision: string }
+      expect(reviewed).toMatchObject({ status: 'completed', decision: 'accept' }); const final = await ctx.agentSwarm.domain.snapshot(ctx.agentSwarm.scopeOf(lead), AgentSwarm.TeamId(created.team_id), lead.id)
+      expect(final.team.tasks.find(candidate => candidate.id === assignedTask!.id)).toMatchObject({ status: 'completed', ownerSessionId: alpha.session_id })
+      expect(final.team.attempts.filter(attempt => attempt.taskId === assignedTask!.id)).toEqual([expect.objectContaining({ phase: 'accepted', memberSessionId: alpha.session_id })])
+    } finally {
+      for (const fiber of fibers.toReversed()) await fiber.dispose()
+    }
+  }, 30_000)
+
   it('scenario 6: retains ownership of a started child when activation commit and immediate drain fail', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-member-failure-'))
     roots.push(sandbox)
