@@ -266,7 +266,7 @@ export class AgentSwarmRuntime extends Service {
 
   async addMember(
     exec: ToolExecutionAuthority,
-    input: { name: string; role: string; provider?: string; model?: string; denyTools?: readonly string[] },
+    input: { name: string; role: string; provider?: string; llmProvider?: string; model?: string; denyTools?: readonly string[] },
   ): Promise<TeamState['members'][number]> {
     await this.ensureReady()
     this.assertOpen()

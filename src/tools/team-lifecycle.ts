@@ -44,7 +44,8 @@ export function registerAddMemberTool(ctx: Context, runtime: AgentSwarmRuntime):
     parameters: {
       name: { type: 'string', required: true, description: 'Immutable member name: NFC-normalized Unicode letters/digits with dash separators, at most 64 code points.' },
       role: { type: 'string', required: true, description: 'Member specialty and responsibility.' },
-      provider: { type: 'string', description: 'Optional continuable subagent Provider; defaults to plugin config.' },
+      provider: { type: 'string', description: 'Optional continuable subagent Provider (the runtime that hosts the member child); defaults to plugin config.' },
+      llm_provider: { type: 'string', description: 'Optional member LLM provider, passed as the child agent\'s agentOptions.provider and recorded in its durable descriptor; when omitted the member inherits the captain\'s LLM provider. Distinct from the continuable \'provider\'.' },
       model: { type: 'string', description: 'Optional member model override.' },
       deny_tools: {
         type: 'array',
@@ -70,6 +71,7 @@ export function registerAddMemberTool(ctx: Context, runtime: AgentSwarmRuntime):
         name: args.name,
         role: args.role,
         ...(args.provider === undefined ? {} : { provider: args.provider }),
+        ...(args.llm_provider === undefined ? {} : { llmProvider: args.llm_provider }),
         ...(args.model === undefined ? {} : { model: args.model }),
         ...(args.deny_tools === undefined ? {} : { denyTools: args.deny_tools }),
       })

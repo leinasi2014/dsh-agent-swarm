@@ -59,7 +59,7 @@ export class MemberProvisioner {
 
   async addMember(
     exec: ToolExecutionAuthority,
-    input: { name: string; role: string; provider?: string; model?: string; denyTools?: readonly string[] },
+    input: { name: string; role: string; provider?: string; llmProvider?: string; model?: string; denyTools?: readonly string[] },
   ): Promise<TeamMember> {
     let completeOperation!: () => void
     const operation = new Promise<void>(settle => { completeOperation = settle })
@@ -122,8 +122,16 @@ export class MemberProvisioner {
             // (`deny_tools`); the union is monotone — captain-only tools stay
             // mandatorily denied and no allow surface exists.
             toolFilter: { deny },
+            // `agentOptions.provider` is the member's LLM provider (recorded
+            // in the durable subagent descriptor as `agentProvider`), distinct
+            // from the continuable runtime `provider` passed to
+            // `startContinuable` above. An explicit per-member `llm_provider`
+            // wins; otherwise the member inherits the captain's LLM provider
+            // (existing behavior).
             agentOptions: {
-              ...(captain.options.provider === undefined ? {} : { provider: captain.options.provider }),
+              ...(input.llmProvider !== undefined
+                ? { provider: input.llmProvider }
+                : (captain.options.provider === undefined ? {} : { provider: captain.options.provider })),
               ...(input.model ?? this.deps.config.memberModel ?? captain.options.model) === undefined
                 ? {}
                 : { model: input.model ?? this.deps.config.memberModel ?? captain.options.model },
