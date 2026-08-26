@@ -6,7 +6,8 @@
  * listener first resolves the caller as an exact live root captain or an
  * active delegated member of one of this plugin's Teams; unrelated agents
  * simply pass through `next()` untouched. For Team participants the
- * project-owned decision (deny > ask > allow, unlisted fail-closed) is
+ * project-owned decision (deny > ask > allow; unlisted tools inherit the
+ * official downstream decision) is
  * merged monotonically with whatever downstream `next()` and the official
  * monotonic guard stage decide, so a later guard can still deny but nothing
  * can widen an `ask`/`deny` back to allow.
@@ -129,6 +130,22 @@ export class TeamPermissionSurface {
   }
 
   /**
+   * The official report tool is child-scoped Host transport, not a Team
+   * mutation. Detect it before membership lookup: a continuable child may be
+   * both a parent-Team member and the captain of a sub-Team, which deliberately
+   * makes the Team lookup ambiguous. The identity and scope checks keep a
+   * global/root `report` under the normal deny policy; `next()` preserves all
+   * official guards for the verified child capability.
+   */
+  private isScopedChildReport(exec: ToolExecution): boolean {
+    if (exec.name !== 'report' || exec.agent === undefined) return false
+    if (this.deps.ctx.agents.get(exec.agent.id) !== exec.agent) return false
+    if (exec.agent.session.header.parentSession === undefined) return false
+    const scoped = this.deps.ctx.tools.get('report', exec.agent)
+    return scoped !== undefined && scoped !== this.deps.ctx.tools.get('report')
+  }
+
+  /**
    * The SW-I1a gateway's verifier seam: missing verifier, false result and
    * throwing verifier all resolve to `false`, which the gateway reports as
    * `TEAM_INTERACTION_NO_PRINCIPAL`. Only a real `true` admits
@@ -150,6 +167,7 @@ export class TeamPermissionSurface {
    */
   attachPreExecute(ctx: Context): () => void {
     return ctx.on('tools/pre-execute', async (exec: ToolExecution, next: () => Promise<PreToolDecision>) => {
+      if (this.isScopedChildReport(exec)) return await next()
       const role = await this.resolveTeamRole(exec.agent)
       if (role === undefined) return await next()
       const context = {

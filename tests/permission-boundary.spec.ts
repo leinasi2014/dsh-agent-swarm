@@ -27,7 +27,7 @@ import {
 } from '../src/runtime/reviewer-boundary.js'
 import { AttemptId, TaskId, TeamId, type TaskAttempt, type TeamState, type TeamTask } from '../src/domain/types.js'
 describe('tiered allow/ask/deny decision model (pure)', () => {
-  it('fails closed by default: an unlisted tool is deny and maps to a deny PreToolDecision', () => {
+  it('inherits the official downstream decision for unlisted host tools, while reserving global report', () => {
     const decision = decideToolPermission({}, 'agent_swarm_unknown', {
       callerRole: 'captain',
       sameTurnConcreteToolCall: true,
@@ -35,8 +35,10 @@ describe('tiered allow/ask/deny decision model (pure)', () => {
       approvalSeamAvailable: true,
     })
     expect(decision).toBe(DEFAULT_TOOL_PERMISSION)
-    expect(decision).toBe('deny')
-    expect(toPreToolDecision(decision, 'agent_swarm_unknown')).toMatchObject({ kind: 'deny' })
+    expect(decision).toBe('allow')
+    expect(toPreToolDecision(decision, 'agent_swarm_unknown')).toMatchObject({ kind: 'allow' })
+    expect(decideToolPermission({}, 'run_code', captainTurn())).toBe('allow')
+    expect(decideToolPermission({}, 'report', captainTurn())).toBe('deny')
     expect(MAX_TOOL_POLICY_NAMES).toBe(64)
   })
   it('is monotone: deny outranks ask outranks allow, and merging never widens', () => {

@@ -13,7 +13,8 @@
  * seam (design note `docs/development/2026-08-22-m5b-permission-family-design.md`,
  * docs/04 §8o/§8p).
  *
- * Fail-closed defaults: an unlisted tool is `deny`; an `ask` decision is
+ * The Team overlay inherits the official downstream tool preset for an
+ * unlisted tool; an `ask` decision is
  * granted only when the caller is the live root captain, the call is a
  * concrete same-turn tool call inside an open turn, and an approval seam is
  * available. Delegated members are pinned to approval `'never'` by the
@@ -32,6 +33,9 @@ import { MAX_DENY_TOOLS, TOOL_NAME_PATTERN } from './tool-policy.js'
  * operator explicitly allows it.
  */
 const PLUGIN_TOOL_NAMES = [
+  // Code Mode dispatches its inner calls back through pre-execute.  Keeping
+  // this transport visible therefore does not widen the inner tool decision.
+  'run_code',
   ...CAPTAIN_ONLY_TOOLS,
   'agent_swarm_claim_task',
   'agent_swarm_create_task',
@@ -75,8 +79,8 @@ export interface ToolPermissionContext {
   readonly approvalSeamAvailable: boolean
 }
 
-/** Unlisted tools fail closed. */
-export const DEFAULT_TOOL_PERMISSION: ToolPermissionDecision = 'deny'
+/** Unlisted tools inherit the official downstream preset and guards. */
+export const DEFAULT_TOOL_PERMISSION: ToolPermissionDecision = 'allow'
 
 /** Global bound for every tier (same as the existing deny declaration bound). */
 export const MAX_TOOL_POLICY_NAMES = MAX_DENY_TOOLS
@@ -177,13 +181,17 @@ export function mergeToolPolicy(
   }
 }
 
-/** The decision for one tool call, fail-closed by default. */
+/** The Team-overlay decision; downstream official policy remains authoritative. */
 export function decideToolPermission(
   declaration: ToolPolicyDeclaration,
   toolName: string,
   context: ToolPermissionContext,
 ): ToolPermissionDecision {
   validateToolPolicyDeclaration(declaration)
+  // Only a verified child-scoped report transport may bypass this classifier
+  // (in permission-surface). A global/root same-name tool is never a Team
+  // return channel.
+  if (toolName === 'report') return 'deny'
   if (context.callerRole === 'delegated-member' && (CAPTAIN_ONLY_TOOLS as readonly string[]).includes(toolName)) return 'deny'
   const declared = decisionFor(declaration, toolName) ?? DEFAULT_TOOL_PERMISSION
   if (declared === 'deny') return 'deny'
