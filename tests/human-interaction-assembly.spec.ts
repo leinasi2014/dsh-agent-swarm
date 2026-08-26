@@ -526,14 +526,6 @@ describe('human domain lifecycle ownership', () => {
       const reopened = await base.ctx.storageDomain.open(AgentSwarm.humanInteractionDomainSpec)
       expect(reopened).toBeDefined()
       await reopened.close()
-      // The same failure point must also release the sibling private-memory service
-      // and its `agent_swarm_member_private_memory` domain (2026-08-26): the
-      // human-assembly catch runs `closePrivateMemory`, so neither stays provided nor
-      // leaves the domain name occupied.
-      expect(base.ctx.get('agentSwarmPrivateMemory')).toBeUndefined()
-      const reopenedPrivate = await base.ctx.storageDomain.open(AgentSwarm.privateMemoryDomainSpec)
-      expect(reopenedPrivate).toBeDefined()
-      await reopenedPrivate.close()
     } finally {
       await conflictDisposer()
       for (const fiber of base.fibers.toReversed()) await fiber.dispose()

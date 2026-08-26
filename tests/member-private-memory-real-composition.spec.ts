@@ -318,7 +318,7 @@ describe('member private memory real composition', () => {
     }
   }, 90_000)
 
-  it('proves a direct runtime private-memory write leaves the whole Team aggregate deep-equal, while the real tool face still records on the model Session', async () => {
+  it('proves a direct sibling-service write leaves the whole Team aggregate deep-equal, while the real tool face remains functional', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-private-memory-direct-'))
     roots.push(sandbox)
     let first: Mounted | undefined
@@ -359,8 +359,12 @@ describe('member private memory real composition', () => {
         const after = await snapshot(first.ctx, leadA, teamId)
         expect(after).toEqual(before)
 
-        // The real tool face still works and lands a normal tool/call + tool/result
-        // on the member's own official Session (model-visible and replayable there).
+        // The tool face is functional (returns success and reads back the durable
+        // private memory). This is a functional return proof only — it does NOT
+        // run through an AgentLoop and is NOT Session evidence. The authoritative
+        // proof that real AgentLoop tool calls land replayable tool/call +
+        // tool/result on the member official Session with no auto-injection lives
+        // in `member-private-memory-session-evidence.spec.ts`.
         const toolAdd = await tool(first.ctx, member, 'pm-direct-tool-add', 'agent_swarm_add_private_memory', {
           content: 'tool-face note', evidence_refs: [],
         })

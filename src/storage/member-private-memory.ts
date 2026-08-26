@@ -126,16 +126,30 @@ export class MemberPrivateMemoryStore {
 
   /** Existing records of one scope + Team + member, in member-local seq order. */
   private memberRecords(scope: string, teamId: string, memberSessionId: string): MemberPrivateMemoryRecord[] {
-    return [...this.memories.entries()]
-      .map(([, record]) => record)
-      .filter(record => record.scope === scope && record.teamId === teamId && record.memberSessionId === memberSessionId)
-      .toSorted((left, right) => left.seq - right.seq)
+    const rows: MemberPrivateMemoryRecord[] = []
+    // Two-way durable identity check at the read boundary: the table key must
+    // equal the tuple THIS record's fields declare (and vice versa). The official
+    // Storage Domain stores records by reference, so an attacker who smuggles a
+    // record under a member's key with forged identity fields, or a record whose
+    // own fields disagree with its key, is indistinguishable from a corrupt medium —
+    // fail loud with `TEAM_PRIVATE_MEMORY_TAMPERED` so it never surfaces in ANY
+    // member's view. A conforming record is then isolated to its partition by the
+    // authoritative fields (scope + Team + member).
+    for (const [key, record] of this.memories.entries()) {
+      if (key !== memoryKey(record.scope, record.teamId, record.memberSessionId, record.seq)) {
+        throw new TeamDomainError('a private-memory record key does not match its durable identity tuple', 'TEAM_PRIVATE_MEMORY_TAMPERED')
+      }
+      if (record.scope === scope && record.teamId === teamId && record.memberSessionId === memberSessionId) rows.push(record)
+    }
+    return rows.toSorted((left, right) => left.seq - right.seq)
   }
 
   /**
    * Durably append one private-memory record for one owning member. The member
    * partition seq is the record's stable creation index (id = `private-memory-<seq>`).
-   * @returns the committed record projection.
+   * The stored, returned and caller-supplied graphs are deep-copied so a caller
+   * mutating its input (or a returned list row) cannot reach the authority memory.
+   * @returns the committed record's detached deep copy.
    * @throws `TEAM_PRIVATE_MEMORY_STORE_CLOSED` when closed, or the shared
    *   `TEAM_INPUT_INVALID`/`TEAM_INPUT_LIMIT` vocabulary on invalid content.
    */
@@ -158,20 +172,21 @@ export class MemberPrivateMemoryStore {
         evidenceRefs: validatedRefs,
         createdAt: this.now(),
       }
-      await this.memories.put(memoryKey(scope, teamId, memberSessionId, seq), { ...record })
-      return { ...record }
+      await this.memories.put(memoryKey(scope, teamId, memberSessionId, seq), structuredClone(record))
+      return structuredClone(record)
     })
   }
 
   /**
    * Read one bounded page of one owning member's private memory in creation
    * order. Explicit read only — no semantic search, no prompt injection, and no
-   * LLM extraction.
+   * LLM extraction. Returned rows are detached deep copies, so caller mutation
+   * never reaches the stored authority.
    */
   listPage(scope: string, teamId: string, memberSessionId: string, cursor: number, limit: number): PrivateMemoryPage {
     this.assertOpen()
     const records = this.memberRecords(scope, teamId, memberSessionId)
-    const rows = records.slice(cursor, cursor + limit).map(record => ({ ...record }))
+    const rows = records.slice(cursor, cursor + limit).map(record => structuredClone(record))
     return { rows, ...(cursor + limit < records.length ? { nextCursor: cursor + limit } : {}) }
   }
 

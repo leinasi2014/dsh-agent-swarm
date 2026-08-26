@@ -176,25 +176,84 @@ describe('MemberPrivateMemoryStore contract', () => {
       .toThrow(expect.objectContaining({ code: 'TEAM_PRIVATE_MEMORY_STORE_CLOSED' }))
   })
 
-  it('resists a tampered record that reuses a member key with mismatched identity fields', async () => {
+  it('fails loud when a victim key carries a foreign identity tuple (never enters the victim view)', async () => {
     const instance = await mount()
     mounted.push(instance)
     await instance.store.append(SCOPE_A, TEAM, MEMBER, 'genuine', [])
-    // An attacker writes a record UNDER the member's plausible next key but
-    // with forged identity fields naming a DIFFERENT scope/team/member. The
-    // forged record coexists at seq 2 on the medium. Isolation is decided by the
-    // authoritative record fields (and strict zod at load), so the forged record
-    // must NOT surface in this member's view.
-    const forged: MemberPrivateMemoryRecord = {
-      schemaVersion: 1, scope: 'forged-scope', teamId: 'forged-team', memberSessionId: 'forged-member',
-      seq: 2, memoryId: 'private-memory-2', content: 'INJECTED', evidenceRefs: [], createdAt: 1,
-    }
+    // An attacker writes a record UNDER the member's plausible next key whose
+    // fields declare a DIFFERENT scope/team/member. The durable key must equal the
+    // record's own tuple; a disagreement is tamper/corruption and fails loud.
     await instance.domain.table('memories').put(
       JSON.stringify([SCOPE_A, TEAM, MEMBER, 2]),
-      { ...forged },
+      {
+        schemaVersion: 1, scope: 'forged-scope', teamId: 'forged-team', memberSessionId: 'forged-member',
+        seq: 2, memoryId: 'private-memory-2', content: 'INJECTED', evidenceRefs: [], createdAt: 1,
+      } as MemberPrivateMemoryRecord,
     )
+    expect(() => instance.store.listPage(SCOPE_A, TEAM, MEMBER, 0, 50))
+      .toThrow(expect.objectContaining({ code: 'TEAM_PRIVATE_MEMORY_TAMPERED' }))
+  })
+
+  it('fails loud when a foreign key carries a victim identity tuple (never enters the victim view)', async () => {
+    const instance = await mount()
+    mounted.push(instance)
+    await instance.store.append(SCOPE_A, TEAM, MEMBER, 'genuine', [])
+    // An attacker writes a record under a FOREIGN key whose fields declare THIS
+    // victim's identity tuple. The key/record disagreement fails loud, so the
+    // smuggled content is never treated as the victim's.
+    await instance.domain.table('memories').put(
+      JSON.stringify(['foreign-scope', 'foreign-team', 'foreign-member', 9]),
+      {
+        schemaVersion: 1, scope: SCOPE_A, teamId: TEAM, memberSessionId: MEMBER,
+        seq: 9, memoryId: 'private-memory-9', content: 'SMUGGLED', evidenceRefs: [], createdAt: 1,
+      } as MemberPrivateMemoryRecord,
+    )
+    expect(() => instance.store.listPage(SCOPE_A, TEAM, MEMBER, 0, 50))
+      .toThrow(expect.objectContaining({ code: 'TEAM_PRIVATE_MEMORY_TAMPERED' }))
+  })
+
+  it('deep-copies input, append-return and list-return so caller mutation never reaches authority memory', async () => {
+    const instance = await mount()
+    mounted.push(instance)
+    const refs = ['input-ref-1']
+    const returned = await instance.store.append(SCOPE_A, TEAM, MEMBER, 'tamperable note', refs)
+    // Mutate the caller's input array after append.
+    refs.push('input-ref-2')
+    refs[0] = 'MUTATED-INPUT'
+    // Mutate the append-return record in place (scalars are type-readonly, but a
+    // caller can still reach the returned array — that is the leak we must block).
+    const mutableReturned = returned as unknown as { content: string; seq: number; evidenceRefs: string[] }
+    mutableReturned.evidenceRefs.push('mutated-return')
+    mutableReturned.content = 'MUTATED-RETURN'
+    mutableReturned.seq = 999
+    // Mutate a list row in place.
     const page = instance.store.listPage(SCOPE_A, TEAM, MEMBER, 0, 50)
-    expect(page.rows.map(row => row.content)).toEqual(['genuine'])
-    expect(page.rows.map(row => row.memoryId)).toEqual(['private-memory-1'])
+    page.rows[0]!.evidenceRefs.push('mutated-list')
+    // The stored authority is unaffected: content and refs stay the durable values.
+    const again = instance.store.listPage(SCOPE_A, TEAM, MEMBER, 0, 50)
+    expect(again.rows[0]).toMatchObject({ content: 'tamperable note', seq: 1, memoryId: 'private-memory-1' })
+    expect(again.rows[0]!.evidenceRefs).toEqual(['input-ref-1'])
+  })
+
+  it('preserves deep-copy isolation across a cold reopen of the same medium', async () => {
+    const instance = await mount()
+    mounted.push(instance)
+    await instance.store.append(SCOPE_A, TEAM, MEMBER, 'durable original', ['ref-1'])
+    // Caller mutates the returned/listed copies; then fully close store + domain.
+    const first = instance.store.listPage(SCOPE_A, TEAM, MEMBER, 0, 50)
+    first.rows[0]!.evidenceRefs.push('ghost')
+    instance.store.close()
+    await instance.domain.close()
+    // Reopen the same medium fresh and read: only the durable deep copy remains.
+    const reopenedDomain = await instance.ctx.storageDomain.open(privateMemoryDomainSpec)
+    const reopenedStore = new MemberPrivateMemoryStore(instance.ctx, reopenedDomain)
+    try {
+      const page = reopenedStore.listPage(SCOPE_A, TEAM, MEMBER, 0, 50)
+      expect(page.rows[0]).toMatchObject({ content: 'durable original', memoryId: 'private-memory-1' })
+      expect(page.rows[0]!.evidenceRefs).toEqual(['ref-1'])
+    } finally {
+      reopenedStore.close()
+      await reopenedDomain.close()
+    }
   })
 })
