@@ -33,9 +33,10 @@ import { HumanControlGateway } from './human/human-control-gateway.js'
 import { HumanInteractionOverlayStore, humanInteractionDomainSpec } from './human/human-interaction-store.js'
 import { humanReviewProvider } from './human/human-review-provider.js'
 import { officialCaptainQuestionPresentation } from './human/official-question-presentation.js'
+import { DEFAULT_HOST_CONTEXT_TTL_MS, DEFAULT_MAX_HOST_CONTEXTS, mountHostContext } from './human/host-context-service.js'
 import { effectiveToolPolicy, TeamPermissionSurface } from './runtime/permission-surface.js'
 import { reviewerAgentReviewProvider } from './runtime/reviewer-boundary.js'
-
+import { swarmUsagePrompt } from './runtime/prompts.js'
 export { AgentSwarmRuntime } from './runtime/orchestrator-runtime.js'
 export type {
   ReviewProviderInput,
@@ -111,6 +112,7 @@ export { humanReviewProvider } from './human/human-review-provider.js'
 export { TeamPermissionSurface, effectiveToolPolicy, mergePreToolDecision } from './runtime/permission-surface.js'
 export type { ToolPolicyDeclaration } from './runtime/permission-surface.js'
 export type { HumanPrincipalVerifier } from './runtime/human-provenance.js'
+export type { HostContextAuthority, HostContextGrant, HostContextPort } from './human/host-context-service.js'
 export { reviewerAgentReviewProvider } from './runtime/reviewer-boundary.js'
 export type { ReviewerAgentProvider, ReviewerAgentVerdict } from './runtime/reviewer-boundary.js'
 export { compileNodePlan, applyNodePlan } from './patterns/node-mapping.js'
@@ -240,6 +242,10 @@ export interface Config {
   maxVerificationCommands?: number
   /** Hard per-command timeout ceiling for executable review in ms (default 600000, M3-2). */
   maxVerificationCommandMs?: number
+  /** Maximum active process-local Host contexts (SWARM-P1-02). */
+  maxHostContexts?: number
+  /** Lifetime of one process-local Host context generation in ms. */
+  hostContextTtlMs?: number
   /**
    * Bound for every disposal settlement step (F4), same name and default as
    * the official experimental config. Positive safe integer, default 5000.
@@ -347,6 +353,8 @@ export const Config: z<Config> = z.object({
   maxMemories: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxMemories),
   maxVerificationCommands: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxVerificationCommands),
   maxVerificationCommandMs: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxVerificationCommandMs),
+  maxHostContexts: z.number().step(1).min(1).default(DEFAULT_MAX_HOST_CONTEXTS),
+  hostContextTtlMs: z.number().step(1).min(1).default(DEFAULT_HOST_CONTEXT_TTL_MS),
   disposalTimeoutMs: z.number().step(1).min(1).default(DEFAULT_DISPOSAL_TIMEOUT_MS),
   strandedAfterMs: z.number().step(0).min(0).default(DEFAULT_STRANDED_AFTER_MS),
   orchestrationMode: z.union(['adaptive', 'workflow']).default('adaptive'),
@@ -364,18 +372,6 @@ export const Config: z<Config> = z.object({
   }).default({ allow: [], ask: [], deny: [] }),
   promptSectionOrder: z.natural().default(118),
 })
-
-const usage = `Use agent_swarm_* when the user requests a coordinated multi-agent Team.
-1. Create one Team, then add role-specific continuable members.
-2. Decompose the goal into tasks with explicit acceptance criteria and dependency ids. The event scheduler assigns ready tasks.
-3. Compose workflows on the task DAG itself: serial stages are dependency chains (a stage's join is every dependent naming its blockers); fan out through dependency-free same-layer tasks only — actual concurrency is bounded by the member count and mailbox quotas, never around them; hand pipeline artifacts through task outputs and Team mail; put human decisions at the review transaction (a submission waiting for review IS the human gate); a task whose dependency has not completed stays held — never skip or auto-fail it.
-4. Every task mutation uses the latest revision. Every worker submission also carries its exact attempt id; stale attempts stop immediately.
-5. A worker submission is evidence, not completion. The captain must call agent_swarm_review_task to accept or reject it. When a task carries declared verification commands, an executable review Provider reruns them in an isolated review root and rejects on failure with root-produced evidence.
-6. Persist peer messages before delivery. A queued result is durable; never resend it automatically. Prefer quiet for information the recipient should read on its next turn; quiet mail to an inactive member stays queued until a wakeup or its own return, and wakeup is the delivery that resumes it.
-7. Treat write scopes as coordination hints, not filesystem authorization. Use agent_swarm_status for fixed Team counters and agent_swarm_list_tasks (with status/owner/ready filters and pagination) for task rows after any conflict.
-8. The captain may interrupt one member's current turn with agent_swarm_interrupt_member; the member keeps its inbox, tasks and membership, and a later wakeup resumes it.
-9. When waiting for another mutation, call agent_swarm_wait with the current Team revision instead of polling status. It returns no_progress immediately when no other member is running or provisioning: re-read status and the task list, wake the required members with wakeup messages, then wait again.
-10. Read background Team executions with agent_swarm_list_jobs (kind/status filters, pagination) — every row is one task that entered execution. The job face is read-only: create work as Team tasks and cancel through the Team face, never through the job face.`
 
 export async function apply(ctx: Context, config: Config): Promise<void> {
   if (config.enabled === false) return
@@ -441,7 +437,11 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     await drainHumanInteractions?.()
     await runtime.dispose()
   }, 'agent-swarm: runtime disposal')
-
+  // Mounted second so reverse disposal closes Host admission before Team authority.
+  ctx.effect(() => mountHostContext(ctx, runtime, {
+    maxActive: config.maxHostContexts ?? DEFAULT_MAX_HOST_CONTEXTS,
+    ttlMs: config.hostContextTtlMs ?? DEFAULT_HOST_CONTEXT_TTL_MS,
+  }), 'agent-swarm: Host context lifecycle')
   registerAgentSwarmTools(ctx, runtime)
   // I1a permission boundary: project policy consumes the official
   // tools/pre-execute + approval seams. It cannot widen downstream denial.
@@ -530,7 +530,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   ctx.effect(() => ctx.systemPrompt.section({
     name: 'agent-swarm:usage',
     order: config.promptSectionOrder ?? 118,
-    text: usage,
+    text: swarmUsagePrompt,
   }), 'agent-swarm: system prompt')
   // M2-3 (issue #77): the adaptive event face — idle edges drive scheduling
   // passes (assignment delivery, reserved folds, stranded self-healing).
