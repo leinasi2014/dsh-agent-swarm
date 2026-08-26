@@ -294,12 +294,12 @@ describe('Reviewer Agent real review transaction', () => {
     unregisterBad()
     // A real evidence+recommendation provider is consumed by the existing
     // review transaction; only that transaction commits via TeamDomainPort.
-    const seen: string[] = []
+    const seen: Array<{ workspace: string; candidate: { teamId: string; taskId: string; attemptId: string; outputSha256: string; evidenceSha256: string } }> = []
     const unregisterGood = stack.ctx.agentSwarmPermission.registerReviewerAgentProvider({
       kind: 'reviewer-agent',
       name: 'evidence-reviewer',
-      review: async ({ workspace }) => {
-        seen.push(workspace)
+      review: async ({ workspace, candidate }) => {
+        seen.push({ workspace, candidate })
         return {
           kind: 'evidence',
           evidenceIds: ['e1'],
@@ -311,6 +311,13 @@ describe('Reviewer Agent real review transaction', () => {
     const good = await review()
     expect(good.isError).toBe(false)
     expect(seen).toHaveLength(1)
+    expect(seen[0]?.candidate).toMatchObject({
+      teamId: String(stack.teamId), taskId: createdValue.task_id, attemptId: submitAttempt,
+    })
+    expect(seen[0]?.candidate.outputSha256).toMatch(/^[a-f0-9]{64}$/)
+    expect(seen[0]?.candidate.evidenceSha256).toMatch(/^[a-f0-9]{64}$/)
+    expect(Object.keys(seen[0]?.candidate ?? {})).not.toContain('output')
+    expect(Object.keys(seen[0]?.candidate ?? {})).not.toContain('evidence')
     expect(await taskStatus()).toBe('completed')
     const reviewed = await snapshot(stack)
     expect(reviewed.team.attempts.find(attempt => attempt.id === submitAttempt)?.diagnostic)

@@ -74,7 +74,7 @@ export type { ToolPolicyDeclaration } from './runtime/permission-surface.js'
 export type { HumanPrincipalVerifier } from './runtime/human-provenance.js'
 export type { HostContextAuthority, HostContextGrant, HostContextPort } from './human/host-context-service.js'
 export { reviewerAgentReviewProvider } from './runtime/reviewer-boundary.js'
-export type { ReviewerAgentProvider, ReviewerAgentVerdict } from './runtime/reviewer-boundary.js'
+export type { ReviewerAgentProvider, ReviewerAgentVerdict, ReviewerCandidateIdentity } from './runtime/reviewer-boundary.js'
 export { compileNodePlan, applyNodePlan } from './patterns/node-mapping.js'
 export type {
   AppliedNodePlan,
