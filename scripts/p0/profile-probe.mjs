@@ -79,7 +79,11 @@ async function waitForRoot(ctx, sessionId, signal) {
     if (!created) {
       try {
         ctx.llm.registerAdapter(['dev-smoke'], devSmokeAdapter(ctx))
-        const root = ctx.agentLoop.create(sessionId, { provider: 'dev-smoke', model: 'DEV_SMOKE' }, { cwd: process.env.DSH_SWARM_P0_WORKSPACE_ROOT })
+        // A persisted official Session is authoritative on reload. Resume it
+        // first; creating a second AgentLoop root against its log is an id
+        // collision, not a recovery mechanism.
+        const resumed = await ctx.agents.resume({ resumeSessionId: sessionId }).catch(() => undefined)
+        const root = resumed?.agent ?? ctx.agentLoop.create(sessionId, { provider: 'dev-smoke', model: 'DEV_SMOKE' }, { cwd: process.env.DSH_SWARM_P0_WORKSPACE_ROOT })
         created = true
         if (Array.from(ctx.agents.roots()).includes(root)) return root
       } catch { /* persisted session may not exist yet; retry */ }
