@@ -8,7 +8,7 @@ import { TeamDomainError } from '../domain/error.js'
 import type { AttemptId, TaskAttempt, TeamId, TeamState, TeamTask, TaskId } from '../domain/types.js'
 
 /** The only attempt phase that a headless worker may resume as execution. */
-export type RestartBindingPhase = 'running'
+type RestartBindingPhase = 'running'
 
 export interface RestartSafeAttemptBinding {
   readonly teamId: TeamId
