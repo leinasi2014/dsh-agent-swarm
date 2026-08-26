@@ -126,7 +126,8 @@ async function exerciseRealAgentLoop(ctx, agent, team) {
   }
   if (task?.status !== 'submitted' || task.currentAttemptId === undefined) throw new Error(`DEV_SMOKE member did not submit: ${JSON.stringify(task)}`)
   const reviewed = await tool(ctx, agent, 'agent_swarm_review_task', { task_id: task.id, expected_revision: task.revision, attempt_id: task.currentAttemptId, decision: 'accept', diagnostic: 'DEV_SMOKE captain review bound to submitted attempt.' })
-  return { resumed: false, memberSessionId: member.session_id, taskId: task.id, review: reviewed }
+  const canonical = await ctx.agentSwarm.domain.snapshot(ctx.agentSwarm.scopeOf(agent), team.id, agent.id)
+  return { resumed: false, memberSessionId: member.session_id, taskId: task.id, review: reviewed, team: canonical.team }
 }
 
 async function bindTarget(ctx, signal) {

@@ -530,11 +530,9 @@ async function main() {
     const terminalIdentity = {
       teamId: snapshot.team.id,
       teamRevision: snapshot.team.revision,
-      memberSessionIds: snapshot.team.members.map(member => member.sessionId),
-      taskIds: snapshot.tasks.map(task => task.id),
-      attempts: snapshot.attempts.map(attempt => ({ id: attempt.id, taskId: attempt.taskId, phase: attempt.phase, memberSessionId: attempt.memberSessionId })),
-      taskStates: snapshot.tasks.map(task => ({ id: task.id, status: task.status, currentAttemptId: task.currentAttemptId })),
+      roster: snapshot.roster, tasks: snapshot.tasks, attempts: snapshot.attempts,
     }
+    if ('members' in snapshot.team || JSON.stringify(snapshot).includes('sessionId')) throw new Error('R2 snapshot leaked member session identity')
     for (const kind of ['tasks', 'attempts', 'pendingInteractions']) {
       const page = requireSwarmValue(await readSwarmRpc(args.port, evidenceDir, `r2-page-${kind}`, {
         schemaVersion: 1, method: 'page', target, page: { kind, offset: 0, limit: 50 },
@@ -584,12 +582,13 @@ async function main() {
     }, trustedHeaders), 'R2 reload snapshot')
     const reloadIdentity = {
       teamId: reloadSnapshot.team.id, teamRevision: reloadSnapshot.team.revision,
-      memberSessionIds: reloadSnapshot.team.members.map(member => member.sessionId), taskIds: reloadSnapshot.tasks.map(task => task.id),
-      attempts: reloadSnapshot.attempts.map(attempt => ({ id: attempt.id, taskId: attempt.taskId, phase: attempt.phase, memberSessionId: attempt.memberSessionId })),
-      taskStates: reloadSnapshot.tasks.map(task => ({ id: task.id, status: task.status, currentAttemptId: task.currentAttemptId })),
+      roster: reloadSnapshot.roster, tasks: reloadSnapshot.tasks, attempts: reloadSnapshot.attempts,
     }
+    const exactInitial = e2eReady?.e2e?.team
+    const exactReload = reloadE2e?.e2e?.team
     if (JSON.stringify(reloadIdentity) !== JSON.stringify(terminalIdentity)
-      || reloadIdentity.taskStates.some(task => task.status !== 'completed') || reloadIdentity.attempts.some(attempt => attempt.phase !== 'accepted')) {
+      || JSON.stringify(exactReload) !== JSON.stringify(exactInitial)
+      || reloadIdentity.tasks.some(task => task.status !== 'completed') || reloadIdentity.attempts.some(attempt => attempt.phase !== 'accepted')) {
       throw new Error(`W0 reload terminal identity changed or repeated work: ${JSON.stringify({ terminalIdentity, reloadIdentity })}`)
     }
     const secondStop = await gracefulStop(liveBoot, stopPath, args.port)
