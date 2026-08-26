@@ -88,7 +88,7 @@ Required scenarios:
 
 Scenario 46 is a required future gate defined by ADR-0009, not evidence of current implementation. It may be marked complete only by real persistent migration and crash/reopen tests over the exact implementation candidate; mocks, transcript searches, deterministic request labels or process-local quarantine do not satisfy it.
 
-47. the I2 receipt read face proves a real Cordis/AgentLoop/SQLite/Storage Domain composition with five durable receipts paged `2/2/1`; a record inserted after page one cannot enter that cursor snapshot, while a fresh read observes it. The projection excludes request body, principal/session provenance and diagnostic text; response size and page count are bounded. Tampered, cross-Team and previous-plugin-lifetime cursors, delegated callers, invalid/unknown input and pre-aborted reads all fail closed. The Storage Domain page scan retains only `limit + 1` candidates and never publishes durable keys.
+47. the I2 receipt read face proves a real Cordis/AgentLoop/SQLite/Storage Domain composition with five durable receipts paged `2/2/1`; records committed after page one cannot enter that cursor snapshot even when their timestamps regress or equal an older key, while a fresh read observes them. The projection excludes request body, principal/session provenance and diagnostic text; response size and page count are bounded. Tampered, cross-Team and previous-plugin-lifetime cursors, delegated callers, invalid/unknown input and pre-aborted reads all fail closed. The Storage Domain page scan retains only `limit + 1` candidates and never publishes durable keys.
 
 ## 4. Real Profile verification
 

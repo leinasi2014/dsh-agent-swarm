@@ -22,7 +22,7 @@ interface CursorPayload {
   readonly v: 1
   readonly s: string
   readonly t: string
-  readonly u: readonly [number, string]
+  readonly q: number
   readonly a: readonly [number, string]
 }
 
@@ -86,16 +86,16 @@ export class HumanInteractionReceiptPager {
     const normalized = this.parseInput(input)
     await authorize(normalized)
     const after = normalized.cursor === undefined ? undefined : toPageKey(normalized.cursor.a)
-    const upper = normalized.cursor === undefined ? undefined : toPageKey(normalized.cursor.u)
-    const records = this.overlay.pageRecords(normalized.scope, normalized.teamId, normalized.limit, after, upper)
+    const highWater = normalized.cursor?.q
+    const records = this.overlay.pageRecords(normalized.scope, normalized.teamId, normalized.limit, after, highWater)
     const items = project(records)
     const last = records.records.at(-1)
-    const nextCursor = records.hasMore && records.upperBound !== undefined && last !== undefined
+    const nextCursor = records.hasMore && last !== undefined
       ? this.encode({
           v: 1,
           s: digestAuthority(normalized.scope),
           t: digestAuthority(normalized.teamId),
-          u: [records.upperBound.createdAt, records.upperBound.requestId],
+          q: records.snapshotHighWater,
           a: [last.createdAt, last.request.requestId],
         })
       : undefined
@@ -161,11 +161,12 @@ export class HumanInteractionReceiptPager {
       const value = JSON.parse(bytes.toString('utf8')) as unknown
       if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('payload')
       const record = value as Record<string, unknown>
-      if (Object.keys(record).toSorted().join(',') !== 'a,s,t,u,v'
+      if (Object.keys(record).toSorted().join(',') !== 'a,q,s,t,v'
         || record.v !== 1
         || typeof record.s !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(record.s)
         || typeof record.t !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(record.t)
-        || !isPageKey(record.u) || !isPageKey(record.a)) throw new Error('payload')
+        || !Number.isSafeInteger(record.q) || (record.q as number) < 0
+        || !isPageKey(record.a)) throw new Error('payload')
       return record as unknown as CursorPayload
     } catch {
       throw pageError('receipt page cursor is invalid', 'TEAM_INTERACTION_CURSOR_INVALID')

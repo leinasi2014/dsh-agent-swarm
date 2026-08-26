@@ -114,7 +114,7 @@ One lifecycle owner opens/closes the interaction domain and provides/retires the
 
 #### Bounded receipt page read face (I2-R1)
 
-`HumanInteractionPort.pageReceipts` is the first Host-producer read slice. It admits only the exact live root captain for the named scope and Team, returns a secret-free receipt projection without request bodies, principal data or diagnostics, and caps each page at 50 items. The Storage Domain scan retains at most `limit + 1` candidates in memory. A plugin-lifetime HMAC cursor binds scope, Team, snapshot upper key and last key; tampering, cross-authority reuse and cursors from a previous plugin load fail closed. Records added after the first page are excluded from that cursor's snapshot. The existing full-array `listReceipts` remains an internal maintenance compatibility face and is not a browser/Host read contract.
+`HumanInteractionPort.pageReceipts` is the first Host-producer read slice. It admits only the exact live root captain for the named scope and Team, returns a secret-free receipt projection without request bodies, principal data or diagnostics, and caps each page at 50 items. The Storage Domain scan retains at most `limit + 1` candidates in memory. Each plugin lifetime assigns durable commits a strictly monotone publication sequence; an HMAC cursor binds scope, Team, the first page's high-water sequence and the last sort key. Tampering, cross-authority reuse and cursors from a previous plugin load fail closed. Later commits are excluded even when their caller-supplied clock value is equal or lower. The existing full-array `listReceipts` remains an internal maintenance compatibility face and is not a browser/Host read contract.
 
 ### 5b. I1b architecture gate: migrated Team-v2 effect authority
 

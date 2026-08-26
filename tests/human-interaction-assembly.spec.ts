@@ -509,10 +509,10 @@ describe('human domain lifecycle ownership', () => {
     expect(stack.ctx.get('agentSwarmHumanControl')).toBeDefined()
     await expect(oldInteraction.listReceipts(stack.scope, stack.teamId, captainAdmission(stack)))
       .rejects.toMatchObject({ code: 'TEAM_INTERACTION_STORE_CLOSED' })
+    await expect(oldInteraction.pageReceipts({ scope: stack.scope, teamId: stack.teamId, limit: 1 }, captainAdmission(stack))).rejects.toMatchObject({ code: 'TEAM_INTERACTION_STORE_CLOSED' })
     expect((await stack.ctx.agentSwarmHumanInteraction.listReceipts(stack.scope, stack.teamId, captainAdmission(stack)))
       .find(receipt => receipt.requestId === relayed.requestId)?.status).toBe('acknowledged')
   }, 60_000)
-
   it('mid-setup failure closes the just-opened human domain instead of leaking it', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-i1a-assembly-conflict-'))
     roots.push(sandbox)
