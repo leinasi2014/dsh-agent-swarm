@@ -87,7 +87,7 @@ const taskRow = {
     id: boundedString(128), revision: nonNegativeInteger, subject: boundedString(256),
     status: { enum: ['pending', 'in_progress', 'submitted', 'verifying', 'completed', 'failed', 'cancelled'] },
     blockedBy: { type: 'array', maxItems: 100, items: boundedString(128) },
-    priority: { type: 'integer' }, ownerName: boundedString(64), currentAttemptId: boundedString(128),
+    priority: { type: 'integer' }, ownerName: boundedString(64), targetMemberName: boundedString(64), currentAttemptId: boundedString(128),
     createdAt: nonNegativeInteger, updatedAt: nonNegativeInteger,
   },
 }

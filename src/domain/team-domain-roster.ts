@@ -196,6 +196,29 @@ export async function provisionMember(
   return structuredClone(committed)
 }
 
+/** Requeue open work and clear strict routes that point at unavailable members. */
+function releaseUnavailableMemberTasks(team: TeamState, sessionIds: ReadonlySet<string>, diagnostic: string, timestamp: number): void {
+  for (const task of team.tasks) {
+    const ownsOpenAttempt = task.ownerSessionId !== undefined && sessionIds.has(task.ownerSessionId)
+      && ['in_progress', 'submitted', 'verifying'].includes(task.status)
+    const targetsUnavailableMember = task.targetMemberSessionId !== undefined && sessionIds.has(task.targetMemberSessionId)
+      && (task.status === 'pending' || ownsOpenAttempt)
+    if (!ownsOpenAttempt && !targetsUnavailableMember) continue
+    if (ownsOpenAttempt && task.currentAttemptId !== undefined) {
+      const attempt = attemptOf(team, task.currentAttemptId)
+      replaceAttempt(team, { ...attempt, phase: 'stale', diagnostic, updatedAt: timestamp })
+    }
+    const cleared = ownsOpenAttempt
+      ? clearTaskExecution(task, { revision: task.revision + 1, status: 'pending', updatedAt: timestamp })
+      : { ...task, revision: task.revision + 1, updatedAt: timestamp }
+    if (!targetsUnavailableMember) replaceTask(team, cleared)
+    else {
+      const { targetMemberSessionId: _discardedTarget, ...requeued } = cleared
+      replaceTask(team, requeued)
+    }
+  }
+}
+
 export async function settleMember(
   deps: TeamDomainDeps,
   scope: TeamScope,
@@ -209,10 +232,16 @@ export async function settleMember(
     expectDomain(index >= 0, 'provisioning member not found', 'TEAM_MEMBER_NOT_FOUND')
     const current = team.members[index]!
     expectDomain(current.phase === 'provisioning', 'member is no longer provisioning', 'TEAM_MEMBER_PHASE_INVALID')
-    committed = outcome.active
-      ? { ...current, phase: 'active' }
-      : { ...current, phase: 'failed', error: nonEmpty(outcome.error, 'member error', 4_096) }
-    team.members[index] = committed
+    if (outcome.active) {
+      committed = { ...current, phase: 'active' }
+      team.members[index] = committed
+    } else {
+      const error = nonEmpty(outcome.error, 'member error', 4_096)
+      committed = { ...current, phase: 'failed', error }
+      team.members[index] = committed
+      releaseUnavailableMemberTasks(team, new Set([sessionId]), error, deps.now())
+      pruneRetainedAttempts(team, deps.limits.maxRetainedAttempts)
+    }
   })
   return structuredClone(committed)
 }
@@ -236,6 +265,8 @@ export async function recoverProvisioningMembers(
       team.members[index] = failed
       recovered.push(failed)
     }
+    releaseUnavailableMemberTasks(team, new Set(recovered.map(member => member.sessionId)), reason, deps.now())
+    pruneRetainedAttempts(team, deps.limits.maxRetainedAttempts)
   })
   return structuredClone(recovered)
 }
@@ -262,20 +293,8 @@ export async function removeMember(
     committedMember = { ...current, phase: 'removed', error: reason }
     team.members[index] = committedMember
 
-    for (const task of team.tasks) {
-      if (task.ownerSessionId !== current.sessionId || !['in_progress', 'submitted', 'verifying'].includes(task.status)) continue
-      if (task.currentAttemptId !== undefined) {
-        const attempt = attemptOf(team, task.currentAttemptId)
-        replaceAttempt(team, { ...attempt, phase: 'stale', diagnostic: reason, updatedAt: timestamp })
-      }
-      const requeued = clearTaskExecution(task, {
-        revision: task.revision + 1,
-        status: 'pending',
-        updatedAt: timestamp,
-      })
-      replaceTask(team, requeued)
-      requeuedTaskIds.push(task.id)
-    }
+    for (const task of team.tasks) if ((task.ownerSessionId === current.sessionId && ['in_progress', 'submitted', 'verifying'].includes(task.status)) || (task.status === 'pending' && task.targetMemberSessionId === current.sessionId)) requeuedTaskIds.push(task.id)
+    releaseUnavailableMemberTasks(team, new Set([current.sessionId]), reason, timestamp)
     for (let messageIndex = 0; messageIndex < team.messages.length; messageIndex += 1) {
       const message = team.messages[messageIndex]!
       if (message.phase === 'queued' && (message.targetSessionId === current.sessionId || message.senderSessionId === current.sessionId)) {

@@ -359,6 +359,7 @@ export async function cancelAttempt(
   taskId: TaskId,
   expectedRevision: number,
   diagnostic: string,
+  targetMemberSessionId?: string,
 ): Promise<TeamTask> {
   let committed!: TeamTask
   await deps.store.transact(scope, teamId, team => {
@@ -366,6 +367,11 @@ export async function cancelAttempt(
     expectDomain(authority.role === 'captain', 'only the captain can reassign', 'TEAM_CAPTAIN_REQUIRED')
     const current = taskOf(team, taskId)
     taskRevision(current, expectedRevision)
+    if (targetMemberSessionId !== undefined) {
+      const target = team.members.find(member => member.sessionId === targetMemberSessionId
+        && (member.phase === 'provisioning' || member.phase === 'active'))
+      expectDomain(target !== undefined, 'task assignment target is not an available Team member', 'TEAM_ASSIGNEE_INVALID')
+    }
     expectDomain(
       ['in_progress', 'submitted', 'verifying'].includes(current.status) && current.currentAttemptId !== undefined,
       'only an open execution attempt can be reassigned',
@@ -380,6 +386,8 @@ export async function cancelAttempt(
       status: 'pending',
       updatedAt: timestamp,
     })
+    const { targetMemberSessionId: _previousTarget, ...released } = committed
+    committed = targetMemberSessionId === undefined ? released : { ...released, targetMemberSessionId }
     replaceTask(team, committed)
     pruneRetainedAttempts(team, deps.limits.maxRetainedAttempts)
   })

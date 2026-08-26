@@ -36,6 +36,7 @@ export interface SwarmHostReadProjectionV1 {
     readonly blockedBy: readonly string[]
     readonly priority: number
     readonly ownerName?: string
+    readonly targetMemberName?: string
     readonly currentAttemptId?: string
     readonly createdAt: number
     readonly updatedAt: number

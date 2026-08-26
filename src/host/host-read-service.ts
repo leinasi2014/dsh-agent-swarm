@@ -240,6 +240,7 @@ function project(
     blockedBy: [...task.blockedBy],
     priority: task.priority,
     ...optionalName('ownerName', displayName(task.ownerSessionId, rootSessionId, memberNames)),
+    ...optionalName('targetMemberName', displayName(task.targetMemberSessionId, rootSessionId, memberNames)),
     ...(task.currentAttemptId === undefined ? {} : { currentAttemptId: task.currentAttemptId }),
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
@@ -325,6 +326,6 @@ function displayName(
   return memberNames.get(sessionId)
 }
 
-function optionalName<K extends 'ownerName' | 'memberName'>(key: K, value: string | undefined): Partial<Record<K, string>> {
+function optionalName<K extends 'ownerName' | 'targetMemberName' | 'memberName'>(key: K, value: string | undefined): Partial<Record<K, string>> {
   return value === undefined ? {} : { [key]: value } as Record<K, string>
 }

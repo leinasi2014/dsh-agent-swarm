@@ -29,6 +29,7 @@ const TASK_ROW_SCHEMA = {
     ready: { type: 'boolean', required: true },
     blocked_by: { type: 'array', required: true, items: { type: 'string' } },
     owner: { type: 'string', description: 'Member name, or captain when the captain holds it.' },
+    target_member: { type: 'string', description: 'Strict captain-selected member, including while the task is blocked or pending.' },
     attempt_id: { type: 'string' },
     stranded: { type: 'string', enum: ['idle-holder', 'owner-not-live'] },
     hold: {
@@ -134,6 +135,7 @@ export function registerListTasksTool(ctx: Context, runtime: AgentSwarmRuntime):
           status: task.status,
           ready: readyIds.has(task.id),
           blocked_by: task.blockedBy,
+          ...(task.targetMemberSessionId === undefined ? {} : { target_member: ownerNames.get(task.targetMemberSessionId) ?? 'unknown' }),
           ...(task.ownerSessionId === undefined ? {} : { owner: ownerNames.get(task.ownerSessionId) ?? 'captain' }),
           ...(task.currentAttemptId === undefined ? {} : { attempt_id: task.currentAttemptId }),
           ...strandedHint(runtime, task),

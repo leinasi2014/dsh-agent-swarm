@@ -99,7 +99,13 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
     return task
   })
   unique(tasks.map(task => task.id as string), path, 'task ids')
-  for (const task of tasks) if (task.targetMemberSessionId !== undefined && !members.some(member => member.sessionId === task.targetMemberSessionId)) corrupt(path, `task ${String(task.id)} assignment target is not a Team member`)
+  for (const task of tasks) {
+    if (task.targetMemberSessionId === undefined) continue
+    const target = members.find(member => member.sessionId === task.targetMemberSessionId)
+    if (target === undefined) corrupt(path, `task ${String(task.id)} assignment target is not a Team member`)
+    if ((task.status === 'pending' || ['in_progress', 'submitted', 'verifying'].includes(String(task.status)))
+      && target.phase !== 'provisioning' && target.phase !== 'active') corrupt(path, `task ${String(task.id)} assignment target is unavailable`)
+  }
 
   const attempts = list(team.attempts, path, 'attempts').map((raw, index) => {
     const attempt = record(raw, path, `attempts[${index}]`)
@@ -142,6 +148,7 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
       if (attempt === undefined) corrupt(path, `task ${String(task.id)} references a missing current attempt`)
       if (attempt.taskId !== task.id) corrupt(path, `task ${String(task.id)} references an attempt for another task`)
       if (task.ownerSessionId !== attempt.memberSessionId) corrupt(path, `task ${String(task.id)} owner differs from its current attempt`)
+      if (task.targetMemberSessionId !== undefined && task.ownerSessionId !== task.targetMemberSessionId) corrupt(path, `task ${String(task.id)} owner differs from its assignment target`)
     }
   }
 
