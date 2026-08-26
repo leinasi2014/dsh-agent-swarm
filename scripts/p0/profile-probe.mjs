@@ -96,7 +96,7 @@ async function waitForRoot(ctx, sessionId, signal) {
 }
 
 async function tool(ctx, agent, name, arguments_) {
-  const result = await ctx.tools.execute({ signal: new AbortController().signal, callId: `dev-smoke-${name}-${Date.now()}`, name, arguments: arguments_, agent })
+  const result = await ctx.tools.execute({ signal: AbortSignal.timeout(8_000), callId: `dev-smoke-${name}-${Date.now()}`, name, arguments: arguments_, agent })
   if (result.isError) throw new Error(`${name} failed: ${JSON.stringify(result.error)}`)
   return result.value
 }
