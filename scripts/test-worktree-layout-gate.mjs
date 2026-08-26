@@ -36,7 +36,7 @@ try {
   git(['add', '.'])
   git(['commit', '-m', 'test: establish governed fixture'])
   verify(true, 'main-only governed repository')
-  verifyStatus(true, 'main-only single checkout')
+  verifyStatus(true, 'main-only managed-isolation baseline')
 
   const allowed = join(repo, '.worktree', 'allowed')
   git(['worktree', 'add', allowed, '-b', 'test/allowed'])

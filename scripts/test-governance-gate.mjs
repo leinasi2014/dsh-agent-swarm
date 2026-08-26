@@ -92,6 +92,14 @@ try {
     mutate(root, 'docs/governance/project-binding.yaml', content => content.replace('candidateSelfActivation: forbidden', 'candidateSelfActivation: allowed'))
   }, 'missing or changed declaration candidateSelfActivation: forbidden')
 
+  expectFailure('retired-accepted-base-bridge', root => {
+    mutate(root, 'docs/governance/project-binding.yaml', content => `${content}\nacceptedBaseVerifierBridge:\n  acceptedVerifierAuthorityEpoch: 2\n`)
+  }, 'retired accepted-base verifier bridge is forbidden')
+
+  expectFailure('retired-single-checkout-declaration', root => {
+    mutate(root, 'docs/governance/project-binding.yaml', content => `${content}\nlegacyIsolationDeclarations:\n  backend: single-checkout\n`)
+  }, 'retired single-checkout isolation declaration is forbidden')
+
   expectFailure('missing-pipeline-direction-owner', root => {
     mutate(root, 'docs/governance/project-binding.yaml', content => content.replace('projectDirectionOwner: product-and-architecture-owner', 'projectDirectionOwner: missing'))
   }, 'missing or changed declaration projectDirectionOwner: product-and-architecture-owner')
@@ -138,7 +146,7 @@ try {
     mutate(root, 'docs/governance/document-registry.yaml', content => `${content}\n  - documentId: escaped\n    path: ../../outside.md\n    role: stable-authority\n    subject: governance\n    writeMode: human\n    accountableOwner: governance-owner\n    mutationAuthority: expected-target-reviewed-candidate\n    updateTriggers: test\n    validation: pnpm-verify-governance\n`)
   }, 'path escapes the project root')
 
-  console.log('Governance gate positive fixture and 17 negative policy cases: PASS')
+  console.log('Governance gate positive fixture and 19 negative policy cases: PASS')
 } finally {
   rmSync(sandbox, { recursive: true, force: true })
 }

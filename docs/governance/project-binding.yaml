@@ -10,22 +10,6 @@ method:
   candidateSelfActivation: forbidden
   activation: reviewed-integration-and-result-readback
 
-# Compatibility facts consumed by the verifier accepted on origin/main at
-# authority epoch 2. They grant no delivery authority. Keep this bridge in the
-# first reviewed integration that activates the epoch-3 verifier; remove it
-# only in a later reviewed candidate after target-level read-back succeeds.
-acceptedBaseVerifierBridge:
-  acceptedVerifierAuthorityEpoch: 2
-  activatingVerifierAuthorityEpoch: 3
-  policyDigest: ec4cf729e38b6273146b5e24263424ef65007c1d
-  exactCandidateExternalNonAuthorReview: required
-  candidateSelfApproval: forbidden
-  newVerifierActivation: after-reviewed-integration-and-result-readback
-  legacyIsolationDeclarations:
-    backend: single-checkout
-    parallelWriterCapability: NOT_CONFIGURED
-    parallelWriter: forbidden
-
 authority:
   repository:
     alias: origin

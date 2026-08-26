@@ -166,6 +166,10 @@ const methodBlock = binding.match(/^method:\s*\r?\n((?:^[ \t].*(?:\r?\n|$))*)/mu
 if (!/^\s{2}policyDigest:\s+[0-9a-f]{40}\s*$/mu.test(methodBlock)) failures.push(`${bindingPath}: method policyDigest must be one lowercase 40-hex commit identity`)
 if (/^\s{2}deliveryLane\s*:/mu.test(binding)) failures.push(`${bindingPath}: a project-global deliveryLane is forbidden; classify each Feature Pipeline`)
 if (/candidateState\s*:/u.test(binding)) failures.push(`${bindingPath}: dynamic candidateState is forbidden in stable binding`)
+// Epoch 3 is the sole active isolation authority. The one-time accepted-base
+// bridge was deliberately retired after its activating integration read-back.
+if (/^acceptedBaseVerifierBridge\s*:/mu.test(binding)) failures.push(`${bindingPath}: retired accepted-base verifier bridge is forbidden`)
+if (/\bsingle-checkout\b/u.test(binding)) failures.push(`${bindingPath}: retired single-checkout isolation declaration is forbidden`)
 if (/https?:\/\//iu.test(binding) || /[A-Za-z]:[\\/]/u.test(binding) || /\/(?:Users|home)\//u.test(binding)) {
   failures.push(`${bindingPath}: private URL or machine-local absolute path is forbidden`)
 }
