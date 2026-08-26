@@ -10,16 +10,26 @@ on:
       - 'docs/OFFICIAL_BASELINE.json'
       - 'docs/09-sources.md'
       - 'ref/**'
+      - 'package.json'
       - 'pnpm-lock.yaml'
       - 'cordis.patch.yml'
+      - 'scripts/verify-official-baseline.mjs'
+      - 'scripts/verify-reference-baselines.mjs'
+      - 'scripts/sync-official-evidence.ps1'
+      - '.github/workflows/compatibility.yml'
   push:
     branches: [main]
     paths:
       - 'docs/OFFICIAL_BASELINE.json'
       - 'docs/09-sources.md'
       - 'ref/**'
+      - 'package.json'
       - 'pnpm-lock.yaml'
       - 'cordis.patch.yml'
+      - 'scripts/verify-official-baseline.mjs'
+      - 'scripts/verify-reference-baselines.mjs'
+      - 'scripts/sync-official-evidence.ps1'
+      - '.github/workflows/compatibility.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

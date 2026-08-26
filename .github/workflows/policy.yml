@@ -1,0 +1,31 @@
+name: policy
+
+on:
+  workflow_dispatch: {}
+  pull_request:
+    paths:
+      - 'docs/governance/**'
+      - 'docs/08-testing-verification.md'
+      - 'docs/11-official-first-development.md'
+      - 'AGENTS.md'
+      - 'CLAUDE.md'
+      - 'CONTRIBUTING.md'
+      - '.agents/skills/dsh-plugin-development/**'
+      - 'scripts/verify-governance.mjs'
+      - 'scripts/test-governance-gate.mjs'
+      - 'package.json'
+      - '.github/workflows/policy.yml'
+
+jobs:
+  policy:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm verify:policy:declared

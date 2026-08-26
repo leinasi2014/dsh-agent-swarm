@@ -53,6 +53,7 @@
     "verify:policy:declared": "node scripts/verify-governance.mjs --skip-git && node scripts/test-governance-gate.mjs",
     "verify:governance": "pnpm verify:policy",
     "verify:isolation": "node scripts/verify-worktree-layout.mjs && node scripts/test-worktree-layout-gate.mjs",
+    "verify:isolation:status": "node scripts/verify-isolation-status.mjs",
     "verify:worktrees": "pnpm verify:isolation",
     "verify:compatibility": "pnpm verify:official && pnpm verify:references",
     "verify:gate-a": "pnpm verify:compatibility",

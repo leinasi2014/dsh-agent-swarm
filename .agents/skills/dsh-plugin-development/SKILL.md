@@ -86,6 +86,7 @@ git rev-parse --show-toplevel
 git status --short --branch
 node --version
 pnpm --version
+pnpm verify:isolation:status
 ```
 
 若 Step 1 的兼容性触发条件命中，运行仓库的 `verify:compatibility`；否则复用身份未变化的兼容性回执。
@@ -283,6 +284,7 @@ Bundle 修改后重启 Profile。不要手写用户 profile 的 bundle manifest�
 
 ```sh
 pnpm test -- <affected-test>
+pnpm verify:isolation:status
 pnpm verify:candidate
 pnpm verify:policy          # governance/instruction/document authority changed
 pnpm verify:isolation       # isolation policy/layout changed

@@ -1,11 +1,8 @@
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
-const execFileAsync = promisify(execFile)
 const required = [
   'README.md',
   'CONTRIBUTING.md',
@@ -40,6 +37,7 @@ const required = [
   'scripts/verify-reference-baselines.mjs',
   'scripts/merge-guard.mjs',
   'scripts/verify-worktree-layout.mjs',
+  'scripts/verify-isolation-status.mjs',
   'scripts/verify-governance.mjs',
   'scripts/test-governance-gate.mjs',
   'scripts/sync-official-evidence.ps1',
@@ -55,6 +53,8 @@ const required = [
   'knip.json',
   'lefthook.yml',
   '.github/workflows/verify.yml',
+  '.github/workflows/policy.yml',
+  '.github/workflows/isolation.yml',
   '.github/workflows/compatibility.yml',
   'src/runtime/authority.ts',
   'src/runtime/providers.ts',
@@ -120,27 +120,11 @@ try {
   if (!String(pkg.scripts?.['verify:policy'] ?? '').includes('test-governance-gate.mjs')) failures.push('package.json: policy gate must keep its negative policy tests')
   if (!String(pkg.scripts?.['verify:policy:declared'] ?? '').includes('--skip-git')) failures.push('package.json: declared policy gate must skip authority-remote observation')
   if (!String(pkg.scripts?.['verify:isolation'] ?? '').includes('test-worktree-layout-gate.mjs')) failures.push('package.json: isolation gate must keep its negative policy tests')
+  if (!String(pkg.scripts?.['verify:isolation:status'] ?? '').includes('verify-isolation-status.mjs')) failures.push('package.json: isolation status gate must remain independently callable')
   if (!String(pkg.scripts?.['verify:compatibility'] ?? '').includes('verify:references')) failures.push('package.json: compatibility gate must keep reference verification')
   if (pkg.files?.some(item => item === 'ref' || item.startsWith('ref/'))) failures.push('package.json: ref must not be published')
 } catch (error) {
   failures.push(`package.json: ${String(error)}`)
-}
-
-for (const name of ['dsh-agent-teams', 'jiuwenswarm']) {
-  try {
-    const pointer = JSON.parse(await readFile(join(root, 'ref', name, 'SOURCE_POINTER.json'), 'utf8'))
-    const source = join(root, 'ref', name, 'source')
-    if (!(await stat(source)).isDirectory()) {
-      failures.push(`ref/${name}/source: not a directory`)
-      continue
-    }
-    const { stdout: head } = await execFileAsync('git', ['-C', source, 'rev-parse', 'HEAD'])
-    if (head.trim() !== pointer.commit) failures.push(`ref/${name}: HEAD does not match SOURCE_POINTER.json`)
-    const { stdout: dirty } = await execFileAsync('git', ['-C', source, 'status', '--porcelain'])
-    if (dirty.trim() !== '') failures.push(`ref/${name}: source checkout is dirty`)
-  } catch (error) {
-    failures.push(`ref/${name}: ${String(error)}`)
-  }
 }
 
 try {
@@ -205,5 +189,5 @@ if (failures.length > 0) {
   for (const failure of failures) console.error(`- ${failure}`)
   process.exitCode = 1
 } else {
-  console.log('Project structure, pinned clean references, manifests, engineering gates, source size limits, UTF-8, and trailing newlines: PASS')
+  console.log('Project structure, tracked reference pointers, manifests, routed gates, source size limits, UTF-8, and trailing newlines: PASS')
 }

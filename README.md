@@ -59,6 +59,7 @@ captain（插件驱动）：
 ```bash
 pnpm install && pnpm verify:candidate  # 冻结候选：结构→lint→重复→死导出→类型×2→测试→场景→构建→产物
 pnpm verify:policy                    # 治理/指令/文档权威变化时
+pnpm verify:isolation:status          # 写入、冻结候选、集成前的廉价单检出检查
 pnpm verify:isolation                 # 隔离策略或布局变化时
 pnpm verify:compatibility             # 官方/ref 兼容性参与决策时
 ```

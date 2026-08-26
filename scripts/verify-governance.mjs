@@ -157,6 +157,7 @@ for (const phrase of [
   'roleCombinationPolicy: risk-scaled',
   'candidateAndEvidenceAuthority: git-commit-plus-check-receipts',
   'integrationAuthority: expected-main-identity',
+  'isolationStatus: pnpm-verify-isolation-status',
   'parallelWriter: forbidden',
 ]) {
   if (!binding.includes(phrase)) failures.push(`${bindingPath}: missing or changed declaration ${phrase}`)

@@ -30,18 +30,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Materialize pinned reference checkouts
-        run: |
-          pwsh ./ref/dsh-agent-teams/sync-reference.ps1
-          pwsh ./ref/jiuwenswarm/sync-reference.ps1
-
-      - name: Verify declared policy contract
-        run: pnpm verify:policy:declared
-
-      - name: Verify isolation contract
-        run: pnpm verify:isolation
-
-      - name: Full verify gate
+      - name: Candidate engineering gate
         # One targeted retry for the known upstream flake: the official
         # dsh-session-persistence-jsonl Win32 mkdir/rename race fails with
         # ENOENT on ".dsh-mkdir-*" temp dirs (recorded in the M1C exit

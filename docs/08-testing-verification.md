@@ -17,7 +17,7 @@ Repository development isolation and product runtime execution roots are differe
 
 ## 2. Claim-routed minimum evidence
 
-Every change runs affected checks, proves the real boundary it changes, preserves secret/path hygiene, and updates only affected registered authorities. During iteration, lint/type/unit failures stay in the author loop. At frozen candidate time, `pnpm verify:candidate` runs once.
+Every change runs affected checks, proves the real boundary it changes, preserves secret/path hygiene, and updates only affected registered authorities. During iteration, lint/type/unit failures stay in the author loop. The cheap `pnpm verify:isolation:status` runs before write-lane open, candidate freeze and integration. At frozen candidate time, `pnpm verify:candidate` runs once.
 
 Additional gates are conditional:
 
@@ -194,16 +194,17 @@ Mirrors the official DSH engineering family so code quality is machine-enforced 
 
 | Gate | Tool | Command | Enforcement |
 |---|---|---|---|
-| Policy contract | governance verifier + negative fixtures | `pnpm verify:policy` | claim-triggered locally; mirror CI uses declared-only mode because it cannot observe the authority remotes |
-| Repository layout compatibility | worktree verifier + negative fixtures | `pnpm verify:isolation` | claim-triggered locally and run in CI; PASS does not authorize allocation |
+| Policy contract | governance verifier + negative fixtures | `pnpm verify:policy` | claim-triggered locally and by `.github/workflows/policy.yml`; mirror CI uses declared-only mode because it cannot observe authority remotes |
+| Current isolation status | single-checkout observer | `pnpm verify:isolation:status` | cheap local write/freeze/integration boundary; exactly one branch-attached project checkout |
+| Repository layout compatibility | worktree verifier + negative fixtures | `pnpm verify:isolation` | claim-triggered locally and by `.github/workflows/isolation.yml`; PASS does not authorize allocation |
 | Lint (correctness=error, suspicious=warn) | oxlint | `pnpm lint` | candidate engineering gate; staged files on pre-commit |
 | Copy-paste duplication (60 tokens / 6 lines) | jscpd | `pnpm verify:duplication` | candidate engineering gate; 0 clones |
 | Dead exports / dead dependencies | knip | `pnpm verify:exports` | candidate engineering gate; 0 findings |
 | Unused locals / parameters | tsc `noUnusedLocals`/`noUnusedParameters` | `pnpm typecheck` | typecheck lane |
 | Source file size | `scripts/verify-project.mjs` | `pnpm verify:structure` | 600-line ceiling for `src`/`scripts`/`tests` `.ts`; exceptions registered with reason + retiring milestone (currently zero exceptions) |
 | Line endings / encoding | `.gitattributes` + verify-project | `pnpm verify:structure` | LF working tree (CRLF for `ps1`/`cmd`), UTF-8, final newline |
-| Mirror CI evidence | GitHub Actions | `.github/workflows/verify.yml` | windows-latest: declared policy, isolation and one candidate-engineering pass; mirror CI does not prove authority-target integration |
+| Mirror CI evidence | GitHub Actions | `.github/workflows/verify.yml` | windows-latest: one candidate-engineering pass only; mirror CI does not prove authority-target integration |
 | Compatibility evidence | GitHub Actions | `.github/workflows/compatibility.yml` | path/schedule/manual-triggered official/reference verification; separate from ordinary candidate CI |
 | Coverage visibility | `@vitest/coverage-v8` scoped to `src/**` | `pnpm test:coverage` | report-only unless an accepted quality profile sets a threshold |
 
-The default candidate chain is `verify:candidate -> verify:engineering -> structure -> lint -> duplication -> exports -> typecheck -> typecheck:test -> test -> scenarios -> build -> artifact`. Policy, isolation, compatibility, coverage and promotion remain separately callable claim gates. `verify-project.mjs` asserts both the engineering chain and existence of the separate guarded lanes. Repository worktree open/status/close/reconcile remains `NOT_CONFIGURED`; no task worktree may be allocated until those lifecycle controls, negative tests, a binding generation and independent acceptance land together.
+The default candidate chain is `verify:candidate -> verify:engineering -> structure -> lint -> duplication -> exports -> typecheck -> typecheck:test -> test -> scenarios -> build -> artifact`. It requires only tracked repository structure, not materialized reference checkouts. Policy, full isolation, compatibility, coverage and promotion remain separately callable claim gates. `verify-project.mjs` asserts both the engineering chain and existence of the separate guarded lanes. Repository worktree open/status/close/reconcile remains `NOT_CONFIGURED`; no task worktree may be allocated until those lifecycle controls, negative tests, a binding generation and independent acceptance land together.

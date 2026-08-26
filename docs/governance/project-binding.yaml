@@ -89,6 +89,7 @@ technical:
     - .github/workflows/verify.yml
   trustedEntryPoints:
     policy: pnpm-verify-policy
+    isolationStatus: pnpm-verify-isolation-status
     isolation: pnpm-verify-isolation
     structure: pnpm-verify-structure
     candidate: pnpm-verify-candidate
