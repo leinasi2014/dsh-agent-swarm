@@ -242,15 +242,23 @@ async function readWorkspaceSessionAccounting({
 function assertSessionFixture(target, expectedMode, expectedEvents) {
   const fixture = target?.sessionFixture
   const events = fixture?.events
-  const shapeOk = Array.isArray(events) && events.length === 2
-    && events[0]?.type === 'turn/start' && Number.isSafeInteger(events[0]?.seq)
-    && events[0]?.turn === 1
-    && events[1]?.type === 'turn/end' && events[1]?.seq === events[0].seq + 1
-    && events[1]?.turn === 1 && JSON.stringify(events[1]?.reason) === JSON.stringify({ kind: 'completed' })
+  // E2E captain/member activity legitimately adds closed turns after the
+  // original fixture pair.  Preserve the original prefix and require every
+  // observed turn to be a complete, ordered start/end pair — never merely a
+  // count threshold.
+  const shapeOk = Array.isArray(events) && events.length >= 2 && events.length % 2 === 0
+    && events.every((event, index) => {
+      const peer = events[index % 2 === 0 ? index + 1 : index - 1]
+      return Number.isSafeInteger(event?.seq)
+        && (index % 2 === 0
+          ? event?.type === 'turn/start' && peer?.type === 'turn/end' && peer.turn === event.turn && peer.seq > event.seq
+          : event?.type === 'turn/end' && JSON.stringify(event.reason) === JSON.stringify({ kind: 'completed' }))
+    })
+  const preservedPrefix = expectedEvents === undefined || JSON.stringify(events.slice(0, expectedEvents.length)) === JSON.stringify(expectedEvents)
   if (fixture?.mode !== expectedMode || !shapeOk
-    || (expectedEvents !== undefined && JSON.stringify(events) !== JSON.stringify(expectedEvents))
+    || !preservedPrefix
     || (expectedMode === 'seeded' && fixture?.priorTurnStarts !== 0)
-    || (expectedMode === 'reused' && fixture?.priorTurnStarts !== 1)
+    || (expectedMode === 'reused' && fixture?.priorTurnStarts !== (Array.isArray(events) ? events.length / 2 : -1))
     || fixture?.flushParticipated !== (expectedMode === 'seeded')) {
     throw new Error(`official closed-turn fixture mismatch: ${JSON.stringify(fixture)}`)
   }
