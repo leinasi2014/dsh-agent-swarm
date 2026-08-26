@@ -1,21 +1,20 @@
 import { execFileSync } from 'node:child_process'
 import {
-  closeSync,
   existsSync,
-  fsyncSync,
   mkdirSync,
-  openSync,
   readFileSync,
   readdirSync,
   realpathSync,
   renameSync,
   rmSync,
-  unlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { hostname } from 'node:os'
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { fileURLToPath } from 'node:url'
+import { integrationProof, outcomeStillProven } from './worktree-lifecycle-proof.mjs'
+import { recoverDeadLock, withAuthorityLock as locked } from './worktree-lifecycle-lock.mjs'
+const coreSourceRoot = realpathSync(resolve(fileURLToPath(new URL('..', import.meta.url))))
 export class LifecycleError extends Error {
   constructor(code, message) {
     super(message)
@@ -58,9 +57,6 @@ function comparable(path) {
 function directChild(parent, child) {
   const rel = relative(parent, child)
   return rel !== '' && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel) && !rel.includes(sep)
-}
-function sleep(milliseconds) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds)
 }
 export function discoverRepository(cwd = process.cwd()) {
   const currentRoot = realpathSync(resolve(git(['rev-parse', '--show-toplevel'], cwd)))
@@ -107,6 +103,7 @@ function emptyState() {
     authorityEpoch: 3,
     revision: 0,
     allocations: {},
+    history: {},
   }
 }
 export function readState(repository, { allowMissing = true } = {}) {
@@ -120,14 +117,14 @@ export function readState(repository, { allowMissing = true } = {}) {
   } catch {
     throw new LifecycleError('AUTHORITY_CORRUPT', 'isolation authority state is not valid JSON')
   }
-  if (state?.schemaVersion !== 1 || state?.authorityEpoch !== 3 || !Number.isInteger(state?.revision) || state.revision < 0 || typeof state?.allocations !== 'object' || state.allocations === null || Array.isArray(state.allocations)) {
+  if (state?.schemaVersion !== 1 || state?.authorityEpoch !== 3 || !Number.isInteger(state?.revision) || state.revision < 0 || typeof state?.allocations !== 'object' || state.allocations === null || Array.isArray(state.allocations) || typeof state?.history !== 'object' || state.history === null || Array.isArray(state.history)) {
     throw new LifecycleError('AUTHORITY_CORRUPT', 'isolation authority state has an unsupported schema')
   }
   for (const [id, allocation] of Object.entries(state.allocations)) {
     const valid = allocation?.id === id
       && /^[a-z0-9][a-z0-9._-]*$/u.test(id)
       && Number.isInteger(allocation.generation) && allocation.generation > 0
-      && ['OPENING', 'ACTIVE', 'CLOSING', 'CLOSED', 'UNKNOWN'].includes(allocation.state)
+      && ['OPENING', 'ACTIVE', 'CLOSING', 'CLOSED', 'ABORTED', 'UNKNOWN'].includes(allocation.state)
       && typeof allocation.owner === 'string' && allocation.owner !== ''
       && typeof allocation.base === 'string' && /^[0-9a-f]{40}$/u.test(allocation.base)
       && typeof allocation.branch === 'string' && allocation.branch !== ''
@@ -135,15 +132,31 @@ export function readState(repository, { allowMissing = true } = {}) {
       && (allocation.candidate === null || (typeof allocation.candidate === 'string' && /^[0-9a-f]{40}$/u.test(allocation.candidate)))
       && (allocation.outcome === null || ['integrated', 'archived'].includes(allocation.outcome))
       && (allocation.archiveRef === null || (typeof allocation.archiveRef === 'string' && allocation.archiveRef.startsWith('refs/archive/')))
+      && (allocation.integrationHead === null || /^[0-9a-f]{40}$/u.test(allocation.integrationHead))
       && typeof allocation.result === 'string'
       && typeof allocation.updatedAt === 'string'
     if (!valid) throw new LifecycleError('AUTHORITY_CORRUPT', `allocation ${id} has an unsupported schema`)
     const settled = ['CLOSING', 'CLOSED'].includes(allocation.state)
+    const current = ['OPENING', 'ACTIVE', 'ABORTED'].includes(allocation.state)
     if ((settled && (allocation.candidate === null || allocation.outcome === null))
-      || (!settled && (allocation.candidate !== null || allocation.outcome !== null || allocation.archiveRef !== null))
+      || (current && (allocation.candidate !== null || allocation.outcome !== null || allocation.archiveRef !== null || allocation.integrationHead !== null))
+      || ((allocation.candidate === null) !== (allocation.outcome === null))
       || (allocation.outcome === 'archived' && allocation.archiveRef === null)
-      || (allocation.outcome !== 'archived' && allocation.archiveRef !== null)) {
+      || (allocation.outcome !== 'archived' && allocation.archiveRef !== null)
+      || (allocation.outcome === 'integrated' && allocation.integrationHead === null)
+      || (allocation.outcome !== 'integrated' && allocation.integrationHead !== null)) {
       throw new LifecycleError('AUTHORITY_CORRUPT', `allocation ${id} has inconsistent disposition evidence`)
+    }
+  }
+  for (const [id, entries] of Object.entries(state.history)) {
+    if (!Array.isArray(entries) || entries.some(entry => entry?.id !== id || !Number.isInteger(entry.generation) || entry.generation < 1
+      || !['CLOSED', 'ABORTED', 'UNKNOWN'].includes(entry.state) || !/^[0-9a-f]{40}$/u.test(entry.base) || typeof entry.branch !== 'string'
+      || typeof entry.path !== 'string' || !isAbsolute(entry.path) || typeof entry.result !== 'string' || typeof entry.updatedAt !== 'string'
+      || (entry.state === 'ABORTED' ? entry.candidate !== null || entry.outcome !== null || entry.archiveRef !== null || entry.integrationHead !== null
+        : !/^[0-9a-f]{40}$/u.test(entry.candidate) || !['integrated', 'archived'].includes(entry.outcome)
+          || (entry.outcome === 'archived' ? typeof entry.archiveRef !== 'string' || !entry.archiveRef.startsWith('refs/archive/') : entry.archiveRef !== null)
+          || (entry.outcome === 'integrated' ? !/^[0-9a-f]{40}$/u.test(entry.integrationHead) : entry.integrationHead !== null)))) {
+      throw new LifecycleError('AUTHORITY_CORRUPT', `history ${id} has an unsupported schema`)
     }
   }
   const active = Object.values(state.allocations).filter(allocation => activeAllocation(allocation))
@@ -158,90 +171,25 @@ function writeState(repository, state) {
   mkdirSync(repository.authorityRoot, { recursive: true })
   const next = { ...state, revision: state.revision + 1 }
   const temporary = join(repository.authorityRoot, `.state-${process.pid}-${randomUUID()}.tmp`)
-  const descriptor = openSync(temporary, 'wx')
-  try {
-    writeFileSync(descriptor, `${JSON.stringify(next, null, 2)}\n`, 'utf8')
-  } finally {
-    closeSync(descriptor)
-  }
+  writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' })
   renameSync(temporary, repository.statePath)
   return next
 }
 export function withAuthorityLock(repository, callback, timeoutMilliseconds = 2_000) {
   mkdirSync(repository.authorityRoot, { recursive: true })
-  const deadline = Date.now() + timeoutMilliseconds
-  let nonce
-  while (true) {
-    try {
-      nonce = randomUUID()
-      const descriptor = openSync(repository.lockPath, 'wx')
-      try {
-        writeFileSync(descriptor, `${JSON.stringify({
-        schemaVersion: 1,
-        hostname: hostname(),
-        pid: process.pid,
-        startedAt: new Date().toISOString(),
-        nonce,
-        })}\n`, 'utf8')
-        fsyncSync(descriptor)
-      } finally {
-        closeSync(descriptor)
-      }
-      break
-    } catch (error) {
-      if (!existsSync(repository.lockPath)) throw error
-      if (Date.now() >= deadline) throw new LifecycleError('LOCK_BUSY', 'isolation authority lock is busy; it was not broken automatically')
-      sleep(25)
-    }
-  }
-  try {
-    return callback()
-  } finally {
-    try {
-      const owner = JSON.parse(readFileSync(repository.lockPath, 'utf8'))
-      if (owner?.nonce === nonce) unlinkSync(repository.lockPath)
-    } catch {
-      // A replaced or unreadable lock is never removed by a former holder.
-    }
-  }
-}
-function processIsAlive(pid) {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (error) {
-    if (error.code === 'ESRCH') return false
-    throw new LifecycleError('LOCK_OWNER_UNKNOWN', 'lock owner liveness cannot be proven')
-  }
+  const testTimeout = Number(process.env.DSH_ISOLATION_TEST_LOCK_TIMEOUT)
+  return locked(repository, callback, LifecycleError, Number.isInteger(testTimeout) && testTimeout > 0 ? testTimeout : timeoutMilliseconds)
 }
 export function recoverAuthorityLock({ cwd } = {}) {
   const repository = discoverRepository(cwd)
   requirePrimaryCaller(repository)
   const records = ensurePrimaryReady(repository)
   assertNoUnmanaged(repository, readState(repository), records)
-  if (!existsSync(repository.lockPath)) return { recovered: false, reason: 'no-lock' }
-  let owner
-  try {
-    owner = JSON.parse(readFileSync(repository.lockPath, 'utf8'))
-  } catch {
-    throw new LifecycleError('LOCK_OWNER_UNKNOWN', 'lock has no valid owner identity and was not broken')
-  }
-  if (owner?.schemaVersion !== 1 || owner.hostname !== hostname() || !Number.isInteger(owner.pid) || owner.pid <= 0 || typeof owner.nonce !== 'string') {
-    throw new LifecycleError('LOCK_OWNER_UNKNOWN', 'lock owner identity is not locally provable and was not broken')
-  }
-  if (processIsAlive(owner.pid)) throw new LifecycleError('LOCK_BUSY', 'lock owner process is still alive')
-  const tombstone = `${repository.lockPath}.recovered-${owner.nonce}-${randomUUID()}`
-  try {
-    renameSync(repository.lockPath, tombstone)
-  } catch {
-    throw new LifecycleError('LOCK_BUSY', 'lock changed during recovery; it was not broken')
-  }
-  unlinkSync(tombstone)
-  return { recovered: true, owner: { hostname: owner.hostname, pid: owner.pid, startedAt: owner.startedAt } }
+  return recoverDeadLock(repository, LifecycleError)
 }
 function assertSlug(id) {
   const windowsReserved = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/u
-  if (!/^[a-z0-9][a-z0-9._-]*$/u.test(id) || id.endsWith('.') || windowsReserved.test(id)) {
+  if (!/^[a-z0-9][a-z0-9._-]*$/u.test(id) || id.endsWith('.') || windowsReserved.test(id.split('.')[0])) {
     throw new LifecycleError('INVALID_ID', 'allocation id must be a portable stable lowercase slug')
   }
 }
@@ -258,13 +206,11 @@ function primaryFacts(repository) {
   }
   return { records, primary }
 }
-
 function requireClean(path, code = 'DIRTY_OR_UNTRACKED') {
   if (git(['status', '--porcelain', '--untracked-files=all'], path) !== '') {
     throw new LifecycleError(code, `checkout is dirty or has untracked files: ${path}`)
   }
 }
-
 function integrationBranch() {
   return 'main'
 }
@@ -278,8 +224,17 @@ function ensurePrimaryReady(repository) {
 }
 
 function requirePrimaryCaller(repository) {
-  if (comparable(repository.currentRoot) !== comparable(repository.primaryRoot)) {
+  if (comparable(repository.currentRoot) !== comparable(repository.primaryRoot) || comparable(coreSourceRoot) !== comparable(repository.primaryRoot)) {
     throw new LifecycleError('MUTATION_REQUIRES_PRIMARY', 'lifecycle mutation must load from the accepted primary checkout')
+  }
+}
+
+export function assertLifecycleCliSource({ cwd, sourceUrl }) {
+  const repository = discoverRepository(cwd)
+  requirePrimaryCaller(repository)
+  const cliRoot = realpathSync(resolve(fileURLToPath(new URL('..', sourceUrl))))
+  if (comparable(cliRoot) !== comparable(repository.primaryRoot)) {
+    throw new LifecycleError('MUTATION_REQUIRES_PRIMARY', 'lifecycle CLI must load from the accepted primary checkout')
   }
 }
 
@@ -301,6 +256,10 @@ function assertNoUnmanaged(repository, state, records) {
   for (const allocation of Object.values(state.allocations)) {
     const observed = inspectAllocation(repository, allocation, records)
     if (observed.failures.length > 0) throw new LifecycleError(observed.failures[0], `allocation ${allocation.id} is drifted`)
+  }
+  for (const entries of Object.values(state.history)) for (const allocation of entries) {
+    const observed = inspectAllocation(repository, allocation, records, true)
+    if (observed.failures.length > 0) throw new LifecycleError(observed.failures[0], `history ${allocation.id}/${allocation.generation} is drifted`)
   }
   for (const record of records.slice(1)) {
     if (!Object.values(state.allocations).some(allocation => comparable(allocation.path) === comparable(record.path))) {
@@ -333,23 +292,6 @@ function nextGeneration(existing) {
 
 function activeAllocation(allocation) {
   return allocation.state === 'OPENING' || allocation.state === 'ACTIVE' || allocation.state === 'CLOSING' || allocation.state === 'UNKNOWN'
-}
-
-function archivePreserves(repository, archiveRef, candidate) {
-  return typeof archiveRef === 'string'
-    && archiveRef.startsWith('refs/archive/')
-    && gitSucceeds(['check-ref-format', archiveRef], repository.primaryRoot)
-    && gitSucceeds(['show-ref', '--verify', '--quiet', archiveRef], repository.primaryRoot)
-    && git(['rev-parse', `${archiveRef}^{commit}`], repository.primaryRoot, true) === candidate
-}
-
-function outcomeProven(repository, outcome, candidate, archiveRef) {
-  if (outcome === 'integrated') {
-    const integrationHead = git(['rev-parse', 'HEAD'], repository.primaryRoot)
-    return gitSucceeds(['merge-base', '--is-ancestor', candidate, integrationHead], repository.primaryRoot)
-      || patchEquivalent(repository, integrationHead, candidate)
-  }
-  return outcome === 'archived' && archivePreserves(repository, archiveRef, candidate)
 }
 
 export function openAllocation({ cwd, id, branch, base, owner }) {
@@ -388,10 +330,12 @@ export function openAllocation({ cwd, id, branch, base, owner }) {
       candidate: null,
       outcome: null,
       archiveRef: null,
+      integrationHead: null,
       result: 'intent-recorded',
       updatedAt: new Date().toISOString(),
     }
-    state = writeState(repository, { ...state, allocations: { ...state.allocations, [id]: allocation } })
+    const history = existing === undefined ? state.history : { ...state.history, [id]: [...(state.history[id] ?? []), existing] }
+    state = writeState(repository, { ...state, history, allocations: { ...state.allocations, [id]: allocation } })
     try {
       mkdirSync(repository.worktreeRoot, { recursive: true })
       assertRealContainer(repository)
@@ -408,7 +352,7 @@ export function openAllocation({ cwd, id, branch, base, owner }) {
   })
 }
 
-function inspectAllocation(repository, allocation, records) {
+function inspectAllocation(repository, allocation, records, historical = false) {
   const failures = []
   let pathExists = existsSync(allocation.path)
   const record = records.find(item => comparable(item.path) === comparable(allocation.path))
@@ -433,11 +377,10 @@ function inspectAllocation(repository, allocation, records) {
         failures.push('ALLOCATION_DRIFT')
       }
     }
-  } else if (pathExists || record !== undefined) {
+  } else if (!historical && (pathExists || record !== undefined)) {
     failures.push('ALLOCATION_DRIFT')
   }
-  if (['CLOSING', 'CLOSED'].includes(allocation.state)
-    && !outcomeProven(repository, allocation.outcome, allocation.candidate, allocation.archiveRef)) {
+  if (['CLOSING', 'CLOSED'].includes(allocation.state) && !outcomeStillProven(repository, allocation)) {
     failures.push('OUTCOME_UNPROVEN')
   }
   return { ...allocation, pathExists, registered: record !== undefined, observedHead: record?.head ?? null, failures: [...new Set(failures)] }
@@ -451,6 +394,7 @@ function unlockedStatusReport({ cwd, requireHealthy = false } = {}) {
   const expectedPrimaryBranch = integrationBranch(repository)
   if (primary.branch !== expectedPrimaryBranch) failures.push('PRIMARY_NOT_INTEGRATION_REF')
   const allocations = Object.values(state.allocations).map(allocation => inspectAllocation(repository, allocation, records))
+  const history = Object.values(state.history).flat().map(allocation => inspectAllocation(repository, allocation, records, true))
   if (allocations.filter(allocation => activeAllocation(allocation)).length > 2) failures.push('CAPACITY_EXCEEDED')
   for (const allocation of allocations) {
     if (['OPENING', 'CLOSING', 'UNKNOWN'].includes(allocation.state)) failures.push('RESULT_UNKNOWN')
@@ -468,12 +412,14 @@ function unlockedStatusReport({ cwd, requireHealthy = false } = {}) {
     failures.push(error instanceof LifecycleError ? error.code : 'PATH_ESCAPE')
   }
   for (const allocation of allocations) failures.push(...allocation.failures)
+  for (const allocation of history) failures.push(...allocation.failures)
   const report = {
     schemaVersion: 1,
     authorityEpoch: state.authorityEpoch,
     revision: state.revision,
     primary: { path: repository.primaryRoot, branch: primary.branch ?? null, head: primary.head },
     allocations,
+    history,
     healthy: failures.length === 0,
     failures: [...new Set(failures)],
   }
@@ -484,12 +430,6 @@ function unlockedStatusReport({ cwd, requireHealthy = false } = {}) {
 export function statusReport({ cwd, requireHealthy = false } = {}) {
   const repository = discoverRepository(cwd)
   return withAuthorityLock(repository, () => unlockedStatusReport({ cwd, requireHealthy }))
-}
-
-function patchEquivalent(repository, integrationHead, candidate) {
-  if (candidate === integrationHead) return true
-  const cherry = git(['cherry', integrationHead, candidate], repository.primaryRoot, true)
-  return cherry !== '' && cherry.split(/\r?\n/u).every(line => line.startsWith('- '))
 }
 
 export function closeAllocation({ cwd, id, generation, owner, outcome, archiveRef }) {
@@ -508,16 +448,19 @@ export function closeAllocation({ cwd, id, generation, owner, outcome, archiveRe
     requireClean(allocation.path)
     const candidate = git(['rev-parse', 'HEAD'], allocation.path)
     let persistedArchiveRef = null
+    let integrationHead = null
     if (outcome === 'archived') {
       if (!archiveRef) throw new LifecycleError('OUTCOME_UNPROVEN', 'archived close requires --archive-ref')
       persistedArchiveRef = archiveRef
     } else if (outcome !== 'integrated') {
       throw new LifecycleError('OUTCOME_UNPROVEN', 'close outcome must be integrated or archived')
     }
-    if (!outcomeProven(repository, outcome, candidate, persistedArchiveRef)) {
+    if (outcome === 'integrated') integrationHead = integrationProof(repository, allocation.base, candidate)
+    const disposition = { ...allocation, candidate, outcome, archiveRef: persistedArchiveRef, integrationHead }
+    if (outcome === 'integrated' ? integrationHead === null : !outcomeStillProven(repository, disposition)) {
       throw new LifecycleError('OUTCOME_UNPROVEN', 'candidate disposition is not proven by integration or durable archive')
     }
-    const closing = { ...allocation, state: 'CLOSING', candidate, outcome, archiveRef: persistedArchiveRef, result: 'close-intent-recorded', updatedAt: new Date().toISOString() }
+    const closing = { ...disposition, state: 'CLOSING', result: 'close-intent-recorded', updatedAt: new Date().toISOString() }
     state = writeState(repository, { ...state, allocations: { ...state.allocations, [id]: closing } })
     try {
       git(['worktree', 'remove', allocation.path], repository.primaryRoot)
@@ -541,6 +484,14 @@ export function reconcileAllocations({ cwd, repair = false } = {}) {
     const records = primaryFacts(repository).records
     const actions = []
     const nextAllocations = { ...state.allocations }
+    const nextHistory = { ...state.history }
+    const { primary } = primaryFacts(repository)
+    if (primary.branch !== integrationBranch(repository)) actions.push({ id: 'primary', from: primary.branch ?? 'DETACHED', to: 'UNKNOWN', unsafe: true })
+    try { requireClean(repository.primaryRoot, 'PRIMARY_DIRTY') } catch (error) { actions.push({ id: 'primary', from: 'DIRTY', to: 'UNKNOWN', unsafe: true, code: error.code ?? 'PRIMARY_DIRTY' }) }
+    if (Object.values(state.allocations).filter(activeAllocation).length > 2) actions.push({ id: 'capacity', from: 'OVER_CAPACITY', to: 'UNKNOWN', unsafe: true })
+    if (existsSync(repository.worktreeRoot)) {
+      try { assertRealContainer(repository) } catch (error) { actions.push({ id: '.worktree', from: 'UNMANAGED', to: 'UNKNOWN', unsafe: true, code: error.code ?? 'PATH_ESCAPE' }) }
+    }
     for (const allocation of Object.values(state.allocations)) {
       const observed = inspectAllocation(repository, allocation, records)
       if (allocation.state === 'ACTIVE' && observed.failures.length > 0) {
@@ -549,19 +500,36 @@ export function reconcileAllocations({ cwd, repair = false } = {}) {
       } else if (allocation.state === 'CLOSED' && observed.failures.length > 0) {
         actions.push({ id: allocation.id, from: allocation.state, to: 'UNKNOWN', unsafe: true })
         nextAllocations[allocation.id] = { ...allocation, state: 'UNKNOWN', result: 'repair-unsafe', updatedAt: new Date().toISOString() }
+      } else if (allocation.state === 'OPENING' && !observed.registered && !observed.pathExists && git(['rev-parse', `refs/heads/${allocation.branch}`], repository.primaryRoot, true) === '') {
+        actions.push({ id: allocation.id, from: allocation.state, to: 'ABORTED' })
+        nextAllocations[allocation.id] = { ...allocation, state: 'ABORTED', result: 'reconciled-open-not-applied', updatedAt: new Date().toISOString() }
+      } else if (allocation.state === 'OPENING' && !observed.registered && !observed.pathExists && git(['rev-parse', `refs/heads/${allocation.branch}`], repository.primaryRoot, true) === allocation.base) {
+        actions.push({ id: allocation.id, from: allocation.state, to: 'ABORTED', deleteBranch: allocation.branch, base: allocation.base })
+        nextAllocations[allocation.id] = { ...allocation, state: 'ABORTED', result: 'reconciled-empty-branch', updatedAt: new Date().toISOString() }
       } else if (observed.registered && observed.pathExists && observed.failures.length === 0 && observed.observedHead === allocation.base && allocation.state === 'OPENING') {
         actions.push({ id: allocation.id, from: allocation.state, to: 'ACTIVE' })
         nextAllocations[allocation.id] = { ...allocation, state: 'ACTIVE', result: 'reconciled-open', updatedAt: new Date().toISOString() }
       } else if (observed.registered && observed.pathExists && observed.failures.length === 0 && allocation.state === 'CLOSING') {
         actions.push({ id: allocation.id, from: allocation.state, to: 'ACTIVE' })
-        nextAllocations[allocation.id] = { ...allocation, state: 'ACTIVE', candidate: null, outcome: null, archiveRef: null, result: 'reconciled-close-not-applied', updatedAt: new Date().toISOString() }
+        nextAllocations[allocation.id] = { ...allocation, state: 'ACTIVE', candidate: null, outcome: null, archiveRef: null, integrationHead: null, result: 'reconciled-close-not-applied', updatedAt: new Date().toISOString() }
       } else if (!observed.registered && !observed.pathExists && allocation.state === 'CLOSING'
-        && outcomeProven(repository, allocation.outcome, allocation.candidate, allocation.archiveRef)) {
+        && outcomeStillProven(repository, allocation)) {
         actions.push({ id: allocation.id, from: allocation.state, to: 'CLOSED' })
         nextAllocations[allocation.id] = { ...allocation, state: 'CLOSED', result: 'reconciled-close', updatedAt: new Date().toISOString() }
       } else if (['OPENING', 'CLOSING', 'UNKNOWN'].includes(allocation.state)) {
         actions.push({ id: allocation.id, from: allocation.state, to: 'UNKNOWN', unsafe: true })
         nextAllocations[allocation.id] = { ...allocation, state: 'UNKNOWN', result: 'repair-unsafe', updatedAt: new Date().toISOString() }
+      }
+    }
+    for (const [id, entries] of Object.entries(state.history)) {
+      for (let index = 0; index < entries.length; index += 1) {
+        const observed = inspectAllocation(repository, entries[index], records, true)
+        if (observed.failures.length > 0) {
+          actions.push({ id: `${id}/${entries[index].generation}`, from: entries[index].state, to: 'UNKNOWN', unsafe: true })
+          const repaired = { ...entries[index], state: 'UNKNOWN', result: 'repair-unsafe', updatedAt: new Date().toISOString() }
+          nextHistory[id] = [...(nextHistory[id] ?? entries)]
+          nextHistory[id][index] = repaired
+        }
       }
     }
     for (const record of records.slice(1)) {
@@ -580,19 +548,18 @@ export function reconcileAllocations({ cwd, repair = false } = {}) {
     if (repair && actions.length > 0) {
       const safe = actions.every(action => action.unsafe !== true)
       if (!safe) {
-        writeState(repository, { ...state, allocations: nextAllocations })
+        writeState(repository, { ...state, allocations: nextAllocations, history: nextHistory })
         throw new LifecycleError('REPAIR_UNSAFE', 'reconcile classified an ambiguous lifecycle state as UNKNOWN; no Git repair was applied')
       }
-      return { actions, state: writeState(repository, { ...state, allocations: nextAllocations }) }
+      for (const action of actions) if (action.deleteBranch && !gitSucceeds(['update-ref', '-d', `refs/heads/${action.deleteBranch}`, action.base], repository.primaryRoot)) throw new LifecycleError('ALLOCATION_DRIFT', 'empty OPENING branch changed during reconciliation')
+      return { actions, state: writeState(repository, { ...state, allocations: nextAllocations, history: nextHistory }) }
     }
     return { actions, state }
   }
   if (repair) {
     requirePrimaryCaller(repository)
-    ensurePrimaryReady(repository)
     return withAuthorityLock(repository, () => {
       requirePrimaryCaller(repository)
-      ensurePrimaryReady(repository)
       return inspect()
     })
   }

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import {
   LifecycleError,
+  assertLifecycleCliSource,
   closeAllocation,
   openAllocation,
   recoverAuthorityLock,
@@ -82,6 +83,9 @@ function print(value, json) {
 
 try {
   const options = parse(process.argv.slice(2))
+  if (['open', 'close'].includes(options.command) || (options.command === 'reconcile' && (options.repair || options.recoverLock))) {
+    assertLifecycleCliSource({ cwd: process.cwd(), sourceUrl: import.meta.url })
+  }
   let result
   switch (options.command) {
     case 'open':

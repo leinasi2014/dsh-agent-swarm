@@ -47,6 +47,8 @@ const required = [
   'scripts/verify-worktree-layout.mjs',
   'scripts/verify-isolation-status.mjs',
   'scripts/worktree-lifecycle-core.mjs',
+  'scripts/worktree-lifecycle-lock.mjs',
+  'scripts/worktree-lifecycle-proof.mjs',
   'scripts/worktree-lifecycle.mjs',
   'scripts/test-worktree-lifecycle-gate.mjs',
   'scripts/verify-governance.mjs',
@@ -133,6 +135,7 @@ try {
   if (!String(pkg.scripts?.['verify:policy'] ?? '').includes('test-governance-gate.mjs')) failures.push('package.json: policy gate must keep its negative policy tests')
   if (!String(pkg.scripts?.['verify:policy:declared'] ?? '').includes('--skip-git')) failures.push('package.json: declared policy gate must skip authority-remote observation')
   if (!String(pkg.scripts?.['verify:isolation'] ?? '').includes('test-worktree-layout-gate.mjs')) failures.push('package.json: isolation gate must keep its negative policy tests')
+  if (!String(pkg.scripts?.['verify:isolation'] ?? '').includes('verify:isolation:lifecycle') || !String(pkg.scripts?.['verify:isolation:lifecycle'] ?? '').includes('test-worktree-lifecycle-gate.mjs')) failures.push('package.json: isolation gate must route the lifecycle negative test')
   if (!String(pkg.scripts?.['verify:isolation:status'] ?? '').includes('verify-isolation-status.mjs')) failures.push('package.json: isolation status gate must remain independently callable')
   if (!String(pkg.scripts?.['verify:compatibility'] ?? '').includes('verify:references')) failures.push('package.json: compatibility gate must keep reference verification')
   if (pkg.scripts?.['p0:profile-proof'] !== 'node scripts/p0/run.mjs') failures.push('package.json: P0 Profile proof entry is missing')

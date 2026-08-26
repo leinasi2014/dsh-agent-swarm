@@ -5,6 +5,10 @@ on:
   pull_request:
     paths:
       - 'docs/governance/project-binding.yaml'
+      - 'docs/adr/0011-managed-development-isolation.md'
+      - 'docs/07-implementation-roadmap.md'
+      - 'docs/11-official-first-development.md'
+      - '.agents/skills/dsh-plugin-development/SKILL.md'
       - 'docs/08-testing-verification.md'
       - 'AGENTS.md'
       - 'CONTRIBUTING.md'
@@ -14,6 +18,8 @@ on:
       - 'scripts/verify-worktree-layout.mjs'
       - 'scripts/test-worktree-layout-gate.mjs'
       - 'scripts/worktree-lifecycle-core.mjs'
+      - 'scripts/worktree-lifecycle-lock.mjs'
+      - 'scripts/worktree-lifecycle-proof.mjs'
       - 'scripts/worktree-lifecycle.mjs'
       - 'scripts/test-worktree-lifecycle-gate.mjs'
       - 'package.json'
@@ -22,6 +28,10 @@ on:
     branches: [main]
     paths:
       - 'docs/governance/project-binding.yaml'
+      - 'docs/adr/0011-managed-development-isolation.md'
+      - 'docs/07-implementation-roadmap.md'
+      - 'docs/11-official-first-development.md'
+      - '.agents/skills/dsh-plugin-development/SKILL.md'
       - 'docs/08-testing-verification.md'
       - 'AGENTS.md'
       - 'CONTRIBUTING.md'
@@ -31,6 +41,8 @@ on:
       - 'scripts/verify-worktree-layout.mjs'
       - 'scripts/test-worktree-layout-gate.mjs'
       - 'scripts/worktree-lifecycle-core.mjs'
+      - 'scripts/worktree-lifecycle-lock.mjs'
+      - 'scripts/worktree-lifecycle-proof.mjs'
       - 'scripts/worktree-lifecycle.mjs'
       - 'scripts/test-worktree-lifecycle-gate.mjs'
       - 'package.json'

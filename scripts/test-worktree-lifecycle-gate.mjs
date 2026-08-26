@@ -1,29 +1,33 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { hostname, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
-const cli = resolve('scripts/worktree-lifecycle.mjs')
+const sourceScripts = resolve('scripts')
 const fixtureRoot = mkdtempSync(join(tmpdir(), 'dsh-isolation-lifecycle-'))
 const repo = join(fixtureRoot, 'repo')
+let cli
 
 function git(args, cwd = repo) {
   return execFileSync('git', args, {
     cwd,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
-    timeout: 30_000,
+    timeout: 5_000,
     windowsHide: true,
   }).trim()
 }
 
 function run(args, cwd = repo) {
-  return spawnSync(process.execPath, [cli, ...args], {
+  const result = spawnSync(process.execPath, [cli, ...args], {
     cwd,
+    env: { ...process.env, DSH_ISOLATION_TEST_LOCK_TIMEOUT: '100' },
     encoding: 'utf8',
     timeout: 30_000,
     windowsHide: true,
   })
+  if (result.status === null) throw new Error(`lifecycle child timed out: ${args.join(' ')}`)
+  return result
 }
 
 function expectSuccess(label, args, cwd = repo) {
@@ -42,6 +46,11 @@ function json(args, cwd = repo) {
   return JSON.parse(expectSuccess(args.join(' '), [...args, '--json'], cwd).stdout)
 }
 
+function resultJson(args, cwd = repo) {
+  const result = run([...args, '--json'], cwd)
+  return JSON.parse(result.stdout)
+}
+
 function authorityStatePath() {
   const common = resolve(repo, git(['rev-parse', '--git-common-dir']))
   return join(common, 'dsh-agent-swarm-isolation', 'v1', 'state.json')
@@ -53,13 +62,22 @@ try {
   git(['config', 'user.email', 'lifecycle-test@example.invalid'])
   git(['config', 'user.name', 'Lifecycle Test'])
   git(['config', 'dsh-agent-swarm.integration-ref', 'main'])
-  writeFileSync(join(repo, '.gitignore'), '/.worktree/\n')
+  writeFileSync(join(repo, '.gitignore'), '/.worktree/\n/scripts/\n')
   writeFileSync(join(repo, 'README.md'), '# fixture\n')
   git(['add', '.'])
   git(['commit', '--no-gpg-sign', '-m', 'test: initial'])
+  mkdirSync(join(repo, 'scripts'))
+  for (const name of ['worktree-lifecycle.mjs', 'worktree-lifecycle-core.mjs', 'worktree-lifecycle-proof.mjs', 'worktree-lifecycle-lock.mjs']) copyFileSync(join(sourceScripts, name), join(repo, 'scripts', name))
+  cli = join(repo, 'scripts', 'worktree-lifecycle.mjs')
 
   const initial = json(['status'])
   if (!initial.healthy || initial.allocations.length !== 0) throw new Error('empty authority must be healthy')
+
+  const externalScripts = join(fixtureRoot, 'candidate-scripts')
+  mkdirSync(externalScripts)
+  for (const name of ['worktree-lifecycle.mjs', 'worktree-lifecycle-core.mjs', 'worktree-lifecycle-proof.mjs', 'worktree-lifecycle-lock.mjs']) copyFileSync(join(sourceScripts, name), join(externalScripts, name))
+  const external = spawnSync(process.execPath, [join(externalScripts, 'worktree-lifecycle.mjs'), 'open', '--id', 'external-code', '--branch', 'test/external-code', '--owner', 'writer-x'], { cwd: repo, encoding: 'utf8', timeout: 5_000, windowsHide: true })
+  if (external.status === 0 || !`${external.stdout}\n${external.stderr}`.includes('MUTATION_REQUIRES_PRIMARY')) throw new Error('primary cwd must reject lifecycle code loaded outside the primary source root')
 
   writeFileSync(join(repo, 'primary-dirty.txt'), 'dirty\n')
   expectFailure('dirty primary rejects mutation before lock acquisition', ['open', '--id', 'dirty-primary', '--branch', 'test/dirty-primary', '--owner', 'writer-a'], 'PRIMARY_DIRTY')
@@ -67,6 +85,7 @@ try {
   rmSync(join(repo, 'primary-dirty.txt'))
 
   expectFailure('invalid id', ['open', '--id', '../escape', '--branch', 'test/escape', '--owner', 'writer-a'], 'INVALID_ID')
+  expectFailure('windows reserved filename', ['open', '--id', 'con.txt', '--branch', 'test/con', '--owner', 'writer-a'], 'INVALID_ID')
   expectFailure('invalid branch', ['open', '--id', 'bad-branch', '--branch', '-bad', '--owner', 'writer-a'], 'INVALID_BRANCH')
   const first = json(['open', '--id', 'alpha', '--branch', 'test/alpha', '--owner', 'writer-a'])
   if (first.state !== 'ACTIVE' || first.generation !== 1 || first.owner !== 'writer-a') throw new Error('open did not publish ACTIVE generation 1')
@@ -108,7 +127,7 @@ try {
   const overCapacity = JSON.parse(readFileSync(authorityStatePath(), 'utf8'))
   overCapacity.allocations.delta = {
     id: 'delta', generation: 1, state: 'ACTIVE', owner: 'writer-d', base: git(['rev-parse', 'HEAD']),
-    branch: 'test/delta', path: deltaPath, candidate: null, outcome: null, archiveRef: null, result: 'opened', updatedAt: new Date().toISOString(),
+    branch: 'test/delta', path: deltaPath, candidate: null, outcome: null, archiveRef: null, integrationHead: null, result: 'opened', updatedAt: new Date().toISOString(),
   }
   writeFileSync(authorityStatePath(), `${JSON.stringify(overCapacity, null, 2)}\n`)
   expectFailure('observed over-capacity state', ['status'], 'CAPACITY_EXCEEDED')
@@ -141,6 +160,7 @@ try {
   renameSync(managedContainer, escapedContainer)
   symlinkSync(escapedContainer, managedContainer, process.platform === 'win32' ? 'junction' : 'dir')
   expectFailure('junction container escapes the primary checkout', ['status'], 'PATH_ESCAPE')
+  expectFailure('junction container reconcile is unsafe', ['reconcile'], 'UNMANAGED')
   rmSync(managedContainer, { recursive: true, force: true })
   renameSync(escapedContainer, managedContainer)
 
@@ -182,7 +202,29 @@ try {
   expectFailure('unknown freezes open', ['open', '--id', 'delta', '--branch', 'test/delta', '--owner', 'writer-d'], 'RESULT_UNKNOWN')
   const classified = JSON.parse(readFileSync(statePath, 'utf8'))
   if (classified.allocations.beta.state !== 'UNKNOWN') throw new Error('unsafe reconcile did not persist UNKNOWN classification')
-  console.log('Project-owned isolation lifecycle: positive open/close/archive/recovery and 29 negative cases: PASS')
+
+  git(['update-ref', '-d', 'refs/archive/alpha-2'])
+  expectFailure('closed archive evidence drift status', ['status'], 'RESULT_UNKNOWN')
+  const closedPreview = resultJson(['reconcile'])
+  if (!closedPreview.actions.some(action => action.id === 'alpha' && action.from === 'CLOSED' && action.to === 'UNKNOWN')) throw new Error('closed archive evidence drift was not classified UNKNOWN')
+  expectFailure('closed archive evidence drift repair', ['reconcile', '--repair'], 'REPAIR_UNSAFE')
+  const closedClassified = JSON.parse(readFileSync(statePath, 'utf8')).allocations.alpha
+  if (closedClassified.state !== 'UNKNOWN' || closedClassified.candidate !== archiveCandidate || closedClassified.outcome !== 'archived' || closedClassified.archiveRef !== 'refs/archive/alpha-2') {
+    throw new Error('UNKNOWN must preserve non-authoritative archive recovery evidence')
+  }
+
+  const closingState = JSON.parse(readFileSync(statePath, 'utf8'))
+  closingState.allocations.alpha.state = 'CLOSING'
+  writeFileSync(statePath, `${JSON.stringify(closingState, null, 2)}\n`)
+  const closingPreview = resultJson(['reconcile'])
+  if (!closingPreview.actions.some(action => action.id === 'alpha' && action.from === 'CLOSING' && action.to === 'UNKNOWN')) throw new Error('closing archive evidence drift was not classified UNKNOWN')
+  expectFailure('closing archive evidence drift repair', ['reconcile', '--repair'], 'REPAIR_UNSAFE')
+  const closingClassified = JSON.parse(readFileSync(statePath, 'utf8')).allocations.alpha
+  if (closingClassified.state !== 'UNKNOWN' || closingClassified.candidate !== archiveCandidate || closingClassified.outcome !== 'archived' || closingClassified.archiveRef !== 'refs/archive/alpha-2') {
+    throw new Error('CLOSING recovery evidence was lost while freezing UNKNOWN')
+  }
+  expectFailure('repaired evidence drift remains fail-closed', ['status'], 'RESULT_UNKNOWN')
+  console.log('Project-owned isolation lifecycle: positive open/close/archive/recovery and 33 negative cases: PASS')
 } finally {
   rmSync(fixtureRoot, { recursive: true, force: true })
 }
