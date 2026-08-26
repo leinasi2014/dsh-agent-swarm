@@ -1,4 +1,5 @@
 import { appendFileSync } from 'node:fs'
+import { LlmAdapter } from '@deepseek-ai/dsh-llm'
 
 export const name = 'agent-swarm-p0-profile-probe'
 export const inject = [
@@ -18,8 +19,8 @@ export const inject = [
 // smoke Profile and never claims to be an external provider or model.
 function devSmokeAdapter(ctx) {
   let call = 0
-  return {
-    async resolveModel(provider, model) { return { provider, id: model, name: model } },
+  return new class extends LlmAdapter {
+    async resolveModel(provider, model) { return { provider, id: model, name: model } }
     async * stream(options) {
       const text = options.messages.filter(message => message.role === 'user')
         .flatMap(message => message.content).filter(block => block.type === 'text')
@@ -42,7 +43,7 @@ function devSmokeAdapter(ctx) {
       yield { type: 'block-end', index: 0, block: { type: 'text', text: 'DEV_SMOKE ready.' } }
       yield { type: 'usage', usage: { inputTokens: 1, outputTokens: 1 } }
       yield { type: 'finish', reason: { kind: 'stop' } }
-    },
+    }
   }
 }
 

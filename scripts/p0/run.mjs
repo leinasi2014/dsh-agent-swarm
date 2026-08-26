@@ -329,7 +329,7 @@ async function main() {
   await copyFile(join(args.repo, 'scripts', 'p0', 'shutdown-probe.mjs'), shutdownProbeModule)
   await copyFile(join(args.repo, 'scripts', 'p0', 'profile-probe.mjs'), serviceProbeModule)
   const shutdownProbeUrl = pathToFileURL(shutdownProbeModule).href
-  const serviceProbeUrl = pathToFileURL(serviceProbeModule).href
+  let serviceProbeUrl = pathToFileURL(serviceProbeModule).href
 
   const gates = []
   const commands = []
@@ -395,6 +395,11 @@ async function main() {
     const add = await execute('profile-add', process.execPath, addArgs, { cwd: workspaceRoot, env: { DSH_HOME: dshHome }, timeoutMs: 10 * 60_000 })
     if (add.code !== 0) throw new Error('official plugin add failed')
     const profilePatch = join(dshHome, 'profiles', 'web', 'cordis.patch.yml')
+    // This disposable Profile-local module resolves LlmAdapter from the exact
+    // dependency tree used by the official CLI. It is never packed/published.
+    const profileProbeModule = join(dshHome, 'profiles', 'web', 'w0-profile-probe.mjs')
+    await copyFile(join(args.repo, 'scripts', 'p0', 'profile-probe.mjs'), profileProbeModule)
+    serviceProbeUrl = pathToFileURL(profileProbeModule).href
     await writeFile(profilePatch, profilePatchLines({
       storageRoot, sessionRoot, workspaceRoot, shutdownProbeUrl,
     }).join('\n'), 'utf8')
