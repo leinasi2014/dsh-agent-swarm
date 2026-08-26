@@ -30,7 +30,7 @@ Project-owned HumanInteraction producer
        └─ every Team mutation returns to TeamDomainPort
                              │
 Consumers and composition
-  scoped model tools ─ canonical /swarm RPC ─ DSH-native UI
+  scoped model tools (including read-only member profiles) ─ canonical /swarm RPC ─ DSH-native UI
                                          └─ Canvas-native Consumer
                              │
 Self-hosting composition     │
@@ -92,6 +92,8 @@ This is a host capability boundary, not cryptographic protection from a process 
 ### Member tool-permission policy (implemented in M5-2)
 
 The member host-tool surface is scoped through the official creation-window toolFilter seam only (`ctx.subagents` `toolFilter` → scoped `tools.restrict()`, snapshotted into the durable child descriptor; the followup face has no composition field — facts in `docs/09` §1). The plugin's overlay is deny-only and monotone: every member mandatorily loses the captain-only administration tools, and `agent_swarm_add_member` may declare additional `deny_tools` narrowing (union with the baseline, no allow surface, structural pre-commit validation, official unknown-name validation as the existence authority — F17, `docs/04` §8o). A declaration can lock a member out but never widen authority. Per-task tool rescoping, tiered allow/ask/deny policy and approval override remain future family work; the official rc.2 `ctx.credentials` seam stays a declared non-consumed boundary (secrets are env-injected deployment inputs, never Team state). The #100 execution root and #101 review root are disjoint authority planes the tool policy neither fences nor widens.
+
+`agent_swarm_list_members` is a read-only consumer of that split authority, not a second member store: roster identity/phase come from `TeamDomainPort`; recorded composition facts come only from the child Session header and its own continuable descriptor suffix. It validates descriptor, captain binding and recovery provider before reporting, reads only the requested page, and never resumes, wakes, reconciles or repairs a child. Its row-local state is a diagnostic, not a live-status or effective-permission claim; raw persona, Session join ids, Skill assignment and an effective tool set are outside the surface.
 
 ### Canonical Team domain
 

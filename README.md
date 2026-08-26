@@ -50,7 +50,7 @@ captain（插件驱动）：
   5. agent_swarm_review_task       → 你审核 accept/reject
 ```
 
-完整工具面（18 个 `agent_swarm_*`）：见 [docs/04-core-protocol.md](docs/04-core-protocol.md) §4。
+完整工具面（19 个 `agent_swarm_*`）：见 [docs/04-core-protocol.md](docs/04-core-protocol.md) §4。
 
 ## 核心能力
 
@@ -61,6 +61,7 @@ captain（插件驱动）：
 - **调度**：事件驱动（idle 边沿/任务图变更/预算释放）、搁浅自愈（live-idle 重试、cold owner 证据暴露）、可替换 Scheduler Provider；
 - **编排桥**：官方 `WorkflowEngine`/`JobRegistry` 的 Team 桥（isolate 域注册，run overlay 为唯一 run 真相）、显式 `adaptive|workflow` 模式 + 单 owner 纪律（#77）；
 - **执行根**：per-attempt worktree 隔离 + attemptId 围栏 + 崩溃泄漏对账（#100）；
+- **成员档案读取**：`agent_swarm_list_members` 逐页只读 Team roster 与官方 child Session descriptor/header；不恢复子成员、不复制配置到 Team，也不暴露 persona、会话 id 或有效权限；
 - **自托管控制面**：候选冻结→验收→晋升→回滚的外部 promoter 全链（P0–P7 演练实证，#102/#122 加固）。
 - **本机只读 Team 接口**：versioned `POST /swarm/v1` 与 browser-safe `dsh-agent-swarm/client`；Host 每次重绑 official live root/Session/workspace/captain Team。该接口仅在 `127.0.0.1` listener、loopback socket 与同源 authority 可验证时可用，不提供用户认证、LAN trust 或任何 write capability。预发布证据只覆盖 README 所列隔离 Profile 流程，不外推为 LAN、多用户或写操作能力。
 - **DSH-native Team 面板**：官方 Session header 的附加入口与官方 Modal/locale/theme；只读展示 Team、成员、任务/attempt、预算、待处理交互和 capability，陈旧/重连/错误显式可见。“打开 Captain Chat”先重验 R2 binding，再通过官方 Session 导航回到同一 root Session；不解析 transcript，也不产生 Control。

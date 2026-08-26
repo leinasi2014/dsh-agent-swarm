@@ -16,6 +16,7 @@ import { boundedSettle } from './disposal.js'
 import { ExecutionRootSurface } from './execution-root-surface.js'
 import type { ExecutionRootResidue, TeamExecutionRootProvider } from './execution-roots.js'
 import { interruptMember, interruptMemberFromModel } from './member-control.js'
+import { MemberProfileReader } from './member-profile-reader.js'
 import { MemberProvisioner } from './member-provisioning.js'
 import { MessageDelivery } from './message-delivery.js'
 import { manualReview, priorityReadyScheduler, type ReviewProviderInput, type ReviewProviderResult, type SchedulerDecision, type SchedulerSelectionInput, type TeamReviewProvider, type TeamSchedulerProvider } from './providers.js'
@@ -52,6 +53,7 @@ export class AgentSwarmRuntime extends Service {
   private readonly idleSince = new Map<string, number>()
   private readonly usage: UsageAccountant
   private readonly delivery: MessageDelivery
+  private readonly memberProfiles: MemberProfileReader
   private readonly provisioning: MemberProvisioner
   private readonly schedulingPass: SchedulingPass
   /** Single-owner discipline registry and gates (M2-3). */
@@ -119,6 +121,7 @@ export class AgentSwarmRuntime extends Service {
       scopeOf: agent => this.scopeOf(agent),
       accountAgentUsage: (scope, teamId, agent) => this.usage.accountAgentUsage(scope, teamId, agent),
     })
+    this.memberProfiles = new MemberProfileReader(ctx)
     this.schedulingPass = new SchedulingPass(ctx, {
       domain: () => this.domain,
       delivery: () => this.delivery,
@@ -421,6 +424,11 @@ export class AgentSwarmRuntime extends Service {
 
   async status(exec: ToolExecutionAuthority) {
     return await status(this.waitDeps(), exec)
+  }
+
+  /** Read durable roster composition; never resumes or repairs a child. */
+  async listMemberProfiles(exec: ToolExecutionAuthority, input: { phase?: TeamState['members'][number]['phase']; cursor: number; limit: number }) {
+    return await this.memberProfiles.listPage((await this.status(exec)).team, input, exec.signal)
   }
 
   async waitForChange(exec: ToolExecutionAuthority, afterRevision: number, timeoutMs: number) {

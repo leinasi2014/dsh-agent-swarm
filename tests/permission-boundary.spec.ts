@@ -43,6 +43,8 @@ describe('tiered allow/ask/deny decision model (pure)', () => {
     // merely inherit the same apparent `allow` from the unlisted-host fallback.
     expect(DEFAULT_TOOL_POLICY.allow).toContain('agent_swarm_list_memory')
     expect(decideToolPermission(DEFAULT_TOOL_POLICY, 'agent_swarm_list_memory', captainTurn())).toBe('allow')
+    expect(DEFAULT_TOOL_POLICY.allow).toContain('agent_swarm_list_members')
+    expect(decideToolPermission(DEFAULT_TOOL_POLICY, 'agent_swarm_list_members', captainTurn())).toBe('allow')
     expect(decideToolPermission({}, 'report', captainTurn())).toBe('deny')
     expect(MAX_TOOL_POLICY_NAMES).toBe(64)
   })

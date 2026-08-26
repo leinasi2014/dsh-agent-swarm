@@ -10,6 +10,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
@@ -25,6 +26,9 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
+import type { TeamMember, TeamState } from '../src/domain/types.js'
+import { MemberProfileReader } from '../src/runtime/member-profile-reader.js'
+import { CAPTAIN_ONLY_TOOLS } from '../src/runtime/prompts.js'
 
 const SIGNAL = new AbortController().signal
 const CAPTAIN = SessionId('restart-real-captain')
@@ -435,4 +439,132 @@ describe('real restart continuation over the current Team authority', () => {
       if (second !== undefined) await dispose(second)
     }
   }, 60_000)
+
+  it('reads durable member profiles after a full reopen without resuming children, and isolates a missing descriptor row', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-member-profiles-reload-'))
+    roots.push(sandbox)
+    let first: Mounted | undefined
+    let second: Mounted | undefined
+    try {
+      first = await mount(sandbox, 0)
+      first.ctx.llm.registerAdapter(['mock'], new InitialAdapter())
+      const leadA = first.ctx.agentLoop.create(CAPTAIN, { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+      const created = await tool(first.ctx, leadA, 'profiles-create', 'agent_swarm_create', {
+        name: 'Member profiles', description: 'Read durable child composition without a live child.',
+      })
+      expect(created).toMatchObject({ isError: false })
+      const teamId = (created.value as { team_id: string }).team_id
+      const healthy = await tool(first.ctx, leadA, 'profiles-add-healthy', 'agent_swarm_add_member', {
+        name: 'profile-reader', role: 'Read durable member composition.', model: 'profile-model', deny_tools: ['agent_swarm_list_jobs'],
+      })
+      const damaged = await tool(first.ctx, leadA, 'profiles-add-damaged', 'agent_swarm_add_member', {
+        name: 'profile-damaged', role: 'Exercise a missing descriptor row.',
+      })
+      if (healthy.isError) throw new Error(`profiles-add-healthy failed: ${JSON.stringify(healthy.error)}`)
+      if (damaged.isError) throw new Error(`profiles-add-damaged failed: ${JSON.stringify(damaged.error)}`)
+      const healthyId = (healthy.value as { session_id: string }).session_id
+      const damagedId = (damaged.value as { session_id: string }).session_id
+      await vi.waitFor(async () => {
+        const members = (await snapshot(first!.ctx, leadA, teamId)).team.members
+        expect(members).toContainEqual(expect.objectContaining({ sessionId: healthyId, phase: 'active' }))
+        expect(members).toContainEqual(expect.objectContaining({ sessionId: damagedId, phase: 'active' }))
+      }, { timeout: 15_000 })
+
+      await dispose(first)
+      first = undefined
+      // Fault only the durable child descriptor evidence, after Context A
+      // closed every real SQLite handle. Reclassifying it as an ignorable
+      // foreign event preserves the official contiguous-log contract while
+      // making `foldSubagentDescriptor()` honestly find no descriptor. The
+      // Team aggregate and all other child history remain untouched.
+      const database = new DatabaseSync(join(sandbox, 'sessions', 'sessions.db'))
+      try {
+        const replaced = database.prepare("UPDATE events SET type = 'member-profile-test/removed-descriptor', ignorable = 1 WHERE session_id = ? AND type = 'subagent/descriptor'").run(damagedId)
+        expect(Number(replaced.changes)).toBe(1)
+      } finally {
+        database.close()
+      }
+
+      second = await mount(sandbox, 0)
+      const coldOnly = new InitialAdapter()
+      coldOnly.workerId = healthyId
+      second.ctx.llm.registerAdapter(['mock'], coldOnly)
+      const resumedCaptain = await second.ctx.agents.resume({ resumeSessionId: CAPTAIN })
+      try {
+        expect(second.ctx.agents.get(SessionId(healthyId))).toBeUndefined()
+        expect(second.ctx.agents.get(SessionId(damagedId))).toBeUndefined()
+        const before = await snapshot(second.ctx, resumedCaptain.agent, teamId)
+        const listed = await tool(second.ctx, resumedCaptain.agent, 'profiles-list', 'agent_swarm_list_members', {})
+        expect(listed).toMatchObject({ isError: false })
+        const value = listed.value as { members: Array<Record<string, unknown>>; next_cursor?: number }
+        expect(value.next_cursor).toBeUndefined()
+        expect(value.members.map(member => member.name)).toEqual(['profile-reader', 'profile-damaged'])
+        expect(value.members[0]).toMatchObject({
+          name: 'profile-reader', role: 'Read durable member composition.', phase: 'active',
+          profile_state: 'available', profile_reason: 'available', runtime_provider: 'spawn',
+          llm_provider: 'mock', model: 'profile-model', persona_configured: true,
+          denied_tools: [...CAPTAIN_ONLY_TOOLS, 'agent_swarm_list_jobs'],
+        })
+        expect(value.members[0]).not.toHaveProperty('preset_id')
+        expect(value.members[0]).not.toHaveProperty('session_id')
+        expect(value.members[1]).toMatchObject({
+          name: 'profile-damaged', phase: 'active', runtime_provider: 'spawn',
+          profile_state: 'invalid', profile_reason: 'not_continuable',
+        })
+        expect(value.members[1]).not.toHaveProperty('llm_provider')
+        expect(value.members[1]).not.toHaveProperty('persona_configured')
+        expect(coldOnly.workerRequests).toBe(0)
+        expect(second.ctx.agents.get(SessionId(healthyId))).toBeUndefined()
+        expect(second.ctx.agents.get(SessionId(damagedId))).toBeUndefined()
+        expect(await snapshot(second.ctx, resumedCaptain.agent, teamId)).toEqual(before)
+
+        const active = await tool(second.ctx, resumedCaptain.agent, 'profiles-active-page', 'agent_swarm_list_members', {
+          phase: 'active', limit: 1,
+        })
+        expect(active).toMatchObject({ isError: false, value: { next_cursor: 1 } })
+        expect((active.value as { members: Array<{ name: string }> }).members.map(member => member.name)).toEqual(['profile-reader'])
+        for (const args of [{ cursor: -1 }, { limit: 0 }, { limit: 51 }]) {
+          expect(await tool(second.ctx, resumedCaptain.agent, `profiles-invalid-${JSON.stringify(args)}`, 'agent_swarm_list_members', args))
+            .toMatchObject({ isError: true, error: { info: { code: 'TEAM_INPUT_INVALID' } } })
+        }
+        const outsider = second.ctx.agentLoop.create(SessionId('profiles-outsider'), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+        expect(await tool(second.ctx, outsider, 'profiles-outsider', 'agent_swarm_list_members', {}))
+          .toMatchObject({ isError: true, error: { info: { code: 'TEAM_NOT_JOINED' } } })
+        expect(await snapshot(second.ctx, resumedCaptain.agent, teamId)).toEqual(before)
+      } finally {
+        await resumedCaptain.dispose()
+      }
+    } finally {
+      if (first !== undefined) await dispose(first)
+      if (second !== undefined) await dispose(second)
+    }
+  }, 60_000)
+
+  it('keeps missing-session taxonomy and caller cancellation explicit without inventing a profile', async () => {
+    const missing = new Error('session "member-profile-session" not found')
+    const reader = new MemberProfileReader({
+      sessionPersistence: { inspect: vi.fn(async () => { throw missing }) },
+    } as unknown as Context)
+    const team = { id: 'member-profile-team', captainSessionId: 'member-profile-captain' } as TeamState
+    const member = (phase: TeamMember['phase']) => ({
+      name: 'profile-member', role: 'Profile fixture', phase, createdAt: 1,
+      sessionId: 'member-profile-session', provider: 'spawn',
+    }) as TeamMember
+    await expect(reader.list(team, [member('provisioning')], SIGNAL)).resolves.toMatchObject([
+      { profileState: 'pending', profileReason: 'provisioning', runtimeProvider: 'spawn' },
+    ])
+    await expect(reader.list(team, [member('failed')], SIGNAL)).resolves.toMatchObject([
+      { profileState: 'unavailable', profileReason: 'inspection_failed', runtimeProvider: 'spawn' },
+    ])
+    await expect(reader.list(team, [member('removed')], SIGNAL)).resolves.toMatchObject([
+      { profileState: 'unavailable', profileReason: 'inspection_failed', runtimeProvider: 'spawn' },
+    ])
+    await expect(reader.list(team, [member('active')], SIGNAL)).resolves.toMatchObject([
+      { profileState: 'invalid', profileReason: 'active_session_missing', runtimeProvider: 'spawn' },
+    ])
+    const aborted = new AbortController()
+    aborted.abort()
+    await expect(reader.list(team, [member('active')], aborted.signal))
+      .rejects.toMatchObject({ code: 'TEAM_MEMBER_PROFILE_ABORTED' })
+  })
 })

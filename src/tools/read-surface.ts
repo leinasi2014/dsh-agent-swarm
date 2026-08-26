@@ -70,12 +70,51 @@ const MEMORY_LIST_VALUE_SCHEMA = {
   },
 } as const
 
+/** One safe, durable-composition member row; raw persona never reaches a tool result. */
+const MEMBER_PROFILE_ROW_SCHEMA = {
+  type: 'object', additionalProperties: false,
+  properties: {
+    name: { type: 'string', required: true },
+    role: { type: 'string', required: true },
+    phase: { type: 'string', required: true, enum: ['provisioning', 'active', 'failed', 'removed'] },
+    created_at: { type: 'number', required: true },
+    profile_state: { type: 'string', required: true, enum: ['available', 'pending', 'unavailable', 'invalid'] },
+    profile_reason: {
+      type: 'string', required: true,
+      enum: ['available', 'provisioning', 'inspection_failed', 'active_session_missing', 'binding_invalid', 'descriptor_invalid', 'not_continuable', 'tool_filter_invalid'],
+    },
+    runtime_provider: { type: 'string', required: true, description: 'Team provisioning/recovery Provider; available rows verify it against the official continuable descriptor. Not the LLM provider.' },
+    llm_provider: { type: 'string', description: 'Optional LLM provider recorded in the continuable descriptor.' },
+    model: { type: 'string', description: 'Optional model recorded in the continuable descriptor.' },
+    preset_id: { type: 'string', description: 'Optional preset id recorded in the immutable Session header.' },
+    persona_configured: { type: 'boolean', description: 'Whether the descriptor records a persona; the persona text is never returned.' },
+    denied_tools: { type: 'array', items: { type: 'string' }, description: 'Declared deny-only child filter, not an effective capability set.' },
+  },
+} as const
+
+const MEMBER_PROFILE_LIST_VALUE_SCHEMA = {
+  type: 'object', additionalProperties: false,
+  properties: {
+    members: { type: 'array', required: true, items: MEMBER_PROFILE_ROW_SCHEMA },
+    next_cursor: { type: 'number', description: 'Present only when more filtered rows exist.' },
+  },
+} as const
+
 /** Shared bounded cursor contract for aggregate-backed list readers. */
 function pageWindow(args: { cursor?: number; limit?: number }): { cursor: number; limit: number } {
   const cursor = args.cursor ?? 0
   const limit = args.limit ?? 50
   expectDomain(Number.isSafeInteger(cursor) && cursor >= 0, 'cursor must be a non-negative safe integer', 'TEAM_INPUT_INVALID')
   expectDomain(Number.isSafeInteger(limit) && limit >= 1 && limit <= 100, 'limit must be an integer from 1 through 100', 'TEAM_INPUT_INVALID')
+  return { cursor, limit }
+}
+
+/** More conservative page bound because each requested row reads one Session log. */
+function memberPageWindow(args: { cursor?: number; limit?: number }): { cursor: number; limit: number } {
+  const cursor = args.cursor ?? 0
+  const limit = args.limit ?? 25
+  expectDomain(Number.isSafeInteger(cursor) && cursor >= 0, 'cursor must be a non-negative safe integer', 'TEAM_INPUT_INVALID')
+  expectDomain(Number.isSafeInteger(limit) && limit >= 1 && limit <= 50, 'limit must be an integer from 1 through 50', 'TEAM_INPUT_INVALID')
   return { cursor, limit }
 }
 
@@ -216,6 +255,43 @@ export function registerListMemoryTool(ctx: Context, runtime: AgentSwarmRuntime)
       return { memories, ...(cursor + limit < filtered.length ? { next_cursor: cursor + limit } : {}) }
     },
   }), 'list-memory tool')
+}
+
+/** `agent_swarm_list_members`: durable child-composition facts, never a live-control surface. */
+export function registerListMembersTool(ctx: Context, runtime: AgentSwarmRuntime): void {
+  register(ctx, defineTool({
+    name: 'agent_swarm_list_members',
+    description: 'List Team roster members in stable roster order with optional phase filtering and bounded cursor pagination (limit 1-50, default 25). Each page reads only its members’ durable official Session header and continuable descriptor; unavailable or invalid rows stay row-local. This never resumes, wakes, repairs, or changes a member. persona text, private memory, Skill assignment, and effective tool permissions are not exposed.',
+    parameters: {
+      phase: { type: 'string', enum: ['provisioning', 'active', 'failed', 'removed'], description: 'Optional exact roster phase filter.' },
+      cursor: { type: 'integer', description: 'Zero-based result offset. Defaults to 0.' },
+      limit: { type: 'integer', description: 'Number of rows, 1 through 50. Defaults to 25.' },
+    },
+    output: compactJsonOutput(MEMBER_PROFILE_LIST_VALUE_SCHEMA),
+    async execute(args, exec) {
+      const { cursor, limit } = memberPageWindow(args)
+      const listed = await runtime.listMemberProfiles(exec, {
+        cursor,
+        limit,
+        ...(args.phase === undefined ? {} : { phase: args.phase }),
+      })
+      const members = listed.members.map(member => ({
+        name: member.name,
+        role: member.role,
+        phase: member.phase,
+        created_at: member.createdAt,
+        profile_state: member.profileState,
+        profile_reason: member.profileReason,
+        runtime_provider: member.runtimeProvider,
+        ...(member.llmProvider === undefined ? {} : { llm_provider: member.llmProvider }),
+        ...(member.model === undefined ? {} : { model: member.model }),
+        ...(member.presetId === undefined ? {} : { preset_id: member.presetId }),
+        ...(member.personaConfigured === undefined ? {} : { persona_configured: member.personaConfigured }),
+        ...(member.deniedTools === undefined ? {} : { denied_tools: [...member.deniedTools] }),
+      }))
+      return { members, ...(listed.nextCursor === undefined ? {} : { next_cursor: listed.nextCursor }) }
+    },
+  }), 'list-members tool')
 }
 
 /**

@@ -1,8 +1,9 @@
 /**
  * Reassembly point for the model-facing `agent_swarm_*` tool Consumer
- * (issue #74): the 17 tools live in cohesive `src/tools/` modules and this
+ * (issue #74): the 17 original tools live in cohesive `src/tools/` modules and this
  * thin shell preserves the pre-existing public registration order; the
- * README-declared 18th memory reader is appended after the established tools.
+ * memory reader and then the member-profile reader are appended after the
+ * established 17-tool surface.
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { AgentSwarmRuntime } from './runtime/orchestrator-runtime.js'
@@ -22,7 +23,7 @@ import {
 } from './tools/task-board.js'
 import { registerSendMessageTool, registerWaitTool } from './tools/mailbox.js'
 import { registerAddMemoryTool, registerSetBudgetTool } from './tools/budget-memory.js'
-import { registerListJobsTool, registerListMemoryTool, registerListTasksTool, registerStatusTool } from './tools/read-surface.js'
+import { registerListJobsTool, registerListMembersTool, registerListMemoryTool, registerListTasksTool, registerStatusTool } from './tools/read-surface.js'
 
 /** Register the model-facing Consumer over the Team orchestrator runtime. */
 export function registerAgentSwarmTools(ctx: Context, runtime: AgentSwarmRuntime): void {
@@ -44,4 +45,5 @@ export function registerAgentSwarmTools(ctx: Context, runtime: AgentSwarmRuntime
   registerListJobsTool(ctx, runtime)
   registerWaitTool(ctx, runtime)
   registerListMemoryTool(ctx, runtime)
+  registerListMembersTool(ctx, runtime)
 }
