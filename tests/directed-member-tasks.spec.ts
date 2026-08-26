@@ -6,10 +6,10 @@ import { TeamDomain } from '../src/domain/team-domain.js'
 import { openStorageStack, type StorageStack } from './helpers/storage-stack.js'
 
 describe('directed member tasks', () => {
-  let sandbox: string, scope: string, stack: StorageStack, domain: TeamDomain
+  let sandbox: string, storageRoot: string, scope: string, stack: StorageStack, domain: TeamDomain
   beforeEach(async () => {
     sandbox = await mkdtemp(join(tmpdir(), 'dsh-agent-swarm-directed-')); scope = join(sandbox, 'workspace')
-    stack = await openStorageStack(join(sandbox, 'storage')); domain = stack.port as TeamDomain
+    storageRoot = join(sandbox, 'storage'); stack = await openStorageStack(storageRoot); domain = stack.port as TeamDomain
   })
   afterEach(async () => { await stack.close(); await rm(sandbox, { recursive: true, force: true }) })
   async function team() {
@@ -54,5 +54,19 @@ describe('directed member tasks', () => {
     await expect(domain.cancelAttempt(scope, current.id, 'member-b', task.id, claim.task.revision, 'no authority')).rejects.toMatchObject({ code: 'TEAM_CAPTAIN_REQUIRED' })
     await expect(domain.cancelAttempt(scope, current.id, 'captain', task.id, claim.task.revision + 1, 'stale')).rejects.toMatchObject({ code: 'TEAM_TASK_STALE_REVISION' })
     expect(await domain.snapshot(scope, current.id, 'captain')).toEqual(before)
+  })
+  it('persists a blocked route through close and reopen and continues to fence claims', async () => {
+    const current = await team()
+    const blocker = await domain.createTask(scope, current.id, 'captain', { subject: 'blocker', description: 'dependency' })
+    const directed = await domain.createTask(scope, current.id, 'captain', { subject: 'blocked', description: 'waits', blockedBy: [blocker.id], targetMemberSessionId: 'member-a' })
+    await stack.close(); stack = await openStorageStack(storageRoot); domain = stack.port as TeamDomain
+    const persisted = await domain.snapshot(scope, current.id, 'captain')
+    expect(persisted.team.tasks.find(task => task.id === directed.id)?.targetMemberSessionId).toBe('member-a')
+    const claim = await domain.claimTask(scope, current.id, 'captain', blocker.id, blocker.revision, 'member-b')
+    const submitted = await domain.submitTask(scope, current.id, 'member-b', blocker.id, claim.task.revision, claim.attempt.id, 'done')
+    await domain.reviewTask(scope, current.id, 'captain', blocker.id, submitted.revision, claim.attempt.id, 'accept')
+    const ready = (await domain.snapshot(scope, current.id, 'captain')).team.tasks.find(task => task.id === directed.id)!
+    await expect(domain.claimTask(scope, current.id, 'captain', directed.id, ready.revision, 'member-b')).rejects.toMatchObject({ code: 'TEAM_TASK_ASSIGNEE_MISMATCH' })
+    await expect(domain.claimTask(scope, current.id, 'captain', directed.id, ready.revision, 'member-a')).resolves.toBeDefined()
   })
 })
