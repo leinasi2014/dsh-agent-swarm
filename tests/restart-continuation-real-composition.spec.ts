@@ -11,26 +11,22 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { Context, type Fiber } from '@deepseek-ai/cordis'
-import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
-import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import LlmRuntime, { CallId, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
-import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
-import Storage from '@deepseek-ai/dsh-storage'
-import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
-import * as StorageJson from '@deepseek-ai/dsh-storage-json'
-import SubagentService from '@deepseek-ai/dsh-subagent'
-import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime from '@deepseek-ai/dsh-tools'
+import { type Context } from '@deepseek-ai/cordis'
+import { CallId, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import * as AgentSwarm from '../src/index.js'
 import type { TeamMember, TeamState } from '../src/domain/types.js'
 import { MemberProfileReader } from '../src/runtime/member-profile-reader.js'
 import { CAPTAIN_ONLY_TOOLS } from '../src/runtime/prompts.js'
+import {
+  disposeRestartComposition as dispose,
+  mountRestartComposition as mount,
+  RESTART_SIGNAL as SIGNAL,
+  restartSnapshot as snapshot,
+  restartTool as tool,
+  type RestartMounted as Mounted,
+} from './helpers/restart-real-composition.js'
 
-const SIGNAL = new AbortController().signal
 const CAPTAIN = SessionId('restart-real-captain')
 
 function latestUserText(options: GenerateOptions): string {
@@ -112,48 +108,6 @@ class RecoveryAdapter extends LlmAdapter {
     yield { type: 'usage', usage: { inputTokens: 1, outputTokens: 1 } }
     yield { type: 'finish', reason: { kind: 'tool-calls' } }
   }
-}
-
-interface Mounted {
-  readonly ctx: Context
-  readonly fibers: Fiber[]
-}
-
-async function mount(sandbox: string, strandedAfterMs: number): Promise<Mounted> {
-  const ctx = new Context()
-  const fibers: Fiber[] = []
-  // Mount every official prerequisite locally rather than using the testkit
-  // helper: it returns void, whereas a process-restart proof must own and
-  // reverse-dispose every Context fiber before reopening durable media.
-  fibers.push(await ctx.plugin(LlmRuntime))
-  fibers.push(await ctx.plugin(SessionStore))
-  fibers.push(await ctx.plugin(SystemPrompt))
-  fibers.push(await ctx.plugin(ToolRuntime))
-  fibers.push(await ctx.plugin(AgentRegistry))
-  fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(sandbox, 'sessions', 'sessions.db') }))
-  // These three official Storage fibers must belong to this mounted Context's
-  // disposal set. `mountStorageStackOn()` intentionally returns void for
-  // shared fixtures, which would leave this restart boundary half-open.
-  fibers.push(await ctx.plugin(Storage))
-  fibers.push(await ctx.plugin(StorageJson, { root: join(sandbox, 'storage') }))
-  fibers.push(await ctx.plugin(StorageDomain, { backend: 'json' }))
-  fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
-  fibers.push(await ctx.plugin(SubagentService))
-  fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
-  fibers.push(await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1, strandedAfterMs }))
-  return { ctx, fibers }
-}
-
-async function dispose(mounted: Mounted): Promise<void> {
-  for (const fiber of mounted.fibers.toReversed()) await fiber.dispose()
-}
-
-async function tool(ctx: Context, agent: Agent, callId: string, name: string, args: unknown) {
-  return await ctx.tools.execute({ signal: SIGNAL, callId: CallId(callId), name, arguments: args, agent })
-}
-
-async function snapshot(ctx: Context, lead: Agent, teamId: string) {
-  return await ctx.agentSwarm.domain.snapshot(ctx.agentSwarm.scopeOf(lead), AgentSwarm.TeamId(teamId), lead.id)
 }
 
 function userTexts(events: readonly SessionEvent[]): string[] {
