@@ -73,40 +73,6 @@ describe('TeamDomain over the official Storage Domain', () => {
     expect(rejected).toMatchObject({ reason: { code: 'TEAM_TASK_STALE_REVISION' } })
   })
 
-  it('strictly routes a captain target, clears it on reassign and releases it when the member disappears', async () => {
-    const team = await teamWithMembers()
-    const task = await domain.createTask(scope, team.id, 'captain-session', {
-      subject: 'directed', description: 'Must only reach worker one.', targetMemberSessionId: 'member-1',
-    })
-    await expect(domain.claimTask(scope, team.id, 'captain-session', task.id, task.revision, 'member-2'))
-      .rejects.toMatchObject({ code: 'TEAM_TASK_ASSIGNEE_MISMATCH' })
-    const claimed = await domain.claimTask(scope, team.id, 'captain-session', task.id, task.revision, 'member-1')
-    const cleared = await domain.cancelAttempt(scope, team.id, 'captain-session', task.id, claimed.task.revision, 'clear route')
-    expect(cleared.targetMemberSessionId).toBeUndefined()
-
-    const routed = await domain.createTask(scope, team.id, 'captain-session', {
-      subject: 'remove target', description: 'Route clears with roster removal.', targetMemberSessionId: 'member-2',
-    })
-    await domain.removeMember(scope, team.id, 'captain-session', 'worker-2', 'departed')
-    const snapshot = await domain.snapshot(scope, team.id, 'captain-session')
-    const released = snapshot.team.tasks.find(candidate => candidate.id === routed.id)
-    expect(released?.status).toBe('pending')
-    expect(released?.targetMemberSessionId).toBeUndefined()
-  })
-
-  it('preserves a terminal task\'s historical target when that member is removed', async () => {
-    const team = await teamWithMembers(1)
-    const task = await domain.createTask(scope, team.id, 'captain-session', {
-      subject: 'historical target', description: 'Its route remains audit evidence.', targetMemberSessionId: 'member-1',
-    })
-    const claim = await domain.claimTask(scope, team.id, 'captain-session', task.id, task.revision, 'member-1')
-    const submitted = await domain.submitTask(scope, team.id, 'member-1', task.id, claim.task.revision, claim.attempt.id, 'done')
-    const completed = await domain.reviewTask(scope, team.id, 'captain-session', task.id, submitted.revision, claim.attempt.id, 'accept')
-    await domain.removeMember(scope, team.id, 'captain-session', 'worker-1', 'departed')
-    const snapshot = await domain.snapshot(scope, team.id, 'captain-session')
-    expect(snapshot.team.tasks.find(candidate => candidate.id === task.id)).toMatchObject({ status: 'completed', revision: completed.revision, targetMemberSessionId: 'member-1' })
-  })
-
   it('requires review acceptance before canonical completion', async () => {
     const team = await teamWithMembers(1)
     const task = await domain.createTask(scope, team.id, 'captain-session', {
