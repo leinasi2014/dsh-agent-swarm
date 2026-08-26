@@ -15,6 +15,10 @@
 
 Gate A 只证明兼容性基线，不证明功能已实现。参考源更新必须审查旧 pin→新 pin 的实际差异；失败只冻结受影响的 compatibility/re-pin 流水线，不阻塞由未变化 pin 支撑的无关功能，也不得为过门而弱化校验。
 
+## Development delivery isolation
+
+产品路线与仓库开发隔离是两种权威。功能流水线只能通过 `pnpm isolation open|status|close|reconcile` 取得最多两个 writer allocation；动态真相位于 Git common-dir ledger，主检出行固定为 `main`，集成保持串行。`open` 先记 intent 再创建并回读，`close` 以 owner+generation 围栏并要求 clean + integrated/patch-equivalent 或 durable archive ref，`reconcile` 默认只读且只修确定状态。产品 execution root 不授予仓库开发 worktree 权限。
+
 ## Product dependency graph
 
 ```text
@@ -243,4 +247,4 @@ Risk: S3/HIGH。
 - Shared contracts integrate before consumers; target-level checks read back the result.
 - Milestone status changes only with executable evidence and synchronized authoritative documentation.
 - Self-hosting follows ADR-0008: stable control and candidate acceptance Profiles are separate, and promotion is externally owned.
-- Repository development remains `single-checkout` until a project-owned open/status/close/reconcile gate and its independent acceptance change the binding.
+- Repository development uses only the reviewed project-owned open/status/close/reconcile lifecycle; at most two writer allocations may coexist and integration remains serial on `main`.

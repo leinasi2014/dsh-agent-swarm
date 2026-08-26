@@ -220,6 +220,15 @@ documents:
     mutationAuthority: superseding-adr-only
     updateTriggers: feature-pipeline-or-acceptance-governance-reversal
     validation: pnpm-verify-policy
+  - documentId: managed-development-isolation-decision
+    path: docs/adr/0011-managed-development-isolation.md
+    role: stable-authority
+    subject: decision
+    writeMode: human
+    accountableOwner: governance-owner
+    mutationAuthority: superseding-adr-only
+    updateTriggers: development-isolation-authority-reversal
+    validation: pnpm-verify-policy
   - documentId: self-hosting-decision
     path: docs/adr/0008-self-hosting-dogfood-control-plane.md
     role: stable-authority

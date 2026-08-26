@@ -77,8 +77,8 @@ try {
   }, 'superseded governance file must be deleted')
 
   expectFailure('false-worktree-backend', root => {
-    mutate(root, 'docs/governance/project-binding.yaml', content => content.replace('backend: single-checkout', 'backend: git-worktree'))
-  }, 'missing or changed declaration backend: single-checkout')
+    mutate(root, 'docs/governance/project-binding.yaml', content => content.replace('backend: git-worktree', 'backend: single-checkout'))
+  }, 'missing or changed declaration backend: git-worktree')
 
   expectFailure('invalid-policy-digest', root => {
     mutate(root, 'docs/governance/project-binding.yaml', content => content.replace(/policyDigest: [0-9a-f]{40}/u, 'policyDigest: latest'))

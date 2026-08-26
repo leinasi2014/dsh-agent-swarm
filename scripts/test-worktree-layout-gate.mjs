@@ -41,7 +41,7 @@ try {
   const allowed = join(repo, '.worktree', 'allowed')
   git(['worktree', 'add', allowed, '-b', 'test/allowed'])
   verify(true, 'allowed in-repository task worktree')
-  verifyStatus(false, 'single-checkout rejects a second registered worktree')
+  verifyStatus(false, 'managed status rejects an unregistered worktree')
   git(['-C', allowed, 'checkout', '--detach'])
   verify(false, 'detached development worktree')
   git(['worktree', 'remove', allowed])
@@ -67,7 +67,7 @@ try {
   writeFileSync(join(repo, '.gitignore'), 'node_modules/\n')
   verify(false, 'missing worktree ignore rule')
   git(['checkout', '--detach'])
-  verifyStatus(false, 'single-checkout rejects a detached primary checkout')
+  verifyStatus(false, 'managed status rejects a detached primary checkout')
   console.log('Worktree governance and isolation-status negative tests: PASS')
 } finally {
   rmSync(fixtureRoot, { recursive: true, force: true })

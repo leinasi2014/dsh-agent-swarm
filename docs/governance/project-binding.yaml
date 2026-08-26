@@ -19,6 +19,10 @@ acceptedBaseVerifierBridge:
   exactCandidateExternalNonAuthorReview: required
   candidateSelfApproval: forbidden
   newVerifierActivation: after-reviewed-integration-and-result-readback
+  legacyIsolationDeclarations:
+    backend: single-checkout
+    parallelWriterCapability: NOT_CONFIGURED
+    parallelWriter: forbidden
 
 authority:
   repository:
@@ -35,7 +39,7 @@ authority:
     - alias: github
       role: replication-only
       mutationAuthority: separate-user-authorized-operation
-  authorityEpoch: 2
+  authorityEpoch: 3
 
 candidate:
   identityScheme: git-commit-sha
@@ -56,7 +60,7 @@ deliveryPipelines:
   roleCombinationPolicy: risk-scaled
   capacityPolicy:
     registered: unbounded-by-method
-    activeWriters: 1
+    activeWriters: 2
     readOnlySupport: executor-capacity
   candidateAndEvidenceAuthority: git-commit-plus-check-receipts
   defectAndReworkAuthority:
@@ -66,7 +70,7 @@ deliveryPipelines:
   fallback:
     scope: one-active-session
     record: existing-task-envelope
-    parallelWriter: forbidden
+    parallelWriter: managed-lifecycle-only
 
 documentation:
   schemaVersion: 1
@@ -105,13 +109,16 @@ technical:
   observedCapabilityAuthority: dynamic-redacted-receipt
 
 isolation:
-  backend: single-checkout
-  parallelWriterCapability: NOT_CONFIGURED
-  ownershipPattern: one-repository-writer
+  backend: git-worktree
+  parallelWriterCapability: CONFIGURED
+  ownershipPattern: generation-and-owner-fenced-allocation
+  allocationAuthority: git-common-dir/dsh-agent-swarm-isolation/v1/state.json
+  lifecycleEntry: pnpm-isolation-open-status-close-reconcile
   rawLifecycleCommandsForbidden: true
   unmanagedWorkspaceForbidden: true
   layoutGateDoesNotAuthorizeAllocation: true
-  promotionRequirement: tested-project-owned-open-status-close-reconcile
+  closeProof: clean-and-integrated-or-durable-archive-ref
+  reconcilePolicy: readonly-by-default-deterministic-repair-only
 
 risk:
   classifier: change-surface-and-recovery-impact

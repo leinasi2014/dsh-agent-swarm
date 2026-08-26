@@ -101,7 +101,7 @@ A reference feature is “fused” only when all are true:
 - copying Jiuwen's runtime/transport when an official DSH seam exists;
 - marking a roadmap item complete from a diagram, interface or test name without current runtime evidence.
 - loading mutable candidate output into the stable control Profile, letting a candidate promote itself, or using the candidate runtime as its own rollback controller;
-- allowing parallel repository coding writers while the project binding remains `single-checkout`, or before project-owned open/status/close/reconcile, real per-attempt cwd/filesystem/tool-root isolation and independent executable review are all proven.
+- allowing parallel repository coding writers outside the project-owned open/status/close/reconcile ledger, above its accepted capacity, or before the affected candidate has independent executable review and serial target read-back.
 
 ## 7. Triggered compatibility record
 

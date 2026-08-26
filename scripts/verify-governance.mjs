@@ -137,8 +137,10 @@ for (const phrase of [
   'candidateSelfActivation: forbidden',
   'activation: reviewed-integration-and-result-readback',
   'integrationRef: refs/heads/main',
-  'backend: single-checkout',
-  'parallelWriterCapability: NOT_CONFIGURED',
+  'backend: git-worktree',
+  'parallelWriterCapability: CONFIGURED',
+  'allocationAuthority: git-common-dir/dsh-agent-swarm-isolation/v1/state.json',
+  'lifecycleEntry: pnpm-isolation-open-status-close-reconcile',
   'rawLifecycleCommandsForbidden: true',
   'layoutGateDoesNotAuthorizeAllocation: true',
   'committedMarkdownAuthority: false',
@@ -156,7 +158,7 @@ for (const phrase of [
   'candidateAndEvidenceAuthority: git-commit-plus-check-receipts',
   'integrationAuthority: expected-main-identity',
   'isolationStatus: pnpm-verify-isolation-status',
-  'parallelWriter: forbidden',
+  'parallelWriter: managed-lifecycle-only',
 ]) {
   if (!binding.includes(phrase)) failures.push(`${bindingPath}: missing or changed declaration ${phrase}`)
 }
@@ -243,9 +245,8 @@ if (!skipGit) {
       timeout: 30_000,
       windowsHide: true,
     })
-    const worktrees = output.split(/\r?\n/u).filter(line => line.startsWith('worktree '))
-    if (worktrees.length !== 1) failures.push(`isolation: single-checkout requires exactly one registered worktree; found ${worktrees.length}`)
-    if (!/^branch refs\/heads\//mu.test(output)) failures.push('isolation: primary checkout must be branch-attached')
+    const firstRecord = output.split(/\r?\n\r?\n/u).filter(Boolean)[0] ?? ''
+    if (!/^branch refs\/heads\/main$/mu.test(firstRecord)) failures.push('isolation: primary checkout must be branch-attached to main')
 
     const aliases = new Set(execFileSync('git', ['remote'], {
       cwd: root,
@@ -281,5 +282,5 @@ if (failures.length > 0) {
   for (const failure of failures) console.error(`- ${failure}`)
   process.exitCode = 1
 } else {
-  console.log(`Governance binding, registry, thin adapters, links, legacy firewall, and ${skipGit ? 'declared' : 'observed'} single-checkout isolation: PASS`)
+  console.log(`Governance binding, registry, thin adapters, links, legacy firewall, and ${skipGit ? 'declared' : 'observed'} managed isolation: PASS`)
 }
