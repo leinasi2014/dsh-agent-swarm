@@ -19,6 +19,7 @@ export const inject = [
 // smoke Profile and never claims to be an external provider or model.
 function devSmokeAdapter(ctx) {
   let call = 0
+  const submittedAttempts = new Set()
   return new class extends LlmAdapter {
     async resolveModel(provider, model) { return { provider, id: model, name: model } }
     async * stream(options) {
@@ -27,8 +28,9 @@ function devSmokeAdapter(ctx) {
         .map(block => block.text).join('\n')
       const match = /Task: (task-[a-z0-9-]+), revision (\d+)\nAttempt capability: (\S+)/.exec(text)
       append('w0-member-model-turn', ctx, { assignmentFrame: match !== null })
-      if (match !== null) {
+      if (match !== null && !submittedAttempts.has(match[3])) {
         const [, taskId, revision, attemptId] = match
+        submittedAttempts.add(attemptId)
         const args = JSON.stringify({ task_id: taskId, expected_revision: Number(revision), attempt_id: attemptId, output: `DEV_SMOKE completed ${taskId}.` })
         const id = `dev-smoke-submit-${++call}`
         yield { type: 'block-start', index: 0, blockType: 'tool-call' }
