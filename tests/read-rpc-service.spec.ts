@@ -219,6 +219,19 @@ describe('R2 HTTP lifecycle', () => {
     })).status).toBe(503)
   })
 
+  it('keeps directed member names redacted across the HTTP wire', async () => {
+    const harness = rpcHarness()
+    const server = createServer((req, res) => void harness.service.handle(req, res)); servers.push(server)
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    ;(harness.webServer as { port: number }).port = (server.address() as AddressInfo).port
+    const response = await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/swarm/v1`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ schemaVersion: 1, method: 'snapshot', target: { rootSessionId: ROOT.id } }),
+    })
+    const text = await response.text()
+    expect(JSON.parse(text)).toMatchObject({ ok: true, value: { tasks: [{ targetMemberName: 'worker' }] } })
+    expect(text).not.toContain('targetMemberSessionId'); expect(text).not.toContain('child-session')
+  })
+
   it('waits for both WebServer and R1, then unmounts and can remount without a stale route', async () => {
     const ctx = new Context()
     const harness = rpcHarness()
