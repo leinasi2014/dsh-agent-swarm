@@ -1,5 +1,5 @@
 /**
- * Heterogeneous member LLM provider (branch codex/heterogeneous-member-llm).
+ * Heterogeneous member LLM provider (branch codex/heterogeneous-member-llm-glm).
  *
  * `agent_swarm_add_member` distinguishes two namespaces without confusing them:
  * - the continuable runtime `provider` (e.g. `spawn`) that hosts the child,
@@ -45,8 +45,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
 
 const SIGNAL = new AbortController().signal
-const CAPTAIN = SessionId('hetero-real-captain')
-const CAPTAIN_ID = 'hetero-real-captain'
 
 /** Buckets requests by exact Session (official-preset-skill flux pattern). */
 class TrackedAdapter extends LlmAdapter {
@@ -83,10 +81,25 @@ interface Mounted {
   readonly fibers: Fiber[]
   readonly glm: TrackedAdapter
   readonly dsv4: TrackedAdapter
-  readonly lead: Agent
+  /**
+   * This Context's exact Captain Session id. Every test uses its own unique id
+   * so one test's live/retired captain Session can never leak liveness into
+   * another test's resume (cross-test pollution), and exact-Session adapter
+   * buckets stay disjoint per test.
+   */
+  readonly captainId: string
+  /**
+   * The Context's GLM captain. Assigned per Context: a fresh
+   * `agentLoop.create` in a first-life Context, the cold-resumed agent of the
+   * official `agents.resume` handle in a reopened one. Mounting must never
+   * create it eagerly — a mounted live Session makes the later
+   * `agents.resume` prepare fail with `while it is live` (the captain
+   * reuse/live conflict).
+   */
+  lead: Agent
 }
 
-async function mount(sandbox: string, config: { memberModel?: string } = {}): Promise<Mounted> {
+async function mount(captainId: string, sandbox: string, config: { memberModel?: string } = {}): Promise<Mounted> {
   const ctx = new Context()
   const fibers: Fiber[] = []
   fibers.push(await ctx.plugin(LlmRuntime))
@@ -110,8 +123,13 @@ async function mount(sandbox: string, config: { memberModel?: string } = {}): Pr
   const dsv4 = new TrackedAdapter()
   ctx.llm.registerAdapter(['glm'], glm)
   ctx.llm.registerAdapter(['dsv4-f'], dsv4)
-  const lead = ctx.agentLoop.create(CAPTAIN, { provider: 'glm', model: 'cap-model' }, { cwd: join(sandbox, 'workspace') })
-  return { ctx, fibers, glm, dsv4, lead }
+  return { ctx, fibers, glm, dsv4, captainId, lead: undefined as unknown as Agent }
+}
+
+/** Create the fresh GLM captain for a first-life Context (see `Mounted.lead`). */
+function createLead(wired: Mounted, sandbox: string): Agent {
+  wired.lead = wired.ctx.agentLoop.create(SessionId(wired.captainId), { provider: 'glm', model: 'cap-model' }, { cwd: join(sandbox, 'workspace') })
+  return wired.lead
 }
 
 async function dispose(mounted: Mounted): Promise<void> {
@@ -164,7 +182,7 @@ async function driveCaptainTurn(wired: Mounted): Promise<void> {
     content: [{ type: 'text', text: 'Captain routing probe.' }],
   }))
   await vi.waitFor(() => {
-    expect(wired.glm.requestsFor(CAPTAIN_ID)).not.toHaveLength(0)
+    expect(wired.glm.requestsFor(wired.captainId)).not.toHaveLength(0)
   }, { timeout: 15_000 })
   await wired.lead.whenIdle()
 }
@@ -195,8 +213,11 @@ describe('heterogeneous member LLM provider', () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-hetero-'))
     roots.push(sandbox)
     // `memberModel` config sits between an explicit `model` and the captain's
-    // model in the precedence ladder, so one mount proves all three levels.
-    const wired = await mount(sandbox, { memberModel: 'cfg-model' })
+    // model in the precedence ladder: this mount locks the top two layers
+    // (explicit beats config; config beats the captain's own `cap-model`),
+    // while the restart test below pins the captain-fallback layer itself.
+    const wired = await mount('hetero-routing-captain', sandbox, { memberModel: 'cfg-model' })
+    createLead(wired, sandbox)
     try {
       const created = await tool(wired.ctx, wired.lead, 'hetero-create', 'agent_swarm_create', {
         name: 'Heterogeneous team', description: 'Prove distinct-LLM routing and precedence.',
@@ -219,11 +240,11 @@ describe('heterogeneous member LLM provider', () => {
 
       // Exact-Session routing: the GLM captain and the provider-inheriting member
       // really hit glm; the two dsv4-f members hit dsv4-f — disjoint.
-      expect(wired.glm.requestsFor(CAPTAIN_ID).length).toBeGreaterThan(0)
+      expect(wired.glm.requestsFor(wired.captainId).length).toBeGreaterThan(0)
       expect(wired.glm.requestsFor(explicitId)).toHaveLength(0)
       expect(wired.glm.requestsFor(providerOnlyId)).toHaveLength(0)
       expect(wired.glm.requestsFor(cfgId).length).toBeGreaterThan(0)
-      expect(wired.dsv4.requestsFor(CAPTAIN_ID)).toHaveLength(0)
+      expect(wired.dsv4.requestsFor(wired.captainId)).toHaveLength(0)
       expect(wired.dsv4.requestsFor(cfgId)).toHaveLength(0)
       expect(wired.dsv4.requestsFor(explicitId).length).toBeGreaterThan(0)
       expect(wired.dsv4.requestsFor(providerOnlyId).length).toBeGreaterThan(0)
@@ -262,7 +283,8 @@ describe('heterogeneous member LLM provider', () => {
     let second: Mounted | undefined
     try {
       // No memberModel config: an omitted model falls back to the captain model.
-      first = await mount(sandbox)
+      first = await mount('hetero-restart-captain', sandbox)
+      createLead(first, sandbox)
       const created = await tool(first.ctx, first.lead, 'hetero-create', 'agent_swarm_create', {
         name: 'Heterogeneous team', description: 'Prove heterogeneous provider across a cold restart.',
       })
@@ -284,16 +306,30 @@ describe('heterogeneous member LLM provider', () => {
       expect(inheritDescriptor?.agentProvider).toBe('glm')
       expect(inheritDescriptor?.agentModel).toBe('cap-model')
 
-      // Retire the live Captain handle so its Session ceases to be live and
-      // Context B can reopen it cold over the same durable SQLite root.
-      await first.lead.dispose()
+      // Retire Context A through the official seams (the accepted
+      // restart-continuation pattern): drain the continuable children so their
+      // descriptors go cold while their persisted Sessions stay intact, then
+      // reverse-dispose every Context fiber. `agentLoop.create` returns the
+      // bare Agent (no consumer AgentHandle), and a consumer AgentHandle
+      // `dispose()` would REMOVE the persisted Session from the store — never
+      // the wanted retirement here.
+      for (const id of [heteroId, inheritId]) {
+        const resident = first.ctx.agents.get(SessionId(id))
+        if (resident !== undefined) first.ctx.subagents.interrupt(SessionId(id), { kind: 'ancestor', agent: first.lead })
+        await first.ctx.subagents.drainContinuableChildren(first.lead, [SessionId(id)])
+      }
+      await vi.waitFor(() => {
+        expect(first!.ctx.agents.get(SessionId(heteroId))).toBeUndefined()
+        expect(first!.ctx.agents.get(SessionId(inheritId))).toBeUndefined()
+      }, { timeout: 15_000 })
       await dispose(first)
       first = undefined
 
-      second = await mount(sandbox)
-      const resumedCaptain = await second.ctx.agents.resume({ resumeSessionId: CAPTAIN })
+      second = await mount('hetero-restart-captain', sandbox)
+      const resumedCaptain = await second.ctx.agents.resume({ resumeSessionId: SessionId(second.captainId) })
       try {
         const leadB = resumedCaptain.agent
+        second.lead = leadB
         const hetero = await descriptorOf(second.ctx, heteroId)
         const inherit = await descriptorOf(second.ctx, inheritId)
         expect(hetero?.agentProvider).toBe('dsv4-f')
