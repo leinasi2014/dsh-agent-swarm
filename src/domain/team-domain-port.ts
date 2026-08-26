@@ -104,6 +104,8 @@ export interface CreateTaskInput {
    * configured.
    */
   readonly reservationTokens?: number
+  /** Optional strict assignment target; the scheduler must not fall back. */
+  readonly targetMemberSessionId?: string
 }
 
 /**

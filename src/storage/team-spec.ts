@@ -51,6 +51,7 @@ const taskSchema = z.object({
     timeoutMs: z.number().int().min(1).optional(),
   })).optional(),
   reservationTokens: z.number().int().min(1).optional(),
+  targetMemberSessionId: sessionId.optional(),
   ownerSessionId: sessionId.optional(),
   currentAttemptId: z.string().min(1).optional(),
   output: z.string().min(1).optional(),

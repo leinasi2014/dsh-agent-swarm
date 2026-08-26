@@ -55,10 +55,20 @@ export interface TeamReviewProvider {
  */
 export function priorityReadyScheduler(): TeamSchedulerProvider {
   return {
-    select: ({ readyTasks, availableMembers }) => availableMembers.flatMap((member, index) => {
-      const task = readyTasks[index]
-      return task === undefined ? [] : [{ taskId: task.id, memberSessionId: member.sessionId }]
-    }),
+    select: ({ readyTasks, availableMembers }) => {
+      const available = new Map(availableMembers.map(member => [member.sessionId, member]))
+      const decisions: SchedulerDecision[] = []
+      for (const task of readyTasks) {
+        if (task.targetMemberSessionId === undefined) continue
+        if (available.delete(task.targetMemberSessionId)) decisions.push({ taskId: task.id, memberSessionId: task.targetMemberSessionId })
+      }
+      const generic = readyTasks.filter(task => task.targetMemberSessionId === undefined)
+      for (const [index, member] of available.values().entries()) {
+        const task = generic[index]
+        if (task !== undefined) decisions.push({ taskId: task.id, memberSessionId: member.sessionId })
+      }
+      return decisions
+    },
   }
 }
 
