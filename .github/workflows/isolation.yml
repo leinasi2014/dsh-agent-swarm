@@ -1,0 +1,45 @@
+name: isolation
+
+on:
+  workflow_dispatch: {}
+  pull_request:
+    paths:
+      - 'docs/governance/project-binding.yaml'
+      - 'docs/08-testing-verification.md'
+      - 'AGENTS.md'
+      - 'CONTRIBUTING.md'
+      - '.gitignore'
+      - 'lefthook.yml'
+      - 'scripts/verify-isolation-status.mjs'
+      - 'scripts/verify-worktree-layout.mjs'
+      - 'scripts/test-worktree-layout-gate.mjs'
+      - 'package.json'
+      - '.github/workflows/isolation.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'docs/governance/project-binding.yaml'
+      - 'docs/08-testing-verification.md'
+      - 'AGENTS.md'
+      - 'CONTRIBUTING.md'
+      - '.gitignore'
+      - 'lefthook.yml'
+      - 'scripts/verify-isolation-status.mjs'
+      - 'scripts/verify-worktree-layout.mjs'
+      - 'scripts/test-worktree-layout-gate.mjs'
+      - 'package.json'
+      - '.github/workflows/isolation.yml'
+
+jobs:
+  isolation:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm verify:isolation

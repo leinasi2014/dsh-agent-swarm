@@ -5,9 +5,10 @@ Use `$manage-agile-software-development` as the delivery method for non-trivial 
 ## Bootstrap
 
 1. Read the binding, the affected registered authorities, and `.agents/skills/dsh-plugin-development/SKILL.md` for DSH-specific engineering.
-2. Run `pnpm verify:governance` before changing governance, instructions, document authority, or isolation policy.
-3. Run `pnpm verify:gate-a` when official DSH or reference compatibility is decision-bearing.
-4. Use the lowest delivery lane that covers the actual risk. The repository is S2 at the project boundary; bounded implementation slices may be S0/S1.
+2. Run `pnpm verify:isolation:status` before opening a write lane, freezing a candidate, and integrating. Run the full `pnpm verify:isolation` only when isolation policy or layout assumptions change.
+3. Run `pnpm verify:policy` before changing governance, instructions, or document authority.
+4. Run `pnpm verify:compatibility` when official DSH or reference compatibility is decision-bearing. Reuse an unchanged compatibility receipt otherwise.
+5. Give each independently acceptable capability one Feature Pipeline, then select the lowest delivery lane that covers that pipeline's actual coordination and risk. The single-checkout limit constrains active writers, not read-only QA/investigation or pipeline registration.
 
 ## Project red lines
 
@@ -15,16 +16,18 @@ Use `$manage-agile-software-development` as the delivery method for non-trivial 
 - Verify APIs against the installed `@deepseek-ai/*` packages and the pinned official evidence. `ref/` is read-only evidence and is refreshed only through its supplied sync scripts.
 - Every registration has lifecycle ownership and a disposer. Publish state only after its authoritative commit; model-visible state must be reconstructable from the Session log.
 - Stable control, candidate artifacts, acceptance state/RPC, and promotion/rollback are separate authorities. A candidate cannot accept or promote itself.
-- Governance bootstrap acceptance combines the native gates from the inspected base with an external non-author review of the exact candidate. The newly added doctor is diagnostic for this candidate and becomes trusted only after reviewed integration and result read-back.
+- A policy or verifier candidate cannot activate itself. Judge it with the accepted-base verifier plus the required independent review, then activate it only after expected-target integration and result read-back.
 - The current isolation backend is `single-checkout`. Parallel writers and raw worktree lifecycle commands are forbidden until the binding and a tested project-owned lifecycle gate are upgraded together.
 - Committed Markdown is not live task, lease, candidate, review, or cleanup authority. The incomplete cleanup ledger is immutable recovery evidence pending migration and must not receive rolling status updates.
 - Repository documents cannot authorize secrets, network access, pushing, release, destructive cleanup, or writes outside the repository.
 
 ## Trusted checks
 
-- Governance: `pnpm verify:governance`
+- Policy: `pnpm verify:policy`
+- Current single-checkout status: `pnpm verify:isolation:status`
+- Isolation: `pnpm verify:isolation`
 - Structure: `pnpm verify:structure`
-- Full local acceptance: `pnpm verify`
-- Official/reference evidence: `pnpm verify:gate-a`
+- Engineering candidate: `pnpm verify:candidate` (`pnpm verify` is an alias)
+- Official/reference compatibility: `pnpm verify:compatibility`
 
 Report the exact commands run and any `NOT_CONFIGURED`, `FLAKY`, or blocked evidence. Preserve unrelated, dirty, untracked, and uniquely recoverable state.

@@ -15,7 +15,7 @@ documents:
     accountableOwner: governance-owner
     mutationAuthority: expected-target-reviewed-candidate
     updateTriggers: project-authority-or-capability-change
-    validation: pnpm-verify-governance
+    validation: pnpm-verify-policy
   - documentId: document-registry
     path: docs/governance/document-registry.yaml
     role: stable-authority
@@ -24,7 +24,7 @@ documents:
     accountableOwner: governance-owner
     mutationAuthority: expected-target-reviewed-candidate
     updateTriggers: document-authority-or-layout-change
-    validation: pnpm-verify-governance
+    validation: pnpm-verify-policy
   - documentId: adoption-manifest-v1
     path: docs/governance/adoption-manifest-v1.yaml
     role: evidence
@@ -33,7 +33,7 @@ documents:
     accountableOwner: governance-owner
     mutationAuthority: immutable-new-manifest-required
     updateTriggers: none
-    validation: pnpm-verify-governance
+    validation: pnpm-verify-policy
   - documentId: root-agent-instructions
     path: AGENTS.md
     role: projection
@@ -42,7 +42,7 @@ documents:
     accountableOwner: governance-owner
     mutationAuthority: same-candidate-as-source-authority
     updateTriggers: binding-or-project-red-line-change
-    validation: pnpm-verify-governance
+    validation: pnpm-verify-policy
     sourceAuthority: project-binding
     refreshPolicy: same-candidate-as-source-change
     expiryPolicy: invalid-on-source-authority-change
@@ -54,7 +54,7 @@ documents:
     accountableOwner: governance-owner
     mutationAuthority: same-candidate-as-source-authority
     updateTriggers: root-agent-instruction-change
-    validation: pnpm-verify-governance
+    validation: pnpm-verify-policy
     sourceAuthority: root-agent-instructions
     refreshPolicy: same-candidate-as-source-change
     expiryPolicy: invalid-on-source-authority-change
@@ -66,7 +66,7 @@ documents:
     accountableOwner: governance-owner
     mutationAuthority: same-candidate-as-source-authority
     updateTriggers: binding-or-trusted-command-change
-    validation: pnpm-verify-governance
+    validation: pnpm-verify-policy
     sourceAuthority: project-binding
     refreshPolicy: same-candidate-as-source-change
     expiryPolicy: invalid-on-source-authority-change
@@ -78,7 +78,7 @@ documents:
     accountableOwner: product-owner
     mutationAuthority: same-candidate-as-source-authority
     updateTriggers: public-behavior-or-installation-change
-    validation: pnpm-verify-governance
+    validation: pnpm-verify-policy
     sourceAuthority: product-charter
     refreshPolicy: same-candidate-as-source-change
     expiryPolicy: invalid-on-source-authority-change
@@ -90,7 +90,7 @@ documents:
     accountableOwner: documentation-owner
     mutationAuthority: same-candidate-as-registry
     updateTriggers: registered-path-or-reading-order-change
-    validation: pnpm-verify-governance
+    validation: pnpm-verify-policy
     sourceAuthority: document-registry
     refreshPolicy: same-candidate-as-source-change
     expiryPolicy: invalid-on-source-authority-change
@@ -102,7 +102,7 @@ documents:
     accountableOwner: product-owner
     mutationAuthority: user-authorized-reviewed-candidate
     updateTriggers: product-outcome-or-scope-change
-    validation: pnpm-verify-governance
+    validation: pnpm-verify-policy
   - documentId: product-vision
     path: docs/00-vision.md
     role: stable-authority
@@ -111,7 +111,7 @@ documents:
     accountableOwner: product-owner
     mutationAuthority: expected-target-reviewed-candidate
     updateTriggers: product-boundary-or-compatibility-change
-    validation: pnpm-verify-governance
+    validation: pnpm-verify-policy
   - documentId: capability-family
     path: docs/03-capability-family.md
     role: stable-authority
@@ -120,7 +120,7 @@ documents:
     accountableOwner: architecture-owner
     mutationAuthority: expected-target-reviewed-candidate
     updateTriggers: capability-ownership-or-service-boundary-change
-    validation: pnpm-verify-governance
+    validation: pnpm-verify-policy
   - documentId: core-protocol
     path: docs/04-core-protocol.md
     role: stable-authority
@@ -129,7 +129,7 @@ documents:
     accountableOwner: protocol-owner
     mutationAuthority: expected-target-reviewed-candidate
     updateTriggers: protocol-state-or-error-contract-change
-    validation: pnpm-verify-governance
+    validation: pnpm-verify-policy
   - documentId: workspace-architecture
     path: docs/06-workspace-distributed.md
     role: stable-authority
@@ -138,7 +138,7 @@ documents:
     accountableOwner: architecture-owner
     mutationAuthority: expected-target-reviewed-candidate
     updateTriggers: workspace-or-distributed-boundary-change
-    validation: pnpm-verify-governance
+    validation: pnpm-verify-policy
   - documentId: implementation-roadmap
     path: docs/07-implementation-roadmap.md
     role: reference
@@ -147,7 +147,7 @@ documents:
     accountableOwner: product-owner
     mutationAuthority: expected-target-reviewed-candidate
     updateTriggers: milestone-definition-or-exit-criteria-change
-    validation: pnpm-verify-governance
+    validation: pnpm-verify-policy
   - documentId: testing-verification
     path: docs/08-testing-verification.md
     role: stable-authority
@@ -156,7 +156,7 @@ documents:
     accountableOwner: quality-owner
     mutationAuthority: expected-target-reviewed-candidate
     updateTriggers: verification-command-or-evidence-contract-change
-    validation: pnpm-verify
+    validation: pnpm-verify-candidate
   - documentId: source-register
     path: docs/09-sources.md
     role: reference
@@ -165,7 +165,7 @@ documents:
     accountableOwner: compatibility-owner
     mutationAuthority: gate-a-reviewed-candidate
     updateTriggers: official-or-reference-pin-change
-    validation: pnpm-verify-gate-a
+    validation: pnpm-verify-compatibility
   - documentId: fusion-audit
     path: docs/10-fusion-audit.md
     role: reference
@@ -183,7 +183,7 @@ documents:
     accountableOwner: compatibility-owner
     mutationAuthority: expected-target-reviewed-candidate
     updateTriggers: official-baseline-or-compatibility-policy-change
-    validation: pnpm-verify-gate-a
+    validation: pnpm-verify-compatibility
   - documentId: self-hosting-policy
     path: docs/13-self-hosting-dogfood.md
     role: stable-authority
@@ -192,7 +192,7 @@ documents:
     accountableOwner: operations-owner
     mutationAuthority: expected-target-reviewed-candidate
     updateTriggers: control-candidate-promotion-or-recovery-change
-    validation: pnpm-verify
+    validation: pnpm-verify-candidate
   - documentId: official-baseline
     path: docs/OFFICIAL_BASELINE.json
     role: reference
@@ -201,16 +201,25 @@ documents:
     accountableOwner: compatibility-owner
     mutationAuthority: gate-a-reviewed-candidate
     updateTriggers: official-release-change
-    validation: pnpm-verify-gate-a
+    validation: pnpm-verify-compatibility
   - documentId: reviewer-autonomy-decision
     path: docs/adr/0006-independent-reviewer-autonomy.md
-    role: stable-authority
+    role: reference
     subject: decision
     writeMode: human
     accountableOwner: governance-owner
     mutationAuthority: superseding-adr-only
     updateTriggers: accepted-review-governance-reversal
-    validation: pnpm-verify-governance
+    validation: pnpm-verify-policy
+  - documentId: feature-pipeline-acceptance-decision
+    path: docs/adr/0010-risk-scaled-feature-pipeline-acceptance.md
+    role: stable-authority
+    subject: decision
+    writeMode: human
+    accountableOwner: governance-owner
+    mutationAuthority: superseding-adr-only
+    updateTriggers: feature-pipeline-or-acceptance-governance-reversal
+    validation: pnpm-verify-policy
   - documentId: self-hosting-decision
     path: docs/adr/0008-self-hosting-dogfood-control-plane.md
     role: stable-authority
@@ -219,7 +228,7 @@ documents:
     accountableOwner: architecture-owner
     mutationAuthority: superseding-adr-only
     updateTriggers: accepted-control-plane-reversal
-    validation: pnpm-verify
+    validation: pnpm-verify-candidate
   - documentId: i1b-v2-effect-ledger-decision
     path: docs/adr/0009-i1b-v2-effect-ledger-authority.md
     role: reference
@@ -228,7 +237,7 @@ documents:
     accountableOwner: architecture-owner
     mutationAuthority: reviewed-proposal-until-accepted
     updateTriggers: proposal-review-or-effect-authority-decision
-    validation: pnpm-verify
+    validation: pnpm-verify-policy
   - documentId: plugin-development-skill
     path: .agents/skills/dsh-plugin-development/SKILL.md
     role: stable-authority
@@ -246,7 +255,7 @@ documents:
     accountableOwner: recovery-owner
     mutationAuthority: immutable-until-migrated-by-reviewed-candidate
     updateTriggers: recovery-migration-completion
-    validation: pnpm-verify-governance
+    validation: pnpm-verify-policy
 
 domains:
   governance:
@@ -259,7 +268,7 @@ domains:
     paths: docs/00-vision.md|docs/03-capability-family.md|docs/04-core-protocol.md|docs/06-workspace-distributed.md
 
 checks:
-  entryPoint: pnpm-verify-governance
+  entryPoint: pnpm-verify-policy
   linkScope: registered-markdown
   stableDocumentFirewall: enabled
   protectedLegacyDeletion: enabled

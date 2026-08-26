@@ -72,20 +72,7 @@ Required:
 - merge queue serializes promotion and rejects stale attempt/lease generations;
 - structured diagnostics redact credentials and remain linked to Team/task/run ids.
 
-Ownership verification (2026-08-22, issue #102 closing the M3-3 gate; full mapping in `docs/04` §8m and the design note §5.2):
-
-| D2 requirement | Owner | Status |
-|---|---|---|
-| Workflow/Jobs single transition owner, durable run ids, cancellation/completion disclosure | M2-1/M2-2 (`docs/04` §8f/§8h) | delivered |
-| one immutable base revision + unique branch/Worktree/lease per attempt | M3-1 (#100, `docs/04` §8l) | delivered (prompt-level fence; hard sandbox is the held-open gap) |
-| out-of-process execution cwd/filesystem/shell roots equal the lease | #100 official-cwd seam + later sandbox work | declared gap — D2 parallel coding additionally needs the deployment sandbox decision |
-| command/check + independent Reviewer; completion cannot bypass | M3-2 (#101 executable review) | delivered |
-| frozen commit + package artifact digest before verification | M3-3 freeze lane (manifest: commit/tree SHA anchor + tarball sha256 identity) | delivered |
-| separate acceptance Profile/port/state root + health checks + deterministic rollback | M3-3 acceptance lane + promoter (`scripts/promotion/`, P0–P7 drill evidence) | delivered |
-| serialized promotion, stale generation rejection | repo merge guard (merge queue) + M3-3 ledger/LKG generation fencing | delivered |
-| structured diagnostics redacted and linked to Team/task/run ids | #101 evidence face + M3-3 verdict/ledger fields | delivered |
-
-D2 opening status (2026-08-22): the independent security review landed (`docs/reviews/2026-08-22-d2-security-review.md`, verdict CONDITIONAL) and its blocking findings F1–F5 were addressed by the control-plane hardening iteration 1 (issue #122, §9 below): env seal, script-free candidate installs, verdict three-fold-presence + accepted-record cross-check, chain-tail git anchors, half-applied compensation + installed-bytes reconciliation + repair, quiesce fail-safe. Full parallel-coding D2 opening still requires the OS-level demotion deployment decision (§9.3) or, per the review's fallback, promoting the D4 sandbox to a hard precondition.
+Readiness is evaluated from the current accepted implementation, executable checks, immutable review evidence and deployment configuration; this stable design does not carry a dated delivery table. The selected project binding remains the authority for whether parallel repository writers are enabled. D2 stays closed whenever any required execution-root, reviewer, frozen-artifact, acceptance-Profile, promotion-fencing or OS-level demotion claim lacks current evidence.
 
 ### D3 and D4
 
@@ -136,7 +123,7 @@ Observed failures become Lead-owned tasks with reproduction evidence, expected i
 - Bundle/inject/Profile drift, port conflict and reload leakage;
 - excessive tool/status context, repeated scans and accounting duplication.
 
-Each confirmed defect requires a regression test in the owning layer and an update to the implementation-status documents. Logs alone are not closure evidence.
+Each confirmed defect requires a regression test in the owning layer. Update stable architecture, contract, security or recovery documents only when their decision-bearing semantics change; dynamic implementation status stays in the selected pipeline authority. Logs alone are not closure evidence.
 
 ## 7. Permission and resource policy
 
@@ -206,4 +193,3 @@ icacls "$env:USERPROFILE\.dsh" /deny 'd2lane:(OI)(CI)W'
 **Option B — deny-write ACL on the drill domain (lighter, drill-applicable).** The same `icacls ... /deny` command set applied to a DRILL-ONLY dogfood root's `lkg`/`ledger`/`control`/`candidates` directories before the failure-injection phases; the drill then proves the injection cannot mutate the anchored faces even when the injected code holds the lane's authority. Applicable where creating accounts is not possible; it does not protect the host `~/.dsh` (that face needs Option A's separate principal).
 
 **Windows reality (why this is a runbook, not code):** creating principals, scheduled-task delegation and per-process tokens are host-administration decisions outside this repository's authority. The code-level guarantees (env seal, script-free installs, digest/anchor verification) hold regardless; this runbook closes the write-authority gap when the deployment chooses to. Until a deployment decision is made, this section is the honest record that OS-level demotion is NOT yet active on the real dogfood root.
-

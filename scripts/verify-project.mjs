@@ -1,11 +1,8 @@
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
-const execFileAsync = promisify(execFile)
 const required = [
   'README.md',
   'CONTRIBUTING.md',
@@ -41,13 +38,14 @@ const required = [
   'docs/GOALS.md',
   'docs/OFFICIAL_BASELINE.json',
   'docs/adr/0005-official-first-pure-plugin-integration.md',
-  'docs/adr/0006-independent-reviewer-autonomy.md',
+  'docs/adr/0010-risk-scaled-feature-pipeline-acceptance.md',
   'docs/adr/0007-m1-storage-authority-and-remediation-order.md',
   'docs/adr/0008-self-hosting-dogfood-control-plane.md',
   'scripts/verify-official-baseline.mjs',
   'scripts/verify-reference-baselines.mjs',
   'scripts/merge-guard.mjs',
   'scripts/verify-worktree-layout.mjs',
+  'scripts/verify-isolation-status.mjs',
   'scripts/verify-governance.mjs',
   'scripts/test-governance-gate.mjs',
   'scripts/sync-official-evidence.ps1',
@@ -63,6 +61,9 @@ const required = [
   'knip.json',
   'lefthook.yml',
   '.github/workflows/verify.yml',
+  '.github/workflows/policy.yml',
+  '.github/workflows/isolation.yml',
+  '.github/workflows/compatibility.yml',
   'src/runtime/authority.ts',
   'src/runtime/providers.ts',
   'src/runtime/prompts.ts',
@@ -105,36 +106,36 @@ try {
   if (pkg.dsh?.bundle?.patch !== './cordis.patch.yml') failures.push('package.json: missing dsh.bundle.patch')
   if (pkg.type !== 'module') failures.push('package.json: ESM type is required')
   if (typeof pkg.packageManager !== 'string' || !pkg.packageManager.startsWith('pnpm@')) failures.push('package.json: packageManager must pin a pnpm version')
-  if (!String(pkg.scripts?.verify ?? '').includes('pnpm lint')) failures.push('package.json: verify chain must include the lint gate')
-  if (!String(pkg.scripts?.verify ?? '').includes('pnpm verify:duplication')) failures.push('package.json: verify chain must include the duplication gate')
-  if (!String(pkg.scripts?.verify ?? '').includes('pnpm verify:exports')) failures.push('package.json: verify chain must include the dead-export gate')
-  if (!String(pkg.scripts?.verify ?? '').includes('pnpm verify:scenarios')) failures.push('package.json: verify chain must include the scenario-audit gate')
-  if (!String(pkg.scripts?.verify ?? '').includes('pnpm verify:worktrees')) failures.push('package.json: verify chain must include the worktree-layout gate')
-  if (!String(pkg.scripts?.verify ?? '').includes('pnpm verify:governance')) failures.push('package.json: verify chain must include the governance gate')
-  if (!String(pkg.scripts?.verify ?? '').includes('pnpm verify:p0-fixtures')) failures.push('package.json: verify chain must include the P0 evidence gate fixtures')
-  if (!String(pkg.scripts?.['verify:governance'] ?? '').includes('test-governance-gate.mjs')) failures.push('package.json: governance gate must keep its negative policy tests')
-  if (!String(pkg.scripts?.['verify:worktrees'] ?? '').includes('test-worktree-layout-gate.mjs')) failures.push('package.json: worktree gate must keep its negative policy tests')
+  const verify = String(pkg.scripts?.verify ?? '')
+  const candidate = String(pkg.scripts?.['verify:candidate'] ?? '')
+  const engineering = String(pkg.scripts?.['verify:engineering'] ?? '')
+  if (!verify.includes('pnpm verify:candidate')) failures.push('package.json: verify must route to the candidate gate')
+  if (!candidate.includes('pnpm verify:engineering')) failures.push('package.json: candidate gate must route to the engineering gate')
+  for (const [script, label] of [
+    ['pnpm verify:structure', 'structure'],
+    ['pnpm verify:workspace', 'workspace-boundary'],
+    ['pnpm verify:p0-fixtures', 'P0-fixtures'],
+    ['pnpm lint', 'lint'],
+    ['pnpm verify:duplication', 'duplication'],
+    ['pnpm verify:exports', 'dead-export'],
+    ['pnpm typecheck', 'typecheck'],
+    ['pnpm typecheck:test', 'test-typecheck'],
+    ['pnpm test', 'test'],
+    ['pnpm verify:scenarios', 'scenario-audit'],
+    ['pnpm build', 'build'],
+    ['pnpm verify:artifact', 'artifact'],
+  ]) {
+    if (!engineering.includes(script)) failures.push(`package.json: engineering gate must include the ${label} gate`)
+  }
+  if (!String(pkg.scripts?.['verify:policy'] ?? '').includes('test-governance-gate.mjs')) failures.push('package.json: policy gate must keep its negative policy tests')
+  if (!String(pkg.scripts?.['verify:policy:declared'] ?? '').includes('--skip-git')) failures.push('package.json: declared policy gate must skip authority-remote observation')
+  if (!String(pkg.scripts?.['verify:isolation'] ?? '').includes('test-worktree-layout-gate.mjs')) failures.push('package.json: isolation gate must keep its negative policy tests')
+  if (!String(pkg.scripts?.['verify:isolation:status'] ?? '').includes('verify-isolation-status.mjs')) failures.push('package.json: isolation status gate must remain independently callable')
+  if (!String(pkg.scripts?.['verify:compatibility'] ?? '').includes('verify:references')) failures.push('package.json: compatibility gate must keep reference verification')
   if (pkg.scripts?.['p0:profile-proof'] !== 'node scripts/p0/run.mjs') failures.push('package.json: P0 Profile proof entry is missing')
   if (pkg.files?.some(item => item === 'ref' || item.startsWith('ref/'))) failures.push('package.json: ref must not be published')
 } catch (error) {
   failures.push(`package.json: ${String(error)}`)
-}
-
-for (const name of ['dsh-agent-teams', 'jiuwenswarm']) {
-  try {
-    const pointer = JSON.parse(await readFile(join(root, 'ref', name, 'SOURCE_POINTER.json'), 'utf8'))
-    const source = join(root, 'ref', name, 'source')
-    if (!(await stat(source)).isDirectory()) {
-      failures.push(`ref/${name}/source: not a directory`)
-      continue
-    }
-    const { stdout: head } = await execFileAsync('git', ['-C', source, 'rev-parse', 'HEAD'])
-    if (head.trim() !== pointer.commit) failures.push(`ref/${name}: HEAD does not match SOURCE_POINTER.json`)
-    const { stdout: dirty } = await execFileAsync('git', ['-C', source, 'status', '--porcelain'])
-    if (dirty.trim() !== '') failures.push(`ref/${name}: source checkout is dirty`)
-  } catch (error) {
-    failures.push(`ref/${name}: ${String(error)}`)
-  }
 }
 
 try {
@@ -154,7 +155,7 @@ for (const [file, phrases] of [
   ['docs/13-self-hosting-dogfood.md', ['stable control Profile', 'acceptance Profile', 'ADR-0008']],
   ['docs/GOALS.md', ['产品目标', '稳定范围', '产品红线', '能力演进顺序', '章程变更']],
   ['.agents/skills/dsh-plugin-development/SKILL.md', ['official-first compatibility gate', 'docs/11-official-first-development.md']],
-  ['docs/governance/project-binding.yaml', ['backend: single-checkout', 'parallelWriterCapability: NOT_CONFIGURED', 'exactCandidateExternalNonAuthorReview: required']],
+  ['docs/governance/project-binding.yaml', ['backend: single-checkout', 'parallelWriterCapability: NOT_CONFIGURED', 'candidateSelfActivation: forbidden', 'activation: reviewed-integration-and-result-readback']],
   ['docs/governance/document-registry.yaml', ['documentId: project-binding', 'stableDocumentFirewall: enabled', 'accountableOwner:']],
   ['docs/governance/adoption-manifest-v1.yaml', ['inspectedBase: f465400b731f4593384c699a0c6fea08b9300be6', 'branchDeletion: forbidden-by-this-manifest']],
 ]) {
@@ -199,5 +200,5 @@ if (failures.length > 0) {
   for (const failure of failures) console.error(`- ${failure}`)
   process.exitCode = 1
 } else {
-  console.log('Project structure, pinned clean references, manifests, engineering gates, source size limits, UTF-8, and trailing newlines: PASS')
+  console.log('Project structure, tracked reference pointers, manifests, routed gates, source size limits, UTF-8, and trailing newlines: PASS')
 }

@@ -85,7 +85,7 @@ The plugin adds useful behavior not present in that reference: mandatory review 
 
 The design follows DSH's “everything is a plugin” principle at the outer execution seam, but is not yet thoroughly pluginized internally. Scheduler and Review are real Provider registries, and since M1A the aggregate store sits behind `TeamAggregateStore` with the official Storage Domain as its only production implementation. Budget accounting, memory, workflow, workspace and policy remain embedded or absent.
 
-Since 2026-08-20 the runtime is split into milestone-shaped collaborators (`authority`, `providers`, `prompts`, `usage-accounting`, `message-delivery`, `member-provisioning`) under a 600-line enforced source ceiling, and the repository runs the official engineering family — oxlint, jscpd, knip, lefthook, CI and coverage — inside `pnpm verify` (see `docs/08` §9). Internal pluginization debt is tracked with explicit triggers rather than prose:
+Since 2026-08-20 the runtime is split into milestone-shaped collaborators (`authority`, `providers`, `prompts`, `usage-accounting`, `message-delivery`, `member-provisioning`) under a 600-line enforced source ceiling. The candidate gate runs the engineering family — oxlint, jscpd, knip, tests, build and artifact — once per frozen candidate; policy, isolation, compatibility and coverage are separate claim-triggered lanes (see `docs/08` §9). Internal pluginization debt is tracked with explicit triggers rather than prose:
 
 | Embedded concern | Current owner | Extraction trigger |
 |---|---|---|

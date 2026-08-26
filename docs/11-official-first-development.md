@@ -4,17 +4,19 @@ Status: mandatory. Effective: 2026-08-20.
 
 ## 1. Fixed rule
 
-Every design, feature, refactor, fix and milestone starts by checking the current official DSH implementation and development direction. This project integrates through pure plugins. It must not conflict with, shadow, fork or independently reimplement an official capability.
+Every design, feature, refactor, fix and milestone starts by checking the accepted official DSH capability classification relevant to its change. A fresh remote/evidence scan is trigger-based, not a ritual for every edit. This project integrates through pure plugins and must not conflict with, shadow, fork or independently reimplement an official capability.
 
 “Official-first” does not mean importing every official package. It means that official stable Service Definitions own their domains; this project contributes Providers, Consumers, policy overlays and Bundle composition. An official experimental/private package is a semantic compatibility target but is not a production dependency until officially promoted. A genuinely absent capability may receive a generic project seam only after the absence and ownership boundary are recorded.
 
 The plugin checkout may be physically nested under the official checkout, but it must remain outside the official workspace globs (the current relocation target is `packages/.external/dsh-agent-swarm`) and carry its own `pnpm-workspace.yaml`. `pnpm verify:workspace` must resolve the workspace root and Vitest 3.x from the plugin itself rather than a parent installation. The plugin remains an independent Git repository, package workspace, candidate stream and release authority. The official checkout is a read-only evidence and Profile/Bundle acceptance host: no plugin task may modify its source, manifests, lockfiles or configuration. Gate A discovers that host from enclosing Git identity plus the pinned official root package, release and commit; directory names and persisted absolute paths are not evidence.
 
-## 2. Gate A — mandatory pre-development evidence
+## 2. Gate A — triggered compatibility evidence
 
-No production code begins until all items pass:
+Run a fresh Gate A when the change depends on official Service/package/export/types/Profile facts; changes the official baseline, reference pins, lockfile or target Profile; contradicts a cached classification in real runtime evidence; or introduces a seam, state owner or shadowing risk. Otherwise reuse an accepted receipt whose key is the official baseline digest, both reference pins, lockfile identity and affected capability.
 
-1. Run `pnpm verify:gate-a`; it proves the pinned official commit is a provable release (the `dsh-v<release>` tag landed on the pin or demonstrably contains it; in the npm-first/tag-pending window, the pin is still the verified remote tip or an ancestor of it), checks both reference pins and the clean local evidence checkouts, verifies that required official Agent Notes/source evidence is materialized, and validates package visibility against `OFFICIAL_BASELINE.json`. Record the release, SHA, date and any drift.
+When triggered, no affected production code begins until all items pass:
+
+1. Run `pnpm verify:compatibility` (`verify:gate-a` remains a compatibility alias); it proves the pinned official commit is a provable release, checks both reference pins and clean evidence checkouts, verifies required official source evidence, and validates package visibility against `OFFICIAL_BASELINE.json`. Record the release, SHA, date, receipt key and drift.
 2. Read official `AGENTS.md`, `docs/architecture.md`, package rules/map, the relevant subsystem document and relevant implemented Agent Notes.
 3. Inspect package manifests, publication/private status, exports, types, README and tests at that commit.
 4. Inspect installed package exports and the target Profile's actual plugin tree. A published package is not automatically installed or composed.
@@ -25,14 +27,14 @@ No production code begins until all items pass:
    - project-owned orchestration overlay.
 6. Re-read both pinned reference repositories for the affected behavior and failure cases.
 7. Update the ownership/conflict table and identify exactly one canonical state owner and one transition owner.
-8. Update `09-sources.md` and any superseded factual claims before implementation.
+8. Update `09-sources.md` and superseded factual claims in the same candidate when the classification actually changes; do not edit stable documents merely to record a routine rerun.
 9. For self-hosting work, identify the stable control artifact/Profile, candidate Worktree/artifact, acceptance Profile and external promotion owner. Verify that no official service is being misdescribed as a self-updater or cwd isolation mechanism.
 
-Gate A is not satisfied by a remote SHA alone. The cited implemented Agent Notes and package source must exist in the local evidence checkout, and the project revision being reviewed must be committed or otherwise reproducibly identified.
+Gate A is not satisfied by a remote SHA alone. The cited implemented Agent Notes and package source must exist in the local evidence checkout, and the project revision being reviewed must be committed or otherwise reproducibly identified. Receipts are dynamic evidence, not rolling committed-document status.
 
 The official baseline is release-anchored, not HEAD-anchored. `OFFICIAL_BASELINE.json` pins a release merge commit, and `verify:official` must prove that pin is an official release — the release tag landed on the pin or demonstrably contains it (`git merge-base --is-ancestor`) — before any snapshot check counts. Official `master` advancing past the pin between releases is expected, keeps Gate A green, and is reported as a note only; it is not by itself a drift finding.
 
-A re-pin becomes due exactly when the official project publishes a newer release. Review the full diff from the pinned release to the new one before adopting it, then update `OFFICIAL_BASELINE.json` (commit, release, `evidenceFiles`, package visibility) together with the affected architecture/milestone documents in one change. `verify:official` surfaces a due re-pin as a warning, not a failure, so an open change set is not broken by an upstream release landing mid-review; the re-pin lands as its own reviewed change.
+A re-pin becomes due exactly when the official project publishes a newer release. Review the full diff from the pinned release to the new one before adopting it, then update `OFFICIAL_BASELINE.json` together with only the affected architecture/milestone authorities. `verify:official` surfaces a due re-pin as a warning, not a failure, so an unrelated open pipeline is not broken by upstream movement; the re-pin lands as its own reviewed change. Reference drift likewise blocks only the affected compatibility/re-pin pipeline until its pin is deliberately reviewed.
 
 Gate A is red only when the pin stops being a provable release: no release tag contains the pin and the pin is neither the remote tip nor a verified ancestor of it; the pinned release was superseded without its tag ever landing; or the pinning evidence itself (checkout at the pin, Agent Notes, package visibility) no longer holds. The expected CI red windows are therefore evidence failures and transient network failures — never mere master movement. During the official npm-published/tag-pending window Gate A stays green on the fallback anchor (the pin is the remote tip, or a verified ancestor of it) with an explicit warning, and upgrades to the tag anchor once the tag lands. If network access is unavailable, record the verification limitation and do not call a cached pin “current.”
 
@@ -101,9 +103,9 @@ A reference feature is “fused” only when all are true:
 - loading mutable candidate output into the stable control Profile, letting a candidate promote itself, or using the candidate runtime as its own rollback controller;
 - allowing parallel repository coding writers while the project binding remains `single-checkout`, or before project-owned open/status/close/reconcile, real per-attempt cwd/filesystem/tool-root isolation and independent executable review are all proven.
 
-## 7. Change record required for every milestone
+## 7. Triggered compatibility record
 
-Each milestone document or Agent Note records:
+When Gate A is triggered, record only the decision-bearing delta in the existing Feature Pipeline receipt or required architecture/contract document. Do not create a second milestone document or Agent Note for an ordinary direct-approved slice. Reuse unchanged accepted identities and omit fields that do not change the decision. The available field menu is:
 
 ```text
 Official remote SHA/date:
@@ -132,11 +134,11 @@ A change cannot enter a milestone as complete until:
 - reference failure cases are covered proportionally to the feature;
 - real Loader/Profile composition proves actual services, not only mocks;
 - `rg` finds no superseded official-fact claim;
-- `docs/09-sources.md`, `docs/10-fusion-audit.md`, roadmap, ADRs and Skill remain synchronized.
+- every affected registered authority remains synchronized; unrelated README, roadmap, ADR or Skill files are not touched merely to satisfy a checklist;
 
 Self-hosting acceptance additionally requires ADR-0008: last-known-good control and candidate acceptance Profiles are separate; candidate evidence is frozen; promotion is externally owned and reversible; real Worker cwd/tool roots and control-root denial are tested. M1D permits D1 single-writer dogfood only. Parallel D2 operation requires the M2 and M3 exits.
 
-Security/architecture milestones also require the risk-scaled independent review selected by `$manage-agile-software-development` and `docs/governance/project-binding.yaml`. Reviewer scope and access remain bounded by the user-authorized work package; the project manager triages evidence only after the report is complete.
+Security/architecture milestones also require the risk-scaled independent review selected by `$manage-agile-software-development` and `docs/governance/project-binding.yaml`. Reviewer scope and access remain bounded by the user-authorized work package; the Feature Pipeline lead binds the verdict to the candidate and the integration authority verifies that identity without repeating the specialist review.
 
 ## 9. Gate C — official update response
 

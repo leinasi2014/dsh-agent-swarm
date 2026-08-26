@@ -5,8 +5,9 @@ This repository uses `$manage-agile-software-development` with the project adapt
 ## Before implementation
 
 - Confirm the requested outcome, affected surfaces, risk, and evidence required for completion.
+- Register one compact Feature Pipeline for each independently acceptable capability. Ordinary local failures stay in its author loop; frozen-candidate or real-path failures create a linked correction generation.
 - Read the relevant product/architecture authorities from [docs/governance/document-registry.yaml](docs/governance/document-registry.yaml).
-- Run `pnpm verify:governance`. Run `pnpm verify:gate-a` when official/reference facts are decision-bearing.
+- Run the cheap `pnpm verify:isolation:status` before opening a write lane, freezing a candidate, and integrating. Run `pnpm verify:policy` only when governance, instructions, or document authority changes; the full `pnpm verify:isolation` only when isolation policy/layout changes; and `pnpm verify:compatibility` only when official/reference facts are decision-bearing. Reuse unchanged receipts otherwise.
 - Treat `ref/` as read-only evidence.
 
 ## Isolation and ownership
@@ -14,6 +15,8 @@ This repository uses `$manage-agile-software-development` with the project adapt
 The accepted backend is currently `single-checkout`, with one writer for repository mutations. Parallel write packages are `NOT_CONFIGURED`. Do not call raw worktree lifecycle commands or create an unmanaged workspace. A future worktree backend requires project-owned open/status/close/reconcile entry points, negative tests, a binding generation change, and independent acceptance.
 
 Independent read-only investigation may run concurrently. Shared contracts, governance, document registry, integration, promotion, and destructive cleanup each have one writer.
+
+The project direction owner intervenes only when outcome, official boundary, architecture, shared contract, authority, or contradictory real evidence changes. Normal implementation, QA pass, bounded repair, and candidate freeze remain with the Feature Pipeline lead.
 
 ## Candidate and review
 
@@ -25,16 +28,14 @@ Independent read-only investigation may run concurrently. Shared contracts, gove
 
 ## Checks
 
-Use the smallest affected set, then the full chain when preparing an integration candidate:
+Use the smallest affected checks during implementation, then run the engineering candidate gate once when freezing an integration candidate:
 
 ```text
-pnpm verify:governance
-pnpm verify:structure
-pnpm test
-pnpm verify
+pnpm test -- <affected-test>
+pnpm verify:candidate
 ```
 
-`pnpm verify` covers governance, repository layout, lint, duplication, dead exports, type checks, tests, scenario checks, build, and package-artifact validation. Run `pnpm test:coverage`, `pnpm verify:gate-a`, or promotion drills when the changed claim requires them.
+`pnpm verify:candidate` covers structure, lint, duplication, dead exports, type checks, tests, scenario checks, build, and package-artifact validation; `pnpm verify` remains its compatibility alias. Policy, full isolation, compatibility, coverage, and promotion drills are separate claim-triggered gates. The cheap isolation-status check protects the current single-checkout at write/freeze/integration boundaries.
 
 ## Documentation
 

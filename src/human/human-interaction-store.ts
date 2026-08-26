@@ -36,6 +36,21 @@ function legacyHumanInteractionKey(scope: string, requestId: string): string {
   return JSON.stringify([scope, requestId])
 }
 
+export interface HumanInteractionPageKey {
+  readonly createdAt: number
+  readonly requestId: string
+}
+
+export interface HumanInteractionRecordPage {
+  readonly records: HumanInteractionRecord[]
+  readonly snapshotHighWater: number
+  readonly hasMore: boolean
+}
+
+function comparePageKey(left: HumanInteractionPageKey, right: HumanInteractionPageKey): number {
+  return left.createdAt - right.createdAt || left.requestId.localeCompare(right.requestId)
+}
+
 /** Shared process-local serializer for one scope-bound interaction request. */
 class HumanInteractionOperationLocks {
   private readonly locks = new Map<string, Promise<void>>()
@@ -53,6 +68,23 @@ class HumanInteractionOperationLocks {
     } finally {
       release()
       if (this.locks.get(key) === tail) this.locks.delete(key)
+    }
+  }
+}
+
+class HumanInteractionCommitSequence {
+  private tail: Promise<void> = Promise.resolve()
+
+  async run<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = this.tail
+    let release!: () => void
+    const current = new Promise<void>(resolve => { release = resolve })
+    this.tail = previous.then(() => current)
+    await previous
+    try {
+      return await operation()
+    } finally {
+      release()
     }
   }
 }
@@ -185,6 +217,9 @@ export class HumanInteractionOverlayStore {
   private readonly interactions: ReturnType<Domain<typeof humanInteractionDomainSpec>['table']>
   private readonly operationLocks = new HumanInteractionOperationLocks()
   private readonly lifecycleLocks = new HumanInteractionOperationLocks()
+  private readonly commitSequence = new HumanInteractionCommitSequence()
+  private readonly recordSequences = new Map<string, number>()
+  private nextRecordSequence = 0
   private readonly outcomeUnknown = new Set<string>()
   private storeClosed = false
   private accepting = true
@@ -196,6 +231,11 @@ export class HumanInteractionOverlayStore {
     domain: Domain<typeof humanInteractionDomainSpec>,
   ) {
     this.interactions = domain.table('interactions')
+    const existing = [...this.interactions.entries()]
+      .filter(([key, record]) => key === humanInteractionKey(record.scope, record.request.teamId, record.request.requestId))
+      .toSorted(([, left], [, right]) => left.createdAt - right.createdAt
+        || left.request.requestId.localeCompare(right.request.requestId))
+    for (const [key] of existing) this.recordSequences.set(key, ++this.nextRecordSequence)
   }
 
   private assertOpen(): void {
@@ -272,6 +312,49 @@ export class HumanInteractionOverlayStore {
   }
 
   /**
+   * Scan one immutable receipt snapshot with bounded retained memory. The
+   * caller supplies an authenticated upper/after key; this store never owns
+   * cursor authority and never exposes durable keys.
+   */
+  pageRecords(
+    scope: string,
+    teamId: TeamId,
+    limit: number,
+    after?: HumanInteractionPageKey,
+    snapshotHighWater?: number,
+  ): HumanInteractionRecordPage {
+    this.assertOpen()
+    const highWater = snapshotHighWater ?? this.nextRecordSequence
+    const selected: HumanInteractionRecord[] = []
+    for (const [key, record] of this.interactions.entries()) {
+      if (record.scope !== scope || record.request.teamId !== teamId) continue
+      if (key !== humanInteractionKey(record.scope, record.request.teamId, record.request.requestId)) {
+        throw new TeamDomainError('legacy or mismatched human interaction key requires explicit migration', 'TEAM_INTERACTION_LEGACY_KEY_UNSUPPORTED')
+      }
+      const sequence = this.recordSequences.get(key)
+      if (sequence === undefined || sequence > highWater) continue
+      const pageKey = { createdAt: record.createdAt, requestId: record.request.requestId }
+      if (after !== undefined && comparePageKey(pageKey, after) <= 0) continue
+      const insertion = selected.findIndex(candidate => comparePageKey(pageKey, {
+        createdAt: candidate.createdAt,
+        requestId: candidate.request.requestId,
+      }) < 0)
+      if (selected.length < limit + 1) {
+        if (insertion === -1) selected.push(record)
+        else selected.splice(insertion, 0, record)
+      } else if (insertion !== -1) {
+        selected.pop()
+        selected.splice(insertion, 0, record)
+      }
+    }
+    return {
+      records: selected.slice(0, limit).map(record => structuredClone(record)),
+      snapshotHighWater: highWater,
+      hasMore: selected.length > limit,
+    }
+  }
+
+  /**
    * Commit one new record only when the request id is absent. Idempotency
    * keys never overwrite: the caller decides whether an existing record is a
    * legitimate duplicate or a conflicting replay.
@@ -279,17 +362,20 @@ export class HumanInteractionOverlayStore {
   async commitIfAbsent(record: HumanInteractionRecord): Promise<HumanInteractionRecord | undefined> {
     this.assertOpen()
     const normalized = parseStoredRecord(record)
-    return await this.operationLocks.run(normalized.scope, normalized.request.teamId, normalized.request.requestId, async () => {
-      const key = humanInteractionKey(normalized.scope, normalized.request.teamId, normalized.request.requestId)
-      const legacy = this.interactions.get(legacyHumanInteractionKey(normalized.scope, normalized.request.requestId))
-      if (legacy !== undefined && legacy.request.teamId === normalized.request.teamId) {
-        throw new TeamDomainError('legacy human interaction key requires explicit migration', 'TEAM_INTERACTION_LEGACY_KEY_UNSUPPORTED')
-      }
-      const existing = this.interactions.get(key)
-      if (existing !== undefined) return structuredClone(existing)
-      await this.interactions.put(key, normalized)
-      return undefined
-    })
+    return await this.operationLocks.run(normalized.scope, normalized.request.teamId, normalized.request.requestId, async () => (
+      await this.commitSequence.run(async () => {
+        const key = humanInteractionKey(normalized.scope, normalized.request.teamId, normalized.request.requestId)
+        const legacy = this.interactions.get(legacyHumanInteractionKey(normalized.scope, normalized.request.requestId))
+        if (legacy !== undefined && legacy.request.teamId === normalized.request.teamId) {
+          throw new TeamDomainError('legacy human interaction key requires explicit migration', 'TEAM_INTERACTION_LEGACY_KEY_UNSUPPORTED')
+        }
+        const existing = this.interactions.get(key)
+        if (existing !== undefined) return structuredClone(existing)
+        await this.interactions.put(key, normalized)
+        this.recordSequences.set(key, ++this.nextRecordSequence)
+        return undefined
+      })
+    ))
   }
 
   /**

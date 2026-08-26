@@ -9,14 +9,21 @@ import {
   TeamId,
   type HumanInteractionRecord,
 } from '../src/index.js'
+import { HumanInteractionReceiptPager } from '../src/human/human-receipt-page.js'
 import { openStorageStack, type StorageStack } from './helpers/storage-stack.js'
 
 function record(
   scope: string,
   teamId: ReturnType<typeof TeamId>,
   status: 'pending' | 'cancelled',
+  options: {
+    readonly requestId?: string
+    readonly createdAt?: number
+    readonly sensitive?: boolean
+  } = {},
 ): HumanInteractionRecord {
-  const requestId = 'human-cross-scope-00000001'
+  const requestId = options.requestId ?? 'human-cross-scope-00000001'
+  const createdAt = options.createdAt ?? 1
   return {
     schemaVersion: 1,
     scope,
@@ -24,21 +31,25 @@ function record(
       schemaVersion: 1,
       requestId,
       teamId,
-      source: { kind: 'captain-mediated', captainSessionId: `captain-${scope}` },
+      source: options.sensitive
+        ? { kind: 'authenticated-human', captainSessionId: 'captain-session-sentinel', principalRef: 'principal-sentinel' }
+        : { kind: 'captain-mediated', captainSessionId: `captain-${scope}` },
       target: { kind: 'member', memberName: 'worker' },
       intent: 'wake-member',
+      ...(options.sensitive ? { body: 'request-body-sentinel' } : {}),
       expectedTeamRevision: 1,
-      createdAt: 1,
+      createdAt,
     },
     receipt: {
       requestId,
       teamId,
       status,
       ...(status === 'cancelled' ? { code: 'TEAM_INTERACTION_CANCELLED' } : {}),
-      updatedAt: 1,
+      ...(options.sensitive ? { diagnostic: 'diagnostic-sentinel' } : {}),
+      updatedAt: createdAt,
     },
-    createdAt: 1,
-    updatedAt: 1,
+    createdAt,
+    updatedAt: createdAt,
   }
 }
 
@@ -144,6 +155,44 @@ describe('SW-I1a interaction scope ownership', () => {
     }, 1)
     expect(overlay.get(scope, teamA, cancelledA.request.requestId)?.receipt.diagnostic).toBe('team A only')
     expect(overlay.get(scope, teamB, pendingB.request.requestId)?.receipt.diagnostic).toBeUndefined()
+  })
+
+  it('cursor high-water excludes later equal/backdated commits and projections omit sensitive fields', async () => {
+    const scope = 'workspace-page-snapshot'
+    const teamId = TeamId('team-page-snapshot')
+    const pager = new HumanInteractionReceiptPager(overlay, new Uint8Array(32).fill(7))
+    const initialIds = ['00000001', '00000002', '00000005', '00000006', '00000007']
+      .map(suffix => `human-page-${suffix}`)
+    for (const [index, requestId] of initialIds.entries()) {
+      await overlay.commitIfAbsent(record(scope, teamId, 'pending', {
+        requestId,
+        createdAt: 1_000,
+        sensitive: index === 0,
+      }))
+    }
+    const read = (cursor?: string, limit = 2) => pager.page({
+      scope, teamId, limit, ...(cursor === undefined ? {} : { cursor }),
+    }, async () => undefined)
+    const first = await read()
+    expect(first.items.map(item => item.requestId)).toEqual(initialIds.slice(0, 2))
+    expect(JSON.stringify(first)).not.toMatch(/request-body-sentinel|principal-sentinel|captain-session-sentinel|diagnostic-sentinel|diagnostic/)
+
+    const equalTimeId = 'human-page-00000004'
+    const backdatedId = 'human-page-00000000'
+    await overlay.commitIfAbsent(record(scope, teamId, 'pending', { requestId: equalTimeId, createdAt: 1_000 }))
+    await overlay.commitIfAbsent(record(scope, teamId, 'pending', { requestId: backdatedId, createdAt: 900 }))
+    const second = await read(first.nextCursor)
+    const third = await read(second.nextCursor)
+    expect([...first.items, ...second.items, ...third.items].map(item => item.requestId)).toEqual(initialIds)
+
+    const fresh = await read(undefined, 50)
+    expect(fresh.items.map(item => item.requestId)).toEqual([
+      backdatedId,
+      initialIds[0],
+      initialIds[1],
+      equalTimeId,
+      ...initialIds.slice(2),
+    ])
   })
 
   it('rejects a legacy two-part durable key loud instead of guessing a Team migration', async () => {

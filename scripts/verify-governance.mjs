@@ -134,6 +134,8 @@ const adoptionManifest = readRequired(adoptionManifestPath)
 
 for (const phrase of [
   'name: manage-agile-software-development',
+  'candidateSelfActivation: forbidden',
+  'activation: reviewed-integration-and-result-readback',
   'integrationRef: refs/heads/main',
   'backend: single-checkout',
   'parallelWriterCapability: NOT_CONFIGURED',
@@ -148,12 +150,19 @@ for (const phrase of [
   'nonAuthorAcceptance: missing',
   'expectedTargetMutation: native',
   'readResult: native',
-  'exactCandidateExternalNonAuthorReview: required',
-  'candidateSelfApproval: forbidden',
-  'newVerifierActivation: after-reviewed-integration-and-result-readback',
+  'projectDirectionOwner: product-and-architecture-owner',
+  'coordinationOwner: pipeline-capacity-and-integration-scheduler',
+  'roleCombinationPolicy: risk-scaled',
+  'candidateAndEvidenceAuthority: git-commit-plus-check-receipts',
+  'integrationAuthority: expected-main-identity',
+  'isolationStatus: pnpm-verify-isolation-status',
+  'parallelWriter: forbidden',
 ]) {
   if (!binding.includes(phrase)) failures.push(`${bindingPath}: missing or changed declaration ${phrase}`)
 }
+const methodBlock = binding.match(/^method:\s*\r?\n((?:^[ \t].*(?:\r?\n|$))*)/mu)?.[1] ?? ''
+if (!/^\s{2}policyDigest:\s+[0-9a-f]{40}\s*$/mu.test(methodBlock)) failures.push(`${bindingPath}: method policyDigest must be one lowercase 40-hex commit identity`)
+if (/^\s{2}deliveryLane\s*:/mu.test(binding)) failures.push(`${bindingPath}: a project-global deliveryLane is forbidden; classify each Feature Pipeline`)
 if (/candidateState\s*:/u.test(binding)) failures.push(`${bindingPath}: dynamic candidateState is forbidden in stable binding`)
 if (/https?:\/\//iu.test(binding) || /[A-Za-z]:[\\/]/u.test(binding) || /\/(?:Users|home)\//u.test(binding)) {
   failures.push(`${bindingPath}: private URL or machine-local absolute path is forbidden`)

@@ -2,21 +2,21 @@
  * SW-I1a assembled human interaction.
  *
  * Real-composition proof that plugin `apply`:
- * - wires the official `ctx.userQuestions` presentation for member
- *   questions and resolves the exact live root captain from the durable
- *   record's `source.captainSessionId`;
+ * - wires official `ctx.userQuestions` for member questions and resolves the
+ *   exact live root captain from durable `source.captainSessionId` evidence;
  * - fails closed when that optional official service is absent;
  * - rejects malformed official answers (not exactly one, wrong question id,
  *   empty custom) before any answer mail is routed;
  * - owns the human overlay/domain lifecycle in ONE effect: mount readmits
  *   both headless services plus the pre-I2/I3 read-only producer floor,
- *   dispose unprovides them before closing the overlay/domain, reload reopens the same durable overlay, and a mid-setup
- *   provide conflict closes the just-opened domain instead of leaking it.
+ *   dispose unprovides them before closing the overlay/domain; reload reopens the durable overlay;
+ *   and a mid-setup provide conflict closes the just-opened domain.
  *
  * Restart-safe reconciliation remains explicitly open: scenario 45 proves
  * only the process-local quarantine and durable-marker evidence ceiling.
  */
 import { mkdtemp, rm } from 'node:fs/promises'
+import { Buffer } from 'node:buffer'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
@@ -34,7 +34,6 @@ import * as AgentSwarm from '../src/index.js'
 import type { HumanInteractionRequest } from '../src/index.js'
 import { truncateUtf8 } from '../src/human/human-control-gateway.js'
 import { mountStorageStackOn } from './helpers/storage-stack.js'
-
 const SIGNAL = new AbortController().signal
 
 class ImmediateAdapter extends LlmAdapter {
@@ -56,7 +55,6 @@ interface BaseMount {
   readonly ctx: Context
   readonly fibers: Fiber[]
 }
-
 async function mountBase(sandbox: string, withQuestions: boolean): Promise<BaseMount> {
   const ctx = new Context()
   const fibers: Fiber[] = []
@@ -77,7 +75,6 @@ interface Stack extends BaseMount {
   readonly scope: string
   pluginFiber: Fiber
 }
-
 async function mount(sandbox: string, withQuestions = true): Promise<Stack> {
   const base = await mountBase(sandbox, withQuestions)
   const pluginFiber = await base.ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1 })
@@ -119,7 +116,6 @@ async function addMember(stack: Stack): Promise<string> {
 async function snapshot(stack: Stack) {
   return await stack.ctx.agentSwarm.domain.snapshot(stack.scope, stack.teamId, stack.lead.id)
 }
-
 async function relayQuestion(stack: Stack, memberSessionId: string, requestId: string, body: string) {
   const current = await snapshot(stack)
   const member = liveMember(stack, memberSessionId)
@@ -332,6 +328,67 @@ describe('assembled SW-I1a captain question presentation', () => {
   }, 60_000)
 })
 
+describe('assembled SW-I2 bounded receipt pages', () => {
+  it('pages one durable Team snapshot with authenticated cursors and fails closed across authority boundaries', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-i2-receipt-page-'))
+    roots.push(sandbox)
+    const stack = await mount(sandbox, false)
+    stacks.push(stack)
+    const memberId = await addMember(stack)
+    const member = liveMember(stack, memberId)
+    const requestIds = Array.from({ length: 5 }, (_, index) => `human-page-${String(index + 1).padStart(8, '0')}`)
+    for (const requestId of requestIds) await relayQuestion(stack, memberId, requestId, `question ${requestId}`)
+    // scenario-evidence: 47
+    const read = (cursor?: string, limit = 2) => stack.ctx.agentSwarmHumanInteraction.pageReceipts({
+      scope: stack.scope, teamId: stack.teamId, limit, ...(cursor === undefined ? {} : { cursor }),
+    }, captainAdmission(stack))
+    const readWith = (input: AgentSwarm.HumanInteractionReceiptPageInput,
+      admission: AgentSwarm.HumanInteractionAdmission = captainAdmission(stack)) =>
+      stack.ctx.agentSwarmHumanInteraction.pageReceipts(input, admission)
+    const first = await read()
+    expect(first.items.map(receipt => receipt.requestId)).toEqual(requestIds.slice(0, 2))
+    expect(first.nextCursor).toEqual(expect.any(String))
+    expect(JSON.stringify(first)).not.toMatch(/question human-|captainSessionId|principalRef|storage/i)
+    expect(Buffer.byteLength(JSON.stringify(first), 'utf8')).toBeLessThan(64 * 1_024)
+    const insertedAfterSnapshot = 'human-page-00000006'
+    await relayQuestion(stack, memberId, insertedAfterSnapshot, 'inserted after first page')
+    const second = await read(first.nextCursor)
+    const third = await read(second.nextCursor)
+    expect(second.items.map(receipt => receipt.requestId)).toEqual(requestIds.slice(2, 4))
+    expect(third.items.map(receipt => receipt.requestId)).toEqual(requestIds.slice(4))
+    expect(third.nextCursor).toBeUndefined()
+    const freshAfterInsert = await read(undefined, 50)
+    expect(freshAfterInsert.items.map(receipt => receipt.requestId)).toEqual([...requestIds, insertedAfterSnapshot])
+    const cursor = first.nextCursor as string
+    const tampered = `${cursor.slice(0, -1)}${cursor.endsWith('a') ? 'b' : 'a'}`
+    await expect(readWith({ scope: stack.scope, teamId: stack.teamId, limit: 2, cursor: tampered }))
+      .rejects.toMatchObject({ code: 'TEAM_INTERACTION_CURSOR_INVALID' })
+    await expect(readWith({ scope: stack.scope,
+      teamId: AgentSwarm.TeamId('team-cross-authority'), limit: 2, cursor }))
+      .rejects.toMatchObject({ code: 'TEAM_INTERACTION_CURSOR_INVALID' })
+    await expect(readWith({ scope: stack.scope, teamId: stack.teamId, limit: 2 },
+      { exec: { agent: member, signal: SIGNAL } })).rejects.toMatchObject({ code: 'TEAM_CAPTAIN_REQUIRED' })
+    await expect(read(undefined, 0)).rejects.toMatchObject({ code: 'TEAM_INTERACTION_PAGE_INVALID' })
+    const unknownInput = { scope: stack.scope, teamId: stack.teamId, limit: 2, unexpected: true }
+    await expect(readWith(unknownInput as unknown as AgentSwarm.HumanInteractionReceiptPageInput))
+      .rejects.toMatchObject({ code: 'TEAM_INTERACTION_PAGE_INVALID' })
+    const aborted = new AbortController()
+    aborted.abort()
+    await expect(readWith({ scope: stack.scope, teamId: stack.teamId, limit: 2 },
+      { exec: { agent: stack.lead, signal: aborted.signal } }))
+      .rejects.toMatchObject({ code: 'TEAM_INTERACTION_ABORTED' })
+    await stack.pluginFiber.dispose()
+    stack.fibers.pop()
+    const reloadedFiber = await stack.ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1 })
+    stack.fibers.push(reloadedFiber)
+    stack.pluginFiber = reloadedFiber
+    await expect(readWith({ scope: stack.scope, teamId: stack.teamId, limit: 2, cursor }))
+      .rejects.toMatchObject({ code: 'TEAM_INTERACTION_CURSOR_INVALID' })
+    const fresh = await read()
+    expect(fresh.items.map(receipt => receipt.requestId)).toEqual(requestIds.slice(0, 2))
+  }, 60_000)
+})
+
 describe('human domain lifecycle ownership', () => {
   it('dispose rejects new admissions and drains an admitted control before closing overlay/domain', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-i1a-assembly-drain-'))
@@ -452,10 +509,10 @@ describe('human domain lifecycle ownership', () => {
     expect(stack.ctx.get('agentSwarmHostRead')).toBeDefined()
     await expect(oldInteraction.listReceipts(stack.scope, stack.teamId, captainAdmission(stack)))
       .rejects.toMatchObject({ code: 'TEAM_INTERACTION_STORE_CLOSED' })
+    await expect(oldInteraction.pageReceipts({ scope: stack.scope, teamId: stack.teamId, limit: 1 }, captainAdmission(stack))).rejects.toMatchObject({ code: 'TEAM_INTERACTION_STORE_CLOSED' })
     expect((await stack.ctx.agentSwarmHumanInteraction.listReceipts(stack.scope, stack.teamId, captainAdmission(stack)))
       .find(receipt => receipt.requestId === relayed.requestId)?.status).toBe('acknowledged')
   }, 60_000)
-
   it('mid-setup failure closes the just-opened human domain instead of leaking it', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-i1a-assembly-conflict-'))
     roots.push(sandbox)

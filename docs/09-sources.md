@@ -132,12 +132,12 @@ Before changing any claim about an official API or either reference implementati
 2. record the exact commit and compare it with the local pin;
 3. inspect the package manifest, exported types, README and tests at that commit;
 4. separate “package exists”, “service is in the assembled Profile” and “this plugin integrates it” as three different facts;
-5. update every affected README, design document, ADR and Skill reference in the same change;
+5. update only affected registered authorities and factual references in the same change;
 6. run `rg` for the superseded claim and run the verification suite.
 
 If a newer official release has been published but the pin has not been re-reviewed, document the drift; do not silently describe the old pin as current. Official master advancing between releases is not drift: the baseline is release-anchored, not HEAD-anchored (docs/11 section 2).
 
-The machine-readable official baseline is `OFFICIAL_BASELINE.json`. Run `pnpm verify:gate-a` before feature work: it runs `verify:official` and `verify:references`, querying all three remotes and checking their clean local evidence checkouts. The official half is release-anchored: `verify:official` proves the pinned commit is an official release — the `dsh-v<release>` tag landed on the pin or demonstrably contains it, with a warned fallback to the verified remote tip/ancestor during the npm-first/tag-pending window — so master advancing past the pin does not break Gate A, while a newer published release makes a re-pin due. These network checks are intentionally separate from offline `pnpm verify`: failure to reach a remote is a visible Gate A limitation, not a reason to pretend that a cached pin is current.
+The machine-readable official baseline is `OFFICIAL_BASELINE.json`. Run `pnpm verify:compatibility` when official/reference facts are decision-bearing; otherwise reuse the accepted receipt keyed by baseline digest, both reference pins, lockfile identity and affected capability. The gate runs `verify:official` and `verify:references`, querying all three remotes and checking their clean evidence checkouts. The official half is release-anchored, so master advancing past the pin does not break Gate A while a newer published release makes a re-pin due. Network checks remain separate from `pnpm verify:candidate`: failure to reach a remote is a visible limitation of the affected compatibility pipeline, not a reason to pretend a cached pin is current or block unrelated work.
 
 Recreate or repair the official sparse evidence checkout with `scripts/sync-official-evidence.ps1`. The script refuses a dirty checkout and materializes the implemented Agent Notes plus every official capability family used by the current architecture map.
 

@@ -174,6 +174,7 @@ export type {
   HumanInteractionOrigin,
   HumanInteractionPort,
   HumanInteractionReceipt,
+  HumanInteractionReceiptPage, HumanInteractionReceiptPageInput, HumanInteractionReceiptProjection,
   HumanInteractionAdmission,
   HumanInteractionRecord,
   HumanInteractionRequest,
@@ -183,7 +184,6 @@ export type {
   PresentQuestionInput,
   RelayMemberQuestionInput,
 } from './human/human-interaction-contract.js'
-
 export const name = 'agent-swarm'
 export const inject = [
   'tools',

@@ -2,9 +2,9 @@
 
 本路线图定义稳定的产品里程碑、依赖、非目标、风险和出口证据，不保存当前任务、分支、候选、负责人或滚动进度。历史实现和验收事实由 `docs/development/`、`docs/reviews/`、ADR、Git commit/tag 与测试保存；执行中的状态由项目绑定指定的动态权威保存。
 
-## Gate A — every production milestone
+## Gate A — compatibility receipt for production milestones
 
-每个生产里程碑在编码前执行 `docs/11-official-first-development.md` 的 Official-first compatibility gate：
+每个生产里程碑在编码前必须有覆盖其能力边界的有效 compatibility receipt。只有 official/ref/Profile/pin/lockfile/seam 事实发生变化或真实证据冲突时才重跑 `docs/11-official-first-development.md` 的 Gate A；否则复用身份未变化的回执：
 
 - 验证目标官方 DSH release、安装包 exports/types/tests 和真实 Profile 组合；
 - 把官方 checkout 当作只读身份与装配宿主；插件保持独立 Git、workspace、候选和发布权威；
@@ -13,7 +13,7 @@
 - 明确 Service Definition、Provider、Consumer、唯一状态 owner、生命周期和失败语义；
 - 拒绝 Agent Loop patch、影子服务、私有 DSH Runtime 和双 canonical state。
 
-Gate A 只证明兼容性基线，不证明功能已实现。参考源更新必须审查旧 pin→新 pin 的实际差异；不得为过门而弱化校验。
+Gate A 只证明兼容性基线，不证明功能已实现。参考源更新必须审查旧 pin→新 pin 的实际差异；失败只冻结受影响的 compatibility/re-pin 流水线，不阻塞由未变化 pin 支撑的无关功能，也不得为过门而弱化校验。
 
 ## Product dependency graph
 
@@ -100,7 +100,10 @@ Risk: S2/MEDIUM shared contract；写能力硬关闭，不继承 effect mutation
 - reads bounded、strict、redacted、cursor/resync capable；projection 不复制 Team truth；
 - missing/deleted/archived/mismatched Team 和 Session switch 明确失败或投影 terminal state；
 - no human principal verifier、no direct effect gateway、no Team/overlay write；
-- close admission、drain、unprovide 和 authority teardown 顺序可执行验证。
+- client 只提交 plain untrusted payload，不能盖章 provenance、revision、attempt 或 principal；
+- receipt read 的首个纵切由内部 `pageReceipts` 承担；旧 `listReceipts` 只保留内部维护兼容，不得直接发布为 Host/RPC/browser 接口；
+- close admission、drain、unprovide 和 authority teardown 顺序可执行验证；
+- abort、expiry、dispose、overlay restart 和 adapter failure 均 fail-closed，错误稳定且脱敏。
 
 ### Exit evidence
 

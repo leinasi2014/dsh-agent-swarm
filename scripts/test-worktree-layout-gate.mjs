@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 
 const verifier = resolve('scripts/verify-worktree-layout.mjs')
+const statusVerifier = resolve('scripts/verify-isolation-status.mjs')
 const fixtureRoot = mkdtempSync(join(tmpdir(), 'dsh-worktree-gate-'))
 const repo = join(fixtureRoot, 'fixture-repo')
 
@@ -18,6 +19,13 @@ function verify(expectedSuccess, label) {
   }
 }
 
+function verifyStatus(expectedSuccess, label) {
+  const result = spawnSync(process.execPath, [statusVerifier], { cwd: repo, encoding: 'utf8' })
+  if ((result.status === 0) !== expectedSuccess) {
+    throw new Error(`${label}: unexpected isolation status result\n${result.stdout}\n${result.stderr}`)
+  }
+}
+
 try {
   mkdirSync(repo)
   git(['init', '-b', 'main'])
@@ -28,10 +36,12 @@ try {
   git(['add', '.'])
   git(['commit', '-m', 'test: establish governed fixture'])
   verify(true, 'main-only governed repository')
+  verifyStatus(true, 'main-only single checkout')
 
   const allowed = join(repo, '.worktree', 'allowed')
   git(['worktree', 'add', allowed, '-b', 'test/allowed'])
   verify(true, 'allowed in-repository task worktree')
+  verifyStatus(false, 'single-checkout rejects a second registered worktree')
   git(['-C', allowed, 'checkout', '--detach'])
   verify(false, 'detached development worktree')
   git(['worktree', 'remove', allowed])
@@ -56,7 +66,9 @@ try {
 
   writeFileSync(join(repo, '.gitignore'), 'node_modules/\n')
   verify(false, 'missing worktree ignore rule')
-  console.log('Worktree governance negative tests: PASS')
+  git(['checkout', '--detach'])
+  verifyStatus(false, 'single-checkout rejects a detached primary checkout')
+  console.log('Worktree governance and isolation-status negative tests: PASS')
 } finally {
   rmSync(fixtureRoot, { recursive: true, force: true })
 }
