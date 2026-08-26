@@ -66,6 +66,8 @@ export {
 } from './storage/workflow-run-overlay.js'
 export type { WorkflowRunOverlayRecord, WorkflowRunOverlayState } from './storage/workflow-run-overlay.js'
 export { TeamDomainError } from './domain/error.js'
+export { deriveRestartSafeAttemptBinding, parseRestartSafeAttemptBinding } from './runtime/restart-binding.js'
+export type { RestartSafeAttemptBinding } from './runtime/restart-binding.js'
 export { HumanControlGateway } from './human/human-control-gateway.js'
 export type { HumanControlAdmission, HumanControlGatewayDeps } from './human/human-control-gateway.js'
 export { humanReviewProvider } from './human/human-review-provider.js'
