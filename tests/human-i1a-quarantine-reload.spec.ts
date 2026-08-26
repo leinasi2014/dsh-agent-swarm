@@ -64,7 +64,7 @@ class PersistentInteractionFaultBackend implements StorageBackend {
   private failedTerminalReceipt = false
   private readonly media = new Map<string, { tables: Map<string, Map<string, unknown>>; global: unknown }>()
 
-  constructor(private readonly requestId: string) {
+  constructor(private readonly requestId: string, private readonly failStatus = 'executed') {
     this.kv = {
       open: async (descriptor: KvUnitDescriptor): Promise<KvUnit> => {
         let unit = this.media.get(descriptor.name)
@@ -96,7 +96,7 @@ class PersistentInteractionFaultBackend implements StorageBackend {
             }
             if (!this.failedTerminalReceipt
               && receipt?.requestId === this.requestId
-              && receipt.status === 'executed') {
+              && receipt.status === this.failStatus) {
               this.failedTerminalReceipt = true
               this.writes.push({ ...write, outcome: 'rejected' })
               throw new Error('injected terminal receipt write failure')
@@ -252,6 +252,40 @@ function wakeRequest(stack: Stack, expectedTeamRevision: number, expiresAt: numb
 }
 
 describe('SW-I1a durable outcome-unknown quarantine', () => {
+  it('recovers one v2 relay-mail acknowledgement after a real Context reopen without a duplicate mail', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-i1b-relay-once-reload-'))
+    roots.push(root)
+    const requestId = 'human-i1b-relay-once-00000001'
+    const backend = new PersistentInteractionFaultBackend(requestId, 'acknowledged')
+    const first = await mount(root, backend)
+    const memberId = SessionId(await addMember(first))
+    await first.ctx.subagents.drainContinuableChildren(first.lead, [memberId])
+    const memberHandle = await first.lead.ctx.agents.resume({
+      resumeSessionId: memberId, agentOptions: { provider: 'mock', model: 'mock' }, signal: SIGNAL,
+    })
+    const before = await stableSnapshot(first)
+    const input = {
+      scope: first.scope, teamId: first.teamId, memberSessionId: memberId,
+      body: 'Persist this relay exactly once.', expectedTeamRevision: before.team.revision, requestId,
+    }
+    await expect(first.ctx.agentSwarmHumanInteraction.relayMemberQuestion(input, { exec: { agent: memberHandle.agent, signal: SIGNAL } }))
+      .rejects.toMatchObject({ code: 'TEAM_INTERACTION_RECEIPT_PENDING' })
+    expect((await snapshot(first)).team.messages.filter(message => message.content === input.body)).toHaveLength(1)
+    await memberHandle.dispose()
+    await dispose(first)
+
+    const second = await mount(root, backend, first.teamId)
+    const beforeReconcile = await snapshot(second)
+    const receipts = await second.ctx.agentSwarmHumanInteraction.reconcile(second.scope, second.teamId, interactionAdmission(second))
+    expect(receipts.find(receipt => receipt.requestId === requestId)).toMatchObject({ status: 'acknowledged' })
+    const after = await snapshot(second)
+    expect(after.team.messages.filter(message => message.content === input.body)).toHaveLength(1)
+    expect(after.team.interactionEffects).toHaveLength(1)
+    expect(after.team.interactionEffects?.[0]).toMatchObject({ requestId, step: 'member-question-relay-mail' })
+    expect(after.team.interactionEffects?.[0]?.bodyDigest).not.toContain(input.body)
+    expect(after.team.revision).toBeGreaterThanOrEqual(beforeReconcile.team.revision)
+  }, 45_000)
+
   it('reopens an official question/answer-mail fault without asking or delivering twice', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-i1a-question-quarantine-reload-'))
     roots.push(root)

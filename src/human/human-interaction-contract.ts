@@ -76,7 +76,7 @@ export interface HumanInteractionOrigin {
 }
 
 export interface HumanInteractionRequest {
-  readonly schemaVersion: 1
+  readonly schemaVersion: 1 | 2
   readonly requestId: string
   readonly teamId: TeamId
   readonly source: HumanInteractionSource
@@ -130,7 +130,9 @@ export interface HumanInteractionReceiptPage {
 
 /** One durable request + receipt pair in the additive overlay. */
 export interface HumanInteractionRecord {
-  readonly schemaVersion: 1
+  readonly schemaVersion: 1 | 2
+  /** Epoch 2 requests are eligible only for I1b Team-ledger read-back. */
+  readonly admissionAuthorityEpoch?: 2
   readonly scope: string
   readonly request: HumanInteractionRequest
   readonly receipt: HumanInteractionReceipt

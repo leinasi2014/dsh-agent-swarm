@@ -321,6 +321,8 @@ describe('SW-I1a Captain Liaison', () => {
         if (args[2] === 'captain-session') failCaptainSnapshot = true
         return result
       },
+      queueMemberQuestionRelayOnce: stack.port.queueMemberQuestionRelayOnce.bind(stack.port),
+      findMemberQuestionRelayEffect: stack.port.findMemberQuestionRelayEffect.bind(stack.port),
       snapshot: async (...args: Parameters<TeamDomainPort['snapshot']>) => {
         if (failCaptainSnapshot) throw new Error('C:\\private\\provider token=secret-answer')
         return await stack.port.snapshot(...args)

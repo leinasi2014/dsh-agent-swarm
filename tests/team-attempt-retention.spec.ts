@@ -209,7 +209,7 @@ describe('TeamDomain attempt retention (F7)', () => {
     stack = await openStorageStack(join(sandbox, 'storage'), () => tick++)
     const reloaded = new TeamDomain(stack.store, limits, () => tick++)
     let snapshot = await reloaded.snapshot(scope, team.id, 'captain-session')
-    expect(snapshot.team.schemaVersion).toBe(1)
+    expect(snapshot.team.schemaVersion).toBe(2)
     expect(snapshot.team.attempts).toHaveLength(300)
 
     // The record shape is unchanged, so the load itself never prunes; the

@@ -112,7 +112,7 @@ const originSchema = z.object({
 }).strict()
 
 const requestSchema = z.object({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.union([z.literal(1), z.literal(2)]),
   requestId: requestIdSchema,
   teamId: boundedText(128),
   source: sourceSchema,
@@ -151,7 +151,8 @@ const receiptSchema = z.object({
 }).strict()
 
 const recordSchema = z.object({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.union([z.literal(1), z.literal(2)]),
+  admissionAuthorityEpoch: z.literal(2).optional(),
   scope: boundedText(4_096),
   request: requestSchema,
   receipt: receiptSchema,

@@ -84,6 +84,31 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
     return record.team
   }
 
+  /**
+   * The domain descriptor stays at v1; the aggregate carries its own
+   * explicit v1→v2 format.  Upgrade happens under the existing per-Team
+   * transaction lock, before a Team escapes through any runtime read.
+   */
+  private async readAndUpgrade(scope: TeamScope, teamId: TeamId): Promise<TeamState | undefined> {
+    const record = this.teams.get(teamId)
+    if (record === undefined || record.workspace !== scope) return undefined
+    const current = this.validate(record, teamId)
+    if (current === undefined || current.schemaVersion === 2) return current
+    const upgraded: TeamState = {
+      ...current,
+      schemaVersion: 2,
+      interactionEffects: [],
+    }
+    assertTeamState(upgraded, `${teamId}/aggregate-upgrade`)
+    await this.teams.put(teamId, this.envelope(scope, upgraded))
+    const readBack = this.validate(this.teams.get(teamId), teamId)
+    if (readBack === undefined || readBack.schemaVersion !== 2 || !isDeepStrictEqual(readBack, upgraded)) {
+      throw new TeamDomainError(`Team aggregate v1 to v2 read-back failed for "${teamId}"`, 'TEAM_MIGRATION_VERIFY_FAILED')
+    }
+    this.notify(teamId)
+    return readBack
+  }
+
   async createUniqueForCaptain(scope: TeamScope, state: TeamState): Promise<void> {
     if (this.storeClosed) throw closed()
     await withLock(this.scopeLocks, scope, async () => {
@@ -106,10 +131,7 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
 
   async read(scope: TeamScope, teamId: TeamId): Promise<TeamState | undefined> {
     if (this.storeClosed) throw closed()
-    const record = this.teams.get(teamId)
-    if (record === undefined) return undefined
-    if (record.workspace !== scope) return undefined
-    const team = this.validate(record, teamId)
+    const team = await withLock(this.teamLocks, teamId, () => this.readAndUpgrade(scope, teamId))
     return team === undefined ? undefined : structuredClone(team)
   }
 
@@ -119,7 +141,7 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
     const entries = [...this.teams.entries()].toSorted((left, right) => left[0].localeCompare(right[0]))
     for (const [teamId, record] of entries) {
       if (record.workspace !== scope) continue
-      const team = this.validate(record, teamId)
+      const team = await withLock(this.teamLocks, teamId, () => this.readAndUpgrade(scope, teamId))
       if (team !== undefined) teams.push(structuredClone(team))
     }
     return teams
@@ -128,7 +150,7 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
   async transact<T>(scope: TeamScope, teamId: TeamId, operation: TeamTransaction<T>): Promise<T> {
     if (this.storeClosed) throw closed()
     return await withLock(this.teamLocks, teamId, async () => {
-      const current = await this.read(scope, teamId)
+      const current = await this.readAndUpgrade(scope, teamId)
       if (current === undefined) throw new TeamDomainError(`team "${teamId}" not found`, 'TEAM_NOT_FOUND')
       const draft = structuredClone(current)
       const result = await operation(draft)

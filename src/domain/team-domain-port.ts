@@ -21,12 +21,14 @@ import type {
   TeamMessage,
   TeamMessageDelivery,
   TeamMessageId,
+  TeamInteractionEffect,
   TeamMembership,
   TeamState,
   TeamStatusSnapshot,
   TeamTask,
   ReviewVerificationCommand,
 } from './types.js'
+import type { QueueMessageOnceResult } from './team-domain-interaction.js'
 
 /**
  * Canonical workspace identity scoping one Team namespace inside the shared
@@ -275,6 +277,21 @@ export interface TeamDomainPort {
     content: string,
     delivery: TeamMessageDelivery,
   ): Promise<TeamMessage>
+  /** I1b first vertical: mailbox mutation and applied evidence are one Team transaction. */
+  queueMemberQuestionRelayOnce(
+    scope: TeamScope,
+    teamId: TeamId,
+    senderSessionId: string,
+    requestId: string,
+    body: string,
+  ): Promise<QueueMessageOnceResult>
+  findMemberQuestionRelayEffect(
+    scope: TeamScope,
+    teamId: TeamId,
+    requestId: string,
+    memberSessionId: string,
+    body: string,
+  ): Promise<TeamInteractionEffect | undefined>
   acknowledgeMessage(scope: TeamScope, teamId: TeamId, messageId: TeamMessageId): Promise<TeamMessage>
   setBudget(
     scope: TeamScope,

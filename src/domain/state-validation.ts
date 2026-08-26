@@ -43,7 +43,7 @@ function unique(values: readonly string[], path: string, label: string): void {
 /** Validate the complete persisted compatibility format before it gains domain authority. */
 export function assertTeamState(value: unknown, path: string): asserts value is TeamState {
   const team = record(value, path, 'root')
-  if (team.schemaVersion !== 1) corrupt(path, 'schemaVersion must be 1')
+  if (team.schemaVersion !== 1 && team.schemaVersion !== 2) corrupt(path, 'schemaVersion must be 1 or 2')
   const teamId = text(team.id, path, 'id')
   if (!/^team-[a-z0-9-]{8,80}$/.test(teamId)) corrupt(path, 'id is malformed')
   integer(team.revision, path, 'revision', 1)
@@ -167,6 +167,27 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
     return message
   })
   unique(messages.map(message => message.id as string), path, 'message ids')
+
+  if (team.schemaVersion === 1 && team.interactionEffects !== undefined) corrupt(path, 'v1 state must not carry interactionEffects')
+  if (team.schemaVersion === 2) {
+    const effects = list(team.interactionEffects, path, 'interactionEffects').map((raw, index) => {
+      const effect = record(raw, path, `interactionEffects[${index}]`)
+      const effectId = text(effect.effectId, path, `interactionEffects[${index}].effectId`)
+      if (!/^i1b:[a-f0-9]{64}$/.test(effectId)) corrupt(path, `interactionEffects[${index}].effectId is malformed`)
+      text(effect.requestId, path, `interactionEffects[${index}].requestId`)
+      if (effect.step !== 'member-question-relay-mail') corrupt(path, `interactionEffects[${index}].step is invalid`)
+      const targetSessionId = text(effect.targetSessionId, path, `interactionEffects[${index}].targetSessionId`)
+      const bodyDigest = text(effect.bodyDigest, path, `interactionEffects[${index}].bodyDigest`)
+      if (!/^sha256:[a-f0-9]{64}$/.test(bodyDigest)) corrupt(path, `interactionEffects[${index}].bodyDigest is malformed`)
+      const messageId = text(effect.messageId, path, `interactionEffects[${index}].messageId`)
+      integer(effect.committedAt, path, `interactionEffects[${index}].committedAt`)
+      if (!messages.some(message => message.id === messageId)) corrupt(path, `interactionEffects[${index}] references missing message`)
+      if (!messages.some(message => message.id === messageId && message.targetSessionId === targetSessionId)) corrupt(path, `interactionEffects[${index}] target differs from message`)
+      return effect
+    })
+    unique(effects.map(effect => effect.effectId as string), path, 'interaction effect ids')
+    unique(effects.map(effect => `${String(effect.requestId)}:${String(effect.step)}`), path, 'interaction effect request steps')
+  }
 
   const budget = record(team.budget, path, 'budget')
   for (const field of ['usedTokens', 'usedRequests', 'usedRetries'] as const) integer(budget[field], path, `budget.${field}`)

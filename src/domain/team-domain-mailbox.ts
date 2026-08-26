@@ -28,6 +28,20 @@ export async function queueMessage(
 ): Promise<TeamState['messages'][number]> {
   let committed!: TeamState['messages'][number]
   await deps.store.transact(scope, teamId, team => {
+    committed = queueMessageInDraft(deps, team, senderSessionId, targetName, content, delivery)
+  })
+  return structuredClone(committed)
+}
+
+/** Shared mailbox mutation used by ordinary and atomically-correlated sends. */
+export function queueMessageInDraft(
+  deps: TeamDomainDeps,
+  team: TeamState,
+  senderSessionId: string,
+  targetName: string,
+  content: string,
+  delivery: TeamMessageDelivery,
+): TeamState['messages'][number] {
     const sender = actorMembership(team, senderSessionId)
     // Issue #19 Unicode alignment: targets fold through the same NFC +
     // `\p{L}\p{N}` policy as provisioning, so 'BOB SMITH' resolves the member
@@ -60,7 +74,7 @@ export async function queueMessage(
     )
     const normalizedContent = nonEmpty(content, 'message', deps.limits.maxMessageBytes)
     const timestamp = deps.now()
-    committed = {
+    const committed: TeamState['messages'][number] = {
       id: TeamMessageId(`message-${randomUUID()}`),
       senderSessionId,
       senderName: sender.name,
@@ -77,8 +91,7 @@ export async function queueMessage(
       'TEAM_INPUT_LIMIT',
     )
     team.messages.push(committed)
-  })
-  return structuredClone(committed)
+    return committed
 }
 
 export async function acknowledgeMessage(

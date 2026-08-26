@@ -197,7 +197,7 @@ W0 与 R1-R4 并行提供基础，不是 read lane 的前置 blocker。
 3. **External idempotent Provider effect**：Provider 必须给 stable operation identity、payload conflict refusal 和 authoritative query。
 4. **Opaque external effect**：当前 `userQuestions.ask`、`subagents.interrupt` 或 unconstrained review 等无 read-back 操作保持 unavailable/outcome-unknown。
 
-ADR-0009 仍是 proposed 方案，只约束选择其 v2 ledger 且需要处理 v1 media/old binary 的写 slice。Clean-profile v2、显式离线迁移、supported-backend conversion 和 downgrade policy 必须先做产品裁决；不得用该 proposal 阻断 reads，也不得未经接受实现其迁移控制面。
+ADR-0009 已接受 I1b-1A 的窄范围同聚合 relay-mail：`agent_swarm` 内 v1 Team 在锁定读/事务中升级为 v2，并以同一记录的 ledger 证明已应用。它不授权第二域、全局迁移控制面、旧二进制切换或自动重放；这些并非当前写切片的前置工作。
 
 ### Exit evidence per capability
 

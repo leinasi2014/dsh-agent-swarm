@@ -132,6 +132,22 @@ export interface TeamMessage {
   readonly deliveredAt?: number
 }
 
+/**
+ * Durable, secret-free proof that a Team-internal human effect committed in
+ * the same aggregate transaction as its mailbox mutation.  This is not a
+ * second HumanInteraction store: it is the canonical Team-side read-back
+ * evidence used only for the operation named by {@link step}.
+ */
+export interface TeamInteractionEffect {
+  readonly effectId: string
+  readonly requestId: string
+  readonly step: 'member-question-relay-mail'
+  readonly targetSessionId: string
+  readonly bodyDigest: string
+  readonly messageId: TeamMessageId
+  readonly committedAt: number
+}
+
 export interface TeamBudget {
   readonly tokenLimit?: number
   readonly requestLimit?: number
@@ -153,7 +169,7 @@ export interface TeamMemoryEntry {
 }
 
 export interface TeamState {
-  readonly schemaVersion: 1
+  readonly schemaVersion: 1 | 2
   readonly id: TeamId
   readonly revision: number
   readonly name: string
@@ -164,6 +180,8 @@ export interface TeamState {
   readonly tasks: TeamTask[]
   readonly attempts: TaskAttempt[]
   readonly messages: TeamMessage[]
+  /** Required for schema v2; v1 records are upgraded before public read. */
+  readonly interactionEffects?: TeamInteractionEffect[]
   readonly budget: TeamBudget
   readonly usageCursors: Readonly<Record<string, number>>
   readonly memory: TeamMemoryEntry[]
@@ -198,6 +216,8 @@ export interface TeamLimits {
   readonly maxTaskBytes: number
   readonly maxDependencies: number
   readonly maxMemories: number
+  /** Permanent bound for restart-safe Team-internal effect evidence. */
+  readonly maxInteractionEffects: number
   /** Per-task bound on captain-declared verification commands (M3-2). */
   readonly maxVerificationCommands: number
   /** Hard per-command timeout ceiling for executable review (M3-2). */

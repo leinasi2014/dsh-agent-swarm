@@ -36,7 +36,7 @@ export async function createTeam(
   expectDomain(Number.isSafeInteger(captainUsageSeq) && captainUsageSeq >= -1, 'captain usage seq is invalid', 'TEAM_INPUT_INVALID')
   const timestamp = deps.now()
   const team: TeamState = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: TeamId(`team-${randomUUID()}`),
     revision: 1,
     name: nonEmpty(name, 'team name', 128),
@@ -47,6 +47,7 @@ export async function createTeam(
     tasks: [],
     attempts: [],
     messages: [],
+    interactionEffects: [],
     budget: { usedTokens: 0, usedRequests: 0, usedRetries: 0 },
     usageCursors: { [captainSessionId]: captainUsageSeq },
     memory: [],

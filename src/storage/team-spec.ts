@@ -107,11 +107,21 @@ const memorySchema = z.object({
   createdAt: timestamp,
 })
 
+const interactionEffectSchema = z.object({
+  effectId: z.string().regex(/^i1b:[a-f0-9]{64}$/),
+  requestId: z.string().regex(/^human-[a-z0-9-]{8,80}$/),
+  step: z.literal('member-question-relay-mail'),
+  targetSessionId: sessionId,
+  bodyDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  messageId: z.string().min(1),
+  committedAt: timestamp,
+})
+
 /** Structural durable-boundary schema of one `teams` record. */
 const storedTeamRecordSchema = z.object({
   workspace: z.string().min(1),
   team: z.object({
-    schemaVersion: z.literal(1),
+    schemaVersion: z.union([z.literal(1), z.literal(2)]),
     id: teamIdSchema,
     revision: z.number().int().min(1),
     name: z.string().min(1),
@@ -122,6 +132,7 @@ const storedTeamRecordSchema = z.object({
     tasks: z.array(taskSchema),
     attempts: z.array(attemptSchema),
     messages: z.array(messageSchema),
+    interactionEffects: z.array(interactionEffectSchema).optional(),
     budget: budgetSchema,
     usageCursors: z.record(z.string().min(1), z.number().int().min(-1)),
     memory: z.array(memorySchema),

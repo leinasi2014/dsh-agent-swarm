@@ -417,7 +417,7 @@ describe('M4B verification command library and root families (issue #128)', () =
         { template: 'mixed.python', parameters: [{ name: 'target', value: 'backend' }] },
       ])
       let snapshot = await snapshotOf(composition)
-      expect(snapshot.team.schemaVersion).toBe(1)
+      expect(snapshot.team.schemaVersion).toBe(2)
       expect(snapshot.team.tasks[0]?.verification).toEqual([
         { command: 'dsh-verification-root:node-mixed/node -- node-check frontend' },
         { command: 'dsh-verification-root:python-mixed/python -- python-check backend' },

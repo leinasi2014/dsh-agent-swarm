@@ -12,6 +12,7 @@ import { expectDomain } from './error.js'
 import * as board from './team-domain-board.js'
 import * as budget from './team-domain-budget.js'
 import * as mailbox from './team-domain-mailbox.js'
+import * as interaction from './team-domain-interaction.js'
 import * as projection from './team-domain-projection.js'
 import * as roster from './team-domain-roster.js'
 import type { TeamDomainDeps } from './team-domain-shared.js'
@@ -43,6 +44,7 @@ export const DEFAULT_TEAM_LIMITS: TeamLimits = {
   maxTaskBytes: 65_536,
   maxDependencies: 64,
   maxMemories: 512,
+  maxInteractionEffects: 1024,
   maxVerificationCommands: 16,
   maxVerificationCommandMs: 600_000,
 }
@@ -228,6 +230,18 @@ export class TeamDomain implements TeamDomainPort {
     delivery: TeamMessageDelivery,
   ): Promise<TeamState['messages'][number]> {
     return await mailbox.queueMessage(this.deps, scope, teamId, senderSessionId, targetName, content, delivery)
+  }
+
+  async queueMemberQuestionRelayOnce(scope: TeamScope, teamId: TeamId, senderSessionId: string, requestId: string, body: string) {
+    return await interaction.queueMessageOnce(this.deps, scope, teamId, {
+      requestId, step: 'member-question-relay-mail', senderSessionId, targetName: 'captain', content: body, delivery: 'wakeup',
+    })
+  }
+
+  async findMemberQuestionRelayEffect(scope: TeamScope, teamId: TeamId, requestId: string, _memberSessionId: string, body: string) {
+    const team = await this.deps.store.read(scope, teamId)
+    if (team === undefined) return undefined
+    return interaction.findMemberQuestionRelayEffect(team, scope, teamId, requestId, team.captainSessionId, body)
   }
 
   async acknowledgeMessage(scope: TeamScope, teamId: TeamId, messageId: TeamMessageId): Promise<TeamState['messages'][number]> {

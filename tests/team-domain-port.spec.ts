@@ -15,6 +15,7 @@ import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
 import { TeamDomainError } from '../src/index.js'
+import { TeamDomain, DEFAULT_TEAM_LIMITS } from '../src/domain/team-domain.js'
 import { TaskId, TeamId, type TeamId as TeamIdType, type TeamState } from '../src/domain/types.js'
 import {
   FaultableBackend,
@@ -70,12 +71,31 @@ describe('TeamDomainPort provider over the official Storage Domain', () => {
     await stack.store.createUniqueForCaptain(join(sandbox, 'ws-left'), left)
     await stack.store.createUniqueForCaptain(join(sandbox, 'ws-right'), right)
 
-    expect((await stack.store.read(join(sandbox, 'ws-left'), left.id))?.id).toBe(left.id)
+    expect((await stack.store.read(join(sandbox, 'ws-left'), left.id))).toMatchObject({ id: left.id, schemaVersion: 2, interactionEffects: [] })
     expect(await stack.store.read(join(sandbox, 'ws-right'), left.id)).toBeUndefined()
     expect(await stack.store.read(join(sandbox, 'ws-left'), right.id)).toBeUndefined()
     expect((await stack.store.list(join(sandbox, 'ws-left'))).map(team => team.id)).toEqual([left.id])
     expect((await stack.store.list(join(sandbox, 'ws-right'))).map(team => team.id)).toEqual([right.id])
     expect(await stack.store.list(join(sandbox, 'ws-empty'))).toEqual([])
+  })
+
+  it('upgrades v1 before exposure and atomically deduplicates bounded relay effects', async () => {
+    const scope = join(sandbox, 'i1b')
+    const team = await stack.port.createTeam(scope, 'captain-i1b', 'I1b', 'Relay-once Team')
+    await stack.port.provisionMember(scope, team.id, 'captain-i1b', { name: 'worker', role: 'Worker', sessionId: 'worker-i1b', provider: 'spawn' })
+    await stack.port.settleMember(scope, team.id, 'worker-i1b', { active: true })
+    const limited = new TeamDomain(stack.store, { ...DEFAULT_TEAM_LIMITS, maxInteractionEffects: 1 })
+    const first = await limited.queueMemberQuestionRelayOnce(scope, team.id, 'worker-i1b', 'human-i1b-once-00000001', 'secret body is only in mail')
+    const replay = await limited.queueMemberQuestionRelayOnce(scope, team.id, 'worker-i1b', 'human-i1b-once-00000001', 'secret body is only in mail')
+    expect(replay).toMatchObject({ replayed: true, message: { id: first.message.id }, effect: { effectId: first.effect.effectId } })
+    expect(first.effect.bodyDigest).not.toContain('secret body')
+    await expect(limited.queueMemberQuestionRelayOnce(scope, team.id, 'worker-i1b', 'human-i1b-once-00000001', 'different body'))
+      .rejects.toMatchObject({ code: 'TEAM_INTERACTION_EFFECT_CONFLICT' })
+    await expect(limited.queueMemberQuestionRelayOnce(scope, team.id, 'worker-i1b', 'human-i1b-once-00000002', 'second effect'))
+      .rejects.toMatchObject({ code: 'TEAM_INTERACTION_EFFECT_CAPACITY' })
+    const stored = await stack.store.read(scope, team.id)
+    expect(stored?.messages.filter(message => message.content === 'secret body is only in mail')).toHaveLength(1)
+    expect(stored?.interactionEffects).toHaveLength(1)
   })
 
   it('keeps every committed transaction durable across a full reopen', async () => {

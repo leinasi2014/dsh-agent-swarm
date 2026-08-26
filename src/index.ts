@@ -98,6 +98,8 @@ export interface Config {
   maxTaskBytes?: number
   maxDependencies?: number
   maxMemories?: number
+  /** Permanent maximum of I1b Team-internal applied-effect evidence. */
+  maxInteractionEffects?: number
   /** Per-task bound on captain-declared verification commands (default 16, M3-2). */
   maxVerificationCommands?: number
   /** Hard per-command timeout ceiling for executable review in ms (default 600000, M3-2). */
@@ -212,6 +214,7 @@ export const Config: z<Config> = z.object({
   maxTaskBytes: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxTaskBytes),
   maxDependencies: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxDependencies),
   maxMemories: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxMemories),
+  maxInteractionEffects: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxInteractionEffects),
   maxVerificationCommands: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxVerificationCommands),
   maxVerificationCommandMs: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxVerificationCommandMs),
   maxHostContexts: z.number().step(1).min(1).default(DEFAULT_MAX_HOST_CONTEXTS),
@@ -281,6 +284,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       maxTaskBytes: config.maxTaskBytes ?? DEFAULT_TEAM_LIMITS.maxTaskBytes,
       maxDependencies: config.maxDependencies ?? DEFAULT_TEAM_LIMITS.maxDependencies,
       maxMemories: config.maxMemories ?? DEFAULT_TEAM_LIMITS.maxMemories,
+      maxInteractionEffects: config.maxInteractionEffects ?? DEFAULT_TEAM_LIMITS.maxInteractionEffects,
       maxVerificationCommands: config.maxVerificationCommands ?? DEFAULT_TEAM_LIMITS.maxVerificationCommands,
       maxVerificationCommandMs: config.maxVerificationCommandMs ?? DEFAULT_TEAM_LIMITS.maxVerificationCommandMs,
     },

@@ -559,7 +559,7 @@ describe('TeamDomain over the official Storage Domain', () => {
     stack = await openStorageStack(join(sandbox, 'storage'), () => tick++)
     domain = stack.port as TeamDomain
     let snapshot = await domain.snapshot(scope, team.id, 'captain-session')
-    expect(snapshot.team.schemaVersion).toBe(1)
+    expect(snapshot.team.schemaVersion).toBe(2)
     expect(snapshot.team.messages).toHaveLength(1_024)
     expect(snapshot.pendingMessageIds).toEqual([])
 

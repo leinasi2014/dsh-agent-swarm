@@ -94,7 +94,7 @@ describe('explicit one-way legacy migration', () => {
 
     for (const team of [first, second]) {
       const migrated = await stack.store.read(scope, team.id)
-      expect(migrated).toEqual(team)
+      expect(migrated).toEqual({ ...team, schemaVersion: 2, interactionEffects: [] })
       const receipt = await stack.store.readMigrationReceipt(team.id)
       expect(receipt).toMatchObject({
         teamId: team.id,
@@ -116,7 +116,7 @@ describe('explicit one-way legacy migration', () => {
     // The records are durable: they survive a full storage reopen.
     await stack.close()
     stack = await openStorageStack(join(sandbox, 'storage'), () => tick++)
-    expect(await stack.store.read(scope, first.id)).toEqual(first)
+    expect(await stack.store.read(scope, first.id)).toEqual({ ...first, schemaVersion: 2, interactionEffects: [] })
     expect(await stack.store.readMigrationReceipt(first.id)).toBeDefined()
   })
 
