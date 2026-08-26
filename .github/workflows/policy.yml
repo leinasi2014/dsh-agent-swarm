@@ -4,12 +4,24 @@ on:
   workflow_dispatch: {}
   pull_request:
     paths:
-      - 'docs/governance/**'
-      - 'docs/08-testing-verification.md'
-      - 'docs/11-official-first-development.md'
+      - 'docs/**'
       - 'AGENTS.md'
       - 'CLAUDE.md'
       - 'CONTRIBUTING.md'
+      - 'README.md'
+      - '.agents/skills/dsh-plugin-development/**'
+      - 'scripts/verify-governance.mjs'
+      - 'scripts/test-governance-gate.mjs'
+      - 'package.json'
+      - '.github/workflows/policy.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'AGENTS.md'
+      - 'CLAUDE.md'
+      - 'CONTRIBUTING.md'
+      - 'README.md'
       - '.agents/skills/dsh-plugin-development/**'
       - 'scripts/verify-governance.mjs'
       - 'scripts/test-governance-gate.mjs'

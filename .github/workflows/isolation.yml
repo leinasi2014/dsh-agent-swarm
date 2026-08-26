@@ -15,6 +15,20 @@ on:
       - 'scripts/test-worktree-layout-gate.mjs'
       - 'package.json'
       - '.github/workflows/isolation.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'docs/governance/project-binding.yaml'
+      - 'docs/08-testing-verification.md'
+      - 'AGENTS.md'
+      - 'CONTRIBUTING.md'
+      - '.gitignore'
+      - 'lefthook.yml'
+      - 'scripts/verify-isolation-status.mjs'
+      - 'scripts/verify-worktree-layout.mjs'
+      - 'scripts/test-worktree-layout-gate.mjs'
+      - 'package.json'
+      - '.github/workflows/isolation.yml'
 
 jobs:
   isolation:
