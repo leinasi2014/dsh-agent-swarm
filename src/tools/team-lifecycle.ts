@@ -6,6 +6,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
+import { TeamDomainError } from '../domain/error.js'
 import { register } from './shared.js'
 
 /** `agent_swarm_create`. */
@@ -143,7 +144,7 @@ export function registerArchiveTool(ctx: Context, runtime: AgentSwarmRuntime): v
 export function registerInterruptMemberTool(ctx: Context, runtime: AgentSwarmRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_interrupt_member',
-    description: 'Captain-only. Cancel one member\'s current turn while keeping its pending inbox, task ownership and roster membership; a later wakeup message resumes it.',
+    description: 'Captain-only. Request cancellation of one member only when the Host independently confirms that its current visible tool call exceeded that tool\'s declared timeout. The member keeps its pending inbox, task ownership and roster membership.',
     parameters: {
       name: { type: 'string', required: true, description: 'Active member name.' },
     },
@@ -153,13 +154,20 @@ export function registerInterruptMemberTool(ctx: Context, runtime: AgentSwarmRun
         properties: {
           name: { type: 'string', required: true },
           previous_status: { type: 'string', required: true, enum: ['running', 'idle', 'inactive'] },
+          evidence_kind: { type: 'string', required: true, enum: ['host-confirmed-tool-timeout'] },
         },
       },
-      render: (_args, value) => [{ type: 'text', text: `Interrupted ${value.name}; previous_status=${value.previous_status}. Inbox, ownership and membership are preserved.` }],
+      render: (_args, value) => [{ type: 'text', text: `Cancellation requested for ${value.name}; evidence=${value.evidence_kind}; previous_status=${value.previous_status}.` }],
     },
     async execute(args, exec) {
-      const interrupted = await runtime.interruptMember(exec, args.name)
-      return { name: interrupted.name, previous_status: interrupted.previousStatus }
+      // Parameter shorthand is intentionally open in the official tool
+      // registry. This model-only gate nevertheless admits exactly one
+      // model-supplied fact: the member name. Evidence fields are Host-owned.
+      if (Object.keys(args).some(key => key !== 'name')) {
+        throw new TeamDomainError('Host-confirmed timeout evidence is required to interrupt a member', 'TEAM_INTERRUPT_EVIDENCE_REQUIRED')
+      }
+      const interrupted = await runtime.interruptMemberFromModel(exec, args.name)
+      return { name: interrupted.name, previous_status: interrupted.previousStatus, evidence_kind: interrupted.evidenceKind }
     },
   }), 'interrupt-member tool')
 }

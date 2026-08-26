@@ -15,7 +15,7 @@ import { requireAgent, workspaceOf, type ToolExecutionAuthority } from './author
 import { boundedSettle } from './disposal.js'
 import { ExecutionRootSurface } from './execution-root-surface.js'
 import type { ExecutionRootResidue, TeamExecutionRootProvider } from './execution-roots.js'
-import { interruptMember } from './member-control.js'
+import { interruptMember, interruptMemberFromModel } from './member-control.js'
 import { MemberProvisioner } from './member-provisioning.js'
 import { MessageDelivery } from './message-delivery.js'
 import { manualReview, priorityReadyScheduler, type ReviewProviderInput, type ReviewProviderResult, type SchedulerDecision, type SchedulerSelectionInput, type TeamReviewProvider, type TeamSchedulerProvider } from './providers.js'
@@ -439,22 +439,14 @@ export class AgentSwarmRuntime extends Service {
     }
   }
 
-  /**
-   * Captain-only keepInbox member interrupt (issue #19, official parity);
-   * the control surface lives in `member-control.ts`.
-   * @returns the target status sampled before the cancellation took effect.
-   */
-  async interruptMember(
-    exec: ToolExecutionAuthority,
-    name: string,
-  ): Promise<{ name: string; previousStatus: 'running' | 'idle' | 'inactive' }> {
-    return await interruptMember({
-      ctx: this.ctx,
-      domain: () => this.domain,
-      isClosing: () => this.closing,
-      scopeOf: agent => this.scopeOf(agent),
-      ensureReady: () => this.ensureReady(),
-    }, exec, name)
+  /** Trusted Host/Human keepInbox interrupt; samples status before cancellation. */
+  async interruptMember(exec: ToolExecutionAuthority, name: string): Promise<{ name: string; previousStatus: 'running' | 'idle' | 'inactive' }> {
+    return await interruptMember({ ctx: this.ctx, domain: () => this.domain, isClosing: () => this.closing, scopeOf: agent => this.scopeOf(agent), ensureReady: () => this.ensureReady(), now: Date.now }, exec, name)
+  }
+
+  /** Model-tool-only interrupt path; Host/Human callers retain interruptMember. */
+  async interruptMemberFromModel(exec: ToolExecutionAuthority, name: string): Promise<{ name: string; previousStatus: 'running' | 'idle' | 'inactive'; evidenceKind: 'host-confirmed-tool-timeout' }> {
+    return await interruptMemberFromModel({ ctx: this.ctx, domain: () => this.domain, isClosing: () => this.closing, scopeOf: agent => this.scopeOf(agent), ensureReady: () => this.ensureReady(), now: Date.now }, exec, name)
   }
 
   async setBudget(

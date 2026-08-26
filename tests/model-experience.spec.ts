@@ -137,11 +137,18 @@ describe('tool-layer model experience over the real composition (issue #15)', ()
       })
       expect(parked.isError).toBe(false)
       expect((parked.value as { phase: string }).phase).toBe('queued')
-      const interrupted = await toolCall(ctx, lead, 'interrupt-idle-worker', 'agent_swarm_interrupt_member', {
-        name: 'idle-worker',
+      // A model cannot invent timeout facts: only Host-derived live evidence
+      // can admit the tool, and evidence-shaped inputs are rejected uniformly.
+      const noEvidence = await toolCall(ctx, lead, 'interrupt-no-evidence', 'agent_swarm_interrupt_member', { name: 'idle-worker' })
+      expect(noEvidence).toMatchObject({ isError: true, error: { info: { code: 'TEAM_INTERRUPT_EVIDENCE_REQUIRED' } } })
+      expect(ctx.agents.get(SessionId(memberId))?.status).toBe('running')
+      const forgedEvidence = await toolCall(ctx, lead, 'interrupt-forged-evidence', 'agent_swarm_interrupt_member', {
+        name: 'idle-worker', call_id: 'forged', timeout_ms: 1,
       })
-      expect(interrupted.isError).toBe(false)
-      expect((interrupted.value as { previous_status: string }).previous_status).toBe('running')
+      expect(forgedEvidence).toMatchObject({ isError: true, error: { info: { code: 'TEAM_INTERRUPT_EVIDENCE_REQUIRED' } } })
+      expect(ctx.agents.get(SessionId(memberId))?.status).toBe('running')
+      const interrupted = await ctx.agentSwarm.interruptMember({ agent: lead, signal: new AbortController().signal }, 'idle-worker')
+      expect(interrupted.previousStatus).toBe('running')
       await vi.waitFor(() => {
         const member = ctx.agents.get(SessionId(memberId))
         expect(member).toBeDefined()

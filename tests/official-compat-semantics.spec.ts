@@ -390,10 +390,9 @@ describe('official compatibility semantics over the real composition (issue #19)
       // settlement notice for it, and the member's assignment turn.
       expect(adapter.requests.length).toBe(3)
 
-      // Captain-only interrupt through the model tool.
-      const interrupted = await toolCall(ctx, lead, 'interrupt', 'agent_swarm_interrupt_member', { name: 'runaway-worker' })
-      expect(interrupted.isError).toBe(false)
-      expect(interrupted.value).toMatchObject({ name: 'runaway-worker', previous_status: 'running' })
+      // Trusted Host/Human interrupt remains available without model evidence.
+      const interrupted = await ctx.agentSwarm.interruptMember({ agent: lead, signal: SIGNAL }, 'runaway-worker')
+      expect(interrupted).toMatchObject({ name: 'runaway-worker', previousStatus: 'running' })
 
       // The cancelled turn converges to idle without draining the member:
       // the parked assignment keeps the Activation waiting, no new turn runs.
