@@ -421,7 +421,9 @@ async function main() {
     const profilePatch = join(dshHome, 'profiles', 'web', 'cordis.patch.yml')
     // This disposable Profile-local module resolves LlmAdapter from the exact
     // dependency tree used by the official CLI. It is never packed/published.
-    const profileProbeModule = join(dshHome, 'profiles', 'web', 'w0-profile-probe.mjs')
+    const profileProbeDir = join(dshHome, 'profiles', 'web', 'P0 probe 探针')
+    await mkdir(profileProbeDir, { recursive: true })
+    const profileProbeModule = join(profileProbeDir, 'w0 profile 探针.mjs')
     await copyFile(join(args.repo, 'scripts', 'p0', 'profile-probe.mjs'), profileProbeModule)
     serviceProbeUrl = pathToFileURL(profileProbeModule).href
     await writeFile(profilePatch, profilePatchLines({
