@@ -142,9 +142,15 @@ export interface TeamInteractionEffect {
   readonly effectId: string
   readonly requestId: string
   readonly step: 'member-question-relay-mail'
+  /** Canonical fixed binding, separate from the request/step identity. */
+  readonly bindingDigest: string
+  readonly senderSessionId: string
   readonly targetSessionId: string
   readonly bodyDigest: string
+  readonly delivery: TeamMessageDelivery
   readonly messageId: TeamMessageId
+  /** Aggregate revision produced by this same transaction. */
+  readonly resultingTeamRevision: number
   readonly committedAt: number
 }
 

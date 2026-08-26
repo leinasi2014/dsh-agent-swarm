@@ -1,11 +1,3 @@
-/**
- * SW-I1a durable outcome-unknown quarantine across a real process reopen.
- *
- * This is deliberately not I1b effect recovery. It proves only the existing
- * I1a ceiling: after an already-persisted quarantine marker survives a full
- * Context disposal, no later HumanInteraction entry point may replay or
- * overwrite the possibly committed Team effect.
- */
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -24,11 +16,9 @@ import UserQuestionService, { type UserQuestionProvider } from '@deepseek-ai/dsh
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
 import type { HumanInteractionRequest } from '../src/index.js'
-
 const SIGNAL = new AbortController().signal
 const CAPTAIN_ID = SessionId('i1a-quarantine-reload-captain')
 const REQUEST_ID = 'human-quarantine-reload-00000001'
-
 class ImmediateAdapter extends LlmAdapter {
   override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
     return Promise.resolve({ provider, id: model, name: model })
@@ -42,7 +32,6 @@ class ImmediateAdapter extends LlmAdapter {
     yield { type: 'finish', reason: { kind: 'stop' } }
   }
 }
-
 interface StorageWrite {
   readonly unit: string
   readonly table: string
@@ -52,19 +41,18 @@ interface StorageWrite {
   readonly receiptStatus?: string
   readonly receiptCode?: string
 }
-
-/**
- * A process-shared official StorageBackend medium. The failure is injected at
- * `putRecord`, below the project overlay and above no hand-written state.
- * Context 2 reopens the same medium through a new official Storage Domain.
- */
 class PersistentInteractionFaultBackend implements StorageBackend {
   readonly writes: StorageWrite[] = []
   readonly kv: KvFacet
   private failedTerminalReceipt = false
+  private failedTeamRelayWrite = false
   private readonly media = new Map<string, { tables: Map<string, Map<string, unknown>>; global: unknown }>()
 
-  constructor(private readonly requestId: string, private readonly failStatus = 'executed') {
+  constructor(
+    private readonly requestId: string,
+    private readonly failStatus = 'executed',
+    private readonly teamRelayWriteFault: 'none' | 'before-persist' | 'after-persist' = 'none',
+  ) {
     this.kv = {
       open: async (descriptor: KvUnitDescriptor): Promise<KvUnit> => {
         let unit = this.media.get(descriptor.name)
@@ -85,6 +73,7 @@ class PersistentInteractionFaultBackend implements StorageBackend {
           },
           putRecord: async (table, key, value) => {
             const receipt = this.interactionReceipt(descriptor.name, table, value)
+            const teamRelayRequestId = this.teamRelayRequestId(descriptor.name, table, value)
             const write: StorageWrite = {
               unit: descriptor.name,
               table,
@@ -93,6 +82,7 @@ class PersistentInteractionFaultBackend implements StorageBackend {
               ...(receipt?.requestId === undefined ? {} : { requestId: receipt.requestId }),
               ...(receipt?.status === undefined ? {} : { receiptStatus: receipt.status }),
               ...(receipt?.code === undefined ? {} : { receiptCode: receipt.code }),
+              ...(teamRelayRequestId === undefined ? {} : { requestId: teamRelayRequestId }),
             }
             if (!this.failedTerminalReceipt
               && receipt?.requestId === this.requestId
@@ -101,6 +91,11 @@ class PersistentInteractionFaultBackend implements StorageBackend {
               this.writes.push({ ...write, outcome: 'rejected' })
               throw new Error('injected terminal receipt write failure')
             }
+            if (!this.failedTeamRelayWrite && teamRelayRequestId === this.requestId && this.teamRelayWriteFault === 'before-persist') {
+              this.failedTeamRelayWrite = true
+              this.writes.push({ ...write, outcome: 'rejected' })
+              throw new Error('injected Team write failure before persistence')
+            }
             let records = unit?.tables.get(table)
             if (records === undefined) {
               records = new Map()
@@ -108,6 +103,10 @@ class PersistentInteractionFaultBackend implements StorageBackend {
             }
             records.set(key, structuredClone(value))
             this.writes.push(write)
+            if (!this.failedTeamRelayWrite && teamRelayRequestId === this.requestId && this.teamRelayWriteFault === 'after-persist') {
+              this.failedTeamRelayWrite = true
+              throw new Error('injected Team write failure after persistence')
+            }
           },
           deleteRecord: async (table, key) => {
             unit?.tables.get(table)?.delete(key)
@@ -135,6 +134,15 @@ class PersistentInteractionFaultBackend implements StorageBackend {
       ...(typeof record.receipt?.status === 'string' ? { status: record.receipt.status } : {}),
       ...(typeof record.receipt?.code === 'string' ? { code: record.receipt.code } : {}),
     }
+  }
+
+  private teamRelayRequestId(unit: string, table: string, value: unknown): string | undefined {
+    if (unit !== 'agent_swarm' || table !== 'teams' || typeof value !== 'object' || value === null) return undefined
+    const team = (value as { team?: { interactionEffects?: unknown } }).team
+    if (!Array.isArray(team?.interactionEffects)) return undefined
+    const effect = team.interactionEffects.find(candidate => typeof candidate === 'object' && candidate !== null
+      && (candidate as { step?: unknown }).step === 'member-question-relay-mail') as { requestId?: unknown } | undefined
+    return typeof effect?.requestId === 'string' ? effect.requestId : undefined
   }
 }
 
@@ -286,6 +294,72 @@ describe('SW-I1a durable outcome-unknown quarantine', () => {
     expect(after.team.revision).toBeGreaterThanOrEqual(beforeReconcile.team.revision)
   }, 45_000)
 
+  it('freshly reads back a Team relay persisted before its backend threw, then only projects acknowledgement', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-i1b-team-after-persist-'))
+    roots.push(root)
+    const requestId = 'human-i1b-team-after-persist-00000001'
+    const backend = new PersistentInteractionFaultBackend(requestId, 'never', 'after-persist')
+    const first = await mount(root, backend)
+    const memberId = SessionId(await addMember(first))
+    await first.ctx.subagents.drainContinuableChildren(first.lead, [memberId])
+    const member = await first.lead.ctx.agents.resume({
+      resumeSessionId: memberId, agentOptions: { provider: 'mock', model: 'mock' }, signal: SIGNAL,
+    })
+    const before = await stableSnapshot(first)
+    const input = {
+      scope: first.scope, teamId: first.teamId, memberSessionId: memberId,
+      body: 'The Team medium may commit before the caller learns it.', expectedTeamRevision: before.team.revision, requestId,
+    }
+    await expect(first.ctx.agentSwarmHumanInteraction.relayMemberQuestion(input, { exec: { agent: member.agent, signal: SIGNAL } }))
+      .rejects.toMatchObject({ code: 'TEAM_INTERACTION_OUTCOME_UNKNOWN' })
+    expect((await first.ctx.agentSwarmHumanInteraction.listReceipts(first.scope, first.teamId, interactionAdmission(first)))
+      .find(receipt => receipt.requestId === requestId)).toMatchObject({ status: 'pending', code: 'TEAM_INTERACTION_OUTCOME_UNKNOWN' })
+    await member.dispose()
+    await dispose(first)
+
+    const second = await mount(root, backend, first.teamId)
+    const reconciled = await second.ctx.agentSwarmHumanInteraction.reconcile(second.scope, second.teamId, interactionAdmission(second))
+    expect(reconciled.find(receipt => receipt.requestId === requestId)).toMatchObject({ status: 'acknowledged' })
+    expect(reconciled.find(receipt => receipt.requestId === requestId)?.code).toBeUndefined()
+    const after = await snapshot(second)
+    expect(after.team.messages.filter(message => message.content === input.body)).toHaveLength(1)
+    expect(after.team.interactionEffects).toHaveLength(1)
+    expect(after.team.interactionEffects?.[0]?.resultingTeamRevision).toBe(after.team.revision)
+    expect(backend.writes.filter(write => write.unit === 'agent_swarm' && write.requestId === requestId)).toHaveLength(1)
+  }, 45_000)
+
+  it('marks an epoch-2 relay not-applied only after a fresh read proves the Team write absent', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-i1b-team-before-persist-'))
+    roots.push(root)
+    const requestId = 'human-i1b-team-before-persist-00000001'
+    const backend = new PersistentInteractionFaultBackend(requestId, 'never', 'before-persist')
+    const first = await mount(root, backend)
+    const memberId = SessionId(await addMember(first))
+    await first.ctx.subagents.drainContinuableChildren(first.lead, [memberId])
+    const member = await first.lead.ctx.agents.resume({
+      resumeSessionId: memberId, agentOptions: { provider: 'mock', model: 'mock' }, signal: SIGNAL,
+    })
+    const before = await stableSnapshot(first)
+    const input = {
+      scope: first.scope, teamId: first.teamId, memberSessionId: memberId,
+      body: 'Do not infer absence in the original process.', expectedTeamRevision: before.team.revision, requestId,
+    }
+    await expect(first.ctx.agentSwarmHumanInteraction.relayMemberQuestion(input, { exec: { agent: member.agent, signal: SIGNAL } }))
+      .rejects.toMatchObject({ code: 'TEAM_INTERACTION_OUTCOME_UNKNOWN' })
+    await member.dispose()
+    await dispose(first)
+
+    const second = await mount(root, backend, first.teamId)
+    const reconciled = await second.ctx.agentSwarmHumanInteraction.reconcile(second.scope, second.teamId, interactionAdmission(second))
+    expect(reconciled.find(receipt => receipt.requestId === requestId)).toMatchObject({
+      status: 'failed', code: 'TEAM_INTERACTION_EFFECT_NOT_APPLIED',
+    })
+    const after = await snapshot(second)
+    expect(after.team.messages.filter(message => message.content === input.body)).toHaveLength(0)
+    expect(after.team.interactionEffects).toHaveLength(0)
+    expect(backend.writes.filter(write => write.unit === 'agent_swarm' && write.requestId === requestId && write.outcome === 'stored')).toHaveLength(0)
+  }, 45_000)
+
   it('reopens an official question/answer-mail fault without asking or delivering twice', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-i1a-question-quarantine-reload-'))
     roots.push(root)
@@ -294,11 +368,7 @@ describe('SW-I1a durable outcome-unknown quarantine', () => {
     let firstQuestions = 0
     const first = await mount(root, backend, undefined, true)
     const memberId = SessionId(await addMember(first))
-    // The stock in-process continuable provider intentionally materializes
-    // resident children under its private activation owner.  For this liaison
-    // boundary we use the same persisted child Session with the official
-    // AgentRegistry resume API from the captain scope, yielding a real direct
-    // child instead of the old hand-written Agent-shaped test double.
+    // Resume the persisted child from captain scope: a real direct child, not a test double.
     await first.ctx.subagents.drainContinuableChildren(first.lead, [memberId])
     await vi.waitFor(() => {
       expect(first.ctx.agents.get(memberId)).toBeUndefined()
@@ -360,10 +430,7 @@ describe('SW-I1a durable outcome-unknown quarantine', () => {
       replayInput,
       interactionAdmission(second),
     )).rejects.toMatchObject({ code: 'TEAM_INTERACTION_OUTCOME_UNKNOWN' })
-    // `member-question` is intentionally not a Human Control operation; its
-    // public re-entry point is `presentQuestion`. The control
-    // submit/cancel/reconcile/expiry matrix is exercised below on the real
-    // wake-member handler path.
+    // `member-question` re-enters through presentQuestion; wake-member covers control paths below.
     const reconciled = await second.ctx.agentSwarmHumanInteraction.reconcile(
       second.scope,
       second.teamId,
@@ -429,9 +496,7 @@ describe('SW-I1a durable outcome-unknown quarantine', () => {
       status: 'pending', code: 'TEAM_INTERACTION_OUTCOME_UNKNOWN',
     })
 
-    // This closes every first-process service before Context 2 creates a new
-    // AgentLoop, Session persistence handle and Storage Domain over the same
-    // on-disk roots. No fixture event or in-memory store is carried forward.
+    // Context 2 opens fresh services over the same on-disk roots.
     await dispose(first)
     now += 2
     const second = await mount(root, backend, first.teamId)

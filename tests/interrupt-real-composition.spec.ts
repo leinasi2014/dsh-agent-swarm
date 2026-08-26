@@ -122,7 +122,15 @@ describe('model interrupt admission over the real official composition', () => {
     try {
       const before = await snapshot()
       expect(await stack.tool('recent', 'agent_swarm_interrupt_member', { name: 'worker' })).toMatchObject({ isError: true, error: { info: { code: 'TEAM_INTERRUPT_EVIDENCE_REQUIRED' } } })
-      expect(interrupt).not.toHaveBeenCalled(); expect(await snapshot()).toEqual(before)
+      expect(interrupt).not.toHaveBeenCalled()
+      // The recent request must not interrupt.  The independent scheduler may
+      // concurrently acknowledge its already-reserved assignment, so assert
+      // ownership rather than a timing-sensitive whole-snapshot equality.
+      expect((await snapshot()).team.tasks[0]).toMatchObject({
+        ownerSessionId: before.team.tasks[0]?.ownerSessionId,
+        currentAttemptId: before.team.tasks[0]?.currentAttemptId,
+        status: 'in_progress',
+      })
       await vi.waitFor(() => expect(Date.now() - call.time).toBeGreaterThanOrEqual(TIMEOUT), { timeout: 5_000, interval: 5 })
       const admitted = await stack.tool('overdue', 'agent_swarm_interrupt_member', { name: 'worker' })
       expect(admitted.value).toEqual({ name: 'worker', previous_status: 'running', evidence_kind: 'host-confirmed-tool-timeout' })

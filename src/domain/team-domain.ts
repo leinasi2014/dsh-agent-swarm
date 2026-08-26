@@ -238,10 +238,10 @@ export class TeamDomain implements TeamDomainPort {
     })
   }
 
-  async findMemberQuestionRelayEffect(scope: TeamScope, teamId: TeamId, requestId: string, _memberSessionId: string, body: string) {
+  async findMemberQuestionRelayEffect(scope: TeamScope, teamId: TeamId, requestId: string, memberSessionId: string, body: string) {
     const team = await this.deps.store.read(scope, teamId)
     if (team === undefined) return undefined
-    return interaction.findMemberQuestionRelayEffect(team, scope, teamId, requestId, team.captainSessionId, body)
+    return interaction.findMemberQuestionRelayEffect(team, scope, teamId, requestId, memberSessionId, body)
   }
 
   async acknowledgeMessage(scope: TeamScope, teamId: TeamId, messageId: TeamMessageId): Promise<TeamState['messages'][number]> {

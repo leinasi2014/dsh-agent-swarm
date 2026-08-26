@@ -176,13 +176,23 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
       if (!/^i1b:[a-f0-9]{64}$/.test(effectId)) corrupt(path, `interactionEffects[${index}].effectId is malformed`)
       text(effect.requestId, path, `interactionEffects[${index}].requestId`)
       if (effect.step !== 'member-question-relay-mail') corrupt(path, `interactionEffects[${index}].step is invalid`)
+      const bindingDigest = text(effect.bindingDigest, path, `interactionEffects[${index}].bindingDigest`)
+      if (!/^sha256:[a-f0-9]{64}$/.test(bindingDigest)) corrupt(path, `interactionEffects[${index}].bindingDigest is malformed`)
+      const senderSessionId = text(effect.senderSessionId, path, `interactionEffects[${index}].senderSessionId`)
       const targetSessionId = text(effect.targetSessionId, path, `interactionEffects[${index}].targetSessionId`)
       const bodyDigest = text(effect.bodyDigest, path, `interactionEffects[${index}].bodyDigest`)
       if (!/^sha256:[a-f0-9]{64}$/.test(bodyDigest)) corrupt(path, `interactionEffects[${index}].bodyDigest is malformed`)
+      if (effect.delivery !== 'quiet' && effect.delivery !== 'wakeup') corrupt(path, `interactionEffects[${index}].delivery is invalid`)
       const messageId = text(effect.messageId, path, `interactionEffects[${index}].messageId`)
+      integer(effect.resultingTeamRevision, path, `interactionEffects[${index}].resultingTeamRevision`, 1)
       integer(effect.committedAt, path, `interactionEffects[${index}].committedAt`)
-      if (!messages.some(message => message.id === messageId)) corrupt(path, `interactionEffects[${index}] references missing message`)
-      if (!messages.some(message => message.id === messageId && message.targetSessionId === targetSessionId)) corrupt(path, `interactionEffects[${index}] target differs from message`)
+      // A terminal mailbox row may be pruned by normal retention.  The
+      // durable effect receipt intentionally outlives that row, while any
+      // retained row must still agree with its authority binding.
+      const message = messages.find(candidate => candidate.id === messageId)
+      if (message !== undefined && (message.senderSessionId !== senderSessionId || message.targetSessionId !== targetSessionId || message.delivery !== effect.delivery)) {
+        corrupt(path, `interactionEffects[${index}] differs from retained message`)
+      }
       return effect
     })
     unique(effects.map(effect => effect.effectId as string), path, 'interaction effect ids')

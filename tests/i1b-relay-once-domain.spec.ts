@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { DEFAULT_TEAM_LIMITS, TeamDomain } from '../src/domain/team-domain.js'
+import { queueMessageOnce } from '../src/domain/team-domain-interaction.js'
+import type { TeamDomainDeps } from '../src/domain/team-domain-shared.js'
 import { TeamId, type TeamState } from '../src/domain/types.js'
 import { openStorageStack, type StorageStack } from './helpers/storage-stack.js'
 
@@ -44,7 +46,7 @@ describe('I1b relay-once Team aggregate authority', () => {
     const domain = new TeamDomain(reopened.store, { ...DEFAULT_TEAM_LIMITS, maxInteractionEffects: 1 })
     const first = await domain.queueMemberQuestionRelayOnce(scope, legacy.id, 'worker', 'human-i1b-domain-00000001', 'private question')
     const replay = await domain.queueMemberQuestionRelayOnce(scope, legacy.id, 'worker', 'human-i1b-domain-00000001', 'private question')
-    expect(replay).toMatchObject({ replayed: true, message: { id: first.message.id }, effect: { effectId: first.effect.effectId } })
+    expect(replay).toMatchObject({ replayed: true, messageId: first.messageId, effect: { effectId: first.effect.effectId } })
     expect(first.effect.bodyDigest).not.toContain('private question')
     expect(JSON.stringify(first.effect)).not.toContain('private question')
     await expect(domain.queueMemberQuestionRelayOnce(scope, legacy.id, 'worker', 'human-i1b-domain-00000001', 'changed question'))
@@ -61,5 +63,61 @@ describe('I1b relay-once Team aggregate authority', () => {
     expect(otherEffect.effect.effectId).not.toBe(first.effect.effectId)
     await expect(domain.queueMemberQuestionRelayOnce(join(root, 'scope-b'), legacy.id, 'worker', 'human-i1b-domain-00000001', 'private question'))
       .rejects.toMatchObject({ code: 'TEAM_NOT_FOUND' })
+  })
+
+  it('retains relay-once evidence after normal terminal-mail pruning', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-i1b-prune-'))
+    roots.push(root)
+    const stack = await openStorageStack(join(root, 'storage'))
+    stacks.push(stack)
+    const scope = join(root, 'scope')
+    const team = await stack.port.createTeam(scope, 'captain-prune', 'I1b prune', 'Permanent effect evidence')
+    await stack.port.provisionMember(scope, team.id, 'captain-prune', { name: 'worker', role: 'Worker', sessionId: 'worker-prune', provider: 'spawn' })
+    await stack.port.settleMember(scope, team.id, 'worker-prune', { active: true })
+    const domain = new TeamDomain(stack.store, { ...DEFAULT_TEAM_LIMITS, maxRetainedMessages: 1 })
+    const first = await domain.queueMemberQuestionRelayOnce(scope, team.id, 'worker-prune', 'human-i1b-prune-00000001', 'private relay')
+    await domain.acknowledgeMessage(scope, team.id, first.messageId)
+    const ordinary = await domain.queueMessage(scope, team.id, 'worker-prune', 'captain', 'ordinary terminal mail', 'wakeup')
+    await domain.acknowledgeMessage(scope, team.id, ordinary.id)
+
+    const pruned = await stack.store.read(scope, team.id)
+    expect(pruned?.messages.map(message => message.id)).toEqual([ordinary.id])
+    expect(pruned?.interactionEffects).toHaveLength(1)
+    const replay = await domain.queueMemberQuestionRelayOnce(scope, team.id, 'worker-prune', 'human-i1b-prune-00000001', 'private relay')
+    expect(replay).toMatchObject({ replayed: true, messageId: first.messageId, effect: { effectId: first.effect.effectId } })
+    expect(replay.message).toBeUndefined()
+    const afterReplay = await stack.store.read(scope, team.id)
+    expect(afterReplay?.messages.map(message => message.id)).toEqual([ordinary.id])
+    expect(afterReplay?.interactionEffects).toHaveLength(1)
+  })
+
+  it('rejects each altered fixed binding before any replay mutation', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-i1b-binding-'))
+    roots.push(root)
+    const stack = await openStorageStack(join(root, 'storage'))
+    stacks.push(stack)
+    const scope = join(root, 'scope')
+    const team = await stack.port.createTeam(scope, 'captain-binding', 'I1b binding', 'Fixed relay binding')
+    await stack.port.provisionMember(scope, team.id, 'captain-binding', { name: 'worker', role: 'Worker', sessionId: 'worker-binding', provider: 'spawn' })
+    await stack.port.settleMember(scope, team.id, 'worker-binding', { active: true })
+    const deps: TeamDomainDeps = { store: stack.store, limits: DEFAULT_TEAM_LIMITS, now: () => 99 }
+    const input = {
+      requestId: 'human-i1b-binding-00000001' as const,
+      step: 'member-question-relay-mail' as const,
+      senderSessionId: 'worker-binding', targetName: 'captain', content: 'same body', delivery: 'wakeup' as const,
+    }
+    const first = await queueMessageOnce(deps, scope, team.id, input)
+    for (const changed of [
+      { ...input, senderSessionId: 'captain-binding' },
+      { ...input, targetName: 'worker' },
+      { ...input, content: 'changed body' },
+      { ...input, delivery: 'quiet' as const },
+    ]) {
+      await expect(queueMessageOnce(deps, scope, team.id, changed)).rejects.toMatchObject({ code: 'TEAM_INTERACTION_EFFECT_CONFLICT' })
+    }
+    const after = await stack.store.read(scope, team.id)
+    expect(after?.messages).toHaveLength(1)
+    expect(after?.interactionEffects).toHaveLength(1)
+    expect(after?.interactionEffects?.[0]).toMatchObject({ effectId: first.effect.effectId, resultingTeamRevision: first.effect.resultingTeamRevision })
   })
 })

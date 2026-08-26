@@ -14,13 +14,13 @@ I1b keeps that identity and descriptor version. It explicitly upgrades only a `T
 
 ### Team v2 is an in-place aggregate format
 
-New Teams are v2. A v1 Team is atomically transformed to the equivalent v2 Team with an empty ledger on its first locked read, list, or transaction. The same `agent_swarm` aggregate remains the sole authority. The overlay stays in `agent_swarm_human`; its v2 record may identify an epoch-2 relay candidate, but it is not a second Team authority.
+New Teams are v2. A v1 Team is transformed to the equivalent v2 Team with an empty ledger on that Team's first locked read, list, or transaction; the write is strictly read back before that operation returns it. This is lazy per-Team compatibility, not a global startup migration, cross-process cutover or old-binary fence. The same `agent_swarm` aggregate remains the sole authority. The overlay stays in `agent_swarm_human`; its v2 record may identify an epoch-2 relay candidate, but it is not a second Team authority.
 
 ### The first applied effect is member-question relay-mail
 
-`interactionEffects` is permanent and bounded per Team. An entry binds a canonical, domain-separated SHA-256 identity over scope, Team id, request id, step, target Session and body digest. It stores only the fixed step, digest, target, resulting Team message id and commit time; it never stores raw message bodies, scope paths, principals, diagnostics, credentials or provider errors.
+`interactionEffects` is permanent and bounded per Team. Its canonical, domain-separated SHA-256 identity covers scope, Team id, request id and step; a separate fixed binding digest covers authoritative sender Session, target Session, body digest and delivery. The receipt stores only those fixed digests/fields, resulting Team message id, frozen resulting Team revision and commit time; it never stores raw message bodies, scope paths, principals, diagnostics, credentials or provider errors.
 
-`queueMessageOnce` performs target validation, mailbox mutation and receipt append in one Team aggregate transaction. An exact replay returns the stored receipt without a second mail. A reused request/step with a different binding fails loud. Full ledger capacity fails before mutation and is never silently pruned. This proves once-only Team mutation for this aggregate boundary; it does not claim cross-process exactly-once.
+`queueMessageOnce` performs target validation, mailbox mutation and receipt append in one Team aggregate transaction. An exact replay returns the permanent receipt before current membership, target or quota admission; it remains safe after normal terminal-mail retention prunes the old mailbox row. A reused request/step with a different binding fails loud. Full ledger capacity fails before mutation and is never silently pruned. This proves once-only Team mutation for this aggregate boundary; it does not claim cross-process exactly-once.
 
 ### Reload recovery classifies; it never replays
 
@@ -35,7 +35,7 @@ After a crash between the Team commit and overlay acknowledgement, a fresh Conte
 
 ## Verification contract
 
-I1b-1A requires real Storage Domain persistence, clean Context disposal and reopen. The focused suite proves v1-to-v2 strict read-back, exact replay, binding conflict, bounded capacity, scope/Team isolation, no duplicate mail, redacted digest evidence, a commit-before-overlay-ack crash window, fresh-context acknowledgement projection, and legacy outcome-unknown preservation. It must not represent an external effect as applied merely because an adapter was invoked.
+I1b-1A requires real Storage Domain persistence, clean Context disposal and reopen. The focused suite proves per-Team v1-to-v2 strict read-back, exact replay after terminal-mail retention, binding conflict, bounded capacity, scope/Team isolation, no duplicate mail, redacted digest evidence, both a persisted-then-throw and absent Team-write crash window, fresh-context classification/projection, and legacy outcome-unknown preservation. It must not represent an external effect as applied merely because an adapter was invoked.
 
 ## Consequences
 

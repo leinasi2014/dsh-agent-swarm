@@ -17,7 +17,7 @@ Message, Control and cancel entry points exist only to make the negative capabil
 - Project authority consumed: `TeamDomainPort.snapshot()` for Team reads and `HumanInteractionOverlayStore.list()` for durable receipt reads.
 - Canonical Team owner remains `TeamDomainPort`; the Host projection cannot mutate it.
 - Canonical HumanInteraction request/receipt owner remains the current overlay. The projection omits source, principal, scope, bodies, diagnostics, message ids and task-result ids.
-- ADR-0009 now accepts only the narrow same-aggregate I1b relay-mail ledger. This producer floor still does not expose it as Host/RPC/UI authority, and no old second-state-machine implementation is migrated.
+- ADR-0009 stays `Proposed` and its old-binary/effect-correlation blocker remains authoritative. No old effect-correlation implementation is migrated.
 
 ## Contract
 

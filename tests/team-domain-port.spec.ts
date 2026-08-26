@@ -87,7 +87,7 @@ describe('TeamDomainPort provider over the official Storage Domain', () => {
     const limited = new TeamDomain(stack.store, { ...DEFAULT_TEAM_LIMITS, maxInteractionEffects: 1 })
     const first = await limited.queueMemberQuestionRelayOnce(scope, team.id, 'worker-i1b', 'human-i1b-once-00000001', 'secret body is only in mail')
     const replay = await limited.queueMemberQuestionRelayOnce(scope, team.id, 'worker-i1b', 'human-i1b-once-00000001', 'secret body is only in mail')
-    expect(replay).toMatchObject({ replayed: true, message: { id: first.message.id }, effect: { effectId: first.effect.effectId } })
+    expect(replay).toMatchObject({ replayed: true, messageId: first.messageId, effect: { effectId: first.effect.effectId } })
     expect(first.effect.bodyDigest).not.toContain('secret body')
     await expect(limited.queueMemberQuestionRelayOnce(scope, team.id, 'worker-i1b', 'human-i1b-once-00000001', 'different body'))
       .rejects.toMatchObject({ code: 'TEAM_INTERACTION_EFFECT_CONFLICT' })

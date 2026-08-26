@@ -56,6 +56,19 @@ function invalidRelayInput(): TeamDomainError {
   return new TeamDomainError('member-question input or admission is invalid', 'TEAM_INTERACTION_INVALID')
 }
 
+/** These are proven pre-write rejections inside the one Team transaction. */
+function isKnownRelayNoCommit(error: unknown): error is TeamDomainError {
+  return error instanceof TeamDomainError && new Set([
+    'TEAM_NOT_FOUND',
+    'TEAM_MESSAGE_TARGET_INVALID',
+    'TEAM_SELF_MESSAGE',
+    'TEAM_MAILBOX_FULL',
+    'TEAM_INPUT_INVALID',
+    'TEAM_INPUT_LIMIT',
+    'TEAM_INTERACTION_EFFECT_CAPACITY',
+  ]).has(error.code)
+}
+
 export class CaptainLiaison implements HumanInteractionPort {
   private readonly receiptPager: HumanInteractionReceiptPager
 
@@ -173,46 +186,51 @@ export class CaptainLiaison implements HumanInteractionPort {
       return receiptOf(committed)
     }
 
-    try {
-      return await this.settleRelayFromTeam(input, pending, body)
-    } catch {
-      let effect: TeamInteractionEffect | undefined
-      try {
-        effect = await this.team.findMemberQuestionRelayEffect(input.scope, input.teamId, requestId, input.memberSessionId, body)
-      } catch {
-        await quarantineInteractionOutcome(this.overlay, input.scope, input.teamId, requestId, this.now)
-        throw this.outcomeUnknown('question relay outcome cannot be classified')
-      }
-      if (effect !== undefined) {
-        // The effect is durably applied, but this invocation did not get a
-        // durable overlay acknowledgement. Leave projection for a later
-        // authorized read-back/reconcile; do not silently retry here.
-        throw new TeamDomainError('relay effect committed; receipt acknowledgement is pending', 'TEAM_INTERACTION_RECEIPT_PENDING')
-      }
-      const failed: HumanInteractionRecord = {
-        ...pending,
-        receipt: { ...pending.receipt, status: 'failed', code: 'TEAM_INTERACTION_EFFECT_NOT_APPLIED', diagnostic: 'relay effect was not committed', updatedAt: this.now() },
-        updatedAt: this.now(),
-      }
-      await this.overlay.update(failed, pending.receipt.updatedAt)
-      return receiptOf(failed)
-    }
+    return await this.settleRelayFromTeam(input, pending, body)
   }
 
   private async settleRelayFromTeam(input: RelayMemberQuestionInput, record: HumanInteractionRecord, body: string): Promise<HumanInteractionReceipt> {
-    const result = await this.team.queueMemberQuestionRelayOnce(input.scope, input.teamId, input.memberSessionId, record.request.requestId, body)
-    return await this.acknowledgeRelay(input, record, result.effect)
+    let effect: TeamInteractionEffect
+    try {
+      effect = (await this.team.queueMemberQuestionRelayOnce(
+        input.scope, input.teamId, input.memberSessionId, record.request.requestId, body,
+      )).effect
+    } catch (error) {
+      if (isKnownRelayNoCommit(error)) return await this.markRelayNotApplied(record)
+      // A backend may persist the Team record and throw before its caller can
+      // observe success. Never classify a same-Context absence as not-applied.
+      await quarantineInteractionOutcome(this.overlay, input.scope, input.teamId, record.request.requestId, this.now)
+      throw this.outcomeUnknown('question relay Team commit outcome is unknown')
+    }
+    try {
+      return await this.acknowledgeRelay(record, effect)
+    } catch {
+      // Team evidence is known in this activation, but the overlay projection
+      // did not durably acknowledge it. A later reconcile may only project.
+      throw new TeamDomainError('relay effect committed; receipt acknowledgement is pending', 'TEAM_INTERACTION_RECEIPT_PENDING')
+    }
   }
 
-  private async acknowledgeRelay(input: RelayMemberQuestionInput, record: HumanInteractionRecord, effect: TeamInteractionEffect): Promise<HumanInteractionReceipt> {
-    const snapshot = await this.team.snapshot(input.scope, input.teamId, input.memberSessionId)
+  private async markRelayNotApplied(record: HumanInteractionRecord): Promise<HumanInteractionReceipt> {
+    const now = this.now()
+    const failed: HumanInteractionRecord = {
+      ...record,
+      receipt: { ...record.receipt, status: 'failed', code: 'TEAM_INTERACTION_EFFECT_NOT_APPLIED', diagnostic: 'relay effect was not committed', updatedAt: now },
+      updatedAt: now,
+    }
+    await this.overlay.update(failed, record.receipt.updatedAt)
+    return receiptOf(failed)
+  }
+
+  private async acknowledgeRelay(record: HumanInteractionRecord, effect: TeamInteractionEffect): Promise<HumanInteractionReceipt> {
+    const { code: _code, diagnostic: _diagnostic, ...priorReceipt } = record.receipt
     const acknowledged: HumanInteractionRecord = {
       ...record,
       receipt: {
-        ...record.receipt,
+        ...priorReceipt,
         status: 'acknowledged',
         routedMessageId: effect.messageId as TeamMessageId,
-        resultingTeamRevision: snapshot.team.revision,
+        resultingTeamRevision: effect.resultingTeamRevision,
         updatedAt: this.now(),
       },
       updatedAt: this.now(),
@@ -377,7 +395,6 @@ export class CaptainLiaison implements HumanInteractionPort {
       for (const record of this.overlay.list(scope, teamId)) {
         await this.overlay.runRequestExclusive(scope, teamId, record.request.requestId, async () => {
         const current = this.overlay.get(scope, teamId, record.request.requestId)
-        if (this.overlay.isOutcomeUnknown(scope, teamId, record.request.requestId)) return
         if (current?.request.intent === 'member-question' && current.receipt.status === 'pending') {
           if (current.schemaVersion !== 2 || current.admissionAuthorityEpoch !== 2) {
             await quarantineInteractionOutcome(this.overlay, scope, teamId, current.request.requestId, this.now)
@@ -391,16 +408,13 @@ export class CaptainLiaison implements HumanInteractionPort {
           }
           const effect = await this.team.findMemberQuestionRelayEffect(scope, teamId, current.request.requestId, origin.memberSessionId, body)
           if (effect !== undefined) {
-            await this.acknowledgeRelay({ scope, teamId, memberSessionId: origin.memberSessionId, body, requestId: current.request.requestId, expectedTeamRevision: current.request.expectedTeamRevision }, current, effect)
+            await this.acknowledgeRelay(current, effect)
             return
           }
-          await this.overlay.update({
-            ...current,
-            receipt: { ...current.receipt, status: 'failed', code: 'TEAM_INTERACTION_EFFECT_NOT_APPLIED', diagnostic: 'relay effect was not committed', updatedAt: now },
-            updatedAt: now,
-          }, current.receipt.updatedAt)
+          await this.markRelayNotApplied(current)
           return
         }
+        if (this.overlay.isOutcomeUnknown(scope, teamId, record.request.requestId)) return
         if (current?.request.expiresAt !== undefined && current.request.expiresAt <= now
           && (current.receipt.status === 'pending' || current.receipt.status === 'acknowledged')) {
           await this.overlay.update({

@@ -111,8 +111,7 @@ const originSchema = z.object({
   memberName: boundedText(64),
 }).strict()
 
-const requestSchema = z.object({
-  schemaVersion: z.union([z.literal(1), z.literal(2)]),
+const requestFields = {
   requestId: requestIdSchema,
   teamId: boundedText(128),
   source: sourceSchema,
@@ -135,7 +134,11 @@ const requestSchema = z.object({
   diagnostic: boundedText(2_048).optional(),
   createdAt: timestamp,
   expiresAt: timestamp.optional(),
-}).strict()
+}
+
+const requestV1Schema = z.object({ schemaVersion: z.literal(1), ...requestFields }).strict()
+const requestV2Schema = z.object({ schemaVersion: z.literal(2), ...requestFields }).strict()
+const requestSchema = z.discriminatedUnion('schemaVersion', [requestV1Schema, requestV2Schema])
 
 const receiptSchema = z.object({
   requestId: requestIdSchema,
@@ -150,15 +153,19 @@ const receiptSchema = z.object({
   updatedAt: timestamp,
 }).strict()
 
-const recordSchema = z.object({
-  schemaVersion: z.union([z.literal(1), z.literal(2)]),
-  admissionAuthorityEpoch: z.literal(2).optional(),
+const recordFields = {
   scope: boundedText(4_096),
-  request: requestSchema,
   receipt: receiptSchema,
   createdAt: timestamp,
   updatedAt: timestamp,
-}).strict()
+}
+
+// Epoch is a durable authority boundary, not an optional annotation: a v1
+// record cannot be reinterpreted as an I1b candidate after reopen.
+const recordSchema = z.discriminatedUnion('schemaVersion', [
+  z.object({ schemaVersion: z.literal(1), request: requestV1Schema, ...recordFields }).strict(),
+  z.object({ schemaVersion: z.literal(2), admissionAuthorityEpoch: z.literal(2), request: requestV2Schema, ...recordFields }).strict(),
+])
 
 // Single contained type-erasure: the zod object owns runtime validation at
 // the durable boundary; `HumanInteractionRecord` is its precise in-memory

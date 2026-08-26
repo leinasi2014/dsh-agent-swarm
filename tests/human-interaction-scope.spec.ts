@@ -116,6 +116,18 @@ describe('SW-I1a interaction scope ownership', () => {
         ...valid,
         request: { ...valid.request, target: { kind: 'member', memberName: { injectedMarker } } },
       } as unknown as HumanInteractionRecord,
+      { ...valid, admissionAuthorityEpoch: 2 } as unknown as HumanInteractionRecord,
+      {
+        ...valid,
+        schemaVersion: 1,
+        request: { ...valid.request, schemaVersion: 2 },
+      } as unknown as HumanInteractionRecord,
+      {
+        ...valid,
+        schemaVersion: 2,
+        admissionAuthorityEpoch: 2,
+        request: { ...valid.request, schemaVersion: 1 },
+      } as unknown as HumanInteractionRecord,
     ]
     for (const invalid of invalidRecords) {
       await expect(overlay.commitIfAbsent(invalid)).rejects.toMatchObject({ code: 'TEAM_INTERACTION_INVALID' })

@@ -85,7 +85,7 @@ describe('Jiuwen node-type mapping over the Team task DAG (M2-4, issue #78)', ()
       expect(task.status).toBe('submitted')
     }, { timeout: 15_000 })
     const submitted = await taskOf(composition, teamId, prepA.id)
-    await composition.ctx.agentSwarm.reviewTask(
+    const rejected = await composition.ctx.agentSwarm.reviewTask(
       { agent: composition.lead, signal: SIGNAL },
       {
         taskId: prepA.id,
@@ -95,10 +95,12 @@ describe('Jiuwen node-type mapping over the Team task DAG (M2-4, issue #78)', ()
         diagnostic: 'stage failed: rework the inputs',
       },
     )
-    await vi.waitFor(async () => {
-      const task = await taskOf(composition, teamId, prepA.id)
-      expect(task.status).toBe('pending')
-    }, { timeout: 15_000 })
+    // The review transaction is the authoritative rejection boundary.  Its
+    // returned task is pending with a fresh generation; the adaptive
+    // scheduler may immediately claim it again, so polling for an exposed
+    // transient pending state is not deterministic evidence.
+    expect(rejected).toMatchObject({ decision: 'reject', task: { id: prepA.id, status: 'pending' } })
+    expect(rejected.task.currentAttemptId).toBeUndefined()
     const heldAssemble = await taskOf(composition, teamId, assemble.id)
     expect(heldAssemble.status).toBe('pending')
     expect(await readyOf(composition, teamId, assemble.id)).toBe(false)
