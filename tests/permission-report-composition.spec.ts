@@ -7,7 +7,7 @@ import * as SubagentReport from '@deepseek-ai/dsh-tool-subagent-report'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { addMember, mount, toolCall, type Composition } from './helpers/gated-composition.js'
+import { addMember, mount, snapshotOf, toolCall, type Composition } from './helpers/gated-composition.js'
 
 const roots: string[] = []
 const stacks: Composition[] = []
@@ -43,25 +43,28 @@ describe('official member tool transport', () => {
     value.fibers.push(await value.ctx.plugin(SubagentReport, { reportDelivery: 'quiet' }))
     const member = await memberOf(value, await addMember(value, 'report-worker'))
     expect(value.ctx.tools.get('report', member)).not.toBe(value.ctx.tools.get('report'))
+    const before = await snapshotOf(value)
     const passed = await toolCall(value.ctx, member, 'report-pass', 'report', { output: 'handoff' })
     expect(passed.isError).toBe(false)
     expect(reports(value.lead).join('\n')).toContain('handoff')
+    expect(await snapshotOf(value)).toEqual(before)
     const off = member.ctx.tools.guard(exec => exec.name === 'report' ? 'downstream report guard' : undefined)
     try {
       const blocked = await toolCall(value.ctx, member, 'report-blocked', 'report', { output: 'blocked' })
       expect(blocked.isError).toBe(true)
       expect((blocked.error as { message?: string }).message).toContain('downstream report guard')
+      expect(await snapshotOf(value)).toEqual(before)
     } finally { off() }
   }, 30_000)
 
-  it('denies root global report but inherits an ordinary host tool and run_code transport', async () => {
+  it('denies root global report and inherits an ordinary host tool (run_code is covered by policy assertions)', async () => {
     const value = await stack()
     let calls = 0
     value.ctx.effect(() => value.ctx.tools.register(defineTool({
       name: 'transport_probe', description: 'fixture', parameters: {},
       output: { schema: { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean', required: true } } }, render: () => [] },
       execute: async () => { calls += 1; return { ok: true } },
-    }), 'transport fixture'))
+    })))
     const report = await toolCall(value.ctx, value.lead, 'root-report', 'report', { output: 'nope' })
     expect(report.isError).toBe(true)
     const inherited = await toolCall(value.ctx, value.lead, 'inherited-host-tool', 'transport_probe', {})

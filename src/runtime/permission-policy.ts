@@ -27,10 +27,9 @@ import { MAX_DENY_TOOLS, TOOL_NAME_PATTERN } from './tool-policy.js'
 
 /**
  * The complete model-facing `agent_swarm_*` tool surface (17 tools). The
- * effective policy keeps these in the default `allow` tier so the plugin's
- * own Team protocol remains usable out of the box; every other tool is
- * unlisted and therefore fail-closed for plugin Team participants unless an
- * operator explicitly allows it.
+ * effective policy keeps the plugin protocol and Code Mode transport visible.
+ * Other unlisted host tools inherit the official downstream preset and its
+ * guards; this overlay only narrows explicit/captain-only cases.
  */
 const PLUGIN_TOOL_NAMES = [
   // Code Mode dispatches its inner calls back through pre-execute.  Keeping
