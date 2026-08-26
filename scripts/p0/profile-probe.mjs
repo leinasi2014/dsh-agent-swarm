@@ -156,13 +156,22 @@ async function bindTarget(ctx, signal) {
     rootSessionId: agent.id,
     fixture,
   })
+  append('w0-scope-ready', ctx, { rootSessionId: agent.id })
   const scope = ctx.agentSwarm.scopeOf(agent)
-  const membership = await ctx.agentSwarm.domain.findReadMembership(scope, agent.id)
-  const team = membership?.team ?? await ctx.agentSwarm.create(
+  append('w0-membership-start', ctx, { rootSessionId: agent.id })
+  const bounded = async (label, operation) => await Promise.race([
+    operation(),
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`DEV_SMOKE_TIMEOUT:${label}`)), 8_000)),
+  ])
+  const membership = await bounded('findReadMembership', async () => await ctx.agentSwarm.domain.findReadMembership(scope, agent.id))
+  append('w0-membership-done', ctx, { rootSessionId: agent.id, found: membership !== undefined })
+  append('w0-create-start', ctx, { rootSessionId: agent.id })
+  const team = membership?.team ?? await bounded('create', async () => await ctx.agentSwarm.create(
     { agent, signal },
     'R2 isolated Profile team',
     'Real captain Team for the read-only /swarm Profile proof.',
-  )
+  ))
+  append('w0-create-done', ctx, { rootSessionId: agent.id, teamId: team.id })
   const e2e = await exerciseRealAgentLoop(ctx, agent, team)
   append('w0-agent-loop-e2e', ctx, { rootSessionId: agent.id, teamId: team.id, e2e })
   append('r2-target-ready', ctx, {
