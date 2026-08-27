@@ -10,6 +10,18 @@ import { verifySafeBundlePatch } from './p0/bundle-shape.mjs'
 import { parsePluginInventoryResponse, pluginInventoryPayload } from './p0/inventory.mjs'
 import { EXPECTED_P0_SWARM_TOOL_NAMES, exactP0SwarmToolSurface } from './p0/tool-surface.mjs'
 
+const profileProbeSource = await readFile(new URL('./p0/profile-probe.mjs', import.meta.url), 'utf8')
+const settledIndex = profileProbeSource.indexOf('const { fixture, settledTurn } = await settleRootAgentLoop(agent)')
+const terminalSnapshotIndex = profileProbeSource.indexOf("const terminalSnapshot = await bounded('terminalSnapshot'")
+const e2eEvidenceIndex = profileProbeSource.indexOf("append('w0-agent-loop-e2e'")
+if (settledIndex < 0 || terminalSnapshotIndex < settledIndex || e2eEvidenceIndex < terminalSnapshotIndex) {
+  throw new Error('P0 Profile fixture must sample the exact Team only after root terminal settlement')
+}
+const p0RunSource = await readFile(new URL('./p0/run.mjs', import.meta.url), 'utf8')
+if (!p0RunSource.includes('terminalIdentity, reloadIdentity, exactInitial, exactReload')) {
+  throw new Error('P0 reload failure diagnostics must include projection and exact terminal identities')
+}
+
 if (!exactP0SwarmToolSurface([...EXPECTED_P0_SWARM_TOOL_NAMES].reverse()).ok) throw new Error('exact P0 tool surface rejected its complete set')
 for (const [label, tools] of [
   ['missing tool', EXPECTED_P0_SWARM_TOOL_NAMES.slice(1)],

@@ -617,7 +617,9 @@ async function main() {
     if (JSON.stringify(reloadIdentity) !== JSON.stringify(terminalIdentity)
       || JSON.stringify(exactReload) !== JSON.stringify(exactInitial)
       || reloadIdentity.tasks.some(task => task.status !== 'completed') || reloadIdentity.attempts.some(attempt => attempt.phase !== 'accepted')) {
-      throw new Error(`W0 reload terminal identity changed or repeated work: ${JSON.stringify({ terminalIdentity, reloadIdentity })}`)
+      throw new Error(`W0 reload terminal identity changed or repeated work: ${JSON.stringify({
+        terminalIdentity, reloadIdentity, exactInitial, exactReload,
+      })}`)
     }
     const secondStop = await gracefulStop(liveBoot, stopPath, args.port)
     liveBoot = undefined

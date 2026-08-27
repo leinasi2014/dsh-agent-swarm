@@ -206,10 +206,15 @@ async function bindTarget(ctx, signal) {
     'Real captain Team for the read-only /swarm Profile proof.',
   ))
   append('w0-create-done', ctx, { rootSessionId: agent.id, teamId: team.id })
-  const e2e = await exerciseRealAgentLoop(ctx, agent, team)
-  append('w0-agent-loop-e2e', ctx, { rootSessionId: agent.id, teamId: team.id, e2e })
+  const exercise = await exerciseRealAgentLoop(ctx, agent, team)
   const { fixture, settledTurn } = await settleRootAgentLoop(agent)
+  // The exact Team identity is sampled only after the root AgentLoop reaches
+  // its terminal settlement.  This is the identity the R2 terminal snapshot
+  // and the reload proof compare; review-time state is not an oracle.
+  const terminalSnapshot = await bounded('terminalSnapshot', async () => await ctx.agentSwarm.domain.snapshot(scope, team.id, agent.id))
+  const e2e = { ...exercise, team: terminalSnapshot.team }
   append('w0-root-agent-loop-settled', ctx, { rootSessionId: agent.id, settledTurn })
+  append('w0-agent-loop-e2e', ctx, { rootSessionId: agent.id, teamId: team.id, e2e })
   append('r3-session-fixture-ready', ctx, { rootSessionId: agent.id, fixture })
   append('r2-target-ready', ctx, {
     rootSessionId: agent.id,
