@@ -1,5 +1,10 @@
 # M2 出口报告 — 官方 Workflow/Jobs 编排（2026-08-21）
 
+> Superseded for the Jobs claim by FP-JOBS-OWNER-01 (`536a00c` QA failure,
+> successor pending): the Team task view is not an official `JobRegistry`
+> Provider and does not mount `ctx.jobs`. This historical exit evidence must
+> not be used to claim official Jobs integration.
+
 - 报告人：项目管理工程师（ZCode 会话）
 - 结论：**M2 完成**。docs/07 M2 Exit 四项逐项核验见 §2；两项尾巴 + 一项诊断转 M3 入口门。
 - 基准：main @ 本报告合并后 HEAD（tag `m2`）；测试 121（25 文件）；场景审计 19/33。

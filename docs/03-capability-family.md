@@ -19,7 +19,7 @@ Canonical Team port          │
 Project-owned orchestration overlay
   TaskRun/attempt fencing ─ Scheduler ─ Review ─ Team budget/memory checkpoints
        │                       │
-       ├─ ctx.workflowEngine + ctx.jobs bridge (deterministic mode)
+       ├─ ctx.workflowEngine bridge + caller-scoped Team jobs read view
        ├─ ctx.tokenMeter boundary: host-side official metering face; Team measurement stays the plugin's per-seq fold (M4-1)
        ├─ ctx.storageDomain Store Provider
        ├─ ctx.workspaceRegistry linkage + real remote/worktree executor
@@ -204,7 +204,7 @@ Tools expose stable task concepts, not Provider names or database details. Opera
 
 ### Workflow bridge
 
-Maps published DSH `ctx.workflowEngine` runs/events to Team task/run records and uses `ctx.jobs` for background observability. The bridge must declare exactly one orchestration owner per run: adaptive Scheduler or deterministic Workflow. It must not let both state machines assign or settle the same attempt. Interaction services are used for human nodes after their target exports are verified.
+Maps published DSH `ctx.workflowEngine` runs/events to Team task/run records. Background observability is a caller-scoped Team projection, not a `ctx.jobs` Provider: it cannot own official producer admission, controller, cancellation, or teardown semantics and must never shadow the default registry. The bridge must declare exactly one orchestration owner per run: adaptive Scheduler or deterministic Workflow. It must not let both state machines assign or settle the same attempt. Interaction services are used for human nodes after their target exports are verified.
 
 ### UI
 

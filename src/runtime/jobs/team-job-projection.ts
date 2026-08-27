@@ -115,10 +115,10 @@ export class TeamJobProjection {
    * Return fresh snapshots for exactly the caller's authorized Team.
    * Missing, stale, unjoined, or ambiguous callers fail before any record is
    * selected; a process-global list is deliberately unavailable.
-   */
+  */
   list(caller: Agent): JobSnapshot[] {
-    if (this.closing) return []
     const { scope, teamId } = this.authorize(caller)
+    if (this.closing) return []
     return [...this.records.values()]
       .filter(job => job.scope === scope && job.teamId === teamId)
       .map(job => this.snapshot(job))

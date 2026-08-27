@@ -27,6 +27,7 @@ import {
   type StreamChunk,
 } from '@deepseek-ai/dsh-llm'
 import type { JobSnapshot } from '@deepseek-ai/dsh-jobs'
+import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
 import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
 import Storage from '@deepseek-ai/dsh-storage'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
@@ -140,6 +141,7 @@ async function mountTree(sandbox: string, options: {
   submit: boolean
   workflowBridge: boolean
   jobsBridge: boolean
+  defaultJobs?: boolean
   workflowDisposeGraceMs?: number
 }): Promise<MountedTree> {
   const ctx = new Context()
@@ -152,6 +154,7 @@ async function mountTree(sandbox: string, options: {
   fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
   fibers.push(await ctx.plugin(SubagentService))
   fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
+  if (options.defaultJobs === true) fibers.push(await ctx.plugin(LocalJobRegistry))
   fibers.push(await ctx.plugin(InvariantRegistry))
   fibers.push(await ctx.plugin(WorkflowInvariant))
   fibers.push(await ctx.plugin(AgentSwarm, {
@@ -295,6 +298,32 @@ return { out }`,
       expect(jobs.list(tree.lead)).toContainEqual(expect.objectContaining({ id: live.id, status: 'killed' }))
     } finally {
       for (const fiber of tree.fibers.toReversed()) await fiber.dispose()
+    }
+  })
+
+  it('leaves a real default JobRegistry and its owner fence unchanged', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-jobs-default-'))
+    sandboxes.push(sandbox)
+    for (const jobsBridge of [false, true]) {
+      const tree = await mountTree(join(sandbox, String(jobsBridge)), {
+        submit: false, workflowBridge: false, jobsBridge, defaultJobs: true,
+      })
+      try {
+        const registry = tree.ctx.jobs
+        expect(registry).toBeInstanceOf(LocalJobRegistry)
+        const controller = registry.attachController('default-jobs-proof')
+        const other = tree.ctx.agentLoop.create(SessionId(`jobs-default-other-${String(jobsBridge)}`), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'other') })
+        const run = () => ({ cancel: () => {}, done: Promise.resolve({ status: 'completed' as const, output: 'official output' }) })
+        const unowned = registry.start({ kind: 'bash', label: 'official unowned', run })
+        const owned = registry.start({ kind: 'bash', label: 'official owned', owner: tree.lead, run })
+        expect(registry.list()).toEqual([expect.objectContaining({ id: unowned })])
+        expect(registry.list()[0]).not.toHaveProperty('ownerSession')
+        expect(registry.list(tree.lead)).toEqual(expect.arrayContaining([expect.objectContaining({ id: unowned }), expect.objectContaining({ id: owned, ownerSession: tree.lead.id })]))
+        expect(() => registry.get(owned, other)).toThrow()
+        controller()
+      } finally {
+        for (const fiber of tree.fibers.toReversed()) await fiber.dispose()
+      }
     }
   })
 
