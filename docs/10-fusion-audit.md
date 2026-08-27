@@ -29,8 +29,8 @@ The independent GLM-5.3 review on 2026-08-20 issued `CONDITIONAL PASS` with P0 =
 | Source | Verified revision | Role |
 |---|---|---|
 | `deepseek-ai/deepseek-harness` | release target `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`; permitted rc.8 full-source evidence `141eb6fef83422698aef7a981029e843e8161534` | framework and published-service truth; M4-2 checked installed rc.2 types plus the rc.8 invariants implementation/Agent Notes |
-| `NanmiCoder/dsh-agent-teams` | `912aae5225d3d85fa841a1b0c8a5c77021876c25`, version 0.1.13 | direct DSH Team implementation prior art; SW-G0 additionally reviewed idle-attempt parking, explicit resume and low-cadence activity discovery as I1/I4 failure/observability evidence, without importing its runtime or UI |
-| `openJiuwen-ai/jiuwenswarm` | `e90d9ea80cdeccb84a1f92f296a85aa23e84133d`, WorkSwarm 0.2.5.beta1 | product architecture and failure-case prior art; SW-G0 additionally reviewed persistent-subagent, restart cleanup and canonical mode deltas, importing no Jiuwen runtime architecture, persistence model or types |
+| `NanmiCoder/dsh-agent-teams` | `5fe388f1a30da7b1374294b25bd6f8ad74ab6aa5`, version 0.1.14 | direct DSH Team implementation prior art; the 15-commit/31-file `912aae5..5fe388f` review covers independent captain planning/Team stop, staged approval/review and activity-panel behavior, importing neither runtime nor UI |
+| `openJiuwen-ai/jiuwenswarm` | `8f34291906abf7c4e1a3a94d1a819e5a94c0ff3b`, WorkSwarm 0.2.5.beta1 | product architecture and failure-case prior art; the 10-commit/138-file `7ebebe3..8f34291` review covers config-gated Code-mode SDD methodology/state, AgentOS/Web auth/logging and presentation work, importing no Jiuwen runtime architecture, persistence model, type or UI |
 
 The official target publishes `ctx.workflowEngine`, `ctx.jobs`, `ctx.tokenMeter`, `ctx.storageDomain` and `ctx.workspaceRegistry`. Its Agent Team package is private/experimental and unpublished. These facts supersede earlier project text claiming that rc.8 had no public workflow or token-meter service.
 

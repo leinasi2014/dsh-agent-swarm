@@ -2,7 +2,7 @@
 set -eu
 
 repository='https://github.com/openJiuwen-ai/jiuwenswarm.git'
-commit='7ebebe3fe116754f1162731cc1c958abc860611c'
+commit='8f34291906abf7c4e1a3a94d1a819e5a94c0ff3b'
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 target="$script_dir/source"
 
@@ -20,13 +20,17 @@ if [ ! -d "$target/.git" ]; then
   git -C "$target" init
   git -C "$target" remote add origin "$repository"
 else
-  if [ -n "$(git -C "$target" status --porcelain)" ]; then
+  if ! git -C "$target" rev-parse --verify HEAD >/dev/null 2>&1; then
+    echo 'reference checkout has no HEAD; preserve and reconcile it explicitly before syncing' >&2
+    exit 1
+  elif [ -n "$(git -C "$target" status --porcelain)" ]; then
     echo 'reference checkout has local changes; preserve or remove them before syncing' >&2
     exit 1
   fi
   git -C "$target" remote set-url origin "$repository"
 fi
 
+git -C "$target" config core.longpaths true
 git -C "$target" lfs install --local --skip-smudge >/dev/null 2>&1 || true
 git -C "$target" fetch --depth 1 origin "$commit"
 git -C "$target" checkout --detach FETCH_HEAD

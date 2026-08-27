@@ -90,7 +90,7 @@ UI-NATIVE-01 Gate A supersession (2026-08-27): the cumulative `912aae5..5fe388f`
 
 - URL: `https://github.com/openJiuwen-ai/jiuwenswarm`
 - Branch: `develop`
-- Commit: `7ebebe3fe116754f1162731cc1c958abc860611c`
+- Commit: `8f34291906abf7c4e1a3a94d1a819e5a94c0ff3b`
 - Develop package state observed: `workswarm` `0.2.5.beta1`
 - Local pointer: `ref/jiuwenswarm/SOURCE_POINTER.json`
 - Full local checkout: `ref/jiuwenswarm/source/`
@@ -104,6 +104,8 @@ M4-2 Gate A supersession (2026-08-22): the supplied sync script refreshed `devel
 SW-G0 Gate A supersession (2026-08-23): the cumulative `1d45d2b..e90d9ea` delta was reviewed before the supplied sync script materialized the new branch tip. Four commits add an optional persistent-subagent runtime, prompt/attachment restructuring, restart cleanup hardening and canonical Team Plan mode recognition. These remain product and failure-case prior art only. The plugin continues to use official DSH execution and its own single Team/HumanInteraction producer contract; no Jiuwen runtime, persistence model or types are adopted. The recorded tree, Apache-2.0 license and `workswarm` 0.2.5.beta1 package state were verified at the new pin.
 
 UI-NATIVE-01 Gate A supersession (2026-08-27): the reviewed cumulative `e90d9ea..144ea01` range remains product/failure-case prior art, and the additional single `144ea01..7ebebe3` commit isolates unreachable MCP preflight failures during Team assembly. Its changes are confined to Jiuwen MCP assembly/configuration, credential resolution, disconnected-state degradation and tests; they do not alter this plugin's Team UI or official DSH protocol contract. The supplied sync script verified the recorded tree, Apache-2.0 license, remote identity and unchanged `workswarm` 0.2.5.beta1 package state at the new pin.
+
+reference-repin-20260827 Gate A supersession (2026-08-27): the supplied sync script refreshed `develop` from `7ebebe3` to `8f34291` and verified the recorded tree, remote identity, Apache-2.0 license and unchanged `workswarm` 0.2.5.beta1 package state. The full 10-commit/138-file range adds config-gated Code-mode SDD methodology/state-machine work, AgentOS/Web token-auth and gateway-log work, agent-management/front-end work and four Team-area presentation files. It changes no Jobs, Workflow-engine or Worktree ownership path; its `workflows` paths are SDD methodology files. The code adapter retains project/workspace-path selection, so no cwd/ownership semantics are adopted. No Jiuwen runtime, persistence model, transport, public type or UI is imported.
 
 - Agent Team user guide
 - Distributed Team

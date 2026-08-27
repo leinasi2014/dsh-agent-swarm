@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 $Repository = "https://github.com/openJiuwen-ai/jiuwenswarm.git"
-$Commit = "7ebebe3fe116754f1162731cc1c958abc860611c"
+$Commit = "8f34291906abf7c4e1a3a94d1a819e5a94c0ff3b"
 $Target = Join-Path $PSScriptRoot "source"
 
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
@@ -16,12 +16,16 @@ if (-not (Test-Path (Join-Path $Target ".git"))) {
     git -C $Target init
     git -C $Target remote add origin $Repository
 } else {
-    if (git -C $Target status --porcelain) {
+    $HasHead = git -C $Target rev-parse --verify HEAD 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "reference checkout has no HEAD; preserve and reconcile it explicitly before syncing"
+    } elseif (git -C $Target status --porcelain) {
         throw "reference checkout has local changes; preserve or remove them before syncing"
     }
     git -C $Target remote set-url origin $Repository
 }
 
+git -C $Target config core.longpaths true
 git -C $Target lfs install --local --skip-smudge 2>$null
 git -C $Target fetch --depth 1 origin $Commit
 git -C $Target checkout --detach FETCH_HEAD

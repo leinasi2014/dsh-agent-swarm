@@ -2,8 +2,8 @@
 
 - Repository: `https://github.com/NanmiCoder/dsh-agent-teams`
 - Branch: `main`
-- Commit: `912aae5225d3d85fa841a1b0c8a5c77021876c25`
-- Package version: `0.1.13`
+- Commit: `5fe388f1a30da7b1374294b25bd6f8ad74ab6aa5`
+- Package version: `0.1.14`
 - License: MIT
 
 ## Why this is the single local reference repository
@@ -41,6 +41,14 @@
 
 脚本将完整源码检出到 `source/` 并固定到上述提交。更新 pin 时必须同时修改 `SOURCE_POINTER.json`、本文件和 `docs/09-sources.md`，然后重新执行架构差异审查。
 
-## 0.1.9 → 0.1.13 reviewed delta
+## Reviewed deltas
 
 该差异加入官方宿主 locale UI、idle attempt park/显式恢复、防状态查询 retry storm，以及 cardless Session 的低频发现探针。它为 I1 的暂停/恢复语义和 I4 的 UI 发现成本提供参考故障用例，不改变本项目的唯一 `TeamDomainPort` 权威，也不授权复制参考实现的 Scheduler、存储或 Client 状态。
+
+The 2026-08-27 review retains this recorded tip because it already equals
+remote `main`. The historical `912aae5..5fe388f` range contains 15 commits and
+31 changed files: independent captain planning/Team stop plus staged
+approval/review and activity-panel behavior. No changed path introduces a
+Workflow engine, Jobs projection or per-attempt cwd/Worktree ownership
+contract. It remains direct implementation prior art only; no reference
+runtime or UI is imported.
