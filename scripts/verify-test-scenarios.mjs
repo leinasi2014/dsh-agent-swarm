@@ -109,7 +109,12 @@ function normalizeSummary(summary) {
 function parseLegacyDefinitions(section) {
   const definitions = new Map()
   for (const match of section.matchAll(/^(\d+)\.\s+(.+)$/gmu)) {
-    definitions.set(match[1], match[2].trim())
+    const [_, id, summary] = match
+    if (definitions.has(id)) {
+      fail(`§3 repeats legacy scenario ID ${id}`)
+      continue
+    }
+    definitions.set(id, summary.trim())
   }
   return definitions
 }

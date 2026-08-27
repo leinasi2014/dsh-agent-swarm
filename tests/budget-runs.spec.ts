@@ -136,7 +136,7 @@ describe('Team budget across workflow runs (M2-5, issue #79)', () => {
     await Promise.all(sandboxes.splice(0).map(root => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })))
   })
 
-  it('scenario 33: continues one budget ledger across sequential runs of the same captain (set_budget once, many runs consume)', { timeout: 120_000 }, async () => {
+  it('scenario 49: continues one budget ledger across sequential runs of the same captain (set_budget once, many runs consume)', { timeout: 120_000 }, async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-budget-runs-'))
     sandboxes.push(sandbox)
     const composition = await mountModesComposition(sandbox, { orchestrationMode: 'adaptive', workflowBridge: true })
@@ -179,7 +179,7 @@ describe('Team budget across workflow runs (M2-5, issue #79)', () => {
     expect(team2.budget.usedTokens).toBeGreaterThan(run1Tokens)
   })
 
-  it('scenario 33: counts wake deliveries of BOTH faces into the single Team ledger exactly once', { timeout: 120_000 }, async () => {
+  it('scenario 49: counts wake deliveries of BOTH faces into the single Team ledger exactly once', { timeout: 120_000 }, async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-budget-wakes-'))
     sandboxes.push(sandbox)
     const composition = await mountModesComposition(sandbox, { orchestrationMode: 'adaptive', workflowBridge: true })
@@ -299,7 +299,7 @@ describe('Team budget across workflow runs (M2-5, issue #79)', () => {
     }, { timeout: 15_000 })
   })
 
-  it('scenario 33: converges a run to a bounded error terminal when the carried budget is exhausted (no hang)', { timeout: 120_000 }, async () => {
+  it('scenario 49: converges a run to a bounded error terminal when the carried budget is exhausted (no hang)', { timeout: 120_000 }, async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-budget-exhaust-'))
     sandboxes.push(sandbox)
     const composition = await mountModesComposition(sandbox, { orchestrationMode: 'adaptive', workflowBridge: true })
@@ -360,7 +360,7 @@ describe('Team budget across workflow runs (M2-5, issue #79)', () => {
     expect(end.error).toContain('TEAM_BUDGET_REQUESTS')
   })
 
-  it('scenario 33: keeps the carried ledger consistent across a full storage reload (durable carry, refold never double-counts)', { timeout: 150_000 }, async () => {
+  it('scenario 49: keeps the carried ledger consistent across a full storage reload (durable carry, refold never double-counts)', { timeout: 150_000 }, async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-budget-reload-'))
     sandboxes.push(sandbox)
     const leadId = 'budget-reload-lead'

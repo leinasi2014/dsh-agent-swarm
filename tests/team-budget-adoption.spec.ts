@@ -5,7 +5,7 @@
  * over the same real official storage stack as the protocol suite; the
  * bridge-driven carry, both faces' wake accounting, exhaustion convergence
  * and reload consistency are proven by the composition suite
- * (`tests/budget-runs.spec.ts`, docs/08 scenario 33).
+ * (`tests/budget-runs.spec.ts`, docs/08 scenario 49).
  */
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -46,7 +46,7 @@ describe('Cross-Team budget adoption over the official Storage Domain (M2-5)', (
     return team
   }
 
-  it('scenario 33: adopts a carried budget across Teams and honors its remaining allowance', async () => {
+  it('scenario 49: adopts a carried budget across Teams and honors its remaining allowance', async () => {
     // Run 1's Team: configured limits plus consumed usage, then archived.
     const first = await teamWithMembers('captain-session', 2)
     await domain.setBudget(scope, first.id, 'captain-session', { tokenLimit: 100, requestLimit: 2 })

@@ -155,6 +155,25 @@ await expectFailure(
 )
 
 await expectFailure(
+  'duplicate legacy ID',
+  {
+    document: `# Fixture
+
+## 3. Test scenarios
+
+1. First legacy definition
+1. Second legacy definition
+
+Scenario audit: implemented = 1; not yet proven = .
+
+## 4. Evidence
+`,
+    files: { 'duplicate.spec.ts': '// scenario 1: first legacy definition\n' },
+  },
+  /repeats legacy scenario ID 1/u,
+)
+
+await expectFailure(
   'implemented definition without evidence',
   {
     document: stableDocument([['SCN-NO-EVIDENCE', 'Missing evidence']], {
@@ -218,4 +237,4 @@ try {
   await rm(traversalRoot, { force: true, recursive: true })
 }
 
-console.log(`verify-test-scenarios fixture gate: ${fixtureCount} fixtures (2 positive, 10 negative): PASS`)
+console.log(`verify-test-scenarios fixture gate: ${fixtureCount} fixtures (2 positive, 11 negative): PASS`)
