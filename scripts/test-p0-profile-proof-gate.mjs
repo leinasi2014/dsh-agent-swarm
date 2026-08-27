@@ -10,7 +10,9 @@ import { verifySafeBundlePatch } from './p0/bundle-shape.mjs'
 import { parsePluginInventoryResponse, pluginInventoryPayload } from './p0/inventory.mjs'
 import { EXPECTED_P0_SWARM_TOOL_NAMES, exactP0SwarmToolSurface } from './p0/tool-surface.mjs'
 import { assertCompletedRootProbeTurn } from './p0/profile-probe.mjs'
-import { assertP0ProfileModelRoute, profilePatchLines } from './p0/run.mjs'
+import {
+  assertP0ProfileModelRoute, assertReloadProbeTransition, canonicalTerminalIdentity, profilePatchLines,
+} from './p0/run.mjs'
 
 const profileProbeSource = await readFile(new URL('./p0/profile-probe.mjs', import.meta.url), 'utf8')
 if (!profileProbeSource.includes("'agentDefaultModel'")
@@ -19,14 +21,18 @@ if (!profileProbeSource.includes("'agentDefaultModel'")
   throw new Error('P0 restart probe must recover its Agent route from the official Profile default-model service')
 }
 const settledIndex = profileProbeSource.indexOf('const { fixture, settledTurn } = await settleRootAgentLoop(agent)')
-const terminalSnapshotIndex = profileProbeSource.indexOf("const terminalSnapshot = await bounded('terminalSnapshot'")
+const terminalSnapshotIndex = profileProbeSource.indexOf('const terminalSnapshot = await snapshotAfterProbeUsage')
 const e2eEvidenceIndex = profileProbeSource.indexOf("append('w0-agent-loop-e2e'")
 if (settledIndex < 0 || terminalSnapshotIndex < settledIndex || e2eEvidenceIndex < terminalSnapshotIndex) {
   throw new Error('P0 Profile fixture must sample the exact Team only after root terminal settlement')
 }
 const p0RunSource = await readFile(new URL('./p0/run.mjs', import.meta.url), 'utf8')
-if (!p0RunSource.includes('terminalIdentity, reloadIdentity, exactInitial, exactReload')) {
+if (!p0RunSource.includes('exactInitial, exactReloadPreProbe, exactReloadPostProbe, probeDelta')) {
   throw new Error('P0 reload failure diagnostics must include projection and exact terminal identities')
+}
+if (!profileProbeSource.includes("append('w0-reload-pre-probe'")
+  || profileProbeSource.indexOf('authoritativeReloadPreProbeTeam(ctx, rootSessionId)') > profileProbeSource.indexOf('const agent = await waitForRoot(ctx, rootSessionId, signal)')) {
+  throw new Error('P0 reload must sample authoritative StorageDomain Team state before resuming the root probe')
 }
 const profilePatch = profilePatchLines({
   storageRoot: '/isolated/storage', sessionRoot: '/isolated/sessions', workspaceRoot: '/isolated/workspace',
@@ -51,6 +57,42 @@ for (const terminal of [
   }
 }
 assertCompletedRootProbeTurn({ seq: 52, type: 'turn/end', turn: 4, reason: { kind: 'completed' } }, [])
+
+const terminalTeam = {
+  schemaVersion: 2, id: 'team-abcdef12', revision: 14, name: 'probe', description: 'probe', captainSessionId: 'root', phase: 'active',
+  members: [{ name: 'member', role: 'role', sessionId: 'member-session', provider: 'spawn', phase: 'active', createdAt: 1 }],
+  tasks: [{ id: 'task-1', revision: 4, subject: 'task', description: 'description', acceptanceCriteria: [], status: 'completed', blockedBy: [], writeScopes: [], priority: 0, ownerSessionId: 'member-session', currentAttemptId: 'attempt-1', output: 'done', createdAt: 1, updatedAt: 2 }],
+  attempts: [{ id: 'attempt-1', taskId: 'task-1', generation: 1, memberSessionId: 'member-session', phase: 'accepted', assignmentPhase: 'delivered', evidence: [], createdAt: 1, updatedAt: 2 }],
+  messages: [], interactionEffects: [], budget: { usedTokens: 12, usedRequests: 1, usedRetries: 0 }, usageCursors: { root: 42, 'member-session': 43 }, memory: [], nextTaskNumber: 2, nextMemoryNumber: 1, createdAt: 1, updatedAt: 2,
+}
+const initialProbeIdentity = canonicalTerminalIdentity(terminalTeam)
+const legalPostProbeTeam = structuredClone(terminalTeam)
+legalPostProbeTeam.revision = 15
+legalPostProbeTeam.updatedAt = 3
+legalPostProbeTeam.budget.usedTokens = 14
+legalPostProbeTeam.usageCursors.root = 57
+const legalProbeUsage = [{ seq: 57, tokens: 2 }]
+assertReloadProbeTransition({
+  initial: initialProbeIdentity, preProbe: canonicalTerminalIdentity(terminalTeam), postProbe: canonicalTerminalIdentity(legalPostProbeTeam),
+  rootSessionId: 'root', probeUsage: legalProbeUsage,
+})
+for (const [label, mutate] of [
+  ['pre-probe drift', (initial, pre, post) => { pre.revision += 1 }],
+  ['extra task', (initial, pre, post) => { post.business.tasks.push({ id: 'task-2' }) }],
+  ['extra attempt', (initial, pre, post) => { post.business.attempts.push({ id: 'attempt-2' }) }],
+  ['extra member usage', (initial, pre, post) => { post.usageCursors['member-session'] += 1 }],
+]) {
+  const initial = structuredClone(initialProbeIdentity)
+  const pre = canonicalTerminalIdentity(terminalTeam)
+  const post = canonicalTerminalIdentity(legalPostProbeTeam)
+  mutate(initial, pre, post)
+  try {
+    assertReloadProbeTransition({ initial, preProbe: pre, postProbe: post, rootSessionId: 'root', probeUsage: legalProbeUsage })
+    throw new Error(`reload probe negative fixture unexpectedly passed: ${label}`)
+  } catch (error) {
+    if (error instanceof Error && error.message === `reload probe negative fixture unexpectedly passed: ${label}`) throw error
+  }
+}
 
 if (!exactP0SwarmToolSurface([...EXPECTED_P0_SWARM_TOOL_NAMES].reverse()).ok) throw new Error('exact P0 tool surface rejected its complete set')
 for (const [label, tools] of [

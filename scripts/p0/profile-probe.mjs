@@ -1,4 +1,5 @@
 import { appendFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { createUserMessage, LlmAdapter } from '@deepseek-ai/dsh-llm'
 
 export const name = 'agent-swarm-p0-profile-probe'
@@ -202,9 +203,49 @@ async function settleRootAgentLoop(agent, { requireCompleted = true } = {}) {
   return { fixture, settledTurn }
 }
 
+function probeUsageEntries(events, settledTurn) {
+  const entries = events
+    .filter(event => event.type === 'assistant/message' && event.data?.turn === settledTurn.turn && event.data?.usage !== undefined)
+    .map(event => {
+      const usage = event.data.usage
+      const tokens = usage.inputTokens + usage.outputTokens + (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0)
+      if (!Number.isSafeInteger(event.seq) || !Number.isSafeInteger(tokens) || tokens < 0) {
+        throw new Error(`DEV_SMOKE invalid durable root probe usage event: ${JSON.stringify({ seq: event.seq, usage })}`)
+      }
+      return { seq: event.seq, tokens }
+    })
+  if (entries.length === 0) throw new Error(`DEV_SMOKE root probe completed without a durable usage event: ${settledTurn.turn}`)
+  return entries
+}
+
+async function snapshotAfterProbeUsage(ctx, scope, teamId, agent, entries, bounded) {
+  const expectedCursor = entries.at(-1).seq
+  const deadline = Date.now() + 8_000
+  while (Date.now() < deadline) {
+    const snapshot = await bounded('postProbeSnapshot', async () => await ctx.agentSwarm.domain.snapshot(scope, teamId, agent.id))
+    if (snapshot.team.usageCursors[agent.id] === expectedCursor) return snapshot
+    await new Promise(resolveDelay => setTimeout(resolveDelay, 25))
+  }
+  throw new Error(`DEV_SMOKE root probe usage was not durably folded: ${JSON.stringify({ expectedCursor })}`)
+}
+
+async function authoritativeReloadPreProbeTeam(ctx, rootSessionId) {
+  const workspaceRoot = process.env.DSH_SWARM_P0_WORKSPACE_ROOT
+  if (workspaceRoot === undefined || workspaceRoot.length === 0) throw new Error('DSH_SWARM_P0_WORKSPACE_ROOT is required')
+  // The store is authoritative and this resolved workspace key is the same
+  // one runtime.scopeOf(agent) would derive after a root exists. This read is
+  // deliberately before waitForRoot(), the only resume/create boundary here.
+  const teams = await ctx.agentSwarm.listTeamAggregates(resolve(workspaceRoot))
+  const matches = teams.filter(team => team.captainSessionId === rootSessionId && team.phase === 'active')
+  if (matches.length > 1) throw new Error(`DEV_SMOKE reload pre-probe captain binding is ambiguous: ${rootSessionId}`)
+  return matches[0]
+}
+
 async function bindTarget(ctx, signal) {
   const rootSessionId = process.env.DSH_SWARM_R2_ROOT_SESSION_ID
   if (rootSessionId === undefined || rootSessionId.length === 0) return
+  const reloadPreProbeTeam = await authoritativeReloadPreProbeTeam(ctx, rootSessionId)
+  if (reloadPreProbeTeam !== undefined) append('w0-reload-pre-probe', ctx, { rootSessionId, team: reloadPreProbeTeam })
   const agent = await waitForRoot(ctx, rootSessionId, signal)
   append('w0-scope-ready', ctx, { rootSessionId: agent.id })
   const scope = ctx.agentSwarm.scopeOf(agent)
@@ -224,12 +265,13 @@ async function bindTarget(ctx, signal) {
   append('w0-create-done', ctx, { rootSessionId: agent.id, teamId: team.id })
   const exercise = await exerciseRealAgentLoop(ctx, agent, team)
   const { fixture, settledTurn } = await settleRootAgentLoop(agent)
+  const probeUsage = probeUsageEntries(agent.session.events, settledTurn)
   // The exact Team identity is sampled only after the root AgentLoop reaches
   // its terminal settlement.  This is the identity the R2 terminal snapshot
   // and the reload proof compare; review-time state is not an oracle.
-  const terminalSnapshot = await bounded('terminalSnapshot', async () => await ctx.agentSwarm.domain.snapshot(scope, team.id, agent.id))
+  const terminalSnapshot = await snapshotAfterProbeUsage(ctx, scope, team.id, agent, probeUsage, bounded)
   const e2e = { ...exercise, team: terminalSnapshot.team }
-  append('w0-root-agent-loop-settled', ctx, { rootSessionId: agent.id, settledTurn })
+  append('w0-root-agent-loop-settled', ctx, { rootSessionId: agent.id, settledTurn, probeUsage })
   append('w0-agent-loop-e2e', ctx, { rootSessionId: agent.id, teamId: team.id, e2e })
   append('r3-session-fixture-ready', ctx, { rootSessionId: agent.id, fixture })
   append('r2-target-ready', ctx, {

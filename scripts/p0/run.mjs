@@ -288,20 +288,69 @@ function assertSessionFixture(target, expectedEvents) {
   return events
 }
 
-function canonicalTerminalIdentity(team) {
+export function canonicalTerminalIdentity(team) {
+  const { revision, budget, usageCursors, updatedAt, ...business } = structuredClone(team ?? {})
   const identity = {
-    id: team?.id, revision: team?.revision, captainSessionId: team?.captainSessionId, phase: team?.phase,
+    id: team?.id, revision, captainSessionId: team?.captainSessionId, phase: team?.phase,
     members: team?.members?.map(member => ({ name: member.name, sessionId: member.sessionId, provider: member.provider, phase: member.phase })),
     tasks: team?.tasks?.map(task => ({ id: task.id, revision: task.revision, status: task.status, ownerSessionId: task.ownerSessionId, currentAttemptId: task.currentAttemptId })),
     attempts: team?.attempts?.map(attempt => ({ id: attempt.id, taskId: attempt.taskId, generation: attempt.generation, memberSessionId: attempt.memberSessionId, phase: attempt.phase, assignmentPhase: attempt.assignmentPhase })),
-    budget: team?.budget,
-    usageCursors: Object.fromEntries(Object.entries(team?.usageCursors ?? {}).sort(([left], [right]) => left.localeCompare(right))),
+    business,
+    budget,
+    usageCursors: Object.fromEntries(Object.entries(usageCursors ?? {}).sort(([left], [right]) => left.localeCompare(right))),
   }
   if (identity.phase !== 'active' || identity.members?.length !== 1 || identity.tasks?.length !== 1 || identity.attempts?.length !== 1
     || identity.tasks[0]?.status !== 'completed' || identity.attempts[0]?.phase !== 'accepted') {
     throw new Error(`W0 terminal Team shape is not exactly one accepted completion: ${JSON.stringify(identity)}`)
   }
   return identity
+}
+
+export function deriveRootProbeUsageDelta(preProbe, rootSessionId, probeUsage) {
+  if (!Array.isArray(probeUsage) || probeUsage.length === 0) throw new Error('W0 reload probe has no durable usage events')
+  const previousCursor = preProbe?.usageCursors?.[rootSessionId] ?? -1
+  let lastSeq = previousCursor
+  let usedTokens = 0
+  for (const entry of probeUsage) {
+    if (!Number.isSafeInteger(entry?.seq) || !Number.isSafeInteger(entry?.tokens) || entry.seq <= lastSeq || entry.tokens < 0) {
+      throw new Error(`W0 reload probe usage is not an ordered durable suffix: ${JSON.stringify({ previousCursor, probeUsage })}`)
+    }
+    lastSeq = entry.seq
+    usedTokens += entry.tokens
+  }
+  return {
+    teamRevision: probeUsage.length,
+    budget: { usedTokens, usedRequests: 0, usedRetries: 0 },
+    rootUsageCursor: lastSeq,
+    rootSessionId,
+    durableEvents: probeUsage,
+  }
+}
+
+export function assertReloadProbeTransition({ initial, preProbe, postProbe, rootSessionId, probeUsage }) {
+  const delta = deriveRootProbeUsageDelta(preProbe, rootSessionId, probeUsage)
+  const violations = []
+  const same = (left, right) => JSON.stringify(left) === JSON.stringify(right)
+  if (!same(preProbe, initial)) violations.push('pre-probe Team identity drifted from the settled initial identity')
+  if (!same(preProbe.business, postProbe.business)) violations.push('probe changed Team/member/task/attempt business identity')
+  if (postProbe.revision !== preProbe.revision + delta.teamRevision) violations.push('Team revision does not equal the durable probe usage-event count')
+  for (const field of ['usedTokens', 'usedRequests', 'usedRetries']) {
+    const expected = preProbe.budget?.[field] + delta.budget[field]
+    if (postProbe.budget?.[field] !== expected) violations.push(`budget.${field} is not explained by durable probe usage`)
+  }
+  const { [rootSessionId]: preRootCursor, ...preOtherCursors } = preProbe.usageCursors
+  const { [rootSessionId]: postRootCursor, ...postOtherCursors } = postProbe.usageCursors
+  if (!same(preOtherCursors, postOtherCursors)) violations.push('a non-root usage cursor changed during the root probe')
+  if (postRootCursor !== delta.rootUsageCursor) violations.push('root usage cursor does not end at the last durable probe usage event')
+  if (preRootCursor !== undefined && delta.durableEvents[0].seq <= preRootCursor) violations.push('root probe usage replayed or predated its durable cursor')
+  if (violations.length > 0) {
+    throw new Error(`W0 reload probe transition is not exactly explained: ${JSON.stringify({ initial, preProbe, postProbe, delta, violations })}`)
+  }
+  return delta
+}
+
+function r2BusinessIdentity(identity) {
+  return { teamId: identity.teamId, roster: identity.roster, tasks: identity.tasks, attempts: identity.attempts }
 }
 
 async function waitForTarget(probePath, rootSessionId, minimumCount) {
@@ -611,6 +660,17 @@ async function main() {
     }
     const reloadE2e = (await readProbe(probePath)).filter(entry => entry.phase === 'w0-agent-loop-e2e').at(-1)
     if (reloadE2e?.e2e?.resumed !== true) throw new Error(`W0 reload repeated a task, submit, or review: ${JSON.stringify(reloadE2e)}`)
+    const probeEntries = await readProbe(probePath)
+    const reloadPreProbeIndex = probeEntries.findLastIndex(entry => entry.phase === 'w0-reload-pre-probe' && entry.rootSessionId === rootSessionId)
+    const reloadScopeIndex = probeEntries.findLastIndex(entry => entry.phase === 'w0-scope-ready' && entry.rootSessionId === rootSessionId)
+    const reloadPreProbe = probeEntries[reloadPreProbeIndex]
+    const reloadSettled = probeEntries.filter(entry => entry.phase === 'w0-root-agent-loop-settled' && entry.rootSessionId === rootSessionId).at(-1)
+    if (reloadPreProbeIndex < 0 || reloadPreProbeIndex > reloadScopeIndex || reloadPreProbe?.team === undefined) {
+      throw new Error(`W0 reload did not read authoritative Team state before resume/root probe: ${JSON.stringify({ reloadPreProbe, reloadPreProbeIndex, reloadScopeIndex })}`)
+    }
+    if (reloadSettled?.settledTurn?.reason?.kind !== 'completed') {
+      throw new Error(`W0 reload root probe did not complete: ${JSON.stringify(reloadSettled)}`)
+    }
     await readWorkspaceSessionAccounting({
       port: args.port, evidenceDir, label: 'r3-reload', workspaceRoot,
       workspaceId: reloadWorkspace.workspaceId, rootSessionId,
@@ -627,12 +687,17 @@ async function main() {
       roster: reloadSnapshot.roster, tasks: reloadSnapshot.tasks, attempts: reloadSnapshot.attempts,
     }
     const exactInitial = canonicalTerminalIdentity(e2eReady?.e2e?.team)
-    const exactReload = canonicalTerminalIdentity(reloadE2e?.e2e?.team)
-    if (JSON.stringify(reloadIdentity) !== JSON.stringify(terminalIdentity)
-      || JSON.stringify(exactReload) !== JSON.stringify(exactInitial)
+    const exactReloadPreProbe = canonicalTerminalIdentity(reloadPreProbe.team)
+    const exactReloadPostProbe = canonicalTerminalIdentity(reloadE2e?.e2e?.team)
+    const probeDelta = assertReloadProbeTransition({
+      initial: exactInitial, preProbe: exactReloadPreProbe, postProbe: exactReloadPostProbe,
+      rootSessionId, probeUsage: reloadSettled.probeUsage,
+    })
+    if (JSON.stringify(r2BusinessIdentity(reloadIdentity)) !== JSON.stringify(r2BusinessIdentity(terminalIdentity))
+      || reloadIdentity.teamRevision !== exactReloadPostProbe.revision
       || reloadIdentity.tasks.some(task => task.status !== 'completed') || reloadIdentity.attempts.some(attempt => attempt.phase !== 'accepted')) {
       throw new Error(`W0 reload terminal identity changed or repeated work: ${JSON.stringify({
-        terminalIdentity, reloadIdentity, exactInitial, exactReload,
+        terminalIdentity, reloadIdentity, exactInitial, exactReloadPreProbe, exactReloadPostProbe, probeDelta,
       })}`)
     }
     const secondStop = await gracefulStop(liveBoot, stopPath, args.port)
