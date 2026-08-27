@@ -28,7 +28,7 @@ Priority files:
 
 Verified target facts:
 
-- R3 UI composition was verified against the pinned official rc.2 client source on 2026-08-24. `conversation.session.header.actions` is the additive Session-scoped control seat and `shell.overlay` is the additive root floating layer; the official `Modal`/`Button`/`Pill`/`StateDot`, locale registry and `--dsw-*` tokens are the public presentation seams. `ctx.sessions.open(id)` is the public Session navigation operation and rejects unknown ids. The conversation view selector itself is deliberately package-private: `setView` belongs to the conversation package's private persisted Chat store and is not exposed by `IConversation`. Therefore the Swarm UI uses a header action plus overlay, keeps official Chat mounted/authoritative, and implements Captain handoff as a fresh R2 binding proof followed by public Session navigation and overlay close; it does not import private stores, click official DOM tabs or parse transcript text. Evidence and affected source paths are frozen in `docs/development/2026-08-24-r3-team-read-ui-design.md`;
+- R3 UI composition was reverified against the pinned official rc.2 client source on 2026-08-27. `conversation.session.header.utilities` is the additive Session-scoped Team toggle; a public priority-`-1` `details` lease is the only Team body surface, using `ctx.layout.openDetails()`/`closeDetails()` so the official AppFrame owns Chat reflow and narrow-screen concession/recovery. The official `Button`/`Pill`/`StateDot`, locale registry and `--dsw-*` tokens remain the presentation seams. Tool Details explicitly yields the Team lease while preserving the official Details column and its sole tool renderer. Captain handoff rechecks the projected root in the official sessions-list snapshot before public `ctx.sessions.open(rootSessionId)`; an absent root fails closed. There is no plugin `shell.overlay`, Modal, fixed or full-screen fallback, private-store import, DOM-tab click or transcript parsing. Evidence and affected source paths are frozen in `docs/development/2026-08-24-r3-team-read-ui-design.md`;
 
 - I1b revalidated the pinned official `0.1.1-rc.2` storage contract on 2026-08-23. It exposes backend `kv.open` plus unit load/put/delete/global/close and `DomainFacility.open/get/closeAll` (`packages/storage/storage/src/backend.ts`, `packages/storage/storage-domain/src/index.ts`). It supplies the single aggregate medium used by the narrow in-place Team v1-to-v2 record upgrade, but no distributed lease or external-effect operation receipt. Accordingly ADR-0009 makes no old-artifact cutover, retired-medium fence, cross-process exactly-once or external-effect recovery claim;
 
@@ -71,8 +71,8 @@ The site currently labels rc.7 and itself states official source/release notes a
 
 - URL: `https://github.com/NanmiCoder/dsh-agent-teams`
 - Branch: `main`
-- Commit: `912aae5225d3d85fa841a1b0c8a5c77021876c25`
-- Version: `0.1.13`
+- Commit: `5fe388f1a30da7b1374294b25bd6f8ad74ab6aa5`
+- Version: `0.1.14`
 - Local pointer: `ref/dsh-agent-teams/SOURCE_POINTER.json`
 - Full local checkout: `ref/dsh-agent-teams/source/`
 
@@ -84,11 +84,13 @@ M4-2 Gate A supersession (2026-08-22): the supplied sync script refreshed `main`
 
 SW-G0 Gate A supersession (2026-08-23): the cumulative `0c21e5d..912aae5` delta was reviewed before the supplied sync script materialized the new branch tip. Seven commits move the package from 0.1.9 to 0.1.13 and add official-host locale handling, bounded idle-attempt parking with explicit resume, and low-cadence cardless activity discovery. These are compatible failure/observability precedents for the I1/I4 slices; no reference runtime, Team authority, protocol type or UI component is imported. The package manifest, MIT license and recorded tree were verified at the new pin.
 
+UI-NATIVE-01 Gate A supersession (2026-08-27): the cumulative `912aae5..5fe388f` delta was reviewed before the supplied sync script materialized the branch tip. Fifteen commits prepare 0.1.14 and evolve that reference's independent captain planning, Team-stop, approval/review and activity-panel behavior. They are direct-implementation prior art only: this plugin retains the official DSH client seams, its existing Team authority and its own read-only UI/controller contract. The manifest 0.1.14, MIT license, remote identity and recorded tree were verified at the new pin.
+
 ## 3. Product architecture reference
 
 - URL: `https://github.com/openJiuwen-ai/jiuwenswarm`
 - Branch: `develop`
-- Commit: `e90d9ea80cdeccb84a1f92f296a85aa23e84133d`
+- Commit: `7ebebe3fe116754f1162731cc1c958abc860611c`
 - Develop package state observed: `workswarm` `0.2.5.beta1`
 - Local pointer: `ref/jiuwenswarm/SOURCE_POINTER.json`
 - Full local checkout: `ref/jiuwenswarm/source/`
@@ -100,6 +102,8 @@ Priority documents/concepts:
 M4-2 Gate A supersession (2026-08-22): the supplied sync script refreshed `develop` to the recorded `1d45d2b` pointer and verified it as the branch tip. The older cumulative-diff paragraph above remains historical evidence through `962f0a4`; issue #128 consumes only the current pinned behavioral evidence for toolchain-specific Python verification and fail-loud missing-analyzer behavior, importing no Jiuwen runtime architecture or types.
 
 SW-G0 Gate A supersession (2026-08-23): the cumulative `1d45d2b..e90d9ea` delta was reviewed before the supplied sync script materialized the new branch tip. Four commits add an optional persistent-subagent runtime, prompt/attachment restructuring, restart cleanup hardening and canonical Team Plan mode recognition. These remain product and failure-case prior art only. The plugin continues to use official DSH execution and its own single Team/HumanInteraction producer contract; no Jiuwen runtime, persistence model or types are adopted. The recorded tree, Apache-2.0 license and `workswarm` 0.2.5.beta1 package state were verified at the new pin.
+
+UI-NATIVE-01 Gate A supersession (2026-08-27): the reviewed cumulative `e90d9ea..144ea01` range remains product/failure-case prior art, and the additional single `144ea01..7ebebe3` commit isolates unreachable MCP preflight failures during Team assembly. Its changes are confined to Jiuwen MCP assembly/configuration, credential resolution, disconnected-state degradation and tests; they do not alter this plugin's Team UI or official DSH protocol contract. The supplied sync script verified the recorded tree, Apache-2.0 license, remote identity and unchanged `workswarm` 0.2.5.beta1 package state at the new pin.
 
 - Agent Team user guide
 - Distributed Team
