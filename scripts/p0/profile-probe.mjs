@@ -12,6 +12,7 @@ export const inject = [
   'sessionPersistence',
   'sessions',
   'agentLoop',
+  'agentDefaultModel',
   'llm',
 ]
 
@@ -82,8 +83,12 @@ async function waitForRoot(ctx, sessionId, signal) {
         // A persisted official Session is authoritative on reload. Resume it
         // first; creating a second AgentLoop root against its log is an id
         // collision, not a recovery mechanism.
-        const resumed = await ctx.agents.resume({ resumeSessionId: sessionId }).catch(() => undefined)
-        const root = resumed?.agent ?? ctx.agentLoop.create(sessionId, { provider: 'dev-smoke', model: 'DEV_SMOKE' }, { cwd: process.env.DSH_SWARM_P0_WORKSPACE_ROOT })
+        // Resume accepts explicit Agent options; derive them from the official
+        // Profile-owned default-model service so the resumed root has the same
+        // deployment:persona variables as the freshly created root.
+        const selection = ctx.agentDefaultModel.currentSelection()
+        const resumed = await ctx.agents.resume({ resumeSessionId: sessionId, agentOptions: selection }).catch(() => undefined)
+        const root = resumed?.agent ?? ctx.agentLoop.create(sessionId, selection, { cwd: process.env.DSH_SWARM_P0_WORKSPACE_ROOT })
         created = true
         if (Array.from(ctx.agents.roots()).includes(root)) return root
       } catch { /* persisted session may not exist yet; retry */ }

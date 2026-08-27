@@ -13,6 +13,11 @@ import { assertCompletedRootProbeTurn } from './p0/profile-probe.mjs'
 import { assertP0ProfileModelRoute, profilePatchLines } from './p0/run.mjs'
 
 const profileProbeSource = await readFile(new URL('./p0/profile-probe.mjs', import.meta.url), 'utf8')
+if (!profileProbeSource.includes("'agentDefaultModel'")
+  || !profileProbeSource.includes('const selection = ctx.agentDefaultModel.currentSelection()')
+  || !profileProbeSource.includes('resumeSessionId: sessionId, agentOptions: selection')) {
+  throw new Error('P0 restart probe must recover its Agent route from the official Profile default-model service')
+}
 const settledIndex = profileProbeSource.indexOf('const { fixture, settledTurn } = await settleRootAgentLoop(agent)')
 const terminalSnapshotIndex = profileProbeSource.indexOf("const terminalSnapshot = await bounded('terminalSnapshot'")
 const e2eEvidenceIndex = profileProbeSource.indexOf("append('w0-agent-loop-e2e'")
