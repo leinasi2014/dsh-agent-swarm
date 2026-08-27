@@ -11,7 +11,7 @@ import { parsePluginInventoryResponse, pluginInventoryPayload } from './p0/inven
 import { EXPECTED_P0_SWARM_TOOL_NAMES, exactP0SwarmToolSurface } from './p0/tool-surface.mjs'
 import { assertCompletedRootProbeTurn } from './p0/profile-probe.mjs'
 import {
-  assertP0ProfileModelRoute, assertReloadProbeTransition, canonicalTerminalIdentity, profilePatchLines,
+  assertP0ProfileModelRoute, assertReloadProbeTransition, canonicalDeepEqual, canonicalTerminalIdentity, profilePatchLines,
 } from './p0/run.mjs'
 
 const profileProbeSource = await readFile(new URL('./p0/profile-probe.mjs', import.meta.url), 'utf8')
@@ -63,9 +63,29 @@ const terminalTeam = {
   members: [{ name: 'member', role: 'role', sessionId: 'member-session', provider: 'spawn', phase: 'active', createdAt: 1 }],
   tasks: [{ id: 'task-1', revision: 4, subject: 'task', description: 'description', acceptanceCriteria: [], status: 'completed', blockedBy: [], writeScopes: [], priority: 0, ownerSessionId: 'member-session', currentAttemptId: 'attempt-1', output: 'done', createdAt: 1, updatedAt: 2 }],
   attempts: [{ id: 'attempt-1', taskId: 'task-1', generation: 1, memberSessionId: 'member-session', phase: 'accepted', assignmentPhase: 'delivered', evidence: [], createdAt: 1, updatedAt: 2 }],
-  messages: [], interactionEffects: [], budget: { usedTokens: 12, usedRequests: 1, usedRetries: 0 }, usageCursors: { root: 42, 'member-session': 43 }, memory: [], nextTaskNumber: 2, nextMemoryNumber: 1, createdAt: 1, updatedAt: 2,
+  messages: [], interactionEffects: [{ effectId: 'i1b:abc', receipt: { owner: 'root', output: 'durable' }, createdAt: 2 }, { effectId: 'i1b:def', receipt: { owner: 'member-session', output: 'second' }, createdAt: 3 }], budget: { usedTokens: 12, usedRequests: 1, usedRetries: 0 }, usageCursors: { root: 42, 'member-session': 43 }, memory: [], nextTaskNumber: 2, nextMemoryNumber: 1, createdAt: 1, updatedAt: 2,
 }
 const initialProbeIdentity = canonicalTerminalIdentity(terminalTeam)
+const reorderObjectKeys = value => Array.isArray(value)
+  ? value.map(reorderObjectKeys)
+  : value !== null && typeof value === 'object'
+    ? Object.fromEntries(Object.entries(value).toReversed().map(([key, entry]) => [key, reorderObjectKeys(entry)]))
+    : value
+const reorderedProbeIdentity = canonicalTerminalIdentity(reorderObjectKeys(terminalTeam))
+if (!canonicalDeepEqual(initialProbeIdentity, reorderedProbeIdentity)) {
+  throw new Error('P0 canonical receipt equality rejected equal nested reordered fields')
+}
+for (const [left, right] of [[undefined, null], [0, '0'], [false, 0], [true, 'true']]) {
+  if (canonicalDeepEqual(left, right)) throw new Error(`P0 canonical receipt equality collapsed distinct values: ${String(left)} / ${String(right)}`)
+}
+const accessorReceipt = {}
+Object.defineProperty(accessorReceipt, 'hidden', { enumerable: true, get: () => 'forbidden' })
+try {
+  canonicalDeepEqual(accessorReceipt, {})
+  throw new Error('P0 canonical receipt equality accepted an accessor')
+} catch (error) {
+  if (error instanceof Error && error.message === 'P0 canonical receipt equality accepted an accessor') throw error
+}
 const legalPostProbeTeam = structuredClone(terminalTeam)
 legalPostProbeTeam.revision = 15
 legalPostProbeTeam.updatedAt = 3
@@ -73,11 +93,15 @@ legalPostProbeTeam.budget.usedTokens = 14
 legalPostProbeTeam.usageCursors.root = 57
 const legalProbeUsage = [{ seq: 57, tokens: 2 }]
 assertReloadProbeTransition({
-  initial: initialProbeIdentity, preProbe: canonicalTerminalIdentity(terminalTeam), postProbe: canonicalTerminalIdentity(legalPostProbeTeam),
+  initial: initialProbeIdentity, preProbe: reorderedProbeIdentity, postProbe: canonicalTerminalIdentity(legalPostProbeTeam),
   rootSessionId: 'root', probeUsage: legalProbeUsage,
 })
 for (const [label, mutate] of [
   ['pre-probe drift', (initial, pre, post) => { pre.revision += 1 }],
+  ['array reordering', (initial, pre, post) => { pre.business.interactionEffects.reverse() }],
+  ['field value drift', (initial, pre, post) => { pre.business.tasks[0].output = 'different' }],
+  ['missing field', (initial, pre, post) => { delete pre.business.tasks[0].output }],
+  ['extra field', (initial, pre, post) => { pre.business.extra = true }],
   ['extra task', (initial, pre, post) => { post.business.tasks.push({ id: 'task-2' }) }],
   ['extra attempt', (initial, pre, post) => { post.business.attempts.push({ id: 'attempt-2' }) }],
   ['extra member usage', (initial, pre, post) => { post.usageCursors['member-session'] += 1 }],

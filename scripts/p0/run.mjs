@@ -288,7 +288,71 @@ function assertSessionFixture(target, expectedEvents) {
   return events
 }
 
+function assertReceiptShape(value, path = '$') {
+  if (value === null || value === undefined || ['string', 'boolean', 'number'].includes(typeof value)) {
+    if (typeof value === 'number' && !Number.isFinite(value)) throw new Error(`P0 receipt contains a non-finite number at ${path}`)
+    return
+  }
+  if (Array.isArray(value)) {
+    const keys = Reflect.ownKeys(value)
+    const expected = Array.from({ length: value.length }, (_, index) => String(index))
+    if (keys.length !== expected.length + 1 || keys.at(-1) !== 'length' || keys.slice(0, -1).some((key, index) => key !== expected[index])) {
+      throw new Error(`P0 receipt contains a sparse or extended array at ${path}`)
+    }
+    for (const [index, key] of expected.entries()) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key)
+      if (descriptor === undefined || !descriptor.enumerable || !('value' in descriptor)) {
+        throw new Error(`P0 receipt contains an accessor array entry at ${path}[${index}]`)
+      }
+      assertReceiptShape(descriptor.value, `${path}[${index}]`)
+    }
+    return
+  }
+  if (typeof value !== 'object' || Object.getPrototypeOf(value) !== Object.prototype) {
+    throw new Error(`P0 receipt contains a non-plain value at ${path}`)
+  }
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== 'string') throw new Error(`P0 receipt contains a symbol key at ${path}`)
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    if (descriptor === undefined || !descriptor.enumerable || !('value' in descriptor)) {
+      throw new Error(`P0 receipt contains an accessor or hidden field at ${path}.${key}`)
+    }
+    assertReceiptShape(descriptor.value, `${path}.${key}`)
+  }
+}
+
+function canonicalizeReceipt(value) {
+  if (value === undefined) return ['undefined']
+  if (value === null) return ['null']
+  switch (typeof value) {
+    case 'string': return ['string', value]
+    case 'boolean': return ['boolean', value]
+    case 'number': return ['number', Object.is(value, -0) ? '-0' : value]
+    case 'object':
+      if (Array.isArray(value)) return ['array', value.map(canonicalizeReceipt)]
+      return ['object', Object.keys(value).toSorted().map(key => [key, canonicalizeReceipt(value[key])])]
+    default: throw new Error(`P0 receipt contains an unsupported value type: ${typeof value}`)
+  }
+}
+
+/** Strict JSON-receipt equality: object keys are canonicalized, array order and every value type remain exact. */
+export function canonicalDeepEqual(left, right) {
+  // Receipt values come from JSONL/RPC parsing, but retain a fail-closed guard
+  // for direct fixture calls: reject accessors/non-plain values and make the
+  // platform structured clone reject proxy/exotic objects before comparison.
+  assertReceiptShape(left); assertReceiptShape(right)
+  let leftClone; let rightClone
+  try {
+    leftClone = structuredClone(left)
+    rightClone = structuredClone(right)
+  } catch (error) {
+    throw new Error(`P0 receipt cannot be cloned for canonical comparison: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  return JSON.stringify(canonicalizeReceipt(leftClone)) === JSON.stringify(canonicalizeReceipt(rightClone))
+}
+
 export function canonicalTerminalIdentity(team) {
+  assertReceiptShape(team ?? {})
   const { revision, budget, usageCursors, updatedAt, ...business } = structuredClone(team ?? {})
   const identity = {
     id: team?.id, revision, captainSessionId: team?.captainSessionId, phase: team?.phase,
@@ -330,13 +394,13 @@ export function deriveRootProbeUsageDelta(preProbe, rootSessionId, probeUsage) {
 export function assertReloadProbeTransition({ initial, preProbe, postProbe, rootSessionId, probeUsage }) {
   const delta = deriveRootProbeUsageDelta(preProbe, rootSessionId, probeUsage)
   const violations = []
-  const same = (left, right) => JSON.stringify(left) === JSON.stringify(right)
+  const same = canonicalDeepEqual
   if (!same(preProbe, initial)) violations.push('pre-probe Team identity drifted from the settled initial identity')
   if (!same(preProbe.business, postProbe.business)) violations.push('probe changed Team/member/task/attempt business identity')
   if (postProbe.revision !== preProbe.revision + delta.teamRevision) violations.push('Team revision does not equal the durable probe usage-event count')
   for (const field of ['usedTokens', 'usedRequests', 'usedRetries']) {
     const expected = preProbe.budget?.[field] + delta.budget[field]
-    if (postProbe.budget?.[field] !== expected) violations.push(`budget.${field} is not explained by durable probe usage`)
+    if (!Object.is(postProbe.budget?.[field], expected)) violations.push(`budget.${field} is not explained by durable probe usage`)
   }
   const { [rootSessionId]: preRootCursor, ...preOtherCursors } = preProbe.usageCursors
   const { [rootSessionId]: postRootCursor, ...postOtherCursors } = postProbe.usageCursors
@@ -693,7 +757,7 @@ async function main() {
       initial: exactInitial, preProbe: exactReloadPreProbe, postProbe: exactReloadPostProbe,
       rootSessionId, probeUsage: reloadSettled.probeUsage,
     })
-    if (JSON.stringify(r2BusinessIdentity(reloadIdentity)) !== JSON.stringify(r2BusinessIdentity(terminalIdentity))
+    if (!canonicalDeepEqual(r2BusinessIdentity(reloadIdentity), r2BusinessIdentity(terminalIdentity))
       || reloadIdentity.teamRevision !== exactReloadPostProbe.revision
       || reloadIdentity.tasks.some(task => task.status !== 'completed') || reloadIdentity.attempts.some(attempt => attempt.phase !== 'accepted')) {
       throw new Error(`W0 reload terminal identity changed or repeated work: ${JSON.stringify({
