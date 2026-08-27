@@ -53,10 +53,10 @@ if (failures.length === 0) {
     const requested = []
     const modules = {
       '@deepseek-ai/dsh-client-ui-primitives': {
-        Button() {}, Modal() {}, Pill() {}, StateDot() {},
+        Button() {}, Pill() {}, StateDot() {}, IconUserOutline16() {}, IconCloseOutline16() {}, IconRefreshOutline16() {},
       },
+      'react': { useId() {}, useSyncExternalStore() {} },
       'react/jsx-runtime': { jsx() {}, jsxs() {} },
-      'react': { useEffect() {}, useState() {}, useSyncExternalStore() {} },
     }
     const client = registration.factory((specifier) => {
       requested.push(specifier)
