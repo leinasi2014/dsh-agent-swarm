@@ -291,10 +291,12 @@ async function verifyR3BrowserEvidence(root, failures) {
     || !Array.isArray(active?.pageErrors) || active.pageErrors.length !== 0) {
     failures.push('R3 active browser contains an unclassified console or page error')
   }
-  const historyErrors = active?.chatHistoryLoadErrors
-  if (!Array.isArray(historyErrors?.initialCaptainChat) || historyErrors.initialCaptainChat.length !== 0
-    || !Array.isArray(historyErrors?.reloadCaptainChat) || historyErrors.reloadCaptainChat.length !== 0) {
-    failures.push('R3 active browser must record zero visible Chat history loading errors for initial and reloaded Captain Chat')
+  const visibleErrors = active?.visibleErrors
+  if (!Array.isArray(visibleErrors?.activeDashboard) || visibleErrors.activeDashboard.length !== 0
+    || !Array.isArray(visibleErrors?.initialCaptainChat) || visibleErrors.initialCaptainChat.length !== 0
+    || !Array.isArray(visibleErrors?.reloadDashboard) || visibleErrors.reloadDashboard.length !== 0
+    || !Array.isArray(visibleErrors?.reloadCaptainChat) || visibleErrors.reloadCaptainChat.length !== 0) {
+    failures.push('R3 active browser must record zero visible Chat errors for active, initial, reload and reloaded-Captain stages')
   }
   if (active?.faultInjection?.recovered !== true || !Array.isArray(active.faultInjection.expectedConsoleErrors)
     || active.faultInjection.expectedConsoleErrors.length === 0
@@ -326,6 +328,9 @@ async function verifyR3BrowserEvidence(root, failures) {
     || !Array.isArray(r0?.pageErrors) || r0.pageErrors.length !== 0) {
     failures.push('R3 R0 browser contains an unclassified console or page error')
   }
+  if (!Array.isArray(r0?.visibleErrors) || r0.visibleErrors.length !== 0) {
+    failures.push('R3 R0 browser contains a visible Chat error')
+  }
   const removed = await readJson('evidence/r3-browser-removed.json')
   verifyBootstrap(removed?.bootstrap, active?.rootSessionId, false, 'removed', failures)
   verifyTestingNotice(removed, 'removed', failures)
@@ -339,6 +344,9 @@ async function verifyR3BrowserEvidence(root, failures) {
   if (!Array.isArray(removed?.consoleErrors) || removed.consoleErrors.length !== 0
     || !Array.isArray(removed?.pageErrors) || removed.pageErrors.length !== 0) {
     failures.push('R3 removed browser contains an unclassified console or page error')
+  }
+  if (!Array.isArray(removed?.visibleErrors) || removed.visibleErrors.length !== 0) {
+    failures.push('R3 removed browser contains a visible Chat error')
   }
   for (const relativePath of ['evidence/r3-team-dashboard.png', 'evidence/r3-r0-fail-closed.png']) {
     const screenshot = await stat(resolve(root, relativePath)).catch(() => undefined)

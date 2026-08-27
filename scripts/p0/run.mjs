@@ -69,7 +69,16 @@ async function readProbe(path) {
   return text.split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line))
 }
 
-function profilePatchLines({ storageRoot, sessionRoot, workspaceRoot, shutdownProbeUrl, serviceProbeUrl, swarmEnabled }) {
+export function assertP0ProfileModelRoute(lines) {
+  const modelIndex = lines.indexOf('- id: agent-default-model')
+  if (modelIndex < 0 || lines[modelIndex + 1] !== '  config:'
+    || lines[modelIndex + 2] !== '    provider: dev-smoke'
+    || lines[modelIndex + 3] !== '    model: DEV_SMOKE') {
+    throw new Error('P0 Profile must configure the official agent-default-model DEV_SMOKE route for deployment:persona')
+  }
+}
+
+export function profilePatchLines({ storageRoot, sessionRoot, workspaceRoot, shutdownProbeUrl, serviceProbeUrl, swarmEnabled }) {
   const lines = [
     '# P0 isolated official Profile proof; all roots are disposable.',
     '- id: storage-json',
@@ -82,6 +91,10 @@ function profilePatchLines({ storageRoot, sessionRoot, workspaceRoot, shutdownPr
     '  config:',
     '    mode: workspace-write',
     `    workspaceRoot: ${yamlString(workspaceRoot)}`,
+    '- id: agent-default-model',
+    '  config:',
+    '    provider: dev-smoke',
+    '    model: DEV_SMOKE',
   ]
   if (typeof swarmEnabled === 'boolean') {
     lines.push('- id: agent-swarm', `  disabled: ${swarmEnabled ? 'false' : 'true'}`)
@@ -91,6 +104,7 @@ function profilePatchLines({ storageRoot, sessionRoot, workspaceRoot, shutdownPr
     lines.push(`    - id: ${serviceProbeName}`, `      name: ${yamlString(serviceProbeUrl)}`)
   }
   lines.push('')
+  assertP0ProfileModelRoute(lines)
   return lines
 }
 
@@ -768,7 +782,9 @@ async function main() {
   }, null, 2))
 }
 
-main().catch(error => {
-  console.error(`P0 profile proof failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}`)
-  process.exitCode = 1
-})
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch(error => {
+    console.error(`P0 profile proof failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}`)
+    process.exitCode = 1
+  })
+}

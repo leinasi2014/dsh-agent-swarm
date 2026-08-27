@@ -8,7 +8,7 @@ const TOOL_DETAILS = /^(Tool details|工具详情)$/u
 const GEOMETRY_SETTLE_TIMEOUT_MS = 5_000
 const GEOMETRY_SAMPLE_MS = 50
 const GEOMETRY_STABILITY_PX = 2
-const CHAT_HISTORY_LOAD_ERROR = /(?:Failed to load history:|历史加载失败：)/u
+const VISIBLE_CHAT_ERROR = /(?:Failed to load history:|历史加载失败：|This turn failed|本轮失败|此轮失败)/u
 
 async function launchBrowser(executablePath) {
   const browser = await chromium.launch({
@@ -68,7 +68,7 @@ function assertCleanBrowser(records, label) {
   if (records.consoleErrors.length > 0) throw new Error(`${label} console errors: ${records.consoleErrors.join(' | ')}`)
 }
 
-async function assertNoVisibleChatHistoryLoadErrors(page, phase) {
+async function assertNoVisibleChatErrors(page, phase) {
   const errors = await page.locator('body').evaluate((root, source) => {
     const matcher = new RegExp(source, 'u')
     const values = new Set()
@@ -81,8 +81,8 @@ async function assertNoVisibleChatHistoryLoadErrors(page, phase) {
       if (box.width > 0 && box.height > 0 && getComputedStyle(element).visibility !== 'hidden') values.add(text)
     }
     return [...values]
-  }, CHAT_HISTORY_LOAD_ERROR.source)
-  if (errors.length > 0) throw new Error(`${phase} renders a Chat history loading error: ${errors.join(' | ')}`)
+  }, VISIBLE_CHAT_ERROR.source)
+  if (errors.length > 0) throw new Error(`${phase} renders a visible Chat error: ${errors.join(' | ')}`)
   return errors
 }
 
@@ -275,6 +275,7 @@ export async function runR3ActiveBrowserProof({
       throw new Error('official Session selection did not rehydrate the exact proof root')
     }
     const { dashboard, beforeComposerBox } = await openReadyDashboard(page)
+    const activeDashboard = await assertNoVisibleChatErrors(page, 'active Team dashboard')
     const frameworkBinding = records.swarmRequests.find(request => request.body?.method === 'binding')
     if (frameworkBinding?.body?.target?.rootSessionId !== rootSessionId) {
       throw new Error('official Session slot did not emit the exact proof root as the R2 target hint')
@@ -313,10 +314,11 @@ export async function runR3ActiveBrowserProof({
     if (selectedSessionId !== rootSessionId) {
       throw new Error(`official Session selection did not match the R2 root: ${String(selectedSessionId)}`)
     }
-    const initialCaptainChat = await assertNoVisibleChatHistoryLoadErrors(page, 'initial Captain Chat')
+    const initialCaptainChat = await assertNoVisibleChatErrors(page, 'initial Captain Chat')
 
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 })
     const reloaded = await openReadyDashboard(page)
+    const reloadDashboard = await assertNoVisibleChatErrors(page, 'reloaded Team dashboard')
     const reloadGeometry = await waitForWideDetails(page, reloaded.beforeComposerBox, 'reload', geometry)
     await page.getByRole('button', { name: TEAM_NAME }).click()
     await page.locator('[data-swarm-team-panel]').waitFor({ state: 'hidden', timeout: 10_000 })
@@ -324,7 +326,7 @@ export async function runR3ActiveBrowserProof({
     if (reloadedSessionId !== rootSessionId) {
       throw new Error(`official Session selection did not survive reload: ${String(reloadedSessionId)}`)
     }
-    const reloadCaptainChat = await assertNoVisibleChatHistoryLoadErrors(page, 'reload Captain Chat')
+    const reloadCaptainChat = await assertNoVisibleChatErrors(page, 'reload Captain Chat')
 
     assertReadOnlyRequests(records)
     assertCleanBrowser(records, 'active browser')
@@ -350,7 +352,7 @@ export async function runR3ActiveBrowserProof({
       requests: records.swarmRequests,
       consoleErrors: records.consoleErrors,
       pageErrors: records.pageErrors,
-      chatHistoryLoadErrors: { initialCaptainChat, reloadCaptainChat },
+      visibleErrors: { activeDashboard, initialCaptainChat, reloadDashboard, reloadCaptainChat },
     }
     await writeFile(join(evidenceDir, 'r3-browser-active.json'), `${JSON.stringify(result, null, 2)}\n`, 'utf8')
     return result
@@ -386,12 +388,13 @@ export async function runR3R0BrowserProof({
     const dashboardAbsent = await page.locator('[data-swarm-team-dashboard]').count() === 0
     if (!teamActionAbsent || !dashboardAbsent) throw new Error('R0-disabled plugin left a Team client surface mounted')
     await page.screenshot({ path: join(evidenceDir, 'r3-r0-fail-closed.png'), fullPage: false })
+    const visibleErrors = await assertNoVisibleChatErrors(page, 'R0 browser')
     assertCleanBrowser(records, 'R0 browser')
     const result = {
       status: 'pass', browser: identity, bootstrap: bootstrapEvidence(rootSessionId, selectionSource), ...onboarding,
       routeUnavailable: true, ...routeEvidence,
       teamActionAbsent, renderedData: false,
-      requests: records.swarmRequests, consoleErrors: records.consoleErrors, pageErrors: records.pageErrors,
+      requests: records.swarmRequests, consoleErrors: records.consoleErrors, pageErrors: records.pageErrors, visibleErrors,
     }
     await writeFile(join(evidenceDir, 'r3-browser-r0.json'), `${JSON.stringify(result, null, 2)}\n`, 'utf8')
     return result
@@ -416,11 +419,12 @@ export async function runR3RemovedBrowserProof({ port, evidenceDir, rootSessionI
     if (await rows.count() > 0) await rows.first().click()
     const absent = await page.getByRole('button', { name: TEAM_NAME }).count() === 0
     if (!absent) throw new Error('removed package left the Team client action mounted')
+    const visibleErrors = await assertNoVisibleChatErrors(page, 'removed browser')
     assertCleanBrowser(records, 'removed browser')
     const result = {
       status: 'pass', browser: identity, bootstrap: bootstrapEvidence(rootSessionId, selectionSource), ...onboarding,
       teamActionAbsent: true,
-      consoleErrors: records.consoleErrors, pageErrors: records.pageErrors,
+      consoleErrors: records.consoleErrors, pageErrors: records.pageErrors, visibleErrors,
     }
     await writeFile(join(evidenceDir, 'r3-browser-removed.json'), `${JSON.stringify(result, null, 2)}\n`, 'utf8')
     return result

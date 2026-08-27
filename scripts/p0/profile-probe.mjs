@@ -156,7 +156,7 @@ function captureRealAgentLoopFixture(events) {
       throw new Error(`DEV_SMOKE invalid official turn/end: ${JSON.stringify({ seq: event.seq, turn, kind })}`)
     }
     ends.set(turn, event.seq)
-    boundaries.push({ seq: event.seq, type: event.type, turn, reason: { kind } })
+    boundaries.push({ seq: event.seq, type: event.type, turn, reason: event.data.reason })
   }
   if (starts.size === 0 || starts.size !== ends.size) {
     throw new Error(`DEV_SMOKE official turn boundary is incomplete: ${JSON.stringify({ starts: starts.size, ends: ends.size })}`)
@@ -168,7 +168,17 @@ function captureRealAgentLoopFixture(events) {
   return { mode: 'agent-loop', events: boundaries }
 }
 
-async function settleRootAgentLoop(agent) {
+export function assertCompletedRootProbeTurn(settledTurn, events) {
+  if (settledTurn?.reason?.kind === 'completed') return
+  const context = events
+    .filter(event => event.data?.turn === settledTurn?.turn)
+    .map(event => ({ seq: event.seq, type: event.type, reason: event.data?.reason }))
+  throw new Error(`DEV_SMOKE root AgentLoop acceptance turn did not complete: ${JSON.stringify({
+    turn: settledTurn?.turn, seq: settledTurn?.seq, reason: settledTurn?.reason, context,
+  })}`)
+}
+
+async function settleRootAgentLoop(agent, { requireCompleted = true } = {}) {
   const priorTurn = agent.session.events.reduce((maximum, event) => event.type === 'turn/start' && Number.isSafeInteger(event.data.turn)
     ? Math.max(maximum, event.data.turn) : maximum, 0)
   agent.followup(createUserMessage({
@@ -183,6 +193,7 @@ async function settleRootAgentLoop(agent) {
   const fixture = captureRealAgentLoopFixture(agent.session.events)
   const settledTurn = fixture.events.find(event => event.type === 'turn/end' && event.turn > priorTurn)
   if (settledTurn === undefined) throw new Error(`DEV_SMOKE root AgentLoop produced no new closed turn after Captain review: ${priorTurn}`)
+  if (requireCompleted) assertCompletedRootProbeTurn(settledTurn, agent.session.events)
   return { fixture, settledTurn }
 }
 

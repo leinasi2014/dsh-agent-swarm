@@ -9,6 +9,8 @@ import {
 import { verifySafeBundlePatch } from './p0/bundle-shape.mjs'
 import { parsePluginInventoryResponse, pluginInventoryPayload } from './p0/inventory.mjs'
 import { EXPECTED_P0_SWARM_TOOL_NAMES, exactP0SwarmToolSurface } from './p0/tool-surface.mjs'
+import { assertCompletedRootProbeTurn } from './p0/profile-probe.mjs'
+import { assertP0ProfileModelRoute, profilePatchLines } from './p0/run.mjs'
 
 const profileProbeSource = await readFile(new URL('./p0/profile-probe.mjs', import.meta.url), 'utf8')
 const settledIndex = profileProbeSource.indexOf('const { fixture, settledTurn } = await settleRootAgentLoop(agent)')
@@ -21,6 +23,29 @@ const p0RunSource = await readFile(new URL('./p0/run.mjs', import.meta.url), 'ut
 if (!p0RunSource.includes('terminalIdentity, reloadIdentity, exactInitial, exactReload')) {
   throw new Error('P0 reload failure diagnostics must include projection and exact terminal identities')
 }
+const profilePatch = profilePatchLines({
+  storageRoot: '/isolated/storage', sessionRoot: '/isolated/sessions', workspaceRoot: '/isolated/workspace',
+  shutdownProbeUrl: 'file:///isolated/shutdown-probe.mjs', serviceProbeUrl: 'file:///isolated/profile-probe.mjs', swarmEnabled: true,
+})
+assertP0ProfileModelRoute(profilePatch)
+try {
+  assertP0ProfileModelRoute(profilePatch.filter(line => line !== '- id: agent-default-model'))
+  throw new Error('P0 Profile without a model route unexpectedly passed')
+} catch (error) {
+  if (error instanceof Error && error.message === 'P0 Profile without a model route unexpectedly passed') throw error
+}
+for (const terminal of [
+  { seq: 52, type: 'turn/end', turn: 4, reason: { kind: 'error', message: 'fixture error' } },
+  { seq: 52, type: 'turn/end', turn: 4, reason: { kind: 'cancelled' } },
+]) {
+  try {
+    assertCompletedRootProbeTurn(terminal, [{ seq: 51, type: 'turn/start', data: { turn: 4 } }, { ...terminal, data: { turn: 4, reason: terminal.reason } }])
+    throw new Error(`non-completed root terminal unexpectedly passed: ${terminal.reason.kind}`)
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('non-completed root terminal unexpectedly passed')) throw error
+  }
+}
+assertCompletedRootProbeTurn({ seq: 52, type: 'turn/end', turn: 4, reason: { kind: 'completed' } }, [])
 
 if (!exactP0SwarmToolSurface([...EXPECTED_P0_SWARM_TOOL_NAMES].reverse()).ok) throw new Error('exact P0 tool surface rejected its complete set')
 for (const [label, tools] of [
@@ -101,7 +126,7 @@ try {
           },
           requests: [{ method: 'POST', body: { method: 'snapshot' } }],
           faultInjection: { recovered: true, expectedConsoleErrors: ['Failed to load resource: net::ERR_CONNECTION_FAILED'] },
-          consoleErrors: [], pageErrors: [], chatHistoryLoadErrors: { initialCaptainChat: [], reloadCaptainChat: [] },
+          consoleErrors: [], pageErrors: [], visibleErrors: { activeDashboard: [], initialCaptainChat: [], reloadDashboard: [], reloadCaptainChat: [] },
         })}\n`
       : relativePath === 'evidence/r3-browser-r0.json'
         ? `${JSON.stringify({
@@ -111,11 +136,11 @@ try {
             teamActionAbsent: true, renderedData: false,
             officialTestingNoticePresent: true, officialTestingNoticeDismissed: true,
             officialApiKeyOnboardingPresent: true, officialApiKeyOnboardingSkipped: true,
-            consoleErrors: [], pageErrors: [],
+            consoleErrors: [], pageErrors: [], visibleErrors: [],
           })}\n`
         : relativePath === 'evidence/r3-browser-removed.json'
           ? `${JSON.stringify({
-              status: 'pass', browser, bootstrap, teamActionAbsent: true, consoleErrors: [], pageErrors: [],
+              status: 'pass', browser, bootstrap, teamActionAbsent: true, consoleErrors: [], pageErrors: [], visibleErrors: [],
               officialTestingNoticePresent: true, officialTestingNoticeDismissed: true,
               officialApiKeyOnboardingPresent: true, officialApiKeyOnboardingSkipped: true,
             })}\n`
@@ -212,7 +237,7 @@ try {
     },
     requests: [{ method: 'POST', body: { method: 'control.write' } }],
     faultInjection: { recovered: true, expectedConsoleErrors: ['Failed to load resource: net::ERR_CONNECTION_FAILED'] },
-    consoleErrors: [], pageErrors: [], chatHistoryLoadErrors: { initialCaptainChat: [], reloadCaptainChat: [] },
+    consoleErrors: [], pageErrors: [], visibleErrors: { activeDashboard: [], initialCaptainChat: [], reloadDashboard: [], reloadCaptainChat: [] },
   })}\n`
   await writeFile(activePath, nonReadContent)
   activeRecord.bytes = Buffer.byteLength(nonReadContent)
@@ -224,18 +249,18 @@ try {
   activeRecord.bytes = activeContent.length
   activeRecord.sha256 = await sha256File(activePath)
   cases.push(['R3 browser non-read request'])
-  const missingHistoryStageContent = `${JSON.stringify({
+  const missingVisibleStageContent = `${JSON.stringify({
     ...JSON.parse(activeContent.toString('utf8')),
-    chatHistoryLoadErrors: { initialCaptainChat: [] },
+    visibleErrors: { activeDashboard: [], initialCaptainChat: [], reloadDashboard: [] },
   })}\n`
-  await writeFile(activePath, missingHistoryStageContent)
-  activeRecord.bytes = Buffer.byteLength(missingHistoryStageContent)
+  await writeFile(activePath, missingVisibleStageContent)
+  activeRecord.bytes = Buffer.byteLength(missingVisibleStageContent)
   activeRecord.sha256 = await sha256File(activePath)
-  if ((await verifyP0Evidence(root, structuredClone(base), expected)).ok) throw new Error('R3 missing Chat history stage unexpectedly passed')
+  if ((await verifyP0Evidence(root, structuredClone(base), expected)).ok) throw new Error('R3 missing visible-error stage unexpectedly passed')
   await writeFile(activePath, activeContent)
   activeRecord.bytes = activeContent.length
   activeRecord.sha256 = await sha256File(activePath)
-  cases.push(['R3 missing Chat history stage'])
+  cases.push(['R3 missing visible-error stage'])
   const fallbackSurfaceContent = `${JSON.stringify({
     ...JSON.parse(activeContent.toString('utf8')),
     surfaces: { ...JSON.parse(activeContent.toString('utf8')).surfaces, noPluginFallbackOverlay: false },
@@ -248,11 +273,11 @@ try {
   activeRecord.bytes = activeContent.length
   activeRecord.sha256 = await sha256File(activePath)
   cases.push(['R3 browser fallback-overlay evidence'])
-  for (const [label, chatHistoryLoadErrors] of [
-    ['R3 initial Captain Chat history loading error', { initialCaptainChat: ['Failed to load history'], reloadCaptainChat: [] }],
-    ['R3 reload Captain Chat history loading error', { initialCaptainChat: [], reloadCaptainChat: ['历史加载失败'] }],
+  for (const [label, visibleErrors] of [
+    ['R3 initial Captain Chat history loading error', { activeDashboard: [], initialCaptainChat: ['Failed to load history'], reloadDashboard: [], reloadCaptainChat: [] }],
+    ['R3 reload Captain Chat turn failure', { activeDashboard: [], initialCaptainChat: [], reloadDashboard: [], reloadCaptainChat: ['This turn failed'] }],
   ]) {
-    const content = `${JSON.stringify({ ...JSON.parse(activeContent.toString('utf8')), chatHistoryLoadErrors })}\n`
+    const content = `${JSON.stringify({ ...JSON.parse(activeContent.toString('utf8')), visibleErrors })}\n`
     await writeFile(activePath, content)
     activeRecord.bytes = Buffer.byteLength(content)
     activeRecord.sha256 = await sha256File(activePath)
@@ -300,6 +325,23 @@ try {
   await writeFile(r0Path, r0Content)
   r0Record.bytes = r0Content.length
   r0Record.sha256 = await sha256File(r0Path)
+  for (const [relativePath, label] of [
+    ['evidence/r3-browser-r0.json', 'R0 visible turn failure'],
+    ['evidence/r3-browser-removed.json', 'removed visible turn failure'],
+  ]) {
+    const path = join(root, relativePath)
+    const record = base.evidenceFiles.find(value => value.relativePath === relativePath)
+    const original = await readFile(path)
+    const content = `${JSON.stringify({ ...JSON.parse(original.toString('utf8')), visibleErrors: ['This turn failed'] })}\n`
+    await writeFile(path, content)
+    record.bytes = Buffer.byteLength(content)
+    record.sha256 = await sha256File(path)
+    if ((await verifyP0Evidence(root, structuredClone(base), expected)).ok) throw new Error(`${label} unexpectedly passed`)
+    await writeFile(path, original)
+    record.bytes = original.length
+    record.sha256 = await sha256File(path)
+    cases.push([label])
+  }
   console.log(`P0 Bundle/evidence gates: Typert payload + 1 positive/2 negative response cases; 1 safe Bundle + 4 unsafe Bundle cases; positive evidence + ${cases.length} negative evidence cases: PASS`)
 } finally {
   await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
