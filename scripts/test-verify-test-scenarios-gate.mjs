@@ -84,6 +84,22 @@ await expectPass('legacy numeric compatibility', {
   files: { 'legacy.spec.ts': '// scenario 1: legacy default compatibility\n' },
 })
 
+await expectPass('legacy ascending range compatibility', {
+  document: `# Fixture
+
+## 3. Test scenarios
+
+1. First ranged definition
+2. Second ranged definition
+3. Explicitly unproven definition
+
+Scenario audit: implemented = 1-2; not yet proven = 3.
+
+## 4. Evidence
+`,
+  files: { 'range.spec.ts': '// scenario 1: first ranged definition\n// scenario 2: second ranged definition\n' },
+})
+
 await expectPass('stable recursive .spec.tsx evidence', {
   document: stableDocument([['SCN-RECURSIVE', 'Recursive TSX evidence']], {
     implemented: 'SCN-RECURSIVE',
@@ -174,6 +190,29 @@ Scenario audit: implemented = 1; not yet proven = .
 )
 
 await expectFailure(
+  'empty legacy definitions',
+  {
+    document: `# Fixture
+
+## 3. Test scenarios
+
+Scenario audit: implemented = 1; not yet proven = 2.
+
+## 4. Evidence
+`,
+  },
+  /§3 has no legacy scenario definitions/u,
+)
+
+await expectFailure(
+  'descending legacy ranges',
+  {
+    document: legacyDocument({ implemented: '1-0', notProven: '2-1' }),
+  },
+  /descending legacy range "1-0"/u,
+)
+
+await expectFailure(
   'implemented definition without evidence',
   {
     document: stableDocument([['SCN-NO-EVIDENCE', 'Missing evidence']], {
@@ -237,4 +276,4 @@ try {
   await rm(traversalRoot, { force: true, recursive: true })
 }
 
-console.log(`verify-test-scenarios fixture gate: ${fixtureCount} fixtures (2 positive, 11 negative): PASS`)
+console.log(`verify-test-scenarios fixture gate: ${fixtureCount} fixtures (3 positive, 13 negative): PASS`)

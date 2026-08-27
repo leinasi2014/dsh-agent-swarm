@@ -179,6 +179,10 @@ function parseAudit(document, kind) {
       if (range) {
         const first = Number(range[1])
         const last = Number(range[2])
+        if (first > last) {
+          fail(`Scenario audit contains descending legacy range ${JSON.stringify(token)}`)
+          continue
+        }
         for (let scenario = first; scenario <= last; scenario += 1) {
           values.add(String(scenario))
         }
@@ -288,6 +292,9 @@ async function verify(argv) {
 
   const kind = stableDefinitions.size > 0 ? 'stable' : 'legacy'
   const definitions = kind === 'stable' ? stableDefinitions : legacyDefinitions
+  if (definitions.size === 0) {
+    fail(`docs/08 §3 has no ${kind} scenario definitions`)
+  }
   const auditSets = parseAudit(document, kind)
   const files = await testFiles(root)
   const evidence = await evidenceIds(root, files, kind)
