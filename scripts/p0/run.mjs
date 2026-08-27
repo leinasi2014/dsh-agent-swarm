@@ -12,6 +12,7 @@ import {
 import { parsePluginInventoryResponse, pluginInventoryPayload } from './inventory.mjs'
 import { name as serviceProbeName } from './profile-probe.mjs'
 import { name as shutdownProbeName } from './shutdown-probe.mjs'
+import { exactP0SwarmToolSurface } from './tool-surface.mjs'
 import {
   runR3ActiveBrowserProof, runR3R0BrowserProof, runR3RemovedBrowserProof,
 } from '../r3/browser-proof.mjs'
@@ -239,27 +240,35 @@ async function readWorkspaceSessionAccounting({
   return fixture
 }
 
-function assertSessionFixture(target, expectedMode, expectedEvents) {
+const TURN_END_REASON_KINDS = new Set(['completed', 'aborted', 'blocked', 'error', 'max-tokens', 'interrupted'])
+
+function assertSessionFixture(target, expectedEvents) {
   const fixture = target?.sessionFixture
   const events = fixture?.events
-  // E2E captain/member activity legitimately adds closed turns after the
-  // original fixture pair.  Preserve the original prefix and require every
-  // observed turn to be a complete, ordered start/end pair — never merely a
-  // count threshold.
-  const shapeOk = Array.isArray(events) && events.length >= 2 && events.length % 2 === 0
-    && events.every((event, index) => {
-      const peer = events[index % 2 === 0 ? index + 1 : index - 1]
-      return Number.isSafeInteger(event?.seq)
-        && (index % 2 === 0
-          ? event?.type === 'turn/start' && peer?.type === 'turn/end' && peer.turn === event.turn && peer.seq > event.seq
-          : event?.type === 'turn/end' && JSON.stringify(event.reason) === JSON.stringify({ kind: 'completed' }))
+  const starts = new Map()
+  const ends = new Map()
+  const shapeOk = Array.isArray(events) && events.length >= 2 && events.every((event) => {
+    if (!Number.isSafeInteger(event?.seq) || !Number.isSafeInteger(event?.turn) || event.turn < 1) return false
+    if (event.type === 'turn/start') {
+      if (starts.has(event.turn)) return false
+      starts.set(event.turn, event.seq)
+      return true
+    }
+    if (event.type !== 'turn/end' || typeof event.reason?.kind !== 'string'
+      || !TURN_END_REASON_KINDS.has(event.reason.kind) || ends.has(event.turn)) return false
+    ends.set(event.turn, event.seq)
+    return true
+  }) && starts.size > 0 && starts.size === ends.size
+    && [...starts].every(([turn, startSeq]) => {
+      const endSeq = ends.get(turn)
+      return endSeq !== undefined && endSeq > startSeq
     })
-  const preservedPrefix = expectedEvents === undefined || JSON.stringify(events.slice(0, expectedEvents.length)) === JSON.stringify(expectedEvents)
-  if (fixture?.mode !== expectedMode || !shapeOk
-    || !preservedPrefix
-    || (expectedMode === 'seeded' && fixture?.priorTurnStarts !== 0)
-    || (expectedMode === 'reused' && fixture?.priorTurnStarts !== (Array.isArray(events) ? events.length / 2 : -1))
-    || fixture?.flushParticipated !== (expectedMode === 'seeded')) {
+  // Reload may append a new, fully settled official turn while the prior
+  // authoritative boundaries remain immutable. Require that exact prefix,
+  // then validate every newly observed turn with the same closed-pair rules.
+  const preservedPrefix = expectedEvents === undefined
+    || JSON.stringify(events.slice(0, expectedEvents.length)) === JSON.stringify(expectedEvents)
+  if (fixture?.mode !== 'agent-loop' || !shapeOk || !preservedPrefix) {
     throw new Error(`official closed-turn fixture mismatch: ${JSON.stringify(fixture)}`)
   }
   return events
@@ -480,16 +489,17 @@ async function main() {
     if (!probeReady) throw new Error('service/tool probe did not activate')
     const firstActive = (await readProbe(probePath)).find(entry => entry.phase === 'active')
     const servicesOk = Object.values(firstActive?.services ?? {}).every(value => value === true)
-    const toolsOk = Array.isArray(firstActive?.tools) && firstActive.tools.length === 17
-      && ['agent_swarm_create', 'agent_swarm_status', 'agent_swarm_send_message', 'agent_swarm_list_tasks'].every(name => firstActive.tools.includes(name))
-    if (!servicesOk || !toolsOk) throw new Error(`service/tool probe mismatch: ${JSON.stringify(firstActive)}`)
-    gate('service-tool-probe', 'pass', `${firstActive.tools.length} agent_swarm tools and required services active`)
+    const toolSurface = exactP0SwarmToolSurface(firstActive?.tools)
+    if (!servicesOk || !toolSurface.ok) {
+      throw new Error(`service/tool probe mismatch: ${JSON.stringify({ services: firstActive?.services, actualTools: toolSurface.actual, expectedTools: toolSurface.expected })}`)
+    }
+    gate('service-tool-probe', 'pass', `${toolSurface.expected.length} exact agent_swarm tools and required services active`)
 
     const workspace = await createOfficialWorkspaceSession({
       port: args.port, evidenceDir, label: 'r3', workspaceRoot, rootSessionId, expectedCreated: true,
     })
     const targetReady = await waitForTarget(probePath, rootSessionId, 1)
-    const seededEvents = assertSessionFixture(targetReady, 'seeded')
+    const agentLoopEvents = assertSessionFixture(targetReady)
     const teamId = targetReady.teamId
     if (typeof teamId !== 'string' || teamId.length === 0 || targetReady.resumed !== false) {
       throw new Error(`fresh R2 captain Team was not created through the real runtime: ${JSON.stringify(targetReady)}`)
@@ -581,7 +591,7 @@ async function main() {
       expectedWorkspaceId: workspace.workspaceId, expectedCreated: false,
     })
     const reloadTarget = await waitForTarget(probePath, rootSessionId, 2)
-    assertSessionFixture(reloadTarget, 'reused', seededEvents)
+    assertSessionFixture(reloadTarget, agentLoopEvents)
     if (reloadTarget.teamId !== teamId || reloadTarget.resumed !== true) {
       throw new Error(`reload did not recover the same authoritative captain Team: ${JSON.stringify(reloadTarget)}`)
     }

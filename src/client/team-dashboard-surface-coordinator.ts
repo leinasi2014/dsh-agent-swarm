@@ -1,5 +1,5 @@
 import type { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
-import type { ClientContext, ISessions } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext, ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ILayout } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { StoredEntry } from '@deepseek-ai/dsh-client-ui-slots'
 import type { RefObject } from 'react'
@@ -28,6 +28,8 @@ export class TeamDashboardSurfaceCoordinator {
   private state: TeamDashboardSurfaceState = INACTIVE
   private layout: ILayout | undefined
   private declarationLive = false
+  private layoutEpoch = 0
+  private declarationEpoch = 0
   private entry: StoredEntry | undefined
   private release: (() => void) | undefined
   private disposed = false
@@ -58,13 +60,25 @@ export class TeamDashboardSurfaceCoordinator {
 
   bindLayout(layout: ILayout): () => void {
     if (this.disposed) return () => {}
+    const epoch = ++this.layoutEpoch
     this.layout = layout
-    return () => { if (this.layout === layout) { this.layout = undefined; this.close(false) } }
+    return () => {
+      if (epoch !== this.layoutEpoch) return
+      this.layoutEpoch += 1
+      this.layout = undefined
+      this.close(false)
+    }
   }
   bindDetailsDeclaration(): () => void {
     if (this.disposed) return () => {}
+    const epoch = ++this.declarationEpoch
     this.declarationLive = true
-    return () => { this.declarationLive = false; this.close(false) }
+    return () => {
+      if (epoch !== this.declarationEpoch) return
+      this.declarationEpoch += 1
+      this.declarationLive = false
+      this.close(false)
+    }
   }
   toggle(targetSessionId: string): void {
     this.assertLive()
@@ -79,6 +93,25 @@ export class TeamDashboardSurfaceCoordinator {
   }
   selectView(view: TeamDashboardView): void { if (this.state.mode === 'docked' && this.state.view !== view) this.publish({ ...this.state, view }) }
   closeAndRestoreFocus(): void { this.close(true) }
+  /** Team yields Details; official Tool Details remains the sole Tool renderer. */
+  showToolDetails(): void {
+    this.assertLive()
+    const layout = this.layout
+    if (layout === undefined) return
+    this.releaseTeamLease()
+    this.publish(INACTIVE)
+    this.options.controller.close()
+    try { layout.openDetails() } catch { this.publish(INACTIVE) }
+  }
+  async openCaptainChat(): Promise<void> {
+    await this.options.controller.openCaptainChat(rootSessionId => {
+      const root = rootSessionId as SessionId
+      const sessions = this.options.sessions.list.getSnapshot()
+      if (!Object.hasOwn(sessions.byId, root)) throw new Error('Captain owner root is no longer in the official Session list')
+      this.options.sessions.open(root)
+    })
+    this.publish(INACTIVE)
+  }
 
   private acquire(): boolean {
     if (!this.declarationLive || this.layout === undefined) return false
@@ -97,17 +130,18 @@ export class TeamDashboardSurfaceCoordinator {
   private isWinner(entry: StoredEntry): boolean { return this.options.slots.entriesOfSlot('details')[0] === entry }
   private close(restoreFocus: boolean): void {
     if (this.state.mode === 'docked') { try { this.layout?.closeDetails() } catch { /* teardown still releases the Team lease */ } }
-    const release = this.release
-    this.release = undefined; this.entry = undefined
-    release?.()
+    this.releaseTeamLease()
     this.publish(INACTIVE)
     this.options.controller.close()
     if (restoreFocus) queueMicrotask(() => { this.options.anchorRef.current?.querySelector<HTMLButtonElement>('[data-swarm-team-trigger]')?.focus() })
   }
+  private releaseTeamLease(): void { const release = this.release; this.release = undefined; this.entry = undefined; release?.() }
   private publish(state: TeamDashboardSurfaceState): void { this.state = Object.freeze(state); for (const listener of this.listeners) listener() }
   private dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    this.layoutEpoch += 1
+    this.declarationEpoch += 1
     this.offSlot(); this.offEntryError(); this.offSessions(); this.offController()
     this.close(false)
     this.options.controller.dispose()

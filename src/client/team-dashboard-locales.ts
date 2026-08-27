@@ -2,6 +2,7 @@ export const TEAM_DASHBOARD_NS = 'swarm.team-dashboard' as const
 
 export const en = {
   'action.open': 'Team',
+  'action.toolDetails': 'Tool details',
   'title': 'Agent Team',
   'description': 'Read-only local Team status for this main Chat.',
   'close': 'Close Team panel',
@@ -11,6 +12,8 @@ export const en = {
   'error': 'Team status is unavailable.',
   'retry': 'Retry',
   'refresh': 'Refresh',
+  'openChat': 'Open Captain Chat',
+  'openingChat': 'Verifying Captain…',
   'tabs.label': 'Team views',
   'tabs.overview': 'Overview',
   'tabs.members': 'Members',
@@ -62,6 +65,7 @@ export const en = {
 
 export const zh: Record<keyof typeof en, string> = {
   'action.open': '团队',
+  'action.toolDetails': '工具详情',
   'title': '智能体团队',
   'description': '当前主会话所拥有团队的本机只读状态。',
   'close': '关闭团队面板',
@@ -71,6 +75,8 @@ export const zh: Record<keyof typeof en, string> = {
   'error': '团队状态暂不可用。',
   'retry': '重试',
   'refresh': '刷新',
+  'openChat': '打开 Captain 对话',
+  'openingChat': '正在验证 Captain…',
   'tabs.label': '团队视图',
   'tabs.overview': '概览',
   'tabs.members': '成员',

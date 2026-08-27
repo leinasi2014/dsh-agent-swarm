@@ -13,7 +13,7 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', async () => {
   const react = await import('react')
   return {
     Button: ({ children, icon: _icon, ...props }: Record<string, unknown>) => react.createElement('button', { type: 'button', ...props }, children as ReactNode),
-    IconUserOutline16: () => react.createElement('svg', { 'data-icon': 'user' }), IconCloseOutline16: () => react.createElement('svg', { 'data-icon': 'close' }), IconRefreshOutline16: () => react.createElement('svg', { 'data-icon': 'refresh' }),
+    IconUserOutline16: () => react.createElement('svg', { 'data-icon': 'user' }), IconCodeOutline16: () => react.createElement('svg', { 'data-icon': 'code' }), IconCloseOutline16: () => react.createElement('svg', { 'data-icon': 'close' }), IconRefreshOutline16: () => react.createElement('svg', { 'data-icon': 'refresh' }),
     Pill: ({ children }: { children?: ReactNode }) => react.createElement('span', {}, children), StateDot: () => react.createElement('span', {}),
   }
 })
@@ -26,7 +26,7 @@ const ready: TeamDashboardState = { open: true, phase: 'ready', targetSessionId:
 class FakeCoordinator {
   state: TeamDashboardSurfaceState = { mode: 'docked', view: 'overview', targetSessionId: 'root' }
   private readonly listeners = new Set<() => void>()
-  readonly toggle = vi.fn(); readonly closeAndRestoreFocus = vi.fn(); readonly selectView = vi.fn()
+  readonly toggle = vi.fn(); readonly showToolDetails = vi.fn(); readonly openCaptainChat = vi.fn(async () => {}); readonly closeAndRestoreFocus = vi.fn(); readonly selectView = vi.fn()
   getSnapshot = (): TeamDashboardSurfaceState => this.state
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
   localeTag = (): 'en-US' => 'en-US'
@@ -43,6 +43,7 @@ describe('R3 native Team Details surface', () => {
     const team = document.querySelector<HTMLButtonElement>('[data-swarm-team-trigger]')!
     expect(team.getAttribute('aria-expanded')).toBe('true'); expect(team.querySelector('[data-icon="user"]')).not.toBeNull()
     await act(async () => { team.click() }); expect(coordinator.toggle).toHaveBeenCalledWith('root')
+    await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-tool-trigger]')?.click() }); expect(coordinator.showToolDetails).toHaveBeenCalledTimes(1)
     await act(async () => { coordinator.set({ mode: 'inactive', view: 'overview', targetSessionId: undefined }) })
     expect(team.getAttribute('aria-expanded')).toBe('false')
   })
@@ -54,6 +55,8 @@ describe('R3 native Team Details surface', () => {
     expect(panel.textContent).toContain('Fixture Team'); expect(panel.textContent).toContain('Active')
     expect(document.querySelector('[role="dialog"]')).toBeNull(); expect(document.querySelector('[data-swarm-team-fullscreen]')).toBeNull()
     expect(document.body.innerHTML).toContain('--dsw-alias-bg-layer-1')
+    await act(async () => { [...document.querySelectorAll('button')].find(button => button.textContent === 'Open Captain Chat')?.click(); await Promise.resolve() })
+    expect(coordinator.openCaptainChat).toHaveBeenCalledTimes(1)
   })
 
   it('renders real error/stale authority signals and retry without claiming a fresh projection', async () => {

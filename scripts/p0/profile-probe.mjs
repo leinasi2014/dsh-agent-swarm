@@ -1,5 +1,5 @@
 import { appendFileSync } from 'node:fs'
-import { LlmAdapter } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, LlmAdapter } from '@deepseek-ai/dsh-llm'
 
 export const name = 'agent-swarm-p0-profile-probe'
 export const inject = [
@@ -130,44 +130,66 @@ async function exerciseRealAgentLoop(ctx, agent, team) {
   return { resumed: false, memberSessionId: member.session_id, taskId: task.id, review: reviewed, team: canonical.team }
 }
 
+const TURN_END_REASON_KINDS = new Set(['completed', 'aborted', 'blocked', 'error', 'max-tokens', 'interrupted'])
+const ROOT_TURN_SETTLEMENT_TIMEOUT_MS = 8_000
+
+// The official AgentLoop owns Session turn boundaries. This probe records only
+// settled official turns; it never appends a competing turn/start fixture.
+function captureRealAgentLoopFixture(events) {
+  const starts = new Map()
+  const ends = new Map()
+  const boundaries = []
+  for (const event of events) {
+    if (event.type !== 'turn/start' && event.type !== 'turn/end') continue
+    const turn = event.data.turn
+    if (!Number.isSafeInteger(event.seq) || !Number.isSafeInteger(turn) || turn < 1) {
+      throw new Error(`DEV_SMOKE invalid official turn boundary: ${JSON.stringify({ seq: event.seq, type: event.type, turn })}`)
+    }
+    if (event.type === 'turn/start') {
+      if (starts.has(turn)) throw new Error(`DEV_SMOKE duplicate official turn/start: ${turn}`)
+      starts.set(turn, event.seq)
+      boundaries.push({ seq: event.seq, type: event.type, turn })
+      continue
+    }
+    const kind = event.data.reason?.kind
+    if (typeof kind !== 'string' || !TURN_END_REASON_KINDS.has(kind) || ends.has(turn)) {
+      throw new Error(`DEV_SMOKE invalid official turn/end: ${JSON.stringify({ seq: event.seq, turn, kind })}`)
+    }
+    ends.set(turn, event.seq)
+    boundaries.push({ seq: event.seq, type: event.type, turn, reason: { kind } })
+  }
+  if (starts.size === 0 || starts.size !== ends.size) {
+    throw new Error(`DEV_SMOKE official turn boundary is incomplete: ${JSON.stringify({ starts: starts.size, ends: ends.size })}`)
+  }
+  for (const [turn, startSeq] of starts) {
+    const endSeq = ends.get(turn)
+    if (endSeq === undefined || endSeq <= startSeq) throw new Error(`DEV_SMOKE official turn is not closed in order: ${JSON.stringify({ turn, startSeq, endSeq })}`)
+  }
+  return { mode: 'agent-loop', events: boundaries }
+}
+
+async function settleRootAgentLoop(agent) {
+  const priorTurn = agent.session.events.reduce((maximum, event) => event.type === 'turn/start' && Number.isSafeInteger(event.data.turn)
+    ? Math.max(maximum, event.data.turn) : maximum, 0)
+  agent.followup(createUserMessage({
+    content: [{ type: 'text', text: 'DEV_SMOKE root settlement. Complete one official AgentLoop turn after the Captain review.' }],
+    source: { kind: 'plugin', plugin: name },
+  }))
+  let rejectTimeout
+  const timeout = new Promise((_, reject) => { rejectTimeout = reject })
+  const timer = setTimeout(() => { rejectTimeout(new Error('DEV_SMOKE_TIMEOUT:root-agent-loop-settlement')) }, ROOT_TURN_SETTLEMENT_TIMEOUT_MS)
+  try { await Promise.race([agent.whenIdle(), timeout]) } finally { clearTimeout(timer) }
+  if (agent.status !== 'idle') throw new Error(`DEV_SMOKE root AgentLoop did not settle idle: ${agent.status}`)
+  const fixture = captureRealAgentLoopFixture(agent.session.events)
+  const settledTurn = fixture.events.find(event => event.type === 'turn/end' && event.turn > priorTurn)
+  if (settledTurn === undefined) throw new Error(`DEV_SMOKE root AgentLoop produced no new closed turn after Captain review: ${priorTurn}`)
+  return { fixture, settledTurn }
+}
+
 async function bindTarget(ctx, signal) {
   const rootSessionId = process.env.DSH_SWARM_R2_ROOT_SESSION_ID
   if (rootSessionId === undefined || rootSessionId.length === 0) return
   const agent = await waitForRoot(ctx, rootSessionId, signal)
-  const priorEvents = agent.session.events
-  const priorTurnStarts = priorEvents.filter(event => event.type === 'turn/start').length
-  let fixture
-  if (priorTurnStarts === 0) {
-    const start = agent.session.append('turn/start', { turn: 1 })
-    const end = agent.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    const flushParticipated = await ctx.sessions.flush(agent.session)
-    fixture = {
-      mode: 'seeded',
-      prefixEventCount: priorEvents.length,
-      priorTurnStarts,
-      events: [
-        { seq: start.seq, type: start.type, turn: start.data.turn },
-        { seq: end.seq, type: end.type, turn: end.data.turn, reason: end.data.reason },
-      ],
-      flushParticipated,
-    }
-  } else {
-    fixture = {
-      mode: 'reused',
-      prefixEventCount: priorEvents.length,
-      priorTurnStarts,
-      events: agent.session.events
-        .filter(event => event.type === 'turn/start' || event.type === 'turn/end')
-        .map(event => event.type === 'turn/start'
-          ? { seq: event.seq, type: event.type, turn: event.data.turn }
-          : { seq: event.seq, type: event.type, turn: event.data.turn, reason: event.data.reason }),
-      flushParticipated: false,
-    }
-  }
-  append('r3-session-fixture-ready', ctx, {
-    rootSessionId: agent.id,
-    fixture,
-  })
   append('w0-scope-ready', ctx, { rootSessionId: agent.id })
   const scope = ctx.agentSwarm.scopeOf(agent)
   append('w0-membership-start', ctx, { rootSessionId: agent.id })
@@ -186,6 +208,9 @@ async function bindTarget(ctx, signal) {
   append('w0-create-done', ctx, { rootSessionId: agent.id, teamId: team.id })
   const e2e = await exerciseRealAgentLoop(ctx, agent, team)
   append('w0-agent-loop-e2e', ctx, { rootSessionId: agent.id, teamId: team.id, e2e })
+  const { fixture, settledTurn } = await settleRootAgentLoop(agent)
+  append('w0-root-agent-loop-settled', ctx, { rootSessionId: agent.id, settledTurn })
+  append('r3-session-fixture-ready', ctx, { rootSessionId: agent.id, fixture })
   append('r2-target-ready', ctx, {
     rootSessionId: agent.id,
     teamId: team.id,

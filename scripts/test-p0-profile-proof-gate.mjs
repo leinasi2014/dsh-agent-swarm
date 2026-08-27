@@ -8,6 +8,18 @@ import {
 } from './p0/evidence.mjs'
 import { verifySafeBundlePatch } from './p0/bundle-shape.mjs'
 import { parsePluginInventoryResponse, pluginInventoryPayload } from './p0/inventory.mjs'
+import { EXPECTED_P0_SWARM_TOOL_NAMES, exactP0SwarmToolSurface } from './p0/tool-surface.mjs'
+
+if (!exactP0SwarmToolSurface([...EXPECTED_P0_SWARM_TOOL_NAMES].reverse()).ok) throw new Error('exact P0 tool surface rejected its complete set')
+for (const [label, tools] of [
+  ['missing tool', EXPECTED_P0_SWARM_TOOL_NAMES.slice(1)],
+  ['replacement tool', [...EXPECTED_P0_SWARM_TOOL_NAMES.slice(1), 'agent_swarm_unknown']],
+  ['extra tool', [...EXPECTED_P0_SWARM_TOOL_NAMES, 'agent_swarm_extra']],
+  ['duplicate tool', [...EXPECTED_P0_SWARM_TOOL_NAMES, EXPECTED_P0_SWARM_TOOL_NAMES[0]]],
+  ['non-string tool', [...EXPECTED_P0_SWARM_TOOL_NAMES.slice(1), 1]],
+]) {
+  if (exactP0SwarmToolSurface(tools).ok) throw new Error(`exact P0 tool surface unexpectedly passed: ${label}`)
+}
 
 if (JSON.stringify(pluginInventoryPayload()) !== JSON.stringify({ args: {} })) throw new Error('Typert inventory payload shape drifted')
 for (const invalidResponse of [
@@ -70,8 +82,14 @@ try {
             currentSessionId: 'root', reloadedSessionId: 'root', chatTextboxVisible: true,
           },
           keyboard: ['focus', 'enter', 'focus-chat', 'enter-chat', 'escape'],
+          surfaces: {
+            wideDetailsLease: true, toolHandoff: true, narrowNativeDetailsConcession: true,
+            narrowSubtreeMountedHidden: true, noPluginFallbackOverlay: true, samePanelRestored: true,
+            chatReflow: true, localeRerendered: true, disconnectRecovery: true,
+          },
           requests: [{ method: 'POST', body: { method: 'snapshot' } }],
-          consoleErrors: [], pageErrors: [],
+          faultInjection: { recovered: true, expectedConsoleErrors: ['Failed to load resource: net::ERR_CONNECTION_FAILED'] },
+          consoleErrors: [], pageErrors: [], chatHistoryLoadErrors: { initialCaptainChat: [], reloadCaptainChat: [] },
         })}\n`
       : relativePath === 'evidence/r3-browser-r0.json'
         ? `${JSON.stringify({
@@ -175,8 +193,14 @@ try {
       currentSessionId: 'root', reloadedSessionId: 'root', chatTextboxVisible: true,
     },
     keyboard: ['focus', 'enter', 'focus-chat', 'enter-chat', 'escape'],
+    surfaces: {
+      wideDetailsLease: true, toolHandoff: true, narrowNativeDetailsConcession: true,
+      narrowSubtreeMountedHidden: true, noPluginFallbackOverlay: true, samePanelRestored: true,
+      chatReflow: true, localeRerendered: true, disconnectRecovery: true,
+    },
     requests: [{ method: 'POST', body: { method: 'control.write' } }],
-    consoleErrors: [], pageErrors: [],
+    faultInjection: { recovered: true, expectedConsoleErrors: ['Failed to load resource: net::ERR_CONNECTION_FAILED'] },
+    consoleErrors: [], pageErrors: [], chatHistoryLoadErrors: { initialCaptainChat: [], reloadCaptainChat: [] },
   })}\n`
   await writeFile(activePath, nonReadContent)
   activeRecord.bytes = Buffer.byteLength(nonReadContent)
@@ -188,6 +212,44 @@ try {
   activeRecord.bytes = activeContent.length
   activeRecord.sha256 = await sha256File(activePath)
   cases.push(['R3 browser non-read request'])
+  const missingHistoryStageContent = `${JSON.stringify({
+    ...JSON.parse(activeContent.toString('utf8')),
+    chatHistoryLoadErrors: { initialCaptainChat: [] },
+  })}\n`
+  await writeFile(activePath, missingHistoryStageContent)
+  activeRecord.bytes = Buffer.byteLength(missingHistoryStageContent)
+  activeRecord.sha256 = await sha256File(activePath)
+  if ((await verifyP0Evidence(root, structuredClone(base), expected)).ok) throw new Error('R3 missing Chat history stage unexpectedly passed')
+  await writeFile(activePath, activeContent)
+  activeRecord.bytes = activeContent.length
+  activeRecord.sha256 = await sha256File(activePath)
+  cases.push(['R3 missing Chat history stage'])
+  const fallbackSurfaceContent = `${JSON.stringify({
+    ...JSON.parse(activeContent.toString('utf8')),
+    surfaces: { ...JSON.parse(activeContent.toString('utf8')).surfaces, noPluginFallbackOverlay: false },
+  })}\n`
+  await writeFile(activePath, fallbackSurfaceContent)
+  activeRecord.bytes = Buffer.byteLength(fallbackSurfaceContent)
+  activeRecord.sha256 = await sha256File(activePath)
+  if ((await verifyP0Evidence(root, structuredClone(base), expected)).ok) throw new Error('R3 fallback-overlay evidence unexpectedly passed')
+  await writeFile(activePath, activeContent)
+  activeRecord.bytes = activeContent.length
+  activeRecord.sha256 = await sha256File(activePath)
+  cases.push(['R3 browser fallback-overlay evidence'])
+  for (const [label, chatHistoryLoadErrors] of [
+    ['R3 initial Captain Chat history loading error', { initialCaptainChat: ['Failed to load history'], reloadCaptainChat: [] }],
+    ['R3 reload Captain Chat history loading error', { initialCaptainChat: [], reloadCaptainChat: ['历史加载失败'] }],
+  ]) {
+    const content = `${JSON.stringify({ ...JSON.parse(activeContent.toString('utf8')), chatHistoryLoadErrors })}\n`
+    await writeFile(activePath, content)
+    activeRecord.bytes = Buffer.byteLength(content)
+    activeRecord.sha256 = await sha256File(activePath)
+    if ((await verifyP0Evidence(root, structuredClone(base), expected)).ok) throw new Error(`${label} unexpectedly passed`)
+    await writeFile(activePath, activeContent)
+    activeRecord.bytes = activeContent.length
+    activeRecord.sha256 = await sha256File(activePath)
+    cases.push([label])
+  }
   const detachedFixtureContent = `${JSON.stringify({
     ...JSON.parse(activeContent.toString('utf8')),
     fixture: { ...fixture, sessionNonBlank: false },

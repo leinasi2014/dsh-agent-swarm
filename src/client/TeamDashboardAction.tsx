@@ -1,4 +1,4 @@
-import { Button, IconUserOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconCodeOutline16, IconUserOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useSyncExternalStore, type RefObject } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -32,6 +32,10 @@ export function TeamDashboardAction({ anchorRef, coordinator, sessionId, t }: Te
         onClick={() => { coordinator.toggle(sessionId) }}
       >
         <IconUserOutline16 />
+      </Button>
+      <Button size="sm" variant="toolbar" aria-label={t('action.toolDetails')} title={t('action.toolDetails')}
+        data-swarm-tool-trigger onClick={() => { coordinator.showToolDetails() }}>
+        <IconCodeOutline16 />
       </Button>
     </span>
   )

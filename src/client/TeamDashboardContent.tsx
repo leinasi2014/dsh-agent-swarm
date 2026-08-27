@@ -1,5 +1,5 @@
 import { Button, IconCloseOutline16, IconRefreshOutline16, Pill, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SwarmHostReadProjectionV1 } from '../host/host-read-types.js'
 import type { TeamDashboardController, TeamDashboardState } from './team-dashboard-controller.js'
@@ -21,7 +21,13 @@ export function TeamDashboardContent({ controller, coordinator, descriptionId, h
   readonly state: TeamDashboardState
   readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS>
 }) {
+  const [handoffBusy, setHandoffBusy] = useState(false)
   const view = coordinator.getSnapshot().view
+  const handoff = (): void => {
+    if (handoffBusy) return
+    setHandoffBusy(true)
+    void coordinator.openCaptainChat().catch(() => {}).finally(() => { setHandoffBusy(false) })
+  }
   return <div style={{ display: 'grid', gridTemplateRows: 'auto auto minmax(0, 1fr) auto', height: '100%', color: 'var(--dsw-alias-label-primary)', background: 'var(--dsw-alias-bg-layer-1)' }}>
     <header style={{ ...row, alignItems: 'flex-start', padding: 20, borderBottom: '1px solid var(--dsw-alias-border-l2)' }}>
       <div><h2 id={headingId} style={{ margin: 0 }}>{t('title')}</h2><p id={descriptionId} style={{ ...muted, margin: '6px 0 0' }}>{t('description')}</p></div>
@@ -38,6 +44,7 @@ export function TeamDashboardContent({ controller, coordinator, descriptionId, h
     </div></main>
     <footer style={{ ...row, padding: 12, borderTop: '1px solid var(--dsw-alias-border-l2)' }}>
       <Button size="sm" variant="ghost" icon={<IconRefreshOutline16 />} onClick={() => { controller.refresh() }}>{t('refresh')}</Button>
+      <Button size="sm" variant="primary" disabled={state.data === undefined || handoffBusy} onClick={handoff}>{handoffBusy ? t('openingChat') : t('openChat')}</Button>
     </footer>
   </div>
 }

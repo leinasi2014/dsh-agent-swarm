@@ -268,6 +268,13 @@ async function verifyR3BrowserEvidence(root, failures) {
     || !Array.isArray(active?.keyboard) || active.keyboard.length < 5) {
     failures.push('R3 active browser evidence does not prove render/keyboard/handoff/reload')
   }
+  const surfaces = active?.surfaces
+  if (surfaces?.wideDetailsLease !== true || surfaces?.toolHandoff !== true
+    || surfaces?.narrowNativeDetailsConcession !== true || surfaces?.narrowSubtreeMountedHidden !== true
+    || surfaces?.noPluginFallbackOverlay !== true || surfaces?.samePanelRestored !== true
+    || surfaces?.chatReflow !== true || surfaces?.localeRerendered !== true || surfaces?.disconnectRecovery !== true) {
+    failures.push('R3 active browser evidence does not prove native Details concession, theme-token layout and locale rerender without a Team overlay')
+  }
   if (active?.fixture?.exactRoot !== true || active?.fixture?.workspaceAttached !== true
     || active?.fixture?.sessionNonBlank !== true
     || active?.fixture?.rootSessionId !== active?.rootSessionId
@@ -283,6 +290,16 @@ async function verifyR3BrowserEvidence(root, failures) {
   if (!Array.isArray(active?.consoleErrors) || active.consoleErrors.length !== 0
     || !Array.isArray(active?.pageErrors) || active.pageErrors.length !== 0) {
     failures.push('R3 active browser contains an unclassified console or page error')
+  }
+  const historyErrors = active?.chatHistoryLoadErrors
+  if (!Array.isArray(historyErrors?.initialCaptainChat) || historyErrors.initialCaptainChat.length !== 0
+    || !Array.isArray(historyErrors?.reloadCaptainChat) || historyErrors.reloadCaptainChat.length !== 0) {
+    failures.push('R3 active browser must record zero visible Chat history loading errors for initial and reloaded Captain Chat')
+  }
+  if (active?.faultInjection?.recovered !== true || !Array.isArray(active.faultInjection.expectedConsoleErrors)
+    || active.faultInjection.expectedConsoleErrors.length === 0
+    || active.faultInjection.expectedConsoleErrors.some(message => message !== 'Failed to load resource: net::ERR_CONNECTION_FAILED')) {
+    failures.push('R3 active browser must record only the expected injected disconnect console error and its recovery')
   }
   const requests = active?.requests
   const allowed = new Set(['capabilities', 'binding', 'status', 'snapshot', 'page'])
