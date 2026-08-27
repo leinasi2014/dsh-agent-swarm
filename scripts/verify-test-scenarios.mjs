@@ -249,6 +249,12 @@ function audit(definitions, auditSets, evidence) {
     }
   }
 
+  for (const scenario of auditSets.notProven) {
+    if (!definitions.has(scenario)) {
+      fail(`audit partition references undefined scenario ${scenario}`)
+    }
+  }
+
   for (const scenario of evidence.keys()) {
     if (!definitions.has(scenario)) {
       fail(`Test evidence claims scenario ${scenario}, but no §3 definition exists`)

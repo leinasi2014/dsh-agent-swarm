@@ -22,7 +22,7 @@ Scenario audit: implemented = ${implemented}; not yet proven = ${notProven}.
 `
 }
 
-function legacyDocument() {
+function legacyDocument({ implemented = '1', notProven = '2' } = {}) {
   return `# Fixture
 
 ## 3. Test scenarios
@@ -30,7 +30,7 @@ function legacyDocument() {
 1. Legacy default compatibility
 2. Legacy unproven compatibility
 
-Scenario audit: implemented = 1; not yet proven = 2.
+Scenario audit: implemented = ${implemented}; not yet proven = ${notProven}.
 
 ## 4. Evidence
 `
@@ -135,6 +135,26 @@ await expectFailure(
 )
 
 await expectFailure(
+  'stable unknown not-proven scenario',
+  {
+    document: stableDocument([['SCN-KNOWN', 'Known definition']], {
+      implemented: '',
+      notProven: 'SCN-GHOST',
+    }),
+  },
+  /audit partition references undefined scenario SCN-GHOST/u,
+)
+
+await expectFailure(
+  'legacy unknown not-proven scenario',
+  {
+    document: legacyDocument({ notProven: '999' }),
+    files: { 'legacy.spec.ts': '// scenario 1: legacy default compatibility\n' },
+  },
+  /audit partition references undefined scenario 999/u,
+)
+
+await expectFailure(
   'implemented definition without evidence',
   {
     document: stableDocument([['SCN-NO-EVIDENCE', 'Missing evidence']], {
@@ -198,4 +218,4 @@ try {
   await rm(traversalRoot, { force: true, recursive: true })
 }
 
-console.log(`verify-test-scenarios fixture gate: ${fixtureCount} fixtures (2 positive, 8 negative): PASS`)
+console.log(`verify-test-scenarios fixture gate: ${fixtureCount} fixtures (2 positive, 10 negative): PASS`)
