@@ -26,7 +26,6 @@ import {
   type LlmResolvedModelInfo,
   type StreamChunk,
 } from '@deepseek-ai/dsh-llm'
-import type { JobSnapshot } from '@deepseek-ai/dsh-jobs'
 import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
 import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
 import Storage from '@deepseek-ai/dsh-storage'
@@ -40,19 +39,7 @@ import * as AgentSwarm from '../src/index.js'
 import { deriveTeamJobs } from '../src/runtime/jobs/projection-derive.js'
 import { AttemptId, TaskId, TeamId } from '../src/domain/types.js'
 import type { TeamState, TeamTask } from '../src/domain/types.js'
-
-/** Assignment-frame identity fields the member must echo in its submission. */
-const ASSIGNMENT_RE = /Task: (task-[a-z0-9-]+), revision (\d+)\nAttempt capability: (\S+)/
-
-function textResponse(text: string): StreamChunk[] {
-  return [
-    { type: 'block-start', index: 0, blockType: 'text' },
-    { type: 'text-delta', index: 0, text },
-    { type: 'block-end', index: 0, block: { type: 'text', text } },
-    { type: 'usage', usage: { inputTokens: 10, outputTokens: text.length } },
-    { type: 'finish', reason: { kind: 'stop' } },
-  ]
-}
+import { ASSIGNMENT_RE, completedJobRun, expectOfficialSnapshotShape, META, textResponse } from './jobs-bridge-shared.js'
 
 /**
  * Content-driven member adapter (the #75 harness): a member that received a
@@ -120,6 +107,7 @@ async function createCancelledTask(
   memberSessionId: string,
   label: string,
   diagnostic: string,
+  archive = false,
 ): Promise<void> {
   const runtime = tree.ctx.agentSwarm
   const team = await runtime.create({ agent: captain, signal: AbortSignal.timeout(5_000) }, `${label} team`, 'Scope isolation proof.')
@@ -131,9 +119,7 @@ async function createCancelledTask(
   const task = await runtime.domain.createTask(scope, team.id, captain.id, { subject: label, description: 'Private projected task.' })
   const claim = await runtime.domain.claimTask(scope, team.id, captain.id, task.id, task.revision, memberSessionId)
   await runtime.domain.cancelAttempt(scope, team.id, captain.id, task.id, claim.task.revision, diagnostic)
-  // Cancellation requeues a Team task for the captain. Archive it to produce
-  // the terminal cancelled task that carries the settling attempt diagnostic.
-  await runtime.domain.archiveTeam(scope, team.id, captain.id, `archive ${label}`)
+  if (archive) await runtime.domain.archiveTeam(scope, team.id, captain.id, `archive ${label}`)
 }
 
 /** Mount the full official workflow + caller-scoped projection tree over one sandbox. */
@@ -180,27 +166,6 @@ async function mountTree(sandbox: string, options: {
     workflowEvents.push({ name, runId: info?.id, detail: args[1] })
   })
   return { ctx, fibers, adapter, lead, workflowEvents }
-}
-
-const META = {
-  name: 'jobs-bridge-proof',
-  description: 'Prove the job projection agrees with the workflow event face.',
-} as const
-
-/** Official snapshot cross-field contract (dsh-jobs/src/invariant.ts:17-43), mirrored for observability. */
-function expectOfficialSnapshotShape(snapshot: JobSnapshot): void {
-  const id = String(snapshot.id)
-  expect(id).toMatch(/^team-task-[1-9][0-9]*$/)
-  expect(snapshot.kind).toBe('team-task')
-  expect(snapshot.label.length).toBeGreaterThan(0)
-  expect(Number.isSafeInteger(snapshot.startedAt)).toBe(true)
-  expect(snapshot.startedAt).toBeGreaterThanOrEqual(0)
-  expect(snapshot.ownerSession).toBeUndefined()
-  const terminal = ['completed', 'killed', 'failed'].includes(snapshot.status)
-  expect(terminal).toBe(snapshot.finishedAt !== undefined)
-  if (snapshot.finishedAt !== undefined) {
-    expect(snapshot.finishedAt).toBeGreaterThanOrEqual(snapshot.startedAt)
-  }
 }
 
 describe('caller-scoped Team jobs projection', () => {
@@ -313,9 +278,8 @@ return { out }`,
         expect(registry).toBeInstanceOf(LocalJobRegistry)
         const controller = registry.attachController('default-jobs-proof')
         const other = tree.ctx.agentLoop.create(SessionId(`jobs-default-other-${String(jobsBridge)}`), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'other') })
-        const run = () => ({ cancel: () => {}, done: Promise.resolve({ status: 'completed' as const, output: 'official output' }) })
-        const unowned = registry.start({ kind: 'bash', label: 'official unowned', run })
-        const owned = registry.start({ kind: 'bash', label: 'official owned', owner: tree.lead, run })
+        const unowned = registry.start({ kind: 'bash', label: 'official unowned', run: completedJobRun })
+        const owned = registry.start({ kind: 'bash', label: 'official owned', owner: tree.lead, run: completedJobRun })
         expect(registry.list()).toEqual([expect.objectContaining({ id: unowned })])
         expect(registry.list()[0]).not.toHaveProperty('ownerSession')
         expect(registry.list(tree.lead)).toEqual(expect.arrayContaining([expect.objectContaining({ id: unowned }), expect.objectContaining({ id: owned, ownerSession: tree.lead.id })]))
@@ -337,8 +301,8 @@ return { out }`,
         { provider: 'mock', model: 'mock' },
         { cwd: join(sandbox, 'workspace-b') },
       )
-      await createCancelledTask(tree, tree.lead, 'jobs-scope-member-a', 'A only label', 'A private attempt diagnostic')
-      await createCancelledTask(tree, rootB, 'jobs-scope-member-b', 'B only label', 'B private attempt diagnostic')
+      await createCancelledTask(tree, tree.lead, 'jobs-scope-member-a', 'A only label', 'A private attempt diagnostic', true)
+      await createCancelledTask(tree, rootB, 'jobs-scope-member-b', 'B only label', 'B private attempt diagnostic', true)
       const jobs = tree.ctx.agentSwarm.jobsBridge!
 
       const aRows = jobs.list(tree.lead)
@@ -371,6 +335,74 @@ return { out }`,
         .toThrowError(expect.objectContaining({ code: 'TEAM_JOBS_CALLER_REQUIRED' }))
       const stale = { ...tree.lead } as MountedTree['lead']
       expect(() => jobs.list(stale)).toThrowError(expect.objectContaining({ code: 'TEAM_JOBS_CALLER_REQUIRED' }))
+    } finally {
+      for (const fiber of tree.fibers.toReversed()) await fiber.dispose()
+    }
+  })
+
+  it('matches requireReadMembership across every caller authorization boundary', { timeout: 60_000 }, async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-jobs-auth-matrix-'))
+    sandboxes.push(sandbox)
+    const tree = await mountTree(sandbox, { submit: false, workflowBridge: false, jobsBridge: true })
+    try {
+      const root = tree.lead
+      const sameScope = (id: string) => tree.ctx.agentLoop.create(SessionId(id), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+      const otherScope = tree.ctx.agentLoop.create(SessionId('auth-other-scope'), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'other-workspace') })
+      const activeMember = sameScope('auth-active-member')
+      const archivedCaptain = sameScope('auth-archived-captain')
+      const archivedMember = sameScope('auth-archived-member')
+      const precedence = sameScope('auth-active-precedence')
+      const precedenceCaptain = sameScope('auth-precedence-captain')
+      const ambiguousMember = sameScope('auth-ambiguous-member')
+      const ambiguousCaptainA = sameScope('auth-ambiguous-captain-a')
+      const ambiguousCaptainB = sameScope('auth-ambiguous-captain-b')
+      const archivedAmbiguous = sameScope('auth-archived-ambiguous')
+
+      await createCancelledTask(tree, root, activeMember.id, 'active-captain-member', 'active diagnostic')
+      await createCancelledTask(tree, archivedCaptain, archivedMember.id, 'archived-captain', 'archived diagnostic', true)
+      await createCancelledTask(tree, precedence, 'auth-precedence-old-member', 'archived-before-active', 'old diagnostic', true)
+      await createCancelledTask(tree, precedenceCaptain, precedence.id, 'active-wins', 'new diagnostic')
+      await createCancelledTask(tree, ambiguousCaptainA, ambiguousMember.id, 'ambiguous-active-a', 'a diagnostic')
+      await createCancelledTask(tree, ambiguousCaptainB, ambiguousMember.id, 'ambiguous-active-b', 'b diagnostic')
+      await createCancelledTask(tree, archivedAmbiguous, 'auth-archived-member-1', 'archived-ambiguous-a', 'a diagnostic', true)
+      await createCancelledTask(tree, archivedAmbiguous, 'auth-archived-member-2', 'archived-ambiguous-b', 'b diagnostic', true)
+      await createCancelledTask(tree, otherScope, 'auth-other-scope-member', 'other-scope', 'other diagnostic')
+      const jobs = tree.ctx.agentSwarm.jobsBridge!
+
+      // active captain and active member share exactly one current Team.
+      expect(jobs.list(root).map(job => job.label)).toEqual(['active-captain-member'])
+      expect(jobs.list(activeMember).map(job => job.label)).toEqual(['active-captain-member'])
+      // archived captains retain terminal read access; archived members do not.
+      expect(jobs.list(archivedCaptain).map(job => job.label)).toEqual(['archived-captain'])
+      expect(() => jobs.list(archivedMember)).toThrowError(expect.objectContaining({ code: 'TEAM_NOT_JOINED' }))
+      // Active membership takes precedence over a captained archived Team.
+      expect(jobs.list(precedence).map(job => job.label)).toEqual(['active-wins'])
+      expect(() => jobs.list(ambiguousMember)).toThrowError(expect.objectContaining({ code: 'TEAM_MEMBERSHIP_AMBIGUOUS' }))
+      expect(() => jobs.list(archivedAmbiguous)).toThrowError(expect.objectContaining({ code: 'TEAM_MEMBERSHIP_AMBIGUOUS' }))
+      // Same-workspace Team separation and a distinct workspace stay isolated.
+      expect(jobs.list(precedenceCaptain).map(job => job.label)).toEqual(['active-wins'])
+      expect(jobs.list(otherScope).map(job => job.label)).toEqual(['other-scope'])
+      expect(JSON.stringify(jobs.list(root))).not.toContain('other-scope')
+    } finally {
+      for (const fiber of tree.fibers.toReversed()) await fiber.dispose()
+    }
+  })
+
+  it('stops admission at dispose and never refills its cleared derived view', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-jobs-dispose-'))
+    sandboxes.push(sandbox)
+    const tree = await mountTree(sandbox, { submit: false, workflowBridge: false, jobsBridge: true })
+    try {
+      await createCancelledTask(tree, tree.lead, 'dispose-member', 'dispose-before', 'dispose diagnostic', true)
+      const jobs = tree.ctx.agentSwarm.jobsBridge!
+      expect(jobs.list(tree.lead)).toHaveLength(1)
+      await jobs.dispose()
+      expect(jobs.list(tree.lead)).toEqual([])
+      expect(() => jobs.list(undefined as unknown as MountedTree['lead']))
+        .toThrowError(expect.objectContaining({ code: 'TEAM_JOBS_CALLER_REQUIRED' }))
+      await createCancelledTask(tree, tree.lead, 'dispose-member-2', 'dispose-after', 'post-dispose diagnostic', true)
+      expect(jobs.list(tree.lead)).toEqual([])
+      await jobs.dispose()
     } finally {
       for (const fiber of tree.fibers.toReversed()) await fiber.dispose()
     }

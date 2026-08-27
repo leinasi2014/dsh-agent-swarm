@@ -54,9 +54,13 @@ Agent identity fails `TEAM_JOBS_CALLER_REQUIRED` before any snapshot is exposed.
 
 ## Verification
 
-Focused composition tests create active Teams in two different workspace roots
-in one process, claim work in each, and prove A's caller and model tool only
-see A. They also prove missing/stale callers fail and a single Team's existing
+Focused projection-composition tests exercise the full `requireReadMembership`
+matrix directly: active captain and member, archived captain, archived-member
+rejection, active-over-archived precedence, and both active and archived-captain
+ambiguity. They create distinct Teams in one workspace and in two workspace
+roots, then prove each caller sees only its authorized Team. They also prove
+missing/stale callers fail, disposal clears the view without later refills while
+still validating caller identity first, and a single Team's existing
 read behaviour still returns its task job. Typecheck and the focused jobs
 reader/bridge tests provide author evidence. The former official jobs invariant
 composition is intentionally removed: it verifies a Provider contract this

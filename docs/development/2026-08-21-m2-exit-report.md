@@ -1,7 +1,6 @@
 # M2 出口报告 — 官方 Workflow/Jobs 编排（2026-08-21）
 
-> Superseded for the Jobs claim by FP-JOBS-OWNER-01 (`536a00c` QA failure,
-> successor pending): the Team task view is not an official `JobRegistry`
+> Superseded for the Jobs claim: the Team task view is not an official `JobRegistry`
 > Provider and does not mount `ctx.jobs`. This historical exit evidence must
 > not be used to claim official Jobs integration.
 

@@ -136,10 +136,10 @@ These capabilities are target design. Current 0.1 has not earned D0-D4 readiness
 
 ### Later official integrations
 
-1. Add a `ctx.workflowEngine`/`ctx.jobs` bridge with explicit orchestration ownership, cancellation and event linkage after M1 authority is stable.
+1. Keep the official `ctx.workflowEngine` bridge separate. A future `ctx.jobs` integration requires either an owner-capable producer Provider or an upstream scoped-read seam; it must not mount `TeamJobProjection` as `ctx.jobs`.
 2. CLOSED M4-1 (issue #127): `ctx.tokenMeter` projection semantics are characterized (`docs/09` §1) and the Option B boundary keeps the event-sequence ledger as the single measurement; an official-face adapter returns only under the registered per-event-attribution precondition.
 3. Add command checks, Reviewer Agent and human approval Providers; manual captain acceptance should remain a visibly configured policy, not an implied security verifier.
-4. After M1D, run D1 single-writer dogfood; after Workflow/Jobs, implement the M3 stable-control/Worktree/review/acceptance vertical before allowing parallel self-development.
+4. After M1D, run D1 single-writer dogfood; after Workflow and observability, implement the M3 stable-control/Worktree/review/acceptance vertical before allowing parallel self-development. Any official Jobs work needs its own owner-contract decision.
 
 ### P2 product parity
 

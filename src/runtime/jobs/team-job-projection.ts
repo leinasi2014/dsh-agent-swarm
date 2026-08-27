@@ -117,8 +117,9 @@ export class TeamJobProjection {
    * selected; a process-global list is deliberately unavailable.
   */
   list(caller: Agent): JobSnapshot[] {
-    const { scope, teamId } = this.authorize(caller)
+    this.requireLiveCaller(caller)
     if (this.closing) return []
+    const { scope, teamId } = this.authorize(caller)
     return [...this.records.values()]
       .filter(job => job.scope === scope && job.teamId === teamId)
       .map(job => this.snapshot(job))
@@ -183,13 +184,16 @@ export class TeamJobProjection {
   }
 
   /** Derive one Team read authority from an exact live Agent identity. */
-  private authorize(caller: Agent | undefined): { scope: TeamScope; teamId: string } {
+  private requireLiveCaller(caller: Agent | undefined): asserts caller is Agent {
     if (caller === undefined || this.ctx.agents.get(SessionId(caller.id)) !== caller) {
       throw new TeamDomainError(
         'the jobs projection requires the exact live Agent caller; anonymous or stale callers are not authorized',
         'TEAM_JOBS_CALLER_REQUIRED',
       )
     }
+  }
+
+  private authorize(caller: Agent): { scope: TeamScope; teamId: string } {
     const scope = this.runtime.scopeOf(caller)
     const teams = [...this.teams.entries()]
       .filter(([key]) => key.startsWith(`${scope}\n`))

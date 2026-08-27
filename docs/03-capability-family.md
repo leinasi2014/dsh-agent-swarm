@@ -54,7 +54,7 @@ dsh-agent-swarm                         recommended Bundle/composition
   ├─ dsh-team-domain-official           future official-agent-team adapter
   ├─ dsh-team-orchestrator              TaskRun/fencing + mode ownership
   ├─ dsh-team-scheduler-*               adaptive policy Providers
-  ├─ dsh-team-workflow-bridge           official Workflow/Jobs Consumer
+  ├─ dsh-team-workflow-bridge           official Workflow bridge + private Team jobs read view
   ├─ dsh-team-budget                    policy + Token Meter adapter
   ├─ dsh-team-review-*                  command/Agent/human Providers
   ├─ dsh-team-workspace-*               lease/remote execution Providers
