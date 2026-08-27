@@ -1,5 +1,11 @@
 # M2-2 design note — Team 桥 JobRegistry + 只读状态投影 (2026-08-21)
 
+> Superseded for the public jobs face by
+> `2026-08-27-jobs-scope-owner-fix-design.md`: the rc.2 owner/controller and
+> lifecycle contract proved that a read-only Team task derivation must not be
+> mounted as an official `JobRegistry` Provider. The historical mapping table
+> remains useful only for the internal `JobSnapshot` shape.
+
 状态：issue #76 实现设计（同 PR 交付）。证据基线：官方 DSH `141eb6fef83422698aef7a981029e843e8161534`（rc.8，本地 checkout 逐文件核对；引用省略前缀 `packages/`，官方行号来自 sparse checkout 源文件）；本仓 `main @ 9fbc8e1`（含 #75）；#75 先例：`2026-08-21-m2a-workflow-bridge-design.md`（隔离域注册模式、overlay 域决策、fail-closed 纪律）。
 
 ## 1. 官方 JobRegistry 契约逐项分析

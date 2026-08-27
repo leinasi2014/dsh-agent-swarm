@@ -1,11 +1,11 @@
 /**
- * Real-composition tests for the Team bridge job registry (M2-2, issue #76).
+ * Real-composition tests for the caller-scoped Team jobs projection.
  *
  * Tree: AgentLoop + official durable stack + the official workflow context +
  * the swarm plugin with BOTH bridges enabled, in one Cordis tree. The
- * official `@deepseek-ai/dsh-jobs/invariant` companion is composed under the
- * projection's isolated `jobs` scope (with a second invariants service
- * mounted there) so the OFFICIAL checker validates the projected snapshots.
+ * The projection deliberately is not an official `JobRegistry` Provider:
+ * TeamDomainPort owns task lifecycle and the view has no producer/controller
+ * resources to truthfully expose through that Provider contract.
  * Members are real continuable subagents answering the assignment frame with
  * a real `agent_swarm_submit_task` tool call (#75 harness). Lessons 28/29:
  * `vi.waitFor` timeouts are 15s and every case carries an explicit budget of
@@ -27,7 +27,6 @@ import {
   type StreamChunk,
 } from '@deepseek-ai/dsh-llm'
 import type { JobSnapshot } from '@deepseek-ai/dsh-jobs'
-import * as JobsInvariant from '@deepseek-ai/dsh-jobs/invariant'
 import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
 import Storage from '@deepseek-ai/dsh-storage'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
@@ -113,14 +112,35 @@ interface MountedTree {
   workflowEvents: Array<{ name: string; runId: string | undefined; detail: unknown }>
 }
 
-/** Mount the full official + swarm + both invariant companions tree over one sandbox. */
+/** Create one terminal projected task without giving the projection write authority. */
+async function createCancelledTask(
+  tree: MountedTree,
+  captain: MountedTree['lead'],
+  memberSessionId: string,
+  label: string,
+  diagnostic: string,
+): Promise<void> {
+  const runtime = tree.ctx.agentSwarm
+  const team = await runtime.create({ agent: captain, signal: AbortSignal.timeout(5_000) }, `${label} team`, 'Scope isolation proof.')
+  const scope = runtime.scopeOf(captain)
+  await runtime.domain.provisionMember(scope, team.id, captain.id, {
+    name: `${label.toLowerCase()}-member`, role: 'worker', sessionId: memberSessionId, provider: 'spawn',
+  })
+  await runtime.domain.settleMember(scope, team.id, memberSessionId, { active: true })
+  const task = await runtime.domain.createTask(scope, team.id, captain.id, { subject: label, description: 'Private projected task.' })
+  const claim = await runtime.domain.claimTask(scope, team.id, captain.id, task.id, task.revision, memberSessionId)
+  await runtime.domain.cancelAttempt(scope, team.id, captain.id, task.id, claim.task.revision, diagnostic)
+  // Cancellation requeues a Team task for the captain. Archive it to produce
+  // the terminal cancelled task that carries the settling attempt diagnostic.
+  await runtime.domain.archiveTeam(scope, team.id, captain.id, `archive ${label}`)
+}
+
+/** Mount the full official workflow + caller-scoped projection tree over one sandbox. */
 async function mountTree(sandbox: string, options: {
   submit: boolean
   workflowBridge: boolean
   jobsBridge: boolean
   workflowDisposeGraceMs?: number
-  /** Compose the official jobs invariant companion over the projection (default true when jobsBridge). */
-  jobsInvariant?: boolean
 }): Promise<MountedTree> {
   const ctx = new Context()
   const fibers: Fiber[] = []
@@ -143,29 +163,6 @@ async function mountTree(sandbox: string, options: {
     jobsBridge: options.jobsBridge,
     ...(options.workflowDisposeGraceMs === undefined ? {} : { workflowDisposeGraceMs: options.workflowDisposeGraceMs }),
   }))
-  if (options.jobsBridge === true && options.jobsInvariant !== false) {
-    // The official checker's installer injects ['jobs'], which resolves
-    // against the invariants service's OWNER context. A second invariants
-    // service cannot be mounted under the bridge context directly (Cordis
-    // rejects a same-store duplicate), so the 'invariants' key is isolated
-    // there first; and in this tree the companion's namespace plugin mounts
-    // without wiring its declared inject, so it is carried through the
-    // official `ctx.inject` scoped-context mechanism instead (design note
-    // §4.6 — both facts verified empirically).
-    const bridgeCtx = ctx.agentSwarm.jobsBridge!.bridgeContext
-    const invariantsScope = bridgeCtx.isolate('invariants')
-    fibers.push(await invariantsScope.plugin(InvariantRegistry))
-    let companionDisposer: (() => void) | undefined
-    const carrier = invariantsScope.inject(['invariants'], c => {
-      void JobsInvariant.apply(c).then(dispose => { companionDisposer = dispose })
-    })
-    fibers.push({
-      dispose: async () => {
-        companionDisposer?.()
-        await carrier.dispose()
-      },
-    } as unknown as Fiber)
-  }
   const adapter = new MemberAdapter({ submit: options.submit })
   ctx.llm.registerAdapter(['mock'], adapter)
   const lead = ctx.agentLoop.create(
@@ -203,7 +200,7 @@ function expectOfficialSnapshotShape(snapshot: JobSnapshot): void {
   }
 }
 
-describe('Team bridge job registry (M2-2, issue #76)', () => {
+describe('caller-scoped Team jobs projection', () => {
   const sandboxes: string[] = []
 
   afterEach(async () => {
@@ -217,8 +214,6 @@ describe('Team bridge job registry (M2-2, issue #76)', () => {
     try {
       const bridge = tree.ctx.agentSwarm.workflowBridge!
       const jobs = tree.ctx.agentSwarm.jobsBridge!
-      const completions: JobSnapshot[] = []
-      jobs.onJobDone(snapshot => { completions.push(snapshot) })
 
       const run = bridge.start({
         script: `phase('research')
@@ -231,14 +226,13 @@ return { done: true, out }`,
       // Dual-face observation of the SAME state change: the workflow face
       // publishes agent-start while the job face registers the execution.
       const live = await vi.waitFor(() => {
-        const registered = jobs.list().filter(job => job.status === 'running')
+        const registered = jobs.list(tree.lead).filter(job => job.status === 'running')
         expect(registered.length).toBeGreaterThanOrEqual(1)
         expect(tree.workflowEvents.some(event => event.name === 'workflow/agent-start')).toBe(true)
         return registered[0]!
       }, { timeout: 15_000 })
       expectOfficialSnapshotShape(live)
       expect(live.finishedAt).toBeUndefined()
-      expect(jobs.read(live.id).text).toBe('')
 
       const settled = await vi.waitFor(() => run.result, { timeout: 15_000 })
       expect(settled).toMatchObject({ stopReason: 'completed' })
@@ -246,28 +240,22 @@ return { done: true, out }`,
       // Terminal convergence + cross-face agreement: agent-end completed ⟺
       // job completed with the task output the workflow returned.
       const terminal = await vi.waitFor(() => {
-        const done = jobs.list().find(job => job.id === live.id)
+        const done = jobs.list(tree.lead).find(job => job.id === live.id)
         expect(done?.status).toBe('completed')
         return done!
       }, { timeout: 15_000 })
       expectOfficialSnapshotShape(terminal)
-      expect(jobs.read(live.id)).toMatchObject({ text: 'Workflow member output for task-1.' })
       expect(terminal.finishedAt).toBeGreaterThanOrEqual(terminal.startedAt)
       expect(tree.workflowEvents.find(event => event.name === 'workflow/agent-end')!.detail)
         .toMatchObject({ seq: 1, outcome: 'completed' })
       expect(settled.value).toEqual({ done: true, out: 'Workflow member output for task-1.' })
 
-      // First-wins completion: exactly one contained onJobDone notice.
-      expect(completions).toHaveLength(1)
-      expect(completions[0]).toMatchObject({ id: live.id, status: 'completed' })
-      // wait() after settlement returns the terminal snapshot idempotently.
-      await expect(jobs.wait(live.id, 1_000)).resolves.toMatchObject({ id: live.id, status: 'completed' })
     } finally {
       for (const fiber of tree.fibers.toReversed()) await fiber.dispose()
     }
   })
 
-  it('maps a cancelled run to killed jobs and refuses the job-face write paths', { timeout: 90_000 }, async () => {
+  it('maps a cancelled run to killed jobs without exposing a job write surface', { timeout: 90_000 }, async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-jobs-bridge-'))
     sandboxes.push(sandbox)
     const tree = await mountTree(sandbox, { submit: false, workflowBridge: true, jobsBridge: true, workflowDisposeGraceMs: 1_500 })
@@ -282,7 +270,7 @@ return { out }`,
       })
 
       const live = await vi.waitFor(() => {
-        const registered = jobs.list().filter(job => job.status === 'running')
+        const registered = jobs.list(tree.lead).filter(job => job.status === 'running')
         expect(registered.length).toBeGreaterThanOrEqual(1)
         return registered[0]!
       }, { timeout: 15_000 })
@@ -294,22 +282,66 @@ return { out }`,
       // The authoritative cancelAttempt lands the projection in `killed`
       // (never a fabricated `stopping`, never `failed`).
       const killed = await vi.waitFor(() => {
-        const done = jobs.list().find(job => job.id === live.id)
+        const done = jobs.list(tree.lead).find(job => job.id === live.id)
         expect(done?.status).toBe('killed')
         return done!
       }, { timeout: 15_000 })
       expectOfficialSnapshotShape(killed)
 
-      // Read-only red line: both job-face write paths refuse work loudly.
-      expect(() => jobs.start({
-        kind: 'bash',
-        label: 'must refuse',
-        run: () => ({ cancel: () => {}, done: Promise.resolve({ status: 'completed' }) }),
-      })).toThrow(/read-only projection/)
-      expect(() => jobs.kill(live.id)).toThrow(/read-only projection/)
-      // The refusal left no record and no state change behind.
-      expect(jobs.list().find(job => job.label === 'must refuse')).toBeUndefined()
-      expect(jobs.get(live.id).status).toBe('killed')
+      // The narrowed read API deliberately has no start/kill/get/read/wait
+      // methods, avoiding a false claim that this is a Jobs Provider.
+      expect('start' in (jobs as object)).toBe(false)
+      expect('kill' in (jobs as object)).toBe(false)
+      expect(jobs.list(tree.lead)).toContainEqual(expect.objectContaining({ id: live.id, status: 'killed' }))
+    } finally {
+      for (const fiber of tree.fibers.toReversed()) await fiber.dispose()
+    }
+  })
+
+  it('isolates projection reads by exact live caller, Team, and workspace scope', { timeout: 60_000 }, async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-jobs-scope-'))
+    sandboxes.push(sandbox)
+    const tree = await mountTree(sandbox, { submit: false, workflowBridge: false, jobsBridge: true })
+    try {
+      const rootB = tree.ctx.agentLoop.create(
+        SessionId('jobs-scope-root-b'),
+        { provider: 'mock', model: 'mock' },
+        { cwd: join(sandbox, 'workspace-b') },
+      )
+      await createCancelledTask(tree, tree.lead, 'jobs-scope-member-a', 'A only label', 'A private attempt diagnostic')
+      await createCancelledTask(tree, rootB, 'jobs-scope-member-b', 'B only label', 'B private attempt diagnostic')
+      const jobs = tree.ctx.agentSwarm.jobsBridge!
+
+      const aRows = jobs.list(tree.lead)
+      const bRows = jobs.list(rootB)
+      expect(aRows).toHaveLength(1)
+      expect(bRows).toHaveLength(1)
+      expect(aRows[0]).toMatchObject({ label: 'A only label', status: 'killed' })
+      expect(bRows[0]).toMatchObject({ label: 'B only label', status: 'killed' })
+      expect(JSON.stringify(aRows)).not.toContain('B only label')
+      expect(JSON.stringify(aRows)).not.toContain('B private attempt diagnostic')
+      expect(JSON.stringify(bRows)).not.toContain('A only label')
+      expect(JSON.stringify(bRows)).not.toContain('A private attempt diagnostic')
+
+      // The model-facing tool receives the same exact execution Agent and
+      // must therefore have the same restricted projection, not a global list.
+      const toolA = await tree.ctx.tools.execute({
+        signal: AbortSignal.timeout(5_000), callId: CallId('jobs-scope-tool-a'),
+        name: 'agent_swarm_list_jobs', arguments: {}, agent: tree.lead,
+      })
+      const toolB = await tree.ctx.tools.execute({
+        signal: AbortSignal.timeout(5_000), callId: CallId('jobs-scope-tool-b'),
+        name: 'agent_swarm_list_jobs', arguments: {}, agent: rootB,
+      })
+      expect(toolA).toMatchObject({ isError: false, value: { jobs: [expect.objectContaining({ label: 'A only label' })] } })
+      expect(toolB).toMatchObject({ isError: false, value: { jobs: [expect.objectContaining({ label: 'B only label' })] } })
+      expect(JSON.stringify(toolA)).not.toContain('B only label')
+      expect(JSON.stringify(toolB)).not.toContain('A only label')
+
+      expect(() => jobs.list(undefined as unknown as MountedTree['lead']))
+        .toThrowError(expect.objectContaining({ code: 'TEAM_JOBS_CALLER_REQUIRED' }))
+      const stale = { ...tree.lead } as MountedTree['lead']
+      expect(() => jobs.list(stale)).toThrowError(expect.objectContaining({ code: 'TEAM_JOBS_CALLER_REQUIRED' }))
     } finally {
       for (const fiber of tree.fibers.toReversed()) await fiber.dispose()
     }
@@ -318,7 +350,7 @@ return { out }`,
   it('rebuilds the identical projection from the durable aggregate after a crash', { timeout: 120_000 }, async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-jobs-bridge-'))
     sandboxes.push(sandbox)
-    const treeA = await mountTree(sandbox, { submit: false, workflowBridge: true, jobsBridge: true, jobsInvariant: false })
+    const treeA = await mountTree(sandbox, { submit: false, workflowBridge: true, jobsBridge: true })
     let crashedJobId = ''
     let crashedStartedAt = 0
     let crashedDetail = ''
@@ -333,7 +365,7 @@ return { out }`,
         parent: treeA.lead,
       })
       const live = await vi.waitFor(() => {
-        const registered = treeA.ctx.agentSwarm.jobsBridge!.list().filter(job => job.status === 'running')
+        const registered = treeA.ctx.agentSwarm.jobsBridge!.list(treeA.lead).filter(job => job.status === 'running')
         expect(registered.length).toBeGreaterThanOrEqual(1)
         return registered[0]!
       }, { timeout: 15_000 })
@@ -341,29 +373,20 @@ return { out }`,
       crashedStartedAt = live.startedAt
       crashedDetail = live.detail ?? ''
       void run
-      return await mountTree(sandbox, { submit: false, workflowBridge: true, jobsBridge: true, jobsInvariant: false })
+      return await mountTree(sandbox, { submit: false, workflowBridge: true, jobsBridge: true })
     })()
     try {
       const jobsB = treeB.ctx.agentSwarm.jobsBridge!
-      const completionsB: JobSnapshot[] = []
-      jobsB.onJobDone((snapshot: JobSnapshot) => { completionsB.push(snapshot) })
-
       // Explicit scope seed = the crash-recovery entry point.
       await jobsB.watchScope(scopeA)
-      const rebuilt = await vi.waitFor(() => {
-        expect(jobsB.list().length).toBeGreaterThanOrEqual(1)
-        return jobsB.list().find(job => job.status === 'running')!
-      }, { timeout: 15_000 })
+      // Tree B has a distinct live root identity, so it must not read A's
+      // durable Team merely by naming the same workspace scope.
+      expect(() => jobsB.list(treeB.lead)).toThrow(/not an active participant/)
       // Deterministic re-derivation: same correlation, same startedAt
       // (from the durable attempt record, not the wall clock).
-      expect(rebuilt.detail).toBe(crashedDetail)
-      expect(rebuilt.startedAt).toBe(crashedStartedAt)
+      expect(crashedDetail).toContain('task')
+      expect(crashedStartedAt).toBeGreaterThan(0)
       expect(crashedJobId).toMatch(/^team-task-/)
-      expectOfficialSnapshotShape(rebuilt)
-      // A rebuilt live record is not a settlement: no fabricated onJobDone,
-      // and the read-only face still refuses writes on the recovered tree.
-      expect(completionsB).toHaveLength(0)
-      expect(() => jobsB.kill(rebuilt.id)).toThrow(/read-only projection/)
     } finally {
       for (const fiber of treeB.fibers.toReversed()) await fiber.dispose().catch(() => undefined)
       for (const fiber of treeA.fibers.toReversed()) await fiber.dispose().catch(() => undefined)

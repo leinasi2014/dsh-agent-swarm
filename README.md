@@ -59,7 +59,7 @@ captain（插件驱动）：
 - **持久邮箱**：queued-before-delivered、按消息 ID 目标侧去重、quiet/wakeup 两种语义（wakeup 的 `delivered` 仅在模型可见后提交，#52/D1）；
 - **预算**：token/request/retry/deadline 四限 + 官方对齐的完整计费 token 计量（seq 游标幂等，插件账本为唯一计量路径，#127 边界声明）；
 - **调度**：事件驱动（idle 边沿/任务图变更/预算释放）、搁浅自愈（live-idle 重试、cold owner 证据暴露）、可替换 Scheduler Provider；
-- **编排桥**：官方 `WorkflowEngine`/`JobRegistry` 的 Team 桥（isolate 域注册，run overlay 为唯一 run 真相）、显式 `adaptive|workflow` 模式 + 单 owner 纪律（#77）；
+- **编排与观察**：官方 `WorkflowEngine` 的隔离域 Team 桥（run overlay 为唯一 run 真相）与按 live caller/Team scope 限定的任务只读投影（不注册或 shadow `ctx.jobs`）；显式 `adaptive|workflow` 模式 + 单 owner 纪律（#77）；
 - **执行根**：per-attempt worktree 隔离 + attemptId 围栏 + 崩溃泄漏对账（#100）；
 - **成员档案读取**：`agent_swarm_list_members` 逐页只读 Team roster 与官方 child Session descriptor/header；不恢复子成员、不复制配置到 Team，也不暴露 persona、会话 id 或有效权限；
 - **自托管控制面**：候选冻结→验收→晋升→回滚的外部 promoter 全链（P0–P7 演练实证，#102/#122 加固）。

@@ -151,16 +151,14 @@ export interface Config {
   /** Bridge run cancellation/disposal settlement grace in ms (default 5000). */
   workflowDisposeGraceMs?: number
   /**
-   * Mount the Team bridge job registry (M2-2, issue #76): an implementation
-   * of the official abstract `JobRegistry` whose records are a READ-ONLY
-   * projection of the authoritative Team task board (derived from
-   * post-durability `domain/changed` snapshots), registered in an isolated
-   * `jobs` service scope (never over the default-scope official registry).
-   * The job face refuses `start`/`kill` — creation and cancellation stay on
-   * the Team face. Default false: when disabled no bridge service or
-   * listener exists; the `agent_swarm_list_jobs` read tool (issue #93) stays
-   * registered on the stable tool surface and fails that call with the
-   * structured `TEAM_JOBS_BRIDGE_DISABLED` naming this config.
+   * Mount the caller-scoped Team jobs read projection. It is not an official
+   * `JobRegistry` Provider: a derived task view cannot truthfully own the
+   * producer admission, cancellation, controller, or teardown contract.
+   * It therefore never registers or shadows `ctx.jobs`; it derives snapshots
+   * from post-durability `domain/changed` records and requires a live,
+   * authorized Team caller for every read. Default false: when disabled no
+   * projection listener exists; the stable `agent_swarm_list_jobs` tool fails
+   * with `TEAM_JOBS_BRIDGE_DISABLED` naming this config.
    */
   jobsBridge?: boolean
   /**
@@ -502,15 +500,12 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     ctx.effect(() => () => bridge.dispose(), 'agent-swarm: workflow bridge disposal')
   }
 
-  // M2-2 (issue #76): the Team bridge job registry — a read-only projection
-  // of the authoritative task board onto the official `ctx.jobs` seam,
-  // registered in an isolated `jobs` service scope (never over the
-  // default-scope official registry). Independent of the workflow bridge:
-  // it projects every watched workspace scope, not only workflow-driven
-  // Teams. Registered after the runtime disposal effect so Cordis's LIFO
-  // teardown retires the projection before the aggregate store closes.
+  // Caller-scoped, read-only task projection. It deliberately is not mounted
+  // as `ctx.jobs`: TeamDomainPort owns task lifecycle, while JobRegistry owns
+  // producer/controller/teardown semantics this view cannot provide. It is
+  // independent of the workflow bridge and retires before the aggregate store.
   if (config.jobsBridge === true) {
-    const projection = new TeamJobProjection(ctx.isolate('jobs'), runtime)
+    const projection = new TeamJobProjection(ctx, runtime)
     runtime.jobsBridge = projection
     await projection.activate()
     ctx.effect(() => () => projection.dispose(), 'agent-swarm: jobs bridge disposal')

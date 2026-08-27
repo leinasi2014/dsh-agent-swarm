@@ -3,7 +3,7 @@
  * from issue #15 / docs/04 §8e): fixed-size Team counters and the paginated,
  * filtered task row list with evidence-only stranded hints. Issue #93 adds
  * the jobs reader: the same filtered/paginated compact-JSON contract over the
- * #76 TeamJobProjection (never over the authoritative domain directly). The
+ * caller-scoped TeamJobProjection (never over the authoritative domain directly). The
  * memory reader is a bounded projection of the same authoritative aggregate.
  */
 import type { Context } from '@deepseek-ai/cordis'
@@ -13,6 +13,7 @@ import { expectDomain, TeamDomainError } from '../domain/error.js'
 import { taskHoldEvidence } from '../domain/team-domain-budget.js'
 import type { TeamMemoryEntry, TeamTask } from '../domain/types.js'
 import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
+import { requireAgent } from '../runtime/authority.js'
 import { compactJsonOutput, register } from './shared.js'
 
 /** One compact task row (issue #15): the `team_task_list` view over our CAS fields. */
@@ -339,9 +340,9 @@ const JOB_LIST_VALUE_SCHEMA = {
 
 /**
  * `agent_swarm_list_jobs` (issue #93): the model-facing read face over the
- * #76 TeamJobProjection. Reads ONLY projected snapshots (`list()` — the pure
- * read that never marks a record `reported`), never the authoritative domain
- * directly; projection/board consistency is the #76 dual-face tests' charge.
+ * caller-scoped TeamJobProjection. Reads ONLY projected snapshots and passes
+ * the exact `exec.agent` identity; it never falls back to a process-wide list
+ * or to the authoritative domain directly.
  * Filters follow the projected record shape: `kind` and `status`. No team
  * filter exists because the official `JobSnapshot` carries no team identity —
  * the task correlation rides `detail` by design (#76). When the projection is
@@ -361,7 +362,7 @@ export function registerListJobsTool(ctx: Context, runtime: AgentSwarmRuntime): 
       limit: { type: 'integer', description: 'Number of rows, 1 through 100. Defaults to 50.' },
     },
     output: compactJsonOutput(JOB_LIST_VALUE_SCHEMA),
-    async execute(args) {
+    async execute(args, exec) {
       const cursor = args.cursor ?? 0
       const limit = args.limit ?? 50
       expectDomain(Number.isSafeInteger(cursor) && cursor >= 0, 'cursor must be a non-negative safe integer', 'TEAM_INPUT_INVALID')
@@ -373,7 +374,8 @@ export function registerListJobsTool(ctx: Context, runtime: AgentSwarmRuntime): 
           'TEAM_JOBS_BRIDGE_DISABLED',
         )
       }
-      const filtered = projection.list().filter((job: JobSnapshot) =>
+      const caller = requireAgent(exec)
+      const filtered = projection.list(caller).filter((job: JobSnapshot) =>
         (args.kind === undefined || job.kind === args.kind)
         && (args.status === undefined || job.status === args.status))
       const jobs = filtered.slice(cursor, cursor + limit).map((job: JobSnapshot) => ({

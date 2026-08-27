@@ -72,12 +72,9 @@ export class AgentSwarmRuntime extends Service {
   workflowBridge?: TeamBridgeWorkflowEngine
 
   /**
-   * The Team bridge job projection (M2-2, issue #76), attached by plugin
-   * activation when `jobsBridge` is enabled. Registered in an isolated
-   * `jobs` service scope — never over the default-scope official registry —
-   * and strictly read-only over the authoritative aggregate. Absent
-   * (undefined) when the capability is disabled: default behavior is
-   * byte-identical to the pre-bridge plugin.
+   * The caller-scoped Team task read projection, attached when `jobsBridge`
+   * is enabled. It is deliberately not a `ctx.jobs` Provider: it has no
+   * producer or task-lifecycle ownership. Absent (undefined) when disabled.
    */
   jobsBridge?: TeamJobProjection
 
