@@ -55,7 +55,7 @@ describe('R3 native Team Details surface', () => {
     expect(panel.textContent).toContain('Fixture Team'); expect(panel.textContent).toContain('Active')
     expect(document.querySelector('[role="dialog"]')).toBeNull(); expect(document.querySelector('[data-swarm-team-fullscreen]')).toBeNull()
     expect(document.body.innerHTML).toContain('--dsw-alias-bg-layer-1')
-    await act(async () => { [...document.querySelectorAll('button')].find(button => button.textContent === 'Open Captain Chat')?.click(); await Promise.resolve() })
+    await act(async () => { [...document.querySelectorAll('button')].find(button => button.textContent === 'Return to main Chat')?.click(); await Promise.resolve() })
     expect(coordinator.openCaptainChat).toHaveBeenCalledTimes(1)
   })
 
@@ -68,9 +68,10 @@ describe('R3 native Team Details surface', () => {
     expect(alert.textContent).toContain('SWARM_RPC_TARGET_NOT_LIVE')
     // The real error message must be visible inline, not hidden only in a tooltip.
     expect(alert.textContent).toContain('not live')
-    // The inline message is visually bounded: a truncating, nowrap container with the full value in title.
+    // The inline message is visually bounded by the scoped Team Workspace stylesheet.
     const messageSpan = alert.querySelector<HTMLElement>('span[title*="not live"]')!
-    expect(messageSpan.style.textOverflow).toBe('ellipsis'); expect(messageSpan.style.whiteSpace).toBe('nowrap')
+    expect(messageSpan.className).toContain('swarm-team-workspace__error')
+    expect(document.querySelector('style')?.textContent).toContain('text-overflow:ellipsis')
     expect(messageSpan.getAttribute('title')).toBe('SWARM_RPC_TARGET_NOT_LIVE: not live')
     expect(document.querySelectorAll('section')).toHaveLength(0)
     await act(async () => { [...document.querySelectorAll('button')].find(button => button.textContent === 'Retry')?.click() })
@@ -88,16 +89,39 @@ describe('R3 native Team Details surface', () => {
     const secondary = document.querySelector<HTMLElement>('small[title]')!
     // The full authoritative role is preserved for inspection, never truncated/cut.
     expect(secondary.getAttribute('title')).toBe(longRole)
-    // The visible rendering is bounded: a nowrap, ellipsizing block so the panel does not grow unboundedly.
-    expect(secondary.style.whiteSpace).toBe('nowrap'); expect(secondary.style.textOverflow).toBe('ellipsis'); expect(secondary.style.overflow).toBe('hidden'); expect(secondary.style.display).toBe('block')
+    // The visible rendering is bounded by the shared truncation class so the panel does not grow unboundedly.
+    expect(secondary.className).toContain('swarm-team-workspace__truncate')
+    expect(document.querySelector('style')?.textContent).toContain('white-space:nowrap')
   })
 
   it('rerenders the mounted Details body with official locale copy and mapped enums', async () => {
     const coordinator = new FakeCoordinator(); const common = { anchorRef: { current: null }, controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root' }
     const root = createRoot(document.body.appendChild(document.createElement('div'))); mounted.push(root)
     await act(async () => { root.render(<TeamDashboardDetails {...({ ...common, t } as any)} />) })
-    expect(document.body.textContent).toContain('Read-only local Team status for this main Chat.')
+    expect(document.body.textContent).toContain('Read-only Team workspace for this main Chat.')
     await act(async () => { root.render(<TeamDashboardDetails {...({ ...common, t: tZh } as any)} />) })
-    expect(document.body.textContent).toContain('当前主会话所拥有团队的本机只读状态。'); expect(document.body.textContent).toContain('活跃')
+    expect(document.body.textContent).toContain('当前主聊天的只读团队工作区。'); expect(document.body.textContent).toContain('活跃')
+  })
+
+  it('renders the responsive three-column shell and clearly marks unavailable Host fields', async () => {
+    const coordinator = new FakeCoordinator(); coordinator.state = { mode: 'docked', view: 'members', targetSessionId: 'root' }
+    const projection = {
+      ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot,
+      roster: [{ name: 'worker', role: 'Read-only verifier', phase: 'active', createdAt: 1_700_000_000_000 }],
+      tasks: [{ id: 'task-1', revision: 1, subject: 'Check the panel', status: 'in_progress', blockedBy: [], priority: 1, ownerName: 'worker', currentAttemptId: 'attempt-1', createdAt: 1_700_000_000_000, updatedAt: 1_700_000_000_100 }],
+      totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, roster: 1, tasks: 1 },
+    }
+    const populatedState: TeamDashboardState = { ...ready, data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never } }
+    const populated = { getSnapshot: (): TeamDashboardState => populatedState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: populated, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    const columns = document.querySelectorAll('[data-swarm-team-panel] .swarm-team-workspace__column')
+    expect(columns).toHaveLength(3)
+    expect(document.querySelector('style')?.textContent).toContain('grid-template-columns:minmax(156px,.8fr)')
+    expect(document.querySelector('style')?.textContent).toContain('@media (max-width: 900px)')
+    expect(document.querySelector('style')?.textContent).toContain('@media (max-width: 640px)')
+    await act(async () => { [...document.querySelectorAll('button')].find(button => button.textContent?.includes('worker'))?.click() })
+    expect(document.body.textContent).toContain('Not reported by Host')
+    expect(document.body.textContent).toContain('Running')
+    expect(document.querySelector('details')?.open).toBe(false)
   })
 })
