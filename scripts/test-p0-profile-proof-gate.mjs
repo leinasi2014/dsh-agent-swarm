@@ -193,8 +193,10 @@ try {
           surfaces: {
             wideDetailsLease: true, toolHandoff: true, narrowNativeDetailsConcession: true,
             narrowSubtreeMountedHidden: true, noPluginFallbackOverlay: true, samePanelRestored: true,
-            chatReflow: true, localeRerendered: true, disconnectRecovery: true,
+            chatReflow: true, productionDetailsOverflowFree: true, futureLayoutFixture: true,
+            localeRerendered: true, disconnectRecovery: true,
           },
+          geometry: { longTaskRows: { futureSeamFixture: [360, 520, 720].map(requestedWidth => ({ requestedWidth, fixture: { kind: 'read-only-mounted-workspace-clone', outsideOfficialLayout: true, productionMutated: false, removedAfterProbe: true } })), fixtureCleanup: { remainingFixtures: 0 } } },
           requests: [{ method: 'POST', body: { method: 'snapshot' } }],
           faultInjection: { recovered: true, expectedConsoleErrors: ['Failed to load resource: net::ERR_CONNECTION_FAILED'] },
           consoleErrors: [], pageErrors: [], visibleErrors: { activeDashboard: [], initialCaptainChat: [], reloadDashboard: [], reloadCaptainChat: [] },

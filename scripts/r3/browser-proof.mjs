@@ -238,8 +238,8 @@ async function assertWorkspaceFitsDetails(panel, label, geometry) {
 }
 
 /**
- * Real Chromium geometry probe for the Host's maximum legal display names.  It intentionally
- * exercises the rendered Team subtree at 360px, 520px and 720px; jsdom only checks the component seam.
+ * Keep the production Details ASIDE at its actually reachable width. Wider 360/520/720 checks
+ * run only against a read-only clone outside the official layout; they never resize the live panel.
  */
 async function assertLongTaskRowsFitAtWidths(page, panel, geometry) {
   await page.getByRole('button', { name: /^Tasks$/u }).click()
@@ -250,19 +250,30 @@ async function assertLongTaskRowsFitAtWidths(page, panel, geometry) {
   if (JSON.stringify(titles) !== JSON.stringify(expectedAssigneeLabels)) {
     throw new Error(`browser fixture did not expose the expected 64-character owner and target: ${JSON.stringify(titles)}`)
   }
+  const production = await assertWorkspaceFitsDetails(panel, 'productionTaskRows', geometry)
+  if (production.tracks.length !== 1) {
+    throw new Error(`production official Details ASIDE must use its current one-column layout: ${JSON.stringify(production)}`)
+  }
   const results = []
-  try {
-    for (const width of [360, 520, 720]) {
-      const result = await panel.evaluate((root, requestedWidth) => {
+  for (const width of [360, 520, 720]) {
+    const result = await panel.evaluate((root, requestedWidth) => {
+      const sandbox = document.createElement('div')
+      sandbox.dataset.swarmTeamDashboard = 'read-only-browser-fixture'
+      sandbox.dataset.swarmTeamBrowserFixture = 'true'
+      sandbox.style.cssText = `position:fixed; inset:0 auto auto -10000px; inline-size:${String(requestedWidth)}px; block-size:900px; visibility:hidden; pointer-events:none; overflow:visible;`
+      document.body.append(sandbox)
+      try {
         const workspace = root.querySelector('.swarm-team-workspace')
-        const body = root.querySelector('.swarm-team-workspace__body')
-        const columns = root.querySelector('.swarm-team-workspace__columns')
-        const rows = root.querySelector('.swarm-team-workspace__rows')
-        if (!(workspace instanceof HTMLElement) || !(body instanceof HTMLElement) || !(columns instanceof HTMLElement) || !(rows instanceof HTMLElement)) return { missing: true }
-        workspace.style.setProperty('inline-size', `${String(requestedWidth)}px`, 'important')
+        if (!(workspace instanceof HTMLElement)) return { missing: true }
+        const clone = workspace.cloneNode(true)
+        sandbox.append(clone)
+        const body = clone.querySelector('.swarm-team-workspace__body')
+        const columns = clone.querySelector('.swarm-team-workspace__columns')
+        const rows = clone.querySelector('.swarm-team-workspace__rows')
+        if (!(clone instanceof HTMLElement) || !(body instanceof HTMLElement) || !(columns instanceof HTMLElement) || !(rows instanceof HTMLElement)) return { missing: true }
         const containers = [
-          root, workspace, body, columns,
-          ...root.querySelectorAll('.swarm-team-workspace__column'),
+          sandbox, clone, body, columns,
+          ...clone.querySelectorAll('.swarm-team-workspace__column'),
           rows,
           ...rows.querySelectorAll('.swarm-team-workspace__rows > li'),
           ...rows.querySelectorAll('.swarm-team-workspace__row'),
@@ -282,29 +293,32 @@ async function assertLongTaskRowsFitAtWidths(page, panel, geometry) {
         return {
           missing: false,
           requestedWidth,
+          fixture: { kind: 'read-only-mounted-workspace-clone', outsideOfficialLayout: true, productionMutated: false, removedAfterProbe: true },
           tracks: getComputedStyle(columns).gridTemplateColumns.trim().split(/\s+/u).filter(Boolean),
           containers: containers.map(element => ({ name: element.className || element.tagName, clientWidth: element.clientWidth, scrollWidth: element.scrollWidth })),
           leaves,
         }
-      }, width)
-      geometry[`taskRows${String(width)}`] = result
-      results.push(result)
-      if (result.missing) throw new Error(`task-row ${String(width)}px geometry probe did not mount its required subtree`)
-      const overflow = result.containers.find(item => item.scrollWidth > item.clientWidth + 1)
-      if (overflow !== undefined) throw new Error(`task-row ${String(width)}px geometry probe horizontally overflowed: ${JSON.stringify(result)}`)
-      const expectedTracks = width < 720 ? 1 : 3
-      if (result.tracks.length !== expectedTracks) throw new Error(`task-row ${String(width)}px geometry probe used ${String(result.tracks.length)} tracks, expected ${String(expectedTracks)}: ${JSON.stringify(result)}`)
-      const invalidLeaf = result.leaves.find((leaf, index) => leaf.title !== expectedAssigneeLabels[index]
-        || leaf.text !== expectedAssigneeLabels[index]
-        || leaf.width > (leaf.parentWidth ?? 0) + 1
-        || leaf.clientWidth > (leaf.parentClientWidth ?? 0) + 1
-        || leaf.overflow !== 'hidden' || leaf.textOverflow !== 'ellipsis' || leaf.whiteSpace !== 'nowrap')
-      if (invalidLeaf !== undefined) throw new Error(`task-row ${String(width)}px assignee truncation contract failed: ${JSON.stringify(result)}`)
-    }
-  } finally {
-    await panel.evaluate(root => root.querySelector('.swarm-team-workspace')?.style.removeProperty('inline-size'))
+      } finally {
+        sandbox.remove()
+      }
+    }, width)
+    geometry[`taskRowsFixture${String(width)}`] = result
+    results.push(result)
+    if (result.missing) throw new Error(`task-row ${String(width)}px fixture geometry probe did not mount its required subtree`)
+    const overflow = result.containers.find(item => item.scrollWidth > item.clientWidth + 1)
+    if (overflow !== undefined) throw new Error(`task-row ${String(width)}px fixture geometry probe horizontally overflowed: ${JSON.stringify(result)}`)
+    const expectedTracks = width < 720 ? 1 : 3
+    if (result.tracks.length !== expectedTracks) throw new Error(`task-row ${String(width)}px fixture geometry probe used ${String(result.tracks.length)} tracks, expected ${String(expectedTracks)}: ${JSON.stringify(result)}`)
+    const invalidLeaf = result.leaves.find((leaf, index) => leaf.title !== expectedAssigneeLabels[index]
+      || leaf.text !== expectedAssigneeLabels[index]
+      || leaf.width > (leaf.parentWidth ?? 0) + 1
+      || leaf.clientWidth > (leaf.parentClientWidth ?? 0) + 1
+      || leaf.overflow !== 'hidden' || leaf.textOverflow !== 'ellipsis' || leaf.whiteSpace !== 'nowrap')
+    if (invalidLeaf !== undefined) throw new Error(`task-row ${String(width)}px fixture assignee truncation contract failed: ${JSON.stringify(result)}`)
   }
-  return results
+  const remainingFixtures = await page.locator('[data-swarm-team-browser-fixture]').count()
+  if (remainingFixtures !== 0) throw new Error(`future-width fixture cleanup leaked ${String(remainingFixtures)} sandbox node(s)`)
+  return { production, futureSeamFixture: results, fixtureCleanup: { remainingFixtures } }
 }
 
 async function assertNoPluginFallback(page, label) {
@@ -446,7 +460,8 @@ export async function runR3ActiveBrowserProof({
       surfaces: {
         wideDetailsLease: true, toolHandoff: true, narrowNativeDetailsConcession: true,
         narrowSubtreeMountedHidden: true, noPluginFallbackOverlay: true, samePanelRestored: true,
-        chatReflow: true, localeRerendered, disconnectRecovery: faultInjection.recovered,
+        chatReflow: true, productionDetailsOverflowFree: true, futureLayoutFixture: true,
+        localeRerendered, disconnectRecovery: faultInjection.recovered,
       },
       geometry: { initial, initialWorkspace, longTaskRows, toolComposer, afterTool, afterToolWorkspace, narrow, recovered, recoveredWorkspace, reloadGeometry },
       faultInjection,
