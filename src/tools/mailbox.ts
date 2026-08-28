@@ -6,11 +6,13 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { TeamStatusSnapshot } from '../domain/types.js'
+import { TeamDomainError } from '../domain/error.js'
 import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
+import type { WaitResult, WaitSpinObservation } from '../runtime/wait-surface.js'
 import { compactJsonOutput, register } from './shared.js'
 
-/** Official `NO_ACTIVE_PEER_MESSAGE` shape, adapted to this plugin's tool names. */
-const NO_ACTIVE_PEER_MESSAGE = 'No other Team member is running or provisioning. agent_swarm_wait cannot make progress or wake inactive members. Re-read the Team with agent_swarm_status and agent_swarm_list_tasks, then use agent_swarm_send_message with delivery "wakeup" to resume each required inactive member before waiting again.'
+/** Terminal no-active-peer guidance: it must not induce another wait turn. */
+const NO_ACTIVE_PEER_MESSAGE = 'No other Team member is running or provisioning, so waiting cannot make progress or wake inactive members. Re-read the Team with agent_swarm_status and agent_swarm_list_tasks; if needed, use agent_swarm_send_message with delivery "wakeup" once for a required inactive member, then end this turn without looping.'
 
 function projectWait(result: { changed: boolean; snapshot: TeamStatusSnapshot }) {
   return {
@@ -18,6 +20,16 @@ function projectWait(result: { changed: boolean; snapshot: TeamStatusSnapshot })
     revision: result.snapshot.team.revision,
     ready_task_ids: result.snapshot.readyTaskIds,
     queued_messages: result.snapshot.pendingMessageIds.length,
+  }
+}
+
+function fuseOrThrow(runtime: AgentSwarmRuntime, exec: Parameters<AgentSwarmRuntime['waitForChange']>[0], observation: WaitSpinObservation, timeoutMs: number): void {
+  const verdict = runtime.waitSpinFuse.note(exec, observation, timeoutMs)
+  if (verdict === 'no-progress-repeat') {
+    throw new TeamDomainError('repeated no-progress on the same Team revision; end this turn', 'TEAM_WAIT_NO_PROGRESS_REPEAT')
+  }
+  if (verdict === 'stalled') {
+    throw new TeamDomainError('three exact consecutive timeouts (30000, 60000, 120000ms) without Team revision progress', 'TEAM_WAIT_STALLED')
   }
 }
 
@@ -91,15 +103,27 @@ export function registerWaitTool(ctx: Context, runtime: AgentSwarmRuntime): void
       // surpassed must still observe changed=true through the real wait,
       // which resolves immediately without parking.
       if (!evidence.activePeer && evidence.snapshot.team.revision <= args.after_revision) {
-        return {
+        const result = {
           changed: false,
-          no_progress: { reason: 'no-active-peer' as const, message: NO_ACTIVE_PEER_MESSAGE },
+          outcome: 'no-progress' as const,
           revision: evidence.snapshot.team.revision,
           ready_task_ids: evidence.snapshot.readyTaskIds,
           queued_messages: evidence.snapshot.pendingMessageIds.length,
         }
+        fuseOrThrow(runtime, exec, {
+          outcome: 'no-progress', changed: false, snapshot: evidence.snapshot,
+        }, timeoutMs)
+        return {
+          changed: result.changed,
+          no_progress: { reason: 'no-active-peer' as const, message: NO_ACTIVE_PEER_MESSAGE },
+          revision: result.revision,
+          ready_task_ids: result.ready_task_ids,
+          queued_messages: result.queued_messages,
+        }
       }
-      return projectWait(await runtime.waitForChange(exec, args.after_revision, timeoutMs))
+      const result: WaitResult = await runtime.waitForChange(exec, args.after_revision, timeoutMs)
+      fuseOrThrow(runtime, exec, result, timeoutMs)
+      return projectWait(result)
     },
   }), 'wait tool')
 }

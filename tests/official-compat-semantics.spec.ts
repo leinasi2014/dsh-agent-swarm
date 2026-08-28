@@ -467,6 +467,7 @@ describe('official compatibility semantics over the real composition (issue #19)
       })
       const woken = await waiting
       expect(woken.changed).toBe(true)
+      expect(woken.outcome).toBe('changed')
       expect(woken.snapshot.team.revision).toBeGreaterThan(before.team.revision)
 
       // Structured cancellation: caller abort rejects with TEAM_WAIT_ABORTED.
@@ -482,6 +483,7 @@ describe('official compatibility semantics over the real composition (issue #19)
       const timedOut = await ctx.agentSwarm.waitForChange({ agent: lead, signal: SIGNAL }, current.team.revision, 10_000)
       expect(Date.now() - startedAt).toBeGreaterThanOrEqual(9_000)
       expect(timedOut.changed).toBe(false)
+      expect(timedOut.outcome).toBe('timed-out')
       expect(timedOut.snapshot.team.revision).toBe(current.team.revision)
       expect(timedOut.snapshot.readyTaskIds).toEqual(['task-1'])
 

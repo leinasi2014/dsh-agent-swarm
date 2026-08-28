@@ -32,7 +32,7 @@ import { foldSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
-import { CAPTAIN_ONLY_TOOLS } from '../src/runtime/prompts.js'
+import { MEMBER_HIDDEN_TOOLS } from '../src/runtime/prompts.js'
 import { MAX_DENY_TOOLS, memberToolDeny } from '../src/runtime/tool-policy.js'
 import { mountStorageStackOn } from './helpers/storage-stack.js'
 
@@ -122,19 +122,19 @@ afterEach(async () => {
 
 describe('member tool-policy composition (unit)', () => {
   it('without a declaration returns exactly the M1A static baseline in stable order', () => {
-    expect(memberToolDeny()).toEqual([...CAPTAIN_ONLY_TOOLS])
-    expect(memberToolDeny(undefined)).toEqual([...CAPTAIN_ONLY_TOOLS])
+    expect(memberToolDeny()).toEqual([...MEMBER_HIDDEN_TOOLS])
+    expect(memberToolDeny(undefined)).toEqual([...MEMBER_HIDDEN_TOOLS])
   })
 
   it('composes a monotone deny-only union: declared names append after the baseline, no allow surface', () => {
     const deny = memberToolDeny(['agent_swarm_send_message', 'bash'])
-    expect(deny.slice(0, CAPTAIN_ONLY_TOOLS.length)).toEqual([...CAPTAIN_ONLY_TOOLS])
-    expect(deny.slice(CAPTAIN_ONLY_TOOLS.length)).toEqual(['agent_swarm_send_message', 'bash'])
+    expect(deny.slice(0, MEMBER_HIDDEN_TOOLS.length)).toEqual([...MEMBER_HIDDEN_TOOLS])
+    expect(deny.slice(MEMBER_HIDDEN_TOOLS.length)).toEqual(['agent_swarm_send_message', 'bash'])
   })
 
   it('declaring a captain-only name is an idempotent no-op the union absorbs (no widening path)', () => {
     const deny = memberToolDeny(['agent_swarm_archive'])
-    expect(deny).toEqual([...CAPTAIN_ONLY_TOOLS])
+    expect(deny).toEqual([...MEMBER_HIDDEN_TOOLS])
     expect(new Set(deny).size).toBe(deny.length)
   })
 
@@ -153,7 +153,7 @@ describe('member tool-policy composition (unit)', () => {
     expect(() => memberToolDeny(Array.from({ length: MAX_DENY_TOOLS + 1 }, (_, index) => `tool_${index}`)))
       .toThrowError(expect.objectContaining({ code: 'TEAM_TOOL_POLICY_INVALID' }))
     // The bound itself is admissible (no declared name collides with the baseline).
-    expect(memberToolDeny(Array.from({ length: MAX_DENY_TOOLS }, (_, index) => `tool_${index}`))).toHaveLength(CAPTAIN_ONLY_TOOLS.length + MAX_DENY_TOOLS)
+    expect(memberToolDeny(Array.from({ length: MAX_DENY_TOOLS }, (_, index) => `tool_${index}`))).toHaveLength(MEMBER_HIDDEN_TOOLS.length + MAX_DENY_TOOLS)
   })
 })
 
@@ -175,7 +175,7 @@ describe('member tool-policy surface (real composition)', () => {
     const filter = await durableToolFilter(stack, member.session_id)
     // The applied filter is the durable authority: baseline plus the declared
     // narrowing, deduped, and structurally deny-only (no allow key exists).
-    expect(filter).toEqual({ deny: [...CAPTAIN_ONLY_TOOLS, 'agent_swarm_send_message'] })
+    expect(filter).toEqual({ deny: [...MEMBER_HIDDEN_TOOLS, 'agent_swarm_send_message'] })
     expect('allow' in (filter ?? {})).toBe(false)
   }, 20_000)
 
@@ -192,7 +192,7 @@ describe('member tool-policy surface (real composition)', () => {
     const member = added.value as { session_id: string }
 
     const filter = await durableToolFilter(stack, member.session_id)
-    expect(filter).toEqual({ deny: [...CAPTAIN_ONLY_TOOLS] })
+    expect(filter).toEqual({ deny: [...MEMBER_HIDDEN_TOOLS] })
   }, 20_000)
 
   it('fails loud on an unknown tool name: the official creation-window validation rejects, the record settles failed, no member activates', async () => {

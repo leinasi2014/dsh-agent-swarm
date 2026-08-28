@@ -17,7 +17,7 @@ import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TeamMember, TeamState } from '../src/domain/types.js'
 import { MemberProfileReader } from '../src/runtime/member-profile-reader.js'
-import { CAPTAIN_ONLY_TOOLS } from '../src/runtime/prompts.js'
+import { MEMBER_HIDDEN_TOOLS } from '../src/runtime/prompts.js'
 import {
   disposeRestartComposition as dispose,
   mountRestartComposition as mount,
@@ -457,7 +457,7 @@ describe('real restart continuation over the current Team authority', () => {
           name: 'profile-reader', role: 'Read durable member composition.', phase: 'active',
           profile_state: 'available', profile_reason: 'available', runtime_provider: 'spawn',
           llm_provider: 'mock', model: 'profile-model', persona_configured: true,
-          denied_tools: [...CAPTAIN_ONLY_TOOLS, 'agent_swarm_list_jobs'],
+          denied_tools: [...MEMBER_HIDDEN_TOOLS, 'agent_swarm_list_jobs'],
         })
         expect(value.members[0]).not.toHaveProperty('preset_id')
         expect(value.members[0]).not.toHaveProperty('session_id')

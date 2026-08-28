@@ -23,7 +23,7 @@
  */
 import { TeamDomainError } from '../domain/error.js'
 import { CAPTAIN_ONLY_TOOLS } from './prompts.js'
-import { MAX_DENY_TOOLS, TOOL_NAME_PATTERN } from './tool-policy.js'
+import { MAX_DENY_TOOLS, MEMBER_DENY_BASELINE, TOOL_NAME_PATTERN } from './tool-policy.js'
 
 /**
  * The complete model-facing `agent_swarm_*` tool surface (21 tools). The
@@ -198,6 +198,10 @@ export function decideToolPermission(
   // (in permission-surface). A global/root same-name tool is never a Team
   // return channel.
   if (toolName === 'report') return 'deny'
+  // This is an unconditional delegated-member denial, before declarations
+  // are consulted.  An operator allow declaration therefore cannot reopen
+  // the wait body on a resumed or newly provisioned member.
+  if (context.callerRole === 'delegated-member' && toolName === 'agent_swarm_wait') return 'deny'
   if (context.callerRole === 'delegated-member' && (CAPTAIN_ONLY_TOOLS as readonly string[]).includes(toolName)) return 'deny'
   const declared = decisionFor(declaration, toolName) ?? DEFAULT_TOOL_PERMISSION
   if (declared === 'deny') return 'deny'
@@ -234,6 +238,6 @@ export function toPreToolDecision(decision: ToolPermissionDecision, toolName: st
  */
 export function memberToolPolicyFilter(declaration?: ToolPolicyDeclaration): { readonly deny: readonly string[] } {
   const validated = validateToolPolicyDeclaration(declaration)
-  const deny = [...CAPTAIN_ONLY_TOOLS, ...(validated.deny ?? []), ...(validated.ask ?? [])]
+  const deny = [...MEMBER_DENY_BASELINE, ...(validated.deny ?? []), ...(validated.ask ?? [])]
   return { deny: [...new Set(deny)] }
 }

@@ -29,6 +29,15 @@ export interface WaitSurfaceDeps {
   readonly ensureReady: () => Promise<void>
 }
 
+/**
+ * The wait layer's real terminal discriminant.  A timeout is identified only
+ * by this call's own timeout signal; callers never infer it from Team phase.
+ */
+export type WaitResult =
+  | { readonly outcome: 'changed'; readonly changed: true; readonly snapshot: TeamStatusSnapshot }
+  | { readonly outcome: 'timed-out'; readonly changed: false; readonly snapshot: TeamStatusSnapshot }
+  | { readonly outcome: 'unchanged-terminal'; readonly changed: false; readonly snapshot: TeamStatusSnapshot }
+
 export async function status(deps: WaitSurfaceDeps, exec: ToolExecutionAuthority): Promise<TeamStatusSnapshot> {
   await deps.ensureReady()
   if (deps.isClosing()) throw new TeamDomainError('Team orchestrator is disposing', 'TEAM_RUNTIME_CLOSING')
@@ -45,7 +54,7 @@ export async function waitForChange(
   exec: ToolExecutionAuthority,
   afterRevision: number,
   timeoutMs: number,
-): Promise<{ snapshot: TeamStatusSnapshot; changed: boolean }> {
+): Promise<WaitResult> {
   await deps.ensureReady()
   if (deps.isClosing()) throw new TeamDomainError('Team orchestrator is disposing', 'TEAM_RUNTIME_CLOSING')
   const actor = requireAgent(exec)
@@ -66,10 +75,16 @@ export async function waitForChange(
     // An archived Team resolves immediately even at a current cursor (it
     // can never commit a later revision), so `changed` is derived from the
     // authoritative revision, not from the wait having returned.
-    return { snapshot, changed: snapshot.team.revision > afterRevision }
+    return snapshot.team.revision > afterRevision
+      ? { outcome: 'changed', changed: true, snapshot }
+      : { outcome: 'unchanged-terminal', changed: false, snapshot }
   } catch (error) {
     if (timeoutSignal.aborted && !exec.signal.aborted) {
-      return { snapshot: await deps.domain().snapshot(scope, membership.team.id, actor.id), changed: false }
+      return {
+        outcome: 'timed-out',
+        changed: false,
+        snapshot: await deps.domain().snapshot(scope, membership.team.id, actor.id),
+      }
     }
     // Issue #19, official `TEAM_WAIT_ABORTED` parity: caller cancellation
     // surfaces as one structured domain error instead of a raw abort reason.
@@ -104,4 +119,93 @@ export async function activePeerEvidence(deps: WaitSurfaceDeps, exec: ToolExecut
       || (member.phase === 'active' && deps.ctx.agents.get(SessionId(member.sessionId))?.status === 'running')))
   const snapshot = await deps.domain().snapshot(scope, membership.team.id, actor.id)
   return { snapshot, activePeer }
+}
+
+/** Runtime-private, current-turn wait-fuse state. */
+export interface WaitSpinEntry {
+  readonly revision: number
+  readonly noProgress: number
+  /** Number of exact consecutive 30/60 steps already seen (0..2). */
+  readonly timeoutSteps: number
+}
+
+export type WaitSpinVerdict = 'ok' | 'no-progress-repeat' | 'stalled'
+
+export type WaitSpinObservation = WaitResult | {
+  readonly outcome: 'no-progress'
+  readonly changed: false
+  readonly snapshot: TeamStatusSnapshot
+}
+
+const TIMEOUT_STEPS = [30_000, 60_000, 120_000] as const
+
+/**
+ * Classify a captain's wait outcome inside one Runtime and one official DSH
+ * turn signal.  It has no persistent/Team-domain effect.  A fresh signal,
+ * Runtime or process gets a fresh WeakMap.  Any revision inequality resets
+ * the previous streak (including revision decrease); only a true timeout may
+ * advance the exact 30 → 60 → 120 sequence.
+ */
+export function applyWaitSpinFuse(
+  fuse: WeakMap<AbortSignal, WaitSpinEntry>,
+  exec: ToolExecutionAuthority,
+  observation: WaitSpinObservation,
+  timeoutMs: number,
+): WaitSpinVerdict {
+  const signal = exec.signal
+  if (observation.changed) {
+    fuse.delete(signal)
+    return 'ok'
+  }
+
+  const revision = observation.snapshot.team.revision
+  const existing = fuse.get(signal)
+  // A revision change establishes a new local epoch.  Process the current
+  // no-progress/timeout as that epoch's first observation rather than carrying
+  // any predecessor count across it.
+  let state: WaitSpinEntry = existing === undefined || existing.revision !== revision
+    ? { revision, noProgress: 0, timeoutSteps: 0 }
+    : existing
+
+  if (observation.outcome === 'unchanged-terminal') {
+    fuse.delete(signal)
+    return 'ok'
+  }
+  if (observation.outcome === 'no-progress') {
+    const noProgress = state.noProgress + 1
+    if (noProgress >= 2) {
+      fuse.delete(signal)
+      return 'no-progress-repeat'
+    }
+    fuse.set(signal, { revision, noProgress, timeoutSteps: 0 })
+    return 'ok'
+  }
+  if (observation.outcome !== 'timed-out') return 'ok'
+
+  const expected = TIMEOUT_STEPS[state.timeoutSteps]
+  if (timeoutMs !== expected) {
+    // A malformed/misordered timeout cannot inherit a previous step.  A new
+    // 30s call may begin a fresh sequence; any other value leaves it empty.
+    state = { revision, noProgress: 0, timeoutSteps: 0 }
+    if (timeoutMs !== TIMEOUT_STEPS[0]) {
+      fuse.set(signal, state)
+      return 'ok'
+    }
+  }
+  const timeoutSteps = state.timeoutSteps + 1
+  if (timeoutSteps === TIMEOUT_STEPS.length) {
+    fuse.delete(signal)
+    return 'stalled'
+  }
+  fuse.set(signal, { revision, noProgress: 0, timeoutSteps })
+  return 'ok'
+}
+
+/** One Runtime-owned holder; its WeakMap never crosses a Runtime boundary. */
+export class WaitSpinFuse {
+  private readonly bySignal = new WeakMap<AbortSignal, WaitSpinEntry>()
+
+  note(exec: ToolExecutionAuthority, observation: WaitSpinObservation, timeoutMs: number): WaitSpinVerdict {
+    return applyWaitSpinFuse(this.bySignal, exec, observation, timeoutMs)
+  }
 }

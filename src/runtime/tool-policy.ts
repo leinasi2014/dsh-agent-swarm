@@ -20,10 +20,13 @@
  * without its declared policy).
  */
 import { TeamDomainError } from '../domain/error.js'
-import { CAPTAIN_ONLY_TOOLS } from './prompts.js'
+import { MEMBER_HIDDEN_TOOLS } from './prompts.js'
 
 /** Bound on one declaration: a deny list longer than every global tool set is a mistake. */
 export const MAX_DENY_TOOLS = 64
+
+/** Mandatory deny baseline for delegated members. */
+export const MEMBER_DENY_BASELINE: readonly string[] = MEMBER_HIDDEN_TOOLS
 
 /**
  * Structural tool-name shape. Deliberately permissive toward real tool names
@@ -43,7 +46,7 @@ export const TOOL_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/
  * @throws `TEAM_TOOL_POLICY_INVALID` on any structurally invalid declaration.
  */
 export function memberToolDeny(declared?: readonly string[]): string[] {
-  if (declared === undefined) return [...CAPTAIN_ONLY_TOOLS]
+  if (declared === undefined) return [...MEMBER_DENY_BASELINE]
   if (declared.length > MAX_DENY_TOOLS) {
     throw new TeamDomainError(`deny_tools must name at most ${MAX_DENY_TOOLS} tools (got ${declared.length})`, 'TEAM_TOOL_POLICY_INVALID')
   }
@@ -57,7 +60,7 @@ export function memberToolDeny(declared?: readonly string[]): string[] {
     }
     seen.add(name)
   }
-  // Union with the mandatory baseline: declaring a captain-only name is an
+  // Union with the mandatory baseline: declaring a hidden name is an
   // idempotent no-op the union absorbs — there is no widening path.
-  return [...new Set([...CAPTAIN_ONLY_TOOLS, ...declared])]
+  return [...new Set([...MEMBER_DENY_BASELINE, ...declared])]
 }

@@ -26,7 +26,7 @@ import { runReviewTransaction } from './review-transaction.js'
 import { OrchestrationOwnership } from './orchestration-ownership.js'
 import { SchedulingPass } from './scheduling.js'
 import { UsageAccountant } from './usage-accounting.js'
-import { activePeerEvidence, status, waitForChange, type WaitSurfaceDeps } from './wait-surface.js'
+import { activePeerEvidence, status, waitForChange, WaitSpinFuse, type WaitSurfaceDeps } from './wait-surface.js'
 import type { RuntimeConfig } from './runtime-contract.js'
 import type { TeamJobProjection } from './jobs/team-job-projection.js'
 import type { TeamBridgeWorkflowEngine } from './workflow/team-bridge-engine.js'
@@ -51,6 +51,7 @@ export class AgentSwarmRuntime extends Service {
   private readonly ownedChildren = new Map<string, Set<string>>()
   /** Session id → its idle-stretch start, latched per `agent/status → idle` edge (issue #83; absent = task clock). */
   private readonly idleSince = new Map<string, number>()
+  readonly waitSpinFuse = new WaitSpinFuse()
   private readonly usage: UsageAccountant
   private readonly delivery: MessageDelivery
   private readonly memberProfiles: MemberProfileReader

@@ -30,10 +30,10 @@ import SubagentService, { foldSubagentDescriptor } from '@deepseek-ai/dsh-subage
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import ApprovalService, { type ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
 import type { HumanInteractionRequest } from '../src/index.js'
-import { CAPTAIN_ONLY_TOOLS } from '../src/runtime/prompts.js'
+import { MEMBER_HIDDEN_TOOLS } from '../src/runtime/prompts.js'
 import type { ReviewerAgentVerdict } from '../src/runtime/reviewer-boundary.js'
 import { mountStorageStackOn } from './helpers/storage-stack.js'
 const SIGNAL = new AbortController().signal
@@ -413,8 +413,16 @@ describe('real ToolRuntime + approval composition (SW-I1a)', () => {
     const descriptor = foldSubagentDescriptor(suffix)
     expect(descriptor?.mode).toBe('continuable')
     if (descriptor?.mode !== 'continuable') throw new Error('member descriptor is not continuable')
-    expect(descriptor.toolFilter).toEqual({ deny: [...CAPTAIN_ONLY_TOOLS, PROBE_TOOL] })
+    expect(descriptor.toolFilter).toEqual({ deny: [...MEMBER_HIDDEN_TOOLS, PROBE_TOOL] })
   }, 30_000)
+  it('denies delegated agent_swarm_wait in official pre-execute before its body (body=0)', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-perm-member-wait-')); roots.push(sandbox)
+    const stack = await mount(sandbox, { toolPolicy: { allow: ['agent_swarm_wait'] } })
+    const member = memberAgent(await addMember(stack), join(sandbox, 'workspace'))
+    detachAgents.push(stack.ctx.agents.enter(member, stack.lead))
+    const body = vi.spyOn(stack.ctx.agentSwarm, 'waitForChange'); const result = await callTool(stack.ctx, member, 'member-wait-denied', 'agent_swarm_wait', { after_revision: 1, timeout_ms: 10_000 })
+    expect(result.isError).toBe(true); expect(body).not.toHaveBeenCalled()
+  }, 20_000)
   it('unrelated agents are not polluted by the Team policy', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-perm-unrelated-'))
     roots.push(sandbox)
