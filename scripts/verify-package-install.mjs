@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { tmpdir } from 'node:os'
@@ -45,6 +45,55 @@ async function hasInstalledPackage(directory) {
   }
 }
 
+async function optionalBytes(path) {
+  try {
+    return { exists: true, bytes: await readFile(path) }
+  } catch (error) {
+    if (error?.code === 'ENOENT') return { exists: false, bytes: null }
+    throw error
+  }
+}
+
+async function directoryState(root) {
+  const entries = []
+  async function visit(directory, relative) {
+    let children
+    try {
+      children = await readdir(directory, { withFileTypes: true })
+    } catch (error) {
+      if (error?.code === 'ENOENT' && relative === '') return false
+      throw error
+    }
+    for (const child of children.sort((left, right) => left.name.localeCompare(right.name))) {
+      const childRelative = relative === '' ? child.name : `${relative}/${child.name}`
+      const kind = child.isDirectory() ? 'directory' : child.isSymbolicLink() ? 'symlink' : 'file'
+      entries.push(`${kind}:${childRelative}`)
+      if (child.isDirectory()) await visit(join(directory, child.name), childRelative)
+    }
+    return true
+  }
+  return { exists: await visit(root, ''), entries }
+}
+
+async function failedInstallSnapshot(directory) {
+  return {
+    packageJson: await optionalBytes(join(directory, 'package.json')),
+    lockfile: await optionalBytes(join(directory, 'pnpm-lock.yaml')),
+    nodeModules: await directoryState(join(directory, 'node_modules')),
+  }
+}
+
+function sameOptionalBytes(left, right) {
+  return left.exists === right.exists && (left.bytes === null || right.bytes === null || left.bytes.equals(right.bytes))
+}
+
+function sameFailedInstallSnapshot(left, right) {
+  return sameOptionalBytes(left.packageJson, right.packageJson)
+    && sameOptionalBytes(left.lockfile, right.lockfile)
+    && left.nodeModules.exists === right.nodeModules.exists
+    && JSON.stringify(left.nodeModules.entries) === JSON.stringify(right.nodeModules.entries)
+}
+
 try {
   const packageJson = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
   if (packageJson.scripts?.postinstall !== undefined) {
@@ -84,15 +133,16 @@ try {
     throw new Error('installed tarball retained a production postinstall script')
   }
 
-  // A corrupt tarball must fail without half-registering this package in an
-  // otherwise fresh consumer project.
+  // A corrupt tarball must fail without changing any consumer authority or
+  // creating any node_modules residue in an otherwise fresh consumer project.
   const corruptTarball = join(scratch, 'corrupt-dsh-agent-swarm.tgz')
   await writeFile(corruptTarball, 'not a tarball\n', 'utf8')
+  const beforeFailure = await failedInstallSnapshot(failedConsumerDir)
   const failed = await run('pnpm', ['add', corruptTarball], failedConsumerDir)
   if (failed.code === 0) throw new Error('corrupt tarball unexpectedly installed')
-  const failedConsumerPackage = JSON.parse(await readFile(join(failedConsumerDir, 'package.json'), 'utf8'))
-  if (failedConsumerPackage.dependencies?.['dsh-agent-swarm'] !== undefined || await hasInstalledPackage(failedConsumerDir)) {
-    throw new Error('failed tarball install left a half-registered dsh-agent-swarm dependency')
+  const afterFailure = await failedInstallSnapshot(failedConsumerDir)
+  if (!sameFailedInstallSnapshot(beforeFailure, afterFailure)) {
+    throw new Error('failed tarball install changed package.json, lockfile, or node_modules state')
   }
 
   console.log(`Package tarball normal install and failed-install rollback: PASS (${packedName})`)
