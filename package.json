@@ -58,6 +58,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "typecheck:test": "tsc -p tsconfig.test.json",
     "test": "vitest run",
+    "test:agile-hook": "node scripts/test-agile-hook.mjs",
     "test:coverage": "vitest run --coverage",
     "verify:scenarios:gate": "node scripts/test-verify-test-scenarios-gate.mjs",
     "verify:scenarios": "pnpm verify:scenarios:gate && node scripts/verify-test-scenarios.mjs",

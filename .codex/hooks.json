@@ -1,0 +1,48 @@
+{
+  "description": "Small, repository-local delivery and resource guard for Codex.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/.codex/hooks/agile-guard.mjs\"",
+            "commandWindows": "powershell.exe -NoProfile -NonInteractive -Command \"$repo = git rev-parse --show-toplevel; & node (Join-Path $repo '.codex/hooks/agile-guard.mjs')\"",
+            "timeout": 3,
+            "additionalContextLimit": 600,
+            "statusMessage": "Loading delivery checkpoint"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/.codex/hooks/agile-guard.mjs\"",
+            "commandWindows": "powershell.exe -NoProfile -NonInteractive -Command \"$repo = git rev-parse --show-toplevel; & node (Join-Path $repo '.codex/hooks/agile-guard.mjs')\"",
+            "timeout": 3,
+            "additionalContextLimit": 600,
+            "statusMessage": "Checking delivery guard"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/.codex/hooks/agile-guard.mjs\"",
+            "commandWindows": "powershell.exe -NoProfile -NonInteractive -Command \"$repo = git rev-parse --show-toplevel; & node (Join-Path $repo '.codex/hooks/agile-guard.mjs')\"",
+            "timeout": 3,
+            "statusMessage": "Reporting task resources"
+          }
+        ]
+      }
+    ]
+  }
+}
