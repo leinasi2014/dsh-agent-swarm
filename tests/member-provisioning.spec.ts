@@ -437,7 +437,7 @@ describe('persisted-child provisioning reconciliation (F3)', () => {
       })
       expect(added.isError).toBe(false)
       expect((added.value as { phase: string }).phase).toBe('active')
-      expect(batch).toHaveBeenCalled()
+      await vi.waitFor(() => expect(batch).toHaveBeenCalled(), { timeout: 5_000 })
 
       const snapshot = await domain.snapshot(
         stack.ctx.agentSwarm.scopeOf(stack.lead), AgentSwarm.TeamId(stack.teamId), stack.lead.id,
@@ -507,19 +507,17 @@ describe('persisted-child provisioning reconciliation (F3)', () => {
         })),
       )
 
-      const pendingFailures = addFive('failure'); await vi.waitFor(() => expect(adapter.calls).toBe(5), { timeout: 5_000 })
-      adapter.release()
+      const pendingFailures = addFive('failure'); await vi.waitFor(() => expect(adapter.calls).toBe(5), { timeout: 5_000 }); adapter.release()
       const failures = await pendingFailures
       expect(failures).toHaveLength(5)
-      for (const result of failures) {
-        expect(result).toMatchObject({ isError: true, error: { info: { code: 'TEAM_MEMBER_START_FAILED' } } })
-      }
+      for (const result of failures) expect(result).toMatchObject({ isError: false, value: { phase: 'active' } })
+      await vi.waitFor(async () => expect((await stack.ctx.agentSwarm.domain.snapshot(stack.ctx.agentSwarm.scopeOf(stack.lead), AgentSwarm.TeamId(stack.teamId), stack.lead.id)).team.members.every(member => member.phase === 'failed')).toBe(true), { timeout: 5_000 })
       const afterFailures = await stack.ctx.agentSwarm.domain.snapshot(
         stack.ctx.agentSwarm.scopeOf(stack.lead), AgentSwarm.TeamId(stack.teamId), stack.lead.id,
       )
       expect(afterFailures.team.members).toHaveLength(5)
       expect(afterFailures.team.members.map(member => member.phase)).toEqual(['failed', 'failed', 'failed', 'failed', 'failed'])
-      expect(afterFailures.team.revision).toBe(11)
+      expect(afterFailures.team.revision).toBeGreaterThanOrEqual(16)
       const failedProfiles = await stack.ctx.tools.execute({
         signal: SIGNAL,
         callId: CallId('failure-profiles'),
@@ -534,6 +532,8 @@ describe('persisted-child provisioning reconciliation (F3)', () => {
 
       const successes = await addFive('success')
       expect(successes.every(result => !result.isError)).toBe(true)
+      expect(successes.every(result => (result.value as { phase: string }).phase === 'active')).toBe(true)
+      await vi.waitFor(async () => expect((await stack.ctx.agentSwarm.domain.snapshot(stack.ctx.agentSwarm.scopeOf(stack.lead), AgentSwarm.TeamId(stack.teamId), stack.lead.id)).team.members.slice(5).every(member => member.phase === 'active')).toBe(true), { timeout: 5_000 })
       const afterSuccesses = await stack.ctx.agentSwarm.domain.snapshot(
         stack.ctx.agentSwarm.scopeOf(stack.lead), AgentSwarm.TeamId(stack.teamId), stack.lead.id,
       )
@@ -541,8 +541,8 @@ describe('persisted-child provisioning reconciliation (F3)', () => {
       expect(afterSuccesses.team.revision).toBeGreaterThanOrEqual(21)
 
       const mixed = await addFive('mixed')
-      expect(mixed.some(result => result.isError)).toBe(true)
-      expect(mixed.some(result => !result.isError)).toBe(true)
+      expect(mixed.every(result => !result.isError)).toBe(true)
+      await vi.waitFor(async () => expect((await stack.ctx.agentSwarm.domain.snapshot(stack.ctx.agentSwarm.scopeOf(stack.lead), AgentSwarm.TeamId(stack.teamId), stack.lead.id)).team.members.every(member => member.phase !== 'provisioning')).toBe(true), { timeout: 5_000 })
       const settled = await stack.ctx.agentSwarm.domain.snapshot(
         stack.ctx.agentSwarm.scopeOf(stack.lead), AgentSwarm.TeamId(stack.teamId), stack.lead.id,
       )
@@ -584,9 +584,9 @@ describe('persisted-child provisioning reconciliation (F3)', () => {
       await vi.waitFor(() => expect(adapter.calls).toBe(1), { timeout: 5_000 })
 
       const pluginFiber = fibers.pop()!
-      await pluginFiber.dispose()
       const result = await pending
-      expect(result).toMatchObject({ isError: true, error: { info: { code: 'TEAM_MEMBER_START_FAILED' } } })
+      expect(result).toMatchObject({ isError: false, value: { phase: 'active' } })
+      await pluginFiber.dispose()
       expect(settled).toHaveBeenCalledWith(
         expect.anything(), expect.anything(), expect.anything(),
         expect.objectContaining({ active: false, error: expect.stringContaining('aborted') }),

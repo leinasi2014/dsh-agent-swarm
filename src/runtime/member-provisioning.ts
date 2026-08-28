@@ -46,8 +46,9 @@ type InitialTurn = {
   readonly teamId: TeamId
   readonly captain: Agent
   readonly childId: SessionId
-  readonly resolve: (member: TeamMember) => void
-  readonly reject: (error: unknown) => void
+  readonly finish: () => void
+  admitted: boolean
+  terminalReason?: string
 }
 
 /** Captain-owned member creation over one admitted operation slot. */
@@ -71,11 +72,7 @@ export class MemberProvisioner {
     exec: ToolExecutionAuthority,
     input: { name: string; role: string; provider?: string; llmProvider?: string; model?: string; denyTools?: readonly string[] },
   ): Promise<TeamMember> {
-    let completeOperation!: () => void
-    const operation = new Promise<void>(settle => { completeOperation = settle })
-    this.operations.add(operation)
-    try {
-      const captain = requireAgent(exec)
+    const captain = requireAgent(exec)
       const scope = this.deps.scopeOf(captain)
       const membership = await this.deps.domain().requireMembership(scope, captain.id)
       if (membership.role !== 'captain') throw new TeamDomainError('only the captain can add members', 'TEAM_CAPTAIN_REQUIRED')
@@ -119,14 +116,18 @@ export class MemberProvisioner {
         sessionId: childId,
         provider: providerName,
       })
-      let resolveInitial!: (member: TeamMember) => void
-      let rejectInitial!: (error: unknown) => void
-      const initial = new Promise<TeamMember>((resolve, reject) => { resolveInitial = resolve; rejectInitial = reject })
-      // A runtime disposer can settle this before a ToolRuntime has attached
-      // its outward result observer. Keep that internal rejection observed;
-      // the awaited return below still delivers the same typed error to caller.
-      void initial.catch(() => {})
-      this.initialTurns.set(childId, { scope, teamId: membership.team.id, captain, childId, resolve: resolveInitial, reject: rejectInitial })
+      let finish!: () => void
+      const operation = new Promise<void>(settle => { finish = settle })
+      this.operations.add(operation)
+      const initial: InitialTurn = {
+        scope, teamId: membership.team.id, captain, childId, admitted: false,
+        finish: () => { finish(); this.operations.delete(operation) },
+      }
+      // Register before the official start call: a fast child can terminally
+      // end while `startContinuable` is still resolving.  The observation is
+      // held until active admission commits below, never lost or applied to a
+      // merely provisioned row.
+      this.initialTurns.set(childId, initial)
       try {
         await this.ctx.subagents.startContinuable({
           provider: providerName,
@@ -164,62 +165,79 @@ export class MemberProvisioner {
           active: false,
           error: error instanceof Error ? error.message : String(error),
         })
+        initial.finish()
         throw error
       }
 
-      // `startContinuable` only proves inbox acceptance. Wait for the exact
-      // initial turn terminal edge before publishing an active member.
-      return await initial
-    } finally {
-      completeOperation()
-      this.operations.delete(operation)
-    }
+      // Inbox admission means the child is real and may receive Team work, so
+      // retain the long-standing active admission contract.  The initial
+      // terminal edge remains independently tracked: an actual error
+      // atomically demotes this same row to failed instead of leaving the
+      // descriptor/runtime/Team projections falsely active.
+      let active: TeamMember
+      try {
+        active = await this.deps.domain().settleMember(scope, membership.team.id, childId, { active: true })
+      } catch (activationError) {
+        this.initialTurns.delete(childId)
+        initial.finish()
+        await this.deps.domain().settleMember(scope, membership.team.id, childId, {
+          active: false,
+          error: `member activation did not commit: ${describe(activationError)}`,
+        }).catch(settleError => this.ctx.logger.warn(`agent-swarm: failed to settle uncommitted child ${childId}: ${String(settleError)}`))
+        let drained = false
+        await this.ctx.subagents.drainContinuableChildren(captain, [childId]).then(() => { drained = true }).catch(drainError => {
+          this.ctx.logger.warn(`agent-swarm: failed to drain uncommitted child ${childId}: ${String(drainError)}`)
+        })
+        if (!drained) this.deps.trackChild(captain, childId)
+        throw activationError
+      }
+      this.deps.trackChild(captain, childId)
+      try {
+        await this.deps.afterActivation(scope, membership.team.id, captain, childId)
+      } catch (activationError) {
+        this.ctx.logger.warn(`agent-swarm: post-activation accounting failed for ${childId} (member stays active; usage refolds on recovery): ${String(activationError)}`)
+      }
+      initial.admitted = true
+      this.settleObservedInitialTurn(initial)
+      return active
   }
 
   observeSessionEvent(session: Session, event: SessionEvent): void {
     const pending = this.initialTurns.get(session.id)
     if (pending === undefined || event.type !== 'turn/end') return
-    this.initialTurns.delete(session.id)
-    void this.settleInitialTurn(pending, event.data.reason.kind)
+    pending.terminalReason = event.data.reason.kind
+    this.settleObservedInitialTurn(pending)
+  }
+
+  private settleObservedInitialTurn(pending: InitialTurn): void {
+    if (!pending.admitted || pending.terminalReason === undefined) return
+    if (this.initialTurns.get(pending.childId) !== pending) return
+    this.initialTurns.delete(pending.childId)
+    void this.settleInitialTurn(pending, pending.terminalReason)
   }
 
   private async settleInitialTurn(
     pending: InitialTurn,
     reason: string,
+    forceFailure = false,
   ): Promise<void> {
     try {
-      const active = reason === 'completed'
-      const member = await this.deps.domain().settleMember(pending.scope, pending.teamId, pending.childId,
-        active ? { active: true } : { active: false, error: `member initial turn ended ${reason} before it finished` })
-      if (!active) {
-        pending.reject(new TeamDomainError(`member initial turn ended ${reason} before it finished`, 'TEAM_MEMBER_START_FAILED'))
-        return
-      }
-      this.deps.trackChild(pending.captain, pending.childId)
-      try {
-        await this.deps.afterActivation(pending.scope, pending.teamId, pending.captain, pending.childId)
-      } catch (error) {
-        this.ctx.logger.warn(`agent-swarm: post-activation accounting failed for ${pending.childId} (member stays active; usage refolds on recovery): ${String(error)}`)
-      }
-      pending.resolve(member)
-    } catch (error) {
+      // A child can be deliberately interrupted/drained and later
+      // cold-resumed; that lifecycle outcome is not evidence that startup
+      // failed.  Only an actual initial-turn error demotes an admitted member.
+      // Runtime disposal is the exception: it force-settles its own admitted
+      // operation so a reload cannot revive a row it was closing.
+      if (reason !== 'error' && !forceFailure) return
       await this.deps.domain().settleMember(pending.scope, pending.teamId, pending.childId, {
         active: false,
-        error: `member activation did not commit: ${describe(error)}`,
-      }).catch(settleError => {
-        this.ctx.logger.warn(`agent-swarm: failed to settle uncommitted child ${pending.childId}: ${String(settleError)}`)
+        error: `member initial turn ended ${reason} before it finished`,
       })
-      let drained = false
-      await this.ctx.subagents.drainContinuableChildren(pending.captain, [pending.childId]).then(() => {
-        drained = true
-      }).catch(drainError => {
-        this.ctx.logger.warn(`agent-swarm: failed to drain uncommitted child ${pending.childId}: ${String(drainError)}`)
-      })
-      if (!drained) this.deps.trackChild(pending.captain, pending.childId)
-      pending.reject(error)
+    } catch (error) {
       if (!(error instanceof TeamDomainError && ['TEAM_MEMBER_PHASE_INVALID', 'TEAM_MEMBER_NOT_FOUND'].includes(error.code))) {
         this.ctx.logger.warn(`agent-swarm: failed to settle initial member turn ${pending.childId}: ${String(error)}`)
       }
+    } finally {
+      pending.finish()
     }
   }
 
@@ -234,9 +252,14 @@ export class MemberProvisioner {
       // it through the same durable failure settlement before `wait()` lets the
       // orchestrator close the aggregate, so an in-flight child can never be
       // revived as an apparently active member after reload.
-      void this.settleInitialTurn(pending, 'aborted')
+      // A provider still blocked in `startContinuable` has no admitted child
+      // to settle. Keep its operation pending so the runtime's bounded
+      // disposal reports the configured timeout and leaves durable recovery
+      // evidence, rather than claiming a clean shutdown.
+      if (!pending.admitted) continue
+      this.initialTurns.delete(pending.childId)
+      void this.settleInitialTurn(pending, 'aborted', true)
     }
-    this.initialTurns.clear()
   }
 
   /**
