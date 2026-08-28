@@ -202,7 +202,21 @@ try {
               titleBeforeCaptain: true, captainBeforeMember: true, memberCount: 1, avatarHidden: true, providerOrModelVisible: false,
               hostFields: { name: 'a'.repeat(64), role: 'Submit exactly one DEV_SMOKE task.', lifecycle: 'active', activity: 'accepted', visibleName: 'a'.repeat(64), visibleRole: 'Submit exactly one DEV_SMOKE task.', visibleLifecycle: 'Lifecycle: Active', visibleActivity: 'Recent attempt: Accepted' },
             },
-            longTaskRows: { futureSeamFixture: [359, 360, 520, 720].map(requestedWidth => ({ requestedWidth, fixture: { kind: 'read-only-mounted-workspace-clone', outsideOfficialLayout: true, productionMutated: false, removedAfterProbe: true } })), fixtureCleanup: { remainingFixtures: 0 } },
+            longTaskRows: {
+              productionTaskDetail: { selector: '[data-swarm-task-detail]', owner: `Owner${'a'.repeat(64)}`, target: `Target member${'a'.repeat(64)}` },
+              futureSeamFixture: [359, 360, 520, 720].map(requestedWidth => ({
+                requestedWidth, fixture: { kind: 'read-only-mounted-workspace-clone', outsideOfficialLayout: true, productionMutated: false, removedAfterProbe: true },
+                member: {
+                  selector: '[data-swarm-member-name]', name: 'a'.repeat(64),
+                  lifecycle: { selector: '[data-swarm-member-visible-lifecycle]', source: 'Lifecycle: Active', title: 'Lifecycle: Active', text: 'Lifecycle: Active', width: 100, parentWidth: 100, clientWidth: 100, parentClientWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+                  activity: { selector: '[data-swarm-member-visible-activity]', source: 'Recent attempt: Accepted', title: 'Recent attempt: Accepted', text: 'Recent attempt: Accepted', width: 100, parentWidth: 100, clientWidth: 100, parentClientWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+                },
+                taskLeaves: [
+                  { selector: '[data-swarm-task-owner]', source: `Owner: ${'a'.repeat(64)}`, title: `Owner: ${'a'.repeat(64)}`, text: `Owner: ${'a'.repeat(64)}`, width: 100, parentWidth: 100, clientWidth: 100, parentClientWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+                  { selector: '[data-swarm-task-target]', source: `Target member: ${'a'.repeat(64)}`, title: `Target member: ${'a'.repeat(64)}`, text: `Target member: ${'a'.repeat(64)}`, width: 100, parentWidth: 100, clientWidth: 100, parentClientWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+                ],
+              })), fixtureCleanup: { remainingFixtures: 0 },
+            },
           },
           requests: [{ method: 'POST', body: { method: 'snapshot' } }],
           faultInjection: { recovered: true, expectedConsoleErrors: ['Failed to load resource: net::ERR_CONNECTION_FAILED'] },
@@ -326,6 +340,8 @@ try {
   const rosterFirstFailure = 'R3 roster-first evidence must prove ordered legacy Captain and visible Host-only member fields'
   const stableWarningFailure = 'R3 active browser stable period contains a console warning'
   const controlledRestartFailure = 'R3 active browser does not separately archive controlled-restart warnings'
+  const taskDetailFailure = 'R3 active browser task semantics must come from the task-detail subtree'
+  const selectorSeparationFailure = 'R3 future-width evidence must separate member lifecycle/activity leaves from task owner/target leaves'
   for (const [label, mutate, expectedFailure] of [
     ['R3 production overflow surface missing', value => { delete value.surfaces.productionDetailsOverflowFree }, activeSurfaceFailure],
     ['R3 production overflow surface false', value => { value.surfaces.productionDetailsOverflowFree = false }, activeSurfaceFailure],
@@ -338,6 +354,8 @@ try {
     ['R3 roster-first activity hidden', value => { value.geometry.rosterFirst.hostFields.visibleActivity = undefined }, rosterFirstFailure],
     ['R3 stable warning', value => { value.consoleWarnings.push('fixture warning') }, stableWarningFailure],
     ['R3 controlled-restart warning archive missing', value => { delete value.controlledRestart.transientConsoleWarnings }, controlledRestartFailure],
+    ['R3 task detail source collides with member leaves', value => { value.geometry.longTaskRows.productionTaskDetail.selector = '[data-swarm-member-rows]' }, taskDetailFailure],
+    ['R3 task owner selector collides with member lifecycle', value => { value.geometry.longTaskRows.futureSeamFixture[0].taskLeaves[0].selector = '[data-swarm-member-visible-lifecycle]' }, selectorSeparationFailure],
     ['R3 future fixture marker invalid', value => { value.geometry.longTaskRows.futureSeamFixture[0].fixture.kind = 'production-details-aside' }, futureFixtureFailure],
     ['R3 future fixture width sequence invalid', value => { value.geometry.longTaskRows.futureSeamFixture[1].requestedWidth = 521 }, futureFixtureFailure],
     ['R3 future fixture mutated production', value => { value.geometry.longTaskRows.futureSeamFixture[0].fixture.productionMutated = true }, futureFixtureFailure],

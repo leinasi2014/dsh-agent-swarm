@@ -244,6 +244,7 @@ describe('R3 native Team Details surface', () => {
       expect(member.querySelector('[aria-hidden="true"]')?.textContent).toBe('w')
       expect(member.querySelector('[data-swarm-member-visible-lifecycle]')?.textContent).toBe('Lifecycle: Active')
       expect(member.querySelector('[data-swarm-member-visible-activity]')?.textContent).toBe('Running')
+      expect(member.querySelector('[data-swarm-task-owner]')).toBeNull()
       expect(document.body.textContent).not.toContain('Provider')
       await act(async () => { member.click() })
       expect(document.body.textContent).toContain('Back to members')
@@ -269,12 +270,15 @@ describe('R3 native Team Details surface', () => {
     const assignees = [...document.querySelectorAll<HTMLElement>('.swarm-team-workspace__task-assignee')]
     expect(assignees).toHaveLength(2)
     expect(assignees.map(element => element.getAttribute('title'))).toEqual([`Owner: ${memberName}`, `Target member: ${memberName}`])
+    expect(document.querySelector('[data-swarm-task-owner]')?.getAttribute('data-swarm-task-owner')).toBe(`Owner: ${memberName}`)
+    expect(document.querySelector('[data-swarm-task-target]')?.getAttribute('data-swarm-task-target')).toBe(`Target member: ${memberName}`)
     expect(assignees.every(element => element.className.includes('swarm-team-workspace__task-assignee'))).toBe(true)
     const stylesheet = document.querySelector('style')?.textContent ?? ''
     expect(stylesheet).toContain('.swarm-team-workspace__rows, [data-swarm-team-dashboard] .swarm-team-workspace__rows > li { min-width:0; max-width:100%; }')
     expect(stylesheet).toContain('.swarm-team-workspace__task-assignee { display:block; min-width:0; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }')
     await act(async () => { document.querySelector<HTMLButtonElement>('.swarm-team-workspace__rows button')?.click() })
     expect(document.body.textContent).toContain('Back to tasks')
+    expect(document.querySelector('[data-swarm-task-detail]')).not.toBeNull()
     expect(document.body.textContent).toContain('Task diagnostics')
     expect(document.body.textContent).toContain('Current attempt ID')
   })

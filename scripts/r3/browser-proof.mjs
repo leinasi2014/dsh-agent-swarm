@@ -293,9 +293,11 @@ async function assertRosterFirst(panel, geometry) {
  */
 async function assertLongTaskRowsFitAtWidths(page, panel, geometry) {
   await panel.locator('details.swarm-team-workspace__collapsible').first().locator('summary').click()
-  const assignees = panel.locator('.swarm-team-workspace__task-assignee')
-  await assignees.first().waitFor({ state: 'visible', timeout: 10_000 })
-  const titles = await assignees.evaluateAll(nodes => nodes.map(node => node.getAttribute('title')))
+  const owner = panel.locator('[data-swarm-task-owner]')
+  const target = panel.locator('[data-swarm-task-target]')
+  await owner.waitFor({ state: 'visible', timeout: 10_000 })
+  await target.waitFor({ state: 'visible', timeout: 10_000 })
+  const titles = [await owner.getAttribute('title'), await target.getAttribute('title')]
   const expectedAssigneeLabels = [`Owner: ${MAX_HOST_DISPLAY_NAME}`, `Target member: ${MAX_HOST_DISPLAY_NAME}`]
   if (JSON.stringify(titles) !== JSON.stringify(expectedAssigneeLabels)) {
     throw new Error(`browser fixture did not expose the expected 64-character owner and target: ${JSON.stringify(titles)}`)
@@ -319,34 +321,54 @@ async function assertLongTaskRowsFitAtWidths(page, panel, geometry) {
         sandbox.append(clone)
         const body = clone.querySelector('.swarm-team-workspace__body')
         const columns = clone.querySelector('.swarm-team-workspace__columns')
-        const rows = clone.querySelector('.swarm-team-workspace__rows')
-        if (!(clone instanceof HTMLElement) || !(body instanceof HTMLElement) || !(columns instanceof HTMLElement) || !(rows instanceof HTMLElement)) return { missing: true }
+        const memberRows = clone.querySelector('[data-swarm-member-rows]')
+        const taskRows = clone.querySelector('[data-swarm-task-rows]')
+        const memberRow = clone.querySelector('[data-swarm-member-name]')
+        const memberLifecycle = memberRow?.querySelector('[data-swarm-member-visible-lifecycle]')
+        const memberActivity = memberRow?.querySelector('[data-swarm-member-visible-activity]')
+        const taskOwner = clone.querySelector('[data-swarm-task-owner]')
+        const taskTarget = clone.querySelector('[data-swarm-task-target]')
+        if (!(clone instanceof HTMLElement) || !(body instanceof HTMLElement) || !(columns instanceof HTMLElement)
+          || !(memberRows instanceof HTMLElement) || !(taskRows instanceof HTMLElement) || !(memberRow instanceof HTMLButtonElement)
+          || !(memberLifecycle instanceof HTMLElement) || !(memberActivity instanceof HTMLElement)
+          || !(taskOwner instanceof HTMLElement) || !(taskTarget instanceof HTMLElement)) return { missing: true }
         const containers = [
           sandbox, clone, body, columns,
           ...clone.querySelectorAll('.swarm-team-workspace__column'),
-          rows,
-          ...rows.querySelectorAll('.swarm-team-workspace__rows > li'),
-          ...rows.querySelectorAll('.swarm-team-workspace__row'),
-          ...rows.querySelectorAll('.swarm-team-workspace__row-main'),
+          memberRows, taskRows,
+          ...memberRows.querySelectorAll('.swarm-team-workspace__rows > li'),
+          ...taskRows.querySelectorAll('.swarm-team-workspace__rows > li'),
+          ...memberRows.querySelectorAll('.swarm-team-workspace__row'),
+          ...taskRows.querySelectorAll('.swarm-team-workspace__row'),
+          ...memberRows.querySelectorAll('.swarm-team-workspace__row-main'),
+          ...taskRows.querySelectorAll('.swarm-team-workspace__row-main'),
         ]
-        const leaves = [...rows.querySelectorAll('.swarm-team-workspace__task-assignee')].map(element => {
+        const inspectLeaf = (element, selector, sourceAttribute) => {
           const parent = element.parentElement
           const style = getComputedStyle(element)
           return {
-            title: element.getAttribute('title'), text: element.textContent,
+            selector, source: element.getAttribute(sourceAttribute), title: element.getAttribute('title'), text: element.textContent,
             clientWidth: element.clientWidth, scrollWidth: element.scrollWidth,
             width: element.getBoundingClientRect().width,
             parentClientWidth: parent?.clientWidth, parentWidth: parent?.getBoundingClientRect().width,
             overflow: style.overflow, textOverflow: style.textOverflow, whiteSpace: style.whiteSpace,
           }
-        })
+        }
         return {
           missing: false,
           requestedWidth,
           fixture: { kind: 'read-only-mounted-workspace-clone', outsideOfficialLayout: true, productionMutated: false, removedAfterProbe: true },
           tracks: getComputedStyle(columns).gridTemplateColumns.trim().split(/\s+/u).filter(Boolean),
           containers: containers.map(element => ({ name: element.className || element.tagName, clientWidth: element.clientWidth, scrollWidth: element.scrollWidth })),
-          leaves,
+          member: {
+            selector: '[data-swarm-member-name]', name: memberRow.getAttribute('data-swarm-member-name'),
+            lifecycle: inspectLeaf(memberLifecycle, '[data-swarm-member-visible-lifecycle]', 'data-swarm-member-visible-lifecycle'),
+            activity: inspectLeaf(memberActivity, '[data-swarm-member-visible-activity]', 'data-swarm-member-visible-activity'),
+          },
+          taskLeaves: [
+            inspectLeaf(taskOwner, '[data-swarm-task-owner]', 'data-swarm-task-owner'),
+            inspectLeaf(taskTarget, '[data-swarm-task-target]', 'data-swarm-task-target'),
+          ],
         }
       } finally {
         sandbox.remove()
@@ -359,16 +381,33 @@ async function assertLongTaskRowsFitAtWidths(page, panel, geometry) {
     if (overflow !== undefined) throw new Error(`task-row ${String(width)}px fixture geometry probe horizontally overflowed: ${JSON.stringify(result)}`)
     const expectedTracks = width < 720 ? 1 : 3
     if (result.tracks.length !== expectedTracks) throw new Error(`task-row ${String(width)}px fixture geometry probe used ${String(result.tracks.length)} tracks, expected ${String(expectedTracks)}: ${JSON.stringify(result)}`)
-    const invalidLeaf = result.leaves.find((leaf, index) => leaf.title !== expectedAssigneeLabels[index]
+    const invalidMemberLeaf = [result.member?.lifecycle, result.member?.activity].find((leaf, index) => {
+      const expected = index === 0 ? 'Lifecycle: Active' : 'Recent attempt: Accepted'
+      return leaf?.source !== expected || leaf.title !== expected || leaf.text !== expected
+        || leaf.width > (leaf.parentWidth ?? 0) + 1 || leaf.clientWidth > (leaf.parentClientWidth ?? 0) + 1
+        || leaf.overflow !== 'hidden' || leaf.textOverflow !== 'ellipsis' || leaf.whiteSpace !== 'nowrap'
+    })
+    if (result.member?.selector !== '[data-swarm-member-name]' || result.member.name !== MAX_HOST_DISPLAY_NAME || invalidMemberLeaf !== undefined) {
+      throw new Error(`member-row ${String(width)}px fixture lifecycle/activity contract failed: ${JSON.stringify(result)}`)
+    }
+    const invalidLeaf = result.taskLeaves.find((leaf, index) => leaf.selector !== (index === 0 ? '[data-swarm-task-owner]' : '[data-swarm-task-target]')
+      || leaf.source !== expectedAssigneeLabels[index]
       || leaf.text !== expectedAssigneeLabels[index]
       || leaf.width > (leaf.parentWidth ?? 0) + 1
       || leaf.clientWidth > (leaf.parentClientWidth ?? 0) + 1
       || leaf.overflow !== 'hidden' || leaf.textOverflow !== 'ellipsis' || leaf.whiteSpace !== 'nowrap')
     if (invalidLeaf !== undefined) throw new Error(`task-row ${String(width)}px fixture assignee truncation contract failed: ${JSON.stringify(result)}`)
   }
+  await owner.locator('xpath=ancestor::button').click()
+  const taskDetail = panel.locator('[data-swarm-task-detail]')
+  await taskDetail.waitFor({ state: 'visible', timeout: 10_000 })
+  const taskDetailText = await taskDetail.textContent()
+  if (!taskDetailText?.includes(`Owner${MAX_HOST_DISPLAY_NAME}`) || !taskDetailText.includes(`Target member${MAX_HOST_DISPLAY_NAME}`)) {
+    throw new Error(`task detail did not expose the exact Host owner/target fields: ${JSON.stringify(taskDetailText)}`)
+  }
   const remainingFixtures = await page.locator('[data-swarm-team-browser-fixture]').count()
   if (remainingFixtures !== 0) throw new Error(`future-width fixture cleanup leaked ${String(remainingFixtures)} sandbox node(s)`)
-  return { production, futureSeamFixture: results, fixtureCleanup: { remainingFixtures } }
+  return { production, productionTaskDetail: { selector: '[data-swarm-task-detail]', owner: `Owner${MAX_HOST_DISPLAY_NAME}`, target: `Target member${MAX_HOST_DISPLAY_NAME}` }, futureSeamFixture: results, fixtureCleanup: { remainingFixtures } }
 }
 
 async function assertNoPluginFallback(page, label) {

@@ -337,6 +337,26 @@ async function verifyR3BrowserEvidence(root, failures) {
   if (active?.geometry?.longTaskRows?.fixtureCleanup?.remainingFixtures !== 0) {
     failures.push('R3 future-width clone fixture cleanup left a browser sandbox node behind')
   }
+  const taskDetail = active?.geometry?.longTaskRows?.productionTaskDetail
+  if (taskDetail?.selector !== '[data-swarm-task-detail]' || taskDetail.owner !== `Owner${'a'.repeat(64)}`
+    || taskDetail.target !== `Target member${'a'.repeat(64)}`) {
+    failures.push('R3 active browser task semantics must come from the task-detail subtree')
+  }
+  const boundedLeaf = leaf => typeof leaf?.width === 'number' && typeof leaf?.parentWidth === 'number'
+    && typeof leaf?.clientWidth === 'number' && typeof leaf?.parentClientWidth === 'number'
+    && leaf.width <= leaf.parentWidth + 1 && leaf.clientWidth <= leaf.parentClientWidth + 1
+    && leaf.overflow === 'hidden' && leaf.textOverflow === 'ellipsis' && leaf.whiteSpace === 'nowrap'
+  if (futureSeamFixture?.some(entry => entry?.member?.selector !== '[data-swarm-member-name]'
+    || entry.member?.name !== 'a'.repeat(64)
+    || entry.member?.lifecycle?.selector !== '[data-swarm-member-visible-lifecycle]'
+    || entry.member.lifecycle?.source !== 'Lifecycle: Active' || entry.member.lifecycle?.title !== 'Lifecycle: Active' || entry.member.lifecycle?.text !== 'Lifecycle: Active' || !boundedLeaf(entry.member.lifecycle)
+    || entry.member?.activity?.selector !== '[data-swarm-member-visible-activity]'
+    || entry.member.activity?.source !== 'Recent attempt: Accepted' || entry.member.activity?.title !== 'Recent attempt: Accepted' || entry.member.activity?.text !== 'Recent attempt: Accepted' || !boundedLeaf(entry.member.activity)
+    || !Array.isArray(entry.taskLeaves) || entry.taskLeaves.length !== 2
+    || entry.taskLeaves[0]?.selector !== '[data-swarm-task-owner]' || entry.taskLeaves[0]?.source !== `Owner: ${'a'.repeat(64)}` || entry.taskLeaves[0]?.title !== `Owner: ${'a'.repeat(64)}` || entry.taskLeaves[0]?.text !== `Owner: ${'a'.repeat(64)}` || !boundedLeaf(entry.taskLeaves[0])
+    || entry.taskLeaves[1]?.selector !== '[data-swarm-task-target]' || entry.taskLeaves[1]?.source !== `Target member: ${'a'.repeat(64)}` || entry.taskLeaves[1]?.title !== `Target member: ${'a'.repeat(64)}` || entry.taskLeaves[1]?.text !== `Target member: ${'a'.repeat(64)}` || !boundedLeaf(entry.taskLeaves[1]))) {
+    failures.push('R3 future-width evidence must separate member lifecycle/activity leaves from task owner/target leaves')
+  }
 
   const r0 = await readJson('evidence/r3-browser-r0.json')
   verifyBootstrap(r0?.bootstrap, active?.rootSessionId, false, 'R0', failures)

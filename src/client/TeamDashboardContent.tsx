@@ -187,7 +187,7 @@ function CaptainRow({ busy, onMainChat, t }: { readonly busy: boolean; readonly 
 function Metric({ label, value }: { readonly label: string; readonly value: string }) { return <div className="swarm-team-workspace__metric"><strong>{value}</strong><span className="swarm-team-workspace__muted">{label}</span></div> }
 
 function MemberRows({ data, onSelect, onTrigger, t }: { readonly data: SwarmHostReadProjectionV1; readonly onSelect: (name: string) => void; readonly onTrigger: (name: string, element: HTMLButtonElement | null) => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
-  return <ul className="swarm-team-workspace__rows">{data.roster.length === 0 ? <li className="swarm-team-workspace__muted">{t('empty')}</li> : data.roster.map(member => {
+  return <ul className="swarm-team-workspace__rows" data-swarm-member-rows>{data.roster.length === 0 ? <li className="swarm-team-workspace__muted">{t('empty')}</li> : data.roster.map(member => {
     const activity = deriveMemberActivity(data, member.name, member.phase)
     const task = activity.task
     const attempt = activity.attempt
@@ -207,10 +207,10 @@ function MemberDetail({ data, member, onBack, t }: { readonly data: SwarmHostRea
 }
 
 function TaskRows({ data, onSelect, onTrigger, t }: { readonly data: SwarmHostReadProjectionV1; readonly onSelect: (id: string) => void; readonly onTrigger: (id: string, element: HTMLButtonElement | null) => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
-  return <ul className="swarm-team-workspace__rows">{data.tasks.length === 0 ? <li className="swarm-team-workspace__muted">{t('empty')}</li> : data.tasks.map(task => {
+  return <ul className="swarm-team-workspace__rows" data-swarm-task-rows>{data.tasks.length === 0 ? <li className="swarm-team-workspace__muted">{t('empty')}</li> : data.tasks.map(task => {
     const owner = task.ownerName ?? t('hostUnavailable')
     const target = task.targetMemberName ?? t('hostUnavailable')
-    return <li key={task.id}><button className="swarm-team-workspace__row" type="button" ref={element => { onTrigger(task.id, element) }} onClick={() => { onSelect(task.id) }}><span className="swarm-team-workspace__row-main"><strong className="swarm-team-workspace__truncate" title={task.subject}>{task.subject}</strong><span className="swarm-team-workspace__muted">{enumLabel(task.status, t)}</span></span><small className="swarm-team-workspace__muted swarm-team-workspace__task-assignee" title={`${t('taskOwner')}: ${owner}`}>{t('taskOwner')}: {owner}</small><small className="swarm-team-workspace__muted swarm-team-workspace__task-assignee" title={`${t('taskTarget')}: ${target}`}>{t('taskTarget')}: {target}</small></button></li>
+    return <li key={task.id}><button className="swarm-team-workspace__row" type="button" ref={element => { onTrigger(task.id, element) }} onClick={() => { onSelect(task.id) }}><span className="swarm-team-workspace__row-main"><strong className="swarm-team-workspace__truncate" title={task.subject}>{task.subject}</strong><span className="swarm-team-workspace__muted">{enumLabel(task.status, t)}</span></span><small className="swarm-team-workspace__muted swarm-team-workspace__task-assignee" data-swarm-task-owner={`${t('taskOwner')}: ${owner}`} title={`${t('taskOwner')}: ${owner}`}>{t('taskOwner')}: {owner}</small><small className="swarm-team-workspace__muted swarm-team-workspace__task-assignee" data-swarm-task-target={`${t('taskTarget')}: ${target}`} title={`${t('taskTarget')}: ${target}`}>{t('taskTarget')}: {target}</small></button></li>
   })}</ul>
 }
 
@@ -223,7 +223,7 @@ function TaskDetail({ data, id, number, onBack, t }: { readonly data: SwarmHostR
 function TaskDetailBody({ data, number, onBack, t, task }: { readonly data: SwarmHostReadProjectionV1; readonly number: Intl.NumberFormat; readonly onBack: () => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS>; readonly task: SwarmHostReadProjectionV1['tasks'][number] }) {
   const headingRef = useRef<HTMLHeadingElement>(null)
   useLayoutEffect(() => { headingRef.current?.focus() }, [])
-  return <div><h4 className="swarm-team-workspace__column-title swarm-team-workspace__truncate" ref={headingRef} tabIndex={-1} title={task.subject}>{t('taskDetailHeading', { subject: task.subject })}</h4><Button size="sm" variant="ghost" onClick={onBack}>{t('backToTasks')}</Button><Facts rows={[[t('status'), enumLabel(task.status, t)], [t('taskOwner'), task.ownerName ?? t('hostUnavailable')], [t('taskTarget'), task.targetMemberName ?? t('hostUnavailable')], [t('taskBlocked', { count: number.format(task.blockedBy.length) }), task.blockedBy.length === 0 ? t('empty') : task.blockedBy.join(', ')]]} /><details className="swarm-team-workspace__diagnostics"><summary>{t('taskDiagnostics')}</summary><Facts rows={[[t('taskId'), task.id], [t('taskCurrentAttempt'), task.currentAttemptId ?? t('memberNone')]]} /></details><Diagnostics data={data} number={number} t={t} /></div>
+  return <div data-swarm-task-detail><h4 className="swarm-team-workspace__column-title swarm-team-workspace__truncate" ref={headingRef} tabIndex={-1} title={task.subject}>{t('taskDetailHeading', { subject: task.subject })}</h4><Button size="sm" variant="ghost" onClick={onBack}>{t('backToTasks')}</Button><Facts rows={[[t('status'), enumLabel(task.status, t)], [t('taskOwner'), task.ownerName ?? t('hostUnavailable')], [t('taskTarget'), task.targetMemberName ?? t('hostUnavailable')], [t('taskBlocked', { count: number.format(task.blockedBy.length) }), task.blockedBy.length === 0 ? t('empty') : task.blockedBy.join(', ')]]} /><details className="swarm-team-workspace__diagnostics"><summary>{t('taskDiagnostics')}</summary><Facts rows={[[t('taskId'), task.id], [t('taskCurrentAttempt'), task.currentAttemptId ?? t('memberNone')]]} /></details><Diagnostics data={data} number={number} t={t} /></div>
 }
 
 function Facts({ rows }: { readonly rows: readonly (readonly [string, string])[] }) { return <dl className="swarm-team-workspace__facts">{rows.map(([label, value]) => <div className="swarm-team-workspace__fact" key={label}><dt>{label}</dt><dd title={value}>{value}</dd></div>)}</dl> }
