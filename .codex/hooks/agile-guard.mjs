@@ -60,6 +60,18 @@ function commandFrom(input) {
   return typeof input.tool_input.command === 'string' ? input.tool_input.command : ''
 }
 
+/**
+ * Match the shell tool surface for the shell-command gates. Codex names the
+ * shell tool variably across versions (legacy "Bash"; 0.147-era
+ * "shell_command" / "shell_tool"). Accept those names, and fall back on the
+ * command-payload structure so a renamed/unrecognised shell tool cannot
+ * silently bypass the guard.
+ */
+function isShellCommandTool(toolName, input) {
+  if (toolName === 'Bash' || toolName === 'shell_command' || toolName === 'shell_tool') return true
+  return isRecord(input.tool_input) && typeof input.tool_input.command === 'string'
+}
+
 function splitCommand(command) {
   return command.split(/(?:&&|\|\||[;\r\n])/u).map(item => item.trim()).filter(Boolean)
 }
@@ -190,7 +202,7 @@ function resourceSummary(resources) {
 function preToolResult(input, dependencies) {
   const toolName = typeof input.tool_name === 'string' ? input.tool_name : ''
   const command = commandFrom(input)
-  if (toolName === 'Bash' && hasRawWorktreeLifecycle(command)) {
+  if (isShellCommandTool(toolName, input) && hasRawWorktreeLifecycle(command)) {
     return blocked('Raw git worktree add/remove/move/prune is forbidden. Use pnpm isolation open|status|close|reconcile.')
   }
 
@@ -200,7 +212,7 @@ function preToolResult(input, dependencies) {
     return repository
   }
 
-  if (toolName === 'Bash' && hasIsolationOpen(command)) {
+  if (isShellCommandTool(toolName, input) && hasIsolationOpen(command)) {
     try {
       const authority = dependencies.readIsolationAuthority(repositoryForInspection())
       if (authority.active.length >= WRITER_CAPACITY) {
@@ -211,7 +223,7 @@ function preToolResult(input, dependencies) {
     }
   }
 
-  if (toolName === 'Bash' && (isBrowserStart(command) || isPreviewStart(command))) {
+  if (isShellCommandTool(toolName, input) && (isBrowserStart(command) || isPreviewStart(command))) {
     try {
       const resources = dependencies.inspectTaskResources(repositoryForInspection())
       const found = isBrowserStart(command) ? resources.browsers : resources.previews
