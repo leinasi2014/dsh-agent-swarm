@@ -7,9 +7,8 @@ export const REQUIRED_P0_GATES = [
   'candidate-clean',
   'artifact-packed',
   'profile-add',
-  'default-disabled',
+  'default-enabled',
   'dump-config',
-  'boot-load',
   'service-tool-probe',
   'r2-read-rpc-handshake',
   'r3-browser-active',
@@ -26,8 +25,7 @@ export const REQUIRED_P0_GATES = [
 
 export const REQUIRED_P0_EVIDENCE_FILES = [
   'evidence/dump-config.log',
-  'evidence/inventory-default-disabled.json',
-  'evidence/inventory-explicit-enabled.json',
+  'evidence/inventory-default-enabled.json',
   'evidence/inventory-reload-enabled.json',
   'evidence/inventory-r0-disabled.json',
   'evidence/inventory-plugin-removed.json',

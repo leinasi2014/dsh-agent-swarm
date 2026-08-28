@@ -564,21 +564,21 @@ async function main() {
     await copyFile(join(args.repo, 'scripts', 'p0', 'profile-probe.mjs'), profileProbeModule)
     serviceProbeUrl = pathToFileURL(profileProbeModule).href
     await writeFile(profilePatch, profilePatchLines({
-      storageRoot, sessionRoot, workspaceRoot, shutdownProbeUrl,
+      storageRoot, sessionRoot, workspaceRoot, shutdownProbeUrl, serviceProbeUrl,
     }).join('\n'), 'utf8')
     await writeFile(join(evidenceDir, 'profile-package-installed.json'), await readFile(join(dshHome, 'profiles', 'web', 'package.json')), 'utf8')
-    await writeFile(join(evidenceDir, 'profile-cordis-default-disabled.patch.yml'), await readFile(profilePatch), 'utf8')
+    await writeFile(join(evidenceDir, 'profile-cordis-default-enabled.patch.yml'), await readFile(profilePatch), 'utf8')
     gate('profile-add', 'pass', 'official plugin forwarder installed the immutable tarball into fresh web Profile with lifecycle scripts enabled')
 
     const dump = await execute('dump-config', process.execPath, [args.cli, '--profile', 'web', '--dump-config'], {
       cwd: workspaceRoot, env: { DSH_HOME: dshHome },
     })
     const dumpOk = dump.code === 0 && dump.stdout.includes('dsh-agent-swarm')
-      && dump.stdout.includes('cordis:group') && dump.stdout.includes('disabled: true')
+      && dump.stdout.includes('cordis:group') && dump.stdout.includes('disabled: false')
       && dump.stdout.includes(posix(storageRoot)) && dump.stdout.includes(posix(sessionRoot))
       && dump.stdout.includes(posix(workspaceRoot)) && dump.stdout.includes('agent-swarm-p0-shutdown-probe')
-    if (!dumpOk) throw new Error('dump-config did not prove the default-disabled Swarm layer and isolated roots')
-    gate('dump-config', 'pass', 'default-disabled structural group + isolated roots + shutdown probe composed')
+    if (!dumpOk) throw new Error('dump-config did not prove the enabled-by-default Swarm layer and isolated roots')
+    gate('dump-config', 'pass', 'enabled-by-default structural group + isolated roots + shutdown probe composed')
 
     const rootSessionId = 'swarm-r2-profile-root'
     const bootEnv = {
@@ -590,29 +590,12 @@ async function main() {
     await rm(stopPath, { force: true })
     liveBoot = await bootPlane({ cli: args.cli, home: dshHome, profile: 'web', port: args.port, cwd: workspaceRoot, env: bootEnv })
     if (!liveBoot.ready) throw new Error(`web Profile did not boot: ${liveBoot.stderr().slice(0, 2000)}`)
-    const defaultEntries = await readInventory(args.port, evidenceDir, 'inventory-default-disabled')
+    const defaultEntries = await readInventory(args.port, evidenceDir, 'inventory-default-enabled')
     const defaultRow = swarmInventoryRow(defaultEntries)
-    if (defaultRow?.enabled !== false || defaultRow?.fiberPhase !== null) {
-      throw new Error(`installed Swarm was not inert by default: ${JSON.stringify(defaultRow)}`)
+    if (defaultRow?.enabled !== true || defaultRow?.fiberPhase !== 'active') {
+      throw new Error(`installed Swarm was not active by default: ${JSON.stringify(defaultRow)}`)
     }
-    gate('default-disabled', 'pass', `entry=${defaultRow.entryId}; enabled=false; fiberPhase=null`)
-    const defaultStop = await gracefulStop(liveBoot, stopPath, args.port)
-    liveBoot = undefined
-    if (!defaultStop.graceful || !defaultStop.portFree) throw new Error(`default-disabled shutdown failed: ${JSON.stringify(defaultStop)}`)
-
-    await writeFile(profilePatch, profilePatchLines({
-      storageRoot, sessionRoot, workspaceRoot, shutdownProbeUrl, serviceProbeUrl, swarmEnabled: true,
-    }).join('\n'), 'utf8')
-    await writeFile(join(evidenceDir, 'profile-cordis-explicit-enabled.patch.yml'), await readFile(profilePatch), 'utf8')
-    await rm(stopPath, { force: true })
-    liveBoot = await bootPlane({ cli: args.cli, home: dshHome, profile: 'web', port: args.port, cwd: workspaceRoot, env: bootEnv })
-    if (!liveBoot.ready) throw new Error(`explicitly enabled web Profile did not boot: ${liveBoot.stderr().slice(0, 2000)}`)
-    const activeEntries = await readInventory(args.port, evidenceDir, 'inventory-explicit-enabled')
-    const activeRow = swarmInventoryRow(activeEntries)
-    if (activeRow?.enabled !== true || activeRow?.fiberPhase !== 'active') {
-      throw new Error(`explicitly enabled Swarm was not active: ${JSON.stringify(activeRow)}`)
-    }
-    gate('boot-load', 'pass', `entry=${activeRow.entryId}; enabled=true; fiberPhase=active`)
+    gate('default-enabled', 'pass', `entry=${defaultRow.entryId}; enabled=true; fiberPhase=active`)
     const probeReady = await waitUntil(async () => (await readProbe(probePath)).some(entry => entry.phase === 'active'), { timeoutMs: 10_000 })
     if (!probeReady) throw new Error('service/tool probe did not activate')
     const firstActive = (await readProbe(probePath)).find(entry => entry.phase === 'active')
