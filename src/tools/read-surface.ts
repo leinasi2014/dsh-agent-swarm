@@ -82,7 +82,7 @@ const MEMBER_PROFILE_ROW_SCHEMA = {
     profile_state: { type: 'string', required: true, enum: ['available', 'pending', 'unavailable', 'invalid'] },
     profile_reason: {
       type: 'string', required: true,
-      enum: ['available', 'provisioning', 'inspection_failed', 'active_session_missing', 'binding_invalid', 'descriptor_invalid', 'not_continuable', 'tool_filter_invalid'],
+      enum: ['available', 'provisioning', 'startup_failed', 'removed', 'inspection_failed', 'active_session_missing', 'binding_invalid', 'descriptor_invalid', 'not_continuable', 'tool_filter_invalid'],
     },
     runtime_provider: { type: 'string', required: true, description: 'Team provisioning/recovery Provider; available rows verify it against the official continuable descriptor. Not the LLM provider.' },
     llm_provider: { type: 'string', description: 'Optional LLM provider recorded in the continuable descriptor.' },

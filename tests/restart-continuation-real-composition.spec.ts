@@ -15,6 +15,7 @@ import { type Context } from '@deepseek-ai/cordis'
 import { CallId, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import * as AgentSwarm from '../src/index.js'
 import type { TeamMember, TeamState } from '../src/domain/types.js'
 import { MemberProfileReader } from '../src/runtime/member-profile-reader.js'
 import { MEMBER_HIDDEN_TOOLS } from '../src/runtime/prompts.js'
@@ -424,6 +425,23 @@ describe('real restart continuation over the current Team authority', () => {
         expect(members).toContainEqual(expect.objectContaining({ sessionId: damagedId, phase: 'active' }))
       }, { timeout: 15_000 })
 
+      // This row models a child whose first turn already failed in Context A.
+      // The matrix proof in member-provisioning drives that exact live edge;
+      // this reopen proof pins the durable half: recovery must not mistake a
+      // terminal failed row for an interrupted provisioning record and revive
+      // it merely because Context B has no resident child.
+      const scope = first.ctx.agentSwarm.scopeOf(leadA)
+      const failed = await first.ctx.agentSwarm.domain.provisionMember(scope, AgentSwarm.TeamId(teamId), leadA.id, {
+        name: 'profile-startup-failed',
+        role: 'Remain visibly failed after a cold runtime reopen.',
+        sessionId: 'profile-startup-failed-session',
+        provider: 'spawn',
+      })
+      await first.ctx.agentSwarm.domain.settleMember(scope, AgentSwarm.TeamId(teamId), failed.sessionId, {
+        active: false,
+        error: 'member initial turn ended error before it finished',
+      })
+
       await dispose(first)
       first = undefined
       // Fault only the durable child descriptor evidence, after Context A
@@ -452,7 +470,7 @@ describe('real restart continuation over the current Team authority', () => {
         expect(listed).toMatchObject({ isError: false })
         const value = listed.value as { members: Array<Record<string, unknown>>; next_cursor?: number }
         expect(value.next_cursor).toBeUndefined()
-        expect(value.members.map(member => member.name)).toEqual(['profile-reader', 'profile-damaged'])
+        expect(value.members.map(member => member.name)).toEqual(['profile-reader', 'profile-damaged', 'profile-startup-failed'])
         expect(value.members[0]).toMatchObject({
           name: 'profile-reader', role: 'Read durable member composition.', phase: 'active',
           profile_state: 'available', profile_reason: 'available', runtime_provider: 'spawn',
@@ -467,6 +485,12 @@ describe('real restart continuation over the current Team authority', () => {
         })
         expect(value.members[1]).not.toHaveProperty('llm_provider')
         expect(value.members[1]).not.toHaveProperty('persona_configured')
+        expect(value.members[2]).toMatchObject({
+          name: 'profile-startup-failed', phase: 'failed', runtime_provider: 'spawn',
+          profile_state: 'unavailable', profile_reason: 'startup_failed',
+        })
+        expect(value.members[2]).not.toHaveProperty('llm_provider')
+        expect(second.ctx.agents.get(SessionId('profile-startup-failed-session'))).toBeUndefined()
         expect(coldOnly.workerRequests).toBe(0)
         expect(second.ctx.agents.get(SessionId(healthyId))).toBeUndefined()
         expect(second.ctx.agents.get(SessionId(damagedId))).toBeUndefined()
@@ -508,10 +532,10 @@ describe('real restart continuation over the current Team authority', () => {
       { profileState: 'pending', profileReason: 'provisioning', runtimeProvider: 'spawn' },
     ])
     await expect(reader.list(team, [member('failed')], SIGNAL)).resolves.toMatchObject([
-      { profileState: 'unavailable', profileReason: 'inspection_failed', runtimeProvider: 'spawn' },
+      { profileState: 'unavailable', profileReason: 'startup_failed', runtimeProvider: 'spawn' },
     ])
     await expect(reader.list(team, [member('removed')], SIGNAL)).resolves.toMatchObject([
-      { profileState: 'unavailable', profileReason: 'inspection_failed', runtimeProvider: 'spawn' },
+      { profileState: 'unavailable', profileReason: 'removed', runtimeProvider: 'spawn' },
     ])
     await expect(reader.list(team, [member('active')], SIGNAL)).resolves.toMatchObject([
       { profileState: 'invalid', profileReason: 'active_session_missing', runtimeProvider: 'spawn' },

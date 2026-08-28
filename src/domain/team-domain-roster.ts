@@ -177,7 +177,7 @@ export async function provisionMember(
     const name = normalizeMemberName(input.name)
     expectDomain(
       !team.members.some(candidate => candidate.name === name),
-      `member name "${name}" was already used in this Team`,
+      `member name "${name}" was already used in this Team; choose an unused member name or create a new Team`,
       'TEAM_MEMBER_NAME_TAKEN',
     )
     expectDomain(team.members.length < deps.limits.maxMembers, 'team member limit reached', 'TEAM_MEMBER_LIMIT')
@@ -232,7 +232,11 @@ export async function settleMember(
     const index = team.members.findIndex(candidate => candidate.sessionId === sessionId)
     expectDomain(index >= 0, 'provisioning member not found', 'TEAM_MEMBER_NOT_FOUND')
     const current = team.members[index]!
-    expectDomain(current.phase === 'provisioning', 'member is no longer provisioning', 'TEAM_MEMBER_PHASE_INVALID')
+    expectDomain(
+      current.phase === 'provisioning' || (current.phase === 'active' && !outcome.active),
+      'member is no longer provisioning',
+      'TEAM_MEMBER_PHASE_INVALID',
+    )
     if (outcome.active) {
       committed = { ...current, phase: 'active' }
       team.members[index] = committed

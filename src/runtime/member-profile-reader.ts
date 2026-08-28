@@ -24,6 +24,8 @@ type MemberProfileState = 'available' | 'pending' | 'unavailable' | 'invalid'
 type MemberProfileReason =
   | 'available'
   | 'provisioning'
+  | 'startup_failed'
+  | 'removed'
   | 'inspection_failed'
   | 'active_session_missing'
   | 'binding_invalid'
@@ -59,14 +61,14 @@ function pending(member: TeamMember): MemberProfile {
   }
 }
 
-function unavailable(member: TeamMember): MemberProfile {
+function unavailable(member: TeamMember, profileReason: 'startup_failed' | 'removed' | 'inspection_failed'): MemberProfile {
   return {
     name: member.name,
     role: member.role,
     phase: member.phase,
     createdAt: member.createdAt,
     profileState: 'unavailable',
-    profileReason: 'inspection_failed',
+    profileReason,
     runtimeProvider: member.provider,
   }
 }
@@ -139,6 +141,9 @@ export class MemberProfileReader {
   }
 
   private async inspect(team: TeamState, member: TeamMember, pageSignal: AbortSignal): Promise<MemberProfile> {
+    if (member.phase === 'provisioning') return pending(member)
+    if (member.phase === 'failed') return unavailable(member, 'startup_failed')
+    if (member.phase === 'removed') return unavailable(member, 'removed')
     const rowSignal = AbortSignal.any([pageSignal, AbortSignal.timeout(MEMBER_INSPECTION_TIMEOUT_MS)])
     let stored: Awaited<ReturnType<Context['sessionPersistence']['inspect']>>
     try {
@@ -147,11 +152,10 @@ export class MemberProfileReader {
       // A caller or page-wide deadline has a tool-level outcome; it must not
       // disappear into a harmless-looking row result.
       if (pageSignal.aborted) throw error
-      if (member.phase === 'provisioning' && missingSession(error)) return pending(member)
       if (member.phase === 'active') {
         return invalid(member, missingSession(error) ? 'active_session_missing' : 'inspection_failed')
       }
-      return unavailable(member)
+      return unavailable(member, 'inspection_failed')
     }
 
     if (

@@ -94,15 +94,29 @@ async function mount(root: string, adapter: Adapter) {
   return { ctx, lead, latch, tool, teamId: AgentSwarm.TeamId((created.value as { team_id: string }).team_id), scope: ctx.agentSwarm.scopeOf(lead) }
 }
 
+type Stack = Awaited<ReturnType<typeof mount>>
+type TeamSnapshot = Awaited<ReturnType<Stack['ctx']['agentSwarm']['domain']['snapshot']>>
+
 describe('model interrupt admission over the real official composition', () => {
-  it('rejects a recent call, then interrupts only the overdue live child and recovers by wakeup', async () => {
+  type PreparedProof = {
+    adapter: Adapter
+    before: TeamSnapshot
+    call: Extract<SessionEvent, { type: 'tool/call' }>
+    interrupt: ReturnType<typeof vi.spyOn>
+    latch: Latch
+    memberId: SessionId
+    snapshot: () => Promise<TeamSnapshot>
+    stack: Stack
+  }
+
+  async function prepareProof(wave: number, lane: number): Promise<PreparedProof> {
     const root = await mkdtemp(join(tmpdir(), 'dsh-model-interrupt-real-')); roots.push(root)
     const adapter = new Adapter(); const stack = await mount(root, adapter)
-    const add = await stack.tool('add', 'agent_swarm_add_member', { name: 'worker', role: 'interrupt proof worker' })
+    const add = await stack.tool(`add-${wave}-${lane}`, 'agent_swarm_add_member', { name: 'worker', role: 'interrupt proof worker' })
     expect(add.isError).toBe(false)
     const memberId = (add.value as { session_id: string }).session_id
     await vi.waitFor(() => expect(stack.ctx.agents.get(SessionId(memberId))?.status).toBe('running'), { timeout: 5_000, interval: 5 })
-    expect((await stack.tool('task', 'agent_swarm_create_task', { subject: 'Preserve ownership', description: 'Model call hangs.' })).isError).toBe(false)
+    expect((await stack.tool(`task-${wave}-${lane}`, 'agent_swarm_create_task', { subject: 'Preserve ownership', description: 'Model call hangs.' })).isError).toBe(false)
     adapter.open()
     const snapshot = async () => await stack.ctx.agentSwarm.domain.snapshot(stack.scope, stack.teamId, stack.lead.id)
     await vi.waitFor(async () => expect((await snapshot()).team.tasks[0]).toMatchObject({ ownerSessionId: memberId, status: 'in_progress' }), { timeout: 5_000, interval: 5 })
@@ -119,30 +133,65 @@ describe('model interrupt admission over the real official composition', () => {
     await vi.waitFor(() => expect(stack.latch.starts).toBe(1), { timeout: 5_000, interval: 5 })
     const realInterrupt = stack.ctx.subagents.interrupt.bind(stack.ctx.subagents)
     const interrupt = vi.spyOn(stack.ctx.subagents, 'interrupt').mockImplementation((id, cause) => realInterrupt(id, cause))
+    return { adapter, before: await snapshot(), call, interrupt, latch: stack.latch, memberId: SessionId(memberId), snapshot, stack }
+  }
+
+  async function rejectRecent(proof: PreparedProof, wave: number, lane: number): Promise<void> {
+    const { before, interrupt, snapshot, stack } = proof
+    expect(await stack.tool(`recent-${wave}-${lane}`, 'agent_swarm_interrupt_member', { name: 'worker' })).toMatchObject({
+      isError: true, error: { info: { code: 'TEAM_INTERRUPT_EVIDENCE_REQUIRED' } },
+    })
+    expect(interrupt).not.toHaveBeenCalled()
+    // The recent request must not interrupt. The independent scheduler may
+    // concurrently acknowledge its already-reserved assignment, so assert
+    // ownership rather than a timing-sensitive whole-snapshot equality.
+    expect((await snapshot()).team.tasks[0]).toMatchObject({
+      ownerSessionId: before.team.tasks[0]?.ownerSessionId,
+      currentAttemptId: before.team.tasks[0]?.currentAttemptId,
+      status: 'in_progress',
+    })
+  }
+
+  async function admitExactAndRecover(proof: PreparedProof, wave: number, lane: number): Promise<void> {
+    const { adapter, before, interrupt, latch, memberId, snapshot, stack } = proof
     try {
-      const before = await snapshot()
-      expect(await stack.tool('recent', 'agent_swarm_interrupt_member', { name: 'worker' })).toMatchObject({ isError: true, error: { info: { code: 'TEAM_INTERRUPT_EVIDENCE_REQUIRED' } } })
-      expect(interrupt).not.toHaveBeenCalled()
-      // The recent request must not interrupt.  The independent scheduler may
-      // concurrently acknowledge its already-reserved assignment, so assert
-      // ownership rather than a timing-sensitive whole-snapshot equality.
-      expect((await snapshot()).team.tasks[0]).toMatchObject({
-        ownerSessionId: before.team.tasks[0]?.ownerSessionId,
-        currentAttemptId: before.team.tasks[0]?.currentAttemptId,
-        status: 'in_progress',
-      })
-      await vi.waitFor(() => expect(Date.now() - call.time).toBeGreaterThanOrEqual(TIMEOUT), { timeout: 5_000, interval: 5 })
-      const admitted = await stack.tool('overdue', 'agent_swarm_interrupt_member', { name: 'worker' })
+      const admitted = await stack.tool(`exact-${wave}-${lane}`, 'agent_swarm_interrupt_member', { name: 'worker' })
       expect(admitted.value).toEqual({ name: 'worker', previous_status: 'running', evidence_kind: 'host-confirmed-tool-timeout' })
       expect(interrupt).toHaveBeenCalledTimes(1)
-      expect(interrupt).toHaveBeenCalledWith(SessionId(memberId), { kind: 'ancestor', agent: stack.lead })
+      expect(interrupt).toHaveBeenCalledWith(memberId, { kind: 'ancestor', agent: stack.lead })
       const after = await snapshot()
       expect(after.team.members).toEqual(before.team.members)
       expect(after.team.tasks[0]).toMatchObject({ ownerSessionId: before.team.tasks[0]?.ownerSessionId, currentAttemptId: before.team.tasks[0]?.currentAttemptId })
       expect(after.team.messages).toEqual(before.team.messages)
-      stack.latch.release()
-      expect((await stack.tool('wakeup', 'agent_swarm_send_message', { target: 'worker', content: 'recover-after-interrupt', delivery: 'wakeup' })).isError).toBe(false)
+      latch.release()
+      expect((await stack.tool(`wakeup-${wave}-${lane}`, 'agent_swarm_send_message', { target: 'worker', content: 'recover-after-interrupt', delivery: 'wakeup' })).isError).toBe(false)
       await vi.waitFor(() => expect(adapter.wakeups).toBe(1), { timeout: 5_000, interval: 5 })
-    } finally { stack.latch.release(); interrupt.mockRestore() }
-  }, 30_000)
+    } finally { latch.release(); interrupt.mockRestore() }
+  }
+
+  it('records three four-way real-composition waves at both deterministic timeout boundaries', async () => {
+    const records: Array<{ wave: number; lanes: number }> = []
+    for (const wave of [1, 2, 3]) {
+      const callTime = 1_000_000 + wave * 1_000
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(callTime)
+      try {
+        const proofs = await Promise.all([0, 1, 2, 3].map(lane => prepareProof(wave, lane)))
+        expect(proofs.map(proof => proof.call.time)).toEqual([callTime, callTime, callTime, callTime])
+
+        // Keep all four real compositions one millisecond inside the declared
+        // timeout before any interrupt request can observe the exact edge.
+        clock.mockReturnValue(callTime + TIMEOUT - 1)
+        await Promise.all(proofs.map((proof, lane) => rejectRecent(proof, wave, lane)))
+
+        // The production predicate is >= timeoutMs: exact timeout must admit
+        // without the old sleep/poll race, while every lane remains isolated.
+        clock.mockReturnValue(callTime + TIMEOUT)
+        await Promise.all(proofs.map((proof, lane) => admitExactAndRecover(proof, wave, lane)))
+        records.push({ wave, lanes: proofs.length })
+      } finally {
+        clock.mockRestore()
+      }
+    }
+    expect(records).toEqual([{ wave: 1, lanes: 4 }, { wave: 2, lanes: 4 }, { wave: 3, lanes: 4 }])
+  }, 90_000)
 })

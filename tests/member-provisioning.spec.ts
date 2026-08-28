@@ -19,7 +19,7 @@ import { join } from 'node:path'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { CallId, LlmAdapter, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { CallId, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
 import SessionProjection from '@deepseek-ai/dsh-session-projection'
@@ -46,6 +46,61 @@ class ImmediateAdapter extends LlmAdapter {
   }
 }
 
+class MatrixAdapter extends LlmAdapter {
+  calls = 0
+  private readonly outcomesBySession = new Map<string, 'completed' | 'failed'>()
+  private releaseInitialTurn!: () => void
+  private readonly initialTurnGate = new Promise<void>(resolve => { this.releaseInitialTurn = resolve })
+
+  constructor(private readonly outcomes: Array<'completed' | 'failed'>) {
+    super()
+  }
+
+  override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+    return Promise.resolve({ provider, id: model, name: model })
+  }
+
+  override providerRetryPolicy() {
+    return {
+      mode: 'normal' as const,
+      maxRetries: 0,
+      retryableCodes: [],
+      initialDelayMs: 0,
+      maxDelayMs: 0,
+      jitterRatio: 0,
+    }
+  }
+
+  release(): void { this.releaseInitialTurn() }
+
+  override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    this.calls += 1
+    const sessionKey = options.sessionId ?? `unidentified-${this.calls}`
+    const signal = options.signal ?? new AbortController().signal
+    let outcome = this.outcomesBySession.get(sessionKey)
+    if (outcome === undefined) {
+      outcome = this.outcomes.shift()
+      if (outcome === undefined) throw new Error('matrix adapter received an unexpected child session')
+      this.outcomesBySession.set(sessionKey, outcome)
+    }
+    if (!signal.aborted) {
+      await Promise.race([
+        this.initialTurnGate,
+        new Promise<never>((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+        }),
+      ])
+    }
+    signal.throwIfAborted()
+    if (outcome === 'failed') throw new Error('injected child startup failure')
+    yield { type: 'block-start', index: 0, blockType: 'text' }
+    yield { type: 'text-delta', index: 0, text: 'Initial turn completed.' }
+    yield { type: 'block-end', index: 0, block: { type: 'text', text: 'Initial turn completed.' } }
+    yield { type: 'usage', usage: { inputTokens: 1, outputTokens: 1 } }
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  }
+}
+
 /** The durable composition under test: one captain lead over real services. */
 interface CaptainStack {
   readonly ctx: Context
@@ -58,7 +113,7 @@ async function mountCaptain(
   fibers: Fiber[],
   leadId: string,
   teamName: string,
-  options: { projections?: boolean } = {},
+  options: { projections?: boolean; adapter?: LlmAdapter; maxMembers?: number } = {},
 ): Promise<CaptainStack> {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
@@ -71,8 +126,10 @@ async function mountCaptain(
   if (options.projections !== false) fibers.push(await ctx.plugin(SessionProjection))
   fibers.push(await ctx.plugin(SubagentService))
   fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
-  fibers.push(await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1 }))
-  ctx.llm.registerAdapter(['mock'], new ImmediateAdapter())
+  fibers.push(await ctx.plugin(AgentSwarm, {
+    memberProvider: 'spawn', memberMaxDepth: 1, ...(options.maxMembers === undefined ? {} : { maxMembers: options.maxMembers }),
+  }))
+  ctx.llm.registerAdapter(['mock'], options.adapter ?? new ImmediateAdapter())
   const lead = ctx.agentLoop.create(
     SessionId(leadId),
     { provider: 'mock', model: 'mock' },
@@ -380,7 +437,7 @@ describe('persisted-child provisioning reconciliation (F3)', () => {
       })
       expect(added.isError).toBe(false)
       expect((added.value as { phase: string }).phase).toBe('active')
-      expect(batch).toHaveBeenCalled()
+      await vi.waitFor(() => expect(batch).toHaveBeenCalled(), { timeout: 5_000 })
 
       const snapshot = await domain.snapshot(
         stack.ctx.agentSwarm.scopeOf(stack.lead), AgentSwarm.TeamId(stack.teamId), stack.lead.id,
@@ -423,6 +480,118 @@ describe('persisted-child provisioning reconciliation (F3)', () => {
 
       batch.mockRestore()
       drain.mockRestore()
+    } finally {
+      for (const fiber of fibers.toReversed()) await fiber.dispose()
+    }
+  }, 20_000)
+
+  it('settles five concurrent initial-turn batches atomically: failures never project active, successes activate, and mixed results remain revision-coherent', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-provision-matrix-'))
+    roots.push(sandbox)
+    const fibers: Fiber[] = []
+
+    try {
+      const adapter = new MatrixAdapter([
+        'failed', 'failed', 'failed', 'failed', 'failed',
+        'completed', 'completed', 'completed', 'completed', 'completed',
+        'completed', 'failed', 'completed', 'failed', 'completed',
+      ])
+      const stack = await mountCaptain(sandbox, fibers, 'matrix-lead', 'Concurrent matrix team', { adapter, maxMembers: 20 })
+      const addFive = async (prefix: string) => await Promise.all(
+        Array.from({ length: 5 }, (_, index) => stack.ctx.tools.execute({
+          signal: SIGNAL,
+          callId: CallId(`${prefix}-${index}`),
+          name: 'agent_swarm_add_member',
+          arguments: { name: `${prefix}-worker-${index}`, role: `Exercise ${prefix} child startup settlement.` },
+          agent: stack.lead,
+        })),
+      )
+
+      const pendingFailures = addFive('failure'); await vi.waitFor(() => expect(adapter.calls).toBe(5), { timeout: 5_000 }); adapter.release()
+      const failures = await pendingFailures
+      expect(failures).toHaveLength(5)
+      for (const result of failures) expect(result).toMatchObject({ isError: false, value: { phase: 'active' } })
+      await vi.waitFor(async () => expect((await stack.ctx.agentSwarm.domain.snapshot(stack.ctx.agentSwarm.scopeOf(stack.lead), AgentSwarm.TeamId(stack.teamId), stack.lead.id)).team.members.every(member => member.phase === 'failed')).toBe(true), { timeout: 5_000 })
+      const afterFailures = await stack.ctx.agentSwarm.domain.snapshot(
+        stack.ctx.agentSwarm.scopeOf(stack.lead), AgentSwarm.TeamId(stack.teamId), stack.lead.id,
+      )
+      expect(afterFailures.team.members).toHaveLength(5)
+      expect(afterFailures.team.members.map(member => member.phase)).toEqual(['failed', 'failed', 'failed', 'failed', 'failed'])
+      expect(afterFailures.team.revision).toBeGreaterThanOrEqual(16)
+      const failedProfiles = await stack.ctx.tools.execute({
+        signal: SIGNAL,
+        callId: CallId('failure-profiles'),
+        name: 'agent_swarm_list_members',
+        arguments: { phase: 'failed' },
+        agent: stack.lead,
+      })
+      expect(failedProfiles).toMatchObject({
+        isError: false,
+        value: { members: Array.from({ length: 5 }, () => expect.objectContaining({ phase: 'failed', profile_state: 'unavailable', profile_reason: 'startup_failed' })) },
+      })
+
+      const successes = await addFive('success')
+      expect(successes.every(result => !result.isError)).toBe(true)
+      expect(successes.every(result => (result.value as { phase: string }).phase === 'active')).toBe(true)
+      await vi.waitFor(async () => expect((await stack.ctx.agentSwarm.domain.snapshot(stack.ctx.agentSwarm.scopeOf(stack.lead), AgentSwarm.TeamId(stack.teamId), stack.lead.id)).team.members.slice(5).every(member => member.phase === 'active')).toBe(true), { timeout: 5_000 })
+      const afterSuccesses = await stack.ctx.agentSwarm.domain.snapshot(
+        stack.ctx.agentSwarm.scopeOf(stack.lead), AgentSwarm.TeamId(stack.teamId), stack.lead.id,
+      )
+      expect(afterSuccesses.team.members.slice(5).every(member => member.phase === 'active')).toBe(true)
+      expect(afterSuccesses.team.revision).toBeGreaterThanOrEqual(21)
+
+      const mixed = await addFive('mixed')
+      expect(mixed.every(result => !result.isError)).toBe(true)
+      await vi.waitFor(async () => expect((await stack.ctx.agentSwarm.domain.snapshot(stack.ctx.agentSwarm.scopeOf(stack.lead), AgentSwarm.TeamId(stack.teamId), stack.lead.id)).team.members.every(member => member.phase !== 'provisioning')).toBe(true), { timeout: 5_000 })
+      const settled = await stack.ctx.agentSwarm.domain.snapshot(
+        stack.ctx.agentSwarm.scopeOf(stack.lead), AgentSwarm.TeamId(stack.teamId), stack.lead.id,
+      )
+      expect(settled.team.members).toHaveLength(15)
+      expect(settled.team.members.filter(member => member.phase === 'failed').length).toBeGreaterThan(5)
+      expect(settled.team.members.filter(member => member.phase === 'active').length).toBeGreaterThan(5)
+      expect(settled.team.revision).toBeGreaterThanOrEqual(afterSuccesses.team.revision + 10)
+
+      const reused = await stack.ctx.tools.execute({
+        signal: SIGNAL,
+        callId: CallId('failure-name-reuse'),
+        name: 'agent_swarm_add_member',
+        arguments: { name: 'failure-worker-0', role: 'This must remain fenced after a failed start.' },
+        agent: stack.lead,
+      })
+      expect(reused).toMatchObject({ isError: true, error: { info: { code: 'TEAM_MEMBER_NAME_TAKEN' } } })
+      expect((reused.error as { message: string }).message).toContain('choose an unused member name or create a new Team')
+    } finally {
+      for (const fiber of fibers.toReversed()) await fiber.dispose()
+    }
+  }, 60_000)
+
+  it('disposal settles an admitted but uncompleted child as failed before listeners and the aggregate are released', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-provision-dispose-'))
+    roots.push(sandbox)
+    const fibers: Fiber[] = []
+
+    try {
+      const adapter = new MatrixAdapter(['completed']); const stack = await mountCaptain(sandbox, fibers, 'dispose-lead', 'Disposal settlement team', { adapter })
+      const domain = stack.ctx.agentSwarm.domain
+      const settled = vi.spyOn(domain, 'settleMember')
+      const pending = stack.ctx.tools.execute({
+        signal: SIGNAL,
+        callId: CallId('dispose-add'),
+        name: 'agent_swarm_add_member',
+        arguments: { name: 'dispose-worker', role: 'Remain non-active when the owning runtime closes.' },
+        agent: stack.lead,
+      })
+      await vi.waitFor(() => expect(adapter.calls).toBe(1), { timeout: 5_000 })
+
+      const pluginFiber = fibers.pop()!
+      const result = await pending
+      expect(result).toMatchObject({ isError: false, value: { phase: 'active' } })
+      await pluginFiber.dispose()
+      expect(settled).toHaveBeenCalledWith(
+        expect.anything(), expect.anything(), expect.anything(),
+        expect.objectContaining({ active: false, error: expect.stringContaining('aborted') }),
+      )
+      settled.mockRestore()
     } finally {
       for (const fiber of fibers.toReversed()) await fiber.dispose()
     }

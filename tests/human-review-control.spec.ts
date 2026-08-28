@@ -21,7 +21,7 @@ import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlit
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import UserQuestionService, { type UserQuestionProvider } from '@deepseek-ai/dsh-user-questions'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
 import type { HumanInteractionRequest } from '../src/index.js'
 import { mountStorageStackOn } from './helpers/storage-stack.js'
@@ -52,7 +52,7 @@ interface Stack {
   pluginFiber: Fiber
 }
 
-async function mount(sandbox: string, reviewProvider = 'manual'): Promise<Stack> {
+async function mount(sandbox: string, reviewProvider = 'manual', schedulerProvider = 'priority-ready'): Promise<Stack> {
   const ctx = new Context()
   const fibers: Fiber[] = []
   await mountAgentLoopTestDependencies(ctx)
@@ -62,7 +62,7 @@ async function mount(sandbox: string, reviewProvider = 'manual'): Promise<Stack>
   fibers.push(await ctx.plugin(SubagentService))
   fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
   if (reviewProvider === 'human') fibers.push(await ctx.plugin(UserQuestionService))
-  const pluginFiber = await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1, reviewProvider })
+  const pluginFiber = await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1, reviewProvider, schedulerProvider })
   fibers.push(pluginFiber)
   ctx.llm.registerAdapter(['mock'], new ImmediateAdapter())
   const lead = ctx.agentLoop.create(
@@ -522,8 +522,12 @@ describe('typed control execution and free-text boundary', () => {
   it('typed wake, correction, interrupt, reassign and review execute through the authoritative port', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-i1a-valid-controls-'))
     roots.push(sandbox)
-    const stack = await mount(sandbox)
+    const stack = await mount(sandbox, 'manual', 'human-control-noop-scheduler')
     stacks.push(stack)
+    let scheduledPasses = 0
+    stack.ctx.agentSwarm.registerSchedulerProvider('human-control-noop-scheduler', {
+      select: () => (scheduledPasses += 1, []),
+    })
     const member = await addMember(stack)
     const { task: claimed, attemptId: firstAttemptId, teamRevisionAfterClaim } = await createClaimedForMember(stack, member)
 
@@ -550,6 +554,7 @@ describe('typed control execution and free-text boundary', () => {
     expect(interrupt.status).toBe('executed')
     const afterInterrupt = await snapshot(stack)
 
+    const passesBeforeReassign = scheduledPasses
     const reassign = await submit(stack, request(stack, {
       requestId: 'human-valid-reassign-00000004',
       intent: 'reassign-task', target: { kind: 'task', taskId: claimed.id },
@@ -557,8 +562,13 @@ describe('typed control execution and free-text boundary', () => {
       diagnostic: 'reassign now',
     }))
     expect(reassign.status).toBe('executed')
-    const afterReassign = (await snapshot(stack)).team.tasks.find(task => task.id === claimed.id)!
-    expect(afterReassign.status === 'pending' || afterReassign.currentAttemptId !== firstAttemptId).toBe(true)
+    // reassignTask appends an asynchronous pass. This control test uses its
+    // own no-op Provider and waits for that pass to reach the Provider, so no
+    // unrelated assignment can advance Team revision during the review flow.
+    await vi.waitFor(() => expect(scheduledPasses).toBeGreaterThan(passesBeforeReassign), { timeout: 5_000, interval: 5 })
+    expect((await snapshot(stack)).team.tasks.find(task => task.id === claimed.id)).toMatchObject({
+      status: 'pending',
+    })
 
     const reviewTask = await stack.ctx.agentSwarm.domain.createTask(
       stack.scope, stack.teamId, stack.lead.id, { subject: 'review-by-control', description: 'Typed review control.' },
@@ -569,11 +579,12 @@ describe('typed control execution and free-text boundary', () => {
     const reviewSubmitted = await stack.ctx.agentSwarm.domain.submitTask(
       stack.scope, stack.teamId, stack.lead.id, reviewTask.id, reviewClaim.task.revision, reviewClaim.attempt.id, 'review output',
     )
+    const reviewTeam = await snapshot(stack)
     const review = await submit(stack, request(stack, {
       requestId: 'human-valid-review-00000005',
       intent: 'review-task', target: { kind: 'task', taskId: reviewTask.id },
       expectedTaskRevision: reviewSubmitted.revision, attemptId: reviewClaim.attempt.id,
-      expectedTeamRevision: (await snapshot(stack)).team.revision, decision: 'accept',
+      expectedTeamRevision: reviewTeam.team.revision, decision: 'accept',
     }))
     expect(review.status).toBe('executed')
     expect((await snapshot(stack)).team.tasks.find(task => task.id === reviewTask.id)!.status).toBe('completed')
