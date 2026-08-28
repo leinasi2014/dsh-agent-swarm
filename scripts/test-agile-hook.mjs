@@ -87,6 +87,28 @@ expect(denied(previewReuse), 'a second task-owned preview launch must be denied'
 const noResource = evaluateHook(fixture({ tool_input: { command: 'pnpm dev -- --port 4173' } }), runtime())
 expect(!denied(noResource), 'a preview launch with no owned listener must remain allowed')
 
+// Codex 0.147 names the shell tool shell_command / shell_tool instead of the
+// legacy "Bash"; each deny-scenario must still gate under those names, and a
+// renamed-but-structurally-identical shell tool must fall back by payload.
+const shellRawLifecycle = evaluateHook(fixture({ tool_name: 'shell_command', tool_input: { command: 'git -C D:\\repo worktree add D:\\repo\\lane -b codex/lane' } }), runtime())
+expect(denied(shellRawLifecycle), 'shell_command raw git worktree lifecycle must be denied')
+
+const shellToolRawLifecycle = evaluateHook(fixture({ tool_name: 'shell_tool', tool_input: { command: 'git -C D:\\repo worktree remove D:\\repo\\lane' } }), runtime())
+expect(denied(shellToolRawLifecycle), 'shell_tool raw git worktree lifecycle must be denied')
+
+const shellCapacity = evaluateHook(fixture({ tool_name: 'shell_command', tool_input: { command: 'pnpm isolation open --id third --branch codex/third --owner test' } }), runtime({
+  readIsolationAuthority: () => ({ active: [{ state: 'ACTIVE' }, { state: 'ACTIVE' }] }),
+}))
+expect(denied(shellCapacity), 'shell_command isolation open above the two-writer cap must be denied')
+
+const shellBrowser = evaluateHook(fixture({ tool_name: 'shell_tool', tool_input: { command: 'Start-Process msedge.exe -- --user-data-dir=D:\\repo\\profile' } }), runtime({
+  inspectTaskResources: () => ({ browsers: [{ ProcessId: 44 }], previews: [], listenersAvailable: true }),
+}))
+expect(denied(shellBrowser), 'shell_tool browser relaunch must be denied')
+
+const renamedShellFallback = evaluateHook(fixture({ tool_name: 'Terminal', tool_input: { command: 'git -C D:\\repo worktree add D:\\repo\\lane -b codex/lane' } }), runtime())
+expect(denied(renamedShellFallback), 'an unrecognised shell tool name must still deny raw worktree lifecycle via command-structure fallback')
+
 const editContext = evaluateHook(fixture({ tool_name: 'apply_patch', tool_input: { command: '*** Begin Patch' } }), runtime())
 expect(additionalContext(editContext).includes('not a machine classification'), 'edits must receive reflection context without a subjective denial')
 expect(!denied(editContext), 'reflection context must not deny an edit')
