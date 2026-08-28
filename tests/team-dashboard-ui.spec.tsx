@@ -159,6 +159,27 @@ describe('R3 native Team Details surface', () => {
     }
   })
 
+  it('keeps legal 64-character owner and target values bounded in Task rows while retaining their titles', async () => {
+    const memberName = 'a'.repeat(64)
+    const coordinator = new FakeCoordinator()
+    const projection = {
+      ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot,
+      tasks: [{ id: 'task-long-name', revision: 1, subject: 'Task with long Host names', status: 'in_progress', blockedBy: [], priority: 1, ownerName: memberName, targetMemberName: memberName, createdAt: 1, updatedAt: 2 }],
+      totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, tasks: 1 },
+    }
+    const state: TeamDashboardState = { ...ready, data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never } }
+    const longNameController = { getSnapshot: (): TeamDashboardState => state, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: longNameController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    await act(async () => { [...document.querySelectorAll('button')].find(button => button.textContent === 'Tasks')?.click() })
+    const assignees = [...document.querySelectorAll<HTMLElement>('.swarm-team-workspace__task-assignee')]
+    expect(assignees).toHaveLength(2)
+    expect(assignees.map(element => element.getAttribute('title'))).toEqual([`Owner: ${memberName}`, `Target member: ${memberName}`])
+    expect(assignees.every(element => element.className.includes('swarm-team-workspace__task-assignee'))).toBe(true)
+    const stylesheet = document.querySelector('style')?.textContent ?? ''
+    expect(stylesheet).toContain('.swarm-team-workspace__rows, [data-swarm-team-dashboard] .swarm-team-workspace__rows > li { min-width:0; max-width:100%; }')
+    expect(stylesheet).toContain('.swarm-team-workspace__task-assignee { display:block; min-width:0; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }')
+  })
+
   it.each([
     ['submitted', 'submitted'], ['verifying', 'verifying'], ['stale', 'stale'],
   ] as const)('does not present a %s current attempt as running', (phase, expected) => {

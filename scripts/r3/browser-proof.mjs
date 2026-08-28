@@ -9,6 +9,7 @@ const GEOMETRY_SETTLE_TIMEOUT_MS = 5_000
 const GEOMETRY_SAMPLE_MS = 50
 const GEOMETRY_STABILITY_PX = 2
 const VISIBLE_CHAT_ERROR = /(?:Failed to load history:|历史加载失败：|This turn failed|本轮失败|此轮失败)/u
+const MAX_HOST_DISPLAY_NAME = 'a'.repeat(64)
 
 async function launchBrowser(executablePath) {
   const browser = await chromium.launch({
@@ -228,6 +229,47 @@ async function assertWorkspaceFitsDetails(panel, label, geometry) {
   return result
 }
 
+/**
+ * Real Chromium geometry probe for the Host's maximum legal display names.  It intentionally
+ * exercises the rendered Team subtree at 360px and 520px; jsdom only checks the component seam.
+ */
+async function assertLongTaskRowsFitAtWidths(page, panel, geometry) {
+  await page.getByRole('button', { name: /^Tasks$/u }).click()
+  const assignees = panel.locator('.swarm-team-workspace__task-assignee')
+  await assignees.first().waitFor({ state: 'visible', timeout: 10_000 })
+  const titles = await assignees.evaluateAll(nodes => nodes.map(node => node.getAttribute('title')))
+  if (titles.length !== 2 || titles.some(title => title === null || !title.endsWith(MAX_HOST_DISPLAY_NAME))) {
+    throw new Error(`browser fixture did not expose the expected 64-character owner and target: ${JSON.stringify(titles)}`)
+  }
+  const results = []
+  try {
+    for (const width of [360, 520]) {
+      const result = await panel.evaluate((root, requestedWidth) => {
+        const workspace = root.querySelector('.swarm-team-workspace')
+        const body = root.querySelector('.swarm-team-workspace__body')
+        const columns = root.querySelector('.swarm-team-workspace__columns')
+        const rows = root.querySelector('.swarm-team-workspace__rows')
+        if (!(workspace instanceof HTMLElement) || !(body instanceof HTMLElement) || !(columns instanceof HTMLElement) || !(rows instanceof HTMLElement)) return { missing: true }
+        workspace.style.setProperty('inline-size', `${String(requestedWidth)}px`, 'important')
+        const elements = [workspace, body, columns, rows, ...rows.querySelectorAll('.swarm-team-workspace__row'), ...rows.querySelectorAll('.swarm-team-workspace__task-assignee')]
+        return {
+          missing: false,
+          requestedWidth,
+          widths: elements.map(element => ({ name: element.className || element.tagName, clientWidth: element.clientWidth, scrollWidth: element.scrollWidth })),
+        }
+      }, width)
+      geometry[`taskRows${String(width)}`] = result
+      results.push(result)
+      if (result.missing) throw new Error(`task-row ${String(width)}px geometry probe did not mount its required subtree`)
+      const overflow = result.widths.find(item => item.scrollWidth > item.clientWidth + 1)
+      if (overflow !== undefined) throw new Error(`task-row ${String(width)}px geometry probe horizontally overflowed: ${JSON.stringify(result)}`)
+    }
+  } finally {
+    await panel.evaluate(root => root.querySelector('.swarm-team-workspace')?.style.removeProperty('inline-size'))
+  }
+  return results
+}
+
 async function assertNoPluginFallback(page, label) {
   const dialogCount = await page.getByRole('dialog', { name: 'Agent Team' }).count()
   const fixed = await page.locator('[data-swarm-team-panel]').evaluate(element => {
@@ -312,6 +354,7 @@ export async function runR3ActiveBrowserProof({
     await assertNoPluginFallback(page, 'wide Team')
     const initial = await waitForWideDetails(page, beforeComposerBox, 'initial', geometry)
     const initialWorkspace = await assertWorkspaceFitsDetails(panel, 'initial', geometry)
+    const longTaskRows = await assertLongTaskRowsFitAtWidths(page, panel, geometry)
     if (!await dashboard.getByText('R2 isolated Profile team', { exact: true }).isVisible()) {
       throw new Error('browser Team name did not come from the real R2 producer')
     }
@@ -368,7 +411,7 @@ export async function runR3ActiveBrowserProof({
         narrowSubtreeMountedHidden: true, noPluginFallbackOverlay: true, samePanelRestored: true,
         chatReflow: true, localeRerendered, disconnectRecovery: faultInjection.recovered,
       },
-      geometry: { initial, initialWorkspace, toolComposer, afterTool, afterToolWorkspace, narrow, recovered, recoveredWorkspace, reloadGeometry },
+      geometry: { initial, initialWorkspace, longTaskRows, toolComposer, afterTool, afterToolWorkspace, narrow, recovered, recoveredWorkspace, reloadGeometry },
       faultInjection,
       keyboard: ['focus Team', 'Enter', 'Tool details', 'Team', 'narrow recovery', 'Chinese locale', 'focus Open Captain Chat', 'Enter', 'Team toggle close after reload'],
       handoff: {

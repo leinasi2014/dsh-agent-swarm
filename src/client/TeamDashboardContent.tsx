@@ -27,11 +27,13 @@ const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace__metric { padding:10px; border-radius:8px; background:var(--dsw-alias-bg-layer-1); }
 [data-swarm-team-dashboard] .swarm-team-workspace__metric strong { display:block; font-size:16px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__tabs { display:flex; gap:4px; margin:0 0 10px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__rows, [data-swarm-team-dashboard] .swarm-team-workspace__rows > li { min-width:0; max-width:100%; }
 [data-swarm-team-dashboard] .swarm-team-workspace__rows { display:grid; gap:8px; margin:0; padding:0; list-style:none; }
-[data-swarm-team-dashboard] .swarm-team-workspace__row { display:block; width:100%; padding:10px; color:inherit; text-align:left; border:1px solid var(--dsw-alias-border-l2); border-radius:8px; background:transparent; cursor:pointer; }
+[data-swarm-team-dashboard] .swarm-team-workspace__row { display:block; box-sizing:border-box; width:100%; max-width:100%; min-width:0; overflow:hidden; padding:10px; color:inherit; text-align:left; border:1px solid var(--dsw-alias-border-l2); border-radius:8px; background:transparent; cursor:pointer; }
 [data-swarm-team-dashboard] .swarm-team-workspace__row[aria-current="true"] { border-color:var(--dsw-alias-brand-primary); background:var(--dsw-alias-bg-layer-1); }
-[data-swarm-team-dashboard] .swarm-team-workspace__row-main, [data-swarm-team-dashboard] .swarm-team-workspace__fact { display:flex; justify-content:space-between; gap:8px; min-width:0; }
+[data-swarm-team-dashboard] .swarm-team-workspace__row-main, [data-swarm-team-dashboard] .swarm-team-workspace__fact { display:flex; justify-content:space-between; gap:8px; min-width:0; max-width:100%; }
 [data-swarm-team-dashboard] .swarm-team-workspace__truncate { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+[data-swarm-team-dashboard] .swarm-team-workspace__task-assignee { display:block; min-width:0; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 [data-swarm-team-dashboard] .swarm-team-workspace__facts { display:grid; gap:8px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__facts dt { color:var(--dsw-alias-label-secondary); }
 [data-swarm-team-dashboard] .swarm-team-workspace__facts dd { margin:0; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -149,7 +151,11 @@ function MemberRows({ data, selection, setSelection, t }: { readonly data: Swarm
 }
 
 function TaskRows({ data, selection, setSelection, t }: { readonly data: SwarmHostReadProjectionV1; readonly selection: Selection; readonly setSelection: (selection: Selection) => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
-  return <ul className="swarm-team-workspace__rows">{data.tasks.length === 0 ? <li className="swarm-team-workspace__muted">{t('empty')}</li> : data.tasks.map(task => <li key={task.id}><button className="swarm-team-workspace__row" type="button" aria-current={selection.kind === 'task' && selection.id === task.id} onClick={() => { setSelection({ kind: 'task', id: task.id }) }}><span className="swarm-team-workspace__row-main"><strong className="swarm-team-workspace__truncate" title={task.subject}>{task.subject}</strong><span className="swarm-team-workspace__muted">{enumLabel(task.status, t)}</span></span><small className="swarm-team-workspace__muted">{task.ownerName ?? task.targetMemberName ?? t('hostUnavailable')}</small></button></li>)}</ul>
+  return <ul className="swarm-team-workspace__rows">{data.tasks.length === 0 ? <li className="swarm-team-workspace__muted">{t('empty')}</li> : data.tasks.map(task => {
+    const owner = task.ownerName ?? t('hostUnavailable')
+    const target = task.targetMemberName ?? t('hostUnavailable')
+    return <li key={task.id}><button className="swarm-team-workspace__row" type="button" aria-current={selection.kind === 'task' && selection.id === task.id} onClick={() => { setSelection({ kind: 'task', id: task.id }) }}><span className="swarm-team-workspace__row-main"><strong className="swarm-team-workspace__truncate" title={task.subject}>{task.subject}</strong><span className="swarm-team-workspace__muted">{enumLabel(task.status, t)}</span></span><small className="swarm-team-workspace__muted swarm-team-workspace__task-assignee" title={`${t('taskOwner')}: ${owner}`}>{t('taskOwner')}: {owner}</small><small className="swarm-team-workspace__muted swarm-team-workspace__task-assignee" title={`${t('taskTarget')}: ${target}`}>{t('taskTarget')}: {target}</small></button></li>
+  })}</ul>
 }
 
 function Detail({ data, localeTag, number, selection, t }: { readonly data: SwarmHostReadProjectionV1; readonly localeTag: () => 'zh-CN' | 'en-US'; readonly number: Intl.NumberFormat; readonly selection: Selection; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {

@@ -120,8 +120,10 @@ async function tool(ctx, agent, name, arguments_) {
 
 async function exerciseRealAgentLoop(ctx, agent, team) {
   if (team.tasks.length > 0) return { resumed: true, team }
-  const member = await tool(ctx, agent, 'agent_swarm_add_member', { name: 'dev-smoke-member', role: 'Submit exactly one DEV_SMOKE task.' })
-  const created = await tool(ctx, agent, 'agent_swarm_create_task', { subject: 'DEV_SMOKE real Agent Loop', description: 'Member must submit using agent_swarm_submit_task.', acceptance_criteria: ['one real submit', 'captain accepts'] })
+  // A valid 64-character no-whitespace display name keeps the browser proof on the Host contract boundary.
+  const memberName = 'a'.repeat(64)
+  const member = await tool(ctx, agent, 'agent_swarm_add_member', { name: memberName, role: 'Submit exactly one DEV_SMOKE task.' })
+  const created = await tool(ctx, agent, 'agent_swarm_create_task', { subject: 'DEV_SMOKE real Agent Loop', description: 'Member must submit using agent_swarm_submit_task.', acceptance_criteria: ['one real submit', 'captain accepts'], target_member: memberName })
   const deadline = Date.now() + 15_000
   let task
   while (Date.now() < deadline) {
