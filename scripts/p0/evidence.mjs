@@ -276,6 +276,16 @@ async function verifyR3BrowserEvidence(root, failures) {
     || surfaces?.localeRerendered !== true || surfaces?.disconnectRecovery !== true) {
     failures.push('R3 active browser evidence does not prove native Details concession, theme-token layout and locale rerender without a Team overlay')
   }
+  const rosterFirst = active?.geometry?.rosterFirst
+  if (rosterFirst?.missing !== false || rosterFirst.title !== 'R2 isolated Profile team'
+    || rosterFirst.captainMainChat !== 'Return to main Chat' || rosterFirst.captainLegacy !== 'Current mode: Main Chat is captain'
+    || rosterFirst.titleBeforeCaptain !== true || rosterFirst.captainBeforeMember !== true || rosterFirst.memberCount !== 1
+    || rosterFirst.avatarHidden !== true || rosterFirst.providerOrModelVisible !== false
+    || rosterFirst.hostFields?.name !== 'a'.repeat(64) || rosterFirst.hostFields?.role !== 'Submit exactly one DEV_SMOKE task.'
+    || rosterFirst.hostFields?.lifecycle !== 'active' || rosterFirst.hostFields?.activity !== 'accepted'
+    || rosterFirst.hostFields?.visibleName !== true || rosterFirst.hostFields?.visibleRole !== true || rosterFirst.hostFields?.visibleLifecycle !== true) {
+    failures.push('R3 roster-first evidence must prove ordered legacy Captain and visible Host-only member fields')
+  }
   if (active?.fixture?.exactRoot !== true || active?.fixture?.workspaceAttached !== true
     || active?.fixture?.sessionNonBlank !== true
     || active?.fixture?.rootSessionId !== active?.rootSessionId

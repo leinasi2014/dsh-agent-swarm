@@ -10,6 +10,8 @@ const GEOMETRY_SAMPLE_MS = 50
 const GEOMETRY_STABILITY_PX = 2
 const VISIBLE_CHAT_ERROR = /(?:Failed to load history:|历史加载失败：|This turn failed|本轮失败|此轮失败)/u
 const MAX_HOST_DISPLAY_NAME = 'a'.repeat(64)
+const R3_FIXTURE_TEAM_NAME = 'R2 isolated Profile team'
+const R3_FIXTURE_MEMBER_ROLE = 'Submit exactly one DEV_SMOKE task.'
 
 async function launchBrowser(executablePath) {
   const browser = await chromium.launch({
@@ -248,15 +250,32 @@ async function assertRosterFirst(panel, geometry) {
     const avatar = firstMember?.querySelector('[aria-hidden="true"]')
     if (!(workspace instanceof HTMLElement) || !(roster instanceof HTMLElement) || !(title instanceof HTMLElement)
       || !(captain instanceof HTMLButtonElement) || !(rows instanceof HTMLElement) || !(firstMember instanceof HTMLButtonElement)) return { missing: true }
+    const titleBeforeCaptain = Boolean(title.compareDocumentPosition(captain) & Node.DOCUMENT_POSITION_FOLLOWING)
     const captainBeforeMember = Boolean(captain.compareDocumentPosition(firstMember) & Node.DOCUMENT_POSITION_FOLLOWING)
+    const memberText = firstMember.textContent ?? ''
+    const hostFields = {
+      name: firstMember.getAttribute('data-swarm-member-name'),
+      role: firstMember.getAttribute('data-swarm-member-role'),
+      lifecycle: firstMember.getAttribute('data-swarm-member-lifecycle'),
+      activity: firstMember.getAttribute('data-swarm-member-activity'),
+      visibleName: memberText.includes(firstMember.getAttribute('data-swarm-member-name') ?? ''),
+      visibleRole: memberText.includes(firstMember.getAttribute('data-swarm-member-role') ?? ''),
+      visibleLifecycle: memberText.includes('Active'),
+    }
     return {
-      missing: false, title: title.textContent, captain: captain.textContent, captainBeforeMember,
+      missing: false, title: title.textContent, captainMainChat: captain.querySelector('strong')?.textContent,
+      captainLegacy: captain.querySelector('.swarm-team-workspace__muted')?.textContent,
+      titleBeforeCaptain, captainBeforeMember, hostFields,
       memberCount: rows.querySelectorAll('li').length, avatarHidden: avatar?.getAttribute('aria-hidden') === 'true',
       providerOrModelVisible: /\b(?:Provider|Model)\b/u.test(workspace.textContent ?? ''),
     }
   })
   geometry.rosterFirst = result
-  if (result.missing || result.title.length === 0 || result.memberCount === 0 || !result.captainBeforeMember
+  if (result.missing || result.title !== R3_FIXTURE_TEAM_NAME || result.captainMainChat !== 'Return to main Chat'
+    || result.captainLegacy !== 'Current mode: Main Chat is captain' || !result.titleBeforeCaptain || !result.captainBeforeMember
+    || result.memberCount !== 1 || result.hostFields?.name !== MAX_HOST_DISPLAY_NAME || result.hostFields.role !== R3_FIXTURE_MEMBER_ROLE
+    || result.hostFields.lifecycle !== 'active' || result.hostFields.activity !== 'accepted'
+    || !result.hostFields.visibleName || !result.hostFields.visibleRole || !result.hostFields.visibleLifecycle
     || !result.avatarHidden || result.providerOrModelVisible) {
     throw new Error(`Team roster-first projection failed: ${JSON.stringify(result)}`)
   }

@@ -1,5 +1,5 @@
 import { Button, IconCloseOutline16, IconRefreshOutline16, IconUserOutline16, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
-import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
+import { useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SwarmHostReadProjectionV1 } from '../host/host-read-types.js'
 import type { TeamDashboardController, TeamDashboardState } from './team-dashboard-controller.js'
@@ -7,6 +7,7 @@ import type { TeamDashboardSurfaceCoordinator } from './team-dashboard-surface-c
 import { TEAM_DASHBOARD_NS, type TeamDashboardKey } from './team-dashboard-locales.js'
 
 type Selection = { readonly kind: 'team' } | { readonly kind: 'member'; readonly name: string } | { readonly kind: 'task'; readonly id: string }
+type FocusIntent = { readonly kind: 'roster' | 'tasks' } | { readonly kind: 'member'; readonly name: string } | { readonly kind: 'task'; readonly id: string }
 
 const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace { container-type:inline-size; display:grid; grid-template-rows:auto minmax(0,1fr) auto; height:100%; min-width:0; overflow:hidden; color:var(--dsw-alias-label-primary); background:var(--dsw-alias-bg-layer-1); }
@@ -121,21 +122,58 @@ function Workspace({ data, handoffBusy, localeTag, selection, setSelection, t, o
 }) {
   const number = new Intl.NumberFormat(localeTag())
   const [missingMember, setMissingMember] = useState<string>()
-  useEffect(() => {
+  const [missingTask, setMissingTask] = useState<string>()
+  const rosterHeadingRef = useRef<HTMLHeadingElement>(null)
+  const taskSummaryRef = useRef<HTMLElement>(null)
+  const memberTriggers = useRef(new Map<string, HTMLButtonElement>())
+  const taskTriggers = useRef(new Map<string, HTMLButtonElement>())
+  const focusIntent = useRef<FocusIntent>()
+  const registerMemberTrigger = (name: string, element: HTMLButtonElement | null): void => {
+    if (element === null) memberTriggers.current.delete(name)
+    else memberTriggers.current.set(name, element)
+  }
+  const registerTaskTrigger = (id: string, element: HTMLButtonElement | null): void => {
+    if (element === null) taskTriggers.current.delete(id)
+    else taskTriggers.current.set(id, element)
+  }
+  useLayoutEffect(() => {
+    const intent = focusIntent.current
+    if (intent === undefined) return
+    focusIntent.current = undefined
+    let target: HTMLElement | null | undefined
+    switch (intent.kind) {
+      case 'roster': target = rosterHeadingRef.current; break
+      case 'tasks': target = taskSummaryRef.current; break
+      case 'member': target = memberTriggers.current.get(intent.name) ?? rosterHeadingRef.current; break
+      case 'task': target = taskTriggers.current.get(intent.id) ?? taskSummaryRef.current; break
+    }
+    target?.focus()
+  }, [data.roster, data.tasks, selection])
+  useLayoutEffect(() => {
     if (selection.kind !== 'member' || data.roster.some(member => member.name === selection.name)) return
     setMissingMember(selection.name)
+    focusIntent.current = { kind: 'roster' }
     setSelection({ kind: 'team' })
   }, [data.roster, selection, setSelection])
+  useLayoutEffect(() => {
+    if (selection.kind !== 'task' || data.tasks.some(task => task.id === selection.id)) return
+    setMissingTask(selection.id)
+    focusIntent.current = { kind: 'tasks' }
+    setSelection({ kind: 'team' })
+  }, [data.tasks, selection, setSelection])
   const selectMember = (name: string): void => { setMissingMember(undefined); setSelection({ kind: 'member', name }) }
+  const selectTask = (id: string): void => { setMissingTask(undefined); setSelection({ kind: 'task', id }) }
+  const returnToMembers = (name: string): void => { focusIntent.current = { kind: 'member', name }; setSelection({ kind: 'team' }) }
+  const returnToTasks = (id: string): void => { focusIntent.current = { kind: 'task', id }; setSelection({ kind: 'team' }) }
   const selected = selection.kind === 'member' ? data.roster.find(member => member.name === selection.name) : undefined
   return <div className="swarm-team-workspace__columns" aria-label={t('tabs.label')}>
-    <section className="swarm-team-workspace__column swarm-team-workspace__roster"><h3 className="swarm-team-workspace__column-title">{t('members')}</h3>
+    <section className="swarm-team-workspace__column swarm-team-workspace__roster"><h3 className="swarm-team-workspace__column-title" ref={rosterHeadingRef} tabIndex={-1}>{t('members')}</h3>
       <CaptainRow busy={handoffBusy} onMainChat={onMainChat} t={t} />
       {missingMember === undefined ? null : <p className="swarm-team-workspace__muted swarm-team-workspace__notice" role="status">{t('memberNoLongerAvailable', { name: missingMember })}</p>}
-      {selected === undefined ? <MemberRows data={data} onSelect={selectMember} t={t} /> : <MemberDetail data={data} member={selected} onBack={() => { setSelection({ kind: 'team' }) }} t={t} />}
+      {selected === undefined ? <MemberRows data={data} onSelect={selectMember} onTrigger={registerMemberTrigger} t={t} /> : <MemberDetail data={data} member={selected} onBack={() => { returnToMembers(selected.name) }} t={t} />}
       {data.truncated.roster ? <p className="swarm-team-workspace__muted swarm-team-workspace__notice">{t('rosterTruncated', { shown: number.format(data.roster.length), total: number.format(data.totals.roster) })}</p> : null}
     </section>
-    <section className="swarm-team-workspace__column"><details className="swarm-team-workspace__collapsible"><summary>{t('tasks')}</summary>{selection.kind === 'task' ? <TaskDetail data={data} id={selection.id} number={number} onBack={() => { setSelection({ kind: 'team' }) }} t={t} /> : <TaskRows data={data} onSelect={id => { setSelection({ kind: 'task', id }) }} t={t} />}</details></section>
+    <section className="swarm-team-workspace__column">{missingTask === undefined ? null : <p className="swarm-team-workspace__muted swarm-team-workspace__notice" role="status">{t('taskNoLongerAvailable')}</p>}<details className="swarm-team-workspace__collapsible"><summary ref={taskSummaryRef}>{t('tasks')}</summary>{selection.kind === 'task' ? <TaskDetail data={data} id={selection.id} number={number} onBack={() => { returnToTasks(selection.id) }} t={t} /> : <TaskRows data={data} onSelect={selectTask} onTrigger={registerTaskTrigger} t={t} />}</details></section>
     <section className="swarm-team-workspace__column"><details className="swarm-team-workspace__collapsible"><summary>{t('tabs.overview')}</summary><div className="swarm-team-workspace__summary"><Metric label={t('members')} value={number.format(data.totals.roster)} /><Metric label={t('tasks')} value={number.format(data.totals.tasks)} /><Metric label={t('interactions')} value={number.format(data.totals.pendingInteractions)} /><Metric label={t('attempts')} value={number.format(data.totals.attempts)} /></div></details><Diagnostics data={data} number={number} t={t} /></section>
   </div>
 }
@@ -146,34 +184,42 @@ function CaptainRow({ busy, onMainChat, t }: { readonly busy: boolean; readonly 
 
 function Metric({ label, value }: { readonly label: string; readonly value: string }) { return <div className="swarm-team-workspace__metric"><strong>{value}</strong><span className="swarm-team-workspace__muted">{label}</span></div> }
 
-function MemberRows({ data, onSelect, t }: { readonly data: SwarmHostReadProjectionV1; readonly onSelect: (name: string) => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
+function MemberRows({ data, onSelect, onTrigger, t }: { readonly data: SwarmHostReadProjectionV1; readonly onSelect: (name: string) => void; readonly onTrigger: (name: string, element: HTMLButtonElement | null) => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
   return <ul className="swarm-team-workspace__rows">{data.roster.length === 0 ? <li className="swarm-team-workspace__muted">{t('empty')}</li> : data.roster.map(member => {
     const activity = deriveMemberActivity(data, member.name, member.phase)
     const task = activity.task
     const attempt = activity.attempt
     const taskText = isCurrentMemberWork(activity) ? `${t('memberTask')}: ${task?.subject ?? t('hostUnavailable')} · ${t('memberAttempt')}: ${enumLabel(attempt!.phase, t)}` : activity.attempt === undefined ? t('memberNone') : t('memberRecentAttempt', { phase: enumLabel(activity.attempt.phase, t) })
-    return <li key={member.name}><button className="swarm-team-workspace__row" type="button" onClick={() => { onSelect(member.name) }}><span className="swarm-team-workspace__row-main"><span className="swarm-team-workspace__member-identity"><span className="swarm-team-workspace__avatar" aria-hidden="true">{memberRosterInitial(member.name)}</span><strong className="swarm-team-workspace__truncate" title={member.name}>{member.name}</strong></span><span className="swarm-team-workspace__muted">{memberActivityLabel(activity, t)}</span></span><small className="swarm-team-workspace__muted swarm-team-workspace__truncate" title={member.role}>{member.role}</small><small className="swarm-team-workspace__muted swarm-team-workspace__task-assignee" title={taskText}>{taskText}</small></button></li>
+    return <li key={member.name}><button className="swarm-team-workspace__row" data-swarm-member-name={member.name} data-swarm-member-role={member.role} data-swarm-member-lifecycle={member.phase} data-swarm-member-activity={activity.state} type="button" ref={element => { onTrigger(member.name, element) }} onClick={() => { onSelect(member.name) }}><span className="swarm-team-workspace__row-main"><span className="swarm-team-workspace__member-identity"><span className="swarm-team-workspace__avatar" aria-hidden="true">{memberRosterInitial(member.name)}</span><strong className="swarm-team-workspace__truncate" title={member.name}>{member.name}</strong></span><span className="swarm-team-workspace__muted">{memberActivityLabel(activity, t)}</span></span><small className="swarm-team-workspace__muted swarm-team-workspace__truncate" title={member.role}>{member.role}</small><small className="swarm-team-workspace__muted swarm-team-workspace__task-assignee" title={taskText}>{taskText}</small></button></li>
   })}</ul>
 }
 
 function MemberDetail({ data, member, onBack, t }: { readonly data: SwarmHostReadProjectionV1; readonly member: SwarmHostReadProjectionV1['roster'][number]; readonly onBack: () => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
   const activity = deriveMemberActivity(data, member.name, member.phase)
   const current = isCurrentMemberWork(activity)
-  return <div><Button size="sm" variant="ghost" onClick={onBack}>{t('backToMembers')}</Button><Facts rows={[[t('memberName'), member.name], [t('memberRole'), member.role], [t('memberLifecycle'), enumLabel(member.phase, t)], [t('memberTask'), current ? activity.task?.subject ?? t('hostUnavailable') : t('memberNone')], [t('memberAttempt'), activity.attempt === undefined ? t('memberNone') : current ? enumLabel(activity.attempt.phase, t) : t('memberRecentAttempt', { phase: enumLabel(activity.attempt.phase, t) })]]} /></div>
+  const headingRef = useRef<HTMLHeadingElement>(null)
+  useLayoutEffect(() => { headingRef.current?.focus() }, [])
+  return <div><h4 className="swarm-team-workspace__column-title swarm-team-workspace__truncate" ref={headingRef} tabIndex={-1} title={member.name}>{t('memberDetailHeading', { name: member.name })}</h4><Button size="sm" variant="ghost" onClick={onBack}>{t('backToMembers')}</Button><Facts rows={[[t('memberName'), member.name], [t('memberRole'), member.role], [t('memberLifecycle'), enumLabel(member.phase, t)], [t('memberTask'), current ? activity.task?.subject ?? t('hostUnavailable') : t('memberNone')], [t('memberAttempt'), activity.attempt === undefined ? t('memberNone') : current ? enumLabel(activity.attempt.phase, t) : t('memberRecentAttempt', { phase: enumLabel(activity.attempt.phase, t) })]]} /></div>
 }
 
-function TaskRows({ data, onSelect, t }: { readonly data: SwarmHostReadProjectionV1; readonly onSelect: (id: string) => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
+function TaskRows({ data, onSelect, onTrigger, t }: { readonly data: SwarmHostReadProjectionV1; readonly onSelect: (id: string) => void; readonly onTrigger: (id: string, element: HTMLButtonElement | null) => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
   return <ul className="swarm-team-workspace__rows">{data.tasks.length === 0 ? <li className="swarm-team-workspace__muted">{t('empty')}</li> : data.tasks.map(task => {
     const owner = task.ownerName ?? t('hostUnavailable')
     const target = task.targetMemberName ?? t('hostUnavailable')
-    return <li key={task.id}><button className="swarm-team-workspace__row" type="button" onClick={() => { onSelect(task.id) }}><span className="swarm-team-workspace__row-main"><strong className="swarm-team-workspace__truncate" title={task.subject}>{task.subject}</strong><span className="swarm-team-workspace__muted">{enumLabel(task.status, t)}</span></span><small className="swarm-team-workspace__muted swarm-team-workspace__task-assignee" title={`${t('taskOwner')}: ${owner}`}>{t('taskOwner')}: {owner}</small><small className="swarm-team-workspace__muted swarm-team-workspace__task-assignee" title={`${t('taskTarget')}: ${target}`}>{t('taskTarget')}: {target}</small></button></li>
+    return <li key={task.id}><button className="swarm-team-workspace__row" type="button" ref={element => { onTrigger(task.id, element) }} onClick={() => { onSelect(task.id) }}><span className="swarm-team-workspace__row-main"><strong className="swarm-team-workspace__truncate" title={task.subject}>{task.subject}</strong><span className="swarm-team-workspace__muted">{enumLabel(task.status, t)}</span></span><small className="swarm-team-workspace__muted swarm-team-workspace__task-assignee" title={`${t('taskOwner')}: ${owner}`}>{t('taskOwner')}: {owner}</small><small className="swarm-team-workspace__muted swarm-team-workspace__task-assignee" title={`${t('taskTarget')}: ${target}`}>{t('taskTarget')}: {target}</small></button></li>
   })}</ul>
 }
 
 function TaskDetail({ data, id, number, onBack, t }: { readonly data: SwarmHostReadProjectionV1; readonly id: string; readonly number: Intl.NumberFormat; readonly onBack: () => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
   const task = data.tasks.find(candidate => candidate.id === id)
   if (task === undefined) return <p className="swarm-team-workspace__muted">{t('detailEmpty')}</p>
-  return <div><Button size="sm" variant="ghost" onClick={onBack}>{t('backToTasks')}</Button><Facts rows={[[t('status'), enumLabel(task.status, t)], [t('taskOwner'), task.ownerName ?? t('hostUnavailable')], [t('taskTarget'), task.targetMemberName ?? t('hostUnavailable')], [t('taskBlocked', { count: number.format(task.blockedBy.length) }), task.blockedBy.length === 0 ? t('empty') : task.blockedBy.join(', ')]]} /><details className="swarm-team-workspace__diagnostics"><summary>{t('taskDiagnostics')}</summary><Facts rows={[[t('taskId'), task.id], [t('taskCurrentAttempt'), task.currentAttemptId ?? t('memberNone')]]} /></details><Diagnostics data={data} number={number} t={t} /></div>
+  return <TaskDetailBody data={data} number={number} onBack={onBack} t={t} task={task} />
+}
+
+function TaskDetailBody({ data, number, onBack, t, task }: { readonly data: SwarmHostReadProjectionV1; readonly number: Intl.NumberFormat; readonly onBack: () => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS>; readonly task: SwarmHostReadProjectionV1['tasks'][number] }) {
+  const headingRef = useRef<HTMLHeadingElement>(null)
+  useLayoutEffect(() => { headingRef.current?.focus() }, [])
+  return <div><h4 className="swarm-team-workspace__column-title swarm-team-workspace__truncate" ref={headingRef} tabIndex={-1} title={task.subject}>{t('taskDetailHeading', { subject: task.subject })}</h4><Button size="sm" variant="ghost" onClick={onBack}>{t('backToTasks')}</Button><Facts rows={[[t('status'), enumLabel(task.status, t)], [t('taskOwner'), task.ownerName ?? t('hostUnavailable')], [t('taskTarget'), task.targetMemberName ?? t('hostUnavailable')], [t('taskBlocked', { count: number.format(task.blockedBy.length) }), task.blockedBy.length === 0 ? t('empty') : task.blockedBy.join(', ')]]} /><details className="swarm-team-workspace__diagnostics"><summary>{t('taskDiagnostics')}</summary><Facts rows={[[t('taskId'), task.id], [t('taskCurrentAttempt'), task.currentAttemptId ?? t('memberNone')]]} /></details><Diagnostics data={data} number={number} t={t} /></div>
 }
 
 function Facts({ rows }: { readonly rows: readonly (readonly [string, string])[] }) { return <dl className="swarm-team-workspace__facts">{rows.map(([label, value]) => <div className="swarm-team-workspace__fact" key={label}><dt>{label}</dt><dd title={value}>{value}</dd></div>)}</dl> }

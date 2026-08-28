@@ -128,13 +128,63 @@ describe('R3 native Team Details surface', () => {
     await act(async () => { root.render(<TeamDashboardDetails {...(common as any)} />) })
     expect(document.body.textContent).toContain('No current task')
     expect(document.body.textContent).toContain('Host roster is truncated (up to the first 100): showing 1 of 101 members.')
-    await act(async () => { [...document.querySelectorAll('button')].find(button => button.textContent?.includes('worker'))?.click() })
+    const memberTrigger = document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!
+    memberTrigger.focus()
+    await act(async () => { memberTrigger.click() })
     expect(document.body.textContent).toContain('Back to members')
+    const memberHeading = document.querySelector<HTMLHeadingElement>('h4[tabindex="-1"]')!
+    expect(document.activeElement).toBe(memberHeading)
     projection = { ...projection, roster: [], totals: { ...projection.totals, roster: 0 } }
     dynamicState = { ...ready, data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never } }
     await act(async () => { root.render(<TeamDashboardDetails {...(common as any)} />) })
     expect(document.body.textContent).toContain('worker is no longer in this Team. Returning to members.')
+    expect(document.activeElement).toBe(document.querySelector('.swarm-team-workspace__roster h3'))
     expect(document.querySelector('.swarm-team-workspace__roster')?.textContent).toMatchSnapshot()
+  })
+
+  it('moves keyboard focus into member/task detail, restores its logical trigger, and recovers from a removed task', async () => {
+    const coordinator = new FakeCoordinator()
+    let projection = {
+      ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot,
+      roster: [{ name: 'worker', role: 'Read-only verifier', phase: 'active', createdAt: 1 }],
+      tasks: [{ id: 'task-1', revision: 1, subject: 'Check focus recovery', status: 'in_progress', blockedBy: [], priority: 1, ownerName: 'worker', currentAttemptId: 'attempt-1', createdAt: 1, updatedAt: 2 }],
+      attempts: [{ id: 'attempt-1', taskId: 'task-1', generation: 1, memberName: 'worker', phase: 'running', assignmentPhase: 'delivered', createdAt: 1, updatedAt: 2 }],
+      totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, roster: 1, tasks: 1, attempts: 1 },
+    }
+    let dynamicState: TeamDashboardState = { ...ready, data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never } }
+    const dynamicController = { getSnapshot: (): TeamDashboardState => dynamicState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+    const common = { anchorRef: { current: null }, controller: dynamicController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t }
+    const root = createRoot(document.body.appendChild(document.createElement('div'))); mounted.push(root)
+    await act(async () => { root.render(<TeamDashboardDetails {...(common as any)} />) })
+
+    const member = document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!
+    member.focus()
+    await act(async () => { member.click() })
+    expect(document.activeElement?.textContent).toBe('Member: worker')
+    const backToMembers = [...document.querySelectorAll('button')].find(button => button.textContent === 'Back to members')!
+    backToMembers.focus()
+    await act(async () => { backToMembers.click() })
+    expect(document.activeElement).toBe(document.querySelector('[data-swarm-member-name="worker"]'))
+
+    const taskSummary = document.querySelector<HTMLElement>('details.swarm-team-workspace__collapsible summary')!
+    await act(async () => { taskSummary.click() })
+    const task = [...document.querySelectorAll<HTMLButtonElement>('.swarm-team-workspace__rows button')].find(button => button.dataset.swarmMemberName === undefined && button.textContent?.includes('Check focus recovery'))!
+    task.focus()
+    await act(async () => { task.click() })
+    expect(document.activeElement?.textContent).toBe('Task: Check focus recovery')
+    const backToTasks = [...document.querySelectorAll('button')].find(button => button.textContent === 'Back to tasks')!
+    backToTasks.focus()
+    await act(async () => { backToTasks.click() })
+    expect(document.activeElement).toBe([...document.querySelectorAll<HTMLButtonElement>('.swarm-team-workspace__rows button')].find(button => button.dataset.swarmMemberName === undefined && button.textContent?.includes('Check focus recovery')))
+
+    const selectedTask = [...document.querySelectorAll<HTMLButtonElement>('.swarm-team-workspace__rows button')].find(button => button.dataset.swarmMemberName === undefined && button.textContent?.includes('Check focus recovery'))!
+    await act(async () => { selectedTask.click() })
+    projection = { ...projection, tasks: [], attempts: [], totals: { ...projection.totals, tasks: 0, attempts: 0 } }
+    dynamicState = { ...ready, data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never } }
+    await act(async () => { root.render(<TeamDashboardDetails {...(common as any)} />) })
+    expect(document.body.textContent).toContain('The selected task is no longer in this Team. Returning to tasks.')
+    expect(document.activeElement).toBe(taskSummary)
+    expect(taskSummary.textContent).toBe('Tasks')
   })
 
   it('keeps roster first at 359/360/520/719 and reserves three columns for the future 720px seam', async () => {

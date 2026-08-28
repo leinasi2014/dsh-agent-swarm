@@ -196,7 +196,14 @@ try {
             chatReflow: true, productionDetailsOverflowFree: true, futureLayoutFixture: true, rosterFirst: true,
             localeRerendered: true, disconnectRecovery: true,
           },
-          geometry: { longTaskRows: { futureSeamFixture: [359, 360, 520, 720].map(requestedWidth => ({ requestedWidth, fixture: { kind: 'read-only-mounted-workspace-clone', outsideOfficialLayout: true, productionMutated: false, removedAfterProbe: true } })), fixtureCleanup: { remainingFixtures: 0 } } },
+          geometry: {
+            rosterFirst: {
+              missing: false, title: 'R2 isolated Profile team', captainMainChat: 'Return to main Chat', captainLegacy: 'Current mode: Main Chat is captain',
+              titleBeforeCaptain: true, captainBeforeMember: true, memberCount: 1, avatarHidden: true, providerOrModelVisible: false,
+              hostFields: { name: 'a'.repeat(64), role: 'Submit exactly one DEV_SMOKE task.', lifecycle: 'active', activity: 'accepted', visibleName: true, visibleRole: true, visibleLifecycle: true },
+            },
+            longTaskRows: { futureSeamFixture: [359, 360, 520, 720].map(requestedWidth => ({ requestedWidth, fixture: { kind: 'read-only-mounted-workspace-clone', outsideOfficialLayout: true, productionMutated: false, removedAfterProbe: true } })), fixtureCleanup: { remainingFixtures: 0 } },
+          },
           requests: [{ method: 'POST', body: { method: 'snapshot' } }],
           faultInjection: { recovered: true, expectedConsoleErrors: ['Failed to load resource: net::ERR_CONNECTION_FAILED'] },
           consoleErrors: [], pageErrors: [], visibleErrors: { activeDashboard: [], initialCaptainChat: [], reloadDashboard: [], reloadCaptainChat: [] },
@@ -316,11 +323,16 @@ try {
   const activeSurfaceFailure = 'R3 active browser evidence does not prove native Details concession, theme-token layout and locale rerender without a Team overlay'
   const futureFixtureFailure = 'R3 future-width evidence must be a cleaned read-only clone fixture at 359/360/520/720, not the production Details ASIDE'
   const fixtureCleanupFailure = 'R3 future-width clone fixture cleanup left a browser sandbox node behind'
+  const rosterFirstFailure = 'R3 roster-first evidence must prove ordered legacy Captain and visible Host-only member fields'
   for (const [label, mutate, expectedFailure] of [
     ['R3 production overflow surface missing', value => { delete value.surfaces.productionDetailsOverflowFree }, activeSurfaceFailure],
     ['R3 production overflow surface false', value => { value.surfaces.productionDetailsOverflowFree = false }, activeSurfaceFailure],
     ['R3 future fixture surface missing', value => { delete value.surfaces.futureLayoutFixture }, activeSurfaceFailure],
     ['R3 roster-first surface missing', value => { delete value.surfaces.rosterFirst }, activeSurfaceFailure],
+    ['R3 roster-first geometry missing', value => { delete value.geometry.rosterFirst }, rosterFirstFailure],
+    ['R3 roster-first forged legacy Captain', value => { value.geometry.rosterFirst.captainLegacy = 'Dedicated Captain' }, rosterFirstFailure],
+    ['R3 roster-first order invalid', value => { value.geometry.rosterFirst.captainBeforeMember = false }, rosterFirstFailure],
+    ['R3 roster-first Host field hidden', value => { value.geometry.rosterFirst.hostFields.visibleRole = false }, rosterFirstFailure],
     ['R3 future fixture marker invalid', value => { value.geometry.longTaskRows.futureSeamFixture[0].fixture.kind = 'production-details-aside' }, futureFixtureFailure],
     ['R3 future fixture width sequence invalid', value => { value.geometry.longTaskRows.futureSeamFixture[1].requestedWidth = 521 }, futureFixtureFailure],
     ['R3 future fixture mutated production', value => { value.geometry.longTaskRows.futureSeamFixture[0].fixture.productionMutated = true }, futureFixtureFailure],
