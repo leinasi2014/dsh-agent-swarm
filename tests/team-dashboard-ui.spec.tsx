@@ -79,6 +79,27 @@ describe('R3 native Team Details surface', () => {
     expect(errorController.reconnect).toHaveBeenCalledTimes(1)
   })
 
+  it('surfaces SWARM_UI_READ_FAILED from a failed Host projection as an explicit, diagnosable error state, never a silent panel', async () => {
+    const coordinator = new FakeCoordinator()
+    const readFailedState: TeamDashboardState = { open: true, phase: 'error', targetSessionId: 'root', error: { code: 'SWARM_UI_READ_FAILED', message: 'read-plus: fetch failed' } }
+    const failedController = { getSnapshot: (): TeamDashboardState => readFailedState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: failedController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    // The panel is present and tagged with the failing phase, so the error is observable in the DOM.
+    const panel = document.querySelector<HTMLElement>('[data-swarm-team-panel][data-phase="error"]')!
+    expect(panel).not.toBeNull()
+    const alert = document.querySelector('[role="alert"]')!
+    expect(alert.textContent).toContain('SWARM_UI_READ_FAILED')
+    expect(alert.textContent).toContain('read-plus: fetch failed')
+    // No section content is fabricated from a missing projection — the surface fails closed rather than guessing.
+    expect(document.querySelectorAll('section')).toHaveLength(0)
+    // The full code+message is preserved in the boundary-specifying title for copy/debug.
+    const messageSpan = alert.querySelector<HTMLElement>('span[title*="read-plus"]')!
+    expect(messageSpan.getAttribute('title')).toBe('SWARM_UI_READ_FAILED: read-plus: fetch failed')
+    // Retry explicitly reconnects instead of pretending a fresh projection is ready.
+    await act(async () => { [...document.querySelectorAll('button')].find(button => button.textContent === 'Retry')?.click() })
+    expect(failedController.reconnect).toHaveBeenCalledTimes(1)
+  })
+
   it('presents a long member role visually bounded while preserving its full authoritative value', async () => {
     const coordinator = new FakeCoordinator(); coordinator.state = { mode: 'docked', view: 'members', targetSessionId: 'root' }
     const longRole = '开发 writer（仅负责本 P0）：修复 SWARM_UI_READ_FAILED。在受管 lane p0-swarm-ui-read-v2（pnpm isolation open，owner terra-p0）内实施：契约一致（role 上限有界提升并同步 CONTRACT_DIGEST）'.repeat(6)
