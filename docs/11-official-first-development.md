@@ -67,7 +67,7 @@ These are implemented-source facts, not a prediction of an unpublished roadmap. 
 | application storage lifecycle | `ctx.storageDomain` | consumed since M1A: `StorageDomainTeamStore` opens the `agent_swarm` domain as the Team aggregate authority; distributed backends add domain CAS/leases later |
 | Workspace identity/membership | `ctx.workspaceRegistry` | Workspace linkage; not Worktree/cwd isolation |
 | credential references/secrets | `ctx.credentials` (`@deepseek-ai/dsh-credentials`, rc.2) | boundary, not consumed (M5-2/#136): no plugin-side secret consumer exists, Team state never carries values or refs, env injection stays deployment-owned |
-| member host-tool scoping | `ctx.subagents` creation-window `toolFilter` + `tools.restrict()` | consumed since M1A (static captain-only deny); M5-2/F17 adds the captain-declared deny-only narrowing overlay (`deny_tools`) on the same official seam |
+| member host-tool scoping | `ctx.subagents` creation-window `toolFilter` + `tools.restrict()` | consumed since M1A; the static hidden baseline is captain-only tools plus `agent_swarm_wait`, with an irreversible delegated-call pre-execute deny; M5-2/F17 adds captain-declared deny-only narrowing (`deny_tools`) on the same official seam |
 | human interaction | questions/approval services | human workflow/review Providers |
 | Team roster/mailbox/task DAG | private experimental `ctx.agentTeams` | semantic target; current private backend behind one `TeamDomainPort` until promotion |
 | attempt fencing, scheduling, review, Team budget/memory policy | this plugin family | project-owned overlay, implemented as replaceable plugins |

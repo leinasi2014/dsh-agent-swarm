@@ -24,7 +24,7 @@ function projectWait(result: { changed: boolean; snapshot: TeamStatusSnapshot })
 }
 
 function fuseOrThrow(runtime: AgentSwarmRuntime, exec: Parameters<AgentSwarmRuntime['waitForChange']>[0], observation: WaitSpinObservation, timeoutMs: number): void {
-  const verdict = runtime.waitSpinFuse.note(exec, observation, timeoutMs)
+  const verdict = runtime.noteWaitSpin(exec, observation, timeoutMs)
   if (verdict === 'no-progress-repeat') {
     throw new TeamDomainError('repeated no-progress on the same Team revision; end this turn', 'TEAM_WAIT_NO_PROGRESS_REPEAT')
   }

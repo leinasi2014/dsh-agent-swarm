@@ -409,19 +409,19 @@ describe('real ToolRuntime + approval composition (SW-I1a)', () => {
     // config `ask` tool is denied for the delegated member (children are
     // approval-pinned `never`), so the member cannot even see it.
     const stored = await stack.ctx.sessionPersistence.inspect(SessionId(memberId))
-    const suffix = stored.events.slice(stored.meta.seedLength ?? 0)
-    const descriptor = foldSubagentDescriptor(suffix)
+    const suffix = stored.events.slice(stored.meta.seedLength ?? 0); const descriptor = foldSubagentDescriptor(suffix)
     expect(descriptor?.mode).toBe('continuable')
     if (descriptor?.mode !== 'continuable') throw new Error('member descriptor is not continuable')
     expect(descriptor.toolFilter).toEqual({ deny: [...MEMBER_HIDDEN_TOOLS, PROBE_TOOL] })
   }, 30_000)
   it('denies delegated agent_swarm_wait in official pre-execute before its body (body=0)', async () => {
-    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-perm-member-wait-')); roots.push(sandbox)
-    const stack = await mount(sandbox, { toolPolicy: { allow: ['agent_swarm_wait'] } })
-    const member = memberAgent(await addMember(stack), join(sandbox, 'workspace'))
-    detachAgents.push(stack.ctx.agents.enter(member, stack.lead))
-    const body = vi.spyOn(stack.ctx.agentSwarm, 'waitForChange'); const result = await callTool(stack.ctx, member, 'member-wait-denied', 'agent_swarm_wait', { after_revision: 1, timeout_ms: 10_000 })
-    expect(result.isError).toBe(true); expect(body).not.toHaveBeenCalled()
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-perm-member-wait-')); roots.push(sandbox); const stack = await mount(sandbox, { toolPolicy: { allow: ['agent_swarm_wait'] } })
+    const member = memberAgent(await addMember(stack), join(sandbox, 'workspace')); detachAgents.push(stack.ctx.agents.enter(member, stack.lead))
+    let decision: { kind: string; reason?: string } | undefined; stack.ctx.on('tools/pre-execute', async (exec, next) => { const value = await next(); if (exec.name === 'agent_swarm_wait') decision = value; return value }, { prepend: true })
+    const waitBody = vi.spyOn(stack.ctx.agentSwarm, 'waitForChange'); const evidenceBody = vi.spyOn(stack.ctx.agentSwarm, 'activePeerEvidence')
+    const result = await callTool(stack.ctx, member, 'member-wait-denied', 'agent_swarm_wait', { after_revision: 1, timeout_ms: 10_000 })
+    expect(decision).toEqual({ kind: 'deny', reason: 'tool "agent_swarm_wait" is denied by the Team tool policy (fail closed)' }); expect(result).toMatchObject({ isError: true, error: { message: 'tool "agent_swarm_wait" is denied by the Team tool policy (fail closed)' } })
+    expect(waitBody).not.toHaveBeenCalled(); expect(evidenceBody).not.toHaveBeenCalled()
   }, 20_000)
   it('unrelated agents are not polluted by the Team policy', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-perm-unrelated-'))

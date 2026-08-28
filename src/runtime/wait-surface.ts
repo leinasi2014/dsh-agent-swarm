@@ -146,7 +146,7 @@ const TIMEOUT_STEPS = [30_000, 60_000, 120_000] as const
  * the previous streak (including revision decrease); only a true timeout may
  * advance the exact 30 → 60 → 120 sequence.
  */
-export function applyWaitSpinFuse(
+function applyWaitSpinFuse(
   fuse: WeakMap<AbortSignal, WaitSpinEntry>,
   exec: ToolExecutionAuthority,
   observation: WaitSpinObservation,
