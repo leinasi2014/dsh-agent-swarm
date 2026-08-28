@@ -6,6 +6,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { TeamStatusSnapshot } from '../domain/types.js'
+import { AttemptId, TaskId, TeamMessageId } from '../domain/types.js'
 import { TeamDomainError } from '../domain/error.js'
 import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
 import type { WaitResult, WaitSpinObservation } from '../runtime/wait-surface.js'
@@ -42,6 +43,10 @@ export function registerSendMessageTool(ctx: Context, runtime: AgentSwarmRuntime
       target: { type: 'string', required: true, description: 'captain or an active member name.' },
       content: { type: 'string', required: true },
       delivery: { type: 'string', enum: ['quiet', 'wakeup'], description: 'quiet delivers without waking the recipient and stays queued while the target is inactive; wakeup follows up and may cold-resume an inactive member.' },
+      task_id: { type: 'string', description: 'Optional causal task id binding: the message is delivered only while the task is still open (not completed/cancelled).' },
+      attempt_id: { type: 'string', description: 'Optional causal attempt id binding: the message is delivered only while this attempt is still the task\'s current attempt.' },
+      revision: { type: 'integer', description: 'Optional causal task revision at send time (audit identity).' },
+      supersedes: { type: 'string', description: 'Optional explicit supersede: settle the referenced still-pending message obsolete and deliver this one instead.' },
     },
     output: {
       schema: {
@@ -55,8 +60,16 @@ export function registerSendMessageTool(ctx: Context, runtime: AgentSwarmRuntime
       render: (_args, value) => [{ type: 'text', text: `Message ${value.message_id} to ${value.target}: ${value.phase}. Do not resend a queued message.` }],
     },
     async execute(args, exec) {
+      const causal = args.task_id === undefined && args.attempt_id === undefined && args.revision === undefined
+        ? undefined
+        : {
+            ...(args.task_id === undefined ? {} : { taskId: TaskId(args.task_id) }),
+            ...(args.attempt_id === undefined ? {} : { attemptId: AttemptId(args.attempt_id) }),
+            ...(args.revision === undefined ? {} : { revision: args.revision }),
+          }
       const message = await runtime.sendMessage(
         exec, args.target, args.content, (args.delivery ?? 'wakeup') as 'quiet' | 'wakeup',
+        causal, args.supersedes === undefined ? undefined : TeamMessageId(args.supersedes),
       )
       return { message_id: message.id, target: message.targetName, phase: message.phase }
     },

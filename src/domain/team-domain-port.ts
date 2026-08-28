@@ -19,6 +19,7 @@ import type {
   TeamMemoryCategory,
   TeamMemoryEntry,
   TeamMessage,
+  TeamMessageCausal,
   TeamMessageDelivery,
   TeamMessageId,
   TeamInteractionEffect,
@@ -276,7 +277,17 @@ export interface TeamDomainPort {
     targetName: string,
     content: string,
     delivery: TeamMessageDelivery,
+    causal?: TeamMessageCausal,
+    supersedes?: TeamMessage['supersedes'],
   ): Promise<TeamMessage>
+  /**
+   * Settle one queued message terminal as obsolete with its admission reason
+   * (mail-obsolescence). Idempotent for already-obsolete/delivered rows;
+   * rejects any other terminal phase. The delivery admission funnel is the
+   * sole caller in the runtime; anything that removes the causal context
+   * surfaces here through the derived obsolete decision, never a second queue.
+   */
+  markMessageObsolete(scope: TeamScope, teamId: TeamId, messageId: TeamMessageId, reason: string): Promise<TeamMessage>
   /** I1b first vertical: mailbox mutation and applied evidence are one Team transaction. */
   queueMemberQuestionRelayOnce(
     scope: TeamScope,

@@ -5,7 +5,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Domain } from '@deepseek-ai/dsh-storage-domain'
 import type {} from '@deepseek-ai/dsh-subagent'
-import { TaskId, type AttemptId, type TaskAttempt, type TeamId, type TeamMessage, type TeamState, type TeamStatusSnapshot, type TeamTask } from '../domain/types.js'
+import { TaskId, type AttemptId, type TaskAttempt, type TeamId, type TeamMessage, type TeamMessageCausal, type TeamState, type TeamStatusSnapshot, type TeamTask } from '../domain/types.js'
 import { TeamDomain } from '../domain/team-domain.js'
 import type { CreateTaskInput, TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import { TeamDomainError } from '../domain/error.js'
@@ -406,6 +406,8 @@ export class AgentSwarmRuntime extends Service {
     target: string,
     content: string,
     delivery: 'quiet' | 'wakeup',
+    causal?: TeamMessageCausal,
+    supersedes?: TeamMessage['supersedes'],
   ): Promise<TeamMessage> {
     await this.ensureReady()
     this.assertOpen()
@@ -413,7 +415,7 @@ export class AgentSwarmRuntime extends Service {
     const scope = this.scopeOf(sender)
     const membership = await this.domain.requireMembership(scope, sender.id)
     const message = await this.domain.queueMessage(
-      scope, membership.team.id, sender.id, target, content, delivery,
+      scope, membership.team.id, sender.id, target, content, delivery, causal, supersedes,
     )
     const captain = this.ctx.agents.get(SessionId(membership.team.captainSessionId))
     if (captain === undefined) return message

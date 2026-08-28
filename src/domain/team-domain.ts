@@ -28,6 +28,8 @@ import {
   type TeamMembership,
   type TeamMemoryCategory,
   type TeamMessageDelivery,
+  type TeamMessageCausal,
+  type TeamMessage,
   type TeamState,
   type TeamStatusSnapshot,
   type TeamTask,
@@ -228,8 +230,10 @@ export class TeamDomain implements TeamDomainPort {
     targetName: string,
     content: string,
     delivery: TeamMessageDelivery,
+    causal?: TeamMessageCausal,
+    supersedes?: TeamMessage['supersedes'],
   ): Promise<TeamState['messages'][number]> {
-    return await mailbox.queueMessage(this.deps, scope, teamId, senderSessionId, targetName, content, delivery)
+    return await mailbox.queueMessage(this.deps, scope, teamId, senderSessionId, targetName, content, delivery, causal, supersedes)
   }
 
   async queueMemberQuestionRelayOnce(scope: TeamScope, teamId: TeamId, senderSessionId: string, requestId: string, body: string) {
@@ -246,6 +250,10 @@ export class TeamDomain implements TeamDomainPort {
 
   async acknowledgeMessage(scope: TeamScope, teamId: TeamId, messageId: TeamMessageId): Promise<TeamState['messages'][number]> {
     return await mailbox.acknowledgeMessage(this.deps, scope, teamId, messageId)
+  }
+
+  async markMessageObsolete(scope: TeamScope, teamId: TeamId, messageId: TeamMessageId, reason: string): Promise<TeamState['messages'][number]> {
+    return await mailbox.markMessageObsolete(this.deps, scope, teamId, messageId, reason)
   }
 
   async setBudget(

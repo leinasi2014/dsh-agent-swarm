@@ -30,6 +30,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId, type Session } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
+import { messageObsoleteReason } from '../domain/team-domain-mailbox.js'
 import type { TeamId, TeamMessage, TeamMessageId, TeamState } from '../domain/types.js'
 import { framePredicate, frameVisibility, sessionAccepts, waitForFrameClaim } from './frame-visibility.js'
 import { messageFrame } from './prompts.js'
@@ -178,6 +179,14 @@ export class MessageDelivery {
       const snapshot = await this.deps.domain().snapshot(scope, teamId, captain.id)
       const message = snapshot.team.messages.find(candidate => candidate.id === messageId)
       if (message === undefined || message.phase !== 'queued') return message
+      // Mail-obsolescence single obsolete funnel (delivery admission): an
+      // obsolete message is NEVER delivered, injected, followed-up or used to
+      // wake its target. It is settled terminal once, and the caller observes
+      // the real terminal result.
+      const obsoleteReason = messageObsoleteReason(snapshot.team, message)
+      if (obsoleteReason !== undefined) {
+        return await this.deps.domain().markMessageObsolete(scope, teamId, message.id, obsoleteReason)
+      }
       const accepted = await this.targetAlreadyAccepted(message, signal)
       if (accepted === undefined) return undefined
       if (accepted) return await this.deps.domain().acknowledgeMessage(scope, teamId, message.id)

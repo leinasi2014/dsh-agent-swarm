@@ -117,7 +117,24 @@ export interface TaskAttempt {
 }
 
 export type TeamMessageDelivery = 'quiet' | 'wakeup'
-type TeamMessagePhase = 'queued' | 'delivered' | 'cancelled'
+type TeamMessagePhase = 'queued' | 'delivered' | 'cancelled' | 'obsolete'
+
+/**
+ * Optional causal identity attached to a queued message (mail-obsolescence).
+ *
+ * The sender may bind a message to the task/attempt context it belongs to so
+ * that pre-delivery admission can prove whether that context is still live. All
+ * three fields are optional and the whole block is optional; a message with no
+ * causal block is not fenced on task/attempt state (only on target removal).
+ * The identity is persisted verbatim in the Team aggregate and therefore
+ * survives and is rebuilt across reload-restart from the sole authoritative
+ * aggregate — it is never regenerated or derived at delivery time.
+ */
+export interface TeamMessageCausal {
+  readonly taskId?: TaskId
+  readonly attemptId?: AttemptId
+  readonly revision?: number
+}
 
 export interface TeamMessage {
   readonly id: TeamMessageId
@@ -130,6 +147,24 @@ export interface TeamMessage {
   readonly phase: TeamMessagePhase
   readonly createdAt: number
   readonly deliveredAt?: number
+  /**
+   * Optional causal identity recorded at queue time (above). Absent on
+   * messages queued without a causal binding (including all pre-existing
+   * records, which load unchanged).
+   */
+  readonly causal?: TeamMessageCausal
+  /**
+   * Explicit supersede: this message supersedes the referenced still-pending
+   * earlier message of the same causal chain. The referenced message is marked
+   * terminal and auditable as obsolete when this message is queued.
+   */
+  readonly supersedes?: TeamMessageId
+  /** Set on the message superseded by a later queued message (audit inverse). */
+  readonly supersededBy?: TeamMessageId
+  /** Present exactly when the message settled obsolete (terminal admission). */
+  readonly obsoletedAt?: number
+  /** Human-readable reason for the obsolete settlement, when obsolete. */
+  readonly obsoletedReason?: string
 }
 
 /**

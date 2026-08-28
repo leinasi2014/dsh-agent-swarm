@@ -12,9 +12,9 @@
  */
 import { randomUUID } from 'node:crypto'
 import { Buffer } from 'node:buffer'
-import { expectDomain } from './error.js'
+import { expectDomain, TeamDomainError } from './error.js'
 import { actorMembership, foldMemberName, nonEmpty, type TeamDomainDeps } from './team-domain-shared.js'
-import { TeamMessageId, type TeamId, type TeamMessageDelivery, type TeamState } from './types.js'
+import { TeamMessageId, type TeamId, type TeamMessage, type TeamMessageCausal, type TeamMessageDelivery, type TeamState } from './types.js'
 import type { TeamScope } from './team-domain-port.js'
 
 export async function queueMessage(
@@ -25,10 +25,12 @@ export async function queueMessage(
   targetName: string,
   content: string,
   delivery: TeamMessageDelivery,
+  causal?: TeamMessageCausal,
+  supersedes?: TeamMessage['supersedes'],
 ): Promise<TeamState['messages'][number]> {
   let committed!: TeamState['messages'][number]
   await deps.store.transact(scope, teamId, team => {
-    committed = queueMessageInDraft(deps, team, senderSessionId, targetName, content, delivery)
+    committed = queueMessageInDraft(deps, team, senderSessionId, targetName, content, delivery, causal, supersedes)
   })
   return structuredClone(committed)
 }
@@ -41,6 +43,8 @@ export function queueMessageInDraft(
   targetName: string,
   content: string,
   delivery: TeamMessageDelivery,
+  causal?: TeamMessageCausal,
+  supersedes?: TeamMessage['supersedes'],
 ): TeamState['messages'][number] {
     const sender = actorMembership(team, senderSessionId)
     // Issue #19 Unicode alignment: targets fold through the same NFC +
@@ -74,6 +78,17 @@ export function queueMessageInDraft(
     )
     const normalizedContent = nonEmpty(content, 'message', deps.limits.maxMessageBytes)
     const timestamp = deps.now()
+    // Mail-obsolescence: the optional causal identity is validated before it
+    // is ever persisted. A headline revision, if present, must be a positive
+    // safe integer; when both a task and an attempt are bound they must agree
+    // on the task. These are the sender-declared facts the delivery admission
+    // funnel re-derives against the authoritative aggregate.
+    const normalizedCausal = causal === undefined ? undefined : normalizeCausal(causal, team)
+    if (supersedes !== undefined) {
+      const prior = team.messages.find(candidate => candidate.id === supersedes)
+      expectDomain(prior !== undefined, `superseded message "${supersedes}" not found`, 'TEAM_MESSAGE_NOT_FOUND')
+      expectDomain(prior.phase === 'queued', 'only a still-pending message can be superseded', 'TEAM_MESSAGE_PHASE_INVALID')
+    }
     const committed: TeamState['messages'][number] = {
       id: TeamMessageId(`message-${randomUUID()}`),
       senderSessionId,
@@ -84,6 +99,8 @@ export function queueMessageInDraft(
       delivery,
       phase: 'queued',
       createdAt: timestamp,
+      ...(normalizedCausal === undefined ? {} : { causal: normalizedCausal }),
+      ...(supersedes === undefined ? {} : { supersedes }),
     }
     expectDomain(
       Buffer.byteLength(JSON.stringify(committed), 'utf8') <= deps.limits.maxMessageBytes,
@@ -91,7 +108,117 @@ export function queueMessageInDraft(
       'TEAM_INPUT_LIMIT',
     )
     team.messages.push(committed)
+    // Explicit supersede (mail-obsolescence): a later message of the same
+    // causal chain settles the still-pending predecessor terminal as obsolete
+    // in the same aggregate transaction, so its result is immediately
+    // auditable and it is never delivered or wakes anyone.
+    if (supersedes !== undefined) {
+      const index = team.messages.findIndex(candidate => candidate.id === supersedes)
+      const prior = team.messages[index]!
+      team.messages[index] = {
+        ...prior,
+        phase: 'obsolete',
+        supersededBy: committed.id,
+        obsoletedAt: timestamp,
+        obsoletedReason: `superseded by ${committed.id}`,
+      }
+    }
+    pruneRetainedMessages(team, deps.limits.maxRetainedMessages)
     return committed
+}
+
+/** Normalize and validate one sender-declared causal identity block. */
+export function normalizeCausal(causal: TeamMessageCausal, team: TeamState): TeamMessageCausal {
+  const { taskId, attemptId, revision } = causal
+  if (taskId !== undefined && !team.tasks.some(task => task.id === taskId)) {
+    throw new TeamDomainError(`causal task "${taskId}" not found`, 'TEAM_TASK_NOT_FOUND')
+  }
+  if (taskId !== undefined && attemptId !== undefined) {
+    const attempt = team.attempts.find(candidate => candidate.id === attemptId)
+    if (attempt === undefined) {
+      throw new TeamDomainError(`causal attempt "${attemptId}" not found`, 'TEAM_ATTEMPT_NOT_FOUND')
+    }
+    if (attempt.taskId !== taskId) {
+      throw new TeamDomainError(`causal attempt "${attemptId}" does not belong to task "${taskId}"`, 'TEAM_ATTEMPT_TASK_MISMATCH')
+    }
+  }
+  if (revision !== undefined && (!Number.isSafeInteger(revision) || revision < 1)) {
+    throw new TeamDomainError('causal revision must be a positive safe integer', 'TEAM_INPUT_INVALID')
+  }
+  return { ...(taskId === undefined ? {} : { taskId }), ...(attemptId === undefined ? {} : { attemptId }), ...(revision === undefined ? {} : { revision }) }
+}
+
+/**
+ * Mail-obsolescence admission predicate: the single obsolete funnel every
+ * queued message passes through immediately before any delivery attempt.
+ *
+ * Returns a human-readable reason when the message must be settled obsolete —
+ * and therefore must NOT be delivered, injected, followed-up or used to wake
+ * its target — or `undefined` when it may be delivered. The decision is
+ * derived from the authoritative aggregate at delivery time, so every prior
+ * terminal transition (task completed/cancelled, attempt fenced stale / its
+ * task's `currentAttemptId` moved on, target removed) is reflected without any
+ * second state machine or second queue.
+ */
+export function messageObsoleteReason(team: TeamState, message: TeamMessage): string | undefined {
+  if (message.phase !== 'queued') return undefined
+  const target = team.members.find(member => member.sessionId === message.targetSessionId)
+  if (target !== undefined && target.phase === 'removed' && message.targetSessionId !== team.captainSessionId) {
+    return `target ${target.name} is removed`
+  }
+  const causal = message.causal
+  if (causal === undefined) return undefined
+  if (causal.taskId !== undefined) {
+    const task = team.tasks.find(candidate => candidate.id === causal.taskId)
+    if (task !== undefined && (task.status === 'completed' || task.status === 'cancelled')) {
+      return `task ${task.id} is ${task.status}`
+    }
+    // Attempt replacement fencing is against the task's CURRENT attempt, not
+    // the (possibly already-pruned) bound attempt: any current attempt other
+    // than the bound one means the bound generation lost its handoff, so the
+    // fence survives retention pruning of the old attempt.
+    if (task !== undefined && causal.attemptId !== undefined && task.currentAttemptId !== causal.attemptId) {
+      return `attempt ${causal.attemptId} is no longer current`
+    }
+  }
+  if (causal.attemptId !== undefined) {
+    const attempt = team.attempts.find(candidate => candidate.id === causal.attemptId)
+    const attemptTask = attempt === undefined ? undefined : team.tasks.find(candidate => candidate.id === attempt.taskId)
+    if (attempt !== undefined && attemptTask !== undefined && attemptTask.currentAttemptId !== causal.attemptId) {
+      return `attempt ${attempt.id} is no longer current`
+    }
+  }
+  return undefined
+}
+
+/** Settle one queued message terminal as obsolete with its admission reason. */
+export async function markMessageObsolete(
+  deps: TeamDomainDeps,
+  scope: TeamScope,
+  teamId: TeamId,
+  messageId: TeamMessageId,
+  reason: string,
+): Promise<TeamState['messages'][number]> {
+  let committed!: TeamState['messages'][number]
+  await deps.store.transact(scope, teamId, team => {
+    const index = team.messages.findIndex(message => message.id === messageId)
+    expectDomain(index >= 0, `message "${messageId}" not found`, 'TEAM_MESSAGE_NOT_FOUND')
+    const current = team.messages[index]!
+    if (current.phase === 'obsolete' || current.phase === 'delivered') {
+      committed = current
+      return
+    }
+    expectDomain(current.phase === 'queued', 'only queued mail can be settled obsolete', 'TEAM_MESSAGE_PHASE_INVALID')
+    committed = {
+      ...current,
+      phase: 'obsolete',
+      obsoletedAt: deps.now(),
+      obsoletedReason: nonEmpty(reason, 'obsolete reason', 2_048),
+    }
+    team.messages[index] = committed
+    pruneRetainedMessages(team, deps.limits.maxRetainedMessages)
+  })
+  return structuredClone(committed)
 }
 
 export async function acknowledgeMessage(

@@ -5,7 +5,7 @@ import type { TeamState } from './types.js'
 const TASK_STATUSES = new Set(['pending', 'in_progress', 'submitted', 'verifying', 'completed', 'failed', 'cancelled'])
 const ATTEMPT_PHASES = new Set(['running', 'submitted', 'verifying', 'accepted', 'rejected', 'cancelled', 'stale'])
 const MEMBER_PHASES = new Set(['provisioning', 'active', 'failed', 'removed'])
-const MESSAGE_PHASES = new Set(['queued', 'delivered', 'cancelled'])
+const MESSAGE_PHASES = new Set(['queued', 'delivered', 'cancelled', 'obsolete'])
 const MEMORY_CATEGORIES = new Set(['decision', 'lesson', 'member', 'context'])
 const INTERACTION_EFFECT_KEYS = new Set([
   'effectId', 'requestId', 'step', 'bindingDigest', 'senderSessionId', 'targetSessionId',
@@ -172,6 +172,22 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
     if (!MESSAGE_PHASES.has(String(message.phase))) corrupt(path, `messages[${index}].phase is invalid`)
     integer(message.createdAt, path, `messages[${index}].createdAt`)
     if (message.deliveredAt !== undefined) integer(message.deliveredAt, path, `messages[${index}].deliveredAt`)
+    if (message.causal !== undefined) {
+      const causal = record(message.causal, path, `messages[${index}].causal`)
+      if (causal.taskId !== undefined) text(causal.taskId, path, `messages[${index}].causal.taskId`)
+      if (causal.attemptId !== undefined) text(causal.attemptId, path, `messages[${index}].causal.attemptId`)
+      if (causal.revision !== undefined) integer(causal.revision, path, `messages[${index}].causal.revision`, 1)
+    }
+    if (message.supersedes !== undefined) text(message.supersedes, path, `messages[${index}].supersedes`)
+    if (message.supersededBy !== undefined) text(message.supersededBy, path, `messages[${index}].supersededBy`)
+    if (message.obsoletedAt !== undefined) integer(message.obsoletedAt, path, `messages[${index}].obsoletedAt`)
+    if (message.obsoletedReason !== undefined) text(message.obsoletedReason, path, `messages[${index}].obsoletedReason`)
+    if (message.phase === 'obsolete' && message.obsoletedReason === undefined) {
+      corrupt(path, `messages[${index}] is obsolete without an obsoletedReason`)
+    }
+    if (message.phase !== 'obsolete' && message.obsoletedAt !== undefined) {
+      corrupt(path, `messages[${index}] carries obsoletedAt outside obsolete phase`)
+    }
     return message
   })
   unique(messages.map(message => message.id as string), path, 'message ids')

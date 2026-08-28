@@ -84,9 +84,21 @@ const messageSchema = z.object({
   targetName: z.string().min(1),
   content: z.string().min(1),
   delivery: z.enum(['quiet', 'wakeup']),
-  phase: z.enum(['queued', 'delivered', 'cancelled']),
+  phase: z.enum(['queued', 'delivered', 'cancelled', 'obsolete']),
   createdAt: timestamp,
   deliveredAt: timestamp.optional(),
+  // Mail-obsolescence causal identity, explicit supersede and obsolete
+  // settlement. All optional so pre-existing records parse byte-identical;
+  // a record that settles obsolete carries obsoletedReason/obsoletedAt.
+  causal: z.object({
+    taskId: z.string().min(1).optional(),
+    attemptId: z.string().min(1).optional(),
+    revision: z.number().int().min(1).optional(),
+  }).optional(),
+  supersedes: z.string().min(1).optional(),
+  supersededBy: z.string().min(1).optional(),
+  obsoletedAt: timestamp.optional(),
+  obsoletedReason: z.string().min(1).optional(),
 })
 
 const budgetSchema = z.object({
