@@ -10,17 +10,17 @@ type Selection = { readonly kind: 'team' } | { readonly kind: 'member'; readonly
 type ListMode = 'members' | 'tasks'
 
 const shellCss = `
-[data-swarm-team-dashboard] .swarm-team-workspace { display:grid; grid-template-rows:auto minmax(0,1fr) auto; height:100%; color:var(--dsw-alias-label-primary); background:var(--dsw-alias-bg-layer-1); }
+[data-swarm-team-dashboard] .swarm-team-workspace { container-type:inline-size; display:grid; grid-template-rows:auto minmax(0,1fr) auto; height:100%; min-width:0; overflow:hidden; color:var(--dsw-alias-label-primary); background:var(--dsw-alias-bg-layer-1); }
 [data-swarm-team-dashboard] .swarm-team-workspace__header, [data-swarm-team-dashboard] .swarm-team-workspace__footer { display:flex; justify-content:space-between; gap:12px; padding:16px 20px; border-color:var(--dsw-alias-border-l2); border-style:solid; }
 [data-swarm-team-dashboard] .swarm-team-workspace__header { align-items:flex-start; border-width:0 0 1px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__footer { align-items:center; border-width:1px 0 0; }
 [data-swarm-team-dashboard] .swarm-team-workspace__title { margin:0; font-size:18px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__description, [data-swarm-team-dashboard] .swarm-team-workspace__muted { color:var(--dsw-alias-label-secondary); font-size:12px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__description { margin:6px 0 0; }
-[data-swarm-team-dashboard] .swarm-team-workspace__body { min-height:0; overflow:auto; padding:12px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__body { min-width:0; min-height:0; overflow:auto; padding:12px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__status { display:flex; gap:8px; align-items:center; min-width:0; margin:0 0 12px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__error { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-[data-swarm-team-dashboard] .swarm-team-workspace__columns { display:grid; grid-template-columns:minmax(156px,.8fr) minmax(220px,1.15fr) minmax(240px,1.35fr); gap:12px; min-height:100%; }
+[data-swarm-team-dashboard] .swarm-team-workspace__columns { display:grid; grid-template-columns:minmax(0,1fr); gap:12px; min-width:0; min-height:100%; }
 [data-swarm-team-dashboard] .swarm-team-workspace__column { min-width:0; min-height:0; padding:12px; border:1px solid var(--dsw-alias-border-l2); border-radius:12px; background:var(--dsw-alias-bg-base); }
 [data-swarm-team-dashboard] .swarm-team-workspace__column-title { margin:0 0 10px; font-size:14px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__summary { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
@@ -29,7 +29,7 @@ const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace__tabs { display:flex; gap:4px; margin:0 0 10px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__rows { display:grid; gap:8px; margin:0; padding:0; list-style:none; }
 [data-swarm-team-dashboard] .swarm-team-workspace__row { display:block; width:100%; padding:10px; color:inherit; text-align:left; border:1px solid var(--dsw-alias-border-l2); border-radius:8px; background:transparent; cursor:pointer; }
-[data-swarm-team-dashboard] .swarm-team-workspace__row[aria-current="true"] { border-color:var(--dsw-alias-brand); background:var(--dsw-alias-bg-layer-1); }
+[data-swarm-team-dashboard] .swarm-team-workspace__row[aria-current="true"] { border-color:var(--dsw-alias-brand-primary); background:var(--dsw-alias-bg-layer-1); }
 [data-swarm-team-dashboard] .swarm-team-workspace__row-main, [data-swarm-team-dashboard] .swarm-team-workspace__fact { display:flex; justify-content:space-between; gap:8px; min-width:0; }
 [data-swarm-team-dashboard] .swarm-team-workspace__truncate { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 [data-swarm-team-dashboard] .swarm-team-workspace__facts { display:grid; gap:8px; }
@@ -37,8 +37,8 @@ const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace__facts dd { margin:0; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 [data-swarm-team-dashboard] .swarm-team-workspace__diagnostics { margin-top:12px; padding-top:12px; border-top:1px solid var(--dsw-alias-border-l2); }
 [data-swarm-team-dashboard] .swarm-team-workspace__diagnostics summary { cursor:pointer; }
-@media (max-width: 900px) { [data-swarm-team-dashboard] .swarm-team-workspace__columns { grid-template-columns:minmax(220px,1fr) minmax(240px,1.25fr); } [data-swarm-team-dashboard] .swarm-team-workspace__overview { grid-column:1 / -1; } }
-@media (max-width: 640px) { [data-swarm-team-dashboard] .swarm-team-workspace__header, [data-swarm-team-dashboard] .swarm-team-workspace__footer { padding:12px; } [data-swarm-team-dashboard] .swarm-team-workspace__columns { grid-template-columns:minmax(0,1fr); } [data-swarm-team-dashboard] .swarm-team-workspace__overview { grid-column:auto; } }
+[data-swarm-team-dashboard] .swarm-team-workspace__wide-seam { margin:10px 0 0; }
+@container (min-width: 720px) { [data-swarm-team-dashboard] .swarm-team-workspace__columns { grid-template-columns:minmax(0,.8fr) minmax(0,1.15fr) minmax(0,1.35fr); } [data-swarm-team-dashboard] .swarm-team-workspace__wide-seam { display:none; } }
 `
 
 /** The sole Team UI is a read-only projection in the official Details column. */
@@ -100,7 +100,7 @@ function Workspace({ data, listMode, localeTag, selection, setListMode, setSelec
   return <div className="swarm-team-workspace__columns" aria-label={t('tabs.label')}>
     <section className="swarm-team-workspace__column swarm-team-workspace__overview"><h3 className="swarm-team-workspace__column-title">{t('tabs.overview')}</h3>
       <button className="swarm-team-workspace__row" aria-current={selection.kind === 'team'} onClick={() => { setSelection({ kind: 'team' }) }} type="button"><span className="swarm-team-workspace__row-main"><strong className="swarm-team-workspace__truncate" title={data.team.name}>{data.team.name}</strong><span className="swarm-team-workspace__muted">{enumLabel(data.team.phase, t)}</span></span></button>
-      <div className="swarm-team-workspace__summary" style={{ marginTop: 10 }}><Metric label={t('members')} value={number.format(data.totals.roster)} /><Metric label={t('tasks')} value={number.format(data.totals.tasks)} /><Metric label={t('interactions')} value={number.format(data.totals.pendingInteractions)} /><Metric label={t('attempts')} value={number.format(data.totals.attempts)} /></div>
+      <div className="swarm-team-workspace__summary" style={{ marginTop: 10 }}><Metric label={t('members')} value={number.format(data.totals.roster)} /><Metric label={t('tasks')} value={number.format(data.totals.tasks)} /><Metric label={t('interactions')} value={number.format(data.totals.pendingInteractions)} /><Metric label={t('attempts')} value={number.format(data.totals.attempts)} /></div><p className="swarm-team-workspace__muted swarm-team-workspace__wide-seam">{t('narrowWorkspace')}</p>
     </section>
     <section className="swarm-team-workspace__column"><h3 className="swarm-team-workspace__column-title">{listMode === 'members' ? t('members') : t('tasks')}</h3>
       <nav className="swarm-team-workspace__tabs" aria-label={t('tabs.label')}><Button size="sm" variant="ghost" aria-pressed={listMode === 'members'} onClick={() => { setListMode('members') }}>{t('members')}</Button><Button size="sm" variant="ghost" aria-pressed={listMode === 'tasks'} onClick={() => { setListMode('tasks') }}>{t('tasks')}</Button></nav>
@@ -114,8 +114,8 @@ function Metric({ label, value }: { readonly label: string; readonly value: stri
 
 function MemberRows({ data, selection, setSelection, t }: { readonly data: SwarmHostReadProjectionV1; readonly selection: Selection; readonly setSelection: (selection: Selection) => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
   return <ul className="swarm-team-workspace__rows">{data.roster.length === 0 ? <li className="swarm-team-workspace__muted">{t('empty')}</li> : data.roster.map(member => {
-    const activity = memberActivity(data, member.name, member.phase)
-    return <li key={member.name}><button className="swarm-team-workspace__row" type="button" aria-current={selection.kind === 'member' && selection.name === member.name} onClick={() => { setSelection({ kind: 'member', name: member.name }) }}><span className="swarm-team-workspace__row-main"><strong className="swarm-team-workspace__truncate" title={member.name}>{member.name}</strong><span className="swarm-team-workspace__muted">{activity.label(t)}</span></span><small className="swarm-team-workspace__muted swarm-team-workspace__truncate" title={member.role}>{member.role}</small></button></li>
+    const activity = deriveMemberActivity(data, member.name, member.phase)
+    return <li key={member.name}><button className="swarm-team-workspace__row" type="button" aria-current={selection.kind === 'member' && selection.name === member.name} onClick={() => { setSelection({ kind: 'member', name: member.name }) }}><span className="swarm-team-workspace__row-main"><strong className="swarm-team-workspace__truncate" title={member.name}>{member.name}</strong><span className="swarm-team-workspace__muted">{memberActivityLabel(activity, t)}</span></span><small className="swarm-team-workspace__muted swarm-team-workspace__truncate" title={member.role}>{member.role}</small></button></li>
   })}</ul>
 }
 
@@ -127,8 +127,8 @@ function Detail({ data, localeTag, number, selection, t }: { readonly data: Swar
   if (selection.kind === 'member') {
     const member = data.roster.find(candidate => candidate.name === selection.name)
     if (member === undefined) return <p className="swarm-team-workspace__muted">{t('detailEmpty')}</p>
-    const activity = memberActivity(data, member.name, member.phase)
-    return <><Facts rows={[[t('memberStatus'), activity.label(t)], [t('memberTask'), activity.task?.subject ?? t('memberNone')], [t('memberProvider'), t('hostUnavailable')], [t('memberModel'), t('hostUnavailable')], [t('memberRole'), member.role]]} /><Diagnostics data={data} number={number} t={t} /></>
+    const activity = deriveMemberActivity(data, member.name, member.phase)
+    return <><Facts rows={[[t('memberStatus'), memberActivityLabel(activity, t)], [t('memberTask'), activity.task?.subject ?? t('memberNone')], [t('memberProvider'), t('hostUnavailable')], [t('memberModel'), t('hostUnavailable')], [t('memberRole'), member.role]]} /><Diagnostics data={data} number={number} t={t} /></>
   }
   if (selection.kind === 'task') {
     const task = data.tasks.find(candidate => candidate.id === selection.id)
@@ -144,15 +144,36 @@ function Diagnostics({ data, number, t }: { readonly data: SwarmHostReadProjecti
   return <details className="swarm-team-workspace__diagnostics"><summary>{t('diagnostics')}</summary><p className="swarm-team-workspace__muted">{t('diagnosticsDescription')}</p><Facts rows={[[t('diagnosticsSession'), data.binding.rootSessionId], [t('diagnosticsRevision'), number.format(data.team.revision)], [t('diagnosticsAttempts'), number.format(data.totals.attempts)], [t('diagnosticsTrace'), t('diagnosticsTraceUnavailable')]]} /></details>
 }
 
-function memberActivity(data: SwarmHostReadProjectionV1, name: string, phase: SwarmHostReadProjectionV1['roster'][number]['phase']): { readonly task: SwarmHostReadProjectionV1['tasks'][number] | undefined; readonly label: (t: TranslateNS<typeof TEAM_DASHBOARD_NS>) => string } {
-  const task = data.tasks.find(candidate => (candidate.ownerName === name || candidate.targetMemberName === name) && candidate.status !== 'completed' && candidate.status !== 'cancelled')
-  if (phase === 'failed' || task?.status === 'failed') return { task, label: t => t('memberError') }
-  if (phase === 'provisioning') return { task, label: t => t('memberProvisioning') }
-  if (phase === 'removed') return { task, label: t => t('memberRemoved') }
-  if (task !== undefined && task.currentAttemptId !== undefined) return { task, label: t => t('memberRunning') }
-  return { task, label: t => t('memberIdle') }
+export type MemberActivity = {
+  readonly task: SwarmHostReadProjectionV1['tasks'][number] | undefined
+  readonly attempt: SwarmHostReadProjectionV1['attempts'][number] | undefined
+  readonly state: 'running' | 'idle' | 'error' | 'provisioning' | 'removed' | SwarmHostReadProjectionV1['attempts'][number]['phase']
 }
 
-type WireEnum = SwarmHostReadProjectionV1['team']['phase'] | SwarmHostReadProjectionV1['tasks'][number]['status']
-const enumKey = Object.freeze({ active: 'enum.active', archived: 'enum.archived', pending: 'enum.pending', in_progress: 'enum.in_progress', submitted: 'enum.submitted', verifying: 'enum.verifying', completed: 'enum.completed', failed: 'enum.failed', cancelled: 'enum.cancelled' } as const satisfies Record<WireEnum, TeamDashboardKey>)
+/** Derives one member's current task strictly from that task's current attempt and owner identity. */
+export function deriveMemberActivity(data: SwarmHostReadProjectionV1, name: string, phase: SwarmHostReadProjectionV1['roster'][number]['phase']): MemberActivity {
+  const current = data.tasks.flatMap(task => {
+    if (task.currentAttemptId === undefined) return []
+    const attempt = data.attempts.find(candidate => candidate.id === task.currentAttemptId && candidate.taskId === task.id && candidate.memberName === name)
+    return attempt === undefined ? [] : [{ task, attempt }]
+  }).toSorted((left, right) => right.attempt.updatedAt - left.attempt.updatedAt)[0]
+  if (current?.attempt.phase === 'running') return { task: current.task, attempt: current.attempt, state: 'running' }
+  if (phase === 'failed') return { task: current?.task, attempt: current?.attempt, state: 'error' }
+  if (phase === 'provisioning') return { task: current?.task, attempt: current?.attempt, state: 'provisioning' }
+  if (phase === 'removed') return { task: current?.task, attempt: current?.attempt, state: 'removed' }
+  if (current !== undefined) return { task: current.task, attempt: current.attempt, state: current.attempt.phase }
+  return { task: undefined, attempt: undefined, state: 'idle' }
+}
+
+function memberActivityLabel(activity: MemberActivity, t: TranslateNS<typeof TEAM_DASHBOARD_NS>): string {
+  if (activity.state === 'running') return t('memberRunning')
+  if (activity.state === 'idle') return t('memberIdle')
+  if (activity.state === 'error') return t('memberError')
+  if (activity.state === 'provisioning') return t('memberProvisioning')
+  if (activity.state === 'removed') return t('memberRemoved')
+  return enumLabel(activity.state, t)
+}
+
+type WireEnum = SwarmHostReadProjectionV1['team']['phase'] | SwarmHostReadProjectionV1['tasks'][number]['status'] | SwarmHostReadProjectionV1['attempts'][number]['phase']
+const enumKey = Object.freeze({ active: 'enum.active', archived: 'enum.archived', pending: 'enum.pending', in_progress: 'enum.in_progress', submitted: 'enum.submitted', verifying: 'enum.verifying', completed: 'enum.completed', failed: 'enum.failed', cancelled: 'enum.cancelled', running: 'enum.running', accepted: 'enum.accepted', rejected: 'enum.rejected', stale: 'enum.stale' } as const satisfies Record<WireEnum, TeamDashboardKey>)
 function enumLabel(value: WireEnum, t: TranslateNS<typeof TEAM_DASHBOARD_NS>): string { return t(enumKey[value]) }

@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { chromium } from 'playwright'
 
 const TEAM_NAME = /^(Team|团队)$/u
-const OPEN_CHAT = /^(Open Captain Chat|打开 Captain 对话)$/u
+const OPEN_CHAT = /^(Return to main Chat|返回主聊天)$/u
 const TOOL_DETAILS = /^(Tool details|工具详情)$/u
 const GEOMETRY_SETTLE_TIMEOUT_MS = 5_000
 const GEOMETRY_SAMPLE_MS = 50
@@ -201,6 +201,33 @@ async function waitForNarrowDetailsConcession(page, label, geometry) {
   throw new Error(`${label} did not use the official narrow Details concession: ${JSON.stringify(geometry[label])}`)
 }
 
+/** Validate the Team's own container geometry, not merely stylesheet text. */
+async function assertWorkspaceFitsDetails(panel, label, geometry) {
+  const result = await panel.evaluate(root => {
+    const workspace = root.querySelector('.swarm-team-workspace')
+    const body = root.querySelector('.swarm-team-workspace__body')
+    const columns = root.querySelector('.swarm-team-workspace__columns')
+    if (!(workspace instanceof HTMLElement) || !(body instanceof HTMLElement) || !(columns instanceof HTMLElement)) {
+      return { missing: true }
+    }
+    const widths = [root, workspace, body, columns].map(element => ({
+      name: element.className || element.getAttribute('data-swarm-team-panel') || 'panel',
+      clientWidth: element.clientWidth, scrollWidth: element.scrollWidth,
+    }))
+    const tracks = getComputedStyle(columns).gridTemplateColumns.trim().split(/\s+/u).filter(Boolean)
+    return { missing: false, containerWidth: workspace.clientWidth, tracks, widths }
+  })
+  geometry[`${label}Workspace`] = result
+  if (result.missing) throw new Error(`${label} Team workspace did not mount its required shell`)
+  const overflow = result.widths.find(width => width.scrollWidth > width.clientWidth + 1)
+  if (overflow !== undefined) throw new Error(`${label} Team workspace horizontally overflows Details: ${JSON.stringify(result)}`)
+  const expectedTracks = result.containerWidth < 720 ? 1 : 3
+  if (result.tracks.length !== expectedTracks) {
+    throw new Error(`${label} Team workspace did not use the expected ${String(expectedTracks)}-column container layout: ${JSON.stringify(result)}`)
+  }
+  return result
+}
+
 async function assertNoPluginFallback(page, label) {
   const dialogCount = await page.getByRole('dialog', { name: 'Agent Team' }).count()
   const fixed = await page.locator('[data-swarm-team-panel]').evaluate(element => {
@@ -284,6 +311,7 @@ export async function runR3ActiveBrowserProof({
     await panel.waitFor({ state: 'visible' })
     await assertNoPluginFallback(page, 'wide Team')
     const initial = await waitForWideDetails(page, beforeComposerBox, 'initial', geometry)
+    const initialWorkspace = await assertWorkspaceFitsDetails(panel, 'initial', geometry)
     if (!await dashboard.getByText('R2 isolated Profile team', { exact: true }).isVisible()) {
       throw new Error('browser Team name did not come from the real R2 producer')
     }
@@ -296,11 +324,13 @@ export async function runR3ActiveBrowserProof({
     await page.getByRole('button', { name: TEAM_NAME }).click()
     await panel.waitFor({ state: 'visible', timeout: 10_000 })
     const afterTool = await waitForWideDetails(page, beforeComposerBox, 'afterTool', geometry)
+    const afterToolWorkspace = await assertWorkspaceFitsDetails(panel, 'afterTool', geometry)
     await page.setViewportSize({ width: 680, height: 900 })
     const narrow = await waitForNarrowDetailsConcession(page, 'narrow', geometry)
     await page.setViewportSize({ width: 1440, height: 1000 })
     await panel.waitFor({ state: 'visible', timeout: 10_000 })
     const recovered = await waitForWideDetails(page, beforeComposerBox, 'recovered', geometry)
+    const recoveredWorkspace = await assertWorkspaceFitsDetails(panel, 'recovered', geometry)
     const localeRerendered = await assertChineseLocale(browser, rootSessionId, port)
 
     const openChat = page.getByRole('button', { name: OPEN_CHAT })
@@ -338,7 +368,7 @@ export async function runR3ActiveBrowserProof({
         narrowSubtreeMountedHidden: true, noPluginFallbackOverlay: true, samePanelRestored: true,
         chatReflow: true, localeRerendered, disconnectRecovery: faultInjection.recovered,
       },
-      geometry: { initial, toolComposer, afterTool, narrow, recovered, reloadGeometry },
+      geometry: { initial, initialWorkspace, toolComposer, afterTool, afterToolWorkspace, narrow, recovered, recoveredWorkspace, reloadGeometry },
       faultInjection,
       keyboard: ['focus Team', 'Enter', 'Tool details', 'Team', 'narrow recovery', 'Chinese locale', 'focus Open Captain Chat', 'Enter', 'Team toggle close after reload'],
       handoff: {

@@ -3,6 +3,7 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TeamDashboardAction } from '../src/client/TeamDashboardAction.js'
+import { deriveMemberActivity } from '../src/client/TeamDashboardContent.js'
 import { TeamDashboardDetails } from '../src/client/TeamDashboardDetails.js'
 import type { TeamDashboardState } from '../src/client/team-dashboard-controller.js'
 import { en, zh } from '../src/client/team-dashboard-locales.js'
@@ -103,25 +104,72 @@ describe('R3 native Team Details surface', () => {
     expect(document.body.textContent).toContain('当前主聊天的只读团队工作区。'); expect(document.body.textContent).toContain('活跃')
   })
 
-  it('renders the responsive three-column shell and clearly marks unavailable Host fields', async () => {
+  it('uses a container-driven one-column drill-down at narrow Details widths and only enables columns when a wide container is available', async () => {
     const coordinator = new FakeCoordinator(); coordinator.state = { mode: 'docked', view: 'members', targetSessionId: 'root' }
     const projection = {
       ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot,
       roster: [{ name: 'worker', role: 'Read-only verifier', phase: 'active', createdAt: 1_700_000_000_000 }],
       tasks: [{ id: 'task-1', revision: 1, subject: 'Check the panel', status: 'in_progress', blockedBy: [], priority: 1, ownerName: 'worker', currentAttemptId: 'attempt-1', createdAt: 1_700_000_000_000, updatedAt: 1_700_000_000_100 }],
-      totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, roster: 1, tasks: 1 },
+      attempts: [{ id: 'attempt-1', taskId: 'task-1', generation: 1, memberName: 'worker', phase: 'running', assignmentPhase: 'delivered', createdAt: 1_700_000_000_000, updatedAt: 1_700_000_000_100 }],
+      totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, roster: 1, tasks: 1, attempts: 1 },
     }
     const populatedState: TeamDashboardState = { ...ready, data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never } }
     const populated = { getSnapshot: (): TeamDashboardState => populatedState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: populated, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
     const columns = document.querySelectorAll('[data-swarm-team-panel] .swarm-team-workspace__column')
     expect(columns).toHaveLength(3)
-    expect(document.querySelector('style')?.textContent).toContain('grid-template-columns:minmax(156px,.8fr)')
-    expect(document.querySelector('style')?.textContent).toContain('@media (max-width: 900px)')
-    expect(document.querySelector('style')?.textContent).toContain('@media (max-width: 640px)')
+    const workspace = document.querySelector<HTMLElement>('.swarm-team-workspace')!
+    const body = document.querySelector<HTMLElement>('.swarm-team-workspace__body')!
+    const stylesheet = document.querySelector('style')?.textContent ?? ''
+    expect(workspace.style.containerType).toBe('')
+    expect(stylesheet).toContain('container-type:inline-size')
+    expect(stylesheet).toContain('@container (min-width: 720px)')
+    expect(stylesheet).toContain('grid-template-columns:minmax(0,1fr)')
+    // Narrow host Details must preserve the body as the only horizontal viewport.
+    Object.defineProperties(body, { clientWidth: { value: 360 }, scrollWidth: { value: 360 } })
+    expect(body.scrollWidth).toBeLessThanOrEqual(body.clientWidth)
+    expect(document.body.textContent).toContain('single-column overview → list → selected-detail flow')
     await act(async () => { [...document.querySelectorAll('button')].find(button => button.textContent?.includes('worker'))?.click() })
     expect(document.body.textContent).toContain('Not reported by Host')
     expect(document.body.textContent).toContain('Running')
     expect(document.querySelector('details')?.open).toBe(false)
   })
+
+  it.each([
+    ['submitted', 'submitted'], ['verifying', 'verifying'], ['stale', 'stale'],
+  ] as const)('does not present a %s current attempt as running', (phase, expected) => {
+    const data = projectionForActivity({
+      tasks: [activityTask('task-current', 'attempt-current')],
+      attempts: [activityAttempt('attempt-current', phase, 'worker', 2)],
+    })
+    expect(deriveMemberActivity(data, 'worker', 'active')).toMatchObject({ state: expected, task: { id: 'task-current' }, attempt: { id: 'attempt-current', phase } })
+  })
+
+  it('presents a failed member as an error even if its current attempt is not terminal', () => {
+    const data = projectionForActivity({ tasks: [activityTask('task-current', 'attempt-current')], attempts: [activityAttempt('attempt-current', 'stale', 'worker', 2)] })
+    expect(deriveMemberActivity(data, 'worker', 'failed')).toMatchObject({ state: 'error', task: { id: 'task-current' }, attempt: { id: 'attempt-current', phase: 'stale' } })
+  })
+
+  it('selects the newest current running attempt for its member and ignores an older failed attempt', () => {
+    const data = projectionForActivity({
+      tasks: [activityTask('task-old', 'attempt-old', 'failed'), activityTask('task-new', 'attempt-new')],
+      attempts: [activityAttempt('attempt-old', 'stale', 'worker', 1), activityAttempt('attempt-new', 'running', 'worker', 2)],
+    })
+    expect(deriveMemberActivity(data, 'worker', 'failed')).toMatchObject({ state: 'running', task: { id: 'task-new' }, attempt: { id: 'attempt-new', phase: 'running' } })
+  })
+
+  it('does not assign another member attempt as a current task', () => {
+    const data = projectionForActivity({ tasks: [activityTask('task-other', 'attempt-other')], attempts: [activityAttempt('attempt-other', 'running', 'other-worker', 2)] })
+    expect(deriveMemberActivity(data, 'worker', 'active')).toEqual({ state: 'idle', task: undefined, attempt: undefined })
+  })
 })
+
+function activityTask(id: string, currentAttemptId: string, status: 'in_progress' | 'failed' = 'in_progress') {
+  return { id, revision: 1, subject: id, status, blockedBy: [], priority: 1, ownerName: 'worker', currentAttemptId, createdAt: 1, updatedAt: 1 }
+}
+function activityAttempt(id: string, phase: 'running' | 'submitted' | 'verifying' | 'accepted' | 'rejected' | 'cancelled' | 'stale', memberName: string, updatedAt: number) {
+  return { id, taskId: id.replace('attempt', 'task'), generation: 1, memberName, phase, assignmentPhase: 'delivered' as const, createdAt: 1, updatedAt }
+}
+function projectionForActivity({ tasks, attempts }: { tasks: ReturnType<typeof activityTask>[]; attempts: ReturnType<typeof activityAttempt>[] }) {
+  return { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot, roster: [{ name: 'worker', role: 'Verifier', phase: 'active' as const, createdAt: 1 }], tasks, attempts, totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, roster: 1, tasks: tasks.length, attempts: attempts.length } } as never
+}
