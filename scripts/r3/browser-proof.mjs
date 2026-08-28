@@ -239,7 +239,7 @@ async function assertWorkspaceFitsDetails(panel, label, geometry) {
 
 /**
  * Real Chromium geometry probe for the Host's maximum legal display names.  It intentionally
- * exercises the rendered Team subtree at 360px and 520px; jsdom only checks the component seam.
+ * exercises the rendered Team subtree at 360px, 520px and 720px; jsdom only checks the component seam.
  */
 async function assertLongTaskRowsFitAtWidths(page, panel, geometry) {
   await page.getByRole('button', { name: /^Tasks$/u }).click()
