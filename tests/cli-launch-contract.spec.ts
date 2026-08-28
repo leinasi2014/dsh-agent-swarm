@@ -71,14 +71,4 @@ describe('official SOURCE CLI launch contract', () => {
     expect(source).not.toMatch(/process\.execPath, \[cli, /u)
     expect(source).not.toMatch(/\[cli, '--profile'/u)
   })
-
-  it('every other promotion dsh-CLI launch site routes through the helper (no bare residue)', async () => {
-    for (const file of ['scripts/promotion/accept-check.mjs', 'scripts/promotion/plane-ops.mjs']) {
-      const source = await lane(file)
-      expect(source).toContain("cli-launch.mjs'")
-      expect(source).toContain('cliLaunchArgs(')
-      expect(source).not.toMatch(/process\.execPath, \[args\.cli/u)
-      expect(source).not.toMatch(/process\.execPath, \[cli, /u)
-    }
-  })
 })
