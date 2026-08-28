@@ -372,12 +372,37 @@ export async function cancelAttempt(
         && (member.phase === 'provisioning' || member.phase === 'active'))
       expectDomain(target !== undefined, 'task assignment target is not an available Team member', 'TEAM_ASSIGNEE_INVALID')
     }
+    const timestamp = deps.now()
+    // P0 dogfood (task-5): an unowned pending directed task can be atomically
+    // retargeted (set/change `targetMemberSessionId`) or released back to the
+    // ready pool, all inside this captain-only transaction. The CAS guard
+    // (`taskRevision`) already ran; no attempt is created, fenced, or pruned —
+    // the task stays `pending` with no owner/currentAttempt, exactly as
+    // required. The open-attempt path below is byte-for-byte untouched.
+    const pendableRetarget = current.status === 'pending'
+      && current.ownerSessionId === undefined
+      && current.currentAttemptId === undefined
+    if (pendableRetarget) {
+      expectDomain(
+        targetMemberSessionId !== undefined || current.targetMemberSessionId !== undefined,
+        'pending task is not directed and no retarget target was provided',
+        'TEAM_TASK_NOT_REASSIGNABLE',
+      )
+      committed = { ...current, revision: current.revision + 1, updatedAt: timestamp }
+      if (targetMemberSessionId === undefined) {
+        const { targetMemberSessionId: _previousTarget, ...released } = committed
+        committed = released
+      } else {
+        committed = { ...committed, targetMemberSessionId }
+      }
+      replaceTask(team, committed)
+      return
+    }
     expectDomain(
       ['in_progress', 'submitted', 'verifying'].includes(current.status) && current.currentAttemptId !== undefined,
       'only an open execution attempt can be reassigned',
       'TEAM_TASK_NOT_REASSIGNABLE',
     )
-    const timestamp = deps.now()
     if (current.currentAttemptId !== undefined) {
       fenceAttemptStale(team, current.currentAttemptId, diagnostic, timestamp)
     }
