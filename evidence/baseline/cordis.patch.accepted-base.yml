@@ -1,0 +1,22 @@
+# Bundle layer for the durable host-only Team orchestrator.
+#
+# Installation contributes one DEFAULT-DISABLED structural group. Merely adding
+# the package must never activate Team mutation/runtime behavior. A Profile
+# owner enables `agent-swarm` in a later patch layer; the child then consumes
+# the separately composed official storage hub, KV backend, Storage Domain and
+# Session persistence. Without those services the enabled child stays pending
+# (fail closed).
+- insert:
+    - id: agent-swarm
+      name: cordis:group
+      group: true
+      disabled: true
+      config:
+        - id: agent-swarm-runtime
+          name: dsh-agent-swarm
+          config:
+            enabled: true
+            memberProvider: spawn
+            memberMaxDepth: 1
+            schedulerProvider: priority-ready
+            reviewProvider: manual

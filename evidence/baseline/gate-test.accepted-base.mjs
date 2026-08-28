@@ -147,9 +147,9 @@ const inventoryFixture = parsePluginInventoryResponse({
 if (inventoryFixture.length !== 0) throw new Error('valid empty inventory response did not pass')
 
 const safeBundle = await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
-if (!verifySafeBundlePatch(safeBundle).ok) throw new Error('repository Bundle does not match the enabled-by-default structural group')
+if (!verifySafeBundlePatch(safeBundle).ok) throw new Error('repository Bundle does not match the default-disabled structural group')
 for (const [label, broken] of [
-  ['default-disabled', safeBundle.replace('disabled: false', 'disabled: true')],
+  ['enabled by default', safeBundle.replace('disabled: true', 'disabled: false')],
   ['plugin as group', safeBundle.replace('name: cordis:group', 'name: dsh-agent-swarm')],
   ['missing structural flag', safeBundle.replace('      group: true\n', '')],
   ['wrong child', safeBundle.replace('id: agent-swarm-runtime', 'id: alternate-runtime')],

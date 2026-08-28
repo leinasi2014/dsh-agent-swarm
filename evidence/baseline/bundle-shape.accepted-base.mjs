@@ -3,7 +3,7 @@ const EXPECTED = [
   '    - id: agent-swarm',
   '      name: cordis:group',
   '      group: true',
-  '      disabled: false',
+  '      disabled: true',
   '      config:',
   '        - id: agent-swarm-runtime',
   '          name: dsh-agent-swarm',

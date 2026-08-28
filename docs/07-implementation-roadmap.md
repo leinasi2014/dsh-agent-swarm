@@ -68,15 +68,15 @@ Risk: S3/HIGH，原因是跨仓权威与兼容方向；需要精确候选的非�
 ### Required behavior
 
 - package manifest、Bundle patch、packed files、peer resolution 和独立 workspace 均来自插件候选；
-- Bundle 只贡献 `disabled: true` 的结构性 `cordis:group`，真实 Swarm 子插件位于其 `config`；`plugin add` 后首次重启的官方清单必须显示子插件 `enabled=false/fiberPhase=null`，Profile owner 的后一层显式 enable 才能激活；
+- Bundle 贡献默认启用的结构性 `cordis:group`：显式 `dsh plugin add` 到某 Profile 即视为对**该 Profile** 的激活授权；真实 Swarm 子插件位于其 `config`，`plugin add` 后首次重启的官方清单必须显示子插件 `enabled=true/fiberPhase=active`。安装只注册 runtime/UI，不自动创建 Team/成员/任务（仍须用户显式 create）；后端异常继续 fail-closed 并有明确错误呈现。
 - Profile 显式组合 Storage hub、KV backend、Storage Domain、Session persistence 和 Swarm；storage/session root 位于 Team workspace 与 sandbox root 之外；
-- `plugin add`、`--dump-config`、默认禁用、显式启用、service/tool presence、unload、reload、R0 再禁用、remove 后清单消失和 fail-closed missing-storage 证据绑定同一 artifact digest，且每次状态判断都经过真实重启；
+- `plugin add`、`--dump-config`、默认启用、可禁用（R0）、service/tool presence、unload、reload、remove 后清单消失和 fail-closed missing-storage 证据绑定同一 artifact digest，且每次状态判断都经过真实重启；
 - 官方 checkout 在验证前后 source-clean；用户默认 `~/.dsh` 不被测试触碰；
 - link 只允许开发诊断；接受和后续 Consumer 绑定 packed immutable artifact。
 
 ### Exit evidence
 
-Artifact manifest/digest、隔离 Profile config、完整命令回执、官方 `pluginInventory/list` 在默认禁用/显式启用/R0/remove 各状态的只读快照、真实 service/tool probe、reload/dispose、缺依赖负向组合、官方与插件 Git status read-back，以及精确候选的非作者审查。
+Artifact manifest/digest、隔离 Profile config、完整命令回执、官方 `pluginInventory/list` 在默认启用/禁用(R0)/remove 各状态的只读快照、真实 service/tool probe、reload/dispose、缺依赖负向组合、官方与插件 Git status read-back，以及精确候选的非作者审查。
 
 Risk: S2/MEDIUM；若进入用户默认 Profile、发布或远端分发则升级 S3。
 
