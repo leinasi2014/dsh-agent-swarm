@@ -3,6 +3,7 @@ import { homedir } from 'node:os'
 import { basename, isAbsolute, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { rpcCall } from '../promotion/lib.mjs'
+import { cliLaunchArgs } from '../promotion/cli-launch.mjs'
 import { bootPlane, run, stopPlane, waitPortFree, waitUntil } from '../promotion/runner.mjs'
 import {
   EXPECTED_P0_OFFICIAL_COMMIT as OFFICIAL_COMMIT,
@@ -533,7 +534,7 @@ async function main() {
     }
     gate('candidate-clean', 'pass', `${candidateCommit.stdout.trim()} / ${candidateTree.stdout.trim()}`)
 
-    const version = await execute('cli-version', process.execPath, [args.cli, '--version'], { cwd: workspaceRoot })
+    const version = await execute('cli-version', process.execPath, cliLaunchArgs(args.cli, ['--version']), { cwd: args.official })
     if (version.code !== 0 || version.stdout.trim() !== OFFICIAL_VERSION) throw new Error(`official CLI version mismatch: ${version.stdout || version.stderr}`)
 
     const build = await execute('candidate-build', 'pnpm', ['build'], { cwd: args.repo })
@@ -559,8 +560,7 @@ async function main() {
     }
     gate('artifact-packed', 'pass', `sha256=${artifactSha256} bytes=${artifactStat.size}`)
 
-    const addArgs = [args.cli, 'plugin', '--profile', 'web', 'add', '-w', tarball]
-    const add = await execute('profile-add', process.execPath, addArgs, { cwd: workspaceRoot, env: { DSH_HOME: dshHome }, timeoutMs: 10 * 60_000 })
+    const add = await execute('profile-add', process.execPath, cliLaunchArgs(args.cli, ['plugin', '--profile', 'web', 'add', '-w', tarball]), { cwd: args.official, env: { DSH_HOME: dshHome }, timeoutMs: 10 * 60_000 })
     if (add.code !== 0) throw new Error('official plugin add failed')
     if (/lefthook|ELIFECYCLE/i.test(add.stdout + add.stderr)) throw new Error('official plugin add reported forbidden lifecycle failure output')
     const profilePatch = join(dshHome, 'profiles', 'web', 'cordis.patch.yml')
@@ -578,8 +578,8 @@ async function main() {
     await writeFile(join(evidenceDir, 'profile-cordis-default-enabled.patch.yml'), await readFile(profilePatch), 'utf8')
     gate('profile-add', 'pass', 'official plugin forwarder installed the immutable tarball into fresh web Profile with lifecycle scripts enabled')
 
-    const dump = await execute('dump-config', process.execPath, [args.cli, '--profile', 'web', '--dump-config'], {
-      cwd: workspaceRoot, env: { DSH_HOME: dshHome },
+    const dump = await execute('dump-config', process.execPath, cliLaunchArgs(args.cli, ['--profile', 'web', '--dump-config']), {
+      cwd: args.official, env: { DSH_HOME: dshHome },
     })
     const dumpOk = dump.code === 0 && dump.stdout.includes('dsh-agent-swarm')
       && dump.stdout.includes('cordis:group') && dump.stdout.includes('disabled: false')
@@ -596,7 +596,7 @@ async function main() {
       DSH_SWARM_P0_WORKSPACE_ROOT: workspaceRoot,
     }
     await rm(stopPath, { force: true })
-    liveBoot = await bootPlane({ cli: args.cli, home: dshHome, profile: 'web', port: args.port, cwd: workspaceRoot, env: bootEnv })
+    liveBoot = await bootPlane({ cli: args.cli, home: dshHome, profile: 'web', port: args.port, cwd: args.official, env: bootEnv })
     if (!liveBoot.ready) throw new Error(`web Profile did not boot: ${liveBoot.stderr().slice(0, 2000)}`)
     const defaultEntries = await readInventory(args.port, evidenceDir, 'inventory-default-enabled')
     const defaultRow = swarmInventoryRow(defaultEntries)
@@ -699,7 +699,7 @@ async function main() {
     gate('unload', 'pass', 'official SIGTERM shutdown disposed the probe and released the port')
 
     await rm(stopPath, { force: true })
-    liveBoot = await bootPlane({ cli: args.cli, home: dshHome, profile: 'web', port: args.port, cwd: workspaceRoot, env: bootEnv })
+    liveBoot = await bootPlane({ cli: args.cli, home: dshHome, profile: 'web', port: args.port, cwd: args.official, env: bootEnv })
     if (!liveBoot.ready) throw new Error(`reload boot failed: ${liveBoot.stderr().slice(0, 2000)}`)
     const reloadEntries = await readInventory(args.port, evidenceDir, 'inventory-reload-enabled')
     const reloadRow = swarmInventoryRow(reloadEntries)
@@ -767,7 +767,7 @@ async function main() {
     }).join('\n'), 'utf8')
     await writeFile(join(evidenceDir, 'profile-cordis-r0-disabled.patch.yml'), await readFile(profilePatch), 'utf8')
     await rm(stopPath, { force: true })
-    liveBoot = await bootPlane({ cli: args.cli, home: dshHome, profile: 'web', port: args.port, cwd: workspaceRoot, env: bootEnv })
+    liveBoot = await bootPlane({ cli: args.cli, home: dshHome, profile: 'web', port: args.port, cwd: args.official, env: bootEnv })
     if (!liveBoot.ready) throw new Error(`R0-disabled web Profile did not boot: ${liveBoot.stderr().slice(0, 2000)}`)
     const disabledEntries = await readInventory(args.port, evidenceDir, 'inventory-r0-disabled')
     const disabledRow = swarmInventoryRow(disabledEntries)
@@ -787,13 +787,13 @@ async function main() {
       storageRoot, sessionRoot, workspaceRoot, shutdownProbeUrl,
     }).join('\n'), 'utf8')
     await writeFile(join(evidenceDir, 'profile-cordis-plugin-removed.patch.yml'), await readFile(profilePatch), 'utf8')
-    const remove = await execute('profile-remove', process.execPath, [args.cli, 'plugin', '--profile', 'web', 'remove', 'dsh-agent-swarm'], {
-      cwd: workspaceRoot, env: { DSH_HOME: dshHome }, timeoutMs: 10 * 60_000,
+    const remove = await execute('profile-remove', process.execPath, cliLaunchArgs(args.cli, ['plugin', '--profile', 'web', 'remove', 'dsh-agent-swarm']), {
+      cwd: args.official, env: { DSH_HOME: dshHome }, timeoutMs: 10 * 60_000,
     })
     if (remove.code !== 0) throw new Error('official plugin remove failed')
     await writeFile(join(evidenceDir, 'profile-package-removed.json'), await readFile(join(dshHome, 'profiles', 'web', 'package.json')), 'utf8')
     await rm(stopPath, { force: true })
-    liveBoot = await bootPlane({ cli: args.cli, home: dshHome, profile: 'web', port: args.port, cwd: workspaceRoot, env: bootEnv })
+    liveBoot = await bootPlane({ cli: args.cli, home: dshHome, profile: 'web', port: args.port, cwd: args.official, env: bootEnv })
     if (!liveBoot.ready) throw new Error(`post-remove web Profile did not boot: ${liveBoot.stderr().slice(0, 2000)}`)
     const removedEntries = await readInventory(args.port, evidenceDir, 'inventory-plugin-removed')
     const removedRow = swarmInventoryRow(removedEntries)
@@ -809,15 +809,15 @@ async function main() {
     gate('plugin-remove', 'pass', 'package removed; no dsh-agent-swarm inventory row after restart')
 
     const failProfile = 'p0-missing-storage'
-    const failAdd = await execute('missing-storage-add', process.execPath, [args.cli, 'plugin', '--profile', failProfile, 'add', '-w', tarball], {
-      cwd: workspaceRoot, env: { DSH_HOME: dshHome }, timeoutMs: 10 * 60_000,
+    const failAdd = await execute('missing-storage-add', process.execPath, cliLaunchArgs(args.cli, ['plugin', '--profile', failProfile, 'add', '-w', tarball]), {
+      cwd: args.official, env: { DSH_HOME: dshHome }, timeoutMs: 10 * 60_000,
     })
     if (failAdd.code !== 0) throw new Error('failed to assemble missing-storage negative Profile')
     const failPatch = join(dshHome, 'profiles', failProfile, 'cordis.patch.yml')
     await writeFile(failPatch, ['- id: agent-swarm', '  disabled: false', ''].join('\n'), 'utf8')
     await writeFile(join(evidenceDir, 'missing-storage-explicit-enabled.patch.yml'), await readFile(failPatch), 'utf8')
-    const failBoot = await execute('missing-storage-boot', process.execPath, [args.cli, '--profile', failProfile], {
-      cwd: workspaceRoot, env: { DSH_HOME: dshHome }, timeoutMs: 120_000,
+    const failBoot = await execute('missing-storage-boot', process.execPath, cliLaunchArgs(args.cli, ['--profile', failProfile]), {
+      cwd: args.official, env: { DSH_HOME: dshHome }, timeoutMs: 120_000,
     })
     const failOutput = failBoot.stdout + failBoot.stderr
     if (failBoot.code === 0 || !failOutput.includes('dsh-agent-swarm: pending') || !failOutput.includes('storageDomain')) {

@@ -22,6 +22,7 @@ import {
   rpcCall, sha256File, verifyArtifactAgainstManifest, verifyVerdict, writeJsonFile,
 } from './lib.mjs'
 import { bootPlane, run, stopPlane, waitPortFree, withDetachedWorktree } from './runner.mjs'
+import { cliLaunchArgs } from './cli-launch.mjs'
 import { FLOOR_LANES, FULL_LANES } from './freeze.mjs'
 
 function parseArgs(argv) {
@@ -138,8 +139,8 @@ export async function runAcceptance(input) {
     // ── A3: assembly in the drill home + fail-closed negative probe ──────
     const drillHome = isolation.domains.home
     const env = { DSH_HOME: drillHome }
-    const version = await run(process.execPath, [args.cli, '--version'], { env })
-    const pluginAdd = await run(process.execPath, [args.cli, 'plugin', '--profile', args.profile, 'add', '-w', tarballPath], { env, timeoutMs: 10 * 60_000 })
+    const version = await run(process.execPath, cliLaunchArgs(args.cli, ['--version']), { env })
+    const pluginAdd = await run(process.execPath, cliLaunchArgs(args.cli, ['plugin', '--profile', args.profile, 'add', '-w', tarballPath]), { env, timeoutMs: 10 * 60_000 })
     await writeFile(join(drillHome, 'profiles', args.profile, 'cordis.patch.yml'), [
       `# M3-3 acceptance-domain storage isolation (issue #102): the web template's`,
       `# storage rows are re-rooted into THIS drill domain's dedicated roots — the`,
@@ -152,10 +153,10 @@ export async function runAcceptance(input) {
       `    root: '${forwardSlashes(isolation.domains.sessionsRoot)}'`,
       ``,
     ].join('\n'), 'utf8')
-    const dump = await run(process.execPath, [args.cli, '--profile', args.profile, '--dump-config'], { env })
+    const dump = await run(process.execPath, cliLaunchArgs(args.cli, ['--profile', args.profile, '--dump-config']), { env })
     const dumpOk = dump.code === 0 && dump.stdout.includes('dsh-agent-swarm') && dump.stdout.includes(forwardSlashes(isolation.domains.storageRoot)) && dump.stdout.includes(forwardSlashes(isolation.domains.sessionsRoot))
     const failClosedProfile = 'm3c-failclosed'
-    await run(process.execPath, [args.cli, 'plugin', '--profile', failClosedProfile, 'add', '-w', tarballPath], { env, timeoutMs: 10 * 60_000 })
+    await run(process.execPath, cliLaunchArgs(args.cli, ['plugin', '--profile', failClosedProfile, 'add', '-w', tarballPath]), { env, timeoutMs: 10 * 60_000 })
     await writeFile(join(drillHome, 'profiles', failClosedProfile, 'cordis.patch.yml'), [
       `# M3-3 fail-closed negative probe (M1D-1 §4 form): storage stack WITHOUT`,
       `# storage-domain — the plugin must stay pending and the boot must exit 1.`,
@@ -168,7 +169,7 @@ export async function runAcceptance(input) {
       `        root: '${forwardSlashes(isolation.domains.storageRoot)}'`,
       ``,
     ].join('\n'), 'utf8')
-    const failClosed = await run(process.execPath, [args.cli, '--profile', failClosedProfile], { env, timeoutMs: 120_000 })
+    const failClosed = await run(process.execPath, cliLaunchArgs(args.cli, ['--profile', failClosedProfile]), { env, timeoutMs: 120_000 })
     const failClosedOk = failClosed.code !== 0 && (failClosed.stdout + failClosed.stderr).includes('dsh-agent-swarm: pending')
     await writeFile(join(isolation.domains.evidence, 'a3-plugin-add.log'), pluginAdd.stdout + pluginAdd.stderr, 'utf8')
     await writeFile(join(isolation.domains.evidence, 'a3-dump-config.txt'), dump.stdout, 'utf8')

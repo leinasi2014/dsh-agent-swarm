@@ -7,6 +7,7 @@ import { spawn } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { cliLaunchArgs } from './cli-launch.mjs'
 
 /** Default bound for one promotion-lane child process (CI lanes run long). */
 export const LANE_TIMEOUT_MS = 30 * 60_000
@@ -178,7 +179,7 @@ export async function waitUntil(predicate, { timeoutMs = 60_000, intervalMs = 25
  * teardown via `stopPlane` (bounded tree kill + port-free check).
  */
 export async function bootPlane({ cli, home, profile = 'web', port, host = '127.0.0.1', readyTimeoutMs = 90_000, extraArgs = [], cwd, env = {} }) {
-  const child = spawn(process.execPath, [cli, '--profile', profile, '--host', host, '--port', String(port), '--no-open', ...extraArgs], {
+  const child = spawn(process.execPath, cliLaunchArgs(cli, ['--profile', profile, '--host', host, '--port', String(port), '--no-open', ...extraArgs]), {
     cwd,
     env: laneEnv({ DSH_HOME: home, ...env }),
     windowsHide: true,

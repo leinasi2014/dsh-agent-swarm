@@ -9,6 +9,7 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { bootPlane, run, stopPlane, waitPortFree } from './runner.mjs'
+import { cliLaunchArgs } from './cli-launch.mjs'
 import { rpcCall } from './lib.mjs'
 
 const PROFILE_NAME = 'web'
@@ -46,14 +47,14 @@ export async function installIntoStableProfile({ cli, layout, tarballPath }) {
   const existing = await readFile(manifestPath, 'utf8').then(text => JSON.parse(text), () => undefined)
   let removeResult
   if (existing?.dependencies?.['dsh-agent-swarm'] !== undefined) {
-    removeResult = await run(process.execPath, [cli, 'plugin', '--profile', PROFILE_NAME, 'remove', '-w', 'dsh-agent-swarm'], { env, timeoutMs: 10 * 60_000 })
+    removeResult = await run(process.execPath, cliLaunchArgs(cli, ['plugin', '--profile', PROFILE_NAME, 'remove', '-w', 'dsh-agent-swarm']), { env, timeoutMs: 10 * 60_000 })
   }
-  const addResult = await run(process.execPath, [cli, 'plugin', '--profile', PROFILE_NAME, 'add', '-w', tarballPath], { env, timeoutMs: 10 * 60_000 })
+  const addResult = await run(process.execPath, cliLaunchArgs(cli, ['plugin', '--profile', PROFILE_NAME, 'add', '-w', tarballPath]), { env, timeoutMs: 10 * 60_000 })
   if (addResult.code !== 0) {
     return { ok: false, step: 'add', addResult, removeResult }
   }
   await writeStablePatch(layout)
-  const dump = await run(process.execPath, [cli, '--profile', PROFILE_NAME, '--dump-config'], { env })
+  const dump = await run(process.execPath, cliLaunchArgs(cli, ['--profile', PROFILE_NAME, '--dump-config']), { env })
   const dumpOk = dump.code === 0 && dump.stdout.includes('dsh-agent-swarm') && dump.stdout.includes(forwardSlashes(layout.controlStorage)) && dump.stdout.includes(forwardSlashes(layout.controlSessions))
   return { ok: dumpOk, step: 'dump-config', dump, dumpOk, addResult, removeResult }
 }
@@ -65,7 +66,7 @@ export async function installIntoStableProfile({ cli, layout, tarballPath }) {
  */
 export async function probeStablePlane({ cli, layout, port }) {
   const env = { DSH_HOME: layout.controlHome }
-  const dump = await run(process.execPath, [cli, '--profile', PROFILE_NAME, '--dump-config'], { env })
+  const dump = await run(process.execPath, cliLaunchArgs(cli, ['--profile', PROFILE_NAME, '--dump-config']), { env })
   const boot = await bootPlane({ cli, home: layout.controlHome, profile: PROFILE_NAME, port })
   let describe = { ok: false }
   if (boot.ready) describe = await rpcCall(port, 'host.describe', {})
