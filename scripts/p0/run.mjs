@@ -18,6 +18,14 @@ import {
 } from '../r3/browser-proof.mjs'
 
 const OFFICIAL_VERSION = '0.1.1-rc.2'
+// The boot plane is "ready" as soon as the official Host answers
+// /api/host.describe, but the inserted P0 probe service publishes its
+// 'active' row only after every injected dependency service is ready — the
+// slowest segment of a cold Profile activation under load. Give the
+// probe-activation wait a budget comparable to boot readiness rather than a
+// fixed tight 10s, and surface the observed probe tail on timeout so a
+// recurrence is diagnosable, not silent.
+const PROBE_ACTIVATION_TIMEOUT_MS = 60_000
 
 function parseArgs(argv) {
   const args = { repo: process.cwd(), port: 47940 }
@@ -596,8 +604,8 @@ async function main() {
       throw new Error(`installed Swarm was not active by default: ${JSON.stringify(defaultRow)}`)
     }
     gate('default-enabled', 'pass', `entry=${defaultRow.entryId}; enabled=true; fiberPhase=active`)
-    const probeReady = await waitUntil(async () => (await readProbe(probePath)).some(entry => entry.phase === 'active'), { timeoutMs: 10_000 })
-    if (!probeReady) throw new Error('service/tool probe did not activate')
+    const probeReady = await waitUntil(async () => (await readProbe(probePath)).some(entry => entry.phase === 'active'), { timeoutMs: PROBE_ACTIVATION_TIMEOUT_MS })
+    if (!probeReady) throw new Error(`service/tool probe did not activate within ${PROBE_ACTIVATION_TIMEOUT_MS}ms; probe tail=${JSON.stringify(await readProbe(probePath).catch(() => null))}`)
     const firstActive = (await readProbe(probePath)).find(entry => entry.phase === 'active')
     const servicesOk = Object.values(firstActive?.services ?? {}).every(value => value === true)
     const toolSurface = exactP0SwarmToolSurface(firstActive?.tools)
