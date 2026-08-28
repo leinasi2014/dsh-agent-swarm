@@ -252,7 +252,7 @@ async function assertLongTaskRowsFitAtWidths(page, panel, geometry) {
   }
   const results = []
   try {
-    for (const width of [360, 520]) {
+    for (const width of [360, 520, 720]) {
       const result = await panel.evaluate((root, requestedWidth) => {
         const workspace = root.querySelector('.swarm-team-workspace')
         const body = root.querySelector('.swarm-team-workspace__body')
@@ -263,7 +263,7 @@ async function assertLongTaskRowsFitAtWidths(page, panel, geometry) {
         const containers = [
           root, workspace, body, columns,
           ...root.querySelectorAll('.swarm-team-workspace__column'),
-          ...rows.querySelectorAll('.swarm-team-workspace__rows'),
+          rows,
           ...rows.querySelectorAll('.swarm-team-workspace__rows > li'),
           ...rows.querySelectorAll('.swarm-team-workspace__row'),
           ...rows.querySelectorAll('.swarm-team-workspace__row-main'),
@@ -282,6 +282,7 @@ async function assertLongTaskRowsFitAtWidths(page, panel, geometry) {
         return {
           missing: false,
           requestedWidth,
+          tracks: getComputedStyle(columns).gridTemplateColumns.trim().split(/\s+/u).filter(Boolean),
           containers: containers.map(element => ({ name: element.className || element.tagName, clientWidth: element.clientWidth, scrollWidth: element.scrollWidth })),
           leaves,
         }
@@ -291,6 +292,8 @@ async function assertLongTaskRowsFitAtWidths(page, panel, geometry) {
       if (result.missing) throw new Error(`task-row ${String(width)}px geometry probe did not mount its required subtree`)
       const overflow = result.containers.find(item => item.scrollWidth > item.clientWidth + 1)
       if (overflow !== undefined) throw new Error(`task-row ${String(width)}px geometry probe horizontally overflowed: ${JSON.stringify(result)}`)
+      const expectedTracks = width < 720 ? 1 : 3
+      if (result.tracks.length !== expectedTracks) throw new Error(`task-row ${String(width)}px geometry probe used ${String(result.tracks.length)} tracks, expected ${String(expectedTracks)}: ${JSON.stringify(result)}`)
       const invalidLeaf = result.leaves.find((leaf, index) => leaf.title !== expectedAssigneeLabels[index]
         || leaf.text !== expectedAssigneeLabels[index]
         || leaf.width > (leaf.parentWidth ?? 0) + 1
