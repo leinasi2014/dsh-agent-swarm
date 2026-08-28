@@ -3,7 +3,7 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TeamDashboardAction } from '../src/client/TeamDashboardAction.js'
-import { deriveMemberActivity, TEAM_WORKSPACE_WIDE_MIN_WIDTH, teamWorkspaceLayoutForWidth } from '../src/client/TeamDashboardContent.js'
+import { deriveMemberActivity, memberRosterInitial, TEAM_WORKSPACE_WIDE_MIN_WIDTH, teamWorkspaceLayoutForWidth } from '../src/client/TeamDashboardContent.js'
 import { TeamDashboardDetails } from '../src/client/TeamDashboardDetails.js'
 import type { TeamDashboardState } from '../src/client/team-dashboard-controller.js'
 import { en, zh } from '../src/client/team-dashboard-locales.js'
@@ -104,7 +104,40 @@ describe('R3 native Team Details surface', () => {
     expect(document.body.textContent).toContain('当前主聊天的只读团队工作区。'); expect(document.body.textContent).toContain('活跃')
   })
 
-  it('uses the observed Details container branch at 520/719/720 and keeps compact Details structurally bounded', async () => {
+  it('derives display-only initials from an NFC grapheme cluster without storing a profile', () => {
+    expect(memberRosterInitial('e\u0301clair')).toBe('é')
+    expect(memberRosterInitial('👩🏽‍💻 builder')).toBe('👩🏽‍💻')
+  })
+
+  it('keeps the active roster authoritative, labels no current task, and returns from a removed selected member', async () => {
+    const coordinator = new FakeCoordinator()
+    let projection = {
+      ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot,
+      roster: [{ name: 'worker', role: 'Read-only verifier', phase: 'active', createdAt: 1 }],
+      tasks: [], attempts: [],
+      totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, roster: 101, tasks: 0, attempts: 0 },
+      truncated: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.truncated, roster: true },
+    }
+    let dynamicState: TeamDashboardState = { ...ready, data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never } }
+    const dynamicController = {
+      getSnapshot: (): TeamDashboardState => dynamicState,
+      subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn(),
+    }
+    const common = { anchorRef: { current: null }, controller: dynamicController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t }
+    const root = createRoot(document.body.appendChild(document.createElement('div'))); mounted.push(root)
+    await act(async () => { root.render(<TeamDashboardDetails {...(common as any)} />) })
+    expect(document.body.textContent).toContain('No current task')
+    expect(document.body.textContent).toContain('Host roster is truncated (up to the first 100): showing 1 of 101 members.')
+    await act(async () => { [...document.querySelectorAll('button')].find(button => button.textContent?.includes('worker'))?.click() })
+    expect(document.body.textContent).toContain('Back to members')
+    projection = { ...projection, roster: [], totals: { ...projection.totals, roster: 0 } }
+    dynamicState = { ...ready, data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never } }
+    await act(async () => { root.render(<TeamDashboardDetails {...(common as any)} />) })
+    expect(document.body.textContent).toContain('worker is no longer in this Team. Returning to members.')
+    expect(document.querySelector('.swarm-team-workspace__roster')?.textContent).toMatchSnapshot()
+  })
+
+  it('keeps roster first at 359/360/520/719 and reserves three columns for the future 720px seam', async () => {
     const observers: TestResizeObserver[] = []
     const originalResizeObserver = globalThis.ResizeObserver
     class TestResizeObserver {
@@ -140,18 +173,28 @@ describe('R3 native Team Details surface', () => {
       expect(stylesheet).toContain('.swarm-team-workspace__body { min-width:0; min-height:0; overflow:auto;')
       expect(stylesheet).toContain('container-type:inline-size')
       expect(stylesheet).toContain('@container (min-width: 720px)')
+      expect(teamWorkspaceLayoutForWidth(359)).toBe('compact')
+      expect(teamWorkspaceLayoutForWidth(360)).toBe('compact')
       expect(teamWorkspaceLayoutForWidth(520)).toBe('compact')
+      await act(async () => { observers[0]?.emit(workspace, 359) })
+      expect(workspace.dataset.swarmTeamLayout).toBe('compact')
       await act(async () => { observers[0]?.emit(workspace, 520) })
       expect(workspace.dataset.swarmTeamLayout).toBe('compact')
-      expect(document.body.textContent).toContain('current official Details layout is below 720px')
       await act(async () => { observers[0]?.emit(workspace, 719) })
       expect(workspace.dataset.swarmTeamLayout).toBe('compact')
       expect(teamWorkspaceLayoutForWidth(TEAM_WORKSPACE_WIDE_MIN_WIDTH)).toBe('wide')
       await act(async () => { observers[0]?.emit(workspace, 720) })
       expect(workspace.dataset.swarmTeamLayout).toBe('wide')
       expect(document.body.textContent).not.toContain('current official Details layout is below 720px')
-      await act(async () => { [...document.querySelectorAll('button')].find(button => button.textContent?.includes('worker'))?.click() })
-      expect(document.body.textContent).toContain('Not reported by Host')
+      const captain = document.querySelector<HTMLButtonElement>('.swarm-team-workspace__roster > button')!
+      const member = document.querySelector<HTMLButtonElement>('.swarm-team-workspace__rows button')!
+      expect(captain.compareDocumentPosition(member) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      expect(captain.textContent).toBe('Return to main ChatCurrent mode: Main Chat is captain')
+      expect(captain.textContent).not.toContain('session-fixture')
+      expect(member.querySelector('[aria-hidden="true"]')?.textContent).toBe('w')
+      expect(document.body.textContent).not.toContain('Provider')
+      await act(async () => { member.click() })
+      expect(document.body.textContent).toContain('Back to members')
       expect(document.body.textContent).toContain('Running')
       expect(document.querySelector('details')?.open).toBe(false)
     } finally {
@@ -170,7 +213,7 @@ describe('R3 native Team Details surface', () => {
     const state: TeamDashboardState = { ...ready, data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never } }
     const longNameController = { getSnapshot: (): TeamDashboardState => state, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: longNameController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
-    await act(async () => { [...document.querySelectorAll('button')].find(button => button.textContent === 'Tasks')?.click() })
+    await act(async () => { document.querySelector<HTMLElement>('details.swarm-team-workspace__collapsible summary')?.click() })
     const assignees = [...document.querySelectorAll<HTMLElement>('.swarm-team-workspace__task-assignee')]
     expect(assignees).toHaveLength(2)
     expect(assignees.map(element => element.getAttribute('title'))).toEqual([`Owner: ${memberName}`, `Target member: ${memberName}`])
@@ -178,6 +221,10 @@ describe('R3 native Team Details surface', () => {
     const stylesheet = document.querySelector('style')?.textContent ?? ''
     expect(stylesheet).toContain('.swarm-team-workspace__rows, [data-swarm-team-dashboard] .swarm-team-workspace__rows > li { min-width:0; max-width:100%; }')
     expect(stylesheet).toContain('.swarm-team-workspace__task-assignee { display:block; min-width:0; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }')
+    await act(async () => { document.querySelector<HTMLButtonElement>('.swarm-team-workspace__rows button')?.click() })
+    expect(document.body.textContent).toContain('Back to tasks')
+    expect(document.body.textContent).toContain('Task diagnostics')
+    expect(document.body.textContent).toContain('Current attempt ID')
   })
 
   it.each([
@@ -208,6 +255,24 @@ describe('R3 native Team Details surface', () => {
   it('does not assign another member attempt as a current task', () => {
     const data = projectionForActivity({ tasks: [activityTask('task-other', 'attempt-other')], attempts: [activityAttempt('attempt-other', 'running', 'other-worker', 2)] })
     expect(deriveMemberActivity(data, 'worker', 'active')).toEqual({ state: 'idle', task: undefined, attempt: undefined })
+  })
+
+  it('maps an active member without a current attempt to no current task, not an online claim', () => {
+    const data = projectionForActivity({ tasks: [], attempts: [] })
+    expect(deriveMemberActivity(data, 'worker', 'active')).toEqual({ state: 'idle', task: undefined, attempt: undefined })
+  })
+
+  it('keeps a terminal currentAttemptId as recent history rather than current member work', async () => {
+    const coordinator = new FakeCoordinator()
+    const projection = projectionForActivity({
+      tasks: [activityTask('task-history', 'attempt-history', 'failed')],
+      attempts: [activityAttempt('attempt-history', 'accepted', 'worker', 2)],
+    })
+    const state: TeamDashboardState = { ...ready, data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection } }
+    const historyController = { getSnapshot: (): TeamDashboardState => state, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: historyController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    expect(document.body.textContent).toContain('Recent attempt: Accepted')
+    expect(document.body.textContent).not.toContain('Current task: task-history')
   })
 })
 

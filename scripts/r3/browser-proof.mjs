@@ -237,12 +237,38 @@ async function assertWorkspaceFitsDetails(panel, label, geometry) {
   return result
 }
 
+async function assertRosterFirst(panel, geometry) {
+  const result = await panel.evaluate(root => {
+    const workspace = root.querySelector('.swarm-team-workspace')
+    const roster = root.querySelector('.swarm-team-workspace__roster')
+    const title = root.querySelector('.swarm-team-workspace__title')
+    const captain = roster?.querySelector(':scope > button')
+    const rows = roster?.querySelector('.swarm-team-workspace__rows')
+    const firstMember = rows?.querySelector('button')
+    const avatar = firstMember?.querySelector('[aria-hidden="true"]')
+    if (!(workspace instanceof HTMLElement) || !(roster instanceof HTMLElement) || !(title instanceof HTMLElement)
+      || !(captain instanceof HTMLButtonElement) || !(rows instanceof HTMLElement) || !(firstMember instanceof HTMLButtonElement)) return { missing: true }
+    const captainBeforeMember = Boolean(captain.compareDocumentPosition(firstMember) & Node.DOCUMENT_POSITION_FOLLOWING)
+    return {
+      missing: false, title: title.textContent, captain: captain.textContent, captainBeforeMember,
+      memberCount: rows.querySelectorAll('li').length, avatarHidden: avatar?.getAttribute('aria-hidden') === 'true',
+      providerOrModelVisible: /\b(?:Provider|Model)\b/u.test(workspace.textContent ?? ''),
+    }
+  })
+  geometry.rosterFirst = result
+  if (result.missing || result.title.length === 0 || result.memberCount === 0 || !result.captainBeforeMember
+    || !result.avatarHidden || result.providerOrModelVisible) {
+    throw new Error(`Team roster-first projection failed: ${JSON.stringify(result)}`)
+  }
+  return result
+}
+
 /**
- * Keep the production Details ASIDE at its actually reachable width. Wider 360/520/720 checks
+ * Keep the production Details ASIDE at its actually reachable width. Wider 359/360/520/720 checks
  * run only against a read-only clone outside the official layout; they never resize the live panel.
  */
 async function assertLongTaskRowsFitAtWidths(page, panel, geometry) {
-  await page.getByRole('button', { name: /^Tasks$/u }).click()
+  await panel.locator('details.swarm-team-workspace__collapsible').first().locator('summary').click()
   const assignees = panel.locator('.swarm-team-workspace__task-assignee')
   await assignees.first().waitFor({ state: 'visible', timeout: 10_000 })
   const titles = await assignees.evaluateAll(nodes => nodes.map(node => node.getAttribute('title')))
@@ -255,7 +281,7 @@ async function assertLongTaskRowsFitAtWidths(page, panel, geometry) {
     throw new Error(`production official Details ASIDE must use its current one-column layout: ${JSON.stringify(production)}`)
   }
   const results = []
-  for (const width of [360, 520, 720]) {
+  for (const width of [359, 360, 520, 720]) {
     const result = await panel.evaluate((root, requestedWidth) => {
       const sandbox = document.createElement('div')
       sandbox.dataset.swarmTeamDashboard = 'read-only-browser-fixture'
@@ -405,6 +431,7 @@ export async function runR3ActiveBrowserProof({
     await assertNoPluginFallback(page, 'wide Team')
     const initial = await waitForWideDetails(page, beforeComposerBox, 'initial', geometry)
     const initialWorkspace = await assertWorkspaceFitsDetails(panel, 'initial', geometry)
+    const rosterFirst = await assertRosterFirst(panel, geometry)
     const longTaskRows = await assertLongTaskRowsFitAtWidths(page, panel, geometry)
     if (!await dashboard.getByText('R2 isolated Profile team', { exact: true }).isVisible()) {
       throw new Error('browser Team name did not come from the real R2 producer')
@@ -460,10 +487,10 @@ export async function runR3ActiveBrowserProof({
       surfaces: {
         wideDetailsLease: true, toolHandoff: true, narrowNativeDetailsConcession: true,
         narrowSubtreeMountedHidden: true, noPluginFallbackOverlay: true, samePanelRestored: true,
-        chatReflow: true, productionDetailsOverflowFree: true, futureLayoutFixture: true,
+        chatReflow: true, productionDetailsOverflowFree: true, futureLayoutFixture: true, rosterFirst: true,
         localeRerendered, disconnectRecovery: faultInjection.recovered,
       },
-      geometry: { initial, initialWorkspace, longTaskRows, toolComposer, afterTool, afterToolWorkspace, narrow, recovered, recoveredWorkspace, reloadGeometry },
+      geometry: { initial, initialWorkspace, rosterFirst, longTaskRows, toolComposer, afterTool, afterToolWorkspace, narrow, recovered, recoveredWorkspace, reloadGeometry },
       faultInjection,
       keyboard: ['focus Team', 'Enter', 'Tool details', 'Team', 'narrow recovery', 'Chinese locale', 'focus Open Captain Chat', 'Enter', 'Team toggle close after reload'],
       handoff: {

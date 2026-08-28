@@ -272,7 +272,7 @@ async function verifyR3BrowserEvidence(root, failures) {
   if (surfaces?.wideDetailsLease !== true || surfaces?.toolHandoff !== true
     || surfaces?.narrowNativeDetailsConcession !== true || surfaces?.narrowSubtreeMountedHidden !== true
     || surfaces?.noPluginFallbackOverlay !== true || surfaces?.samePanelRestored !== true
-    || surfaces?.chatReflow !== true || surfaces?.productionDetailsOverflowFree !== true || surfaces?.futureLayoutFixture !== true
+    || surfaces?.chatReflow !== true || surfaces?.productionDetailsOverflowFree !== true || surfaces?.futureLayoutFixture !== true || surfaces?.rosterFirst !== true
     || surfaces?.localeRerendered !== true || surfaces?.disconnectRecovery !== true) {
     failures.push('R3 active browser evidence does not prove native Details concession, theme-token layout and locale rerender without a Team overlay')
   }
@@ -310,12 +310,12 @@ async function verifyR3BrowserEvidence(root, failures) {
     request => request?.method !== 'POST' || !allowed.has(request?.body?.method),
   )) failures.push('R3 active browser evidence contains no read requests or a non-read request')
   const futureSeamFixture = active?.geometry?.longTaskRows?.futureSeamFixture
-  if (!Array.isArray(futureSeamFixture) || futureSeamFixture.length !== 3
-    || futureSeamFixture.some((entry, index) => entry?.requestedWidth !== [360, 520, 720][index]
+  if (!Array.isArray(futureSeamFixture) || futureSeamFixture.length !== 4
+    || futureSeamFixture.some((entry, index) => entry?.requestedWidth !== [359, 360, 520, 720][index]
       || entry?.fixture?.kind !== 'read-only-mounted-workspace-clone'
       || entry.fixture?.outsideOfficialLayout !== true || entry.fixture?.productionMutated !== false
       || entry.fixture?.removedAfterProbe !== true)) {
-    failures.push('R3 future-width evidence must be a cleaned read-only clone fixture at 360/520/720, not the production Details ASIDE')
+    failures.push('R3 future-width evidence must be a cleaned read-only clone fixture at 359/360/520/720, not the production Details ASIDE')
   }
   if (active?.geometry?.longTaskRows?.fixtureCleanup?.remainingFixtures !== 0) {
     failures.push('R3 future-width clone fixture cleanup left a browser sandbox node behind')

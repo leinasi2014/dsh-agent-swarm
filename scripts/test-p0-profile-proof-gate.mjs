@@ -193,10 +193,10 @@ try {
           surfaces: {
             wideDetailsLease: true, toolHandoff: true, narrowNativeDetailsConcession: true,
             narrowSubtreeMountedHidden: true, noPluginFallbackOverlay: true, samePanelRestored: true,
-            chatReflow: true, productionDetailsOverflowFree: true, futureLayoutFixture: true,
+            chatReflow: true, productionDetailsOverflowFree: true, futureLayoutFixture: true, rosterFirst: true,
             localeRerendered: true, disconnectRecovery: true,
           },
-          geometry: { longTaskRows: { futureSeamFixture: [360, 520, 720].map(requestedWidth => ({ requestedWidth, fixture: { kind: 'read-only-mounted-workspace-clone', outsideOfficialLayout: true, productionMutated: false, removedAfterProbe: true } })), fixtureCleanup: { remainingFixtures: 0 } } },
+          geometry: { longTaskRows: { futureSeamFixture: [359, 360, 520, 720].map(requestedWidth => ({ requestedWidth, fixture: { kind: 'read-only-mounted-workspace-clone', outsideOfficialLayout: true, productionMutated: false, removedAfterProbe: true } })), fixtureCleanup: { remainingFixtures: 0 } } },
           requests: [{ method: 'POST', body: { method: 'snapshot' } }],
           faultInjection: { recovered: true, expectedConsoleErrors: ['Failed to load resource: net::ERR_CONNECTION_FAILED'] },
           consoleErrors: [], pageErrors: [], visibleErrors: { activeDashboard: [], initialCaptainChat: [], reloadDashboard: [], reloadCaptainChat: [] },
@@ -314,12 +314,13 @@ try {
     }
   }
   const activeSurfaceFailure = 'R3 active browser evidence does not prove native Details concession, theme-token layout and locale rerender without a Team overlay'
-  const futureFixtureFailure = 'R3 future-width evidence must be a cleaned read-only clone fixture at 360/520/720, not the production Details ASIDE'
+  const futureFixtureFailure = 'R3 future-width evidence must be a cleaned read-only clone fixture at 359/360/520/720, not the production Details ASIDE'
   const fixtureCleanupFailure = 'R3 future-width clone fixture cleanup left a browser sandbox node behind'
   for (const [label, mutate, expectedFailure] of [
     ['R3 production overflow surface missing', value => { delete value.surfaces.productionDetailsOverflowFree }, activeSurfaceFailure],
     ['R3 production overflow surface false', value => { value.surfaces.productionDetailsOverflowFree = false }, activeSurfaceFailure],
     ['R3 future fixture surface missing', value => { delete value.surfaces.futureLayoutFixture }, activeSurfaceFailure],
+    ['R3 roster-first surface missing', value => { delete value.surfaces.rosterFirst }, activeSurfaceFailure],
     ['R3 future fixture marker invalid', value => { value.geometry.longTaskRows.futureSeamFixture[0].fixture.kind = 'production-details-aside' }, futureFixtureFailure],
     ['R3 future fixture width sequence invalid', value => { value.geometry.longTaskRows.futureSeamFixture[1].requestedWidth = 521 }, futureFixtureFailure],
     ['R3 future fixture mutated production', value => { value.geometry.longTaskRows.futureSeamFixture[0].fixture.productionMutated = true }, futureFixtureFailure],
