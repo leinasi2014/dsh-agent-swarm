@@ -293,6 +293,41 @@ try {
   const activePath = join(root, 'evidence/r3-browser-active.json')
   const activeRecord = base.evidenceFiles.find(record => record.relativePath === 'evidence/r3-browser-active.json')
   const activeContent = await readFile(activePath)
+  const activeEvidence = JSON.parse(activeContent.toString('utf8'))
+  const assertExactActiveEvidenceFailure = async (label, mutate, expectedFailure) => {
+    const value = structuredClone(activeEvidence)
+    mutate(value)
+    const content = `${JSON.stringify(value)}\n`
+    await writeFile(activePath, content)
+    activeRecord.bytes = Buffer.byteLength(content)
+    activeRecord.sha256 = await sha256File(activePath)
+    try {
+      const result = await verifyP0Evidence(root, structuredClone(base), expected)
+      if (result.ok) throw new Error(`${label} unexpectedly passed`)
+      if (result.failures.length !== 1 || result.failures[0] !== expectedFailure) {
+        throw new Error(`${label} rejected for the wrong evidence decision: ${result.failures.join('; ')}`)
+      }
+    } finally {
+      await writeFile(activePath, activeContent)
+      activeRecord.bytes = activeContent.length
+      activeRecord.sha256 = await sha256File(activePath)
+    }
+  }
+  const activeSurfaceFailure = 'R3 active browser evidence does not prove native Details concession, theme-token layout and locale rerender without a Team overlay'
+  const futureFixtureFailure = 'R3 future-width evidence must be a cleaned read-only clone fixture at 360/520/720, not the production Details ASIDE'
+  const fixtureCleanupFailure = 'R3 future-width clone fixture cleanup left a browser sandbox node behind'
+  for (const [label, mutate, expectedFailure] of [
+    ['R3 production overflow surface missing', value => { delete value.surfaces.productionDetailsOverflowFree }, activeSurfaceFailure],
+    ['R3 production overflow surface false', value => { value.surfaces.productionDetailsOverflowFree = false }, activeSurfaceFailure],
+    ['R3 future fixture surface missing', value => { delete value.surfaces.futureLayoutFixture }, activeSurfaceFailure],
+    ['R3 future fixture marker invalid', value => { value.geometry.longTaskRows.futureSeamFixture[0].fixture.kind = 'production-details-aside' }, futureFixtureFailure],
+    ['R3 future fixture width sequence invalid', value => { value.geometry.longTaskRows.futureSeamFixture[1].requestedWidth = 521 }, futureFixtureFailure],
+    ['R3 future fixture mutated production', value => { value.geometry.longTaskRows.futureSeamFixture[0].fixture.productionMutated = true }, futureFixtureFailure],
+    ['R3 future fixture cleanup residue', value => { value.geometry.longTaskRows.fixtureCleanup.remainingFixtures = 1 }, fixtureCleanupFailure],
+  ]) {
+    await assertExactActiveEvidenceFailure(label, mutate, expectedFailure)
+    cases.push([label])
+  }
   const nonReadContent = `${JSON.stringify({
     status: 'pass', rootSessionId: 'root', teamId: 'team', reload: true, browser, fixture,
     officialTestingNoticePresent: true, officialTestingNoticeDismissed: true,
