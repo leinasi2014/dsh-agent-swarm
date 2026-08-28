@@ -191,6 +191,39 @@ export function messageObsoleteReason(team: TeamState, message: TeamMessage): st
   return undefined
 }
 
+/**
+ * Shared settle scaffold for one queued-or-terminal message: locate the
+ * message inside one transaction, hand the current record to `settle` unless
+ * its phase is already terminal, commit the settle result with pruning, and
+ * return the settled record cloned — the exact contract both public settlers
+ * expose.
+ */
+async function settleMessageTransaction(
+  deps: TeamDomainDeps,
+  scope: TeamScope,
+  teamId: TeamId,
+  messageId: TeamMessageId,
+  isTerminal: (phase: TeamState['messages'][number]['phase']) => boolean,
+  phaseInvalidDetail: string,
+  settle: (current: TeamState['messages'][number]) => TeamState['messages'][number],
+): Promise<TeamState['messages'][number]> {
+  let committed!: TeamState['messages'][number]
+  await deps.store.transact(scope, teamId, team => {
+    const index = team.messages.findIndex(message => message.id === messageId)
+    expectDomain(index >= 0, `message "${messageId}" not found`, 'TEAM_MESSAGE_NOT_FOUND')
+    const current = team.messages[index]!
+    if (isTerminal(current.phase)) {
+      committed = current
+      return
+    }
+    expectDomain(current.phase === 'queued', phaseInvalidDetail, 'TEAM_MESSAGE_PHASE_INVALID')
+    committed = settle(current)
+    team.messages[index] = committed
+    pruneRetainedMessages(team, deps.limits.maxRetainedMessages)
+  })
+  return structuredClone(committed)
+}
+
 /** Settle one queued message terminal as obsolete with its admission reason. */
 export async function markMessageObsolete(
   deps: TeamDomainDeps,
@@ -199,26 +232,12 @@ export async function markMessageObsolete(
   messageId: TeamMessageId,
   reason: string,
 ): Promise<TeamState['messages'][number]> {
-  let committed!: TeamState['messages'][number]
-  await deps.store.transact(scope, teamId, team => {
-    const index = team.messages.findIndex(message => message.id === messageId)
-    expectDomain(index >= 0, `message "${messageId}" not found`, 'TEAM_MESSAGE_NOT_FOUND')
-    const current = team.messages[index]!
-    if (current.phase === 'obsolete' || current.phase === 'delivered') {
-      committed = current
-      return
-    }
-    expectDomain(current.phase === 'queued', 'only queued mail can be settled obsolete', 'TEAM_MESSAGE_PHASE_INVALID')
-    committed = {
-      ...current,
-      phase: 'obsolete',
-      obsoletedAt: deps.now(),
-      obsoletedReason: nonEmpty(reason, 'obsolete reason', 2_048),
-    }
-    team.messages[index] = committed
-    pruneRetainedMessages(team, deps.limits.maxRetainedMessages)
-  })
-  return structuredClone(committed)
+  return settleMessageTransaction(deps, scope, teamId, messageId, phase => phase === 'obsolete' || phase === 'delivered', 'only queued mail can be settled obsolete', current => ({
+    ...current,
+    phase: 'obsolete',
+    obsoletedAt: deps.now(),
+    obsoletedReason: nonEmpty(reason, 'obsolete reason', 2_048),
+  }))
 }
 
 export async function acknowledgeMessage(
@@ -227,21 +246,11 @@ export async function acknowledgeMessage(
   teamId: TeamId,
   messageId: TeamMessageId,
 ): Promise<TeamState['messages'][number]> {
-  let committed!: TeamState['messages'][number]
-  await deps.store.transact(scope, teamId, team => {
-    const index = team.messages.findIndex(message => message.id === messageId)
-    expectDomain(index >= 0, `message "${messageId}" not found`, 'TEAM_MESSAGE_NOT_FOUND')
-    const current = team.messages[index]!
-    if (current.phase === 'delivered') {
-      committed = current
-      return
-    }
-    expectDomain(current.phase === 'queued', 'only queued mail can be acknowledged', 'TEAM_MESSAGE_PHASE_INVALID')
-    committed = { ...current, phase: 'delivered', deliveredAt: deps.now() }
-    team.messages[index] = committed
-    pruneRetainedMessages(team, deps.limits.maxRetainedMessages)
-  })
-  return structuredClone(committed)
+  return settleMessageTransaction(deps, scope, teamId, messageId, phase => phase === 'delivered', 'only queued mail can be acknowledged', current => ({
+    ...current,
+    phase: 'delivered',
+    deliveredAt: deps.now(),
+  }))
 }
 
 /**
