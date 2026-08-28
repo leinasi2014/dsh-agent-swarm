@@ -21,7 +21,7 @@ import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlit
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import UserQuestionService, { type UserQuestionProvider } from '@deepseek-ai/dsh-user-questions'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
 import type { HumanInteractionRequest } from '../src/index.js'
 import { mountStorageStackOn } from './helpers/storage-stack.js'
@@ -557,8 +557,15 @@ describe('typed control execution and free-text boundary', () => {
       diagnostic: 'reassign now',
     }))
     expect(reassign.status).toBe('executed')
-    const afterReassign = (await snapshot(stack)).team.tasks.find(task => task.id === claimed.id)!
-    expect(afterReassign.status === 'pending' || afterReassign.currentAttemptId !== firstAttemptId).toBe(true)
+    // reassignTask schedules the released work asynchronously. Wait for that
+    // expected reschedule commit instead of taking a revision snapshot while
+    // it can still advance behind this control test's next request.
+    const afterReassign = await vi.waitFor(async () => {
+      const task = (await snapshot(stack)).team.tasks.find(candidate => candidate.id === claimed.id)!
+      expect(task.currentAttemptId).not.toBe(firstAttemptId)
+      return task
+    }, { timeout: 5_000, interval: 5 })
+    expect(afterReassign.currentAttemptId).not.toBe(firstAttemptId)
 
     const reviewTask = await stack.ctx.agentSwarm.domain.createTask(
       stack.scope, stack.teamId, stack.lead.id, { subject: 'review-by-control', description: 'Typed review control.' },
@@ -569,11 +576,12 @@ describe('typed control execution and free-text boundary', () => {
     const reviewSubmitted = await stack.ctx.agentSwarm.domain.submitTask(
       stack.scope, stack.teamId, stack.lead.id, reviewTask.id, reviewClaim.task.revision, reviewClaim.attempt.id, 'review output',
     )
+    const reviewTeam = await snapshot(stack)
     const review = await submit(stack, request(stack, {
       requestId: 'human-valid-review-00000005',
       intent: 'review-task', target: { kind: 'task', taskId: reviewTask.id },
       expectedTaskRevision: reviewSubmitted.revision, attemptId: reviewClaim.attempt.id,
-      expectedTeamRevision: (await snapshot(stack)).team.revision, decision: 'accept',
+      expectedTeamRevision: reviewTeam.team.revision, decision: 'accept',
     }))
     expect(review.status).toBe('executed')
     expect((await snapshot(stack)).team.tasks.find(task => task.id === reviewTask.id)!.status).toBe('completed')
