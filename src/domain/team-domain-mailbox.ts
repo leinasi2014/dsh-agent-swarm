@@ -128,7 +128,7 @@ export function queueMessageInDraft(
 }
 
 /** Normalize and validate one sender-declared causal identity block. */
-export function normalizeCausal(causal: TeamMessageCausal, team: TeamState): TeamMessageCausal {
+function normalizeCausal(causal: TeamMessageCausal, team: TeamState): TeamMessageCausal {
   const { taskId, attemptId, revision } = causal
   if (taskId !== undefined && !team.tasks.some(task => task.id === taskId)) {
     throw new TeamDomainError(`causal task "${taskId}" not found`, 'TEAM_TASK_NOT_FOUND')
