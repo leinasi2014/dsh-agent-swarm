@@ -1,5 +1,5 @@
 {
-  "description": "Small, repository-local delivery and resource guard for Codex.",
+  "description": "Repository-local delivery circuit breaker, isolation guard, and resource guard for Codex.",
   "hooks": {
     "SessionStart": [
       {

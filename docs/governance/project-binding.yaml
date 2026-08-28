@@ -58,6 +58,14 @@ deliveryPipelines:
     record: existing-task-envelope
     parallelWriter: managed-lifecycle-only
 
+deliveryFlow:
+  userVisibleWalkingSkeleton: required-before-support-expansion
+  executableOutcomeCircuitBreaker: active
+  circuitBreakerExit: integrated-team-ui-walking-skeleton-with-real-profile-browser-proof
+  newSupportArtifactPolicy: deny-while-circuit-breaker-active
+  repeatedSupportCorrectionLimit: 2
+  progressEvidence: executable-behavior-or-authoritative-product-blocker
+
 documentation:
   schemaVersion: 1
   registry: docs/governance/document-registry.yaml
