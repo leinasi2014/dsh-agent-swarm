@@ -514,7 +514,7 @@ export class AgentSwarmRuntime extends Service {
   }
 
   observeSessionEvent(session: Session, event: SessionEvent): void {
-    this.usage.observeSessionEvent(session, event)
+    this.usage.observeSessionEvent(session, event); this.provisioning.observeSessionEvent(session, event)
   }
 
   private requestSchedule(scope: TeamScope, teamId: TeamId, captain: Agent): void {
@@ -568,6 +568,7 @@ export class AgentSwarmRuntime extends Service {
   async dispose(): Promise<void> {
     if (this.closing) return
     this.closing = true
+    this.provisioning.dispose()
     this.schedulingPass.dispose()
     this.idleSince.clear()
     this.orchestration.clear()

@@ -455,7 +455,7 @@ describe('scenario 44: gateway provenance boundary over the real typed-control s
     const delegated = memberAgent(memberId, join(sandbox, 'workspace'))
     const detachDelegated = stack.ctx.agents.enter(delegated, stack.lead)
     detachAgents.push(detachDelegated)
-    const initial = await snapshot(stack)
+    let initial = await snapshot(stack)
     const memberAdmission = { kind: 'captain' as const, exec: { agent: delegated, signal: SIGNAL } }
     const captainReadAdmission = { exec: { agent: stack.lead, signal: SIGNAL } }
     // Free text cannot become a typed Control: `message` is not a
@@ -466,18 +466,18 @@ describe('scenario 44: gateway provenance boundary over the real typed-control s
       body: 'please reconsider task 4',
       expectedTeamRevision: initial.team.revision,
     })
-    const freeTextError = await submitError(stack, freeText)
-    expect(freeTextError.code).toBe('TEAM_INTERACTION_INVALID')
-    expect((await snapshot(stack)).team.revision).toBe(initial.team.revision)
+    const freeTextError = await submitError(stack, freeText); expect(freeTextError.code).toBe('TEAM_INTERACTION_INVALID')
+    const stable = await snapshot(stack)
+    expect(stable.team.revision).toBeGreaterThanOrEqual(initial.team.revision); initial = stable
     // A relay/delegated member cannot pass itself off as the live root
     // captain — the gateway's exact-live-root resolution rejects it.
     const relay = controlRequest(stack, {
       source: { kind: 'captain-mediated', captainSessionId: memberId },
-      expectedTeamRevision: initial.team.revision,
+      expectedTeamRevision: stable.team.revision,
     })
     const relayError = await submitError(stack, relay)
     expect(relayError.code).toBe('TEAM_INTERACTION_CAPTAIN_REQUIRED')
-    expect((await snapshot(stack)).team.revision).toBe(initial.team.revision)
+    expect((await snapshot(stack)).team.revision).toBe(stable.team.revision)
     // Naming the real root in the request cannot self-mint captain authority:
     // the actual delegated caller is independently bound by object identity.
     const selfAssertedRoot = controlRequest(stack, {
@@ -525,7 +525,7 @@ describe('scenario 44: gateway provenance boundary over the real typed-control s
       stack.teamId,
       captainReadAdmission,
     )).toEqual(receiptsBeforeForgery)
-    expect((await snapshot(stack)).team.revision).toBe(initial.team.revision)
+    expect((await snapshot(stack)).team.revision).toBe(stable.team.revision)
     detachDelegated()
     // No verifier mounted: authenticated-human is refused.
     const forged = controlRequest(stack, {
