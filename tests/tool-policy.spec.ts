@@ -123,7 +123,7 @@ afterEach(async () => {
 })
 
 describe('member tool-policy composition (unit)', () => {
-  it('without a declaration returns exactly the M1A static baseline in stable order', () => {
+  it('without a declaration returns the member hidden baseline in stable order', () => {
     expect(memberToolDeny()).toEqual([...MEMBER_HIDDEN_TOOLS])
     expect(memberToolDeny(undefined)).toEqual([...MEMBER_HIDDEN_TOOLS])
   })
