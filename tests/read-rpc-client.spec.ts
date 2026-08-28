@@ -107,6 +107,27 @@ describe('R2 browser client', () => {
     })
   })
 
+  it('admits real member roles beyond the legacy 256 bound and rejects an unbounded one', () => {
+    const longRole = '开发 writer（仅负责本 P0）：修复 SWARM_UI_READ_FAILED。在受管 lane p0-swarm-ui-read-v2（pnpm isolation open，owner terra-p0）内实施：契约一致（role 上限有界提升并同步 CONTRACT_DIGEST）'.repeat(6) // 391+ codepoints
+    expect(longRole.length).toBeGreaterThan(256)
+    const snapshotWithLongRole = {
+      ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot,
+      roster: [{ name: 'worker', role: longRole, phase: 'active', createdAt: 1_700_000_000_000 }],
+      totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, roster: 1 },
+    }
+    // The frozen consumer schema must admit authoritative long role text.
+    expect(() => assertSwarmReadRpcValue('snapshot', snapshotWithLongRole)).not.toThrow()
+    // The same long role must be delivered to the consumer un-truncated.
+    const admitted = snapshotWithLongRole.roster[0]!.role
+    expect(admitted).toBe(longRole)
+    // The bound is still bounded: an explicit 2049-codepoint role must fail loud.
+    const tooLong = 'r'.repeat(2049)
+    expect(() => assertSwarmReadRpcValue('snapshot', {
+      ...snapshotWithLongRole,
+      roster: [{ name: 'worker', role: tooLong, phase: 'active', createdAt: 1_700_000_000_000 }],
+    })).toThrow()
+  })
+
   it('aborts admitted work on unmount and forbids later requests', async () => {
     let observedSignal: AbortSignal | undefined
     const fetcher = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {

@@ -8,9 +8,13 @@ import {
 } from './read-rpc-contract.js'
 
 export const SWARM_READ_RPC_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
-export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '9c908858c60700d2b092d935a57bdca7fcb8764bc180cafd3876ab64d04779d5' as const
+export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = 'caa66390ea754b9c28575314b418d8ea71468fb7e04557c864926371d1340abf' as const
 
 const boundedString = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength, pattern: '\\S' })
+/** Member role is authoritative free-text (never truncated by the reader); the
+ *  frozen consumer schema admits a bounded window that covers realistic role
+ *  descriptions. Raise together with SWARM_READ_RPC_CONTRACT_DIGEST_V1. */
+const ROSTER_ROLE_MAX_LENGTH = 2048
 const nonNegativeInteger = { type: 'integer', minimum: 0 }
 const cursor = { type: 'string', pattern: '^r1:[a-f0-9]{64}$' }
 const target = {
@@ -76,7 +80,7 @@ const producerCapability = {
 const rosterRow = {
   type: 'object', additionalProperties: false, required: ['name', 'role', 'phase', 'createdAt'],
   properties: {
-    name: boundedString(64), role: boundedString(256),
+    name: boundedString(64), role: boundedString(ROSTER_ROLE_MAX_LENGTH),
     phase: { enum: ['provisioning', 'active', 'failed', 'removed'] }, createdAt: nonNegativeInteger,
   },
 }

@@ -64,9 +64,32 @@ describe('R3 native Team Details surface', () => {
     const errorState: TeamDashboardState = { open: true, phase: 'error', targetSessionId: 'missing', error: { code: 'SWARM_RPC_TARGET_NOT_LIVE', message: 'not live' } }
     const errorController = { getSnapshot: (): TeamDashboardState => errorState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: errorController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
-    expect(document.querySelector('[role="alert"]')?.textContent).toContain('SWARM_RPC_TARGET_NOT_LIVE'); expect(document.querySelectorAll('section')).toHaveLength(0)
+    const alert = document.querySelector('[role="alert"]')!
+    expect(alert.textContent).toContain('SWARM_RPC_TARGET_NOT_LIVE')
+    // The real error message must be visible inline, not hidden only in a tooltip.
+    expect(alert.textContent).toContain('not live')
+    // The inline message is visually bounded: a truncating, nowrap container with the full value in title.
+    const messageSpan = alert.querySelector<HTMLElement>('span[title*="not live"]')!
+    expect(messageSpan.style.textOverflow).toBe('ellipsis'); expect(messageSpan.style.whiteSpace).toBe('nowrap')
+    expect(messageSpan.getAttribute('title')).toBe('SWARM_RPC_TARGET_NOT_LIVE: not live')
+    expect(document.querySelectorAll('section')).toHaveLength(0)
     await act(async () => { [...document.querySelectorAll('button')].find(button => button.textContent === 'Retry')?.click() })
     expect(errorController.reconnect).toHaveBeenCalledTimes(1)
+  })
+
+  it('presents a long member role visually bounded while preserving its full authoritative value', async () => {
+    const coordinator = new FakeCoordinator(); coordinator.state = { mode: 'docked', view: 'members', targetSessionId: 'root' }
+    const longRole = '开发 writer（仅负责本 P0）：修复 SWARM_UI_READ_FAILED。在受管 lane p0-swarm-ui-read-v2（pnpm isolation open，owner terra-p0）内实施：契约一致（role 上限有界提升并同步 CONTRACT_DIGEST）'.repeat(6)
+    expect(longRole.length).toBeGreaterThan(256)
+    const projection = { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot, roster: [{ name: 'worker', role: longRole, phase: 'active', createdAt: 1_700_000_000_000 }], totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, roster: 1 } }
+    const readyState: TeamDashboardState = { open: true, phase: 'ready', targetSessionId: 'root', data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never } }
+    const longRoleController = { getSnapshot: (): TeamDashboardState => readyState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: longRoleController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    const secondary = document.querySelector<HTMLElement>('small[title]')!
+    // The full authoritative role is preserved for inspection, never truncated/cut.
+    expect(secondary.getAttribute('title')).toBe(longRole)
+    // The visible rendering is bounded: a nowrap, ellipsizing block so the panel does not grow unboundedly.
+    expect(secondary.style.whiteSpace).toBe('nowrap'); expect(secondary.style.textOverflow).toBe('ellipsis'); expect(secondary.style.overflow).toBe('hidden'); expect(secondary.style.display).toBe('block')
   })
 
   it('rerenders the mounted Details body with official locale copy and mapped enums', async () => {

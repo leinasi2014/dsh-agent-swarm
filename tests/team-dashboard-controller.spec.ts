@@ -235,6 +235,44 @@ describe('TeamDashboardController', () => {
     controller.dispose()
   })
 
+  it('drives a role>256 roster to ready, not the SWARM_UI_READ_FAILED fallback, and never truncates the authoritative role', async () => {
+    const longRole = '开发 writer（仅负责本 P0）：修复 SWARM_UI_READ_FAILED。在受管 lane p0-swarm-ui-read-v2（pnpm isolation open，owner terra-p0）内实施：契约一致（role 上限有界提升并同步 CONTRACT_DIGEST）'.repeat(6)
+    expect(longRole.length).toBeGreaterThan(256)
+    const longRoleSnapshot = {
+      ...snapshot,
+      roster: [{ name: 'worker', role: longRole, phase: 'active', createdAt: 1_700_000_000_000 }],
+    }
+    const seen: SwarmReadRpcRequest[] = []
+    const normal = goodFetch(seen)
+    const fetcher: SwarmFetch = async (input, init) => {
+      const request = requestOf(init)
+      if (request.method === 'snapshot') return success(longRoleSnapshot)
+      if (request.method !== 'page') return normal(input, init)
+      const rows = request.page.kind === 'tasks' ? tasks : request.page.kind === 'attempts' ? attempts : interactions
+      const offset = request.page.offset ?? 0
+      const limit = request.page.limit ?? 50
+      const entries = rows.slice(offset, offset + limit)
+      const nextOffset = offset + entries.length < rows.length ? offset + entries.length : undefined
+      return success({
+        kind: request.page.kind, entries, offset, limit,
+        visibleTotal: rows.length, authoritativeTotal: rows.length,
+        ...(nextOffset === undefined ? {} : { nextOffset }),
+        projectionTruncated: false, cursor: CURSOR, changed: false, resyncRequired: false,
+        observedAt: 1_700_000_006_000,
+      })
+    }
+    const controller = new TeamDashboardController(new SwarmReadClient(fetcher), new ManualSchedule())
+    controller.open('root-1')
+    await waitFor(() => controller.getSnapshot().phase === 'ready')
+    const state = controller.getSnapshot()
+    // No fallback to the generic read-failed signal and no swallowed error.
+    expect(state.phase).toBe('ready')
+    expect(state.error).toBeUndefined()
+    // The authoritative role reaches the consumer un-truncated.
+    expect(state.data?.projection.roster[0]?.role).toBe(longRole)
+    controller.dispose()
+  })
+
   it('revalidates the exact binding immediately before official Captain navigation', async () => {
     const seen: SwarmReadRpcRequest[] = []
     const controller = new TeamDashboardController(new SwarmReadClient(goodFetch(seen)), new ManualSchedule())
