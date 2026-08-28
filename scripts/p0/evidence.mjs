@@ -283,7 +283,8 @@ async function verifyR3BrowserEvidence(root, failures) {
     || rosterFirst.avatarHidden !== true || rosterFirst.providerOrModelVisible !== false
     || rosterFirst.hostFields?.name !== 'a'.repeat(64) || rosterFirst.hostFields?.role !== 'Submit exactly one DEV_SMOKE task.'
     || rosterFirst.hostFields?.lifecycle !== 'active' || rosterFirst.hostFields?.activity !== 'accepted'
-    || rosterFirst.hostFields?.visibleName !== true || rosterFirst.hostFields?.visibleRole !== true || rosterFirst.hostFields?.visibleLifecycle !== true) {
+    || rosterFirst.hostFields?.visibleName !== 'a'.repeat(64) || rosterFirst.hostFields?.visibleRole !== 'Submit exactly one DEV_SMOKE task.'
+    || rosterFirst.hostFields?.visibleLifecycle !== 'Lifecycle: Active' || rosterFirst.hostFields?.visibleActivity !== 'Recent attempt: Accepted') {
     failures.push('R3 roster-first evidence must prove ordered legacy Captain and visible Host-only member fields')
   }
   if (active?.fixture?.exactRoot !== true || active?.fixture?.workspaceAttached !== true
@@ -301,6 +302,12 @@ async function verifyR3BrowserEvidence(root, failures) {
   if (!Array.isArray(active?.consoleErrors) || active.consoleErrors.length !== 0
     || !Array.isArray(active?.pageErrors) || active.pageErrors.length !== 0) {
     failures.push('R3 active browser contains an unclassified console or page error')
+  }
+  if (!Array.isArray(active?.consoleWarnings) || active.consoleWarnings.length !== 0) {
+    failures.push('R3 active browser stable period contains a console warning')
+  }
+  if (!Array.isArray(active?.controlledRestart?.transientConsoleWarnings)) {
+    failures.push('R3 active browser does not separately archive controlled-restart warnings')
   }
   const visibleErrors = active?.visibleErrors
   if (!Array.isArray(visibleErrors?.activeDashboard) || visibleErrors.activeDashboard.length !== 0
@@ -346,7 +353,7 @@ async function verifyR3BrowserEvidence(root, failures) {
     || r0?.teamActionAbsent !== true || r0?.renderedData !== false) {
     failures.push('R3 R0 browser evidence does not prove fail-closed no-data rendering')
   }
-  if (!Array.isArray(r0?.consoleErrors) || r0.consoleErrors.length !== 0
+  if (!Array.isArray(r0?.consoleErrors) || r0.consoleErrors.length !== 0 || !Array.isArray(r0?.consoleWarnings) || r0.consoleWarnings.length !== 0
     || !Array.isArray(r0?.pageErrors) || r0.pageErrors.length !== 0) {
     failures.push('R3 R0 browser contains an unclassified console or page error')
   }
@@ -363,7 +370,7 @@ async function verifyR3BrowserEvidence(root, failures) {
   if (removed?.status !== 'pass' || removed?.teamActionAbsent !== true) {
     failures.push('R3 removed browser evidence does not prove client action disposal')
   }
-  if (!Array.isArray(removed?.consoleErrors) || removed.consoleErrors.length !== 0
+  if (!Array.isArray(removed?.consoleErrors) || removed.consoleErrors.length !== 0 || !Array.isArray(removed?.consoleWarnings) || removed.consoleWarnings.length !== 0
     || !Array.isArray(removed?.pageErrors) || removed.pageErrors.length !== 0) {
     failures.push('R3 removed browser contains an unclassified console or page error')
   }

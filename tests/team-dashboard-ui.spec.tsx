@@ -87,7 +87,7 @@ describe('R3 native Team Details surface', () => {
     const readyState: TeamDashboardState = { open: true, phase: 'ready', targetSessionId: 'root', data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never } }
     const longRoleController = { getSnapshot: (): TeamDashboardState => readyState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: longRoleController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
-    const secondary = document.querySelector<HTMLElement>('small[title]')!
+    const secondary = document.querySelector<HTMLElement>('small.swarm-team-workspace__truncate[title]')!
     // The full authoritative role is preserved for inspection, never truncated/cut.
     expect(secondary.getAttribute('title')).toBe(longRole)
     // The visible rendering is bounded by the shared truncation class so the panel does not grow unboundedly.
@@ -242,6 +242,8 @@ describe('R3 native Team Details surface', () => {
       expect(captain.textContent).toBe('Return to main ChatCurrent mode: Main Chat is captain')
       expect(captain.textContent).not.toContain('session-fixture')
       expect(member.querySelector('[aria-hidden="true"]')?.textContent).toBe('w')
+      expect(member.querySelector('[data-swarm-member-visible-lifecycle]')?.textContent).toBe('Lifecycle: Active')
+      expect(member.querySelector('[data-swarm-member-visible-activity]')?.textContent).toBe('Running')
       expect(document.body.textContent).not.toContain('Provider')
       await act(async () => { member.click() })
       expect(document.body.textContent).toContain('Back to members')
@@ -321,6 +323,12 @@ describe('R3 native Team Details surface', () => {
     const state: TeamDashboardState = { ...ready, data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection } }
     const historyController = { getSnapshot: (): TeamDashboardState => state, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: historyController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    expect(document.body.textContent).toContain('Recent attempt: Accepted')
+    const member = document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!
+    expect(member.querySelector('[data-swarm-member-visible-lifecycle]')?.textContent).toBe('Lifecycle: Active')
+    expect(member.querySelector('[data-swarm-member-visible-activity]')?.textContent).toBe('Recent attempt: Accepted')
+    await act(async () => { member.click() })
+    expect(document.body.textContent).toContain('LifecycleActive')
     expect(document.body.textContent).toContain('Recent attempt: Accepted')
     expect(document.body.textContent).not.toContain('Current task: task-history')
   })

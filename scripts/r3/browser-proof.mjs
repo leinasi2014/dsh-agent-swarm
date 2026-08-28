@@ -41,10 +41,12 @@ async function selectRootSession(page) {
 
 function recordBrowser(page) {
   const consoleErrors = []
+  const consoleWarnings = []
   const pageErrors = []
   const swarmRequests = []
   page.on('console', (message) => {
     if (message.type() === 'error') consoleErrors.push(message.text())
+    if (message.type() === 'warning') consoleWarnings.push(message.text())
   })
   page.on('pageerror', error => pageErrors.push(error.message))
   page.on('request', (request) => {
@@ -53,7 +55,7 @@ function recordBrowser(page) {
     try { body = request.postDataJSON() } catch { body = request.postData() }
     swarmRequests.push({ method: request.method(), body })
   })
-  return { consoleErrors, pageErrors, swarmRequests }
+  return { consoleErrors, consoleWarnings, pageErrors, swarmRequests }
 }
 
 function assertReadOnlyRequests(records) {
@@ -69,6 +71,7 @@ function assertReadOnlyRequests(records) {
 function assertCleanBrowser(records, label) {
   if (records.pageErrors.length > 0) throw new Error(`${label} page errors: ${records.pageErrors.join(' | ')}`)
   if (records.consoleErrors.length > 0) throw new Error(`${label} console errors: ${records.consoleErrors.join(' | ')}`)
+  if (records.consoleWarnings.length > 0) throw new Error(`${label} stable console warnings: ${records.consoleWarnings.join(' | ')}`)
 }
 
 async function assertNoVisibleChatErrors(page, phase) {
@@ -117,7 +120,7 @@ async function writeFailureEvidence(evidenceDir, label, page, records, error, ge
   await page.screenshot({ path: join(evidenceDir, `${label}-failure.png`), fullPage: false }).catch(() => {})
   await writeFile(join(evidenceDir, `${label}-failure.json`), `${JSON.stringify({
     status: 'fail', error: error instanceof Error ? error.message : String(error),
-    url: page.url(), consoleErrors: records.consoleErrors, pageErrors: records.pageErrors,
+    url: page.url(), consoleErrors: records.consoleErrors, consoleWarnings: records.consoleWarnings, pageErrors: records.pageErrors,
     requests: records.swarmRequests, geometry,
   }, null, 2)}\n`, 'utf8').catch(() => {})
 }
@@ -252,15 +255,16 @@ async function assertRosterFirst(panel, geometry) {
       || !(captain instanceof HTMLButtonElement) || !(rows instanceof HTMLElement) || !(firstMember instanceof HTMLButtonElement)) return { missing: true }
     const titleBeforeCaptain = Boolean(title.compareDocumentPosition(captain) & Node.DOCUMENT_POSITION_FOLLOWING)
     const captainBeforeMember = Boolean(captain.compareDocumentPosition(firstMember) & Node.DOCUMENT_POSITION_FOLLOWING)
-    const memberText = firstMember.textContent ?? ''
+    const name = firstMember.getAttribute('data-swarm-member-name')
+    const role = firstMember.getAttribute('data-swarm-member-role')
+    const lifecycle = firstMember.getAttribute('data-swarm-member-lifecycle')
+    const activity = firstMember.getAttribute('data-swarm-member-activity')
     const hostFields = {
-      name: firstMember.getAttribute('data-swarm-member-name'),
-      role: firstMember.getAttribute('data-swarm-member-role'),
-      lifecycle: firstMember.getAttribute('data-swarm-member-lifecycle'),
-      activity: firstMember.getAttribute('data-swarm-member-activity'),
-      visibleName: memberText.includes(firstMember.getAttribute('data-swarm-member-name') ?? ''),
-      visibleRole: memberText.includes(firstMember.getAttribute('data-swarm-member-role') ?? ''),
-      visibleLifecycle: memberText.includes('Active'),
+      name, role, lifecycle, activity,
+      visibleName: firstMember.querySelector('strong')?.textContent,
+      visibleRole: firstMember.querySelector('small.swarm-team-workspace__truncate')?.textContent,
+      visibleLifecycle: firstMember.querySelector('[data-swarm-member-visible-lifecycle]')?.textContent,
+      visibleActivity: firstMember.querySelector('[data-swarm-member-visible-activity]')?.textContent,
     }
     return {
       missing: false, title: title.textContent, captainMainChat: captain.querySelector('strong')?.textContent,
@@ -275,7 +279,8 @@ async function assertRosterFirst(panel, geometry) {
     || result.captainLegacy !== 'Current mode: Main Chat is captain' || !result.titleBeforeCaptain || !result.captainBeforeMember
     || result.memberCount !== 1 || result.hostFields?.name !== MAX_HOST_DISPLAY_NAME || result.hostFields.role !== R3_FIXTURE_MEMBER_ROLE
     || result.hostFields.lifecycle !== 'active' || result.hostFields.activity !== 'accepted'
-    || !result.hostFields.visibleName || !result.hostFields.visibleRole || !result.hostFields.visibleLifecycle
+    || result.hostFields.visibleName !== MAX_HOST_DISPLAY_NAME || result.hostFields.visibleRole !== R3_FIXTURE_MEMBER_ROLE
+    || result.hostFields.visibleLifecycle !== 'Lifecycle: Active' || result.hostFields.visibleActivity !== 'Recent attempt: Accepted'
     || !result.avatarHidden || result.providerOrModelVisible) {
     throw new Error(`Team roster-first projection failed: ${JSON.stringify(result)}`)
   }
@@ -486,7 +491,10 @@ export async function runR3ActiveBrowserProof({
     }
     const initialCaptainChat = await assertNoVisibleChatErrors(page, 'initial Captain Chat')
 
+    assertCleanBrowser(records, 'pre-reload stable browser')
+    const controlledRestartWarningsStart = records.consoleWarnings.length
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 })
+    const controlledRestartWarnings = records.consoleWarnings.splice(controlledRestartWarningsStart)
     const reloaded = await openReadyDashboard(page)
     const reloadDashboard = await assertNoVisibleChatErrors(page, 'reloaded Team dashboard')
     const reloadGeometry = await waitForWideDetails(page, reloaded.beforeComposerBox, 'reload', geometry)
@@ -522,6 +530,8 @@ export async function runR3ActiveBrowserProof({
       reload: true,
       requests: records.swarmRequests,
       consoleErrors: records.consoleErrors,
+      consoleWarnings: records.consoleWarnings,
+      controlledRestart: { transientConsoleWarnings: controlledRestartWarnings },
       pageErrors: records.pageErrors,
       visibleErrors: { activeDashboard, initialCaptainChat, reloadDashboard, reloadCaptainChat },
     }
@@ -565,7 +575,7 @@ export async function runR3R0BrowserProof({
       status: 'pass', browser: identity, bootstrap: bootstrapEvidence(rootSessionId, selectionSource), ...onboarding,
       routeUnavailable: true, ...routeEvidence,
       teamActionAbsent, renderedData: false,
-      requests: records.swarmRequests, consoleErrors: records.consoleErrors, pageErrors: records.pageErrors, visibleErrors,
+      requests: records.swarmRequests, consoleErrors: records.consoleErrors, consoleWarnings: records.consoleWarnings, pageErrors: records.pageErrors, visibleErrors,
     }
     await writeFile(join(evidenceDir, 'r3-browser-r0.json'), `${JSON.stringify(result, null, 2)}\n`, 'utf8')
     return result
@@ -595,7 +605,7 @@ export async function runR3RemovedBrowserProof({ port, evidenceDir, rootSessionI
     const result = {
       status: 'pass', browser: identity, bootstrap: bootstrapEvidence(rootSessionId, selectionSource), ...onboarding,
       teamActionAbsent: true,
-      consoleErrors: records.consoleErrors, pageErrors: records.pageErrors, visibleErrors,
+      consoleErrors: records.consoleErrors, consoleWarnings: records.consoleWarnings, pageErrors: records.pageErrors, visibleErrors,
     }
     await writeFile(join(evidenceDir, 'r3-browser-removed.json'), `${JSON.stringify(result, null, 2)}\n`, 'utf8')
     return result

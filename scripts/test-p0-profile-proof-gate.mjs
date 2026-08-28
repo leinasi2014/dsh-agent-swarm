@@ -200,13 +200,13 @@ try {
             rosterFirst: {
               missing: false, title: 'R2 isolated Profile team', captainMainChat: 'Return to main Chat', captainLegacy: 'Current mode: Main Chat is captain',
               titleBeforeCaptain: true, captainBeforeMember: true, memberCount: 1, avatarHidden: true, providerOrModelVisible: false,
-              hostFields: { name: 'a'.repeat(64), role: 'Submit exactly one DEV_SMOKE task.', lifecycle: 'active', activity: 'accepted', visibleName: true, visibleRole: true, visibleLifecycle: true },
+              hostFields: { name: 'a'.repeat(64), role: 'Submit exactly one DEV_SMOKE task.', lifecycle: 'active', activity: 'accepted', visibleName: 'a'.repeat(64), visibleRole: 'Submit exactly one DEV_SMOKE task.', visibleLifecycle: 'Lifecycle: Active', visibleActivity: 'Recent attempt: Accepted' },
             },
             longTaskRows: { futureSeamFixture: [359, 360, 520, 720].map(requestedWidth => ({ requestedWidth, fixture: { kind: 'read-only-mounted-workspace-clone', outsideOfficialLayout: true, productionMutated: false, removedAfterProbe: true } })), fixtureCleanup: { remainingFixtures: 0 } },
           },
           requests: [{ method: 'POST', body: { method: 'snapshot' } }],
           faultInjection: { recovered: true, expectedConsoleErrors: ['Failed to load resource: net::ERR_CONNECTION_FAILED'] },
-          consoleErrors: [], pageErrors: [], visibleErrors: { activeDashboard: [], initialCaptainChat: [], reloadDashboard: [], reloadCaptainChat: [] },
+          consoleErrors: [], consoleWarnings: [], controlledRestart: { transientConsoleWarnings: [] }, pageErrors: [], visibleErrors: { activeDashboard: [], initialCaptainChat: [], reloadDashboard: [], reloadCaptainChat: [] },
         })}\n`
       : relativePath === 'evidence/r3-browser-r0.json'
         ? `${JSON.stringify({
@@ -216,11 +216,11 @@ try {
             teamActionAbsent: true, renderedData: false,
             officialTestingNoticePresent: true, officialTestingNoticeDismissed: true,
             officialApiKeyOnboardingPresent: true, officialApiKeyOnboardingSkipped: true,
-            consoleErrors: [], pageErrors: [], visibleErrors: [],
+            consoleErrors: [], consoleWarnings: [], pageErrors: [], visibleErrors: [],
           })}\n`
         : relativePath === 'evidence/r3-browser-removed.json'
           ? `${JSON.stringify({
-              status: 'pass', browser, bootstrap, teamActionAbsent: true, consoleErrors: [], pageErrors: [], visibleErrors: [],
+              status: 'pass', browser, bootstrap, teamActionAbsent: true, consoleErrors: [], consoleWarnings: [], pageErrors: [], visibleErrors: [],
               officialTestingNoticePresent: true, officialTestingNoticeDismissed: true,
               officialApiKeyOnboardingPresent: true, officialApiKeyOnboardingSkipped: true,
             })}\n`
@@ -324,6 +324,8 @@ try {
   const futureFixtureFailure = 'R3 future-width evidence must be a cleaned read-only clone fixture at 359/360/520/720, not the production Details ASIDE'
   const fixtureCleanupFailure = 'R3 future-width clone fixture cleanup left a browser sandbox node behind'
   const rosterFirstFailure = 'R3 roster-first evidence must prove ordered legacy Captain and visible Host-only member fields'
+  const stableWarningFailure = 'R3 active browser stable period contains a console warning'
+  const controlledRestartFailure = 'R3 active browser does not separately archive controlled-restart warnings'
   for (const [label, mutate, expectedFailure] of [
     ['R3 production overflow surface missing', value => { delete value.surfaces.productionDetailsOverflowFree }, activeSurfaceFailure],
     ['R3 production overflow surface false', value => { value.surfaces.productionDetailsOverflowFree = false }, activeSurfaceFailure],
@@ -332,7 +334,10 @@ try {
     ['R3 roster-first geometry missing', value => { delete value.geometry.rosterFirst }, rosterFirstFailure],
     ['R3 roster-first forged legacy Captain', value => { value.geometry.rosterFirst.captainLegacy = 'Dedicated Captain' }, rosterFirstFailure],
     ['R3 roster-first order invalid', value => { value.geometry.rosterFirst.captainBeforeMember = false }, rosterFirstFailure],
-    ['R3 roster-first Host field hidden', value => { value.geometry.rosterFirst.hostFields.visibleRole = false }, rosterFirstFailure],
+    ['R3 roster-first lifecycle hidden despite activity', value => { value.geometry.rosterFirst.hostFields.visibleLifecycle = undefined }, rosterFirstFailure],
+    ['R3 roster-first activity hidden', value => { value.geometry.rosterFirst.hostFields.visibleActivity = undefined }, rosterFirstFailure],
+    ['R3 stable warning', value => { value.consoleWarnings.push('fixture warning') }, stableWarningFailure],
+    ['R3 controlled-restart warning archive missing', value => { delete value.controlledRestart.transientConsoleWarnings }, controlledRestartFailure],
     ['R3 future fixture marker invalid', value => { value.geometry.longTaskRows.futureSeamFixture[0].fixture.kind = 'production-details-aside' }, futureFixtureFailure],
     ['R3 future fixture width sequence invalid', value => { value.geometry.longTaskRows.futureSeamFixture[1].requestedWidth = 521 }, futureFixtureFailure],
     ['R3 future fixture mutated production', value => { value.geometry.longTaskRows.futureSeamFixture[0].fixture.productionMutated = true }, futureFixtureFailure],
