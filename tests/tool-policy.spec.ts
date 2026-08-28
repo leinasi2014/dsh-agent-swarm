@@ -10,9 +10,11 @@
  * 1. effective path — the declared narrowing lands in the DURABLE child
  *    descriptor (the single authoritative record of the applied filter,
  *    reconstructable from the Session log), composed as a monotone union with
- *    the mandatory captain-only baseline and with no allow surface;
- * 2. M1A zero regression — without a declaration the composed deny is exactly
- *    the M1A static baseline;
+ *    the mandatory captain-only baseline plus delegated-member wait hiding,
+ *    with no allow surface;
+ * 2. M1A capability/tool-surface baseline preservation — without a declaration
+ *    the captain-only restrictions remain intact and the delegated member also
+ *    hides `agent_swarm_wait`;
  * 3. fail-loud — an unknown tool name is rejected by the OFFICIAL seam's
  *    loud unknown-name validation inside the child creation window, the
  *    provisioning record settles failed, and no member is activated;
@@ -179,19 +181,21 @@ describe('member tool-policy surface (real composition)', () => {
     expect('allow' in (filter ?? {})).toBe(false)
   }, 20_000)
 
-  it('keeps the M1A static semantics byte-identical without a declaration (F15 preflight untouched)', async () => {
+  it('preserves the M1A captain-only baseline and adds delegated wait hiding without a declaration (F15 preflight untouched)', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-tool-policy-baseline-'))
     roots.push(sandbox)
     const stack = await mountCaptain(sandbox, fibers, 'tool-policy-baseline-lead', 'Baseline team')
 
     const added = await addMember(stack, 'add-baseline', {
       name: 'baseline-worker',
-      role: 'Provision under the static M1A filter.',
+      role: 'Provision under the preserved captain-only baseline with delegated wait hidden.',
     })
     expect(added.isError).toBe(false)
     const member = added.value as { session_id: string }
 
     const filter = await durableToolFilter(stack, member.session_id)
+    // M1A captain-only restrictions remain first; WAIT-SPIN adds exactly the
+    // delegated-member wait hide rather than claiming byte-identical M1A deny.
     expect(filter).toEqual({ deny: [...MEMBER_HIDDEN_TOOLS] })
   }, 20_000)
 
