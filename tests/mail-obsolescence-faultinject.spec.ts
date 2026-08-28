@@ -169,7 +169,7 @@ describe('mail-obsolescence fault-injection C2 + C7 over the official Storage Do
     // The scan set equals exactly the live queued set — no duplicate, no
     // obsolete/delivered leak, no terminal row still owed a delivery.
     const queuedIds = after.team.messages.filter(m => m.phase === 'queued').map(m => m.id)
-    expect([...pending].sort()).toEqual([...queuedIds].sort())
+    expect([...pending].toSorted()).toEqual([...queuedIds].toSorted())
   })
 
   it('first-false-on-baseline: a late queued causal message would have stayed wake-eligible absent the obsolete phase', async () => {
