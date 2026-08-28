@@ -211,7 +211,15 @@ async function assertWorkspaceFitsDetails(panel, label, geometry) {
     if (!(workspace instanceof HTMLElement) || !(body instanceof HTMLElement) || !(columns instanceof HTMLElement)) {
       return { missing: true }
     }
-    const widths = [root, workspace, body, columns].map(element => ({
+    const containers = [
+      root, workspace, body, columns,
+      ...root.querySelectorAll('.swarm-team-workspace__column'),
+      ...root.querySelectorAll('.swarm-team-workspace__rows'),
+      ...root.querySelectorAll('.swarm-team-workspace__rows > li'),
+      ...root.querySelectorAll('.swarm-team-workspace__row'),
+      ...root.querySelectorAll('.swarm-team-workspace__row-main'),
+    ]
+    const widths = containers.map(element => ({
       name: element.className || element.getAttribute('data-swarm-team-panel') || 'panel',
       clientWidth: element.clientWidth, scrollWidth: element.scrollWidth,
     }))
@@ -238,7 +246,8 @@ async function assertLongTaskRowsFitAtWidths(page, panel, geometry) {
   const assignees = panel.locator('.swarm-team-workspace__task-assignee')
   await assignees.first().waitFor({ state: 'visible', timeout: 10_000 })
   const titles = await assignees.evaluateAll(nodes => nodes.map(node => node.getAttribute('title')))
-  if (titles.length !== 2 || titles.some(title => title === null || !title.endsWith(MAX_HOST_DISPLAY_NAME))) {
+  const expectedAssigneeLabels = [`Owner: ${MAX_HOST_DISPLAY_NAME}`, `Target member: ${MAX_HOST_DISPLAY_NAME}`]
+  if (JSON.stringify(titles) !== JSON.stringify(expectedAssigneeLabels)) {
     throw new Error(`browser fixture did not expose the expected 64-character owner and target: ${JSON.stringify(titles)}`)
   }
   const results = []
@@ -251,18 +260,43 @@ async function assertLongTaskRowsFitAtWidths(page, panel, geometry) {
         const rows = root.querySelector('.swarm-team-workspace__rows')
         if (!(workspace instanceof HTMLElement) || !(body instanceof HTMLElement) || !(columns instanceof HTMLElement) || !(rows instanceof HTMLElement)) return { missing: true }
         workspace.style.setProperty('inline-size', `${String(requestedWidth)}px`, 'important')
-        const elements = [workspace, body, columns, rows, ...rows.querySelectorAll('.swarm-team-workspace__row'), ...rows.querySelectorAll('.swarm-team-workspace__task-assignee')]
+        const containers = [
+          root, workspace, body, columns,
+          ...root.querySelectorAll('.swarm-team-workspace__column'),
+          ...rows.querySelectorAll('.swarm-team-workspace__rows'),
+          ...rows.querySelectorAll('.swarm-team-workspace__rows > li'),
+          ...rows.querySelectorAll('.swarm-team-workspace__row'),
+          ...rows.querySelectorAll('.swarm-team-workspace__row-main'),
+        ]
+        const leaves = [...rows.querySelectorAll('.swarm-team-workspace__task-assignee')].map(element => {
+          const parent = element.parentElement
+          const style = getComputedStyle(element)
+          return {
+            title: element.getAttribute('title'), text: element.textContent,
+            clientWidth: element.clientWidth, scrollWidth: element.scrollWidth,
+            width: element.getBoundingClientRect().width,
+            parentClientWidth: parent?.clientWidth, parentWidth: parent?.getBoundingClientRect().width,
+            overflow: style.overflow, textOverflow: style.textOverflow, whiteSpace: style.whiteSpace,
+          }
+        })
         return {
           missing: false,
           requestedWidth,
-          widths: elements.map(element => ({ name: element.className || element.tagName, clientWidth: element.clientWidth, scrollWidth: element.scrollWidth })),
+          containers: containers.map(element => ({ name: element.className || element.tagName, clientWidth: element.clientWidth, scrollWidth: element.scrollWidth })),
+          leaves,
         }
       }, width)
       geometry[`taskRows${String(width)}`] = result
       results.push(result)
       if (result.missing) throw new Error(`task-row ${String(width)}px geometry probe did not mount its required subtree`)
-      const overflow = result.widths.find(item => item.scrollWidth > item.clientWidth + 1)
+      const overflow = result.containers.find(item => item.scrollWidth > item.clientWidth + 1)
       if (overflow !== undefined) throw new Error(`task-row ${String(width)}px geometry probe horizontally overflowed: ${JSON.stringify(result)}`)
+      const invalidLeaf = result.leaves.find((leaf, index) => leaf.title !== expectedAssigneeLabels[index]
+        || leaf.text !== expectedAssigneeLabels[index]
+        || leaf.width > (leaf.parentWidth ?? 0) + 1
+        || leaf.clientWidth > (leaf.parentClientWidth ?? 0) + 1
+        || leaf.overflow !== 'hidden' || leaf.textOverflow !== 'ellipsis' || leaf.whiteSpace !== 'nowrap')
+      if (invalidLeaf !== undefined) throw new Error(`task-row ${String(width)}px assignee truncation contract failed: ${JSON.stringify(result)}`)
     }
   } finally {
     await panel.evaluate(root => root.querySelector('.swarm-team-workspace')?.style.removeProperty('inline-size'))
