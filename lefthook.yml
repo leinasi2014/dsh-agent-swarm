@@ -3,6 +3,8 @@
 # Install explicitly in a development checkout with `pnpm hooks:install`.
 pre-commit:
   jobs:
+    - name: agile delivery guard
+      run: pnpm test:agile-hook
     - name: lint (staged)
       glob: '*.{ts,tsx,mts,cts,mjs,cjs,js}'
       run: node_modules/.bin/oxlint --no-error-on-unmatched-pattern {staged_files}

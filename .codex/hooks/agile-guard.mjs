@@ -9,6 +9,11 @@ const BROWSER_EXECUTABLES = new Set(['msedge', 'msedge.exe', 'chrome', 'chrome.e
 const PREVIEW_EXECUTABLES = new Set(['vite', 'vite.cmd', 'vite.exe', 'next', 'next.cmd', 'next.exe', 'http-server', 'http-server.cmd', 'serve', 'serve.cmd'])
 const DELIVERY_CHECKPOINT = 'Mandatory delivery checkpoint: state (1) latest integrated user-visible or executable behavior, (2) accepted but unintegrated candidate, (3) how the next action changes behavior, a named decision, or a concrete blocker, and (4) the next observable acceptance event. Integrate accepted work before polishing more evidence.'
 const FOUR_QUESTIONS = 'Before this edit, answer the mandatory delivery checkpoint: what behavior is integrated; what accepted work is unintegrated; does this edit change executable behavior, a named decision, or a concrete blocker; and what is the next observable acceptance event? This is a required reflection, not a machine classification of “over-design”.'
+const SUPPORT_ARTIFACT_PATHS = [
+  /^docs\/(?:adr|development|reviews)\//iu,
+  /^scripts\/.*(?:evidence|receipt|oracle|verif(?:y|ier))/iu,
+  /(?:^|\/)(?:architecture|design|diagram|evidence|receipts?|oracles?)(?:\/|[._-])/iu,
+]
 
 function isRecord(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -58,6 +63,35 @@ function warning(message) {
 function commandFrom(input) {
   if (!isRecord(input.tool_input)) return ''
   return typeof input.tool_input.command === 'string' ? input.tool_input.command : ''
+}
+
+function mutationPayload(input) {
+  if (!isRecord(input.tool_input)) return ''
+  for (const key of ['patch', 'input', 'content', 'command']) {
+    if (typeof input.tool_input[key] === 'string') return input.tool_input[key]
+  }
+  return ''
+}
+
+function normalizedRepositoryPath(path) {
+  return path.trim().replaceAll('\\', '/').replace(/^\.\//u, '')
+}
+
+export function addedSupportArtifactPaths(input) {
+  const payload = mutationPayload(input)
+  const paths = []
+  for (const match of payload.matchAll(/^\*\*\* Add File:\s+(.+)$/gmu)) {
+    const path = normalizedRepositoryPath(match[1])
+    if (SUPPORT_ARTIFACT_PATHS.some(pattern => pattern.test(path))) paths.push(path)
+  }
+  if (isRecord(input.tool_input)) {
+    const rawPath = input.tool_input.file_path ?? input.tool_input.path
+    if (typeof rawPath === 'string') {
+      const path = normalizedRepositoryPath(rawPath)
+      if (SUPPORT_ARTIFACT_PATHS.some(pattern => pattern.test(path))) paths.push(path)
+    }
+  }
+  return [...new Set(paths)]
 }
 
 /**
@@ -130,6 +164,13 @@ export function readIsolationAuthority(repository) {
   return {
     allocations,
     active: allocations.filter(allocation => ACTIVE_ALLOCATION_STATES.has(allocation.state)),
+  }
+}
+
+export function readDeliveryFlowPolicy(repository) {
+  const binding = readFileSync(resolve(repository.root, 'docs', 'governance', 'project-binding.yaml'), 'utf8')
+  return {
+    circuitBreakerActive: /^\s{2}executableOutcomeCircuitBreaker:\s+active\s*$/mu.test(binding),
   }
 }
 
@@ -212,6 +253,20 @@ function preToolResult(input, dependencies) {
     return repository
   }
 
+  if (new Set(['apply_patch', 'Edit', 'Write']).has(toolName)) {
+    const added = addedSupportArtifactPaths(input)
+    if (added.length > 0) {
+      try {
+        const policy = dependencies.readDeliveryFlowPolicy(repositoryForInspection())
+        if (policy.circuitBreakerActive) {
+          return blocked(`Executable-outcome circuit breaker is active. Do not create new support artifact(s): ${added.join(', ')}. Change, run, test, or integrate the user-visible product path; edit an existing minimum authority only when required.`)
+        }
+      } catch (error) {
+        return blocked(`Could not prove the executable-outcome circuit breaker is inactive (${error.message}). New support artifacts fail closed.`)
+      }
+    }
+  }
+
   if (isShellCommandTool(toolName, input) && hasIsolationOpen(command)) {
     try {
       const authority = dependencies.readIsolationAuthority(repositoryForInspection())
@@ -278,6 +333,7 @@ export function evaluateHook(input, dependencies = {}) {
   const runtime = {
     discoverRepository,
     readIsolationAuthority,
+    readDeliveryFlowPolicy,
     inspectTaskResources,
     ...dependencies,
   }

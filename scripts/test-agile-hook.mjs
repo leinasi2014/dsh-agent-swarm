@@ -25,6 +25,7 @@ function runtime(overrides = {}) {
   return {
     discoverRepository: cwd => ({ root: cwd, commonDir: `${cwd}\\.git` }),
     readIsolationAuthority: () => ({ allocations: [], active: [] }),
+    readDeliveryFlowPolicy: () => ({ circuitBreakerActive: true }),
     inspectTaskResources: () => ({ browsers: [], previews: [], listenersAvailable: true }),
     ...overrides,
   }
@@ -112,6 +113,42 @@ expect(denied(renamedShellFallback), 'an unrecognised shell tool name must still
 const editContext = evaluateHook(fixture({ tool_name: 'apply_patch', tool_input: { command: '*** Begin Patch' } }), runtime())
 expect(additionalContext(editContext).includes('not a machine classification'), 'edits must receive reflection context without a subjective denial')
 expect(!denied(editContext), 'reflection context must not deny an edit')
+
+const newReceipt = evaluateHook(fixture({
+  tool_name: 'apply_patch',
+  tool_input: { patch: '*** Begin Patch\n*** Add File: scripts/runtime-evidence-receipt.mjs\n+export {}\n*** End Patch' },
+}), runtime())
+expect(denied(newReceipt), 'active circuit breaker must deny a new evidence/receipt support artifact')
+
+const newDesign = evaluateHook(fixture({
+  tool_name: 'apply_patch',
+  tool_input: { patch: '*** Begin Patch\n*** Add File: docs/development/next-ui-design.md\n+# More design\n*** End Patch' },
+}), runtime())
+expect(denied(newDesign), 'active circuit breaker must deny a new development/design document')
+
+const productFile = evaluateHook(fixture({
+  tool_name: 'apply_patch',
+  tool_input: { patch: '*** Begin Patch\n*** Add File: src/client/VisibleTeamPanel.tsx\n+export {}\n*** End Patch' },
+}), runtime())
+expect(!denied(productFile), 'circuit breaker must allow product implementation')
+
+const existingAuthority = evaluateHook(fixture({
+  tool_name: 'apply_patch',
+  tool_input: { patch: '*** Begin Patch\n*** Update File: docs/governance/project-binding.yaml\n@@\n-old\n+new\n*** End Patch' },
+}), runtime())
+expect(!denied(existingAuthority), 'circuit breaker must allow editing an existing minimum authority')
+
+const samePatchBypass = evaluateHook(fixture({
+  tool_name: 'apply_patch',
+  tool_input: { patch: '*** Begin Patch\n*** Add File: docs/adr/9999-new.md\n+decision\n*** Update File: docs/governance/project-binding.yaml\n+  executableOutcomeCircuitBreaker: inactive\n*** End Patch' },
+}), runtime())
+expect(denied(samePatchBypass), 'a same-patch policy edit must not bypass the active circuit breaker')
+
+const policyUnavailable = evaluateHook(fixture({
+  tool_name: 'Write',
+  tool_input: { file_path: 'scripts/new-evidence-oracle.mjs', content: 'export {}' },
+}), runtime({ readDeliveryFlowPolicy: () => { throw new Error('binding unavailable') } }))
+expect(denied(policyUnavailable), 'new support artifacts must fail closed when policy cannot be read')
 
 const stop = evaluateHook({ hook_event_name: 'Stop', cwd: 'D:\\repo' }, runtime({
   readIsolationAuthority: () => ({ active: [{ id: 'lane', generation: 1, branch: 'codex/lane', path: 'D:\\repo', state: 'ACTIVE' }] }),

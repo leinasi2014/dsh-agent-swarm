@@ -121,6 +121,8 @@ Developer Preview 期间 API 会变化。不要凭记忆写包名、服务 key �
 
 新增/改变 Service、Provider、共享契约、权威状态、权限、生命周期或失败语义时，编码前写一页设计。普通局部切片只需流水线短卡：outcome、owner、代表性验收、immutable base、影响面、适用条件门。
 
+如果用户要的是可运行 UI、工具或工作流，而代表性 walking skeleton 还没有在目标官方 Profile 中跑起来，禁止新建第二份设计、ADR、架构图、receipt/evidence wrapper、oracle 或 verifier。此时只能修改最小现有设计/测试或直接推进 Host/Client、打包安装与真实交互。相同支持机制在可见结果前出现第三个 correction generation，必须停止该路线并回到最短产品路径。
+
 一页设计写清：
 
 ```text
