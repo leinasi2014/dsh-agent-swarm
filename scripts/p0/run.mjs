@@ -551,9 +551,10 @@ async function main() {
     }
     gate('artifact-packed', 'pass', `sha256=${artifactSha256} bytes=${artifactStat.size}`)
 
-    const addArgs = [args.cli, 'plugin', '--profile', 'web', 'add', '-w', '--ignore-scripts', tarball]
+    const addArgs = [args.cli, 'plugin', '--profile', 'web', 'add', '-w', tarball]
     const add = await execute('profile-add', process.execPath, addArgs, { cwd: workspaceRoot, env: { DSH_HOME: dshHome }, timeoutMs: 10 * 60_000 })
     if (add.code !== 0) throw new Error('official plugin add failed')
+    if (/lefthook|ELIFECYCLE/i.test(add.stdout + add.stderr)) throw new Error('official plugin add reported forbidden lifecycle failure output')
     const profilePatch = join(dshHome, 'profiles', 'web', 'cordis.patch.yml')
     // This disposable Profile-local module resolves LlmAdapter from the exact
     // dependency tree used by the official CLI. It is never packed/published.
@@ -567,7 +568,7 @@ async function main() {
     }).join('\n'), 'utf8')
     await writeFile(join(evidenceDir, 'profile-package-installed.json'), await readFile(join(dshHome, 'profiles', 'web', 'package.json')), 'utf8')
     await writeFile(join(evidenceDir, 'profile-cordis-default-disabled.patch.yml'), await readFile(profilePatch), 'utf8')
-    gate('profile-add', 'pass', 'official plugin forwarder installed the immutable tarball into fresh web Profile')
+    gate('profile-add', 'pass', 'official plugin forwarder installed the immutable tarball into fresh web Profile with lifecycle scripts enabled')
 
     const dump = await execute('dump-config', process.execPath, [args.cli, '--profile', 'web', '--dump-config'], {
       cwd: workspaceRoot, env: { DSH_HOME: dshHome },
@@ -817,7 +818,7 @@ async function main() {
     gate('plugin-remove', 'pass', 'package removed; no dsh-agent-swarm inventory row after restart')
 
     const failProfile = 'p0-missing-storage'
-    const failAdd = await execute('missing-storage-add', process.execPath, [args.cli, 'plugin', '--profile', failProfile, 'add', '-w', '--ignore-scripts', tarball], {
+    const failAdd = await execute('missing-storage-add', process.execPath, [args.cli, 'plugin', '--profile', failProfile, 'add', '-w', tarball], {
       cwd: workspaceRoot, env: { DSH_HOME: dshHome }, timeoutMs: 10 * 60_000,
     })
     if (failAdd.code !== 0) throw new Error('failed to assemble missing-storage negative Profile')

@@ -1,6 +1,6 @@
 # Git hooks (lefthook). Local checkpoints stay fast: staged lint only.
 # Candidate and claim-triggered CI workflows own the wider gate matrix.
-# Installed automatically on `pnpm install` via the postinstall script.
+# Install explicitly in a development checkout with `pnpm hooks:install`.
 pre-commit:
   jobs:
     - name: lint (staged)

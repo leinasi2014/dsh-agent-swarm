@@ -50,7 +50,7 @@
   },
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('lib',{recursive:true,force:true})\"",
-    "postinstall": "lefthook install",
+    "hooks:install": "lefthook install",
     "build": "pnpm clean && tsc -p tsconfig.json && tsdown",
     "lint": "oxlint .",
     "verify:duplication": "jscpd src",
@@ -80,7 +80,8 @@
     "verify:gate-a": "pnpm verify:compatibility",
     "verify:structure": "node scripts/verify-project.mjs",
     "verify:artifact": "node scripts/verify-package-artifact.mjs",
-    "verify:engineering": "pnpm verify:structure && pnpm verify:workspace && pnpm verify:p0-fixtures && pnpm lint && pnpm verify:duplication && pnpm verify:exports && pnpm typecheck && pnpm typecheck:test && pnpm test && pnpm verify:scenarios && pnpm build && pnpm verify:artifact",
+    "verify:package-install": "node scripts/verify-package-install.mjs",
+    "verify:engineering": "pnpm verify:structure && pnpm verify:workspace && pnpm verify:p0-fixtures && pnpm lint && pnpm verify:duplication && pnpm verify:exports && pnpm typecheck && pnpm typecheck:test && pnpm test && pnpm verify:scenarios && pnpm build && pnpm verify:artifact && pnpm verify:package-install",
     "verify:candidate": "pnpm verify:engineering",
     "verify": "pnpm verify:candidate"
   },
