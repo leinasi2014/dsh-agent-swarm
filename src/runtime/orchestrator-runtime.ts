@@ -402,12 +402,8 @@ export class AgentSwarmRuntime extends Service {
   }
 
   async sendMessage(
-    exec: ToolExecutionAuthority,
-    target: string,
-    content: string,
-    delivery: 'quiet' | 'wakeup',
-    causal?: TeamMessageCausal,
-    supersedes?: TeamMessage['supersedes'],
+    exec: ToolExecutionAuthority, target: string, content: string,
+    delivery: 'quiet' | 'wakeup', causal?: TeamMessageCausal, supersedes?: TeamMessage['supersedes'],
   ): Promise<TeamMessage> {
     await this.ensureReady()
     this.assertOpen()
