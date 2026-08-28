@@ -1,0 +1,113 @@
+import { spawnSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+
+import { evaluateHook, parseHookInput } from '../.codex/hooks/agile-guard.mjs'
+
+const root = fileURLToPath(new URL('..', import.meta.url))
+const hook = fileURLToPath(new URL('../.codex/hooks/agile-guard.mjs', import.meta.url))
+
+function expect(condition, message) {
+  if (!condition) throw new Error(message)
+}
+
+function fixture(overrides = {}) {
+  return {
+    hook_event_name: 'PreToolUse',
+    cwd: 'D:\\repo',
+    tool_name: 'Bash',
+    tool_input: { command: 'git status --short' },
+    ...overrides,
+  }
+}
+
+function runtime(overrides = {}) {
+  return {
+    discoverRepository: cwd => ({ root: cwd, commonDir: `${cwd}\\.git` }),
+    readIsolationAuthority: () => ({ allocations: [], active: [] }),
+    inspectTaskResources: () => ({ browsers: [], previews: [], listenersAvailable: true }),
+    ...overrides,
+  }
+}
+
+function denied(result) {
+  return result?.hookSpecificOutput?.permissionDecision === 'deny'
+}
+
+function additionalContext(result) {
+  return result?.hookSpecificOutput?.additionalContext ?? ''
+}
+
+const configuration = JSON.parse(readFileSync(new URL('../.codex/hooks.json', import.meta.url), 'utf8'))
+for (const event of ['SessionStart', 'PreToolUse', 'Stop']) {
+  expect(Array.isArray(configuration.hooks?.[event]), `hooks.json must configure ${event}`)
+  const handler = configuration.hooks[event][0]?.hooks?.[0]
+  expect(handler?.type === 'command' && typeof handler.commandWindows === 'string', `${event} needs a Windows command hook`)
+  expect(handler.commandWindows.includes('agile-guard.mjs'), `${event} must invoke agile-guard.mjs`)
+}
+expect(configuration.hooks.PreToolUse[0].matcher === '.*', 'PreToolUse must observe all local tools')
+
+const start = evaluateHook({ hook_event_name: 'SessionStart', cwd: 'D:\\repo' })
+expect(additionalContext(start).includes('Mandatory delivery checkpoint'), 'SessionStart must provide delivery context')
+
+const rawLifecycle = evaluateHook(fixture({ tool_input: { command: 'git -C D:\\repo worktree add D:\\repo\\lane -b codex/lane' } }), runtime())
+expect(denied(rawLifecycle), 'raw git worktree lifecycle must be denied')
+
+const harmlessGit = evaluateHook(fixture({ tool_input: { command: "Write-Output 'git worktree add is forbidden'" } }), runtime())
+expect(!denied(harmlessGit), 'quoted documentation text must not be denied as a lifecycle command')
+
+const listWorktrees = evaluateHook(fixture({ tool_input: { command: 'git worktree list' } }), runtime())
+expect(!denied(listWorktrees), 'git worktree list must remain allowed')
+
+const capacity = evaluateHook(fixture({ tool_input: { command: 'pnpm isolation open --id third --branch codex/third --owner test' } }), runtime({
+  readIsolationAuthority: () => ({ active: [{ state: 'ACTIVE' }, { state: 'ACTIVE' }] }),
+}))
+expect(denied(capacity), 'an isolation open above the two-writer cap must be denied')
+
+const capacityAvailable = evaluateHook(fixture({ tool_input: { command: 'pnpm isolation open --id second --branch codex/second --owner test' } }), runtime({
+  readIsolationAuthority: () => ({ active: [{ state: 'ACTIVE' }] }),
+}))
+expect(!denied(capacityAvailable), 'an isolation open below capacity must remain allowed')
+
+const ledgerWarning = evaluateHook(fixture({ tool_input: { command: 'pnpm isolation open --id check --branch codex/check --owner test' } }), runtime({
+  readIsolationAuthority: () => { throw new Error('ledger unavailable') },
+}))
+expect(!denied(ledgerWarning) && ledgerWarning.systemMessage?.includes('did not block'), 'ledger inspection failure must warn without denying')
+
+const browserReuse = evaluateHook(fixture({ tool_input: { command: 'Start-Process msedge.exe -- --user-data-dir=D:\\repo\\profile' } }), runtime({
+  inspectTaskResources: () => ({ browsers: [{ ProcessId: 42 }], previews: [], listenersAvailable: true }),
+}))
+expect(denied(browserReuse), 'a second task-owned browser launch must be denied')
+
+const previewReuse = evaluateHook(fixture({ tool_input: { command: 'pnpm dev -- --port 4173' } }), runtime({
+  inspectTaskResources: () => ({ browsers: [], previews: [{ ProcessId: 43 }], listenersAvailable: true }),
+}))
+expect(denied(previewReuse), 'a second task-owned preview launch must be denied')
+
+const noResource = evaluateHook(fixture({ tool_input: { command: 'pnpm dev -- --port 4173' } }), runtime())
+expect(!denied(noResource), 'a preview launch with no owned listener must remain allowed')
+
+const editContext = evaluateHook(fixture({ tool_name: 'apply_patch', tool_input: { command: '*** Begin Patch' } }), runtime())
+expect(additionalContext(editContext).includes('not a machine classification'), 'edits must receive reflection context without a subjective denial')
+expect(!denied(editContext), 'reflection context must not deny an edit')
+
+const stop = evaluateHook({ hook_event_name: 'Stop', cwd: 'D:\\repo' }, runtime({
+  readIsolationAuthority: () => ({ active: [{ id: 'lane', generation: 1, branch: 'codex/lane', path: 'D:\\repo', state: 'ACTIVE' }] }),
+  inspectTaskResources: () => ({ browsers: [{ ProcessId: 50 }], previews: [{ ProcessId: 51 }], listenersAvailable: true }),
+}))
+expect(stop.systemMessage?.includes('active unintegrated lane lane#1'), 'Stop must report the current active lane')
+expect(stop.systemMessage?.includes('No automatic cleanup'), 'Stop must not kill unregistered processes')
+
+for (const envelope of ['hookInput', 'hook_input', 'input', 'payload', 'data', 'params']) {
+  const enveloped = parseHookInput(JSON.stringify({ [envelope]: { hook_event_name: 'SessionStart', cwd: 'D:\\repo' } }))
+  expect(enveloped.hook_event_name === 'SessionStart', `${envelope} envelope must be accepted`)
+}
+const direct = spawnSync(process.execPath, [hook], {
+  input: JSON.stringify({ input: { hook_event_name: 'SessionStart', cwd: root } }),
+  encoding: 'utf8',
+  windowsHide: true,
+})
+expect(direct.status === 0, `hook CLI fixture failed: ${direct.stderr}`)
+expect(JSON.parse(direct.stdout).hookSpecificOutput?.hookEventName === 'SessionStart', 'hook CLI must emit Codex-compatible JSON')
+
+console.log('agile hook fixtures: PASS')
