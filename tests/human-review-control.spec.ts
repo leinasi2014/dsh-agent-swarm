@@ -52,7 +52,7 @@ interface Stack {
   pluginFiber: Fiber
 }
 
-async function mount(sandbox: string, reviewProvider = 'manual'): Promise<Stack> {
+async function mount(sandbox: string, reviewProvider = 'manual', schedulerProvider = 'priority-ready'): Promise<Stack> {
   const ctx = new Context()
   const fibers: Fiber[] = []
   await mountAgentLoopTestDependencies(ctx)
@@ -62,7 +62,7 @@ async function mount(sandbox: string, reviewProvider = 'manual'): Promise<Stack>
   fibers.push(await ctx.plugin(SubagentService))
   fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
   if (reviewProvider === 'human') fibers.push(await ctx.plugin(UserQuestionService))
-  const pluginFiber = await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1, reviewProvider })
+  const pluginFiber = await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1, reviewProvider, schedulerProvider })
   fibers.push(pluginFiber)
   ctx.llm.registerAdapter(['mock'], new ImmediateAdapter())
   const lead = ctx.agentLoop.create(
@@ -522,8 +522,12 @@ describe('typed control execution and free-text boundary', () => {
   it('typed wake, correction, interrupt, reassign and review execute through the authoritative port', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-i1a-valid-controls-'))
     roots.push(sandbox)
-    const stack = await mount(sandbox)
+    const stack = await mount(sandbox, 'manual', 'human-control-noop-scheduler')
     stacks.push(stack)
+    let scheduledPasses = 0
+    stack.ctx.agentSwarm.registerSchedulerProvider('human-control-noop-scheduler', {
+      select: () => (scheduledPasses += 1, []),
+    })
     const member = await addMember(stack)
     const { task: claimed, attemptId: firstAttemptId, teamRevisionAfterClaim } = await createClaimedForMember(stack, member)
 
@@ -550,6 +554,7 @@ describe('typed control execution and free-text boundary', () => {
     expect(interrupt.status).toBe('executed')
     const afterInterrupt = await snapshot(stack)
 
+    const passesBeforeReassign = scheduledPasses
     const reassign = await submit(stack, request(stack, {
       requestId: 'human-valid-reassign-00000004',
       intent: 'reassign-task', target: { kind: 'task', taskId: claimed.id },
@@ -557,15 +562,13 @@ describe('typed control execution and free-text boundary', () => {
       diagnostic: 'reassign now',
     }))
     expect(reassign.status).toBe('executed')
-    // reassignTask schedules the released work asynchronously. Wait for that
-    // expected reschedule commit instead of taking a revision snapshot while
-    // it can still advance behind this control test's next request.
-    const afterReassign = await vi.waitFor(async () => {
-      const task = (await snapshot(stack)).team.tasks.find(candidate => candidate.id === claimed.id)!
-      expect(task.currentAttemptId).not.toBe(firstAttemptId)
-      return task
-    }, { timeout: 5_000, interval: 5 })
-    expect(afterReassign.currentAttemptId).not.toBe(firstAttemptId)
+    // reassignTask appends an asynchronous pass. This control test uses its
+    // own no-op Provider and waits for that pass to reach the Provider, so no
+    // unrelated assignment can advance Team revision during the review flow.
+    await vi.waitFor(() => expect(scheduledPasses).toBeGreaterThan(passesBeforeReassign), { timeout: 5_000, interval: 5 })
+    expect((await snapshot(stack)).team.tasks.find(task => task.id === claimed.id)).toMatchObject({
+      status: 'pending',
+    })
 
     const reviewTask = await stack.ctx.agentSwarm.domain.createTask(
       stack.scope, stack.teamId, stack.lead.id, { subject: 'review-by-control', description: 'Typed review control.' },
