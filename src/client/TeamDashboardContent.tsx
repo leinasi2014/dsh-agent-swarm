@@ -1,5 +1,5 @@
 import { Button, IconCloseOutline16, IconRefreshOutline16, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SwarmHostReadProjectionV1 } from '../host/host-read-types.js'
 import type { TeamDashboardController, TeamDashboardState } from './team-dashboard-controller.js'
@@ -38,6 +38,7 @@ const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace__diagnostics { margin-top:12px; padding-top:12px; border-top:1px solid var(--dsw-alias-border-l2); }
 [data-swarm-team-dashboard] .swarm-team-workspace__diagnostics summary { cursor:pointer; }
 [data-swarm-team-dashboard] .swarm-team-workspace__wide-seam { margin:10px 0 0; }
+[data-swarm-team-dashboard] .swarm-team-workspace[data-swarm-team-layout="wide"] .swarm-team-workspace__wide-seam { display:none; }
 @container (min-width: 720px) { [data-swarm-team-dashboard] .swarm-team-workspace__columns { grid-template-columns:minmax(0,.8fr) minmax(0,1.15fr) minmax(0,1.35fr); } [data-swarm-team-dashboard] .swarm-team-workspace__wide-seam { display:none; } }
 `
 
@@ -54,12 +55,13 @@ export function TeamDashboardContent({ controller, coordinator, descriptionId, h
   const [handoffBusy, setHandoffBusy] = useState(false)
   const [listMode, setListMode] = useState<ListMode>('members')
   const [selection, setSelection] = useState<Selection>({ kind: 'team' })
+  const [workspaceRef, workspaceLayout] = useTeamWorkspaceLayout()
   const handoff = (): void => {
     if (handoffBusy) return
     setHandoffBusy(true)
     void coordinator.openCaptainChat().catch(() => {}).finally(() => { setHandoffBusy(false) })
   }
-  return <div className="swarm-team-workspace">
+  return <div className="swarm-team-workspace" data-swarm-team-layout={workspaceLayout} ref={workspaceRef}>
     <style>{shellCss}</style>
     <header className="swarm-team-workspace__header">
       <div><h2 className="swarm-team-workspace__title" id={headingId}>{t('title')}</h2><p className="swarm-team-workspace__description" id={descriptionId}>{t('description')}</p></div>
@@ -67,13 +69,39 @@ export function TeamDashboardContent({ controller, coordinator, descriptionId, h
     </header>
     <main className="swarm-team-workspace__body">
       <Status state={state} t={t} />
-      {state.data === undefined ? <Empty state={state} controller={controller} t={t} /> : <Workspace data={state.data.projection} listMode={listMode} localeTag={localeTag} selection={selection} setListMode={setListMode} setSelection={setSelection} t={t} />}
+      {state.data === undefined ? <Empty state={state} controller={controller} t={t} /> : <Workspace data={state.data.projection} layout={workspaceLayout} listMode={listMode} localeTag={localeTag} selection={selection} setListMode={setListMode} setSelection={setSelection} t={t} />}
     </main>
     <footer className="swarm-team-workspace__footer">
       <Button size="sm" variant="ghost" icon={<IconRefreshOutline16 />} onClick={() => { controller.refresh() }}>{t('refresh')}</Button>
       <Button size="sm" variant="primary" disabled={state.data === undefined || handoffBusy} onClick={handoff}>{handoffBusy ? t('openingChat') : t('openChat')}</Button>
     </footer>
   </div>
+}
+
+export const TEAM_WORKSPACE_WIDE_MIN_WIDTH = 720
+export type TeamWorkspaceLayout = 'compact' | 'wide'
+
+/** The Details container, rather than the browser viewport, chooses the layout branch. */
+export function teamWorkspaceLayoutForWidth(width: number): TeamWorkspaceLayout {
+  return width >= TEAM_WORKSPACE_WIDE_MIN_WIDTH ? 'wide' : 'compact'
+}
+
+function useTeamWorkspaceLayout(): readonly [RefObject<HTMLDivElement>, TeamWorkspaceLayout] {
+  const ref = useRef<HTMLDivElement>(null)
+  const [layout, setLayout] = useState<TeamWorkspaceLayout>('compact')
+  useLayoutEffect(() => {
+    const workspace = ref.current
+    if (workspace === null || typeof ResizeObserver === 'undefined') return undefined
+    const setWidth = (width: number): void => { setLayout(teamWorkspaceLayoutForWidth(width)) }
+    setWidth(workspace.getBoundingClientRect().width)
+    const observer = new ResizeObserver(entries => {
+      const entry = entries.find(candidate => candidate.target === workspace)
+      if (entry !== undefined) setWidth(entry.contentRect.width)
+    })
+    observer.observe(workspace)
+    return () => { observer.disconnect() }
+  }, [])
+  return [ref, layout]
 }
 
 function Status({ state, t }: { readonly state: TeamDashboardState; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
@@ -87,8 +115,9 @@ function Empty({ state, controller, t }: { readonly state: TeamDashboardState; r
   return state.phase === 'error' ? <Button variant="outline" onClick={() => { controller.reconnect() }}>{t('retry')}</Button> : null
 }
 
-function Workspace({ data, listMode, localeTag, selection, setListMode, setSelection, t }: {
+function Workspace({ data, layout, listMode, localeTag, selection, setListMode, setSelection, t }: {
   readonly data: SwarmHostReadProjectionV1
+  readonly layout: TeamWorkspaceLayout
   readonly listMode: ListMode
   readonly localeTag: () => 'zh-CN' | 'en-US'
   readonly selection: Selection
@@ -100,7 +129,7 @@ function Workspace({ data, listMode, localeTag, selection, setListMode, setSelec
   return <div className="swarm-team-workspace__columns" aria-label={t('tabs.label')}>
     <section className="swarm-team-workspace__column swarm-team-workspace__overview"><h3 className="swarm-team-workspace__column-title">{t('tabs.overview')}</h3>
       <button className="swarm-team-workspace__row" aria-current={selection.kind === 'team'} onClick={() => { setSelection({ kind: 'team' }) }} type="button"><span className="swarm-team-workspace__row-main"><strong className="swarm-team-workspace__truncate" title={data.team.name}>{data.team.name}</strong><span className="swarm-team-workspace__muted">{enumLabel(data.team.phase, t)}</span></span></button>
-      <div className="swarm-team-workspace__summary" style={{ marginTop: 10 }}><Metric label={t('members')} value={number.format(data.totals.roster)} /><Metric label={t('tasks')} value={number.format(data.totals.tasks)} /><Metric label={t('interactions')} value={number.format(data.totals.pendingInteractions)} /><Metric label={t('attempts')} value={number.format(data.totals.attempts)} /></div><p className="swarm-team-workspace__muted swarm-team-workspace__wide-seam">{t('narrowWorkspace')}</p>
+      <div className="swarm-team-workspace__summary" style={{ marginTop: 10 }}><Metric label={t('members')} value={number.format(data.totals.roster)} /><Metric label={t('tasks')} value={number.format(data.totals.tasks)} /><Metric label={t('interactions')} value={number.format(data.totals.pendingInteractions)} /><Metric label={t('attempts')} value={number.format(data.totals.attempts)} /></div>{layout === 'compact' ? <p className="swarm-team-workspace__muted swarm-team-workspace__wide-seam">{t('narrowWorkspace')}</p> : null}
     </section>
     <section className="swarm-team-workspace__column"><h3 className="swarm-team-workspace__column-title">{listMode === 'members' ? t('members') : t('tasks')}</h3>
       <nav className="swarm-team-workspace__tabs" aria-label={t('tabs.label')}><Button size="sm" variant="ghost" aria-pressed={listMode === 'members'} onClick={() => { setListMode('members') }}>{t('members')}</Button><Button size="sm" variant="ghost" aria-pressed={listMode === 'tasks'} onClick={() => { setListMode('tasks') }}>{t('tasks')}</Button></nav>
@@ -150,17 +179,23 @@ export type MemberActivity = {
   readonly state: 'running' | 'idle' | 'error' | 'provisioning' | 'removed' | SwarmHostReadProjectionV1['attempts'][number]['phase']
 }
 
-/** Derives one member's current task strictly from that task's current attempt and owner identity. */
+/**
+ * Derives one member's activity from strictly owned current attempts.  The roster lifecycle is
+ * authoritative: a failed, provisioning, or removed member is never presented as running.
+ */
 export function deriveMemberActivity(data: SwarmHostReadProjectionV1, name: string, phase: SwarmHostReadProjectionV1['roster'][number]['phase']): MemberActivity {
-  const current = data.tasks.flatMap(task => {
+  const currentAttempts = data.tasks.flatMap(task => {
     if (task.currentAttemptId === undefined) return []
     const attempt = data.attempts.find(candidate => candidate.id === task.currentAttemptId && candidate.taskId === task.id && candidate.memberName === name)
     return attempt === undefined ? [] : [{ task, attempt }]
-  }).toSorted((left, right) => right.attempt.updatedAt - left.attempt.updatedAt)[0]
+  })
+  const newest = currentAttempts.toSorted((left, right) => right.attempt.updatedAt - left.attempt.updatedAt)[0]
+  if (phase === 'failed') return { task: newest?.task, attempt: newest?.attempt, state: 'error' }
+  if (phase === 'provisioning') return { task: newest?.task, attempt: newest?.attempt, state: 'provisioning' }
+  if (phase === 'removed') return { task: newest?.task, attempt: newest?.attempt, state: 'removed' }
+  // A real current running attempt outranks a later stale/rejected/cancelled observation.
+  const current = currentAttempts.filter(candidate => candidate.attempt.phase === 'running').toSorted((left, right) => right.attempt.updatedAt - left.attempt.updatedAt)[0] ?? newest
   if (current?.attempt.phase === 'running') return { task: current.task, attempt: current.attempt, state: 'running' }
-  if (phase === 'failed') return { task: current?.task, attempt: current?.attempt, state: 'error' }
-  if (phase === 'provisioning') return { task: current?.task, attempt: current?.attempt, state: 'provisioning' }
-  if (phase === 'removed') return { task: current?.task, attempt: current?.attempt, state: 'removed' }
   if (current !== undefined) return { task: current.task, attempt: current.attempt, state: current.attempt.phase }
   return { task: undefined, attempt: undefined, state: 'idle' }
 }
