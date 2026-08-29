@@ -1,93 +1,144 @@
 # dsh-agent-swarm
 
 [![verify](https://github.com/leinasi2014/dsh-agent-swarm/actions/workflows/verify.yml/badge.svg)](https://github.com/leinasi2014/dsh-agent-swarm/actions/workflows/verify.yml)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/Node.js-22.19%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 
-面向 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）的**持久化多 Agent 团队编排插件**：崩溃安全的任务协作层——任务 DAG、attempt 围栏、审核门、持久邮箱、预算计量、可执行审查，全部构建在官方服务 seam 之上。
+面向 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）的持久化多智能体团队编排插件。
 
-- **不修改 Agent Loop**、不影子注册任何官方服务——单一权威状态经 `TeamDomainPort` 存于官方 Storage Domain（ADR-0007）。
-- 消费两个参考仓库的成熟机制（`dsh-agent-teams` 的团队协议、JiuwenSwarm 的预算/审核/调度思路），映射到 DSH 原生边界，不嵌入任何第二运行时。
+它让主会话保留为 Main Brain，同时为每个团队启动独立 Captain Session。Captain 可以创建成员、拆分任务 DAG、调度执行、审核交付，并通过 DSH 原生侧边工作台向用户展示目标、公告、成员、任务和运行状态。
 
-## 安装状态
+> 当前状态：活跃开发中的预发布源码。仓库提供构建、测试和打包入口，但尚未发布公共 npm 版本；`package.json` 保持 `private: true`，防止误发布。
 
-本项目目前是 `private` 的预发布插件，**没有已接受的公共 npm、Git shorthand 或插件市场安装入口**。不要使用仓库历史文档中的 `leinasi2014/dsh-agent-swarm` 或 `npm:@dsh-agent-swarm` 形式；它们不是当前可解析的发布身份。
+## 已实现能力
 
-当前可执行的验收路径是从干净、冻结的插件候选构建一次本地不可变 tarball，再装入 fresh isolated official Profile。命令必须从本仓库运行；`--output` 必须是尚不存在的新目录：
+- **Main Brain 与独立 Captain**：`agent_swarm_create_managed` 从主会话创建独立 Captain Session，主聊天不被团队执行日志取代。
+- **团队与成员身份**：Captain/成员可保存名称、职业、性格和安全像素 SVG 头像；成员由官方 continuable subagent seam 承载。
+- **任务协作**：DAG 依赖、优先级、revision CAS、attemptId 围栏、定向分派、提交、重派和 Captain 审核。
+- **持久运行**：团队聚合写入官方 Storage Domain；成员描述、任务、邮箱、预算和记忆支持重启后恢复。
+- **消息与监督**：持久 mailbox、quiet/wakeup 投递、成员中断、预算限制、等待/状态/分页读取。
+- **记忆与经验**：团队共享记忆和成员私有记忆使用各自明确的持久化与授权边界。
+- **DSH Team 工作台 V3**：团队 rail、公共目标、最新公告，以及“工作台 / 任务 / 公告 / 管理”四个互斥视图；成员和任务使用覆盖式详情页，不挤占主聊天。
+- **25 个 `agent_swarm_*` 工具**：完整参数、权限和状态契约见 [docs/04-core-protocol.md](docs/04-core-protocol.md)。
+
+## 架构边界
+
+```text
+Official DSH Session / Agent Loop / Subagent
+                    │
+          agent_swarm_* tools
+                    │
+        OrchestratorRuntime + Providers
+                    │
+             TeamDomainPort
+                    │
+        Official Storage Domain (truth)
+                    │
+      Host read projection → DSH client UI
+```
+
+- 不修改或复制官方 Agent Loop。
+- Team aggregate 是唯一业务权威；UI、Prompt 和只读 RPC 都是投影。
+- 状态只在持久提交成功后发布。
+- 浏览器工作台当前以读取和导航为主；修改团队状态通过 Captain Chat 与受围栏的模型工具完成。
+- 官方服务缺失、Provider 未配置或 revision/attempt 陈旧时 fail loud，不静默降级成第二套状态机。
+
+## 快速开始
+
+### 环境要求
+
+- Node.js `^22.19.0 || >=24`（CI 使用 Node.js 24）
+- pnpm `9.15.9`
+- 与 `package.json` peer dependencies 和 `docs/OFFICIAL_BASELINE.json` 匹配的 DSH checkout/Profile
+
+### 获取源码并验证
+
+```bash
+git clone https://github.com/leinasi2014/dsh-agent-swarm.git
+cd dsh-agent-swarm
+corepack enable
+pnpm install --frozen-lockfile
+pnpm verify:candidate
+```
+
+`pnpm verify:candidate` 会运行结构、边界、lint、重复/死导出、两套类型检查、测试、场景检查、构建和包产物验证。
+
+### 构建预发布 tarball
 
 ```powershell
-$official = 'D:\Source\DSH\deepseek-harness'
-$proof = Join-Path $env:TEMP ('dsh-swarm-p0-' + [guid]::NewGuid().ToString('N'))
-$browser = 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
-$candidateCommit = git rev-parse HEAD
-$candidateTree = git rev-parse 'HEAD^{tree}'
-node scripts/p0/run.mjs `
-  --repo (Get-Location).Path `
-  --official $official `
-  --cli (Join-Path $official 'apps\cli\lib\bin.js') `
-  --output $proof `
-  --browser-executable $browser `
-  --port 47940
-node scripts/verify-p0-profile-proof.mjs `
-  --root $proof `
-  --candidate-commit $candidateCommit `
-  --candidate-tree $candidateTree
+$artifact = Join-Path $env:TEMP 'dsh-agent-swarm-artifact'
+New-Item -ItemType Directory -Force $artifact | Out-Null
+pnpm build
+pnpm pack --pack-destination $artifact
+$tgz = (Get-ChildItem $artifact\dsh-agent-swarm-*.tgz | Select-Object -First 1).FullName
 ```
 
-该入口使用官方 CLI 的真实 `plugin --profile web add -w <absolute-tgz>` 语法（生命周期脚本启用，绝不加 `--ignore-scripts`）。安装贡献一个默认启用的结构性 `cordis:group`（`disabled: false`），`plugin add` 不会自动创建 Team 或 spawn 成员（仍须用户显式 create）；Profile owner 可在后一层关闭或重配置 `agent-swarm`。验收在隔离 `DSH_HOME` 中组合官方 Storage hub、JSON KV、Storage Domain、Session persistence 和 Swarm，且 workspace/sandbox、storage 与 session roots 相互分离。它先用官方 `workspace.create` 建账，再用 `session.create({ workspaceId })` 建立 exact live root；test-only probe 仅在该 root 尚无 turn 时追加一个匹配的空 `turn/start`/completed `turn/end` 并通过官方 `sessions.flush` 持久化，使真实 UI 拿到无 LLM、无网络、无伪造人类消息的 nonblank Session。证据记录 Workspace 回声/Session 归属、seeded/reused 模式、事件 seq/type 与 flush 参与情况。随后通过真实 Swarm runtime 创建并在重启后恢复 Captain Team，并读取该 Team 的 binding/status/snapshot 和三类分页。Fresh browser context 仅预置官方 SessionRuntime 的 `dsh.sessions.current={sessionId}` 选择记录；证据冻结其 key/value 与官方 source blob/digest，且 R2 Host 仍会独立重验 framework target，不把它当成 authority。由 `--browser-executable` 显式定位的真实 Chromium 还会验证 exact attached/nonblank root、DSH-native Team 面板、官方主题/locale、键盘打开、截图、同一 Session 的 Captain Chat handoff 与 reload。R0 按官方 loader 语义验证禁用条目后 Team action 不挂载、零 Team 数据；同一 runner 在浏览器外用 Node fetch 读取并冻结 `/swarm/v1` 的 `405`、UTF-8 空 body 和缺失 content-type，只有三项同时匹配 rc.2 Host fallback 才推导为 Swarm route 未注册，因此浏览器仍必须保持零 console/page error。Remove 再独立证明 package/inventory row 与客户端入口消失。浏览器 locator/version 会写入证据。同时覆盖优雅 unload、默认启用但缺 Storage Domain 时 fail closed（RPC 未挂载/读取失败时 Team 入口显示明确可诊断错误，不静默消失）。运行态目录和端口随后清理，只保留同一 tarball、digest、关键命令/清单/R2/R3 回执、截图及逐文件 bytes+sha256 manifest；不会读取或写入用户默认 `~/.dsh` Profile。
+只把 tarball 安装到新的隔离 `DSH_HOME`/Profile；不要在默认用户 Profile 中试装开发候选：
 
-
-`dsh plugin`、`--dump-config` 甚至某些帮助路径都可能初始化或修复 Profile，因此不要在用户默认 home 中“试一下”这些命令。上述流程只证明一个精确本地 tarball 能在隔离的官方 Profile 中完成预发布验收；它不构成公共安装、兼容承诺或发布证明。
-
-`link:<path>` 仅用于本地诊断，不能作为验收或发布身份。兼容范围由 `package.json` 的 peer dependencies、锁文件和 [docs/OFFICIAL_BASELINE.json](docs/OFFICIAL_BASELINE.json) 共同定义；不要从 README 中推断滚动版本状态。
-
-### 快速开始
-
-```
-你（对 captain 说）：建一个三人团队，分解"给仓库加集成测试"并开始执行。
-captain（插件驱动）：
-  1. agent_swarm_create            → 建团队（captain = 当前会话）
-  2. agent_swarm_add_member ×3     → continuable 成员（persona/工具围栏）
-  3. agent_swarm_create_task ×N    → 任务 DAG（blockedBy 依赖 + 验收标准）
-  4. （调度器自动指派 → 成员执行 → agent_swarm_submit_task）
-  5. agent_swarm_review_task       → 你审核 accept/reject
+```powershell
+$env:DSH_HOME = Join-Path $env:TEMP ('dsh-swarm-home-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Force $env:DSH_HOME | Out-Null
+dsh plugin --profile web add --workspace-root $tgz
 ```
 
-完整工具面（19 个 `agent_swarm_*`）：见 [docs/04-core-protocol.md](docs/04-core-protocol.md) §4。
+Profile 仍需组合官方 Storage hub、KV backend、Storage Domain、Session persistence、Subagent runtime 和实际 LLM Provider。插件不会在安装时自动创建 Team 或启动成员。
 
-## 核心能力
+## 基本使用方式
 
-- **任务板**：DAG 依赖、优先级、revision CAS + attemptId 双围栏（后到者 fail-loud，`TEAM_TASK_STALE_REVISION` / `TEAM_ATTEMPT_STALE`）；
-- **审核门**：`submitted` 绝不自行完成——captain `review_task` 是唯一 accept/reject 权威，支持可执行审查（验证命令在隔离审查根执行，证据不可伪造，#101）；
-- **持久邮箱**：queued-before-delivered、按消息 ID 目标侧去重、quiet/wakeup 两种语义（wakeup 的 `delivered` 仅在模型可见后提交，#52/D1）；
-- **预算**：token/request/retry/deadline 四限 + 官方对齐的完整计费 token 计量（seq 游标幂等，插件账本为唯一计量路径，#127 边界声明）；
-- **调度**：事件驱动（idle 边沿/任务图变更/预算释放）、搁浅自愈（live-idle 重试、cold owner 证据暴露）、可替换 Scheduler Provider；
-- **编排与观察**：官方 `WorkflowEngine` 的隔离域 Team 桥（run overlay 为唯一 run 真相）与按 live caller/Team scope 限定的任务只读投影（不注册或 shadow `ctx.jobs`）；显式 `adaptive|workflow` 模式 + 单 owner 纪律（#77）；
-- **执行根**：per-attempt worktree 隔离 + attemptId 围栏 + 崩溃泄漏对账（#100）；
-- **成员档案读取**：`agent_swarm_list_members` 逐页只读 Team roster 与官方 child Session descriptor/header；不恢复子成员、不复制配置到 Team，也不暴露 persona、会话 id 或有效权限；
-- **自托管控制面**：候选冻结→验收→晋升→回滚的外部 promoter 全链（P0–P7 演练实证，#102/#122 加固）。
-- **本机只读 Team 接口**：versioned `POST /swarm/v1` 与 browser-safe `dsh-agent-swarm/client`；Host 每次重绑 official live root/Session/workspace/captain Team。该接口仅在 `127.0.0.1` listener、loopback socket 与同源 authority 可验证时可用，不提供用户认证、LAN trust 或任何 write capability。预发布证据只覆盖 README 所列隔离 Profile 流程，不外推为 LAN、多用户或写操作能力。
-- **DSH-native Team 面板**：主脑保留在官方主 Chat，独立 Captain 与成员显示在 Team 侧栏；只读展示 Team、成员、任务/attempt、预算、待处理交互和 capability，陈旧/重连/错误显式可见。“打开 Captain Chat”先重验 R2 binding，再通过官方 Session 导航到该 Team 的独立 Captain Session；不解析 transcript，也不产生 Control。
+在 DSH 主会话中直接描述目标，例如：
+
+```text
+创建一个独立交付团队，由队长招募需求分析、实现和评审成员，
+把“为项目补齐集成测试”拆成有依赖的任务并开始执行。
+```
+
+典型流程：
+
+1. Main Brain 调用 `agent_swarm_create_managed` 创建独立 Captain。
+2. Captain 设置团队目标和自身资料，再用 `agent_swarm_add_member` 招募成员。
+3. Captain 用 `agent_swarm_create_task` 建立 DAG；调度器按就绪状态分派。
+4. 成员提交 fenced attempt；Captain 用 `agent_swarm_review_task` 接受或拒绝。
+5. 用户在 Team 工作台查看进度，或打开 Captain Chat 直接调整目标和分工。
+
+## 仓库结构
+
+```text
+src/        插件 Host、Client、领域、运行时、Provider 与工具
+tests/      单元、组合、重启、故障与 UI 测试
+packages/   项目内可复用包
+docs/       产品、协议、架构、验证与历史开发记录
+scripts/    工程门、隔离生命周期、打包与验收脚本
+ref/        固定参考源指针；materialized source 只读
+.github/    CI 工作流与 Pull Request 模板
+```
+
+## 开发与贡献
+
+```bash
+pnpm verify:isolation:status   # 写入、冻结候选和集成前
+pnpm test -- <affected-test>   # 迭代期最小受影响检查
+pnpm verify:candidate          # 候选冻结门
+pnpm verify:policy             # 仅治理/指令/注册文档变化时
+pnpm verify:compatibility      # 仅官方或参考兼容性参与决策时
+```
+
+开发分支、受管 worktree、审查与串行集成规则见 [CONTRIBUTING.md](CONTRIBUTING.md)。项目权威入口见 [AGENTS.md](AGENTS.md)。
 
 ## 文档
 
-- [docs/README.md](docs/README.md) — 全部设计文档的阅读顺序索引
-- [docs/00-vision.md](docs/00-vision.md) — 产品目标与兼容立场
-- [docs/04-core-protocol.md](docs/04-core-protocol.md) — 协议权威（每个决策段都可追溯到 issue/PR）
-- [docs/07-implementation-roadmap.md](docs/07-implementation-roadmap.md) — 里程碑与出口标准
-- [docs/11-official-first-development.md](docs/11-official-first-development.md) — official-first 开发门（Gate A/B/C）
-- [docs/adr/](docs/adr/) — 架构决策记录（ADR-0001..0009；以各文件 `Status` 区分 proposed/accepted）
+- [文档索引](docs/README.md)
+- [产品目标](docs/GOALS.md)
+- [核心协议](docs/04-core-protocol.md)
+- [实现路线与出口标准](docs/07-implementation-roadmap.md)
+- [测试与验证](docs/08-testing-verification.md)
+- [官方优先开发策略](docs/11-official-first-development.md)
 
-## 开发
+## 已知边界
 
-```bash
-pnpm install && pnpm verify:candidate  # 冻结候选：结构→lint→重复→死导出→类型×2→测试→场景→构建→产物
-pnpm verify:policy                    # 治理/指令/文档权威变化时
-pnpm verify:isolation:status          # 写入、冻结候选、集成前的廉价单检出检查
-pnpm verify:isolation                 # 隔离策略或布局变化时
-pnpm verify:compatibility             # 官方/ref 兼容性参与决策时
-```
-
-当前采用单检出单写者；候选、审查、串行集成和外部推送边界见 [CONTRIBUTING.md](CONTRIBUTING.md)，项目绑定与权威入口见 [AGENTS.md](AGENTS.md)。
+- 目前没有公共 npm、插件市场或稳定 release 安装身份。
+- Browser/Canvas 的 privileged write/control capability 尚未作为公共协议开放。
+- 分布式跨进程 CAS、远程成员和自动 Skill Evolution 属后续能力，不应从当前本地运行证据外推。
 
 ## 许可
 
-MIT（见 [LICENSE](LICENSE)）。
+[MIT](LICENSE)
