@@ -318,7 +318,7 @@ describe('R3 native Team Details surface', () => {
       // hard rule holds globally: there is NO nested `details details.swarm-team-workspace__diagnostics`.
       const diagnostics = document.querySelector('[data-swarm-team-rail] details.swarm-team-workspace__diagnostics')!
       expect(diagnostics.parentElement?.tagName).not.toBe('DETAILS')
-      expect(document.querySelector('details details.swarm-team-workspace__diagnostics')).toBeNull()
+      expect(document.querySelectorAll('details details.swarm-team-workspace__diagnostics')).toHaveLength(0)
       expect(observers).toHaveLength(1)
       expect(workspace.dataset.swarmTeamLayout).toBe('compact')
       // This is a component contract, not a jsdom geometry claim. Browser-proof owns geometry acceptance.
