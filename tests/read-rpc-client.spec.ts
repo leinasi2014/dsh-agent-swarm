@@ -145,8 +145,9 @@ describe('R2 browser client', () => {
 
   it('rejects crafted unsafe captainMembers avatar semantics and admits a safe rect-only avatar', () => {
     const base = { ...SWARM_READ_RPC_FIXTURES_V1.values.captainMembers, members: [] as unknown[] }
+    const growth = { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' }
     const row = (avatar: unknown) =>
-      ({ name: 'm', role: 'r', phase: 'active', createdAt: 1, displayName: 'm', avatar, identityCard: { state: 'generated' } })
+      ({ name: 'm', role: 'r', phase: 'active', createdAt: 1, displayName: 'm', avatar, identityCard: { state: 'generated' }, growth })
 
     const valid = {
       ...base,
@@ -211,6 +212,7 @@ describe('R2 browser client', () => {
       name: 'm', role: 'r', phase: 'active', createdAt: 1,
       avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
       identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
+      growth: { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' },
       ...over,
     })
     expect(() => assertSwarmReadRpcValue('captainMembers', { ...membersBase, members: [mrow({ identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' }, displayName: 'p' })] })).toThrow()

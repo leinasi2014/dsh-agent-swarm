@@ -147,6 +147,13 @@ export interface SwarmReadCaptainMemberRowV1 {
   readonly personality?: string
   readonly avatar: SwarmReadAssetStatusV1
   readonly identityCard: SwarmReadAssetStatusV1
+  /** Non-sensitive capability availability enumeration. Constant literal values —
+   *  never content; private memory is exposed only as `private_to_member`. */
+  readonly growth: {
+    readonly privateMemory: 'private_to_member'
+    readonly skills: 'not_implemented'
+    readonly capability: 'not_implemented'
+  }
 }
 
 export interface SwarmReadCaptainMembersV1 {

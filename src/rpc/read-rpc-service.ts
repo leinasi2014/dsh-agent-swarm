@@ -206,6 +206,9 @@ export class AgentSwarmReadRpcService {
           identityCard: member.displayName === undefined && member.profession === undefined && member.personality === undefined
             ? { state: 'not_generated', reason: 'identity_backend_not_implemented' }
             : { state: 'generated' },
+          // Non-sensitive growth availability — constant literal enum only; no content
+          // (private memory is never read nor projected beyond this availability marker).
+          growth: { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' },
         }))
         return { schemaVersion: 1, binding: { rootSessionId: root.id, teamId: team.id }, members, observedAt }
       }

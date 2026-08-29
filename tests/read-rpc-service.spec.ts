@@ -408,17 +408,20 @@ describe('R2 authoritative target binding and wire contract', () => {
         name: 'worker', role: 'writer', phase: 'active', createdAt: 1,
         avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
         identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
+        growth: { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' },
       },
       {
         name: 'artist', role: 'artist', phase: 'active', createdAt: 2,
         displayName: 'Pixel Painter', profession: 'Avatar artist', personality: 'Careful, meticulous',
         avatar: { state: 'generated', svg: '<svg viewBox="0 0 16 16"><rect x="0" y="0" width="8" height="8" fill="#2a3"/></svg>' },
         identityCard: { state: 'generated' },
+        growth: { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' },
       },
       {
         name: 'tampered', role: 'artist', phase: 'active', createdAt: 3,
         avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
         identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
+        growth: { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' },
       },
     ])
     // Announcements: real bounded projection; a Team with none has an honest empty list

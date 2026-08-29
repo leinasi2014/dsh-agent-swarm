@@ -65,7 +65,7 @@ function isSafePixelAvatarSvg(value: string): boolean {
 }
 
 export const SWARM_READ_RPC_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
-export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '585e5d13fdc81e9fc4aebbf497184d6ecc4047165671f102dcbf623fb801265c' as const
+export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '4197d3f4e5f7ea28401091877dbe49b07145cb761a0ca4550d449842b45cc88d' as const
 
 const boundedString = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength, pattern: '\\S' })
 /** Member role is authoritative free-text (never truncated by the reader); the
@@ -146,9 +146,18 @@ const teamDescriptor = {
     },
   },
 }
+const memberGrowth = {
+  type: 'object', additionalProperties: false,
+  required: ['privateMemory', 'skills', 'capability'],
+  properties: {
+    privateMemory: { const: 'private_to_member' },
+    skills: { const: 'not_implemented' },
+    capability: { const: 'not_implemented' },
+  },
+}
 const captainMemberRow = {
   type: 'object', additionalProperties: false,
-  required: ['name', 'role', 'phase', 'createdAt', 'avatar', 'identityCard'],
+  required: ['name', 'role', 'phase', 'createdAt', 'avatar', 'identityCard', 'growth'],
   properties: {
     name: boundedString(64), role: boundedString(ROSTER_ROLE_MAX_LENGTH),
     phase: { enum: ['provisioning', 'active', 'failed', 'removed'] }, createdAt: nonNegativeInteger,
@@ -156,6 +165,7 @@ const captainMemberRow = {
     profession: boundedString(256),
     personality: boundedString(1024),
     avatar: assetStatus, identityCard: assetStatus,
+    growth: memberGrowth,
   },
 }
 const sectionBinding = {
@@ -502,11 +512,13 @@ export const SWARM_READ_RPC_FIXTURES_V1 = deepFreezeJson({
       members: [
         { name: 'worker', role: 'writer', phase: 'active', createdAt: 1_700_000_000_000,
           avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
-          identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' } },
+          identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
+          growth: { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' } },
         { name: 'artist', role: 'artist', phase: 'active', createdAt: 1_700_000_000_001,
           displayName: 'Pixel Painter', profession: 'Avatar artist', personality: 'Careful, meticulous',
           avatar: { state: 'generated', svg: '<svg viewBox="0 0 16 16"><rect x="0" y="0" width="8" height="8" fill="#2a3"/></svg>' },
-          identityCard: { state: 'generated' } },
+          identityCard: { state: 'generated' },
+          growth: { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' } },
       ],
       observedAt: 1_700_000_000_200,
     },
@@ -648,6 +660,21 @@ function assertGoalSemantics(team: Record<string, unknown>): void {
   }
 }
 
+const MEMBER_GROWTH_ENUM = { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' } as const
+
+/** Non-sensitive availability enum: every member must expose the constant growth triad
+ *  (a deviation or any content-bearing field is a contract violation). */
+function assertMemberGrowth(member: Record<string, unknown>): void {
+  const growth = member.growth as Record<string, unknown> | undefined
+  if (growth === undefined
+    || growth.privateMemory !== MEMBER_GROWTH_ENUM.privateMemory
+    || growth.skills !== MEMBER_GROWTH_ENUM.skills
+    || growth.capability !== MEMBER_GROWTH_ENUM.capability
+    || Object.keys(growth).length !== 3) {
+    throw new Error('Swarm RPC captain member growth must be the constant availability enum')
+  }
+}
+
 function assertResultSemantics(method: string, value: Record<string, unknown>): void {
   if (method === 'capabilities') {
     const expected = [
@@ -716,6 +743,7 @@ function assertResultSemantics(method: string, value: Record<string, unknown>): 
       const row = member as Record<string, unknown>
       assertAvatarSemantics(row, 'member')
       assertIdentityCardSemantics(row, 'member')
+      assertMemberGrowth(row)
     }
     return
   }
