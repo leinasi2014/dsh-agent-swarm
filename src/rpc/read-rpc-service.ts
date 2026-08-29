@@ -5,6 +5,7 @@ import { isProxy } from 'node:util/types'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-session-persistence'
 import { TeamDomainError } from '../domain/error.js'
 import { TeamId, type TeamState } from '../domain/types.js'
 import type { AgentSwarmHostReadService } from '../host/host-read-service.js'
@@ -72,6 +73,7 @@ const MAX_PAGE_LIMIT = 50
 const DEFAULT_PAGE_LIMIT = 50
 const DEFAULT_DISPOSAL_TIMEOUT_MS = 5_000
 const CURSOR_PATTERN = /^r1:[a-f0-9]{64}$/u
+const COLD_ROOT_INSPECT_TIMEOUT_MS = 3_000
 
 export class AgentSwarmReadRpcService {
   private closing = false
@@ -192,8 +194,11 @@ export class AgentSwarmReadRpcService {
     // resolution (runtime.managedCaptainSessionsOf and/or the persisted parentSession link), so
     // the exact-live `ctx.sessions.get === requested.session` assertion is not required for the
     // read-only path — only that the root descriptor exists and its durable header has a cwd.
+    // A FULLY cold root (removed from the live Agent registry, but with an official persisted
+    // Session) is reconstructed read-only from that persistence (official header/cwd/parent),
+    // never by creating local Agent/live-store state.
     if (requested === undefined) {
-      throw new TeamDomainError('Target is not an official root Session', 'SWARM_RPC_TARGET_NOT_LIVE')
+      return await this.resolveFullyColdRoot(target.rootSessionId, target)
     }
     if (requested.session.header.cwd === undefined) {
       throw new TeamDomainError('Target Session has no workspace cwd', 'SWARM_HOST_WORKSPACE_REQUIRED')
@@ -242,6 +247,65 @@ export class AgentSwarmReadRpcService {
       return { root: captain, teamId }
     }
     return this.resolveParentBinding(requested, teams, selected, target.teamId)
+  }
+
+  /** Read-only admission for a fully cold root: the live Agent registry no longer holds it, but an
+   *  official persistent Session does. The durable header (cwd/parent) is reconstructed from
+   *  `ctx.sessionPersistence` (never from fabricated local state); the unique Captain-owned Team is
+   *  re-proven via `runtime.managedCaptainSessionsOf` and the persisted parentSession link. Returns a
+   *  minimal reconstructed root view for R1's descriptor-chain re-proof; no aggregate copy, no second
+   *  state, no live-store mutation. */
+  private async resolveFullyColdRoot(
+    rootSessionId: string,
+    target: SwarmReadTargetHint,
+  ): Promise<{ readonly root: Agent; readonly teamId: string; readonly captainSessionId: string }> {
+    const persisted = await this.inspectPersistedRoot(rootSessionId)
+    if (persisted === undefined) {
+      throw new TeamDomainError('Target is not an official root Session', 'SWARM_RPC_TARGET_NOT_LIVE')
+    }
+    if (persisted.header.cwd === undefined) {
+      throw new TeamDomainError('Target Session has no workspace cwd', 'SWARM_HOST_WORKSPACE_REQUIRED')
+    }
+    const root = { id: rootSessionId, session: { header: persisted.header } } as unknown as Agent
+    const scope = this.deps.runtime.scopeOf(root)
+    const teams = await this.deps.runtime.listTeamAggregates(scope)
+    const managedCaptains = new Set(this.deps.runtime.managedCaptainSessionsOf(rootSessionId))
+    const active = teams.filter(team => team.phase === 'active'
+      && (managedCaptains.has(team.captainSessionId)
+        || this.deps.ctx.sessions.get(SessionId(team.captainSessionId))?.header.parentSession === rootSessionId))
+    let teamId: string
+    if (target.teamId !== undefined) {
+      if (!active.some(team => team.id === target.teamId)) {
+        const selected = teams.find(team => team.id === target.teamId)
+        if (selected === undefined) throw new TeamDomainError('Target Team does not exist', 'SWARM_HOST_BINDING_NOT_FOUND')
+        throw new TeamDomainError('Target Team does not match this main/Captain Session', 'SWARM_HOST_BINDING_MISMATCH')
+      }
+      teamId = target.teamId
+    } else {
+      if (active.length === 0) throw new TeamDomainError('Target root has no authoritative Team binding', 'SWARM_HOST_BINDING_NOT_FOUND')
+      if (active.length > 1) {
+        throw new TeamDomainError('Multiple Teams are available; select one Team', 'SWARM_HOST_BINDING_AMBIGUOUS')
+      }
+      teamId = active[0]!.id
+    }
+    return { root, teamId, captainSessionId: teams.find(team => team.id === teamId)!.captainSessionId }
+  }
+
+  private async inspectPersistedRoot(rootSessionId: string): Promise<{ readonly header: { readonly cwd?: string; readonly parentSession?: string } } | undefined> {
+    const persistence = this.deps.ctx.sessionPersistence
+    if (persistence === undefined) return undefined
+    try {
+      const stored = await persistence.inspect(SessionId(rootSessionId), AbortSignal.timeout(COLD_ROOT_INSPECT_TIMEOUT_MS))
+      if (stored === undefined) return undefined
+      return {
+        header: Object.freeze({
+          ...(stored.meta.cwd === undefined ? {} : { cwd: stored.meta.cwd }),
+          ...(stored.meta.parentSession === undefined ? {} : { parentSession: stored.meta.parentSession as string }),
+        }),
+      }
+    } catch {
+      return undefined
+    }
   }
 
   /** Descriptor-chain binding for a cold dedicated Captain: official root Session →

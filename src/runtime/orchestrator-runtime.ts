@@ -80,12 +80,8 @@ export class AgentSwarmRuntime extends Service {
     readonly config: RuntimeConfig,
   ) {
     super(ctx, 'agentSwarm')
-    if (!Number.isSafeInteger(config.disposalTimeoutMs) || config.disposalTimeoutMs < 1) {
-      throw new TeamDomainError('disposalTimeoutMs must be a positive safe integer', 'TEAM_INVALID_CONFIG')
-    }
-    if (!Number.isSafeInteger(config.strandedAfterMs) || config.strandedAfterMs < 0) {
-      throw new TeamDomainError('strandedAfterMs must be a safe non-negative integer', 'TEAM_INVALID_CONFIG')
-    }
+    if (!Number.isSafeInteger(config.disposalTimeoutMs) || config.disposalTimeoutMs < 1) { throw new TeamDomainError('disposalTimeoutMs must be a positive safe integer', 'TEAM_INVALID_CONFIG') }
+    if (!Number.isSafeInteger(config.strandedAfterMs) || config.strandedAfterMs < 0) { throw new TeamDomainError('strandedAfterMs must be a safe non-negative integer', 'TEAM_INVALID_CONFIG') }
     const requestSchedule = (scope: TeamScope, teamId: TeamId, captain: Agent): void => this.requestSchedule(scope, teamId, captain)
     this.orchestration = new OrchestrationOwnership({ mode: config.orchestrationMode, requestSchedule })
     this.schedulerProviders.set('priority-ready', priorityReadyScheduler())
@@ -546,9 +542,7 @@ export class AgentSwarmRuntime extends Service {
   }
 
   /** Managed dedicated Captain child Session ids of a root (Main Brain or Captain parent). */
-  managedCaptainSessionsOf(rootSessionId: string): readonly string[] {
-    return [...(this.ownedChildren.get(rootSessionId) ?? [])]
-  }
+  managedCaptainSessionsOf(rootSessionId: string): readonly string[] { return [...(this.ownedChildren.get(rootSessionId) ?? [])] }
 
   private trackTeamChildren(captain: Agent, team: TeamState): void {
     for (const member of team.members) {

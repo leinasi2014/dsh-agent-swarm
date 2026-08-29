@@ -42,6 +42,9 @@ function rpcHarness(options: {
   coldCaptainSessions?: Record<string, { header: { parentSession?: string } }>;
   managedCaptains?: string[];
   coldRoot?: boolean;
+  /** Fully cold: the live Agent registry has no root entry, but an official persisted Session exists. */
+  fullyColdRoot?: boolean;
+  persistedRootHeader?: { cwd?: string; parentSession?: string } | undefined;
   teams?: { id: string; captainSessionId: string; phase?: 'active' | 'archived' }[];
 } = {}) {
   const root = options.root ?? ROOT
@@ -55,7 +58,9 @@ function rpcHarness(options: {
   const coldSessions = options.coldCaptainSessions ?? {}
   const hostRead = {
     read: vi.fn(async (input: { afterCursor?: string; teamId?: string; captainSessionId?: string }) => {
-      expect(initiator).toBe(root)
+      // The initiator may be the exact live root Agent or the persistence-reconstructed cold root
+      // view — both carry the root Session id.
+      expect(initiator?.id).toBe(root.id)
       lastReadInput = input
       return { ...(options.projection ?? projection), binding: { rootSessionId: root.id, teamId: team.id },
         changed: input.afterCursor !== CURSOR, resyncRequired: input.afterCursor !== undefined && input.afterCursor !== CURSOR }
@@ -64,14 +69,20 @@ function rpcHarness(options: {
   let lastReadInput: { afterCursor?: string; teamId?: string; captainSessionId?: string } | undefined
   const ctx = {
     agents: {
-      get: (id: string) => id === root.id ? root : undefined,
-      roots: () => liveRoots,
+      get: (id: string) => id === root.id ? (options.fullyColdRoot ? undefined : root) : undefined,
+      roots: () => options.fullyColdRoot ? [] : liveRoots,
       withInitiator: async <T>(agent: Agent, callback: () => Promise<T>) => {
         initiator = agent
         try { return await callback() } finally { initiator = undefined }
       },
     },
-    sessions: { get: (id: string) => (id === root.id ? (options.coldRoot ? undefined : session) : coldSessions[id]) ?? undefined },
+    sessions: { get: (id: string) => (id === root.id ? (options.coldRoot || options.fullyColdRoot ? undefined : session) : coldSessions[id]) ?? undefined },
+    sessionPersistence: {
+      inspect: async () => {
+        if (options.persistedRootHeader === undefined) throw new Error('no persisted root')
+        return { meta: { cwd: options.persistedRootHeader.cwd, parentSession: options.persistedRootHeader.parentSession }, events: [] }
+      },
+    },
   } as unknown as Context
   const snapshot = vi.fn(async () => ({ team }))
   const runtime = {
@@ -235,6 +246,39 @@ describe('R2 authoritative target binding and wire contract', () => {
     await expect(rpcHarness({ captain: 'cold-captain', coldRoot: true, managedCaptains: [] }).service.invoke({
       schemaVersion: 1, method: 'binding', target: { rootSessionId: ROOT.id },
     })).rejects.toMatchObject({ code: 'SWARM_HOST_BINDING_NOT_FOUND' })
+  })
+
+  it('admits a fully cold root reconstructed from official persistence when the live Agent registry is empty', async () => {
+    // The root Agent has been removed from the live registry (agents.get => undefined), but the
+    // official persisted Session still exists and carries the durable cwd / parent lineage. R2
+    // reconstructs the read-only root view from persistence and re-proves the Captain-owned Team
+    // via the runtime managed mapping — no fabricated local Agent or live-store state.
+    const harness = rpcHarness({
+      captain: 'captain-session',
+      managedCaptains: ['captain-session'],
+      fullyColdRoot: true,
+      persistedRootHeader: { cwd: 'D:\\workspace' },
+    })
+    const binding = await harness.service.invoke({
+      schemaVersion: 1, method: 'binding', target: { rootSessionId: ROOT.id },
+    })
+    expect(binding).toMatchObject({ binding: { rootSessionId: ROOT.id, teamId: 'team-r2' } })
+    expect(harness.lastReadInput()).toMatchObject({ teamId: 'team-r2', captainSessionId: 'captain-session' })
+    const snapshot = await harness.service.invoke({
+      schemaVersion: 1, method: 'snapshot', target: { rootSessionId: ROOT.id },
+    })
+    expect(snapshot).toMatchObject({ team: { id: 'team-r2' } })
+    await expect(harness.service.invoke({
+      schemaVersion: 1, method: 'page', target: { rootSessionId: ROOT.id }, page: { kind: 'tasks', offset: 0, limit: 10 },
+    })).resolves.toBeDefined()
+    // A fully cold root with no managed Captain mapping stays an explicit NOT_FOUND (never guessed).
+    await expect(rpcHarness({ captain: 'cold-captain', fullyColdRoot: true, managedCaptains: [], persistedRootHeader: { cwd: 'D:\\workspace' } }).service.invoke({
+      schemaVersion: 1, method: 'binding', target: { rootSessionId: ROOT.id },
+    })).rejects.toMatchObject({ code: 'SWARM_HOST_BINDING_NOT_FOUND' })
+    // No persisted Session at all => the target is still TARGET_NOT_LIVE.
+    await expect(rpcHarness({ captain: 'captain-session', fullyColdRoot: true, managedCaptains: ['captain-session'] }).service.invoke({
+      schemaVersion: 1, method: 'binding', target: { rootSessionId: ROOT.id },
+    })).rejects.toMatchObject({ code: 'SWARM_RPC_TARGET_NOT_LIVE' })
   })
 
   it('keeps cold-captain ambiguity explicit and rejects unowned Captain bindings', async () => {
