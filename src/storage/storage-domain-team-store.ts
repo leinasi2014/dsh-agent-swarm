@@ -147,6 +147,20 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
     return teams
   }
 
+  /**
+   * The whole Team record minus the non-transition budget face and the
+   * per-session usage cursors. A change confined to those two fields is not a
+   * board transition (see team-domain-budget.ts: "budget configuration is not
+   * a board transition"): it must still reach durability and keep its notify
+   * path, but it must not advance the control-plane revision, so the
+   * captain's `expected_revision` compare-and-swap reads stay valid across
+   * usage/budget writes instead of going stale every 2 seconds.
+   */
+  private static boardPayload(state: TeamState): object {
+    const { budget: _budget, usageCursors: _usageCursors, ...board } = state
+    return board
+  }
+
   async transact<T>(scope: TeamScope, teamId: TeamId, operation: TeamTransaction<T>): Promise<T> {
     if (this.storeClosed) throw closed()
     return await withLock(this.teamLocks, teamId, async () => {
@@ -155,7 +169,16 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
       const draft = structuredClone(current)
       const result = await operation(draft)
       if (isDeepStrictEqual(draft, current)) return result
-      const next: TeamState = { ...draft, revision: current.revision + 1, updatedAt: this.now() }
+      const boardChanged = !isDeepStrictEqual(
+        StorageDomainTeamStore.boardPayload(draft),
+        StorageDomainTeamStore.boardPayload(current),
+      )
+      // Non-transition writes (budget limits / per-session usage cursors)
+      // persist durability and notifications but keep the current revision;
+      // genuine board transitions still advance the revision.
+      const next: TeamState = boardChanged
+        ? { ...draft, revision: current.revision + 1, updatedAt: this.now() }
+        : { ...draft }
       await this.teams.put(teamId, this.envelope(scope, next))
       this.notify(teamId)
       return result
