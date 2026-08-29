@@ -242,6 +242,9 @@ export interface TeamState {
   readonly captainSessionId: string
   readonly phase: 'active' | 'archived'
   readonly members: TeamMember[]
+  /** Canonical bounded public goal (schema v2, Captain-declared). Absence = explicit
+   *  `not_generated` on the read; presence is always the validated canonical form. */
+  readonly publicGoal?: string
   /** Captain self-declared identity profile (schema v2). Presence = `generated`,
    *  absence = honest `not_generated`; same code-point/allowlist rules as members. */
   readonly captainProfile?: TeamMemberIdentityProfile

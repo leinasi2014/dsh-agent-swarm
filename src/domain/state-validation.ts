@@ -1,6 +1,6 @@
 import { TeamDomainError } from './error.js'
 import { assertTaskGraph } from './graph.js'
-import { CAPTAIN_ANNOUNCEMENT_ID_RE, isSafePixelAvatarSvg, MAX_CAPTAIN_ANNOUNCEMENTS, MAX_CAPTAIN_ANNOUNCEMENT_TEXT } from './identity-profile.js'
+import { CAPTAIN_ANNOUNCEMENT_ID_RE, isSafePixelAvatarSvg, MAX_CAPTAIN_ANNOUNCEMENTS, MAX_CAPTAIN_ANNOUNCEMENT_TEXT, MAX_PUBLIC_GOAL } from './identity-profile.js'
 import type { TeamState } from './types.js'
 
 const TASK_STATUSES = new Set(['pending', 'in_progress', 'submitted', 'verifying', 'completed', 'failed', 'cancelled'])
@@ -73,6 +73,11 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
   integer(team.nextMemoryNumber, path, 'nextMemoryNumber', 1)
   integer(team.createdAt, path, 'createdAt')
   integer(team.updatedAt, path, 'updatedAt')
+
+  if (team.publicGoal !== undefined) {
+    const goal = codePointText(team.publicGoal, MAX_PUBLIC_GOAL, path, 'publicGoal')
+    if (goal !== goal.trim()) corrupt(path, 'publicGoal must be canonical (trimmed)')
+  }
 
   const members = list(team.members, path, 'members').map((raw, index) => {
     const member = record(raw, path, `members[${index}]`)

@@ -18,6 +18,7 @@ import {
   registerPublishAnnouncementTool,
   registerRemoveMemberTool,
   registerSetCaptainProfileTool,
+  registerSetPublicGoalTool,
 } from './tools/team-lifecycle.js'
 import {
   registerClaimTaskTool,
@@ -38,6 +39,7 @@ export function registerAgentSwarmTools(ctx: Context, runtime: AgentSwarmRuntime
   registerAddMemberTool(ctx, runtime)
   registerSetCaptainProfileTool(ctx, runtime)
   registerPublishAnnouncementTool(ctx, runtime)
+  registerSetPublicGoalTool(ctx, runtime)
   registerCreateTaskTool(ctx, runtime)
   registerRemoveMemberTool(ctx, runtime)
   registerArchiveTool(ctx, runtime)

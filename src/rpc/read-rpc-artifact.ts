@@ -9,7 +9,7 @@ import {
 } from './read-rpc-contract.js'
 
 export const SWARM_READ_RPC_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
-export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '56949c4b85c83f4c30cc84ae3bb8f9213bcadc3bc1601f3c8becda2fdf26dd99' as const
+export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '585e5d13fdc81e9fc4aebbf497184d6ecc4047165671f102dcbf623fb801265c' as const
 
 const boundedString = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength, pattern: '\\S' })
 /** Member role is authoritative free-text (never truncated by the reader); the
@@ -58,9 +58,23 @@ const endpointRef = {
     },
   },
 }
+const teamGoal = {
+  oneOf: [
+    {
+      type: 'object', additionalProperties: false,
+      required: ['state', 'text'],
+      properties: { state: { const: 'generated' }, text: boundedString(4096) },
+    },
+    {
+      type: 'object', additionalProperties: false,
+      required: ['state', 'reason'],
+      properties: { state: { const: 'not_generated' }, reason: { const: 'goal_not_set' } },
+    },
+  ],
+}
 const teamDescriptor = {
   type: 'object', additionalProperties: false,
-  required: ['teamId', 'name', 'phase', 'captainSessionId', 'avatar', 'identityCard', 'endpoints'],
+  required: ['teamId', 'name', 'phase', 'captainSessionId', 'avatar', 'identityCard', 'goal', 'endpoints'],
   properties: {
     teamId: boundedString(128), name: boundedString(128), phase: { enum: ['active', 'archived'] },
     captainSessionId: boundedString(256),
@@ -68,6 +82,7 @@ const teamDescriptor = {
     profession: boundedString(256),
     personality: boundedString(1024),
     avatar: assetStatus, identityCard: assetStatus,
+    goal: teamGoal,
     endpoints: {
       type: 'object', additionalProperties: false,
       required: ['members', 'announcements', 'diagnostics'],
@@ -417,6 +432,7 @@ export const SWARM_READ_RPC_FIXTURES_V1 = deepFreezeJson({
         displayName: 'Fixture Captain', profession: 'Coordinator', personality: 'Steady',
         avatar: { state: 'generated', svg: '<svg viewBox="0 0 16 16"><rect x="0" y="0" width="8" height="8" fill="#2a3"/></svg>' },
         identityCard: { state: 'generated' },
+        goal: { state: 'generated', text: 'Deliver the Team UI.' },
         endpoints: {
           members: { method: 'captainMembers', target: { rootSessionId: 'session-fixture', teamId: 'team-fixture' } },
           announcements: { method: 'captainAnnouncements', target: { rootSessionId: 'session-fixture', teamId: 'team-fixture' } },
@@ -558,6 +574,24 @@ function assertTeamEndpoints(team: Record<string, unknown>, bindingRootSessionId
   }
 }
 
+/** Public-goal projection semantics: `generated` requires non-empty `text`; `not_generated`
+ *  requires exactly reason `goal_not_set` and no `text`. */
+function assertGoalSemantics(team: Record<string, unknown>): void {
+  const goal = team.goal as Record<string, unknown> | undefined
+  if (goal === undefined) return
+  if (goal.state === 'generated') {
+    if (typeof goal.text !== 'string' || goal.text === '' || goal.text !== goal.text.trim()) {
+      throw new Error('Swarm RPC Team goal generated must carry canonical non-empty text')
+    }
+  } else if (goal.state === 'not_generated') {
+    if (goal.text !== undefined || goal.reason !== 'goal_not_set') {
+      throw new Error('Swarm RPC Team goal not_generated must carry reason goal_not_set and no text')
+    }
+  } else {
+    throw new Error('Swarm RPC Team goal state must be generated or not_generated')
+  }
+}
+
 function assertResultSemantics(method: string, value: Record<string, unknown>): void {
   if (method === 'capabilities') {
     const expected = [
@@ -585,6 +619,7 @@ function assertResultSemantics(method: string, value: Record<string, unknown>): 
       const row = team as Record<string, unknown>
       assertAvatarSemantics(row, 'Team')
       assertIdentityCardSemantics(row, 'Team')
+      assertGoalSemantics(row)
       assertTeamEndpoints(row, bindingRootSessionId)
     }
     return

@@ -76,6 +76,7 @@ const teams = {
     teamId: 'team-1', name: 'Alpha', phase: 'active', captainSessionId: 'root-1',
     avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
     identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
+    goal: { state: 'not_generated', reason: 'goal_not_set' },
     endpoints: {
       members: { method: 'captainMembers', target: { rootSessionId: 'root-1', teamId: 'team-1' } },
       announcements: { method: 'captainAnnouncements', target: { rootSessionId: 'root-1', teamId: 'team-1' } },

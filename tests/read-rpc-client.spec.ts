@@ -233,6 +233,7 @@ describe('R2 browser client', () => {
         teamId: 'team-t2', name: 'Second Team', phase: 'active', captainSessionId: 'captain-alpha',
         avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
         identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
+        goal: { state: 'not_generated', reason: 'goal_not_set' },
         endpoints: {
           members: { method: 'captainMembers', target: { rootSessionId: rootSessionIdForTarget, teamId: 'team-t2' } },
           announcements: { method: 'captainAnnouncements', target: { rootSessionId: rootSessionIdForTarget, teamId: 'team-t2' } },

@@ -127,6 +127,16 @@ export class TeamDomain implements TeamDomainPort {
     return await roster.publishAnnouncement(this.deps, scope, teamId, captainSessionId, expectedRevision, text)
   }
 
+  async setPublicGoal(
+    scope: TeamScope,
+    teamId: TeamId,
+    captainSessionId: string,
+    expectedRevision: number,
+    text: string,
+  ): Promise<TeamState> {
+    return await roster.setPublicGoal(this.deps, scope, teamId, captainSessionId, expectedRevision, text)
+  }
+
   async settleMember(
     scope: TeamScope,
     teamId: TeamId,

@@ -104,6 +104,8 @@ export interface SwarmReadTeamV1 {
   readonly avatar: SwarmReadAssetStatusV1
   /** Captain identity card projection: `generated` with the profile fields, or honest `not_generated`. */
   readonly identityCard: SwarmReadAssetStatusV1
+  /** Public goal projection: `generated` with the canonical text, or honest `not_generated`. */
+  readonly goal: { readonly state: 'generated'; readonly text: string } | { readonly state: 'not_generated'; readonly reason: 'goal_not_set' }
   /** Captain-scoped read entry points this Team exposes (members / announcements / diagnostics). */
   readonly endpoints: {
     readonly members: SwarmReadCaptainEndpointRefV1

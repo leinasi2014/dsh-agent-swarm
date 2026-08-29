@@ -188,6 +188,29 @@ export function registerPublishAnnouncementTool(ctx: Context, runtime: AgentSwar
   }), 'publish-announcement tool')
 }
 
+/** `agent_swarm_set_public_goal`. */
+export function registerSetPublicGoalTool(ctx: Context, runtime: AgentSwarmRuntime): void {
+  register(ctx, defineTool({
+    name: 'agent_swarm_set_public_goal',
+    description: 'Captain-only. Set this Team\'s public goal (canonical bounded text, at most 4096 code points) with an expected_revision compare-and-swap. Pass the Team\'s current revision (see agent_swarm_status); a concurrent mutation fails with TEAM_REVISION_CONFLICT. Absent from the read as not_generated until set.',
+    parameters: {
+      expected_revision: { type: 'number', required: true, description: 'The exact current Team revision; fails with TEAM_REVISION_CONFLICT if it changed.' },
+      text: { type: 'string', required: true, description: 'Public goal text (canonical, at most 4096 code points).' },
+    },
+    output: {
+      schema: {
+        type: 'object', additionalProperties: false,
+        properties: { revision: { type: 'number', required: true } },
+      },
+      render: (_args, value) => [{ type: 'text', text: `Set public goal (revision ${value.revision}).` }],
+    },
+    async execute(args, exec) {
+      const team = await runtime.setPublicGoal(exec, args.expected_revision, args.text)
+      return { revision: team.revision }
+    },
+  }), 'set-public-goal tool')
+}
+
 /** `agent_swarm_remove_member`. */
 export function registerRemoveMemberTool(ctx: Context, runtime: AgentSwarmRuntime): void {
   register(ctx, defineTool({

@@ -211,8 +211,9 @@ const teamFields = {
     captainSessionId: sessionId,
     phase: z.enum(['active', 'archived']),
     members: z.array(memberSchema),
-    // Captain self-declared profile + public announcements (schema v2 additive;
-    // absent on pre-feature records so they parse byte-identical).
+    // Captain self-declared profile + public announcements + public goal
+    // (schema v2 additive; absent on pre-feature records so they parse byte-identical).
+    publicGoal: codePointCapped(4096, 'publicGoal').refine(v => v === v.trim(), { message: 'publicGoal must be canonical (trimmed)' }).optional(),
     captainProfile: captainProfileSchema.optional(),
     announcements: announcementsSchema().optional(),
     tasks: z.array(taskSchema),

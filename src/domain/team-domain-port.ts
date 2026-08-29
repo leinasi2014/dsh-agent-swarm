@@ -168,6 +168,14 @@ export interface TeamDomainPort {
     expectedRevision: number,
     text: string,
   ): Promise<{ team: TeamState; announcement: TeamAnnouncement }>
+  /** Captain-only: set the Team's public goal (canonical bounded text; expected_revision CAS). */
+  setPublicGoal(
+    scope: TeamScope,
+    teamId: TeamId,
+    captainSessionId: string,
+    expectedRevision: number,
+    text: string,
+  ): Promise<TeamState>
   settleMember(
     scope: TeamScope,
     teamId: TeamId,

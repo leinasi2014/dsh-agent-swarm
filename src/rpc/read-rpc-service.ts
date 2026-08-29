@@ -27,6 +27,7 @@ import {
   type SwarmReadTargetHint,
   type SwarmReadTeamsRequest,
   type SwarmReadTeamsV1,
+  type SwarmReadTeamV1,
   type SwarmReadCaptainSectionMethod,
   type SwarmReadCaptainSectionRequest,
   type SwarmReadCaptainMembersV1,
@@ -149,13 +150,16 @@ export class AgentSwarmReadRpcService {
     const resolved = await this.resolveRootOnly(request.target.rootSessionId)
     const projection = await this.deps.ctx.agents.withInitiator(resolved.root, () => this.deps.hostRead.listTeams(resolved.scope))
     // Enrich each selector row with the authoritative Team aggregate's real
-    // Captain identity profile (never a copied or second state).
+    // Captain identity profile and public goal (never a copied or second state).
     const aggregates = await this.deps.runtime.listTeamAggregates(resolved.scope)
     const byId = new Map(aggregates.map(team => [team.id, team]))
     return {
       schemaVersion: 1,
       binding: { rootSessionId: resolved.root.id },
-      teams: projection.teams.map(team => teamDescriptorOf(resolved.root.id, team, byId.get(TeamId(team.teamId))?.captainProfile)),
+      teams: projection.teams.map(team => {
+        const aggregate = byId.get(TeamId(team.teamId))
+        return teamDescriptorOf(resolved.root.id, team, aggregate?.captainProfile, aggregate?.publicGoal)
+      }),
       observedAt: projection.observedAt,
       complete: projection.complete,
     }
@@ -627,15 +631,18 @@ function isCaptainSectionMethod(method: string): method is SwarmReadCaptainSecti
 }
 
 /** Build one first-level Team descriptor from the authoritative host projection row, enriched with
- *  the Team's real Captain identity profile when present (avatar/identity card re-allowlisted at read
- *  time, honest `not_generated` otherwise — never a fabricated asset). */
-function teamDescriptorOf(rootSessionId: string, team: { teamId: string; name: string; phase: 'active' | 'archived'; captainSessionId: string }, captain?: TeamMemberIdentityProfile) {
+ *  the Team's real Captain identity profile and public goal when present (avatar/identity card
+ *  re-allowlisted at read time, honest `not_generated`/`goal_not_set` otherwise — never fabricated). */
+function teamDescriptorOf(rootSessionId: string, team: { teamId: string; name: string; phase: 'active' | 'archived'; captainSessionId: string }, captain?: TeamMemberIdentityProfile, publicGoal?: string) {
   const avatar: SwarmReadAssetStatusV1 = captain?.pixelAvatarSvg !== undefined && isSafePixelAvatarSvg(captain.pixelAvatarSvg)
     ? { state: 'generated', svg: captain.pixelAvatarSvg }
     : { state: 'not_generated', reason: 'avatar_backend_not_implemented' }
   const identityCard: SwarmReadAssetStatusV1 = captain?.displayName !== undefined || captain?.profession !== undefined || captain?.personality !== undefined
     ? { state: 'generated' }
     : { state: 'not_generated', reason: 'identity_backend_not_implemented' }
+  const goal: SwarmReadTeamV1['goal'] = publicGoal !== undefined
+    ? { state: 'generated', text: publicGoal }
+    : { state: 'not_generated', reason: 'goal_not_set' }
   const ref = (method: SwarmReadCaptainSectionMethod) => ({ method, target: { rootSessionId, teamId: team.teamId } })
   return {
     teamId: team.teamId,
@@ -647,6 +654,7 @@ function teamDescriptorOf(rootSessionId: string, team: { teamId: string; name: s
     ...(captain?.personality === undefined ? {} : { personality: captain.personality }),
     avatar,
     identityCard,
+    goal,
     endpoints: {
       members: ref('captainMembers'),
       announcements: ref('captainAnnouncements'),

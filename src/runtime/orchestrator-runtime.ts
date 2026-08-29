@@ -286,6 +286,14 @@ export class AgentSwarmRuntime extends Service {
     return await this.domain.publishAnnouncement(scope, membership.team.id, captain.id, expectedRevision, text)
   }
 
+  /** Captain-only: set this Team's public goal (canonical bounded text, expected_revision CAS). */
+  async setPublicGoal(exec: ToolExecutionAuthority, expectedRevision: number, text: string): Promise<TeamState> {
+    await this.ensureReady(); this.assertOpen()
+    const captain = requireAgent(exec), scope = this.scopeOf(captain)
+    const membership = await this.domain.requireMembership(scope, captain.id)
+    return await this.domain.setPublicGoal(scope, membership.team.id, captain.id, expectedRevision, text)
+  }
+
   async createTask(exec: ToolExecutionAuthority, input: RuntimeCreateTaskInput): Promise<TeamTask> {
     await this.ensureReady(); this.assertOpen(); this.assertConfiguredProviders()
     const actor = requireAgent(exec), scope = this.scopeOf(actor)

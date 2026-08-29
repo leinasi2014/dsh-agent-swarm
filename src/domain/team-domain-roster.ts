@@ -29,6 +29,7 @@ import {
   MAX_CAPTAIN_ANNOUNCEMENTS,
   normalizeAnnouncementText,
   normalizeMemberIdentity,
+  normalizePublicGoal,
 } from './identity-profile.js'
 
 export async function createTeam(
@@ -437,4 +438,31 @@ export async function publishAnnouncement(
     committedAnnouncement = announcement
   })
   return { team: structuredClone(committed), announcement: structuredClone(committedAnnouncement) }
+}
+
+/**
+ * Captain-only: set the Team's public goal with an `expected_revision`
+ * compare-and-swap. Text is canonical (trimmed), non-empty and bounded before
+ * it commits; the goal is durable and reappears on restart.
+ */
+export async function setPublicGoal(
+  deps: TeamDomainDeps,
+  scope: TeamScope,
+  teamId: TeamId,
+  captainSessionId: string,
+  expectedRevision: number,
+  text: string,
+): Promise<TeamState> {
+  expectDomain(Number.isSafeInteger(expectedRevision) && expectedRevision >= 1, 'expected revision is invalid', 'TEAM_INPUT_INVALID')
+  const goal = normalizePublicGoal(text)
+  let committed!: TeamState
+  await deps.store.transact(scope, teamId, team => {
+    const authority = actorMembership(team, captainSessionId)
+    expectDomain(authority.role === 'captain', 'only the captain can set the public goal', 'TEAM_CAPTAIN_REQUIRED')
+    expectDomain(team.revision === expectedRevision, `team revision conflict: expected ${expectedRevision}`, 'TEAM_REVISION_CONFLICT')
+    const timestamp = deps.now()
+    Object.assign(team, { publicGoal: goal, revision: team.revision + 1, updatedAt: timestamp })
+    committed = team
+  })
+  return structuredClone(committed)
 }

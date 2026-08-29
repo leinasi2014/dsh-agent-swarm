@@ -250,3 +250,18 @@ export function normalizeAnnouncementText(raw: string): string {
   }
   return trimmed
 }
+
+/** Bounded public-goal text (code points), matching admission. */
+export const MAX_PUBLIC_GOAL = 4096
+
+/** Normalize the Captain-set public goal: canonical (trimmed), non-empty, bounded. */
+export function normalizePublicGoal(raw: string): string {
+  const trimmed = raw.trim()
+  if (trimmed === '') {
+    throw new TeamDomainError('public goal must be non-empty', 'TEAM_PUBLIC_GOAL_INVALID')
+  }
+  if ([...trimmed].length > MAX_PUBLIC_GOAL) {
+    throw new TeamDomainError(`public goal exceeds ${MAX_PUBLIC_GOAL} code points`, 'TEAM_PUBLIC_GOAL_INVALID')
+  }
+  return trimmed
+}
