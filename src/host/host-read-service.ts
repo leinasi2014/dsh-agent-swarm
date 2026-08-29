@@ -53,6 +53,8 @@ export class AgentSwarmHostReadService {
       const snapshot = await this.readBoundSnapshot(initialScope, teamId, root.id)
       const interactions = this.deps.overlay.list(initialScope, snapshot.team.id)
       this.assertBindingStillLive(root, initialScope)
+      // projector.binding.rootSessionId is the resolved dedicated Captain Session id (root of this read),
+      // never the system Main Brain / owner main Chat; the captain owns the Team the UI reflects.
       return project(snapshot, interactions, root.id, normalized.afterCursor, this.observedAt())
     })
   }

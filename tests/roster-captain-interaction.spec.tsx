@@ -156,8 +156,9 @@ describe('roster/Captain interaction slice', () => {
     // The Captain row is unambiguous: it is not a real member row and never claims a member identity.
     expect(captain.hasAttribute('data-swarm-member-name')).toBe(false)
     expect(captain.type).toBe('button')
-    // It carries the stable circular Captain avatar (no fabricated identity) and the two-level marker.
-    expect(captain.querySelector('.swarm-team-workspace__avatar')?.textContent).toBe('C')
+    // It carries the deterministic initial avatar derived from the technical Captain label
+    // (memberRosterInitial("Fixture Team Captain") → "F"), never a fabricated identity/profile.
+    expect(captain.querySelector('.swarm-team-workspace__avatar')?.textContent).toBe('F')
     expect(captain.title).toBe(t('captainMainChatTitle'))
     expect(captain.textContent).toContain(t('captainCurrent', { team: 'Fixture Team' }))
     expect(captain.querySelector('.swarm-team-workspace__captain-badge')?.textContent).toBe(t('captainRole'))

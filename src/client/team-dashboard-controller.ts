@@ -114,7 +114,9 @@ export class TeamDashboardController {
     this.scheduleLoad(this.state.targetSessionId, 0, true)
   }
 
-  /** Re-prove the exact Host binding, then delegate navigation to the official Session service. */
+  /** Re-prove the exact Host binding, then delegate navigation to the official Session service.
+   *  binding.rootSessionId is the host-resolved dedicated Captain Session id (the Team root of this
+   *  read), not the system Main Brain / owner main Chat. */
   async openCaptainChat(openOfficialSession: (rootSessionId: string) => void): Promise<void> {
     this.assertLive()
     const current = this.state

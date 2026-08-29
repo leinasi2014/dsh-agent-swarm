@@ -61,6 +61,15 @@ export const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace__management-entry { display:flex; align-items:center; justify-content:space-between; gap:8px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__management { display:grid; gap:12px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__management-head { display:flex; align-items:center; justify-content:space-between; gap:12px; min-width:0; }
+/* Identity-incomplete marker: no dossier backend yet, so the deterministic initial avatar stands in and
+   the technical name is shown with an explicit "profile incomplete" label. */
+[data-swarm-team-dashboard] .swarm-team-workspace__profile-incomplete { display:inline-flex; align-items:center; gap:4px; min-width:0; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--dsw-alias-label-secondary); font-size:10px; }
+/* Roster rows stay 40px tall with the identity name/role on a single ellipsis line; profile fields like
+   personality only ever appear in the member detail, never on the 390px first screen. */
+[data-swarm-team-dashboard] [data-swarm-member-rows] button.swarm-team-workspace__row, [data-swarm-team-dashboard] .swarm-team-workspace__roster > button { min-block-size:40px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__member-identity strong, [data-swarm-team-dashboard] .swarm-team-workspace__member-identity { min-width:0; max-width:100%; }
+/* Narrow (single-column) layout keeps every fold default-closed so the roster stays the only first-screen content. */
+@media (max-width: 430px) { [data-swarm-team-dashboard] .swarm-team-workspace__roster .swarm-team-workspace__task-assignee, [data-swarm-team-dashboard] .swarm-team-workspace__roster small { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; } }
 /* Narrow viewports: the official details track can overflow the visible viewport (~813px, member buttons land at x≈912), so the Team panel escapes the track and overlays the viewport. z-index 20 mirrors the official shell overlay layer constant; wide viewports never hit this media query and keep the docked details fill. The cap covers the official details auto-close threshold (columns.ts: SIDEBAR_COLLAPSED 56 + DETAILS_MIN 300 + CENTER_MIN 640 = 996px), so no 961–995px dead band remains where the panel would be zeroed and clipped. */
 @media (max-width: 995.98px) { [data-swarm-team-dashboard][data-swarm-team-panel] { position:fixed; inset:0; z-index:20; } }
 `
@@ -218,19 +227,23 @@ function ManagementEntry({ onOpen, t }: { readonly onOpen: () => void; readonly 
   return <button className="swarm-team-workspace__row swarm-team-workspace__management-entry" type="button" data-swarm-management-entry onClick={onOpen} title={t('openPublicBoard')}><span className="swarm-team-workspace__row-main"><span className="swarm-team-workspace__truncate">{t('publicBoard')}</span><span className="swarm-team-workspace__badge">{t('manage')}</span></span></button>
 }
 
-/** The management/diagnostics surface is separate from the roster sidebar: it only
- *  projects the real Host read contract, degrading missing write/read capabilities to
- *  explicit `unavailable` (goal/announcements have no exposed backend source). */
+/** The management/diagnostics surface is separate from the roster sidebar. It is a three-layer
+ *  projection of the real Host read contract only:
+ *    1) identity/onboarding state (no dossier backend → profiles are explicitly incomplete),
+ *    2) real Team data (goal + announcements degrade to `unavailable`; budget & capabilities fold),
+ *    3) folded technical diagnostics.
+ *  The sidebar's first screen never shows these internal ledger fields. */
 function ManagementView({ data, number, onBack, t }: { readonly data: SwarmHostReadProjectionV1; readonly number: Intl.NumberFormat; readonly onBack: () => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
   const headingRef = useRef<HTMLHeadingElement>(null)
   useLayoutEffect(() => { headingRef.current?.focus() }, [])
   return <div className="swarm-team-workspace__management" data-swarm-management-view>
     <div className="swarm-team-workspace__management-head"><h3 className="swarm-team-workspace__column-title" ref={headingRef} tabIndex={-1}>{t('managementTitle')}</h3><Button size="sm" variant="ghost" onClick={onBack}>{t('managementBack')}</Button></div>
     <p className="swarm-team-workspace__muted">{t('managementDescription')}</p>
+    <section className="swarm-team-workspace__unavailable-card" data-swarm-identity-incomplete><strong>{t('identityStatus')}</strong><p className="swarm-team-workspace__muted">{t('profileIncomplete')}</p></section>
     <section className="swarm-team-workspace__unavailable-card" data-swarm-goal-unavailable><strong>{t('goal')}</strong><p className="swarm-team-workspace__muted">{t('goalUnavailable')}</p></section>
     <section className="swarm-team-workspace__unavailable-card" data-swarm-announcement-unavailable><strong>{t('announcements')}</strong><p className="swarm-team-workspace__muted">{t('announcementsUnavailable')}</p></section>
     <details className="swarm-team-workspace__collapsible"><summary>{t('writeCapabilities')}</summary><p className="swarm-team-workspace__muted">{t('writeUnavailable')}</p><CapabilityRows capabilities={data.capabilities} t={t} /></details>
-    <BudgetStats budget={data.budget} number={number} t={t} />
+    <details className="swarm-team-workspace__collapsible"><summary>{t('budget')}</summary><BudgetStats budget={data.budget} number={number} t={t} /></details>
     <Diagnostics data={data} number={number} t={t} />
   </div>
 }
@@ -277,7 +290,7 @@ function CapabilityRows({ capabilities, t }: { readonly capabilities: SwarmHostR
 
 function CaptainRow({ busy, onMainChat, teamName, t }: { readonly busy: boolean; readonly onMainChat: () => void; readonly teamName: string; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
   const label = t('captainCurrent', { team: teamName })
-  return <button className="swarm-team-workspace__row" type="button" disabled={busy} onClick={onMainChat} title={t('captainMainChatTitle')}><span className="swarm-team-workspace__row-main"><span className="swarm-team-workspace__member-identity"><span className="swarm-team-workspace__avatar" aria-hidden="true">C</span><strong className="swarm-team-workspace__truncate" title={label}>{label}</strong></span><span className="swarm-team-workspace__captain-badge">{t('captainRole')}</span></span></button>
+  return <button className="swarm-team-workspace__row" type="button" disabled={busy} onClick={onMainChat} title={t('captainMainChatTitle')}><span className="swarm-team-workspace__row-main"><span className="swarm-team-workspace__member-identity"><span className="swarm-team-workspace__avatar" aria-hidden="true">{memberRosterInitial(label)}</span><strong className="swarm-team-workspace__truncate" title={label}>{label}</strong></span><span className="swarm-team-workspace__captain-badge">{t('captainRole')}</span></span><span className="swarm-team-workspace__row-main"><span className="swarm-team-workspace__profile-incomplete" data-swarm-profile-incomplete>{t('profileIncomplete')}</span></span></button>
 }
 
 function Metric({ label, value }: { readonly label: string; readonly value: string }) { return <div className="swarm-team-workspace__metric"><strong>{value}</strong><span className="swarm-team-workspace__muted">{label}</span></div> }
@@ -290,7 +303,7 @@ function MemberRows({ data, onSelect, onTrigger, t }: { readonly data: SwarmHost
     const taskText = isCurrentMemberWork(activity) ? `${t('memberTask')}: ${task?.subject ?? t('hostUnavailable')} · ${t('memberAttempt')}: ${enumLabel(attempt!.phase, t)}` : activity.attempt === undefined ? t('memberNone') : t('memberRecentAttempt', { phase: enumLabel(activity.attempt.phase, t) })
     const lifecycleText = `${t('memberLifecycle')}: ${enumLabel(member.phase, t)}`
     const activityText = memberActivityLabel(activity, t)
-    return <li key={member.name}><button className="swarm-team-workspace__row" data-swarm-member-name={member.name} data-swarm-member-role={member.role} data-swarm-member-lifecycle={member.phase} data-swarm-member-activity={activity.state} type="button" ref={element => { onTrigger(member.name, element) }} onClick={() => { onSelect(member.name) }}><span className="swarm-team-workspace__row-main"><span className="swarm-team-workspace__member-identity"><span className="swarm-team-workspace__avatar" aria-hidden="true">{memberRosterInitial(member.name)}</span><strong className="swarm-team-workspace__truncate" title={member.name}>{member.name}</strong></span><span className="swarm-team-workspace__muted swarm-team-workspace__member-activity" data-swarm-member-visible-activity={activityText} title={activityText}><StateDot state={memberActivityDot(activity.state)} />{activityText}</span></span><small className="swarm-team-workspace__muted swarm-team-workspace__task-assignee" data-swarm-member-visible-lifecycle={lifecycleText} title={lifecycleText}>{lifecycleText}</small><small className="swarm-team-workspace__muted swarm-team-workspace__truncate" title={member.role}>{member.role}</small><small className="swarm-team-workspace__muted swarm-team-workspace__task-assignee" title={taskText}>{taskText}</small></button></li>
+    return <li key={member.name}><button className="swarm-team-workspace__row" data-swarm-member-name={member.name} data-swarm-member-role={member.role} data-swarm-member-lifecycle={member.phase} data-swarm-member-activity={activity.state} type="button" ref={element => { onTrigger(member.name, element) }} onClick={() => { onSelect(member.name) }}><span className="swarm-team-workspace__row-main"><span className="swarm-team-workspace__member-identity"><span className="swarm-team-workspace__avatar" aria-hidden="true">{memberRosterInitial(member.name)}</span><strong className="swarm-team-workspace__truncate" title={member.name}>{member.name}</strong></span><span className="swarm-team-workspace__muted swarm-team-workspace__member-activity" data-swarm-member-visible-activity={activityText} title={activityText}><StateDot state={memberActivityDot(activity.state)} />{activityText}</span></span><small className="swarm-team-workspace__muted swarm-team-workspace__task-assignee" data-swarm-member-visible-lifecycle={lifecycleText} title={lifecycleText}>{lifecycleText}</small><small className="swarm-team-workspace__muted swarm-team-workspace__truncate" title={member.role}>{member.role}</small><span className="swarm-team-workspace__profile-incomplete" data-swarm-profile-incomplete>{t('profileIncomplete')}</span><small className="swarm-team-workspace__muted swarm-team-workspace__task-assignee" title={taskText}>{taskText}</small></button></li>
   })}</ul>
 }
 
@@ -299,7 +312,7 @@ function MemberDetail({ data, member, onBack, t }: { readonly data: SwarmHostRea
   const current = isCurrentMemberWork(activity)
   const headingRef = useRef<HTMLHeadingElement>(null)
   useLayoutEffect(() => { headingRef.current?.focus() }, [])
-  return <div><h4 className="swarm-team-workspace__column-title swarm-team-workspace__truncate" ref={headingRef} tabIndex={-1} title={member.name}>{t('memberDetailHeading', { name: member.name })}</h4><Button size="sm" variant="ghost" onClick={onBack}>{t('backToMembers')}</Button><Facts rows={[[t('memberName'), member.name], [t('memberRole'), member.role], [t('memberLifecycle'), enumLabel(member.phase, t)], [t('memberTask'), current ? activity.task?.subject ?? t('hostUnavailable') : t('memberNone')], [t('memberAttempt'), activity.attempt === undefined ? t('memberNone') : current ? enumLabel(activity.attempt.phase, t) : t('memberRecentAttempt', { phase: enumLabel(activity.attempt.phase, t) })]]} /></div>
+  return <div><h4 className="swarm-team-workspace__column-title swarm-team-workspace__truncate" ref={headingRef} tabIndex={-1} title={member.name}>{t('memberDetailHeading', { name: member.name })}</h4><Button size="sm" variant="ghost" onClick={onBack}>{t('backToMembers')}</Button><p className="swarm-team-workspace__profile-incomplete" data-swarm-profile-incomplete>{t('profileIncomplete')}</p><Facts rows={[[t('memberName'), member.name], [t('memberRole'), member.role], [t('memberLifecycle'), enumLabel(member.phase, t)], [t('profileDisplayName'), t('profileNotConfigured')], [t('profileProfession'), t('profileNotConfigured')], [t('profilePersonality'), t('profileNotConfigured')], [t('memberTask'), current ? activity.task?.subject ?? t('hostUnavailable') : t('memberNone')], [t('memberAttempt'), activity.attempt === undefined ? t('memberNone') : current ? enumLabel(activity.attempt.phase, t) : t('memberRecentAttempt', { phase: enumLabel(activity.attempt.phase, t) })]]} /></div>
 }
 
 function TaskRows({ data, onSelect, onTrigger, t }: { readonly data: SwarmHostReadProjectionV1; readonly onSelect: (id: string) => void; readonly onTrigger: (id: string, element: HTMLButtonElement | null) => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {

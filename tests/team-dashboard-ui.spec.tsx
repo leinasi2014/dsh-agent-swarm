@@ -306,9 +306,9 @@ describe('R3 native Team Details surface', () => {
       expect(document.querySelectorAll('[data-swarm-team-panel] .swarm-team-workspace__column')).toHaveLength(0)
       // Folded sections live inside the rail as default-closed details: tasks/overview/budget/capabilities (4 folded)
       // plus Diagnostics (its own flat default-closed details) as the 5th top-level details.
-      const folded = [...document.querySelectorAll('[data-swarm-team-panel] [data-swarm-team-rail] > details')]
+      const folded = [...document.querySelectorAll<HTMLDetailsElement>('[data-swarm-team-panel] [data-swarm-team-rail] > details')]
       expect(folded).toHaveLength(5)
-      expect(folded.every(detail => (detail as HTMLDetailsElement).open === false)).toBe(true)
+      expect(folded.every(detail => detail.open === false)).toBe(true)
       // Budget and capabilities fold real Host data in their own top-level details.
       expect(document.querySelector('[data-swarm-budget]')).not.toBeNull()
       expect(document.querySelector('[data-swarm-capabilities]')).not.toBeNull()
@@ -350,10 +350,11 @@ describe('R3 native Team Details surface', () => {
       const captain = document.querySelector<HTMLButtonElement>('.swarm-team-workspace__roster > button')!
       const member = document.querySelector<HTMLButtonElement>('.swarm-team-workspace__rows button')!
       expect(captain.compareDocumentPosition(member) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-      expect(captain.querySelector('.swarm-team-workspace__avatar')?.textContent).toBe('C')
+      expect(captain.querySelector('.swarm-team-workspace__avatar')?.textContent).toBe('F')
       expect(captain.textContent).toContain('Fixture Team Captain')
       expect(captain.querySelector('.swarm-team-workspace__captain-badge')?.textContent).toBe('Team Captain')
       expect(captain.textContent).not.toContain('session-fixture')
+      expect(captain.querySelector('[data-swarm-profile-incomplete]')?.textContent).toContain('Onboarding profile not completed')
       expect(member.querySelector('[aria-hidden="true"]')?.textContent).toBe('w')
       expect(member.querySelector('[data-swarm-member-visible-lifecycle]')?.textContent).toBe('Lifecycle: Active')
       expect(member.querySelector('[data-swarm-member-visible-activity]')?.textContent).toBe('Running')
@@ -389,10 +390,19 @@ describe('R3 native Team Details surface', () => {
     const view = document.querySelector<HTMLElement>('[data-swarm-management-view]')!
     expect(view).not.toBeNull()
     expect(view.textContent).toContain('Team management')
+    // Management surface is a three-layer projection: identity-incomplete state,
+    // real Team data with explicit unavailable goal/announcements and folded budget/capabilities,
+    // then folded technical diagnostics — so the sidebar first screen never shows ledger fields.
+    expect(document.querySelector('[data-swarm-management-view] [data-swarm-identity-incomplete]')?.textContent).toContain('Identity & onboarding')
+    expect(document.querySelector('[data-swarm-management-view] [data-swarm-identity-incomplete]')?.textContent).toContain('Onboarding profile not completed')
     // Write/read capabilities that the read-only Host contract does not expose degrade to explicit unavailable.
     expect(view.textContent).toContain('Write capabilities')
     expect(view.textContent).toContain('No human write path is bound to this read-only surface.')
     expect(document.querySelector('[data-swarm-management-view] [data-swarm-goal-unavailable]')).not.toBeNull()
+    expect(document.querySelector('[data-swarm-management-view] [data-swarm-announcement-unavailable]')).not.toBeNull()
+    // Real Host data (budget) folds inside its own collapsible in the management surface.
+    const budgetFold = [...document.querySelectorAll('[data-swarm-management-view] details')].find(detail => detail.querySelector('[data-swarm-budget]'))!
+    expect((budgetFold as HTMLDetailsElement).open).toBe(false)
     // Diagnostics stays a flat default-folding details inside the management surface (never nested).
     const diagnostics = document.querySelector('[data-swarm-management-view] details.swarm-team-workspace__diagnostics')!
     expect(diagnostics).not.toBeNull()
