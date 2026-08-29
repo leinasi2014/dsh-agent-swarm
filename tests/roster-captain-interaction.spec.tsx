@@ -139,11 +139,11 @@ describe('roster/Captain interaction slice', () => {
     expect(activity('broken')).toBe('Error')
     expect(dot('left')).toBe('warning')
     expect(activity('left')).toBe('Removed')
-    // name, role and current task stay intact alongside the dot.
+    // name, role and right-side derived status stay intact (task subject lives in member detail).
     const worker = document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!
     expect(worker.querySelector('strong')?.textContent).toBe('worker')
     expect(worker.getAttribute('data-swarm-member-role')).toBe('Implementation')
-    expect(worker.textContent).toContain('Ship roster slice')
+    expect(worker.textContent).toContain('Running')
   })
 
   it('marks the Captain as the sole non-member roster row, first and distinct from real members', async () => {

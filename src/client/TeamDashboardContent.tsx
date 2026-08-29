@@ -72,6 +72,24 @@ export const shellCss = `
 @media (max-width: 430px) { [data-swarm-team-dashboard] .swarm-team-workspace__roster .swarm-team-workspace__task-assignee, [data-swarm-team-dashboard] .swarm-team-workspace__roster small { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; } }
 /* Narrow viewports: the official details track can overflow the visible viewport (~813px, member buttons land at x≈912), so the Team panel escapes the track and overlays the viewport. z-index 20 mirrors the official shell overlay layer constant; wide viewports never hit this media query and keep the docked details fill. The cap covers the official details auto-close threshold (columns.ts: SIDEBAR_COLLAPSED 56 + DETAILS_MIN 300 + CENTER_MIN 640 = 996px), so no 961–995px dead band remains where the panel would be zeroed and clipped. */
 @media (max-width: 995.98px) { [data-swarm-team-dashboard][data-swarm-team-panel] { position:fixed; inset:0; z-index:20; } }
+/* ---- task-11 visual rebuild: QQ/微信群-style roster-first rail ---- */
+[data-swarm-team-dashboard] .swarm-team-workspace__rail { background:var(--dsw-alias-bg-base); padding:14px; block-size:100%; overflow:hidden; }
+[data-swarm-team-dashboard] .swarm-team-workspace__roster { min-width:0; }
+[data-swarm-team-dashboard] .swarm-team-workspace__roster .swarm-team-workspace__column-title { margin:0 2px 10px; font-size:11px; letter-spacing:.04em; color:var(--dsw-alias-label-secondary); text-transform:uppercase; }
+[data-swarm-team-dashboard] .swarm-team-workspace__members { display:grid; gap:4px; max-block-size:250px; overflow-y:auto; overflow-x:hidden; min-width:0; padding-right:2px; }
+[data-swarm-team-dashboard] [data-swarm-member-rows] { display:grid; gap:4px; margin:0; padding:0; list-style:none; }
+[data-swarm-team-dashboard] [data-swarm-member-rows] li { min-width:0; }
+[data-swarm-team-dashboard] [data-swarm-member-rows] button.swarm-team-workspace__row, [data-swarm-team-dashboard] .swarm-team-workspace__row.swarm-team-workspace__captain-hero { display:grid; grid-template-columns:40px minmax(0,1fr) auto; align-items:center; gap:10px; padding:8px; border-radius:12px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__avatar { flex:0 0 auto; inline-size:40px; block-size:40px; border-radius:50%; background:var(--dsw-alias-brand-primary); color:var(--dsw-alias-bg-base); font-size:15px; font-weight:700; }
+[data-swarm-team-dashboard] .swarm-team-workspace__member-copy { display:flex; flex-direction:column; gap:2px; min-width:0; }
+[data-swarm-team-dashboard] .swarm-team-workspace__member-copy strong { font-size:13px; font-weight:650; }
+[data-swarm-team-dashboard] .swarm-team-workspace__member-role { color:var(--dsw-alias-label-secondary); font-size:11px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__member-side { display:flex; flex-direction:column; align-items:flex-end; gap:2px; min-width:0; }
+[data-swarm-team-dashboard] .swarm-team-workspace__member-side small { color:var(--dsw-alias-label-secondary); font-size:9px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__captain-hero { grid-template-columns:48px minmax(0,1fr) auto; gap:12px; padding:10px; background:var(--dsw-alias-bg-layer-1); border-color:var(--dsw-alias-brand-primary); }
+[data-swarm-team-dashboard] .swarm-team-workspace__captain-hero .swarm-team-workspace__avatar { inline-size:48px; block-size:48px; font-size:18px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__captain-hero .swarm-team-workspace__captain-badge { background:var(--dsw-alias-bg-base); border-color:var(--dsw-alias-brand-primary); }
+@media (max-width: 430px) { [data-swarm-team-dashboard] .swarm-team-workspace__rail { width:100%; max-width:100%; margin-inline:0; block-size:100%; } [data-swarm-team-dashboard] .swarm-team-workspace__members { max-block-size:none; } }
 `
 
 /** The sole Team UI is a read-only projection in the official Details column. */
@@ -206,7 +224,7 @@ function Workspace({ data, handoffBusy, localeTag, selection, setSelection, t, o
       : <><div className="swarm-team-workspace__roster"><h3 className="swarm-team-workspace__column-title" ref={rosterHeadingRef} tabIndex={-1}>{t('members')}</h3>
         <CaptainRow busy={handoffBusy} onMainChat={onMainChat} teamName={data.team.name} t={t} />
         {missingMember === undefined ? null : <p className="swarm-team-workspace__muted swarm-team-workspace__notice" role="status">{t('memberNoLongerAvailable', { name: missingMember })}</p>}
-        {selected === undefined ? <MemberRows data={data} onSelect={selectMember} onTrigger={registerMemberTrigger} t={t} /> : <MemberDetail data={data} member={selected} onBack={() => { returnToMembers(selected.name) }} t={t} />}
+        <div className="swarm-team-workspace__members">{selected === undefined ? <MemberRows data={data} onSelect={selectMember} onTrigger={registerMemberTrigger} t={t} /> : <MemberDetail data={data} member={selected} onBack={() => { returnToMembers(selected.name) }} t={t} />}</div>
         {data.truncated.roster ? <p className="swarm-team-workspace__muted swarm-team-workspace__notice">{t('rosterTruncated', { shown: number.format(data.roster.length), total: number.format(data.totals.roster) })}</p> : null}
       </div>
       <section className="swarm-team-workspace__unavailable-card" data-swarm-goal-unavailable><strong>{t('goal')}</strong><p className="swarm-team-workspace__muted">{t('goalUnavailable')}</p></section>
@@ -290,7 +308,7 @@ function CapabilityRows({ capabilities, t }: { readonly capabilities: SwarmHostR
 
 function CaptainRow({ busy, onMainChat, teamName, t }: { readonly busy: boolean; readonly onMainChat: () => void; readonly teamName: string; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
   const label = t('captainCurrent', { team: teamName })
-  return <button className="swarm-team-workspace__row" type="button" disabled={busy} onClick={onMainChat} title={t('captainMainChatTitle')}><span className="swarm-team-workspace__row-main"><span className="swarm-team-workspace__member-identity"><span className="swarm-team-workspace__avatar" aria-hidden="true">{memberRosterInitial(label)}</span><strong className="swarm-team-workspace__truncate" title={label}>{label}</strong></span><span className="swarm-team-workspace__captain-badge">{t('captainRole')}</span></span><span className="swarm-team-workspace__row-main"><span className="swarm-team-workspace__profile-incomplete" data-swarm-profile-incomplete>{t('profileIncomplete')}</span></span></button>
+  return <button className="swarm-team-workspace__row swarm-team-workspace__captain-hero" type="button" disabled={busy} onClick={onMainChat} title={t('captainMainChatTitle')}><span className="swarm-team-workspace__avatar" aria-hidden="true">{memberRosterInitial(label)}</span><span className="swarm-team-workspace__member-copy"><strong className="swarm-team-workspace__truncate" title={label}>{label}</strong></span><span className="swarm-team-workspace__member-side"><span className="swarm-team-workspace__captain-badge">{t('captainRole')}</span><small className="swarm-team-workspace__profile-incomplete" data-swarm-profile-incomplete>{t('profileIncomplete')}</small></span></button>
 }
 
 function Metric({ label, value }: { readonly label: string; readonly value: string }) { return <div className="swarm-team-workspace__metric"><strong>{value}</strong><span className="swarm-team-workspace__muted">{label}</span></div> }
@@ -298,12 +316,9 @@ function Metric({ label, value }: { readonly label: string; readonly value: stri
 function MemberRows({ data, onSelect, onTrigger, t }: { readonly data: SwarmHostReadProjectionV1; readonly onSelect: (name: string) => void; readonly onTrigger: (name: string, element: HTMLButtonElement | null) => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
   return <ul className="swarm-team-workspace__rows" data-swarm-member-rows>{data.roster.length === 0 ? <li className="swarm-team-workspace__muted">{t('empty')}</li> : data.roster.map(member => {
     const activity = deriveMemberActivity(data, member.name, member.phase)
-    const task = activity.task
-    const attempt = activity.attempt
-    const taskText = isCurrentMemberWork(activity) ? `${t('memberTask')}: ${task?.subject ?? t('hostUnavailable')} · ${t('memberAttempt')}: ${enumLabel(attempt!.phase, t)}` : activity.attempt === undefined ? t('memberNone') : t('memberRecentAttempt', { phase: enumLabel(activity.attempt.phase, t) })
-    const lifecycleText = `${t('memberLifecycle')}: ${enumLabel(member.phase, t)}`
     const activityText = memberActivityLabel(activity, t)
-    return <li key={member.name}><button className="swarm-team-workspace__row" data-swarm-member-name={member.name} data-swarm-member-role={member.role} data-swarm-member-lifecycle={member.phase} data-swarm-member-activity={activity.state} type="button" ref={element => { onTrigger(member.name, element) }} onClick={() => { onSelect(member.name) }}><span className="swarm-team-workspace__row-main"><span className="swarm-team-workspace__member-identity"><span className="swarm-team-workspace__avatar" aria-hidden="true">{memberRosterInitial(member.name)}</span><strong className="swarm-team-workspace__truncate" title={member.name}>{member.name}</strong></span><span className="swarm-team-workspace__muted swarm-team-workspace__member-activity" data-swarm-member-visible-activity={activityText} title={activityText}><StateDot state={memberActivityDot(activity.state)} />{activityText}</span></span><small className="swarm-team-workspace__muted swarm-team-workspace__task-assignee" data-swarm-member-visible-lifecycle={lifecycleText} title={lifecycleText}>{lifecycleText}</small><small className="swarm-team-workspace__muted swarm-team-workspace__truncate" title={member.role}>{member.role}</small><span className="swarm-team-workspace__profile-incomplete" data-swarm-profile-incomplete>{t('profileIncomplete')}</span><small className="swarm-team-workspace__muted swarm-team-workspace__task-assignee" title={taskText}>{taskText}</small></button></li>
+    const lifecycleText = `${t('memberLifecycle')}: ${enumLabel(member.phase, t)}`
+    return <li key={member.name}><button className="swarm-team-workspace__row" data-swarm-member-name={member.name} data-swarm-member-role={member.role} data-swarm-member-lifecycle={member.phase} data-swarm-member-activity={activity.state} type="button" ref={element => { onTrigger(member.name, element) }} onClick={() => { onSelect(member.name) }}><span className="swarm-team-workspace__avatar" aria-hidden="true">{memberRosterInitial(member.name)}</span><span className="swarm-team-workspace__member-copy"><strong className="swarm-team-workspace__truncate" title={member.name}>{member.name}</strong><small className="swarm-team-workspace__muted swarm-team-workspace__member-role swarm-team-workspace__truncate" title={member.role}>{member.role}</small></span><span className="swarm-team-workspace__member-side"><span className="swarm-team-workspace__muted swarm-team-workspace__member-activity" data-swarm-member-visible-activity={activityText} title={activityText}><StateDot state={memberActivityDot(activity.state)} />{activityText}</span><small className="swarm-team-workspace__muted" data-swarm-member-visible-lifecycle={lifecycleText} title={lifecycleText}>{lifecycleText}</small><small className="swarm-team-workspace__profile-incomplete" data-swarm-profile-incomplete>{t('profileIncomplete')}</small></span></button></li>
   })}</ul>
 }
 
