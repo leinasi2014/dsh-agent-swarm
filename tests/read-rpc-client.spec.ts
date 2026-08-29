@@ -176,13 +176,25 @@ describe('R2 browser client', () => {
     const oneTeam = teamsBase.teams[0]!
     // Valid teams fixture passes (generated captain asset + correct endpoints).
     expect(() => assertSwarmReadRpcValue('teams', teamsBase)).not.toThrow()
+    const teamRow = (identityCard: unknown, avatar: unknown = oneTeam.avatar) => ({ ...oneTeam, avatar, identityCard })
+    const noProfileTeam = (() => {
+      const rest = { ...oneTeam } as Record<string, unknown>
+      delete rest.displayName; delete rest.profession; delete rest.personality
+      return rest
+    })()
 
-    // identityCard generated without any profile field -> reject.
-    const noProfileRest = { ...oneTeam } as Record<string, unknown>
-    delete noProfileRest.displayName
-    delete noProfileRest.profession
-    delete noProfileRest.personality
-    expect(() => assertSwarmReadRpcValue('teams', { ...teamsBase, teams: [{ ...noProfileRest, identityCard: { state: 'generated' } }] })).toThrow()
+    // identityCard linkage rejects (teams).
+    expect(() => assertSwarmReadRpcValue('teams', { ...teamsBase, teams: [{ ...noProfileTeam, avatar: oneTeam.avatar, identityCard: { state: 'generated' } }] })).toThrow() // generated no profile
+    expect(() => assertSwarmReadRpcValue('teams', { ...teamsBase, teams: [teamRow({ state: 'not_generated', reason: 'identity_backend_not_implemented' })] })).toThrow() // not_generated + profile
+    expect(() => assertSwarmReadRpcValue('teams', { ...teamsBase, teams: [teamRow({ state: 'generated', reason: 'x' })] })).toThrow() // generated + reason
+    expect(() => assertSwarmReadRpcValue('teams', { ...teamsBase, teams: [{ ...noProfileTeam, avatar: oneTeam.avatar, identityCard: { state: 'not_generated', reason: 'WRONG' } }] })).toThrow() // wrong reason
+
+    // avatar linkage rejects (teams).
+    const safeSvg = '<svg viewBox="0 0 16 16"><rect x="0" y="0" width="8" height="8" fill="#2a3"/></svg>'
+    expect(() => assertSwarmReadRpcValue('teams', { ...teamsBase, teams: [teamRow(oneTeam.identityCard, { state: 'not_generated', reason: 'avatar_backend_not_implemented', svg: safeSvg })] })).toThrow() // not_generated + svg
+    expect(() => assertSwarmReadRpcValue('teams', { ...teamsBase, teams: [teamRow(oneTeam.identityCard, { state: 'generated', svg: safeSvg, reason: 'x' })] })).toThrow() // generated + reason
+    expect(() => assertSwarmReadRpcValue('teams', { ...teamsBase, teams: [teamRow(oneTeam.identityCard, { state: 'not_generated', reason: 'WRONG' })] })).toThrow() // not_generated wrong reason
+
     // Endpoint method/target mismatch -> reject.
     expect(() => assertSwarmReadRpcValue('teams', {
       ...teamsBase,
@@ -193,16 +205,26 @@ describe('R2 browser client', () => {
       teams: [{ ...oneTeam, endpoints: { ...oneTeam.endpoints, announcements: { method: 'captainAnnouncements', target: { rootSessionId: 'someone-else', teamId: oneTeam.teamId } } } }],
     })).toThrow()
 
-    // Announcement id uniqueness and non-decreasing createdAt on the read contract.
+    // captainMembers linkage rejects (not_generated+profile / generated+reason / wrong avatar reason).
+    const membersBase = SWARM_READ_RPC_FIXTURES_V1.values.captainMembers
+    const mrow = (over: Record<string, unknown>) => ({
+      name: 'm', role: 'r', phase: 'active', createdAt: 1,
+      avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
+      identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
+      ...over,
+    })
+    expect(() => assertSwarmReadRpcValue('captainMembers', { ...membersBase, members: [mrow({ identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' }, displayName: 'p' })] })).toThrow()
+    expect(() => assertSwarmReadRpcValue('captainMembers', { ...membersBase, members: [mrow({ identityCard: { state: 'generated', reason: 'x' }, displayName: 'p' })] })).toThrow()
+    expect(() => assertSwarmReadRpcValue('captainMembers', { ...membersBase, members: [mrow({ avatar: { state: 'not_generated', reason: 'WRONG' } })] })).toThrow()
+
+    // Announcement id/uniqueness/ordering/canonical/date semantics.
     const annBase = SWARM_READ_RPC_FIXTURES_V1.values.captainAnnouncements
+    const legal = (n: number) => `ann-00000000-0000-0000-0000-${String(n).padStart(12, '0')}`
     expect(() => assertSwarmReadRpcValue('captainAnnouncements', annBase)).not.toThrow()
-    expect(() => assertSwarmReadRpcValue('captainAnnouncements', {
-      ...annBase,
-      entries: [{ id: 'ann-1', text: 'a', createdAt: 100 }, { id: 'ann-1', text: 'b', createdAt: 200 }],
-    })).toThrow()
-    expect(() => assertSwarmReadRpcValue('captainAnnouncements', {
-      ...annBase,
-      entries: [{ id: 'ann-1', text: 'a', createdAt: 200 }, { id: 'ann-2', text: 'b', createdAt: 100 }],
-    })).toThrow()
+    expect(() => assertSwarmReadRpcValue('captainAnnouncements', { ...annBase, entries: [{ id: 'ann-1', text: 'a', createdAt: 100 }] })).toThrow() // bad id
+    expect(() => assertSwarmReadRpcValue('captainAnnouncements', { ...annBase, entries: [{ id: legal(1), text: '  padded  ', createdAt: 100 }] })).toThrow() // untrimmed
+    expect(() => assertSwarmReadRpcValue('captainAnnouncements', { ...annBase, entries: [{ id: legal(1), text: 'a', createdAt: -1 }] })).toThrow() // invalid date
+    expect(() => assertSwarmReadRpcValue('captainAnnouncements', { ...annBase, entries: [{ id: legal(1), text: 'a', createdAt: 100 }, { id: legal(1), text: 'b', createdAt: 200 }] })).toThrow() // duplicate
+    expect(() => assertSwarmReadRpcValue('captainAnnouncements', { ...annBase, entries: [{ id: legal(1), text: 'a', createdAt: 200 }, { id: legal(2), text: 'b', createdAt: 100 }] })).toThrow() // non-decreasing
   })
 })

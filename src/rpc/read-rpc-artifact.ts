@@ -1,6 +1,6 @@
 /** Immutable R2 schema/fixture artifact shared by DSH and Canvas consumers. */
 import { deepFreezeJson } from '../host/frozen-json.js'
-import { isSafePixelAvatarSvg } from '../domain/identity-profile.js'
+import { CAPTAIN_ANNOUNCEMENT_ID_RE, isSafePixelAvatarSvg } from '../domain/identity-profile.js'
 import {
   SWARM_READ_RPC_ENDPOINT,
   SWARM_READ_RPC_NAMESPACE,
@@ -9,7 +9,7 @@ import {
 } from './read-rpc-contract.js'
 
 export const SWARM_READ_RPC_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
-export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = 'f276372f207f37a3cd3fd35bb876bab8928df71510573cfe184ba830086f5e84' as const
+export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '56949c4b85c83f4c30cc84ae3bb8f9213bcadc3bc1601f3c8becda2fdf26dd99' as const
 
 const boundedString = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength, pattern: '\\S' })
 /** Member role is authoritative free-text (never truncated by the reader); the
@@ -441,7 +441,7 @@ export const SWARM_READ_RPC_FIXTURES_V1 = deepFreezeJson({
     captainAnnouncements: {
       schemaVersion: 1, binding: fixtureBinding,
       state: 'available',
-      entries: [{ id: 'ann-1', text: 'Welcome to the Fixture Team.', createdAt: 1_700_000_000_050 }],
+      entries: [{ id: 'ann-00000000-0000-0000-0000-000000000001', text: 'Welcome to the Fixture Team.', createdAt: 1_700_000_000_050 }],
       observedAt: 1_700_000_000_200,
     },
     captainDiagnostics: {
@@ -488,24 +488,36 @@ export function assertSwarmReadRpcValue(method: string, value: unknown): void {
   assertResultSemantics(key, value as Record<string, unknown>)
 }
 
-/** Shared avatar safety semantics for a Team or member asset row: `generated`
- *  must carry a strictly allowlisted `svg`; no other state may carry `svg`. */
+/** Shared avatar safety semantics for a Team or member asset row.
+ *  - `generated` must carry a strictly allowlisted `svg` and no `reason`;
+ *  - `not_generated` must carry NO `svg` and exactly reason `avatar_backend_not_implemented`;
+ *  - any other state may carry neither `svg` nor a contradictory reason.
+ *  Wrong/contradictory reasons or states are rejected. */
 function assertAvatarSemantics(row: Record<string, unknown>, label: string): void {
   const avatar = row.avatar as Record<string, unknown> | undefined
   if (avatar === undefined) return
   const state = avatar.state
+  const hasSvg = avatar.svg !== undefined
   if (state === 'generated') {
     const svg = avatar.svg
     if (typeof svg !== 'string' || !isSafePixelAvatarSvg(svg)) {
       throw new Error(`Swarm RPC ${label} avatar generated must carry a safe svg`)
     }
-  } else if (avatar.svg !== undefined) {
+    if (avatar.reason !== undefined) throw new Error(`Swarm RPC ${label} avatar generated must not carry a reason`)
+  } else if (state === 'not_generated') {
+    if (hasSvg) throw new Error(`Swarm RPC ${label} avatar not_generated must not carry svg`)
+    if (avatar.reason !== 'avatar_backend_not_implemented') {
+      throw new Error(`Swarm RPC ${label} avatar not_generated must carry reason avatar_backend_not_implemented`)
+    }
+  } else if (hasSvg) {
     throw new Error(`Swarm RPC ${label} avatar must not carry svg outside generated state`)
   }
 }
 
-/** Identity-card↔profile linkage: `generated` requires at least one profile field and
- *  never a fabricated `reason`; `not_generated` must carry a stable reason and no profile. */
+/** Identity-card↔profile linkage (strict):
+ *  - `generated` requires at least one profile field and no `reason`;
+ *  - ANY non-generated state must carry NO profile fields;
+ *  - `not_generated` must carry exactly reason `identity_backend_not_implemented`. */
 function assertIdentityCardSemantics(row: Record<string, unknown>, label: string): void {
   const identityCard = row.identityCard as Record<string, unknown> | undefined
   if (identityCard === undefined) return
@@ -514,8 +526,11 @@ function assertIdentityCardSemantics(row: Record<string, unknown>, label: string
   if (state === 'generated') {
     if (!hasProfile) throw new Error(`Swarm RPC ${label} identityCard generated requires profile fields`)
     if (identityCard.reason !== undefined) throw new Error(`Swarm RPC ${label} identityCard generated must not carry a reason`)
-  } else if (!hasProfile) {
-    if (typeof identityCard.reason !== 'string') throw new Error(`Swarm RPC ${label} identityCard not_generated must carry a stable reason`)
+    return
+  }
+  if (hasProfile) throw new Error(`Swarm RPC ${label} identityCard non-generated must not carry profile fields`)
+  if (state === 'not_generated' && identityCard.reason !== 'identity_backend_not_implemented') {
+    throw new Error(`Swarm RPC ${label} identityCard not_generated must carry reason identity_backend_not_implemented`)
   }
 }
 
@@ -568,16 +583,26 @@ function assertResultSemantics(method: string, value: Record<string, unknown>): 
   }
   if (method === 'captainAnnouncements') {
     // Real bounded projection: `state` is always 'available'; entries may be
-    // non-empty by design. Announcement ids must be unique and createdAt
-    // non-decreasing (ordering invariant).
+    // non-empty by design. Each entry re-validates its ann-UUID id (unique),
+    // canonical trimmed text, and a safe non-negative createdAt (non-decreasing).
     const entries = value.entries as readonly Record<string, unknown>[]
     const seen = new Set<string>()
     let previous = -1
     for (const entry of entries) {
       const id = entry.id as string
+      if (typeof id !== 'string' || !CAPTAIN_ANNOUNCEMENT_ID_RE.test(id)) {
+        throw new Error('Swarm RPC announcement id must match ann-<uuid>')
+      }
       if (seen.has(id)) throw new Error('Swarm RPC announcement ids must be unique')
       seen.add(id)
+      const text = entry.text as string
+      if (typeof text !== 'string' || text === '' || text !== text.trim()) {
+        throw new Error('Swarm RPC announcement text must be canonical (trimmed, non-empty)')
+      }
       const createdAt = entry.createdAt as number
+      if (!Number.isSafeInteger(createdAt) || createdAt < 0) {
+        throw new Error('Swarm RPC announcement createdAt must be a safe non-negative integer')
+      }
       if (createdAt < previous) throw new Error('Swarm RPC announcement createdAt must be non-decreasing')
       previous = createdAt
     }

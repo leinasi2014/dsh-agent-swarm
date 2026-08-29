@@ -12,6 +12,8 @@ const INTERACTION_EFFECT_KEYS = new Set([
   'effectId', 'requestId', 'step', 'bindingDigest', 'senderSessionId', 'targetSessionId',
   'bodyDigest', 'delivery', 'messageId', 'resultingTeamRevision', 'committedAt',
 ])
+const CAPTAIN_PROFILE_KEYS = new Set(['displayName', 'profession', 'personality', 'pixelAvatarSvg'])
+const ANNOUNCEMENT_KEYS = new Set(['id', 'text', 'createdAt'])
 
 function corrupt(path: string, detail: string): never {
   throw new TeamDomainError(`invalid Team state at ${path}: ${detail}`, 'TEAM_STATE_CORRUPT')
@@ -96,6 +98,7 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
   if (team.captainProfile !== undefined) {
     // Captain profile must be a plain object carrying at least one canonical field.
     const profile = record(team.captainProfile, path, 'captainProfile')
+    exactKeys(profile, `${path}.captainProfile`, CAPTAIN_PROFILE_KEYS)
     const hasField = profile.displayName !== undefined || profile.profession !== undefined
       || profile.personality !== undefined || profile.pixelAvatarSvg !== undefined
     if (!hasField) corrupt(path, 'captainProfile requires at least one field')
@@ -118,6 +121,7 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
     let previousCreatedAt = -1
     announcements.forEach((raw, index) => {
       const announcement = record(raw, path, `announcements[${index}]`)
+      exactKeys(announcement, `${path}.announcements[${index}]`, ANNOUNCEMENT_KEYS)
       const id = text(announcement.id, path, `announcements[${index}].id`)
       if (!CAPTAIN_ANNOUNCEMENT_ID_RE.test(id)) corrupt(path, `announcements[${index}].id is malformed`)
       if (seenIds.has(id)) corrupt(path, `announcements[${index}].id is not unique`)
