@@ -115,6 +115,15 @@ if (failures.length === 0) {
 }
 
 if (failures.length === 0) {
+  const hostSource = await readFile(resolve(root, pkg.main), 'utf8')
+  for (const required of [
+    'agent_swarm_create_managed',
+    'createWithDedicatedCaptain',
+    'The caller stays outside the Team',
+  ]) {
+    if (!hostSource.includes(required)) failures.push(`built Host entry is stale: missing ${required}`)
+  }
+
   try {
     const entry = await import(pathToFileURL(resolve(root, pkg.main)).href)
     if (typeof entry.apply !== 'function') failures.push('built entry: function plugin must export apply')
