@@ -651,8 +651,21 @@ function memberCompositionOf(profile: MemberProfile | undefined, member: TeamMem
   const state = profile?.profileState ?? 'invalid'
   const reason = profile?.profileReason ?? 'inspection_failed'
   const runtimeProvider = profile?.runtimeProvider ?? member.provider
+  // The provider name is the recovery fence disclosed on any non-`available` row; keep it in-bounds.
+  const fence = (candidate: string): string => boundedString(candidate, 128) ? candidate : (boundedString(member.provider, 128) ? member.provider : 'unknown')
   if (profile === undefined || profile.name !== member.name) {
-    return { state: 'invalid', reason: 'inspection_failed', runtimeProvider }
+    return { state: 'invalid', reason: 'inspection_failed', runtimeProvider: fence(runtimeProvider) }
+  }
+  const bounded = (value: unknown): value is string => boundedString(value, 128)
+  const deniedTools = profile.deniedTools === undefined ? undefined : [...profile.deniedTools]
+  const inBounds =
+    (profile.llmProvider === undefined || bounded(profile.llmProvider)) &&
+    (profile.model === undefined || bounded(profile.model)) &&
+    (profile.presetId === undefined || bounded(profile.presetId)) &&
+    (deniedTools === undefined || deniedTools.every(entry => bounded(entry))) &&
+    bounded(runtimeProvider)
+  if (!inBounds) {
+    return { state: 'invalid', reason: 'descriptor_invalid', runtimeProvider: fence(runtimeProvider) }
   }
   return {
     state,

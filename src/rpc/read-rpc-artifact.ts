@@ -65,7 +65,7 @@ function isSafePixelAvatarSvg(value: string): boolean {
 }
 
 export const SWARM_READ_RPC_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
-export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = 'b668c3f52fdfed86726f1dc1b9f570791314cd3751699022e2b7e4de4ba7e260' as const
+export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = 'f8a81e3af6edea46554f67330aa0ccf999df002d996021a0bdb87930fe05931c' as const
 
 const boundedString = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength, pattern: '\\S' })
 /** Member role is authoritative free-text (never truncated by the reader); the
@@ -167,7 +167,7 @@ const memberComposition = {
       enum: ['available', 'provisioning', 'startup_failed', 'removed', 'inspection_failed',
         'active_session_missing', 'binding_invalid', 'descriptor_invalid', 'not_continuable', 'tool_filter_invalid'],
     },
-    runtimeProvider: boundedString(64),
+    runtimeProvider: boundedString(128),
     llmProvider: boundedString(128),
     model: boundedString(128),
     presetId: boundedString(128),
@@ -727,8 +727,13 @@ function assertMemberComposition(member: Record<string, unknown>): void {
     }
     return
   }
-  if (typeof reason !== 'string' || reason === 'available') {
-    throw new Error('Swarm RPC captain member composition fail-closed row must carry a non-available reason')
+  const allowedReasons: Readonly<Record<string, readonly string[]>> = {
+    pending: ['provisioning'],
+    unavailable: ['startup_failed', 'removed', 'inspection_failed'],
+    invalid: ['inspection_failed', 'active_session_missing', 'binding_invalid', 'descriptor_invalid', 'not_continuable', 'tool_filter_invalid'],
+  }
+  if (typeof state !== 'string' || typeof reason !== 'string' || !allowedReasons[state]?.includes(reason)) {
+    throw new Error(`Swarm RPC captain member composition state ${String(state)} does not permit reason ${String(reason)}`)
   }
   for (const field of ['llmProvider', 'model', 'presetId', 'personaConfigured', 'deniedTools'] as const) {
     if (composition[field] !== undefined) {
