@@ -41,6 +41,7 @@ function rpcHarness(options: {
   host?: SwarmWebServer['host']; root?: Agent; captain?: string; projection?: SwarmHostReadProjectionV1;
   coldCaptainSessions?: Record<string, { header: { parentSession?: string } }>;
   managedCaptains?: string[];
+  coldRoot?: boolean;
   teams?: { id: string; captainSessionId: string; phase?: 'active' | 'archived' }[];
 } = {}) {
   const root = options.root ?? ROOT
@@ -70,7 +71,7 @@ function rpcHarness(options: {
         try { return await callback() } finally { initiator = undefined }
       },
     },
-    sessions: { get: (id: string) => (id === root.id ? session : coldSessions[id]) ?? undefined },
+    sessions: { get: (id: string) => (id === root.id ? (options.coldRoot ? undefined : session) : coldSessions[id]) ?? undefined },
   } as unknown as Context
   const snapshot = vi.fn(async () => ({ team }))
   const runtime = {
@@ -207,6 +208,31 @@ describe('R2 authoritative target binding and wire contract', () => {
     })).rejects.toMatchObject({ code: 'SWARM_HOST_BINDING_AMBIGUOUS' })
     // 0 managed Captains => explicit NOT_FOUND.
     await expect(rpcHarness({ captain: 'cold-captain' }).service.invoke({
+      schemaVersion: 1, method: 'binding', target: { rootSessionId: ROOT.id },
+    })).rejects.toMatchObject({ code: 'SWARM_HOST_BINDING_NOT_FOUND' })
+  })
+
+  it('admits a cold Main Brain root for read-only Team resolution via the runtime managed mapping', async () => {
+    // The Main Brain's turn has ended: its Session is no longer in the live store
+    // (ctx.sessions.get returns undefined), yet the create_managed in-process root -> Captain
+    // relation is still authoritative in the runtime mapping.
+    const harness = rpcHarness({
+      captain: 'captain-session',
+      managedCaptains: ['captain-session'],
+      coldRoot: true,
+    })
+    const binding = await harness.service.invoke({
+      schemaVersion: 1, method: 'binding', target: { rootSessionId: ROOT.id },
+    })
+    expect(binding).toMatchObject({ binding: { rootSessionId: ROOT.id, teamId: 'team-r2' } })
+    expect(harness.lastReadInput()).toMatchObject({ teamId: 'team-r2', captainSessionId: 'captain-session' })
+    const snapshot = await harness.service.invoke({
+      schemaVersion: 1, method: 'snapshot', target: { rootSessionId: ROOT.id },
+    })
+    expect(snapshot).toMatchObject({ team: { id: 'team-r2' } })
+    expect(harness.lastReadInput()).toMatchObject({ teamId: 'team-r2', captainSessionId: 'captain-session' })
+    // A cold root with no resolvable Team stays an explicit NOT_FOUND (never guessed).
+    await expect(rpcHarness({ captain: 'cold-captain', coldRoot: true, managedCaptains: [] }).service.invoke({
       schemaVersion: 1, method: 'binding', target: { rootSessionId: ROOT.id },
     })).rejects.toMatchObject({ code: 'SWARM_HOST_BINDING_NOT_FOUND' })
   })

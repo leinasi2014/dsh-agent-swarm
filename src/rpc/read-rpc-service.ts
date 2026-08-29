@@ -187,8 +187,13 @@ export class AgentSwarmReadRpcService {
     readonly captainSessionId?: string
   }> {
     const requested = this.deps.ctx.agents.get(SessionId(target.rootSessionId))
-    if (requested === undefined || this.deps.ctx.sessions.get(requested.id) !== requested.session) {
-      throw new TeamDomainError('Target is not an exact live Session', 'SWARM_RPC_TARGET_NOT_LIVE')
+    // Read-only R2 admission: a cold (ended / not in the live store) Main Brain root is still
+    // allowed to resolve its Captain-rooted Team. The descriptor chain is re-proven by parent
+    // resolution (runtime.managedCaptainSessionsOf and/or the persisted parentSession link), so
+    // the exact-live `ctx.sessions.get === requested.session` assertion is not required for the
+    // read-only path — only that the root descriptor exists and its durable header has a cwd.
+    if (requested === undefined) {
+      throw new TeamDomainError('Target is not an official root Session', 'SWARM_RPC_TARGET_NOT_LIVE')
     }
     if (requested.session.header.cwd === undefined) {
       throw new TeamDomainError('Target Session has no workspace cwd', 'SWARM_HOST_WORKSPACE_REQUIRED')
