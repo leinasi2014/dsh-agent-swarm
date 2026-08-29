@@ -57,4 +57,17 @@ describe('TeamDashboardSurfaceCoordinator', () => {
     expect(f.coordinator.getSnapshot().mode).toBe('inactive'); expect((f.slots.entriesOfSlot()[0] as { priority: number }).priority).toBe(0)
     f.coordinator.toggle('other'); f.unmount(); expect(f.layout.closeDetails).toHaveBeenCalled(); expect(f.controller.dispose).toHaveBeenCalledTimes(1); f.destroy()
   })
+  it('opens the official Session of an enumerated dedicated Captain only while it stays listed, and degrades to unavailable otherwise', () => {
+    const f = fixture()
+    // The enumeration row hands the exact official Captain Session id; the official Catalog is the authority.
+    f.coordinator.openTeamCaptain('other')
+    expect(f.sessions.open).toHaveBeenCalledWith('other')
+    expect(f.sessions.open).toHaveBeenCalledTimes(1)
+    expect(f.coordinator.getSnapshot().mode).toBe('inactive')
+    expect(f.controller.close).toHaveBeenCalled()
+    // A Captain that left the official Session list can never open a fabricated chat.
+    expect(() => f.coordinator.openTeamCaptain('not-listed')).toThrow('official Session list')
+    expect(f.sessions.open).toHaveBeenCalledTimes(1)
+    f.destroy()
+  })
 })

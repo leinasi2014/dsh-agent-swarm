@@ -113,6 +113,21 @@ export class TeamDashboardSurfaceCoordinator {
     this.publish(INACTIVE)
   }
 
+  /** Open the official Session of a specific Team's dedicated Captain from the enumerated selector.
+   *  The official Catalog is the only authority: a Session that is absent (or not live) degrades to
+   *  an explicit unavailable, never a fabricated chat. */
+  openTeamCaptain(captainSessionId: string): void {
+    const sessions = this.options.sessions.list.getSnapshot()
+    const root = captainSessionId as SessionId
+    if (!Object.hasOwn(sessions.byId, root)) {
+      throw new Error('Dedicated Captain Session is not in the official Session list')
+    }
+    this.options.sessions.open(root)
+    this.releaseTeamLease()
+    this.publish(INACTIVE)
+    this.options.controller.close()
+  }
+
   private acquire(): boolean {
     if (!this.declarationLive || this.layout === undefined) return false
     const before = new Set(this.options.slots.entries('details'))

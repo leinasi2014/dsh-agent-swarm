@@ -6,7 +6,7 @@ import { chromium, type Browser, type Page } from 'playwright'
 import { TeamDashboardAction } from '../src/client/TeamDashboardAction.js'
 import { deriveMemberActivity, memberRosterInitial, shellCss, TEAM_WORKSPACE_WIDE_MIN_WIDTH, teamWorkspaceLayoutForWidth } from '../src/client/TeamDashboardContent.js'
 import { TeamDashboardDetails } from '../src/client/TeamDashboardDetails.js'
-import type { TeamDashboardState } from '../src/client/team-dashboard-controller.js'
+import type { TeamDashboardData, TeamDashboardState } from '../src/client/team-dashboard-controller.js'
 import { en, zh } from '../src/client/team-dashboard-locales.js'
 import type { TeamDashboardSurfaceState } from '../src/client/team-dashboard-surface-coordinator.js'
 import { SWARM_READ_RPC_FIXTURES_V1 } from '../src/rpc/read-rpc-artifact.js'
@@ -23,12 +23,17 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 const mounted: Root[] = []
 const t = (key: keyof typeof en, params?: Record<string, unknown>): string => en[key].replace(/\{(\w+)\}/gu, (match, name: string) => name in (params ?? {}) ? String(params?.[name]) : match)
 const tZh = (key: keyof typeof en, params?: Record<string, unknown>): string => zh[key].replace(/\{(\w+)\}/gu, (match, name: string) => name in (params ?? {}) ? String(params?.[name]) : match)
-const ready: TeamDashboardState = { open: true, phase: 'ready', targetSessionId: 'root', data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: SWARM_READ_RPC_FIXTURES_V1.values.snapshot as never } }
+const ready: TeamDashboardState = { open: true, phase: 'ready', targetSessionId: 'root', data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: SWARM_READ_RPC_FIXTURES_V1.values.snapshot as never, teams: SWARM_READ_RPC_FIXTURES_V1.values.teams as never } }
+const teamData = (capabilities: unknown, projection: unknown): TeamDashboardData => ({
+  capabilities: capabilities as never,
+  projection: projection as never,
+  teams: SWARM_READ_RPC_FIXTURES_V1.values.teams as never,
+})
 
 class FakeCoordinator {
   state: TeamDashboardSurfaceState = { mode: 'docked', view: 'overview', targetSessionId: 'root' }
   private readonly listeners = new Set<() => void>()
-  readonly toggle = vi.fn(); readonly showToolDetails = vi.fn(); readonly openCaptainChat = vi.fn(async () => {}); readonly closeAndRestoreFocus = vi.fn(); readonly selectView = vi.fn()
+  readonly toggle = vi.fn(); readonly showToolDetails = vi.fn(); readonly openCaptainChat = vi.fn(async () => {}); readonly closeAndRestoreFocus = vi.fn(); readonly selectView = vi.fn(); readonly openTeamCaptain = vi.fn()
   getSnapshot = (): TeamDashboardSurfaceState => this.state
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
   localeTag = (): 'en-US' => 'en-US'
@@ -171,7 +176,7 @@ describe('R3 native Team Details surface', () => {
     const longRole = '开发 writer（仅负责本 P0）：修复 SWARM_UI_READ_FAILED。在受管 lane p0-swarm-ui-read-v2（pnpm isolation open，owner terra-p0）内实施：契约一致（role 上限有界提升并同步 CONTRACT_DIGEST）'.repeat(6)
     expect(longRole.length).toBeGreaterThan(256)
     const projection = { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot, roster: [{ name: 'worker', role: longRole, phase: 'active', createdAt: 1_700_000_000_000 }], totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, roster: 1 } }
-    const readyState: TeamDashboardState = { open: true, phase: 'ready', targetSessionId: 'root', data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never } }
+    const readyState: TeamDashboardState = { open: true, phase: 'ready', targetSessionId: 'root', data: teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection) }
     const longRoleController = { getSnapshot: (): TeamDashboardState => readyState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: longRoleController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
     const secondary = document.querySelector<HTMLElement>('small.swarm-team-workspace__truncate[title]')!
@@ -205,7 +210,7 @@ describe('R3 native Team Details surface', () => {
       totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, roster: 101, tasks: 0, attempts: 0 },
       truncated: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.truncated, roster: true },
     }
-    let dynamicState: TeamDashboardState = { ...ready, data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never } }
+    let dynamicState: TeamDashboardState = { ...ready, data: teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection) }
     const dynamicController = {
       getSnapshot: (): TeamDashboardState => dynamicState,
       subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn(),
@@ -222,7 +227,7 @@ describe('R3 native Team Details surface', () => {
     const memberHeading = document.querySelector<HTMLHeadingElement>('h4[tabindex="-1"]')!
     expect(document.activeElement).toBe(memberHeading)
     projection = { ...projection, roster: [], totals: { ...projection.totals, roster: 0 } }
-    dynamicState = { ...ready, data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never } }
+    dynamicState = { ...ready, data: teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection) }
     await act(async () => { root.render(<TeamDashboardDetails {...(common as any)} />) })
     expect(document.body.textContent).toContain('worker is no longer in this Team. Returning to members.')
     expect(document.activeElement).toBe(document.querySelector('.swarm-team-workspace__roster h3'))
@@ -238,7 +243,7 @@ describe('R3 native Team Details surface', () => {
       attempts: [{ id: 'attempt-1', taskId: 'task-1', generation: 1, memberName: 'worker', phase: 'running', assignmentPhase: 'delivered', createdAt: 1, updatedAt: 2 }],
       totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, roster: 1, tasks: 1, attempts: 1 },
     }
-    let dynamicState: TeamDashboardState = { ...ready, data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never } }
+    let dynamicState: TeamDashboardState = { ...ready, data: teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection) }
     const dynamicController = { getSnapshot: (): TeamDashboardState => dynamicState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     const common = { anchorRef: { current: null }, controller: dynamicController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t }
     const root = createRoot(document.body.appendChild(document.createElement('div'))); mounted.push(root)
@@ -267,7 +272,7 @@ describe('R3 native Team Details surface', () => {
     const selectedTask = [...document.querySelectorAll<HTMLButtonElement>('.swarm-team-workspace__rows button')].find(button => button.dataset.swarmMemberName === undefined && button.textContent?.includes('Check focus recovery'))!
     await act(async () => { selectedTask.click() })
     projection = { ...projection, tasks: [], attempts: [], totals: { ...projection.totals, tasks: 0, attempts: 0 } }
-    dynamicState = { ...ready, data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never } }
+    dynamicState = { ...ready, data: teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection) }
     await act(async () => { root.render(<TeamDashboardDetails {...(common as any)} />) })
     expect(document.body.textContent).toContain('The selected task is no longer in this Team. Returning to tasks.')
     expect(document.activeElement).toBe(taskSummary)
@@ -294,7 +299,7 @@ describe('R3 native Team Details surface', () => {
       attempts: [{ id: 'attempt-1', taskId: 'task-1', generation: 1, memberName: 'worker', phase: 'running', assignmentPhase: 'delivered', createdAt: 1_700_000_000_000, updatedAt: 1_700_000_000_100 }],
       totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, roster: 1, tasks: 1, attempts: 1 },
     }
-    const populatedState: TeamDashboardState = { ...ready, data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never } }
+    const populatedState: TeamDashboardState = { ...ready, data: teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection) }
     const populated = { getSnapshot: (): TeamDashboardState => populatedState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     try {
       await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: populated, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
@@ -382,7 +387,7 @@ describe('R3 native Team Details surface', () => {
       roster: [{ name: 'worker', role: 'Read-only verifier', phase: 'active', createdAt: 1_700_000_000_000 }],
       totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, roster: 1 },
     }
-    const state: TeamDashboardState = { ...ready, data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never } }
+    const state: TeamDashboardState = { ...ready, data: teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection) }
     const mgmtController = { getSnapshot: (): TeamDashboardState => state, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: mgmtController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
     // The independent management entry is browser-visible in the rail, distinct from the roster rows.
@@ -419,6 +424,62 @@ describe('R3 native Team Details surface', () => {
     expect(document.querySelector('.swarm-team-workspace__roster')).not.toBeNull()
   })
 
+  it('renders the enumerated Team/Captain list with un-generated identity and opens the official Captain Session', async () => {
+    const coordinator = new FakeCoordinator()
+    const projection = {
+      ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot,
+      roster: [{ name: 'worker', role: 'Read-only verifier', phase: 'active', createdAt: 1_700_000_000_000 }],
+      totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, roster: 1 },
+    }
+    const multiTeams = {
+      schemaVersion: 1,
+      binding: { rootSessionId: 'root' },
+      teams: [
+        { teamId: 'team-alpha', name: 'Alpha Team', phase: 'active', captainSessionId: 'captain-alpha',
+          avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' as const },
+          identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' as const },
+          endpoints: {
+            members: { method: 'captainMembers' as const, target: { rootSessionId: 'root', teamId: 'team-alpha' } },
+            announcements: { method: 'captainAnnouncements' as const, target: { rootSessionId: 'root', teamId: 'team-alpha' } },
+            diagnostics: { method: 'captainDiagnostics' as const, target: { rootSessionId: 'root', teamId: 'team-alpha' } },
+          },
+        },
+        { teamId: 'team-beta', name: 'Beta Team', phase: 'active', captainSessionId: 'captain-beta',
+          avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' as const },
+          identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' as const },
+          endpoints: {
+            members: { method: 'captainMembers' as const, target: { rootSessionId: 'root', teamId: 'team-beta' } },
+            announcements: { method: 'captainAnnouncements' as const, target: { rootSessionId: 'root', teamId: 'team-beta' } },
+            diagnostics: { method: 'captainDiagnostics' as const, target: { rootSessionId: 'root', teamId: 'team-beta' } },
+          },
+        },
+      ],
+      observedAt: 3,
+      complete: true,
+    }
+    const state: TeamDashboardState = { ...ready, data: { ...teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection), teams: multiTeams as never } }
+    const listController = { getSnapshot: (): TeamDashboardState => state, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: listController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    // First-level right-rail lists every enumerated Team (real authorities, not a copied aggregate).
+    const list = document.querySelector<HTMLElement>('[data-swarm-captain-list]')!
+    expect(list).not.toBeNull()
+    const rows = [...document.querySelectorAll('[data-swarm-captain-team]')]
+    expect(rows).toHaveLength(2)
+    expect(rows[0]!.textContent).toContain('Alpha Team')
+    expect(rows[1]!.textContent).toContain('Beta Team')
+    // Identity card is an explicit un-generated state — never a fabricated avatar/identity.
+    expect(list.querySelectorAll('[data-swarm-profile-incomplete]').length).toBeGreaterThan(0)
+    expect(list.textContent).toContain('Profile not generated yet')
+    // Clicking a Captain opens that Team's official Session through the coordinator seam.
+    await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-captain-team="team-alpha"]')!).click() })
+    expect(coordinator.openTeamCaptain).toHaveBeenCalledWith('captain-alpha')
+    // Zero Teams is an explicit empty state.
+    const emptyState: TeamDashboardState = { ...ready, data: { ...teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection), teams: { ...multiTeams, teams: [] } as never } }
+    const emptyController = { getSnapshot: (): TeamDashboardState => emptyState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: emptyController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    expect(document.querySelector('[data-swarm-captain-list] [data-swarm-captains-empty]')?.textContent).toContain('No Teams yet.')
+  })
+
   it('keeps legal 64-character owner and target values bounded in Task rows while retaining their titles', async () => {
     const memberName = 'a'.repeat(64)
     const coordinator = new FakeCoordinator()
@@ -427,7 +488,7 @@ describe('R3 native Team Details surface', () => {
       tasks: [{ id: 'task-long-name', revision: 1, subject: 'Task with long Host names', status: 'in_progress', blockedBy: [], priority: 1, ownerName: memberName, targetMemberName: memberName, createdAt: 1, updatedAt: 2 }],
       totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, tasks: 1 },
     }
-    const state: TeamDashboardState = { ...ready, data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never } }
+    const state: TeamDashboardState = { ...ready, data: teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection) }
     const longNameController = { getSnapshot: (): TeamDashboardState => state, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: longNameController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
     await act(async () => { document.querySelector<HTMLElement>('details.swarm-team-workspace__collapsible summary')?.click() })
@@ -488,7 +549,7 @@ describe('R3 native Team Details surface', () => {
       tasks: [activityTask('task-history', 'attempt-history', 'failed')],
       attempts: [activityAttempt('attempt-history', 'accepted', 'worker', 2)],
     })
-    const state: TeamDashboardState = { ...ready, data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection } }
+    const state: TeamDashboardState = { ...ready, data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never, teams: SWARM_READ_RPC_FIXTURES_V1.values.teams as never } }
     const historyController = { getSnapshot: (): TeamDashboardState => state, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: historyController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
     expect(document.body.textContent).toContain('Recent attempt: Accepted')

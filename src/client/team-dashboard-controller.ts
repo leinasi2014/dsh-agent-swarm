@@ -4,6 +4,7 @@ import type {
   SwarmReadCapabilitiesV1,
   SwarmReadPageKind,
   SwarmReadPageV1,
+  SwarmReadTeamsV1,
 } from '../rpc/read-rpc-contract.js'
 import { SwarmReadClient, type SwarmReadClientMount } from './read-client.js'
 
@@ -12,6 +13,7 @@ export type TeamDashboardPhase = 'closed' | 'loading' | 'ready' | 'stale' | 'rec
 export interface TeamDashboardData {
   readonly capabilities: SwarmReadCapabilitiesV1
   readonly projection: SwarmHostReadProjectionV1
+  readonly teams: SwarmReadTeamsV1
 }
 
 export interface TeamDashboardState {
@@ -196,6 +198,7 @@ export class TeamDashboardController {
       ? this.state.data?.projection.cursor : undefined
     const snapshot = await this.readSnapshot(target, previousCursor, signal)
     assertIdentity(binding, snapshot)
+    const teams = await this.readTeams(binding.binding.rootSessionId, signal)
     const [tasks, attempts, pendingInteractions] = await Promise.all([
       this.readAllPages('tasks', target, snapshot, signal),
       this.readAllPages('attempts', target, snapshot, signal),
@@ -204,7 +207,16 @@ export class TeamDashboardController {
     return {
       capabilities,
       projection: Object.freeze({ ...snapshot, tasks, attempts, pendingInteractions }),
+      teams,
     }
+  }
+
+  private async readTeams(rootSessionId: string, signal: AbortSignal): Promise<SwarmReadTeamsV1> {
+    return await this.value({
+      schemaVersion: 1,
+      method: 'teams',
+      target: { rootSessionId },
+    }, signal) as SwarmReadTeamsV1
   }
 
   private async readCapabilities(signal: AbortSignal): Promise<SwarmReadCapabilitiesV1> {

@@ -20,6 +20,7 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TeamDashboardDetails } from '../src/client/TeamDashboardDetails.js'
+import { memberRosterInitial } from '../src/client/TeamDashboardContent.js'
 import type { TeamDashboardState } from '../src/client/team-dashboard-controller.js'
 import type { TeamDashboardSurfaceState } from '../src/client/team-dashboard-surface-coordinator.js'
 import { en, zh } from '../src/client/team-dashboard-locales.js'
@@ -54,7 +55,7 @@ function readyWithRoster(roster: readonly typeof REAL_ROSTER[number][]) {
     roster,
     totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, roster: roster.length },
   }
-  return { open: true, phase: 'ready', targetSessionId: 'root', data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never } } as TeamDashboardState
+  return { open: true, phase: 'ready', targetSessionId: 'root', data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never, teams: SWARM_READ_RPC_FIXTURES_V1.values.teams as never } } as TeamDashboardState
 }
 
 class FakeCoordinator {
@@ -62,6 +63,7 @@ class FakeCoordinator {
   private readonly listeners = new Set<() => void>()
   readonly toggle = vi.fn(); readonly showToolDetails = vi.fn(); readonly closeAndRestoreFocus = vi.fn(); readonly selectView = vi.fn()
   readonly openCaptainChat = vi.fn(async (): Promise<void> => { this.set({ mode: 'inactive', view: 'overview', targetSessionId: undefined }) })
+  readonly openTeamCaptain = vi.fn((captainSessionId: string): void => { this.set({ mode: 'inactive', view: 'overview', targetSessionId: captainSessionId }) })
   getSnapshot = (): TeamDashboardSurfaceState => this.state
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
   localeTag = (): 'en-US' => 'en-US'
@@ -119,7 +121,7 @@ describe('roster/Captain interaction slice', () => {
       ],
       totals: { ...snapshot.totals, roster: 5, tasks: 2, attempts: 2, pendingInteractions: 0 },
     }
-    const ready = { open: true, phase: 'ready', targetSessionId: 'root', data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never } } as TeamDashboardState
+    const ready = { open: true, phase: 'ready', targetSessionId: 'root', data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never, teams: SWARM_READ_RPC_FIXTURES_V1.values.teams as never } } as TeamDashboardState
     const controller = { getSnapshot: (): TeamDashboardState => ready, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
 
@@ -231,5 +233,70 @@ describe('roster/Captain interaction slice', () => {
     expect(Object.keys(coordinator.getSnapshot()).toSorted()).toEqual(['mode', 'targetSessionId', 'view'])
     expect(Object.hasOwn(coordinator.getSnapshot(), 'data')).toBe(false)
     expect(Object.hasOwn(coordinator.getSnapshot(), 'projection')).toBe(false)
+  })
+
+  it('first-level right rail enumerates every Team/Captain from the real read contract and opens the exact official Captain Session on click', async () => {
+    const coordinator = new FakeCoordinator()
+    // A legal multi-team result: two independent dedicated Captains, each honest not-generated assets.
+    const multiTeams = {
+      schemaVersion: 1, binding: { rootSessionId: 'root' },
+      teams: [
+        {
+          teamId: 'team-alpha', name: 'Alpha 舰队', phase: 'active', captainSessionId: 'captain-alpha',
+          avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
+          identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
+          endpoints: {
+            members: { method: 'captainMembers', target: { rootSessionId: 'root', teamId: 'team-alpha' } },
+            announcements: { method: 'captainAnnouncements', target: { rootSessionId: 'root', teamId: 'team-alpha' } },
+            diagnostics: { method: 'captainDiagnostics', target: { rootSessionId: 'root', teamId: 'team-alpha' } },
+          },
+        },
+        {
+          teamId: 'team-beta', name: 'Beta Team', phase: 'active', captainSessionId: 'captain-beta',
+          avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
+          identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
+          endpoints: {
+            members: { method: 'captainMembers', target: { rootSessionId: 'root', teamId: 'team-beta' } },
+            announcements: { method: 'captainAnnouncements', target: { rootSessionId: 'root', teamId: 'team-beta' } },
+            diagnostics: { method: 'captainDiagnostics', target: { rootSessionId: 'root', teamId: 'team-beta' } },
+          },
+        },
+      ],
+      observedAt: 1_700_000_000_200, complete: true,
+    } as const
+    const projection = {
+      ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot,
+      team: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.team, id: 'team-fixture', name: 'Fixture Team' },
+      roster: [{ name: 'worker', role: 'writer', phase: 'active', createdAt: 1_700_000_000_000 }],
+      totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, roster: 1 },
+    }
+    const ready = { open: true, phase: 'ready', targetSessionId: 'root', data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never, teams: multiTeams as never } } as TeamDashboardState
+    const controller = { getSnapshot: (): TeamDashboardState => ready, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+
+    // Every Team from the read contract is enumerated as a first-level right-rail row.
+    const alpha = document.querySelector<HTMLButtonElement>('[data-swarm-captain-team="team-alpha"]')!
+    const beta = document.querySelector<HTMLButtonElement>('[data-swarm-captain-team="team-beta"]')!
+    expect(alpha).not.toBeNull(); expect(beta).not.toBeNull()
+    // Each row carries its exact official Captain Session id, not a fabricated chat.
+    expect(alpha.getAttribute('data-swarm-captain-session')).toBe('captain-alpha')
+    expect(beta.getAttribute('data-swarm-captain-session')).toBe('captain-beta')
+    // Un-generated identity: the deterministic name initial avatar stands in and an explicit
+    // "profile not generated" placeholder is shown — never a fabricated name/profession/personality.
+    expect(alpha.querySelector('.swarm-team-workspace__avatar')?.textContent).toBe(memberRosterInitial('Alpha 舰队'))
+    expect(alpha.querySelector('strong')?.textContent).toBe('Alpha 舰队')
+    expect(alpha.querySelector('[data-swarm-profile-incomplete]')?.textContent).toBe(t('captainIdentityUnavailable'))
+    expect(alpha.textContent).toContain(t('captainRole'))
+    expect(beta.querySelector('strong')?.textContent).toBe('Beta Team')
+
+    // Clicking a Captain row opens that Team's dedicated official Captain Session exactly once.
+    await act(async () => { beta.click() })
+    expect(coordinator.openTeamCaptain).toHaveBeenCalledWith('captain-beta')
+    expect(coordinator.openTeamCaptain).toHaveBeenCalledTimes(1)
+    // The official Captain Chat opens over the same owner surface; Main Brain is never replaced and
+    // no second fullscreen/second source of truth is ever introduced.
+    expect(coordinator.getSnapshot().targetSessionId).toBe('captain-beta')
+    expect(document.querySelector('[data-swarm-team-fullscreen]')).toBeNull()
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
   })
 })

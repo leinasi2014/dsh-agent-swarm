@@ -2,6 +2,7 @@ import { Button, IconCloseOutline16, IconRefreshOutline16, StateDot, type StateD
 import { useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SwarmHostReadProjectionV1 } from '../host/host-read-types.js'
+import type { SwarmReadTeamsV1 } from '../rpc/read-rpc-contract.js'
 import type { TeamDashboardController, TeamDashboardState } from './team-dashboard-controller.js'
 import type { TeamDashboardSurfaceCoordinator } from './team-dashboard-surface-coordinator.js'
 import { TEAM_DASHBOARD_NS, type TeamDashboardKey } from './team-dashboard-locales.js'
@@ -107,6 +108,8 @@ export const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace__captain-action { color:var(--dsw-alias-brand-primary); font-weight:800; }
 [data-swarm-team-dashboard] .swarm-team-workspace__board { display:grid; gap:12px; min-width:0; }
 [data-swarm-team-dashboard] .swarm-team-workspace__board-head { display:flex; align-items:center; justify-content:space-between; gap:12px; min-width:0; }
+[data-swarm-team-dashboard] .swarm-team-workspace__captains { display:grid; gap:6px; min-width:0; }
+[data-swarm-team-dashboard] .swarm-team-workspace__captain-list { display:grid; gap:6px; max-block-size:220px; overflow-y:auto; overflow-x:hidden; min-width:0; }
 [data-swarm-team-dashboard] .swarm-team-workspace__avatar { background:linear-gradient(135deg, var(--dsw-alias-brand-primary), color-mix(in srgb, var(--dsw-alias-brand-primary) 55%, var(--dsw-alias-bg-base))); }
 `
 
@@ -138,7 +141,7 @@ export function TeamDashboardContent({ controller, coordinator, descriptionId, h
     </header>
     <main className="swarm-team-workspace__body">
       <Status state={state} t={t} />
-      {data === undefined ? <Empty state={state} controller={controller} t={t} /> : <Workspace data={data} handoffBusy={handoffBusy} localeTag={localeTag} selection={selection} setSelection={setSelection} t={t} onMainBrain={onMainBrain} onMainChat={handoff} />}
+      {data === undefined ? <Empty state={state} controller={controller} t={t} /> : <Workspace data={data} handoffBusy={handoffBusy} localeTag={localeTag} selection={selection} setSelection={setSelection} t={t} teams={state.data?.teams} onMainBrain={onMainBrain} onMainChat={handoff} onOpenCaptain={coordinator.openTeamCaptain} />}
     </main>
     <footer className="swarm-team-workspace__footer">
       <Button size="sm" variant="ghost" icon={<IconRefreshOutline16 />} onClick={() => { controller.refresh() }}>{t('refresh')}</Button>
@@ -176,15 +179,17 @@ function Status({ state, t }: { readonly state: TeamDashboardState; readonly t: 
 
 function Empty({ state, controller, t }: { readonly state: TeamDashboardState; readonly controller: TeamDashboardController; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) { return state.phase === 'error' ? <Button variant="outline" onClick={() => { controller.reconnect() }}>{t('retry')}</Button> : null }
 
-function Workspace({ data, handoffBusy, localeTag, selection, setSelection, t, onMainBrain, onMainChat }: {
+function Workspace({ data, handoffBusy, localeTag, selection, setSelection, t, teams, onMainBrain, onMainChat, onOpenCaptain }: {
   readonly data: SwarmHostReadProjectionV1
   readonly handoffBusy: boolean
   readonly localeTag: () => 'zh-CN' | 'en-US'
   readonly selection: Selection
   readonly setSelection: (selection: Selection) => void
   readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS>
+  readonly teams: SwarmReadTeamsV1 | undefined
   readonly onMainBrain: () => void
   readonly onMainChat: () => void
+  readonly onOpenCaptain: (captainSessionId: string) => void
 }) {
   const number = new Intl.NumberFormat(localeTag())
   const [missingMember, setMissingMember] = useState<string>()
@@ -245,7 +250,8 @@ function Workspace({ data, handoffBusy, localeTag, selection, setSelection, t, o
       ? <BoardView data={data} number={number} onBack={() => { setView('roster') }} t={t} />
       : <>{managementOpen
         ? <ManagementView data={data} number={number} onBack={() => { setManagementOpen(false) }} t={t} />
-        : <><TeamSwitcher data={data} t={t} />
+        : <><CaptainList teams={teams} number={number} onOpenCaptain={onOpenCaptain} t={t} />
+        <TeamSwitcher data={data} t={t} />
         <BrowserNav busy={handoffBusy} onMainBrain={onMainBrain} onCaptain={onMainChat} t={t} />
         <ManagementEntry onOpen={() => { setManagementOpen(true) }} t={t} />
         <div className="swarm-team-workspace__roster"><span className="swarm-team-workspace__roster-label" data-swarm-roster-captain-label><span>{t('captainRole')} · 1</span><small>{t('rosterCaptainHint')}</small></span>
@@ -377,6 +383,27 @@ function CapabilityRows({ capabilities, t }: { readonly capabilities: SwarmHostR
 function CaptainRow({ busy, onMainChat, teamName, t }: { readonly busy: boolean; readonly onMainChat: () => void; readonly teamName: string; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
   const label = t('captainCurrent', { team: teamName })
   return <button className="swarm-team-workspace__row swarm-team-workspace__captain-hero" type="button" disabled={busy} onClick={onMainChat} title={t('captainMainChatTitle')}><span className="swarm-team-workspace__avatar" aria-hidden="true">{memberRosterInitial(label)}</span><span className="swarm-team-workspace__member-copy"><strong className="swarm-team-workspace__truncate" title={label}>{label}</strong><small className="swarm-team-workspace__profile-incomplete" data-swarm-profile-incomplete>{t('profileIncomplete')}</small></span><span className="swarm-team-workspace__member-side"><span className="swarm-team-workspace__captain-badge">{t('captainRole')}</span><small className="swarm-team-workspace__captain-action" data-swarm-captain-action>{t('captainOpenAction')}</small></span></button>
+}
+
+/** First-level right-rail Captain/team list from the read-only Team enumeration (real aggregates,
+ *  never a copied state). Each row shows an un-generated identity card (backend has no profile
+ *  authority) and opens that Team's dedicated Captain via the official Session seam. Zero Teams is
+ *  an explicit empty state; more than one Team is a legal multi-Captain result. */
+function CaptainList({ teams, number, onOpenCaptain, t }: {
+  readonly teams: SwarmReadTeamsV1 | undefined
+  readonly number: Intl.NumberFormat
+  readonly onOpenCaptain: (captainSessionId: string) => void
+  readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS>
+}) {
+  const rows = teams?.teams ?? []
+  return <section className="swarm-team-workspace__captains" data-swarm-captain-list>
+    <span className="swarm-team-workspace__roster-label" data-swarm-captains-label><span>{t('captains')} · {number.format(rows.length)}</span><small>{t('captainsHint')}</small></span>
+    {rows.length === 0
+      ? <section className="swarm-team-workspace__unavailable-card" data-swarm-captains-empty><strong>{t('captainsEmpty')}</strong></section>
+      : <div className="swarm-team-workspace__captain-list">{rows.map(team => (
+        <button key={team.teamId} className="swarm-team-workspace__row swarm-team-workspace__captain-hero" type="button" data-swarm-captain-team={team.teamId} data-swarm-captain-session={team.captainSessionId} onClick={() => { onOpenCaptain(team.captainSessionId) }} title={t('openCaptainSession')}><span className="swarm-team-workspace__avatar" aria-hidden="true">{memberRosterInitial(team.name)}</span><span className="swarm-team-workspace__member-copy"><strong className="swarm-team-workspace__truncate" title={team.name}>{team.name}</strong><small className="swarm-team-workspace__profile-incomplete" data-swarm-profile-incomplete>{t('captainIdentityUnavailable')}</small></span><span className="swarm-team-workspace__member-side"><span className="swarm-team-workspace__captain-badge">{t('captainRole')}</span><small className="swarm-team-workspace__captain-action" data-swarm-captain-action>{t('openCaptainSession')}</small></span></button>
+      ))}</div>}
+  </section>
 }
 
 function Metric({ label, value }: { readonly label: string; readonly value: string }) { return <div className="swarm-team-workspace__metric"><strong>{value}</strong><span className="swarm-team-workspace__muted">{label}</span></div> }

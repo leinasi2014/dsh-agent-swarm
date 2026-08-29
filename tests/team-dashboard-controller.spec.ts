@@ -19,10 +19,14 @@ const capabilities = {
   protocol: 'dsh-agent-swarm/read-rpc', version: 1, namespace: '/swarm',
   trust: { mode: 'local-single-user-target-bound', principalBound: false, listener: 'loopback' },
   capabilities: [
+    { capability: 'teams.read', state: 'available' },
     { capability: 'binding.read', state: 'available' },
     { capability: 'status.read', state: 'available' },
     { capability: 'snapshot.read', state: 'available' },
     { capability: 'page.read', state: 'available' },
+    { capability: 'captainMembers.read', state: 'available' },
+    { capability: 'captainAnnouncements.read', state: 'available' },
+    { capability: 'captainDiagnostics.read', state: 'available' },
     { capability: 'message.write', state: 'unavailable', blocker: 'i1b-effect-correlation' },
     { capability: 'control.write', state: 'unavailable', blocker: 'i1b-effect-correlation' },
     { capability: 'effect.cancel', state: 'unavailable', blocker: 'i1b-effect-correlation' },
@@ -65,6 +69,22 @@ const snapshot = {
   capabilities: projectionCapabilities,
   observedAt: 1_700_000_006_000,
 } as const
+const teams = {
+  schemaVersion: 1,
+  binding: { rootSessionId: 'root-1' },
+  teams: [{
+    teamId: 'team-1', name: 'Alpha', phase: 'active', captainSessionId: 'root-1',
+    avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
+    identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
+    endpoints: {
+      members: { method: 'captainMembers', target: { rootSessionId: 'root-1', teamId: 'team-1' } },
+      announcements: { method: 'captainAnnouncements', target: { rootSessionId: 'root-1', teamId: 'team-1' } },
+      diagnostics: { method: 'captainDiagnostics', target: { rootSessionId: 'root-1', teamId: 'team-1' } },
+    },
+  }],
+  observedAt: 1_700_000_006_000,
+  complete: true,
+} as const
 
 class ManualSchedule implements TeamDashboardSchedule {
   readonly pending = new Map<object, () => void>()
@@ -98,6 +118,7 @@ function goodFetch(seen: SwarmReadRpcRequest[], options: { driftFirstTaskPage?: 
     if (request.method === 'capabilities') return success(capabilities)
     if (request.method === 'binding') return success(binding)
     if (request.method === 'snapshot') return success(snapshot)
+    if (request.method === 'teams') return success(teams)
     if (request.method !== 'page') throw new Error(`unexpected method ${request.method}`)
     const rows = request.page.kind === 'tasks' ? tasks
       : request.page.kind === 'attempts' ? attempts : interactions
@@ -147,9 +168,9 @@ describe('TeamDashboardController', () => {
     expect(state.data?.projection.attempts).toEqual(attempts)
     expect(state.data?.projection.pendingInteractions).toEqual(interactions)
     expect(seen.map(request => request.method)).toEqual([
-      'capabilities', 'binding', 'snapshot', 'page', 'page', 'page', 'page',
+      'capabilities', 'binding', 'snapshot', 'teams', 'page', 'page', 'page', 'page',
     ])
-    expect(seen.every(request => ['capabilities', 'binding', 'snapshot', 'page'].includes(request.method))).toBe(true)
+    expect(seen.every(request => ['capabilities', 'binding', 'snapshot', 'teams', 'page'].includes(request.method))).toBe(true)
     expect(schedule.pending.size).toBe(1)
     controller.dispose()
   })
