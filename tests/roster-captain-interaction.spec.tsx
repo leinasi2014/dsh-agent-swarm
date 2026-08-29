@@ -6,7 +6,7 @@
 // surface against the REAL backend read fixture (SWARM_READ_RPC_FIXTURES_V1)
 // and the authoritative roster domain fields ({ name, role, phase, createdAt }),
 // without touching any source. It asserts:
-//   1. real member avatar initial / name / role / status from the Host fixture,
+//   1. real member safe pixel avatar / name / role / status from the Host fixture,
 //   2. an unambiguous Captain marker distinct from member rows,
 //   3. a single click of the Captain row routes to the bound main Chat and
 //      never replaces the main brain nor leaves a second surface,
@@ -20,7 +20,6 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TeamDashboardDetails } from '../src/client/TeamDashboardDetails.js'
-import { memberRosterInitial } from '../src/client/TeamDashboardContent.js'
 import type { TeamDashboardState } from '../src/client/team-dashboard-controller.js'
 import type { TeamDashboardSurfaceState } from '../src/client/team-dashboard-surface-coordinator.js'
 import { en, zh } from '../src/client/team-dashboard-locales.js'
@@ -80,9 +79,14 @@ describe('roster/Captain interaction slice', () => {
     const controller = { getSnapshot: (): TeamDashboardState => ready, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
 
-    // Avatar initials are derived from the real member name (NFC grapheme), not from a profile.
-    expect(document.querySelector('[data-swarm-member-name="海宝"] .swarm-team-workspace__avatar')?.textContent).toBe('海')
-    expect(document.querySelector('[data-swarm-member-name="e\u0301clair"] .swarm-team-workspace__avatar')?.textContent).toBe('é')
+    // Avatars are safe deterministic pixel SVGs seeded from the real member name, carrying the
+    // honest not-generated state — never a fabricated profile asset.
+    const haibaoAvatar = document.querySelector<SVGElement>('[data-swarm-member-name="海宝"] [data-swarm-pixel-avatar]')!
+    expect(haibaoAvatar.getAttribute('data-avatar-state')).toBe('not_generated')
+    expect(haibaoAvatar.getAttribute('aria-label')).toContain('海宝')
+    const eclairAvatar = document.querySelector<SVGElement>('[data-swarm-member-name="e\u0301clair"] [data-swarm-pixel-avatar]')!
+    expect(eclairAvatar.getAttribute('data-avatar-state')).toBe('not_generated')
+    expect(eclairAvatar.getAttribute('aria-label')).toContain('e\u0301clair')
 
     // Name, role and life-cycle come verbatim from the fixture row.
     const member = document.querySelector<HTMLButtonElement>('[data-swarm-member-name="海宝"]')!
@@ -158,9 +162,12 @@ describe('roster/Captain interaction slice', () => {
     // The Captain row is unambiguous: it is not a real member row and never claims a member identity.
     expect(captain.hasAttribute('data-swarm-member-name')).toBe(false)
     expect(captain.type).toBe('button')
-    // It carries the deterministic initial avatar derived from the technical Captain label
-    // (memberRosterInitial("Fixture Team Captain") → "F"), never a fabricated identity/profile.
-    expect(captain.querySelector('.swarm-team-workspace__avatar')?.textContent).toBe('F')
+    // It carries the safe deterministic pixel avatar seeded from the technical Captain label
+    // ("Fixture Team Captain"), holding the honest not-generated state — never a fabricated identity/profile.
+    const captainAvatar = captain.querySelector<SVGElement>('[data-swarm-pixel-avatar]')!
+    expect(captainAvatar).not.toBeNull()
+    expect(captainAvatar.getAttribute('data-avatar-state')).toBe('not_generated')
+    expect(captainAvatar.getAttribute('aria-label')).toContain(t('captainCurrent', { team: 'Fixture Team' }))
     expect(captain.title).toBe(t('captainMainChatTitle'))
     expect(captain.textContent).toContain(t('captainCurrent', { team: 'Fixture Team' }))
     expect(captain.querySelector('.swarm-team-workspace__captain-badge')?.textContent).toBe(t('captainRole'))
@@ -281,9 +288,13 @@ describe('roster/Captain interaction slice', () => {
     // Each row carries its exact official Captain Session id, not a fabricated chat.
     expect(alpha.getAttribute('data-swarm-captain-session')).toBe('captain-alpha')
     expect(beta.getAttribute('data-swarm-captain-session')).toBe('captain-beta')
-    // Un-generated identity: the deterministic name initial avatar stands in and an explicit
-    // "profile not generated" placeholder is shown — never a fabricated name/profession/personality.
-    expect(alpha.querySelector('.swarm-team-workspace__avatar')?.textContent).toBe(memberRosterInitial('Alpha 舰队'))
+    // Un-generated identity: the safe pixel SVG avatar (deterministic, never fabricated) carries the
+    // honest not-generated state, and an explicit "profile not generated" placeholder name is shown.
+    const alphaAvatar = alpha.querySelector<SVGElement>('[data-swarm-pixel-avatar]')!
+    expect(alphaAvatar).not.toBeNull()
+    expect(alphaAvatar.getAttribute('data-avatar-state')).toBe('not_generated')
+    expect(alphaAvatar.getAttribute('data-avatar-reason')).toBe('avatar_backend_not_implemented')
+    expect(alphaAvatar.getAttribute('aria-label')).toContain('Alpha 舰队')
     expect(alpha.querySelector('strong')?.textContent).toBe('Alpha 舰队')
     expect(alpha.querySelector('[data-swarm-profile-incomplete]')?.textContent).toBe(t('captainIdentityUnavailable'))
     expect(alpha.textContent).toContain(t('captainRole'))

@@ -179,7 +179,8 @@ describe('R3 native Team Details surface', () => {
     const readyState: TeamDashboardState = { open: true, phase: 'ready', targetSessionId: 'root', data: teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection) }
     const longRoleController = { getSnapshot: (): TeamDashboardState => readyState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: longRoleController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
-    const secondary = document.querySelector<HTMLElement>('small.swarm-team-workspace__truncate[title]')!
+    // The member row's role element (scoped: the identity card above the roster also truncates a title'd role).
+    const secondary = document.querySelector<HTMLElement>('[data-swarm-member-name] small.swarm-team-workspace__truncate[title]')!
     // The full authoritative role is preserved for inspection, never truncated/cut.
     expect(secondary.getAttribute('title')).toBe(longRole)
     // The visible rendering is bounded by the shared truncation class so the panel does not grow unboundedly.
@@ -359,12 +360,14 @@ describe('R3 native Team Details surface', () => {
       const captain = document.querySelector<HTMLButtonElement>('.swarm-team-workspace__roster > button')!
       const member = document.querySelector<HTMLButtonElement>('.swarm-team-workspace__rows button')!
       expect(captain.compareDocumentPosition(member) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-      expect(captain.querySelector('.swarm-team-workspace__avatar')?.textContent).toBe('F')
+      expect(captain.querySelector('[data-swarm-pixel-avatar]')?.getAttribute('data-avatar-state')).toBe('not_generated')
       expect(captain.textContent).toContain('Fixture Team Captain')
       expect(captain.querySelector('.swarm-team-workspace__captain-badge')?.textContent).toBe('Team Captain')
       expect(captain.textContent).not.toContain('session-fixture')
       expect(captain.querySelector('[data-swarm-profile-incomplete]')?.textContent).toContain('Onboarding profile not completed')
-      expect(member.querySelector('[aria-hidden="true"]')?.textContent).toBe('w')
+      const memberAvatar = member.querySelector('[data-swarm-pixel-avatar]')
+      expect(memberAvatar?.getAttribute('data-avatar-state')).toBe('not_generated')
+      expect(memberAvatar?.getAttribute('aria-label')).toContain('worker')
       expect(member.querySelector('[data-swarm-member-visible-lifecycle]')?.textContent).toBe('Lifecycle: Active')
       expect(member.querySelector('[data-swarm-member-visible-activity]')?.textContent).toBe('Running')
       expect(member.querySelector('[data-swarm-task-owner]')).toBeNull()
