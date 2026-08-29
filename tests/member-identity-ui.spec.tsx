@@ -180,4 +180,27 @@ describe('member rows consume real captainMembers identity data', () => {
     const detail = document.querySelector('[data-swarm-member-detail]')!
     expect(detail.textContent).toContain('Not generated')
   })
+
+  it('renders real announcement entries and an honest empty state in both locales', async () => {
+    const entries = [
+      { id: 'ann-1', text: 'First notice', createdAt: 1_700_000_000_000 },
+      { id: 'ann-2', text: 'Second notice', createdAt: 1_700_000_060_000 },
+    ]
+    const withAnnouncements = (rows: readonly unknown[]): TeamDashboardState => {
+      const base = stateWithMemberAssets({ schemaVersion: 1, binding: { rootSessionId: 'root-1', teamId: 'team-1' }, members: [], observedAt: 1 })
+      return { ...base, data: { ...base.data!, captainAnnouncements: { schemaVersion: 1, binding: { rootSessionId: 'root-1', teamId: 'team-1' }, state: 'available', entries: rows, observedAt: 1 } as never } }
+    }
+    await renderDetails(withAnnouncements(entries))
+    await act(async () => { [...document.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(tab => tab.textContent === 'Announcements')?.click() })
+    const rendered = document.querySelectorAll('[data-swarm-announcement-entry]')
+    expect(rendered).toHaveLength(2)
+    expect(rendered[0]!.textContent).toContain('First notice')
+    expect(rendered[1]!.textContent).toContain('Second notice')
+    expect(document.body.textContent).not.toContain('backend has not exposed')
+    // Honest empty state, zh locale copy present in the dictionary.
+    document.body.replaceChildren()
+    await renderDetails(withAnnouncements([]))
+    await act(async () => { [...document.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(tab => tab.textContent === 'Announcements')?.click() })
+    expect(document.querySelector('[data-swarm-announcements-empty]')?.textContent).toBe('No announcements published yet.')
+  })
 })
