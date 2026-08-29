@@ -308,7 +308,7 @@ describe('R3 native Team Details surface', () => {
       // plus Diagnostics (its own flat default-closed details) as the 5th top-level details.
       const folded = [...document.querySelectorAll('[data-swarm-team-panel] [data-swarm-team-rail] > details')]
       expect(folded).toHaveLength(5)
-      expect(folded.every(detail => detail.open === false)).toBe(true)
+      expect(folded.every(detail => (detail as HTMLDetailsElement).open === false)).toBe(true)
       // Budget and capabilities fold real Host data in their own top-level details.
       expect(document.querySelector('[data-swarm-budget]')).not.toBeNull()
       expect(document.querySelector('[data-swarm-capabilities]')).not.toBeNull()
@@ -368,6 +368,41 @@ describe('R3 native Team Details surface', () => {
     } finally {
       Object.defineProperty(globalThis, 'ResizeObserver', { configurable: true, value: originalResizeObserver })
     }
+  })
+
+  it('opens the independent management surface from its own rail entry and returns to the roster', async () => {
+    const coordinator = new FakeCoordinator()
+    const projection = {
+      ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot,
+      roster: [{ name: 'worker', role: 'Read-only verifier', phase: 'active', createdAt: 1_700_000_000_000 }],
+      totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, roster: 1 },
+    }
+    const state: TeamDashboardState = { ...ready, data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never } }
+    const mgmtController = { getSnapshot: (): TeamDashboardState => state, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: mgmtController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    // The independent management entry is browser-visible in the rail, distinct from the roster rows.
+    const entry = document.querySelector<HTMLButtonElement>('[data-swarm-management-entry]')!
+    expect(entry).not.toBeNull()
+    expect(entry.textContent).toContain('Public board')
+    // Opening swaps the roster rail for the separate management surface (not stacked on roster).
+    await act(async () => { entry.click() })
+    const view = document.querySelector<HTMLElement>('[data-swarm-management-view]')!
+    expect(view).not.toBeNull()
+    expect(view.textContent).toContain('Team management')
+    // Write/read capabilities that the read-only Host contract does not expose degrade to explicit unavailable.
+    expect(view.textContent).toContain('Write capabilities')
+    expect(view.textContent).toContain('No human write path is bound to this read-only surface.')
+    expect(document.querySelector('[data-swarm-management-view] [data-swarm-goal-unavailable]')).not.toBeNull()
+    // Diagnostics stays a flat default-folding details inside the management surface (never nested).
+    const diagnostics = document.querySelector('[data-swarm-management-view] details.swarm-team-workspace__diagnostics')!
+    expect(diagnostics).not.toBeNull()
+    expect((diagnostics as HTMLDetailsElement).open).toBe(false)
+    expect(diagnostics.parentElement?.tagName).not.toBe('DETAILS')
+    // Back returns to the roster-first rail; management surface is removed.
+    const back = [...document.querySelectorAll('button')].find(button => button.textContent === 'Back to Team roster')!
+    await act(async () => { back.click() })
+    expect(document.querySelector('[data-swarm-management-view]')).toBeNull()
+    expect(document.querySelector('.swarm-team-workspace__roster')).not.toBeNull()
   })
 
   it('keeps legal 64-character owner and target values bounded in Task rows while retaining their titles', async () => {
