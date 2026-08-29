@@ -44,8 +44,6 @@ export function registerCreateManagedTool(ctx: Context, runtime: AgentSwarmRunti
     parameters: {
       name: { type: 'string', required: true, description: 'Human-readable Team name.' },
       description: { type: 'string', required: true, description: 'Concrete goal and completion boundary.' },
-      captain_llm_provider: { type: 'string', description: 'Optional LLM provider for the dedicated Captain.' },
-      captain_model: { type: 'string', description: 'Optional model for the dedicated Captain.' },
     },
     output: {
       schema: {
@@ -60,10 +58,11 @@ export function registerCreateManagedTool(ctx: Context, runtime: AgentSwarmRunti
       render: (_args, value) => [{ type: 'text', text: `Created managed Team "${value.name}" (${value.team_id}) with Captain ${value.captain_session_id}.` }],
     },
     async execute(args, exec) {
-      const team = await runtime.createWithDedicatedCaptain(exec, args.name, args.description, {
-        ...(args.captain_llm_provider === undefined ? {} : { llmProvider: args.captain_llm_provider }),
-        ...(args.captain_model === undefined ? {} : { model: args.captain_model }),
-      })
+      // The dedicated Captain's LLM route is plugin-configured only
+      // (`captainLlmProvider` / `captainModel` on the runtime config); the
+      // model can no longer steer it by co-passing `captain_llm_provider` /
+      // `captain_model`, which are not part of this tool's parameter surface.
+      const team = await runtime.createWithDedicatedCaptain(exec, args.name, args.description)
       return { team_id: team.id, name: team.name, revision: team.revision, captain_session_id: team.captainSessionId }
     },
   }), 'managed create tool')

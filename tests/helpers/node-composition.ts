@@ -149,7 +149,7 @@ export interface NodeComposition {
 }
 
 /** Mount the real composition in adaptive mode (the mapping is mode-agnostic). */
-export async function mountNodeComposition(sandbox: string, config: { maxMembers?: number } = {}): Promise<NodeComposition> {
+export async function mountNodeComposition(sandbox: string, config: { maxMembers?: number; captainLlmProvider?: string; captainModel?: string } = {}): Promise<NodeComposition> {
   const ctx = new Context()
   const fibers: Fiber[] = []
   await mountAgentLoopTestDependencies(ctx)
@@ -165,6 +165,8 @@ export async function mountNodeComposition(sandbox: string, config: { maxMembers
     reviewProvider: 'manual',
     orchestrationMode: 'adaptive',
     ...(config.maxMembers === undefined ? {} : { maxMembers: config.maxMembers }),
+    ...(config.captainLlmProvider === undefined ? {} : { captainLlmProvider: config.captainLlmProvider }),
+    ...(config.captainModel === undefined ? {} : { captainModel: config.captainModel }),
   }))
   const adapter = new NodeMemberAdapter()
   ctx.llm.registerAdapter(['mock'], adapter)
