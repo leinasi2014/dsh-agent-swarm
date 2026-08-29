@@ -157,8 +157,44 @@ export class AgentSwarmRuntime extends Service {
       this.domainHandle = handle
       this.storeInstance = store
       this.domainInstance = new TeamDomain(store, this.config.limits)
+      // After a service restart the transient in-memory ownedChildren map is
+      // empty, so the read-only enumeration/binding of Main Brain → dedicated
+      // Captain → Team has no root→Captain edge until a Captain turns again.
+      // Rebuild that transient relation from the OFFICIAL persisted Session
+      // headers (parentSession), not from a second authority.
+      await this.recoverOwnedChildrenFromPersistence()
     })()
     return this.startPromise
+  }
+
+  /**
+   * Rebuild the transient root → child (`ownedChildren`) map from the official
+   * Session persistence when this fresh process starts with it empty — the
+   * "restart loses ownedChildren" recovery. Reads only the canonical persisted
+   * Session headers (`sessionPersistence.list()` → `parentSession`), merges each
+   * durable parent edge into the existing in-process map, and never introduces a
+   * second authority, new persistent state, or an Agent Loop change. Best-effort:
+   * an unavailable or empty persistence store leaves the map untouched (queries
+   * then simply see no managed children, exactly as before the fix). Consumers
+   * (host-read enumeration, read RPC binding, managed-create idempotency) always
+   * cross-check with authoritative Team aggregates, so a broader reconstructed
+   * candidate set can never fabricate a false Team binding.
+   */
+  private async recoverOwnedChildrenFromPersistence(): Promise<void> {
+    const persistence = this.ctx.sessionPersistence
+    if (persistence === undefined) return
+    let headers
+    try {
+      headers = await persistence.list()
+    } catch {
+      return
+    }
+    for (const header of headers) {
+      if (header.parentSession === undefined) continue
+      const children = this.ownedChildren.get(header.parentSession) ?? new Set<string>()
+      children.add(header.id)
+      this.ownedChildren.set(header.parentSession, children)
+    }
   }
   private async ensureReady(): Promise<void> {
     if (this.domainInstance === undefined) await this.start()
