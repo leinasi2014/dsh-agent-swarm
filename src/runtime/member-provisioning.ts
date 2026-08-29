@@ -22,6 +22,7 @@ import { foldSubagentDescriptor, SubagentError, type SubagentListEntry } from '@
 import { TeamDomainError } from '../domain/error.js'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import type { TeamId, TeamMember, TeamMembership } from '../domain/types.js'
+import type { MemberIdentityInput } from '../domain/identity-profile.js'
 import { requireAgent, type ToolExecutionAuthority } from './authority.js'
 import type { RuntimeConfig } from './orchestrator-runtime.js'
 import { memberJoinNotice, memberPersona } from './prompts.js'
@@ -75,7 +76,7 @@ export class MemberProvisioner {
 
   async addMember(
     exec: ToolExecutionAuthority,
-    input: { name: string; role: string; provider?: string; llmProvider?: string; model?: string; denyTools?: readonly string[] },
+    input: { name: string; role: string; provider?: string; llmProvider?: string; model?: string; denyTools?: readonly string[] } & MemberIdentityInput,
   ): Promise<TeamMember> {
     const captain = requireAgent(exec)
     const scope = this.deps.scopeOf(captain)
@@ -120,6 +121,10 @@ export class MemberProvisioner {
         role: input.role,
         sessionId: childId,
         provider: providerName,
+        ...(input.displayName === undefined ? {} : { displayName: input.displayName }),
+        ...(input.profession === undefined ? {} : { profession: input.profession }),
+        ...(input.personality === undefined ? {} : { personality: input.personality }),
+        ...(input.pixelAvatarSvg === undefined ? {} : { pixelAvatarSvg: input.pixelAvatarSvg }),
       })
       let finish!: () => void
       const operation = new Promise<void>(settle => { finish = settle })

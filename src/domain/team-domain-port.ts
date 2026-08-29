@@ -29,6 +29,7 @@ import type {
   TeamTask,
   ReviewVerificationCommand,
 } from './types.js'
+import type { MemberIdentityInput } from './identity-profile.js'
 import type { QueueMessageOnceResult } from './team-domain-interaction.js'
 
 /**
@@ -148,7 +149,7 @@ export interface TeamDomainPort {
     scope: TeamScope,
     teamId: TeamId,
     captainSessionId: string,
-    input: { name: string; role: string; sessionId: string; provider: string },
+    input: { name: string; role: string; sessionId: string; provider: string } & MemberIdentityInput,
   ): Promise<TeamMember>
   settleMember(
     scope: TeamScope,

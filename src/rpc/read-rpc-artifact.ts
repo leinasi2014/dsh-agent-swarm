@@ -8,7 +8,7 @@ import {
 } from './read-rpc-contract.js'
 
 export const SWARM_READ_RPC_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
-export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = 'a852c5d3a5959979c89696df1d6786e43525c5d9c86f0a9104a9998469aa916f' as const
+export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '2ee73168b400dcc88f99b5861547cf47b01639861e49f1ebe9c984e4df398b9a' as const
 
 const boundedString = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength, pattern: '\\S' })
 /** Member role is authoritative free-text (never truncated by the reader); the
@@ -43,6 +43,8 @@ const assetStatus = {
   properties: {
     state: { enum: ['generated', 'not_generated', 'unavailable'] },
     reason: { enum: ['avatar_backend_not_implemented', 'identity_backend_not_implemented', 'notice_board_not_implemented'] },
+    // Strictly allowlisted pixel-avatar SVG, present only when state === 'generated'.
+    svg: boundedString(16384),
   },
 }
 const endpointRef = {
@@ -75,6 +77,9 @@ const captainMemberRow = {
   properties: {
     name: boundedString(64), role: boundedString(ROSTER_ROLE_MAX_LENGTH),
     phase: { enum: ['provisioning', 'active', 'failed', 'removed'] }, createdAt: nonNegativeInteger,
+    displayName: boundedString(128),
+    profession: boundedString(256),
+    personality: boundedString(1024),
     avatar: assetStatus, identityCard: assetStatus,
   },
 }
@@ -408,9 +413,15 @@ export const SWARM_READ_RPC_FIXTURES_V1 = deepFreezeJson({
     },
     captainMembers: {
       schemaVersion: 1, binding: fixtureBinding,
-      members: [{ name: 'worker', role: 'writer', phase: 'active', createdAt: 1_700_000_000_000,
-        avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
-        identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' } }],
+      members: [
+        { name: 'worker', role: 'writer', phase: 'active', createdAt: 1_700_000_000_000,
+          avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
+          identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' } },
+        { name: 'artist', role: 'artist', phase: 'active', createdAt: 1_700_000_000_001,
+          displayName: 'Pixel Painter', profession: 'Avatar artist', personality: 'Careful, meticulous',
+          avatar: { state: 'generated', svg: '<svg viewBox="0 0 16 16"><rect x="0" y="0" width="8" height="8" fill="#2a3"/></svg>' },
+          identityCard: { state: 'generated' } },
+      ],
       observedAt: 1_700_000_000_200,
     },
     captainAnnouncements: {

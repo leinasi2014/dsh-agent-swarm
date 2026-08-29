@@ -9,6 +9,7 @@ import { TaskId, type AttemptId, type TaskAttempt, type TeamId, type TeamMessage
 import { TeamDomain } from '../domain/team-domain.js'
 import type { CreateTaskInput, TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import { TeamDomainError } from '../domain/error.js'
+import type { MemberIdentityInput } from '../domain/identity-profile.js'
 import { StorageDomainTeamStore } from '../storage/storage-domain-team-store.js'
 import { teamDomainSpec } from '../storage/team-spec.js'
 import { requireAgent, workspaceOf, type ToolExecutionAuthority } from './authority.js'
@@ -264,7 +265,7 @@ export class AgentSwarmRuntime extends Service {
       signal: exec.signal })
   }
 
-  async addMember(exec: ToolExecutionAuthority, input: { name: string; role: string; provider?: string; llmProvider?: string; model?: string; denyTools?: readonly string[] }): Promise<TeamState['members'][number]> {
+  async addMember(exec: ToolExecutionAuthority, input: { name: string; role: string; provider?: string; llmProvider?: string; model?: string; denyTools?: readonly string[] } & MemberIdentityInput): Promise<TeamState['members'][number]> {
     await this.ensureReady(); this.assertOpen()
     return await this.provisioning.addMember(exec, input)
   }

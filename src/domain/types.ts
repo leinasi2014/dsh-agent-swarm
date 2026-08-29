@@ -17,7 +17,24 @@ export const TeamMessageId = (value: string): TeamMessageId => value as TeamMess
 
 type TeamMemberPhase = 'provisioning' | 'active' | 'failed' | 'removed'
 
-export interface TeamMember {
+/**
+ * Captain-declared identity profile for one roster member. Every field is
+ * optional on the durable record: when absent the read projection honestly
+ * reports `not_generated` — old records and members added without a profile
+ * keep the exact pre-feature stored shape. When present the values were
+ * validated at admission ({@link normalizeMemberIdentity}); `pixelAvatarSvg`
+ * passed the strict pixel-rect allowlist and is therefore safe to publish.
+ */
+export interface TeamMemberIdentityProfile {
+  readonly displayName?: string
+  readonly profession?: string
+  readonly personality?: string
+  /** Strictly allowlisted static pixel SVG (`<svg viewBox>` + self-closing
+   *  `<rect>` only). Present only when the Captain supplied a safe avatar. */
+  readonly pixelAvatarSvg?: string
+}
+
+export interface TeamMember extends TeamMemberIdentityProfile {
   readonly name: string
   readonly role: string
   readonly sessionId: string

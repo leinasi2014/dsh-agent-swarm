@@ -9,6 +9,7 @@
  * vocabulary and failure semantics are exactly those of the port.
  */
 import { expectDomain } from './error.js'
+import type { MemberIdentityInput } from './identity-profile.js'
 import * as board from './team-domain-board.js'
 import * as budget from './team-domain-budget.js'
 import * as mailbox from './team-domain-mailbox.js'
@@ -100,7 +101,7 @@ export class TeamDomain implements TeamDomainPort {
     scope: TeamScope,
     teamId: TeamId,
     captainSessionId: string,
-    input: { name: string; role: string; sessionId: string; provider: string },
+    input: { name: string; role: string; sessionId: string; provider: string } & MemberIdentityInput,
   ): Promise<TeamMember> {
     return await roster.provisionMember(this.deps, scope, teamId, captainSessionId, input)
   }

@@ -29,6 +29,12 @@ const memberSchema = z.object({
   phase: z.enum(['provisioning', 'active', 'failed', 'removed']),
   createdAt: timestamp,
   error: z.string().min(1).optional(),
+  // Captain-declared identity profile. All optional so pre-existing records
+  // parse byte-identical; values were allowlist/width-validated at admission.
+  displayName: z.string().min(1).max(128).optional(),
+  profession: z.string().min(1).max(256).optional(),
+  personality: z.string().min(1).max(1024).optional(),
+  pixelAvatarSvg: z.string().min(1).max(16384).optional(),
 })
 
 const taskSchema = z.object({

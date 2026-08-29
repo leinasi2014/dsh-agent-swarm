@@ -178,8 +178,21 @@ export class AgentSwarmReadRpcService {
           role: member.role,
           phase: member.phase,
           createdAt: member.createdAt,
-          avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
-          identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
+          ...(member.displayName === undefined
+            ? {}
+            : { displayName: member.displayName }),
+          ...(member.profession === undefined
+            ? {}
+            : { profession: member.profession }),
+          ...(member.personality === undefined
+            ? {}
+            : { personality: member.personality }),
+          avatar: member.pixelAvatarSvg === undefined
+            ? { state: 'not_generated', reason: 'avatar_backend_not_implemented' }
+            : { state: 'generated', svg: member.pixelAvatarSvg },
+          identityCard: member.displayName === undefined && member.profession === undefined && member.personality === undefined
+            ? { state: 'not_generated', reason: 'identity_backend_not_implemented' }
+            : { state: 'generated' },
         }))
         return { schemaVersion: 1, binding: { rootSessionId: root.id, teamId: team.id }, members, observedAt }
       }

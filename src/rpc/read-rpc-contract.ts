@@ -63,9 +63,10 @@ export interface SwarmReadTeamsRequest {
 }
 
 /** Explicit identity-asset availability of a Captain/team/member. Backend states are honest: a
- *  field the backend does not yet generate reports `not_generated` with a stable reason — never a
+ *  field the backend has no profile for reports `not_generated` with a stable reason — never a
  *  fabricated avatar/identity card. `unavailable` means the read endpoint exists but carries no
- *  data source. */
+ *  data source. When the backend holds a Captain-declared profile it reports `generated` and
+ *  carries the value. */
 export type SwarmReadAssetState = 'generated' | 'not_generated' | 'unavailable'
 export type SwarmReadAssetReason =
   | 'avatar_backend_not_implemented'
@@ -75,6 +76,8 @@ export type SwarmReadAssetReason =
 export interface SwarmReadAssetStatusV1 {
   readonly state: SwarmReadAssetState
   readonly reason?: SwarmReadAssetReason
+  /** Strictly allowlisted pixel-avatar SVG; present only when `state === 'generated'`. */
+  readonly svg?: string
 }
 
 export interface SwarmReadCaptainEndpointRefV1 {
@@ -120,13 +123,20 @@ export interface SwarmReadCaptainSectionRequest {
   readonly target: SwarmReadTargetHint
 }
 
-/** One Captain-scoped member row. The roster identity/phase is authoritative Team data; the
- *  avatar/identity card are backend-not-implemented and report `not_generated`. */
+/** One Captain-scoped member row. The roster identity/phase is authoritative Team data. The
+ *  avatar/identity card are honest asset projections: present only when the Captain declared the
+ *  corresponding identity profile (`state === 'generated'`), otherwise `not_generated`. */
 export interface SwarmReadCaptainMemberRowV1 {
   readonly name: string
   readonly role: string
   readonly phase: 'provisioning' | 'active' | 'failed' | 'removed'
   readonly createdAt: number
+  /** Captain-declared display name; present only when the identity card is `generated`. */
+  readonly displayName?: string
+  /** Captain-declared profession; present only when the identity card is `generated`. */
+  readonly profession?: string
+  /** Captain-declared personality; present only when the identity card is `generated`. */
+  readonly personality?: string
   readonly avatar: SwarmReadAssetStatusV1
   readonly identityCard: SwarmReadAssetStatusV1
 }

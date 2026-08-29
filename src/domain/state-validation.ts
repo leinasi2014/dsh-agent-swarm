@@ -73,6 +73,10 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
     if (!MEMBER_PHASES.has(String(member.phase))) corrupt(path, `members[${index}].phase is invalid`)
     integer(member.createdAt, path, `members[${index}].createdAt`)
     if (member.error !== undefined) text(member.error, path, `members[${index}].error`)
+    if (member.displayName !== undefined) text(member.displayName, path, `members[${index}].displayName`)
+    if (member.profession !== undefined) text(member.profession, path, `members[${index}].profession`)
+    if (member.personality !== undefined) text(member.personality, path, `members[${index}].personality`)
+    if (member.pixelAvatarSvg !== undefined) text(member.pixelAvatarSvg, path, `members[${index}].pixelAvatarSvg`)
     return member
   })
   unique(members.map(member => member.sessionId as string), path, 'member session ids')

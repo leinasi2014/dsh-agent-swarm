@@ -24,6 +24,8 @@ import {
 } from './team-domain-shared.js'
 import { TeamId, type TaskId, type TeamMember, type TeamMembership, type TeamState } from './types.js'
 import type { TeamScope } from './team-domain-port.js'
+import type { MemberIdentityInput } from './identity-profile.js'
+import { normalizeMemberIdentity } from './identity-profile.js'
 
 export async function createTeam(
   deps: TeamDomainDeps,
@@ -163,8 +165,13 @@ export async function provisionMember(
   scope: TeamScope,
   teamId: TeamId,
   captainSessionId: string,
-  input: { name: string; role: string; sessionId: string; provider: string },
+  input: { name: string; role: string; sessionId: string; provider: string } & MemberIdentityInput,
 ): Promise<TeamMember> {
+  // The identity profile is validated (and the avatar allowlisted) BEFORE the
+  // durable record commits: an invalid displayName/profession/personality or an
+  // unsafe pixel SVG rejects provisioning with no roster side effect, and only
+  // the sanctioned form is ever persisted in the canonical Team aggregate.
+  const identity = normalizeMemberIdentity(input)
   let committed!: TeamMember
   await deps.store.transact(scope, teamId, team => {
     const authority = actorMembership(team, captainSessionId)
@@ -189,6 +196,7 @@ export async function provisionMember(
       provider: nonEmpty(input.provider, 'member provider', 128),
       phase: 'provisioning',
       createdAt: timestamp,
+      ...identity,
     }
     team.members.push(committed)
     const usageCursors = { ...team.usageCursors, [input.sessionId]: -1 }

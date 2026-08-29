@@ -596,4 +596,67 @@ describe('DSH rc.8 composition', () => {
       for (const fiber of fibers.toReversed()) await fiber.dispose()
     }
   }, 10_000)
+
+  it('agent_swarm_add_member persists a Captain-authored identity profile and rejects unsafe avatars', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-identity-'))
+    roots.push(sandbox)
+    const workspace = join(sandbox, 'workspace')
+    const ctx = new Context()
+    const fibers: Fiber[] = []
+
+    try {
+      fibers.push(await mountDurableStack(ctx, join(sandbox, 'storage'), join(sandbox, 'sessions', 'sessions.db')))
+      fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
+      fibers.push(await ctx.plugin(SubagentService))
+      fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
+      fibers.push(await ctx.plugin(AgentSwarm, {
+        memberProvider: 'spawn', memberMaxDepth: 1,
+        schedulerProvider: 'test-scheduler', reviewProvider: 'test-review',
+      }))
+      ctx.llm.registerAdapter(['mock'], new ScriptedAdapter([textResponse('Member ready.')]))
+      const lead = ctx.agentLoop.create(
+        SessionId('identity-lead'),
+        { provider: 'mock', model: 'mock' },
+        { cwd: workspace },
+      )
+
+      const created = await successfulTool(ctx, lead, 'identity-create', 'agent_swarm_create', {
+        name: 'Identity team', description: 'Prove identity persists through the add-member tool.',
+      }) as { team_id: string }
+
+      const added = await successfulTool(ctx, lead, 'identity-add', 'agent_swarm_add_member', {
+        name: 'painter', role: 'artist',
+        display_name: 'Pixel Painter', profession: 'Avatar artist', personality: 'Careful, meticulous',
+        pixel_avatar_svg: '<svg viewBox="0 0 16 16"><rect x="0" y="0" width="8" height="8" fill="#2a3"/></svg>',
+      }) as { session_id: string; phase: string }
+      expect(added.phase).toBe('active')
+
+      const snapshot = await ctx.agentSwarm.domain.snapshot(workspace, AgentSwarm.TeamId(created.team_id), lead.id)
+      expect(snapshot.team.members[0]).toMatchObject({
+        name: 'painter', displayName: 'Pixel Painter', profession: 'Avatar artist',
+        personality: 'Careful, meticulous',
+        pixelAvatarSvg: '<svg viewBox="0 0 16 16"><rect x="0" y="0" width="8" height="8" fill="#2a3"/></svg>',
+      })
+
+      // A member added without a profile keeps the honest absent identity.
+      await successfulTool(ctx, lead, 'identity-plain', 'agent_swarm_add_member', { name: 'plain', role: 'writer' })
+      const updated = await ctx.agentSwarm.domain.snapshot(workspace, AgentSwarm.TeamId(created.team_id), lead.id)
+      const plain = updated.team.members.find(member => member.name === 'plain')
+      expect(plain?.displayName).toBeUndefined()
+      expect(plain?.pixelAvatarSvg).toBeUndefined()
+
+      // An unsafe avatar is rejected by the tool before provisioning commits.
+      await expect(ctx.tools.execute({
+        signal: SIGNAL,
+        callId: CallId('identity-unsafe'),
+        name: 'agent_swarm_add_member',
+        arguments: { name: 'evil', role: 'artist', pixel_avatar_svg: '<svg viewBox="0 0 16 16"><script>alert(1)</script></svg>' },
+        agent: lead,
+      })).resolves.toMatchObject({ isError: true })
+      const rejected = await ctx.agentSwarm.domain.snapshot(workspace, AgentSwarm.TeamId(created.team_id), lead.id)
+      expect(rejected.team.members.find(member => member.name === 'evil')).toBeUndefined()
+    } finally {
+      for (const fiber of fibers.toReversed()) await fiber.dispose()
+    }
+  }, 15_000)
 })
