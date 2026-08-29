@@ -326,7 +326,9 @@ describe('R3 native Team Details surface', () => {
       const captain = document.querySelector<HTMLButtonElement>('.swarm-team-workspace__roster > button')!
       const member = document.querySelector<HTMLButtonElement>('.swarm-team-workspace__rows button')!
       expect(captain.compareDocumentPosition(member) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-      expect(captain.textContent).toBe('Return to main ChatCurrent mode: Main Chat is captain')
+      expect(captain.querySelector('.swarm-team-workspace__avatar')?.textContent).toBe('C')
+      expect(captain.textContent).toContain('Current main Chat')
+      expect(captain.querySelector('.swarm-team-workspace__captain-badge')?.textContent).toBe('Team Captain')
       expect(captain.textContent).not.toContain('session-fixture')
       expect(member.querySelector('[aria-hidden="true"]')?.textContent).toBe('w')
       expect(member.querySelector('[data-swarm-member-visible-lifecycle]')?.textContent).toBe('Lifecycle: Active')

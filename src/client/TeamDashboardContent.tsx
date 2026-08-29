@@ -1,4 +1,4 @@
-import { Button, IconCloseOutline16, IconRefreshOutline16, IconUserOutline16, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconCloseOutline16, IconRefreshOutline16, StateDot, type StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SwarmHostReadProjectionV1 } from '../host/host-read-types.js'
@@ -35,6 +35,7 @@ export const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace__row[aria-current="true"] { border-color:var(--dsw-alias-brand-primary); background:var(--dsw-alias-bg-layer-1); }
 [data-swarm-team-dashboard] .swarm-team-workspace__row-main, [data-swarm-team-dashboard] .swarm-team-workspace__fact { display:flex; justify-content:space-between; gap:8px; min-width:0; max-width:100%; }
 [data-swarm-team-dashboard] .swarm-team-workspace__avatar { display:grid; flex:0 0 28px; inline-size:28px; block-size:28px; place-items:center; border-radius:50%; background:var(--dsw-alias-bg-layer-1); color:var(--dsw-alias-brand-primary); font-weight:600; }
+[data-swarm-team-dashboard] .swarm-team-workspace__captain-badge { flex:0 0 auto; padding:2px 8px; border-radius:999px; border:1px solid var(--dsw-alias-border-l2); background:var(--dsw-alias-bg-layer-1); color:var(--dsw-alias-brand-primary); font-size:12px; font-weight:600; white-space:nowrap; }
 [data-swarm-team-dashboard] .swarm-team-workspace__truncate { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 [data-swarm-team-dashboard] .swarm-team-workspace__task-assignee { display:block; min-width:0; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 [data-swarm-team-dashboard] .swarm-team-workspace__facts { display:grid; gap:8px; }
@@ -183,7 +184,7 @@ function Workspace({ data, handoffBusy, localeTag, selection, setSelection, t, o
 }
 
 function CaptainRow({ busy, onMainChat, t }: { readonly busy: boolean; readonly onMainChat: () => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
-  return <button className="swarm-team-workspace__row" type="button" disabled={busy} onClick={onMainChat} title={t('captainMainChatTitle')}><span className="swarm-team-workspace__row-main"><span className="swarm-team-workspace__member-identity"><IconUserOutline16 /><strong>{t('captainMainChat')}</strong></span><span className="swarm-team-workspace__muted">{t('captain')}</span></span></button>
+  return <button className="swarm-team-workspace__row" type="button" disabled={busy} onClick={onMainChat} title={t('captainMainChatTitle')}><span className="swarm-team-workspace__row-main"><span className="swarm-team-workspace__member-identity"><span className="swarm-team-workspace__avatar" aria-hidden="true">C</span><strong className="swarm-team-workspace__truncate" title={t('captainCurrent')}>{t('captainCurrent')}</strong></span><span className="swarm-team-workspace__captain-badge">{t('captainRole')}</span></span></button>
 }
 
 function Metric({ label, value }: { readonly label: string; readonly value: string }) { return <div className="swarm-team-workspace__metric"><strong>{value}</strong><span className="swarm-team-workspace__muted">{label}</span></div> }
@@ -196,7 +197,7 @@ function MemberRows({ data, onSelect, onTrigger, t }: { readonly data: SwarmHost
     const taskText = isCurrentMemberWork(activity) ? `${t('memberTask')}: ${task?.subject ?? t('hostUnavailable')} · ${t('memberAttempt')}: ${enumLabel(attempt!.phase, t)}` : activity.attempt === undefined ? t('memberNone') : t('memberRecentAttempt', { phase: enumLabel(activity.attempt.phase, t) })
     const lifecycleText = `${t('memberLifecycle')}: ${enumLabel(member.phase, t)}`
     const activityText = memberActivityLabel(activity, t)
-    return <li key={member.name}><button className="swarm-team-workspace__row" data-swarm-member-name={member.name} data-swarm-member-role={member.role} data-swarm-member-lifecycle={member.phase} data-swarm-member-activity={activity.state} type="button" ref={element => { onTrigger(member.name, element) }} onClick={() => { onSelect(member.name) }}><span className="swarm-team-workspace__row-main"><span className="swarm-team-workspace__member-identity"><span className="swarm-team-workspace__avatar" aria-hidden="true">{memberRosterInitial(member.name)}</span><strong className="swarm-team-workspace__truncate" title={member.name}>{member.name}</strong></span><span className="swarm-team-workspace__muted swarm-team-workspace__member-activity" data-swarm-member-visible-activity={activityText} title={activityText}>{activityText}</span></span><small className="swarm-team-workspace__muted swarm-team-workspace__task-assignee" data-swarm-member-visible-lifecycle={lifecycleText} title={lifecycleText}>{lifecycleText}</small><small className="swarm-team-workspace__muted swarm-team-workspace__truncate" title={member.role}>{member.role}</small><small className="swarm-team-workspace__muted swarm-team-workspace__task-assignee" title={taskText}>{taskText}</small></button></li>
+    return <li key={member.name}><button className="swarm-team-workspace__row" data-swarm-member-name={member.name} data-swarm-member-role={member.role} data-swarm-member-lifecycle={member.phase} data-swarm-member-activity={activity.state} type="button" ref={element => { onTrigger(member.name, element) }} onClick={() => { onSelect(member.name) }}><span className="swarm-team-workspace__row-main"><span className="swarm-team-workspace__member-identity"><span className="swarm-team-workspace__avatar" aria-hidden="true">{memberRosterInitial(member.name)}</span><strong className="swarm-team-workspace__truncate" title={member.name}>{member.name}</strong></span><span className="swarm-team-workspace__muted swarm-team-workspace__member-activity" data-swarm-member-visible-activity={activityText} title={activityText}><StateDot state={memberActivityDot(activity.state)} />{activityText}</span></span><small className="swarm-team-workspace__muted swarm-team-workspace__task-assignee" data-swarm-member-visible-lifecycle={lifecycleText} title={lifecycleText}>{lifecycleText}</small><small className="swarm-team-workspace__muted swarm-team-workspace__truncate" title={member.role}>{member.role}</small><small className="swarm-team-workspace__muted swarm-team-workspace__task-assignee" title={taskText}>{taskText}</small></button></li>
   })}</ul>
 }
 
@@ -277,6 +278,13 @@ function memberActivityLabel(activity: MemberActivity, t: TranslateNS<typeof TEA
   if (isCurrentMemberWork(activity)) return enumLabel(activity.attempt!.phase, t)
   if (activity.attempt !== undefined) return t('memberRecentAttempt', { phase: enumLabel(activity.attempt.phase, t) })
   return t('memberIdle')
+}
+
+/** Maps only the derived real activity to the official StateDot semantic: running → ongoing, failed/error → warning, everything else → neutral/available (done). */
+function memberActivityDot(state: MemberActivity['state']): StateDotState {
+  if (state === 'running') return 'ongoing'
+  if (state === 'error') return 'warning'
+  return 'done'
 }
 
 type WireEnum = SwarmHostReadProjectionV1['team']['phase'] | SwarmHostReadProjectionV1['roster'][number]['phase'] | SwarmHostReadProjectionV1['tasks'][number]['status'] | SwarmHostReadProjectionV1['attempts'][number]['phase']
