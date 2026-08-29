@@ -4,24 +4,24 @@
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-22.19%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 
-面向 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）的持久化多智能体团队编排插件。
+A persistent multi-agent team orchestration plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH).
 
-它让主会话保留为 Main Brain，同时为每个团队启动独立 Captain Session。Captain 可以创建成员、拆分任务 DAG、调度执行、审核交付，并通过 DSH 原生侧边工作台向用户展示目标、公告、成员、任务和运行状态。
+It keeps the root session as the **Main Brain** while giving every managed team an independent **Captain Session**. Captains can recruit specialists, build task DAGs, dispatch work, review deliveries, and expose goals, announcements, people, tasks, and runtime state through a DSH-native side workbench.
 
-> 当前状态：活跃开发中的预发布源码。仓库提供构建、测试和打包入口，但尚未发布公共 npm 版本；`package.json` 保持 `private: true`，防止误发布。
+> **Status:** actively developed pre-release source. The repository provides build, test, and packaging entry points, but no public npm release is available yet. `package.json` remains `private: true` to prevent accidental publication.
 
-## 已实现能力
+## Implemented capabilities
 
-- **Main Brain 与独立 Captain**：`agent_swarm_create_managed` 从主会话创建独立 Captain Session，主聊天不被团队执行日志取代。
-- **团队与成员身份**：Captain/成员可保存名称、职业、性格和安全像素 SVG 头像；成员由官方 continuable subagent seam 承载。
-- **任务协作**：DAG 依赖、优先级、revision CAS、attemptId 围栏、定向分派、提交、重派和 Captain 审核。
-- **持久运行**：团队聚合写入官方 Storage Domain；成员描述、任务、邮箱、预算和记忆支持重启后恢复。
-- **消息与监督**：持久 mailbox、quiet/wakeup 投递、成员中断、预算限制、等待/状态/分页读取。
-- **记忆与经验**：团队共享记忆和成员私有记忆使用各自明确的持久化与授权边界。
-- **DSH Team 工作台 V3**：团队 rail、公共目标、最新公告，以及“工作台 / 任务 / 公告 / 管理”四个互斥视图；成员和任务使用覆盖式详情页，不挤占主聊天。
-- **25 个 `agent_swarm_*` 工具**：完整参数、权限和状态契约见 [docs/04-core-protocol.md](docs/04-core-protocol.md)。
+- **Main Brain and independent Captains** — `agent_swarm_create_managed` creates a dedicated Captain Session without replacing the root chat with team execution logs.
+- **Team and member identities** — Captains and members can store a name, profession, personality, and safe pixel-style SVG avatar. Members run through the official continuable subagent seam.
+- **Task collaboration** — DAG dependencies, priorities, revision CAS, `attemptId` fencing, targeted assignment, submission, reassignment, and Captain review.
+- **Durable runtime state** — the Team aggregate is stored through the official Storage Domain; member descriptors, tasks, mailboxes, budgets, and memories can survive restarts.
+- **Messaging and supervision** — persistent mailboxes, quiet/wakeup delivery, member interruption, budget limits, waiting, status reads, and pagination.
+- **Memory and experience** — team-shared memory and member-private memory have distinct persistence and authorization boundaries.
+- **DSH Team Workbench V3** — team rail, shared goal, latest announcement, and four mutually exclusive views: Workbench, Tasks, Announcements, and Management. Member and task details open as overlays instead of shrinking the root chat.
+- **25 `agent_swarm_*` tools** — see [docs/04-core-protocol.md](docs/04-core-protocol.md) for parameters, permissions, and state contracts.
 
-## 架构边界
+## Architecture boundaries
 
 ```text
 Official DSH Session / Agent Loop / Subagent
@@ -37,21 +37,21 @@ Official DSH Session / Agent Loop / Subagent
       Host read projection → DSH client UI
 ```
 
-- 不修改或复制官方 Agent Loop。
-- Team aggregate 是唯一业务权威；UI、Prompt 和只读 RPC 都是投影。
-- 状态只在持久提交成功后发布。
-- 浏览器工作台当前以读取和导航为主；修改团队状态通过 Captain Chat 与受围栏的模型工具完成。
-- 官方服务缺失、Provider 未配置或 revision/attempt 陈旧时 fail loud，不静默降级成第二套状态机。
+- The plugin does not patch or duplicate the official Agent Loop.
+- The Team aggregate is the single business authority; UI, prompt context, and read-only RPCs are projections.
+- State is published only after its durable commit succeeds.
+- The browser workbench currently focuses on reading and navigation. Team mutations go through Captain Chat and fenced model tools.
+- Missing official services, unconfigured providers, and stale revisions or attempts fail loudly instead of silently creating a second state machine.
 
-## 快速开始
+## Quick start
 
-### 环境要求
+### Requirements
 
-- Node.js `^22.19.0 || >=24`（CI 使用 Node.js 24）
+- Node.js `^22.19.0 || >=24` (CI uses Node.js 24)
 - pnpm `9.15.9`
-- 与 `package.json` peer dependencies 和 `docs/OFFICIAL_BASELINE.json` 匹配的 DSH checkout/Profile
+- A DSH checkout/Profile compatible with the peer dependencies in `package.json` and the pinned baseline in `docs/OFFICIAL_BASELINE.json`
 
-### 获取源码并验证
+### Clone and verify
 
 ```bash
 git clone https://github.com/leinasi2014/dsh-agent-swarm.git
@@ -61,9 +61,9 @@ pnpm install --frozen-lockfile
 pnpm verify:candidate
 ```
 
-`pnpm verify:candidate` 会运行结构、边界、lint、重复/死导出、两套类型检查、测试、场景检查、构建和包产物验证。
+`pnpm verify:candidate` runs structure and boundary checks, linting, duplicate and dead-export checks, both type-check lanes, tests, scenario checks, builds, and package-artifact verification.
 
-### 构建预发布 tarball
+### Build a pre-release tarball
 
 ```powershell
 $artifact = Join-Path $env:TEMP 'dsh-agent-swarm-artifact'
@@ -73,7 +73,7 @@ pnpm pack --pack-destination $artifact
 $tgz = (Get-ChildItem $artifact\dsh-agent-swarm-*.tgz | Select-Object -First 1).FullName
 ```
 
-只把 tarball 安装到新的隔离 `DSH_HOME`/Profile；不要在默认用户 Profile 中试装开发候选：
+Install development candidates only into a fresh, isolated `DSH_HOME` and Profile. Do not test them in your default user Profile:
 
 ```powershell
 $env:DSH_HOME = Join-Path $env:TEMP ('dsh-swarm-home-' + [guid]::NewGuid().ToString('N'))
@@ -81,64 +81,65 @@ New-Item -ItemType Directory -Force $env:DSH_HOME | Out-Null
 dsh plugin --profile web add --workspace-root $tgz
 ```
 
-Profile 仍需组合官方 Storage hub、KV backend、Storage Domain、Session persistence、Subagent runtime 和实际 LLM Provider。插件不会在安装时自动创建 Team 或启动成员。
+The Profile must still compose an official Storage hub, KV backend, Storage Domain, Session persistence, Subagent runtime, and a real LLM Provider. Installing this plugin does not automatically create a Team or spawn members.
 
-## 基本使用方式
+## Basic usage
 
-在 DSH 主会话中直接描述目标，例如：
-
-```text
-创建一个独立交付团队，由队长招募需求分析、实现和评审成员，
-把“为项目补齐集成测试”拆成有依赖的任务并开始执行。
-```
-
-典型流程：
-
-1. Main Brain 调用 `agent_swarm_create_managed` 创建独立 Captain。
-2. Captain 设置团队目标和自身资料，再用 `agent_swarm_add_member` 招募成员。
-3. Captain 用 `agent_swarm_create_task` 建立 DAG；调度器按就绪状态分派。
-4. 成员提交 fenced attempt；Captain 用 `agent_swarm_review_task` 接受或拒绝。
-5. 用户在 Team 工作台查看进度，或打开 Captain Chat 直接调整目标和分工。
-
-## 仓库结构
+Describe the desired outcome in a DSH root session, for example:
 
 ```text
-src/        插件 Host、Client、领域、运行时、Provider 与工具
-tests/      单元、组合、重启、故障与 UI 测试
-packages/   项目内可复用包
-docs/       产品、协议、架构、验证与历史开发记录
-scripts/    工程门、隔离生命周期、打包与验收脚本
-ref/        固定参考源指针；materialized source 只读
-.github/    CI 工作流与 Pull Request 模板
+Create an independent delivery team. Ask the Captain to recruit specialists for
+requirements, implementation, and review, then build and execute a dependency-aware
+task plan for adding integration tests to this project.
 ```
 
-## 开发与贡献
+A typical flow is:
+
+1. The Main Brain calls `agent_swarm_create_managed` to create an independent Captain.
+2. The Captain sets the team goal and identity, then recruits members with `agent_swarm_add_member`.
+3. The Captain builds a DAG with `agent_swarm_create_task`; the scheduler dispatches ready tasks.
+4. Members submit fenced attempts; the Captain accepts or rejects them with `agent_swarm_review_task`.
+5. The user follows progress in the Team Workbench or opens Captain Chat to adjust goals and assignments directly.
+
+## Repository layout
+
+```text
+src/        Plugin host/client, domain, runtime, providers, and tools
+tests/      Unit, composition, restart, fault, and UI tests
+packages/   Reusable packages owned by this repository
+docs/       Product, protocol, architecture, verification, and historical records
+scripts/    Engineering gates, isolation lifecycle, packaging, and acceptance scripts
+ref/        Pinned reference pointers; materialized source is read-only
+.github/    CI workflows and pull request template
+```
+
+## Development and contributing
 
 ```bash
-pnpm verify:isolation:status   # 写入、冻结候选和集成前
-pnpm test -- <affected-test>   # 迭代期最小受影响检查
-pnpm verify:candidate          # 候选冻结门
-pnpm verify:policy             # 仅治理/指令/注册文档变化时
-pnpm verify:compatibility      # 仅官方或参考兼容性参与决策时
+pnpm verify:isolation:status   # Before writing, freezing a candidate, or integrating
+pnpm test -- <affected-test>   # Smallest affected check during iteration
+pnpm verify:candidate          # Candidate engineering gate
+pnpm verify:policy             # Only when governance/instructions/registered docs change
+pnpm verify:compatibility      # When official/reference compatibility is decision-bearing
 ```
 
-开发分支、受管 worktree、审查与串行集成规则见 [CONTRIBUTING.md](CONTRIBUTING.md)。项目权威入口见 [AGENTS.md](AGENTS.md)。
+See [CONTRIBUTING.md](CONTRIBUTING.md) for managed worktrees, review, and serial integration. Start with [AGENTS.md](AGENTS.md) for the repository's authoritative development rules.
 
-## 文档
+## Documentation
 
-- [文档索引](docs/README.md)
-- [产品目标](docs/GOALS.md)
-- [核心协议](docs/04-core-protocol.md)
-- [实现路线与出口标准](docs/07-implementation-roadmap.md)
-- [测试与验证](docs/08-testing-verification.md)
-- [官方优先开发策略](docs/11-official-first-development.md)
+- [Documentation index](docs/README.md)
+- [Product goals](docs/GOALS.md)
+- [Core protocol](docs/04-core-protocol.md)
+- [Implementation roadmap and exit criteria](docs/07-implementation-roadmap.md)
+- [Testing and verification](docs/08-testing-verification.md)
+- [Official-first development strategy](docs/11-official-first-development.md)
 
-## 已知边界
+## Current limitations
 
-- 目前没有公共 npm、插件市场或稳定 release 安装身份。
-- Browser/Canvas 的 privileged write/control capability 尚未作为公共协议开放。
-- 分布式跨进程 CAS、远程成员和自动 Skill Evolution 属后续能力，不应从当前本地运行证据外推。
+- There is no public npm package, plugin-marketplace listing, or stable release identity yet.
+- Privileged Browser/Canvas write and control capabilities are not exposed as a public protocol.
+- Distributed cross-process CAS, remote members, and automatic Skill Evolution are future capabilities and must not be inferred from the current local runtime evidence.
 
-## 许可
+## License
 
 [MIT](LICENSE)
