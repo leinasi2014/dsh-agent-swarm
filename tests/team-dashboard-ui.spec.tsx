@@ -327,6 +327,10 @@ describe('R3 native Team Details surface', () => {
       // The rail is a 359px centered single column (width:100%; max-width:359px; margin-inline:auto).
       expect(stylesheet).toContain('.swarm-team-workspace__rail { width:100%; max-width:359px; margin-inline:auto')
       expect(stylesheet).toContain('max-width:359px')
+      // Narrow (single-column) roster rows lock to 40px and truncate the identity on one ellipsis line,
+      // so personality/profile fields live only in the detail view.
+      expect(stylesheet).toContain('min-block-size:40px')
+      expect(stylesheet).toMatch(/@media \(max-width: 430px\).*white-space:nowrap/mu)
       expect(teamWorkspaceLayoutForWidth(359)).toBe('compact')
       await act(async () => { observers[0]?.emit(workspace, 359) })
       expect(workspace.dataset.swarmTeamLayout).toBe('compact')
