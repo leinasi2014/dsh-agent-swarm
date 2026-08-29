@@ -25,6 +25,7 @@ async function render(node: ReactNode): Promise<void> { const root = createRoot(
 afterEach(async () => { while (mounted.length) await act(async () => { mounted.pop()?.unmount() }); document.body.replaceChildren(); vi.clearAllMocks() })
 
 const safeSvg = '<svg viewBox="0 0 8 8"><rect x="0" y="0" width="8" height="8" fill="#2a3"/><rect x="2" y="2" width="4" height="4" fill="#fff" opacity="0.5"/></svg>'
+const svg16 = '<svg viewBox="0 0 16 16"><rect x="0" y="0" width="16" height="16" fill="#39f"/><rect x="4" y="4" width="8" height="8" fill="#ccc"/></svg>'
 const unsafeSvgs = [
   '<svg viewBox="0 0 8 8"><script>alert(1)</script></svg>',
   '<svg viewBox="0 0 4 4"><rect x="0" y="0" width="4" height="4" fill="#2a3"/></svg>',
@@ -34,6 +35,14 @@ const unsafeSvgs = [
   '<svg viewBox="0 0 8 8"><g><rect x="0" y="0" width="8" height="8" fill="#2a3"/></g></svg>',
   '<svg viewBox="0 0 8 8"><rect x="0" y="0" width="8" height="8" fill="#2a3" extra="1"/></svg>',
   '<svg viewBox="0 0 8 8"><text x="0" y="4">hi</text></svg>',
+  // Strict numeric grammar: exponent, signs, whitespace and non-finite values are rejected.
+  '<svg viewBox="0 0 8 8"><rect x="0" y="0" width="1e1" height="8" fill="#2a3"/></svg>',
+  '<svg viewBox="0 0 8 8"><rect x="-1" y="0" width="8" height="8" fill="#2a3"/></svg>',
+  '<svg viewBox="0 0 8 8"><rect x=" 0" y="0" width="8" height="8" fill="#2a3"/></svg>',
+  '<svg viewBox="0 0 8 8"><rect x="Infinity" y="0" width="8" height="8" fill="#2a3"/></svg>',
+  '<svg viewBox="0 0 8 8"><rect x="0" y="0" width="8" height="8" fill="#2a3" opacity="+0.5"/></svg>',
+  // Wrong element namespace falls back.
+  '<svg viewBox="0 0 8 8" xmlns="http://www.w3.org/1999/xhtml"><rect x="0" y="0" width="8" height="8" fill="#2a3"/></svg>',
 ]
 
 describe('client-side safe pixel svg allowlist', () => {
@@ -44,6 +53,10 @@ describe('client-side safe pixel svg allowlist', () => {
     expect(parsed!.rects).toHaveLength(2)
     expect(parsed!.rects[0]).toMatchObject({ x: 0, y: 0, width: 8, height: 8, fill: '#2a3' })
     expect(parsed!.rects[1]).toMatchObject({ opacity: 0.5 })
+    const parsed16 = parseSafePixelSvg(svg16)
+    expect(parsed16).toBeDefined()
+    expect(parsed16!.size).toBe(16)
+    expect(parsed16!.rects).toHaveLength(2)
   })
   it.each(unsafeSvgs)('rejects unsafe svg markup: %s', svg => {
     expect(parseSafePixelSvg(svg)).toBeUndefined()
@@ -109,6 +122,7 @@ describe('member rows consume real captainMembers identity data', () => {
     expect(avatar.getAttribute('data-avatar-fallback')).toBeNull()
     expect(avatar.querySelectorAll('rect')).toHaveLength(2)
     expect(avatar.innerHTML).not.toContain('<script')
+    expect(avatar.getAttribute('viewBox')).toBe('0 0 8 8')
     // Personality never appears on the narrow row.
     expect(row.textContent).not.toContain('Careful')
     // Detail view is the only surface for personality and real profession facts.
@@ -117,6 +131,24 @@ describe('member rows consume real captainMembers identity data', () => {
     expect(detail.textContent).toContain('Careful, meticulous')
     expect(detail.textContent).toContain('Avatar artist')
     expect(detail.textContent).toContain('Pixel Painter')
+  })
+
+  it('renders an authored 16x16 asset with its own viewBox, and falls back on unsafe/invalid input', async () => {
+    const row16 = { ...generatedRow, avatar: { state: 'generated', svg: svg16 } }
+    await renderDetails(stateWithMemberAssets({ schemaVersion: 1, binding: { rootSessionId: 'root-1', teamId: 'team-1' }, members: [row16], observedAt: 1 }))
+    const row = document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!
+    const avatar = row.querySelector<SVGSVGElement>('[data-swarm-pixel-avatar]')!
+    // Authored 16x16 grid is NOT clipped into the legacy 5x5 viewBox.
+    expect(avatar.getAttribute('viewBox')).toBe('0 0 16 16')
+    expect(avatar.querySelectorAll('rect')).toHaveLength(2)
+    expect(avatar.querySelector('rect[fill="#39f"]')).not.toBeNull()
+    // Unsafe numeric/namespace input falls back to the deterministic grid with no script element.
+    const unsafeRow = { ...generatedRow, avatar: { state: 'generated', svg: '<svg viewBox="0 0 16 16"><rect x="0" y="0" width="1e2" height="16" fill="#39f"/></svg>' } }
+    document.body.replaceChildren()
+    await renderDetails(stateWithMemberAssets({ schemaVersion: 1, binding: { rootSessionId: 'root-1', teamId: 'team-1' }, members: [unsafeRow], observedAt: 1 }))
+    const fallback = document.querySelector<SVGSVGElement>('[data-swarm-member-name="worker"] [data-swarm-pixel-avatar]')!
+    expect(fallback.getAttribute('data-avatar-fallback')).toBe('unsafe-svg')
+    expect(document.querySelector('script')).toBeNull()
   })
 
   it('falls back honestly when the svg is unsafe: deterministic grid, fallback marker, no script element', async () => {

@@ -87,23 +87,36 @@ export interface SafePixelSvg {
 }
 
 const PIXEL_FILL = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$|^currentColor$/
+/** Separate MIME (parser input) and namespace (parsed element) constants: DOMParser takes the
+ *  MIME string, while parsed rect elements carry the SVG namespace URI (null under jsdom XML). */
+const SVG_MIME = 'image/svg+xml'
+const SVG_NAMESPACE = 'http://www.w3.org/2000/svg'
+/** Strict non-negative decimal: no exponent, no sign, no Infinity, no whitespace. */
+const SVG_DECIMAL = /^(?:0|[1-9]\d*)(?:\.\d+)?$/
+const svgDecimal = (raw: string): number | undefined => {
+  if (!SVG_DECIMAL.test(raw)) return undefined
+  const value = Number(raw)
+  return Number.isFinite(value) ? value : undefined
+}
 
 /** Independent client-side allowlist parse of a backend-provided pixel-avatar SVG. The markup is
  *  NEVER interpolated: only an exact `viewBox="0 0 N N"` root (8..32) whose element children are
  *  `<rect>`s carrying at most x/y/width/height/fill/opacity (fill #RGB/#RRGGBB/currentColor,
- *  opacity 0..1) is accepted; anything else returns undefined and the caller falls back to the
- *  deterministic grid. Mirrors the host provisioning allowlist as a second, client-owned gate. */
+ *  opacity 0..1, strict non-negative decimals) is accepted; anything else returns undefined and
+ *  the caller falls back to the deterministic grid. Mirrors the host provisioning allowlist as a
+ *  second, client-owned gate. */
 export function parseSafePixelSvg(svg: string): SafePixelSvg | undefined {
   if (typeof svg !== 'string' || svg.length === 0 || svg.length > 16_384) return undefined
   let document: Document
   try {
-    document = new DOMParser().parseFromString(svg, 'image/svg+xml')
+    document = new DOMParser().parseFromString(svg, SVG_MIME)
   } catch {
     return undefined
   }
   if (document.querySelector('parsererror') !== null) return undefined
   const root = document.documentElement
   if (root === null || root.localName !== 'svg' || root.tagName.toLowerCase() !== 'svg') return undefined
+  if (root.namespaceURI !== null && root.namespaceURI !== SVG_NAMESPACE) return undefined
   const viewBox = root.getAttribute('viewBox')
   const match = /^0 0 (\d{1,3}) (\d{1,3})$/.exec(viewBox ?? '')
   if (match === null) return undefined
@@ -118,15 +131,15 @@ export function parseSafePixelSvg(svg: string): SafePixelSvg | undefined {
     }
     if (node.nodeType !== node.ELEMENT_NODE) return undefined
     const element = node as Element
-    // jsdom XML parsing reports a null element namespace; the security gate is the local-name
-    // allowlist (rect-only, attribute allowlist, no nested structure) — raw markup is never
-    // interpolated regardless, only converted into React rect elements.
+    // Real browsers report the SVG namespace; jsdom XML parsing reports null. Any other
+    // namespace is rejected — the security gate stays the local-name + attribute allowlist,
+    // and raw markup is never interpolated regardless, only converted to React rect elements.
     if (element.localName !== 'rect') return undefined
+    if (element.namespaceURI !== null && element.namespaceURI !== SVG_NAMESPACE) return undefined
     const numeric = (name: string): number | undefined => {
       const raw = element.getAttribute(name)
       if (raw === null) return undefined
-      const value = Number(raw)
-      return Number.isFinite(value) ? value : undefined
+      return svgDecimal(raw)
     }
     const x = numeric('x')
     const y = numeric('y')
@@ -138,8 +151,8 @@ export function parseSafePixelSvg(svg: string): SafePixelSvg | undefined {
     const opacityRaw = element.getAttribute('opacity')
     let opacity: number | undefined
     if (opacityRaw !== null) {
-      opacity = Number(opacityRaw)
-      if (!Number.isFinite(opacity) || opacity < 0 || opacity > 1) return undefined
+      opacity = svgDecimal(opacityRaw)
+      if (opacity === undefined || opacity > 1) return undefined
     }
     const allowed = new Set(['x', 'y', 'width', 'height', 'fill', ...(opacityRaw === null ? [] : ['opacity'])])
     if ([...element.attributes].some(attribute => !allowed.has(attribute.name))) return undefined
@@ -170,9 +183,9 @@ export function SafePixelAvatar({ seed, asset, name, t, className }: SafePixelAv
   return (
     <svg
       className={className}
-      width={GRID * 8}
-      height={GRID * 8}
-      viewBox={`0 0 ${String(GRID)} ${String(GRID)}`}
+      width={safe !== undefined ? safe.size * 8 : GRID * 8}
+      height={safe !== undefined ? safe.size * 8 : GRID * 8}
+      viewBox={safe !== undefined ? `0 0 ${String(safe.size)} ${String(safe.size)}` : `0 0 ${String(GRID)} ${String(GRID)}`}
       shapeRendering="crispEdges"
       role="img"
       aria-label={`${name} · ${label}`}
