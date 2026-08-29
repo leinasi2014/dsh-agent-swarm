@@ -40,6 +40,7 @@ const projection: SwarmHostReadProjectionV1 = {
 function rpcHarness(options: {
   host?: SwarmWebServer['host']; root?: Agent; captain?: string; projection?: SwarmHostReadProjectionV1;
   coldCaptainSessions?: Record<string, { header: { parentSession?: string } }>;
+  managedCaptains?: string[];
   teams?: { id: string; captainSessionId: string; phase?: 'active' | 'archived' }[];
 } = {}) {
   const root = options.root ?? ROOT
@@ -76,6 +77,7 @@ function rpcHarness(options: {
     scopeOf: (agent: Agent) => agent.session.header.cwd!,
     listTeamAggregates: vi.fn(async () => teams),
     domain: { snapshot },
+    managedCaptainSessionsOf: vi.fn(() => options.managedCaptains ?? []),
   } as unknown as AgentSwarmRuntime
   const webServer = { host: options.host ?? '127.0.0.1', port: 8279, register: vi.fn() } satisfies SwarmWebServer
   const service = new AgentSwarmReadRpcService({ ctx, runtime, hostRead, webServer })
@@ -177,6 +179,36 @@ describe('R2 authoritative target binding and wire contract', () => {
     await expect(harness.service.invoke({
       schemaVersion: 1, method: 'binding', target: { rootSessionId: ROOT.id, teamId: 'team-r2' },
     })).resolves.toMatchObject({ binding: { teamId: 'team-r2' } })
+  })
+
+  it('resolves a cold Captain binding from the runtime managed mapping even when ctx.sessions does not load the Captain Session', async () => {
+    // create_managed recorded the in-process root -> Captain relation in the runtime, but the
+    // official ctx.sessions does not load the ended (cold) Captain => sessions.get returns undefined.
+    const harness = rpcHarness({
+      captain: 'captain-session',
+      managedCaptains: ['captain-session'],
+    })
+    const binding = await harness.service.invoke({
+      schemaVersion: 1, method: 'binding', target: { rootSessionId: ROOT.id },
+    })
+    expect(binding).toMatchObject({ binding: { rootSessionId: ROOT.id, teamId: 'team-r2' } })
+    // R1 receives the captainSessionId hint so the projection binds to the dedicated Captain.
+    expect(harness.lastReadInput()).toMatchObject({ teamId: 'team-r2', captainSessionId: 'captain-session' })
+    // >1 managed Captains stay explicit AMBIGUOUS (never guessed).
+    const ambiguous = rpcHarness({
+      managedCaptains: ['captain-a', 'captain-b'],
+      teams: [
+        { id: 'team-a', captainSessionId: 'captain-a', phase: 'active' },
+        { id: 'team-b', captainSessionId: 'captain-b', phase: 'active' },
+      ],
+    })
+    await expect(ambiguous.service.invoke({
+      schemaVersion: 1, method: 'binding', target: { rootSessionId: ROOT.id },
+    })).rejects.toMatchObject({ code: 'SWARM_HOST_BINDING_AMBIGUOUS' })
+    // 0 managed Captains => explicit NOT_FOUND.
+    await expect(rpcHarness({ captain: 'cold-captain' }).service.invoke({
+      schemaVersion: 1, method: 'binding', target: { rootSessionId: ROOT.id },
+    })).rejects.toMatchObject({ code: 'SWARM_HOST_BINDING_NOT_FOUND' })
   })
 
   it('keeps cold-captain ambiguity explicit and rejects unowned Captain bindings', async () => {

@@ -253,7 +253,8 @@ export class AgentSwarmReadRpcService {
       throw new TeamDomainError('Target Team is not owned by this main/Captain Session', 'SWARM_HOST_BINDING_MISMATCH')
     }
     const captainSession = this.deps.ctx.sessions.get(SessionId(selected.captainSessionId))
-    if (captainSession === undefined || captainSession.header.parentSession !== requested.id) {
+    const managedCaptain = this.deps.runtime.managedCaptainSessionsOf(requested.id).includes(selected.captainSessionId)
+    if (!managedCaptain && (captainSession === undefined || captainSession.header.parentSession !== requested.id)) {
       throw new TeamDomainError('Target Team does not match this main/Captain Session', 'SWARM_HOST_BINDING_MISMATCH')
     }
     if (hintedTeamId === undefined) {
@@ -275,9 +276,11 @@ export class AgentSwarmReadRpcService {
   }
 
   private parentOwnedTeams(teams: readonly TeamState[], requestedId: string): readonly TeamState[] {
+    const managedCaptains = new Set(this.deps.runtime.managedCaptainSessionsOf(requestedId))
     return teams.filter(team => team.phase === 'active'
       && this.deps.ctx.agents.get(SessionId(team.captainSessionId)) === undefined
-      && this.deps.ctx.sessions.get(SessionId(team.captainSessionId))?.header.parentSession === requestedId)
+      && (managedCaptains.has(team.captainSessionId)
+        || this.deps.ctx.sessions.get(SessionId(team.captainSessionId))?.header.parentSession === requestedId))
   }
 }
 
