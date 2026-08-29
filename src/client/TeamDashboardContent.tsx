@@ -2,7 +2,7 @@ import { Button, IconCloseOutline16, StateDot } from '@deepseek-ai/dsh-client-ui
 import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SwarmHostReadProjectionV1 } from '../host/host-read-types.js'
-import type { SwarmReadAssetStatusV1, SwarmReadCaptainAnnouncementsV1, SwarmReadCaptainDiagnosticsV1, SwarmReadCaptainMembersV1, SwarmReadTeamsV1 } from '../rpc/read-rpc-contract.js'
+import type { SwarmReadAssetStatusV1, SwarmReadCaptainAnnouncementsV1, SwarmReadCaptainDiagnosticsV1, SwarmReadCaptainMembersV1, SwarmReadMemberCompositionV1, SwarmReadTeamsV1 } from '../rpc/read-rpc-contract.js'
 import type { TeamDashboardController, TeamDashboardState } from './team-dashboard-controller.js'
 import type { TeamDashboardSurfaceCoordinator } from './team-dashboard-surface-coordinator.js'
 import { TEAM_DASHBOARD_NS, type TeamDashboardKey } from './team-dashboard-locales.js'
@@ -556,6 +556,7 @@ function memberAssetOf(memberAssets: SwarmReadCaptainMembersV1 | undefined, name
   readonly profession?: string
   readonly personality?: string
   readonly growth: { readonly privateMemory: 'private_to_member'; readonly skills: 'not_implemented'; readonly capability: 'not_implemented' }
+  readonly composition?: SwarmReadMemberCompositionV1
 } {
   const row = memberAssets?.members.find(candidate => candidate.name === name)
   return {
@@ -565,6 +566,7 @@ function memberAssetOf(memberAssets: SwarmReadCaptainMembersV1 | undefined, name
     ...(row?.profession === undefined ? {} : { profession: row.profession }),
     ...(row?.personality === undefined ? {} : { personality: row.personality }),
     growth: row?.growth ?? { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' },
+    ...(row?.composition === undefined ? {} : { composition: row.composition }),
   }
 }
 
@@ -682,6 +684,16 @@ function MemberDetail({ detail, data, localeTag, memberAssets, t }: {
   const currentTask = hasCurrentWork ? activity.task : undefined
   const unavailable = <span className="swarm-team-workspace__unavailable">{t('detail.unavailable')}</span>
   const value = (real: string | undefined): string | typeof unavailable => real === undefined ? unavailable : real
+  // captainMembers.composition.v1: real derived composition only. A non-`available` row
+  // discloses state/reason plus runtimeProvider and nothing else (contract fail-closed);
+  // a missing composition renders honest unavailable markers, never a fabricated claim.
+  const composition = asset.composition
+  const compositionReady = composition?.state === 'available'
+  const compositionValue = (real: string | undefined): string | typeof unavailable =>
+    composition === undefined || !compositionReady || real === undefined ? unavailable : real
+  const personaValue = composition !== undefined && compositionReady && typeof composition.personaConfigured === 'boolean'
+    ? t(composition.personaConfigured ? 'detail.yes' : 'detail.no')
+    : unavailable
   return <>
     <div className="swarm-team-workspace__detail-section" data-swarm-detail-profile>
       <h4>{t('detail.section.profile')}</h4>
@@ -699,8 +711,15 @@ function MemberDetail({ detail, data, localeTag, memberAssets, t }: {
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('profileProfession')}</dt><dd data-swarm-detail-profession>{generated && asset.profession !== undefined ? asset.profession : unavailable}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('profilePersonality')}</dt><dd data-swarm-detail-personality>{value(generated && asset.personality !== undefined ? asset.personality : undefined)}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.intro')}</dt><dd>{unavailable}</dd></div>
-        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.model')}</dt><dd data-swarm-detail-model>{unavailable}</dd></div>
-        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.provider')}</dt><dd data-swarm-detail-provider>{unavailable}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.model')}</dt><dd data-swarm-detail-model>{compositionValue(composition?.model)}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.provider')}</dt><dd data-swarm-detail-provider>{value(composition?.runtimeProvider)}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.llmProvider')}</dt><dd data-swarm-detail-llm-provider>{compositionValue(composition?.llmProvider)}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.preset')}</dt><dd data-swarm-detail-preset>{compositionValue(composition?.presetId)}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.persona')}</dt><dd data-swarm-detail-persona>{personaValue}</dd></div>
+        {composition !== undefined && !compositionReady ? <>
+          <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.compositionState')}</dt><dd data-swarm-detail-composition-state>{composition.state}</dd></div>
+          <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.compositionReason')}</dt><dd data-swarm-detail-composition-reason>{composition.reason}</dd></div>
+        </> : null}
       </dl>
     </div>
     <div className="swarm-team-workspace__detail-section" data-swarm-detail-skills>
@@ -708,6 +727,7 @@ function MemberDetail({ detail, data, localeTag, memberAssets, t }: {
       <dl className="swarm-team-workspace__field-list">
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.skills')}</dt><dd data-swarm-detail-skills-value>{asset.growth.skills === 'not_implemented' ? unavailable : unavailable}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.tools')}</dt><dd>{unavailable}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.deniedTools')}</dt><dd data-swarm-detail-denied-tools>{composition !== undefined && compositionReady ? (composition.deniedTools === undefined ? unavailable : composition.deniedTools.length === 0 ? t('detail.field.none') : composition.deniedTools.join(', ')) : unavailable}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.permissions')}</dt><dd>{unavailable}</dd></div>
       </dl>
     </div>

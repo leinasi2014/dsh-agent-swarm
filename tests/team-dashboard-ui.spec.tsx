@@ -266,6 +266,65 @@ describe('R3 native Team Details surface', () => {
     expect(document.body.textContent).not.toContain('worker is no longer in this Team')
   })
 
+  it('renders member detail composition fields from the real captainMembers.composition.v1 row, fail-closed for non-available rows', async () => {
+    const coordinator = new FakeCoordinator()
+    const projection = {
+      ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot,
+      roster: [
+        { name: 'worker', role: 'writer', phase: 'active', createdAt: 1 },
+        { name: 'artist', role: 'artist', phase: 'active', createdAt: 2 },
+      ],
+      totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, roster: 2 },
+    }
+    const state: TeamDashboardState = { ...ready, data: teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection) }
+    const compositionController = { getSnapshot: (): TeamDashboardState => state, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: compositionController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    // Available row (fixture `worker`): every composition field renders its real value.
+    await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!.click() })
+    const overlay = detailOverlay()!
+    expect(overlay.querySelector<HTMLElement>('[data-swarm-detail-provider]')?.textContent).toBe('spawn')
+    expect(overlay.querySelector<HTMLElement>('[data-swarm-detail-llm-provider]')?.textContent).toBe('mock')
+    expect(overlay.querySelector<HTMLElement>('[data-swarm-detail-model]')?.textContent).toBe('worker-model')
+    expect(overlay.querySelector<HTMLElement>('[data-swarm-detail-persona]')?.textContent).toBe('Yes')
+    expect(overlay.querySelector<HTMLElement>('[data-swarm-detail-denied-tools]')?.textContent).toBe('agent_swarm_create_managed')
+    // No fail-closed state/reason disclosure on an available row; no fabricated permissions/skills.
+    expect(overlay.querySelector('[data-swarm-detail-composition-state]')).toBeNull()
+    expect(overlay.querySelector('[data-swarm-detail-composition-reason]')).toBeNull()
+    expect(overlay.querySelector<HTMLElement>('[data-swarm-detail-skills-value]')?.textContent).toBe('Not available yet')
+    await pressEscape()
+    // Fail-closed row (fixture `artist`, invalid descriptor): only state/reason + runtimeProvider.
+    await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-member-name="artist"]')!.click() })
+    const closed = detailOverlay()!
+    expect(closed.querySelector<HTMLElement>('[data-swarm-detail-provider]')?.textContent).toBe('spawn')
+    expect(closed.querySelector<HTMLElement>('[data-swarm-detail-composition-state]')?.textContent).toBe('invalid')
+    expect(closed.querySelector<HTMLElement>('[data-swarm-detail-composition-reason]')?.textContent).toBe('descriptor_invalid')
+    expect(closed.querySelector<HTMLElement>('[data-swarm-detail-model]')?.textContent).toBe('Not available yet')
+    expect(closed.querySelector<HTMLElement>('[data-swarm-detail-llm-provider]')?.textContent).toBe('Not available yet')
+    expect(closed.querySelector<HTMLElement>('[data-swarm-detail-preset]')?.textContent).toBe('Not available yet')
+    expect(closed.querySelector<HTMLElement>('[data-swarm-detail-persona]')?.textContent).toBe('Not available yet')
+    expect(closed.querySelector<HTMLElement>('[data-swarm-detail-denied-tools]')?.textContent).toBe('Not available yet')
+    await pressEscape()
+    // A member missing from captainMembers keeps every honest unavailable marker.
+    const noMemberProjection = { ...projection, roster: [projection.roster[0]!] }
+    const missingState: TeamDashboardState = { ...ready, data: { ...teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, noMemberProjection), captainMembers: { schemaVersion: 1, binding: SWARM_READ_RPC_FIXTURES_V1.values.captainMembers.binding, members: [], observedAt: 0 } as never } }
+    const missingController = { getSnapshot: (): TeamDashboardState => missingState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+    document.body.replaceChildren()
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: missingController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!.click() })
+    const missing = detailOverlay()!
+    expect(missing.querySelector<HTMLElement>('[data-swarm-detail-provider]')?.textContent).toBe('Not available yet')
+    expect(missing.querySelector<HTMLElement>('[data-swarm-detail-model]')?.textContent).toBe('Not available yet')
+    expect(missing.querySelector<HTMLElement>('[data-swarm-detail-persona]')?.textContent).toBe('Not available yet')
+    expect(missing.querySelector<HTMLElement>('[data-swarm-detail-denied-tools]')?.textContent).toBe('Not available yet')
+  })
+
+  it('localizes the new composition detail copy in both official locales', () => {
+    for (const key of ['detail.field.llmProvider', 'detail.field.preset', 'detail.field.persona', 'detail.field.deniedTools', 'detail.field.none', 'detail.compositionState', 'detail.compositionReason'] as const) {
+      expect(en[key].length).toBeGreaterThan(0)
+      expect(zh[key].length).toBeGreaterThan(0)
+    }
+  })
+
   it('restores focus to task triggers and recovers from a removed task through the same overlay', async () => {
     const coordinator = new FakeCoordinator()
     const projection = {
