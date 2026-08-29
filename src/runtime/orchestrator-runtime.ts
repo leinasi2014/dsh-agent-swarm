@@ -168,17 +168,19 @@ export class AgentSwarmRuntime extends Service {
   }
 
   /**
-   * Rebuild the transient root → child (`ownedChildren`) map from the official
-   * Session persistence when this fresh process starts with it empty — the
-   * "restart loses ownedChildren" recovery. Reads only the canonical persisted
-   * Session headers (`sessionPersistence.list()` → `parentSession`), merges each
-   * durable parent edge into the existing in-process map, and never introduces a
-   * second authority, new persistent state, or an Agent Loop change. Best-effort:
-   * an unavailable or empty persistence store leaves the map untouched (queries
-   * then simply see no managed children, exactly as before the fix). Consumers
-   * (host-read enumeration, read RPC binding, managed-create idempotency) always
-   * cross-check with authoritative Team aggregates, so a broader reconstructed
-   * candidate set can never fabricate a false Team binding.
+   * Rebuild the transient root → dedicated-Captain (`ownedChildren`) edges from
+   * the official Session persistence when this fresh process starts with it
+   * empty — the "restart loses ownedChildren" recovery. Reads only the canonical
+   * persisted Session headers (`sessionPersistence.list()`), and a persisted
+   * Session counts as a managed child of its parent ONLY when an authoritative
+   * StorageDomain Team aggregate in its own workspace scope (derived from the
+   * header's `cwd`) names it as `captainSessionId`. Ordinary sibling subagents,
+   * plain continuable children and Team members — none of which own a Team — are
+   * never resurrected into `ownedChildren`, so read-only enumeration/binding
+   * cannot fabricate a captain relationship from unrelated persisted Sessions.
+   * No second authority, no new persistent state, no Agent Loop change.
+   * Best-effort: an unavailable or empty persistence store leaves the map
+   * untouched (queries then simply see no managed children, as before the fix).
    */
   private async recoverOwnedChildrenFromPersistence(): Promise<void> {
     const persistence = this.ctx.sessionPersistence
@@ -189,8 +191,21 @@ export class AgentSwarmRuntime extends Service {
     } catch {
       return
     }
+    const captainsByScope = new Map<string, Set<string>>()
     for (const header of headers) {
-      if (header.parentSession === undefined) continue
+      if (header.parentSession === undefined || header.cwd === undefined) continue
+      let captains = captainsByScope.get(header.cwd)
+      if (captains === undefined) {
+        let aggregates: readonly TeamState[]
+        try {
+          aggregates = await this.listTeamAggregates(header.cwd as TeamScope)
+        } catch {
+          continue
+        }
+        captains = new Set(aggregates.map(team => team.captainSessionId))
+        captainsByScope.set(header.cwd, captains)
+      }
+      if (!captains.has(header.id)) continue
       const children = this.ownedChildren.get(header.parentSession) ?? new Set<string>()
       children.add(header.id)
       this.ownedChildren.set(header.parentSession, children)
