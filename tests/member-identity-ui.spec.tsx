@@ -46,6 +46,8 @@ const unsafeSvgs = [
   // Rect outside / degenerate extent falls back.
   '<svg viewBox="0 0 8 8"><rect x="4" y="4" width="8" height="8" fill="#2a3"/></svg>',
   '<svg viewBox="0 0 8 8"><rect x="0" y="0" width="0" height="8" fill="#2a3"/></svg>',
+  '<svg viewBox="0 0 8 8"><rect x="0" y="0" width="8" height="0" fill="#2a3"/></svg>',
+  '<svg viewBox="0 0 8 8"><rect x="0" y="4" width="8" height="8" fill="#2a3"/></svg>',
 ]
 
 describe('client-side safe pixel svg allowlist', () => {
