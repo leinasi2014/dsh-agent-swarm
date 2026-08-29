@@ -338,7 +338,8 @@ describe('R3 native Team Details surface', () => {
       expect(member.querySelector('[data-swarm-member-visible-lifecycle]')?.textContent).toBe('Lifecycle: Active')
       expect(member.querySelector('[data-swarm-member-visible-activity]')?.textContent).toBe('Running')
       expect(member.querySelector('[data-swarm-task-owner]')).toBeNull()
-      // The announcement entry is an explicit unavailable card (no public notice authority).
+      // Goal and announcement entries are explicit unavailable cards (no phantom backend source).
+      expect(document.querySelector('[data-swarm-goal-unavailable]')?.textContent).toContain('Public goal')
       expect(document.querySelector('[data-swarm-announcement-unavailable]')?.textContent).toContain('Announcements')
       // A single Captain-row click routes to the dedicated Captain Chat via the coordinator.
       await act(async () => { captain.click(); await Promise.resolve() })
