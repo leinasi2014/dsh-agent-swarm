@@ -1,21 +1,16 @@
 // @vitest-environment jsdom
 //
-// Roster/Captain interaction slice — minimal failing tests (task-2 design).
+// Roster/Captain interaction slice — workspace-V3 contract.
 //
-// This focused spec pins the exact observable contract of the roster/Captain
-// surface against the REAL backend read fixture (SWARM_READ_RPC_FIXTURES_V1)
-// and the authoritative roster domain fields ({ name, role, phase, createdAt }),
-// without touching any source. It asserts:
-//   1. real member safe pixel avatar / name / role / status from the Host fixture,
-//   2. an unambiguous Captain marker distinct from member rows,
-//   3. a single click of the Captain row routes to the bound main Chat and
-//      never replaces the main brain nor leaves a second surface,
-//   4. theme (official alias tokens, no hardcoded color) + en/zh copy,
-//   5. no second source of truth and no Canvas (single official Details occupant).
-//
-// Deliberately additive: coverage that already exists in team-dashboard-ui.spec.tsx
-// (error states, focus recovery, truncation, layout geometry, activity derivation)
-// is NOT duplicated here.
+// Pins the exact observable contract of the work-seat surface against the REAL backend
+// read fixture (SWARM_READ_RPC_FIXTURES_V1) and the authoritative roster domain fields:
+//   1. real member safe pixel avatar / name / profession / derived tone from the Host fixture,
+//   2. an unambiguous Captain desk with the 队长 badge (never a member identity),
+//   3. a single Captain-desk click routes to the bound main Chat and never leaves a second surface,
+//   4. the team rail enumerates real teams[] and routes other Teams through the official
+//      Captain Session seam (no local fake switch),
+//   5. an un-generated Captain identity is never impersonated by the technical Team name,
+//   6. theme (official alias tokens, no hardcoded color) + en/zh copy.
 import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -38,7 +33,7 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 const mounted: Root[] = []
 const t = (key: keyof typeof en, params?: Record<string, unknown>): string => en[key].replace(/\{(\w+)\}/gu, (match, name: string) => name in (params ?? {}) ? String(params?.[name]) : match)
 const tZh = (key: keyof typeof en, params?: Record<string, unknown>): string => zh[key].replace(/\{(\w+)\}/gu, (match, name: string) => name in (params ?? {}) ? String(params?.[name]) : match)
-const dotOf = (name: string): string | null => document.querySelector<HTMLElement>(`[data-swarm-member-name="${name}"] [data-swarm-dot]`)?.getAttribute('data-swarm-dot') ?? null
+const toneOf = (name: string): string | null => document.querySelector<HTMLElement>(`[data-swarm-member-name="${name}"]`)?.getAttribute('data-swarm-tone') ?? null
 const activityOf = (name: string): string | null => document.querySelector<HTMLElement>(`[data-swarm-member-name="${name}"] [data-swarm-member-visible-activity]`)?.textContent ?? null
 
 /** Real backend roster rows carrying the authoritative domain fields (name/role/phase/createdAt). */
@@ -73,7 +68,7 @@ async function render(node: ReactNode): Promise<void> { const root = createRoot(
 afterEach(async () => { while (mounted.length) await act(async () => { mounted.pop()?.unmount() }); document.body.replaceChildren(); vi.clearAllMocks() })
 
 describe('roster/Captain interaction slice', () => {
-  it('renders each real roster member avatar initial, name, role and authoritative life-cycle status from the Host fixture', async () => {
+  it('renders each real roster member avatar initial, name, profession and derived tone from the Host fixture', async () => {
     const coordinator = new FakeCoordinator()
     const ready = readyWithRoster([...REAL_ROSTER])
     const controller = { getSnapshot: (): TeamDashboardState => ready, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
@@ -88,21 +83,21 @@ describe('roster/Captain interaction slice', () => {
     expect(eclairAvatar.getAttribute('data-avatar-state')).toBe('not_generated')
     expect(eclairAvatar.getAttribute('aria-label')).toContain('e\u0301clair')
 
-    // Name, role and life-cycle come verbatim from the fixture row; the visible row keeps
-    // name/profession/status one-line and moves the technical lifecycle label to the detail.
+    // Name, authoritative role and derived tone come verbatim / strictly from the fixture row.
     const member = document.querySelector<HTMLButtonElement>('[data-swarm-member-name="海宝"]')!
-    expect(member.querySelector('strong')?.textContent).toBe('海宝')
+    expect(member.querySelector('[data-swarm-member-visible-name]')?.textContent).toBe('海宝')
     expect(member.getAttribute('data-swarm-member-role')).toBe('Read-only auditor')
     expect(member.getAttribute('data-swarm-member-lifecycle')).toBeNull()
     expect(member.getAttribute('data-swarm-identity-state')).toBe('not_generated')
-    expect(member.querySelector('[data-swarm-member-visible-lifecycle]')).toBeNull()
+    expect(member.getAttribute('data-swarm-tone')).toBe('standby')
+    expect(activityOf('海宝')).toBe(t('tone.standby'))
 
-    // Phase-aware status: provisioning member shows the provisioning marker, not an idle/online claim.
-    const boot = document.querySelector<HTMLButtonElement>('[data-swarm-member-name="boot"]')!
-    expect(boot.getAttribute('data-swarm-member-activity')).toBe('provisioning')
+    // Phase-aware tone: a provisioning member shows the pending marker, not an online claim.
+    expect(toneOf('boot')).toBe('pending')
+    expect(activityOf('boot')).toBe(t('tone.pending'))
   })
 
-  it('maps each member StateDot from the derived real activity in three precise groups and keeps name, role and current task', async () => {
+  it('maps each work-seat tone strictly from the derived real activity across all five honest groups', async () => {
     const coordinator = new FakeCoordinator()
     const t0 = 1_700_000_000_000
     const snapshot = SWARM_READ_RPC_FIXTURES_V1.values.snapshot
@@ -130,61 +125,93 @@ describe('roster/Captain interaction slice', () => {
     const controller = { getSnapshot: (): TeamDashboardState => ready, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
 
-    const dot = dotOf
-    const activity = activityOf
-    // ongoing group: in-flight real activity (running attempt).
-    expect(dot('worker')).toBe('ongoing')
-    expect(activity('worker')).toBe('Running')
-    expect(dot('worker') ?? '').not.toBe('done')
-    // done group: idle member and settled (accepted) work must NOT look running.
-    expect(dot('idler')).toBe('done')
-    expect(activity('idler')).toBe('No current task')
-    expect(dot('acceptor')).toBe('done')
-    expect(activity('acceptor')).toBe('Recent attempt: Accepted')
-    // warning group: failed and removed members.
-    expect(dot('broken')).toBe('warning')
-    expect(activity('broken')).toBe('Error')
-    expect(dot('left')).toBe('warning')
-    expect(activity('left')).toBe('Removed')
-    // name, role and right-side derived status stay intact (task subject lives in member detail).
+    // executing: an in-flight running attempt.
+    expect(toneOf('worker')).toBe('executing')
+    expect(activityOf('worker')).toBe(t('tone.executing'))
+    // standby: idle member and settled (accepted) work must NOT look running or pending.
+    expect(toneOf('idler')).toBe('standby')
+    expect(activityOf('idler')).toBe(t('tone.standby'))
+    expect(toneOf('acceptor')).toBe('standby')
+    // failed: authoritative failed lifecycle.
+    expect(toneOf('broken')).toBe('failed')
+    expect(activityOf('broken')).toBe(t('tone.failed'))
+    // offline: removed member.
+    expect(toneOf('left')).toBe('offline')
+    expect(activityOf('left')).toBe(t('tone.offline'))
+    // name, authoritative role and right-side derived tone stay intact.
     const worker = document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!
-    expect(worker.querySelector('strong')?.textContent).toBe('worker')
+    expect(worker.querySelector('[data-swarm-member-visible-name]')?.textContent).toBe('worker')
     expect(worker.getAttribute('data-swarm-member-role')).toBe('Implementation')
-    expect(worker.textContent).toContain('Running')
+    // The statistics line derives from the SAME tone source.
+    const stats = document.querySelector<HTMLElement>('[data-swarm-desk-stats]')!.textContent ?? ''
+    expect(stats).toContain(`1 ${t('tone.executing')}`)
+    expect(stats).toContain(`2 ${t('tone.standby')}`)
+    expect(stats).toContain(`1 ${t('tone.failed')}`)
+    expect(stats).toContain(`1 ${t('tone.offline')}`)
   })
 
-  it('marks the Captain as the sole non-member roster row, first and distinct from real members', async () => {
+  it('marks the Captain as the sole non-member work seat, first and distinct from real members', async () => {
     const coordinator = new FakeCoordinator()
     const ready = readyWithRoster([...REAL_ROSTER])
     const controller = { getSnapshot: (): TeamDashboardState => ready, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
 
-    const captain = document.querySelector<HTMLButtonElement>('.swarm-team-workspace__roster > button')!
-    // The Captain row is unambiguous: it is not a real member row and never claims a member identity.
+    const captain = document.querySelector<HTMLButtonElement>('[data-swarm-captain-desk]')!
+    // The Captain desk is unambiguous: not a member row, same 56px work-seat shape, small 队长 badge.
     expect(captain.hasAttribute('data-swarm-member-name')).toBe(false)
     expect(captain.type).toBe('button')
-    // It carries the safe pixel avatar from the real backend asset (generated, authored rects)
-    // and the real captain-declared display name/profession — never a fabricated identity.
     const captainAvatar = captain.querySelector<SVGElement>('[data-swarm-pixel-avatar]')!
     expect(captainAvatar).not.toBeNull()
     expect(captainAvatar.getAttribute('data-avatar-state')).toBe('generated')
     expect(captainAvatar.getAttribute('aria-label')).toContain('Fixture Captain')
     expect(captain.title).toBe(t('captainMainChatTitle'))
-    expect(captain.textContent).toContain('Fixture Captain')
+    expect(captain.querySelector('[data-swarm-captain-visible-name]')?.textContent).toContain('Fixture Captain')
     expect(captain.textContent).toContain('Coordinator')
     expect(captain.querySelector('.swarm-team-workspace__captain-badge')?.textContent).toBe(t('captainRole'))
-    // It leads the roster before every real member.
+    // It leads the workroom before every real member.
     const firstMember = document.querySelector<HTMLButtonElement>('[data-swarm-member-name="海宝"]')!
     expect(captain.compareDocumentPosition(firstMember) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
-  it('routes a single Captain-row click to the bound main Chat without replacing the main brain or leaving a second surface', async () => {
+  it('never impersonates an un-generated Captain identity with the technical Team name', async () => {
+    const coordinator = new FakeCoordinator()
+    const ungeneratedTeams = {
+      schemaVersion: 1, binding: { rootSessionId: 'root' },
+      teams: [{
+        teamId: 'team-fixture', name: 'Fixture Team', phase: 'active', captainSessionId: 'session-fixture',
+        avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
+        identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
+        goal: { state: 'not_generated', reason: 'goal_not_set' },
+        endpoints: {
+          members: { method: 'captainMembers', target: { rootSessionId: 'root', teamId: 'team-fixture' } },
+          announcements: { method: 'captainAnnouncements', target: { rootSessionId: 'root', teamId: 'team-fixture' } },
+          diagnostics: { method: 'captainDiagnostics', target: { rootSessionId: 'root', teamId: 'team-fixture' } },
+        },
+      }],
+      observedAt: 1, complete: true,
+    } as const
+    const state = { ...readyWithRoster([...REAL_ROSTER]), data: { ...readyWithRoster([...REAL_ROSTER]).data!, teams: ungeneratedTeams as never } }
+    const controller = { getSnapshot: (): TeamDashboardState => state, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    const captain = document.querySelector<HTMLButtonElement>('[data-swarm-captain-desk]')!
+    expect(captain.querySelector('[data-swarm-captain-visible-name]')?.textContent).toContain(t('profileIncomplete'))
+    expect(captain.textContent).not.toContain('Fixture Team')
+    expect(captain.textContent).not.toContain('Fixture Captain')
+    // No personal projection → no fake standby derived from the Team phase: explicit unavailable.
+    expect(captain.querySelector('[data-swarm-captain-state]')?.textContent).toBe(t('detail.unavailable'))
+    expect(captain.getAttribute('data-swarm-tone')).toBe('offline')
+    // The click remains the honest Captain Chat handoff.
+    await act(async () => { captain.click(); await Promise.resolve() })
+    expect(coordinator.openCaptainChat).toHaveBeenCalledTimes(1)
+  })
+
+  it('routes a single Captain-desk click to the bound main Chat without replacing the main brain or leaving a second surface', async () => {
     const coordinator = new FakeCoordinator()
     const ready = readyWithRoster([...REAL_ROSTER])
     const controller = { getSnapshot: (): TeamDashboardState => ready, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
 
-    const captain = document.querySelector<HTMLButtonElement>('.swarm-team-workspace__roster > button')!
+    const captain = document.querySelector<HTMLButtonElement>('[data-swarm-captain-desk]')!
     await act(async () => { captain.click(); await Promise.resolve() })
 
     // A single click dispatches the Captain handoff exactly once (no double navigation).
@@ -192,10 +219,9 @@ describe('roster/Captain interaction slice', () => {
     // On handoff the Team surface yields back to the official Chat: no replacement surface,
     // no modal/fullscreen second state, and only the single complementary occupant is ever present.
     expect(coordinator.getSnapshot().mode).toBe('inactive')
-    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(document.querySelector('[role="dialog"][data-swarm-detail-overlay]')).toBeNull()
     expect(document.querySelector('[data-swarm-team-fullscreen]')).toBeNull()
     expect(document.querySelectorAll('[role="complementary"][data-swarm-team-panel]')).toHaveLength(0)
-    expect(document.body.textContent).not.toContain('[data-swarm-member-name')
   })
 
   it('localizes Captain and member copy in en and zh while the theme stays on official alias tokens with no hardcoded color', async () => {
@@ -205,16 +231,17 @@ describe('roster/Captain interaction slice', () => {
     const root = createRoot(document.body.appendChild(document.createElement('div'))); mounted.push(root)
 
     await act(async () => { root.render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />) })
-    expect(document.querySelector('.swarm-team-workspace__roster > button .swarm-team-workspace__captain-badge')?.textContent).toBe('Team Captain')
+    expect(document.querySelector('[data-swarm-captain-desk] .swarm-team-workspace__captain-badge')?.textContent).toBe('Team Captain')
     // The backend-authored captain display name is locale-independent real data.
     expect(document.body.textContent).toContain('Fixture Captain')
     expect(document.body.textContent).toContain('Team Captain')
 
     await act(async () => { root.render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t: tZh } as any)} />) })
-    expect(document.querySelector('.swarm-team-workspace__roster > button .swarm-team-workspace__captain-badge')?.textContent).toBe('团队队长')
+    expect(document.querySelector('[data-swarm-captain-desk] .swarm-team-workspace__captain-badge')?.textContent).toBe('团队队长')
     expect(document.body.textContent).toContain('Fixture Captain')
     expect(document.body.textContent).toContain('团队队长')
     expect(document.body.textContent).toContain('活跃')
+    expect(document.body.textContent).toContain('待机')
 
     // Theme: the whole scoped shell stylesheet colors only through official alias tokens.
     const stylesheet = document.querySelector('style')?.textContent ?? ''
@@ -233,7 +260,7 @@ describe('roster/Captain interaction slice', () => {
     // The surface is a plain complementary occupant of the official Details column: no canvas, no second state.
     expect(document.querySelectorAll('canvas')).toHaveLength(0)
     expect(document.querySelectorAll('[role="complementary"][data-swarm-team-panel]')).toHaveLength(1)
-    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(document.querySelector('[role="dialog"][data-swarm-detail-overlay]')).toBeNull()
     expect(document.querySelector('[data-swarm-team-fullscreen]')).toBeNull()
     // A complementary panel is the only occupant; no overlay layer duplicates it.
     expect(document.querySelectorAll('[data-swarm-team-panel]')).toHaveLength(1)
@@ -245,7 +272,7 @@ describe('roster/Captain interaction slice', () => {
     expect(Object.hasOwn(coordinator.getSnapshot(), 'projection')).toBe(false)
   })
 
-  it('enumerates every Team/Captain on the Dedicated Captain page from the real read contract and opens the exact official Captain Session on click', async () => {
+  it('enumerates every Team in the rail from the real read contract and opens the exact official Captain Session on click', async () => {
     const coordinator = new FakeCoordinator()
     // A legal multi-team result: two independent dedicated Captains, each honest not-generated assets.
     const multiTeams = {
@@ -255,6 +282,7 @@ describe('roster/Captain interaction slice', () => {
           teamId: 'team-alpha', name: 'Alpha 舰队', phase: 'active', captainSessionId: 'captain-alpha',
           avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
           identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
+          goal: { state: 'not_generated', reason: 'goal_not_set' },
           endpoints: {
             members: { method: 'captainMembers', target: { rootSessionId: 'root', teamId: 'team-alpha' } },
             announcements: { method: 'captainAnnouncements', target: { rootSessionId: 'root', teamId: 'team-alpha' } },
@@ -265,6 +293,7 @@ describe('roster/Captain interaction slice', () => {
           teamId: 'team-beta', name: 'Beta Team', phase: 'active', captainSessionId: 'captain-beta',
           avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
           identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
+          goal: { state: 'not_generated', reason: 'goal_not_set' },
           endpoints: {
             members: { method: 'captainMembers', target: { rootSessionId: 'root', teamId: 'team-beta' } },
             announcements: { method: 'captainAnnouncements', target: { rootSessionId: 'root', teamId: 'team-beta' } },
@@ -274,45 +303,27 @@ describe('roster/Captain interaction slice', () => {
       ],
       observedAt: 1_700_000_000_200, complete: true,
     } as const
-    const projection = {
-      ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot,
-      team: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.team, id: 'team-fixture', name: 'Fixture Team' },
-      roster: [{ name: 'worker', role: 'writer', phase: 'active', createdAt: 1_700_000_000_000 }],
-      totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, roster: 1 },
-    }
-    const ready = { open: true, phase: 'ready', targetSessionId: 'root', data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never, teams: multiTeams as never, captainAnnouncements: SWARM_READ_RPC_FIXTURES_V1.values.captainAnnouncements as never, captainDiagnostics: SWARM_READ_RPC_FIXTURES_V1.values.captainDiagnostics as never, captainMembers: SWARM_READ_RPC_FIXTURES_V1.values.captainMembers as never } } as TeamDashboardState
+    const base = readyWithRoster([...REAL_ROSTER])
+    const ready = { ...base, data: { ...base.data!, teams: multiTeams as never } } as TeamDashboardState
     const controller = { getSnapshot: (): TeamDashboardState => ready, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
 
-    // The Main Brain rail keeps exactly one pinned Captain row; the enumeration lives on the
-    // Dedicated Captain page reached through its tab.
-    expect(document.querySelectorAll('[data-swarm-captain-row]')).toHaveLength(1)
-    expect(document.querySelector('[data-swarm-captain-team]')).toBeNull()
-    await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-view-tab="captain"]')!).click() })
-
-    // Every Team from the read contract is enumerated on the Dedicated Captain page.
-    const alpha = document.querySelector<HTMLButtonElement>('[data-swarm-captain-team="team-alpha"]')!
-    const beta = document.querySelector<HTMLButtonElement>('[data-swarm-captain-team="team-beta"]')!
-    expect(alpha).not.toBeNull(); expect(beta).not.toBeNull()
-    // Each row carries its exact official Captain Session id, not a fabricated chat.
+    // Every Team from the read contract is enumerated in the rail (real authorities, dedup by id).
+    const dots = [...document.querySelectorAll<HTMLButtonElement>('[data-swarm-team-dot]')]
+    expect(dots).toHaveLength(2)
+    const alpha = dots.find(dot => dot.getAttribute('data-swarm-team-dot') === 'team-alpha')!
+    const beta = dots.find(dot => dot.getAttribute('data-swarm-team-dot') === 'team-beta')!
+    // Each dot carries its exact official Captain Session id, not a fabricated chat.
     expect(alpha.getAttribute('data-swarm-captain-session')).toBe('captain-alpha')
     expect(beta.getAttribute('data-swarm-captain-session')).toBe('captain-beta')
-    // Un-generated identity: the safe pixel SVG avatar (deterministic, never fabricated) carries the
-    // honest not-generated state, and an explicit "profile not generated" placeholder name is shown.
+    // The safe pixel SVG avatar stays honest: un-generated state with the stable reason.
     const alphaAvatar = alpha.querySelector<SVGElement>('[data-swarm-pixel-avatar]')!
     expect(alphaAvatar).not.toBeNull()
     expect(alphaAvatar.getAttribute('data-avatar-state')).toBe('not_generated')
     expect(alphaAvatar.getAttribute('data-avatar-reason')).toBe('avatar_backend_not_implemented')
     expect(alphaAvatar.getAttribute('aria-label')).toContain('Alpha 舰队')
-    expect(alpha.querySelector('strong')?.textContent).toBe('Alpha 舰队')
-    expect(alpha.querySelector('[data-swarm-captain-profession]')?.textContent).toBe(t('captainIdentityUnavailable'))
-    // QQ/WeChat-style row: profession line is the honest identity state; the side badge is the real phase.
-    expect(alpha.getAttribute('data-swarm-identity-state')).toBe('not_generated')
-    expect(alpha.getAttribute('data-swarm-captain-phase')).toBe('active')
-    expect(alpha.querySelector('[data-swarm-captain-status]')?.textContent).toBe(t('enum.active'))
-    expect(beta.querySelector('strong')?.textContent).toBe('Beta Team')
 
-    // Clicking a Captain row opens that Team's dedicated official Captain Session exactly once.
+    // Clicking another Team's dot opens that Team's dedicated official Captain Session exactly once.
     await act(async () => { beta.click() })
     expect(coordinator.openTeamCaptain).toHaveBeenCalledWith('captain-beta')
     expect(coordinator.openTeamCaptain).toHaveBeenCalledTimes(1)
@@ -320,6 +331,6 @@ describe('roster/Captain interaction slice', () => {
     // no second fullscreen/second source of truth is ever introduced.
     expect(coordinator.getSnapshot().targetSessionId).toBe('captain-beta')
     expect(document.querySelector('[data-swarm-team-fullscreen]')).toBeNull()
-    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(document.querySelector('[role="dialog"][data-swarm-detail-overlay]')).toBeNull()
   })
 })

@@ -23,6 +23,8 @@ const t: TranslateNS<typeof TEAM_DASHBOARD_NS> = ((key: keyof typeof en, params?
 
 async function render(node: ReactNode): Promise<void> { const root = createRoot(document.body.appendChild(document.createElement('div'))); mounted.push(root); await act(async () => { root.render(node) }) }
 afterEach(async () => { while (mounted.length) await act(async () => { mounted.pop()?.unmount() }); document.body.replaceChildren(); vi.clearAllMocks() })
+const overlay = (): HTMLElement => document.querySelector<HTMLElement>('[data-swarm-detail-overlay]')!
+const tabButton = (id: string): HTMLButtonElement => document.querySelector<HTMLButtonElement>(`[data-swarm-view-tab="${id}"]`)!
 
 const safeSvg = '<svg viewBox="0 0 8 8"><rect x="0" y="0" width="8" height="8" fill="#2a3"/><rect x="2" y="2" width="4" height="4" fill="#fff" opacity="0.5"/></svg>'
 const svg16 = '<svg viewBox="0 0 16 16"><rect x="0" y="0" width="16" height="16" fill="#39f"/><rect x="4" y="4" width="8" height="8" fill="#ccc"/></svg>'
@@ -113,12 +115,12 @@ describe('member rows consume real captainMembers identity data', () => {
     identityCard: { state: 'generated' },
   }
 
-  it('renders the allowlisted svg rects and real display/profession on the row; personality only in detail', async () => {
+  it('renders the allowlisted svg rects and real display/profession on the desk; personality only in the overlay detail', async () => {
     await renderDetails(stateWithMemberAssets({ schemaVersion: 1, binding: { rootSessionId: 'root-1', teamId: 'team-1' }, members: [generatedRow], observedAt: 1 }))
     const row = document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!
     expect(row).not.toBeNull()
     expect(row.getAttribute('data-swarm-identity-state')).toBe('generated')
-    // Real identity values win on the narrow row.
+    // Real identity values win on the narrow desk.
     expect(row.querySelector('[data-swarm-member-visible-name]')?.textContent).toBe('Pixel Painter')
     expect(row.querySelector('[data-swarm-member-visible-profession]')?.textContent).toBe('Avatar artist')
     // The avatar renders the parsed backend rects (converted to React elements, no raw markup).
@@ -128,19 +130,25 @@ describe('member rows consume real captainMembers identity data', () => {
     expect(avatar.querySelectorAll('rect')).toHaveLength(2)
     expect(avatar.innerHTML).not.toContain('<script')
     expect(avatar.getAttribute('viewBox')).toBe('0 0 8 8')
-    // Personality never appears on the narrow row.
+    // Personality never appears on the narrow desk.
     expect(row.textContent).not.toContain('Careful')
-    // Detail view is the only surface for personality and real profession facts.
+    // The overlay detail is the only surface for personality and separated role/profession facts.
     await act(async () => { row.click() })
-    const detail = document.querySelector('[data-swarm-member-detail]')!
+    const detail = overlay()
+    expect(detail.getAttribute('role')).toBe('dialog')
     expect(detail.textContent).toContain('Careful, meticulous')
-    expect(detail.textContent).toContain('Avatar artist')
+    // Authoritative technical role (from the roster projection) and Captain-declared
+    // profession are separate rows.
+    expect(detail.querySelector('[data-swarm-detail-role]')?.textContent).toBe('implementation')
+    expect(detail.querySelector('[data-swarm-detail-profession]')?.textContent).toBe('Avatar artist')
     expect(detail.textContent).toContain('Pixel Painter')
-    // Growth & capability entry: honest folded enums (private memory never leaks content).
-    const growth = detail.querySelector('[data-swarm-member-growth]')!
+    // Growth section: honest folded values — private memory fact plus explicit unavailable markers.
+    const growth = detail.querySelector('[data-swarm-detail-growth]')!
     expect(growth.textContent).toContain('Private to the member (never exposed here)')
-    expect(growth.querySelectorAll('dd')).toHaveLength(3)
-    expect(growth.textContent.match(/Not implemented yet/gu)).toHaveLength(2)
+    expect(growth.querySelectorAll('dd')).toHaveLength(4)
+    expect(growth.textContent.match(/Not available yet/gu)!.length).toBe(3)
+    // Ordinary members have no direct contact capability: disabled with an explanation.
+    expect(detail.querySelector('[data-swarm-contact-disabled]')?.textContent).toContain('not available yet')
   })
 
   it('renders an authored 16x16 asset with its own viewBox, and falls back on unsafe/invalid input', async () => {
@@ -173,7 +181,7 @@ describe('member rows consume real captainMembers identity data', () => {
     expect(document.querySelector('script')).toBeNull()
   })
 
-  it('keeps technical name/role and honest not_generated placeholders when the profile is absent', async () => {
+  it('keeps technical name/role on the desk and explicit not-available profession/personality in the detail', async () => {
     await renderDetails(stateWithMemberAssets({ schemaVersion: 1, binding: { rootSessionId: 'root-1', teamId: 'team-1' }, members: [], observedAt: 1 }))
     const row = document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!
     expect(row.getAttribute('data-swarm-identity-state')).toBe('not_generated')
@@ -182,8 +190,12 @@ describe('member rows consume real captainMembers identity data', () => {
     const avatar = row.querySelector<SVGSVGElement>('[data-swarm-pixel-avatar]')!
     expect(avatar.getAttribute('data-avatar-state')).toBe('not_generated')
     await act(async () => { row.click() })
-    const detail = document.querySelector('[data-swarm-member-detail]')!
-    expect(detail.textContent).toContain('Not generated')
+    const detail = overlay()
+    expect(detail.querySelector('[data-swarm-detail-role]')?.textContent).toBe('implementation')
+    expect(detail.querySelector('[data-swarm-detail-profession]')?.textContent).toBe('Not available yet')
+    expect(detail.querySelector('[data-swarm-detail-personality]')?.textContent).toBe('Not available yet')
+    expect(detail.querySelector('[data-swarm-detail-model]')?.textContent).toBe('Not available yet')
+    expect(detail.querySelector('[data-swarm-detail-provider]')?.textContent).toBe('Not available yet')
   })
 
   it('renders real announcement entries and an honest empty state in both locales', async () => {
@@ -195,16 +207,20 @@ describe('member rows consume real captainMembers identity data', () => {
       const base = stateWithMemberAssets({ schemaVersion: 1, binding: { rootSessionId: 'root-1', teamId: 'team-1' }, members: [], observedAt: 1 })
       return { ...base, data: { ...base.data!, captainAnnouncements: { schemaVersion: 1, binding: { rootSessionId: 'root-1', teamId: 'team-1' }, state: 'available', entries: rows, observedAt: 1 } as never } }
     }
-    // Announcements render exactly once, inside the Main Brain work region (no tab navigation).
+    // The full announcement history renders exactly once, inside the notices tab panel.
     await renderDetails(withAnnouncements(entries))
+    await act(async () => { tabButton('notices').click() })
     const rendered = document.querySelectorAll('[data-swarm-announcement-entry]')
     expect(rendered).toHaveLength(2)
     expect(rendered[0]!.textContent).toContain('First notice')
     expect(rendered[1]!.textContent).toContain('Second notice')
+    expect(document.querySelectorAll('[data-swarm-announcements-list]')).toHaveLength(1)
     expect(document.body.textContent).not.toContain('backend has not exposed')
-    // Honest empty state, zh locale copy present in the dictionary.
+    // Honest empty state, en copy present in the notices panel and the header preview.
     document.body.replaceChildren()
     await renderDetails(withAnnouncements([]))
+    await act(async () => { tabButton('notices').click() })
+    expect(document.querySelectorAll('[data-swarm-announcements-empty]').length).toBeGreaterThanOrEqual(1)
     expect(document.querySelector('[data-swarm-announcements-empty]')?.textContent).toBe('No announcements published yet.')
   })
 })

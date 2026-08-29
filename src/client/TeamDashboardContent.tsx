@@ -1,5 +1,5 @@
-import { Button, IconCloseOutline16, IconRefreshOutline16, StateDot, type StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
-import { useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
+import { Button, IconCloseOutline16, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SwarmHostReadProjectionV1 } from '../host/host-read-types.js'
 import type { SwarmReadAssetStatusV1, SwarmReadCaptainAnnouncementsV1, SwarmReadCaptainDiagnosticsV1, SwarmReadCaptainMembersV1, SwarmReadTeamsV1 } from '../rpc/read-rpc-contract.js'
@@ -7,139 +7,114 @@ import type { TeamDashboardController, TeamDashboardState } from './team-dashboa
 import type { TeamDashboardSurfaceCoordinator } from './team-dashboard-surface-coordinator.js'
 import { TEAM_DASHBOARD_NS, type TeamDashboardKey } from './team-dashboard-locales.js'
 import { SafePixelAvatar } from './SafePixelAvatar.js'
-import { TeamIdentityCard } from './TeamIdentityCard.js'
 
 /** The read contract reports un-generated member assets with a stable reason; the UI never fabricates one. */
 const NOT_GENERATED_AVATAR: SwarmReadAssetStatusV1 = { state: 'not_generated', reason: 'avatar_backend_not_implemented' }
+const NOT_GENERATED_IDENTITY: SwarmReadAssetStatusV1 = { state: 'not_generated', reason: 'identity_backend_not_implemented' }
 
-type Selection = { readonly kind: 'team' } | { readonly kind: 'member'; readonly name: string } | { readonly kind: 'task'; readonly id: string }
-type FocusIntent = { readonly kind: 'roster' | 'tasks' } | { readonly kind: 'member'; readonly name: string } | { readonly kind: 'task'; readonly id: string }
-type RailView = 'roster' | 'captain' | 'board'
+type DeskTone = 'standby' | 'executing' | 'pending' | 'failed' | 'offline'
+type WorkspaceView = 'workspace' | 'tasks' | 'notices' | 'manage'
+type DetailSelection =
+  | { readonly kind: 'member'; readonly name: string }
+  | { readonly kind: 'task'; readonly id: string }
+  | { readonly kind: 'growth' }
+  | { readonly kind: 'overview' }
+  | { readonly kind: 'diagnostics' }
 
 export const shellCss = `
-[data-swarm-team-dashboard] .swarm-team-workspace { container-type:inline-size; display:grid; grid-template-rows:auto minmax(0,1fr) auto; height:100%; min-width:0; overflow:hidden; color:var(--dsw-alias-label-primary); background:var(--dsw-alias-bg-base); }
-[data-swarm-team-dashboard] .swarm-team-workspace__header, [data-swarm-team-dashboard] .swarm-team-workspace__footer { display:flex; justify-content:space-between; gap:10px; padding:10px 12px; border-color:var(--dsw-alias-border-l2); border-style:solid; background:var(--dsw-alias-bg-layer-1); }
-[data-swarm-team-dashboard] .swarm-team-workspace__header { align-items:center; border-width:0 0 1px; }
-[data-swarm-team-dashboard] .swarm-team-workspace__footer { align-items:center; border-width:1px 0 0; padding-block:8px; }
-[data-swarm-team-dashboard] .swarm-team-workspace__title { margin:0; font-size:13px; line-height:18px; font-weight:700; }
+[data-swarm-team-dashboard] .swarm-team-workspace { position:relative; container-type:inline-size; display:grid; grid-template-columns:46px minmax(0,1fr); height:100%; min-width:0; overflow:hidden; color:var(--dsw-alias-label-primary); background:var(--dsw-alias-bg-base); }
+[data-swarm-team-dashboard] .swarm-team-workspace__team-rail { display:flex; flex-direction:column; align-items:center; gap:8px; min-height:0; padding:8px 6px; overflow-y:auto; overflow-x:hidden; border:0 solid var(--dsw-alias-border-l2); border-right-width:1px; background:var(--dsw-alias-bg-layer-1); scrollbar-width:thin; }
+[data-swarm-team-dashboard] .swarm-team-workspace__team-dot { position:relative; display:grid; flex:0 0 auto; inline-size:34px; block-size:34px; place-items:center; overflow:hidden; padding:0; border:1px solid var(--dsw-alias-border-l2); border-radius:10px; background:var(--dsw-alias-bg-base); cursor:pointer; }
+[data-swarm-team-dashboard] .swarm-team-workspace__team-dot:hover { border-color:var(--dsw-alias-brand-primary); }
+[data-swarm-team-dashboard] .swarm-team-workspace__team-dot[aria-current="true"] { border-color:var(--dsw-alias-brand-primary); box-shadow:inset 0 0 0 1px var(--dsw-alias-brand-primary); }
+[data-swarm-team-dashboard] .swarm-team-workspace__team-dot .swarm-team-workspace__avatar { inline-size:100%; block-size:100%; border-radius:9px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__pane { display:grid; grid-template-rows:auto auto auto minmax(0,1fr); min-width:0; min-height:0; }
+[data-swarm-team-dashboard] .swarm-team-workspace__pane-head { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 10px; border:0 solid var(--dsw-alias-border-l2); border-bottom-width:1px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__title-row { display:flex; align-items:center; gap:8px; min-width:0; }
-[data-swarm-team-dashboard] .swarm-team-workspace__description, [data-swarm-team-dashboard] .swarm-team-workspace__muted { color:var(--dsw-alias-label-secondary); font-size:12px; }
-[data-swarm-team-dashboard] .swarm-team-workspace__description { display:none; }
-[data-swarm-team-dashboard] .swarm-team-workspace__body { min-width:0; min-height:0; overflow:auto; padding:0; scrollbar-width:thin; }
-[data-swarm-team-dashboard] .swarm-team-workspace__status { display:flex; gap:8px; align-items:center; min-width:0; margin:0 0 8px; }
-[data-swarm-team-dashboard] .swarm-team-workspace__error { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-[data-swarm-team-dashboard] .swarm-team-workspace__column-title { margin:0 0 8px; font-size:13px; }
-[data-swarm-team-dashboard] [data-swarm-team-rail] > details { margin:0; }
-[data-swarm-team-dashboard] .swarm-team-workspace__summary { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-top:8px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__title { margin:0; overflow:hidden; font-size:14px; line-height:19px; font-weight:700; white-space:nowrap; text-overflow:ellipsis; }
+[data-swarm-team-dashboard] .swarm-team-workspace__phase-pill { flex:0 0 auto; padding:1px 7px; border:1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 35%, var(--dsw-alias-border-l2)); border-radius:999px; background:color-mix(in srgb, var(--dsw-alias-brand-primary) 9%, var(--dsw-alias-bg-layer-1)); color:var(--dsw-alias-brand-primary); font-size:10px; font-weight:600; white-space:nowrap; }
+[data-swarm-team-dashboard] .swarm-team-workspace__subtitle { margin:2px 0 0; overflow:hidden; color:var(--dsw-alias-label-secondary); font-size:10px; white-space:nowrap; text-overflow:ellipsis; }
+[data-swarm-team-dashboard] .swarm-team-workspace__public-bar { display:grid; gap:8px; padding:8px 10px; border:0 solid var(--dsw-alias-border-l2); border-bottom-width:1px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__public-card { display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:8px; min-height:40px; padding:7px 8px; border:1px solid var(--dsw-alias-border-l2); border-radius:9px; background:var(--dsw-alias-bg-layer-1); }
+[data-swarm-team-dashboard] .swarm-team-workspace__public-card[data-swarm-goal-state="generated"] { border-color:color-mix(in srgb, var(--dsw-alias-brand-primary) 40%, var(--dsw-alias-border-l2)); background:color-mix(in srgb, var(--dsw-alias-brand-primary) 7%, var(--dsw-alias-bg-layer-1)); }
+[data-swarm-team-dashboard] .swarm-team-workspace__public-copy { display:grid; gap:1px; min-width:0; }
+[data-swarm-team-dashboard] .swarm-team-workspace__public-title { overflow:hidden; color:var(--dsw-alias-label-secondary); font-size:9px; font-weight:700; white-space:nowrap; text-overflow:ellipsis; }
+[data-swarm-team-dashboard] .swarm-team-workspace__public-content { overflow:hidden; font-size:11px; white-space:nowrap; text-overflow:ellipsis; }
+[data-swarm-team-dashboard] .swarm-team-workspace__public-card time { color:var(--dsw-alias-label-secondary); font-size:9px; white-space:nowrap; }
+[data-swarm-team-dashboard] .swarm-team-workspace__view-tabs { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); border:0 solid var(--dsw-alias-border-l2); border-bottom-width:1px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__view-tabs [role="tab"] { min-width:0; overflow:hidden; padding:8px 4px; border:0; border-radius:0; background:transparent; color:var(--dsw-alias-label-secondary); font-size:11px; line-height:16px; font-weight:600; white-space:nowrap; text-overflow:ellipsis; cursor:pointer; }
+[data-swarm-team-dashboard] .swarm-team-workspace__view-tabs [role="tab"]:hover { color:var(--dsw-alias-label-primary); }
+[data-swarm-team-dashboard] .swarm-team-workspace__view-tabs [role="tab"][aria-selected="true"] { color:var(--dsw-alias-brand-primary); box-shadow:inset 0 -2px 0 var(--dsw-alias-brand-primary); }
+[data-swarm-team-dashboard] .swarm-team-workspace__pane-body { min-height:0; padding:10px 11px 16px; overflow:auto; scrollbar-width:thin; font-size:12px; line-height:1.45; }
+[data-swarm-team-dashboard] .swarm-team-workspace__block-head { display:flex; align-items:baseline; justify-content:space-between; gap:8px; min-width:0; margin:10px 0 6px; font-size:12px; font-weight:700; }
+[data-swarm-team-dashboard] .swarm-team-workspace__block-head:first-child { margin-top:0; }
+[data-swarm-team-dashboard] .swarm-team-workspace__block-head small { overflow:hidden; color:var(--dsw-alias-label-secondary); font-size:10px; font-weight:500; white-space:nowrap; text-overflow:ellipsis; }
+[data-swarm-team-dashboard] .swarm-team-workspace__workroom { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+@container (max-width: 339.98px) { [data-swarm-team-dashboard] .swarm-team-workspace__workroom { grid-template-columns:minmax(0,1fr); } }
+[data-swarm-team-dashboard] .swarm-team-workspace__desk { position:relative; display:grid; grid-template-columns:32px minmax(0,1fr) auto; grid-template-rows:auto auto; align-items:center; column-gap:8px; min-width:0; min-block-size:56px; padding:8px; border:1px solid var(--dsw-alias-border-l2); border-radius:10px; background:var(--dsw-alias-bg-layer-1); color:inherit; text-align:left; cursor:pointer; }
+[data-swarm-team-dashboard] .swarm-team-workspace__desk:hover { border-color:color-mix(in srgb, var(--dsw-alias-brand-primary) 55%, var(--dsw-alias-border-l2)); background:color-mix(in srgb, var(--dsw-alias-brand-primary) 7%, var(--dsw-alias-bg-layer-1)); }
+[data-swarm-team-dashboard] .swarm-team-workspace__desk .swarm-team-workspace__avatar { grid-row:1 / 3; }
+[data-swarm-team-dashboard] .swarm-team-workspace__desk-copy { display:flex; flex-direction:column; gap:1px; min-width:0; }
+[data-swarm-team-dashboard] .swarm-team-workspace__desk-name { overflow:hidden; font-size:12px; font-weight:680; line-height:17px; white-space:nowrap; text-overflow:ellipsis; }
+[data-swarm-team-dashboard] .swarm-team-workspace__desk-role { overflow:hidden; color:var(--dsw-alias-label-secondary); font-size:10px; white-space:nowrap; text-overflow:ellipsis; }
+[data-swarm-team-dashboard] .swarm-team-workspace__desk-state { display:flex; align-items:center; gap:4px; grid-column:3; grid-row:1 / 3; max-width:100%; overflow:hidden; color:var(--dsw-alias-label-secondary); font-size:10px; white-space:nowrap; }
+[data-swarm-team-dashboard] .swarm-team-workspace__desk-dot { flex:0 0 auto; inline-size:8px; block-size:8px; border-radius:50%; background:var(--dsw-alias-label-secondary); }
+[data-swarm-team-dashboard] .swarm-team-workspace__desk[data-swarm-tone="standby"] .swarm-team-workspace__desk-dot { background:var(--dsw-alias-label-positive, var(--dsw-alias-brand-primary)); }
+[data-swarm-team-dashboard] .swarm-team-workspace__desk[data-swarm-tone="executing"] .swarm-team-workspace__desk-dot { background:var(--dsw-alias-brand-primary); animation:swarm-desk-pulse 1.4s ease-in-out infinite; }
+[data-swarm-team-dashboard] .swarm-team-workspace__desk[data-swarm-tone="pending"] .swarm-team-workspace__desk-dot { background:var(--dsw-alias-label-caution, var(--dsw-alias-brand-primary)); }
+[data-swarm-team-dashboard] .swarm-team-workspace__desk[data-swarm-tone="failed"] .swarm-team-workspace__desk-dot { background:var(--dsw-alias-label-negative, var(--dsw-alias-label-secondary)); }
+[data-swarm-team-dashboard] .swarm-team-workspace__desk[data-swarm-tone="offline"] .swarm-team-workspace__desk-dot { background:var(--dsw-alias-label-secondary); }
+@keyframes swarm-desk-pulse { 0%,100% { box-shadow:0 0 0 0 color-mix(in srgb, var(--dsw-alias-brand-primary) 30%, transparent); } 50% { box-shadow:0 0 0 4px color-mix(in srgb, var(--dsw-alias-brand-primary) 0%, transparent); } }
+[data-swarm-team-dashboard] .swarm-team-workspace__captain-badge { flex:0 0 auto; margin-left:4px; padding:1px 4px; border-radius:4px; background:color-mix(in srgb, var(--dsw-alias-brand-primary) 13%, transparent); color:var(--dsw-alias-brand-primary); font-size:9px; font-weight:700; white-space:nowrap; }
+[data-swarm-team-dashboard] .swarm-team-workspace__activity { border:0 solid var(--dsw-alias-border-l2); border-block-width:1px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__activity-row { display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:8px; min-width:0; padding:8px 2px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__activity-row + .swarm-team-workspace__activity-row { border-top:1px solid var(--dsw-alias-border-l2); }
+[data-swarm-team-dashboard] .swarm-team-workspace__activity-signal { flex:0 0 auto; inline-size:7px; block-size:7px; border-radius:50%; background:var(--dsw-alias-brand-primary); box-shadow:0 0 0 3px color-mix(in srgb, var(--dsw-alias-brand-primary) 12%, transparent); }
+[data-swarm-team-dashboard] .swarm-team-workspace__activity-signal[data-swarm-signal="pending"] { background:var(--dsw-alias-label-caution, var(--dsw-alias-brand-primary)); box-shadow:0 0 0 3px color-mix(in srgb, var(--dsw-alias-label-caution, var(--dsw-alias-brand-primary)) 12%, transparent); }
+[data-swarm-team-dashboard] .swarm-team-workspace__activity-copy { display:grid; gap:2px; min-width:0; }
+[data-swarm-team-dashboard] .swarm-team-workspace__activity-title { overflow:hidden; font-size:11px; white-space:nowrap; text-overflow:ellipsis; }
+[data-swarm-team-dashboard] .swarm-team-workspace__activity-meta { overflow:hidden; color:var(--dsw-alias-label-secondary); font-size:9px; white-space:nowrap; text-overflow:ellipsis; }
+[data-swarm-team-dashboard] .swarm-team-workspace__activity-state { color:var(--dsw-alias-label-secondary); font-size:9px; white-space:nowrap; }
+[data-swarm-team-dashboard] .swarm-team-workspace__table { overflow:hidden; border:1px solid var(--dsw-alias-border-l2); border-radius:10px; background:var(--dsw-alias-bg-layer-1); }
+[data-swarm-team-dashboard] .swarm-team-workspace__table-row { display:grid; grid-template-columns:minmax(0,1fr) auto auto; align-items:center; gap:8px; width:100%; min-width:0; padding:9px; border:0; border-bottom:1px solid var(--dsw-alias-border-l2); background:transparent; color:inherit; font-size:11px; text-align:left; cursor:pointer; }
+[data-swarm-team-dashboard] .swarm-team-workspace__table-row:last-child { border-bottom-width:0; }
+[data-swarm-team-dashboard] .swarm-team-workspace__table-row:hover { background:color-mix(in srgb, var(--dsw-alias-brand-primary) 7%, var(--dsw-alias-bg-layer-1)); }
+[data-swarm-team-dashboard] .swarm-team-workspace__table-copy { display:grid; gap:1px; min-width:0; }
+[data-swarm-team-dashboard] .swarm-team-workspace__table-copy strong { overflow:hidden; font-size:11px; white-space:nowrap; text-overflow:ellipsis; }
+[data-swarm-team-dashboard] .swarm-team-workspace__table-copy small { overflow:hidden; color:var(--dsw-alias-label-secondary); font-size:9px; white-space:nowrap; text-overflow:ellipsis; }
+[data-swarm-team-dashboard] .swarm-team-workspace__table-side { overflow:hidden; color:var(--dsw-alias-label-secondary); font-size:10px; white-space:nowrap; text-overflow:ellipsis; }
+[data-swarm-team-dashboard] .swarm-team-workspace__manage { display:grid; gap:8px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__manage-row { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:8px; min-width:0; padding:9px 10px; border:1px solid var(--dsw-alias-border-l2); border-radius:10px; background:var(--dsw-alias-bg-layer-1); }
+[data-swarm-team-dashboard] .swarm-team-workspace__manage-action { flex:0 0 auto; padding:4px 10px; border:1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 35%, var(--dsw-alias-border-l2)); border-radius:8px; background:transparent; color:var(--dsw-alias-brand-primary); font-size:10px; cursor:pointer; white-space:nowrap; }
+[data-swarm-team-dashboard] .swarm-team-workspace__detail-overlay { position:absolute; inset:0 0 0 46px; z-index:6; display:grid; grid-template-rows:auto minmax(0,1fr); border:0 solid var(--dsw-alias-border-l2); border-left-width:1px; background:var(--dsw-alias-bg-base); }
+[data-swarm-team-dashboard] .swarm-team-workspace__detail-head { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 10px; border:0 solid var(--dsw-alias-border-l2); border-bottom-width:1px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__detail-title { margin:0; overflow:hidden; font-size:13px; font-weight:700; white-space:nowrap; text-overflow:ellipsis; }
+[data-swarm-team-dashboard] .swarm-team-workspace__detail-sub { display:block; overflow:hidden; margin-top:1px; color:var(--dsw-alias-label-secondary); font-size:9px; white-space:nowrap; text-overflow:ellipsis; }
+[data-swarm-team-dashboard] .swarm-team-workspace__detail-body { min-height:0; padding:10px 11px 16px; overflow:auto; scrollbar-width:thin; }
+[data-swarm-team-dashboard] .swarm-team-workspace__detail-section { margin-bottom:8px; padding:10px; border:1px solid var(--dsw-alias-border-l2); border-radius:10px; background:var(--dsw-alias-bg-layer-1); }
+[data-swarm-team-dashboard] .swarm-team-workspace__detail-section h4 { margin:0 0 8px; font-size:11px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__field-list { display:grid; grid-template-columns:74px minmax(0,1fr); gap:7px 8px; margin:0; font-size:11px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__field-list dt { min-width:0; color:var(--dsw-alias-label-secondary); }
+[data-swarm-team-dashboard] .swarm-team-workspace__field-list dd { margin:0; min-width:0; overflow-wrap:anywhere; }
+[data-swarm-team-dashboard] .swarm-team-workspace__unavailable { color:var(--dsw-alias-label-secondary); }
+[data-swarm-team-dashboard] .swarm-team-workspace__contact-note { margin:0; padding:8px; border:1px dashed var(--dsw-alias-border-l2); border-radius:9px; color:var(--dsw-alias-label-secondary); font-size:10px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__identity-head { display:grid; grid-template-columns:40px minmax(0,1fr); align-items:center; gap:10px; margin-bottom:10px; min-width:0; }
+[data-swarm-team-dashboard] .swarm-team-workspace__identity-head .swarm-team-workspace__avatar { inline-size:40px; block-size:40px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__avatar { position:relative; display:grid; flex:0 0 auto; inline-size:32px; block-size:32px; place-items:center; overflow:hidden; border-radius:9px; background:var(--dsw-alias-bg-layer-1); box-shadow:0 0 0 1px color-mix(in srgb, var(--dsw-alias-border-l2) 80%, transparent); }
+[data-swarm-team-dashboard] .swarm-team-workspace__summary { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin:0 0 8px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__metric { padding:8px; border-radius:8px; background:var(--dsw-alias-bg-layer-1); }
 [data-swarm-team-dashboard] .swarm-team-workspace__metric strong { display:block; font-size:14px; }
-[data-swarm-team-dashboard] .swarm-team-workspace__rows, [data-swarm-team-dashboard] .swarm-team-workspace__rows > li { min-width:0; max-width:100%; }
-[data-swarm-team-dashboard] .swarm-team-workspace__rows { display:grid; gap:6px; margin:0; padding:0; list-style:none; }
-[data-swarm-team-dashboard] .swarm-team-workspace__row { display:block; box-sizing:border-box; width:100%; max-width:100%; min-width:0; overflow:hidden; padding:8px; color:inherit; text-align:left; border:1px solid var(--dsw-alias-border-l2); border-radius:8px; background:transparent; cursor:pointer; }
-[data-swarm-team-dashboard] .swarm-team-workspace__row[aria-current="true"] { border-color:var(--dsw-alias-brand-primary); background:var(--dsw-alias-bg-layer-1); }
-[data-swarm-team-dashboard] .swarm-team-workspace__row-main, [data-swarm-team-dashboard] .swarm-team-workspace__fact { display:flex; justify-content:space-between; gap:8px; min-width:0; max-width:100%; }
-/* Compact contact-list avatar scale: 32px member / 36px pinned Captain (official theme tokens only). */
-[data-swarm-team-dashboard] .swarm-team-workspace__avatar { position:relative; display:grid; flex:0 0 auto; inline-size:32px; block-size:32px; place-items:center; overflow:hidden; border-radius:9px; background:linear-gradient(135deg, var(--dsw-alias-brand-primary), color-mix(in srgb, var(--dsw-alias-brand-primary) 55%, var(--dsw-alias-bg-base))); color:var(--dsw-alias-bg-base); font-size:12px; font-weight:700; box-shadow:0 0 0 1px color-mix(in srgb, var(--dsw-alias-border-l2) 80%, transparent); }
-[data-swarm-team-dashboard] .swarm-team-workspace__captain-badge { flex:0 0 auto; padding:1px 6px; border-radius:999px; border:1px solid var(--dsw-alias-border-l2); background:var(--dsw-alias-bg-layer-1); color:var(--dsw-alias-brand-primary); font-size:10px; font-weight:600; white-space:nowrap; }
-[data-swarm-team-dashboard] .swarm-team-workspace__truncate { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-[data-swarm-team-dashboard] .swarm-team-workspace__task-assignee { display:block; min-width:0; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-[data-swarm-team-dashboard] .swarm-team-workspace__facts { display:grid; gap:6px; }
-[data-swarm-team-dashboard] .swarm-team-workspace__facts dt { color:var(--dsw-alias-label-secondary); }
-[data-swarm-team-dashboard] .swarm-team-workspace__facts dd { margin:0; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-[data-swarm-team-dashboard] .swarm-team-workspace__collapsible { margin:0; }
-[data-swarm-team-dashboard] .swarm-team-workspace__collapsible > summary { cursor:pointer; font-size:12px; font-weight:600; }
-[data-swarm-team-dashboard] .swarm-team-workspace__collapsible > summary + * { margin-top:8px; }
-[data-swarm-team-dashboard] .swarm-team-workspace__diagnostics { margin-top:8px; padding-top:8px; border-top:1px solid var(--dsw-alias-border-l2); }
-[data-swarm-team-dashboard] .swarm-team-workspace__notice { margin:0 0 8px; }
-/* The rail: full-width single column when compact; the wide panel switches to the wireframe's
-   three internal regions (team/members · tasks/announcements · details/diagnostics). */
-[data-swarm-team-dashboard] .swarm-team-workspace__rail { width:100%; max-width:420px; margin-inline:auto; display:flex; flex-direction:column; gap:12px; min-width:0; padding:10px 12px 14px; box-sizing:border-box; block-size:100%; overflow:hidden; overflow-x:hidden; background:var(--dsw-alias-bg-base); font-size:12px; line-height:1.45; }
-[data-swarm-team-dashboard] [data-swarm-rail-layout="wide"] .swarm-team-workspace__rail { max-width:100%; }
-[data-swarm-team-dashboard] .swarm-team-workspace__regions { display:flex; flex-direction:column; gap:10px; min-width:0; }
-[data-swarm-team-dashboard] [data-swarm-rail-layout="wide"] .swarm-team-workspace__regions { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; align-items:start; }
-[data-swarm-team-dashboard] .swarm-team-workspace__region { display:grid; gap:8px; align-content:start; min-width:0; }
-[data-swarm-team-dashboard] .swarm-team-workspace__badge { display:inline-flex; align-items:center; gap:4px; flex:0 0 auto; padding:1px 6px; border-radius:999px; border:1px solid var(--dsw-alias-border-l2); background:var(--dsw-alias-bg-layer-1); font-size:10px; font-weight:600; white-space:nowrap; }
-[data-swarm-team-dashboard] .swarm-team-workspace__badge-current { color:var(--dsw-alias-brand-primary); }
-[data-swarm-team-dashboard] .swarm-team-workspace__badge-unavailable { color:var(--dsw-alias-label-secondary); }
-[data-swarm-team-dashboard] .swarm-team-workspace__unavailable-card { padding:8px; border:1px solid var(--dsw-alias-border-l2); border-radius:10px; background:var(--dsw-alias-bg-layer-1); }
-[data-swarm-team-dashboard] .swarm-team-workspace__unavailable-card strong { display:block; margin-bottom:4px; }
-[data-swarm-team-dashboard] .swarm-team-workspace__capability { display:flex; justify-content:space-between; gap:8px; min-width:0; max-width:100%; padding:6px 8px; border:1px solid var(--dsw-alias-border-l2); border-radius:8px; background:var(--dsw-alias-bg-layer-1); font-size:12px; }
-/* Independent management surface: reached from a compact entry on the Dedicated Captain page,
-   never stacked on the Main Brain roster first screen. */
-[data-swarm-team-dashboard] .swarm-team-workspace__management-entry { display:flex; align-items:center; justify-content:space-between; gap:8px; }
-[data-swarm-team-dashboard] .swarm-team-workspace__management { display:grid; gap:10px; }
-[data-swarm-team-dashboard] .swarm-team-workspace__management-head { display:flex; align-items:center; justify-content:space-between; gap:8px; min-width:0; }
-/* Identity-incomplete marker: no dossier backend yet, so the deterministic initial avatar stands in and
-   the technical name is shown with an explicit "profile incomplete" label. */
-[data-swarm-team-dashboard] .swarm-team-workspace__profile-incomplete { display:inline-flex; align-items:center; gap:4px; min-width:0; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--dsw-alias-label-secondary); font-size:10px; }
-/* Narrow viewports: the official details track can overflow the visible viewport (~813px, member buttons land at x≈912), so the Team panel escapes the track and overlays the viewport. z-index 20 mirrors the official shell overlay layer constant; wide viewports never hit this media query and keep the docked details fill. The cap covers the official details auto-close threshold (columns.ts: SIDEBAR_COLLAPSED 56 + DETAILS_MIN 300 + CENTER_MIN 640 = 996px), so no 961–995px dead band remains where the panel would be zeroed and clipped. */
-@media (max-width: 995.98px) { [data-swarm-team-dashboard][data-swarm-team-panel] { position:fixed; inset:0; z-index:20; } }
-/* ---- compact QQ/WeChat-group roster-first rail ---- */
-[data-swarm-team-dashboard] .swarm-team-workspace__roster { min-width:0; display:flex; flex-direction:column; gap:8px; }
-[data-swarm-team-dashboard] .swarm-team-workspace__roster .swarm-team-workspace__column-title { margin:2px 0 0; font-size:11px; letter-spacing:0; color:var(--dsw-alias-label-secondary); text-transform:none; }
-[data-swarm-team-dashboard] .swarm-team-workspace__members { display:grid; max-block-size:360px; overflow-y:auto; overflow-x:hidden; min-width:0; border:1px solid var(--dsw-alias-border-l2); border-radius:12px; background:var(--dsw-alias-bg-layer-1); scrollbar-width:thin; }
-[data-swarm-team-dashboard] .swarm-team-workspace__captain-list { overflow-x:hidden; }
-[data-swarm-team-dashboard] [data-swarm-member-rows] { display:grid; gap:0; margin:0; padding:0; list-style:none; }
-[data-swarm-team-dashboard] [data-swarm-member-rows] li { min-width:0; }
-[data-swarm-team-dashboard] [data-swarm-member-rows] li + li { border-top:1px solid var(--dsw-alias-border-l2); }
-[data-swarm-team-dashboard] [data-swarm-member-rows] button.swarm-team-workspace__row { display:grid; grid-template-columns:32px minmax(0,1fr); align-items:center; gap:10px; padding:7px 9px; border:0; border-radius:0; background:transparent; }
-/* Member rows stay compact while keeping name plus profession/status readable; profile fields like
-   personality only ever appear in the member detail or the Dedicated Captain page. */
-[data-swarm-team-dashboard] [data-swarm-member-rows] button.swarm-team-workspace__row { min-block-size:56px; }
-[data-swarm-team-dashboard] [data-swarm-member-rows] button.swarm-team-workspace__row:hover { background:color-mix(in srgb, var(--dsw-alias-brand-primary) 7%, var(--dsw-alias-bg-layer-1)); }
-[data-swarm-team-dashboard] .swarm-team-workspace__member-copy { display:flex; flex-direction:column; gap:1px; min-width:0; }
-[data-swarm-team-dashboard] .swarm-team-workspace__member-copy strong { font-size:12px; line-height:17px; font-weight:680; }
-[data-swarm-team-dashboard] .swarm-team-workspace__member-role { color:var(--dsw-alias-label-secondary); font-size:11px; }
-[data-swarm-team-dashboard] .swarm-team-workspace__member-meta { display:flex; align-items:center; justify-content:space-between; gap:8px; min-width:0; }
-[data-swarm-team-dashboard] .swarm-team-workspace__member-meta > * { min-width:0; }
-[data-swarm-team-dashboard] .swarm-team-workspace__member-activity { display:inline-flex; align-items:center; gap:4px; flex:0 1 auto; max-width:46%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:10px; }
-[data-swarm-team-dashboard] .swarm-team-workspace__member-side { display:flex; flex-direction:column; align-items:flex-end; gap:2px; min-width:0; }
-[data-swarm-team-dashboard] .swarm-team-workspace__member-side small { color:var(--dsw-alias-label-secondary); font-size:10px; }
-[data-swarm-team-dashboard] .swarm-team-workspace__captain-hero { display:grid; grid-template-columns:36px minmax(0,1fr) auto; align-items:center; gap:10px; padding:8px 10px; min-block-size:60px; border:1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 48%, var(--dsw-alias-border-l2)); border-radius:12px; background:linear-gradient(110deg, color-mix(in srgb, var(--dsw-alias-brand-primary) 10%, var(--dsw-alias-bg-layer-1)), var(--dsw-alias-bg-layer-1)); }
-[data-swarm-team-dashboard] .swarm-team-workspace__captain-hero:hover { border-color:var(--dsw-alias-brand-primary); }
-[data-swarm-team-dashboard] .swarm-team-workspace__captain-hero .swarm-team-workspace__avatar { inline-size:36px; block-size:36px; font-size:13px; border-radius:10px; }
-[data-swarm-team-dashboard] .swarm-team-workspace__captain-hero .swarm-team-workspace__captain-badge { background:var(--dsw-alias-bg-base); border-color:var(--dsw-alias-brand-primary); }
-/* One compact Team overview: name + lifecycle + the durable public goal. */
-[data-swarm-team-dashboard] .swarm-team-workspace__overview { display:grid; gap:5px; padding:8px 10px; border:0; border-left:3px solid var(--dsw-alias-brand-primary); border-radius:6px; background:color-mix(in srgb, var(--dsw-alias-brand-primary) 7%, var(--dsw-alias-bg-layer-1)); }
-[data-swarm-team-dashboard] .swarm-team-workspace__overview-head { display:flex; align-items:center; justify-content:space-between; gap:8px; min-width:0; }
-[data-swarm-team-dashboard] .swarm-team-workspace__overview-head strong { font-size:10px; font-weight:700; color:var(--dsw-alias-label-secondary); letter-spacing:.03em; }
-[data-swarm-team-dashboard] .swarm-team-workspace__overview p { margin:0; font-size:11px; }
-[data-swarm-team-dashboard] .swarm-team-workspace__roster-label { margin:0; display:flex; justify-content:space-between; gap:8px; color:var(--dsw-alias-label-secondary); font-size:10px; font-weight:700; text-transform:none; letter-spacing:0; }
-[data-swarm-team-dashboard] .swarm-team-workspace__view-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); align-items:center; gap:0; padding:0; border:0; border-bottom:1px solid var(--dsw-alias-border-l2); border-radius:0; background:transparent; }
-[data-swarm-team-dashboard] .swarm-team-workspace__view-tabs [role="tab"] { min-width:0; overflow:hidden; text-overflow:ellipsis; border:0; border-radius:0; padding:7px 8px 8px; background:transparent; color:var(--dsw-alias-label-secondary); font-size:11px; line-height:16px; font-weight:600; white-space:nowrap; }
-[data-swarm-team-dashboard] .swarm-team-workspace__view-tabs [role="tab"][aria-selected="true"] { color:var(--dsw-alias-brand-primary); box-shadow:inset 0 -2px 0 var(--dsw-alias-brand-primary); }
-[data-swarm-team-dashboard] .swarm-team-workspace__roster-label small { font-weight:600; text-transform:none; letter-spacing:0; color:var(--dsw-alias-label-secondary); }
-[data-swarm-team-dashboard] .swarm-team-workspace__rail-divider { block-size:1px; margin:6px 2px; border:0; background:var(--dsw-alias-border-l2); }
-[data-swarm-team-dashboard] .swarm-team-workspace__captain-action { color:var(--dsw-alias-brand-primary); font-weight:800; }
-[data-swarm-team-dashboard] .swarm-team-workspace__board { display:grid; gap:8px; min-width:0; }
-[data-swarm-team-dashboard] .swarm-team-workspace__board-head { display:flex; align-items:center; justify-content:space-between; gap:8px; min-width:0; }
-[data-swarm-team-dashboard] .swarm-team-workspace__captains { display:grid; gap:6px; min-width:0; }
-[data-swarm-team-dashboard] .swarm-team-workspace__captain-list { display:grid; gap:4px; max-block-size:320px; overflow-y:auto; overflow-x:hidden; min-width:0; }
-/* ---- honest identity card + safe pixel avatar (not-generated placeholder) ---- */
-[data-swarm-team-dashboard] .swarm-team-workspace__identity-card { display:grid; gap:8px; padding:8px; border:1px solid var(--dsw-alias-border-l2); border-radius:10px; background:var(--dsw-alias-bg-layer-1); }
-[data-swarm-team-dashboard] .swarm-team-workspace__identity-header { display:flex; align-items:center; gap:8px; min-width:0; }
-[data-swarm-team-dashboard] .swarm-team-workspace__identity-fields { display:grid; gap:6px; margin:0; }
-[data-swarm-team-dashboard] .swarm-team-workspace__identity-fields div { display:flex; justify-content:space-between; gap:8px; min-width:0; }
-[data-swarm-team-dashboard] .swarm-team-workspace__identity-fields dt { color:var(--dsw-alias-label-secondary); }
-[data-swarm-team-dashboard] .swarm-team-workspace__identity-fields dd { margin:0; color:var(--dsw-alias-brand-primary); font-weight:700; font-size:12px; }
-[data-swarm-team-dashboard] [data-swarm-pixel-avatar] { border-radius:50%; }
-[data-swarm-team-dashboard] [data-avatar-state="not_generated"], [data-swarm-team-dashboard] [data-avatar-state="unavailable"] { box-shadow:inset 0 0 0 1.5px var(--dsw-alias-border-l2); }
-/* Empty/error/loading states keep the same product shell as a bound Team.  The
-   transport error is secondary diagnostic copy, never the whole first screen. */
-[data-swarm-team-dashboard] .swarm-team-workspace__empty-shell { display:flex; flex-direction:column; gap:8px; min-height:100%; }
-[data-swarm-team-dashboard] .swarm-team-workspace__empty-hero { display:grid; grid-template-columns:32px minmax(0,1fr); align-items:center; gap:8px; padding:8px; border:1px solid var(--dsw-alias-border-l2); border-radius:10px; background:linear-gradient(145deg,var(--dsw-alias-bg-layer-1),var(--dsw-alias-bg-base)); }
-[data-swarm-team-dashboard] .swarm-team-workspace__empty-copy { display:flex; flex-direction:column; gap:4px; min-width:0; }
-[data-swarm-team-dashboard] .swarm-team-workspace__empty-copy strong { font-size:13px; line-height:18px; }
-[data-swarm-team-dashboard] .swarm-team-workspace__empty-copy small { font-size:10px; line-height:14px; }
-[data-swarm-team-dashboard] .swarm-team-workspace__empty-roster { display:grid; gap:6px; }
-[data-swarm-team-dashboard] .swarm-team-workspace__empty-person { display:grid; grid-template-columns:28px minmax(0,1fr) auto; align-items:center; gap:8px; padding:6px 8px; border:1px dashed var(--dsw-alias-border-l2); border-radius:10px; color:var(--dsw-alias-label-secondary); background:var(--dsw-alias-bg-layer-1); }
-[data-swarm-team-dashboard] .swarm-team-workspace__empty-person .swarm-team-workspace__avatar { inline-size:28px; block-size:28px; font-size:12px; }
-[data-swarm-team-dashboard] .swarm-team-workspace__empty-shell .swarm-team-workspace__unavailable-card { padding:8px; border-radius:10px; }
-[data-swarm-team-dashboard] .swarm-team-workspace__empty-shell .swarm-team-workspace__unavailable-card strong { font-size:12px; }
-[data-swarm-team-dashboard] .swarm-team-workspace__empty-shell .swarm-team-workspace__unavailable-card p { margin:3px 0 0; font-size:10px; }
-[data-swarm-team-dashboard] .swarm-team-workspace__empty-person .swarm-team-workspace__avatar { filter:saturate(.25); opacity:.7; }
+[data-swarm-team-dashboard] .swarm-team-workspace__facts { display:grid; gap:6px; margin:0; }
+[data-swarm-team-dashboard] .swarm-team-workspace__facts dt { min-width:0; color:var(--dsw-alias-label-secondary); }
+[data-swarm-team-dashboard] .swarm-team-workspace__facts dd { margin:0; min-width:0; overflow:hidden; overflow-wrap:anywhere; text-overflow:ellipsis; }
+[data-swarm-team-dashboard] .swarm-team-workspace__truncate { min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+[data-swarm-team-dashboard] .swarm-team-workspace__status { display:flex; gap:8px; align-items:center; min-width:0; margin:0 0 8px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__error { min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+[data-swarm-team-dashboard] .swarm-team-workspace__muted { color:var(--dsw-alias-label-secondary); font-size:11px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__empty-shell { display:flex; flex-direction:column; gap:8px; grid-column:1 / -1; min-width:0; min-height:100%; padding:10px 12px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__empty-actions { display:flex; gap:8px; flex-wrap:wrap; }
-@media (max-width: 430px) { [data-swarm-team-dashboard] .swarm-team-workspace__rail { width:100%; max-width:100%; margin-inline:0; block-size:100%; } [data-swarm-team-dashboard] .swarm-team-workspace__members { max-block-size:none; } [data-swarm-team-dashboard] .swarm-team-workspace__roster .swarm-team-workspace__task-assignee, [data-swarm-team-dashboard] .swarm-team-workspace__roster small { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; } }
+/* Narrow viewports: the official details track can overflow the visible viewport, so the Team panel escapes the track and overlays the viewport (z-index mirrors the official shell overlay layer). */
+@media (max-width: 995.98px) { [data-swarm-team-dashboard][data-swarm-team-panel] { position:fixed; inset:0; z-index:20; } }
 `
 
 /** The sole Team UI is a read-only projection in the official Details column. */
@@ -153,30 +128,32 @@ export function TeamDashboardContent({ controller, coordinator, descriptionId, h
   readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS>
 }) {
   const [handoffBusy, setHandoffBusy] = useState(false)
-  const [selection, setSelection] = useState<Selection>({ kind: 'team' })
-  const [workspaceRef, workspaceLayout] = useTeamWorkspaceLayout()
+  const data = state.data?.projection
   const handoff = (): void => {
     if (handoffBusy) return
     setHandoffBusy(true)
     void coordinator.openCaptainChat().catch(() => {}).finally(() => { setHandoffBusy(false) })
   }
-  const onMainBrain = (): void => { coordinator.closeAndRestoreFocus() }
-  const data = state.data?.projection
-  return <div className="swarm-team-workspace" data-swarm-team-layout={workspaceLayout} ref={workspaceRef}>
+  return <div className="swarm-team-workspace" data-swarm-team-layout="workspace">
     <style>{shellCss}</style>
-    <header className="swarm-team-workspace__header">
-      <div><div className="swarm-team-workspace__title-row"><h2 className="swarm-team-workspace__title swarm-team-workspace__truncate" id={headingId} title={data?.team.name}>{data?.team.name ?? t('title')}</h2>{data === undefined ? null : <span className="swarm-team-workspace__muted">{enumLabel(data.team.phase, t)}</span>}</div><p className="swarm-team-workspace__description" id={descriptionId}>{t('description')}</p></div>
-      <Button size="sm" variant="toolbar" aria-label={t('close')} title={t('close')} onClick={() => { coordinator.closeAndRestoreFocus() }}><IconCloseOutline16 /></Button>
-    </header>
-    <main className="swarm-team-workspace__body">
-      {data === undefined
-        ? <Empty state={state} controller={controller} t={t} teams={state.data?.teams} onMainBrain={onMainBrain} onOpenCaptain={coordinator.openTeamCaptain} />
-        : <><Status state={state} t={t} /><Workspace layout={workspaceLayout} data={data} handoffBusy={handoffBusy} localeTag={localeTag} selection={selection} setSelection={setSelection} t={t} teams={state.data?.teams} announcements={state.data?.captainAnnouncements} diagnostics={state.data?.captainDiagnostics} memberAssets={state.data?.captainMembers} onMainBrain={onMainBrain} onMainChat={handoff} onOpenCaptain={coordinator.openTeamCaptain} /></>}
-    </main>
-    {data === undefined ? null : <footer className="swarm-team-workspace__footer">
-      <Button size="sm" variant="ghost" icon={<IconRefreshOutline16 />} onClick={() => { controller.refresh() }}>{t('refresh')}</Button>
-      <Button size="sm" variant="primary" disabled={data === undefined || handoffBusy} onClick={handoff}>{handoffBusy ? t('openingChat') : t('openChat')}</Button>
-    </footer>}
+    {data === undefined
+      ? <Empty state={state} controller={controller} t={t} />
+      : <Workspace
+        data={data}
+        handoffBusy={handoffBusy}
+        localeTag={localeTag}
+        descriptionId={descriptionId}
+        headingId={headingId}
+        state={state}
+        t={t}
+        teams={state.data?.teams}
+        announcements={state.data?.captainAnnouncements}
+        diagnostics={state.data?.captainDiagnostics}
+        memberAssets={state.data?.captainMembers}
+        onMainChat={handoff}
+        onOpenCaptain={coordinator.openTeamCaptain}
+        onClose={() => { coordinator.closeAndRestoreFocus() }}
+      />}
   </div>
 }
 
@@ -184,527 +161,6 @@ export const TEAM_WORKSPACE_WIDE_MIN_WIDTH = 720
 export type TeamWorkspaceLayout = 'compact' | 'wide'
 /** The Details container, rather than the browser viewport, chooses the layout branch. */
 export function teamWorkspaceLayoutForWidth(width: number): TeamWorkspaceLayout { return width >= TEAM_WORKSPACE_WIDE_MIN_WIDTH ? 'wide' : 'compact' }
-
-function useTeamWorkspaceLayout(): readonly [RefObject<HTMLDivElement>, TeamWorkspaceLayout] {
-  const ref = useRef<HTMLDivElement>(null)
-  const [layout, setLayout] = useState<TeamWorkspaceLayout>('compact')
-  useLayoutEffect(() => {
-    const workspace = ref.current
-    if (workspace === null || typeof ResizeObserver === 'undefined') return undefined
-    const setWidth = (width: number): void => { setLayout(teamWorkspaceLayoutForWidth(width)) }
-    setWidth(workspace.getBoundingClientRect().width)
-    const observer = new ResizeObserver(entries => { const entry = entries.find(candidate => candidate.target === workspace); if (entry !== undefined) setWidth(entry.contentRect.width) })
-    observer.observe(workspace)
-    return () => { observer.disconnect() }
-  }, [])
-  return [ref, layout]
-}
-
-function Status({ state, t }: { readonly state: TeamDashboardState; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
-  if (state.phase === 'ready') return null
-  const failed = state.phase === 'error' || state.phase === 'stale'
-  const label = state.phase === 'loading' ? t('loading') : state.phase === 'reconnecting' ? t('reconnecting') : state.phase === 'stale' ? t('stale') : t('error')
-  return <div className="swarm-team-workspace__status" role={failed ? 'alert' : 'status'} aria-live="polite"><StateDot state={failed ? 'warning' : 'ongoing'} /><span>{label}</span>{state.error === undefined ? null : <span className="swarm-team-workspace__error" title={`${state.error.code}: ${state.error.message}`}><code>{state.error.code}</code><small className="swarm-team-workspace__muted">: {state.error.message}</small></span>}</div>
-}
-
-function Empty({ state, controller, t, teams, onMainBrain, onOpenCaptain }: {
-  readonly state: TeamDashboardState
-  readonly controller: TeamDashboardController
-  readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS>
-  readonly teams: SwarmReadTeamsV1 | undefined
-  readonly onMainBrain: () => void
-  readonly onOpenCaptain: (captainSessionId: string) => void
-}) {
-  const failed = state.phase === 'error' || state.phase === 'stale'
-  return <section className="swarm-team-workspace__rail swarm-team-workspace__empty-shell" data-swarm-team-rail data-swarm-empty-shell>
-    <ViewTabs active="roster" onSelect={tab => { if (tab === 'roster') onMainBrain() }} t={t} />
-    <CaptainList teams={teams} number={new Intl.NumberFormat()} onOpenCaptain={onOpenCaptain} t={t} />
-    {/* Exactly one honest empty/loading/error state: no duplicated placeholder roster or goal cards. */}
-    <section className="swarm-team-workspace__unavailable-card" data-swarm-empty-state>
-      <strong>{failed ? t('error') : t('loading')}</strong>
-      {state.error === undefined ? null : <p className="swarm-team-workspace__muted" title={`${state.error.code}: ${state.error.message}`}>{state.error.message}</p>}
-    </section>
-    <details className="swarm-team-workspace__diagnostics"><summary>{t('diagnostics')}</summary><Status state={state} t={t} /></details>
-    <div className="swarm-team-workspace__empty-actions">{failed ? <Button variant="outline" onClick={() => { controller.reconnect() }}>{t('retry')}</Button> : null}<Button variant="ghost" onClick={() => { controller.refresh() }}>{t('refresh')}</Button></div>
-  </section>
-}
-
-function Workspace({ layout, data, handoffBusy, localeTag, selection, setSelection, t, teams, announcements, diagnostics, memberAssets, onMainBrain, onMainChat, onOpenCaptain }: {
-  readonly layout: TeamWorkspaceLayout
-  readonly data: SwarmHostReadProjectionV1
-  readonly handoffBusy: boolean
-  readonly localeTag: () => 'zh-CN' | 'en-US'
-  readonly selection: Selection
-  readonly setSelection: (selection: Selection) => void
-  readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS>
-  readonly teams: SwarmReadTeamsV1 | undefined
-  readonly announcements: SwarmReadCaptainAnnouncementsV1 | undefined
-  readonly diagnostics: SwarmReadCaptainDiagnosticsV1 | undefined
-  readonly memberAssets: SwarmReadCaptainMembersV1 | undefined
-  readonly onMainBrain: () => void
-  readonly onMainChat: () => void
-  readonly onOpenCaptain: (captainSessionId: string) => void
-}) {
-  const number = new Intl.NumberFormat(localeTag())
-  const boundCaptain = teams?.teams.find(team => team.teamId === data.binding.teamId)
-  // The durable public goal is authoritative Team data projected through the bound Team descriptor.
-  const goal = boundCaptain?.goal
-  const [missingMember, setMissingMember] = useState<string>()
-  const [missingTask, setMissingTask] = useState<string>()
-  const [managementOpen, setManagementOpen] = useState(false)
-  const [view, setView] = useState<RailView>('roster')
-  const rosterHeadingRef = useRef<HTMLHeadingElement>(null)
-  const taskSummaryRef = useRef<HTMLElement>(null)
-  const memberTriggers = useRef(new Map<string, HTMLButtonElement>())
-  const taskTriggers = useRef(new Map<string, HTMLButtonElement>())
-  const focusIntent = useRef<FocusIntent>()
-  const registerMemberTrigger = (name: string, element: HTMLButtonElement | null): void => {
-    if (element === null) memberTriggers.current.delete(name)
-    else memberTriggers.current.set(name, element)
-  }
-  const registerTaskTrigger = (id: string, element: HTMLButtonElement | null): void => {
-    if (element === null) taskTriggers.current.delete(id)
-    else taskTriggers.current.set(id, element)
-  }
-  useLayoutEffect(() => {
-    const intent = focusIntent.current
-    if (intent === undefined) return
-    focusIntent.current = undefined
-    let target: HTMLElement | null | undefined
-    switch (intent.kind) {
-      case 'roster': target = rosterHeadingRef.current; break
-      case 'tasks': target = taskSummaryRef.current; break
-      case 'member': target = memberTriggers.current.get(intent.name) ?? rosterHeadingRef.current; break
-      case 'task': target = taskTriggers.current.get(intent.id) ?? taskSummaryRef.current; break
-    }
-    target?.focus()
-  }, [data.roster, data.tasks, selection])
-  useLayoutEffect(() => {
-    if (selection.kind !== 'member' || data.roster.some(member => member.name === selection.name)) return
-    setMissingMember(selection.name)
-    focusIntent.current = { kind: 'roster' }
-    setSelection({ kind: 'team' })
-  }, [data.roster, selection, setSelection])
-  useLayoutEffect(() => {
-    if (selection.kind !== 'task' || data.tasks.some(task => task.id === selection.id)) return
-    setMissingTask(selection.id)
-    focusIntent.current = { kind: 'tasks' }
-    setSelection({ kind: 'team' })
-  }, [data.tasks, selection, setSelection])
-  const selectMember = (name: string): void => { setMissingMember(undefined); setSelection({ kind: 'member', name }) }
-  const selectTask = (id: string): void => { setMissingTask(undefined); setSelection({ kind: 'task', id }) }
-  const returnToMembers = (name: string): void => { focusIntent.current = { kind: 'member', name }; setSelection({ kind: 'team' }) }
-  const returnToTasks = (id: string): void => { focusIntent.current = { kind: 'task', id }; setSelection({ kind: 'team' }) }
-  const selected = selection.kind === 'member' ? data.roster.find(member => member.name === selection.name) : undefined
-  const onViewTab = (tab: 'roster' | 'captain' | 'board'): void => {
-    if (tab === 'roster') onMainBrain()
-    else setView(tab)
-  }
-  return <section className="swarm-team-workspace__rail" aria-label={t('tabs.label')} data-swarm-team-rail data-swarm-rail-layout={layout}>
-    <ViewTabs active={managementOpen ? 'roster' : view} onSelect={onViewTab} t={t} />
-    {managementOpen
-      ? <ManagementView data={data} teams={teams} goal={goal} memberAssets={memberAssets} announcements={announcements} diagnostics={diagnostics} localeTag={localeTag} number={number} onBack={() => { setManagementOpen(false); setView('roster') }} onOpenCaptain={onOpenCaptain} onManageViaCaptain={onMainChat} onUpdateViaCaptain={onMainChat} t={t} />
-      : view === 'captain'
-        ? <CaptainPage data={data} number={number} teams={teams} onBack={() => { setView('roster') }} onOpenCaptain={onOpenCaptain} onOpenChat={onMainChat} onOpenManagement={() => { setManagementOpen(true) }} t={t} />
-        : view === 'board'
-          ? <BoardView data={data} goal={goal} diagnostics={diagnostics} number={number} onBack={() => { setView('roster') }} onUpdateViaCaptain={onMainChat} t={t} />
-          : <div className="swarm-team-workspace__regions" data-swarm-rail-regions>
-          <section className="swarm-team-workspace__region" data-swarm-rail-region="team">
-            <TeamOverview data={data} goal={goal} t={t} />
-            <div className="swarm-team-workspace__roster" data-swarm-roster><span className="swarm-team-workspace__roster-label" data-swarm-roster-captain-label><span>{t('captainRole')} · 1</span><small>{t('rosterCaptainHint')}</small></span>
-              <CaptainRow busy={handoffBusy} captain={boundCaptain} onMainChat={onMainChat} t={t} />
-              <hr className="swarm-team-workspace__rail-divider" aria-hidden="true" data-swarm-rail-divider />
-              <h3 className="swarm-team-workspace__column-title swarm-team-workspace__roster-label" ref={rosterHeadingRef} tabIndex={-1} data-swarm-roster-members-label><span>{t('members')} · {number.format(data.totals.roster)}</span><small>{t('rosterMembersHint')}</small></h3>
-              {missingMember === undefined ? null : <p className="swarm-team-workspace__muted swarm-team-workspace__notice" role="status">{t('memberNoLongerAvailable', { name: missingMember })}</p>}
-              <div className="swarm-team-workspace__members">{selected === undefined ? <MemberRows data={data} memberAssets={memberAssets} onSelect={selectMember} onTrigger={registerMemberTrigger} t={t} /> : <MemberDetail data={data} member={selected} memberAssets={memberAssets} onBack={() => { returnToMembers(selected.name) }} t={t} />}</div>
-              {data.truncated.roster ? <p className="swarm-team-workspace__muted swarm-team-workspace__notice">{t('rosterTruncated', { shown: number.format(data.roster.length), total: number.format(data.totals.roster) })}</p> : null}
-            </div>
-          </section>
-          <section className="swarm-team-workspace__region" data-swarm-rail-region="work">
-            <details className="swarm-team-workspace__collapsible" data-swarm-tasks-fold {...(layout === 'wide' ? { open: true } : {})}><summary ref={taskSummaryRef}>{t('tasks')}</summary>{missingTask === undefined ? null : <p className="swarm-team-workspace__muted swarm-team-workspace__notice" role="status">{t('taskNoLongerAvailable')}</p>}{selection.kind === 'task' ? <TaskDetail data={data} id={selection.id} number={number} onBack={() => { returnToTasks(selection.id) }} t={t} /> : <TaskRows data={data} onSelect={selectTask} onTrigger={registerTaskTrigger} t={t} />}</details>
-            <details className="swarm-team-workspace__collapsible" data-swarm-announcements-fold {...(layout === 'wide' ? { open: true } : {})}><summary>{t('announcements')}</summary><AnnouncementSection announcements={announcements} localeTag={localeTag} t={t} /></details>
-          </section>
-          <section className="swarm-team-workspace__region" data-swarm-rail-region="detail">
-            <details className="swarm-team-workspace__collapsible"><summary>{t('tabs.overview')}</summary><div className="swarm-team-workspace__summary"><Metric label={t('members')} value={number.format(data.totals.roster)} /><Metric label={t('tasks')} value={number.format(data.totals.tasks)} /><Metric label={t('interactions')} value={number.format(data.totals.pendingInteractions)} /><Metric label={t('attempts')} value={number.format(data.totals.attempts)} /></div></details>
-            <details className="swarm-team-workspace__collapsible"><summary>{t('budget')}</summary><BudgetStats budget={data.budget} number={number} t={t} /></details>
-            <details className="swarm-team-workspace__collapsible"><summary>{t('capabilities')}</summary><CapabilityRows capabilities={data.capabilities} t={t} /></details>
-            <Diagnostics data={data} captainDiagnostics={diagnostics} number={number} t={t} />
-          </section>
-        </div>}
-  </section>
-}
-
-/** View-tabs navigation segment transplanted from the wireframe: Main Brain / Dedicated Captain / Public goal.
- *  Main Brain returns to the official central Chat; Captain opens the in-panel Dedicated Captain page;
- *  Public goal opens the durable goal/board view. Arrow-key navigation over role=tablist. */
-function ViewTabs({ active, onSelect, t }: { readonly active: RailView; readonly onSelect: (tab: RailView) => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
-  const tabs = [
-    { id: 'roster' as const, label: t('mainBrain') },
-    { id: 'captain' as const, label: t('independentCaptain') },
-    { id: 'board' as const, label: t('goal') },
-  ]
-  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number): void => {
-    let next = index
-    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (index + 1) % tabs.length
-    else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (index - 1 + tabs.length) % tabs.length
-    else if (event.key === 'Home') next = 0
-    else if (event.key === 'End') next = tabs.length - 1
-    else return
-    event.preventDefault()
-    onSelect(tabs[next]!.id)
-    ;(event.currentTarget as HTMLButtonElement).focus()
-  }
-  return <div className="swarm-team-workspace__view-tabs" role="tablist" aria-label={t('tabs.label')} data-swarm-view-tabs>{tabs.map((tab, index) => (
-    <button key={tab.id} type="button" role="tab" id={`swarm-tab-${tab.id}`} aria-selected={active === tab.id} tabIndex={active === tab.id ? 0 : -1} data-swarm-view-tab={tab.id} onKeyDown={event => { onKeyDown(event, index) }} onClick={() => { onSelect(tab.id) }}>{tab.label}</button>
-  ))}</div>
-}
-
-/** The single Main-Brain Team overview: the bound Team's name, authoritative lifecycle and the
- *  durable public goal (`generated` shows the Captain-authored canonical text; `not_generated`
- *  the honest empty line). No identity card and no switcher are repeated here. */
-function TeamOverview({ data, goal, t }: { readonly data: SwarmHostReadProjectionV1; readonly goal: SwarmReadTeamsV1['teams'][number]['goal'] | undefined; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
-  return <section className="swarm-team-workspace__overview" data-swarm-team-overview data-swarm-goal-state={goal?.state ?? 'loading'}>
-    <div className="swarm-team-workspace__overview-head"><strong data-swarm-overview-name title={data.team.name}>{t('goal')}</strong><span className="swarm-team-workspace__badge" data-swarm-overview-phase>{enumLabel(data.team.phase, t)}</span></div>
-    {goal === undefined
-      ? <p className="swarm-team-workspace__muted" data-swarm-overview-goal>{t('loading')}</p>
-      : goal.state === 'generated'
-        ? <p className="swarm-team-workspace__muted" data-swarm-overview-goal data-swarm-overview-goal-text>{goal.text}</p>
-        : <p className="swarm-team-workspace__muted" data-swarm-overview-goal data-swarm-overview-goal-not-set>{t('goalNotSet')}</p>}
-  </section>
-}
-
-/** Dedicated Captain page: the in-panel surface for Captain identity details. It carries the
- *  enumerated Team/Captain list (one official Session handoff per row), the bound Captain's real
- *  identity card (profession/personality, honest not-generated placeholders), the compact entry
- *  to the independent management surface, and the chat handoff. */
-function CaptainPage({ data, number, teams, onBack, onOpenCaptain, onOpenChat, onOpenManagement, t }: {
-  readonly data: SwarmHostReadProjectionV1
-  readonly number: Intl.NumberFormat
-  readonly teams: SwarmReadTeamsV1 | undefined
-  readonly onBack: () => void
-  readonly onOpenCaptain: (captainSessionId: string) => void
-  readonly onOpenChat: () => void
-  readonly onOpenManagement: () => void
-  readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS>
-}) {
-  const headingRef = useRef<HTMLHeadingElement>(null)
-  useLayoutEffect(() => { headingRef.current?.focus() }, [])
-  const boundState = teams?.teams.find(team => team.teamId === data.binding.teamId)?.identityCard.state
-  return <div className="swarm-team-workspace__board" data-swarm-captain-page>
-    <div className="swarm-team-workspace__board-head"><h3 className="swarm-team-workspace__column-title" ref={headingRef} tabIndex={-1}>{t('independentCaptain')}</h3><Button size="sm" variant="ghost" onClick={onBack}>{t('backToMembers')}</Button></div>
-    <CaptainList teams={teams} number={number} onOpenCaptain={onOpenCaptain} t={t} />
-    <BoundTeamIdentityCard data={data} teams={teams} includePersonality t={t} />
-    {/* Onboarding status reflects only the REAL bound captain identity state — never an
-        unconditional "incomplete" banner next to an already generated profile. */}
-    {boundState === 'generated' || boundState === 'unavailable' ? null : <section className="swarm-team-workspace__unavailable-card" data-swarm-identity-incomplete data-swarm-identity-state={boundState ?? 'loading'}><strong>{t('identityStatus')}</strong><p className="swarm-team-workspace__muted">{t('profileIncomplete')}</p></section>}
-    {/* Compact management entry: the team management surface stays independent of this page. */}
-    <ManagementEntry onOpen={onOpenManagement} t={t} />
-    <Button size="sm" variant="primary" data-swarm-captain-page-open onClick={onOpenChat}>{t('openIndependentCaptain')}</Button>
-  </div>
-}
-
-/** Board view: the durable public goal plus folded real-data sections. `available` announcements
- *  render inside the Main Brain work region, so nothing is duplicated here. */
-function BoardView({ data, goal, diagnostics, number, onBack, onUpdateViaCaptain, t }: { readonly data: SwarmHostReadProjectionV1; readonly goal: SwarmReadTeamsV1['teams'][number]['goal'] | undefined; readonly diagnostics: SwarmReadCaptainDiagnosticsV1 | undefined; readonly number: Intl.NumberFormat; readonly onBack: () => void; readonly onUpdateViaCaptain: () => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
-  return <div className="swarm-team-workspace__board" data-swarm-board-view>
-    <div className="swarm-team-workspace__board-head"><Button size="sm" variant="ghost" onClick={onBack}>{t('backToMembers')}</Button></div>
-    <GoalSection goal={goal} onUpdateViaCaptain={onUpdateViaCaptain} t={t} />
-    <details className="swarm-team-workspace__collapsible"><summary>{t('budget')}</summary><BudgetStats budget={data.budget} number={number} t={t} /></details>
-    <details className="swarm-team-workspace__collapsible"><summary>{t('capabilities')}</summary><CapabilityRows capabilities={data.capabilities} t={t} /></details>
-    <Diagnostics data={data} captainDiagnostics={diagnostics} number={number} t={t} />
-  </div>
-}
-
-/** The board's single honest state card: the public goal line plus the Captain-handoff update
- *  action. `generated` renders the real canonical text; `not_generated` the honest empty state.
- *  Never placeholders, never fabricated posts. */
-function GoalSection({ goal, onUpdateViaCaptain, t }: { readonly goal: SwarmReadTeamsV1['teams'][number]['goal'] | undefined; readonly onUpdateViaCaptain: () => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
-  return <section className="swarm-team-workspace__unavailable-card" data-swarm-goal-card data-swarm-goal-state={goal?.state ?? 'loading'}>
-    <strong>{t('goal')}</strong>
-    {goal === undefined
-      ? <p className="swarm-team-workspace__muted">{t('loading')}</p>
-      : goal.state === 'generated'
-        ? <p className="swarm-team-workspace__muted" data-swarm-goal-text>{goal.text}</p>
-        : <p className="swarm-team-workspace__muted" data-swarm-goal-not-set>{t('goalNotSet')}</p>}
-    <Button size="sm" variant="ghost" data-swarm-goal-update onClick={onUpdateViaCaptain}>{t('goalUpdateViaCaptain')}</Button>
-  </section>
-}
-
-/** Real captain-scoped announcements read: `available` renders the bounded entries (or an honest
- *  empty state); a legacy `unavailable` response keeps its explicit reason. Lives only inside the
- *  Main Brain work region — never duplicated across views. */
-function AnnouncementSection({ announcements, localeTag, t }: { readonly announcements: SwarmReadCaptainAnnouncementsV1 | undefined; readonly localeTag: () => 'zh-CN' | 'en-US'; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
-  const time = new Intl.DateTimeFormat(localeTag(), { dateStyle: 'medium', timeStyle: 'short' })
-  // Fail-safe timestamp: a malformed/non-finite createdAt must never throw during render.
-  const formatTime = (createdAt: number): string | undefined => {
-    if (!Number.isFinite(createdAt)) return undefined
-    const date = new Date(createdAt)
-    if (Number.isNaN(date.getTime())) return undefined
-    try { return time.format(date) } catch { return undefined }
-  }
-  const state = announcements?.state ?? 'loading'
-  if (announcements !== undefined && announcements.state === 'available') {
-    return <section className="swarm-team-workspace__unavailable-card" data-swarm-announcements-state="available" data-swarm-announcement-count={announcements.entries.length}>
-      <strong>{t('announcements')}</strong>
-      {announcements.entries.length === 0
-        ? <p className="swarm-team-workspace__muted" data-swarm-announcements-empty>{t('announcementsEmpty')}</p>
-        : <ul className="swarm-team-workspace__rows" data-swarm-announcement-entries>{announcements.entries.map(entry => {
-          const formatted = formatTime(entry.createdAt)
-          return <li key={entry.id}><span className="swarm-team-workspace__capability" data-swarm-announcement-entry={entry.id}><span className="swarm-team-workspace__truncate" title={entry.text}>{entry.text}</span>{formatted === undefined ? null : <time dateTime={new Date(entry.createdAt).toISOString()}>{formatted}</time>}</span></li>
-        })}</ul>}
-    </section>
-  }
-  return <section className="swarm-team-workspace__unavailable-card" data-swarm-announcement-unavailable data-swarm-announcements-state={state}>
-    <strong>{t('announcements')}</strong>
-    {announcements === undefined
-      ? <p className="swarm-team-workspace__muted">{t('loading')}</p>
-      : <p className="swarm-team-workspace__muted" data-swarm-announcement-reason={announcements.reason}>{t('announcementsUnavailable')}</p>}
-  </section>
-}
-
-/** First-level Captain/Team list from the read-only Team enumeration (real aggregates,
- *  never a copied state). Each row shows an un-generated identity card (backend has no profile
- *  authority) and opens that Team's dedicated Captain via the official Session seam. Zero Teams is
- *  an explicit empty state; more than one Team is a legal multi-Captain result. Lives on the
- *  Dedicated Captain page — the Main Brain roster keeps exactly one pinned Captain row. */
-function CaptainList({ teams, memberCount, number, onOpenCaptain, t }: {
-  readonly teams: SwarmReadTeamsV1 | undefined
-  /** Honest member count, known only for the currently bound Team's read; other rows omit it. */
-  readonly memberCount?: { readonly teamId: string; readonly count: number } | undefined
-  readonly number: Intl.NumberFormat
-  readonly onOpenCaptain: (captainSessionId: string) => void
-  readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS>
-}) {
-  // One compact row per real Captain/Team identity: stable keys and dedup by the authoritative
-  // teamId (a repeated enumeration row is collapsed, never rendered twice).
-  const unique = new Map<string, SwarmReadTeamsV1['teams'][number]>()
-  for (const team of teams?.teams ?? []) {
-    if (!unique.has(team.teamId)) unique.set(team.teamId, team)
-  }
-  const rows = [...unique.values()]
-  return <section className="swarm-team-workspace__captains" data-swarm-captain-list>
-    <span className="swarm-team-workspace__roster-label" data-swarm-captains-label><span>{t('captains')} · {number.format(rows.length)}</span><small>{t('captainsHint')}</small></span>
-    {rows.length === 0
-      ? <section className="swarm-team-workspace__unavailable-card" data-swarm-captains-empty><strong>{t('captainsEmpty')}</strong></section>
-      : <div className="swarm-team-workspace__captain-list">{rows.map(team => {
-        const count = memberCount !== undefined && memberCount.teamId === team.teamId ? memberCount.count : undefined
-        const generated = team.identityCard.state === 'generated'
-        const captainName = generated && team.displayName !== undefined ? team.displayName : team.name
-        const profession = generated && team.profession !== undefined ? team.profession : t('captainIdentityUnavailable')
-        return (
-        <button key={team.teamId} className="swarm-team-workspace__row swarm-team-workspace__captain-hero" type="button" data-swarm-captain-team={team.teamId} data-swarm-captain-session={team.captainSessionId} data-swarm-captain-phase={team.phase} data-swarm-captain-technical-name={team.name} data-swarm-identity-state={team.identityCard.state} onClick={() => { onOpenCaptain(team.captainSessionId) }} title={t('openCaptainSession')}><span className="swarm-team-workspace__avatar"><SafePixelAvatar seed={team.name} asset={team.avatar} name={captainName} t={t} /></span><span className="swarm-team-workspace__member-copy"><strong className="swarm-team-workspace__truncate" data-swarm-captain-visible-name={captainName} title={team.name}>{captainName}</strong><small className="swarm-team-workspace__muted swarm-team-workspace__member-role swarm-team-workspace__truncate" data-swarm-captain-profession={profession} title={team.name}>{profession}{count === undefined ? '' : ` · ${t('members')} ${number.format(count)}`}</small></span><span className="swarm-team-workspace__member-side"><span className="swarm-team-workspace__badge" data-swarm-captain-status>{enumLabel(team.phase, t)}</span><small className="swarm-team-workspace__captain-action" data-swarm-captain-action>{t('openCaptainSession')}</small></span></button>
-        )
-      })}</div>}
-  </section>
-}
-
-/** Identity card for the current bound Team Captain, rendered only on detail surfaces (the
- *  Dedicated Captain page and the independent management surface): real captain-declared values
- *  are shown when the backend reports the identity card `generated`; otherwise every profile
- *  field renders its honest not-generated placeholder. `personality` is only requested by these
- *  detail surfaces, never by the narrow roster rail. */
-function BoundTeamIdentityCard({ data, teams, includePersonality = false, t }: {
-  readonly data: SwarmHostReadProjectionV1
-  readonly teams: SwarmReadTeamsV1 | undefined
-  readonly includePersonality?: boolean | undefined
-  readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS>
-}) {
-  const bound = teams?.teams.find(team => team.teamId === data.binding.teamId)
-  const generated = bound?.identityCard.state === 'generated'
-  const displayName = generated && bound?.displayName !== undefined ? bound.displayName : data.team.name
-  return <TeamIdentityCard name={displayName} role={t('captainRole')}
-    avatar={bound?.avatar ?? { state: 'not_generated', reason: 'avatar_backend_not_implemented' } as const}
-    identityCard={bound?.identityCard ?? { state: 'not_generated', reason: 'identity_backend_not_implemented' } as const}
-    {...(generated && bound?.profession !== undefined ? { profession: bound.profession } : {})}
-    {...(includePersonality && generated && bound?.personality !== undefined ? { personality: bound.personality } : {})}
-    t={t} />
-}
-
-/** Independent management entry: a compact row on the Dedicated Captain page (never the Main
- *  Brain first screen) that opens the separate management surface. */
-function ManagementEntry({ onOpen, t }: { readonly onOpen: () => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
-  return <button className="swarm-team-workspace__row swarm-team-workspace__management-entry" type="button" data-swarm-management-entry onClick={onOpen} title={t('openPublicBoard')}><span className="swarm-team-workspace__row-main"><span className="swarm-team-workspace__truncate">{t('publicBoard')}</span><span className="swarm-team-workspace__badge">{t('manage')}</span></span></button>
-}
-
-/** The management/diagnostics surface is separate from the roster sidebar. It is a three-layer
- *  projection of the real Host read contract only:
- *    1) identity/onboarding state (no dossier backend → profiles are explicitly incomplete),
- *    2) real Team data (goal + announcements degrade to `unavailable`; budget & capabilities fold),
- *    3) folded technical diagnostics.
- *  The sidebar's first screen never shows these internal ledger fields. */
-function ManagementView({ data, teams, goal, memberAssets, announcements, diagnostics, localeTag, number, onBack, onOpenCaptain, onManageViaCaptain, onUpdateViaCaptain, t }: { readonly data: SwarmHostReadProjectionV1; readonly teams: SwarmReadTeamsV1 | undefined; readonly goal: SwarmReadTeamsV1['teams'][number]['goal'] | undefined; readonly memberAssets: SwarmReadCaptainMembersV1 | undefined; readonly announcements: SwarmReadCaptainAnnouncementsV1 | undefined; readonly diagnostics: SwarmReadCaptainDiagnosticsV1 | undefined; readonly localeTag: () => 'zh-CN' | 'en-US'; readonly number: Intl.NumberFormat; readonly onBack: () => void; readonly onOpenCaptain: (captainSessionId: string) => void; readonly onManageViaCaptain: () => void; readonly onUpdateViaCaptain: () => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
-  const headingRef = useRef<HTMLHeadingElement>(null)
-  useLayoutEffect(() => { headingRef.current?.focus() }, [])
-  // Dedup by the authoritative teamId: a repeated enumeration row renders once, the currently
-  // bound Team is highlighted, and every row's only action is the official Captain handoff.
-  const uniqueTeams = new Map<string, SwarmReadTeamsV1['teams'][number]>()
-  for (const team of teams?.teams ?? []) {
-    if (!uniqueTeams.has(team.teamId)) uniqueTeams.set(team.teamId, team)
-  }
-  const memberRows = memberAssets?.members ?? []
-  return <div className="swarm-team-workspace__management" data-swarm-management-view>
-    <div className="swarm-team-workspace__management-head"><h3 className="swarm-team-workspace__column-title" ref={headingRef} tabIndex={-1}>{t('managementTitle')}</h3><Button size="sm" variant="ghost" onClick={onBack}>{t('managementBack')}</Button></div>
-    <p className="swarm-team-workspace__muted">{t('managementDescription')}</p>
-    <section data-swarm-management-teams>
-      <span className="swarm-team-workspace__roster-label"><span>{t('captains')} · {number.format(uniqueTeams.size)}</span><small>{t('manageViaCaptainHint')}</small></span>
-      <div className="swarm-team-workspace__captain-list">{[...uniqueTeams.values()].map(team => {
-        const bound = team.teamId === data.binding.teamId
-        const generated = team.identityCard.state === 'generated'
-        const captainName = generated && team.displayName !== undefined ? team.displayName : team.name
-        const profession = generated && team.profession !== undefined ? team.profession : t('captainIdentityUnavailable')
-        return (
-          <button key={team.teamId} className="swarm-team-workspace__row" type="button" aria-current={bound ? 'true' : undefined} data-swarm-management-team={team.teamId} data-swarm-captain-session={team.captainSessionId} onClick={() => { onOpenCaptain(team.captainSessionId) }} title={t('manageViaCaptain')}><span className="swarm-team-workspace__avatar"><SafePixelAvatar seed={team.name} asset={team.avatar} name={captainName} t={t} /></span><span className="swarm-team-workspace__member-copy"><strong className="swarm-team-workspace__truncate" data-swarm-captain-visible-name={captainName} title={captainName}>{captainName}</strong><small className="swarm-team-workspace__muted swarm-team-workspace__member-role swarm-team-workspace__truncate" data-swarm-captain-profession={profession}>{profession}</small></span><span className="swarm-team-workspace__member-side"><span className="swarm-team-workspace__badge" data-swarm-captain-status>{enumLabel(team.phase, t)}</span><small className="swarm-team-workspace__captain-action" data-swarm-captain-action>{t('manageViaCaptain')}</small></span></button>
-        )
-      })}</div>
-    </section>
-    <section data-swarm-management-members>
-      <span className="swarm-team-workspace__roster-label"><span>{t('members')} · {number.format(memberRows.length)}</span><small>{t('manageViaCaptainHint')}</small></span>
-      {memberRows.length === 0
-        ? <p className="swarm-team-workspace__muted" data-swarm-management-members-empty>{t('empty')}</p>
-        : <ul className="swarm-team-workspace__rows" data-swarm-management-member-rows>{memberRows.map(member => {
-          const generated = member.identityCard.state === 'generated'
-          const displayName = generated && member.displayName !== undefined ? member.displayName : member.name
-          const profession = generated && member.profession !== undefined ? member.profession : member.role
-          return <li key={member.name}><button className="swarm-team-workspace__row" type="button" data-swarm-management-member={member.name} data-swarm-identity-state={member.identityCard.state} onClick={onManageViaCaptain} title={t('manageViaCaptain')}><span className="swarm-team-workspace__avatar"><SafePixelAvatar seed={member.name} asset={member.avatar} name={displayName} t={t} /></span><span className="swarm-team-workspace__member-copy"><strong className="swarm-team-workspace__truncate" data-swarm-member-visible-name={displayName} title={displayName}>{displayName}</strong><small className="swarm-team-workspace__muted swarm-team-workspace__member-role swarm-team-workspace__truncate" data-swarm-member-visible-profession={profession}>{profession}</small></span><span className="swarm-team-workspace__member-side"><span className="swarm-team-workspace__badge" data-swarm-management-member-status>{enumLabel(member.phase, t)}</span></span></button></li>
-        })}</ul>}
-      <Button size="sm" variant="ghost" data-swarm-manage-members-via-captain onClick={onManageViaCaptain}>{t('manageViaCaptain')}</Button>
-    </section>
-    <BoundTeamIdentityCard data={data} teams={teams} includePersonality t={t} />
-    {(() => {
-      // The onboarding status reflects only the REAL bound captain identity state — never a
-      // unconditional "incomplete" banner next to an already generated profile.
-      const state = teams?.teams.find(team => team.teamId === data.binding.teamId)?.identityCard.state
-      if (state === 'unavailable') return <section className="swarm-team-workspace__unavailable-card" data-swarm-identity-incomplete data-swarm-identity-state="unavailable"><strong>{t('identityStatus')}</strong><p className="swarm-team-workspace__muted">{t('profileUnavailable')}</p></section>
-      if (state === 'generated') return null
-      return <section className="swarm-team-workspace__unavailable-card" data-swarm-identity-incomplete data-swarm-identity-state={state ?? 'loading'}><strong>{t('identityStatus')}</strong><p className="swarm-team-workspace__muted">{t('profileIncomplete')}</p></section>
-    })()}
-    <GoalSection goal={goal} onUpdateViaCaptain={onUpdateViaCaptain} t={t} />
-    <AnnouncementSection announcements={announcements} localeTag={localeTag} t={t} />
-    <details className="swarm-team-workspace__collapsible"><summary>{t('writeCapabilities')}</summary><p className="swarm-team-workspace__muted">{t('writeUnavailable')}</p><CapabilityRows capabilities={data.capabilities} t={t} /></details>
-    <details className="swarm-team-workspace__collapsible"><summary>{t('budget')}</summary><BudgetStats budget={data.budget} number={number} t={t} /></details>
-    <Diagnostics data={data} captainDiagnostics={diagnostics} number={number} t={t} />
-  </div>
-}
-
-function Metric({ label, value }: { readonly label: string; readonly value: string }) { return <div className="swarm-team-workspace__metric"><strong>{value}</strong><span className="swarm-team-workspace__muted">{label}</span></div> }
-
-/** The single pinned Captain row of the Main Brain roster: real captain-declared display name and
- *  profession when the backend reports the identity card `generated`; honest technical-name and
- *  not-generated placeholders otherwise. The click is the official dedicated Captain Chat handoff. */
-function CaptainRow({ busy, captain, onMainChat, t }: { readonly busy: boolean; readonly captain: { readonly name: string; readonly displayName?: string; readonly profession?: string; readonly avatar: SwarmReadAssetStatusV1; readonly identityCard: SwarmReadAssetStatusV1 } | undefined; readonly onMainChat: () => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
-  const generated = captain?.identityCard.state === 'generated'
-  const displayName = generated && captain?.displayName !== undefined ? captain.displayName : captain?.name ?? ''
-  const label = generated && displayName !== '' ? displayName : t('captainCurrent', { team: captain?.name ?? '' })
-  const profession = generated && captain?.profession !== undefined ? captain.profession : t('profileIncomplete')
-  return <button className="swarm-team-workspace__row swarm-team-workspace__captain-hero" type="button" disabled={busy} onClick={onMainChat} title={t('captainMainChatTitle')} data-swarm-captain-row data-swarm-identity-state={captain?.identityCard.state ?? 'not_generated'}><span className="swarm-team-workspace__avatar"><SafePixelAvatar seed={captain?.name ?? ''} asset={captain?.avatar ?? NOT_GENERATED_AVATAR} name={label} t={t} /></span><span className="swarm-team-workspace__member-copy"><strong className="swarm-team-workspace__truncate" data-swarm-captain-visible-name={label} title={label}>{label}</strong><small className="swarm-team-workspace__muted swarm-team-workspace__member-role swarm-team-workspace__truncate" data-swarm-captain-profession={profession}>{profession}</small></span><span className="swarm-team-workspace__member-side"><span className="swarm-team-workspace__captain-badge">{t('captainRole')}</span><small className="swarm-team-workspace__captain-action" data-swarm-captain-action>{t('captainOpenAction')}</small></span></button>
-}
-
-/** Budget is a read-only projection of the Host's authoritative usage counters
- *  (used/limit pairs); the client never recomputes or caps them. */
-function BudgetStats({ budget, number, t }: { readonly budget: SwarmHostReadProjectionV1['budget']; readonly number: Intl.NumberFormat; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
-  const metric = (used: number, limit?: number): string => limit === undefined ? number.format(used) : `${number.format(used)} / ${number.format(limit)}`
-  return <div data-swarm-budget><Facts rows={[
-    [t('usedTokens'), metric(budget.usedTokens, budget.tokenLimit)],
-    [t('usedRequests'), metric(budget.usedRequests, budget.requestLimit)],
-    [t('usedRetries'), metric(budget.usedRetries, budget.retryLimit)],
-  ]} /></div>
-}
-
-/** Capabilities are shown exactly as the Host projects them; the write capabilities
- *  (message.write/control.write/effect.cancel) surface as explicit `unavailable`
- *  so a read-only Team workspace never implies a human write path. */
-function CapabilityRows({ capabilities, t }: { readonly capabilities: SwarmHostReadProjectionV1['capabilities']; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
-  return <ul className="swarm-team-workspace__rows" data-swarm-capabilities>{capabilities.map(capability => (
-    <li key={capability.capability}><span className="swarm-team-workspace__capability" data-swarm-capability={capability.capability} data-swarm-capability-state={capability.state}><span className="swarm-team-workspace__truncate" title={capability.capability}>{capability.capability}</span><span className="swarm-team-workspace__muted">{capability.state === 'available' ? t('available') : t('unavailable')}</span></span>{capability.blocker === undefined ? null : <small className="swarm-team-workspace__muted" data-swarm-capability-blocker>{capability.blocker}</small>}</li>
-  ))}</ul>
-}
-
-/** Real member identity card data comes from the captainMembers read keyed by the authoritative
- *  roster name; a missing row keeps the honest not-generated placeholder, never a fabricated asset. */
-function memberAssetOf(memberAssets: SwarmReadCaptainMembersV1 | undefined, name: string): {
-  readonly avatar: SwarmReadAssetStatusV1
-  readonly identityCard: SwarmReadAssetStatusV1
-  readonly displayName?: string
-  readonly profession?: string
-  readonly personality?: string
-  readonly growth: { readonly privateMemory: 'private_to_member'; readonly skills: 'not_implemented'; readonly capability: 'not_implemented' }
-} {
-  const row = memberAssets?.members.find(candidate => candidate.name === name)
-  return {
-    avatar: row?.avatar ?? NOT_GENERATED_AVATAR,
-    identityCard: row?.identityCard ?? { state: 'not_generated', reason: 'identity_backend_not_implemented' },
-    ...(row?.displayName === undefined ? {} : { displayName: row.displayName }),
-    ...(row?.profession === undefined ? {} : { profession: row.profession }),
-    ...(row?.personality === undefined ? {} : { personality: row.personality }),
-    growth: row?.growth ?? { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' },
-  }
-}
-
-function MemberRows({ data, memberAssets, onSelect, onTrigger, t }: { readonly data: SwarmHostReadProjectionV1; readonly memberAssets: SwarmReadCaptainMembersV1 | undefined; readonly onSelect: (name: string) => void; readonly onTrigger: (name: string, element: HTMLButtonElement | null) => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
-  return <ul className="swarm-team-workspace__rows" data-swarm-member-rows>{data.roster.length === 0 ? <li className="swarm-team-workspace__muted">{t('empty')}</li> : data.roster.map(member => {
-    const activity = deriveMemberActivity(data, member.name, member.phase)
-    const activityText = memberActivityLabel(activity, t)
-    const asset = memberAssetOf(memberAssets, member.name)
-    // One readable line per member: avatar | display name over profession | status dot + status text.
-    // Real identity values win when generated; the technical name/role is the honest not_generated
-    // fallback. Personality never appears on the narrow row — detail view only.
-    const displayName = asset.identityCard.state === 'generated' && asset.displayName !== undefined ? asset.displayName : member.name
-    const profession = asset.identityCard.state === 'generated' && asset.profession !== undefined ? asset.profession : member.role
-    return <li key={member.name}><button className="swarm-team-workspace__row" data-swarm-member-name={member.name} data-swarm-member-role={member.role} data-swarm-member-activity={activity.state} data-swarm-identity-state={asset.identityCard.state} type="button" ref={element => { onTrigger(member.name, element) }} onClick={() => { onSelect(member.name) }}><span className="swarm-team-workspace__avatar"><SafePixelAvatar seed={member.name} asset={asset.avatar} name={displayName} t={t} /></span><span className="swarm-team-workspace__member-copy"><strong className="swarm-team-workspace__truncate" data-swarm-member-visible-name={displayName} title={displayName}>{displayName}</strong><span className="swarm-team-workspace__member-meta"><small className="swarm-team-workspace__muted swarm-team-workspace__member-role swarm-team-workspace__truncate" data-swarm-member-visible-profession={profession} title={profession}>{profession}</small><small className="swarm-team-workspace__muted swarm-team-workspace__member-activity" data-swarm-member-visible-activity={activityText} title={activityText}><StateDot state={memberActivityDot(activity.state)} />{activityText}</small></span></span></button></li>
-  })}</ul>
-}
-
-function MemberDetail({ data, member, memberAssets, onBack, t }: { readonly data: SwarmHostReadProjectionV1; readonly member: SwarmHostReadProjectionV1['roster'][number]; readonly memberAssets: SwarmReadCaptainMembersV1 | undefined; readonly onBack: () => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
-  const activity = deriveMemberActivity(data, member.name, member.phase)
-  const current = isCurrentMemberWork(activity)
-  const asset = memberAssetOf(memberAssets, member.name)
-  const generated = asset.identityCard.state === 'generated'
-  const headingRef = useRef<HTMLHeadingElement>(null)
-  useLayoutEffect(() => { headingRef.current?.focus() }, [])
-  // Detail view is the only surface where the Captain-authored personality appears; identity
-  // fields show their real generated value or the explicit not-generated marker — never both.
-  return <div data-swarm-member-detail><h4 className="swarm-team-workspace__column-title swarm-team-workspace__truncate" ref={headingRef} tabIndex={-1} title={member.name}>{t('memberDetailHeading', { name: member.name })}</h4><Button size="sm" variant="ghost" onClick={onBack}>{t('backToMembers')}</Button><div className="swarm-team-workspace__identity-header" data-swarm-member-detail-identity><span className="swarm-team-workspace__avatar"><SafePixelAvatar seed={member.name} asset={asset.avatar} name={generated ? asset.displayName ?? member.name : member.name} t={t} /></span><span className="swarm-team-workspace__member-copy"><strong className="swarm-team-workspace__truncate" title={member.name}>{generated ? asset.displayName ?? member.name : member.name}</strong><small className="swarm-team-workspace__member-role swarm-team-workspace__truncate" title={member.role}>{member.role}</small></span></div><p className="swarm-team-workspace__profile-incomplete" data-swarm-profile-incomplete data-swarm-identity-state={asset.identityCard.state}>{generated ? t('identityCardTitle') : t('profileIncomplete')}</p><details className="swarm-team-workspace__diagnostics" data-swarm-member-growth><summary>{t('growthTitle')}</summary><Facts rows={[[t('growthMemory'), asset.growth.privateMemory === 'private_to_member' ? t('growthMemoryPrivate') : t('profileNotGenerated')], [t('growthSkills'), asset.growth.skills === 'not_implemented' ? t('growthNotImplemented') : t('profileNotGenerated')], [t('growthCapability'), asset.growth.capability === 'not_implemented' ? t('growthNotImplemented') : t('profileNotGenerated')]]} /></details><Facts rows={[[t('memberName'), member.name], ...(generated && asset.displayName !== undefined ? [[t('profileDisplayName'), asset.displayName] as const] : []), [t('memberRole'), member.role], [t('memberLifecycle'), enumLabel(member.phase, t)], [t('profileProfession'), generated && asset.profession !== undefined ? asset.profession : t('profileNotGenerated')], [t('profilePersonality'), generated && asset.personality !== undefined ? asset.personality : t('profileNotGenerated')], [t('memberAttempt'), activity.attempt === undefined ? t('memberNone') : memberActivityLabel(activity, t)], ...(current && activity.task !== undefined ? [[t('memberTask'), activity.task.subject] as const] : [])]} /></div>
-}
-
-function TaskRows({ data, onSelect, onTrigger, t }: { readonly data: SwarmHostReadProjectionV1; readonly onSelect: (id: string) => void; readonly onTrigger: (id: string, element: HTMLButtonElement | null) => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
-  return <ul className="swarm-team-workspace__rows" data-swarm-task-rows>{data.tasks.length === 0 ? <li className="swarm-team-workspace__muted">{t('empty')}</li> : data.tasks.map(task => {
-    const owner = task.ownerName ?? t('hostUnavailable')
-    const target = task.targetMemberName ?? t('hostUnavailable')
-    return <li key={task.id}><button className="swarm-team-workspace__row" type="button" ref={element => { onTrigger(task.id, element) }} onClick={() => { onSelect(task.id) }}><span className="swarm-team-workspace__row-main"><strong className="swarm-team-workspace__truncate" title={task.subject}>{task.subject}</strong><span className="swarm-team-workspace__muted">{enumLabel(task.status, t)}</span></span><small className="swarm-team-workspace__muted swarm-team-workspace__task-assignee" data-swarm-task-owner={`${t('taskOwner')}: ${owner}`} title={`${t('taskOwner')}: ${owner}`}>{t('taskOwner')}: {owner}</small><small className="swarm-team-workspace__muted swarm-team-workspace__task-assignee" data-swarm-task-target={`${t('taskTarget')}: ${target}`} title={`${t('taskTarget')}: ${target}`}>{t('taskTarget')}: {target}</small></button></li>
-  })}</ul>
-}
-
-function TaskDetail({ data, id, number, onBack, t }: { readonly data: SwarmHostReadProjectionV1; readonly id: string; readonly number: Intl.NumberFormat; readonly onBack: () => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
-  const task = data.tasks.find(candidate => candidate.id === id)
-  if (task === undefined) return <p className="swarm-team-workspace__muted">{t('detailEmpty')}</p>
-  return <TaskDetailBody data={data} number={number} onBack={onBack} t={t} task={task} />
-}
-
-function TaskDetailBody({ data, number, onBack, t, task }: { readonly data: SwarmHostReadProjectionV1; readonly number: Intl.NumberFormat; readonly onBack: () => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS>; readonly task: SwarmHostReadProjectionV1['tasks'][number] }) {
-  const headingRef = useRef<HTMLHeadingElement>(null)
-  useLayoutEffect(() => { headingRef.current?.focus() }, [])
-  return <div data-swarm-task-detail><h4 className="swarm-team-workspace__column-title swarm-team-workspace__truncate" ref={headingRef} tabIndex={-1} title={task.subject}>{t('taskDetailHeading', { subject: task.subject })}</h4><Button size="sm" variant="ghost" onClick={onBack}>{t('backToTasks')}</Button><Facts rows={[[t('status'), enumLabel(task.status, t)], [t('taskOwner'), task.ownerName ?? t('hostUnavailable')], [t('taskTarget'), task.targetMemberName ?? t('hostUnavailable')], [t('taskBlocked', { count: number.format(task.blockedBy.length) }), task.blockedBy.length === 0 ? t('empty') : task.blockedBy.join(', ')]]} /><details className="swarm-team-workspace__diagnostics"><summary>{t('taskDiagnostics')}</summary><Facts rows={[[t('taskId'), task.id], [t('taskCurrentAttempt'), task.currentAttemptId ?? t('memberNone')]]} /></details><Diagnostics data={data} number={number} t={t} /></div>
-}
-
-function Facts({ rows }: { readonly rows: readonly (readonly [string, string])[] }) { return <dl className="swarm-team-workspace__facts">{rows.map(([label, value]) => <div className="swarm-team-workspace__fact" key={label}><dt>{label}</dt><dd title={value}>{value}</dd></div>)}</dl> }
-
-/** Technical diagnostics: a flat default-collapsed details, kept out of the working first screen. */
-function Diagnostics({ data, captainDiagnostics, number, t }: { readonly data: SwarmHostReadProjectionV1; readonly captainDiagnostics?: SwarmReadCaptainDiagnosticsV1 | undefined; readonly number: Intl.NumberFormat; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
-  return <details className="swarm-team-workspace__diagnostics" data-swarm-diagnostics-fold><summary>{t('diagnostics')}</summary><p className="swarm-team-workspace__muted">{t('diagnosticsDescription')}</p><Facts rows={[[t('diagnosticsSession'), data.binding.rootSessionId], [t('diagnosticsRevision'), number.format(captainDiagnostics?.diagnostics.revision ?? data.team.revision)], ...(captainDiagnostics === undefined ? [] : [[t('diagnosticsBackend'), captainDiagnostics.diagnostics.backend] as const]), [t('diagnosticsAttempts'), number.format(data.totals.attempts)], [t('diagnosticsTrace'), t('diagnosticsTraceUnavailable')]]} /></details>
-}
-
-/** Pure display-only initials: NFC normalization plus the first grapheme cluster, never persisted. */
-export function memberRosterInitial(name: string): string {
-  const normalized = name.normalize('NFC')
-  const segmenter = typeof Intl.Segmenter === 'undefined' ? undefined : new Intl.Segmenter(undefined, { granularity: 'grapheme' })
-  return segmenter === undefined ? (Array.from(normalized)[0] ?? '') : (segmenter.segment(normalized)[Symbol.iterator]().next().value?.segment ?? '')
-}
-
-export type MemberActivity = {
-  readonly task: SwarmHostReadProjectionV1['tasks'][number] | undefined
-  readonly attempt: SwarmHostReadProjectionV1['attempts'][number] | undefined
-  readonly state: 'running' | 'idle' | 'error' | 'provisioning' | 'removed' | SwarmHostReadProjectionV1['attempts'][number]['phase']
-}
 
 /** Strictly derives an activity only from a task's current attempt and matching member/task identifiers. */
 export function deriveMemberActivity(data: SwarmHostReadProjectionV1, name: string, phase: SwarmHostReadProjectionV1['roster'][number]['phase']): MemberActivity {
@@ -723,28 +179,639 @@ export function deriveMemberActivity(data: SwarmHostReadProjectionV1, name: stri
   return { task: undefined, attempt: undefined, state: 'idle' }
 }
 
-function isCurrentMemberWork(activity: MemberActivity): boolean {
-  return activity.task !== undefined && activity.attempt !== undefined
+export type MemberActivity = {
+  readonly task: SwarmHostReadProjectionV1['tasks'][number] | undefined
+  readonly attempt: SwarmHostReadProjectionV1['attempts'][number] | undefined
+  readonly state: 'running' | 'idle' | 'error' | 'provisioning' | 'removed' | SwarmHostReadProjectionV1['attempts'][number]['phase']
+}
+
+export type DeskToneExport = DeskTone
+/** Visible work-seat status mapped only from the real roster/tasks/attempts into five honest tones:
+ *  executing (blue pulse) = running attempt; pending (amber) = provisioning lifecycle, in-review or
+ *  unaccepted terminal attempt, or a pending task owned but not started; failed = failed lifecycle
+ *  or errored activity; standby (green) = settled or no current work; offline (gray) = removed member. */
+export function deriveMemberTone(data: SwarmHostReadProjectionV1, name: string, phase: SwarmHostReadProjectionV1['roster'][number]['phase']): DeskTone {
+  if (phase === 'removed') return 'offline'
+  const activity = deriveMemberActivity(data, name, phase)
+  if (phase === 'failed' || activity.state === 'error') return 'failed'
+  if (phase === 'provisioning') return 'pending'
+  if (activity.state === 'running') return 'executing'
+  if (activity.attempt !== undefined && ['submitted', 'verifying', 'rejected', 'cancelled'].includes(activity.attempt.phase)) return 'pending'
+  if (data.tasks.some(task => task.ownerName === name && task.status === 'pending')) return 'pending'
+  return 'standby'
+}
+
+function toneLabel(tone: DeskTone, t: TranslateNS<typeof TEAM_DASHBOARD_NS>): string {
+  if (tone === 'executing') return t('tone.executing')
+  if (tone === 'pending') return t('tone.pending')
+  if (tone === 'failed') return t('tone.failed')
+  if (tone === 'offline') return t('tone.offline')
+  return t('tone.standby')
+}
+
+/** Pure display-only initials: NFC normalization plus the first grapheme cluster, never persisted. */
+export function memberRosterInitial(name: string): string {
+  const normalized = name.normalize('NFC')
+  const segmenter = typeof Intl.Segmenter === 'undefined' ? undefined : new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+  return segmenter === undefined ? (Array.from(normalized)[0] ?? '') : (segmenter.segment(normalized)[Symbol.iterator]().next().value?.segment ?? '')
+}
+
+function Status({ state, t }: { readonly state: TeamDashboardState; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
+  if (state.phase === 'ready') return null
+  const failed = state.phase === 'error' || state.phase === 'stale'
+  const label = state.phase === 'loading' ? t('loading') : state.phase === 'reconnecting' ? t('reconnecting') : state.phase === 'stale' ? t('stale') : t('error')
+  return <div className="swarm-team-workspace__status" role={failed ? 'alert' : 'status'} aria-live="polite"><StateDot state={failed ? 'warning' : 'ongoing'} /><span>{label}</span>{state.error === undefined ? null : <span className="swarm-team-workspace__error" title={`${state.error.code}: ${state.error.message}`}><code>{state.error.code}</code><small className="swarm-team-workspace__muted">: {state.error.message}</small></span>}</div>
+}
+
+function Empty({ state, controller, t }: { readonly state: TeamDashboardState; readonly controller: TeamDashboardController; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
+  const failed = state.phase === 'error' || state.phase === 'stale'
+  return <section className="swarm-team-workspace__empty-shell" data-swarm-empty-shell>
+    <Status state={state} t={t} />
+    {/* Exactly one honest empty/loading/error state: no duplicated placeholder roster or goal cards. */}
+    <section className="swarm-team-workspace__detail-section" data-swarm-empty-state>
+      <h4>{failed ? t('error') : t('loading')}</h4>
+      {state.error === undefined ? null : <p className="swarm-team-workspace__muted" title={`${state.error.code}: ${state.error.message}`}>{state.error.message}</p>}
+    </section>
+    <details className="swarm-team-workspace__detail-section"><summary>{t('diagnostics')}</summary><Status state={state} t={t} /></details>
+    <div className="swarm-team-workspace__empty-actions">{failed ? <Button variant="outline" onClick={() => { controller.reconnect() }}>{t('retry')}</Button> : null}<Button variant="ghost" onClick={() => { controller.refresh() }}>{t('refresh')}</Button></div>
+  </section>
+}
+
+function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, state, t, teams, announcements, diagnostics, memberAssets, onMainChat, onOpenCaptain, onClose }: {
+  readonly data: SwarmHostReadProjectionV1
+  readonly handoffBusy: boolean
+  readonly localeTag: () => 'zh-CN' | 'en-US'
+  readonly descriptionId: string
+  readonly headingId: string
+  readonly state: TeamDashboardState
+  readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS>
+  readonly teams: SwarmReadTeamsV1 | undefined
+  readonly announcements: SwarmReadCaptainAnnouncementsV1 | undefined
+  readonly diagnostics: SwarmReadCaptainDiagnosticsV1 | undefined
+  readonly memberAssets: SwarmReadCaptainMembersV1 | undefined
+  readonly onMainChat: () => void
+  readonly onOpenCaptain: (captainSessionId: string) => void
+  readonly onClose: () => void
+}) {
+  const number = new Intl.NumberFormat(localeTag())
+  const boundCaptain = teams?.teams.find(team => team.teamId === data.binding.teamId)
+  const goal = boundCaptain?.goal
+  const [view, setView] = useState<WorkspaceView>('workspace')
+  const [detail, setDetail] = useState<DetailSelection>()
+  const detailHeadingRef = useRef<HTMLHeadingElement>(null)
+  const detailTriggerRef = useRef<HTMLElement | null>(null)
+  const openDetail = (selection: DetailSelection): void => {
+    detailTriggerRef.current = document.activeElement as HTMLElement | null
+    setDetail(selection)
+  }
+  const closeDetail = (refocus: boolean): void => {
+    setDetail(undefined)
+    if (refocus) queueMicrotask(() => {
+      const trigger = detailTriggerRef.current
+      if (trigger !== null && trigger.isConnected) trigger.focus()
+      else document.querySelector<HTMLElement>('[data-swarm-view-tabs] [role="tab"][aria-selected="true"]')?.focus()
+    })
+  }
+  useLayoutEffect(() => { if (detail !== undefined) detailHeadingRef.current?.focus() }, [detail])
+  useLayoutEffect(() => {
+    if (detail === undefined) return
+    const gone = (detail.kind === 'member' && !data.roster.some(member => member.name === detail.name))
+      || (detail.kind === 'task' && !data.tasks.some(task => task.id === detail.id))
+    // An authority-driven auto-close must still leave usable focus behind.
+    if (gone) closeDetail(true)
+  }, [data, detail])
+  // Work-seat tones and the statistic line derive from the SAME real projection.
+  const tones = new Map<string, DeskTone>(data.roster.map(member => [member.name, deriveMemberTone(data, member.name, member.phase)]))
+  const stats = { executing: 0, pending: 0, failed: 0, standby: 0, offline: 0 } as Record<DeskTone, number>
+  for (const tone of tones.values()) stats[tone] += 1
+  const executingCount = stats.executing
+  const captainGenerated = boundCaptain?.identityCard.state === 'generated'
+  // The Team name is never a Captain name: only a real Captain-declared displayName is shown;
+  // an un-generated identity (or a generated card without a displayName) renders the explicit
+  // "profile not completed" marker instead of impersonation.
+  const captainName = captainGenerated && boundCaptain?.displayName !== undefined ? boundCaptain.displayName : t('profileIncomplete')
+  const captainProfession = captainGenerated && boundCaptain?.profession !== undefined ? boundCaptain.profession : undefined
+  const subtitleParts = [captainProfession, `${number.format(executingCount)} ${t('subtitle.executing')}`].filter(part => part !== undefined)
+  const inFlight = ['in_progress', 'submitted', 'verifying'] as const
+  // The Captain carries NO personal task/activity projection in the current read contract, so
+  // the desk state is always the neutral "not available yet" (gray). The Team lifecycle stays
+  // in the header phase pill — it is never laundered into a personal standby claim.
+  const captainStateText = t('detail.unavailable')
+  const captainTone: DeskTone = 'offline'
+  const summaries = data.tasks.filter(task => inFlight.includes(task.status as (typeof inFlight)[number])).toSorted((left, right) => right.updatedAt - left.updatedAt).slice(0, 2)
+  const activities = data.attempts.toSorted((left, right) => right.updatedAt - left.updatedAt).slice(0, 3)
+  const entries = announcements?.state === 'available' ? announcements.entries : []
+  const latest = entries.toSorted((left, right) => right.createdAt - left.createdAt)[0]
+  const tabs = [
+    { id: 'workspace' as const, label: t('tabs.workspace') },
+    { id: 'tasks' as const, label: t('tasks') },
+    { id: 'notices' as const, label: t('announcements') },
+    { id: 'manage' as const, label: t('manage') },
+  ]
+  const onTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number): void => {
+    let next = index
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (index + 1) % tabs.length
+    else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (index - 1 + tabs.length) % tabs.length
+    else if (event.key === 'Home') next = 0
+    else if (event.key === 'End') next = tabs.length - 1
+    else return
+    event.preventDefault()
+    setView(tabs[next]!.id)
+    // Roving tabindex: focus follows the selection after React re-renders the tab strip.
+    const nextTab = tabs[next]!.id
+    queueMicrotask(() => { document.querySelector<HTMLElement>(`[data-swarm-view-tab="${nextTab}"]`)?.focus() })
+  }
+  return <>
+    <nav className="swarm-team-workspace__team-rail" aria-label={t('teamRailLabel')} data-swarm-team-rail>
+      {dedupeTeams(teams).map(team => (
+        <button
+          key={team.teamId}
+          type="button"
+          className="swarm-team-workspace__team-dot"
+          aria-current={team.teamId === data.binding.teamId ? 'true' : undefined}
+          aria-label={team.teamId === data.binding.teamId ? `${team.teamId === data.binding.teamId ? `${t('boundTeam')}: ` : ''}${team.name}` : `${t('openOtherTeam')}: ${team.name}`}
+          title={team.teamId === data.binding.teamId ? team.name : `${t('openOtherTeam')}: ${team.name}`}
+          data-swarm-team-dot={team.teamId}
+          data-swarm-captain-session={team.captainSessionId}
+          onClick={() => { if (team.teamId !== data.binding.teamId) onOpenCaptain(team.captainSessionId) }}
+        ><span className="swarm-team-workspace__avatar"><SafePixelAvatar seed={team.name} asset={team.avatar} name={team.name} t={t} /></span></button>
+      ))}
+    </nav>
+    <section className="swarm-team-workspace__pane">
+      <header className="swarm-team-workspace__pane-head">
+        <div className="swarm-team-workspace__truncate">
+          <div className="swarm-team-workspace__title-row">
+            <h2 className="swarm-team-workspace__title" id={headingId} title={data.team.name}>{data.team.name}</h2>
+            <span className="swarm-team-workspace__phase-pill" data-swarm-team-phase>{enumLabel(data.team.phase, t)}</span>
+          </div>
+          <p className="swarm-team-workspace__subtitle" id={descriptionId}>{subtitleParts.join(' · ')}</p>
+          <p className="swarm-team-workspace__subtitle">{t('description')}</p>
+        </div>
+        <Button size="sm" variant="toolbar" aria-label={t('close')} title={t('close')} onClick={onClose}><IconCloseOutline16 /></Button>
+      </header>
+      <div className="swarm-team-workspace__public-bar" data-swarm-public-bar>
+        <section className="swarm-team-workspace__public-card" data-swarm-goal-card data-swarm-goal-state={goal?.state ?? 'loading'}>
+          <span className="swarm-team-workspace__public-copy">
+            <span className="swarm-team-workspace__public-title">{t('goal')}</span>
+            {goal === undefined
+              ? <span className="swarm-team-workspace__public-content swarm-team-workspace__unavailable">{t('loading')}</span>
+              : goal.state === 'generated'
+                ? <span className="swarm-team-workspace__public-content" data-swarm-goal-text title={goal.text}>{goal.text}</span>
+                : <span className="swarm-team-workspace__public-content swarm-team-workspace__unavailable" data-swarm-goal-not-set>{t('goalNotSet')}</span>}
+          </span>
+        </section>
+        <section className="swarm-team-workspace__public-card" data-swarm-announcement-preview>
+          <span className="swarm-team-workspace__public-copy">
+            <span className="swarm-team-workspace__public-title">{t('announcement.latest')}</span>
+            {announcements === undefined
+              ? <span className="swarm-team-workspace__public-content swarm-team-workspace__unavailable">{t('loading')}</span>
+              : announcements.state === 'available'
+                ? latest === undefined
+                  ? <span className="swarm-team-workspace__public-content swarm-team-workspace__unavailable" data-swarm-announcements-empty>{t('announcementsEmpty')}</span>
+                  : <span className="swarm-team-workspace__public-content" title={latest.text}>{latest.text}</span>
+                : <span className="swarm-team-workspace__public-content swarm-team-workspace__unavailable">{t('announcementsUnavailable')}</span>}
+          </span>
+        </section>
+      </div>
+      <div className="swarm-team-workspace__view-tabs" role="tablist" aria-label={t('tabs.label')} data-swarm-view-tabs>
+        {tabs.map((tab, index) => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            id={`swarm-tab-${tab.id}`}
+            aria-selected={view === tab.id}
+            aria-controls={`swarm-panel-${tab.id}`}
+            tabIndex={view === tab.id ? 0 : -1}
+            data-swarm-view-tab={tab.id}
+            onKeyDown={event => { onTabKeyDown(event, index) }}
+            onClick={() => { setView(tab.id) }}
+          >{tab.label}</button>
+        ))}
+      </div>
+      <main className="swarm-team-workspace__pane-body">
+        <Status state={state} t={t} />
+        {view === 'workspace' && <div role="tabpanel" id="swarm-panel-workspace" aria-labelledby="swarm-tab-workspace" data-swarm-panel="workspace">
+          <div className="swarm-team-workspace__block-head"><span>{t('workspace.desks')}</span><small data-swarm-desk-stats>{number.format(stats.executing)} {t('tone.executing')} · {number.format(stats.pending)} {t('tone.pending')} · {number.format(stats.failed)} {t('tone.failed')} · {number.format(stats.standby)} {t('tone.standby')} · {number.format(stats.offline)} {t('tone.offline')}</small></div>
+          <section className="swarm-team-workspace__workroom" aria-label={t('workspace.desks')} data-swarm-workroom>
+            <button
+              className="swarm-team-workspace__desk"
+              type="button"
+              disabled={handoffBusy}
+              data-swarm-captain-desk
+              data-swarm-tone={captainTone}
+              title={t('captainMainChatTitle')}
+              onClick={onMainChat}
+            >
+              <span className="swarm-team-workspace__avatar"><SafePixelAvatar seed={boundCaptain?.name ?? ''} asset={boundCaptain?.avatar ?? NOT_GENERATED_AVATAR} name={captainName} t={t} /></span>
+              <span className="swarm-team-workspace__desk-copy">
+                <strong className="swarm-team-workspace__desk-name" data-swarm-captain-visible-name={captainName} title={captainName}>{captainName}<b className="swarm-team-workspace__captain-badge">{t('captainRole')}</b></strong>
+                <small className="swarm-team-workspace__desk-role" data-swarm-captain-profession={captainProfession ?? ''}>{captainProfession ?? t('profileNotGenerated')}</small>
+              </span>
+              <span className="swarm-team-workspace__desk-state" data-swarm-captain-state={captainStateText}><i className="swarm-team-workspace__desk-dot" aria-hidden="true" />{captainStateText}</span>
+            </button>
+            {data.roster.map(member => {
+              const tone = tones.get(member.name) ?? 'standby'
+              const asset = memberAssetOf(memberAssets, member.name)
+              const generated = asset.identityCard.state === 'generated'
+              const displayName = generated && asset.displayName !== undefined ? asset.displayName : member.name
+              const profession = generated && asset.profession !== undefined ? asset.profession : member.role
+              const label = toneLabel(tone, t)
+              return (
+                <button
+                  key={member.name}
+                  className="swarm-team-workspace__desk"
+                  type="button"
+                  aria-haspopup="dialog"
+                  data-swarm-member-name={member.name}
+                  data-swarm-member-role={member.role}
+                  data-swarm-identity-state={asset.identityCard.state}
+                  data-swarm-tone={tone}
+                  onClick={() => { openDetail({ kind: 'member', name: member.name }) }}
+                >
+                  <span className="swarm-team-workspace__avatar"><SafePixelAvatar seed={member.name} asset={asset.avatar} name={displayName} t={t} /></span>
+                  <span className="swarm-team-workspace__desk-copy">
+                    <strong className="swarm-team-workspace__desk-name" data-swarm-member-visible-name={displayName} title={displayName}>{displayName}</strong>
+                    <small className="swarm-team-workspace__desk-role swarm-team-workspace__truncate" data-swarm-member-visible-profession={profession} title={profession}>{profession}</small>
+                  </span>
+                  <span className="swarm-team-workspace__desk-state" data-swarm-member-tone={tone} data-swarm-member-visible-activity={label} title={label}><i className="swarm-team-workspace__desk-dot" aria-hidden="true" />{label}</span>
+                </button>
+              )
+            })}
+          </section>
+          {data.truncated.roster ? <p className="swarm-team-workspace__muted">{t('rosterTruncated', { shown: number.format(data.roster.length), total: number.format(data.totals.roster) })}</p> : null}
+          <div className="swarm-team-workspace__block-head"><span>{t('workspace.execSummary')}</span><small data-swarm-summary-count>{number.format(summaries.length)}</small></div>
+          {summaries.length === 0
+            ? <p className="swarm-team-workspace__muted" data-swarm-summary-empty>{t('empty')}</p>
+            : <section className="swarm-team-workspace__activity" data-swarm-exec-summaries aria-label={t('workspace.execSummary')}>
+              {summaries.map(task => {
+                const pending = task.status !== 'in_progress'
+                return <div key={task.id} className="swarm-team-workspace__activity-row" data-swarm-summary-task={task.id}>
+                  <i className="swarm-team-workspace__activity-signal" data-swarm-signal={pending ? 'pending' : 'executing'} aria-hidden="true" />
+                  <span className="swarm-team-workspace__activity-copy">
+                    <span className="swarm-team-workspace__activity-title" title={task.subject}>{task.subject}</span>
+                    <span className="swarm-team-workspace__activity-meta">{task.ownerName ?? t('hostUnavailable')}</span>
+                  </span>
+                  <span className="swarm-team-workspace__activity-state">{enumLabel(task.status, t)}</span>
+                </div>
+              })}
+            </section>}
+          <div className="swarm-team-workspace__block-head"><span>{t('workspace.teamActivity')}</span><small data-swarm-activity-count>{number.format(activities.length)}</small></div>
+          {activities.length === 0
+            ? <p className="swarm-team-workspace__muted" data-swarm-activity-empty>{t('empty')}</p>
+            : <section className="swarm-team-workspace__activity" data-swarm-team-activity aria-label={t('workspace.teamActivity')}>
+              {activities.map(attempt => {
+                const task = data.tasks.find(candidate => candidate.id === attempt.taskId)
+                return <div key={attempt.id} className="swarm-team-workspace__activity-row" data-swarm-activity-attempt={attempt.id}>
+                  <i className="swarm-team-workspace__activity-signal" data-swarm-signal={attempt.phase === 'running' ? 'executing' : 'pending'} aria-hidden="true" />
+                  <span className="swarm-team-workspace__activity-copy">
+                    <span className="swarm-team-workspace__activity-title">{attempt.memberName ?? t('hostUnavailable')}</span>
+                    <span className="swarm-team-workspace__activity-meta">{task?.subject ?? t('hostUnavailable')}</span>
+                  </span>
+                  <span className="swarm-team-workspace__activity-state">{enumLabel(attempt.phase, t)}</span>
+                </div>
+              })}
+            </section>}
+        </div>}
+        {view === 'tasks' && <div role="tabpanel" id="swarm-panel-tasks" aria-labelledby="swarm-tab-tasks" data-swarm-panel="tasks">
+          <div className="swarm-team-workspace__block-head"><span>{t('tasks')}</span><small data-swarm-task-count>{number.format(data.tasks.length)} {t('taskCount')}</small></div>
+          {data.tasks.length === 0
+            ? <p className="swarm-team-workspace__muted" data-swarm-task-empty>{t('empty')}</p>
+            : <section className="swarm-team-workspace__table" data-swarm-task-rows>
+              {data.tasks.map(task => (
+                <button key={task.id} className="swarm-team-workspace__table-row" type="button" aria-haspopup="dialog" data-swarm-task-id={task.id} data-swarm-task-status={task.status} onClick={() => { openDetail({ kind: 'task', id: task.id }) }}>
+                  <span className="swarm-team-workspace__table-copy"><strong title={task.subject}>{task.subject}</strong><small>{task.id}</small></span>
+                  <span className="swarm-team-workspace__table-side" data-swarm-task-owner={`${t('taskOwner')}: ${task.ownerName ?? t('hostUnavailable')}`} title={`${t('taskOwner')}: ${task.ownerName ?? t('hostUnavailable')}`}>{task.ownerName ?? t('hostUnavailable')}</span>
+                  <span className="swarm-team-workspace__table-side" data-swarm-task-state>{enumLabel(task.status, t)}</span>
+                </button>
+              ))}
+            </section>}
+        </div>}
+        {view === 'notices' && <div role="tabpanel" id="swarm-panel-notices" aria-labelledby="swarm-tab-notices" data-swarm-panel="notices">
+          <div className="swarm-team-workspace__block-head"><span>{t('announcements')}</span><small data-swarm-notice-count>{number.format(entries.length)} {t('announcementCount')}</small></div>
+          {announcements === undefined
+            ? <p className="swarm-team-workspace__muted">{t('loading')}</p>
+            : announcements.state !== 'available'
+              ? <p className="swarm-team-workspace__muted" data-swarm-announcement-reason={announcements.reason}>{t('announcementsUnavailable')}</p>
+              : entries.length === 0
+                ? <p className="swarm-team-workspace__muted" data-swarm-announcements-empty>{t('announcementsEmpty')}</p>
+                : <section className="swarm-team-workspace__table" data-swarm-announcements-state="available" data-swarm-announcements-list>
+                  {entries.map(entry => {
+                    const formatted = formatTime(entry.createdAt, localeTag)
+                    return <div key={entry.id} className="swarm-team-workspace__table-row" data-swarm-announcement-entry={entry.id}>
+                      <span className="swarm-team-workspace__table-copy"><strong title={entry.text}>{entry.text}</strong>{formatted === undefined ? null : <time dateTime={new Date(entry.createdAt).toISOString()}>{formatted}</time>}</span>
+                    </div>
+                  })}
+                </section>}
+        </div>}
+        {view === 'manage' && <div role="tabpanel" id="swarm-panel-manage" aria-labelledby="swarm-tab-manage" data-swarm-panel="manage">
+          <ManageView data={data} memberAssets={memberAssets} number={number} onManageViaCaptain={onMainChat} onOpenDetail={openDetail} t={t} />
+        </div>}
+      </main>
+    </section>
+    {detail === undefined ? null : <DetailOverlay
+      detail={detail}
+      data={data}
+      localeTag={localeTag}
+      number={number}
+      headingRef={detailHeadingRef}
+      memberAssets={memberAssets}
+      diagnostics={diagnostics}
+      onClose={() => { closeDetail(true) }}
+      onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); closeDetail(true) } }}
+      t={t}
+    />}
+  </>
+}
+
+function dedupeTeams(teams: SwarmReadTeamsV1 | undefined): SwarmReadTeamsV1['teams'] {
+  const unique = new Map<string, SwarmReadTeamsV1['teams'][number]>()
+  for (const team of teams?.teams ?? []) {
+    if (!unique.has(team.teamId)) unique.set(team.teamId, team)
+  }
+  return [...unique.values()]
+}
+
+/** Fail-safe timestamp: a malformed/non-finite createdAt must never throw during render. */
+function formatTime(createdAt: number, localeTag: () => 'zh-CN' | 'en-US'): string | undefined {
+  if (!Number.isFinite(createdAt)) return undefined
+  const date = new Date(createdAt)
+  if (Number.isNaN(date.getTime())) return undefined
+  try { return new Intl.DateTimeFormat(localeTag(), { dateStyle: 'medium', timeStyle: 'short' }).format(date) } catch { return undefined }
+}
+
+/** Real member identity card data comes from the captainMembers read keyed by the authoritative
+ *  roster name; a missing row keeps the honest not-generated placeholder, never a fabricated asset. */
+function memberAssetOf(memberAssets: SwarmReadCaptainMembersV1 | undefined, name: string): {
+  readonly avatar: SwarmReadAssetStatusV1
+  readonly identityCard: SwarmReadAssetStatusV1
+  readonly displayName?: string
+  readonly profession?: string
+  readonly personality?: string
+  readonly growth: { readonly privateMemory: 'private_to_member'; readonly skills: 'not_implemented'; readonly capability: 'not_implemented' }
+} {
+  const row = memberAssets?.members.find(candidate => candidate.name === name)
+  return {
+    avatar: row?.avatar ?? NOT_GENERATED_AVATAR,
+    identityCard: row?.identityCard ?? NOT_GENERATED_IDENTITY,
+    ...(row?.displayName === undefined ? {} : { displayName: row.displayName }),
+    ...(row?.profession === undefined ? {} : { profession: row.profession }),
+    ...(row?.personality === undefined ? {} : { personality: row.personality }),
+    growth: row?.growth ?? { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' },
+  }
+}
+
+function ManageView({ data, memberAssets, number, onManageViaCaptain, onOpenDetail, t }: {
+  readonly data: SwarmHostReadProjectionV1
+  readonly memberAssets: SwarmReadCaptainMembersV1 | undefined
+  readonly number: Intl.NumberFormat
+  readonly onManageViaCaptain: () => void
+  readonly onOpenDetail: (selection: DetailSelection) => void
+  readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS>
+}) {
+  return <div className="swarm-team-workspace__manage" data-swarm-manage-view>
+    <div className="swarm-team-workspace__manage-row" data-swarm-manage-members>
+      <span className="swarm-team-workspace__table-copy"><strong>{t('manage.membersTitle')}</strong><small>{t('manage.membersDesc', { count: number.format(data.totals.roster) })}</small></span>
+      <button className="swarm-team-workspace__manage-action" type="button" onClick={onManageViaCaptain} title={t('manageViaCaptain')}>{t('manage.open')}</button>
+    </div>
+    <div className="swarm-team-workspace__manage-row" data-swarm-manage-growth>
+      <span className="swarm-team-workspace__table-copy"><strong>{t('manage.growthTitle')}</strong><small>{t('manage.growthDesc')}</small></span>
+      <button className="swarm-team-workspace__manage-action" type="button" aria-haspopup="dialog" onClick={() => { onOpenDetail({ kind: 'growth' }) }}>{t('manage.open')}</button>
+    </div>
+    <div className="swarm-team-workspace__manage-row" data-swarm-manage-overview>
+      <span className="swarm-team-workspace__table-copy"><strong>{t('manage.overviewTitle')}</strong><small>{t('manage.overviewDesc')}</small></span>
+      <button className="swarm-team-workspace__manage-action" type="button" aria-haspopup="dialog" onClick={() => { onOpenDetail({ kind: 'overview' }) }}>{t('manage.open')}</button>
+    </div>
+    <div className="swarm-team-workspace__manage-row" data-swarm-manage-diagnostics>
+      <span className="swarm-team-workspace__table-copy"><strong>{t('diagnostics')}</strong><small>{t('manage.diagnosticsDesc')}</small></span>
+      <button className="swarm-team-workspace__manage-action" type="button" aria-haspopup="dialog" onClick={() => { onOpenDetail({ kind: 'diagnostics' }) }}>{t('manage.open')}</button>
+    </div>
+    {/* Member growth is the only real growth projection available; it also backs the growth overlay. */}
+    <p className="swarm-team-workspace__contact-note">{memberAssets === undefined ? t('loading') : t('manageViaCaptainHint')}</p>
+  </div>
+}
+
+function DetailOverlay({ detail, data, localeTag, number, headingRef, memberAssets, diagnostics, onClose, onKeyDown, t }: {
+  readonly detail: DetailSelection
+  readonly data: SwarmHostReadProjectionV1
+  readonly localeTag: () => 'zh-CN' | 'en-US'
+  readonly number: Intl.NumberFormat
+  readonly headingRef: RefObject<HTMLHeadingElement>
+  readonly memberAssets: SwarmReadCaptainMembersV1 | undefined
+  readonly diagnostics: SwarmReadCaptainDiagnosticsV1 | undefined
+  readonly onClose: () => void
+  readonly onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void
+  readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS>
+}) {
+  const heading = detailHeading(detail, data, t)
+  const headingId = useId()
+  // Basic focus trap: Tab/Shift+Tab cycles inside the dialog so keyboard focus never escapes
+  // the overlay while it is open; Escape/close restore focus to the trigger (or the active tab).
+  const onTabCycle = (event: KeyboardEvent<HTMLDivElement>): void => {
+    if (event.key !== 'Tab') return
+    const focusables = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])')].filter(element => element.offsetParent !== null || element === document.activeElement)
+    if (focusables.length === 0) return
+    const first = focusables[0]!
+    const last = focusables[focusables.length - 1]!
+    const activeIndex = focusables.indexOf(document.activeElement as HTMLElement)
+    event.preventDefault()
+    if (event.shiftKey) (activeIndex <= 0 ? last : focusables[activeIndex - 1]!).focus()
+    else (activeIndex === -1 || activeIndex === focusables.length - 1 ? first : focusables[activeIndex + 1]!).focus()
+  }
+  return <div className="swarm-team-workspace__detail-overlay" role="dialog" aria-modal="true" aria-labelledby={headingId} data-swarm-detail-overlay data-swarm-detail-kind={detail.kind} onKeyDown={event => { onTabCycle(event); onKeyDown(event) }}>
+    <header className="swarm-team-workspace__detail-head">
+      <div className="swarm-team-workspace__truncate">
+        <h3 className="swarm-team-workspace__detail-title" id={headingId} ref={headingRef} tabIndex={-1}>{heading.title}</h3>
+        <small className="swarm-team-workspace__detail-sub">{heading.sub}</small>
+      </div>
+      <Button size="sm" variant="toolbar" aria-label={t('close')} onClick={onClose}><IconCloseOutline16 /></Button>
+    </header>
+    <div className="swarm-team-workspace__detail-body">
+      {detail.kind === 'member' ? <MemberDetail detail={detail} data={data} localeTag={localeTag} memberAssets={memberAssets} t={t} />
+        : detail.kind === 'task' ? <TaskDetail detail={detail} data={data} number={number} localeTag={localeTag} t={t} />
+          : detail.kind === 'growth' ? <GrowthDetail data={data} t={t} />
+            : detail.kind === 'overview' ? <OverviewDetail data={data} number={number} t={t} />
+              : <DiagnosticsDetail data={data} diagnostics={diagnostics} number={number} t={t} />}
+    </div>
+  </div>
+}
+
+function detailHeading(detail: DetailSelection, data: SwarmHostReadProjectionV1, t: TranslateNS<typeof TEAM_DASHBOARD_NS>): { readonly title: string; readonly sub: string } {
+  if (detail.kind === 'member') {
+    const member = data.roster.find(candidate => candidate.name === detail.name)
+    return { title: t('memberDetailHeading', { name: detail.name }), sub: member?.role ?? '' }
+  }
+  if (detail.kind === 'task') {
+    const task = data.tasks.find(candidate => candidate.id === detail.id)
+    return { title: t('taskDetailHeading', { subject: task?.subject ?? detail.id }), sub: detail.id }
+  }
+  if (detail.kind === 'growth') return { title: t('manage.growthTitle'), sub: '' }
+  if (detail.kind === 'overview') return { title: t('manage.overviewTitle'), sub: data.team.name }
+  return { title: t('diagnostics'), sub: data.team.name }
+}
+
+/** Overlay member detail. Every field renders its real read value or the explicit
+ *  "not available yet" marker — never a fabricated profile, skill, tool or model claim. */
+function MemberDetail({ detail, data, localeTag, memberAssets, t }: {
+  readonly detail: { readonly kind: 'member'; readonly name: string }
+  readonly data: SwarmHostReadProjectionV1
+  readonly localeTag: () => 'zh-CN' | 'en-US'
+  readonly memberAssets: SwarmReadCaptainMembersV1 | undefined
+  readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS>
+}) {
+  const member = data.roster.find(candidate => candidate.name === detail.name)
+  if (member === undefined) return null
+  const asset = memberAssetOf(memberAssets, member.name)
+  const generated = asset.identityCard.state === 'generated'
+  const displayName = generated && asset.displayName !== undefined ? asset.displayName : member.name
+  const activity = deriveMemberActivity(data, member.name, member.phase)
+  const tone = deriveMemberTone(data, member.name, member.phase)
+  // "Current task" accepts ONLY genuinely in-flight work: a task in an in-flight status whose
+  // current attempt is running/submitted/verifying. Any terminal status or attempt phase is
+  // recent history, never current work.
+  const hasCurrentWork = activity.task !== undefined && activity.attempt !== undefined
     && ['in_progress', 'submitted', 'verifying'].includes(activity.task.status)
     && ['running', 'submitted', 'verifying'].includes(activity.attempt.phase)
+  const currentTask = hasCurrentWork ? activity.task : undefined
+  const unavailable = <span className="swarm-team-workspace__unavailable">{t('detail.unavailable')}</span>
+  const value = (real: string | undefined): string | typeof unavailable => real === undefined ? unavailable : real
+  return <>
+    <div className="swarm-team-workspace__detail-section" data-swarm-detail-profile>
+      <h4>{t('detail.section.profile')}</h4>
+      <div className="swarm-team-workspace__identity-head">
+        <span className="swarm-team-workspace__avatar"><SafePixelAvatar seed={member.name} asset={asset.avatar} name={displayName} t={t} /></span>
+        <span className="swarm-team-workspace__desk-copy">
+          <strong className="swarm-team-workspace__truncate" title={displayName}>{displayName}</strong>
+          <small className="swarm-team-workspace__desk-role" data-swarm-member-visible-activity={toneLabel(tone, t)}><i className="swarm-team-workspace__desk-dot" aria-hidden="true" /> {toneLabel(tone, t)}</small>
+        </span>
+      </div>
+      <dl className="swarm-team-workspace__field-list">
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.name')}</dt><dd>{displayName}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.isCaptain')}</dt><dd>{t('detail.no')}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('memberRole')}</dt><dd data-swarm-detail-role>{member.role}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('profileProfession')}</dt><dd data-swarm-detail-profession>{generated && asset.profession !== undefined ? asset.profession : unavailable}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('profilePersonality')}</dt><dd data-swarm-detail-personality>{value(generated && asset.personality !== undefined ? asset.personality : undefined)}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.intro')}</dt><dd>{unavailable}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.model')}</dt><dd data-swarm-detail-model>{unavailable}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.provider')}</dt><dd data-swarm-detail-provider>{unavailable}</dd></div>
+      </dl>
+    </div>
+    <div className="swarm-team-workspace__detail-section" data-swarm-detail-skills>
+      <h4>{t('detail.section.skills')}</h4>
+      <dl className="swarm-team-workspace__field-list">
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.skills')}</dt><dd data-swarm-detail-skills-value>{asset.growth.skills === 'not_implemented' ? unavailable : unavailable}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.tools')}</dt><dd>{unavailable}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.permissions')}</dt><dd>{unavailable}</dd></div>
+      </dl>
+    </div>
+    <div className="swarm-team-workspace__detail-section" data-swarm-detail-task>
+      <h4>{t('detail.section.currentTask')}</h4>
+      <dl className="swarm-team-workspace__field-list">
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('tasks')}</dt><dd data-swarm-detail-task-subject>{currentTask?.subject ?? t('memberNone')}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('status')}</dt><dd data-swarm-detail-task-status>{currentTask !== undefined ? enumLabel(currentTask.status, t) : t('memberNone')}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.progress')}</dt><dd>{unavailable}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.started')}</dt><dd data-swarm-detail-task-started>{value(currentTask !== undefined ? formatTime(currentTask.createdAt, localeTag) : undefined)}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.due')}</dt><dd>{unavailable}</dd></div>
+      </dl>
+    </div>
+    <div className="swarm-team-workspace__detail-section" data-swarm-detail-growth>
+      <h4>{t('detail.section.growth')}</h4>
+      <dl className="swarm-team-workspace__field-list">
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.recentTask')}</dt><dd data-swarm-detail-recent-attempt>{activity.attempt !== undefined ? `${activity.attempt.phase} · ${formatTime(activity.attempt.updatedAt, localeTag) ?? ''}` : unavailable}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.recentOutput')}</dt><dd>{unavailable}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('growthTitle')}</dt><dd>{unavailable}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.memory')}</dt><dd data-swarm-detail-memory>{t('growthMemoryPrivate')}</dd></div>
+      </dl>
+    </div>
+    {/* Ordinary members have no direct chat capability in the current base; the honest disabled
+        note explains the Captain coordination path instead of a fabricated contact action. */}
+    <p className="swarm-team-workspace__contact-note" data-swarm-contact-disabled>{t('detail.contactDisabled')}</p>
+  </>
 }
 
-function memberActivityLabel(activity: MemberActivity, t: TranslateNS<typeof TEAM_DASHBOARD_NS>): string {
-  if (activity.state === 'error') return t('memberError')
-  if (activity.state === 'provisioning') return t('memberProvisioning')
-  if (activity.state === 'removed') return t('memberRemoved')
-  if (isCurrentMemberWork(activity)) return enumLabel(activity.attempt!.phase, t)
-  if (activity.attempt !== undefined) return t('memberRecentAttempt', { phase: enumLabel(activity.attempt.phase, t) })
-  return t('memberIdle')
+function TaskDetail({ detail, data, number, localeTag, t }: {
+  readonly detail: { readonly kind: 'task'; readonly id: string }
+  readonly data: SwarmHostReadProjectionV1
+  readonly number: Intl.NumberFormat
+  readonly localeTag: () => 'zh-CN' | 'en-US'
+  readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS>
+}) {
+  const task = data.tasks.find(candidate => candidate.id === detail.id)
+  if (task === undefined) return null
+  const attempt = task.currentAttemptId === undefined ? undefined : data.attempts.find(candidate => candidate.id === task.currentAttemptId)
+  return <div className="swarm-team-workspace__detail-section" data-swarm-task-detail>
+    <dl className="swarm-team-workspace__field-list">
+      <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('status')}</dt><dd>{enumLabel(task.status, t)}</dd></div>
+      <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('taskOwner')}</dt><dd>{task.ownerName ?? t('hostUnavailable')}</dd></div>
+      <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('taskTarget')}</dt><dd>{task.targetMemberName ?? t('hostUnavailable')}</dd></div>
+      <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('taskBlocked', { count: number.format(task.blockedBy.length) })}</dt><dd>{task.blockedBy.length === 0 ? t('empty') : task.blockedBy.join(', ')}</dd></div>
+      <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.started')}</dt><dd>{formatTime(task.createdAt, localeTag) ?? t('detail.unavailable')}</dd></div>
+      <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('taskCurrentAttempt')}</dt><dd>{task.currentAttemptId ?? t('memberNone')}{attempt === undefined ? '' : ` · ${enumLabel(attempt.phase, t)}`}</dd></div>
+    </dl>
+  </div>
 }
 
-/** Visible status dot mapped only from the derived real activity into three precise groups, never inventing a running state for idle/settled work:
- *  ongoing = running/provisioning/submitted/verifying (in flight); done = idle/accepted (settled, incl. completed work surfacing as an accepted attempt); warning = error/removed/rejected/stale/cancelled. */
-function memberActivityDot(state: MemberActivity['state']): StateDotState {
-  if (state === 'running' || state === 'provisioning' || state === 'submitted' || state === 'verifying') return 'ongoing'
-  if (state === 'idle' || state === 'accepted') return 'done'
-  return 'warning'
+function GrowthDetail({ data, t }: {
+  readonly data: SwarmHostReadProjectionV1
+  readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS>
+}) {
+  const unavailable = <span className="swarm-team-workspace__unavailable">{t('detail.unavailable')}</span>
+  return <div data-swarm-growth-detail>
+    {data.roster.length === 0 ? <p className="swarm-team-workspace__muted">{t('empty')}</p> : data.roster.map(member => {
+  return <div key={member.name} className="swarm-team-workspace__detail-section" data-swarm-growth-member={member.name}>
+        <h4>{member.name}</h4>
+        <dl className="swarm-team-workspace__field-list">
+          <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('growthMemory')}</dt><dd>{t('growthMemoryPrivate')}</dd></div>
+          <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('growthSkills')}</dt><dd>{unavailable}</dd></div>
+          <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('growthCapability')}</dt><dd>{unavailable}</dd></div>
+        </dl>
+      </div>
+    })}
+  </div>
 }
+
+function OverviewDetail({ data, number, t }: {
+  readonly data: SwarmHostReadProjectionV1
+  readonly number: Intl.NumberFormat
+  readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS>
+}) {
+  const metric = (used: number, limit?: number): string => limit === undefined ? number.format(used) : `${number.format(used)} / ${number.format(limit)}`
+  return <div data-swarm-overview-detail>
+    <div className="swarm-team-workspace__summary" data-swarm-overview-metrics>
+      <div className="swarm-team-workspace__metric"><strong>{number.format(data.totals.roster)}</strong><span className="swarm-team-workspace__muted">{t('members')}</span></div>
+      <div className="swarm-team-workspace__metric"><strong>{number.format(data.totals.tasks)}</strong><span className="swarm-team-workspace__muted">{t('tasks')}</span></div>
+      <div className="swarm-team-workspace__metric"><strong>{number.format(data.totals.attempts)}</strong><span className="swarm-team-workspace__muted">{t('attempts')}</span></div>
+      <div className="swarm-team-workspace__metric"><strong>{number.format(data.totals.pendingInteractions)}</strong><span className="swarm-team-workspace__muted">{t('interactions')}</span></div>
+    </div>
+    <div className="swarm-team-workspace__detail-section" data-swarm-overview-budget>
+      <h4>{t('budget')}</h4>
+      <Facts rows={[
+        [t('usedTokens'), metric(data.budget.usedTokens, data.budget.tokenLimit)],
+        [t('usedRequests'), metric(data.budget.usedRequests, data.budget.requestLimit)],
+        [t('usedRetries'), metric(data.budget.usedRetries, data.budget.retryLimit)],
+      ]} />
+    </div>
+  </div>
+}
+
+function DiagnosticsDetail({ data, diagnostics, number, t }: {
+  readonly data: SwarmHostReadProjectionV1
+  readonly diagnostics: SwarmReadCaptainDiagnosticsV1 | undefined
+  readonly number: Intl.NumberFormat
+  readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS>
+}) {
+  return <div className="swarm-team-workspace__detail-section" data-swarm-diagnostics-detail>
+    <Facts rows={[
+      [t('diagnosticsSession'), data.binding.rootSessionId],
+      [t('diagnosticsRevision'), number.format(diagnostics?.diagnostics.revision ?? data.team.revision)],
+      ...(diagnostics === undefined ? [] : [[t('diagnosticsBackend'), diagnostics.diagnostics.backend] as const]),
+      [t('diagnosticsAttempts'), number.format(data.totals.attempts)],
+      [t('diagnosticsTrace'), t('diagnosticsTraceUnavailable')],
+    ]} />
+  </div>
+}
+
+function Facts({ rows }: { readonly rows: readonly (readonly [string, string])[] }) { return <dl className="swarm-team-workspace__facts">{rows.map(([label, value]) => <div className="swarm-team-workspace__fact" key={label}><dt>{label}</dt><dd title={value}>{value}</dd></div>)}</dl> }
 
 type WireEnum = SwarmHostReadProjectionV1['team']['phase'] | SwarmHostReadProjectionV1['roster'][number]['phase'] | SwarmHostReadProjectionV1['tasks'][number]['status'] | SwarmHostReadProjectionV1['attempts'][number]['phase']
 const enumKey = Object.freeze({ active: 'enum.active', archived: 'enum.archived', provisioning: 'enum.provisioning', failed: 'enum.failed', removed: 'enum.removed', pending: 'enum.pending', in_progress: 'enum.in_progress', submitted: 'enum.submitted', verifying: 'enum.verifying', completed: 'enum.completed', cancelled: 'enum.cancelled', running: 'enum.running', accepted: 'enum.accepted', rejected: 'enum.rejected', stale: 'enum.stale' } as const satisfies Record<WireEnum, TeamDashboardKey>)
