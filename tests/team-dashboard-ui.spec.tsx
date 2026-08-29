@@ -304,20 +304,21 @@ describe('R3 native Team Details surface', () => {
       // A single vertical roster-first rail replaces the previous three-column grid.
       expect(document.querySelectorAll('[data-swarm-team-panel] [data-swarm-team-rail]')).toHaveLength(1)
       expect(document.querySelectorAll('[data-swarm-team-panel] .swarm-team-workspace__column')).toHaveLength(0)
-      // Folded sections live inside the rail as default-closed details (tasks/overview+budget/capabilities/diagnostics).
+      // Folded sections live inside the rail as default-closed details: tasks/overview/budget/capabilities (4 folded)
+      // plus Diagnostics (its own flat default-closed details) as the 5th top-level details.
       const folded = [...document.querySelectorAll('[data-swarm-team-panel] [data-swarm-team-rail] > details')]
-      expect(folded).toHaveLength(4)
+      expect(folded).toHaveLength(5)
       expect(folded.every(detail => detail.open === false)).toBe(true)
-      // Overview folds real Host budget metrics; capabilities fold real Host capabilities.
+      // Budget and capabilities fold real Host data in their own top-level details.
       expect(document.querySelector('[data-swarm-budget]')).not.toBeNull()
       expect(document.querySelector('[data-swarm-capabilities]')).not.toBeNull()
       // Goal marker is present as a fixed unavailable entry.
       expect(document.querySelector('[data-swarm-goal-unavailable]')).not.toBeNull()
-      // Diagnostics is a flat default-closed details directly in the rail (no outer <details> wrapper).
+      // Diagnostics is a flat default-closed details directly in the rail (parent not DETAILS), and the
+      // hard rule holds globally: there is NO nested `details details.swarm-team-workspace__diagnostics`.
       const diagnostics = document.querySelector('[data-swarm-team-rail] details.swarm-team-workspace__diagnostics')!
       expect(diagnostics.parentElement?.tagName).not.toBe('DETAILS')
-      // Hard acceptance rule: no nested `details details.swarm-team-workspace__diagnostics` in the DOM.
-      expect(document.querySelector('[data-swarm-team-panel] [data-swarm-team-rail] details details.swarm-team-workspace__diagnostics')).toBeNull()
+      expect(document.querySelector('details details.swarm-team-workspace__diagnostics')).toBeNull()
       expect(observers).toHaveLength(1)
       expect(workspace.dataset.swarmTeamLayout).toBe('compact')
       // This is a component contract, not a jsdom geometry claim. Browser-proof owns geometry acceptance.
