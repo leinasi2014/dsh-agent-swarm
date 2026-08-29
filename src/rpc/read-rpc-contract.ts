@@ -94,9 +94,15 @@ export interface SwarmReadTeamV1 {
   readonly phase: 'active' | 'archived'
   /** Dedicated Captain Session id of this Team; the caller opens it via the official Session seam. */
   readonly captainSessionId: string
-  /** Backend does not generate avatars yet; reports `not_generated`, never a fake asset. */
+  /** Captain-declared display name; present only when the identity card is `generated`. */
+  readonly displayName?: string
+  /** Captain-declared profession; present only when the identity card is `generated`. */
+  readonly profession?: string
+  /** Captain-declared personality; present only when the identity card is `generated`. */
+  readonly personality?: string
+  /** Captain identity asset projection: `generated` with a safe rect-only svg, or honest `not_generated`. */
   readonly avatar: SwarmReadAssetStatusV1
-  /** Backend does not generate identity cards yet; reports `not_generated`, never a fake card. */
+  /** Captain identity card projection: `generated` with the profile fields, or honest `not_generated`. */
   readonly identityCard: SwarmReadAssetStatusV1
   /** Captain-scoped read entry points this Team exposes (members / announcements / diagnostics). */
   readonly endpoints: {
@@ -151,18 +157,25 @@ export interface SwarmReadCaptainMembersV1 {
   readonly observedAt: number
 }
 
-/** Announcements are not backed by a public notice board yet, so the read returns an explicit
- *  `unavailable` state with a stable reason and an empty entry list — never fabricated posts. */
+/** One Captain-published public announcement (real bounded projection). */
+export interface SwarmReadAnnouncementEntryV1 {
+  readonly id: string
+  readonly text: string
+  readonly createdAt: number
+}
+
+/** Real bounded projection of the Team's public announcements — never fabricated. */
 export interface SwarmReadCaptainAnnouncementsV1 {
   readonly schemaVersion: 1
   readonly binding: {
     readonly rootSessionId: string
     readonly teamId: string
   }
-  readonly state: 'unavailable'
-  readonly reason: 'notice_board_not_implemented'
-  readonly entries: readonly []
+  readonly state: 'available'
+  readonly entries: readonly SwarmReadAnnouncementEntryV1[]
   readonly observedAt: number
+  /** Retained optional for client compatibility with the pre-feature unavailable state. */
+  readonly reason?: string
 }
 
 export interface SwarmReadCaptainDiagnosticsV1 {

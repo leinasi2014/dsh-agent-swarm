@@ -126,6 +126,67 @@ export function registerAddMemberTool(ctx: Context, runtime: AgentSwarmRuntime):
   }), 'add-member tool')
 }
 
+/** `agent_swarm_set_captain_profile`. */
+export function registerSetCaptainProfileTool(ctx: Context, runtime: AgentSwarmRuntime): void {
+  register(ctx, defineTool({
+    name: 'agent_swarm_set_captain_profile',
+    description: 'Captain-only. Set this Team\'s public identity profile (display name / profession / personality / safe pixel avatar). The Captain MUST author these from their own role/personality; fields share the member code-point bounds and the strict pixel-SVG allowlist. Absent from the read as not_generated until set.',
+    parameters: {
+      display_name: { type: 'string', description: 'Captain display name (at most 128 code points).' },
+      profession: { type: 'string', description: 'Captain profession/occupation (at most 256 code points).' },
+      personality: { type: 'string', description: 'Captain behavioural disposition (at most 1024 code points).' },
+      pixel_avatar_svg: { type: 'string', description: 'Optional strictly allowlisted static pixel avatar SVG (single <svg viewBox="0 0 N N"> root, N 8..32, only self-closing <rect> children with x/y/width/height/fill/opacity; fill #RGB/#RRGGBB/currentColor; ≤256 rects, ≤16KB). Anything else is rejected.' },
+    },
+    output: {
+      schema: {
+        type: 'object', additionalProperties: false,
+        properties: { revision: { type: 'number', required: true } },
+      },
+      render: (_args, value) => [{ type: 'text', text: `Set Team profile (revision ${value.revision}).` }],
+    },
+    async execute(args, exec) {
+      const team = await runtime.setCaptainProfile(exec, {
+        ...(args.display_name === undefined ? {} : { displayName: args.display_name }),
+        ...(args.profession === undefined ? {} : { profession: args.profession }),
+        ...(args.personality === undefined ? {} : { personality: args.personality }),
+        ...(args.pixel_avatar_svg === undefined ? {} : { pixelAvatarSvg: args.pixel_avatar_svg }),
+      })
+      return { revision: team.revision }
+    },
+  }), 'set-captain-profile tool')
+}
+
+/** `agent_swarm_publish_announcement`. */
+export function registerPublishAnnouncementTool(ctx: Context, runtime: AgentSwarmRuntime): void {
+  register(ctx, defineTool({
+    name: 'agent_swarm_publish_announcement',
+    description: 'Captain-only. Publish one public announcement on this Team (bounded list, at most 4096 code points each). Uses expected_revision compare-and-swap: pass the Team\'s current revision (see agent_swarm_status) so a concurrent mutation fails loud instead of silently interleaving.',
+    parameters: {
+      expected_revision: { type: 'number', required: true, description: 'The exact current Team revision; publish fails with TEAM_REVISION_CONFLICT if it changed.' },
+      text: { type: 'string', required: true, description: 'Announcement text (at most 4096 code points).' },
+    },
+    output: {
+      schema: {
+        type: 'object', additionalProperties: false,
+        properties: {
+          announcement_id: { type: 'string', required: true },
+          revision: { type: 'number', required: true },
+          announcement_count: { type: 'number', required: true },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: `Published announcement ${value.announcement_id} (revision ${value.revision}, ${value.announcement_count} total).` }],
+    },
+    async execute(args, exec) {
+      const result = await runtime.publishAnnouncement(exec, args.expected_revision, args.text)
+      return {
+        announcement_id: result.announcement.id,
+        revision: result.team.revision,
+        announcement_count: (result.team.announcements ?? []).length,
+      }
+    },
+  }), 'publish-announcement tool')
+}
+
 /** `agent_swarm_remove_member`. */
 export function registerRemoveMemberTool(ctx: Context, runtime: AgentSwarmRuntime): void {
   register(ctx, defineTool({

@@ -1,6 +1,6 @@
 import { TeamDomainError } from './error.js'
 import { assertTaskGraph } from './graph.js'
-import { isSafePixelAvatarSvg } from './identity-profile.js'
+import { isSafePixelAvatarSvg, MAX_CAPTAIN_ANNOUNCEMENTS, MAX_CAPTAIN_ANNOUNCEMENT_TEXT } from './identity-profile.js'
 import type { TeamState } from './types.js'
 
 const TASK_STATUSES = new Set(['pending', 'in_progress', 'submitted', 'verifying', 'completed', 'failed', 'cancelled'])
@@ -92,6 +92,28 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
     return member
   })
   unique(members.map(member => member.sessionId as string), path, 'member session ids')
+
+  if (team.captainProfile !== undefined) {
+    const profile = team.captainProfile as Record<string, unknown>
+    if (profile.displayName !== undefined) codePointText(profile.displayName, 128, path, 'captainProfile.displayName')
+    if (profile.profession !== undefined) codePointText(profile.profession, 256, path, 'captainProfile.profession')
+    if (profile.personality !== undefined) codePointText(profile.personality, 1024, path, 'captainProfile.personality')
+    if (profile.pixelAvatarSvg !== undefined) {
+      if (typeof profile.pixelAvatarSvg !== 'string' || !isSafePixelAvatarSvg(profile.pixelAvatarSvg)) {
+        corrupt(path, 'captainProfile.pixelAvatarSvg violates the strict allowlist')
+      }
+    }
+  }
+  if (team.announcements !== undefined) {
+    const announcements = list(team.announcements, path, 'announcements')
+    if (announcements.length > MAX_CAPTAIN_ANNOUNCEMENTS) corrupt(path, `announcements exceed ${MAX_CAPTAIN_ANNOUNCEMENTS}`)
+    announcements.forEach((raw, index) => {
+      const announcement = record(raw, path, `announcements[${index}]`)
+      text(announcement.id, path, `announcements[${index}].id`)
+      codePointText(announcement.text, MAX_CAPTAIN_ANNOUNCEMENT_TEXT, path, `announcements[${index}].text`)
+      integer(announcement.createdAt, path, `announcements[${index}].createdAt`)
+    })
+  }
 
   const tasks = list(team.tasks, path, 'tasks').map((raw, index) => {
     const task = record(raw, path, `tasks[${index}]`)

@@ -9,7 +9,7 @@
 
 import { z } from 'zod'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
-import { isSafePixelAvatarSvg } from '../domain/identity-profile.js'
+import { isSafePixelAvatarSvg, MAX_CAPTAIN_ANNOUNCEMENTS } from '../domain/identity-profile.js'
 import type { MigrationReceipt, TeamScope } from '../domain/team-domain-port.js'
 import type { TeamId, TeamState } from '../domain/types.js'
 
@@ -158,6 +158,21 @@ const interactionEffectSchema = z.object({
   committedAt: timestamp,
 }).strict()
 
+const captainProfileSchema = z.object({
+  displayName: codePointCapped(128, 'captainProfile.displayName').optional(),
+  profession: codePointCapped(256, 'captainProfile.profession').optional(),
+  personality: codePointCapped(1024, 'captainProfile.personality').optional(),
+  pixelAvatarSvg: z.string().min(1).max(16384)
+    .refine(isSafePixelAvatarSvg, { message: 'captainProfile.pixelAvatarSvg violates the strict allowlist' })
+    .optional(),
+})
+
+const announcementSchema = z.object({
+  id: z.string().min(1),
+  text: codePointCapped(4096, 'announcement.text'),
+  createdAt: timestamp,
+})
+
 const teamFields = {
     id: teamIdSchema,
     revision: z.number().int().min(1),
@@ -166,6 +181,10 @@ const teamFields = {
     captainSessionId: sessionId,
     phase: z.enum(['active', 'archived']),
     members: z.array(memberSchema),
+    // Captain self-declared profile + public announcements (schema v2 additive;
+    // absent on pre-feature records so they parse byte-identical).
+    captainProfile: captainProfileSchema.optional(),
+    announcements: z.array(announcementSchema).max(MAX_CAPTAIN_ANNOUNCEMENTS).optional(),
     tasks: z.array(taskSchema),
     attempts: z.array(attemptSchema),
     messages: z.array(messageSchema),

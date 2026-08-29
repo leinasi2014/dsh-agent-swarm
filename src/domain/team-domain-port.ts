@@ -13,6 +13,7 @@ import type {
   AttemptId,
   TaskAttempt,
   TaskId,
+  TeamAnnouncement,
   TeamBudget,
   TeamId,
   TeamMember,
@@ -151,6 +152,21 @@ export interface TeamDomainPort {
     captainSessionId: string,
     input: { name: string; role: string; sessionId: string; provider: string } & MemberIdentityInput,
   ): Promise<TeamMember>
+  /** Captain-only: set the Team's public identity profile (validated). */
+  setCaptainProfile(
+    scope: TeamScope,
+    teamId: TeamId,
+    captainSessionId: string,
+    input: MemberIdentityInput,
+  ): Promise<TeamState>
+  /** Captain-only: publish one bounded public announcement (expected_revision CAS). */
+  publishAnnouncement(
+    scope: TeamScope,
+    teamId: TeamId,
+    captainSessionId: string,
+    expectedRevision: number,
+    text: string,
+  ): Promise<{ team: TeamState; announcement: TeamAnnouncement }>
   settleMember(
     scope: TeamScope,
     teamId: TeamId,

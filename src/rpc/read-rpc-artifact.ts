@@ -9,7 +9,7 @@ import {
 } from './read-rpc-contract.js'
 
 export const SWARM_READ_RPC_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
-export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '2ee73168b400dcc88f99b5861547cf47b01639861e49f1ebe9c984e4df398b9a' as const
+export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '28829ccbb1e1ac7079c77cead8f522836441ac5fd10201a3326bf5d8a36ce5bb' as const
 
 const boundedString = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength, pattern: '\\S' })
 /** Member role is authoritative free-text (never truncated by the reader); the
@@ -64,6 +64,9 @@ const teamDescriptor = {
   properties: {
     teamId: boundedString(128), name: boundedString(128), phase: { enum: ['active', 'archived'] },
     captainSessionId: boundedString(256),
+    displayName: boundedString(128),
+    profession: boundedString(256),
+    personality: boundedString(1024),
     avatar: assetStatus, identityCard: assetStatus,
     endpoints: {
       type: 'object', additionalProperties: false,
@@ -87,6 +90,11 @@ const captainMemberRow = {
 const sectionBinding = {
   type: 'object', additionalProperties: false, required: ['rootSessionId', 'teamId'],
   properties: { rootSessionId: boundedString(256), teamId: boundedString(128) },
+}
+const announcementEntry = {
+  type: 'object', additionalProperties: false,
+  required: ['id', 'text', 'createdAt'],
+  properties: { id: boundedString(64), text: boundedString(4096), createdAt: nonNegativeInteger },
 }
 /** Captain-scoped read target: the caller must select exactly one Team to read a section. */
 const sectionTarget = {
@@ -283,11 +291,12 @@ export const SWARM_READ_RPC_CONTRACT_V1 = deepFreezeJson({
       },
       captainAnnouncements: {
         type: 'object', additionalProperties: false,
-        required: ['schemaVersion', 'binding', 'state', 'reason', 'entries', 'observedAt'],
+        required: ['schemaVersion', 'binding', 'state', 'entries', 'observedAt'],
         properties: {
           schemaVersion: { const: 1 }, binding: sectionBinding,
-          state: { const: 'unavailable' }, reason: { const: 'notice_board_not_implemented' },
-          entries: { type: 'array', maxItems: 0 }, observedAt: nonNegativeInteger,
+          state: { const: 'available' },
+          entries: { type: 'array', maxItems: 32, items: announcementEntry },
+          observedAt: nonNegativeInteger,
         },
       },
       captainDiagnostics: {
@@ -402,8 +411,9 @@ export const SWARM_READ_RPC_FIXTURES_V1 = deepFreezeJson({
       schemaVersion: 1, binding: { rootSessionId: 'session-fixture' },
       teams: [{
         teamId: 'team-fixture', name: 'Fixture Team', phase: 'active', captainSessionId: 'session-fixture',
-        avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
-        identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
+        displayName: 'Fixture Captain', profession: 'Coordinator', personality: 'Steady',
+        avatar: { state: 'generated', svg: '<svg viewBox="0 0 16 16"><rect x="0" y="0" width="8" height="8" fill="#2a3"/></svg>' },
+        identityCard: { state: 'generated' },
         endpoints: {
           members: { method: 'captainMembers', target: { rootSessionId: 'session-fixture', teamId: 'team-fixture' } },
           announcements: { method: 'captainAnnouncements', target: { rootSessionId: 'session-fixture', teamId: 'team-fixture' } },
@@ -427,7 +437,8 @@ export const SWARM_READ_RPC_FIXTURES_V1 = deepFreezeJson({
     },
     captainAnnouncements: {
       schemaVersion: 1, binding: fixtureBinding,
-      state: 'unavailable', reason: 'notice_board_not_implemented', entries: [],
+      state: 'available',
+      entries: [{ id: 'ann-1', text: 'Welcome to the Fixture Team.', createdAt: 1_700_000_000_050 }],
       observedAt: 1_700_000_000_200,
     },
     captainDiagnostics: {
@@ -474,6 +485,22 @@ export function assertSwarmReadRpcValue(method: string, value: unknown): void {
   assertResultSemantics(key, value as Record<string, unknown>)
 }
 
+/** Shared avatar safety semantics for a Team or member asset row: `generated`
+ *  must carry a strictly allowlisted `svg`; no other state may carry `svg`. */
+function assertAvatarSemantics(row: Record<string, unknown>, label: string): void {
+  const avatar = row.avatar as Record<string, unknown> | undefined
+  if (avatar === undefined) return
+  const state = avatar.state
+  if (state === 'generated') {
+    const svg = avatar.svg
+    if (typeof svg !== 'string' || !isSafePixelAvatarSvg(svg)) {
+      throw new Error(`Swarm RPC ${label} avatar generated must carry a safe svg`)
+    }
+  } else if (avatar.svg !== undefined) {
+    throw new Error(`Swarm RPC ${label} avatar must not carry svg outside generated state`)
+  }
+}
+
 function assertResultSemantics(method: string, value: Record<string, unknown>): void {
   if (method === 'capabilities') {
     const expected = [
@@ -494,28 +521,20 @@ function assertResultSemantics(method: string, value: Record<string, unknown>): 
   }
   if (method === 'teams') {
     if ((value.complete as boolean) !== true) throw new Error('Swarm RPC Team enumeration is not complete')
+    const teams = value.teams as readonly Record<string, unknown>[]
+    for (const team of teams) assertAvatarSemantics(team as Record<string, unknown>, 'Team')
     return
   }
   if (method === 'captainAnnouncements') {
-    if ((value.entries as readonly unknown[]).length !== 0) throw new Error('Swarm RPC announcements must not fabricate entries')
+    // Real bounded projection: `state` is always 'available' and entries may be
+    // non-empty by design — never fabricated, but also never filtered to fake.
     return
   }
   if (method === 'captainMembers') {
     // Per-member avatar safety semantics: `generated` must carry a strictly
     // allowlisted `svg`, and no other state may carry `svg` at all.
     const members = value.members as readonly Record<string, unknown>[]
-    for (const member of members) {
-      const avatar = member.avatar as Record<string, unknown>
-      const state = avatar.state
-      if (state === 'generated') {
-        const svg = avatar.svg
-        if (typeof svg !== 'string' || !isSafePixelAvatarSvg(svg)) {
-          throw new Error('Swarm RPC captain member avatar generated must carry a safe svg')
-        }
-      } else if (avatar.svg !== undefined) {
-        throw new Error('Swarm RPC captain member avatar must not carry svg outside generated state')
-      }
-    }
+    for (const member of members) assertAvatarSemantics(member as Record<string, unknown>, 'member')
     return
   }
   if (method === 'captainDiagnostics') return

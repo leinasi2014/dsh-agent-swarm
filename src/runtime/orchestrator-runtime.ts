@@ -5,7 +5,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Domain } from '@deepseek-ai/dsh-storage-domain'
 import type {} from '@deepseek-ai/dsh-subagent'
-import { TaskId, type AttemptId, type TaskAttempt, type TeamId, type TeamMessage, type TeamMessageCausal, type TeamState, type TeamStatusSnapshot, type TeamTask } from '../domain/types.js'
+import { TaskId, type AttemptId, type TaskAttempt, type TeamAnnouncement, type TeamId, type TeamMessage, type TeamMessageCausal, type TeamState, type TeamStatusSnapshot, type TeamTask } from '../domain/types.js'
 import { TeamDomain } from '../domain/team-domain.js'
 import type { CreateTaskInput, TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import { TeamDomainError } from '../domain/error.js'
@@ -268,6 +268,22 @@ export class AgentSwarmRuntime extends Service {
   async addMember(exec: ToolExecutionAuthority, input: { name: string; role: string; provider?: string; llmProvider?: string; model?: string; denyTools?: readonly string[] } & MemberIdentityInput): Promise<TeamState['members'][number]> {
     await this.ensureReady(); this.assertOpen()
     return await this.provisioning.addMember(exec, input)
+  }
+
+  /** Captain-only: set this Team's public identity profile (validated in-domain). */
+  async setCaptainProfile(exec: ToolExecutionAuthority, input: MemberIdentityInput): Promise<TeamState> {
+    await this.ensureReady(); this.assertOpen()
+    const captain = requireAgent(exec), scope = this.scopeOf(captain)
+    const membership = await this.domain.requireMembership(scope, captain.id)
+    return await this.domain.setCaptainProfile(scope, membership.team.id, captain.id, input)
+  }
+
+  /** Captain-only: publish one public announcement (expected_revision CAS). */
+  async publishAnnouncement(exec: ToolExecutionAuthority, expectedRevision: number, text: string): Promise<{ team: TeamState; announcement: TeamAnnouncement }> {
+    await this.ensureReady(); this.assertOpen()
+    const captain = requireAgent(exec), scope = this.scopeOf(captain)
+    const membership = await this.domain.requireMembership(scope, captain.id)
+    return await this.domain.publishAnnouncement(scope, membership.team.id, captain.id, expectedRevision, text)
   }
 
   async createTask(exec: ToolExecutionAuthority, input: RuntimeCreateTaskInput): Promise<TeamTask> {

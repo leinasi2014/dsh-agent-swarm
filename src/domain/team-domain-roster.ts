@@ -22,10 +22,14 @@ import {
   replaceTask,
   type TeamDomainDeps,
 } from './team-domain-shared.js'
-import { TeamId, type TaskId, type TeamMember, type TeamMembership, type TeamState } from './types.js'
+import { TeamId, type TaskId, type TeamAnnouncement, type TeamMember, type TeamMembership, type TeamState } from './types.js'
 import type { TeamScope } from './team-domain-port.js'
 import type { MemberIdentityInput } from './identity-profile.js'
-import { normalizeMemberIdentity } from './identity-profile.js'
+import {
+  MAX_CAPTAIN_ANNOUNCEMENTS,
+  normalizeAnnouncementText,
+  normalizeMemberIdentity,
+} from './identity-profile.js'
 
 export async function createTeam(
   deps: TeamDomainDeps,
@@ -361,4 +365,72 @@ export async function archiveTeam(
     committed = team
   })
   return structuredClone(committed)
+}
+
+/**
+ * Captain-only: set the Team's public identity profile. The profile is
+ * normalize-validated (code-point bounds + strict pixel-SVG allowlist) BEFORE
+ * it commits, so only a safe form is ever persisted. An all-absent profile
+ * clears the stored field so the read honestly reports `not_generated`.
+ */
+export async function setCaptainProfile(
+  deps: TeamDomainDeps,
+  scope: TeamScope,
+  teamId: TeamId,
+  captainSessionId: string,
+  input: MemberIdentityInput,
+): Promise<TeamState> {
+  const profile = normalizeMemberIdentity(input)
+  let committed!: TeamState
+  await deps.store.transact(scope, teamId, team => {
+    const authority = actorMembership(team, captainSessionId)
+    expectDomain(authority.role === 'captain', 'only the captain can set the Team profile', 'TEAM_CAPTAIN_REQUIRED')
+    const timestamp = deps.now()
+    const hasFields = profile.displayName !== undefined || profile.profession !== undefined
+      || profile.personality !== undefined || profile.pixelAvatarSvg !== undefined
+    Object.assign(team, {
+      captainProfile: hasFields ? profile : undefined,
+      revision: team.revision + 1,
+      updatedAt: timestamp,
+    })
+    committed = team
+  })
+  return structuredClone(committed)
+}
+
+/**
+ * Captain-only: publish one public announcement with an `expected_revision`
+ * compare-and-swap (the caller must hold the exact current Team revision, so a
+ * concurrent mutation fails loud instead of silently interleaving). The list is
+ * bounded; an empty/oversized announcement is rejected before it commits.
+ */
+export async function publishAnnouncement(
+  deps: TeamDomainDeps,
+  scope: TeamScope,
+  teamId: TeamId,
+  captainSessionId: string,
+  expectedRevision: number,
+  text: string,
+): Promise<{ team: TeamState; announcement: TeamAnnouncement }> {
+  expectDomain(Number.isSafeInteger(expectedRevision) && expectedRevision >= 1, 'expected revision is invalid', 'TEAM_INPUT_INVALID')
+  const normalized = normalizeAnnouncementText(text)
+  let committed!: TeamState
+  let committedAnnouncement!: TeamAnnouncement
+  await deps.store.transact(scope, teamId, team => {
+    const authority = actorMembership(team, captainSessionId)
+    expectDomain(authority.role === 'captain', 'only the captain can publish an announcement', 'TEAM_CAPTAIN_REQUIRED')
+    expectDomain(team.revision === expectedRevision, `team revision conflict: expected ${expectedRevision}`, 'TEAM_REVISION_CONFLICT')
+    const existing = team.announcements ?? []
+    expectDomain(existing.length < MAX_CAPTAIN_ANNOUNCEMENTS, 'announcement limit reached', 'TEAM_CAPTAIN_ANNOUNCEMENT_LIMIT')
+    const timestamp = deps.now()
+    const announcement: TeamAnnouncement = { id: `ann-${randomUUID()}`, text: normalized, createdAt: timestamp }
+    Object.assign(team, {
+      announcements: [...existing, announcement],
+      revision: team.revision + 1,
+      updatedAt: timestamp,
+    })
+    committed = team
+    committedAnnouncement = announcement
+  })
+  return { team: structuredClone(committed), announcement: structuredClone(committedAnnouncement) }
 }

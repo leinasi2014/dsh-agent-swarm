@@ -421,11 +421,12 @@ describe('R2 authoritative target binding and wire contract', () => {
         identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
       },
     ])
-    // Announcements: no public notice board backend -> explicit unavailable, never fabricated entries.
+    // Announcements: real bounded projection; a Team with none has an honest empty list
+    // (state 'available', zero fabricated entries).
     const announcements = await service.invoke({
       schemaVersion: 1, method: 'captainAnnouncements', target,
     }) as SwarmReadCaptainAnnouncementsV1
-    expect(announcements).toMatchObject({ state: 'unavailable', reason: 'notice_board_not_implemented', entries: [] })
+    expect(announcements).toMatchObject({ state: 'available', entries: [] })
     // Diagnostics: real authoritative counts, no second state.
     const diagnostics = await service.invoke({
       schemaVersion: 1, method: 'captainDiagnostics', target,
@@ -437,6 +438,26 @@ describe('R2 authoritative target binding and wire contract', () => {
     await expect(service.invoke({
       schemaVersion: 1, method: 'captainMembers', target: { rootSessionId: ROOT.id },
     })).rejects.toMatchObject({ code: 'SWARM_RPC_INVALID_REQUEST' })
+  })
+
+  it('projects real bounded announcements and an unsafe stored announcement avatar', async () => {
+    const teamState = {
+      id: 'team-r2', captainSessionId: ROOT.id, phase: 'active', revision: 6,
+      members: [],
+      announcements: [{ id: 'ann-1', text: 'Welcome to the Team.', createdAt: 100 },
+        { id: 'ann-2', text: 'Second update.', createdAt: 200 }],
+      tasks: [], attempts: [],
+    } as never as TeamState
+    const service = rpcHarness({ teamState }).service
+    const target = { rootSessionId: ROOT.id, teamId: 'team-r2' }
+    const announcements = await service.invoke({
+      schemaVersion: 1, method: 'captainAnnouncements', target,
+    }) as SwarmReadCaptainAnnouncementsV1
+    expect(announcements).toMatchObject({ state: 'available' })
+    expect(announcements.entries).toEqual([
+      { id: 'ann-1', text: 'Welcome to the Team.', createdAt: 100 },
+      { id: 'ann-2', text: 'Second update.', createdAt: 200 },
+    ])
   })
 
   it('returns real first-level Team enumeration with not-generated assets and section entry points', async () => {

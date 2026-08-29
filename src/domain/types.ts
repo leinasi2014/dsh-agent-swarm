@@ -226,6 +226,13 @@ export interface TeamMemoryEntry {
   readonly createdAt: number
 }
 
+/** One Captain-published public announcement (bounded list in the aggregate). */
+export interface TeamAnnouncement {
+  readonly id: string
+  readonly text: string
+  readonly createdAt: number
+}
+
 export interface TeamState {
   readonly schemaVersion: 1 | 2
   readonly id: TeamId
@@ -235,6 +242,11 @@ export interface TeamState {
   readonly captainSessionId: string
   readonly phase: 'active' | 'archived'
   readonly members: TeamMember[]
+  /** Captain self-declared identity profile (schema v2). Presence = `generated`,
+   *  absence = honest `not_generated`; same code-point/allowlist rules as members. */
+  readonly captainProfile?: TeamMemberIdentityProfile
+  /** Captain-published public announcements (bounded); absent on pre-feature records. */
+  readonly announcements?: TeamAnnouncement[]
   readonly tasks: TeamTask[]
   readonly attempts: TaskAttempt[]
   readonly messages: TeamMessage[]

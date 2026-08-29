@@ -34,6 +34,11 @@ export const MAX_PIXEL_AVATAR_GRID = 32
 /** Per-attribute value length bound (code units). */
 export const MAX_PIXEL_AVATAR_ATTR_LENGTH = 64
 
+/** Bounded public announcement list on the Team aggregate. */
+export const MAX_CAPTAIN_ANNOUNCEMENTS = 32
+/** Per-announcement text bound (code points), matching admission. */
+export const MAX_CAPTAIN_ANNOUNCEMENT_TEXT = 4096
+
 export interface MemberIdentityInput {
   readonly displayName?: string
   readonly profession?: string
@@ -230,4 +235,16 @@ export function normalizeMemberIdentity(input: MemberIdentityInput): NormalizedM
   if (personality !== undefined) out.personality = personality
   if (input.pixelAvatarSvg !== undefined) out.pixelAvatarSvg = sanitizePixelAvatarSvg(input.pixelAvatarSvg)
   return out
+}
+
+/** Normalize one Captain-published announcement: trimmed, non-empty, bounded. */
+export function normalizeAnnouncementText(raw: string): string {
+  const trimmed = raw.trim()
+  if (trimmed === '') {
+    throw new TeamDomainError('announcement text must be non-empty', 'TEAM_CAPTAIN_ANNOUNCEMENT_INVALID')
+  }
+  if ([...trimmed].length > MAX_CAPTAIN_ANNOUNCEMENT_TEXT) {
+    throw new TeamDomainError(`announcement exceeds ${MAX_CAPTAIN_ANNOUNCEMENT_TEXT} code points`, 'TEAM_CAPTAIN_ANNOUNCEMENT_INVALID')
+  }
+  return trimmed
 }

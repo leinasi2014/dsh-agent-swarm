@@ -23,6 +23,7 @@ import {
   TeamId,
   TeamMessageId,
   type TaskAttempt,
+  type TeamAnnouncement,
   type TeamBudget,
   type TeamLimits,
   type TeamMember,
@@ -104,6 +105,25 @@ export class TeamDomain implements TeamDomainPort {
     input: { name: string; role: string; sessionId: string; provider: string } & MemberIdentityInput,
   ): Promise<TeamMember> {
     return await roster.provisionMember(this.deps, scope, teamId, captainSessionId, input)
+  }
+
+  async setCaptainProfile(
+    scope: TeamScope,
+    teamId: TeamId,
+    captainSessionId: string,
+    input: MemberIdentityInput,
+  ): Promise<TeamState> {
+    return await roster.setCaptainProfile(this.deps, scope, teamId, captainSessionId, input)
+  }
+
+  async publishAnnouncement(
+    scope: TeamScope,
+    teamId: TeamId,
+    captainSessionId: string,
+    expectedRevision: number,
+    text: string,
+  ): Promise<{ team: TeamState; announcement: TeamAnnouncement }> {
+    return await roster.publishAnnouncement(this.deps, scope, teamId, captainSessionId, expectedRevision, text)
   }
 
   async settleMember(

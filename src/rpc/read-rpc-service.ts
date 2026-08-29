@@ -7,8 +7,8 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import { TeamDomainError } from '../domain/error.js'
-import { isSafePixelAvatarSvg } from '../domain/identity-profile.js'
-import { TeamId, type TeamState } from '../domain/types.js'
+import { isSafePixelAvatarSvg, MAX_CAPTAIN_ANNOUNCEMENTS } from '../domain/identity-profile.js'
+import { TeamId, type TeamMemberIdentityProfile, type TeamState } from '../domain/types.js'
 import type { AgentSwarmHostReadService } from '../host/host-read-service.js'
 import type { SwarmHostReadProjectionV1 } from '../host/host-read-types.js'
 import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
@@ -30,6 +30,7 @@ import {
   type SwarmReadCaptainSectionMethod,
   type SwarmReadCaptainSectionRequest,
   type SwarmReadCaptainMembersV1,
+  type SwarmReadCaptainAnnouncementsV1,
   type SwarmReadAssetStatusV1,
 } from './read-rpc-contract.js'
 import type { TeamScope } from '../domain/team-domain-port.js'
@@ -147,10 +148,14 @@ export class AgentSwarmReadRpcService {
   private async invokeTeams(request: SwarmReadTeamsRequest): Promise<SwarmReadTeamsV1> {
     const resolved = await this.resolveRootOnly(request.target.rootSessionId)
     const projection = await this.deps.ctx.agents.withInitiator(resolved.root, () => this.deps.hostRead.listTeams(resolved.scope))
+    // Enrich each selector row with the authoritative Team aggregate's real
+    // Captain identity profile (never a copied or second state).
+    const aggregates = await this.deps.runtime.listTeamAggregates(resolved.scope)
+    const byId = new Map(aggregates.map(team => [team.id, team]))
     return {
       schemaVersion: 1,
       binding: { rootSessionId: resolved.root.id },
-      teams: projection.teams.map(team => teamDescriptorOf(resolved.root.id, team)),
+      teams: projection.teams.map(team => teamDescriptorOf(resolved.root.id, team, byId.get(TeamId(team.teamId))?.captainProfile)),
       observedAt: projection.observedAt,
       complete: projection.complete,
     }
@@ -200,15 +205,20 @@ export class AgentSwarmReadRpcService {
         }))
         return { schemaVersion: 1, binding: { rootSessionId: root.id, teamId: team.id }, members, observedAt }
       }
-      case 'captainAnnouncements':
+      case 'captainAnnouncements': {
+        // Real bounded projection of the Team's public announcements; an empty
+        // Team has an honest empty list (never fabricated entries).
+        const entries: SwarmReadCaptainAnnouncementsV1['entries'] = (team.announcements ?? [])
+          .slice(0, MAX_CAPTAIN_ANNOUNCEMENTS)
+          .map(announcement => ({ id: announcement.id, text: announcement.text, createdAt: announcement.createdAt }))
         return {
           schemaVersion: 1,
           binding: { rootSessionId: root.id, teamId: team.id },
-          state: 'unavailable',
-          reason: 'notice_board_not_implemented',
-          entries: [],
+          state: 'available',
+          entries,
           observedAt,
         }
+      }
       case 'captainDiagnostics': {
         return {
           schemaVersion: 1,
@@ -616,18 +626,25 @@ function isCaptainSectionMethod(method: string): method is SwarmReadCaptainSecti
   return method === 'captainMembers' || method === 'captainAnnouncements' || method === 'captainDiagnostics'
 }
 
-/** Build one first-level Team descriptor from the authoritative host projection row. Avatar and
- *  identity card are backend-not-implemented and report `not_generated` with a stable reason — never
- *  a fabricated asset. Each descriptor carries the Captain-scoped read endpoints the caller may use. */
-function teamDescriptorOf(rootSessionId: string, team: { teamId: string; name: string; phase: 'active' | 'archived'; captainSessionId: string }) {
-  const avatar: SwarmReadAssetStatusV1 = { state: 'not_generated', reason: 'avatar_backend_not_implemented' }
-  const identityCard: SwarmReadAssetStatusV1 = { state: 'not_generated', reason: 'identity_backend_not_implemented' }
+/** Build one first-level Team descriptor from the authoritative host projection row, enriched with
+ *  the Team's real Captain identity profile when present (avatar/identity card re-allowlisted at read
+ *  time, honest `not_generated` otherwise — never a fabricated asset). */
+function teamDescriptorOf(rootSessionId: string, team: { teamId: string; name: string; phase: 'active' | 'archived'; captainSessionId: string }, captain?: TeamMemberIdentityProfile) {
+  const avatar: SwarmReadAssetStatusV1 = captain?.pixelAvatarSvg !== undefined && isSafePixelAvatarSvg(captain.pixelAvatarSvg)
+    ? { state: 'generated', svg: captain.pixelAvatarSvg }
+    : { state: 'not_generated', reason: 'avatar_backend_not_implemented' }
+  const identityCard: SwarmReadAssetStatusV1 = captain?.displayName !== undefined || captain?.profession !== undefined || captain?.personality !== undefined
+    ? { state: 'generated' }
+    : { state: 'not_generated', reason: 'identity_backend_not_implemented' }
   const ref = (method: SwarmReadCaptainSectionMethod) => ({ method, target: { rootSessionId, teamId: team.teamId } })
   return {
     teamId: team.teamId,
     name: team.name,
     phase: team.phase,
     captainSessionId: team.captainSessionId,
+    ...(captain?.displayName === undefined ? {} : { displayName: captain.displayName }),
+    ...(captain?.profession === undefined ? {} : { profession: captain.profession }),
+    ...(captain?.personality === undefined ? {} : { personality: captain.personality }),
     avatar,
     identityCard,
     endpoints: {
