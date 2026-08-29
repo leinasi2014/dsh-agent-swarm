@@ -1,12 +1,68 @@
 /** Immutable R2 schema/fixture artifact shared by DSH and Canvas consumers. */
 import { deepFreezeJson } from '../host/frozen-json.js'
-import { CAPTAIN_ANNOUNCEMENT_ID_RE, isSafePixelAvatarSvg } from '../domain/identity-profile.js'
 import {
   SWARM_READ_RPC_ENDPOINT,
   SWARM_READ_RPC_NAMESPACE,
   SWARM_READ_RPC_PROTOCOL,
   SWARM_READ_RPC_VERSION,
 } from './read-rpc-contract.js'
+
+// Keep the browser RPC decoder independent from Host-only domain errors
+// (`TeamDomainError` extends @deepseek-ai/dsh-llm's Node implementation).
+// This is the same deliberately small pixel-SVG grammar enforced on write.
+const CAPTAIN_ANNOUNCEMENT_ID_RE = /^ann-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+const PIXEL_NUMBER_RE = /^(?:0|[1-9]\d*)(?:\.\d+)?$/u
+const PIXEL_FILL_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$|^currentColor$/u
+const PIXEL_OPACITY_RE = /^(?:0|1|0(?:\.\d+)?|1(?:\.0+)?)$/u
+
+function parsePixelAttrs(raw: string, allowed: ReadonlySet<string>): ReadonlyMap<string, string> | undefined {
+  const out = new Map<string, string>()
+  let index = 0
+  while (index < raw.length) {
+    while (/\s/u.test(raw[index] ?? '')) index += 1
+    if (index >= raw.length) break
+    const match = /^([a-z][a-zA-Z0-9-]*)\s*=\s*(["'])(.*?)\2/su.exec(raw.slice(index))
+    if (match === null || !allowed.has(match[1]!) || out.has(match[1]!) || [...match[3]!].length > 64) return undefined
+    out.set(match[1]!, match[3]!)
+    index += match[0].length
+  }
+  return out
+}
+
+function isSafePixelAvatarSvg(value: string): boolean {
+  const svg = value.trim()
+  if (svg === '' || svg.length > 16_384) return false
+  const lower = svg.toLowerCase()
+  if (['<script', '<style', '<foreignobject', '<animate', '<set', '<use', '<image', '<text', '<a ', '<g ', '<circle', '<ellipse', '<line ', '<polyline', '<polygon', '<path', 'url(', 'javascript:', 'onload', 'onerror', 'onclick', 'onmouse', 'onfocus', 'href', 'xlink', '&#', '<?', '<!'].some(token => lower.includes(token))) return false
+  const root = /^\s*<svg\b([^>]*)>\s*([\s\S]*?)\s*<\/svg>\s*$/u.exec(svg)
+  if (root === null) return false
+  const rootAttrs = parsePixelAttrs(root[1]!, new Set(['viewBox']))
+  const viewBox = rootAttrs?.get('viewBox')
+  const viewBoxMatch = /^0\s+0\s+(\d{1,2})\s+(\d{1,2})$/u.exec(viewBox ?? '')
+  if (viewBoxMatch === null) return false
+  const edge = Number(viewBoxMatch[1])
+  if (edge !== Number(viewBoxMatch[2]) || edge < 8 || edge > 32) return false
+  let body = root[2]!.trim()
+  let rects = 0
+  while (body !== '') {
+    const rect = /^<rect\b([^>]*?)\s*\/>/u.exec(body)
+    if (rect === null) return false
+    const attrs = parsePixelAttrs(rect[1]!, new Set(['x', 'y', 'width', 'height', 'fill', 'opacity']))
+    if (attrs === undefined) return false
+    for (const name of ['x', 'y', 'width', 'height']) {
+      const raw = attrs.get(name)
+      if (raw !== undefined && !PIXEL_NUMBER_RE.test(raw)) return false
+    }
+    const fill = attrs.get('fill')
+    if (fill !== undefined && !PIXEL_FILL_RE.test(fill)) return false
+    const opacity = attrs.get('opacity')
+    if (opacity !== undefined && (!PIXEL_OPACITY_RE.test(opacity) || Number(opacity) > 1)) return false
+    rects += 1
+    if (rects > 256) return false
+    body = body.slice(rect[0].length).trimStart()
+  }
+  return true
+}
 
 export const SWARM_READ_RPC_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
 export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '585e5d13fdc81e9fc4aebbf497184d6ecc4047165671f102dcbf623fb801265c' as const
