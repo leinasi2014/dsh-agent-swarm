@@ -300,7 +300,7 @@ function Workspace({ data, handoffBusy, localeTag, selection, setSelection, t, t
     {view === 'board'
       ? <BoardView data={data} goal={goal} announcements={announcements} diagnostics={diagnostics} localeTag={localeTag} number={number} onBack={() => { setView('roster') }} onUpdateViaCaptain={onMainChat} t={t} />
       : <>{managementOpen
-        ? <ManagementView data={data} teams={teams} goal={goal} announcements={announcements} diagnostics={diagnostics} localeTag={localeTag} number={number} onBack={() => { setManagementOpen(false) }} onUpdateViaCaptain={onMainChat} t={t} />
+        ? <ManagementView data={data} teams={teams} goal={goal} memberAssets={memberAssets} announcements={announcements} diagnostics={diagnostics} localeTag={localeTag} number={number} onBack={() => { setManagementOpen(false) }} onOpenCaptain={onOpenCaptain} onManageViaCaptain={onMainChat} onUpdateViaCaptain={onMainChat} t={t} />
         : <><CaptainList teams={teams} memberCount={memberAssets === undefined ? undefined : { teamId: data.binding.teamId, count: memberAssets.members.length }} number={number} onOpenCaptain={onOpenCaptain} t={t} />
         <BoundTeamIdentityCard data={data} teams={teams} t={t} />
         <TeamSwitcher data={data} t={t} />
@@ -389,12 +389,43 @@ function ManagementEntry({ onOpen, t }: { readonly onOpen: () => void; readonly 
  *    2) real Team data (goal + announcements degrade to `unavailable`; budget & capabilities fold),
  *    3) folded technical diagnostics.
  *  The sidebar's first screen never shows these internal ledger fields. */
-function ManagementView({ data, teams, goal, announcements, diagnostics, localeTag, number, onBack, onUpdateViaCaptain, t }: { readonly data: SwarmHostReadProjectionV1; readonly teams: SwarmReadTeamsV1 | undefined; readonly goal: SwarmReadTeamsV1['teams'][number]['goal'] | undefined; readonly announcements: SwarmReadCaptainAnnouncementsV1 | undefined; readonly diagnostics: SwarmReadCaptainDiagnosticsV1 | undefined; readonly localeTag: () => 'zh-CN' | 'en-US'; readonly number: Intl.NumberFormat; readonly onBack: () => void; readonly onUpdateViaCaptain: () => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
+function ManagementView({ data, teams, goal, memberAssets, announcements, diagnostics, localeTag, number, onBack, onOpenCaptain, onManageViaCaptain, onUpdateViaCaptain, t }: { readonly data: SwarmHostReadProjectionV1; readonly teams: SwarmReadTeamsV1 | undefined; readonly goal: SwarmReadTeamsV1['teams'][number]['goal'] | undefined; readonly memberAssets: SwarmReadCaptainMembersV1 | undefined; readonly announcements: SwarmReadCaptainAnnouncementsV1 | undefined; readonly diagnostics: SwarmReadCaptainDiagnosticsV1 | undefined; readonly localeTag: () => 'zh-CN' | 'en-US'; readonly number: Intl.NumberFormat; readonly onBack: () => void; readonly onOpenCaptain: (captainSessionId: string) => void; readonly onManageViaCaptain: () => void; readonly onUpdateViaCaptain: () => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
   const headingRef = useRef<HTMLHeadingElement>(null)
   useLayoutEffect(() => { headingRef.current?.focus() }, [])
+  // Dedup by the authoritative teamId: a repeated enumeration row renders once, the currently
+  // bound Team is highlighted, and every row's only action is the official Captain handoff.
+  const uniqueTeams = new Map<string, SwarmReadTeamsV1['teams'][number]>()
+  for (const team of teams?.teams ?? []) {
+    if (!uniqueTeams.has(team.teamId)) uniqueTeams.set(team.teamId, team)
+  }
+  const memberRows = memberAssets?.members ?? []
   return <div className="swarm-team-workspace__management" data-swarm-management-view>
     <div className="swarm-team-workspace__management-head"><h3 className="swarm-team-workspace__column-title" ref={headingRef} tabIndex={-1}>{t('managementTitle')}</h3><Button size="sm" variant="ghost" onClick={onBack}>{t('managementBack')}</Button></div>
     <p className="swarm-team-workspace__muted">{t('managementDescription')}</p>
+    <section data-swarm-management-teams>
+      <span className="swarm-team-workspace__roster-label"><span>{t('captains')} · {number.format(uniqueTeams.size)}</span><small>{t('manageViaCaptainHint')}</small></span>
+      <div className="swarm-team-workspace__captain-list">{[...uniqueTeams.values()].map(team => {
+        const bound = team.teamId === data.binding.teamId
+        const generated = team.identityCard.state === 'generated'
+        const captainName = generated && team.displayName !== undefined ? team.displayName : team.name
+        const profession = generated && team.profession !== undefined ? team.profession : t('captainIdentityUnavailable')
+        return (
+          <button key={team.teamId} className="swarm-team-workspace__row" type="button" aria-current={bound ? 'true' : undefined} data-swarm-management-team={team.teamId} data-swarm-captain-session={team.captainSessionId} onClick={() => { onOpenCaptain(team.captainSessionId) }} title={t('manageViaCaptain')}><span className="swarm-team-workspace__avatar"><SafePixelAvatar seed={team.name} asset={team.avatar} name={captainName} t={t} /></span><span className="swarm-team-workspace__member-copy"><strong className="swarm-team-workspace__truncate" data-swarm-captain-visible-name={captainName} title={captainName}>{captainName}</strong><small className="swarm-team-workspace__muted swarm-team-workspace__member-role swarm-team-workspace__truncate" data-swarm-captain-profession={profession}>{profession}</small></span><span className="swarm-team-workspace__member-side"><span className="swarm-team-workspace__badge" data-swarm-captain-status>{enumLabel(team.phase, t)}</span><small className="swarm-team-workspace__captain-action" data-swarm-captain-action>{t('manageViaCaptain')}</small></span></button>
+        )
+      })}</div>
+    </section>
+    <section data-swarm-management-members>
+      <span className="swarm-team-workspace__roster-label"><span>{t('members')} · {number.format(memberRows.length)}</span><small>{t('manageViaCaptainHint')}</small></span>
+      {memberRows.length === 0
+        ? <p className="swarm-team-workspace__muted" data-swarm-management-members-empty>{t('empty')}</p>
+        : <ul className="swarm-team-workspace__rows" data-swarm-management-member-rows>{memberRows.map(member => {
+          const generated = member.identityCard.state === 'generated'
+          const displayName = generated && member.displayName !== undefined ? member.displayName : member.name
+          const profession = generated && member.profession !== undefined ? member.profession : member.role
+          return <li key={member.name}><button className="swarm-team-workspace__row" type="button" data-swarm-management-member={member.name} data-swarm-identity-state={member.identityCard.state} onClick={onManageViaCaptain} title={t('manageViaCaptain')}><span className="swarm-team-workspace__avatar"><SafePixelAvatar seed={member.name} asset={member.avatar} name={displayName} t={t} /></span><span className="swarm-team-workspace__member-copy"><strong className="swarm-team-workspace__truncate" data-swarm-member-visible-name={displayName} title={displayName}>{displayName}</strong><small className="swarm-team-workspace__muted swarm-team-workspace__member-role swarm-team-workspace__truncate" data-swarm-member-visible-profession={profession}>{profession}</small></span><span className="swarm-team-workspace__member-side"><span className="swarm-team-workspace__badge" data-swarm-management-member-status>{enumLabel(member.phase, t)}</span></span></button></li>
+        })}</ul>}
+      <Button size="sm" variant="ghost" data-swarm-manage-members-via-captain onClick={onManageViaCaptain}>{t('manageViaCaptain')}</Button>
+    </section>
     <BoundTeamIdentityCard data={data} teams={teams} includePersonality t={t} />
     {(() => {
       // The onboarding status reflects only the REAL bound captain identity state — never a

@@ -450,6 +450,73 @@ describe('R3 native Team Details surface', () => {
     expect(document.querySelector('.swarm-team-workspace__roster')).not.toBeNull()
   })
 
+  it('lists deduplicated Teams and the real bound members in the management view with Captain-only actions', async () => {
+    const coordinator = new FakeCoordinator()
+    const multiTeams = {
+      schemaVersion: 1,
+      binding: { rootSessionId: 'root' },
+      teams: [
+        { teamId: 'team-alpha', name: 'Alpha Team', phase: 'active', captainSessionId: 'captain-alpha',
+          avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
+          identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
+          goal: { state: 'not_generated', reason: 'goal_not_set' },
+          endpoints: {
+            members: { method: 'captainMembers', target: { rootSessionId: 'root', teamId: 'team-alpha' } },
+            announcements: { method: 'captainAnnouncements', target: { rootSessionId: 'root', teamId: 'team-alpha' } },
+            diagnostics: { method: 'captainDiagnostics', target: { rootSessionId: 'root', teamId: 'team-alpha' } },
+          } },
+        { teamId: 'team-alpha', name: 'Alpha Team', phase: 'active', captainSessionId: 'captain-alpha',
+          avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
+          identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
+          goal: { state: 'not_generated', reason: 'goal_not_set' },
+          endpoints: {
+            members: { method: 'captainMembers', target: { rootSessionId: 'root', teamId: 'team-alpha' } },
+            announcements: { method: 'captainAnnouncements', target: { rootSessionId: 'root', teamId: 'team-alpha' } },
+            diagnostics: { method: 'captainDiagnostics', target: { rootSessionId: 'root', teamId: 'team-alpha' } },
+          } },
+      ],
+      observedAt: 5, complete: true,
+    }
+    const generatedMembers = {
+      schemaVersion: 1, binding: { rootSessionId: 'root', teamId: 'team-alpha' },
+      members: [{ name: 'worker', role: 'Implementation', phase: 'active', createdAt: 1,
+        displayName: 'Pixel Painter', profession: 'Avatar artist', personality: 'Careful',
+        avatar: { state: 'generated', svg: '<svg viewBox="0 0 8 8"><rect x="0" y="0" width="8" height="8" fill="#2a3"/></svg>' },
+        identityCard: { state: 'generated' } }],
+      observedAt: 5,
+    }
+    const state: TeamDashboardState = { ...ready, data: { ...teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, SWARM_READ_RPC_FIXTURES_V1.values.snapshot), teams: multiTeams as never, captainMembers: generatedMembers as never, projection: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot, binding: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.binding, teamId: 'team-alpha' } } as never } }
+    const mgmtController = { getSnapshot: (): TeamDashboardState => state, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: mgmtController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-management-entry]')!.click() })
+    // Teams: deduplicated by teamId (duplicate enumeration row collapsed), bound Team highlighted.
+    const teamRows = [...document.querySelectorAll<HTMLButtonElement>('[data-swarm-management-team]')]
+    expect(teamRows).toHaveLength(1)
+    expect(teamRows[0]!.getAttribute('aria-current')).toBe('true')
+    expect(teamRows[0]!.getAttribute('data-swarm-captain-session')).toBe('captain-alpha')
+    expect(teamRows[0]!.textContent).toContain('Manage via Captain')
+    // Team row click = the official Captain Session handoff, nothing else.
+    await act(async () => { teamRows[0]!.click() })
+    expect(coordinator.openTeamCaptain).toHaveBeenCalledWith('captain-alpha')
+    // Bound members: real generated identity values win; the safe svg renders as React rects.
+    const memberRow = document.querySelector<HTMLButtonElement>('[data-swarm-management-member="worker"]')!
+    expect(memberRow.getAttribute('data-swarm-identity-state')).toBe('generated')
+    expect(memberRow.querySelector('[data-swarm-member-visible-name]')?.textContent).toBe('Pixel Painter')
+    expect(memberRow.querySelector('[data-swarm-member-visible-profession]')?.textContent).toBe('Avatar artist')
+    expect(memberRow.querySelector('[data-swarm-pixel-avatar]')?.getAttribute('data-avatar-state')).toBe('generated')
+    // The member "manage" action is the Captain handoff, not a fabricated direct write.
+    await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-manage-members-via-captain]')!.click() })
+    expect(coordinator.openCaptainChat).toHaveBeenCalledTimes(1)
+    // Empty members read renders an explicit empty state, not a fabricated row.
+    const emptyMembers = { ...generatedMembers, members: [] }
+    const emptyState: TeamDashboardState = { ...ready, data: { ...teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, SWARM_READ_RPC_FIXTURES_V1.values.snapshot), teams: multiTeams as never, captainMembers: emptyMembers as never } }
+    const emptyController = { getSnapshot: (): TeamDashboardState => emptyState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+    document.body.replaceChildren()
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: emptyController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-management-entry]')!.click() })
+    expect(document.querySelector('[data-swarm-management-members-empty]')?.textContent).toContain('None')
+  })
+
   it('renders the enumerated Team/Captain list with un-generated identity and opens the official Captain Session', async () => {
     const coordinator = new FakeCoordinator()
     const projection = {
