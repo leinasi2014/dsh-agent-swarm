@@ -46,6 +46,18 @@ export const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace__collapsible > summary + * { margin-top:10px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__diagnostics { margin-top:12px; padding-top:12px; border-top:1px solid var(--dsw-alias-border-l2); }
 [data-swarm-team-dashboard] .swarm-team-workspace__notice { margin:0 0 10px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__rail { display:flex; flex-direction:column; gap:12px; min-width:0; max-width:100%; }
+[data-swarm-team-dashboard] .swarm-team-workspace__switcher { padding:10px; border:1px solid var(--dsw-alias-border-l2); border-radius:12px; background:var(--dsw-alias-bg-base); }
+[data-swarm-team-dashboard] .swarm-team-workspace__switcher-title { display:flex; flex-direction:column; gap:2px; margin-bottom:8px; min-width:0; }
+[data-swarm-team-dashboard] .swarm-team-workspace__switch-button { cursor:not-allowed; opacity:.72; }
+[data-swarm-team-dashboard] .swarm-team-workspace__nav { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__nav-button { display:flex; align-items:center; min-width:0; }
+[data-swarm-team-dashboard] .swarm-team-workspace__badge { display:inline-flex; align-items:center; gap:5px; flex:0 0 auto; padding:2px 8px; border-radius:999px; border:1px solid var(--dsw-alias-border-l2); background:var(--dsw-alias-bg-layer-1); font-size:11px; font-weight:600; white-space:nowrap; }
+[data-swarm-team-dashboard] .swarm-team-workspace__badge-current { color:var(--dsw-alias-brand-primary); }
+[data-swarm-team-dashboard] .swarm-team-workspace__badge-unavailable { color:var(--dsw-alias-label-secondary); }
+[data-swarm-team-dashboard] .swarm-team-workspace__unavailable-card { padding:10px; border:1px solid var(--dsw-alias-border-l2); border-radius:12px; background:var(--dsw-alias-bg-base); }
+[data-swarm-team-dashboard] .swarm-team-workspace__unavailable-card strong { display:block; margin-bottom:4px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__section { display:grid; gap:12px; min-width:0; }
 @container (min-width: 720px) { [data-swarm-team-dashboard] .swarm-team-workspace__columns { grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) minmax(0,.8fr); } }
 /* Narrow viewports: the official details track can overflow the visible viewport (~813px, member buttons land at x≈912), so the Team panel escapes the track and overlays the viewport. z-index 20 mirrors the official shell overlay layer constant; wide viewports never hit this media query and keep the docked details fill. The cap covers the official details auto-close threshold (columns.ts: SIDEBAR_COLLAPSED 56 + DETAILS_MIN 300 + CENTER_MIN 640 = 996px), so no 961–995px dead band remains where the panel would be zeroed and clipped. */
 @media (max-width: 995.98px) { [data-swarm-team-dashboard][data-swarm-team-panel] { position:fixed; inset:0; z-index:20; } }
@@ -69,6 +81,7 @@ export function TeamDashboardContent({ controller, coordinator, descriptionId, h
     setHandoffBusy(true)
     void coordinator.openCaptainChat().catch(() => {}).finally(() => { setHandoffBusy(false) })
   }
+  const onMainBrain = (): void => { coordinator.closeAndRestoreFocus() }
   const data = state.data?.projection
   return <div className="swarm-team-workspace" data-swarm-team-layout={workspaceLayout} ref={workspaceRef}>
     <style>{shellCss}</style>
@@ -78,7 +91,7 @@ export function TeamDashboardContent({ controller, coordinator, descriptionId, h
     </header>
     <main className="swarm-team-workspace__body">
       <Status state={state} t={t} />
-      {data === undefined ? <Empty state={state} controller={controller} t={t} /> : <Workspace data={data} handoffBusy={handoffBusy} localeTag={localeTag} selection={selection} setSelection={setSelection} t={t} onMainChat={handoff} />}
+      {data === undefined ? <Empty state={state} controller={controller} t={t} /> : <Workspace data={data} handoffBusy={handoffBusy} localeTag={localeTag} selection={selection} setSelection={setSelection} t={t} onMainBrain={onMainBrain} onMainChat={handoff} />}
     </main>
     <footer className="swarm-team-workspace__footer">
       <Button size="sm" variant="ghost" icon={<IconRefreshOutline16 />} onClick={() => { controller.refresh() }}>{t('refresh')}</Button>
@@ -116,13 +129,14 @@ function Status({ state, t }: { readonly state: TeamDashboardState; readonly t: 
 
 function Empty({ state, controller, t }: { readonly state: TeamDashboardState; readonly controller: TeamDashboardController; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) { return state.phase === 'error' ? <Button variant="outline" onClick={() => { controller.reconnect() }}>{t('retry')}</Button> : null }
 
-function Workspace({ data, handoffBusy, localeTag, selection, setSelection, t, onMainChat }: {
+function Workspace({ data, handoffBusy, localeTag, selection, setSelection, t, onMainBrain, onMainChat }: {
   readonly data: SwarmHostReadProjectionV1
   readonly handoffBusy: boolean
   readonly localeTag: () => 'zh-CN' | 'en-US'
   readonly selection: Selection
   readonly setSelection: (selection: Selection) => void
   readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS>
+  readonly onMainBrain: () => void
   readonly onMainChat: () => void
 }) {
   const number = new Intl.NumberFormat(localeTag())
@@ -171,16 +185,39 @@ function Workspace({ data, handoffBusy, localeTag, selection, setSelection, t, o
   const returnToMembers = (name: string): void => { focusIntent.current = { kind: 'member', name }; setSelection({ kind: 'team' }) }
   const returnToTasks = (id: string): void => { focusIntent.current = { kind: 'task', id }; setSelection({ kind: 'team' }) }
   const selected = selection.kind === 'member' ? data.roster.find(member => member.name === selection.name) : undefined
-  return <div className="swarm-team-workspace__columns" aria-label={t('tabs.label')}>
-    <section className="swarm-team-workspace__column swarm-team-workspace__roster"><h3 className="swarm-team-workspace__column-title" ref={rosterHeadingRef} tabIndex={-1}>{t('members')}</h3>
+  return <div className="swarm-team-workspace__rail" aria-label={t('tabs.label')} data-swarm-team-rail>
+    <TeamSwitcher data={data} t={t} />
+    <BrowserNav busy={handoffBusy} onMainBrain={onMainBrain} onCaptain={onMainChat} t={t} />
+    <div className="swarm-team-workspace__roster"><h3 className="swarm-team-workspace__column-title" ref={rosterHeadingRef} tabIndex={-1}>{t('members')}</h3>
       <CaptainRow busy={handoffBusy} onMainChat={onMainChat} teamName={data.team.name} t={t} />
       {missingMember === undefined ? null : <p className="swarm-team-workspace__muted swarm-team-workspace__notice" role="status">{t('memberNoLongerAvailable', { name: missingMember })}</p>}
       {selected === undefined ? <MemberRows data={data} onSelect={selectMember} onTrigger={registerMemberTrigger} t={t} /> : <MemberDetail data={data} member={selected} onBack={() => { returnToMembers(selected.name) }} t={t} />}
       {data.truncated.roster ? <p className="swarm-team-workspace__muted swarm-team-workspace__notice">{t('rosterTruncated', { shown: number.format(data.roster.length), total: number.format(data.totals.roster) })}</p> : null}
-    </section>
-    <section className="swarm-team-workspace__column">{missingTask === undefined ? null : <p className="swarm-team-workspace__muted swarm-team-workspace__notice" role="status">{t('taskNoLongerAvailable')}</p>}<details className="swarm-team-workspace__collapsible"><summary ref={taskSummaryRef}>{t('tasks')}</summary>{selection.kind === 'task' ? <TaskDetail data={data} id={selection.id} number={number} onBack={() => { returnToTasks(selection.id) }} t={t} /> : <TaskRows data={data} onSelect={selectTask} onTrigger={registerTaskTrigger} t={t} />}</details></section>
-    <section className="swarm-team-workspace__column"><details className="swarm-team-workspace__collapsible"><summary>{t('tabs.overview')}</summary><div className="swarm-team-workspace__summary"><Metric label={t('members')} value={number.format(data.totals.roster)} /><Metric label={t('tasks')} value={number.format(data.totals.tasks)} /><Metric label={t('interactions')} value={number.format(data.totals.pendingInteractions)} /><Metric label={t('attempts')} value={number.format(data.totals.attempts)} /></div></details><Diagnostics data={data} number={number} t={t} /></section>
+    </div>
+    <section className="swarm-team-workspace__unavailable-card" data-swarm-announcement-unavailable><strong>{t('announcements')}</strong><p className="swarm-team-workspace__muted">{t('announcementsUnavailable')}</p></section>
+    <details className="swarm-team-workspace__collapsible"><summary ref={taskSummaryRef}>{t('tasks')}</summary>{missingTask === undefined ? null : <p className="swarm-team-workspace__muted swarm-team-workspace__notice" role="status">{t('taskNoLongerAvailable')}</p>}{selection.kind === 'task' ? <TaskDetail data={data} id={selection.id} number={number} onBack={() => { returnToTasks(selection.id) }} t={t} /> : <TaskRows data={data} onSelect={selectTask} onTrigger={registerTaskTrigger} t={t} />}</details>
+    <section className="swarm-team-workspace__section"><details className="swarm-team-workspace__collapsible"><summary>{t('tabs.overview')}</summary><div className="swarm-team-workspace__summary"><Metric label={t('members')} value={number.format(data.totals.roster)} /><Metric label={t('tasks')} value={number.format(data.totals.tasks)} /><Metric label={t('interactions')} value={number.format(data.totals.pendingInteractions)} /><Metric label={t('attempts')} value={number.format(data.totals.attempts)} /></div></details><details className="swarm-team-workspace__collapsible"><summary>{t('diagnostics')}</summary><Diagnostics data={data} number={number} t={t} /></details></section>
   </div>
+}
+
+/** The Team switcher names the real bound Team. Without a Host Team directory it can
+ *  only ever switch within the current Team, so the "switch to another Team" control is
+ *  an explicit disabled `unavailable` capability — never a faked multi-Team index. */
+function TeamSwitcher({ data, t }: { readonly data: SwarmHostReadProjectionV1; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
+  return <div className="swarm-team-workspace__switcher" data-swarm-team-switcher>
+    <div className="swarm-team-workspace__switcher-title"><strong className="swarm-team-workspace__truncate" title={data.team.name}>{data.team.name}</strong><span className="swarm-team-workspace__muted swarm-team-workspace__truncate" title={data.binding.teamId}>{t('teamBound')} · {data.binding.teamId}</span></div>
+    <button className="swarm-team-workspace__row swarm-team-workspace__switch-button" type="button" disabled aria-disabled="true" data-swarm-team-switch-unavailable title={t('teamSwitcherUnavailable')}><span className="swarm-team-workspace__row-main"><span className="swarm-team-workspace__truncate">{t('switchTeam')}</span><span className="swarm-team-workspace__badge swarm-team-workspace__badge-unavailable">{t('unavailable')}</span></span></button>
+  </div>
+}
+
+/** Main Brain / Dedicated Captain navigation over official seams: Main Brain returns to
+ *  the owner conversation we are docked in; the Captain opens the dedicated Team Captain
+ *  Chat via the existing `coordinator.openCaptainChat`. */
+function BrowserNav({ busy, onMainBrain, onCaptain, t }: { readonly busy: boolean; readonly onMainBrain: () => void; readonly onCaptain: () => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
+  return <nav className="swarm-team-workspace__nav" aria-label={t('tabs.label')} data-swarm-browser-nav>
+    <button className="swarm-team-workspace__row swarm-team-workspace__nav-button" type="button" data-swarm-nav-main onClick={onMainBrain} title={t('returnToMainBrain')}><span className="swarm-team-workspace__row-main"><span className="swarm-team-workspace__avatar" aria-hidden="true">脑</span><strong className="swarm-team-workspace__truncate">{t('mainBrain')}<small className="swarm-team-workspace__muted swarm-team-workspace__truncate">{t('mainBrainCaption')}</small></strong></span><span className="swarm-team-workspace__badge swarm-team-workspace__badge-current">{t('current')}</span></button>
+    <button className="swarm-team-workspace__row swarm-team-workspace__nav-button" type="button" data-swarm-nav-captain disabled={busy} onClick={onCaptain} title={t('openIndependentCaptain')}><span className="swarm-team-workspace__row-main"><span className="swarm-team-workspace__avatar" aria-hidden="true">C</span><strong className="swarm-team-workspace__truncate">{t('independentCaptain')}</strong></span></button>
+  </nav>
 }
 
 function CaptainRow({ busy, onMainChat, teamName, t }: { readonly busy: boolean; readonly onMainChat: () => void; readonly teamName: string; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {

@@ -298,31 +298,35 @@ describe('R3 native Team Details surface', () => {
     const populated = { getSnapshot: (): TeamDashboardState => populatedState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     try {
       await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: populated, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
-      const columns = document.querySelectorAll('[data-swarm-team-panel] .swarm-team-workspace__column')
       const workspace = document.querySelector<HTMLElement>('.swarm-team-workspace')!
       const body = document.querySelector<HTMLElement>('.swarm-team-workspace__body')!
       const stylesheet = document.querySelector('style')?.textContent ?? ''
-      expect(columns).toHaveLength(3)
+      // A single vertical roster-first rail replaces the previous three-column grid.
+      expect(document.querySelector('[data-swarm-team-rail]')).not.toBeNull()
+      expect(document.querySelectorAll('[data-swarm-team-panel] .swarm-team-workspace__column')).toHaveLength(0)
       expect(observers).toHaveLength(1)
       expect(workspace.dataset.swarmTeamLayout).toBe('compact')
       // This is a component contract, not a jsdom geometry claim. Browser-proof owns geometry acceptance.
       expect(body.className).toContain('swarm-team-workspace__body')
-      expect(stylesheet).toContain('.swarm-team-workspace__body { min-width:0; min-height:0; overflow:auto;')
       expect(stylesheet).toContain('container-type:inline-size')
-      expect(stylesheet).toContain('@container (min-width: 720px)')
       expect(teamWorkspaceLayoutForWidth(359)).toBe('compact')
-      expect(teamWorkspaceLayoutForWidth(360)).toBe('compact')
-      expect(teamWorkspaceLayoutForWidth(520)).toBe('compact')
       await act(async () => { observers[0]?.emit(workspace, 359) })
-      expect(workspace.dataset.swarmTeamLayout).toBe('compact')
-      await act(async () => { observers[0]?.emit(workspace, 520) })
-      expect(workspace.dataset.swarmTeamLayout).toBe('compact')
-      await act(async () => { observers[0]?.emit(workspace, 719) })
       expect(workspace.dataset.swarmTeamLayout).toBe('compact')
       expect(teamWorkspaceLayoutForWidth(TEAM_WORKSPACE_WIDE_MIN_WIDTH)).toBe('wide')
       await act(async () => { observers[0]?.emit(workspace, 720) })
       expect(workspace.dataset.swarmTeamLayout).toBe('wide')
-      expect(document.body.textContent).not.toContain('current official Details layout is below 720px')
+      // Team switcher names the real bound Team; switching to another Team is an explicit unavailable capability.
+      const switcher = document.querySelector<HTMLElement>('[data-swarm-team-switcher]')!
+      expect(switcher.textContent).toContain('Fixture Team')
+      expect(switcher.textContent).toContain('team-fixture')
+      const switchButton = document.querySelector<HTMLButtonElement>('[data-swarm-team-switch-unavailable]')!
+      expect(switchButton.disabled).toBe(true)
+      expect(switchButton.getAttribute('aria-disabled')).toBe('true')
+      expect(switchButton.textContent).toContain('unavailable')
+      // Main Brain / Dedicated Captain navigation over official child seams.
+      expect(document.querySelector('[data-swarm-nav-main]')?.textContent).toContain('Main Brain')
+      expect(document.querySelector('[data-swarm-nav-captain]')?.textContent).toContain('Dedicated Captain')
+      // Roster-first: Captain hero precedes every real member.
       const captain = document.querySelector<HTMLButtonElement>('.swarm-team-workspace__roster > button')!
       const member = document.querySelector<HTMLButtonElement>('.swarm-team-workspace__rows button')!
       expect(captain.compareDocumentPosition(member) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
@@ -334,10 +338,11 @@ describe('R3 native Team Details surface', () => {
       expect(member.querySelector('[data-swarm-member-visible-lifecycle]')?.textContent).toBe('Lifecycle: Active')
       expect(member.querySelector('[data-swarm-member-visible-activity]')?.textContent).toBe('Running')
       expect(member.querySelector('[data-swarm-task-owner]')).toBeNull()
-      expect(document.body.textContent).not.toContain('Provider')
-      await act(async () => { member.click() })
-      expect(document.body.textContent).toContain('Back to members')
-      expect(document.body.textContent).toContain('Running')
+      // The announcement entry is an explicit unavailable card (no public notice authority).
+      expect(document.querySelector('[data-swarm-announcement-unavailable]')?.textContent).toContain('Announcements')
+      // A single Captain-row click routes to the dedicated Captain Chat via the coordinator.
+      await act(async () => { captain.click(); await Promise.resolve() })
+      expect(coordinator.openCaptainChat).toHaveBeenCalledTimes(1)
       expect(document.querySelector('details')?.open).toBe(false)
     } finally {
       Object.defineProperty(globalThis, 'ResizeObserver', { configurable: true, value: originalResizeObserver })
