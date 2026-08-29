@@ -205,6 +205,61 @@ describe('TeamDashboardController', () => {
     controller.dispose()
   })
 
+  it('keeps Main Brain as the RPC target after resolving a dedicated Captain binding', async () => {
+    const seen: SwarmReadRpcRequest[] = []
+    const mainRoot = 'main-brain-1'
+    const captainRoot = 'captain-1'
+    const normal = goodFetch([])
+    const fetcher: SwarmFetch = async (input, init) => {
+      const request = requestOf(init)
+      seen.push(request)
+      if (request.method === 'binding') {
+        return success({ ...binding, binding: { rootSessionId: captainRoot, teamId: 'team-1' } })
+      }
+      if (request.method === 'snapshot') {
+        return success({ ...snapshot, binding: { rootSessionId: captainRoot, teamId: 'team-1' } })
+      }
+      if (request.method === 'teams') {
+        const team = teams.teams[0]
+        return success({
+          ...teams,
+          binding: { rootSessionId: mainRoot },
+          teams: [{
+            ...team,
+            captainSessionId: captainRoot,
+            endpoints: {
+              members: { ...team.endpoints.members, target: { rootSessionId: mainRoot, teamId: 'team-1' } },
+              announcements: { ...team.endpoints.announcements, target: { rootSessionId: mainRoot, teamId: 'team-1' } },
+              diagnostics: { ...team.endpoints.diagnostics, target: { rootSessionId: mainRoot, teamId: 'team-1' } },
+            },
+          }],
+        })
+      }
+      if (request.method === 'captainAnnouncements') {
+        return success({ ...announcements, binding: { rootSessionId: captainRoot, teamId: 'team-1' } })
+      }
+      if (request.method === 'captainDiagnostics') {
+        return success({ ...captainDiagnostics, binding: { rootSessionId: captainRoot, teamId: 'team-1' } })
+      }
+      if (request.method === 'captainMembers') {
+        return success({ ...captainMembers, binding: { rootSessionId: captainRoot, teamId: 'team-1' } })
+      }
+      return await normal(input, init)
+    }
+    const controller = new TeamDashboardController(new SwarmReadClient(fetcher), new ManualSchedule())
+    controller.open(mainRoot)
+    await waitFor(() => ['ready', 'error'].includes(controller.getSnapshot().phase))
+
+    expect(controller.getSnapshot().error).toBeUndefined()
+    expect(controller.getSnapshot()).toMatchObject({ phase: 'ready' })
+    expect(controller.getSnapshot().data?.projection.binding.rootSessionId).toBe(captainRoot)
+    for (const request of seen) {
+      if (request.method === 'capabilities') continue
+      expect(request.target.rootSessionId).toBe(mainRoot)
+    }
+    controller.dispose()
+  })
+
   it('discards a mixed-cursor aggregate and restarts once from a fresh snapshot', async () => {
     const seen: SwarmReadRpcRequest[] = []
     const controller = new TeamDashboardController(new SwarmReadClient(goodFetch(seen, { driftFirstTaskPage: true })), new ManualSchedule())

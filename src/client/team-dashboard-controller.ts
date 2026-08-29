@@ -200,15 +200,20 @@ export class TeamDashboardController {
   private async readComplete(targetSessionId: string, signal: AbortSignal): Promise<TeamDashboardData> {
     const capabilities = await this.readCapabilities(signal)
     const binding = await this.readBinding(targetSessionId, undefined, signal)
-    const target = { rootSessionId: binding.binding.rootSessionId, teamId: binding.binding.teamId }
+    // Keep every read addressed to the Session whose Team panel the user opened.
+    // For a Main Brain, binding.rootSessionId is the resolved dedicated Captain;
+    // pivoting subsequent RPCs to that child bypasses the parent-root ownership
+    // proof and can fail after restart. The host resolves/re-proves the Captain
+    // from this stable Main Brain target on every request.
+    const target = { rootSessionId: targetSessionId, teamId: binding.binding.teamId }
     const previousCursor = this.state.targetSessionId === targetSessionId
       ? this.state.data?.projection.cursor : undefined
     const snapshot = await this.readSnapshot(target, previousCursor, signal)
     assertIdentity(binding, snapshot)
-    const teams = await this.readTeams(binding.binding.rootSessionId, signal)
+    const teams = await this.readTeams(targetSessionId, signal)
     // Captain board sections are real reads against the same binding; today the host answers
     // announcements with an explicit bounded unavailable, never a stub or fabricated posts.
-    const sectionTarget = { rootSessionId: binding.binding.rootSessionId, teamId: binding.binding.teamId }
+    const sectionTarget = target
     const [captainAnnouncements, captainDiagnostics, captainMembers] = await Promise.all([
       this.readCaptainSection('captainAnnouncements', sectionTarget, signal) as Promise<SwarmReadCaptainAnnouncementsV1>,
       this.readCaptainSection('captainDiagnostics', sectionTarget, signal) as Promise<SwarmReadCaptainDiagnosticsV1>,
