@@ -443,6 +443,27 @@ describe('R2 authoritative target binding and wire contract', () => {
     })).rejects.toMatchObject({ code: 'SWARM_RPC_INVALID_REQUEST' })
   })
 
+  it('returns the authoritative Captain binding for sections opened from a Main Brain', async () => {
+    const captain = 'cold-dedicated-captain'
+    const teamState = {
+      id: 'team-r2', captainSessionId: captain, phase: 'active', revision: 1,
+      members: [], tasks: [], attempts: [],
+    } as never as TeamState
+    const service = rpcHarness({
+      captain,
+      teamState,
+      managedCaptains: [captain],
+      coldCaptainSessions: { [captain]: { header: { parentSession: ROOT.id } } },
+    }).service
+    const target = { rootSessionId: ROOT.id, teamId: 'team-r2' }
+
+    for (const method of ['captainMembers', 'captainAnnouncements', 'captainDiagnostics'] as const) {
+      const section = await service.invoke({ schemaVersion: 1, method, target }) as
+        SwarmReadCaptainMembersV1 | SwarmReadCaptainAnnouncementsV1 | SwarmReadCaptainDiagnosticsV1
+      expect(section.binding).toEqual({ rootSessionId: captain, teamId: 'team-r2' })
+    }
+  })
+
   it('projects real bounded announcements and an unsafe stored announcement avatar', async () => {
     const teamState = {
       id: 'team-r2', captainSessionId: ROOT.id, phase: 'active', revision: 6,

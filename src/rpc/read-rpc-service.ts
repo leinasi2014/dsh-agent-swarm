@@ -210,7 +210,7 @@ export class AgentSwarmReadRpcService {
           // (private memory is never read nor projected beyond this availability marker).
           growth: { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' },
         }))
-        return { schemaVersion: 1, binding: { rootSessionId: root.id, teamId: team.id }, members, observedAt }
+        return { schemaVersion: 1, binding: { rootSessionId: team.captainSessionId, teamId: team.id }, members, observedAt }
       }
       case 'captainAnnouncements': {
         // Real bounded projection of the Team's public announcements; an empty
@@ -220,7 +220,7 @@ export class AgentSwarmReadRpcService {
           .map(announcement => ({ id: announcement.id, text: announcement.text, createdAt: announcement.createdAt }))
         return {
           schemaVersion: 1,
-          binding: { rootSessionId: root.id, teamId: team.id },
+          binding: { rootSessionId: team.captainSessionId, teamId: team.id },
           state: 'available',
           entries,
           observedAt,
@@ -229,7 +229,7 @@ export class AgentSwarmReadRpcService {
       case 'captainDiagnostics': {
         return {
           schemaVersion: 1,
-          binding: { rootSessionId: root.id, teamId: team.id },
+          binding: { rootSessionId: team.captainSessionId, teamId: team.id },
           diagnostics: {
             revision: team.revision,
             phase: team.phase,
