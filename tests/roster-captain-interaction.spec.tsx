@@ -38,6 +38,8 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 const mounted: Root[] = []
 const t = (key: keyof typeof en, params?: Record<string, unknown>): string => en[key].replace(/\{(\w+)\}/gu, (match, name: string) => name in (params ?? {}) ? String(params?.[name]) : match)
 const tZh = (key: keyof typeof en, params?: Record<string, unknown>): string => zh[key].replace(/\{(\w+)\}/gu, (match, name: string) => name in (params ?? {}) ? String(params?.[name]) : match)
+const dotOf = (name: string): string | null => document.querySelector<HTMLElement>(`[data-swarm-member-name="${name}"] [data-swarm-dot]`)?.getAttribute('data-swarm-dot') ?? null
+const activityOf = (name: string): string | null => document.querySelector<HTMLElement>(`[data-swarm-member-name="${name}"] [data-swarm-member-visible-activity]`)?.textContent ?? null
 
 /** Real backend roster rows carrying the authoritative domain fields (name/role/phase/createdAt). */
 const REAL_ROSTER = [
@@ -93,34 +95,52 @@ describe('roster/Captain interaction slice', () => {
     expect(boot.getAttribute('data-swarm-member-activity')).toBe('provisioning')
   })
 
-  it('maps each member StateDot only from the derived real activity and keeps name, role and current task', async () => {
+  it('maps each member StateDot from the derived real activity in three precise groups and keeps name, role and current task', async () => {
     const coordinator = new FakeCoordinator()
     const t0 = 1_700_000_000_000
     const snapshot = SWARM_READ_RPC_FIXTURES_V1.values.snapshot
     const roster = [
       { name: 'worker', role: 'Implementation', phase: 'active', createdAt: t0 },
-      { name: 'broken', role: 'QA', phase: 'failed', createdAt: t0 + 1 },
+      { name: 'acceptor', role: 'QA', phase: 'active', createdAt: t0 + 1 },
+      { name: 'idler', role: 'Reviewer', phase: 'active', createdAt: t0 + 2 },
+      { name: 'broken', role: 'QA', phase: 'failed', createdAt: t0 + 3 },
+      { name: 'left', role: 'Ops', phase: 'removed', createdAt: t0 + 4 },
     ]
     const projection = {
       ...snapshot,
       roster,
-      tasks: [{ id: 't1', revision: 1, subject: 'Ship roster slice', status: 'in_progress', blockedBy: [], priority: 1, ownerName: 'worker', currentAttemptId: 'a1', createdAt: t0, updatedAt: t0 }],
-      attempts: [{ id: 'a1', taskId: 't1', generation: 1, phase: 'running', assignmentPhase: 'delivered', memberName: 'worker', createdAt: t0, updatedAt: t0 }],
-      totals: { ...snapshot.totals, roster: 2, tasks: 1, attempts: 1, pendingInteractions: 0 },
+      tasks: [
+        { id: 't1', revision: 1, subject: 'Ship roster slice', status: 'in_progress', blockedBy: [], priority: 1, ownerName: 'worker', currentAttemptId: 'a1', createdAt: t0, updatedAt: t0 },
+        { id: 't2', revision: 1, subject: 'Accept roster QA', status: 'in_progress', blockedBy: [], priority: 1, ownerName: 'acceptor', currentAttemptId: 'a2', createdAt: t0, updatedAt: t0 },
+      ],
+      attempts: [
+        { id: 'a1', taskId: 't1', generation: 1, phase: 'running', assignmentPhase: 'delivered', memberName: 'worker', createdAt: t0, updatedAt: t0 },
+        { id: 'a2', taskId: 't2', generation: 1, phase: 'accepted', assignmentPhase: 'delivered', memberName: 'acceptor', createdAt: t0, updatedAt: t0 },
+      ],
+      totals: { ...snapshot.totals, roster: 5, tasks: 2, attempts: 2, pendingInteractions: 0 },
     }
     const ready = { open: true, phase: 'ready', targetSessionId: 'root', data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never } } as TeamDashboardState
     const controller = { getSnapshot: (): TeamDashboardState => ready, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
 
-    const worker = document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!
-    const broken = document.querySelector<HTMLButtonElement>('[data-swarm-member-name="broken"]')!
-    // running real activity derives `running` -> official StateDot ongoing (blue), paired with the Running label.
-    expect(worker.querySelector('[data-swarm-dot]')?.getAttribute('data-swarm-dot')).toBe('ongoing')
-    expect(worker.querySelector('[data-swarm-member-visible-activity]')?.textContent).toBe('Running')
-    // failed phase derives `error` -> official StateDot warning (amber), never a fabricated error dot.
-    expect(broken.querySelector('[data-swarm-dot]')?.getAttribute('data-swarm-dot')).toBe('warning')
-    expect(broken.querySelector('[data-swarm-member-visible-activity]')?.textContent).toBe('Error')
+    const dot = dotOf
+    const activity = activityOf
+    // ongoing group: in-flight real activity (running attempt).
+    expect(dot('worker')).toBe('ongoing')
+    expect(activity('worker')).toBe('Running')
+    expect(dot('worker') ?? '').not.toBe('done')
+    // done group: idle member and settled (accepted) work must NOT look running.
+    expect(dot('idler')).toBe('done')
+    expect(activity('idler')).toBe('No current task')
+    expect(dot('acceptor')).toBe('done')
+    expect(activity('acceptor')).toBe('Recent attempt: Accepted')
+    // warning group: failed and removed members.
+    expect(dot('broken')).toBe('warning')
+    expect(activity('broken')).toBe('Error')
+    expect(dot('left')).toBe('warning')
+    expect(activity('left')).toBe('Removed')
     // name, role and current task stay intact alongside the dot.
+    const worker = document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!
     expect(worker.querySelector('strong')?.textContent).toBe('worker')
     expect(worker.getAttribute('data-swarm-member-role')).toBe('Implementation')
     expect(worker.textContent).toContain('Ship roster slice')

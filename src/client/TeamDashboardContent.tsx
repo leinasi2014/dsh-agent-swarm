@@ -280,10 +280,12 @@ function memberActivityLabel(activity: MemberActivity, t: TranslateNS<typeof TEA
   return t('memberIdle')
 }
 
-/** Visible status dot only, mapped from the derived real activity: error/failed/removed → warning, everything else → ongoing. No invented semantics. */
+/** Visible status dot mapped only from the derived real activity into three precise groups, never inventing a running state for idle/settled work:
+ *  ongoing = running/provisioning/submitted/verifying (in flight); done = idle/accepted (settled, incl. completed work surfacing as an accepted attempt); warning = error/removed/rejected/stale/cancelled. */
 function memberActivityDot(state: MemberActivity['state']): StateDotState {
-  if (state === 'error' || state === 'removed') return 'warning'
-  return 'ongoing'
+  if (state === 'running' || state === 'provisioning' || state === 'submitted' || state === 'verifying') return 'ongoing'
+  if (state === 'idle' || state === 'accepted') return 'done'
+  return 'warning'
 }
 
 type WireEnum = SwarmHostReadProjectionV1['team']['phase'] | SwarmHostReadProjectionV1['roster'][number]['phase'] | SwarmHostReadProjectionV1['tasks'][number]['status'] | SwarmHostReadProjectionV1['attempts'][number]['phase']
