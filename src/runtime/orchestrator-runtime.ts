@@ -270,12 +270,12 @@ export class AgentSwarmRuntime extends Service {
     return await this.provisioning.addMember(exec, input)
   }
 
-  /** Captain-only: set this Team's public identity profile (validated in-domain). */
-  async setCaptainProfile(exec: ToolExecutionAuthority, input: MemberIdentityInput): Promise<TeamState> {
+  /** Captain-only: set this Team's public identity profile (validated; expected_revision CAS in-domain). */
+  async setCaptainProfile(exec: ToolExecutionAuthority, expectedRevision: number, input: MemberIdentityInput): Promise<TeamState> {
     await this.ensureReady(); this.assertOpen()
     const captain = requireAgent(exec), scope = this.scopeOf(captain)
     const membership = await this.domain.requireMembership(scope, captain.id)
-    return await this.domain.setCaptainProfile(scope, membership.team.id, captain.id, input)
+    return await this.domain.setCaptainProfile(scope, membership.team.id, captain.id, expectedRevision, input)
   }
 
   /** Captain-only: publish one public announcement (expected_revision CAS). */

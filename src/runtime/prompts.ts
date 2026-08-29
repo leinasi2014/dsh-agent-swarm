@@ -15,6 +15,8 @@ export const CAPTAIN_ONLY_TOOLS = [
   'agent_swarm_reassign_task',
   'agent_swarm_review_task',
   'agent_swarm_set_budget',
+  'agent_swarm_set_captain_profile',
+  'agent_swarm_publish_announcement',
 ] as const
 
 /**

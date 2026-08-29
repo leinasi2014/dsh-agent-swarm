@@ -9,7 +9,7 @@ import {
 } from './read-rpc-contract.js'
 
 export const SWARM_READ_RPC_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
-export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '28829ccbb1e1ac7079c77cead8f522836441ac5fd10201a3326bf5d8a36ce5bb' as const
+export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = 'f276372f207f37a3cd3fd35bb876bab8928df71510573cfe184ba830086f5e84' as const
 
 const boundedString = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength, pattern: '\\S' })
 /** Member role is authoritative free-text (never truncated by the reader); the
@@ -296,6 +296,9 @@ export const SWARM_READ_RPC_CONTRACT_V1 = deepFreezeJson({
           schemaVersion: { const: 1 }, binding: sectionBinding,
           state: { const: 'available' },
           entries: { type: 'array', maxItems: 32, items: announcementEntry },
+          // Optional legacy field retained for type/schema consistency (never
+          // emitted by the live backend, whose announcements are always real).
+          reason: { type: 'string' },
           observedAt: nonNegativeInteger,
         },
       },
@@ -501,6 +504,39 @@ function assertAvatarSemantics(row: Record<string, unknown>, label: string): voi
   }
 }
 
+/** Identity-card↔profile linkage: `generated` requires at least one profile field and
+ *  never a fabricated `reason`; `not_generated` must carry a stable reason and no profile. */
+function assertIdentityCardSemantics(row: Record<string, unknown>, label: string): void {
+  const identityCard = row.identityCard as Record<string, unknown> | undefined
+  if (identityCard === undefined) return
+  const state = identityCard.state
+  const hasProfile = row.displayName !== undefined || row.profession !== undefined || row.personality !== undefined
+  if (state === 'generated') {
+    if (!hasProfile) throw new Error(`Swarm RPC ${label} identityCard generated requires profile fields`)
+    if (identityCard.reason !== undefined) throw new Error(`Swarm RPC ${label} identityCard generated must not carry a reason`)
+  } else if (!hasProfile) {
+    if (typeof identityCard.reason !== 'string') throw new Error(`Swarm RPC ${label} identityCard not_generated must carry a stable reason`)
+  }
+}
+
+/** Team endpoint refs must point at exactly this Team via the canonical methods. */
+function assertTeamEndpoints(team: Record<string, unknown>): void {
+  const endpoints = team.endpoints as Record<string, unknown> | undefined
+  if (endpoints === undefined) return
+  const rootSessionId = team.captainSessionId as string
+  const teamId = team.teamId as string
+  const expectedMethods = { members: 'captainMembers', announcements: 'captainAnnouncements', diagnostics: 'captainDiagnostics' } as const
+  for (const key of Object.keys(expectedMethods) as Array<keyof typeof expectedMethods>) {
+    const ref = endpoints[key] as Record<string, unknown> | undefined
+    if (ref === undefined) throw new Error(`Swarm RPC Team endpoint ${key} is missing`)
+    if (ref.method !== expectedMethods[key]) throw new Error(`Swarm RPC Team endpoint ${key} method is inconsistent`)
+    const target = ref.target as Record<string, unknown> | undefined
+    if (target === undefined || target.rootSessionId !== rootSessionId || target.teamId !== teamId) {
+      throw new Error(`Swarm RPC Team endpoint ${key} target is inconsistent`)
+    }
+  }
+}
+
 function assertResultSemantics(method: string, value: Record<string, unknown>): void {
   if (method === 'capabilities') {
     const expected = [
@@ -522,19 +558,41 @@ function assertResultSemantics(method: string, value: Record<string, unknown>): 
   if (method === 'teams') {
     if ((value.complete as boolean) !== true) throw new Error('Swarm RPC Team enumeration is not complete')
     const teams = value.teams as readonly Record<string, unknown>[]
-    for (const team of teams) assertAvatarSemantics(team as Record<string, unknown>, 'Team')
+    for (const team of teams) {
+      const row = team as Record<string, unknown>
+      assertAvatarSemantics(row, 'Team')
+      assertIdentityCardSemantics(row, 'Team')
+      assertTeamEndpoints(row)
+    }
     return
   }
   if (method === 'captainAnnouncements') {
-    // Real bounded projection: `state` is always 'available' and entries may be
-    // non-empty by design — never fabricated, but also never filtered to fake.
+    // Real bounded projection: `state` is always 'available'; entries may be
+    // non-empty by design. Announcement ids must be unique and createdAt
+    // non-decreasing (ordering invariant).
+    const entries = value.entries as readonly Record<string, unknown>[]
+    const seen = new Set<string>()
+    let previous = -1
+    for (const entry of entries) {
+      const id = entry.id as string
+      if (seen.has(id)) throw new Error('Swarm RPC announcement ids must be unique')
+      seen.add(id)
+      const createdAt = entry.createdAt as number
+      if (createdAt < previous) throw new Error('Swarm RPC announcement createdAt must be non-decreasing')
+      previous = createdAt
+    }
     return
   }
   if (method === 'captainMembers') {
-    // Per-member avatar safety semantics: `generated` must carry a strictly
-    // allowlisted `svg`, and no other state may carry `svg` at all.
+    // Per-member avatar/identity-card safety semantics: `generated` must carry a
+    // strictly allowlisted `svg` (avatar) and its profile fields (identityCard);
+    // no other state may carry `svg`.
     const members = value.members as readonly Record<string, unknown>[]
-    for (const member of members) assertAvatarSemantics(member as Record<string, unknown>, 'member')
+    for (const member of members) {
+      const row = member as Record<string, unknown>
+      assertAvatarSemantics(row, 'member')
+      assertIdentityCardSemantics(row, 'member')
+    }
     return
   }
   if (method === 'captainDiagnostics') return

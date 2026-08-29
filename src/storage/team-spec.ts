@@ -9,7 +9,7 @@
 
 import { z } from 'zod'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
-import { isSafePixelAvatarSvg, MAX_CAPTAIN_ANNOUNCEMENTS } from '../domain/identity-profile.js'
+import { CAPTAIN_ANNOUNCEMENT_ID_RE, isSafePixelAvatarSvg, MAX_CAPTAIN_ANNOUNCEMENTS } from '../domain/identity-profile.js'
 import type { MigrationReceipt, TeamScope } from '../domain/team-domain-port.js'
 import type { TeamId, TeamState } from '../domain/types.js'
 
@@ -165,13 +165,43 @@ const captainProfileSchema = z.object({
   pixelAvatarSvg: z.string().min(1).max(16384)
     .refine(isSafePixelAvatarSvg, { message: 'captainProfile.pixelAvatarSvg violates the strict allowlist' })
     .optional(),
+}).strict().superRefine((profile, ctx) => {
+  // Captain profile must be an object carrying at least one canonical field.
+  const hasField = profile.displayName !== undefined || profile.profession !== undefined
+    || profile.personality !== undefined || profile.pixelAvatarSvg !== undefined
+  if (!hasField) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'captainProfile requires at least one field' })
+  }
+  for (const key of ['displayName', 'profession', 'personality'] as const) {
+    const v = profile[key]
+    if (typeof v === 'string' && v !== v.trim()) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `captainProfile.${key} must be canonical (trimmed)` })
+    }
+  }
 })
 
 const announcementSchema = z.object({
-  id: z.string().min(1),
-  text: codePointCapped(4096, 'announcement.text'),
+  id: z.string().regex(CAPTAIN_ANNOUNCEMENT_ID_RE, { message: 'announcement id must be ann-<uuid>' }),
+  text: codePointCapped(4096, 'announcement.text').refine(v => v === v.trim(), { message: 'announcement text must be canonical (trimmed)' }),
   createdAt: timestamp,
 })
+
+function announcementsSchema() {
+  return z.array(announcementSchema).max(MAX_CAPTAIN_ANNOUNCEMENTS).superRefine((entries, ctx) => {
+    const seen = new Set<string>()
+    let previous = -1
+    entries.forEach((entry, index) => {
+      if (seen.has(entry.id)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: `announcement[${index}].id is not unique` })
+      }
+      seen.add(entry.id)
+      if (entry.createdAt < previous) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: `announcement[${index}].createdAt is not non-decreasing` })
+      }
+      previous = entry.createdAt
+    })
+  })
+}
 
 const teamFields = {
     id: teamIdSchema,
@@ -184,7 +214,7 @@ const teamFields = {
     // Captain self-declared profile + public announcements (schema v2 additive;
     // absent on pre-feature records so they parse byte-identical).
     captainProfile: captainProfileSchema.optional(),
-    announcements: z.array(announcementSchema).max(MAX_CAPTAIN_ANNOUNCEMENTS).optional(),
+    announcements: announcementsSchema().optional(),
     tasks: z.array(taskSchema),
     attempts: z.array(attemptSchema),
     messages: z.array(messageSchema),

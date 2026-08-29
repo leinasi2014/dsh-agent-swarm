@@ -111,9 +111,10 @@ export class TeamDomain implements TeamDomainPort {
     scope: TeamScope,
     teamId: TeamId,
     captainSessionId: string,
+    expectedRevision: number,
     input: MemberIdentityInput,
   ): Promise<TeamState> {
-    return await roster.setCaptainProfile(this.deps, scope, teamId, captainSessionId, input)
+    return await roster.setCaptainProfile(this.deps, scope, teamId, captainSessionId, expectedRevision, input)
   }
 
   async publishAnnouncement(

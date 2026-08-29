@@ -130,8 +130,9 @@ export function registerAddMemberTool(ctx: Context, runtime: AgentSwarmRuntime):
 export function registerSetCaptainProfileTool(ctx: Context, runtime: AgentSwarmRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_set_captain_profile',
-    description: 'Captain-only. Set this Team\'s public identity profile (display name / profession / personality / safe pixel avatar). The Captain MUST author these from their own role/personality; fields share the member code-point bounds and the strict pixel-SVG allowlist. Absent from the read as not_generated until set.',
+    description: 'Captain-only. Set this Team\'s public identity profile (display name / profession / personality / safe pixel avatar) with an expected_revision compare-and-swap. The Captain MUST author at least one canonical field from their own role/personality; fields share the member code-point bounds and strict pixel-SVG allowlist. Pass the Team\'s current revision (see agent_swarm_status); a concurrent mutation fails with TEAM_REVISION_CONFLICT.',
     parameters: {
+      expected_revision: { type: 'number', required: true, description: 'The exact current Team revision; fails with TEAM_REVISION_CONFLICT if it changed.' },
       display_name: { type: 'string', description: 'Captain display name (at most 128 code points).' },
       profession: { type: 'string', description: 'Captain profession/occupation (at most 256 code points).' },
       personality: { type: 'string', description: 'Captain behavioural disposition (at most 1024 code points).' },
@@ -145,7 +146,7 @@ export function registerSetCaptainProfileTool(ctx: Context, runtime: AgentSwarmR
       render: (_args, value) => [{ type: 'text', text: `Set Team profile (revision ${value.revision}).` }],
     },
     async execute(args, exec) {
-      const team = await runtime.setCaptainProfile(exec, {
+      const team = await runtime.setCaptainProfile(exec, args.expected_revision, {
         ...(args.display_name === undefined ? {} : { displayName: args.display_name }),
         ...(args.profession === undefined ? {} : { profession: args.profession }),
         ...(args.personality === undefined ? {} : { personality: args.personality }),

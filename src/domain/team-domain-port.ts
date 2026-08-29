@@ -152,11 +152,12 @@ export interface TeamDomainPort {
     captainSessionId: string,
     input: { name: string; role: string; sessionId: string; provider: string } & MemberIdentityInput,
   ): Promise<TeamMember>
-  /** Captain-only: set the Team's public identity profile (validated). */
+  /** Captain-only: set the Team's public identity profile (validated; expected_revision CAS). */
   setCaptainProfile(
     scope: TeamScope,
     teamId: TeamId,
     captainSessionId: string,
+    expectedRevision: number,
     input: MemberIdentityInput,
   ): Promise<TeamState>
   /** Captain-only: publish one bounded public announcement (expected_revision CAS). */

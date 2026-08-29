@@ -368,31 +368,35 @@ export async function archiveTeam(
 }
 
 /**
- * Captain-only: set the Team's public identity profile. The profile is
- * normalize-validated (code-point bounds + strict pixel-SVG allowlist) BEFORE
- * it commits, so only a safe form is ever persisted. An all-absent profile
- * clears the stored field so the read honestly reports `not_generated`.
+ * Captain-only: set the Team's public identity profile with an
+ * `expected_revision` compare-and-swap (concurrent mutation of the same
+ * revision fails loud — only one wins, the other gets TEAM_REVISION_CONFLICT).
+ * The profile is normalize-validated (code-point bounds + strict pixel-SVG
+ * allowlist) BEFORE it commits and must contain at least one canonical field;
+ * an empty/whitespace profile is rejected.
  */
 export async function setCaptainProfile(
   deps: TeamDomainDeps,
   scope: TeamScope,
   teamId: TeamId,
   captainSessionId: string,
+  expectedRevision: number,
   input: MemberIdentityInput,
 ): Promise<TeamState> {
+  expectDomain(Number.isSafeInteger(expectedRevision) && expectedRevision >= 1, 'expected revision is invalid', 'TEAM_INPUT_INVALID')
   const profile = normalizeMemberIdentity(input)
+  const hasFields = profile.displayName !== undefined || profile.profession !== undefined
+    || profile.personality !== undefined || profile.pixelAvatarSvg !== undefined
+  if (!hasFields) {
+    throw new TeamDomainError('captain profile requires at least one field', 'TEAM_CAPTAIN_PROFILE_INVALID')
+  }
   let committed!: TeamState
   await deps.store.transact(scope, teamId, team => {
     const authority = actorMembership(team, captainSessionId)
     expectDomain(authority.role === 'captain', 'only the captain can set the Team profile', 'TEAM_CAPTAIN_REQUIRED')
+    expectDomain(team.revision === expectedRevision, `team revision conflict: expected ${expectedRevision}`, 'TEAM_REVISION_CONFLICT')
     const timestamp = deps.now()
-    const hasFields = profile.displayName !== undefined || profile.profession !== undefined
-      || profile.personality !== undefined || profile.pixelAvatarSvg !== undefined
-    Object.assign(team, {
-      captainProfile: hasFields ? profile : undefined,
-      revision: team.revision + 1,
-      updatedAt: timestamp,
-    })
+    Object.assign(team, { captainProfile: profile, revision: team.revision + 1, updatedAt: timestamp })
     committed = team
   })
   return structuredClone(committed)

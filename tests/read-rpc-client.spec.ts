@@ -146,7 +146,7 @@ describe('R2 browser client', () => {
   it('rejects crafted unsafe captainMembers avatar semantics and admits a safe rect-only avatar', () => {
     const base = { ...SWARM_READ_RPC_FIXTURES_V1.values.captainMembers, members: [] as unknown[] }
     const row = (avatar: unknown) =>
-      ({ name: 'm', role: 'r', phase: 'active', createdAt: 1, avatar, identityCard: { state: 'generated' } })
+      ({ name: 'm', role: 'r', phase: 'active', createdAt: 1, displayName: 'm', avatar, identityCard: { state: 'generated' } })
 
     const valid = {
       ...base,
@@ -169,5 +169,40 @@ describe('R2 browser client', () => {
     for (const avatar of reject) {
       expect(() => assertSwarmReadRpcValue('captainMembers', { ...base, members: [row(avatar)] }), JSON.stringify(avatar)).toThrow()
     }
+  })
+
+  it('enforces strict teams identityCard/endpoint and announcement ordering semantics', () => {
+    const teamsBase = SWARM_READ_RPC_FIXTURES_V1.values.teams
+    const oneTeam = teamsBase.teams[0]!
+    // Valid teams fixture passes (generated captain asset + correct endpoints).
+    expect(() => assertSwarmReadRpcValue('teams', teamsBase)).not.toThrow()
+
+    // identityCard generated without any profile field -> reject.
+    const noProfileRest = { ...oneTeam } as Record<string, unknown>
+    delete noProfileRest.displayName
+    delete noProfileRest.profession
+    delete noProfileRest.personality
+    expect(() => assertSwarmReadRpcValue('teams', { ...teamsBase, teams: [{ ...noProfileRest, identityCard: { state: 'generated' } }] })).toThrow()
+    // Endpoint method/target mismatch -> reject.
+    expect(() => assertSwarmReadRpcValue('teams', {
+      ...teamsBase,
+      teams: [{ ...oneTeam, endpoints: { ...oneTeam.endpoints, members: { method: 'captainDiagnostics', target: { rootSessionId: oneTeam.captainSessionId, teamId: oneTeam.teamId } } } }],
+    })).toThrow()
+    expect(() => assertSwarmReadRpcValue('teams', {
+      ...teamsBase,
+      teams: [{ ...oneTeam, endpoints: { ...oneTeam.endpoints, announcements: { method: 'captainAnnouncements', target: { rootSessionId: 'someone-else', teamId: oneTeam.teamId } } } }],
+    })).toThrow()
+
+    // Announcement id uniqueness and non-decreasing createdAt on the read contract.
+    const annBase = SWARM_READ_RPC_FIXTURES_V1.values.captainAnnouncements
+    expect(() => assertSwarmReadRpcValue('captainAnnouncements', annBase)).not.toThrow()
+    expect(() => assertSwarmReadRpcValue('captainAnnouncements', {
+      ...annBase,
+      entries: [{ id: 'ann-1', text: 'a', createdAt: 100 }, { id: 'ann-1', text: 'b', createdAt: 200 }],
+    })).toThrow()
+    expect(() => assertSwarmReadRpcValue('captainAnnouncements', {
+      ...annBase,
+      entries: [{ id: 'ann-1', text: 'a', createdAt: 200 }, { id: 'ann-2', text: 'b', createdAt: 100 }],
+    })).toThrow()
   })
 })

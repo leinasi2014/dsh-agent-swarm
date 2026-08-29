@@ -38,6 +38,8 @@ export const MAX_PIXEL_AVATAR_ATTR_LENGTH = 64
 export const MAX_CAPTAIN_ANNOUNCEMENTS = 32
 /** Per-announcement text bound (code points), matching admission. */
 export const MAX_CAPTAIN_ANNOUNCEMENT_TEXT = 4096
+/** Announcement id shape: `ann-` + a canonical lowercase UUID. */
+export const CAPTAIN_ANNOUNCEMENT_ID_RE = /^ann-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export interface MemberIdentityInput {
   readonly displayName?: string

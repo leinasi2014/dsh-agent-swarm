@@ -659,4 +659,63 @@ describe('DSH rc.8 composition', () => {
       for (const fiber of fibers.toReversed()) await fiber.dispose()
     }
   }, 15_000)
+
+  it('set_captain_profile / publish_announcement are Captain-only via real ctx.tools', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-captain-tools-'))
+    roots.push(sandbox)
+    const workspace = join(sandbox, 'workspace')
+    const ctx = new Context()
+    const fibers: Fiber[] = []
+
+    try {
+      fibers.push(await mountDurableStack(ctx, join(sandbox, 'storage'), join(sandbox, 'sessions', 'sessions.db')))
+      fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
+      fibers.push(await ctx.plugin(SubagentService))
+      fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
+      fibers.push(await ctx.plugin(AgentSwarm, {
+        memberProvider: 'spawn', memberMaxDepth: 1,
+        schedulerProvider: 'test-scheduler', reviewProvider: 'test-review',
+      }))
+      ctx.llm.registerAdapter(['mock'], new ScriptedAdapter([textResponse('Member ready.')]))
+      const lead = ctx.agentLoop.create(
+        SessionId('captain-tools-lead'),
+        { provider: 'mock', model: 'mock' },
+        { cwd: workspace },
+      )
+      const intruder = ctx.agentLoop.create(
+        SessionId('captain-tools-intruder'),
+        { provider: 'mock', model: 'mock' },
+        { cwd: workspace },
+      )
+
+      const created = await successfulTool(ctx, lead, 'ct-create', 'agent_swarm_create', {
+        name: 'Captain tools team', description: 'Permission proof.',
+      }) as { team_id: string }
+      const teamId = AgentSwarm.TeamId(created.team_id)
+
+      // Captain sets the profile (expected_revision CAS) and publishes.
+      const s0 = await ctx.agentSwarm.domain.snapshot(workspace, teamId, lead.id)
+      const setResult = await successfulTool(ctx, lead, 'ct-set', 'agent_swarm_set_captain_profile', {
+        expected_revision: s0.team.revision,
+        display_name: 'Cap', profession: 'Coordinator', personality: 'Steady',
+        pixel_avatar_svg: '<svg viewBox="0 0 16 16"><rect x="0" y="0" width="8" height="8" fill="#2a3"/></svg>',
+      }) as { revision: number }
+      const s1 = await ctx.agentSwarm.domain.snapshot(workspace, teamId, lead.id)
+      expect(s1.team.captainProfile?.displayName).toBe('Cap')
+      await successfulTool(ctx, lead, 'ct-ann', 'agent_swarm_publish_announcement', {
+        expected_revision: setResult.revision,
+        text: 'Welcome.',
+      })
+      const s2 = await ctx.agentSwarm.domain.snapshot(workspace, teamId, lead.id)
+      expect(s2.team.announcements?.[0]?.text).toBe('Welcome.')
+
+      // A non-member root is rejected by the tool.
+      await expect(ctx.tools.execute({
+        signal: SIGNAL, callId: CallId('ct-intrude-set'), name: 'agent_swarm_set_captain_profile',
+        arguments: { expected_revision: s2.team.revision, display_name: 'Hack' }, agent: intruder,
+      })).resolves.toMatchObject({ isError: true })
+    } finally {
+      for (const fiber of fibers.toReversed()) await fiber.dispose()
+    }
+  }, 20_000)
 })
