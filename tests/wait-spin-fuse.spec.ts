@@ -23,7 +23,7 @@ const member: ToolPermissionContext = {
 
 describe('WAIT-SPIN member admission and model surface', () => {
   it('hides wait in the member descriptor baseline and denies it before a policy allow can apply', () => {
-    expect(MEMBER_HIDDEN_TOOLS).toEqual([...CAPTAIN_ONLY_TOOLS, 'agent_swarm_wait'])
+    expect(MEMBER_HIDDEN_TOOLS).toEqual([...CAPTAIN_ONLY_TOOLS, 'agent_swarm_create_managed', 'agent_swarm_wait'])
     expect(memberToolDeny()).toEqual([...MEMBER_HIDDEN_TOOLS])
     expect(memberToolDeny(['agent_swarm_wait'])).toEqual([...MEMBER_HIDDEN_TOOLS])
     expect(decideToolPermission({ allow: ['agent_swarm_wait'] }, 'agent_swarm_wait', member)).toBe('deny')

@@ -65,7 +65,7 @@ captain（插件驱动）：
 - **成员档案读取**：`agent_swarm_list_members` 逐页只读 Team roster 与官方 child Session descriptor/header；不恢复子成员、不复制配置到 Team，也不暴露 persona、会话 id 或有效权限；
 - **自托管控制面**：候选冻结→验收→晋升→回滚的外部 promoter 全链（P0–P7 演练实证，#102/#122 加固）。
 - **本机只读 Team 接口**：versioned `POST /swarm/v1` 与 browser-safe `dsh-agent-swarm/client`；Host 每次重绑 official live root/Session/workspace/captain Team。该接口仅在 `127.0.0.1` listener、loopback socket 与同源 authority 可验证时可用，不提供用户认证、LAN trust 或任何 write capability。预发布证据只覆盖 README 所列隔离 Profile 流程，不外推为 LAN、多用户或写操作能力。
-- **DSH-native Team 面板**：官方 Session header 的附加入口与官方 Modal/locale/theme；只读展示 Team、成员、任务/attempt、预算、待处理交互和 capability，陈旧/重连/错误显式可见。“打开 Captain Chat”先重验 R2 binding，再通过官方 Session 导航回到同一 root Session；不解析 transcript，也不产生 Control。
+- **DSH-native Team 面板**：主脑保留在官方主 Chat，独立 Captain 与成员显示在 Team 侧栏；只读展示 Team、成员、任务/attempt、预算、待处理交互和 capability，陈旧/重连/错误显式可见。“打开 Captain Chat”先重验 R2 binding，再通过官方 Session 导航到该 Team 的独立 Captain Session；不解析 transcript，也不产生 Control。
 
 ## 文档
 

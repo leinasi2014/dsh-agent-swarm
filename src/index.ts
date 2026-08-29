@@ -70,8 +70,14 @@ export interface Config {
   enabled?: boolean
   /** Continuable `ctx.subagents` Provider used for members. */
   memberProvider?: string
+  /** Default LLM provider for members; explicit per-member input wins. */
+  memberLlmProvider?: string
   /** Optional model override for every member. */
   memberModel?: string
+  /** Default LLM provider for a dedicated Captain. */
+  captainLlmProvider?: string
+  /** Default model for a dedicated Captain. */
+  captainModel?: string
   /** Absolute child delegation depth cap. */
   memberMaxDepth?: number
   /** Registered scheduling Provider name. */
@@ -198,7 +204,10 @@ export interface Config {
 export const Config: z<Config> = z.object({
   enabled: z.boolean().default(true),
   memberProvider: z.string().default('spawn'),
+  memberLlmProvider: z.string(),
   memberModel: z.string(),
+  captainLlmProvider: z.string(),
+  captainModel: z.string(),
   memberMaxDepth: z.natural().default(1),
   schedulerProvider: z.string().default('priority-ready'),
   reviewProvider: z.string().default('manual'),
@@ -266,7 +275,10 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
 
   const runtime = new AgentSwarmRuntime(ctx, {
     memberProvider,
+    ...(config.memberLlmProvider === undefined ? {} : { memberLlmProvider: config.memberLlmProvider }),
     ...(config.memberModel === undefined ? {} : { memberModel: config.memberModel }),
+    ...(config.captainLlmProvider === undefined ? {} : { captainLlmProvider: config.captainLlmProvider }),
+    ...(config.captainModel === undefined ? {} : { captainModel: config.captainModel }),
     memberMaxDepth: config.memberMaxDepth ?? 1,
     schedulerProvider,
     reviewProvider,

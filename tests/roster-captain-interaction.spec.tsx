@@ -159,7 +159,7 @@ describe('roster/Captain interaction slice', () => {
     // It carries the stable circular Captain avatar (no fabricated identity) and the two-level marker.
     expect(captain.querySelector('.swarm-team-workspace__avatar')?.textContent).toBe('C')
     expect(captain.title).toBe(t('captainMainChatTitle'))
-    expect(captain.textContent).toContain(t('captainCurrent'))
+    expect(captain.textContent).toContain(t('captainCurrent', { team: 'Fixture Team' }))
     expect(captain.querySelector('.swarm-team-workspace__captain-badge')?.textContent).toBe(t('captainRole'))
     // It leads the roster before every real member.
     const firstMember = document.querySelector<HTMLButtonElement>('[data-swarm-member-name="海宝"]')!
@@ -194,12 +194,12 @@ describe('roster/Captain interaction slice', () => {
 
     await act(async () => { root.render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />) })
     expect(document.querySelector('.swarm-team-workspace__roster > button .swarm-team-workspace__captain-badge')?.textContent).toBe('Team Captain')
-    expect(document.body.textContent).toContain('Current main Chat')
+    expect(document.body.textContent).toContain('Fixture Team Captain')
     expect(document.body.textContent).toContain('Team Captain')
 
     await act(async () => { root.render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t: tZh } as any)} />) })
     expect(document.querySelector('.swarm-team-workspace__roster > button .swarm-team-workspace__captain-badge')?.textContent).toBe('团队队长')
-    expect(document.body.textContent).toContain('当前主 Chat')
+    expect(document.body.textContent).toContain('Fixture Team 队长')
     expect(document.body.textContent).toContain('团队队长')
     expect(document.body.textContent).toContain('活跃')
 

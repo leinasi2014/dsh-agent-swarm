@@ -13,7 +13,10 @@ import type { AgentSwarmRuntime } from './orchestrator-runtime.js'
 
 export interface RuntimeConfig {
   readonly memberProvider: string
+  readonly memberLlmProvider?: string
   readonly memberModel?: string
+  readonly captainLlmProvider?: string
+  readonly captainModel?: string
   readonly memberMaxDepth: number
   readonly schedulerProvider: string
   readonly reviewProvider: string

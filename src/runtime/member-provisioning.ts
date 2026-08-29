@@ -153,14 +153,16 @@ export class MemberProvisioner {
             // wins; otherwise the member inherits the captain's LLM provider
             // (existing behavior).
             agentOptions: {
-              ...(input.llmProvider !== undefined
-                ? { provider: input.llmProvider }
+              ...((input.llmProvider ?? this.deps.config.memberLlmProvider) !== undefined
+                ? { provider: input.llmProvider ?? this.deps.config.memberLlmProvider }
                 : (captain.options.provider === undefined ? {} : { provider: captain.options.provider })),
               ...(input.model ?? this.deps.config.memberModel ?? captain.options.model) === undefined
                 ? {}
                 : { model: input.model ?? this.deps.config.memberModel ?? captain.options.model },
             },
-            maxDepth: this.deps.config.memberMaxDepth,
+            // Official maxDepth is absolute. A dedicated Captain is one
+            // level below the main Chat, while a legacy Captain is the root.
+            maxDepth: this.deps.config.memberMaxDepth + (captain.session.header.parentSession === undefined ? 0 : 1),
           },
           signal: exec.signal,
         })

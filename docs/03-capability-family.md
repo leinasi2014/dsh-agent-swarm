@@ -43,6 +43,18 @@ Every vertical domain has one canonical owner. The overlay stores linkage/fencin
 
 Official DSH is the only runtime/Profile/Session/preset host. Within Team collaboration, `TeamDomainPort` owns Team state and the project-owned HumanInteraction overlay owns only request/effect/receipt correlation. RPC and UI are projections/commands over those owners. Canvas owns its graph/Director domain but never Team, captain, mail, review, budget or HumanInteraction truth.
 
+### Session identity topology
+
+```text
+Main/root Session (主脑，Team 外)
+  ├─ creates/routes to → Captain Session A ─ owns → Team A ─ recruits → members A1..An
+  └─ creates/routes to → Captain Session B ─ owns → Team B ─ recruits → members B1..Bn
+```
+
+The main/root Session is an orchestrator and user-facing Chat, not a Team captain and not a roster member. Team creation is a two-step ownership transfer: the root requests and starts one dedicated continuable Captain Session, then that Captain creates the authoritative Team with its own Session id as `captainSessionId`. Only after this commit may the Captain inspect the goal and recruit role-specific members through the existing member Provider. The root never calls captain-only mutation paths on the Team. The official Session/subagent descriptors remain the identity authority; `TeamDomainPort` stores only the Captain binding and Team state. Multiple Teams therefore coexist as separate Captain-rooted subtrees without a second global Team state.
+
+Client routing follows the same topology. The main Chat remains selected unless the user explicitly opens a Captain. A Team selector binds to a Team id and its dedicated Captain Session; clicking the Captain invokes the official Session navigation seam for that Session. UI labels, aliases or browser state cannot manufacture or change Captain authority.
+
 ADR-0008 adds a composition boundary, not a new canonical domain. The stable Profile runs a last-known-good artifact and owns admission. Workers write only leased Worktrees. Review Providers evaluate a frozen candidate, an isolated acceptance Profile proves real loading, and an external promotion controller selects or rolls back the stable artifact. Candidate logs, Git branches and Profile health are evidence linked to Team/Job ids, never writable Team truth.
 
 Independently deployable project packages should evolve only when a current Consumer or second Provider requires the split:

@@ -33,6 +33,7 @@ import type { TeamBridgeWorkflowEngine } from './workflow/team-bridge-engine.js'
 import type { RuntimeCreateTaskInput, VerificationCommandTemplate } from './verification-commands.js'
 import { VerificationFamily } from './verification-family.js'
 import { resolveTaskTarget } from './task-targeting.js'
+import { DedicatedCaptainProvisioner } from './dedicated-captain-provisioning.js'
 
 export type { ToolExecutionAuthority }
 export type { ReviewProviderInput, ReviewProviderResult, SchedulerDecision, SchedulerSelectionInput, TeamReviewProvider, TeamSchedulerProvider }
@@ -56,24 +57,19 @@ export class AgentSwarmRuntime extends Service {
   private readonly delivery: MessageDelivery
   private readonly memberProfiles: MemberProfileReader
   private readonly provisioning: MemberProvisioner
+  private readonly captainProvisioning: DedicatedCaptainProvisioner
   private readonly schedulingPass: SchedulingPass
-  /** Single-owner discipline registry and gates (M2-3). */
   readonly orchestration: OrchestrationOwnership
-  /** Per-attempt execution roots (M3-1, issue #100; docs/04 §8l). */
   readonly executionRoots: ExecutionRootSurface
   private closing = false
-
-  /**
-   * The Team bridge workflow engine (M2-1, issue #75), attached by plugin
+  /** The Team bridge workflow engine (M2-1, issue #75), attached by plugin
    * activation when `workflowBridge` is enabled. Registered in an isolated
    * `workflowEngine` service scope — never over the default-scope official
    * engine. Absent (undefined) when the capability is disabled: default
    * behavior is byte-identical to the pre-bridge plugin.
    */
   workflowBridge?: TeamBridgeWorkflowEngine
-
-  /**
-   * The caller-scoped Team task read projection, attached when `jobsBridge`
+  /** The caller-scoped Team task read projection, attached when `jobsBridge`
    * is enabled. It is deliberately not a `ctx.jobs` Provider: it has no
    * producer or task-lifecycle ownership. Absent (undefined) when disabled.
    */
@@ -147,8 +143,10 @@ export class AgentSwarmRuntime extends Service {
         this.requestSchedule(scope, teamId, captain)
       },
     })
+    this.captainProvisioning = new DedicatedCaptainProvisioner(ctx, {
+      config, domain: () => this.domain, trackChild: (parent, childId) => this.trackChild(parent, childId),
+    })
   }
-
   /**
    * Open the official Storage Domain and construct the authoritative Team
    * port over it. Fail closed: an unavailable domain, missing backend route,
@@ -165,14 +163,12 @@ export class AgentSwarmRuntime extends Service {
     })()
     return this.startPromise
   }
-
   private async ensureReady(): Promise<void> {
     if (this.domainInstance === undefined) await this.start()
     if (this.domainInstance === undefined) {
       throw new TeamDomainError('Team orchestrator storage did not start', 'TEAM_RUNTIME_NOT_STARTED')
     }
   }
-
   /** The authoritative Team port. Throws before `start()` resolves. */
   get domain(): TeamDomainPort {
     if (this.domainInstance === undefined) {
@@ -253,21 +249,27 @@ export class AgentSwarmRuntime extends Service {
   }
 
   async create(exec: ToolExecutionAuthority, name: string, description: string): Promise<TeamState> {
-    await this.ensureReady()
-    this.assertOpen()
-    const agent = requireAgent(exec)
-    this.watchJobsScope(this.scopeOf(agent))
-    return await this.domain.createTeam(
-      this.scopeOf(agent), agent.id, name, description, agent.session.events.at(-1)?.seq ?? -1,
-    )
+    await this.ensureReady(); this.assertOpen()
+    const agent = requireAgent(exec), scope = this.scopeOf(agent)
+    this.watchJobsScope(scope)
+    return await this.domain.createTeam(scope, agent.id, name, description, agent.session.events.at(-1)?.seq ?? -1)
   }
 
-  async addMember(
-    exec: ToolExecutionAuthority,
-    input: { name: string; role: string; provider?: string; llmProvider?: string; model?: string; denyTools?: readonly string[] },
-  ): Promise<TeamState['members'][number]> {
-    await this.ensureReady()
-    this.assertOpen()
+  async createWithDedicatedCaptain(exec: ToolExecutionAuthority, name: string, description: string, options: { llmProvider?: string; model?: string } = {}): Promise<TeamState> {
+    await this.ensureReady(); this.assertOpen()
+    const root = requireAgent(exec), scope = this.scopeOf(root)
+    if (root.session.header.parentSession !== undefined || await this.domain.findMembership(scope, root.id) !== undefined)
+      throw new TeamDomainError('managed Team creation requires a top-level main Chat outside every Team', 'TEAM_CAPTAIN_REQUIRED')
+    this.watchJobsScope(scope)
+    return await this.captainProvisioning.create({
+      scope, root, name, description,
+      ...(options.llmProvider === undefined ? {} : { llmProvider: options.llmProvider }),
+      ...(options.model === undefined ? {} : { model: options.model }),
+      signal: exec.signal })
+  }
+
+  async addMember(exec: ToolExecutionAuthority, input: { name: string; role: string; provider?: string; llmProvider?: string; model?: string; denyTools?: readonly string[] }): Promise<TeamState['members'][number]> {
+    await this.ensureReady(); this.assertOpen()
     return await this.provisioning.addMember(exec, input)
   }
 
@@ -511,9 +513,7 @@ export class AgentSwarmRuntime extends Service {
     }
   }
 
-  observeSessionEvent(session: Session, event: SessionEvent): void {
-    this.usage.observeSessionEvent(session, event); this.provisioning.observeSessionEvent(session, event)
-  }
+  observeSessionEvent(session: Session, event: SessionEvent): void { this.usage.observeSessionEvent(session, event); this.provisioning.observeSessionEvent(session, event); this.captainProvisioning.observeSessionEvent(session, event) }
 
   private requestSchedule(scope: TeamScope, teamId: TeamId, captain: Agent): void {
     const key = `${scope}\0${teamId}`
@@ -566,6 +566,7 @@ export class AgentSwarmRuntime extends Service {
   async dispose(): Promise<void> {
     if (this.closing) return
     this.closing = true
+    this.captainProvisioning.dispose()
     this.provisioning.dispose()
     this.schedulingPass.dispose()
     this.idleSince.clear()
@@ -573,6 +574,7 @@ export class AgentSwarmRuntime extends Service {
     const failures: unknown[] = []
     const bound = <T>(label: string, operation: Promise<T>): Promise<void> =>
       boundedSettle(this.ctx, this.config.disposalTimeoutMs, label, operation, failures)
+    await bound('Captain provisioning', this.captainProvisioning.wait())
     await bound('member provisioning', this.provisioning.wait())
     await bound('scheduling', Promise.allSettled(this.scheduling.values()))
     await bound('message delivery', this.delivery.wait())

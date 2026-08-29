@@ -17,7 +17,7 @@ export function assembleAgentSwarmHostRead(
     currentInitiator: () => ctx.agents.currentInitiator(),
     isExactLiveRoot: agent => ctx.agents.get(agent.id) === agent
       && ctx.sessions.get(agent.id) === agent.session
-      && ctx.agents.roots().includes(agent),
+      && (agent.session.header.parentSession !== undefined || ctx.agents.roots().includes(agent)),
     scopeOf: agent => runtime.scopeOf(agent),
     teams: scope => runtime.listTeamAggregates(scope),
     domain: () => runtime.domain,

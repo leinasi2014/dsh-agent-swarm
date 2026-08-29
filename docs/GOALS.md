@@ -17,7 +17,7 @@
 1. 崩溃安全的 Team 聚合、任务 DAG、revision/attempt 围栏、持久邮箱和显式恢复；
 2. 可替换的调度、审核、预算、验证、记忆、Workspace 与远程成员 Provider；
 3. 对官方 Workflow、Jobs、Storage Domain、Workspace、Subagent、问题/审批等能力的兼容消费；
-4. 用户通过 root captain 与团队沟通、修正、提问和审查的持久 HumanInteraction 路径；
+4. 用户可在主脑 Chat 统筹多个 Team，也可切换到某个 Team 的独立 Captain Chat 直接下令；Captain 再按任务招募和管理成员，HumanInteraction 持久记录两条入口的明确路由；
 5. 稳定控制面、冻结候选、独立验收、外部晋升和可验证回滚；
 6. canonical Host/RPC producer、DSH-native UI，以及按合同接入的 Canvas 等宿主消费者；
 7. 插件化发布、迁移、兼容退役、故障恢复和可选的分布式运行。
@@ -43,7 +43,7 @@ UI 是末端投影型 Consumer；无浏览器、无 Canvas 或 UI 卸载时，Te
 
 1. **G0 — 产品与兼容基线**：统一官方单宿主、纯插件、单一 Team/HumanInteraction producer 和跨宿主消费边界；Gate A 与权威文档一致。
 2. **P0 — 可安装 Profile 证明**：从独立插件候选构建不可变本地包，在隔离的官方 DSH `web` Profile 中证明安装、装配、启动、卸载和重载；预发布阶段不宣称公共 npm/Git 安装路径。
-3. **R1–R4 — 首个可用只读纵切**：最小 Host read projection → canonical `/swarm` read RPC → DSH-native Team read UI 与“打开官方 Captain Chat”→ Canvas-native read consumer。该纵切严格按 R1→R2→R3→R4 串行接受，R4 只能在 R3 candidate 已接受后开始；用户沟通进入同一官方 DSH Session，Team/UI 权威边界不变。
+3. **R1–R4 — 首个可用只读纵切**：最小 Host read projection → canonical `/swarm` read RPC → DSH-native Team read UI 与“打开独立 Captain Chat”→ Canvas-native read consumer。该纵切严格按 R1→R2→R3→R4 串行接受，R4 只能在 R3 candidate 已接受后开始；主脑 Session、Captain Session 与成员 Session 始终分离，Team/UI 权威边界不变。
 4. **W1 — operation-scoped durable writes**：在现有 headless Captain Liaison 基础上，逐个操作证明身份、幂等、权威回读、失败窗口和恢复，再开放对应 Message/Control capability。一个未解决 effect 只阻断它自己的写能力。
 5. **W2 — Host/RPC/UI write projection**：I2/I3 的写面和两个 UI 的直接 Controls 只消费 W1 已接受的 capability；问题展示、interrupt 或其他不可判定外部效果继续明确 unavailable/held。
 6. **M6–M9 后续能力族**：真实 Workspace/远程成员、自动记忆与 Skill Evolution、分布式原子 Team/可观测性，以及完整迁移、兼容、包装和发布。

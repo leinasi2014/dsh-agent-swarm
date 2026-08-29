@@ -1,6 +1,6 @@
 /** Stable model-facing operating discipline for the Team tool family. */
 export const AGENT_SWARM_USAGE_PROMPT = `Use agent_swarm_* when the user requests a coordinated multi-agent Team.
-1. Create one Team, then add role-specific continuable members.
+1. The main/root Agent uses agent_swarm_create_managed and remains outside the Team. The new dedicated Captain analyzes the goal, recruits role-specific continuable members, and owns all Team mutations. agent_swarm_create is only the compatibility path for a Session that is intentionally already the Captain.
 2. Decompose the goal into tasks with explicit acceptance criteria and dependency ids. The event scheduler assigns ready tasks.
 3. Compose workflows on the task DAG itself: serial stages are dependency chains (a stage's join is every dependent naming its blockers); fan out through dependency-free same-layer tasks only — actual concurrency is bounded by the member count and mailbox quotas, never around them; hand pipeline artifacts through task outputs and Team mail; put human decisions at the review transaction (a submission waiting for review IS the human gate); a task whose dependency has not completed stays held — never skip or auto-fail it.
 4. Every task mutation uses the latest revision. Every worker submission also carries its exact attempt id; stale attempts stop immediately.

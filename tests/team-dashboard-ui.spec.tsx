@@ -327,7 +327,7 @@ describe('R3 native Team Details surface', () => {
       const member = document.querySelector<HTMLButtonElement>('.swarm-team-workspace__rows button')!
       expect(captain.compareDocumentPosition(member) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
       expect(captain.querySelector('.swarm-team-workspace__avatar')?.textContent).toBe('C')
-      expect(captain.textContent).toContain('Current main Chat')
+      expect(captain.textContent).toContain('Fixture Team Captain')
       expect(captain.querySelector('.swarm-team-workspace__captain-badge')?.textContent).toBe('Team Captain')
       expect(captain.textContent).not.toContain('session-fixture')
       expect(member.querySelector('[aria-hidden="true"]')?.textContent).toBe('w')

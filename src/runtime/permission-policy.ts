@@ -38,6 +38,7 @@ const PLUGIN_TOOL_NAMES = [
   // Code Mode dispatches its inner calls back through pre-execute.  Keeping
   // this transport visible therefore does not widen the inner tool decision.
   'run_code',
+  'agent_swarm_create_managed',
   ...CAPTAIN_ONLY_TOOLS,
   'agent_swarm_claim_task',
   'agent_swarm_create_task',

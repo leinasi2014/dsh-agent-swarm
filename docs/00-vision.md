@@ -8,19 +8,22 @@
 
 ```text
 用户给出目标
-  → Lead 建立或使用 Team
+  → 主脑创建一个独立 Captain Session，并把目标交给 Captain
+  → Captain 建立或使用自己的 Team，按任务决定成员职业、名称、模型与数量
   → Scheduler/Workflow 选择执行策略
   → Member Provider 启动本地或远程成员
   → Workspace Provider 分配共享目录或独立 Worktree
   → Budget Policy 限制 token、请求、重试和时间
   → Task Run 通过 attempt fencing 防止陈旧写入
   → Review Gate 验证交付物
-  → root captain 作为 Human Liaison 处理用户沟通、修正和问题
+  → 用户既可经主脑跨 Team 统筹，也可进入 Captain Chat 直接下令
   → Team Memory 提取决策、经验、成员能力和上下文
   → Host/RPC 投影同一份权威状态与 HumanInteraction receipts
   → DSH-native UI / Canvas-native UI 各自按宿主主题消费同一合同
   → 冻结候选在独立验收 Profile 中启动、验证、晋升或回滚
 ```
+
+主脑、Captain 和成员是三种不同身份。主脑 Session 不进入任何 Team roster，也不因发起建队而获得 Captain 权限；每个 Team 恰好绑定一个独立 Captain Session，只有该 Captain 能招募成员、分派任务和执行 Team 控制。一个主脑可创建和统筹多个 Team，各 Team 的 Captain、成员、任务与 Chat 路由互不混用。DSH-native UI 必须把主脑留在主 Chat 区，把 Team/Captain 放在 Team 侧栏；单击 Captain 通过官方 Session 导航打开该 Captain 的 Chat，而不是给当前主 Chat 改名。
 
 ## 2. Architectural position
 

@@ -107,7 +107,7 @@ export class TeamDashboardSurfaceCoordinator {
     await this.options.controller.openCaptainChat(rootSessionId => {
       const root = rootSessionId as SessionId
       const sessions = this.options.sessions.list.getSnapshot()
-      if (!Object.hasOwn(sessions.byId, root)) throw new Error('Captain owner root is no longer in the official Session list')
+      if (!Object.hasOwn(sessions.byId, root)) throw new Error('Dedicated Captain is no longer in the official Session list')
       this.options.sessions.open(root)
     })
     this.publish(INACTIVE)

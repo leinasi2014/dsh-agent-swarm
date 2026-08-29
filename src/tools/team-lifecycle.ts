@@ -13,7 +13,7 @@ import { register } from './shared.js'
 export function registerCreateTool(ctx: Context, runtime: AgentSwarmRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_create',
-    description: 'Create one durable DSH Team. The calling Agent becomes captain; one captain may own one active Team per workspace.',
+    description: 'Captain-only compatibility path. Create one durable DSH Team owned by the calling Agent.',
     parameters: {
       name: { type: 'string', required: true, description: 'Human-readable Team name.' },
       description: { type: 'string', required: true, description: 'Concrete goal and completion boundary.' },
@@ -34,6 +34,39 @@ export function registerCreateTool(ctx: Context, runtime: AgentSwarmRuntime): vo
       return { team_id: team.id, name: team.name, revision: team.revision }
     },
   }), 'create tool')
+}
+
+/** Main-brain entry: create a Team owned by a new dedicated Captain. */
+export function registerCreateManagedTool(ctx: Context, runtime: AgentSwarmRuntime): void {
+  register(ctx, defineTool({
+    name: 'agent_swarm_create_managed',
+    description: 'Main-agent entry. Create a durable Team with a dedicated Captain Session. The caller stays outside the Team; the Captain analyzes the goal and recruits its own members.',
+    parameters: {
+      name: { type: 'string', required: true, description: 'Human-readable Team name.' },
+      description: { type: 'string', required: true, description: 'Concrete goal and completion boundary.' },
+      captain_llm_provider: { type: 'string', description: 'Optional LLM provider for the dedicated Captain.' },
+      captain_model: { type: 'string', description: 'Optional model for the dedicated Captain.' },
+    },
+    output: {
+      schema: {
+        type: 'object', additionalProperties: false,
+        properties: {
+          team_id: { type: 'string', required: true },
+          name: { type: 'string', required: true },
+          revision: { type: 'number', required: true },
+          captain_session_id: { type: 'string', required: true },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: `Created managed Team "${value.name}" (${value.team_id}) with Captain ${value.captain_session_id}.` }],
+    },
+    async execute(args, exec) {
+      const team = await runtime.createWithDedicatedCaptain(exec, args.name, args.description, {
+        ...(args.captain_llm_provider === undefined ? {} : { llmProvider: args.captain_llm_provider }),
+        ...(args.captain_model === undefined ? {} : { model: args.captain_model }),
+      })
+      return { team_id: team.id, name: team.name, revision: team.revision, captain_session_id: team.captainSessionId }
+    },
+  }), 'managed create tool')
 }
 
 /** `agent_swarm_add_member`. */

@@ -173,7 +173,7 @@ function Workspace({ data, handoffBusy, localeTag, selection, setSelection, t, o
   const selected = selection.kind === 'member' ? data.roster.find(member => member.name === selection.name) : undefined
   return <div className="swarm-team-workspace__columns" aria-label={t('tabs.label')}>
     <section className="swarm-team-workspace__column swarm-team-workspace__roster"><h3 className="swarm-team-workspace__column-title" ref={rosterHeadingRef} tabIndex={-1}>{t('members')}</h3>
-      <CaptainRow busy={handoffBusy} onMainChat={onMainChat} t={t} />
+      <CaptainRow busy={handoffBusy} onMainChat={onMainChat} teamName={data.team.name} t={t} />
       {missingMember === undefined ? null : <p className="swarm-team-workspace__muted swarm-team-workspace__notice" role="status">{t('memberNoLongerAvailable', { name: missingMember })}</p>}
       {selected === undefined ? <MemberRows data={data} onSelect={selectMember} onTrigger={registerMemberTrigger} t={t} /> : <MemberDetail data={data} member={selected} onBack={() => { returnToMembers(selected.name) }} t={t} />}
       {data.truncated.roster ? <p className="swarm-team-workspace__muted swarm-team-workspace__notice">{t('rosterTruncated', { shown: number.format(data.roster.length), total: number.format(data.totals.roster) })}</p> : null}
@@ -183,8 +183,9 @@ function Workspace({ data, handoffBusy, localeTag, selection, setSelection, t, o
   </div>
 }
 
-function CaptainRow({ busy, onMainChat, t }: { readonly busy: boolean; readonly onMainChat: () => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
-  return <button className="swarm-team-workspace__row" type="button" disabled={busy} onClick={onMainChat} title={t('captainMainChatTitle')}><span className="swarm-team-workspace__row-main"><span className="swarm-team-workspace__member-identity"><span className="swarm-team-workspace__avatar" aria-hidden="true">C</span><strong className="swarm-team-workspace__truncate" title={t('captainCurrent')}>{t('captainCurrent')}</strong></span><span className="swarm-team-workspace__captain-badge">{t('captainRole')}</span></span></button>
+function CaptainRow({ busy, onMainChat, teamName, t }: { readonly busy: boolean; readonly onMainChat: () => void; readonly teamName: string; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
+  const label = t('captainCurrent', { team: teamName })
+  return <button className="swarm-team-workspace__row" type="button" disabled={busy} onClick={onMainChat} title={t('captainMainChatTitle')}><span className="swarm-team-workspace__row-main"><span className="swarm-team-workspace__member-identity"><span className="swarm-team-workspace__avatar" aria-hidden="true">C</span><strong className="swarm-team-workspace__truncate" title={label}>{label}</strong></span><span className="swarm-team-workspace__captain-badge">{t('captainRole')}</span></span></button>
 }
 
 function Metric({ label, value }: { readonly label: string; readonly value: string }) { return <div className="swarm-team-workspace__metric"><strong>{value}</strong><span className="swarm-team-workspace__muted">{label}</span></div> }

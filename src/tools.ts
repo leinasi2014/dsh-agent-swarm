@@ -13,6 +13,7 @@ import {
   registerAddMemberTool,
   registerArchiveTool,
   registerCreateTool,
+  registerCreateManagedTool,
   registerInterruptMemberTool,
   registerRemoveMemberTool,
 } from './tools/team-lifecycle.js'
@@ -31,6 +32,7 @@ import { registerAddPrivateMemoryTool, registerListPrivateMemoryTool } from './t
 /** Register the model-facing Consumer over the Team orchestrator runtime. */
 export function registerAgentSwarmTools(ctx: Context, runtime: AgentSwarmRuntime, privateMemory?: MemberPrivateMemoryService): void {
   registerCreateTool(ctx, runtime)
+  registerCreateManagedTool(ctx, runtime)
   registerAddMemberTool(ctx, runtime)
   registerCreateTaskTool(ctx, runtime)
   registerRemoveMemberTool(ctx, runtime)
