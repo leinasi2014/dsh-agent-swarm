@@ -371,11 +371,11 @@ describe('R3 native Team Details surface', () => {
       const captain = document.querySelector<HTMLButtonElement>('.swarm-team-workspace__roster > button')!
       const member = document.querySelector<HTMLButtonElement>('.swarm-team-workspace__rows button')!
       expect(captain.compareDocumentPosition(member) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-      expect(captain.querySelector('[data-swarm-pixel-avatar]')?.getAttribute('data-avatar-state')).toBe('not_generated')
-      expect(captain.textContent).toContain('Fixture Team Captain')
+      expect(captain.querySelector('[data-swarm-pixel-avatar]')?.getAttribute('data-avatar-state')).toBe('generated')
+      expect(captain.textContent).toContain('Fixture Captain')
+      expect(captain.textContent).toContain('Coordinator')
       expect(captain.querySelector('.swarm-team-workspace__captain-badge')?.textContent).toBe('Team Captain')
       expect(captain.textContent).not.toContain('session-fixture')
-      expect(captain.querySelector('[data-swarm-profile-incomplete]')?.textContent).toContain('Onboarding profile not completed')
       const memberAvatar = member.querySelector('[data-swarm-pixel-avatar]')
       expect(memberAvatar?.getAttribute('data-avatar-state')).toBe('not_generated')
       expect(memberAvatar?.getAttribute('aria-label')).toContain('worker')
@@ -416,8 +416,12 @@ describe('R3 native Team Details surface', () => {
     // Management surface is a three-layer projection: identity-incomplete state,
     // real Team data with explicit unavailable goal/announcements and folded budget/capabilities,
     // then folded technical diagnostics — so the sidebar first screen never shows ledger fields.
-    expect(document.querySelector('[data-swarm-management-view] [data-swarm-identity-incomplete]')?.textContent).toContain('Identity & onboarding')
-    expect(document.querySelector('[data-swarm-management-view] [data-swarm-identity-incomplete]')?.textContent).toContain('Onboarding profile not completed')
+    // With a generated bound captain profile the management card shows REAL values and no
+    // unconditional "onboarding incomplete" banner; personality appears only in this detail.
+    expect(document.querySelector('[data-swarm-management-view] [data-swarm-identity-card]')?.textContent).toContain('Fixture Captain')
+    expect(document.querySelector('[data-swarm-management-view] [data-swarm-identity-profession]')?.textContent).toContain('Coordinator')
+    expect(document.querySelector('[data-swarm-management-view] [data-swarm-identity-personality]')?.textContent).toContain('Steady')
+    expect(document.querySelector('[data-swarm-management-view] [data-swarm-identity-incomplete]')).toBeNull()
     // Write/read capabilities that the read-only Host contract does not expose degrade to explicit unavailable.
     expect(view.textContent).toContain('Write capabilities')
     expect(view.textContent).toContain('No human write path is bound to this read-only surface.')

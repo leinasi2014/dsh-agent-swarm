@@ -1,10 +1,9 @@
-/** Honest Team identity card (name / role authoritative, profession / personality placeholder).
+/** Honest Team/Captain identity card.
  *
  *  The authoritative Team/roster domain always carries the technical `name` and `role`, so those are
- *  shown verbatim. Profession and personality are profile fields with NO backend generation authority
- *  yet (the read contract reports `identityCard.not_generated` with reason
- *  `identity_backend_not_implemented`), so this card renders them as an explicit
- *  "not generated / unavailable" placeholder — it never invents a profession or personality.
+ *  shown verbatim. Profession and personality are Captain-declared profile fields: they render their
+ *  real values only when the read contract reports the identity card `generated`, and an explicit
+ *  "not generated / unavailable" placeholder otherwise — never an invented value.
  *  The safe pixel avatar reflects the same honest asset status. */
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SwarmReadAssetStatusV1 } from '../rpc/read-rpc-contract.js'

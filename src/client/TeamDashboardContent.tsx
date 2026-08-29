@@ -240,6 +240,7 @@ function Workspace({ data, handoffBusy, localeTag, selection, setSelection, t, t
   readonly onOpenCaptain: (captainSessionId: string) => void
 }) {
   const number = new Intl.NumberFormat(localeTag())
+  const boundCaptain = teams?.teams.find(team => team.teamId === data.binding.teamId)
   const [missingMember, setMissingMember] = useState<string>()
   const [missingTask, setMissingTask] = useState<string>()
   const [managementOpen, setManagementOpen] = useState(false)
@@ -304,7 +305,7 @@ function Workspace({ data, handoffBusy, localeTag, selection, setSelection, t, t
         <BrowserNav busy={handoffBusy} onMainBrain={onMainBrain} onCaptain={onMainChat} t={t} />
         <ManagementEntry onOpen={() => { setManagementOpen(true) }} t={t} />
         <div className="swarm-team-workspace__roster"><span className="swarm-team-workspace__roster-label" data-swarm-roster-captain-label><span>{t('captainRole')} · 1</span><small>{t('rosterCaptainHint')}</small></span>
-          <CaptainRow busy={handoffBusy} onMainChat={onMainChat} teamName={data.team.name} t={t} />
+          <CaptainRow busy={handoffBusy} captain={boundCaptain} onMainChat={onMainChat} t={t} />
           <hr className="swarm-team-workspace__rail-divider" aria-hidden="true" data-swarm-rail-divider />
           <h3 className="swarm-team-workspace__column-title swarm-team-workspace__roster-label" ref={rosterHeadingRef} tabIndex={-1} data-swarm-roster-members-label><span>{t('members')} · {number.format(data.totals.roster)}</span><small>{t('rosterMembersHint')}</small></h3>
         {missingMember === undefined ? null : <p className="swarm-team-workspace__muted swarm-team-workspace__notice" role="status">{t('memberNoLongerAvailable', { name: missingMember })}</p>}
@@ -379,7 +380,14 @@ function ManagementView({ data, teams, announcements, diagnostics, localeTag, nu
     <div className="swarm-team-workspace__management-head"><h3 className="swarm-team-workspace__column-title" ref={headingRef} tabIndex={-1}>{t('managementTitle')}</h3><Button size="sm" variant="ghost" onClick={onBack}>{t('managementBack')}</Button></div>
     <p className="swarm-team-workspace__muted">{t('managementDescription')}</p>
     <BoundTeamIdentityCard data={data} teams={teams} includePersonality t={t} />
-    <section className="swarm-team-workspace__unavailable-card" data-swarm-identity-incomplete><strong>{t('identityStatus')}</strong><p className="swarm-team-workspace__muted">{t('profileIncomplete')}</p></section>
+    {(() => {
+      // The onboarding status reflects only the REAL bound captain identity state — never a
+      // unconditional "incomplete" banner next to an already generated profile.
+      const state = teams?.teams.find(team => team.teamId === data.binding.teamId)?.identityCard.state
+      if (state === 'unavailable') return <section className="swarm-team-workspace__unavailable-card" data-swarm-identity-incomplete data-swarm-identity-state="unavailable"><strong>{t('identityStatus')}</strong><p className="swarm-team-workspace__muted">{t('profileUnavailable')}</p></section>
+      if (state === 'generated') return null
+      return <section className="swarm-team-workspace__unavailable-card" data-swarm-identity-incomplete data-swarm-identity-state={state ?? 'loading'}><strong>{t('identityStatus')}</strong><p className="swarm-team-workspace__muted">{t('profileIncomplete')}</p></section>
+    })()}
     <section className="swarm-team-workspace__unavailable-card" data-swarm-goal-unavailable><strong>{t('goal')}</strong><p className="swarm-team-workspace__muted">{t('goalUnavailable')}</p></section>
     <AnnouncementSection announcements={announcements} localeTag={localeTag} t={t} />
     <details className="swarm-team-workspace__collapsible"><summary>{t('writeCapabilities')}</summary><p className="swarm-team-workspace__muted">{t('writeUnavailable')}</p><CapabilityRows capabilities={data.capabilities} t={t} /></details>
@@ -393,15 +401,23 @@ function ManagementView({ data, teams, announcements, diagnostics, localeTag, nu
  *  `unavailable` response keeps its explicit reason. Never placeholders, never fabricated posts. */
 function AnnouncementSection({ announcements, localeTag, t }: { readonly announcements: SwarmReadCaptainAnnouncementsV1 | undefined; readonly localeTag: () => 'zh-CN' | 'en-US'; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
   const time = new Intl.DateTimeFormat(localeTag(), { dateStyle: 'medium', timeStyle: 'short' })
+  // Fail-safe timestamp: a malformed/non-finite createdAt must never throw during render.
+  const formatTime = (createdAt: number): string | undefined => {
+    if (!Number.isFinite(createdAt)) return undefined
+    const date = new Date(createdAt)
+    if (Number.isNaN(date.getTime())) return undefined
+    try { return time.format(date) } catch { return undefined }
+  }
   const state = announcements?.state ?? 'loading'
   if (announcements !== undefined && announcements.state === 'available') {
     return <section className="swarm-team-workspace__unavailable-card" data-swarm-announcements-state="available" data-swarm-announcement-count={announcements.entries.length}>
       <strong>{t('announcements')}</strong>
       {announcements.entries.length === 0
         ? <p className="swarm-team-workspace__muted" data-swarm-announcements-empty>{t('announcementsEmpty')}</p>
-        : <ul className="swarm-team-workspace__rows" data-swarm-announcement-entries>{announcements.entries.map(entry => (
-          <li key={entry.id}><span className="swarm-team-workspace__capability" data-swarm-announcement-entry={entry.id}><span className="swarm-team-workspace__truncate" title={entry.text}>{entry.text}</span><time dateTime={new Date(entry.createdAt).toISOString()}>{time.format(new Date(entry.createdAt))}</time></span></li>
-        ))}</ul>}
+        : <ul className="swarm-team-workspace__rows" data-swarm-announcement-entries>{announcements.entries.map(entry => {
+          const formatted = formatTime(entry.createdAt)
+          return <li key={entry.id}><span className="swarm-team-workspace__capability" data-swarm-announcement-entry={entry.id}><span className="swarm-team-workspace__truncate" title={entry.text}>{entry.text}</span>{formatted === undefined ? null : <time dateTime={new Date(entry.createdAt).toISOString()}>{formatted}</time>}</span></li>
+        })}</ul>}
     </section>
   }
   return <section className="swarm-team-workspace__unavailable-card" data-swarm-announcement-unavailable data-swarm-announcements-state={state}>
@@ -453,9 +469,12 @@ function CapabilityRows({ capabilities, t }: { readonly capabilities: SwarmHostR
   ))}</ul>
 }
 
-function CaptainRow({ busy, onMainChat, teamName, t }: { readonly busy: boolean; readonly onMainChat: () => void; readonly teamName: string; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
-  const label = t('captainCurrent', { team: teamName })
-  return <button className="swarm-team-workspace__row swarm-team-workspace__captain-hero" type="button" disabled={busy} onClick={onMainChat} title={t('captainMainChatTitle')}><span className="swarm-team-workspace__avatar"><SafePixelAvatar seed={teamName} asset={NOT_GENERATED_AVATAR} name={label} t={t} /></span><span className="swarm-team-workspace__member-copy"><strong className="swarm-team-workspace__truncate" title={label}>{label}</strong><small className="swarm-team-workspace__profile-incomplete" data-swarm-profile-incomplete>{t('profileIncomplete')}</small></span><span className="swarm-team-workspace__member-side"><span className="swarm-team-workspace__captain-badge">{t('captainRole')}</span><small className="swarm-team-workspace__captain-action" data-swarm-captain-action>{t('captainOpenAction')}</small></span></button>
+function CaptainRow({ busy, captain, onMainChat, t }: { readonly busy: boolean; readonly captain: { readonly name: string; readonly displayName?: string; readonly profession?: string; readonly avatar: SwarmReadAssetStatusV1; readonly identityCard: SwarmReadAssetStatusV1 } | undefined; readonly onMainChat: () => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
+  const generated = captain?.identityCard.state === 'generated'
+  const displayName = generated && captain?.displayName !== undefined ? captain.displayName : captain?.name ?? ''
+  const label = generated && displayName !== '' ? displayName : t('captainCurrent', { team: captain?.name ?? '' })
+  const profession = generated && captain?.profession !== undefined ? captain.profession : t('profileIncomplete')
+  return <button className="swarm-team-workspace__row swarm-team-workspace__captain-hero" type="button" disabled={busy} onClick={onMainChat} title={t('captainMainChatTitle')} data-swarm-captain-row data-swarm-identity-state={captain?.identityCard.state ?? 'not_generated'}><span className="swarm-team-workspace__avatar"><SafePixelAvatar seed={captain?.name ?? ''} asset={captain?.avatar ?? NOT_GENERATED_AVATAR} name={label} t={t} /></span><span className="swarm-team-workspace__member-copy"><strong className="swarm-team-workspace__truncate" data-swarm-captain-visible-name={label} title={label}>{label}</strong><small className="swarm-team-workspace__muted swarm-team-workspace__member-role swarm-team-workspace__truncate" data-swarm-captain-profession={profession}>{profession}</small></span><span className="swarm-team-workspace__member-side"><span className="swarm-team-workspace__captain-badge">{t('captainRole')}</span><small className="swarm-team-workspace__captain-action" data-swarm-captain-action>{t('captainOpenAction')}</small></span></button>
 }
 
 /** First-level right-rail Captain/team list from the read-only Team enumeration (real aggregates,
@@ -505,7 +524,8 @@ function BoundTeamIdentityCard({ data, teams, includePersonality = false, t }: {
 }) {
   const bound = teams?.teams.find(team => team.teamId === data.binding.teamId)
   const generated = bound?.identityCard.state === 'generated'
-  return <TeamIdentityCard name={data.team.name} role={t('captainRole')}
+  const displayName = generated && bound?.displayName !== undefined ? bound.displayName : data.team.name
+  return <TeamIdentityCard name={displayName} role={t('captainRole')}
     avatar={bound?.avatar ?? { state: 'not_generated', reason: 'avatar_backend_not_implemented' } as const}
     identityCard={bound?.identityCard ?? { state: 'not_generated', reason: 'identity_backend_not_implemented' } as const}
     {...(generated && bound?.profession !== undefined ? { profession: bound.profession } : {})}
