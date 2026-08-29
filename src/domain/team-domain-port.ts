@@ -68,11 +68,12 @@ export interface TeamAggregateStore {
   readonly backend: string
   createUniqueForCaptain(scope: TeamScope, state: TeamState): Promise<void>
   /**
-   * Atomic identity-addressed managed-Team creation: enforces at most one
-   * active Team per managed origin in a scope through the Storage Domain's
-   * atomic origin claim (not per-instance locks). Returns the WINNING Team — the
-   * caller's own when it won the claim, or a concurrent winner read back by
-   * origin otherwise (never throws on an origin conflict).
+   * Atomic identity-addressed managed-Team creation: enforces at most one active
+   * Team per managed origin in a scope through the shared per-scope lock seam
+   * (one domain-wide lock shared across store instances — same-process, not
+   * per-instance locks). Returns the WINNING Team — the caller's own when it won,
+   * or an existing winner read back by origin otherwise (never throws on an
+   * origin conflict).
    */
   createManaged(scope: TeamScope, state: TeamState): Promise<TeamState>
   read(scope: TeamScope, teamId: TeamId): Promise<TeamState | undefined>

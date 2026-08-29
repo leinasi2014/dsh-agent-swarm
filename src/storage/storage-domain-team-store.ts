@@ -19,10 +19,32 @@ import type {
   TeamTransaction,
 } from '../domain/team-domain-port.js'
 import type { TeamId, TeamState } from '../domain/types.js'
-import { TEAM_DOMAIN_NAME, teamDomainSpec, teamRecordOf, type ManagedOriginClaim } from './team-spec.js'
+import { TEAM_DOMAIN_NAME, teamDomainSpec, teamRecordOf } from './team-spec.js'
 
 function closed(): TeamDomainError {
   return new TeamDomainError('Team aggregate store is closed', 'TEAM_STORE_CLOSED')
+}
+
+/**
+ * Scope-serialization lock chains SHARED across every store instance that holds
+ * the SAME open Storage Domain handle. Keyed weakly by the domain so two
+ * independently-constructed `StorageDomainTeamStore` instances over one durable
+ * root (same process) serialize managed-origin creation against each other —
+ * reusing the project's existing per-scope lock seam, with no new persistence
+ * layer and no CAS primitive. Process-local by design (the official Storage
+ * Domain backend is explicitly single-process); a cross-process deployment is a
+ * later Store Provider's concern, and restart reuse is carried by the persisted
+ * `managedOrigin` on the Team aggregate, not by this lock.
+ */
+const sharedScopeLocks = new WeakMap<Domain<typeof teamDomainSpec>, Map<string, Promise<void>>>()
+
+function scopeLocksFor(domain: Domain<typeof teamDomainSpec>): Map<string, Promise<void>> {
+  let locks = sharedScopeLocks.get(domain)
+  if (locks === undefined) {
+    locks = new Map<string, Promise<void>>()
+    sharedScopeLocks.set(domain, locks)
+  }
+  return locks
 }
 
 async function withLock<T>(locks: Map<string, Promise<void>>, key: string, operation: () => Promise<T>): Promise<T> {
@@ -45,12 +67,12 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
   readonly backend = 'storage-domain'
 
   private readonly teams: ReturnType<Domain<typeof teamDomainSpec>['table']>
-  private readonly origins: ReturnType<Domain<typeof teamDomainSpec>['table']>
   private readonly receipts: ReturnType<Domain<typeof teamDomainSpec>['table']>
   private readonly teamLocks = new Map<string, Promise<void>>()
   private readonly scopeLocks = new Map<string, Promise<void>>()
   private readonly waiters = new Map<string, Set<() => void>>()
   private readonly stopListening: () => void
+  private readonly domain: Domain<typeof teamDomainSpec>
   private storeClosed = false
 
   constructor(
@@ -58,8 +80,8 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
     domain: Domain<typeof teamDomainSpec>,
     private readonly now: () => number = Date.now,
   ) {
+    this.domain = domain
     this.teams = domain.table('teams')
-    this.origins = domain.table('managed_origins')
     this.receipts = domain.table('migration_receipts')
     this.stopListening = ctx.on('domain/changed', change => this.onChange(change))
   }
@@ -135,18 +157,18 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
   /**
    * Atomic managed-Team creation for identity-addressed `agent_swarm_create_managed`.
    *
-   * The at-most-one-active-Team-per-managed-origin guarantee is enforced by the
-   * Storage Domain write chain — an atomic origin Claim keyed by
-   * `${scope}\u0000${managedOrigin}` is arbitrated with `update` (serialized on
-   * the domain's single write chain, SHARED by every store instance), NOT by the
-   * per-instance `scopeLocks` map. This works across independently-constructed
-   * store instances sharing the same domain handle: exactly ONE caller's Team
-   * wins the claim; every other caller rolls back its transient candidate and
-   * reads the winner's persisted aggregate back by `managedOrigin`.
+   * The at-most-one-active-Team-per-managed-origin guarantee is held by the
+   * per-SCOPE lock shared across every store instance over the SAME open Storage
+   * Domain handle (see `scopeLocksFor`) — the project's existing per-scope lock
+   * seam, NOT per-instance `scopeLocks` and NOT a new persistence layer. Inside
+   * the lock: an existing ACTIVE Team with this `managedOrigin` is the winner and
+   * is read back (never throwing); otherwise this (sole) holder publishes its own
+   * Team. Only the winner ever publishes, so there is no transient loser publish
+   * and no duplicate on a crash between decision and publish. Restart reuse relies
+   * on the persisted `managedOrigin` on the Team, not on this in-process lock.
    *
-   * @returns the winning Team — either this caller's own (when it won the
-   *   claim) or a concurrent winner's (read back by origin). Never throws for an
-   *   origin conflict.
+   * @returns the winning Team — this caller's own (when it won the lock) or an
+   *   existing winner read back by origin. Never throws for an origin conflict.
    */
   async createManaged(scope: TeamScope, state: TeamState): Promise<TeamState> {
     if (this.storeClosed) throw closed()
@@ -154,28 +176,18 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
       await this.createUniqueForCaptain(scope, state)
       return state
     }
-    const originKey = `${scope}\u0000${state.managedOrigin}`
-    // 1) Persist this candidate aggregate first so the eventual winner's Team is
-    //    durable (and visible on the shared write chain) before a loser reads it.
-    await this.teams.put(state.id, this.envelope(scope, state))
-    this.notify(state.id)
-    // 2) Seed the origin Claim with an empty sentinel (idempotent across stores).
-    if (this.origins.get(originKey) === undefined) {
-      await this.origins.put(originKey, { teamId: '' })
-    }
-    // 3) Atomic put-if-absent on the domain write chain: exactly one caller's
-    //    Team id wins; the loser's update returns the winner unchanged.
-    const claim = await this.origins.update(originKey, (current: ManagedOriginClaim) =>
-      current.teamId === '' ? { teamId: String(state.id) } : current,
-    )
-    if (claim.teamId === String(state.id)) return state
-    // 4) We lost: roll back our transient candidate and return the winner.
-    await this.teams.delete(state.id)
-    const winner = this.validate(this.teams.get(claim.teamId as TeamId), claim.teamId as TeamId)
-    if (winner === undefined) {
-      throw new TeamDomainError(`managed origin winner Team "${claim.teamId}" is missing`, 'TEAM_NOT_FOUND')
-    }
-    return winner
+    return await withLock(scopeLocksFor(this.domain), scope, async () => {
+      for (const record of this.teams.entries()) {
+        if (record[1].workspace !== scope) continue
+        if (record[1].team.phase === 'active' && record[1].team.managedOrigin === state.managedOrigin) {
+          const winner = this.validate(record[1], record[0])
+          if (winner !== undefined) return winner
+        }
+      }
+      await this.teams.put(state.id, this.envelope(scope, state))
+      this.notify(state.id)
+      return state
+    })
   }
 
   async read(scope: TeamScope, teamId: TeamId): Promise<TeamState | undefined> {
