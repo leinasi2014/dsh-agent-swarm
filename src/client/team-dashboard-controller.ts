@@ -4,6 +4,7 @@ import type {
   SwarmReadCapabilitiesV1,
   SwarmReadCaptainAnnouncementsV1,
   SwarmReadCaptainDiagnosticsV1,
+  SwarmReadCaptainMembersV1,
   SwarmReadCaptainSectionMethod,
   SwarmReadPageKind,
   SwarmReadPageV1,
@@ -19,6 +20,7 @@ export interface TeamDashboardData {
   readonly teams: SwarmReadTeamsV1
   readonly captainAnnouncements: SwarmReadCaptainAnnouncementsV1
   readonly captainDiagnostics: SwarmReadCaptainDiagnosticsV1
+  readonly captainMembers: SwarmReadCaptainMembersV1
 }
 
 export interface TeamDashboardState {
@@ -207,12 +209,14 @@ export class TeamDashboardController {
     // Captain board sections are real reads against the same binding; today the host answers
     // announcements with an explicit bounded unavailable, never a stub or fabricated posts.
     const sectionTarget = { rootSessionId: binding.binding.rootSessionId, teamId: binding.binding.teamId }
-    const [captainAnnouncements, captainDiagnostics] = await Promise.all([
+    const [captainAnnouncements, captainDiagnostics, captainMembers] = await Promise.all([
       this.readCaptainSection('captainAnnouncements', sectionTarget, signal) as Promise<SwarmReadCaptainAnnouncementsV1>,
       this.readCaptainSection('captainDiagnostics', sectionTarget, signal) as Promise<SwarmReadCaptainDiagnosticsV1>,
+      this.readCaptainSection('captainMembers', sectionTarget, signal) as Promise<SwarmReadCaptainMembersV1>,
     ])
     assertSectionBinding(binding, captainAnnouncements.binding, 'captainAnnouncements')
     assertSectionBinding(binding, captainDiagnostics.binding, 'captainDiagnostics')
+    assertSectionBinding(binding, captainMembers.binding, 'captainMembers')
     const [tasks, attempts, pendingInteractions] = await Promise.all([
       this.readAllPages('tasks', target, snapshot, signal),
       this.readAllPages('attempts', target, snapshot, signal),
@@ -224,6 +228,7 @@ export class TeamDashboardController {
       teams,
       captainAnnouncements,
       captainDiagnostics,
+      captainMembers,
     }
   }
 
@@ -231,8 +236,8 @@ export class TeamDashboardController {
     method: SwarmReadCaptainSectionMethod,
     target: { readonly rootSessionId: string; readonly teamId: string },
     signal: AbortSignal,
-  ): Promise<SwarmReadCaptainAnnouncementsV1 | SwarmReadCaptainDiagnosticsV1> {
-    return await this.value({ schemaVersion: 1, method, target }, signal) as SwarmReadCaptainAnnouncementsV1 | SwarmReadCaptainDiagnosticsV1
+  ): Promise<SwarmReadCaptainAnnouncementsV1 | SwarmReadCaptainDiagnosticsV1 | SwarmReadCaptainMembersV1> {
+    return await this.value({ schemaVersion: 1, method, target }, signal) as SwarmReadCaptainAnnouncementsV1 | SwarmReadCaptainDiagnosticsV1 | SwarmReadCaptainMembersV1
   }
 
   private async readTeams(rootSessionId: string, signal: AbortSignal): Promise<SwarmReadTeamsV1> {

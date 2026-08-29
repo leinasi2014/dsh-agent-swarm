@@ -2,7 +2,7 @@ import { Button, IconCloseOutline16, IconRefreshOutline16, StateDot, type StateD
 import { useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SwarmHostReadProjectionV1 } from '../host/host-read-types.js'
-import type { SwarmReadAssetStatusV1, SwarmReadCaptainAnnouncementsV1, SwarmReadCaptainDiagnosticsV1, SwarmReadTeamsV1 } from '../rpc/read-rpc-contract.js'
+import type { SwarmReadAssetStatusV1, SwarmReadCaptainAnnouncementsV1, SwarmReadCaptainDiagnosticsV1, SwarmReadCaptainMembersV1, SwarmReadTeamsV1 } from '../rpc/read-rpc-contract.js'
 import type { TeamDashboardController, TeamDashboardState } from './team-dashboard-controller.js'
 import type { TeamDashboardSurfaceCoordinator } from './team-dashboard-surface-coordinator.js'
 import { TEAM_DASHBOARD_NS, type TeamDashboardKey } from './team-dashboard-locales.js'
@@ -165,7 +165,7 @@ export function TeamDashboardContent({ controller, coordinator, descriptionId, h
     <main className="swarm-team-workspace__body">
       {data === undefined
         ? <Empty state={state} controller={controller} t={t} teams={state.data?.teams} onMainBrain={onMainBrain} onOpenCaptain={coordinator.openTeamCaptain} />
-        : <><Status state={state} t={t} /><Workspace data={data} handoffBusy={handoffBusy} localeTag={localeTag} selection={selection} setSelection={setSelection} t={t} teams={state.data?.teams} announcements={state.data?.captainAnnouncements} diagnostics={state.data?.captainDiagnostics} onMainBrain={onMainBrain} onMainChat={handoff} onOpenCaptain={coordinator.openTeamCaptain} /></>}
+        : <><Status state={state} t={t} /><Workspace data={data} handoffBusy={handoffBusy} localeTag={localeTag} selection={selection} setSelection={setSelection} t={t} teams={state.data?.teams} announcements={state.data?.captainAnnouncements} diagnostics={state.data?.captainDiagnostics} memberAssets={state.data?.captainMembers} onMainBrain={onMainBrain} onMainChat={handoff} onOpenCaptain={coordinator.openTeamCaptain} /></>}
     </main>
     {data === undefined ? null : <footer className="swarm-team-workspace__footer">
       <Button size="sm" variant="ghost" icon={<IconRefreshOutline16 />} onClick={() => { controller.refresh() }}>{t('refresh')}</Button>
@@ -223,7 +223,7 @@ function Empty({ state, controller, t, teams, onMainBrain, onOpenCaptain }: {
   </section>
 }
 
-function Workspace({ data, handoffBusy, localeTag, selection, setSelection, t, teams, announcements, diagnostics, onMainBrain, onMainChat, onOpenCaptain }: {
+function Workspace({ data, handoffBusy, localeTag, selection, setSelection, t, teams, announcements, diagnostics, memberAssets, onMainBrain, onMainChat, onOpenCaptain }: {
   readonly data: SwarmHostReadProjectionV1
   readonly handoffBusy: boolean
   readonly localeTag: () => 'zh-CN' | 'en-US'
@@ -233,6 +233,7 @@ function Workspace({ data, handoffBusy, localeTag, selection, setSelection, t, t
   readonly teams: SwarmReadTeamsV1 | undefined
   readonly announcements: SwarmReadCaptainAnnouncementsV1 | undefined
   readonly diagnostics: SwarmReadCaptainDiagnosticsV1 | undefined
+  readonly memberAssets: SwarmReadCaptainMembersV1 | undefined
   readonly onMainBrain: () => void
   readonly onMainChat: () => void
   readonly onOpenCaptain: (captainSessionId: string) => void
@@ -306,7 +307,7 @@ function Workspace({ data, handoffBusy, localeTag, selection, setSelection, t, t
           <hr className="swarm-team-workspace__rail-divider" aria-hidden="true" data-swarm-rail-divider />
           <h3 className="swarm-team-workspace__column-title swarm-team-workspace__roster-label" ref={rosterHeadingRef} tabIndex={-1} data-swarm-roster-members-label><span>{t('members')} · {number.format(data.totals.roster)}</span><small>{t('rosterMembersHint')}</small></h3>
         {missingMember === undefined ? null : <p className="swarm-team-workspace__muted swarm-team-workspace__notice" role="status">{t('memberNoLongerAvailable', { name: missingMember })}</p>}
-        <div className="swarm-team-workspace__members">{selected === undefined ? <MemberRows data={data} onSelect={selectMember} onTrigger={registerMemberTrigger} t={t} /> : <MemberDetail data={data} member={selected} onBack={() => { returnToMembers(selected.name) }} t={t} />}</div>
+        <div className="swarm-team-workspace__members">{selected === undefined ? <MemberRows data={data} memberAssets={memberAssets} onSelect={selectMember} onTrigger={registerMemberTrigger} t={t} /> : <MemberDetail data={data} member={selected} memberAssets={memberAssets} onBack={() => { returnToMembers(selected.name) }} t={t} />}</div>
         {data.truncated.roster ? <p className="swarm-team-workspace__muted swarm-team-workspace__notice">{t('rosterTruncated', { shown: number.format(data.roster.length), total: number.format(data.totals.roster) })}</p> : null}
       </div>
       <section className="swarm-team-workspace__unavailable-card" data-swarm-goal-unavailable><strong>{t('goal')}</strong><p className="swarm-team-workspace__muted">{t('goalUnavailable')}</p></section>
@@ -486,21 +487,33 @@ function BoundTeamIdentityCard({ data, teams, t }: {
 
 function Metric({ label, value }: { readonly label: string; readonly value: string }) { return <div className="swarm-team-workspace__metric"><strong>{value}</strong><span className="swarm-team-workspace__muted">{label}</span></div> }
 
-function MemberRows({ data, onSelect, onTrigger, t }: { readonly data: SwarmHostReadProjectionV1; readonly onSelect: (name: string) => void; readonly onTrigger: (name: string, element: HTMLButtonElement | null) => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
+/** Real member identity card data comes from the captainMembers read keyed by the authoritative
+ *  roster name; a missing row keeps the honest not-generated placeholder, never a fabricated asset. */
+function memberAssetOf(memberAssets: SwarmReadCaptainMembersV1 | undefined, name: string): { readonly avatar: SwarmReadAssetStatusV1; readonly identityCard: SwarmReadAssetStatusV1 } {
+  const row = memberAssets?.members.find(candidate => candidate.name === name)
+  return {
+    avatar: row?.avatar ?? NOT_GENERATED_AVATAR,
+    identityCard: row?.identityCard ?? { state: 'not_generated', reason: 'identity_backend_not_implemented' },
+  }
+}
+
+function MemberRows({ data, memberAssets, onSelect, onTrigger, t }: { readonly data: SwarmHostReadProjectionV1; readonly memberAssets: SwarmReadCaptainMembersV1 | undefined; readonly onSelect: (name: string) => void; readonly onTrigger: (name: string, element: HTMLButtonElement | null) => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
   return <ul className="swarm-team-workspace__rows" data-swarm-member-rows>{data.roster.length === 0 ? <li className="swarm-team-workspace__muted">{t('empty')}</li> : data.roster.map(member => {
     const activity = deriveMemberActivity(data, member.name, member.phase)
     const activityText = memberActivityLabel(activity, t)
     const lifecycleText = `${t('memberLifecycle')}: ${enumLabel(member.phase, t)}`
-    return <li key={member.name}><button className="swarm-team-workspace__row" data-swarm-member-name={member.name} data-swarm-member-role={member.role} data-swarm-member-lifecycle={member.phase} data-swarm-member-activity={activity.state} type="button" ref={element => { onTrigger(member.name, element) }} onClick={() => { onSelect(member.name) }}><span className="swarm-team-workspace__avatar"><SafePixelAvatar seed={member.name} asset={NOT_GENERATED_AVATAR} name={member.name} t={t} /></span><span className="swarm-team-workspace__member-copy"><strong className="swarm-team-workspace__truncate" title={member.name}>{member.name}</strong><small className="swarm-team-workspace__muted swarm-team-workspace__member-role swarm-team-workspace__truncate" title={member.role}>{member.role}</small></span><span className="swarm-team-workspace__member-side"><span className="swarm-team-workspace__muted swarm-team-workspace__member-activity" data-swarm-member-visible-activity={activityText} title={activityText}><StateDot state={memberActivityDot(activity.state)} />{activityText}</span><small className="swarm-team-workspace__muted" data-swarm-member-visible-lifecycle={lifecycleText} title={lifecycleText}>{lifecycleText}</small><small className="swarm-team-workspace__profile-incomplete" data-swarm-profile-incomplete>{t('profileIncomplete')}</small></span></button></li>
+    const asset = memberAssetOf(memberAssets, member.name)
+    return <li key={member.name}><button className="swarm-team-workspace__row" data-swarm-member-name={member.name} data-swarm-member-role={member.role} data-swarm-member-lifecycle={member.phase} data-swarm-member-activity={activity.state} type="button" ref={element => { onTrigger(member.name, element) }} onClick={() => { onSelect(member.name) }}><span className="swarm-team-workspace__avatar"><SafePixelAvatar seed={member.name} asset={asset.avatar} name={member.name} t={t} /></span><span className="swarm-team-workspace__member-copy"><strong className="swarm-team-workspace__truncate" title={member.name}>{member.name}</strong><small className="swarm-team-workspace__muted swarm-team-workspace__member-role swarm-team-workspace__truncate" title={member.role}>{member.role}</small></span><span className="swarm-team-workspace__member-side"><span className="swarm-team-workspace__muted swarm-team-workspace__member-activity" data-swarm-member-visible-activity={activityText} title={activityText}><StateDot state={memberActivityDot(activity.state)} />{activityText}</span><small className="swarm-team-workspace__muted" data-swarm-member-visible-lifecycle={lifecycleText} title={lifecycleText}>{lifecycleText}</small><small className="swarm-team-workspace__profile-incomplete" data-swarm-profile-incomplete data-swarm-identity-state={asset.identityCard.state}>{asset.identityCard.state === 'generated' ? t('identityCardTitle') : t('profileIncomplete')}</small></span></button></li>
   })}</ul>
 }
 
-function MemberDetail({ data, member, onBack, t }: { readonly data: SwarmHostReadProjectionV1; readonly member: SwarmHostReadProjectionV1['roster'][number]; readonly onBack: () => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
+function MemberDetail({ data, member, memberAssets, onBack, t }: { readonly data: SwarmHostReadProjectionV1; readonly member: SwarmHostReadProjectionV1['roster'][number]; readonly memberAssets: SwarmReadCaptainMembersV1 | undefined; readonly onBack: () => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
   const activity = deriveMemberActivity(data, member.name, member.phase)
   const current = isCurrentMemberWork(activity)
+  const asset = memberAssetOf(memberAssets, member.name)
   const headingRef = useRef<HTMLHeadingElement>(null)
   useLayoutEffect(() => { headingRef.current?.focus() }, [])
-  return <div data-swarm-member-detail><h4 className="swarm-team-workspace__column-title swarm-team-workspace__truncate" ref={headingRef} tabIndex={-1} title={member.name}>{t('memberDetailHeading', { name: member.name })}</h4><Button size="sm" variant="ghost" onClick={onBack}>{t('backToMembers')}</Button><div className="swarm-team-workspace__identity-header" data-swarm-member-detail-identity><span className="swarm-team-workspace__avatar"><SafePixelAvatar seed={member.name} asset={NOT_GENERATED_AVATAR} name={member.name} t={t} /></span><span className="swarm-team-workspace__member-copy"><strong className="swarm-team-workspace__truncate" title={member.name}>{member.name}</strong><small className="swarm-team-workspace__member-role swarm-team-workspace__truncate" title={member.role}>{member.role}</small></span></div><p className="swarm-team-workspace__profile-incomplete" data-swarm-profile-incomplete>{t('profileIncomplete')}</p><Facts rows={[[t('memberName'), member.name], [t('memberRole'), member.role], [t('memberLifecycle'), enumLabel(member.phase, t)], [t('profileProfession'), t('profileNotGenerated')], [t('profilePersonality'), t('profileNotGenerated')], [t('profileModel'), t('profileNotGenerated')], [t('memberTask'), current ? activity.task?.subject ?? t('hostUnavailable') : t('memberNone')], [t('memberAttempt'), activity.attempt === undefined ? t('memberNone') : current ? enumLabel(activity.attempt.phase, t) : t('memberRecentAttempt', { phase: enumLabel(activity.attempt.phase, t) })]]} /></div>
+  return <div data-swarm-member-detail><h4 className="swarm-team-workspace__column-title swarm-team-workspace__truncate" ref={headingRef} tabIndex={-1} title={member.name}>{t('memberDetailHeading', { name: member.name })}</h4><Button size="sm" variant="ghost" onClick={onBack}>{t('backToMembers')}</Button><div className="swarm-team-workspace__identity-header" data-swarm-member-detail-identity><span className="swarm-team-workspace__avatar"><SafePixelAvatar seed={member.name} asset={asset.avatar} name={member.name} t={t} /></span><span className="swarm-team-workspace__member-copy"><strong className="swarm-team-workspace__truncate" title={member.name}>{member.name}</strong><small className="swarm-team-workspace__member-role swarm-team-workspace__truncate" title={member.role}>{member.role}</small></span></div><p className="swarm-team-workspace__profile-incomplete" data-swarm-profile-incomplete data-swarm-identity-state={asset.identityCard.state}>{asset.identityCard.state === 'generated' ? t('identityCardTitle') : t('profileIncomplete')}</p><Facts rows={[[t('memberName'), member.name], [t('memberRole'), member.role], [t('memberLifecycle'), enumLabel(member.phase, t)], [t('profileProfession'), t('profileNotGenerated')], [t('profilePersonality'), t('profileNotGenerated')], [t('profileModel'), t('profileNotGenerated')], [t('memberTask'), current ? activity.task?.subject ?? t('hostUnavailable') : t('memberNone')], [t('memberAttempt'), activity.attempt === undefined ? t('memberNone') : current ? enumLabel(activity.attempt.phase, t) : t('memberRecentAttempt', { phase: enumLabel(activity.attempt.phase, t) })]]} /></div>
 }
 
 function TaskRows({ data, onSelect, onTrigger, t }: { readonly data: SwarmHostReadProjectionV1; readonly onSelect: (id: string) => void; readonly onTrigger: (id: string, element: HTMLButtonElement | null) => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
