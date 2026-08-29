@@ -346,15 +346,7 @@ export class AgentSwarmReadRpcService {
     rootSessionId: string,
     target: SwarmReadTargetHint,
   ): Promise<{ readonly root: Agent; readonly teamId: string; readonly captainSessionId: string }> {
-    const persisted = await this.inspectPersistedRoot(rootSessionId)
-    if (persisted === undefined) {
-      throw new TeamDomainError('Target is not an official root Session', 'SWARM_RPC_TARGET_NOT_LIVE')
-    }
-    if (persisted.header.cwd === undefined) {
-      throw new TeamDomainError('Target Session has no workspace cwd', 'SWARM_HOST_WORKSPACE_REQUIRED')
-    }
-    const root = { id: rootSessionId, session: { header: persisted.header } } as unknown as Agent
-    const scope = this.deps.runtime.scopeOf(root)
+    const { root, scope } = await this.coldRootView(rootSessionId)
     const teams = await this.deps.runtime.listTeamAggregates(scope)
     const managedCaptains = new Set(this.deps.runtime.managedCaptainSessionsOf(rootSessionId))
     const active = teams.filter(team => team.phase === 'active'
@@ -389,6 +381,12 @@ export class AgentSwarmReadRpcService {
       }
       return { root: requested, scope: this.deps.runtime.scopeOf(requested) }
     }
+    return await this.coldRootView(rootSessionId)
+  }
+
+  /** Reconstruct a fully cold root's durable header/cwd/scope from the official persistent Session
+   *  store — shared by single-Team resolution and Team enumeration. Never fabricated local state. */
+  private async coldRootView(rootSessionId: string): Promise<{ readonly root: Agent; readonly scope: TeamScope }> {
     const persisted = await this.inspectPersistedRoot(rootSessionId)
     if (persisted === undefined) {
       throw new TeamDomainError('Target is not an official root Session', 'SWARM_RPC_TARGET_NOT_LIVE')

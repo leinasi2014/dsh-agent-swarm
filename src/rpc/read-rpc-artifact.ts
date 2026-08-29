@@ -488,6 +488,9 @@ function assertResultSemantics(method: string, value: Record<string, unknown>): 
     if ((value.entries as readonly unknown[]).length !== 0) throw new Error('Swarm RPC announcements must not fabricate entries')
     return
   }
+  // captainMembers and captainDiagnostics carry no cross-field team object; their strict schemas
+  // above fully validate the projection, so no additional semantic assertion applies.
+  if (method === 'captainMembers' || method === 'captainDiagnostics') return
   if (method === 'page') {
     const entries = value.entries as unknown[]
     assertPageEntryKind(value.kind, entries)

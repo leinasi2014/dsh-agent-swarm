@@ -94,6 +94,17 @@ const SRC_FILE_LINE_LIMIT_EXCEPTIONS = new Map([
   // by M3-2: the tool-facing read surfaces (`waitForChange`,
   // `activePeerEvidence`) move to a wait-surface collaborator, returning the
   // file under the limit.
+  // Multi-Captain read surface (task-13/02ac0eb): the R2 read service grew the
+  // `teams` enumeration plus captain-scoped members/announcements/diagnostics
+  // sections (root-only + cold-persistence resolution, per-section projection,
+  // strict request parsing and capability gating) over a file at 599/600.
+  // Retired by a later refactor that moves the section resolution + descriptor
+  // helpers into a read-rpc-section collaborator.
+  ['src/rpc/read-rpc-service.ts', ['multi-Captain captain section read moved to read-rpc-section collaborator', 'multi-captain-completion']],
+  // The frozen browser R2 schema/fixture artifact carried the new teams +
+  // captain-section schemas, semantic checkers and fixture rows in one file.
+  // Retired by splitting the frozen schema/fixture into an artifact composite.
+  ['src/rpc/read-rpc-artifact.ts', ['frozen R2 artifact split schema/fixture into composite', 'multi-captain-completion']],
 ])
 
 const failures = []
