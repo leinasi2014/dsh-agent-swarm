@@ -8,9 +8,10 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import { TeamDomainError } from '../domain/error.js'
 import { isSafePixelAvatarSvg, MAX_CAPTAIN_ANNOUNCEMENTS } from '../domain/identity-profile.js'
-import { TeamId, type TeamMemberIdentityProfile, type TeamState } from '../domain/types.js'
+import { TeamId, type TeamMemberIdentityProfile, type TeamMember, type TeamState } from '../domain/types.js'
 import type { AgentSwarmHostReadService } from '../host/host-read-service.js'
 import type { SwarmHostReadProjectionV1 } from '../host/host-read-types.js'
+import { MemberProfileReader, type MemberProfile } from '../runtime/member-profile-reader.js'
 import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
 import {
   SWARM_READ_RPC_ENDPOINT,
@@ -31,6 +32,7 @@ import {
   type SwarmReadCaptainSectionMethod,
   type SwarmReadCaptainSectionRequest,
   type SwarmReadCaptainMembersV1,
+  type SwarmReadCaptainMemberRowV1,
   type SwarmReadCaptainAnnouncementsV1,
   type SwarmReadAssetStatusV1,
 } from './read-rpc-contract.js'
@@ -183,7 +185,15 @@ export class AgentSwarmReadRpcService {
     const observedAt = Date.now()
     switch (request.method) {
       case 'captainMembers': {
-        const members: SwarmReadCaptainMembersV1['members'] = team.members.map(member => ({
+        // Row-local composition (captainMembers.composition.v1): the shared
+        // MemberProfileReader inspects each verified member's own durable
+        // Session descriptor (never resumes, never reads private memory) and
+        // fails a single missing/corrupt row CLOSED into an explicit
+        // state/reason without affecting the other rows. Output order matches
+        // the authoritative roster order exactly.
+        const reader = new MemberProfileReader(this.deps.ctx)
+        const profiles = await reader.list(team, team.members, new AbortController().signal)
+        const members: SwarmReadCaptainMembersV1['members'] = team.members.map((member, index) => ({
           name: member.name,
           role: member.role,
           phase: member.phase,
@@ -206,6 +216,7 @@ export class AgentSwarmReadRpcService {
           identityCard: member.displayName === undefined && member.profession === undefined && member.personality === undefined
             ? { state: 'not_generated', reason: 'identity_backend_not_implemented' }
             : { state: 'generated' },
+          composition: memberCompositionOf(profiles[index], member),
           // Non-sensitive growth availability — constant literal enum only; no content
           // (private memory is never read nor projected beyond this availability marker).
           growth: { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' },
@@ -631,6 +642,28 @@ function isCaptainSection(request: SwarmReadRpcRequest): request is SwarmReadCap
 
 function isCaptainSectionMethod(method: string): method is SwarmReadCaptainSectionMethod {
   return method === 'captainMembers' || method === 'captainAnnouncements' || method === 'captainDiagnostics'
+}
+
+/** Fold one row's MemberProfile into its fail-closed composition projection. A missing
+ *  profile (an internal pairing defect that must never happen) degrades this single row
+ *  to an explicit `invalid` state — it can never surface as another member's data. */
+function memberCompositionOf(profile: MemberProfile | undefined, member: TeamMember): SwarmReadCaptainMemberRowV1['composition'] {
+  const state = profile?.profileState ?? 'invalid'
+  const reason = profile?.profileReason ?? 'inspection_failed'
+  const runtimeProvider = profile?.runtimeProvider ?? member.provider
+  if (profile === undefined || profile.name !== member.name) {
+    return { state: 'invalid', reason: 'inspection_failed', runtimeProvider }
+  }
+  return {
+    state,
+    reason,
+    runtimeProvider,
+    ...(profile.llmProvider === undefined ? {} : { llmProvider: profile.llmProvider }),
+    ...(profile.model === undefined ? {} : { model: profile.model }),
+    ...(profile.presetId === undefined ? {} : { presetId: profile.presetId }),
+    ...(profile.personaConfigured === undefined ? {} : { personaConfigured: profile.personaConfigured }),
+    ...(profile.deniedTools === undefined ? {} : { deniedTools: [...profile.deniedTools] }),
+  }
 }
 
 /** Build one first-level Team descriptor from the authoritative host projection row, enriched with

@@ -131,6 +131,39 @@ export interface SwarmReadCaptainSectionRequest {
   readonly target: SwarmReadTargetHint
 }
 
+/** Fixed row-local composition diagnostics (captainMembers.composition.v1). Every
+ *  non-`available` state carries exactly one non-available reason; `available`
+ *  carries exactly `available`. Discloses no backend error text, path or persona. */
+export type SwarmReadMemberCompositionReasonV1 =
+  | 'available'
+  | 'provisioning'
+  | 'startup_failed'
+  | 'removed'
+  | 'inspection_failed'
+  | 'active_session_missing'
+  | 'binding_invalid'
+  | 'descriptor_invalid'
+  | 'not_continuable'
+  | 'tool_filter_invalid'
+
+/** Row-local read-only composition of one member, derived from the member's own durable
+ *  Session descriptor by the shared MemberProfileReader. A missing, corrupt or
+ *  non-continuable child fails CLOSED into this row's `state`/`reason` only — never other
+ *  rows, never a section error, and a non-`available` row discloses nothing beyond
+ *  `runtimeProvider`. `deniedTools` is the declared tool-denial restriction list; it is
+ *  not an enumeration of permitted tools. */
+export interface SwarmReadMemberCompositionV1 {
+  readonly state: 'available' | 'pending' | 'unavailable' | 'invalid'
+  readonly reason: SwarmReadMemberCompositionReasonV1
+  /** Existing Team recovery fence provider the child descriptor is verified against. */
+  readonly runtimeProvider: string
+  readonly llmProvider?: string
+  readonly model?: string
+  readonly presetId?: string
+  readonly personaConfigured?: boolean
+  readonly deniedTools?: readonly string[]
+}
+
 /** One Captain-scoped member row. The roster identity/phase is authoritative Team data. The
  *  avatar/identity card are honest asset projections: present only when the Captain declared the
  *  corresponding identity profile (`state === 'generated'`), otherwise `not_generated`. */
@@ -147,6 +180,9 @@ export interface SwarmReadCaptainMemberRowV1 {
   readonly personality?: string
   readonly avatar: SwarmReadAssetStatusV1
   readonly identityCard: SwarmReadAssetStatusV1
+  /** Row-local composition projection (captainMembers.composition.v1): derived per member
+   *  from the member's own durable Session descriptor; single-row fail-closed. */
+  readonly composition: SwarmReadMemberCompositionV1
   /** Non-sensitive capability availability enumeration. Constant literal values —
    *  never content; private memory is exposed only as `private_to_member`. */
   readonly growth: {

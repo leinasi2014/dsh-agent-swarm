@@ -65,7 +65,7 @@ function isSafePixelAvatarSvg(value: string): boolean {
 }
 
 export const SWARM_READ_RPC_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
-export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '4197d3f4e5f7ea28401091877dbe49b07145cb761a0ca4550d449842b45cc88d' as const
+export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = 'b668c3f52fdfed86726f1dc1b9f570791314cd3751699022e2b7e4de4ba7e260' as const
 
 const boundedString = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength, pattern: '\\S' })
 /** Member role is authoritative free-text (never truncated by the reader); the
@@ -155,9 +155,29 @@ const memberGrowth = {
     capability: { const: 'not_implemented' },
   },
 }
+/** Row-local member composition (captainMembers.composition.v1): state/reason are fixed
+ *  diagnostics; `deniedTools` is the declared tool-denial restriction list, never an
+ *  enumeration of permitted tools. A non-`available` row discloses only `runtimeProvider`. */
+const memberComposition = {
+  type: 'object', additionalProperties: false,
+  required: ['state', 'reason', 'runtimeProvider'],
+  properties: {
+    state: { enum: ['available', 'pending', 'unavailable', 'invalid'] },
+    reason: {
+      enum: ['available', 'provisioning', 'startup_failed', 'removed', 'inspection_failed',
+        'active_session_missing', 'binding_invalid', 'descriptor_invalid', 'not_continuable', 'tool_filter_invalid'],
+    },
+    runtimeProvider: boundedString(64),
+    llmProvider: boundedString(128),
+    model: boundedString(128),
+    presetId: boundedString(128),
+    personaConfigured: { type: 'boolean' },
+    deniedTools: { type: 'array', items: boundedString(128) },
+  },
+}
 const captainMemberRow = {
   type: 'object', additionalProperties: false,
-  required: ['name', 'role', 'phase', 'createdAt', 'avatar', 'identityCard', 'growth'],
+  required: ['name', 'role', 'phase', 'createdAt', 'avatar', 'identityCard', 'growth', 'composition'],
   properties: {
     name: boundedString(64), role: boundedString(ROSTER_ROLE_MAX_LENGTH),
     phase: { enum: ['provisioning', 'active', 'failed', 'removed'] }, createdAt: nonNegativeInteger,
@@ -166,6 +186,7 @@ const captainMemberRow = {
     personality: boundedString(1024),
     avatar: assetStatus, identityCard: assetStatus,
     growth: memberGrowth,
+    composition: memberComposition,
   },
 }
 const sectionBinding = {
@@ -513,12 +534,22 @@ export const SWARM_READ_RPC_FIXTURES_V1 = deepFreezeJson({
         { name: 'worker', role: 'writer', phase: 'active', createdAt: 1_700_000_000_000,
           avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
           identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
-          growth: { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' } },
+          growth: { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' },
+          composition: {
+            state: 'available', reason: 'available', runtimeProvider: 'spawn',
+            llmProvider: 'mock', model: 'worker-model', personaConfigured: true,
+            deniedTools: ['agent_swarm_create_managed'],
+          } },
         { name: 'artist', role: 'artist', phase: 'active', createdAt: 1_700_000_000_001,
           displayName: 'Pixel Painter', profession: 'Avatar artist', personality: 'Careful, meticulous',
           avatar: { state: 'generated', svg: '<svg viewBox="0 0 16 16"><rect x="0" y="0" width="8" height="8" fill="#2a3"/></svg>' },
           identityCard: { state: 'generated' },
-          growth: { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' } },
+          growth: { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' },
+          // A corrupt child log fails CLOSED into its own row only: the row still
+          // renders (identity/roster authority is the Team aggregate) while the
+          // composition honestly reports the explicit failure and discloses
+          // nothing beyond the recovery fence provider.
+          composition: { state: 'invalid', reason: 'descriptor_invalid', runtimeProvider: 'spawn' } },
       ],
       observedAt: 1_700_000_000_200,
     },
@@ -675,6 +706,37 @@ function assertMemberGrowth(member: Record<string, unknown>): void {
   }
 }
 
+/** Row-local composition semantics (captainMembers.composition.v1): `available` must carry
+ *  exactly `available` as its reason and may carry the derived capability fields; every
+ *  fail-closed state carries a non-available reason and discloses nothing beyond the
+ *  recovery fence `runtimeProvider`. The declared tool-denial list stays a restriction
+ *  list — bounded, non-empty entries, never an enumeration of permitted tools. */
+function assertMemberComposition(member: Record<string, unknown>): void {
+  const composition = member.composition as Record<string, unknown> | undefined
+  if (composition === undefined) {
+    throw new Error('Swarm RPC captain member row must carry a composition projection')
+  }
+  const state = composition.state
+  const reason = composition.reason
+  if (state === 'available') {
+    if (reason !== 'available') {
+      throw new Error('Swarm RPC captain member composition available must carry reason available')
+    }
+    if (composition.personaConfigured !== true && composition.personaConfigured !== false) {
+      throw new Error('Swarm RPC captain member composition available must disclose personaConfigured')
+    }
+    return
+  }
+  if (typeof reason !== 'string' || reason === 'available') {
+    throw new Error('Swarm RPC captain member composition fail-closed row must carry a non-available reason')
+  }
+  for (const field of ['llmProvider', 'model', 'presetId', 'personaConfigured', 'deniedTools'] as const) {
+    if (composition[field] !== undefined) {
+      throw new Error(`Swarm RPC captain member composition fail-closed row must not carry ${field}`)
+    }
+  }
+}
+
 function assertResultSemantics(method: string, value: Record<string, unknown>): void {
   if (method === 'capabilities') {
     const expected = [
@@ -744,6 +806,7 @@ function assertResultSemantics(method: string, value: Record<string, unknown>): 
       assertAvatarSemantics(row, 'member')
       assertIdentityCardSemantics(row, 'member')
       assertMemberGrowth(row)
+      assertMemberComposition(row)
     }
     return
   }

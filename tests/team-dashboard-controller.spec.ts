@@ -108,6 +108,11 @@ const captainMembers = {
     name: 'worker', role: 'implementation', phase: 'active', createdAt: 1_700_000_000_000,
     avatar: { state: 'generated', svg: '<svg viewBox="0 0 8 8"><rect x="0" y="0" width="8" height="8" fill="#2a3"/></svg>' },
     identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
+    composition: {
+      state: 'available', reason: 'available', runtimeProvider: 'spawn',
+      llmProvider: 'mock', model: 'worker-model', personaConfigured: true,
+      deniedTools: ['agent_swarm_create_managed'],
+    },
     growth: { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' },
   }],
   observedAt: 1_700_000_006_000,

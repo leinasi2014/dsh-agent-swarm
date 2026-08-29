@@ -54,6 +54,9 @@ function rpcHarness(options: {
   teams?: { id: string; captainSessionId: string; phase?: 'active' | 'archived' }[];
   /** Full TeamState returned by the domain snapshot for the section reads. */
   teamState?: TeamState;
+  /** Per-member child Session inspection for the composition read: return the
+   *  stored shape or throw; omit to keep the legacy always-throwing stub. */
+  memberInspect?: (sessionId: string) => unknown;
 } = {}) {
   const root = options.root ?? ROOT
   let liveRoots: readonly Agent[] = [root]
@@ -101,7 +104,8 @@ function rpcHarness(options: {
     },
     sessions: { get: (id: string) => (id === root.id ? (options.coldRoot || options.fullyColdRoot ? undefined : session) : coldSessions[id]) ?? undefined },
     sessionPersistence: {
-      inspect: async () => {
+      inspect: async (sessionId: string) => {
+        if (options.memberInspect !== undefined) return options.memberInspect(sessionId)
         if (options.persistedRootHeader === undefined) throw new Error('no persisted root')
         return { meta: { cwd: options.persistedRootHeader.cwd, parentSession: options.persistedRootHeader.parentSession }, events: [] }
       },
@@ -403,11 +407,16 @@ describe('R2 authoritative target binding and wire contract', () => {
       schemaVersion: 1, method: 'captainMembers', target,
     }) as SwarmReadCaptainMembersV1
     expect(members.binding).toEqual({ rootSessionId: ROOT.id, teamId: 'team-r2' })
+    // With no member-specific inspection stub, every active member's child Session is
+    // unreadable: each composition fails CLOSED row-locally (never other rows, never the
+    // section) while roster identity, assets and growth stay authoritative.
+    const failClosed = { state: 'invalid', reason: 'inspection_failed', runtimeProvider: 'mock' }
     expect(members.members).toEqual([
       {
         name: 'worker', role: 'writer', phase: 'active', createdAt: 1,
         avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
         identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
+        composition: failClosed,
         growth: { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' },
       },
       {
@@ -415,12 +424,14 @@ describe('R2 authoritative target binding and wire contract', () => {
         displayName: 'Pixel Painter', profession: 'Avatar artist', personality: 'Careful, meticulous',
         avatar: { state: 'generated', svg: '<svg viewBox="0 0 16 16"><rect x="0" y="0" width="8" height="8" fill="#2a3"/></svg>' },
         identityCard: { state: 'generated' },
+        composition: failClosed,
         growth: { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' },
       },
       {
         name: 'tampered', role: 'artist', phase: 'active', createdAt: 3,
         avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
         identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
+        composition: failClosed,
         growth: { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' },
       },
     ])
@@ -441,6 +452,64 @@ describe('R2 authoritative target binding and wire contract', () => {
     await expect(service.invoke({
       schemaVersion: 1, method: 'captainMembers', target: { rootSessionId: ROOT.id },
     })).rejects.toMatchObject({ code: 'SWARM_RPC_INVALID_REQUEST' })
+  })
+
+  it('merges row-local composition per roster member and fails a corrupt row closed without affecting others', async () => {
+    const descriptor = (memberName: string) => ({
+      type: 'subagent/descriptor',
+      data: {
+        version: 2, mode: 'continuable', provider: 'mock',
+        label: `agent-swarm:team-r2:${memberName}`,
+        agentProvider: 'mock', agentModel: 'worker-model',
+        persona: 'Hands-on builder.', toolFilter: { deny: ['agent_swarm_create_managed', 'agent_swarm_list_jobs'] },
+      },
+    })
+    const teamState = {
+      id: 'team-r2', captainSessionId: ROOT.id, phase: 'active', revision: 6,
+      members: [
+        // Healthy child: a continuable descriptor with the exact team-scoped label and
+        // runtime provider — composition is `available` with derived capability fields.
+        { name: 'worker', role: 'writer', sessionId: 'child-session', provider: 'mock', phase: 'active', createdAt: 1 },
+        // Corrupt child: the persisted Session is missing entirely — this single row
+        // fails closed (active_session_missing) and the other rows are unaffected.
+        { name: 'damaged', role: 'writer', sessionId: 'damaged-session', provider: 'mock', phase: 'active', createdAt: 2 },
+        // Provisioning child: honestly `pending`, inspected only from roster phase.
+        { name: 'newcomer', role: 'writer', sessionId: 'newcomer-session', provider: 'mock', phase: 'provisioning', createdAt: 3 },
+      ],
+      tasks: [], attempts: [],
+    } as never as TeamState
+    const service = rpcHarness({
+      teamState,
+      memberInspect: (sessionId: string) => {
+        if (sessionId === 'child-session') {
+          return {
+            meta: { id: sessionId, origin: 'subagent', parentSession: ROOT.id, seedLength: 0, agentPreset: 'standard' },
+            events: [descriptor('worker')],
+          }
+        }
+        throw new Error(`session "${sessionId}" not found`)
+      },
+    }).service
+    const members = await service.invoke({
+      schemaVersion: 1, method: 'captainMembers', target: { rootSessionId: ROOT.id, teamId: 'team-r2' },
+    }) as SwarmReadCaptainMembersV1
+    // Authoritative roster order preserved; every row carries its own composition.
+    expect(members.members.map(member => [member.name, member.composition])).toEqual([
+      ['worker', {
+        state: 'available', reason: 'available', runtimeProvider: 'mock',
+        llmProvider: 'mock', model: 'worker-model', presetId: 'standard', personaConfigured: true,
+        deniedTools: ['agent_swarm_create_managed', 'agent_swarm_list_jobs'],
+      }],
+      ['damaged', { state: 'invalid', reason: 'active_session_missing', runtimeProvider: 'mock' }],
+      ['newcomer', { state: 'pending', reason: 'provisioning', runtimeProvider: 'mock' }],
+    ])
+    // A fail-closed row discloses nothing beyond the recovery fence provider.
+    expect(members.members[1]?.composition).not.toHaveProperty('llmProvider')
+    expect(members.members[1]?.composition).not.toHaveProperty('deniedTools')
+    // The declared tool-denial list is a restriction list, not callable-tool enumeration:
+    // the row never carries an allow side, and private memory stays an availability marker.
+    expect(members.members[0]?.composition.deniedTools).toEqual(['agent_swarm_create_managed', 'agent_swarm_list_jobs'])
+    expect(members.members[0]?.growth).toEqual({ privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' })
   })
 
   it('returns the authoritative Captain binding for sections opened from a Main Brain', async () => {

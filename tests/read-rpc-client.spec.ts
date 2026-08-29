@@ -146,8 +146,13 @@ describe('R2 browser client', () => {
   it('rejects crafted unsafe captainMembers avatar semantics and admits a safe rect-only avatar', () => {
     const base = { ...SWARM_READ_RPC_FIXTURES_V1.values.captainMembers, members: [] as unknown[] }
     const growth = { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' }
+    const composition = {
+      state: 'available', reason: 'available', runtimeProvider: 'spawn',
+      llmProvider: 'mock', model: 'm', personaConfigured: true,
+      deniedTools: ['agent_swarm_create_managed'],
+    }
     const row = (avatar: unknown) =>
-      ({ name: 'm', role: 'r', phase: 'active', createdAt: 1, displayName: 'm', avatar, identityCard: { state: 'generated' }, growth })
+      ({ name: 'm', role: 'r', phase: 'active', createdAt: 1, displayName: 'm', avatar, identityCard: { state: 'generated' }, growth, composition })
 
     const valid = {
       ...base,
@@ -213,6 +218,7 @@ describe('R2 browser client', () => {
       avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
       identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
       growth: { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' },
+      composition: { state: 'available', reason: 'available', runtimeProvider: 'spawn', personaConfigured: false },
       ...over,
     })
     expect(() => assertSwarmReadRpcValue('captainMembers', { ...membersBase, members: [mrow({ identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' }, displayName: 'p' })] })).toThrow()
@@ -261,5 +267,57 @@ describe('R2 browser client', () => {
     expect(() => assertSwarmReadRpcValue('teams', { ...teamsBase, teams: [{ ...noProfileTeam, avatar: oneTeam.avatar, identityCard: { state: 'unavailable' } }] })).toThrow()
     expect(() => assertSwarmReadRpcValue('captainMembers', { ...membersBase, members: [mrow({ avatar: { state: 'unavailable' } })] })).toThrow()
     expect(() => assertSwarmReadRpcValue('captainMembers', { ...membersBase, members: [mrow({ identityCard: { state: 'unavailable' } })] })).toThrow()
+  })
+
+  it('enforces captainMembers.composition.v1 row-local fail-closed semantics', () => {
+    const membersBase = SWARM_READ_RPC_FIXTURES_V1.values.captainMembers
+    // The frozen fixture itself demonstrates both shapes: an available composition and
+    // a corrupt-child row failed closed into its own row only.
+    expect(() => assertSwarmReadRpcValue('captainMembers', membersBase)).not.toThrow()
+
+    const base = { ...membersBase, members: [] as unknown[] }
+    const growth = { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' }
+    const avatar = { state: 'not_generated', reason: 'avatar_backend_not_implemented' }
+    const identityCard = { state: 'not_generated', reason: 'identity_backend_not_implemented' }
+    const row = (composition: unknown) =>
+      ({ name: 'm', role: 'r', phase: 'active', createdAt: 1, avatar, identityCard, growth, composition })
+
+    // Available rows must pair the state with the available reason and disclose persona.
+    expect(() => assertSwarmReadRpcValue('captainMembers', {
+      ...base, members: [row({ state: 'available', reason: 'available', runtimeProvider: 'spawn', personaConfigured: false })],
+    })).not.toThrow()
+    expect(() => assertSwarmReadRpcValue('captainMembers', {
+      ...base, members: [row({ state: 'available', reason: 'binding_invalid', runtimeProvider: 'spawn', personaConfigured: true })],
+    })).toThrow()
+    expect(() => assertSwarmReadRpcValue('captainMembers', {
+      ...base, members: [row({ state: 'available', reason: 'available', runtimeProvider: 'spawn' })],
+    })).toThrow()
+
+    // Fail-closed rows disclose nothing beyond the recovery fence provider.
+    const failClosed = { state: 'invalid', reason: 'descriptor_invalid', runtimeProvider: 'spawn' }
+    expect(() => assertSwarmReadRpcValue('captainMembers', { ...base, members: [row(failClosed)] })).not.toThrow()
+    for (const leak of [
+      { ...failClosed, llmProvider: 'mock' },
+      { ...failClosed, model: 'm' },
+      { ...failClosed, presetId: 'standard' },
+      { ...failClosed, personaConfigured: true },
+      { ...failClosed, deniedTools: ['agent_swarm_create_managed'] },
+      { ...failClosed, reason: 'available' },
+    ]) {
+      expect(() => assertSwarmReadRpcValue('captainMembers', { ...base, members: [row(leak)] })).toThrow()
+    }
+
+    // The composition projection is mandatory on every row (schema), and the declared
+    // tool-denial list stays a restriction list with bounded entries.
+    expect(() => assertSwarmReadRpcValue('captainMembers', {
+      ...base, members: [{ name: 'm', role: 'r', phase: 'active', createdAt: 1, avatar, identityCard, growth }],
+    })).toThrow()
+    expect(() => assertSwarmReadRpcValue('captainMembers', {
+      ...base,
+      members: [row({
+        state: 'available', reason: 'available', runtimeProvider: 'spawn', personaConfigured: true,
+        deniedTools: ['agent_swarm_create_managed', ''],
+      })],
+    })).toThrow()
   })
 })
