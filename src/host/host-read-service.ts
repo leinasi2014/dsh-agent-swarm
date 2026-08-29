@@ -30,6 +30,9 @@ export interface AgentSwarmHostReadDeps {
   /** Managed dedicated Captain child Session ids of a Main Brain root, so a non-Captain
    *  root can resolve its unique Captain-rooted Team (architecture: main brain → Captain → Team). */
   readonly managedCaptainSessionsOf?: (rootSessionId: string) => readonly string[]
+  /** Official Session-store parent lookup: durable descriptor-chain re-proof for
+   *  Captain-rooted Teams whose Captain Session is not a live agent in this process. */
+  readonly parentOfSession?: (sessionId: string) => string | undefined
   readonly now?: () => number
   readonly disposalTimeoutMs?: number
 }
@@ -53,12 +56,14 @@ export class AgentSwarmHostReadService {
     return await this.runRead(async root => {
       const initialScope = this.deps.scopeOf(root)
       const teamId = normalized.teamId ?? await this.resolveImplicitTeam(initialScope, root.id)
-      const snapshot = await this.readBoundSnapshot(initialScope, teamId, root.id)
+      const snapshot = await this.readBoundSnapshot(initialScope, teamId, root.id, normalized.captainSessionId)
+      // binding.rootSessionId is the resolved dedicated Captain Session id (root of this read),
+      // never the system Main Brain / owner main Chat; the captain owns the Team the UI reflects.
+      const bindingRoot = snapshot.team.captainSessionId
+      if (bindingRoot !== root.id) this.assertParentBinding(root, bindingRoot)
       const interactions = this.deps.overlay.list(initialScope, snapshot.team.id)
       this.assertBindingStillLive(root, initialScope)
-      // projector.binding.rootSessionId is the resolved dedicated Captain Session id (root of this read),
-      // never the system Main Brain / owner main Chat; the captain owns the Team the UI reflects.
-      return project(snapshot, interactions, root.id, normalized.afterCursor, this.observedAt())
+      return project(snapshot, interactions, bindingRoot, normalized.afterCursor, this.observedAt())
     })
   }
 
@@ -112,20 +117,53 @@ export class AgentSwarmHostReadService {
     scope: TeamScope,
     teamId: string,
     rootSessionId: string,
+    captainSessionId?: string,
   ): Promise<TeamStatusSnapshot> {
+    let actorSessionId = captainSessionId ?? rootSessionId
     let snapshot: TeamStatusSnapshot
+    let recoveredViaDescriptor = false
     try {
-      snapshot = await this.deps.domain().snapshot(scope, TeamId(teamId), rootSessionId)
+      snapshot = await this.deps.domain().snapshot(scope, TeamId(teamId), actorSessionId)
     } catch (error) {
-      if (error instanceof TeamDomainError && (error.code === 'TEAM_UNAUTHORIZED' || error.code === 'TEAM_ARCHIVED')) {
-        throw new TeamDomainError('Team lookup hint does not match the Host root binding', 'SWARM_HOST_BINDING_MISMATCH', { cause: error })
+      // Implicit parent-root reads do not know the captain before the first snapshot:
+      // retry once with the descriptor captain before rebind failure is declared.
+      const retryable = error instanceof TeamDomainError && error.code === 'TEAM_UNAUTHORIZED'
+      const descriptor = retryable
+        ? (await this.deps.teams(scope)).find(team => team.id === TeamId(teamId))
+        : undefined
+      if (descriptor === undefined || descriptor.captainSessionId === actorSessionId) {
+        if (error instanceof TeamDomainError && (error.code === 'TEAM_UNAUTHORIZED' || error.code === 'TEAM_ARCHIVED')) {
+          throw new TeamDomainError('Team lookup hint does not match the Host root binding', 'SWARM_HOST_BINDING_MISMATCH', { cause: error })
+        }
+        throw error
       }
-      throw error
+      actorSessionId = descriptor.captainSessionId
+      recoveredViaDescriptor = true
+      try {
+        snapshot = await this.deps.domain().snapshot(scope, TeamId(teamId), actorSessionId)
+      } catch (retryError) {
+        if (retryError instanceof TeamDomainError && (retryError.code === 'TEAM_UNAUTHORIZED' || retryError.code === 'TEAM_ARCHIVED')) {
+          throw new TeamDomainError('Team lookup hint does not match the Host root binding', 'SWARM_HOST_BINDING_MISMATCH', { cause: retryError })
+        }
+        throw retryError
+      }
     }
-    if (snapshot.team.captainSessionId !== rootSessionId) {
+    if (captainSessionId === undefined && !recoveredViaDescriptor
+      && snapshot.team.captainSessionId !== rootSessionId) {
       throw new TeamDomainError('Team lookup hint does not identify the Host root captain', 'SWARM_HOST_BINDING_MISMATCH')
     }
     return snapshot
+  }
+
+  /** Re-prove the descriptor chain for a parent-root read: the team captain must be a
+   *  managed dedicated Captain child of this exact live root (in-process tracking or the
+   *  official Session-store parent link). No aggregate copy, no second state source. */
+  private assertParentBinding(root: Agent, captainSessionId: string): void {
+    const managed = this.deps.managedCaptainSessionsOf?.(root.id)?.includes(captainSessionId) ?? false
+    const parented = this.deps.parentOfSession?.(captainSessionId) === root.id
+    if (!managed && !parented) {
+      throw new TeamDomainError('Team binding does not belong to this root\'s managed Captain Sessions', 'SWARM_HOST_BINDING_MISMATCH')
+    }
   }
 
   private assertBindingStillLive(root: Agent, scope: TeamScope): void {
@@ -194,9 +232,15 @@ export function provideAgentSwarmHostRead(ctx: Context, service: AgentSwarmHostR
 }
 
 function parseInput(input: unknown): SwarmHostReadInput {
-  const fields = strictOwnFields(input, new Set(['teamId', 'afterCursor']))
+  const fields = strictOwnFields(input, new Set(['teamId', 'afterCursor', 'captainSessionId']))
   if (fields.teamId !== undefined && !validBoundedString(fields.teamId, 128)) {
     throw new TeamDomainError('teamId lookup hint must be one bounded string', 'SWARM_HOST_INVALID_REQUEST')
+  }
+  if (fields.captainSessionId !== undefined && !validBoundedString(fields.captainSessionId, 256)) {
+    throw new TeamDomainError('captainSessionId binding hint must be one bounded string', 'SWARM_HOST_INVALID_REQUEST')
+  }
+  if (fields.captainSessionId !== undefined && fields.teamId === undefined) {
+    throw new TeamDomainError('captainSessionId binding requires an explicit teamId lookup hint', 'SWARM_HOST_INVALID_REQUEST')
   }
   if (fields.afterCursor !== undefined && (typeof fields.afterCursor !== 'string' || !CURSOR_PATTERN.test(fields.afterCursor))) {
     throw new TeamDomainError('afterCursor is not an R1 projection cursor', 'SWARM_HOST_INVALID_REQUEST')
@@ -204,6 +248,7 @@ function parseInput(input: unknown): SwarmHostReadInput {
   return {
     ...(fields.teamId === undefined ? {} : { teamId: fields.teamId }),
     ...(fields.afterCursor === undefined ? {} : { afterCursor: fields.afterCursor }),
+    ...(fields.captainSessionId === undefined ? {} : { captainSessionId: fields.captainSessionId }),
   }
 }
 

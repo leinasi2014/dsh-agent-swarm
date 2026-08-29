@@ -1,4 +1,5 @@
 import type { Context } from '@deepseek-ai/cordis'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import type { HumanInteractionOverlayStore } from '../human/human-interaction-store.js'
 import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
 import { AgentSwarmHostReadService, provideAgentSwarmHostRead } from './host-read-service.js'
@@ -22,6 +23,7 @@ export function assembleAgentSwarmHostRead(
     teams: scope => runtime.listTeamAggregates(scope),
     domain: () => runtime.domain,
     managedCaptainSessionsOf: rootSessionId => runtime.managedCaptainSessionsOf(rootSessionId),
+    parentOfSession: sessionId => ctx.sessions.get(SessionId(sessionId))?.header.parentSession,
     overlay,
     now: Date.now,
     disposalTimeoutMs,

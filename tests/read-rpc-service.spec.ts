@@ -38,7 +38,9 @@ const projection: SwarmHostReadProjectionV1 = {
 }
 
 function rpcHarness(options: {
-  host?: SwarmWebServer['host']; root?: Agent; captain?: string; projection?: SwarmHostReadProjectionV1
+  host?: SwarmWebServer['host']; root?: Agent; captain?: string; projection?: SwarmHostReadProjectionV1;
+  coldCaptainSessions?: Record<string, { header: { parentSession?: string } }>;
+  teams?: { id: string; captainSessionId: string; phase?: 'active' | 'archived' }[];
 } = {}) {
   const root = options.root ?? ROOT
   let liveRoots: readonly Agent[] = [root]
@@ -47,13 +49,17 @@ function rpcHarness(options: {
   const team = {
     id: 'team-r2', captainSessionId: options.captain ?? root.id, phase: 'active',
   } as TeamState
+  const teams: TeamState[] = (options.teams ?? [team]) as TeamState[]
+  const coldSessions = options.coldCaptainSessions ?? {}
   const hostRead = {
-    read: vi.fn(async (input: { afterCursor?: string }) => {
+    read: vi.fn(async (input: { afterCursor?: string; teamId?: string; captainSessionId?: string }) => {
       expect(initiator).toBe(root)
+      lastReadInput = input
       return { ...(options.projection ?? projection), binding: { rootSessionId: root.id, teamId: team.id },
         changed: input.afterCursor !== CURSOR, resyncRequired: input.afterCursor !== undefined && input.afterCursor !== CURSOR }
     }),
-  } as unknown as AgentSwarmHostReadService
+  } as unknown as AgentSwarmHostReadService & { read: ReturnType<typeof vi.fn> }
+  let lastReadInput: { afterCursor?: string; teamId?: string; captainSessionId?: string } | undefined
   const ctx = {
     agents: {
       get: (id: string) => id === root.id ? root : undefined,
@@ -63,18 +69,19 @@ function rpcHarness(options: {
         try { return await callback() } finally { initiator = undefined }
       },
     },
-    sessions: { get: (id: string) => id === root.id ? session : undefined },
+    sessions: { get: (id: string) => (id === root.id ? session : coldSessions[id]) ?? undefined },
   } as unknown as Context
   const snapshot = vi.fn(async () => ({ team }))
   const runtime = {
     scopeOf: (agent: Agent) => agent.session.header.cwd!,
-    listTeamAggregates: vi.fn(async () => [team]),
+    listTeamAggregates: vi.fn(async () => teams),
     domain: { snapshot },
   } as unknown as AgentSwarmRuntime
   const webServer = { host: options.host ?? '127.0.0.1', port: 8279, register: vi.fn() } satisfies SwarmWebServer
   const service = new AgentSwarmReadRpcService({ ctx, runtime, hostRead, webServer })
   return {
     service, hostRead, snapshot, webServer,
+    lastReadInput: () => lastReadInput,
     switchSession: (next: Agent['session']) => { session = next },
     setRoots: (roots: readonly Agent[]) => { liveRoots = roots },
   }
@@ -153,6 +160,59 @@ describe('R2 authoritative target binding and wire contract', () => {
       .rejects.toMatchObject({ code: 'SWARM_RPC_TARGET_NOT_LIVE' })
     await expect(rpcHarness({ captain: OTHER.id }).service.invoke({
       schemaVersion: 1, method: 'snapshot', target: { rootSessionId: ROOT.id, teamId: 'team-r2' },
+    })).rejects.toMatchObject({ code: 'SWARM_HOST_BINDING_MISMATCH' })
+  })
+
+  it('resolves a cold dedicated Captain binding for the Main Brain root without guessing', async () => {
+    const harness = rpcHarness({
+      captain: 'captain-session',
+      coldCaptainSessions: { 'captain-session': { header: { parentSession: ROOT.id } } },
+    })
+    const binding = await harness.service.invoke({
+      schemaVersion: 1, method: 'binding', target: { rootSessionId: ROOT.id },
+    })
+    expect(binding).toMatchObject({ binding: { rootSessionId: ROOT.id, teamId: 'team-r2' } })
+    expect(harness.lastReadInput()).toMatchObject({ teamId: 'team-r2', captainSessionId: 'captain-session' })
+    // Explicit hint path reuses the same descriptor chain.
+    await expect(harness.service.invoke({
+      schemaVersion: 1, method: 'binding', target: { rootSessionId: ROOT.id, teamId: 'team-r2' },
+    })).resolves.toMatchObject({ binding: { teamId: 'team-r2' } })
+  })
+
+  it('keeps cold-captain ambiguity explicit and rejects unowned Captain bindings', async () => {
+    const ambiguous = rpcHarness({
+      coldCaptainSessions: {
+        'captain-a': { header: { parentSession: ROOT.id } },
+        'captain-b': { header: { parentSession: ROOT.id } },
+      },
+      teams: [
+        { id: 'team-a', captainSessionId: 'captain-a', phase: 'active' },
+        { id: 'team-b', captainSessionId: 'captain-b', phase: 'active' },
+      ],
+    })
+    await expect(ambiguous.service.invoke({
+      schemaVersion: 1, method: 'binding', target: { rootSessionId: ROOT.id },
+    })).rejects.toMatchObject({ code: 'SWARM_HOST_BINDING_AMBIGUOUS' })
+
+    const unowned = rpcHarness({
+      captain: 'cold-captain',
+      coldCaptainSessions: { 'cold-captain': { header: { parentSession: 'someone-else' } } },
+    })
+    await expect(unowned.service.invoke({
+      schemaVersion: 1, method: 'binding', target: { rootSessionId: ROOT.id },
+    })).rejects.toMatchObject({ code: 'SWARM_HOST_BINDING_NOT_FOUND' })
+    await expect(unowned.service.invoke({
+      schemaVersion: 1, method: 'binding', target: { rootSessionId: ROOT.id, teamId: 'team-r2' },
+    })).rejects.toMatchObject({ code: 'SWARM_HOST_BINDING_MISMATCH' })
+
+    // Only an official root may resolve a parent binding.
+    const nonRoot = rpcHarness({
+      captain: 'captain-session',
+      coldCaptainSessions: { 'captain-session': { header: { parentSession: ROOT.id } } },
+    })
+    nonRoot.setRoots([])
+    await expect(nonRoot.service.invoke({
+      schemaVersion: 1, method: 'binding', target: { rootSessionId: ROOT.id, teamId: 'team-r2' },
     })).rejects.toMatchObject({ code: 'SWARM_HOST_BINDING_MISMATCH' })
   })
 

@@ -213,6 +213,77 @@ describe('R1 Host read producer', () => {
     await expect(mismatch.service.read({ teamId: 'team-r1' })).rejects.toMatchObject({ code: 'SWARM_HOST_BINDING_MISMATCH' })
   })
 
+  it('reads a Captain-rooted Team from its Main Brain root through the descriptor chain', async () => {
+    const coldCaptainTeam = teamState({ captainSessionId: 'captain-session-id', name: 'Cold captain team' })
+    const snapshotFor = (team: AgentSwarm.TeamState) => ({
+      snapshot: async (_scope: AgentSwarm.TeamScope, teamId: AgentSwarm.TeamId, actor: string) => {
+        if (teamId !== team.id || actor !== team.captainSessionId) {
+          throw new TeamDomainError('mismatch', 'TEAM_UNAUTHORIZED')
+        }
+        return { team, readyTaskIds: [], pendingMessageIds: [] }
+      },
+    })
+    const domainOf = (team: AgentSwarm.TeamState) => ({ snapshot: snapshotFor(team).snapshot }) as unknown as Pick<AgentSwarm.TeamDomainPort, 'snapshot'>
+    const base = {
+      currentInitiator: () => ROOT,
+      isExactLiveRoot: () => true,
+      scopeOf: () => 'C:\\secret\\workspace',
+      teams: async () => [coldCaptainTeam],
+      overlay: { list: () => [] },
+      now: () => NOW,
+    }
+    // Explicit hint path: the parent root rebinds to the dedicated Captain binding.
+    const hinted = new AgentSwarm.AgentSwarmHostReadService({
+      ...base,
+      domain: () => domainOf(coldCaptainTeam),
+      managedCaptainSessionsOf: () => [],
+      parentOfSession: id => id === 'captain-session-id' ? ROOT.id : undefined,
+    })
+    await expect(hinted.read({ teamId: 'team-r1', captainSessionId: 'captain-session-id' }))
+      .resolves.toMatchObject({ binding: { rootSessionId: 'captain-session-id', teamId: 'team-r1' } })
+
+    // Implicit path: unique managed Captain child resolves the single Captain-rooted Team.
+    const implicit = new AgentSwarm.AgentSwarmHostReadService({
+      ...base,
+      domain: () => domainOf(coldCaptainTeam),
+      managedCaptainSessionsOf: () => ['captain-session-id'],
+      parentOfSession: id => id === 'captain-session-id' ? ROOT.id : undefined,
+    })
+    await expect(implicit.read())
+      .resolves.toMatchObject({ binding: { rootSessionId: 'captain-session-id', teamId: 'team-r1' } })
+
+    // Ambiguity stays explicit: two managed Captain-rooted Teams never guess.
+    const secondTeam = teamState({ id: AgentSwarm.TeamId('team-r1-2'), captainSessionId: 'captain-session-2', name: 'Second' })
+    const ambiguous = new AgentSwarm.AgentSwarmHostReadService({
+      ...base,
+      teams: async () => [coldCaptainTeam, secondTeam],
+      domain: () => ({
+        snapshot: async (_scope: AgentSwarm.TeamScope, teamId: AgentSwarm.TeamId, actor: string) => {
+          const team = [coldCaptainTeam, secondTeam].find(candidate => candidate.id === teamId)
+          if (team === undefined || actor !== team.captainSessionId) throw new TeamDomainError('mismatch', 'TEAM_UNAUTHORIZED')
+          return { team, readyTaskIds: [], pendingMessageIds: [] }
+        },
+      }) as unknown as Pick<AgentSwarm.TeamDomainPort, 'snapshot'>,
+      managedCaptainSessionsOf: () => ['captain-session-id', 'captain-session-2'],
+      parentOfSession: id => id.startsWith('captain-session') ? ROOT.id : undefined,
+    })
+    await expect(ambiguous.read()).rejects.toMatchObject({ code: 'SWARM_HOST_BINDING_AMBIGUOUS' })
+
+    // Unrelated parent binding is rejected: the chain must be proven, never assumed.
+    const unproved = new AgentSwarm.AgentSwarmHostReadService({
+      ...base,
+      domain: () => domainOf(coldCaptainTeam),
+      managedCaptainSessionsOf: () => [],
+      parentOfSession: () => undefined,
+    })
+    await expect(unproved.read({ teamId: 'team-r1', captainSessionId: 'captain-session-id' }))
+      .rejects.toMatchObject({ code: 'SWARM_HOST_BINDING_MISMATCH' })
+
+    // The captainSessionId hint requires an explicit teamId lookup hint.
+    await expect(hinted.read({ captainSessionId: 'captain-session-id' } as never))
+      .rejects.toMatchObject({ code: 'SWARM_HOST_INVALID_REQUEST' })
+  })
+
   it('projects archived Teams terminally and rebinds every call after a Session switch', async () => {
     const archived = harness({ team: teamState({ phase: 'archived' }) })
     await expect(archived.service.read()).resolves.toMatchObject({ team: { phase: 'archived' } })

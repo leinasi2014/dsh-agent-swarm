@@ -107,9 +107,10 @@ export class AgentSwarmReadRpcService {
     if (this.deps.webServer.host !== '127.0.0.1') {
       throw new TeamDomainError('Swarm read RPC requires a loopback listener', 'SWARM_RPC_UNAVAILABLE')
     }
-    const { root, teamId } = await this.resolveTarget(request.target)
+    const { root, teamId, captainSessionId } = await this.resolveTarget(request.target)
     const projection = await this.deps.ctx.agents.withInitiator(root, () => this.deps.hostRead.read({
       teamId,
+      ...(captainSessionId === undefined ? {} : { captainSessionId }),
       ...('afterCursor' in request && request.afterCursor !== undefined ? { afterCursor: request.afterCursor } : {}),
     }))
     switch (request.method) {
@@ -180,7 +181,11 @@ export class AgentSwarmReadRpcService {
     }
   }
 
-  private async resolveTarget(target: SwarmReadTargetHint): Promise<{ readonly root: Agent; readonly teamId: string }> {
+  private async resolveTarget(target: SwarmReadTargetHint): Promise<{
+    readonly root: Agent
+    readonly teamId: string
+    readonly captainSessionId?: string
+  }> {
     const requested = this.deps.ctx.agents.get(SessionId(target.rootSessionId))
     if (requested === undefined || this.deps.ctx.sessions.get(requested.id) !== requested.session) {
       throw new TeamDomainError('Target is not an exact live Session', 'SWARM_RPC_TARGET_NOT_LIVE')
@@ -194,32 +199,85 @@ export class AgentSwarmReadRpcService {
       const candidate = this.deps.ctx.agents.get(SessionId(team.captainSessionId))
       return candidate?.id === requested.id || candidate?.session.header.parentSession === requested.id
     })
-    const teamId = target.teamId ?? selectVisibleTeam(visible, requested.id)
+    let teamId: string
+    if (target.teamId !== undefined) {
+      teamId = target.teamId
+    } else {
+      try {
+        teamId = selectVisibleTeam(visible, requested.id)
+      } catch (error) {
+        const viaParent = this.selectParentOwnedTeam(teams, requested.id)
+        if (viaParent === undefined) throw error
+        teamId = viaParent
+      }
+    }
     const selected = teams.find(team => team.id === teamId)
     if (selected === undefined) throw new TeamDomainError('Target Team does not exist', 'SWARM_HOST_BINDING_NOT_FOUND')
     const captain = this.deps.ctx.agents.get(SessionId(selected.captainSessionId))
-    if (captain === undefined && target.teamId !== undefined && selected.captainSessionId !== requested.id) {
-      throw new TeamDomainError('Target Team does not match this main/Captain Session', 'SWARM_HOST_BINDING_MISMATCH')
+    if (captain !== undefined) {
+      if (selected.captainSessionId !== requested.id && captain.session.header.parentSession !== requested.id) {
+        throw new TeamDomainError('Target Team does not match this main/Captain Session', 'SWARM_HOST_BINDING_MISMATCH')
+      }
+      if (this.deps.ctx.sessions.get(captain.id) !== captain.session
+        || captain.session.header.cwd === undefined || this.deps.runtime.scopeOf(captain) !== scope) {
+        throw new TeamDomainError('Dedicated Captain Session is not live', 'SWARM_RPC_TARGET_NOT_LIVE')
+      }
+      const requestedIsCaptain = requested.id === captain.id
+        && (requested.session.header.parentSession !== undefined || this.deps.ctx.agents.roots().includes(requested))
+      if (requested.id === captain.id && !requestedIsCaptain) {
+        throw new TeamDomainError('Target Captain is not a root or continuable child Session', 'SWARM_RPC_TARGET_NOT_LIVE')
+      }
+      if (requested.id !== captain.id && !this.deps.ctx.agents.roots().includes(requested)) {
+        throw new TeamDomainError('Target Team is not owned by this main/Captain Session', 'SWARM_HOST_BINDING_MISMATCH')
+      }
+      const snapshot = await this.deps.runtime.domain.snapshot(scope, TeamId(teamId), captain.id)
+      if (snapshot.team.captainSessionId !== captain.id) {
+        throw new TeamDomainError('Target Team does not belong to the dedicated Captain', 'SWARM_HOST_BINDING_MISMATCH')
+      }
+      return { root: captain, teamId }
     }
-    if (captain === undefined || this.deps.ctx.sessions.get(captain.id) !== captain.session
-      || captain.session.header.cwd === undefined || this.deps.runtime.scopeOf(captain) !== scope) {
-      throw new TeamDomainError('Dedicated Captain Session is not live', 'SWARM_RPC_TARGET_NOT_LIVE')
-    }
-    const requestedIsCaptain = requested.id === captain.id
-      && (requested.session.header.parentSession !== undefined || this.deps.ctx.agents.roots().includes(requested))
-    if (requested.id === captain.id && !requestedIsCaptain) {
-      throw new TeamDomainError('Target Captain is not a root or continuable child Session', 'SWARM_RPC_TARGET_NOT_LIVE')
-    }
-    const requestedIsParent = this.deps.ctx.agents.roots().includes(requested)
-      && captain.session.header.parentSession === requested.id
-    if (!requestedIsCaptain && !requestedIsParent) {
+    return this.resolveParentBinding(requested, teams, selected, target.teamId)
+  }
+
+  /** Descriptor-chain binding for a cold dedicated Captain: official root Session →
+   *  Captain Session (parentSession link) → Team descriptor. No aggregate copy and no
+   *  second state; the read is admitted with the requesting root as initiator and the
+   *  captainSessionId hint re-proven by R1. */
+  private resolveParentBinding(
+    requested: Agent,
+    teams: readonly TeamState[],
+    selected: TeamState,
+    hintedTeamId: string | undefined,
+  ): { readonly root: Agent; readonly teamId: string; readonly captainSessionId: string } {
+    if (!this.deps.ctx.agents.roots().includes(requested)) {
       throw new TeamDomainError('Target Team is not owned by this main/Captain Session', 'SWARM_HOST_BINDING_MISMATCH')
     }
-    const snapshot = await this.deps.runtime.domain.snapshot(scope, TeamId(teamId), captain.id)
-    if (snapshot.team.captainSessionId !== captain.id) {
-      throw new TeamDomainError('Target Team does not belong to the dedicated Captain', 'SWARM_HOST_BINDING_MISMATCH')
+    const captainSession = this.deps.ctx.sessions.get(SessionId(selected.captainSessionId))
+    if (captainSession === undefined || captainSession.header.parentSession !== requested.id) {
+      throw new TeamDomainError('Target Team does not match this main/Captain Session', 'SWARM_HOST_BINDING_MISMATCH')
     }
-    return { root: captain, teamId }
+    if (hintedTeamId === undefined) {
+      const related = this.parentOwnedTeams(teams, requested.id)
+      if (related.length > 1) {
+        throw new TeamDomainError('Multiple Teams are available; select one Team', 'SWARM_HOST_BINDING_AMBIGUOUS')
+      }
+    }
+    return { root: requested, teamId: selected.id, captainSessionId: selected.captainSessionId }
+  }
+
+  private selectParentOwnedTeam(teams: readonly TeamState[], requestedId: string): string | undefined {
+    const related = this.parentOwnedTeams(teams, requestedId)
+    if (related.length === 1) return related[0]!.id
+    if (related.length > 1) {
+      throw new TeamDomainError('Multiple Teams are available; select one Team', 'SWARM_HOST_BINDING_AMBIGUOUS')
+    }
+    return undefined
+  }
+
+  private parentOwnedTeams(teams: readonly TeamState[], requestedId: string): readonly TeamState[] {
+    return teams.filter(team => team.phase === 'active'
+      && this.deps.ctx.agents.get(SessionId(team.captainSessionId)) === undefined
+      && this.deps.ctx.sessions.get(SessionId(team.captainSessionId))?.header.parentSession === requestedId)
   }
 }
 

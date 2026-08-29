@@ -6,6 +6,13 @@ export interface SwarmHostReadInput {
   readonly teamId?: string
   /** Last complete projection cursor; a mismatch requests a full resync. */
   readonly afterCursor?: string
+  /**
+   * Dedicated Captain Session binding hint for a parent-root read of a
+   * Captain-rooted Team. Requires teamId; the Host re-proves the descriptor
+   * chain (team.captainSessionId → live parent root) before projecting, and
+   * binding.rootSessionId still reports the dedicated Captain Session id.
+   */
+  readonly captainSessionId?: string
 }
 
 export interface SwarmHostReadProjectionV1 {
