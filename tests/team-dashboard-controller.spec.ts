@@ -90,7 +90,7 @@ const announcements = {
   schemaVersion: 1,
   binding: { rootSessionId: 'root-1', teamId: 'team-1' },
   state: 'available',
-  entries: [{ id: 'ann-1', text: 'Team notice', createdAt: 1_700_000_005_000 }],
+  entries: [{ id: 'ann-00000000-0000-0000-0000-000000000001', text: 'Team notice', createdAt: 1_700_000_005_000 }],
   observedAt: 1_700_000_006_000,
 } as const
 const captainDiagnostics = {

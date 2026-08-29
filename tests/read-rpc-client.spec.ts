@@ -227,14 +227,21 @@ describe('R2 browser client', () => {
     expect(() => assertSwarmReadRpcValue('captainAnnouncements', { ...annBase, entries: [{ id: legal(1), text: 'a', createdAt: 100 }, { id: legal(1), text: 'b', createdAt: 200 }] })).toThrow() // duplicate
     expect(() => assertSwarmReadRpcValue('captainAnnouncements', { ...annBase, entries: [{ id: legal(1), text: 'a', createdAt: 200 }, { id: legal(2), text: 'b', createdAt: 100 }] })).toThrow() // non-decreasing
 
-    // Legal parent-root fixture (rootSessionId ≠ captainSessionId) still passes;
-    // targeting the dedicated captain instead of the binding root is rejected.
-    expect(() => assertSwarmReadRpcValue('teams', teamsBase)).not.toThrow()
-    const second = teamsBase.teams[1] as Record<string, unknown>
-    expect(() => assertSwarmReadRpcValue('teams', {
-      ...teamsBase,
-      teams: [{ ...second, endpoints: { ...(second.endpoints as Record<string, unknown>), members: { method: 'captainMembers', target: { rootSessionId: second.captainSessionId, teamId: second.teamId } } } }],
-    })).toThrow() // endpoint target must use binding root, not captain
+    const parentRoot = (rootSessionIdForTarget: string) => ({
+      schemaVersion: 1, binding: { rootSessionId: 'main-root' }, observedAt: 1_700_000_000_200, complete: true,
+      teams: [{
+        teamId: 'team-t2', name: 'Second Team', phase: 'active', captainSessionId: 'captain-alpha',
+        avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
+        identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
+        endpoints: {
+          members: { method: 'captainMembers', target: { rootSessionId: rootSessionIdForTarget, teamId: 'team-t2' } },
+          announcements: { method: 'captainAnnouncements', target: { rootSessionId: rootSessionIdForTarget, teamId: 'team-t2' } },
+          diagnostics: { method: 'captainDiagnostics', target: { rootSessionId: rootSessionIdForTarget, teamId: 'team-t2' } },
+        },
+      }],
+    })
+    expect(() => assertSwarmReadRpcValue('teams', parentRoot('main-root'))).not.toThrow()
+    expect(() => assertSwarmReadRpcValue('teams', parentRoot('captain-alpha'))).toThrow()
 
     // uppercase UUID id rejected; out-of-Date-range createdAt rejected.
     expect(() => assertSwarmReadRpcValue('captainAnnouncements', {

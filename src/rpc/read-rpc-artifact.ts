@@ -9,7 +9,7 @@ import {
 } from './read-rpc-contract.js'
 
 export const SWARM_READ_RPC_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
-export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '2d67907d9d2e11b8bf37674922358134aa785be5866ca9069c0fb4c432000ad0' as const
+export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '56949c4b85c83f4c30cc84ae3bb8f9213bcadc3bc1601f3c8becda2fdf26dd99' as const
 
 const boundedString = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength, pattern: '\\S' })
 /** Member role is authoritative free-text (never truncated by the reader); the
@@ -421,17 +421,6 @@ export const SWARM_READ_RPC_FIXTURES_V1 = deepFreezeJson({
           members: { method: 'captainMembers', target: { rootSessionId: 'session-fixture', teamId: 'team-fixture' } },
           announcements: { method: 'captainAnnouncements', target: { rootSessionId: 'session-fixture', teamId: 'team-fixture' } },
           diagnostics: { method: 'captainDiagnostics', target: { rootSessionId: 'session-fixture', teamId: 'team-fixture' } },
-        },
-      }, {
-        // Legal parent-root read: binding rootSessionId (main brain) differs from the
-        // dedicated captainSessionId; endpoints must target the binding root, not captain.
-        teamId: 'team-fixture-2', name: 'Second Team', phase: 'active', captainSessionId: 'captain-alpha',
-        avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
-        identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
-        endpoints: {
-          members: { method: 'captainMembers', target: { rootSessionId: 'session-fixture', teamId: 'team-fixture-2' } },
-          announcements: { method: 'captainAnnouncements', target: { rootSessionId: 'session-fixture', teamId: 'team-fixture-2' } },
-          diagnostics: { method: 'captainDiagnostics', target: { rootSessionId: 'session-fixture', teamId: 'team-fixture-2' } },
         },
       }],
       observedAt: 1_700_000_000_200, complete: true,
