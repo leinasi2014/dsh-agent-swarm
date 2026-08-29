@@ -386,6 +386,10 @@ describe('R2 authoritative target binding and wire contract', () => {
         { name: 'artist', role: 'artist', sessionId: 'artist-session', provider: 'mock', phase: 'active', createdAt: 2,
           displayName: 'Pixel Painter', profession: 'Avatar artist', personality: 'Careful, meticulous',
           pixelAvatarSvg: '<svg viewBox="0 0 16 16"><rect x="0" y="0" width="8" height="8" fill="#2a3"/></svg>' },
+        // A crafted member whose stored pixelAvatarSvg is UNSAFE must be downgraded
+        // to not_generated with no svg (read-time revalidation), never emitted as generated.
+        { name: 'tampered', role: 'artist', sessionId: 'tampered-session', provider: 'mock', phase: 'active', createdAt: 3,
+          pixelAvatarSvg: '<svg viewBox="0 0 16 16"><g/></svg>' },
       ],
       tasks: [{ id: 'task-1', revision: 1, subject: 'T', description: '', acceptanceCriteria: [], status: 'pending', blockedBy: [], writeScopes: [], priority: 1, createdAt: 1, updatedAt: 1 }],
       attempts: [{ id: 'attempt-1', taskId: 'task-1', generation: 1, memberSessionId: 'child-session', phase: 'accepted', assignmentPhase: 'delivered', createdAt: 1, updatedAt: 2 }],
@@ -393,7 +397,8 @@ describe('R2 authoritative target binding and wire contract', () => {
     const service = rpcHarness({ teamState }).service
     const target = { rootSessionId: ROOT.id, teamId: 'team-r2' }
     // Members: authoritative roster identity/phase; a Captain-declared profile is returned as
-    // `generated` (real values), an identity-less member is honestly `not_generated`.
+    // `generated` (real values), an identity-less member is honestly `not_generated`, and a
+    // member holding an unsafe avatar is downgraded to `not_generated` with no svg.
     const members = await service.invoke({
       schemaVersion: 1, method: 'captainMembers', target,
     }) as SwarmReadCaptainMembersV1
@@ -410,6 +415,11 @@ describe('R2 authoritative target binding and wire contract', () => {
         avatar: { state: 'generated', svg: '<svg viewBox="0 0 16 16"><rect x="0" y="0" width="8" height="8" fill="#2a3"/></svg>' },
         identityCard: { state: 'generated' },
       },
+      {
+        name: 'tampered', role: 'artist', phase: 'active', createdAt: 3,
+        avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
+        identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
+      },
     ])
     // Announcements: no public notice board backend -> explicit unavailable, never fabricated entries.
     const announcements = await service.invoke({
@@ -421,7 +431,7 @@ describe('R2 authoritative target binding and wire contract', () => {
       schemaVersion: 1, method: 'captainDiagnostics', target,
     }) as SwarmReadCaptainDiagnosticsV1
     expect(diagnostics.diagnostics).toEqual({
-      revision: 5, phase: 'active', taskCount: 1, attemptCount: 1, memberCount: 2, backend: 'team-domain',
+      revision: 5, phase: 'active', taskCount: 1, attemptCount: 1, memberCount: 3, backend: 'team-domain',
     })
     // A section read without an explicit Team selector is invalid.
     await expect(service.invoke({

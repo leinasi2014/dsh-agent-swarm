@@ -7,6 +7,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import { TeamDomainError } from '../domain/error.js'
+import { isSafePixelAvatarSvg } from '../domain/identity-profile.js'
 import { TeamId, type TeamState } from '../domain/types.js'
 import type { AgentSwarmHostReadService } from '../host/host-read-service.js'
 import type { SwarmHostReadProjectionV1 } from '../host/host-read-types.js'
@@ -187,9 +188,12 @@ export class AgentSwarmReadRpcService {
           ...(member.personality === undefined
             ? {}
             : { personality: member.personality }),
-          avatar: member.pixelAvatarSvg === undefined
-            ? { state: 'not_generated', reason: 'avatar_backend_not_implemented' }
-            : { state: 'generated', svg: member.pixelAvatarSvg },
+          // A generated avatar is re-allowlisted at read time: a tampered or
+          // unsafe stored svg is downgraded to not_generated and never carries
+          // an `svg` on the read contract.
+          avatar: member.pixelAvatarSvg !== undefined && isSafePixelAvatarSvg(member.pixelAvatarSvg)
+            ? { state: 'generated', svg: member.pixelAvatarSvg }
+            : { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
           identityCard: member.displayName === undefined && member.profession === undefined && member.personality === undefined
             ? { state: 'not_generated', reason: 'identity_backend_not_implemented' }
             : { state: 'generated' },

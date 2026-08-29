@@ -9,6 +9,7 @@
 
 import { z } from 'zod'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
+import { isSafePixelAvatarSvg } from '../domain/identity-profile.js'
 import type { MigrationReceipt, TeamScope } from '../domain/team-domain-port.js'
 import type { TeamId, TeamState } from '../domain/types.js'
 
@@ -21,6 +22,20 @@ const teamIdSchema = z.string().regex(/^team-[a-z0-9-]{8,80}$/)
 const sessionId = z.string().min(1)
 const timestamp = z.number().int().min(0)
 
+/**
+ * Durable-boundary code-point cap matching the admission limit
+ * (`normalizeMemberIdentity` uses `[...value].length`). `z.string().max(N)`
+ * counts UTF-16 code units, so a 128-codepoint emoji displayName (256 units)
+ * would be wrongly rejected on reload; this mirrors the same codepoint rule so
+ * 128 emoji restart PASS and 129 FAIL identically to admission.
+ */
+const codePointCapped = (max: number, label: string): z.ZodType<string> =>
+  z.string().min(1).superRefine((value, ctx) => {
+    if ([...value].length > max) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `${label} exceeds ${max} code points` })
+    }
+  }) as unknown as z.ZodType<string>
+
 const memberSchema = z.object({
   name: z.string().min(1),
   role: z.string().min(1),
@@ -30,11 +45,15 @@ const memberSchema = z.object({
   createdAt: timestamp,
   error: z.string().min(1).optional(),
   // Captain-declared identity profile. All optional so pre-existing records
-  // parse byte-identical; values were allowlist/width-validated at admission.
-  displayName: z.string().min(1).max(128).optional(),
-  profession: z.string().min(1).max(256).optional(),
-  personality: z.string().min(1).max(1024).optional(),
-  pixelAvatarSvg: z.string().min(1).max(16384).optional(),
+  // parse byte-identical; text limits mirror admission (code points) and the
+  // stored avatar is re-allowlisted at the durable boundary so an unsafe svg
+  // that somehow reached storage is rejected on load.
+  displayName: codePointCapped(128, 'displayName').optional(),
+  profession: codePointCapped(256, 'profession').optional(),
+  personality: codePointCapped(1024, 'personality').optional(),
+  pixelAvatarSvg: z.string().min(1).max(16384)
+    .refine(isSafePixelAvatarSvg, { message: 'pixelAvatarSvg violates the strict allowlist' })
+    .optional(),
 })
 
 const taskSchema = z.object({

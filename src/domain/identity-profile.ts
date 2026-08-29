@@ -54,8 +54,9 @@ function unsafe(detail: string): never {
 
 /** Rect attributes permitted on each self-closing `<rect>`. */
 const RECT_ATTRS = new Set(['x', 'y', 'width', 'height', 'fill', 'opacity'])
-/** Svg-root attributes permitted. `xmlns` is intentionally not admitted. */
-const SVG_ATTRS = new Set(['viewBox', 'width', 'height'])
+/** Svg-root attribute permitted. `width`/`height`/`xmlns` are intentionally not
+ *  admitted — the root may carry only `viewBox`. */
+const SVG_ATTRS = new Set(['viewBox'])
 /** Allowed fill values: `#RGB`, `#RRGGBB`, or `currentColor`. */
 const FILL_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$|^currentColor$/u
 const NUMBER_RE = /^(?:0|[1-9]\d*)(?:\.\d+)?$/u
@@ -145,7 +146,8 @@ export function sanitizePixelAvatarSvg(raw: string): string {
       if (a !== b || a < MIN_PIXEL_AVATAR_GRID || a > MAX_PIXEL_AVATAR_GRID) {
         unsafe(`viewBox edge must be an integer in ${MIN_PIXEL_AVATAR_GRID}..${MAX_PIXEL_AVATAR_GRID}`)
       }
-    } else if (name !== 'width' && name !== 'height') {
+    } else {
+      // Unreachable: parseAttrs already rejected any non-allowlisted root attr.
       unsafe(`svg attribute "${name}" is not allowlisted`)
     }
   }

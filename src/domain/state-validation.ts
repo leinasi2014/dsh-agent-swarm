@@ -1,5 +1,6 @@
 import { TeamDomainError } from './error.js'
 import { assertTaskGraph } from './graph.js'
+import { isSafePixelAvatarSvg } from './identity-profile.js'
 import type { TeamState } from './types.js'
 
 const TASK_STATUSES = new Set(['pending', 'in_progress', 'submitted', 'verifying', 'completed', 'failed', 'cancelled'])
@@ -28,6 +29,13 @@ function exactKeys(value: Record<string, unknown>, path: string, allowed: Readon
 function text(value: unknown, path: string, label: string): string {
   if (typeof value !== 'string' || value === '') corrupt(path, `${label} must be a non-empty string`)
   return value
+}
+
+/** Non-empty text bounded by the same code-point limit as admission. */
+function codePointText(value: unknown, max: number, path: string, label: string): string {
+  const result = text(value, path, label)
+  if ([...result].length > max) corrupt(path, `${label} exceeds ${max} code points`)
+  return result
 }
 
 function integer(value: unknown, path: string, label: string, minimum = 0): number {
@@ -73,10 +81,14 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
     if (!MEMBER_PHASES.has(String(member.phase))) corrupt(path, `members[${index}].phase is invalid`)
     integer(member.createdAt, path, `members[${index}].createdAt`)
     if (member.error !== undefined) text(member.error, path, `members[${index}].error`)
-    if (member.displayName !== undefined) text(member.displayName, path, `members[${index}].displayName`)
-    if (member.profession !== undefined) text(member.profession, path, `members[${index}].profession`)
-    if (member.personality !== undefined) text(member.personality, path, `members[${index}].personality`)
-    if (member.pixelAvatarSvg !== undefined) text(member.pixelAvatarSvg, path, `members[${index}].pixelAvatarSvg`)
+    if (member.displayName !== undefined) codePointText(member.displayName, 128, path, `members[${index}].displayName`)
+    if (member.profession !== undefined) codePointText(member.profession, 256, path, `members[${index}].profession`)
+    if (member.personality !== undefined) codePointText(member.personality, 1024, path, `members[${index}].personality`)
+    if (member.pixelAvatarSvg !== undefined) {
+      if (typeof member.pixelAvatarSvg !== 'string' || !isSafePixelAvatarSvg(member.pixelAvatarSvg)) {
+        corrupt(path, `members[${index}].pixelAvatarSvg violates the strict allowlist`)
+      }
+    }
     return member
   })
   unique(members.map(member => member.sessionId as string), path, 'member session ids')

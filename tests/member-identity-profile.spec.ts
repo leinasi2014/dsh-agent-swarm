@@ -61,6 +61,12 @@ describe('pixel avatar strict allowlist (security)', () => {
     expect(isSafePixelAvatarSvg('<svg viewBox="0 0 16 16"><rect x="0" y="0" width="2" height="2" fill="#fff"></rect></svg>')).toBe(false)
   })
 
+  it('rejects root width/height (only viewBox is allowlisted on the root)', () => {
+    expect(isSafePixelAvatarSvg('<svg viewBox="0 0 16 16" width="64" height="64"><rect x="0" y="0" width="8" height="8" fill="#2a3"/></svg>')).toBe(false)
+    expect(isSafePixelAvatarSvg('<svg width="64" viewBox="0 0 16 16"><rect x="0" y="0" width="8" height="8" fill="#2a3"/></svg>')).toBe(false)
+    expect(isSafePixelAvatarSvg('<svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><rect x="0" y="0" width="8" height="8" fill="#2a3"/></svg>')).toBe(false)
+  })
+
   it('rejects out-of-range viewBox, malformed shapes, overflow and overlong input', () => {
     expect(isSafePixelAvatarSvg('<svg viewBox="0 0 40 40"><rect x="0" y="0" width="2" height="2" fill="#fff"/></svg>')).toBe(false)
     expect(isSafePixelAvatarSvg('<svg viewBox="0 0 4 4"><rect x="0" y="0" width="2" height="2" fill="#fff"/></svg>')).toBe(false)
@@ -159,7 +165,7 @@ describe('identity profile provisioning, persistence and compatibility', () => {
   })
 
   it('validates persisted identity fields via assertTeamState', () => {
-    const state = {
+    const base = {
       schemaVersion: 2,
       id: TeamId('team-aaaaaaaaaaaaaaaaaaaa'),
       revision: 1,
@@ -172,8 +178,59 @@ describe('identity profile provisioning, persistence and compatibility', () => {
       budget: { usedTokens: 0, usedRequests: 0, usedRetries: 0 },
       usageCursors: {}, nextTaskNumber: 1, nextMemoryNumber: 1, createdAt: 1, updatedAt: 1,
     } as unknown as TeamState
-    // Persisted identity fields are structural (non-empty) strings; the pixel-avatar
-    // allowlist is enforced at the provisioning path where the value is authored.
-    expect(() => assertTeamState(state, 'state')).not.toThrow()
+    expect(() => assertTeamState(base, 'state')).not.toThrow()
+
+    // A crafted unsafe stored pixel avatar is rejected by the persisted-state
+    // validator (durable/state revalidation).
+    const unsafeSvg = structuredClone(base)
+    ;(unsafeSvg.members[0] as { pixelAvatarSvg: string }).pixelAvatarSvg = '<svg viewBox="0 0 16 16"><g/></svg>'
+    expect(() => assertTeamState(unsafeSvg, 'unsafeSvg'))
+      .toThrowError(expect.objectContaining({ code: 'TEAM_STATE_CORRUPT' }))
+  })
+
+  it('persisted identity text uses code-point limits (128 emoji PASS reload, 129 FAIL)', async () => {
+    await open()
+    const team = await domain.createTeam(scope, 'captain-session', 'Emoji team', 'Code-point length limits.')
+    const display128 = '😀'.repeat(128)
+    const member = await domain.provisionMember(scope, team.id, 'captain-session', {
+      name: 'emoji', role: 'writer', sessionId: 'member-emoji', provider: 'spawn',
+      displayName: display128,
+    })
+    expect([...member.displayName!].length).toBe(128)
+
+    // Reload: the durable zod boundary (code-point capped, not UTF-16) accepts
+    // 128 emoji even though they are 256 UTF-16 code units.
+    await stack.close(); stack = undefined as unknown as StorageStack
+    let tick = 1_000
+    stack = await openStorageStack(join(sandbox, 'storage'), () => tick)
+    domain = stack.port as TeamDomain
+    const [reloaded] = await stack.store.list(scope)
+    const reloadedMember = reloaded!.members.find(candidate => candidate.sessionId === 'member-emoji')
+    expect(reloadedMember?.displayName).toBe(display128)
+
+    // 129 emoji (129 code points) is rejected at admission ...
+    await expect(domain.provisionMember(scope, reloaded!.id, 'captain-session', {
+      name: 'emoji-129', role: 'writer', sessionId: 'member-emoji-129', provider: 'spawn',
+      displayName: '😀'.repeat(129),
+    })).rejects.toMatchObject({ code: 'TEAM_MEMBER_IDENTITY_INVALID' })
+
+    // ... and a crafted 129-emoji persisted state is rejected by assertTeamState.
+    const state128 = {
+      schemaVersion: 2,
+      id: reloaded!.id, revision: reloaded!.revision,
+      name: reloaded!.name, description: reloaded!.description, captainSessionId: reloaded!.captainSessionId,
+      phase: reloaded!.phase,
+      members: [{ name: 'x', role: 'r', sessionId: 's9', provider: 'spawn', phase: 'active', createdAt: 1, displayName: display128 }],
+      tasks: reloaded!.tasks, attempts: reloaded!.attempts, messages: reloaded!.messages,
+      interactionEffects: reloaded!.interactionEffects, memory: reloaded!.memory,
+      budget: reloaded!.budget, usageCursors: reloaded!.usageCursors,
+      nextTaskNumber: reloaded!.nextTaskNumber, nextMemoryNumber: reloaded!.nextMemoryNumber,
+      createdAt: reloaded!.createdAt, updatedAt: reloaded!.updatedAt,
+    } as unknown as TeamState
+    expect(() => assertTeamState(state128, 'state128')).not.toThrow()
+    const state129 = structuredClone(state128)
+    ;(state129.members[0] as { displayName: string }).displayName = '😀'.repeat(129)
+    expect(() => assertTeamState(state129, 'state129'))
+      .toThrowError(expect.objectContaining({ code: 'TEAM_STATE_CORRUPT' }))
   })
 })
