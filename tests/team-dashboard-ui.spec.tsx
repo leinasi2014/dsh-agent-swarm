@@ -500,6 +500,26 @@ describe('R3 native Team Details surface', () => {
     expect(document.body.textContent).toContain('Recent attempt: Accepted')
     expect(document.body.textContent).not.toContain('Current task: task-history')
   })
+
+  it('renders the view-tabs navigation strip with roster labels and switches to the board view', async () => {
+    const coordinator = new FakeCoordinator()
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    // Wireframe view-tabs: Main Brain / Dedicated Captain / Announcements, role=tablist.
+    const tablist = document.querySelector<HTMLElement>('[data-swarm-view-tabs]')!
+    expect(tablist.getAttribute('role')).toBe('tablist')
+    const tabs = [...document.querySelectorAll('[data-swarm-view-tab]')]
+    expect(tabs).toHaveLength(3)
+    // Roster labels group the Captain and members (captain · 1 / members · N).
+    expect(document.querySelector('[data-swarm-roster-captain-label]')?.textContent).toContain('Team Captain')
+    expect(document.querySelector('[data-swarm-roster-members-label]')?.textContent).toContain('Members')
+    // Selecting the Board tab switches to the in-slot board view.
+    await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-view-tab="board"]')!).click() })
+    expect(document.querySelector('[data-swarm-board-view]')).not.toBeNull()
+    expect(document.querySelector('[data-swarm-announcement-unavailable]')).not.toBeNull()
+    // Selecting Main Brain routes back to the owner conversation (closeAndRestoreFocus + The FakeCoordinator).
+    await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-view-tab="main"]')!).click() })
+    expect(coordinator.closeAndRestoreFocus).toHaveBeenCalled()
+  })
 })
 
 function activityTask(id: string, currentAttemptId: string, status: 'in_progress' | 'failed' = 'in_progress') {

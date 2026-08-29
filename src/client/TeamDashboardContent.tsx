@@ -1,5 +1,5 @@
 import { Button, IconCloseOutline16, IconRefreshOutline16, StateDot, type StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
-import { useLayoutEffect, useRef, useState, type RefObject } from 'react'
+import { useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SwarmHostReadProjectionV1 } from '../host/host-read-types.js'
 import type { TeamDashboardController, TeamDashboardState } from './team-dashboard-controller.js'
@@ -98,6 +98,13 @@ export const shellCss = `
 [data-swarm-team-dashboard] [data-swarm-member-rows] button.swarm-team-workspace__row:hover { border-color:var(--dsw-alias-brand-primary); }
 [data-swarm-team-dashboard] .swarm-team-workspace__avatar { box-shadow:0 0 0 2px var(--dsw-alias-bg-base); }
 [data-swarm-team-dashboard] .swarm-team-workspace__roster { display:flex; flex-direction:column; gap:10px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__view-tabs { display:inline-flex; align-items:center; gap:4px; padding:4px; border:1px solid var(--dsw-alias-border-l2); border-radius:12px; background:var(--dsw-alias-bg-layer-1); }
+[data-swarm-team-dashboard] .swarm-team-workspace__view-tabs [role="tab"] { border:0; border-radius:9px; padding:7px 10px; background:transparent; color:var(--dsw-alias-label-secondary); font-size:12px; font-weight:700; white-space:nowrap; }
+[data-swarm-team-dashboard] .swarm-team-workspace__view-tabs [role="tab"][aria-selected="true"] { background:var(--dsw-alias-bg-base); color:var(--dsw-alias-label-primary); box-shadow:0 1px 3px var(--dsw-alias-border-l2); }
+[data-swarm-team-dashboard] .swarm-team-workspace__roster-label { margin:0 2px 4px; color:var(--dsw-alias-label-secondary); font-size:10px; font-weight:750; text-transform:uppercase; letter-spacing:.04em; }
+[data-swarm-team-dashboard] .swarm-team-workspace__board { display:grid; gap:12px; min-width:0; }
+[data-swarm-team-dashboard] .swarm-team-workspace__board-head { display:flex; align-items:center; justify-content:space-between; gap:12px; min-width:0; }
+[data-swarm-team-dashboard] .swarm-team-workspace__avatar { background:linear-gradient(135deg, var(--dsw-alias-brand-primary), color-mix(in srgb, var(--dsw-alias-brand-primary) 55%, var(--dsw-alias-bg-base))); }
 `
 
 /** The sole Team UI is a read-only projection in the official Details column. */
@@ -180,6 +187,7 @@ function Workspace({ data, handoffBusy, localeTag, selection, setSelection, t, o
   const [missingMember, setMissingMember] = useState<string>()
   const [missingTask, setMissingTask] = useState<string>()
   const [managementOpen, setManagementOpen] = useState(false)
+  const [view, setView] = useState<'roster' | 'board'>('roster')
   const rosterHeadingRef = useRef<HTMLHeadingElement>(null)
   const taskSummaryRef = useRef<HTMLElement>(null)
   const memberTriggers = useRef(new Map<string, HTMLButtonElement>())
@@ -223,14 +231,23 @@ function Workspace({ data, handoffBusy, localeTag, selection, setSelection, t, o
   const returnToMembers = (name: string): void => { focusIntent.current = { kind: 'member', name }; setSelection({ kind: 'team' }) }
   const returnToTasks = (id: string): void => { focusIntent.current = { kind: 'task', id }; setSelection({ kind: 'team' }) }
   const selected = selection.kind === 'member' ? data.roster.find(member => member.name === selection.name) : undefined
+  const onViewTab = (tab: 'main' | 'captain' | 'board'): void => {
+    if (tab === 'main') onMainBrain()
+    else if (tab === 'captain') onMainChat()
+    else setView('board')
+  }
   return <section className="swarm-team-workspace__rail" aria-label={t('tabs.label')} data-swarm-team-rail>
-    <TeamSwitcher data={data} t={t} />
-    <BrowserNav busy={handoffBusy} onMainBrain={onMainBrain} onCaptain={onMainChat} t={t} />
-    <ManagementEntry onOpen={() => { setManagementOpen(true) }} t={t} />
-    {managementOpen
-      ? <ManagementView data={data} number={number} onBack={() => { setManagementOpen(false) }} t={t} />
-      : <><div className="swarm-team-workspace__roster"><h3 className="swarm-team-workspace__column-title" ref={rosterHeadingRef} tabIndex={-1}>{t('members')}</h3>
-        <CaptainRow busy={handoffBusy} onMainChat={onMainChat} teamName={data.team.name} t={t} />
+    <ViewTabs active={view === 'board' ? 'board' : 'main'} onSelect={onViewTab} t={t} />
+    {view === 'board'
+      ? <BoardView data={data} number={number} onBack={() => { setView('roster') }} t={t} />
+      : <>{managementOpen
+        ? <ManagementView data={data} number={number} onBack={() => { setManagementOpen(false) }} t={t} />
+        : <><TeamSwitcher data={data} t={t} />
+        <BrowserNav busy={handoffBusy} onMainBrain={onMainBrain} onCaptain={onMainChat} t={t} />
+        <ManagementEntry onOpen={() => { setManagementOpen(true) }} t={t} />
+        <div className="swarm-team-workspace__roster"><span className="swarm-team-workspace__roster-label" data-swarm-roster-captain-label>{t('captainRole')} · 1</span>
+          <CaptainRow busy={handoffBusy} onMainChat={onMainChat} teamName={data.team.name} t={t} />
+          <h3 className="swarm-team-workspace__column-title swarm-team-workspace__roster-label" ref={rosterHeadingRef} tabIndex={-1} data-swarm-roster-members-label>{t('members')} · {number.format(data.totals.roster)}</h3>
         {missingMember === undefined ? null : <p className="swarm-team-workspace__muted swarm-team-workspace__notice" role="status">{t('memberNoLongerAvailable', { name: missingMember })}</p>}
         <div className="swarm-team-workspace__members">{selected === undefined ? <MemberRows data={data} onSelect={selectMember} onTrigger={registerMemberTrigger} t={t} /> : <MemberDetail data={data} member={selected} onBack={() => { returnToMembers(selected.name) }} t={t} />}</div>
         {data.truncated.roster ? <p className="swarm-team-workspace__muted swarm-team-workspace__notice">{t('rosterTruncated', { shown: number.format(data.roster.length), total: number.format(data.totals.roster) })}</p> : null}
@@ -242,8 +259,46 @@ function Workspace({ data, handoffBusy, localeTag, selection, setSelection, t, o
       <details className="swarm-team-workspace__collapsible"><summary>{t('budget')}</summary><BudgetStats budget={data.budget} number={number} t={t} /></details>
       <details className="swarm-team-workspace__collapsible"><summary>{t('capabilities')}</summary><CapabilityRows capabilities={data.capabilities} t={t} /></details>
       <Diagnostics data={data} number={number} t={t} />
-      </>}
+      </>}</>
+    }
   </section>
+}
+
+/** View-tabs navigation segment transplanted from the wireframe: Main Brain / Captain / Board.
+ *  Main Brain returns to the official central Chat; Captain opens the dedicated Captain Chat;
+ *  Board switches to the in-slot announcements/board view. Arrow-key navigation over role=tablist. */
+function ViewTabs({ active, onSelect, t }: { readonly active: 'main' | 'captain' | 'board'; readonly onSelect: (tab: 'main' | 'captain' | 'board') => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
+  const tabs = [
+    { id: 'main' as const, label: t('mainBrain') },
+    { id: 'captain' as const, label: t('independentCaptain') },
+    { id: 'board' as const, label: t('announcements') },
+  ]
+  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number): void => {
+    let next = index
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (index + 1) % tabs.length
+    else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (index - 1 + tabs.length) % tabs.length
+    else if (event.key === 'Home') next = 0
+    else if (event.key === 'End') next = tabs.length - 1
+    else return
+    event.preventDefault()
+    onSelect(tabs[next]!.id)
+    ;(event.currentTarget as HTMLButtonElement).focus()
+  }
+  return <div className="swarm-team-workspace__view-tabs" role="tablist" aria-label={t('tabs.label')} data-swarm-view-tabs>{tabs.map((tab, index) => (
+    <button key={tab.id} type="button" role="tab" id={`swarm-tab-${tab.id}`} aria-selected={active === tab.id} tabIndex={active === tab.id ? 0 : -1} data-swarm-view-tab={tab.id} onKeyDown={event => { onKeyDown(event, index) }} onClick={() => { onSelect(tab.id) }}>{tab.label}</button>
+  ))}</div>
+}
+
+/** Board view: public goal + announcement unavailable entries and folded real-data sections. */
+function BoardView({ data, number, onBack, t }: { readonly data: SwarmHostReadProjectionV1; readonly number: Intl.NumberFormat; readonly onBack: () => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
+  return <div className="swarm-team-workspace__board" data-swarm-board-view>
+    <div className="swarm-team-workspace__board-head"><h3 className="swarm-team-workspace__column-title">{t('announcements')}</h3><Button size="sm" variant="ghost" onClick={onBack}>{t('backToMembers')}</Button></div>
+    <section className="swarm-team-workspace__unavailable-card" data-swarm-goal-unavailable><strong>{t('goal')}</strong><p className="swarm-team-workspace__muted">{t('goalUnavailable')}</p></section>
+    <section className="swarm-team-workspace__unavailable-card" data-swarm-announcement-unavailable><strong>{t('announcements')}</strong><p className="swarm-team-workspace__muted">{t('announcementsUnavailable')}</p></section>
+    <details className="swarm-team-workspace__collapsible"><summary>{t('budget')}</summary><BudgetStats budget={data.budget} number={number} t={t} /></details>
+    <details className="swarm-team-workspace__collapsible"><summary>{t('capabilities')}</summary><CapabilityRows capabilities={data.capabilities} t={t} /></details>
+    <Diagnostics data={data} number={number} t={t} />
+  </div>
 }
 
 /** Independent management entry: opens a separate management surface (public goal,
