@@ -184,26 +184,28 @@ export class AgentSwarmRuntime extends Service {
    */
   private async recoverOwnedChildrenFromPersistence(): Promise<void> {
     const persistence = this.ctx.sessionPersistence
-    if (persistence === undefined) return
+    const store = this.storeInstance
+    if (persistence === undefined || store === undefined) return
     let headers
     try {
       headers = await persistence.list()
     } catch {
       return
     }
-    const captainsByScope = new Map<string, Set<string>>()
+    const captainsByScope = new Map<TeamScope, ReadonlySet<string>>()
     for (const header of headers) {
       if (header.parentSession === undefined || header.cwd === undefined) continue
-      let captains = captainsByScope.get(header.cwd)
+      const scope = resolve(header.cwd)
+      let captains = captainsByScope.get(scope)
       if (captains === undefined) {
-        let aggregates: readonly TeamState[]
         try {
-          aggregates = await this.listTeamAggregates(header.cwd as TeamScope)
+          // start() is awaiting this method, so read the already-open store
+          // directly instead of recursing through listTeamAggregates()/start().
+          captains = new Set((await store.list(scope)).map(team => team.captainSessionId))
         } catch {
           continue
         }
-        captains = new Set(aggregates.map(team => team.captainSessionId))
-        captainsByScope.set(header.cwd, captains)
+        captainsByScope.set(scope, captains)
       }
       if (!captains.has(header.id)) continue
       const children = this.ownedChildren.get(header.parentSession) ?? new Set<string>()
