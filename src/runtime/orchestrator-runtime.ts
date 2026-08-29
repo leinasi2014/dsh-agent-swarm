@@ -257,6 +257,15 @@ export class AgentSwarmRuntime extends Service {
     const root = requireAgent(exec), scope = this.scopeOf(root)
     if (root.session.header.parentSession !== undefined || await this.domain.findMembership(scope, root.id) !== undefined)
       throw new TeamDomainError('managed Team creation requires a top-level main Chat outside every Team', 'TEAM_CAPTAIN_REQUIRED')
+    // Idempotency (duplicate Captain/Team): a Main Brain that already created a
+    // dedicated Captain for this workspace reuses the existing active Team — the
+    // same root never provisions a second Captain Session or Team.
+    const managedCaptains = this.managedCaptainSessionsOf(root.id)
+    if (managedCaptains.length > 0) {
+      const owned = (await this.listTeamAggregates(scope))
+        .filter(team => team.phase === 'active' && managedCaptains.includes(team.captainSessionId))
+      if (owned.length > 0) return owned[0]!
+    }
     this.watchJobsScope(scope)
     return await this.captainProvisioning.create({
       scope, root, name, description,

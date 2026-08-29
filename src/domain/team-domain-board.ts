@@ -337,11 +337,18 @@ export async function reviewTask(
     })
     committed = decision === 'accept'
       ? { ...current, revision: current.revision + 1, status: 'completed', updatedAt: timestamp }
-      : clearTaskExecution(current, {
+      : (() => {
+        // Reject drops the strict assignment target as well as the execution, so
+        // the task returns to the general ready pool instead of being
+        // auto-redelivered to the very member whose work was just rejected.
+        const cleared = clearTaskExecution(current, {
           revision: current.revision + 1,
           status: 'pending',
           updatedAt: timestamp,
         })
+        const { targetMemberSessionId: _target, ...requeued } = cleared
+        return requeued
+      })()
     replaceTask(team, committed)
     if (decision === 'reject') {
       Object.assign(team, { budget: { ...team.budget, usedRetries: team.budget.usedRetries + 1 } })

@@ -122,4 +122,23 @@ describe('dedicated Captain topology', () => {
     expect(Object.hasOwn(properties, 'captain_llm_provider')).toBe(false)
     expect(Object.hasOwn(properties, 'captain_model')).toBe(false)
   })
+
+  it('is idempotent: the same root never creates a duplicate Captain or Team', async () => {
+    sandbox = await mkdtemp(join(tmpdir(), 'dsh-dedicated-captain-idem-'))
+    mounted = await mountNodeComposition(sandbox, { captainLlmProvider: 'mock', captainModel: 'mock' })
+    const create = async () => (await mounted!.ctx.tools.execute({
+      signal: SIGNAL,
+      callId: CallId(`managed-create-${Date.now()}`),
+      name: 'agent_swarm_create_managed',
+      arguments: { name: 'Idem Team', description: 'One Captain only.' },
+      agent: mounted!.lead,
+    })).value as { team_id: string; captain_session_id: string }
+
+    const first = await create()
+    expect(first.captain_session_id).not.toBe(mounted.lead.id)
+    // A second create_managed for the same root reuses the existing Captain/Team.
+    const second = await create()
+    expect(second.team_id).toBe(first.team_id)
+    expect(second.captain_session_id).toBe(first.captain_session_id)
+  })
 })
