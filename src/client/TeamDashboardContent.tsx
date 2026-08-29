@@ -118,6 +118,16 @@ export const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace__identity-fields dd { margin:0; color:var(--dsw-alias-brand-primary); font-weight:700; font-size:12px; }
 [data-swarm-team-dashboard] [data-swarm-pixel-avatar] { border-radius:50%; }
 [data-swarm-team-dashboard] [data-avatar-state="not_generated"], [data-swarm-team-dashboard] [data-avatar-state="unavailable"] { box-shadow:inset 0 0 0 1.5px var(--dsw-alias-border-l2); }
+/* Empty/error/loading states keep the same product shell as a bound Team.  The
+   transport error is secondary diagnostic copy, never the whole first screen. */
+[data-swarm-team-dashboard] .swarm-team-workspace__empty-shell { display:flex; flex-direction:column; gap:14px; min-height:100%; }
+[data-swarm-team-dashboard] .swarm-team-workspace__empty-hero { display:grid; grid-template-columns:48px minmax(0,1fr); align-items:center; gap:12px; padding:14px; border:1px solid var(--dsw-alias-border-l2); border-radius:16px; background:linear-gradient(145deg,var(--dsw-alias-bg-layer-1),var(--dsw-alias-bg-base)); }
+[data-swarm-team-dashboard] .swarm-team-workspace__empty-copy { display:flex; flex-direction:column; gap:4px; min-width:0; }
+[data-swarm-team-dashboard] .swarm-team-workspace__empty-copy strong { font-size:15px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__empty-roster { display:grid; gap:6px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__empty-person { display:grid; grid-template-columns:40px minmax(0,1fr) auto; align-items:center; gap:10px; padding:9px; border:1px dashed var(--dsw-alias-border-l2); border-radius:12px; color:var(--dsw-alias-label-secondary); background:var(--dsw-alias-bg-layer-1); }
+[data-swarm-team-dashboard] .swarm-team-workspace__empty-person .swarm-team-workspace__avatar { filter:saturate(.25); opacity:.7; }
+[data-swarm-team-dashboard] .swarm-team-workspace__empty-actions { display:flex; gap:8px; flex-wrap:wrap; }
 `
 
 /** The sole Team UI is a read-only projection in the official Details column. */
@@ -147,8 +157,9 @@ export function TeamDashboardContent({ controller, coordinator, descriptionId, h
       <Button size="sm" variant="toolbar" aria-label={t('close')} title={t('close')} onClick={() => { coordinator.closeAndRestoreFocus() }}><IconCloseOutline16 /></Button>
     </header>
     <main className="swarm-team-workspace__body">
-      <Status state={state} t={t} />
-      {data === undefined ? <Empty state={state} controller={controller} t={t} /> : <Workspace data={data} handoffBusy={handoffBusy} localeTag={localeTag} selection={selection} setSelection={setSelection} t={t} teams={state.data?.teams} onMainBrain={onMainBrain} onMainChat={handoff} onOpenCaptain={coordinator.openTeamCaptain} />}
+      {data === undefined
+        ? <Empty state={state} controller={controller} t={t} teams={state.data?.teams} onMainBrain={onMainBrain} onOpenCaptain={coordinator.openTeamCaptain} />
+        : <><Status state={state} t={t} /><Workspace data={data} handoffBusy={handoffBusy} localeTag={localeTag} selection={selection} setSelection={setSelection} t={t} teams={state.data?.teams} onMainBrain={onMainBrain} onMainChat={handoff} onOpenCaptain={coordinator.openTeamCaptain} /></>}
     </main>
     <footer className="swarm-team-workspace__footer">
       <Button size="sm" variant="ghost" icon={<IconRefreshOutline16 />} onClick={() => { controller.refresh() }}>{t('refresh')}</Button>
@@ -184,7 +195,31 @@ function Status({ state, t }: { readonly state: TeamDashboardState; readonly t: 
   return <div className="swarm-team-workspace__status" role={failed ? 'alert' : 'status'} aria-live="polite"><StateDot state={failed ? 'warning' : 'ongoing'} /><span>{label}</span>{state.error === undefined ? null : <span className="swarm-team-workspace__error" title={`${state.error.code}: ${state.error.message}`}><code>{state.error.code}</code><small className="swarm-team-workspace__muted">: {state.error.message}</small></span>}</div>
 }
 
-function Empty({ state, controller, t }: { readonly state: TeamDashboardState; readonly controller: TeamDashboardController; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) { return state.phase === 'error' ? <Button variant="outline" onClick={() => { controller.reconnect() }}>{t('retry')}</Button> : null }
+function Empty({ state, controller, t, teams, onMainBrain, onOpenCaptain }: {
+  readonly state: TeamDashboardState
+  readonly controller: TeamDashboardController
+  readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS>
+  readonly teams: SwarmReadTeamsV1 | undefined
+  readonly onMainBrain: () => void
+  readonly onOpenCaptain: (captainSessionId: string) => void
+}) {
+  const failed = state.phase === 'error' || state.phase === 'stale'
+  return <section className="swarm-team-workspace__rail swarm-team-workspace__empty-shell" data-swarm-team-rail data-swarm-empty-shell>
+    <ViewTabs active="main" onSelect={tab => { if (tab === 'main') onMainBrain() }} t={t} />
+    <section className="swarm-team-workspace__empty-hero">
+      <span className="swarm-team-workspace__switcher-mark" aria-hidden="true">群</span>
+      <span className="swarm-team-workspace__empty-copy"><strong>{t('title')}</strong><small className="swarm-team-workspace__muted">{t('description')}</small></span>
+    </section>
+    <CaptainList teams={teams} number={new Intl.NumberFormat()} onOpenCaptain={onOpenCaptain} t={t} />
+    <section className="swarm-team-workspace__empty-roster" aria-label={t('members')}>
+      <span className="swarm-team-workspace__roster-label"><span>{t('members')} · 0</span><small>{t('rosterMembersHint')}</small></span>
+      <div className="swarm-team-workspace__empty-person"><span className="swarm-team-workspace__avatar" aria-hidden="true">+</span><span className="swarm-team-workspace__member-copy"><strong>{t('empty')}</strong><small>{failed ? t('error') : t('loading')}</small></span><StateDot state={failed ? 'warning' : 'ongoing'} /></div>
+    </section>
+    <section className="swarm-team-workspace__unavailable-card" data-swarm-goal-unavailable><strong>{t('goal')}</strong><p className="swarm-team-workspace__muted">{t('goalUnavailable')}</p></section>
+    <details className="swarm-team-workspace__diagnostics"><summary>{t('diagnostics')}</summary><Status state={state} t={t} /></details>
+    <div className="swarm-team-workspace__empty-actions">{failed ? <Button variant="outline" onClick={() => { controller.reconnect() }}>{t('retry')}</Button> : null}<Button variant="ghost" onClick={() => { controller.refresh() }}>{t('refresh')}</Button></div>
+  </section>
+}
 
 function Workspace({ data, handoffBusy, localeTag, selection, setSelection, t, teams, onMainBrain, onMainChat, onOpenCaptain }: {
   readonly data: SwarmHostReadProjectionV1

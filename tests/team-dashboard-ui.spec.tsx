@@ -145,7 +145,9 @@ describe('R3 native Team Details surface', () => {
     expect(messageSpan.className).toContain('swarm-team-workspace__error')
     expect(document.querySelector('style')?.textContent).toContain('text-overflow:ellipsis')
     expect(messageSpan.getAttribute('title')).toBe('SWARM_RPC_TARGET_NOT_LIVE: not live')
-    expect(document.querySelectorAll('section')).toHaveLength(0)
+    // Missing authority keeps the same roster-first product shell, but does not invent Team rows.
+    expect(document.querySelector('[data-swarm-empty-shell]')).not.toBeNull()
+    expect(document.querySelectorAll('[data-swarm-member-name]')).toHaveLength(0)
     await act(async () => { [...document.querySelectorAll('button')].find(button => button.textContent === 'Retry')?.click() })
     expect(errorController.reconnect).toHaveBeenCalledTimes(1)
   })
@@ -161,8 +163,9 @@ describe('R3 native Team Details surface', () => {
     const alert = document.querySelector('[role="alert"]')!
     expect(alert.textContent).toContain('SWARM_UI_READ_FAILED')
     expect(alert.textContent).toContain('read-plus: fetch failed')
-    // No section content is fabricated from a missing projection — the surface fails closed rather than guessing.
-    expect(document.querySelectorAll('section')).toHaveLength(0)
+    // The shared empty shell is visible, while no member or task projection is fabricated.
+    expect(document.querySelector('[data-swarm-empty-shell]')).not.toBeNull()
+    expect(document.querySelectorAll('[data-swarm-member-name], [data-swarm-task-rows]')).toHaveLength(0)
     // The full code+message is preserved in the boundary-specifying title for copy/debug.
     const messageSpan = alert.querySelector<HTMLElement>('span[title*="read-plus"]')!
     expect(messageSpan.getAttribute('title')).toBe('SWARM_UI_READ_FAILED: read-plus: fetch failed')
