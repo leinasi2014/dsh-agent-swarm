@@ -156,6 +156,9 @@ export function parseSafePixelSvg(svg: string): SafePixelSvg | undefined {
     }
     const allowed = new Set(['x', 'y', 'width', 'height', 'fill', ...(opacityRaw === null ? [] : ['opacity'])])
     if ([...element.attributes].some(attribute => !allowed.has(attribute.name))) return undefined
+    // Rect boundary: fully inside the authored viewBox, positive extent.
+    if (width <= 0 || height <= 0) return undefined
+    if (x < 0 || y < 0 || x + width > size || y + height > size) return undefined
     rects.push({ x, y, width, height, fill, ...(opacity === undefined ? {} : { opacity }) })
   }
   if (rects.length === 0 || rects.length > 256) return undefined
