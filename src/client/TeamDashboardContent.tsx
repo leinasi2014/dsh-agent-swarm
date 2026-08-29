@@ -90,6 +90,14 @@ export const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace__captain-hero .swarm-team-workspace__avatar { inline-size:48px; block-size:48px; font-size:18px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__captain-hero .swarm-team-workspace__captain-badge { background:var(--dsw-alias-bg-base); border-color:var(--dsw-alias-brand-primary); }
 @media (max-width: 430px) { [data-swarm-team-dashboard] .swarm-team-workspace__rail { width:100%; max-width:100%; margin-inline:0; block-size:100%; } [data-swarm-team-dashboard] .swarm-team-workspace__members { max-block-size:none; } }
+/* ---- task-11 pass 2: branded group header + surfaced contact cards ---- */
+[data-swarm-team-dashboard] .swarm-team-workspace__switcher { display:flex; flex-direction:row; align-items:center; gap:12px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__switcher-mark { flex:0 0 auto; inline-size:44px; block-size:44px; border-radius:12px; display:grid; place-items:center; background:var(--dsw-alias-brand-primary); color:var(--dsw-alias-bg-base); font-weight:800; font-size:18px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__switcher-inner { display:flex; flex-direction:column; gap:8px; min-width:0; flex:1 1 auto; }
+[data-swarm-team-dashboard] [data-swarm-member-rows] button.swarm-team-workspace__row, [data-swarm-team-dashboard] .swarm-team-workspace__roster > button.swarm-team-workspace__captain-hero { background:var(--dsw-alias-bg-layer-1); border:1px solid var(--dsw-alias-border-l2); }
+[data-swarm-team-dashboard] [data-swarm-member-rows] button.swarm-team-workspace__row:hover { border-color:var(--dsw-alias-brand-primary); }
+[data-swarm-team-dashboard] .swarm-team-workspace__avatar { box-shadow:0 0 0 2px var(--dsw-alias-bg-base); }
+[data-swarm-team-dashboard] .swarm-team-workspace__roster { display:flex; flex-direction:column; gap:10px; }
 `
 
 /** The sole Team UI is a read-only projection in the official Details column. */
@@ -271,8 +279,9 @@ function ManagementView({ data, number, onBack, t }: { readonly data: SwarmHostR
  *  an explicit disabled `unavailable` capability — never a faked multi-Team index. */
 function TeamSwitcher({ data, t }: { readonly data: SwarmHostReadProjectionV1; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
   return <div className="swarm-team-workspace__switcher" data-swarm-team-switcher>
-    <div className="swarm-team-workspace__switcher-title"><strong className="swarm-team-workspace__truncate" title={data.team.name}>{data.team.name}</strong><span className="swarm-team-workspace__muted swarm-team-workspace__truncate" title={data.binding.teamId}>{t('teamBound')} · {data.binding.teamId}</span></div>
-    <button className="swarm-team-workspace__row swarm-team-workspace__switch-button" type="button" disabled aria-disabled="true" data-swarm-team-switch-unavailable title={t('teamSwitcherUnavailable')}><span className="swarm-team-workspace__row-main"><span className="swarm-team-workspace__truncate">{t('switchTeam')}</span><span className="swarm-team-workspace__badge swarm-team-workspace__badge-unavailable">{t('unavailable')}</span></span></button>
+    <span className="swarm-team-workspace__switcher-mark" aria-hidden="true">{memberRosterInitial(data.team.name)}</span>
+    <div className="swarm-team-workspace__switcher-inner"><div className="swarm-team-workspace__switcher-title"><strong className="swarm-team-workspace__truncate" title={data.team.name}>{data.team.name}</strong><span className="swarm-team-workspace__muted swarm-team-workspace__truncate" title={data.binding.teamId}>{t('teamBound')} · {data.binding.teamId}</span></div>
+    <button className="swarm-team-workspace__row swarm-team-workspace__switch-button" type="button" disabled aria-disabled="true" data-swarm-team-switch-unavailable title={t('teamSwitcherUnavailable')}><span className="swarm-team-workspace__row-main"><span className="swarm-team-workspace__truncate">{t('switchTeam')}</span><span className="swarm-team-workspace__badge swarm-team-workspace__badge-unavailable">{t('unavailable')}</span></span></button></div>
   </div>
 }
 
