@@ -136,6 +136,11 @@ describe('member rows consume real captainMembers identity data', () => {
     expect(detail.textContent).toContain('Careful, meticulous')
     expect(detail.textContent).toContain('Avatar artist')
     expect(detail.textContent).toContain('Pixel Painter')
+    // Growth & capability entry: honest folded enums (private memory never leaks content).
+    const growth = detail.querySelector('[data-swarm-member-growth]')!
+    expect(growth.textContent).toContain('Private to the member (never exposed here)')
+    expect(growth.querySelectorAll('dd')).toHaveLength(3)
+    expect(growth.textContent.match(/Not implemented yet/gu)).toHaveLength(2)
   })
 
   it('renders an authored 16x16 asset with its own viewBox, and falls back on unsafe/invalid input', async () => {
