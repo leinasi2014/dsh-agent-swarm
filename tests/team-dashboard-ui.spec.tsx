@@ -316,6 +316,8 @@ describe('R3 native Team Details surface', () => {
       // Diagnostics is a flat default-closed details directly in the rail (no outer <details> wrapper).
       const diagnostics = document.querySelector('[data-swarm-team-rail] details.swarm-team-workspace__diagnostics')!
       expect(diagnostics.parentElement?.tagName).not.toBe('DETAILS')
+      // Hard acceptance rule: no nested `details details.swarm-team-workspace__diagnostics` in the DOM.
+      expect(document.querySelector('[data-swarm-team-panel] [data-swarm-team-rail] details details.swarm-team-workspace__diagnostics')).toBeNull()
       expect(observers).toHaveLength(1)
       expect(workspace.dataset.swarmTeamLayout).toBe('compact')
       // This is a component contract, not a jsdom geometry claim. Browser-proof owns geometry acceptance.
@@ -323,6 +325,7 @@ describe('R3 native Team Details surface', () => {
       expect(stylesheet).toContain('container-type:inline-size')
       // The rail is a 359px centered single column (width:100%; max-width:359px; margin-inline:auto).
       expect(stylesheet).toContain('.swarm-team-workspace__rail { width:100%; max-width:359px; margin-inline:auto')
+      expect(stylesheet).toContain('max-width:359px')
       expect(teamWorkspaceLayoutForWidth(359)).toBe('compact')
       await act(async () => { observers[0]?.emit(workspace, 359) })
       expect(workspace.dataset.swarmTeamLayout).toBe('compact')
