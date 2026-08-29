@@ -1,5 +1,6 @@
 /** Immutable R2 schema/fixture artifact shared by DSH and Canvas consumers. */
 import { deepFreezeJson } from '../host/frozen-json.js'
+import { isSafePixelAvatarSvg } from '../domain/identity-profile.js'
 import {
   SWARM_READ_RPC_ENDPOINT,
   SWARM_READ_RPC_NAMESPACE,
@@ -499,9 +500,25 @@ function assertResultSemantics(method: string, value: Record<string, unknown>): 
     if ((value.entries as readonly unknown[]).length !== 0) throw new Error('Swarm RPC announcements must not fabricate entries')
     return
   }
-  // captainMembers and captainDiagnostics carry no cross-field team object; their strict schemas
-  // above fully validate the projection, so no additional semantic assertion applies.
-  if (method === 'captainMembers' || method === 'captainDiagnostics') return
+  if (method === 'captainMembers') {
+    // Per-member avatar safety semantics: `generated` must carry a strictly
+    // allowlisted `svg`, and no other state may carry `svg` at all.
+    const members = value.members as readonly Record<string, unknown>[]
+    for (const member of members) {
+      const avatar = member.avatar as Record<string, unknown>
+      const state = avatar.state
+      if (state === 'generated') {
+        const svg = avatar.svg
+        if (typeof svg !== 'string' || !isSafePixelAvatarSvg(svg)) {
+          throw new Error('Swarm RPC captain member avatar generated must carry a safe svg')
+        }
+      } else if (avatar.svg !== undefined) {
+        throw new Error('Swarm RPC captain member avatar must not carry svg outside generated state')
+      }
+    }
+    return
+  }
+  if (method === 'captainDiagnostics') return
   if (method === 'page') {
     const entries = value.entries as unknown[]
     assertPageEntryKind(value.kind, entries)

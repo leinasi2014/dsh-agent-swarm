@@ -142,4 +142,32 @@ describe('R2 browser client', () => {
     await expect(mount.request({ schemaVersion: 1, method: 'capabilities' })).rejects.toThrow('disposed')
     expect(fetcher).toHaveBeenCalledTimes(1)
   })
+
+  it('rejects crafted unsafe captainMembers avatar semantics and admits a safe rect-only avatar', () => {
+    const base = { ...SWARM_READ_RPC_FIXTURES_V1.values.captainMembers, members: [] as unknown[] }
+    const row = (avatar: unknown) =>
+      ({ name: 'm', role: 'r', phase: 'active', createdAt: 1, avatar, identityCard: { state: 'generated' } })
+
+    const valid = {
+      ...base,
+      members: [row({ state: 'generated', svg: '<svg viewBox="0 0 16 16"><rect x="0" y="0" width="8" height="8" fill="#2a3"/></svg>' })],
+    }
+    expect(() => assertSwarmReadRpcValue('captainMembers', valid)).not.toThrow()
+
+    const reject = [
+      // script root
+      { state: 'generated', svg: '<svg viewBox="0 0 16 16"><script>alert(1)</script></svg>' },
+      // g root (not rect-only)
+      { state: 'generated', svg: '<svg viewBox="0 0 16 16"><g/></svg>' },
+      // root width/height disallowed
+      { state: 'generated', svg: '<svg viewBox="0 0 16 16" width="64" height="64"><rect x="0" y="0" width="8" height="8" fill="#2a3"/></svg>' },
+      // generated must carry svg
+      { state: 'generated' },
+      // not_generated must not carry svg
+      { state: 'not_generated', reason: 'avatar_backend_not_implemented', svg: '<svg viewBox="0 0 16 16"/>' },
+    ]
+    for (const avatar of reject) {
+      expect(() => assertSwarmReadRpcValue('captainMembers', { ...base, members: [row(avatar)] }), JSON.stringify(avatar)).toThrow()
+    }
+  })
 })
