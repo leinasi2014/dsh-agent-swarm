@@ -2,6 +2,9 @@ import type { SwarmHostReadProjectionV1 } from '../host/host-read-types.js'
 import type {
   SwarmReadBindingV1,
   SwarmReadCapabilitiesV1,
+  SwarmReadCaptainAnnouncementsV1,
+  SwarmReadCaptainDiagnosticsV1,
+  SwarmReadCaptainSectionMethod,
   SwarmReadPageKind,
   SwarmReadPageV1,
   SwarmReadTeamsV1,
@@ -14,6 +17,8 @@ export interface TeamDashboardData {
   readonly capabilities: SwarmReadCapabilitiesV1
   readonly projection: SwarmHostReadProjectionV1
   readonly teams: SwarmReadTeamsV1
+  readonly captainAnnouncements: SwarmReadCaptainAnnouncementsV1
+  readonly captainDiagnostics: SwarmReadCaptainDiagnosticsV1
 }
 
 export interface TeamDashboardState {
@@ -199,6 +204,15 @@ export class TeamDashboardController {
     const snapshot = await this.readSnapshot(target, previousCursor, signal)
     assertIdentity(binding, snapshot)
     const teams = await this.readTeams(binding.binding.rootSessionId, signal)
+    // Captain board sections are real reads against the same binding; today the host answers
+    // announcements with an explicit bounded unavailable, never a stub or fabricated posts.
+    const sectionTarget = { rootSessionId: binding.binding.rootSessionId, teamId: binding.binding.teamId }
+    const [captainAnnouncements, captainDiagnostics] = await Promise.all([
+      this.readCaptainSection('captainAnnouncements', sectionTarget, signal) as Promise<SwarmReadCaptainAnnouncementsV1>,
+      this.readCaptainSection('captainDiagnostics', sectionTarget, signal) as Promise<SwarmReadCaptainDiagnosticsV1>,
+    ])
+    assertSectionBinding(binding, captainAnnouncements.binding, 'captainAnnouncements')
+    assertSectionBinding(binding, captainDiagnostics.binding, 'captainDiagnostics')
     const [tasks, attempts, pendingInteractions] = await Promise.all([
       this.readAllPages('tasks', target, snapshot, signal),
       this.readAllPages('attempts', target, snapshot, signal),
@@ -208,7 +222,17 @@ export class TeamDashboardController {
       capabilities,
       projection: Object.freeze({ ...snapshot, tasks, attempts, pendingInteractions }),
       teams,
+      captainAnnouncements,
+      captainDiagnostics,
     }
+  }
+
+  private async readCaptainSection(
+    method: SwarmReadCaptainSectionMethod,
+    target: { readonly rootSessionId: string; readonly teamId: string },
+    signal: AbortSignal,
+  ): Promise<SwarmReadCaptainAnnouncementsV1 | SwarmReadCaptainDiagnosticsV1> {
+    return await this.value({ schemaVersion: 1, method, target }, signal) as SwarmReadCaptainAnnouncementsV1 | SwarmReadCaptainDiagnosticsV1
   }
 
   private async readTeams(rootSessionId: string, signal: AbortSignal): Promise<SwarmReadTeamsV1> {
@@ -358,6 +382,17 @@ function assertIdentity(binding: SwarmReadBindingV1, snapshot: SwarmHostReadProj
     || binding.binding.teamId !== snapshot.binding.teamId
     || binding.team.id !== snapshot.team.id) {
     throw new DashboardReadError('SWARM_UI_BINDING_CHANGED', 'Team binding changed while loading')
+  }
+}
+
+/** A captain section bound to a different root/team is stale authority, never mergeable data. */
+function assertSectionBinding(
+  binding: SwarmReadBindingV1,
+  section: { readonly rootSessionId: string; readonly teamId: string },
+  method: SwarmReadCaptainSectionMethod,
+): void {
+  if (binding.binding.rootSessionId !== section.rootSessionId || binding.binding.teamId !== section.teamId) {
+    throw new DashboardReadError('SWARM_UI_BINDING_CHANGED', `${method} section binding changed while loading`)
   }
 }
 

@@ -86,6 +86,19 @@ const teams = {
   complete: true,
 } as const
 
+const announcements = {
+  schemaVersion: 1,
+  binding: { rootSessionId: 'root-1', teamId: 'team-1' },
+  state: 'unavailable', reason: 'notice_board_not_implemented', entries: [],
+  observedAt: 1_700_000_006_000,
+} as const
+const captainDiagnostics = {
+  schemaVersion: 1,
+  binding: { rootSessionId: 'root-1', teamId: 'team-1' },
+  diagnostics: { revision: 4, phase: 'active', taskCount: 51, attemptCount: 1, memberCount: 1, backend: 'team-domain' },
+  observedAt: 1_700_000_006_000,
+} as const
+
 class ManualSchedule implements TeamDashboardSchedule {
   readonly pending = new Map<object, () => void>()
   set(_delayMs: number, callback: () => void): object {
@@ -119,6 +132,8 @@ function goodFetch(seen: SwarmReadRpcRequest[], options: { driftFirstTaskPage?: 
     if (request.method === 'binding') return success(binding)
     if (request.method === 'snapshot') return success(snapshot)
     if (request.method === 'teams') return success(teams)
+    if (request.method === 'captainAnnouncements') return success(announcements)
+    if (request.method === 'captainDiagnostics') return success(captainDiagnostics)
     if (request.method !== 'page') throw new Error(`unexpected method ${request.method}`)
     const rows = request.page.kind === 'tasks' ? tasks
       : request.page.kind === 'attempts' ? attempts : interactions
@@ -168,9 +183,9 @@ describe('TeamDashboardController', () => {
     expect(state.data?.projection.attempts).toEqual(attempts)
     expect(state.data?.projection.pendingInteractions).toEqual(interactions)
     expect(seen.map(request => request.method)).toEqual([
-      'capabilities', 'binding', 'snapshot', 'teams', 'page', 'page', 'page', 'page',
+      'capabilities', 'binding', 'snapshot', 'teams', 'captainAnnouncements', 'captainDiagnostics', 'page', 'page', 'page', 'page',
     ])
-    expect(seen.every(request => ['capabilities', 'binding', 'snapshot', 'teams', 'page'].includes(request.method))).toBe(true)
+    expect(seen.every(request => ['capabilities', 'binding', 'snapshot', 'teams', 'captainAnnouncements', 'captainDiagnostics', 'page'].includes(request.method))).toBe(true)
     expect(schedule.pending.size).toBe(1)
     controller.dispose()
   })
