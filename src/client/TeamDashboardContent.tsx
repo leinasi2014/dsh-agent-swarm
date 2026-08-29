@@ -280,11 +280,10 @@ function memberActivityLabel(activity: MemberActivity, t: TranslateNS<typeof TEA
   return t('memberIdle')
 }
 
-/** Maps only the derived real activity to the official StateDot semantic: running → ongoing, failed/error → warning, everything else → neutral/available (done). */
+/** Visible status dot only, mapped from the derived real activity: error/failed/removed → warning, everything else → ongoing. No invented semantics. */
 function memberActivityDot(state: MemberActivity['state']): StateDotState {
-  if (state === 'running') return 'ongoing'
-  if (state === 'error') return 'warning'
-  return 'done'
+  if (state === 'error' || state === 'removed') return 'warning'
+  return 'ongoing'
 }
 
 type WireEnum = SwarmHostReadProjectionV1['team']['phase'] | SwarmHostReadProjectionV1['roster'][number]['phase'] | SwarmHostReadProjectionV1['tasks'][number]['status'] | SwarmHostReadProjectionV1['attempts'][number]['phase']
