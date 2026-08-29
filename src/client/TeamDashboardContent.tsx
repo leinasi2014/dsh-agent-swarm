@@ -20,7 +20,7 @@ export const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace__header, [data-swarm-team-dashboard] .swarm-team-workspace__footer { display:flex; justify-content:space-between; gap:8px; padding:9px 12px; border-color:var(--dsw-alias-border-l2); border-style:solid; }
 [data-swarm-team-dashboard] .swarm-team-workspace__header { align-items:flex-start; border-width:0 0 1px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__footer { align-items:center; border-width:1px 0 0; }
-[data-swarm-team-dashboard] .swarm-team-workspace__title { margin:0; font-size:14px; line-height:20px; font-weight:700; }
+[data-swarm-team-dashboard] .swarm-team-workspace__title { margin:0; font-size:13px; line-height:18px; font-weight:700; }
 [data-swarm-team-dashboard] .swarm-team-workspace__title-row, [data-swarm-team-dashboard] .swarm-team-workspace__member-identity { display:flex; align-items:center; gap:8px; min-width:0; }
 [data-swarm-team-dashboard] .swarm-team-workspace__member-identity { flex:1 1 0; }
 [data-swarm-team-dashboard] .swarm-team-workspace__member-activity { flex:0 1 auto; min-width:0; max-width:55%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -51,7 +51,7 @@ export const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace__collapsible > summary + * { margin-top:10px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__diagnostics { margin-top:12px; padding-top:12px; border-top:1px solid var(--dsw-alias-border-l2); }
 [data-swarm-team-dashboard] .swarm-team-workspace__notice { margin:0 0 10px; }
-[data-swarm-team-dashboard] .swarm-team-workspace__rail { width:100%; max-width:359px; margin-inline:auto; display:flex; flex-direction:column; gap:8px; min-width:0; padding:8px; block-size:100%; overflow:hidden; background:var(--dsw-alias-bg-base); font-size:13px; line-height:1.4; }
+[data-swarm-team-dashboard] .swarm-team-workspace__rail { width:100%; max-width:380px; margin-inline:auto; display:flex; flex-direction:column; gap:8px; min-width:0; padding:8px; block-size:100%; overflow:hidden; background:var(--dsw-alias-bg-base); font-size:13px; line-height:1.4; }
 [data-swarm-team-dashboard] .swarm-team-workspace__switcher { display:flex; flex-direction:row; align-items:center; gap:12px; padding:10px; border:1px solid var(--dsw-alias-border-l2); border-radius:12px; background:var(--dsw-alias-bg-base); }
 [data-swarm-team-dashboard] .swarm-team-workspace__switcher-title { display:flex; flex-direction:column; gap:2px; margin-bottom:8px; min-width:0; }
 [data-swarm-team-dashboard] .swarm-team-workspace__switch-button { cursor:not-allowed; opacity:.72; }
@@ -213,11 +213,11 @@ function Empty({ state, controller, t, teams, onMainBrain, onOpenCaptain }: {
   return <section className="swarm-team-workspace__rail swarm-team-workspace__empty-shell" data-swarm-team-rail data-swarm-empty-shell>
     <ViewTabs active="main" onSelect={tab => { if (tab === 'main') onMainBrain() }} t={t} />
     <CaptainList teams={teams} number={new Intl.NumberFormat()} onOpenCaptain={onOpenCaptain} t={t} />
-    <section className="swarm-team-workspace__empty-roster" aria-label={t('members')}>
-      <span className="swarm-team-workspace__roster-label"><span>{t('members')} · 0</span><small>{t('rosterMembersHint')}</small></span>
-      <div className="swarm-team-workspace__empty-person"><span className="swarm-team-workspace__avatar" aria-hidden="true">+</span><span className="swarm-team-workspace__member-copy"><strong>{t('empty')}</strong><small>{failed ? t('error') : t('loading')}</small></span><StateDot state={failed ? 'warning' : 'ongoing'} /></div>
+    {/* Exactly one honest empty/loading/error state: no duplicated placeholder roster or goal cards. */}
+    <section className="swarm-team-workspace__unavailable-card" data-swarm-empty-state>
+      <strong>{failed ? t('error') : t('loading')}</strong>
+      {state.error === undefined ? null : <p className="swarm-team-workspace__muted" title={`${state.error.code}: ${state.error.message}`}>{state.error.message}</p>}
     </section>
-    <section className="swarm-team-workspace__unavailable-card" data-swarm-goal-unavailable><strong>{t('goal')}</strong><p className="swarm-team-workspace__muted">{t('goalUnavailable')}</p></section>
     <details className="swarm-team-workspace__diagnostics"><summary>{t('diagnostics')}</summary><Status state={state} t={t} /></details>
     <div className="swarm-team-workspace__empty-actions">{failed ? <Button variant="outline" onClick={() => { controller.reconnect() }}>{t('retry')}</Button> : null}<Button variant="ghost" onClick={() => { controller.refresh() }}>{t('refresh')}</Button></div>
   </section>
@@ -351,8 +351,7 @@ function ViewTabs({ active, onSelect, t }: { readonly active: 'main' | 'captain'
 function BoardView({ data, announcements, diagnostics, number, onBack, t }: { readonly data: SwarmHostReadProjectionV1; readonly announcements: SwarmReadCaptainAnnouncementsV1 | undefined; readonly diagnostics: SwarmReadCaptainDiagnosticsV1 | undefined; readonly number: Intl.NumberFormat; readonly onBack: () => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
   return <div className="swarm-team-workspace__board" data-swarm-board-view>
     <div className="swarm-team-workspace__board-head"><Button size="sm" variant="ghost" onClick={onBack}>{t('backToMembers')}</Button></div>
-    <section className="swarm-team-workspace__unavailable-card" data-swarm-goal-unavailable><strong>{t('goal')}</strong><p className="swarm-team-workspace__muted">{t('goalUnavailable')}</p></section>
-    <AnnouncementSection announcements={announcements} t={t} />
+    <AnnouncementSection announcements={announcements} goal t={t} />
     <details className="swarm-team-workspace__collapsible"><summary>{t('budget')}</summary><BudgetStats budget={data.budget} number={number} t={t} /></details>
     <details className="swarm-team-workspace__collapsible"><summary>{t('capabilities')}</summary><CapabilityRows capabilities={data.capabilities} t={t} /></details>
     <Diagnostics data={data} captainDiagnostics={diagnostics} number={number} t={t} />
@@ -387,17 +386,16 @@ function ManagementView({ data, announcements, diagnostics, number, onBack, t }:
   </div>
 }
 
-/** Announcements rendered from the real captain read only. The read contract currently admits a
- *  single honest outcome — `state: 'unavailable'` with a stable reason and an always-empty entry
- *  list — so the section renders exactly that compact explicit unavailable state. It never renders
- *  placeholder rows, and it never implies a working notice board. If the backend later delivers
- *  entries, they must be rendered here as real user-visible notice content, never indices. */
-function AnnouncementSection({ announcements, t }: { readonly announcements: SwarmReadCaptainAnnouncementsV1 | undefined; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
+/** The board's single honest state card: the public goal line (the read contract does not expose a
+ *  goal source yet) plus the real captain announcements read. When the host later delivers entries
+ *  they must be rendered as real user-visible notice content, never placeholders or indices. */
+function AnnouncementSection({ announcements, goal = false, t }: { readonly announcements: SwarmReadCaptainAnnouncementsV1 | undefined; readonly goal?: boolean; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
   if (announcements !== undefined && announcements.entries.length > 0) {
     return <section className="swarm-team-workspace__unavailable-card" data-swarm-announcements-state="unavailable"><strong>{t('announcements')}</strong><p className="swarm-team-workspace__muted">{t('announcementsUnavailable')}</p></section>
   }
   return <section className="swarm-team-workspace__unavailable-card" data-swarm-announcement-unavailable data-swarm-announcements-state={announcements?.state ?? 'loading'}>
     <strong>{t('announcements')}</strong>
+    {goal ? <p className="swarm-team-workspace__muted" data-swarm-goal-unavailable>{t('goal')}: {t('goalUnavailable')}</p> : null}
     {announcements === undefined
       ? <p className="swarm-team-workspace__muted">{t('loading')}</p>
       : <p className="swarm-team-workspace__muted" data-swarm-announcement-reason={announcements.reason}>{t('announcementsUnavailable')}</p>}
@@ -466,7 +464,7 @@ function CaptainList({ teams, number, onOpenCaptain, t }: {
     {rows.length === 0
       ? <section className="swarm-team-workspace__unavailable-card" data-swarm-captains-empty><strong>{t('captainsEmpty')}</strong></section>
       : <div className="swarm-team-workspace__captain-list">{rows.map(team => (
-        <button key={team.teamId} className="swarm-team-workspace__row swarm-team-workspace__captain-hero" type="button" data-swarm-captain-team={team.teamId} data-swarm-captain-session={team.captainSessionId} onClick={() => { onOpenCaptain(team.captainSessionId) }} title={t('openCaptainSession')}><span className="swarm-team-workspace__avatar"><SafePixelAvatar seed={team.name} asset={team.avatar} name={team.name} t={t} /></span><span className="swarm-team-workspace__member-copy"><strong className="swarm-team-workspace__truncate" title={team.name}>{team.name}</strong><small className="swarm-team-workspace__profile-incomplete" data-swarm-profile-incomplete>{t('captainIdentityUnavailable')}</small></span><span className="swarm-team-workspace__member-side"><span className="swarm-team-workspace__captain-badge">{t('captainRole')}</span><small className="swarm-team-workspace__captain-action" data-swarm-captain-action>{t('openCaptainSession')}</small></span></button>
+        <button key={team.teamId} className="swarm-team-workspace__row swarm-team-workspace__captain-hero" type="button" data-swarm-captain-team={team.teamId} data-swarm-captain-session={team.captainSessionId} data-swarm-captain-phase={team.phase} data-swarm-identity-state={team.identityCard.state} onClick={() => { onOpenCaptain(team.captainSessionId) }} title={t('openCaptainSession')}><span className="swarm-team-workspace__avatar"><SafePixelAvatar seed={team.name} asset={team.avatar} name={team.name} t={t} /></span><span className="swarm-team-workspace__member-copy"><strong className="swarm-team-workspace__truncate" title={team.name}>{team.name}</strong><small className="swarm-team-workspace__muted swarm-team-workspace__member-role swarm-team-workspace__truncate" data-swarm-profile-incomplete>{team.identityCard.state === 'generated' ? t('captainRole') : t('captainIdentityUnavailable')}</small></span><span className="swarm-team-workspace__member-side"><span className="swarm-team-workspace__badge" data-swarm-captain-status>{enumLabel(team.phase, t)}</span><small className="swarm-team-workspace__captain-action" data-swarm-captain-action>{t('openCaptainSession')}</small></span></button>
       ))}</div>}
   </section>
 }

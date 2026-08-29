@@ -298,7 +298,10 @@ describe('roster/Captain interaction slice', () => {
     expect(alphaAvatar.getAttribute('aria-label')).toContain('Alpha 舰队')
     expect(alpha.querySelector('strong')?.textContent).toBe('Alpha 舰队')
     expect(alpha.querySelector('[data-swarm-profile-incomplete]')?.textContent).toBe(t('captainIdentityUnavailable'))
-    expect(alpha.textContent).toContain(t('captainRole'))
+    // QQ/WeChat-style row: profession line is the honest identity state; the side badge is the real phase.
+    expect(alpha.getAttribute('data-swarm-identity-state')).toBe('not_generated')
+    expect(alpha.getAttribute('data-swarm-captain-phase')).toBe('active')
+    expect(alpha.querySelector('[data-swarm-captain-status]')?.textContent).toBe(t('enum.active'))
     expect(beta.querySelector('strong')?.textContent).toBe('Beta Team')
 
     // Clicking a Captain row opens that Team's dedicated official Captain Session exactly once.

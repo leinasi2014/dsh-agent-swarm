@@ -169,6 +169,11 @@ describe('R3 native Team Details surface', () => {
     // The shared empty shell is visible, while no member or task projection is fabricated.
     expect(document.querySelector('[data-swarm-empty-shell]')).not.toBeNull()
     expect(document.querySelectorAll('[data-swarm-member-name], [data-swarm-task-rows]')).toHaveLength(0)
+    // Exactly one honest error state card: no duplicated placeholder roster/goal cards.
+    const emptyStates = document.querySelectorAll('[data-swarm-empty-shell] [data-swarm-empty-state]')
+    expect(emptyStates).toHaveLength(1)
+    expect(emptyStates[0]!.textContent).toContain('Team status is unavailable.')
+    expect(document.querySelectorAll('[data-swarm-empty-shell] [data-swarm-empty-person], [data-swarm-empty-shell] [data-swarm-goal-unavailable]')).toHaveLength(0)
     // The full code+message is preserved in the boundary-specifying title for copy/debug.
     const messageSpan = alert.querySelector<HTMLElement>('span[title*="read-plus"]')!
     expect(messageSpan.getAttribute('title')).toBe('SWARM_UI_READ_FAILED: read-plus: fetch failed')
@@ -336,9 +341,9 @@ describe('R3 native Team Details surface', () => {
       // This is a component contract, not a jsdom geometry claim. Browser-proof owns geometry acceptance.
       expect(body.className).toContain('swarm-team-workspace__body')
       expect(stylesheet).toContain('container-type:inline-size')
-      // The rail is a 359px centered single column (width:100%; max-width:359px; margin-inline:auto).
-      expect(stylesheet).toContain('.swarm-team-workspace__rail { width:100%; max-width:359px; margin-inline:auto')
-      expect(stylesheet).toContain('max-width:359px')
+      // The rail is a compact centered single column (width:100%; max-width:380px; margin-inline:auto).
+      expect(stylesheet).toContain('.swarm-team-workspace__rail { width:100%; max-width:380px; margin-inline:auto')
+      expect(stylesheet).toContain('max-width:380px')
       // Narrow (single-column) roster rows lock to 40px and truncate the identity on one ellipsis line,
       // so personality/profile fields live only in the detail view.
       expect(stylesheet).toContain('min-block-size:40px')
