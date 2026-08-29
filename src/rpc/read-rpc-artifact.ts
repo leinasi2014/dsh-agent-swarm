@@ -9,7 +9,7 @@ import {
 } from './read-rpc-contract.js'
 
 export const SWARM_READ_RPC_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
-export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '56949c4b85c83f4c30cc84ae3bb8f9213bcadc3bc1601f3c8becda2fdf26dd99' as const
+export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '2d67907d9d2e11b8bf37674922358134aa785be5866ca9069c0fb4c432000ad0' as const
 
 const boundedString = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength, pattern: '\\S' })
 /** Member role is authoritative free-text (never truncated by the reader); the
@@ -422,6 +422,17 @@ export const SWARM_READ_RPC_FIXTURES_V1 = deepFreezeJson({
           announcements: { method: 'captainAnnouncements', target: { rootSessionId: 'session-fixture', teamId: 'team-fixture' } },
           diagnostics: { method: 'captainDiagnostics', target: { rootSessionId: 'session-fixture', teamId: 'team-fixture' } },
         },
+      }, {
+        // Legal parent-root read: binding rootSessionId (main brain) differs from the
+        // dedicated captainSessionId; endpoints must target the binding root, not captain.
+        teamId: 'team-fixture-2', name: 'Second Team', phase: 'active', captainSessionId: 'captain-alpha',
+        avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
+        identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
+        endpoints: {
+          members: { method: 'captainMembers', target: { rootSessionId: 'session-fixture', teamId: 'team-fixture-2' } },
+          announcements: { method: 'captainAnnouncements', target: { rootSessionId: 'session-fixture', teamId: 'team-fixture-2' } },
+          diagnostics: { method: 'captainDiagnostics', target: { rootSessionId: 'session-fixture', teamId: 'team-fixture-2' } },
+        },
       }],
       observedAt: 1_700_000_000_200, complete: true,
     },
@@ -509,15 +520,18 @@ function assertAvatarSemantics(row: Record<string, unknown>, label: string): voi
     if (avatar.reason !== 'avatar_backend_not_implemented') {
       throw new Error(`Swarm RPC ${label} avatar not_generated must carry reason avatar_backend_not_implemented`)
     }
-  } else if (hasSvg) {
-    throw new Error(`Swarm RPC ${label} avatar must not carry svg outside generated state`)
+  } else {
+    // Only generated / not_generated are accepted for Team/member avatars;
+    // unavailable and any other contradictory state are rejected.
+    throw new Error(`Swarm RPC ${label} avatar state must be generated or not_generated`)
   }
 }
 
 /** Identity-card↔profile linkage (strict):
  *  - `generated` requires at least one profile field and no `reason`;
- *  - ANY non-generated state must carry NO profile fields;
- *  - `not_generated` must carry exactly reason `identity_backend_not_implemented`. */
+ *  - `not_generated` must carry no profile fields and exactly reason
+ *    `identity_backend_not_implemented`;
+ *  - no other state is accepted. */
 function assertIdentityCardSemantics(row: Record<string, unknown>, label: string): void {
   const identityCard = row.identityCard as Record<string, unknown> | undefined
   if (identityCard === undefined) return
@@ -529,16 +543,19 @@ function assertIdentityCardSemantics(row: Record<string, unknown>, label: string
     return
   }
   if (hasProfile) throw new Error(`Swarm RPC ${label} identityCard non-generated must not carry profile fields`)
-  if (state === 'not_generated' && identityCard.reason !== 'identity_backend_not_implemented') {
+  if (state !== 'not_generated') {
+    throw new Error(`Swarm RPC ${label} identityCard state must be generated or not_generated`)
+  }
+  if (identityCard.reason !== 'identity_backend_not_implemented') {
     throw new Error(`Swarm RPC ${label} identityCard not_generated must carry reason identity_backend_not_implemented`)
   }
 }
 
-/** Team endpoint refs must point at exactly this Team via the canonical methods. */
-function assertTeamEndpoints(team: Record<string, unknown>): void {
+/** Team endpoint refs must use the canonical methods and target the outer binding
+ *  `rootSessionId` (never `team.captainSessionId`, which differs for parent-root reads). */
+function assertTeamEndpoints(team: Record<string, unknown>, bindingRootSessionId: string): void {
   const endpoints = team.endpoints as Record<string, unknown> | undefined
   if (endpoints === undefined) return
-  const rootSessionId = team.captainSessionId as string
   const teamId = team.teamId as string
   const expectedMethods = { members: 'captainMembers', announcements: 'captainAnnouncements', diagnostics: 'captainDiagnostics' } as const
   for (const key of Object.keys(expectedMethods) as Array<keyof typeof expectedMethods>) {
@@ -546,7 +563,7 @@ function assertTeamEndpoints(team: Record<string, unknown>): void {
     if (ref === undefined) throw new Error(`Swarm RPC Team endpoint ${key} is missing`)
     if (ref.method !== expectedMethods[key]) throw new Error(`Swarm RPC Team endpoint ${key} method is inconsistent`)
     const target = ref.target as Record<string, unknown> | undefined
-    if (target === undefined || target.rootSessionId !== rootSessionId || target.teamId !== teamId) {
+    if (target === undefined || target.rootSessionId !== bindingRootSessionId || target.teamId !== teamId) {
       throw new Error(`Swarm RPC Team endpoint ${key} target is inconsistent`)
     }
   }
@@ -573,11 +590,13 @@ function assertResultSemantics(method: string, value: Record<string, unknown>): 
   if (method === 'teams') {
     if ((value.complete as boolean) !== true) throw new Error('Swarm RPC Team enumeration is not complete')
     const teams = value.teams as readonly Record<string, unknown>[]
+    const binding = value.binding as Record<string, unknown>
+    const bindingRootSessionId = binding.rootSessionId as string
     for (const team of teams) {
       const row = team as Record<string, unknown>
       assertAvatarSemantics(row, 'Team')
       assertIdentityCardSemantics(row, 'Team')
-      assertTeamEndpoints(row)
+      assertTeamEndpoints(row, bindingRootSessionId)
     }
     return
   }
@@ -600,8 +619,8 @@ function assertResultSemantics(method: string, value: Record<string, unknown>): 
         throw new Error('Swarm RPC announcement text must be canonical (trimmed, non-empty)')
       }
       const createdAt = entry.createdAt as number
-      if (!Number.isSafeInteger(createdAt) || createdAt < 0) {
-        throw new Error('Swarm RPC announcement createdAt must be a safe non-negative integer')
+      if (!Number.isSafeInteger(createdAt) || createdAt < 0 || Number.isNaN(new Date(createdAt).getTime())) {
+        throw new Error('Swarm RPC announcement createdAt must be a safe non-negative, date-valid integer')
       }
       if (createdAt < previous) throw new Error('Swarm RPC announcement createdAt must be non-decreasing')
       previous = createdAt

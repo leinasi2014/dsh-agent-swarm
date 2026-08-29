@@ -226,5 +226,30 @@ describe('R2 browser client', () => {
     expect(() => assertSwarmReadRpcValue('captainAnnouncements', { ...annBase, entries: [{ id: legal(1), text: 'a', createdAt: -1 }] })).toThrow() // invalid date
     expect(() => assertSwarmReadRpcValue('captainAnnouncements', { ...annBase, entries: [{ id: legal(1), text: 'a', createdAt: 100 }, { id: legal(1), text: 'b', createdAt: 200 }] })).toThrow() // duplicate
     expect(() => assertSwarmReadRpcValue('captainAnnouncements', { ...annBase, entries: [{ id: legal(1), text: 'a', createdAt: 200 }, { id: legal(2), text: 'b', createdAt: 100 }] })).toThrow() // non-decreasing
+
+    // Legal parent-root fixture (rootSessionId ≠ captainSessionId) still passes;
+    // targeting the dedicated captain instead of the binding root is rejected.
+    expect(() => assertSwarmReadRpcValue('teams', teamsBase)).not.toThrow()
+    const second = teamsBase.teams[1] as Record<string, unknown>
+    expect(() => assertSwarmReadRpcValue('teams', {
+      ...teamsBase,
+      teams: [{ ...second, endpoints: { ...(second.endpoints as Record<string, unknown>), members: { method: 'captainMembers', target: { rootSessionId: second.captainSessionId, teamId: second.teamId } } } }],
+    })).toThrow() // endpoint target must use binding root, not captain
+
+    // uppercase UUID id rejected; out-of-Date-range createdAt rejected.
+    expect(() => assertSwarmReadRpcValue('captainAnnouncements', {
+      ...annBase,
+      entries: [{ id: 'ann-00000000-0000-0000-0000-00000000000A', text: 'a', createdAt: 100 }],
+    })).toThrow() // uppercase uuid
+    expect(() => assertSwarmReadRpcValue('captainAnnouncements', {
+      ...annBase,
+      entries: [{ id: legal(3), text: 'a', createdAt: 8640000000000001 }],
+    })).toThrow() // beyond Date range
+
+    // unavailable avatar / identityCard states rejected for teams + captainMembers.
+    expect(() => assertSwarmReadRpcValue('teams', { ...teamsBase, teams: [{ ...oneTeam, avatar: { state: 'unavailable' } }] })).toThrow()
+    expect(() => assertSwarmReadRpcValue('teams', { ...teamsBase, teams: [{ ...noProfileTeam, avatar: oneTeam.avatar, identityCard: { state: 'unavailable' } }] })).toThrow()
+    expect(() => assertSwarmReadRpcValue('captainMembers', { ...membersBase, members: [mrow({ avatar: { state: 'unavailable' } })] })).toThrow()
+    expect(() => assertSwarmReadRpcValue('captainMembers', { ...membersBase, members: [mrow({ identityCard: { state: 'unavailable' } })] })).toThrow()
   })
 })
