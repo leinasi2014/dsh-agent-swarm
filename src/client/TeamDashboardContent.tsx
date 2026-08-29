@@ -9,7 +9,7 @@ import { TEAM_DASHBOARD_NS, type TeamDashboardKey } from './team-dashboard-local
 type Selection = { readonly kind: 'team' } | { readonly kind: 'member'; readonly name: string } | { readonly kind: 'task'; readonly id: string }
 type FocusIntent = { readonly kind: 'roster' | 'tasks' } | { readonly kind: 'member'; readonly name: string } | { readonly kind: 'task'; readonly id: string }
 
-const shellCss = `
+export const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace { container-type:inline-size; display:grid; grid-template-rows:auto minmax(0,1fr) auto; height:100%; min-width:0; overflow:hidden; color:var(--dsw-alias-label-primary); background:var(--dsw-alias-bg-layer-1); }
 [data-swarm-team-dashboard] .swarm-team-workspace__header, [data-swarm-team-dashboard] .swarm-team-workspace__footer { display:flex; justify-content:space-between; gap:12px; padding:16px 20px; border-color:var(--dsw-alias-border-l2); border-style:solid; }
 [data-swarm-team-dashboard] .swarm-team-workspace__header { align-items:flex-start; border-width:0 0 1px; }
