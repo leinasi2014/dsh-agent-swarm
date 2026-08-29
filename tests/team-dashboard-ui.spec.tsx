@@ -243,7 +243,7 @@ describe('R3 native Team Details surface', () => {
     await act(async () => { root.render(<TeamDashboardDetails {...(common as any)} />) })
     expect(document.body.textContent).toContain('worker is no longer in this Team. Returning to members.')
     expect(document.activeElement).toBe(document.querySelector('.swarm-team-workspace__roster h3'))
-    expect(document.querySelector('.swarm-team-workspace__roster')?.textContent).toMatchSnapshot()
+    expect(document.querySelector('[data-swarm-roster-members-label]')?.textContent).toContain('Members · 0')
   })
 
   it('moves keyboard focus into member/task detail, restores its logical trigger, and recovers from a removed task', async () => {
@@ -291,7 +291,7 @@ describe('R3 native Team Details surface', () => {
     expect(taskSummary.textContent).toBe('Tasks')
   })
 
-  it('keeps roster first at 359/360/520/719 and reserves three columns for the future 720px seam', async () => {
+  it('keeps the compact roster-first rail at 359 and really switches to the wide three-region structure at 720', async () => {
     const observers: TestResizeObserver[] = []
     const originalResizeObserver = globalThis.ResizeObserver
     class TestResizeObserver {
@@ -316,59 +316,67 @@ describe('R3 native Team Details surface', () => {
     try {
       await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: populated, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
       const workspace = document.querySelector<HTMLElement>('.swarm-team-workspace')!
-      const body = document.querySelector<HTMLElement>('.swarm-team-workspace__body')!
+      const rail = document.querySelector<HTMLElement>('[data-swarm-team-rail]')!
       const stylesheet = document.querySelector('style')?.textContent ?? ''
-      // A single vertical roster-first rail replaces the previous three-column grid.
+      // One rail with the wireframe's three real internal regions: team/members · tasks/announcements · details/diagnostics.
       expect(document.querySelectorAll('[data-swarm-team-panel] [data-swarm-team-rail]')).toHaveLength(1)
-      expect(document.querySelectorAll('[data-swarm-team-panel] .swarm-team-workspace__column')).toHaveLength(0)
-      // Folded sections live inside the rail as default-closed details: tasks/overview/budget/capabilities (4 folded)
-      // plus Diagnostics (its own flat default-closed details) as the 5th top-level details.
-      const folded = [...document.querySelectorAll<HTMLDetailsElement>('[data-swarm-team-panel] [data-swarm-team-rail] > details')]
-      expect(folded).toHaveLength(5)
+      const regions = [...document.querySelectorAll<HTMLElement>('[data-swarm-team-rail] [data-swarm-rail-region]')]
+      expect(regions.map(region => region.getAttribute('data-swarm-rail-region'))).toEqual(['team', 'work', 'detail'])
+      // No duplicate Captain/Team identity blocks on the Main Brain first screen: exactly one pinned
+      // Captain row, no switcher, no browser nav, no identity card, no enumerated Team list.
+      expect(document.querySelectorAll('[data-swarm-captain-row]')).toHaveLength(1)
+      expect(document.querySelector('[data-swarm-team-switcher]')).toBeNull()
+      expect(document.querySelector('[data-swarm-browser-nav]')).toBeNull()
+      expect(document.querySelector('[data-swarm-team-rail] [data-swarm-identity-card]')).toBeNull()
+      expect(document.querySelector('[data-swarm-captain-list]')).toBeNull()
+      // Exactly one compact Team overview carrying the durable public goal; no board goal card here.
+      expect(document.querySelectorAll('[data-swarm-team-overview]')).toHaveLength(1)
+      const overview = document.querySelector<HTMLElement>('[data-swarm-team-overview]')!
+      expect(overview.getAttribute('data-swarm-goal-state')).toBe('generated')
+      expect(overview.querySelector('[data-swarm-overview-goal-text]')?.textContent).toBe('Deliver the Team UI.')
+      expect(document.querySelectorAll('[data-swarm-goal-card]')).toHaveLength(0)
+      // All six foldables (tasks/announcements/overview/budget/capabilities/diagnostics) are default-closed in compact.
+      const folded = [...document.querySelectorAll<HTMLDetailsElement>('[data-swarm-team-panel] [data-swarm-team-rail] details')]
+      expect(folded).toHaveLength(6)
       expect(folded.every(detail => detail.open === false)).toBe(true)
-      // Budget and capabilities fold real Host data in their own top-level details.
       expect(document.querySelector('[data-swarm-budget]')).not.toBeNull()
       expect(document.querySelector('[data-swarm-capabilities]')).not.toBeNull()
-      // Goal/announcement state lives only in its dedicated board/management views, not on the roster.
-      expect(document.querySelectorAll('[data-swarm-goal-card]')).toHaveLength(0)
-      // Diagnostics is a flat default-closed details directly in the rail (parent not DETAILS), and the
-      // hard rule holds globally: there is NO nested `details details.swarm-team-workspace__diagnostics`.
+      // Diagnostics is a flat default-closed details (parent not DETAILS), never nested.
       const diagnostics = document.querySelector('[data-swarm-team-rail] details.swarm-team-workspace__diagnostics')!
+      expect(diagnostics.hasAttribute('data-swarm-diagnostics-fold')).toBe(true)
+      expect((diagnostics as HTMLDetailsElement).open).toBe(false)
       expect(diagnostics.parentElement?.tagName).not.toBe('DETAILS')
       expect(document.querySelectorAll('details details.swarm-team-workspace__diagnostics')).toHaveLength(0)
       expect(observers).toHaveLength(1)
       expect(workspace.dataset.swarmTeamLayout).toBe('compact')
       // This is a component contract, not a jsdom geometry claim. Browser-proof owns geometry acceptance.
-      expect(body.className).toContain('swarm-team-workspace__body')
       expect(stylesheet).toContain('container-type:inline-size')
-      // The rail is a compact centered single column (width:100%; max-width:380px; margin-inline:auto).
+      // The rail is a compact centered single column; the wide branch really switches to the 3-region grid.
       expect(stylesheet).toContain('.swarm-team-workspace__rail { width:100%; max-width:380px; margin-inline:auto')
-      expect(stylesheet).toContain('max-width:380px')
-      // Narrow (single-column) roster rows lock to 40px and truncate the identity on one ellipsis line,
-      // so personality/profile fields live only in the detail view.
-      expect(stylesheet).toContain('min-block-size:40px')
+      expect(stylesheet).toMatch(/__regions \{ display:flex; flex-direction:column/u)
+      expect(stylesheet).toContain('[data-swarm-rail-layout="wide"] .swarm-team-workspace__regions { display:grid; grid-template-columns:repeat(3,minmax(0,1fr))')
+      // Compact QQ/WeChat-group metrics: 28px member avatar, 48px member rows, 52px pinned Captain row, 12px rail body.
+      expect(stylesheet).toMatch(/__avatar \{[^}]*inline-size:28px/u)
+      expect(stylesheet).toContain('grid-template-columns:28px minmax(0,1fr) auto')
+      expect(stylesheet).toContain('min-block-size:48px')
+      expect(stylesheet).toContain('grid-template-columns:32px minmax(0,1fr) auto')
+      expect(stylesheet).toMatch(/__captain-hero \{[^}]*min-block-size:52px/u)
+      expect(stylesheet).toMatch(/__rail \{[^}]*font-size:12px/u)
       expect(stylesheet).toMatch(/@media \(max-width: 430px\).*white-space:nowrap/mu)
       expect(teamWorkspaceLayoutForWidth(359)).toBe('compact')
       await act(async () => { observers[0]?.emit(workspace, 359) })
-      expect(workspace.dataset.swarmTeamLayout).toBe('compact')
+      expect(rail.getAttribute('data-swarm-rail-layout')).toBe('compact')
       expect(teamWorkspaceLayoutForWidth(TEAM_WORKSPACE_WIDE_MIN_WIDTH)).toBe('wide')
       await act(async () => { observers[0]?.emit(workspace, 720) })
-      expect(workspace.dataset.swarmTeamLayout).toBe('wide')
-      // Team switcher names the real bound Team; switching to another Team is an explicit unavailable capability.
-      const switcher = document.querySelector<HTMLElement>('[data-swarm-team-switcher]')!
-      expect(switcher.textContent).toContain('Fixture Team')
-      expect(switcher.textContent).toContain('team-fixture')
-      const switchButton = document.querySelector<HTMLButtonElement>('[data-swarm-team-switch-unavailable]')!
-      expect(switchButton.disabled).toBe(true)
-      expect(switchButton.getAttribute('aria-disabled')).toBe('true')
-      expect(switchButton.textContent).toContain('unavailable')
-      // Main Brain / Dedicated Captain navigation over official child seams.
-      expect(document.querySelector('[data-swarm-nav-main]')?.textContent).toContain('Main Brain')
-      expect(document.querySelector('[data-swarm-nav-captain]')?.textContent).toContain('Dedicated Captain')
-      await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-nav-main]')!).click() })
-      expect(coordinator.closeAndRestoreFocus).toHaveBeenCalledTimes(1)
-      // Roster-first: Captain hero precedes every real member.
-      const captain = document.querySelector<HTMLButtonElement>('.swarm-team-workspace__roster > button')!
+      expect(rail.getAttribute('data-swarm-rail-layout')).toBe('wide')
+      // Wide mode really opens the work region (tasks + announcements) while diagnostics stay folded.
+      expect(document.querySelector<HTMLDetailsElement>('[data-swarm-tasks-fold]')!.open).toBe(true)
+      const announcementsFold = document.querySelector<HTMLDetailsElement>('[data-swarm-announcements-fold]')!
+      expect(announcementsFold.open).toBe(true)
+      expect(announcementsFold.querySelectorAll('[data-swarm-announcement-entry]')).toHaveLength(1)
+      expect((document.querySelector('[data-swarm-diagnostics-fold]') as HTMLDetailsElement).open).toBe(false)
+      // Roster-first: the single pinned Captain hero precedes every real member.
+      const captain = document.querySelector<HTMLButtonElement>('[data-swarm-captain-row]')!
       const member = document.querySelector<HTMLButtonElement>('.swarm-team-workspace__rows button')!
       expect(captain.compareDocumentPosition(member) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
       expect(captain.querySelector('[data-swarm-pixel-avatar]')?.getAttribute('data-avatar-state')).toBe('generated')
@@ -382,19 +390,15 @@ describe('R3 native Team Details surface', () => {
       expect(member.querySelector('[data-swarm-member-visible-lifecycle]')).toBeNull()
       expect(member.querySelector('[data-swarm-member-visible-activity]')?.textContent).toBe('Running')
       expect(member.querySelector('[data-swarm-task-owner]')).toBeNull()
-      // Goal and announcement entries live in their dedicated board/management views only.
-      expect(document.querySelectorAll('[data-swarm-goal-card]')).toHaveLength(0)
-      expect(document.querySelectorAll('[data-swarm-announcement-unavailable]')).toHaveLength(0)
       // A single Captain-row click routes to the dedicated Captain Chat via the coordinator.
       await act(async () => { captain.click(); await Promise.resolve() })
       expect(coordinator.openCaptainChat).toHaveBeenCalledTimes(1)
-      expect(document.querySelector('details')?.open).toBe(false)
     } finally {
       Object.defineProperty(globalThis, 'ResizeObserver', { configurable: true, value: originalResizeObserver })
     }
   })
 
-  it('opens the independent management surface from its own rail entry and returns to the roster', async () => {
+  it('opens the Dedicated Captain page from its tab, keeps Captain identity details there, and returns to the roster', async () => {
     const coordinator = new FakeCoordinator()
     const projection = {
       ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot,
@@ -404,49 +408,45 @@ describe('R3 native Team Details surface', () => {
     const state: TeamDashboardState = { ...ready, data: teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection) }
     const mgmtController = { getSnapshot: (): TeamDashboardState => state, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: mgmtController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
-    // The independent management entry is browser-visible in the rail, distinct from the roster rows.
-    const entry = document.querySelector<HTMLButtonElement>('[data-swarm-management-entry]')!
+    // The Main Brain rail shows no Captain identity card and no enumerated Team list.
+    expect(document.querySelector('[data-swarm-identity-card]')).toBeNull()
+    expect(document.querySelector('[data-swarm-captain-page]')).toBeNull()
+    expect(document.querySelector('[data-swarm-management-entry]')).toBeNull()
+    // Opening the Dedicated Captain page swaps the rail content (not stacked on the roster).
+    await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-view-tab="captain"]')!).click() })
+    const page = document.querySelector<HTMLElement>('[data-swarm-captain-page]')!
+    expect(page).not.toBeNull()
+    expect(page.textContent).toContain('Dedicated Captain')
+    // Captain identity detail lives HERE: real generated values, personality included, and no
+    // unconditional "onboarding incomplete" banner next to an already generated profile.
+    expect(page.querySelector('[data-swarm-identity-card]')?.textContent).toContain('Fixture Captain')
+    expect(page.querySelector('[data-swarm-identity-profession]')?.textContent).toContain('Coordinator')
+    expect(page.querySelector('[data-swarm-identity-personality]')?.textContent).toContain('Steady')
+    expect(page.querySelector('[data-swarm-identity-incomplete]')).toBeNull()
+    // The generated identity badge reads "Generated", not the not-generated marker.
+    expect(page.querySelector('[data-swarm-identity-badge]')?.textContent).toBe('Generated')
+    expect(page.querySelector('[data-swarm-identity-badge]')?.getAttribute('data-swarm-identity-badge-state')).toBe('generated')
+    // The compact management entry lives HERE (never on the Main Brain first screen) and opens the
+    // independent management surface; its back returns to the roster.
+    const entry = page.querySelector<HTMLButtonElement>('[data-swarm-management-entry]')!
     expect(entry).not.toBeNull()
-    expect(entry.textContent).toContain('Public board')
-    // Opening swaps the roster rail for the separate management surface (not stacked on roster).
     await act(async () => { entry.click() })
-    const view = document.querySelector<HTMLElement>('[data-swarm-management-view]')!
-    expect(view).not.toBeNull()
-    expect(view.textContent).toContain('Team management')
-    // Management surface is a three-layer projection: identity-incomplete state,
-    // real Team data with explicit unavailable goal/announcements and folded budget/capabilities,
-    // then folded technical diagnostics — so the sidebar first screen never shows ledger fields.
-    // With a generated bound captain profile the management card shows REAL values and no
-    // unconditional "onboarding incomplete" banner; personality appears only in this detail.
-    expect(document.querySelector('[data-swarm-management-view] [data-swarm-identity-card]')?.textContent).toContain('Fixture Captain')
-    expect(document.querySelector('[data-swarm-management-view] [data-swarm-identity-profession]')?.textContent).toContain('Coordinator')
-    expect(document.querySelector('[data-swarm-management-view] [data-swarm-identity-personality]')?.textContent).toContain('Steady')
-    expect(document.querySelector('[data-swarm-management-view] [data-swarm-identity-incomplete]')).toBeNull()
-    // Write/read capabilities that the read-only Host contract does not expose degrade to explicit unavailable.
-    expect(view.textContent).toContain('Write capabilities')
-    expect(view.textContent).toContain('No human write path is bound to this read-only surface.')
-    // The durable public goal renders its real canonical text plus the Captain-handoff update action.
-    const mgmtGoal = document.querySelector<HTMLElement>('[data-swarm-management-view] [data-swarm-goal-card]')!
-    expect(mgmtGoal).not.toBeNull()
-    expect(mgmtGoal.getAttribute('data-swarm-goal-state')).toBe('generated')
-    expect(mgmtGoal.querySelector('[data-swarm-goal-text]')?.textContent).toBe('Deliver the Team UI.')
-    expect(mgmtGoal.querySelector('[data-swarm-goal-update]')).not.toBeNull()
-    // Real public announcements read: available state renders the real bounded entries.
-    const mgmtAnnouncements = document.querySelector('[data-swarm-management-view] [data-swarm-announcements-state="available"]')
-    expect(mgmtAnnouncements).not.toBeNull()
-    expect(mgmtAnnouncements!.textContent).toContain('Welcome to the Fixture Team.')
-    // Real Host data (budget) folds inside its own collapsible in the management surface.
-    const budgetFold = [...document.querySelectorAll('[data-swarm-management-view] details')].find(detail => detail.querySelector('[data-swarm-budget]'))!
-    expect((budgetFold as HTMLDetailsElement).open).toBe(false)
-    // Diagnostics stays a flat default-folding details inside the management surface (never nested).
-    const diagnostics = document.querySelector('[data-swarm-management-view] details.swarm-team-workspace__diagnostics')!
-    expect(diagnostics).not.toBeNull()
-    expect((diagnostics as HTMLDetailsElement).open).toBe(false)
-    expect(diagnostics.parentElement?.tagName).not.toBe('DETAILS')
-    // Back returns to the roster-first rail; management surface is removed.
-    const back = [...document.querySelectorAll('button')].find(button => button.textContent === 'Back to Team roster')!
-    await act(async () => { back.click() })
+    expect(document.querySelector('[data-swarm-management-view]')!.textContent).toContain('Team management')
+    await act(async () => { [...document.querySelectorAll('button')].find(button => button.textContent === 'Back to Team roster')!.click() })
     expect(document.querySelector('[data-swarm-management-view]')).toBeNull()
+    expect(document.querySelector('.swarm-team-workspace__roster')).not.toBeNull()
+    // The explicit chat handoff stays on the page.
+    await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-view-tab="captain"]')!).click() })
+    await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-captain-page-open]')!).click(); await Promise.resolve() })
+    expect(coordinator.openCaptainChat).toHaveBeenCalledTimes(1)
+    // zh locale carries the honest generated badge copy.
+    document.body.replaceChildren()
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: mgmtController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t: tZh } as any)} />)
+    await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-view-tab="captain"]')!).click() })
+    expect(document.querySelector('[data-swarm-captain-page] [data-swarm-identity-badge]')?.textContent).toBe('已生成')
+    // Back returns to the roster-first rail; the captain page is removed.
+    await act(async () => { [...document.querySelectorAll('button')].find(button => button.textContent === '返回成员列表')!.click() })
+    expect(document.querySelector('[data-swarm-captain-page]')).toBeNull()
     expect(document.querySelector('.swarm-team-workspace__roster')).not.toBeNull()
   })
 
@@ -488,6 +488,9 @@ describe('R3 native Team Details surface', () => {
     const state: TeamDashboardState = { ...ready, data: { ...teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, SWARM_READ_RPC_FIXTURES_V1.values.snapshot), teams: multiTeams as never, captainMembers: generatedMembers as never, projection: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot, binding: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.binding, teamId: 'team-alpha' } } as never } }
     const mgmtController = { getSnapshot: (): TeamDashboardState => state, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: mgmtController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    // The management entry lives on the Dedicated Captain page; the Main Brain rail has none.
+    expect(document.querySelector('[data-swarm-management-entry]')).toBeNull()
+    await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-view-tab="captain"]')!).click() })
     await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-management-entry]')!.click() })
     // Teams: deduplicated by teamId (duplicate enumeration row collapsed), bound Team highlighted.
     const teamRows = [...document.querySelectorAll<HTMLButtonElement>('[data-swarm-management-team]')]
@@ -513,6 +516,7 @@ describe('R3 native Team Details surface', () => {
     const emptyController = { getSnapshot: (): TeamDashboardState => emptyState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     document.body.replaceChildren()
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: emptyController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-view-tab="captain"]')!).click() })
     await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-management-entry]')!.click() })
     expect(document.querySelector('[data-swarm-management-members-empty]')?.textContent).toContain('None')
   })
@@ -553,6 +557,9 @@ describe('R3 native Team Details surface', () => {
     const state: TeamDashboardState = { ...ready, data: { ...teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection), teams: multiTeams as never } }
     const listController = { getSnapshot: (): TeamDashboardState => state, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: listController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    // The enumeration lives on the Dedicated Captain page; the Main Brain rail keeps one pinned row.
+    expect(document.querySelectorAll('[data-swarm-captain-row]')).toHaveLength(1)
+    await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-view-tab="captain"]')!).click() })
     // First-level right-rail lists every enumerated Team (real authorities, not a copied aggregate).
     const list = document.querySelector<HTMLElement>('[data-swarm-captain-list]')!
     expect(list).not.toBeNull()
@@ -571,7 +578,9 @@ describe('R3 native Team Details surface', () => {
     // Zero Teams is an explicit empty state.
     const emptyState: TeamDashboardState = { ...ready, data: { ...teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection), teams: { ...multiTeams, teams: [] } as never } }
     const emptyController = { getSnapshot: (): TeamDashboardState => emptyState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+    document.body.replaceChildren()
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: emptyController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-view-tab="captain"]')!).click() })
     expect(document.querySelector('[data-swarm-captain-list] [data-swarm-captains-empty]')?.textContent).toContain('No Teams yet.')
   })
 
@@ -660,45 +669,46 @@ describe('R3 native Team Details surface', () => {
   it('renders the view-tabs navigation strip with roster labels and switches to the board view', async () => {
     const coordinator = new FakeCoordinator()
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
-    // Wireframe view-tabs: Main Brain / Dedicated Captain / Announcements, role=tablist.
+    // Wireframe view-tabs: Main Brain / Dedicated Captain / Public goal, role=tablist.
     const tablist = document.querySelector<HTMLElement>('[data-swarm-view-tabs]')!
     expect(tablist.getAttribute('role')).toBe('tablist')
     const tabs = [...document.querySelectorAll('[data-swarm-view-tab]')]
-    expect(tabs).toHaveLength(3)
+    expect(tabs.map(tab => tab.getAttribute('data-swarm-view-tab'))).toEqual(['roster', 'captain', 'board'])
     // Roster labels group the Captain and members (captain · 1 / members · N).
     expect(document.querySelector('[data-swarm-roster-captain-label]')?.textContent).toContain('Team Captain')
     expect(document.querySelector('[data-swarm-roster-members-label]')?.textContent).toContain('Members')
-    // Selecting the Board tab switches to the in-slot board view with the real announcements read.
+    // Selecting the Board tab switches to the in-slot board view with the real durable goal card.
     await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-view-tab="board"]')!).click() })
     expect(document.querySelector('[data-swarm-board-view]')).not.toBeNull()
-    expect(document.querySelector('[data-swarm-announcements-state="available"]')).not.toBeNull()
+    expect(document.querySelector('[data-swarm-goal-card]')).not.toBeNull()
     // Selecting Main Brain routes back to the owner conversation (closeAndRestoreFocus + The FakeCoordinator).
-    await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-view-tab="main"]')!).click() })
+    await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-view-tab="roster"]')!).click() })
     expect(coordinator.closeAndRestoreFocus).toHaveBeenCalled()
   })
 
-  it('keeps the roster free of duplicated hollow board cards and renders the real goal plus announcement entries on the board', async () => {
+  it('keeps the roster free of duplicated goal cards, renders announcements once in the work region, and the real goal on the board', async () => {
     const coordinator = new FakeCoordinator()
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
-    // Roster-first screen: goal/announcement state lives only in its dedicated views, never duplicated.
+    // Roster-first screen: exactly one compact Team overview carries the goal; no board goal card.
     expect(document.querySelectorAll('[data-swarm-goal-card]')).toHaveLength(0)
+    expect(document.querySelectorAll('[data-swarm-team-overview]')).toHaveLength(1)
     expect(document.querySelectorAll('[data-swarm-announcement-unavailable]')).toHaveLength(0)
-    // Board view: one compact card in the real available state with the authored entry rendered.
+    // The work region holds the single real announcements read with the authored entry.
+    const announcementsFold = document.querySelector<HTMLDetailsElement>('[data-swarm-announcements-fold]')!
+    expect(announcementsFold.querySelectorAll('[data-swarm-announcements-state="available"]')).toHaveLength(1)
+    const entries = announcementsFold.querySelectorAll('[data-swarm-announcement-entry]')
+    expect(entries).toHaveLength(1)
+    expect(entries[0]!.textContent).toContain('Welcome to the Fixture Team.')
+    // Board view: the durable public goal renders its real text; the update action reuses the official handoff.
     await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-view-tab="board"]')!).click() })
     const board = document.querySelector<HTMLElement>('[data-swarm-board-view]')!
-    // The durable public goal renders its real text; the update action reuses the official handoff.
     const goalCard = board.querySelector<HTMLElement>('[data-swarm-goal-card]')!
     expect(goalCard.getAttribute('data-swarm-goal-state')).toBe('generated')
     expect(goalCard.querySelector('[data-swarm-goal-text]')?.textContent).toBe('Deliver the Team UI.')
     await act(async () => { goalCard.querySelector<HTMLButtonElement>('[data-swarm-goal-update]')!.click(); await Promise.resolve() })
     expect(coordinator.openCaptainChat).toHaveBeenCalledTimes(1)
-    const cards = board.querySelectorAll<HTMLElement>('[data-swarm-announcements-state="available"]')
-    expect(cards).toHaveLength(1)
-    expect(cards[0]!.getAttribute('data-swarm-announcement-count')).toBe('1')
-    const entries = cards[0]!.querySelectorAll('[data-swarm-announcement-entry]')
-    expect(entries).toHaveLength(1)
-    expect(entries[0]!.textContent).toContain('Welcome to the Fixture Team.')
-    // No duplicated section heading; no fabricated extra rows.
+    // No duplicated announcement section on the board; no fabricated extra rows.
+    expect(board.querySelectorAll('[data-swarm-announcement-entry]')).toHaveLength(0)
     expect(board.querySelectorAll('h3')).toHaveLength(0)
   })
 

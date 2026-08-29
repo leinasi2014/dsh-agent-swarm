@@ -34,7 +34,7 @@ export function TeamIdentityCard({ name, role, avatar, identityCard, t, title, p
       data-swarm-identity-state={identityCard.state} data-swarm-identity-reason={identityCard.reason}>
       <span className="swarm-team-workspace__roster-label" data-swarm-identity-card-title>
         <span>{title ?? t('identityCardTitle')}</span>
-        <small data-swarm-identity-badge>{unavailable ? t('profileUnavailable') : t('profileNotGenerated')}</small>
+        <small data-swarm-identity-badge data-swarm-identity-badge-state={identityCard.state}>{generated ? t('profileGenerated') : unavailable ? t('profileUnavailable') : t('profileNotGenerated')}</small>
       </span>
       <header className="swarm-team-workspace__identity-header">
         <span className="swarm-team-workspace__avatar"><SafePixelAvatar seed={name} asset={avatar} name={name} t={t} /></span>

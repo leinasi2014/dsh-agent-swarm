@@ -68,6 +68,9 @@ describe('TeamIdentityCard (task-3)', () => {
     // profile fields are honest placeholders, never invented values
     expect(card.querySelector('[data-swarm-identity-profession]')?.textContent).toBe(t('profileNotGenerated'))
     expect(card.querySelector('[data-swarm-identity-personality]')?.textContent).toBe(t('profileNotGenerated'))
+    // the badge reads the honest not-generated state
+    expect(card.querySelector('[data-swarm-identity-badge]')?.textContent).toBe(t('profileNotGenerated'))
+    expect(card.querySelector('[data-swarm-identity-badge]')?.getAttribute('data-swarm-identity-badge-state')).toBe('not_generated')
     expect(card.querySelector('[data-swarm-identity-unavailable-hint]')).not.toBeNull()
     expect(card.textContent).not.toMatch(/engineer|writer|designer|analyst/i)
   })
@@ -88,8 +91,19 @@ describe('TeamIdentityCard (task-3)', () => {
       profession="Engineer" personality="Calm" t={t} />)
     const card = document.querySelector<HTMLElement>('[data-swarm-identity-card]')!
     expect(card.getAttribute('data-swarm-identity-state')).toBe('generated')
+    // The generated badge reads "Generated" (zh: 已生成), never the not-generated marker.
+    expect(card.querySelector('[data-swarm-identity-badge]')?.textContent).toBe(t('profileGenerated'))
+    expect(card.querySelector('[data-swarm-identity-badge]')?.getAttribute('data-swarm-identity-badge-state')).toBe('generated')
     expect(card.querySelector('[data-swarm-identity-profession]')?.textContent).toBe('Engineer')
     expect(card.querySelector('[data-swarm-identity-personality]')?.textContent).toBe('Calm')
     expect(card.querySelector('[data-swarm-identity-unavailable-hint]')).toBeNull()
+  })
+
+  it('localizes the generated badge to zh 已生成', async () => {
+    await render(<TeamIdentityCard name="甲" role="团队队长"
+      avatar={{ state: 'generated' }} identityCard={{ state: 'generated' }}
+      profession="工程师" personality="沉稳" t={tZh} />)
+    expect(document.querySelector('[data-swarm-identity-badge]')?.textContent).toBe(zh.profileGenerated)
+    expect(document.querySelector('[data-swarm-identity-badge]')?.textContent).toBe('已生成')
   })
 })

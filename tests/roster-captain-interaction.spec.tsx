@@ -245,7 +245,7 @@ describe('roster/Captain interaction slice', () => {
     expect(Object.hasOwn(coordinator.getSnapshot(), 'projection')).toBe(false)
   })
 
-  it('first-level right rail enumerates every Team/Captain from the real read contract and opens the exact official Captain Session on click', async () => {
+  it('enumerates every Team/Captain on the Dedicated Captain page from the real read contract and opens the exact official Captain Session on click', async () => {
     const coordinator = new FakeCoordinator()
     // A legal multi-team result: two independent dedicated Captains, each honest not-generated assets.
     const multiTeams = {
@@ -284,7 +284,13 @@ describe('roster/Captain interaction slice', () => {
     const controller = { getSnapshot: (): TeamDashboardState => ready, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
 
-    // Every Team from the read contract is enumerated as a first-level right-rail row.
+    // The Main Brain rail keeps exactly one pinned Captain row; the enumeration lives on the
+    // Dedicated Captain page reached through its tab.
+    expect(document.querySelectorAll('[data-swarm-captain-row]')).toHaveLength(1)
+    expect(document.querySelector('[data-swarm-captain-team]')).toBeNull()
+    await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-view-tab="captain"]')!).click() })
+
+    // Every Team from the read contract is enumerated on the Dedicated Captain page.
     const alpha = document.querySelector<HTMLButtonElement>('[data-swarm-captain-team="team-alpha"]')!
     const beta = document.querySelector<HTMLButtonElement>('[data-swarm-captain-team="team-beta"]')!
     expect(alpha).not.toBeNull(); expect(beta).not.toBeNull()
