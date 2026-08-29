@@ -51,7 +51,7 @@ export const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace__collapsible > summary + * { margin-top:10px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__diagnostics { margin-top:12px; padding-top:12px; border-top:1px solid var(--dsw-alias-border-l2); }
 [data-swarm-team-dashboard] .swarm-team-workspace__notice { margin:0 0 10px; }
-[data-swarm-team-dashboard] .swarm-team-workspace__rail { width:100%; max-width:359px; margin-inline:auto; display:flex; flex-direction:column; gap:8px; min-width:0; padding:8px; block-size:100%; overflow:hidden; background:var(--dsw-alias-bg-base); }
+[data-swarm-team-dashboard] .swarm-team-workspace__rail { width:100%; max-width:359px; margin-inline:auto; display:flex; flex-direction:column; gap:8px; min-width:0; padding:8px; block-size:100%; overflow:hidden; background:var(--dsw-alias-bg-base); font-size:13px; line-height:1.4; }
 [data-swarm-team-dashboard] .swarm-team-workspace__switcher { display:flex; flex-direction:row; align-items:center; gap:12px; padding:10px; border:1px solid var(--dsw-alias-border-l2); border-radius:12px; background:var(--dsw-alias-bg-base); }
 [data-swarm-team-dashboard] .swarm-team-workspace__switcher-title { display:flex; flex-direction:column; gap:2px; margin-bottom:8px; min-width:0; }
 [data-swarm-team-dashboard] .swarm-team-workspace__switch-button { cursor:not-allowed; opacity:.72; }
@@ -87,7 +87,7 @@ export const shellCss = `
 [data-swarm-team-dashboard] [data-swarm-member-rows] button.swarm-team-workspace__row, [data-swarm-team-dashboard] .swarm-team-workspace__row.swarm-team-workspace__captain-hero { display:grid; grid-template-columns:40px minmax(0,1fr) auto; align-items:center; gap:10px; padding:8px; border:1px solid var(--dsw-alias-border-l2); border-radius:12px; background:var(--dsw-alias-bg-layer-1); }
 [data-swarm-team-dashboard] .swarm-team-workspace__member-copy { display:flex; flex-direction:column; gap:2px; min-width:0; }
 [data-swarm-team-dashboard] .swarm-team-workspace__member-copy strong { font-size:13px; font-weight:650; }
-[data-swarm-team-dashboard] .swarm-team-workspace__member-role { color:var(--dsw-alias-label-secondary); font-size:11px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__member-role { color:var(--dsw-alias-label-secondary); font-size:12px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__member-side { display:flex; flex-direction:column; align-items:flex-end; gap:2px; min-width:0; }
 [data-swarm-team-dashboard] .swarm-team-workspace__member-side small { color:var(--dsw-alias-label-secondary); font-size:9px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__captain-hero { grid-template-columns:48px minmax(0,1fr) auto; gap:12px; padding:10px; background:var(--dsw-alias-bg-layer-1); border-color:var(--dsw-alias-brand-primary); }
@@ -310,8 +310,6 @@ function Workspace({ data, handoffBusy, localeTag, selection, setSelection, t, t
         <div className="swarm-team-workspace__members">{selected === undefined ? <MemberRows data={data} memberAssets={memberAssets} onSelect={selectMember} onTrigger={registerMemberTrigger} t={t} /> : <MemberDetail data={data} member={selected} memberAssets={memberAssets} onBack={() => { returnToMembers(selected.name) }} t={t} />}</div>
         {data.truncated.roster ? <p className="swarm-team-workspace__muted swarm-team-workspace__notice">{t('rosterTruncated', { shown: number.format(data.roster.length), total: number.format(data.totals.roster) })}</p> : null}
       </div>
-      <section className="swarm-team-workspace__unavailable-card" data-swarm-goal-unavailable><strong>{t('goal')}</strong><p className="swarm-team-workspace__muted">{t('goalUnavailable')}</p></section>
-      <section className="swarm-team-workspace__unavailable-card" data-swarm-announcement-unavailable><strong>{t('announcements')}</strong><p className="swarm-team-workspace__muted">{t('announcementsUnavailable')}</p></section>
       <details className="swarm-team-workspace__collapsible"><summary ref={taskSummaryRef}>{t('tasks')}</summary>{missingTask === undefined ? null : <p className="swarm-team-workspace__muted swarm-team-workspace__notice" role="status">{t('taskNoLongerAvailable')}</p>}{selection.kind === 'task' ? <TaskDetail data={data} id={selection.id} number={number} onBack={() => { returnToTasks(selection.id) }} t={t} /> : <TaskRows data={data} onSelect={selectTask} onTrigger={registerTaskTrigger} t={t} />}</details>
       <details className="swarm-team-workspace__collapsible"><summary>{t('tabs.overview')}</summary><div className="swarm-team-workspace__summary"><Metric label={t('members')} value={number.format(data.totals.roster)} /><Metric label={t('tasks')} value={number.format(data.totals.tasks)} /><Metric label={t('interactions')} value={number.format(data.totals.pendingInteractions)} /><Metric label={t('attempts')} value={number.format(data.totals.attempts)} /></div></details>
       <details className="swarm-team-workspace__collapsible"><summary>{t('budget')}</summary><BudgetStats budget={data.budget} number={number} t={t} /></details>
@@ -352,7 +350,7 @@ function ViewTabs({ active, onSelect, t }: { readonly active: 'main' | 'captain'
  *  renders from the real response, never a hardcoded stub. */
 function BoardView({ data, announcements, diagnostics, number, onBack, t }: { readonly data: SwarmHostReadProjectionV1; readonly announcements: SwarmReadCaptainAnnouncementsV1 | undefined; readonly diagnostics: SwarmReadCaptainDiagnosticsV1 | undefined; readonly number: Intl.NumberFormat; readonly onBack: () => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
   return <div className="swarm-team-workspace__board" data-swarm-board-view>
-    <div className="swarm-team-workspace__board-head"><h3 className="swarm-team-workspace__column-title">{t('announcements')}</h3><Button size="sm" variant="ghost" onClick={onBack}>{t('backToMembers')}</Button></div>
+    <div className="swarm-team-workspace__board-head"><Button size="sm" variant="ghost" onClick={onBack}>{t('backToMembers')}</Button></div>
     <section className="swarm-team-workspace__unavailable-card" data-swarm-goal-unavailable><strong>{t('goal')}</strong><p className="swarm-team-workspace__muted">{t('goalUnavailable')}</p></section>
     <AnnouncementSection announcements={announcements} t={t} />
     <details className="swarm-team-workspace__collapsible"><summary>{t('budget')}</summary><BudgetStats budget={data.budget} number={number} t={t} /></details>
@@ -389,16 +387,20 @@ function ManagementView({ data, announcements, diagnostics, number, onBack, t }:
   </div>
 }
 
-/** Announcements rendered from the real captain read only: the empty state carries the host's
- *  stable unavailability reason; non-empty entries would be authoritative public records. */
+/** Announcements rendered from the real captain read only. The read contract currently admits a
+ *  single honest outcome — `state: 'unavailable'` with a stable reason and an always-empty entry
+ *  list — so the section renders exactly that compact explicit unavailable state. It never renders
+ *  placeholder rows, and it never implies a working notice board. If the backend later delivers
+ *  entries, they must be rendered here as real user-visible notice content, never indices. */
 function AnnouncementSection({ announcements, t }: { readonly announcements: SwarmReadCaptainAnnouncementsV1 | undefined; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
+  if (announcements !== undefined && announcements.entries.length > 0) {
+    return <section className="swarm-team-workspace__unavailable-card" data-swarm-announcements-state="unavailable"><strong>{t('announcements')}</strong><p className="swarm-team-workspace__muted">{t('announcementsUnavailable')}</p></section>
+  }
   return <section className="swarm-team-workspace__unavailable-card" data-swarm-announcement-unavailable data-swarm-announcements-state={announcements?.state ?? 'loading'}>
     <strong>{t('announcements')}</strong>
     {announcements === undefined
       ? <p className="swarm-team-workspace__muted">{t('loading')}</p>
-      : announcements.entries.length === 0
-        ? <p className="swarm-team-workspace__muted" data-swarm-announcement-reason={announcements.reason}>{t('announcementsUnavailable')}</p>
-        : <ul className="swarm-team-workspace__rows">{announcements.entries.map((_entry, index) => <li key={index} className="swarm-team-workspace__muted">{String(index + 1)}</li>)}</ul>}
+      : <p className="swarm-team-workspace__muted" data-swarm-announcement-reason={announcements.reason}>{t('announcementsUnavailable')}</p>}
   </section>
 }
 

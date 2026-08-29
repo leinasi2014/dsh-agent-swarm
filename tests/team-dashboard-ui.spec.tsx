@@ -324,8 +324,8 @@ describe('R3 native Team Details surface', () => {
       // Budget and capabilities fold real Host data in their own top-level details.
       expect(document.querySelector('[data-swarm-budget]')).not.toBeNull()
       expect(document.querySelector('[data-swarm-capabilities]')).not.toBeNull()
-      // Goal marker is present as a fixed unavailable entry.
-      expect(document.querySelector('[data-swarm-goal-unavailable]')).not.toBeNull()
+      // Goal/announcement state lives only in its dedicated board/management views, not on the roster.
+      expect(document.querySelectorAll('[data-swarm-goal-unavailable]')).toHaveLength(0)
       // Diagnostics is a flat default-closed details directly in the rail (parent not DETAILS), and the
       // hard rule holds globally: there is NO nested `details details.swarm-team-workspace__diagnostics`.
       const diagnostics = document.querySelector('[data-swarm-team-rail] details.swarm-team-workspace__diagnostics')!
@@ -377,9 +377,9 @@ describe('R3 native Team Details surface', () => {
       expect(member.querySelector('[data-swarm-member-visible-lifecycle]')?.textContent).toBe('Lifecycle: Active')
       expect(member.querySelector('[data-swarm-member-visible-activity]')?.textContent).toBe('Running')
       expect(member.querySelector('[data-swarm-task-owner]')).toBeNull()
-      // Goal and announcement entries are explicit unavailable cards (no phantom backend source).
-      expect(document.querySelector('[data-swarm-goal-unavailable]')?.textContent).toContain('Public goal')
-      expect(document.querySelector('[data-swarm-announcement-unavailable]')?.textContent).toContain('Announcements')
+      // Goal and announcement entries live in their dedicated board/management views only.
+      expect(document.querySelectorAll('[data-swarm-goal-unavailable]')).toHaveLength(0)
+      expect(document.querySelectorAll('[data-swarm-announcement-unavailable]')).toHaveLength(0)
       // A single Captain-row click routes to the dedicated Captain Chat via the coordinator.
       await act(async () => { captain.click(); await Promise.resolve() })
       expect(coordinator.openCaptainChat).toHaveBeenCalledTimes(1)
@@ -589,6 +589,24 @@ describe('R3 native Team Details surface', () => {
     // Selecting Main Brain routes back to the owner conversation (closeAndRestoreFocus + The FakeCoordinator).
     await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-view-tab="main"]')!).click() })
     expect(coordinator.closeAndRestoreFocus).toHaveBeenCalled()
+  })
+
+  it('keeps the roster free of duplicated hollow board cards and renders one compact explicit announcement unavailable state', async () => {
+    const coordinator = new FakeCoordinator()
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    // Roster-first screen: goal/announcement state lives only in its dedicated views, never duplicated.
+    expect(document.querySelectorAll('[data-swarm-goal-unavailable]')).toHaveLength(0)
+    expect(document.querySelectorAll('[data-swarm-announcement-unavailable]')).toHaveLength(0)
+    // Board view: exactly one compact announcement unavailable card carrying the host reason.
+    await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-view-tab="board"]')!).click() })
+    const board = document.querySelector<HTMLElement>('[data-swarm-board-view]')!
+    const cards = board.querySelectorAll<HTMLElement>('[data-swarm-announcement-unavailable]')
+    expect(cards).toHaveLength(1)
+    expect(cards[0]!.getAttribute('data-swarm-announcements-state')).toBe('unavailable')
+    expect(cards[0]!.querySelector('[data-swarm-announcement-reason]')?.getAttribute('data-swarm-announcement-reason')).toBe('notice_board_not_implemented')
+    // No placeholder index rows and no duplicated section heading.
+    expect(cards[0]!.querySelector('ul')).toBeNull()
+    expect(board.querySelectorAll('h3')).toHaveLength(0)
   })
 })
 
