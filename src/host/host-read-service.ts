@@ -27,6 +27,9 @@ export interface AgentSwarmHostReadDeps {
   readonly teams: (scope: TeamScope) => Promise<TeamState[]>
   readonly domain: () => Pick<TeamDomainPort, 'snapshot'>
   readonly overlay: Pick<HumanInteractionOverlayStore, 'list'>
+  /** Managed dedicated Captain child Session ids of a Main Brain root, so a non-Captain
+   *  root can resolve its unique Captain-rooted Team (architecture: main brain → Captain → Team). */
+  readonly managedCaptainSessionsOf?: (rootSessionId: string) => readonly string[]
   readonly now?: () => number
   readonly disposalTimeoutMs?: number
 }
@@ -89,6 +92,17 @@ export class AgentSwarmHostReadService {
     if (active.length === 1) return active[0]!.id
     if (active.length > 1 || owned.length > 1) {
       throw new TeamDomainError('Host root maps to multiple Teams; a lookup hint is required', 'SWARM_HOST_BINDING_AMBIGUOUS')
+    }
+    // A Main Brain root is not itself a Captain; resolve through its managed dedicated Captain
+    // Session(s) to the single Captain-rooted Team (architecture: main brain → Captain → Team).
+    const children = this.deps.managedCaptainSessionsOf?.(rootSessionId) ?? []
+    if (children.length > 0) {
+      const viaChild = (await this.deps.teams(scope))
+        .filter(team => team.phase === 'active' && children.includes(team.captainSessionId))
+      if (viaChild.length === 1) return viaChild[0]!.id
+      if (viaChild.length > 1) {
+        throw new TeamDomainError('Host root maps to multiple Teams; a lookup hint is required', 'SWARM_HOST_BINDING_AMBIGUOUS')
+      }
     }
     if (owned.length === 1) return owned[0]!.id
     throw new TeamDomainError('Host root has no authoritative Team binding', 'SWARM_HOST_BINDING_NOT_FOUND')

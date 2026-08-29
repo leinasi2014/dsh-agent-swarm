@@ -545,6 +545,11 @@ export class AgentSwarmRuntime extends Service {
     this.ownedChildren.set(captain.id, children)
   }
 
+  /** Managed dedicated Captain child Session ids of a root (Main Brain or Captain parent). */
+  managedCaptainSessionsOf(rootSessionId: string): readonly string[] {
+    return [...(this.ownedChildren.get(rootSessionId) ?? [])]
+  }
+
   private trackTeamChildren(captain: Agent, team: TeamState): void {
     for (const member of team.members) {
       if (member.phase === 'active') this.trackChild(captain, member.sessionId)

@@ -21,6 +21,7 @@ export function assembleAgentSwarmHostRead(
     scopeOf: agent => runtime.scopeOf(agent),
     teams: scope => runtime.listTeamAggregates(scope),
     domain: () => runtime.domain,
+    managedCaptainSessionsOf: rootSessionId => runtime.managedCaptainSessionsOf(rootSessionId),
     overlay,
     now: Date.now,
     disposalTimeoutMs,
