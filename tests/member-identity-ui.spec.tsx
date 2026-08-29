@@ -1,0 +1,146 @@
+// @vitest-environment jsdom
+import { act, type ReactNode } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { TeamDashboardDetails } from '../src/client/TeamDashboardDetails.js'
+import { parseSafePixelSvg, pixelPattern } from '../src/client/SafePixelAvatar.js'
+import type { TeamDashboardState } from '../src/client/team-dashboard-controller.js'
+import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+import { en, TEAM_DASHBOARD_NS } from '../src/client/team-dashboard-locales.js'
+import { SWARM_READ_RPC_FIXTURES_V1 } from '../src/rpc/read-rpc-artifact.js'
+
+vi.mock('@deepseek-ai/dsh-client-ui-primitives', async () => {
+  const react = await import('react')
+  return {
+    Button: ({ children, icon: _icon, ...props }: Record<string, unknown>) => react.createElement('button', { type: 'button', ...props }, children as ReactNode),
+    IconUserOutline16: () => react.createElement('svg', { 'data-icon': 'user' }), IconCodeOutline16: () => react.createElement('svg', { 'data-icon': 'code' }), IconCloseOutline16: () => react.createElement('svg', { 'data-icon': 'close' }), IconRefreshOutline16: () => react.createElement('svg', { 'data-icon': 'refresh' }),
+    Pill: ({ children }: { children?: ReactNode }) => react.createElement('span', {}, children), StateDot: () => react.createElement('span', {}),
+  }
+})
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+const mounted: Root[] = []
+const t: TranslateNS<typeof TEAM_DASHBOARD_NS> = ((key: keyof typeof en, params?: Record<string, unknown>): string => (en[key] as string).replace(/\{(\w+)\}/gu, (match, name: string) => name in (params ?? {}) ? String(params?.[name]) : match)) as TranslateNS<typeof TEAM_DASHBOARD_NS>
+
+async function render(node: ReactNode): Promise<void> { const root = createRoot(document.body.appendChild(document.createElement('div'))); mounted.push(root); await act(async () => { root.render(node) }) }
+afterEach(async () => { while (mounted.length) await act(async () => { mounted.pop()?.unmount() }); document.body.replaceChildren(); vi.clearAllMocks() })
+
+const safeSvg = '<svg viewBox="0 0 8 8"><rect x="0" y="0" width="8" height="8" fill="#2a3"/><rect x="2" y="2" width="4" height="4" fill="#fff" opacity="0.5"/></svg>'
+const unsafeSvgs = [
+  '<svg viewBox="0 0 8 8"><script>alert(1)</script></svg>',
+  '<svg viewBox="0 0 4 4"><rect x="0" y="0" width="4" height="4" fill="#2a3"/></svg>',
+  '<svg viewBox="0 0 8 8"><rect x="0" y="0" width="8" height="8" fill="url(#x)"/></svg>',
+  '<svg viewBox="0 0 8 8"><rect x="0" y="0" width="8" height="8" fill="#2a3" onclick="x()"/></svg>',
+  '<svg viewBox="0 0 8 8"><foreignObject><rect x="0" y="0" width="8" height="8" fill="#2a3"/></foreignObject></svg>',
+  '<svg viewBox="0 0 8 8"><g><rect x="0" y="0" width="8" height="8" fill="#2a3"/></g></svg>',
+  '<svg viewBox="0 0 8 8"><rect x="0" y="0" width="8" height="8" fill="#2a3" extra="1"/></svg>',
+  '<svg viewBox="0 0 8 8"><text x="0" y="4">hi</text></svg>',
+]
+
+describe('client-side safe pixel svg allowlist', () => {
+  it('parses an allowlisted viewBox+rect svg into plain rect data', () => {
+    const parsed = parseSafePixelSvg(safeSvg)
+    expect(parsed).toBeDefined()
+    expect(parsed!.size).toBe(8)
+    expect(parsed!.rects).toHaveLength(2)
+    expect(parsed!.rects[0]).toMatchObject({ x: 0, y: 0, width: 8, height: 8, fill: '#2a3' })
+    expect(parsed!.rects[1]).toMatchObject({ opacity: 0.5 })
+  })
+  it.each(unsafeSvgs)('rejects unsafe svg markup: %s', svg => {
+    expect(parseSafePixelSvg(svg)).toBeUndefined()
+  })
+  it('rejects oversized, non-svg, and rectless input', () => {
+    expect(parseSafePixelSvg('x'.repeat(20_000))).toBeUndefined()
+    expect(parseSafePixelSvg('not svg')).toBeUndefined()
+    expect(parseSafePixelSvg('<svg viewBox="0 0 8 8"></svg>')).toBeUndefined()
+  })
+})
+
+function stateWithMemberAssets(memberRows: unknown): TeamDashboardState {
+  const projection = {
+    ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot,
+    roster: [{ name: 'worker', role: 'implementation', phase: 'active', createdAt: 1 }],
+    totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, roster: 1 },
+  }
+  return {
+    open: true, phase: 'ready', targetSessionId: 'root',
+    data: {
+      capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never,
+      projection: projection as never,
+      teams: SWARM_READ_RPC_FIXTURES_V1.values.teams as never,
+      captainAnnouncements: SWARM_READ_RPC_FIXTURES_V1.values.captainAnnouncements as never,
+      captainDiagnostics: SWARM_READ_RPC_FIXTURES_V1.values.captainDiagnostics as never,
+      captainMembers: memberRows as never,
+    },
+  }
+}
+const controllerOf = (state: TeamDashboardState) => ({ getSnapshot: (): TeamDashboardState => state, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() })
+
+async function renderDetails(state: TeamDashboardState): Promise<void> {
+  const surfaceState = { mode: 'docked' as const, view: 'overview' as const, targetSessionId: 'root' }
+  const coordinator = {
+    state: surfaceState,
+    getSnapshot: (): typeof surfaceState => surfaceState,
+    subscribe: (_listener: () => void): (() => void) => () => {},
+    localeTag: (): 'en-US' => 'en-US',
+    openCaptainChat: vi.fn(async () => {}), closeAndRestoreFocus: vi.fn(), openTeamCaptain: vi.fn(), showToolDetails: vi.fn(), selectView: vi.fn(), toggle: vi.fn(),
+  }
+  await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: controllerOf(state), coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+}
+
+describe('member rows consume real captainMembers identity data', () => {
+  const generatedRow = {
+    name: 'worker', role: 'Implementation', phase: 'active', createdAt: 1,
+    displayName: 'Pixel Painter', profession: 'Avatar artist', personality: 'Careful, meticulous',
+    avatar: { state: 'generated', svg: safeSvg },
+    identityCard: { state: 'generated' },
+  }
+
+  it('renders the allowlisted svg rects and real display/profession on the row; personality only in detail', async () => {
+    await renderDetails(stateWithMemberAssets({ schemaVersion: 1, binding: { rootSessionId: 'root-1', teamId: 'team-1' }, members: [generatedRow], observedAt: 1 }))
+    const row = document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!
+    expect(row).not.toBeNull()
+    expect(row.getAttribute('data-swarm-identity-state')).toBe('generated')
+    // Real identity values win on the narrow row.
+    expect(row.querySelector('[data-swarm-member-visible-name]')?.textContent).toBe('Pixel Painter')
+    expect(row.querySelector('[data-swarm-member-visible-profession]')?.textContent).toBe('Avatar artist')
+    // The avatar renders the parsed backend rects (converted to React elements, no raw markup).
+    const avatar = row.querySelector<SVGSVGElement>('[data-swarm-pixel-avatar]')!
+    expect(avatar.getAttribute('data-avatar-state')).toBe('generated')
+    expect(avatar.getAttribute('data-avatar-fallback')).toBeNull()
+    expect(avatar.querySelectorAll('rect')).toHaveLength(2)
+    expect(avatar.innerHTML).not.toContain('<script')
+    // Personality never appears on the narrow row.
+    expect(row.textContent).not.toContain('Careful')
+    // Detail view is the only surface for personality and real profession facts.
+    await act(async () => { row.click() })
+    const detail = document.querySelector('[data-swarm-member-detail]')!
+    expect(detail.textContent).toContain('Careful, meticulous')
+    expect(detail.textContent).toContain('Avatar artist')
+    expect(detail.textContent).toContain('Pixel Painter')
+  })
+
+  it('falls back honestly when the svg is unsafe: deterministic grid, fallback marker, no script element', async () => {
+    const unsafe = { ...generatedRow, avatar: { state: 'generated', svg: unsafeSvgs[0] } }
+    await renderDetails(stateWithMemberAssets({ schemaVersion: 1, binding: { rootSessionId: 'root-1', teamId: 'team-1' }, members: [unsafe], observedAt: 1 }))
+    const row = document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!
+    const avatar = row.querySelector<SVGSVGElement>('[data-swarm-pixel-avatar]')!
+    expect(avatar.getAttribute('data-avatar-state')).toBe('generated')
+    expect(avatar.getAttribute('data-avatar-fallback')).toBe('unsafe-svg')
+    // Fallback grid is the deterministic 5×5 pattern, never the raw markup.
+    expect(avatar.querySelectorAll('rect').length).toBe(1 + pixelPattern('worker').flat().filter(Boolean).length)
+    expect(document.querySelector('script')).toBeNull()
+  })
+
+  it('keeps technical name/role and honest not_generated placeholders when the profile is absent', async () => {
+    await renderDetails(stateWithMemberAssets({ schemaVersion: 1, binding: { rootSessionId: 'root-1', teamId: 'team-1' }, members: [], observedAt: 1 }))
+    const row = document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!
+    expect(row.getAttribute('data-swarm-identity-state')).toBe('not_generated')
+    expect(row.querySelector('[data-swarm-member-visible-name]')?.textContent).toBe('worker')
+    expect(row.querySelector('[data-swarm-member-visible-profession]')?.textContent).toBe('implementation')
+    const avatar = row.querySelector<SVGSVGElement>('[data-swarm-pixel-avatar]')!
+    expect(avatar.getAttribute('data-avatar-state')).toBe('not_generated')
+    await act(async () => { row.click() })
+    const detail = document.querySelector('[data-swarm-member-detail]')!
+    expect(detail.textContent).toContain('Not generated')
+  })
+})

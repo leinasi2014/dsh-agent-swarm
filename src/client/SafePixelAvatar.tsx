@@ -73,10 +73,91 @@ function palette(seed: string): readonly [string, string] {
   ]
 }
 
+export interface SafePixelRect {
+  readonly x: number
+  readonly y: number
+  readonly width: number
+  readonly height: number
+  readonly fill: string
+  readonly opacity?: number
+}
+export interface SafePixelSvg {
+  readonly size: number
+  readonly rects: readonly SafePixelRect[]
+}
+
+const PIXEL_FILL = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$|^currentColor$/
+
+/** Independent client-side allowlist parse of a backend-provided pixel-avatar SVG. The markup is
+ *  NEVER interpolated: only an exact `viewBox="0 0 N N"` root (8..32) whose element children are
+ *  `<rect>`s carrying at most x/y/width/height/fill/opacity (fill #RGB/#RRGGBB/currentColor,
+ *  opacity 0..1) is accepted; anything else returns undefined and the caller falls back to the
+ *  deterministic grid. Mirrors the host provisioning allowlist as a second, client-owned gate. */
+export function parseSafePixelSvg(svg: string): SafePixelSvg | undefined {
+  if (typeof svg !== 'string' || svg.length === 0 || svg.length > 16_384) return undefined
+  let document: Document
+  try {
+    document = new DOMParser().parseFromString(svg, 'image/svg+xml')
+  } catch {
+    return undefined
+  }
+  if (document.querySelector('parsererror') !== null) return undefined
+  const root = document.documentElement
+  if (root === null || root.localName !== 'svg' || root.tagName.toLowerCase() !== 'svg') return undefined
+  const viewBox = root.getAttribute('viewBox')
+  const match = /^0 0 (\d{1,3}) (\d{1,3})$/.exec(viewBox ?? '')
+  if (match === null) return undefined
+  const size = Number(match[1])
+  if (!Number.isInteger(size) || size !== Number(match[2]) || size < 8 || size > 32) return undefined
+  if ([...root.attributes].some(attribute => attribute.name !== 'viewBox')) return undefined
+  const rects: SafePixelRect[] = []
+  for (const node of Array.from(root.childNodes)) {
+    if (node.nodeType === node.TEXT_NODE) {
+      if ((node.textContent ?? '').trim() !== '') return undefined
+      continue
+    }
+    if (node.nodeType !== node.ELEMENT_NODE) return undefined
+    const element = node as Element
+    // jsdom XML parsing reports a null element namespace; the security gate is the local-name
+    // allowlist (rect-only, attribute allowlist, no nested structure) — raw markup is never
+    // interpolated regardless, only converted into React rect elements.
+    if (element.localName !== 'rect') return undefined
+    const numeric = (name: string): number | undefined => {
+      const raw = element.getAttribute(name)
+      if (raw === null) return undefined
+      const value = Number(raw)
+      return Number.isFinite(value) ? value : undefined
+    }
+    const x = numeric('x')
+    const y = numeric('y')
+    const width = numeric('width')
+    const height = numeric('height')
+    if (x === undefined || y === undefined || width === undefined || height === undefined) return undefined
+    const fill = element.getAttribute('fill')
+    if (fill === null || !PIXEL_FILL.test(fill)) return undefined
+    const opacityRaw = element.getAttribute('opacity')
+    let opacity: number | undefined
+    if (opacityRaw !== null) {
+      opacity = Number(opacityRaw)
+      if (!Number.isFinite(opacity) || opacity < 0 || opacity > 1) return undefined
+    }
+    const allowed = new Set(['x', 'y', 'width', 'height', 'fill', ...(opacityRaw === null ? [] : ['opacity'])])
+    if ([...element.attributes].some(attribute => !allowed.has(attribute.name))) return undefined
+    rects.push({ x, y, width, height, fill, ...(opacity === undefined ? {} : { opacity }) })
+  }
+  if (rects.length === 0 || rects.length > 256) return undefined
+  return { size, rects }
+}
+
 export function SafePixelAvatar({ seed, asset, name, t, className }: SafePixelAvatarProps) {
   const pattern = pixelPattern(seed)
   const generated = asset.state === 'generated'
   const unavailable = asset.state === 'unavailable'
+  // A generated avatar may carry backend pixel markup; it renders only after the independent
+  // client allowlist parse, converted to React elements. Anything unsafe falls back to the
+  // deterministic grid — never dangerouslySetInnerHTML, never raw markup interpolation.
+  const safe = generated && asset.svg !== undefined ? parseSafePixelSvg(asset.svg) : undefined
+  const fallback = generated && asset.svg !== undefined && safe === undefined
   const [fg, bg] = palette(seed)
   // Muted placeholder states follow the official DSH theme aliases (light/dark) via style
   // properties; only a *generated* asset carries its own deterministic seed palette.
@@ -98,8 +179,12 @@ export function SafePixelAvatar({ seed, asset, name, t, className }: SafePixelAv
       data-swarm-pixel-avatar
       data-avatar-state={asset.state}
       data-avatar-reason={asset.reason}
+      {...(fallback ? { 'data-avatar-fallback': 'unsafe-svg' } : {})}
       style={{ display: 'block', width: '100%', height: '100%', borderRadius: 4 }}
     >
+      {safe !== undefined
+        ? safe.rects.map((rect, index) => <rect key={String(index)} x={rect.x} y={rect.y} width={rect.width} height={rect.height} fill={rect.fill} {...(rect.opacity === undefined ? {} : { opacity: rect.opacity })} />)
+        : <>
       {generated
         ? <rect x="0" y="0" width={GRID} height={GRID} rx="0.35" fill={bg} />
         : <rect x="0" y="0" width={GRID} height={GRID} rx="0.35" style={{ fill: mutedBg }} />}
@@ -112,6 +197,7 @@ export function SafePixelAvatar({ seed, asset, name, t, className }: SafePixelAv
             : <rect key={key} x={colIndex} y={rowIndex} width="1" height="1" style={{ fill: mutedFill }} />
         }))}
       </g>
+        </>}
     </svg>
   )
 }
