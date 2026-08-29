@@ -295,9 +295,9 @@ function Workspace({ data, handoffBusy, localeTag, selection, setSelection, t, t
   return <section className="swarm-team-workspace__rail" aria-label={t('tabs.label')} data-swarm-team-rail>
     <ViewTabs active={view === 'board' ? 'board' : 'main'} onSelect={onViewTab} t={t} />
     {view === 'board'
-      ? <BoardView data={data} announcements={announcements} diagnostics={diagnostics} number={number} onBack={() => { setView('roster') }} t={t} />
+      ? <BoardView data={data} announcements={announcements} diagnostics={diagnostics} localeTag={localeTag} number={number} onBack={() => { setView('roster') }} t={t} />
       : <>{managementOpen
-        ? <ManagementView data={data} announcements={announcements} diagnostics={diagnostics} number={number} onBack={() => { setManagementOpen(false) }} t={t} />
+        ? <ManagementView data={data} teams={teams} announcements={announcements} diagnostics={diagnostics} localeTag={localeTag} number={number} onBack={() => { setManagementOpen(false) }} t={t} />
         : <><CaptainList teams={teams} memberCount={memberAssets === undefined ? undefined : { teamId: data.binding.teamId, count: memberAssets.members.length }} number={number} onOpenCaptain={onOpenCaptain} t={t} />
         <BoundTeamIdentityCard data={data} teams={teams} t={t} />
         <TeamSwitcher data={data} t={t} />
@@ -349,10 +349,10 @@ function ViewTabs({ active, onSelect, t }: { readonly active: 'main' | 'captain'
 /** Board view: real captain-scoped announcements/diagnostics reads plus folded real-data sections.
  *  Today the host answers announcements with an explicit bounded unavailable; the section still
  *  renders from the real response, never a hardcoded stub. */
-function BoardView({ data, announcements, diagnostics, number, onBack, t }: { readonly data: SwarmHostReadProjectionV1; readonly announcements: SwarmReadCaptainAnnouncementsV1 | undefined; readonly diagnostics: SwarmReadCaptainDiagnosticsV1 | undefined; readonly number: Intl.NumberFormat; readonly onBack: () => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
+function BoardView({ data, announcements, diagnostics, localeTag, number, onBack, t }: { readonly data: SwarmHostReadProjectionV1; readonly announcements: SwarmReadCaptainAnnouncementsV1 | undefined; readonly diagnostics: SwarmReadCaptainDiagnosticsV1 | undefined; readonly localeTag: () => 'zh-CN' | 'en-US'; readonly number: Intl.NumberFormat; readonly onBack: () => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
   return <div className="swarm-team-workspace__board" data-swarm-board-view>
     <div className="swarm-team-workspace__board-head"><Button size="sm" variant="ghost" onClick={onBack}>{t('backToMembers')}</Button></div>
-    <AnnouncementSection announcements={announcements} goal t={t} />
+    <AnnouncementSection announcements={announcements} goal localeTag={localeTag} t={t} />
     <details className="swarm-team-workspace__collapsible"><summary>{t('budget')}</summary><BudgetStats budget={data.budget} number={number} t={t} /></details>
     <details className="swarm-team-workspace__collapsible"><summary>{t('capabilities')}</summary><CapabilityRows capabilities={data.capabilities} t={t} /></details>
     <Diagnostics data={data} captainDiagnostics={diagnostics} number={number} t={t} />
@@ -372,29 +372,40 @@ function ManagementEntry({ onOpen, t }: { readonly onOpen: () => void; readonly 
  *    2) real Team data (goal + announcements degrade to `unavailable`; budget & capabilities fold),
  *    3) folded technical diagnostics.
  *  The sidebar's first screen never shows these internal ledger fields. */
-function ManagementView({ data, announcements, diagnostics, number, onBack, t }: { readonly data: SwarmHostReadProjectionV1; readonly announcements: SwarmReadCaptainAnnouncementsV1 | undefined; readonly diagnostics: SwarmReadCaptainDiagnosticsV1 | undefined; readonly number: Intl.NumberFormat; readonly onBack: () => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
+function ManagementView({ data, teams, announcements, diagnostics, localeTag, number, onBack, t }: { readonly data: SwarmHostReadProjectionV1; readonly teams: SwarmReadTeamsV1 | undefined; readonly announcements: SwarmReadCaptainAnnouncementsV1 | undefined; readonly diagnostics: SwarmReadCaptainDiagnosticsV1 | undefined; readonly localeTag: () => 'zh-CN' | 'en-US'; readonly number: Intl.NumberFormat; readonly onBack: () => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
   const headingRef = useRef<HTMLHeadingElement>(null)
   useLayoutEffect(() => { headingRef.current?.focus() }, [])
   return <div className="swarm-team-workspace__management" data-swarm-management-view>
     <div className="swarm-team-workspace__management-head"><h3 className="swarm-team-workspace__column-title" ref={headingRef} tabIndex={-1}>{t('managementTitle')}</h3><Button size="sm" variant="ghost" onClick={onBack}>{t('managementBack')}</Button></div>
     <p className="swarm-team-workspace__muted">{t('managementDescription')}</p>
+    <BoundTeamIdentityCard data={data} teams={teams} includePersonality t={t} />
     <section className="swarm-team-workspace__unavailable-card" data-swarm-identity-incomplete><strong>{t('identityStatus')}</strong><p className="swarm-team-workspace__muted">{t('profileIncomplete')}</p></section>
     <section className="swarm-team-workspace__unavailable-card" data-swarm-goal-unavailable><strong>{t('goal')}</strong><p className="swarm-team-workspace__muted">{t('goalUnavailable')}</p></section>
-    <AnnouncementSection announcements={announcements} t={t} />
+    <AnnouncementSection announcements={announcements} localeTag={localeTag} t={t} />
     <details className="swarm-team-workspace__collapsible"><summary>{t('writeCapabilities')}</summary><p className="swarm-team-workspace__muted">{t('writeUnavailable')}</p><CapabilityRows capabilities={data.capabilities} t={t} /></details>
     <details className="swarm-team-workspace__collapsible"><summary>{t('budget')}</summary><BudgetStats budget={data.budget} number={number} t={t} /></details>
     <Diagnostics data={data} captainDiagnostics={diagnostics} number={number} t={t} />
   </div>
 }
 
-/** The board's single honest state card: the public goal line (the read contract does not expose a
- *  goal source yet) plus the real captain announcements read. When the host later delivers entries
- *  they must be rendered as real user-visible notice content, never placeholders or indices. */
-function AnnouncementSection({ announcements, goal = false, t }: { readonly announcements: SwarmReadCaptainAnnouncementsV1 | undefined; readonly goal?: boolean; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
-  if (announcements !== undefined && announcements.entries.length > 0) {
-    return <section className="swarm-team-workspace__unavailable-card" data-swarm-announcements-state="unavailable"><strong>{t('announcements')}</strong><p className="swarm-team-workspace__muted">{t('announcementsUnavailable')}</p></section>
+/** The board's single honest state card: the public goal line plus the real captain announcements
+ *  read. `available` renders the real bounded entries (or an honest empty state); a legacy
+ *  `unavailable` response keeps its explicit reason. Never placeholders, never fabricated posts. */
+function AnnouncementSection({ announcements, goal = false, localeTag, t }: { readonly announcements: SwarmReadCaptainAnnouncementsV1 | undefined; readonly goal?: boolean; readonly localeTag: () => 'zh-CN' | 'en-US'; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
+  const time = new Intl.DateTimeFormat(localeTag(), { dateStyle: 'medium', timeStyle: 'short' })
+  const state = announcements?.state ?? 'loading'
+  if (announcements !== undefined && announcements.state === 'available') {
+    return <section className="swarm-team-workspace__unavailable-card" data-swarm-announcements-state="available" data-swarm-announcement-count={announcements.entries.length}>
+      <strong>{t('announcements')}</strong>
+      {goal ? <p className="swarm-team-workspace__muted" data-swarm-goal-unavailable>{t('goal')}: {t('goalUnavailable')}</p> : null}
+      {announcements.entries.length === 0
+        ? <p className="swarm-team-workspace__muted" data-swarm-announcements-empty>{t('announcementsEmpty')}</p>
+        : <ul className="swarm-team-workspace__rows" data-swarm-announcement-entries>{announcements.entries.map(entry => (
+          <li key={entry.id}><span className="swarm-team-workspace__capability" data-swarm-announcement-entry={entry.id}><span className="swarm-team-workspace__truncate" title={entry.text}>{entry.text}</span><time dateTime={new Date(entry.createdAt).toISOString()}>{time.format(new Date(entry.createdAt))}</time></span></li>
+        ))}</ul>}
+    </section>
   }
-  return <section className="swarm-team-workspace__unavailable-card" data-swarm-announcement-unavailable data-swarm-announcements-state={announcements?.state ?? 'loading'}>
+  return <section className="swarm-team-workspace__unavailable-card" data-swarm-announcement-unavailable data-swarm-announcements-state={state}>
     <strong>{t('announcements')}</strong>
     {goal ? <p className="swarm-team-workspace__muted" data-swarm-goal-unavailable>{t('goal')}: {t('goalUnavailable')}</p> : null}
     {announcements === undefined
@@ -474,26 +485,33 @@ function CaptainList({ teams, memberCount, number, onOpenCaptain, t }: {
       ? <section className="swarm-team-workspace__unavailable-card" data-swarm-captains-empty><strong>{t('captainsEmpty')}</strong></section>
       : <div className="swarm-team-workspace__captain-list">{rows.map(team => {
         const count = memberCount !== undefined && memberCount.teamId === team.teamId ? memberCount.count : undefined
+        const generated = team.identityCard.state === 'generated'
+        const captainName = generated && team.displayName !== undefined ? team.displayName : team.name
+        const profession = generated && team.profession !== undefined ? team.profession : t('captainIdentityUnavailable')
         return (
-        <button key={team.teamId} className="swarm-team-workspace__row swarm-team-workspace__captain-hero" type="button" data-swarm-captain-team={team.teamId} data-swarm-captain-session={team.captainSessionId} data-swarm-captain-phase={team.phase} data-swarm-identity-state={team.identityCard.state} onClick={() => { onOpenCaptain(team.captainSessionId) }} title={t('openCaptainSession')}><span className="swarm-team-workspace__avatar"><SafePixelAvatar seed={team.name} asset={team.avatar} name={team.name} t={t} /></span><span className="swarm-team-workspace__member-copy"><strong className="swarm-team-workspace__truncate" title={team.name}>{team.name}</strong><small className="swarm-team-workspace__muted swarm-team-workspace__member-role swarm-team-workspace__truncate" data-swarm-profile-incomplete>{team.identityCard.state === 'generated' ? t('captainRole') : t('captainIdentityUnavailable')}{count === undefined ? '' : ` · ${t('members')} ${number.format(count)}`}</small></span><span className="swarm-team-workspace__member-side"><span className="swarm-team-workspace__badge" data-swarm-captain-status>{enumLabel(team.phase, t)}</span><small className="swarm-team-workspace__captain-action" data-swarm-captain-action>{t('openCaptainSession')}</small></span></button>
+        <button key={team.teamId} className="swarm-team-workspace__row swarm-team-workspace__captain-hero" type="button" data-swarm-captain-team={team.teamId} data-swarm-captain-session={team.captainSessionId} data-swarm-captain-phase={team.phase} data-swarm-identity-state={team.identityCard.state} onClick={() => { onOpenCaptain(team.captainSessionId) }} title={t('openCaptainSession')}><span className="swarm-team-workspace__avatar"><SafePixelAvatar seed={team.name} asset={team.avatar} name={captainName} t={t} /></span><span className="swarm-team-workspace__member-copy"><strong className="swarm-team-workspace__truncate" data-swarm-captain-visible-name={captainName} title={captainName}>{captainName}</strong><small className="swarm-team-workspace__muted swarm-team-workspace__member-role swarm-team-workspace__truncate" data-swarm-captain-profession={profession}>{profession}{count === undefined ? '' : ` · ${t('members')} ${number.format(count)}`}</small></span><span className="swarm-team-workspace__member-side"><span className="swarm-team-workspace__badge" data-swarm-captain-status>{enumLabel(team.phase, t)}</span><small className="swarm-team-workspace__captain-action" data-swarm-captain-action>{t('openCaptainSession')}</small></span></button>
         )
       })}</div>}
   </section>
 }
 
-/** Identity card for the current bound Team: name/role are authoritative Team domain fields, while
- *  profession/personality and the pixel avatar render the honest not-generated/unavailable state the
- *  backend reports (never a fabricated profile). Falls back to explicit not-generated if the bound
- *  Team is not present in the enumeration. */
-function BoundTeamIdentityCard({ data, teams, t }: {
+/** Identity card for the current bound Team Captain: real captain-declared values are shown only
+ *  when the backend reports the identity card `generated`; otherwise every profile field renders
+ *  its honest not-generated placeholder. `personality` is only requested by the Captain detail
+ *  surface (management view), never by the narrow roster rail. */
+function BoundTeamIdentityCard({ data, teams, includePersonality = false, t }: {
   readonly data: SwarmHostReadProjectionV1
   readonly teams: SwarmReadTeamsV1 | undefined
+  readonly includePersonality?: boolean | undefined
   readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS>
 }) {
   const bound = teams?.teams.find(team => team.teamId === data.binding.teamId)
+  const generated = bound?.identityCard.state === 'generated'
   return <TeamIdentityCard name={data.team.name} role={t('captainRole')}
     avatar={bound?.avatar ?? { state: 'not_generated', reason: 'avatar_backend_not_implemented' } as const}
     identityCard={bound?.identityCard ?? { state: 'not_generated', reason: 'identity_backend_not_implemented' } as const}
+    {...(generated && bound?.profession !== undefined ? { profession: bound.profession } : {})}
+    {...(includePersonality && generated && bound?.personality !== undefined ? { personality: bound.personality } : {})}
     t={t} />
 }
 

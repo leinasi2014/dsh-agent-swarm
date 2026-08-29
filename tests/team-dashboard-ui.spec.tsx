@@ -422,7 +422,10 @@ describe('R3 native Team Details surface', () => {
     expect(view.textContent).toContain('Write capabilities')
     expect(view.textContent).toContain('No human write path is bound to this read-only surface.')
     expect(document.querySelector('[data-swarm-management-view] [data-swarm-goal-unavailable]')).not.toBeNull()
-    expect(document.querySelector('[data-swarm-management-view] [data-swarm-announcement-unavailable]')).not.toBeNull()
+    // Real public announcements read: available state renders the real bounded entries.
+    const mgmtAnnouncements = document.querySelector('[data-swarm-management-view] [data-swarm-announcements-state="available"]')
+    expect(mgmtAnnouncements).not.toBeNull()
+    expect(mgmtAnnouncements!.textContent).toContain('Welcome to the Fixture Team.')
     // Real Host data (budget) folds inside its own collapsible in the management surface.
     const budgetFold = [...document.querySelectorAll('[data-swarm-management-view] details')].find(detail => detail.querySelector('[data-swarm-budget]'))!
     expect((budgetFold as HTMLDetailsElement).open).toBe(false)
@@ -481,9 +484,11 @@ describe('R3 native Team Details surface', () => {
     expect(rows).toHaveLength(2)
     expect(rows[0]!.textContent).toContain('Alpha Team')
     expect(rows[1]!.textContent).toContain('Beta Team')
-    // Identity card is an explicit un-generated state — never a fabricated avatar/identity.
-    expect(list.querySelectorAll('[data-swarm-profile-incomplete]').length).toBeGreaterThan(0)
+    // Identity stays honest: un-generated captains keep the technical name + explicit placeholder.
+    expect(list.querySelectorAll('[data-swarm-captain-profession]').length).toBe(2)
     expect(list.textContent).toContain('Profile not generated yet')
+    expect(list.textContent).toContain('Alpha Team')
+    expect(list.textContent).toContain('Beta Team')
     // Clicking a Captain opens that Team's official Session through the coordinator seam.
     await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-captain-team="team-alpha"]')!).click() })
     expect(coordinator.openTeamCaptain).toHaveBeenCalledWith('captain-alpha')
@@ -587,30 +592,32 @@ describe('R3 native Team Details surface', () => {
     // Roster labels group the Captain and members (captain · 1 / members · N).
     expect(document.querySelector('[data-swarm-roster-captain-label]')?.textContent).toContain('Team Captain')
     expect(document.querySelector('[data-swarm-roster-members-label]')?.textContent).toContain('Members')
-    // Selecting the Board tab switches to the in-slot board view.
+    // Selecting the Board tab switches to the in-slot board view with the real announcements read.
     await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-view-tab="board"]')!).click() })
     expect(document.querySelector('[data-swarm-board-view]')).not.toBeNull()
-    expect(document.querySelector('[data-swarm-announcement-unavailable]')).not.toBeNull()
+    expect(document.querySelector('[data-swarm-announcements-state="available"]')).not.toBeNull()
     // Selecting Main Brain routes back to the owner conversation (closeAndRestoreFocus + The FakeCoordinator).
     await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-view-tab="main"]')!).click() })
     expect(coordinator.closeAndRestoreFocus).toHaveBeenCalled()
   })
 
-  it('keeps the roster free of duplicated hollow board cards and renders one compact explicit announcement unavailable state', async () => {
+  it('keeps the roster free of duplicated hollow board cards and renders real announcement entries on the board', async () => {
     const coordinator = new FakeCoordinator()
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
     // Roster-first screen: goal/announcement state lives only in its dedicated views, never duplicated.
     expect(document.querySelectorAll('[data-swarm-goal-unavailable]')).toHaveLength(0)
     expect(document.querySelectorAll('[data-swarm-announcement-unavailable]')).toHaveLength(0)
-    // Board view: exactly one compact announcement unavailable card carrying the host reason.
+    // Board view: one compact card in the real available state with the authored entry rendered.
     await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-view-tab="board"]')!).click() })
     const board = document.querySelector<HTMLElement>('[data-swarm-board-view]')!
-    const cards = board.querySelectorAll<HTMLElement>('[data-swarm-announcement-unavailable]')
+    const cards = board.querySelectorAll<HTMLElement>('[data-swarm-announcements-state="available"]')
     expect(cards).toHaveLength(1)
-    expect(cards[0]!.getAttribute('data-swarm-announcements-state')).toBe('unavailable')
-    expect(cards[0]!.querySelector('[data-swarm-announcement-reason]')?.getAttribute('data-swarm-announcement-reason')).toBe('notice_board_not_implemented')
-    // No placeholder index rows and no duplicated section heading.
-    expect(cards[0]!.querySelector('ul')).toBeNull()
+    expect(cards[0]!.getAttribute('data-swarm-announcement-count')).toBe('1')
+    const entries = cards[0]!.querySelectorAll('[data-swarm-announcement-entry]')
+    expect(entries).toHaveLength(1)
+    expect(entries[0]!.textContent).toContain('Welcome to the Fixture Team.')
+    // No duplicated section heading; no fabricated extra rows.
+    expect(board.querySelectorAll('h3')).toHaveLength(0)
     expect(board.querySelectorAll('h3')).toHaveLength(0)
   })
 })

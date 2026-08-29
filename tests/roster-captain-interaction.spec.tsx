@@ -297,7 +297,7 @@ describe('roster/Captain interaction slice', () => {
     expect(alphaAvatar.getAttribute('data-avatar-reason')).toBe('avatar_backend_not_implemented')
     expect(alphaAvatar.getAttribute('aria-label')).toContain('Alpha 舰队')
     expect(alpha.querySelector('strong')?.textContent).toBe('Alpha 舰队')
-    expect(alpha.querySelector('[data-swarm-profile-incomplete]')?.textContent).toBe(t('captainIdentityUnavailable'))
+    expect(alpha.querySelector('[data-swarm-captain-profession]')?.textContent).toBe(t('captainIdentityUnavailable'))
     // QQ/WeChat-style row: profession line is the honest identity state; the side badge is the real phase.
     expect(alpha.getAttribute('data-swarm-identity-state')).toBe('not_generated')
     expect(alpha.getAttribute('data-swarm-captain-phase')).toBe('active')
