@@ -60,6 +60,105 @@ describe('R3 native Team Details surface', () => {
     expect(coordinator.openCaptainChat).toHaveBeenCalledTimes(1)
   })
 
+  it('hits the narrow-viewport (813px) overlay contract: the Team panel escapes the overflowing details track, fixed inside the visible viewport, with clickable member buttons', async () => {
+    const coordinator = new FakeCoordinator(); coordinator.state = { mode: 'docked', view: 'members', targetSessionId: 'root' }
+    const projection = {
+      ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot,
+      roster: [{ name: 'worker', role: 'Read-only verifier', phase: 'active', createdAt: 1_700_000_000_000 }],
+      totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, roster: 1 },
+    }
+    const populatedState: TeamDashboardState = { ...ready, data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never } }
+    const populated = { getSnapshot: (): TeamDashboardState => populatedState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: populated, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    const stylesheet = document.querySelector('style')?.textContent ?? ''
+    // ~813px lands inside the narrow media query: the panel must be fixed to the visible viewport
+    // instead of riding the overflowing official details track (member buttons at x≈912 become unreachable).
+    expect(stylesheet).toContain('@media (max-width: 995.98px)')
+    expect(stylesheet).toContain('[data-swarm-team-dashboard][data-swarm-team-panel] { position:fixed; inset:0; z-index:20;')
+    const panel = document.querySelector<HTMLElement>('[data-swarm-team-panel]')!
+    const member = document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!
+    expect(panel.contains(member)).toBe(true)
+    expect(member.disabled).toBe(false)
+    await act(async () => { member.click() })
+    expect(document.body.textContent).toContain('Back to members')
+  })
+
+  it('keeps the wide-viewport (1280px) desktop details dock contract: overlay rules stay inside the narrow media query and member buttons remain clickable', async () => {
+    const coordinator = new FakeCoordinator(); coordinator.state = { mode: 'docked', view: 'members', targetSessionId: 'root' }
+    const projection = {
+      ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot,
+      roster: [{ name: 'worker', role: 'Read-only verifier', phase: 'active', createdAt: 1_700_000_000_000 }],
+      totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, roster: 1 },
+    }
+    const populatedState: TeamDashboardState = { ...ready, data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never } }
+    const populated = { getSnapshot: (): TeamDashboardState => populatedState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: populated, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    // The docked fill is untouched: the official details track still sizes the panel.
+    const panel = document.querySelector<HTMLElement>('[data-swarm-team-panel]')!
+    expect(panel.style.width).toBe('100%')
+    expect(panel.style.height).toBe('100%')
+    expect(panel.getAttribute('role')).toBe('complementary')
+    // The only fixed/inset escape lives inside the narrow media query (cap below the official
+    // 996px auto-close threshold): 1280px never hits it.
+    const stylesheet = document.querySelector('style')?.textContent ?? ''
+    expect(stylesheet).toContain('@media (max-width: 995.98px)')
+    expect(stylesheet.slice(0, stylesheet.indexOf('@media (max-width: 995.98px)'))).not.toContain('position:fixed')
+    const member = document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!
+    expect(panel.contains(member)).toBe(true)
+    expect(member.disabled).toBe(false)
+    await act(async () => { member.click() })
+    expect(document.body.textContent).toContain('Back to members')
+  })
+
+  it('covers the dead band through the official auto-close threshold: at 995px the overlay contract still applies so member buttons stay visible and clickable', async () => {
+    const coordinator = new FakeCoordinator(); coordinator.state = { mode: 'docked', view: 'members', targetSessionId: 'root' }
+    const projection = {
+      ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot,
+      roster: [{ name: 'worker', role: 'Read-only verifier', phase: 'active', createdAt: 1_700_000_000_000 }],
+      totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, roster: 1 },
+    }
+    const populatedState: TeamDashboardState = { ...ready, data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never } }
+    const populated = { getSnapshot: (): TeamDashboardState => populatedState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: populated, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    const stylesheet = document.querySelector('style')?.textContent ?? ''
+    // The overlay cap must reach the official details auto-close threshold: the official solver
+    // (columns.ts SIDEBAR_COLLAPSED 56 + DETAILS_MIN 300 + CENTER_MIN 640) closes details below 996px,
+    // so 961–995px must stay inside the overlay instead of being zeroed and clipped.
+    expect(stylesheet).toContain('@media (max-width: 995.98px)')
+    expect(stylesheet).toContain('[data-swarm-team-dashboard][data-swarm-team-panel] { position:fixed; inset:0; z-index:20;')
+    const panel = document.querySelector<HTMLElement>('[data-swarm-team-panel]')!
+    const member = document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!
+    expect(panel.contains(member)).toBe(true)
+    expect(member.disabled).toBe(false)
+    await act(async () => { member.click() })
+    expect(document.body.textContent).toContain('Back to members')
+  })
+
+  it('keeps 996px on the official dock/desktop-collapse path: the overlay cap stays strictly below the auto-close threshold and member buttons remain clickable', async () => {
+    const coordinator = new FakeCoordinator(); coordinator.state = { mode: 'docked', view: 'members', targetSessionId: 'root' }
+    const projection = {
+      ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot,
+      roster: [{ name: 'worker', role: 'Read-only verifier', phase: 'active', createdAt: 1_700_000_000_000 }],
+      totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, roster: 1 },
+    }
+    const populatedState: TeamDashboardState = { ...ready, data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never } }
+    const populated = { getSnapshot: (): TeamDashboardState => populatedState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: populated, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    // At 996px the official solver keeps details docked at DETAILS_MIN: the overlay must not apply.
+    const panel = document.querySelector<HTMLElement>('[data-swarm-team-panel]')!
+    expect(panel.style.width).toBe('100%')
+    expect(panel.style.height).toBe('100%')
+    expect(panel.getAttribute('role')).toBe('complementary')
+    const stylesheet = document.querySelector('style')?.textContent ?? ''
+    expect(stylesheet).toContain('@media (max-width: 995.98px)')
+    expect(stylesheet.slice(0, stylesheet.indexOf('@media (max-width: 995.98px)'))).not.toContain('position:fixed')
+    const member = document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!
+    expect(panel.contains(member)).toBe(true)
+    expect(member.disabled).toBe(false)
+    await act(async () => { member.click() })
+    expect(document.body.textContent).toContain('Back to members')
+  })
+
   it('renders real error/stale authority signals and retry without claiming a fresh projection', async () => {
     const coordinator = new FakeCoordinator()
     const errorState: TeamDashboardState = { open: true, phase: 'error', targetSessionId: 'missing', error: { code: 'SWARM_RPC_TARGET_NOT_LIVE', message: 'not live' } }
