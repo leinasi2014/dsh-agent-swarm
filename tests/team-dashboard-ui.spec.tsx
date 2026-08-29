@@ -311,11 +311,18 @@ describe('R3 native Team Details surface', () => {
       // Overview folds real Host budget metrics; capabilities fold real Host capabilities.
       expect(document.querySelector('[data-swarm-budget]')).not.toBeNull()
       expect(document.querySelector('[data-swarm-capabilities]')).not.toBeNull()
+      // Goal marker is present as a fixed unavailable entry.
+      expect(document.querySelector('[data-swarm-goal-unavailable]')).not.toBeNull()
+      // Diagnostics is a flat default-closed details directly in the rail (no outer <details> wrapper).
+      const diagnostics = document.querySelector('[data-swarm-team-rail] details.swarm-team-workspace__diagnostics')!
+      expect(diagnostics.parentElement?.tagName).not.toBe('DETAILS')
       expect(observers).toHaveLength(1)
       expect(workspace.dataset.swarmTeamLayout).toBe('compact')
       // This is a component contract, not a jsdom geometry claim. Browser-proof owns geometry acceptance.
       expect(body.className).toContain('swarm-team-workspace__body')
       expect(stylesheet).toContain('container-type:inline-size')
+      // The rail is a 359px centered single column (width:100%; max-width:359px; margin-inline:auto).
+      expect(stylesheet).toContain('.swarm-team-workspace__rail { width:100%; max-width:359px; margin-inline:auto')
       expect(teamWorkspaceLayoutForWidth(359)).toBe('compact')
       await act(async () => { observers[0]?.emit(workspace, 359) })
       expect(workspace.dataset.swarmTeamLayout).toBe('compact')
