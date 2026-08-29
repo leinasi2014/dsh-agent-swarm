@@ -285,6 +285,32 @@ export class AgentSwarmRuntime extends Service {
     return await this.storeInstance.list(scope)
   }
 
+  /**
+   * Read-only enumeration of every managed/owned Team visible to the caller
+   * (a Main Brain root or a dedicated Captain). Reuses the exact Host
+   * visibility predicate (`host-read-service.isVisibleToRoot`) but bounds it
+   * to the live `exec.agent` — never an RPC-supplied root id or caller text:
+   * a Team is listed iff the caller is its Captain, a managed dedicated
+   * Captain child of the caller, or the persisted parent of its Captain.
+   * Otherwise it is dropped fail-closed with no foreign metadata leak. Scope
+   * is the caller's workspace scope only: no cross-principal union, no
+   * process-wide fallback, no second authority. Read-only over
+   * `listTeamAggregates`; never a mutation path.
+   */
+  async listManagedTeams(exec: ToolExecutionAuthority): Promise<TeamState[]> {
+    await this.ensureReady(); this.assertOpen()
+    const agent = requireAgent(exec)
+    const callerId = String(agent.id)
+    const teams = await this.listTeamAggregates(this.scopeOf(agent))
+    const managedChildren = new Set(this.managedCaptainSessionsOf(callerId))
+    const parentOf = (sessionId: string): string | undefined =>
+      this.ctx.sessions.get(SessionId(sessionId))?.header.parentSession
+    return teams.filter(team =>
+      team.captainSessionId === callerId
+      || managedChildren.has(team.captainSessionId)
+      || parentOf(team.captainSessionId) === callerId)
+  }
+
   /** Latch one scope into the jobs projection (idempotent, best-effort). */
   private watchJobsScope(scope: TeamScope): void {
     if (this.jobsBridge === undefined) return

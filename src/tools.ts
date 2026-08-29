@@ -29,7 +29,7 @@ import {
 } from './tools/task-board.js'
 import { registerSendMessageTool, registerWaitTool } from './tools/mailbox.js'
 import { registerAddMemoryTool, registerSetBudgetTool } from './tools/budget-memory.js'
-import { registerListJobsTool, registerListMembersTool, registerListMemoryTool, registerListTasksTool, registerStatusTool } from './tools/read-surface.js'
+import { registerListJobsTool, registerListManagedTeamsTool, registerListMembersTool, registerListMemoryTool, registerListTasksTool, registerStatusTool } from './tools/read-surface.js'
 import { registerAddPrivateMemoryTool, registerListPrivateMemoryTool } from './tools/private-memory.js'
 
 /** Register the model-facing Consumer over the Team orchestrator runtime. */
@@ -57,6 +57,7 @@ export function registerAgentSwarmTools(ctx: Context, runtime: AgentSwarmRuntime
   registerWaitTool(ctx, runtime)
   registerListMemoryTool(ctx, runtime)
   registerListMembersTool(ctx, runtime)
+  registerListManagedTeamsTool(ctx, runtime)
   registerAddPrivateMemoryTool(ctx, privateMemory)
   registerListPrivateMemoryTool(ctx, privateMemory)
 }

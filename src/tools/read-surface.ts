@@ -11,7 +11,7 @@ import type { JobSnapshot, JobStatus } from '@deepseek-ai/dsh-jobs'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { expectDomain, TeamDomainError } from '../domain/error.js'
 import { taskHoldEvidence } from '../domain/team-domain-budget.js'
-import type { TeamMemoryEntry, TeamTask } from '../domain/types.js'
+import type { TeamMemoryEntry, TeamState, TeamTask } from '../domain/types.js'
 import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
 import { requireAgent } from '../runtime/authority.js'
 import { compactJsonOutput, register } from './shared.js'
@@ -295,6 +295,89 @@ export function registerListMembersTool(ctx: Context, runtime: AgentSwarmRuntime
       return { members, ...(listed.nextCursor === undefined ? {} : { next_cursor: listed.nextCursor }) }
     },
   }), 'list-members tool')
+}
+
+/** One compact managed/owned Team row the caller may enumerate (identity + phase + goal + counts). */
+const MANAGED_TEAM_ROW_SCHEMA = {
+  type: 'object', additionalProperties: false,
+  properties: {
+    team_id: { type: 'string', required: true },
+    name: { type: 'string', required: true },
+    phase: { type: 'string', required: true, enum: ['active', 'archived'] },
+    captain_session_id: { type: 'string', required: true, description: 'Official dedicated Captain Session navigation id; open it via the official Session seam.' },
+    managed_origin: { type: 'string', description: 'Managed-Team operation identity; present only on agent_swarm_create_managed Teams (absent for captain-owned compat Teams).' },
+    display_name: { type: 'string', description: 'Captain display name; present only when the Captain declared an identity profile.' },
+    profession: { type: 'string', description: 'Captain profession; present only when the Captain declared an identity profile.' },
+    personality: { type: 'string', description: 'Captain personality; present only when the Captain declared an identity profile.' },
+    goal: {
+      type: 'object', additionalProperties: false,
+      properties: {
+        state: { type: 'string', required: true, enum: ['generated', 'not_generated'] },
+        text: { type: 'string', description: 'Canonical public goal text; present only when state is generated.' },
+        reason: { type: 'string', description: 'Stable reason; present only when state is not_generated.' },
+      },
+    },
+    member_count: { type: 'number', required: true, description: 'Active roster members (count only, never rows).' },
+    task_count: { type: 'number', required: true, description: 'Total Team tasks (count only, never rows).' },
+  },
+} as const
+
+const MANAGED_TEAM_LIST_VALUE_SCHEMA = {
+  type: 'object', additionalProperties: false,
+  properties: {
+    teams: { type: 'array', required: true, items: MANAGED_TEAM_ROW_SCHEMA },
+    next_cursor: { type: 'number', description: 'Present only when more visible Teams exist.' },
+  },
+} as const
+
+/** The public-goal summary: canonical text when set, an honest `not_generated` marker otherwise. */
+function publicGoalSummary(team: TeamState): { state: 'generated'; text: string } | { state: 'not_generated'; reason: 'goal_not_set' } {
+  return team.publicGoal === undefined
+    ? { state: 'not_generated', reason: 'goal_not_set' }
+    : { state: 'generated', text: team.publicGoal }
+}
+
+/**
+ * `agent_swarm_list_managed_teams`: the read-only enumeration that lets a Main
+ * Brain root (which sits outside every Team, so the membership-bounded readers
+ * cannot see its Teams) list the managed Teams it owns/oversees. The runtime
+ * reapplies the exact Host visibility predicate to the live `exec.agent`
+ * (never caller text): a Team is listed iff the caller is its Captain, a
+ * managed dedicated Captain child of the caller, or the persisted parent of
+ * its Captain — otherwise it is dropped fail-closed. Scope is the caller's
+ * workspace only; multi-Team is legal, zero is an explicit empty list. Rows
+ * carry Team/Captain identity (with the official Captain Session navigation
+ * id), phase, public goal summary, and member/task counts — counts only, never
+ * task/member rows.
+ */
+export function registerListManagedTeamsTool(ctx: Context, runtime: AgentSwarmRuntime): void {
+  register(ctx, defineTool({
+    name: 'agent_swarm_list_managed_teams',
+    description: 'Read-only list of the managed/owned Teams visible to the caller. A Team is listed iff the caller is its Captain, a managed dedicated Captain child of the caller, or the persisted parent of its Captain; anything else is dropped fail-closed with no foreign metadata leak, within the caller\'s workspace scope only. Returns Team/Captain identity (including the official Captain Session navigation id), phase, public goal summary, and active-member/task counts, with cursor pagination (limit 1-100, default 50).',
+    parameters: {
+      cursor: { type: 'integer', description: 'Zero-based result offset. Defaults to 0.' },
+      limit: { type: 'integer', description: 'Number of rows, 1 through 100. Defaults to 50.' },
+    },
+    output: compactJsonOutput(MANAGED_TEAM_LIST_VALUE_SCHEMA),
+    async execute(args, exec) {
+      const { cursor, limit } = pageWindow(args)
+      const teams = await runtime.listManagedTeams(exec)
+      const rows = teams.slice(cursor, cursor + limit).map(team => ({
+        team_id: team.id,
+        name: team.name,
+        phase: team.phase,
+        captain_session_id: team.captainSessionId,
+        ...(team.managedOrigin === undefined ? {} : { managed_origin: team.managedOrigin }),
+        ...(team.captainProfile?.displayName === undefined ? {} : { display_name: team.captainProfile.displayName }),
+        ...(team.captainProfile?.profession === undefined ? {} : { profession: team.captainProfile.profession }),
+        ...(team.captainProfile?.personality === undefined ? {} : { personality: team.captainProfile.personality }),
+        goal: publicGoalSummary(team),
+        member_count: team.members.filter(member => member.phase === 'active').length,
+        task_count: team.tasks.length,
+      }))
+      return { teams: rows, ...(cursor + limit < teams.length ? { next_cursor: cursor + limit } : {}) }
+    },
+  }), 'list-managed-teams tool')
 }
 
 /**
