@@ -114,7 +114,7 @@ const callMembers = async (service: AgentSwarmReadRpcService) =>
  *  eight (no ninth/unknown field), while the exact per-row shape is pinned by
  *  the `toEqual` assertions below. */
 const expectCompositionOnly = (composition: SwarmReadCaptainMemberRowV1['composition']) => {
-  const allowed = new Set<string>([...COMPOSITION_FIELDS])
+  const allowed = new Set<string>(COMPOSITION_FIELDS)
   expect(Object.keys(composition).every(key => allowed.has(key))).toBe(true)
 }
 
@@ -237,10 +237,10 @@ describe('captainMembers nested composition (fault-first)', () => {
     const reasons = [...got.values()].map(comp => (comp as { reason?: string }).reason)
     // Test 2 covers the missing-session (`active_session_missing`) failure; this
     // scenario exercises only the present-but-corrupt child modes.
-    expect(reasons.sort()).toEqual([
+    expect(reasons.toSorted()).toEqual([
       'binding_invalid', 'descriptor_invalid',
       'inspection_failed', 'not_continuable', 'tool_filter_invalid',
-    ].sort())
+    ].toSorted())
     // No corrupt row may leak a capability field; only the healthy row carries them.
     for (const composition of got.values()) {
       for (const field of ['llmProvider', 'model', 'presetId', 'personaConfigured', 'deniedTools'] as const) {
@@ -250,5 +250,47 @@ describe('captainMembers nested composition (fault-first)', () => {
     // The healthy sibling is fully available with its 8-field composition intact.
     expect(result.members[0]?.composition).toMatchObject({ llmProvider: 'llm-w', model: 'model-w', personaConfigured: true })
     expectCompositionOnly(result.members[0]!.composition)
+  })
+
+  it('merges row-local composition per roster member and fails a corrupt row closed without affecting others', async () => {
+    const members = [
+      // Healthy child: continuable descriptor with the exact team-scoped label and runtime
+      // provider — composition is `available` with derived capability fields.
+      { name: 'worker', role: 'writer', sessionId: 'child-session', provider: 'mock', phase: 'active', createdAt: 1 },
+      // Corrupt child: persisted Session missing entirely — this single row fails CLOSED
+      // (active_session_missing) and the other rows are unaffected.
+      { name: 'damaged', role: 'writer', sessionId: 'damaged-session', provider: 'mock', phase: 'active', createdAt: 2 },
+      // Provisioning child: honestly `pending`, inspected only from roster phase.
+      { name: 'newcomer', role: 'writer', sessionId: 'newcomer-session', provider: 'mock', phase: 'provisioning', createdAt: 3 },
+    ]
+    const service = rpcHarness({
+      teamState: { id: 'team-r2', captainSessionId: ROOT.id, phase: 'active', revision: 6, members, tasks: [], attempts: [] } as never as TeamState,
+      memberInspect: (sessionId: string) => {
+        if (sessionId === 'child-session') {
+          return stored({ id: sessionId }, [descriptor('worker', {
+            agentProvider: 'mock', agentModel: 'worker-model', persona: 'Hands-on builder.',
+            toolFilter: { deny: ['agent_swarm_create_managed', 'agent_swarm_list_jobs'] },
+          })])
+        }
+        throw new Error(`session "${sessionId}" not found`)
+      },
+    })
+    const result = await callMembers(service)
+    // Authoritative roster order preserved; every row carries its own composition.
+    expect(result.members.map(member => [member.name, member.composition])).toEqual([
+      ['worker', {
+        state: 'available', reason: 'available', runtimeProvider: 'mock',
+        llmProvider: 'mock', model: 'worker-model', presetId: 'standard', personaConfigured: true,
+        deniedTools: ['agent_swarm_create_managed', 'agent_swarm_list_jobs'],
+      }],
+      ['damaged', { state: 'invalid', reason: 'active_session_missing', runtimeProvider: 'mock' }],
+      ['newcomer', { state: 'pending', reason: 'provisioning', runtimeProvider: 'mock' }],
+    ])
+    // A fail-closed row discloses nothing beyond the recovery-fence provider.
+    expect(result.members[1]?.composition).not.toHaveProperty('llmProvider')
+    expect(result.members[1]?.composition).not.toHaveProperty('deniedTools')
+    // The declared tool-denial list is a restriction list; the healthy row keeps its growth marker.
+    expect(result.members[0]?.composition.deniedTools).toEqual(['agent_swarm_create_managed', 'agent_swarm_list_jobs'])
+    expect(result.members[0]?.growth).toEqual({ privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' })
   })
 })
