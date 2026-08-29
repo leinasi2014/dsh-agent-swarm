@@ -88,16 +88,17 @@ describe('roster/Captain interaction slice', () => {
     expect(eclairAvatar.getAttribute('data-avatar-state')).toBe('not_generated')
     expect(eclairAvatar.getAttribute('aria-label')).toContain('e\u0301clair')
 
-    // Name, role and life-cycle come verbatim from the fixture row.
+    // Name, role and life-cycle come verbatim from the fixture row; the visible row keeps
+    // name/profession/status one-line and moves the technical lifecycle label to the detail.
     const member = document.querySelector<HTMLButtonElement>('[data-swarm-member-name="海宝"]')!
     expect(member.querySelector('strong')?.textContent).toBe('海宝')
     expect(member.getAttribute('data-swarm-member-role')).toBe('Read-only auditor')
-    expect(member.getAttribute('data-swarm-member-lifecycle')).toBe('active')
-    expect(member.querySelector('[data-swarm-member-visible-lifecycle]')?.textContent).toBe('Lifecycle: Active')
+    expect(member.getAttribute('data-swarm-member-lifecycle')).toBeNull()
+    expect(member.getAttribute('data-swarm-identity-state')).toBe('not_generated')
+    expect(member.querySelector('[data-swarm-member-visible-lifecycle]')).toBeNull()
 
     // Phase-aware status: provisioning member shows the provisioning marker, not an idle/online claim.
     const boot = document.querySelector<HTMLButtonElement>('[data-swarm-member-name="boot"]')!
-    expect(boot.getAttribute('data-swarm-member-lifecycle')).toBe('provisioning')
     expect(boot.getAttribute('data-swarm-member-activity')).toBe('provisioning')
   })
 

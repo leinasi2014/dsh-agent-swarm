@@ -374,7 +374,7 @@ describe('R3 native Team Details surface', () => {
       const memberAvatar = member.querySelector('[data-swarm-pixel-avatar]')
       expect(memberAvatar?.getAttribute('data-avatar-state')).toBe('not_generated')
       expect(memberAvatar?.getAttribute('aria-label')).toContain('worker')
-      expect(member.querySelector('[data-swarm-member-visible-lifecycle]')?.textContent).toBe('Lifecycle: Active')
+      expect(member.querySelector('[data-swarm-member-visible-lifecycle]')).toBeNull()
       expect(member.querySelector('[data-swarm-member-visible-activity]')?.textContent).toBe('Running')
       expect(member.querySelector('[data-swarm-task-owner]')).toBeNull()
       // Goal and announcement entries live in their dedicated board/management views only.
@@ -563,7 +563,7 @@ describe('R3 native Team Details surface', () => {
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: historyController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
     expect(document.body.textContent).toContain('Recent attempt: Accepted')
     const member = document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!
-    expect(member.querySelector('[data-swarm-member-visible-lifecycle]')?.textContent).toBe('Lifecycle: Active')
+    expect(member.querySelector('[data-swarm-member-visible-lifecycle]')).toBeNull()
     expect(member.querySelector('[data-swarm-member-visible-activity]')?.textContent).toBe('Recent attempt: Accepted')
     await act(async () => { member.click() })
     expect(document.body.textContent).toContain('LifecycleActive')
