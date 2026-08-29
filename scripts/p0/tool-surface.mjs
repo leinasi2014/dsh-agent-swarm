@@ -6,6 +6,7 @@ export const EXPECTED_P0_SWARM_TOOL_NAMES = Object.freeze([
   'agent_swarm_archive',
   'agent_swarm_claim_task',
   'agent_swarm_create',
+  'agent_swarm_create_managed',
   'agent_swarm_create_task',
   'agent_swarm_interrupt_member',
   'agent_swarm_list_jobs',
