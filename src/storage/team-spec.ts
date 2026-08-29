@@ -210,6 +210,10 @@ const teamFields = {
     description: z.string().min(1),
     captainSessionId: sessionId,
     phase: z.enum(['active', 'archived']),
+    // Managed-Team operation identity (MainBrainSessionId + turn). Optional and
+    // absent on plain captain-owned compatibility Teams so pre-existing records
+    // parse byte-identical; a managed Team persists it so reload can reuse.
+    managedOrigin: z.string().min(1).optional(),
     members: z.array(memberSchema),
     // Captain self-declared profile + public announcements + public goal
     // (schema v2 additive; absent on pre-feature records so they parse byte-identical).
@@ -265,15 +269,32 @@ const migrationReceiptSchema: z.ZodType<MigrationReceipt> = z.object({
   migratedAt: timestamp,
 })
 
-/** The `agent_swarm` domain spec opened through `ctx.storageDomain`. */
+/**
+ * One managed-origin claim record: keyed by `${scope}\u0000${managedOrigin}` and
+ * valued by the winning Team id. The empty-string sentinel seeds the key so the
+ * atomic `update` (serialized on the domain's single write chain) can serve as
+ * put-if-absent across every store instance sharing the domain -- the durable
+ * authority for "at most one active Team per managed origin in a scope".
+ */
+const managedOriginClaimSchema = z.object({
+  teamId: z.string().min(1),
+})
+
+/** The durable `agent_swarm` domain spec opened through `ctx.storageDomain`. */
 export const teamDomainSpec = defineDomain({
   name: TEAM_DOMAIN_NAME,
   version: TEAM_DOMAIN_VERSION,
   tables: {
     teams: domainTable<TeamId, TeamRecord>(teamRecordSchema),
     migration_receipts: domainTable<string, MigrationReceipt>(migrationReceiptSchema),
+    managed_origins: domainTable<string, ManagedOriginClaim>(managedOriginClaimSchema),
   },
 })
+
+/** One stored managed-origin claim: which Team won the identity. */
+export interface ManagedOriginClaim {
+  readonly teamId: string
+}
 
 /** Build one durable record envelope from an in-memory aggregate. */
 export function teamRecordOf(scope: TeamScope, team: TeamState): TeamRecord {

@@ -198,7 +198,7 @@ describe('TeamDashboardController', () => {
     expect(state.data?.projection.attempts).toEqual(attempts)
     expect(state.data?.projection.pendingInteractions).toEqual(interactions)
     expect(seen.map(request => request.method)).toEqual([
-      'capabilities', 'binding', 'snapshot', 'teams', 'captainAnnouncements', 'captainDiagnostics', 'captainMembers', 'page', 'page', 'page', 'page',
+      'capabilities', 'teams', 'binding', 'snapshot', 'captainAnnouncements', 'captainDiagnostics', 'captainMembers', 'page', 'page', 'page', 'page',
     ])
     expect(seen.every(request => ['capabilities', 'binding', 'snapshot', 'teams', 'captainAnnouncements', 'captainDiagnostics', 'captainMembers', 'page'].includes(request.method))).toBe(true)
     expect(schedule.pending.size).toBe(1)

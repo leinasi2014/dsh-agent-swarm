@@ -51,6 +51,15 @@ export class AgentSwarmRuntime extends Service {
   private readonly reviewProviders = new Map<string, TeamReviewProvider>()
   private readonly verificationFamily = new VerificationFamily()
   private readonly ownedChildren = new Map<string, Set<string>>()
+  /**
+   * In-process single-flight of managed-Team creation keyed by the resolved
+   * operation identity (MainBrainSessionId + turn). Pure acceleration: concurrent
+   * same-identity calls share one provisioning promise. The AUTHORITATIVE
+   * correctness (and cross-process safety) is the persisted managed origin —
+   * check-then-create against Storage Domain, plus createUniqueForCaptain's
+   * origin non-duplication under the scope lock. Never the sole guarantee.
+   */
+  private readonly managedInflight = new Map<string, Promise<TeamState>>()
   /** Session id → its idle-stretch start, latched per `agent/status → idle` edge (issue #83; absent = task clock). */
   private readonly idleSince = new Map<string, number>()
   private readonly waitSpinFuse = new WaitSpinFuse()
@@ -310,21 +319,68 @@ export class AgentSwarmRuntime extends Service {
     const root = requireAgent(exec), scope = this.scopeOf(root)
     if (root.session.header.parentSession !== undefined || await this.domain.findMembership(scope, root.id) !== undefined)
       throw new TeamDomainError('managed Team creation requires a top-level main Chat outside every Team', 'TEAM_CAPTAIN_REQUIRED')
-    // Idempotency (duplicate Captain/Team): a Main Brain that already created a
-    // dedicated Captain for this workspace reuses the existing active Team — the
-    // same root never provisions a second Captain Session or Team.
-    const managedCaptains = this.managedCaptainSessionsOf(root.id)
-    if (managedCaptains.length > 0) {
-      const owned = (await this.listTeamAggregates(scope))
-        .filter(team => team.phase === 'active' && managedCaptains.includes(team.captainSessionId))
-      if (owned.length > 0) return owned[0]!
+    // Identity-addressed creation: the durable key is MainBrainSessionId + turn
+    // (resolved from the official Session log), NOT the calling Agent alone.
+    // Same identity (a retry, a parallel duplicate, a restart re-invocation)
+    // reuses one Team; a different identity provisions an independent Team.
+    const identity = this.resolveManagedIdentity(root, exec)
+    const key = identity
+    const inFlight = this.managedInflight.get(key)
+    if (inFlight !== undefined) {
+      // Single-flight acceleration: a concurrent same-identity call awaits the
+      // provisioning already in progress and returns its Team.
+      try { return await inFlight } finally { /* kept in map until settle */ }
     }
-    this.watchJobsScope(scope)
-    return await this.captainProvisioning.create({
-      scope, root, name, description,
-      ...(options.llmProvider === undefined ? {} : { llmProvider: options.llmProvider }),
-      ...(options.model === undefined ? {} : { model: options.model }),
-      signal: exec.signal })
+    const creation = (async () => {
+      // Authoritative reuse: the persisted managed origin (reload-safe) wins.
+      const owned = await this.findManagedTeamByOrigin(scope, identity)
+      if (owned !== undefined) return owned
+      this.watchJobsScope(scope)
+      return await this.captainProvisioning.create({
+        scope, root, name, description, managedOrigin: identity,
+        ...(options.llmProvider === undefined ? {} : { llmProvider: options.llmProvider }),
+        ...(options.model === undefined ? {} : { model: options.model }),
+        signal: exec.signal,
+      })
+    })()
+    this.managedInflight.set(key, creation)
+    try {
+      return await creation
+    } finally {
+      if (this.managedInflight.get(key) === creation) this.managedInflight.delete(key)
+    }
+  }
+
+  /**
+   * Resolve the durable operation identity of one managed-create call: the
+   * MainBrainSessionId plus the REAL turn of the matching `tool/call` event in
+   * the official Session log. The identity is deliberately NOT the bare callId
+   * (a retry within a turn carries a new callId yet is the same operation) and
+   * rootCallId only groups code-mode sub-calls. When the executing call has no
+   * corresponding Session-log record (a detached/direct invocation that is not
+   * a real AgentLoop turn), it falls back to a stable discrete per-call handle
+   * so distinct direct operations stay distinct and re-invocations reuse.
+   */
+  private resolveManagedIdentity(root: Agent, exec: ToolExecutionAuthority): string {
+    const main = String(root.id)
+    const callId = exec.callId === undefined ? undefined : String(exec.callId)
+    if (callId !== undefined) {
+      for (const event of root.session.events) {
+        if (event.type !== 'tool/call') continue
+        const data = event.data as { callId?: unknown; turn?: number }
+        if (String(data.callId) === callId) {
+          const turn = data.turn
+          return `managed:${main}:turn:${turn}`
+        }
+      }
+    }
+    return `managed:${main}:detached:${callId ?? 'unknown'}`
+  }
+
+  /** The active Team in scope whose persisted managed origin matches (reuse). */
+  private async findManagedTeamByOrigin(scope: TeamScope, origin: string): Promise<TeamState | undefined> {
+    const teams = await this.listTeamAggregates(scope)
+    return teams.find(team => team.phase === 'active' && team.managedOrigin === origin)
   }
 
   async addMember(exec: ToolExecutionAuthority, input: { name: string; role: string; provider?: string; llmProvider?: string; model?: string; denyTools?: readonly string[] } & MemberIdentityInput): Promise<TeamState['members'][number]> {

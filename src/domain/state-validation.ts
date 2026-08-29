@@ -68,6 +68,7 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
   text(team.name, path, 'name')
   text(team.description, path, 'description')
   text(team.captainSessionId, path, 'captainSessionId')
+  if (team.managedOrigin !== undefined) text(team.managedOrigin, path, 'managedOrigin')
   if (team.phase !== 'active' && team.phase !== 'archived') corrupt(path, 'phase is invalid')
   integer(team.nextTaskNumber, path, 'nextTaskNumber', 1)
   integer(team.nextMemoryNumber, path, 'nextMemoryNumber', 1)

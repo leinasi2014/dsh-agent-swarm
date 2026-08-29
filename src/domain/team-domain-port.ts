@@ -67,6 +67,14 @@ export interface TeamAggregateStore {
   /** Stable identifier of the backing authority, for diagnostics. */
   readonly backend: string
   createUniqueForCaptain(scope: TeamScope, state: TeamState): Promise<void>
+  /**
+   * Atomic identity-addressed managed-Team creation: enforces at most one
+   * active Team per managed origin in a scope through the Storage Domain's
+   * atomic origin claim (not per-instance locks). Returns the WINNING Team — the
+   * caller's own when it won the claim, or a concurrent winner read back by
+   * origin otherwise (never throws on an origin conflict).
+   */
+  createManaged(scope: TeamScope, state: TeamState): Promise<TeamState>
   read(scope: TeamScope, teamId: TeamId): Promise<TeamState | undefined>
   list(scope: TeamScope): Promise<TeamState[]>
   transact<T>(scope: TeamScope, teamId: TeamId, operation: TeamTransaction<T>): Promise<T>
@@ -126,6 +134,7 @@ export interface TeamDomainPort {
     name: string,
     description: string,
     captainUsageSeq?: number,
+    managedOrigin?: string,
   ): Promise<TeamState>
   findMembership(scope: TeamScope, sessionId: string): Promise<TeamMembership | undefined>
   requireMembership(scope: TeamScope, sessionId: string): Promise<TeamMembership>

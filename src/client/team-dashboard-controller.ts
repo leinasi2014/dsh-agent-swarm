@@ -70,6 +70,9 @@ export class TeamDashboardController {
   private requestAbort: AbortController | undefined
   private timer: unknown
   private generation = 0
+  /** Stable Team bound for a multi-Team root. Persisted across loads so refresh/reconnect/open
+   *  keep selecting the same Team instead of flapping. Resolved from the Team directory on every load. */
+  private selectedTeamId: string | undefined
   private disposed = false
 
   constructor(
@@ -113,6 +116,19 @@ export class TeamDashboardController {
 
   reconnect(): void {
     this.refresh()
+  }
+
+  /** Switch the bound Team for the open dashboard and re-read binding/snapshot/sections
+   *  consistently against that Team. No-op when there is no open panel or it is already bound. */
+  selectTeam(teamId: string): void {
+    this.assertLive()
+    const target = this.state.targetSessionId
+    if (!this.state.open || target === undefined) return
+    if (this.state.data?.projection.binding.teamId === teamId) return
+    this.selectedTeamId = teamId
+    this.stopActive()
+    this.publish(withoutError(this.state, this.state.data === undefined ? 'loading' : 'reconnecting'))
+    void this.load(target, false)
   }
 
   /** A connection generation reset makes cached data stale until a fresh Host projection succeeds. */
@@ -199,18 +215,25 @@ export class TeamDashboardController {
 
   private async readComplete(targetSessionId: string, signal: AbortSignal): Promise<TeamDashboardData> {
     const capabilities = await this.readCapabilities(signal)
-    const binding = await this.readBinding(targetSessionId, undefined, signal)
+    // Enumerate the Team directory FIRST. The binding/snapshot/sections below resolve a concrete
+    // Team only after enumeration, so a multi-Team root never 409s ambiguous: no read is issued
+    // with an unresolved teamId before the directory read completes.
+    const teams = await this.readTeams(targetSessionId, signal)
+    const selectedTeamId = this.resolveTeamId(teams)
+    const target = { rootSessionId: targetSessionId, teamId: selectedTeamId }
+    const binding = await this.readBinding(targetSessionId, selectedTeamId, signal)
     // Keep every read addressed to the Session whose Team panel the user opened.
     // For a Main Brain, binding.rootSessionId is the resolved dedicated Captain;
     // pivoting subsequent RPCs to that child bypasses the parent-root ownership
     // proof and can fail after restart. The host resolves/re-proves the Captain
     // from this stable Main Brain target on every request.
-    const target = { rootSessionId: targetSessionId, teamId: binding.binding.teamId }
-    const previousCursor = this.state.targetSessionId === targetSessionId
-      ? this.state.data?.projection.cursor : undefined
+    // The incremental cursor is only reusable against the SAME bound Team; a team switch must
+    // start from a fresh snapshot rather than feed one Team's cursor into another's binding.
+    const previous = this.state.targetSessionId === targetSessionId ? this.state.data : undefined
+    const previousCursor = previous !== undefined && previous.projection.binding.teamId === selectedTeamId
+      ? previous.projection.cursor : undefined
     const snapshot = await this.readSnapshot(target, previousCursor, signal)
     assertIdentity(binding, snapshot)
-    const teams = await this.readTeams(targetSessionId, signal)
     // Captain board sections are real reads against the same binding; today the host answers
     // announcements with an explicit bounded unavailable, never a stub or fabricated posts.
     const sectionTarget = target
@@ -251,6 +274,28 @@ export class TeamDashboardController {
       method: 'teams',
       target: { rootSessionId },
     }, signal) as SwarmReadTeamsV1
+  }
+
+  /** Resolve the concrete Team to bind from the enumerated Team directory. A single visible Team
+   *  is auto-selected; a multi-Team root keeps a stable selection across loads, falling back to the
+   *  enumeration-ordered first Team only when the prior selection is no longer visible. An empty
+   *  directory has no bindable Team and fails closed before any binding read. */
+  private resolveTeamId(teams: SwarmReadTeamsV1): string {
+    const visible = teams.teams
+    const first = visible[0]
+    if (first === undefined) {
+      throw new DashboardReadError('SWARM_UI_NO_VISIBLE_TEAM', 'No visible Team to bind the Team dashboard')
+    }
+    if (visible.length === 1) {
+      this.selectedTeamId = first.teamId
+      return first.teamId
+    }
+    const previously = this.selectedTeamId
+    if (previously !== undefined && visible.some(team => team.teamId === previously)) {
+      return previously
+    }
+    this.selectedTeamId = first.teamId
+    return first.teamId
   }
 
   private async readCapabilities(signal: AbortSignal): Promise<SwarmReadCapabilitiesV1> {

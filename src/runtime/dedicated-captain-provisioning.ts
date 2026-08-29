@@ -42,6 +42,7 @@ export class DedicatedCaptainProvisioner {
     readonly root: Agent
     readonly name: string
     readonly description: string
+    readonly managedOrigin?: string
     readonly llmProvider?: string
     readonly model?: string
     readonly signal: AbortSignal
@@ -60,7 +61,15 @@ export class DedicatedCaptainProvisioner {
       throw new TeamDomainError(`subagent provider "${providerName}" cannot host a dedicated Captain`, 'TEAM_MEMBER_PROVIDER_INCOMPATIBLE')
     }
     const captainId = SessionId(randomUUID())
-    const team = await this.deps.domain().createTeam(input.scope, captainId, input.name, input.description, -1)
+    const team = await this.deps.domain().createTeam(input.scope, captainId, input.name, input.description, -1, input.managedOrigin)
+    // A concurrent manager may have already won this managed origin at the
+    // Storage Domain (atomic claim): its Team (with the winner's Captain) is
+    // returned instead of a freshly-minted one. Do NOT provision a duplicate
+    // Captain for that Team — the winner already owns and runs it.
+    if (team.captainSessionId !== String(captainId)) {
+      this.initial.delete(captainId)
+      return team
+    }
     const pending: InitialCaptain = { scope: input.scope, team, root: input.root, captainId, admitted: false }
     this.initial.set(captainId, pending)
     // Ownership begins before the provider call: partial start and disposal

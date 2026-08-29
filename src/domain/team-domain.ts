@@ -74,8 +74,9 @@ export class TeamDomain implements TeamDomainPort {
     name: string,
     description: string,
     captainUsageSeq = -1,
+    managedOrigin?: string,
   ): Promise<TeamState> {
-    return await roster.createTeam(this.deps, scope, captainSessionId, name, description, captainUsageSeq)
+    return await roster.createTeam(this.deps, scope, captainSessionId, name, description, captainUsageSeq, managedOrigin)
   }
 
   async findMembership(scope: TeamScope, sessionId: string): Promise<TeamMembership | undefined> {

@@ -240,6 +240,10 @@ export interface TeamState {
   readonly name: string
   readonly description: string
   readonly captainSessionId: string
+  /** Managed-Team operation identity (MainBrainSessionId + turn), persisted so a
+   *  real store reload can re-discover and reuse the same operation's Team.
+   *  Absent for plain `agent_swarm_create` (captain-owned compatibility) Teams. */
+  readonly managedOrigin?: string
   readonly phase: 'active' | 'archived'
   readonly members: TeamMember[]
   /** Canonical bounded public goal (schema v2, Captain-declared). Absence = explicit

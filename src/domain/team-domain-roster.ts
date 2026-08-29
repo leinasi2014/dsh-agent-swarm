@@ -39,6 +39,7 @@ export async function createTeam(
   name: string,
   description: string,
   captainUsageSeq: number,
+  managedOrigin?: string,
 ): Promise<TeamState> {
   expectDomain(Number.isSafeInteger(captainUsageSeq) && captainUsageSeq >= -1, 'captain usage seq is invalid', 'TEAM_INPUT_INVALID')
   const timestamp = deps.now()
@@ -49,6 +50,7 @@ export async function createTeam(
     name: nonEmpty(name, 'team name', 128),
     description: nonEmpty(description, 'team description', 16_384),
     captainSessionId,
+    ...(managedOrigin === undefined ? {} : { managedOrigin }),
     phase: 'active',
     members: [],
     tasks: [],
@@ -63,8 +65,15 @@ export async function createTeam(
     createdAt: timestamp,
     updatedAt: timestamp,
   }
-  await deps.store.createUniqueForCaptain(scope, team)
-  return structuredClone(team)
+  if (managedOrigin === undefined) {
+    await deps.store.createUniqueForCaptain(scope, team)
+    return structuredClone(team)
+  }
+  // Identity-addressed managed Team: the store atomically claims the managed
+  // origin (Storage-Domain unique index, not per-instance locks) and returns the
+  // WINNING aggregate — this caller's, or a concurrent winner read back by origin.
+  const winner = await deps.store.createManaged(scope, team)
+  return structuredClone(winner)
 }
 
 /**

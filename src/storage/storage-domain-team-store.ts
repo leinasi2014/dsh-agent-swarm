@@ -19,7 +19,7 @@ import type {
   TeamTransaction,
 } from '../domain/team-domain-port.js'
 import type { TeamId, TeamState } from '../domain/types.js'
-import { TEAM_DOMAIN_NAME, teamDomainSpec, teamRecordOf } from './team-spec.js'
+import { TEAM_DOMAIN_NAME, teamDomainSpec, teamRecordOf, type ManagedOriginClaim } from './team-spec.js'
 
 function closed(): TeamDomainError {
   return new TeamDomainError('Team aggregate store is closed', 'TEAM_STORE_CLOSED')
@@ -45,6 +45,7 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
   readonly backend = 'storage-domain'
 
   private readonly teams: ReturnType<Domain<typeof teamDomainSpec>['table']>
+  private readonly origins: ReturnType<Domain<typeof teamDomainSpec>['table']>
   private readonly receipts: ReturnType<Domain<typeof teamDomainSpec>['table']>
   private readonly teamLocks = new Map<string, Promise<void>>()
   private readonly scopeLocks = new Map<string, Promise<void>>()
@@ -58,6 +59,7 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
     private readonly now: () => number = Date.now,
   ) {
     this.teams = domain.table('teams')
+    this.origins = domain.table('managed_origins')
     this.receipts = domain.table('migration_receipts')
     this.stopListening = ctx.on('domain/changed', change => this.onChange(change))
   }
@@ -115,6 +117,7 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
       let captainActive = false
       for (const record of this.teams.entries()) {
         if (record[1].workspace !== scope) continue
+        // Per-captain uniqueness (the plain `agent_swarm_create` guarantee).
         if (record[1].team.phase === 'active' && record[1].team.captainSessionId === state.captainSessionId) {
           captainActive = true
           break
@@ -127,6 +130,52 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
       await this.teams.put(state.id, this.envelope(scope, state))
       this.notify(state.id)
     })
+  }
+
+  /**
+   * Atomic managed-Team creation for identity-addressed `agent_swarm_create_managed`.
+   *
+   * The at-most-one-active-Team-per-managed-origin guarantee is enforced by the
+   * Storage Domain write chain — an atomic origin Claim keyed by
+   * `${scope}\u0000${managedOrigin}` is arbitrated with `update` (serialized on
+   * the domain's single write chain, SHARED by every store instance), NOT by the
+   * per-instance `scopeLocks` map. This works across independently-constructed
+   * store instances sharing the same domain handle: exactly ONE caller's Team
+   * wins the claim; every other caller rolls back its transient candidate and
+   * reads the winner's persisted aggregate back by `managedOrigin`.
+   *
+   * @returns the winning Team — either this caller's own (when it won the
+   *   claim) or a concurrent winner's (read back by origin). Never throws for an
+   *   origin conflict.
+   */
+  async createManaged(scope: TeamScope, state: TeamState): Promise<TeamState> {
+    if (this.storeClosed) throw closed()
+    if (state.managedOrigin === undefined) {
+      await this.createUniqueForCaptain(scope, state)
+      return state
+    }
+    const originKey = `${scope}\u0000${state.managedOrigin}`
+    // 1) Persist this candidate aggregate first so the eventual winner's Team is
+    //    durable (and visible on the shared write chain) before a loser reads it.
+    await this.teams.put(state.id, this.envelope(scope, state))
+    this.notify(state.id)
+    // 2) Seed the origin Claim with an empty sentinel (idempotent across stores).
+    if (this.origins.get(originKey) === undefined) {
+      await this.origins.put(originKey, { teamId: '' })
+    }
+    // 3) Atomic put-if-absent on the domain write chain: exactly one caller's
+    //    Team id wins; the loser's update returns the winner unchanged.
+    const claim = await this.origins.update(originKey, (current: ManagedOriginClaim) =>
+      current.teamId === '' ? { teamId: String(state.id) } : current,
+    )
+    if (claim.teamId === String(state.id)) return state
+    // 4) We lost: roll back our transient candidate and return the winner.
+    await this.teams.delete(state.id)
+    const winner = this.validate(this.teams.get(claim.teamId as TeamId), claim.teamId as TeamId)
+    if (winner === undefined) {
+      throw new TeamDomainError(`managed origin winner Team "${claim.teamId}" is missing`, 'TEAM_NOT_FOUND')
+    }
+    return winner
   }
 
   async read(scope: TeamScope, teamId: TeamId): Promise<TeamState | undefined> {
