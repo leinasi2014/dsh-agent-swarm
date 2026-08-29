@@ -6,13 +6,31 @@ export const SWARM_READ_RPC_VERSION = 1 as const
 export const SWARM_READ_RPC_NAMESPACE = '/swarm' as const
 export const SWARM_READ_RPC_ENDPOINT = '/swarm/v1' as const
 
-export type SwarmReadRpcMethod = 'capabilities' | 'binding' | 'status' | 'snapshot' | 'page'
+export type SwarmReadRpcMethod =
+  | 'capabilities'
+  | 'teams'
+  | 'binding'
+  | 'status'
+  | 'snapshot'
+  | 'page'
+  | 'captainMembers'
+  | 'captainAnnouncements'
+  | 'captainDiagnostics'
 export type SwarmReadPageKind = 'tasks' | 'attempts' | 'pendingInteractions'
+/** A Captain-scoped read section reachable from the `teams` enumeration entry point. */
+export type SwarmReadCaptainSectionMethod =
+  | 'captainMembers'
+  | 'captainAnnouncements'
+  | 'captainDiagnostics'
 export type SwarmReadCapability =
+  | 'teams.read'
   | 'binding.read'
   | 'status.read'
   | 'snapshot.read'
   | 'page.read'
+  | 'captainMembers.read'
+  | 'captainAnnouncements.read'
+  | 'captainDiagnostics.read'
   | 'message.write'
   | 'control.write'
   | 'effect.cancel'
@@ -35,6 +53,125 @@ export interface SwarmReadCapabilitiesRequest {
   readonly method: 'capabilities'
 }
 
+/** Read-only enumeration of every Team aggregate visible to the target root (real authorities,
+ *  never a copied or second state). Multi-team is a legal result; zero teams is an explicit empty
+ *  list — the caller distinguishes them from an error. */
+export interface SwarmReadTeamsRequest {
+  readonly schemaVersion: 1
+  readonly method: 'teams'
+  readonly target: SwarmReadTargetHint
+}
+
+/** Explicit identity-asset availability of a Captain/team/member. Backend states are honest: a
+ *  field the backend does not yet generate reports `not_generated` with a stable reason — never a
+ *  fabricated avatar/identity card. `unavailable` means the read endpoint exists but carries no
+ *  data source. */
+export type SwarmReadAssetState = 'generated' | 'not_generated' | 'unavailable'
+export type SwarmReadAssetReason =
+  | 'avatar_backend_not_implemented'
+  | 'identity_backend_not_implemented'
+  | 'notice_board_not_implemented'
+
+export interface SwarmReadAssetStatusV1 {
+  readonly state: SwarmReadAssetState
+  readonly reason?: SwarmReadAssetReason
+}
+
+export interface SwarmReadCaptainEndpointRefV1 {
+  readonly method: SwarmReadCaptainSectionMethod
+  readonly target: {
+    readonly rootSessionId: string
+    readonly teamId: string
+  }
+}
+
+export interface SwarmReadTeamV1 {
+  readonly teamId: string
+  readonly name: string
+  readonly phase: 'active' | 'archived'
+  /** Dedicated Captain Session id of this Team; the caller opens it via the official Session seam. */
+  readonly captainSessionId: string
+  /** Backend does not generate avatars yet; reports `not_generated`, never a fake asset. */
+  readonly avatar: SwarmReadAssetStatusV1
+  /** Backend does not generate identity cards yet; reports `not_generated`, never a fake card. */
+  readonly identityCard: SwarmReadAssetStatusV1
+  /** Captain-scoped read entry points this Team exposes (members / announcements / diagnostics). */
+  readonly endpoints: {
+    readonly members: SwarmReadCaptainEndpointRefV1
+    readonly announcements: SwarmReadCaptainEndpointRefV1
+    readonly diagnostics: SwarmReadCaptainEndpointRefV1
+  }
+}
+
+export interface SwarmReadTeamsV1 {
+  readonly schemaVersion: 1
+  readonly binding: {
+    readonly rootSessionId: string
+  }
+  readonly teams: readonly SwarmReadTeamV1[]
+  readonly observedAt: number
+  /** True when the enumeration is complete within the bounded read ceiling. */
+  readonly complete: boolean
+}
+
+export interface SwarmReadCaptainSectionRequest {
+  readonly schemaVersion: 1
+  readonly method: SwarmReadCaptainSectionMethod
+  readonly target: SwarmReadTargetHint
+}
+
+/** One Captain-scoped member row. The roster identity/phase is authoritative Team data; the
+ *  avatar/identity card are backend-not-implemented and report `not_generated`. */
+export interface SwarmReadCaptainMemberRowV1 {
+  readonly name: string
+  readonly role: string
+  readonly phase: 'provisioning' | 'active' | 'failed' | 'removed'
+  readonly createdAt: number
+  readonly avatar: SwarmReadAssetStatusV1
+  readonly identityCard: SwarmReadAssetStatusV1
+}
+
+export interface SwarmReadCaptainMembersV1 {
+  readonly schemaVersion: 1
+  readonly binding: {
+    readonly rootSessionId: string
+    readonly teamId: string
+  }
+  readonly members: readonly SwarmReadCaptainMemberRowV1[]
+  readonly observedAt: number
+}
+
+/** Announcements are not backed by a public notice board yet, so the read returns an explicit
+ *  `unavailable` state with a stable reason and an empty entry list — never fabricated posts. */
+export interface SwarmReadCaptainAnnouncementsV1 {
+  readonly schemaVersion: 1
+  readonly binding: {
+    readonly rootSessionId: string
+    readonly teamId: string
+  }
+  readonly state: 'unavailable'
+  readonly reason: 'notice_board_not_implemented'
+  readonly entries: readonly []
+  readonly observedAt: number
+}
+
+export interface SwarmReadCaptainDiagnosticsV1 {
+  readonly schemaVersion: 1
+  readonly binding: {
+    readonly rootSessionId: string
+    readonly teamId: string
+  }
+  readonly diagnostics: {
+    readonly revision: number
+    readonly phase: 'active' | 'archived'
+    readonly taskCount: number
+    readonly attemptCount: number
+    readonly memberCount: number
+    readonly backend: string
+  }
+  readonly observedAt: number
+}
+
 export interface SwarmReadTargetRequest {
   readonly schemaVersion: 1
   readonly method: 'binding' | 'status' | 'snapshot'
@@ -54,7 +191,12 @@ export interface SwarmReadPageRequest {
   }
 }
 
-export type SwarmReadRpcRequest = SwarmReadCapabilitiesRequest | SwarmReadTargetRequest | SwarmReadPageRequest
+export type SwarmReadRpcRequest =
+  | SwarmReadCapabilitiesRequest
+  | SwarmReadTeamsRequest
+  | SwarmReadCaptainSectionRequest
+  | SwarmReadTargetRequest
+  | SwarmReadPageRequest
 
 export interface SwarmReadCapabilitiesV1 {
   readonly protocol: typeof SWARM_READ_RPC_PROTOCOL
@@ -101,6 +243,10 @@ export interface SwarmReadPageV1 {
 
 export type SwarmReadRpcValue =
   | SwarmReadCapabilitiesV1
+  | SwarmReadTeamsV1
+  | SwarmReadCaptainMembersV1
+  | SwarmReadCaptainAnnouncementsV1
+  | SwarmReadCaptainDiagnosticsV1
   | SwarmReadBindingV1
   | SwarmReadStatusV1
   | SwarmHostReadProjectionV1

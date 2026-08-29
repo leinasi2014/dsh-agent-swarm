@@ -24,7 +24,14 @@ import {
   type SwarmReadRpcRequest,
   type SwarmReadRpcValue,
   type SwarmReadTargetHint,
+  type SwarmReadTeamsRequest,
+  type SwarmReadTeamsV1,
+  type SwarmReadCaptainSectionMethod,
+  type SwarmReadCaptainSectionRequest,
+  type SwarmReadCaptainMembersV1,
+  type SwarmReadAssetStatusV1,
 } from './read-rpc-contract.js'
+import type { TeamScope } from '../domain/team-domain-port.js'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -84,7 +91,10 @@ export class AgentSwarmReadRpcService {
   capabilities(): SwarmReadCapabilitiesV1 {
     const listener = this.deps.webServer.host === '127.0.0.1' ? 'loopback' : 'non-loopback'
     const available = listener === 'loopback'
-    const reads: SwarmReadCapabilityState[] = ['binding.read', 'status.read', 'snapshot.read', 'page.read'].map(capability => ({
+    const reads: SwarmReadCapabilityState[] = [
+      'teams.read', 'binding.read', 'status.read', 'snapshot.read', 'page.read',
+      'captainMembers.read', 'captainAnnouncements.read', 'captainDiagnostics.read',
+    ].map(capability => ({
       capability: capability as SwarmReadCapabilityState['capability'],
       state: available ? 'available' : 'unavailable',
       ...(available ? {} : { blocker: 'listener-not-loopback' as const }),
@@ -109,6 +119,12 @@ export class AgentSwarmReadRpcService {
     if (this.deps.webServer.host !== '127.0.0.1') {
       throw new TeamDomainError('Swarm read RPC requires a loopback listener', 'SWARM_RPC_UNAVAILABLE')
     }
+    if (request.method === 'teams') {
+      return await this.invokeTeams(request)
+    }
+    if (isCaptainSection(request)) {
+      return await this.invokeCaptainSection(request)
+    }
     const { root, teamId, captainSessionId } = await this.resolveTarget(request.target)
     const projection = await this.deps.ctx.agents.withInitiator(root, () => this.deps.hostRead.read({
       teamId,
@@ -120,6 +136,77 @@ export class AgentSwarmReadRpcService {
       case 'status': return statusOf(projection)
       case 'snapshot': return projection
       case 'page': return pageOf(projection, request)
+    }
+  }
+
+  /** Read-only Team enumeration: resolve the root (live or fully-cold persistence view) without
+   *  forcing a single Team binding, derive its workspace scope, and project every visible Team
+   *  aggregate from the authoritative host store. Multi-team is legal; zero teams is an explicit
+   *  empty list. */
+  private async invokeTeams(request: SwarmReadTeamsRequest): Promise<SwarmReadTeamsV1> {
+    const resolved = await this.resolveRootOnly(request.target.rootSessionId)
+    const projection = await this.deps.ctx.agents.withInitiator(resolved.root, () => this.deps.hostRead.listTeams(resolved.scope))
+    return {
+      schemaVersion: 1,
+      binding: { rootSessionId: resolved.root.id },
+      teams: projection.teams.map(team => teamDescriptorOf(resolved.root.id, team)),
+      observedAt: projection.observedAt,
+      complete: projection.complete,
+    }
+  }
+
+  /** Captain-scoped section read: members / announcements / diagnostics. The team is re-proven
+   *  against the live root via {@link resolveTarget} (never trusted from the request itself), then
+   *  the section is projected from the authoritative Team aggregate alone — no copied second state. */
+  private async invokeCaptainSection(request: SwarmReadCaptainSectionRequest): Promise<SwarmReadRpcValue> {
+    if (request.target.teamId === undefined) {
+      throw new TeamDomainError('Captain section read requires an explicit Team selector', 'SWARM_RPC_INVALID_REQUEST')
+    }
+    const { root, teamId, captainSessionId } = await this.resolveTarget(request.target)
+    const snapshot = await this.deps.ctx.agents.withInitiator(root, () =>
+      this.deps.runtime.domain.snapshot(
+        this.deps.runtime.scopeOf(root),
+        TeamId(teamId),
+        captainSessionId ?? root.id,
+      ))
+    const team = snapshot.team
+    const observedAt = Date.now()
+    switch (request.method) {
+      case 'captainMembers': {
+        const members: SwarmReadCaptainMembersV1['members'] = team.members.map(member => ({
+          name: member.name,
+          role: member.role,
+          phase: member.phase,
+          createdAt: member.createdAt,
+          avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
+          identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
+        }))
+        return { schemaVersion: 1, binding: { rootSessionId: root.id, teamId: team.id }, members, observedAt }
+      }
+      case 'captainAnnouncements':
+        return {
+          schemaVersion: 1,
+          binding: { rootSessionId: root.id, teamId: team.id },
+          state: 'unavailable',
+          reason: 'notice_board_not_implemented',
+          entries: [],
+          observedAt,
+        }
+      case 'captainDiagnostics': {
+        return {
+          schemaVersion: 1,
+          binding: { rootSessionId: root.id, teamId: team.id },
+          diagnostics: {
+            revision: team.revision,
+            phase: team.phase,
+            taskCount: team.tasks.length,
+            attemptCount: team.attempts.length,
+            memberCount: team.members.length,
+            backend: 'team-domain',
+          },
+          observedAt,
+        }
+      }
     }
   }
 
@@ -291,6 +378,28 @@ export class AgentSwarmReadRpcService {
     return { root, teamId, captainSessionId: teams.find(team => team.id === teamId)!.captainSessionId }
   }
 
+  /** Resolve a root (live or fully-cold persistence view) and its workspace scope without forcing a
+   *  single Team binding — used by read-only Team enumeration. The returned root view carries the
+   *  durable header so R1's descriptor-chain read can re-prove scope/binding. */
+  private async resolveRootOnly(rootSessionId: string): Promise<{ readonly root: Agent; readonly scope: TeamScope }> {
+    const requested = this.deps.ctx.agents.get(SessionId(rootSessionId))
+    if (requested !== undefined) {
+      if (requested.session.header.cwd === undefined) {
+        throw new TeamDomainError('Target Session has no workspace cwd', 'SWARM_HOST_WORKSPACE_REQUIRED')
+      }
+      return { root: requested, scope: this.deps.runtime.scopeOf(requested) }
+    }
+    const persisted = await this.inspectPersistedRoot(rootSessionId)
+    if (persisted === undefined) {
+      throw new TeamDomainError('Target is not an official root Session', 'SWARM_RPC_TARGET_NOT_LIVE')
+    }
+    if (persisted.header.cwd === undefined) {
+      throw new TeamDomainError('Target Session has no workspace cwd', 'SWARM_HOST_WORKSPACE_REQUIRED')
+    }
+    const root = { id: rootSessionId, session: { header: persisted.header } } as unknown as Agent
+    return { root, scope: this.deps.runtime.scopeOf(root) }
+  }
+
   private async inspectPersistedRoot(rootSessionId: string): Promise<{ readonly header: { readonly cwd?: string; readonly parentSession?: string } } | undefined> {
     const persistence = this.deps.ctx.sessionPersistence
     if (persistence === undefined) return undefined
@@ -404,8 +513,16 @@ function parseRequest(input: unknown): SwarmReadRpcRequest {
     assertKeys(base, new Set(['schemaVersion', 'method']))
     return { schemaVersion: 1, method: 'capabilities' }
   }
-  if (base.method !== 'binding' && base.method !== 'status' && base.method !== 'snapshot' && base.method !== 'page') invalidRequest()
   const target = parseTarget(base.target)
+  if (base.method === 'teams') {
+    assertKeys(base, new Set(['schemaVersion', 'method', 'target']))
+    return { schemaVersion: 1, method: 'teams', target }
+  }
+  if (isCaptainSectionMethod(base.method)) {
+    assertKeys(base, new Set(['schemaVersion', 'method', 'target']))
+    return { schemaVersion: 1, method: base.method, target }
+  }
+  if (base.method !== 'binding' && base.method !== 'status' && base.method !== 'snapshot' && base.method !== 'page') invalidRequest()
   const afterCursor = parseCursor(base.afterCursor)
   if (base.method === 'page') {
     assertKeys(base, new Set(['schemaVersion', 'method', 'target', 'afterCursor', 'page']))
@@ -474,6 +591,36 @@ function selectVisibleTeam(teams: readonly TeamState[], sessionId: string): stri
   }
   if (candidates.length === 1) return candidates[0]!.id
   throw new TeamDomainError('No Team is available in this workspace', 'SWARM_HOST_BINDING_NOT_FOUND')
+}
+
+function isCaptainSection(request: SwarmReadRpcRequest): request is SwarmReadCaptainSectionRequest {
+  return isCaptainSectionMethod(request.method)
+}
+
+function isCaptainSectionMethod(method: string): method is SwarmReadCaptainSectionMethod {
+  return method === 'captainMembers' || method === 'captainAnnouncements' || method === 'captainDiagnostics'
+}
+
+/** Build one first-level Team descriptor from the authoritative host projection row. Avatar and
+ *  identity card are backend-not-implemented and report `not_generated` with a stable reason — never
+ *  a fabricated asset. Each descriptor carries the Captain-scoped read endpoints the caller may use. */
+function teamDescriptorOf(rootSessionId: string, team: { teamId: string; name: string; phase: 'active' | 'archived'; captainSessionId: string }) {
+  const avatar: SwarmReadAssetStatusV1 = { state: 'not_generated', reason: 'avatar_backend_not_implemented' }
+  const identityCard: SwarmReadAssetStatusV1 = { state: 'not_generated', reason: 'identity_backend_not_implemented' }
+  const ref = (method: SwarmReadCaptainSectionMethod) => ({ method, target: { rootSessionId, teamId: team.teamId } })
+  return {
+    teamId: team.teamId,
+    name: team.name,
+    phase: team.phase,
+    captainSessionId: team.captainSessionId,
+    avatar,
+    identityCard,
+    endpoints: {
+      members: ref('captainMembers'),
+      announcements: ref('captainAnnouncements'),
+      diagnostics: ref('captainDiagnostics'),
+    },
+  }
 }
 
 function bindingOf(projection: SwarmHostReadProjectionV1) {

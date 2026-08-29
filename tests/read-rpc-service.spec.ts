@@ -9,6 +9,12 @@ import type { AgentSwarmHostReadService } from '../src/host/host-read-service.js
 import type { SwarmHostReadProjectionV1 } from '../src/host/host-read-types.js'
 import type { AgentSwarmRuntime } from '../src/runtime/orchestrator-runtime.js'
 import { SwarmReadClient } from '../src/client/index.js'
+import type {
+  SwarmReadCaptainAnnouncementsV1,
+  SwarmReadCaptainDiagnosticsV1,
+  SwarmReadCaptainMembersV1,
+  SwarmReadTeamsV1,
+} from '../src/rpc/read-rpc-contract.js'
 import {
   AgentSwarmReadRpcService,
   evaluateSwarmRequestTrust,
@@ -46,6 +52,8 @@ function rpcHarness(options: {
   fullyColdRoot?: boolean;
   persistedRootHeader?: { cwd?: string; parentSession?: string } | undefined;
   teams?: { id: string; captainSessionId: string; phase?: 'active' | 'archived' }[];
+  /** Full TeamState returned by the domain snapshot for the section reads. */
+  teamState?: TeamState;
 } = {}) {
   const root = options.root ?? ROOT
   let liveRoots: readonly Agent[] = [root]
@@ -53,6 +61,7 @@ function rpcHarness(options: {
   let initiator: Agent | undefined
   const team = {
     id: 'team-r2', captainSessionId: options.captain ?? root.id, phase: 'active',
+    ...options.teamState,
   } as TeamState
   const teams: TeamState[] = (options.teams ?? [team]) as TeamState[]
   const coldSessions = options.coldCaptainSessions ?? {}
@@ -65,7 +74,21 @@ function rpcHarness(options: {
       return { ...(options.projection ?? projection), binding: { rootSessionId: root.id, teamId: team.id },
         changed: input.afterCursor !== CURSOR, resyncRequired: input.afterCursor !== undefined && input.afterCursor !== CURSOR }
     }),
-  } as unknown as AgentSwarmHostReadService & { read: ReturnType<typeof vi.fn> }
+    listTeams: vi.fn(async (_scope: string) => {
+      // Real authorities only: project the visible teams of this scope (main-brain root owns its
+      // managed captains; a captain owns its own team).
+      const visible = teams.map(t => ({
+        teamId: t.id, name: t.id, phase: t.phase ?? 'active', captainSessionId: t.captainSessionId,
+      }))
+      return {
+        schemaVersion: 1 as const,
+        binding: { rootSessionId: root.id, rootKind: 'main-brain' as const },
+        teams: Object.freeze(visible),
+        observedAt: Date.now(),
+        complete: true,
+      }
+    }),
+  } as unknown as AgentSwarmHostReadService & { read: ReturnType<typeof vi.fn>; listTeams: ReturnType<typeof vi.fn> }
   let lastReadInput: { afterCursor?: string; teamId?: string; captainSessionId?: string } | undefined
   const ctx = {
     agents: {
@@ -124,10 +147,14 @@ describe('R2 local trust boundary', () => {
     expect(rpcHarness().service.capabilities()).toMatchObject({
       trust: { mode: 'local-single-user-target-bound', principalBound: false, listener: 'loopback' },
       capabilities: [
+        { capability: 'teams.read', state: 'available' },
         { capability: 'binding.read', state: 'available' },
         { capability: 'status.read', state: 'available' },
         { capability: 'snapshot.read', state: 'available' },
         { capability: 'page.read', state: 'available' },
+        { capability: 'captainMembers.read', state: 'available' },
+        { capability: 'captainAnnouncements.read', state: 'available' },
+        { capability: 'captainDiagnostics.read', state: 'available' },
         { capability: 'message.write', state: 'unavailable' },
         { capability: 'control.write', state: 'unavailable' },
         { capability: 'effect.cancel', state: 'unavailable' },
@@ -349,6 +376,65 @@ describe('R2 authoritative target binding and wire contract', () => {
     expect(terminal).toMatchObject({ entries: [{ id: 'task-3' }] })
     expect(terminal).not.toHaveProperty('nextOffset')
     await expect(call(4)).rejects.toMatchObject({ code: 'SWARM_RPC_INVALID_REQUEST' })
+  })
+
+  it('reads real Captain sections (members, announcements, diagnostics) with honest not-generated/unavailable status', async () => {
+    const teamState = {
+      id: 'team-r2', captainSessionId: ROOT.id, phase: 'active', revision: 5,
+      members: [{
+        name: 'worker', role: 'writer', sessionId: 'child-session', provider: 'mock', phase: 'active', createdAt: 1,
+      }],
+      tasks: [{ id: 'task-1', revision: 1, subject: 'T', description: '', acceptanceCriteria: [], status: 'pending', blockedBy: [], writeScopes: [], priority: 1, createdAt: 1, updatedAt: 1 }],
+      attempts: [{ id: 'attempt-1', taskId: 'task-1', generation: 1, memberSessionId: 'child-session', phase: 'accepted', assignmentPhase: 'delivered', createdAt: 1, updatedAt: 2 }],
+    } as never as TeamState
+    const service = rpcHarness({ teamState }).service
+    const target = { rootSessionId: ROOT.id, teamId: 'team-r2' }
+    // Members: authoritative roster identity/phase + explicit not_generated avatar/identity card.
+    const members = await service.invoke({
+      schemaVersion: 1, method: 'captainMembers', target,
+    }) as SwarmReadCaptainMembersV1
+    expect(members.binding).toEqual({ rootSessionId: ROOT.id, teamId: 'team-r2' })
+    expect(members.members).toEqual([{
+      name: 'worker', role: 'writer', phase: 'active', createdAt: 1,
+      avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
+      identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
+    }])
+    // Announcements: no public notice board backend -> explicit unavailable, never fabricated entries.
+    const announcements = await service.invoke({
+      schemaVersion: 1, method: 'captainAnnouncements', target,
+    }) as SwarmReadCaptainAnnouncementsV1
+    expect(announcements).toMatchObject({ state: 'unavailable', reason: 'notice_board_not_implemented', entries: [] })
+    // Diagnostics: real authoritative counts, no second state.
+    const diagnostics = await service.invoke({
+      schemaVersion: 1, method: 'captainDiagnostics', target,
+    }) as SwarmReadCaptainDiagnosticsV1
+    expect(diagnostics.diagnostics).toEqual({
+      revision: 5, phase: 'active', taskCount: 1, attemptCount: 1, memberCount: 1, backend: 'team-domain',
+    })
+    // A section read without an explicit Team selector is invalid.
+    await expect(service.invoke({
+      schemaVersion: 1, method: 'captainMembers', target: { rootSessionId: ROOT.id },
+    })).rejects.toMatchObject({ code: 'SWARM_RPC_INVALID_REQUEST' })
+  })
+
+  it('returns real first-level Team enumeration with not-generated assets and section entry points', async () => {
+    const teams = [
+      { id: 'team-r2', captainSessionId: ROOT.id, phase: 'active' },
+      { id: 'team-other', captainSessionId: 'other-captain', phase: 'active' },
+    ] as never as { id: string; captainSessionId: string; phase: 'active' | 'archived' }[]
+    const harness = rpcHarness({ teams })
+    const enumeration = await harness.service.invoke({
+      schemaVersion: 1, method: 'teams', target: { rootSessionId: ROOT.id },
+    }) as SwarmReadTeamsV1
+    expect(enumeration.complete).toBe(true)
+    const entry = enumeration.teams[0]!
+    expect(entry.teamId).toBe('team-r2')
+    expect(entry.captainSessionId).toBe(ROOT.id)
+    expect(entry.avatar).toEqual({ state: 'not_generated', reason: 'avatar_backend_not_implemented' })
+    expect(entry.identityCard).toEqual({ state: 'not_generated', reason: 'identity_backend_not_implemented' })
+    expect(entry.endpoints.members.method).toBe('captainMembers')
+    expect(entry.endpoints.announcements.target).toEqual({ rootSessionId: ROOT.id, teamId: 'team-r2' })
+    expect(entry.endpoints.diagnostics.method).toBe('captainDiagnostics')
   })
 })
 

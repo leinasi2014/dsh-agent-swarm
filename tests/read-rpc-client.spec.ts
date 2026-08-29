@@ -39,8 +39,8 @@ describe('R2 browser client', () => {
     expect(digest).toBe(SWARM_READ_RPC_CONTRACT_DIGEST_V1)
     expect(Object.isFrozen(SWARM_READ_RPC_CONTRACT_V1)).toBe(true)
     expect(Object.isFrozen(SWARM_READ_RPC_FIXTURES_V1.requests)).toBe(true)
-    expect(SWARM_READ_RPC_CONTRACT_V1.schemas.request.oneOf).toHaveLength(5)
-    expect(SWARM_READ_RPC_FIXTURES_V1.values.capabilities.capabilities).toHaveLength(7)
+    expect(SWARM_READ_RPC_CONTRACT_V1.schemas.request.oneOf).toHaveLength(9)
+    expect(SWARM_READ_RPC_FIXTURES_V1.values.capabilities.capabilities).toHaveLength(11)
     expect(() => assertSwarmReadRpcValue('page', {
       ...SWARM_READ_RPC_FIXTURES_V1.values.page,
       entries: [taskRowFixture],

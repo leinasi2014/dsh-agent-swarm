@@ -8,10 +8,10 @@ import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import { TeamId, type TeamState, type TeamStatusSnapshot } from '../domain/types.js'
 import type { HumanInteractionOverlayStore } from '../human/human-interaction-store.js'
 import { deepFreezeJson } from './frozen-json.js'
-import type { SwarmHostReadInput, SwarmHostReadProjectionV1 } from './host-read-types.js'
+import type { SwarmHostReadInput, SwarmHostReadProjectionV1, SwarmHostTeamsProjectionV1 } from './host-read-types.js'
 import { canonicalJson, SWARM_PRODUCER_CAPABILITIES_V1 } from './producer-contract.js'
 
-export type { SwarmHostReadInput, SwarmHostReadProjectionV1 } from './host-read-types.js'
+export type { SwarmHostReadInput, SwarmHostReadProjectionV1, SwarmHostTeamsProjectionV1 } from './host-read-types.js'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -70,6 +70,45 @@ export class AgentSwarmHostReadService {
   /** Stop admission and wait a bounded interval for all admitted projections. */
   async dispose(): Promise<void> {
     await this.lifecycle.dispose()
+  }
+
+  /** Read-only enumeration of every Team aggregate visible to the official root's scope. Real
+   *  authorities only: teams are projected straight from `deps.teams(scope)` (never a copied
+   *  aggregate or second state). Multi-team is a legal result; zero teams is an explicit empty
+   *  list. The root may be a dedicated Captain (its owned Team) or a Main Brain parent of one or
+   *  more managed dedicated Captain Sessions. */
+  async listTeams(deviceScope: TeamScope): Promise<SwarmHostTeamsProjectionV1> {
+    return await this.runRead(async root => {
+      const initialScope = this.deps.scopeOf(root)
+      if (deviceScope !== initialScope) {
+        throw new TeamDomainError('Team enumeration scope does not match the root', 'SWARM_HOST_BINDING_MISMATCH')
+      }
+      const teams = await this.deps.teams(initialScope)
+      this.assertBindingStillLive(root, initialScope)
+      const visible = teams
+        .filter(team => this.isVisibleToRoot(root.id, team))
+        .map(team => ({
+          teamId: team.id,
+          name: team.name,
+          phase: team.phase,
+          captainSessionId: team.captainSessionId,
+        }))
+      const rootKind = this.deps.managedCaptainSessionsOf?.(root.id)?.length ? 'main-brain' as const : 'captain' as const
+      return {
+        schemaVersion: 1,
+        binding: { rootSessionId: root.id, rootKind },
+        teams: Object.freeze(visible),
+        observedAt: this.observedAt(),
+        complete: true,
+      }
+    })
+  }
+
+  private isVisibleToRoot(rootId: string, team: TeamState): boolean {
+    if (team.captainSessionId === rootId) return true
+    const managed = this.deps.managedCaptainSessionsOf?.(rootId)?.includes(team.captainSessionId)
+    const parented = this.deps.parentOfSession?.(team.captainSessionId) === rootId
+    return managed === true || parented === true
   }
 
   private async runRead<T>(operation: (root: Agent) => Promise<T>): Promise<T> {

@@ -72,7 +72,7 @@ if (failures.length === 0) {
       failures.push('built browser client: missing Cordis client plugin face')
     }
     if (client.SWARM_READ_RPC_ENDPOINT !== '/swarm/v1') failures.push('built browser client: endpoint contract mismatch')
-    for (const method of ['capabilities', 'binding', 'status', 'snapshot', 'page']) {
+    for (const method of ['capabilities', 'teams', 'binding', 'status', 'snapshot', 'page']) {
       try {
         client.assertSwarmReadRpcValue(method, client.SWARM_READ_RPC_FIXTURES_V1.values[method])
       } catch (error) {

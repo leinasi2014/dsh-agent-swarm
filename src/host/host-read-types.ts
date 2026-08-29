@@ -94,3 +94,22 @@ export interface SwarmHostReadProjectionV1 {
   readonly resyncRequired: boolean
   readonly observedAt: number
 }
+
+/** Read-only Team enumeration projected straight from the authoritative aggregates. The client never
+ *  receives a copied Team aggregate or a second state — only stable selector rows it may use to target
+ *  a subsequent snapshot/{binding,teams} read or open the official Captain Session. */
+export interface SwarmHostTeamsProjectionV1 {
+  readonly schemaVersion: 1
+  readonly binding: {
+    readonly rootSessionId: string
+    readonly rootKind: 'main-brain' | 'captain'
+  }
+  readonly teams: readonly {
+    readonly teamId: string
+    readonly name: string
+    readonly phase: 'active' | 'archived'
+    readonly captainSessionId: string
+  }[]
+  readonly observedAt: number
+  readonly complete: boolean
+}

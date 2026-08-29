@@ -8,7 +8,7 @@ import {
 } from './read-rpc-contract.js'
 
 export const SWARM_READ_RPC_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
-export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = 'caa66390ea754b9c28575314b418d8ea71468fb7e04557c864926371d1340abf' as const
+export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = 'a852c5d3a5959979c89696df1d6786e43525c5d9c86f0a9104a9998469aa916f' as const
 
 const boundedString = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength, pattern: '\\S' })
 /** Member role is authoritative free-text (never truncated by the reader); the
@@ -38,6 +38,55 @@ const team = {
     revision: nonNegativeInteger, createdAt: nonNegativeInteger, updatedAt: nonNegativeInteger,
   },
 }
+const assetStatus = {
+  type: 'object', additionalProperties: false, required: ['state'],
+  properties: {
+    state: { enum: ['generated', 'not_generated', 'unavailable'] },
+    reason: { enum: ['avatar_backend_not_implemented', 'identity_backend_not_implemented', 'notice_board_not_implemented'] },
+  },
+}
+const endpointRef = {
+  type: 'object', additionalProperties: false, required: ['method', 'target'],
+  properties: {
+    method: { enum: ['captainMembers', 'captainAnnouncements', 'captainDiagnostics'] },
+    target: {
+      type: 'object', additionalProperties: false, required: ['rootSessionId', 'teamId'],
+      properties: { rootSessionId: boundedString(256), teamId: boundedString(128) },
+    },
+  },
+}
+const teamDescriptor = {
+  type: 'object', additionalProperties: false,
+  required: ['teamId', 'name', 'phase', 'captainSessionId', 'avatar', 'identityCard', 'endpoints'],
+  properties: {
+    teamId: boundedString(128), name: boundedString(128), phase: { enum: ['active', 'archived'] },
+    captainSessionId: boundedString(256),
+    avatar: assetStatus, identityCard: assetStatus,
+    endpoints: {
+      type: 'object', additionalProperties: false,
+      required: ['members', 'announcements', 'diagnostics'],
+      properties: { members: endpointRef, announcements: endpointRef, diagnostics: endpointRef },
+    },
+  },
+}
+const captainMemberRow = {
+  type: 'object', additionalProperties: false,
+  required: ['name', 'role', 'phase', 'createdAt', 'avatar', 'identityCard'],
+  properties: {
+    name: boundedString(64), role: boundedString(ROSTER_ROLE_MAX_LENGTH),
+    phase: { enum: ['provisioning', 'active', 'failed', 'removed'] }, createdAt: nonNegativeInteger,
+    avatar: assetStatus, identityCard: assetStatus,
+  },
+}
+const sectionBinding = {
+  type: 'object', additionalProperties: false, required: ['rootSessionId', 'teamId'],
+  properties: { rootSessionId: boundedString(256), teamId: boundedString(128) },
+}
+/** Captain-scoped read target: the caller must select exactly one Team to read a section. */
+const sectionTarget = {
+  type: 'object', additionalProperties: false, required: ['rootSessionId', 'teamId'],
+  properties: { rootSessionId: boundedString(256), teamId: boundedString(128) },
+}
 const budget = {
   type: 'object', additionalProperties: false, required: ['usedTokens', 'usedRequests', 'usedRetries'],
   properties: {
@@ -65,7 +114,7 @@ const truncation = {
 const capability = {
   type: 'object', additionalProperties: false, required: ['capability', 'state'],
   properties: {
-    capability: { enum: ['binding.read', 'status.read', 'snapshot.read', 'page.read', 'message.write', 'control.write', 'effect.cancel'] },
+    capability: { enum: ['teams.read', 'binding.read', 'status.read', 'snapshot.read', 'page.read', 'captainMembers.read', 'captainAnnouncements.read', 'captainDiagnostics.read', 'message.write', 'control.write', 'effect.cancel'] },
     state: { enum: ['available', 'unavailable'] },
     blocker: { enum: ['listener-not-loopback', 'i1b-effect-correlation'] },
   },
@@ -159,6 +208,17 @@ export const SWARM_READ_RPC_CONTRACT_V1 = deepFreezeJson({
           type: 'object', additionalProperties: false, required: ['schemaVersion', 'method'],
           properties: { schemaVersion: { const: 1 }, method: { const: 'capabilities' } },
         },
+        {
+          ...requestBase, properties: { ...requestBase.properties, method: { const: 'teams' } },
+        },
+        ...(['captainMembers', 'captainAnnouncements', 'captainDiagnostics'] as const).map(method => ({
+          type: 'object', additionalProperties: false,
+          required: ['schemaVersion', 'method', 'target'],
+          properties: {
+            schemaVersion: { const: 1 }, method: { const: method },
+            target: sectionTarget,
+          },
+        })),
         ...(['binding', 'status', 'snapshot'] as const).map(method => ({
           ...requestBase, properties: { ...requestBase.properties, method: { const: method } },
         })),
@@ -191,7 +251,54 @@ export const SWARM_READ_RPC_CONTRACT_V1 = deepFreezeJson({
               listener: { enum: ['loopback', 'non-loopback'] },
             },
           },
-          capabilities: { type: 'array', minItems: 7, maxItems: 7, items: capability },
+          capabilities: { type: 'array', minItems: 11, maxItems: 11, items: capability },
+        },
+      },
+      teams: {
+        type: 'object', additionalProperties: false,
+        required: ['schemaVersion', 'binding', 'teams', 'observedAt', 'complete'],
+        properties: {
+          schemaVersion: { const: 1 },
+          binding: {
+            type: 'object', additionalProperties: false, required: ['rootSessionId'],
+            properties: { rootSessionId: boundedString(256) },
+          },
+          teams: { type: 'array', maxItems: 100, items: teamDescriptor },
+          observedAt: nonNegativeInteger, complete: { type: 'boolean' },
+        },
+      },
+      captainMembers: {
+        type: 'object', additionalProperties: false,
+        required: ['schemaVersion', 'binding', 'members', 'observedAt'],
+        properties: {
+          schemaVersion: { const: 1 }, binding: sectionBinding,
+          members: { type: 'array', maxItems: 100, items: captainMemberRow }, observedAt: nonNegativeInteger,
+        },
+      },
+      captainAnnouncements: {
+        type: 'object', additionalProperties: false,
+        required: ['schemaVersion', 'binding', 'state', 'reason', 'entries', 'observedAt'],
+        properties: {
+          schemaVersion: { const: 1 }, binding: sectionBinding,
+          state: { const: 'unavailable' }, reason: { const: 'notice_board_not_implemented' },
+          entries: { type: 'array', maxItems: 0 }, observedAt: nonNegativeInteger,
+        },
+      },
+      captainDiagnostics: {
+        type: 'object', additionalProperties: false,
+        required: ['schemaVersion', 'binding', 'diagnostics', 'observedAt'],
+        properties: {
+          schemaVersion: { const: 1 }, binding: sectionBinding,
+          diagnostics: {
+            type: 'object', additionalProperties: false,
+            required: ['revision', 'phase', 'taskCount', 'attemptCount', 'memberCount', 'backend'],
+            properties: {
+              revision: nonNegativeInteger, phase: { enum: ['active', 'archived'] },
+              taskCount: nonNegativeInteger, attemptCount: nonNegativeInteger, memberCount: nonNegativeInteger,
+              backend: { const: 'team-domain' },
+            },
+          },
+          observedAt: nonNegativeInteger,
         },
       },
       binding: resultBase,
@@ -236,8 +343,12 @@ export const SWARM_READ_RPC_CONTRACT_V1 = deepFreezeJson({
 })
 
 const readCapabilities = [
+  { capability: 'teams.read', state: 'available' },
   { capability: 'binding.read', state: 'available' }, { capability: 'status.read', state: 'available' },
   { capability: 'snapshot.read', state: 'available' }, { capability: 'page.read', state: 'available' },
+  { capability: 'captainMembers.read', state: 'available' },
+  { capability: 'captainAnnouncements.read', state: 'available' },
+  { capability: 'captainDiagnostics.read', state: 'available' },
   { capability: 'message.write', state: 'unavailable', blocker: 'i1b-effect-correlation' },
   { capability: 'control.write', state: 'unavailable', blocker: 'i1b-effect-correlation' },
   { capability: 'effect.cancel', state: 'unavailable', blocker: 'i1b-effect-correlation' },
@@ -265,6 +376,10 @@ const fixtureBudget = { usedTokens: 12, usedRequests: 2, usedRetries: 0, tokenLi
 export const SWARM_READ_RPC_FIXTURES_V1 = deepFreezeJson({
   requests: {
     capabilities: { schemaVersion: 1, method: 'capabilities' },
+    teams: { schemaVersion: 1, method: 'teams', target: { rootSessionId: 'session-fixture' } },
+    captainMembers: { schemaVersion: 1, method: 'captainMembers', target: { rootSessionId: 'session-fixture', teamId: 'team-fixture' } },
+    captainAnnouncements: { schemaVersion: 1, method: 'captainAnnouncements', target: { rootSessionId: 'session-fixture', teamId: 'team-fixture' } },
+    captainDiagnostics: { schemaVersion: 1, method: 'captainDiagnostics', target: { rootSessionId: 'session-fixture', teamId: 'team-fixture' } },
     snapshot: { schemaVersion: 1, method: 'snapshot', target: { rootSessionId: 'session-fixture', teamId: 'team-fixture' } },
     page: {
       schemaVersion: 1, method: 'page', target: { rootSessionId: 'session-fixture' },
@@ -276,6 +391,37 @@ export const SWARM_READ_RPC_FIXTURES_V1 = deepFreezeJson({
       protocol: SWARM_READ_RPC_PROTOCOL, version: 1, namespace: SWARM_READ_RPC_NAMESPACE,
       trust: { mode: 'local-single-user-target-bound', principalBound: false, listener: 'loopback' },
       capabilities: readCapabilities,
+    },
+    teams: {
+      schemaVersion: 1, binding: { rootSessionId: 'session-fixture' },
+      teams: [{
+        teamId: 'team-fixture', name: 'Fixture Team', phase: 'active', captainSessionId: 'session-fixture',
+        avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
+        identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
+        endpoints: {
+          members: { method: 'captainMembers', target: { rootSessionId: 'session-fixture', teamId: 'team-fixture' } },
+          announcements: { method: 'captainAnnouncements', target: { rootSessionId: 'session-fixture', teamId: 'team-fixture' } },
+          diagnostics: { method: 'captainDiagnostics', target: { rootSessionId: 'session-fixture', teamId: 'team-fixture' } },
+        },
+      }],
+      observedAt: 1_700_000_000_200, complete: true,
+    },
+    captainMembers: {
+      schemaVersion: 1, binding: fixtureBinding,
+      members: [{ name: 'worker', role: 'writer', phase: 'active', createdAt: 1_700_000_000_000,
+        avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
+        identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' } }],
+      observedAt: 1_700_000_000_200,
+    },
+    captainAnnouncements: {
+      schemaVersion: 1, binding: fixtureBinding,
+      state: 'unavailable', reason: 'notice_board_not_implemented', entries: [],
+      observedAt: 1_700_000_000_200,
+    },
+    captainDiagnostics: {
+      schemaVersion: 1, binding: fixtureBinding,
+      diagnostics: { revision: 7, phase: 'active', taskCount: 3, attemptCount: 1, memberCount: 1, backend: 'team-domain' },
+      observedAt: 1_700_000_000_200,
     },
     binding: fixtureResultBase,
     status: {
@@ -306,7 +452,9 @@ export function canonicalSwarmReadRpcJson(value: unknown): string {
 
 /** Strict browser-side result validation against the frozen method schema. */
 export function assertSwarmReadRpcValue(method: string, value: unknown): void {
-  const key = method === 'capabilities' || method === 'binding' || method === 'status'
+  const key = method === 'capabilities' || method === 'teams' || method === 'captainMembers'
+    || method === 'captainAnnouncements' || method === 'captainDiagnostics'
+    || method === 'binding' || method === 'status'
     || method === 'snapshot' || method === 'page' ? method : undefined
   if (key === undefined) throw new Error('Swarm RPC method is not a read method')
   const schema = SWARM_READ_RPC_CONTRACT_V1.schemas.values[key]
@@ -316,16 +464,28 @@ export function assertSwarmReadRpcValue(method: string, value: unknown): void {
 
 function assertResultSemantics(method: string, value: Record<string, unknown>): void {
   if (method === 'capabilities') {
-    const expected = ['binding.read', 'status.read', 'snapshot.read', 'page.read', 'message.write', 'control.write', 'effect.cancel']
+    const expected = [
+      'teams.read', 'binding.read', 'status.read', 'snapshot.read', 'page.read',
+      'captainMembers.read', 'captainAnnouncements.read', 'captainDiagnostics.read',
+      'message.write', 'control.write', 'effect.cancel',
+    ]
     const entries = value.capabilities as Array<Record<string, unknown>>
     entries.forEach((entry, index) => {
-      const read = index < 4
+      const read = index < 8
       if (entry.capability !== expected[index]
         || entry.state !== (read ? 'available' : 'unavailable')
         || (read ? entry.blocker !== undefined : entry.blocker !== 'i1b-effect-correlation')) {
         throw new Error('Swarm RPC capability state contradicts the R2 contract')
       }
     })
+    return
+  }
+  if (method === 'teams') {
+    if ((value.complete as boolean) !== true) throw new Error('Swarm RPC Team enumeration is not complete')
+    return
+  }
+  if (method === 'captainAnnouncements') {
+    if ((value.entries as readonly unknown[]).length !== 0) throw new Error('Swarm RPC announcements must not fabricate entries')
     return
   }
   if (method === 'page') {
