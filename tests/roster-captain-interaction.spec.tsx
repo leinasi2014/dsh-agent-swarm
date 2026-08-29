@@ -7,8 +7,8 @@
 //   1. real member safe pixel avatar / name / profession / derived tone from the Host fixture,
 //   2. an unambiguous Captain desk with the 队长 badge (never a member identity),
 //   3. a single Captain-desk click routes to the bound main Chat and never leaves a second surface,
-//   4. the team rail enumerates real teams[] and routes other Teams through the official
-//      Captain Session seam (no local fake switch),
+//   4. the team rail enumerates real teams[] and switches the bound Team in place through
+//      controller.selectTeam (never a Captain Session jump),
 //   5. an un-generated Captain identity is never impersonated by the technical Team name,
 //   6. theme (official alias tokens, no hardcoded color) + en/zh copy.
 import { act, type ReactNode } from 'react'
@@ -274,7 +274,7 @@ describe('roster/Captain interaction slice', () => {
     expect(Object.hasOwn(coordinator.getSnapshot(), 'projection')).toBe(false)
   })
 
-  it('enumerates every Team in the rail from the real read contract and opens the exact official Captain Session on click', async () => {
+  it('enumerates every Team in the rail and switches the bound Team in place via controller.selectTeam without any Captain Session jump', async () => {
     const coordinator = new FakeCoordinator()
     // A legal multi-team result: two independent dedicated Captains, each honest not-generated assets.
     const multiTeams = {
@@ -307,7 +307,7 @@ describe('roster/Captain interaction slice', () => {
     } as const
     const base = readyWithRoster([...REAL_ROSTER])
     const ready = { ...base, data: { ...base.data!, teams: multiTeams as never } } as TeamDashboardState
-    const controller = { getSnapshot: (): TeamDashboardState => ready, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+    const controller = { getSnapshot: (): TeamDashboardState => ready, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn(), selectTeam: vi.fn() }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
 
     // Every Team from the read contract is enumerated in the rail (real authorities, dedup by id).
@@ -325,14 +325,19 @@ describe('roster/Captain interaction slice', () => {
     expect(alphaAvatar.getAttribute('data-avatar-reason')).toBe('avatar_backend_not_implemented')
     expect(alphaAvatar.getAttribute('aria-label')).toContain('Alpha 舰队')
 
-    // Clicking another Team's dot opens that Team's dedicated official Captain Session exactly once.
+    // Clicking another Team's dot switches the CURRENT sidebar to that Team via
+    // controller.selectTeam exactly once — it never opens or jumps to a Captain Session.
     await act(async () => { beta.click() })
-    expect(coordinator.openTeamCaptain).toHaveBeenCalledWith('captain-beta')
-    expect(coordinator.openTeamCaptain).toHaveBeenCalledTimes(1)
-    // The official Captain Chat opens over the same owner surface; Main Brain is never replaced and
-    // no second fullscreen/second source of truth is ever introduced.
-    expect(coordinator.getSnapshot().targetSessionId).toBe('captain-beta')
+    expect(controller.selectTeam).toHaveBeenCalledTimes(1)
+    expect(controller.selectTeam).toHaveBeenCalledWith('team-beta')
+    expect(coordinator.openTeamCaptain).not.toHaveBeenCalled()
+    expect(coordinator.openCaptainChat).not.toHaveBeenCalled()
+    // No surface jump: the Team panel remains the single docked occupant; the Main Brain is never
+    // replaced and no second fullscreen/second source of truth is ever introduced.
+    expect(coordinator.getSnapshot().mode).toBe('docked')
+    expect(coordinator.getSnapshot().targetSessionId).toBe('root')
     expect(document.querySelector('[data-swarm-team-fullscreen]')).toBeNull()
     expect(document.querySelector('[role="dialog"][data-swarm-detail-overlay]')).toBeNull()
+    expect(document.querySelectorAll('[role="complementary"][data-swarm-team-panel]')).toHaveLength(1)
   })
 })

@@ -152,7 +152,7 @@ export function TeamDashboardContent({ controller, coordinator, descriptionId, h
         diagnostics={state.data?.captainDiagnostics}
         memberAssets={state.data?.captainMembers}
         onMainChat={handoff}
-        onOpenCaptain={coordinator.openTeamCaptain}
+        onSelectTeam={teamId => { controller.selectTeam(teamId) }}
         onClose={() => { coordinator.closeAndRestoreFocus() }}
       />}
   </div>
@@ -241,7 +241,7 @@ function Empty({ state, controller, t }: { readonly state: TeamDashboardState; r
   </section>
 }
 
-function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, state, t, teams, announcements, diagnostics, memberAssets, onMainChat, onOpenCaptain, onClose }: {
+function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, state, t, teams, announcements, diagnostics, memberAssets, onMainChat, onSelectTeam, onClose }: {
   readonly data: SwarmHostReadProjectionV1
   readonly handoffBusy: boolean
   readonly localeTag: () => 'zh-CN' | 'en-US'
@@ -254,7 +254,7 @@ function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, sta
   readonly diagnostics: SwarmReadCaptainDiagnosticsV1 | undefined
   readonly memberAssets: SwarmReadCaptainMembersV1 | undefined
   readonly onMainChat: () => void
-  readonly onOpenCaptain: (captainSessionId: string) => void
+  readonly onSelectTeam: (teamId: string) => void
   readonly onClose: () => void
 }) {
   const number = new Intl.NumberFormat(localeTag())
@@ -337,7 +337,7 @@ function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, sta
           title={team.teamId === data.binding.teamId ? team.name : `${t('openOtherTeam')}: ${team.name}`}
           data-swarm-team-dot={team.teamId}
           data-swarm-captain-session={team.captainSessionId}
-          onClick={() => { if (team.teamId !== data.binding.teamId) onOpenCaptain(team.captainSessionId) }}
+          onClick={() => { if (team.teamId !== data.binding.teamId) onSelectTeam(team.teamId) }}
         ><span className="swarm-team-workspace__avatar"><SafePixelAvatar seed={team.name} asset={team.avatar} name={team.name} t={t} /></span></button>
       ))}
     </nav>

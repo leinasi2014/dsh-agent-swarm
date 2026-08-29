@@ -403,7 +403,7 @@ describe('R3 native Team Details surface', () => {
     expect(coordinator.openCaptainChat).toHaveBeenCalledTimes(1)
   })
 
-  it('derives the team rail from the real teams[] enumeration and opens the exact official Captain Session; never fakes a local switch', async () => {
+  it('derives the team rail from the real teams[] enumeration and switches Teams in place via controller.selectTeam; never jumps to a Captain Session', async () => {
     const coordinator = new FakeCoordinator()
     const multiTeams = {
       schemaVersion: 1,
@@ -430,7 +430,7 @@ describe('R3 native Team Details surface', () => {
         { teamId: 'team-beta', name: 'Beta Team', phase: 'active', captainSessionId: 'captain-beta',
           avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
           identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
-          goal: { state: 'not_generated', reason: 'goal_not_set' },
+          goal: { state: 'generated', text: 'Beta team goal' },
           endpoints: {
             members: { method: 'captainMembers', target: { rootSessionId: 'root', teamId: 'team-beta' } },
             announcements: { method: 'captainAnnouncements', target: { rootSessionId: 'root', teamId: 'team-beta' } },
@@ -439,25 +439,65 @@ describe('R3 native Team Details surface', () => {
       ],
       observedAt: 5, complete: true,
     }
-    const state: TeamDashboardState = { ...ready, data: { ...teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, SWARM_READ_RPC_FIXTURES_V1.values.snapshot), teams: multiTeams as never, projection: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot, binding: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.binding, teamId: 'team-alpha' } } as never } }
-    const railController = { getSnapshot: (): TeamDashboardState => state, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+    const stateFor = (bindingTeamId: string): TeamDashboardState => ({
+      ...ready,
+      data: {
+        ...teamData(
+          SWARM_READ_RPC_FIXTURES_V1.values.capabilities,
+          {
+            ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot,
+            binding: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.binding, teamId: bindingTeamId },
+            team: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.team, name: multiTeams.teams.find(team => team.teamId === bindingTeamId)?.name ?? 'Fixture Team' },
+          },
+        ),
+        teams: multiTeams as never,
+      },
+    })
+    let current: TeamDashboardState = stateFor('team-alpha')
+    const listeners = new Set<() => void>()
+    const railController = {
+      getSnapshot: (): TeamDashboardState => current,
+      subscribe: (listener: () => void): (() => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
+      refresh: vi.fn(), reconnect: vi.fn(),
+      selectTeam: vi.fn((teamId: string): void => {
+        current = stateFor(teamId)
+        listeners.forEach(listener => listener())
+      }),
+    }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: railController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
-    // Teams deduplicate by teamId; the bound Team carries aria-current and never navigates.
+    // Teams deduplicate by teamId; the bound Team carries aria-current and never switches away.
     const dots = [...document.querySelectorAll<HTMLButtonElement>('[data-swarm-team-dot]')]
     expect(dots).toHaveLength(2)
     const bound = dots.find(dot => dot.getAttribute('data-swarm-team-dot') === 'team-alpha')!
     expect(bound.getAttribute('aria-current')).toBe('true')
     await act(async () => { bound.click() })
-    expect(coordinator.openTeamCaptain).not.toHaveBeenCalled()
-    // Another Team's dot routes through the official Captain Session seam with its real id.
+    expect(railController.selectTeam).not.toHaveBeenCalled()
+    // Another Team's dot switches the CURRENT sidebar to that Team through controller.selectTeam
+    // with its real id — it never opens or jumps to any Captain Session.
     const beta = dots.find(dot => dot.getAttribute('data-swarm-team-dot') === 'team-beta')!
     expect(beta.getAttribute('data-swarm-captain-session')).toBe('captain-beta')
     await act(async () => { beta.click() })
-    expect(coordinator.openTeamCaptain).toHaveBeenCalledTimes(1)
-    expect(coordinator.openTeamCaptain).toHaveBeenCalledWith('captain-beta')
+    expect(railController.selectTeam).toHaveBeenCalledTimes(1)
+    expect(railController.selectTeam).toHaveBeenCalledWith('team-beta')
+    expect(coordinator.openTeamCaptain).not.toHaveBeenCalled()
+    expect(coordinator.openCaptainChat).not.toHaveBeenCalled()
+    // The same Team panel stays mounted in the sidebar: no Captain Session handoff, no second surface.
+    expect(document.querySelectorAll('[role="complementary"][data-swarm-team-panel]')).toHaveLength(1)
+    expect(document.querySelector('[data-swarm-team-fullscreen]')).toBeNull()
+    expect(document.querySelector('[role="dialog"][data-swarm-detail-overlay]')).toBeNull()
+    // After the switch the panel renders the SECOND Team's bound data: the moved selection, the
+    // Beta Team title, and Beta's real public goal from the same read contract.
+    expect(document.querySelector<HTMLElement>('[data-swarm-team-dot="team-beta"]')!.getAttribute('aria-current')).toBe('true')
+    expect(document.querySelector<HTMLElement>('[data-swarm-team-dot="team-alpha"]')!.getAttribute('aria-current')).toBeNull()
+    expect(document.querySelector<HTMLElement>('.swarm-team-workspace__title')?.textContent).toBe('Beta Team')
+    expect(document.querySelector<HTMLElement>('[data-swarm-goal-text]')?.textContent).toBe('Beta team goal')
+    // The Captain conversation entry stays on the selected Team's Captain desk and still routes
+    // through the official Captain Chat seam exactly once.
+    await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-captain-desk]')!).click(); await Promise.resolve() })
+    expect(coordinator.openCaptainChat).toHaveBeenCalledTimes(1)
     // Zero Teams renders an honest empty rail, never a fabricated dot.
     const emptyState: TeamDashboardState = { ...ready, data: { ...teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, SWARM_READ_RPC_FIXTURES_V1.values.snapshot), teams: { ...multiTeams, teams: [] } as never } }
-    const emptyController = { getSnapshot: (): TeamDashboardState => emptyState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+    const emptyController = { getSnapshot: (): TeamDashboardState => emptyState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn(), selectTeam: vi.fn() }
     document.body.replaceChildren()
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: emptyController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
     expect(document.querySelectorAll('[data-swarm-team-dot]')).toHaveLength(0)
