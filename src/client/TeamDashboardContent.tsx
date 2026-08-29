@@ -17,16 +17,16 @@ type FocusIntent = { readonly kind: 'roster' | 'tasks' } | { readonly kind: 'mem
 
 export const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace { container-type:inline-size; display:grid; grid-template-rows:auto minmax(0,1fr) auto; height:100%; min-width:0; overflow:hidden; color:var(--dsw-alias-label-primary); background:var(--dsw-alias-bg-layer-1); }
-[data-swarm-team-dashboard] .swarm-team-workspace__header, [data-swarm-team-dashboard] .swarm-team-workspace__footer { display:flex; justify-content:space-between; gap:12px; padding:16px 20px; border-color:var(--dsw-alias-border-l2); border-style:solid; }
+[data-swarm-team-dashboard] .swarm-team-workspace__header, [data-swarm-team-dashboard] .swarm-team-workspace__footer { display:flex; justify-content:space-between; gap:8px; padding:9px 12px; border-color:var(--dsw-alias-border-l2); border-style:solid; }
 [data-swarm-team-dashboard] .swarm-team-workspace__header { align-items:flex-start; border-width:0 0 1px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__footer { align-items:center; border-width:1px 0 0; }
-[data-swarm-team-dashboard] .swarm-team-workspace__title { margin:0; font-size:18px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__title { margin:0; font-size:14px; line-height:20px; font-weight:700; }
 [data-swarm-team-dashboard] .swarm-team-workspace__title-row, [data-swarm-team-dashboard] .swarm-team-workspace__member-identity { display:flex; align-items:center; gap:8px; min-width:0; }
 [data-swarm-team-dashboard] .swarm-team-workspace__member-identity { flex:1 1 0; }
 [data-swarm-team-dashboard] .swarm-team-workspace__member-activity { flex:0 1 auto; min-width:0; max-width:55%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 [data-swarm-team-dashboard] .swarm-team-workspace__description, [data-swarm-team-dashboard] .swarm-team-workspace__muted { color:var(--dsw-alias-label-secondary); font-size:12px; }
-[data-swarm-team-dashboard] .swarm-team-workspace__description { margin:6px 0 0; }
-[data-swarm-team-dashboard] .swarm-team-workspace__body { min-width:0; min-height:0; overflow:auto; padding:12px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__description { display:none; }
+[data-swarm-team-dashboard] .swarm-team-workspace__body { min-width:0; min-height:0; overflow:auto; padding:8px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__status { display:flex; gap:8px; align-items:center; min-width:0; margin:0 0 12px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__error { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 [data-swarm-team-dashboard] .swarm-team-workspace__column-title { margin:0 0 10px; font-size:14px; }
@@ -51,7 +51,7 @@ export const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace__collapsible > summary + * { margin-top:10px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__diagnostics { margin-top:12px; padding-top:12px; border-top:1px solid var(--dsw-alias-border-l2); }
 [data-swarm-team-dashboard] .swarm-team-workspace__notice { margin:0 0 10px; }
-[data-swarm-team-dashboard] .swarm-team-workspace__rail { width:100%; max-width:359px; margin-inline:auto; display:flex; flex-direction:column; gap:12px; min-width:0; padding:14px; block-size:100%; overflow:hidden; background:var(--dsw-alias-bg-base); }
+[data-swarm-team-dashboard] .swarm-team-workspace__rail { width:100%; max-width:359px; margin-inline:auto; display:flex; flex-direction:column; gap:8px; min-width:0; padding:8px; block-size:100%; overflow:hidden; background:var(--dsw-alias-bg-base); }
 [data-swarm-team-dashboard] .swarm-team-workspace__switcher { display:flex; flex-direction:row; align-items:center; gap:12px; padding:10px; border:1px solid var(--dsw-alias-border-l2); border-radius:12px; background:var(--dsw-alias-bg-base); }
 [data-swarm-team-dashboard] .swarm-team-workspace__switcher-title { display:flex; flex-direction:column; gap:2px; margin-bottom:8px; min-width:0; }
 [data-swarm-team-dashboard] .swarm-team-workspace__switch-button { cursor:not-allowed; opacity:.72; }
@@ -99,8 +99,8 @@ export const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace__switcher-inner { display:flex; flex-direction:column; gap:8px; min-width:0; flex:1 1 auto; }
 [data-swarm-team-dashboard] [data-swarm-member-rows] button.swarm-team-workspace__row:hover { border-color:var(--dsw-alias-brand-primary); }
 [data-swarm-team-dashboard] .swarm-team-workspace__roster-label { margin:0 2px 4px; display:flex; justify-content:space-between; gap:8px; color:var(--dsw-alias-label-secondary); font-size:10px; font-weight:750; text-transform:uppercase; letter-spacing:.04em; }
-[data-swarm-team-dashboard] .swarm-team-workspace__view-tabs { display:inline-flex; align-items:center; gap:4px; padding:4px; border:1px solid var(--dsw-alias-border-l2); border-radius:12px; background:var(--dsw-alias-bg-layer-1); }
-[data-swarm-team-dashboard] .swarm-team-workspace__view-tabs [role="tab"] { border:0; border-radius:9px; padding:7px 10px; background:transparent; color:var(--dsw-alias-label-secondary); font-size:12px; font-weight:700; white-space:nowrap; }
+[data-swarm-team-dashboard] .swarm-team-workspace__view-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); align-items:center; gap:2px; padding:3px; border:1px solid var(--dsw-alias-border-l2); border-radius:10px; background:var(--dsw-alias-bg-layer-1); }
+[data-swarm-team-dashboard] .swarm-team-workspace__view-tabs [role="tab"] { min-width:0; overflow:hidden; text-overflow:ellipsis; border:0; border-radius:7px; padding:5px 6px; background:transparent; color:var(--dsw-alias-label-secondary); font-size:11px; line-height:16px; font-weight:650; white-space:nowrap; }
 [data-swarm-team-dashboard] .swarm-team-workspace__view-tabs [role="tab"][aria-selected="true"] { background:var(--dsw-alias-bg-base); color:var(--dsw-alias-label-primary); box-shadow:0 1px 3px var(--dsw-alias-border-l2); }
 [data-swarm-team-dashboard] .swarm-team-workspace__roster-label small { font-weight:600; text-transform:none; letter-spacing:0; color:var(--dsw-alias-label-secondary); }
 [data-swarm-team-dashboard] .swarm-team-workspace__rail-divider { block-size:1px; margin:8px 2px; border:0; background:var(--dsw-alias-border-l2); }
@@ -120,12 +120,18 @@ export const shellCss = `
 [data-swarm-team-dashboard] [data-avatar-state="not_generated"], [data-swarm-team-dashboard] [data-avatar-state="unavailable"] { box-shadow:inset 0 0 0 1.5px var(--dsw-alias-border-l2); }
 /* Empty/error/loading states keep the same product shell as a bound Team.  The
    transport error is secondary diagnostic copy, never the whole first screen. */
-[data-swarm-team-dashboard] .swarm-team-workspace__empty-shell { display:flex; flex-direction:column; gap:14px; min-height:100%; }
-[data-swarm-team-dashboard] .swarm-team-workspace__empty-hero { display:grid; grid-template-columns:48px minmax(0,1fr); align-items:center; gap:12px; padding:14px; border:1px solid var(--dsw-alias-border-l2); border-radius:16px; background:linear-gradient(145deg,var(--dsw-alias-bg-layer-1),var(--dsw-alias-bg-base)); }
+[data-swarm-team-dashboard] .swarm-team-workspace__empty-shell { display:flex; flex-direction:column; gap:8px; min-height:100%; }
+[data-swarm-team-dashboard] .swarm-team-workspace__empty-hero { display:grid; grid-template-columns:36px minmax(0,1fr); align-items:center; gap:9px; padding:9px; border:1px solid var(--dsw-alias-border-l2); border-radius:11px; background:linear-gradient(145deg,var(--dsw-alias-bg-layer-1),var(--dsw-alias-bg-base)); }
 [data-swarm-team-dashboard] .swarm-team-workspace__empty-copy { display:flex; flex-direction:column; gap:4px; min-width:0; }
-[data-swarm-team-dashboard] .swarm-team-workspace__empty-copy strong { font-size:15px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__empty-copy strong { font-size:13px; line-height:18px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__empty-copy small { font-size:10px; line-height:14px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__empty-roster { display:grid; gap:6px; }
-[data-swarm-team-dashboard] .swarm-team-workspace__empty-person { display:grid; grid-template-columns:40px minmax(0,1fr) auto; align-items:center; gap:10px; padding:9px; border:1px dashed var(--dsw-alias-border-l2); border-radius:12px; color:var(--dsw-alias-label-secondary); background:var(--dsw-alias-bg-layer-1); }
+[data-swarm-team-dashboard] .swarm-team-workspace__empty-person { display:grid; grid-template-columns:32px minmax(0,1fr) auto; align-items:center; gap:8px; padding:7px 8px; border:1px dashed var(--dsw-alias-border-l2); border-radius:10px; color:var(--dsw-alias-label-secondary); background:var(--dsw-alias-bg-layer-1); }
+[data-swarm-team-dashboard] .swarm-team-workspace__empty-person .swarm-team-workspace__avatar { inline-size:32px; block-size:32px; font-size:12px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__empty-shell .swarm-team-workspace__switcher-mark { inline-size:36px; block-size:36px; border-radius:9px; font-size:14px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__empty-shell .swarm-team-workspace__unavailable-card { padding:8px; border-radius:10px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__empty-shell .swarm-team-workspace__unavailable-card strong { font-size:12px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__empty-shell .swarm-team-workspace__unavailable-card p { margin:3px 0 0; font-size:10px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__empty-person .swarm-team-workspace__avatar { filter:saturate(.25); opacity:.7; }
 [data-swarm-team-dashboard] .swarm-team-workspace__empty-actions { display:flex; gap:8px; flex-wrap:wrap; }
 `
@@ -161,10 +167,10 @@ export function TeamDashboardContent({ controller, coordinator, descriptionId, h
         ? <Empty state={state} controller={controller} t={t} teams={state.data?.teams} onMainBrain={onMainBrain} onOpenCaptain={coordinator.openTeamCaptain} />
         : <><Status state={state} t={t} /><Workspace data={data} handoffBusy={handoffBusy} localeTag={localeTag} selection={selection} setSelection={setSelection} t={t} teams={state.data?.teams} onMainBrain={onMainBrain} onMainChat={handoff} onOpenCaptain={coordinator.openTeamCaptain} /></>}
     </main>
-    <footer className="swarm-team-workspace__footer">
+    {data === undefined ? null : <footer className="swarm-team-workspace__footer">
       <Button size="sm" variant="ghost" icon={<IconRefreshOutline16 />} onClick={() => { controller.refresh() }}>{t('refresh')}</Button>
       <Button size="sm" variant="primary" disabled={data === undefined || handoffBusy} onClick={handoff}>{handoffBusy ? t('openingChat') : t('openChat')}</Button>
-    </footer>
+    </footer>}
   </div>
 }
 
@@ -206,10 +212,6 @@ function Empty({ state, controller, t, teams, onMainBrain, onOpenCaptain }: {
   const failed = state.phase === 'error' || state.phase === 'stale'
   return <section className="swarm-team-workspace__rail swarm-team-workspace__empty-shell" data-swarm-team-rail data-swarm-empty-shell>
     <ViewTabs active="main" onSelect={tab => { if (tab === 'main') onMainBrain() }} t={t} />
-    <section className="swarm-team-workspace__empty-hero">
-      <span className="swarm-team-workspace__switcher-mark" aria-hidden="true">群</span>
-      <span className="swarm-team-workspace__empty-copy"><strong>{t('title')}</strong><small className="swarm-team-workspace__muted">{t('description')}</small></span>
-    </section>
     <CaptainList teams={teams} number={new Intl.NumberFormat()} onOpenCaptain={onOpenCaptain} t={t} />
     <section className="swarm-team-workspace__empty-roster" aria-label={t('members')}>
       <span className="swarm-team-workspace__roster-label"><span>{t('members')} · 0</span><small>{t('rosterMembersHint')}</small></span>
