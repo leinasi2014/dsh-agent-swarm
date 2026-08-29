@@ -352,15 +352,15 @@ describe('R3 native Team Details surface', () => {
       // This is a component contract, not a jsdom geometry claim. Browser-proof owns geometry acceptance.
       expect(stylesheet).toContain('container-type:inline-size')
       // The rail is a compact centered single column; the wide branch really switches to the 3-region grid.
-      expect(stylesheet).toContain('.swarm-team-workspace__rail { width:100%; max-width:380px; margin-inline:auto')
+      expect(stylesheet).toContain('.swarm-team-workspace__rail { width:100%; max-width:420px; margin-inline:auto')
       expect(stylesheet).toMatch(/__regions \{ display:flex; flex-direction:column/u)
       expect(stylesheet).toContain('[data-swarm-rail-layout="wide"] .swarm-team-workspace__regions { display:grid; grid-template-columns:repeat(3,minmax(0,1fr))')
-      // Compact QQ/WeChat-group metrics: 28px member avatar, 48px member rows, 52px pinned Captain row, 12px rail body.
-      expect(stylesheet).toMatch(/__avatar \{[^}]*inline-size:28px/u)
-      expect(stylesheet).toContain('grid-template-columns:28px minmax(0,1fr) auto')
-      expect(stylesheet).toContain('min-block-size:48px')
-      expect(stylesheet).toContain('grid-template-columns:32px minmax(0,1fr) auto')
-      expect(stylesheet).toMatch(/__captain-hero \{[^}]*min-block-size:52px/u)
+      // Contact-list metrics: 32px member avatar, 56px flat rows, 36px/60px pinned Captain, 12px rail body.
+      expect(stylesheet).toMatch(/__avatar \{[^}]*inline-size:32px/u)
+      expect(stylesheet).toContain('grid-template-columns:32px minmax(0,1fr)')
+      expect(stylesheet).toContain('min-block-size:56px')
+      expect(stylesheet).toContain('grid-template-columns:36px minmax(0,1fr) auto')
+      expect(stylesheet).toMatch(/__captain-hero \{[^}]*min-block-size:60px/u)
       expect(stylesheet).toMatch(/__rail \{[^}]*font-size:12px/u)
       expect(stylesheet).toMatch(/@media \(max-width: 430px\).*white-space:nowrap/mu)
       expect(teamWorkspaceLayoutForWidth(359)).toBe('compact')

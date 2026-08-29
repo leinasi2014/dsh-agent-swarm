@@ -17,15 +17,15 @@ type FocusIntent = { readonly kind: 'roster' | 'tasks' } | { readonly kind: 'mem
 type RailView = 'roster' | 'captain' | 'board'
 
 export const shellCss = `
-[data-swarm-team-dashboard] .swarm-team-workspace { container-type:inline-size; display:grid; grid-template-rows:auto minmax(0,1fr) auto; height:100%; min-width:0; overflow:hidden; color:var(--dsw-alias-label-primary); background:var(--dsw-alias-bg-layer-1); }
-[data-swarm-team-dashboard] .swarm-team-workspace__header, [data-swarm-team-dashboard] .swarm-team-workspace__footer { display:flex; justify-content:space-between; gap:8px; padding:8px 10px; border-color:var(--dsw-alias-border-l2); border-style:solid; }
-[data-swarm-team-dashboard] .swarm-team-workspace__header { align-items:flex-start; border-width:0 0 1px; }
-[data-swarm-team-dashboard] .swarm-team-workspace__footer { align-items:center; border-width:1px 0 0; }
+[data-swarm-team-dashboard] .swarm-team-workspace { container-type:inline-size; display:grid; grid-template-rows:auto minmax(0,1fr) auto; height:100%; min-width:0; overflow:hidden; color:var(--dsw-alias-label-primary); background:var(--dsw-alias-bg-base); }
+[data-swarm-team-dashboard] .swarm-team-workspace__header, [data-swarm-team-dashboard] .swarm-team-workspace__footer { display:flex; justify-content:space-between; gap:10px; padding:10px 12px; border-color:var(--dsw-alias-border-l2); border-style:solid; background:var(--dsw-alias-bg-layer-1); }
+[data-swarm-team-dashboard] .swarm-team-workspace__header { align-items:center; border-width:0 0 1px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__footer { align-items:center; border-width:1px 0 0; padding-block:8px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__title { margin:0; font-size:13px; line-height:18px; font-weight:700; }
 [data-swarm-team-dashboard] .swarm-team-workspace__title-row { display:flex; align-items:center; gap:8px; min-width:0; }
 [data-swarm-team-dashboard] .swarm-team-workspace__description, [data-swarm-team-dashboard] .swarm-team-workspace__muted { color:var(--dsw-alias-label-secondary); font-size:12px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__description { display:none; }
-[data-swarm-team-dashboard] .swarm-team-workspace__body { min-width:0; min-height:0; overflow:auto; padding:8px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__body { min-width:0; min-height:0; overflow:auto; padding:0; scrollbar-width:thin; }
 [data-swarm-team-dashboard] .swarm-team-workspace__status { display:flex; gap:8px; align-items:center; min-width:0; margin:0 0 8px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__error { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 [data-swarm-team-dashboard] .swarm-team-workspace__column-title { margin:0 0 8px; font-size:13px; }
@@ -38,8 +38,8 @@ export const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace__row { display:block; box-sizing:border-box; width:100%; max-width:100%; min-width:0; overflow:hidden; padding:8px; color:inherit; text-align:left; border:1px solid var(--dsw-alias-border-l2); border-radius:8px; background:transparent; cursor:pointer; }
 [data-swarm-team-dashboard] .swarm-team-workspace__row[aria-current="true"] { border-color:var(--dsw-alias-brand-primary); background:var(--dsw-alias-bg-layer-1); }
 [data-swarm-team-dashboard] .swarm-team-workspace__row-main, [data-swarm-team-dashboard] .swarm-team-workspace__fact { display:flex; justify-content:space-between; gap:8px; min-width:0; max-width:100%; }
-/* Compact QQ/WeChat-group avatar scale: 28px member / 32px pinned Captain (official theme tokens only). */
-[data-swarm-team-dashboard] .swarm-team-workspace__avatar { position:relative; display:grid; flex:0 0 auto; inline-size:28px; block-size:28px; place-items:center; overflow:hidden; border-radius:50%; background:linear-gradient(135deg, var(--dsw-alias-brand-primary), color-mix(in srgb, var(--dsw-alias-brand-primary) 55%, var(--dsw-alias-bg-base))); color:var(--dsw-alias-bg-base); font-size:12px; font-weight:700; box-shadow:0 0 0 2px var(--dsw-alias-bg-base); }
+/* Compact contact-list avatar scale: 32px member / 36px pinned Captain (official theme tokens only). */
+[data-swarm-team-dashboard] .swarm-team-workspace__avatar { position:relative; display:grid; flex:0 0 auto; inline-size:32px; block-size:32px; place-items:center; overflow:hidden; border-radius:9px; background:linear-gradient(135deg, var(--dsw-alias-brand-primary), color-mix(in srgb, var(--dsw-alias-brand-primary) 55%, var(--dsw-alias-bg-base))); color:var(--dsw-alias-bg-base); font-size:12px; font-weight:700; box-shadow:0 0 0 1px color-mix(in srgb, var(--dsw-alias-border-l2) 80%, transparent); }
 [data-swarm-team-dashboard] .swarm-team-workspace__captain-badge { flex:0 0 auto; padding:1px 6px; border-radius:999px; border:1px solid var(--dsw-alias-border-l2); background:var(--dsw-alias-bg-layer-1); color:var(--dsw-alias-brand-primary); font-size:10px; font-weight:600; white-space:nowrap; }
 [data-swarm-team-dashboard] .swarm-team-workspace__truncate { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 [data-swarm-team-dashboard] .swarm-team-workspace__task-assignee { display:block; min-width:0; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -53,7 +53,7 @@ export const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace__notice { margin:0 0 8px; }
 /* The rail: full-width single column when compact; the wide panel switches to the wireframe's
    three internal regions (team/members · tasks/announcements · details/diagnostics). */
-[data-swarm-team-dashboard] .swarm-team-workspace__rail { width:100%; max-width:380px; margin-inline:auto; display:flex; flex-direction:column; gap:8px; min-width:0; padding:8px; block-size:100%; overflow:hidden; overflow-x:hidden; background:var(--dsw-alias-bg-layer-1); font-size:12px; line-height:1.45; }
+[data-swarm-team-dashboard] .swarm-team-workspace__rail { width:100%; max-width:420px; margin-inline:auto; display:flex; flex-direction:column; gap:12px; min-width:0; padding:10px 12px 14px; box-sizing:border-box; block-size:100%; overflow:hidden; overflow-x:hidden; background:var(--dsw-alias-bg-base); font-size:12px; line-height:1.45; }
 [data-swarm-team-dashboard] [data-swarm-rail-layout="wide"] .swarm-team-workspace__rail { max-width:100%; }
 [data-swarm-team-dashboard] .swarm-team-workspace__regions { display:flex; flex-direction:column; gap:10px; min-width:0; }
 [data-swarm-team-dashboard] [data-swarm-rail-layout="wide"] .swarm-team-workspace__regions { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; align-items:start; }
@@ -76,33 +76,38 @@ export const shellCss = `
 @media (max-width: 995.98px) { [data-swarm-team-dashboard][data-swarm-team-panel] { position:fixed; inset:0; z-index:20; } }
 /* ---- compact QQ/WeChat-group roster-first rail ---- */
 [data-swarm-team-dashboard] .swarm-team-workspace__roster { min-width:0; display:flex; flex-direction:column; gap:8px; }
-[data-swarm-team-dashboard] .swarm-team-workspace__roster .swarm-team-workspace__column-title { margin:0 2px 8px; font-size:11px; letter-spacing:.04em; color:var(--dsw-alias-label-secondary); text-transform:uppercase; }
-[data-swarm-team-dashboard] .swarm-team-workspace__members { display:grid; gap:4px; max-block-size:320px; overflow-y:auto; overflow-x:hidden; min-width:0; padding-right:2px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__roster .swarm-team-workspace__column-title { margin:2px 0 0; font-size:11px; letter-spacing:0; color:var(--dsw-alias-label-secondary); text-transform:none; }
+[data-swarm-team-dashboard] .swarm-team-workspace__members { display:grid; max-block-size:360px; overflow-y:auto; overflow-x:hidden; min-width:0; border:1px solid var(--dsw-alias-border-l2); border-radius:12px; background:var(--dsw-alias-bg-layer-1); scrollbar-width:thin; }
 [data-swarm-team-dashboard] .swarm-team-workspace__captain-list { overflow-x:hidden; }
-[data-swarm-team-dashboard] [data-swarm-member-rows] { display:grid; gap:4px; margin:0; padding:0; list-style:none; }
+[data-swarm-team-dashboard] [data-swarm-member-rows] { display:grid; gap:0; margin:0; padding:0; list-style:none; }
 [data-swarm-team-dashboard] [data-swarm-member-rows] li { min-width:0; }
-[data-swarm-team-dashboard] [data-swarm-member-rows] button.swarm-team-workspace__row { display:grid; grid-template-columns:28px minmax(0,1fr) auto; align-items:center; gap:8px; padding:5px 8px; border:1px solid var(--dsw-alias-border-l2); border-radius:10px; background:var(--dsw-alias-bg-layer-1); }
-/* Member rows stay in the 44–52px band with the identity on one ellipsis line; profile fields like
+[data-swarm-team-dashboard] [data-swarm-member-rows] li + li { border-top:1px solid var(--dsw-alias-border-l2); }
+[data-swarm-team-dashboard] [data-swarm-member-rows] button.swarm-team-workspace__row { display:grid; grid-template-columns:32px minmax(0,1fr); align-items:center; gap:10px; padding:7px 9px; border:0; border-radius:0; background:transparent; }
+/* Member rows stay compact while keeping name plus profession/status readable; profile fields like
    personality only ever appear in the member detail or the Dedicated Captain page. */
-[data-swarm-team-dashboard] [data-swarm-member-rows] button.swarm-team-workspace__row { min-block-size:48px; }
-[data-swarm-team-dashboard] [data-swarm-member-rows] button.swarm-team-workspace__row:hover { border-color:var(--dsw-alias-brand-primary); }
+[data-swarm-team-dashboard] [data-swarm-member-rows] button.swarm-team-workspace__row { min-block-size:56px; }
+[data-swarm-team-dashboard] [data-swarm-member-rows] button.swarm-team-workspace__row:hover { background:color-mix(in srgb, var(--dsw-alias-brand-primary) 7%, var(--dsw-alias-bg-layer-1)); }
 [data-swarm-team-dashboard] .swarm-team-workspace__member-copy { display:flex; flex-direction:column; gap:1px; min-width:0; }
-[data-swarm-team-dashboard] .swarm-team-workspace__member-copy strong { font-size:13px; font-weight:650; }
+[data-swarm-team-dashboard] .swarm-team-workspace__member-copy strong { font-size:12px; line-height:17px; font-weight:680; }
 [data-swarm-team-dashboard] .swarm-team-workspace__member-role { color:var(--dsw-alias-label-secondary); font-size:11px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__member-meta { display:flex; align-items:center; justify-content:space-between; gap:8px; min-width:0; }
+[data-swarm-team-dashboard] .swarm-team-workspace__member-meta > * { min-width:0; }
+[data-swarm-team-dashboard] .swarm-team-workspace__member-activity { display:inline-flex; align-items:center; gap:4px; flex:0 1 auto; max-width:46%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:10px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__member-side { display:flex; flex-direction:column; align-items:flex-end; gap:2px; min-width:0; }
 [data-swarm-team-dashboard] .swarm-team-workspace__member-side small { color:var(--dsw-alias-label-secondary); font-size:10px; }
-[data-swarm-team-dashboard] .swarm-team-workspace__captain-hero { grid-template-columns:32px minmax(0,1fr) auto; gap:8px; padding:6px 8px; min-block-size:52px; background:var(--dsw-alias-bg-layer-1); border-color:var(--dsw-alias-brand-primary); }
-[data-swarm-team-dashboard] .swarm-team-workspace__captain-hero .swarm-team-workspace__avatar { inline-size:32px; block-size:32px; font-size:13px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__captain-hero { display:grid; grid-template-columns:36px minmax(0,1fr) auto; align-items:center; gap:10px; padding:8px 10px; min-block-size:60px; border:1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 48%, var(--dsw-alias-border-l2)); border-radius:12px; background:linear-gradient(110deg, color-mix(in srgb, var(--dsw-alias-brand-primary) 10%, var(--dsw-alias-bg-layer-1)), var(--dsw-alias-bg-layer-1)); }
+[data-swarm-team-dashboard] .swarm-team-workspace__captain-hero:hover { border-color:var(--dsw-alias-brand-primary); }
+[data-swarm-team-dashboard] .swarm-team-workspace__captain-hero .swarm-team-workspace__avatar { inline-size:36px; block-size:36px; font-size:13px; border-radius:10px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__captain-hero .swarm-team-workspace__captain-badge { background:var(--dsw-alias-bg-base); border-color:var(--dsw-alias-brand-primary); }
 /* One compact Team overview: name + lifecycle + the durable public goal. */
-[data-swarm-team-dashboard] .swarm-team-workspace__overview { display:grid; gap:4px; padding:8px 10px; border:1px solid var(--dsw-alias-border-l2); border-radius:10px; background:var(--dsw-alias-bg-layer-1); }
+[data-swarm-team-dashboard] .swarm-team-workspace__overview { display:grid; gap:5px; padding:8px 10px; border:0; border-left:3px solid var(--dsw-alias-brand-primary); border-radius:6px; background:color-mix(in srgb, var(--dsw-alias-brand-primary) 7%, var(--dsw-alias-bg-layer-1)); }
 [data-swarm-team-dashboard] .swarm-team-workspace__overview-head { display:flex; align-items:center; justify-content:space-between; gap:8px; min-width:0; }
-[data-swarm-team-dashboard] .swarm-team-workspace__overview-head strong { font-size:13px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__overview-head strong { font-size:10px; font-weight:700; color:var(--dsw-alias-label-secondary); letter-spacing:.03em; }
 [data-swarm-team-dashboard] .swarm-team-workspace__overview p { margin:0; font-size:11px; }
-[data-swarm-team-dashboard] .swarm-team-workspace__roster-label { margin:0 2px 2px; display:flex; justify-content:space-between; gap:8px; color:var(--dsw-alias-label-secondary); font-size:10px; font-weight:750; text-transform:uppercase; letter-spacing:.04em; }
-[data-swarm-team-dashboard] .swarm-team-workspace__view-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); align-items:center; gap:2px; padding:3px; border:1px solid var(--dsw-alias-border-l2); border-radius:10px; background:var(--dsw-alias-bg-layer-1); }
-[data-swarm-team-dashboard] .swarm-team-workspace__view-tabs [role="tab"] { min-width:0; overflow:hidden; text-overflow:ellipsis; border:0; border-radius:7px; padding:5px 6px; background:transparent; color:var(--dsw-alias-label-secondary); font-size:11px; line-height:16px; font-weight:650; white-space:nowrap; }
-[data-swarm-team-dashboard] .swarm-team-workspace__view-tabs [role="tab"][aria-selected="true"] { background:var(--dsw-alias-bg-base); color:var(--dsw-alias-label-primary); box-shadow:0 1px 3px var(--dsw-alias-border-l2); }
+[data-swarm-team-dashboard] .swarm-team-workspace__roster-label { margin:0; display:flex; justify-content:space-between; gap:8px; color:var(--dsw-alias-label-secondary); font-size:10px; font-weight:700; text-transform:none; letter-spacing:0; }
+[data-swarm-team-dashboard] .swarm-team-workspace__view-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); align-items:center; gap:0; padding:0; border:0; border-bottom:1px solid var(--dsw-alias-border-l2); border-radius:0; background:transparent; }
+[data-swarm-team-dashboard] .swarm-team-workspace__view-tabs [role="tab"] { min-width:0; overflow:hidden; text-overflow:ellipsis; border:0; border-radius:0; padding:7px 8px 8px; background:transparent; color:var(--dsw-alias-label-secondary); font-size:11px; line-height:16px; font-weight:600; white-space:nowrap; }
+[data-swarm-team-dashboard] .swarm-team-workspace__view-tabs [role="tab"][aria-selected="true"] { color:var(--dsw-alias-brand-primary); box-shadow:inset 0 -2px 0 var(--dsw-alias-brand-primary); }
 [data-swarm-team-dashboard] .swarm-team-workspace__roster-label small { font-weight:600; text-transform:none; letter-spacing:0; color:var(--dsw-alias-label-secondary); }
 [data-swarm-team-dashboard] .swarm-team-workspace__rail-divider { block-size:1px; margin:6px 2px; border:0; background:var(--dsw-alias-border-l2); }
 [data-swarm-team-dashboard] .swarm-team-workspace__captain-action { color:var(--dsw-alias-brand-primary); font-weight:800; }
@@ -359,7 +364,7 @@ function ViewTabs({ active, onSelect, t }: { readonly active: RailView; readonly
  *  the honest empty line). No identity card and no switcher are repeated here. */
 function TeamOverview({ data, goal, t }: { readonly data: SwarmHostReadProjectionV1; readonly goal: SwarmReadTeamsV1['teams'][number]['goal'] | undefined; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
   return <section className="swarm-team-workspace__overview" data-swarm-team-overview data-swarm-goal-state={goal?.state ?? 'loading'}>
-    <div className="swarm-team-workspace__overview-head"><strong className="swarm-team-workspace__truncate" data-swarm-overview-name title={data.team.name}>{data.team.name}</strong><span className="swarm-team-workspace__badge" data-swarm-overview-phase>{enumLabel(data.team.phase, t)}</span></div>
+    <div className="swarm-team-workspace__overview-head"><strong data-swarm-overview-name title={data.team.name}>{t('goal')}</strong><span className="swarm-team-workspace__badge" data-swarm-overview-phase>{enumLabel(data.team.phase, t)}</span></div>
     {goal === undefined
       ? <p className="swarm-team-workspace__muted" data-swarm-overview-goal>{t('loading')}</p>
       : goal.state === 'generated'
@@ -645,7 +650,7 @@ function MemberRows({ data, memberAssets, onSelect, onTrigger, t }: { readonly d
     // fallback. Personality never appears on the narrow row — detail view only.
     const displayName = asset.identityCard.state === 'generated' && asset.displayName !== undefined ? asset.displayName : member.name
     const profession = asset.identityCard.state === 'generated' && asset.profession !== undefined ? asset.profession : member.role
-    return <li key={member.name}><button className="swarm-team-workspace__row" data-swarm-member-name={member.name} data-swarm-member-role={member.role} data-swarm-member-activity={activity.state} data-swarm-identity-state={asset.identityCard.state} type="button" ref={element => { onTrigger(member.name, element) }} onClick={() => { onSelect(member.name) }}><span className="swarm-team-workspace__avatar"><SafePixelAvatar seed={member.name} asset={asset.avatar} name={displayName} t={t} /></span><span className="swarm-team-workspace__member-copy"><strong className="swarm-team-workspace__truncate" data-swarm-member-visible-name={displayName} title={displayName}>{displayName}</strong><small className="swarm-team-workspace__muted swarm-team-workspace__member-role swarm-team-workspace__truncate" data-swarm-member-visible-profession={profession} title={profession}>{profession}</small></span><span className="swarm-team-workspace__member-side"><span className="swarm-team-workspace__muted swarm-team-workspace__member-activity" data-swarm-member-visible-activity={activityText} title={activityText}><StateDot state={memberActivityDot(activity.state)} />{activityText}</span></span></button></li>
+    return <li key={member.name}><button className="swarm-team-workspace__row" data-swarm-member-name={member.name} data-swarm-member-role={member.role} data-swarm-member-activity={activity.state} data-swarm-identity-state={asset.identityCard.state} type="button" ref={element => { onTrigger(member.name, element) }} onClick={() => { onSelect(member.name) }}><span className="swarm-team-workspace__avatar"><SafePixelAvatar seed={member.name} asset={asset.avatar} name={displayName} t={t} /></span><span className="swarm-team-workspace__member-copy"><strong className="swarm-team-workspace__truncate" data-swarm-member-visible-name={displayName} title={displayName}>{displayName}</strong><span className="swarm-team-workspace__member-meta"><small className="swarm-team-workspace__muted swarm-team-workspace__member-role swarm-team-workspace__truncate" data-swarm-member-visible-profession={profession} title={profession}>{profession}</small><small className="swarm-team-workspace__muted swarm-team-workspace__member-activity" data-swarm-member-visible-activity={activityText} title={activityText}><StateDot state={memberActivityDot(activity.state)} />{activityText}</small></span></span></button></li>
   })}</ul>
 }
 
