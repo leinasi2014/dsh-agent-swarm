@@ -23,9 +23,8 @@ export const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace__body { min-width:0; min-height:0; overflow:auto; padding:12px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__status { display:flex; gap:8px; align-items:center; min-width:0; margin:0 0 12px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__error { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-[data-swarm-team-dashboard] .swarm-team-workspace__columns { display:grid; grid-template-columns:minmax(0,1fr); gap:12px; min-width:0; min-height:100%; }
-[data-swarm-team-dashboard] .swarm-team-workspace__column { min-width:0; min-height:0; padding:12px; border:1px solid var(--dsw-alias-border-l2); border-radius:12px; background:var(--dsw-alias-bg-base); }
 [data-swarm-team-dashboard] .swarm-team-workspace__column-title { margin:0 0 10px; font-size:14px; }
+[data-swarm-team-dashboard] [data-swarm-team-rail] > details { margin:0; }
 [data-swarm-team-dashboard] .swarm-team-workspace__summary { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-top:10px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__metric { padding:10px; border-radius:8px; background:var(--dsw-alias-bg-layer-1); }
 [data-swarm-team-dashboard] .swarm-team-workspace__metric strong { display:block; font-size:16px; }
@@ -46,7 +45,7 @@ export const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace__collapsible > summary + * { margin-top:10px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__diagnostics { margin-top:12px; padding-top:12px; border-top:1px solid var(--dsw-alias-border-l2); }
 [data-swarm-team-dashboard] .swarm-team-workspace__notice { margin:0 0 10px; }
-[data-swarm-team-dashboard] .swarm-team-workspace__rail { display:flex; flex-direction:column; gap:12px; min-width:0; max-width:100%; }
+[data-swarm-team-dashboard] .swarm-team-workspace__rail { width:100%; max-width:359px; margin-inline:auto; display:flex; flex-direction:column; gap:12px; min-width:0; }
 [data-swarm-team-dashboard] .swarm-team-workspace__switcher { padding:10px; border:1px solid var(--dsw-alias-border-l2); border-radius:12px; background:var(--dsw-alias-bg-base); }
 [data-swarm-team-dashboard] .swarm-team-workspace__switcher-title { display:flex; flex-direction:column; gap:2px; margin-bottom:8px; min-width:0; }
 [data-swarm-team-dashboard] .swarm-team-workspace__switch-button { cursor:not-allowed; opacity:.72; }
@@ -57,9 +56,7 @@ export const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace__badge-unavailable { color:var(--dsw-alias-label-secondary); }
 [data-swarm-team-dashboard] .swarm-team-workspace__unavailable-card { padding:10px; border:1px solid var(--dsw-alias-border-l2); border-radius:12px; background:var(--dsw-alias-bg-base); }
 [data-swarm-team-dashboard] .swarm-team-workspace__unavailable-card strong { display:block; margin-bottom:4px; }
-[data-swarm-team-dashboard] .swarm-team-workspace__section { display:grid; gap:12px; min-width:0; }
 [data-swarm-team-dashboard] .swarm-team-workspace__capability { display:flex; justify-content:space-between; gap:8px; min-width:0; max-width:100%; padding:8px 10px; border:1px solid var(--dsw-alias-border-l2); border-radius:8px; background:var(--dsw-alias-bg-layer-1); font-size:13px; }
-@container (min-width: 720px) { [data-swarm-team-dashboard] .swarm-team-workspace__columns { grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) minmax(0,.8fr); } }
 /* Narrow viewports: the official details track can overflow the visible viewport (~813px, member buttons land at x≈912), so the Team panel escapes the track and overlays the viewport. z-index 20 mirrors the official shell overlay layer constant; wide viewports never hit this media query and keep the docked details fill. The cap covers the official details auto-close threshold (columns.ts: SIDEBAR_COLLAPSED 56 + DETAILS_MIN 300 + CENTER_MIN 640 = 996px), so no 961–995px dead band remains where the panel would be zeroed and clipped. */
 @media (max-width: 995.98px) { [data-swarm-team-dashboard][data-swarm-team-panel] { position:fixed; inset:0; z-index:20; } }
 `
@@ -186,7 +183,7 @@ function Workspace({ data, handoffBusy, localeTag, selection, setSelection, t, o
   const returnToMembers = (name: string): void => { focusIntent.current = { kind: 'member', name }; setSelection({ kind: 'team' }) }
   const returnToTasks = (id: string): void => { focusIntent.current = { kind: 'task', id }; setSelection({ kind: 'team' }) }
   const selected = selection.kind === 'member' ? data.roster.find(member => member.name === selection.name) : undefined
-  return <div className="swarm-team-workspace__rail" aria-label={t('tabs.label')} data-swarm-team-rail>
+  return <section className="swarm-team-workspace__rail" aria-label={t('tabs.label')} data-swarm-team-rail>
     <TeamSwitcher data={data} t={t} />
     <BrowserNav busy={handoffBusy} onMainBrain={onMainBrain} onCaptain={onMainChat} t={t} />
     <div className="swarm-team-workspace__roster"><h3 className="swarm-team-workspace__column-title" ref={rosterHeadingRef} tabIndex={-1}>{t('members')}</h3>
@@ -198,8 +195,10 @@ function Workspace({ data, handoffBusy, localeTag, selection, setSelection, t, o
     <section className="swarm-team-workspace__unavailable-card" data-swarm-goal-unavailable><strong>{t('goal')}</strong><p className="swarm-team-workspace__muted">{t('goalUnavailable')}</p></section>
     <section className="swarm-team-workspace__unavailable-card" data-swarm-announcement-unavailable><strong>{t('announcements')}</strong><p className="swarm-team-workspace__muted">{t('announcementsUnavailable')}</p></section>
     <details className="swarm-team-workspace__collapsible"><summary ref={taskSummaryRef}>{t('tasks')}</summary>{missingTask === undefined ? null : <p className="swarm-team-workspace__muted swarm-team-workspace__notice" role="status">{t('taskNoLongerAvailable')}</p>}{selection.kind === 'task' ? <TaskDetail data={data} id={selection.id} number={number} onBack={() => { returnToTasks(selection.id) }} t={t} /> : <TaskRows data={data} onSelect={selectTask} onTrigger={registerTaskTrigger} t={t} />}</details>
-    <section className="swarm-team-workspace__section"><details className="swarm-team-workspace__collapsible"><summary>{t('tabs.overview')}</summary><div className="swarm-team-workspace__summary"><Metric label={t('members')} value={number.format(data.totals.roster)} /><Metric label={t('tasks')} value={number.format(data.totals.tasks)} /><Metric label={t('interactions')} value={number.format(data.totals.pendingInteractions)} /><Metric label={t('attempts')} value={number.format(data.totals.attempts)} /></div></details><details className="swarm-team-workspace__collapsible"><summary>{t('budget')}</summary><BudgetStats budget={data.budget} number={number} t={t} /></details><details className="swarm-team-workspace__collapsible"><summary>{t('capabilities')}</summary><CapabilityRows capabilities={data.capabilities} t={t} /></details><details className="swarm-team-workspace__collapsible"><summary>{t('diagnostics')}</summary><Diagnostics data={data} number={number} t={t} /></details></section>
-  </div>
+    <details className="swarm-team-workspace__collapsible"><summary>{t('tabs.overview')}</summary><div className="swarm-team-workspace__summary"><Metric label={t('members')} value={number.format(data.totals.roster)} /><Metric label={t('tasks')} value={number.format(data.totals.tasks)} /><Metric label={t('interactions')} value={number.format(data.totals.pendingInteractions)} /><Metric label={t('attempts')} value={number.format(data.totals.attempts)} /></div><BudgetStats budget={data.budget} number={number} t={t} /></details>
+    <details className="swarm-team-workspace__collapsible"><summary>{t('capabilities')}</summary><CapabilityRows capabilities={data.capabilities} t={t} /></details>
+    <Diagnostics data={data} number={number} t={t} />
+  </section>
 }
 
 /** The Team switcher names the real bound Team. Without a Host Team directory it can

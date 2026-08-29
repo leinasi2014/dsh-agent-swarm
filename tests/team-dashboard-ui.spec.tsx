@@ -302,8 +302,15 @@ describe('R3 native Team Details surface', () => {
       const body = document.querySelector<HTMLElement>('.swarm-team-workspace__body')!
       const stylesheet = document.querySelector('style')?.textContent ?? ''
       // A single vertical roster-first rail replaces the previous three-column grid.
-      expect(document.querySelector('[data-swarm-team-rail]')).not.toBeNull()
+      expect(document.querySelectorAll('[data-swarm-team-panel] [data-swarm-team-rail]')).toHaveLength(1)
       expect(document.querySelectorAll('[data-swarm-team-panel] .swarm-team-workspace__column')).toHaveLength(0)
+      // Folded sections live inside the rail as default-closed details (tasks/overview+budget/capabilities/diagnostics).
+      const folded = [...document.querySelectorAll('[data-swarm-team-panel] [data-swarm-team-rail] > details')]
+      expect(folded).toHaveLength(4)
+      expect(folded.every(detail => detail.open === false)).toBe(true)
+      // Overview folds real Host budget metrics; capabilities fold real Host capabilities.
+      expect(document.querySelector('[data-swarm-budget]')).not.toBeNull()
+      expect(document.querySelector('[data-swarm-capabilities]')).not.toBeNull()
       expect(observers).toHaveLength(1)
       expect(workspace.dataset.swarmTeamLayout).toBe('compact')
       // This is a component contract, not a jsdom geometry claim. Browser-proof owns geometry acceptance.
@@ -326,6 +333,8 @@ describe('R3 native Team Details surface', () => {
       // Main Brain / Dedicated Captain navigation over official child seams.
       expect(document.querySelector('[data-swarm-nav-main]')?.textContent).toContain('Main Brain')
       expect(document.querySelector('[data-swarm-nav-captain]')?.textContent).toContain('Dedicated Captain')
+      await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-nav-main]')!).click() })
+      expect(coordinator.closeAndRestoreFocus).toHaveBeenCalledTimes(1)
       // Roster-first: Captain hero precedes every real member.
       const captain = document.querySelector<HTMLButtonElement>('.swarm-team-workspace__roster > button')!
       const member = document.querySelector<HTMLButtonElement>('.swarm-team-workspace__rows button')!
