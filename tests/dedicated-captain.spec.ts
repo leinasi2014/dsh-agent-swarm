@@ -104,4 +104,22 @@ describe('dedicated Captain topology', () => {
     const active = teams.filter(team => team.phase === 'active')
     expect(active.length).toBeLessThanOrEqual(1)
   })
+
+  it('does not expose model-steered Captain routing in the public tool schema', async () => {
+    sandbox = await mkdtemp(join(tmpdir(), 'dsh-dedicated-captain-schema-'))
+    mounted = await mountNodeComposition(sandbox)
+
+    // The dedicated Captain's LLM route is plugin-configured only. The public
+    // `agent_swarm_create_managed` parameter surface must therefore not offer
+    // `captain_llm_provider` / `captain_model`, so a model can never override
+    // provider/model at the call site (and the tool cannot forward model
+    // options into `createWithDedicatedCaptain`).
+    const tool = mounted.ctx.tools.get('agent_swarm_create_managed')
+    expect(tool).toBeDefined()
+    const properties = (tool?.parameters as { properties?: Record<string, unknown> })?.properties ?? {}
+    expect(Object.hasOwn(properties, 'name')).toBe(true)
+    expect(Object.hasOwn(properties, 'description')).toBe(true)
+    expect(Object.hasOwn(properties, 'captain_llm_provider')).toBe(false)
+    expect(Object.hasOwn(properties, 'captain_model')).toBe(false)
+  })
 })
