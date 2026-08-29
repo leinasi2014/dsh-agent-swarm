@@ -543,6 +543,75 @@ describe('R3 native Team Details surface', () => {
     expect(overlay.textContent).not.toContain('Running')
   })
 
+  it('maps only submitted/verifying attempts to pending; terminal attempts stay neutral unless another in-flight task remains', () => {
+    const pending = projectionForActivity({ tasks: [activityTask('task-a', 'attempt-a')], attempts: [activityAttempt('attempt-a', 'submitted', 'worker', 2)] })
+    expect(deriveMemberTone(pending, 'worker', 'active')).toBe('pending')
+    const verifying = projectionForActivity({ tasks: [activityTask('task-v', 'attempt-v')], attempts: [activityAttempt('attempt-v', 'verifying', 'worker', 2)] })
+    expect(deriveMemberTone(verifying, 'worker', 'active')).toBe('pending')
+    for (const terminalPhase of ['accepted', 'rejected', 'cancelled', 'stale'] as const) {
+      // A terminal current attempt with no other owned work is ended, never pending.
+      const settled = projectionForActivity({ tasks: [activityTask(`task-${terminalPhase}`, `attempt-${terminalPhase}`, 'failed')], attempts: [activityAttempt(`attempt-${terminalPhase}`, terminalPhase, 'worker', 2)] })
+      expect(deriveMemberTone(settled, 'worker', 'active')).toBe('standby')
+    }
+    // A terminal current attempt is outranked by another genuinely in-flight owned task.
+    const carryInFlight = projectionForActivity({
+      tasks: [activityTask('task-done', 'attempt-done', 'failed'), activityTask('task-live', 'attempt-live')],
+      attempts: [activityAttempt('attempt-done', 'cancelled', 'worker', 3), activityAttempt('attempt-live', 'running', 'worker', 2)],
+    })
+    expect(deriveMemberTone(carryInFlight, 'worker', 'active')).toBe('executing')
+    // An owned still-pending task keeps the desk pending even with a terminal current attempt.
+    const carryPending = projectionForActivity({
+      tasks: [activityTask('task-queued', 'attempt-queued', 'pending'), activityTask('task-done2', 'attempt-done2', 'failed')],
+      attempts: [activityAttempt('attempt-done2', 'accepted', 'worker', 3), activityAttempt('attempt-queued', 'running', 'other-worker', 4)],
+    })
+    expect(deriveMemberTone(carryPending, 'worker', 'active')).toBe('pending')
+  })
+
+  it('renders team-activity signals honestly: running=executing, submitted/verifying=pending, terminal attempts neutral', async () => {
+    const coordinator = new FakeCoordinator()
+    const projection = projectionForActivity({
+      tasks: [activityTask('task-r', 'attempt-r'), activityTask('task-s', 'attempt-s'), activityTask('task-x', 'attempt-x', 'failed')],
+      attempts: [
+        activityAttempt('attempt-r', 'running', 'worker', 4),
+        activityAttempt('attempt-s', 'submitted', 'worker', 3),
+        activityAttempt('attempt-x', 'rejected', 'worker', 2),
+      ],
+    })
+    const state: TeamDashboardState = { ...ready, data: teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection) }
+    const activityController = { getSnapshot: (): TeamDashboardState => state, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: activityController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    const signalOf = (id: string): string | null => document.querySelector<HTMLElement>(`[data-swarm-activity-attempt="${id}"] [data-swarm-signal]`)?.getAttribute('data-swarm-signal') ?? null
+    expect(signalOf('attempt-r')).toBe('executing')
+    expect(signalOf('attempt-s')).toBe('pending')
+    expect(signalOf('attempt-x')).toBe('settled')
+  })
+
+  it('shows the member-detail start time from the matching current attempt.createdAt and relabels TaskDetail createdAt', async () => {
+    const coordinator = new FakeCoordinator()
+    const t0 = 1_700_000_000_000
+    const projection = projectionForActivity({
+      tasks: [{ ...activityTask('task-live', 'attempt-live'), createdAt: t0 }],
+      attempts: [{ ...activityAttempt('attempt-live', 'running', 'worker', 2), createdAt: t0 + 3_600_000 }],
+    })
+    const state: TeamDashboardState = { ...ready, data: teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection) }
+    const liveController = { getSnapshot: (): TeamDashboardState => state, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: liveController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    const attemptTime = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(t0 + 3_600_000))
+    const taskTime = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(t0))
+    // Member detail: start time = current attempt.createdAt, never the task creation time.
+    await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!).click(); await Promise.resolve() })
+    expect(document.querySelector('[data-swarm-detail-task-started]')?.textContent).toBe(attemptTime)
+    expect(document.querySelector('[data-swarm-detail-task-started]')?.textContent).not.toBe(taskTime)
+    await pressEscape()
+    // TaskDetail: task.createdAt is labeled "Created", not "Started".
+    await act(async () => { tabButton('tasks').click() })
+    await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-task-id="task-live"]')!).click(); await Promise.resolve() })
+    const facts = [...detailOverlay()!.querySelectorAll('.swarm-team-workspace__fact')]
+    const createdFact = facts.find(fact => fact.textContent!.includes(taskTime))!
+    expect(createdFact).toBeDefined()
+    expect(createdFact.querySelector('dt')?.textContent).toBe('Created')
+  })
+
   it('renders the goal card exactly once above the tabs with the honest empty state, and the announcement surfaces exactly once each', async () => {
     const coordinator = new FakeCoordinator()
     const projection = {
@@ -586,7 +655,7 @@ describe('R3 native Team Details surface', () => {
   })
 })
 
-function activityTask(id: string, currentAttemptId: string, status: 'in_progress' | 'failed' = 'in_progress') {
+function activityTask(id: string, currentAttemptId: string, status: 'in_progress' | 'failed' | 'pending' = 'in_progress') {
   return { id, revision: 1, subject: id, status, blockedBy: [], priority: 1, ownerName: 'worker', currentAttemptId, createdAt: 1, updatedAt: 1 }
 }
 function activityAttempt(id: string, phase: 'running' | 'submitted' | 'verifying' | 'accepted' | 'rejected' | 'cancelled' | 'stale', memberName: string, updatedAt: number) {

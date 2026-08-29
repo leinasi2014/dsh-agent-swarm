@@ -128,10 +128,11 @@ describe('roster/Captain interaction slice', () => {
     // executing: an in-flight running attempt.
     expect(toneOf('worker')).toBe('executing')
     expect(activityOf('worker')).toBe(t('tone.executing'))
-    // standby: idle member and settled (accepted) work must NOT look running or pending.
+    // standby: idle member — a terminal attempt alone never reads as running or pending.
     expect(toneOf('idler')).toBe('standby')
     expect(activityOf('idler')).toBe(t('tone.standby'))
-    expect(toneOf('acceptor')).toBe('standby')
+    // The accepted attempt is neutral, but acceptor still owns an in_progress task → pending.
+    expect(toneOf('acceptor')).toBe('pending')
     // failed: authoritative failed lifecycle.
     expect(toneOf('broken')).toBe('failed')
     expect(activityOf('broken')).toBe(t('tone.failed'))
@@ -145,7 +146,8 @@ describe('roster/Captain interaction slice', () => {
     // The statistics line derives from the SAME tone source.
     const stats = document.querySelector<HTMLElement>('[data-swarm-desk-stats]')!.textContent ?? ''
     expect(stats).toContain(`1 ${t('tone.executing')}`)
-    expect(stats).toContain(`2 ${t('tone.standby')}`)
+    expect(stats).toContain(`1 ${t('tone.pending')}`)
+    expect(stats).toContain(`1 ${t('tone.standby')}`)
     expect(stats).toContain(`1 ${t('tone.failed')}`)
     expect(stats).toContain(`1 ${t('tone.offline')}`)
   })

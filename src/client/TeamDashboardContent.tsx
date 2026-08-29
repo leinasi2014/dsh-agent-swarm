@@ -71,6 +71,7 @@ export const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace__activity-row + .swarm-team-workspace__activity-row { border-top:1px solid var(--dsw-alias-border-l2); }
 [data-swarm-team-dashboard] .swarm-team-workspace__activity-signal { flex:0 0 auto; inline-size:7px; block-size:7px; border-radius:50%; background:var(--dsw-alias-brand-primary); box-shadow:0 0 0 3px color-mix(in srgb, var(--dsw-alias-brand-primary) 12%, transparent); }
 [data-swarm-team-dashboard] .swarm-team-workspace__activity-signal[data-swarm-signal="pending"] { background:var(--dsw-alias-label-caution, var(--dsw-alias-brand-primary)); box-shadow:0 0 0 3px color-mix(in srgb, var(--dsw-alias-label-caution, var(--dsw-alias-brand-primary)) 12%, transparent); }
+[data-swarm-signal="settled"] { opacity:.35; }
 [data-swarm-team-dashboard] .swarm-team-workspace__activity-copy { display:grid; gap:2px; min-width:0; }
 [data-swarm-team-dashboard] .swarm-team-workspace__activity-title { overflow:hidden; font-size:11px; white-space:nowrap; text-overflow:ellipsis; }
 [data-swarm-team-dashboard] .swarm-team-workspace__activity-meta { overflow:hidden; color:var(--dsw-alias-label-secondary); font-size:9px; white-space:nowrap; text-overflow:ellipsis; }
@@ -187,17 +188,20 @@ export type MemberActivity = {
 
 export type DeskToneExport = DeskTone
 /** Visible work-seat status mapped only from the real roster/tasks/attempts into five honest tones:
- *  executing (blue pulse) = running attempt; pending (amber) = provisioning lifecycle, in-review or
- *  unaccepted terminal attempt, or a pending task owned but not started; failed = failed lifecycle
- *  or errored activity; standby (green) = settled or no current work; offline (gray) = removed member. */
+ *  executing (blue pulse) = running attempt; pending (amber) = provisioning lifecycle, a
+ *  submitted/verifying attempt, or a pending/in-flight task owned but not running; failed =
+ *  failed lifecycle or errored activity; standby (green) = settled (accepted/rejected/cancelled/
+ *  stale are ended, never pending) or no current work; offline (gray) = removed member. */
 export function deriveMemberTone(data: SwarmHostReadProjectionV1, name: string, phase: SwarmHostReadProjectionV1['roster'][number]['phase']): DeskTone {
   if (phase === 'removed') return 'offline'
   const activity = deriveMemberActivity(data, name, phase)
   if (phase === 'failed' || activity.state === 'error') return 'failed'
   if (phase === 'provisioning') return 'pending'
   if (activity.state === 'running') return 'executing'
-  if (activity.attempt !== undefined && ['submitted', 'verifying', 'rejected', 'cancelled'].includes(activity.attempt.phase)) return 'pending'
-  if (data.tasks.some(task => task.ownerName === name && task.status === 'pending')) return 'pending'
+  if (activity.attempt !== undefined && (activity.attempt.phase === 'submitted' || activity.attempt.phase === 'verifying')) return 'pending'
+  // Terminal attempts (accepted/rejected/cancelled/stale) are ended, never pending — unless the
+  // member still owns another genuinely in-flight or unstarted task.
+  if (data.tasks.some(task => task.ownerName === name && ['pending', 'in_progress', 'submitted', 'verifying'].includes(task.status))) return 'pending'
   return 'standby'
 }
 
@@ -462,8 +466,11 @@ function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, sta
             : <section className="swarm-team-workspace__activity" data-swarm-team-activity aria-label={t('workspace.teamActivity')}>
               {activities.map(attempt => {
                 const task = data.tasks.find(candidate => candidate.id === attempt.taskId)
+                // Honest signal: submitted/verifying are the only pending phases; accepted/
+                // rejected/cancelled/stale attempts are ended and stay visually neutral.
+                const signal = attempt.phase === 'running' ? 'executing' : attempt.phase === 'submitted' || attempt.phase === 'verifying' ? 'pending' : 'settled'
                 return <div key={attempt.id} className="swarm-team-workspace__activity-row" data-swarm-activity-attempt={attempt.id}>
-                  <i className="swarm-team-workspace__activity-signal" data-swarm-signal={attempt.phase === 'running' ? 'executing' : 'pending'} aria-hidden="true" />
+                  <i className="swarm-team-workspace__activity-signal" data-swarm-signal={signal} aria-hidden="true" />
                   <span className="swarm-team-workspace__activity-copy">
                     <span className="swarm-team-workspace__activity-title">{attempt.memberName ?? t('hostUnavailable')}</span>
                     <span className="swarm-team-workspace__activity-meta">{task?.subject ?? t('hostUnavailable')}</span>
@@ -710,7 +717,7 @@ function MemberDetail({ detail, data, localeTag, memberAssets, t }: {
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('tasks')}</dt><dd data-swarm-detail-task-subject>{currentTask?.subject ?? t('memberNone')}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('status')}</dt><dd data-swarm-detail-task-status>{currentTask !== undefined ? enumLabel(currentTask.status, t) : t('memberNone')}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.progress')}</dt><dd>{unavailable}</dd></div>
-        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.started')}</dt><dd data-swarm-detail-task-started>{value(currentTask !== undefined ? formatTime(currentTask.createdAt, localeTag) : undefined)}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.started')}</dt><dd data-swarm-detail-task-started>{value(currentTask !== undefined && activity.attempt !== undefined ? formatTime(activity.attempt.createdAt, localeTag) : undefined)}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.due')}</dt><dd>{unavailable}</dd></div>
       </dl>
     </div>
@@ -745,7 +752,7 @@ function TaskDetail({ detail, data, number, localeTag, t }: {
       <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('taskOwner')}</dt><dd>{task.ownerName ?? t('hostUnavailable')}</dd></div>
       <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('taskTarget')}</dt><dd>{task.targetMemberName ?? t('hostUnavailable')}</dd></div>
       <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('taskBlocked', { count: number.format(task.blockedBy.length) })}</dt><dd>{task.blockedBy.length === 0 ? t('empty') : task.blockedBy.join(', ')}</dd></div>
-      <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.started')}</dt><dd>{formatTime(task.createdAt, localeTag) ?? t('detail.unavailable')}</dd></div>
+      <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.created')}</dt><dd>{formatTime(task.createdAt, localeTag) ?? t('detail.unavailable')}</dd></div>
       <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('taskCurrentAttempt')}</dt><dd>{task.currentAttemptId ?? t('memberNone')}{attempt === undefined ? '' : ` · ${enumLabel(attempt.phase, t)}`}</dd></div>
     </dl>
   </div>
