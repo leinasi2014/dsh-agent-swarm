@@ -58,6 +58,7 @@ export const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace__unavailable-card { padding:10px; border:1px solid var(--dsw-alias-border-l2); border-radius:12px; background:var(--dsw-alias-bg-base); }
 [data-swarm-team-dashboard] .swarm-team-workspace__unavailable-card strong { display:block; margin-bottom:4px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__section { display:grid; gap:12px; min-width:0; }
+[data-swarm-team-dashboard] .swarm-team-workspace__capability { display:flex; justify-content:space-between; gap:8px; min-width:0; max-width:100%; padding:8px 10px; border:1px solid var(--dsw-alias-border-l2); border-radius:8px; background:var(--dsw-alias-bg-layer-1); font-size:13px; }
 @container (min-width: 720px) { [data-swarm-team-dashboard] .swarm-team-workspace__columns { grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) minmax(0,.8fr); } }
 /* Narrow viewports: the official details track can overflow the visible viewport (~813px, member buttons land at x≈912), so the Team panel escapes the track and overlays the viewport. z-index 20 mirrors the official shell overlay layer constant; wide viewports never hit this media query and keep the docked details fill. The cap covers the official details auto-close threshold (columns.ts: SIDEBAR_COLLAPSED 56 + DETAILS_MIN 300 + CENTER_MIN 640 = 996px), so no 961–995px dead band remains where the panel would be zeroed and clipped. */
 @media (max-width: 995.98px) { [data-swarm-team-dashboard][data-swarm-team-panel] { position:fixed; inset:0; z-index:20; } }
@@ -196,7 +197,7 @@ function Workspace({ data, handoffBusy, localeTag, selection, setSelection, t, o
     </div>
     <section className="swarm-team-workspace__unavailable-card" data-swarm-announcement-unavailable><strong>{t('announcements')}</strong><p className="swarm-team-workspace__muted">{t('announcementsUnavailable')}</p></section>
     <details className="swarm-team-workspace__collapsible"><summary ref={taskSummaryRef}>{t('tasks')}</summary>{missingTask === undefined ? null : <p className="swarm-team-workspace__muted swarm-team-workspace__notice" role="status">{t('taskNoLongerAvailable')}</p>}{selection.kind === 'task' ? <TaskDetail data={data} id={selection.id} number={number} onBack={() => { returnToTasks(selection.id) }} t={t} /> : <TaskRows data={data} onSelect={selectTask} onTrigger={registerTaskTrigger} t={t} />}</details>
-    <section className="swarm-team-workspace__section"><details className="swarm-team-workspace__collapsible"><summary>{t('tabs.overview')}</summary><div className="swarm-team-workspace__summary"><Metric label={t('members')} value={number.format(data.totals.roster)} /><Metric label={t('tasks')} value={number.format(data.totals.tasks)} /><Metric label={t('interactions')} value={number.format(data.totals.pendingInteractions)} /><Metric label={t('attempts')} value={number.format(data.totals.attempts)} /></div></details><details className="swarm-team-workspace__collapsible"><summary>{t('diagnostics')}</summary><Diagnostics data={data} number={number} t={t} /></details></section>
+    <section className="swarm-team-workspace__section"><details className="swarm-team-workspace__collapsible"><summary>{t('tabs.overview')}</summary><div className="swarm-team-workspace__summary"><Metric label={t('members')} value={number.format(data.totals.roster)} /><Metric label={t('tasks')} value={number.format(data.totals.tasks)} /><Metric label={t('interactions')} value={number.format(data.totals.pendingInteractions)} /><Metric label={t('attempts')} value={number.format(data.totals.attempts)} /></div></details><details className="swarm-team-workspace__collapsible"><summary>{t('budget')}</summary><BudgetStats budget={data.budget} number={number} t={t} /></details><details className="swarm-team-workspace__collapsible"><summary>{t('capabilities')}</summary><CapabilityRows capabilities={data.capabilities} t={t} /></details><details className="swarm-team-workspace__collapsible"><summary>{t('diagnostics')}</summary><Diagnostics data={data} number={number} t={t} /></details></section>
   </div>
 }
 
@@ -218,6 +219,26 @@ function BrowserNav({ busy, onMainBrain, onCaptain, t }: { readonly busy: boolea
     <button className="swarm-team-workspace__row swarm-team-workspace__nav-button" type="button" data-swarm-nav-main onClick={onMainBrain} title={t('returnToMainBrain')}><span className="swarm-team-workspace__row-main"><span className="swarm-team-workspace__avatar" aria-hidden="true">脑</span><strong className="swarm-team-workspace__truncate">{t('mainBrain')}<small className="swarm-team-workspace__muted swarm-team-workspace__truncate">{t('mainBrainCaption')}</small></strong></span><span className="swarm-team-workspace__badge swarm-team-workspace__badge-current">{t('current')}</span></button>
     <button className="swarm-team-workspace__row swarm-team-workspace__nav-button" type="button" data-swarm-nav-captain disabled={busy} onClick={onCaptain} title={t('openIndependentCaptain')}><span className="swarm-team-workspace__row-main"><span className="swarm-team-workspace__avatar" aria-hidden="true">C</span><strong className="swarm-team-workspace__truncate">{t('independentCaptain')}</strong></span></button>
   </nav>
+}
+
+/** Budget is a read-only projection of the Host's authoritative usage counters
+ *  (used/limit pairs); the client never recomputes or caps them. */
+function BudgetStats({ budget, number, t }: { readonly budget: SwarmHostReadProjectionV1['budget']; readonly number: Intl.NumberFormat; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
+  const metric = (used: number, limit?: number): string => limit === undefined ? number.format(used) : `${number.format(used)} / ${number.format(limit)}`
+  return <div data-swarm-budget><Facts rows={[
+    [t('usedTokens'), metric(budget.usedTokens, budget.tokenLimit)],
+    [t('usedRequests'), metric(budget.usedRequests, budget.requestLimit)],
+    [t('usedRetries'), metric(budget.usedRetries, budget.retryLimit)],
+  ]} /></div>
+}
+
+/** Capabilities are shown exactly as the Host projects them; the write capabilities
+ *  (message.write/control.write/effect.cancel) surface as explicit `unavailable`
+ *  so a read-only Team workspace never implies a human write path. */
+function CapabilityRows({ capabilities, t }: { readonly capabilities: SwarmHostReadProjectionV1['capabilities']; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
+  return <ul className="swarm-team-workspace__rows" data-swarm-capabilities>{capabilities.map(capability => (
+    <li key={capability.capability}><span className="swarm-team-workspace__capability" data-swarm-capability={capability.capability} data-swarm-capability-state={capability.state}><span className="swarm-team-workspace__truncate" title={capability.capability}>{capability.capability}</span><span className="swarm-team-workspace__muted">{capability.state === 'available' ? t('available') : t('unavailable')}</span></span>{capability.blocker === undefined ? null : <small className="swarm-team-workspace__muted" data-swarm-capability-blocker>{capability.blocker}</small>}</li>
+  ))}</ul>
 }
 
 function CaptainRow({ busy, onMainChat, teamName, t }: { readonly busy: boolean; readonly onMainChat: () => void; readonly teamName: string; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
