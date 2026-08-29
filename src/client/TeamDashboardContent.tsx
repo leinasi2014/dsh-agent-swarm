@@ -241,6 +241,8 @@ function Workspace({ data, handoffBusy, localeTag, selection, setSelection, t, t
 }) {
   const number = new Intl.NumberFormat(localeTag())
   const boundCaptain = teams?.teams.find(team => team.teamId === data.binding.teamId)
+  // The durable public goal is authoritative Team data projected through the bound Team descriptor.
+  const goal = boundCaptain?.goal
   const [missingMember, setMissingMember] = useState<string>()
   const [missingTask, setMissingTask] = useState<string>()
   const [managementOpen, setManagementOpen] = useState(false)
@@ -296,9 +298,9 @@ function Workspace({ data, handoffBusy, localeTag, selection, setSelection, t, t
   return <section className="swarm-team-workspace__rail" aria-label={t('tabs.label')} data-swarm-team-rail>
     <ViewTabs active={view === 'board' ? 'board' : 'main'} onSelect={onViewTab} t={t} />
     {view === 'board'
-      ? <BoardView data={data} announcements={announcements} diagnostics={diagnostics} localeTag={localeTag} number={number} onBack={() => { setView('roster') }} t={t} />
+      ? <BoardView data={data} goal={goal} announcements={announcements} diagnostics={diagnostics} localeTag={localeTag} number={number} onBack={() => { setView('roster') }} onUpdateViaCaptain={onMainChat} t={t} />
       : <>{managementOpen
-        ? <ManagementView data={data} teams={teams} announcements={announcements} diagnostics={diagnostics} localeTag={localeTag} number={number} onBack={() => { setManagementOpen(false) }} t={t} />
+        ? <ManagementView data={data} teams={teams} goal={goal} announcements={announcements} diagnostics={diagnostics} localeTag={localeTag} number={number} onBack={() => { setManagementOpen(false) }} onUpdateViaCaptain={onMainChat} t={t} />
         : <><CaptainList teams={teams} memberCount={memberAssets === undefined ? undefined : { teamId: data.binding.teamId, count: memberAssets.members.length }} number={number} onOpenCaptain={onOpenCaptain} t={t} />
         <BoundTeamIdentityCard data={data} teams={teams} t={t} />
         <TeamSwitcher data={data} t={t} />
@@ -347,12 +349,26 @@ function ViewTabs({ active, onSelect, t }: { readonly active: 'main' | 'captain'
   ))}</div>
 }
 
-/** Board view: real captain-scoped announcements/diagnostics reads plus folded real-data sections.
- *  Today the host answers announcements with an explicit bounded unavailable; the section still
- *  renders from the real response, never a hardcoded stub. */
-function BoardView({ data, announcements, diagnostics, localeTag, number, onBack, t }: { readonly data: SwarmHostReadProjectionV1; readonly announcements: SwarmReadCaptainAnnouncementsV1 | undefined; readonly diagnostics: SwarmReadCaptainDiagnosticsV1 | undefined; readonly localeTag: () => 'zh-CN' | 'en-US'; readonly number: Intl.NumberFormat; readonly onBack: () => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
+/** The real durable public goal read from the bound Team authority: `generated` shows the
+ *  Captain-authored canonical text; `not_generated` shows a compact honest empty state. The
+ *  only update path is the official Captain Chat handoff — no fabricated write form. */
+function GoalSection({ goal, onUpdateViaCaptain, t }: { readonly goal: SwarmReadTeamsV1['teams'][number]['goal'] | undefined; readonly onUpdateViaCaptain: () => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
+  return <section className="swarm-team-workspace__unavailable-card" data-swarm-goal-card data-swarm-goal-state={goal?.state ?? 'loading'}>
+    <strong>{t('goal')}</strong>
+    {goal === undefined
+      ? <p className="swarm-team-workspace__muted">{t('loading')}</p>
+      : goal.state === 'generated'
+        ? <p className="swarm-team-workspace__muted" data-swarm-goal-text>{goal.text}</p>
+        : <p className="swarm-team-workspace__muted" data-swarm-goal-not-set>{t('goalNotSet')}</p>}
+    <Button size="sm" variant="ghost" data-swarm-goal-update onClick={onUpdateViaCaptain}>{t('goalUpdateViaCaptain')}</Button>
+  </section>
+}
+
+/** Board view: real captain-scoped announcements/diagnostics reads plus folded real-data sections. */
+function BoardView({ data, goal, announcements, diagnostics, localeTag, number, onBack, onUpdateViaCaptain, t }: { readonly data: SwarmHostReadProjectionV1; readonly goal: SwarmReadTeamsV1['teams'][number]['goal'] | undefined; readonly announcements: SwarmReadCaptainAnnouncementsV1 | undefined; readonly diagnostics: SwarmReadCaptainDiagnosticsV1 | undefined; readonly localeTag: () => 'zh-CN' | 'en-US'; readonly number: Intl.NumberFormat; readonly onBack: () => void; readonly onUpdateViaCaptain: () => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
   return <div className="swarm-team-workspace__board" data-swarm-board-view>
     <div className="swarm-team-workspace__board-head"><Button size="sm" variant="ghost" onClick={onBack}>{t('backToMembers')}</Button></div>
+    <GoalSection goal={goal} onUpdateViaCaptain={onUpdateViaCaptain} t={t} />
     <AnnouncementSection announcements={announcements} localeTag={localeTag} t={t} />
     <details className="swarm-team-workspace__collapsible"><summary>{t('budget')}</summary><BudgetStats budget={data.budget} number={number} t={t} /></details>
     <details className="swarm-team-workspace__collapsible"><summary>{t('capabilities')}</summary><CapabilityRows capabilities={data.capabilities} t={t} /></details>
@@ -373,7 +389,7 @@ function ManagementEntry({ onOpen, t }: { readonly onOpen: () => void; readonly 
  *    2) real Team data (goal + announcements degrade to `unavailable`; budget & capabilities fold),
  *    3) folded technical diagnostics.
  *  The sidebar's first screen never shows these internal ledger fields. */
-function ManagementView({ data, teams, announcements, diagnostics, localeTag, number, onBack, t }: { readonly data: SwarmHostReadProjectionV1; readonly teams: SwarmReadTeamsV1 | undefined; readonly announcements: SwarmReadCaptainAnnouncementsV1 | undefined; readonly diagnostics: SwarmReadCaptainDiagnosticsV1 | undefined; readonly localeTag: () => 'zh-CN' | 'en-US'; readonly number: Intl.NumberFormat; readonly onBack: () => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
+function ManagementView({ data, teams, goal, announcements, diagnostics, localeTag, number, onBack, onUpdateViaCaptain, t }: { readonly data: SwarmHostReadProjectionV1; readonly teams: SwarmReadTeamsV1 | undefined; readonly goal: SwarmReadTeamsV1['teams'][number]['goal'] | undefined; readonly announcements: SwarmReadCaptainAnnouncementsV1 | undefined; readonly diagnostics: SwarmReadCaptainDiagnosticsV1 | undefined; readonly localeTag: () => 'zh-CN' | 'en-US'; readonly number: Intl.NumberFormat; readonly onBack: () => void; readonly onUpdateViaCaptain: () => void; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
   const headingRef = useRef<HTMLHeadingElement>(null)
   useLayoutEffect(() => { headingRef.current?.focus() }, [])
   return <div className="swarm-team-workspace__management" data-swarm-management-view>
@@ -388,7 +404,7 @@ function ManagementView({ data, teams, announcements, diagnostics, localeTag, nu
       if (state === 'generated') return null
       return <section className="swarm-team-workspace__unavailable-card" data-swarm-identity-incomplete data-swarm-identity-state={state ?? 'loading'}><strong>{t('identityStatus')}</strong><p className="swarm-team-workspace__muted">{t('profileIncomplete')}</p></section>
     })()}
-    <section className="swarm-team-workspace__unavailable-card" data-swarm-goal-unavailable><strong>{t('goal')}</strong><p className="swarm-team-workspace__muted">{t('goalUnavailable')}</p></section>
+    <GoalSection goal={goal} onUpdateViaCaptain={onUpdateViaCaptain} t={t} />
     <AnnouncementSection announcements={announcements} localeTag={localeTag} t={t} />
     <details className="swarm-team-workspace__collapsible"><summary>{t('writeCapabilities')}</summary><p className="swarm-team-workspace__muted">{t('writeUnavailable')}</p><CapabilityRows capabilities={data.capabilities} t={t} /></details>
     <details className="swarm-team-workspace__collapsible"><summary>{t('budget')}</summary><BudgetStats budget={data.budget} number={number} t={t} /></details>

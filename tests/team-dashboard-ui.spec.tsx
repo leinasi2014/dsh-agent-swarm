@@ -330,7 +330,7 @@ describe('R3 native Team Details surface', () => {
       expect(document.querySelector('[data-swarm-budget]')).not.toBeNull()
       expect(document.querySelector('[data-swarm-capabilities]')).not.toBeNull()
       // Goal/announcement state lives only in its dedicated board/management views, not on the roster.
-      expect(document.querySelectorAll('[data-swarm-goal-unavailable]')).toHaveLength(0)
+      expect(document.querySelectorAll('[data-swarm-goal-card]')).toHaveLength(0)
       // Diagnostics is a flat default-closed details directly in the rail (parent not DETAILS), and the
       // hard rule holds globally: there is NO nested `details details.swarm-team-workspace__diagnostics`.
       const diagnostics = document.querySelector('[data-swarm-team-rail] details.swarm-team-workspace__diagnostics')!
@@ -383,7 +383,7 @@ describe('R3 native Team Details surface', () => {
       expect(member.querySelector('[data-swarm-member-visible-activity]')?.textContent).toBe('Running')
       expect(member.querySelector('[data-swarm-task-owner]')).toBeNull()
       // Goal and announcement entries live in their dedicated board/management views only.
-      expect(document.querySelectorAll('[data-swarm-goal-unavailable]')).toHaveLength(0)
+      expect(document.querySelectorAll('[data-swarm-goal-card]')).toHaveLength(0)
       expect(document.querySelectorAll('[data-swarm-announcement-unavailable]')).toHaveLength(0)
       // A single Captain-row click routes to the dedicated Captain Chat via the coordinator.
       await act(async () => { captain.click(); await Promise.resolve() })
@@ -425,7 +425,12 @@ describe('R3 native Team Details surface', () => {
     // Write/read capabilities that the read-only Host contract does not expose degrade to explicit unavailable.
     expect(view.textContent).toContain('Write capabilities')
     expect(view.textContent).toContain('No human write path is bound to this read-only surface.')
-    expect(document.querySelector('[data-swarm-management-view] [data-swarm-goal-unavailable]')).not.toBeNull()
+    // The durable public goal renders its real canonical text plus the Captain-handoff update action.
+    const mgmtGoal = document.querySelector<HTMLElement>('[data-swarm-management-view] [data-swarm-goal-card]')!
+    expect(mgmtGoal).not.toBeNull()
+    expect(mgmtGoal.getAttribute('data-swarm-goal-state')).toBe('generated')
+    expect(mgmtGoal.querySelector('[data-swarm-goal-text]')?.textContent).toBe('Deliver the Team UI.')
+    expect(mgmtGoal.querySelector('[data-swarm-goal-update]')).not.toBeNull()
     // Real public announcements read: available state renders the real bounded entries.
     const mgmtAnnouncements = document.querySelector('[data-swarm-management-view] [data-swarm-announcements-state="available"]')
     expect(mgmtAnnouncements).not.toBeNull()
@@ -605,15 +610,21 @@ describe('R3 native Team Details surface', () => {
     expect(coordinator.closeAndRestoreFocus).toHaveBeenCalled()
   })
 
-  it('keeps the roster free of duplicated hollow board cards and renders real announcement entries on the board', async () => {
+  it('keeps the roster free of duplicated hollow board cards and renders the real goal plus announcement entries on the board', async () => {
     const coordinator = new FakeCoordinator()
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
     // Roster-first screen: goal/announcement state lives only in its dedicated views, never duplicated.
-    expect(document.querySelectorAll('[data-swarm-goal-unavailable]')).toHaveLength(0)
+    expect(document.querySelectorAll('[data-swarm-goal-card]')).toHaveLength(0)
     expect(document.querySelectorAll('[data-swarm-announcement-unavailable]')).toHaveLength(0)
     // Board view: one compact card in the real available state with the authored entry rendered.
     await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-view-tab="board"]')!).click() })
     const board = document.querySelector<HTMLElement>('[data-swarm-board-view]')!
+    // The durable public goal renders its real text; the update action reuses the official handoff.
+    const goalCard = board.querySelector<HTMLElement>('[data-swarm-goal-card]')!
+    expect(goalCard.getAttribute('data-swarm-goal-state')).toBe('generated')
+    expect(goalCard.querySelector('[data-swarm-goal-text]')?.textContent).toBe('Deliver the Team UI.')
+    await act(async () => { goalCard.querySelector<HTMLButtonElement>('[data-swarm-goal-update]')!.click(); await Promise.resolve() })
+    expect(coordinator.openCaptainChat).toHaveBeenCalledTimes(1)
     const cards = board.querySelectorAll<HTMLElement>('[data-swarm-announcements-state="available"]')
     expect(cards).toHaveLength(1)
     expect(cards[0]!.getAttribute('data-swarm-announcement-count')).toBe('1')
@@ -622,7 +633,41 @@ describe('R3 native Team Details surface', () => {
     expect(entries[0]!.textContent).toContain('Welcome to the Fixture Team.')
     // No duplicated section heading; no fabricated extra rows.
     expect(board.querySelectorAll('h3')).toHaveLength(0)
-    expect(board.querySelectorAll('h3')).toHaveLength(0)
+  })
+
+  it('renders the honest empty goal state for a Team that has not set one', async () => {
+    const coordinator = new FakeCoordinator()
+    const projection = {
+      ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot,
+      binding: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.binding, teamId: 'team-empty-goal' },
+      roster: [{ name: 'worker', role: 'writer', phase: 'active', createdAt: 1 }],
+      totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, roster: 1 },
+    }
+    const emptyGoalTeams = {
+      schemaVersion: 1,
+      binding: { rootSessionId: 'root' },
+      teams: [{
+        teamId: 'team-empty-goal', name: 'Empty Goal Team', phase: 'active', captainSessionId: 'root',
+        displayName: 'Empty Captain', profession: 'Steward', personality: 'Calm',
+        avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
+        identityCard: { state: 'generated' },
+        goal: { state: 'not_generated', reason: 'goal_not_set' },
+        endpoints: {
+          members: { method: 'captainMembers', target: { rootSessionId: 'root', teamId: 'team-empty-goal' } },
+          announcements: { method: 'captainAnnouncements', target: { rootSessionId: 'root', teamId: 'team-empty-goal' } },
+          diagnostics: { method: 'captainDiagnostics', target: { rootSessionId: 'root', teamId: 'team-empty-goal' } },
+        },
+      }],
+      observedAt: 4, complete: true,
+    }
+    const state: TeamDashboardState = { ...ready, data: { ...teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection), teams: emptyGoalTeams as never } }
+    const emptyGoalController = { getSnapshot: (): TeamDashboardState => state, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: emptyGoalController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-view-tab="board"]')!).click() })
+    const goalCard = document.querySelector<HTMLElement>('[data-swarm-goal-card]')!
+    expect(goalCard.getAttribute('data-swarm-goal-state')).toBe('not_generated')
+    expect(goalCard.querySelector('[data-swarm-goal-not-set]')?.textContent).toBe('No public goal has been set yet.')
+    expect(goalCard.querySelector('[data-swarm-goal-text]')).toBeNull()
   })
 })
 
