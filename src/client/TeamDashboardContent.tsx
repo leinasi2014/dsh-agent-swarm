@@ -84,7 +84,7 @@ export const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace__manage { display:grid; gap:8px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__manage-row { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:8px; min-width:0; padding:9px 10px; border:1px solid var(--dsw-alias-border-l2); border-radius:10px; background:var(--dsw-alias-bg-layer-1); }
 [data-swarm-team-dashboard] .swarm-team-workspace__manage-action { flex:0 0 auto; padding:4px 10px; border:1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 35%, var(--dsw-alias-border-l2)); border-radius:8px; background:transparent; color:var(--dsw-alias-brand-primary); font-size:10px; cursor:pointer; white-space:nowrap; }
-[data-swarm-team-dashboard] .swarm-team-workspace__detail-overlay { position:absolute; inset:0 0 0 46px; z-index:6; display:grid; grid-template-rows:auto minmax(0,1fr); border:0 solid var(--dsw-alias-border-l2); border-left-width:1px; background:var(--dsw-alias-bg-base); }
+[data-swarm-team-dashboard] .swarm-team-workspace__detail-overlay { position:absolute; inset:0; z-index:6; display:grid; grid-template-rows:auto minmax(0,1fr); background:var(--dsw-alias-bg-base); }
 [data-swarm-team-dashboard] .swarm-team-workspace__detail-head { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 10px; border:0 solid var(--dsw-alias-border-l2); border-bottom-width:1px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__detail-title { margin:0; overflow:hidden; font-size:13px; font-weight:700; white-space:nowrap; text-overflow:ellipsis; }
 [data-swarm-team-dashboard] .swarm-team-workspace__detail-sub { display:block; overflow:hidden; margin-top:1px; color:var(--dsw-alias-label-secondary); font-size:9px; white-space:nowrap; text-overflow:ellipsis; }
@@ -634,7 +634,7 @@ function DetailOverlay({ detail, data, localeTag, number, headingRef, memberAsse
         <h3 className="swarm-team-workspace__detail-title" id={headingId} ref={headingRef} tabIndex={-1}>{heading.title}</h3>
         <small className="swarm-team-workspace__detail-sub">{heading.sub}</small>
       </div>
-      <Button size="sm" variant="toolbar" data-swarm-detail-back onClick={onClose}>{t('backToMembers')}</Button>
+      <Button size="sm" variant="toolbar" aria-label={t('backToMembers')} title={t('backToMembers')} data-swarm-detail-back onClick={onClose}><IconCloseOutline16 /></Button>
     </header>
     <div className="swarm-team-workspace__detail-body">
       {detail.kind === 'member' ? <MemberDetail detail={detail} data={data} localeTag={localeTag} memberAssets={memberAssets} t={t} />

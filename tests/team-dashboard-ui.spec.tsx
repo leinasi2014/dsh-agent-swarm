@@ -252,7 +252,10 @@ describe('R3 native Team Details surface', () => {
     expect(overlay.textContent).toContain('Not available yet')
     expect(overlay.textContent).toContain('No current task')
     const back = overlay.querySelector<HTMLButtonElement>('[data-swarm-detail-back]')!
-    expect(back.textContent).toBe('Back to members')
+    expect(back.getAttribute('aria-label')).toBe('Back to members')
+    expect(back.querySelector('[data-icon="close"]')).not.toBeNull()
+    expect(shellCss).toContain('.swarm-team-workspace__detail-overlay { position:absolute; inset:0;')
+    expect(shellCss).not.toContain('inset:0 0 0 46px')
     await act(async () => { back.click() })
     expect(detailOverlay()).toBeNull()
     expect(document.activeElement).toBe(memberTrigger)
