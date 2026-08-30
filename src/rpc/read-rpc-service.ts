@@ -217,6 +217,13 @@ export class AgentSwarmReadRpcService {
             ? { state: 'not_generated', reason: 'identity_backend_not_implemented' }
             : { state: 'generated' },
           composition: memberCompositionOf(profiles[index], member),
+          // Member-detail overlay fields, emitted only from a verified reader
+          // profile (fail-closed otherwise). skills/growthSummary stay absent
+          // until a durable authority exposes them; callableTools is the
+          // deny-excluded member-facing plugin surface of an `available` row.
+          ...(profiles[index]?.skills === undefined ? {} : { skills: [...profiles[index].skills] }),
+          ...(profiles[index]?.callableTools === undefined ? {} : { callableTools: [...profiles[index].callableTools] }),
+          ...(profiles[index]?.growthSummary === undefined ? {} : { growthSummary: profiles[index].growthSummary }),
           // Non-sensitive growth availability — constant literal enum only; no content
           // (private memory is never read nor projected beyond this availability marker).
           growth: { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' },

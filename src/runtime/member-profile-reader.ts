@@ -13,10 +13,19 @@ import type {} from '@deepseek-ai/dsh-session-persistence'
 import { foldSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
 import { TeamDomainError } from '../domain/error.js'
 import type { TeamMember, TeamState } from '../domain/types.js'
+import { DEFAULT_TOOL_POLICY } from './permission-policy.js'
+import { MEMBER_HIDDEN_TOOLS } from './prompts.js'
 
 const MEMBER_INSPECTION_TIMEOUT_MS = 2_500
 const PAGE_INSPECTION_TIMEOUT_MS = 8_000
 const MAX_INSPECTION_CONCURRENCY = 4
+
+/** The deny-excluded member-facing plugin tool surface: the plugin's declared
+ *  member-visible allow surface minus the mandatory captain-only/hidden
+ *  baseline, in stable surface order. The read-time callable-tools projection
+ *  further excludes this member's own durable toolFilter denial. */
+const MEMBER_VISIBLE_PLUGIN_SURFACE: readonly string[] = (DEFAULT_TOOL_POLICY.allow ?? [])
+  .filter(tool => !(MEMBER_HIDDEN_TOOLS as readonly string[]).includes(tool))
 
 type MemberProfileState = 'available' | 'pending' | 'unavailable' | 'invalid'
 
@@ -47,6 +56,16 @@ export interface MemberProfile {
   readonly presetId?: string
   readonly personaConfigured?: boolean
   readonly deniedTools?: readonly string[]
+  /** Declared roster Skills derivable from the member's durable authority. Bounded
+   *  enumeration; empty means "none declared". Absent when no skills authority
+   *  exists (fail-closed), never an empty or fabricated claim. */
+  readonly skills?: readonly string[]
+  /** Tools this member may call within the Team's member-facing plugin surface,
+   *  derived from the member's durable toolFilter denial (deny-excluded). Present
+   *  only on an `available` profile; a fail-closed row discloses no tool claim. */
+  readonly callableTools?: readonly string[]
+  /** Bounded growth/experience summary. Absent when no summary authority exists. */
+  readonly growthSummary?: string
 }
 
 function pending(member: TeamMember): MemberProfile {
@@ -185,6 +204,14 @@ export class MemberProfileReader {
     // member profile, even though the generic official descriptor permits it.
     if (descriptor.toolFilter?.allow !== undefined) return invalid(member, 'tool_filter_invalid')
 
+    const deny = descriptor.toolFilter?.deny
+    // Callable tools = the member-facing plugin surface minus this member's own
+    // durable deny restriction — a bounded, honest read of "tools not denied on
+    // this member's surface". Official downstream guards remain authoritative.
+    const callableTools = MEMBER_VISIBLE_PLUGIN_SURFACE.filter(
+      tool => deny === undefined || !deny.includes(tool),
+    )
+
     return {
       name: member.name,
       role: member.role,
@@ -197,7 +224,8 @@ export class MemberProfileReader {
       ...(descriptor.agentModel === undefined ? {} : { model: descriptor.agentModel }),
       ...(stored.meta.agentPreset === undefined ? {} : { presetId: stored.meta.agentPreset }),
       personaConfigured: descriptor.persona !== undefined,
-      ...(descriptor.toolFilter?.deny === undefined ? {} : { deniedTools: descriptor.toolFilter.deny }),
+      ...(deny === undefined ? {} : { deniedTools: deny }),
+      callableTools,
     }
   }
 }

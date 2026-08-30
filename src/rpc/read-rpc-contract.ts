@@ -190,6 +190,29 @@ export interface SwarmReadCaptainMemberRowV1 {
     readonly skills: 'not_implemented'
     readonly capability: 'not_implemented'
   }
+  /** Declared roster Skills derivable from the member's durable authority. A
+   *  bounded enumeration; an empty array means "none declared". Absent when the
+   *  read has no authoritative source (fail-closed), never a fabricated claim. */
+  readonly skills?: readonly string[]
+  /** Tools this member may call within the Team's member-facing model surface,
+   *  derived from the member's durable toolFilter denial (deny-excluded). Empty
+   *  means none remain in that surface. Absent when the surface is unknown. */
+  readonly callableTools?: readonly string[]
+  /** Human-readable growth/experience summary derived from the member's real
+   *  Team history (bounded free text; empty means no summary is available yet). */
+  readonly growthSummary?: string
+  /** The member's genuinely in-flight task and its status, when one exists. */
+  readonly currentActivity?: {
+    readonly taskId: string
+    readonly subject: string
+    readonly status: 'pending' | 'in_progress' | 'submitted' | 'verifying'
+  }
+  /** The member's most recent terminal outcome (accepted/rejected), when one exists. */
+  readonly recentOutcome?: {
+    readonly taskId: string
+    readonly phase: 'accepted' | 'rejected'
+    readonly at: number
+  }
 }
 
 export interface SwarmReadCaptainMembersV1 {

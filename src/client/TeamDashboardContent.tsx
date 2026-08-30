@@ -557,6 +557,11 @@ function memberAssetOf(memberAssets: SwarmReadCaptainMembersV1 | undefined, name
   readonly personality?: string
   readonly growth: { readonly privateMemory: 'private_to_member'; readonly skills: 'not_implemented'; readonly capability: 'not_implemented' }
   readonly composition?: SwarmReadMemberCompositionV1
+  readonly skills?: readonly string[]
+  readonly callableTools?: readonly string[]
+  readonly growthSummary?: string
+  readonly currentActivity?: SwarmReadCaptainMembersV1['members'][number]['currentActivity']
+  readonly recentOutcome?: SwarmReadCaptainMembersV1['members'][number]['recentOutcome']
 } {
   const row = memberAssets?.members.find(candidate => candidate.name === name)
   return {
@@ -567,6 +572,11 @@ function memberAssetOf(memberAssets: SwarmReadCaptainMembersV1 | undefined, name
     ...(row?.personality === undefined ? {} : { personality: row.personality }),
     growth: row?.growth ?? { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' },
     ...(row?.composition === undefined ? {} : { composition: row.composition }),
+    ...(row?.skills === undefined ? {} : { skills: row.skills }),
+    ...(row?.callableTools === undefined ? {} : { callableTools: row.callableTools }),
+    ...(row?.growthSummary === undefined ? {} : { growthSummary: row.growthSummary }),
+    ...(row?.currentActivity === undefined ? {} : { currentActivity: row.currentActivity }),
+    ...(row?.recentOutcome === undefined ? {} : { recentOutcome: row.recentOutcome }),
   }
 }
 
@@ -725,8 +735,8 @@ function MemberDetail({ detail, data, localeTag, memberAssets, t }: {
     <div className="swarm-team-workspace__detail-section" data-swarm-detail-skills>
       <h4>{t('detail.section.skills')}</h4>
       <dl className="swarm-team-workspace__field-list">
-        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.skills')}</dt><dd data-swarm-detail-skills-value>{asset.growth.skills === 'not_implemented' ? unavailable : unavailable}</dd></div>
-        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.tools')}</dt><dd>{unavailable}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.skills')}</dt><dd data-swarm-detail-skills-value>{asset.skills === undefined ? unavailable : asset.skills.length === 0 ? t('detail.field.none') : asset.skills.join(', ')}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.tools')}</dt><dd data-swarm-detail-callable-tools>{asset.callableTools === undefined ? unavailable : asset.callableTools.length === 0 ? t('detail.field.none') : asset.callableTools.join(', ')}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.deniedTools')}</dt><dd data-swarm-detail-denied-tools>{composition !== undefined && compositionReady ? (composition.deniedTools === undefined ? unavailable : composition.deniedTools.length === 0 ? t('detail.field.none') : composition.deniedTools.join(', ')) : unavailable}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.permissions')}</dt><dd>{unavailable}</dd></div>
       </dl>
@@ -734,8 +744,8 @@ function MemberDetail({ detail, data, localeTag, memberAssets, t }: {
     <div className="swarm-team-workspace__detail-section" data-swarm-detail-task>
       <h4>{t('detail.section.currentTask')}</h4>
       <dl className="swarm-team-workspace__field-list">
-        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('tasks')}</dt><dd data-swarm-detail-task-subject>{currentTask?.subject ?? t('memberNone')}</dd></div>
-        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('status')}</dt><dd data-swarm-detail-task-status>{currentTask !== undefined ? enumLabel(currentTask.status, t) : t('memberNone')}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('tasks')}</dt><dd data-swarm-detail-task-subject>{currentTask?.subject ?? asset.currentActivity?.subject ?? t('memberNone')}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('status')}</dt><dd data-swarm-detail-task-status>{currentTask !== undefined ? enumLabel(currentTask.status, t) : asset.currentActivity !== undefined ? enumLabel(asset.currentActivity.status, t) : t('memberNone')}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.progress')}</dt><dd>{unavailable}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.started')}</dt><dd data-swarm-detail-task-started>{value(currentTask !== undefined && activity.attempt !== undefined ? formatTime(activity.attempt.createdAt, localeTag) : undefined)}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.due')}</dt><dd>{unavailable}</dd></div>
@@ -745,8 +755,8 @@ function MemberDetail({ detail, data, localeTag, memberAssets, t }: {
       <h4>{t('detail.section.growth')}</h4>
       <dl className="swarm-team-workspace__field-list">
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.recentTask')}</dt><dd data-swarm-detail-recent-attempt>{activity.attempt !== undefined ? `${activity.attempt.phase} · ${formatTime(activity.attempt.updatedAt, localeTag) ?? ''}` : unavailable}</dd></div>
-        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.recentOutput')}</dt><dd>{unavailable}</dd></div>
-        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('growthTitle')}</dt><dd>{unavailable}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.recentOutput')}</dt><dd data-swarm-detail-recent-outcome>{asset.recentOutcome !== undefined ? `${asset.recentOutcome.phase} · ${formatTime(asset.recentOutcome.at, localeTag) ?? ''}` : unavailable}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('growthTitle')}</dt><dd data-swarm-detail-growth-summary>{asset.growthSummary === undefined ? unavailable : asset.growthSummary === '' ? t('detail.field.none') : asset.growthSummary}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.memory')}</dt><dd data-swarm-detail-memory>{t('growthMemoryPrivate')}</dd></div>
       </dl>
     </div>

@@ -65,7 +65,7 @@ function isSafePixelAvatarSvg(value: string): boolean {
 }
 
 export const SWARM_READ_RPC_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
-export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = 'f8a81e3af6edea46554f67330aa0ccf999df002d996021a0bdb87930fe05931c' as const
+export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '83c0e9fb91b48b052af06d11c1ea0aef7fb9e26ab21f41cad5ebbb9323119bac' as const
 
 const boundedString = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength, pattern: '\\S' })
 /** Member role is authoritative free-text (never truncated by the reader); the
@@ -187,6 +187,25 @@ const captainMemberRow = {
     avatar: assetStatus, identityCard: assetStatus,
     growth: memberGrowth,
     composition: memberComposition,
+    // Member-detail overlay fields (all optional, fail-closed when absent):
+    // skills/callableTools are bounded enumerations (empty = declared none);
+    // growthSummary is a bounded summary (empty allowed until a summary exists).
+    skills: { type: 'array', maxItems: 64, items: boundedString(128) },
+    callableTools: { type: 'array', maxItems: 128, items: boundedString(128) },
+    growthSummary: { type: 'string', maxLength: 2048 },
+    currentActivity: {
+      type: 'object', additionalProperties: false,
+      required: ['taskId', 'subject', 'status'],
+      properties: {
+        taskId: boundedString(128), subject: boundedString(256),
+        status: { enum: ['pending', 'in_progress', 'submitted', 'verifying'] },
+      },
+    },
+    recentOutcome: {
+      type: 'object', additionalProperties: false,
+      required: ['taskId', 'phase', 'at'],
+      properties: { taskId: boundedString(128), phase: { enum: ['accepted', 'rejected'] }, at: nonNegativeInteger },
+    },
   },
 }
 const sectionBinding = {
