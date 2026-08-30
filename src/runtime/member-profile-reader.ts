@@ -222,8 +222,11 @@ export class MemberProfileReader {
       return invalid(member, 'descriptor_invalid')
     }
     if (descriptor?.mode !== 'continuable') return invalid(member, 'not_continuable')
+    // Issue #148: member provisioning now derives the official session label
+    // from the readable Team name + displayName (falling back to the internal
+    // name), so the binding check must match that label exactly.
     if (
-      descriptor.label !== `agent-swarm:${team.id}:${member.name}`
+      descriptor.label !== `${team.name} · ${member.displayName ?? member.name}`
       || descriptor.provider !== member.provider
     ) {
       return invalid(member, 'binding_invalid')

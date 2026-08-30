@@ -141,7 +141,12 @@ export class MemberProvisioner {
       try {
         await this.ctx.subagents.startContinuable({
           provider: providerName,
-          label: `agent-swarm:${membership.team.id}:${provisioning.name}`,
+          // Issue #148: the label is the readable identity shown in the official
+          // DSH session list. Use the human-readable Captain-declared display
+          // name, falling back to the internal immutable member name when the
+          // recruiter supplied no displayName. Only affects newly created
+          // sessions; stored historical labels are never rewritten.
+          label: `${membership.team.name} · ${provisioning.displayName ?? provisioning.name}`,
           childId,
           request: {
             prompt: [{ type: 'text', text: memberJoinNotice(membership.team) }],

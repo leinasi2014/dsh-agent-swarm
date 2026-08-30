@@ -44,7 +44,7 @@ function rpcHarness(options: {
   toolSchemas?: (agent: Agent) => readonly { name: string }[];
 } = {}) {
   const team = {
-    id: 'team-r2', captainSessionId: ROOT.id, phase: 'active', revision: 6,
+    id: 'team-r2', name: 'Team R2', captainSessionId: ROOT.id, phase: 'active', revision: 6,
     members: [], tasks: [], attempts: [],
     ...options.teamState,
   } as TeamState
@@ -103,7 +103,7 @@ function descriptor(memberName: string, over: Record<string, unknown> = {}) {
     type: 'subagent/descriptor',
     data: {
       version: 2, mode: 'continuable', provider: 'mock',
-      label: `agent-swarm:team-r2:${memberName}`,
+      label: `Team R2 · ${memberName}`,
       ...over,
     },
   }
