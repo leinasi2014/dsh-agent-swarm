@@ -5,9 +5,9 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Domain } from '@deepseek-ai/dsh-storage-domain'
 import type {} from '@deepseek-ai/dsh-subagent'
-import { TaskId, type AttemptId, type TaskAttempt, type TeamAnnouncement, type TeamId, type TeamMessage, type TeamMessageCausal, type TeamState, type TeamStatusSnapshot, type TeamTask } from '../domain/types.js'
+import type { TaskAttempt, TeamAnnouncement, TeamId, TeamMessage, TeamMessageCausal, TeamState, TeamStatusSnapshot, TeamTask } from '../domain/types.js'
 import { TeamDomain } from '../domain/team-domain.js'
-import type { CreateTaskInput, TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
+import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import { TeamDomainError } from '../domain/error.js'
 import type { MemberIdentityInput } from '../domain/identity-profile.js'
 import { StorageDomainTeamStore } from '../storage/storage-domain-team-store.js'
@@ -23,7 +23,6 @@ import { MessageDelivery } from './message-delivery.js'
 import { manualReview, priorityReadyScheduler, type ReviewProviderInput, type ReviewProviderResult, type SchedulerDecision, type SchedulerSelectionInput, type TeamReviewProvider, type TeamSchedulerProvider } from './providers.js'
 import { executableReview } from './executable-review.js'
 import type { ReviewRootCapabilities, ReviewRootProvider } from './review-root.js'
-import { runReviewTransaction } from './review-transaction.js'
 import { OrchestrationOwnership } from './orchestration-ownership.js'
 import { SchedulingPass } from './scheduling.js'
 import { UsageAccountant } from './usage-accounting.js'
@@ -33,8 +32,8 @@ import type { TeamJobProjection } from './jobs/team-job-projection.js'
 import type { TeamBridgeWorkflowEngine } from './workflow/team-bridge-engine.js'
 import type { RuntimeCreateTaskInput, VerificationCommandTemplate } from './verification-commands.js'
 import { VerificationFamily } from './verification-family.js'
-import { resolveTaskTarget } from './task-targeting.js'
 import { DedicatedCaptainProvisioner } from './dedicated-captain-provisioning.js'
+import { RuntimeMutationSurface } from './runtime-mutation-surface.js'
 
 export type { ToolExecutionAuthority }
 export type { ReviewProviderInput, ReviewProviderResult, SchedulerDecision, SchedulerSelectionInput, TeamReviewProvider, TeamSchedulerProvider }
@@ -59,7 +58,6 @@ export class AgentSwarmRuntime extends Service {
    * check-then-create against Storage Domain, plus createUniqueForCaptain's
    * origin non-duplication under the scope lock. Never the sole guarantee.
    */
-  private readonly managedInflight = new Map<string, Promise<TeamState>>()
   /** Session id → its idle-stretch start, latched per `agent/status → idle` edge (issue #83; absent = task clock). */
   private readonly idleSince = new Map<string, number>()
   private readonly waitSpinFuse = new WaitSpinFuse()
@@ -69,6 +67,7 @@ export class AgentSwarmRuntime extends Service {
   private readonly provisioning: MemberProvisioner
   private readonly captainProvisioning: DedicatedCaptainProvisioner
   private readonly schedulingPass: SchedulingPass
+  private readonly mutations: RuntimeMutationSurface
   readonly orchestration: OrchestrationOwnership
   readonly executionRoots: ExecutionRootSurface
   private closing = false
@@ -151,6 +150,16 @@ export class AgentSwarmRuntime extends Service {
     })
     this.captainProvisioning = new DedicatedCaptainProvisioner(ctx, {
       config, domain: () => this.domain, trackChild: (parent, childId) => this.trackChild(parent, childId),
+    })
+    this.mutations = new RuntimeMutationSurface({
+      ctx, config, domain: () => this.domain,
+      ensureReady: () => this.ensureReady(), assertOpen: () => this.assertOpen(),
+      assertConfiguredProviders: () => this.assertConfiguredProviders(), scopeOf: agent => this.scopeOf(agent),
+      watchJobsScope: scope => this.watchJobsScope(scope), listTeamAggregates: scope => this.listTeamAggregates(scope),
+      provisioning: this.provisioning, captainProvisioning: this.captainProvisioning,
+      verificationFamily: this.verificationFamily, executionRoots: this.executionRoots, delivery: this.delivery,
+      reviewProvider: name => this.reviewProviders.get(name),
+      requestSchedule: (scope, teamId, captain) => this.requestSchedule(scope, teamId, captain),
     })
   }
   /**
@@ -334,155 +343,42 @@ export class AgentSwarmRuntime extends Service {
   }
 
   async create(exec: ToolExecutionAuthority, name: string, description: string): Promise<TeamState> {
-    await this.ensureReady(); this.assertOpen()
-    const agent = requireAgent(exec), scope = this.scopeOf(agent)
-    this.watchJobsScope(scope)
-    return await this.domain.createTeam(scope, agent.id, name, description, agent.session.events.at(-1)?.seq ?? -1)
+    return await this.mutations.create(exec, name, description)
   }
 
   async createWithDedicatedCaptain(exec: ToolExecutionAuthority, name: string, description: string, options: { llmProvider?: string; model?: string } = {}): Promise<TeamState> {
-    await this.ensureReady(); this.assertOpen()
-    const root = requireAgent(exec), scope = this.scopeOf(root)
-    if (root.session.header.parentSession !== undefined || await this.domain.findMembership(scope, root.id) !== undefined)
-      throw new TeamDomainError('managed Team creation requires a top-level main Chat outside every Team', 'TEAM_CAPTAIN_REQUIRED')
-    // Identity-addressed creation: the durable key is MainBrainSessionId + turn
-    // (resolved from the official Session log), NOT the calling Agent alone.
-    // Same identity (a retry, a parallel duplicate, a restart re-invocation)
-    // reuses one Team; a different identity provisions an independent Team.
-    const identity = this.resolveManagedIdentity(root, exec)
-    const key = identity
-    const inFlight = this.managedInflight.get(key)
-    if (inFlight !== undefined) {
-      // Single-flight acceleration: a concurrent same-identity call awaits the
-      // provisioning already in progress and returns its Team.
-      try { return await inFlight } finally { /* kept in map until settle */ }
-    }
-    const creation = (async () => {
-      // Authoritative reuse: the persisted managed origin (reload-safe) wins.
-      const owned = await this.findManagedTeamByOrigin(scope, identity)
-      if (owned !== undefined) return owned
-      this.watchJobsScope(scope)
-      return await this.captainProvisioning.create({
-        scope, root, name, description, managedOrigin: identity,
-        ...(options.llmProvider === undefined ? {} : { llmProvider: options.llmProvider }),
-        ...(options.model === undefined ? {} : { model: options.model }),
-        signal: exec.signal,
-      })
-    })()
-    this.managedInflight.set(key, creation)
-    try {
-      return await creation
-    } finally {
-      if (this.managedInflight.get(key) === creation) this.managedInflight.delete(key)
-    }
-  }
-
-  /**
-   * Resolve the durable operation identity of one managed-create call: the
-   * MainBrainSessionId plus the REAL turn of the matching `tool/call` event in
-   * the official Session log. The identity is deliberately NOT the bare callId
-   * (a retry within a turn carries a new callId yet is the same operation) and
-   * rootCallId only groups code-mode sub-calls. When the executing call has no
-   * corresponding Session-log record (a detached/direct invocation that is not
-   * a real AgentLoop turn), it falls back to a stable discrete per-call handle
-   * so distinct direct operations stay distinct and re-invocations reuse.
-   */
-  private resolveManagedIdentity(root: Agent, exec: ToolExecutionAuthority): string {
-    const main = String(root.id)
-    const callId = exec.callId === undefined ? undefined : String(exec.callId)
-    if (callId !== undefined) {
-      for (const event of root.session.events) {
-        if (event.type !== 'tool/call') continue
-        const data = event.data as { callId?: unknown; turn?: number }
-        if (String(data.callId) === callId) {
-          const turn = data.turn
-          return `managed:${main}:turn:${turn}`
-        }
-      }
-    }
-    return `managed:${main}:detached:${callId ?? 'unknown'}`
-  }
-
-  /** The active Team in scope whose persisted managed origin matches (reuse). */
-  private async findManagedTeamByOrigin(scope: TeamScope, origin: string): Promise<TeamState | undefined> {
-    const teams = await this.listTeamAggregates(scope)
-    return teams.find(team => team.phase === 'active' && team.managedOrigin === origin)
+    return await this.mutations.createWithDedicatedCaptain(exec, name, description, options)
   }
 
   async addMember(exec: ToolExecutionAuthority, input: { name: string; role: string; provider?: string; llmProvider?: string; model?: string; denyTools?: readonly string[] } & MemberIdentityInput): Promise<TeamState['members'][number]> {
-    await this.ensureReady(); this.assertOpen()
-    return await this.provisioning.addMember(exec, input)
+    return await this.mutations.addMember(exec, input)
   }
 
   /** Captain-only: set this Team's public identity profile (validated; expected_revision CAS in-domain). */
   async setCaptainProfile(exec: ToolExecutionAuthority, expectedRevision: number, input: MemberIdentityInput): Promise<TeamState> {
-    await this.ensureReady(); this.assertOpen()
-    const captain = requireAgent(exec), scope = this.scopeOf(captain)
-    const membership = await this.domain.requireMembership(scope, captain.id)
-    return await this.domain.setCaptainProfile(scope, membership.team.id, captain.id, expectedRevision, input)
+    return await this.mutations.setCaptainProfile(exec, expectedRevision, input)
   }
 
   /** Captain-only: publish one public announcement (expected_revision CAS). */
   async publishAnnouncement(exec: ToolExecutionAuthority, expectedRevision: number, text: string): Promise<{ team: TeamState; announcement: TeamAnnouncement }> {
-    await this.ensureReady(); this.assertOpen()
-    const captain = requireAgent(exec), scope = this.scopeOf(captain)
-    const membership = await this.domain.requireMembership(scope, captain.id)
-    return await this.domain.publishAnnouncement(scope, membership.team.id, captain.id, expectedRevision, text)
+    return await this.mutations.publishAnnouncement(exec, expectedRevision, text)
   }
 
   /** Captain-only: set this Team's public goal (canonical bounded text, expected_revision CAS). */
   async setPublicGoal(exec: ToolExecutionAuthority, expectedRevision: number, text: string): Promise<TeamState> {
-    await this.ensureReady(); this.assertOpen()
-    const captain = requireAgent(exec), scope = this.scopeOf(captain)
-    const membership = await this.domain.requireMembership(scope, captain.id)
-    return await this.domain.setPublicGoal(scope, membership.team.id, captain.id, expectedRevision, text)
+    return await this.mutations.setPublicGoal(exec, expectedRevision, text)
   }
 
   async createTask(exec: ToolExecutionAuthority, input: RuntimeCreateTaskInput): Promise<TeamTask> {
-    await this.ensureReady(); this.assertOpen(); this.assertConfiguredProviders()
-    const actor = requireAgent(exec), scope = this.scopeOf(actor)
-    const membership = await this.domain.requireMembership(scope, actor.id)
-    const { verification, targetMemberName, ...taskInput } = input
-    let domainInput: CreateTaskInput = taskInput
-    if (targetMemberName !== undefined) {
-      domainInput = { ...domainInput, targetMemberSessionId: resolveTaskTarget(membership.team.members, targetMemberName) }
-    }
-    if (verification !== undefined) {
-      const compiled = await this.verificationFamily.compile(verification, this.config.limits.maxVerificationCommands, exec.signal)
-      domainInput = { ...domainInput, verification: compiled }
-    }
-    const task = await this.domain.createTask(scope, membership.team.id, actor.id, domainInput)
-    const captain = this.ctx.agents.get(SessionId(membership.team.captainSessionId)); if (captain !== undefined) this.requestSchedule(scope, membership.team.id, captain)
-    return task
+    return await this.mutations.createTask(exec, input)
   }
 
   async removeMember(exec: ToolExecutionAuthority, name: string, reason: string) {
-    await this.ensureReady(); this.assertOpen()
-    const captain = requireAgent(exec)
-    const scope = this.scopeOf(captain)
-    const membership = await this.domain.requireMembership(scope, captain.id)
-    const removed = await this.domain.removeMember(scope, membership.team.id, captain.id, name, reason)
-    this.ctx.subagents.interrupt(SessionId(removed.member.sessionId), { kind: 'ancestor', agent: captain })
-    await this.ctx.subagents.drainContinuableChildren(captain, [SessionId(removed.member.sessionId)])
-    await this.executionRoots.sweep(scope, membership.team.id)
-    this.requestSchedule(scope, membership.team.id, captain)
-    return removed
+    return await this.mutations.removeMember(exec, name, reason)
   }
 
   async archive(exec: ToolExecutionAuthority, reason: string): Promise<TeamState> {
-    await this.ensureReady()
-    this.assertOpen()
-    const captain = requireAgent(exec)
-    const scope = this.scopeOf(captain)
-    const membership = await this.domain.requireMembership(scope, captain.id)
-    const activeIds = membership.team.members
-      .filter(member => member.phase === 'active' || member.phase === 'provisioning')
-      .map(member => SessionId(member.sessionId))
-    const archived = await this.domain.archiveTeam(scope, membership.team.id, captain.id, reason)
-    for (const id of activeIds) this.ctx.subagents.interrupt(id, { kind: 'ancestor', agent: captain })
-    await this.ctx.subagents.drainContinuableChildren(captain, activeIds)
-    await this.executionRoots.sweep(scope, membership.team.id)
-    return archived
+    return await this.mutations.archive(exec, reason)
   }
 
   async claimTask(
@@ -490,99 +386,32 @@ export class AgentSwarmRuntime extends Service {
     taskId: string,
     expectedRevision: number,
   ): Promise<{ task: TeamTask; attempt: TaskAttempt; executionRoot?: { path: string; isolation: 'git-worktree' | 'temp-directory' } }> {
-    await this.ensureReady()
-    this.assertOpen()
-    const actor = requireAgent(exec)
-    const scope = this.scopeOf(actor)
-    const membership = await this.domain.requireMembership(scope, actor.id)
-    const claim = await this.domain.claimTask(
-      scope, membership.team.id, actor.id, TaskId(taskId), expectedRevision,
-    )
-    // M3-1 (issue #100): fence the fresh attempt into its execution root at
-    // claim time — attemptId is the fence key. A failed acquisition rolls the
-    // claim back under the team captain's compensating authority (docs/04 §8l).
-    return await this.executionRoots.settleClaim(scope, membership.team, claim)
+    return await this.mutations.claimTask(exec, taskId, expectedRevision)
   }
 
   async submitTask(
     exec: ToolExecutionAuthority,
     input: { taskId: string; expectedRevision: number; attemptId: string; output: string; evidence?: readonly string[] },
   ): Promise<TeamTask> {
-    await this.ensureReady()
-    this.assertOpen()
-    const actor = requireAgent(exec)
-    const scope = this.scopeOf(actor)
-    const membership = await this.domain.requireMembership(scope, actor.id)
-    const task = await this.domain.submitTask(
-      scope,
-      membership.team.id,
-      actor.id,
-      TaskId(input.taskId),
-      input.expectedRevision,
-      input.attemptId as AttemptId,
-      input.output,
-      input.evidence,
-    )
-    await this.executionRoots.sweep(scope, membership.team.id)
-    return task
+    return await this.mutations.submitTask(exec, input)
   }
 
   async reassignTask(exec: ToolExecutionAuthority, taskId: string, expectedRevision: number, reason: string, targetMemberName?: string): Promise<TeamTask> {
-    await this.ensureReady()
-    this.assertOpen()
-    const captain = requireAgent(exec)
-    const scope = this.scopeOf(captain)
-    const membership = await this.domain.requireMembership(scope, captain.id)
-    const targetMemberSessionId = targetMemberName === undefined ? undefined : resolveTaskTarget(membership.team.members, targetMemberName)
-    const before = membership.team.tasks.find(task => task.id === taskId)
-    const released = await this.domain.cancelAttempt(
-      scope, membership.team.id, captain.id, TaskId(taskId), expectedRevision, reason, targetMemberSessionId,
-    )
-    if (before?.ownerSessionId !== undefined) {
-      this.ctx.subagents.interrupt(SessionId(before.ownerSessionId), { kind: 'ancestor', agent: captain })
-    }
-    await this.executionRoots.sweep(scope, membership.team.id)
-    this.requestSchedule(scope, membership.team.id, captain)
-    return released
+    return await this.mutations.reassignTask(exec, taskId, expectedRevision, reason, targetMemberName)
   }
 
   async reviewTask(
     exec: ToolExecutionAuthority,
     input: { taskId: string; expectedRevision: number; attemptId: string; decision: 'accept' | 'reject'; diagnostic?: string },
   ): Promise<{ task: TeamTask; decision: 'accept' | 'reject' }> {
-    await this.ensureReady()
-    this.assertOpen()
-    const outcome = await runReviewTransaction({
-      ctx: this.ctx, domain: () => this.domain,
-      reviewProvider: () => this.reviewProviders.get(this.config.reviewProvider),
-      reviewProviderName: () => this.config.reviewProvider, scopeOf: agent => this.scopeOf(agent),
-      requestSchedule: (scope, teamId, captain) => this.requestSchedule(scope, teamId, captain),
-    }, exec, input)
-    // M3-1 (issue #100): the review settling is a terminal transition —
-    // sweep the owner's execution roots from the authoritative snapshot.
-    const captain = requireAgent(exec)
-    const scope = this.scopeOf(captain)
-    const membership = await this.domain.requireMembership(scope, captain.id)
-    await this.executionRoots.sweep(scope, membership.team.id)
-    if (outcome.decision === 'reject') this.requestSchedule(scope, membership.team.id, captain)
-    return outcome
+    return await this.mutations.reviewTask(exec, input)
   }
 
   async sendMessage(
     exec: ToolExecutionAuthority, target: string, content: string,
     delivery: 'quiet' | 'wakeup', causal?: TeamMessageCausal, supersedes?: TeamMessage['supersedes'],
   ): Promise<TeamMessage> {
-    await this.ensureReady()
-    this.assertOpen()
-    const sender = requireAgent(exec)
-    const scope = this.scopeOf(sender)
-    const membership = await this.domain.requireMembership(scope, sender.id)
-    const message = await this.domain.queueMessage(
-      scope, membership.team.id, sender.id, target, content, delivery, causal, supersedes,
-    )
-    const captain = this.ctx.agents.get(SessionId(membership.team.captainSessionId))
-    if (captain === undefined) return message
-    return await this.delivery.deliverQueuedMessage(scope, membership.team.id, captain, message.id, exec.signal) ?? message
+    return await this.mutations.sendMessage(exec, target, content, delivery, causal, supersedes)
   }
 
   async status(exec: ToolExecutionAuthority) {
