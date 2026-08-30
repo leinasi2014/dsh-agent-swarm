@@ -12,8 +12,9 @@ method:
 
 authority:
   repository:
-    alias: origin
-    role: development-authority
+    alias: github
+    role: development-and-integration-authority
+    branch: main
   workSource:
     kind: external-provider
     capability: NOT_CONFIGURED
@@ -22,10 +23,10 @@ authority:
     capability: NOT_CONFIGURED
     committedMarkdownAuthority: false
   mirrors:
-    - alias: github
-      role: replication-only
-      mutationAuthority: separate-user-authorized-operation
-  authorityEpoch: 3
+    - alias: origin
+      role: local-backup
+      mutationAuthority: backup-only-after-github-main-readback
+  authorityEpoch: 4
 
 candidate:
   identityScheme: git-commit-sha
@@ -52,17 +53,17 @@ deliveryPipelines:
   defectAndReworkAuthority:
     kind: selected-dynamic-provider
     capability: NOT_CONFIGURED
-  integrationAuthority: expected-main-identity
+  integrationAuthority: github-main-identity
   fallback:
     scope: one-active-session
     record: existing-task-envelope
     parallelWriter: managed-lifecycle-only
 
 deliveryFlow:
-  userVisibleWalkingSkeleton: required-before-support-expansion
-  executableOutcomeCircuitBreaker: active
-  circuitBreakerExit: integrated-team-ui-walking-skeleton-with-real-profile-browser-proof
-  newSupportArtifactPolicy: deny-while-circuit-breaker-active
+  userVisibleWalkingSkeleton: integrated-and-real-profile-browser-proven
+  executableOutcomeCircuitBreaker: satisfied
+  circuitBreakerExit: achieved
+  newSupportArtifactPolicy: replace-existing-authority-only
   repeatedSupportCorrectionLimit: 2
   progressEvidence: executable-behavior-or-authoritative-product-blocker
 
@@ -129,7 +130,7 @@ risk:
       - promoter
 
 integration:
-  provider: git
+  provider: git-and-github
   capabilities:
     readTarget: native
     candidateBoundChecks: adapter
@@ -137,17 +138,19 @@ integration:
     expectedTargetMutation: native
     readResult: native
   localIntegration:
-    authority: expected-main-identity
-    mechanism: native
+    authority: github-main-readback
+    mechanism: update-local-backup-after-authoritative-integration
     serial: true
     resultReadBack: required
   remotePush:
+    targetAlias: github
+    authority: github-main
     mechanism: native
-    authorization: separate-user-authorized-operation
+    authorization: user-authorized-development-operation
     impliedByLocalIntegration: false
   mirrorReplication:
-    targetAlias: github
-    authorization: separate-user-authorized-operation
+    targetAlias: origin
+    authorization: backup-only-after-github-main-readback
 
 release:
   requiredFor: package-or-runtime-promotion

@@ -5,8 +5,7 @@
  * creation window only (`applyChildComposition` → scoped `tools.restrict()`,
  * snapshotted into the durable descriptor, replayed on cold resume) — the
  * followup face carries no composition, so a member's host-tool policy is
- * declared once, by the captain, at provisioning (design note
- * `docs/development/2026-08-22-m5b-permission-family-design.md` §2).
+ * declared once, by the captain, at provisioning (docs/04-core-protocol.md).
  *
  * This module composes that declaration with the M1A static baseline. The
  * composition is DENY-ONLY and monotone: the captain-only administration

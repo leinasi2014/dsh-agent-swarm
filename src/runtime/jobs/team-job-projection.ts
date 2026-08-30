@@ -5,7 +5,7 @@
  * that Provider contract owns producer admission, cancellation, controller
  * coverage, owner cleanup, and teardown settlement. A Team task projection
  * owns none of those resources. TeamDomainPort remains the only authority for
- * all task mutation. See docs/development/2026-08-27-jobs-scope-owner-fix-design.md.
+ * all task mutation. See docs/04-core-protocol.md.
  * @module dsh-agent-swarm/runtime/jobs/team-job-projection
  */
 

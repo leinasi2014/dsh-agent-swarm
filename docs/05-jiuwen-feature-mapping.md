@@ -1,147 +1,92 @@
-# 05. Mapping JiuwenSwarm features to DSH plugins
+# 05. Product feature mapping
 
-## 1. Mapping table
+JiuwenSwarm contributes product concepts and failure cases. It does not contribute runtime authority. Every feature below must land on an official DSH seam or a project-owned adapter with one explicit owner.
 
-| JiuwenSwarm feature | DSH implementation | Package ownership |
+## 1. Capability map
+
+| Product capability | DSH landing surface | Ownership rule |
 |---|---|---|
-| SwarmFlow script | published `ctx.workflowEngine` plus Team bridge | `team-workflow-bridge` Consumer |
-| `agent()` one-shot | `ctx.subagents.start()` | existing DSH subagent Provider |
-| `agent_session()` | continuable subagent | existing DSH subagent + Team member adapter |
-| `human()` / `human_session()` | `ctx.userQuestions` and `ctx.approval` | interaction Consumer |
-| `parallel` / `pipeline` | workflow scripts/operators | published workflow service, not Team core |
-| nested workflow | workflow composition | published workflow service |
-| token budget | `ctx.tokenMeter` projection + cumulative Team policy ledger | 0.1 direct Session folding; M4-1 (issue #127) decided the boundary — the fold stays the single measurement, the official faces stay host-side (parity proven, divergence declared) |
-| `isolation=worktree` | workspace lease Provider | `team-workspace-worktree` |
-| local/distributed Team | member Provider registry | local subagent / remote DSH providers |
-| registry reservation | remote member control plane | `team-member-remote` |
-| shared task/message DB | distributed atomic Team store | store Provider |
-| Team memory | extractor Consumer writing memory service | `team-memory` |
-| personal member memory | Agent-scoped memory provider | generic memory family |
-| Dreaming | idle schedule/job Consumer | generic memory-dreaming plugin |
-| Skill Evolution | signal detector + proposal + approval + writer | generic skill-evolution plugin |
-| tiered permissions | DSH permission/sandbox/tool events | existing interaction/security seams |
-| context offload | compaction/spill Provider | existing DSH seams |
-| heartbeat tasks | schedule/jobs Consumer | generic plugin, not Team core |
-| self-improving coding Team | stable control + Worktree Workers + Review + acceptance Profile | ADR-0008 project composition over official seams |
+| one-shot worker | `ctx.subagents.start()` | official Subagent Provider |
+| persistent member | continuable subagent | official lifecycle plus Team member adapter |
+| adaptive Team scheduling | Team task DAG and Scheduler policy | `TeamDomainPort` is the only task writer |
+| deterministic workflow | `ctx.workflowEngine` Team bridge | Workflow owns run state; Team owns Team tasks |
+| background observation/cancel | `ctx.jobs` or a read-only Team job projection | never shadow the default Job registry |
+| human question/approval | `ctx.userQuestions` / `ctx.approval` | official interaction owner |
+| token/request/retry/deadline budget | Team policy ledger | official token-meter remains a host-side measurement face |
+| Worktree execution | managed workspace lease plus a Session/tool root that actually changes | prompt-only paths are forbidden |
+| local/remote member | member Provider registry | one selected Provider per member execution |
+| distributed reservation | remote control-plane lease/ACK Provider | transport is replaceable and absent from the Service contract |
+| Team memory | accepted-evidence extractor Consumer | not task-board state |
+| private member memory | Agent-scoped append-only memory domain | owning active member only |
+| Skill Evolution | signal → proposal → validation → approval → write | Team supplies evidence, never self-authorization |
+| tool permission | creation-time tool filter plus host sandbox/permission policy | deny-only overlays cannot widen host authority |
+| Team UI | official Client extension points and read-only Host projections | UI owns no scheduler or persistence state |
+| self-development | stable control Profile, managed writers, frozen candidate and separate acceptance Profile | candidate cannot accept or promote itself |
 
-## 2. Deterministic workflow versus adaptive team
+## 2. Adaptive and deterministic execution
 
-Both modes should coexist:
+Both modes can exist, but never advance the same Team concurrently.
 
-### Adaptive scheduling
+- Adaptive mode lets the Lead and Scheduler create and assign work dynamically.
+- Workflow mode fixes phases, barriers, schemas, human points and completion rules.
+- Mode is selected at a lifecycle boundary. Runtime mode switching fails loud unless in-flight work has been explicitly settled.
+- Workflow/Job/UI projections may merge observations for users; they do not duplicate the Team aggregate or mutate through a second route.
 
-Lead and Scheduler create/assign tasks dynamically. Best for discovery, changing requirements and loosely coupled work.
+## 3. Worktree and self-development
 
-### Deterministic workflow
+Worktree isolation is true only when the actual execution cwd, filesystem capability and tools resolve inside the leased root. A declared path in a prompt is disclosure, not enforcement.
 
-A workflow definition fixes phases, barriers, schemas, human points and budget behavior. Best for repeatable delivery pipelines.
+Repository self-development follows the project binding:
 
-The workflow bridge will write Team task/run observations, while workflow state remains owned by published `ctx.workflowEngine`. The bridge is absent in 0.1. Before adding it, define an explicit run mode so adaptive Scheduler and deterministic Workflow cannot both own assignment, retries or completion. Team UI may display a merged projection without duplicating either state machine.
+1. the stable control Profile loads a last-known-good immutable artifact;
+2. writers use only project-managed owner/generation-fenced allocations;
+3. a candidate is frozen to a commit and immutable package digest;
+4. review and acceptance run against the frozen candidate in a separate Profile/state root;
+5. GitHub `main` is updated only after the required candidate checks and review;
+6. `origin` receives a backup only after GitHub-main identity is read back;
+7. rollback selects a previously accepted immutable artifact from outside the candidate runtime.
 
-## 3. Worktree isolation
+## 4. Memory and Skill growth
 
-Jiuwen demonstrates the product value of one worktree per coding worker. DSH’s current continuable child preparation contract only contributes parent-history seed; it does not let an in-process Provider override cwd. Therefore the first correct implementation choices are:
-
-1. remote DSH/ACP member whose Session starts with the Worktree cwd; or
-2. a new generic DSH child-workspace capability accepted upstream; or
-3. a tool-level workspace executor that never claims the Agent itself has a different cwd.
-
-Do not fake isolation by only telling the model a path while its shell/fs tools still resolve another workspace.
-
-For plugin self-development, Worktree isolation is paired with a last-known-good control Profile. Submitted commits and package artifacts are frozen before independent review and loaded only in a separate acceptance Profile/port/state root. The candidate cannot approve/promote itself or write control storage, credentials, official source or either reference checkout. M1D permits single-writer dogfood; parallel self-development requires the M2/M3 exit evidence.
-
-## 4. Team memory
-
-Team memory is an asynchronously derived product, not the task board. It should preserve compact reusable entries:
+Team memory is derived from accepted evidence and keeps compact, attributable records:
 
 ```text
 [decision] choice, alternatives, trade-off and evidence
-[lesson] failure/success condition and reusable response
+[lesson] condition, outcome and reusable response
 [member] demonstrated capability and confidence
-[context] durable project constraint or stakeholder requirement
+[context] durable project or stakeholder constraint
 ```
 
-Every entry should link back to Team/task/run/session evidence. Extraction must merge/de-duplicate and enforce a size policy.
-
-## 5. Skill evolution
-
-Useful signals:
-
-- tool failures and timeouts;
-- review-gate rejection;
-- stale assumption discovered by another member;
-- explicit user correction;
-- repeated manual workaround;
-- capability gap.
-
-Flow:
+Skill growth is a separate controlled pipeline:
 
 ```text
-signal detector
-  → attributed evidence
-  → evolution proposal
+accepted signal
+  → attributed proposal
   → deterministic validation
-  → approval policy
-  → write evolutions record or Skill patch
-  → next Skill load sees the accepted update
+  → independent approval
+  → versioned write
+  → load in a later Agent lifecycle
 ```
 
-This belongs to generic Skill capability extensions. Agent Team only contributes additional evidence and team-level visibility policy.
+Raw private reasoning, unaccepted task output and a candidate's own claims are not admissible growth evidence. Secrets and personal data are filtered before shared memory or Skill proposals.
 
-## 6. Distributed control/data plane
+## 5. Distributed boundary
 
-Borrow the separation, not the exact ZMQ implementation:
+The design separates:
 
-- Control plane: discovery, reservation lease, bootstrap, readiness ACK, destroy/release.
-- Data plane: tasks, messages, outputs, budget and durable status.
+- control plane: discovery, reservation lease, bootstrap, readiness ACK and release;
+- data plane: tasks, messages, outputs, budget and durable status.
 
-DSH Providers may use SDK, ACP, Redis Streams, gRPC or another transport. The Service contract must not name one transport.
+SDK, ACP, Redis Streams, gRPC or another transport may implement a Provider. The public service and stored Team records must not name one transport. Process-local serialization is never described as distributed atomicity; cross-process ownership requires lease, fencing and stale-writer rejection.
 
-## 7. 2026-08-20 inventory additions
+## 6. Explicitly out of scope
 
-Newly verified capabilities (source files under `ref/jiuwenswarm/source/jiuwenswarm/`), mapped to this plugin's milestone plan or explicitly not adopted.
+- embedding Jiuwen's Python Runtime or its transport stack;
+- nine-channel IM adapters, proactive recommendations, AutoHarness, GitCode issue automation, media/phone toolkits and hardware KV-cache management;
+- a plugin self-updater or multi-instance manager with promotion authority;
+- a second MCP/tool ownership model;
+- turn-level undo/redo or Session state copying outside official Session/fork behavior;
+- pre-packaged expert groups that become a second roster authority;
+- dynamic per-task rescoping of a persistent member until the official child seam can express it safely.
 
-### 7.1 Adopted as requirements or reference patterns
-
-| Capability | Source | Placement |
-|---|---|---|
-| Agent loop circuit breaker (generic_repeat / unknown_tool_repeat / ping_pong / global, WARNING/CRITICAL dual thresholds) | `agents/harness/common/rails/execution_guard/circuit_breaker_rail.py` | M5 fault-containment Provider (AGENTS.md rule 15's retry-loop detection) |
-| Memory write masking for secrets/PII (including Chinese natural language and Markdown table shapes) | `agents/harness/common/memory/forbidden.py` | M7 mandatory memory security requirement |
-| Hybrid memory retrieval (SQLite FTS + vector + embedding cache) and background "dreaming" compaction/promotion (30-day/10-session/5-promotion bounds) | `agents/harness/common/memory/manager.py`, `memory/dreaming/sweeper.py` | post-M7 optional enhancement; not M7 scope |
-| Symphony progressive tree skill indexing/retrieval, capability fingerprints, versioned graph storage, plan.outcome learning with failure attribution | `symphony/{indexing,retrieval,evolution}` | reference only; M7 consumes official skill seams first |
-| A2X HTTP registry client (reservation envelope, ownership file lock, schema-versioned atomic rewrite) | `agents/harness/team/a2x/` | M8 distributed reservation/ACK reference |
-| Session-event graceful degradation (host-unknown types omitted, disk authoritative) | ref/dsh-agent-teams `src/events.ts` | M8 observability consumer pattern |
-| Heartbeat liveness (HEARTBEAT.md protocol, active_hours) | `gateway/heartbeat/heartbeat.py` | M8 liveness evidence idea for dogfood |
-| Trajectory/debug observability (span processors, subagent capture) | `server/runtime/debug_trace`, har
-
-## 7. 2026-08-20 inventory additions
-
-Newly verified capabilities (source files under `ref/jiuwenswarm/source/jiuwenswarm/`), mapped to this plugin's milestone plan or explicitly not adopted.
-
-### 7.1 Adopted as requirements or reference patterns
-
-| Capability | Source | Placement |
-|---|---|---|
-| Agent loop circuit breaker (generic_repeat / unknown_tool_repeat / ping_pong / global, WARNING/CRITICAL dual thresholds) | `agents/harness/common/rails/execution_guard/circuit_breaker_rail.py` | M5 fault-containment Provider (AGENTS.md rule 15's retry-loop detection) |
-| Memory write masking for secrets/PII (including Chinese natural language and Markdown table shapes) | `agents/harness/common/memory/forbidden.py` | M7 mandatory memory security requirement |
-| Hybrid memory retrieval (SQLite FTS + vector + embedding cache) and background "dreaming" compaction/promotion (30-day/10-session/5-promotion bounds) | `agents/harness/common/memory/manager.py`, `memory/dreaming/sweeper.py` | post-M7 optional enhancement; not M7 scope |
-| Symphony progressive tree skill indexing/retrieval, capability fingerprints, versioned graph storage, plan.outcome learning with failure attribution | `symphony/{indexing,retrieval,evolution}` | reference only; M7 consumes official skill seams first |
-| A2X HTTP registry client (reservation envelope, ownership file lock, schema-versioned atomic rewrite) | `agents/harness/team/a2x/` | M8 distributed reservation/ACK reference |
-| Session-event graceful degradation (host-unknown types omitted, disk authoritative) | ref/dsh-agent-teams `src/events.ts` | M8 observability consumer pattern |
-| Heartbeat liveness (HEARTBEAT.md protocol, active_hours) | `gateway/heartbeat/heartbeat.py` | M8 liveness evidence idea for dogfood |
-| Trajectory/debug observability (span processors, subagent capture) | `server/runtime/debug_trace`, harness `agent_observability.py` | M8 observability projections |
-| Human team membership via IM (/join seat claiming, GODVIEW/MEMBER roles, $-mention) | `gateway/routing/session_sharing.py` | optional M9 client roles note; official questions/approval remain the M5 seam |
-
-### 7.2 Not adopted (recorded to prevent re-litigation)
-
-| Capability | Reason |
-|---|---|
-| Nine IM channel adapters, attachments pipeline, proactive recommendation engine, eternal-conversation background agents, AutoHarness, GitCode issue auto-fix, video/image/phone toolkits | product domain outside `docs/00` scope; nothing is embedded from the Jiuwen runtime |
-| KV-cache affinity lifecycle (Ascend evict/offload/prefetch, task guard) | host/hardware infrastructure, not a plugin layer; official tokenMeter owns the measurement surface |
-| Self-updater and multi-instance manager | conflicts with ADR-0008: promotion must stay with an external stable controller; a running plugin never updates itself |
-| Turn-level undo/redo, session fork/rewind/state-copy | official Sessions/fork + the Session log already own this domain |
-| MCP runtime and tool ownership model | official mcp-client package already provides it |
-| Monetary budgets | the reference has none either (only `swarmflow_budget` and WS byte limits) — M4 stays token/request/retry/deadline; the tokenMeter question was settled by the M4-1 boundary (official faces host-side, plugin fold remains the single measurement) |
-| E2A envelope / A2A bidirectional protocol stacks | remote-agent interop arrives through official subagent providers (ACP/codex/claude-code) in M6, not a parallel transport |
-| **AgentGroup packages in hybrid team mode** (upstream `36c7959`, 2026-08-21 review) | product concept candidate, not adopted: if pre-packaged expert teams (leader + predefined members + shared skills) are ever wanted, the landing surface is official Bundle/Profile composition, never the Team core; a hybrid roster must keep "predefined members are an initial roster snapshot, not a second authority" — same single-authority rule as `TeamDomainPort` |
-| **Session-immutable selection binding + multi-source conflict-reject** (same commit) | not adopted as features, but recorded as external corroboration: upstream's four-branch immutable-binding matrix (first-create optional / missing-inherit / switch-reject / late-reject) is a clean failure-mode sample for future session-bound config (budget/permission profiles), and its choice of conflict-reject over shadowing for same-named packages corroborates docs/10 §6's "single authority, reject ambiguity" conflict table; also note its prompt-ownership split (template snapshots keep capabilities only; `TeamMemberSpec.prompt` is the sole persistent truth) — the same capability/prompt separation as our "prompt is never authorization" boundary |
+Implementation status and exit criteria belong in `docs/07-implementation-roadmap.md`; protocol details belong in `docs/04-core-protocol.md`.

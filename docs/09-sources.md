@@ -1,172 +1,104 @@
 # 09. Source register and evidence policy
 
-Recorded: 2026-08-22.
+This register contains current pinned identities and durable compatibility facts only. Historical commissions, stage reports, review transcripts and superseded design notes are preserved by Git history, issues, pull requests and executable tests rather than duplicated under `docs/`.
 
-## 1. Primary framework sources
+## 1. Official DeepSeek Harness
 
-### DeepSeek Harness official repository
+| Field | Value |
+|---|---|
+| Repository | `https://github.com/deepseek-ai/deepseek-harness` |
+| Branch | `master` |
+| Release anchor | `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e` |
+| Release | `dsh@0.1.1-rc.2` |
+| Machine-readable baseline | `docs/OFFICIAL_BASELINE.json` |
+| Evidence checkout | repository-managed official sparse checkout |
 
-- URL: `https://github.com/deepseek-ai/deepseek-harness`
-- Branch: `master`
-- Commit: `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`
-- Commit message: release `dsh@0.1.1-rc.2`
-- Live verification: on 2026-08-22, Gate A resolved remote `HEAD` and `refs/heads/master` to this same SHA and verified the materialized official evidence at the release anchor.
-- Materialized evidence: the sparse checkout now includes `.agents/notes/implemented` plus the relevant Workflow, Jobs, Token Meter, Storage, Workspace, interaction, Session, Skill, Compaction, Spill, Subagent and experimental Team source families. `OFFICIAL_BASELINE.json.evidenceFiles` and `verify-official-baseline.mjs` fail if the required Agent Notes/source evidence is no longer present.
+The evidence checkout must include the official architecture/package rules, affected package manifests/exports/types/tests/README files, relevant subsystem documents and implemented Agent Notes. `pnpm verify:compatibility` verifies the recorded identity and materialized evidence when an official/reference fact is decision-bearing.
 
-Priority files:
+### 1.1 Published versus private capabilities
 
-- `AGENTS.md`
-- `docs/architecture.md`
-- `packages/AGENTS.md`
-- `packages/README.md`
-- `docs/subsystems/*.md`
-- `packages/<group>/<package>/README.md` and exported TypeScript types
-- `packages/experimental/agent-team/README.md`
-- `docs/subsystems/agent-team.md`
-- published service packages and exported types for `workflow`, `jobs`, `token-meter`, `storage-domain`, `workspace`, `user-questions`, `user-approval`, `skill`, `compaction` and `spill`
-- relevant `.agents/notes/implemented/**` records, especially Agent Teams packaging/behavior, Workflow durable runs/status disclosure, replay token meter, Jobs seam and Workspace context
+- Workflow, Jobs, Token Meter, Storage Domain, Workspace, Session persistence, User Questions/Approval, Skills, Compaction, Spill and Subagents are published capability families at the recorded release.
+- `@deepseek-ai/dsh-experimental-agent-team` is private/unpublished. It is a semantic compatibility target, not a production dependency.
+- Package publication, Profile assembly and integration by this plugin are three separate facts and must be stated separately.
 
-Verified target facts:
+### 1.2 Load-bearing official facts
 
-- R3 UI composition was reverified against the pinned official rc.2 client source on 2026-08-27. `conversation.session.header.utilities` is the additive Session-scoped Team toggle; a public priority-`-1` `details` lease is the only Team body surface, using `ctx.layout.openDetails()`/`closeDetails()` so the official AppFrame owns Chat reflow and narrow-screen concession/recovery. The official `Button`/`Pill`/`StateDot`, locale registry and `--dsw-*` tokens remain the presentation seams. Tool Details explicitly yields the Team lease while preserving the official Details column and its sole tool renderer. Captain handoff rechecks the projected root in the official sessions-list snapshot before public `ctx.sessions.open(rootSessionId)`; an absent root fails closed. There is no plugin `shell.overlay`, Modal, fixed or full-screen fallback, private-store import, DOM-tab click or transcript parsing. Evidence and affected source paths are frozen in `docs/development/2026-08-24-r3-team-read-ui-design.md`;
+- The Session log and Agent lifecycle are canonical; plugins extend them through public seams rather than patching Agent Loop.
+- `ctx.workspaceRegistry` owns workspace identity/membership, not Worktree allocation or continuable-child cwd changes.
+- `startContinuable` resolves after the initial message is durably accepted, not after the child's first turn settles.
+- A continuable child's `toolFilter` is captured at creation and restored with its descriptor. Follow-up options do not carry a composition/tool-rescoping face.
+- Delegated children inherit the captured sandbox override and use `approval=never`; a plugin permission overlay can narrow tools but cannot widen host authority.
+- Storage Domain `put` accepts the record, while reload parses through the table value schema; undeclared object keys are stripped. Every durable aggregate-field addition must update the table schema and runtime assertion together.
+- Official token-meter `measure()` reports current request/surface pressure. Its `tokenUsage` projection is a per-Session provider-usage fold with chunk-early/message-final replacement; neither face supplies Team aggregation, admission, carry or per-event attribution.
+- The official Invariants registry owns package relational invariants and lifecycle checks. It is not a verification-command runner or review-result database.
+- The official Jobs registry owns job admission/controllers/cancellation. The Team job face is therefore a read-only scoped projection and must not replace or shadow the default registry.
+- Official Client extension points and layout leases own shell composition. Team UI is a read-only projection and must not install a private shell, transcript parser or second navigation state machine.
 
-- I1b revalidated the pinned official `0.1.1-rc.2` storage contract on 2026-08-23. It exposes backend `kv.open` plus unit load/put/delete/global/close and `DomainFacility.open/get/closeAll` (`packages/storage/storage/src/backend.ts`, `packages/storage/storage-domain/src/index.ts`). It supplies the single aggregate medium used by the narrow in-place Team v1-to-v2 record upgrade, but no distributed lease or external-effect operation receipt. Accordingly ADR-0009 makes no old-artifact cutover, retired-medium fence, cross-process exactly-once or external-effect recovery claim;
+These facts are represented in current source and focused tests, including storage reload, token-meter parity, workflow/Jobs composition, tool permissions and real Client lifecycle coverage.
 
-- M4-2 (issue #128) assessed the official `@deepseek-ai/dsh-invariants` registry against its installed rc.2 manifest/types and the permitted rc.8 full-source subsystem, README, tests and implemented Agent Notes. Its stable public contract registers package-owned relational runtime assertions and lifecycle-owned listeners/startup checks; it is not a command runner or verification-result registry. Verification templates and multi-root command evidence therefore remain a project-owned Review overlay, with no official invariant companion registered and no official source modified. Evidence: `docs/development/2026-08-22-m4b-verification-family.md` §1/§6;
+## 2. Direct Team implementation reference
 
-- `@deepseek-ai/dsh-workflow`, `@deepseek-ai/dsh-jobs`, `@deepseek-ai/dsh-token-meter`, `@deepseek-ai/dsh-storage-domain` and `@deepseek-ai/dsh-workspace` are public rc.8 packages;
-- `@deepseek-ai/dsh-experimental-agent-team` is `private: true` and has no publish configuration;
-- official Agent Team injects Agents, Sessions, Session persistence and Subagents, and documents persisted-child-aware provisioning recovery, bounded disposal and target-session mailbox de-duplication;
-- `ctx.workspaceRegistry` is a Workspace identity/membership registry, not a per-child Worktree allocator or cwd override;
-- since M1A this plugin consumes the official storage family directly: `@deepseek-ai/dsh-storage` (hub), `@deepseek-ai/dsh-storage-json` (json KV backend, deployment composition), `@deepseek-ai/dsh-storage-domain` (domain form, required peer) and `@deepseek-ai/dsh-session-persistence` (service definition, required peer) — all verified at rc.8 on npm and materialized in the evidence checkout (`packages/storage/*`, `packages/session/session-persistence`);
-- since M2-1 (issue #75) the plugin also consumes `@deepseek-ai/dsh-workflow` (required peer: the abstract `WorkflowEngine` Service Definition, types and `WorkflowError`/`isFatalWorkflowError`) and dev-consumes `@deepseek-ai/dsh-invariants` plus the `@deepseek-ai/dsh-workflow/invariant` companion (real-composition event-stream validation in tests) — both verified at rc.8 on npm against the evidence checkout (`packages/workflow/workflow`, `packages/runtime-diagnostics/invariants`). The official default engine `@deepseek-ai/dsh-workflow-worker-thread` is deliberately NOT a dependency: the Team bridge must compose in Profiles without it (design note §4.3);
-- M2-3 (issue #77) adds no new package dependency: the mode surface is project-owned policy over seams already consumed. One additional official FACT is load-bearing and verified against the installed `@deepseek-ai/dsh-subagent` types: `startContinuable` resolves at the initial prompt's inbox acceptance (`ContinuableStart` — the durable child id plus the accepted message id), NOT at join-turn completion — this is why a workflow run needs its own idle driver for assignment delivery when the global listener defers (design note `docs/development/2026-08-21-m2c-modes-design.md` §3).
-- M2-4 (issue #78) adds no new package dependency: the node mapping is a pure pattern-layer compiler over seams already consumed (`runtime.createTask`/`blockedBy`, the review Provider face, the F11/F15 discipline, the mailbox). Two already-installed `@deepseek-ai/dsh-subagent` exports are consumed as the nested bound's evidence face: `resolveChildDepth`/`SubagentDepthError` (absolute child-depth resolution, verified against the installed `lib/types/child-agent.d.ts`). Jiuwen behavior evidence rides the pinned reference checkout `ref/jiuwenswarm @ 36c7959` (`docs/zh/TUI使用SwarmFlow指南.md` operator table + `handlers/workflow_state.py` projection semantics; file:line citations in the design note `docs/development/2026-08-21-m2d-node-mapping-design.md` §1-2).
-- issue #92 (usage settlement diagnosis) registers four official FACTS of the session event face, all verified line-level in the full rc.8 checkout (`packages/core/session/src/index.ts` append boundary, `packages/core/agent-loop/src/agent.ts` step driver, `packages/session/session-persistence/src/coordinator.ts` prepare/inspect/write-behind) and confirmed identical in the installed rc.8 builds: (1) `Session.append` assigns the contiguous `seq = log.length` and publishes `session/event` SYNCHRONOUSLY inside the append acceptance boundary (callbacks collected before `log.push`, invoked after; per-listener containment only catches async rejections; reentrant append rejects) — per-session firehose delivery is strictly seq-ordered in-process, so a delivery-reorder root cause for a billing gap has no reachable trigger on the official face; (2) constructor seeds never publish (`firstLiveSeq`; the `session/end-seed` marker is appended pre-attach), so replayed/resumed history reaches consumers only through refolds over `session.events` or persisted reads; (3) the persistence coordinator's `prepare`/`inspect` await `waitForRetirement` before reading, so a cold resume never seeds a log truncated under the disposed session's still-draining write-behind tail (bounded `writeBatchMaxDelayMs`, default 200ms); (4) an aborted turn still appends its `assistant/message` WITH usage (`interrupted: true`) whenever partial content was assembled, so adapter-billed usage always lands in the durable session log unless zero content existed.
-- issue #114 (tamper-path settlement race diagnosis) registers one official FACT of the subagents report face, verified in the installed rc.8 build (`@deepseek-ai/dsh-subagent` `lib/index.js` `settlementSummary`, the "Background subagent … finished and will do no further work unless you send it more." line): every continuable member turn completion reports to the captain through the settlement notice's next-step delivery, which wakes the captain into one additional provider-driven LLM turn — deterministically, asynchronously to any caller that just observed the member settle. Billing consequence (decisions in `docs/04` §8k postscript): the captain's report turn bills its Session into the same Team ledger and its usage event settles only through the async accounting flush, so an immediate budget-equality read taken after any member turn completion races that fold by design; the composition's tamper assertion now waits for exact equality like its settlement checkpoint (CI probe run 32482845037: flush started 11 ms before the read, committed 6 ms after it, budget converged 58 ms later — no loss on any #92 face);
-- the installed plugin dependency tree still does not install jobs/token-meter as runtime dependencies, so their published availability is not the same as current integration.
-- since M2-2 (issue #76) the plugin also consumes `@deepseek-ai/dsh-jobs` (required peer: the abstract `JobRegistry` Service Definition, `JobId` and the job type face; declaration-merged `team-task` kind) and dev-consumes the `@deepseek-ai/dsh-jobs/invariant` companion over the projection in tests — verified at rc.8 on npm against the evidence checkout (`packages/jobs/jobs`, `packages/jobs/jobs-local` as the semantics reference, deliberately NOT a dependency). Two verified Cordis composition facts for that companion: a second invariants service requires `isolate('invariants')` under the bridge scope (same-store duplicate provide throws), and the companion's namespace-plugin mount leaves its declared inject unwired in this tree — the official `ctx.inject` scoped carrier works (design note §4.6);
-- M3 entry gate (issue #94, verified 2026-08-22) closed the official-UI-consumer verification of the `team-task` jobs projection — the consumer face EXISTS in official rc.8, and every projected field renders losslessly. Facts, all cited against the `141eb6f` evidence checkout: the web UI consumes `ctx.jobs` through exactly one view — `@deepseek-ai/dsh-client-ui-jobs`' `JobListAction` session-header popover (`packages/client/ui-jobs/src/client/index.ts:22-39` registers the `conversation.session.header.actions` slot entry; `packages/client/ui-jobs/src/client/JobListAction.tsx:94-183` renders it; `packages/client/ui-jobs/src/invariant.ts:18-23` records that it is a read-only projection of the mirror with no runtime invariants). The host-plane carrier is the api-proxy: it reads the registry optionally (`ctx.get('jobs')`, `packages/host/apiproxy/src/api-proxy.ts:3375-3383` subscription baseline; `:3423-3440` `onJobsChanged` fan-out — an unowned-job change pushes a fresh snapshot to every subscribed session; `:433-443` `jobViews` projects `JobSnapshot`→`JobView`) and pushes whole-snapshot `session/jobs` mux frames that the client folds last-wins into `jobsBySession` (`packages/client/runtime/src/client/sessions/manager.ts:145-149`, `:705-712`). The wire view (`packages/host/apiproxy/src/api/jobs.ts:17-36`, zod schema `jobs.schema.ts:19-33`) keeps `id`/`kind`/`label`/`status`/`detail?`/`startedAt`/`finishedAt?` and deliberately drops `ownerSession`, `reported` and `outputLimitBytes`; `kind` is an open string rendered verbatim — an unrecognized kind degrades to its raw text with no fallback label, which is the documented extension path (`api/jobs.ts:20-25`; Agent Note `.agents/notes/implemented/feature/2026-08-08-web-background-job-display.md`). Counterpart record for `team-task`: `id` `team-task-N`, non-empty `kind`/`label`, `status` within the closed five-value union (the projection never emits `stopping` because `kill` refuses — subset, not mismatch), always-present `detail` clipped to 512 bytes (`src/runtime/jobs/projection-derive.ts:34`), non-negative integer timestamps — every value passes the wire schema; the UI renders kind/label/detail (`detail` replaces the generic status word once present, `JobListAction.tsx:168`), status dot + localized status word, live-ticking/frozen duration and start-order sorting, and ignores the three wire-dropped fields by design. Zero field mismatch; no missing-field degradation is ever triggered. Composition boundary (registered, deliberately not changed): the official UI carrier reads only the default-scope registry (base bundle composes `@deepseek-ai/dsh-jobs-local`, `packages/bundle/base/cordis.patch.yml:69-70`; the web-app composes `ui-jobs`, `packages/bundle/web-app/cordis.patch.yml:257-259`), while `TeamJobProjection` registers under `ctx.isolate('jobs')` (`src/index.ts:331`) — an isolated-scope registry is invisible to every sibling row outside its realm (official confirmation: `packages/bundle/web-app/cordis.patch.yml:320-331`), so a same-process official web-app job list displays no `team-task` rows: shape-compatible, scope-invisible. Making Team tasks visible in that UI is a separate composition decision (default-scope hand-off or an official multi-registry carrier), not a record-shape fix; no fix issue was opened because no mismatch exists;
-- M3-1 (issue #100, verified 2026-08-21) registered the official cwd/exec seam facts the execution-root member-face injection stands on, all cited against the `141eb6f` evidence checkout: an in-process continuable child session's durable creation metadata COPIES the delegating parent's session header cwd (`packages/subagent/subagent/src/child-agent.ts:102-120`, `childSessionMeta`: `...parentHeader.cwd !== undefined ? { cwd: parentHeader.cwd } : {}`) — there is no per-child cwd at composition; neither `SubagentStartRequest` nor `ContinuableStartSpec` (`packages/subagent/subagent/src/types.ts:100-149` and `src/continuation.ts:112-130`) exposes a cwd field, so a continuable member's session cwd is the captain's workspace cwd, immutable for the session's lifetime; the official one-shot exec face resolves work relative to that session cwd but always accepts absolute input (`packages/shell/tool-bash/src/index.ts:139-156`, `resolveWorkdir`: an explicit absolute `workdir` wins, a relative one resolves against `policyWorkspaceRoot ?? canonical(headerCwd)`); and the file-sandbox `workspace-write` root derives from the same immutable header cwd (`packages/sandbox/sandbox-policy/src/index.ts:135-142`, `resolve`) — confirming ADR-0008's registered absence of a continuable-child cwd override and forbidding any per-attempt cwd enforcement through official seams. The plugin therefore injects the execution root as a model-visible declared absolute path (assignment-frame trusted header + claim-tool disclosure) consumed through the official `workdir`/absolute-path semantics; counterpart implementation: `src/runtime/execution-roots.ts`, decisions in `docs/04` §8l;
-- M4-1 (issue #127, verified 2026-08-22) characterizes the official token-meter contract, cited against the `141eb6f` evidence checkout, import-verified against the installed rc.8 build at analysis time, and re-verified fold-identical at the current 0.1.1-rc.2 pin after the Gate C re-pin — the family delta is contract-shape only (`ProjectionDefinition.schema` split into `stateSchema` + `wire: { viewSchema, view }` with state types in `SessionProjectionStateMap`; chunk-early counting, message-final replacement, non-monotone corrections, `stateVersion` 1, `measure()` and the `snapshot().values.tokenUsage` wire read face unchanged; parity suite green against the installed 0.1.1-rc.2 packages): `@deepseek-ai/dsh-token-meter` default-exports the `TokenMeter` Service registering `ctx.tokenMeter` (`packages/llm/token-meter/src/index.ts`), config is an empty schema with every key rejected; `measure(session, requestHeader?)` is a PULL face returning current request/surface pressure at one consumed-log revision (`TokenMeasurement`: `logRevision`/`baseline`/signed `surfaceDeltaTokens`/`totalTokens`/`surfaceTokens`/`nodes`) — provider usage is reused only for a matching canonical envelope at least as large as the heuristic anchor, and NO cumulative total is kept (each successful call replaces the anchor; the README states occupancy figures are "a user-facing reference, not a billing record or a gating input"); when the composition provides `ctx.sessionProjections` (`packages/session/session-projection`, an optional child inject), the meter registers `tokenUsage`/`contextPressure`/`contextBreakdown` (`packages/llm/token-meter/src/usage-projection.ts`): `tokenUsage` is the per-session CUMULATIVE provider-usage fold in four disjoint buckets — a usage `assistant/chunk` counts even when the request later fails, and the final `assistant/message` usage for the same `(turn, step)` REPLACES that sample (last-wins, adjacency invariant), so totals are deliberately non-monotone under corrections (the package's own `invariant.ts` documents this); the registry owns the drive (one `session/event` subscription, per-session WeakMap watermark cells, lazy full-log fold, synchronous `snapshot`, `onChanged` feed) plus a cold-read recipe (`restore`/`restoreFloor`/`viewCheckpoint`/`checkpoint` over `(sessionId, key, ver, seq, val)` rows) whose PERSISTENCE is the separate optional `@deepseek-ai/dsh-session-projection-cache` package — neither the meter nor the registry persists anything; no face offers Team aggregation, admission, carry or per-event attribution. Selection (Option B, `docs/development/2026-08-22-m4a-tokenmeter-design.md`): the plugin's Team ledger keeps its own per-seq-cursor fold as the single measurement path; the official faces stay host-side and are NOT consumed by the budget (double counting excluded by construction), with parity proven by `tests/tokenmeter-parity.spec.ts` and the declared single divergence (chunk-only usage of failed requests bills officially, not the Team ledger); consuming the official face as measurement source is re-opened only when it exposes per-event usage attribution;
-- the installed plugin dependency tree still does not install token-meter as a runtime dependency (since M4-1 it is a devDependency for the parity evidence suite only), so its published availability is not the same as runtime integration.
-- M4-3 (issue #129, verified 2026-08-22) registers one official FACT of the storage-domain durable boundary, probe-proven against the installed 0.1.1-rc.2 `@deepseek-ai/dsh-storage-domain` (`lib/index.js`): `put(key, value)` stores the given record object AS-IS (no schema parse on write), but the load path (`loadAll` → `parseRecord` → `tableSpec.valueSchema.parse(raw)`) runs every stored record through the table's zod value schema, and zod object parse STRIPS undeclared keys. An additive optional aggregate field therefore survives write+read only while the record stays live in one process; any reopen silently drops it unless the durable table schema declares it. This fact produced two latent defects fixed by the same change (`src/storage/team-spec.ts` never declared the #101 `verification` task field or the #83 `replacesAttemptId` attempt field — both were stripped on every reload; probe-proven red, scenario-38 reload regression green after the fix) and is the load-bearing reason every future additive optional aggregate field must extend the zod table schema together with `assertTeamState`. M4-3 adds no new package dependency: the budget reservation/retry-economics/degraded-continuation faces are project-owned policy overlays over the seams already consumed (`docs/development/2026-08-22-m4c-budget-family.md`).
-- M5-2 (issue #136, verified 2026-08-22) registers two official FACTS of the rc.2 subagent authorization faces, cited against the permitted rc.8 full-source checkout and the installed 0.1.1-rc.2 `@deepseek-ai/dsh-subagent` types. (1) Creation-window tool scoping: `toolFilter` rides `ContinuableStartSpec.request` (= `Omit<SubagentStartRequest, 'label'|'signal'|'outputSchema'>`) only; `startContinuable` snapshots it into the durable descriptor (`snapshotSubagentDescriptor`), cold resume re-applies it from the descriptor (`composition: { persona: descriptor.persona, toolFilter: descriptor.toolFilter }`), and `applyChildComposition` executes it once as a scoped `childCtx.tools.restrict()` in the child's creation window — the tool vanishes from the child's prompt AND refuses execution (one visibility), with LOUD unknown-name validation (an empty filter, a reserved transport name, or a name outside the child view's `restrictableNames` throws, so a bad deny list fails the start, never a silently unfiltered child). The followup face (`SubagentFollowupOptions`) carries ONLY `source` and `signal` — no composition field exists, so per-task tool rescoping of a long-lived continuable member is inexpressible on the official seam (the F17 boundary of `docs/04` §8o). (2) The broader delegated-child authorization face, same sources: the delegation boundary also captures the parent session's explicit sandbox-mode override into the child log and PINS approval to `'never'` for every delegated child (`captureDelegatedPolicyOverrides`/`DelegatedPolicyOverrides`) — a member can never ask for approval — alongside the `maxDepth` cap this plugin already passes; the toolFilter overlay composes with all of them without touching any.
-- M5-2 (issue #136) also characterizes the rc.2 `@deepseek-ai/dsh-credentials` package (the Gate A rc.2 analysis D-class finding; sources `packages/credentials/credentials/src/index.ts`, `types.ts`, README, verified 2026-08-22): a Service Definition registering `ctx.credentials` (`CredentialProvider`) whose doctrine is references-not-values — settings carry branded POSIX env-var `CredentialRef`s, providers own values and storage, consumers `resolve` per operation (never cached across operations), `describe` answers configured/source/writable without ever holding a value, `set`/`unset` reject while a read-only source shadows the reference, and `credentials/updated` fires only for provider-managed committed changes. BOUNDARY (decided, design note §3): the package is NOT installed and NOT consumed — this plugin has no secret-value consumer (members run on host-composed AgentLoop/providers; the plugin makes no credential-bearing requests), Team state never carries credential values or refs, and env injection remains the deployment-owned doctrine. `deny_tools` operates on tool NAMES, a disjoint surface. Re-evaluation trigger: a real member-scoped credential need appears (the correct shape would then be host composition of `ctx.credentials` decided by the deployment Profile, never the plugin holding secrets).
+| Field | Value |
+|---|---|
+| Repository | `https://github.com/NanmiCoder/dsh-agent-teams` |
+| Branch | `main` |
+| Commit | `5fe388f1a30da7b1374294b25bd6f8ad74ab6aa5` |
+| Version | `0.1.14` |
+| Pointer | `ref/dsh-agent-teams/SOURCE_POINTER.json` |
+| Checkout | `ref/dsh-agent-teams/source/` |
 
-### DeepSeek Harness community documentation
-
-- Quickstart: `https://deepseekdocs.com/docs/getting-started/quickstart`
-- Plugins: `https://deepseekdocs.com/docs/user-guide/plugins`
-- Plugin anatomy: `https://deepseekdocs.com/docs/learn/core/plugin-anatomy`
-- First plugin: `https://deepseekdocs.com/docs/learn/dev/hello-plugin`
-- Tool: `https://deepseekdocs.com/docs/learn/dev/write-tool`
-- Service: `https://deepseekdocs.com/docs/learn/dev/write-service`
-- Events: `https://deepseekdocs.com/docs/learn/dev/listen-events`
-- Config/publish: `https://deepseekdocs.com/docs/learn/dev/config-publish`
-
-The site currently labels rc.7 and itself states official source/release notes are authoritative. Use it for explanations and learning sequence, then verify APIs against installed/official source.
-
-## 2. Direct implementation reference
-
-- URL: `https://github.com/NanmiCoder/dsh-agent-teams`
-- Branch: `main`
-- Commit: `5fe388f1a30da7b1374294b25bd6f8ad74ab6aa5`
-- Version: `0.1.14`
-- Local pointer: `ref/dsh-agent-teams/SOURCE_POINTER.json`
-- Full local checkout: `ref/dsh-agent-teams/source/`
-
-Live verification on 2026-08-22 found `main` at `fe854d1` and re-pinned after a cumulative diff review (Gate C, fifth pass): three commits — V2 whale artwork asset refresh (29 binary PNG swaps plus the `ART_ALLOWLIST` rename), a client role→avatar keyword-bucket fix with four additive `verify.mjs` asset-integrity gates, and a version bump to 0.1.9. Purely decorative-plus-selfcheck: every core borrowing surface in `ref/README.md` (Bundle packaging, continuable member lifecycle, task DAG, attempt fencing, durable mailbox, event scheduling, Host/Client plugin structure) is untouched; the path-traversal guard structure of `ART_ALLOWLIST` is unchanged (exact-name `Set` membership, only its contents renamed). MIT license unchanged.
-
-Read for implementation prior art, not framework truth.
-
-M4-2 Gate A supersession (2026-08-22): the supplied sync script refreshed `main` to the recorded `0c21e5d` pointer and verified it as the branch tip. The older cumulative-diff paragraph above is retained as historical pin-review evidence; issue #128 uses the current checkout only as negative/behavioral evidence because it exposes repository verification practice but no verification-command runtime service.
-
-SW-G0 Gate A supersession (2026-08-23): the cumulative `0c21e5d..912aae5` delta was reviewed before the supplied sync script materialized the new branch tip. Seven commits move the package from 0.1.9 to 0.1.13 and add official-host locale handling, bounded idle-attempt parking with explicit resume, and low-cadence cardless activity discovery. These are compatible failure/observability precedents for the I1/I4 slices; no reference runtime, Team authority, protocol type or UI component is imported. The package manifest, MIT license and recorded tree were verified at the new pin.
-
-UI-NATIVE-01 Gate A supersession (2026-08-27): the cumulative `912aae5..5fe388f` delta was reviewed before the supplied sync script materialized the branch tip. Fifteen commits prepare 0.1.14 and evolve that reference's independent captain planning, Team-stop, approval/review and activity-panel behavior. They are direct-implementation prior art only: this plugin retains the official DSH client seams, its existing Team authority and its own read-only UI/controller contract. The manifest 0.1.14, MIT license, remote identity and recorded tree were verified at the new pin.
+Use it for continuable-member lifecycle, roster identity, DAG/claim rules, revision and attempt fencing, durable-before-live mailbox behavior, automatic scheduling, activity presentation and crash/fault cases. Do not treat its package boundaries, file store, UI state or policy coupling as framework truth.
 
 ## 3. Product architecture reference
 
-- URL: `https://github.com/openJiuwen-ai/jiuwenswarm`
-- Branch: `develop`
-- Commit: `cfe09ccf1c04f4abb978ec84dc5403650a41f553`
-- Develop package state observed: `workswarm` `0.2.5.beta1`
-- Local pointer: `ref/jiuwenswarm/SOURCE_POINTER.json`
-- Full local checkout: `ref/jiuwenswarm/source/`
+| Field | Value |
+|---|---|
+| Repository | `https://github.com/openJiuwen-ai/jiuwenswarm` |
+| Branch | `develop` |
+| Commit | `cfe09ccf1c04f4abb978ec84dc5403650a41f553` |
+| Observed package | `workswarm 0.2.5.beta1` |
+| Pointer | `ref/jiuwenswarm/SOURCE_POINTER.json` |
+| Checkout | `ref/jiuwenswarm/source/` |
 
-Live verification on 2026-08-30 found `develop` at this commit and the pin was reviewed and updated the same day. The cumulative `8f34291 → cfe09cc` delta contains 14 commits and 147 changed files, principally in Jiuwen's Web/TUI presentation, AgentOS/context-engine, template/plugin loading, skills refresh, session-continuity rails and Team reliability switch. These are unadopted reference domains: the range does not modify the SwarmFlow, Worktree, memory, Skill Evolution, permission or distributed-runtime evidence this plugin relies on. The upstream `develop` branch is handled as one cumulative diff at its latest head, not by chasing every intermediate commit.
+Use it for product concepts and failure models around SwarmFlow, Worktree, memory, Skill Evolution, permissions, distributed reservation and Team reliability. Do not import Jiuwen runtime types, persistence, transport or UI as DSH contracts.
 
-Priority documents/concepts:
+## 4. Evidence order
 
-M4-2 Gate A supersession (2026-08-22): the supplied sync script refreshed `develop` to the recorded `1d45d2b` pointer and verified it as the branch tip. The older cumulative-diff paragraph above remains historical evidence through `962f0a4`; issue #128 consumes only the current pinned behavioral evidence for toolchain-specific Python verification and fail-loud missing-analyzer behavior, importing no Jiuwen runtime architecture or types.
+When a contract is uncertain:
 
-SW-G0 Gate A supersession (2026-08-23): the cumulative `1d45d2b..e90d9ea` delta was reviewed before the supplied sync script materialized the new branch tip. Four commits add an optional persistent-subagent runtime, prompt/attachment restructuring, restart cleanup hardening and canonical Team Plan mode recognition. These remain product and failure-case prior art only. The plugin continues to use official DSH execution and its own single Team/HumanInteraction producer contract; no Jiuwen runtime, persistence model or types are adopted. The recorded tree, Apache-2.0 license and `workswarm` 0.2.5.beta1 package state were verified at the new pin.
+1. inspect current project code and the target Profile;
+2. inspect installed package manifests, exports, types and README files;
+3. inspect official DSH evidence at the recorded release anchor;
+4. inspect official subsystem docs, examples and tests;
+5. inspect the direct Team reference for behavior/fault precedent;
+6. inspect JiuwenSwarm for product concepts/failure cases;
+7. choose the smallest fail-loud behavior if evidence is still incomplete.
 
-UI-NATIVE-01 Gate A supersession (2026-08-27): the reviewed cumulative `e90d9ea..144ea01` range remains product/failure-case prior art, and the additional single `144ea01..7ebebe3` commit isolates unreachable MCP preflight failures during Team assembly. Its changes are confined to Jiuwen MCP assembly/configuration, credential resolution, disconnected-state degradation and tests; they do not alter this plugin's Team UI or official DSH protocol contract. The supplied sync script verified the recorded tree, Apache-2.0 license, remote identity and unchanged `workswarm` 0.2.5.beta1 package state at the new pin.
+Community documentation may explain concepts but cannot prove a package or method exists. The target installation's exports and the release-anchored official evidence are the execution boundary.
 
-reference-repin-20260827 Gate A supersession (2026-08-27): the supplied sync script refreshed `develop` from `7ebebe3` to `8f34291` and verified the recorded tree, remote identity, Apache-2.0 license and unchanged `workswarm` 0.2.5.beta1 package state. The full 10-commit/138-file range adds config-gated Code-mode SDD methodology/state-machine work, AgentOS/Web token-auth and gateway-log work, agent-management/front-end work and four Team-area presentation files. It changes no Jobs, Workflow-engine or Worktree ownership path; its `workflows` paths are SDD methodology files. The code adapter retains project/workspace-path selection, so no cwd/ownership semantics are adopted. No Jiuwen runtime, persistence model, transport, public type or UI is imported.
+## 5. Freshness and re-pin policy
 
-- Agent Team user guide
-- Distributed Team
-- TUI SwarmFlow guide
-- Memory and Team Memory
-- Skill Self-Evolution
-- Tool Permissions & Security
+Before changing a claim about an official or reference API:
 
-Read for feature concepts and operational failure cases. Do not import OpenJiuwen types into the DSH capability contract.
+1. record the old and proposed commit;
+2. query the relevant remote when network access is available;
+3. inspect the cumulative diff, affected manifests/exports/types/tests and license;
+4. update the supplied pointer and checkout only through its sync process;
+5. update only the affected registered authorities and tests;
+6. search the repository for the superseded claim;
+7. run `pnpm verify:compatibility` when the changed fact is decision-bearing.
 
-## 4. Evidence order for Agents
+Official `master` advancing beyond the release anchor is not by itself drift. A newer published release makes a baseline review due. A remote-network failure is reported as a limitation of that compatibility pipeline and does not authorize pretending cached evidence is current.
 
-When behavior is uncertain:
+## 6. Self-development evidence boundary
 
-1. inspect the current project and target Profile;
-2. inspect installed package `package.json`, exports, types and README;
-3. inspect official DSH checkout at a recorded SHA;
-4. inspect official subsystem docs and examples;
-5. inspect `ref/dsh-agent-teams/source/` for direct DSH plugin prior art;
-6. inspect `ref/jiuwenswarm/source/` for product concepts and failure cases;
-7. if still uncertain, implement the smallest fail-loud behavior and record the assumption.
+The self-development composition is project-owned, not an official DSH feature. It derives from official Profiles, Sessions, Subagents, Workflow, Jobs, Storage Domain, Workspace and interaction seams plus the two reference projects' behavior/failure evidence.
 
-Never cite a secondary guide as proof that an unpublished package or method exists in the target installation.
+- stable control and last-known-good artifact remain outside candidate write roots;
+- managed worktrees provide repository writer ownership;
+- candidate commit/package identity is frozen before review;
+- acceptance runs in a separate Profile and state root;
+- promotion/rollback authority is outside the candidate runtime;
+- accepted GitHub `main` is the development/integration authority; `origin` is a local backup updated only after authoritative read-back.
 
-## 5. Documentation freshness rule
-
-Before changing any claim about an official API or either reference implementation:
-
-1. query the relevant remote ref when network access is available;
-2. record the exact commit and compare it with the local pin;
-3. inspect the package manifest, exported types, README and tests at that commit;
-4. separate “package exists”, “service is in the assembled Profile” and “this plugin integrates it” as three different facts;
-5. update only affected registered authorities and factual references in the same change;
-6. run `rg` for the superseded claim and run the verification suite.
-
-If a newer official release has been published but the pin has not been re-reviewed, document the drift; do not silently describe the old pin as current. Official master advancing between releases is not drift: the baseline is release-anchored, not HEAD-anchored (docs/11 section 2).
-
-The machine-readable official baseline is `OFFICIAL_BASELINE.json`. Run `pnpm verify:compatibility` when official/reference facts are decision-bearing; otherwise reuse the accepted receipt keyed by baseline digest, both reference pins, lockfile identity and affected capability. The gate runs `verify:official` and `verify:references`, querying all three remotes and checking their clean evidence checkouts. The official half is release-anchored, so master advancing past the pin does not break Gate A while a newer published release makes a re-pin due. Network checks remain separate from `pnpm verify:candidate`: failure to reach a remote is a visible limitation of the affected compatibility pipeline, not a reason to pretend a cached pin is current or block unrelated work.
-
-Recreate or repair the official sparse evidence checkout with `scripts/sync-official-evidence.ps1`. The script refuses a dirty checkout and materializes the implemented Agent Notes plus every official capability family used by the current architecture map.
-
-## 6. Self-hosting architecture evidence record
-
-ADR-0008 was accepted on 2026-08-20 after `pnpm verify:gate-a` again passed against all three recorded commits. The decision adds no new claim that an official self-update or child-cwd service exists. It composes current official services and retains the verified limitation that `ctx.workspaceRegistry` is identity/membership, not Worktree allocation or execution-root enforcement.
-
-The self-hosting behavior is derived from:
-
-- official DSH Profile/Bundle composition, Session persistence, Subagents, Workflow, Jobs, Storage Domain, Workspace and interaction services, plus target-verified permission/tool enforcement points;
-- `dsh-agent-teams` durable Team, status, fencing, mailbox and lifecycle failure behavior;
-- JiuwenSwarm Worktree, verification, permission, distributed reservation and Skill Evolution product/failure contracts.
-
-The stable-control/candidate-acceptance split, promotion state machine and readiness levels are project-owned architecture. They must not be described as official DSH features.
-
-## 7. Updating pins
-
-An update is a design task, not a blind `git pull`:
-
-1. record old/new commit;
-2. review official architecture, package map and target exported types;
-3. search for Agent Team, subagent continuation, workflow, storage and interaction changes;
-4. update `ref` pointer and sync source;
-5. update affected docs/Skill templates;
-6. run characterization and real-composition tests;
-7. document migrations or deliberately reject incompatible state.
+Past verification results remain discoverable through Git history, GitHub issues/pull requests and the focused test suite. They are not recreated as rolling Markdown evidence.

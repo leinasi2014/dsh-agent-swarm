@@ -11,7 +11,7 @@
  * count once (planning-note trap 2: one request charge per seated attempt,
  * per-seq usage cursors make replays free).
  *
- * Red→green evidence (docs/development/2026-08-21-m2c-modes-design.md §5):
+ * Red→green evidence for the docs/04 ownership contract:
  * with `taskRevision`/`assertCurrentAttempt` in team-domain-board.ts
  * temporarily disabled, the late-claim attack corrupts the board and this
  * suite fails; with the fences in place it is green. Scenario 31 of the

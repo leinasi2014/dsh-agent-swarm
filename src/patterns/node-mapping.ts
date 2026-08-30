@@ -9,9 +9,7 @@
  * quota, budget and review decision stays on the authoritative task board
  * (`AgentSwarmRuntime.createTask` and friends are the only mutation paths).
  *
- * Mapping table, fault-form correspondence and the selection argument
- * (builder API over the #75 script face):
- * docs/development/2026-08-21-m2d-node-mapping-design.md.
+ * The current mapping and fault-form contract is defined in docs/04.
  * @module dsh-agent-swarm/patterns/node-mapping
  */
 import { TeamDomainError } from '../domain/error.js'

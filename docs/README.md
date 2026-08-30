@@ -1,48 +1,53 @@
 # dsh-agent-swarm 文档
 
-本目录是项目的设计与治理文档全集。按以下分层组织：
+本目录保存产品、架构、协议、质量和治理权威。稳定文档描述规则与边界，不充当任务、分支、候选或审查状态看板。
 
-## 阅读路径
+## 推荐阅读
 
-### 入门（10 分钟了解项目）
-1. [00-vision.md](00-vision.md) — 产品目标、范围与兼容立场
-2. [03-capability-family.md](03-capability-family.md) — 目标能力族与服务图
-3. [07-implementation-roadmap.md](07-implementation-roadmap.md) — 里程碑分期与出口标准
+1. [GOALS.md](GOALS.md) — 稳定产品章程、范围、红线与完成原则。
+2. [00-vision.md](00-vision.md) — Main Brain → Captain → Team 的用户体验和身份模型。
+3. [03-capability-family.md](03-capability-family.md) — 当前实现、服务边界、Consumer 与缺口。
+4. [04-core-protocol.md](04-core-protocol.md) — revision、attempt、任务、邮箱、审核、恢复和权限合同。
+5. [07-implementation-roadmap.md](07-implementation-roadmap.md) — 从当前基线到 90% 产品就绪的交付顺序与出口证据。
+6. [08-testing-verification.md](08-testing-verification.md) — 候选检查、场景和真实 Profile/browser 验证合同。
 
-### 协议与架构（实现者的权威参考）
-4. [04-core-protocol.md](04-core-protocol.md) — 核心协议：revision/attempt 围栏、邮箱、调度、恢复、预算、模式与权限。**每个决策段（§8a–§8o）都可追溯到 issue/PR**
-5. [01-dsh-principles.md](01-dsh-principles.md) — DSH 插件/能力模型原则
-6. [02-reference-analysis.md](02-reference-analysis.md) — 官方 DSH、dsh-agent-teams、JiuwenSwarm 三方角色分析
-7. [05-jiuwen-feature-mapping.md](05-jiuwen-feature-mapping.md) — 外部概念到 DSH 插件的映射（含不采纳登记）
-8. [06-workspace-distributed.md](06-workspace-distributed.md) — Worktree、远程成员与原子状态
+## 架构与兼容
 
-### 治理与门禁（贡献者必读）
-9. [11-official-first-development.md](11-official-first-development.md) — official-first 开发门（Gate A/B/C 纪律）
-10. [OFFICIAL_BASELINE.json](OFFICIAL_BASELINE.json) — 机读官方基线（`pnpm verify:compatibility` 的权威输入）
-11. [09-sources.md](09-sources.md) — 源码钉住与证据政策
-12. [governance/project-binding.yaml](governance/project-binding.yaml)、[governance/document-registry.yaml](governance/document-registry.yaml) 与 [governance/adoption-manifest-v1.yaml](governance/adoption-manifest-v1.yaml) — 通用敏捷开发方法的现行项目绑定、文档权威登记与历史接管证据
-13. [13-self-hosting-dogfood.md](13-self-hosting-dogfood.md) — 分级自托管：D1/D2 dogfood、稳定/候选 Profile、自我改进控制回路
+- [01-dsh-principles.md](01-dsh-principles.md) — DSH 插件与 capability seam 原则。
+- [02-reference-analysis.md](02-reference-analysis.md) — 官方 DSH 与两个固定参考源的角色。
+- [05-jiuwen-feature-mapping.md](05-jiuwen-feature-mapping.md) — 外部概念到 DSH seam 的映射与不采纳项。
+- [06-workspace-distributed.md](06-workspace-distributed.md) — execution root、远程成员和分布式边界。
+- [09-sources.md](09-sources.md) — 官方与参考源码 pin、证据和刷新规则。
+- [10-fusion-audit.md](10-fusion-audit.md) — 参考能力覆盖、冲突和剩余缺口。
+- [11-official-first-development.md](11-official-first-development.md) — official-first 兼容开发门。
+- [13-self-hosting-dogfood.md](13-self-hosting-dogfood.md) — stable control、candidate、acceptance 和 promotion 分权。
+- [OFFICIAL_BASELINE.json](OFFICIAL_BASELINE.json) — `pnpm verify:compatibility` 使用的机读官方基线。
 
-### 验证与审计
-14. [08-testing-verification.md](08-testing-verification.md) — 验证矩阵（场景审计、套件清单、门禁链）
-15. [10-fusion-audit.md](10-fusion-audit.md) — 参考融合的累计历史证据、现行 pin 与冲突审计；前向顺序以 GOALS/roadmap 为准
+## 治理权威
 
-### 记录与决策层（已接受证据保持不可变）
-- [adr/](adr/) — 架构决策（ADR-0001..0010）；每份 ADR 自身的 Status 决定其为 proposed 或 accepted，已接受且登记的后续 ADR 可 supersede 旧决策。Proposed ADR 是受审参考，不得单独成为生产实现或无关里程碑的强制门。
-- [development/](development/) — 有界实现设计与阶段完成报告；已接受的报告保持不可变，未接受且与现行架构冲突的前瞻方案可在有 Git 恢复身份、无现行引用的受审候选中 supersede 或删除
-- [reviews/](reviews/) — 历史独立审查报告与处置证据（不可变）；新候选按风险只产生一次所需验收，不机械创建 PM intake
+- [governance/project-binding.yaml](governance/project-binding.yaml) — 项目采用的交付、隔离、审查和集成规则。
+- [governance/document-registry.yaml](governance/document-registry.yaml) — 文档角色、owner、写入模式和验证入口。
+- [development/2026-08-23-worktree-cleanup-ledger.md](development/2026-08-23-worktree-cleanup-ledger.md) — 迁移完成前唯一保留、不可滚动更新的恢复证据。旧 ADR、阶段报告和审查报告已由当前权威取代，历史内容由 Git 保存。
 
-## 权威与证据说明
+## 权威关系
 
-- [GOALS.md](GOALS.md) 只保存稳定产品章程，不登记滚动进度。
-- 阶段报告、审查报告、ADR、Git commit/tag 是版本化历史证据，不是实时任务台账。
-- 官方兼容事实以 [OFFICIAL_BASELINE.json](OFFICIAL_BASELINE.json)、目标安装包和 Gate A 结果为准。
-- 当前任务、候选、审查与集成状态由项目绑定选定的外部 provider 或非提交式动态台账承担。
-- 历史记录中对已删除旧规范的引用只说明当时上下文，不会恢复旧治理权威；现行方法以项目 binding 和 `$manage-agile-software-development` 为准。
+| 问题 | 权威 |
+|---|---|
+| 产品目标、范围、非目标 | [GOALS.md](GOALS.md) |
+| 用户体验与身份拓扑 | [00-vision.md](00-vision.md) |
+| 服务/Provider/Consumer ownership | [03-capability-family.md](03-capability-family.md) |
+| 状态机、错误、并发与权限合同 | [04-core-protocol.md](04-core-protocol.md) |
+| Workspace 与 distributed 语义 | [06-workspace-distributed.md](06-workspace-distributed.md) |
+| 交付顺序与出口证据 | [07-implementation-roadmap.md](07-implementation-roadmap.md) |
+| 测试与验收命令 | [08-testing-verification.md](08-testing-verification.md) |
+| 官方/参考事实 | [OFFICIAL_BASELINE.json](OFFICIAL_BASELINE.json)、[09-sources.md](09-sources.md) |
+| 实时任务、writer、候选、审查、集成状态 | 项目绑定选定的动态 provider 或 Git common-dir ledger；不写入 Markdown |
 
-## 文档规则
+## 维护规则
 
-- 协议决策进 docs/04 的编号决策段，不散落在 README 或代码注释；
-- 已接受的 `reviews/` 历史证据保持不可修改；新候选只保留风险所需的一次验收结论，普通处置与排期留在流水线动态权威，不另造 PM intake；
-- 只有 Service、共享契约、权限、迁移、发布或昂贵恢复等实质边界未决时，才在实现前增加设计/决策工件；普通 `DIRECT_EXECUTION_READY` 功能使用流水线短卡直接进入最小纵切；
-- 只有官方分类、release pin 或引用事实实际变化时，`OFFICIAL_BASELINE.json` 与受影响的 docs/09 内容才在同一候选更新；普通 Gate A 重跑复用动态 receipt。
+- 公共行为变化时，同一候选更新受影响的产品/协议文档；不机械刷新所有文件。
+- 官方包、export 或 reference pin 变化时，只更新受影响的兼容权威并运行 `pnpm verify:compatibility`。
+- 文档不能授权密钥、网络、push、release、删除或仓库外写入。
+- UI、日志、截图、历史报告和 agent 消息不是 Team truth，也不能把计划能力描述为已交付。
+- 协议决定进入 `04-core-protocol.md`；滚动排期和候选状态留在动态任务系统。
+- 不新建同题 ADR、阶段报告或审查报告；修改现有登记权威并以测试、GitHub PR/Issue 和集成读回承载动态证据。

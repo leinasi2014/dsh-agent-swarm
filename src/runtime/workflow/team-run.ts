@@ -8,9 +8,8 @@
  * the event stream projects Team state onto the official `workflow/*` events;
  * cancellation and failure settle bounded with synthesized agent ends; the
  * durable run overlay (`agent_swarm_workflow` domain) is the ONLY run truth —
- * no official run storage exists for a Team-started run (planning-note trap
- * 1). Mapping table and line-cited evidence:
- * docs/development/2026-08-21-m2a-workflow-bridge-design.md §2.
+ * no official run storage exists for a Team-started run. The current mapping
+ * and ownership contract is defined in docs/04-core-protocol.md.
  * @module dsh-agent-swarm/runtime/workflow/team-run
  */
 
