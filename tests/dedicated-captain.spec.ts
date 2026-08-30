@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mountNodeComposition, SIGNAL, type NodeComposition } from './helpers/node-composition.js'
 
 describe('dedicated Captain topology', () => {
@@ -177,5 +177,28 @@ describe('dedicated Captain topology', () => {
     const second = await create()
     expect(second.team_id).toBe(first.team_id)
     expect(second.captain_session_id).toBe(first.captain_session_id)
+  })
+
+  it('issues a readable "Team · Captain" label to official startContinuable (issue #148)', async () => {
+    sandbox = await mkdtemp(join(tmpdir(), 'dsh-dedicated-captain-label-'))
+    mounted = await mountNodeComposition(sandbox, { captainLlmProvider: 'mock', captainModel: 'mock' })
+    const start = vi.spyOn(mounted.ctx.subagents, 'startContinuable')
+
+    const result = await mounted.ctx.tools.execute({
+      signal: SIGNAL,
+      callId: CallId('managed-label'),
+      name: 'agent_swarm_create_managed',
+      arguments: { name: 'Managed Team', description: 'Readable Captain label.' },
+      agent: mounted.lead,
+    })
+    expect(result.isError).toBe(false)
+
+    // The Captain Session must appear in the official DSH session list under
+    // the Team name plus a readable role tag, never `agent-swarm:captain:<id>`.
+    const labels = start.mock.calls.map(call => (call[0] as { label: string }).label)
+    expect(labels).toContain('Managed Team · Captain')
+    expect(labels.some(label => label.startsWith('agent-swarm:captain:'))).toBe(false)
+
+    start.mockRestore()
   })
 })

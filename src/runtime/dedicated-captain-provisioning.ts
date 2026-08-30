@@ -78,7 +78,10 @@ export class DedicatedCaptainProvisioner {
     try {
       await this.ctx.subagents.startContinuable({
         provider: providerName,
-        label: `agent-swarm:captain:${team.id}`,
+        // Issue #148: the label is the readable identity shown in the official
+        // DSH session list; a dedicated Captain renders as the Team name plus a
+        // readable "Captain" role tag instead of `agent-swarm:captain:<uuid>`.
+        label: `${team.name} · Captain`,
         childId: captainId,
         request: {
           prompt: [{ type: 'text', text: captainStartNotice(team) }],

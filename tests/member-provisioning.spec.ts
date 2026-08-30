@@ -597,3 +597,55 @@ describe('persisted-child provisioning reconciliation (F3)', () => {
     }
   }, 20_000)
 })
+
+describe('issue #148: the official session label carries the readable Team + member name', () => {
+  const roots: string[] = []
+
+  afterEach(async () => {
+    await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })))
+  })
+
+  it('passes `Team name · displayName` to official startContinuable, falling back to the internal name', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-label-'))
+    roots.push(sandbox)
+    const fibers: Fiber[] = []
+
+    try {
+      const stack = await mountCaptain(sandbox, fibers, 'label-lead', 'Label Team')
+      const start = vi.spyOn(stack.ctx.subagents, 'startContinuable')
+
+      const withDisplay = await stack.ctx.tools.execute({
+        signal: SIGNAL,
+        callId: CallId('label-add-display'),
+        name: 'agent_swarm_add_member',
+        arguments: { name: 'worker-internal', role: 'Reader', display_name: 'Worker Readable' },
+        agent: stack.lead,
+      })
+      expect(withDisplay.isError).toBe(false)
+
+      const withoutDisplay = await stack.ctx.tools.execute({
+        signal: SIGNAL,
+        callId: CallId('label-add-plain'),
+        name: 'agent_swarm_add_member',
+        arguments: { name: 'plain-worker', role: 'Reader' },
+        agent: stack.lead,
+      })
+      expect(withoutDisplay.isError).toBe(false)
+
+      // The EXACT label handed to the official continuation seam is the
+      // readable identity shown in the DSH session list (issue #148): the
+      // Team name joined to the displayName, with the internal immutable
+      // member name only as the fallback when the Captain set no displayName.
+      const labels = start.mock.calls.map(call => (call[0] as { label: string }).label)
+      expect(labels).toContain('Label Team · Worker Readable')
+      expect(labels).toContain('Label Team · plain-worker')
+      // The old `agent-swarm:<team-id>:<name>` form is fully gone for new
+      // sessions.
+      expect(labels.some(label => label.startsWith('agent-swarm:'))).toBe(false)
+
+      start.mockRestore()
+    } finally {
+      for (const fiber of fibers.toReversed()) await fiber.dispose()
+    }
+  }, 20_000)
+})
