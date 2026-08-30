@@ -312,18 +312,18 @@ describe('R2 authoritative target binding and wire contract', () => {
     })).rejects.toMatchObject({ code: 'SWARM_RPC_TARGET_NOT_LIVE' })
   })
   it('keeps a settled dedicated Captain panel bound to its Team through the live Main Brain parent', async () => {
-    const captain = 'settled-captain-session'
-    const harness = rpcHarness({
+    const captain = 'settled-captain-session', harness = rpcHarness({
       captain, managedCaptains: [captain], bindHostReadToCaptain: true,
       persistedRootHeader: { cwd: 'D:\\workspace', parentSession: ROOT.id },
       teamState: { id: 'team-r2', captainSessionId: captain, phase: 'active', revision: 1, members: [], tasks: [], attempts: [] } as never as TeamState,
       teams: [{ id: 'team-r2', captainSessionId: captain, phase: 'active' },
+        { id: 'team-archived', captainSessionId: captain, phase: 'archived' },
         { id: 'team-sibling', captainSessionId: 'sibling-captain', phase: 'active' }],
     })
     const directory = await harness.service.invoke({ schemaVersion: 1, method: 'teams', target: { rootSessionId: captain } }) as SwarmReadTeamsV1
     expect([directory.binding.rootSessionId, ...directory.teams.map(team => team.teamId)]).toEqual([captain, 'team-r2'])
     expect(directory.teams[0]?.endpoints.members.target.rootSessionId).toBe(captain)
-    for (const method of ['binding', 'snapshot', 'captainMembers', 'captainAnnouncements', 'captainDiagnostics'] as const) {
+    for (const method of ['binding', 'status', 'snapshot', 'captainMembers', 'captainAnnouncements', 'captainDiagnostics'] as const) {
       const value = await harness.service.invoke({ schemaVersion: 1, method, target: { rootSessionId: captain, teamId: 'team-r2' } }) as { binding?: { rootSessionId: string; teamId: string } }
       expect(value.binding).toMatchObject({ rootSessionId: captain, teamId: 'team-r2' })
     }

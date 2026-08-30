@@ -159,7 +159,7 @@ export class AgentSwarmReadRpcService {
       schemaVersion: 1,
       binding: { rootSessionId: resolved.bindingRootSessionId },
       teams: projection.teams.filter(team => resolved.visibleCaptainSessionId === undefined
-        || team.captainSessionId === resolved.visibleCaptainSessionId).map(team => {
+        || (team.captainSessionId === resolved.visibleCaptainSessionId && team.phase === 'active')).map(team => {
         const aggregate = byId.get(TeamId(team.teamId))
         return teamDescriptorOf(resolved.bindingRootSessionId, team, aggregate?.captainProfile, aggregate?.publicGoal)
       }),
