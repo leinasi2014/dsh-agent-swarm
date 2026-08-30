@@ -157,10 +157,11 @@ export class AgentSwarmReadRpcService {
     const byId = new Map(aggregates.map(team => [team.id, team]))
     return {
       schemaVersion: 1,
-      binding: { rootSessionId: resolved.root.id },
-      teams: projection.teams.map(team => {
+      binding: { rootSessionId: resolved.bindingRootSessionId },
+      teams: projection.teams.filter(team => resolved.visibleCaptainSessionId === undefined
+        || team.captainSessionId === resolved.visibleCaptainSessionId).map(team => {
         const aggregate = byId.get(TeamId(team.teamId))
-        return teamDescriptorOf(resolved.root.id, team, aggregate?.captainProfile, aggregate?.publicGoal)
+        return teamDescriptorOf(resolved.bindingRootSessionId, team, aggregate?.captainProfile, aggregate?.publicGoal)
       }),
       observedAt: projection.observedAt,
       complete: projection.complete,
@@ -337,6 +338,8 @@ export class AgentSwarmReadRpcService {
     // Session) is reconstructed read-only from that persistence (official header/cwd/parent),
     // never by creating local Agent/live-store state.
     if (requested === undefined) {
+      const coldCaptain = await this.resolveColdDedicatedCaptain(target.rootSessionId, target)
+      if (coldCaptain !== undefined) return coldCaptain
       return await this.resolveFullyColdRoot(target.rootSessionId, target)
     }
     if (requested.session.header.cwd === undefined) {
@@ -425,15 +428,77 @@ export class AgentSwarmReadRpcService {
   /** Resolve a root (live or fully-cold persistence view) and its workspace scope without forcing a
    *  single Team binding — used by read-only Team enumeration. The returned root view carries the
    *  durable header so R1's descriptor-chain read can re-prove scope/binding. */
-  private async resolveRootOnly(rootSessionId: string): Promise<{ readonly root: Agent; readonly scope: TeamScope }> {
+  private async resolveRootOnly(rootSessionId: string): Promise<{
+    readonly root: Agent
+    readonly scope: TeamScope
+    readonly bindingRootSessionId: string
+    readonly visibleCaptainSessionId?: string
+  }> {
     const requested = this.deps.ctx.agents.get(SessionId(rootSessionId))
     if (requested !== undefined) {
       if (requested.session.header.cwd === undefined) {
         throw new TeamDomainError('Target Session has no workspace cwd', 'SWARM_HOST_WORKSPACE_REQUIRED')
       }
-      return { root: requested, scope: this.deps.runtime.scopeOf(requested) }
+      return { root: requested, scope: this.deps.runtime.scopeOf(requested), bindingRootSessionId: requested.id }
     }
-    return await this.coldRootView(rootSessionId)
+    const coldCaptain = await this.resolveColdCaptainParent(rootSessionId)
+    if (coldCaptain !== undefined) {
+      return {
+        root: coldCaptain.parent,
+        scope: coldCaptain.scope,
+        bindingRootSessionId: rootSessionId,
+        visibleCaptainSessionId: rootSessionId,
+      }
+    }
+    const coldRoot = await this.coldRootView(rootSessionId)
+    return { ...coldRoot, bindingRootSessionId: rootSessionId }
+  }
+
+  /** A settled dedicated Captain is no longer in the live Agent registry, but its official
+   *  persisted Session still carries the Main Brain parent link. Admit the read through that exact
+   *  live parent and keep the requested Captain id as the Team selector/binding. This does not
+   *  recreate or resume the Captain and does not introduce a second Team state. */
+  private async resolveColdDedicatedCaptain(
+    rootSessionId: string,
+    target: SwarmReadTargetHint,
+  ): Promise<{ readonly root: Agent; readonly teamId: string; readonly captainSessionId: string } | undefined> {
+    const resolved = await this.resolveColdCaptainParent(rootSessionId)
+    if (resolved === undefined) return undefined
+    const teams = await this.deps.runtime.listTeamAggregates(resolved.scope)
+    const owned = teams.filter(team => team.phase === 'active' && team.captainSessionId === rootSessionId)
+    let selected: TeamState | undefined
+    if (target.teamId !== undefined) {
+      selected = owned.find(team => team.id === target.teamId)
+      if (selected === undefined) {
+        if (teams.some(team => team.id === target.teamId)) {
+          throw new TeamDomainError('Target Team does not match this Captain Session', 'SWARM_HOST_BINDING_MISMATCH')
+        }
+        throw new TeamDomainError('Target Team does not exist', 'SWARM_HOST_BINDING_NOT_FOUND')
+      }
+    } else {
+      if (owned.length === 0) throw new TeamDomainError('Target Captain has no authoritative Team binding', 'SWARM_HOST_BINDING_NOT_FOUND')
+      if (owned.length > 1) throw new TeamDomainError('Multiple Teams are available; select one Team', 'SWARM_HOST_BINDING_AMBIGUOUS')
+      selected = owned[0]
+    }
+    return { root: resolved.parent, teamId: selected!.id, captainSessionId: rootSessionId }
+  }
+
+  private async resolveColdCaptainParent(rootSessionId: string): Promise<{
+    readonly parent: Agent
+    readonly scope: TeamScope
+  } | undefined> {
+    const persisted = await this.inspectPersistedRoot(rootSessionId)
+    const parentSessionId = persisted?.header.parentSession
+    if (persisted?.header.cwd === undefined || parentSessionId === undefined) return undefined
+    const parent = this.deps.ctx.agents.get(SessionId(parentSessionId))
+    if (parent === undefined || this.deps.ctx.sessions.get(parent.id) !== parent.session
+      || parent.session.header.cwd === undefined || !this.deps.ctx.agents.roots().includes(parent)) return undefined
+    const scope = this.deps.runtime.scopeOf(parent)
+    const coldCaptain = { id: rootSessionId, session: { header: persisted.header } } as unknown as Agent
+    if (this.deps.runtime.scopeOf(coldCaptain) !== scope) {
+      throw new TeamDomainError('Captain workspace does not match its Main Brain parent', 'SWARM_HOST_BINDING_MISMATCH')
+    }
+    return { parent, scope }
   }
 
   /** Reconstruct a fully cold root's durable header/cwd/scope from the official persistent Session
