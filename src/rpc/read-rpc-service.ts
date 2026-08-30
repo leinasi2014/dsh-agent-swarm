@@ -5,6 +5,8 @@ import { isProxy } from 'node:util/types'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import { isModelInvocable, type SkillRegistry } from '@deepseek-ai/dsh-skill'
+import type {} from '@deepseek-ai/dsh-agent-presets'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import { TeamDomainError } from '../domain/error.js'
 import { isSafePixelAvatarSvg, MAX_CAPTAIN_ANNOUNCEMENTS } from '../domain/identity-profile.js'
@@ -28,6 +30,8 @@ import {
   type SwarmReadTargetHint,
   type SwarmReadTeamsRequest,
   type SwarmReadTeamsV1,
+  type SwarmReadSkillCatalogRequest,
+  type SwarmReadSkillCatalogV1,
   type SwarmReadTeamV1,
   type SwarmReadCaptainSectionMethod,
   type SwarmReadCaptainSectionRequest,
@@ -97,6 +101,7 @@ export class AgentSwarmReadRpcService {
     const listener = this.deps.webServer.host === '127.0.0.1' ? 'loopback' : 'non-loopback'
     const available = listener === 'loopback'
     const reads: SwarmReadCapabilityState[] = [
+      'skillCatalog.read',
       'teams.read', 'binding.read', 'status.read', 'snapshot.read', 'page.read',
       'captainMembers.read', 'captainAnnouncements.read', 'captainDiagnostics.read',
     ].map(capability => ({
@@ -127,6 +132,9 @@ export class AgentSwarmReadRpcService {
     if (request.method === 'teams') {
       return await this.invokeTeams(request)
     }
+    if (request.method === 'skillCatalog') {
+      return await this.invokeSkillCatalog(request)
+    }
     if (isCaptainSection(request)) {
       return await this.invokeCaptainSection(request)
     }
@@ -141,6 +149,48 @@ export class AgentSwarmReadRpcService {
       case 'status': return statusOf(projection)
       case 'snapshot': return projection
       case 'page': return pageOf(projection, request)
+    }
+  }
+
+  /** Return the complete model-facing Skill directory for one exact live Session.
+   *  The official browser `skill.list` endpoint intentionally filters to
+   *  user-invocable rows, so Settings uses this bounded metadata-only read
+   *  instead. Skill bodies, filesystem paths and provider locators never cross
+   *  the wire. */
+  private async invokeSkillCatalog(request: SwarmReadSkillCatalogRequest): Promise<SwarmReadSkillCatalogV1> {
+    const root = this.deps.ctx.agents.get(SessionId(request.target.rootSessionId))
+    if (root === undefined || this.deps.ctx.sessions.get(root.id) !== root.session) {
+      throw new TeamDomainError('Skill catalog requires an exact live Session', 'SWARM_RPC_TARGET_NOT_LIVE')
+    }
+    if (root.session.header.cwd === undefined) {
+      throw new TeamDomainError('Target Session has no workspace cwd', 'SWARM_HOST_WORKSPACE_REQUIRED')
+    }
+    const presets = this.deps.ctx.get('agentPresets')
+    const registry = presets?.serviceFor(root, 'skills') as SkillRegistry | undefined
+      ?? this.deps.ctx.get('skills')
+    if (registry === undefined) {
+      throw new TeamDomainError('Skill catalog is unavailable for this Session', 'SWARM_RPC_SKILL_CATALOG_UNAVAILABLE')
+    }
+    const observation = await registry.snapshot({
+      cwd: root.session.header.cwd,
+      scope: root,
+      signal: AbortSignal.timeout(3_000),
+    })
+    const skills = observation.skills.filter(isModelInvocable)
+    if (skills.length > 512) {
+      throw new TeamDomainError('Skill catalog exceeds the bounded read ceiling', 'SWARM_RPC_PROJECTION_LIMIT')
+    }
+    return {
+      schemaVersion: 1,
+      binding: { rootSessionId: root.id },
+      complete: observation.complete,
+      skills: skills.map(skill => ({
+        name: skill.name,
+        description: skill.description,
+        ...(skill.whenToUse === undefined ? {} : { whenToUse: skill.whenToUse }),
+        modelInvocable: true,
+      })),
+      observedAt: Date.now(),
     }
   }
 
@@ -633,6 +683,11 @@ function parseRequest(input: unknown): SwarmReadRpcRequest {
   if (base.method === 'teams') {
     assertKeys(base, new Set(['schemaVersion', 'method', 'target']))
     return { schemaVersion: 1, method: 'teams', target }
+  }
+  if (base.method === 'skillCatalog') {
+    assertKeys(base, new Set(['schemaVersion', 'method', 'target']))
+    if (target.teamId !== undefined) invalidRequest()
+    return { schemaVersion: 1, method: 'skillCatalog', target }
   }
   if (isCaptainSectionMethod(base.method)) {
     assertKeys(base, new Set(['schemaVersion', 'method', 'target']))

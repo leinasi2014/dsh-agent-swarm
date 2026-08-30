@@ -65,7 +65,7 @@ function isSafePixelAvatarSvg(value: string): boolean {
 }
 
 const SWARM_READ_RPC_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
-export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '83c0e9fb91b48b052af06d11c1ea0aef7fb9e26ab21f41cad5ebbb9323119bac' as const
+export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '69632ab48a875cc2f95d3caff188a169021fa1bebec665b5edcc7bcaa894961f' as const
 
 const boundedString = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength, pattern: '\\S' })
 /** Member role is authoritative free-text (never truncated by the reader); the
@@ -249,7 +249,7 @@ const truncation = {
 const capability = {
   type: 'object', additionalProperties: false, required: ['capability', 'state'],
   properties: {
-    capability: { enum: ['teams.read', 'binding.read', 'status.read', 'snapshot.read', 'page.read', 'captainMembers.read', 'captainAnnouncements.read', 'captainDiagnostics.read', 'message.write', 'control.write', 'effect.cancel'] },
+    capability: { enum: ['skillCatalog.read', 'teams.read', 'binding.read', 'status.read', 'snapshot.read', 'page.read', 'captainMembers.read', 'captainAnnouncements.read', 'captainDiagnostics.read', 'message.write', 'control.write', 'effect.cancel'] },
     state: { enum: ['available', 'unavailable'] },
     blocker: { enum: ['listener-not-loopback', 'i1b-effect-correlation'] },
   },
@@ -346,6 +346,9 @@ export const SWARM_READ_RPC_CONTRACT_V1 = deepFreezeJson({
         {
           ...requestBase, properties: { ...requestBase.properties, method: { const: 'teams' } },
         },
+        {
+          ...requestBase, properties: { ...requestBase.properties, method: { const: 'skillCatalog' } },
+        },
         ...(['captainMembers', 'captainAnnouncements', 'captainDiagnostics'] as const).map(method => ({
           type: 'object', additionalProperties: false,
           required: ['schemaVersion', 'method', 'target'],
@@ -386,7 +389,30 @@ export const SWARM_READ_RPC_CONTRACT_V1 = deepFreezeJson({
               listener: { enum: ['loopback', 'non-loopback'] },
             },
           },
-          capabilities: { type: 'array', minItems: 11, maxItems: 11, items: capability },
+          capabilities: { type: 'array', minItems: 12, maxItems: 12, items: capability },
+        },
+      },
+      skillCatalog: {
+        type: 'object', additionalProperties: false,
+        required: ['schemaVersion', 'binding', 'complete', 'skills', 'observedAt'],
+        properties: {
+          schemaVersion: { const: 1 },
+          binding: {
+            type: 'object', additionalProperties: false, required: ['rootSessionId'],
+            properties: { rootSessionId: boundedString(256) },
+          },
+          complete: { type: 'boolean' }, skills: {
+            type: 'array', maxItems: 512,
+            items: {
+              type: 'object', additionalProperties: false,
+              required: ['name', 'description', 'modelInvocable'],
+              properties: {
+                name: boundedString(128), description: boundedString(4096),
+                whenToUse: boundedString(4096), modelInvocable: { const: true },
+              },
+            },
+          },
+          observedAt: nonNegativeInteger,
         },
       },
       teams: {
@@ -482,6 +508,7 @@ export const SWARM_READ_RPC_CONTRACT_V1 = deepFreezeJson({
 })
 
 const readCapabilities = [
+  { capability: 'skillCatalog.read', state: 'available' },
   { capability: 'teams.read', state: 'available' },
   { capability: 'binding.read', state: 'available' }, { capability: 'status.read', state: 'available' },
   { capability: 'snapshot.read', state: 'available' }, { capability: 'page.read', state: 'available' },
@@ -515,6 +542,7 @@ const fixtureBudget = { usedTokens: 12, usedRequests: 2, usedRetries: 0, tokenLi
 export const SWARM_READ_RPC_FIXTURES_V1 = deepFreezeJson({
   requests: {
     capabilities: { schemaVersion: 1, method: 'capabilities' },
+    skillCatalog: { schemaVersion: 1, method: 'skillCatalog', target: { rootSessionId: 'session-fixture' } },
     teams: { schemaVersion: 1, method: 'teams', target: { rootSessionId: 'session-fixture' } },
     captainMembers: { schemaVersion: 1, method: 'captainMembers', target: { rootSessionId: 'session-fixture', teamId: 'team-fixture' } },
     captainAnnouncements: { schemaVersion: 1, method: 'captainAnnouncements', target: { rootSessionId: 'session-fixture', teamId: 'team-fixture' } },
@@ -530,6 +558,16 @@ export const SWARM_READ_RPC_FIXTURES_V1 = deepFreezeJson({
       protocol: SWARM_READ_RPC_PROTOCOL, version: 1, namespace: SWARM_READ_RPC_NAMESPACE,
       trust: { mode: 'local-single-user-target-bound', principalBound: false, listener: 'loopback' },
       capabilities: readCapabilities,
+    },
+    skillCatalog: {
+      schemaVersion: 1,
+      binding: { rootSessionId: 'session-fixture' },
+      complete: true,
+      skills: [{
+        name: 'frontend-review', description: 'Review a frontend implementation.',
+        whenToUse: 'Use after UI implementation.', modelInvocable: true,
+      }],
+      observedAt: 1_700_000_000_200,
     },
     teams: {
       schemaVersion: 1, binding: { rootSessionId: 'session-fixture' },
@@ -612,7 +650,7 @@ export function canonicalSwarmReadRpcJson(value: unknown): string {
 
 /** Strict browser-side result validation against the frozen method schema. */
 export function assertSwarmReadRpcValue(method: string, value: unknown): void {
-  const key = method === 'capabilities' || method === 'teams' || method === 'captainMembers'
+  const key = method === 'capabilities' || method === 'skillCatalog' || method === 'teams' || method === 'captainMembers'
     || method === 'captainAnnouncements' || method === 'captainDiagnostics'
     || method === 'binding' || method === 'status'
     || method === 'snapshot' || method === 'page' ? method : undefined
@@ -764,19 +802,28 @@ function assertMemberComposition(member: Record<string, unknown>): void {
 function assertResultSemantics(method: string, value: Record<string, unknown>): void {
   if (method === 'capabilities') {
     const expected = [
+      'skillCatalog.read',
       'teams.read', 'binding.read', 'status.read', 'snapshot.read', 'page.read',
       'captainMembers.read', 'captainAnnouncements.read', 'captainDiagnostics.read',
       'message.write', 'control.write', 'effect.cancel',
     ]
     const entries = value.capabilities as Array<Record<string, unknown>>
     entries.forEach((entry, index) => {
-      const read = index < 8
+      const read = index < 9
       if (entry.capability !== expected[index]
         || entry.state !== (read ? 'available' : 'unavailable')
         || (read ? entry.blocker !== undefined : entry.blocker !== 'i1b-effect-correlation')) {
         throw new Error('Swarm RPC capability state contradicts the R2 contract')
       }
     })
+    return
+  }
+  if (method === 'skillCatalog') {
+    const skills = value.skills as readonly Record<string, unknown>[]
+    const names = skills.map(skill => skill.name as string)
+    if (names.some((name, index) => index > 0 && names[index - 1]!.localeCompare(name) >= 0)) {
+      throw new Error('Swarm RPC Skill catalog must be sorted with unique names')
+    }
     return
   }
   if (method === 'teams') {

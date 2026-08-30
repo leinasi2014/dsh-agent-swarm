@@ -15,7 +15,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
+import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
@@ -256,25 +256,62 @@ export const Config: z<Config> = z.object({
   promptSectionOrder: z.natural().default(118),
 })
 
+function assertServiceableConfig(value: Config): void {
+  for (const [field, raw] of [
+    ['memberProvider', value.memberProvider ?? 'spawn'],
+    ['schedulerProvider', value.schedulerProvider ?? 'priority-ready'],
+    ['reviewProvider', value.reviewProvider ?? 'manual'],
+    ['reviewRootProvider', value.reviewRootProvider ?? 'temp'],
+    ['executionRootProvider', value.executionRootProvider ?? 'git-worktree'],
+  ] as const) {
+    if (raw.trim() === '') throw new Error(`agent-swarm: ${field} must not be empty`)
+  }
+  if ((value.orchestrationMode ?? 'adaptive') === 'workflow' && value.workflowBridge !== true) {
+    throw new Error('agent-swarm: orchestrationMode "workflow" requires workflowBridge: true (no orchestration driver would exist)')
+  }
+  expectExecutionRootsBase(value.executionRootsBase)
+  normalizeAllowedSkills(value.allowedSkills)
+  effectiveToolPolicy(value.toolPolicy)
+}
+
 export async function apply(ctx: Context, config: Config): Promise<void> {
+  const registerSettings = (settingsCtx: Context) => settingsCtx.settings.register(AGENT_SWARM_SETTINGS_NAMESPACE, Config, {
+      base: config,
+      applies: 'restart',
+      validate: assertServiceableConfig,
+    })
+  // A normal web Profile provides Settings before external plugins. Resolve
+  // its stored user layer before constructing this generation's runtime so a
+  // restart really applies every field. Headless compositions without
+  // Settings still run from loader config; if Settings appears later we
+  // register the UI namespace, but deliberately do not partially mutate the
+  // already-constructed runtime.
+  const settings = ctx.get('settings')
+  if (settings === undefined) {
+    ctx.inject(['settings'], settingsCtx => { registerSettings(settingsCtx) })
+  } else {
+    config = settings.register(AGENT_SWARM_SETTINGS_NAMESPACE, Config, {
+      base: config,
+      applies: 'restart',
+      validate: assertServiceableConfig,
+    }).get()
+    // The direct registration above is needed to resolve restart-applied
+    // settings before the runtime is constructed. Keep a scoped injection as
+    // well so a replacement Settings Provider receives the namespace again.
+    // The first callback observes the already-registered current Provider;
+    // later Provider generations start without this namespace and register it.
+    ctx.inject(['settings'], settingsCtx => {
+      if (settingsCtx.settings.get(AGENT_SWARM_SETTINGS_NAMESPACE) === undefined) {
+        registerSettings(settingsCtx)
+      }
+    })
+  }
   if (config.enabled === false) return
-  let currentConfig: () => Config = () => config
-  // `installSettingsSection` owns an optional child `settings` injection.
-  // Registering unconditionally is essential: checking ctx.get('settings')
-  // here races normal Cordis activation and leaves the browser with no
-  // configurable `agent-swarm` namespace even though its client card exists.
-  installSettingsSection(ctx, AGENT_SWARM_SETTINGS_NAMESPACE, Config, config, {
-    setSource: source => { currentConfig = source },
-    onChange: () => {},
-  })
+  assertServiceableConfig(config)
   const memberProvider = (config.memberProvider ?? 'spawn').trim()
-  if (memberProvider === '') throw new Error('agent-swarm: memberProvider must not be empty')
   const schedulerProvider = (config.schedulerProvider ?? 'priority-ready').trim()
   const reviewProvider = (config.reviewProvider ?? 'manual').trim()
   const reviewRootProvider = (config.reviewRootProvider ?? 'temp').trim()
-  if (schedulerProvider === '') throw new Error('agent-swarm: schedulerProvider must not be empty')
-  if (reviewProvider === '') throw new Error('agent-swarm: reviewProvider must not be empty')
-  if (reviewRootProvider === '') throw new Error('agent-swarm: reviewRootProvider must not be empty')
   const orchestrationMode = config.orchestrationMode ?? 'adaptive'
   if (orchestrationMode !== 'adaptive' && orchestrationMode !== 'workflow') {
     throw new Error(`agent-swarm: orchestrationMode must be "adaptive" or "workflow", got "${orchestrationMode}"`)
@@ -282,12 +319,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   // M2-3 fail-closed combination (issue #77): workflow mode with no bridge
   // leaves Teams without any orchestration driver — reject before the runtime
   // constructs or opens anything (zero side effects).
-  if (orchestrationMode === 'workflow' && config.workflowBridge !== true) {
-    throw new Error('agent-swarm: orchestrationMode "workflow" requires workflowBridge: true (no orchestration driver would exist)')
-  }
   const executionRootsEnabled = config.executionRoots ?? false
   const executionRootProvider = (config.executionRootProvider ?? 'git-worktree').trim()
-  if (executionRootProvider === '') throw new Error('agent-swarm: executionRootProvider must not be empty')
   const executionRootsBase = expectExecutionRootsBase(config.executionRootsBase) ?? defaultExecutionRootsBase()
   const toolPolicy = effectiveToolPolicy(config.toolPolicy)
   const memberToolPolicyDeny = [...(toolPolicy.ask ?? []), ...(toolPolicy.deny ?? [])]
@@ -326,7 +359,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     executionRootProvider,
     executionRootsBase,
     memberToolPolicyDeny,
-    newTeamAllowedSkills: () => normalizeAllowedSkills(currentConfig().allowedSkills) ?? [],
+    newTeamAllowedSkills: () => normalizeAllowedSkills(config.allowedSkills) ?? [],
     teamSkills,
   })
 

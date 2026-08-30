@@ -8,6 +8,7 @@ export const SWARM_READ_RPC_ENDPOINT = '/swarm/v1' as const
 
 export type SwarmReadRpcMethod =
   | 'capabilities'
+  | 'skillCatalog'
   | 'teams'
   | 'binding'
   | 'status'
@@ -23,6 +24,7 @@ export type SwarmReadCaptainSectionMethod =
   | 'captainAnnouncements'
   | 'captainDiagnostics'
 export type SwarmReadCapability =
+  | 'skillCatalog.read'
   | 'teams.read'
   | 'binding.read'
   | 'status.read'
@@ -60,6 +62,30 @@ export interface SwarmReadTeamsRequest {
   readonly schemaVersion: 1
   readonly method: 'teams'
   readonly target: SwarmReadTargetHint
+}
+
+/** Model-facing Skill directory for the exact live Session selected in Settings.
+ *  This is read-only discovery metadata; it never loads Skill bodies. */
+export interface SwarmReadSkillCatalogRequest {
+  readonly schemaVersion: 1
+  readonly method: 'skillCatalog'
+  readonly target: SwarmReadTargetHint
+}
+
+export interface SwarmReadSkillCatalogEntryV1 {
+  readonly name: string
+  readonly description: string
+  readonly whenToUse?: string
+  readonly modelInvocable: true
+}
+
+export interface SwarmReadSkillCatalogV1 {
+  readonly schemaVersion: 1
+  readonly binding: { readonly rootSessionId: string }
+  /** False means provider discovery changed while this observation was collected. */
+  readonly complete: boolean
+  readonly skills: readonly SwarmReadSkillCatalogEntryV1[]
+  readonly observedAt: number
 }
 
 /** Explicit identity-asset availability of a Captain/team/member. Backend states are honest: a
@@ -284,6 +310,7 @@ export interface SwarmReadPageRequest {
 
 export type SwarmReadRpcRequest =
   | SwarmReadCapabilitiesRequest
+  | SwarmReadSkillCatalogRequest
   | SwarmReadTeamsRequest
   | SwarmReadCaptainSectionRequest
   | SwarmReadTargetRequest
@@ -334,6 +361,7 @@ export interface SwarmReadPageV1 {
 
 export type SwarmReadRpcValue =
   | SwarmReadCapabilitiesV1
+  | SwarmReadSkillCatalogV1
   | SwarmReadTeamsV1
   | SwarmReadCaptainMembersV1
   | SwarmReadCaptainAnnouncementsV1
