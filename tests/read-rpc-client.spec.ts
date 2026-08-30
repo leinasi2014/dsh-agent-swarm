@@ -39,8 +39,20 @@ describe('R2 browser client', () => {
     expect(digest).toBe(SWARM_READ_RPC_CONTRACT_DIGEST_V1)
     expect(Object.isFrozen(SWARM_READ_RPC_CONTRACT_V1)).toBe(true)
     expect(Object.isFrozen(SWARM_READ_RPC_FIXTURES_V1.requests)).toBe(true)
-    expect(SWARM_READ_RPC_CONTRACT_V1.schemas.request.oneOf).toHaveLength(9)
-    expect(SWARM_READ_RPC_FIXTURES_V1.values.capabilities.capabilities).toHaveLength(11)
+    expect(SWARM_READ_RPC_CONTRACT_V1.schemas.request.oneOf).toHaveLength(10)
+    expect(SWARM_READ_RPC_FIXTURES_V1.values.capabilities.capabilities).toHaveLength(12)
+    expect(() => assertSwarmReadRpcValue('skillCatalog', SWARM_READ_RPC_FIXTURES_V1.values.skillCatalog)).not.toThrow()
+    expect(() => assertSwarmReadRpcValue('skillCatalog', {
+      ...SWARM_READ_RPC_FIXTURES_V1.values.skillCatalog,
+      skills: [
+        { name: 'same', description: 'One', modelInvocable: true },
+        { name: 'same', description: 'Two', modelInvocable: true },
+      ],
+    })).toThrow()
+    expect(() => assertSwarmReadRpcValue('skillCatalog', {
+      ...SWARM_READ_RPC_FIXTURES_V1.values.skillCatalog,
+      skills: [{ name: 'unsafe', description: 'No', modelInvocable: false, content: 'secret' }],
+    })).toThrow()
     expect(() => assertSwarmReadRpcValue('page', {
       ...SWARM_READ_RPC_FIXTURES_V1.values.page,
       entries: [taskRowFixture],

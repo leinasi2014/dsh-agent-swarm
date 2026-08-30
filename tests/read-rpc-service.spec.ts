@@ -21,7 +21,6 @@ import {
   mountAgentSwarmReadRpc,
   type SwarmWebServer,
 } from '../src/rpc/read-rpc-service.js'
-
 const CURSOR = `r1:${'a'.repeat(64)}`
 const ROOT = { id: 'root-session', session: { header: { cwd: 'D:\\workspace' } } } as unknown as Agent
 const OTHER = { id: 'other-session', session: { header: { cwd: 'D:\\other' } } } as unknown as Agent
@@ -151,6 +150,7 @@ describe('R2 local trust boundary', () => {
     expect(rpcHarness().service.capabilities()).toMatchObject({
       trust: { mode: 'local-single-user-target-bound', principalBound: false, listener: 'loopback' },
       capabilities: [
+        { capability: 'skillCatalog.read', state: 'available' },
         { capability: 'teams.read', state: 'available' },
         { capability: 'binding.read', state: 'available' },
         { capability: 'status.read', state: 'available' },

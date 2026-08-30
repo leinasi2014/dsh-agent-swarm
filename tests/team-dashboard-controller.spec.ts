@@ -19,6 +19,7 @@ const capabilities = {
   protocol: 'dsh-agent-swarm/read-rpc', version: 1, namespace: '/swarm',
   trust: { mode: 'local-single-user-target-bound', principalBound: false, listener: 'loopback' },
   capabilities: [
+    { capability: 'skillCatalog.read', state: 'available' },
     { capability: 'teams.read', state: 'available' },
     { capability: 'binding.read', state: 'available' },
     { capability: 'status.read', state: 'available' },

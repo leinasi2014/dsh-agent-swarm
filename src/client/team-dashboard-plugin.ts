@@ -5,6 +5,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import { SwarmReadClient } from './read-client.js'
+import type { SwarmReadSkillCatalogV1 } from '../rpc/read-rpc-contract.js'
 import { TeamDashboardController } from './team-dashboard-controller.js'
 import { TeamDashboardAction, type TeamDashboardActionInjected } from './TeamDashboardAction.js'
 import { en, TEAM_DASHBOARD_NS, zh, type TeamDashboardKey } from './team-dashboard-locales.js'
@@ -18,7 +19,6 @@ import {
   type TeamSkillSettingsKey,
   type TeamModelRoute,
   type TeamSettingsCatalog,
-  type TeamSkillCatalogEntry,
 } from './TeamSkillSettingsCard.js'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -36,8 +36,7 @@ interface CatalogResponse<T> {
 
 interface TeamSettingsConnection {
   readonly api: {
-    readonly skills: { list(input: { readonly sessionId: string }): Promise<CatalogResponse<{ readonly skills: readonly TeamSkillCatalogEntry[] }>> }
-    readonly llm: { models(input: Record<string, never>): Promise<CatalogResponse<{ readonly groups: readonly { readonly id: string; readonly name: string; readonly models: readonly { readonly id: string; readonly name: string }[] }[] }>> }
+    readonly sessions: { models(input: { readonly sessionId: string }): Promise<CatalogResponse<{ readonly groups: readonly { readonly id: string; readonly name: string; readonly models: readonly { readonly id: string; readonly name: string }[] }[] }>> }
   }
 }
 
@@ -47,23 +46,32 @@ export function apply(ctx: ClientContext): void {
   if (sessionsService === undefined) throw new Error('swarm Team dashboard requires the official Sessions service')
   const connection = ctx.get('connection') as TeamSettingsConnection | undefined
   if (connection === undefined) throw new Error('swarm Team settings requires the official Connection service')
+  const readClient = new SwarmReadClient()
   const catalog: TeamSettingsCatalog = {
     currentSessionId: () => sessionsService.list.getSnapshot().current,
     subscribe: listener => sessionsService.list.subscribe(listener),
     listSkills: async (sessionId) => {
-      const response = await connection.api.skills.list({ sessionId })
-      if (!response.result.ok) throw new Error(response.result.error.message)
-      return response.result.value.skills
+      const response = await readClient.request({
+        schemaVersion: 1,
+        method: 'skillCatalog',
+        target: { rootSessionId: sessionId },
+      })
+      if (!response.ok) throw new Error(response.error.message)
+      const value = response.value as SwarmReadSkillCatalogV1
+      if (!value.complete) throw new Error('DSH Skill catalog changed during discovery; refresh and try again')
+      return value.skills
     },
     listModelRoutes: async (): Promise<readonly TeamModelRoute[]> => {
-      const response = await connection.api.llm.models({})
+      const sessionId = sessionsService.list.getSnapshot().current
+      if (sessionId === undefined) return []
+      const response = await connection.api.sessions.models({ sessionId })
       if (!response.result.ok) throw new Error(response.result.error.message)
       return response.result.value.groups.flatMap(group => group.models.map(model => ({
         provider: group.id, providerName: group.name, model: model.id, modelName: model.name,
       })))
     },
   }
-  const controller = new TeamDashboardController(new SwarmReadClient())
+  const controller = new TeamDashboardController(readClient)
   const anchorRef = { current: null as HTMLSpanElement | null }
   const coordinator = new TeamDashboardSurfaceCoordinator({ slots: ctx.slots, sessions: sessionsService, locale: ctx.locale, controller, anchorRef })
   ctx.effect(() => coordinator.mount(), 'swarm Team dashboard surface coordinator')
