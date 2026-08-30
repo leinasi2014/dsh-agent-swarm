@@ -375,8 +375,8 @@ describe('R3 native Team Details surface', () => {
     const populated = { getSnapshot: (): TeamDashboardState => populatedState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: populated, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
     const stylesheet = document.querySelector('style')?.textContent ?? ''
-      // Exactly one team rail, one captain desk and two member desks with honest tones.
-      expect(document.querySelectorAll('[data-swarm-team-panel] [data-swarm-team-rail]')).toHaveLength(1)
+      // No persistent Team rail: the Details column is reserved for the active Team.
+      expect(document.querySelectorAll('[data-swarm-team-panel] [data-swarm-team-rail]')).toHaveLength(0)
       expect(document.querySelectorAll('[data-swarm-captain-desk]')).toHaveLength(1)
       const worker = document.querySelector<HTMLElement>('[data-swarm-member-name="worker"]')!
       expect(worker.getAttribute('data-swarm-tone')).toBe('executing')
@@ -462,7 +462,7 @@ describe('R3 native Team Details surface', () => {
     expect(coordinator.openCaptainChat).toHaveBeenCalledTimes(1)
   })
 
-  it('derives the team rail from the real teams[] enumeration and switches Teams in place via controller.selectTeam; never jumps to a Captain Session', async () => {
+  it('derives the title-bar Team selector from the real teams[] enumeration and switches Teams in place via controller.selectTeam; never jumps to a Captain Session', async () => {
     const coordinator = new FakeCoordinator()
     const multiTeams = {
       schemaVersion: 1,
@@ -524,20 +524,19 @@ describe('R3 native Team Details surface', () => {
       }),
     }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: railController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
-    // Teams deduplicate by teamId; the bound Team carries aria-current and never switches away.
-    const dots = [...document.querySelectorAll<HTMLButtonElement>('[data-swarm-team-dot]')]
-    expect(dots).toHaveLength(2)
-    const bound = dots.find(dot => dot.getAttribute('data-swarm-team-dot') === 'team-alpha')!
-    expect(bound.getAttribute('aria-current')).toBe('true')
-    await act(async () => { bound.click() })
+    // Teams deduplicate by teamId. The title-bar selector contains the live
+    // authority IDs but does not take a permanent slice from the Details panel.
+    expect(document.querySelector('[data-swarm-team-rail]')).toBeNull()
+    const selector = document.querySelector<HTMLSelectElement>('[data-swarm-team-switcher]')!
+    expect([...selector.options].map(option => option.value)).toEqual(['team-alpha', 'team-beta'])
+    expect(selector.value).toBe('team-alpha')
+    await act(async () => { selector.value = 'team-alpha'; selector.dispatchEvent(new Event('change', { bubbles: true })) })
     expect(railController.selectTeam).not.toHaveBeenCalled()
-    // Another Team's dot switches the CURRENT sidebar to that Team through controller.selectTeam
+    // Another Team selection switches the CURRENT sidebar through controller.selectTeam
     // with its real id — it never opens or jumps to any Captain Session.
-    const beta = dots.find(dot => dot.getAttribute('data-swarm-team-dot') === 'team-beta')!
-    expect(beta.getAttribute('data-swarm-captain-session')).toBe('captain-beta')
-    await act(async () => { beta.click() })
+    await act(async () => { selector.value = 'team-beta'; selector.dispatchEvent(new Event('change', { bubbles: true })) })
     expect(railController.selectTeam).toHaveBeenCalledTimes(1)
-    expect(railController.selectTeam).toHaveBeenCalledWith('team-beta')
+    expect(railController.selectTeam).toHaveBeenLastCalledWith('team-beta')
     expect(coordinator.openTeamCaptain).not.toHaveBeenCalled()
     expect(coordinator.openCaptainChat).not.toHaveBeenCalled()
     // The same Team panel stays mounted in the sidebar: no Captain Session handoff, no second surface.
@@ -546,8 +545,7 @@ describe('R3 native Team Details surface', () => {
     expect(document.querySelector('[role="dialog"][data-swarm-detail-overlay]')).toBeNull()
     // After the switch the panel renders the SECOND Team's bound data: the moved selection, the
     // Beta Team title, and Beta's real public goal from the same read contract.
-    expect(document.querySelector<HTMLElement>('[data-swarm-team-dot="team-beta"]')!.getAttribute('aria-current')).toBe('true')
-    expect(document.querySelector<HTMLElement>('[data-swarm-team-dot="team-alpha"]')!.getAttribute('aria-current')).toBeNull()
+    expect(document.querySelector<HTMLSelectElement>('[data-swarm-team-switcher]')!.value).toBe('team-beta')
     expect(document.querySelector<HTMLElement>('.swarm-team-workspace__title')?.textContent).toBe('Beta Team')
     expect(document.querySelector<HTMLElement>('[data-swarm-goal-text]')?.textContent).toBe('Beta team goal')
     // The Captain conversation entry stays on the selected Team's Captain desk and still routes
