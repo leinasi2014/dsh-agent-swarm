@@ -52,11 +52,11 @@ if (failures.length === 0) {
     }
     const requested = []
     const modules = {
+      'react': { useId() {}, useSyncExternalStore() {} },
+      'react/jsx-runtime': { jsx() {}, jsxs() {} },
       '@deepseek-ai/dsh-client-ui-primitives': {
         Button() {}, Pill() {}, StateDot() {}, IconUserOutline16() {}, IconCloseOutline16() {}, IconRefreshOutline16() {},
       },
-      'react': { useId() {}, useSyncExternalStore() {} },
-      'react/jsx-runtime': { jsx() {}, jsxs() {} },
     }
     const client = registration.factory((specifier) => {
       requested.push(specifier)
