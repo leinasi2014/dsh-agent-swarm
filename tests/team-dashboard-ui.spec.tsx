@@ -251,6 +251,13 @@ describe('R3 native Team Details surface', () => {
     // Missing read fields render the explicit unavailable marker, never fabricated values.
     expect(overlay.textContent).toContain('Not available yet')
     expect(overlay.textContent).toContain('No current task')
+    const back = overlay.querySelector<HTMLButtonElement>('[data-swarm-detail-back]')!
+    expect(back.textContent).toBe('Back to members')
+    await act(async () => { back.click() })
+    expect(detailOverlay()).toBeNull()
+    expect(document.activeElement).toBe(memberTrigger)
+    expect(coordinator.closeAndRestoreFocus).not.toHaveBeenCalled()
+    await act(async () => { memberTrigger.click() })
     await pressEscape()
     expect(detailOverlay()).toBeNull()
     expect(document.activeElement).toBe(memberTrigger)
@@ -342,7 +349,7 @@ describe('R3 native Team Details surface', () => {
     task.focus()
     await act(async () => { task.click() })
     expect(document.activeElement?.textContent).toBe('Task: Check focus recovery')
-    await act(async () => { [...detailOverlay()!.querySelectorAll('button')].find(button => button.getAttribute('aria-label') === 'Close Team workspace and return to Chat')!.click() })
+    await act(async () => { detailOverlay()!.querySelector<HTMLButtonElement>('[data-swarm-detail-back]')!.click() })
     await Promise.resolve()
     expect(detailOverlay()).toBeNull()
     expect(document.activeElement).toBe(task)
