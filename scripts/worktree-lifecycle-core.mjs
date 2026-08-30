@@ -228,7 +228,15 @@ export function ensurePrimaryReady(repository) {
 }
 
 function requirePrimaryCaller(repository) {
-  if (comparable(repository.currentRoot) !== comparable(repository.primaryRoot) || comparable(coreSourceRoot) !== comparable(repository.primaryRoot)) {
+  let sourceRepositoryRoot
+  try {
+    sourceRepositoryRoot = realpathSync(resolve(git(['rev-parse', '--show-toplevel'], coreSourceRoot)))
+  } catch {
+    sourceRepositoryRoot = undefined
+  }
+  if (comparable(repository.currentRoot) !== comparable(repository.primaryRoot)
+    || sourceRepositoryRoot === undefined
+    || comparable(sourceRepositoryRoot) !== comparable(repository.primaryRoot)) {
     throw new LifecycleError('MUTATION_REQUIRES_PRIMARY', 'lifecycle mutation must load from the accepted primary checkout')
   }
 }
