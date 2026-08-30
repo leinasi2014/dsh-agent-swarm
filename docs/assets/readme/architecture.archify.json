@@ -2,32 +2,32 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "dsh-agent-swarm 当前代码架构",
-    "locale": "zh-CN",
+    "title": "dsh-agent-swarm Current Code Architecture",
+    "locale": "en",
     "output": "architecture.html",
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/leinasi2014/dsh-agent-swarm",
-      "revision": "ec29513f0a3f85bff4d16088cadfb5c34898bd0c"
+      "revision": "93ae5ea2567fc94f3b1a42f021e7e09cde7b57e6"
     },
     "views": [
       {
         "id": "write-path",
-        "label": "Team 写入主链",
+        "label": "Team write path",
         "focus": ["dsh-session", "swarm-tools", "runtime", "team-port", "team-store"],
-        "note": "Main Brain、Captain 与成员工具都经唯一 TeamDomainPort 持久提交。"
+        "note": "Main Brain, Captains, and member tools all persist through the single TeamDomainPort."
       },
       {
         "id": "read-path",
-        "label": "Workbench 读取链",
+        "label": "Workbench read path",
         "focus": ["team-store", "runtime", "host-rpc", "client-ui"],
-        "note": "浏览器只消费 Host read projection，不成为 Team 状态权威。"
+        "note": "The browser consumes the Host read projection without becoming Team state authority."
       },
       {
         "id": "composition",
-        "label": "官方 DSH 组合",
+        "label": "Official DSH composition",
         "focus": ["official-services", "settings", "runtime", "providers", "human-overlay"],
-        "note": "插件复用官方 Session、Subagent、Storage、Settings 与 Client slots。"
+        "note": "The plugin reuses official Session, Subagent, Storage, Settings, and Client slots."
       }
     ]
   },
@@ -35,7 +35,7 @@
     {
       "id": "dsh-session",
       "type": "external",
-      "label": "DSH Session 身份拓扑",
+      "label": "DSH Session Topology",
       "sublabel": "Main Brain → Captain → Members",
       "pos": [40, 310],
       "size": [170, 72],
@@ -47,8 +47,8 @@
     {
       "id": "swarm-tools",
       "type": "backend",
-      "label": "26 个 agent_swarm_* 工具",
-      "sublabel": "身份校验 · CAS · attempt fencing",
+      "label": "26 agent_swarm_* Tools",
+      "sublabel": "identity · CAS · attempt fencing",
       "tag": "Consumer",
       "pos": [260, 310],
       "size": [190, 72],
@@ -62,7 +62,7 @@
       "id": "runtime",
       "type": "backend",
       "label": "AgentSwarmRuntime",
-      "sublabel": "编排、恢复、消息、预算与审核",
+      "sublabel": "orchestration · recovery · review",
       "tag": "Orchestrator",
       "pos": [510, 310],
       "size": [180, 72],
@@ -75,7 +75,7 @@
       "id": "team-port",
       "type": "security",
       "label": "TeamDomainPort",
-      "sublabel": "唯一 Team 写权威与读取合同",
+      "sublabel": "write authority · read contract",
       "tag": "Single authority",
       "pos": [750, 310],
       "size": [180, 72],
@@ -87,7 +87,7 @@
       "id": "team-store",
       "type": "database",
       "label": "agent_swarm Storage Domain",
-      "sublabel": "每 Team 一条版本化聚合记录",
+      "sublabel": "one versioned aggregate record per Team",
       "tag": "Durable truth",
       "pos": [1000, 310],
       "size": [200, 72],
@@ -125,7 +125,7 @@
     {
       "id": "settings",
       "type": "frontend",
-      "label": "官方 Plugins 设置页",
+      "label": "Official Plugins Settings",
       "sublabel": "Team · Skills · Review · Policy · Limits",
       "tag": "restart-applied",
       "pos": [720, 70],
@@ -138,7 +138,7 @@
     {
       "id": "official-services",
       "type": "cloud",
-      "label": "官方 DSH Services",
+      "label": "Official DSH Services",
       "sublabel": "Sessions · Subagents · Tools · Prompt",
       "tag": "Required inject",
       "pos": [250, 540],
@@ -150,7 +150,7 @@
     {
       "id": "providers",
       "type": "backend",
-      "label": "可替换 Providers",
+      "label": "Replaceable Providers",
       "sublabel": "Scheduler · Review · Workflow · Jobs",
       "tag": "Policy seams",
       "pos": [600, 540],
@@ -165,7 +165,7 @@
       "id": "human-overlay",
       "type": "database",
       "label": "HumanInteraction overlay",
-      "sublabel": "请求 · effect · receipt 关联",
+      "sublabel": "request · effect · receipt correlation",
       "tag": "agent_swarm_human",
       "pos": [940, 540],
       "size": [210, 72],
@@ -178,13 +178,13 @@
   "boundaries": [
     {
       "kind": "region",
-      "label": "官方 DeepSeek Harness 宿主",
+      "label": "Official DeepSeek Harness Host",
       "wraps": ["dsh-session", "client-ui", "settings", "official-services", "team-store"],
       "pad": 18
     },
     {
       "kind": "region",
-      "label": "dsh-agent-swarm 插件",
+      "label": "dsh-agent-swarm Plugin",
       "wraps": ["swarm-tools", "runtime", "team-port", "host-rpc", "providers", "human-overlay"],
       "pad": 18
     }
@@ -204,26 +204,26 @@
   "cards": [
     {
       "dot": "emerald",
-      "title": "唯一权威",
+      "title": "Single Authority",
       "items": [
-        "TeamDomainPort 是 Team 状态唯一写入口",
-        "Storage Domain durable commit 后才发布成功与事件"
+        "TeamDomainPort is the only Team state write entry point",
+        "Success and events publish only after the Storage Domain durable commit"
       ]
     },
     {
       "dot": "cyan",
-      "title": "官方优先",
+      "title": "Official First",
       "items": [
-        "不补丁或复制 Agent Loop",
-        "Session、Subagent、Settings、Client slots 均消费官方 seam"
+        "The plugin neither patches nor duplicates the Agent Loop",
+        "Session, Subagent, Settings, and Client slots all consume official seams"
       ]
     },
     {
       "dot": "violet",
-      "title": "投影与扩展",
+      "title": "Projections and Extensions",
       "items": [
-        "Workbench 与 /swarm/v1 只读投影同一 Team 聚合",
-        "Scheduler、Review、Workflow、Jobs 和 execution roots 保持可替换"
+        "Workbench and /swarm/v1 read the same Team aggregate",
+        "Scheduler, Review, Workflow, Jobs, and execution roots remain replaceable"
       ]
     }
   ]
