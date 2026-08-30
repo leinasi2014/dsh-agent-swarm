@@ -1,0 +1,230 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "dsh-agent-swarm 当前代码架构",
+    "locale": "zh-CN",
+    "output": "architecture.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/leinasi2014/dsh-agent-swarm",
+      "revision": "ec29513f0a3f85bff4d16088cadfb5c34898bd0c"
+    },
+    "views": [
+      {
+        "id": "write-path",
+        "label": "Team 写入主链",
+        "focus": ["dsh-session", "swarm-tools", "runtime", "team-port", "team-store"],
+        "note": "Main Brain、Captain 与成员工具都经唯一 TeamDomainPort 持久提交。"
+      },
+      {
+        "id": "read-path",
+        "label": "Workbench 读取链",
+        "focus": ["team-store", "runtime", "host-rpc", "client-ui"],
+        "note": "浏览器只消费 Host read projection，不成为 Team 状态权威。"
+      },
+      {
+        "id": "composition",
+        "label": "官方 DSH 组合",
+        "focus": ["official-services", "settings", "runtime", "providers", "human-overlay"],
+        "note": "插件复用官方 Session、Subagent、Storage、Settings 与 Client slots。"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "dsh-session",
+      "type": "external",
+      "label": "DSH Session 身份拓扑",
+      "sublabel": "Main Brain → Captain → Members",
+      "pos": [40, 310],
+      "size": [170, 72],
+      "sources": [
+        { "path": "src/runtime/dedicated-captain-provisioning.ts" },
+        { "path": "src/runtime/member-provisioning.ts" }
+      ]
+    },
+    {
+      "id": "swarm-tools",
+      "type": "backend",
+      "label": "26 个 agent_swarm_* 工具",
+      "sublabel": "身份校验 · CAS · attempt fencing",
+      "tag": "Consumer",
+      "pos": [260, 310],
+      "size": [190, 72],
+      "sources": [
+        { "path": "src/tools.ts", "line": 36 },
+        { "path": "src/tools/team-lifecycle.ts" },
+        { "path": "src/tools/task-board.ts" }
+      ]
+    },
+    {
+      "id": "runtime",
+      "type": "backend",
+      "label": "AgentSwarmRuntime",
+      "sublabel": "编排、恢复、消息、预算与审核",
+      "tag": "Orchestrator",
+      "pos": [510, 310],
+      "size": [180, 72],
+      "sources": [
+        { "path": "src/index.ts", "line": 277 },
+        { "path": "src/runtime/orchestrator-runtime.ts" }
+      ]
+    },
+    {
+      "id": "team-port",
+      "type": "security",
+      "label": "TeamDomainPort",
+      "sublabel": "唯一 Team 写权威与读取合同",
+      "tag": "Single authority",
+      "pos": [750, 310],
+      "size": [180, 72],
+      "sources": [
+        { "path": "src/domain/team-domain-port.ts", "line": 131 }
+      ]
+    },
+    {
+      "id": "team-store",
+      "type": "database",
+      "label": "agent_swarm Storage Domain",
+      "sublabel": "每 Team 一条版本化聚合记录",
+      "tag": "Durable truth",
+      "pos": [1000, 310],
+      "size": [200, 72],
+      "sources": [
+        { "path": "src/storage/storage-domain-team-store.ts", "line": 66 },
+        { "path": "src/storage/team-spec.ts" }
+      ]
+    },
+    {
+      "id": "client-ui",
+      "type": "frontend",
+      "label": "DSH Team Workbench",
+      "sublabel": "Team rail · Tasks · Notices · Manage",
+      "tag": "Read projection",
+      "pos": [40, 70],
+      "size": [200, 72],
+      "sources": [
+        { "path": "src/client/plugin-entry.ts" },
+        { "path": "src/client/TeamDashboardContent.tsx" }
+      ]
+    },
+    {
+      "id": "host-rpc",
+      "type": "backend",
+      "label": "Host read projection + /swarm/v1",
+      "sublabel": "binding · status · snapshot · page",
+      "tag": "Local read RPC",
+      "pos": [370, 70],
+      "size": [220, 72],
+      "sources": [
+        { "path": "src/host/host-read-service.ts" },
+        { "path": "src/rpc/read-rpc-service.ts", "line": 94 }
+      ]
+    },
+    {
+      "id": "settings",
+      "type": "frontend",
+      "label": "官方 Plugins 设置页",
+      "sublabel": "Team · Skills · Review · Policy · Limits",
+      "tag": "restart-applied",
+      "pos": [720, 70],
+      "size": [220, 72],
+      "sources": [
+        { "path": "src/client/TeamSkillSettingsCard.tsx" },
+        { "path": "src/index.ts", "line": 59 }
+      ]
+    },
+    {
+      "id": "official-services",
+      "type": "cloud",
+      "label": "官方 DSH Services",
+      "sublabel": "Sessions · Subagents · Tools · Prompt",
+      "tag": "Required inject",
+      "pos": [250, 540],
+      "size": [220, 72],
+      "sources": [
+        { "path": "src/index.ts", "line": 48 }
+      ]
+    },
+    {
+      "id": "providers",
+      "type": "backend",
+      "label": "可替换 Providers",
+      "sublabel": "Scheduler · Review · Workflow · Jobs",
+      "tag": "Policy seams",
+      "pos": [600, 540],
+      "size": [210, 72],
+      "sources": [
+        { "path": "src/runtime/providers.ts" },
+        { "path": "src/runtime/workflow/team-bridge-engine.ts" },
+        { "path": "src/runtime/jobs/team-job-projection.ts" }
+      ]
+    },
+    {
+      "id": "human-overlay",
+      "type": "database",
+      "label": "HumanInteraction overlay",
+      "sublabel": "请求 · effect · receipt 关联",
+      "tag": "agent_swarm_human",
+      "pos": [940, 540],
+      "size": [210, 72],
+      "sources": [
+        { "path": "src/human/captain-liaison.ts" },
+        { "path": "src/human/human-interaction-store.ts" }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "官方 DeepSeek Harness 宿主",
+      "wraps": ["dsh-session", "client-ui", "settings", "official-services", "team-store"],
+      "pad": 18
+    },
+    {
+      "kind": "region",
+      "label": "dsh-agent-swarm 插件",
+      "wraps": ["swarm-tools", "runtime", "team-port", "host-rpc", "providers", "human-overlay"],
+      "pad": 18
+    }
+  ],
+  "connections": [
+    { "id": "session-tools", "from": "dsh-session", "to": "swarm-tools", "label": "scoped tool calls", "variant": "emphasis", "labelAt": [235, 306] },
+    { "id": "tools-runtime", "from": "swarm-tools", "to": "runtime", "label": "authorized commands", "variant": "emphasis", "labelAt": [480, 396] },
+    { "id": "runtime-port", "from": "runtime", "to": "team-port", "label": "single write contract", "variant": "security", "labelAt": [720, 306] },
+    { "id": "port-store", "from": "team-port", "to": "team-store", "label": "commit then publish", "variant": "emphasis", "labelAt": [965, 396] },
+    { "id": "runtime-read", "from": "runtime", "to": "host-rpc", "label": "frozen read model", "fromSide": "top", "toSide": "bottom" },
+    { "id": "rpc-client", "from": "host-rpc", "to": "client-ui", "label": "POST /swarm/v1", "fromSide": "left", "toSide": "right" },
+    { "id": "settings-runtime", "from": "settings", "to": "runtime", "label": "validated config on restart", "fromSide": "bottom", "toSide": "top", "variant": "dashed" },
+    { "id": "official-runtime", "from": "official-services", "to": "runtime", "label": "required inject + lifecycle", "fromSide": "top", "toSide": "bottom" },
+    { "id": "providers-runtime", "from": "providers", "to": "runtime", "label": "selected Provider", "fromSide": "top", "toSide": "bottom", "variant": "dashed", "labelAt": [710, 500] },
+    { "id": "human-runtime", "from": "human-overlay", "to": "runtime", "label": "captain liaison receipts", "fromSide": "top", "toSide": "bottom", "variant": "dashed", "labelAt": [880, 496] }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "唯一权威",
+      "items": [
+        "TeamDomainPort 是 Team 状态唯一写入口",
+        "Storage Domain durable commit 后才发布成功与事件"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "官方优先",
+      "items": [
+        "不补丁或复制 Agent Loop",
+        "Session、Subagent、Settings、Client slots 均消费官方 seam"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "投影与扩展",
+      "items": [
+        "Workbench 与 /swarm/v1 只读投影同一 Team 聚合",
+        "Scheduler、Review、Workflow、Jobs 和 execution roots 保持可替换"
+      ]
+    }
+  ]
+}
