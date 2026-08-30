@@ -266,6 +266,50 @@ describe('TeamDashboardController', () => {
     controller.dispose()
   })
 
+  it('publishes the Captain profile generated on the teams read to the very next poll (issue #175)', async () => {
+    // Issue #175: after set_captain_profile, an OPEN dashboard must surface the generated
+    // identity on the next 5s poll — a full page reload must not be required. The poll path
+    // re-issues the `teams` RPC (readComplete) and publishes its fresh descriptor; this test
+    // pins that not_generated→generated on the second teams read is published unconditionally,
+    // independently of the projection cursor (the profile is aggregate enrichment, not part of
+    // the host snapshot projection).
+    const seen: SwarmReadRpcRequest[] = []
+    let teamsReads = 0
+    const normal = goodFetch(seen)
+    const profiledTeam = {
+      ...teams.teams[0],
+      displayName: '玄机',
+      profession: '队长',
+      avatar: { state: 'generated', svg: '<svg viewBox="0 0 8 8"><rect x="0" y="0" width="8" height="8" fill="#2a3"/></svg>' },
+      identityCard: { state: 'generated' },
+    } as const
+    const schedule = new ManualSchedule()
+    const fetcher: SwarmFetch = async (input, init) => {
+      const request = requestOf(init)
+      if (request.method !== 'teams') return normal(input, init)
+      teamsReads += 1
+      return success(teamsReads === 1
+        ? teams
+        : { ...teams, teams: [profiledTeam] })
+    }
+    const controller = new TeamDashboardController(new SwarmReadClient(fetcher), schedule)
+    controller.open('root-1')
+    await waitFor(() => controller.getSnapshot().phase === 'ready')
+    const first = controller.getSnapshot()
+    expect(first.data?.teams.teams[0]?.identityCard.state).toBe('not_generated')
+
+    expect(schedule.pending.size).toBe(1)
+    schedule.fire() // the next poll: the host now serves the generated Captain profile
+    await waitFor(() => controller.getSnapshot().data !== undefined
+      && controller.getSnapshot().data !== first.data)
+    const second = controller.getSnapshot()
+    expect(second.phase).toBe('ready')
+    expect(teamsReads).toBeGreaterThanOrEqual(2)
+    expect(second.data?.teams.teams[0]?.identityCard.state).toBe('generated')
+    expect(second.data?.teams.teams[0]?.displayName).toBe('玄机')
+    controller.dispose()
+  })
+
   it('discards a mixed-cursor aggregate and restarts once from a fresh snapshot', async () => {
     const seen: SwarmReadRpcRequest[] = []
     const controller = new TeamDashboardController(new SwarmReadClient(goodFetch(seen, { driftFirstTaskPage: true })), new ManualSchedule())
@@ -345,6 +389,46 @@ describe('TeamDashboardController', () => {
     await waitFor(() => aborted)
     expect(controller.getSnapshot()).toEqual({ open: false, phase: 'closed' })
     controller.dispose()
+  })
+
+  it('keeps an honest not_generated Captain identity a ready panel, distinct from a target-not-live failure (issue #175 acceptance 2)', async () => {
+    // Semantic separation: an un-generated Captain identity card is NOT an error — the panel
+    // reaches `ready` and the UI renders the explicit profile-incomplete markers
+    // (TeamDashboardContent: profileIncomplete / profileNotGenerated), while a Captain Session
+    // creation/liveness failure is a `stale`/`error` phase carrying the exact RPC code
+    // (SWARM_RPC_TARGET_NOT_LIVE). The two must never blur into one another.
+    const seen: SwarmReadRpcRequest[] = []
+    const controller = new TeamDashboardController(new SwarmReadClient(goodFetch(seen)), new ManualSchedule())
+    controller.open('root-1')
+    await waitFor(() => controller.getSnapshot().phase === 'ready')
+    expect(controller.getSnapshot().error).toBeUndefined()
+    expect(controller.getSnapshot().data?.teams.teams[0]?.identityCard).toEqual({
+      state: 'not_generated', reason: 'identity_backend_not_implemented',
+    })
+    controller.dispose()
+
+    // The failure face: a dead Captain target surfaces the authoritative error code as
+    // a stale panel — never as a fabricated "not_generated" identity row.
+    let fail = false
+    const normal = goodFetch([])
+    const failingFetcher: SwarmFetch = async (input, init) => {
+      if (fail) {
+        return new Response(JSON.stringify({
+          schemaVersion: 1, ok: false,
+          error: { code: 'SWARM_RPC_TARGET_NOT_LIVE', message: 'Target root Session is not live' },
+        }), { status: 404 })
+      }
+      return normal(input, init)
+    }
+    const schedule = new ManualSchedule()
+    const failing = new TeamDashboardController(new SwarmReadClient(failingFetcher), schedule)
+    failing.open('root-1')
+    await waitFor(() => failing.getSnapshot().phase === 'ready')
+    fail = true
+    schedule.fire()
+    await waitFor(() => failing.getSnapshot().phase === 'stale')
+    expect(failing.getSnapshot().error?.code).toBe('SWARM_RPC_TARGET_NOT_LIVE')
+    failing.dispose()
   })
 
   it('drives a role>256 roster to ready, not the SWARM_UI_READ_FAILED fallback, and never truncates the authoritative role', async () => {
