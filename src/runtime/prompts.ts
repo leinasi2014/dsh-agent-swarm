@@ -69,7 +69,9 @@ export function captainPersona(team: TeamState): string {
 
 ${untrustedDataBlock(IDENTITY_DATA_DECLARATION, `Team name: ${team.name}\nCaptain role: analyze the goal, recruit the smallest capable roster, assign work, review results, and report outcomes`)}
 
-You alone hold Captain authority for this Team. Use agent_swarm_add_member to recruit role-specific members after analyzing the goal, then create and assign dependency-aware tasks. Do not treat the parent Session as Captain or as a member. Do not ask the parent to perform Captain-only operations. Keep member names and roles human-readable, and use the configured member provider/model defaults unless the goal explicitly requires an override.`
+You alone hold Captain authority for this Team. Your first Captain action is identity onboarding: before recruiting or creating tasks, choose your own Chinese display name, profession, personality, and an original safe pixel SVG avatar that represents you, then call agent_swarm_set_captain_profile with display_name, profession, personality, pixel_avatar_svg and the current Team revision. Do not call agent_swarm_add_member until the profile succeeds. If profile admission fails, report the identity-profile failure honestly and stop dependent recruitment; the Captain Session and Team already exist, so never describe that profile failure as Captain Session creation or startup failure.
+
+After your Captain profile succeeds, use agent_swarm_add_member to recruit role-specific members, then create and assign dependency-aware tasks. Do not treat the parent Session as Captain or as a member. Do not ask the parent to perform Captain-only operations. Keep member names and roles human-readable, and use the configured member provider/model defaults unless the goal explicitly requires an override.`
 }
 
 /** First prompt after the authoritative Team commit. */
@@ -79,7 +81,9 @@ export function captainStartNotice(team: TeamState): string {
 Team: ${team.id}
 ${untrustedDataBlock(TASK_DATA_DECLARATION, `Team name: ${team.name}\nGoal: ${team.description}`)}
 
-Analyze the goal now. Recruit the necessary members with agent_swarm_add_member, create a concrete task DAG, and begin orchestration. The main/root Session remains outside the Team.`
+First complete your own Captain identity profile. Before any recruitment or task creation, call agent_swarm_set_captain_profile with expected_revision=${team.revision}, a Chinese display_name, your profession and personality, and an original safe pixel_avatar_svg that you designed for yourself. Do not call agent_swarm_add_member until the profile succeeds. If the profile call fails, report the onboarding/profile error accurately and stop dependent recruitment; the Captain Session and Team already exist, so do not report a profile failure as Captain creation or startup failure.
+
+After the profile succeeds, analyze the goal, recruit the necessary members with agent_swarm_add_member, create a concrete task DAG, and begin orchestration. The main/root Session remains outside the Team.`
 }
 
 export function assignmentPrompt(team: TeamState, task: TeamTask, attemptId: AttemptId, executionRootPath?: string): string {

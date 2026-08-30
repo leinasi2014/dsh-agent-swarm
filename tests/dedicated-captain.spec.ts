@@ -201,4 +201,38 @@ describe('dedicated Captain topology', () => {
 
     start.mockRestore()
   })
+
+  it('onboards the Captain identity before any recruitment (issue #171)', async () => {
+    sandbox = await mkdtemp(join(tmpdir(), 'dsh-dedicated-captain-profile-'))
+    mounted = await mountNodeComposition(sandbox, { captainLlmProvider: 'mock', captainModel: 'mock' })
+    const start = vi.spyOn(mounted.ctx.subagents, 'startContinuable')
+
+    const result = await mounted.ctx.tools.execute({
+      signal: SIGNAL,
+      callId: CallId('managed-profile-order'),
+      name: 'agent_swarm_create_managed',
+      arguments: { name: 'Profiled Team', description: 'Recruit only after Captain onboarding.' },
+      agent: mounted.lead,
+    })
+    expect(result.isError).toBe(false)
+    const value = result.value as { captain_session_id: string }
+    const membership = await mounted.domain.requireMembership(mounted.scope, value.captain_session_id)
+    const request = start.mock.calls[0]?.[0].request
+    expect(request).toBeDefined()
+    const notice = request?.prompt.map(part => part.type === 'text' ? part.text : '').join('\n') ?? ''
+    const persona = request?.persona ?? ''
+
+    expect(notice).toContain(`expected_revision=${membership.team.revision}`)
+    expect(notice).toContain('Chinese display_name')
+    expect(notice).toContain('profession')
+    expect(notice).toContain('personality')
+    expect(notice).toContain('original safe pixel_avatar_svg')
+    expect(notice.indexOf('agent_swarm_set_captain_profile')).toBeGreaterThanOrEqual(0)
+    expect(notice.indexOf('agent_swarm_add_member')).toBeGreaterThan(notice.indexOf('agent_swarm_set_captain_profile'))
+    expect(persona.indexOf('agent_swarm_set_captain_profile')).toBeGreaterThanOrEqual(0)
+    expect(persona.indexOf('agent_swarm_add_member')).toBeGreaterThan(persona.indexOf('agent_swarm_set_captain_profile'))
+    expect(`${persona}\n${notice}`).toContain('Captain Session and Team already exist')
+
+    start.mockRestore()
+  })
 })
