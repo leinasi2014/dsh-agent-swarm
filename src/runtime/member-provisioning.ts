@@ -126,6 +126,7 @@ export class MemberProvisioner {
         ...(input.personality === undefined ? {} : { personality: input.personality }),
         ...(input.pixelAvatarSvg === undefined ? {} : { pixelAvatarSvg: input.pixelAvatarSvg }),
       })
+      this.deps.config.teamSkills.rememberChild(membership.team, childId)
       let finish!: () => void
       const operation = new Promise<void>(settle => { finish = settle })
       this.operations.add(operation)

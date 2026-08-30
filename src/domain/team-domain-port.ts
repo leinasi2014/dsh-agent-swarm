@@ -136,6 +136,7 @@ export interface TeamDomainPort {
     description: string,
     captainUsageSeq?: number,
     managedOrigin?: string,
+    allowedSkills?: readonly string[],
   ): Promise<TeamState>
   findMembership(scope: TeamScope, sessionId: string): Promise<TeamMembership | undefined>
   requireMembership(scope: TeamScope, sessionId: string): Promise<TeamMembership>

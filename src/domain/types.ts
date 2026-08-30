@@ -244,6 +244,11 @@ export interface TeamState {
    *  real store reload can re-discover and reuse the same operation's Team.
    *  Absent for plain `agent_swarm_create` (captain-owned compatibility) Teams. */
   readonly managedOrigin?: string
+  /**
+   * Immutable Skill allow-list chosen when this Team was created. Absent means
+   * the Team predates the policy or intentionally inherits host defaults.
+   */
+  readonly allowedSkills?: string[]
   readonly phase: 'active' | 'archived'
   readonly members: TeamMember[]
   /** Canonical bounded public goal (schema v2, Captain-declared). Absence = explicit

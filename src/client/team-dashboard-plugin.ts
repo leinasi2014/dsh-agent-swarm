@@ -2,19 +2,30 @@ import type { ClientContext, ISessions } from '@deepseek-ai/dsh-client-runtime/c
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import { SwarmReadClient } from './read-client.js'
 import { TeamDashboardController } from './team-dashboard-controller.js'
 import { TeamDashboardAction, type TeamDashboardActionInjected } from './TeamDashboardAction.js'
 import { en, TEAM_DASHBOARD_NS, zh, type TeamDashboardKey } from './team-dashboard-locales.js'
 import { TeamDashboardSurfaceCoordinator } from './team-dashboard-surface-coordinator.js'
+import {
+  TeamSkillSettingsCard,
+  TEAM_SKILL_SETTINGS_NS,
+  teamSkillSettingsEn,
+  teamSkillSettingsZh,
+  type TeamSkillSettingsFace,
+  type TeamSkillSettingsKey,
+} from './TeamSkillSettingsCard.js'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
     'swarm.team-dashboard': TeamDashboardKey
+    'agent-swarm': TeamSkillSettingsKey
   }
 }
 
-export const inject = ['sessions', 'slots', 'locale']
+export const inject = ['sessions', 'slots', 'locale', 'settingsScope']
 
 /** Compose the additive DSH-native Details occupant and Session utility. */
 export function apply(ctx: ClientContext): void {
@@ -26,6 +37,7 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => coordinator.mount(), 'swarm Team dashboard surface coordinator')
   ctx.on('connection/reset', () => { controller.connectionReset() })
   ctx.effect(() => ctx.locale.register(TEAM_DASHBOARD_NS, { zh, en }), 'swarm Team dashboard dictionaries')
+  ctx.effect(() => ctx.locale.register(TEAM_SKILL_SETTINGS_NS, { zh: teamSkillSettingsZh, en: teamSkillSettingsEn }), 'swarm Team Skills settings dictionaries')
   ctx.inject(['layout'], layoutCtx => {
     const layout = layoutCtx.get('layout')
     if (layout !== undefined) layoutCtx.effect(() => coordinator.bindLayout(layout), 'swarm Team dashboard Details lease')
@@ -38,4 +50,10 @@ export function apply(ctx: ClientContext): void {
     locale: TEAM_DASHBOARD_NS,
     inject: (): TeamDashboardActionInjected => ({ anchorRef, coordinator }),
   }, TeamDashboardAction))
+  ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
+    name: 'settings.plugin.item',
+    key: TEAM_SKILL_SETTINGS_NS,
+    locale: TEAM_SKILL_SETTINGS_NS,
+    inject: (): TeamSkillSettingsFace => ({ scope: ctx.settingsScope.bind({ namespace: TEAM_SKILL_SETTINGS_NS }) }),
+  }, TeamSkillSettingsCard))
 }

@@ -31,6 +31,7 @@ import {
   normalizeMemberIdentity,
   normalizePublicGoal,
 } from './identity-profile.js'
+import { normalizeAllowedSkills } from './team-skill-policy.js'
 
 export async function createTeam(
   deps: TeamDomainDeps,
@@ -40,9 +41,11 @@ export async function createTeam(
   description: string,
   captainUsageSeq: number,
   managedOrigin?: string,
+  allowedSkills?: readonly string[],
 ): Promise<TeamState> {
   expectDomain(Number.isSafeInteger(captainUsageSeq) && captainUsageSeq >= -1, 'captain usage seq is invalid', 'TEAM_INPUT_INVALID')
   const timestamp = deps.now()
+  const normalizedAllowedSkills = normalizeAllowedSkills(allowedSkills)
   const team: TeamState = {
     schemaVersion: 2,
     id: TeamId(`team-${randomUUID()}`),
@@ -51,6 +54,7 @@ export async function createTeam(
     description: nonEmpty(description, 'team description', 16_384),
     captainSessionId,
     ...(managedOrigin === undefined ? {} : { managedOrigin }),
+    ...(normalizedAllowedSkills === undefined ? {} : { allowedSkills: normalizedAllowedSkills }),
     phase: 'active',
     members: [],
     tasks: [],

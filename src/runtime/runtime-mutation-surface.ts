@@ -46,7 +46,10 @@ export class RuntimeMutationSurface {
     await this.deps.ensureReady(); this.deps.assertOpen()
     const agent = requireAgent(exec), scope = this.deps.scopeOf(agent)
     this.deps.watchJobsScope(scope)
-    return await this.deps.domain().createTeam(scope, agent.id, name, description, agent.session.events.at(-1)?.seq ?? -1)
+    return await this.deps.domain().createTeam(
+      scope, agent.id, name, description, agent.session.events.at(-1)?.seq ?? -1, undefined,
+      this.deps.config.newTeamAllowedSkills(),
+    )
   }
 
   async createWithDedicatedCaptain(exec: ToolExecutionAuthority, name: string, description: string, options: { llmProvider?: string; model?: string } = {}): Promise<TeamState> {
@@ -64,7 +67,7 @@ export class RuntimeMutationSurface {
       if (owned !== undefined) return owned
       this.deps.watchJobsScope(scope)
       return await this.deps.captainProvisioning.create({
-        scope, root, name, description, managedOrigin: identity,
+        scope, root, name, description, managedOrigin: identity, allowedSkills: this.deps.config.newTeamAllowedSkills(),
         ...(options.llmProvider === undefined ? {} : { llmProvider: options.llmProvider }),
         ...(options.model === undefined ? {} : { model: options.model }),
         signal: exec.signal,

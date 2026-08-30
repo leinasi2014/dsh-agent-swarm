@@ -12,6 +12,7 @@ import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import { CAPTAIN_ANNOUNCEMENT_ID_RE, isSafePixelAvatarSvg, MAX_CAPTAIN_ANNOUNCEMENTS } from '../domain/identity-profile.js'
 import type { MigrationReceipt, TeamScope } from '../domain/team-domain-port.js'
 import type { TeamId, TeamState } from '../domain/types.js'
+import { MAX_TEAM_ALLOWED_SKILLS } from '../domain/team-skill-policy.js'
 
 /** Storage Domain unit/table names must satisfy the official `UNIT_NAME_RE`. */
 export const TEAM_DOMAIN_NAME = 'agent_swarm'
@@ -214,6 +215,15 @@ const teamFields = {
     // absent on plain captain-owned compatibility Teams so pre-existing records
     // parse byte-identical; a managed Team persists it so reload can reuse.
     managedOrigin: z.string().min(1).optional(),
+    // Immutable Team Skill policy. Optional preserves pre-policy teams;
+    // canonical names are revalidated at the durable boundary.
+    allowedSkills: z.array(z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)).min(1).max(MAX_TEAM_ALLOWED_SKILLS)
+      .superRefine((names, ctx) => {
+        if (new Set(names).size !== names.length) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'allowedSkills must be unique' })
+        if (names.some((name, index) => index > 0 && names[index - 1]! >= name)) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'allowedSkills must be sorted' })
+        }
+      }).optional(),
     members: z.array(memberSchema),
     // Captain self-declared profile + public announcements + public goal
     // (schema v2 additive; absent on pre-feature records so they parse byte-identical).

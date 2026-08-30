@@ -219,7 +219,9 @@ export class AgentSwarmRuntime extends Service {
         try {
           // start() is awaiting this method, so read the already-open store
           // directly instead of recursing through listTeamAggregates()/start().
-          captains = new Set((await store.list(scope)).map(team => team.captainSessionId))
+          const teams = await store.list(scope)
+          for (const team of teams) this.config.teamSkills.rememberTeam(team)
+          captains = new Set(teams.map(team => team.captainSessionId))
         } catch {
           continue
         }

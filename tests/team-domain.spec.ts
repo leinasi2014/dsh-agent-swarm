@@ -73,6 +73,32 @@ describe('TeamDomain over the official Storage Domain', () => {
     expect(rejected).toMatchObject({ reason: { code: 'TEAM_TASK_STALE_REVISION' } })
   })
 
+  it('persists a canonical Team Skill allow-list across a full storage reopen', async () => {
+    const team = await domain.createTeam(
+      scope, 'captain-session', 'Skill policy', 'Restrict new Team Skill loading.', -1, undefined,
+      ['web-search', 'skill-creator'],
+    )
+    expect(team.allowedSkills).toEqual(['skill-creator', 'web-search'])
+
+    await stack.close()
+    stack = await openStorageStack(join(sandbox, 'storage'), () => tick++)
+    domain = stack.port as TeamDomain
+
+    const restored = await domain.snapshot(scope, team.id, 'captain-session')
+    expect(restored.team.allowedSkills).toEqual(['skill-creator', 'web-search'])
+  })
+
+  it('rejects malformed and duplicate Team Skill names before the aggregate is created', async () => {
+    await expect(domain.createTeam(
+      scope, 'captain-session', 'Bad skills', 'Reject an invalid Team Skill policy.', -1, undefined,
+      ['Web Search'],
+    )).rejects.toMatchObject({ code: 'TEAM_INPUT_INVALID' })
+    await expect(domain.createTeam(
+      scope, 'captain-session', 'Duplicate skills', 'Reject a duplicate Team Skill policy.', -1, undefined,
+      ['web-search', 'web-search'],
+    )).rejects.toMatchObject({ code: 'TEAM_INPUT_INVALID' })
+  })
+
   it('requires review acceptance before canonical completion', async () => {
     const team = await teamWithMembers(1)
     const task = await domain.createTask(scope, team.id, 'captain-session', {

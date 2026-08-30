@@ -4,10 +4,10 @@ import { apply, inject } from '../src/client/plugin-entry.js'
 
 describe('Team dashboard client composition', () => {
   it('publishes the complete Cordis client plugin face from the package entrypoint', () => {
-    expect(inject).toEqual(['sessions', 'slots', 'locale'])
+    expect(inject).toEqual(['sessions', 'slots', 'locale', 'settingsScope'])
   })
 
-  it('registers the Session utility and Details declaration without shell.overlay', () => {
+  it('registers the Session utility, Details declaration, and Team Skills settings card without shell.overlay', () => {
     const injected: string[] = []
     const registrations: { name: string; priority?: number }[] = []
     const slots = {
@@ -25,8 +25,11 @@ describe('Team dashboard client composition', () => {
     apply(ctx as never)
     expect(injected).toContain('details')
     expect(injected).toContain('conversation.session.header.utilities')
+    expect(injected).toContain('settings.plugin.item')
     expect(injected).not.toContain('shell.overlay')
-    expect(registrations).toHaveLength(1)
-    expect(registrations[0]?.name).toBe('conversation.session.header.utilities')
+    expect(registrations.map(entry => entry.name)).toEqual([
+      'conversation.session.header.utilities',
+      'settings.plugin.item',
+    ])
   })
 })
