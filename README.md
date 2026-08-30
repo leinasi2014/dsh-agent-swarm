@@ -10,6 +10,22 @@ It keeps the root session as the **Main Brain** while giving every managed team 
 
 > **Status:** actively developed pre-release source. The repository provides build, test, and packaging entry points, but no public npm release is available yet. `package.json` remains `private: true` to prevent accidental publication.
 
+## Real Profile UI
+
+These screenshots come from an isolated official DSH `web` Profile running a packed build of this repository. The Profile used separate Session, Storage Domain, and workspace roots; the Team, member, task, and accepted attempt shown below were created through the real plugin runtime rather than a mocked browser fixture.
+
+### Team side workbench
+
+![DSH Team side workbench showing a live Team, work seats, and an accepted task](docs/assets/readme/team-workbench.png)
+
+The root conversation remains in the main Chat area while the selected Team is projected into the native DSH details surface. The workbench exposes the Team goal and announcement, Captain/member seats, task execution summary, and recent activity without turning browser state into Team authority.
+
+### Plugin settings
+
+![Official DSH Plugins settings page with the Agent Swarm configuration expanded](docs/assets/readme/plugin-settings.png)
+
+Agent Swarm registers with the official Plugins settings surface. Its five groups cover Team defaults, Skills, orchestration and review, tool permissions, and execution/resource limits. Saved settings are validated and applied on DSH restart; existing Team state remains durable.
+
 ## Implemented capabilities
 
 - **Main Brain and independent Captains** — `agent_swarm_create_managed` creates a dedicated Captain Session without replacing the root chat with team execution logs.
@@ -21,27 +37,19 @@ It keeps the root session as the **Main Brain** while giving every managed team 
 - **DSH Team Workbench V3** — team rail, shared goal, latest announcement, and four mutually exclusive views: Workbench, Tasks, Announcements, and Management. Member and task details open as overlays instead of shrinking the root chat.
 - **26 `agent_swarm_*` tools** — see [docs/04-core-protocol.md](docs/04-core-protocol.md) for parameters, permissions, and state contracts.
 
-## Architecture boundaries
+## Current code architecture
 
-```text
-Official DSH Session / Agent Loop / Subagent
-                    │
-          agent_swarm_* tools
-                    │
-        OrchestratorRuntime + Providers
-                    │
-             TeamDomainPort
-                    │
-        Official Storage Domain (truth)
-                    │
-      Host read projection → DSH client UI
-```
+[Open the interactive Archify diagram](docs/assets/readme/architecture.html) to inspect source-backed components, guided write/read paths, themes, search, and relationship tracing.
 
-- The plugin does not patch or duplicate the official Agent Loop.
-- The Team aggregate is the single business authority; UI, prompt context, and read-only RPCs are projections.
-- State is published only after its durable commit succeeds.
-- The browser workbench currently focuses on reading and navigation. Team mutations go through Captain Chat and fenced model tools.
-- Missing official services, unconfigured providers, and stale revisions or attempts fail loudly instead of silently creating a second state machine.
+![Source-backed dsh-agent-swarm architecture generated with Archify](docs/assets/readme/architecture.png)
+
+The diagram is generated from the current `src/` graph, not from the future roadmap. Its source specification records the exact repository revision and 22 code references in [`architecture.archify.json`](docs/assets/readme/architecture.archify.json).
+
+- **Write path:** the Main Brain, dedicated Captains, and members act through 26 scoped `agent_swarm_*` tools. `AgentSwarmRuntime` applies identity, revision CAS, and `attemptId` fencing before every Team mutation crosses the single `TeamDomainPort` contract.
+- **Durable authority:** `StorageDomainTeamStore` stores one versioned Team aggregate per record in the official `agent_swarm` Storage Domain. Successful results and change events are published only after the authoritative commit.
+- **Read path:** Host read projection and the local `/swarm/v1` RPC derive bounded binding, status, snapshot, and page views from the same aggregate. The DSH Team Workbench is a read/navigation Consumer, never a second state machine.
+- **Official composition:** the plugin consumes official Session, Agent, Subagent, Tools, System Prompt, Session persistence, Storage Domain, Settings, and Client slot seams. It does not patch or duplicate the official Agent Loop.
+- **Replaceable policy seams:** scheduling, review, workflow bridge, Team jobs projection, execution roots, permissions, and human-interaction correlation remain explicit Providers or overlays. Missing required services, invalid Provider selection, stale revisions, and stale attempts fail loudly.
 
 ## Quick start
 
