@@ -38,7 +38,7 @@ function fuseOrThrow(runtime: AgentSwarmRuntime, exec: Parameters<AgentSwarmRunt
 export function registerSendMessageTool(ctx: Context, runtime: AgentSwarmRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_send_message',
-    description: 'Persist a Team message before best-effort delivery. A queued result is durable and must not be resent by the caller.',
+    description: 'Active-Team-participant only. Persist a Team message before best-effort delivery. A queued result is durable and must not be resent by the caller. A managed Main Brain remains outside the Team and is not a valid sender; use agent_swarm_list_managed_teams or the Host Team UI to observe its managed Teams.',
     parameters: {
       target: { type: 'string', required: true, description: 'captain or an active member name.' },
       content: { type: 'string', required: true },

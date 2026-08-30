@@ -143,7 +143,7 @@ function strandedHint(runtime: AgentSwarmRuntime, task: TeamTask):
 export function registerStatusTool(ctx: Context, runtime: AgentSwarmRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_status',
-    description: 'Read the fixed-size Team counters: roster size, task counts by outcome, readiness, queued mail, budgets and memory. Task rows — owners, attempts, filters, pagination — come from agent_swarm_list_tasks; this summary never embeds them.',
+    description: 'Active-Team-participant or archived-Captain only. Read the fixed-size Team counters: roster size, task counts by outcome, readiness, queued mail, budgets and memory. Task rows — owners, attempts, filters, pagination — come from agent_swarm_list_tasks; this summary never embeds them. A managed Main Brain remains outside the Team and must use agent_swarm_list_managed_teams or the Host Team UI instead.',
     parameters: {},
     output: compactJsonOutput({
       type: 'object', additionalProperties: false,

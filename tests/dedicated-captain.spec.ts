@@ -33,6 +33,10 @@ describe('dedicated Captain topology', () => {
     })
     expect(result.isError).toBe(false)
     const value = result.value as { team_id: string; captain_session_id: string }
+    expect(result.content).toEqual([{
+      type: 'text',
+      text: `Created managed Team "Managed Team" (${value.team_id}) with dedicated Captain ${value.captain_session_id}; its objective was delivered automatically. The Main Brain remains outside the Team: observe with agent_swarm_list_managed_teams or the Host Team UI, not agent_swarm_status or agent_swarm_send_message.`,
+    }])
     expect(value.captain_session_id).not.toBe(mounted.lead.id)
     expect(await mounted.domain.findMembership(mounted.scope, mounted.lead.id)).toBeUndefined()
     const captainMembership = await mounted.domain.requireMembership(mounted.scope, value.captain_session_id)
@@ -45,6 +49,27 @@ describe('dedicated Captain topology', () => {
     // The Captain's LLM route comes from the plugin configuration only, never
     // from model-supplied arguments.
     expect(captain?.options).toMatchObject({ provider: 'mock', model: 'mock' })
+
+    // Managed topology is deliberate: the Main Brain can enumerate its Team,
+    // but Team-participant tools reject it before any aggregate mutation. The
+    // dedicated Captain retains the same status path.
+    const beforeRejectedSend = (await mounted.domain.requireMembership(mounted.scope, value.captain_session_id)).team
+    const mainStatus = await mounted.ctx.tools.execute({
+      signal: SIGNAL, callId: CallId('main-status'), name: 'agent_swarm_status', arguments: {}, agent: mounted.lead,
+    })
+    expect(mainStatus).toMatchObject({ isError: true, error: { info: { code: 'TEAM_NOT_JOINED' } } })
+    const mainSend = await mounted.ctx.tools.execute({
+      signal: SIGNAL, callId: CallId('main-send'), name: 'agent_swarm_send_message',
+      arguments: { target: 'captain', content: 'Must be rejected before persistence.' }, agent: mounted.lead,
+    })
+    expect(mainSend).toMatchObject({ isError: true, error: { info: { code: 'TEAM_NOT_JOINED' } } })
+    const afterRejectedSend = (await mounted.domain.requireMembership(mounted.scope, value.captain_session_id)).team
+    expect(afterRejectedSend.revision).toBe(beforeRejectedSend.revision)
+    expect(afterRejectedSend.messages).toEqual(beforeRejectedSend.messages)
+    const captainStatus = await mounted.ctx.tools.execute({
+      signal: SIGNAL, callId: CallId('captain-status'), name: 'agent_swarm_status', arguments: {}, agent: captain,
+    })
+    expect(captainStatus).toMatchObject({ isError: false, value: { team_id: value.team_id } })
 
     // The dedicated Captain can recruit the first worker at absolute depth 2.
     const add = await mounted.ctx.tools.execute({
@@ -121,6 +146,13 @@ describe('dedicated Captain topology', () => {
     expect(Object.hasOwn(properties, 'description')).toBe(true)
     expect(Object.hasOwn(properties, 'captain_llm_provider')).toBe(false)
     expect(Object.hasOwn(properties, 'captain_model')).toBe(false)
+
+    // These descriptions are the model-visible routing contract. Keep the
+    // managed Main Brain on its read-only enumeration surface and prevent the
+    // model from trying Team-participant tools after a successful create.
+    expect(tool?.description).toBe('Main Brain entry. Create a durable Team with a dedicated Captain Session and automatically deliver description as that Captain\'s initial objective. The Main Brain remains outside the Team; the Captain analyzes the delivered objective and recruits its own members. After creation, observe progress with agent_swarm_list_managed_teams or the Host Team UI; do not call Team-participant-only agent_swarm_status or agent_swarm_send_message from the Main Brain.')
+    expect(mounted.ctx.tools.get('agent_swarm_send_message')?.description).toBe('Active-Team-participant only. Persist a Team message before best-effort delivery. A queued result is durable and must not be resent by the caller. A managed Main Brain remains outside the Team and is not a valid sender; use agent_swarm_list_managed_teams or the Host Team UI to observe its managed Teams.')
+    expect(mounted.ctx.tools.get('agent_swarm_status')?.description).toBe('Active-Team-participant or archived-Captain only. Read the fixed-size Team counters: roster size, task counts by outcome, readiness, queued mail, budgets and memory. Task rows — owners, attempts, filters, pagination — come from agent_swarm_list_tasks; this summary never embeds them. A managed Main Brain remains outside the Team and must use agent_swarm_list_managed_teams or the Host Team UI instead.')
   })
 
   it('is idempotent: the same operation identity never creates a duplicate Captain or Team', async () => {

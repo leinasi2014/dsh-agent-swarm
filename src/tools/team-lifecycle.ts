@@ -40,7 +40,7 @@ export function registerCreateTool(ctx: Context, runtime: AgentSwarmRuntime): vo
 export function registerCreateManagedTool(ctx: Context, runtime: AgentSwarmRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_create_managed',
-    description: 'Main-agent entry. Create a durable Team with a dedicated Captain Session. The caller stays outside the Team; the Captain analyzes the goal and recruits its own members.',
+    description: 'Main Brain entry. Create a durable Team with a dedicated Captain Session and automatically deliver description as that Captain\'s initial objective. The Main Brain remains outside the Team; the Captain analyzes the delivered objective and recruits its own members. After creation, observe progress with agent_swarm_list_managed_teams or the Host Team UI; do not call Team-participant-only agent_swarm_status or agent_swarm_send_message from the Main Brain.',
     parameters: {
       name: { type: 'string', required: true, description: 'Human-readable Team name.' },
       description: { type: 'string', required: true, description: 'Concrete goal and completion boundary.' },
@@ -55,7 +55,7 @@ export function registerCreateManagedTool(ctx: Context, runtime: AgentSwarmRunti
           captain_session_id: { type: 'string', required: true },
         },
       },
-      render: (_args, value) => [{ type: 'text', text: `Created managed Team "${value.name}" (${value.team_id}) with Captain ${value.captain_session_id}.` }],
+      render: (_args, value) => [{ type: 'text', text: `Created managed Team "${value.name}" (${value.team_id}) with dedicated Captain ${value.captain_session_id}; its objective was delivered automatically. The Main Brain remains outside the Team: observe with agent_swarm_list_managed_teams or the Host Team UI, not agent_swarm_status or agent_swarm_send_message.` }],
     },
     async execute(args, exec) {
       // The dedicated Captain's LLM route is plugin-configured only
