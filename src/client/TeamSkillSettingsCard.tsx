@@ -1,4 +1,4 @@
-import { useMemo, useState, useSyncExternalStore } from 'react'
+import { useCallback, useMemo, useState, useSyncExternalStore } from 'react'
 import type { SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
@@ -40,7 +40,12 @@ export type TeamSkillSettingsProps = PropsRuntime<'settings.plugin.item'>
   & InjectFace<TeamSkillSettingsFace>
 
 export function TeamSkillSettingsCard(props: TeamSkillSettingsProps) {
-  const snapshot = useSyncExternalStore(props.scope.subscribe, props.scope.getSnapshot, props.scope.getSnapshot)
+  // SettingsScopeController methods rely on their instance state. React calls the
+  // external-store callbacks as plain functions, so keep the controller receiver
+  // intact instead of handing its methods to React unbound.
+  const subscribe = useCallback((listener: () => void) => props.scope.subscribe(listener), [props.scope])
+  const getSnapshot = useCallback(() => props.scope.getSnapshot(), [props.scope])
+  const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
   const initial = useMemo(() => ((snapshot.value?.allowedSkills ?? []).join('\n')), [snapshot.value?.allowedSkills])
   const [draft, setDraft] = useState(initial)
   const [saving, setSaving] = useState(false)
