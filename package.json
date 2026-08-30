@@ -1,6 +1,6 @@
 {
   "name": "dsh-agent-swarm",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Durable multi-agent Team orchestration, review, budgets, memory, and scheduling for DeepSeek Harness",
   "type": "module",
