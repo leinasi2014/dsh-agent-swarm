@@ -15,6 +15,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
@@ -40,6 +41,8 @@ import { effectiveToolPolicy, TeamPermissionSurface } from './runtime/permission
 import { reviewerAgentReviewProvider } from './runtime/reviewer-boundary.js'
 import { assembleAgentSwarmHostRead, assembleAgentSwarmProducerFloor, mountAgentSwarmReadRpc } from './host/host-read-assembly.js'
 import { AGENT_SWARM_USAGE_PROMPT } from './runtime/usage-prompt.js'
+import { normalizeAllowedSkills } from './domain/team-skill-policy.js'
+import { TeamSkillSurface } from './runtime/team-skill-surface.js'
 export * from './public-api.js'
 export const name = 'agent-swarm'
 export const inject = [
@@ -51,6 +54,9 @@ export const inject = [
   'sessionPersistence',
   'storageDomain',
 ] as const
+
+/** Settings section rendered in DSH Settings → Plugins. */
+export const AGENT_SWARM_SETTINGS_NAMESPACE = settingsNamespace('agent-swarm')
 
 /** Official experimental default for `disposalTimeoutMs` (F4 alignment). */
 const DEFAULT_DISPOSAL_TIMEOUT_MS = 5_000
@@ -197,6 +203,11 @@ export interface Config {
    * seam and becomes deny for delegated members.
    */
   toolPolicy?: { allow?: string[]; ask?: string[]; deny?: string[] }
+  /**
+   * Optional Skill allow-list copied into Teams created after this setting is
+   * saved. Leave empty to keep the host default Skill catalog for new Teams.
+   */
+  allowedSkills?: string[]
   /** Ordered system-prompt contribution. */
   promptSectionOrder?: number
 }
@@ -241,11 +252,19 @@ export const Config: z<Config> = z.object({
     ask: z.array(z.string()).default([]),
     deny: z.array(z.string()).default([]),
   }).default({ allow: [], ask: [], deny: [] }),
+  allowedSkills: z.array(z.string()).default([]),
   promptSectionOrder: z.natural().default(118),
 })
 
 export async function apply(ctx: Context, config: Config): Promise<void> {
   if (config.enabled === false) return
+  let currentConfig: () => Config = () => config
+  if (ctx.get('settings') !== undefined) {
+    installSettingsSection(ctx, AGENT_SWARM_SETTINGS_NAMESPACE, Config, config, {
+      setSource: source => { currentConfig = source },
+      onChange: () => {},
+    })
+  }
   const memberProvider = (config.memberProvider ?? 'spawn').trim()
   if (memberProvider === '') throw new Error('agent-swarm: memberProvider must not be empty')
   const schedulerProvider = (config.schedulerProvider ?? 'priority-ready').trim()
@@ -271,6 +290,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const toolPolicy = effectiveToolPolicy(config.toolPolicy)
   const memberToolPolicyDeny = [...(toolPolicy.ask ?? []), ...(toolPolicy.deny ?? [])]
   const disposalTimeoutMs = config.disposalTimeoutMs ?? DEFAULT_DISPOSAL_TIMEOUT_MS
+  const teamSkills = new TeamSkillSurface(ctx)
   let drainHumanInteractions: (() => Promise<void>) | undefined
 
   const runtime = new AgentSwarmRuntime(ctx, {
@@ -304,6 +324,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     executionRootProvider,
     executionRootsBase,
     memberToolPolicyDeny,
+    newTeamAllowedSkills: () => normalizeAllowedSkills(currentConfig().allowedSkills) ?? [],
+    teamSkills,
   })
 
   // Fail closed: official Storage Domain opens before tools/listeners.

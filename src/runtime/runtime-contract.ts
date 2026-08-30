@@ -10,6 +10,7 @@
 import type { TeamLimits } from '../domain/types.js'
 import type { OrchestrationMode } from './orchestration-ownership.js'
 import type { AgentSwarmRuntime } from './orchestrator-runtime.js'
+import type { TeamSkillSurface } from './team-skill-surface.js'
 
 export interface RuntimeConfig {
   readonly memberProvider: string
@@ -56,6 +57,10 @@ export interface RuntimeConfig {
   readonly executionRootsBase: string
   /** Effective ask + deny policy names hidden from delegated members. */
   readonly memberToolPolicyDeny: readonly string[]
+  /** Snapshot default persisted onto a newly created Team. */
+  readonly newTeamAllowedSkills: () => readonly string[]
+  /** Scoped loader composition for Captain/member continuable Sessions. */
+  readonly teamSkills: TeamSkillSurface
 }
 
 declare module '@deepseek-ai/cordis' {
