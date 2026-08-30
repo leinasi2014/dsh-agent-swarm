@@ -49,7 +49,7 @@ function readyWithRoster(roster: readonly typeof REAL_ROSTER[number][]) {
     roster,
     totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, roster: roster.length },
   }
-  return { open: true, phase: 'ready', targetSessionId: 'root', data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never, teams: SWARM_READ_RPC_FIXTURES_V1.values.teams as never, captainAnnouncements: SWARM_READ_RPC_FIXTURES_V1.values.captainAnnouncements as never, captainDiagnostics: SWARM_READ_RPC_FIXTURES_V1.values.captainDiagnostics as never, captainMembers: SWARM_READ_RPC_FIXTURES_V1.values.captainMembers as never } } as TeamDashboardState
+  return { open: true, phase: 'ready', targetSessionId: 'main-brain', data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never, teams: SWARM_READ_RPC_FIXTURES_V1.values.teams as never, captainAnnouncements: SWARM_READ_RPC_FIXTURES_V1.values.captainAnnouncements as never, captainDiagnostics: SWARM_READ_RPC_FIXTURES_V1.values.captainDiagnostics as never, captainMembers: SWARM_READ_RPC_FIXTURES_V1.values.captainMembers as never } } as TeamDashboardState
 }
 
 class FakeCoordinator {
@@ -199,15 +199,16 @@ describe('roster/Captain interaction slice', () => {
     expect(captain.querySelector('[data-swarm-captain-visible-name]')?.textContent).toContain(t('profileIncomplete'))
     expect(captain.textContent).not.toContain('Fixture Team')
     expect(captain.textContent).not.toContain('Fixture Captain')
-    // No personal projection → no fake standby derived from the Team phase: explicit unavailable.
-    expect(captain.querySelector('[data-swarm-captain-state]')?.textContent).toBe(t('detail.unavailable'))
+    // No personal projection cannot turn the Captain into an unavailable placeholder: the card
+    // truthfully exposes the separate Captain Session navigation.
+    expect(captain.querySelector('[data-swarm-captain-state]')?.textContent).toBe(t('captainOpenSession'))
     expect(captain.getAttribute('data-swarm-tone')).toBe('offline')
     // The click remains the honest Captain Chat handoff.
     await act(async () => { captain.click(); await Promise.resolve() })
     expect(coordinator.openCaptainChat).toHaveBeenCalledTimes(1)
   })
 
-  it('routes a single Captain-desk click to the bound main Chat without replacing the main brain or leaving a second surface', async () => {
+  it('routes a single Captain-desk click from the Main Brain to the bound Captain Session without leaving a second surface', async () => {
     const coordinator = new FakeCoordinator()
     const ready = readyWithRoster([...REAL_ROSTER])
     const controller = { getSnapshot: (): TeamDashboardState => ready, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
@@ -224,6 +225,22 @@ describe('roster/Captain interaction slice', () => {
     expect(document.querySelector('[role="dialog"][data-swarm-detail-overlay]')).toBeNull()
     expect(document.querySelector('[data-swarm-team-fullscreen]')).toBeNull()
     expect(document.querySelectorAll('[role="complementary"][data-swarm-team-panel]')).toHaveLength(0)
+  })
+
+  it('labels the Captain Session as current and never performs a redundant navigation from that same Session', async () => {
+    const coordinator = new FakeCoordinator()
+    const base = readyWithRoster([...REAL_ROSTER])
+    const ready = { ...base, targetSessionId: base.data!.projection.binding.rootSessionId }
+    const controller = { getSnapshot: (): TeamDashboardState => ready, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+
+    const captain = document.querySelector<HTMLButtonElement>('[data-swarm-captain-desk]')!
+    expect(captain.disabled).toBe(true)
+    expect(captain.getAttribute('data-swarm-captain-current')).toBe('true')
+    expect(captain.querySelector('[data-swarm-captain-state]')?.textContent).toBe(t('captainCurrentSession'))
+    expect(captain.title).toBe(t('captainCurrentSessionTitle'))
+    await act(async () => { captain.click(); await Promise.resolve() })
+    expect(coordinator.openCaptainChat).not.toHaveBeenCalled()
   })
 
   it('localizes Captain and member copy in en and zh while the theme stays on official alias tokens with no hardcoded color', async () => {
