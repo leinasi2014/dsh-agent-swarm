@@ -119,7 +119,7 @@ if (failures.length === 0) {
   for (const required of [
     'agent_swarm_create_managed',
     'createWithDedicatedCaptain',
-    'The caller stays outside the Team',
+    'The Main Brain remains outside the Team',
   ]) {
     if (!hostSource.includes(required)) failures.push(`built Host entry is stale: missing ${required}`)
   }

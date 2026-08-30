@@ -20,19 +20,19 @@
 import { TeamDomainError } from './error.js'
 
 /** Codepoint bounds for the free-text identity fields. */
-export const MAX_MEMBER_DISPLAY_NAME = 128
-export const MAX_MEMBER_PROFESSION = 256
-export const MAX_MEMBER_PERSONALITY = 1024
+const MAX_MEMBER_DISPLAY_NAME = 128
+const MAX_MEMBER_PROFESSION = 256
+const MAX_MEMBER_PERSONALITY = 1024
 
 /** Upper bound (code units) on the whole pixel-avatar SVG string. */
 export const MAX_PIXEL_AVATAR_LENGTH = 16_384
 /** Maximum number of self-closing `<rect>` children. */
-export const MAX_PIXEL_AVATAR_RECTS = 256
+const MAX_PIXEL_AVATAR_RECTS = 256
 /** Inclusive square viewBox edge range: `viewBox="0 0 N N"` with 8 ≤ N ≤ 32. */
-export const MIN_PIXEL_AVATAR_GRID = 8
-export const MAX_PIXEL_AVATAR_GRID = 32
+const MIN_PIXEL_AVATAR_GRID = 8
+const MAX_PIXEL_AVATAR_GRID = 32
 /** Per-attribute value length bound (code units). */
-export const MAX_PIXEL_AVATAR_ATTR_LENGTH = 64
+const MAX_PIXEL_AVATAR_ATTR_LENGTH = 64
 
 /** Bounded public announcement list on the Team aggregate. */
 export const MAX_CAPTAIN_ANNOUNCEMENTS = 32

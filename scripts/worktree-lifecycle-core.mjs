@@ -219,7 +219,7 @@ function integrationBranch() {
   return 'main'
 }
 
-function ensurePrimaryReady(repository) {
+export function ensurePrimaryReady(repository) {
   const { records, primary } = primaryFacts(repository)
   const expected = integrationBranch(repository)
   if (primary.branch !== expected) throw new LifecycleError('PRIMARY_NOT_INTEGRATION_REF', `primary checkout must be on ${expected}`)
@@ -227,8 +227,19 @@ function ensurePrimaryReady(repository) {
   return records
 }
 
+function containingRepositoryRoot(path) {
+  try {
+    return realpathSync(resolve(git(['rev-parse', '--show-toplevel'], path)))
+  } catch {
+    return undefined
+  }
+}
+
 function requirePrimaryCaller(repository) {
-  if (comparable(repository.currentRoot) !== comparable(repository.primaryRoot) || comparable(coreSourceRoot) !== comparable(repository.primaryRoot)) {
+  const sourceRepositoryRoot = containingRepositoryRoot(coreSourceRoot)
+  if (comparable(repository.currentRoot) !== comparable(repository.primaryRoot)
+    || sourceRepositoryRoot === undefined
+    || comparable(sourceRepositoryRoot) !== comparable(repository.primaryRoot)) {
     throw new LifecycleError('MUTATION_REQUIRES_PRIMARY', 'lifecycle mutation must load from the accepted primary checkout')
   }
 }
@@ -237,7 +248,8 @@ export function assertLifecycleCliSource({ cwd, sourceUrl }) {
   const repository = discoverRepository(cwd)
   requirePrimaryCaller(repository)
   const cliRoot = realpathSync(resolve(fileURLToPath(new URL('..', sourceUrl))))
-  if (comparable(cliRoot) !== comparable(repository.primaryRoot)) {
+  const cliRepositoryRoot = containingRepositoryRoot(cliRoot)
+  if (cliRepositoryRoot === undefined || comparable(cliRepositoryRoot) !== comparable(repository.primaryRoot)) {
     throw new LifecycleError('MUTATION_REQUIRES_PRIMARY', 'lifecycle CLI must load from the accepted primary checkout')
   }
 }

@@ -12,7 +12,7 @@ import type {
 } from '../rpc/read-rpc-contract.js'
 import { SwarmReadClient, type SwarmReadClientMount } from './read-client.js'
 
-export type TeamDashboardPhase = 'closed' | 'loading' | 'ready' | 'stale' | 'reconnecting' | 'error'
+type TeamDashboardPhase = 'closed' | 'loading' | 'ready' | 'stale' | 'reconnecting' | 'error'
 
 export interface TeamDashboardData {
   readonly capabilities: SwarmReadCapabilitiesV1

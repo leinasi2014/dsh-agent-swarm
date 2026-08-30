@@ -11,8 +11,10 @@ function pnpmCli() {
   const pathEntries = (process.env.PNPM_HOME === undefined ? [] : [process.env.PNPM_HOME])
     .concat((process.env.Path ?? process.env.PATH ?? '').split(delimiter))
   for (const entry of pathEntries) {
-    const candidate = join(entry, 'node_modules', 'pnpm', 'bin', 'pnpm.cjs')
-    if (existsSync(candidate)) return candidate
+    for (const candidate of [
+      join(entry, 'node_modules', 'pnpm', 'bin', 'pnpm.cjs'),
+      join(entry, '..', 'pnpm', 'bin', 'pnpm.cjs'),
+    ]) if (existsSync(candidate)) return candidate
   }
   throw new Error('pnpm CLI cannot be resolved from PNPM_HOME or PATH')
 }
