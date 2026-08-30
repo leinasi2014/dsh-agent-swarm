@@ -144,13 +144,13 @@ Risk: external read boundary 为 S3/HIGH。
 
 ### Outcome
 
-使用官方 slots、components、locale 和 theme tokens 提供最小 DSH client plugin。它只消费 R2，展示 Team、成员、任务/attempt、预算、pending interaction、capability、stale/reconnect/error，并提供明确的“打开 Captain Chat”操作进入同一官方 DSH root Session。
+使用官方 slots、components、locale 和 theme tokens 提供已集成的 DSH Team Workbench V3。它只消费 R2：在不替换主聊天的侧栏中展示 Main Brain 管理的 Team rail、原位多 Team 切换、公共目标、最新公告，以及互斥的工作台/任务/公告/管理视图；成员与任务详情通过 overlay 展示。Captain 和成员身份包含姓名、职业、性格与安全像素 SVG 头像；成员详情按权威可用性展示 Skills、可调用/被拒工具、当前与最近任务结果及成长摘要。预算、pending interaction、capability、stale/reconnect/error 仍按 fail-closed 投影。
 
-Captain Chat 是首个用户修正纵切：用户通过官方 Session 对 captain 说明修改，captain 再使用已有 `agent_swarm_*` 工具操作 Team。UI 不把聊天文本解释为 typed Control，不从 transcript 派生 Team truth，也不等待 direct `/swarm` writes 才提供价值。
+“打开 Captain Chat”进入所选 Team 的独立 Captain Session；Main/root Session 保持当前选择，除非用户显式打开 Captain。Captain Chat 是首个用户修正纵切：用户通过官方 Session 对 captain 说明修改，captain 再使用已有 `agent_swarm_*` 工具操作 Team。UI 不把聊天文本解释为 typed Control，不从 transcript 派生 Team truth，也不等待 direct `/swarm` writes 才提供价值。
 
 ### Exit evidence
 
-Fixture-driven components、accessibility、official locale/theme、真实 client bundle purity、mount/dispose/HMR、Session handoff identity、screenshot/interaction inspection，以及 final candidate 非作者审查。
+Fixture-driven components、accessibility、official locale/theme、真实 client bundle purity、mount/dispose/HMR、Session handoff identity 与 screenshot/interaction inspection；fresh isolated official Profile + real browser 另外证明 Main Brain → 独立 Captain → Captain 自主招募、两项依赖任务 submit/accept、同侧栏多 Team 原位切换、公共目标/公告、身份/头像与成员成长读回、stale/reconnect/error 语义及零可见 Chat/console/page error。最终 candidate 仍需风险对应的非作者审查。
 
 Risk: ordinary UI 为 S2/MEDIUM；错误 Session handoff 为 S3/HIGH。
 

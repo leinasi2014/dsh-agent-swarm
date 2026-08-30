@@ -19,7 +19,7 @@ It keeps the root session as the **Main Brain** while giving every managed team 
 - **Messaging and supervision** — persistent mailboxes, quiet/wakeup delivery, member interruption, budget limits, waiting, status reads, and pagination.
 - **Memory and experience** — team-shared memory and member-private memory have distinct persistence and authorization boundaries.
 - **DSH Team Workbench V3** — team rail, shared goal, latest announcement, and four mutually exclusive views: Workbench, Tasks, Announcements, and Management. Member and task details open as overlays instead of shrinking the root chat.
-- **25 `agent_swarm_*` tools** — see [docs/04-core-protocol.md](docs/04-core-protocol.md) for parameters, permissions, and state contracts.
+- **26 `agent_swarm_*` tools** — see [docs/04-core-protocol.md](docs/04-core-protocol.md) for parameters, permissions, and state contracts.
 
 ## Architecture boundaries
 
@@ -83,6 +83,19 @@ dsh plugin --profile web add --workspace-root $tgz
 
 The Profile must still compose an official Storage hub, KV backend, Storage Domain, Session persistence, Subagent runtime, and a real LLM Provider. Installing this plugin does not automatically create a Team or spawn members.
 
+### Configure and run an isolated Web Profile
+
+Before the first boot, make sure the selected Profile resolves all of the required official services above. Configure the root/Captain model and member model routes through DSH's normal model configuration. Store provider credentials through the DSH credential service/Models page or the provider's documented environment variables; never place API keys in Team goals, announcements, memory, or committed Profile files.
+
+Inspect the assembled Profile, then start the official Web host:
+
+```powershell
+dsh --profile web --dump-config
+dsh --profile web --host 127.0.0.1 --port 3180 --no-open
+```
+
+Open `http://127.0.0.1:3180`, add the project through the official workspace selector, create a root Session, and select the model that will act as the Main Brain. The Team action opens the side workbench; it does not replace the root conversation.
+
 ## Basic usage
 
 Describe the desired outcome in a DSH root session, for example:
@@ -95,11 +108,13 @@ task plan for adding integration tests to this project.
 
 A typical flow is:
 
-1. The Main Brain calls `agent_swarm_create_managed` to create an independent Captain.
+1. The Main Brain calls `agent_swarm_create_managed` with the user's complete requested outcome, constraints, identity preferences, and acceptance criteria to create an independent Captain.
 2. The Captain sets the team goal and identity, then recruits members with `agent_swarm_add_member`.
 3. The Captain builds a DAG with `agent_swarm_create_task`; the scheduler dispatches ready tasks.
 4. Members submit fenced attempts; the Captain accepts or rejects them with `agent_swarm_review_task`.
 5. The user follows progress in the Team Workbench or opens Captain Chat to adjust goals and assignments directly.
+
+After managed creation, the Main Brain may call `agent_swarm_list_managed_teams` once and then ends that turn. It must not poll the Team with `agent_swarm_wait`, `agent_swarm_status`, messages, shell sleeps, or repeated tool calls. Ongoing execution belongs to the independent Captain and members; observe it in the Workbench or talk to the Captain directly.
 
 ## Repository layout
 
