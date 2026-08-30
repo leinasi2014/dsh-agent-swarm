@@ -218,13 +218,14 @@ export class AgentSwarmReadRpcService {
             ? { state: 'not_generated', reason: 'identity_backend_not_implemented' }
             : { state: 'generated' },
           composition: memberCompositionOf(profiles[index], member),
-          // Member-detail overlay fields, emitted only from a verified reader
-          // profile (fail-closed otherwise). skills/growthSummary stay absent
-          // until a durable authority exposes them; callableTools is the
-          // deny-excluded member-facing plugin surface of an `available` row.
+          // Member-detail overlay fields retain separate authorities: Skills
+          // come from the member's latest durable catalog, tools only from the
+          // exact live scoped registry, and growth from retained Team history.
           ...(profiles[index]?.skills === undefined ? {} : { skills: [...profiles[index].skills] }),
-          ...(profiles[index]?.callableTools === undefined ? {} : { callableTools: [...profiles[index].callableTools] }),
-          ...(profiles[index]?.growthSummary === undefined ? {} : { growthSummary: profiles[index].growthSummary }),
+          ...callableToolsOf(this.deps.ctx, team, member),
+          ...growthSummaryOf(team, member.sessionId),
+          ...currentActivityOf(team, member.sessionId),
+          ...recentOutcomeOf(team, member.sessionId),
           // Non-sensitive growth availability — constant literal enum only; no content
           // (private memory is never read nor projected beyond this availability marker).
           growth: { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' },
@@ -749,6 +750,62 @@ function memberCompositionOf(profile: MemberProfile | undefined, member: TeamMem
     ...(profile.personaConfigured === undefined ? {} : { personaConfigured: profile.personaConfigured }),
     ...(profile.deniedTools === undefined ? {} : { deniedTools: [...profile.deniedTools] }),
   }
+}
+
+const MEMBER_ACTIVITY_STATUSES = new Set(['pending', 'in_progress', 'submitted', 'verifying'] as const)
+
+/** Current work is derived from the authoritative Team task board.  Pending
+ *  work follows the fenced target; claimed work follows the owner. */
+function currentActivityOf(team: TeamState, memberSessionId: string): Pick<SwarmReadCaptainMemberRowV1, 'currentActivity'> | Record<string, never> {
+  const task = team.tasks
+    .filter(candidate => MEMBER_ACTIVITY_STATUSES.has(candidate.status as 'pending' | 'in_progress' | 'submitted' | 'verifying'))
+    .filter(candidate => candidate.status === 'pending'
+      ? candidate.targetMemberSessionId === memberSessionId
+      : candidate.ownerSessionId === memberSessionId)
+    .toSorted((left, right) => right.updatedAt - left.updatedAt || left.id.localeCompare(right.id))[0]
+  return task === undefined
+    ? {}
+    : { currentActivity: { taskId: task.id, subject: task.subject, status: task.status as 'pending' | 'in_progress' | 'submitted' | 'verifying' } }
+}
+
+/** Latest accepted/rejected attempt for the member; output/evidence content is
+ *  deliberately excluded from this bounded public summary. */
+function recentOutcomeOf(team: TeamState, memberSessionId: string): Pick<SwarmReadCaptainMemberRowV1, 'recentOutcome'> | Record<string, never> {
+  const attempt = team.attempts
+    .filter(candidate => candidate.memberSessionId === memberSessionId && (candidate.phase === 'accepted' || candidate.phase === 'rejected'))
+    .toSorted((left, right) => right.updatedAt - left.updatedAt || left.id.localeCompare(right.id))[0]
+  return attempt === undefined
+    ? {}
+    : { recentOutcome: { taskId: attempt.taskId, phase: attempt.phase as 'accepted' | 'rejected', at: attempt.updatedAt } }
+}
+
+/** Model-visible tool surface for the exact live member.  A settled/cold
+ *  Session has no scoped registry instance, so its tools remain honestly
+ *  absent rather than being guessed from preset or descriptor policy. */
+function callableToolsOf(ctx: Context, team: TeamState, member: TeamMember): Pick<SwarmReadCaptainMemberRowV1, 'callableTools'> | Record<string, never> {
+  const live = ctx.agents.get(SessionId(member.sessionId))
+  if (live === undefined || live.id !== member.sessionId || live.session.header.parentSession !== team.captainSessionId) return {}
+  try {
+    const names = ctx.tools.schemas(live).map(schema => schema.name).toSorted()
+    if (names.length > 128 || names.some(name => !boundedString(name, 128)) || new Set(names).size !== names.length) return {}
+    return { callableTools: names }
+  } catch {
+    return {}
+  }
+}
+
+/** Bounded Team stores retain attempts, not lifetime career history.  The
+ *  public wording names that limitation and never reads member-private memory. */
+function growthSummaryOf(team: TeamState, memberSessionId: string): Pick<SwarmReadCaptainMemberRowV1, 'growthSummary'> {
+  const accepted = new Set(
+    team.attempts
+      .filter(attempt => attempt.memberSessionId === memberSessionId && attempt.phase === 'accepted')
+      .map(attempt => attempt.taskId),
+  ).size
+  const rejected = team.attempts.filter(
+    attempt => attempt.memberSessionId === memberSessionId && attempt.phase === 'rejected',
+  ).length
+  return { growthSummary: `Retained history: ${accepted} accepted task${accepted === 1 ? '' : 's'} · ${rejected} rejected attempt${rejected === 1 ? '' : 's'}` }
 }
 
 /** Build one first-level Team descriptor from the authoritative host projection row, enriched with

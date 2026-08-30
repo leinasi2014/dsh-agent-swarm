@@ -434,7 +434,8 @@ describe('R2 authoritative target binding and wire contract', () => {
         avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
         identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
         composition: failClosed,
-        growth: { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' },
+        recentOutcome: { taskId: 'task-1', phase: 'accepted', at: 2 },
+        growthSummary: 'Retained history: 1 accepted task · 0 rejected attempts', growth: { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' },
       },
       {
         name: 'artist', role: 'artist', phase: 'active', createdAt: 2,
@@ -442,14 +443,14 @@ describe('R2 authoritative target binding and wire contract', () => {
         avatar: { state: 'generated', svg: '<svg viewBox="0 0 16 16"><rect x="0" y="0" width="8" height="8" fill="#2a3"/></svg>' },
         identityCard: { state: 'generated' },
         composition: failClosed,
-        growth: { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' },
+        growthSummary: 'Retained history: 0 accepted tasks · 0 rejected attempts', growth: { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' },
       },
       {
         name: 'tampered', role: 'artist', phase: 'active', createdAt: 3,
         avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
         identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
         composition: failClosed,
-        growth: { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' },
+        growthSummary: 'Retained history: 0 accepted tasks · 0 rejected attempts', growth: { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' },
       },
     ])
     // Announcements: real bounded projection; a Team with none has an honest empty list
@@ -470,7 +471,6 @@ describe('R2 authoritative target binding and wire contract', () => {
       schemaVersion: 1, method: 'captainMembers', target: { rootSessionId: ROOT.id },
     })).rejects.toMatchObject({ code: 'SWARM_RPC_INVALID_REQUEST' })
   })
-
   it('returns the authoritative Captain binding for sections opened from a Main Brain', async () => {
     const captain = 'cold-dedicated-captain'
     const teamState = {

@@ -40,6 +40,8 @@ const COMPOSITION_FIELDS = [
 function rpcHarness(options: {
   teamState?: TeamState;
   memberInspect?: (sessionId: string) => unknown;
+  liveMembers?: Readonly<Record<string, Agent>>;
+  toolSchemas?: (agent: Agent) => readonly { name: string }[];
 } = {}) {
   const team = {
     id: 'team-r2', captainSessionId: ROOT.id, phase: 'active', revision: 6,
@@ -49,7 +51,7 @@ function rpcHarness(options: {
   const teams: TeamState[] = [team]
   const ctx = {
     agents: {
-      get: (id: string) => (id === ROOT.id ? ROOT : undefined),
+      get: (id: string) => (id === ROOT.id ? ROOT : options.liveMembers?.[id]),
       roots: () => [ROOT],
       withInitiator: async <T>(_agent: Agent, callback: () => Promise<T>) => await callback(),
     },
@@ -59,6 +61,9 @@ function rpcHarness(options: {
         if (options.memberInspect !== undefined) return options.memberInspect(sessionId)
         throw new Error(`session "${sessionId}" not found`)
       },
+    },
+    tools: {
+      schemas: (agent: Agent) => options.toolSchemas?.(agent) ?? [],
     },
   } as unknown as Context
   const snapshot = vi.fn(async () => ({ team }))
@@ -119,6 +124,95 @@ const expectCompositionOnly = (composition: SwarmReadCaptainMemberRowV1['composi
 }
 
 describe('captainMembers nested composition (fault-first)', () => {
+  it('projects latest durable Skill catalog, live scoped tools, current work and retained experience', async () => {
+    const member = { name: 'worker', role: 'writer', sessionId: 'worker-session', provider: 'mock', phase: 'active', createdAt: 1 }
+    const liveMember = {
+      id: member.sessionId,
+      session: { header: { cwd: 'D:\\workspace', parentSession: ROOT.id } },
+    } as unknown as Agent
+    const service = rpcHarness({
+      teamState: {
+        id: 'team-r2', captainSessionId: ROOT.id, phase: 'active', revision: 9,
+        members: [member],
+        tasks: [
+          { id: 'task-done', revision: 2, subject: 'Accepted work', description: 'done', acceptanceCriteria: [], status: 'completed', blockedBy: [], writeScopes: [], priority: 1, ownerSessionId: member.sessionId, createdAt: 1, updatedAt: 4 },
+          { id: 'task-next', revision: 1, subject: 'Next visible task', description: 'next', acceptanceCriteria: [], status: 'pending', blockedBy: [], writeScopes: [], priority: 1, targetMemberSessionId: member.sessionId, createdAt: 5, updatedAt: 6 },
+        ],
+        attempts: [
+          { id: 'attempt-done', taskId: 'task-done', generation: 1, memberSessionId: member.sessionId, phase: 'accepted', assignmentPhase: 'delivered', evidence: [], createdAt: 2, updatedAt: 4 },
+          { id: 'attempt-z', taskId: 'task-old', generation: 1, memberSessionId: member.sessionId, phase: 'rejected', assignmentPhase: 'delivered', evidence: [], createdAt: 2, updatedAt: 4 },
+        ],
+      } as never as TeamState,
+      liveMembers: { [member.sessionId]: liveMember },
+      toolSchemas: agent => agent === liveMember
+        ? [{ name: 'skill' }, { name: 'agent_swarm_list_tasks' }]
+        : [],
+      memberInspect: () => stored(
+        { id: member.sessionId },
+        [
+          descriptor(member.name, { toolFilter: { deny: ['agent_swarm_list_jobs'] } }),
+          { type: 'user/message', data: { source: { kind: 'skill-catalog', form: 'catalog', entries: [{ name: 'obsolete', description: 'old' }] } } },
+          { type: 'user/message', data: { source: { kind: 'skill-catalog', form: 'catalog', update: true, entries: [
+            { name: 'dsh-plugin-development', description: 'Develop a DSH plugin' },
+            { name: 'manage-agile-software-development', description: 'Deliver agile software' },
+          ] } } },
+        ],
+      ),
+    })
+
+    const row = (await callMembers(service)).members[0]!
+    expect(row.skills).toEqual(['dsh-plugin-development', 'manage-agile-software-development'])
+    expect(row.callableTools).toEqual(['agent_swarm_list_tasks', 'skill'])
+    expect(row.growthSummary).toBe('Retained history: 1 accepted task · 1 rejected attempt')
+    expect(row.currentActivity).toEqual({ taskId: 'task-next', subject: 'Next visible task', status: 'pending' })
+    expect(row.recentOutcome).toEqual({ taskId: 'task-done', phase: 'accepted', at: 4 })
+  })
+
+  it('distinguishes absent, explicit-empty and malformed latest Skill catalogs and omits cold tools', async () => {
+    const members = [
+      { name: 'absent', role: 'writer', sessionId: 'absent-session', provider: 'mock', phase: 'active', createdAt: 1 },
+      { name: 'empty', role: 'writer', sessionId: 'empty-session', provider: 'mock', phase: 'active', createdAt: 2 },
+      { name: 'malformed', role: 'writer', sessionId: 'malformed-session', provider: 'mock', phase: 'active', createdAt: 3 },
+    ]
+    const service = rpcHarness({
+      teamState: { id: 'team-r2', captainSessionId: ROOT.id, phase: 'active', revision: 1, members, tasks: [], attempts: [] } as never as TeamState,
+      memberInspect: sessionId => {
+        const name = sessionId.replace('-session', '')
+        const catalog = sessionId === 'absent-session'
+          ? []
+          : sessionId === 'empty-session'
+            ? [{ type: 'user/message', data: { source: { kind: 'skill-catalog', form: 'catalog', entries: [] } } }]
+            : [
+                { type: 'user/message', data: { source: { kind: 'skill-catalog', form: 'catalog', entries: [{ name: 'old', description: 'old' }] } } },
+                { type: 'user/message', data: { source: { kind: 'skill-catalog', form: 'catalog', update: true, entries: 'broken' } } },
+              ]
+        return stored({ id: sessionId }, [descriptor(name), ...catalog])
+      },
+    })
+
+    const rows = (await callMembers(service)).members
+    expect(rows[0]).not.toHaveProperty('skills')
+    expect(rows[1]?.skills).toEqual([])
+    expect(rows[2]?.skills).toEqual(['old'])
+    rows.forEach(row => expect(row).not.toHaveProperty('callableTools'))
+  })
+
+  it('does not inherit a parent Skill catalog across the Session seed boundary', async () => {
+    const member = { name: 'worker', role: 'writer', sessionId: 'worker-session', provider: 'mock', phase: 'active', createdAt: 1 }
+    const service = rpcHarness({
+      teamState: { id: 'team-r2', captainSessionId: ROOT.id, phase: 'active', revision: 1, members: [member], tasks: [], attempts: [] } as never as TeamState,
+      memberInspect: () => stored(
+        { id: member.sessionId, seedLength: 1 },
+        [
+          { type: 'user/message', data: { source: { kind: 'skill-catalog', form: 'catalog', entries: [{ name: 'parent-only', description: 'not this member' }] } } },
+          descriptor(member.name),
+        ],
+      ),
+    })
+
+    expect((await callMembers(service)).members[0]).not.toHaveProperty('skills')
+  })
+
   it('merges each verified member profile in authoritative roster order with EXACT 8-field set', async () => {
     const members = [
       // Distinguish profiles per name so a cross-row/copied merge is caught.

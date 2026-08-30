@@ -13,19 +13,13 @@ import type {} from '@deepseek-ai/dsh-session-persistence'
 import { foldSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
 import { TeamDomainError } from '../domain/error.js'
 import type { TeamMember, TeamState } from '../domain/types.js'
-import { DEFAULT_TOOL_POLICY } from './permission-policy.js'
-import { MEMBER_HIDDEN_TOOLS } from './prompts.js'
 
 const MEMBER_INSPECTION_TIMEOUT_MS = 2_500
 const PAGE_INSPECTION_TIMEOUT_MS = 8_000
 const MAX_INSPECTION_CONCURRENCY = 4
-
-/** The deny-excluded member-facing plugin tool surface: the plugin's declared
- *  member-visible allow surface minus the mandatory captain-only/hidden
- *  baseline, in stable surface order. The read-time callable-tools projection
- *  further excludes this member's own durable toolFilter denial. */
-const MEMBER_VISIBLE_PLUGIN_SURFACE: readonly string[] = (DEFAULT_TOOL_POLICY.allow ?? [])
-  .filter(tool => !(MEMBER_HIDDEN_TOOLS as readonly string[]).includes(tool))
+const MAX_PROJECTED_SKILLS = 64
+const MAX_PROJECTED_SKILL_NAME = 128
+const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 type MemberProfileState = 'available' | 'pending' | 'unavailable' | 'invalid'
 
@@ -60,12 +54,6 @@ export interface MemberProfile {
    *  enumeration; empty means "none declared". Absent when no skills authority
    *  exists (fail-closed), never an empty or fabricated claim. */
   readonly skills?: readonly string[]
-  /** Tools this member may call within the Team's member-facing plugin surface,
-   *  derived from the member's durable toolFilter denial (deny-excluded). Present
-   *  only on an `available` profile; a fail-closed row discloses no tool claim. */
-  readonly callableTools?: readonly string[]
-  /** Bounded growth/experience summary. Absent when no summary authority exists. */
-  readonly growthSummary?: string
 }
 
 function pending(member: TeamMember): MemberProfile {
@@ -120,6 +108,47 @@ async function mapBounded<T, U>(items: readonly T[], limit: number, map: (item: 
   }
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()))
   return results
+}
+
+/** Latest durable Skill catalog published for this member Session.  The
+ *  official catalog is replacement state: the newest valid structured source
+ *  wins, including an explicit empty catalog.  Missing/invalid authority is
+ *  omitted instead of being presented as "none". */
+function catalogSkills(events: readonly unknown[]): readonly string[] | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]
+    if (typeof event !== 'object' || event === null) continue
+    const record = event as { type?: unknown; data?: { source?: unknown } }
+    if (record.type !== 'user/message') continue
+    const source = record.data?.source
+    if (typeof source !== 'object' || source === null) continue
+    const { kind, form, entries } = source as { kind?: unknown; form?: unknown; entries?: unknown }
+    if (kind !== 'skill-catalog' || form !== 'catalog') continue
+    if (!Array.isArray(entries)) continue
+    const readableNames: string[] = []
+    let readable = true
+    for (const entry of entries) {
+      if (typeof entry !== 'object' || entry === null) {
+        readable = false
+        break
+      }
+      const { name, description } = entry as { name?: unknown; description?: unknown }
+      if (typeof name !== 'string' || name === '' || typeof description !== 'string') {
+        readable = false
+        break
+      }
+      readableNames.push(name)
+    }
+    if (!readable) continue
+    if (readableNames.length > MAX_PROJECTED_SKILLS) return undefined
+    const seen = new Set<string>()
+    for (const name of readableNames) {
+      if (!SKILL_NAME.test(name) || name.length > MAX_PROJECTED_SKILL_NAME || seen.has(name)) return undefined
+      seen.add(name)
+    }
+    return readableNames
+  }
+  return undefined
 }
 
 /**
@@ -205,12 +234,7 @@ export class MemberProfileReader {
     if (descriptor.toolFilter?.allow !== undefined) return invalid(member, 'tool_filter_invalid')
 
     const deny = descriptor.toolFilter?.deny
-    // Callable tools = the member-facing plugin surface minus this member's own
-    // durable deny restriction — a bounded, honest read of "tools not denied on
-    // this member's surface". Official downstream guards remain authoritative.
-    const callableTools = MEMBER_VISIBLE_PLUGIN_SURFACE.filter(
-      tool => deny === undefined || !deny.includes(tool),
-    )
+    const skills = catalogSkills(suffix)
 
     return {
       name: member.name,
@@ -225,7 +249,7 @@ export class MemberProfileReader {
       ...(stored.meta.agentPreset === undefined ? {} : { presetId: stored.meta.agentPreset }),
       personaConfigured: descriptor.persona !== undefined,
       ...(deny === undefined ? {} : { deniedTools: deny }),
-      callableTools,
+      ...(skills === undefined ? {} : { skills }),
     }
   }
 }
