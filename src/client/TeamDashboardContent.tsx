@@ -151,7 +151,7 @@ export function TeamDashboardContent({ controller, coordinator, descriptionId, h
         announcements={state.data?.captainAnnouncements}
         diagnostics={state.data?.captainDiagnostics}
         memberAssets={state.data?.captainMembers}
-        onMainChat={handoff}
+        onCaptainSession={handoff}
         onSelectTeam={teamId => { controller.selectTeam(teamId) }}
         onClose={() => { coordinator.closeAndRestoreFocus() }}
       />}
@@ -241,7 +241,7 @@ function Empty({ state, controller, t }: { readonly state: TeamDashboardState; r
   </section>
 }
 
-function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, state, t, teams, announcements, diagnostics, memberAssets, onMainChat, onSelectTeam, onClose }: {
+function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, state, t, teams, announcements, diagnostics, memberAssets, onCaptainSession, onSelectTeam, onClose }: {
   readonly data: SwarmHostReadProjectionV1
   readonly handoffBusy: boolean
   readonly localeTag: () => 'zh-CN' | 'en-US'
@@ -253,7 +253,7 @@ function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, sta
   readonly announcements: SwarmReadCaptainAnnouncementsV1 | undefined
   readonly diagnostics: SwarmReadCaptainDiagnosticsV1 | undefined
   readonly memberAssets: SwarmReadCaptainMembersV1 | undefined
-  readonly onMainChat: () => void
+  readonly onCaptainSession: () => void
   readonly onSelectTeam: (teamId: string) => void
   readonly onClose: () => void
 }) {
@@ -297,10 +297,11 @@ function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, sta
   const captainProfession = captainGenerated && boundCaptain?.profession !== undefined ? boundCaptain.profession : undefined
   const subtitleParts = [captainProfession, `${number.format(executingCount)} ${t('subtitle.executing')}`].filter(part => part !== undefined)
   const inFlight = ['in_progress', 'submitted', 'verifying'] as const
-  // The Captain carries NO personal task/activity projection in the current read contract, so
-  // the desk state is always the neutral "not available yet" (gray). The Team lifecycle stays
-  // in the header phase pill — it is never laundered into a personal standby claim.
-  const captainStateText = t('detail.unavailable')
+  // The binding is the only authority for Captain navigation. It is not a personal activity
+  // projection, so describe the actual Session relationship instead of calling the Captain
+  // unavailable or inventing a working-state claim.
+  const viewingCaptain = state.targetSessionId === data.binding.rootSessionId
+  const captainStateText = viewingCaptain ? t('captainCurrentSession') : t('captainOpenSession')
   const captainTone: DeskTone = 'offline'
   const summaries = data.tasks.filter(task => inFlight.includes(task.status as (typeof inFlight)[number])).toSorted((left, right) => right.updatedAt - left.updatedAt).slice(0, 2)
   const activities = data.attempts.toSorted((left, right) => right.updatedAt - left.updatedAt).slice(0, 3)
@@ -401,11 +402,12 @@ function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, sta
             <button
               className="swarm-team-workspace__desk"
               type="button"
-              disabled={handoffBusy}
+              disabled={handoffBusy || viewingCaptain}
               data-swarm-captain-desk
+              data-swarm-captain-current={viewingCaptain ? 'true' : 'false'}
               data-swarm-tone={captainTone}
-              title={t('captainMainChatTitle')}
-              onClick={onMainChat}
+              title={viewingCaptain ? t('captainCurrentSessionTitle') : t('captainMainChatTitle')}
+              onClick={onCaptainSession}
             >
               <span className="swarm-team-workspace__avatar"><SafePixelAvatar seed={boundCaptain?.name ?? ''} asset={boundCaptain?.avatar ?? NOT_GENERATED_AVATAR} name={captainName} t={t} /></span>
               <span className="swarm-team-workspace__desk-copy">
@@ -512,7 +514,7 @@ function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, sta
                 </section>}
         </div>}
         {view === 'manage' && <div role="tabpanel" id="swarm-panel-manage" aria-labelledby="swarm-tab-manage" data-swarm-panel="manage">
-          <ManageView data={data} memberAssets={memberAssets} number={number} onManageViaCaptain={onMainChat} onOpenDetail={openDetail} t={t} />
+          <ManageView data={data} memberAssets={memberAssets} number={number} onManageViaCaptain={onCaptainSession} onOpenDetail={openDetail} t={t} />
         </div>}
       </main>
     </section>
