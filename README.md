@@ -2,166 +2,120 @@
 
 [![verify](https://github.com/leinasi2014/dsh-agent-swarm/actions/workflows/verify.yml/badge.svg)](https://github.com/leinasi2014/dsh-agent-swarm/actions/workflows/verify.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Node.js](https://img.shields.io/badge/Node.js-22.19%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 
-A persistent multi-agent team orchestration plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH).
+`dsh-agent-swarm` 是 DeepSeek Harness（DSH）的多 Agent 团队插件。它保留根会话作为 **Main Brain**，为每个 Team 创建独立的 **Captain Session**，再由 Captain 招募成员、拆分任务、调度执行并审核结果。
 
-It keeps the root session as the **Main Brain** while giving every managed team an independent **Captain Session**. Captains can recruit specialists, build task DAGs, dispatch work, review deliveries, and expose goals, announcements, people, tasks, and runtime state through a DSH-native side workbench.
+> 当前状态：`0.1.1` 预发布源码，`private: true`。仓库可以构建、测试和打包，但尚无公共 npm 版本或稳定发布承诺。
 
-> **Status:** actively developed pre-release source. The repository provides build, test, and packaging entry points, but no public npm release is available yet. `package.json` remains `private: true` to prevent accidental publication.
+## 用户体验
 
-## Real Profile UI
+```text
+用户与 Main Brain 对话
+  ├─ 创建 Team A → 独立 Captain A → Members A1..An
+  └─ 创建 Team B → 独立 Captain B → Members B1..Bn
 
-These screenshots come from an isolated official DSH `web` Profile running a packed build of this repository. The Profile used separate Session, Storage Domain, and workspace roots; the Team, member, task, and accepted attempt shown below were created through the real plugin runtime rather than a mocked browser fixture.
+Captain：设定目标和公告、招募成员、建立任务 DAG、审核提交
+Member：只处理当前 fenced attempt，提交结果后等待 Captain 决策
+Workbench：在主聊天旁切换 Team，查看成员、任务、公告和管理信息
+Captain Chat：通过官方 Session 导航直接与选中的 Captain 对话
+```
 
-### Team side workbench
+Main Brain 不加入 Team roster，也不获得 Captain 权限。多个 Team 的 Captain、成员、任务和会话彼此隔离；浏览器 UI 只投影权威状态，不拥有另一套任务状态机。
 
-![DSH Team side workbench showing a live Team, work seats, and an accepted task](docs/assets/readme/team-workbench.png)
+## 已实现
 
-The root conversation remains in the main Chat area while the selected Team is projected into the native DSH details surface. The workbench exposes the Team goal and announcement, Captain/member seats, task execution summary, and recent activity without turning browser state into Team authority.
+- 独立 Captain Session、多个 managed Team、Captain/成员身份资料与安全像素 SVG 头像。
+- 26 个 `agent_swarm_*` 工具，覆盖建队、成员、任务 DAG、定向分配、提交/审核、邮箱、预算、记忆、等待与分页读取。
+- `revision` CAS 与 `attemptId` fencing；陈旧提交、重复执行和越权调用明确失败。
+- 官方 Storage Domain 中的 durable Team aggregate；成员、任务、attempt、邮箱、预算、公告和公共目标可跨重启恢复。
+- continuable subagent 成员、可替换 Scheduler/Review Provider、可选 Workflow bridge、Jobs 只读投影和每 attempt execution root。
+- Team 级 Skill allow-list、成员 tool deny policy、Captain/成员模型路由、资源上限和重启生效的官方 Plugins 设置页。
+- 团队共享记忆与成员私有 append-only memory，二者具有独立授权和持久化边界。
+- read-only Host projection、同源 `/swarm/v1` RPC 与 DSH Team Workbench V3：多 Team 切换、Workbench/Tasks/Announcements/Management、成员/任务 overlay、Captain Chat 跳转。
 
-### Plugin settings
+## 尚未交付
 
-![Official DSH Plugins settings page with the Agent Swarm configuration expanded](docs/assets/readme/plugin-settings.png)
+- 公共 npm/插件市场发布、稳定版本兼容矩阵和面向用户的升级/回滚流程。
+- 由已验证 human principal 驱动的通用 browser/RPC 直接写控制；当前主要写路径仍是 Main Brain、Captain 和成员通过模型工具执行。
+- Canvas 原生 Consumer、远程成员、跨进程分布式 CAS/lease/fencing 与完整变更流。
+- 自动 Skill Evolution；现有 Skills、记忆和验收证据不会自动改写 Skill。
+- 覆盖所有支持环境的发布级 E2E、可访问性和故障恢复矩阵。
 
-Agent Swarm registers with the official Plugins settings surface. Its five groups cover Team defaults, Skills, orchestration and review, tool permissions, and execution/resource limits. Saved settings are validated and applied on DSH restart; existing Team state remains durable.
+这些缺口的优先顺序和“90% 产品就绪”定义见 [实施路线](docs/07-implementation-roadmap.md)。
 
-## Implemented capabilities
+## 架构
 
-- **Main Brain and independent Captains** — `agent_swarm_create_managed` creates a dedicated Captain Session without replacing the root chat with team execution logs.
-- **Team and member identities** — Captains and members can store a name, profession, personality, and safe pixel-style SVG avatar. Members run through the official continuable subagent seam.
-- **Task collaboration** — DAG dependencies, priorities, revision CAS, `attemptId` fencing, targeted assignment, submission, reassignment, and Captain review.
-- **Durable runtime state** — the Team aggregate is stored through the official Storage Domain; member descriptors, tasks, mailboxes, budgets, and memories can survive restarts.
-- **Messaging and supervision** — persistent mailboxes, quiet/wakeup delivery, member interruption, budget limits, waiting, status reads, and pagination.
-- **Memory and experience** — team-shared memory and member-private memory have distinct persistence and authorization boundaries.
-- **DSH Team Workbench V3** — team rail, shared goal, latest announcement, and four mutually exclusive views: Workbench, Tasks, Announcements, and Management. Member and task details open as overlays instead of shrinking the root chat.
-- **26 `agent_swarm_*` tools** — see [docs/04-core-protocol.md](docs/04-core-protocol.md) for parameters, permissions, and state contracts.
+```text
+Official DSH
+  Sessions / Agents / Subagents / Tools / Workflow / Storage / Settings / Client slots
+                              │
+                              ▼
+AgentSwarmRuntime → TeamDomainPort → StorageDomainTeamStore
+       │                 │
+       │                 └─ Team、roster、task、attempt、mailbox、budget 的唯一写权威
+       ├─ Scheduler / Review / Workflow / Workspace / Permission Providers
+       ├─ 26 scoped model tools
+       └─ Host read projection → /swarm/v1 → Team Workbench
+```
 
-## Current code architecture
+- 官方 DSH 是唯一 Runtime、Profile、Session 与 Agent Loop 宿主。
+- 所有 Team mutation 经过 `TeamDomainPort`，durable commit 成功后才发布结果和事件。
+- UI、RPC、prompt、日志和缓存都是 Consumer 或 projection，不能重建第二份 Team truth。
+- 每个注册、监听、timer、route、subagent 和 client mount 都必须有 lifecycle owner 与 disposer。
 
-[Open the interactive Archify diagram](docs/assets/readme/architecture.html) to inspect source-backed components, guided write/read paths, themes, search, and relationship tracing.
+详细边界见 [产品章程](docs/GOALS.md)、[愿景](docs/00-vision.md)、[能力架构](docs/03-capability-family.md) 和 [核心协议](docs/04-core-protocol.md)。
 
-![Source-backed dsh-agent-swarm architecture generated with Archify](docs/assets/readme/architecture.png)
+## 界面
 
-The diagram is generated from the current `src/` graph, not from the future roadmap. Its source specification records the exact repository revision and 22 code references in [`architecture.archify.json`](docs/assets/readme/architecture.archify.json).
+![Team Workbench](docs/assets/readme/team-workbench.png)
 
-- **Write path:** the Main Brain, dedicated Captains, and members act through 26 scoped `agent_swarm_*` tools. `AgentSwarmRuntime` applies identity, revision CAS, and `attemptId` fencing before every Team mutation crosses the single `TeamDomainPort` contract.
-- **Durable authority:** `StorageDomainTeamStore` stores one versioned Team aggregate per record in the official `agent_swarm` Storage Domain. Successful results and change events are published only after the authoritative commit.
-- **Read path:** Host read projection and the local `/swarm/v1` RPC derive bounded binding, status, snapshot, and page views from the same aggregate. The DSH Team Workbench is a read/navigation Consumer, never a second state machine.
-- **Official composition:** the plugin consumes official Session, Agent, Subagent, Tools, System Prompt, Session persistence, Storage Domain, Settings, and Client slot seams. It does not patch or duplicate the official Agent Loop.
-- **Replaceable policy seams:** scheduling, review, workflow bridge, Team jobs projection, execution roots, permissions, and human-interaction correlation remain explicit Providers or overlays. Missing required services, invalid Provider selection, stale revisions, and stale attempts fail loudly.
+![Plugin settings](docs/assets/readme/plugin-settings.png)
 
-## Quick start
+截图来自隔离的官方 DSH Web Profile。它们证明对应候选的真实组合路径，不代表尚未交付能力已经完成。
 
-### Requirements
+## 本地构建
 
-- Node.js `^22.19.0 || >=24` (CI uses Node.js 24)
-- pnpm `9.15.9`
-- A DSH checkout/Profile compatible with the peer dependencies in `package.json` and the pinned baseline in `docs/OFFICIAL_BASELINE.json`
-
-### Clone and verify
+要求：Node.js `^22.19.0 || >=24`、pnpm `9.15.9`，以及与 `package.json` peer dependencies 和 `docs/OFFICIAL_BASELINE.json` 一致的官方 DSH。
 
 ```bash
-git clone https://github.com/leinasi2014/dsh-agent-swarm.git
-cd dsh-agent-swarm
 corepack enable
 pnpm install --frozen-lockfile
 pnpm verify:candidate
-```
-
-`pnpm verify:candidate` runs structure and boundary checks, linting, duplicate and dead-export checks, both type-check lanes, tests, scenario checks, builds, and package-artifact verification.
-
-### Build a pre-release tarball
-
-```powershell
-$artifact = Join-Path $env:TEMP 'dsh-agent-swarm-artifact'
-New-Item -ItemType Directory -Force $artifact | Out-Null
 pnpm build
-pnpm pack --pack-destination $artifact
-$tgz = (Get-ChildItem $artifact\dsh-agent-swarm-*.tgz | Select-Object -First 1).FullName
+pnpm pack --pack-destination <artifact-directory>
 ```
 
-Install development candidates only into a fresh, isolated `DSH_HOME` and Profile. Do not test them in your default user Profile:
+预发布包只应安装到 fresh、isolated `DSH_HOME` / Profile。Profile 还必须显式组合官方 Storage、Storage Domain、Session persistence、Subagent runtime 和真实 LLM Provider。安装插件不会自动创建 Team 或成员。
 
 ```powershell
-$env:DSH_HOME = Join-Path $env:TEMP ('dsh-swarm-home-' + [guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Force $env:DSH_HOME | Out-Null
-dsh plugin --profile web add --workspace-root $tgz
-```
-
-The Profile must still compose an official Storage hub, KV backend, Storage Domain, Session persistence, Subagent runtime, and a real LLM Provider. Installing this plugin does not automatically create a Team or spawn members.
-
-### Configure and run an isolated Web Profile
-
-Before the first boot, make sure the selected Profile resolves all of the required official services above. Configure the root/Captain model and member model routes through DSH's normal model configuration. Store provider credentials through the DSH credential service/Models page or the provider's documented environment variables; never place API keys in Team goals, announcements, memory, or committed Profile files.
-
-Inspect the assembled Profile, then start the official Web host:
-
-```powershell
+$env:DSH_HOME = Join-Path $env:TEMP ('dsh-swarm-' + [guid]::NewGuid().ToString('N'))
+dsh plugin --profile web add --workspace-root <absolute-path-to-tarball>
 dsh --profile web --dump-config
 dsh --profile web --host 127.0.0.1 --port 3180 --no-open
 ```
 
-Open `http://127.0.0.1:3180`, add the project through the official workspace selector, create a root Session, and select the model that will act as the Main Brain. The Team action opens the side workbench; it does not replace the root conversation.
+## 基本使用
 
-## Basic usage
-
-Describe the desired outcome in a DSH root session, for example:
+在根会话中描述完整目标，例如：
 
 ```text
-Create an independent delivery team. Ask the Captain to recruit specialists for
-requirements, implementation, and review, then build and execute a dependency-aware
-task plan for adding integration tests to this project.
+创建一个独立交付团队。让 Captain 招募需求、实现和审查成员，建立依赖任务，
+完成此仓库的集成测试，并以可执行测试结果作为验收证据。
 ```
 
-A typical flow is:
+Main Brain 调用 `agent_swarm_create_managed` 后应结束当前轮次，不轮询 Team。后续执行由独立 Captain 和成员负责；用户通过 Team Workbench 观察，或打开 Captain Chat 直接调整目标。
 
-1. The Main Brain calls `agent_swarm_create_managed` with the user's complete requested outcome, constraints, identity preferences, and acceptance criteria to create an independent Captain.
-2. The Captain sets the team goal and identity, then recruits members with `agent_swarm_add_member`.
-3. The Captain builds a DAG with `agent_swarm_create_task`; the scheduler dispatches ready tasks.
-4. Members submit fenced attempts; the Captain accepts or rejects them with `agent_swarm_review_task`.
-5. The user follows progress in the Team Workbench or opens Captain Chat to adjust goals and assignments directly.
-
-After managed creation, the Main Brain may call `agent_swarm_list_managed_teams` once and then ends that turn. It must not poll the Team with `agent_swarm_wait`, `agent_swarm_status`, messages, shell sleeps, or repeated tool calls. Ongoing execution belongs to the independent Captain and members; observe it in the Workbench or talk to the Captain directly.
-
-## Repository layout
-
-```text
-src/        Plugin host/client, domain, runtime, providers, and tools
-tests/      Unit, composition, restart, fault, and UI tests
-packages/   Reusable packages owned by this repository
-docs/       Product, protocol, architecture, verification, and historical records
-scripts/    Engineering gates, isolation lifecycle, packaging, and acceptance scripts
-ref/        Pinned reference pointers; materialized source is read-only
-.github/    CI workflows and pull request template
-```
-
-## Development and contributing
+## 开发入口
 
 ```bash
-pnpm verify:isolation:status   # Before writing, freezing a candidate, or integrating
-pnpm test -- <affected-test>   # Smallest affected check during iteration
-pnpm verify:candidate          # Candidate engineering gate
-pnpm verify:policy             # Only when governance/instructions/registered docs change
-pnpm verify:compatibility      # When official/reference compatibility is decision-bearing
+pnpm verify:isolation:status
+pnpm test -- <affected-test>
+pnpm verify:candidate
+pnpm verify:policy          # 变更治理、指令或登记文档时
+pnpm verify:compatibility   # 官方/参考兼容事实参与决策时
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for managed worktrees, review, and serial integration. Start with [AGENTS.md](AGENTS.md) for the repository's authoritative development rules.
-
-## Documentation
-
-- [Documentation index](docs/README.md)
-- [Product goals](docs/GOALS.md)
-- [Core protocol](docs/04-core-protocol.md)
-- [Implementation roadmap and exit criteria](docs/07-implementation-roadmap.md)
-- [Testing and verification](docs/08-testing-verification.md)
-- [Official-first development strategy](docs/11-official-first-development.md)
-
-## Current limitations
-
-- There is no public npm package, plugin-marketplace listing, or stable release identity yet.
-- Privileged Browser/Canvas write and control capabilities are not exposed as a public protocol.
-- Distributed cross-process CAS, remote members, and automatic Skill Evolution are future capabilities and must not be inferred from the current local runtime evidence.
+仓库开发只允许通过 `pnpm isolation open|status|close|reconcile` 使用受管 writer allocation；不要直接创建 Git worktree。贡献规则见 [CONTRIBUTING.md](CONTRIBUTING.md)，文档入口见 [docs/README.md](docs/README.md)。
 
 ## License
 

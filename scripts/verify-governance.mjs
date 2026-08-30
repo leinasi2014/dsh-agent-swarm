@@ -11,7 +11,6 @@ const failures = []
 
 const bindingPath = 'docs/governance/project-binding.yaml'
 const registryPath = 'docs/governance/document-registry.yaml'
-const adoptionManifestPath = 'docs/governance/adoption-manifest-v1.yaml'
 const protectedLegacyPaths = [
   '.agents/skills/dsh-agent-swarm-operations/SKILL.md',
   'docs/12-independent-review-management.md',
@@ -130,7 +129,6 @@ function remoteHasEmbeddedCredential(value) {
 
 const binding = readRequired(bindingPath)
 const registry = readRequired(registryPath)
-const adoptionManifest = readRequired(adoptionManifestPath)
 
 for (const phrase of [
   'name: manage-agile-software-development',
@@ -144,9 +142,10 @@ for (const phrase of [
   'rawLifecycleCommandsForbidden: true',
   'layoutGateDoesNotAuthorizeAllocation: true',
   'committedMarkdownAuthority: false',
-  'alias: origin',
-  'role: development-authority',
-  '- alias: github',
+  'alias: github',
+  'role: development-and-integration-authority',
+  '- alias: origin',
+  'role: local-backup',
   'readTarget: native',
   'candidateBoundChecks: adapter',
   'nonAuthorAcceptance: missing',
@@ -156,7 +155,7 @@ for (const phrase of [
   'coordinationOwner: pipeline-capacity-and-integration-scheduler',
   'roleCombinationPolicy: risk-scaled',
   'candidateAndEvidenceAuthority: git-commit-plus-check-receipts',
-  'integrationAuthority: expected-main-identity',
+  'integrationAuthority: github-main-identity',
   'isolationStatus: pnpm-verify-isolation-status',
   'parallelWriter: managed-lifecycle-only',
 ]) {
@@ -179,18 +178,6 @@ for (const path of protectedLegacyPaths) {
   if (target && existsSync(target)) failures.push(`${path}: superseded governance file must be deleted`)
 }
 for (const path of requiredRecoveryEvidence) readRequired(path)
-
-for (const phrase of [
-  'inspectedBase: f465400b731f4593384c699a0c6fea08b9300be6',
-  'recoveryAuthority: git-object-at-inspected-base',
-  'branchDeletion: forbidden-by-this-manifest',
-  'exactCandidateExternalNonAuthorReview: required',
-]) {
-  if (!adoptionManifest.includes(phrase)) failures.push(`${adoptionManifestPath}: missing immutable adoption fact ${phrase}`)
-}
-for (const path of protectedLegacyPaths) {
-  if (!adoptionManifest.includes(`path: ${path}`)) failures.push(`${adoptionManifestPath}: missing superseded-path classification ${path}`)
-}
 
 const documents = parseDocuments(registry)
 if (documents.length === 0) failures.push(`${registryPath}: no registered documents`)

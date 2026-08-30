@@ -9,8 +9,8 @@
  * the durable run truth, so ownership never persists) and answers the one
  * policy question both faces ask: may the AUTONOMOUS event face drive this
  * Team now? Explicit operations stay admitted on every Team — they are the
- * caller's own acts, fenced by the domain's revision CAS. Decisions:
- * docs/04 §8g and docs/development/2026-08-21-m2c-modes-design.md.
+ * caller's own acts, fenced by the domain's revision CAS. The current
+ * ownership contract is defined in docs/04-core-protocol.md.
  * @module dsh-agent-swarm/runtime/orchestration-ownership
  */
 import type { Agent } from '@deepseek-ai/dsh-agent'

@@ -25,15 +25,6 @@ documents:
     mutationAuthority: expected-target-reviewed-candidate
     updateTriggers: document-authority-or-layout-change
     validation: pnpm-verify-policy
-  - documentId: adoption-manifest-v1
-    path: docs/governance/adoption-manifest-v1.yaml
-    role: evidence
-    subject: governance
-    writeMode: human
-    accountableOwner: governance-owner
-    mutationAuthority: immutable-new-manifest-required
-    updateTriggers: none
-    validation: pnpm-verify-policy
   - documentId: root-agent-instructions
     path: AGENTS.md
     role: projection
@@ -112,6 +103,15 @@ documents:
     mutationAuthority: expected-target-reviewed-candidate
     updateTriggers: product-boundary-or-compatibility-change
     validation: pnpm-verify-policy
+  - documentId: reference-analysis
+    path: docs/02-reference-analysis.md
+    role: reference
+    subject: architecture
+    writeMode: human
+    accountableOwner: architecture-owner
+    mutationAuthority: expected-target-reviewed-candidate
+    updateTriggers: reference-semantics-or-adoption-boundary-change
+    validation: pnpm-verify-policy
   - documentId: capability-family
     path: docs/03-capability-family.md
     role: stable-authority
@@ -129,6 +129,15 @@ documents:
     accountableOwner: protocol-owner
     mutationAuthority: expected-target-reviewed-candidate
     updateTriggers: protocol-state-or-error-contract-change
+    validation: pnpm-verify-policy
+  - documentId: jiuwen-feature-mapping
+    path: docs/05-jiuwen-feature-mapping.md
+    role: reference
+    subject: architecture
+    writeMode: human
+    accountableOwner: architecture-owner
+    mutationAuthority: expected-target-reviewed-candidate
+    updateTriggers: feature-mapping-or-ownership-change
     validation: pnpm-verify-policy
   - documentId: workspace-architecture
     path: docs/06-workspace-distributed.md
@@ -202,51 +211,6 @@ documents:
     mutationAuthority: gate-a-reviewed-candidate
     updateTriggers: official-release-change
     validation: pnpm-verify-compatibility
-  - documentId: reviewer-autonomy-decision
-    path: docs/adr/0006-independent-reviewer-autonomy.md
-    role: reference
-    subject: decision
-    writeMode: human
-    accountableOwner: governance-owner
-    mutationAuthority: superseding-adr-only
-    updateTriggers: accepted-review-governance-reversal
-    validation: pnpm-verify-policy
-  - documentId: feature-pipeline-acceptance-decision
-    path: docs/adr/0010-risk-scaled-feature-pipeline-acceptance.md
-    role: stable-authority
-    subject: decision
-    writeMode: human
-    accountableOwner: governance-owner
-    mutationAuthority: superseding-adr-only
-    updateTriggers: feature-pipeline-or-acceptance-governance-reversal
-    validation: pnpm-verify-policy
-  - documentId: managed-development-isolation-decision
-    path: docs/adr/0011-managed-development-isolation.md
-    role: stable-authority
-    subject: decision
-    writeMode: human
-    accountableOwner: governance-owner
-    mutationAuthority: superseding-adr-only
-    updateTriggers: development-isolation-authority-reversal
-    validation: pnpm-verify-policy
-  - documentId: self-hosting-decision
-    path: docs/adr/0008-self-hosting-dogfood-control-plane.md
-    role: stable-authority
-    subject: decision
-    writeMode: human
-    accountableOwner: architecture-owner
-    mutationAuthority: superseding-adr-only
-    updateTriggers: accepted-control-plane-reversal
-    validation: pnpm-verify-candidate
-  - documentId: i1b-v2-effect-ledger-decision
-    path: docs/adr/0009-i1b-v2-effect-ledger-authority.md
-    role: reference
-    subject: decision
-    writeMode: human
-    accountableOwner: architecture-owner
-    mutationAuthority: reviewed-proposal-until-accepted
-    updateTriggers: proposal-review-or-effect-authority-decision
-    validation: pnpm-verify-policy
   - documentId: plugin-development-skill
     path: .agents/skills/dsh-plugin-development/SKILL.md
     role: stable-authority
@@ -274,7 +238,7 @@ domains:
   product-architecture:
     accountableOwner: architecture-owner
     writerCount: 1
-    paths: docs/00-vision.md|docs/03-capability-family.md|docs/04-core-protocol.md|docs/06-workspace-distributed.md
+    paths: docs/00-vision.md|docs/02-reference-analysis.md|docs/03-capability-family.md|docs/04-core-protocol.md|docs/05-jiuwen-feature-mapping.md|docs/06-workspace-distributed.md
 
 checks:
   entryPoint: pnpm-verify-policy

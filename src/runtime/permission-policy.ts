@@ -10,8 +10,7 @@
  * overlay: it validates captain-declared tiers, merges them monotone
  * (deny > ask > allow, no widening path), classifies one tool call, and maps
  * the decision onto the official `PreToolDecision` shape consumed by that
- * seam (design note `docs/development/2026-08-22-m5b-permission-family-design.md`,
- * docs/04 §8o/§8p).
+ * seam (docs/04-core-protocol.md).
  *
  * The Team overlay inherits the official downstream tool preset for an
  * unlisted tool; an `ask` decision is

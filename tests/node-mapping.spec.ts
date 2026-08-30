@@ -10,8 +10,7 @@
  * received through Team mail). Lessons 28/29 discipline: `vi.waitFor`
  * timeouts are 15s and every case carries an explicit budget of at least
  * 60s. Scenario 33 of the docs/08 §3 matrix is proven here; mapping table
- * and fault-form correspondence:
- * docs/development/2026-08-21-m2d-node-mapping-design.md.
+ * and fault-form correspondence are defined in docs/04.
  */
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'

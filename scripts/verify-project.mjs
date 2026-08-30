@@ -9,6 +9,9 @@ const required = [
   'package.json',
   'cordis.patch.yml',
   'src/index.ts',
+  'src/plugin/apply.ts',
+  'src/plugin/config.ts',
+  'src/tools/index.ts',
   'src/domain/team-domain-port.ts',
   'src/storage/storage-domain-team-store.ts',
   'src/storage/team-spec.ts',
@@ -32,15 +35,10 @@ const required = [
   'docs/10-fusion-audit.md',
   'docs/11-official-first-development.md',
   'docs/13-self-hosting-dogfood.md',
-  'docs/governance/adoption-manifest-v1.yaml',
   'docs/governance/project-binding.yaml',
   'docs/governance/document-registry.yaml',
   'docs/GOALS.md',
   'docs/OFFICIAL_BASELINE.json',
-  'docs/adr/0005-official-first-pure-plugin-integration.md',
-  'docs/adr/0010-risk-scaled-feature-pipeline-acceptance.md',
-  'docs/adr/0007-m1-storage-authority-and-remediation-order.md',
-  'docs/adr/0008-self-hosting-dogfood-control-plane.md',
   'scripts/verify-official-baseline.mjs',
   'scripts/verify-reference-baselines.mjs',
   'scripts/merge-guard.mjs',
@@ -117,6 +115,13 @@ for (const item of required) {
 }
 
 try {
+  const entryLines = (await readFile(join(root, 'src/index.ts'), 'utf8')).split(/\r?\n/u).length
+  if (entryLines > 40) failures.push(`src/index.ts: stable entry must remain a thin export/manifest surface (got ${entryLines} lines)`)
+} catch (error) {
+  failures.push(`src/index.ts: ${String(error)}`)
+}
+
+try {
   const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
   if (pkg.name !== 'dsh-agent-swarm') failures.push('package.json: unexpected package name')
   if (pkg.dsh?.bundle?.patch !== './cordis.patch.yml') failures.push('package.json: missing dsh.bundle.patch')
@@ -168,13 +173,12 @@ try {
 for (const [file, phrases] of [
   ['AGENTS.md', ['$manage-agile-software-development', 'docs/governance/project-binding.yaml', 'official DSH']],
   ['CLAUDE.md', ['$manage-agile-software-development', 'AGENTS.md']],
-  ['docs/07-implementation-roadmap.md', ['Gate A', 'Official-first']],
-  ['docs/13-self-hosting-dogfood.md', ['stable control Profile', 'acceptance Profile', 'ADR-0008']],
-  ['docs/GOALS.md', ['产品目标', '稳定范围', '产品红线', '能力演进顺序', '章程变更']],
+  ['docs/07-implementation-roadmap.md', ['90% 产品就绪', 'official-first']],
+  ['docs/13-self-hosting-dogfood.md', ['stable control Profile', 'acceptance Profile', 'candidate cannot promote itself']],
+  ['docs/GOALS.md', ['产品结果', '产品范围', '产品红线', '产品级完成标准', '章程变更']],
   ['.agents/skills/dsh-plugin-development/SKILL.md', ['official-first compatibility gate', 'docs/11-official-first-development.md']],
   ['docs/governance/project-binding.yaml', ['backend: git-worktree', 'parallelWriterCapability: CONFIGURED', 'candidateSelfActivation: forbidden', 'activation: reviewed-integration-and-result-readback']],
   ['docs/governance/document-registry.yaml', ['documentId: project-binding', 'stableDocumentFirewall: enabled', 'accountableOwner:']],
-  ['docs/governance/adoption-manifest-v1.yaml', ['inspectedBase: f465400b731f4593384c699a0c6fea08b9300be6', 'branchDeletion: forbidden-by-this-manifest']],
 ]) {
   try {
     const content = await readFile(join(root, file), 'utf8')

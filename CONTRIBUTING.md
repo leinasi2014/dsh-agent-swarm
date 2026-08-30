@@ -26,7 +26,7 @@ The project direction owner intervenes only when outcome, official boundary, arc
 - Freeze the exact Git commit before acceptance and report base, candidate, effective change, checks, limits, and documentation impact.
 - LOW changes normally use author proof. MEDIUM changes require one non-author review. HIGH changes use the bounded specialist review named by the binding.
 - Reuse acceptance for an unchanged candidate/risk/policy key. Corrections create a new candidate and invalidate only affected acceptance.
-- Integrate serially against an expected `main` identity and read back the resulting commit. Push, mirror, release, and cleanup are separate operations requiring their own authority.
+- Integrate serially against the expected GitHub `main` identity and read back the resulting commit. Replication to local `origin`, release, and cleanup are separate operations requiring their own authority.
 
 ## Checks
 
@@ -43,7 +43,7 @@ pnpm verify:candidate
 
 - Stable project facts and authority live in the binding and document registry; current work does not.
 - Update affected architecture, contract, public behavior, commands, security, or recovery guidance in the same candidate.
-- Historical ADR and evidence records remain immutable. New disposition or remediation is a separate record.
+- Decisions live in the registered current authorities; do not create parallel ADR or milestone-report generations. Git history preserves deleted historical prose. The worktree cleanup ledger is the one retained immutable recovery record.
 - `docs/GOALS.md` is a stable product charter, not a task board. The worktree cleanup ledger remains immutable recovery evidence until its branch/SHA identities can be migrated without loss.
 
 ## Completion

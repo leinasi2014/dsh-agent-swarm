@@ -8,8 +8,8 @@
 // the candidate artifact", so the promotion state machine must never become
 // plugin source.
 //
-// Four-domain topology (docs/development/2026-08-21-m3c-acceptance-design.md
-// §2.1): <dogfood-root>/{control,lkg,candidates,drills} plus ledger/. The
+// Four-domain topology (docs/13-self-hosting-dogfood.md):
+// <dogfood-root>/{control,lkg,candidates,drills} plus ledger/. The
 // running stable Profile under control/home, per-generation immutable
 // snapshots under lkg/g<N>/ (tarball + record) with a numeric pointer at
 // lkg/lkg.json (never a symlink), frozen candidate staging under

@@ -3,8 +3,8 @@
  * before its frame is model-visible at the member — the #52 / D1 claimed-gate
  * generalized from waking mail to the assignment acknowledgement path.
  *
- * The M1D regression review (docs/reviews/2026-08-21-m1d-regression-review.md
- * §2 P2-1) caught the D1-same-class window: `dispatchAssignment`
+ * The assignment visibility contract in docs/04 caught the D1-same-class
+ * window: `dispatchAssignment`
  * acknowledged as soon as the followup returned, but a followup's return only
  * proves inbox ADMISSION — the pending form, which the official teardown a
  * reload, shutdown or removal runs (`finishDisposal` cancels `{kind:'parent'}`

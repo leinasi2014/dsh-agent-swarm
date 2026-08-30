@@ -1,7 +1,6 @@
 /**
  * Explicit orchestration-mode semantics over the real official composition
- * (M2-3, issue #77; decisions in docs/04 §8g and
- * docs/development/2026-08-21-m2c-modes-design.md):
+ * (the ownership and mode decisions are defined in docs/04):
  *
  * - the impossible `workflow`-without-bridge combination fails activation
  *   closed, before any side effect;

@@ -1,99 +1,67 @@
-# 00. Vision and scope
+# 00. 产品愿景与体验边界
 
-## 1. Goal
+## 1. 愿景
 
-`dsh-agent-swarm` 的目标是成为 **官方 DSH 专属的 Team/HumanInteraction 插件化扩展层**：用户安装的官方 DSH 是唯一 Agent Runtime、Profile、Session 与 preset 权威；本插件在不修改 Agent Loop、不引入第二套 Runtime 的前提下，融合 `dsh-agent-teams` 的 durable team protocol 与 JiuwenSwarm 的确定工作流、预算、Worktree、团队记忆、Skill Evolution、审核和分布式 Worker 思路。
-
-最终用户体验应是：
+用户只需向 Main Brain 描述结果，不必手工管理一组聊天窗口。Main Brain 创建独立 Captain；Captain 根据目标选择成员、模型、Skills 和工具边界，建立依赖任务并对结果负责。用户随时可以在统一 Workbench 中查看多个 Team，或进入某个 Captain Chat 直接干预。
 
 ```text
-用户给出目标
-  → 主脑创建一个独立 Captain Session，并把目标交给 Captain
-  → Captain 建立或使用自己的 Team，按任务决定成员职业、名称、模型与数量
-  → Scheduler/Workflow 选择执行策略
-  → Member Provider 启动本地或远程成员
-  → Workspace Provider 分配共享目录或独立 Worktree
-  → Budget Policy 限制 token、请求、重试和时间
-  → Task Run 通过 attempt fencing 防止陈旧写入
-  → Review Gate 验证交付物
-  → 用户既可经主脑跨 Team 统筹，也可进入 Captain Chat 直接下令
-  → Team Memory 提取决策、经验、成员能力和上下文
-  → Host/RPC 投影同一份权威状态与 HumanInteraction receipts
-  → DSH-native UI / Canvas-native UI 各自按宿主主题消费同一合同
-  → 冻结候选在独立验收 Profile 中启动、验证、晋升或回滚
+用户目标
+  → Main Brain 创建 managed Team，并把完整目标交给独立 Captain
+  → Captain 设置公开目标/公告，招募有身份和能力边界的成员
+  → Captain 建立任务 DAG，Scheduler 或 Workflow 分派 ready work
+  → Member 在当前 attempt 的真实执行根中工作并提交证据
+  → Review Gate 接受、拒绝或要求 rework
+  → Workbench 从同一 Team authority 展示状态
+  → 用户继续由 Main Brain 跨 Team 统筹，或打开 Captain Chat 调整单个 Team
 ```
 
-主脑、Captain 和成员是三种不同身份。主脑 Session 不进入任何 Team roster，也不因发起建队而获得 Captain 权限；每个 Team 恰好绑定一个独立 Captain Session，只有该 Captain 能招募成员、分派任务和执行 Team 控制。一个主脑可创建和统筹多个 Team，各 Team 的 Captain、成员、任务与 Chat 路由互不混用。DSH-native UI 必须把主脑留在主 Chat 区，把 Team/Captain 放在 Team 侧栏；单击 Captain 通过官方 Session 导航打开该 Captain 的 Chat，而不是给当前主 Chat 改名。
+## 2. 三层身份
 
-## 2. Architectural position
+| 身份 | 职责 | 不能做什么 |
+|---|---|---|
+| Main Brain | 接收用户目标、创建/列举多个 managed Team、路由用户关注 | 不能冒充 Captain 修改 Team，不能在建队后轮询独立团队 |
+| Captain | Team 唯一负责人；招募、建任务、分配、公告、审核和恢复 | 不能把模型声明当作已验收结果，不能批准自己的发布候选 |
+| Member | 在一个 fenced attempt 内完成专业任务并提交证据 | 不能调用 Captain-only 管理面，不能写入陈旧 attempt |
 
-DSH 的原则不是“有一个 Core，再让插件围绕它工作”，而是连 Agent Loop、LLM、Tool Registry、Session、Workflow 都由插件组合。团队能力也必须遵循同一方式：
+名称、职业、人格和安全像素头像是可展示 identity profile；真正权限来自官方 live Agent/Session 绑定和 Host 验证，不来自显示名称。
+
+## 3. 产品界面
+
+- **Main Chat** 保持 Main Brain 会话，不因选中 Team 而改名。
+- **Team rail** 在一个页面中切换多个 Team。
+- **Workbench** 展示公共目标、最新公告、成员、任务、attempt、预算、能力和最近活动。
+- **Tasks / Announcements / Management** 提供互斥视图；成员和任务详情在 overlay 中打开，不挤压主聊天。
+- **Captain Chat** 使用官方 Session navigation 打开所选 Captain；不是 `/swarm` 的隐式写操作。
+- **Plugin settings** 配置 Captain/成员模型、Skills、工具 policy、编排/review 选择和资源上限；保存后由官方 Settings 在重启时应用。
+
+UI 必须诚实显示 unavailable、stale、reconnect 和 error。没有权威数据时显示未知或不可用，而不是从 transcript 或本地缓存猜测。
+
+## 4. 技术位置
+
+DSH 的 Session、Agent、Subagent、Tools、Workflow、Storage、Settings 和 Client slots 都是官方能力。本插件只在这些 seam 上组合：
 
 ```text
-Service Definition  声明稳定接口与事件
-Service Provider    提供本地、远程、存储、调度等实现
-Consumer            提供工具、工作流桥、UI、命令和自动化
-Bundle              把推荐组合安装到 Profile
+Service Definition → Provider → Consumer → Bundle/Profile composition
+TeamDomainPort      → StorageDomainTeamStore → tools / Host / RPC / UI
 ```
 
-`dsh-agent-swarm` 是项目名和未来 Bundle 名，不表示所有代码放进一个 npm 包，也不表示一个独立 Agent Runtime。Swarm 是官方 DSH Session 的可选 Team capability；Canvas 等外部宿主只能通过版本化 Host/RPC 合同消费它，不能成为 Team/HumanInteraction producer。
+项目不会注册第二个 `ctx.agentTeams`。在官方 experimental Agent Team 尚未成为受支持发布依赖时，当前 `TeamDomainPort` 隔离 project-owned provider；未来替换 Provider 也必须保持单一权威和迁移证据。
 
-Architecture work is governed by `11-official-first-development.md`. At the verified rc.8 baseline, Workflow, Jobs, Token Meter, Storage Domain, Workspace and interaction are official stable capability families; the plugin must consume them rather than design parallel equivalents. Agent Team remains private/experimental, so its semantics guide a single compatibility port without becoming a production dependency.
+## 5. 支持范围
 
-## 3. Compatibility stance
+当前产品方向包括 durable Team、任务/attempt、邮箱、budget、review、memory、Skills/tools policy、Workflow/Jobs bridge、execution roots、Host/RPC、DSH Workbench、设置、迁移和受控发布。
 
-官方 DSH `master` 已有未发布的实验性 Agent Team seam：`ctx.agentTeams`，包括 durable roster、mailbox、task DAG 与 CAS revision。该包位于 `packages/experimental`，官方规则说明实验包不进入正式发行，因此本项目：
+以下是后续能力而非现有承诺：远程成员、跨进程 distributed Team store、通用 browser direct writes、Canvas-native Consumer、自动 Skill Evolution 和公共市场发布。
 
-1. 以其接口和持久语义作为长期对齐目标；
-2. 当前不把 `@deepseek-ai/dsh-experimental-agent-team` 声明为生产 peer dependency；
-3. 以 Adapter 隔离当前私有 backend、社区实现与未来可发布的官方 `ctx.agentTeams`；M1A 已完成 `TeamDomainPort` 抽取（工具与编排经端口消费唯一权威，生产 Provider 落在官方 Storage Domain），官方包发布后可在同一端口后替换 Provider 而不产生第二权威；
-4. 不重新定义一个同名 `ctx.agentTeams` 服务，避免加载冲突；
-5. 新增能力使用独立服务名，例如 Scheduler、Workspace、Budget、Review、Memory Provider Registry。
+## 6. 成功体验
 
-## 4. In scope
+面向用户的完整代表场景是：
 
-- Team domain adapter and feature detection
-- Pluggable scheduling policy
-- DSH Workflow bridge
-- Task execution attempt fencing
-- Worktree / remote-workspace allocation
-- Team and task budgets
-- Review and verification gates
-- Team memory extraction
-- Skill evolution signal bridge
-- Remote member providers and distributed atomic store
-- Captain Liaison、HumanInteraction producer、canonical Host/RPC
-- DSH-native UI 与按合同接入的 Canvas 等宿主原生 Consumer
-- Lifecycle, replay, failure recovery and real-composition tests
-- Stable-control/candidate-acceptance Profile composition for supervised self-hosting
+1. 在 fresh isolated official DSH Profile 安装不可变插件包并启动。
+2. Main Brain 创建至少两个独立 Captain Team。
+3. Captain 设置身份/目标/公告，招募带不同 Skills、模型和工具 policy 的成员。
+4. 一个含依赖的任务 DAG 经分配、执行、提交、验证、接受和失败恢复完成。
+5. Workbench 原位切换 Team，所有身份、任务和活动与权威读回一致；Captain Chat 导航到正确 Session。
+6. 重启后状态恢复；禁用、卸载、升级和回滚不泄漏 listener、route、timer、Session 或 storage authority。
 
-## 5. Out of scope
-
-- Forking or embedding JiuwenSwarm/OpenJiuwen Runtime
-- Replacing existing DSH capabilities such as `ctx.subagents`、`ctx.workflowEngine`、`ctx.jobs`、`ctx.tokenMeter`、`ctx.storageDomain`、`ctx.workspaceRegistry` and interaction services; target-version exports must still be verified before integration
-- Modifying the DSH Agent Loop for team-specific behavior
-- Treating Web UI as the source of truth
-- Treating Canvas, transcript parsing, browser caches or a BFF as Team/HumanInteraction authority
-- Treating Swarm as a third Canvas engine or maintaining a private DSH home/preset tree
-- Requiring one shared React/CSS component library to make unlike hosts visually identical
-- Assuming local JSON files provide distributed transactions
-- Allowing a model’s “完成了” message to bypass verification
-- Sharing one mutable checkout among parallel coding workers without an explicit policy
-- Letting a running plugin overwrite, approve or promote its own mutable candidate
-
-## 6. Success criteria
-
-A milestone is complete only when all of these are true:
-
-1. Behavior is mounted through documented DSH extension points.
-2. The owning plugin has deterministic disposal and reload behavior.
-3. Durable state has a single source of truth and replay/recovery semantics.
-4. Task ownership changes reject stale mutations.
-5. The assembled Profile passes a real Loader boot test.
-6. Model-visible behavior has a keyless snapshot or equivalent assembled transcript test.
-7. The feature can be disabled or replaced by changing Bundle/Profile composition rather than patching source.
-8. Documentation explains model, token, KV-cache, persistence, security and known limitations.
-9. Gate A records the current official remote, implemented direction, exports/Profile evidence, reference mapping and conflict ownership before code begins.
-10. Self-hosting follows ADR-0008 readiness gates: stable control and candidate acceptance Profiles are separate, every coding attempt has a real isolated execution root, and promotion is externally owned and reversible.
-
-The current implementation is intentionally smaller than this target. Its accepted historical evidence lives in reports, ADRs, commits/tags and tests; `10-fusion-audit.md` records reference coverage and gaps. Target architecture is never evidence that a capability has shipped.
+这个场景通过真实 Profile/browser 和持久化重启证据后，才支撑对应产品 claim。目标设计、单元测试或截图不能单独替代它。

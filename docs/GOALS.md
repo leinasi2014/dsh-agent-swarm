@@ -1,73 +1,63 @@
 # dsh-agent-swarm 产品章程
 
-本文件只定义稳定的产品目标、范围、非目标、能力依赖和验收原则，不登记当前任务、负责人、分支、候选、审查结论或里程碑进度。实时工作状态由项目绑定选定的外部 provider 或非提交式动态台账承担；版本化实现与审查结果保存在 Git、阶段报告和 ADR 中。
+本文件只定义稳定产品结果、范围、红线与完成标准。它不记录任务、负责人、分支、候选 SHA、审查结论或滚动进度。
 
-## 产品目标
+## 产品结果
 
-以 official-first 的纯插件方式，为用户安装的完整官方 DeepSeek Harness 提供持久、可审查、可恢复的多 Agent 团队协作能力。官方 DSH 是唯一 Agent Runtime、Profile、Session、preset 和交互服务宿主；本插件通过公开 seam 组合 Team、Workflow、Jobs、Storage Domain、Subagent、问题/审批、Host/RPC 与 UI Consumer，不嵌入或维护第二套 Agent Runtime。
+让一个 DSH Main Brain 能创建并统筹多个持久 Team；每个 Team 由独立 Captain Session 负责，Captain 自主招募成员、组织任务、监督执行和审核交付。用户既可停留在 Main Brain Chat 观察多个 Team，也可打开任一 Captain Chat 直接调整该 Team。
 
-源码可以物理嵌套于官方 DSH checkout 内以缩短兼容验证路径，但目录必须避开官方 workspace glob，并由插件根 `pnpm-workspace.yaml` 固定独立工具链边界；插件始终保持独立 Git、独立 package/workspace 和独立发布权威。物理嵌套不把插件变成官方 workspace member，也不授权修改官方 DSH 的源码、manifest、lock、配置或发布状态；官方 checkout 只作为版本身份与真实 Profile/Bundle 装配的只读验收宿主，具体目录不是兼容性证据。
+产品必须是 official-first 的纯插件组合：官方 DSH 是唯一 Agent Runtime、Profile、Session、Agent Loop 和交互宿主；本项目提供 Team domain、编排 policy、模型工具、Host/RPC projection 和 DSH-native UI，不复制第二套 Runtime。
 
-在 Team 协作域内，`TeamDomainPort` 是 roster、task/DAG、attempt、mailbox 和 budget 的唯一写权威；本插件未来提供的 `HumanInteractionPort` 是 Team 人机请求、receipt 和 timeline 的唯一生产者。Canvas、官方 DSH UI、命令行和其他客户端都是消费者或宿主适配器，不能从 transcript、浏览器缓存或本地 Map 重建第二份 Team/HumanInteraction 真源。
+## 身份与权威
 
-## 稳定范围
+```text
+Main Brain（Team 外）
+  ├─ Captain Session A → Team A → Members A1..An
+  └─ Captain Session B → Team B → Members B1..Bn
+```
 
-产品能力族包括：
+- Main Brain 负责创建和跨 Team 路由，不是 Captain，也不进入 roster。
+- 每个 Team 恰好绑定一个独立 Captain；只有该 Captain 拥有 Captain-only mutation。
+- Member 是官方 continuable subagent，只能在分配给自己的当前 attempt 权限内工作。
+- `TeamDomainPort` 是 roster、task/DAG、attempt、mailbox、budget、公共目标和公告的唯一写权威。
+- Session 日志保存模型历史；官方 Storage Domain 保存 Team 业务状态；UI/RPC 只做 bounded projection。
+- durable commit 之后才发布事件、receipt 或成功结果。
 
-1. 崩溃安全的 Team 聚合、任务 DAG、revision/attempt 围栏、持久邮箱和显式恢复；
-2. 可替换的调度、审核、预算、验证、记忆、Workspace 与远程成员 Provider；
-3. 对官方 Workflow、Jobs、Storage Domain、Workspace、Subagent、问题/审批等能力的兼容消费；
-4. 用户可在主脑 Chat 统筹多个 Team，也可切换到某个 Team 的独立 Captain Chat 直接下令；Captain 再按任务招募和管理成员，HumanInteraction 持久记录两条入口的明确路由；
-5. 稳定控制面、冻结候选、独立验收、外部晋升和可验证回滚；
-6. canonical Host/RPC producer、DSH-native UI，以及按合同接入的 Canvas 等宿主消费者；
-7. 插件化发布、迁移、兼容退役、故障恢复和可选的分布式运行。
+## 产品范围
 
-UI 是末端投影型 Consumer；无浏览器、无 Canvas 或 UI 卸载时，Team Runtime 仍能正确推进。Canvas 的画布、Project/Shot 和 Director 数据继续由 Canvas/Director 自己负责，不进入 Team aggregate。
+1. **团队与身份**：多 Team、独立 Captain、成员职业/人格/头像、模型与 Skill 配置。
+2. **任务交付**：DAG、优先级、定向分配、revision CAS、attempt fencing、提交、审核、重派和恢复。
+3. **协作政策**：Scheduler、Workflow、Review、budget、tool permission、memory、execution root 和 remote/distributed Provider 边界。
+4. **用户入口**：26 个模型工具、Main Brain/Captain Chat、Host/RPC read contract、Team Workbench 和官方 Plugins 设置。
+5. **可运营性**：持久化、卸载/重载、迁移、隔离验收、候选/晋升/回滚分权与故障诊断。
 
 ## 产品红线
 
-- 不修改 Agent Loop 来实现 Team 专属行为，不影子注册官方服务。
-- 不因物理共址修改官方 DSH 的源码、manifest、lock 或配置；所有兼容与性能修正只进入本插件的独立候选。
-- 不携带私有 DSH 内核、私有 `DSH_HOME` 或第二套 preset；安装和运行始终基于用户拥有的官方 DSH。
-- 不把 Swarm 表示为与 Agent provider/engine 并列的第三 Runtime；它是当前官方 DSH Session 的可选 Team capability。
-- 不维护两个可写 canonical 状态机；所有 Team 状态变更经过 `TeamDomainPort`，所有 HumanInteraction 记录经过唯一 producer。
-- 不让 Canvas token、自由文本、UI reducer、transcript parser 或浏览器缓存成为认证主体、权限证明或 Team 状态权威。
-- 权威状态 durable commit 后才发布事件、receipt 或成功结果；重复、迟到、过期和陈旧 attempt 必须可判定。
-- Worker、Reviewer、Acceptor、Promoter 的权限按风险分离；候选不能批准或部署自身。
-- 参考仓库只提供行为、故障和交互证据，不成为依赖或第二运行时。
-- 版本、已发布 API 和实际装配事实由清单、锁文件、官方基线、目标安装包和真实 Profile 共同证明。
+- 不修改或复制官方 Agent Loop，不注册与官方 service 冲突的影子 Runtime。
+- 不维护第二个可写 Team 状态机；UI reducer、transcript、browser cache、Canvas/BFF 或本地 Map 都不是权威。
+- 不把用户可控文本、Team id、Session label 或 Canvas token 当作认证主体。
+- 不把 prompt 中的目录声明当成真实 filesystem/worktree 隔离。
+- 不允许 stale revision、stale attempt、重复 effect 或候选自我验收/晋升静默成功。
+- 不把 reference repository 当作运行依赖；它们只提供固定版本的行为与故障证据。
+- 不把源码存在、mock 测试、开放端口、截图或 agent 报告单独称为交付。
 
-## 能力演进顺序
+## 产品级完成标准
 
-下列名称定义稳定的依赖顺序和退出边界，不表示实时完成状态：
+一个能力只有同时满足以下条件才可称为已交付：
 
-1. **G0 — 产品与兼容基线**：统一官方单宿主、纯插件、单一 Team/HumanInteraction producer 和跨宿主消费边界；Gate A 与权威文档一致。
-2. **P0 — 可安装 Profile 证明**：从独立插件候选构建不可变本地包，在隔离的官方 DSH `web` Profile 中证明安装、装配、启动、卸载和重载；预发布阶段不宣称公共 npm/Git 安装路径。
-3. **R1–R4 — 首个可用只读纵切**：最小 Host read projection → canonical `/swarm` read RPC → DSH-native Team read UI 与“打开独立 Captain Chat”→ Canvas-native read consumer。该纵切严格按 R1→R2→R3→R4 串行接受，R4 只能在 R3 candidate 已接受后开始；主脑 Session、Captain Session 与成员 Session 始终分离，Team/UI 权威边界不变。
-4. **W1 — operation-scoped durable writes**：在现有 headless Captain Liaison 基础上，逐个操作证明身份、幂等、权威回读、失败窗口和恢复，再开放对应 Message/Control capability。一个未解决 effect 只阻断它自己的写能力。
-5. **W2 — Host/RPC/UI write projection**：I2/I3 的写面和两个 UI 的直接 Controls 只消费 W1 已接受的 capability；问题展示、interrupt 或其他不可判定外部效果继续明确 unavailable/held。
-6. **M6–M9 后续能力族**：真实 Workspace/远程成员、自动记忆与 Skill Evolution、分布式原子 Team/可观测性，以及完整迁移、兼容、包装和发布。
-
-详细依赖、非目标、风险和出口证据见 `docs/07-implementation-roadmap.md`。历史里程碑的实现事实由对应报告、ADR、Git commit/tag 和测试保存，不在本章程汇总成滚动状态。
-
-## 产品级完成原则
-
-一个能力只有在以下事实同时成立时才可声明交付：
-
-- 行为落在明确的官方或项目自有 seam，且没有第二权威；
-- 持久状态、并发围栏、生命周期、失败和恢复窗口有可执行证据；
-- 模型可见工具、Host/RPC 或 UI 投影有与声明层级匹配的真实组合证据；
-- 风险对应的非作者审查绑定到精确候选；
-- 集成、发布或晋升按预期目标执行并读回结果；
-- 受影响的公共、架构、合同、安全和恢复文档与同一候选一致。
+- 通过明确的官方或项目自有 seam 组合，且只有一个状态/transition owner；
+- 权限、持久化、并发围栏、lifecycle、错误和恢复语义有可执行测试；
+- 模型工具、Host/RPC 或 UI claim 具有相应层级的真实组合证据；
+- 候选按风险完成检查和非作者审查，并集成到预期目标后读回；
+- 用户文档明确支持范围、配置和限制，不把目标架构写成实现事实。
 
 ## 非目标
 
-- 在本仓库复制官方 DSH Runtime、Canvas Runtime 或参考项目 Runtime；
-- 以共享 React 组件强制两个宿主视觉一致；两端共享语义合同和 fixtures，各自遵守宿主组件与主题；
-- 让 P0/R1–R4/W1–W2 顺带实现真实 Worktree/remote、分布式 Store、自动记忆或正式公开发布；
-- 因历史候选存在而跳过当前基线重放、Gate A、选择性迁移、测试或审查。
+- 复制 DSH、Canvas、JiuwenSwarm 或 `dsh-agent-teams` Runtime。
+- 用一套共享 React/CSS 强制不同宿主视觉一致。
+- 在首个稳定产品中同时解决公共发布、远程执行、分布式共识和自动 Skill Evolution。
+- 用 Team 工具或文档授权密钥、push、release、生产数据或破坏性清理。
 
 ## 章程变更
 
-只有产品结果、范围、兼容立场、唯一权威或能力依赖发生实质变化时才修改本文件。任务排期、执行器、仓库托管位置、开发并发数、临时环境、候选 SHA 和滚动进度不得写入本章程。
+只有产品结果、范围、身份/权威边界或完成标准改变时才修改本文件。实现现状与下一步进入 [能力架构](03-capability-family.md) 和 [实施路线](07-implementation-roadmap.md)，动态工作状态留在项目任务系统。

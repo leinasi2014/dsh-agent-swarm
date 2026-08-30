@@ -1,8 +1,7 @@
 /**
  * The Team bridge workflow engine (M2-1, issue #75): an implementation of
  * the official abstract `WorkflowEngine` whose runs are backed by a Team
- * aggregate (design note:
- * docs/development/2026-08-21-m2a-workflow-bridge-design.md).
+ * aggregate (docs/04-core-protocol.md).
  *
  * Registration posture: the official base class hardcodes the
  * `workflowEngine` service name and Cordis rejects a second same-scope
