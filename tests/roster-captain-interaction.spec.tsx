@@ -327,24 +327,18 @@ describe('roster/Captain interaction slice', () => {
     const controller = { getSnapshot: (): TeamDashboardState => ready, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn(), selectTeam: vi.fn() }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
 
-    // Every Team from the read contract is enumerated in the rail (real authorities, dedup by id).
-    const dots = [...document.querySelectorAll<HTMLButtonElement>('[data-swarm-team-dot]')]
-    expect(dots).toHaveLength(2)
-    const alpha = dots.find(dot => dot.getAttribute('data-swarm-team-dot') === 'team-alpha')!
-    const beta = dots.find(dot => dot.getAttribute('data-swarm-team-dot') === 'team-beta')!
-    // Each dot carries its exact official Captain Session id, not a fabricated chat.
-    expect(alpha.getAttribute('data-swarm-captain-session')).toBe('captain-alpha')
-    expect(beta.getAttribute('data-swarm-captain-session')).toBe('captain-beta')
-    // The safe pixel SVG avatar stays honest: un-generated state with the stable reason.
-    const alphaAvatar = alpha.querySelector<SVGElement>('[data-swarm-pixel-avatar]')!
-    expect(alphaAvatar).not.toBeNull()
-    expect(alphaAvatar.getAttribute('data-avatar-state')).toBe('not_generated')
-    expect(alphaAvatar.getAttribute('data-avatar-reason')).toBe('avatar_backend_not_implemented')
-    expect(alphaAvatar.getAttribute('aria-label')).toContain('Alpha 舰队')
+    // The Details surface owns no vertical Team rail. It exposes the real,
+    // de-duplicated Team directory in its title-bar selector instead.
+    expect(document.querySelector('[data-swarm-team-rail]')).toBeNull()
+    const selector = document.querySelector<HTMLSelectElement>('[data-swarm-team-switcher]')!
+    expect([...selector.options].map(option => [option.value, option.textContent])).toEqual([
+      ['team-alpha', 'Alpha 舰队'], ['team-beta', 'Beta Team'],
+    ])
+    expect(selector.value).toBe('team-alpha')
 
-    // Clicking another Team's dot switches the CURRENT sidebar to that Team via
+    // Selecting another Team switches the CURRENT sidebar through
     // controller.selectTeam exactly once — it never opens or jumps to a Captain Session.
-    await act(async () => { beta.click() })
+    await act(async () => { selector.value = 'team-beta'; selector.dispatchEvent(new Event('change', { bubbles: true })) })
     expect(controller.selectTeam).toHaveBeenCalledTimes(1)
     expect(controller.selectTeam).toHaveBeenCalledWith('team-beta')
     expect(coordinator.openTeamCaptain).not.toHaveBeenCalled()

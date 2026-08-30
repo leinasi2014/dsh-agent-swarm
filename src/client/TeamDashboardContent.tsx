@@ -22,16 +22,13 @@ type DetailSelection =
   | { readonly kind: 'diagnostics' }
 
 export const shellCss = `
-[data-swarm-team-dashboard] .swarm-team-workspace { position:relative; container-type:inline-size; display:grid; grid-template-columns:46px minmax(0,1fr); height:100%; min-width:0; overflow:hidden; color:var(--dsw-alias-label-primary); background:var(--dsw-alias-bg-base); }
-[data-swarm-team-dashboard] .swarm-team-workspace__team-rail { display:flex; flex-direction:column; align-items:center; gap:8px; min-height:0; padding:8px 6px; overflow-y:auto; overflow-x:hidden; border:0 solid var(--dsw-alias-border-l2); border-right-width:1px; background:var(--dsw-alias-bg-layer-1); scrollbar-width:thin; }
-[data-swarm-team-dashboard] .swarm-team-workspace__team-dot { position:relative; display:grid; flex:0 0 auto; inline-size:34px; block-size:34px; place-items:center; overflow:hidden; padding:0; border:1px solid var(--dsw-alias-border-l2); border-radius:10px; background:var(--dsw-alias-bg-base); cursor:pointer; }
-[data-swarm-team-dashboard] .swarm-team-workspace__team-dot:hover { border-color:var(--dsw-alias-brand-primary); }
-[data-swarm-team-dashboard] .swarm-team-workspace__team-dot[aria-current="true"] { border-color:var(--dsw-alias-brand-primary); box-shadow:inset 0 0 0 1px var(--dsw-alias-brand-primary); }
-[data-swarm-team-dashboard] .swarm-team-workspace__team-dot .swarm-team-workspace__avatar { inline-size:100%; block-size:100%; border-radius:9px; }
+[data-swarm-team-dashboard] .swarm-team-workspace { position:relative; container-type:inline-size; height:100%; min-width:0; overflow:hidden; color:var(--dsw-alias-label-primary); background:var(--dsw-alias-bg-base); }
 [data-swarm-team-dashboard] .swarm-team-workspace__pane { display:grid; grid-template-rows:auto auto auto minmax(0,1fr); min-width:0; min-height:0; }
 [data-swarm-team-dashboard] .swarm-team-workspace__pane-head { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 10px; border:0 solid var(--dsw-alias-border-l2); border-bottom-width:1px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__title-row { display:flex; align-items:center; gap:8px; min-width:0; }
 [data-swarm-team-dashboard] .swarm-team-workspace__title { margin:0; overflow:hidden; font-size:14px; line-height:19px; font-weight:700; white-space:nowrap; text-overflow:ellipsis; }
+[data-swarm-team-dashboard] .swarm-team-workspace__team-switcher { min-width:0; max-inline-size:150px; padding:3px 22px 3px 7px; border:1px solid var(--dsw-alias-border-l2); border-radius:7px; background:var(--dsw-alias-bg-layer-1); color:var(--dsw-alias-label-primary); font:inherit; font-size:10px; line-height:16px; cursor:pointer; }
+[data-swarm-team-dashboard] .swarm-team-workspace__team-switcher:hover { border-color:var(--dsw-alias-brand-primary); }
 [data-swarm-team-dashboard] .swarm-team-workspace__phase-pill { flex:0 0 auto; padding:1px 7px; border:1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 35%, var(--dsw-alias-border-l2)); border-radius:999px; background:color-mix(in srgb, var(--dsw-alias-brand-primary) 9%, var(--dsw-alias-bg-layer-1)); color:var(--dsw-alias-brand-primary); font-size:10px; font-weight:600; white-space:nowrap; }
 [data-swarm-team-dashboard] .swarm-team-workspace__subtitle { margin:2px 0 0; overflow:hidden; color:var(--dsw-alias-label-secondary); font-size:10px; white-space:nowrap; text-overflow:ellipsis; }
 [data-swarm-team-dashboard] .swarm-team-workspace__public-bar { display:grid; gap:8px; padding:8px 10px; border:0 solid var(--dsw-alias-border-l2); border-bottom-width:1px; }
@@ -87,7 +84,7 @@ export const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace__manage { display:grid; gap:8px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__manage-row { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:8px; min-width:0; padding:9px 10px; border:1px solid var(--dsw-alias-border-l2); border-radius:10px; background:var(--dsw-alias-bg-layer-1); }
 [data-swarm-team-dashboard] .swarm-team-workspace__manage-action { flex:0 0 auto; padding:4px 10px; border:1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 35%, var(--dsw-alias-border-l2)); border-radius:8px; background:transparent; color:var(--dsw-alias-brand-primary); font-size:10px; cursor:pointer; white-space:nowrap; }
-[data-swarm-team-dashboard] .swarm-team-workspace__detail-overlay { position:absolute; inset:0 0 0 46px; z-index:6; display:grid; grid-template-rows:auto minmax(0,1fr); border:0 solid var(--dsw-alias-border-l2); border-left-width:1px; background:var(--dsw-alias-bg-base); }
+[data-swarm-team-dashboard] .swarm-team-workspace__detail-overlay { position:absolute; inset:0; z-index:6; display:grid; grid-template-rows:auto minmax(0,1fr); background:var(--dsw-alias-bg-base); }
 [data-swarm-team-dashboard] .swarm-team-workspace__detail-head { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 10px; border:0 solid var(--dsw-alias-border-l2); border-bottom-width:1px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__detail-title { margin:0; overflow:hidden; font-size:13px; font-weight:700; white-space:nowrap; text-overflow:ellipsis; }
 [data-swarm-team-dashboard] .swarm-team-workspace__detail-sub { display:block; overflow:hidden; margin-top:1px; color:var(--dsw-alias-label-secondary); font-size:9px; white-space:nowrap; text-overflow:ellipsis; }
@@ -326,27 +323,19 @@ function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, sta
     const nextTab = tabs[next]!.id
     queueMicrotask(() => { document.querySelector<HTMLElement>(`[data-swarm-view-tab="${nextTab}"]`)?.focus() })
   }
+  const visibleTeams = dedupeTeams(teams)
   return <>
-    <nav className="swarm-team-workspace__team-rail" aria-label={t('teamRailLabel')} data-swarm-team-rail>
-      {dedupeTeams(teams).map(team => (
-        <button
-          key={team.teamId}
-          type="button"
-          className="swarm-team-workspace__team-dot"
-          aria-current={team.teamId === data.binding.teamId ? 'true' : undefined}
-          aria-label={team.teamId === data.binding.teamId ? `${team.teamId === data.binding.teamId ? `${t('boundTeam')}: ` : ''}${team.name}` : `${t('openOtherTeam')}: ${team.name}`}
-          title={team.teamId === data.binding.teamId ? team.name : `${t('openOtherTeam')}: ${team.name}`}
-          data-swarm-team-dot={team.teamId}
-          data-swarm-captain-session={team.captainSessionId}
-          onClick={() => { if (team.teamId !== data.binding.teamId) onSelectTeam(team.teamId) }}
-        ><span className="swarm-team-workspace__avatar"><SafePixelAvatar seed={team.name} asset={team.avatar} name={team.name} t={t} /></span></button>
-      ))}
-    </nav>
     <section className="swarm-team-workspace__pane">
       <header className="swarm-team-workspace__pane-head">
         <div className="swarm-team-workspace__truncate">
           <div className="swarm-team-workspace__title-row">
             <h2 className="swarm-team-workspace__title" id={headingId} title={data.team.name}>{data.team.name}</h2>
+            {visibleTeams.length > 1
+              ? <select className="swarm-team-workspace__team-switcher" aria-label={t('switchTeam')} value={data.binding.teamId}
+                  data-swarm-team-switcher onChange={event => { if (event.target.value !== data.binding.teamId) onSelectTeam(event.target.value) }}>
+                  {visibleTeams.map(team => <option key={team.teamId} value={team.teamId}>{team.name}</option>)}
+                </select>
+              : null}
             <span className="swarm-team-workspace__phase-pill" data-swarm-team-phase>{enumLabel(data.team.phase, t)}</span>
           </div>
           <p className="swarm-team-workspace__subtitle" id={descriptionId}>{subtitleParts.join(' · ')}</p>

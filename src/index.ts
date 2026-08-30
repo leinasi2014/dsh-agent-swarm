@@ -259,12 +259,14 @@ export const Config: z<Config> = z.object({
 export async function apply(ctx: Context, config: Config): Promise<void> {
   if (config.enabled === false) return
   let currentConfig: () => Config = () => config
-  if (ctx.get('settings') !== undefined) {
-    installSettingsSection(ctx, AGENT_SWARM_SETTINGS_NAMESPACE, Config, config, {
-      setSource: source => { currentConfig = source },
-      onChange: () => {},
-    })
-  }
+  // `installSettingsSection` owns an optional child `settings` injection.
+  // Registering unconditionally is essential: checking ctx.get('settings')
+  // here races normal Cordis activation and leaves the browser with no
+  // configurable `agent-swarm` namespace even though its client card exists.
+  installSettingsSection(ctx, AGENT_SWARM_SETTINGS_NAMESPACE, Config, config, {
+    setSource: source => { currentConfig = source },
+    onChange: () => {},
+  })
   const memberProvider = (config.memberProvider ?? 'spawn').trim()
   if (memberProvider === '') throw new Error('agent-swarm: memberProvider must not be empty')
   const schedulerProvider = (config.schedulerProvider ?? 'priority-ready').trim()
