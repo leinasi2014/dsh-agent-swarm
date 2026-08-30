@@ -50,14 +50,14 @@ export const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace__block-head:first-child { margin-top:0; }
 [data-swarm-team-dashboard] .swarm-team-workspace__block-head small { overflow:hidden; color:var(--dsw-alias-label-secondary); font-size:10px; font-weight:500; white-space:nowrap; text-overflow:ellipsis; }
 [data-swarm-team-dashboard] .swarm-team-workspace__workroom { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
-@container (max-width: 339.98px) { [data-swarm-team-dashboard] .swarm-team-workspace__workroom { grid-template-columns:minmax(0,1fr); } }
+@container (max-width: 520px) { [data-swarm-team-dashboard] .swarm-team-workspace__workroom { grid-template-columns:1fr; } }
 [data-swarm-team-dashboard] .swarm-team-workspace__desk { position:relative; display:grid; grid-template-columns:32px minmax(0,1fr) auto; grid-template-rows:auto auto; align-items:center; column-gap:8px; min-width:0; min-block-size:56px; padding:8px; border:1px solid var(--dsw-alias-border-l2); border-radius:10px; background:var(--dsw-alias-bg-layer-1); color:inherit; text-align:left; cursor:pointer; }
 [data-swarm-team-dashboard] .swarm-team-workspace__desk:hover { border-color:color-mix(in srgb, var(--dsw-alias-brand-primary) 55%, var(--dsw-alias-border-l2)); background:color-mix(in srgb, var(--dsw-alias-brand-primary) 7%, var(--dsw-alias-bg-layer-1)); }
 [data-swarm-team-dashboard] .swarm-team-workspace__desk .swarm-team-workspace__avatar { grid-row:1 / 3; }
 [data-swarm-team-dashboard] .swarm-team-workspace__desk-copy { display:flex; flex-direction:column; gap:1px; min-width:0; }
-[data-swarm-team-dashboard] .swarm-team-workspace__desk-name { overflow:hidden; font-size:12px; font-weight:680; line-height:17px; white-space:nowrap; text-overflow:ellipsis; }
-[data-swarm-team-dashboard] .swarm-team-workspace__desk-role { overflow:hidden; color:var(--dsw-alias-label-secondary); font-size:10px; white-space:nowrap; text-overflow:ellipsis; }
-[data-swarm-team-dashboard] .swarm-team-workspace__desk-state { display:flex; align-items:center; gap:4px; grid-column:3; grid-row:1 / 3; max-width:100%; overflow:hidden; color:var(--dsw-alias-label-secondary); font-size:10px; white-space:nowrap; }
+[data-swarm-team-dashboard] .swarm-team-workspace__desk-name { min-width:0; overflow:hidden; font-size:12px; font-weight:680; line-height:17px; white-space:nowrap; text-overflow:ellipsis; }
+[data-swarm-team-dashboard] .swarm-team-workspace__desk-role { min-width:0; overflow:hidden; color:var(--dsw-alias-label-secondary); font-size:10px; white-space:nowrap; text-overflow:ellipsis; }
+[data-swarm-team-dashboard] .swarm-team-workspace__desk-state { display:flex; align-items:center; gap:4px; grid-column:3; grid-row:1 / 3; min-width:0; max-width:100%; overflow:hidden; color:var(--dsw-alias-label-secondary); font-size:10px; white-space:nowrap; text-overflow:ellipsis; }
 [data-swarm-team-dashboard] .swarm-team-workspace__desk-dot { flex:0 0 auto; inline-size:8px; block-size:8px; border-radius:50%; background:var(--dsw-alias-label-secondary); }
 [data-swarm-team-dashboard] .swarm-team-workspace__desk[data-swarm-tone="standby"] .swarm-team-workspace__desk-dot { background:var(--dsw-alias-label-positive, var(--dsw-alias-brand-primary)); }
 [data-swarm-team-dashboard] .swarm-team-workspace__desk[data-swarm-tone="executing"] .swarm-team-workspace__desk-dot { background:var(--dsw-alias-brand-primary); animation:swarm-desk-pulse 1.4s ease-in-out infinite; }

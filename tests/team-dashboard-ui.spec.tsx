@@ -393,9 +393,9 @@ describe('R3 native Team Details surface', () => {
       // Execution summaries cap at 2, team activity caps at 3.
       expect(document.querySelectorAll('[data-swarm-exec-summaries] [data-swarm-summary-task]')).toHaveLength(2)
       expect(document.querySelectorAll('[data-swarm-team-activity] [data-swarm-activity-attempt]')).toHaveLength(3)
-      // Layout geometry: two-column 56px desks ≥340px, single column below via container query.
+      // Layout geometry: two-column 56px desks above 520px, single column at ≤520px via container query.
       expect(stylesheet).toMatch(/__workroom \{ display:grid; grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/u)
-      expect(stylesheet).toContain('@container (max-width: 339.98px)')
+      expect(stylesheet).toContain('@container (max-width: 520px) { [data-swarm-team-dashboard] .swarm-team-workspace__workroom { grid-template-columns:1fr; } }')
       expect(stylesheet).toMatch(/__desk \{[^}]*min-block-size:56px/u)
       expect(stylesheet).toMatch(/__desk \.swarm-team-workspace__avatar \{ grid-row:1 \/ 3/u)
       expect(stylesheet).toMatch(/__avatar \{[^}]*inline-size:32px/u)
