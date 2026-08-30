@@ -112,6 +112,21 @@ The P0/R3 proof is a deployment gate, not an ordinary unit-test fixture. It requ
 
 `dsh plugin`, dump and help paths may initialize, heal or rewrite Profile material. Every such command therefore receives the proof's explicit isolated `DSH_HOME`; never run this gate against the user's normal Profile. `link:` remains diagnostic only and cannot satisfy P0.
 
+### GitHub-to-DSH cat-cafe acceptance
+
+`E2E-GITHUB-CATCAFE-001` is the representative public-install and dogfood scenario. GitHub `main` is the development and install authority; the internal remote is backup-only. The attempt starts from a fresh clone, fresh `DSH_HOME`, fresh browser profile, free loopback port, empty Workspace and no Session/Team state. Installation must use an exact GitHub commit through the official `dsh plugin --profile web add --workspace-root <git-spec>` path; a local checkout, `link:`, copied `lib/`, old tarball or historical Profile cannot satisfy this scenario. The installed manifest, commit, bundle row, loaded client and running process must all resolve to that same commit before the first prompt.
+
+The user path is performed in external Microsoft Edge, not an embedded test browser: register a new empty project Workspace, create the Main Brain Session, ask it for the complete cat-cafe outcome, let it create a dedicated Captain and Team, and observe the Team Workbench while the Team delivers the project. The acceptance project contains a runnable backend with cats, menu and reservation APIs plus validation and durable local development storage; a responsive frontend exposes the cafe landing page, cat roster, menu and reservation flow. The implementation supplies its own start command, automated tests and concise run instructions.
+
+Acceptance requires all of the following in one bounded attempt:
+
+1. GitHub CI is green for the installed commit, and the fresh Profile installs from GitHub without a local build fallback.
+2. The Main Brain remains outside the Team; one dedicated Captain recruits members, publishes the public goal and announcement, assigns review-gated tasks and reaches accepted terminal tasks without manual canonical-state edits.
+3. Workbench/Tasks/Announcements/Management, Captain Chat, member identity/avatar, Skills/tools and current/recent outcome projections are usable and agree with the authoritative task and attempt state.
+4. The cat-cafe frontend and backend start from the generated Workspace, API happy/error paths pass, desktop and narrow layouts are usable in Edge, and the page has no uncaught console or network errors.
+5. Every observed product defect receives a GitHub issue or linked correction commit with reproduction, expected/actual behavior and the affected runtime identity. A blocking defect stops only its dependent path, is fixed through the same GitHub branch/CI flow, and is rerun from a new fresh Profile generation.
+6. The final report records delivered behavior, issue-to-fix mapping, commands/checks, browser result, remaining limitations and cleanup of the owned DSH/Edge processes. It does not count plans, agent activity, screenshots or a listening port as product completion.
+
 ### Self-hosting Profile verification
 
 D0/D1 requires a dedicated check/control Profile on a last-known-good artifact and manual promotion. D2 additionally requires a separately rooted acceptance Profile and RPC endpoint. A passing unit suite or in-process Loader test cannot substitute for:
