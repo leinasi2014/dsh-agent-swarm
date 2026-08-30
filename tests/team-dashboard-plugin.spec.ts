@@ -1,8 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({ Button: () => null, IconUserOutline16: () => null }))
-import { apply } from '../src/client/team-dashboard-plugin.js'
+import { apply, inject } from '../src/client/plugin-entry.js'
 
 describe('Team dashboard client composition', () => {
+  it('publishes the complete Cordis client plugin face from the package entrypoint', () => {
+    expect(inject).toEqual(['sessions', 'slots', 'locale'])
+  })
+
   it('registers the Session utility and Details declaration without shell.overlay', () => {
     const injected: string[] = []
     const registrations: { name: string; priority?: number }[] = []

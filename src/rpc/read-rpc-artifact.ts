@@ -64,7 +64,7 @@ function isSafePixelAvatarSvg(value: string): boolean {
   return true
 }
 
-export const SWARM_READ_RPC_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
+const SWARM_READ_RPC_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
 export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '83c0e9fb91b48b052af06d11c1ea0aef7fb9e26ab21f41cad5ebbb9323119bac' as const
 
 const boundedString = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength, pattern: '\\S' })
