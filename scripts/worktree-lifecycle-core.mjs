@@ -219,7 +219,7 @@ function integrationBranch() {
   return 'main'
 }
 
-function ensurePrimaryReady(repository) {
+export function ensurePrimaryReady(repository) {
   const { records, primary } = primaryFacts(repository)
   const expected = integrationBranch(repository)
   if (primary.branch !== expected) throw new LifecycleError('PRIMARY_NOT_INTEGRATION_REF', `primary checkout must be on ${expected}`)

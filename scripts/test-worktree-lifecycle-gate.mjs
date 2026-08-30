@@ -84,11 +84,11 @@ try {
   const fixtureCore = await import(pathToFileURL(join(repo, 'scripts', 'worktree-lifecycle-core.mjs')).href)
   let dirtyPrimaryCode
   try {
-    fixtureCore.openAllocation({ cwd: repo, id: 'dirty-primary', branch: 'test/dirty-primary', owner: 'writer-a' })
+    fixtureCore.ensurePrimaryReady(fixtureCore.discoverRepository(repo))
   } catch (error) {
     dirtyPrimaryCode = error?.code
   }
-  if (dirtyPrimaryCode !== 'PRIMARY_DIRTY') throw new Error(`dirty primary rejects mutation before lock acquisition: expected PRIMARY_DIRTY, got ${dirtyPrimaryCode ?? 'success'}`)
+  if (dirtyPrimaryCode !== 'PRIMARY_DIRTY') throw new Error(`primary readiness classifies dirt before mutation lock acquisition: expected PRIMARY_DIRTY, got ${dirtyPrimaryCode ?? 'success'}`)
   if (existsSync(join(resolve(repo, git(['rev-parse', '--git-common-dir'])), 'dsh-agent-swarm-isolation', 'v1', 'lock'))) throw new Error('rejected primary mutation left an authority lock')
   rmSync(join(repo, 'primary-dirty.txt'))
 
