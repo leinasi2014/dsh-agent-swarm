@@ -2,6 +2,7 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { hostname, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 const sourceScripts = resolve('scripts')
 const fixtureRoot = mkdtempSync(join(tmpdir(), 'dsh-isolation-lifecycle-'))
@@ -80,7 +81,14 @@ try {
   if (external.status === 0 || !`${external.stdout}\n${external.stderr}`.includes('MUTATION_REQUIRES_PRIMARY')) throw new Error('primary cwd must reject lifecycle code loaded outside the primary source root')
 
   writeFileSync(join(repo, 'primary-dirty.txt'), 'dirty\n')
-  expectFailure('dirty primary rejects mutation before lock acquisition', ['open', '--id', 'dirty-primary', '--branch', 'test/dirty-primary', '--owner', 'writer-a'], 'PRIMARY_DIRTY')
+  const fixtureCore = await import(pathToFileURL(join(repo, 'scripts', 'worktree-lifecycle-core.mjs')).href)
+  let dirtyPrimaryCode
+  try {
+    fixtureCore.openAllocation({ cwd: repo, id: 'dirty-primary', branch: 'test/dirty-primary', owner: 'writer-a' })
+  } catch (error) {
+    dirtyPrimaryCode = error?.code
+  }
+  if (dirtyPrimaryCode !== 'PRIMARY_DIRTY') throw new Error(`dirty primary rejects mutation before lock acquisition: expected PRIMARY_DIRTY, got ${dirtyPrimaryCode ?? 'success'}`)
   if (existsSync(join(resolve(repo, git(['rev-parse', '--git-common-dir'])), 'dsh-agent-swarm-isolation', 'v1', 'lock'))) throw new Error('rejected primary mutation left an authority lock')
   rmSync(join(repo, 'primary-dirty.txt'))
 
