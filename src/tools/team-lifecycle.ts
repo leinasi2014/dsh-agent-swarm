@@ -40,10 +40,10 @@ export function registerCreateTool(ctx: Context, runtime: AgentSwarmRuntime): vo
 export function registerCreateManagedTool(ctx: Context, runtime: AgentSwarmRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_create_managed',
-    description: 'Main Brain entry. Create a durable Team with a dedicated Captain Session and automatically deliver description as that Captain\'s initial objective. The Main Brain remains outside the Team; the Captain analyzes the delivered objective and recruits its own members. After creation, observe progress with agent_swarm_list_managed_teams or the Host Team UI; do not call Team-participant-only agent_swarm_status or agent_swarm_send_message from the Main Brain.',
+    description: 'Main Brain entry. Create a durable Team with a dedicated Captain Session. The `description` argument is that Captain\'s only initial objective: copy the user\'s complete requested outcome, constraints, and acceptance criteria into `description` verbatim, including any requested public goal, announcement, Captain/member names, professions, personalities, and pixel avatars. Do not summarize or drop requirements; omitted requirements are not delivered to the Captain automatically. The Main Brain remains outside the Team; the Captain analyzes the delivered objective and recruits its own members. After creation, the Main Brain may call agent_swarm_list_managed_teams at most once, then must end the current turn. It must not call agent_swarm_wait, agent_swarm_status, or agent_swarm_send_message, and must not use Shell sleep or polling. Use the Host Team UI for later observation.',
     parameters: {
       name: { type: 'string', required: true, description: 'Human-readable Team name.' },
-      description: { type: 'string', required: true, description: 'Concrete goal and completion boundary.' },
+      description: { type: 'string', required: true, description: 'The Captain\'s only initial objective. Copy the user\'s complete requested outcome, constraints, and acceptance criteria verbatim; do not summarize or omit requirements because omitted requirements are not delivered automatically later.' },
     },
     output: {
       schema: {
@@ -55,7 +55,7 @@ export function registerCreateManagedTool(ctx: Context, runtime: AgentSwarmRunti
           captain_session_id: { type: 'string', required: true },
         },
       },
-      render: (_args, value) => [{ type: 'text', text: `Created managed Team "${value.name}" (${value.team_id}) with dedicated Captain ${value.captain_session_id}; its objective was delivered automatically. The Main Brain remains outside the Team: observe with agent_swarm_list_managed_teams or the Host Team UI, not agent_swarm_status or agent_swarm_send_message.` }],
+      render: (_args, value) => [{ type: 'text', text: `Created managed Team "${value.name}" (${value.team_id}) with dedicated Captain ${value.captain_session_id}. The supplied description was delivered as the Captain's only initial objective; it must contain the user's complete requested outcome, constraints, and acceptance criteria verbatim because omitted requirements will not be delivered automatically. The Main Brain remains outside the Team: call agent_swarm_list_managed_teams at most once, then end this turn. Do not call agent_swarm_wait, agent_swarm_status, or agent_swarm_send_message, and do not use Shell sleep or polling; use the Host Team UI for later observation.` }],
     },
     async execute(args, exec) {
       // The dedicated Captain's LLM route is plugin-configured only

@@ -80,7 +80,7 @@ export function registerSendMessageTool(ctx: Context, runtime: AgentSwarmRuntime
 export function registerWaitTool(ctx: Context, runtime: AgentSwarmRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_wait',
-    description: 'Wait without polling until the authoritative Team revision exceeds after_revision, or return unchanged at timeout. Returns no_progress immediately when no other member is running or provisioning — waiting cannot help then. Caller cancellation fails with TEAM_WAIT_ABORTED.',
+    description: 'Active-Team-participant or archived-Captain only; unavailable to a managed Main Brain. Wait without polling until the authoritative Team revision exceeds after_revision, or return unchanged at timeout. Returns no_progress immediately when no other member is running or provisioning — waiting cannot help then. Caller cancellation fails with TEAM_WAIT_ABORTED. After managed creation, the Main Brain may call agent_swarm_list_managed_teams at most once, then must end the current turn without Shell sleep or polling.',
     parameters: {
       after_revision: { type: 'number', required: true },
       timeout_ms: { type: 'number', description: '10000..3600000; defaults to 30000.' },
