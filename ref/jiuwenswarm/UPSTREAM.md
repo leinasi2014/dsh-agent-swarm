@@ -2,7 +2,7 @@
 
 - Upstream: `https://github.com/openJiuwen-ai/jiuwenswarm`
 - Branch observed: `develop`
-- Pinned commit: `8f34291906abf7c4e1a3a94d1a819e5a94c0ff3b`
+- Pinned commit: `cfe09ccf1c04f4abb978ec84dc5403650a41f553`
 - Local checkout: `source/`
 
 This repository is a product and architecture reference, not a DSH dependency.
@@ -19,15 +19,13 @@ The pinned tree contains Git LFS videos. They are deliberately left as pointer
 files because the text source is sufficient for development analysis and some
 upstream media objects are unavailable.
 
-The 2026-08-27 repin reviewed `7ebebe3..8f34291` (10 commits, 138 files).
-It adds a config-gated Code-mode SDD rail (an in-memory stage machine and
-methodology artifacts), AgentOS/Web token-auth and locatable gateway-log work,
-agent-management/front-end work, and four Team-area presentation files. The
-range has no changed Jobs, Workflow-engine or Worktree ownership path. Its SDD
-``workflows`` are methodology files rather than the product Workflow runtime;
-the existing Code adapter still owns its project/workspace path selection.
-None of that Python runtime, transport, persistence schema, public types or UI
-is adopted by this DSH plugin.
+The 2026-08-30 repin reviewed `8f34291..cfe09cc` (14 commits, 147 files).
+It changes JiuwenSwarm's Web/TUI presentation, AgentOS and context-engine
+paths, template/plugin loading, skills refresh, session-continuity rails and
+its own Team reliability switch. The range has no changed Jobs,
+Workflow-engine or Worktree ownership path consumed by this plugin. None of
+that Python runtime, transport, persistence schema, public types or UI is
+adopted by this DSH plugin.
 
 On Windows, the supplied sync scripts set repository-local `core.longpaths`
 before checkout: the bounded `source/` target plus this upstream's nested
