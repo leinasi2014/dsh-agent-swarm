@@ -227,13 +227,16 @@ export function ensurePrimaryReady(repository) {
   return records
 }
 
-function requirePrimaryCaller(repository) {
-  let sourceRepositoryRoot
+function containingRepositoryRoot(path) {
   try {
-    sourceRepositoryRoot = realpathSync(resolve(git(['rev-parse', '--show-toplevel'], coreSourceRoot)))
+    return realpathSync(resolve(git(['rev-parse', '--show-toplevel'], path)))
   } catch {
-    sourceRepositoryRoot = undefined
+    return undefined
   }
+}
+
+function requirePrimaryCaller(repository) {
+  const sourceRepositoryRoot = containingRepositoryRoot(coreSourceRoot)
   if (comparable(repository.currentRoot) !== comparable(repository.primaryRoot)
     || sourceRepositoryRoot === undefined
     || comparable(sourceRepositoryRoot) !== comparable(repository.primaryRoot)) {
@@ -245,7 +248,8 @@ export function assertLifecycleCliSource({ cwd, sourceUrl }) {
   const repository = discoverRepository(cwd)
   requirePrimaryCaller(repository)
   const cliRoot = realpathSync(resolve(fileURLToPath(new URL('..', sourceUrl))))
-  if (comparable(cliRoot) !== comparable(repository.primaryRoot)) {
+  const cliRepositoryRoot = containingRepositoryRoot(cliRoot)
+  if (cliRepositoryRoot === undefined || comparable(cliRepositoryRoot) !== comparable(repository.primaryRoot)) {
     throw new LifecycleError('MUTATION_REQUIRES_PRIMARY', 'lifecycle CLI must load from the accepted primary checkout')
   }
 }
