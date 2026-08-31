@@ -9,6 +9,10 @@
  * P0#2 — a member must not remain declared `active` after its initial turn
  * fails to reach a healthy terminal: a child whose initial turn ends in error
  * is durably demoted to `failed` (never left as an unusable active member).
+ *
+ * P0#3 — `llm_provider` / `model` must resolve before any provisioning record
+ * is persisted: an unavailable LLM route is an explicit error with no member
+ * row and no child Session.
  */
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -142,4 +146,23 @@ describe('P0 add-member regressions over the real composition', () => {
       for (const fiber of fibers.toReversed()) await fiber.dispose()
     }
   }, 40_000)
+
+  it('P0#3: add_member resolves the LLM route before persist — bad llm_provider errors with no member row', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-p0-llm-route-'))
+    roots.push(sandbox)
+    const fibers: Fiber[] = []
+    try {
+      const stack = await mountCaptain(sandbox, fibers, new HealthyAdapter(), 'p0-llm-route-lead')
+      expect(await memberCount(stack)).toBe(0)
+      await expect(stack.ctx.agentSwarm.addMember(
+        { agent: stack.lead, signal: SIGNAL },
+        { name: 'bad-llm-worker', role: 'worker', llmProvider: 'missing-llm-provider', model: 'mock' },
+      )).rejects.toMatchObject({ code: 'TEAM_LLM_ROUTE_INVALID' })
+      expect(await memberCount(stack)).toBe(0)
+      const headers = await stack.ctx.sessionPersistence.list()
+      expect(headers.some(header => header.id !== String(stack.lead.id) && header.parentSession === String(stack.lead.id))).toBe(false)
+    } finally {
+      for (const fiber of fibers.toReversed()) await fiber.dispose()
+    }
+  }, 30_000)
 })

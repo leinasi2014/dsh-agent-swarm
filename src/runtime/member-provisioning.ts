@@ -24,6 +24,7 @@ import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import type { TeamId, TeamMember, TeamMembership } from '../domain/types.js'
 import type { MemberIdentityInput } from '../domain/identity-profile.js'
 import { requireAgent, type ToolExecutionAuthority } from './authority.js'
+import { assertLlmRouteAvailable } from './llm-route-preflight.js'
 import type { RuntimeConfig } from './orchestrator-runtime.js'
 import { memberJoinNotice, memberPersona } from './prompts.js'
 import { messageAccepted } from './session-acceptance.js'
@@ -114,6 +115,9 @@ export class MemberProvisioner {
         ...(input.denyTools ?? []),
         ...(this.deps.config.memberToolPolicyDeny ?? []),
       ])])
+      const agentProvider = input.llmProvider ?? this.deps.config.memberLlmProvider ?? captain.options.provider
+      const agentModel = input.model ?? this.deps.config.memberModel ?? captain.options.model
+      await assertLlmRouteAvailable(this.ctx, { provider: agentProvider, model: agentModel }, 'member', exec.signal)
 
       const childId = SessionId(randomUUID())
       const provisioning = await this.deps.domain().provisionMember(scope, membership.team.id, captain.id, {
@@ -164,12 +168,8 @@ export class MemberProvisioner {
             // wins; otherwise the member inherits the captain's LLM provider
             // (existing behavior).
             agentOptions: {
-              ...((input.llmProvider ?? this.deps.config.memberLlmProvider) !== undefined
-                ? { provider: input.llmProvider ?? this.deps.config.memberLlmProvider }
-                : (captain.options.provider === undefined ? {} : { provider: captain.options.provider })),
-              ...(input.model ?? this.deps.config.memberModel ?? captain.options.model) === undefined
-                ? {}
-                : { model: input.model ?? this.deps.config.memberModel ?? captain.options.model },
+              ...(agentProvider === undefined ? {} : { provider: agentProvider }),
+              ...(agentModel === undefined ? {} : { model: agentModel }),
             },
             // Official maxDepth is absolute. A dedicated Captain is one
             // level below the main Chat, while a legacy Captain is the root.

@@ -6,6 +6,7 @@ import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-ses
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import { TeamDomainError } from '../domain/error.js'
 import type { TeamState } from '../domain/types.js'
+import { assertLlmRouteAvailable } from './llm-route-preflight.js'
 import { captainPersona, captainStartNotice } from './prompts.js'
 import type { RuntimeConfig } from './runtime-contract.js'
 
@@ -61,6 +62,10 @@ export class DedicatedCaptainProvisioner {
       || !provider.capabilities.persona || !provider.capabilities.toolFilter) {
       throw new TeamDomainError(`subagent provider "${providerName}" cannot host a dedicated Captain`, 'TEAM_MEMBER_PROVIDER_INCOMPATIBLE')
     }
+    const signal = AbortSignal.any([input.signal, this.abort.signal])
+    const agentProvider = input.llmProvider ?? this.deps.config.captainLlmProvider ?? input.root.options.provider
+    const agentModel = input.model ?? this.deps.config.captainModel ?? input.root.options.model
+    await assertLlmRouteAvailable(this.ctx, { provider: agentProvider, model: agentModel }, 'dedicated Captain', signal)
     const captainId = SessionId(randomUUID())
     const team = await this.deps.domain().createTeam(
       input.scope, captainId, input.name, input.description, -1, input.managedOrigin, input.allowedSkills,
@@ -93,15 +98,13 @@ export class DedicatedCaptainProvisioner {
           persona: captainPersona(team),
           toolFilter: { deny: ['agent_swarm_create_managed'] },
           agentOptions: {
-            ...((input.llmProvider ?? this.deps.config.captainLlmProvider ?? input.root.options.provider) === undefined
-              ? {} : { provider: input.llmProvider ?? this.deps.config.captainLlmProvider ?? input.root.options.provider }),
-            ...((input.model ?? this.deps.config.captainModel ?? input.root.options.model) === undefined
-              ? {} : { model: input.model ?? this.deps.config.captainModel ?? input.root.options.model }),
+            ...(agentProvider === undefined ? {} : { provider: agentProvider }),
+            ...(agentModel === undefined ? {} : { model: agentModel }),
           },
           // Official maxDepth is absolute. Root=0, Captain=1, members=2.
           maxDepth: this.deps.config.memberMaxDepth + 1,
         },
-        signal: AbortSignal.any([input.signal, this.abort.signal]),
+        signal,
       })
       pending.admitted = true
       this.settleObserved(pending)
@@ -113,7 +116,9 @@ export class DedicatedCaptainProvisioner {
       await this.deps.domain().archiveTeam(input.scope, team.id, captainId, 'dedicated Captain failed to start')
         .then(archived => { if (archived.phase !== 'archived') cleanup.push(new Error('Captain Team did not archive')) })
         .catch(value => cleanup.push(value))
-      if (cleanup.length > 0) throw new AggregateError([error, ...cleanup], `dedicated Captain startup failed: ${describe(error)}`)
+      if (cleanup.length > 0) {
+        throw new AggregateError([error, ...cleanup], `dedicated Captain startup failed: ${describe(error)}`, { cause: error })
+      }
       throw error
     }
   }

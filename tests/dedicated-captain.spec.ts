@@ -130,6 +130,24 @@ describe('dedicated Captain topology', () => {
     expect(active.length).toBeLessThanOrEqual(1)
   })
 
+  it('preflights the configured Captain LLM route before creating a Team', async () => {
+    sandbox = await mkdtemp(join(tmpdir(), 'dsh-dedicated-captain-bad-route-'))
+    mounted = await mountNodeComposition(sandbox, { captainLlmProvider: 'missing-llm-provider', captainModel: 'mock' })
+
+    const rejected = await mounted.ctx.tools.execute({
+      signal: SIGNAL,
+      callId: CallId('managed-bad-captain-route'),
+      name: 'agent_swarm_create_managed',
+      arguments: {
+        name: 'Bad Route Team',
+        description: 'Must fail before a Captain Team exists.',
+      },
+      agent: mounted.lead,
+    })
+    expect(rejected).toMatchObject({ isError: true, error: { info: { code: 'TEAM_LLM_ROUTE_INVALID' } } })
+    expect(await mounted.ctx.agentSwarm.listTeamAggregates(mounted.scope)).toEqual([])
+  })
+
   it('does not expose model-steered Captain routing in the public tool schema', async () => {
     sandbox = await mkdtemp(join(tmpdir(), 'dsh-dedicated-captain-schema-'))
     mounted = await mountNodeComposition(sandbox)

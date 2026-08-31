@@ -7,6 +7,7 @@ export const name = 'agent-swarm'
 export const inject = [
   'tools',
   'subagents',
+  'llm',
   'agents',
   'sessions',
   'systemPrompt',
