@@ -21,6 +21,7 @@ import { HumanControlGateway } from '../human/human-control-gateway.js'
 import { HumanInteractionOverlayStore, humanInteractionDomainSpec } from '../human/human-interaction-store.js'
 import { humanReviewProvider } from '../human/human-review-provider.js'
 import { officialCaptainQuestionPresentation } from '../human/official-question-presentation.js'
+import { officialPlanApprovalProvider } from '../human/plan-approval-provider.js'
 import { DEFAULT_HOST_CONTEXT_TTL_MS, DEFAULT_MAX_HOST_CONTEXTS, mountHostContext } from '../human/host-context-service.js'
 import { effectiveToolPolicy, TeamPermissionSurface } from '../runtime/permission-surface.js'
 import { reviewerAgentReviewProvider } from '../runtime/reviewer-boundary.js'
@@ -100,6 +101,7 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
     ...(config.captainLlmProvider === undefined ? {} : { captainLlmProvider: config.captainLlmProvider }),
     ...(config.captainModel === undefined ? {} : { captainModel: config.captainModel }),
     memberMaxDepth: config.memberMaxDepth ?? 1,
+    planApproval: officialPlanApprovalProvider(ctx),
     schedulerProvider,
     reviewProvider,
     reviewRootProvider,
@@ -345,4 +347,5 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
     ctx.effect(() => () => projection.dispose(), 'agent-swarm: jobs bridge disposal')
   }
 }
+
 

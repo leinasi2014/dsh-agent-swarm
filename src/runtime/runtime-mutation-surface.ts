@@ -109,7 +109,8 @@ export class RuntimeMutationSurface {
    * commit leaves the Team active for the recovery path; the next approved
    * state is never silently rolled back.
    */
-  async approvePlan(exec: ToolExecutionAuthority, teamId: string, expectedRevision: number, options: { llmProvider?: string; model?: string } = {}): Promise<TeamState> {
+  async approvePlan(exec: ToolExecutionAuthority, teamId: string, expectedRevision: number, options: { llmProvider?: string; model?: string; askUser?: boolean } = {}): Promise<TeamState> {
+
     await this.deps.ensureReady(); this.deps.assertOpen(); this.deps.assertConfiguredProviders()
     const root = requireAgent(exec), scope = this.deps.scopeOf(root)
     await this.assertMainBrain(root, scope)
@@ -117,6 +118,19 @@ export class RuntimeMutationSurface {
     const draft = staged.planDraft
     if (draft === undefined || draft.members.length === 0 || draft.tasks.length === 0) {
       throw new TeamDomainError('approval requires a complete plan declaration (members and tasks)', 'TEAM_PLAN_INCOMPLETE')
+    }
+    if (options.askUser === true) {
+      const port = this.deps.config.planApproval
+      if (port === undefined) throw new TeamDomainError('Plan approval requires the official ctx.userQuestions service', 'TEAM_HUMAN_QUESTIONS_MISSING')
+      const decision = await port.ask({
+        agent: root,
+        signal: exec.signal,
+        teamId,
+        question: `Approve the staged plan for Team "${staged.name}" (${draft.members.length} members, ${draft.tasks.length} tasks)?`,
+        approveLabel: 'Approve & Run',
+        discardLabel: 'Discard',
+      })
+      if (decision === 'discard') return await this.deps.domain().discardStagedPlan(scope, staged.id, expectedRevision)
     }
     const captainId = SessionId(randomUUID())
     const committed = await this.deps.domain().approveStagedPlan(scope, staged.id, expectedRevision, String(captainId))
@@ -328,5 +342,8 @@ export class RuntimeMutationSurface {
     return await this.deps.delivery.deliverQueuedMessage(scope, membership.team.id, captain, message.id, exec.signal) ?? message
   }
 }
+
+
+
 
 

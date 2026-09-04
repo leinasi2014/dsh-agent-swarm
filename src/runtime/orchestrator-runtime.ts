@@ -363,7 +363,7 @@ export class AgentSwarmRuntime extends Service {
   }
 
   /** Plan-first approval: activation + captain/member/task provisioning. */
-  async approvePlan(exec: ToolExecutionAuthority, teamId: string, expectedRevision: number, options: { llmProvider?: string; model?: string } = {}): Promise<TeamState> {
+  async approvePlan(exec: ToolExecutionAuthority, teamId: string, expectedRevision: number, options: { llmProvider?: string; model?: string; askUser?: boolean } = {}): Promise<TeamState> {
     return await this.mutations.approvePlan(exec, teamId, expectedRevision, options)
   }
 
@@ -617,5 +617,6 @@ export class AgentSwarmRuntime extends Service {
     if (failures.length > 0) throw new AggregateError(failures, 'Team orchestrator disposal failed')
   }
 }
+
 
 

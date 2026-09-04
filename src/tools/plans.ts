@@ -6,7 +6,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
-import { TeamDomainError } from '../domain/error.js'
 import type { TeamPlanDraft } from '../domain/types.js'
 import { compactJsonOutput, register } from './shared.js'
 
@@ -97,12 +96,10 @@ export function registerApprovePlanTool(ctx: Context, runtime: AgentSwarmRuntime
       },
     }),
     async execute(args, exec) {
-      if (args.ask_user === true) {
-        throw new TeamDomainError('ask_user approval gate is not enabled in this build', 'TEAM_HUMAN_QUESTIONS_MISSING')
-      }
       const team = await runtime.approvePlan(exec, args.team_id, args.expected_revision, {
         ...(args.llm_provider === undefined ? {} : { llmProvider: args.llm_provider }),
         ...(args.model === undefined ? {} : { model: args.model }),
+        ...(args.ask_user === true ? { askUser: true } : {}),
       })
       return { team_id: team.id, phase: team.phase, captain_session_id: team.captainSessionId, revision: team.revision }
     },
@@ -132,4 +129,6 @@ export function registerDiscardPlanTool(ctx: Context, runtime: AgentSwarmRuntime
     },
   }), 'discard-plan tool')
 }
+
+
 
