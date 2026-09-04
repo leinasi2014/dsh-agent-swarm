@@ -29,7 +29,18 @@ Main Brain Session（Team 外）
 - public goal、announcement、shared memory、budget/usage；
 - bounded effects、verification declarations 和恢复信息。
 
-聚合通过 schema 验证后整体提交。新增 durable 字段必须同时修改类型、Storage Domain schema、state validator、reload 测试和读 projection；只改 TypeScript 类型不算实现。
+Team 阶段为 `staged | active | archived`：`staged` 是 Plan-first 声明态（尚无 Captain Session/成员/任务，`captainSessionId` 为空标记），`active` 进入正常编排，`archived` 为终态；`discardReason='discarded'` 标记被放弃的计划草稿（staged→archived，幂等）。
+
+聚合通过 schema 验证后整体提交。新增 durable 字段（如 `planDraft`）必须同时修改类型、Storage Domain schema、state validator、reload 测试和读 projection；只改 TypeScript 类型不算实现。
+
+### 2.1 Plan-first staged 审批
+
+- `agent_swarm_create_managed(stage=true)` 仅创建 staged 聚合，不 provisioning Captain；same-managed-origin 重复调用幂等返回既有 staged Team。
+- `agent_swarm_set_plan` 写入有界 `planDraft`（成员声明含可选 route/deny，任务图用 plan-local key + dependencies + target），revision CAS。
+- `agent_swarm_approve_plan` 先把 staged→active 原子提交（durable authority first），再 provision 声明的专用 Captain、成员与任务图（key→真实 task id、target→member session、依赖接线）；`ask_user=true` 走官方 `ctx.userQuestions` 单一问题，放弃选项直接归档；缺服务 fail-closed。
+- 审批提交后任何 provisioning 缺失都由激活恢复路径补齐（`recoverApprovedTeam`：补 Captain/缺失成员/空任务图，幂等），不静默回滚。
+- `agent_swarm_discard_plan` 归档 staged 草稿且不创建任何工作，幂等；被放弃的 Team 不会隐式复活。
+- staged Team 不参与调度/成员资格；只读投影暴露 `plan` 摘要（声明成员/任务数），Main Brain 绑定允许唯一 staged Team。
 
 ## 3. revision 与 attempt 围栏
 

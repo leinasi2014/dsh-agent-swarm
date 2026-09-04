@@ -25,12 +25,13 @@ Main Brain 不加入 Team roster，也不获得 Captain 权限。多个 Team 的
 ## 已实现
 
 - 独立 Captain Session、多个 managed Team、Captain/成员身份资料与安全像素 SVG 头像。
-- 26 个 `agent_swarm_*` 工具，覆盖建队、成员、任务 DAG、定向分配、提交/审核、邮箱、预算、记忆、等待与分页读取。
+- 29 个 `agent_swarm_*` 工具，覆盖建队（含 Plan-first staged）、计划审批、成员、任务 DAG、定向分配、提交/审核、邮箱、预算、记忆、等待与分页读取。
 - `revision` CAS 与 `attemptId` fencing；陈旧提交、重复执行和越权调用明确失败。
 - 官方 Storage Domain 中的 durable Team aggregate；成员、任务、attempt、邮箱、预算、公告和公共目标可跨重启恢复。
 - continuable subagent 成员、可替换 Scheduler/Review Provider、可选 Workflow bridge、Jobs 只读投影和每 attempt execution root。
 - Team 级 Skill allow-list、成员 tool deny policy、Captain/成员模型路由、资源上限和重启生效的官方 Plugins 设置页。
 - 团队共享记忆与成员私有 append-only memory，二者具有独立授权和持久化边界。
+- Plan-first staged 审批流：`create_managed(stage=true)` → `set_plan` → `approve_plan`（官方 `ctx.userQuestions` 批准/放弃）→ 原子激活并 provisioning Captain/成员/任务；崩溃窗口由启动恢复补齐；放弃/归档幂等；右侧 Team 表面新增“计划审批”卡（staged 只读投影）。
 - read-only Host projection、同源 `/swarm/v1` RPC 与 DSH Team Workbench V3：多 Team 切换、Workbench/Tasks/Announcements/Management、成员/任务 overlay、Captain Chat 跳转。
 
 ## 尚未交付
@@ -103,7 +104,7 @@ dsh --profile web --host 127.0.0.1 --port 3180 --no-open
 完成此仓库的集成测试，并以可执行测试结果作为验收证据。
 ```
 
-Main Brain 调用 `agent_swarm_create_managed` 后应结束当前轮次，不轮询 Team。后续执行由独立 Captain 和成员负责；用户通过 Team Workbench 观察，或打开 Captain Chat 直接调整目标。
+Main Brain 调用 `agent_swarm_create_managed`（不加 `stage`）后应结束当前轮次，不轮询 Team；后续执行由独立 Captain 和成员负责。需要“先审批后开工”时使用 `create_managed(stage=true)` + `set_plan` + `approve_plan(ask_user=true)`（或 `discard_plan`），右侧 Team 表面会显示待审批计划卡。
 
 ## 开发入口
 
