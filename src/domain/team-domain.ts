@@ -14,6 +14,7 @@ import * as board from './team-domain-board.js'
 import * as budget from './team-domain-budget.js'
 import * as mailbox from './team-domain-mailbox.js'
 import * as interaction from './team-domain-interaction.js'
+import * as plan from './team-domain-plan.js'
 import * as projection from './team-domain-projection.js'
 import * as roster from './team-domain-roster.js'
 import type { TeamDomainDeps } from './team-domain-shared.js'
@@ -32,6 +33,7 @@ import {
   type TeamMessageDelivery,
   type TeamMessageCausal,
   type TeamMessage,
+  type TeamPlanDraft,
   type TeamState,
   type TeamStatusSnapshot,
   type TeamTask,
@@ -78,6 +80,26 @@ export class TeamDomain implements TeamDomainPort {
     allowedSkills?: readonly string[],
   ): Promise<TeamState> {
     return await roster.createTeam(this.deps, scope, captainSessionId, name, description, captainUsageSeq, managedOrigin, allowedSkills)
+  }
+
+  /** Plan-first: create one durable staged managed Team without provisioning a Captain Session. */
+  async createStagedManaged(scope: TeamScope, managedOrigin: string, name: string, description: string): Promise<TeamState> {
+    return await plan.createStagedManaged(this.deps, scope, managedOrigin, name, description)
+  }
+
+  /** Plan-first: store one bounded plan declaration on a staged Team (revision CAS). */
+  async setPlanDraft(scope: TeamScope, teamId: TeamId, expectedRevision: number, draft: TeamPlanDraft): Promise<TeamState> {
+    return await plan.setPlanDraft(this.deps, scope, teamId, expectedRevision, draft)
+  }
+
+  /** Plan-first: atomic staged -> active commit with the provisioned Captain id. */
+  async approveStagedPlan(scope: TeamScope, teamId: TeamId, expectedRevision: number, captainSessionId: string): Promise<TeamState> {
+    return await plan.approveStagedPlan(this.deps, scope, teamId, expectedRevision, captainSessionId)
+  }
+
+  /** Plan-first: archive one staged draft without creating work (idempotent). */
+  async discardStagedPlan(scope: TeamScope, teamId: TeamId, expectedRevision: number): Promise<TeamState> {
+    return await plan.discardStagedPlan(this.deps, scope, teamId, expectedRevision)
   }
 
   async findMembership(scope: TeamScope, sessionId: string): Promise<TeamMembership | undefined> {
@@ -356,3 +378,4 @@ export class TeamDomain implements TeamDomainPort {
     return await projection.waitForChange(this.deps, scope, teamId, actorSessionId, afterRevision, signal)
   }
 }
+

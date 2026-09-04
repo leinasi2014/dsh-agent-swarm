@@ -65,7 +65,7 @@ function isSafePixelAvatarSvg(value: string): boolean {
 }
 
 const SWARM_READ_RPC_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
-export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '69632ab48a875cc2f95d3caff188a169021fa1bebec665b5edcc7bcaa894961f' as const
+export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '1cf3c42897d85a308467b82c7a7b78a994d3b45f5fbaf36da41c7a8045fe13e5' as const
 
 const boundedString = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength, pattern: '\\S' })
 /** Member role is authoritative free-text (never truncated by the reader); the
@@ -91,7 +91,7 @@ const team = {
   type: 'object', additionalProperties: false,
   required: ['id', 'name', 'phase', 'revision', 'createdAt', 'updatedAt'],
   properties: {
-    id: boundedString(128), name: boundedString(128), phase: { enum: ['active', 'archived'] },
+    id: boundedString(128), name: boundedString(128), phase: { enum: ['staged', 'active', 'archived'] },
     revision: nonNegativeInteger, createdAt: nonNegativeInteger, updatedAt: nonNegativeInteger,
   },
 }
@@ -132,7 +132,7 @@ const teamDescriptor = {
   type: 'object', additionalProperties: false,
   required: ['teamId', 'name', 'phase', 'captainSessionId', 'avatar', 'identityCard', 'goal', 'endpoints'],
   properties: {
-    teamId: boundedString(128), name: boundedString(128), phase: { enum: ['active', 'archived'] },
+    teamId: boundedString(128), name: boundedString(128), phase: { enum: ['staged', 'active', 'archived'] },
     captainSessionId: boundedString(256),
     displayName: boundedString(128),
     profession: boundedString(256),
@@ -458,7 +458,7 @@ export const SWARM_READ_RPC_CONTRACT_V1 = deepFreezeJson({
             type: 'object', additionalProperties: false,
             required: ['revision', 'phase', 'taskCount', 'attemptCount', 'memberCount', 'backend'],
             properties: {
-              revision: nonNegativeInteger, phase: { enum: ['active', 'archived'] },
+              revision: nonNegativeInteger, phase: { enum: ['staged', 'active', 'archived'] },
               taskCount: nonNegativeInteger, attemptCount: nonNegativeInteger, memberCount: nonNegativeInteger,
               backend: { const: 'team-domain' },
             },
@@ -1033,3 +1033,5 @@ function sortJson(value: unknown): unknown {
     .toSorted(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
     .map(([key, child]) => [key, sortJson(child)]))
 }
+
+

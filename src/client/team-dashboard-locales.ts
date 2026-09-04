@@ -139,6 +139,7 @@ export const en = {
   'diagnosticsTrace': 'Tool trace',
   'diagnosticsTraceUnavailable': 'Not exposed by the Host read contract',
   'diagnosticsBackend': 'Team store backend',
+  'enum.staged': 'Staged (plan draft)',
   'enum.active': 'Active',
   'enum.archived': 'Archived',
   'enum.provisioning': 'Provisioning',
@@ -354,6 +355,7 @@ export const zh: Record<keyof typeof en, string> = {
   'diagnosticsTrace': '工具轨迹',
   'diagnosticsTraceUnavailable': 'Host 读取契约未暴露',
   'diagnosticsBackend': '团队存储后端',
+  'enum.staged': '待审批（计划草稿）',
   'enum.active': '活跃',
   'enum.archived': '已归档',
   'enum.provisioning': '配置中',
@@ -431,3 +433,5 @@ export const zh: Record<keyof typeof en, string> = {
 }
 
 export type TeamDashboardKey = keyof typeof en
+
+
