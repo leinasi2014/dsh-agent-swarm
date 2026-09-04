@@ -61,6 +61,26 @@ describe('R3 native Team Details surface', () => {
     expect(team.getAttribute('aria-expanded')).toBe('false')
   })
 
+  it('renders the attention card from pending human interactions', async () => {
+    const snapshot = SWARM_READ_RPC_FIXTURES_V1.values.snapshot as Record<string, unknown>
+    const attentionState: TeamDashboardState = {
+      open: true, phase: 'ready', targetSessionId: 'main-brain',
+      data: {
+        capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never,
+        projection: { ...snapshot, pendingInteractions: [{ requestId: 'human-attn-1', intent: 'member-question', targetKind: 'member', targetRef: 'worker', status: 'pending', createdAt: 1, updatedAt: 1 }] } as never,
+        teams: SWARM_READ_RPC_FIXTURES_V1.values.teams as never,
+        captainAnnouncements: SWARM_READ_RPC_FIXTURES_V1.values.captainAnnouncements as never,
+        captainDiagnostics: SWARM_READ_RPC_FIXTURES_V1.values.captainDiagnostics as never,
+        captainMembers: SWARM_READ_RPC_FIXTURES_V1.values.captainMembers as never,
+      },
+    }
+    const attentionController = { getSnapshot: (): TeamDashboardState => attentionState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+    const coordinator = new FakeCoordinator()
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: attentionController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    expect(document.querySelector('[data-swarm-attention]')).not.toBeNull()
+    expect(document.querySelector('[data-swarm-attention-row="human-attn-1"]')?.textContent).toContain('member-question')
+  })
+
   it('renders the staged plan review card for a staged Team projection', async () => {
     const snapshot = SWARM_READ_RPC_FIXTURES_V1.values.snapshot as Record<string, unknown>
     const teams = SWARM_READ_RPC_FIXTURES_V1.values.teams as { teams: Array<Record<string, unknown>> }

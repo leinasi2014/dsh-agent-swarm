@@ -362,7 +362,18 @@ function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, sta
               : <span className="swarm-team-workspace__public-content swarm-team-workspace__unavailable">{t('stagedPlan.absent')}</span>}
             {data.team.phase === 'staged' && <span className="swarm-team-workspace__public-content swarm-team-workspace__muted" data-swarm-staged-plan-hint>{t('stagedPlan.hint')}</span>}
           </span>
-        </section>        <section className="swarm-team-workspace__public-card" data-swarm-announcement-preview>
+        </section>        {data.pendingInteractions.length > 0 && (
+          <section className="swarm-team-workspace__public-card" data-swarm-attention>
+            <span className="swarm-team-workspace__public-copy">
+              <span className="swarm-team-workspace__public-title">{t('attention.title')}</span>
+              <span className="swarm-team-workspace__public-content">{number.format(data.pendingInteractions.length)}</span>
+              {data.pendingInteractions.slice(0, 3).map(item => (
+                <span key={item.requestId} className="swarm-team-workspace__public-content" data-swarm-attention-row={item.requestId}>{t('attention.row', { intent: item.intent, target: item.targetRef ?? item.targetKind })}</span>
+              ))}
+            </span>
+          </section>
+        )}
+        <section className="swarm-team-workspace__public-card" data-swarm-announcement-preview>
           <span className="swarm-team-workspace__public-copy">
             <span className="swarm-team-workspace__public-title">{t('announcement.latest')}</span>
             {announcements === undefined
