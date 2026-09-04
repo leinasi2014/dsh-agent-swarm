@@ -18,7 +18,7 @@ export const TeamMessageId = (value: string): TeamMessageId => value as TeamMess
 type TeamMemberPhase = 'provisioning' | 'active' | 'failed' | 'removed'
 
 /** Team lifecycle phases: staged is the plan-first declaration (no Captain Session yet). */
-export type TeamPhase = 'staged' | 'active' | 'archived'
+type TeamPhase = 'staged' | 'active' | 'archived'
 
 /**
  * Captain-declared identity profile for one roster member. Every field is
@@ -237,7 +237,7 @@ export interface TeamAnnouncement {
 }
 
 /** One bounded member declaration inside a staged plan draft. */
-export interface TeamPlanMember {
+interface TeamPlanMember {
   readonly name: string
   readonly role: string
   readonly llmProvider?: string
@@ -246,7 +246,7 @@ export interface TeamPlanMember {
 }
 
 /** One bounded task declaration inside a staged plan draft (plan-local keys). */
-export interface TeamPlanTask {
+interface TeamPlanTask {
   readonly key: string
   readonly subject: string
   readonly description: string

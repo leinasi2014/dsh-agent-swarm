@@ -55,12 +55,7 @@ export class DedicatedCaptainProvisioner {
   }
 
   private async start(input: Parameters<DedicatedCaptainProvisioner['create']>[0]): Promise<TeamState> {
-    const providerName = this.deps.config.memberProvider
-    const provider = this.ctx.subagents.getProvider(providerName)
-    if (provider?.prepareContinuable === undefined || !provider.capabilities.depthLimit
-      || !provider.capabilities.persona || !provider.capabilities.toolFilter) {
-      throw new TeamDomainError(`subagent provider "${providerName}" cannot host a dedicated Captain`, 'TEAM_MEMBER_PROVIDER_INCOMPATIBLE')
-    }
+    const providerName = this.requireCaptainProvider()
     const captainId = SessionId(randomUUID())
     const team = await this.deps.domain().createTeam(
       input.scope, captainId, input.name, input.description, -1, input.managedOrigin, input.allowedSkills,
@@ -139,12 +134,7 @@ export class DedicatedCaptainProvisioner {
     readonly signal: AbortSignal
   }): Promise<TeamState> {
     if (this.closing) throw new TeamDomainError('Team orchestrator is disposing', 'TEAM_RUNTIME_CLOSING')
-    const providerName = this.deps.config.memberProvider
-    const provider = this.ctx.subagents.getProvider(providerName)
-    if (provider?.prepareContinuable === undefined || !provider.capabilities.depthLimit
-      || !provider.capabilities.persona || !provider.capabilities.toolFilter) {
-      throw new TeamDomainError(`subagent provider "${providerName}" cannot host a dedicated Captain`, 'TEAM_MEMBER_PROVIDER_INCOMPATIBLE')
-    }
+    const providerName = this.requireCaptainProvider()
     const { team, root, captainId } = input
     this.deps.config.teamSkills.rememberTeam(team)
     this.deps.trackChild(root, captainId)
@@ -174,6 +164,16 @@ export class DedicatedCaptainProvisioner {
       throw error
     }
   }
+  private requireCaptainProvider(): string {
+    const providerName = this.deps.config.memberProvider
+    const provider = this.ctx.subagents.getProvider(providerName)
+    if (provider?.prepareContinuable === undefined || !provider.capabilities.depthLimit
+      || !provider.capabilities.persona || !provider.capabilities.toolFilter) {
+      throw new TeamDomainError(`subagent provider "${providerName}" cannot host a dedicated Captain`, 'TEAM_MEMBER_PROVIDER_INCOMPATIBLE')
+    }
+    return providerName
+  }
+
   observeSessionEvent(session: Session, event: SessionEvent): void {
     const pending = this.initial.get(session.id)
     if (pending === undefined || event.type !== 'turn/end') return

@@ -18,8 +18,8 @@ import { nonEmpty, type TeamDomainDeps } from './team-domain-shared.js'
 import { TeamId, type TeamPlanDraft, type TeamState } from './types.js'
 import type { TeamScope } from './team-domain-port.js'
 
-export const MAX_PLAN_MEMBERS = 64
-export const MAX_PLAN_TASKS = 64
+const MAX_PLAN_MEMBERS = 64
+const MAX_PLAN_TASKS = 64
 const MAX_PLAN_TASK_KEY = 32
 
 function revisionConflict(expected: number, actual: number): never {
@@ -27,7 +27,7 @@ function revisionConflict(expected: number, actual: number): never {
 }
 
 /** Validate and return a defensive clone of one bounded plan declaration. */
-export function normalizePlanDraft(draft: TeamPlanDraft): TeamPlanDraft {
+function normalizePlanDraft(draft: TeamPlanDraft): TeamPlanDraft {
   expectDomain(draft !== null && typeof draft === 'object', 'plan draft must be an object', 'TEAM_INPUT_INVALID')
   expectDomain(Array.isArray(draft.members) && draft.members.length <= MAX_PLAN_MEMBERS, 'plan member count exceeds the limit', 'TEAM_INPUT_LIMIT')
   expectDomain(Array.isArray(draft.tasks) && draft.tasks.length <= MAX_PLAN_TASKS, 'plan task count exceeds the limit', 'TEAM_INPUT_LIMIT')

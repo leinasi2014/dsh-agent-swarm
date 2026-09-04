@@ -20,6 +20,15 @@ const PLAN_MEMBER_SCHEMA = {
   },
 } as const
 
+const PLAN_RESULT_SCHEMA = {
+  type: 'object', additionalProperties: false,
+  properties: {
+    team_id: { type: 'string', required: true },
+    phase: { type: 'string', required: true },
+    revision: { type: 'number', required: true },
+  },
+} as const
+
 const PLAN_TASK_SCHEMA = {
   type: 'object', additionalProperties: false,
   properties: {
@@ -44,14 +53,7 @@ export function registerSetPlanTool(ctx: Context, runtime: AgentSwarmRuntime): v
       members: { type: 'array', required: true, items: PLAN_MEMBER_SCHEMA },
       tasks: { type: 'array', required: true, items: PLAN_TASK_SCHEMA },
     },
-    output: compactJsonOutput({
-      type: 'object', additionalProperties: false,
-      properties: {
-        team_id: { type: 'string', required: true },
-        phase: { type: 'string', required: true },
-        revision: { type: 'number', required: true },
-      },
-    }),
+    output: compactJsonOutput(PLAN_RESULT_SCHEMA),
     async execute(args, exec) {
       const draft: TeamPlanDraft = {
         members: (args.members ?? []).map(member => ({
@@ -115,14 +117,7 @@ export function registerDiscardPlanTool(ctx: Context, runtime: AgentSwarmRuntime
       team_id: { type: 'string', required: true },
       expected_revision: { type: 'integer', required: true },
     },
-    output: compactJsonOutput({
-      type: 'object', additionalProperties: false,
-      properties: {
-        team_id: { type: 'string', required: true },
-        phase: { type: 'string', required: true },
-        revision: { type: 'number', required: true },
-      },
-    }),
+    output: compactJsonOutput(PLAN_RESULT_SCHEMA),
     async execute(args, exec) {
       const team = await runtime.discardPlan(exec, args.team_id, args.expected_revision)
       return { team_id: team.id, phase: team.phase, revision: team.revision }

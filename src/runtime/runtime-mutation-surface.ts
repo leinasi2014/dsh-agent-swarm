@@ -143,37 +143,10 @@ export class RuntimeMutationSurface {
     if (captain === undefined) {
       throw new TeamDomainError('dedicated Captain did not register after approval; the Team is active and waits for recovery', 'TEAM_CAPTAIN_PROVISION_PENDING')
     }
-    for (const member of draft.members) {
-      await this.deps.provisioning.addMember({ agent: captain, signal: exec.signal } as ToolExecutionAuthority, {
-        name: member.name,
-        role: member.role,
-        ...(member.llmProvider === undefined ? {} : { llmProvider: member.llmProvider }),
-        ...(member.model === undefined ? {} : { model: member.model }),
-        ...(member.denyTools === undefined ? {} : { denyTools: member.denyTools }),
-      })
-    }
+    await this.provisionPlannedMembers(captain, draft, exec.signal)
     const fresh = (await this.deps.listTeamAggregates(scope)).find(candidate => candidate.id === staged.id)
     if (fresh === undefined) throw new TeamDomainError('approved Team disappeared after provisioning', 'TEAM_NOT_FOUND')
-    const byKey = new Map<string, TaskId>()
-    for (const task of draft.tasks) {
-      const blockedBy = (task.dependencies ?? []).map(key => {
-        const taskId = byKey.get(key)
-        if (taskId === undefined) throw new TeamDomainError(`plan task "${task.key}" depends on unresolved task "${key}"`, 'TEAM_INPUT_INVALID')
-        return taskId
-      })
-      const target = task.targetMemberName === undefined
-        ? undefined
-        : resolveTaskTarget(fresh.members, task.targetMemberName)
-      const created = await this.deps.domain().createTask(scope, fresh.id, captainId, {
-        subject: task.subject,
-        description: task.description,
-        acceptanceCriteria: task.acceptanceCriteria ?? [],
-        blockedBy,
-        ...(task.writeScopes === undefined ? {} : { writeScopes: task.writeScopes }),
-        ...(target === undefined ? {} : { targetMemberSessionId: target }),
-      })
-      byKey.set(task.key, created.id)
-    }
+    await this.createPlannedTasks(scope, fresh, captainId, draft)
     return committed
   }
 
@@ -214,9 +187,20 @@ export class RuntimeMutationSurface {
     if (draft === undefined) return team
     const live = (await this.deps.listTeamAggregates(scope)).find(candidate => candidate.id === team.id)
     if (live === undefined) throw new TeamDomainError(`approved Team "${team.id}" disappeared during recovery`, 'TEAM_NOT_FOUND')
+    await this.provisionPlannedMembers(captain, draft, new AbortController().signal, member => live.members.some(existing => existing.name === member.name && existing.phase === 'active'))
+    if (live.tasks.length > 0) return await this.deps.listTeamAggregates(scope).then(all => all.find(candidate => candidate.id === team.id) ?? team)
+    const ready = (await this.deps.listTeamAggregates(scope)).find(candidate => candidate.id === team.id)
+    if (ready === undefined) throw new TeamDomainError(`approved Team "${team.id}" disappeared while creating tasks`, 'TEAM_NOT_FOUND')
+    const taskTeam = (await this.deps.listTeamAggregates(scope)).find(candidate => candidate.id === team.id)
+    if (taskTeam === undefined) throw new TeamDomainError(`approved Team "${team.id}" disappeared while creating tasks`, 'TEAM_NOT_FOUND')
+    await this.createPlannedTasks(scope, taskTeam, captainId, draft)
+    return (await this.deps.listTeamAggregates(scope)).find(candidate => candidate.id === team.id) ?? team
+  }
+
+  private async provisionPlannedMembers(captain: Agent, draft: TeamPlanDraft, signal: AbortSignal, skip?: (member: TeamPlanDraft['members'][number]) => boolean): Promise<void> {
     for (const member of draft.members) {
-      if (live.members.some(existing => existing.name === member.name && existing.phase === 'active')) continue
-      await this.deps.provisioning.addMember({ agent: captain, signal: new AbortController().signal } as ToolExecutionAuthority, {
+      if (skip?.(member) === true) continue
+      await this.deps.provisioning.addMember({ agent: captain, signal } as ToolExecutionAuthority, {
         name: member.name,
         role: member.role,
         ...(member.llmProvider === undefined ? {} : { llmProvider: member.llmProvider }),
@@ -224,9 +208,9 @@ export class RuntimeMutationSurface {
         ...(member.denyTools === undefined ? {} : { denyTools: member.denyTools }),
       })
     }
-    if (live.tasks.length > 0) return await this.deps.listTeamAggregates(scope).then(all => all.find(candidate => candidate.id === team.id) ?? team)
-    const ready = (await this.deps.listTeamAggregates(scope)).find(candidate => candidate.id === team.id)
-    if (ready === undefined) throw new TeamDomainError(`approved Team "${team.id}" disappeared while creating tasks`, 'TEAM_NOT_FOUND')
+  }
+
+  private async createPlannedTasks(scope: TeamScope, team: TeamState, captainId: SessionId, draft: TeamPlanDraft): Promise<void> {
     const byKey = new Map<string, TaskId>()
     for (const task of draft.tasks) {
       const blockedBy = (task.dependencies ?? []).map(key => {
@@ -234,7 +218,7 @@ export class RuntimeMutationSurface {
         if (taskId === undefined) throw new TeamDomainError(`plan task "${task.key}" depends on unresolved task "${key}"`, 'TEAM_INPUT_INVALID')
         return taskId
       })
-      const target = task.targetMemberName === undefined ? undefined : resolveTaskTarget(ready.members, task.targetMemberName)
+      const target = task.targetMemberName === undefined ? undefined : resolveTaskTarget(team.members, task.targetMemberName)
       const created = await this.deps.domain().createTask(scope, team.id, captainId, {
         subject: task.subject,
         description: task.description,
@@ -245,8 +229,8 @@ export class RuntimeMutationSurface {
       })
       byKey.set(task.key, created.id)
     }
-    return (await this.deps.listTeamAggregates(scope)).find(candidate => candidate.id === team.id) ?? team
   }
+
   private async assertMainBrain(root: Agent, scope: TeamScope): Promise<void> {
     if (root.session.header.parentSession !== undefined || await this.deps.domain().findMembership(scope, root.id) !== undefined) {
       throw new TeamDomainError('managed Team operations require a top-level main Chat outside every Team', 'TEAM_CAPTAIN_REQUIRED')
