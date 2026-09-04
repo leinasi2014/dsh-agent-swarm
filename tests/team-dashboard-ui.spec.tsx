@@ -61,6 +61,34 @@ describe('R3 native Team Details surface', () => {
     expect(team.getAttribute('aria-expanded')).toBe('false')
   })
 
+  it('renders the task dependency DAG in the Tasks tab', async () => {
+    const snapshot = SWARM_READ_RPC_FIXTURES_V1.values.snapshot as Record<string, unknown>
+    const baseArray = snapshot.tasks as unknown as Array<Record<string, unknown>>
+    const base = baseArray[0] ?? { id: 't0', revision: 1, subject: 'x', status: 'pending', blockedBy: [], priority: 0, createdAt: 1, updatedAt: 1 }
+    const tasks = [] as Array<Record<string, unknown>>
+    for (const id of ['t1', 't2', 't3']) tasks.push({ ...base, id, subject: 'Task ' + id, status: 'pending', blockedBy: [] })
+    tasks[1]!.blockedBy = ['t1']
+    tasks[2]!.blockedBy = ['t2']
+    const dagState: TeamDashboardState = {
+      open: true, phase: 'ready', targetSessionId: 'main-brain',
+      data: {
+        capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never,
+        projection: { ...snapshot, tasks } as never,
+        teams: SWARM_READ_RPC_FIXTURES_V1.values.teams as never,
+        captainAnnouncements: SWARM_READ_RPC_FIXTURES_V1.values.captainAnnouncements as never,
+        captainDiagnostics: SWARM_READ_RPC_FIXTURES_V1.values.captainDiagnostics as never,
+        captainMembers: SWARM_READ_RPC_FIXTURES_V1.values.captainMembers as never,
+      },
+    }
+    const dagController = { getSnapshot: (): TeamDashboardState => dagState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+    const coordinator = new FakeCoordinator()
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: dagController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    await act(async () => { tabButton('tasks')!.click() })
+    expect(document.querySelectorAll('[data-swarm-dag-node]')).toHaveLength(3)
+    expect(document.querySelectorAll('[data-swarm-dag-edge]')).toHaveLength(2)
+    expect(document.querySelector('[data-swarm-dag-node="t3"]')?.getAttribute('data-swarm-dag-tone')).toBe('open')
+  })
+
   it('renders the attention card from pending human interactions', async () => {
     const snapshot = SWARM_READ_RPC_FIXTURES_V1.values.snapshot as Record<string, unknown>
     const attentionState: TeamDashboardState = {
@@ -812,4 +840,5 @@ function activityAttempt(id: string, phase: 'running' | 'submitted' | 'verifying
 function projectionForActivity({ tasks, attempts, memberPhase = 'active' }: { tasks: ReturnType<typeof activityTask>[]; attempts: ReturnType<typeof activityAttempt>[]; memberPhase?: 'provisioning' | 'active' | 'failed' | 'removed' }) {
   return { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot, roster: [{ name: 'worker', role: 'Verifier', phase: memberPhase, createdAt: 1 }], tasks, attempts, totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, roster: 1, tasks: tasks.length, attempts: attempts.length } } as never
 }
+
 

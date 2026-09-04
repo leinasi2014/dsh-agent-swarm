@@ -7,6 +7,7 @@ import type { TeamDashboardController, TeamDashboardState } from './team-dashboa
 import type { TeamDashboardSurfaceCoordinator } from './team-dashboard-surface-coordinator.js'
 import { TEAM_DASHBOARD_NS, type TeamDashboardKey } from './team-dashboard-locales.js'
 import { SafePixelAvatar } from './SafePixelAvatar.js'
+import { TaskDag } from './team-task-dag.js'
 
 /** The read contract reports un-generated member assets with a stable reason; the UI never fabricates one. */
 const NOT_GENERATED_AVATAR: SwarmReadAssetStatusV1 = { state: 'not_generated', reason: 'avatar_backend_not_implemented' }
@@ -494,7 +495,9 @@ function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, sta
           <div className="swarm-team-workspace__block-head"><span>{t('tasks')}</span><small data-swarm-task-count>{number.format(data.tasks.length)} {t('taskCount')}</small></div>
           {data.tasks.length === 0
             ? <p className="swarm-team-workspace__muted" data-swarm-task-empty>{t('empty')}</p>
-            : <section className="swarm-team-workspace__table" data-swarm-task-rows>
+            : <>
+              <TaskDag tasks={data.tasks} t={t} />
+              <section className="swarm-team-workspace__table" data-swarm-task-rows>
               {data.tasks.map(task => (
                 <button key={task.id} className="swarm-team-workspace__table-row" type="button" aria-haspopup="dialog" data-swarm-task-id={task.id} data-swarm-task-status={task.status} onClick={() => { openDetail({ kind: 'task', id: task.id }) }}>
                   <span className="swarm-team-workspace__table-copy"><strong title={task.subject}>{task.subject}</strong><small>{task.id}</small></span>
@@ -502,7 +505,8 @@ function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, sta
                   <span className="swarm-team-workspace__table-side" data-swarm-task-state>{enumLabel(task.status, t)}</span>
                 </button>
               ))}
-            </section>}
+            </section>
+            </>}
         </div>}
         {view === 'notices' && <div role="tabpanel" id="swarm-panel-notices" aria-labelledby="swarm-tab-notices" data-swarm-panel="notices">
           <div className="swarm-team-workspace__block-head"><span>{t('announcements')}</span><small data-swarm-notice-count>{number.format(entries.length)} {t('announcementCount')}</small></div>
