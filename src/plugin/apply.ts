@@ -310,6 +310,16 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
       scopes,
       teams: scope => runtime.listTeamAggregates(scope),
     })
+    // P0-2 S4: an approved managed Team whose Captain never registered after
+    // the durable staged->active commit is re-provisioned now (crash window).
+    for (const scope of scopes) {
+      for (const team of await runtime.listTeamAggregates(scope)) {
+        if (team.phase !== 'active' || team.managedOrigin === undefined || team.captainSessionId === '') continue
+        if (ctx.agents.get(SessionId(team.captainSessionId)) !== undefined) continue
+        try { await runtime.recoverApprovedTeam(scope, team) }
+        catch (error) { ctx.logger.warn(`agent-swarm: approved Captain recovery failed for ${team.id}: ${String(error)}`) }
+      }
+    }
     // M3-1 (issue #100): the execution-root residue scan — crash-left roots
     // whose attempts no longer hold them are alarmed and marked reclaimable
     // (kept for captain decision); roots of still-redrivable attempts report
@@ -347,5 +357,6 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
     ctx.effect(() => () => projection.dispose(), 'agent-swarm: jobs bridge disposal')
   }
 }
+
 
 

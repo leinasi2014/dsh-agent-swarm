@@ -186,6 +186,67 @@ export class RuntimeMutationSurface {
     return await this.deps.domain().discardStagedPlan(scope, team.id, expectedRevision)
   }
 
+
+  /**
+   * Crash-window recovery for an approved managed Team: the staged->active
+   * commit already happened but the declared dedicated Captain (and possibly
+   * the planned members/tasks) were never provisioned. Re-provisions the
+   * declared Captain on the existing Team, then the missing planned members
+   * and — only when no task exists yet — the planned task graph. Idempotent:
+   * a live Captain and present members are left untouched.
+   */
+  async recoverApprovedTeam(scope: TeamScope, team: TeamState): Promise<TeamState> {
+    if (team.phase !== 'active' || team.managedOrigin === undefined || team.captainSessionId === '') return team
+    const captainId = SessionId(team.captainSessionId)
+    let captain = this.deps.ctx.agents.get(captainId)
+    if (captain === undefined) {
+      const rootId = String(team.managedOrigin).replace(/^managed:([^:]+):.*/u, '$1')
+      let root = this.deps.ctx.agents.get(SessionId(rootId))
+      if (root === undefined) {
+        const resumed = await this.deps.ctx.agents.resume({ resumeSessionId: SessionId(rootId) })
+        root = resumed.agent
+      }
+      await this.deps.captainProvisioning.provisionForTeam({ scope, team, root, captainId, signal: new AbortController().signal })
+      captain = this.deps.ctx.agents.get(captainId)
+      if (captain === undefined) throw new TeamDomainError('approved Captain re-provision did not register', 'TEAM_CAPTAIN_PROVISION_PENDING')
+    }
+    const draft = team.planDraft
+    if (draft === undefined) return team
+    const live = (await this.deps.listTeamAggregates(scope)).find(candidate => candidate.id === team.id)
+    if (live === undefined) throw new TeamDomainError(`approved Team "${team.id}" disappeared during recovery`, 'TEAM_NOT_FOUND')
+    for (const member of draft.members) {
+      if (live.members.some(existing => existing.name === member.name && existing.phase === 'active')) continue
+      await this.deps.provisioning.addMember({ agent: captain, signal: new AbortController().signal } as ToolExecutionAuthority, {
+        name: member.name,
+        role: member.role,
+        ...(member.llmProvider === undefined ? {} : { llmProvider: member.llmProvider }),
+        ...(member.model === undefined ? {} : { model: member.model }),
+        ...(member.denyTools === undefined ? {} : { denyTools: member.denyTools }),
+      })
+    }
+    if (live.tasks.length > 0) return await this.deps.listTeamAggregates(scope).then(all => all.find(candidate => candidate.id === team.id) ?? team)
+    const ready = (await this.deps.listTeamAggregates(scope)).find(candidate => candidate.id === team.id)
+    if (ready === undefined) throw new TeamDomainError(`approved Team "${team.id}" disappeared while creating tasks`, 'TEAM_NOT_FOUND')
+    const byKey = new Map<string, TaskId>()
+    for (const task of draft.tasks) {
+      const blockedBy = (task.dependencies ?? []).map(key => {
+        const taskId = byKey.get(key)
+        if (taskId === undefined) throw new TeamDomainError(`plan task "${task.key}" depends on unresolved task "${key}"`, 'TEAM_INPUT_INVALID')
+        return taskId
+      })
+      const target = task.targetMemberName === undefined ? undefined : resolveTaskTarget(ready.members, task.targetMemberName)
+      const created = await this.deps.domain().createTask(scope, team.id, captainId, {
+        subject: task.subject,
+        description: task.description,
+        acceptanceCriteria: task.acceptanceCriteria ?? [],
+        blockedBy,
+        ...(task.writeScopes === undefined ? {} : { writeScopes: task.writeScopes }),
+        ...(target === undefined ? {} : { targetMemberSessionId: target }),
+      })
+      byKey.set(task.key, created.id)
+    }
+    return (await this.deps.listTeamAggregates(scope)).find(candidate => candidate.id === team.id) ?? team
+  }
   private async assertMainBrain(root: Agent, scope: TeamScope): Promise<void> {
     if (root.session.header.parentSession !== undefined || await this.deps.domain().findMembership(scope, root.id) !== undefined) {
       throw new TeamDomainError('managed Team operations require a top-level main Chat outside every Team', 'TEAM_CAPTAIN_REQUIRED')
@@ -342,6 +403,7 @@ export class RuntimeMutationSurface {
     return await this.deps.delivery.deliverQueuedMessage(scope, membership.team.id, captain, message.id, exec.signal) ?? message
   }
 }
+
 
 
 

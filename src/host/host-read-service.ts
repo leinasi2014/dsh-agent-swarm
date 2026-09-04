@@ -137,6 +137,13 @@ export class AgentSwarmHostReadService {
     if (active.length > 1 || owned.length > 1) {
       throw new TeamDomainError('Host root maps to multiple Teams; a lookup hint is required', 'SWARM_HOST_BINDING_AMBIGUOUS')
     }
+    // Plan-first staged Team: the Main Brain owns it but no Captain Session
+    // exists yet, so the dedicated-Captain path below cannot resolve it.
+    const staged = owned.filter(team => team.phase === 'staged')
+    if (staged.length === 1) return staged[0]!.id
+    if (staged.length > 1) {
+      throw new TeamDomainError('Host root maps to multiple staged Teams; a lookup hint is required', 'SWARM_HOST_BINDING_AMBIGUOUS')
+    }
     // A Main Brain root is not itself a Captain; resolve through its managed dedicated Captain
     // Session(s) to the single Captain-rooted Team (architecture: main brain → Captain → Team).
     const children = this.deps.managedCaptainSessionsOf?.(rootSessionId) ?? []
@@ -376,6 +383,8 @@ function project(
     team: {
       id: team.id, name: team.name, phase: team.phase, revision: team.revision,
       createdAt: team.createdAt, updatedAt: team.updatedAt,
+      ...(team.phase === 'staged' && team.planDraft !== undefined
+        ? { plan: { members: team.planDraft.members.length, tasks: team.planDraft.tasks.length } } : {}),
     },
     roster,
     tasks,
@@ -429,3 +438,5 @@ function displayName(
 function optionalName<K extends 'ownerName' | 'targetMemberName' | 'memberName'>(key: K, value: string | undefined): Partial<Record<K, string>> {
   return value === undefined ? {} : { [key]: value } as Record<K, string>
 }
+
+

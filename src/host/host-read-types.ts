@@ -28,6 +28,8 @@ export interface SwarmHostReadProjectionV1 {
     readonly revision: number
     readonly createdAt: number
     readonly updatedAt: number
+    /** Plan-first summary (member/task declarations); present only while staged. */
+    readonly plan?: { readonly members: number; readonly tasks: number }
   }
   readonly roster: readonly {
     readonly name: string
@@ -113,4 +115,5 @@ export interface SwarmHostTeamsProjectionV1 {
   readonly observedAt: number
   readonly complete: boolean
 }
+
 

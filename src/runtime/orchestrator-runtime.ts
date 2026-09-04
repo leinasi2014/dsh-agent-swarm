@@ -353,6 +353,11 @@ export class AgentSwarmRuntime extends Service {
     return await this.mutations.createWithDedicatedCaptain(exec, name, description, options)
   }
   /** Plan-first: create a staged managed Team (no Captain provisioned yet). */
+  /** S4 recovery: re-provision the declared Captain and missing plan work after approve-commit/crash. */
+  async recoverApprovedTeam(scope: TeamScope, team: TeamState): Promise<TeamState> {
+    return await this.mutations.recoverApprovedTeam(scope, team)
+  }
+
   async createStagedManaged(exec: ToolExecutionAuthority, name: string, description: string): Promise<TeamState> {
     return await this.mutations.createStagedManaged(exec, name, description)
   }
@@ -617,6 +622,7 @@ export class AgentSwarmRuntime extends Service {
     if (failures.length > 0) throw new AggregateError(failures, 'Team orchestrator disposal failed')
   }
 }
+
 
 
 

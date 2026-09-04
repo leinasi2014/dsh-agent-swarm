@@ -85,6 +85,8 @@ export class AgentSwarmProducerFloorService {
           phase: snapshot.team.phase,
           revision: snapshot.team.revision,
           updatedAt: snapshot.team.updatedAt,
+          ...(snapshot.team.phase === 'staged' && snapshot.team.planDraft !== undefined
+            ? { plan: { members: snapshot.team.planDraft.members.length, tasks: snapshot.team.planDraft.tasks.length } } : {}),
         },
         counts: {
           members: snapshot.team.members.length,
@@ -297,3 +299,4 @@ function strictOwnFields(input: unknown, allowed: ReadonlySet<string>): Record<s
 function validBoundedString(value: unknown, maxLength: number): value is string {
   return typeof value === 'string' && value.trim() !== '' && [...value].length <= maxLength
 }
+
