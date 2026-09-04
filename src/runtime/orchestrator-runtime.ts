@@ -5,7 +5,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Domain } from '@deepseek-ai/dsh-storage-domain'
 import type {} from '@deepseek-ai/dsh-subagent'
-import type { TaskAttempt, TeamAnnouncement, TeamId, TeamMessage, TeamMessageCausal, TeamState, TeamStatusSnapshot, TeamTask } from '../domain/types.js'
+import type { TaskAttempt, TeamAnnouncement, TeamId, TeamMessage, TeamMessageCausal, TeamPlanDraft, TeamState, TeamStatusSnapshot, TeamTask } from '../domain/types.js'
 import { TeamDomain } from '../domain/team-domain.js'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import { TeamDomainError } from '../domain/error.js'
@@ -319,7 +319,8 @@ export class AgentSwarmRuntime extends Service {
     return teams.filter(team =>
       team.captainSessionId === callerId
       || managedChildren.has(team.captainSessionId)
-      || parentOf(team.captainSessionId) === callerId)
+      || parentOf(team.captainSessionId) === callerId
+      || (team.phase === 'staged' && String(team.managedOrigin ?? '').startsWith(`managed:${callerId}:`)))
   }
 
   /** Latch one scope into the jobs projection (idempotent, best-effort). */
@@ -351,6 +352,26 @@ export class AgentSwarmRuntime extends Service {
   async createWithDedicatedCaptain(exec: ToolExecutionAuthority, name: string, description: string, options: { llmProvider?: string; model?: string } = {}): Promise<TeamState> {
     return await this.mutations.createWithDedicatedCaptain(exec, name, description, options)
   }
+  /** Plan-first: create a staged managed Team (no Captain provisioned yet). */
+  async createStagedManaged(exec: ToolExecutionAuthority, name: string, description: string): Promise<TeamState> {
+    return await this.mutations.createStagedManaged(exec, name, description)
+  }
+
+  /** Plan-first: Main Brain stores its bounded plan declaration. */
+  async setPlan(exec: ToolExecutionAuthority, teamId: string, expectedRevision: number, draft: TeamPlanDraft): Promise<TeamState> {
+    return await this.mutations.setPlan(exec, teamId, expectedRevision, draft)
+  }
+
+  /** Plan-first approval: activation + captain/member/task provisioning. */
+  async approvePlan(exec: ToolExecutionAuthority, teamId: string, expectedRevision: number, options: { llmProvider?: string; model?: string } = {}): Promise<TeamState> {
+    return await this.mutations.approvePlan(exec, teamId, expectedRevision, options)
+  }
+
+  /** Plan-first: archive the owning Main Brain's staged draft. */
+  async discardPlan(exec: ToolExecutionAuthority, teamId: string, expectedRevision: number): Promise<TeamState> {
+    return await this.mutations.discardPlan(exec, teamId, expectedRevision)
+  }
+
 
   async addMember(exec: ToolExecutionAuthority, input: { name: string; role: string; provider?: string; llmProvider?: string; model?: string; denyTools?: readonly string[] } & MemberIdentityInput): Promise<TeamState['members'][number]> {
     return await this.mutations.addMember(exec, input)
@@ -596,3 +617,5 @@ export class AgentSwarmRuntime extends Service {
     if (failures.length > 0) throw new AggregateError(failures, 'Team orchestrator disposal failed')
   }
 }
+
+

@@ -23,6 +23,7 @@ import type {
   TeamMessageCausal,
   TeamMessageDelivery,
   TeamMessageId,
+  TeamPlanDraft,
   TeamInteractionEffect,
   TeamMembership,
   TeamState,
@@ -129,6 +130,14 @@ export interface CreateTaskInput {
  * the selected aggregate store.
  */
 export interface TeamDomainPort {
+  /** Plan-first: create a durable staged managed Team (no Captain Session). */
+  createStagedManaged(scope: TeamScope, managedOrigin: string, name: string, description: string): Promise<TeamState>
+  /** Plan-first: store one bounded plan declaration (staged only, revision CAS). */
+  setPlanDraft(scope: TeamScope, teamId: TeamId, expectedRevision: number, draft: TeamPlanDraft): Promise<TeamState>
+  /** Plan-first: atomic staged -> active commit with the provisioned Captain id. */
+  approveStagedPlan(scope: TeamScope, teamId: TeamId, expectedRevision: number, captainSessionId: string): Promise<TeamState>
+  /** Plan-first: archive one staged draft without creating work (idempotent). */
+  discardStagedPlan(scope: TeamScope, teamId: TeamId, expectedRevision: number): Promise<TeamState>
   createTeam(
     scope: TeamScope,
     captainSessionId: string,
@@ -402,3 +411,5 @@ export interface TeamDomainPort {
     signal: AbortSignal,
   ): Promise<TeamStatusSnapshot>
 }
+
+

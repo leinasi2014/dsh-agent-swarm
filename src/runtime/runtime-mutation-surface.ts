@@ -1,7 +1,8 @@
+import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import { TaskId, type AttemptId, type TaskAttempt, type TeamAnnouncement, type TeamId, type TeamMessage, type TeamMessageCausal, type TeamState, type TeamTask } from '../domain/types.js'
+import { TaskId, TeamId, type AttemptId, type TaskAttempt, type TeamAnnouncement, type TeamMessage, type TeamMessageCausal, type TeamPlanDraft, type TeamState, type TeamTask } from '../domain/types.js'
 import type { CreateTaskInput, TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import { TeamDomainError } from '../domain/error.js'
 import type { MemberIdentityInput } from '../domain/identity-profile.js'
@@ -81,6 +82,113 @@ export class RuntimeMutationSurface {
     }
   }
 
+
+  /** Plan-first: create a durable staged managed Team (no Captain is provisioned). */
+  async createStagedManaged(exec: ToolExecutionAuthority, name: string, description: string): Promise<TeamState> {
+    await this.deps.ensureReady(); this.deps.assertOpen()
+    const root = requireAgent(exec), scope = this.deps.scopeOf(root)
+    await this.assertMainBrain(root, scope)
+    const identity = this.resolveManagedIdentity(root, exec)
+    return await this.deps.domain().createStagedManaged(scope, identity, name, description)
+  }
+
+  /** Plan-first: Main Brain stores one bounded declaration on its staged Team. */
+  async setPlan(exec: ToolExecutionAuthority, teamId: string, expectedRevision: number, draft: TeamPlanDraft): Promise<TeamState> {
+    await this.deps.ensureReady(); this.deps.assertOpen()
+    const root = requireAgent(exec), scope = this.deps.scopeOf(root)
+    await this.assertMainBrain(root, scope)
+    const team = await this.ownedStagedTeam(root, scope, teamId)
+    return await this.deps.domain().setPlanDraft(scope, team.id, expectedRevision, draft)
+  }
+
+  /**
+   * Plan-first approval: durable staged->active commit first, then provision
+   * the declared dedicated Captain, the planned members and the planned task
+   * graph (plan-local keys mapped to real task ids, dependencies wired,
+   * targets resolved to member sessions). Any provisioning failure after the
+   * commit leaves the Team active for the recovery path; the next approved
+   * state is never silently rolled back.
+   */
+  async approvePlan(exec: ToolExecutionAuthority, teamId: string, expectedRevision: number, options: { llmProvider?: string; model?: string } = {}): Promise<TeamState> {
+    await this.deps.ensureReady(); this.deps.assertOpen(); this.deps.assertConfiguredProviders()
+    const root = requireAgent(exec), scope = this.deps.scopeOf(root)
+    await this.assertMainBrain(root, scope)
+    const staged = await this.ownedStagedTeam(root, scope, teamId)
+    const draft = staged.planDraft
+    if (draft === undefined || draft.members.length === 0 || draft.tasks.length === 0) {
+      throw new TeamDomainError('approval requires a complete plan declaration (members and tasks)', 'TEAM_PLAN_INCOMPLETE')
+    }
+    const captainId = SessionId(randomUUID())
+    const committed = await this.deps.domain().approveStagedPlan(scope, staged.id, expectedRevision, String(captainId))
+    await this.deps.captainProvisioning.provisionForTeam({
+      scope, team: committed, root, captainId, signal: exec.signal,
+      ...(options.llmProvider === undefined ? {} : { llmProvider: options.llmProvider }),
+      ...(options.model === undefined ? {} : { model: options.model }),
+    })
+    const captain = this.deps.ctx.agents.get(captainId)
+    if (captain === undefined) {
+      throw new TeamDomainError('dedicated Captain did not register after approval; the Team is active and waits for recovery', 'TEAM_CAPTAIN_PROVISION_PENDING')
+    }
+    for (const member of draft.members) {
+      await this.deps.provisioning.addMember({ agent: captain, signal: exec.signal } as ToolExecutionAuthority, {
+        name: member.name,
+        role: member.role,
+        ...(member.llmProvider === undefined ? {} : { llmProvider: member.llmProvider }),
+        ...(member.model === undefined ? {} : { model: member.model }),
+        ...(member.denyTools === undefined ? {} : { denyTools: member.denyTools }),
+      })
+    }
+    const fresh = (await this.deps.listTeamAggregates(scope)).find(candidate => candidate.id === staged.id)
+    if (fresh === undefined) throw new TeamDomainError('approved Team disappeared after provisioning', 'TEAM_NOT_FOUND')
+    const byKey = new Map<string, TaskId>()
+    for (const task of draft.tasks) {
+      const blockedBy = (task.dependencies ?? []).map(key => {
+        const taskId = byKey.get(key)
+        if (taskId === undefined) throw new TeamDomainError(`plan task "${task.key}" depends on unresolved task "${key}"`, 'TEAM_INPUT_INVALID')
+        return taskId
+      })
+      const target = task.targetMemberName === undefined
+        ? undefined
+        : resolveTaskTarget(fresh.members, task.targetMemberName)
+      const created = await this.deps.domain().createTask(scope, fresh.id, captainId, {
+        subject: task.subject,
+        description: task.description,
+        acceptanceCriteria: task.acceptanceCriteria ?? [],
+        blockedBy,
+        ...(task.writeScopes === undefined ? {} : { writeScopes: task.writeScopes }),
+        ...(target === undefined ? {} : { targetMemberSessionId: target }),
+      })
+      byKey.set(task.key, created.id)
+    }
+    return committed
+  }
+
+  /** Plan-first: archive one staged draft owned by the calling Main Brain. */
+  async discardPlan(exec: ToolExecutionAuthority, teamId: string, expectedRevision: number): Promise<TeamState> {
+    await this.deps.ensureReady(); this.deps.assertOpen()
+    const root = requireAgent(exec), scope = this.deps.scopeOf(root)
+    await this.assertMainBrain(root, scope)
+    const team = await this.ownedStagedTeam(root, scope, teamId)
+    return await this.deps.domain().discardStagedPlan(scope, team.id, expectedRevision)
+  }
+
+  private async assertMainBrain(root: Agent, scope: TeamScope): Promise<void> {
+    if (root.session.header.parentSession !== undefined || await this.deps.domain().findMembership(scope, root.id) !== undefined) {
+      throw new TeamDomainError('managed Team operations require a top-level main Chat outside every Team', 'TEAM_CAPTAIN_REQUIRED')
+    }
+  }
+
+  private async ownedStagedTeam(root: Agent, scope: TeamScope, teamId: string): Promise<TeamState> {
+    const teams = await this.deps.listTeamAggregates(scope)
+    const team = teams.find(candidate => candidate.id === TeamId(teamId))
+    if (team === undefined) throw new TeamDomainError(`team "${teamId}" not found`, 'TEAM_NOT_FOUND')
+    if (team.phase !== 'staged') throw new TeamDomainError('plan operation requires a staged Team', 'TEAM_PHASE_INVALID')
+    const prefix = `managed:${String(root.id)}:`
+    if ((team.managedOrigin ?? '').startsWith(prefix) === false) {
+      throw new TeamDomainError('plan operation requires ownership by the calling Main Brain', 'TEAM_UNAUTHORIZED')
+    }
+    return team
+  }
   private resolveManagedIdentity(root: Agent, exec: ToolExecutionAuthority): string {
     const main = String(root.id)
     const callId = exec.callId === undefined ? undefined : String(exec.callId)
@@ -220,3 +328,5 @@ export class RuntimeMutationSurface {
     return await this.deps.delivery.deliverQueuedMessage(scope, membership.team.id, captain, message.id, exec.signal) ?? message
   }
 }
+
+
