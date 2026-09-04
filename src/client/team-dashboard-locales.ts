@@ -164,6 +164,10 @@ export const en = {
   'boundTeam': 'Current team',
   'openOtherTeam': 'Switch to this Team',
   'subtitle.executing': 'executing',
+  'stagedPlan.title': 'Plan review',
+  'stagedPlan.summary': '{members} members · {tasks} tasks declared',
+  'stagedPlan.hint': 'Approve & run in the chat via agent_swarm_approve_plan(ask_user=true), or discard with agent_swarm_discard_plan.',
+  'stagedPlan.absent': 'No staged plan.',
   'announcement.latest': 'Latest announcement',
   'announcementCount': 'entries',
   'taskCount': 'items',
@@ -380,6 +384,10 @@ export const zh: Record<keyof typeof en, string> = {
   'boundTeam': '当前团队',
   'openOtherTeam': '切换到该团队',
   'subtitle.executing': '人执行中',
+  'stagedPlan.title': '计划审批',
+  'stagedPlan.summary': '已声明 {members} 名成员 · {tasks} 项任务',
+  'stagedPlan.hint': '返回对话用 agent_swarm_approve_plan(ask_user=true) 批准并运行，或用 agent_swarm_discard_plan 放弃。',
+  'stagedPlan.absent': '暂无待审批计划。',
   'announcement.latest': '最新公告',
   'announcementCount': '条',
   'taskCount': '项',
@@ -433,5 +441,6 @@ export const zh: Record<keyof typeof en, string> = {
 }
 
 export type TeamDashboardKey = keyof typeof en
+
 
 

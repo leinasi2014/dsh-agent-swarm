@@ -61,6 +61,27 @@ describe('R3 native Team Details surface', () => {
     expect(team.getAttribute('aria-expanded')).toBe('false')
   })
 
+  it('renders the staged plan review card for a staged Team projection', async () => {
+    const snapshot = SWARM_READ_RPC_FIXTURES_V1.values.snapshot as Record<string, unknown>
+    const teams = SWARM_READ_RPC_FIXTURES_V1.values.teams as { teams: Array<Record<string, unknown>> }
+    const stagedState: TeamDashboardState = {
+      open: true, phase: 'ready', targetSessionId: 'main-brain',
+      data: {
+        capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never,
+        projection: { ...snapshot, team: { ...(snapshot.team as Record<string, unknown>), phase: 'staged', plan: { members: 2, tasks: 3 } } } as never,
+        teams: { ...teams, teams: teams.teams.map(row => ({ ...row, phase: 'staged', captainSessionId: '' })) } as never,
+        captainAnnouncements: SWARM_READ_RPC_FIXTURES_V1.values.captainAnnouncements as never,
+        captainDiagnostics: SWARM_READ_RPC_FIXTURES_V1.values.captainDiagnostics as never,
+        captainMembers: SWARM_READ_RPC_FIXTURES_V1.values.captainMembers as never,
+      },
+    }
+    const stagedController = { getSnapshot: (): TeamDashboardState => stagedState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+    const coordinator = new FakeCoordinator()
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: stagedController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    expect(document.querySelector('[data-swarm-staged-plan-summary]')?.textContent).toContain('2 members')
+    expect(document.querySelector('[data-swarm-staged-plan-summary]')?.textContent).toContain('3 tasks')
+    expect(document.querySelector('[data-swarm-staged-plan-hint]')).not.toBeNull()
+  })
   it('uses the unique public Details occupant: team rail, header title, goal/announcement cards, four tabs', async () => {
     const coordinator = new FakeCoordinator(); const common = { anchorRef: { current: null }, controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t }
     await render(<TeamDashboardDetails {...(common as any)} />)
@@ -771,3 +792,4 @@ function activityAttempt(id: string, phase: 'running' | 'submitted' | 'verifying
 function projectionForActivity({ tasks, attempts, memberPhase = 'active' }: { tasks: ReturnType<typeof activityTask>[]; attempts: ReturnType<typeof activityAttempt>[]; memberPhase?: 'provisioning' | 'active' | 'failed' | 'removed' }) {
   return { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot, roster: [{ name: 'worker', role: 'Verifier', phase: memberPhase, createdAt: 1 }], tasks, attempts, totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, roster: 1, tasks: tasks.length, attempts: attempts.length } } as never
 }
+

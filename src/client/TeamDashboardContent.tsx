@@ -354,7 +354,15 @@ function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, sta
                 : <span className="swarm-team-workspace__public-content swarm-team-workspace__unavailable" data-swarm-goal-not-set>{t('goalNotSet')}</span>}
           </span>
         </section>
-        <section className="swarm-team-workspace__public-card" data-swarm-announcement-preview>
+        <section className="swarm-team-workspace__public-card" data-swarm-staged-plan data-swarm-staged-plan-state={data.team.phase === 'staged' ? 'pending' : 'absent'}>
+          <span className="swarm-team-workspace__public-copy">
+            <span className="swarm-team-workspace__public-title">{t('stagedPlan.title')}</span>
+            {data.team.phase === 'staged'
+              ? <span className="swarm-team-workspace__public-content" data-swarm-staged-plan-summary>{t('stagedPlan.summary', { members: data.team.plan?.members ?? 0, tasks: data.team.plan?.tasks ?? 0 })}</span>
+              : <span className="swarm-team-workspace__public-content swarm-team-workspace__unavailable">{t('stagedPlan.absent')}</span>}
+            {data.team.phase === 'staged' && <span className="swarm-team-workspace__public-content swarm-team-workspace__muted" data-swarm-staged-plan-hint>{t('stagedPlan.hint')}</span>}
+          </span>
+        </section>        <section className="swarm-team-workspace__public-card" data-swarm-announcement-preview>
           <span className="swarm-team-workspace__public-copy">
             <span className="swarm-team-workspace__public-title">{t('announcement.latest')}</span>
             {announcements === undefined
@@ -844,4 +852,5 @@ function Facts({ rows }: { readonly rows: readonly (readonly [string, string])[]
 type WireEnum = SwarmHostReadProjectionV1['team']['phase'] | SwarmHostReadProjectionV1['roster'][number]['phase'] | SwarmHostReadProjectionV1['tasks'][number]['status'] | SwarmHostReadProjectionV1['attempts'][number]['phase']
 const enumKey = Object.freeze({ staged: 'enum.staged', active: 'enum.active', archived: 'enum.archived', provisioning: 'enum.provisioning', failed: 'enum.failed', removed: 'enum.removed', pending: 'enum.pending', in_progress: 'enum.in_progress', submitted: 'enum.submitted', verifying: 'enum.verifying', completed: 'enum.completed', cancelled: 'enum.cancelled', running: 'enum.running', accepted: 'enum.accepted', rejected: 'enum.rejected', stale: 'enum.stale' } as const satisfies Record<WireEnum, TeamDashboardKey>)
 function enumLabel(value: WireEnum, t: TranslateNS<typeof TEAM_DASHBOARD_NS>): string { return t(enumKey[value]) }
+
 
