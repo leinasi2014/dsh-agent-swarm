@@ -26,7 +26,7 @@ declare module '@deepseek-ai/dsh-llm' {
 }
 
 /** Closed-namespace gesture: `/swarm` (with optional trailing goal). */
-export const SWARM_GESTURE = '/swarm'
+const SWARM_GESTURE = '/swarm'
 /** Match only a genuine leading gesture; `/swarmfoo` or a mid-sentence mention is prose. */
 const GESTURE = /^\/swarm(?=$|[\t\n\r ])/u
 
@@ -42,7 +42,7 @@ export function parseSwarmInvocation(text: string): SwarmInvocation | undefined 
 }
 
 /** Scan the newest user message first; only genuine user text may activate. */
-export function invokedSwarmInvocation(messages: readonly UserMessage[]): SwarmInvocation | undefined {
+function invokedSwarmInvocation(messages: readonly UserMessage[]): SwarmInvocation | undefined {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index]
     if (message === undefined || message.source.kind !== 'user') continue
@@ -92,3 +92,4 @@ export function installSwarmGestureBoundary(ctx: Context, enabled = true): () =>
     }
   })
 }
+
