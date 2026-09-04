@@ -26,6 +26,7 @@ import { effectiveToolPolicy, TeamPermissionSurface } from '../runtime/permissio
 import { reviewerAgentReviewProvider } from '../runtime/reviewer-boundary.js'
 import { assembleAgentSwarmHostRead, assembleAgentSwarmProducerFloor, mountAgentSwarmReadRpc } from '../host/host-read-assembly.js'
 import { AGENT_SWARM_USAGE_PROMPT } from '../runtime/usage-prompt.js'
+import { installSwarmGestureBoundary } from '../runtime/gesture.js'
 import { TeamSkillSurface } from '../runtime/team-skill-surface.js'
 import {
   AGENT_SWARM_SETTINGS_NAMESPACE,
@@ -70,6 +71,7 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
     })
   }
   if (config.enabled === false) return
+  ctx.effect(() => installSwarmGestureBoundary(ctx, config.swarmGesture !== false), 'agent-swarm: /swarm gesture boundary')
   assertServiceableConfig(config)
   const memberProvider = (config.memberProvider ?? 'spawn').trim()
   const schedulerProvider = (config.schedulerProvider ?? 'priority-ready').trim()
@@ -343,3 +345,4 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
     ctx.effect(() => () => projection.dispose(), 'agent-swarm: jobs bridge disposal')
   }
 }
+
