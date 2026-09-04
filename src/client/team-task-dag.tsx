@@ -39,10 +39,10 @@ function compactTaskDag(tasks: readonly DagTask[]): DagLayout {
     bucket.push(task)
     byDepth.set(column, bucket)
   }
-  const columns = [...byDepth.keys()].sort((left, right) => left - right)
+  const columns = [...byDepth.keys()].toSorted((left, right) => left - right)
   const nodes: DagNode[] = []
   for (const column of columns) {
-    const bucket = (byDepth.get(column) ?? []).slice().sort((left, right) => left.id.localeCompare(right.id))
+    const bucket = (byDepth.get(column) ?? []).toSorted((left, right) => left.id.localeCompare(right.id))
     bucket.forEach((task, row) => nodes.push({ task, x: column * (NODE_WIDTH + COLUMN_GAP), y: row * (NODE_HEIGHT + ROW_GAP) }))
   }
   const position = new Map(nodes.map(node => [node.task.id, node]))
@@ -122,4 +122,5 @@ export function TaskDag({ tasks, t }: { readonly tasks: readonly DagTask[]; read
     </section>
   )
 }
+
 
