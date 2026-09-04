@@ -179,7 +179,7 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
     return await withLock(scopeLocksFor(this.domain), scope, async () => {
       for (const record of this.teams.entries()) {
         if (record[1].workspace !== scope) continue
-        if (record[1].team.phase === 'active' && record[1].team.managedOrigin === state.managedOrigin) {
+        if ((record[1].team.phase === 'active' || record[1].team.phase === 'staged') && record[1].team.managedOrigin === state.managedOrigin) {
           const winner = this.validate(record[1], record[0])
           if (winner !== undefined) return winner
         }
@@ -326,3 +326,4 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
     for (const notify of pending) notify()
   }
 }
+

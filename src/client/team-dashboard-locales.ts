@@ -22,6 +22,8 @@ export const en = {
   'team': 'Team',
   'members': 'Members',
   'tasks': 'Tasks',
+  'dag.title': 'Task dependencies',
+  'dag.hint': 'columns = dependency depth',
   'attempts': 'Attempts',
   'budget': 'Budget',
   'interactions': 'Pending interactions',
@@ -139,6 +141,7 @@ export const en = {
   'diagnosticsTrace': 'Tool trace',
   'diagnosticsTraceUnavailable': 'Not exposed by the Host read contract',
   'diagnosticsBackend': 'Team store backend',
+  'enum.staged': 'Staged (plan draft)',
   'enum.active': 'Active',
   'enum.archived': 'Archived',
   'enum.provisioning': 'Provisioning',
@@ -163,6 +166,12 @@ export const en = {
   'boundTeam': 'Current team',
   'openOtherTeam': 'Switch to this Team',
   'subtitle.executing': 'executing',
+  'attention.title': 'Needs your attention',
+  'attention.row': '{intent} · {target}',
+  'stagedPlan.title': 'Plan review',
+  'stagedPlan.summary': '{members} members · {tasks} tasks declared',
+  'stagedPlan.hint': 'Approve & run in the chat via agent_swarm_approve_plan(ask_user=true), or discard with agent_swarm_discard_plan.',
+  'stagedPlan.absent': 'No staged plan.',
   'announcement.latest': 'Latest announcement',
   'announcementCount': 'entries',
   'taskCount': 'items',
@@ -237,6 +246,8 @@ export const zh: Record<keyof typeof en, string> = {
   'team': '团队',
   'members': '成员',
   'tasks': '任务',
+  'dag.title': '任务依赖',
+  'dag.hint': '列 = 依赖层级',
   'attempts': '尝试',
   'budget': '预算',
   'interactions': '待处理交互',
@@ -354,6 +365,7 @@ export const zh: Record<keyof typeof en, string> = {
   'diagnosticsTrace': '工具轨迹',
   'diagnosticsTraceUnavailable': 'Host 读取契约未暴露',
   'diagnosticsBackend': '团队存储后端',
+  'enum.staged': '待审批（计划草稿）',
   'enum.active': '活跃',
   'enum.archived': '已归档',
   'enum.provisioning': '配置中',
@@ -378,6 +390,12 @@ export const zh: Record<keyof typeof en, string> = {
   'boundTeam': '当前团队',
   'openOtherTeam': '切换到该团队',
   'subtitle.executing': '人执行中',
+  'attention.title': '需要你处理',
+  'attention.row': '{intent} · {target}',
+  'stagedPlan.title': '计划审批',
+  'stagedPlan.summary': '已声明 {members} 名成员 · {tasks} 项任务',
+  'stagedPlan.hint': '返回对话用 agent_swarm_approve_plan(ask_user=true) 批准并运行，或用 agent_swarm_discard_plan 放弃。',
+  'stagedPlan.absent': '暂无待审批计划。',
   'announcement.latest': '最新公告',
   'announcementCount': '条',
   'taskCount': '项',
@@ -431,3 +449,6 @@ export const zh: Record<keyof typeof en, string> = {
 }
 
 export type TeamDashboardKey = keyof typeof en
+
+
+

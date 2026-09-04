@@ -17,6 +17,9 @@ export const TeamMessageId = (value: string): TeamMessageId => value as TeamMess
 
 type TeamMemberPhase = 'provisioning' | 'active' | 'failed' | 'removed'
 
+/** Team lifecycle phases: staged is the plan-first declaration (no Captain Session yet). */
+type TeamPhase = 'staged' | 'active' | 'archived'
+
 /**
  * Captain-declared identity profile for one roster member. Every field is
  * optional on the durable record: when absent the read projection honestly
@@ -233,6 +236,32 @@ export interface TeamAnnouncement {
   readonly createdAt: number
 }
 
+/** One bounded member declaration inside a staged plan draft. */
+interface TeamPlanMember {
+  readonly name: string
+  readonly role: string
+  readonly llmProvider?: string
+  readonly model?: string
+  readonly denyTools?: readonly string[]
+}
+
+/** One bounded task declaration inside a staged plan draft (plan-local keys). */
+interface TeamPlanTask {
+  readonly key: string
+  readonly subject: string
+  readonly description: string
+  readonly acceptanceCriteria?: readonly string[]
+  readonly dependencies?: readonly string[]
+  readonly targetMemberName?: string
+  readonly writeScopes?: readonly string[]
+}
+
+/** Plan-first declaration: the whole pre-approval roster and task graph. */
+export interface TeamPlanDraft {
+  readonly members: readonly TeamPlanMember[]
+  readonly tasks: readonly TeamPlanTask[]
+}
+
 export interface TeamState {
   readonly schemaVersion: 1 | 2
   readonly id: TeamId
@@ -249,7 +278,11 @@ export interface TeamState {
    * the Team predates the policy or intentionally inherits host defaults.
    */
   readonly allowedSkills?: string[]
-  readonly phase: 'active' | 'archived'
+  readonly phase: TeamPhase
+  /** Plan-first declaration; present only while phase === 'staged'. */
+  readonly planDraft?: TeamPlanDraft
+  /** Terminal marker for a discarded staged plan. */
+  readonly discardReason?: string
   readonly members: TeamMember[]
   /** Canonical bounded public goal (schema v2, Captain-declared). Absence = explicit
    *  `not_generated` on the read; presence is always the validated canonical form. */
@@ -317,3 +350,5 @@ export interface TeamStatusSnapshot {
   readonly readyTaskIds: TaskId[]
   readonly pendingMessageIds: TeamMessageId[]
 }
+
+

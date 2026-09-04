@@ -303,7 +303,7 @@ const MANAGED_TEAM_ROW_SCHEMA = {
   properties: {
     team_id: { type: 'string', required: true },
     name: { type: 'string', required: true },
-    phase: { type: 'string', required: true, enum: ['active', 'archived'] },
+    phase: { type: 'string', required: true, enum: ['staged', 'active', 'archived'] },
     captain_session_id: { type: 'string', required: true, description: 'Official dedicated Captain Session navigation id; open it via the official Session seam.' },
     managed_origin: { type: 'string', description: 'Managed-Team operation identity; present only on agent_swarm_create_managed Teams (absent for captain-owned compat Teams).' },
     display_name: { type: 'string', description: 'Captain display name; present only when the Captain declared an identity profile.' },
@@ -476,3 +476,4 @@ export function registerListJobsTool(ctx: Context, runtime: AgentSwarmRuntime): 
     },
   }), 'list-jobs tool')
 }
+

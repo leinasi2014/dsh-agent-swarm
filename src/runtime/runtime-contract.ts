@@ -9,9 +9,22 @@
 
 import type { TeamLimits } from '../domain/types.js'
 import type { OrchestrationMode } from './orchestration-ownership.js'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { AgentSwarmRuntime } from './orchestrator-runtime.js'
 import type { TeamSkillSurface } from './team-skill-surface.js'
 
+
+/** Official human approval seam for the plan-first gate (P0-2 S3). */
+export interface PlanApprovalPort {
+  readonly ask: (input: {
+    readonly agent: Agent
+    readonly signal: AbortSignal
+    readonly teamId: string
+    readonly question: string
+    readonly approveLabel: string
+    readonly discardLabel: string
+  }) => Promise<'approve' | 'discard'>
+}
 export interface RuntimeConfig {
   readonly memberProvider: string
   readonly memberLlmProvider?: string
@@ -21,6 +34,8 @@ export interface RuntimeConfig {
   readonly memberMaxDepth: number
   readonly schedulerProvider: string
   readonly reviewProvider: string
+  /** Optional official userQuestions gate for plan approval (fail-closed when absent). */
+  readonly planApproval?: PlanApprovalPort
   /**
    * Review execution root supply name (M3-2, issue #101): builtin `temp`
    * (plain temp directory) or a registered #100-family Provider. Consumed
@@ -69,3 +84,4 @@ declare module '@deepseek-ai/cordis' {
     agentSwarm: AgentSwarmRuntime
   }
 }
+

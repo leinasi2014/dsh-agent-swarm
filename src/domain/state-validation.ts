@@ -58,6 +58,67 @@ function unique(values: readonly string[], path: string, label: string): void {
   if (new Set(values).size !== values.length) corrupt(path, `${label} contains duplicate identities`)
 }
 
+
+const PLAN_MEMBER_KEYS = new Set(['name', 'role', 'llmProvider', 'model', 'denyTools'])
+const PLAN_TASK_KEYS = new Set(['key', 'subject', 'description', 'acceptanceCriteria', 'dependencies', 'targetMemberName', 'writeScopes'])
+const MAX_PLAN_ROWS = 64
+
+/** Structural + bounded validation of the pre-approval plan declaration. */
+function assertPlanDraftShape(value: unknown, path: string): void {
+  const draft = record(value, path, 'planDraft')
+  exactKeys(draft, path, new Set(['members', 'tasks']))
+  const memberNames = new Set<string>()
+  const members = list(draft.members, path, 'planDraft.members')
+  if (members.length > MAX_PLAN_ROWS) corrupt(path, 'planDraft.members exceeds the limit')
+  members.forEach((raw, index) => {
+    const member = record(raw, path, `planDraft.members[${index}]`)
+    exactKeys(member, `${path}.planDraft.members[${index}]`, PLAN_MEMBER_KEYS)
+    const name = codePointText(member.name, 64, path, `planDraft.members[${index}].name`)
+    if (memberNames.has(name)) corrupt(path, `planDraft.members[${index}].name is not unique`)
+    memberNames.add(name)
+    codePointText(member.role, 256, path, `planDraft.members[${index}].role`)
+    if (member.llmProvider !== undefined) codePointText(member.llmProvider, 128, path, `planDraft.members[${index}].llmProvider`)
+    if (member.model !== undefined) codePointText(member.model, 128, path, `planDraft.members[${index}].model`)
+    if (member.denyTools !== undefined) {
+      const deny = stringList(member.denyTools, path, `planDraft.members[${index}].denyTools`)
+      if (deny.length > MAX_PLAN_ROWS) corrupt(path, `planDraft.members[${index}].denyTools exceeds the limit`)
+    }
+  })
+  const taskKeys = new Set<string>()
+  const tasks = list(draft.tasks, path, 'planDraft.tasks')
+  if (tasks.length > MAX_PLAN_ROWS) corrupt(path, 'planDraft.tasks exceeds the limit')
+  tasks.forEach((raw, index) => {
+    const task = record(raw, path, `planDraft.tasks[${index}]`)
+    exactKeys(task, `${path}.planDraft.tasks[${index}]`, PLAN_TASK_KEYS)
+    const key = text(task.key, path, `planDraft.tasks[${index}].key`)
+    if (!/^[a-z0-9][a-z0-9-]{0,31}$/.test(key)) corrupt(path, `planDraft.tasks[${index}].key is malformed`)
+    if (taskKeys.has(key)) corrupt(path, `planDraft.tasks[${index}].key is not unique`)
+    taskKeys.add(key)
+    codePointText(task.subject, 256, path, `planDraft.tasks[${index}].subject`)
+    codePointText(task.description, 16_384, path, `planDraft.tasks[${index}].description`)
+    if (task.acceptanceCriteria !== undefined) {
+      const criteria = stringList(task.acceptanceCriteria, path, `planDraft.tasks[${index}].acceptanceCriteria`)
+      if (criteria.length > 16) corrupt(path, `planDraft.tasks[${index}].acceptanceCriteria exceeds the limit`)
+    }
+    if (task.targetMemberName !== undefined) codePointText(task.targetMemberName, 64, path, `planDraft.tasks[${index}].targetMemberName`)
+    if (task.writeScopes !== undefined) {
+      const scopes = stringList(task.writeScopes, path, `planDraft.tasks[${index}].writeScopes`)
+      if (scopes.length > 16) corrupt(path, `planDraft.tasks[${index}].writeScopes exceeds the limit`)
+    }
+  })
+  for (const raw of tasks) {
+    const task = record(raw, path, 'planDraft.tasks')
+    const key = text(task.key, path, 'planDraft.tasks.key')
+    const dependencies = task.dependencies === undefined ? [] : stringList(task.dependencies, path, `planDraft.tasks.${key}.dependencies`)
+    if (dependencies.includes(key)) corrupt(path, `planDraft task "${key}" depends on itself`)
+    for (const dependency of dependencies) {
+      if (!taskKeys.has(dependency)) corrupt(path, `planDraft task "${key}" depends on unknown task "${dependency}"`)
+    }
+    if (task.targetMemberName !== undefined && !memberNames.has(String(task.targetMemberName))) {
+      corrupt(path, `planDraft task "${key}" targets unknown member "${String(task.targetMemberName)}"`)
+    }
+  }
+}
 /** Validate the complete persisted compatibility format before it gains domain authority. */
 export function assertTeamState(value: unknown, path: string): asserts value is TeamState {
   const team = record(value, path, 'root')
@@ -67,13 +128,20 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
   integer(team.revision, path, 'revision', 1)
   text(team.name, path, 'name')
   text(team.description, path, 'description')
-  text(team.captainSessionId, path, 'captainSessionId')
+  const captainless = team.phase === 'staged' || (team.phase === 'archived' && team.discardReason === 'discarded')
+  if (captainless) {
+    if (String(team.captainSessionId) !== '') corrupt(path, 'staged/discarded Team must not carry a Captain session')
+  } else {
+    text(team.captainSessionId, path, 'captainSessionId')
+  }
   if (team.managedOrigin !== undefined) text(team.managedOrigin, path, 'managedOrigin')
-  if (team.phase !== 'active' && team.phase !== 'archived') corrupt(path, 'phase is invalid')
+  if (team.phase !== 'staged' && team.phase !== 'active' && team.phase !== 'archived') corrupt(path, 'phase is invalid')
   integer(team.nextTaskNumber, path, 'nextTaskNumber', 1)
   integer(team.nextMemoryNumber, path, 'nextMemoryNumber', 1)
   integer(team.createdAt, path, 'createdAt')
   integer(team.updatedAt, path, 'updatedAt')
+  if (team.planDraft !== undefined) assertPlanDraftShape(team.planDraft, path + '.planDraft')
+  if (team.discardReason !== undefined) codePointText(team.discardReason, 128, path, 'discardReason')
 
   if (team.publicGoal !== undefined) {
     const goal = codePointText(team.publicGoal, MAX_PUBLIC_GOAL, path, 'publicGoal')
@@ -315,3 +383,6 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
     corrupt(path, error instanceof Error ? error.message : 'task graph is invalid')
   }
 }
+
+
+

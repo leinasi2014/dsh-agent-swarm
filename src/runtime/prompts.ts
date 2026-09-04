@@ -18,6 +18,9 @@ export const CAPTAIN_ONLY_TOOLS = [
   'agent_swarm_set_captain_profile',
   'agent_swarm_publish_announcement',
   'agent_swarm_set_public_goal',
+  'agent_swarm_set_plan',
+  'agent_swarm_approve_plan',
+  'agent_swarm_discard_plan',
 ] as const
 
 /**
@@ -153,3 +156,4 @@ export function messageFrame(message: TeamMessage): string {
     message.content,
   )
 }
+

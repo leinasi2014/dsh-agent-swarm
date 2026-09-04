@@ -866,7 +866,7 @@ function growthSummaryOf(team: TeamState, memberSessionId: string): Pick<SwarmRe
 /** Build one first-level Team descriptor from the authoritative host projection row, enriched with
  *  the Team's real Captain identity profile and public goal when present (avatar/identity card
  *  re-allowlisted at read time, honest `not_generated`/`goal_not_set` otherwise — never fabricated). */
-function teamDescriptorOf(rootSessionId: string, team: { teamId: string; name: string; phase: 'active' | 'archived'; captainSessionId: string }, captain?: TeamMemberIdentityProfile, publicGoal?: string) {
+function teamDescriptorOf(rootSessionId: string, team: { teamId: string; name: string; phase: 'staged' | 'active' | 'archived'; captainSessionId: string }, captain?: TeamMemberIdentityProfile, publicGoal?: string) {
   const avatar: SwarmReadAssetStatusV1 = captain?.pixelAvatarSvg !== undefined && isSafePixelAvatarSvg(captain.pixelAvatarSvg)
     ? { state: 'generated', svg: captain.pixelAvatarSvg }
     : { state: 'not_generated', reason: 'avatar_backend_not_implemented' }
@@ -1008,3 +1008,4 @@ function isIpv4Loopback(value: string): boolean {
     && octets[0] === '127'
     && octets.every(octet => /^\d{1,3}$/u.test(octet) && Number(octet) <= 255)
 }
+

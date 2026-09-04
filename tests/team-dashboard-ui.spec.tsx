@@ -61,6 +61,75 @@ describe('R3 native Team Details surface', () => {
     expect(team.getAttribute('aria-expanded')).toBe('false')
   })
 
+  it('renders the task dependency DAG in the Tasks tab', async () => {
+    const snapshot = SWARM_READ_RPC_FIXTURES_V1.values.snapshot as Record<string, unknown>
+    const baseArray = snapshot.tasks as unknown as Array<Record<string, unknown>>
+    const base = baseArray[0] ?? { id: 't0', revision: 1, subject: 'x', status: 'pending', blockedBy: [], priority: 0, createdAt: 1, updatedAt: 1 }
+    const tasks = [] as Array<Record<string, unknown>>
+    for (const id of ['t1', 't2', 't3']) tasks.push({ ...base, id, subject: 'Task ' + id, status: 'pending', blockedBy: [] })
+    tasks[1]!.blockedBy = ['t1']
+    tasks[2]!.blockedBy = ['t2']
+    const dagState: TeamDashboardState = {
+      open: true, phase: 'ready', targetSessionId: 'main-brain',
+      data: {
+        capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never,
+        projection: { ...snapshot, tasks } as never,
+        teams: SWARM_READ_RPC_FIXTURES_V1.values.teams as never,
+        captainAnnouncements: SWARM_READ_RPC_FIXTURES_V1.values.captainAnnouncements as never,
+        captainDiagnostics: SWARM_READ_RPC_FIXTURES_V1.values.captainDiagnostics as never,
+        captainMembers: SWARM_READ_RPC_FIXTURES_V1.values.captainMembers as never,
+      },
+    }
+    const dagController = { getSnapshot: (): TeamDashboardState => dagState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+    const coordinator = new FakeCoordinator()
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: dagController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    await act(async () => { tabButton('tasks')!.click() })
+    expect(document.querySelectorAll('[data-swarm-dag-node]')).toHaveLength(3)
+    expect(document.querySelectorAll('[data-swarm-dag-edge]')).toHaveLength(2)
+    expect(document.querySelector('[data-swarm-dag-node="t3"]')?.getAttribute('data-swarm-dag-tone')).toBe('open')
+  })
+
+  it('renders the attention card from pending human interactions', async () => {
+    const snapshot = SWARM_READ_RPC_FIXTURES_V1.values.snapshot as Record<string, unknown>
+    const attentionState: TeamDashboardState = {
+      open: true, phase: 'ready', targetSessionId: 'main-brain',
+      data: {
+        capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never,
+        projection: { ...snapshot, pendingInteractions: [{ requestId: 'human-attn-1', intent: 'member-question', targetKind: 'member', targetRef: 'worker', status: 'pending', createdAt: 1, updatedAt: 1 }] } as never,
+        teams: SWARM_READ_RPC_FIXTURES_V1.values.teams as never,
+        captainAnnouncements: SWARM_READ_RPC_FIXTURES_V1.values.captainAnnouncements as never,
+        captainDiagnostics: SWARM_READ_RPC_FIXTURES_V1.values.captainDiagnostics as never,
+        captainMembers: SWARM_READ_RPC_FIXTURES_V1.values.captainMembers as never,
+      },
+    }
+    const attentionController = { getSnapshot: (): TeamDashboardState => attentionState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+    const coordinator = new FakeCoordinator()
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: attentionController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    expect(document.querySelector('[data-swarm-attention]')).not.toBeNull()
+    expect(document.querySelector('[data-swarm-attention-row="human-attn-1"]')?.textContent).toContain('member-question')
+  })
+
+  it('renders the staged plan review card for a staged Team projection', async () => {
+    const snapshot = SWARM_READ_RPC_FIXTURES_V1.values.snapshot as Record<string, unknown>
+    const teams = SWARM_READ_RPC_FIXTURES_V1.values.teams as { teams: Array<Record<string, unknown>> }
+    const stagedState: TeamDashboardState = {
+      open: true, phase: 'ready', targetSessionId: 'main-brain',
+      data: {
+        capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never,
+        projection: { ...snapshot, team: { ...(snapshot.team as Record<string, unknown>), phase: 'staged', plan: { members: 2, tasks: 3 } } } as never,
+        teams: { ...teams, teams: teams.teams.map(row => ({ ...row, phase: 'staged', captainSessionId: '' })) } as never,
+        captainAnnouncements: SWARM_READ_RPC_FIXTURES_V1.values.captainAnnouncements as never,
+        captainDiagnostics: SWARM_READ_RPC_FIXTURES_V1.values.captainDiagnostics as never,
+        captainMembers: SWARM_READ_RPC_FIXTURES_V1.values.captainMembers as never,
+      },
+    }
+    const stagedController = { getSnapshot: (): TeamDashboardState => stagedState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+    const coordinator = new FakeCoordinator()
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: stagedController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    expect(document.querySelector('[data-swarm-staged-plan-summary]')?.textContent).toContain('2 members')
+    expect(document.querySelector('[data-swarm-staged-plan-summary]')?.textContent).toContain('3 tasks')
+    expect(document.querySelector('[data-swarm-staged-plan-hint]')).not.toBeNull()
+  })
   it('uses the unique public Details occupant: team rail, header title, goal/announcement cards, four tabs', async () => {
     const coordinator = new FakeCoordinator(); const common = { anchorRef: { current: null }, controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t }
     await render(<TeamDashboardDetails {...(common as any)} />)
@@ -771,3 +840,5 @@ function activityAttempt(id: string, phase: 'running' | 'submitted' | 'verifying
 function projectionForActivity({ tasks, attempts, memberPhase = 'active' }: { tasks: ReturnType<typeof activityTask>[]; attempts: ReturnType<typeof activityAttempt>[]; memberPhase?: 'provisioning' | 'active' | 'failed' | 'removed' }) {
   return { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot, roster: [{ name: 'worker', role: 'Verifier', phase: memberPhase, createdAt: 1 }], tasks, attempts, totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, roster: 1, tasks: tasks.length, attempts: attempts.length } } as never
 }
+
+

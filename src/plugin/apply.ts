@@ -21,11 +21,13 @@ import { HumanControlGateway } from '../human/human-control-gateway.js'
 import { HumanInteractionOverlayStore, humanInteractionDomainSpec } from '../human/human-interaction-store.js'
 import { humanReviewProvider } from '../human/human-review-provider.js'
 import { officialCaptainQuestionPresentation } from '../human/official-question-presentation.js'
+import { officialPlanApprovalProvider } from '../human/plan-approval-provider.js'
 import { DEFAULT_HOST_CONTEXT_TTL_MS, DEFAULT_MAX_HOST_CONTEXTS, mountHostContext } from '../human/host-context-service.js'
 import { effectiveToolPolicy, TeamPermissionSurface } from '../runtime/permission-surface.js'
 import { reviewerAgentReviewProvider } from '../runtime/reviewer-boundary.js'
 import { assembleAgentSwarmHostRead, assembleAgentSwarmProducerFloor, mountAgentSwarmReadRpc } from '../host/host-read-assembly.js'
 import { AGENT_SWARM_USAGE_PROMPT } from '../runtime/usage-prompt.js'
+import { installSwarmGestureBoundary } from '../runtime/gesture.js'
 import { TeamSkillSurface } from '../runtime/team-skill-surface.js'
 import {
   AGENT_SWARM_SETTINGS_NAMESPACE,
@@ -70,6 +72,7 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
     })
   }
   if (config.enabled === false) return
+  ctx.effect(() => installSwarmGestureBoundary(ctx, config.swarmGesture !== false), 'agent-swarm: /swarm gesture boundary')
   assertServiceableConfig(config)
   const memberProvider = (config.memberProvider ?? 'spawn').trim()
   const schedulerProvider = (config.schedulerProvider ?? 'priority-ready').trim()
@@ -98,6 +101,7 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
     ...(config.captainLlmProvider === undefined ? {} : { captainLlmProvider: config.captainLlmProvider }),
     ...(config.captainModel === undefined ? {} : { captainModel: config.captainModel }),
     memberMaxDepth: config.memberMaxDepth ?? 1,
+    planApproval: officialPlanApprovalProvider(ctx),
     schedulerProvider,
     reviewProvider,
     reviewRootProvider,
@@ -306,6 +310,16 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
       scopes,
       teams: scope => runtime.listTeamAggregates(scope),
     })
+    // P0-2 S4: an approved managed Team whose Captain never registered after
+    // the durable staged->active commit is re-provisioned now (crash window).
+    for (const scope of scopes) {
+      for (const team of await runtime.listTeamAggregates(scope)) {
+        if (team.phase !== 'active' || team.managedOrigin === undefined || team.captainSessionId === '') continue
+        if (ctx.agents.get(SessionId(team.captainSessionId)) !== undefined) continue
+        try { await runtime.recoverApprovedTeam(scope, team) }
+        catch (error) { ctx.logger.warn(`agent-swarm: approved Captain recovery failed for ${team.id}: ${String(error)}`) }
+      }
+    }
     // M3-1 (issue #100): the execution-root residue scan — crash-left roots
     // whose attempts no longer hold them are alarmed and marked reclaimable
     // (kept for captain decision); roots of still-redrivable attempts report
@@ -343,3 +357,6 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
     ctx.effect(() => () => projection.dispose(), 'agent-swarm: jobs bridge disposal')
   }
 }
+
+
+
