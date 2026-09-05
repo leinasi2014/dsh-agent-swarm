@@ -60,7 +60,7 @@ export class ExecutionRootSurface {
   async settleClaim(scope: TeamScope, team: TeamState, claim: { task: TeamTask; attempt: TaskAttempt }): Promise<ClaimWithRoot> {
     if (!this.deps.enabled()) return claim
     try {
-      const lease = await this.roots.acquire(scope, team.id, claim.task.id, claim.attempt.id)
+      const lease = await this.roots.acquire(scope, team.id, claim.task.id, claim.attempt.id, claim.attempt.memberSessionId)
       return { ...claim, executionRoot: { path: lease.path, isolation: lease.isolation } }
     } catch (error) {
       const diagnostic = `execution root acquisition failed: ${error instanceof Error ? error.message : String(error)}`

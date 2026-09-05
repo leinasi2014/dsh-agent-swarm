@@ -13,7 +13,7 @@ import { TeamDomainError } from '../domain/error.js'
 import type { MemberIdentityInput } from '../domain/identity-profile.js'
 import { StorageDomainTeamStore } from '../storage/storage-domain-team-store.js'
 import { teamDomainSpec } from '../storage/team-spec.js'
-import { requireAgent, workspaceOf, type ToolExecutionAuthority } from './authority.js'
+import { requireAgent, type ToolExecutionAuthority } from './authority.js'
 import { boundedSettle } from './disposal.js'
 import { ExecutionRootSurface } from './execution-root-surface.js'
 import type { ExecutionRootResidue, TeamExecutionRootProvider } from './execution-roots.js'
@@ -258,9 +258,9 @@ export class AgentSwarmRuntime extends Service {
     return this.executionRoots.registerProvider(name, provider)
   }
 
-  /** Canonical workspace scope key partitioning this agent's Team namespace. */
+  /** Team scope partitions this agent's Team namespace from its STABLE session header cwd — never authority.workspaceOf, which a fenced member binds to its execution root (#191). */
   scopeOf(agent: Agent): TeamScope {
-    return resolve(workspaceOf(agent))
+    return resolve(agent.session.header.cwd ?? process.cwd())
   }
 
   /**

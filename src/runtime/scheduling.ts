@@ -211,7 +211,7 @@ export class SchedulingPass {
     let executionRootPath: string | undefined
     if (this.deps.executionRootsEnabled()) {
       try {
-        executionRootPath = (await this.deps.executionRoots().acquire(scope, team.id, task.id, attempt.id)).path
+        executionRootPath = (await this.deps.executionRoots().acquire(scope, team.id, task.id, attempt.id, attempt.memberSessionId)).path
       } catch (error) {
         await this.rollbackUndeliveredAssignment(
           scope,

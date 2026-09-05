@@ -344,7 +344,15 @@ export class RuntimeMutationSurface {
     await this.deps.ensureReady(); this.deps.assertOpen()
     const actor = requireAgent(exec), scope = this.deps.scopeOf(actor)
     const membership = await this.deps.domain().requireMembership(scope, actor.id)
-    const task = await this.deps.domain().submitTask(scope, membership.team.id, actor.id, TaskId(input.taskId), input.expectedRevision, input.attemptId as AttemptId, input.output, input.evidence)
+    const attemptId = input.attemptId as AttemptId
+    // Issue #191: submitting a git-worktree attempt must persist a durable
+    // diff/patch of the isolated worktree into the attempt evidence, so review
+    // can read the code the root once isolated after the root is reclaimed.
+    // Captured BEFORE the domain submit (the sweep below reclaims the root).
+    const evidence = [...(input.evidence ?? [])]
+    const durableDiff = await this.deps.executionRoots.roots.captureWorktreeDiff(scope, membership.team.id, TaskId(input.taskId), attemptId)
+    if (durableDiff !== undefined) evidence.push(durableDiff)
+    const task = await this.deps.domain().submitTask(scope, membership.team.id, actor.id, TaskId(input.taskId), input.expectedRevision, attemptId, input.output, evidence)
     await this.deps.executionRoots.sweep(scope, membership.team.id)
     return task
   }

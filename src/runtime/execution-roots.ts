@@ -28,6 +28,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { TeamDomainError } from '../domain/error.js'
 import type { AttemptId, TaskId, TeamId, TeamState } from '../domain/types.js'
 import type { TeamScope } from '../domain/team-domain-port.js'
+import { bindExecutionWorkspace } from './authority.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -74,6 +75,14 @@ export interface ExecutionLease {
   readonly path: string
   readonly isolation: ExecutionRootIsolation
   readonly acquiredAt: number
+  /**
+   * The member Session working this attempt, when the lease was acquired
+   * through the dispatch/self-claim path. Used only to bind the member's
+   * effective tool workspace to the root (issue #191) and to release that
+   * binding when the root is reclaimed. Absent for leases acquired by the
+   * standalone fault tests, which never resolve a member tool workspace.
+   */
+  readonly memberSessionId?: string
 }
 
 /** One scan verdict over an on-disk root at activation recovery. */
@@ -243,8 +252,9 @@ export function gitWorktreeExecutionRoots(base: string): TeamExecutionRootProvid
 /** Serialized per-fence root supply, sweep and crash-residue detection. */
 export class ExecutionRoots {
   private readonly providers = new Map<string, TeamExecutionRootProvider>()
-  /** Fence tuple → its live lease plus the supplying root's release handle. */
-  private readonly leases = new Map<string, { readonly lease: ExecutionLease; readonly release: () => Promise<void> }>()
+  /** Fence tuple → its live lease plus the supplying root's release handle and
+   * the member tool-workspace binding disposer (issue #191), when bound. */
+  private readonly leases = new Map<string, { readonly lease: ExecutionLease; readonly release: () => Promise<void>; unbind?: () => void }>()
   private readonly inflight = new Map<string, Promise<ExecutionLease>>()
 
   constructor(
@@ -301,11 +311,19 @@ export class ExecutionRoots {
     return marker?.path ?? fallback
   }
 
-  /** Acquire (or re-attach) the root of one fence tuple; exactly-once per tuple. */
-  async acquire(scope: TeamScope, teamId: TeamId, taskId: TaskId, attemptId: AttemptId): Promise<ExecutionLease> {
+  /** Acquire (or re-attach) the root of one fence tuple; exactly-once per tuple.
+   * When `memberSessionId` is supplied, bind that member's effective tool
+   * workspace to the root for as long as this lease lives (issue #191). */
+  async acquire(scope: TeamScope, teamId: TeamId, taskId: TaskId, attemptId: AttemptId, memberSessionId?: string): Promise<ExecutionLease> {
     const fence = ExecutionRoots.fence(scope, teamId, taskId, attemptId)
     const leased = this.leases.get(fence)
-    if (leased !== undefined) return leased.lease
+    if (leased !== undefined) {
+      // Re-attach: the fence tuple is deterministic, so any member identity is
+      // the same one that originally acquired it; an absent identity means the
+      // earlier acquire never bound a member (standalone fault paths), which is
+      // left as-is so workspaceOf keeps its stable header-cwd fallback.
+      return leased.lease
+    }
     const pending = this.inflight.get(fence)
     if (pending !== undefined) return await pending
     const operation = (async () => {
@@ -325,8 +343,10 @@ export class ExecutionRoots {
       }
       const lease: ExecutionLease = {
         scope, teamId, taskId, attemptId, path: root.path, isolation: root.isolation, acquiredAt: Date.now(),
+        ...(memberSessionId === undefined ? {} : { memberSessionId }),
       }
-      this.leases.set(fence, { lease, release: () => root.release() })
+      const unbind = memberSessionId === undefined ? undefined : bindExecutionWorkspace(memberSessionId, root.path)
+      this.leases.set(fence, { lease, release: () => root.release(), ...(unbind === undefined ? {} : { unbind }) })
       return lease
     })()
     this.inflight.set(fence, operation)
@@ -348,6 +368,10 @@ export class ExecutionRoots {
     const entry = this.leases.get(fence)
     if (entry === undefined) return
     this.leases.delete(fence)
+    // Release the member's tool-workspace binding BEFORE reclaiming the root
+    // (issue #191): once the root is gone, workspaceOf must fall back to the
+    // member's stable header cwd, never a reclaimed path.
+    entry.unbind?.()
     try {
       await entry.release()
     } catch (error) {
@@ -375,6 +399,32 @@ export class ExecutionRoots {
     for (const { lease } of this.leases.values()) {
       await this.release(lease.scope, lease.teamId, lease.taskId, lease.attemptId, reason)
     }
+  }
+
+  /**
+   * Capture a durable git diff/patch of a git-worktree execution root's
+   * isolated worktree (issue #191). When the live lease for the fence tuple
+   * is a `git-worktree`, run `git diff --binary` inside the root and persist
+   * the output to a durable `.patch` file BESIDE the root — the root itself
+   * is reclaimed on settle, so this file is review's only window into the
+   * code the root once isolated. Returns the patch file's absolute path, or
+   * `undefined` when the attempt holds no git-worktree root (a `temp-directory`
+   * root is not a git checkout, and an absent lease means nothing to capture).
+   * A git failure on a declared worktree root is best-effort: warn and return
+   * undefined rather than fail the submit.
+   */
+  async captureWorktreeDiff(scope: TeamScope, teamId: TeamId, taskId: TaskId, attemptId: AttemptId): Promise<string | undefined> {
+    const leased = this.leaseOf(scope, teamId, taskId, attemptId)
+    if (leased === undefined || leased.isolation !== 'git-worktree') return undefined
+    const patchPath = `${leased.path}.patch`
+    try {
+      const diff = await git(leased.path, ['diff', '--binary'])
+      writeFileSync(patchPath, diff, 'utf8')
+    } catch (error) {
+      this.ctx.logger.warn(`agent-swarm: worktree diff capture failed for ${teamId}/${taskId}/${attemptId}: ${String(error)}`)
+      return undefined
+    }
+    return patchPath
   }
 
   /**

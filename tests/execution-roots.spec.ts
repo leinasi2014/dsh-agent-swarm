@@ -21,6 +21,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
+import { workspaceOf } from '../src/runtime/authority.js'
 import {
   attemptHoldsExecutionRoot,
   deterministicRootPath,
@@ -28,7 +29,7 @@ import {
   ExecutionRoots,
   gitWorktreeExecutionRoots,
 } from '../src/runtime/execution-roots.js'
-import { AttemptId, TaskId, TeamId, type TeamState, type TeamTask } from '../src/domain/types.js'
+import { AttemptId, TaskId, TeamId, type TaskAttempt, type TeamState, type TeamTask } from '../src/domain/types.js'
 import { mount as mountGated, toolCall } from './helpers/gated-composition.js'
 import { mountModesComposition, toolCall as modesToolCall } from './helpers/modes-composition.js'
 
@@ -382,6 +383,90 @@ describe('execution-root composition wiring (M3-1, issue #100)', () => {
         expect(existsSync(expectedPath)).toBe(false)
       }, { timeout: 20_000 })
       expect(readdirSync(workspace).includes('tracked.txt')).toBe(true)
+    } finally {
+      for (const fiber of composition.fibers.toReversed()) await fiber.dispose()
+    }
+  }, 90_000)
+
+  // Issue #191 (fix(runtime): enforce per-attempt execution-root isolation
+  // and persist submitted diffs). The seam above proves the root is DECLARED
+  // (the assignment frame names the deterministic path) and reclaimed on
+  // submit. This regression pins the two contract points the #100 wiring left
+  // open: (1) the member's file/shell tool execution workdir is actually
+  // SCOPED to the declared root — not the shared roster Session cwd it was
+  // provisioned with; and (2) submitting a git-worktree attempt persists a
+  // durable diff/patch of the worktree into the attempt evidence, so review
+  // can read the code the root once isolated.
+  it('issue #191: scopes the member tool cwd to the declared root and persists a durable worktree diff on submit', async () => {
+    const sandbox = await freshSandbox('issue191')
+    await initRepoWorkspace(sandbox)
+    const base = join(sandbox, 'roots')
+    const composition = await mountModesComposition(sandbox, { executionRoots: true, executionRootsBase: base })
+    const scope = composition.ctx.agentSwarm.scopeOf(composition.lead)
+    try {
+      const { ctx, adapter } = composition
+      const created = await modesToolCall(ctx, composition.lead, 'issue191-create', 'agent_swarm_create', {
+        name: 'Issue #191 team',
+        description: 'Prove the per-attempt execution-root cwd fencing and the durable submit diff.',
+      })
+      expect(created.isError).toBe(false)
+      const teamId = AgentSwarm.TeamId((created.value as { team_id: string }).team_id)
+      const added = await modesToolCall(ctx, composition.lead, 'issue191-add', 'agent_swarm_add_member', {
+        name: 'root-worker', role: 'Work inside the declared execution root.',
+      })
+      expect(added.isError).toBe(false)
+      const memberId = (added.value as { session_id: string }).session_id
+      const task = await modesToolCall(ctx, composition.lead, 'issue191-task', 'agent_swarm_create_task', {
+        subject: 'Write inside the attempt root',
+        description: 'Create the marker file inside the declared execution root.',
+      })
+      expect(task.isError).toBe(false)
+
+      // Release the member's held join turn ONCE: its idle edge drives the
+      // pass that claims the task and dispatches the assignment frame, which
+      // the member's next turn parks on until submit is armed below.
+      adapter.open()
+      await vi.waitFor(async () => {
+        const snapshot = await ctx.agentSwarm.domain.snapshot(scope, teamId, composition.lead.id)
+        const claimedNow = snapshot.team.tasks.find((candidate: TeamTask) => candidate.status === 'in_progress')
+        expect(claimedNow?.currentAttemptId).toBeDefined()
+        const leased = ctx.agentSwarm.executionRoots.roots.leaseOf(scope, teamId, claimedNow!.id, claimedNow!.currentAttemptId!)
+        expect(leased).toBeDefined()
+        expect(existsSync(join(leased!.path, EXECUTION_ROOT_MARKER))).toBe(true)
+      }, { timeout: 20_000 })
+      const snapshot = await ctx.agentSwarm.domain.snapshot(scope, teamId, composition.lead.id)
+      const claimed = snapshot.team.tasks.find((candidate: TeamTask) => candidate.status === 'in_progress')!
+      const attemptId = claimed.currentAttemptId!
+      const expectedPath = deterministicRootPath(base, scope, teamId, claimed.id, attemptId)
+      expect(existsSync(expectedPath)).toBe(true)
+      expect(ctx.agentSwarm.executionRoots.roots.leaseOf(scope, teamId, claimed.id, attemptId)?.path).toBe(expectedPath)
+
+      // Contract point 1 (#191): the member's file/shell tool execution
+      // workdir for this attempt resolves INSIDE the declared root — not the
+      // shared roster Session cwd the member was provisioned with.
+      const member = ctx.agents.get(SessionId(memberId))
+      expect(member).toBeDefined()
+      expect(workspaceOf(member!)).toContain(expectedPath)
+
+      // Give the worktree a real tracked change so the submitted attempt has a
+      // durable diff of the attempt's work to persist.
+      writeFileSync(join(expectedPath, 'tracked.txt'), 'base\nattempt change\n', 'utf8')
+
+      // Contract point 2 (#191): submitting a git-worktree attempt must attach
+      // a durable diff/patch of the worktree to the attempt evidence (the root
+      // itself is reclaimed, so the patch is review's only window into the
+      // isolated code).
+      adapter.submit = true
+      await vi.waitFor(async () => {
+        adapter.open()
+        await new Promise(resolve => setTimeout(resolve, 120))
+        const settled = await ctx.agentSwarm.domain.snapshot(scope, teamId, composition.lead.id)
+        expect(settled.team.tasks.find((candidate: TeamTask) => candidate.id === claimed.id)?.status).toBe('submitted')
+      }, { timeout: 20_000 })
+      const settled = await ctx.agentSwarm.domain.snapshot(scope, teamId, composition.lead.id)
+      const attempt = settled.team.attempts.find((candidate: TaskAttempt) => candidate.id === attemptId)
+      const durableDiff = attempt?.evidence.some(entry => /\.(patch|diff)(\b|$)/i.test(entry)) ?? false
+      expect(durableDiff).toBe(true)
     } finally {
       for (const fiber of composition.fibers.toReversed()) await fiber.dispose()
     }
