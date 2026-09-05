@@ -72,7 +72,8 @@ export class AgentSwarmRuntime extends Service {
   readonly orchestration: OrchestrationOwnership
   readonly executionRoots: ExecutionRootSurface
   private closing = false
-  /** The Team bridge workflow engine (M2-1, issue #75), attached by plugin
+  /** @internal Use ctx.agentSwarmWorkflow.start() for product consumption.
+   * The Team bridge workflow engine (M2-1, issue #75), attached by plugin
    * activation when `workflowBridge` is enabled. Registered in an isolated
    * `workflowEngine` service scope — never over the default-scope official
    * engine. Absent (undefined) when the capability is disabled: default
@@ -592,6 +593,5 @@ export class AgentSwarmRuntime extends Service {
     if (failures.length > 0) throw new AggregateError(failures, 'Team orchestrator disposal failed')
   }
 }
-
 
 

@@ -348,9 +348,12 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
       maxTotalAgents: config.workflowMaxTotalAgents ?? DEFAULT_WORKFLOW_MAX_TOTAL_AGENTS,
       disposeGraceMs: config.workflowDisposeGraceMs ?? DEFAULT_DISPOSAL_TIMEOUT_MS,
     })
-    runtime.workflowBridge = bridge
-    await bridge.activate()
     ctx.effect(() => () => bridge.dispose(), 'agent-swarm: workflow bridge disposal')
+    await bridge.activate()
+    runtime.workflowBridge = bridge
+    ctx.effect(() => ctx.provide('agentSwarmWorkflow', {
+      start: request => bridge.start(request),
+    }), 'agent-swarm: workflow Consumer')
   }
 
   // Caller-scoped, read-only task projection. It deliberately is not mounted
@@ -364,5 +367,4 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
     ctx.effect(() => () => projection.dispose(), 'agent-swarm: jobs bridge disposal')
   }
 }
-
 
