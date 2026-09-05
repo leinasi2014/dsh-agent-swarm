@@ -25,7 +25,7 @@ export interface RestartMounted {
  * A restart proof owns every official fiber in each Context: a later Context
  * opens only the same durable SQLite and Storage roots, never a live handle.
  */
-export async function mountRestartComposition(sandbox: string, strandedAfterMs: number, allowedSkills?: readonly string[], executionRootsBase?: string): Promise<RestartMounted> {
+export async function mountRestartComposition(sandbox: string, strandedAfterMs: number, allowedSkills?: readonly string[], executionRootsBase?: string, beforeSwarm?: (ctx: Context) => void | Promise<void>): Promise<RestartMounted> {
   const ctx = new Context()
   const fibers: Fiber[] = []
   fibers.push(await ctx.plugin(LlmRuntime))
@@ -40,10 +40,16 @@ export async function mountRestartComposition(sandbox: string, strandedAfterMs: 
   fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
   fibers.push(await ctx.plugin(SubagentService))
   fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
-  fibers.push(await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1, strandedAfterMs,
-    ...(allowedSkills === undefined ? {} : { allowedSkills: [...allowedSkills] }),
-    ...(executionRootsBase === undefined ? {} : { executionRoots: true, executionRootsBase }),
-  }))
+  await beforeSwarm?.(ctx)
+  try {
+    fibers.push(await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1, strandedAfterMs,
+      ...(allowedSkills === undefined ? {} : { allowedSkills: [...allowedSkills] }),
+      ...(executionRootsBase === undefined ? {} : { executionRoots: true, executionRootsBase }),
+    }))
+  } catch (error) {
+    for (const fiber of fibers.toReversed()) await fiber.dispose()
+    throw error
+  }
   return { ctx, fibers }
 }
 
