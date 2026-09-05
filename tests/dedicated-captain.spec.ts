@@ -153,7 +153,11 @@ describe('dedicated Captain topology', () => {
     expect(properties.description).toMatchObject({
       description: 'The Captain\'s only initial objective. Copy the user\'s complete requested outcome, constraints, and acceptance criteria verbatim; do not summarize or omit requirements because omitted requirements are not delivered automatically later.',
     })
-    expect(tool?.description).toBe('Main Brain entry. Create a durable Team with a dedicated Captain Session. The `description` argument is that Captain\'s only initial objective: copy the user\'s complete requested outcome, constraints, and acceptance criteria into `description` verbatim, including any requested public goal, announcement, Captain/member names, professions, personalities, and pixel avatars. Do not summarize or drop requirements; omitted requirements are not delivered to the Captain automatically. The Main Brain remains outside the Team; the Captain analyzes the delivered objective and recruits its own members. After creation, the Main Brain may call agent_swarm_list_managed_teams at most once, then must end the current turn. It must not call agent_swarm_wait, agent_swarm_status, or agent_swarm_send_message, and must not use Shell sleep or polling. Use the Host Team UI for later observation.')
+    expect(tool?.description).toContain('remain outside the Team')
+    expect(tool?.description).toContain('complete user objective')
+    expect(tool?.description).toContain('public goal, announcement and Captain/member identity/avatar preferences')
+    expect(tool?.description).toContain('list managed Teams at most once, then end the turn')
+    expect(tool?.description).toContain('No wait/status/send_message, Shell sleep or polling')
     expect(mounted.ctx.tools.get('agent_swarm_send_message')?.description).toBe('Active-Team-participant only. Persist a Team message before best-effort delivery. A queued result is durable and must not be resent by the caller. A managed Main Brain remains outside the Team and is not a valid sender; use agent_swarm_list_managed_teams or the Host Team UI to observe its managed Teams.')
     expect(mounted.ctx.tools.get('agent_swarm_status')?.description).toBe('Active-Team-participant or archived-Captain only. Read the fixed-size Team counters: roster size, task counts by outcome, readiness, queued mail, budgets and memory. Task rows — owners, attempts, filters, pagination — come from agent_swarm_list_tasks; this summary never embeds them. A managed Main Brain remains outside the Team and must use agent_swarm_list_managed_teams or the Host Team UI instead.')
     expect(mounted.ctx.tools.get('agent_swarm_wait')?.description).toBe('Active-Team-participant or archived-Captain only; unavailable to a managed Main Brain. Wait without polling until the authoritative Team revision exceeds after_revision, or return unchanged at timeout. Returns no_progress immediately when no other member is running or provisioning — waiting cannot help then. Caller cancellation fails with TEAM_WAIT_ABORTED. After managed creation, the Main Brain may call agent_swarm_list_managed_teams at most once, then must end the current turn without Shell sleep or polling.')
@@ -202,7 +206,7 @@ describe('dedicated Captain topology', () => {
     start.mockRestore()
   })
 
-  it('onboards the Captain identity before any recruitment (issue #171)', async () => {
+  it('delivers progressive identity context and recruits after a rejected optional profile (#185)', async () => {
     sandbox = await mkdtemp(join(tmpdir(), 'dsh-dedicated-captain-profile-'))
     mounted = await mountNodeComposition(sandbox, { captainLlmProvider: 'mock', captainModel: 'mock' })
     const start = vi.spyOn(mounted.ctx.subagents, 'startContinuable')
@@ -211,7 +215,7 @@ describe('dedicated Captain topology', () => {
       signal: SIGNAL,
       callId: CallId('managed-profile-order'),
       name: 'agent_swarm_create_managed',
-      arguments: { name: 'Profiled Team', description: 'Recruit only after Captain onboarding.' },
+      arguments: { name: 'Profiled Team', description: 'Build the repair. Display name: Ada; profession: Engineer; personality: precise. Preserve these preferences.' },
       agent: mounted.lead,
     })
     expect(result.isError).toBe(false)
@@ -222,16 +226,39 @@ describe('dedicated Captain topology', () => {
     const notice = request?.prompt.map(part => part.type === 'text' ? part.text : '').join('\n') ?? ''
     const persona = request?.persona ?? ''
 
-    expect(notice).toContain(`expected_revision=${membership.team.revision}`)
-    expect(notice).toContain('Chinese display_name')
-    expect(notice).toContain('profession')
-    expect(notice).toContain('personality')
-    expect(notice).toContain('original safe pixel_avatar_svg')
-    expect(notice.indexOf('agent_swarm_set_captain_profile')).toBeGreaterThanOrEqual(0)
-    expect(notice.indexOf('agent_swarm_add_member')).toBeGreaterThan(notice.indexOf('agent_swarm_set_captain_profile'))
-    expect(persona.indexOf('agent_swarm_set_captain_profile')).toBeGreaterThanOrEqual(0)
-    expect(persona.indexOf('agent_swarm_add_member')).toBeGreaterThan(persona.indexOf('agent_swarm_set_captain_profile'))
+    expect(notice).toContain(`Current Team revision: ${membership.team.revision}`)
+    expect(notice).toContain('Build the repair. Display name: Ada; profession: Engineer; personality: precise. Preserve these preferences.')
+    expect(persona).toContain("user's language")
+    expect(persona).toContain('Profiles/avatars are optional')
+    expect(persona).toContain('continue independent work')
+    expect(`${persona}\n${notice}`).not.toMatch(/Chinese display|until the profile succeeds|stop dependent recruitment/)
     expect(`${persona}\n${notice}`).toContain('Captain Session and Team already exist')
+
+    const captain = mounted.ctx.agents.get(SessionId(value.captain_session_id))!
+    const failedProfile = await mounted.ctx.tools.execute({
+      signal: SIGNAL, callId: CallId('optional-profile-invalid'), name: 'agent_swarm_set_captain_profile',
+      arguments: { expected_revision: membership.team.revision, pixel_avatar_svg: '<svg><script>bad()</script></svg>' },
+      agent: captain,
+    })
+    expect(failedProfile.isError).toBe(true)
+    const afterFailure = await mounted.domain.requireMembership(mounted.scope, captain.id)
+    expect(afterFailure.team.revision).toBe(membership.team.revision)
+    expect(afterFailure.team.captainProfile).toBeUndefined()
+    const recruited = await mounted.ctx.tools.execute({
+      signal: SIGNAL, callId: CallId('after-profile-failure'), name: 'agent_swarm_add_member',
+      arguments: { name: 'ada', role: 'Implement the repair', display_name: 'Ada', profession: 'Engineer', personality: 'precise' },
+      agent: captain,
+    })
+    expect(recruited.isError).toBe(false)
+    const refreshed = await mounted.domain.requireMembership(mounted.scope, captain.id)
+    expect(refreshed.team.members.find(member => member.name === 'ada')).toMatchObject({
+      displayName: 'Ada', profession: 'Engineer', personality: 'precise', phase: 'active',
+    })
+    const memberPersona = start.mock.calls.at(-1)?.[0].request.persona ?? ''
+    expect(memberPersona).toContain('Display name: Ada')
+    expect(memberPersona).toContain('Profession: Engineer')
+    expect(memberPersona).toContain('Personality: precise')
+    expect(memberPersona).not.toContain('agent_swarm_add_member')
 
     start.mockRestore()
   })
