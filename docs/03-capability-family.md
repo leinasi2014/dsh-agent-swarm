@@ -97,3 +97,9 @@ Plugin Settings 是独立的官方 Settings Consumer。它配置默认模型、�
 ## 7. 拆包原则
 
 当前实现保持一个 dual-face package。只有出现第二 Provider/Consumer、独立 lifecycle、独立发布价值或 host/client 编译边界时才拆分；目录整齐本身不是理由。未来官方 Agent Team 成为受支持依赖时，也只能在 `TeamDomainPort` 后替换 Provider，不能并存两个可写 Team authority。
+
+### Host 定向读取与枚举成本
+
+`HostTargetReadService` 统一解析 live/cold Session、Captain 父子关系、scope 和可见 Team，服务 snapshot/page、Captain sections、Team selector 与 Skill catalog。RPC 只处理传输信任、严格解析及响应投影；不直接读取 Team store/snapshot 或成员/Skill Registry。每次 selector 读取从一次 canonical aggregate list 投影完整 Captain identity 和 public goal，不建立跨请求缓存或索引。
+
+`tests/host-read-scale.spec.ts` 在真实 Storage Domain 上，以两个 Team、1/2/8 成员和 0/32/128 条任务历史测量同一次 teams RPC：优化前 list=2、store get=4、aggregate clone=4；优化后为 1/2/2。该 fixture 的响应均为 1641 UTF-8 bytes，成员及任务历史不进入 selector payload；这是操作计数，不是延迟或全部 UI 流量承诺。对应回归要求当前候选始终一次 list；可选 `SWARM_READ_BASELINE` 只用于对接受基线进行只读测量。

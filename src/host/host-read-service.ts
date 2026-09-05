@@ -67,6 +67,17 @@ export class AgentSwarmHostReadService {
     })
   }
 
+  /** The target collaborator shares this Host's admission and disposal barrier. */
+  async withTargetRead<T>(operation: () => Promise<T>): Promise<T> {
+    const release = this.lifecycle.admit()
+    try { return await operation() } finally { release() }
+  }
+
+  /** Pure projection; its target collaborator has already admitted this read. */
+  projectAuthorizedTeam(team: TeamState, scope: TeamScope, afterCursor?: string): SwarmHostReadProjectionV1 {
+    return project({ team }, this.deps.overlay.list(scope, team.id), team.captainSessionId, afterCursor, this.observedAt())
+  }
+
   /** Stop admission and wait a bounded interval for all admitted projections. */
   async dispose(): Promise<void> {
     await this.lifecycle.dispose()
@@ -87,12 +98,7 @@ export class AgentSwarmHostReadService {
       this.assertBindingStillLive(root, initialScope)
       const visible = teams
         .filter(team => this.isVisibleToRoot(root.id, team))
-        .map(team => ({
-          teamId: team.id,
-          name: team.name,
-          phase: team.phase,
-          captainSessionId: team.captainSessionId,
-        }))
+        .map(projectTeamSummary)
       const rootKind = this.deps.managedCaptainSessionsOf?.(root.id)?.length ? 'main-brain' as const : 'captain' as const
       return {
         schemaVersion: 1,
@@ -325,7 +331,7 @@ function validBoundedString(value: unknown, maxLength: number): value is string 
 }
 
 function project(
-  snapshot: TeamStatusSnapshot,
+  snapshot: Pick<TeamStatusSnapshot, 'team'>,
   interactions: ReturnType<HumanInteractionOverlayStore['list']>,
   rootSessionId: string,
   afterCursor: string | undefined,
@@ -440,3 +446,10 @@ function optionalName<K extends 'ownerName' | 'targetMemberName' | 'memberName'>
 }
 
 
+
+/** Complete public selector data from the same canonical aggregate read. */
+export function projectTeamSummary(team: TeamState) {
+  return { teamId: team.id, name: team.name, phase: team.phase, captainSessionId: team.captainSessionId,
+    ...(team.captainProfile === undefined ? {} : { captainProfile: { ...team.captainProfile } }),
+    ...(team.publicGoal === undefined ? {} : { goal: team.publicGoal }) }
+}
