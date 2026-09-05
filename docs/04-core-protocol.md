@@ -124,3 +124,17 @@ Workflow bridge、Jobs projection、human control 和 remote/distributed Provide
 配置唯一来源是 `src/plugin/config.ts`，在 DSH Settings → Plugins → dsh-agent-swarm 展示。主要组包括启用状态、Captain/Member provider+model、成员深度、scheduler/review、成员/任务/消息上限、workflow/jobs/execution-root 可选面、tool policy、Team Skills 和 prompt order。
 
 设置修改按 restart 语义生效；Runtime 构造前读取已保存层并验证组合。空 Provider、非法 workflow 组合、非法 execution root、冲突 tool tiers 或错误 Skill 声明必须在任何 listener/store/member side effect 前拒绝。
+
+## 12. 执行循环保护
+
+`executionGuard` 默认开启，可在插件配置中显式关闭（restart 生效）。私有观察器只作用于 active Team 的当前 Captain 和 active/provisioning Member 的精确 Agent、Session、turn；失败、移除、归档及 `previousSessionIds` 历史身份不因此取得当前执行归属。它只折叠官方事件，不写 Team/task/attempt，不新增重试、重派或独立执行循环。
+
+无进展证据分三类：官方结构化失败；`agent_swarm_list_memory` 和 `agent_swarm_list_private_memory` 的相同规范化请求及完整可观察结果再次出现；其他成功语义未知。每个读取请求身份独立比较：首次出现新参数或游标、同请求结果变化是进展；A/B 交替只有双方各自结果不变才累计无进展。未知成功及进展打断 terminal streak；不得解析任意业务数据里的 `success:false`，不得把并发安全当作只读，也不承诺理解任意第三方成功工具的副作用。
+
+阈值为：相同请求和结果连续重复 10 次仅 WARNING；精确 UNKNOWN_TOOL 为 5/10 次 WARNING/CRITICAL；两请求交替无进展为 5/10 个完整周期 WARNING/CRITICAL；跨工具连续已证实无进展为 20/30 次 WARNING/CRITICAL。周期以两次调用为单位，ping-pong 的 10 周期中止先于 global 的 30 次兜底。Code Mode 使用真实子调用身份与持久 dispatch 事实；仅为缺失的结构化错误码短暂关联官方 tools/result，外层成功 run_code 不重复计数或掩盖内层失败。SDK 不存在的属性造成的 TypeError 不冒充 UNKNOWN_TOOL。
+
+WARNING 在同 turn 下一次 `agent/pre-step` 通过正式 messages 投递，并由官方 Loop 写入 Session；排队不等于展示，不为通知额外开启 turn。拒绝、取消、卸载或 turn 结束后不投递旧提示。CRITICAL 在一个重新核对身份的 microtask 内调用官方 `Agent.cancel`，保留 inbox，Session 的 aborted/hook reason 为终止事实；不在 session/event 同步重入 append。提示仅包含检测类别、次数和建议，不回显工具参数、结果或私有内容。
+
+单次生成另按 visible text 精确周期判定：单位 12–256 个字符，至少 16 次且 256 bytes 为 WARNING，至少 32 次且 512 bytes 为 CRITICAL。只看 text delta，不看 hidden reasoning；fenced code 排除，变化 prose 保持执行。这是明示启发式，不是语义理解。任意 chunk 边界逐字符折叠，包括巨大 chunk 的非重复前缀后重复后缀；达到 CRITICAL 即停止扫描。同一 stream 没有后续 step 时，不宣称 WARNING 已显示，使用终止 reason 证明中止。
+
+每个 Agent 最多保留 128 个哈希观察，原始文本 ring 为 256 code points（低于 8 KiB），每字符计算有固定上界，总计算随输入长度线性增长。未完成 native/Code Mode 关联及 transport 标记各限 128，在结算、turn 结束或 disposal 清理；参数/结果哈希遍历限制 64 KiB、4096 节点和 32 层，超限视为不可比较，绝不比较截断前缀。注册统一归插件生命周期；跨 turn、Agent 替换、卸载均清状态。
