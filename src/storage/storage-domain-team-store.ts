@@ -3,8 +3,12 @@
  * form (ADR-0007, M1A). Every write reaches backend durability through the
  * domain's write chain before it becomes visible to reads or waiters; the
  * per-team/per-scope promise chains serialize whole transactions
- * process-locally. This store is explicitly single-process: cross-process
- * CAS, leases and change push remain a later Store Provider's work.
+ * process-locally, and every durable write to the `agent_swarm` JSON unit is
+ * additionally serialized per open domain handle with a bounded transient
+ * retry so concurrent Team operations cannot surface a transient EPERM from an
+ * overlapping atomic rename publish. This store is explicitly single-process:
+ * cross-process CAS, leases and change push remain a later Store Provider's
+ * work.
  */
 
 import { isDeepStrictEqual } from 'node:util'
@@ -62,6 +66,75 @@ async function withLock<T>(locks: Map<string, Promise<void>>, key: string, opera
   }
 }
 
+/**
+ * Transient write codes on the atomic whole-file publish of the `agent_swarm`
+ * unit (temp write -> fsync -> rename()). The storage-json backend does not
+ * queue writes: ordering belongs to the caller, so a concurrent Team operation
+ * on the SAME unit can issue an overlapping rename() and the OS reports one of
+ * these transient codes. They are recoverable by re-issuing the identical
+ * publish; anything else is a real failure and must fail through immediately.
+ */
+const TRANSIENT_WRITE_CODES: ReadonlySet<string> = new Set(['EPERM', 'EACCES', 'EBUSY', 'ENOTEMPTY'])
+
+/** Number of retries after the initial attempt for a transient unit write. */
+const MAX_WRITE_RETRIES = 5
+/** Base exponential-backoff delay for a transient unit-write retry (ms). */
+const WRITE_RETRY_BASE_MS = 10
+/** Hard cap on a single transient unit-write backoff delay (ms). */
+const WRITE_RETRY_MAX_MS = 250
+
+function isTransientWriteError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  const code = (error as { code?: unknown }).code
+  return typeof code === 'string' && TRANSIENT_WRITE_CODES.has(code)
+}
+
+function writeBackoffMs(retryIndex: number): number {
+  return Math.min(WRITE_RETRY_BASE_MS * 2 ** retryIndex, WRITE_RETRY_MAX_MS)
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+/**
+ * Re-issue a unit write only on a transient code, with a bounded exponential
+ * backoff, and propagate the last error once retries are exhausted. A
+ * non-transient failure rethrows immediately and is never swallowed.
+ */
+async function writeWithTransientRetry<T>(write: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await write()
+    } catch (error) {
+      if (!isTransientWriteError(error) || attempt >= MAX_WRITE_RETRIES) throw error
+      await delay(writeBackoffMs(attempt))
+    }
+  }
+}
+
+/**
+ * One async tail per open domain handle serializes EVERY backend write to the
+ * `agent_swarm` unit, so two store instances over the SAME open domain never
+ * issue overlapping atomic publish calls in this process. Keyed weakly by the
+ * domain (mirroring the `scopeLocksFor` seam); a cross-instance race over one
+ * medium — two domain handles, each with its own write chain — is not ordered
+ * by this queue and is absorbed by the bounded transient retry.
+ */
+const sharedUnitWriteTails = new WeakMap<Domain<typeof teamDomainSpec>, Promise<void>>()
+
+function enqueueUnitWrite<T>(domain: Domain<typeof teamDomainSpec>, write: () => Promise<T>): Promise<T> {
+  const previous = sharedUnitWriteTails.get(domain) ?? Promise.resolve()
+  let release!: () => void
+  const current = new Promise<void>(resolve => { release = resolve })
+  const tail = previous.then(() => current)
+  sharedUnitWriteTails.set(domain, tail)
+  return previous.then(() => writeWithTransientRetry(write)).finally(() => {
+    release()
+    if (sharedUnitWriteTails.get(domain) === tail) sharedUnitWriteTails.delete(domain)
+  })
+}
+
 /** Official `ctx.storageDomain`-backed authority for the Team aggregate. */
 export class StorageDomainTeamStore implements TeamAggregateStore {
   readonly backend = 'storage-domain'
@@ -84,6 +157,11 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
     this.teams = domain.table('teams')
     this.receipts = domain.table('migration_receipts')
     this.stopListening = ctx.on('domain/changed', change => this.onChange(change))
+  }
+
+  /** Route one durable unit write through the per-domain serialization + transient retry. */
+  private writeUnit<T>(write: () => Promise<T>): Promise<T> {
+    return enqueueUnitWrite(this.domain, write)
   }
 
   private onChange(change: DomainChanged): void {
@@ -124,7 +202,7 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
       interactionEffects: [],
     }
     assertTeamState(upgraded, `${teamId}/aggregate-upgrade`)
-    await this.teams.put(teamId, this.envelope(scope, upgraded))
+    await this.writeUnit(() => this.teams.put(teamId, this.envelope(scope, upgraded)))
     const readBack = this.validate(this.teams.get(teamId), teamId)
     if (readBack === undefined || readBack.schemaVersion !== 2 || !isDeepStrictEqual(readBack, upgraded)) {
       throw new TeamDomainError(`Team aggregate v1 to v2 read-back failed for "${teamId}"`, 'TEAM_MIGRATION_VERIFY_FAILED')
@@ -149,7 +227,7 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
       if (this.teams.get(state.id) !== undefined) {
         throw new TeamDomainError(`team "${state.id}" already exists`, 'TEAM_ALREADY_EXISTS')
       }
-      await this.teams.put(state.id, this.envelope(scope, state))
+      await this.writeUnit(() => this.teams.put(state.id, this.envelope(scope, state)))
       this.notify(state.id)
     })
   }
@@ -184,7 +262,7 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
           if (winner !== undefined) return winner
         }
       }
-      await this.teams.put(state.id, this.envelope(scope, state))
+      await this.writeUnit(() => this.teams.put(state.id, this.envelope(scope, state)))
       this.notify(state.id)
       return state
     })
@@ -240,7 +318,7 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
       const next: TeamState = boardChanged
         ? { ...draft, revision: current.revision + 1, updatedAt: this.now() }
         : { ...draft }
-      await this.teams.put(teamId, this.envelope(scope, next))
+      await this.writeUnit(() => this.teams.put(teamId, this.envelope(scope, next)))
       this.notify(teamId)
       return result
     })
@@ -293,7 +371,7 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
     if (this.teams.get(team.id) !== undefined) {
       throw new TeamDomainError(`team "${team.id}" already exists`, 'TEAM_ALREADY_EXISTS')
     }
-    await this.teams.put(team.id, this.envelope(scope, team))
+    await this.writeUnit(() => this.teams.put(team.id, this.envelope(scope, team)))
     // Read back from the authoritative post-durability state and verify the
     // complete aggregate survived the durable write.
     const stored = this.teams.get(team.id)
@@ -314,7 +392,7 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
 
   async recordMigrationReceipt(receipt: MigrationReceipt): Promise<void> {
     if (this.storeClosed) throw closed()
-    await this.receipts.put(receipt.teamId, { ...receipt })
+    await this.writeUnit(() => this.receipts.put(receipt.teamId, { ...receipt }))
   }
 
   async close(): Promise<void> {

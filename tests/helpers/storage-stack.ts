@@ -96,6 +96,18 @@ export class FaultableBackend implements StorageBackend {
   readonly kv: KvFacet
   failNextWrites = 0
   mutateOnPut: ((table: string, key: string, value: unknown) => unknown) | undefined
+  /**
+   * Opt-in reproduction of issue #193 (transient EPERM on agent_swarm.json).
+   * When set to a unit name, that unit's record-write path models the
+   * storage-json atomic-rename publish: the first write holds the unit
+   * "in flight" across a real async gap, and any SECOND write to the SAME unit
+   * that arrives before the first settles is rejected once with code `EPERM` —
+   * exactly the overlapping rename() contention a whole-file replacement hits.
+   * Deterministic (no reliance on the OS throwing EPERM by luck); unset by
+   * default so the existing single-store fault tests are untouched.
+   */
+  contendUnitName: string | undefined = undefined
+  private readonly inFlightWrites = new Map<string, number>()
 
   constructor(private readonly media = new Map<string, { tables: Map<string, Map<string, unknown>>; global: unknown }>()) {
     this.kv = {
@@ -119,26 +131,32 @@ export class FaultableBackend implements StorageBackend {
               this.failNextWrites -= 1
               throw new Error('injected write failure')
             }
-            let records = tables.get(table)
-            if (records === undefined) {
-              records = new Map()
-              tables.set(table, records)
-            }
-            records.set(key, this.mutateOnPut === undefined ? value : this.mutateOnPut(table, key, value))
+            await this.contended(descriptor.name, async () => {
+              let records = tables.get(table)
+              if (records === undefined) {
+                records = new Map()
+                tables.set(table, records)
+              }
+              records.set(key, this.mutateOnPut === undefined ? value : this.mutateOnPut(table, key, value))
+            })
           },
           deleteRecord: async (table, key) => {
             if (this.failNextWrites > 0) {
               this.failNextWrites -= 1
               throw new Error('injected write failure')
             }
-            tables.get(table)?.delete(key)
+            await this.contended(descriptor.name, async () => {
+              tables.get(table)?.delete(key)
+            })
           },
           setGlobal: async value => {
             if (this.failNextWrites > 0) {
               this.failNextWrites -= 1
               throw new Error('injected write failure')
             }
-            unit.global = value
+            await this.contended(descriptor.name, async () => {
+              unit.global = value
+            })
           },
           close: async () => {},
         }
@@ -147,6 +165,35 @@ export class FaultableBackend implements StorageBackend {
   }
 
   async close(): Promise<void> {}
+
+  /**
+   * Unit-level write serialization-or-reject for the armed contention unit.
+   * When `contendUnitName` matches, the first write is held across a real
+   * async gap and a concurrent write to the SAME unit that arrives during that
+   * gap is rejected once with a coded `EPERM`; when contention is not armed the
+   * write passes straight through unchanged. The shared `inFlightWrites`
+   * counter lives on this shared backend, so two independently-opened domain
+   * handles over one medium observe each other's in-flight unit writes.
+   */
+  private async contended<T>(unitName: string, write: () => Promise<T>): Promise<T> {
+    if (this.contendUnitName !== unitName) return await write()
+    const inFlight = this.inFlightWrites.get(unitName) ?? 0
+    if (inFlight > 0) {
+      throw Object.assign(new Error(`injected rename contention on ${unitName}`), { code: 'EPERM' })
+    }
+    this.inFlightWrites.set(unitName, inFlight + 1)
+    try {
+      // A real async gap: microtasks (the concurrent second writer's job) run
+      // before this timer callback, so the second write observes the in-flight
+      // mark and this unit write cannot be mistaken for already-settled.
+      await new Promise(resolve => setTimeout(resolve, 0))
+      return await write()
+    } finally {
+      const remaining = (this.inFlightWrites.get(unitName) ?? 1) - 1
+      if (remaining <= 0) this.inFlightWrites.delete(unitName)
+      else this.inFlightWrites.set(unitName, remaining)
+    }
+  }
 }
 
 /** Open a store over a fault-injecting in-memory backend on a fresh Context. */
