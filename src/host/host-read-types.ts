@@ -1,3 +1,4 @@
+import type { TeamMemberIdentityProfile } from '../domain/types.js'
 import type { SwarmProducerCapabilityState } from './producer-contract.js'
 
 /** Strict Host-local request. Identity and workspace are never caller fields. */
@@ -111,6 +112,8 @@ export interface SwarmHostTeamsProjectionV1 {
     readonly name: string
     readonly phase: 'staged' | 'active' | 'archived'
     readonly captainSessionId: string
+    readonly captainProfile?: TeamMemberIdentityProfile
+    readonly goal?: string
   }[]
   readonly observedAt: number
   readonly complete: boolean

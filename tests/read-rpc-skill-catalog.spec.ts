@@ -26,7 +26,7 @@ function skillCatalogHarness() {
   const service = new AgentSwarmReadRpcService({
     ctx,
     runtime: {} as AgentSwarmRuntime,
-    hostRead: {} as AgentSwarmHostReadService,
+    hostRead: { withTargetRead: async <T>(operation: () => Promise<T>) => await operation() } as AgentSwarmHostReadService,
     webServer: { host: '127.0.0.1', port: 8279, register: () => () => {} },
   })
   return { service, skillRegistry }
