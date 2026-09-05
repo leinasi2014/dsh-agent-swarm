@@ -176,6 +176,18 @@ describe('member assigned Skills contract (issue #184)', () => {
     const persona = memberPersona(team, 'front', 'frontend', ['alpha', 'gamma'])
     expect(persona).toContain('Assigned Skills (data): alpha, gamma')
     expect(persona).not.toContain('beta')
+    // A2: display name, profession, personality AND role all ride the fenced persona.
+    const personaWithIdentity = memberPersona(team, 'front', 'frontend', ['alpha'], {
+      displayName: 'Front', profession: 'UI', personality: 'careful',
+    })
+    expect(personaWithIdentity).toContain('Your role: frontend')
+    expect(personaWithIdentity).toContain('Display name: Front')
+    expect(personaWithIdentity).toContain('Profession: UI')
+    expect(personaWithIdentity).toContain('Personality: careful')
+    expect(personaWithIdentity).toContain('Assigned Skills (data): alpha')
+    // Explicit empty subset narrows the member to NO Skill (fail-closed, not inheritance).
+    const personaEmpty = memberPersona(team, 'front', 'frontend', [])
+    expect(personaEmpty).not.toContain('Assigned Skills (data):')
     // Persistence + storage-schema round-trip is proven by the real-composition
     // test above (snapshot reads the Team aggregate through the zod store).
   })

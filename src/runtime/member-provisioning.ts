@@ -202,7 +202,11 @@ export class MemberProvisioner {
           request: {
             prompt: [{ type: 'text', text: memberJoinNotice(membership.team) }],
             parent: captain,
-            persona: memberPersona(membership.team, provisioning.name, provisioning.role, provisioning.assignedSkills),
+            persona: memberPersona(membership.team, provisioning.name, provisioning.role, provisioning.assignedSkills, {
+              ...(provisioning.displayName === undefined ? {} : { displayName: provisioning.displayName }),
+              ...(provisioning.profession === undefined ? {} : { profession: provisioning.profession }),
+              ...(provisioning.personality === undefined ? {} : { personality: provisioning.personality }),
+            }),
             // M1A static baseline plus the F17 deny-only narrowing declaration
             // (`deny_tools`); the union is monotone — captain-only tools stay
             // mandatorily denied and no allow surface exists.

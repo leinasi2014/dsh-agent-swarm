@@ -312,7 +312,11 @@ function effectivePolicy(
   policy: readonly string[] | typeof UNRESTRICTED,
   assignedSkills: readonly string[] | undefined,
 ): readonly string[] | typeof UNRESTRICTED {
-  if (assignedSkills === undefined || assignedSkills.length === 0) return policy
+  // Issue #184: `undefined` (recruiter did not declare a subset) keeps the Team
+  // policy. An EXPLICIT empty subset narrows to NO Skill (fail-closed, never a
+  // privilege expansion); a non-empty subset intersects the Team allow-list.
+  if (assignedSkills === undefined) return policy
+  if (assignedSkills.length === 0) return []
   if (policy === UNRESTRICTED) return [...assignedSkills]
   const allowed = new Set(policy)
   return [...new Set(assignedSkills.filter(name => allowed.has(name)))]
