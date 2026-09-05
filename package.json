@@ -81,7 +81,7 @@
     "verify:worktrees": "pnpm verify:isolation",
     "verify:compatibility": "pnpm verify:official && pnpm verify:references",
     "verify:gate-a": "pnpm verify:compatibility",
-    "verify:structure": "node scripts/verify-project.mjs",
+    "verify:structure": "node scripts/verify-project.mjs && node scripts/test-verify-project-gate.mjs",
     "verify:artifact": "node scripts/verify-package-artifact.mjs",
     "verify:package-install": "node scripts/verify-package-install.mjs",
     "verify:engineering": "pnpm verify:structure && pnpm verify:workspace && pnpm verify:p0-fixtures && pnpm lint && pnpm verify:duplication && pnpm verify:exports && pnpm typecheck && pnpm typecheck:test && pnpm test && pnpm verify:scenarios && pnpm build && pnpm verify:artifact && pnpm verify:package-install",
