@@ -55,9 +55,9 @@ describe('issue #193 real json-backend transient publish boundary', () => {
     }
     await stack.store.createUniqueForCaptain(SCOPE, team('team-real-0001'))
     expect(faults).toBe(0)
-    expect(stack.domain.table('teams').get(TeamId('team-real-0001'))?.team).toMatchObject({ id: 'team-real-0001' })
+    expect(stack.domain.table('teams').get(TeamId('team-real-0001'))?.team).toMatchObject({ id: 'team-real-0001', revision: 1 })
     await stack.close(); stack = await open(dir)
-    expect(stack.domain.table('teams').get(TeamId('team-real-0001'))?.team).toMatchObject({ id: 'team-real-0001' })
+    expect(stack.domain.table('teams').get(TeamId('team-real-0001'))?.team).toMatchObject({ id: 'team-real-0001', revision: 1 })
     await stack.close(); stack = undefined
   })
 
@@ -75,12 +75,12 @@ describe('issue #193 real json-backend transient publish boundary', () => {
     }
     await stack.store.createUniqueForCaptain(SCOPE, team('team-real-m0001', 'ca'))
     await stack.store.createUniqueForCaptain(SCOPE, team('team-real-m0002', 'cb'))
-    expect(stack.domain.table('teams').get(TeamId('team-real-m0001'))?.team).toMatchObject({ id: 'team-real-m0001' })
-    expect(stack.domain.table('teams').get(TeamId('team-real-m0002'))?.team).toMatchObject({ id: 'team-real-m0002' })
+    expect(stack.domain.table('teams').get(TeamId('team-real-m0001'))?.team).toMatchObject({ id: 'team-real-m0001', revision: 1 })
+    expect(stack.domain.table('teams').get(TeamId('team-real-m0002'))?.team).toMatchObject({ id: 'team-real-m0002', revision: 1 })
     // Exactly two succeeds notified (the faulted put never notified), and both persisted.
     expect(notified).toBe(2)
     await stack.close(); stack = await open(dir)
-    expect(stack.domain.table('teams').get(TeamId('team-real-m0002'))?.team).toMatchObject({ id: 'team-real-m0002' })
+    expect(stack.domain.table('teams').get(TeamId('team-real-m0002'))?.team).toMatchObject({ id: 'team-real-m0002', revision: 1 })
     await stack.close(); stack = undefined
   })
 
