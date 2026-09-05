@@ -559,7 +559,7 @@ describe('persisted-child provisioning reconciliation (F3)', () => {
         agent: stack.lead,
       })
       expect(reused).toMatchObject({ isError: true, error: { info: { code: 'TEAM_MEMBER_NAME_TAKEN' } } })
-      expect((reused.error as { message: string }).message).toContain('choose an unused member name or create a new Team')
+      expect((reused.error as { message: string }).message).toContain('retry a failed employee with retry_of and its exact Session id')
     } finally {
       for (const fiber of fibers.toReversed()) await fiber.dispose()
     }

@@ -92,6 +92,7 @@ export function registerAddMemberTool(ctx: Context, runtime: AgentSwarmRuntime):
       provider: { type: 'string', description: 'Continuable runtime Provider; defaults to plugin config.' },
       llm_provider: { type: 'string', description: 'Child LLM provider, distinct from runtime provider; inherits Captain when omitted and is recorded durably.' },
       model: { type: 'string', description: 'Optional member model override.' },
+      retry_of: { type: 'string', description: 'Retry same failed name/identity using its exact Session id.' },
       deny_tools: {
         type: 'array',
         items: { type: 'string' },
@@ -115,6 +116,7 @@ export function registerAddMemberTool(ctx: Context, runtime: AgentSwarmRuntime):
       const member = await runtime.addMember(exec, {
         name: args.name,
         role: args.role,
+        ...(args.retry_of === undefined ? {} : { retryOf: args.retry_of }),
         ...(args.display_name === undefined ? {} : { displayName: args.display_name }),
         ...(args.profession === undefined ? {} : { profession: args.profession }),
         ...(args.personality === undefined ? {} : { personality: args.personality }),

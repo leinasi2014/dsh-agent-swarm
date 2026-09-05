@@ -340,6 +340,7 @@ function project(
   const team = snapshot.team
   const memberNames = new Map(team.members.map(member => [member.sessionId, member.name]))
   const roster = team.members.slice(0, MAX_ROSTER).map(member => ({
+    ...(member.previousSessionIds === undefined ? {} : { provisioningAttempt: member.previousSessionIds.length + 1 }),
     name: member.name,
     role: member.role,
     phase: member.phase,

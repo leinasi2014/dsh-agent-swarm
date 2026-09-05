@@ -448,6 +448,9 @@ function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, sta
                   <span className="swarm-team-workspace__desk-copy">
                     <strong className="swarm-team-workspace__desk-name" data-swarm-member-visible-name={displayName} title={displayName}>{displayName}</strong>
                     <small className="swarm-team-workspace__desk-role swarm-team-workspace__truncate" data-swarm-member-visible-profession={profession} title={profession}>{profession}</small>
+                    {member.phase === 'failed' || member.provisioningAttempt !== undefined
+                      ? <small className="swarm-team-workspace__desk-role" data-swarm-provisioning-attempt>{t(member.phase === 'failed' ? 'memberProvisioningFailed' : 'memberProvisioningAttempt', { count: member.provisioningAttempt ?? 1 })}</small>
+                      : null}
                   </span>
                   <span className="swarm-team-workspace__desk-state" data-swarm-member-tone={tone} data-swarm-member-visible-activity={label} title={label}><i className="swarm-team-workspace__desk-dot" aria-hidden="true" />{label}</span>
                 </button>

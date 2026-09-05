@@ -120,7 +120,7 @@ export class MemberProvisioner {
 
   async addMember(
     exec: ToolExecutionAuthority,
-    input: { name: string; role: string; provider?: string; llmProvider?: string; model?: string; denyTools?: readonly string[]; skills?: readonly string[] } & MemberIdentityInput,
+    input: { name: string; role: string; retryOf?: string; provider?: string; llmProvider?: string; model?: string; denyTools?: readonly string[]; skills?: readonly string[] } & MemberIdentityInput,
   ): Promise<TeamMember> {
     const captain = requireAgent(exec)
     const scope = this.deps.scopeOf(captain)
@@ -159,17 +159,25 @@ export class MemberProvisioner {
         ...(this.deps.config.memberToolPolicyDeny ?? []),
       ])])
 
+      const llmProvider = input.llmProvider ?? this.deps.config.memberLlmProvider ?? captain.options.provider ?? ''
+      const model = input.model ?? this.deps.config.memberModel ?? captain.options.model ?? ''
+      // The exact adapter is authoritative; its model catalog is advisory.
+      // Resolve both final fields before publishing any roster or child state.
+      await this.ctx.llm.resolveModelInfo(llmProvider, model, exec.signal)
+      exec.signal.throwIfAborted()
       const childId = SessionId(randomUUID())
       // Issue #184: a member-assigned Skill subset is validated BEFORE any
       // roster mutation — against the immutable Team allow-list and the
       // current complete scoped Skill catalog (model-invocable). Zero-side-effect
       // rejection, so a bad subset can never leave a provisioning row behind.
-      const assignedSkills = await this.validateAssignedSkills(captain, membership.team, input.skills, exec.signal)
+      const previous = input.retryOf === undefined ? undefined : membership.team.members.find(member => member.sessionId === input.retryOf)
+      const assignedSkills = await this.validateAssignedSkills(captain, membership.team, input.skills ?? previous?.assignedSkills, exec.signal)
       const provisioning = await this.deps.domain().provisionMember(scope, membership.team.id, captain.id, {
         name: input.name,
         role: input.role,
         sessionId: childId,
         provider: providerName,
+        ...(input.retryOf === undefined ? {} : { retryOf: input.retryOf }),
         ...(input.displayName === undefined ? {} : { displayName: input.displayName }),
         ...(input.profession === undefined ? {} : { profession: input.profession }),
         ...(input.personality === undefined ? {} : { personality: input.personality }),
@@ -218,12 +226,8 @@ export class MemberProvisioner {
             // wins; otherwise the member inherits the captain's LLM provider
             // (existing behavior).
             agentOptions: {
-              ...((input.llmProvider ?? this.deps.config.memberLlmProvider) !== undefined
-                ? { provider: input.llmProvider ?? this.deps.config.memberLlmProvider }
-                : (captain.options.provider === undefined ? {} : { provider: captain.options.provider })),
-              ...(input.model ?? this.deps.config.memberModel ?? captain.options.model) === undefined
-                ? {}
-                : { model: input.model ?? this.deps.config.memberModel ?? captain.options.model },
+              provider: llmProvider,
+              model,
             },
             // Official maxDepth is absolute. A dedicated Captain is one
             // level below the main Chat, while a legacy Captain is the root.

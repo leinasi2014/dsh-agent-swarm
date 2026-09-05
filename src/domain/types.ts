@@ -38,6 +38,8 @@ export interface TeamMemberIdentityProfile {
 }
 
 export interface TeamMember extends TeamMemberIdentityProfile {
+  /** Prior failed provisioning Sessions, retained only for exact accounting. At most 64 retries. */
+  readonly previousSessionIds?: string[]
   readonly name: string
   readonly role: string
   readonly sessionId: string

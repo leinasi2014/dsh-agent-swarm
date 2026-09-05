@@ -37,6 +37,8 @@ type MemberProfileReason =
   | 'tool_filter_invalid'
 
 export interface MemberProfile {
+  /** Captain-only list-page fence for retrying this exact failed employee. */
+  readonly retryOf?: string
   readonly name: string
   readonly role: string
   readonly phase: TeamMember['phase']
@@ -163,9 +165,15 @@ export class MemberProfileReader {
     team: TeamState,
     input: { phase?: TeamMember['phase']; cursor: number; limit: number },
     signal: AbortSignal,
+    callerSessionId?: string,
   ): Promise<{ members: MemberProfile[]; nextCursor?: number }> {
     const filtered = team.members.filter(member => input.phase === undefined || member.phase === input.phase)
-    const members = await this.list(team, filtered.slice(input.cursor, input.cursor + input.limit), signal)
+    const selected = filtered.slice(input.cursor, input.cursor + input.limit)
+    const members = (await this.list(team, selected, signal)).map((member, index) => ({
+      ...member,
+      ...(callerSessionId === team.captainSessionId && member.phase === 'failed'
+        ? { retryOf: selected[index]!.sessionId } : {}),
+    }))
     return { members, ...(input.cursor + input.limit < filtered.length ? { nextCursor: input.cursor + input.limit } : {}) }
   }
 

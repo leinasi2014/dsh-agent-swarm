@@ -171,7 +171,7 @@ export interface TeamDomainPort {
     scope: TeamScope,
     teamId: TeamId,
     captainSessionId: string,
-    input: { name: string; role: string; sessionId: string; provider: string } & MemberIdentityInput,
+    input: { name: string; role: string; sessionId: string; provider: string; retryOf?: string } & MemberIdentityInput,
   ): Promise<TeamMember>
   /** Captain-only: set the Team's public identity profile (validated; expected_revision CAS). */
   setCaptainProfile(

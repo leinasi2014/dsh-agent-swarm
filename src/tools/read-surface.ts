@@ -75,6 +75,7 @@ const MEMORY_LIST_VALUE_SCHEMA = {
 const MEMBER_PROFILE_ROW_SCHEMA = {
   type: 'object', additionalProperties: false,
   properties: {
+    retry_of: { type: 'string', description: 'Captain-only failed Session fence; pass to add_member retry_of with the same name and role.' },
     name: { type: 'string', required: true },
     role: { type: 'string', required: true },
     phase: { type: 'string', required: true, enum: ['provisioning', 'active', 'failed', 'removed'] },
@@ -279,6 +280,7 @@ export function registerListMembersTool(ctx: Context, runtime: AgentSwarmRuntime
         ...(args.phase === undefined ? {} : { phase: args.phase }),
       })
       const members = listed.members.map(member => ({
+        ...(member.retryOf === undefined ? {} : { retry_of: member.retryOf }),
         name: member.name,
         role: member.role,
         phase: member.phase,

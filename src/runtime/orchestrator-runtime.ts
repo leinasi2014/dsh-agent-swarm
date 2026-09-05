@@ -353,7 +353,7 @@ export class AgentSwarmRuntime extends Service {
   /** Plan-first: archive the owning Main Brain's staged draft. */
   async discardPlan(exec: ToolExecutionAuthority, teamId: string, expectedRevision: number): Promise<TeamState> { return await this.mutations.discardPlan(exec, teamId, expectedRevision) }
 
-  async addMember(exec: ToolExecutionAuthority, input: { name: string; role: string; provider?: string; llmProvider?: string; model?: string; denyTools?: readonly string[] } & MemberIdentityInput): Promise<TeamState['members'][number]> {
+  async addMember(exec: ToolExecutionAuthority, input: { name: string; role: string; retryOf?: string; provider?: string; llmProvider?: string; model?: string; denyTools?: readonly string[] } & MemberIdentityInput): Promise<TeamState['members'][number]> {
     return await this.mutations.addMember(exec, input)
   }
 
@@ -431,7 +431,7 @@ export class AgentSwarmRuntime extends Service {
 
   /** Read durable roster composition; never resumes or repairs a child. */
   async listMemberProfiles(exec: ToolExecutionAuthority, input: { phase?: TeamState['members'][number]['phase']; cursor: number; limit: number }) {
-    return await this.memberProfiles.listPage((await this.status(exec)).team, input, exec.signal)
+    return await this.memberProfiles.listPage((await this.status(exec)).team, input, exec.signal, requireAgent(exec).id)
   }
 
   async waitForChange(exec: ToolExecutionAuthority, afterRevision: number, timeoutMs: number) {
