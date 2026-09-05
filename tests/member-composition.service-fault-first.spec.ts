@@ -74,6 +74,7 @@ function rpcHarness(options: {
     managedCaptainSessionsOf: vi.fn(() => []),
   } as unknown as AgentSwarmRuntime
   const hostRead = {
+    withTargetRead: async <T>(operation: () => Promise<T>) => await operation(),
     read: vi.fn(), listTeams: vi.fn(async () => ({ schemaVersion: 1, binding: { rootSessionId: ROOT.id, rootKind: 'main-brain' }, teams: [], observedAt: 0, complete: true })),
   } as unknown as AgentSwarmHostReadService
   const webServer = { host: '127.0.0.1', port: 8279, register: vi.fn() } satisfies SwarmWebServer

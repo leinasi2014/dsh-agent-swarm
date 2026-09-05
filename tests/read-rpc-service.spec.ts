@@ -58,24 +58,21 @@ function rpcHarness(options: {
   const root = options.root ?? ROOT
   let liveRoots: readonly Agent[] = [root]
   let session = root.session
-  let initiator: Agent | undefined
   const team = {
     id: 'team-r2', captainSessionId: options.captain ?? root.id, phase: 'active',
     ...options.teamState,
   } as TeamState
-  const teams: TeamState[] = (options.teams ?? [team]) as TeamState[]
+  const teams: TeamState[] = (options.teams ?? [team]).map(entry => ({ ...team, ...entry })) as TeamState[]
   const coldSessions = options.coldCaptainSessions ?? {}
   const hostRead = {
-    read: vi.fn(async (input: { afterCursor?: string; teamId?: string; captainSessionId?: string }) => {
-      // The initiator may be the exact live root Agent or the persistence-reconstructed cold root
-      // view — both carry the root Session id.
-      expect(initiator?.id).toBe(root.id)
-      lastReadInput = input
+    withTargetRead: async <T>(operation: () => Promise<T>) => await operation(),
+    projectAuthorizedTeam: vi.fn((selected: TeamState, _scope: string, afterCursor?: string) => {
+      lastReadInput = { teamId: selected.id,
+        ...(selected.captainSessionId === root.id ? {} : { captainSessionId: selected.captainSessionId }),
+        ...(afterCursor === undefined ? {} : { afterCursor }) }
       return { ...(options.projection ?? projection), binding: {
-        rootSessionId: options.bindHostReadToCaptain ? (input.captainSessionId ?? root.id) : root.id,
-        teamId: team.id,
-      },
-        changed: input.afterCursor !== CURSOR, resyncRequired: input.afterCursor !== undefined && input.afterCursor !== CURSOR }
+        rootSessionId: options.bindHostReadToCaptain ? selected.captainSessionId : root.id, teamId: selected.id,
+      }, changed: afterCursor !== CURSOR, resyncRequired: afterCursor !== undefined && afterCursor !== CURSOR }
     }),
     listTeams: vi.fn(async (_scope: string) => {
       // Real authorities only: project the visible teams of this scope (main-brain root owns its
@@ -91,16 +88,12 @@ function rpcHarness(options: {
         complete: true,
       }
     }),
-  } as unknown as AgentSwarmHostReadService & { read: ReturnType<typeof vi.fn>; listTeams: ReturnType<typeof vi.fn> }
+  } as unknown as AgentSwarmHostReadService & { listTeams: ReturnType<typeof vi.fn>; projectAuthorizedTeam: ReturnType<typeof vi.fn> }
   let lastReadInput: { afterCursor?: string; teamId?: string; captainSessionId?: string } | undefined
   const ctx = {
     agents: {
       get: (id: string) => id === root.id ? (options.fullyColdRoot ? undefined : root) : undefined,
       roots: () => options.fullyColdRoot ? [] : liveRoots,
-      withInitiator: async <T>(agent: Agent, callback: () => Promise<T>) => {
-        initiator = agent
-        try { return await callback() } finally { initiator = undefined }
-      },
     },
     sessions: { get: (id: string) => (id === root.id ? (options.coldRoot || options.fullyColdRoot ? undefined : session) : coldSessions[id]) ?? undefined },
     sessionPersistence: {
@@ -170,7 +163,7 @@ describe('R2 local trust boundary', () => {
 })
 
 describe('R2 authoritative target binding and wire contract', () => {
-  it('rebinds the target hint to the exact live root and enters R1 with official withInitiator', async () => {
+  it('rebinds the target hint through the Host authority before projecting', async () => {
     const harness = rpcHarness()
     const request = { schemaVersion: 1, method: 'binding', target: { rootSessionId: ROOT.id } } as const
     const binding = await harness.service.invoke(request)
@@ -188,7 +181,7 @@ describe('R2 authoritative target binding and wire contract', () => {
       kind: 'tasks', visibleTotal: 1, authoritativeTotal: 4, projectionTruncated: true,
       changed: false, resyncRequired: false,
     })
-    expect(harness.hostRead.read).toHaveBeenCalledWith({ afterCursor: CURSOR, teamId: 'team-r2' })
+    expect(harness.lastReadInput()).toEqual({ afterCursor: CURSOR, teamId: 'team-r2' })
   })
 
   it('rejects fake roots, stale Session objects, non-roots and non-captain Team hints', async () => {
@@ -327,7 +320,7 @@ describe('R2 authoritative target binding and wire contract', () => {
       const value = await harness.service.invoke({ schemaVersion: 1, method, target: { rootSessionId: captain, teamId: 'team-r2' } }) as { binding?: { rootSessionId: string; teamId: string } }
       expect(value.binding).toMatchObject({ rootSessionId: captain, teamId: 'team-r2' })
     }
-    expect(harness.hostRead.read).toHaveBeenCalledWith(expect.objectContaining({ teamId: 'team-r2', captainSessionId: captain }))
+    expect(harness.lastReadInput()).toMatchObject({ teamId: 'team-r2', captainSessionId: captain })
   })
   it('keeps cold-captain ambiguity explicit and rejects unowned Captain bindings', async () => {
     const ambiguous = rpcHarness({
