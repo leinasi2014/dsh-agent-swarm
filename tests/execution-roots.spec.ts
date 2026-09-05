@@ -18,10 +18,11 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import { Context } from '@deepseek-ai/cordis'
+import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
-import { workspaceOf } from '../src/runtime/authority.js'
 import {
   attemptHoldsExecutionRoot,
   deterministicRootPath,
@@ -405,6 +406,8 @@ describe('execution-root composition wiring (M3-1, issue #100)', () => {
     const scope = composition.ctx.agentSwarm.scopeOf(composition.lead)
     try {
       const { ctx, adapter } = composition
+      composition.fibers.push(await ctx.plugin(LocalFileSystem, { cwd: scope }))
+      composition.fibers.push(await ctx.plugin(ToolFs))
       const created = await modesToolCall(ctx, composition.lead, 'issue191-create', 'agent_swarm_create', {
         name: 'Issue #191 team',
         description: 'Prove the per-attempt execution-root cwd fencing and the durable submit diff.',
@@ -446,11 +449,16 @@ describe('execution-root composition wiring (M3-1, issue #100)', () => {
       // shared roster Session cwd the member was provisioned with.
       const member = ctx.agents.get(SessionId(memberId))
       expect(member).toBeDefined()
-      expect(workspaceOf(member!)).toContain(expectedPath)
-
-      // Give the worktree a real tracked change so the submitted attempt has a
-      // durable diff of the attempt's work to persist.
-      writeFileSync(join(expectedPath, 'tracked.txt'), 'base\nattempt change\n', 'utf8')
+      // Exercise the actual official tool consumer and local filesystem
+      // provider. A private workspace helper cannot redirect this call.
+      const written = await modesToolCall(ctx, member!, 'issue191-write', 'write', {
+        file_path: 'tracked.txt', content: 'base\nattempt change\n',
+      })
+      expect(written.isError).toBe(false)
+      expect({
+        isolated: readFileSync(join(expectedPath, 'tracked.txt'), 'utf8').replace(/\r\n/g, '\n'),
+        shared: readFileSync(join(scope, 'tracked.txt'), 'utf8').replace(/\r\n/g, '\n'),
+      }).toEqual({ isolated: 'base\nattempt change\n', shared: 'base\n' })
 
       // Contract point 2 (#191): submitting a git-worktree attempt must attach
       // a durable diff/patch of the worktree to the attempt evidence (the root
