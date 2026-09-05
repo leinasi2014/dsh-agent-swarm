@@ -43,8 +43,13 @@ export class RuntimeMutationSurface {
 
   constructor(private readonly deps: RuntimeMutationDeps) {}
 
+  private assertReviewerConfigured(): void {
+    if (this.deps.config.reviewProvider === 'reviewer-agent' && this.deps.reviewProvider('reviewer-agent') === undefined)
+      throw new TeamDomainError('reviewer-agent requires ctx.agentSwarmPermission.registerReviewerAgentProvider', 'TEAM_REVIEW_PROVIDER_MISSING')
+  }
+
   async create(exec: ToolExecutionAuthority, name: string, description: string): Promise<TeamState> {
-    await this.deps.ensureReady(); this.deps.assertOpen()
+    await this.deps.ensureReady(); this.deps.assertOpen(); this.assertReviewerConfigured()
     const agent = requireAgent(exec), scope = this.deps.scopeOf(agent)
     this.deps.watchJobsScope(scope)
     return await this.deps.domain().createTeam(
@@ -54,7 +59,7 @@ export class RuntimeMutationSurface {
   }
 
   async createWithDedicatedCaptain(exec: ToolExecutionAuthority, name: string, description: string, options: { llmProvider?: string; model?: string } = {}): Promise<TeamState> {
-    await this.deps.ensureReady(); this.deps.assertOpen()
+    await this.deps.ensureReady(); this.deps.assertOpen(); this.assertReviewerConfigured()
     const root = requireAgent(exec), scope = this.deps.scopeOf(root)
     if (root.session.header.parentSession !== undefined || await this.deps.domain().findMembership(scope, root.id) !== undefined)
       throw new TeamDomainError('managed Team creation requires a top-level main Chat outside every Team', 'TEAM_CAPTAIN_REQUIRED')
@@ -85,7 +90,7 @@ export class RuntimeMutationSurface {
 
   /** Plan-first: create a durable staged managed Team (no Captain is provisioned). */
   async createStagedManaged(exec: ToolExecutionAuthority, name: string, description: string): Promise<TeamState> {
-    await this.deps.ensureReady(); this.deps.assertOpen()
+    await this.deps.ensureReady(); this.deps.assertOpen(); this.assertReviewerConfigured()
     const root = requireAgent(exec), scope = this.deps.scopeOf(root)
     await this.assertMainBrain(root, scope)
     const identity = this.resolveManagedIdentity(root, exec)

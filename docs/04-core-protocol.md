@@ -100,6 +100,8 @@ Captain identity 独立于 Member roster。`set_captain_profile` 成功提交后
 
 Review Provider 返回判定和 bounded evidence，Domain port 完成状态 mutation；候选不能审核自己。Executable review 运行于声明的 review root，并将命令、退出码和产物身份绑定当前 attempt。
 
+选择 `reviewProvider: reviewer-agent` 时，Host 必须通过 `ctx.agentSwarmPermission.registerReviewerAgentProvider` 注册真实 evidence-only Provider；注册和注销同步控制运行时 Provider 可用性。Host 可以在 Swarm 挂载后、官方 Loader 装配结束前注册。Loader 的 `await` 依赖就绪点仍缺 Provider 时报告 `TEAM_INVALID_CONFIG` 和缺失注册入口；该诊断不代表整个 Host 进程退出。无 Loader 的直接 Context 组合由 Host 完成注册，新 Team/任务 admission 仍检查真实 Provider 集合，缺失时返回 `TEAM_REVIEW_PROVIDER_MISSING`，不得降级为 manual。已有 submitted attempt 的评审继续遵守原有失败不改域契约。
+
 Execution root 是每 attempt 的工作目录租约，不是开发 writer lane。插件为持有租约的成员安装 scoped tool Consumer，复用官方 `read`/`read_image`/`write`/`edit`/`pwsh`/`bash` 的 schema、真实 Agent 身份、执行实现与取消生命周期；文件相对路径和 shell cwd 自动解析到租约目录，拒绝显式目录越界及已有链接越界。持久 shell 每次命令先切回本次租约目录。Team namespace 和 Session header.cwd 保持不变；租约结束后旧成员的这些工具拒绝执行，不能回落到共享目录。此路径约束不解析任意 shell 代码，也不替代部署 sandbox 的 OS 隔离。
 
 撤租发生在官方 guard 与工具 body 之间时，body 仍必须拒绝执行。运行时卸载撤销 IO 绑定，但保留未提交目录；冷恢复成员首次文件或 shell 调用，在官方 pre-execute 阶段根据持久 Team 的当前 running attempt 重建绑定，并由 Provider 验证原目录 marker。首次操作直接提交时也须先恢复原目录、保存补丁，再提交状态；目录缺失则保留未完成 attempt 并报错。目录缺失、成员已退出或 attempt 已结束时拒绝 IO，不创建空目录假装恢复；正常提交后的终态回收仍走原有 sweep。残留扫描只报告，不能以扫描结果替代这条实际恢复边界。
