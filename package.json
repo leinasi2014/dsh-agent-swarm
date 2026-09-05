@@ -85,7 +85,7 @@
     "verify:artifact": "node scripts/verify-package-artifact.mjs",
     "verify:package-install": "node scripts/verify-package-install.mjs",
     "verify:engineering": "pnpm verify:structure && pnpm verify:workspace && pnpm verify:p0-fixtures && pnpm lint && pnpm verify:duplication && pnpm verify:exports && pnpm typecheck && pnpm typecheck:test && pnpm test && pnpm verify:scenarios && pnpm build && pnpm verify:artifact && pnpm verify:package-install",
-    "verify:candidate": "pnpm verify:engineering",
+    "verify:candidate": "pnpm verify:engineering && pnpm verify:p0-evidence --candidate",
     "verify": "pnpm verify:candidate"
   },
   "peerDependencies": {

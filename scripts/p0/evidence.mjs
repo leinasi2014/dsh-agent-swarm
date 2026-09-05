@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { readFile, stat } from 'node:fs/promises'
 import { isAbsolute, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { verifyManagedEvidence } from './managed-evidence.mjs'
 
 export const REQUIRED_P0_GATES = [
   'candidate-clean',
@@ -96,7 +97,9 @@ function requireGitIdentity(value, label, failures) {
 
 export async function verifyP0Evidence(root, manifest, expected = {}) {
   const failures = []
-  if (manifest?.schemaVersion !== 1) failures.push('schemaVersion must be 1')
+  const managed = manifest?.schemaVersion === 2 && manifest?.proofKind === 'managed-team'
+  if (!managed && manifest?.schemaVersion !== 1) failures.push('unsupported P0 evidence schema')
+  if (expected.requireManaged && !managed) failures.push('current candidate requires managed-Team product proof; legacy DEV_SMOKE is compatibility only')
   if (manifest?.status !== 'pass') failures.push('status must be pass')
 
   requireGitIdentity(manifest?.candidate?.commit, 'candidate.commit', failures)
@@ -142,6 +145,11 @@ export async function verifyP0Evidence(root, manifest, expected = {}) {
   }
   if (official?.statusBefore !== '' || official?.statusAfter !== '') failures.push('official checkout was not clean')
   if (official?.version !== '0.1.1-rc.2') failures.push('official CLI version must be 0.1.1-rc.2')
+
+  if (managed) {
+    await verifyManagedEvidence(root, manifest, expected, failures)
+    return { ok: failures.length === 0, failures }
+  }
 
   const isolation = manifest?.isolation
   for (const key of ['runtimeRoot', 'dshHome', 'workspaceRoot', 'sandboxRoot', 'storageRoot', 'sessionRoot', 'probeModuleRoot']) {

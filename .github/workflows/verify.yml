@@ -7,7 +7,24 @@ on:
     branches: [main]
   pull_request:
     branches: ['**']
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      proof_url:
+        description: 'Controller-hosted immutable proof ZIP URL (optional; no fixture substitution)'
+        type: string
+        required: false
+      proof_sha256:
+        description: 'Controller-pinned ZIP SHA256'
+        type: string
+        required: false
+      expected_sha256:
+        description: 'Controller-pinned controller-expected.json SHA256 inside ZIP'
+        type: string
+        required: false
+      accepted_verifier_ref:
+        description: 'Optional independently accepted verifier commit (full SHA, different from candidate)'
+        type: string
+        required: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -19,6 +36,45 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        # PR runs retain the synthetic merge checkout. A receipt for PR head
+        # cannot prove that merge. Dispatch/push receipts bind the actual HEAD.
+
+      - name: Read external controller proof configuration
+        shell: pwsh
+        env:
+          PROOF_URL: ${{ inputs.proof_url }}
+          PROOF_SHA256: ${{ inputs.proof_sha256 }}
+          EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
+          ACCEPTED_VERIFIER_REF: ${{ inputs.accepted_verifier_ref }}
+        run: |
+          $values = @($env:PROOF_URL, $env:PROOF_SHA256, $env:EXPECTED_SHA256, $env:ACCEPTED_VERIFIER_REF)
+          if (($values | Where-Object { -not [string]::IsNullOrEmpty($_) }).Count -eq 0) {
+            Write-Host 'P0 managed-Team product proof: NOT_CONFIGURED (no external controller receipt)'
+            exit 0
+          }
+          if ([string]::IsNullOrWhiteSpace($env:PROOF_URL) -or $env:PROOF_SHA256 -cnotmatch '^[0-9a-f]{64}$' -or $env:EXPECTED_SHA256 -cnotmatch '^[0-9a-f]{64}$') {
+            throw 'Partial or invalid controller proof configuration'
+          }
+          if ($env:ACCEPTED_VERIFIER_REF -and ($env:ACCEPTED_VERIFIER_REF -cnotmatch '^[0-9a-f]{40}$' -or $env:ACCEPTED_VERIFIER_REF -eq (git rev-parse HEAD))) {
+            throw 'Accepted verifier must be an external fixed commit, not the candidate itself'
+          }
+          $uri = [uri]$env:PROOF_URL
+          if ($uri.Scheme -ne 'https') { throw 'Controller proof URL must use HTTPS' }
+          $archive = Join-Path $env:RUNNER_TEMP 'p0-controller-proof.zip'
+          $proofRoot = Join-Path $env:RUNNER_TEMP 'p0-controller-proof'
+          Invoke-WebRequest -Uri $uri -OutFile $archive
+          if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -cne $env:PROOF_SHA256) { throw 'Controller ZIP digest mismatch' }
+          $zip = [System.IO.Compression.ZipFile]::OpenRead($archive)
+          try {
+            foreach ($entry in $zip.Entries) {
+              if ([IO.Path]::IsPathRooted($entry.FullName) -or ($entry.FullName -split '[/\\]' -contains '..')) { throw 'Controller ZIP path escapes proof root' }
+            }
+          } finally { $zip.Dispose() }
+          Expand-Archive -LiteralPath $archive -DestinationPath $proofRoot
+          "P0_PROOF_ROOT=$proofRoot" >> $env:GITHUB_ENV
+          "P0_EXPECTED=$(Join-Path $proofRoot 'controller-expected.json')" >> $env:GITHUB_ENV
+          "P0_EXPECTED_SHA256=$env:EXPECTED_SHA256" >> $env:GITHUB_ENV
+          if (-not $env:ACCEPTED_VERIFIER_REF) { Write-Host 'Accepted-base acceptance: NOT_CONFIGURED (candidate consumption is not independent acceptance)' }
 
       - uses: pnpm/action-setup@v4
 
@@ -51,3 +107,19 @@ jobs:
           $code = $LASTEXITCODE
           Get-Content verify-gate.log
           exit $code
+
+      - name: Load explicitly accepted verifier
+        if: inputs.accepted_verifier_ref != ''
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.accepted_verifier_ref }}
+          path: accepted-verifier
+
+      - name: Independently accepted verifier consumes candidate receipt
+        if: inputs.accepted_verifier_ref != ''
+        shell: pwsh
+        env:
+          P0_EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
+        run: |
+          $proofRoot = Join-Path $env:RUNNER_TEMP 'p0-controller-proof'
+          node accepted-verifier/scripts/verify-p0-profile-proof.mjs --candidate --candidate-repo "$env:GITHUB_WORKSPACE" --root "$proofRoot" --expected "$(Join-Path $proofRoot 'controller-expected.json')" --expected-sha256 "$env:P0_EXPECTED_SHA256"

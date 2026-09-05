@@ -13,6 +13,41 @@
 
 后一层可以支撑更高结论，但不能反向替代前一层。服务启动日志不是浏览器 E2E，静态截图不是交互验收。
 
+## 当前候选的 managed-Team 证明
+
+`verify:candidate` 在工程门通过后，使用同一个 `verify:p0-evidence --candidate` 入口消费外部控制者冻结的产品证据。原 `p0:profile-proof` 的 schema 1、DEV_SMOKE 和 R2/R3 兼容性收据继续保留，不能替代 schema 2 的真实模型 managed-Team 路径。fixture gate 只证明消费者能接受/拒绝指定形态，不证明产品已经运行。
+
+控制者在候选之外保存 proof root 与 `controller-expected.json`，并独立固定 expected 文件 SHA256。不可从待验 manifest 推导 expected 身份，也没有生成 PASS 骨架或自动晋升命令：
+
+```powershell
+node scripts/verify-p0-profile-proof.mjs --candidate --root <proof-root> --expected <controller-expected.json> --expected-sha256 <controller-pinned-sha256> --candidate-repo <candidate-checkout>
+```
+
+省略 `--candidate-repo` 时核对当前目录的实际 Git HEAD/tree。前三个配置亦可用 `P0_PROOF_ROOT`、`P0_EXPECTED`、`P0_EXPECTED_SHA256` 传入。只有三项全部未提供才输出 `NOT_CONFIGURED` 并允许工程检查完成；空白、部分配置、文件缺失、坏 JSON 或任一身份不匹配均失败，不回落到 fixture 或 skip。`NOT_CONFIGURED` 不是产品 PASS，不能据此关闭需要真实产品证明的 Issue。
+
+expected JSON 必须包含 `proofKind: "managed-team"`、`candidateCommit`、`candidateTree`、`artifact: {sha256, bytes}`、`official: {commit, tree, version}`、`profile: {dshHome, provider, model, profileName}`、`manifestSha256`。四个 Profile 字段必须非空且逐字匹配，`dshHome` 为绝对路径。manifest 位于 `evidence/manifest.json`，使用 `schemaVersion: 2`、`proofKind: "managed-team"`、`status: "pass"`、`provenance: "controller-observed-live"`，并保留 P0 的 candidate、完整 tarball artifact、official 前后 clean 身份和 evidenceFiles 的相对路径/字节/SHA256。状态字符串本身不提供信任；独立控制者的 digest、规范来源读回与非作者复核才是信任来源。
+
+`managed` 固定包含 Main Brain/Captain Session ID、至少两个 member Session ID、`sessionsBefore`/`sessionsAfter` 文件引用与下列六个 `phases`。每阶段 `team` 引用实际 Storage Domain Team 的白名单投影：schemaVersion/id/revision/name/captainSessionId/managedOrigin/phase/captainProfile/members/tasks/attempts。成员保留 name/sessionId/provider/phase 和已存在的四个身份属性；任务保留 id/revision/status/ownerSessionId/currentAttemptId；attempt 保留 id/taskId/generation/memberSessionId/phase。只取实际已存在字段，不补造值。
+
+| 阶段 | 必需规范证据 |
+| --- | --- |
+| creation | `team`、Main Brain 的 `call`、`userMessageSeq`；真实用户消息先于模型的 create_managed，结果精确关联独立 Captain 与 managedOrigin |
+| profile | `team`、Captain 的 `call`；set_captain_profile 四项身份属性与存储吻合，返回 revision 精确为 expected+1，稍后读回 revision 可以增加 |
+| members | `team`、`calls`；每个成员具有实际 add_member 成功回执、独立 Session、正确 Captain parentSession |
+| review | `team`、对应的 `submissions`/`reviews`；每名成员实际提交，Captain 精确接受同 task/attempt/revision；异构来自各成员提交前的实际 request/header 模型，至少两个不同 model |
+| ui | `team`、`observation`；内置浏览器固定同 Team，刷新前 revision 对应 members 采样，刷新后对应当前 Team；见下方可见字段投影 |
+| restart | `team`、`reopenedTeam`、新 `submissions`/`reviews`、`process: {beforePid, afterPid, stoppedAt, startedAt}`；重启前后 PID 不同，重开状态等于 UI 阶段规范状态，四类 Session header 与已导出事件前缀不变，随后产生新的执行与接受 attempt |
+
+Session 白名单保留原 header 的 version/id/createdAt/parentSession/origin/seedLength/agentPreset，以及原 event 的 type/seq/time。request/header 仅保留 data.header.config 的 provider/model；user/message 仅保留 source.kind 与原内容的 contentSha256；turn/start 保留 turn，turn/end 保留 turn 与 reason.kind。禁止导出 request/context、system/tools、隐藏推理、原始代码或凭据。
+
+Native tool/call 保留 turn/step/callId/name，arguments 为原 JSON 解析后选出的固定参数字段；tool/result 从 canonical message.source 和 tool-result block 投影 turn/step/callId/isError/text。PTC 必须保留原 tool/code-dispatch-start 与 tool/code-dispatch 的 rootCallId/parentCallId/subCallId/name/arguments，后者另含 isError 和实际公开 text content；父 run_code 的原 call/result 仍保留，代码参数省略，父结果只导出 textSha256。消费者核对唯一配对、父调用包围、实际 turn、成功结果及 lineage。Native 引用为 `{sessionId, callSeq, resultSeq, turn, callId}`；PTC 引用以 rootCallId/parentCallId/subCallId 代替 callId。禁止把 PTC 子调用改写为 native 事件。
+
+UI observation 为 `{source: "in-app-browser", teamId, beforeRevision, afterRevision, captainProfile, members, tasks, screenshot}`。仅对照实际可见字段：Captain 的 displayName/profession；成员卡片 name/displayName 和逐一打开详情的 provider/model；任务 id/status（从可见本地化状态映射枚举）。Session ID、attempt generation 等隐藏字段由 Team/Session 证据验证，不假装 DOM 显示。截图是已声明 hash/bytes 的 PNG，仅支持 UI 结论，不能单独证明任何阶段。
+
+CI 默认 PR checkout 仍是 synthetic merge；不能拿 head 收据证明 merge。手动 workflow_dispatch 可提供控制者的 HTTPS proof ZIP URL、ZIP SHA256、expected JSON SHA256，以及可选已接受 verifier 的完整 commit。ZIP 根含 artifact/、evidence/、controller-expected.json；下载失败或错 digest 必须失败。未提供 accepted verifier 时另报独立接纳 `NOT_CONFIGURED`，候选消费结果不称为独立验收；提供时必须不同于候选，加载该版本的既有入口，失败不能改用候选自验。
+
+修改 verifier 的首个候选由已接受 base 能执行的工程/治理检查和非作者语义评审共同接纳，明确旧 schema 的能力边界；完成 expected-target 合入与读回后才能将新 verifier 激活为后续独立验收基线。候选不能选择自己的身份或 manifest 为信任根，不能自行接纳或晋升。
+
 ## 3. 回归场景索引
 
 以下编号是测试名称与文档之间的稳定索引，不是旧里程碑或实时进度。
