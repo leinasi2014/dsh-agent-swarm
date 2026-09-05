@@ -31,7 +31,7 @@ const TASK_ROW_SCHEMA = {
     ready: { type: 'boolean', required: true },
     blocked_by: { type: 'array', required: true, items: { type: 'string' } },
     owner: { type: 'string', description: 'Member name, or captain when the captain holds it.' },
-    target_member: { type: 'string', description: 'Strict captain-selected member, including while the task is blocked or pending.' },
+    target_member: { type: 'string', description: 'Strict captain-selected member, including while the task is blocked or pending. Omit at creation to declare generic work any available member may execute.' },
     attempt_id: { type: 'string' },
     stranded: { type: 'string', enum: ['idle-holder', 'owner-not-live'] },
     hold: {

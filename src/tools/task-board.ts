@@ -23,7 +23,7 @@ export function registerCreateTaskTool(ctx: Context, runtime: AgentSwarmRuntime)
       blocked_by: { type: 'array', items: { type: 'string' }, description: 'Existing task ids that must complete first.' },
       write_scopes: { type: 'array', items: { type: 'string' }, description: 'Advisory workspace-relative coordination paths, not filesystem authorization; delivered to the assigned member as untrusted guidance.' },
       priority: { type: 'number', description: 'Higher values are scheduled first.' },
-      target_member: { type: 'string', description: 'Optional exact Team member name. The task waits for this member and never falls back to another member.' },
+      target_member: { type: 'string', description: 'Optional exact Team member name. Omit it to declare generic work any available member may execute; specialist work must set the exact member — the task waits for that member and never falls back to another member.' },
       verification: {
         type: 'array',
         description: 'Captain-declared verification checks frozen into the task. Each entry is either a raw command or a named command-library template with parameters; templates expand before the task commit and may select a Node/Python root family.',
