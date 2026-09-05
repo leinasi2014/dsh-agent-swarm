@@ -2,15 +2,7 @@
  * SW-I1a real-composition permission boundary: mounts the OFFICIAL
  * ToolRuntime + ApprovalService + AgentLoop + storage stack and proves:
  *
- *  - `allow-once` grants one concrete captain tool call in the same open turn;
- *  - `reject`, a missing approval seam, `unavailable` and `cancelled`
- *    approvals all fail closed through the official ToolRuntime;
- *  - a delegated member's `ask` tool is denied (and mapped into the member
- *    provisioning deny filter);
- *  - unrelated agents are NOT touched by the plugin's Team policy;
- *  - a monotonic guard can still deny after our pre-execute decision;
- *  - the evidence-only Reviewer Agent is consumed by the existing review
- *    transaction and commits through TeamDomainPort;
+ *  - permission denial is monotone and participant scoped;
  *  - scenario 44: free text cannot authorize, a forged principal is rejected
  *    by the SW-I1a gateway with TEAM_INTERACTION_NO_PRINCIPAL, a real host
  *    verifier admits authenticated-human, and every Team change still lands
@@ -69,6 +61,7 @@ interface Stack {
   readonly lead: ReturnType<Context['agentLoop']['create']>
   readonly teamId: AgentSwarm.TeamId
   readonly scope: string
+  readonly unregisterInitialReviewer?: () => void
 }
 async function mount(
   sandbox: string,
@@ -98,6 +91,11 @@ async function mount(
     ...(options.workflowBridge === undefined ? {} : { workflowBridge: options.workflowBridge }),
   })
   fibers.push(pluginFiber)
+  const unregisterInitialReviewer = options.reviewProvider === 'reviewer-agent'
+    ? ctx.agentSwarmPermission.registerReviewerAgentProvider({
+      kind: 'reviewer-agent', name: 'initial-host-reviewer',
+      review: async () => ({ kind: 'evidence', evidenceIds: ['e1'], diagnostic: 'reviewed', recommendation: 'accept' }),
+    }) : undefined
   registerProbeTool(ctx)
   ctx.llm.registerAdapter(['mock'], new ImmediateAdapter())
   const lead = ctx.agentLoop.create(
@@ -116,6 +114,7 @@ async function mount(
     lead,
     teamId: AgentSwarm.TeamId((created.value as { team_id: string }).team_id),
     scope: ctx.agentSwarm.scopeOf(lead),
+    ...(unregisterInitialReviewer === undefined ? {} : { unregisterInitialReviewer }),
   }
   stacks.push(stack)
   return stack
@@ -261,6 +260,7 @@ describe('Reviewer Agent real review transaction', () => {
       return snap.team.tasks.find(task => task.id === createdValue.task_id)?.status
     }
     // Provider missing: the transaction fails loud with no partial mutation.
+    stack.unregisterInitialReviewer?.()
     const missing = await review()
     expect(missing.isError).toBe(true)
     expect(errorCode(missing.error)).toBe('TEAM_REVIEW_PROVIDER_MISSING')

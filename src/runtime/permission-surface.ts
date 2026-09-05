@@ -35,7 +35,7 @@ import {
   validateToolPolicyDeclaration,
   type ToolPolicyDeclaration,
 } from './permission-policy.js'
-import type { ReviewerAgentProvider } from './reviewer-boundary.js'
+import { reviewerAgentReviewProvider, type ReviewerAgentProvider } from './reviewer-boundary.js'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -61,6 +61,7 @@ export interface TeamPermissionSurfaceDeps {
 export class TeamPermissionSurface {
   private humanPrincipalVerifier: HumanPrincipalVerifier | undefined
   private reviewerAgentProvider: ReviewerAgentProvider | undefined
+  private unregisterReviewer: (() => void) | undefined
 
   constructor(private readonly deps: TeamPermissionSurfaceDeps) {
     validateToolPolicyDeclaration(deps.policy)
@@ -86,8 +87,16 @@ export class TeamPermissionSurface {
     if (this.reviewerAgentProvider !== undefined) {
       throw new TeamDomainError('a reviewer agent provider is already registered', 'TEAM_PROVIDER_DUPLICATE')
     }
+    const unregister = this.deps.runtime.registerReviewProvider('reviewer-agent', reviewerAgentReviewProvider(() => this.reviewerAgentProvider))
     this.reviewerAgentProvider = provider
-    return () => { if (this.reviewerAgentProvider === provider) this.reviewerAgentProvider = undefined }
+    const dispose = () => {
+      if (this.unregisterReviewer !== dispose) return
+      unregister()
+      this.reviewerAgentProvider = undefined
+      this.unregisterReviewer = undefined
+    }
+    this.unregisterReviewer = dispose
+    return dispose
   }
 
   get reviewerAgent(): ReviewerAgentProvider | undefined {
@@ -97,7 +106,7 @@ export class TeamPermissionSurface {
   /** Clear host registrations; idempotent and awaits no async work today. */
   async dispose(): Promise<void> {
     this.humanPrincipalVerifier = undefined
-    this.reviewerAgentProvider = undefined
+    this.unregisterReviewer?.()
   }
 
   /** Effective member provisioning deny overlay: policy `ask` + `deny` names. */

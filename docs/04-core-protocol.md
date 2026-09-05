@@ -100,6 +100,8 @@ Captain identity 独立于 Member roster。`set_captain_profile` 成功提交后
 
 Review Provider 返回判定和 bounded evidence，Domain port 完成状态 mutation；候选不能审核自己。Executable review 运行于声明的 review root，并将命令、退出码和产物身份绑定当前 attempt。
 
+选择 `reviewProvider: reviewer-agent` 时，Host 必须通过 `ctx.agentSwarmPermission.registerReviewerAgentProvider` 注册真实 evidence-only Provider；注册和注销同步控制运行时 Provider 可用性。Host 可以在 Swarm 挂载后、官方 Loader 装配结束前注册。Loader 的 `await` 依赖就绪点仍缺 Provider 时报告 `TEAM_INVALID_CONFIG` 和缺失注册入口；该诊断不代表整个 Host 进程退出。无 Loader 的直接 Context 组合由 Host 完成注册，新 Team/任务 admission 仍检查真实 Provider 集合，缺失时返回 `TEAM_REVIEW_PROVIDER_MISSING`，不得降级为 manual。已有 submitted attempt 的评审继续遵守原有失败不改域契约。
+
 Execution root 是每 attempt 的工作目录租约，不是开发 writer lane。成员通过官方工具的绝对 `workdir` 使用它；真正的文件系统隔离由部署 sandbox 决定。crash residue 必须扫描、标记和交给显式清理，不静默删除。
 
 Workflow bridge、Jobs projection、human control 和 remote/distributed Provider 都是可选面：启用条件、能力缺失、owner 和 disposer必须可见。Jobs 是 Team task 的只读 projection，不注册或替换官方 `ctx.jobs` 写权威。
