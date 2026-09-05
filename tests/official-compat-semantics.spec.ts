@@ -5,7 +5,7 @@
  *
  * All tests compose the real official services a deployment composes —
  * AgentLoop with the in-process spawn provider (real continuable members),
- * JSONL session persistence and the storage stack harness — so quiet
+ * SQLite session persistence and the storage stack harness — so quiet
  * acceptance, interrupt convergence and wait wakeups are evidenced against
  * actual Agent inbox/turn machinery, never a mock.
  */
@@ -16,7 +16,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { CallId, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { CallId } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
@@ -25,73 +25,10 @@ import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
 import { messageFrame } from '../src/runtime/prompts.js'
+import { afterSchedulingPass, GatedAdapter } from './helpers/gated-composition.js'
 import { mountStorageStackOn } from './helpers/storage-stack.js'
 
 const SIGNAL = new AbortController().signal
-
-/**
- * Holds member model turns open until `open()` so delivered input stays
- * un-claimed in the member's durable inbox. The hold is re-armable: each
- * `open()` releases exactly the currently held turns, and every later turn is
- * held again, which keeps a member deterministically `running` across the
- * phases that need a live resident Activation (the in-process spawn provider
- * auto-settles an idle continuable child with an empty inbox — exactly the
- * official inactive-target state quiet mail must not cold-wake). The hold is
- * abortable: cancelling the turn's signal (interrupt/drain) rejects the stream
- * like a cancelled network call.
- */
-class GatedAdapter extends LlmAdapter {
-  readonly requests: GenerateOptions[] = []
-  private gate: Promise<void>
-  private releaseCurrent!: () => void
-
-  constructor() {
-    super()
-    this.gate = new Promise<void>(resolve => { this.releaseCurrent = resolve })
-  }
-
-  override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
-    return Promise.resolve({ provider, id: model, name: model })
-  }
-
-  override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    this.requests.push(options)
-    const held = this.gate
-    const signal = options.signal
-    if (signal !== undefined) {
-      await new Promise<void>((resolve, reject) => {
-        const abort = (): void => {
-          reject(signal.reason instanceof Error ? signal.reason : new Error('aborted'))
-        }
-        if (signal.aborted) {
-          abort()
-          return
-        }
-        const admit = (): void => {
-          signal.removeEventListener('abort', abort)
-          resolve()
-        }
-        signal.addEventListener('abort', abort, { once: true })
-        void held.then(admit, admit)
-      })
-    } else {
-      await held
-    }
-    const text = 'Held turn released.'
-    yield { type: 'block-start', index: 0, blockType: 'text' }
-    yield { type: 'text-delta', index: 0, text }
-    yield { type: 'block-end', index: 0, block: { type: 'text', text } }
-    yield { type: 'usage', usage: { inputTokens: 1, outputTokens: 1 } }
-    yield { type: 'finish', reason: { kind: 'stop' } }
-  }
-
-  /** Release the currently held turns; later turns are held again. */
-  open(): void {
-    const release = this.releaseCurrent
-    this.gate = new Promise<void>(resolve => { this.releaseCurrent = resolve })
-    release()
-  }
-}
 
 function carriesFrame(message: UserMessage, frame: string): boolean {
   return message.content.some(block => block.type === 'text' && block.text === frame)
@@ -200,22 +137,15 @@ describe('official compatibility semantics over the real composition (issue #19)
       // the settlement notice, so release that captain turn too. Then make
       // the member inactive exactly like a reloaded process whose members
       // have not resumed: cancel + drain (a settled child is a no-op).
+      await adapter.waitForRequests(1)
       adapter.open()
-      await vi.waitFor(() => {
-        expect(adapter.requests.length).toBe(1)
-      }, { timeout: 5_000 })
-      await vi.waitFor(() => {
-        expect(lead.status).toBe('running')
-      }, { timeout: 5_000 })
+      await adapter.waitForRequests(2)
+      expect(lead.status).toBe('running')
       adapter.open()
-      await vi.waitFor(() => {
-        expect(lead.status).toBe('idle')
-      }, { timeout: 5_000 })
+      await lead.whenIdle()
       ctx.subagents.interrupt(SessionId(memberId), { kind: 'ancestor', agent: lead })
       await ctx.subagents.drainContinuableChildren(lead, [SessionId(memberId)])
-      await vi.waitFor(() => {
-        expect(ctx.agents.get(SessionId(memberId))).toBeUndefined()
-      }, { timeout: 5_000 })
+      expect(ctx.agents.get(SessionId(memberId))).toBeUndefined()
 
       // Quiet send to the inactive member: durable queue, no cold resume.
       const quiet = await toolCall(ctx, lead, 'send-quiet', 'agent_swarm_send_message', {
@@ -230,8 +160,7 @@ describe('official compatibility semantics over the real composition (issue #19)
       const quietFrame = messageFrame(quietMessage!)
 
       // The reload-recovery rescan skips the inactive target's quiet mail.
-      await ctx.agentSwarm.recoverAgent(lead)
-      await new Promise(resolve => setTimeout(resolve, 300))
+      await afterSchedulingPass(() => ctx.agentSwarm.recoverAgent(lead), teamId)
       // scenario-evidence: 20
       expect(ctx.agents.get(SessionId(memberId))).toBeUndefined()
       expect((await ctx.agentSwarm.domain.snapshot(scope, AgentSwarm.TeamId(teamId), lead.id))
@@ -245,9 +174,7 @@ describe('official compatibility semantics over the real composition (issue #19)
       })
       expect(wakeup.isError).toBe(false)
       expect((wakeup.value as { phase: string }).phase).toBe('delivered')
-      await vi.waitFor(() => {
-        expect(ctx.agents.get(SessionId(memberId))?.status).toBe('running')
-      }, { timeout: 5_000 })
+      expect(ctx.agents.get(SessionId(memberId))?.status).toBe('running')
       const wakeupMessage = (await ctx.agentSwarm.domain.snapshot(scope, AgentSwarm.TeamId(teamId), lead.id))
         .team.messages.find(candidate => candidate.content === 'Wake up and run one turn.')
       const wakeupFrame = messageFrame(wakeupMessage!)
@@ -256,17 +183,13 @@ describe('official compatibility semantics over the real composition (issue #19)
       // Now live again, the quiet message delivers on the next rescan without
       // a second followup: exactly one model-visible copy of each frame. (The
       // captain is idle here, so recoverAgent runs the reload-recovery pass.)
-      await ctx.agentSwarm.recoverAgent(lead)
-      await vi.waitFor(async () => {
-        expect((await ctx.agentSwarm.domain.snapshot(scope, AgentSwarm.TeamId(teamId), lead.id))
-          .team.messages.find(candidate => candidate.id === quietMessage?.id)?.phase).toBe('delivered')
-      }, { timeout: 5_000 })
+      await afterSchedulingPass(() => ctx.agentSwarm.recoverAgent(lead), teamId)
+      expect((await ctx.agentSwarm.domain.snapshot(scope, AgentSwarm.TeamId(teamId), lead.id))
+        .team.messages.find(candidate => candidate.id === quietMessage?.id)?.phase).toBe('delivered')
       adapter.open()
-      await vi.waitFor(async () => {
-        const stored = await ctx.sessionPersistence.inspect(SessionId(memberId), SIGNAL)
-        expect(acceptedFrames(stored.events, quietFrame)).toBe(1)
-        expect(acceptedFrames(stored.events, wakeupFrame)).toBe(1)
-      }, { timeout: 5_000 })
+      const stored = await ctx.sessionPersistence.inspect(SessionId(memberId), SIGNAL)
+      expect(acceptedFrames(stored.events, quietFrame)).toBe(1)
+      expect(acceptedFrames(stored.events, wakeupFrame)).toBe(1)
       expect(followupFrames.filter(text => text === quietFrame)).toHaveLength(0)
 
       idle.mockRestore()
@@ -302,10 +225,9 @@ describe('official compatibility semantics over the real composition (issue #19)
       })
 
       // The member is live and running on its gated initial turn.
-      await vi.waitFor(() => {
-        expect(adapter.requests.length).toBe(1)
-        expect(ctx.agents.get(SessionId(memberId))?.status).toBe('running')
-      }, { timeout: 5_000 })
+      await adapter.waitForRequests(1)
+      expect(adapter.requests.length).toBe(1)
+      expect(ctx.agents.get(SessionId(memberId))?.status).toBe('running')
 
       const sent = await toolCall(ctx, lead, 'send-quiet', 'agent_swarm_send_message', {
         target: 'busy-worker', content: 'Context you may claim at a later step boundary.', delivery: 'quiet',
@@ -314,7 +236,6 @@ describe('official compatibility semantics over the real composition (issue #19)
       expect((sent.value as { phase: string }).phase).toBe('delivered')
 
       // No turn was started: no new model request, still running, no followup.
-      await new Promise(resolve => setTimeout(resolve, 300))
       expect(adapter.requests.length).toBe(1)
       expect(ctx.agents.get(SessionId(memberId))?.status).toBe('running')
       expect(followupFrames).toHaveLength(0)
@@ -365,9 +286,8 @@ describe('official compatibility semantics over the real composition (issue #19)
         expect(snapshot.team.tasks[0]?.ownerSessionId).toBe(memberId)
         expect(snapshot.team.tasks[0]?.status).toBe('in_progress')
       }, { timeout: 5_000 })
-      await vi.waitFor(() => {
-        expect(ctx.agents.get(SessionId(memberId))?.status).toBe('running')
-      }, { timeout: 5_000 })
+      await adapter.waitForRequests(3)
+      expect(ctx.agents.get(SessionId(memberId))?.status).toBe('running')
       // Park a wakeup message behind the running assignment turn: pending
       // next-turn work keeps the Activation resident across the upcoming
       // keepInbox interrupt (an empty inbox would let the spawn provider
@@ -396,10 +316,9 @@ describe('official compatibility semantics over the real composition (issue #19)
 
       // The cancelled turn converges to idle without draining the member:
       // the parked assignment keeps the Activation waiting, no new turn runs.
-      await vi.waitFor(() => {
-        expect(ctx.agents.get(SessionId(memberId))?.status).toBe('idle')
-      }, { timeout: 5_000 })
-      await new Promise(resolve => setTimeout(resolve, 300))
+      const interruptedMember = ctx.agents.get(SessionId(memberId))!
+      await interruptedMember.whenIdle()
+      expect(interruptedMember.status).toBe('idle')
       expect(adapter.requests.length).toBe(3)
 
       // Authorization and target validation on the host API.
@@ -429,9 +348,8 @@ describe('official compatibility semantics over the real composition (issue #19)
         target: 'runaway-worker', content: 'Resume your parked work.', delivery: 'wakeup',
       })
       expect(wakeup.isError).toBe(false)
-      await vi.waitFor(() => {
-        expect(adapter.requests.length).toBeGreaterThan(3)
-      }, { timeout: 5_000 })
+      await adapter.waitForRequests(4)
+      expect(adapter.requests.length).toBeGreaterThan(3)
       expect(ctx.agents.get(SessionId(memberId))).toBeDefined()
 
       await pluginFiber.dispose()

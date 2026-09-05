@@ -87,27 +87,26 @@ describe('stranded-ownership self-healing over the real composition (issue #12)'
 
       // The captain interrupts the running turn (keepInbox): the member
       // converges live-and-idle while the task stays in_progress.
+      // Await the committed retry, not an assumed 200 ms observation
+      // window. Exact grace boundaries are covered by stranded-grace.spec
+      // without freezing the clock used by real inbox claim waits.
+      let committed!: () => void
+      const retried = new Promise<void>(resolve => { committed = resolve })
+      const retry = ctx.agentSwarm.domain.retryAttempt.bind(ctx.agentSwarm.domain)
+      vi.spyOn(ctx.agentSwarm.domain, 'retryAttempt').mockImplementation(async (...args) => {
+        const result = await retry(...args)
+        committed()
+        return result
+      })
+      const member = ctx.agents.get(SessionId(workerId))!
       const interrupted = await ctx.agentSwarm.interruptMember({ agent: composition.lead, signal: SIGNAL }, 'stranded-worker')
       expect(interrupted.previousStatus).toBe('running')
-      await vi.waitFor(() => {
-        const member = ctx.agents.get(SessionId(workerId))
-        expect(member).toBeDefined()
-        expect(member?.status).toBe('idle')
-      }, { timeout: 5_000 })
-
-      // Inside the grace bound nothing moves: the parked owner keeps its
-      // exact attempt (the keepInbox semantics of issue #19 stay intact).
-      const withinGrace = await snapshotOf(composition)
-      expect(withinGrace.team.tasks[0]?.currentAttemptId).toBe(taskBefore.currentAttemptId)
-
-      // Past the grace bound the re-kick pass retries the SAME owner under a
-      // fresh fenced attempt; the old attempt is stale with the evidence.
-      await vi.waitFor(async () => {
-        const snapshot = await snapshotOf(composition)
-        expect(snapshot.team.tasks[0]).toMatchObject({ status: 'in_progress', ownerSessionId: workerId })
-        expect(snapshot.team.tasks[0]?.currentAttemptId).not.toBe(taskBefore.currentAttemptId)
-      }, { timeout: 5_000 })
+      await member.whenIdle()
+      expect(member.status).toBe('idle')
+      await retried
       const healed = await snapshotOf(composition)
+      expect(healed.team.tasks[0]).toMatchObject({ status: 'in_progress', ownerSessionId: workerId, createdAt: taskBefore.createdAt })
+      expect(healed.team.tasks[0]?.currentAttemptId).not.toBe(taskBefore.currentAttemptId)
       const oldAttempt = healed.team.attempts.find(attempt => attempt.id === taskBefore.currentAttemptId)
       expect(oldAttempt?.phase).toBe('stale')
       expect(oldAttempt?.diagnostic).toContain('stranded')
@@ -116,9 +115,8 @@ describe('stranded-ownership self-healing over the real composition (issue #12)'
       )
       expect(freshAttempt?.memberSessionId).toBe(workerId)
       // The fresh dispatch re-wakes the member onto the new attempt.
-      await vi.waitFor(() => {
-        expect(ctx.agents.get(SessionId(workerId))?.status).toBe('running')
-      }, { timeout: 5_000 })
+      await composition.adapter.waitForRequests(4)
+      expect(ctx.agents.get(SessionId(workerId))?.status).toBe('running')
 
       await composition.pluginFiber.dispose()
     } finally {
@@ -140,6 +138,7 @@ describe('stranded-ownership self-healing over the real composition (issue #12)'
     roots.push(sandbox)
     const composition = await mount(sandbox, 200)
     const { ctx } = composition
+    let releaseRetry: (() => void) | undefined
     try {
       const workerId = await addMember(composition, 'atomic-worker')
       await holdAssignedTask(composition, 'Healed under observation')
@@ -154,32 +153,45 @@ describe('stranded-ownership self-healing over the real composition (issue #12)'
         target: 'atomic-worker', content: 'Parked work across the healing window.', delivery: 'wakeup',
       })
       expect(parked.isError).toBe(false)
+      // Hold the actual retry admission so readers observe both sides of
+      // its single commit. A fixed count of 1 ms polls proves neither that
+      // the retry happened nor that the reader overlapped the transaction.
+      let entered!: () => void
+      let committed!: () => void
+      const retryEntered = new Promise<void>(resolve => { entered = resolve })
+      const retryCommitted = new Promise<void>(resolve => { committed = resolve })
+      const retryGate = new Promise<void>(resolve => { releaseRetry = resolve })
+      const retry = ctx.agentSwarm.domain.retryAttempt.bind(ctx.agentSwarm.domain)
+      const observed: string[] = []
+      const cancel = vi.spyOn(ctx.agentSwarm.domain, 'cancelAttempt')
+      const retryObserver = vi.spyOn(ctx.agentSwarm.domain, 'retryAttempt').mockImplementation(async (...args) => {
+        entered()
+        await retryGate
+        const result = await retry(...args)
+        observed.push((await snapshotOf(composition)).team.tasks[0]!.status)
+        committed()
+        return result
+      })
       const interrupted = await ctx.agentSwarm.interruptMember({ agent: composition.lead, signal: SIGNAL }, 'atomic-worker')
       expect(interrupted.previousStatus).toBe('running')
-
-      // Poll the authoritative store across the healing window; the grace
-      // past, the re-kick timer fires the heal mid-loop. Each iteration
-      // yields a macrotask so the timer-driven pass can actually run.
-      const observed: string[] = []
-      let healed = false
-      for (let poll = 0; poll < 400 && !healed; poll += 1) {
-        const snapshot = await snapshotOf(composition)
-        const task = snapshot.team.tasks[0]!
-        observed.push(task.status)
-        if (task.currentAttemptId !== taskBefore.currentAttemptId) healed = true
-        else await new Promise(resolve => setTimeout(resolve, 1))
-      }
-      expect(healed).toBe(true)
-      expect(observed).not.toContain('pending')
+      await retryEntered
+      observed.push((await snapshotOf(composition)).team.tasks[0]!.status)
+      releaseRetry?.()
+      await retryCommitted
+      expect(observed).toEqual(['in_progress', 'in_progress'])
+      expect(cancel).not.toHaveBeenCalled()
+      expect(retryObserver).toHaveBeenCalledTimes(1)
 
       const healedState = await snapshotOf(composition)
       expect(healedState.team.tasks[0]).toMatchObject({ status: 'in_progress', ownerSessionId: workerId })
+      expect(healedState.team.tasks[0]?.currentAttemptId).not.toBe(taskBefore.currentAttemptId)
       const oldAttempt = healedState.team.attempts.find(attempt => attempt.id === taskBefore.currentAttemptId)
       expect(oldAttempt?.phase).toBe('stale')
       expect(oldAttempt?.diagnostic).toContain('stranded')
 
       await composition.pluginFiber.dispose()
     } finally {
+      releaseRetry?.()
       composition.adapter.open()
       for (const fiber of composition.fibers.toReversed()) await fiber.dispose()
     }
@@ -221,9 +233,7 @@ describe('stranded-ownership self-healing over the real composition (issue #12)'
       // Drain the member cold (interrupt + drain) while it holds the task.
       ctx.subagents.interrupt(SessionId(workerId), { kind: 'ancestor', agent: composition.lead })
       await ctx.subagents.drainContinuableChildren(composition.lead, [SessionId(workerId)])
-      await vi.waitFor(() => {
-        expect(ctx.agents.get(SessionId(workerId))).toBeUndefined()
-      }, { timeout: 5_000 })
+      expect(ctx.agents.get(SessionId(workerId))).toBeUndefined()
 
       // Evidence surfaces in the task-list rows (issue #15: the stranded hint
       // moved from the removed status task_summary into list rows); nothing

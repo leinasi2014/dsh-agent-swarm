@@ -1,6 +1,6 @@
 /**
  * Shared harness for the real-composition scheduling suites (issues #12):
- * the official AgentLoop + in-process spawn + JSONL persistence + storage
+ * the official AgentLoop + in-process spawn + SQLite persistence + storage
  * stack graph, one gated LLM adapter that holds member turns open for
  * deterministic `running`/`idle` membership, and the small probes the
  * scheduling-discipline and stranded-ownership specs share.
@@ -17,6 +17,7 @@ import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { vi } from 'vitest'
 import * as AgentSwarm from '../../src/index.js'
+import { SchedulingPass } from '../../src/runtime/scheduling.js'
 import { mountStorageStackOn } from './storage-stack.js'
 
 export const SIGNAL = new AbortController().signal
@@ -32,6 +33,7 @@ export class GatedAdapter extends LlmAdapter {
   readonly requests: GenerateOptions[] = []
   private gate: Promise<void>
   private releaseCurrent!: () => void
+  private readonly requestWaiters = new Set<{ count: number; resolve: () => void }>()
 
   constructor() {
     super()
@@ -44,6 +46,11 @@ export class GatedAdapter extends LlmAdapter {
 
   override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     this.requests.push(options)
+    for (const waiter of this.requestWaiters) {
+      if (this.requests.length < waiter.count) continue
+      this.requestWaiters.delete(waiter)
+      waiter.resolve()
+    }
     const held = this.gate
     const signal = options.signal
     if (signal !== undefined) {
@@ -79,6 +86,33 @@ export class GatedAdapter extends LlmAdapter {
     this.gate = new Promise<void>(resolve => { this.releaseCurrent = resolve })
     release()
   }
+
+  /** Observe actual model admission before opening or asserting a held turn. */
+  async waitForRequests(count: number): Promise<void> {
+    if (this.requests.length >= count) return
+    await new Promise<void>(resolve => { this.requestWaiters.add({ count, resolve }) })
+  }
+}
+
+/** Observe completion of the real scheduling pass requested by the action. */
+export async function afterSchedulingPass(
+  action: () => Promise<unknown>,
+  teamId: string,
+): Promise<void> {
+  let resolve!: () => void
+  let reject!: (error: unknown) => void
+  const completed = new Promise<void>((done, fail) => { resolve = done; reject = fail })
+  const run = SchedulingPass.prototype.run
+  const observer = vi.spyOn(SchedulingPass.prototype, 'run').mockImplementation(async function (this: SchedulingPass, ...args) {
+    try {
+      await run.apply(this, args)
+      if (args[1] === teamId) resolve()
+    } catch (error) {
+      if (args[1] === teamId) reject(error)
+      throw error
+    }
+  })
+  try { await Promise.all([action(), completed]) } finally { observer.mockRestore() }
 }
 
 export async function toolCall(ctx: Context, agent: Agent, callId: string, name: string, args: unknown) {
