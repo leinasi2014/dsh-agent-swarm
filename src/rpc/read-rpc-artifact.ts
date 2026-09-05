@@ -65,7 +65,7 @@ function isSafePixelAvatarSvg(value: string): boolean {
 }
 
 const SWARM_READ_RPC_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
-export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '5e7f9384d1f7106361aa4136728919d8cec47d0d5295018bdec38bab0da03de6' as const
+export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '35bf463cb1cb45abb273451e6aec4690d5331244bb54a6ae126639037681a45f' as const
 
 const boundedString = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength, pattern: '\\S' })
 /** Member role is authoritative free-text (never truncated by the reader); the
