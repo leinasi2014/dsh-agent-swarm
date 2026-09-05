@@ -65,6 +65,12 @@ export function nonEmpty(value: string, label: string, max = 512): string {
   return normalized
 }
 
+/** Admission only: historical aggregates remain readable at their old sizes. */
+export function boundedBoardItems(values: readonly string[], label: string, maxBytes: number): string[] {
+  expectDomain(values.length <= 64, `${label} exceeds 64 items`, 'TEAM_INPUT_LIMIT')
+  return values.map(value => nonEmpty(value, label, maxBytes))
+}
+
 export function attemptOf(team: TeamState, id: AttemptId): TaskAttempt {
   const attempt = team.attempts.find(candidate => candidate.id === id)
   if (attempt === undefined) throw new TeamDomainError(`attempt "${id}" not found`, 'TEAM_ATTEMPT_NOT_FOUND')
@@ -73,11 +79,13 @@ export function attemptOf(team: TeamState, id: AttemptId): TaskAttempt {
 
 export function replaceTask(team: TeamState, next: TeamTask): void {
   const index = team.tasks.findIndex(candidate => candidate.id === next.id)
+  expectDomain(index >= 0, `task "${next.id}" not found`, 'TEAM_TASK_NOT_FOUND')
   team.tasks[index] = next
 }
 
 export function replaceAttempt(team: TeamState, next: TaskAttempt): void {
   const index = team.attempts.findIndex(candidate => candidate.id === next.id)
+  expectDomain(index >= 0, `attempt "${next.id}" not found`, 'TEAM_ATTEMPT_NOT_FOUND')
   team.attempts[index] = next
 }
 

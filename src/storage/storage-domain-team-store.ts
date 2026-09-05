@@ -254,12 +254,23 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
     return team === undefined ? undefined : structuredClone(team)
   }
 
-  async list(scope: TeamScope): Promise<TeamState[]> {
+  async list(scope: TeamScope, participantSessionId?: string): Promise<TeamState[]> {
     if (this.storeClosed) throw closed()
     const teams: TeamState[] = []
     const entries = [...this.teams.entries()].toSorted((left, right) => left[0].localeCompare(right[0]))
     for (const [teamId, record] of entries) {
       if (record.workspace !== scope) continue
+      if (participantSessionId !== undefined) {
+        // Read current canonical metadata on every lookup: no cache can keep
+        // an archived ledger ahead of a newly active one. Uncertain metadata
+        // goes through strict validation, never silently excludes a candidate.
+        const { captainSessionId, members } = record.team
+        if (typeof captainSessionId !== 'string' || !Array.isArray(members)
+          || members.some(member => typeof member?.sessionId !== 'string')) {
+          this.validate(record, teamId)
+        } else if (captainSessionId !== participantSessionId
+          && !members.some(member => member.sessionId === participantSessionId)) continue
+      }
       const team = await withLock(this.teamLocks, teamId, () => this.readAndUpgrade(scope, teamId))
       if (team !== undefined) teams.push(structuredClone(team))
     }

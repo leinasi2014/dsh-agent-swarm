@@ -118,7 +118,9 @@ export class UsageAccountant {
     // Billing resolution, not authority resolution (issue #92): the
     // active-phase-only authority lookup returned undefined for a member
     // whose roster row was still `provisioning` — its first-turn usage was
-    // silently discarded. Resolve exactly the ledger the fold accepts.
+    // silently discarded. Resolve exactly the ledger the fold accepts. The
+    // store filters canonical participant metadata before deep-reading
+    // candidates; unrelated Team histories are not validated/cloned per flush.
     const membership = await this.deps.domain().findAccountingMembership(scope, sessionId)
     if (membership === undefined) return
     await this.deps.domain().recordSessionUsageBatch(

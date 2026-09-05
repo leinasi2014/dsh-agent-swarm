@@ -432,6 +432,10 @@ export class SchedulingPass {
   private armRekick(scope: TeamScope, teamId: TeamId, captainId: string, deadline: number): void {
     if (this.deps.isClosing()) return
     const key = `${scope}\0${teamId}`
+    // The caller takes the minimum deadline across current idle holders.
+    // Later idle edges/task writes move their anchors forward: retain an
+    // already armed earlier check rather than postponing it on each pass.
+    // The callback requests a fresh pass; it never authorizes a stale retry.
     if (this.rekickTimers.has(key)) return
     const timer = setTimeout(() => {
       if (this.rekickTimers.get(key) === timer) this.rekickTimers.delete(key)
