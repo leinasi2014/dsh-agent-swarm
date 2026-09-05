@@ -687,7 +687,7 @@ function detailHeading(detail: DetailSelection, data: SwarmHostReadProjectionV1,
 
 /** Overlay member detail. Every field renders its real read value or the explicit
  *  "not available yet" marker — never a fabricated profile, skill, tool or model claim. */
-function MemberDetail({ detail, data, localeTag, memberAssets, t }: {
+export function MemberDetail({ detail, data, localeTag, memberAssets, t }: {
   readonly detail: { readonly kind: 'member'; readonly name: string }
   readonly data: SwarmHostReadProjectionV1
   readonly localeTag: () => 'zh-CN' | 'en-US'
