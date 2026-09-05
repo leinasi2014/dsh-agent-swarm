@@ -44,4 +44,3 @@ export const detailOverlay = (): HTMLElement | null => document.querySelector<HT
 export const pressEscape = async (): Promise<void> => { await act(async () => { detailOverlay()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) }); await Promise.resolve() }
 export const tabButton = (id: string): HTMLButtonElement => document.querySelector<HTMLButtonElement>(`[data-swarm-view-tab="${id}"]`)!
 afterEach(async () => { while (mounted.length) await act(async () => { mounted.pop()?.unmount() }); document.body.replaceChildren(); vi.clearAllMocks() })
-

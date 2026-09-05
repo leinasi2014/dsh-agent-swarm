@@ -17,7 +17,7 @@ export type DetailSelection =
   | { readonly kind: 'diagnostics' }
 
 export const TEAM_WORKSPACE_WIDE_MIN_WIDTH = 720
-export type TeamWorkspaceLayout = 'compact' | 'wide'
+type TeamWorkspaceLayout = 'compact' | 'wide'
 /** The Details container, rather than the browser viewport, chooses the layout branch. */
 export function teamWorkspaceLayoutForWidth(width: number): TeamWorkspaceLayout { return width >= TEAM_WORKSPACE_WIDE_MIN_WIDTH ? 'wide' : 'compact' }
 
@@ -38,13 +38,12 @@ export function deriveMemberActivity(data: SwarmHostReadProjectionV1, name: stri
   return { task: undefined, attempt: undefined, state: 'idle' }
 }
 
-export type MemberActivity = {
+type MemberActivity = {
   readonly task: SwarmHostReadProjectionV1['tasks'][number] | undefined
   readonly attempt: SwarmHostReadProjectionV1['attempts'][number] | undefined
   readonly state: 'running' | 'idle' | 'error' | 'provisioning' | 'removed' | SwarmHostReadProjectionV1['attempts'][number]['phase']
 }
 
-export type DeskToneExport = DeskTone
 /** Visible work-seat status mapped only from the real roster/tasks/attempts into five honest tones:
  *  executing (blue pulse) = running attempt; pending (amber) = provisioning lifecycle, a
  *  submitted/verifying attempt, or a pending/in-flight task owned but not running; failed =

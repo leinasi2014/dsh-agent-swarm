@@ -12,7 +12,7 @@ import { TaskDag } from './team-task-dag.js'
 import { ManageView, DetailOverlay } from './team-dashboard-detail-content.js'
 import { NOT_GENERATED_AVATAR, deriveMemberTone, memberAssetOf, dedupeTeams, formatTime, toneLabel, enumLabel, type DetailSelection, type DeskTone } from './team-dashboard-view-helpers.js'
 export { MemberDetail } from './team-dashboard-detail-content.js'
-export { deriveMemberActivity, deriveMemberTone, memberRosterInitial, TEAM_WORKSPACE_WIDE_MIN_WIDTH, teamWorkspaceLayoutForWidth, type TeamWorkspaceLayout, type MemberActivity, type DeskToneExport } from './team-dashboard-view-helpers.js'
+export { deriveMemberActivity, deriveMemberTone, memberRosterInitial, TEAM_WORKSPACE_WIDE_MIN_WIDTH, teamWorkspaceLayoutForWidth } from './team-dashboard-view-helpers.js'
 
 type WorkspaceView = 'workspace' | 'tasks' | 'notices' | 'manage'
 
