@@ -157,6 +157,10 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
     if (!MEMBER_PHASES.has(String(member.phase))) corrupt(path, `members[${index}].phase is invalid`)
     integer(member.createdAt, path, `members[${index}].createdAt`)
     if (member.error !== undefined) text(member.error, path, `members[${index}].error`)
+    if (member.previousSessionIds !== undefined) {
+      const previous = stringList(member.previousSessionIds, path, `members[${index}].previousSessionIds`)
+      if (previous.length > 64) corrupt(path, 'member provisioning retry history exceeds 64')
+    }
     if (member.displayName !== undefined) codePointText(member.displayName, 128, path, `members[${index}].displayName`)
     if (member.profession !== undefined) codePointText(member.profession, 256, path, `members[${index}].profession`)
     if (member.personality !== undefined) codePointText(member.personality, 1024, path, `members[${index}].personality`)
@@ -173,7 +177,7 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
     }
     return member
   })
-  unique(members.map(member => member.sessionId as string), path, 'member session ids')
+  unique(members.flatMap(member => [member.sessionId as string, ...((member.previousSessionIds ?? []) as string[])]), path, 'member session ids')
 
   if (team.captainProfile !== undefined) {
     // Captain profile must be a plain object carrying at least one canonical field.

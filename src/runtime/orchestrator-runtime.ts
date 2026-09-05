@@ -349,7 +349,7 @@ export class AgentSwarmRuntime extends Service {
   async discardPlan(exec: ToolExecutionAuthority, teamId: string, expectedRevision: number): Promise<TeamState> { return await this.mutations.discardPlan(exec, teamId, expectedRevision) }
 
 
-  async addMember(exec: ToolExecutionAuthority, input: { name: string; role: string; provider?: string; llmProvider?: string; model?: string; denyTools?: readonly string[] } & MemberIdentityInput): Promise<TeamState['members'][number]> {
+  async addMember(exec: ToolExecutionAuthority, input: { name: string; role: string; retryOf?: string; provider?: string; llmProvider?: string; model?: string; denyTools?: readonly string[] } & MemberIdentityInput): Promise<TeamState['members'][number]> {
     return await this.mutations.addMember(exec, input)
   }
 

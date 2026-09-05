@@ -266,10 +266,12 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
         // goes through strict validation, never silently excludes a candidate.
         const { captainSessionId, members } = record.team
         if (typeof captainSessionId !== 'string' || !Array.isArray(members)
-          || members.some(member => typeof member?.sessionId !== 'string')) {
+          || members.some(member => typeof member?.sessionId !== 'string'
+            || (member.previousSessionIds !== undefined && (!Array.isArray(member.previousSessionIds)
+              || member.previousSessionIds.some((sessionId: unknown) => typeof sessionId !== 'string'))))) {
           this.validate(record, teamId)
         } else if (captainSessionId !== participantSessionId
-          && !members.some(member => member.sessionId === participantSessionId)) continue
+          && !members.some(member => member.sessionId === participantSessionId || member.previousSessionIds?.includes(participantSessionId))) continue
       }
       const team = await withLock(this.teamLocks, teamId, () => this.readAndUpgrade(scope, teamId))
       if (team !== undefined) teams.push(structuredClone(team))

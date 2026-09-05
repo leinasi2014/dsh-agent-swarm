@@ -271,6 +271,7 @@ const producerCapability = {
 const rosterRow = {
   type: 'object', additionalProperties: false, required: ['name', 'role', 'phase', 'createdAt'],
   properties: {
+    provisioningAttempt: { type: 'integer', minimum: 1, maximum: 65 },
     name: boundedString(64), role: boundedString(ROSTER_ROLE_MAX_LENGTH),
     phase: { enum: ['provisioning', 'active', 'failed', 'removed'] }, createdAt: nonNegativeInteger,
   },

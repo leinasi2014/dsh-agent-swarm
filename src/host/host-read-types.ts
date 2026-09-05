@@ -33,6 +33,8 @@ export interface SwarmHostReadProjectionV1 {
     readonly plan?: { readonly members: number; readonly tasks: number }
   }
   readonly roster: readonly {
+    /** Same employee's current provisioning attempt, including up to 64 failed predecessors. */
+    readonly provisioningAttempt?: number
     readonly name: string
     readonly role: string
     readonly phase: 'provisioning' | 'active' | 'failed' | 'removed'

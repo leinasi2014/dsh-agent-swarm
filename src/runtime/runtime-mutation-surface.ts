@@ -271,7 +271,7 @@ export class RuntimeMutationSurface {
     return teams.find(team => team.phase === 'active' && team.managedOrigin === origin)
   }
 
-  async addMember(exec: ToolExecutionAuthority, input: { name: string; role: string; provider?: string; llmProvider?: string; model?: string; denyTools?: readonly string[] } & MemberIdentityInput): Promise<TeamState['members'][number]> {
+  async addMember(exec: ToolExecutionAuthority, input: { name: string; role: string; retryOf?: string; provider?: string; llmProvider?: string; model?: string; denyTools?: readonly string[] } & MemberIdentityInput): Promise<TeamState['members'][number]> {
     await this.deps.ensureReady(); this.deps.assertOpen()
     return await this.deps.provisioning.addMember(exec, input)
   }

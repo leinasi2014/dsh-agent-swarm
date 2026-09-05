@@ -126,7 +126,7 @@ export class TeamDomain implements TeamDomainPort {
     scope: TeamScope,
     teamId: TeamId,
     captainSessionId: string,
-    input: { name: string; role: string; sessionId: string; provider: string } & MemberIdentityInput,
+    input: { name: string; role: string; sessionId: string; provider: string; retryOf?: string } & MemberIdentityInput,
   ): Promise<TeamMember> {
     return await roster.provisionMember(this.deps, scope, teamId, captainSessionId, input)
   }

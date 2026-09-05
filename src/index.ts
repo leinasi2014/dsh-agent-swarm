@@ -5,6 +5,7 @@ export { AGENT_SWARM_SETTINGS_NAMESPACE, Config } from './plugin/config.js'
 
 export const name = 'agent-swarm'
 export const inject = [
+  'llm',
   'tools',
   'subagents',
   'agents',
