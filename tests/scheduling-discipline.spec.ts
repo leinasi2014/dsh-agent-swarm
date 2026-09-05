@@ -17,6 +17,7 @@ import { join } from 'node:path'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
+import { SchedulingPass } from '../src/runtime/scheduling.js'
 import {
   addMember,
   driveRecoveryPasses,
@@ -106,6 +107,20 @@ describe('live-status scheduling discipline over the real composition (issue #12
     roots.push(sandbox)
     const composition = await mount(sandbox, 60_000)
     const { ctx, adapter } = composition
+    let releaseDelayed!: () => void
+    let restoreDelayed: (() => void) | undefined
+    let releaseStaging!: () => void
+    let passEntered!: () => void
+    let passCompleted!: () => void
+    const staged = new Promise<void>(resolve => { releaseStaging = resolve })
+    const entered = new Promise<void>(resolve => { passEntered = resolve })
+    const completed = new Promise<void>(resolve => { passCompleted = resolve })
+    const run = SchedulingPass.prototype.run
+    const scheduling = vi.spyOn(SchedulingPass.prototype, 'run').mockImplementation(async function (this: SchedulingPass, ...args) {
+      if (args[1] === composition.teamId) { passEntered(); await staged }
+      await run.apply(this, args)
+      if (args[1] === composition.teamId) passCompleted()
+    })
     try {
       const workerId = await addMember(composition, 'mail-worker')
       await vi.waitFor(() => {
@@ -127,27 +142,47 @@ describe('live-status scheduling discipline over the real composition (issue #12
         expect(ctx.agents.get(SessionId(workerId))).toBeUndefined()
       }, { timeout: 15_000 })
 
-      // Stage through the authoritative domain only (no runtime scheduling
-      // trigger): one ready task plus one queued wakeup message.
+      // Idle recovery may already have queued a pass. Hold real passes until
+      // BOTH fixture writes and captain notices settle; domain writes alone
+      // do not prevent a pass from observing the task before the mail exists.
+      // Keep provider admission late too: an earlier adapter.open() must not
+      // accidentally finish the mailbox turn before its negative assertions.
+      const lateAdmission = new Promise<void>(resolve => { releaseDelayed = resolve })
+      const stream = adapter.stream.bind(adapter)
+      const delayed = vi.spyOn(adapter, 'stream').mockImplementation(async function* (options) {
+        if (options.sessionId === workerId) await lateAdmission
+        yield* stream(options)
+      })
+      restoreDelayed = () => delayed.mockRestore()
       const { domain } = ctx.agentSwarm
+      await settleCaptain(adapter, composition.lead)
       await domain.createTask(composition.scope, AgentSwarm.TeamId(composition.teamId), composition.lead.id, {
         subject: 'Queued behind the backlog', description: 'Assignment must follow the mailbox delivery.',
       })
+      // Reproduce an idle-recovery pass interleaving the two fixture writes.
+      await ctx.agentSwarm.recoverAgent(composition.lead)
+      await entered
       const message = await domain.queueMessage(
         composition.scope, AgentSwarm.TeamId(composition.teamId), composition.lead.id,
         'mail-worker', 'Backlog delivers before assignment.', 'wakeup',
       )
 
       const followup = spyFollowup(composition)
-      // Settle any drain-settlement notice still holding the captain before
-      // the single recovery drive (a `running` captain would no-op the
-      // drive). No gate opening after this point: the member's mail turn
-      // must stay held through the negative window below.
+      // Settle any drain-settlement notice before releasing the queued real
+      // pass. No gate opening after this point: the member's mail turn must
+      // stay held through the negative window below.
       await settleCaptain(composition.adapter, composition.lead)
-      await ctx.agentSwarm.recoverAgent(composition.lead)
+      const beforePass = await snapshotOf(composition)
+      expect(beforePass.team.tasks[0]?.status).toBe('pending')
+      expect(beforePass.team.messages.find(candidate => candidate.id === message.id)?.phase).toBe('queued')
+      const memberRequests = adapter.requests.filter(request => request.sessionId === workerId).length
+      releaseStaging()
+      releaseDelayed()
+      await completed
       await vi.waitFor(async () => {
         const snapshot = await snapshotOf(composition)
         expect(snapshot.team.messages.find(candidate => candidate.id === message.id)?.phase).toBe('delivered')
+        expect(adapter.requests.filter(request => request.sessionId === workerId)).toHaveLength(memberRequests + 1)
       }, { timeout: 15_000 })
       // The woken member is running its mail turn: the new assignment waits.
       await new Promise(resolve => setTimeout(resolve, 1_000))
@@ -173,6 +208,10 @@ describe('live-status scheduling discipline over the real composition (issue #12
       followup.restore()
       await composition.pluginFiber.dispose()
     } finally {
+      releaseStaging()
+      releaseDelayed?.()
+      restoreDelayed?.()
+      scheduling.mockRestore()
       adapter.open()
       for (const fiber of composition.fibers.toReversed()) await fiber.dispose()
     }

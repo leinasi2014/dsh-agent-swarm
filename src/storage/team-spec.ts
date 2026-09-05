@@ -56,6 +56,7 @@ const memberSchema = z.object({
     .refine(isSafePixelAvatarSvg, { message: 'pixelAvatarSvg violates the strict allowlist' })
     .optional(),
   assignedSkills: z.array(z.string().min(1).max(128)).max(32).optional(),
+  previousSessionIds: z.array(sessionId).max(64).optional(),
 })
 
 const taskSchema = z.object({

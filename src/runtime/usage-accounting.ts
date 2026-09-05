@@ -153,14 +153,12 @@ export class UsageAccountant {
    */
   async recoverTeamUsage(scope: TeamScope, team: TeamState): Promise<void> {
     const snapshot = await this.deps.domain().snapshot(scope, team.id, team.captainSessionId)
-    for (const sessionId of [team.captainSessionId, ...team.members.map(member => member.sessionId)]) {
+    for (const sessionId of [team.captainSessionId, ...team.members.flatMap(member => [member.sessionId, ...(member.previousSessionIds ?? [])])]) {
       try {
         const agent = this.agents.get(SessionId(sessionId))
-        if (agent !== undefined) {
-          await this.accountAgentUsage(scope, team.id, agent)
-          continue
-        }
-        const events = await this.history(sessionId)
+        // The Captain-authorized snapshot admits this fold. A failed old
+        // Session may still be live, but must never regain member read access.
+        const events = agent?.session.events ?? await this.history(sessionId)
         if (events === undefined) continue
         const afterSeq = snapshot.team.usageCursors[sessionId] ?? -1
         const entries = usageEntriesAbove(events, afterSeq)

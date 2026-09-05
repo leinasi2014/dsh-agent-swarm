@@ -108,6 +108,17 @@ async function renderDetails(state: TeamDashboardState): Promise<void> {
 }
 
 describe('member rows consume real captainMembers identity data', () => {
+  it('renders one employee card with failed provisioning attempt count', async () => {
+    const state = stateWithMemberAssets(undefined)
+    const projection = state.data!.projection!
+    const retryState = { ...state, data: { ...state.data, projection: {
+      ...projection, roster: [{ ...projection.roster[0]!, phase: 'failed', provisioningAttempt: 3 }],
+    } } } as TeamDashboardState
+    await renderDetails(retryState)
+    const cards = document.querySelectorAll('[data-swarm-member-name="worker"]')
+    expect(cards).toHaveLength(1)
+    expect(cards[0]?.querySelector('[data-swarm-provisioning-attempt]')?.textContent).toBe('Provisioning attempt 3 failed')
+  })
   const generatedRow = {
     name: 'worker', role: 'Implementation', phase: 'active', createdAt: 1,
     displayName: 'Pixel Painter', profession: 'Avatar artist', personality: 'Careful, meticulous',

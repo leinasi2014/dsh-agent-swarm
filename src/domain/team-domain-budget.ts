@@ -240,7 +240,7 @@ export async function recordSessionUsageBatch(
       expectDomain(Number.isSafeInteger(entry.eventSeq) && entry.eventSeq >= 0, 'event seq must be a non-negative safe integer', 'TEAM_BUDGET_INVALID')
       expectDomain(Number.isSafeInteger(entry.tokens) && entry.tokens >= 0, 'tokens must be a non-negative safe integer', 'TEAM_BUDGET_INVALID')
     }
-    const known = team.captainSessionId === sessionId || team.members.some(member => member.sessionId === sessionId)
+    const known = team.captainSessionId === sessionId || team.members.some(member => member.sessionId === sessionId || member.previousSessionIds?.includes(sessionId))
     expectDomain(known, 'usage session is not a Team participant', 'TEAM_UNAUTHORIZED')
     const previous = team.usageCursors[sessionId] ?? -1
     let usedTokens = team.budget.usedTokens

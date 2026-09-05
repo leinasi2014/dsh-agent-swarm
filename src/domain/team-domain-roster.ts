@@ -163,7 +163,7 @@ export async function findAccountingMembership(deps: TeamDomainDeps, scope: Team
       ;(team.phase === 'active' ? activeMatches : settledMatches).push({ team, role: 'captain', name: 'captain' })
       continue
     }
-    const member = team.members.find(candidate => candidate.sessionId === sessionId)
+    const member = team.members.find(candidate => candidate.sessionId === sessionId || candidate.previousSessionIds?.includes(sessionId))
     if (member !== undefined) {
       ;(team.phase === 'active' ? activeMatches : settledMatches).push({ team, role: 'member', name: member.name })
     }
@@ -183,7 +183,7 @@ export async function provisionMember(
   scope: TeamScope,
   teamId: TeamId,
   captainSessionId: string,
-  input: { name: string; role: string; sessionId: string; provider: string } & MemberIdentityInput,
+  input: { name: string; role: string; sessionId: string; provider: string; retryOf?: string } & MemberIdentityInput,
 ): Promise<TeamMember> {
   // The identity profile is validated (and the avatar allowlisted) BEFORE the
   // durable record commits: an invalid displayName/profession/personality or an
@@ -199,12 +199,33 @@ export async function provisionMember(
     // their names occupied for the Team's lifetime, and the total roster size
     // (not only occupied rows) is what `maxMembers` bounds, matching the
     // official experimental roster (`TEAM_MEMBER_NAME_TAKEN`, members.size).
+    // Fenced failed-session retry below recovers this same logical employee;
+    // it neither recycles a removed name nor allocates another roster slot.
     const name = normalizeMemberName(input.name)
+    if (input.retryOf !== undefined) {
+      const index = team.members.findIndex(member => member.name === name)
+      const current = team.members[index]
+      expectDomain(current !== undefined && current.phase === 'failed' && current.sessionId === input.retryOf,
+        'retry_of must identify this exact failed employee Session', 'TEAM_MEMBER_RETRY_CONFLICT')
+      const previousSessionIds = current.previousSessionIds ?? []
+      expectDomain(previousSessionIds.length < 64, 'employee provisioning retry limit (64) exhausted; create a new Team', 'TEAM_MEMBER_RETRY_LIMIT')
+      expectDomain(input.role === current.role && Object.entries(identity).every(([key, value]) =>
+        JSON.stringify(value) === JSON.stringify(current[key as keyof TeamMember])),
+      'retry must preserve the existing employee role and identity', 'TEAM_MEMBER_RETRY_IDENTITY_MISMATCH')
+      const { error: _error, ...retained } = current
+      committed = { ...retained, sessionId: input.sessionId, provider: nonEmpty(input.provider, 'member provider', 128),
+        phase: 'provisioning', previousSessionIds: [...previousSessionIds, current.sessionId] }
+      team.members[index] = committed
+      Object.assign(team, { usageCursors: { ...team.usageCursors, [input.sessionId]: -1 } })
+      return
+    }
     expectDomain(
       !team.members.some(candidate => candidate.name === name),
-      `member name "${name}" was already used in this Team; choose an unused member name or create a new Team`,
+      `member name "${name}" already exists; retry a failed employee with retry_of and its exact Session id`,
       'TEAM_MEMBER_NAME_TAKEN',
     )
+    expectDomain(!team.members.some(member => (member.displayName ?? member.name) === (identity.displayName ?? name)),
+      'employee identity already exists; use its name and retry_of for failed provisioning', 'TEAM_MEMBER_IDENTITY_TAKEN')
     expectDomain(team.members.length < deps.limits.maxMembers, 'team member limit reached', 'TEAM_MEMBER_LIMIT')
     const timestamp = deps.now()
     committed = {
