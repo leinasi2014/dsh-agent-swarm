@@ -369,6 +369,11 @@ it('restores the official root preset so resumed members can execute real file a
     await vi.waitFor(async () => {
       const state = (await second!.ctx.agentSwarm.listTeamAggregates(seed.scope)).find(team => team.id === seed.teamId)!
       expect(state.tasks[1]).toMatchObject({ status: 'in_progress', ownerSessionId: seed.memberId })
+      // A durable claim precedes continuation setup and Agent publication.
+      // The gated model request proves this exact member was admitted and
+      // keeps its official activation live throughout the IO assertions.
+      expect(adapter!.requests.some(request => request.sessionId === seed.memberId)).toBe(true)
+      expect(second!.ctx.agents.get(SessionId(seed.memberId))).toBeDefined()
     })
     const member = second.ctx.agents.get(SessionId(seed.memberId))!
     expect.soft(second.ctx.agentPresets.composedPreset(member.ctx)).toBe('code')
