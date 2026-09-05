@@ -87,6 +87,14 @@ Captain identity 独立于 Member roster。`set_captain_profile` 成功提交后
 
 私有记忆、共享经验、Skill proposal、验证、独立批准、发布/回滚是不同层。当前已实现成员私有记忆和 Team shared memory；自动经验提炼、语义检索、自动晋升和 Skill Evolution 尚未交付，不能从职业、头像或记忆推断能力。
 
+新 Team shared memory 在 `TeamDomain.addMemory` 的同一 Storage Domain transaction 内强制脱敏，覆盖 `content` 和每条 `evidenceRefs`；没有工具绕过或关闭开关。识别到的值替换为 `[REDACTED]`，保留标签、引号/反引号、Markdown 星号格式和键值表格结构。支持以下明确形式，不声称通用个人信息识别：
+
+- 凭据标签（英文不区分大小写）：`API key/api_key/api-key`、`access token`、`refresh token`（同样允许下划线/连字符）、`password/passwd/pwd/secret/key/token/authorization`，以及 `API密钥/访问令牌/刷新令牌/密码/口令/密钥/令牌`。标签和值之间用冒号、全角冒号、等号、英文 `is`、中文 `是/为`，或 Markdown 键值表格的单元格分隔符。值为单行引号/反引号包围文本，或截至空白、逗号、分号、中文句号、表格/URL `|&?#` 分隔符的非空文本。`Authorization: Bearer …` 保留 Bearer 并遮蔽其后的凭据。
+- 常见 ASCII email 地址；独立的大陆手机号 `1[3-9]` 开头共 11 位，可带 `86/+86` 和一个空格/连字符前缀，嵌入字母、数字、下划线或路径/标识符分隔符中的数字不据此判定。标注 `phone/mobile/telephone/tel/手机号/联系电话/电话/手机` 的号码支持数字、空格、括号、点和连字符；显式 `identity number/id number/card number/credit card number/bank card number/身份证号/证件号/银行卡号/信用卡号` 值也脱敏；证件/卡号允许空白分组，每个数字起始词元连同附着的字母或连字符尾部整体遮蔽，不截取数字前缀。任意任务 ID、时间戳、姓名、地址、无标签的任意字符串不视为已证实的 PII。
+- 纯星号、`[REDACTED]`、`<redacted>`、`redacted`、`masked`、`已脱敏` 占位符保持原样；重复写入已脱敏值保持幂等。入库仍按原有规则去掉首尾空白，但原始输入及变换后 UTF-8 字节均须满足 content 16,384 / 每条引用 2,048 的上限，超限或无效输入返回不含原值的固定字段错误 `TEAM_INPUT_LIMIT/TEAM_INPUT_INVALID`。
+
+权限、归档、记忆条数上限与提交原子性不变；失败不消耗 memory ID、不推进 revision。只处理新共享记忆，历史记录不重写；成员 private memory 和官方原始 Session/tool-call 输入日志不在这个入库策略范围内。
+
 ## 8. 持久化、读取与 UI
 
 - `agent_swarm` Storage Domain 保存 Team aggregate。
