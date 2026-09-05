@@ -34,6 +34,13 @@ import type { AgentSwarmRuntime } from '../orchestrator-runtime.js'
 import { TeamRun } from './team-run.js'
 import type { ExecutorLimits } from './script-executor.js'
 
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    /** Opt-in Team workflow Consumer; lifecycle remains owned by the plugin. */
+    agentSwarmWorkflow: Pick<WorkflowEngine, 'start'>
+  }
+}
+
 /** Resolved engine configuration (plugin `Config` supplies the defaults). */
 export interface BridgeEngineConfig {
   /** Total `agent()` calls one run may start — the runaway-loop backstop. */
@@ -143,8 +150,10 @@ export function validateBridgeMeta(value: unknown): WorkflowMeta {
  * interrupted runs) before starting runs.
  */
 export class TeamBridgeWorkflowEngine extends WorkflowEngine {
-  private overlayInstance?: WorkflowRunOverlayStore
-  private overlayDomain?: Domain<typeof workflowOverlayDomainSpec>
+  private overlayInstance: WorkflowRunOverlayStore | undefined
+  private overlayDomain: Domain<typeof workflowOverlayDomainSpec> | undefined
+  private activation: Promise<void> | undefined
+  private disposal: Promise<void> | undefined
   private readonly liveRuns = new Set<TeamRun>()
   private closing = false
 
@@ -171,17 +180,34 @@ export class TeamBridgeWorkflowEngine extends WorkflowEngine {
    */
   async activate(): Promise<void> {
     if (this.closing) throw new WorkflowError('Team bridge engine is disposing', 'INVALID_ARGUMENT')
-    const handle = await this.ctx.storageDomain.open(workflowOverlayDomainSpec)
-    const store = new WorkflowRunOverlayStore(this.ctx, handle)
-    this.overlayDomain = handle
-    this.overlayInstance = store
-    // Trap 1: the overlay is the only run truth. Runs still marked `running`
-    // lost their process; mark them interrupted (evidence-only — re-driving
-    // belongs to the orchestration-mode surface, #77).
-    for (const record of store.list()) {
-      if (record.state !== 'running') continue
-      await store.markInterrupted(record.runId, 'process boundary interrupted the run before settlement')
-      this.ctx.logger.warn(`agent-swarm workflow bridge: run ${record.runId} (team ${record.teamId}) recovered as interrupted`)
+    if (this.overlayInstance !== undefined) return
+    const activation = this.activation ??= this.openAndRecover()
+    try { await activation } finally {
+      if (this.activation === activation) this.activation = undefined
+    }
+  }
+
+  private async openAndRecover(): Promise<void> {
+    let handle: Domain<typeof workflowOverlayDomainSpec> | undefined
+    let store: WorkflowRunOverlayStore | undefined
+    try {
+      handle = await this.ctx.storageDomain.open(workflowOverlayDomainSpec)
+      store = new WorkflowRunOverlayStore(this.ctx, handle)
+      // Recovery is evidence-only: no Team task is re-driven here.
+      for (const record of store.list()) {
+        if (record.state !== 'running') continue
+        await store.markInterrupted(record.runId, 'process boundary interrupted the run before settlement')
+        this.ctx.logger.warn(`agent-swarm workflow bridge: run ${record.runId} (team ${record.teamId}) recovered as interrupted`)
+      }
+      if (this.closing) throw new WorkflowError('Team bridge engine is disposing', 'INVALID_ARGUMENT')
+      this.overlayDomain = handle
+      this.overlayInstance = store
+    } catch (error) {
+      const failures: unknown[] = [error]
+      try { store?.close() } catch (failure) { failures.push(failure) }
+      try { await handle?.close() } catch (failure) { failures.push(failure) }
+      if (failures.length > 1) throw new AggregateError(failures, 'Team bridge activation rollback failed', { cause: error })
+      throw error
     }
   }
 
@@ -263,9 +289,14 @@ export class TeamBridgeWorkflowEngine extends WorkflowEngine {
    * Bounded teardown: settle every live run (cancelled within the grace),
    * then release the overlay domain handle. Idempotent.
    */
-  async dispose(): Promise<void> {
-    if (this.closing) return
+  dispose(): Promise<void> {
+    return this.disposal ??= this.disposeResources()
+  }
+
+  private async disposeResources(): Promise<void> {
     this.closing = true
+    // Activation owns unpublished handles and rolls them back before draining.
+    await this.activation?.catch(() => undefined)
     const failures: unknown[] = []
     // Array.from snapshots the registry: run disposal removes entries.
     for (const run of Array.from(this.liveRuns)) {
@@ -276,12 +307,10 @@ export class TeamBridgeWorkflowEngine extends WorkflowEngine {
       }
     }
     this.liveRuns.clear()
-    try {
-      this.overlayInstance?.close()
-      await this.overlayDomain?.close()
-    } catch (error: unknown) {
-      failures.push(error)
-    }
+    try { this.overlayInstance?.close() } catch (error) { failures.push(error) }
+    try { await this.overlayDomain?.close() } catch (error) { failures.push(error) }
+    this.overlayInstance = undefined
+    this.overlayDomain = undefined
     if (failures.length > 0) throw new AggregateError(failures, 'Team bridge engine disposal failed')
   }
 }
