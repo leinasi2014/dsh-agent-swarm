@@ -49,6 +49,7 @@ export class HostTargetReadService {
     const { root, team } = await this.boundTeam(request.target)
     const result = await readCaptainSection(this.ctx, team, request)
     this.assertUnchanged(root)
+    this.assertLiveCaptain(team, root.cwd)
     return result
   }
 
@@ -77,17 +78,32 @@ export class HostTargetReadService {
     const { root, visible, all } = await this.visibleTeams(target.rootSessionId)
     if (target.teamId !== undefined) {
       const team = visible.find(candidate => candidate.id === target.teamId)
-      if (team !== undefined) return { root, team }
+      if (team !== undefined) return this.bindTeam(root, team)
       throw new TeamDomainError('Target Team is not visible to this Session', all.some(candidate => candidate.id === target.teamId)
         ? 'SWARM_HOST_BINDING_MISMATCH' : 'SWARM_HOST_BINDING_NOT_FOUND')
     }
     const owned = visible.filter(team => team.captainSessionId === root.id)
     const candidates = owned.length === 0 ? visible : owned
     const active = candidates.filter(team => team.phase === 'active')
-    if (active.length === 1) return { root, team: active[0]! }
+    if (active.length === 1) return this.bindTeam(root, active[0]!)
     if (active.length > 1 || candidates.length > 1) throw new TeamDomainError('Multiple Teams are available; select one Team', 'SWARM_HOST_BINDING_AMBIGUOUS')
-    if (candidates.length === 1) return { root, team: candidates[0]! }
+    if (candidates.length === 1) return this.bindTeam(root, candidates[0]!)
     throw new TeamDomainError('No Team is available for this Session', 'SWARM_HOST_BINDING_NOT_FOUND')
+  }
+
+  private bindTeam(root: RootView, team: TeamState) {
+    this.assertLiveCaptain(team, root.cwd)
+    return { root, team }
+  }
+
+  /** A live Captain is usable only with its exact current official Session.
+   *  A genuinely cold Captain remains eligible through the persisted binding. */
+  private assertLiveCaptain(team: TeamState, scope: string): void {
+    const captain = this.ctx.agents.get(SessionId(team.captainSessionId))
+    if (captain !== undefined && (this.ctx.sessions.get(captain.id) !== captain.session
+      || captain.session.header.cwd === undefined || this.runtime.scopeOf(captain) !== scope)) {
+      throw new TeamDomainError('Dedicated Captain Session is not live', 'SWARM_RPC_TARGET_NOT_LIVE')
+    }
   }
 
   private async visibleTeams(rootSessionId: string) {

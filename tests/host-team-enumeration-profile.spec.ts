@@ -19,6 +19,10 @@ import type { SwarmReadTeamsV1 } from '../src/rpc/read-rpc-contract.js'
 import type { AgentSwarmRuntime } from '../src/runtime/orchestrator-runtime.js'
 import type { HumanInteractionOverlayStore } from '../src/human/human-interaction-store.js'
 
+const baselineRpc = process.env.SWARM_READ_BASELINE
+const RpcService = baselineRpc === undefined ? AgentSwarmReadRpcService
+  : (await import(/* @vite-ignore */ baselineRpc) as { AgentSwarmReadRpcService: typeof AgentSwarmReadRpcService }).AgentSwarmReadRpcService
+
 const NOW = 1_700_000_000_500
 const ROOT: Agent = { id: 'root-session', session: { header: { cwd: 'C:\\workspace' } } } as unknown as Agent
 const SAFE_AVATAR = '<svg viewBox="0 0 8 8"><rect x="0" y="0" width="8" height="8" fill="#2a3"/></svg>'
@@ -52,10 +56,11 @@ function teamState(): AgentSwarm.TeamState {
   }
 }
 
-function buildRealService(options: { cold?: boolean; teams?: AgentSwarm.TeamState[]; parented?: boolean } = {}) {
-  const team = options.teams?.[0] ?? teamState()
+function buildRealService(options: { cold?: boolean; teams?: AgentSwarm.TeamState[]; parented?: boolean; invalidSession?: 'missing' | 'replaced'; liveCaptain?: boolean } = {}) {
+  const team = options.teams?.[0] ?? { ...teamState(), ...(options.liveCaptain ? { captainSessionId: 'captain-live' } : {}) }
   const teams = options.teams ?? [team]
   const roots = new Map<string, Agent>([[ROOT.id, ROOT]])
+  if (options.liveCaptain) roots.set('captain-live', { id: 'captain-live', session: { header: { cwd: ROOT.session.header.cwd, parentSession: ROOT.id } } } as Agent)
   const parents = options.parented ? Object.fromEntries(teams.map(entry => [entry.captainSessionId, ROOT.id])) : {}
   let currentInitiator: Agent | undefined = ROOT
   const ctx = {
@@ -69,7 +74,13 @@ function buildRealService(options: { cold?: boolean; teams?: AgentSwarm.TeamStat
         try { return await callback() } finally { currentInitiator = prev }
       },
     },
-    sessions: { get: (id: string) => options.cold ? undefined : roots.get(id)?.session },
+    sessions: { get: (id: string) => {
+      if (options.cold) return undefined
+      if (options.invalidSession !== undefined && id === team.captainSessionId) {
+        return options.invalidSession === 'missing' ? undefined : { header: { cwd: ROOT.session.header.cwd } }
+      }
+      return roots.get(id)?.session
+    } },
     sessionPersistence: { inspect: async (id: string) => id === ROOT.id
       ? { meta: { cwd: 'C:\\workspace' } } : parents[id] === undefined ? undefined
       : { meta: { cwd: 'C:\\workspace', parentSession: parents[id] } } },
@@ -94,7 +105,7 @@ function buildRealService(options: { cold?: boolean; teams?: AgentSwarm.TeamStat
     disposalTimeoutMs: 1_000,
   })
   const webServer = { host: '127.0.0.1', port: 8279, register: () => {} } as unknown as SwarmWebServer
-  const service = new AgentSwarmReadRpcService({ ctx, runtime, hostRead, webServer })
+  const service = new RpcService({ ctx, runtime, hostRead, webServer })
   return { hostRead, service, team, runtime, roots }
 }
 
@@ -128,4 +139,14 @@ it('Host disposal closes the target port as well as legacy projections', async (
   await hostRead.dispose()
   await expect(service.invoke({ schemaVersion: 1, method: 'teams', target: { rootSessionId: ROOT.id } }))
     .rejects.toMatchObject({ code: 'SWARM_HOST_READ_CLOSED' })
+})
+
+it.each([
+  [false, 'missing'], [false, 'replaced'], [true, 'missing'], [true, 'replaced'],
+] as const)('denies live Captain without exact current Session: parent=%s mapping=%s', async (liveCaptain, invalidSession) => {
+  const { service, team } = buildRealService({ liveCaptain, invalidSession })
+  for (const method of ['snapshot', 'captainDiagnostics'] as const) {
+    await expect(service.invoke({ schemaVersion: 1, method, target: { rootSessionId: ROOT.id, teamId: team.id } }))
+      .rejects.toMatchObject({ code: 'SWARM_RPC_TARGET_NOT_LIVE' })
+  }
 })
