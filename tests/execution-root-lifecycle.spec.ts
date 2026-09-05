@@ -1,5 +1,5 @@
 /** Real official tool and two-Context regressions for #191 review findings. */
-import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rename, rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -55,7 +55,7 @@ it('fails closed when the lease is revoked after the official guard and before t
   }
 }, 30_000)
 
-it('preserves unfinished work and restores relative IO on a real cold-resumed member (#191 F2)', async () => {
+it.each([true, false])('cold-resumed member retains work and fences IO with existing root=%s (#191 F2)', async existingRoot => {
   const sandbox = await mkdtemp(join(tmpdir(), 'dsh-root-cold-'))
   await mkdir(join(sandbox, 'workspace'))
   const captainId = SessionId('root-cold-captain')
@@ -79,8 +79,8 @@ it('preserves unfinished work and restores relative IO on a real cold-resumed me
     first.adapter.open()
     const claim = await vi.waitFor(async () => {
       const snapshot = await first!.ctx.agentSwarm.domain.snapshot(scope, teamId, lead.id)
-      const task = snapshot.team.tasks.find(task => task.id === taskId)!
-      const attempt = snapshot.team.attempts.find(attempt => attempt.id === task.currentAttemptId)
+      const task = snapshot.team.tasks.find(candidate => candidate.id === taskId)!
+      const attempt = snapshot.team.attempts.find(candidate => candidate.id === task.currentAttemptId)
       expect(attempt?.assignmentPhase).toBe('delivered')
       const lease = first!.ctx.agentSwarm.executionRoots.roots.leaseOf(scope, teamId, taskId, attempt!.id)
       expect(lease).toBeDefined()
@@ -96,6 +96,7 @@ it('preserves unfinished work and restores relative IO on a real cold-resumed me
     await dispose(first)
     first = undefined
     expect(existsSync(join(root, 'work.txt')), 'shutdown must retain unfinished output').toBe(true)
+    if (!existingRoot) await rename(root, `${root}-retained`)
 
     second = await mount(sandbox)
     const resumed = await second.ctx.agents.resume({ resumeSessionId: captainId })
@@ -110,11 +111,20 @@ it('preserves unfinished work and restores relative IO on a real cold-resumed me
         const restored = await second.ctx.agentSwarm.domain.snapshot(scope, teamId, resumed.agent.id)
         expect(restored.team.tasks.find(task => task.id === taskId)).toMatchObject({ currentAttemptId: claim.attempt.id, ownerSessionId: childId })
         expect(restored.team.attempts.find(attempt => attempt.id === claim.attempt.id)).toMatchObject({ phase: 'running' })
-        const edited = await tool(second.ctx, recovered!, 'after', 'edit', { file_path: 'work.txt', old_string: 'before restart', new_string: 'after restart' })
-        expect(edited.isError, JSON.stringify(edited)).toBe(false)
-        expect(await readFile(join(root, 'work.txt'), 'utf8')).toBe('after restart')
+        const edited = existingRoot
+          ? await tool(second.ctx, recovered!, 'after', 'edit', { file_path: 'work.txt', old_string: 'before restart', new_string: 'after restart' })
+          : await tool(second.ctx, recovered!, 'missing', 'write', { file_path: 'work.txt', content: 'must not escape' })
+        expect(edited.isError, JSON.stringify(edited)).toBe(!existingRoot)
         expect(existsSync(join(scope, 'work.txt'))).toBe(false)
-        expect(second.ctx.agentSwarm.executionRoots.roots.leaseOf(scope, teamId, taskId, claim.attempt.id)?.path).toBe(root)
+        const lease = second.ctx.agentSwarm.executionRoots.roots.leaseOf(scope, teamId, taskId, claim.attempt.id)
+        if (existingRoot) {
+          expect(await readFile(join(root, 'work.txt'), 'utf8')).toBe('after restart')
+          expect(lease?.path).toBe(root)
+        } else {
+          expect(lease).toBeUndefined()
+          expect(existsSync(root)).toBe(false)
+          expect(await readFile(join(`${root}-retained`, 'work.txt'), 'utf8')).toBe('before restart')
+        }
       } finally { stop() }
     } finally { await resumed.dispose() }
   } finally {
