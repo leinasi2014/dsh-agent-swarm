@@ -220,6 +220,12 @@ export interface SwarmReadCaptainMemberRowV1 {
    *  bounded enumeration; an empty array means "none declared". Absent when the
    *  read has no authoritative source (fail-closed), never a fabricated claim. */
   readonly skills?: readonly string[]
+  /** Member-assigned Skill subset (issue #184): the recruit-time subset this
+   *  member may load, distinct from Session-visible catalog Skills (`skills`).
+   *  Absent when the captain declared none; an explicit empty array is a
+   *  declared empty subset (narrows the member to no Skill), never an
+   *  inheritance of the whole Team allow-list. */
+  readonly assignedSkills?: readonly string[]
   /** Tools this member may call within the Team's member-facing model surface,
    *  derived from the member's durable toolFilter denial (deny-excluded). Empty
    *  means none remain in that surface. Absent when the surface is unknown. */

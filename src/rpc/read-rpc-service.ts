@@ -272,6 +272,10 @@ export class AgentSwarmReadRpcService {
           // come from the member's latest durable catalog, tools only from the
           // exact live scoped registry, and growth from retained Team history.
           ...(profiles[index]?.skills === undefined ? {} : { skills: [...profiles[index].skills] }),
+          // Issue #184 A5: distinguish the member-assigned subset from the
+          // Session-visible catalog `skills`; an explicit empty subset is a
+          // declared narrowing, not an inheritance of the Team allow-list.
+          ...(member.assignedSkills === undefined ? {} : { assignedSkills: [...member.assignedSkills] }),
           ...callableToolsOf(this.deps.ctx, team, member),
           ...growthSummaryOf(team, member.sessionId),
           ...currentActivityOf(team, member.sessionId),

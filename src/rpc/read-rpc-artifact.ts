@@ -195,6 +195,9 @@ const captainMemberRow = {
     // skills/callableTools are bounded enumerations (empty = declared none);
     // growthSummary is a bounded summary (empty allowed until a summary exists).
     skills: { type: 'array', maxItems: 64, items: boundedString(128) },
+    // Issue #184 A5: the member-assigned subset, distinct from the Session-
+    // visible catalog `skills`; empty = an explicit declared empty subset.
+    assignedSkills: { type: 'array', maxItems: 64, items: boundedString(128) },
     callableTools: { type: 'array', maxItems: 128, items: boundedString(128) },
     growthSummary: { type: 'string', maxLength: 2048 },
     currentActivity: {
