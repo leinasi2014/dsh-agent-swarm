@@ -73,11 +73,13 @@ export function attemptOf(team: TeamState, id: AttemptId): TaskAttempt {
 
 export function replaceTask(team: TeamState, next: TeamTask): void {
   const index = team.tasks.findIndex(candidate => candidate.id === next.id)
+  expectDomain(index >= 0, `task "${next.id}" not found`, 'TEAM_TASK_NOT_FOUND')
   team.tasks[index] = next
 }
 
 export function replaceAttempt(team: TeamState, next: TaskAttempt): void {
   const index = team.attempts.findIndex(candidate => candidate.id === next.id)
+  expectDomain(index >= 0, `attempt "${next.id}" not found`, 'TEAM_ATTEMPT_NOT_FOUND')
   team.attempts[index] = next
 }
 

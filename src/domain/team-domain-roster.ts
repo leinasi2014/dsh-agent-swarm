@@ -158,7 +158,7 @@ export async function requireReadMembership(deps: TeamDomainDeps, scope: TeamSco
 export async function findAccountingMembership(deps: TeamDomainDeps, scope: TeamScope, sessionId: string): Promise<TeamMembership | undefined> {
   const activeMatches: TeamMembership[] = []
   const settledMatches: TeamMembership[] = []
-  for (const team of await deps.store.list(scope)) {
+  for (const team of await deps.store.list(scope, sessionId)) {
     if (team.captainSessionId === sessionId) {
       ;(team.phase === 'active' ? activeMatches : settledMatches).push({ team, role: 'captain', name: 'captain' })
       continue

@@ -17,6 +17,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { TeamStatusSnapshot } from '../domain/types.js'
 import { TeamDomainError } from '../domain/error.js'
+import { statusOf } from '../domain/team-domain-projection.js'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import { expectDomainTimeout, requireAgent, type ToolExecutionAuthority } from './authority.js'
 
@@ -80,10 +81,15 @@ export async function waitForChange(
       : { outcome: 'unchanged-terminal', changed: false, snapshot }
   } catch (error) {
     if (timeoutSignal.aborted && !exec.signal.aborted) {
+      // Membership already supplied an authorized aggregate. A failed final
+      // reread must not replace a genuine timeout with a secondary IO error.
+      let snapshot: TeamStatusSnapshot
+      try { snapshot = await deps.domain().snapshot(scope, membership.team.id, actor.id) }
+      catch { snapshot = statusOf(membership.team) }
       return {
         outcome: 'timed-out',
         changed: false,
-        snapshot: await deps.domain().snapshot(scope, membership.team.id, actor.id),
+        snapshot,
       }
     }
     // Issue #19, official `TEAM_WAIT_ABORTED` parity: caller cancellation

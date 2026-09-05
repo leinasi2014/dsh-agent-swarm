@@ -35,6 +35,12 @@ import type { CreateTaskInput, TeamScope } from './team-domain-port.js'
 
 const TERMINAL_ATTEMPT_PHASES = new Set(['accepted', 'rejected', 'cancelled', 'stale'])
 
+/** Admission only: historical aggregates remain readable at their old sizes. */
+function boundedBoardItems(values: readonly string[], label: string, maxBytes: number): string[] {
+  expectDomain(values.length <= 64, `${label} exceeds 64 items`, 'TEAM_INPUT_LIMIT')
+  return values.map(value => nonEmpty(value, label, maxBytes))
+}
+
 /**
  * Normalize one captain-declared verification list (M3-2): bounded count,
  * non-empty bounded command text, per-command timeout within the deployment
@@ -139,10 +145,10 @@ export async function createTask(
       revision: 1,
       subject: nonEmpty(input.subject, 'task subject', 512),
       description: nonEmpty(input.description, 'task description', deps.limits.maxTaskBytes),
-      acceptanceCriteria: [...(input.acceptanceCriteria ?? [])].map(value => nonEmpty(value, 'acceptance criterion', 2_048)),
+      acceptanceCriteria: boundedBoardItems(input.acceptanceCriteria ?? [], 'acceptance criterion', 2_048),
       status: 'pending',
       blockedBy,
-      writeScopes: [...(input.writeScopes ?? [])].map(value => nonEmpty(value, 'write scope', 1_024)),
+      writeScopes: boundedBoardItems(input.writeScopes ?? [], 'write scope', 1_024),
       priority: input.priority ?? 0,
       ...(input.verification === undefined ? {} : { verification: normalizeVerification(input.verification, deps.limits) }),
       ...(input.reservationTokens === undefined ? {} : { reservationTokens: input.reservationTokens }),
@@ -292,7 +298,7 @@ export async function submitTask(
       ...attempt,
       phase: 'submitted',
       output: normalizedOutput,
-      evidence: [...evidence].map(value => nonEmpty(value, 'evidence reference', 2_048)),
+      evidence: boundedBoardItems(evidence, 'evidence reference', 2_048),
       updatedAt: timestamp,
     })
     committed = {
