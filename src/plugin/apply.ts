@@ -1,5 +1,6 @@
 /** DSH composition root. It wires adapters around the durable Team domain. */
 import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
@@ -24,7 +25,7 @@ import { officialCaptainQuestionPresentation } from '../human/official-question-
 import { officialPlanApprovalProvider } from '../human/plan-approval-provider.js'
 import { DEFAULT_HOST_CONTEXT_TTL_MS, DEFAULT_MAX_HOST_CONTEXTS, mountHostContext } from '../human/host-context-service.js'
 import { effectiveToolPolicy, TeamPermissionSurface } from '../runtime/permission-surface.js'
-import { reviewerAgentReviewProvider } from '../runtime/reviewer-boundary.js'
+import { TeamDomainError } from '../domain/error.js'
 import { assembleAgentSwarmHostRead, assembleAgentSwarmProducerFloor, mountAgentSwarmReadRpc } from '../host/host-read-assembly.js'
 import { AGENT_SWARM_USAGE_PROMPT } from '../runtime/usage-prompt.js'
 import { installSwarmGestureBoundary } from '../runtime/gesture.js'
@@ -196,10 +197,16 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
       }
     }, 'agent-swarm: permission surface')
     ctx.effect(() => permission!.attachPreExecute(ctx), 'agent-swarm: team tool permission')
-    ctx.effect(
-      () => runtime.registerReviewProvider('reviewer-agent', reviewerAgentReviewProvider(() => permission!.reviewerAgent)),
-      'agent-swarm: reviewer-agent review provider',
-    )
+    // Loader's actual assembly boundary permits a Host to register after
+    // Swarm mounts. Awaiting this child here would wait on our own entry.
+    // A bare Context has no assembly-complete event; admission still checks
+    // the actual provider registry before creating a Team or task.
+    if (reviewProvider === 'reviewer-agent') ctx.inject({ loader: { await: true } }, () => {
+      if (permission!.reviewerAgent === undefined) throw new TeamDomainError(
+        'reviewProvider=reviewer-agent requires a Host provider registered through ctx.agentSwarmPermission.registerReviewerAgentProvider',
+        'TEAM_INVALID_CONFIG',
+      )
+    })
   } catch (error) {
     await closePrivateMemory()
     await disposeHostContext()
@@ -357,6 +364,5 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
     ctx.effect(() => () => projection.dispose(), 'agent-swarm: jobs bridge disposal')
   }
 }
-
 
 
