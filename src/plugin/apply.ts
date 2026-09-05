@@ -306,6 +306,12 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
   ctx.effect(() => ctx.on('session/event', (session, event) => {
     runtime.observeSessionEvent(session, event)
   }), 'agent-swarm: token accounting')
+  try { await runtime.recoverDormantManagedTeams() }
+  catch (error) {
+    try { await runtime.dispose() }
+    catch (cleanup) { throw new AggregateError([error, cleanup], 'managed Team recovery and cleanup failed', { cause: cleanup }) }
+    throw error
+  }
   ctx.effect(async () => {
     await Promise.all(ctx.agents.roots().map(agent => runtime.recoverAgent(agent)))
     // Issue #92's durable net: after agent recovery, refold every active
@@ -367,4 +373,3 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
     ctx.effect(() => () => projection.dispose(), 'agent-swarm: jobs bridge disposal')
   }
 }
-
