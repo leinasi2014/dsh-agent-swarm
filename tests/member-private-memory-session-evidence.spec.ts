@@ -121,6 +121,18 @@ describe('member private memory real Session evidence', () => {
     fibers.push(await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1, strandedAfterMs: 0 }))
     const probe = new PrivateMemoryProbeAdapter()
     ctx.llm.registerAdapter(['mock'], probe)
+    let releaseList!: () => void
+    const listGate = new Promise<void>(resolve => { releaseList = resolve })
+    let listHeld = false
+    const stopHolding = ctx.on('tools/execute', async (execution, next) => {
+      const result = await next()
+      if (execution.callId === 'session-probe-list' && execution.agent?.id === probe.memberId) {
+        listHeld = true
+        await listGate
+      }
+      return result
+    })
+    let waitOutcome: Promise<{ ok: true } | { ok: false; error: unknown }> | undefined
     const lead = ctx.agentLoop.create(
       SessionId(`session-evidence-lead-${Math.random().toString(36).slice(2, 8)}`),
       { provider: 'mock', model: 'mock' },
@@ -145,7 +157,10 @@ describe('member private memory real Session evidence', () => {
       })
       expect(task.isError).toBe(false)
 
-      await vi.waitFor(async () => {
+      let completed = false
+      let notifyPartial!: () => void
+      const partial = new Promise<void>(resolve => { notifyPartial = resolve })
+      waitOutcome = vi.waitFor(async () => {
         probe.open()
         await new Promise(resolve => setTimeout(resolve, 150))
         // Flush the live child Session so buffered tool/result events reach the
@@ -156,10 +171,40 @@ describe('member private memory real Session evidence', () => {
         const stored = await ctx.sessionPersistence.inspect(SessionId(memberId), SIGNAL)
         const calls = stored.events.filter(event => event.type === 'tool/call')
         const results = stored.events.filter(event => event.type === 'tool/result')
+        const hasCall = (callId: string) => calls.some(event => (event.data as { callId: string }).callId === callId)
+        const hasResult = (callId: string) => results.some(event =>
+          (event.data as { message: { source: { callId: string } } }).message.source.callId === callId)
+        // Hold the actual list return until inspection proves the partial durable
+        // state that previously allowed this waiter to finish too early.
+        if (listHeld && hasCall('session-probe-add') && hasCall('session-probe-list')
+          && hasResult('session-probe-add') && !hasResult('session-probe-list')) notifyPartial()
         expect(calls.some(event => (event.data as { name: string }).name === 'agent_swarm_add_private_memory')).toBe(true)
         expect(calls.some(event => (event.data as { name: string }).name === 'agent_swarm_list_private_memory')).toBe(true)
-        expect(results.some(event => JSON.stringify(event.data).includes('private-memory-1'))).toBe(true)
-      }, { timeout: 20_000 })
+        expect(hasCall('session-probe-add')).toBe(true)
+        expect(hasCall('session-probe-list')).toBe(true)
+        expect(hasResult('session-probe-add')).toBe(true)
+        expect(hasResult('session-probe-list')).toBe(true)
+      }, { timeout: 20_000 }).then(
+        () => { completed = true; return { ok: true } as const },
+        (error: unknown) => { completed = true; return { ok: false, error } as const },
+      )
+      try {
+        const first = await Promise.race([
+          partial.then(() => 'partial' as const),
+          waitOutcome.then(outcome => {
+            if (!outcome.ok) throw outcome.error
+            return 'complete' as const
+          }),
+        ])
+        expect(first).toBe('partial')
+        // Drain completion microtasks without introducing a timing threshold.
+        await new Promise<void>(resolve => setImmediate(resolve))
+        expect(completed).toBe(false)
+      } finally {
+        releaseList()
+      }
+      const outcome = await waitOutcome
+      if (!outcome.ok) throw outcome.error
 
       const stored = await ctx.sessionPersistence.inspect(SessionId(memberId), SIGNAL)
       // Pair each tool/result to its EXACT tool/call by callId (AgentLoop runs
@@ -186,6 +231,9 @@ describe('member private memory real Session evidence', () => {
         && JSON.stringify(event.data.content).includes(PROBE_CONTENT))
       expect(injectedAsPrompt).toBe(false)
     } finally {
+      releaseList()
+      stopHolding()
+      await waitOutcome
       for (const fiber of fibers.toReversed()) await fiber.dispose()
     }
   }, 60_000)

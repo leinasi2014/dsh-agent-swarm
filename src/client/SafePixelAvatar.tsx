@@ -73,7 +73,7 @@ function palette(seed: string): readonly [string, string] {
   ]
 }
 
-export interface SafePixelRect {
+interface SafePixelRect {
   readonly x: number
   readonly y: number
   readonly width: number

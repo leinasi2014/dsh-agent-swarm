@@ -8,7 +8,7 @@ import { TeamDashboardContent } from './TeamDashboardContent.js'
 
 const TEAM_DASHBOARD_SURFACE_ID = 'swarm-team-surface'
 
-export interface TeamDashboardDetailsInjected {
+interface TeamDashboardDetailsInjected {
   readonly anchorRef: RefObject<HTMLSpanElement>
   readonly controller: TeamDashboardController
   readonly coordinator: TeamDashboardSurfaceCoordinator
