@@ -35,7 +35,7 @@ export const MEMBER_DENY_BASELINE: readonly string[] = MEMBER_HIDDEN_TOOLS
  * one floor; any declaration that intersects it is an impossible-protocol
  * rejection (`TEAM_TOOL_POLICY_INVALID`).
  */
-export const MEMBER_PROTOCOL_TOOLS: readonly string[] = ['agent_swarm_submit_task', 'agent_swarm_send_message']
+const MEMBER_PROTOCOL_TOOLS: readonly string[] = ['agent_swarm_submit_task', 'agent_swarm_send_message']
 
 /**
  * Structural tool-name shape. Deliberately permissive toward real tool names
