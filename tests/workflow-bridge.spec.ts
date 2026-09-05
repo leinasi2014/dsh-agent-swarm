@@ -32,7 +32,7 @@ import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { WorkflowError } from '@deepseek-ai/dsh-workflow'
 import * as WorkflowInvariant from '@deepseek-ai/dsh-workflow/invariant'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
 
 /** Assignment-frame identity fields the member must echo in its submission. */
@@ -177,11 +177,12 @@ describe('Team bridge workflow engine (M2-1, issue #75)', () => {
     try {
       const bridge = tree.ctx.agentSwarm.workflowBridge
       expect(bridge).toBeDefined()
+      expect(tree.ctx.get('agentSwarmWorkflow')).toBeDefined()
       const script = scriptOf(`phase('research')
 log('starting one workflow agent')
 const out = await agent('Summarize the bridge proof and submit it.')
 return { done: true, out }`)
-      const run = bridge!.start({ script, meta: { ...META }, parent: tree.lead })
+      const run = tree.ctx.agentSwarmWorkflow.start({ script, meta: { ...META }, parent: tree.lead })
 
       const settled = await vi.waitFor(() => run.result, { timeout: 15_000 })
       expect(settled).toMatchObject({ stopReason: 'completed' })
@@ -225,6 +226,7 @@ return { done: true, out }`)
     } finally {
       for (const fiber of tree.fibers.toReversed()) await fiber.dispose()
     }
+    expect(tree.ctx.get('agentSwarmWorkflow')).toBeUndefined()
   })
 
   it('settles a cancelled run bounded, with synthesized agent ends and an archived Team', { timeout: 90_000 }, async () => {
@@ -377,6 +379,7 @@ return { out }`),
     const tree = await mountTree(sandbox, { submit: true, workflowBridge: false })
     try {
       expect(tree.ctx.agentSwarm.workflowBridge).toBeUndefined()
+      expect(tree.ctx.get('agentSwarmWorkflow')).toBeUndefined()
       // The default scope's official service name is untouched.
       expect((tree.ctx as unknown as Record<string, unknown>).workflowEngine).toBeUndefined()
       // No overlay unit file exists in the storage medium.
@@ -385,5 +388,35 @@ return { out }`),
     } finally {
       for (const fiber of tree.fibers.toReversed()) await fiber.dispose()
     }
+  })
+
+  it('closes an activated bridge when publishing its Consumer fails, then reloads cleanly', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-wf-consumer-conflict-'))
+    sandboxes.push(sandbox)
+    const tree = await mountTree(sandbox, { submit: true, workflowBridge: false })
+    const conflict = tree.ctx.provide('agentSwarmWorkflow', { start: () => { throw new Error('existing consumer') } })
+    const originalOpen = tree.ctx.storageDomain.open.bind(tree.ctx.storageDomain)
+    const closes: Array<MockInstance<() => Promise<void>>> = []
+    const opening = vi.spyOn(tree.ctx.storageDomain, 'open').mockImplementation(async spec => {
+      const domain = await originalOpen(spec)
+      if (spec.name === AgentSwarm.workflowOverlayDomainSpec.name) closes.push(vi.spyOn(domain, 'close'))
+      return domain
+    })
+    try {
+      const swarmFiber = tree.fibers.at(-1)!
+      await expect(swarmFiber.update({ workflowBridge: true })).rejects.toThrow()
+      expect(closes).toHaveLength(1)
+      expect(closes[0]).toHaveBeenCalledOnce()
+      await conflict()
+      await swarmFiber.update({ workflowBridge: true })
+      await swarmFiber.await()
+      expect(tree.ctx.get('agentSwarmWorkflow')).toBeDefined()
+      expect(tree.ctx.get('workflowEngine')).toBeUndefined()
+    } finally {
+      opening.mockRestore()
+      await conflict()
+      for (const fiber of tree.fibers.toReversed()) await fiber.dispose()
+    }
+    expect(tree.ctx.get('agentSwarmWorkflow')).toBeUndefined()
   })
 })
