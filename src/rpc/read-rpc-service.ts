@@ -272,6 +272,10 @@ export class AgentSwarmReadRpcService {
           // come from the member's latest durable catalog, tools only from the
           // exact live scoped registry, and growth from retained Team history.
           ...(profiles[index]?.skills === undefined ? {} : { skills: [...profiles[index].skills] }),
+          // Issue #184 A5: distinguish the member-assigned subset from the
+          // Session-visible catalog `skills`; an explicit empty subset is a
+          // declared narrowing, not an inheritance of the Team allow-list.
+          ...(member.assignedSkills === undefined ? {} : { assignedSkills: [...member.assignedSkills] }),
           ...callableToolsOf(this.deps.ctx, team, member),
           ...growthSummaryOf(team, member.sessionId),
           ...currentActivityOf(team, member.sessionId),
@@ -280,7 +284,14 @@ export class AgentSwarmReadRpcService {
           // (private memory is never read nor projected beyond this availability marker).
           growth: { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' },
         }))
-        return { schemaVersion: 1, binding: { rootSessionId: team.captainSessionId, teamId: team.id }, members, observedAt }
+        return {
+          schemaVersion: 1,
+          binding: { rootSessionId: team.captainSessionId, teamId: team.id },
+          // Issue #184 A5: the immutable Team eligibility policy, distinct from the
+          // Session-visible catalog and the per-member assigned subset.
+          ...(team.allowedSkills === undefined ? {} : { teamAllowedSkills: [...team.allowedSkills] }),
+          members, observedAt,
+        }
       }
       case 'captainAnnouncements': {
         // Real bounded projection of the Team's public announcements; an empty

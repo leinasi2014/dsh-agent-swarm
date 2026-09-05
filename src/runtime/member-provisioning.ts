@@ -17,12 +17,14 @@ import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { isModelInvocable, type SkillRegistry } from '@deepseek-ai/dsh-skill'
+import { injectedSkills } from './injected-skills.js'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import { foldSubagentDescriptor, SubagentError, type SubagentListEntry } from '@deepseek-ai/dsh-subagent'
 import { TeamDomainError } from '../domain/error.js'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
-import type { TeamId, TeamMember, TeamMembership } from '../domain/types.js'
-import type { MemberIdentityInput } from '../domain/identity-profile.js'
+import type { TeamId, TeamState, TeamMember, TeamMembership } from '../domain/types.js'
+import { normalizeMemberAssignedSkills, type MemberIdentityInput } from '../domain/identity-profile.js'
 import { requireAgent, type ToolExecutionAuthority } from './authority.js'
 import type { RuntimeConfig } from './orchestrator-runtime.js'
 import { memberJoinNotice, memberPersona } from './prompts.js'
@@ -63,6 +65,8 @@ export class MemberProvisioner {
   private projectionsAbsenceWarned = false
   private closing = false
 
+  private readonly skillsOf: () => SkillRegistry | undefined
+
   constructor(
     private readonly ctx: Context,
     private readonly deps: {
@@ -72,11 +76,51 @@ export class MemberProvisioner {
       trackChild: (captain: Agent, childId: string) => void
       afterActivation: (scope: TeamScope, teamId: TeamId, captain: Agent, childId: SessionId) => Promise<void>
     },
-  ) {}
+  ) {
+    this.skillsOf = injectedSkills(ctx)
+  }
+
+  /**
+   * Validate one Captain-declared member-assigned Skill subset (issue #184).
+   * Structure is normalized in the domain; eligibility against the immutable
+   * Team allow-list and the current complete scoped Skill catalog is enforced
+   * HERE — before any provisioning record commits.
+   */
+  private async validateAssignedSkills(captain: Agent, team: TeamState, raw: readonly string[] | undefined, signal: AbortSignal): Promise<string[] | undefined> {
+    if (raw === undefined) return undefined
+    const names = normalizeMemberAssignedSkills(raw) ?? []
+    if (team.allowedSkills !== undefined) {
+      const allowed = new Set(team.allowedSkills)
+      const outside = names.filter(name => !allowed.has(name))
+      if (outside.length > 0) {
+        throw new TeamDomainError(
+          `member assignedSkills must be a subset of the Team allow-list; outside the allow-list: ${outside.join(', ')}`,
+          'TEAM_MEMBER_SKILLS_INVALID',
+        )
+      }
+    }
+    const skills = this.skillsOf()
+    if (skills === undefined) {
+      throw new TeamDomainError('the Skill registry is unavailable in this host; member assignedSkills cannot be validated', 'TEAM_MEMBER_SKILLS_INVALID')
+    }
+    const snapshot = await skills.snapshot({ cwd: captain.session.header.cwd, signal, scope: captain })
+    const catalog = new Map(snapshot.skills.map(skill => [skill.name, skill]))
+    const missing = names.filter(name => {
+      const skill = catalog.get(name)
+      return skill === undefined || !isModelInvocable(skill)
+    })
+    if (missing.length > 0) {
+      throw new TeamDomainError(
+        `member assignedSkills must exist in the scoped Skill catalog and be model-invocable; missing or unavailable: ${missing.join(', ')}`,
+        'TEAM_MEMBER_SKILLS_INVALID',
+      )
+    }
+    return names
+  }
 
   async addMember(
     exec: ToolExecutionAuthority,
-    input: { name: string; role: string; provider?: string; llmProvider?: string; model?: string; denyTools?: readonly string[] } & MemberIdentityInput,
+    input: { name: string; role: string; provider?: string; llmProvider?: string; model?: string; denyTools?: readonly string[]; skills?: readonly string[] } & MemberIdentityInput,
   ): Promise<TeamMember> {
     const captain = requireAgent(exec)
     const scope = this.deps.scopeOf(captain)
@@ -116,6 +160,11 @@ export class MemberProvisioner {
       ])])
 
       const childId = SessionId(randomUUID())
+      // Issue #184: a member-assigned Skill subset is validated BEFORE any
+      // roster mutation — against the immutable Team allow-list and the
+      // current complete scoped Skill catalog (model-invocable). Zero-side-effect
+      // rejection, so a bad subset can never leave a provisioning row behind.
+      const assignedSkills = await this.validateAssignedSkills(captain, membership.team, input.skills, exec.signal)
       const provisioning = await this.deps.domain().provisionMember(scope, membership.team.id, captain.id, {
         name: input.name,
         role: input.role,
@@ -125,8 +174,9 @@ export class MemberProvisioner {
         ...(input.profession === undefined ? {} : { profession: input.profession }),
         ...(input.personality === undefined ? {} : { personality: input.personality }),
         ...(input.pixelAvatarSvg === undefined ? {} : { pixelAvatarSvg: input.pixelAvatarSvg }),
+        ...(assignedSkills === undefined ? {} : { assignedSkills }),
       })
-      this.deps.config.teamSkills.rememberChild(membership.team, childId)
+      this.deps.config.teamSkills.rememberChild(membership.team, childId, assignedSkills)
       let finish!: () => void
       const operation = new Promise<void>(settle => { finish = settle })
       this.operations.add(operation)
@@ -152,7 +202,11 @@ export class MemberProvisioner {
           request: {
             prompt: [{ type: 'text', text: memberJoinNotice(membership.team) }],
             parent: captain,
-            persona: memberPersona(membership.team, provisioning.name, provisioning.role),
+            persona: memberPersona(membership.team, provisioning.name, provisioning.role, provisioning.assignedSkills, {
+              ...(provisioning.displayName === undefined ? {} : { displayName: provisioning.displayName }),
+              ...(provisioning.profession === undefined ? {} : { profession: provisioning.profession }),
+              ...(provisioning.personality === undefined ? {} : { personality: provisioning.personality }),
+            }),
             // M1A static baseline plus the F17 deny-only narrowing declaration
             // (`deny_tools`); the union is monotone — captain-only tools stay
             // mandatorily denied and no allow surface exists.

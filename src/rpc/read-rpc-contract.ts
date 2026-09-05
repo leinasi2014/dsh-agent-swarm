@@ -216,10 +216,17 @@ export interface SwarmReadCaptainMemberRowV1 {
     readonly skills: 'not_implemented'
     readonly capability: 'not_implemented'
   }
-  /** Declared roster Skills derivable from the member's durable authority. A
-   *  bounded enumeration; an empty array means "none declared". Absent when the
-   *  read has no authoritative source (fail-closed), never a fabricated claim. */
+  /** Session-visible catalog Skills the member can SEE in the scoped catalog (NOT
+   *  owned expertise and NOT the member-assigned subset). A bounded enumeration;
+   *  an empty array means none visible. Absent when the read has no authoritative
+   *  source (fail-closed), never a fabricated claim. */
   readonly skills?: readonly string[]
+  /** Member-assigned Skill subset (issue #184): the recruit-time subset this
+   *  member may load, distinct from Session-visible catalog Skills (`skills`).
+   *  Absent when the captain declared none; an explicit empty array is a
+   *  declared empty subset (narrows the member to no Skill), never an
+   *  inheritance of the whole Team allow-list. */
+  readonly assignedSkills?: readonly string[]
   /** Tools this member may call within the Team's member-facing model surface,
    *  derived from the member's durable toolFilter denial (deny-excluded). Empty
    *  means none remain in that surface. Absent when the surface is unknown. */
@@ -247,6 +254,10 @@ export interface SwarmReadCaptainMembersV1 {
     readonly rootSessionId: string
     readonly teamId: string
   }
+  /** Immutable Team eligibility policy (issue #184) — the Team allow-list. Absent
+   *  when the Team kept the host default (unrestricted). Distinct from the
+   *  Session-visible catalog `skills` and the per-member `assignedSkills`. */
+  readonly teamAllowedSkills?: readonly string[]
   readonly members: readonly SwarmReadCaptainMemberRowV1[]
   readonly observedAt: number
 }

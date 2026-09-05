@@ -45,6 +45,14 @@ export interface TeamMember extends TeamMemberIdentityProfile {
   readonly phase: TeamMemberPhase
   readonly createdAt: number
   readonly error?: string
+  /**
+   * Captain-declared member-assigned Skill subset (issue #184): recruit-time
+   * names validated against the Team allow-list AND the current scoped Skill
+   * catalog before any roster mutation, then persisted in the Team aggregate
+   * and reconstructed on restart. Distinct from Team-allowed Skills and from
+   * the Session-visible catalog.
+   */
+  readonly assignedSkills?: string[]
 }
 
 type TeamTaskStatus =

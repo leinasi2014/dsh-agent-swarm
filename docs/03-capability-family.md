@@ -37,10 +37,10 @@ AgentSwarmRuntime
 | 审核 | Review Provider registry | manual、executable commands/templates、review root 与 reviewer boundary |
 | 邮箱与等待 | durable Team mailbox + wakeup surface | quota、receipt、quiet/wakeup、bounded wait 与 spin fuse |
 | 预算 | Team budget + committed usage fold | token/request/retry 限制、reservation、carry、exhaustion/recovery |
-| Skills | `TeamSkillSurface` + `allowedSkills` setting | 新 Team allow-list、成员声明/投影；不自动演化 Skill |
+| Skills | `TeamSkillSurface` + `allowedSkills` setting | 三层区分（issue #184）：Team allowed（不可变策略）/ member assigned（招募时子集，持久化+重启重建，进一步收窄 surface）/ Session-visible（官方 scoped catalog，仅可见不等于拥有）；不自动演化 Skill |
 | Tools | official tool restriction + plugin permission surface | Captain-only 隐藏、成员 deny-only 收窄、plugin allow/ask/deny setting |
 | Memory | Team memory + private-memory domain | 共享分类记忆；成员私有 append-only memory 和独立授权 |
-| Workflow/Jobs | official Workflow bridge + caller-scoped jobs projection | 可选、显式启用；jobs 是 read projection，不影子注册官方 producer |
+| Workflow/Jobs | official Workflow bridge + caller-scoped jobs projection | 可选、显式启用；唯一 Consumer seam 是 `ctx.agentSwarmWorkflow` 命名服务（问题 #187），`runtime.workflowBridge` 只是内部实现细节；jobs 是 read projection，不影子注册官方 producer |
 | Execution root | execution-root Provider | 可选 per-attempt 物理 root、capability 声明、settlement 和 residue 告警 |
 | Host/RPC | Host read service + `/swarm/v1` | target-bound、bounded、redacted、read-only、loopback/same-origin fail-closed |
 | UI | official Client slots / Session navigation / Settings | Workbench、Tasks、Announcements、Management、overlay、Captain Chat、设置页 |
