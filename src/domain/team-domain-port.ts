@@ -78,7 +78,8 @@ export interface TeamAggregateStore {
    */
   createManaged(scope: TeamScope, state: TeamState): Promise<TeamState>
   read(scope: TeamScope, teamId: TeamId): Promise<TeamState | undefined>
-  list(scope: TeamScope): Promise<TeamState[]>
+  /** Optional billing participant filter; matching candidates retain full validation. */
+  list(scope: TeamScope, participantSessionId?: string): Promise<TeamState[]>
   transact<T>(scope: TeamScope, teamId: TeamId, operation: TeamTransaction<T>): Promise<T>
   waitForChange(scope: TeamScope, teamId: TeamId, afterRevision: number, signal: AbortSignal): Promise<TeamState>
   /**

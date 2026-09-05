@@ -15,7 +15,7 @@ import type { TeamId, TeamMemoryCategory, TeamState, TeamStatusSnapshot } from '
 import type { TeamScope } from './team-domain-port.js'
 
 /** One authoritative aggregate plus its derived readiness/mailbox projections. */
-function statusOf(team: TeamState): TeamStatusSnapshot {
+export function statusOf(team: TeamState): TeamStatusSnapshot {
   return {
     team,
     readyTaskIds: team.tasks.filter(task => isTaskReady(team.tasks, task)).map(task => task.id),
