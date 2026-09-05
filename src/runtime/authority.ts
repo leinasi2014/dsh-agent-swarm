@@ -32,7 +32,7 @@ export function requireAgent(exec: ToolExecutionAuthority): Agent {
   return exec.agent
 }
 
-/** The agent session's canonical workspace directory. */
+/** Stable Session workspace used by the Captain's review context. */
 export function workspaceOf(agent: Agent): string {
   return agent.session.header.cwd ?? process.cwd()
 }

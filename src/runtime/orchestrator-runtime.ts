@@ -13,7 +13,7 @@ import { TeamDomainError } from '../domain/error.js'
 import type { MemberIdentityInput } from '../domain/identity-profile.js'
 import { StorageDomainTeamStore } from '../storage/storage-domain-team-store.js'
 import { teamDomainSpec } from '../storage/team-spec.js'
-import { requireAgent, workspaceOf, type ToolExecutionAuthority } from './authority.js'
+import { requireAgent, type ToolExecutionAuthority } from './authority.js'
 import { boundedSettle } from './disposal.js'
 import { ExecutionRootSurface } from './execution-root-surface.js'
 import type { ExecutionRootResidue, TeamExecutionRootProvider } from './execution-roots.js'
@@ -258,9 +258,9 @@ export class AgentSwarmRuntime extends Service {
     return this.executionRoots.registerProvider(name, provider)
   }
 
-  /** Canonical workspace scope key partitioning this agent's Team namespace. */
+  /** Team namespace remains the stable Session cwd across attempt-local IO roots. */
   scopeOf(agent: Agent): TeamScope {
-    return resolve(workspaceOf(agent))
+    return resolve(agent.session.header.cwd ?? process.cwd())
   }
 
   /**
@@ -573,7 +573,7 @@ export class AgentSwarmRuntime extends Service {
     await bound('member provisioning', this.provisioning.wait())
     await bound('scheduling', Promise.allSettled(this.scheduling.values()))
     await bound('message delivery', this.delivery.wait())
-    await bound('execution roots', this.executionRoots.releaseAll('runtime disposal'))
+    await bound('execution roots', this.executionRoots.suspendAll())
     for (const [captainId, childIds] of this.ownedChildren) {
       const captain = this.ctx.agents.get(SessionId(captainId))
       if (captain === undefined) continue
@@ -592,8 +592,6 @@ export class AgentSwarmRuntime extends Service {
     if (failures.length > 0) throw new AggregateError(failures, 'Team orchestrator disposal failed')
   }
 }
-
-
 
 
 

@@ -18,7 +18,13 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import { Context } from '@deepseek-ai/cordis'
+import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
+import { PwshLocalExecutor } from '@deepseek-ai/dsh-pwsh-local'
+import * as ShellEnv from '@deepseek-ai/dsh-shell-env'
+import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
+import * as ToolPwsh from '@deepseek-ai/dsh-tool-pwsh'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
 import {
@@ -28,7 +34,7 @@ import {
   ExecutionRoots,
   gitWorktreeExecutionRoots,
 } from '../src/runtime/execution-roots.js'
-import { AttemptId, TaskId, TeamId, type TeamState, type TeamTask } from '../src/domain/types.js'
+import { AttemptId, TaskId, TeamId, type TaskAttempt, type TeamState, type TeamTask } from '../src/domain/types.js'
 import { mount as mountGated, toolCall } from './helpers/gated-composition.js'
 import { mountModesComposition, toolCall as modesToolCall } from './helpers/modes-composition.js'
 
@@ -148,6 +154,42 @@ describe('execution-root provider isolation (M3-1, issue #100)', () => {
     expect(lease.isolation).toBe('temp-directory')
     expect(existsSync(join(lease.path, EXECUTION_ROOT_MARKER))).toBe(true)
     expect(lease.path.startsWith(base)).toBe(true)
+  })
+
+  it('issue #191: preserves committed, staged, untracked and binary output in an applicable patch', async () => {
+    const sandbox = await freshSandbox('evidence')
+    const workspace = await initRepoWorkspace(sandbox)
+    const roots = managerOver(join(sandbox, 'roots'))
+    const lease = await roots.acquire(workspace, TEAM, TASK, RUNNING)
+    writeFileSync(join(lease.path, 'committed.txt'), 'committed output\n')
+    await execFileAsync('git', ['add', 'committed.txt'], { cwd: lease.path })
+    await execFileAsync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-m', 'member work'], { cwd: lease.path })
+    writeFileSync(join(lease.path, 'staged.txt'), 'staged output\n')
+    await execFileAsync('git', ['add', 'staged.txt'], { cwd: lease.path })
+    writeFileSync(join(lease.path, 'untracked.txt'), 'new output\n')
+    const binary = Buffer.from([0, 1, 255, 0, 128])
+    writeFileSync(join(lease.path, 'image.bin'), binary)
+    const indexBefore = (await execFileAsync('git', ['diff', '--cached', '--binary'], { cwd: lease.path })).stdout
+    const patch = await roots.captureWorktreeDiff(workspace, TEAM, TASK, RUNNING)
+    expect((await execFileAsync('git', ['diff', '--cached', '--binary'], { cwd: lease.path })).stdout).toBe(indexBefore)
+    await roots.release(workspace, TEAM, TASK, RUNNING, 'submitted')
+    await execFileAsync('git', ['apply', patch!], { cwd: workspace })
+    expect(readFileSync(join(workspace, 'committed.txt'), 'utf8').replace(/\r\n/g, '\n')).toBe('committed output\n')
+    expect(readFileSync(join(workspace, 'staged.txt'), 'utf8').replace(/\r\n/g, '\n')).toBe('staged output\n')
+    expect(readFileSync(join(workspace, 'untracked.txt'), 'utf8').replace(/\r\n/g, '\n')).toBe('new output\n')
+    expect(readFileSync(join(workspace, 'image.bin'))).toEqual(binary)
+    expect(existsSync(join(workspace, EXECUTION_ROOT_MARKER))).toBe(false)
+  }, 30_000)
+
+  it('issue #191: fails closed when durable evidence cannot be published', async () => {
+    const sandbox = await freshSandbox('evidence-failure')
+    const workspace = await initRepoWorkspace(sandbox)
+    const roots = managerOver(join(sandbox, 'roots'))
+    const lease = await roots.acquire(workspace, TEAM, TASK, RUNNING)
+    mkdirSync(`${lease.path}.patch`)
+    await expect(roots.captureWorktreeDiff(workspace, TEAM, TASK, RUNNING)).rejects.toThrow()
+    expect(roots.leaseOf(workspace, TEAM, TASK, RUNNING)).toBe(lease)
+    expect(existsSync(lease.path)).toBe(true)
   })
 
   it('releases and reclaims a failed attempt\'s root; a re-acquire starts fresh', async () => {
@@ -382,6 +424,102 @@ describe('execution-root composition wiring (M3-1, issue #100)', () => {
         expect(existsSync(expectedPath)).toBe(false)
       }, { timeout: 20_000 })
       expect(readdirSync(workspace).includes('tracked.txt')).toBe(true)
+    } finally {
+      for (const fiber of composition.fibers.toReversed()) await fiber.dispose()
+    }
+  }, 90_000)
+
+  // Official consumers must execute in the root, with durable submit evidence.
+  it('issue #191: scopes the member tool cwd to the declared root and persists a durable worktree diff on submit', async () => {
+    const sandbox = await freshSandbox('issue191')
+    await initRepoWorkspace(sandbox)
+    const base = join(sandbox, 'roots')
+    const composition = await mountModesComposition(sandbox, { executionRoots: true, executionRootsBase: base })
+    const scope = composition.ctx.agentSwarm.scopeOf(composition.lead)
+    try {
+      const { ctx, adapter } = composition
+      composition.fibers.push(await ctx.plugin(LocalFileSystem, { cwd: scope }))
+      composition.fibers.push(await ctx.plugin(ToolFs))
+      composition.fibers.push(await ctx.plugin(LocalSubprocessRuntime))
+      composition.fibers.push(await ctx.plugin(ShellEnv))
+      composition.fibers.push(await ctx.plugin(PwshLocalExecutor))
+      composition.fibers.push(await ctx.plugin(ToolPwsh, { enableRunInBackground: false }))
+      const created = await modesToolCall(ctx, composition.lead, 'issue191-create', 'agent_swarm_create', {
+        name: 'Issue #191 team',
+        description: 'Prove the per-attempt execution-root cwd fencing and the durable submit diff.',
+      })
+      expect(created.isError).toBe(false)
+      const teamId = AgentSwarm.TeamId((created.value as { team_id: string }).team_id)
+      const added = await modesToolCall(ctx, composition.lead, 'issue191-add', 'agent_swarm_add_member', {
+        name: 'root-worker', role: 'Work inside the declared execution root.',
+      })
+      expect(added.isError).toBe(false)
+      const memberId = (added.value as { session_id: string }).session_id
+      const task = await modesToolCall(ctx, composition.lead, 'issue191-task', 'agent_swarm_create_task', {
+        subject: 'Write inside the attempt root',
+        description: 'Create the marker file inside the declared execution root.',
+      })
+      expect(task.isError).toBe(false)
+
+      // Release the member's held join turn ONCE: its idle edge drives the
+      // pass that claims the task and dispatches the assignment frame, which
+      // the member's next turn parks on until submit is armed below.
+      adapter.open()
+      await vi.waitFor(async () => {
+        const snapshot = await ctx.agentSwarm.domain.snapshot(scope, teamId, composition.lead.id)
+        const claimedNow = snapshot.team.tasks.find((candidate: TeamTask) => candidate.status === 'in_progress')
+        expect(claimedNow?.currentAttemptId).toBeDefined()
+        const leased = ctx.agentSwarm.executionRoots.roots.leaseOf(scope, teamId, claimedNow!.id, claimedNow!.currentAttemptId!)
+        expect(leased).toBeDefined()
+        expect(existsSync(join(leased!.path, EXECUTION_ROOT_MARKER))).toBe(true)
+      }, { timeout: 20_000 })
+      const snapshot = await ctx.agentSwarm.domain.snapshot(scope, teamId, composition.lead.id)
+      const claimed = snapshot.team.tasks.find((candidate: TeamTask) => candidate.status === 'in_progress')!
+      const attemptId = claimed.currentAttemptId!
+      const expectedPath = deterministicRootPath(base, scope, teamId, claimed.id, attemptId)
+      expect(existsSync(expectedPath)).toBe(true)
+      expect(ctx.agentSwarm.executionRoots.roots.leaseOf(scope, teamId, claimed.id, attemptId)?.path).toBe(expectedPath)
+
+      const member = ctx.agents.get(SessionId(memberId))
+      expect(member).toBeDefined()
+      // Exercise the actual official tool consumer and local filesystem
+      // provider. A private workspace helper cannot redirect this call.
+      const written = await modesToolCall(ctx, member!, 'issue191-write', 'write', {
+        file_path: 'tracked.txt', content: 'base\nattempt change\n',
+      })
+      expect(written.isError).toBe(false)
+      expect({
+        isolated: readFileSync(join(expectedPath, 'tracked.txt'), 'utf8').replace(/\r\n/g, '\n'),
+        shared: readFileSync(join(scope, 'tracked.txt'), 'utf8').replace(/\r\n/g, '\n'),
+      }).toEqual({ isolated: 'base\nattempt change\n', shared: 'base\n' })
+      const edited = await modesToolCall(ctx, member!, 'issue191-edit', 'edit', {
+        file_path: 'tracked.txt', old_string: 'attempt change', new_string: 'isolated edit',
+      })
+      expect(edited.isError).toBe(false)
+      const shelled = await modesToolCall(ctx, member!, 'issue191-shell', 'pwsh', {
+        command: "Set-Content -LiteralPath shell.txt -Value 'isolated shell'", description: 'Write in the attempt cwd',
+      })
+      expect(shelled.isError).toBe(false)
+      expect(readFileSync(join(expectedPath, 'shell.txt'), 'utf8').trim()).toBe('isolated shell')
+      expect(existsSync(join(scope, 'shell.txt'))).toBe(false)
+      const escape = await modesToolCall(ctx, member!, 'issue191-escape', 'write', {
+        file_path: join(scope, 'escape.txt'), content: 'must not publish',
+      })
+      expect(escape.isError).toBe(true)
+      expect(existsSync(join(scope, 'escape.txt'))).toBe(false)
+
+      // The patch must survive submit-time root reclamation.
+      adapter.submit = true
+      await vi.waitFor(async () => {
+        adapter.open()
+        await new Promise(resolve => setTimeout(resolve, 120))
+        const settled = await ctx.agentSwarm.domain.snapshot(scope, teamId, composition.lead.id)
+        expect(settled.team.tasks.find((candidate: TeamTask) => candidate.id === claimed.id)?.status).toBe('submitted')
+      }, { timeout: 20_000 })
+      const settled = await ctx.agentSwarm.domain.snapshot(scope, teamId, composition.lead.id)
+      const attempt = settled.team.attempts.find((candidate: TaskAttempt) => candidate.id === attemptId)
+      const durableDiff = attempt?.evidence.some(entry => /\.(patch|diff)(\b|$)/i.test(entry)) ?? false
+      expect(durableDiff).toBe(true)
     } finally {
       for (const fiber of composition.fibers.toReversed()) await fiber.dispose()
     }
