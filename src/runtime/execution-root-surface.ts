@@ -17,7 +17,8 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { workspaceOf } from './authority.js'
-import type { TaskAttempt, TeamId, TeamState, TeamTask } from '../domain/types.js'
+import type { AttemptId, TaskId, TaskAttempt, TeamId, TeamState, TeamTask } from '../domain/types.js'
+import { TeamDomainError } from '../domain/error.js'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import { ExecutionRoots, EXECUTION_ROOT_MARKER, type ExecutionRootResidue, type TeamExecutionRootProvider, gitWorktreeExecutionRoots } from './execution-roots.js'
 
@@ -76,6 +77,17 @@ export class ExecutionRootSurface {
   /** Register one replaceable Provider; returns its disposer. */
   registerProvider(name: string, provider: TeamExecutionRootProvider): () => void {
     return this.roots.registerProvider(name, provider)
+  }
+
+  /** A cold submit must recover its existing root before publishing evidence. */
+  async captureSubmission(scope: TeamScope, teamId: TeamId, taskId: TaskId, attemptId: AttemptId, agent: Agent): Promise<string | undefined> {
+    if (this.deps.enabled() && this.roots.leaseOf(scope, teamId, taskId, attemptId) === undefined) {
+      await this.recoverMember(agent)
+      if (this.roots.leaseOf(scope, teamId, taskId, attemptId) === undefined) {
+        throw new TeamDomainError('Current attempt execution root is unavailable; retain the attempt for recovery', 'TEAM_EXECUTION_ROOT_EVIDENCE_FAILED')
+      }
+    }
+    return await this.roots.captureWorktreeDiff(scope, teamId, taskId, attemptId)
   }
 
   /**

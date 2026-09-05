@@ -355,7 +355,7 @@ export class RuntimeMutationSurface {
       && current.revision === input.expectedRevision && current.status === 'in_progress'
     // Invalid/stale calls reach the canonical Domain validation without IO.
     const durableDiff = ownsCurrent
-      ? await this.deps.executionRoots.roots.captureWorktreeDiff(scope, membership.team.id, TaskId(input.taskId), attemptId)
+      ? await this.deps.executionRoots.captureSubmission(scope, membership.team.id, TaskId(input.taskId), attemptId, actor)
       : undefined
     if (durableDiff !== undefined) evidence.push(durableDiff)
     const task = await this.deps.domain().submitTask(scope, membership.team.id, actor.id, TaskId(input.taskId), input.expectedRevision, attemptId, input.output, evidence)
@@ -401,7 +401,6 @@ export class RuntimeMutationSurface {
     return await this.deps.delivery.deliverQueuedMessage(scope, membership.team.id, captain, message.id, exec.signal) ?? message
   }
 }
-
 
 
 

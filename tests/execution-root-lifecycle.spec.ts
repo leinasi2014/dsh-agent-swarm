@@ -1,5 +1,7 @@
 /** Real official tool and two-Context regressions for #191 review findings. */
-import { mkdtemp, mkdir, readFile, rename, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -55,9 +57,18 @@ it('fails closed when the lease is revoked after the official guard and before t
   }
 }, 30_000)
 
-it.each([true, false])('cold-resumed member retains work and fences IO with existing root=%s (#191 F2)', async existingRoot => {
+it.each(['edit', 'missing', 'submit', 'submit-missing'])('cold-resumed member retains work and fences first operation=%s (#191 F2/F3)', async operation => {
   const sandbox = await mkdtemp(join(tmpdir(), 'dsh-root-cold-'))
   await mkdir(join(sandbox, 'workspace'))
+  const existingRoot = !operation.includes('missing')
+  if (operation.startsWith('submit')) {
+    const git = promisify(execFile)
+    const cwd = join(sandbox, 'workspace')
+    await git('git', ['init', '--initial-branch=main'], { cwd, windowsHide: true })
+    await writeFile(join(cwd, 'work.txt'), 'base\n')
+    await git('git', ['add', '.'], { cwd, windowsHide: true })
+    await git('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'fixture'], { cwd, windowsHide: true })
+  }
   const captainId = SessionId('root-cold-captain')
   let first: Mounted | undefined
   let second: Mounted | undefined
@@ -111,19 +122,40 @@ it.each([true, false])('cold-resumed member retains work and fences IO with exis
         const restored = await second.ctx.agentSwarm.domain.snapshot(scope, teamId, resumed.agent.id)
         expect(restored.team.tasks.find(task => task.id === taskId)).toMatchObject({ currentAttemptId: claim.attempt.id, ownerSessionId: childId })
         expect(restored.team.attempts.find(attempt => attempt.id === claim.attempt.id)).toMatchObject({ phase: 'running' })
-        const edited = existingRoot
-          ? await tool(second.ctx, recovered!, 'after', 'edit', { file_path: 'work.txt', old_string: 'before restart', new_string: 'after restart' })
-          : await tool(second.ctx, recovered!, 'missing', 'write', { file_path: 'work.txt', content: 'must not escape' })
-        expect(edited.isError, JSON.stringify(edited)).toBe(!existingRoot)
-        expect(existsSync(join(scope, 'work.txt'))).toBe(false)
-        const lease = second.ctx.agentSwarm.executionRoots.roots.leaseOf(scope, teamId, taskId, claim.attempt.id)
-        if (existingRoot) {
-          expect(await readFile(join(root, 'work.txt'), 'utf8')).toBe('after restart')
-          expect(lease?.path).toBe(root)
-        } else {
-          expect(lease).toBeUndefined()
+        if (operation.startsWith('submit')) {
+          const task = restored.team.tasks.find(candidate => candidate.id === taskId)!
+          const submitted = await tool(second.ctx, recovered!, 'submit-first', 'agent_swarm_submit_task', {
+            task_id: taskId, expected_revision: task.revision, attempt_id: claim.attempt.id, output: 'Preserved work ready for review.',
+          })
+          expect(submitted.isError, JSON.stringify(submitted)).toBe(!existingRoot)
+          const settled = await second.ctx.agentSwarm.domain.snapshot(scope, teamId, resumed.agent.id)
+          const evidence = settled.team.attempts.find(candidate => candidate.id === claim.attempt.id)!.evidence
+          const patch = evidence.find(entry => entry.endsWith('.patch'))
+          if (existingRoot) {
+            expect(patch, 'cold submit must publish the retained git work before settling').toBeDefined()
+            expect(await readFile(patch!, 'utf8')).toContain('+before restart')
+          } else {
+            expect(patch).toBeUndefined()
+            expect(settled.team.tasks.find(candidate => candidate.id === taskId)).toMatchObject({ status: 'in_progress', currentAttemptId: claim.attempt.id })
+            expect(await readFile(join(`${root}-retained`, 'work.txt'), 'utf8')).toBe('before restart')
+          }
           expect(existsSync(root)).toBe(false)
-          expect(await readFile(join(`${root}-retained`, 'work.txt'), 'utf8')).toBe('before restart')
+          expect((await readFile(join(scope, 'work.txt'), 'utf8')).trim()).toBe('base')
+        } else {
+          const edited = existingRoot
+            ? await tool(second.ctx, recovered!, 'after', 'edit', { file_path: 'work.txt', old_string: 'before restart', new_string: 'after restart' })
+            : await tool(second.ctx, recovered!, 'missing', 'write', { file_path: 'work.txt', content: 'must not escape' })
+          expect(edited.isError, JSON.stringify(edited)).toBe(!existingRoot)
+          expect(existsSync(join(scope, 'work.txt'))).toBe(false)
+          const lease = second.ctx.agentSwarm.executionRoots.roots.leaseOf(scope, teamId, taskId, claim.attempt.id)
+          if (existingRoot) {
+            expect(await readFile(join(root, 'work.txt'), 'utf8')).toBe('after restart')
+            expect(lease?.path).toBe(root)
+          } else {
+            expect(lease).toBeUndefined()
+            expect(existsSync(root)).toBe(false)
+            expect(await readFile(join(`${root}-retained`, 'work.txt'), 'utf8')).toBe('before restart')
+          }
         }
       } finally { stop() }
     } finally { await resumed.dispose() }
