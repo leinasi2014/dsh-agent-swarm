@@ -133,13 +133,17 @@ describe('member assigned Skills contract (issue #184)', () => {
     }
   })
 
-  it('rejects a Skill missing from the scoped catalog with zero roster side effects', { timeout: 30_000 }, async () => {
+  it('rejects a Skill that is allow-listed but MISSING from the scoped catalog with zero roster side effects', { timeout: 30_000 }, async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-skills-missing-'))
-    const mounted = await mount(sandbox, ['alpha', 'beta'])
+    // The catalog only registers alpha/beta; the allow-list also lists 'ghost', so the
+    // allow-list precheck passes and this reaches the CATALOG-missing branch.
+    const mounted = await mount(sandbox, ['alpha', 'beta', 'ghost'])
     try {
       const drain = vi.spyOn(mounted.ctx.subagents, 'drainContinuableChildren')
-      const rejected = await addMember(mounted, 'add-missing', { name: 'ghost', role: 'worker', skills: ['missing-skill'] })
+      const rejected = await addMember(mounted, 'add-missing', { name: 'ghost', role: 'worker', skills: ['ghost'] })
       expect(rejected).toMatchObject({ isError: true, error: { info: { code: 'TEAM_MEMBER_SKILLS_INVALID' } } })
+      // Prove it is the catalog-missing branch, not the allow-list precheck.
+      expect((rejected as { error: { message: string } }).error.message).toMatch(/scoped Skill catalog|model-invocable/)
       expect(drain).not.toHaveBeenCalled()
       const state = await mounted.ctx.agentSwarm.domain.snapshot(
         mounted.ctx.agentSwarm.scopeOf(mounted.lead), AgentSwarm.TeamId(mounted.teamId), mounted.lead.id,

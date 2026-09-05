@@ -65,7 +65,7 @@ function isSafePixelAvatarSvg(value: string): boolean {
 }
 
 const SWARM_READ_RPC_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
-export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '35bf463cb1cb45abb273451e6aec4690d5331244bb54a6ae126639037681a45f' as const
+export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = 'a1d21f4b3f6327485be5e8906cab687f41811ef5be7184a00a7d80e7aa6470bc' as const
 
 const boundedString = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength, pattern: '\\S' })
 /** Member role is authoritative free-text (never truncated by the reader); the
@@ -441,6 +441,7 @@ export const SWARM_READ_RPC_CONTRACT_V1 = deepFreezeJson({
         properties: {
           schemaVersion: { const: 1 }, binding: sectionBinding,
           members: { type: 'array', maxItems: 100, items: captainMemberRow }, observedAt: nonNegativeInteger,
+          teamAllowedSkills: { type: 'array', maxItems: 64, items: boundedString(128) },
         },
       },
       captainAnnouncements: {

@@ -572,6 +572,7 @@ function memberAssetOf(memberAssets: SwarmReadCaptainMembersV1 | undefined, name
   readonly growth: { readonly privateMemory: 'private_to_member'; readonly skills: 'not_implemented'; readonly capability: 'not_implemented' }
   readonly composition?: SwarmReadMemberCompositionV1
   readonly skills?: readonly string[]
+  readonly assignedSkills?: readonly string[]
   readonly callableTools?: readonly string[]
   readonly growthSummary?: string
   readonly currentActivity?: SwarmReadCaptainMembersV1['members'][number]['currentActivity']
@@ -587,6 +588,7 @@ function memberAssetOf(memberAssets: SwarmReadCaptainMembersV1 | undefined, name
     growth: row?.growth ?? { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' },
     ...(row?.composition === undefined ? {} : { composition: row.composition }),
     ...(row?.skills === undefined ? {} : { skills: row.skills }),
+    ...(row?.assignedSkills === undefined ? {} : { assignedSkills: row.assignedSkills }),
     ...(row?.callableTools === undefined ? {} : { callableTools: row.callableTools }),
     ...(row?.growthSummary === undefined ? {} : { growthSummary: row.growthSummary }),
     ...(row?.currentActivity === undefined ? {} : { currentActivity: row.currentActivity }),
@@ -749,7 +751,9 @@ function MemberDetail({ detail, data, localeTag, memberAssets, t }: {
     <div className="swarm-team-workspace__detail-section" data-swarm-detail-skills>
       <h4>{t('detail.section.skills')}</h4>
       <dl className="swarm-team-workspace__field-list">
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.teamAllowed')}</dt><dd data-swarm-detail-team-allowed>{memberAssets?.teamAllowedSkills === undefined ? unavailable : memberAssets.teamAllowedSkills.length === 0 ? t('detail.field.none') : memberAssets.teamAllowedSkills.join(', ')}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.skills')}</dt><dd data-swarm-detail-skills-value>{asset.skills === undefined ? unavailable : asset.skills.length === 0 ? t('detail.field.none') : asset.skills.join(', ')}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.assignedSkills')}</dt><dd data-swarm-detail-assigned-skills>{asset.assignedSkills === undefined ? unavailable : asset.assignedSkills.length === 0 ? t('detail.field.none') : asset.assignedSkills.join(', ')}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.tools')}</dt><dd data-swarm-detail-callable-tools>{asset.callableTools === undefined ? unavailable : asset.callableTools.length === 0 ? t('detail.field.none') : asset.callableTools.join(', ')}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.deniedTools')}</dt><dd data-swarm-detail-denied-tools>{composition !== undefined && compositionReady ? (composition.deniedTools === undefined ? unavailable : composition.deniedTools.length === 0 ? t('detail.field.none') : composition.deniedTools.join(', ')) : unavailable}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.permissions')}</dt><dd>{unavailable}</dd></div>
