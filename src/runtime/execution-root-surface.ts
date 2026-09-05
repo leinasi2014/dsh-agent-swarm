@@ -13,9 +13,13 @@
  * markers stay plugin-side state (docs/04 §8l).
  */
 import type { Context } from '@deepseek-ai/cordis'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import { existsSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+import { workspaceOf } from './authority.js'
 import type { TaskAttempt, TeamId, TeamState, TeamTask } from '../domain/types.js'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
-import { ExecutionRoots, type ExecutionRootResidue, type TeamExecutionRootProvider, gitWorktreeExecutionRoots } from './execution-roots.js'
+import { ExecutionRoots, EXECUTION_ROOT_MARKER, type ExecutionRootResidue, type TeamExecutionRootProvider, gitWorktreeExecutionRoots } from './execution-roots.js'
 
 /** One claimed attempt plus its acquired execution root, when enabled. */
 export type ClaimWithRoot = { task: TeamTask; attempt: TaskAttempt; executionRoot?: { path: string; isolation: 'git-worktree' | 'temp-directory' } }
@@ -42,7 +46,31 @@ export class ExecutionRootSurface {
       providerName: deps.providerName,
       base: deps.base,
       builtin: gitWorktreeExecutionRoots,
+      recoverMember: agent => this.recoverMember(agent),
     })
+  }
+
+  /** Restore only a current member's existing root, before its first cold IO. */
+  private async recoverMember(agent: Agent): Promise<boolean> {
+    if (this.deps.closing()) return true // deny IO during disposal
+    const scope = resolve(workspaceOf(agent))
+    const teams = await this.deps.teams(scope)
+    // Retained attempts also identify removed/settled members, which must not
+    // become unrelated unrestricted Agents just because the process restarted.
+    const team = teams.find(candidate => candidate.members.some(member => member.sessionId === agent.id)
+      || candidate.attempts.some(attempt => attempt.memberSessionId === agent.id))
+    if (team === undefined) return false
+    const member = team.members.find(candidate => candidate.sessionId === agent.id && candidate.phase === 'active')
+    const task = team.tasks.find(candidate => candidate.ownerSessionId === agent.id && candidate.status === 'in_progress')
+    const attempt = team.attempts.find(candidate => candidate.id === task?.currentAttemptId
+      && candidate.memberSessionId === agent.id && candidate.phase === 'running')
+    if (team.phase !== 'active' || member === undefined || task === undefined || attempt === undefined) return true
+    const path = this.roots.declarationPathFor(scope, team.id, task.id, attempt.id)
+    // A missing root may contain lost work: never silently create an empty
+    // replacement. The Provider validates the durable marker when reattaching.
+    if (!existsSync(join(path, EXECUTION_ROOT_MARKER))) return true
+    await this.roots.acquire(scope, team.id, task.id, attempt.id, String(agent.id))
+    return true
   }
 
   /** Register one replaceable Provider; returns its disposer. */
@@ -99,8 +127,8 @@ export class ExecutionRootSurface {
     return await this.roots.scanResidue(scope, await this.deps.teams(scope))
   }
 
-  /** Release every live lease (runtime disposal path, F4-bounded). */
-  releaseAll(reason: string): Promise<void> {
-    return this.roots.releaseAll(reason)
+  /** Revoke IO without destroying unfinished output during runtime shutdown. */
+  suspendAll(): Promise<void> {
+    return this.roots.suspendAll()
   }
 }

@@ -59,7 +59,7 @@ export interface ModesComposition {
  * scenarios); every other turn answers plain text. Flipping {@link submit}
  * between turns re-arms the behavior of the next release.
  */
-class GatedMemberAdapter extends LlmAdapter {
+export class GatedMemberAdapter extends LlmAdapter {
   readonly requests: GenerateOptions[] = []
   private calls = 0
   private gate: Promise<void>

@@ -25,6 +25,7 @@ import { tmpdir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import type { Context } from '@deepseek-ai/cordis'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import { TeamDomainError } from '../domain/error.js'
 import type { AttemptId, TaskId, TeamId, TeamState } from '../domain/types.js'
 import type { TeamScope } from '../domain/team-domain-port.js'
@@ -269,10 +270,11 @@ export class ExecutionRoots {
       readonly base: string
       /** Builtin factory (isolated for fault tests). */
       readonly builtin: (base: string) => TeamExecutionRootProvider
+      readonly recoverMember?: (agent: Agent) => Promise<boolean>
     },
   ) {
     this.providers.set('git-worktree', deps.builtin(deps.base))
-    this.tools = deps.enabled() && ctx.tools !== undefined && ctx.subagents !== undefined ? new ExecutionRootTools(ctx) : undefined
+    this.tools = deps.enabled() && ctx.tools !== undefined && ctx.subagents !== undefined ? new ExecutionRootTools(ctx, deps.recoverMember) : undefined
   }
 
   /** Register one replaceable Provider; returns its disposer. */
@@ -399,6 +401,13 @@ export class ExecutionRoots {
     for (const { lease } of this.leases.values()) {
       await this.release(lease.scope, lease.teamId, lease.taskId, lease.attemptId, reason)
     }
+  }
+
+  /** Revoke process-local IO on shutdown; unfinished roots remain recoverable. */
+  async suspendAll(): Promise<void> {
+    await Promise.allSettled(this.inflight.values())
+    for (const entry of this.leases.values()) entry.unbind?.()
+    this.leases.clear()
   }
 
   /**

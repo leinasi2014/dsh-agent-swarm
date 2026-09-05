@@ -573,7 +573,7 @@ export class AgentSwarmRuntime extends Service {
     await bound('member provisioning', this.provisioning.wait())
     await bound('scheduling', Promise.allSettled(this.scheduling.values()))
     await bound('message delivery', this.delivery.wait())
-    await bound('execution roots', this.executionRoots.releaseAll('runtime disposal'))
+    await bound('execution roots', this.executionRoots.suspendAll())
     for (const [captainId, childIds] of this.ownedChildren) {
       const captain = this.ctx.agents.get(SessionId(captainId))
       if (captain === undefined) continue
@@ -592,7 +592,6 @@ export class AgentSwarmRuntime extends Service {
     if (failures.length > 0) throw new AggregateError(failures, 'Team orchestrator disposal failed')
   }
 }
-
 
 
 

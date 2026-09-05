@@ -15,7 +15,17 @@ export class ExecutionRootTools {
   private readonly members = new Set<string>()
   private readonly attached = new WeakMap<Agent, ReadonlySet<string>>()
 
-  constructor(private readonly ctx: Context) {
+  constructor(private readonly ctx: Context, recover?: (agent: Agent) => Promise<boolean>) {
+    // Resolve a cold child's persisted ownership before the synchronous guard.
+    // Known, revoked members never reacquire merely by retrying a stale IO call.
+    ctx.on('tools/pre-execute', async (exec, next) => {
+      const agent = exec.agent
+      if (agent !== undefined && ROOT_TOOLS.some(name => name === exec.name)
+        && !this.members.has(String(agent.id)) && await recover?.(agent) === true) {
+        this.members.add(String(agent.id))
+      }
+      return await next()
+    })
     ctx.tools.guard(exec => {
       if (exec.agent === undefined || !this.members.has(String(exec.agent.id))) return undefined
       if (!ROOT_TOOLS.some(name => name === exec.name)) return undefined
@@ -59,7 +69,7 @@ export class ExecutionRootTools {
       ...original,
       execute: async (args, exec) => {
         const root = exec.agent === undefined ? undefined : this.roots.get(String(exec.agent.id))
-        if (root === undefined) return await original.execute(args, exec)
+        if (root === undefined) throw new Error('This member has no active execution-root tool scope')
         const input = args as Record<string, unknown>
         if (FILE_TOOLS.some(name => name === original.name)) {
           return await original.execute({ ...input, file_path: fencedPath(root, String(input.file_path)) }, exec)

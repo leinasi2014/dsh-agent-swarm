@@ -102,6 +102,8 @@ Review Provider 返回判定和 bounded evidence，Domain port 完成状态 muta
 
 Execution root 是每 attempt 的工作目录租约，不是开发 writer lane。插件为持有租约的成员安装 scoped tool Consumer，复用官方 `read`/`read_image`/`write`/`edit`/`pwsh`/`bash` 的 schema、真实 Agent 身份、执行实现与取消生命周期；文件相对路径和 shell cwd 自动解析到租约目录，拒绝显式目录越界及已有链接越界。持久 shell 每次命令先切回本次租约目录。Team namespace 和 Session header.cwd 保持不变；租约结束后旧成员的这些工具拒绝执行，不能回落到共享目录。此路径约束不解析任意 shell 代码，也不替代部署 sandbox 的 OS 隔离。
 
+撤租发生在官方 guard 与工具 body 之间时，body 仍必须拒绝执行。运行时卸载撤销 IO 绑定，但保留未提交目录；冷恢复成员首次文件或 shell 调用，在官方 pre-execute 阶段根据持久 Team 的当前 running attempt 重建绑定，并由 Provider 验证原目录 marker。目录缺失、成员已退出或 attempt 已结束时拒绝 IO，不创建空目录假装恢复；正常提交后的终态回收仍走原有 sweep。残留扫描只报告，不能以扫描结果替代这条实际恢复边界。
+
 git-worktree 提交先以创建时 HEAD 为基线，在临时 Git index 中采集 committed/staged/unstaged/untracked 的非忽略文件与 binary diff，不改成员 index；排除租约 marker。补丁写入、flush、原子发布到工作目录外后才允许 Domain submit 和回收。捕获失败（含旧 marker 缺少基线）拒绝提交并保留租约，供明确恢复；不丢弃错误继续回收。crash residue 必须扫描、标记和交给显式清理，不静默删除。
 
 Workflow bridge、Jobs projection、human control 和 remote/distributed Provider 都是可选面：启用条件、能力缺失、owner 和 disposer必须可见。Jobs 是 Team task 的只读 projection，不注册或替换官方 `ctx.jobs` 写权威。
