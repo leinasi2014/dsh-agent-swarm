@@ -215,6 +215,7 @@ export async function provisionMember(
       phase: 'provisioning',
       createdAt: timestamp,
       ...identity,
+      ...(identity.assignedSkills === undefined ? {} : { assignedSkills: identity.assignedSkills }),
     }
     team.members.push(committed)
     const usageCursors = { ...team.usageCursors, [input.sessionId]: -1 }

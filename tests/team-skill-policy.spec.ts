@@ -122,8 +122,8 @@ function makeTeam(captainSessionId: string, memberSessionIds: string[] = [], all
 }
 
 /** Materialize one continuable child bound to `team.allowedSkills` via rememberChild. */
-async function spawnMember(mounted: Mounted, childId: SessionId, team: TeamState): Promise<Agent> {
-  mounted.surface.rememberChild(team, childId)
+async function spawnMember(mounted: Mounted, childId: SessionId, team: TeamState, assignedSkills?: readonly string[]): Promise<Agent> {
+  mounted.surface.rememberChild(team, childId, assignedSkills)
   let member: Agent | undefined
   const stop = mounted.ctx.on('agent/created', ({ agent }) => {
     if (String(agent.id) === String(childId)) member = agent
@@ -230,7 +230,28 @@ describe('Team skill allow-list surface (strict-TDD regressions)', () => {
       expect((allow.value as { name: string }).name).toBe(ALPHA)
     })
 
-    it('denies a name outside the allow-list and an unknown name', { timeout: 30_000 }, async () => {
+    it('further narrows a member to its assigned subset (issue #184): allowed subset loads, Team-allowed but unassigned is denied', { timeout: 30_000 }, async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-skill-assigned-'))
+    roots.push(sandbox)
+    const mounted = await mountSurfaceStack(sandbox, fibers)
+    const childId = SessionId('assigned-child')
+    const member = await spawnMember(mounted, childId, makeTeam('mt-parent', [String(childId)], [ALPHA, BETA]), [BETA])
+
+    const request = mounted.adapter.requests[0]!
+    const tools = request.tools?.filter(tool => (tool as { name: string }).name === 'skill')
+    expect(tools).toEqual([shadowSkillSchema()])
+
+    // The assigned subset is loadable.
+    const allow = await callSkill(mounted, member, 'assigned-beta', BETA)
+    expect(allow.isError).toBe(false)
+    expect((allow.value as { name: string }).name).toBe(BETA)
+    // Team-allowed but NOT member-assigned stays denied.
+    const denied = await callSkill(mounted, member, 'unassigned-alpha', ALPHA)
+    expect(denied.isError).toBe(true)
+    expect((denied.error as { message: string }).message).toContain('not allowed')
+  })
+
+  it('denies a name outside the allow-list and an unknown name', { timeout: 30_000 }, async () => {
       const sandbox = await mkdtemp(join(tmpdir(), 'dsh-skill-deny-'))
       roots.push(sandbox)
       const mounted = await mountSurfaceStack(sandbox, fibers)

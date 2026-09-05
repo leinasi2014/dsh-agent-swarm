@@ -1,9 +1,10 @@
 /** Team-scoped Skill loader composition for newly provisioned continuable agents. */
 
 import type { Context } from '@deepseek-ai/cordis'
+import { injectedSkills } from './injected-skills.js'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { escapeText, isModelInvocable, isSkillName, isUserInvocable, renderSkillContent } from '@deepseek-ai/dsh-skill'
+import { escapeText, isModelInvocable, isSkillName, isUserInvocable, renderSkillContent, type SkillRegistry } from '@deepseek-ai/dsh-skill'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-tool-skill'
@@ -54,7 +55,10 @@ export class TeamSkillSurface {
    */
   private readonly controlled = new Map<string, ReadonlySet<string>>()
 
+  private readonly skillsOf: () => SkillRegistry | undefined
+
   constructor(private readonly ctx: Context) {
+    this.skillsOf = injectedSkills(ctx)
     // Enforce the allow-list at the EXECUTE boundary, independent of whether the
     // child's scoped shadow is still registered. (The scoped shadow supplies the
     // model schema; this guard supplies the denial after the child settles.)
@@ -85,7 +89,7 @@ export class TeamSkillSurface {
       // child's disposal so a first-turn execute after the child settles is
       // still denied for a non-allowed name.
       this.controlled.set(childId, allowed)
-      childCtx.tools.register(restrictedSkillTool(this.ctx, allowed))
+      childCtx.tools.register(restrictedSkillTool(allowed, this.skillsOf))
       childCtx.systemPrompt.section({
         name: 'agent-swarm:team-skills',
         order: 121,
@@ -136,12 +140,15 @@ export class TeamSkillSurface {
   rememberTeam(team: TeamState): void {
     const policy = team.allowedSkills === undefined ? UNRESTRICTED : team.allowedSkills
     this.policies.set(team.captainSessionId, policy)
-    for (const member of team.members) this.policies.set(member.sessionId, policy)
+    // Issue #184: a member's assigned subset (persisted in the aggregate and
+    // reconstructed on restart) narrows the Team policy for that member.
+    for (const member of team.members) this.policies.set(member.sessionId, effectivePolicy(policy, member.assignedSkills))
   }
 
   /** Bind a just-created child before its continuable Session is published. */
-  rememberChild(team: TeamState, sessionId: string): void {
-    this.policies.set(sessionId, team.allowedSkills === undefined ? UNRESTRICTED : team.allowedSkills)
+  rememberChild(team: TeamState, sessionId: string, assignedSkills?: readonly string[]): void {
+    const policy = team.allowedSkills === undefined ? UNRESTRICTED : team.allowedSkills
+    this.policies.set(sessionId, effectivePolicy(policy, assignedSkills))
   }
 
   /**
@@ -192,7 +199,9 @@ export class TeamSkillSurface {
     allowed: ReadonlySet<string>,
     signal: AbortSignal,
   ): Promise<RestrictedCatalogEntry[]> {
-    const snapshot = await this.ctx.skills.snapshot({
+    const skills = this.skillsOf()
+    if (skills === undefined) return []
+    const snapshot = await skills.snapshot({
       cwd: agent.session.header.cwd,
       signal,
       scope: agent,
@@ -203,7 +212,7 @@ export class TeamSkillSurface {
   }
 }
 
-function restrictedSkillTool(ctx: Context, allowed: ReadonlySet<string>) {
+function restrictedSkillTool(allowed: ReadonlySet<string>, skillsOf: () => SkillRegistry | undefined) {
   return defineTool({
     name: 'skill',
     description: 'Load the full instructions for one Skill that this Team is allowed to use.',
@@ -238,7 +247,9 @@ function restrictedSkillTool(ctx: Context, allowed: ReadonlySet<string>) {
       if (!isSkillName(args.name)) throw new Error(`invalid Skill name "${args.name}"`)
       if (!allowed.has(args.name)) throw new Error(`Skill "${args.name}" is not allowed for this Team`)
       const lookup = { cwd: exec.agent?.session.header.cwd, signal: exec.signal, scope: exec.agent }
-      const skill = await ctx.skills.get(args.name, lookup)
+      const skills = skillsOf()
+      if (skills === undefined) throw new Error('Skill registry is unavailable in this host; the Team allow-list cannot be served')
+      const skill = await skills.get(args.name, lookup)
       if (skill === undefined || !isModelInvocable(skill)) throw new Error(`Skill "${args.name}" is unavailable for model invocation`)
       return {
         name: skill.name,
@@ -294,4 +305,15 @@ function renderRestrictedCatalog(entries: RestrictedCatalogEntry[]): string {
 function catalogDescription(value: string, maxLength = DEFAULT_CATALOG_DESCRIPTION_MAX_LENGTH): string {
   const normalized = value.replaceAll(/\s+/g, ' ').trim()
   return normalized.length <= maxLength ? normalized : `${normalized.slice(0, maxLength - 3)}...`
+}
+
+/** One member's effective Skill policy: assigned subset narrows the Team list (issue #184). */
+function effectivePolicy(
+  policy: readonly string[] | typeof UNRESTRICTED,
+  assignedSkills: readonly string[] | undefined,
+): readonly string[] | typeof UNRESTRICTED {
+  if (assignedSkills === undefined || assignedSkills.length === 0) return policy
+  if (policy === UNRESTRICTED) return [...assignedSkills]
+  const allowed = new Set(policy)
+  return [...new Set(assignedSkills.filter(name => allowed.has(name)))]
 }

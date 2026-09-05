@@ -33,6 +33,36 @@ const MIN_PIXEL_AVATAR_GRID = 8
 const MAX_PIXEL_AVATAR_GRID = 32
 /** Per-attribute value length bound (code units). */
 const MAX_PIXEL_AVATAR_ATTR_LENGTH = 64
+/** Max member-assigned Skill names and one name's code-unit bound (issue #184). */
+const MAX_MEMBER_ASSIGNED_SKILLS = 32
+const MAX_MEMBER_SKILL_NAME = 128
+
+/**
+ * Normalize a Captain-declared member-assigned Skill subset (issue #184):
+ * trimmed, non-empty, deduped, bounded. Structural only — eligibility against
+ * the Team allow-list and the scoped Skill catalog is enforced by the runtime
+ * before any roster mutation.
+ */
+export function normalizeMemberAssignedSkills(raw?: readonly string[]): string[] | undefined {
+  if (raw === undefined) return undefined
+  if (raw.length > MAX_MEMBER_ASSIGNED_SKILLS) {
+    throw new TeamDomainError(`member assignedSkills must name at most ${MAX_MEMBER_ASSIGNED_SKILLS} Skills (got ${raw.length})`, 'TEAM_MEMBER_IDENTITY_INVALID')
+  }
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const name of raw) {
+    const trimmed = typeof name === 'string' ? name.trim() : ''
+    // Empty entries are presentation noise: silently skipped like identity fields.
+    if (trimmed === '') continue
+    if ([...trimmed].length > MAX_MEMBER_SKILL_NAME) {
+      throw new TeamDomainError(`member assignedSkills entries must be Skill names of at most ${MAX_MEMBER_SKILL_NAME} code points`, 'TEAM_MEMBER_IDENTITY_INVALID')
+    }
+    if (seen.has(trimmed)) continue
+    seen.add(trimmed)
+    out.push(trimmed)
+  }
+  return out
+}
 
 /** Bounded public announcement list on the Team aggregate. */
 export const MAX_CAPTAIN_ANNOUNCEMENTS = 32
@@ -46,6 +76,7 @@ export interface MemberIdentityInput {
   readonly profession?: string
   readonly personality?: string
   readonly pixelAvatarSvg?: string
+  readonly assignedSkills?: readonly string[]
 }
 
 export interface NormalizedMemberIdentity {
@@ -53,6 +84,7 @@ export interface NormalizedMemberIdentity {
   readonly profession?: string
   readonly personality?: string
   readonly pixelAvatarSvg?: string
+  readonly assignedSkills?: string[]
 }
 
 function unsafe(detail: string): never {
@@ -228,6 +260,7 @@ export function normalizeMemberIdentity(input: MemberIdentityInput): NormalizedM
     profession?: string
     personality?: string
     pixelAvatarSvg?: string
+    assignedSkills?: string[]
   } = {}
   const displayName = optionalBounded(input.displayName, 'displayName', MAX_MEMBER_DISPLAY_NAME)
   const profession = optionalBounded(input.profession, 'profession', MAX_MEMBER_PROFESSION)
@@ -236,6 +269,8 @@ export function normalizeMemberIdentity(input: MemberIdentityInput): NormalizedM
   if (profession !== undefined) out.profession = profession
   if (personality !== undefined) out.personality = personality
   if (input.pixelAvatarSvg !== undefined) out.pixelAvatarSvg = sanitizePixelAvatarSvg(input.pixelAvatarSvg)
+  const assignedSkills = normalizeMemberAssignedSkills(input.assignedSkills)
+  if (assignedSkills !== undefined) out.assignedSkills = assignedSkills
   return out
 }
 
