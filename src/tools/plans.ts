@@ -37,7 +37,7 @@ const PLAN_TASK_SCHEMA = {
     description: { type: 'string', required: true },
     acceptance_criteria: { type: 'array', items: { type: 'string' } },
     dependencies: { type: 'array', items: { type: 'string' }, description: 'Plan-local keys that must complete first.' },
-    target_member_name: { type: 'string', description: 'Planned member that alone may claim this task.' },
+    target_member_name: { type: 'string', description: 'Planned member that alone may claim this task. Omit it to declare generic work any eligible member may execute; specialist work must set the exact member.' },
     write_scopes: { type: 'array', items: { type: 'string' } },
   },
 } as const

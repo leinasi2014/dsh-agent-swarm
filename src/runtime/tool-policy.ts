@@ -28,12 +28,42 @@ export const MAX_DENY_TOOLS = 64
 export const MEMBER_DENY_BASELINE: readonly string[] = MEMBER_HIDDEN_TOOLS
 
 /**
+ * The immutable member-protocol floor (issue #186): every delegated member
+ * must always be able to submit task results and message the captain, so
+ * these tools can never be denied for a member. Both the per-recruit
+ * deny_tools declaration and the global toolPolicy deny/ask tiers share this
+ * one floor; any declaration that intersects it is an impossible-protocol
+ * rejection (`TEAM_TOOL_POLICY_INVALID`).
+ */
+const MEMBER_PROTOCOL_TOOLS: readonly string[] = ['agent_swarm_submit_task', 'agent_swarm_send_message']
+
+/**
  * Structural tool-name shape. Deliberately permissive toward real tool names
  * (`agent_swarm_send_message`, `bash`, …) while rejecting whitespace,
  * control characters, fences and path-shaped strings — existence remains the
  * official seam's authority.
  */
 export const TOOL_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/
+
+/**
+ * Reject a deny/ask declaration that names a mandatory member-protocol tool.
+ * A member must never be stripped of the surface it needs to submit results
+ * and message the captain, so any declared name intersecting
+ * {@link MEMBER_PROTOCOL_TOOLS} throws an impossible-protocol
+ * `TEAM_TOOL_POLICY_INVALID` before a record or runtime side effect.
+ *
+ * @param names - the declared deny/ask tool names being validated.
+ * @param context - human-readable label for the declaration in the error.
+ */
+export function assertProtocolFloorNotDenied(names: readonly string[], context: string): void {
+  const floor = MEMBER_PROTOCOL_TOOLS.filter(tool => names.includes(tool))
+  if (floor.length > 0) {
+    throw new TeamDomainError(
+      `${context} must not deny mandatory member-protocol tool(s): ${floor.join(', ')}`,
+      'TEAM_TOOL_POLICY_INVALID',
+    )
+  }
+}
 
 /**
  * Compose one member's provisioning-time tool deny list: the mandatory
@@ -49,6 +79,9 @@ export function memberToolDeny(declared?: readonly string[]): string[] {
   if (declared.length > MAX_DENY_TOOLS) {
     throw new TeamDomainError(`deny_tools must name at most ${MAX_DENY_TOOLS} tools (got ${declared.length})`, 'TEAM_TOOL_POLICY_INVALID')
   }
+  // Issue #186: a per-recruit deny of a mandatory member-protocol tool is an
+  // impossible-protocol declaration and must fail loud, before provisioning.
+  assertProtocolFloorNotDenied(declared, 'deny_tools')
   const seen = new Set<string>()
   for (const name of declared) {
     if (typeof name !== 'string' || name.trim() === '' || !TOOL_NAME_PATTERN.test(name)) {

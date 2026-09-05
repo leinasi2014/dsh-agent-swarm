@@ -45,6 +45,23 @@ function fenceFor(content: string): string {
 }
 
 /**
+ * Normalize a task's advisory write scopes for safe fenced rendering (issue
+ * #186): trim whitespace, drop empty entries, dedupe and emit in a
+ * deterministic order. Write scopes are coordination hints — never filesystem
+ * authorization — and remain untrusted task data that travels inside the
+ * untrusted data fence.
+ */
+function normalizeWriteScopes(scopes: readonly string[]): string[] {
+  const set = new Set<string>()
+  for (const raw of scopes ?? []) {
+    const value = raw.trim()
+    if (value === '') continue
+    set.add(value)
+  }
+  return [...set].toSorted()
+}
+
+/**
  * Wrap untrusted, instruction-capable content (task fields, message
  * bodies) in one fenced data block under an explicit declaration (F8): the
  * model-visible text names the block as data to work on, not as
@@ -93,12 +110,20 @@ export function assignmentPrompt(team: TeamState, task: TeamTask, attemptId: Att
   const criteria = task.acceptanceCriteria.length === 0
     ? '- Follow the task description and provide concrete evidence.'
     : task.acceptanceCriteria.map(value => `- ${value}`).join('\n')
-  // Subject, description and acceptance criteria are untrusted free text
-  // (tasks are not captain-only), and the Team name is free text too
+  // Issue #186: write scopes are untrusted, captain-authored advisory
+  // coordination paths, so they travel inside the SAME untrusted data fence
+  // (never in the trusted execution-root header). Normalized deterministically
+  // and labelled as coordination hints, not filesystem authorization.
+  const scopes = normalizeWriteScopes(task.writeScopes)
+  const writeScopeBlock = scopes.length === 0
+    ? ''
+    : `\nWrite scopes (coordination hints, NOT filesystem authorization):\n${scopes.map(scope => `- ${scope}`).join('\n')}`
+  // Subject, description, acceptance criteria and write scopes are untrusted
+  // free text (tasks are not captain-only), and the Team name is free text too
   // (`nonEmpty`, 128 bytes — backticks and newlines admissible, issue #62),
   // so all of it travels as one fenced data block; the trusted header keeps
   // only structurally safe system-generated ids.
-  const data = `Team name: ${team.name}\nSubject: ${task.subject}\nDescription:\n${task.description}\nAcceptance criteria:\n${criteria}`
+  const data = `Team name: ${team.name}\nSubject: ${task.subject}\nDescription:\n${task.description}\nAcceptance criteria:\n${criteria}${writeScopeBlock}`
   // The execution root (M3-1, issue #100) is system-derived trusted text: the
   // deterministic absolute path of this attempt's isolated working root. It
   // rides the TRUSTED header (never the untrusted block) and stays a pure

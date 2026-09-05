@@ -2,8 +2,8 @@
 
 - Repository: `https://github.com/NanmiCoder/dsh-agent-teams`
 - Branch: `main`
-- Commit: `5fe388f1a30da7b1374294b25bd6f8ad74ab6aa5`
-- Package version: `0.1.14`
+- Commit: `232a338fc9a0d393f118912386f67e7f3a6c67d6`
+- Package version: `0.1.15`
 - License: MIT
 
 ## Why this is the single local reference repository
@@ -45,10 +45,17 @@
 
 该差异加入官方宿主 locale UI、idle attempt park/显式恢复、防状态查询 retry storm，以及 cardless Session 的低频发现探针。它为 I1 的暂停/恢复语义和 I4 的 UI 发现成本提供参考故障用例，不改变本项目的唯一 `TeamDomainPort` 权威，也不授权复制参考实现的 Scheduler、存储或 Client 状态。
 
-The 2026-08-27 review retains this recorded tip because it already equals
-remote `main`. The historical `912aae5..5fe388f` range contains 15 commits and
+The historical 2026-08-27 review covered `912aae5..5fe388f`: 15 commits and
 31 changed files: independent captain planning/Team stop plus staged
 approval/review and activity-panel behavior. No changed path introduces a
 Workflow engine, Jobs projection or per-attempt cwd/Worktree ownership
 contract. It remains direct implementation prior art only; no reference
 runtime or UI is imported.
+
+The 2026-09-05 refresh reviews `5fe388f..232a338f`, including the 0.1.15
+manifest and MIT license. Its authenticated Web routes, attempt-fenced
+member-failure handling with durable mailbox/Captain reporting, and blank
+optional-field normalization supply failure examples for the existing Host
+authorization and member lifecycle seams. They do not replace this plugin's
+TeamDomainPort, execution-root ownership or review gate. No source or UI is
+imported; installed official DSH exports remain the execution authority.

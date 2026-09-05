@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 $Repository = "https://github.com/NanmiCoder/dsh-agent-teams.git"
-$Commit = "5fe388f1a30da7b1374294b25bd6f8ad74ab6aa5"
+$Commit = "232a338fc9a0d393f118912386f67e7f3a6c67d6"
 $Target = Join-Path $PSScriptRoot "source"
 
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
