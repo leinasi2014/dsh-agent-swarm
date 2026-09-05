@@ -24,6 +24,7 @@ import { budgetAvailable, outstandingReservationTokens, reservationAdmissible } 
 import {
   actorMembership,
   attemptOf,
+  boundedBoardItems,
   clearTaskExecution,
   nonEmpty,
   replaceAttempt,
@@ -34,12 +35,6 @@ import { AttemptId, TaskId, type ReviewVerificationCommand, type TaskAttempt, ty
 import type { CreateTaskInput, TeamScope } from './team-domain-port.js'
 
 const TERMINAL_ATTEMPT_PHASES = new Set(['accepted', 'rejected', 'cancelled', 'stale'])
-
-/** Admission only: historical aggregates remain readable at their old sizes. */
-function boundedBoardItems(values: readonly string[], label: string, maxBytes: number): string[] {
-  expectDomain(values.length <= 64, `${label} exceeds 64 items`, 'TEAM_INPUT_LIMIT')
-  return values.map(value => nonEmpty(value, label, maxBytes))
-}
 
 /**
  * Normalize one captain-declared verification list (M3-2): bounded count,

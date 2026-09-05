@@ -65,6 +65,12 @@ export function nonEmpty(value: string, label: string, max = 512): string {
   return normalized
 }
 
+/** Admission only: historical aggregates remain readable at their old sizes. */
+export function boundedBoardItems(values: readonly string[], label: string, maxBytes: number): string[] {
+  expectDomain(values.length <= 64, `${label} exceeds 64 items`, 'TEAM_INPUT_LIMIT')
+  return values.map(value => nonEmpty(value, label, maxBytes))
+}
+
 export function attemptOf(team: TeamState, id: AttemptId): TaskAttempt {
   const attempt = team.attempts.find(candidate => candidate.id === id)
   if (attempt === undefined) throw new TeamDomainError(`attempt "${id}" not found`, 'TEAM_ATTEMPT_NOT_FOUND')
