@@ -68,10 +68,12 @@ async function withLock<T>(locks: Map<string, Promise<void>>, key: string, opera
 
 /**
  * Transient write codes on the atomic whole-file publish of the `agent_swarm`
- * unit (temp write -> fsync -> rename()). The storage-json backend does not
- * queue writes: ordering belongs to the caller, so a concurrent Team operation
- * on the SAME unit can issue an overlapping rename() and the OS reports one of
- * these transient codes. They are recoverable by re-issuing the identical
+ * unit (temp write -> fsync -> rename()). The official `@deepseek-ai/dsh-storage-domain`
+ * already serializes the domain's write chain (`enqueue`), and the storage-json
+ * backend allows exactly one live unit handle, so the transient contention here
+ * is a REAL file-system publish/rename conflict (e.g. antivirus, another
+ * process, or a share) rather than two store instances overlapping on one open
+ * domain. These transient codes are recoverable by re-issuing the identical
  * publish; anything else is a real failure and must fail through immediately.
  */
 const TRANSIENT_WRITE_CODES: ReadonlySet<string> = new Set(['EPERM', 'EACCES', 'EBUSY', 'ENOTEMPTY'])
@@ -113,28 +115,6 @@ async function writeWithTransientRetry<T>(write: () => Promise<T>): Promise<T> {
   }
 }
 
-/**
- * One async tail per open domain handle serializes EVERY backend write to the
- * `agent_swarm` unit, so two store instances over the SAME open domain never
- * issue overlapping atomic publish calls in this process. Keyed weakly by the
- * domain (mirroring the `scopeLocksFor` seam); a cross-instance race over one
- * medium — two domain handles, each with its own write chain — is not ordered
- * by this queue and is absorbed by the bounded transient retry.
- */
-const sharedUnitWriteTails = new WeakMap<Domain<typeof teamDomainSpec>, Promise<void>>()
-
-function enqueueUnitWrite<T>(domain: Domain<typeof teamDomainSpec>, write: () => Promise<T>): Promise<T> {
-  const previous = sharedUnitWriteTails.get(domain) ?? Promise.resolve()
-  let release!: () => void
-  const current = new Promise<void>(resolve => { release = resolve })
-  const tail = previous.then(() => current)
-  sharedUnitWriteTails.set(domain, tail)
-  return previous.then(() => writeWithTransientRetry(write)).finally(() => {
-    release()
-    if (sharedUnitWriteTails.get(domain) === tail) sharedUnitWriteTails.delete(domain)
-  })
-}
-
 /** Official `ctx.storageDomain`-backed authority for the Team aggregate. */
 export class StorageDomainTeamStore implements TeamAggregateStore {
   readonly backend = 'storage-domain'
@@ -159,9 +139,9 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
     this.stopListening = ctx.on('domain/changed', change => this.onChange(change))
   }
 
-  /** Route one durable unit write through the per-domain serialization + transient retry. */
+  /** Route one durable unit write through the bounded transient-retry path. */
   private writeUnit<T>(write: () => Promise<T>): Promise<T> {
-    return enqueueUnitWrite(this.domain, write)
+    return writeWithTransientRetry(write)
   }
 
   private onChange(change: DomainChanged): void {

@@ -2,14 +2,15 @@
  * Issue #193 regression (RED): concurrent Team operations racing on the
  * `agent_swarm.json` namespace write.
  *
- * Root cause: `StorageDomainTeamStore` serializes per-team (`teamLocks`) and
- * per-scope (`scopeLocks`) process-locally, but every durable Team write still
- * funnels through the SAME `domain.table('teams').put(...)` unit, and the
- * @deepseek-ai/dsh-storage-json backend publishes every put as an atomic
- * whole-file replacement (temp write + fsync + rename()). The store does NOT
- * globally serialize the `agent_swarm.json` UNIT, so two Team operations
- * writing the same unit concurrently issue OVERLAPPING atomic rename()
- * publishes and the rename contention surfaces as a transient EPERM.
+ * Boundary: the official `@deepseek-ai/dsh-storage-domain` already serializes the
+ * domain write chain (`enqueue`) and the storage-json backend allows exactly one
+ * live unit handle, so the transient EPERM is a REAL file-system publish/rename
+ * conflict (e.g. antivirus, another process, a share) on the atomic whole-file
+ * replacement (temp write + fsync + rename()), NOT two store instances
+ * overlapping on one open domain. This FaultableBackend test simulates the
+ * store's BOUNDED transient retry at the unit-write seam (unit-level mock, not a
+ * production double-open config); the real json-backend boundary is exercised by
+ * tests/team-domain-write-real-boundary.spec.ts.
  *
  * Deterministic reproduction (design route 1): a shared fault backend whose
  * record-write path holds the unit in flight across a real async gap and
