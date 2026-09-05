@@ -15,6 +15,7 @@ export const DEFAULT_WORKFLOW_MAX_TOTAL_AGENTS = 1_000
 /** User-facing plugin configuration. Runtime code must consume only this normalized surface. */
 export interface Config {
   enabled?: boolean
+  executionGuard?: boolean
   swarmGesture?: boolean
   memberProvider?: string
   memberLlmProvider?: string
@@ -56,6 +57,7 @@ export interface Config {
 
 export const Config: z<Config> = z.object({
   enabled: z.boolean().default(true),
+  executionGuard: z.boolean().default(true),
   swarmGesture: z.boolean().default(true),
   memberProvider: z.string().default('spawn'),
   memberLlmProvider: z.string(),

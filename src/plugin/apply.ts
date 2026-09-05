@@ -29,6 +29,7 @@ import { TeamDomainError } from '../domain/error.js'
 import { assembleAgentSwarmHostRead, assembleAgentSwarmProducerFloor, mountAgentSwarmReadRpc } from '../host/host-read-assembly.js'
 import { AGENT_SWARM_USAGE_PROMPT } from '../runtime/usage-prompt.js'
 import { installSwarmGestureBoundary } from '../runtime/gesture.js'
+import { installExecutionGuard } from '../runtime/execution-guard.js'
 import { TeamSkillSurface } from '../runtime/team-skill-surface.js'
 import {
   AGENT_SWARM_SETTINGS_NAMESPACE,
@@ -137,6 +138,7 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
     await drainHumanInteractions?.()
     await runtime.dispose()
   }, 'agent-swarm: runtime disposal')
+  if (config.executionGuard !== false) ctx.effect(() => installExecutionGuard(ctx, runtime), 'agent-swarm: execution guard')
   // The plugin-owned member-private-memory sibling service (2026-08-26): a
   // separate Storage Domain from `agent_swarm` (workflow/human overlay
   // precedent) so the authoritative Team aggregate keeps its frozen version stamp.
