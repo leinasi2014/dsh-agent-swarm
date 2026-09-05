@@ -75,35 +75,9 @@ const required = [
   'src/runtime/member-provisioning.ts',
 ]
 
-// Engineering guardrail: one source file may not exceed this line count
-// unless an exception below records why and which milestone retires it.
-// The registry is currently empty: every source file is within the limit.
+// All source and test TypeScript, including TSX, uses the same 600-line limit.
+// No exceptions remain: Host authority, artifacts and dashboard views are split.
 const SRC_FILE_LINE_LIMIT = 600
-// Reasoned exceptions: `[reason, retiring milestone]`. Each entry is debt with
-// an owner and a deadline — the reason must name what pushed the file over and
-// the milestone whose work splits it back under the limit.
-const SRC_FILE_LINE_LIMIT_EXCEPTIONS = new Map([
-  // M3-1 (issue #100) wired the execution-root lifecycle into the composition
-  // root (claim/submit/review/reassign/remove/archive integration points, the
-  // Provider registry passthrough and the disposal settle). The generic
-  // manager already lives in `execution-roots.ts` and the claim/sweep/scan
-  // integration in `execution-root-surface.ts`; what remains in the runtime
-  // is the minimal call-site wiring over a file that sat at 599/600. Retired
-  // by M3-2: the tool-facing read surfaces (`waitForChange`,
-  // `activePeerEvidence`) move to a wait-surface collaborator, returning the
-  // file under the limit.
-  // Multi-Captain read surface (task-13/02ac0eb): the R2 read service grew the
-  // `teams` enumeration plus captain-scoped members/announcements/diagnostics
-  // sections (root-only + cold-persistence resolution, per-section projection,
-  // strict request parsing and capability gating) over a file at 599/600.
-  // Retired by a later refactor that moves the section resolution + descriptor
-  // helpers into a read-rpc-section collaborator.
-  ['src/rpc/read-rpc-service.ts', ['multi-Captain captain section read moved to read-rpc-section collaborator', 'multi-captain-completion']],
-  // The frozen browser R2 schema/fixture artifact carried the new teams +
-  // captain-section schemas, semantic checkers and fixture rows in one file.
-  // Retired by splitting the frozen schema/fixture into an artifact composite.
-  ['src/rpc/read-rpc-artifact.ts', ['frozen R2 artifact split schema/fixture into composite', 'multi-captain-completion']],
-])
 
 const failures = []
 for (const item of required) {
@@ -200,15 +174,14 @@ async function walk(dir) {
       continue
     }
     const rel = relative(root, path).replaceAll('\\', '/')
-    if (/^(src|scripts|tests)\/.*\.ts$/.test(rel)) {
+    if (/^(src|scripts|tests)\/.*\.tsx?$/.test(rel)) {
       const content = await readFile(path, 'utf8')
       const lines = content.split('\n').length
-      const exception = SRC_FILE_LINE_LIMIT_EXCEPTIONS.get(rel)
-      if (lines > SRC_FILE_LINE_LIMIT && exception === undefined) {
-        failures.push(`${rel}: ${lines} lines exceeds the ${SRC_FILE_LINE_LIMIT}-line source limit; split it or register a reasoned exception`)
+      if (lines > SRC_FILE_LINE_LIMIT) {
+        failures.push(`${rel}: ${lines} lines exceeds the ${SRC_FILE_LINE_LIMIT}-line source limit; split it into cohesive modules`)
       }
     }
-    if (!/\.(md|json|ya?ml|ts|mjs|ps1|sh)$/.test(name)) continue
+    if (!/\.(md|json|ya?ml|tsx?|mjs|ps1|sh)$/.test(name)) continue
     const content = await readFile(path, 'utf8')
     if (content.includes('\uFFFD')) failures.push(`${rel}: invalid UTF-8 replacement character`)
     if (!content.endsWith('\n')) failures.push(`${rel}: missing final newline`)
