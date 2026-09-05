@@ -341,3 +341,30 @@ it('reports a failed scheduling pass without implying the accepted review rolled
     await rm(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
+
+it('reports a readiness read failure after the real review committed without inviting a duplicate review', async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), 'dsh-swarm-194-readiness-failed-'))
+  const { composition, input } = await reviewFixture(sandbox, true)
+  try {
+    const domain = composition.ctx.agentSwarm.domain
+    const review = domain.reviewTask.bind(domain)
+    const injected = new Error('injected post-review readiness read failure')
+    vi.spyOn(domain, 'reviewTask').mockImplementation(async (...args) => {
+      const committed = await review(...args)
+      expect(committed.status).toBe('completed')
+      vi.spyOn(domain, 'snapshot').mockRejectedValueOnce(injected)
+      return committed
+    })
+    const failure = await composition.ctx.agentSwarm.reviewTask({ agent: composition.lead, signal: SIGNAL }, input).catch(error => error)
+    expect((await composition.ctx.agentSwarm.listTeamAggregates(composition.scope))[0]?.tasks[0]?.status).toBe('completed')
+    expect(failure).toMatchObject({
+      code: 'TEAM_REVIEW_ADMISSION_FAILED',
+      message: expect.stringMatching(/committed as completed.*re-read/u),
+      cause: injected,
+    })
+  } finally {
+    composition.adapter.open()
+    for (const fiber of composition.fibers.toReversed()) await fiber.dispose()
+    await rm(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})

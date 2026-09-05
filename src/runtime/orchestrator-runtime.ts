@@ -409,12 +409,13 @@ export class AgentSwarmRuntime extends Service {
   ): Promise<{ task: TeamTask; decision: 'accept' | 'reject' }> {
     const result = await this.mutations.reviewTask(exec, input)
     if (result.decision !== 'accept' || this.closing) return result
-    const captain = requireAgent(exec), scope = this.scopeOf(captain)
-    const membership = await this.domain.requireMembership(scope, captain.id)
-    if (!this.orchestration.eventFaceActive(scope, membership.team.id)) return result
-    if ((await this.domain.snapshot(scope, membership.team.id, captain.id)).readyTaskIds.length === 0) return result
-    await this.scheduling.afterReview(scope, membership.team.id, captain, result.task, exec.signal)
-    return result
+    return this.scheduling.committedReview(result, exec.signal, async () => {
+      const captain = requireAgent(exec), scope = this.scopeOf(captain)
+      const membership = await this.domain.requireMembership(scope, captain.id)
+      if (!this.orchestration.eventFaceActive(scope, membership.team.id)) return
+      if ((await this.domain.snapshot(scope, membership.team.id, captain.id)).readyTaskIds.length === 0) return
+      await this.scheduling.afterReview(scope, membership.team.id, captain, exec.signal)
+    })
   }
 
   async sendMessage(
@@ -497,7 +498,6 @@ export class AgentSwarmRuntime extends Service {
     })
   }
 
-  /** Startup-only attachment recovery after all child setup contributions mount. */
   recoverDormantManagedTeams(): Promise<void> { return this.activationRecovery.run() }
 
   async recoverAgent(agent: Agent): Promise<void> {

@@ -25,7 +25,18 @@ export class SchedulingAdmission {
     return propagateFailure ? operation : next
   }
 
-  async afterReview(scope: TeamScope, teamId: TeamId, captain: Agent, task: TeamTask, callerSignal: AbortSignal): Promise<void> {
+  /** Only the post-commit checks and admission belong inside this error boundary. */
+  async committedReview<T extends { task: TeamTask }>(result: T, callerSignal: AbortSignal, admit: () => Promise<void>): Promise<T> {
+    try { await admit(); return result }
+    catch (cause) {
+      throw new TeamDomainError(
+        `review of task ${JSON.stringify(result.task.id)} committed as ${result.task.status}; admission failed or interrupted, re-read the task board`,
+        callerSignal.aborted || this.abort.signal.aborted ? 'TEAM_REVIEW_ADMISSION_INTERRUPTED' : 'TEAM_REVIEW_ADMISSION_FAILED', { cause },
+      )
+    }
+  }
+
+  async afterReview(scope: TeamScope, teamId: TeamId, captain: Agent, callerSignal: AbortSignal): Promise<void> {
     const pass = this.request(scope, teamId, captain, true)
     // A continuable Captain can settle immediately after its tool returns.
     // Await this admission pass, never member completion or queue quiescence.
@@ -38,11 +49,6 @@ export class SchedulingAdmission {
       if (signal.aborted) { abort(); return }
       signal.addEventListener('abort', abort, { once: true })
       void pass.then(resolveWait, rejectWait).finally(() => signal.removeEventListener('abort', abort))
-    }).catch(cause => {
-      throw new TeamDomainError(
-        `review of task ${JSON.stringify(task.id)} committed as ${task.status}; admission wait interrupted, re-read the task board`,
-        signal.aborted ? 'TEAM_REVIEW_ADMISSION_INTERRUPTED' : 'TEAM_REVIEW_ADMISSION_FAILED', { cause },
-      )
     })
   }
 
