@@ -9,6 +9,15 @@ import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
 import { TeamDomainError } from '../domain/error.js'
 import { register } from './shared.js'
 
+/** Shared optional identity schema; both tools keep the same compiled fields. */
+const optionalIdentityParameters = {
+  display_name: { type: 'string', description: 'Optional display name, at most 128 code points; preserve user preference/language.' },
+  profession: { type: 'string', description: 'Optional profession, at most 256 code points.' },
+  personality: { type: 'string', description: 'Optional disposition, at most 1024 code points.' },
+  pixel_avatar_svg: { type: 'string', description: 'Optional safe pixel-avatar SVG, at most 16KB. Omit freely; supplied values are validated.' },
+  skills: { type: 'array', items: { type: 'string' }, description: 'Assigned Skill subset: validated before roster effects against Team allow-list and current model-invocable scoped catalog; persists across restart.' },
+} as const
+
 /** `agent_swarm_create`. */
 export function registerCreateTool(ctx: Context, runtime: AgentSwarmRuntime): void {
   register(ctx, defineTool({
@@ -79,11 +88,7 @@ export function registerAddMemberTool(ctx: Context, runtime: AgentSwarmRuntime):
     parameters: {
       name: { type: 'string', required: true, description: 'Immutable member name: NFC-normalized Unicode letters/digits with dash separators, at most 64 code points.' },
       role: { type: 'string', required: true, description: 'Member specialty and responsibility.' },
-      display_name: { type: 'string', description: 'Optional display name, at most 128 code points; preserve user preference/language.' },
-      profession: { type: 'string', description: 'Optional profession, at most 256 code points.' },
-      personality: { type: 'string', description: 'Optional disposition, at most 1024 code points.' },
-      pixel_avatar_svg: { type: 'string', description: 'Optional safe pixel-avatar SVG, at most 16KB. Omit freely; supplied values are validated.' },
-      skills: { type: 'array', items: { type: 'string' }, description: 'Assigned Skill subset: validated before roster effects against Team allow-list and current model-invocable scoped catalog; persists across restart.' },
+      ...optionalIdentityParameters,
       provider: { type: 'string', description: 'Continuable runtime Provider; defaults to plugin config.' },
       llm_provider: { type: 'string', description: 'Child LLM provider, distinct from runtime provider; inherits Captain when omitted and is recorded durably.' },
       model: { type: 'string', description: 'Optional member model override.' },
@@ -138,11 +143,7 @@ export function registerSetCaptainProfileTool(ctx: Context, runtime: AgentSwarmR
     description: 'Captain-only optional profile update, never a recruitment gate. Supply at least one identity field. Invalid avatars fail before mutation. Current expected_revision is required; concurrent mutation fails with TEAM_REVISION_CONFLICT.',
     parameters: {
       expected_revision: { type: 'number', required: true, description: 'Exact current Team revision; conflicts fail with TEAM_REVISION_CONFLICT.' },
-      display_name: { type: 'string', description: 'Optional display name, at most 128 code points; preserve user preference/language.' },
-      profession: { type: 'string', description: 'Optional profession, at most 256 code points.' },
-      personality: { type: 'string', description: 'Optional disposition, at most 1024 code points.' },
-      pixel_avatar_svg: { type: 'string', description: 'Optional safe pixel-avatar SVG, at most 16KB. Omit freely; supplied values are validated.' },
-      skills: { type: 'array', items: { type: 'string' }, description: 'Assigned Skill subset: validated before roster effects against Team allow-list and current model-invocable scoped catalog; persists across restart.' },
+      ...optionalIdentityParameters,
     },
     output: {
       schema: {
