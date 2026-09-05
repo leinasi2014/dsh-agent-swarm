@@ -258,7 +258,7 @@ export class AgentSwarmRuntime extends Service {
     return this.executionRoots.registerProvider(name, provider)
   }
 
-  /** Team scope partitions this agent's Team namespace from its STABLE session header cwd — never authority.workspaceOf, which a fenced member binds to its execution root (#191). */
+  /** Team namespace remains the stable Session cwd across attempt-local IO roots. */
   scopeOf(agent: Agent): TeamScope {
     return resolve(agent.session.header.cwd ?? process.cwd())
   }
@@ -592,7 +592,6 @@ export class AgentSwarmRuntime extends Service {
     if (failures.length > 0) throw new AggregateError(failures, 'Team orchestrator disposal failed')
   }
 }
-
 
 
 

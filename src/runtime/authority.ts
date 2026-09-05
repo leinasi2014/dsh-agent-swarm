@@ -9,40 +9,6 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { CallId } from '@deepseek-ai/dsh-llm'
 import { TeamDomainError } from '../domain/error.js'
 
-/**
- * Per-session effective tool workspace (issue #191 / M3-1). While a member
- * works one fenced attempt, its shell/file tools must execute inside the
- * attempt's execution root — not the shared roster Session cwd it was
- * provisioned with. This registry holds the root path for exactly the
- * session(s) currently working a fenced attempt, consulted by
- * {@link workspaceOf}. It is deliberately NOT the Team scope authority:
- * {@link AgentSwarmRuntime.scopeOf} derives the Team namespace from the
- * stable session header cwd, so the fenced root never becomes the Team scope
- * key (which would break member submit/sendMessage).
- *
- * Plugin-side transient state keyed by session id (seeded once per acquired
- * execution root, cleared when the root is reclaimed); never a second
- * canonical authority and never part of a Team aggregate.
- */
-const executionWorkspaces = new Map<string, string>()
-
-/**
- * Bind one agent session to its per-attempt execution root, making that root
- * the session's effective tool workspace until the attempt settles. The
- * binding is keyed by the session id and returns a disposer that clears
- * exactly this binding (idempotent against a newer binding for the same
- * session).
- *
- * @returns a disposer that removes the binding, leaving the session's stable
- * tool workspace (its header cwd) intact again.
- */
-export function bindExecutionWorkspace(sessionId: string, rootPath: string): () => void {
-  executionWorkspaces.set(sessionId, rootPath)
-  return () => {
-    if (executionWorkspaces.get(sessionId) === rootPath) executionWorkspaces.delete(sessionId)
-  }
-}
-
 /** Execution context of one model tool call. */
 export interface ToolExecutionAuthority {
   readonly agent?: Agent
@@ -66,13 +32,9 @@ export function requireAgent(exec: ToolExecutionAuthority): Agent {
   return exec.agent
 }
 
-/**
- * The agent session's canonical workspace directory: the per-attempt
- * execution root while the member works a fenced attempt (issue #191), else
- * the stable session header cwd.
- */
+/** Stable Session workspace used by the Captain's review context. */
 export function workspaceOf(agent: Agent): string {
-  return executionWorkspaces.get(String(agent.id)) ?? agent.session.header.cwd ?? process.cwd()
+  return agent.session.header.cwd ?? process.cwd()
 }
 
 /**

@@ -153,6 +153,7 @@ for (const [label, broken] of [
   ['plugin as group', safeBundle.replace('name: cordis:group', 'name: dsh-agent-swarm')],
   ['missing structural flag', safeBundle.replace('      group: true\n', '')],
   ['wrong child', safeBundle.replace('id: agent-swarm-runtime', 'id: alternate-runtime')],
+  ['missing settings dependency', safeBundle.replace('          inject: [settings]\n', '')],
 ]) {
   if (verifySafeBundlePatch(broken).ok) throw new Error(`unsafe Bundle fixture unexpectedly passed: ${label}`)
 }

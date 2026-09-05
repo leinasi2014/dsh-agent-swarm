@@ -350,7 +350,13 @@ export class RuntimeMutationSurface {
     // can read the code the root once isolated after the root is reclaimed.
     // Captured BEFORE the domain submit (the sweep below reclaims the root).
     const evidence = [...(input.evidence ?? [])]
-    const durableDiff = await this.deps.executionRoots.roots.captureWorktreeDiff(scope, membership.team.id, TaskId(input.taskId), attemptId)
+    const current = membership.team.tasks.find(task => task.id === input.taskId)
+    const ownsCurrent = current?.currentAttemptId === attemptId && current.ownerSessionId === actor.id
+      && current.revision === input.expectedRevision && current.status === 'in_progress'
+    // Invalid/stale calls reach the canonical Domain validation without IO.
+    const durableDiff = ownsCurrent
+      ? await this.deps.executionRoots.roots.captureWorktreeDiff(scope, membership.team.id, TaskId(input.taskId), attemptId)
+      : undefined
     if (durableDiff !== undefined) evidence.push(durableDiff)
     const task = await this.deps.domain().submitTask(scope, membership.team.id, actor.id, TaskId(input.taskId), input.expectedRevision, attemptId, input.output, evidence)
     await this.deps.executionRoots.sweep(scope, membership.team.id)
@@ -395,7 +401,6 @@ export class RuntimeMutationSurface {
     return await this.deps.delivery.deliverQueuedMessage(scope, membership.team.id, captain, message.id, exec.signal) ?? message
   }
 }
-
 
 
 

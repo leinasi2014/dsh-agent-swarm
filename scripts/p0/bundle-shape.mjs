@@ -7,6 +7,7 @@ const EXPECTED = [
   '      config:',
   '        - id: agent-swarm-runtime',
   '          name: dsh-agent-swarm',
+  '          inject: [settings]',
   '          config:',
   '            enabled: true',
   '            memberProvider: spawn',

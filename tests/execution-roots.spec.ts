@@ -21,6 +21,10 @@ import { Context } from '@deepseek-ai/cordis'
 import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
+import { PwshLocalExecutor } from '@deepseek-ai/dsh-pwsh-local'
+import * as ShellEnv from '@deepseek-ai/dsh-shell-env'
+import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
+import * as ToolPwsh from '@deepseek-ai/dsh-tool-pwsh'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
 import {
@@ -150,6 +154,42 @@ describe('execution-root provider isolation (M3-1, issue #100)', () => {
     expect(lease.isolation).toBe('temp-directory')
     expect(existsSync(join(lease.path, EXECUTION_ROOT_MARKER))).toBe(true)
     expect(lease.path.startsWith(base)).toBe(true)
+  })
+
+  it('issue #191: preserves committed, staged, untracked and binary output in an applicable patch', async () => {
+    const sandbox = await freshSandbox('evidence')
+    const workspace = await initRepoWorkspace(sandbox)
+    const roots = managerOver(join(sandbox, 'roots'))
+    const lease = await roots.acquire(workspace, TEAM, TASK, RUNNING)
+    writeFileSync(join(lease.path, 'committed.txt'), 'committed output\n')
+    await execFileAsync('git', ['add', 'committed.txt'], { cwd: lease.path })
+    await execFileAsync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-m', 'member work'], { cwd: lease.path })
+    writeFileSync(join(lease.path, 'staged.txt'), 'staged output\n')
+    await execFileAsync('git', ['add', 'staged.txt'], { cwd: lease.path })
+    writeFileSync(join(lease.path, 'untracked.txt'), 'new output\n')
+    const binary = Buffer.from([0, 1, 255, 0, 128])
+    writeFileSync(join(lease.path, 'image.bin'), binary)
+    const indexBefore = (await execFileAsync('git', ['diff', '--cached', '--binary'], { cwd: lease.path })).stdout
+    const patch = await roots.captureWorktreeDiff(workspace, TEAM, TASK, RUNNING)
+    expect((await execFileAsync('git', ['diff', '--cached', '--binary'], { cwd: lease.path })).stdout).toBe(indexBefore)
+    await roots.release(workspace, TEAM, TASK, RUNNING, 'submitted')
+    await execFileAsync('git', ['apply', patch!], { cwd: workspace })
+    expect(readFileSync(join(workspace, 'committed.txt'), 'utf8').replace(/\r\n/g, '\n')).toBe('committed output\n')
+    expect(readFileSync(join(workspace, 'staged.txt'), 'utf8').replace(/\r\n/g, '\n')).toBe('staged output\n')
+    expect(readFileSync(join(workspace, 'untracked.txt'), 'utf8').replace(/\r\n/g, '\n')).toBe('new output\n')
+    expect(readFileSync(join(workspace, 'image.bin'))).toEqual(binary)
+    expect(existsSync(join(workspace, EXECUTION_ROOT_MARKER))).toBe(false)
+  }, 30_000)
+
+  it('issue #191: fails closed when durable evidence cannot be published', async () => {
+    const sandbox = await freshSandbox('evidence-failure')
+    const workspace = await initRepoWorkspace(sandbox)
+    const roots = managerOver(join(sandbox, 'roots'))
+    const lease = await roots.acquire(workspace, TEAM, TASK, RUNNING)
+    mkdirSync(`${lease.path}.patch`)
+    await expect(roots.captureWorktreeDiff(workspace, TEAM, TASK, RUNNING)).rejects.toThrow()
+    expect(roots.leaseOf(workspace, TEAM, TASK, RUNNING)).toBe(lease)
+    expect(existsSync(lease.path)).toBe(true)
   })
 
   it('releases and reclaims a failed attempt\'s root; a re-acquire starts fresh', async () => {
@@ -389,15 +429,7 @@ describe('execution-root composition wiring (M3-1, issue #100)', () => {
     }
   }, 90_000)
 
-  // Issue #191 (fix(runtime): enforce per-attempt execution-root isolation
-  // and persist submitted diffs). The seam above proves the root is DECLARED
-  // (the assignment frame names the deterministic path) and reclaimed on
-  // submit. This regression pins the two contract points the #100 wiring left
-  // open: (1) the member's file/shell tool execution workdir is actually
-  // SCOPED to the declared root — not the shared roster Session cwd it was
-  // provisioned with; and (2) submitting a git-worktree attempt persists a
-  // durable diff/patch of the worktree into the attempt evidence, so review
-  // can read the code the root once isolated.
+  // Official consumers must execute in the root, with durable submit evidence.
   it('issue #191: scopes the member tool cwd to the declared root and persists a durable worktree diff on submit', async () => {
     const sandbox = await freshSandbox('issue191')
     await initRepoWorkspace(sandbox)
@@ -408,6 +440,10 @@ describe('execution-root composition wiring (M3-1, issue #100)', () => {
       const { ctx, adapter } = composition
       composition.fibers.push(await ctx.plugin(LocalFileSystem, { cwd: scope }))
       composition.fibers.push(await ctx.plugin(ToolFs))
+      composition.fibers.push(await ctx.plugin(LocalSubprocessRuntime))
+      composition.fibers.push(await ctx.plugin(ShellEnv))
+      composition.fibers.push(await ctx.plugin(PwshLocalExecutor))
+      composition.fibers.push(await ctx.plugin(ToolPwsh, { enableRunInBackground: false }))
       const created = await modesToolCall(ctx, composition.lead, 'issue191-create', 'agent_swarm_create', {
         name: 'Issue #191 team',
         description: 'Prove the per-attempt execution-root cwd fencing and the durable submit diff.',
@@ -444,9 +480,6 @@ describe('execution-root composition wiring (M3-1, issue #100)', () => {
       expect(existsSync(expectedPath)).toBe(true)
       expect(ctx.agentSwarm.executionRoots.roots.leaseOf(scope, teamId, claimed.id, attemptId)?.path).toBe(expectedPath)
 
-      // Contract point 1 (#191): the member's file/shell tool execution
-      // workdir for this attempt resolves INSIDE the declared root — not the
-      // shared roster Session cwd the member was provisioned with.
       const member = ctx.agents.get(SessionId(memberId))
       expect(member).toBeDefined()
       // Exercise the actual official tool consumer and local filesystem
@@ -459,11 +492,23 @@ describe('execution-root composition wiring (M3-1, issue #100)', () => {
         isolated: readFileSync(join(expectedPath, 'tracked.txt'), 'utf8').replace(/\r\n/g, '\n'),
         shared: readFileSync(join(scope, 'tracked.txt'), 'utf8').replace(/\r\n/g, '\n'),
       }).toEqual({ isolated: 'base\nattempt change\n', shared: 'base\n' })
+      const edited = await modesToolCall(ctx, member!, 'issue191-edit', 'edit', {
+        file_path: 'tracked.txt', old_string: 'attempt change', new_string: 'isolated edit',
+      })
+      expect(edited.isError).toBe(false)
+      const shelled = await modesToolCall(ctx, member!, 'issue191-shell', 'pwsh', {
+        command: "Set-Content -LiteralPath shell.txt -Value 'isolated shell'", description: 'Write in the attempt cwd',
+      })
+      expect(shelled.isError).toBe(false)
+      expect(readFileSync(join(expectedPath, 'shell.txt'), 'utf8').trim()).toBe('isolated shell')
+      expect(existsSync(join(scope, 'shell.txt'))).toBe(false)
+      const escape = await modesToolCall(ctx, member!, 'issue191-escape', 'write', {
+        file_path: join(scope, 'escape.txt'), content: 'must not publish',
+      })
+      expect(escape.isError).toBe(true)
+      expect(existsSync(join(scope, 'escape.txt'))).toBe(false)
 
-      // Contract point 2 (#191): submitting a git-worktree attempt must attach
-      // a durable diff/patch of the worktree to the attempt evidence (the root
-      // itself is reclaimed, so the patch is review's only window into the
-      // isolated code).
+      // The patch must survive submit-time root reclamation.
       adapter.submit = true
       await vi.waitFor(async () => {
         adapter.open()

@@ -100,7 +100,9 @@ Captain identity 独立于 Member roster。`set_captain_profile` 成功提交后
 
 Review Provider 返回判定和 bounded evidence，Domain port 完成状态 mutation；候选不能审核自己。Executable review 运行于声明的 review root，并将命令、退出码和产物身份绑定当前 attempt。
 
-Execution root 是每 attempt 的工作目录租约，不是开发 writer lane。成员通过官方工具的绝对 `workdir` 使用它；真正的文件系统隔离由部署 sandbox 决定。crash residue 必须扫描、标记和交给显式清理，不静默删除。
+Execution root 是每 attempt 的工作目录租约，不是开发 writer lane。插件为持有租约的成员安装 scoped tool Consumer，复用官方 `read`/`read_image`/`write`/`edit`/`pwsh`/`bash` 的 schema、真实 Agent 身份、执行实现与取消生命周期；文件相对路径和 shell cwd 自动解析到租约目录，拒绝显式目录越界及已有链接越界。持久 shell 每次命令先切回本次租约目录。Team namespace 和 Session header.cwd 保持不变；租约结束后旧成员的这些工具拒绝执行，不能回落到共享目录。此路径约束不解析任意 shell 代码，也不替代部署 sandbox 的 OS 隔离。
+
+git-worktree 提交先以创建时 HEAD 为基线，在临时 Git index 中采集 committed/staged/unstaged/untracked 的非忽略文件与 binary diff，不改成员 index；排除租约 marker。补丁写入、flush、原子发布到工作目录外后才允许 Domain submit 和回收。捕获失败（含旧 marker 缺少基线）拒绝提交并保留租约，供明确恢复；不丢弃错误继续回收。crash residue 必须扫描、标记和交给显式清理，不静默删除。
 
 Workflow bridge、Jobs projection、human control 和 remote/distributed Provider 都是可选面：启用条件、能力缺失、owner 和 disposer必须可见。Jobs 是 Team task 的只读 projection，不注册或替换官方 `ctx.jobs` 写权威。
 

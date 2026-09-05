@@ -19,8 +19,8 @@
  * reclaimable, never auto-deleted (the captain decides).
  */
 import { execFile } from 'node:child_process'
-import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash, randomUUID } from 'node:crypto'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
@@ -28,7 +28,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { TeamDomainError } from '../domain/error.js'
 import type { AttemptId, TaskId, TeamId, TeamState } from '../domain/types.js'
 import type { TeamScope } from '../domain/team-domain-port.js'
-import { bindExecutionWorkspace } from './authority.js'
+import { ExecutionRootTools } from './execution-root-tools.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -105,6 +105,8 @@ interface RootMarker {
   readonly path: string
   readonly isolation: ExecutionRootIsolation
   readonly acquiredAt: number
+  /** Immutable checkout baseline, retained even when the member commits. */
+  readonly baseCommit?: string
 }
 
 /** Path segment sanitizer: ids are system-generated, this is defense in depth. */
@@ -172,9 +174,9 @@ export function attemptHoldsExecutionRoot(team: TeamState, attemptId: AttemptId)
 }
 
 /** One bounded git invocation; a non-zero exit rejects with stderr context. */
-async function git(cwd: string, args: readonly string[]): Promise<string> {
+async function git(cwd: string, args: readonly string[], env?: NodeJS.ProcessEnv): Promise<string> {
   try {
-    const { stdout } = await execFileAsync('git', args, { cwd, timeout: GIT_TIMEOUT_MS, windowsHide: true })
+    const { stdout } = await execFileAsync('git', args, { cwd, timeout: GIT_TIMEOUT_MS, windowsHide: true, ...(env === undefined ? {} : { env }) })
     return stdout
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error)
@@ -242,6 +244,7 @@ export function gitWorktreeExecutionRoots(base: string): TeamExecutionRootProvid
       }
       const marker: RootMarker = {
         version: 1, scope, teamId, taskId, attemptId, path, isolation, acquiredAt: Date.now(),
+        ...(isolation === 'git-worktree' ? { baseCommit: (await git(path, ['rev-parse', 'HEAD'])).trim() } : {}),
       }
       writeFileSync(join(path, EXECUTION_ROOT_MARKER), `${JSON.stringify(marker, null, 2)}\n`, 'utf8')
       return { path, isolation, release: () => reclaim(path, isolation, scope) }
@@ -256,6 +259,7 @@ export class ExecutionRoots {
    * the member tool-workspace binding disposer (issue #191), when bound. */
   private readonly leases = new Map<string, { readonly lease: ExecutionLease; readonly release: () => Promise<void>; unbind?: () => void }>()
   private readonly inflight = new Map<string, Promise<ExecutionLease>>()
+  private readonly tools: ExecutionRootTools | undefined
 
   constructor(
     private readonly ctx: Context,
@@ -268,6 +272,7 @@ export class ExecutionRoots {
     },
   ) {
     this.providers.set('git-worktree', deps.builtin(deps.base))
+    this.tools = deps.enabled() && ctx.tools !== undefined && ctx.subagents !== undefined ? new ExecutionRootTools(ctx) : undefined
   }
 
   /** Register one replaceable Provider; returns its disposer. */
@@ -318,10 +323,7 @@ export class ExecutionRoots {
     const fence = ExecutionRoots.fence(scope, teamId, taskId, attemptId)
     const leased = this.leases.get(fence)
     if (leased !== undefined) {
-      // Re-attach: the fence tuple is deterministic, so any member identity is
-      // the same one that originally acquired it; an absent identity means the
-      // earlier acquire never bound a member (standalone fault paths), which is
-      // left as-is so workspaceOf keeps its stable header-cwd fallback.
+      // The same canonical fence reuses its original lease and member binding.
       return leased.lease
     }
     const pending = this.inflight.get(fence)
@@ -345,7 +347,7 @@ export class ExecutionRoots {
         scope, teamId, taskId, attemptId, path: root.path, isolation: root.isolation, acquiredAt: Date.now(),
         ...(memberSessionId === undefined ? {} : { memberSessionId }),
       }
-      const unbind = memberSessionId === undefined ? undefined : bindExecutionWorkspace(memberSessionId, root.path)
+      const unbind = memberSessionId === undefined ? undefined : this.tools?.bind(memberSessionId, root.path)
       this.leases.set(fence, { lease, release: () => root.release(), ...(unbind === undefined ? {} : { unbind }) })
       return lease
     })()
@@ -368,9 +370,7 @@ export class ExecutionRoots {
     const entry = this.leases.get(fence)
     if (entry === undefined) return
     this.leases.delete(fence)
-    // Release the member's tool-workspace binding BEFORE reclaiming the root
-    // (issue #191): once the root is gone, workspaceOf must fall back to the
-    // member's stable header cwd, never a reclaimed path.
+    // Revoke member IO before reclaiming the root; stale calls fail closed.
     entry.unbind?.()
     try {
       await entry.release()
@@ -410,19 +410,32 @@ export class ExecutionRoots {
    * code the root once isolated. Returns the patch file's absolute path, or
    * `undefined` when the attempt holds no git-worktree root (a `temp-directory`
    * root is not a git checkout, and an absent lease means nothing to capture).
-   * A git failure on a declared worktree root is best-effort: warn and return
-   * undefined rather than fail the submit.
+   * An isolated temporary index includes staged, unstaged, untracked and
+   * committed work without altering the member's index. Capture/publication
+   * failures reject submit, keeping its running attempt and root intact.
    */
   async captureWorktreeDiff(scope: TeamScope, teamId: TeamId, taskId: TaskId, attemptId: AttemptId): Promise<string | undefined> {
     const leased = this.leaseOf(scope, teamId, taskId, attemptId)
     if (leased === undefined || leased.isolation !== 'git-worktree') return undefined
     const patchPath = `${leased.path}.patch`
+    const temporary = `${patchPath}.${randomUUID()}`
+    const indexPath = `${temporary}.index`
     try {
-      const diff = await git(leased.path, ['diff', '--binary'])
-      writeFileSync(patchPath, diff, 'utf8')
+      const baseline = readMarker(leased.path)?.baseCommit
+      if (baseline === undefined || !/^[a-f0-9]{40,64}$/.test(baseline)) {
+        throw new Error('execution root has no recorded checkout baseline; retain it for recovery')
+      }
+      const env = { ...process.env, GIT_INDEX_FILE: indexPath }
+      await git(leased.path, ['read-tree', 'HEAD'], env)
+      await git(leased.path, ['add', '-A', '--', '.', `:(exclude)${EXECUTION_ROOT_MARKER}`, `:(exclude)${RECLAIMABLE_MARKER}`], env)
+      const diff = await git(leased.path, ['diff', '--cached', '--binary', '--full-index', '--no-ext-diff', baseline], env)
+      writeFileSync(temporary, diff, { encoding: 'utf8', flush: true })
+      renameSync(temporary, patchPath)
     } catch (error) {
-      this.ctx.logger.warn(`agent-swarm: worktree diff capture failed for ${teamId}/${taskId}/${attemptId}: ${String(error)}`)
-      return undefined
+      throw new TeamDomainError(`execution-root evidence capture failed: ${String(error)}`, 'TEAM_EXECUTION_ROOT_EVIDENCE_FAILED', { cause: error })
+    } finally {
+      rmSync(temporary, { force: true })
+      rmSync(indexPath, { force: true })
     }
     return patchPath
   }

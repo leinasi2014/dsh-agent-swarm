@@ -76,15 +76,16 @@ describe('issue #191 real Loader enable timing', () => {
     b.release!()
     await applied
     await vi.waitFor(() => expect(b.ctx.agentSwarm).toBeDefined(), { timeout: 5000 })
+    await vi.waitFor(() => expect(b.ctx.tools.get('agent_swarm_create')).toBeDefined())
     expect((b.ctx.agentSwarm as { config: { executionRootsEnabled: boolean } }).config.executionRootsEnabled).toBe(true)
     try {
       const adapter = new GatedAdapter(); b.ctx.llm.registerAdapter(['mock'], adapter)
       const lead = b.ctx.agentLoop.create(SessionId('captain-'+Date.now()), { provider: 'mock', model: 'mock' }, { cwd: join(b.sandbox, 'workspace') })
       const exec = async (name: string, args: unknown) => await b.ctx.tools.execute({ agent: lead, signal: new AbortController().signal, callId: CallId('c-'+Math.random().toString(36).slice(2,8)), name, arguments: args })
       const te = await exec('agent_swarm_create', { name: 'Claim team', description: 'd' }) as { isError: boolean, value?: { team_id: string } }
-      expect(te.isError).toBe(false); const teamId = AgentSwarm.TeamId(te.value!.team_id)
+      expect(te, JSON.stringify(te)).toMatchObject({ isError: false }); const teamId = AgentSwarm.TeamId(te.value!.team_id)
       const ad = await exec('agent_swarm_add_member', { name: 'claimer', role: 'self-claim' }) as { isError: boolean, value?: { session_id: string } }
-      expect(ad.isError).toBe(false); const memberId = ad.value!.session_id
+      expect(ad, JSON.stringify(ad)).toMatchObject({ isError: false }); const memberId = ad.value!.session_id
       const member = await vi.waitFor(() => { const live = b.ctx.agents.get(SessionId(memberId)); expect(live).toBeDefined(); return live! }, { timeout: 10000 })
       const tk = await exec('agent_swarm_create_task', { subject: 'self-claim', description: 'd' }) as { isError: boolean, value?: { task_id: string } }
       expect(tk.isError).toBe(false); const taskId = tk.value!.task_id
