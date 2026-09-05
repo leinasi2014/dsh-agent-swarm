@@ -35,6 +35,7 @@ import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
 import { MEMBER_HIDDEN_TOOLS } from '../src/runtime/prompts.js'
+import { TeamDomainError } from '../src/domain/error.js'
 import { MAX_DENY_TOOLS, memberToolDeny } from '../src/runtime/tool-policy.js'
 import { mountStorageStackOn } from './helpers/storage-stack.js'
 
@@ -128,10 +129,29 @@ describe('member tool-policy composition (unit)', () => {
     expect(memberToolDeny(undefined)).toEqual([...MEMBER_HIDDEN_TOOLS])
   })
 
-  it('composes a monotone deny-only union: declared names append after the baseline, no allow surface', () => {
-    const deny = memberToolDeny(['agent_swarm_send_message', 'bash'])
+  it('composes a monotone deny-only union of ordinary tools: declared names append after the baseline, no allow surface', () => {
+    const deny = memberToolDeny(['bash', 'node'])
     expect(deny.slice(0, MEMBER_HIDDEN_TOOLS.length)).toEqual([...MEMBER_HIDDEN_TOOLS])
-    expect(deny.slice(MEMBER_HIDDEN_TOOLS.length)).toEqual(['agent_swarm_send_message', 'bash'])
+    expect(deny.slice(MEMBER_HIDDEN_TOOLS.length)).toEqual(['bash', 'node'])
+  })
+
+  it('rejects denying a mandatory member-protocol tool (issue #186 impossible-protocol fail-fast)', () => {
+    // A member must always be able to submit task results and message the
+    // captain. Declaring a deny of one of these protocol tools is an
+    // impossible-protocol declaration and must fail loud, not silently narrow
+    // the member's mandatory surface.
+    expect(() => memberToolDeny(['agent_swarm_send_message'])).toThrowError(TeamDomainError)
+    expect(() => memberToolDeny(['agent_swarm_submit_task'])).toThrowError(TeamDomainError)
+  })
+
+  it('keeps an ordinary-tool deny declared alongside the baseline (issue #186 regression guard)', () => {
+    // An optional ordinary tool ('bash') remains deniable: the deny list is
+    // baseline + declared, contains the ordinary name, and carries no
+    // protocol-floor tool masked into it.
+    const deny = memberToolDeny(['bash'])
+    expect(deny).toEqual([...MEMBER_HIDDEN_TOOLS, 'bash'])
+    expect(deny).not.toContain('agent_swarm_submit_task')
+    expect(deny).not.toContain('agent_swarm_send_message')
   })
 
   it('declaring a captain-only name is an idempotent no-op the union absorbs (no widening path)', () => {
@@ -167,8 +187,8 @@ describe('member tool-policy surface (real composition)', () => {
 
     const added = await addMember(stack, 'add-narrowed', {
       name: 'reviewer-worker',
-      role: 'Review evidence without messaging tools.',
-      deny_tools: ['agent_swarm_send_message'],
+      role: 'Review evidence without status read.',
+      deny_tools: ['agent_swarm_status'],
     })
     expect(added.isError).toBe(false)
     const member = added.value as { session_id: string; phase: string }
@@ -177,8 +197,34 @@ describe('member tool-policy surface (real composition)', () => {
     const filter = await durableToolFilter(stack, member.session_id)
     // The applied filter is the durable authority: baseline plus the declared
     // narrowing, deduped, and structurally deny-only (no allow key exists).
-    expect(filter).toEqual({ deny: [...MEMBER_HIDDEN_TOOLS, 'agent_swarm_send_message'] })
+    expect(filter).toEqual({ deny: [...MEMBER_HIDDEN_TOOLS, 'agent_swarm_status'] })
     expect('allow' in (filter ?? {})).toBe(false)
+  }, 20_000)
+
+  it('rejects a per-recruit deny of a mandatory member-protocol tool before any provisioning record commits (issue #186)', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-tool-policy-floor-'))
+    roots.push(sandbox)
+    const stack = await mountCaptain(sandbox, fibers, 'tool-policy-floor-lead', 'Protocol floor team')
+
+    const submitRejected = await addMember(stack, 'add-floor-submit', {
+      name: 'floor-submit-worker',
+      role: 'Declares a deny of a mandatory member-protocol tool.',
+      deny_tools: ['agent_swarm_submit_task'],
+    })
+    expect(submitRejected).toMatchObject({ isError: true, error: { info: { code: 'TEAM_TOOL_POLICY_INVALID' } } })
+
+    const messageRejected = await addMember(stack, 'add-floor-message', {
+      name: 'floor-message-worker',
+      role: 'Declares a deny of a mandatory member-protocol tool.',
+      deny_tools: ['agent_swarm_send_message'],
+    })
+    expect(messageRejected).toMatchObject({ isError: true, error: { info: { code: 'TEAM_TOOL_POLICY_INVALID' } } })
+
+    // No roster row is left behind by an impossible-protocol declaration.
+    const snapshot = await stack.ctx.agentSwarm.domain.snapshot(
+      stack.ctx.agentSwarm.scopeOf(stack.lead), AgentSwarm.TeamId(stack.teamId), stack.lead.id,
+    )
+    expect(snapshot.team.members).toHaveLength(0)
   }, 20_000)
 
   it('preserves the M1A captain-only baseline and adds delegated wait hiding without a declaration (F15 preflight untouched)', async () => {

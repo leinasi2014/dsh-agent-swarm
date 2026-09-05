@@ -5,6 +5,7 @@ import { normalizeAllowedSkills } from '../domain/team-skill-policy.js'
 import { DEFAULT_HOST_CONTEXT_TTL_MS, DEFAULT_MAX_HOST_CONTEXTS } from '../human/host-context-service.js'
 import { expectExecutionRootsBase } from '../runtime/execution-roots.js'
 import { effectiveToolPolicy } from '../runtime/permission-surface.js'
+import { assertProtocolFloorNotDenied } from '../runtime/tool-policy.js'
 
 export const AGENT_SWARM_SETTINGS_NAMESPACE = settingsNamespace('agent-swarm')
 export const DEFAULT_DISPOSAL_TIMEOUT_MS = 5_000
@@ -115,5 +116,10 @@ export function assertServiceableConfig(value: Config): void {
   expectExecutionRootsBase(value.executionRootsBase)
   normalizeAllowedSkills(value.allowedSkills)
   effectiveToolPolicy(value.toolPolicy)
+  // Issue #186: a global toolPolicy deny/ask of a mandatory member-protocol
+  // tool is an impossible protocol — for a delegated member ask degenerates to
+  // deny (approval is pinned to never), so BOTH tiers must fail fast BEFORE any
+  // runtime, storage or listener side effect is created.
+  assertProtocolFloorNotDenied([...(value.toolPolicy?.deny ?? []), ...(value.toolPolicy?.ask ?? [])], 'toolPolicy')
 }
 
