@@ -42,8 +42,8 @@ These facts are represented in current source and focused tests, including stora
 |---|---|
 | Repository | `https://github.com/NanmiCoder/dsh-agent-teams` |
 | Branch | `main` |
-| Commit | `5fe388f1a30da7b1374294b25bd6f8ad74ab6aa5` |
-| Version | `0.1.14` |
+| Commit | `232a338fc9a0d393f118912386f67e7f3a6c67d6` |
+| Version | `0.1.15` |
 | Pointer | `ref/dsh-agent-teams/SOURCE_POINTER.json` |
 | Checkout | `ref/dsh-agent-teams/source/` |
 
@@ -55,7 +55,7 @@ Use it for continuable-member lifecycle, roster identity, DAG/claim rules, revis
 |---|---|
 | Repository | `https://github.com/openJiuwen-ai/jiuwenswarm` |
 | Branch | `develop` |
-| Commit | `cfe09ccf1c04f4abb978ec84dc5403650a41f553` |
+| Commit | `e8aa1b433e8b5ff1875cdd4cfd63155ad2a2a862` |
 | Observed package | `workswarm 0.2.5.beta1` |
 | Pointer | `ref/jiuwenswarm/SOURCE_POINTER.json` |
 | Checkout | `ref/jiuwenswarm/source/` |

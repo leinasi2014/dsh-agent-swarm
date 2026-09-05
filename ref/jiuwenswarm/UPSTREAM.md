@@ -2,7 +2,7 @@
 
 - Upstream: `https://github.com/openJiuwen-ai/jiuwenswarm`
 - Branch observed: `develop`
-- Pinned commit: `cfe09ccf1c04f4abb978ec84dc5403650a41f553`
+- Pinned commit: `e8aa1b433e8b5ff1875cdd4cfd63155ad2a2a862`
 - Local checkout: `source/`
 
 This repository is a product and architecture reference, not a DSH dependency.
@@ -32,3 +32,17 @@ before checkout: the bounded `source/` target plus this upstream's nested
 documentation paths otherwise exceeds the platform path limit. A pre-existing
 Git checkout without `HEAD` now fails loudly and is preserved for explicit
 reconciliation; the reusable sync scripts never clean it.
+
+The 2026-09-05 refresh covers `cfe09cc..e8aa1b4`. The cumulative path and
+manifest review includes the CLI relocation, SDK pin
+`691347b97ef5089a0b0caf7861c98cb9ad35aa2b`, terminal/HTTP dependency changes,
+permission-audit sanitization and heartbeat lifecycle changes. The package
+remains `workswarm 0.2.5.beta1` under Apache-2.0. This is a scoped reference
+compatibility review, not validation of every upstream feature.
+
+The final `bdc337c..e8aa1b4` delta removes the conflicting heartbeat
+`delete_after_run` field. Persisted legacy records normalize to `max_runs`,
+and model/store/scheduler tests cover continued execution after raising that
+limit. This is failure-model evidence for one authoritative completion rule;
+it does not add a heartbeat service, import Jiuwen runtime code or alter the
+existing DSH provider contracts. Any future adoption needs its own acceptance.
