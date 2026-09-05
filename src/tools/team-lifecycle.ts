@@ -9,6 +9,15 @@ import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
 import { TeamDomainError } from '../domain/error.js'
 import { register } from './shared.js'
 
+/** Shared optional identity schema; both tools keep the same compiled fields. */
+const optionalIdentityParameters = {
+  display_name: { type: 'string', description: 'Optional display name, at most 128 code points; preserve user preference/language.' },
+  profession: { type: 'string', description: 'Optional profession, at most 256 code points.' },
+  personality: { type: 'string', description: 'Optional disposition, at most 1024 code points.' },
+  pixel_avatar_svg: { type: 'string', description: 'Optional safe pixel-avatar SVG, at most 16KB. Omit freely; supplied values are validated.' },
+  skills: { type: 'array', items: { type: 'string' }, description: 'Assigned Skill subset: validated before roster effects against Team allow-list and current model-invocable scoped catalog; persists across restart.' },
+} as const
+
 /** `agent_swarm_create`. */
 export function registerCreateTool(ctx: Context, runtime: AgentSwarmRuntime): void {
   register(ctx, defineTool({
@@ -40,11 +49,11 @@ export function registerCreateTool(ctx: Context, runtime: AgentSwarmRuntime): vo
 export function registerCreateManagedTool(ctx: Context, runtime: AgentSwarmRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_create_managed',
-    description: 'Main Brain entry. Create a durable Team with a dedicated Captain Session. The `description` argument is that Captain\'s only initial objective: copy the user\'s complete requested outcome, constraints, and acceptance criteria into `description` verbatim, including any requested public goal, announcement, Captain/member names, professions, personalities, and pixel avatars. Do not summarize or drop requirements; omitted requirements are not delivered to the Captain automatically. The Main Brain remains outside the Team; the Captain analyzes the delivered objective and recruits its own members. After creation, the Main Brain may call agent_swarm_list_managed_teams at most once, then must end the current turn. It must not call agent_swarm_wait, agent_swarm_status, or agent_swarm_send_message, and must not use Shell sleep or polling. Use the Host Team UI for later observation.',
+    description: 'Main Brain entry: create a dedicated Captain; remain outside the Team. Deliver the complete user objective in description, including public goal, announcement and Captain/member identity/avatar preferences. After creation, list managed Teams at most once, then end the turn. No wait/status/send_message, Shell sleep or polling; observe through the Host Team UI.',
     parameters: {
       name: { type: 'string', required: true, description: 'Human-readable Team name.' },
       description: { type: 'string', required: true, description: 'The Captain\'s only initial objective. Copy the user\'s complete requested outcome, constraints, and acceptance criteria verbatim; do not summarize or omit requirements because omitted requirements are not delivered automatically later.' },
-      stage: { type: 'boolean', default: false, description: 'When true, create a staged managed Team without provisioning a dedicated Captain or any member/task; then use agent_swarm_set_plan and agent_swarm_approve_plan (or agent_swarm_discard_plan). Default false = immediate managed Team.' },
+      stage: { type: 'boolean', default: false, description: 'True: stage without Captain/member/task; set_plan then approve_plan or discard_plan. False: start immediately.' },
     },
     output: {
       schema: {
@@ -75,22 +84,18 @@ export function registerCreateManagedTool(ctx: Context, runtime: AgentSwarmRunti
 export function registerAddMemberTool(ctx: Context, runtime: AgentSwarmRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_add_member',
-    description: 'Captain-only. Create a durable continuable DSH subagent member with an isolated persona and Team-safe tool permissions. Provide display_name, profession and personality only as bounded identity context for the recruited role (stored in the Team aggregate and rendered on the member card); pixel_avatar_svg is optional and non-blocking (a compact allowlisted static pixel-grid, <=16KB; unsafe shapes are rejected with no side effects). Members recruited without a profile are reported not_generated.',
+    description: 'Captain-only: recruit a continuable member with isolated persona and mandatory Team tool restrictions. Identity fields are optional bounded context; absent profiles remain not_generated. Invalid supplied avatars fail before roster or Session effects; omit optional identity to continue recruitment.',
     parameters: {
       name: { type: 'string', required: true, description: 'Immutable member name: NFC-normalized Unicode letters/digits with dash separators, at most 64 code points.' },
       role: { type: 'string', required: true, description: 'Member specialty and responsibility.' },
-      display_name: { type: 'string', description: 'Human-readable member display name (at most 128 code points). Must be authored by the Captain from the recruit\'s role/personality.' },
-      profession: { type: 'string', description: 'Member profession/occupation summary (at most 256 code points). Must be authored by the Captain from the recruit\'s role/personality.' },
-      personality: { type: 'string', description: 'Member behavioural disposition (at most 1024 code points). Must be authored by the Captain from the recruit\'s role/personality.' },
-      pixel_avatar_svg: { type: 'string', description: 'Optional allowlisted static pixel-avatar SVG (compact filled-square pixel grid 8..32, <=16KB); omit it freely, and unsafe shapes are rejected with no side effects.' },
-      skills: { type: 'array', items: { type: 'string' }, description: 'Member-assigned Skill names — the recruit-time subset this member may load. Validated against the immutable Team allow-list AND the current complete scoped Skill catalog (model-invocable) before any roster side effect; persisted and reconstructed on restart. Distinct from Team-allowed Skills and Session-visible catalog Skills.' },
-      provider: { type: 'string', description: 'Optional continuable subagent Provider (the runtime that hosts the member child); defaults to plugin config.' },
-      llm_provider: { type: 'string', description: 'Optional member LLM provider, passed as the child agent\'s agentOptions.provider and recorded in its durable descriptor; when omitted the member inherits the captain\'s LLM provider. Distinct from the continuable \'provider\'.' },
+      ...optionalIdentityParameters,
+      provider: { type: 'string', description: 'Continuable runtime Provider; defaults to plugin config.' },
+      llm_provider: { type: 'string', description: 'Child LLM provider, distinct from runtime provider; inherits Captain when omitted and is recorded durably.' },
       model: { type: 'string', description: 'Optional member model override.' },
       deny_tools: {
         type: 'array',
         items: { type: 'string' },
-        description: 'Optional additional tool names to hide from this member (deny-only narrowing on top of the mandatory captain-only tools; there is no allow surface). Invalid or unknown tool names fail provisioning loudly.',
+        description: 'Additional deny-only tools beyond mandatory Captain restrictions. Invalid/unknown names fail; no allow override.',
       },
     },
     output: {
@@ -135,14 +140,10 @@ export function registerAddMemberTool(ctx: Context, runtime: AgentSwarmRuntime):
 export function registerSetCaptainProfileTool(ctx: Context, runtime: AgentSwarmRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_set_captain_profile',
-    description: 'Captain-only. Set this Team\'s public identity profile (display name / profession / personality; pixel avatar optional) with an expected_revision compare-and-swap. Author at least one canonical field from your own role; fields share the member identity bounds. Pass the Team\'s current revision (see agent_swarm_status); a concurrent mutation fails with TEAM_REVISION_CONFLICT.',
+    description: 'Captain-only optional profile update, never a recruitment gate. Supply at least one identity field. Invalid avatars fail before mutation. Current expected_revision is required; concurrent mutation fails with TEAM_REVISION_CONFLICT.',
     parameters: {
-      expected_revision: { type: 'number', required: true, description: 'The exact current Team revision; fails with TEAM_REVISION_CONFLICT if it changed.' },
-      display_name: { type: 'string', description: 'Captain display name (at most 128 code points).' },
-      profession: { type: 'string', description: 'Captain profession/occupation (at most 256 code points).' },
-      personality: { type: 'string', description: 'Captain behavioural disposition (at most 1024 code points).' },
-      pixel_avatar_svg: { type: 'string', description: 'Optional allowlisted static pixel-avatar SVG (compact filled-square pixel grid 8..32, <=16KB); omit it freely; unsafe shapes are rejected.' },
-      skills: { type: 'array', items: { type: 'string' }, description: 'Member-assigned Skill names — the recruit-time subset this member may load. Validated against the immutable Team allow-list and the current complete scoped Skill catalog (model-invocable) before any roster side effect; persisted and reconstructed on restart. Distinct from Team-allowed Skills and Session-visible catalog Skills.' },
+      expected_revision: { type: 'number', required: true, description: 'Exact current Team revision; conflicts fail with TEAM_REVISION_CONFLICT.' },
+      ...optionalIdentityParameters,
     },
     output: {
       schema: {
