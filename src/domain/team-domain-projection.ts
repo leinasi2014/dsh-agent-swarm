@@ -10,7 +10,8 @@
  */
 import { expectDomain, TeamDomainError } from './error.js'
 import { isTaskReady } from './graph.js'
-import { actorMembership, readerMembership, nonEmpty, type TeamDomainDeps } from './team-domain-shared.js'
+import { actorMembership, readerMembership, type TeamDomainDeps } from './team-domain-shared.js'
+import { admitMemoryText } from './memory-admission.js'
 import type { TeamId, TeamMemoryCategory, TeamState, TeamStatusSnapshot } from './types.js'
 import type { TeamScope } from './team-domain-port.js'
 
@@ -39,8 +40,8 @@ export async function addMemory(
     committed = {
       id: `memory-${team.nextMemoryNumber}`,
       category,
-      content: nonEmpty(content, 'memory content', 16_384),
-      evidenceRefs: [...evidenceRefs].map(value => nonEmpty(value, 'memory evidence reference', 2_048)),
+      content: admitMemoryText(content, 'memory content', 16_384),
+      evidenceRefs: [...evidenceRefs].map(value => admitMemoryText(value, 'memory evidence reference', 2_048)),
       createdAt: deps.now(),
     }
     team.memory.push(committed)
