@@ -2,6 +2,7 @@
 import { resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
+import { resolveSessionPreset } from '@deepseek-ai/dsh-agent-presets'
 import { SessionId, type SessionHeader } from '@deepseek-ai/dsh-session'
 import type { TeamScope } from '../domain/team-domain-port.js'
 import type { TeamState } from '../domain/types.js'
@@ -78,7 +79,16 @@ export class ManagedActivationRecovery {
       if (live.session.header.parentSession !== undefined || live.session.header.cwd === undefined || resolve(live.session.header.cwd) !== scope) throw new Error('live Main Brain identity has a different workspace or parent')
       return live
     }
-    const handle = await this.ctx.agents.resume({ resumeSessionId: SessionId(parentId), signal: this.abort.signal })
+    const stored = await this.ctx.sessionPersistence.inspect(SessionId(parentId), this.abort.signal)
+    const presetId = resolveSessionPreset({ header: stored.meta, events: stored.events })
+    const presets = this.ctx.get('agentPresets')
+    if (presetId !== undefined && presets === undefined) throw new Error(`persisted Main Brain preset ${JSON.stringify(presetId)} requires the official agentPresets service`)
+    const handle = await this.ctx.agents.resume({
+      resumeSessionId: SessionId(parentId), signal: this.abort.signal,
+      // Public Host entry points reconstruct the preset from the Session log.
+      // Children then inherit this exact standing composition via followup.
+      ...(presets === undefined ? {} : { setup: async (agentCtx: Context) => { await presets.mount(agentCtx, presetId) } }),
+    })
     // The returned capability belongs to this runtime, including cancellation
     // after factory publication. Existing host-owned roots are never adopted.
     this.roots.set(parentId, handle)

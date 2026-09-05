@@ -8,6 +8,7 @@ import { expect, it, vi } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
 import { AgentSwarmRuntime } from '../src/runtime/orchestrator-runtime.js'
 import { GatedAdapter, mount as mountGated } from './helpers/gated-composition.js'
+import { installRestartPreset } from './helpers/restart-preset-194.js'
 import {
   mountRestartComposition as mount, disposeRestartComposition as dispose,
   restartTool as tool, restartSnapshot as snapshot, RESTART_SIGNAL as SIGNAL,
@@ -44,12 +45,19 @@ class ReviewAfterRestart extends GatedAdapter {
   }
 }
 
-async function seedSubmitted(sandbox: string) {
+async function seedSubmitted(sandbox: string, preset = false) {
   const initial = new GatedAdapter()
   let first: RestartMounted | undefined
   try {
-    first = await mount(sandbox, 0, undefined, undefined, ctx => { ctx.llm.registerAdapter(['mock'], initial) })
-    const root = first.ctx.agentLoop.create(ROOT, { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+    first = await mount(sandbox, 0, undefined, undefined, async (ctx, fibers) => {
+      ctx.llm.registerAdapter(['mock'], initial)
+      if (preset) await installRestartPreset(ctx, fibers, sandbox)
+    })
+    const root = preset ? (await first.ctx.agents.create({
+      sessionId: ROOT, agentOptions: { provider: 'mock', model: 'mock' },
+      meta: { cwd: join(sandbox, 'workspace'), agentPreset: 'code' },
+      setup: async ctx => { await first!.ctx.agentPresets.mount(ctx, 'code') },
+    })).agent : first.ctx.agentLoop.create(ROOT, { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
     const created = await tool(first.ctx, root, '194-create', 'agent_swarm_create_managed', { name: 'Restart in-flight', description: 'Continue the submitted DAG.' })
     expect(created.isError).toBe(false)
     const { team_id: teamId, captain_session_id: captainId } = created.value as { team_id: string; captain_session_id: string }
@@ -69,6 +77,10 @@ async function seedSubmitted(sandbox: string) {
     const dependent = await tool(first.ctx, captain, '194-dependent', 'agent_swarm_create_task', { subject: 'After restart', description: 'Wait for original review.', target_member: 'worker', blocked_by: [running.id] })
     expect(dependent.isError).toBe(false)
     const member = first.ctx.agents.get(SessionId(memberId))!
+    if (preset) {
+      expect((await tool(first.ctx, member, '194-file-before', 'write', { file_path: 'before.txt', content: 'before restart' })).isError).toBe(false)
+      expect(first.ctx.tools.get('pwsh', member)).toBeDefined()
+    }
     const submittedResult = await tool(first.ctx, member, '194-submit', 'agent_swarm_submit_task', { task_id: running.id, expected_revision: running.revision, attempt_id: running.currentAttemptId, output: 'Durable submitted result.' })
     expect(submittedResult.isError).toBe(false)
     const submitted = (await snapshot(first.ctx, captain, teamId)).team.tasks[0]!
@@ -338,6 +350,59 @@ it('reports a failed scheduling pass without implying the accepted review rolled
   } finally {
     composition.adapter.open()
     for (const fiber of composition.fibers.toReversed()) await fiber.dispose()
+    await rm(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
+
+it('restores the official root preset so resumed members can execute real file and shell tools', async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), 'dsh-swarm-194-preset-'))
+  let second: RestartMounted | undefined
+  let adapter: ReviewAfterRestart | undefined
+  try {
+    const seed = await seedSubmitted(sandbox, true)
+    adapter = new ReviewAfterRestart(seed.captainId, seed.submitted)
+    second = await mount(sandbox, 0, undefined, undefined, async (ctx, fibers) => {
+      expect(ctx.agents.roots()).toEqual([])
+      ctx.llm.registerAdapter(['mock'], adapter!)
+      await installRestartPreset(ctx, fibers, sandbox)
+    })
+    await vi.waitFor(async () => {
+      const state = (await second!.ctx.agentSwarm.listTeamAggregates(seed.scope)).find(team => team.id === seed.teamId)!
+      expect(state.tasks[1]).toMatchObject({ status: 'in_progress', ownerSessionId: seed.memberId })
+    })
+    const member = second.ctx.agents.get(SessionId(seed.memberId))!
+    expect.soft(second.ctx.agentPresets.composedPreset(member.ctx)).toBe('code')
+    for (const name of ['read', 'write', 'edit', 'pwsh']) expect.soft(second.ctx.tools.get(name, member), name).toBeDefined()
+    expect.soft((await tool(second.ctx, member, '194-file-after', 'write', { file_path: 'after.txt', content: 'restored member' })).isError).toBe(false)
+    const read = await tool(second.ctx, member, '194-read-after', 'read', { file_path: 'after.txt' })
+    expect(read.isError).toBe(false)
+    expect(JSON.stringify(read)).toContain('restored member')
+    const shell = await tool(second.ctx, member, '194-shell-after', 'pwsh', { command: '194 + 7', description: 'Verify restored official shell execution' })
+    expect(shell.isError, JSON.stringify(shell)).toBe(false)
+    expect(JSON.stringify(shell)).toContain('201')
+  } finally {
+    adapter?.open()
+    if (second !== undefined) await dispose(second)
+    await rm(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
+
+it('fails closed when a persisted root preset has no official preset service after restart', async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), 'dsh-swarm-194-preset-missing-'))
+  let second: RestartMounted | undefined
+  try {
+    const seed = await seedSubmitted(sandbox, true)
+    let resumed = 0
+    const failure = await mount(sandbox, 0, undefined, undefined, ctx => {
+      ctx.llm.registerAdapter(['mock'], new GatedAdapter())
+      const resume = ctx.agents.resume.bind(ctx.agents)
+      vi.spyOn(ctx.agents, 'resume').mockImplementation(async options => { resumed += 1; return await resume(options) })
+    }).then(value => { second = value; return undefined }, error => error)
+    expect(failure).toMatchObject({ code: 'TEAM_PARENT_REATTACH_FAILED', message: expect.stringContaining('requires the official agentPresets service') })
+    expect(failure.message).toContain(seed.captainId)
+    expect(resumed).toBe(0)
+  } finally {
+    if (second !== undefined) await dispose(second)
     await rm(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
