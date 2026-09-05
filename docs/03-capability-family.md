@@ -1,256 +1,98 @@
-# 03. Capability-family architecture
+# 03. 能力架构
 
-## 1. Official-first composition architecture
+本文件定义当前产品的 capability ownership。具体状态机、错误和并发合同以 [04-core-protocol.md](04-core-protocol.md) 为准；这里不保留历史 milestone 编号。
 
-The architecture is organized around official ownership, not around copying either reference repository:
+## 1. 组合图
 
 ```text
 Official DSH execution plane
-  Sessions + persistence ─ Agents ─ Subagents ─ Tools/System Prompt
-             │               │          │
-             └───────────────┴──────────┘
-                             │ consumed by
-Canonical Team port          │
-  TeamDomainPort ────────────┘
-    ├─ current: ctx.storageDomain local Provider (one Team aggregate per record)
-    ├─ legacy: read-only FileTeamStore migration reader (never runtime authority)
-    └─ future: official ctx.agentTeams Provider after publication/promotion
-                             │
-Project-owned orchestration overlay
-  TaskRun/attempt fencing ─ Scheduler ─ Review ─ Team budget/memory checkpoints
-       │                       │
-       ├─ ctx.workflowEngine bridge + caller-scoped Team jobs read view
-       ├─ ctx.tokenMeter boundary: host-side official metering face; Team measurement stays the plugin's per-seq fold (M4-1)
-       ├─ ctx.storageDomain Store Provider
-       ├─ ctx.workspaceRegistry linkage + real remote/worktree executor
-       └─ official questions/approval interaction Consumers
-                             │
-Project-owned HumanInteraction producer
-  Captain Liaison ─ request/effect receipt ─ Host context/redaction
-       └─ every Team mutation returns to TeamDomainPort
-                             │
-Consumers and composition
-  scoped model tools (including read-only member profiles) ─ canonical /swarm RPC ─ DSH-native UI
-                                         └─ Canvas-native Consumer
-                             │
-Self-hosting composition     │
-  stable control Profile ─ frozen artifact ─ isolated acceptance Profile
-          │                         │                    │
-      Team/Jobs owner          immutable evidence     health/reload/RPC
+  Session + Agent + Subagent + Tools + System Prompt
+  Workflow + Jobs + Storage Domain + Settings + Client slots
+                              │ consumed by
+                              ▼
+AgentSwarmRuntime
+  ├─ TeamDomainPort ── StorageDomainTeamStore
+  │    Team / Captain binding / roster / tasks / attempts / mail / budget
+  ├─ orchestration Providers
+  │    Scheduler / Review / Workflow bridge / execution root / permission
+  ├─ model Consumers
+  │    26 agent_swarm_* tools + ordered usage prompt
+  ├─ read producer
+  │    Host binding → /swarm/v1 read RPC
+  └─ client Consumers
+       Team Workbench V3 + Plugin Settings
 ```
 
-Every vertical domain has one canonical owner. The overlay stores linkage/fencing/policy facts only; it never mirrors an official service's writable state. Adaptive scheduling and deterministic workflow are mutually exclusive transition owners for a run.
-
-Official DSH is the only runtime/Profile/Session/preset host. Within Team collaboration, `TeamDomainPort` owns Team state and the project-owned HumanInteraction overlay owns only request/effect/receipt correlation. RPC and UI are projections/commands over those owners. Canvas owns its graph/Director domain but never Team, captain, mail, review, budget or HumanInteraction truth.
-
-### Session identity topology
-
-```text
-Main/root Session (主脑，Team 外)
-  ├─ creates/routes to → Captain Session A ─ owns → Team A ─ recruits → members A1..An
-  └─ creates/routes to → Captain Session B ─ owns → Team B ─ recruits → members B1..Bn
-```
-
-The main/root Session is an orchestrator and user-facing Chat, not a Team captain and not a roster member. Team creation is a two-step ownership transfer: the root requests and starts one dedicated continuable Captain Session, then that Captain creates the authoritative Team with its own Session id as `captainSessionId`. Only after this commit may the Captain inspect the goal and recruit role-specific members through the existing member Provider. The root never calls captain-only mutation paths on the Team. The official Session/subagent descriptors remain the identity authority; `TeamDomainPort` stores only the Captain binding and Team state. Multiple Teams therefore coexist as separate Captain-rooted subtrees without a second global Team state.
-
-Client routing follows the same topology. The main Chat remains selected unless the user explicitly opens a Captain. A Team selector binds to a Team id and its dedicated Captain Session; clicking the Captain invokes the official Session navigation seam for that Session. UI labels, aliases or browser state cannot manufacture or change Captain authority.
-
-ADR-0008 adds a composition boundary, not a new canonical domain. The stable Profile runs a last-known-good artifact and owns admission. Workers write only leased Worktrees. Review Providers evaluate a frozen candidate, an isolated acceptance Profile proves real loading, and an external promotion controller selects or rolls back the stable artifact. Candidate logs, Git branches and Profile health are evidence linked to Team/Job ids, never writable Team truth.
-
-Independently deployable project packages should evolve only when a current Consumer or second Provider requires the split:
-
-```text
-dsh-agent-swarm                         recommended Bundle/composition
-  ├─ dsh-team-domain                    Service Definition (`TeamDomainPort`)
-  ├─ dsh-team-domain-local              current compatibility Provider
-  ├─ dsh-team-domain-official           future official-agent-team adapter
-  ├─ dsh-team-orchestrator              TaskRun/fencing + mode ownership
-  ├─ dsh-team-scheduler-*               adaptive policy Providers
-  ├─ dsh-team-workflow-bridge           official Workflow bridge + private Team jobs read view
-  ├─ dsh-team-budget                    policy + Token Meter adapter
-  ├─ dsh-team-review-*                  command/Agent/human Providers
-  ├─ dsh-team-workspace-*               lease/remote execution Providers
-  ├─ dsh-team-memory                    extraction/checkpoint Consumer
-  ├─ dsh-team-human-interaction         Captain Liaison + Host/RPC producer
-  ├─ dsh-tool-agent-swarm               model Consumer
-  └─ dsh-ui-agent-swarm                 optional DSH-native client Consumer
-```
-
-Names are provisional until packages actually split. No new public service key or durable format is committed without a current Consumer, official collision check and ADR.
-
-## 2. Core versus optional capabilities
-
-### 0.1 concrete host seam
-
-The first release publishes `ctx.agentSwarm` from the Bundle package because model tools already provide a real Consumer and host-side tests need the same authority path. It owns the compatibility domain, Scheduler/Review Provider registries, DSH lifecycle composition and durable projections. The default Providers are `priority-ready` and `manual`; external plugins register alternatives and dispose their registrations with their own Cordis fiber.
-
-The model-facing `agent_swarm_*` tools call this service. They never read or patch persisted records directly. Since M1A the authoritative Store is `StorageDomainTeamStore`, a process-local Provider behind the `TeamAggregateStore` interface that opens the `agent_swarm` official Storage Domain and persists one versioned Team aggregate record per Team plus durable migration receipts; durability lands through the official domain write chain before any read or waiter observes a change. The legacy `FileTeamStore` is a read-only offline migration reader and test fixture; the runtime never constructs it, and a workspace writer can no longer reach Team authority.
-
-The selected Scheduler and Review Providers are validated before a task is committed. This preserves extension registration order during plugin activation while ensuring an unknown configured Provider cannot leave a durable task that will never run or be reviewable.
-
-### M1 authority boundary (implemented in M1A)
-
-ADR-0007 moved storage integration ahead of Workflow and Token Meter integration; M1A implements it:
-
-- `sessionPersistence` and `storageDomain` are required injections (a Profile missing either keeps the plugin pending — fail closed, covered by composition tests);
-- tools and orchestration consume one `TeamDomainPort`, implemented by `TeamDomain` over one selected `TeamAggregateStore`;
-- the local production Provider opens the namespaced `agent_swarm` official Storage Domain and retains one versioned Team aggregate per record so one Team revision remains one write boundary; migration receipts are a second durable table;
-- `FileTeamStore` is removed from the default runtime and retained only as a read-only offline migration reader and fixture;
-- migration refuses a nonempty destination, verifies the durable read-back, retains a receipt and never dual-writes; the runtime performs no automatic migration or fallback;
-- the Provider remains process-local because official Storage Domain change visibility and write serialization are not distributed claims or leases.
-
-This is a host capability boundary, not cryptographic protection from a process with unrestricted host access. Coding members must receive workspace-scoped filesystem/shell permissions that cannot write the Harness storage root.
-
-### Member tool-permission policy (implemented in M5-2)
-
-The member host-tool surface is scoped through the official creation-window toolFilter seam only (`ctx.subagents` `toolFilter` → scoped `tools.restrict()`, snapshotted into the durable child descriptor; the followup face has no composition field — facts in `docs/09` §1). The plugin's overlay is deny-only and monotone: every member mandatorily loses the captain-only administration tools **and** `agent_swarm_wait`; `agent_swarm_add_member` may declare additional `deny_tools` narrowing (union with that hidden baseline, no allow surface, structural pre-commit validation, official unknown-name validation as the existence authority — F17, `docs/04` §8o). The official per-call `tools/pre-execute` seam independently denies delegated `agent_swarm_wait` before either mailbox-body read, so a declaration or a resumed descriptor cannot reopen it. A declaration can lock a member out but never widen authority. Per-task tool rescoping, tiered allow/ask/deny policy and approval override remain future family work; the official rc.2 `ctx.credentials` seam stays a declared non-consumed boundary (secrets are env-injected deployment inputs, never Team state). The #100 execution root and #101 review root are disjoint authority planes the tool policy neither fences nor widens.
-
-`agent_swarm_list_members` is a read-only model-tool consumer of that split authority, not a second member store: roster identity/phase come from `TeamDomainPort`; recorded composition facts come only from the child Session header and its own continuable descriptor suffix. It validates descriptor, captain binding and recovery provider before reporting, reads only the requested page, and never resumes, wakes, reconciles or repairs a child. Its row-local state is a diagnostic, not a live-status or effective-permission claim; raw persona, Session join ids, Skill assignment and an effective tool set are outside this model-tool surface. The Host/RPC `captainMembers.composition.v1` projection is a separate, bounded UI consumer: when durable composition is available it can display the declared Skills, callable/denied tools, current and recent outcomes, and retained-growth summary; otherwise each row fails closed to an honest unavailable marker rather than inventing capability.
-
-### Canonical Team domain
-
-Target ownership is official `ctx.agentTeams` when a supported published API is available, or one compatibility adapter during migration. Current ownership is the private `TeamDomain` behind `TeamDomainPort`, persisted through the official Storage Domain Provider; the official adapter remains unwired until the experimental package is published:
-
-- Team membership and authority
-- durable roster
-- durable mailbox
-- task DAG
-- task revision/CAS
-- member interrupt and observation
-- domain lifecycle and events
-
-### Orchestrator overlay
-
-Owned by this project:
-
-- scheduling strategy
-- execution attempt/fencing record
-- workflow run linkage
-- workspace lease
-- budget reservation/consumption
-- review/verification record
-- memory extraction checkpoint
-
-Keeping the overlay separate lets official Team task states remain small while richer execution policy evolves independently.
-
-## 3. Proposed service roles
-
-### TeamDomainAdapter
-
-Purpose: present the subset of Team operations needed by the orchestrator, whether the backend is official Agent Team or a characterized community implementation.
-
-It must not duplicate Team state. It maps identity, task revision, mailbox and change observation onto one authority source.
-
-### TeamScheduler
-
-A provider registry rather than one hardcoded loop.
-
-Candidate providers:
-
-- `event-ready`: reacts to member idle and Team changes;
-- `workflow`: workflow script owns phase order;
-- `priority`: selects by explicit priority/deadline;
-- `cost-aware`: selects model/member using remaining budget;
-- `manual`: no automatic assignment.
-
-The scheduler issues decisions. It does not mutate storage directly; it calls Team/Run services with expected revisions.
-
-### TeamWorkspace
-
-Creates and owns a workspace lease for one execution attempt:
-
-```text
-shared-readonly | shared-advisory | worktree | temporary | remote
-```
-
-A lease contains canonical cwd, base revision, cleanup policy and merge metadata. Tool authorization must derive from the actual Agent workspace/sandbox, not from advisory task fields.
-
-### TeamBudget
-
-Reserves and accounts limits for Team, workflow and task runs:
-
-- input/output tokens;
-- request count;
-- retries;
-- elapsed/deadline;
-- optional monetary cost;
-- member concurrency.
-
-Target publishes `ctx.tokenMeter` (`@deepseek-ai/dsh-token-meter`; published at rc.8 and fold-identical through 0.1.1-rc.2, where only the `ProjectionDefinition` contract shape changed). Its two faces are characterized and registered (`docs/development/2026-08-22-m4a-tokenmeter-design.md`, M4-1/issue #127): `measure()` reports current request/surface pressure for the NEXT request of one session (no cumulative total), and the `tokenUsage` session projection is a per-session cumulative fold of provider usage with chunk-early/message-final replacement semantics (a final `assistant/message` usage replaces its step's chunk sample; chunk-only usage from failed requests still counts; totals are deliberately non-monotone under corrections). Neither face is a Team budget ledger: there is no cross-session aggregation, admission, carry or per-event attribution.
-
-Boundary (decided, Option B of M4-1): the Team budget keeps exactly ONE measurement path — this plugin's own fold over committed `assistant/message.usage` events under durable per-session sequence cursors (M1B/#92 semantics; #79 carry) — and the official tokenMeter stays the host-side official metering face, not consumed by the budget, so double counting is excluded by construction. Parity is proven, not assumed: `tests/tokenmeter-parity.spec.ts` drives one real composition (official `SessionStore` + `SessionProjectionRegistry` + `TokenMeter` and the plugin's `UsageAccountant` over the same firehose) and pins numeric equality on every log shape where the faces are defined to agree — usage-bearing steps (equal or corrected samples), aborted-turn usage — plus the single declared divergence: a provider usage chunk from a request that failed before assembling content bills on the official face and deliberately does not bill the Team ledger. Re-evaluation trigger for consuming the official face as measurement source: it must first expose per-event usage attribution (or a monotone per-step settled-usage face); watermark-plus-delta folding over today's whole-value totals cannot preserve the M1B exactly-once cursor semantics (non-monotone corrections yield negative deltas; recovery loses seq attribution).
-
-Budget policy overlays (M4-3, issue #129, decisions in docs/04 §8n): retry economics — failed attempts bill once on the single ledger (tokens attributed by session event seq, never per attempt), while every failure-driven re-execution generation (in-place retry and review rework) charges the retry face, making `retryLimit` the true bound and carrying across #79 adoption; reservation — `create_task` may declare a `reservation_tokens` floor whose admission (`usedTokens + outstanding in_progress holds + floor <= tokenLimit`, else the structured `TEAM_BUDGET_RESERVATION` admission-postpone) is enforced authoritatively in `claimTask` and pre-filtered by the scheduler, with holds derived from the board (never a second ledger) and released by settlement; degraded continuation — budget exhaustion holds in_progress work (stranded healing gated off, `hold=budget` evidence) and the captain's `set_budget` recovery pass continues the same owner through the existing lanes. These are project-owned policy overlays; no official seam exists for any of them.
-
-### TeamReview
-
-Converts “worker submitted output” into an independently accepted result. Providers may run:
-
-- build/lint/test commands;
-- diff and changed-file policy;
-- schema validation;
-- security checks;
-- reviewer Agent;
-- human approval.
-
-A task reaches canonical completed only after the configured gate accepts it.
-
-Issue #128 extends this shipped seam without replacing it: review-root registrations may declare a toolchain family/capability probe; named verification templates compile before the authoritative task commit into the existing schema-v1 command list; and executable review aggregates ordered evidence across multiple root sessions. Node and Python each have a builtin family, while missing capabilities fail loudly. The official invariant registry is not used as a command runner because it owns relational runtime assertions, not review operations.
-
-### TeamMemory
-
-Listens after an accepted round/task and writes structured experience through a memory service/provider. Suggested categories from Jiuwen prior art:
-
-- decision
-- lesson
-- member
-- context
-
-Memory extraction is not Team state and must not block task commit unless explicitly configured as a required postcondition.
-
-## 4. Consumer packages
-
-### Model tools
-
-Tools expose stable task concepts, not Provider names or database details. Operations should be narrow and authorization derived from `exec.agent`.
-
-### Workflow bridge
-
-Maps published DSH `ctx.workflowEngine` runs/events to Team task/run records. Background observability is a caller-scoped Team projection, not a `ctx.jobs` Provider: it cannot own official producer admission, controller, cancellation, or teardown semantics and must never shadow the default registry. The bridge must declare exactly one orchestration owner per run: adaptive Scheduler or deterministic Workflow. It must not let both state machines assign or settle the same attempt. Interaction services are used for human nodes after their target exports are verified.
-
-### UI
-
-DSH-native and Canvas-native clients render roster, task DAG, attempts, workspaces, budget, HumanInteraction receipts and gates from the same canonical Host/RPC contract. They use their own host component libraries, themes, lifecycle and accessibility controls. UI actions call Host contracts; they never patch JSON/Storage Domain, derive Team truth from transcripts or share a cross-host component package as an authority.
-
-### Pre-I2/I3 producer contract floor
-
-The producer contract may be frozen before executable I2 write authority exists, but only as a transport-neutral floor: versioned strict schemas, canonical fixtures and one digest; an internal Cordis-provided service; and bounded read-only Team/receipt projections derived from the two existing authorities. Its capability descriptor must state `snapshot.read` and `receipt.read` as available while `message.write`, `control.write` and `effect.cancel` remain `unavailable` with the `i1b-effect-correlation` blocker. The unavailable methods have no effect dependency and fail before payload inspection, so the floor cannot fabricate a receipt or mutate either domain.
-
-This floor is not an alternate Host or an RPC server. It mints no browser context/principal and mounts no route. It is now frozen: do not add speculative fields or another lifecycle layer before a real consumer needs them.
-
-That read lane is now implemented by R1 Host binding, the R2 `/swarm` transport and the R3 DSH-native Workbench. It keeps every direct write capability unavailable and therefore does not depend on ADR-0009. Each future write capability still has its own gate: only an operation with accepted authority, recovery and identity evidence can move from unavailable to available.
-
-### Bundle
-
-The Bundle chooses one coherent default composition. Each row remains replaceable by Profile patches.
-
-### Self-hosting controller composition
-
-Self-hosting reuses the Bundle, RPC host, Team tools, Workflow/Jobs, Workspace and Review Providers; it does not add a private Agent runtime or self-update service. D1 uses one writer and manual promotion after M1D. D2 requires the M3 vertical slice: actual out-of-process Worktree cwd/tool roots, executable independent review, frozen package evidence and a separate acceptance Profile. The candidate runtime cannot promote itself or write the stable control artifact/state root.
-
-## 5. Current package versus target family
-
-The package graph above is a target decomposition. The current package is one dual-face Bundle containing the accepted Team domain/runtime, 26 model tools, optional Provider families, the R1 read Host, R2 `/swarm` RPC and the R3 Team Workbench V3 client. The accepted Profile/browser path includes Main Brain managed-Team enumeration, dedicated Captain Sessions, Captain-led recruitment, in-place multi-Team switching, public goal and announcement views, Workbench/Tasks/Announcements/Management tabs, Captain/member identity with safe pixel avatars, fenced task/attempt status, and honest Skills/tools/outcome/growth projections. Accepted tests and real Profile evidence, not this target diagram, decide which capabilities shipped. Canvas-native projection and direct Controls remain later verticals and must reuse the accepted contracts rather than creating new authority. Old feature branches are salvage input only and do not count as current implementation. Per-task tool rescoping remains a declared official-seam boundary (`docs/04` §8o, `docs/09` §1).
-
-## 6. Why this is not over-modularization
-
-A package split is justified only when at least one is true:
-
-- multiple Providers coexist;
-- the role has independent lifecycle/resources;
-- host and client compile separately;
-- policy must be replaceable without changing protocol;
-- the package can be installed or tested independently;
-- it prevents a Consumer from defining the Service contract.
-
-Until these conditions exist, keep code private inside the owning package.
+`TeamDomainPort` 是 Team 协作的唯一 mutation 边界。Human-interaction overlay、workflow run overlay 和 member-private-memory domain 只拥有自己的关联数据，不复制 Team aggregate。
+
+## 2. 当前实现
+
+| 能力 | 当前 owner / seam | 已实现边界 |
+|---|---|---|
+| Main Brain → Captain | official Session/Subagent + dedicated captain provisioning | 一个 managed Team 一个独立 Captain；root 留在 Team 外；支持多个 Team |
+| Team state | `TeamDomainPort` → `StorageDomainTeamStore` | versioned aggregate、durable commit、显式迁移；legacy file store 只读 |
+| 成员 | official continuable subagent provider | 招募/移除/唤醒/interrupt、身份资料、模型 route、durable descriptor |
+| 任务 | Team domain + `AgentSwarmRuntime` | DAG、priority、target member、revision CAS、attempt fencing、submit/review/reassign |
+| 调度 | Scheduler Provider registry | 默认 priority-ready；adaptive 与 workflow run 保持单一 transition owner |
+| 审核 | Review Provider registry | manual、executable commands/templates、review root 与 reviewer boundary |
+| 邮箱与等待 | durable Team mailbox + wakeup surface | quota、receipt、quiet/wakeup、bounded wait 与 spin fuse |
+| 预算 | Team budget + committed usage fold | token/request/retry 限制、reservation、carry、exhaustion/recovery |
+| Skills | `TeamSkillSurface` + `allowedSkills` setting | 新 Team allow-list、成员声明/投影；不自动演化 Skill |
+| Tools | official tool restriction + plugin permission surface | Captain-only 隐藏、成员 deny-only 收窄、plugin allow/ask/deny setting |
+| Memory | Team memory + private-memory domain | 共享分类记忆；成员私有 append-only memory 和独立授权 |
+| Workflow/Jobs | official Workflow bridge + caller-scoped jobs projection | 可选、显式启用；jobs 是 read projection，不影子注册官方 producer |
+| Execution root | execution-root Provider | 可选 per-attempt 物理 root、capability 声明、settlement 和 residue 告警 |
+| Host/RPC | Host read service + `/swarm/v1` | target-bound、bounded、redacted、read-only、loopback/same-origin fail-closed |
+| UI | official Client slots / Session navigation / Settings | Workbench、Tasks、Announcements、Management、overlay、Captain Chat、设置页 |
+
+## 3. 模型工具面
+
+当前注册 26 个 `agent_swarm_*` 工具，分为六组：
+
+- Team lifecycle：create/create-managed、identity、goal、announcement、member、archive、interrupt。
+- Task board：create、claim、submit、review、reassign。
+- Collaboration：send-message、wait。
+- Budget and memory：set-budget、shared memory、member private memory。
+- Read surfaces：status、managed teams、members、tasks、jobs、memory。
+- Policy helpers：运行时按 caller role、live Agent/Session、revision 和 attempt 过滤权限。
+
+工具只暴露 Team 概念，不暴露 Storage key、内部 Session token 或 Provider 私有状态。授权来自 `exec.agent` 和权威绑定；参数中的 id 只是查找条件。
+
+## 4. Host、RPC 与 UI
+
+Host 每次从 live root Agent、Session、workspace scope 和 Team Captain binding 建立读上下文。`/swarm/v1` 只发布严格、版本化的 read envelope；客户端不能上传 principal、Captain Session 或 provenance 来扩大权限。
+
+Workbench 消费同一 read contract：
+
+- Team rail 支持 Main Brain 管理的多 Team 原位切换；
+- 公开目标、公告、成员 identity、Skills/tools、任务/attempt、budget 和 activity 都来自权威 projection；
+- Captain/member 或 task detail 以 overlay 展示；
+- “打开 Captain Chat”调用官方 Session navigation；
+- direct browser Team writes 仍 unavailable，不以自由文本或缓存冒充 Control。
+
+Plugin Settings 是独立的官方 Settings Consumer。它配置默认模型、成员 provider/depth、Skills、Scheduler/Review、tool policy、Workflow/Jobs/execution roots 和资源限制；设置在重启后重新组装 runtime。
+
+## 5. 生命周期与失败语义
+
+- `sessionPersistence` 和 `storageDomain` 是 required injection；缺失时插件保持 pending，不降级为易失状态。
+- 未知 Provider、无驱动的 workflow mode、非法 Skill/tool policy、stale revision/attempt 和 identity mismatch 都 fail loud。
+- 注册、route、listener、timer、waiter、subagent、workflow、storage domain 和 React mount 均由 Cordis effect 或显式 disposer 回收。
+- unload 先关闭 admission，再收敛在途事务，最后释放资源。
+- legacy Team import 只允许显式单向迁移、空目的地和 durable read-back；不自动迁移、双写或 fallback。
+
+## 6. 尚缺能力
+
+| 缺口 | 所需边界 |
+|---|---|
+| 公共稳定发布 | immutable package identity、兼容矩阵、upgrade/rollback、发布观察 |
+| browser/RPC direct controls | verified human principal、operation-scoped idempotency/read-back、逐 capability 开放 |
+| Canvas Consumer | 复用已接受的 RPC schema/fixtures，Canvas 只做宿主原生投影 |
+| 远程成员与 distributed store | real remote executor、CAS/lease/fencing、partition/late-ACK/recovery tests |
+| 自动 Skill Evolution | accepted evidence → proposal → deterministic validation → approval → write 分权 |
+| 发布级 UX/E2E | fresh Profile、多 Team、重启、accessibility、error/reconnect、卸载/升级矩阵 |
+
+缺口不能通过新增 UI 状态、第二 storage、transcript parser 或更宽模型权限绕过。
+
+## 7. 拆包原则
+
+当前实现保持一个 dual-face package。只有出现第二 Provider/Consumer、独立 lifecycle、独立发布价值或 host/client 编译边界时才拆分；目录整齐本身不是理由。未来官方 Agent Team 成为受支持依赖时，也只能在 `TeamDomainPort` 后替换 Provider，不能并存两个可写 Team authority。

@@ -9,7 +9,7 @@
  * the registry's `session/event` subscription) and the plugin's cumulative
  * Team budget ledger (the real storage stack with `UsageAccountant` wired to
  * the same firehose, exactly like plugin activation does). The specs pin the
- * decided boundary of `docs/development/2026-08-22-m4a-tokenmeter-design.md`:
+ * accounting boundary defined in docs/04-core-protocol.md:
  *
  * - numeric equality on every log shape where the faces are defined to agree
  *   (usage chunk superseded by the final message usage — equal or corrective —

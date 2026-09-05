@@ -44,6 +44,7 @@ export function registerCreateManagedTool(ctx: Context, runtime: AgentSwarmRunti
     parameters: {
       name: { type: 'string', required: true, description: 'Human-readable Team name.' },
       description: { type: 'string', required: true, description: 'The Captain\'s only initial objective. Copy the user\'s complete requested outcome, constraints, and acceptance criteria verbatim; do not summarize or omit requirements because omitted requirements are not delivered automatically later.' },
+      stage: { type: 'boolean', default: false, description: 'When true, create a staged managed Team without provisioning a dedicated Captain or any member/task; then use agent_swarm_set_plan and agent_swarm_approve_plan (or agent_swarm_discard_plan). Default false = immediate managed Team.' },
     },
     output: {
       schema: {
@@ -55,14 +56,16 @@ export function registerCreateManagedTool(ctx: Context, runtime: AgentSwarmRunti
           captain_session_id: { type: 'string', required: true },
         },
       },
-      render: (_args, value) => [{ type: 'text', text: `Created managed Team "${value.name}" (${value.team_id}) with dedicated Captain ${value.captain_session_id}. The supplied description was delivered as the Captain's only initial objective; it must contain the user's complete requested outcome, constraints, and acceptance criteria verbatim because omitted requirements will not be delivered automatically. The Main Brain remains outside the Team: call agent_swarm_list_managed_teams at most once, then end this turn. Do not call agent_swarm_wait, agent_swarm_status, or agent_swarm_send_message, and do not use Shell sleep or polling; use the Host Team UI for later observation.` }],
+      render: (_args, value) => [{ type: 'text', text: value.captain_session_id === '' ? `Created STAGED managed Team "${value.name}" (${value.team_id}) with no Captain yet. Use agent_swarm_set_plan then agent_swarm_approve_plan to start, or agent_swarm_discard_plan to archive the draft.` : `Created managed Team "${value.name}" (${value.team_id}) with dedicated Captain ${value.captain_session_id}. The supplied description was delivered as the Captain's only initial objective; it must contain the user's complete requested outcome, constraints, and acceptance criteria verbatim because omitted requirements will not be delivered automatically. The Main Brain remains outside the Team: call agent_swarm_list_managed_teams at most once, then end this turn. Do not call agent_swarm_wait, agent_swarm_status, or agent_swarm_send_message, and do not use Shell sleep or polling; use the Host Team UI for later observation.` }],
     },
     async execute(args, exec) {
       // The dedicated Captain's LLM route is plugin-configured only
       // (`captainLlmProvider` / `captainModel` on the runtime config); the
       // model can no longer steer it by co-passing `captain_llm_provider` /
       // `captain_model`, which are not part of this tool's parameter surface.
-      const team = await runtime.createWithDedicatedCaptain(exec, args.name, args.description)
+      const team = args.stage === true
+        ? await runtime.createStagedManaged(exec, args.name, args.description)
+        : await runtime.createWithDedicatedCaptain(exec, args.name, args.description)
       return { team_id: team.id, name: team.name, revision: team.revision, captain_session_id: team.captainSessionId }
     },
   }), 'managed create tool')
@@ -298,3 +301,4 @@ export function registerInterruptMemberTool(ctx: Context, runtime: AgentSwarmRun
     },
   }), 'interrupt-member tool')
 }
+

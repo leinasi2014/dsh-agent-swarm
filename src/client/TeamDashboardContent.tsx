@@ -7,6 +7,7 @@ import type { TeamDashboardController, TeamDashboardState } from './team-dashboa
 import type { TeamDashboardSurfaceCoordinator } from './team-dashboard-surface-coordinator.js'
 import { TEAM_DASHBOARD_NS, type TeamDashboardKey } from './team-dashboard-locales.js'
 import { SafePixelAvatar } from './SafePixelAvatar.js'
+import { TaskDag } from './team-task-dag.js'
 
 /** The read contract reports un-generated member assets with a stable reason; the UI never fabricates one. */
 const NOT_GENERATED_AVATAR: SwarmReadAssetStatusV1 = { state: 'not_generated', reason: 'avatar_backend_not_implemented' }
@@ -84,7 +85,7 @@ export const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace__manage { display:grid; gap:8px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__manage-row { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:8px; min-width:0; padding:9px 10px; border:1px solid var(--dsw-alias-border-l2); border-radius:10px; background:var(--dsw-alias-bg-layer-1); }
 [data-swarm-team-dashboard] .swarm-team-workspace__manage-action { flex:0 0 auto; padding:4px 10px; border:1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 35%, var(--dsw-alias-border-l2)); border-radius:8px; background:transparent; color:var(--dsw-alias-brand-primary); font-size:10px; cursor:pointer; white-space:nowrap; }
-[data-swarm-team-dashboard] .swarm-team-workspace__detail-overlay { position:absolute; inset:0 0 0 46px; z-index:6; display:grid; grid-template-rows:auto minmax(0,1fr); border:0 solid var(--dsw-alias-border-l2); border-left-width:1px; background:var(--dsw-alias-bg-base); }
+[data-swarm-team-dashboard] .swarm-team-workspace__detail-overlay { position:absolute; inset:0; z-index:6; display:grid; grid-template-rows:auto minmax(0,1fr); background:var(--dsw-alias-bg-base); }
 [data-swarm-team-dashboard] .swarm-team-workspace__detail-head { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 10px; border:0 solid var(--dsw-alias-border-l2); border-bottom-width:1px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__detail-title { margin:0; overflow:hidden; font-size:13px; font-weight:700; white-space:nowrap; text-overflow:ellipsis; }
 [data-swarm-team-dashboard] .swarm-team-workspace__detail-sub { display:block; overflow:hidden; margin-top:1px; color:var(--dsw-alias-label-secondary); font-size:9px; white-space:nowrap; text-overflow:ellipsis; }
@@ -354,6 +355,25 @@ function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, sta
                 : <span className="swarm-team-workspace__public-content swarm-team-workspace__unavailable" data-swarm-goal-not-set>{t('goalNotSet')}</span>}
           </span>
         </section>
+        <section className="swarm-team-workspace__public-card" data-swarm-staged-plan data-swarm-staged-plan-state={data.team.phase === 'staged' ? 'pending' : 'absent'}>
+          <span className="swarm-team-workspace__public-copy">
+            <span className="swarm-team-workspace__public-title">{t('stagedPlan.title')}</span>
+            {data.team.phase === 'staged'
+              ? <span className="swarm-team-workspace__public-content" data-swarm-staged-plan-summary>{t('stagedPlan.summary', { members: data.team.plan?.members ?? 0, tasks: data.team.plan?.tasks ?? 0 })}</span>
+              : <span className="swarm-team-workspace__public-content swarm-team-workspace__unavailable">{t('stagedPlan.absent')}</span>}
+            {data.team.phase === 'staged' && <span className="swarm-team-workspace__public-content swarm-team-workspace__muted" data-swarm-staged-plan-hint>{t('stagedPlan.hint')}</span>}
+          </span>
+        </section>        {data.pendingInteractions.length > 0 && (
+          <section className="swarm-team-workspace__public-card" data-swarm-attention>
+            <span className="swarm-team-workspace__public-copy">
+              <span className="swarm-team-workspace__public-title">{t('attention.title')}</span>
+              <span className="swarm-team-workspace__public-content">{number.format(data.pendingInteractions.length)}</span>
+              {data.pendingInteractions.slice(0, 3).map(item => (
+                <span key={item.requestId} className="swarm-team-workspace__public-content" data-swarm-attention-row={item.requestId}>{t('attention.row', { intent: item.intent, target: item.targetRef ?? item.targetKind })}</span>
+              ))}
+            </span>
+          </section>
+        )}
         <section className="swarm-team-workspace__public-card" data-swarm-announcement-preview>
           <span className="swarm-team-workspace__public-copy">
             <span className="swarm-team-workspace__public-title">{t('announcement.latest')}</span>
@@ -475,7 +495,9 @@ function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, sta
           <div className="swarm-team-workspace__block-head"><span>{t('tasks')}</span><small data-swarm-task-count>{number.format(data.tasks.length)} {t('taskCount')}</small></div>
           {data.tasks.length === 0
             ? <p className="swarm-team-workspace__muted" data-swarm-task-empty>{t('empty')}</p>
-            : <section className="swarm-team-workspace__table" data-swarm-task-rows>
+            : <>
+              <TaskDag tasks={data.tasks} t={t} />
+              <section className="swarm-team-workspace__table" data-swarm-task-rows>
               {data.tasks.map(task => (
                 <button key={task.id} className="swarm-team-workspace__table-row" type="button" aria-haspopup="dialog" data-swarm-task-id={task.id} data-swarm-task-status={task.status} onClick={() => { openDetail({ kind: 'task', id: task.id }) }}>
                   <span className="swarm-team-workspace__table-copy"><strong title={task.subject}>{task.subject}</strong><small>{task.id}</small></span>
@@ -483,7 +505,8 @@ function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, sta
                   <span className="swarm-team-workspace__table-side" data-swarm-task-state>{enumLabel(task.status, t)}</span>
                 </button>
               ))}
-            </section>}
+            </section>
+            </>}
         </div>}
         {view === 'notices' && <div role="tabpanel" id="swarm-panel-notices" aria-labelledby="swarm-tab-notices" data-swarm-panel="notices">
           <div className="swarm-team-workspace__block-head"><span>{t('announcements')}</span><small data-swarm-notice-count>{number.format(entries.length)} {t('announcementCount')}</small></div>
@@ -634,7 +657,7 @@ function DetailOverlay({ detail, data, localeTag, number, headingRef, memberAsse
         <h3 className="swarm-team-workspace__detail-title" id={headingId} ref={headingRef} tabIndex={-1}>{heading.title}</h3>
         <small className="swarm-team-workspace__detail-sub">{heading.sub}</small>
       </div>
-      <Button size="sm" variant="toolbar" data-swarm-detail-back onClick={onClose}>{t('backToMembers')}</Button>
+      <Button size="sm" variant="toolbar" aria-label={t('backToMembers')} title={t('backToMembers')} data-swarm-detail-back onClick={onClose}><IconCloseOutline16 /></Button>
     </header>
     <div className="swarm-team-workspace__detail-body">
       {detail.kind === 'member' ? <MemberDetail detail={detail} data={data} localeTag={localeTag} memberAssets={memberAssets} t={t} />
@@ -842,5 +865,7 @@ function DiagnosticsDetail({ data, diagnostics, number, t }: {
 function Facts({ rows }: { readonly rows: readonly (readonly [string, string])[] }) { return <dl className="swarm-team-workspace__facts">{rows.map(([label, value]) => <div className="swarm-team-workspace__fact" key={label}><dt>{label}</dt><dd title={value}>{value}</dd></div>)}</dl> }
 
 type WireEnum = SwarmHostReadProjectionV1['team']['phase'] | SwarmHostReadProjectionV1['roster'][number]['phase'] | SwarmHostReadProjectionV1['tasks'][number]['status'] | SwarmHostReadProjectionV1['attempts'][number]['phase']
-const enumKey = Object.freeze({ active: 'enum.active', archived: 'enum.archived', provisioning: 'enum.provisioning', failed: 'enum.failed', removed: 'enum.removed', pending: 'enum.pending', in_progress: 'enum.in_progress', submitted: 'enum.submitted', verifying: 'enum.verifying', completed: 'enum.completed', cancelled: 'enum.cancelled', running: 'enum.running', accepted: 'enum.accepted', rejected: 'enum.rejected', stale: 'enum.stale' } as const satisfies Record<WireEnum, TeamDashboardKey>)
+const enumKey = Object.freeze({ staged: 'enum.staged', active: 'enum.active', archived: 'enum.archived', provisioning: 'enum.provisioning', failed: 'enum.failed', removed: 'enum.removed', pending: 'enum.pending', in_progress: 'enum.in_progress', submitted: 'enum.submitted', verifying: 'enum.verifying', completed: 'enum.completed', cancelled: 'enum.cancelled', running: 'enum.running', accepted: 'enum.accepted', rejected: 'enum.rejected', stale: 'enum.stale' } as const satisfies Record<WireEnum, TeamDashboardKey>)
 function enumLabel(value: WireEnum, t: TranslateNS<typeof TEAM_DASHBOARD_NS>): string { return t(enumKey[value]) }
+
+

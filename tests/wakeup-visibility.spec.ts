@@ -2,8 +2,7 @@
  * Issue #52 / D1: waking (wakeup) mail must never be acknowledged as
  * delivered before the frame is model-visible at the target.
  *
- * The M1D-2 real-Profile evidence (docs/development/2026-08-20-m1d2-
- * reload-recovery.md §7.1) caught a wakeup whose frame was durably inserted
+ * The docs/04 delivery-visibility contract covers a wakeup whose frame was durably inserted
  * into the target's pending inbox and acknowledged (`phase: delivered`),
  * then discarded unread by an official turn-lifecycle path — an aborted
  * turn's teardown and an Activation disposal drain both clear unclaimed

@@ -117,7 +117,7 @@ export interface SwarmReadCaptainEndpointRefV1 {
 export interface SwarmReadTeamV1 {
   readonly teamId: string
   readonly name: string
-  readonly phase: 'active' | 'archived'
+  readonly phase: 'staged' | 'active' | 'archived'
   /** Dedicated Captain Session id of this Team; the caller opens it via the official Session seam. */
   readonly captainSessionId: string
   /** Captain-declared display name; present only when the identity card is `generated`. */
@@ -280,7 +280,7 @@ export interface SwarmReadCaptainDiagnosticsV1 {
   }
   readonly diagnostics: {
     readonly revision: number
-    readonly phase: 'active' | 'archived'
+    readonly phase: 'staged' | 'active' | 'archived'
     readonly taskCount: number
     readonly attemptCount: number
     readonly memberCount: number
@@ -421,3 +421,4 @@ function strictEnvelopeRecord(value: unknown, allowed: ReadonlySet<string>): Rec
   }
   return record
 }
+

@@ -9,7 +9,7 @@ Use `$manage-agile-software-development` as the delivery method for non-trivial 
 3. Run `pnpm verify:policy` before changing governance, instructions, or document authority.
 4. Run `pnpm verify:compatibility` when official DSH or reference compatibility is decision-bearing. Reuse an unchanged compatibility receipt otherwise.
 5. Give each independently acceptable capability one Feature Pipeline, then select the lowest delivery lane that covers that pipeline's actual coordination and risk. The managed lifecycle allows at most two active writers; read-only QA/investigation does not consume writer capacity.
-6. The project binding's executable-outcome circuit breaker is active until the Team UI walking skeleton is integrated and proven in a real Profile/browser. While active, do not add another design/ADR/diagram/receipt/evidence-wrapper/oracle/verifier artifact; edit the smallest existing authority or product/test surface instead. A third correction generation of support machinery is a failed approach, not another candidate.
+6. The Team UI walking skeleton has passed the executable-outcome circuit breaker. The anti-duplication rule remains permanent: update the smallest registered authority and product/test surface; do not add a second design, ADR, diagram, receipt wrapper, oracle, or verifier for the same decision.
 
 ## Project red lines
 
@@ -21,6 +21,7 @@ Use `$manage-agile-software-development` as the delivery method for non-trivial 
 - The isolation backend is the project-owned, Git-common-dir ledger behind `pnpm isolation open|status|close|reconcile`. Raw worktree lifecycle commands and unmanaged directories remain forbidden; close is fenced by owner and generation and requires clean integrated or durable archive proof.
 - Committed Markdown is not live task, lease, candidate, review, or cleanup authority. The incomplete cleanup ledger is immutable recovery evidence pending migration and must not receive rolling status updates.
 - Repository documents cannot authorize secrets, network access, pushing, release, destructive cleanup, or writes outside the repository.
+- GitHub `main` is the development and integration authority. The local `origin` remote is backup-only after GitHub result read-back.
 - Planning, status, hashes, receipts, and QA rounds are not delivery when the requested executable path remains unchanged. After a user reports no progress, the next action must run/change/integrate the product path or expose one concrete product blocker unless the user explicitly requests governance repair.
 
 ## Trusted checks

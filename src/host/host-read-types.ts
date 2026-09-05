@@ -24,10 +24,12 @@ export interface SwarmHostReadProjectionV1 {
   readonly team: {
     readonly id: string
     readonly name: string
-    readonly phase: 'active' | 'archived'
+    readonly phase: 'staged' | 'active' | 'archived'
     readonly revision: number
     readonly createdAt: number
     readonly updatedAt: number
+    /** Plan-first summary (member/task declarations); present only while staged. */
+    readonly plan?: { readonly members: number; readonly tasks: number }
   }
   readonly roster: readonly {
     readonly name: string
@@ -107,9 +109,11 @@ export interface SwarmHostTeamsProjectionV1 {
   readonly teams: readonly {
     readonly teamId: string
     readonly name: string
-    readonly phase: 'active' | 'archived'
+    readonly phase: 'staged' | 'active' | 'archived'
     readonly captainSessionId: string
   }[]
   readonly observedAt: number
   readonly complete: boolean
 }
+
+

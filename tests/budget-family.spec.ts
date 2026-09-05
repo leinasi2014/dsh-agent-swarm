@@ -1,6 +1,5 @@
 /**
- * Budget capability family tests (M4-3, issue #129; decisions in docs/04
- * §8n, design note docs/development/2026-08-22-m4c-budget-family.md):
+ * Budget capability family tests for the docs/04 contract:
  *
  * - scenario 37 — retry economics: a failed attempt's folded tokens stay
  *   attributed to the one Team ledger (no refund, no re-windowing) while

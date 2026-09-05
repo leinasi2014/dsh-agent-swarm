@@ -8,8 +8,8 @@
  * plain host JSON, cycles/sparse arrays/exotic prototypes/symbol keys are
  * rejected by path, and thrown values render without ever throwing. The
  * bridge deliberately does not depend on the official engine package so a
- * Profile can compose the bridge without the worker-thread engine
- * (design note §4.3, docs/development/2026-08-21-m2a-workflow-bridge-design.md).
+ * Profile can compose the bridge without the worker-thread engine. See
+ * docs/04-core-protocol.md.
  * @module dsh-agent-swarm/runtime/workflow/realm
  */
 

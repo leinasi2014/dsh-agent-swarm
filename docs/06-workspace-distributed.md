@@ -1,127 +1,61 @@
-# 06. Workspace isolation and distributed execution
+# 06. Workspace、执行根与分布式边界
 
-## 1. Shared checkout modes
+本文件区分三个经常被混用的概念：用户 Workspace、任务 execution root、远程/分布式运行。它们拥有不同权威和安全含义。
 
-| Mode | Safety | Use |
-|---|---|---|
-| shared-readonly | high | research/review; no writes |
-| shared-advisory | low | single writer or strictly partitioned files |
-| worktree | high | parallel coding and independent commits |
-| temporary copy | medium | generated artifacts; merge via export |
-| remote | depends on provider | another machine/container/process |
+## 1. Workspace
 
-`writeScopes` are useful warnings but are not locks. Real enforcement belongs to filesystem/sandbox/workspace Providers.
+Workspace 由官方 DSH 注册和选择。Team scope 可以引用 Workspace identity/cwd 作为用户项目上下文，但插件不写官方 Workspace 私有状态，也不把页面显示的路径字符串当作授权。
 
-Target rc.8 `ctx.workspaceRegistry` registers persistent Workspace entities, canonical directories and Session membership. It is useful for identity and lookup, but it does not allocate a per-attempt Worktree or override the immutable cwd of an in-process continuable child. The current `ContinuableCreateSpec` only contributes history seed. A real Worktree member therefore needs an out-of-process/remote Session created with that cwd, or a generic upstream child-workspace creation seam; changing only prompts or task metadata is not isolation.
+Main Brain、Captain 和 Member 的 Session cwd 仍由官方 DSH 管理。Team aggregate 只保存完成业务恢复所需的有界引用；实际文件访问继续经过官方工具、sandbox 和当前 Session 权限。
 
-## 2. Workspace lease
+## 2. Execution root
 
-A lease should record:
+Execution root 是一个 attempt 级租约：
 
-```ts
-interface WorkspaceLease {
-  id: WorkspaceLeaseId
-  teamId: TeamId
-  taskId: TeamTaskId
-  runId: TaskRunId
-  mode: 'shared-readonly' | 'shared-advisory' | 'worktree' | 'temporary' | 'remote'
-  cwd: string
-  baseRevision?: string
-  branch?: string
-  ownerId: SessionId
-  phase: 'allocating' | 'active' | 'frozen' | 'merged' | 'released' | 'failed'
-}
-```
+- identity 绑定 `teamId + taskId + attemptId`；
+- Provider 返回绝对路径、隔离级别和释放句柄；
+- assignment frame 与 claim result 声明该绝对路径；
+- submit/review/reassign/终止负责释放或转为 residue；
+- reload 扫描 marker，区分可重连与需人工回收的残留。
 
-The Provider owns allocation, cleanup and merge metadata. The Team service only stores the lease identity on the run.
+它不等于开发 worktree，也不自动获得仓库 writer 权限。路径声明只指导成员将官方 shell/file 工具的 `workdir` 指向正确根；硬隔离仍取决于 OS/container/sandbox。
 
-## 3. Git Worktree flow
+## 3. 当前支持边界
 
-```text
-validate clean/base repository
-  → choose immutable base revision
-  → create unique branch/worktree
-  → start member Session with exact cwd
-  → worker commits or exports a diff
-  → freeze after submission
-  → verification runs in frozen snapshot
-  → merge/rebase/cherry-pick through a dedicated gate
-  → cleanup only after durable result
-```
+当前稳定语义是单机、单 Storage Domain authority、进程内调度 owner 与本地 execution-root Provider。多 Team 可以并发，但所有写入仍由一个 Team aggregate revision 序列化。
 
-Never let two attempts reuse the same branch/worktree. A rejected run may start a fresh attempt from the prior submitted commit if policy explicitly allows it.
+以下能力尚未配置或未完成，不得从现有本地实现推断：
 
-## 4. Self-hosting repository and Profile flow
+- 跨主机 Member Provider 与远程文件同步；
+- 分布式 CAS、lease、fencing token 和 change feed；
+- 网络分区、leader failover、跨区 durable mailbox；
+- 远程 secrets、机器身份和审计日志；
+- Canvas 作为 Team 写权威。
 
-Self-hosting adds two boundaries around the Worktree flow:
+## 4. Remote Provider 合同
+
+未来 remote Provider 必须显式声明：
+
+1. provider/model/capability identity；
+2. workspace materialization 与 path translation；
+3. credential source（只引用 secret name，不回显 secret）；
+4. start/ack/heartbeat/interrupt/join/dispose 协议；
+5. attempt fencing 与重复请求幂等键；
+6. artifact 传输、大小限制、digest 与保留期；
+7. 网络失败后的 unknown-outcome read-back；
+8. 资源限额、费用与审计归属。
+
+未满足任一项时 capability 必须显示 `NOT_CONFIGURED`，而不是退化成本地成功或猜测远程状态。
+
+## 5. 分布式演进顺序
 
 ```text
-stable control Profile + last-known-good artifact
-  → immutable base commit
-  → per-attempt branch/Worktree and out-of-process Session
-  → submitted commit
-  → freeze commit and package artifact digest
-  → independent verification in frozen snapshot
-  → isolated acceptance Profile/port/state root
-  → external promote or reject/rollback
+本地 authoritative aggregate
+  → 可替换 remote member Provider
+  → remote artifact/workspace contract
+  → durable distributed lease + fencing
+  → replayable change feed
+  → partition/recovery fault matrix
 ```
 
-The control checkout, stable artifact, control storage, credentials, official DSH checkout and both `ref` checkouts are outside every coding lease. The acceptance Profile receives only frozen candidate inputs and dedicated temporary state. It may report health but cannot switch the stable artifact. D1 permits a single writer with manual promotion after M1D; parallel writers require the M3 exit evidence in ADR-0008.
-
-## 5. Remote member provider
-
-A remote Provider needs:
-
-- discovery identity and capabilities;
-- reservation lease and expiry;
-- authenticated bootstrap request;
-- readiness acknowledgement;
-- message/turn delivery;
-- interrupt and shutdown;
-- final report/artifact transfer;
-- owner fencing so one Worker cannot serve two Teams simultaneously;
-- cold recovery semantics.
-
-DSH already offers subagent backends such as ACP and DSH SDK. Prefer adapting those over inventing a parallel Agent wire protocol.
-
-## 6. Distributed atomic state
-
-Current local JSON/process-lock patterns do not coordinate multiple DSH processes. A distributed store must offer domain operations, not just generic key-value access:
-
-- atomic task claim with expected revision;
-- attempt creation/invalidation;
-- lease acquire/renew/release;
-- ordered durable message enqueue/ack;
-- idempotency keys;
-- monotonic event cursor;
-- watch/change feed or bounded wait;
-- transaction timeout and fencing token.
-
-A Redis Provider could use Lua/MULTI/Streams. A PostgreSQL Provider could use transactions and row locks. The Team Scheduler depends on the service contract, never on Redis commands.
-
-## 7. Control-plane states
-
-Suggested remote member phases:
-
-```text
-idle
-  → reserved
-  → bootstrapping
-  → ready
-  → running
-  → draining
-  → idle
-```
-
-Every transition uses a reservation generation/fencing token. A late bootstrap ACK from an expired reservation must not mark the new reservation ready.
-
-## 8. Failure policy
-
-- Discovery unavailable: fail or remain local only if configured; no silent fallback.
-- Bootstrap delivery failure: release exact reservation.
-- ACK timeout: invalidate generation and clean remote partial runtime.
-- Worker disconnect during run: invalidate attempt, retain workspace/artifacts, reschedule according to policy.
-- Store partition: do not execute work whose ownership cannot be renewed/proven.
-- Merge conflict: task remains submitted/rejected; never mark completed.
-- Candidate boot/reload/health failure: reject the frozen candidate, preserve the last-known-good control Profile and create a fresh repair attempt.
-- Promotion controller unavailable: retain the accepted candidate as evidence but do not infer promotion from candidate/Agent output.
+每一步都必须保留 TeamDomainPort 的单一 mutation 语义。不得为了远程扩展复制 Team 状态机、让每个节点各写一份 aggregate，或用 last-write-wins 掩盖 revision 冲突。

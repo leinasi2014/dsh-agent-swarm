@@ -41,9 +41,11 @@ export interface SwarmProducerSnapshotV1 {
   readonly team: {
     readonly id: string
     readonly name: string
-    readonly phase: 'active' | 'archived'
+    readonly phase: 'staged' | 'active' | 'archived'
     readonly revision: number
     readonly updatedAt: number
+    /** Plan-first declaration counts; present only while staged. */
+    readonly plan?: { readonly members: number; readonly tasks: number }
   }
   readonly counts: {
     readonly members: number
@@ -353,3 +355,5 @@ function sortJson(value: unknown): unknown {
     .map(([key, child]) => [key, sortJson(child)] as const)
   return Object.fromEntries(entries)
 }
+
+

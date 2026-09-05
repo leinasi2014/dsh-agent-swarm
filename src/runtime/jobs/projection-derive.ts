@@ -1,8 +1,7 @@
 /**
  * Pure derivation of official job records from one authoritative Team
- * aggregate (M2-2, issue #76). The mapping table this module implements —
- * including the attempt-retry boundary and the projection's one-way
- * direction — is docs/development/2026-08-21-m2b-jobs-bridge-design.md §2.
+ * aggregate. The mapping, attempt-retry boundary and one-way projection
+ * direction are defined in docs/04-core-protocol.md.
  *
  * The derivation is a total function of the aggregate: running it on the
  * live event stream and on a post-crash re-seed produces byte-identical

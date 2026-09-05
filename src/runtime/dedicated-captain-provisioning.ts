@@ -55,12 +55,7 @@ export class DedicatedCaptainProvisioner {
   }
 
   private async start(input: Parameters<DedicatedCaptainProvisioner['create']>[0]): Promise<TeamState> {
-    const providerName = this.deps.config.memberProvider
-    const provider = this.ctx.subagents.getProvider(providerName)
-    if (provider?.prepareContinuable === undefined || !provider.capabilities.depthLimit
-      || !provider.capabilities.persona || !provider.capabilities.toolFilter) {
-      throw new TeamDomainError(`subagent provider "${providerName}" cannot host a dedicated Captain`, 'TEAM_MEMBER_PROVIDER_INCOMPATIBLE')
-    }
+    const providerName = this.requireCaptainProvider()
     const captainId = SessionId(randomUUID())
     const team = await this.deps.domain().createTeam(
       input.scope, captainId, input.name, input.description, -1, input.managedOrigin, input.allowedSkills,
@@ -118,6 +113,67 @@ export class DedicatedCaptainProvisioner {
     }
   }
 
+
+  /**
+   * Provision the dedicated Captain for an ALREADY-APPROVED (active) Team.
+   *
+   * Used by the plan-first approve path: the staged->active boundary commits
+   * first (durable authority) with the generated captain id, then this method
+   * starts the declared continuable child on the same team. A failure here
+   * drains the child but deliberately does NOT archive the Team — the approved
+   * Team stays active for the later recovery path that re-provisions the
+   * declared captain.
+   */
+  async provisionForTeam(input: {
+    readonly scope: TeamScope
+    readonly team: TeamState
+    readonly root: Agent
+    readonly captainId: SessionId
+    readonly llmProvider?: string
+    readonly model?: string
+    readonly signal: AbortSignal
+  }): Promise<TeamState> {
+    if (this.closing) throw new TeamDomainError('Team orchestrator is disposing', 'TEAM_RUNTIME_CLOSING')
+    const providerName = this.requireCaptainProvider()
+    const { team, root, captainId } = input
+    this.deps.config.teamSkills.rememberTeam(team)
+    this.deps.trackChild(root, captainId)
+    try {
+      await this.ctx.subagents.startContinuable({
+        provider: providerName,
+        label: `${team.name} · Captain`,
+        childId: captainId,
+        request: {
+          prompt: [{ type: 'text', text: captainStartNotice(team) }],
+          parent: root,
+          persona: captainPersona(team),
+          toolFilter: { deny: ['agent_swarm_create_managed'] },
+          agentOptions: {
+            ...((input.llmProvider ?? this.deps.config.captainLlmProvider ?? root.options.provider) === undefined
+              ? {} : { provider: input.llmProvider ?? this.deps.config.captainLlmProvider ?? root.options.provider }),
+            ...((input.model ?? this.deps.config.captainModel ?? root.options.model) === undefined
+              ? {} : { model: input.model ?? this.deps.config.captainModel ?? root.options.model }),
+          },
+          maxDepth: this.deps.config.memberMaxDepth + 1,
+        },
+        signal: AbortSignal.any([input.signal, this.abort.signal]),
+      })
+      return team
+    } catch (error) {
+      await this.ctx.subagents.drainContinuableChildren(root, [captainId]).catch(() => undefined)
+      throw error
+    }
+  }
+  private requireCaptainProvider(): string {
+    const providerName = this.deps.config.memberProvider
+    const provider = this.ctx.subagents.getProvider(providerName)
+    if (provider?.prepareContinuable === undefined || !provider.capabilities.depthLimit
+      || !provider.capabilities.persona || !provider.capabilities.toolFilter) {
+      throw new TeamDomainError(`subagent provider "${providerName}" cannot host a dedicated Captain`, 'TEAM_MEMBER_PROVIDER_INCOMPATIBLE')
+    }
+    return providerName
+  }
+
   observeSessionEvent(session: Session, event: SessionEvent): void {
     const pending = this.initial.get(session.id)
     if (pending === undefined || event.type !== 'turn/end') return
@@ -144,3 +200,5 @@ export class DedicatedCaptainProvisioner {
   dispose(): void { this.closing = true; this.abort.abort('Team orchestrator disposal') }
   wait(): Promise<Array<PromiseSettledResult<unknown>>> { return Promise.allSettled([...this.starts, ...this.settlements]) }
 }
+
+

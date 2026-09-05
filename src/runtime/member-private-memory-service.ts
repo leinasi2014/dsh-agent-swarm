@@ -8,8 +8,7 @@
  * caller's own durable Session id is the record partition key, so there is no
  * target-member parameter and no way to address anyone else's private memory. The
  * captain, non-members, external sessions, and failed/removed/archived members are
- * all rejected. See `docs/04` §8p and
- * `docs/development/2026-08-26-member-private-memory-design.md`.
+ * all rejected. See `docs/04-core-protocol.md`.
  */
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { TeamDomainError } from '../domain/error.js'
