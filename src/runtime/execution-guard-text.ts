@@ -4,6 +4,10 @@ import type { GuardNotice } from './execution-guard-tools.js'
 export class TextProgress {
   private readonly tail: string[] = Array.from({ length: 256 }, () => '')
   private readonly matches = new Uint16Array(257)
+  private readonly tailBytes = new Uint8Array(256)
+  private readonly tailSubstantive = new Uint8Array(256)
+  private readonly periodBytes = new Uint16Array(257)
+  private readonly periodSubstantive = new Uint16Array(257)
   private position = 0
   private length = 0
   private warned = false
@@ -21,29 +25,34 @@ export class TextProgress {
   get retainedBytes(): number { return Buffer.byteLength(this.tail.join('') + this.prefix) }
   private resetPattern(): void {
     this.tail.fill(''); this.matches.fill(0); this.length = 0; this.position = 0
+    this.tailBytes.fill(0); this.tailSubstantive.fill(0)
+    this.periodBytes.fill(0); this.periodSubstantive.fill(0)
   }
   private visible(character: string): GuardNotice | undefined {
     let warning: GuardNotice | undefined
-    for (let period = 12; period <= Math.min(256, this.length); period += 1) {
-      const previous = this.tail[(this.position - period + 256) % 256]
-      this.matches[period] = character === previous ? Math.min(8_192, this.matches[period]! + 1) : 0
+    const bytes = Buffer.byteLength(character)
+    const substantive = character.trim() === '' ? 0 : 1
+    for (let period = 12; period <= 256; period += 1) {
+      const index = (this.position - period + 256) % 256
+      const full = this.length >= period
+      // Each candidate window drops one point and gains one point. Never
+      // rescan a periodic suffix: whitespace must cost the same as prose.
+      this.periodBytes[period] = this.periodBytes[period]! + bytes - (full ? this.tailBytes[index]! : 0)
+      this.periodSubstantive[period] = this.periodSubstantive[period]! + substantive - (full ? this.tailSubstantive[index]! : 0)
+      if (!full) continue
+      this.matches[period] = character === this.tail[index] ? Math.min(8_192, this.matches[period]! + 1) : 0
       const count = Math.floor((this.matches[period]! + period) / period)
-      if (count < 16) continue
-      let bytes = 0
-      let substantive = false
-      for (let offset = 1; offset <= period; offset += 1) {
-        const point = this.tail[(this.position - offset + 256) % 256]!
-        bytes += Buffer.byteLength(point)
-        if (point.trim() !== '') substantive = true
-      }
-      if (!substantive) continue
-      if (count >= 32 && bytes * count >= 512) return { level: 'CRITICAL', detector: 'visible-text', count }
-      if (!this.warned && bytes * count >= 256) {
+      if (count < 16 || this.periodSubstantive[period] === 0) continue
+      const repeatedBytes = this.periodBytes[period]! * count
+      if (count >= 32 && repeatedBytes >= 512) return { level: 'CRITICAL', detector: 'visible-text', count }
+      if (!this.warned && repeatedBytes >= 256) {
         this.warned = true
         warning = { level: 'WARNING', detector: 'visible-text', count }
       }
     }
     this.tail[this.position] = character
+    this.tailBytes[this.position] = bytes
+    this.tailSubstantive[this.position] = substantive
     this.position = (this.position + 1) % 256
     this.length = Math.min(256, this.length + 1)
     return warning

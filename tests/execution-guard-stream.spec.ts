@@ -1,3 +1,4 @@
+import { TextProgress } from '../src/runtime/execution-guard-text.js'
 import { describe, expect, it } from 'vitest'
 import { GuardAdapter, mountGuard, prompt } from './helpers/execution-guard.js'
 
@@ -79,5 +80,40 @@ describe('single-generation visible text containment', () => {
       await stack.agent.whenIdle()
       expect(stack.agent.session.events.findLast(event => event.type === 'turn/end')?.data.reason.kind).toBe('completed')
     } finally { await stack.dispose() }
+  })
+})
+
+describe('visible-text rolling work bound', () => {
+  it('computes UTF-8 length once per visible code point, including long whitespace', () => {
+    const source = ' '.repeat(512)
+    const original = Buffer.byteLength
+    let calls = 0
+    let notices: ReturnType<TextProgress['feed']> = []
+    Buffer.byteLength = (input, encoding) => { calls += 1; return original(input, encoding) }
+    try { notices = new TextProgress().feed(source) }
+    finally { Buffer.byteLength = original }
+    expect(notices).toEqual([])
+    expect(calls).toBeLessThanOrEqual(source.length)
+  })
+
+  it('keeps whitespace inexpensive and finds its repeating Unicode suffix under either chunking', () => {
+    for (const bytes of [8_192, 32_768]) {
+      const source = ' '.repeat(bytes)
+      const text = new TextProgress()
+      const started = performance.now()
+      expect(text.feed(source)).toEqual([])
+      console.info('TEXT_WHITESPACE_COST', JSON.stringify({ bytes, elapsedMs: performance.now() - started, retainedBytes: text.retainedBytes }))
+      const suffix = '执行下一步操作，现在继续。'.repeat(40)
+      const whole = new TextProgress().feed(source + suffix)
+      const fragmented = new TextProgress()
+      const pieces: ReturnType<TextProgress['feed']> = []
+      for (const character of source + suffix) {
+        pieces.push(...fragmented.feed(character))
+        if (pieces.at(-1)?.level === 'CRITICAL') break
+      }
+      expect(whole.some(notice => notice.level === 'CRITICAL')).toBe(true)
+      expect(pieces).toEqual(whole)
+      expect(fragmented.retainedBytes).toBeLessThanOrEqual(8_192)
+    }
   })
 })
