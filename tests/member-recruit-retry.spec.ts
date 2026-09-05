@@ -14,6 +14,7 @@ import * as AgentSwarm from '../src/index.js'
 import { mountStorageStackOn } from './helpers/storage-stack.js'
 import { UsageAccountant } from '../src/runtime/usage-accounting.js'
 import { assertSwarmReadRpcValue } from '../src/rpc/read-rpc-artifact.js'
+import { mountNodeComposition, setUpTeam } from './helpers/node-composition.js'
 
 const signal = new AbortController().signal
 class RecruitAdapter extends LlmAdapter {
@@ -74,6 +75,60 @@ async function failFirst(stack: Stack) {
 }
 
 describe('member recruitment route and same-identity recovery', () => {
+  it('discloses the failed employee retry fence only to the authenticated Captain tool caller', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-recruit-private-fence-'))
+    const composition = await mountNodeComposition(sandbox, { maxMembers: 2 })
+    try {
+      await setUpTeam(composition, ['observer'])
+      const { ctx, lead } = composition
+      const execute = (agent: typeof lead, name: string, args: Record<string, unknown>) =>
+        ctx.tools.execute({ signal, callId: CallId(`fence-${Math.random()}`), name, arguments: args, agent })
+      expect((await execute(lead, 'agent_swarm_add_member', {
+        name: 'failed-worker', role: 'Implement', deny_tools: ['missing-official-tool'],
+      })).isError).toBe(true)
+      // The real official registry supplies a live authenticated member; no
+      // private Team lookup or injected caller-id string establishes authority.
+      const observer = ctx.agents.list().find(agent => agent.session.header.parentSession === lead.id)!
+      expect(observer).toBeDefined()
+      const peer = await execute(observer, 'agent_swarm_list_members', { phase: 'failed' })
+      expect(peer.isError, JSON.stringify(peer.error)).toBe(false)
+      const peerMembers = (peer.value as { members: Record<string, unknown>[] }).members
+      expect(peerMembers).toHaveLength(1)
+      expect(peerMembers[0]).not.toHaveProperty('retry_of')
+      const captain = await execute(lead, 'agent_swarm_list_members', { phase: 'failed' })
+      expect(captain.isError).toBe(false)
+      expect((captain.value as { members: unknown[] }).members).toEqual([
+        expect.objectContaining({ name: 'failed-worker', retry_of: expect.any(String) }),
+      ])
+    } finally {
+      composition.adapter.open()
+      for (const fiber of composition.fibers.toReversed()) await fiber.dispose()
+      await rm(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+    }
+  })
+
+  it('recovers a startup failure using only the public list_members fence, without a private Session lookup', async () => {
+    const stack = await setup()
+    const failed = await stack.call({ name: 'worker', role: 'Implement', deny_tools: ['missing-official-tool'] })
+    expect(failed.isError).toBe(true)
+    const listed = await stack.call({ phase: 'failed' }, 'agent_swarm_list_members')
+    expect(listed.isError).toBe(false)
+    const members = (listed.value as { members: Array<{ name: string; role: string; phase: string; retry_of?: string }> }).members
+    expect(members).toHaveLength(1)
+    const member = members[0]!
+    expect(member).toMatchObject({ name: 'worker', phase: 'failed', retry_of: expect.any(String) })
+    expect(member.retry_of).not.toBe('')
+    const retried = await stack.call({ name: member.name, role: member.role, retry_of: member.retry_of })
+    expect(retried.isError, JSON.stringify(retried.error)).toBe(false)
+    const after = await stack.call({}, 'agent_swarm_list_members')
+    expect(after.isError).toBe(false)
+    expect((after.value as { members: unknown[] }).members).toEqual([
+      expect.objectContaining({ name: member.name, phase: 'active' }),
+    ])
+    expect((after.value as { members: Record<string, unknown>[] }).members[0]).not.toHaveProperty('retry_of')
+    expect((await stack.call({ name: member.name, role: member.role, retry_of: member.retry_of })).isError).toBe(true)
+  })
+
   it.each([
     [{}, { llm_provider: 'missing' }],
     [{}, { model: 'invalid' }],

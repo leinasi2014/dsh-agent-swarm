@@ -419,7 +419,7 @@ export class AgentSwarmRuntime extends Service {
 
   /** Read durable roster composition; never resumes or repairs a child. */
   async listMemberProfiles(exec: ToolExecutionAuthority, input: { phase?: TeamState['members'][number]['phase']; cursor: number; limit: number }) {
-    return await this.memberProfiles.listPage((await this.status(exec)).team, input, exec.signal)
+    return await this.memberProfiles.listPage((await this.status(exec)).team, input, exec.signal, requireAgent(exec).id)
   }
 
   async waitForChange(exec: ToolExecutionAuthority, afterRevision: number, timeoutMs: number) {
