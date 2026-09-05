@@ -15,13 +15,13 @@ import { register } from './shared.js'
 export function registerCreateTaskTool(ctx: Context, runtime: AgentSwarmRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_create_task',
-    description: 'Create one dependency-aware Team task. Ready unowned tasks are assigned automatically by priority, or strictly to target_member when declared.',
+    description: 'Create one dependency-aware Team task. Ready unowned tasks are assigned automatically by priority; a task WITHOUT target_member is safe for any eligible member, and specialist work MUST name target_member (it never falls back to another member).',
     parameters: {
       subject: { type: 'string', required: true, description: 'Short task title.' },
       description: { type: 'string', required: true, description: 'Complete work instructions.' },
       acceptance_criteria: { type: 'array', items: { type: 'string' }, description: 'Evidence-based acceptance criteria.' },
       blocked_by: { type: 'array', items: { type: 'string' }, description: 'Existing task ids that must complete first.' },
-      write_scopes: { type: 'array', items: { type: 'string' }, description: 'Advisory workspace-relative paths; not authorization.' },
+      write_scopes: { type: 'array', items: { type: 'string' }, description: 'Advisory workspace-relative coordination paths, not filesystem authorization; delivered to the assigned member as untrusted guidance.' },
       priority: { type: 'number', description: 'Higher values are scheduled first.' },
       target_member: { type: 'string', description: 'Optional exact Team member name. The task waits for this member and never falls back to another member.' },
       verification: {

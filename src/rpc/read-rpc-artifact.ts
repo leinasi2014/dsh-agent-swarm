@@ -65,7 +65,7 @@ function isSafePixelAvatarSvg(value: string): boolean {
 }
 
 const SWARM_READ_RPC_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
-export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '5e7f9384d1f7106361aa4136728919d8cec47d0d5295018bdec38bab0da03de6' as const
+export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = 'a1d21f4b3f6327485be5e8906cab687f41811ef5be7184a00a7d80e7aa6470bc' as const
 
 const boundedString = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength, pattern: '\\S' })
 /** Member role is authoritative free-text (never truncated by the reader); the
@@ -195,6 +195,9 @@ const captainMemberRow = {
     // skills/callableTools are bounded enumerations (empty = declared none);
     // growthSummary is a bounded summary (empty allowed until a summary exists).
     skills: { type: 'array', maxItems: 64, items: boundedString(128) },
+    // Issue #184 A5: the member-assigned subset, distinct from the Session-
+    // visible catalog `skills`; empty = an explicit declared empty subset.
+    assignedSkills: { type: 'array', maxItems: 64, items: boundedString(128) },
     callableTools: { type: 'array', maxItems: 128, items: boundedString(128) },
     growthSummary: { type: 'string', maxLength: 2048 },
     currentActivity: {
@@ -438,6 +441,7 @@ export const SWARM_READ_RPC_CONTRACT_V1 = deepFreezeJson({
         properties: {
           schemaVersion: { const: 1 }, binding: sectionBinding,
           members: { type: 'array', maxItems: 100, items: captainMemberRow }, observedAt: nonNegativeInteger,
+          teamAllowedSkills: { type: 'array', maxItems: 64, items: boundedString(128) },
         },
       },
       captainAnnouncements: {

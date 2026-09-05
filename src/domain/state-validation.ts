@@ -165,6 +165,12 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
         corrupt(path, `members[${index}].pixelAvatarSvg violates the strict allowlist`)
       }
     }
+    if (member.assignedSkills !== undefined) {
+      const assigned = stringList(member.assignedSkills, path, `members[${index}].assignedSkills`)
+      if (assigned.length > 32) corrupt(path, `members[${index}].assignedSkills exceeds the limit`)
+      for (const name of assigned) if ([...name].length > 128) corrupt(path, `members[${index}].assignedSkills entry is too long`)
+      unique(assigned, path, `members[${index}].assignedSkills`)
+    }
     return member
   })
   unique(members.map(member => member.sessionId as string), path, 'member session ids')
