@@ -67,20 +67,26 @@ class Adapter extends LlmAdapter {
   }
 }
 const roots: string[] = []
-const stacks: Array<{ fibers: Fiber[] }> = []
-afterEach(async () => {
-  for (const stack of stacks.splice(0).toReversed()) for (const fiber of stack.fibers.toReversed()) await fiber.dispose()
+const stacks: Array<{ fibers: Fiber[]; adapter: Adapter; latch: Latch }> = []
+async function disposeStacks(): Promise<void> {
+  const closing = stacks.splice(0).toReversed()
+  // A failed sibling skips normal interrupt recovery. Release every owned
+  // source before any official disposer can wait for a non-cooperative tool.
+  for (const { adapter, latch } of closing) { adapter.open(); latch.release() }
+  for (const stack of closing) for (const fiber of stack.fibers.toReversed()) await fiber.dispose()
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })))
-}, 30_000)
+}
+afterEach(disposeStacks, 30_000)
 async function mount(root: string, adapter: Adapter) {
   const ctx = new Context(); const fibers: Fiber[] = []
+  const latch = new Latch()
+  stacks.push({ fibers, adapter, latch })
   await mountAgentLoopTestDependencies(ctx)
   fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(root, 'sessions', 'sessions.db') }))
   await mountStorageStackOn(ctx, join(root, 'storage'))
   fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
   fibers.push(await ctx.plugin(SubagentService)); fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
   fibers.push(await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1 }))
-  const latch = new Latch()
   ctx.effect(() => ctx.tools.register(defineTool({ name: HANG, description: 'Test hanging declared-timeout tool.', parameters: {}, timeoutMs: TIMEOUT,
     output: { schema: { type: 'object', additionalProperties: false, properties: { released: { type: 'boolean', required: true } } }, render: () => [] },
     execute: async () => { await latch.wait(); return { released: true } },
@@ -90,12 +96,21 @@ async function mount(root: string, adapter: Adapter) {
   const tool = async (callId: string, name: string, args: Record<string, unknown> = {}) => await ctx.tools.execute({ signal: SIGNAL, callId: CallId(callId), name, arguments: args, agent: lead })
   const created = await tool('create', 'agent_swarm_create', { name: 'Interrupt evidence', description: 'Real model tool evidence.' })
   if (created.isError) throw new Error(JSON.stringify(created.error))
-  stacks.push({ fibers })
   return { ctx, lead, latch, tool, teamId: AgentSwarm.TeamId((created.value as { team_id: string }).team_id), scope: ctx.agentSwarm.scopeOf(lead) }
 }
 
 type Stack = Awaited<ReturnType<typeof mount>>
 type TeamSnapshot = Awaited<ReturnType<Stack['ctx']['agentSwarm']['domain']['snapshot']>>
+
+async function settleAdmitted<T>(pending: Promise<T>[]): Promise<T[]> {
+  let firstFailure: { reason: unknown } | undefined
+  const outcomes = await Promise.allSettled(pending.map(async operation => {
+    try { return await operation }
+    catch (reason) { firstFailure ??= { reason }; throw reason }
+  }))
+  if (firstFailure !== undefined) throw firstFailure.reason
+  return outcomes.flatMap(outcome => outcome.status === 'fulfilled' ? [outcome.value] : [])
+}
 
 describe('model interrupt admission over the real official composition', () => {
   type PreparedProof = {
@@ -119,7 +134,25 @@ describe('model interrupt admission over the real official composition', () => {
     expect((await stack.tool(`task-${wave}-${lane}`, 'agent_swarm_create_task', { subject: 'Preserve ownership', description: 'Model call hangs.' })).isError).toBe(false)
     adapter.open()
     const snapshot = async () => await stack.ctx.agentSwarm.domain.snapshot(stack.scope, stack.teamId, stack.lead.id)
-    await vi.waitFor(async () => expect((await snapshot()).team.tasks[0]).toMatchObject({ ownerSessionId: memberId, status: 'in_progress' }), { timeout: 5_000, interval: 5 })
+    try {
+      await vi.waitFor(async () => expect((await snapshot()).team.tasks[0]).toMatchObject({ ownerSessionId: memberId, status: 'in_progress' }), { timeout: 5_000, interval: 5 })
+    } catch (error) {
+      const observed = await snapshot().catch(() => undefined)
+      const member = stack.ctx.agents.get(SessionId(memberId))
+      const task = observed?.team.tasks[0]
+      console.error('INTERRUPT_PREPARATION', JSON.stringify({
+        wave, lane, memberPhase: observed?.team.members.find(candidate => candidate.sessionId === memberId)?.phase,
+        captainStatus: stack.lead.status, memberStatus: member?.status,
+        task: task === undefined ? undefined : { id: task.id, revision: task.revision, status: task.status, owner: task.ownerSessionId },
+        events: member?.session.events.slice(-12).map(event => ({
+          type: event.type, seq: event.seq,
+          turn: event.type === 'turn/start' || event.type === 'turn/end'
+            || event.type === 'tool/call' || event.type === 'tool/result' ? event.data.turn : undefined,
+          reason: event.type === 'turn/end' ? event.data.reason.kind : undefined,
+        })),
+      }))
+      throw error
+    }
     let call!: Extract<SessionEvent, { type: 'tool/call' }>
     await vi.waitFor(() => {
       const live = stack.ctx.agents.get(SessionId(memberId)); expect(live).toBeDefined()
@@ -169,24 +202,60 @@ describe('model interrupt admission over the real official composition', () => {
     } finally { latch.release(); interrupt.mockRestore() }
   }
 
+  it('releases a prepared hanging tool when another preparation fails', async () => {
+    const proofs = await settleAdmitted([0, 1, 2, 3].map(lane => prepareProof(0, lane)))
+    const primary = new Error('injected preparation failure')
+    const late = new Latch()
+    let returned = false
+    const result = settleAdmitted(proofs.map(async (proof, lane) => {
+      if (lane === 0) throw primary
+      await late.wait()
+      return proof
+    })).catch(error => { returned = true; return error })
+    let cleanup: Promise<void> | undefined
+    const releases = proofs.map(proof => vi.spyOn(proof.latch, 'release'))
+    try {
+      // Drain rejection microtasks while three admitted preparations are
+      // deliberately unfinished. No elapsed-time threshold is involved.
+      await new Promise(resolve => setImmediate(resolve))
+      expect(late.starts).toBe(3)
+      expect(returned).toBe(false)
+      late.release()
+      expect(await result).toBe(primary)
+      expect(proofs.map(proof => proof.latch.starts)).toEqual([1, 1, 1, 1])
+      // Cleanup must release every actual HANG before its first blocking
+      // disposer; these spies call the real latch implementation.
+      cleanup = disposeStacks()
+      for (const release of releases) expect(release).toHaveBeenCalledTimes(1)
+      await cleanup
+    } finally {
+      late.release(); await result
+      for (const [index, proof] of proofs.entries()) {
+        releases[index]!.mockRestore()
+        proof.latch.release(); proof.adapter.open(); proof.interrupt.mockRestore()
+      }
+      await cleanup
+    }
+  })
+
   it('records three four-way real-composition waves at both deterministic timeout boundaries', async () => {
     const records: Array<{ wave: number; lanes: number }> = []
     for (const wave of [1, 2, 3]) {
       const callTime = 1_000_000 + wave * 1_000
       const clock = vi.spyOn(Date, 'now').mockReturnValue(callTime)
       try {
-        const proofs = await Promise.all([0, 1, 2, 3].map(lane => prepareProof(wave, lane)))
+        const proofs = await settleAdmitted([0, 1, 2, 3].map(lane => prepareProof(wave, lane)))
         expect(proofs.map(proof => proof.call.time)).toEqual([callTime, callTime, callTime, callTime])
 
         // Keep all four real compositions one millisecond inside the declared
         // timeout before any interrupt request can observe the exact edge.
         clock.mockReturnValue(callTime + TIMEOUT - 1)
-        await Promise.all(proofs.map((proof, lane) => rejectRecent(proof, wave, lane)))
+        await settleAdmitted(proofs.map((proof, lane) => rejectRecent(proof, wave, lane)))
 
         // The production predicate is >= timeoutMs: exact timeout must admit
         // without the old sleep/poll race, while every lane remains isolated.
         clock.mockReturnValue(callTime + TIMEOUT)
-        await Promise.all(proofs.map((proof, lane) => admitExactAndRecover(proof, wave, lane)))
+        await settleAdmitted(proofs.map((proof, lane) => admitExactAndRecover(proof, wave, lane)))
         records.push({ wave, lanes: proofs.length })
       } finally {
         clock.mockRestore()
