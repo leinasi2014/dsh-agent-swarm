@@ -35,6 +35,8 @@ import type { RuntimeCreateTaskInput, VerificationCommandTemplate } from './veri
 import { VerificationFamily } from './verification-family.js'
 import { DedicatedCaptainProvisioner } from './dedicated-captain-provisioning.js'
 import { RuntimeMutationSurface } from './runtime-mutation-surface.js'
+import { ManagedActivationRecovery } from './managed-activation-recovery.js'
+import { SchedulingAdmission } from './scheduling-admission.js'
 
 export type { ToolExecutionAuthority }
 export type { ReviewProviderInput, ReviewProviderResult, SchedulerDecision, SchedulerSelectionInput, TeamReviewProvider, TeamSchedulerProvider }
@@ -46,19 +48,17 @@ export class AgentSwarmRuntime extends Service {
   private storeInstance?: StorageDomainTeamStore
   private domainHandle?: Domain<typeof teamDomainSpec>
   private startPromise?: Promise<void>
-  private readonly scheduling = new Map<string, Promise<void>>()
+  private readonly scheduling = new SchedulingAdmission({
+    run: (scope, teamId, captain) => this.schedulingPass.run(scope, teamId, captain),
+    failed: (scope, teamId, error) => {
+      if (!this.closing) this.ctx.logger.warn(`agent-swarm: scheduler failed for ${teamId}: ${String(error)}`)
+      this.orchestration.notePassFailure(scope, teamId, error)
+    },
+  })
   private readonly schedulerProviders = new Map<string, TeamSchedulerProvider>()
   private readonly reviewProviders = new Map<string, TeamReviewProvider>()
   private readonly verificationFamily = new VerificationFamily()
   private readonly ownedChildren = new Map<string, Set<string>>()
-  /**
-   * In-process single-flight of managed-Team creation keyed by the resolved
-   * operation identity (MainBrainSessionId + turn). Pure acceleration: concurrent
-   * same-identity calls share one provisioning promise. The AUTHORITATIVE
-   * correctness (and cross-process safety) is the persisted managed origin —
-   * check-then-create against Storage Domain, plus createUniqueForCaptain's
-   * origin non-duplication under the scope lock. Never the sole guarantee.
-   */
   /** Session id → its idle-stretch start, latched per `agent/status → idle` edge (issue #83; absent = task clock). */
   private readonly idleSince = new Map<string, number>()
   private readonly waitSpinFuse = new WaitSpinFuse()
@@ -69,6 +69,7 @@ export class AgentSwarmRuntime extends Service {
   private readonly captainProvisioning: DedicatedCaptainProvisioner
   private readonly schedulingPass: SchedulingPass
   private readonly mutations: RuntimeMutationSurface
+  private readonly activationRecovery: ManagedActivationRecovery
   readonly orchestration: OrchestrationOwnership
   readonly executionRoots: ExecutionRootSurface
   private closing = false
@@ -93,7 +94,7 @@ export class AgentSwarmRuntime extends Service {
     super(ctx, 'agentSwarm')
     if (!Number.isSafeInteger(config.disposalTimeoutMs) || config.disposalTimeoutMs < 1) { throw new TeamDomainError('disposalTimeoutMs must be a positive safe integer', 'TEAM_INVALID_CONFIG') }
     if (!Number.isSafeInteger(config.strandedAfterMs) || config.strandedAfterMs < 0) { throw new TeamDomainError('strandedAfterMs must be a safe non-negative integer', 'TEAM_INVALID_CONFIG') }
-    const requestSchedule = (scope: TeamScope, teamId: TeamId, captain: Agent): void => this.requestSchedule(scope, teamId, captain)
+    const requestSchedule = (scope: TeamScope, teamId: TeamId, captain: Agent): void => { void this.scheduling.request(scope, teamId, captain) }
     this.orchestration = new OrchestrationOwnership({ mode: config.orchestrationMode, requestSchedule })
     this.schedulerProviders.set('priority-ready', priorityReadyScheduler())
     this.reviewProviders.set('manual', manualReview())
@@ -134,7 +135,7 @@ export class AgentSwarmRuntime extends Service {
       eventFaceActive: (scope, teamId) => this.orchestration.eventFaceActive(scope, teamId),
       isClosing: () => this.closing,
       trackTeamChildren: (captain, team) => this.trackTeamChildren(captain, team),
-      requestSchedule: (scope, teamId, captain) => this.requestSchedule(scope, teamId, captain),
+      requestSchedule: (scope, teamId, captain) => this.scheduling.request(scope, teamId, captain),
       executionRoots: () => this.executionRoots.roots,
       executionRootsEnabled: () => this.config.executionRootsEnabled,
       sweepExecutionRoots: (scope, teamId) => this.executionRoots.sweep(scope, teamId),
@@ -147,7 +148,7 @@ export class AgentSwarmRuntime extends Service {
       afterActivation: async (scope, teamId, captain, childId) => {
         const child = this.ctx.agents.get(childId)
         if (child !== undefined) await this.usage.accountAgentUsage(scope, teamId, child)
-        this.requestSchedule(scope, teamId, captain)
+        this.scheduling.request(scope, teamId, captain)
       },
     })
     this.captainProvisioning = new DedicatedCaptainProvisioner(ctx, {
@@ -161,7 +162,11 @@ export class AgentSwarmRuntime extends Service {
       provisioning: this.provisioning, captainProvisioning: this.captainProvisioning,
       verificationFamily: this.verificationFamily, executionRoots: this.executionRoots, delivery: this.delivery,
       reviewProvider: name => this.reviewProviders.get(name),
-      requestSchedule: (scope, teamId, captain) => this.requestSchedule(scope, teamId, captain),
+      requestSchedule: (scope, teamId, captain) => this.scheduling.request(scope, teamId, captain),
+    })
+    this.activationRecovery = new ManagedActivationRecovery(ctx, {
+      teams: scope => this.listTeamAggregates(scope),
+      trackChild: (parent, childId) => this.trackChild(parent, childId),
     })
   }
   /**
@@ -348,7 +353,6 @@ export class AgentSwarmRuntime extends Service {
   /** Plan-first: archive the owning Main Brain's staged draft. */
   async discardPlan(exec: ToolExecutionAuthority, teamId: string, expectedRevision: number): Promise<TeamState> { return await this.mutations.discardPlan(exec, teamId, expectedRevision) }
 
-
   async addMember(exec: ToolExecutionAuthority, input: { name: string; role: string; provider?: string; llmProvider?: string; model?: string; denyTools?: readonly string[] } & MemberIdentityInput): Promise<TeamState['members'][number]> {
     return await this.mutations.addMember(exec, input)
   }
@@ -403,7 +407,15 @@ export class AgentSwarmRuntime extends Service {
     exec: ToolExecutionAuthority,
     input: { taskId: string; expectedRevision: number; attemptId: string; decision: 'accept' | 'reject'; diagnostic?: string },
   ): Promise<{ task: TeamTask; decision: 'accept' | 'reject' }> {
-    return await this.mutations.reviewTask(exec, input)
+    const result = await this.mutations.reviewTask(exec, input)
+    if (result.decision !== 'accept' || this.closing) return result
+    return this.scheduling.committedReview(result, exec.signal, async () => {
+      const captain = requireAgent(exec), scope = this.scopeOf(captain)
+      const membership = await this.domain.requireMembership(scope, captain.id)
+      if (!this.orchestration.eventFaceActive(scope, membership.team.id)) return
+      if ((await this.domain.snapshot(scope, membership.team.id, captain.id)).readyTaskIds.length === 0) return
+      await this.scheduling.afterReview(scope, membership.team.id, captain, exec.signal)
+    })
   }
 
   async sendMessage(
@@ -460,7 +472,7 @@ export class AgentSwarmRuntime extends Service {
     const scope = this.scopeOf(captain)
     const membership = await this.domain.requireMembership(scope, captain.id)
     const budget = await this.domain.setBudget(scope, membership.team.id, captain.id, limits)
-    return (this.requestSchedule(scope, membership.team.id, captain), budget) // §7 budget-release event (M4-3/#129): the recovery pass of held/postponed work
+    return (this.scheduling.request(scope, membership.team.id, captain), budget) // §7 budget-release event (M4-3/#129): the recovery pass of held/postponed work
   }
 
   async addMemory(
@@ -486,6 +498,8 @@ export class AgentSwarmRuntime extends Service {
     })
   }
 
+  recoverDormantManagedTeams(): Promise<void> { return this.activationRecovery.run() }
+
   async recoverAgent(agent: Agent): Promise<void> {
     if (this.closing) return
     const scope = this.scopeOf(agent)
@@ -502,25 +516,11 @@ export class AgentSwarmRuntime extends Service {
     // Single-owner discipline (M2-3): autonomous drives defer to a live run
     // owner; `workflow` mode deactivates the face entirely (docs/04 §8g).
     if (agent.status === 'idle' && this.orchestration.eventFaceActive(scope, membership.team.id)) {
-      this.requestSchedule(scope, membership.team.id, captain)
+      this.scheduling.request(scope, membership.team.id, captain)
     }
   }
 
   observeSessionEvent(session: Session, event: SessionEvent): void { this.usage.observeSessionEvent(session, event); this.provisioning.observeSessionEvent(session, event); this.captainProvisioning.observeSessionEvent(session, event) }
-
-  private requestSchedule(scope: TeamScope, teamId: TeamId, captain: Agent): void {
-    const key = `${scope}\0${teamId}`
-    const previous = this.scheduling.get(key) ?? Promise.resolve()
-    const next = previous.then(async () => { await this.schedulingPass.run(scope, teamId, captain) })
-      .catch(error => {
-        if (!this.closing) this.ctx.logger.warn(`agent-swarm: scheduler failed for ${teamId}: ${String(error)}`)
-        this.orchestration.notePassFailure(scope, teamId, error)
-      })
-      .finally(() => {
-        if (this.scheduling.get(key) === next) this.scheduling.delete(key)
-      })
-    this.scheduling.set(key, next)
-  }
 
   /**
    * Evidence-only stranded-ownership hint consumed by the status projection
@@ -562,6 +562,8 @@ export class AgentSwarmRuntime extends Service {
   async dispose(): Promise<void> {
     if (this.closing) return
     this.closing = true
+    this.scheduling.close()
+    this.activationRecovery.close()
     this.captainProvisioning.dispose()
     this.provisioning.dispose()
     this.schedulingPass.dispose()
@@ -570,9 +572,10 @@ export class AgentSwarmRuntime extends Service {
     const failures: unknown[] = []
     const bound = <T>(label: string, operation: Promise<T>): Promise<void> =>
       boundedSettle(this.ctx, this.config.disposalTimeoutMs, label, operation, failures)
+    await bound('managed activation recovery', this.activationRecovery.wait())
     await bound('Captain provisioning', this.captainProvisioning.wait())
     await bound('member provisioning', this.provisioning.wait())
-    await bound('scheduling', Promise.allSettled(this.scheduling.values()))
+    await bound('scheduling', this.scheduling.wait())
     await bound('message delivery', this.delivery.wait())
     await bound('execution roots', this.executionRoots.suspendAll())
     for (const [captainId, childIds] of this.ownedChildren) {
@@ -583,6 +586,7 @@ export class AgentSwarmRuntime extends Service {
         this.ctx.subagents.drainContinuableChildren(captain, [...childIds].map(SessionId)),
       )
     }
+    await bound('managed recovery roots', this.activationRecovery.disposeRoots())
     await bound('token accounting', this.usage.wait()) // after the child drain: final usage lands during it (issue #92, docs/04 §8k)
     await bound('aggregate store close', (async () => {
       // Reject revision waiters, stop listening to domain changes, then
@@ -593,5 +597,3 @@ export class AgentSwarmRuntime extends Service {
     if (failures.length > 0) throw new AggregateError(failures, 'Team orchestrator disposal failed')
   }
 }
-
-
