@@ -18,6 +18,11 @@ function team(id: string, captain = 'captain-a'): TeamState {
 
 const EPERM = (msg = 'injected transient rename contention') => Object.assign(new Error(msg), { code: 'EPERM' })
 
+async function open(root: string): Promise<StorageStack> {
+  const now = (() => { let t = 1000; return () => t++ })()
+  return await openStorageStack(root, now)
+}
+
 describe('issue #193 real json-backend publish seam', () => {
   let dir: string | undefined
   let stack: StorageStack | undefined
@@ -27,11 +32,6 @@ describe('issue #193 real json-backend publish seam', () => {
     if (dir !== undefined) await rm(dir, { recursive: true, force: true })
     dir = undefined
   })
-
-  async function open(root: string): Promise<StorageStack> {
-    const now = (() => { let t = 1000; return () => t++ })()
-    return await openStorageStack(root, now)
-  }
 
   function hitRealPublish(n: number, errorFactory: () => Error) {
     const unit = (stack as unknown as { domain: { unit: { publish: () => Promise<void> } } }).domain.unit

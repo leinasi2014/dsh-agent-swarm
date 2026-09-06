@@ -60,6 +60,55 @@ function billed(usage: TokenUsage): number {
     + (usage.cacheWriteTokens ?? 0)
 }
 
+/** One legal usage step: chunk sample superseded by the final message usage. */
+function billedStep(session: Session, turn: number, step: number, chunk: TokenUsage, final: TokenUsage): void {
+  session.append('step/start', { turn, step })
+  const source = session.append('assistant/chunk', {
+    turn,
+    step,
+    chunk: { type: 'usage', usage: chunk },
+  }).seq
+  session.append('assistant/message', {
+    turn,
+    step,
+    message: createMessage({
+      role: 'assistant',
+      content: [],
+      source: { kind: 'model', provider: 'mock', model: 'mock' },
+    }),
+    usage: final,
+  }, { surfaceOp: 'append', sourceEventSeqs: [source] })
+  session.append('step/end', { turn, step })
+}
+
+/** An aborted turn's partial content: the message carries usage, no chunk. */
+function interruptedStep(session: Session, turn: number, step: number, final: TokenUsage): void {
+  session.append('step/start', { turn, step })
+  session.append('assistant/message', {
+    turn,
+    step,
+    message: createMessage({
+      role: 'assistant',
+      content: [{ type: 'text', text: 'partial answer before the interrupt' }],
+      source: { kind: 'model', provider: 'mock', model: 'mock' },
+    }),
+    usage: final,
+    interrupted: true,
+  }, { surfaceOp: 'append', sourceEventSeqs: [] })
+  session.append('step/end', { turn, step })
+}
+
+/** A failed request: the provider usage chunk landed, no message followed. */
+function failedRequestStep(session: Session, turn: number, step: number, chunk: TokenUsage): void {
+  session.append('step/start', { turn, step })
+  session.append('assistant/chunk', {
+    turn,
+    step,
+    chunk: { type: 'usage', usage: chunk },
+  })
+  session.append('step/end', { turn, step })
+}
+
 describe('official tokenUsage projection versus the Team ledger (issue #127 boundary)', () => {
   let sandbox: string
   let ctx: Context
@@ -102,55 +151,6 @@ describe('official tokenUsage projection versus the Team ledger (issue #127 boun
     for (const fiber of fibers.toReversed()) await fiber.dispose()
     await rm(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   })
-
-  /** One legal usage step: chunk sample superseded by the final message usage. */
-  function billedStep(session: Session, turn: number, step: number, chunk: TokenUsage, final: TokenUsage): void {
-    session.append('step/start', { turn, step })
-    const source = session.append('assistant/chunk', {
-      turn,
-      step,
-      chunk: { type: 'usage', usage: chunk },
-    }).seq
-    session.append('assistant/message', {
-      turn,
-      step,
-      message: createMessage({
-        role: 'assistant',
-        content: [],
-        source: { kind: 'model', provider: 'mock', model: 'mock' },
-      }),
-      usage: final,
-    }, { surfaceOp: 'append', sourceEventSeqs: [source] })
-    session.append('step/end', { turn, step })
-  }
-
-  /** An aborted turn's partial content: the message carries usage, no chunk. */
-  function interruptedStep(session: Session, turn: number, step: number, final: TokenUsage): void {
-    session.append('step/start', { turn, step })
-    session.append('assistant/message', {
-      turn,
-      step,
-      message: createMessage({
-        role: 'assistant',
-        content: [{ type: 'text', text: 'partial answer before the interrupt' }],
-        source: { kind: 'model', provider: 'mock', model: 'mock' },
-      }),
-      usage: final,
-      interrupted: true,
-    }, { surfaceOp: 'append', sourceEventSeqs: [] })
-    session.append('step/end', { turn, step })
-  }
-
-  /** A failed request: the provider usage chunk landed, no message followed. */
-  function failedRequestStep(session: Session, turn: number, step: number, chunk: TokenUsage): void {
-    session.append('step/start', { turn, step })
-    session.append('assistant/chunk', {
-      turn,
-      step,
-      chunk: { type: 'usage', usage: chunk },
-    })
-    session.append('step/end', { turn, step })
-  }
 
   function officialTotal(session: Session): number {
     const value = ctx.sessionProjections.snapshot(session).values.tokenUsage

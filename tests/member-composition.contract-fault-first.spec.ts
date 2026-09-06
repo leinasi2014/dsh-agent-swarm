@@ -32,8 +32,8 @@ describe('composition contract/artifact field set (fault-first)', () => {
     const captainMembers = SWARM_READ_RPC_CONTRACT_V1.schemas.values.captainMembers as {
       properties: { members: { items: { properties: { composition: { properties: Record<string, unknown> } } } } };
     }
-    const allowed = Object.keys(captainMembers.properties.members.items.properties.composition.properties).sort()
-    expect(allowed).toEqual([...COMPOSITION_FIELDS].sort())
+    const allowed = Object.keys(captainMembers.properties.members.items.properties.composition.properties).toSorted()
+    expect(allowed).toEqual(COMPOSITION_FIELDS.toSorted())
     // additionalProperties:false means any other field is a contract violation.
     const compositionSchema = captainMembers.properties.members.items.properties.composition as unknown as { additionalProperties: boolean }
     expect(compositionSchema.additionalProperties).toBe(false)

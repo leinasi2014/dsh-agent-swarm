@@ -132,6 +132,17 @@ function harness(overrides: {
   }
 }
 
+const snapshotFor = (team: AgentSwarm.TeamState) => ({
+  snapshot: async (_scope: AgentSwarm.TeamScope, teamId: AgentSwarm.TeamId, actor: string) => {
+    if (teamId !== team.id || actor !== team.captainSessionId) {
+      throw new TeamDomainError('mismatch', 'TEAM_UNAUTHORIZED')
+    }
+    return { team, readyTaskIds: [], pendingMessageIds: [] }
+  },
+})
+
+const domainOf = (team: AgentSwarm.TeamState) => ({ snapshot: snapshotFor(team).snapshot }) as unknown as Pick<AgentSwarm.TeamDomainPort, 'snapshot'>
+
 describe('R1 Host read producer', () => {
   it('derives authority from the live root and returns a frozen redacted UI projection', async () => {
     const { service, snapshot, overlayList } = harness()
@@ -215,15 +226,6 @@ describe('R1 Host read producer', () => {
 
   it('reads a Captain-rooted Team from its Main Brain root through the descriptor chain', async () => {
     const coldCaptainTeam = teamState({ captainSessionId: 'captain-session-id', name: 'Cold captain team' })
-    const snapshotFor = (team: AgentSwarm.TeamState) => ({
-      snapshot: async (_scope: AgentSwarm.TeamScope, teamId: AgentSwarm.TeamId, actor: string) => {
-        if (teamId !== team.id || actor !== team.captainSessionId) {
-          throw new TeamDomainError('mismatch', 'TEAM_UNAUTHORIZED')
-        }
-        return { team, readyTaskIds: [], pendingMessageIds: [] }
-      },
-    })
-    const domainOf = (team: AgentSwarm.TeamState) => ({ snapshot: snapshotFor(team).snapshot }) as unknown as Pick<AgentSwarm.TeamDomainPort, 'snapshot'>
     const base = {
       currentInitiator: () => ROOT,
       isExactLiveRoot: () => true,

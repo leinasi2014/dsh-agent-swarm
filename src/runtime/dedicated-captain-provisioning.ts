@@ -108,7 +108,7 @@ export class DedicatedCaptainProvisioner {
       await this.deps.domain().archiveTeam(input.scope, team.id, captainId, 'dedicated Captain failed to start')
         .then(archived => { if (archived.phase !== 'archived') cleanup.push(new Error('Captain Team did not archive')) })
         .catch(value => cleanup.push(value))
-      if (cleanup.length > 0) throw new AggregateError([error, ...cleanup], `dedicated Captain startup failed: ${describe(error)}`)
+      if (cleanup.length > 0) throw new AggregateError([error, ...cleanup], `dedicated Captain startup failed: ${describe(error)}`, { cause: error })
       throw error
     }
   }
