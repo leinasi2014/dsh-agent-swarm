@@ -160,10 +160,10 @@ function toolPair(sessions, ref, name, owner) {
   const start = events.find(event => event.type === 'turn/start' && event.data.turn === ref.turn && event.seq < call.seq)
   const end = events.find(event => event.type === 'turn/end' && event.data.turn === ref.turn && event.seq > result.seq)
   assert(start && end && end.data.reason.kind === 'completed', 'tool pair must belong to a completed real turn')
-  const route = events.filter(event => event.type === 'request/header' && event.seq < call.seq).at(-1)?.data.header.config
-  assert(route !== undefined, 'tool call lacks actual request/header route')
+  const routeHeader = events.filter(event => event.type === 'request/header' && event.seq < call.seq).at(-1)
+  assert(routeHeader !== undefined, 'tool call lacks actual request/header route')
   if (name === 'run_code') assert(digest(result.data.textSha256) && result.data.text === undefined, 'run_code parent output must be digest-only')
-  return { args: call.data.arguments, text: result.data.text, call, result, route }
+  return { args: call.data.arguments, text: result.data.text, call, result, route: routeHeader.data.header.config, routeHeader }
 }
 
 function codePair(sessions, events, ref, name, owner, call, result) {
@@ -194,7 +194,7 @@ function codePair(sessions, events, ref, name, owner, call, result) {
     childStart = start.seq; childEnd = end.seq
   }
   return { args: call.data.arguments, text: result.data.content.map(block => block.text).join('\n'), call, result,
-    route: root.route, managedOrigin: `managed:${owner}:detached:${ref.subCallId}` }
+    route: root.route, routeHeader: root.routeHeader, managedOrigin: `managed:${owner}:detached:${ref.subCallId}` }
 }
 
 function checkTeam(team) {
@@ -368,6 +368,10 @@ export async function verifyManagedEvidence(root, manifest, expected, failures) 
       assert(!teams.ui.attempts.some(attempt => attempt.id === value.attempt.id), 'restart reused old accepted attempt')
       for (const [id, pair] of [[value.member, value.submit], [ids[1], value.review]]) {
         assert(pair.call.seq > before.get(id).events.at(-1).seq && pair.call.time >= restart.process.startedAt, 'restart evidence must be newly executed after process restart')
+        // A resumed Agent emits a lifecycle header once; later turns may reuse
+        // it. They may not borrow the stopped process's last request route.
+        assert(pair.routeHeader.seq > before.get(id).events.at(-1).seq
+          && pair.routeHeader.time >= restart.process.startedAt, 'restart request route must originate in the new process lifecycle')
       }
     }
     reader.finish()

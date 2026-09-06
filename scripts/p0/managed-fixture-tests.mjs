@@ -53,7 +53,16 @@ function fixture(commit, tree, artifact) {
   const before = structuredClone([...sessions.values()])
   const stoppedAt = ++time, startedAt = ++time
   const next = finish('member-a', 'task-next', 'model-a')
-  const continued = { ...structuredClone(reviewed), revision: 16, tasks, attempts }
+  const later = finish('member-a', 'task-later', 'model-a')
+  // Official request/header is emitted on a new loop's first request, then
+  // only on header change. Later turns legitimately reuse that lifecycle's
+  // header instead of emitting a fresh one for every tool call.
+  for (const ref of [later.submit, later.review]) {
+    const session = sessions.get(ref.sessionId)
+    const redundant = session.events.filter(event => event.type === 'request/header' && event.seq < ref.callSeq).at(-1)
+    session.events = session.events.filter(event => event !== redundant)
+  }
+  const continued = { ...structuredClone(reviewed), revision: 20, tasks, attempts }
   const files = {
     'evidence/managed-before.json': before, 'evidence/managed-after.json': [...sessions.values()],
     'evidence/managed-creation.json': created, 'evidence/managed-profile.json': profiled,
@@ -78,7 +87,7 @@ function fixture(commit, tree, artifact) {
         members: { team: 'evidence/managed-members.json', calls: recruit },
         review: { team: 'evidence/managed-review.json', submissions: [first.submit, second.submit], reviews: [first.review, second.review] },
         ui: { team: 'evidence/managed-ui-team.json', observation: 'evidence/managed-ui.json' },
-        restart: { team: 'evidence/managed-restart.json', reopenedTeam: 'evidence/managed-reopened.json', submissions: [next.submit], reviews: [next.review],
+        restart: { team: 'evidence/managed-restart.json', reopenedTeam: 'evidence/managed-reopened.json', submissions: [next.submit, later.submit], reviews: [next.review, later.review],
           process: { beforePid: 100, afterPid: 101, stoppedAt, startedAt } },
       } },
   }
@@ -186,6 +195,16 @@ export async function testManagedP0Evidence(root, artifact) {
     ['restart changed reopened state', value => { value.files['evidence/managed-reopened.json'].revision++ }],
     ['restart changed Session header', value => { value.files['evidence/managed-after.json'][1].header.createdAt++ }],
     ['restart changed prefix', value => { value.files['evidence/managed-after.json'][0].events[0].time++ }],
+    ['restart borrows old process request routes', value => {
+      for (const session of value.files['evidence/managed-after.json']) {
+        const old = value.files['evidence/managed-before.json'].find(entry => entry.header.id === session.header.id)
+        session.events = session.events.filter(event => event.type !== 'request/header' || event.seq <= old.events.at(-1).seq)
+      }
+    }],
+    ['restart header predates new process', value => {
+      const session = value.files['evidence/managed-after.json'].find(entry => entry.header.id === 'member-a')
+      session.events.filter(event => event.type === 'request/header').at(-1).time = value.manifest.managed.phases.restart.process.startedAt - 1
+    }],
     ['restart old execution', value => { value.manifest.managed.phases.restart.submissions = [value.manifest.managed.phases.review.submissions[0]]; value.manifest.managed.phases.restart.reviews = [value.manifest.managed.phases.review.reviews[0]] }],
     ['forbidden raw request context', value => { value.files['evidence/managed-before.json'][0].events.push({ type: 'request/context', seq: 999, time: 9999, data: {} }) }],
     ['forbidden hidden reasoning', value => { value.files['evidence/managed-before.json'][0].events[0].data.reasoning = 'forbidden' }],
@@ -218,6 +237,11 @@ export async function testManagedP0Evidence(root, artifact) {
     ['wrong rootCallId', value => { value.manifest.managed.phases.creation.call.rootCallId = 'wrong' }],
     ['wrong PTC turn', value => { value.manifest.managed.phases.creation.call.turn = 100 }],
     ['PTC fake turn managedOrigin', value => { for (const file of Object.values(value.files)) if (file.managedOrigin) file.managedOrigin = 'managed:main:turn:0' }],
+    ['PTC restart borrows stopped Captain route', value => {
+      const old = value.files['evidence/managed-before.json'].find(entry => entry.header.id === 'captain')
+      const session = value.files['evidence/managed-after.json'].find(entry => entry.header.id === 'captain')
+      session.events = session.events.filter(event => event.type !== 'request/header' || event.seq <= old.events.at(-1).seq)
+    }],
   ]
   for (const [label, mutate] of [
     ['PTC result missing', sessions => { sessions[0].events = sessions[0].events.filter(event => event.type !== 'tool/code-dispatch') }],
