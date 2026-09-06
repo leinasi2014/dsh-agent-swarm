@@ -12,6 +12,9 @@ import { openStorageStack, type StorageStack } from './helpers/storage-stack.js'
 
 const PIXEL = '<svg viewBox="0 0 16 16"><rect x="0" y="0" width="8" height="8" fill="#2a3"/></svg>'
 
+const mutable = (state: TeamState): Array<{ id: string; text: string; createdAt: number }> =>
+  state.announcements as unknown as Array<{ id: string; text: string; createdAt: number }>
+
 describe('Captain public profile + announcements (permission, CAS, persistence, safety)', () => {
   let sandbox: string
   let scope: string
@@ -179,8 +182,6 @@ describe('Captain public profile + announcements (permission, CAS, persistence, 
     expect(() => assertTeamState(strProfile, 'strProfile')).toThrowError(expect.objectContaining({ code: 'TEAM_STATE_CORRUPT' }))
 
     // Malformed announcement id, duplicate id, untrimmed text, non-decreasing createdAt.
-    const mutable = (state: TeamState): Array<{ id: string; text: string; createdAt: number }> =>
-      state.announcements as unknown as Array<{ id: string; text: string; createdAt: number }>
     const badId = clone(); mutable(badId)[1]!.id = 'x'
     expect(() => assertTeamState(badId, 'badId')).toThrowError(expect.objectContaining({ code: 'TEAM_STATE_CORRUPT' }))
     const dup = clone(); mutable(dup)[1]!.id = mutable(dup)[0]!.id

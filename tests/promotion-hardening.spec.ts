@@ -66,6 +66,11 @@ async function fullPassingVerdict(evidenceDir: string): Promise<AcceptanceVerdic
   return { schemaVersion: 1, candidateId: 'cand-1', tarballSha256: 'a'.repeat(64), overall: 'pass', gates, run: { drillDir: join(root, 'drill-1'), lanes: 'floor' } }
 }
 
+/** A fake extractor: materializes "package/" from a source directory (no tar binary — the real extractor runs in the drill). */
+const fakeExtractFrom = (sourceDir: string) => async (_tarball: string, destDir: string): Promise<void> => {
+  await cp(sourceDir, join(destDir, 'package'), { recursive: true })
+}
+
 describe('promotion-lane environment seal (issue #122 F2)', () => {
   it('keeps the PM session environment out of lane children while PATH/TEMP flow', async () => {
     const sentinel = 'DSH_DRILL_SENTINEL_F2'
@@ -231,11 +236,6 @@ describe('ledger chain-tail git anchors (issue #122 F5)', () => {
 })
 
 describe('installed-bytes reconciliation and pointer/ledger repair (issue #122 F3)', () => {
-  /** A fake extractor: materializes "package/" from a source directory (no tar binary — the real extractor runs in the drill). */
-  const fakeExtractFrom = (sourceDir: string) => async (_tarball: string, destDir: string): Promise<void> => {
-    await cp(sourceDir, join(destDir, 'package'), { recursive: true })
-  }
-
   it('reconciles the installed Profile bytes against the pointer generation and flags divergence', async () => {
     const layout = await freshLayout()
     // an "installed" profile dir + a matching generation tarball (content via fake extractor)

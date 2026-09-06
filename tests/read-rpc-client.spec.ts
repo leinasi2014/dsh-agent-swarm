@@ -30,6 +30,32 @@ const interactionRowFixture = {
   status: 'pending', createdAt: 1, updatedAt: 1,
 }
 
+const mrow = (over: Record<string, unknown>) => ({
+  name: 'm', role: 'r', phase: 'active', createdAt: 1,
+  avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
+  identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
+  growth: { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' },
+  composition: { state: 'available', reason: 'available', runtimeProvider: 'spawn', personaConfigured: false },
+  ...over,
+})
+
+const legal = (n: number) => `ann-00000000-0000-0000-0000-${String(n).padStart(12, '0')}`
+
+const parentRoot = (rootSessionIdForTarget: string) => ({
+  schemaVersion: 1, binding: { rootSessionId: 'main-root' }, observedAt: 1_700_000_000_200, complete: true,
+  teams: [{
+    teamId: 'team-t2', name: 'Second Team', phase: 'active', captainSessionId: 'captain-alpha',
+    avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
+    identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
+    goal: { state: 'not_generated', reason: 'goal_not_set' },
+    endpoints: {
+      members: { method: 'captainMembers', target: { rootSessionId: rootSessionIdForTarget, teamId: 'team-t2' } },
+      announcements: { method: 'captainAnnouncements', target: { rootSessionId: rootSessionIdForTarget, teamId: 'team-t2' } },
+      diagnostics: { method: 'captainDiagnostics', target: { rootSessionId: rootSessionIdForTarget, teamId: 'team-t2' } },
+    },
+  }],
+})
+
 describe('R2 browser client', () => {
   it('freezes one independently verifiable schema and semantic-fixture digest', () => {
     const digest = createHash('sha256').update(canonicalSwarmReadRpcJson({
@@ -225,21 +251,12 @@ describe('R2 browser client', () => {
 
     // captainMembers linkage rejects (not_generated+profile / generated+reason / wrong avatar reason).
     const membersBase = SWARM_READ_RPC_FIXTURES_V1.values.captainMembers
-    const mrow = (over: Record<string, unknown>) => ({
-      name: 'm', role: 'r', phase: 'active', createdAt: 1,
-      avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
-      identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
-      growth: { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' },
-      composition: { state: 'available', reason: 'available', runtimeProvider: 'spawn', personaConfigured: false },
-      ...over,
-    })
     expect(() => assertSwarmReadRpcValue('captainMembers', { ...membersBase, members: [mrow({ identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' }, displayName: 'p' })] })).toThrow()
     expect(() => assertSwarmReadRpcValue('captainMembers', { ...membersBase, members: [mrow({ identityCard: { state: 'generated', reason: 'x' }, displayName: 'p' })] })).toThrow()
     expect(() => assertSwarmReadRpcValue('captainMembers', { ...membersBase, members: [mrow({ avatar: { state: 'not_generated', reason: 'WRONG' } })] })).toThrow()
 
     // Announcement id/uniqueness/ordering/canonical/date semantics.
     const annBase = SWARM_READ_RPC_FIXTURES_V1.values.captainAnnouncements
-    const legal = (n: number) => `ann-00000000-0000-0000-0000-${String(n).padStart(12, '0')}`
     expect(() => assertSwarmReadRpcValue('captainAnnouncements', annBase)).not.toThrow()
     expect(() => assertSwarmReadRpcValue('captainAnnouncements', { ...annBase, entries: [{ id: 'ann-1', text: 'a', createdAt: 100 }] })).toThrow() // bad id
     expect(() => assertSwarmReadRpcValue('captainAnnouncements', { ...annBase, entries: [{ id: legal(1), text: '  padded  ', createdAt: 100 }] })).toThrow() // untrimmed
@@ -247,20 +264,6 @@ describe('R2 browser client', () => {
     expect(() => assertSwarmReadRpcValue('captainAnnouncements', { ...annBase, entries: [{ id: legal(1), text: 'a', createdAt: 100 }, { id: legal(1), text: 'b', createdAt: 200 }] })).toThrow() // duplicate
     expect(() => assertSwarmReadRpcValue('captainAnnouncements', { ...annBase, entries: [{ id: legal(1), text: 'a', createdAt: 200 }, { id: legal(2), text: 'b', createdAt: 100 }] })).toThrow() // non-decreasing
 
-    const parentRoot = (rootSessionIdForTarget: string) => ({
-      schemaVersion: 1, binding: { rootSessionId: 'main-root' }, observedAt: 1_700_000_000_200, complete: true,
-      teams: [{
-        teamId: 'team-t2', name: 'Second Team', phase: 'active', captainSessionId: 'captain-alpha',
-        avatar: { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
-        identityCard: { state: 'not_generated', reason: 'identity_backend_not_implemented' },
-        goal: { state: 'not_generated', reason: 'goal_not_set' },
-        endpoints: {
-          members: { method: 'captainMembers', target: { rootSessionId: rootSessionIdForTarget, teamId: 'team-t2' } },
-          announcements: { method: 'captainAnnouncements', target: { rootSessionId: rootSessionIdForTarget, teamId: 'team-t2' } },
-          diagnostics: { method: 'captainDiagnostics', target: { rootSessionId: rootSessionIdForTarget, teamId: 'team-t2' } },
-        },
-      }],
-    })
     expect(() => assertSwarmReadRpcValue('teams', parentRoot('main-root'))).not.toThrow()
     expect(() => assertSwarmReadRpcValue('teams', parentRoot('captain-alpha'))).toThrow()
 

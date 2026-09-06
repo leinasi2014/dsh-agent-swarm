@@ -113,6 +113,18 @@ function teamFixture(overrides: Partial<TeamState> = {}): TeamState {
   }
 }
 
+const textsOf = (events: readonly { type: string, data: unknown }[]): string[] => {
+  const texts: string[] = []
+  for (const event of events) {
+    const data = event.data as { content?: unknown, inserted?: unknown } | null
+    const blocks = Array.isArray(data?.content) ? data.content : Array.isArray(data?.inserted) ? data.inserted : []
+    for (const block of blocks as { type?: string, text?: string }[]) {
+      if (block?.type === 'text' && typeof block.text === 'string') texts.push(block.text)
+    }
+  }
+  return texts
+}
+
 describe('execution-root provider isolation (M3-1, issue #100)', () => {
   it('scenario 21: two parallel attempts hold distinct worktree roots with zero cross-contamination', async () => {
     const sandbox = await freshSandbox('parallel')
@@ -396,17 +408,6 @@ describe('execution-root composition wiring (M3-1, issue #100)', () => {
       expect(ctx.agentSwarm.executionRoots.roots.leaseOf(scope, teamId, claimed.id, attemptId)?.path).toBe(expectedPath)
       // The delivered frame declares the root through the official cwd seam:
       // the member sees the absolute path it must use as its shell workdir.
-      const textsOf = (events: readonly { type: string, data: unknown }[]): string[] => {
-        const texts: string[] = []
-        for (const event of events) {
-          const data = event.data as { content?: unknown, inserted?: unknown } | null
-          const blocks = Array.isArray(data?.content) ? data.content : Array.isArray(data?.inserted) ? data.inserted : []
-          for (const block of blocks as { type?: string, text?: string }[]) {
-            if (block?.type === 'text' && typeof block.text === 'string') texts.push(block.text)
-          }
-        }
-        return texts
-      }
       await vi.waitFor(async () => {
         const stored = await ctx.sessionPersistence.inspect(SessionId(memberId), new AbortController().signal)
         expect(textsOf(stored.events).some(text => text.includes(expectedPath))).toBe(true)
@@ -517,8 +518,8 @@ describe('execution-root composition wiring (M3-1, issue #100)', () => {
         expect(settled.team.tasks.find((candidate: TeamTask) => candidate.id === claimed.id)?.status).toBe('submitted')
       }, { timeout: 20_000 })
       const settled = await ctx.agentSwarm.domain.snapshot(scope, teamId, composition.lead.id)
-      const attempt = settled.team.attempts.find((candidate: TaskAttempt) => candidate.id === attemptId)
-      const durableDiff = attempt?.evidence.some(entry => /\.(patch|diff)(\b|$)/i.test(entry)) ?? false
+      const settledAttempt = settled.team.attempts.find((candidate: TaskAttempt) => candidate.id === attemptId)
+      const durableDiff = settledAttempt?.evidence.some(entry => /\.(patch|diff)(\b|$)/i.test(entry)) ?? false
       expect(durableDiff).toBe(true)
     } finally {
       for (const fiber of composition.fibers.toReversed()) await fiber.dispose()
