@@ -378,12 +378,6 @@ describe('execution-root composition wiring (M3-1, issue #100)', () => {
         const leased = ctx.agentSwarm.executionRoots.roots.leaseOf(scope, teamId, claimedNow!.id, claimedNow!.currentAttemptId!)
         expect(leased).toBeDefined()
         expect(existsSync(join(leased!.path, EXECUTION_ROOT_MARKER))).toBe(true)
-        // Root allocation precedes the queued assignment's cold resume. Wait
-        // for this exact attempt to reach the model before invoking its tools.
-        expect(adapter.requests.some(request => request.messages.some(message => message.role === 'user'
-          && message.content.some(block => block.type === 'text'
-            && block.text.includes(`Attempt capability: ${claimedNow!.currentAttemptId!}`))))).toBe(true)
-        expect(ctx.agents.get(SessionId(memberId))?.status).toBe('running')
         const attempt = snapshot.team.attempts.find(candidate => candidate.id === claimedNow!.currentAttemptId)
         expect(attempt?.assignmentPhase).toBe('delivered')
         expect(ctx.agents.get(SessionId(memberId))?.status).toBe('running')
@@ -474,6 +468,13 @@ describe('execution-root composition wiring (M3-1, issue #100)', () => {
         const leased = ctx.agentSwarm.executionRoots.roots.leaseOf(scope, teamId, claimedNow!.id, claimedNow!.currentAttemptId!)
         expect(leased).toBeDefined()
         expect(existsSync(join(leased!.path, EXECUTION_ROOT_MARKER))).toBe(true)
+        // The root is leased before the assignment cold-resumes its member.
+        const attempt = snapshot.team.attempts.find(candidate => candidate.id === claimedNow!.currentAttemptId)
+        expect(attempt?.assignmentPhase).toBe('delivered')
+        expect(adapter.requests.some(request => request.messages.some(message => message.role === 'user'
+          && message.content.some(block => block.type === 'text'
+            && block.text.includes(`Attempt capability: ${claimedNow!.currentAttemptId!}`))))).toBe(true)
+        expect(ctx.agents.get(SessionId(memberId))?.status).toBe('running')
       }, { timeout: 20_000 })
       const snapshot = await ctx.agentSwarm.domain.snapshot(scope, teamId, composition.lead.id)
       const claimed = snapshot.team.tasks.find((candidate: TeamTask) => candidate.status === 'in_progress')!

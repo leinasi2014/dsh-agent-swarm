@@ -8,9 +8,10 @@ import { TEAM_DASHBOARD_NS } from './team-dashboard-locales.js'
 import { SafePixelAvatar } from './SafePixelAvatar.js'
 import { deriveMemberActivity, deriveMemberTone, memberAssetOf, formatTime, toneLabel, enumLabel, type DetailSelection } from './team-dashboard-view-helpers.js'
 
-export function ManageView({ data, memberAssets, number, onManageViaCaptain, onOpenDetail, t }: {
+export function ManageView({ data, memberAssets, hasCaptain, number, onManageViaCaptain, onOpenDetail, t }: {
   readonly data: SwarmHostReadProjectionV1
   readonly memberAssets: SwarmReadCaptainMembersV1 | undefined
+  readonly hasCaptain: boolean
   readonly number: Intl.NumberFormat
   readonly onManageViaCaptain: () => void
   readonly onOpenDetail: (selection: DetailSelection) => void
@@ -19,7 +20,7 @@ export function ManageView({ data, memberAssets, number, onManageViaCaptain, onO
   return <div className="swarm-team-workspace__manage" data-swarm-manage-view>
     <div className="swarm-team-workspace__manage-row" data-swarm-manage-members>
       <span className="swarm-team-workspace__table-copy"><strong>{t('manage.membersTitle')}</strong><small>{t('manage.membersDesc', { count: number.format(data.totals.roster) })}</small></span>
-      <button className="swarm-team-workspace__manage-action" type="button" onClick={onManageViaCaptain} title={t('manageViaCaptain')}>{t('manage.open')}</button>
+      <button className="swarm-team-workspace__manage-action" type="button" disabled={!hasCaptain} onClick={onManageViaCaptain} title={t(hasCaptain ? 'manageViaCaptain' : 'captainNotCreated')}>{t(hasCaptain ? 'manage.open' : 'captainNotCreated')}</button>
     </div>
     <div className="swarm-team-workspace__manage-row" data-swarm-manage-growth>
       <span className="swarm-team-workspace__table-copy"><strong>{t('manage.growthTitle')}</strong><small>{t('manage.growthDesc')}</small></span>

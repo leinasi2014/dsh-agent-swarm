@@ -506,7 +506,7 @@ function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, sta
                 </section>}
         </div>}
         {view === 'manage' && <div role="tabpanel" id="swarm-panel-manage" aria-labelledby="swarm-tab-manage" data-swarm-panel="manage">
-          <ManageView data={data} memberAssets={memberAssets} number={number} onManageViaCaptain={onCaptainSession} onOpenDetail={openDetail} t={t} />
+          <ManageView data={data} memberAssets={memberAssets} hasCaptain={hasCaptain} number={number} onManageViaCaptain={onCaptainSession} onOpenDetail={openDetail} t={t} />
         </div>}
       </main>
       </div>

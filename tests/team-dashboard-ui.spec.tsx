@@ -99,6 +99,12 @@ describe('R3 native Team Details surface', () => {
     expect(document.querySelector('[data-swarm-staged-plan-hint]')).not.toBeNull()
     expect(document.querySelector<HTMLButtonElement>('[data-swarm-captain-desk]')?.disabled).toBe(true)
     expect(document.querySelector('[data-swarm-captain-state]')?.textContent).toContain('Captain not created')
+    await act(async () => { tabButton('manage').click() })
+    const manageCaptain = document.querySelector<HTMLButtonElement>('[data-swarm-manage-members] button')!
+    expect(manageCaptain.disabled).toBe(true)
+    expect(manageCaptain.textContent).toContain('Captain not created')
+    await act(async () => { manageCaptain.click() })
+    expect(coordinator.openCaptainChat).not.toHaveBeenCalled()
   })
   it('uses the unique public Details occupant: team rail, header title, goal/announcement cards, four tabs', async () => {
     const coordinator = new FakeCoordinator(); const common = { anchorRef: { current: null }, controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t }

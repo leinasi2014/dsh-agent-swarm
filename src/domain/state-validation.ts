@@ -64,7 +64,7 @@ const PLAN_TASK_KEYS = new Set(['key', 'subject', 'description', 'acceptanceCrit
 const MAX_PLAN_ROWS = 64
 
 /** Structural + bounded validation of the pre-approval plan declaration. */
-function assertPlanDraftShape(value: unknown, path: string): void {
+export function assertPlanDraftShape(value: unknown, path: string): void {
   const draft = record(value, path, 'planDraft')
   exactKeys(draft, path, new Set(['members', 'tasks']))
   const memberNames = new Set<string>()
@@ -396,6 +396,5 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
     corrupt(path, error instanceof Error ? error.message : 'task graph is invalid')
   }
 }
-
 
 

@@ -11,7 +11,8 @@ import { z } from 'zod'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import { CAPTAIN_ANNOUNCEMENT_ID_RE, isSafePixelAvatarSvg, MAX_CAPTAIN_ANNOUNCEMENTS } from '../domain/identity-profile.js'
 import type { MigrationReceipt, TeamScope } from '../domain/team-domain-port.js'
-import type { TeamId, TeamState } from '../domain/types.js'
+import type { TeamId, TeamPlanDraft, TeamState } from '../domain/types.js'
+import { assertPlanDraftShape } from '../domain/state-validation.js'
 import { MAX_TEAM_ALLOWED_SKILLS } from '../domain/team-skill-policy.js'
 
 /** Storage Domain unit/table names must satisfy the official `UNIT_NAME_RE`. */
@@ -213,8 +214,15 @@ const teamFields = {
     revision: z.number().int().min(1),
     name: z.string().min(1),
     description: z.string().min(1),
-    captainSessionId: sessionId,
-    phase: z.enum(['active', 'archived']),
+    captainSessionId: z.string(),
+    phase: z.enum(['staged', 'active', 'archived']),
+    // Reuse the strict domain validator so nested optional plan fields survive
+    // reload unchanged, including the approved plan used by startup recovery.
+    planDraft: z.custom<TeamPlanDraft>(value => {
+      try { assertPlanDraftShape(value, 'planDraft'); return true }
+      catch { return false }
+    }, { message: 'invalid planDraft' }).optional(),
+    discardReason: codePointCapped(128, 'discardReason').optional(),
     // Managed-Team operation identity (MainBrainSessionId + turn). Optional and
     // absent on plain captain-owned compatibility Teams so pre-existing records
     // parse byte-identical; a managed Team persists it so reload can reuse.
@@ -249,7 +257,13 @@ const teamFields = {
 const teamSchema = z.discriminatedUnion('schemaVersion', [
   z.object({ schemaVersion: z.literal(1), ...teamFields }).strict(),
   z.object({ schemaVersion: z.literal(2), ...teamFields, interactionEffects: z.array(interactionEffectSchema) }).strict(),
-])
+]).superRefine((team, ctx) => {
+  const captainless = team.phase === 'staged' || (team.phase === 'archived' && team.discardReason === 'discarded')
+  if (captainless ? team.captainSessionId !== '' : team.captainSessionId === '') {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['captainSessionId'], message: captainless
+      ? 'staged/discarded Team must not carry a Captain session' : 'Captain session is required' })
+  }
+})
 
 /** Structural durable-boundary schema of one `teams` record. */
 const storedTeamRecordSchema = z.object({

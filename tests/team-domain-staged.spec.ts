@@ -17,6 +17,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { TeamDomain } from '../src/domain/team-domain.js'
 import type { TeamPlanDraft } from '../src/domain/types.js'
+import { teamDomainSpec } from '../src/storage/team-spec.js'
 import { openStorageStack, type StorageStack } from './helpers/storage-stack.js'
 
 const draft: TeamPlanDraft = {
@@ -83,5 +84,44 @@ describe('staged plan lifecycle (S1)', () => {
     expect(discarded.discardReason).toBe('discarded')
     expect(discarded.planDraft).toBeUndefined()
     await expect(domain.discardStagedPlan(scope, team.id, discarded.revision)).resolves.toMatchObject({ phase: 'archived' })
+  })
+
+  it.each(['bare', 'planned', 'approved', 'discarded'] as const)('reloads the %s lifecycle state from a closed Storage Domain without losing fields', async state => {
+    let expected = await domain.createStagedManaged(scope, `managed:root:reload:${state}`, '重启验收', '保留真实计划')
+    if (state !== 'bare') {
+      expected = await domain.setPlanDraft(scope, expected.id, expected.revision, {
+        members: [{ name: 'researcher', role: '性能与安全分析', llmProvider: 'provider', model: 'model', denyTools: ['delete'] }],
+        tasks: [
+          { key: 'first', subject: '核对', description: '检查资料', acceptanceCriteria: ['留下证据'], writeScopes: ['docs'], targetMemberName: 'researcher' },
+          { key: 'second', subject: '复核', description: '检查前置结论', dependencies: ['first'] },
+        ],
+      })
+    }
+    if (state === 'approved') expected = await domain.approveStagedPlan(scope, expected.id, expected.revision, 'captain-real-session')
+    if (state === 'discarded') expected = await domain.discardStagedPlan(scope, expected.id, expected.revision)
+    await stack.close()
+    stack = await openStorageStack(join(sandbox, 'storage'), () => 2_000)
+    domain = stack.port as TeamDomain
+    expect(await stack.store.read(scope, expected.id)).toEqual(expected)
+    if (state === 'bare' || state === 'planned') {
+      expect(await domain.createStagedManaged(scope, `managed:root:reload:${state}`, '重启验收', '保留真实计划')).toEqual(expected)
+    }
+  })
+
+  it('keeps the durable boundary strict for Captain ownership and malformed nested plans', async () => {
+    const team = await domain.createStagedManaged(scope, 'managed:root:invalid', '边界验收', '拒绝无效记录')
+    const parse = (patch: object) => teamDomainSpec.tables.teams.valueSchema.safeParse({ workspace: scope, team: { ...team, ...patch } })
+    for (const patch of [
+      { phase: 'active' },
+      { phase: 'archived' },
+      { captainSessionId: 'unexpected-captain' },
+      { phase: 'archived', discardReason: 'discarded', captainSessionId: 'unexpected-captain' },
+      { discardReason: 'x'.repeat(129) },
+      { planDraft: { ...draft, extra: true } },
+      { planDraft: { ...draft, members: [{ ...draft.members[0], extra: true }] } },
+      { planDraft: { ...draft, members: [{ ...draft.members[0], name: 'x'.repeat(65) }] } },
+      { planDraft: { ...draft, tasks: [{ ...draft.tasks[0], dependencies: ['missing'] }] } },
+      { planDraft: { ...draft, tasks: [{ ...draft.tasks[0], targetMemberName: 'missing' }] } },
+    ]) expect(parse(patch).success).toBe(false)
   })
 })
