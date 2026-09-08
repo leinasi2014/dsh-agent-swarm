@@ -8,6 +8,9 @@ import type { SwarmReadCaptainSectionRequest, SwarmReadRpcValue, SwarmReadCaptai
 /** Projection of a Team already admitted by the Host target authority. */
 export async function readCaptainSection(ctx: Context, team: TeamState, request: SwarmReadCaptainSectionRequest): Promise<SwarmReadRpcValue> {
     const observedAt = Date.now()
+    // Captainless drafts were admitted by managed origin; their real owner is
+    // the read anchor, without creating or impersonating a Captain Session.
+    const rootSessionId = team.captainSessionId || request.target.rootSessionId
     switch (request.method) {
       case 'captainMembers': {
         // Row-local composition (captainMembers.composition.v1): the shared
@@ -61,7 +64,7 @@ export async function readCaptainSection(ctx: Context, team: TeamState, request:
         }))
         return {
           schemaVersion: 1,
-          binding: { rootSessionId: team.captainSessionId, teamId: team.id },
+          binding: { rootSessionId, teamId: team.id },
           // Issue #184 A5: the immutable Team eligibility policy, distinct from the
           // Session-visible catalog and the per-member assigned subset.
           ...(team.allowedSkills === undefined ? {} : { teamAllowedSkills: [...team.allowedSkills] }),
@@ -76,7 +79,7 @@ export async function readCaptainSection(ctx: Context, team: TeamState, request:
           .map(announcement => ({ id: announcement.id, text: announcement.text, createdAt: announcement.createdAt }))
         return {
           schemaVersion: 1,
-          binding: { rootSessionId: team.captainSessionId, teamId: team.id },
+          binding: { rootSessionId, teamId: team.id },
           state: 'available',
           entries,
           observedAt,
@@ -85,7 +88,7 @@ export async function readCaptainSection(ctx: Context, team: TeamState, request:
       case 'captainDiagnostics': {
         return {
           schemaVersion: 1,
-          binding: { rootSessionId: team.captainSessionId, teamId: team.id },
+          binding: { rootSessionId, teamId: team.id },
           diagnostics: {
             revision: team.revision,
             phase: team.phase,

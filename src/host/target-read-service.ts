@@ -41,7 +41,7 @@ export class HostTargetReadService {
   private async readProjection(target: SwarmReadTargetHint, afterCursor?: string) {
     const { root, team } = await this.boundTeam(target)
     this.assertUnchanged(root)
-    return this.host.projectAuthorizedTeam(team, root.cwd, afterCursor)
+    return this.host.projectAuthorizedTeam(team, root.cwd, afterCursor, team.captainSessionId || root.id)
   }
 
   private async readSection(request: SwarmReadCaptainSectionRequest) {
@@ -117,6 +117,15 @@ export class HostTargetReadService {
         continue
       }
       if (root.parentSession !== undefined) continue // a member/child never inherits its parent's Teams
+      // A plan-first Team has no Captain descriptor yet. Its durable managed
+      // origin proves ownership; the actual root still comes from DSH above.
+      if (team.captainSessionId === ''
+        && (team.phase === 'staged' || (team.phase === 'archived' && team.discardReason === 'discarded'))
+        && team.managedOrigin?.startsWith(`managed:${root.id}:`)) {
+        visible.push(team)
+        continue
+      }
+      if (team.captainSessionId === '') continue
       const captain = this.ctx.agents.get(SessionId(team.captainSessionId))
       const descriptor = captain?.session.header ?? this.ctx.sessions.get(SessionId(team.captainSessionId))?.header
         ?? await this.persistedHeader(team.captainSessionId)

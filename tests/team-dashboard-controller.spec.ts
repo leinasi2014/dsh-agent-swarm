@@ -482,6 +482,32 @@ describe('TeamDashboardController', () => {
     controller.dispose()
   })
 
+  it('loads a captainless draft as ready and rejects a fake Captain Chat handoff', async () => {
+    const seen: SwarmReadRpcRequest[] = []
+    const normal = goodFetch(seen)
+    const fetcher: SwarmFetch = async (input, init) => {
+      const request = requestOf(init)
+      if (request.method === 'teams') return success({ ...teams, teams: teams.teams.map(row => ({ ...row, phase: 'staged', captainSessionId: '' })) })
+      if (request.method === 'binding') return success({ ...binding, team: { ...binding.team, phase: 'staged' } })
+      if (request.method === 'snapshot') return success({ ...snapshot, team: { ...snapshot.team, phase: 'staged' },
+        roster: [], tasks: [], attempts: [], pendingInteractions: [], totals: { roster: 0, tasks: 0, attempts: 0, pendingInteractions: 0 } })
+      if (request.method === 'captainMembers') return success({ ...captainMembers, members: [] })
+      if (request.method === 'captainDiagnostics') return success({ ...captainDiagnostics,
+        diagnostics: { ...captainDiagnostics.diagnostics, phase: 'staged', taskCount: 0, attemptCount: 0, memberCount: 0 } })
+      if (request.method === 'page') return success({ kind: request.page.kind, entries: [], offset: 0, limit: request.page.limit ?? 50,
+        visibleTotal: 0, authoritativeTotal: 0, projectionTruncated: false, cursor: CURSOR, changed: false, resyncRequired: false, observedAt: snapshot.observedAt })
+      return normal(input, init)
+    }
+    const controller = new TeamDashboardController(new SwarmReadClient(fetcher), new ManualSchedule())
+    controller.open('root-1')
+    await waitFor(() => controller.getSnapshot().phase === 'ready')
+    const opened: string[] = []
+    await expect(controller.openCaptainChat(id => opened.push(id))).rejects.toThrow('until a Captain Session is created')
+    expect(opened).toEqual([])
+    expect(controller.getSnapshot().phase).toBe('ready')
+    controller.dispose()
+  })
+
   it('fails closed when the Captain binding changes before handoff', async () => {
     const seen: SwarmReadRpcRequest[] = []
     let handoff = false

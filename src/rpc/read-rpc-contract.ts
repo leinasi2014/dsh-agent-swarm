@@ -118,7 +118,7 @@ export interface SwarmReadTeamV1 {
   readonly teamId: string
   readonly name: string
   readonly phase: 'staged' | 'active' | 'archived'
-  /** Dedicated Captain Session id of this Team; the caller opens it via the official Session seam. */
+  /** Dedicated Captain Session id; empty only for an unstarted or discarded draft. */
   readonly captainSessionId: string
   /** Captain-declared display name; present only when the identity card is `generated`. */
   readonly displayName?: string
@@ -434,4 +434,3 @@ function strictEnvelopeRecord(value: unknown, allowed: ReadonlySet<string>): Rec
   }
   return record
 }
-

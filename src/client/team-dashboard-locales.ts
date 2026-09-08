@@ -116,6 +116,7 @@ export const en = {
   'taskBlocked': 'Blocked by {count}',
   'captainMainChatTitle': 'Open this Team Captain Chat',
   'captainOpenSession': 'Open Captain session',
+  'captainNotCreated': 'Captain not created',
   'captainCurrentSession': 'Current Captain session',
   'captainCurrentSessionTitle': 'Already viewing this Team Captain session',
   'captainCurrent': '{team} Captain',
@@ -363,6 +364,7 @@ export const zh: Record<keyof typeof en, string> = {
   'taskBlocked': '被 {count} 项阻塞',
   'captainMainChatTitle': '打开此团队的队长 Chat',
   'captainOpenSession': '打开队长会话',
+  'captainNotCreated': '队长尚未创建',
   'captainCurrentSession': '当前队长会话',
   'captainCurrentSessionTitle': '当前已在此团队的队长会话中',
   'captainCurrent': '{team} 队长',
@@ -495,4 +497,3 @@ export const zh: Record<keyof typeof en, string> = {
 }
 
 export type TeamDashboardKey = keyof typeof en
-

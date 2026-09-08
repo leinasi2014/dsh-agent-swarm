@@ -108,4 +108,6 @@ Plugin Settings 是独立的官方 Settings Consumer。它配置默认模型、�
 
 `HostTargetReadService` 统一解析 live/cold Session、Captain 父子关系、scope 和可见 Team，服务 snapshot/page、Captain sections、Team selector 与 Skill catalog。RPC 只处理传输信任、严格解析及响应投影；不直接读取 Team store/snapshot 或成员/Skill Registry。每次 selector 读取从一次 canonical aggregate list 投影完整 Captain identity 和 public goal，不建立跨请求缓存或索引。
 
+尚未创建 Captain 的 staged Team，以及显式 discarded 的草稿归档，以同 scope 内的持久 `managedOrigin` 精确证明所属 Main Brain。读取仍要求官方 live 或持久化 root Session，child 与其他 root 不继承草稿。Selector 保留真实的空 `captainSessionId`；binding、snapshot/page 和三个 Captain sections 使用所属 root 作为读取锚点，UI 明示队长尚未创建并禁止 Captain Chat 交接。该只读路径不批准计划、不创建 Session，也不放宽 active Team 的 Captain 绑定。
+
 `tests/host-read-scale.spec.ts` 在真实 Storage Domain 上，以两个 Team、1/2/8 成员和 0/32/128 条任务历史测量同一次 teams RPC：优化前 list=2、store get=4、aggregate clone=4；优化后为 1/2/2。该 fixture 的响应均为 1641 UTF-8 bytes，成员及任务历史不进入 selector payload；这是操作计数，不是延迟或全部 UI 流量承诺。对应回归要求当前候选始终一次 list；可选 `SWARM_READ_BASELINE` 只用于对接受基线进行只读测量。

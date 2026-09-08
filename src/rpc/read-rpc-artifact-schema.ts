@@ -8,7 +8,7 @@ import {
 } from './read-rpc-contract.js'
 
 const SWARM_READ_RPC_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
-export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '2770961880caa0a382d2ec8e2efd7662232d78d118ebf3b7d80f28689f158813' as const
+export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = 'b1e98b06fd246e0521540f7d7acd570d65d240e4fc0e443d5869be7f1f5851b5' as const
 
 const boundedString = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength, pattern: '\\S' })
 /** Member role is authoritative free-text (never truncated by the reader); the
@@ -75,7 +75,7 @@ const teamGoal = {
     },
   ],
 }
-const teamDescriptor = {
+const teamDescriptorWithCaptain = {
   type: 'object', additionalProperties: false,
   required: ['teamId', 'name', 'phase', 'captainSessionId', 'avatar', 'identityCard', 'goal', 'endpoints'],
   properties: {
@@ -93,6 +93,13 @@ const teamDescriptor = {
       properties: { members: endpointRef, announcements: endpointRef, diagnostics: endpointRef },
     },
   },
+}
+const teamDescriptor = {
+  oneOf: [teamDescriptorWithCaptain, {
+    ...teamDescriptorWithCaptain,
+    properties: { ...teamDescriptorWithCaptain.properties,
+      phase: { enum: ['staged', 'archived'] }, captainSessionId: { const: '' } },
+  }],
 }
 const memberGrowth = {
   type: 'object', additionalProperties: false,

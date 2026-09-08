@@ -97,6 +97,8 @@ describe('R3 native Team Details surface', () => {
     expect(document.querySelector('[data-swarm-staged-plan-summary]')?.textContent).toContain('2 members')
     expect(document.querySelector('[data-swarm-staged-plan-summary]')?.textContent).toContain('3 tasks')
     expect(document.querySelector('[data-swarm-staged-plan-hint]')).not.toBeNull()
+    expect(document.querySelector<HTMLButtonElement>('[data-swarm-captain-desk]')?.disabled).toBe(true)
+    expect(document.querySelector('[data-swarm-captain-state]')?.textContent).toContain('Captain not created')
   })
   it('uses the unique public Details occupant: team rail, header title, goal/announcement cards, four tabs', async () => {
     const coordinator = new FakeCoordinator(); const common = { anchorRef: { current: null }, controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t }

@@ -267,8 +267,9 @@ function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, sta
   // The binding is the only authority for Captain navigation. It is not a personal activity
   // projection, so describe the actual Session relationship instead of calling the Captain
   // unavailable or inventing a working-state claim.
-  const viewingCaptain = state.targetSessionId === data.binding.rootSessionId
-  const captainStateText = viewingCaptain ? t('captainCurrentSession') : t('captainOpenSession')
+  const hasCaptain = Boolean(boundCaptain?.captainSessionId)
+  const viewingCaptain = hasCaptain && state.targetSessionId === data.binding.rootSessionId
+  const captainStateText = !hasCaptain ? t('captainNotCreated') : viewingCaptain ? t('captainCurrentSession') : t('captainOpenSession')
   const reviewTasks = data.tasks.filter(task => task.status === 'submitted' || task.status === 'verifying')
   const activities = data.attempts.toSorted((left, right) => right.updatedAt - left.updatedAt).slice(0, 3)
   const entries = announcements?.state === 'available' ? announcements.entries : []
@@ -385,10 +386,10 @@ function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, sta
             <button
               className="swarm-team-workspace__desk"
               type="button"
-              disabled={handoffBusy || viewingCaptain}
+              disabled={handoffBusy || viewingCaptain || !hasCaptain}
               data-swarm-captain-desk
               data-swarm-captain-current={viewingCaptain ? 'true' : 'false'}
-              title={viewingCaptain ? t('captainCurrentSessionTitle') : t('captainMainChatTitle')}
+              title={!hasCaptain ? t('captainNotCreated') : viewingCaptain ? t('captainCurrentSessionTitle') : t('captainMainChatTitle')}
               onClick={onCaptainSession}
             >
               <span className="swarm-team-workspace__avatar"><SafePixelAvatar seed={boundCaptain?.name ?? ''} asset={boundCaptain?.avatar ?? NOT_GENERATED_AVATAR} name={captainName} t={t} /></span>
@@ -396,7 +397,7 @@ function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, sta
                 <strong className="swarm-team-workspace__desk-name" data-swarm-captain-visible-name={captainName} title={captainName}>{captainName}<b className="swarm-team-workspace__captain-badge">{t('captainRole')}</b></strong>
                 <small className="swarm-team-workspace__desk-role" data-swarm-captain-profession={captainProfession ?? ''}>{captainProfession ?? t('profileNotGenerated')}</small>
               </span>
-              <span className="swarm-team-workspace__desk-state" data-swarm-captain-state={captainStateText}>{captainStateText}<span aria-hidden="true">{viewingCaptain ? '' : ' →'}</span></span>
+              <span className="swarm-team-workspace__desk-state" data-swarm-captain-state={captainStateText}>{captainStateText}<span aria-hidden="true">{viewingCaptain || !hasCaptain ? '' : ' →'}</span></span>
             </button>
             <div className="swarm-team-workspace__members" role="list" aria-label={t('members')}>
             {data.roster.map(member => {

@@ -16,6 +16,10 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { TeamId } from '../src/domain/types.js'
+import { AgentSwarmReadRpcService } from '../src/rpc/read-rpc-service.js'
+import { assertSwarmReadRpcValue } from '../src/rpc/read-rpc-artifact.js'
+import type { SwarmReadRpcRequest } from '../src/rpc/read-rpc-contract.js'
+import { SwarmReadClient } from '../src/client/read-client.js'
 import { mount, toolCall } from './helpers/gated-composition.js'
 
 describe('plan-first tool surface (S2)', () => {
@@ -23,6 +27,55 @@ describe('plan-first tool surface (S2)', () => {
 
   afterEach(async () => {
     await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })))
+  })
+
+  it('reads unstarted and discarded managed Teams through the owner UI without provisioning a Captain', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-swarm-plan-ui-'))
+    roots.push(sandbox)
+    const composition = await mount(sandbox, 60_000)
+    const { ctx } = composition
+    const rpc = new AgentSwarmReadRpcService({ ctx, runtime: ctx.agentSwarm, hostRead: ctx.agentSwarmHostRead,
+      webServer: { host: '127.0.0.1', port: 8279, register: () => () => {} } })
+    const client = new SwarmReadClient(async (_input, init) => new Response(JSON.stringify({
+      schemaVersion: 1, ok: true, value: await rpc.invoke(JSON.parse(String(init?.body))),
+    }), { status: 200 }))
+    const read = async (request: SwarmReadRpcRequest) => {
+      const envelope = await client.request(request)
+      if (!envelope.ok) throw new Error(envelope.error.message)
+      return envelope.value
+    }
+    try {
+      const owner = ctx.agentLoop.create(SessionId(`plan-ui-${Date.now()}`), { provider: 'mock', model: 'mock' }, { cwd: composition.scope })
+      const stranger = ctx.agentLoop.create(SessionId(`${owner.id}-other`), { provider: 'mock', model: 'mock' }, { cwd: composition.scope })
+      const staged = await toolCall(ctx, owner, 'stage-ui', 'agent_swarm_create_managed', { name: 'Visible draft', description: 'Await approval.', stage: true })
+      expect(staged.isError).toBe(false)
+      const teamId = (staged.value as { team_id: string }).team_id
+      const target = { rootSessionId: owner.id, teamId }
+      const directory = await read({ schemaVersion: 1, method: 'teams', target: { rootSessionId: owner.id } })
+      expect(directory).toMatchObject({ teams: [{ teamId, phase: 'staged', captainSessionId: '' }] })
+      assertSwarmReadRpcValue('teams', directory)
+      for (const method of ['binding', 'status', 'snapshot', 'captainMembers', 'captainAnnouncements', 'captainDiagnostics'] as const) {
+        const value = await read({ schemaVersion: 1, method, target })
+        expect(value).toMatchObject({ binding: { rootSessionId: owner.id, teamId } })
+        assertSwarmReadRpcValue(method, value)
+      }
+      const page = await read({ schemaVersion: 1, method: 'page', target, page: { kind: 'tasks', offset: 0, limit: 10 } })
+      assertSwarmReadRpcValue('page', page)
+      expect(await read({ schemaVersion: 1, method: 'teams', target: { rootSessionId: stranger.id } })).toMatchObject({ teams: [] })
+      await expect(read({ schemaVersion: 1, method: 'snapshot', target: { rootSessionId: stranger.id, teamId } }))
+        .rejects.toMatchObject({ code: 'SWARM_HOST_BINDING_MISMATCH' })
+      const discarded = await toolCall(ctx, owner, 'discard-ui', 'agent_swarm_discard_plan', { team_id: teamId, expected_revision: 1 })
+      expect(discarded.isError).toBe(false)
+      const archived = await read({ schemaVersion: 1, method: 'teams', target: { rootSessionId: owner.id } })
+      expect(archived).toMatchObject({ teams: [{ teamId, phase: 'archived', captainSessionId: '' }] })
+      assertSwarmReadRpcValue('teams', archived)
+      expect(await read({ schemaVersion: 1, method: 'snapshot', target })).toMatchObject({ team: { phase: 'archived' }, roster: [], tasks: [] })
+      expect(composition.adapter.requests).toHaveLength(0)
+    } finally {
+      await rpc.dispose()
+      await composition.pluginFiber.dispose()
+      for (const fiber of composition.fibers.toReversed()) await fiber.dispose()
+    }
   })
 
   it('stages, plans, approves and provisions captain/members/tasks; discard prevents start', async () => {
@@ -116,6 +169,4 @@ describe('plan-first tool surface (S2)', () => {
     }
   })
 })
-
-
 
