@@ -498,7 +498,7 @@ describe('TeamDashboardController', () => {
     controller.open('root-1')
     await waitFor(() => controller.getSnapshot().phase === 'ready')
     const opened: string[] = []
-    await controller.openCaptainChat(rootSessionId => opened.push(rootSessionId))
+    await controller.openCaptainChat(rootSessionId => { opened.push(rootSessionId) })
     expect(opened).toEqual(['root-1'])
     expect(seen.at(-1)?.method).toBe('binding')
     expect(controller.getSnapshot().phase).toBe('closed')
@@ -525,7 +525,7 @@ describe('TeamDashboardController', () => {
     controller.open('root-1')
     await waitFor(() => controller.getSnapshot().phase === 'ready')
     const opened: string[] = []
-    await expect(controller.openCaptainChat(id => opened.push(id))).rejects.toThrow('until a Captain Session is created')
+    await expect(controller.openCaptainChat(id => { opened.push(id) })).rejects.toThrow('until a Captain Session is created')
     expect(opened).toEqual([])
     expect(controller.getSnapshot().phase).toBe('ready')
     controller.dispose()
@@ -551,7 +551,7 @@ describe('TeamDashboardController', () => {
     await waitFor(() => controller.getSnapshot().phase === 'ready')
     handoff = true
     const opened: string[] = []
-    await expect(controller.openCaptainChat(rootSessionId => opened.push(rootSessionId))).rejects.toThrow('changed')
+    await expect(controller.openCaptainChat(rootSessionId => { opened.push(rootSessionId) })).rejects.toThrow('changed')
     expect(opened).toEqual([])
     expect(controller.getSnapshot().phase).toBe('stale')
     controller.dispose()

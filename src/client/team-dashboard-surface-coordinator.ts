@@ -121,13 +121,30 @@ export class TeamDashboardSurfaceCoordinator {
     try { layout.openDetails() } catch { this.publish(INACTIVE) }
   }
   async openCaptainChat(): Promise<void> {
-    await this.options.controller.openCaptainChat(rootSessionId => {
-      const root = rootSessionId as SessionId
-      const sessions = this.options.sessions.list.getSnapshot()
-      if (!Object.hasOwn(sessions.byId, root)) throw new Error('Dedicated Captain is no longer in the official Session list')
-      this.options.sessions.open(root)
-    })
+    await this.options.controller.openCaptainChat((id, signal) => this.openOfficialCaptain(id, signal))
     this.publish(INACTIVE)
+  }
+
+  private async openOfficialCaptain(id: string, signal?: AbortSignal): Promise<void> {
+    this.assertLive()
+    const sessions = this.options.sessions
+    const before = sessions.list.getSnapshot()
+    const row = before.byId[id as SessionId]
+    if (row === undefined) throw new Error('Dedicated Captain is no longer in the official Session list')
+    if (row.origin !== 'subagent') { sessions.open(id as SessionId); return }
+    if (row.parentId === undefined) throw new Error('Dedicated Captain has no official parent child catalog')
+    await sessions.refreshSubagents(row.parentId)
+    signal?.throwIfAborted()
+    this.assertLive()
+    const after = sessions.list.getSnapshot()
+    if (after.current !== before.current) throw new Error('Captain Chat handoff was superseded')
+    const current = after.byId[id as SessionId]
+    const catalog = after.subagentsByParent[row.parentId]
+    const child = catalog?.state === 'ready' ? catalog.entries.find((entry: SubagentListEntry) => entry.id === id) as SubagentListEntry | undefined : undefined
+    if (current?.origin !== 'subagent' || current.parentId !== row.parentId || child?.kind !== 'child' || child.mode !== 'continuable') {
+      throw new Error('Dedicated Captain is not in the official parent child catalog')
+    }
+    sessions.openSubagent({ parentSessionId: row.parentId, childSessionId: child.id, mode: child.mode })
   }
 
   async openMemberChat(name: string, sessionId: string): Promise<void> {
@@ -153,13 +170,8 @@ export class TeamDashboardSurfaceCoordinator {
   /** Open the official Session of a specific Team's dedicated Captain from the enumerated selector.
    *  The official Catalog is the only authority: a Session that is absent (or not live) degrades to
    *  an explicit unavailable, never a fabricated chat. */
-  openTeamCaptain(captainSessionId: string): void {
-    const sessions = this.options.sessions.list.getSnapshot()
-    const root = captainSessionId as SessionId
-    if (!Object.hasOwn(sessions.byId, root)) {
-      throw new Error('Dedicated Captain Session is not in the official Session list')
-    }
-    this.options.sessions.open(root)
+  async openTeamCaptain(captainSessionId: string): Promise<void> {
+    await this.openOfficialCaptain(captainSessionId)
     this.releaseTeamLease()
     this.publish(INACTIVE)
     this.options.controller.close()

@@ -142,7 +142,7 @@ export class TeamDashboardController {
   /** Re-prove the exact Host binding, then delegate navigation to the official Session service.
    *  binding.rootSessionId is the host-resolved dedicated Captain Session id (the Team root of this
    *  read). Captainless drafts bind reads to their owner but have no Chat handoff. */
-  async openCaptainChat(openOfficialSession: (rootSessionId: string) => void): Promise<void> {
+  async openCaptainChat(openOfficialSession: (rootSessionId: string, signal: AbortSignal) => void | Promise<void>): Promise<void> {
     this.assertLive()
     const current = this.state
     const target = current.targetSessionId
@@ -158,10 +158,11 @@ export class TeamDashboardController {
     this.requestAbort = abort
     try {
       const binding = await this.readBinding(target, expected.teamId, abort.signal)
+      abort.signal.throwIfAborted()
       if (binding.binding.rootSessionId !== expected.rootSessionId || binding.binding.teamId !== expected.teamId) {
         throw new DashboardReadError('SWARM_UI_BINDING_CHANGED', 'Team binding changed before Captain Chat handoff')
       }
-      openOfficialSession(binding.binding.rootSessionId)
+      await openOfficialSession(binding.binding.rootSessionId, abort.signal)
       this.close()
     } catch (error) {
       if (abort.signal.aborted) throw error

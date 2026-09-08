@@ -26,6 +26,28 @@ function fixture() {
   return { slots, controller, layout, sessions, coordinator, releaseDetails, releaseLayout, unmount, destroy: () => { releaseDetails(); releaseLayout(); unmount(); anchor.remove() } }
 }
 describe('TeamDashboardSurfaceCoordinator', () => {
+  it('opens a dedicated Captain through its verified parent catalog on first navigation', async () => {
+    const f = fixture()
+    const snapshot = f.sessions.list.getSnapshot
+    let mode = 'continuable'
+    Object.assign(f.sessions.list, { getSnapshot: () => ({ ...snapshot(), byId: { ...snapshot().byId, captain: { origin: 'subagent', parentId: 'root' } }, subagentsByParent: { root: { state: 'ready', entries: [{ kind: 'child', id: 'captain', mode }] } } }) })
+    const refresh = vi.fn(async () => {})
+    const open = vi.fn()
+    Object.assign(f.sessions, { refreshSubagents: refresh, openSubagent: open })
+    f.controller.openCaptainChat.mockImplementation(async (callback: (id: string, signal: AbortSignal) => Promise<void>) => { await callback('captain', new AbortController().signal) })
+    await f.coordinator.openCaptainChat()
+    expect(open).toHaveBeenCalledExactlyOnceWith({ parentSessionId: 'root', childSessionId: 'captain', mode: 'continuable' })
+    expect(f.sessions.open).not.toHaveBeenCalled()
+    mode = 'oneshot'
+    await expect(f.coordinator.openCaptainChat()).rejects.toThrow('official parent child catalog')
+    expect(open).toHaveBeenCalledTimes(1)
+    mode = 'continuable'
+    refresh.mockImplementation(async () => { f.sessions.setCurrent('other') })
+    await expect(f.coordinator.openCaptainChat()).rejects.toThrow('superseded')
+    expect(open).toHaveBeenCalledTimes(1)
+    f.destroy()
+  })
+
   it('uses the official direct-child catalog and rejects wrong parents or a superseded handoff (#221)', async () => {
     const f = fixture()
     f.coordinator.toggle('root')
@@ -112,10 +134,10 @@ describe('TeamDashboardSurfaceCoordinator', () => {
   })
   it('hands Captain navigation to the exact official Session only when it remains listed', async () => {
     const f = fixture()
-    f.controller.openCaptainChat.mockImplementation(async (callback: (rootSessionId: string) => void) => { callback('root') })
+    f.controller.openCaptainChat.mockImplementation(async (callback: (rootSessionId: string) => Promise<void>) => { await callback('root') })
     await f.coordinator.openCaptainChat()
     expect(f.sessions.open).toHaveBeenCalledWith('root')
-    f.controller.openCaptainChat.mockImplementation(async (callback: (rootSessionId: string) => void) => { callback('missing') })
+    f.controller.openCaptainChat.mockImplementation(async (callback: (rootSessionId: string) => Promise<void>) => { await callback('missing') })
     await expect(f.coordinator.openCaptainChat()).rejects.toThrow('official Session list')
     expect(f.sessions.open).toHaveBeenCalledTimes(1)
     f.destroy()
@@ -125,16 +147,16 @@ describe('TeamDashboardSurfaceCoordinator', () => {
     expect(f.coordinator.getSnapshot().mode).toBe('inactive'); expect((f.slots.entriesOfSlot()[0] as { priority: number }).priority).toBe(0)
     f.coordinator.toggle('other'); f.unmount(); expect(f.layout.closeDetails).toHaveBeenCalled(); expect(f.controller.dispose).toHaveBeenCalledTimes(1); f.destroy()
   })
-  it('opens the official Session of an enumerated dedicated Captain only while it stays listed, and degrades to unavailable otherwise', () => {
+  it('opens the official Session of an enumerated dedicated Captain only while it stays listed, and degrades to unavailable otherwise', async () => {
     const f = fixture()
     // The enumeration row hands the exact official Captain Session id; the official Catalog is the authority.
-    f.coordinator.openTeamCaptain('other')
+    await f.coordinator.openTeamCaptain('other')
     expect(f.sessions.open).toHaveBeenCalledWith('other')
     expect(f.sessions.open).toHaveBeenCalledTimes(1)
     expect(f.coordinator.getSnapshot().mode).toBe('inactive')
     expect(f.controller.close).toHaveBeenCalled()
     // A Captain that left the official Session list can never open a fabricated chat.
-    expect(() => f.coordinator.openTeamCaptain('not-listed')).toThrow('official Session list')
+    await expect(f.coordinator.openTeamCaptain('not-listed')).rejects.toThrow('official Session list')
     expect(f.sessions.open).toHaveBeenCalledTimes(1)
     f.destroy()
   })
