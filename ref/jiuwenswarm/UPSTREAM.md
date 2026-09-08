@@ -2,7 +2,7 @@
 
 - Upstream: `https://github.com/openJiuwen-ai/jiuwenswarm`
 - Branch observed: `develop`
-- Pinned commit: `e8aa1b433e8b5ff1875cdd4cfd63155ad2a2a862`
+- Pinned commit: `c7bf529a15dfdf422b854ee03f6ef1eb80f6fe24`
 - Local checkout: `source/`
 
 This repository is a product and architecture reference, not a DSH dependency.
@@ -46,3 +46,20 @@ and model/store/scheduler tests cover continued execution after raising that
 limit. This is failure-model evidence for one authoritative completion rule;
 it does not add a heartbeat service, import Jiuwen runtime code or alter the
 existing DSH provider contracts. Any future adoption needs its own acceptance.
+
+The 2026-09-08 refresh covers `e8aa1b4..c7bf529` (52 commits), the
+`workswarm 0.2.5.beta1` manifest and unchanged Apache-2.0 license. The SDK pin
+is now GitCode agent-core `0af325ebe9f891e53fa211dae3392a4aff9d923d`. The scoped source review
+covers heartbeat execution/preemption, layered permission persistence and
+root approval admission, with their changed tests; the cumulative path review
+also identifies browser/MCP and skill installation changes. These supply
+failure cases for lifecycle cancellation, scoped authority and user-input
+admission. They do not authorize a new DSH scheduler, permission store, SDK
+adapter or skill marketplace. No Python runtime, transport, persistence, UI or
+public type is adopted, and the upstream test suite was not executed here.
+
+The final five commits also preserve terminal heartbeat status on a late
+pause, serialize Team startup separately from live inputs, sanitize failed
+MCP connections and correct skill detail/interrupt behavior. Their changed
+manifests, source and regression tests were reviewed as failure evidence;
+they do not change this plugin's runtime or feature commitments.
