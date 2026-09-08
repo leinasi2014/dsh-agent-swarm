@@ -380,6 +380,34 @@ describe('R3 native Team Details surface', () => {
     expect(missing.querySelector<HTMLElement>('[data-swarm-detail-denied-tools]')?.textContent).toBe('Not available yet')
   })
 
+  it('switches only supplementary member sections while keeping profile and current task visible', async () => {
+    const coordinator = new FakeCoordinator()
+    const projection = { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot, roster: [{ name: 'worker', role: 'writer', phase: 'active', createdAt: 1 }] }
+    const state: TeamDashboardState = { ...ready, data: teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection) }
+    const detailController = { ...controller, getSnapshot: () => state }
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: detailController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!.click() })
+    const detail = detailOverlay()!
+    const tabs = Array.from(detail.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+    expect(tabs.map(tab => tab.textContent)).toEqual(['Runtime details', 'Skills & tools', 'Outcomes & growth'])
+    const selectedPanel = () => detail.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!
+    expect(selectedPanel().querySelector('[data-swarm-detail-provider]')).not.toBeNull()
+    await act(async () => { tabs[1]!.click() })
+    expect(selectedPanel().querySelector('[data-swarm-detail-callable-tools]')).not.toBeNull()
+    tabs[1]!.focus()
+    await act(async () => { tabs[1]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })) })
+    expect(document.activeElement).toBe(tabs[2])
+    expect(selectedPanel().querySelector('[data-swarm-detail-growth-summary]')).not.toBeNull()
+    await act(async () => { tabs[2]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true })) })
+    expect(document.activeElement).toBe(tabs[0])
+    for (const selector of ['[data-swarm-detail-profile]', '[data-swarm-detail-task]']) {
+      const section = detail.querySelector(selector)!
+      expect(section.closest('[role="tabpanel"], [hidden]')).toBeNull()
+    }
+    expect(detail.querySelectorAll('[role="tab"][tabindex="0"]')).toHaveLength(1)
+    expect(coordinator.openMemberChat).not.toHaveBeenCalled()
+  })
+
   it('localizes the new composition detail copy in both official locales', () => {
     for (const key of ['detail.field.llmProvider', 'detail.field.preset', 'detail.field.persona', 'detail.field.deniedTools', 'detail.field.none', 'detail.compositionState', 'detail.compositionReason'] as const) {
       expect(en[key].length).toBeGreaterThan(0)

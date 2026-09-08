@@ -1,6 +1,6 @@
 /** Stateless view sections; selection and focus ownership remain in Workspace. */
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
-import { useId, type KeyboardEvent, type RefObject } from 'react'
+import { useId, useState, type KeyboardEvent, type RefObject } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SwarmHostReadProjectionV1 } from '../host/host-read-types.js'
 import type { SwarmReadCaptainDiagnosticsV1, SwarmReadCaptainMembersV1 } from '../rpc/read-rpc-contract.js'
@@ -62,7 +62,7 @@ export function DetailView({ detail, data, localeTag, number, headingRef, member
       </div>
     </header>
     <div className="swarm-team-workspace__detail-body">
-      {detail.kind === 'member' ? <MemberDetail detail={detail} data={data} localeTag={localeTag} memberAssets={memberAssets} t={t} />
+      {detail.kind === 'member' ? <MemberDetail key={`${data.team.id}:${detail.name}`} detail={detail} data={data} localeTag={localeTag} memberAssets={memberAssets} t={t} />
         : detail.kind === 'task' ? <TaskDetail detail={detail} data={data} number={number} localeTag={localeTag} t={t} />
           : detail.kind === 'growth' ? <GrowthDetail data={data} t={t} />
             : detail.kind === 'overview' ? <OverviewDetail data={data} number={number} t={t} />
@@ -94,6 +94,14 @@ export function MemberDetail({ detail, data, localeTag, memberAssets, t }: {
   readonly memberAssets: SwarmReadCaptainMembersV1 | undefined
   readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS>
 }) {
+  const [section, setSection] = useState<'runtime' | 'skills' | 'growth'>('runtime')
+  const tabId = useId()
+  const sections = [
+    ['runtime', 'detail.runtime'], ['skills', 'detail.section.skills'], ['growth', 'detail.section.growth'],
+  ] as const
+  const panelProps = (id: typeof section) => ({
+    role: 'tabpanel', id: `${tabId}-panel-${id}`, 'aria-labelledby': `${tabId}-tab-${id}`, hidden: section !== id, tabIndex: 0,
+  })
   const member = data.roster.find(candidate => candidate.name === detail.name)
   if (member === undefined) return null
   const asset = memberAssetOf(memberAssets, member.name)
@@ -137,8 +145,29 @@ export function MemberDetail({ detail, data, localeTag, memberAssets, t }: {
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.intro')}</dt><dd data-swarm-detail-biography>{value(generated ? asset.biography : undefined)}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.model')}</dt><dd data-swarm-detail-model>{compositionValue(composition?.model)}</dd></div>
       </dl>
-      <details className="swarm-team-workspace__fold" data-swarm-runtime-details>
-        <summary>{t('detail.runtime')}</summary>
+
+    </div>
+
+    <div className="swarm-team-workspace__detail-section" data-swarm-detail-task>
+      <h4>{t('detail.section.currentTask')}</h4>
+      <dl className="swarm-team-workspace__field-list">
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('tasks')}</dt><dd data-swarm-detail-task-subject>{currentTask?.subject ?? asset.currentActivity?.subject ?? t('memberNone')}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('status')}</dt><dd data-swarm-detail-task-status>{currentTask !== undefined ? enumLabel(currentTask.status, t) : asset.currentActivity !== undefined ? enumLabel(asset.currentActivity.status, t) : t('memberNone')}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.started')}</dt><dd data-swarm-detail-task-started>{value(currentTask !== undefined && activity.attempt !== undefined ? formatTime(activity.attempt.createdAt, localeTag) : undefined)}</dd></div>
+      </dl>
+    </div>
+    <div className="swarm-team-workspace__member-tabs" role="tablist" aria-label={t('detail.tabs')}>
+      {sections.map(([id, label], index) => <button key={id} type="button" role="tab" id={`${tabId}-tab-${id}`} aria-controls={`${tabId}-panel-${id}`} aria-selected={section === id} tabIndex={section === id ? 0 : -1} onClick={() => setSection(id)} onKeyDown={event => {
+        const next = event.key === 'ArrowRight' ? (index + 1) % sections.length
+          : event.key === 'ArrowLeft' ? (index + sections.length - 1) % sections.length
+            : event.key === 'Home' ? 0 : event.key === 'End' ? sections.length - 1 : undefined
+        if (next === undefined) return
+        event.preventDefault()
+        setSection(sections[next]![0])
+        event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus()
+      }}>{t(label)}</button>)}
+    </div>
+      <div className="swarm-team-workspace__detail-section" data-swarm-runtime-details {...panelProps('runtime')}>
         <dl className="swarm-team-workspace__field-list">
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.provider')}</dt><dd data-swarm-detail-provider>{value(composition?.runtimeProvider)}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.llmProvider')}</dt><dd data-swarm-detail-llm-provider>{compositionValue(composition?.llmProvider)}</dd></div>
@@ -149,10 +178,8 @@ export function MemberDetail({ detail, data, localeTag, memberAssets, t }: {
           <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.compositionReason')}</dt><dd data-swarm-detail-composition-reason>{composition.reason}</dd></div>
         </> : null}
       </dl>
-      </details>
-    </div>
-    <details className="swarm-team-workspace__detail-section" data-swarm-detail-skills>
-      <summary>{t('detail.section.skills')}</summary>
+      </div>
+    <div className="swarm-team-workspace__detail-section" data-swarm-detail-skills {...panelProps('skills')}>
       <dl className="swarm-team-workspace__field-list">
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.teamAllowed')}</dt><dd data-swarm-detail-team-allowed>{memberAssets?.teamAllowedSkills === undefined ? unavailable : memberAssets.teamAllowedSkills.length === 0 ? t('detail.field.none') : memberAssets.teamAllowedSkills.join(', ')}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.skills')}</dt><dd data-swarm-detail-skills-value>{asset.skills === undefined ? unavailable : asset.skills.length === 0 ? t('detail.field.none') : asset.skills.join(', ')}</dd></div>
@@ -160,24 +187,15 @@ export function MemberDetail({ detail, data, localeTag, memberAssets, t }: {
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.tools')}</dt><dd data-swarm-detail-callable-tools>{asset.callableTools === undefined ? unavailable : asset.callableTools.length === 0 ? t('detail.field.none') : asset.callableTools.join(', ')}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.deniedTools')}</dt><dd data-swarm-detail-denied-tools>{composition !== undefined && compositionReady ? (composition.deniedTools === undefined ? unavailable : composition.deniedTools.length === 0 ? t('detail.field.none') : composition.deniedTools.join(', ')) : unavailable}</dd></div>
       </dl>
-    </details>
-    <div className="swarm-team-workspace__detail-section" data-swarm-detail-task>
-      <h4>{t('detail.section.currentTask')}</h4>
-      <dl className="swarm-team-workspace__field-list">
-        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('tasks')}</dt><dd data-swarm-detail-task-subject>{currentTask?.subject ?? asset.currentActivity?.subject ?? t('memberNone')}</dd></div>
-        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('status')}</dt><dd data-swarm-detail-task-status>{currentTask !== undefined ? enumLabel(currentTask.status, t) : asset.currentActivity !== undefined ? enumLabel(asset.currentActivity.status, t) : t('memberNone')}</dd></div>
-        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.started')}</dt><dd data-swarm-detail-task-started>{value(currentTask !== undefined && activity.attempt !== undefined ? formatTime(activity.attempt.createdAt, localeTag) : undefined)}</dd></div>
-      </dl>
     </div>
-    <details className="swarm-team-workspace__detail-section" data-swarm-detail-growth>
-      <summary>{t('detail.section.growth')}</summary>
+    <div className="swarm-team-workspace__detail-section" data-swarm-detail-growth {...panelProps('growth')}>
       <dl className="swarm-team-workspace__field-list">
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.recentTask')}</dt><dd data-swarm-detail-recent-attempt>{activity.attempt !== undefined ? `${activity.attempt.phase} · ${formatTime(activity.attempt.updatedAt, localeTag) ?? ''}` : unavailable}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.recentOutput')}</dt><dd data-swarm-detail-recent-outcome>{asset.recentOutcome !== undefined ? `${asset.recentOutcome.phase} · ${formatTime(asset.recentOutcome.at, localeTag) ?? ''}` : unavailable}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('growthTitle')}</dt><dd data-swarm-detail-growth-summary>{asset.growthSummary === undefined ? unavailable : asset.growthSummary === '' ? t('detail.field.none') : asset.growthSummary}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.memory')}</dt><dd data-swarm-detail-memory>{t('growthMemoryPrivate')}</dd></div>
       </dl>
-    </details>
+    </div>
     {asset.sessionId === undefined && <p className="swarm-team-workspace__contact-note" data-swarm-contact-disabled>{t('detail.contactDisabled')}</p>}
   </>
 }

@@ -86,6 +86,9 @@ export const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace__detail-body { min-height:0; padding:16px; overflow:auto; scrollbar-width:thin; }
 [data-swarm-team-dashboard] .swarm-team-workspace__detail-section { margin:0 0 16px; padding:0 0 16px; border:0; border-bottom:1px solid var(--dsw-alias-border-l2); background:transparent; }
 [data-swarm-team-dashboard] .swarm-team-workspace__detail-section h4 { margin:0 0 12px; font-size:13px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__member-tabs { display:flex; flex-wrap:wrap; gap:4px 12px; margin:0 0 16px; border-bottom:1px solid var(--dsw-alias-border-l2); }
+[data-swarm-team-dashboard] .swarm-team-workspace__member-tabs [role="tab"] { flex:1 1 auto; min-width:0; padding:9px 0; border:0; border-radius:0; background:transparent; color:var(--dsw-alias-label-secondary); font:inherit; font-weight:550; cursor:pointer; }
+[data-swarm-team-dashboard] .swarm-team-workspace__member-tabs [role="tab"][aria-selected="true"] { color:var(--dsw-alias-state-business-primary); box-shadow:inset 0 -2px 0 var(--dsw-alias-state-business-primary); }
 [data-swarm-team-dashboard] .swarm-team-workspace__field-list { display:grid; grid-template-columns:84px minmax(0,1fr); gap:10px 12px; margin:0; font-size:12px; line-height:1.65; }
 [data-swarm-team-dashboard] .swarm-team-workspace__field-list dt { min-width:0; color:var(--dsw-alias-label-secondary); }
 [data-swarm-team-dashboard] .swarm-team-workspace__field-list dd { margin:0; min-width:0; overflow-wrap:anywhere; }
