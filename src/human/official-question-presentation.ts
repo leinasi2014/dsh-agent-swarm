@@ -26,7 +26,7 @@ export function officialCaptainQuestionPresentation(ctx: Context): CaptainQuesti
     async ask(question: CaptainQuestion): Promise<string> {
       const captain = ctx.agents.get(SessionId(question.captainSessionId))
       expectDomain(
-        captain !== undefined && ctx.agents.roots().includes(captain),
+        captain !== undefined && (captain.session.header.parentSession === undefined && ctx.agents.roots().includes(captain)),
         'Human question presentation requires the exact live root captain from the durable record',
         'TEAM_INTERACTION_CAPTAIN_REQUIRED',
       )

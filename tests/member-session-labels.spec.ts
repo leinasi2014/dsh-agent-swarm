@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SIGNAL, mountNodeComposition } from './helpers/node-composition.js'
 
@@ -20,7 +20,7 @@ describe('issue #148: official continuable session labels', () => {
     try {
       const created = await stack.ctx.tools.execute({
         signal: SIGNAL,
-        callId: CallId('label-create'),
+        callId: ToolCallId('label-create'),
         name: 'agent_swarm_create',
         arguments: { name: 'Label Team', description: 'Prove the official session-list label.' },
         agent: stack.lead,
@@ -29,14 +29,14 @@ describe('issue #148: official continuable session labels', () => {
 
       const withDisplay = await stack.ctx.tools.execute({
         signal: SIGNAL,
-        callId: CallId('label-add-display'),
+        callId: ToolCallId('label-add-display'),
         name: 'agent_swarm_add_member',
         arguments: { name: 'worker-internal', role: 'Reader', display_name: 'Worker Readable' },
         agent: stack.lead,
       })
       const withoutDisplay = await stack.ctx.tools.execute({
         signal: SIGNAL,
-        callId: CallId('label-add-plain'),
+        callId: ToolCallId('label-add-plain'),
         name: 'agent_swarm_add_member',
         arguments: { name: 'plain-worker', role: 'Reader' },
         agent: stack.lead,

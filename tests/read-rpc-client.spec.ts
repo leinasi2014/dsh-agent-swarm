@@ -31,6 +31,18 @@ const interactionRowFixture = {
 }
 
 describe('R2 browser client', () => {
+  it('admits an absent Captain only for staged or archived drafts, never an empty read binding', () => {
+    const directory = SWARM_READ_RPC_FIXTURES_V1.values.teams
+    const row = directory.teams[0]!
+    for (const phase of ['staged', 'archived']) {
+      expect(() => assertSwarmReadRpcValue('teams', { ...directory, teams: [{ ...row, phase, captainSessionId: '' }] })).not.toThrow()
+    }
+    for (const captainSessionId of ['', ' ', 'x'.repeat(257)]) {
+      expect(() => assertSwarmReadRpcValue('teams', { ...directory, teams: [{ ...row, phase: 'active', captainSessionId }] })).toThrow()
+    }
+    expect(() => assertSwarmReadRpcValue('snapshot', { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot,
+      binding: { rootSessionId: '', teamId: row.teamId } })).toThrow()
+  })
   it('freezes one independently verifiable schema and semantic-fixture digest', () => {
     const digest = createHash('sha256').update(canonicalSwarmReadRpcJson({
       contract: SWARM_READ_RPC_CONTRACT_V1,

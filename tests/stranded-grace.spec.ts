@@ -1,3 +1,4 @@
+import { queueSubagentPrompt, type HostPromptQueue } from '@deepseek-ai/dsh-subagent/internal'
 /** Exact grace decisions over the real domain, without a wall-clock race. */
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -36,7 +37,7 @@ it('keeps phase, owner and creation time through fresh-idle grace, retries at it
     restoreAgents = () => agents.mockRestore()
     // Liveness and dispatch are controlled collaborators around the real
     // domain. The companion composition suite proves actual turn delivery.
-    const followup = vi.spyOn(ctx.subagents, 'followup').mockImplementation(async () => { live = false; return 'grace-followup' as never })
+    const followup = vi.spyOn(ctx.subagents as unknown as HostPromptQueue, queueSubagentPrompt).mockImplementation(async () => { live = false; return 'grace-followup' as never })
     restoreFollowup = () => followup.mockRestore()
     const retry = vi.spyOn(domain, 'retryAttempt')
     pass = new SchedulingPass(ctx, {

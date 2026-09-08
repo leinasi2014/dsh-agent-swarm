@@ -15,6 +15,7 @@ const DEFAULT_CATALOG_DESCRIPTION_MAX_LENGTH = 500
 
 /** Sentinel recorded for a Team whose `allowedSkills` is explicitly absent (keeps host defaults). */
 const UNRESTRICTED = Symbol('team-skill-surface:unrestricted')
+const noop = () => {}
 
 /** One model-facing catalog entry for the restricted Team skill catalog. */
 interface RestrictedCatalogEntry {
@@ -54,10 +55,13 @@ export class TeamSkillSurface {
    * execute after the child settles is still denied for a non-allowed name.
    */
   private readonly controlled = new Map<string, ReadonlySet<string>>()
+  private readonly resolved = new WeakSet<Agent>()
+  private readonly attached = new WeakSet<Agent>()
+  private readonly resolving = new WeakMap<Agent, Promise<void>>()
 
   private readonly skillsOf: () => SkillRegistry | undefined
 
-  constructor(private readonly ctx: Context) {
+  constructor(private readonly ctx: Context, private readonly resolveTeam?: (agent: Agent) => Promise<TeamState | undefined>) {
     this.skillsOf = injectedSkills(ctx)
     // Enforce the allow-list at the EXECUTE boundary, independent of whether the
     // child's scoped shadow is still registered. (The scoped shadow supplies the
@@ -73,32 +77,24 @@ export class TeamSkillSurface {
       return `Skill "${name}" is not allowed for this Team`
     })
 
-    ctx.subagents.registerContinuableSetup(childCtx => {
-      const childAgent = childCtx.agent
-      // The child agent is materialized before the setup contribution runs; the
-      // guard keeps the narrowly-scoped type honest without changing behavior.
-      if (childAgent === undefined) return () => {}
-      const childId = String(childAgent.id)
-      const entry = this.policies.get(childId)
-      // No record (cold resume before the policy resolved) fails closed; an
-      // explicit unrestricted Team keeps the host loader; otherwise restrict.
-      if (entry === UNRESTRICTED) return () => this.prune(childId)
-      const allowed = new Set(entry === undefined ? [] : entry)
-      this.governed.add(childId)
-      // Record the governing allow-list for the execute guard. It survives the
-      // child's disposal so a first-turn execute after the child settles is
-      // still denied for a non-allowed name.
-      this.controlled.set(childId, allowed)
-      childCtx.tools.register(restrictedSkillTool(allowed, this.skillsOf))
-      childCtx.systemPrompt.section({
-        name: 'agent-swarm:team-skills',
-        order: 121,
-        text: allowed.size === 0
-          ? 'This Team may not load any Skill. Do not request or load a Skill.'
-          : `This Team may load only these Skills: ${[...allowed].map(name => `\`${name}\``).join(', ')}. Do not request or load any other Skill.`,
-      })
-      return () => this.prune(childId)
+    ctx.on('tools/pre-execute', async (exec, next) => {
+      if (exec.name === 'skill' && exec.agent !== undefined) await this.resolvePolicy(exec.agent)
+      return await next()
     })
+
+    ctx.on('agent/session-start', ({ agent }) => {
+      const id = String(agent.id)
+      if (this.policies.has(id) || (this.resolveTeam === undefined && this.controlled.has(id))
+        || (this.resolveTeam === undefined && agent.session.header.parentSession !== undefined)) this.attach(agent)
+    })
+
+    // rc.1 captures tools/sections BEFORE agent/pre-step. If cold resolution
+    // installs scoped contributions, rebuild once through the official registry
+    // so the first request gets the same restricted surface as later requests.
+    ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
+      if (context.agent !== undefined && await this.resolvePolicy(context.agent)) return await ctx.systemPrompt.assemble(context)
+      return await next()
+    }, { prepend: true })
 
     // Prepend places this listener OUTERMOST, so the post-`next()` governing
     // runs after the official @deepseek-ai/dsh-tool-skill gesture and catalog
@@ -109,6 +105,7 @@ export class TeamSkillSurface {
     // carrying a governing shadow (the `governed` set), so unrestricted Teams
     // and unrelated agents keep the official behavior.
     ctx.on('agent/pre-step', async ({ agent, messages, signal }, next) => {
+      await this.resolvePolicy(agent)
       const decision = await next()
       if (decision.kind === 'reject') return decision
       const childId = String(agent.id)
@@ -134,6 +131,77 @@ export class TeamSkillSurface {
       }
       return { kind: 'enter', messages: nextMessages }
     }, { prepend: true })
+  }
+
+  /** Resolve cold children from the canonical Team store before any Skill or model step. */
+  private async resolvePolicy(agent: Agent): Promise<boolean> {
+    const id = String(agent.id)
+    if (this.ctx.agents.get(agent.id) !== agent) return false
+    const wasGoverned = this.governed.has(id)
+    // A root may acquire its first Team after earlier unrelated requests.
+    if (this.policies.has(id)) {
+      this.attach(agent)
+      this.resolved.add(agent)
+      return !wasGoverned && this.governed.has(id)
+    }
+    if (this.resolved.has(agent)) return false
+    let pending = this.resolving.get(agent)
+    if (pending === undefined) {
+      pending = this.loadPolicy(agent).then(() => { this.resolved.add(agent) })
+      this.resolving.set(agent, pending)
+    }
+    await pending
+    return !wasGoverned && this.governed.has(id)
+  }
+
+  private async loadPolicy(agent: Agent): Promise<void> {
+    const id = String(agent.id)
+    if (this.policies.has(id)) { this.attach(agent); return }
+    if (agent.session.header.parentSession === undefined) return
+    if (this.resolveTeam !== undefined) {
+      try {
+        const team = await this.resolveTeam(agent)
+        this.controlled.delete(id)
+        if (team === undefined) return // Successful authoritative lookup proves unrelated.
+        this.rememberTeam(team)
+      } catch {
+        // Fail closed for this activation; the next exact Agent retries lookup.
+        this.controlled.set(id, new Set())
+      }
+    }
+    this.attach(agent)
+  }
+
+  private attach(agent: Agent): void {
+    const id = String(agent.id)
+    if (this.attached.has(agent)) return
+    this.attached.add(agent)
+    const entry = this.policies.get(id)
+    let removeTool = noop
+    let removeSection = noop
+    let removeAgentOwner = noop
+    let removePluginOwner = noop
+    let disposed = false
+    const dispose = () => {
+      if (disposed) return
+      disposed = true
+      this.attached.delete(agent)
+      removeTool(); removeSection(); this.prune(id)
+      removeAgentOwner(); removePluginOwner()
+    }
+    removeAgentOwner = agent.ctx.effect(() => dispose)
+    removePluginOwner = this.ctx.effect(() => dispose)
+    if (entry === UNRESTRICTED) { this.controlled.delete(id); return }
+    const allowed = new Set(entry ?? this.controlled.get(id) ?? [])
+    this.governed.add(id)
+    this.controlled.set(id, allowed)
+    removeTool = agent.ctx.tools.register(restrictedSkillTool(allowed, this.skillsOf))
+    removeSection = agent.ctx.systemPrompt.section({
+      name: 'agent-swarm:team-skills', order: 121,
+      text: allowed.size === 0
+        ? 'This Team may not load any Skill. Do not request or load a Skill.'
+        : `This Team may load only these Skills: ${[...allowed].map(name => `\`${name}\``).join(', ')}. Do not request or load any other Skill.`,
+    })
   }
 
   /** Bind the durable Team policy to its Captain and every current member. */
@@ -264,7 +332,7 @@ function restrictedSkillTool(allowed: ReadonlySet<string>, skillsOf: () => Skill
 
 /** Whether the agent's session already carries any durable skill-catalog message. */
 function hasPublishedRestrictedCatalog(agent: Agent): boolean {
-  return agent.session.events.some(
+  return agent.session.snapshotEvents().some(
     event => event.type === 'user/message' && (event.data as { source?: { kind?: string } }).source?.kind === 'skill-catalog',
   )
 }

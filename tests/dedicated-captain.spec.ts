@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mountNodeComposition, SIGNAL, type NodeComposition } from './helpers/node-composition.js'
@@ -23,7 +23,7 @@ describe('dedicated Captain topology', () => {
     mounted = await mountNodeComposition(sandbox, { captainLlmProvider: 'mock', captainModel: 'mock' })
     const result = await mounted.ctx.tools.execute({
       signal: SIGNAL,
-      callId: CallId('managed-create'),
+      callId: ToolCallId('managed-create'),
       name: 'agent_swarm_create_managed',
       arguments: {
         name: 'Managed Team',
@@ -55,11 +55,11 @@ describe('dedicated Captain topology', () => {
     // dedicated Captain retains the same status path.
     const beforeRejectedSend = (await mounted.domain.requireMembership(mounted.scope, value.captain_session_id)).team
     const mainStatus = await mounted.ctx.tools.execute({
-      signal: SIGNAL, callId: CallId('main-status'), name: 'agent_swarm_status', arguments: {}, agent: mounted.lead,
+      signal: SIGNAL, callId: ToolCallId('main-status'), name: 'agent_swarm_status', arguments: {}, agent: mounted.lead,
     })
     expect(mainStatus).toMatchObject({ isError: true, error: { info: { code: 'TEAM_NOT_JOINED' } } })
     const mainSend = await mounted.ctx.tools.execute({
-      signal: SIGNAL, callId: CallId('main-send'), name: 'agent_swarm_send_message',
+      signal: SIGNAL, callId: ToolCallId('main-send'), name: 'agent_swarm_send_message',
       arguments: { target: 'captain', content: 'Must be rejected before persistence.' }, agent: mounted.lead,
     })
     expect(mainSend).toMatchObject({ isError: true, error: { info: { code: 'TEAM_NOT_JOINED' } } })
@@ -67,13 +67,13 @@ describe('dedicated Captain topology', () => {
     expect(afterRejectedSend.revision).toBe(beforeRejectedSend.revision)
     expect(afterRejectedSend.messages).toEqual(beforeRejectedSend.messages)
     const captainStatus = await mounted.ctx.tools.execute({
-      signal: SIGNAL, callId: CallId('captain-status'), name: 'agent_swarm_status', arguments: {}, agent: captain,
+      signal: SIGNAL, callId: ToolCallId('captain-status'), name: 'agent_swarm_status', arguments: {}, agent: captain,
     })
     expect(captainStatus).toMatchObject({ isError: false, value: { team_id: value.team_id } })
 
     // The dedicated Captain can recruit the first worker at absolute depth 2.
     const add = await mounted.ctx.tools.execute({
-      signal: SIGNAL, callId: CallId('captain-add-member'), name: 'agent_swarm_add_member',
+      signal: SIGNAL, callId: ToolCallId('captain-add-member'), name: 'agent_swarm_add_member',
       arguments: { name: 'worker', role: 'Implement the first slice.', llm_provider: 'mock', model: 'mock' },
       agent: captain,
     })
@@ -87,7 +87,7 @@ describe('dedicated Captain topology', () => {
     // Only the top-level main Chat can create another managed Team. The
     // Captain receives both a tool-filter deny and this runtime authority gate.
     const nested = await mounted.ctx.tools.execute({
-      signal: SIGNAL, callId: CallId('captain-nested-managed'), name: 'agent_swarm_create_managed',
+      signal: SIGNAL, callId: ToolCallId('captain-nested-managed'), name: 'agent_swarm_create_managed',
       arguments: { name: 'Nested', description: 'Must not be created.' }, agent: captain,
     })
     expect(nested.isError).toBe(true)
@@ -104,7 +104,7 @@ describe('dedicated Captain topology', () => {
     // misused to smuggle a provider).
     const misrouted = await mounted.ctx.tools.execute({
       signal: SIGNAL,
-      callId: CallId('managed-misroute'),
+      callId: ToolCallId('managed-misroute'),
       name: 'agent_swarm_create_managed',
       arguments: {
         name: 'Managed Team',
@@ -168,7 +168,7 @@ describe('dedicated Captain topology', () => {
     mounted = await mountNodeComposition(sandbox, { captainLlmProvider: 'mock', captainModel: 'mock' })
     const create = async () => (await mounted!.ctx.tools.execute({
       signal: SIGNAL,
-      callId: CallId('managed-create-idem'),
+      callId: ToolCallId('managed-create-idem'),
       name: 'agent_swarm_create_managed',
       arguments: { name: 'Idem Team', description: 'One Captain only.' },
       agent: mounted!.lead,
@@ -190,7 +190,7 @@ describe('dedicated Captain topology', () => {
 
     const result = await mounted.ctx.tools.execute({
       signal: SIGNAL,
-      callId: CallId('managed-label'),
+      callId: ToolCallId('managed-label'),
       name: 'agent_swarm_create_managed',
       arguments: { name: 'Managed Team', description: 'Readable Captain label.' },
       agent: mounted.lead,
@@ -213,7 +213,7 @@ describe('dedicated Captain topology', () => {
 
     const result = await mounted.ctx.tools.execute({
       signal: SIGNAL,
-      callId: CallId('managed-profile-order'),
+      callId: ToolCallId('managed-profile-order'),
       name: 'agent_swarm_create_managed',
       arguments: { name: 'Profiled Team', description: 'Build the repair. Display name: Ada; profession: Engineer; personality: precise. Preserve these preferences.' },
       agent: mounted.lead,
@@ -229,14 +229,15 @@ describe('dedicated Captain topology', () => {
     expect(notice).toContain(`Current Team revision: ${membership.team.revision}`)
     expect(notice).toContain('Build the repair. Display name: Ada; profession: Engineer; personality: precise. Preserve these preferences.')
     expect(persona).toContain("user's language")
-    expect(persona).toContain('Profiles/avatars are optional')
-    expect(persona).toContain('continue independent work')
+    expect(persona).toContain('Normally provide display names')
+    expect(persona).toContain('Avatars are optional')
+    expect(persona).toContain('continue work')
     expect(`${persona}\n${notice}`).not.toMatch(/Chinese display|until the profile succeeds|stop dependent recruitment/)
-    expect(`${persona}\n${notice}`).toContain('Captain Session and Team already exist')
+    expect(notice).toContain('Your Team is already created and bound to this Captain Session.')
 
     const captain = mounted.ctx.agents.get(SessionId(value.captain_session_id))!
     const failedProfile = await mounted.ctx.tools.execute({
-      signal: SIGNAL, callId: CallId('optional-profile-invalid'), name: 'agent_swarm_set_captain_profile',
+      signal: SIGNAL, callId: ToolCallId('optional-profile-invalid'), name: 'agent_swarm_set_captain_profile',
       arguments: { expected_revision: membership.team.revision, pixel_avatar_svg: '<svg><script>bad()</script></svg>' },
       agent: captain,
     })
@@ -245,7 +246,7 @@ describe('dedicated Captain topology', () => {
     expect(afterFailure.team.revision).toBe(membership.team.revision)
     expect(afterFailure.team.captainProfile).toBeUndefined()
     const recruited = await mounted.ctx.tools.execute({
-      signal: SIGNAL, callId: CallId('after-profile-failure'), name: 'agent_swarm_add_member',
+      signal: SIGNAL, callId: ToolCallId('after-profile-failure'), name: 'agent_swarm_add_member',
       arguments: { name: 'ada', role: 'Implement the repair', display_name: 'Ada', profession: 'Engineer', personality: 'precise' },
       agent: captain,
     })

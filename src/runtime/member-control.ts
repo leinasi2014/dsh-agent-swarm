@@ -68,7 +68,7 @@ function hasResultFor(call: LiveToolCall, events: readonly SessionEvent[]): bool
  */
 function modelTimeoutEvidence(deps: MemberControlDeps, live: Agent): boolean {
   if (live.status !== 'running') return false
-  const events = live.session.events.filter(event => event.seq >= live.session.firstLiveSeq)
+  const events = live.session.snapshotEvents().filter(event => event.seq >= live.session.firstLiveSeq)
   let openTurn: number | undefined
   let openStep: { turn: number; step: number } | undefined
 

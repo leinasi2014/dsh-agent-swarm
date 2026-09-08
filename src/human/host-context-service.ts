@@ -184,7 +184,7 @@ class HostContextService extends Service implements HostContextPort {
   private assertLiveRoot(captain: Agent): void {
     let exact = false
     try {
-      exact = this.ctx.agents.get(captain.id) === captain && this.ctx.agents.roots().includes(captain)
+      exact = this.ctx.agents.get(captain.id) === captain && (captain.session.header.parentSession === undefined && this.ctx.agents.roots().includes(captain))
     } catch {
       return this.authorityUnavailable()
     }

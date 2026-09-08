@@ -1,3 +1,5 @@
+import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
  * Issue #184 — recruited identity and member-assigned Skills become an
  * executable contract:
@@ -16,9 +18,9 @@ import { join } from 'node:path'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { CallId, LlmAdapter, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, LlmAdapter, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
@@ -58,7 +60,9 @@ async function mount(sandbox: string, allowedSkills: readonly string[] | undefin
   const ctx = new Context()
   const fibers: Fiber[] = []
   await mountAgentLoopTestDependencies(ctx)
-  fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(sandbox, 'sessions', 'sessions.db') }))
+  await ctx.plugin(SessionProjectionService)
+  await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
+  fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   await mountStorageStackOn(ctx, join(sandbox, 'storage'))
   fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
   fibers.push(await ctx.plugin(SubagentService))
@@ -75,7 +79,7 @@ async function mount(sandbox: string, allowedSkills: readonly string[] | undefin
   ctx.llm.registerAdapter(['mock'], adapter)
   const lead = ctx.agentLoop.create(SessionId('skills-lead'), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
   const created = await ctx.tools.execute({
-    signal: SIGNAL, callId: CallId('create-team'), name: 'agent_swarm_create',
+    signal: SIGNAL, callId: ToolCallId('create-team'), name: 'agent_swarm_create',
     arguments: { name: 'Skills team', description: 'Prove assigned Skills.' }, agent: lead,
   })
   expect(created.isError).toBe(false)
@@ -84,7 +88,7 @@ async function mount(sandbox: string, allowedSkills: readonly string[] | undefin
 
 async function addMember(mounted: Mounted, callId: string, args: Record<string, unknown>) {
   return await mounted.ctx.tools.execute({
-    signal: SIGNAL, callId: CallId(callId), name: 'agent_swarm_add_member', arguments: args, agent: mounted.lead,
+    signal: SIGNAL, callId: ToolCallId(callId), name: 'agent_swarm_add_member', arguments: args, agent: mounted.lead,
   })
 }
 

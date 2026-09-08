@@ -17,7 +17,7 @@ const SIGNAL = new AbortController().signal
 describe('SW-I1a uncertain effect outcome', () => {
   for (const failure of ['post-effect-revision-read', 'receipt-write'] as const) {
     it(`${failure} remains pending/outcome-unknown and a replay never repeats the Team effect`, async () => {
-      const captain = { id: SessionId('captain-outcome') } as Agent
+      const captain = { id: SessionId('captain-outcome'), session: { header: {} } } as Agent
       const teamId = TeamId('team-outcome')
       const scope = 'workspace-outcome'
       let durable: HumanInteractionRecord | undefined

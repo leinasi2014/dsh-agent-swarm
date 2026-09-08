@@ -1,3 +1,5 @@
+import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
  * SW-I1a human review/control over the durable interaction overlay.
  *
@@ -15,12 +17,12 @@ import { join } from 'node:path'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { CallId, LlmAdapter, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, LlmAdapter, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
-import UserQuestionService, { type UserQuestionProvider } from '@deepseek-ai/dsh-user-questions'
+import UserQuestionService, { type AskUserQuestionRequest } from '@deepseek-ai/dsh-user-questions'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
 import type { HumanInteractionRequest } from '../src/index.js'
@@ -56,7 +58,9 @@ async function mount(sandbox: string, reviewProvider = 'manual', schedulerProvid
   const ctx = new Context()
   const fibers: Fiber[] = []
   await mountAgentLoopTestDependencies(ctx)
-  fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(sandbox, 'sessions', 'sessions.db') }))
+  await ctx.plugin(SessionProjectionService)
+  await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
+  fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   await mountStorageStackOn(ctx, join(sandbox, 'storage'))
   fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
   fibers.push(await ctx.plugin(SubagentService))
@@ -72,7 +76,7 @@ async function mount(sandbox: string, reviewProvider = 'manual', schedulerProvid
   )
   const created = await ctx.tools.execute({
     signal: SIGNAL,
-    callId: CallId('i1a-create'),
+    callId: ToolCallId('i1a-create'),
     name: 'agent_swarm_create',
     arguments: { name: 'I1a review team', description: 'Prove SW-I1a review/control boundaries on the durable overlay.' },
     agent: lead,
@@ -91,7 +95,7 @@ async function mount(sandbox: string, reviewProvider = 'manual', schedulerProvid
 async function addMember(stack: Stack): Promise<string> {
   const added = await stack.ctx.tools.execute({
     signal: SIGNAL,
-    callId: CallId('i1a-add'),
+    callId: ToolCallId('i1a-add'),
     name: 'agent_swarm_add_member',
     arguments: { name: 'worker', role: 'SW-I1a human-control worker.' },
     agent: stack.lead,
@@ -183,12 +187,12 @@ describe('HumanReviewProvider over official ctx.userQuestions', () => {
     roots.push(sandbox)
     const stack = await mount(sandbox, 'human')
     stacks.push(stack)
-    const provider: UserQuestionProvider = {
-      async ask(input) {
+    const provider = {
+      async ask(input: AskUserQuestionRequest) {
         return { answers: [{ id: input.questions[0]?.id ?? 'q', selected: ['Accept'] }] }
       },
     }
-    stack.ctx.userQuestions.registerProvider(provider)
+    stack.ctx.on('user-questions/request', input => provider.ask(input))
     const task = await stack.ctx.agentSwarm.domain.createTask(
       stack.scope, stack.teamId, stack.lead.id, { subject: 'review me', description: 'Human review must accept.' },
     )
@@ -211,10 +215,8 @@ describe('HumanReviewProvider over official ctx.userQuestions', () => {
     const stack = await mount(sandbox, 'human')
     stacks.push(stack)
     let selected: string[] = ['Accept', 'Reject']
-    stack.ctx.userQuestions.registerProvider({
-      async ask(input) {
+    stack.ctx.on('user-questions/request', async input => {
         return { answers: [{ id: input.questions[0]?.id ?? 'q', selected }] }
-      },
     })
     const task = await stack.ctx.agentSwarm.domain.createTask(
       stack.scope, stack.teamId, stack.lead.id, { subject: 'ambiguous', description: 'Must fail closed.' },
@@ -258,10 +260,10 @@ describe('scenario 42: durable duplicate/late/expired/cancelled controls', () =>
     const wake = await submit(stack, wakeRequest)
     expect(wake.status).toBe('executed')
     const afterWake = await snapshot(stack)
-    const messageCount = afterWake.team.messages.filter(message => message.phase === 'queued').length
+    const messageIds = afterWake.team.messages.map(message => message.id)
 
     await expect(submit(stack, wakeRequest)).rejects.toMatchObject({ code: 'TEAM_INTERACTION_REQUEST_CONFLICT' })
-    expect((await snapshot(stack)).team.messages.filter(message => message.phase === 'queued')).toHaveLength(messageCount)
+    expect((await snapshot(stack)).team.messages.map(message => message.id)).toEqual(messageIds)
 
     const expired = request(stack, {
       requestId: 'human-scenario42-expired-00000002',
@@ -272,7 +274,7 @@ describe('scenario 42: durable duplicate/late/expired/cancelled controls', () =>
       expiresAt: Date.now() - 1,
     })
     await expect(submit(stack, expired)).rejects.toMatchObject({ code: 'TEAM_INTERACTION_EXPIRED' })
-    expect((await snapshot(stack)).team.messages.filter(message => message.phase === 'queued')).toHaveLength(messageCount)
+    expect((await snapshot(stack)).team.messages.map(message => message.id)).toEqual(messageIds)
 
     const cancelledRequest = request(stack, {
       requestId: 'human-scenario42-cancelled-00000003',
@@ -282,7 +284,7 @@ describe('scenario 42: durable duplicate/late/expired/cancelled controls', () =>
     })
     await stack.ctx.agentSwarmHumanControl.cancel(stack.scope, cancelledRequest, captainAdmission(stack))
     await expect(submit(stack, cancelledRequest)).rejects.toMatchObject({ code: 'TEAM_INTERACTION_CANCELLED' })
-    expect((await snapshot(stack)).team.messages.filter(message => message.phase === 'queued')).toHaveLength(messageCount)
+    expect((await snapshot(stack)).team.messages.map(message => message.id)).toEqual(messageIds)
 
     const reassign = request(stack, {
       requestId: 'human-scenario42-reassign-00000004',
@@ -459,7 +461,7 @@ describe('PM-required concurrency and durability', () => {
       expectedTeamRevision: teamRevisionAfterClaim,
     })
     await stack.ctx.agentSwarmHumanControl.cancel(stack.scope, cancelledRequest, captainAdmission(stack))
-    const beforeMessages = (await snapshot(stack)).team.messages.filter(message => message.phase === 'queued').length
+    const beforeMessages = (await snapshot(stack)).team.messages.map(message => message.id)
 
     await stack.pluginFiber.dispose()
     stack.fibers.pop()
@@ -469,7 +471,7 @@ describe('PM-required concurrency and durability', () => {
 
     await expect(submit(stack, executedRequest)).rejects.toMatchObject({ code: 'TEAM_INTERACTION_REQUEST_CONFLICT' })
     await expect(submit(stack, cancelledRequest)).rejects.toMatchObject({ code: 'TEAM_INTERACTION_CANCELLED' })
-    expect((await snapshot(stack)).team.messages.filter(message => message.phase === 'queued')).toHaveLength(beforeMessages)
+    expect((await snapshot(stack)).team.messages.map(message => message.id)).toEqual(beforeMessages)
   }, 45_000)
 })
 

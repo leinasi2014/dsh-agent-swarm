@@ -1,16 +1,12 @@
+import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
  * F3 (M1B): persisted-child provisioning reconciliation across the crash
  * window between child Session persistence and the Team activation commit.
  *
- * Every test composes the real official services a deployment composes —
- * AgentLoop with the in-process spawn provider (real continuable children),
- * JSONL session persistence (real durable child artifacts) and the storage
- * stack harness (real `agent_swarm` Storage Domain aggregate). The crash
- * window is injected by construction, not by process death: committing the
- * `provisioning` record directly, establishing the real child through
- * `ctx.subagents.startContinuable`, letting its initial turn durably
- * checkpoint the accepted prompt, then draining the child so the recovery
- * scan sees exactly the durable facts a killed process leaves behind.
+ * Composes official AgentLoop, in-process spawn, JSONL persistence and Storage
+ * Domain. Faults construct a provisioning record and durably checkpoint a real
+ * child before draining it; they model the crash window without killing a process.
  */
 import { randomUUID } from 'node:crypto'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -19,11 +15,10 @@ import { join } from 'node:path'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { CallId, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
-import SessionProjection from '@deepseek-ai/dsh-session-projection'
-import SubagentService from '@deepseek-ai/dsh-subagent'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import SubagentService, { SubagentError } from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
@@ -113,17 +108,16 @@ async function mountCaptain(
   fibers: Fiber[],
   leadId: string,
   teamName: string,
-  options: { projections?: boolean; adapter?: LlmAdapter; maxMembers?: number } = {},
+  options: { adapter?: LlmAdapter; maxMembers?: number } = {},
 ): Promise<CaptainStack> {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
-  fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(sandbox, 'sessions', 'sessions.db') }))
+  await ctx.plugin(SessionProjectionService)
+  await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
+  fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   await mountStorageStackOn(ctx, join(sandbox, 'storage'))
   fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
-  // The live-preferred `listChildren` evidence rung needs the official
-  // projection registry (and with it the subagent projection unit); the
-  // fallback test omits it to pin the official inspect-only baseline.
-  if (options.projections !== false) fibers.push(await ctx.plugin(SessionProjection))
+
   fibers.push(await ctx.plugin(SubagentService))
   fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
   fibers.push(await ctx.plugin(AgentSwarm, {
@@ -137,7 +131,7 @@ async function mountCaptain(
   )
   const created = await ctx.tools.execute({
     signal: SIGNAL,
-    callId: CallId('create'),
+    callId: ToolCallId('create'),
     name: 'agent_swarm_create',
     arguments: { name: teamName, description: `Prove persisted-child reconciliation for ${leadId}.` },
     agent: lead,
@@ -335,19 +329,20 @@ describe('persisted-child provisioning reconciliation (F3)', () => {
    * reconciliation must still reach the official inspect-only verdict instead
    * of silently regressing every record to the pre-F3 bulk failure.
    */
-  it('activates the persisted orphan without the sessionProjections registry through inspect-only evidence', async () => {
+  it('activates the persisted orphan when projection enrichment is unavailable through inspect-only evidence', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-provision-bare-'))
     roots.push(sandbox)
     const fibers: Fiber[] = []
 
     try {
-      const stack = await mountCaptain(sandbox, fibers, 'reconcile-bare-lead', 'Bare team', { projections: false })
+      const stack = await mountCaptain(sandbox, fibers, 'reconcile-bare-lead', 'Bare team')
       const idle = vi.spyOn(stack.ctx.agentSwarm, 'observeAgentIdle').mockImplementation(() => {})
       const childId = await injectCrashWindow(stack, {
         name: 'bare-worker',
         role: 'Reconcile over persisted inspection alone.',
         recordProvider: 'spawn',
       })
+      const unavailable = vi.spyOn(stack.ctx.subagents, 'listChildren').mockRejectedValue(new SubagentError('projection registry unavailable', 'SUBAGENT_CONTROL_PROJECTIONS_UNAVAILABLE'))
       const drain = vi.spyOn(stack.ctx.subagents, 'drainContinuableChildren')
 
       await stack.ctx.agentSwarm.recoverAgent(stack.lead)
@@ -361,6 +356,7 @@ describe('persisted-child provisioning reconciliation (F3)', () => {
       expect(drain).not.toHaveBeenCalled()
       idle.mockRestore()
       drain.mockRestore()
+      unavailable.mockRestore()
     } finally {
       for (const fiber of fibers.toReversed()) await fiber.dispose()
     }
@@ -383,7 +379,7 @@ describe('persisted-child provisioning reconciliation (F3)', () => {
       const prepare = vi.fn(() => Promise.resolve({}))
       const unregister = stack.ctx.subagents.registerProvider({
         name: 'no-depth',
-        capabilities: { outputSchema: false, depthLimit: false, toolFilter: true, persona: true },
+        capabilities: { agentOptions: true, outputSchema: false, depthLimit: false, toolFilter: true, persona: true },
         inheritsParentContext: false,
         start: () => Promise.reject(new Error('one-shot start must never run here')),
         prepareContinuable: prepare,
@@ -391,7 +387,7 @@ describe('persisted-child provisioning reconciliation (F3)', () => {
 
       const rejected = await stack.ctx.tools.execute({
         signal: SIGNAL,
-        callId: CallId('depth-add'),
+        callId: ToolCallId('depth-add'),
         name: 'agent_swarm_add_member',
         arguments: { name: 'shallow-worker', role: 'Exercise the depthLimit preflight.', provider: 'no-depth' },
         agent: stack.lead,
@@ -430,7 +426,7 @@ describe('persisted-child provisioning reconciliation (F3)', () => {
 
       const added = await stack.ctx.tools.execute({
         signal: SIGNAL,
-        callId: CallId('p1-add'),
+        callId: ToolCallId('p1-add'),
         name: 'agent_swarm_add_member',
         arguments: { name: 'p1-worker', role: 'Survive a post-activation accounting failure.' },
         agent: stack.lead,
@@ -462,7 +458,7 @@ describe('persisted-child provisioning reconciliation (F3)', () => {
       // rule), a fresh name provisions normally.
       const sameName = await stack.ctx.tools.execute({
         signal: SIGNAL,
-        callId: CallId('p1-retry-same'),
+        callId: ToolCallId('p1-retry-same'),
         name: 'agent_swarm_add_member',
         arguments: { name: 'p1-worker', role: 'Must be rejected.' },
         agent: stack.lead,
@@ -470,7 +466,7 @@ describe('persisted-child provisioning reconciliation (F3)', () => {
       expect(sameName).toMatchObject({ isError: true, error: { info: { code: 'TEAM_MEMBER_NAME_TAKEN' } } })
       const fresh = await stack.ctx.tools.execute({
         signal: SIGNAL,
-        callId: CallId('p1-retry-fresh'),
+        callId: ToolCallId('p1-retry-fresh'),
         name: 'agent_swarm_add_member',
         arguments: { name: 'p1-worker-2', role: 'System stays healthy.' },
         agent: stack.lead,
@@ -500,15 +496,18 @@ describe('persisted-child provisioning reconciliation (F3)', () => {
       const addFive = async (prefix: string) => await Promise.all(
         Array.from({ length: 5 }, (_, index) => stack.ctx.tools.execute({
           signal: SIGNAL,
-          callId: CallId(`${prefix}-${index}`),
+          callId: ToolCallId(`${prefix}-${index}`),
           name: 'agent_swarm_add_member',
           arguments: { name: `${prefix}-worker-${index}`, role: `Exercise ${prefix} child startup settlement.` },
           agent: stack.lead,
         })),
       )
 
-      const pendingFailures = addFive('failure'); await vi.waitFor(() => expect(adapter.calls).toBe(5), { timeout: 5_000 }); adapter.release()
+      const pendingFailures = addFive('failure')
       const failures = await pendingFailures
+      expect(failures).toEqual(Array.from({ length: 5 }, () => expect.objectContaining({ isError: false })))
+      await vi.waitFor(() => expect(adapter.calls).toBe(5), { timeout: 5_000 })
+      adapter.release()
       expect(failures).toHaveLength(5)
       for (const result of failures) expect(result).toMatchObject({ isError: false, value: { phase: 'active' } })
       await vi.waitFor(async () => expect((await stack.ctx.agentSwarm.domain.snapshot(stack.ctx.agentSwarm.scopeOf(stack.lead), AgentSwarm.TeamId(stack.teamId), stack.lead.id)).team.members.every(member => member.phase === 'failed')).toBe(true), { timeout: 5_000 })
@@ -520,7 +519,7 @@ describe('persisted-child provisioning reconciliation (F3)', () => {
       expect(afterFailures.team.revision).toBeGreaterThanOrEqual(16)
       const failedProfiles = await stack.ctx.tools.execute({
         signal: SIGNAL,
-        callId: CallId('failure-profiles'),
+        callId: ToolCallId('failure-profiles'),
         name: 'agent_swarm_list_members',
         arguments: { phase: 'failed' },
         agent: stack.lead,
@@ -553,7 +552,7 @@ describe('persisted-child provisioning reconciliation (F3)', () => {
 
       const reused = await stack.ctx.tools.execute({
         signal: SIGNAL,
-        callId: CallId('failure-name-reuse'),
+        callId: ToolCallId('failure-name-reuse'),
         name: 'agent_swarm_add_member',
         arguments: { name: 'failure-worker-0', role: 'This must remain fenced after a failed start.' },
         agent: stack.lead,
@@ -576,7 +575,7 @@ describe('persisted-child provisioning reconciliation (F3)', () => {
       const settled = vi.spyOn(domain, 'settleMember')
       const pending = stack.ctx.tools.execute({
         signal: SIGNAL,
-        callId: CallId('dispose-add'),
+        callId: ToolCallId('dispose-add'),
         name: 'agent_swarm_add_member',
         arguments: { name: 'dispose-worker', role: 'Remain non-active when the owning runtime closes.' },
         agent: stack.lead,

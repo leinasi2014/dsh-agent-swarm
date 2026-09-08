@@ -1,15 +1,8 @@
 /**
- * Per-attempt execution-root fault suite (M3-1, issue #100; docs/04 §8l):
- * the three contract fault faces over the REAL provider and manager —
- * parallel attempts isolated in distinct worktree roots with zero
- * cross-contamination, reclamation when an attempt fails/settles, and
- * crash-leftover roots detected, alarmed and marked reclaimable without
- * auto-deletion — plus the authority-derived hold rule and the composition
- * wiring (assignment-frame root declaration through the official cwd seam,
- * self-claim root disclosure, submit-time release and conflict rollback).
- *
- * Evidence tags: docs/08 scenario 21 (distinct worktree/tool roots for two
- * parallel coding attempts).
+ * Real execution-root provider/composition faults (M3-1, #100; docs/04 §8l):
+ * isolation, reclaim, crash residue without automatic deletion, authoritative
+ * holds, official tool cwd, submit evidence and conflict rollback.
+ * Evidence: docs/08 scenario 21 (distinct roots for parallel coding attempts).
  */
 import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -385,6 +378,9 @@ describe('execution-root composition wiring (M3-1, issue #100)', () => {
         const leased = ctx.agentSwarm.executionRoots.roots.leaseOf(scope, teamId, claimedNow!.id, claimedNow!.currentAttemptId!)
         expect(leased).toBeDefined()
         expect(existsSync(join(leased!.path, EXECUTION_ROOT_MARKER))).toBe(true)
+        const attempt = snapshot.team.attempts.find(candidate => candidate.id === claimedNow!.currentAttemptId)
+        expect(attempt?.assignmentPhase).toBe('delivered')
+        expect(ctx.agents.get(SessionId(memberId))?.status).toBe('running')
       }, { timeout: 20_000 })
       const snapshot = await ctx.agentSwarm.domain.snapshot(scope, teamId, composition.lead.id)
       const claimed = snapshot.team.tasks.find((candidate: TeamTask) => candidate.status === 'in_progress')!
@@ -472,6 +468,13 @@ describe('execution-root composition wiring (M3-1, issue #100)', () => {
         const leased = ctx.agentSwarm.executionRoots.roots.leaseOf(scope, teamId, claimedNow!.id, claimedNow!.currentAttemptId!)
         expect(leased).toBeDefined()
         expect(existsSync(join(leased!.path, EXECUTION_ROOT_MARKER))).toBe(true)
+        // The root is leased before the assignment cold-resumes its member.
+        const attempt = snapshot.team.attempts.find(candidate => candidate.id === claimedNow!.currentAttemptId)
+        expect(attempt?.assignmentPhase).toBe('delivered')
+        expect(adapter.requests.some(request => request.messages.some(message => message.role === 'user'
+          && message.content.some(block => block.type === 'text'
+            && block.text.includes(`Attempt capability: ${claimedNow!.currentAttemptId!}`))))).toBe(true)
+        expect(ctx.agents.get(SessionId(memberId))?.status).toBe('running')
       }, { timeout: 20_000 })
       const snapshot = await ctx.agentSwarm.domain.snapshot(scope, teamId, composition.lead.id)
       const claimed = snapshot.team.tasks.find((candidate: TeamTask) => candidate.status === 'in_progress')!

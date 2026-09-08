@@ -66,6 +66,10 @@ Scheduler Provider 只选择可调度对象，不直接写 aggregate。Runtime �
 
 Captain identity 独立于 Member roster。`set_captain_profile` 成功提交后，Host/RPC 下一轮 projection 必须发布新 revision；占位文案不能被解释为 Captain Session 创建失败。
 
+`personality` 与 `biography` 分别保存工作性格和个人简介，各限 1024 个 Unicode code points，并经过 Domain、Storage、Host/RPC 的同一校验链。Captain 通常在招募时按用户语言和偏好提供完整资料；缺失字段诚实显示不可用。`set_captain_profile` 与 `set_member_profile` 以当前 Team revision 做局部更新，保留未提交字段；后者按不可变 roster name 定位，检查显示名冲突，不改 Session、角色、Skills、模型或运行中的 persona。descriptor 的 label 是创建时事实；资料改名后的读取继续校验精确 Session、parent、origin、Team 标签前缀及 provider。
+
+DSH `0.1.2-rc.1` 的 continuable child 可由私有 owner 注册；`agents.roots()` 本身不证明顶层身份，root 权限还须核对 `session.header.parentSession`。官方带标记的 `send_message` 仅在精确存活 child 向真实 direct parent 发送时继承上行权限，仍经过后续官方 guard；同名替换工具与向下/跨成员发送不获得豁免。冷恢复的 Team Skills 在 `agent/session-start` 后、首个 step/工具调用前从权威 aggregate 重建，解析失败不得放宽权限。
+
 ## 6. 工具与权限
 
 插件注册 26 个 `agent_swarm_*` 工具，按以下能力组维护：

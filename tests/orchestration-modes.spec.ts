@@ -1,3 +1,5 @@
+import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
  * Explicit orchestration-mode semantics over the real official composition
  * (the ownership and mode decisions are defined in docs/04):
@@ -21,7 +23,7 @@ import { Context, type Fiber } from '@deepseek-ai/cordis'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import Storage from '@deepseek-ai/dsh-storage'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
@@ -62,7 +64,9 @@ describe('explicit orchestration modes (M2-3, issue #77)', () => {
     const fibers: Fiber[] = []
     try {
       await mountAgentLoopTestDependencies(ctx)
-      fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(sandbox, 'sessions', 'sessions.db') }))
+  await ctx.plugin(SessionProjectionService)
+  await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
+      fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
       fibers.push(await ctx.plugin(Storage))
       fibers.push(await ctx.plugin(StorageJson, { root: join(sandbox, 'storage') }))
       fibers.push(await ctx.plugin(StorageDomain, { backend: 'json' }))

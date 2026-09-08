@@ -6,7 +6,7 @@
  * agent session cwd.
  */
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { CallId } from '@deepseek-ai/dsh-llm'
+import type { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { TeamDomainError } from '../domain/error.js'
 
 /** Execution context of one model tool call. */
@@ -20,8 +20,8 @@ export interface ToolExecutionAuthority {
    * The tools boundary passes these through; they are absent only when a caller
    * constructs an authority without a callId (never on the live tool path).
    */
-  readonly callId?: CallId
-  readonly rootCallId?: CallId
+  readonly callId?: ToolCallId
+  readonly rootCallId?: ToolCallId
 }
 
 /** Resolve the backing Agent or fail loud: Team tools are Agent-backed only. */

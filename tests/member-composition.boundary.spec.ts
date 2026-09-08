@@ -88,7 +88,7 @@ function descriptor(memberName: string, over: Record<string, unknown> = {}) {
   return {
     type: 'subagent/descriptor',
     data: {
-      version: 2, mode: 'continuable', provider: 'mock',
+      version: 3, mode: 'continuable', provider: 'mock',
       label: `Team R2 · ${memberName}`,
       ...over,
     },

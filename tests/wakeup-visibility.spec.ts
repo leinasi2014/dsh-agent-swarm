@@ -1,3 +1,5 @@
+import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
  * Issue #52 / D1: waking (wakeup) mail must never be acknowledged as
  * delivered before the frame is model-visible at the target.
@@ -21,9 +23,9 @@ import { join } from 'node:path'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { CallId, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -122,7 +124,7 @@ function acceptedFrames(events: readonly { type: string, data: any }[], frame: s
 }
 
 async function toolCall(ctx: Context, agent: { } & any, callId: string, name: string, args: unknown) {
-  return await ctx.tools.execute({ signal: SIGNAL, callId: CallId(callId), name, arguments: args, agent })
+  return await ctx.tools.execute({ signal: SIGNAL, callId: ToolCallId(callId), name, arguments: args, agent })
 }
 
 describe('wakeup delivery visibility (issue #52 / D1)', () => {
@@ -150,7 +152,9 @@ describe('wakeup delivery visibility (issue #52 / D1)', () => {
 
     try {
       await mountAgentLoopTestDependencies(ctx)
-      fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(sandbox, 'sessions', 'sessions.db') }))
+  await ctx.plugin(SessionProjectionService)
+  await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
+      fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
       await mountStorageStackOn(ctx, join(sandbox, 'storage'))
       fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
       fibers.push(await ctx.plugin(SubagentService))
@@ -255,7 +259,9 @@ describe('wakeup delivery visibility (issue #52 / D1)', () => {
 
     try {
       await mountAgentLoopTestDependencies(ctx)
-      fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(sandbox, 'sessions', 'sessions.db') }))
+  await ctx.plugin(SessionProjectionService)
+  await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
+      fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
       await mountStorageStackOn(ctx, join(sandbox, 'storage'))
       fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
       fibers.push(await ctx.plugin(SubagentService))

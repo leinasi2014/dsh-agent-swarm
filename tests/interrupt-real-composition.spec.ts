@@ -1,12 +1,14 @@
+import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { CallId, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
-import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -50,7 +52,7 @@ class Adapter extends LlmAdapter {
     await this.wait(options.signal)
     if (!this.hung && text.includes('Team assignment from captain.')) {
       this.hung = true
-      const id = CallId('member-hanging-call')
+      const id = ToolCallId('member-hanging-call')
       yield { type: 'block-start', index: 0, blockType: 'tool-call' }
       yield { type: 'tool-call-delta', index: 0, id, name: HANG, argumentsDelta: '{}' }
       yield { type: 'block-end', index: 0, block: { type: 'tool-call', id, name: HANG, arguments: '{}' } }
@@ -82,7 +84,9 @@ async function mount(root: string, adapter: Adapter) {
   const latch = new Latch()
   stacks.push({ fibers, adapter, latch })
   await mountAgentLoopTestDependencies(ctx)
-  fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(root, 'sessions', 'sessions.db') }))
+  await ctx.plugin(SessionProjectionService)
+  await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
+  fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(root, 'sessions', 'sessions.db') }))
   await mountStorageStackOn(ctx, join(root, 'storage'))
   fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
   fibers.push(await ctx.plugin(SubagentService)); fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
@@ -93,7 +97,7 @@ async function mount(root: string, adapter: Adapter) {
   })), 'test hanging tool')
   ctx.llm.registerAdapter(['mock'], adapter)
   const lead = ctx.agentLoop.create(SessionId(`interrupt-lead-${Date.now()}`), { provider: 'mock', model: 'mock' }, { cwd: join(root, 'workspace') })
-  const tool = async (callId: string, name: string, args: Record<string, unknown> = {}) => await ctx.tools.execute({ signal: SIGNAL, callId: CallId(callId), name, arguments: args, agent: lead })
+  const tool = async (callId: string, name: string, args: Record<string, unknown> = {}) => await ctx.tools.execute({ signal: SIGNAL, callId: ToolCallId(callId), name, arguments: args, agent: lead })
   const created = await tool('create', 'agent_swarm_create', { name: 'Interrupt evidence', description: 'Real model tool evidence.' })
   if (created.isError) throw new Error(JSON.stringify(created.error))
   return { ctx, lead, latch, tool, teamId: AgentSwarm.TeamId((created.value as { team_id: string }).team_id), scope: ctx.agentSwarm.scopeOf(lead) }
@@ -144,7 +148,7 @@ describe('model interrupt admission over the real official composition', () => {
         wave, lane, memberPhase: observed?.team.members.find(candidate => candidate.sessionId === memberId)?.phase,
         captainStatus: stack.lead.status, memberStatus: member?.status,
         task: task === undefined ? undefined : { id: task.id, revision: task.revision, status: task.status, owner: task.ownerSessionId },
-        events: member?.session.events.slice(-12).map(event => ({
+        events: member?.session.snapshotEvents().slice(-12).map(event => ({
           type: event.type, seq: event.seq,
           turn: event.type === 'turn/start' || event.type === 'turn/end'
             || event.type === 'tool/call' || event.type === 'tool/result' ? event.data.turn : undefined,
@@ -157,7 +161,7 @@ describe('model interrupt admission over the real official composition', () => {
     await vi.waitFor(() => {
       const live = stack.ctx.agents.get(SessionId(memberId)); expect(live).toBeDefined()
       if (live === undefined) throw new Error('member not live')
-      const suffix = live.session.events.filter(event => event.seq >= live.session.firstLiveSeq)
+      const suffix = live.session.snapshotEvents().filter(event => event.seq >= live.session.firstLiveSeq)
       const found = suffix.find((event): event is Extract<SessionEvent, { type: 'tool/call' }> => event.type === 'tool/call' && event.data.name === HANG)
       if (found === undefined) throw new Error('hanging call absent')
       expect(suffix.some(event => event.type === 'tool/result' && event.seq > found.seq && event.data.turn === found.data.turn && event.data.step === found.data.step && event.data.message.source.callId === found.data.callId)).toBe(false)

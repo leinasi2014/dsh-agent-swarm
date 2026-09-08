@@ -8,8 +8,8 @@ This register contains current pinned identities and durable compatibility facts
 |---|---|
 | Repository | `https://github.com/deepseek-ai/deepseek-harness` |
 | Branch | `master` |
-| Release anchor | `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e` |
-| Release | `dsh@0.1.1-rc.2` |
+| Release anchor | `a66e4702047846cdaa10c66c9d3df3951f5ea70d` |
+| Release | `dsh@0.1.2-rc.1` |
 | Machine-readable baseline | `docs/OFFICIAL_BASELINE.json` |
 | Evidence checkout | repository-managed official sparse checkout |
 
@@ -42,8 +42,8 @@ These facts are represented in current source and focused tests, including stora
 |---|---|
 | Repository | `https://github.com/NanmiCoder/dsh-agent-teams` |
 | Branch | `main` |
-| Commit | `232a338fc9a0d393f118912386f67e7f3a6c67d6` |
-| Version | `0.1.15` |
+| Commit | `1caff61f4c0909711b515ebc56187055556186cd` |
+| Version | `0.1.16-rc.1` |
 | Pointer | `ref/dsh-agent-teams/SOURCE_POINTER.json` |
 | Checkout | `ref/dsh-agent-teams/source/` |
 
@@ -55,7 +55,7 @@ Use it for continuable-member lifecycle, roster identity, DAG/claim rules, revis
 |---|---|
 | Repository | `https://github.com/openJiuwen-ai/jiuwenswarm` |
 | Branch | `develop` |
-| Commit | `e8aa1b433e8b5ff1875cdd4cfd63155ad2a2a862` |
+| Commit | `c7bf529a15dfdf422b854ee03f6ef1eb80f6fe24` |
 | Observed package | `workswarm 0.2.5.beta1` |
 | Pointer | `ref/jiuwenswarm/SOURCE_POINTER.json` |
 | Checkout | `ref/jiuwenswarm/source/` |

@@ -1,6 +1,7 @@
 /** Compact dependency DAG for the Tasks view (P0-2 S5c). Pure client layout. */
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SwarmHostReadProjectionV1 } from '../host/host-read-types.js'
+import { enumLabel } from './team-dashboard-view-helpers.js'
 
 type DagTask = SwarmHostReadProjectionV1['tasks'][number]
 
@@ -8,8 +9,8 @@ interface DagNode { readonly task: DagTask; readonly x: number; readonly y: numb
 interface DagEdge { readonly from: string; readonly to: string; readonly path: string }
 interface DagLayout { readonly width: number; readonly height: number; readonly nodes: readonly DagNode[]; readonly edges: readonly DagEdge[] }
 
-const NODE_WIDTH = 112
-const NODE_HEIGHT = 42
+const NODE_WIDTH = 160
+const NODE_HEIGHT = 54
 const COLUMN_GAP = 26
 const ROW_GAP = 8
 
@@ -87,13 +88,13 @@ const DAG_CSS = `
 [data-swarm-task-dag] .swarm-team-workspace__dag-node[data-swarm-dag-tone="completed"]{border-color:color-mix(in srgb, var(--dsw-alias-state-success-primary) 55%, var(--dsw-alias-border-l2))}
 [data-swarm-task-dag] .swarm-team-workspace__dag-node[data-swarm-dag-tone="failed"]{border-color:color-mix(in srgb, var(--dsw-alias-state-error-primary) 55%, var(--dsw-alias-border-l2))}
 [data-swarm-task-dag] .swarm-team-workspace__dag-node[data-swarm-dag-tone="cancelled"]{opacity:.55}
-[data-swarm-task-dag] .swarm-team-workspace__dag-id{font-size:9.5px;font-weight:700}
-[data-swarm-task-dag] .swarm-team-workspace__dag-subject{overflow:hidden;font-size:9.5px;color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap}
-[data-swarm-task-dag] .swarm-team-workspace__dag-hint{color:var(--dsw-alias-label-tertiary);font-size:9px}
+[data-swarm-task-dag] .swarm-team-workspace__dag-id{font-size:12px;font-weight:700}
+[data-swarm-task-dag] .swarm-team-workspace__dag-subject{overflow:hidden;font-size:12px;color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap}
+[data-swarm-task-dag] .swarm-team-workspace__dag-hint{color:var(--dsw-alias-label-tertiary);font-size:12px}
 `
 
 /** Heads the Tasks tab with the dependency graph; hidden when no tasks. */
-export function TaskDag({ tasks, t }: { readonly tasks: readonly DagTask[]; readonly t: TranslateNS<'swarm.team-dashboard'> }) {
+export function TaskDag({ tasks, t, onSelect }: { readonly tasks: readonly DagTask[]; readonly t: TranslateNS<'swarm.team-dashboard'>; readonly onSelect: (taskId: string) => void }) {
   if (tasks.length === 0) return null
   const layout = compactTaskDag(tasks)
   return (
@@ -105,7 +106,8 @@ export function TaskDag({ tasks, t }: { readonly tasks: readonly DagTask[]; read
           {layout.edges.map(edge => <path key={`${edge.from}:${edge.to}`} d={edge.path} data-swarm-dag-edge data-from={edge.from} data-to={edge.to} />)}
         </svg>
         {layout.nodes.map(node => (
-          <div
+          <button
+            type="button"
             key={node.task.id}
             className="swarm-team-workspace__dag-node"
             style={{ left: node.x, top: node.y, width: NODE_WIDTH, height: NODE_HEIGHT }}
@@ -113,14 +115,13 @@ export function TaskDag({ tasks, t }: { readonly tasks: readonly DagTask[]; read
             data-swarm-task-status={node.task.status}
             data-swarm-dag-tone={tone(node.task.status)}
             title={node.task.subject}
+            onClick={() => { onSelect(node.task.id) }}
           >
-            <span className="swarm-team-workspace__dag-id">{node.task.id}</span>
             <span className="swarm-team-workspace__dag-subject">{node.task.subject}</span>
-          </div>
+            <span className="swarm-team-workspace__dag-id">{enumLabel(node.task.status, t)}</span>
+          </button>
         ))}
       </div>
     </section>
   )
 }
-
-

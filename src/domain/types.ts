@@ -32,6 +32,7 @@ export interface TeamMemberIdentityProfile {
   readonly displayName?: string
   readonly profession?: string
   readonly personality?: string
+  readonly biography?: string
   /** Strictly allowlisted static pixel SVG (`<svg viewBox>` + self-closing
    *  `<rect>` only). Present only when the Captain supplied a safe avatar. */
   readonly pixelAvatarSvg?: string

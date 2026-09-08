@@ -1,6 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { describe, expect, it, vi } from 'vitest'
 import type { TeamDomainPort } from '../src/domain/team-domain-port.js'
@@ -17,7 +17,7 @@ function openCall(seq = 3, time = 900, name = 'slow-tool', callId = 'call-1'): S
   return [
     event(1, 800, 'turn/start', { turn: 7 }),
     event(2, 810, 'step/start', { turn: 7, step: 2 }),
-    event(seq, time, 'tool/call', { turn: 7, step: 2, callId: CallId(callId), name, arguments: '{}' }),
+    event(seq, time, 'tool/call', { turn: 7, step: 2, callId: ToolCallId(callId), name, arguments: '{}' }),
   ]
 }
 
@@ -33,7 +33,7 @@ function fixture(input: {
   const member = {
     id: memberId,
     status: input.status ?? 'running',
-    session: { firstLiveSeq: input.firstLiveSeq ?? 0, events: input.events ?? openCall() },
+    session: { firstLiveSeq: input.firstLiveSeq ?? 0, snapshotEvents: () => input.events ?? openCall() },
   } as Agent
   const interrupt = vi.fn()
   const ctx = {
@@ -82,14 +82,14 @@ describe('model interrupt admission', () => {
   it('requires an exact current turn, step, call tuple with no matching result', async () => {
     const mismatchedResult = event(4, 950, 'tool/result', {
       turn: 7, step: 3,
-      message: { source: { callId: CallId('call-1') } },
+      message: { source: { callId: ToolCallId('call-1') } },
     })
     const accepted = await modelAttempt({ events: [...openCall(), mismatchedResult], timeoutMs: 100 })
     expect(accepted.interrupt).toHaveBeenCalledTimes(1)
 
     const settledResult = event(4, 950, 'tool/result', {
       turn: 7, step: 2,
-      message: { source: { callId: CallId('call-1') } },
+      message: { source: { callId: ToolCallId('call-1') } },
     })
     const rejected = fixture({ events: [...openCall(), settledResult], timeoutMs: 100 })
     await expect(interruptMemberFromModel(rejected.deps, { agent: rejected.captain, signal: SIGNAL }, 'worker'))
@@ -100,7 +100,7 @@ describe('model interrupt admission', () => {
     // an adversarial/inconsistent log reuses the same call id.
     const preCallResult = event(3, 850, 'tool/result', {
       turn: 7, step: 2,
-      message: { source: { callId: CallId('call-1') } },
+      message: { source: { callId: ToolCallId('call-1') } },
     })
     const laterCall = openCall(4, 900)
     const ordered = await modelAttempt({ events: [...laterCall.slice(0, 2), preCallResult, laterCall[2]!], timeoutMs: 100 })

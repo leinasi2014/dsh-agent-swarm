@@ -1,3 +1,5 @@
+import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -6,7 +8,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import {
-  CallId,
+  ToolCallId,
   LlmAdapter,
   type GenerateOptions,
   type LlmResolvedModelInfo,
@@ -14,7 +16,7 @@ import {
   type TokenUsage,
 } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import Storage from '@deepseek-ai/dsh-storage'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
@@ -76,7 +78,7 @@ async function successfulTool(
 ) {
   const result = await ctx.tools.execute({
     signal: SIGNAL,
-    callId: CallId(callId),
+    callId: ToolCallId(callId),
     name,
     arguments: args,
     agent,
@@ -90,7 +92,9 @@ async function successfulTool(
 /** Mount the official durable composition: persistence + storage stack + agent services. */
 async function mountDurableStack(ctx: Context, storageRoot: string, sessionDbPath: string): Promise<Fiber> {
   await mountAgentLoopTestDependencies(ctx)
-  const persistenceFiber = await ctx.plugin(SqliteSessionPersistence, { path: sessionDbPath })
+  await ctx.plugin(SessionProjectionService)
+  await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
+  const persistenceFiber = await ctx.plugin(JsonlSessionPersistence, { root: sessionDbPath })
   await ctx.plugin(Storage)
   await ctx.plugin(StorageJson, { root: storageRoot })
   await ctx.plugin(StorageDomain, { backend: 'json' })
@@ -140,7 +144,7 @@ describe('DSH rc.8 composition', () => {
 
       const failedAdd = await ctx.tools.execute({
         signal: SIGNAL,
-        callId: CallId('failure-add'),
+        callId: ToolCallId('failure-add'),
         name: 'agent_swarm_add_member',
         arguments: { name: 'fragile-worker', role: 'Exercise cleanup ownership.' },
         agent: lead,
@@ -201,7 +205,7 @@ describe('DSH rc.8 composition', () => {
       const prepare = vi.fn(() => new Promise<never>(() => {}))
       const unregister = ctx.subagents.registerProvider({
         name: 'hung',
-        capabilities: { outputSchema: false, depthLimit: true, toolFilter: true, persona: true },
+        capabilities: { agentOptions: true, outputSchema: false, depthLimit: true, toolFilter: true, persona: true },
         inheritsParentContext: false,
         start: () => Promise.reject(new Error('one-shot start must never run here')),
         prepareContinuable: prepare,
@@ -290,11 +294,19 @@ describe('DSH rc.8 composition', () => {
       const plain = updated.team.members.find(member => member.name === 'plain')
       expect(plain?.displayName).toBeUndefined()
       expect(plain?.pixelAvatarSvg).toBeUndefined()
+      await successfulTool(ctx, lead, 'identity-backfill', 'agent_swarm_set_member_profile', {
+        name: 'painter', expected_revision: updated.team.revision, display_name: 'Revised Painter', biography: 'Checks reference details.',
+      })
+      const backfilled = await ctx.agentSwarm.domain.snapshot(workspace, AgentSwarm.TeamId(created.team_id), lead.id)
+      expect(backfilled.team.members[0]).toMatchObject({ sessionId: added.session_id, displayName: 'Revised Painter', profession: 'Avatar artist', personality: 'Careful, meticulous', biography: 'Checks reference details.' })
+      const profiles = await successfulTool(ctx, lead, 'identity-readback', 'agent_swarm_list_members', {}) as { members: Array<{ profile_state: string }> }
+      expect(profiles.members[0]).toMatchObject({ profile_state: 'available' })
+
 
       // An unsafe avatar is rejected by the tool before provisioning commits.
       await expect(ctx.tools.execute({
         signal: SIGNAL,
-        callId: CallId('identity-unsafe'),
+        callId: ToolCallId('identity-unsafe'),
         name: 'agent_swarm_add_member',
         arguments: { name: 'evil', role: 'artist', pixel_avatar_svg: '<svg viewBox="0 0 16 16"><script>alert(1)</script></svg>' },
         agent: lead,
@@ -357,7 +369,7 @@ describe('DSH rc.8 composition', () => {
 
       // A non-member root is rejected by the tool.
       await expect(ctx.tools.execute({
-        signal: SIGNAL, callId: CallId('ct-intrude-set'), name: 'agent_swarm_set_captain_profile',
+        signal: SIGNAL, callId: ToolCallId('ct-intrude-set'), name: 'agent_swarm_set_captain_profile',
         arguments: { expected_revision: s2.team.revision, display_name: 'Hack' }, agent: intruder,
       })).resolves.toMatchObject({ isError: true })
     } finally {

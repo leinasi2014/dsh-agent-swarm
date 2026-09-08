@@ -133,7 +133,7 @@ export class UsageAccountant {
   async accountAgentUsage(scope: TeamScope, teamId: TeamId, agent: Agent): Promise<void> {
     const snapshot = await this.deps.domain().snapshot(scope, teamId, agent.id)
     const afterSeq = snapshot.team.usageCursors[agent.id] ?? -1
-    const entries = usageEntriesAbove(agent.session.events, afterSeq)
+    const entries = usageEntriesAbove(agent.session.snapshotEvents(), afterSeq)
     if (entries.length === 0) return
     await this.deps.domain().recordSessionUsageBatch(
       scope, teamId, agent.id,
@@ -158,7 +158,7 @@ export class UsageAccountant {
         const agent = this.agents.get(SessionId(sessionId))
         // The Captain-authorized snapshot admits this fold. A failed old
         // Session may still be live, but must never regain member read access.
-        const events = agent?.session.events ?? await this.history(sessionId)
+        const events = agent?.session.snapshotEvents() ?? await this.history(sessionId)
         if (events === undefined) continue
         const afterSeq = snapshot.team.usageCursors[sessionId] ?? -1
         const entries = usageEntriesAbove(events, afterSeq)

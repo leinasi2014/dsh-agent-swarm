@@ -43,7 +43,7 @@ AgentSwarmRuntime
 | Workflow/Jobs | official Workflow bridge + caller-scoped jobs projection | 可选、显式启用；唯一 Consumer seam 是 `ctx.agentSwarmWorkflow.start(request)`，仅委托同一 bridge，不提供激活/销毁权限；disabled/unload 时服务缺席，默认官方 `workflowEngine` 不变。`runtime.workflowBridge` 是内部实现细节；jobs 是 read projection，不影子注册官方 producer |
 | Execution root | execution-root Provider | 可选 per-attempt 物理 root、capability 声明、settlement 和 residue 告警 |
 | Host/RPC | Host read service + `/swarm/v1` | target-bound、bounded、redacted、read-only、loopback/same-origin fail-closed |
-| UI | official Client slots / Session navigation / Settings | Workbench、Tasks、Announcements、Management、overlay、Captain Chat、设置页 |
+| UI | official Client slots / Session navigation / Settings | Workbench、Tasks、Announcements、Management、栏内详情、Captain Chat、设置页 |
 
 ## 3. 模型工具面
 
@@ -66,11 +66,17 @@ Workbench 消费同一 read contract：
 
 - Team rail 支持 Main Brain 管理的多 Team 原位切换；
 - 公开目标、公告、成员 identity、Skills/tools、任务/attempt、budget 和 activity 都来自权威 projection；
-- Captain/member 或 task detail 以 overlay 展示；
+- 概览按 canonical task status 汇总完成、执行、待审核、等待依赖、待领取、失败和取消；截断时标记已显示范围，不伪造总体完成比例；
+- Captain → member → 当前 task/attempt 构成可读执行树；旧 attempt 不得投影为当前工作，复用现有任务依赖图并连接任务详情；
+- 成员或 task detail 在官方 Details 栏内替换概览，返回时恢复原入口焦点；身份、模型、Skills、预算与诊断按需展开，不使用遮罩层；
+- 详情与概览共享断线/陈旧提示；不可见依赖显示“依赖状态待确认”，不把缺失投影推断为阻塞。长内容在官方 300–520px 栏宽内换行或滚动；
+- 官方 `0.1.2-rc.1` AppFrame 会在空间不足时将 Details 收至零宽：收起左侧栏后最少仍需 `56 + 640 + 300 = 996px`。这是当前宿主的显示限制；插件不覆盖宿主布局或恢复全屏遮罩，较窄窗口需加宽后查看，不能宣称已完成窄屏全场景验收；
 - “打开 Captain Chat”调用官方 Session navigation；
 - direct browser Team writes 仍 unavailable，不以自由文本或缓存冒充 Control。
 
 Plugin Settings 是独立的官方 Settings Consumer。它配置默认模型、成员 provider/depth、Skills、Scheduler/Review、tool policy、Workflow/Jobs/execution roots 和资源限制；设置在重启后重新组装 runtime。
+
+默认模型选择读取官方 remote Session catalog；provider/model 成对以 SettingsScope `mutate` 提交并回读。未显式覆盖的成员与 Captain 创建配置从当前 Session request header 继承，包含用户最新选择的模型与 reasoning effort。身份详情展示 durable personality/biography；缺失资料可由 Captain 局部补填，刷新不丢失已有字段。
 
 ## 5. 生命周期与失败语义
 
@@ -101,5 +107,7 @@ Plugin Settings 是独立的官方 Settings Consumer。它配置默认模型、�
 ### Host 定向读取与枚举成本
 
 `HostTargetReadService` 统一解析 live/cold Session、Captain 父子关系、scope 和可见 Team，服务 snapshot/page、Captain sections、Team selector 与 Skill catalog。RPC 只处理传输信任、严格解析及响应投影；不直接读取 Team store/snapshot 或成员/Skill Registry。每次 selector 读取从一次 canonical aggregate list 投影完整 Captain identity 和 public goal，不建立跨请求缓存或索引。
+
+尚未创建 Captain 的 staged Team，以及显式 discarded 的草稿归档，以同 scope 内的持久 `managedOrigin` 精确证明所属 Main Brain。读取仍要求官方 live 或持久化 root Session，child 与其他 root 不继承草稿。Selector 保留真实的空 `captainSessionId`；binding、snapshot/page 和三个 Captain sections 使用所属 root 作为读取锚点，UI 明示队长尚未创建并禁止 Captain Chat 交接。该只读路径不批准计划、不创建 Session，也不放宽 active Team 的 Captain 绑定。
 
 `tests/host-read-scale.spec.ts` 在真实 Storage Domain 上，以两个 Team、1/2/8 成员和 0/32/128 条任务历史测量同一次 teams RPC：优化前 list=2、store get=4、aggregate clone=4；优化后为 1/2/2。该 fixture 的响应均为 1641 UTF-8 bytes，成员及任务历史不进入 selector payload；这是操作计数，不是延迟或全部 UI 流量承诺。对应回归要求当前候选始终一次 list；可选 `SWARM_READ_BASELINE` 只用于对接受基线进行只读测量。

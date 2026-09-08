@@ -1,3 +1,5 @@
+import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
  * Heterogeneous member LLM provider (branch codex/heterogeneous-member-llm-glm).
  *
@@ -29,11 +31,11 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
-import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent, installModelSelection } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import LlmRuntime, { CallId, createUserMessage, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { ToolCallId, ReasoningEffortId, createUserMessage, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import Storage from '@deepseek-ai/dsh-storage'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
@@ -57,7 +59,7 @@ class TrackedAdapter extends LlmAdapter {
 
   override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
     this.resolved.push({ provider, model })
-    return Promise.resolve({ provider, id: model, name: model })
+    return Promise.resolve({ provider, id: model, name: model, reasoning: { efforts: [{ id: ReasoningEffortId('max'), name: 'Max' }] } })
   }
 
   override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
@@ -107,10 +109,12 @@ async function mount(captainId: string, sandbox: string, config: { memberModel?:
   fibers.push(await ctx.plugin(SystemPrompt))
   fibers.push(await ctx.plugin(ToolRuntime))
   fibers.push(await ctx.plugin(AgentRegistry))
-  fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(sandbox, 'sessions', 'sessions.db') }))
+  fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   fibers.push(await ctx.plugin(Storage))
   fibers.push(await ctx.plugin(StorageJson, { root: join(sandbox, 'storage') }))
   fibers.push(await ctx.plugin(StorageDomain, { backend: 'json' }))
+  await ctx.plugin(SessionProjectionService)
+  await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
   fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
   fibers.push(await ctx.plugin(SubagentService))
   fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
@@ -137,7 +141,7 @@ async function dispose(mounted: Mounted): Promise<void> {
 }
 
 async function tool(ctx: Context, agent: Agent, callId: string, name: string, args: unknown) {
-  return await ctx.tools.execute({ signal: SIGNAL, callId: CallId(callId), name, arguments: args, agent })
+  return await ctx.tools.execute({ signal: SIGNAL, callId: ToolCallId(callId), name, arguments: args, agent })
 }
 
 async function addMember(
@@ -191,7 +195,7 @@ async function descriptorOf(ctx: Context, sessionId: string): Promise<
   Extract<NonNullable<ReturnType<typeof foldSubagentDescriptor>>, { mode: 'continuable' }> | undefined
 > {
   const stored = await ctx.sessionPersistence.inspect(SessionId(sessionId), SIGNAL)
-  const suffix = stored.events.slice(stored.meta.seedLength ?? 0)
+  const suffix = stored.events.slice(stored.inheritedEventCount ?? 0)
   const descriptor = foldSubagentDescriptor(suffix)
   return descriptor !== undefined && descriptor.mode === 'continuable' ? descriptor : undefined
 }
@@ -275,6 +279,40 @@ describe('heterogeneous member LLM provider', () => {
       await dispose(wired)
     }
   }, 40_000)
+
+  it('inherits the latest parent route and Max for both members and dedicated Captains', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-latest-route-'))
+    roots.push(sandbox)
+    const wired = await mount('route-switch-captain', sandbox)
+    createLead(wired, sandbox)
+    const selection = { current: { provider: 'dsv4-f', model: 'new-model', reasoningEffort: ReasoningEffortId('max') }, assembled: undefined }
+    const unbind = installModelSelection(wired.lead.ctx, selection)
+    try {
+      wired.lead.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Use the changed model.' }] }))
+      await vi.waitFor(() => expect(wired.dsv4.requestsFor(wired.lead.id)).toHaveLength(1))
+      await wired.lead.whenIdle()
+      expect(wired.lead.options.provider).toBe('glm')
+      expect(wired.lead.session.requestHeader()?.config).toMatchObject(selection.current)
+      const created = await tool(wired.ctx, wired.lead, 'create-current-route', 'agent_swarm_create', { name: 'New route', description: 'Inherit current selection.' })
+      expect(created.isError).toBe(false)
+      const childId = await addMember(wired, (created.value as { team_id: string }).team_id, 'new-route-member')
+      await awaitMemberTurn(wired, childId)
+      expect(wired.dsv4.requestsFor(childId)[0]).toMatchObject(selection.current)
+      expect((await descriptorOf(wired.ctx, childId))?.agentReasoningEffort).toBe('max')
+      const externalRoot = wired.ctx.agentLoop.create(SessionId('route-switch-main'), { provider: 'glm', model: 'old-model' }, { cwd: join(sandbox, 'managed-workspace') })
+      const stopRoot = installModelSelection(externalRoot.ctx, { current: selection.current, assembled: undefined })
+      try {
+        externalRoot.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Switch before creating a Team.' }] }))
+        await vi.waitFor(() => expect(wired.dsv4.requestsFor(externalRoot.id)).toHaveLength(1))
+        await externalRoot.whenIdle()
+        const managed = await tool(wired.ctx, externalRoot, 'managed-current-route', 'agent_swarm_create_managed', { name: 'Managed new route', description: 'Inherit Max.' })
+        expect(managed.isError).toBe(false)
+        const captainId = (managed.value as { captain_session_id: string }).captain_session_id
+        await awaitMemberTurn(wired, captainId)
+        expect(wired.dsv4.requestsFor(captainId)[0]).toMatchObject(selection.current)
+      } finally { stopRoot() }
+    } finally { unbind(); await dispose(wired) }
+  }, 30_000)
 
   it('returns the same heterogeneous provider/model from the durable descriptor after a full cold restart, without resuming any child', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-hetero-restart-'))

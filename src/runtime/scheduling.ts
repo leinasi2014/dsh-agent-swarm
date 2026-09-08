@@ -10,6 +10,7 @@
  * guard. Decisions and divergences: docs/04 §7 and §8c.
  */
 import type { Context } from '@deepseek-ai/cordis'
+import { queueHostSubagentPrompt } from '@deepseek-ai/dsh-subagent/internal'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { TaskId, type AttemptId, type TaskAttempt, type TeamId, type TeamState, type TeamTask } from '../domain/types.js'
@@ -226,11 +227,12 @@ export class SchedulingPass {
     }
     const frame = assignmentPrompt(team, task, attempt.id, executionRootPath)
     try {
-      await this.ctx.subagents.followup(
+      await queueHostSubagentPrompt(
+        this.ctx.subagents,
         captain,
         SessionId(attempt.memberSessionId),
         [{ type: 'text', text: frame }],
-        { source: { kind: 'plugin', plugin: 'dsh-agent-swarm' }, signal: AbortSignal.timeout(30_000) },
+        { kind: 'plugin', plugin: 'dsh-agent-swarm' }, AbortSignal.timeout(30_000),
       )
       const member = this.ctx.agents.get(SessionId(attempt.memberSessionId))
       if (member !== undefined) await this.deps.usage().accountAgentUsage(scope, team.id, member)

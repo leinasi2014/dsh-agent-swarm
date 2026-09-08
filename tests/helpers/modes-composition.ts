@@ -1,3 +1,6 @@
+import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
+import { queueSubagentPrompt, type HostPromptQueue } from '@deepseek-ai/dsh-subagent/internal'
 /**
  * Shared harness for the M2-3 orchestration-mode and dual-owner suites
  * (issue #77): the full official composition (AgentLoop + durable stack +
@@ -12,9 +15,9 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { CallId, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { expect, vi } from 'vitest'
@@ -38,6 +41,8 @@ export interface ModesPluginConfig {
    * default.
    */
   readonly leadSessionId?: string
+  /** Restore the canonical Session log instead of creating a colliding root. */
+  readonly resumeLead?: boolean
   /** Per-attempt execution-root co-config (M3-1, issue #100). */
   readonly executionRoots?: boolean
   readonly executionRootsBase?: string
@@ -122,7 +127,7 @@ export class GatedMemberAdapter extends LlmAdapter {
     const assignment = ASSIGNMENT_RE.exec(this.lastUserText(options))
     if (this.submit && assignment !== null) {
       const [, taskId, revision, attemptId] = assignment
-      const id = CallId(`modes-submit-${(this.calls += 1)}`)
+      const id = ToolCallId(`modes-submit-${(this.calls += 1)}`)
       const args = JSON.stringify({
         task_id: taskId,
         expected_revision: Number(revision),
@@ -149,7 +154,9 @@ export async function mountModesComposition(sandbox: string, config: ModesPlugin
   const ctx = new Context()
   const fibers: Fiber[] = []
   await mountAgentLoopTestDependencies(ctx)
-  fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(sandbox, 'sessions', 'sessions.db') }))
+  await ctx.plugin(SessionProjectionService)
+  await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
+  fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   await mountStorageStackOn(ctx, join(sandbox, 'storage'))
   fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
   fibers.push(await ctx.plugin(SubagentService))
@@ -168,7 +175,12 @@ export async function mountModesComposition(sandbox: string, config: ModesPlugin
   }))
   const adapter = new GatedMemberAdapter()
   ctx.llm.registerAdapter(['mock'], adapter)
-  const lead = ctx.agentLoop.create(
+  const lead = config.resumeLead === true
+    ? (await ctx.agents.resume({
+      resumeSessionId: SessionId(config.leadSessionId!),
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })).agent
+    : ctx.agentLoop.create(
     SessionId(config.leadSessionId ?? `modes-lead-${Math.random().toString(36).slice(2, 8)}`),
     { provider: 'mock', model: 'mock' },
     { cwd: join(sandbox, 'workspace') },
@@ -180,22 +192,22 @@ const SIGNAL = new AbortController().signal
 
 /** One captain tool call over the real tools service. */
 export async function toolCall(ctx: Context, agent: Agent, callId: string, name: string, args: unknown) {
-  return await ctx.tools.execute({ signal: SIGNAL, callId: CallId(callId), name, arguments: args, agent })
+  return await ctx.tools.execute({ signal: SIGNAL, callId: ToolCallId(callId), name, arguments: args, agent })
 }
 
 /** One recorded followup delivery with its text (single-delivery proofs). */
 export interface FollowupTextRecord { readonly text: string }
 
-/** Spy on `ctx.subagents.followup`, recording every text frame delivered. */
+/** Spy on `(ctx.subagents as unknown as HostPromptQueue)[queueSubagentPrompt]`, recording every text frame delivered. */
 export function spyFollowupText(composition: ModesComposition): { readonly records: FollowupTextRecord[]; restore(): void } {
   const records: FollowupTextRecord[] = []
   const { ctx } = composition
-  const followup = ctx.subagents.followup.bind(ctx.subagents)
-  const spy = vi.spyOn(ctx.subagents, 'followup').mockImplementation(async (parent, childId, content, options) => {
+  const followup = (ctx.subagents as unknown as HostPromptQueue)[queueSubagentPrompt].bind(ctx.subagents)
+  const spy = vi.spyOn(ctx.subagents as unknown as HostPromptQueue, queueSubagentPrompt).mockImplementation(async (parent, childId, content, source, signal) => {
     for (const block of content) {
       if (block.type === 'text') records.push({ text: block.text })
     }
-    return await followup(parent, childId, content, options)
+    return await followup(parent, childId, content, source, signal)
   })
   return { records, restore: () => spy.mockRestore() }
 }
@@ -204,7 +216,7 @@ export function spyFollowupText(composition: ModesComposition): { readonly recor
 export function billedTokensOf(agent: Agent | undefined): number {
   if (agent === undefined) return 0
   let tokens = 0
-  for (const event of agent.session.events) {
+  for (const event of agent.session.snapshotEvents()) {
     if (event.type !== 'assistant/message' || event.data.usage === undefined) continue
     tokens += event.data.usage.inputTokens
       + event.data.usage.outputTokens

@@ -112,7 +112,7 @@ function assertIdentityCardSemantics(row: Record<string, unknown>, label: string
   const identityCard = row.identityCard as Record<string, unknown> | undefined
   if (identityCard === undefined) return
   const state = identityCard.state
-  const hasProfile = row.displayName !== undefined || row.profession !== undefined || row.personality !== undefined
+  const hasProfile = row.displayName !== undefined || row.profession !== undefined || row.personality !== undefined|| row.biography !== undefined
   if (state === 'generated') {
     if (!hasProfile) throw new Error(`Swarm RPC ${label} identityCard generated requires profile fields`)
     if (identityCard.reason !== undefined) throw new Error(`Swarm RPC ${label} identityCard generated must not carry a reason`)

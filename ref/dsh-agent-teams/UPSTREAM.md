@@ -2,8 +2,8 @@
 
 - Repository: `https://github.com/NanmiCoder/dsh-agent-teams`
 - Branch: `main`
-- Commit: `232a338fc9a0d393f118912386f67e7f3a6c67d6`
-- Package version: `0.1.15`
+- Commit: `1caff61f4c0909711b515ebc56187055556186cd`
+- Package version: `0.1.16-rc.1`
 - License: MIT
 
 ## Why this is the single local reference repository
@@ -23,7 +23,7 @@
 - `.agent-teams/team.json` 与进程内锁不提供跨进程事务。
 - 成员共用 Captain cwd，没有 Worktree、Remote Worker 或 Merge Gate。
 - 模型声称完成与可验证完成之间缺少独立 Review/Verification Gate。
-- 上游依赖 rc.6；新开发必须按当前官方 DSH 源码和目标 Profile 的实际 exports 校准。
+- 上游推荐 DSH `0.1.2-rc.1`，另列 Alpha.2/Alpha.5 兼容路线；本插件仅按自身已验证的 rc.1 安装与公开 exports 校准，不继承这些兼容承诺。
 
 ## Refresh
 
@@ -59,3 +59,14 @@ optional-field normalization supply failure examples for the existing Host
 authorization and member lifecycle seams. They do not replace this plugin's
 TeamDomainPort, execution-root ownership or review gate. No source or UI is
 imported; installed official DSH exports remain the execution authority.
+
+The 2026-09-08 refresh covers `232a338f..1caff61f` (30 commits), the
+0.1.16-rc.1 manifest and unchanged MIT license. The production delta affects
+nine source files: host-version adaptation, parked-attempt recovery and
+rollback, bounded HTTP bodies, and activity/model presentation. Its exact
+host cohorts and retry-storm tests are useful failure examples. Its private
+queue symbol and mutation of Subagent service methods are explicitly rejected
+for this plugin; public installed DSH seams remain authoritative. No reference
+runtime, UI, skill instructions or compatibility claims are imported. The
+offline `source-snapshot/` remains the explicitly labelled 0.1.8 historical
+reading aid; `source/` is the current evidence checkout.

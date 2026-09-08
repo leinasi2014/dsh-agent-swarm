@@ -422,7 +422,7 @@ export async function setCaptainProfile(
   expectDomain(Number.isSafeInteger(expectedRevision) && expectedRevision >= 1, 'expected revision is invalid', 'TEAM_INPUT_INVALID')
   const profile = normalizeMemberIdentity(input)
   const hasFields = profile.displayName !== undefined || profile.profession !== undefined
-    || profile.personality !== undefined || profile.pixelAvatarSvg !== undefined
+    || profile.personality !== undefined || profile.biography !== undefined || profile.pixelAvatarSvg !== undefined
   if (!hasFields) {
     throw new TeamDomainError('captain profile requires at least one field', 'TEAM_CAPTAIN_PROFILE_INVALID')
   }
@@ -432,7 +432,34 @@ export async function setCaptainProfile(
     expectDomain(authority.role === 'captain', 'only the captain can set the Team profile', 'TEAM_CAPTAIN_REQUIRED')
     expectDomain(team.revision === expectedRevision, `team revision conflict: expected ${expectedRevision}`, 'TEAM_REVISION_CONFLICT')
     const timestamp = deps.now()
-    Object.assign(team, { captainProfile: profile, revision: team.revision + 1, updatedAt: timestamp })
+    Object.assign(team, { captainProfile: { ...team.captainProfile, ...profile }, revision: team.revision + 1, updatedAt: timestamp })
+    committed = team
+  })
+  return structuredClone(committed)
+}
+
+/** Captain-only identity patch. Session, role, provider, Skills and lifecycle stay canonical. */
+export async function setMemberProfile(
+  deps: TeamDomainDeps, scope: TeamScope, teamId: TeamId, captainSessionId: string,
+  expectedRevision: number, name: string, input: MemberIdentityInput,
+): Promise<TeamState> {
+  expectDomain(Number.isSafeInteger(expectedRevision) && expectedRevision >= 1, 'expected revision is invalid', 'TEAM_INPUT_INVALID')
+  expectDomain(input.assignedSkills === undefined, 'profile updates cannot change assigned Skills', 'TEAM_MEMBER_IDENTITY_INVALID')
+  const profile = normalizeMemberIdentity(input)
+  expectDomain(Object.keys(profile).length > 0, 'member profile requires at least one field', 'TEAM_MEMBER_IDENTITY_INVALID')
+  const memberName = normalizeMemberName(name)
+  let committed!: TeamState
+  await deps.store.transact(scope, teamId, team => {
+    const authority = actorMembership(team, captainSessionId)
+    expectDomain(authority.role === 'captain', 'only the captain can set member profiles', 'TEAM_CAPTAIN_REQUIRED')
+    expectDomain(team.revision === expectedRevision, `team revision conflict: expected ${expectedRevision}`, 'TEAM_REVISION_CONFLICT')
+    const member = team.members.find(candidate => candidate.name === memberName)
+    expectDomain(member !== undefined, `member "${memberName}" does not exist`, 'TEAM_MEMBER_NOT_FOUND')
+    const displayName = profile.displayName ?? member.displayName ?? member.name
+    expectDomain(!team.members.some(candidate => candidate !== member && (candidate.displayName ?? candidate.name) === displayName),
+      'employee identity already exists', 'TEAM_MEMBER_IDENTITY_TAKEN')
+    Object.assign(member, profile)
+    Object.assign(team, { revision: team.revision + 1, updatedAt: deps.now() })
     committed = team
   })
   return structuredClone(committed)

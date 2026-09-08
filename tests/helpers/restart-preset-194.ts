@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module'
 /** Official standing preset with real file and shell Consumers. */
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -17,7 +18,7 @@ export async function installRestartPreset(ctx: Context, fibers: Fiber[], sandbo
   const preset = join(sandbox, 'presets', 'code')
   await mkdir(preset, { recursive: true })
   await mkdir(join(sandbox, 'workspace'), { recursive: true })
-  await writeFile(join(preset, 'agent.cordis.yml'), '- id: files\n  name: "@deepseek-ai/dsh-tool-fs"\n- id: shell\n  name: "@deepseek-ai/dsh-tool-pwsh"\n  config:\n    enableRunInBackground: false\n')
+  await writeFile(join(preset, 'agent.cordis.yml'), `- id: files\n  name: ${JSON.stringify(pathToFileURL(createRequire(import.meta.url).resolve('@deepseek-ai/dsh-tool-fs')).href)}\n- id: shell\n  name: ${JSON.stringify(pathToFileURL(createRequire(import.meta.url).resolve('@deepseek-ai/dsh-tool-pwsh')).href)}\n  config:\n    enableRunInBackground: false\n`)
   ctx.baseUrl = pathToFileURL(sandbox).href + '/'
   fibers.push(await ctx.plugin(Loader))
   ctx.loader.builtins.include = Include
@@ -27,5 +28,5 @@ export async function installRestartPreset(ctx: Context, fibers: Fiber[], sandbo
   fibers.push(await ctx.plugin(LocalSubprocessRuntime))
   fibers.push(await ctx.plugin(ShellEnv))
   fibers.push(await ctx.plugin(PwshLocalExecutor))
-  fibers.push(await ctx.plugin(AgentPresets, { default: 'code', roots: [{ path: join(sandbox, 'presets'), trust: 'user' }], includeUserRoot: false }))
+  fibers.push(await ctx.plugin(AgentPresets, { default: 'code', roots: [{ path: join(sandbox, 'presets'), trust: 'user' }], includeUserRoot: false, includeShippedRoot: false }))
 }

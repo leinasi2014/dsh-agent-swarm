@@ -20,7 +20,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { CallId, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
@@ -62,7 +62,7 @@ async function listManaged(
 ) {
   return await ctx.tools.execute({
     signal: SIGNAL,
-    callId: CallId(callId),
+    callId: ToolCallId(callId),
     name: 'agent_swarm_list_managed_teams',
     arguments: args,
     agent,
@@ -93,7 +93,7 @@ describe('agent_swarm_list_managed_teams (read-only Main Brain enumeration)', ()
     const ctx = mounted.ctx
 
     const created = await ctx.tools.execute({
-      signal: SIGNAL, callId: CallId('managed-create'), name: 'agent_swarm_create_managed',
+      signal: SIGNAL, callId: ToolCallId('managed-create'), name: 'agent_swarm_create_managed',
       arguments: { name: 'Managed Team', description: 'Public goal for the read.' },
       agent: mounted.lead,
     })
@@ -120,13 +120,13 @@ describe('agent_swarm_list_managed_teams (read-only Main Brain enumeration)', ()
     const membership = await mounted.domain.requireMembership(mounted.scope, captainId)
     const revision = membership.team.revision
     const setGoal = await ctx.tools.execute({
-      signal: SIGNAL, callId: CallId('set-goal'), name: 'agent_swarm_set_public_goal',
+      signal: SIGNAL, callId: ToolCallId('set-goal'), name: 'agent_swarm_set_public_goal',
       arguments: { expected_revision: revision, text: 'Ship the minimal managed-Team list reader.' },
       agent: captain!,
     })
     expect(setGoal.isError).toBe(false)
     const setProfile = await ctx.tools.execute({
-      signal: SIGNAL, callId: CallId('set-profile'), name: 'agent_swarm_set_captain_profile',
+      signal: SIGNAL, callId: ToolCallId('set-profile'), name: 'agent_swarm_set_captain_profile',
       arguments: { expected_revision: revision + 1, display_name: 'Lead Captain', profession: 'Team lead', personality: 'Precise.' },
       agent: captain!,
     })
@@ -152,7 +152,7 @@ describe('agent_swarm_list_managed_teams (read-only Main Brain enumeration)', ()
 
     // Root A creates a managed Team.
     const createdA = await ctx.tools.execute({
-      signal: SIGNAL, callId: CallId('create-a'), name: 'agent_swarm_create_managed',
+      signal: SIGNAL, callId: ToolCallId('create-a'), name: 'agent_swarm_create_managed',
       arguments: { name: 'Team A', description: 'Root A only.' },
       agent: mounted.lead,
     })
@@ -166,7 +166,7 @@ describe('agent_swarm_list_managed_teams (read-only Main Brain enumeration)', ()
       { cwd: sharedCwd },
     )
     const createdB = await ctx.tools.execute({
-      signal: SIGNAL, callId: CallId('create-b'), name: 'agent_swarm_create_managed',
+      signal: SIGNAL, callId: ToolCallId('create-b'), name: 'agent_swarm_create_managed',
       arguments: { name: 'Team B', description: 'Root B only.' },
       agent: rootB,
     })

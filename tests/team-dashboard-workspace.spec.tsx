@@ -11,6 +11,31 @@ const activePanel = (): string | null => document.querySelector<HTMLElement>('[r
 const signalOf = (id: string): string | null => document.querySelector<HTMLElement>(`[data-swarm-activity-attempt="${id}"] [data-swarm-signal]`)?.getAttribute('data-swarm-signal') ?? null
 
 describe('Team workspace views and projection-derived activity', () => {
+  it('renders persisted personality and biography and refreshes a profile backfill in place', async () => {
+    const coordinator = new FakeCoordinator()
+    const data = teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, {
+      ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot,
+      roster: [{ name: 'worker', role: 'Writer', phase: 'active', createdAt: 1 }],
+      totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, roster: 1 },
+    })
+    const member = { ...data.captainMembers!.members[0]!, name: 'worker', displayName: '林墨', profession: '编剧', personality: '沉静，注重人物动机。',
+      identityCard: { state: 'generated' as const }, avatar: { state: 'not_generated' as const, reason: 'avatar_backend_not_implemented' as const } }
+    let state: TeamDashboardState = { ...ready, data: { ...data, captainMembers: { ...data.captainMembers!, members: [member] } } }
+    const listeners = new Set<() => void>()
+    const profiles = { getSnapshot: () => state, subscribe: (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn) } }, refresh: vi.fn(), reconnect: vi.fn() }
+    await render(<TeamDashboardDetails {...({ controller: profiles, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!.click() })
+    expect(document.querySelector('[data-swarm-detail-personality]')?.textContent).toBe(member.personality)
+    expect(document.querySelector('[data-swarm-detail-biography]')?.textContent).toBe(t('detail.unavailable'))
+    const biography = '负责人物弧光与对白，通过场景行动检验人物选择。'
+    await act(async () => {
+      state = { ...state, data: { ...state.data!, captainMembers: { ...data.captainMembers!, members: [{ ...member, biography }] } } }
+      listeners.forEach(fn => fn())
+    })
+    expect(document.querySelector('[data-swarm-detail-biography]')?.textContent).toBe(biography)
+    expect(document.querySelector('[data-swarm-detail-personality]')?.textContent).toBe(member.personality)
+  })
+
   it('keeps the compact work-seat workroom with honest derived tones, stats, and capped summaries/activity', async () => {
     const coordinator = new FakeCoordinator()
     const t0 = 1_700_000_000_000
@@ -53,15 +78,14 @@ describe('Team workspace views and projection-derived activity', () => {
       expect(document.querySelector('[data-swarm-desk-stats]')?.textContent).toContain('1 Executing')
       expect(document.querySelector('[data-swarm-desk-stats]')?.textContent).toContain('1 Pending')
       expect(document.querySelector('[data-swarm-desk-stats]')?.textContent).toContain('1 Failed')
-      // Execution summaries cap at 2, team activity caps at 3.
-      expect(document.querySelectorAll('[data-swarm-exec-summaries] [data-swarm-summary-task]')).toHaveLength(2)
+      // Current tasks live under their member; recent activity is folded and bounded.
+      expect(document.querySelector('[data-swarm-exec-summaries]')).toBeNull()
+      expect(document.querySelector('[data-swarm-member-branch="worker"] [data-swarm-tree-task]')?.getAttribute('data-swarm-tree-task')).toBe('task-1')
+      expect(document.querySelector('[data-swarm-member-branch="idler"] [data-swarm-tree-task]')?.getAttribute('data-swarm-tree-task')).toBe('task-2')
       expect(document.querySelectorAll('[data-swarm-team-activity] [data-swarm-activity-attempt]')).toHaveLength(3)
-      // Layout geometry: two-column 56px desks above 520px, single column at ≤520px via container query.
-      expect(stylesheet).toMatch(/__workroom \{ display:grid; grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/u)
-      expect(stylesheet).toContain('@container (max-width: 520px) { [data-swarm-team-dashboard] .swarm-team-workspace__workroom { grid-template-columns:1fr; } }')
-      expect(stylesheet).toMatch(/__desk \{[^}]*min-block-size:56px/u)
-      expect(stylesheet).toMatch(/__desk \.swarm-team-workspace__avatar \{ grid-row:1 \/ 3/u)
-      expect(stylesheet).toMatch(/__avatar \{[^}]*inline-size:32px/u)
+      expect(document.querySelector<HTMLDetailsElement>('[data-swarm-history]')?.open).toBe(false)
+      expect(document.querySelector('[data-swarm-workroom]')?.firstElementChild?.hasAttribute('data-swarm-captain-desk')).toBe(true)
+      expect(stylesheet).toMatch(/__workroom \{ display:flex; flex-direction:column/u)
       // Theme stays on official alias tokens only.
       expect(stylesheet).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
       expect(stylesheet).not.toMatch(/rgb\(|rgba\(|hsl\(/)
@@ -238,7 +262,7 @@ describe('Team workspace views and projection-derived activity', () => {
     expect(owner.getAttribute('data-swarm-task-owner')).toBe(`Owner: ${memberName}`)
     expect(owner.getAttribute('title')).toBe(`Owner: ${memberName}`)
     const stylesheet = document.querySelector('style')?.textContent ?? ''
-    expect(stylesheet).toMatch(/__table-copy strong \{ overflow:hidden; font-size:11px; white-space:nowrap; text-overflow:ellipsis/u)
+    expect(stylesheet).toMatch(/__table-copy strong \{ overflow:hidden;[^}]*white-space:nowrap; text-overflow:ellipsis/u)
     await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-task-id="task-long-name"]')!.click() })
     const overlay = detailOverlay()!
     expect(overlay.querySelector('[data-swarm-task-detail]')?.textContent).toContain('Owner')

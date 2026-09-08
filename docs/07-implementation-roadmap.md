@@ -34,7 +34,7 @@
 
 目标：把当前宽广实现收敛为可维护的稳定核心。
 
-- 冻结 Main Brain/Captain/Member identity topology、26 工具 schema、Team aggregate 和 read RPC v1。
+- 冻结 Main Brain/Captain/Member identity topology、公开工具 schema、Team aggregate 和 read RPC v1。
 - 删除或合并重复入口、旧 alias 和无真实 Consumer 的 speculative seam。
 - 为 Skills、tools、model route、settings 和 multi-Team projection 建立一致的 bounded contract。
 - 确认每个 optional Provider 的启用条件、capability disclosure、disposer 和 fail-closed 错误。
@@ -46,7 +46,7 @@
 目标：让用户无需阅读内部协议即可完成团队交付。
 
 - 优化 managed Team onboarding：完整目标传递、Captain identity、成员角色/Skills/模型选择和首批任务创建。
-- 补齐 Workbench 的任务/成员可读性、设置校验、空态、错误、stale/reconnect 和键盘/屏幕阅读器行为。
+- 按 #18 参照 `dsh-agent-teams` 简化 Workbench：一眼任务进度、纵向 Captain/成员/当前任务执行树、可点开的依赖图与栏内详情；保留待审核与人工待办区别、身份/模型/Skills、预算、公告和 Captain Chat。空态、错误、stale/reconnect 和键盘焦点必须可读可操作。
 - 保持 browser 主要为 read/navigation Consumer；用户修改 Team 先通过正确 Captain Chat 完成。
 - 对真正需要 direct control 的少量操作，逐项建立 verified human principal、idempotency、authoritative read-back 和 unknown-outcome handling；未通过的操作保持 unavailable。
 

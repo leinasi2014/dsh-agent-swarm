@@ -1,3 +1,5 @@
+import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
  * Failure barriers around initial-turn member provisioning.
  *
@@ -11,10 +13,9 @@ import { join } from 'node:path'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { CallId, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
-import SessionProjection from '@deepseek-ai/dsh-session-projection'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -76,17 +77,18 @@ interface CaptainStack {
 async function mountCaptain(sandbox: string, fibers: Fiber[], leadId: string, teamName: string, adapter: LlmAdapter): Promise<CaptainStack> {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
-  fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(sandbox, 'sessions', 'sessions.db') }))
+  await ctx.plugin(SessionProjectionService)
+  await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
+  fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   await mountStorageStackOn(ctx, join(sandbox, 'storage'))
   fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
-  fibers.push(await ctx.plugin(SessionProjection))
   fibers.push(await ctx.plugin(SubagentService))
   fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
   fibers.push(await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1 }))
   ctx.llm.registerAdapter(['mock'], adapter)
   const lead = ctx.agentLoop.create(SessionId(leadId), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
   const created = await ctx.tools.execute({
-    signal: SIGNAL, callId: CallId(`create-${leadId}`), name: 'agent_swarm_create',
+    signal: SIGNAL, callId: ToolCallId(`create-${leadId}`), name: 'agent_swarm_create',
     arguments: { name: teamName, description: `Fault barrier proof for ${leadId}.` }, agent: lead,
   })
   expect(created.isError).toBe(false)
@@ -116,7 +118,7 @@ describe('member provisioning terminal recovery barriers', () => {
         return await original(scope, teamId, memberId, outcome)
       })
       const added = await stack.ctx.tools.execute({
-        signal: SIGNAL, callId: CallId('terminal-retry-add'), name: 'agent_swarm_add_member',
+        signal: SIGNAL, callId: ToolCallId('terminal-retry-add'), name: 'agent_swarm_add_member',
         arguments: { name: 'terminal-retry-worker', role: 'Retry the durable failed settlement.' }, agent: stack.lead,
       })
       expect(added).toMatchObject({ isError: false, value: { phase: 'active' } })
@@ -188,7 +190,7 @@ describe('member provisioning terminal recovery barriers', () => {
       })
       const drain = vi.spyOn(stack.ctx.subagents, 'drainContinuableChildren')
       const pending = stack.ctx.tools.execute({
-        signal: SIGNAL, callId: CallId('activation-dispose-add'), name: 'agent_swarm_add_member',
+        signal: SIGNAL, callId: ToolCallId('activation-dispose-add'), name: 'agent_swarm_add_member',
         arguments: { name: 'activation-dispose-worker', role: 'Hold fallback settlement through disposal.' }, agent: stack.lead,
       })
       await vi.waitFor(() => expect(settle).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.anything(), { active: true }), { timeout: 5_000 })
@@ -218,7 +220,7 @@ describe('member provisioning terminal recovery barriers', () => {
       const domain = stack.ctx.agentSwarm.domain
       const settled = vi.spyOn(domain, 'settleMember')
       const pending = stack.ctx.tools.execute({
-        signal: SIGNAL, callId: CallId('error-dispose-add'), name: 'agent_swarm_add_member',
+        signal: SIGNAL, callId: ToolCallId('error-dispose-add'), name: 'agent_swarm_add_member',
         arguments: { name: 'error-dispose-worker', role: 'Race error observation and disposer.' }, agent: stack.lead,
       })
       await vi.waitFor(() => expect(adapter.calls).toBe(1), { timeout: 5_000 })

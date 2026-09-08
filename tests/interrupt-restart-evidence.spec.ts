@@ -1,12 +1,15 @@
+import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
+import { queueSubagentPrompt, type HostPromptQueue } from '@deepseek-ai/dsh-subagent/internal'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { CallId, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
-import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -55,7 +58,7 @@ class HangingAdapter extends LlmAdapter {
 
   override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     if (this.latestText(options).includes(this.trigger)) {
-      const id = CallId(this.callId)
+      const id = ToolCallId(this.callId)
       yield { type: 'block-start', index: 0, blockType: 'tool-call' }
       yield { type: 'tool-call-delta', index: 0, id, name: HANG, argumentsDelta: '{}' }
       yield { type: 'block-end', index: 0, block: { type: 'tool-call', id, name: HANG, arguments: '{}' } }
@@ -100,7 +103,9 @@ async function mount(root: string, leadId: string, adapter: HangingAdapter, exis
   const fibers: Fiber[] = []
   const latch = new HangingLatch()
   await mountAgentLoopTestDependencies(ctx)
-  fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(root, 'sessions', 'sessions.db') }))
+  await ctx.plugin(SessionProjectionService)
+  await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
+  fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(root, 'sessions', 'sessions.db') }))
   await mountStorageStackOn(ctx, join(root, 'storage'))
   fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
   fibers.push(await ctx.plugin(SubagentService))
@@ -123,7 +128,7 @@ async function mount(root: string, leadId: string, adapter: HangingAdapter, exis
   ctx.llm.registerAdapter(['mock'], adapter)
   const lead = ctx.agentLoop.create(SessionId(leadId), { provider: 'mock', model: 'mock' }, { cwd: join(root, 'workspace') })
   const tool = async (callId: string, name: string, args: Record<string, unknown> = {}) => await ctx.tools.execute({
-    signal: SIGNAL, callId: CallId(callId), name, arguments: args, agent: lead,
+    signal: SIGNAL, callId: ToolCallId(callId), name, arguments: args, agent: lead,
   })
   let teamId = existingTeamId
   if (teamId === undefined) {
@@ -143,7 +148,7 @@ function source() {
 }
 
 function openCall(agent: NonNullable<ReturnType<Context['agents']['get']>>, afterSeq = 0): Extract<SessionEvent, { type: 'tool/call' }> | undefined {
-  const suffix = agent.session.events.filter(event => event.seq >= afterSeq)
+  const suffix = agent.session.snapshotEvents().filter(event => event.seq >= afterSeq)
   return suffix.find((event): event is Extract<SessionEvent, { type: 'tool/call' }> => event.type === 'tool/call'
     && event.data.name === HANG
     && !suffix.some(result => result.type === 'tool/result'
@@ -166,7 +171,7 @@ describe('restart isolation for model interrupt evidence', () => {
     // First Context: establish a real Team/member, then let the official
     // continuable transport dispatch an actual ToolRuntime call. This is the
     // durable crash point; the inspection below proves the call is still open.
-    await first.ctx.subagents.followup(first.lead, memberId, [{ type: 'text', text: 'old-crash-seed' }], source())
+    await (first.ctx.subagents as unknown as HostPromptQueue)[queueSubagentPrompt](first.lead, memberId, [{ type: 'text', text: 'old-crash-seed' }], source().source, source().signal)
     let oldCall!: Extract<SessionEvent, { type: 'tool/call' }>
     await vi.waitFor(async () => {
       const live = first.ctx.agents.get(memberId)
@@ -209,7 +214,7 @@ describe('restart isolation for model interrupt evidence', () => {
       // delivers the first post-restart message. The resumed Session's seed
       // boundary must exclude every prior Context event from model-interrupt
       // evidence.
-      await second.ctx.subagents.followup(second.lead, memberId, [{ type: 'text', text: 'new-live-suffix' }], source())
+      await (second.ctx.subagents as unknown as HostPromptQueue)[queueSubagentPrompt](second.lead, memberId, [{ type: 'text', text: 'new-live-suffix' }], source().source, source().signal)
       expect(resume).toHaveBeenCalledWith(expect.objectContaining({ resumeSessionId: memberId }))
       let resumedCall!: Extract<SessionEvent, { type: 'tool/call' }>
       await vi.waitFor(() => {

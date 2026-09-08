@@ -1,7 +1,9 @@
+import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
  * SW-I1a assembled human interaction.
  *
- * Real-composition proof that plugin `apply`:
+ * Plugin `apply` real composition:
  * - wires official `ctx.userQuestions` for member questions and resolves the
  *   exact live root captain from durable `source.captainSessionId` evidence;
  * - fails closed when that optional official service is absent;
@@ -12,8 +14,7 @@
  *   dispose unprovides them before closing the overlay/domain; reload reopens the durable overlay;
  *   and a mid-setup provide conflict closes the just-opened domain.
  *
- * Restart-safe reconciliation remains explicitly open: scenario 45 proves
- * only the process-local quarantine and durable-marker evidence ceiling.
+ * Scenario 45 proves local quarantine and durable markers, not restart reconciliation.
  */
 import { mkdtemp, rm } from 'node:fs/promises'
 import { Buffer } from 'node:buffer'
@@ -23,18 +24,19 @@ import { Context, type Fiber } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { CallId, LlmAdapter, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, LlmAdapter, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
-import UserQuestionService, { type AskUserQuestionRequest, type UserQuestionProvider } from '@deepseek-ai/dsh-user-questions'
+import UserQuestionService, { type AskUserQuestionRequest } from '@deepseek-ai/dsh-user-questions'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
 import type { HumanInteractionRequest } from '../src/index.js'
 import { truncateUtf8 } from '../src/human/human-control-gateway.js'
 import { mountStorageStackOn } from './helpers/storage-stack.js'
 const SIGNAL = new AbortController().signal
+
 
 class ImmediateAdapter extends LlmAdapter {
   override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
@@ -59,7 +61,9 @@ async function mountBase(sandbox: string, withQuestions: boolean): Promise<BaseM
   const ctx = new Context()
   const fibers: Fiber[] = []
   await mountAgentLoopTestDependencies(ctx)
-  fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(sandbox, 'sessions', 'sessions.db') }))
+  await ctx.plugin(SessionProjectionService)
+  await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
+  fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   await mountStorageStackOn(ctx, join(sandbox, 'storage'))
   fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
   fibers.push(await ctx.plugin(SubagentService))
@@ -86,7 +90,7 @@ async function mount(sandbox: string, withQuestions = true): Promise<Stack> {
   )
   const created = await base.ctx.tools.execute({
     signal: SIGNAL,
-    callId: CallId('i1a-assembly-create'),
+    callId: ToolCallId('i1a-assembly-create'),
     name: 'agent_swarm_create',
     arguments: { name: 'I1a assembly team', description: 'Prove assembled human interaction.' },
     agent: lead,
@@ -104,7 +108,7 @@ async function mount(sandbox: string, withQuestions = true): Promise<Stack> {
 async function addMember(stack: Stack): Promise<string> {
   const added = await stack.ctx.tools.execute({
     signal: SIGNAL,
-    callId: CallId('i1a-assembly-add'),
+    callId: ToolCallId('i1a-assembly-add'),
     name: 'agent_swarm_add_member',
     arguments: { name: 'worker', role: 'Assembly worker.' },
     agent: stack.lead,
@@ -146,7 +150,7 @@ function liveMember(stack: Stack, memberSessionId: string): Agent {
     session: { id, header: { cwd: join(stack.scope, 'member') } },
   } as unknown as Agent
   detachAgents.push(stack.ctx.agents.enter(member, stack.lead))
-  return member
+  return stack.ctx.agents.get(id)!
 }
 
 afterEach(async () => {
@@ -165,14 +169,14 @@ describe('assembled SW-I1a captain question presentation', () => {
     stacks.push(stack)
     const member = await addMember(stack)
     const seen: AskUserQuestionRequest[] = []
-    const provider: UserQuestionProvider & { seen: AskUserQuestionRequest[] } = {
+    const provider: { seen: AskUserQuestionRequest[]; ask(input: AskUserQuestionRequest): Promise<{ answers: { id: string; selected: string[]; custom: string }[] }> } = {
       seen,
-      async ask(input) {
+      async ask(input: AskUserQuestionRequest) {
         seen.push(input)
         return { answers: [{ id: input.questions[0]?.id ?? 'missing', selected: [], custom: 'Answer via official questions.' }] }
       },
     }
-    stack.ctx.userQuestions.registerProvider(provider)
+    stack.ctx.on('user-questions/request', input => provider.ask(input))
     const teamAfterMember = await snapshot(stack)
     const relayed = await relayQuestion(stack, member, 'human-assembly-full-00000001', 'Should I proceed?')
     expect(relayed.status).toBe('acknowledged')
@@ -213,11 +217,9 @@ describe('assembled SW-I1a captain question presentation', () => {
     const memberId = await addMember(stack)
     const member = liveMember(stack, memberId)
     const seen: AskUserQuestionRequest[] = []
-    stack.ctx.userQuestions.registerProvider({
-      async ask(input) {
+    stack.ctx.on('user-questions/request', async input => {
         seen.push(input)
         return { answers: [{ id: input.questions[0]?.id ?? 'missing', selected: [], custom: 'safe answer' }] }
-      },
     })
     const current = await snapshot(stack)
     const forgedRelay = {
@@ -299,13 +301,11 @@ describe('assembled SW-I1a captain question presentation', () => {
     stacks.push(stack)
     const member = await addMember(stack)
     let mode: 'multiple' | 'wrong-id' | 'empty-custom' = 'multiple'
-    stack.ctx.userQuestions.registerProvider({
-      async ask(input) {
+    stack.ctx.on('user-questions/request', async input => {
         const id = input.questions[0]?.id ?? 'missing'
         if (mode === 'multiple') return { answers: [{ id, selected: [], custom: 'one' }, { id, selected: [], custom: 'two' }] }
         if (mode === 'wrong-id') return { answers: [{ id: 'question-someone-else', selected: [], custom: 'wrong target' }] }
         return { answers: [{ id, selected: [], custom: '   ' }] }
-      },
     })
 
     const cases: Array<{ requestId: string; mode: 'multiple' | 'wrong-id' | 'empty-custom'; body: string }> = [

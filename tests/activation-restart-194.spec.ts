@@ -1,8 +1,9 @@
+import { queueSubagentPrompt, type HostPromptQueue } from '@deepseek-ai/dsh-subagent/internal'
 /** Startup recovery, not a manual reattach disguised as a restart test. */
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { CallId, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { expect, it, vi } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
@@ -28,7 +29,7 @@ class ReviewAfterRestart extends GatedAdapter {
     }
     this.captainRequests += 1
     if (this.captainRequests === 1) {
-      const id = CallId('restart-194-review')
+      const id = ToolCallId('restart-194-review')
       const args = JSON.stringify({ task_id: this.submitted.id, expected_revision: this.submitted.revision, attempt_id: this.submitted.currentAttemptId, decision: 'accept' })
       yield { type: 'block-start', index: 0, blockType: 'tool-call' }
       yield { type: 'tool-call-delta', index: 0, id, name: 'agent_swarm_review_task', argumentsDelta: args }
@@ -127,10 +128,10 @@ it('startup with zero live roots restores the managed Captain, reviews the exact
         if (options.resumeSessionId !== ROOT) return handle
         return { agent: handle.agent, dispose: async () => { rootDisposed += 1; await handle.dispose() } }
       })
-      const followup = ctx.subagents.followup.bind(ctx.subagents)
-      vi.spyOn(ctx.subagents, 'followup').mockImplementation(async (parent, child, content, options) => {
+      const followup = (ctx.subagents as unknown as HostPromptQueue)[queueSubagentPrompt].bind(ctx.subagents)
+      vi.spyOn(ctx.subagents as unknown as HostPromptQueue, queueSubagentPrompt).mockImplementation(async (parent, child, content, source, signal) => {
         follows.push({ parent: parent.id, child })
-        return await followup(parent, child, content, options)
+        return await followup(parent, child, content, source, signal)
       })
     })
     // No test call reattaches, prompts, or drives the restarted runtime.
@@ -177,10 +178,10 @@ it.each(['root', 'captain'] as const)('fails plugin startup with actionable line
         return { agent: handle.agent, dispose: async () => { rootDisposed += 1; await handle.dispose() } }
       })
       if (target === 'captain') {
-        const inspect = ctx.sessionPersistence.inspect.bind(ctx.sessionPersistence)
-        vi.spyOn(ctx.sessionPersistence, 'inspect').mockImplementation(async (id, signal) => {
+        const observe = ctx.sessionQuery.observeSession.bind(ctx.sessionQuery)
+        vi.spyOn(ctx.sessionQuery, 'observeSession').mockImplementation(async (id, options) => {
           if (id === seeded.captainId) throw fault
-          return await inspect(id, signal)
+          return await observe(id, options)
         })
       }
     }).then(() => undefined, error => error)
@@ -214,8 +215,8 @@ it.each(['root', 'captain'] as const)('rejects a %s workspace mismatch before an
       const list = ctx.sessionPersistence.list.bind(ctx.sessionPersistence)
       vi.spyOn(ctx.sessionPersistence, 'list').mockImplementation(async signal => (await list(signal)).map(header =>
         header.id === (target === 'root' ? ROOT : seed.captainId) ? { ...header, cwd: join(sandbox, 'other-workspace') } : header))
-      const followup = ctx.subagents.followup.bind(ctx.subagents)
-      vi.spyOn(ctx.subagents, 'followup').mockImplementation(async (...args) => { followups += 1; return await followup(...args) })
+      const followup = (ctx.subagents as unknown as HostPromptQueue)[queueSubagentPrompt].bind(ctx.subagents)
+      vi.spyOn(ctx.subagents as unknown as HostPromptQueue, queueSubagentPrompt).mockImplementation(async (...args) => { followups += 1; return await followup(...args) })
     }).then(value => { mounted = value; return undefined }, error => error)
     expect(failure).toMatchObject({ code: 'TEAM_PARENT_REATTACH_FAILED' })
     expect(followups).toBe(0)

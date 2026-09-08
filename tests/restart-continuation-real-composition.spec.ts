@@ -1,3 +1,4 @@
+import { queueSubagentPrompt, type HostPromptQueue } from '@deepseek-ai/dsh-subagent/internal'
 /**
  * The actual restart boundary for the current single-Team authority.
  *
@@ -7,12 +8,11 @@
  * replayed just because its continuable child is cold after a restart.  The
  * Captain's existing durable wakeup mail is the explicit recovery action.
  */
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
 import { type Context } from '@deepseek-ai/cordis'
-import { CallId, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
@@ -95,7 +95,7 @@ class RecoveryAdapter extends LlmAdapter {
     this.wakeRequests += 1
     await this.wakeGate
     const attempt = this.attempt()
-    const id = CallId('restart-real-submit')
+    const id = ToolCallId('restart-real-submit')
     const argumentsJson = JSON.stringify({
       task_id: attempt.taskId,
       expected_revision: attempt.revision,
@@ -202,15 +202,15 @@ describe('real restart continuation over the current Team authority', () => {
       second.ctx.llm.registerAdapter(['mock'], recovered)
       const resumedCaptain = await second.ctx.agents.resume({ resumeSessionId: CAPTAIN })
       const leadB = resumedCaptain.agent
-      const rawFollowup = second.ctx.subagents.followup.bind(second.ctx.subagents)
+      const rawFollowup = (second.ctx.subagents as unknown as HostPromptQueue)[queueSubagentPrompt].bind(second.ctx.subagents)
       const follows: Array<{ target: string; text: string; wasCold: boolean }> = []
-      const followup = vi.spyOn(second.ctx.subagents, 'followup').mockImplementation(async (parent, childId, content, options) => {
+      const followup = vi.spyOn(second.ctx.subagents as unknown as HostPromptQueue, queueSubagentPrompt).mockImplementation(async (parent, childId, content, source, signal) => {
         follows.push({
           target: String(childId),
           text: content.filter(block => block.type === 'text').map(block => block.text).join('\n'),
           wasCold: second!.ctx.agents.get(childId) === undefined,
         })
-        return await rawFollowup(parent, childId, content, options)
+        return await rawFollowup(parent, childId, content, source, signal)
       })
       try {
         await second.ctx.agentSwarm.recoverAgent(leadB)
@@ -328,6 +328,13 @@ describe('real restart continuation over the current Team authority', () => {
           category: 'context', content: 'Canvas handoff context.', evidence_refs: [],
         })).toMatchObject({ isError: false })
 
+        // The member's initial turn and its Captain settlement notice each
+        // bill two tokens. Wait for both official turns and accounting before
+        // bracketing the read-only operations with a deep-equality assertion.
+        await vi.waitFor(async () => {
+          expect(leadA.status).toBe('idle')
+          expect((await snapshot(first!.ctx, leadA, teamId)).team.budget.usedTokens).toBe(4)
+        }, { timeout: 15_000 })
         const beforeRead = await snapshot(first.ctx, leadA, teamId)
         const memberRead = await tool(first.ctx, member, 'memory-member-read', 'agent_swarm_list_memory', {})
         expect(memberRead).toMatchObject({ isError: false })
@@ -445,17 +452,25 @@ describe('real restart continuation over the current Team authority', () => {
       await dispose(first)
       first = undefined
       // Fault only the durable child descriptor evidence, after Context A
-      // closed every real SQLite handle. Reclassifying it as an ignorable
+      // closed every real JSONL handle. Reclassifying it as an ignorable
       // foreign event preserves the official contiguous-log contract while
       // making `foldSubagentDescriptor()` honestly find no descriptor. The
       // Team aggregate and all other child history remain untouched.
-      const database = new DatabaseSync(join(sandbox, 'sessions', 'sessions.db'))
-      try {
-        const replaced = database.prepare("UPDATE events SET type = 'member-profile-test/removed-descriptor', ignorable = 1 WHERE session_id = ? AND type = 'subagent/descriptor'").run(damagedId)
-        expect(Number(replaced.changes)).toBe(1)
-      } finally {
-        database.close()
-      }
+      const logRoot = join(sandbox, 'sessions', 'sessions.db')
+      const files = await readdir(logRoot, { recursive: true })
+      const log = files.find(file => file.endsWith(join(damagedId, 'session.jsonl')))
+      expect(log).toBeDefined()
+      const logPath = join(logRoot, log!)
+      let replaced = 0
+      const lines = (await readFile(logPath, 'utf8')).split('\n').map(line => {
+        if (line === '') return line
+        const record = JSON.parse(line) as { type?: string; ignorable?: boolean }
+        if (record.type !== 'subagent/descriptor') return line
+        replaced += 1
+        return JSON.stringify({ ...record, type: 'member-profile-test/removed-descriptor', ignorable: true })
+      })
+      expect(replaced).toBe(1)
+      await writeFile(logPath, lines.join('\n'))
 
       second = await mount(sandbox, 0)
       const coldOnly = new InitialAdapter()

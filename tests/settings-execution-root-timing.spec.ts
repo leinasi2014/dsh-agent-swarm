@@ -1,9 +1,11 @@
+import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { GatedAdapter } from './helpers/gated-composition.js'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
@@ -11,7 +13,7 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
-import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import Storage from '@deepseek-ai/dsh-storage'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
@@ -48,10 +50,12 @@ async function boot(injectSettings: boolean, withSettings: boolean) {
   fibers.push(await ctx.plugin(SystemPrompt))
   fibers.push(await ctx.plugin(ToolRuntime))
   fibers.push(await ctx.plugin(AgentRegistry))
-  fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(sandbox, 'sessions', 'sessions.db') }))
+  fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   fibers.push(await ctx.plugin(Storage))
   fibers.push(await ctx.plugin(StorageJson, { root: join(sandbox, 'storage') }))
   fibers.push(await ctx.plugin(StorageDomain, { backend: 'json' }))
+  await ctx.plugin(SessionProjectionService)
+  await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
   fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
   fibers.push(await ctx.plugin(SubagentService))
   fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
@@ -81,7 +85,7 @@ describe('issue #191 real Loader enable timing', () => {
     try {
       const adapter = new GatedAdapter(); b.ctx.llm.registerAdapter(['mock'], adapter)
       const lead = b.ctx.agentLoop.create(SessionId('captain-'+Date.now()), { provider: 'mock', model: 'mock' }, { cwd: join(b.sandbox, 'workspace') })
-      const exec = async (name: string, args: unknown) => await b.ctx.tools.execute({ agent: lead, signal: new AbortController().signal, callId: CallId('c-'+Math.random().toString(36).slice(2,8)), name, arguments: args })
+      const exec = async (name: string, args: unknown) => await b.ctx.tools.execute({ agent: lead, signal: new AbortController().signal, callId: ToolCallId('c-'+Math.random().toString(36).slice(2,8)), name, arguments: args })
       const te = await exec('agent_swarm_create', { name: 'Claim team', description: 'd' }) as { isError: boolean, value?: { team_id: string } }
       expect(te, JSON.stringify(te)).toMatchObject({ isError: false }); const teamId = AgentSwarm.TeamId(te.value!.team_id)
       const ad = await exec('agent_swarm_add_member', { name: 'claimer', role: 'self-claim' }) as { isError: boolean, value?: { session_id: string } }

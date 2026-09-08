@@ -1,3 +1,6 @@
+import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
+import { queueSubagentPrompt, type HostPromptQueue } from '@deepseek-ai/dsh-subagent/internal'
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -6,7 +9,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import {
-  CallId,
+  ToolCallId,
   LlmAdapter,
   type GenerateOptions,
   type LlmResolvedModelInfo,
@@ -14,7 +17,7 @@ import {
   type TokenUsage,
 } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import Storage from '@deepseek-ai/dsh-storage'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
@@ -76,7 +79,7 @@ async function successfulTool(
 ) {
   const result = await ctx.tools.execute({
     signal: SIGNAL,
-    callId: CallId(callId),
+    callId: ToolCallId(callId),
     name,
     arguments: args,
     agent,
@@ -90,7 +93,9 @@ async function successfulTool(
 /** Mount the official durable composition: persistence + storage stack + agent services. */
 async function mountDurableStack(ctx: Context, storageRoot: string, sessionDbPath: string): Promise<Fiber> {
   await mountAgentLoopTestDependencies(ctx)
-  const persistenceFiber = await ctx.plugin(SqliteSessionPersistence, { path: sessionDbPath })
+  await ctx.plugin(SessionProjectionService)
+  await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
+  const persistenceFiber = await ctx.plugin(JsonlSessionPersistence, { root: sessionDbPath })
   await ctx.plugin(Storage)
   await ctx.plugin(StorageJson, { root: storageRoot })
   await ctx.plugin(StorageDomain, { backend: 'json' })
@@ -248,7 +253,7 @@ describe('DSH rc.8 composition', () => {
       if (memberAgent === undefined) throw new Error('member Agent could not be re-attached for the member-face submit')
       const staleResult = await ctx.tools.execute({
         signal: SIGNAL,
-        callId: CallId('stale-submit'),
+        callId: ToolCallId('stale-submit'),
         name: 'agent_swarm_submit_task',
         arguments: {
           task_id: assignedTask.id,
@@ -284,7 +289,7 @@ describe('DSH rc.8 composition', () => {
       unregisterScheduler()
       const missingScheduler = await ctx.tools.execute({
         signal: SIGNAL,
-        callId: CallId('missing-scheduler'),
+        callId: ToolCallId('missing-scheduler'),
         name: 'agent_swarm_create_task',
         arguments: { subject: 'must not persist', description: 'Missing scheduler must fail before commit.' },
         agent: lead,
@@ -297,7 +302,7 @@ describe('DSH rc.8 composition', () => {
       unregisterReview()
       const missingReview = await ctx.tools.execute({
         signal: SIGNAL,
-        callId: CallId('missing-review'),
+        callId: ToolCallId('missing-review'),
         name: 'agent_swarm_create_task',
         arguments: { subject: 'must also not persist', description: 'Missing review must fail before commit.' },
         agent: lead,
@@ -397,7 +402,7 @@ describe('DSH rc.8 composition', () => {
 
       const afterUnload = await ctx.tools.execute({
         signal: SIGNAL,
-        callId: CallId('after-unload'),
+        callId: ToolCallId('after-unload'),
         name: 'agent_swarm_status',
         arguments: {},
         agent: lead,
@@ -429,8 +434,8 @@ describe('DSH rc.8 composition', () => {
       const alpha = await successfulTool(ctx, lead, 'directed-add-alpha', 'agent_swarm_add_member', { name: 'alpha', role: 'Target worker' }) as { session_id: string }
       const beta = await successfulTool(ctx, lead, 'directed-add-beta', 'agent_swarm_add_member', { name: 'beta', role: 'Non-target worker' }) as { session_id: string }
       const deliveries: Array<{ childId: string; text: string }> = []
-      const rawFollowup = ctx.subagents.followup.bind(ctx.subagents)
-      const followup = vi.spyOn(ctx.subagents, 'followup').mockImplementation(async (parent, childId, content, options) => { deliveries.push({ childId, text: content.filter(block => block.type === 'text').map(block => block.text).join('\n') }); return await rawFollowup(parent, childId, content, options) })
+      const rawFollowup = (ctx.subagents as unknown as HostPromptQueue)[queueSubagentPrompt].bind(ctx.subagents)
+      const followup = vi.spyOn(ctx.subagents as unknown as HostPromptQueue, queueSubagentPrompt).mockImplementation(async (parent, childId, content, source, signal) => { deliveries.push({ childId, text: content.filter(block => block.type === 'text').map(block => block.text).join('\n') }); return await rawFollowup(parent, childId, content, source, signal) })
       const task = await successfulTool(ctx, lead, 'directed-task', 'agent_swarm_create_task', { subject: 'Alpha-only composition proof', description: 'This assignment must reach alpha exactly once.', target_member: 'alpha' }) as { task_id: string }
       let assignedTask: { id: string; revision: number; currentAttemptId?: string } | undefined
       await vi.waitFor(async () => {
@@ -439,6 +444,7 @@ describe('DSH rc.8 composition', () => {
         expect(current).toMatchObject({ ownerSessionId: alpha.session_id, status: 'in_progress' })
         expect(current.currentAttemptId).toBeDefined()
         expect(snapshot.team.attempts.filter(attempt => attempt.taskId === current.id)).toEqual([expect.objectContaining({ memberSessionId: alpha.session_id })])
+        expect(snapshot.team.attempts.find(attempt => attempt.id === current.currentAttemptId)?.assignmentPhase).toBe('delivered')
         assignedTask = current
         expect(deliveries.filter(delivery => delivery.text.includes('Alpha-only composition proof'))).toEqual([expect.objectContaining({ childId: alpha.session_id })])
       }, { timeout: 15_000 })

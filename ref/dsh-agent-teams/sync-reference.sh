@@ -2,7 +2,7 @@
 set -eu
 
 repository='https://github.com/NanmiCoder/dsh-agent-teams.git'
-commit='232a338fc9a0d393f118912386f67e7f3a6c67d6'
+commit='1caff61f4c0909711b515ebc56187055556186cd'
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 target="$script_dir/source"
 

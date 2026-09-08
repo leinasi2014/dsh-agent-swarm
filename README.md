@@ -32,7 +32,7 @@ Main Brain 不加入 Team roster，也不获得 Captain 权限。多个 Team 的
 - Team 级 Skill allow-list、成员 tool deny policy、Captain/成员模型路由、资源上限和重启生效的官方 Plugins 设置页。
 - 团队共享记忆与成员私有 append-only memory，二者具有独立授权和持久化边界。
 - Plan-first staged 审批流：`create_managed(stage=true)` → `set_plan` → `approve_plan`（官方 `ctx.userQuestions` 批准/放弃）→ 原子激活并 provisioning Captain/成员/任务；崩溃窗口由启动恢复补齐；放弃/归档幂等；右侧 Team 表面新增“计划审批”卡（staged 只读投影）。
-- read-only Host projection、同源 `/swarm/v1` RPC 与 DSH Team Workbench V3：多 Team 切换、Workbench/Tasks/Announcements/Management、成员/任务 overlay、Captain Chat 跳转。
+- read-only Host projection、同源 `/swarm/v1` RPC 与 DSH Team Workbench：多 Team 切换、概览/任务/公告/管理、真实任务进度、Captain→成员→当前任务层级、栏内成员/任务详情与 Captain Chat 跳转。
 
 ## 尚未交付
 
@@ -77,6 +77,8 @@ AgentSwarmRuntime → TeamDomainPort → StorageDomainTeamStore
 ## 本地构建
 
 要求：Node.js `^22.19.0 || >=24`、pnpm `9.15.9`，以及与 `package.json` peer dependencies 和 `docs/OFFICIAL_BASELINE.json` 一致的官方 DSH。
+
+当前依赖基线为官方 DSH `0.1.2-rc.1`。Session 使用官方 JSONL persistence；客户端通过 `remote.session.modelCatalog()` 读取模型目录。已有 Profile 升级前须保留原 Session/Storage，不把新空 Profile 的通过当成旧数据迁移验收。
 
 ```bash
 corepack enable

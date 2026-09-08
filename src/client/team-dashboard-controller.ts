@@ -141,7 +141,7 @@ export class TeamDashboardController {
 
   /** Re-prove the exact Host binding, then delegate navigation to the official Session service.
    *  binding.rootSessionId is the host-resolved dedicated Captain Session id (the Team root of this
-   *  read), not the system Main Brain / owner main Chat. */
+   *  read). Captainless drafts bind reads to their owner but have no Chat handoff. */
   async openCaptainChat(openOfficialSession: (rootSessionId: string) => void): Promise<void> {
     this.assertLive()
     const current = this.state
@@ -149,6 +149,9 @@ export class TeamDashboardController {
     const expected = current.data?.projection.binding
     if (!current.open || target === undefined || expected === undefined) {
       throw new Error('Captain Chat handoff requires a current Team binding')
+    }
+    if (current.data?.teams.teams.find(team => team.teamId === expected.teamId)?.captainSessionId === '') {
+      throw new Error('Captain Chat is unavailable until a Captain Session is created')
     }
     this.stopActive()
     const abort = new AbortController()

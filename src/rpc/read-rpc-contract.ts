@@ -118,7 +118,7 @@ export interface SwarmReadTeamV1 {
   readonly teamId: string
   readonly name: string
   readonly phase: 'staged' | 'active' | 'archived'
-  /** Dedicated Captain Session id of this Team; the caller opens it via the official Session seam. */
+  /** Dedicated Captain Session id; empty only for an unstarted or discarded draft. */
   readonly captainSessionId: string
   /** Captain-declared display name; present only when the identity card is `generated`. */
   readonly displayName?: string
@@ -126,6 +126,7 @@ export interface SwarmReadTeamV1 {
   readonly profession?: string
   /** Captain-declared personality; present only when the identity card is `generated`. */
   readonly personality?: string
+  readonly biography?: string
   /** Captain identity asset projection: `generated` with a safe rect-only svg, or honest `not_generated`. */
   readonly avatar: SwarmReadAssetStatusV1
   /** Captain identity card projection: `generated` with the profile fields, or honest `not_generated`. */
@@ -204,6 +205,7 @@ export interface SwarmReadCaptainMemberRowV1 {
   readonly profession?: string
   /** Captain-declared personality; present only when the identity card is `generated`. */
   readonly personality?: string
+  readonly biography?: string
   readonly avatar: SwarmReadAssetStatusV1
   readonly identityCard: SwarmReadAssetStatusV1
   /** Row-local composition projection (captainMembers.composition.v1): derived per member
@@ -432,4 +434,3 @@ function strictEnvelopeRecord(value: unknown, allowed: ReadonlySet<string>): Rec
   }
   return record
 }
-

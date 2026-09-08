@@ -28,7 +28,7 @@ describe('single-generation visible text containment', () => {
       expect(finished).toBe(false)
       expect(aborted).toBe(true)
       expect(adapter.requests).toHaveLength(1)
-      const events = stack.agent.session.events
+      const events = stack.agent.session.snapshotEvents()
       expect(events.some(event => event.type === 'tool/call')).toBe(false)
       expect(events.findLast(event => event.type === 'turn/end')?.data.reason)
         .toMatchObject({ kind: 'aborted', reason: { kind: 'hook', reason: expect.stringContaining('visible-text') } })
@@ -60,7 +60,7 @@ describe('single-generation visible text containment', () => {
     try {
       stack.agent.followup(prompt()); await stack.agent.whenIdle()
       expect(finished).toBe(false)
-      expect(stack.agent.session.events.findLast(event => event.type === 'turn/end')?.data.reason.kind).toBe('aborted')
+      expect(stack.agent.session.snapshotEvents().findLast(event => event.type === 'turn/end')?.data.reason.kind).toBe('aborted')
     } finally { await stack.dispose() }
   })
 
@@ -78,7 +78,7 @@ describe('single-generation visible text containment', () => {
     try {
       stack.agent.followup(prompt())
       await stack.agent.whenIdle()
-      expect(stack.agent.session.events.findLast(event => event.type === 'turn/end')?.data.reason.kind).toBe('completed')
+      expect(stack.agent.session.snapshotEvents().findLast(event => event.type === 'turn/end')?.data.reason.kind).toBe('completed')
     } finally { await stack.dispose() }
   })
 })

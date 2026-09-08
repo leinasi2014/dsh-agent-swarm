@@ -1,3 +1,6 @@
+import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
+import { queueSubagentPrompt, type HostPromptQueue } from '@deepseek-ai/dsh-subagent/internal'
 /**
  * F2 (M1B): target-side stable message-id de-duplication across the mailbox
  * crash window.
@@ -15,10 +18,10 @@ import { join } from 'node:path'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { CallId, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
-import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -108,7 +111,7 @@ function acceptedFrames(events: readonly SessionEvent[], frame: string): number 
 async function countTargetCopies(ctx: Context, sessionId: string, frame: string): Promise<number> {
   const live = ctx.agents.get(SessionId(sessionId))
   const events = live !== undefined
-    ? live.session.events
+    ? live.session.snapshotEvents()
     : (await ctx.sessionPersistence.inspect(SessionId(sessionId), SIGNAL)).events
   return acceptedFrames(events, frame)
 }
@@ -156,7 +159,9 @@ describe('target-side message de-duplication (F2)', () => {
 
     try {
       await mountAgentLoopTestDependencies(ctx)
-      fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(sandbox, 'sessions', 'sessions.db') }))
+  await ctx.plugin(SessionProjectionService)
+  await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
+      fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
       await mountStorageStackOn(ctx, join(sandbox, 'storage'))
       fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
       fibers.push(await ctx.plugin(SubagentService))
@@ -172,7 +177,7 @@ describe('target-side message de-duplication (F2)', () => {
 
       const created = await ctx.tools.execute({
         signal: SIGNAL,
-        callId: CallId('create'),
+        callId: ToolCallId('create'),
         name: 'agent_swarm_create',
         arguments: { name: 'Dedup team', description: 'Prove target-side stable-id folding across the crash window.' },
         agent: lead,
@@ -181,7 +186,7 @@ describe('target-side message de-duplication (F2)', () => {
       const teamId = AgentSwarm.TeamId((created.value as { team_id: string }).team_id)
       const added = await ctx.tools.execute({
         signal: SIGNAL,
-        callId: CallId('add'),
+        callId: ToolCallId('add'),
         name: 'agent_swarm_add_member',
         arguments: { name: 'inbox-worker', role: 'Receive one durable peer message.' },
         agent: lead,
@@ -196,12 +201,12 @@ describe('target-side message de-duplication (F2)', () => {
 
       // Delivery observer: capture every framed followup text.
       const followupFrames: string[] = []
-      const followup = ctx.subagents.followup.bind(ctx.subagents)
-      const followupSpy = vi.spyOn(ctx.subagents, 'followup').mockImplementation(async (parent, childId, content, options) => {
+      const followup = (ctx.subagents as unknown as HostPromptQueue)[queueSubagentPrompt].bind(ctx.subagents)
+      const followupSpy = vi.spyOn(ctx.subagents as unknown as HostPromptQueue, queueSubagentPrompt).mockImplementation(async (parent, childId, content, source, signal) => {
         for (const block of content) {
           if (block.type === 'text') followupFrames.push(block.text)
         }
-        return await followup(parent, childId, content, options)
+        return await followup(parent, childId, content, source, signal)
       })
 
       // Crash-window injection: the FIRST store acknowledgement (the
@@ -213,7 +218,7 @@ describe('target-side message de-duplication (F2)', () => {
       // acknowledges nothing and reports queued.
       const sent = await ctx.tools.execute({
         signal: SIGNAL,
-        callId: CallId('send'),
+        callId: ToolCallId('send'),
         name: 'agent_swarm_send_message',
         arguments: { target: 'inbox-worker', content: 'Accept me exactly once across the crash window.', delivery: 'wakeup' },
         agent: lead,
@@ -304,7 +309,9 @@ describe('target-side message de-duplication (F2)', () => {
 
     try {
       await mountAgentLoopTestDependencies(ctx)
-      fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(sandbox, 'sessions', 'sessions.db') }))
+  await ctx.plugin(SessionProjectionService)
+  await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
+      fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
       await mountStorageStackOn(ctx, join(sandbox, 'storage'))
       fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
       fibers.push(await ctx.plugin(SubagentService))
@@ -320,7 +327,7 @@ describe('target-side message de-duplication (F2)', () => {
 
       const created = await ctx.tools.execute({
         signal: SIGNAL,
-        callId: CallId('create'),
+        callId: ToolCallId('create'),
         name: 'agent_swarm_create',
         arguments: { name: 'Idempotent team', description: 'Prove repeated rescans stay single-copy.' },
         agent: lead,
@@ -329,7 +336,7 @@ describe('target-side message de-duplication (F2)', () => {
       const teamId = AgentSwarm.TeamId((created.value as { team_id: string }).team_id)
       const added = await ctx.tools.execute({
         signal: SIGNAL,
-        callId: CallId('add'),
+        callId: ToolCallId('add'),
         name: 'agent_swarm_add_member',
         arguments: { name: 'steady-worker', role: 'Receive one message through repeated rescans.' },
         agent: lead,
@@ -341,12 +348,12 @@ describe('target-side message de-duplication (F2)', () => {
       // `recoverAgent` calls below stand in for repeated reload recoveries.
       const idle = vi.spyOn(ctx.agentSwarm, 'observeAgentIdle').mockImplementation(() => {})
       const followupFrames: string[] = []
-      const followup = ctx.subagents.followup.bind(ctx.subagents)
-      const followupSpy = vi.spyOn(ctx.subagents, 'followup').mockImplementation(async (parent, childId, content, options) => {
+      const followup = (ctx.subagents as unknown as HostPromptQueue)[queueSubagentPrompt].bind(ctx.subagents)
+      const followupSpy = vi.spyOn(ctx.subagents as unknown as HostPromptQueue, queueSubagentPrompt).mockImplementation(async (parent, childId, content, source, signal) => {
         for (const block of content) {
           if (block.type === 'text') followupFrames.push(block.text)
         }
-        return await followup(parent, childId, content, options)
+        return await followup(parent, childId, content, source, signal)
       })
       const acknowledge = vi.spyOn(ctx.agentSwarm.domain, 'acknowledgeMessage')
       acknowledge.mockRejectedValue(new Error('acknowledge stays down across every rescan'))
@@ -355,7 +362,7 @@ describe('target-side message de-duplication (F2)', () => {
       // acknowledges nothing and reports queued.
       const sent = await ctx.tools.execute({
         signal: SIGNAL,
-        callId: CallId('send'),
+        callId: ToolCallId('send'),
         name: 'agent_swarm_send_message',
         arguments: { target: 'steady-worker', content: 'Rescans must not duplicate me.', delivery: 'wakeup' },
         agent: lead,

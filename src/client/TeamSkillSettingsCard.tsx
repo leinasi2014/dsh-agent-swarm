@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type CSSProperties } from 'react'
-import type { SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 
@@ -213,7 +213,16 @@ async function persistField(scope: SettingsScope<TeamPluginSettings>, field: key
 }
 
 async function persistSimple(scope: SettingsScope<TeamPluginSettings>, field: keyof Draft, value: Draft[keyof Draft]): Promise<void> { if (new Set<keyof Draft>([...positiveFields, 'strandedAfterMs']).has(field)) return await setVerified(scope, field, Number(value)); if (field === 'executionRootsBase' && String(value).trim() === '') return await unsetVerified(scope, field); return await setVerified(scope, field, value) }
-async function persistRoute(scope: SettingsScope<TeamPluginSettings>, providerField: string, modelField: string, value: string): Promise<void> { const route = parseRoute(value); if (route === undefined) { await unsetVerified(scope, providerField); await unsetVerified(scope, modelField); return }; await setVerified(scope, providerField, route[0]); await setVerified(scope, modelField, route[1]) }
+async function persistRoute(scope: SettingsScope<TeamPluginSettings>, providerField: string, modelField: string, value: string): Promise<void> {
+  const route = parseRoute(value)
+  await scope.mutate(route === undefined
+    ? [{ op: 'unset', path: [providerField] }, { op: 'unset', path: [modelField] }]
+    : [{ op: 'set', path: [providerField], value: route[0] }, { op: 'set', path: [modelField], value: route[1] }])
+  const user = record(scope.getSnapshot().user)
+  if (route === undefined
+    ? user !== undefined && (Object.hasOwn(user, providerField) || Object.hasOwn(user, modelField))
+    : user?.[providerField] !== route[0] || user?.[modelField] !== route[1]) throw new Error('settings route write was not accepted')
+}
 async function setVerified(scope: SettingsScope<TeamPluginSettings>, field: string, value: unknown): Promise<void> { await scope.set(field, value); const user = record(scope.getSnapshot().user); if (user === undefined || !Object.hasOwn(user, field) || !equalJson(user[field], value)) throw new Error(`settings write was not accepted: ${field}`) }
 async function unsetVerified(scope: SettingsScope<TeamPluginSettings>, field: string): Promise<void> { await scope.unset(field); const user = record(scope.getSnapshot().user); if (user !== undefined && Object.hasOwn(user, field)) throw new Error(`settings clear was not accepted: ${field}`) }
 function record(value: unknown): Record<string, unknown> | undefined { return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : undefined }

@@ -45,7 +45,7 @@ async function mount(sandbox: string): Promise<RestartMounted> {
 
 async function durableToolFilter(ctx: RestartMounted['ctx'], childId: string): Promise<{ deny?: readonly string[] } | undefined> {
   const stored = await ctx.sessionPersistence.inspect(SessionId(childId))
-  const suffix = stored.events.slice(stored.meta.seedLength ?? 0)
+  const suffix = stored.events.slice(stored.inheritedEventCount ?? 0)
   const descriptor = foldSubagentDescriptor(suffix)
   // Only the continuable descriptor variant carries the durable toolFilter.
   if (descriptor?.mode !== 'continuable') return undefined

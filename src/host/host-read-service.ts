@@ -74,8 +74,8 @@ export class AgentSwarmHostReadService {
   }
 
   /** Pure projection; its target collaborator has already admitted this read. */
-  projectAuthorizedTeam(team: TeamState, scope: TeamScope, afterCursor?: string): SwarmHostReadProjectionV1 {
-    return project({ team }, this.deps.overlay.list(scope, team.id), team.captainSessionId, afterCursor, this.observedAt())
+  projectAuthorizedTeam(team: TeamState, scope: TeamScope, afterCursor?: string, bindingRoot = team.captainSessionId): SwarmHostReadProjectionV1 {
+    return project({ team }, this.deps.overlay.list(scope, team.id), bindingRoot, afterCursor, this.observedAt())
   }
 
   /** Stop admission and wait a bounded interval for all admitted projections. */

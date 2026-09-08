@@ -1,5 +1,7 @@
 import type { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
-import type { ClientContext, ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ILayout } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { StoredEntry } from '@deepseek-ai/dsh-client-ui-slots'
 import type { RefObject } from 'react'

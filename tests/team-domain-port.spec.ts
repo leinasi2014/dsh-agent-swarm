@@ -1,12 +1,14 @@
+import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import Storage from '@deepseek-ai/dsh-storage'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
@@ -256,8 +258,10 @@ describe('TeamDomainPort provider over the official Storage Domain', () => {
       // Persistence present but no storage stack: still pending.
       const noStorage = new Context()
       await mountAgentLoopTestDependencies(noStorage)
+  await noStorage.plugin(SessionProjectionService)
+  await noStorage.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
       const noStorageFibers = [
-        await noStorage.plugin(SqliteSessionPersistence, { path: join(sandboxPending, 'sessions-a', 'sessions.db') }),
+        await noStorage.plugin(JsonlSessionPersistence, { root: join(sandboxPending, 'sessions-a', 'sessions.db') }),
         noStorage.plugin(SubagentService),
         noStorage.plugin(SubagentSpawn, { providerName: 'spawn' }),
         noStorage.plugin(AgentSwarm, { memberProvider: 'spawn' }),
@@ -269,6 +273,8 @@ describe('TeamDomainPort provider over the official Storage Domain', () => {
       // Storage stack present but no persistence: still pending.
       const noPersistence = new Context()
       await mountAgentLoopTestDependencies(noPersistence)
+  await noPersistence.plugin(SessionProjectionService)
+  await noPersistence.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
       const noPersistenceFibers = [
         await noPersistence.plugin(Storage),
         await noPersistence.plugin(StorageJson, { root: join(sandboxPending, 'storage') }),
@@ -290,8 +296,10 @@ describe('TeamDomainPort provider over the official Storage Domain', () => {
     const fibers = [] as import('@deepseek-ai/cordis').Fiber[]
     try {
       await mountAgentLoopTestDependencies(active)
+  await active.plugin(SessionProjectionService)
+  await active.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
       fibers.push(
-        await active.plugin(SqliteSessionPersistence, { path: join(sandbox, 'sessions', 'sessions.db') }),
+        await active.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }),
         await active.plugin(AgentLoop, { agents: [] }),
         await active.plugin(Storage),
         await active.plugin(StorageJson, { root: join(sandbox, 'active-storage') }),
@@ -308,7 +316,7 @@ describe('TeamDomainPort provider over the official Storage Domain', () => {
       )
       const created = await active.tools.execute({
         signal: new AbortController().signal,
-        callId: CallId('port-create'),
+        callId: ToolCallId('port-create'),
         name: 'agent_swarm_create',
         arguments: { name: 'Active team', description: 'Fail-closed positive control.' },
         agent: lead,

@@ -1,12 +1,14 @@
+import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { CallId, LlmAdapter, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, LlmAdapter, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
-import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -39,7 +41,9 @@ async function mount(config: { memberLlmProvider?: string; memberModel?: string;
   const ctx = new Context()
   const fibers: Fiber[] = []
   await mountAgentLoopTestDependencies(ctx)
-  fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(sandbox, 'sessions.db') }))
+  await ctx.plugin(SessionProjectionService)
+  await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
+  fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions.db') }))
   await mountStorageStackOn(ctx, join(sandbox, 'storage'))
   fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
   fibers.push(await ctx.plugin(SubagentService))
@@ -48,7 +52,7 @@ async function mount(config: { memberLlmProvider?: string; memberModel?: string;
   const adapter = new RecruitAdapter()
   ctx.llm.registerAdapter(['valid'], adapter)
   const lead = ctx.agentLoop.create(SessionId(`recruit-${Math.random().toString(36).slice(2)}`), { provider: 'valid', model: 'dynamic-unlisted' }, { cwd: join(sandbox, 'workspace') })
-  const call = (args: Record<string, unknown>, name = 'agent_swarm_add_member') => ctx.tools.execute({ signal, callId: CallId(`recruit-${Math.random()}`), name, arguments: args, agent: lead })
+  const call = (args: Record<string, unknown>, name = 'agent_swarm_add_member') => ctx.tools.execute({ signal, callId: ToolCallId(`recruit-${Math.random()}`), name, arguments: args, agent: lead })
   const created = await call({ name: 'Recovery', description: 'One employee, fenced provisioning attempts.' }, 'agent_swarm_create')
   expect(created.isError).toBe(false)
   const teamId = AgentSwarm.TeamId((created.value as { team_id: string }).team_id)
@@ -82,7 +86,7 @@ describe('member recruitment route and same-identity recovery', () => {
       await setUpTeam(composition, ['observer'])
       const { ctx, lead } = composition
       const execute = (agent: typeof lead, name: string, args: Record<string, unknown>) =>
-        ctx.tools.execute({ signal, callId: CallId(`fence-${Math.random()}`), name, arguments: args, agent })
+        ctx.tools.execute({ signal, callId: ToolCallId(`fence-${Math.random()}`), name, arguments: args, agent })
       expect((await execute(lead, 'agent_swarm_add_member', {
         name: 'failed-worker', role: 'Implement', deny_tools: ['missing-official-tool'],
       })).isError).toBe(true)

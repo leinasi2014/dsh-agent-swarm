@@ -210,7 +210,7 @@ export class HumanControlGateway {
     admission: HumanControlAdmission,
   ): Promise<Agent> {
     const captain = this.deps.ctx.agents.get(SessionId(request.source.captainSessionId))
-    if (captain === undefined || !this.deps.ctx.agents.roots().includes(captain)) {
+    if (captain === undefined || !(captain.session.header.parentSession === undefined && this.deps.ctx.agents.roots().includes(captain))) {
       throw this.error('TEAM_INTERACTION_CAPTAIN_REQUIRED', 'Human Control requires the exact live root captain', request)
     }
     if (request.source.kind === 'captain-mediated') {

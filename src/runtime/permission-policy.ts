@@ -195,10 +195,10 @@ export function decideToolPermission(
   context: ToolPermissionContext,
 ): ToolPermissionDecision {
   validateToolPolicyDeclaration(declaration)
-  // Only a verified child-scoped report transport may bypass this classifier
+  // Only a verified official direct-parent message may bypass this classifier
   // (in permission-surface). A global/root same-name tool is never a Team
   // return channel.
-  if (toolName === 'report') return 'deny'
+  if (toolName === 'report' || toolName === 'send_message') return 'deny'
   // This is an unconditional delegated-member denial, before declarations
   // are consulted.  An operator allow declaration therefore cannot reopen
   // the wait body on a resumed or newly provisioned member.

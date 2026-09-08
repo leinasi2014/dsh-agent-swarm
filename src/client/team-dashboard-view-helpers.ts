@@ -9,6 +9,19 @@ export const NOT_GENERATED_AVATAR: SwarmReadAssetStatusV1 = { state: 'not_genera
 const NOT_GENERATED_IDENTITY: SwarmReadAssetStatusV1 = { state: 'not_generated', reason: 'identity_backend_not_implemented' }
 
 export type DeskTone = 'standby' | 'executing' | 'pending' | 'failed' | 'offline'
+export type TaskProgressState = 'completed' | 'running' | 'review' | 'blocked' | 'unknown' | 'ready' | 'failed' | 'cancelled'
+
+/** Counts visible canonical tasks; callers disclose truncation before showing a total. */
+export function taskProgressState(task: SwarmHostReadProjectionV1['tasks'][number], tasks: SwarmHostReadProjectionV1['tasks']): TaskProgressState {
+  if (task.status === 'in_progress') return 'running'
+  if (task.status === 'submitted' || task.status === 'verifying') return 'review'
+  if (task.status === 'pending') {
+    const dependencies = task.blockedBy.map(id => tasks.find(candidate => candidate.id === id))
+    if (dependencies.some(dependency => dependency !== undefined && dependency.status !== 'completed')) return 'blocked'
+    return dependencies.some(dependency => dependency === undefined) ? 'unknown' : 'ready'
+  }
+  return task.status
+}
 export type DetailSelection =
   | { readonly kind: 'member'; readonly name: string }
   | { readonly kind: 'task'; readonly id: string }
@@ -101,6 +114,7 @@ export function memberAssetOf(memberAssets: SwarmReadCaptainMembersV1 | undefine
   readonly displayName?: string
   readonly profession?: string
   readonly personality?: string
+  readonly biography?: string
   readonly growth: { readonly privateMemory: 'private_to_member'; readonly skills: 'not_implemented'; readonly capability: 'not_implemented' }
   readonly composition?: SwarmReadMemberCompositionV1
   readonly skills?: readonly string[]
@@ -117,6 +131,7 @@ export function memberAssetOf(memberAssets: SwarmReadCaptainMembersV1 | undefine
     ...(row?.displayName === undefined ? {} : { displayName: row.displayName }),
     ...(row?.profession === undefined ? {} : { profession: row.profession }),
     ...(row?.personality === undefined ? {} : { personality: row.personality }),
+    ...(row?.biography === undefined ? {} : { biography: row.biography }),
     growth: row?.growth ?? { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' },
     ...(row?.composition === undefined ? {} : { composition: row.composition }),
     ...(row?.skills === undefined ? {} : { skills: row.skills }),

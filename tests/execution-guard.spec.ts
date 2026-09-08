@@ -31,7 +31,7 @@ describe('execution guard over the official Agent Loop', () => {
       stack.agent.followup(prompt())
       await stack.agent.whenIdle()
       off()
-      const end = stack.agent.session.events.findLast(event => event.type === 'turn/end')
+      const end = stack.agent.session.snapshotEvents().findLast(event => event.type === 'turn/end')
       expect(end?.data.reason).toMatchObject({ kind: 'aborted', reason: { kind: 'hook', reason: expect.stringContaining('unknown-tool') } })
       expect(adapter.requests.length).toBe(10)
       expect(stack.agent.inbox.nextTurn.map(message => message.id)).toContain(queued.id)
@@ -61,7 +61,7 @@ describe('three classes of tool progress', () => {
       stack.agent.followup(prompt())
       await stack.agent.whenIdle()
       expect(adapter.requests).toHaveLength(30)
-      expect(stack.agent.session.events.findLast(event => event.type === 'turn/end')?.data.reason)
+      expect(stack.agent.session.snapshotEvents().findLast(event => event.type === 'turn/end')?.data.reason)
         .toMatchObject({ kind: 'aborted', reason: { reason: expect.stringContaining('global') } })
       expect(adapter.requests[20]?.messages.some(message => JSON.stringify(message).includes('Execution guard WARNING'))).toBe(true)
     } finally { await stack.dispose() }
@@ -78,7 +78,7 @@ describe('three classes of tool progress', () => {
         stack.agent.followup(prompt())
         await stack.agent.whenIdle()
         expect(adapter.requests).toHaveLength(changing ? 41 : 31)
-        expect(stack.agent.session.events.findLast(event => event.type === 'turn/end')?.data.reason.kind).toBe(changing ? 'completed' : 'aborted')
+        expect(stack.agent.session.snapshotEvents().findLast(event => event.type === 'turn/end')?.data.reason.kind).toBe(changing ? 'completed' : 'aborted')
       } finally { await stack.dispose() }
     }
   })
@@ -97,7 +97,7 @@ describe('three classes of tool progress', () => {
     try {
       stack.agent.followup(prompt()); await stack.agent.whenIdle()
       expect(adapter.requests).toHaveLength(41)
-      expect(stack.agent.session.events.findLast(event => event.type === 'turn/end')?.data.reason.kind).toBe('completed')
+      expect(stack.agent.session.snapshotEvents().findLast(event => event.type === 'turn/end')?.data.reason.kind).toBe('completed')
     } finally { await stack.dispose() }
   })
 

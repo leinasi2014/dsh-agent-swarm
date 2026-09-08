@@ -222,7 +222,7 @@ export class MemberProfileReader {
       return invalid(member, 'binding_invalid')
     }
 
-    const suffix = stored.events.slice(stored.meta.seedLength ?? 0)
+    const suffix = stored.events.slice(stored.inheritedEventCount ?? 0)
     let descriptor: ReturnType<typeof foldSubagentDescriptor>
     try {
       descriptor = foldSubagentDescriptor(suffix)
@@ -231,10 +231,11 @@ export class MemberProfileReader {
     }
     if (descriptor?.mode !== 'continuable') return invalid(member, 'not_continuable')
     // Issue #148: member provisioning now derives the official session label
-    // from the readable Team name + displayName (falling back to the internal
-    // name), so the binding check must match that label exactly.
+    // from the immutable Team name plus the identity at creation. Public profile
+    // edits preserve the original Session label; bind the exact child/parent
+    // above and the Team prefix here instead of comparing mutable identity.
     if (
-      descriptor.label !== `${team.name} · ${member.displayName ?? member.name}`
+      !descriptor.label.startsWith(`${team.name} · `)
       || descriptor.provider !== member.provider
     ) {
       return invalid(member, 'binding_invalid')

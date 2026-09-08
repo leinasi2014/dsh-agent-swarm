@@ -1,4 +1,3 @@
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import z from '@deepseek-ai/schemastery'
 import { DEFAULT_TEAM_LIMITS } from '../domain/team-domain.js'
 import { normalizeAllowedSkills } from '../domain/team-skill-policy.js'
@@ -7,7 +6,7 @@ import { expectExecutionRootsBase } from '../runtime/execution-roots.js'
 import { effectiveToolPolicy } from '../runtime/permission-surface.js'
 import { assertProtocolFloorNotDenied } from '../runtime/tool-policy.js'
 
-export const AGENT_SWARM_SETTINGS_NAMESPACE = settingsNamespace('agent-swarm')
+export const AGENT_SWARM_SETTINGS_NAMESPACE = 'agent-swarm' as const
 export const DEFAULT_DISPOSAL_TIMEOUT_MS = 5_000
 export const DEFAULT_STRANDED_AFTER_MS = 60_000
 export const DEFAULT_WORKFLOW_MAX_TOTAL_AGENTS = 1_000
@@ -124,4 +123,3 @@ export function assertServiceableConfig(value: Config): void {
   // runtime, storage or listener side effect is created.
   assertProtocolFloorNotDenied([...(value.toolPolicy?.deny ?? []), ...(value.toolPolicy?.ask ?? [])], 'toolPolicy')
 }
-
