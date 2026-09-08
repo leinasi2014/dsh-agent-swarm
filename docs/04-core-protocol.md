@@ -112,7 +112,7 @@ DSH `0.1.2-rc.1` 的 continuable child 可由私有 owner 注册；`agents.roots
 - 多 Team 切换通过 Main Brain/Host projection 选择 Captain Session，不在侧边栏维护第二套 Team registry。
 - official Session list/Chat 仍由 DSH 拥有；插件只提供可读 label 与导航。
 
-成员 Chat 复用已安装 DSH 的公开 `ISessions.refreshSubagents/subagentAddress/openSubagent`：从官方 direct-child catalog 取得精确 Captain/member 地址，再导航，不构造私有路由。Host 只向同 scope、父 Session 等于 Captain、且 sessionId 精确匹配 active roster 的成员开放所属 Team 读取；旧失败身份、移除成员和普通 child 不继承上级 Team。成员导航前重读绑定和成员行；当前 Session 切换到已知同 Team 成员或 Captain 时，Details lease 保留、旧数据清除并向新 Session 重新授权读取，回原打开入口也重读；无关 Session 仍释放 lease。该 UI 临时状态不成为业务权限，注册/轮询继续随既有 controller/coordinator 卸载释放。验收覆盖导航竞争、冷读取、错误父级/成员、侧栏返回和官方 Tool Details 让位。
+成员 Chat 复用已安装 DSH 的公开 `ISessions.refreshSubagents/list/openSubagent`：刷新后从 `list` 的 `subagentsByParent` 中取 `ready`、healthy continuable child 的精确 Captain/member 地址，再导航，不构造私有路由；`subagentAddress` 仅查询已导航地址，不能用于首次打开。Host 只向同 scope、父 Session 等于 Captain、且 sessionId 精确匹配 active roster 的成员开放所属 Team 读取；旧失败身份、移除成员和普通 child 不继承上级 Team。成员导航前重读绑定和成员行；当前 Session 切换到已知同 Team 成员或 Captain 时，Details lease 保留、旧数据清除并向新 Session 重新授权读取，回原打开入口也重读；无关 Session 仍释放 lease。该 UI 临时状态不成为业务权限，注册/轮询继续随既有 controller/coordinator 卸载释放。验收覆盖首次导航、导航竞争、冷读取、错误父级/成员、侧栏返回和官方 Tool Details 让位。
 
 ## 9. Review、execution root 与可选桥接
 

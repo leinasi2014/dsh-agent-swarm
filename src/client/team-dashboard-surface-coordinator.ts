@@ -2,6 +2,7 @@ import type { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { SubagentListEntry } from '@deepseek-ai/dsh-subagent/client'
 import type { ILayout } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { StoredEntry } from '@deepseek-ai/dsh-client-ui-slots'
 import type { RefObject } from 'react'
@@ -29,6 +30,7 @@ export class TeamDashboardSurfaceCoordinator {
   private readonly listeners = new Set<() => void>()
   private state: TeamDashboardSurfaceState = INACTIVE
   private entrySessionId: string | undefined
+  private navigationSessions = new Set<string>()
   private layout: ILayout | undefined
   private declarationLive = false
   private layoutEpoch = 0
@@ -57,9 +59,12 @@ export class TeamDashboardSurfaceCoordinator {
       const current = this.options.sessions.list.getSnapshot().current
       if (target === undefined || current === target) return
       const data = this.options.controller.getSnapshot().data
+      if (data !== undefined) {
+        this.navigationSessions = new Set([data.projection.binding.rootSessionId,
+          ...data.captainMembers.members.flatMap(member => member.phase === 'active' && member.sessionId !== undefined ? [member.sessionId] : [])])
+      }
       const sameTeam = current !== undefined && (current === this.entrySessionId
-        || current === data?.projection.binding.rootSessionId
-        || data?.captainMembers.members.some(member => member.phase === 'active' && member.sessionId === current))
+        || this.navigationSessions.has(current))
       if (!sameTeam || current === undefined) return this.close(false)
       this.publish({ ...this.state, targetSessionId: current })
       this.options.controller.open(current)
@@ -134,11 +139,14 @@ export class TeamDashboardSurfaceCoordinator {
       signal.throwIfAborted()
       if (this.state.mode !== 'docked' || this.state.targetSessionId !== target
         || sessions.list.getSnapshot().current !== target) throw new Error('Member Chat handoff was superseded')
-      const address = sessions.subagentAddress(memberId as SessionId)
-      if (address?.parentSessionId !== captainId || address.childSessionId !== memberId || address.mode !== 'continuable') {
+      const catalog = sessions.list.getSnapshot().subagentsByParent[captainId as SessionId]
+      const child = catalog?.state === 'ready' ? catalog.entries.find((entry: SubagentListEntry) => entry.id === memberId) as SubagentListEntry | undefined : undefined
+      if (child?.kind !== 'child' || child.mode !== 'continuable') {
         throw new Error('Member Session is not in the official Captain child catalog')
       }
-      sessions.openSubagent(address)
+      // subagentAddress is a retained-navigation lookup, empty on first open.
+      // This address comes from the fresh public direct-parent catalog instead.
+      sessions.openSubagent({ parentSessionId: captainId as SessionId, childSessionId: child.id, mode: child.mode })
     })
   }
 
@@ -174,6 +182,7 @@ export class TeamDashboardSurfaceCoordinator {
   private isWinner(entry: StoredEntry): boolean { return this.options.slots.entriesOfSlot('details')[0] === entry }
   private close(restoreFocus: boolean): void {
     this.entrySessionId = undefined
+    this.navigationSessions.clear()
     if (this.state.mode === 'docked') { try { this.layout?.closeDetails() } catch { /* teardown still releases the Team lease */ } }
     this.releaseTeamLease()
     this.publish(INACTIVE)

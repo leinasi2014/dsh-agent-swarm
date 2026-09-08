@@ -37,20 +37,32 @@ describe('TeamDashboardSurfaceCoordinator', () => {
     const abort = new AbortController()
     const handoff = vi.fn(async (_name: string, _id: string, callback: (captain: string, member: string, signal: AbortSignal) => Promise<void>) => { await callback('captain', 'member-1', abort.signal) })
     Object.assign(f.controller, { openMemberChat: handoff })
-    let address = { parentSessionId: 'captain', childSessionId: 'member-1', mode: 'continuable' }
+    const address = { parentSessionId: 'captain', childSessionId: 'member-1', mode: 'continuable' }
+    let catalogParent = 'captain'
+    let catalogState = 'ready'
+    const snapshot = f.sessions.list.getSnapshot
+    Object.assign(f.sessions.list, { getSnapshot: () => ({ ...snapshot(), subagentsByParent: {
+      [catalogParent]: { state: catalogState, error: null, parentAvailable: true, entries: [{ kind: 'child', id: 'member-1', mode: 'continuable', activity: 'inactive', hasChildren: false, label: 'Writer' }] },
+    } }) })
     const refresh = vi.fn(async () => {})
     const open = vi.fn(() => { f.sessions.setCurrent('member-1') })
-    Object.assign(f.sessions, { refreshSubagents: refresh, subagentAddress: () => address, openSubagent: open })
+    // Official rc.1 has no retained subagentAddress until the FIRST navigation;
+    // refreshing the catalog alone does not populate that address cache.
+    Object.assign(f.sessions, { refreshSubagents: refresh, subagentAddress: () => undefined, openSubagent: open })
     await f.coordinator.openMemberChat('worker', 'member-1')
     expect(refresh).toHaveBeenCalledWith('captain')
     expect(open).toHaveBeenCalledExactlyOnceWith(address)
     expect(f.coordinator.getSnapshot()).toMatchObject({ mode: 'docked', targetSessionId: 'member-1' })
     f.controller.state = ready
     f.sessions.setCurrent('root')
-    address = { ...address, parentSessionId: 'wrong-parent' }
+    catalogParent = 'wrong-parent'
     await expect(f.coordinator.openMemberChat('worker', 'member-1')).rejects.toThrow('official Captain child catalog')
     expect(open).toHaveBeenCalledTimes(1)
-    address = { ...address, parentSessionId: 'captain' }
+    catalogParent = 'captain'
+    catalogState = 'error'
+    await expect(f.coordinator.openMemberChat('worker', 'member-1')).rejects.toThrow('official Captain child catalog')
+    expect(open).toHaveBeenCalledTimes(1)
+    catalogState = 'ready'
     refresh.mockImplementation(async () => { f.sessions.setCurrent('other') })
     await expect(f.coordinator.openMemberChat('worker', 'member-1')).rejects.toThrow('superseded')
     expect(open).toHaveBeenCalledTimes(1)
@@ -70,7 +82,7 @@ describe('TeamDashboardSurfaceCoordinator', () => {
     expect(f.coordinator.getSnapshot()).toMatchObject({ mode: 'docked', targetSessionId: 'member-1' })
     expect(f.controller.open).toHaveBeenLastCalledWith('member-1')
     expect(f.slots.team).toBeDefined()
-    ready('member-1')
+    // Host load is still pending: Controller.open already cleared data.
     f.sessions.setCurrent('captain')
     expect(f.coordinator.getSnapshot()).toMatchObject({ mode: 'docked', targetSessionId: 'captain' })
     ready('captain')
