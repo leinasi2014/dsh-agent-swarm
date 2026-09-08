@@ -1,3 +1,5 @@
+import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
  * Real dual-context member-private-memory integration (2026-08-26): two fully
  * separate Cordis Contexts over ONE real SQLite Session store and ONE real
@@ -21,9 +23,9 @@ import { join } from 'node:path'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import LlmRuntime, { CallId, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { ToolCallId, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import Storage from '@deepseek-ai/dsh-storage'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
@@ -69,10 +71,12 @@ async function mount(sandbox: string): Promise<Mounted> {
   fibers.push(await ctx.plugin(SystemPrompt))
   fibers.push(await ctx.plugin(ToolRuntime))
   fibers.push(await ctx.plugin(AgentRegistry))
-  fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(sandbox, 'sessions', 'sessions.db') }))
+  fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   fibers.push(await ctx.plugin(Storage))
   fibers.push(await ctx.plugin(StorageJson, { root: join(sandbox, 'storage') }))
   fibers.push(await ctx.plugin(StorageDomain, { backend: 'json' }))
+  await ctx.plugin(SessionProjectionService)
+  await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
   fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
   fibers.push(await ctx.plugin(SubagentService))
   fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
@@ -85,17 +89,17 @@ async function dispose(mounted: Mounted): Promise<void> {
 }
 
 async function tool(ctx: Context, agent: Agent, callId: string, name: string, args: unknown) {
-  return await ctx.tools.execute({ signal: SIGNAL, callId: CallId(callId), name, arguments: args, agent })
+  return await ctx.tools.execute({ signal: SIGNAL, callId: ToolCallId(callId), name, arguments: args, agent })
 }
 
 async function snapshot(ctx: Context, lead: Agent, teamId: string) {
   return await ctx.agentSwarm.domain.snapshot(ctx.agentSwarm.scopeOf(lead), AgentSwarm.TeamId(teamId), lead.id)
 }
 
-/** Resolve a member Agent by durable Session id: live if resident, else official explicit resume. */
+/** Hold an explicitly resumed Agent after its provider-owned initial turn settles. */
 async function memberAgent(ctx: Context, memberId: string): Promise<{ agent: Agent; dispose: () => Promise<void> }> {
-  const resident = ctx.agents.get(SessionId(memberId))
-  if (resident !== undefined) return { agent: resident, dispose: async () => {} }
+  const captain = ctx.agents.get(CAPTAIN)!
+  await ctx.subagents.drainContinuableChildren(captain, [SessionId(memberId)])
   const resumed = await ctx.agents.resume({ resumeSessionId: SessionId(memberId) })
   return { agent: resumed.agent, dispose: async () => { await resumed.dispose() } }
 }
@@ -162,11 +166,6 @@ describe('member private memory real composition', () => {
       memberAId = (addedA.value as { session_id: string }).session_id
       memberBId = (addedB.value as { session_id: string }).session_id
 
-      const memberAResolved = await memberAgent(first.ctx, memberAId)
-      const memberBResolved = await memberAgent(first.ctx, memberBId)
-      const memberA = memberAResolved.agent
-      const memberB = memberBResolved.agent
-
       // Capture the baseline AFTER the roster settles into active (member
       // activation settlement can itself bump the Team revision) so the private-
       // memory writes are the only operation between the two snapshots.
@@ -174,6 +173,10 @@ describe('member private memory real composition', () => {
         const current = await snapshot(first!.ctx, leadA, teamId)
         return current.team.members.filter(member => member.sessionId === memberAId || member.sessionId === memberBId).every(member => member.phase === 'active')
       })
+      const memberAResolved = await memberAgent(first.ctx, memberAId)
+      const memberBResolved = await memberAgent(first.ctx, memberBId)
+      const memberA = memberAResolved.agent
+      const memberB = memberBResolved.agent
       const beforeWrites = await snapshot(first.ctx, leadA, teamId)
       const beforeMemoryLength = beforeWrites.team.memory.length
 
@@ -334,13 +337,13 @@ describe('member private memory real composition', () => {
       const added = await tool(first.ctx, leadA, 'pm-direct-add', 'agent_swarm_add_member', { name: 'solo', role: 'Owns the direct invariant.' })
       expect(added.isError).toBe(false)
       const memberId = (added.value as { session_id: string }).session_id
+      await pollUntil(async () => {
+          const current = await snapshot(first!.ctx, leadA, teamId)
+          return current.team.members.some(row => row.sessionId === memberId && row.phase === 'active')
+      })
       const resolved = await memberAgent(first.ctx, memberId)
       const member = resolved.agent
       try {
-        await pollUntil(async () => {
-          const current = await snapshot(first!.ctx, leadA, teamId)
-          return current.team.members.some(row => row.sessionId === memberId && row.phase === 'active')
-        })
         // Quiesce the Team revision first (provisioning/usage accounting has
         // already settled) so the two snapshots bracket ONLY the direct call.
         await quiesceRevision(first.ctx, leadA, teamId)

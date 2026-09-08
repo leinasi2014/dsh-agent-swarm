@@ -1,3 +1,4 @@
+import { queueSubagentPrompt, type HostPromptQueue } from '@deepseek-ai/dsh-subagent/internal'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -74,11 +75,11 @@ describe('restart continuation state matrix over one Team authority', () => {
       const adapter = new CountMemberTurns(); adapter.memberId = memberId
       second.ctx.llm.registerAdapter(['mock'], adapter)
       const resumed = await second.ctx.agents.resume({ resumeSessionId: CAPTAIN })
-      const rawFollowup = second.ctx.subagents.followup.bind(second.ctx.subagents)
+      const rawFollowup = (second.ctx.subagents as unknown as HostPromptQueue)[queueSubagentPrompt].bind(second.ctx.subagents)
       const follows: string[] = []
-      const followup = vi.spyOn(second.ctx.subagents, 'followup').mockImplementation(async (parent, childId, content, options) => {
+      const followup = vi.spyOn(second.ctx.subagents as unknown as HostPromptQueue, queueSubagentPrompt).mockImplementation(async (parent, childId, content, source, signal) => {
         if (String(childId) === memberId) follows.push(content.filter(block => block.type === 'text').map(block => block.text).join('\n'))
-        return await rawFollowup(parent, childId, content, options)
+        return await rawFollowup(parent, childId, content, source, signal)
       })
       try {
         await second.ctx.agentSwarm.recoverAgent(resumed.agent)
@@ -129,7 +130,7 @@ describe('restart continuation state matrix over one Team authority', () => {
       const adapter = new CountMemberTurns(); adapter.memberId = memberId
       second.ctx.llm.registerAdapter(['mock'], adapter)
       const resumed = await second.ctx.agents.resume({ resumeSessionId: CAPTAIN })
-      const followup = vi.spyOn(second.ctx.subagents, 'followup')
+      const followup = vi.spyOn(second.ctx.subagents as unknown as HostPromptQueue, queueSubagentPrompt)
       try {
         await second.ctx.agentSwarm.recoverAgent(resumed.agent)
         await new Promise(resolve => setTimeout(resolve, 150))

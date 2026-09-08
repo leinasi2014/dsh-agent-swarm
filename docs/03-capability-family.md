@@ -72,6 +72,8 @@ Workbench 消费同一 read contract：
 
 Plugin Settings 是独立的官方 Settings Consumer。它配置默认模型、成员 provider/depth、Skills、Scheduler/Review、tool policy、Workflow/Jobs/execution roots 和资源限制；设置在重启后重新组装 runtime。
 
+默认模型选择读取官方 remote Session catalog；provider/model 成对以 SettingsScope `mutate` 提交并回读。未显式覆盖的成员与 Captain 创建配置从当前 Session request header 继承，包含用户最新选择的模型与 reasoning effort。身份详情展示 durable personality/biography；缺失资料可由 Captain 局部补填，刷新不丢失已有字段。
+
 ## 5. 生命周期与失败语义
 
 - `sessionPersistence` 和 `storageDomain` 是 required injection；缺失时插件保持 pending，不降级为易失状态。

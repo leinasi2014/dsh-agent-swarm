@@ -53,7 +53,7 @@ export class RuntimeMutationSurface {
     const agent = requireAgent(exec), scope = this.deps.scopeOf(agent)
     this.deps.watchJobsScope(scope)
     return await this.deps.domain().createTeam(
-      scope, agent.id, name, description, agent.session.events.at(-1)?.seq ?? -1, undefined,
+      scope, agent.id, name, description, agent.session.snapshotEvents().at(-1)?.seq ?? -1, undefined,
       this.deps.config.newTeamAllowedSkills(),
     )
   }
@@ -257,7 +257,7 @@ export class RuntimeMutationSurface {
     const main = String(root.id)
     const callId = exec.callId === undefined ? undefined : String(exec.callId)
     if (callId !== undefined) {
-      for (const event of root.session.events) {
+      for (const event of root.session.snapshotEvents()) {
         if (event.type !== 'tool/call') continue
         const data = event.data as { callId?: unknown; turn?: number }
         if (String(data.callId) === callId) return `managed:${main}:turn:${data.turn}`
@@ -281,6 +281,13 @@ export class RuntimeMutationSurface {
     const captain = requireAgent(exec), scope = this.deps.scopeOf(captain)
     const membership = await this.deps.domain().requireMembership(scope, captain.id)
     return await this.deps.domain().setCaptainProfile(scope, membership.team.id, captain.id, expectedRevision, input)
+  }
+
+  async setMemberProfile(exec: ToolExecutionAuthority, expectedRevision: number, name: string, input: MemberIdentityInput): Promise<TeamState> {
+    await this.deps.ensureReady(); this.deps.assertOpen()
+    const captain = requireAgent(exec), scope = this.deps.scopeOf(captain)
+    const membership = await this.deps.domain().requireMembership(scope, captain.id)
+    return await this.deps.domain().setMemberProfile(scope, membership.team.id, captain.id, expectedRevision, name, input)
   }
 
   async publishAnnouncement(exec: ToolExecutionAuthority, expectedRevision: number, text: string): Promise<{ team: TeamState; announcement: TeamAnnouncement }> {

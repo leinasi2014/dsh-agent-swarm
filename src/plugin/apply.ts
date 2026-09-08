@@ -2,6 +2,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-settings'
+import type { TeamState } from '../domain/types.js'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { Domain } from '@deepseek-ai/dsh-storage-domain'
@@ -93,7 +95,10 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
   const toolPolicy = effectiveToolPolicy(config.toolPolicy)
   const memberToolPolicyDeny = [...(toolPolicy.ask ?? []), ...(toolPolicy.deny ?? [])]
   const disposalTimeoutMs = config.disposalTimeoutMs ?? DEFAULT_DISPOSAL_TIMEOUT_MS
-  const teamSkills = new TeamSkillSurface(ctx)
+  const teamSkills = new TeamSkillSurface(ctx, async (agent): Promise<TeamState | undefined> => {
+    const teams = await runtime.listTeamAggregates(runtime.scopeOf(agent))
+    return teams.find(team => team.captainSessionId === agent.id || team.members.some(member => member.sessionId === agent.id))
+  })
   let drainHumanInteractions: (() => Promise<void>) | undefined
 
   const runtime = new AgentSwarmRuntime(ctx, {
@@ -244,7 +249,7 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
       Date.now,
       {
         resolve: sessionId => ctx.agents.get(SessionId(sessionId)),
-        isRoot: agent => ctx.agents.roots().includes(agent),
+        isRoot: agent => (agent.session.header.parentSession === undefined && ctx.agents.roots().includes(agent)),
       },
     )
     const humanControl = new HumanControlGateway({
@@ -315,11 +320,11 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
     throw error
   }
   ctx.effect(async () => {
-    await Promise.all(ctx.agents.roots().map(agent => runtime.recoverAgent(agent)))
+    await Promise.all(ctx.agents.roots().filter(agent => agent.session.header.parentSession === undefined).map(agent => runtime.recoverAgent(agent)))
     // Issue #92's durable net: after agent recovery, refold every active
     // roster's usage from live logs and persisted history so a drop on the
     // live path can never survive a reload as a permanent billed-token gap.
-    const scopes = [...new Set(ctx.agents.roots().map(agent => runtime.scopeOf(agent)))]
+    const scopes = [...new Set(ctx.agents.roots().filter(agent => agent.session.header.parentSession === undefined).map(agent => runtime.scopeOf(agent)))]
     await recoverActiveRosters(ctx, {
       domain: () => runtime.domain,
       scopes,

@@ -344,7 +344,7 @@ function teamDescriptorOf(rootSessionId: string, team: { teamId: string; name: s
   const avatar: SwarmReadAssetStatusV1 = captain?.pixelAvatarSvg !== undefined && isSafePixelAvatarSvg(captain.pixelAvatarSvg)
     ? { state: 'generated', svg: captain.pixelAvatarSvg }
     : { state: 'not_generated', reason: 'avatar_backend_not_implemented' }
-  const identityCard: SwarmReadAssetStatusV1 = captain?.displayName !== undefined || captain?.profession !== undefined || captain?.personality !== undefined
+  const identityCard: SwarmReadAssetStatusV1 = captain?.displayName !== undefined || captain?.profession !== undefined || captain?.personality !== undefined|| captain?.biography !== undefined
     ? { state: 'generated' }
     : { state: 'not_generated', reason: 'identity_backend_not_implemented' }
   const goal: SwarmReadTeamV1['goal'] = publicGoal !== undefined
@@ -359,6 +359,7 @@ function teamDescriptorOf(rootSessionId: string, team: { teamId: string; name: s
     ...(captain?.displayName === undefined ? {} : { displayName: captain.displayName }),
     ...(captain?.profession === undefined ? {} : { profession: captain.profession }),
     ...(captain?.personality === undefined ? {} : { personality: captain.personality }),
+    ...(captain?.biography === undefined ? {} : { biography: captain.biography }),
     avatar,
     identityCard,
     goal,

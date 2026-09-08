@@ -126,6 +126,7 @@ export interface SwarmReadTeamV1 {
   readonly profession?: string
   /** Captain-declared personality; present only when the identity card is `generated`. */
   readonly personality?: string
+  readonly biography?: string
   /** Captain identity asset projection: `generated` with a safe rect-only svg, or honest `not_generated`. */
   readonly avatar: SwarmReadAssetStatusV1
   /** Captain identity card projection: `generated` with the profile fields, or honest `not_generated`. */
@@ -204,6 +205,7 @@ export interface SwarmReadCaptainMemberRowV1 {
   readonly profession?: string
   /** Captain-declared personality; present only when the identity card is `generated`. */
   readonly personality?: string
+  readonly biography?: string
   readonly avatar: SwarmReadAssetStatusV1
   readonly identityCard: SwarmReadAssetStatusV1
   /** Row-local composition projection (captainMembers.composition.v1): derived per member

@@ -23,6 +23,7 @@ import { TeamDomainError } from './error.js'
 const MAX_MEMBER_DISPLAY_NAME = 128
 const MAX_MEMBER_PROFESSION = 256
 const MAX_MEMBER_PERSONALITY = 1024
+const MAX_MEMBER_BIOGRAPHY = 1024
 
 /** Upper bound (code units) on the whole pixel-avatar SVG string. */
 export const MAX_PIXEL_AVATAR_LENGTH = 16_384
@@ -75,6 +76,7 @@ export interface MemberIdentityInput {
   readonly displayName?: string
   readonly profession?: string
   readonly personality?: string
+  readonly biography?: string
   readonly pixelAvatarSvg?: string
   readonly assignedSkills?: readonly string[]
 }
@@ -83,6 +85,7 @@ export interface NormalizedMemberIdentity {
   readonly displayName?: string
   readonly profession?: string
   readonly personality?: string
+  readonly biography?: string
   readonly pixelAvatarSvg?: string
   readonly assignedSkills?: string[]
 }
@@ -259,15 +262,18 @@ export function normalizeMemberIdentity(input: MemberIdentityInput): NormalizedM
     displayName?: string
     profession?: string
     personality?: string
+    biography?: string
     pixelAvatarSvg?: string
     assignedSkills?: string[]
   } = {}
   const displayName = optionalBounded(input.displayName, 'displayName', MAX_MEMBER_DISPLAY_NAME)
   const profession = optionalBounded(input.profession, 'profession', MAX_MEMBER_PROFESSION)
   const personality = optionalBounded(input.personality, 'personality', MAX_MEMBER_PERSONALITY)
+  const biography = optionalBounded(input.biography, 'biography', MAX_MEMBER_BIOGRAPHY)
   if (displayName !== undefined) out.displayName = displayName
   if (profession !== undefined) out.profession = profession
   if (personality !== undefined) out.personality = personality
+  if (biography !== undefined) out.biography = biography
   if (input.pixelAvatarSvg !== undefined) out.pixelAvatarSvg = sanitizePixelAvatarSvg(input.pixelAvatarSvg)
   const assignedSkills = normalizeMemberAssignedSkills(input.assignedSkills)
   if (assignedSkills !== undefined) out.assignedSkills = assignedSkills

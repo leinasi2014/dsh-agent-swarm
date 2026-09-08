@@ -1,3 +1,5 @@
+import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
  * Real Human Control admission beside the model-only interrupt evidence gate.
  *
@@ -11,9 +13,9 @@ import { join } from 'node:path'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { CallId, LlmAdapter, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, LlmAdapter, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -58,7 +60,9 @@ async function mount(sandbox: string, adapter: GatedAdapter): Promise<Stack> {
   const ctx = new Context()
   const fibers: Fiber[] = []
   await mountAgentLoopTestDependencies(ctx)
-  fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(sandbox, 'sessions', 'sessions.db') }))
+  await ctx.plugin(SessionProjectionService)
+  await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
+  fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   await mountStorageStackOn(ctx, join(sandbox, 'storage'))
   fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
   fibers.push(await ctx.plugin(SubagentService))
@@ -72,7 +76,7 @@ async function mount(sandbox: string, adapter: GatedAdapter): Promise<Stack> {
   )
   const created = await ctx.tools.execute({
     signal: SIGNAL,
-    callId: CallId('human-interrupt-create'),
+    callId: ToolCallId('human-interrupt-create'),
     name: 'agent_swarm_create',
     arguments: { name: 'Human interrupt team', description: 'Exercise the authenticated Human Control interrupt boundary.' },
     agent: lead,
@@ -84,7 +88,7 @@ async function mount(sandbox: string, adapter: GatedAdapter): Promise<Stack> {
 async function addWorker(stack: Stack): Promise<string> {
   const added = await stack.ctx.tools.execute({
     signal: SIGNAL,
-    callId: CallId('human-interrupt-add-worker'),
+    callId: ToolCallId('human-interrupt-add-worker'),
     name: 'agent_swarm_add_member',
     arguments: { name: 'worker', role: 'Human Control interruption target.' },
     agent: stack.lead,
@@ -117,7 +121,7 @@ describe('authenticated Human Control interrupt', () => {
     const memberSessionId = await addWorker(stack)
     const wake = await stack.ctx.tools.execute({
       signal: SIGNAL,
-      callId: CallId('human-interrupt-wake'),
+      callId: ToolCallId('human-interrupt-wake'),
       name: 'agent_swarm_send_message',
       arguments: { target: 'worker', content: 'Run the ordinary assigned turn.', delivery: 'wakeup' },
       agent: stack.lead,
@@ -128,13 +132,13 @@ describe('authenticated Human Control interrupt', () => {
     }, { timeout: 5_000 })
     const exactChild = stack.ctx.agents.get(SessionId(memberSessionId))
     expect(exactChild).toBeDefined()
-    expect(exactChild!.session.events.some(event => event.type === 'tool/call')).toBe(false)
+    expect(exactChild!.session.snapshotEvents().some(event => event.type === 'tool/call')).toBe(false)
 
     const interrupt = vi.spyOn(stack.ctx.subagents, 'interrupt')
     const before = await snapshot(stack)
     const modelAttempt = await stack.ctx.tools.execute({
       signal: SIGNAL,
-      callId: CallId('human-interrupt-model-without-evidence'),
+      callId: ToolCallId('human-interrupt-model-without-evidence'),
       name: 'agent_swarm_interrupt_member',
       arguments: { name: 'worker' },
       agent: stack.lead,

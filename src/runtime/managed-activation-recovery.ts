@@ -2,7 +2,8 @@
 import { resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
-import { resolveSessionPreset } from '@deepseek-ai/dsh-agent-presets'
+import { agentPresetProjectionDefinition } from '@deepseek-ai/dsh-agent-presets'
+import { queueHostSubagentPrompt } from '@deepseek-ai/dsh-subagent/internal'
 import { SessionId, type SessionHeader } from '@deepseek-ai/dsh-session'
 import type { TeamScope } from '../domain/team-domain-port.js'
 import type { TeamState } from '../domain/types.js'
@@ -51,14 +52,14 @@ export class ManagedActivationRecovery {
           // A bare agents.resume(child) would lose the continuation descriptor,
           // delegated setup, Activation owner, and its disposer. followup owns
           // all of them and records the recovery request in the Session log.
-          await this.ctx.subagents.followup(root, SessionId(team.captainSessionId), [{
+          await queueHostSubagentPrompt(this.ctx.subagents, root, SessionId(team.captainSessionId), [{
             type: 'text',
             text: 'The Host restarted while this managed Team still had unfinished work. '
               + 'Inspect the current task board and continue the existing work: review submitted tasks; '
               + 'for an already delivered in-progress attempt, wake its existing member with agent_swarm_send_message '
               + 'and preserve its exact current attempt. Do not recruit replacements or replay old assignments. '
               + `Team identity (data): ${JSON.stringify(team.id)}.`,
-          }], { source: { kind: 'plugin', plugin: 'dsh-agent-swarm' }, signal })
+          }], { kind: 'plugin', plugin: 'dsh-agent-swarm' }, signal)
         } catch (cause) {
           if (signal.aborted) throw cause
           throw new TeamDomainError(
@@ -80,7 +81,7 @@ export class ManagedActivationRecovery {
       return live
     }
     const stored = await this.ctx.sessionPersistence.inspect(SessionId(parentId), this.abort.signal)
-    const presetId = resolveSessionPreset({ header: stored.meta, events: stored.events })
+    const presetId = stored.events.reduce(agentPresetProjectionDefinition.apply, agentPresetProjectionDefinition.init(stored.meta)) ?? undefined
     const presets = this.ctx.get('agentPresets')
     if (presetId !== undefined && presets === undefined) throw new Error(`persisted Main Brain preset ${JSON.stringify(presetId)} requires the official agentPresets service`)
     const handle = await this.ctx.agents.resume({

@@ -89,6 +89,7 @@ function stored(meta: Record<string, unknown>, events: unknown[]): unknown {
       agentPreset: 'standard', ...meta,
     },
     events,
+    inheritedEventCount: meta.seedLength ?? 0,
   }
 }
 
@@ -103,7 +104,7 @@ function descriptor(memberName: string, over: Record<string, unknown> = {}) {
   return {
     type: 'subagent/descriptor',
     data: {
-      version: 2, mode: 'continuable', provider: 'mock',
+      version: 3, mode: 'continuable', provider: 'mock',
       label: `Team R2 · ${memberName}`,
       ...over,
     },

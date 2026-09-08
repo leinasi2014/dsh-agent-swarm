@@ -22,6 +22,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { isAdjacentAgentSendMessageTool } from '@deepseek-ai/dsh-subagent/internal'
 import type { PreToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools'
 import { TeamDomainError } from '../domain/error.js'
 import type { HumanInteractionRequest } from '../human/human-interaction-contract.js'
@@ -138,20 +139,15 @@ export class TeamPermissionSurface {
     }
   }
 
-  /**
-   * The official report tool is child-scoped Host transport, not a Team
-   * mutation. Detect it before membership lookup: a continuable child may be
-   * both a parent-Team member and the captain of a sub-Team, which deliberately
-   * makes the Team lookup ambiguous. The identity and scope checks keep a
-   * global/root `report` under the normal deny policy; `next()` preserves all
-   * official guards for the verified child capability.
-   */
-  private isScopedChildReport(exec: ToolExecution): boolean {
-    if (exec.name !== 'report' || exec.agent === undefined) return false
+  /** Only the standard tool's live-child-to-direct-parent route inherits host permission. */
+  private isOfficialUpwardMessage(exec: ToolExecution): boolean {
+    if (exec.name !== 'send_message' || exec.agent === undefined) return false
     if (this.deps.ctx.agents.get(exec.agent.id) !== exec.agent) return false
-    if (exec.agent.session.header.parentSession === undefined) return false
-    const scoped = this.deps.ctx.tools.get('report', exec.agent)
-    return scoped !== undefined && scoped !== this.deps.ctx.tools.get('report')
+    const parentId = exec.agent.session.header.parentSession
+    if (parentId === undefined) return false
+    const args = exec.arguments as { agent_id?: unknown } | undefined
+    return args?.agent_id === parentId
+      && isAdjacentAgentSendMessageTool(this.deps.ctx.tools.get('send_message', exec.agent))
   }
 
   /**
@@ -176,7 +172,7 @@ export class TeamPermissionSurface {
    */
   attachPreExecute(ctx: Context): () => void {
     return ctx.on('tools/pre-execute', async (exec: ToolExecution, next: () => Promise<PreToolDecision>) => {
-      if (this.isScopedChildReport(exec)) return await next()
+      if (this.isOfficialUpwardMessage(exec)) return await next()
       const role = await this.resolveTeamRole(exec.agent)
       if (role === undefined) return await next()
       const context = {

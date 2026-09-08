@@ -42,7 +42,7 @@ export function framePredicate(frame: string): (message: UserMessage) => boolean
 
 /** Fold one live Session's non-inherited suffix for an acceptance check. */
 export function sessionAccepts(session: Session, predicate: (message: UserMessage) => boolean): boolean {
-  return messageAccepted(session.events.slice(session.header.seedLength ?? 0), predicate)
+  return messageAccepted(session.snapshotEvents().slice(session.inheritedEventCount), predicate)
 }
 
 /**
@@ -63,9 +63,9 @@ export async function waitForFrameClaim(
   const predicate = framePredicate(frame)
   const deadline = Date.now() + graceMs
   for (;;) {
-    if (messageClaimed(target.session.events, predicate)) {
+    if (messageClaimed(target.session.snapshotEvents(), predicate)) {
       await ctx.sessions.flush(target.session)
-      if (messageClaimed(target.session.events, predicate)) return true
+      if (messageClaimed(target.session.snapshotEvents(), predicate)) return true
     }
     if (signal.aborted || Date.now() >= deadline) return false
     await new Promise(resolve => setTimeout(resolve, 25))
@@ -105,11 +105,11 @@ export async function frameVisibility(
       ctx.logger.warn(`agent-swarm: ${label} acceptance flush failed: ${String(error)}`)
       return 'unknown'
     }
-    return read(live.session.events)
+    return read(live.session.snapshotEvents())
   }
   try {
     const stored = await ctx.sessionPersistence.inspect(SessionId(targetSessionId), signal)
-    return read(stored.events.slice(stored.meta.seedLength ?? 0))
+    return read(stored.events.slice(stored.inheritedEventCount ?? 0))
   } catch (error) {
     ctx.logger.warn(`agent-swarm: ${label} target ${targetSessionId} cannot be reconciled: ${String(error)}`)
     return 'unknown'

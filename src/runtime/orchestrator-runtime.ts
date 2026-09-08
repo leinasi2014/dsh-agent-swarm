@@ -358,11 +358,11 @@ export class AgentSwarmRuntime extends Service {
   }
 
   /** Captain-only: set this Team's public identity profile (validated; expected_revision CAS in-domain). */
-  async setCaptainProfile(exec: ToolExecutionAuthority, expectedRevision: number, input: MemberIdentityInput): Promise<TeamState> {
-    return await this.mutations.setCaptainProfile(exec, expectedRevision, input)
-  }
+  async setCaptainProfile(exec: ToolExecutionAuthority, expectedRevision: number, input: MemberIdentityInput): Promise<TeamState> { return await this.mutations.setCaptainProfile(exec, expectedRevision, input) }
 
-  /** Captain-only: publish one public announcement (expected_revision CAS). */
+  /** Captain-only: patch one existing member identity (expected_revision CAS). */
+  async setMemberProfile(exec: ToolExecutionAuthority, expectedRevision: number, name: string, input: MemberIdentityInput): Promise<TeamState> { return await this.mutations.setMemberProfile(exec, expectedRevision, name, input) }
+
   async publishAnnouncement(exec: ToolExecutionAuthority, expectedRevision: number, text: string): Promise<{ team: TeamState; announcement: TeamAnnouncement }> {
     return await this.mutations.publishAnnouncement(exec, expectedRevision, text)
   }

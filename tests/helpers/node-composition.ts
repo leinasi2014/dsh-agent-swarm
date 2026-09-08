@@ -1,3 +1,5 @@
+import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
  * Shared harness for the M2-4 Jiuwen node-mapping suite (issue #78): the
  * full official composition (AgentLoop + durable stack + continuable
@@ -13,9 +15,9 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { CallId, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { expect, vi } from 'vitest'
@@ -117,7 +119,7 @@ class NodeMemberAdapter extends LlmAdapter {
       const output = artifact === null
         ? `Node member output for ${taskId}.`
         : `Node stage output for ${taskId} consuming artifact [${artifact[1]}].`
-      const id = CallId(`node-submit-${(this.calls += 1)}`)
+      const id = ToolCallId(`node-submit-${(this.calls += 1)}`)
       const args = JSON.stringify({
         task_id: taskId,
         expected_revision: Number(revision),
@@ -153,7 +155,9 @@ export async function mountNodeComposition(sandbox: string, config: { maxMembers
   const ctx = new Context()
   const fibers: Fiber[] = []
   await mountAgentLoopTestDependencies(ctx)
-  fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(sandbox, 'sessions', 'sessions.db') }))
+  await ctx.plugin(SessionProjectionService)
+  await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
+  fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   await mountStorageStackOn(ctx, join(sandbox, 'storage'))
   fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
   fibers.push(await ctx.plugin(SubagentService))
@@ -189,7 +193,7 @@ export async function mountNodeComposition(sandbox: string, config: { maxMembers
 export async function setUpTeam(composition: NodeComposition, members: string[]): Promise<string> {
   const created = await composition.ctx.tools.execute({
     signal: SIGNAL,
-    callId: CallId('node-create'),
+    callId: ToolCallId('node-create'),
     name: 'agent_swarm_create',
     arguments: { name: 'Node mapping team', description: 'Prove the Jiuwen node mapping over the board.' },
     agent: composition.lead,
@@ -199,7 +203,7 @@ export async function setUpTeam(composition: NodeComposition, members: string[])
   for (const name of members) {
     const added = await composition.ctx.tools.execute({
       signal: SIGNAL,
-      callId: CallId(`node-add-${name}`),
+      callId: ToolCallId(`node-add-${name}`),
       name: 'agent_swarm_add_member',
       arguments: { name, role: 'Exercise the node mapping.' },
       agent: composition.lead,

@@ -14,7 +14,7 @@ export function assembleAgentSwarmProducerFloor(
     domain: () => runtime.domain,
     overlay,
     scopeOf: agent => runtime.scopeOf(agent),
-    isExactLiveRoot: agent => ctx.agents.roots().includes(agent),
+    isExactLiveRoot: agent => (agent.session.header.parentSession === undefined && ctx.agents.roots().includes(agent)),
     now: Date.now,
     disposalTimeoutMs,
   })

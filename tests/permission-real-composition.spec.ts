@@ -1,13 +1,7 @@
-/**
- * SW-I1a real-composition permission boundary: mounts the OFFICIAL
- * ToolRuntime + ApprovalService + AgentLoop + storage stack and proves:
- *
- *  - permission denial is monotone and participant scoped;
- *  - scenario 44: free text cannot authorize, a forged principal is rejected
- *    by the SW-I1a gateway with TEAM_INTERACTION_NO_PRINCIPAL, a real host
- *    verifier admits authenticated-human, and every Team change still lands
- *    through TeamDomainPort.
- */
+import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
+/** Official composition: monotone participant permissions and scenario 44
+ * Host-attested human authority; all mutations still commit via TeamDomainPort. */
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -15,9 +9,9 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { CallId, LlmAdapter, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, LlmAdapter, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SubagentService, { foldSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -76,7 +70,9 @@ async function mount(
   const ctx = new Context()
   const fibers: Fiber[] = []
   await mountAgentLoopTestDependencies(ctx)
-  fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(sandbox, 'sessions', 'sessions.db') }))
+  await ctx.plugin(SessionProjectionService)
+  await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
+  fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   await mountStorageStackOn(ctx, join(sandbox, 'storage'))
   fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
   fibers.push(await ctx.plugin(SubagentService))
@@ -126,7 +122,7 @@ async function callTool(
   name: string,
   args: Record<string, unknown> = {},
 ) {
-  return await ctx.tools.execute({ signal: SIGNAL, callId: CallId(callId), name, arguments: args, agent })
+  return await ctx.tools.execute({ signal: SIGNAL, callId: ToolCallId(callId), name, arguments: args, agent })
 }
 /**
  * Build an exec authority for a REAL provisioned member session. The
@@ -379,7 +375,7 @@ describe('real ToolRuntime + approval composition (SW-I1a)', () => {
     stack.lead.session.append('turn/start', { turn: 1 })
     const result = await stack.ctx.tools.execute({
       signal: controller.signal,
-      callId: CallId('probe-cancelled'),
+      callId: ToolCallId('probe-cancelled'),
       name: PROBE_TOOL,
       arguments: {},
       agent: stack.lead,
@@ -409,14 +405,16 @@ describe('real ToolRuntime + approval composition (SW-I1a)', () => {
     // config `ask` tool is denied for the delegated member (children are
     // approval-pinned `never`), so the member cannot even see it.
     const stored = await stack.ctx.sessionPersistence.inspect(SessionId(memberId))
-    const suffix = stored.events.slice(stored.meta.seedLength ?? 0); const descriptor = foldSubagentDescriptor(suffix)
+    const suffix = stored.events.slice(stored.inheritedEventCount ?? 0); const descriptor = foldSubagentDescriptor(suffix)
     expect(descriptor?.mode).toBe('continuable')
     if (descriptor?.mode !== 'continuable') throw new Error('member descriptor is not continuable')
     expect(descriptor.toolFilter).toEqual({ deny: [...MEMBER_HIDDEN_TOOLS, PROBE_TOOL] })
   }, 30_000)
   it('denies delegated agent_swarm_wait in official pre-execute before its body (body=0)', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-perm-member-wait-')); roots.push(sandbox); const stack = await mount(sandbox, { toolPolicy: { allow: ['agent_swarm_wait'] } })
-    const member = memberAgent(await addMember(stack), join(sandbox, 'workspace')); detachAgents.push(stack.ctx.agents.enter(member, stack.lead))
+    const memberId = await addMember(stack)
+    await stack.ctx.subagents.drainContinuableChildren(stack.lead, [SessionId(memberId)])
+    const member = memberAgent(memberId, join(sandbox, 'workspace')); detachAgents.push(stack.ctx.agents.enter(member, stack.lead))
     let decision: { kind: string; reason?: string } | undefined; stack.ctx.on('tools/pre-execute', async (exec, next) => { const value = await next(); if (exec.name === 'agent_swarm_wait') decision = value; return value }, { prepend: true })
     const waitBody = vi.spyOn(stack.ctx.agentSwarm, 'waitForChange'); const evidenceBody = vi.spyOn(stack.ctx.agentSwarm, 'activePeerEvidence')
     const result = await callTool(stack.ctx, member, 'member-wait-denied', 'agent_swarm_wait', { after_revision: 1, timeout_ms: 10_000 })
@@ -452,6 +450,7 @@ describe('scenario 44: gateway provenance boundary over the real typed-control s
     roots.push(sandbox)
     const stack = await mount(sandbox)
     const memberId = await addMember(stack)
+    await stack.ctx.subagents.drainContinuableChildren(stack.lead, [SessionId(memberId)])
     const delegated = memberAgent(memberId, join(sandbox, 'workspace'))
     const detachDelegated = stack.ctx.agents.enter(delegated, stack.lead)
     detachAgents.push(detachDelegated)

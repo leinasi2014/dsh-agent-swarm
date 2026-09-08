@@ -78,6 +78,8 @@ AgentSwarmRuntime → TeamDomainPort → StorageDomainTeamStore
 
 要求：Node.js `^22.19.0 || >=24`、pnpm `9.15.9`，以及与 `package.json` peer dependencies 和 `docs/OFFICIAL_BASELINE.json` 一致的官方 DSH。
 
+当前依赖基线为官方 DSH `0.1.2-rc.1`。Session 使用官方 JSONL persistence；客户端通过 `remote.session.modelCatalog()` 读取模型目录。已有 Profile 升级前须保留原 Session/Storage，不把新空 Profile 的通过当成旧数据迁移验收。
+
 ```bash
 corepack enable
 pnpm install --frozen-lockfile

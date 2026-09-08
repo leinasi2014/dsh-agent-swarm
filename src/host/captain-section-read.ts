@@ -32,13 +32,14 @@ export async function readCaptainSection(ctx: Context, team: TeamState, request:
           ...(member.personality === undefined
             ? {}
             : { personality: member.personality }),
+          ...(member.biography === undefined ? {} : { biography: member.biography }),
           // A generated avatar is re-allowlisted at read time: a tampered or
           // unsafe stored svg is downgraded to not_generated and never carries
           // an `svg` on the read contract.
           avatar: member.pixelAvatarSvg !== undefined && isSafePixelAvatarSvg(member.pixelAvatarSvg)
             ? { state: 'generated', svg: member.pixelAvatarSvg }
             : { state: 'not_generated', reason: 'avatar_backend_not_implemented' },
-          identityCard: member.displayName === undefined && member.profession === undefined && member.personality === undefined
+          identityCard: member.displayName === undefined && member.profession === undefined && member.personality === undefined && member.biography === undefined
             ? { state: 'not_generated', reason: 'identity_backend_not_implemented' }
             : { state: 'generated' },
           composition: memberCompositionOf(profiles[index], member),

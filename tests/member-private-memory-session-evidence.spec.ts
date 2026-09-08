@@ -1,3 +1,5 @@
+import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
  * Real Session evidence for member private memory (2026-08-26): a REAL model
  * adapter, gated like the node-mapping suite, emits actual
@@ -15,9 +17,9 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { CallId, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -77,11 +79,11 @@ class PrivateMemoryProbeAdapter extends LlmAdapter {
     this.addCalls += 1
     const addArgs = JSON.stringify({ content: PROBE_CONTENT, evidence_refs: ['ev-1'] })
     yield { type: 'block-start', index: 0, blockType: 'tool-call' }
-    yield { type: 'tool-call-delta', index: 0, id: CallId('session-probe-add'), name: 'agent_swarm_add_private_memory', argumentsDelta: addArgs }
-    yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: CallId('session-probe-add'), name: 'agent_swarm_add_private_memory', arguments: addArgs } }
+    yield { type: 'tool-call-delta', index: 0, id: ToolCallId('session-probe-add'), name: 'agent_swarm_add_private_memory', argumentsDelta: addArgs }
+    yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: ToolCallId('session-probe-add'), name: 'agent_swarm_add_private_memory', arguments: addArgs } }
     yield { type: 'block-start', index: 1, blockType: 'tool-call' }
-    yield { type: 'tool-call-delta', index: 1, id: CallId('session-probe-list'), name: 'agent_swarm_list_private_memory', argumentsDelta: '{}' }
-    yield { type: 'block-end', index: 1, block: { type: 'tool-call', id: CallId('session-probe-list'), name: 'agent_swarm_list_private_memory', arguments: '{}' } }
+    yield { type: 'tool-call-delta', index: 1, id: ToolCallId('session-probe-list'), name: 'agent_swarm_list_private_memory', argumentsDelta: '{}' }
+    yield { type: 'block-end', index: 1, block: { type: 'tool-call', id: ToolCallId('session-probe-list'), name: 'agent_swarm_list_private_memory', arguments: '{}' } }
     yield { type: 'usage', usage: { inputTokens: 9, outputTokens: 9 } }
     yield { type: 'finish', reason: { kind: 'tool-calls' } }
   }
@@ -98,7 +100,7 @@ function textChunks(text: string): StreamChunk[] {
 }
 
 async function tool(ctx: Context, agent: Agent, callId: string, name: string, args: unknown) {
-  return await ctx.tools.execute({ signal: SIGNAL, callId: CallId(callId), name, arguments: args, agent })
+  return await ctx.tools.execute({ signal: SIGNAL, callId: ToolCallId(callId), name, arguments: args, agent })
 }
 
 describe('member private memory real Session evidence', () => {
@@ -113,7 +115,9 @@ describe('member private memory real Session evidence', () => {
     const ctx = new Context()
     const fibers: Fiber[] = []
     await mountAgentLoopTestDependencies(ctx)
-    fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(sandbox, 'sessions', 'sessions.db') }))
+  await ctx.plugin(SessionProjectionService)
+  await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
+    fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
     await mountStorageStackOn(ctx, join(sandbox, 'storage'))
     fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
     fibers.push(await ctx.plugin(SubagentService))

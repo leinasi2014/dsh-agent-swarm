@@ -1,3 +1,5 @@
+import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
  * Real-composition tests for the caller-scoped Team jobs projection.
  *
@@ -20,14 +22,14 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 import {
-  CallId,
+  ToolCallId,
   LlmAdapter,
   type GenerateOptions,
   type LlmResolvedModelInfo,
   type StreamChunk,
 } from '@deepseek-ai/dsh-llm'
 import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
-import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import Storage from '@deepseek-ai/dsh-storage'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
@@ -74,7 +76,7 @@ class MemberAdapter extends LlmAdapter {
     const assignment = ASSIGNMENT_RE.exec(text)
     if (this.options.submit && assignment !== null) {
       const [, taskId, revision, attemptId] = assignment
-      const id = CallId(`jobs-submit-${(this.calls += 1)}`)
+      const id = ToolCallId(`jobs-submit-${(this.calls += 1)}`)
       const args = JSON.stringify({
         task_id: taskId,
         expected_revision: Number(revision),
@@ -133,7 +135,9 @@ async function mountTree(sandbox: string, options: {
   const ctx = new Context()
   const fibers: Fiber[] = []
   await mountAgentLoopTestDependencies(ctx)
-  fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(sandbox, 'sessions', 'sessions.db') }))
+  await ctx.plugin(SessionProjectionService)
+  await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
+  fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   fibers.push(await ctx.plugin(Storage))
   fibers.push(await ctx.plugin(StorageJson, { root: join(sandbox, 'storage') }))
   fibers.push(await ctx.plugin(StorageDomain, { backend: 'json' }))
@@ -319,11 +323,11 @@ return { out }`,
       // The model-facing tool receives the same exact execution Agent and
       // must therefore have the same restricted projection, not a global list.
       const toolA = await tree.ctx.tools.execute({
-        signal: AbortSignal.timeout(5_000), callId: CallId('jobs-scope-tool-a'),
+        signal: AbortSignal.timeout(5_000), callId: ToolCallId('jobs-scope-tool-a'),
         name: 'agent_swarm_list_jobs', arguments: {}, agent: tree.lead,
       })
       const toolB = await tree.ctx.tools.execute({
-        signal: AbortSignal.timeout(5_000), callId: CallId('jobs-scope-tool-b'),
+        signal: AbortSignal.timeout(5_000), callId: ToolCallId('jobs-scope-tool-b'),
         name: 'agent_swarm_list_jobs', arguments: {}, agent: rootB,
       })
       expect(toolA).toMatchObject({ isError: false, value: { jobs: [expect.objectContaining({ label: 'A only label' })] } })

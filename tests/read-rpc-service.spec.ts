@@ -398,7 +398,7 @@ describe('R2 authoritative target binding and wire contract', () => {
       members: [
         { name: 'worker', role: 'writer', sessionId: 'child-session', provider: 'mock', phase: 'active', createdAt: 1 },
         { name: 'artist', role: 'artist', sessionId: 'artist-session', provider: 'mock', phase: 'active', createdAt: 2,
-          displayName: 'Pixel Painter', profession: 'Avatar artist', personality: 'Careful, meticulous',
+          displayName: 'Pixel Painter', profession: 'Avatar artist', personality: 'Careful, meticulous', biography: 'Checks reference details.',
           pixelAvatarSvg: '<svg viewBox="0 0 16 16"><rect x="0" y="0" width="8" height="8" fill="#2a3"/></svg>' },
         // A crafted member whose stored pixelAvatarSvg is UNSAFE must be downgraded
         // to not_generated with no svg (read-time revalidation), never emitted as generated.
@@ -432,7 +432,7 @@ describe('R2 authoritative target binding and wire contract', () => {
       },
       {
         name: 'artist', role: 'artist', phase: 'active', createdAt: 2,
-        displayName: 'Pixel Painter', profession: 'Avatar artist', personality: 'Careful, meticulous',
+        displayName: 'Pixel Painter', profession: 'Avatar artist', personality: 'Careful, meticulous', biography: 'Checks reference details.',
         avatar: { state: 'generated', svg: '<svg viewBox="0 0 16 16"><rect x="0" y="0" width="8" height="8" fill="#2a3"/></svg>' },
         identityCard: { state: 'generated' },
         composition: failClosed,

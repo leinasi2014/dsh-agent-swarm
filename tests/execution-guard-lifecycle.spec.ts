@@ -17,7 +17,7 @@ describe('execution guard ownership and lifecycle fences', () => {
         const agent = enabled ? stack.ctx.agentLoop.create(SessionId('unowned'), { provider: 'guard', model: 'guard' }, { cwd: stack.root }) : stack.agent
         agent.followup(prompt()); await agent.whenIdle()
         expect(adapter.requests).toHaveLength(41)
-        expect(agent.session.events.findLast(event => event.type === 'turn/end')?.data.reason.kind).toBe('completed')
+        expect(agent.session.snapshotEvents().findLast(event => event.type === 'turn/end')?.data.reason.kind).toBe('completed')
       } finally { await stack.dispose() }
     }
   })
@@ -34,8 +34,8 @@ describe('execution guard ownership and lifecycle fences', () => {
         step = 0; stack.agent.followup(prompt()); await stack.agent.whenIdle()
       }
       expect(adapter.requests).toHaveLength(14)
-      expect(stack.agent.session.events.filter(event => event.type === 'turn/end').every(event => event.data.reason.kind === 'completed')).toBe(true)
-      expect(stack.agent.session.events.filter(event => event.type === 'user/message' && JSON.stringify(event.data).includes('Execution guard WARNING'))).toHaveLength(2)
+      expect(stack.agent.session.snapshotEvents().filter(event => event.type === 'turn/end').every(event => event.data.reason.kind === 'completed')).toBe(true)
+      expect(stack.agent.session.snapshotEvents().filter(event => event.type === 'user/message' && JSON.stringify(event.data).includes('Execution guard WARNING'))).toHaveLength(2)
     } finally { await stack.dispose() }
   })
 
@@ -61,8 +61,8 @@ describe('execution guard ownership and lifecycle fences', () => {
       if (action === 'dispose') offGuard()
       if (action === 'abort') stack.agent.cancel({ kind: 'user' }, { keepInbox: true })
       release(); await stack.agent.whenIdle()
-      expect(stack.agent.session.events.some(event => event.type === 'user/message' && JSON.stringify(event.data).includes('Execution guard WARNING'))).toBe(false)
-      expect(stack.agent.session.events.findLast(event => event.type === 'turn/end')?.data.reason.kind)
+      expect(stack.agent.session.snapshotEvents().some(event => event.type === 'user/message' && JSON.stringify(event.data).includes('Execution guard WARNING'))).toBe(false)
+      expect(stack.agent.session.snapshotEvents().findLast(event => event.type === 'turn/end')?.data.reason.kind)
         .toBe(action === 'dispose' ? 'completed' : action === 'reject' ? 'blocked' : 'aborted')
     } finally { release(); offStep(); offGuard(); await stack.dispose() }
   })
@@ -80,7 +80,7 @@ describe('execution guard ownership and lifecycle fences', () => {
     try {
       stack.agent.followup(prompt()); await stack.agent.whenIdle()
       expect(adapter.requests).toHaveLength(13)
-      expect(stack.agent.session.events.findLast(event => event.type === 'turn/end')?.data.reason.kind).toBe('completed')
+      expect(stack.agent.session.snapshotEvents().findLast(event => event.type === 'turn/end')?.data.reason.kind).toBe('completed')
     } finally { offEvent(); offGuard(); await stack.dispose() }
   })
 
@@ -104,8 +104,8 @@ describe('execution guard ownership and lifecycle fences', () => {
       expect(before.team.members[0]?.phase).toBe('provisioning')
       current.followup(prompt()); previous.followup(prompt())
       await Promise.all([current.whenIdle(), previous.whenIdle()])
-      expect(current.session.events.findLast(event => event.type === 'turn/end')?.data.reason.kind).toBe('aborted')
-      expect(previous.session.events.findLast(event => event.type === 'turn/end')?.data.reason.kind).toBe('completed')
+      expect(current.session.snapshotEvents().findLast(event => event.type === 'turn/end')?.data.reason.kind).toBe('aborted')
+      expect(previous.session.snapshotEvents().findLast(event => event.type === 'turn/end')?.data.reason.kind).toBe('completed')
       expect((await domain.snapshot(scope, team.id, stack.agent.id)).team.members).toEqual(before.team.members)
     } finally { await stack.dispose() }
   })
@@ -125,8 +125,8 @@ describe('execution guard ownership and lifecycle fences', () => {
       const member = stack.ctx.agentLoop.create(SessionId('guard-reader'), { provider: 'guard', model: 'guard' }, { cwd: stack.root })
       member.followup(prompt()); await member.whenIdle()
       expect(adapter.requests).toHaveLength(31)
-      expect(member.session.events.filter(event => event.type === 'tool/result').every(event => event.data.message.content[0].isError === false)).toBe(true)
-      expect(member.session.events.findLast(event => event.type === 'turn/end')?.data.reason.kind).toBe('aborted')
+      expect(member.session.snapshotEvents().filter(event => event.type === 'tool/result').every(event => event.data.message.content[0].isError === false)).toBe(true)
+      expect(member.session.snapshotEvents().findLast(event => event.type === 'turn/end')?.data.reason.kind).toBe('aborted')
     } finally { await stack.dispose() }
   })
 

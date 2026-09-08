@@ -12,7 +12,7 @@ const INTERACTION_EFFECT_KEYS = new Set([
   'effectId', 'requestId', 'step', 'bindingDigest', 'senderSessionId', 'targetSessionId',
   'bodyDigest', 'delivery', 'messageId', 'resultingTeamRevision', 'committedAt',
 ])
-const CAPTAIN_PROFILE_KEYS = new Set(['displayName', 'profession', 'personality', 'pixelAvatarSvg'])
+const CAPTAIN_PROFILE_KEYS = new Set(['displayName', 'profession', 'personality', 'biography', 'pixelAvatarSvg'])
 const ANNOUNCEMENT_KEYS = new Set(['id', 'text', 'createdAt'])
 
 function corrupt(path: string, detail: string): never {
@@ -164,6 +164,7 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
     if (member.displayName !== undefined) codePointText(member.displayName, 128, path, `members[${index}].displayName`)
     if (member.profession !== undefined) codePointText(member.profession, 256, path, `members[${index}].profession`)
     if (member.personality !== undefined) codePointText(member.personality, 1024, path, `members[${index}].personality`)
+    if (member.biography !== undefined) codePointText(member.biography, 1024, path, `members[${index}].biography`)
     if (member.pixelAvatarSvg !== undefined) {
       if (typeof member.pixelAvatarSvg !== 'string' || !isSafePixelAvatarSvg(member.pixelAvatarSvg)) {
         corrupt(path, `members[${index}].pixelAvatarSvg violates the strict allowlist`)
@@ -184,14 +185,16 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
     const profile = record(team.captainProfile, path, 'captainProfile')
     exactKeys(profile, `${path}.captainProfile`, CAPTAIN_PROFILE_KEYS)
     const hasField = profile.displayName !== undefined || profile.profession !== undefined
-      || profile.personality !== undefined || profile.pixelAvatarSvg !== undefined
+      || profile.personality !== undefined|| profile.biography !== undefined || profile.pixelAvatarSvg !== undefined
     if (!hasField) corrupt(path, 'captainProfile requires at least one field')
     if (profile.displayName !== undefined) codePointText(profile.displayName, 128, path, 'captainProfile.displayName')
     if (profile.profession !== undefined) codePointText(profile.profession, 256, path, 'captainProfile.profession')
     if (profile.personality !== undefined) codePointText(profile.personality, 1024, path, 'captainProfile.personality')
+    if (profile.biography !== undefined) codePointText(profile.biography, 1024, path, 'captainProfile.biography')
     if (profile.displayName !== undefined && String(profile.displayName) !== String(profile.displayName).trim()) corrupt(path, 'captainProfile.displayName must be canonical (trimmed)')
     if (profile.profession !== undefined && String(profile.profession) !== String(profile.profession).trim()) corrupt(path, 'captainProfile.profession must be canonical (trimmed)')
     if (profile.personality !== undefined && String(profile.personality) !== String(profile.personality).trim()) corrupt(path, 'captainProfile.personality must be canonical (trimmed)')
+    if (profile.biography !== undefined && String(profile.biography) !== String(profile.biography).trim()) corrupt(path, 'captainProfile.biography must be canonical (trimmed)')
     if (profile.pixelAvatarSvg !== undefined) {
       if (typeof profile.pixelAvatarSvg !== 'string' || profile.pixelAvatarSvg !== profile.pixelAvatarSvg.trim() || !isSafePixelAvatarSvg(profile.pixelAvatarSvg)) {
         corrupt(path, 'captainProfile.pixelAvatarSvg violates the strict allowlist')

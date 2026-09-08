@@ -385,6 +385,9 @@ describe('execution-root composition wiring (M3-1, issue #100)', () => {
         const leased = ctx.agentSwarm.executionRoots.roots.leaseOf(scope, teamId, claimedNow!.id, claimedNow!.currentAttemptId!)
         expect(leased).toBeDefined()
         expect(existsSync(join(leased!.path, EXECUTION_ROOT_MARKER))).toBe(true)
+        const attempt = snapshot.team.attempts.find(candidate => candidate.id === claimedNow!.currentAttemptId)
+        expect(attempt?.assignmentPhase).toBe('delivered')
+        expect(ctx.agents.get(SessionId(memberId))?.status).toBe('running')
       }, { timeout: 20_000 })
       const snapshot = await ctx.agentSwarm.domain.snapshot(scope, teamId, composition.lead.id)
       const claimed = snapshot.team.tasks.find((candidate: TeamTask) => candidate.status === 'in_progress')!

@@ -1,10 +1,12 @@
+import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 import { join } from 'node:path'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import LlmRuntime, { CallId } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
-import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import Storage from '@deepseek-ai/dsh-storage'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
@@ -33,10 +35,12 @@ export async function mountRestartComposition(sandbox: string, strandedAfterMs: 
   fibers.push(await ctx.plugin(SystemPrompt))
   fibers.push(await ctx.plugin(ToolRuntime))
   fibers.push(await ctx.plugin(AgentRegistry))
-  fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(sandbox, 'sessions', 'sessions.db') }))
+  fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db'), compression: 'none' }))
   fibers.push(await ctx.plugin(Storage))
   fibers.push(await ctx.plugin(StorageJson, { root: join(sandbox, 'storage') }))
   fibers.push(await ctx.plugin(StorageDomain, { backend: 'json' }))
+  await ctx.plugin(SessionProjectionService)
+  await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
   fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
   fibers.push(await ctx.plugin(SubagentService))
   fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
@@ -58,7 +62,7 @@ export async function disposeRestartComposition(mounted: RestartMounted): Promis
 }
 
 export async function restartTool(ctx: Context, agent: Agent, callId: string, name: string, args: unknown) {
-  return await ctx.tools.execute({ signal: RESTART_SIGNAL, callId: CallId(callId), name, arguments: args, agent })
+  return await ctx.tools.execute({ signal: RESTART_SIGNAL, callId: ToolCallId(callId), name, arguments: args, agent })
 }
 
 export async function restartSnapshot(ctx: Context, lead: Agent, teamId: string) {

@@ -11,6 +11,31 @@ const activePanel = (): string | null => document.querySelector<HTMLElement>('[r
 const signalOf = (id: string): string | null => document.querySelector<HTMLElement>(`[data-swarm-activity-attempt="${id}"] [data-swarm-signal]`)?.getAttribute('data-swarm-signal') ?? null
 
 describe('Team workspace views and projection-derived activity', () => {
+  it('renders persisted personality and biography and refreshes a profile backfill in place', async () => {
+    const coordinator = new FakeCoordinator()
+    const data = teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, {
+      ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot,
+      roster: [{ name: 'worker', role: 'Writer', phase: 'active', createdAt: 1 }],
+      totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, roster: 1 },
+    })
+    const member = { ...data.captainMembers!.members[0]!, name: 'worker', displayName: '林墨', profession: '编剧', personality: '沉静，注重人物动机。',
+      identityCard: { state: 'generated' as const }, avatar: { state: 'not_generated' as const, reason: 'avatar_backend_not_implemented' as const } }
+    let state: TeamDashboardState = { ...ready, data: { ...data, captainMembers: { ...data.captainMembers!, members: [member] } } }
+    const listeners = new Set<() => void>()
+    const profiles = { getSnapshot: () => state, subscribe: (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn) } }, refresh: vi.fn(), reconnect: vi.fn() }
+    await render(<TeamDashboardDetails {...({ controller: profiles, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!.click() })
+    expect(document.querySelector('[data-swarm-detail-personality]')?.textContent).toBe(member.personality)
+    expect(document.querySelector('[data-swarm-detail-biography]')?.textContent).toBe(t('detail.unavailable'))
+    const biography = '负责人物弧光与对白，通过场景行动检验人物选择。'
+    await act(async () => {
+      state = { ...state, data: { ...state.data!, captainMembers: { ...data.captainMembers!, members: [{ ...member, biography }] } } }
+      listeners.forEach(fn => fn())
+    })
+    expect(document.querySelector('[data-swarm-detail-biography]')?.textContent).toBe(biography)
+    expect(document.querySelector('[data-swarm-detail-personality]')?.textContent).toBe(member.personality)
+  })
+
   it('keeps the compact work-seat workroom with honest derived tones, stats, and capped summaries/activity', async () => {
     const coordinator = new FakeCoordinator()
     const t0 = 1_700_000_000_000

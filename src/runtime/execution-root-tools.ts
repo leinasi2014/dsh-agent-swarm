@@ -34,10 +34,8 @@ export class ExecutionRootTools {
       }
       return undefined
     })
-    ctx.subagents.registerContinuableSetup(childCtx => {
-      const agent = childCtx.agent
-      if (agent !== undefined && this.members.has(String(agent.id))) this.attach(agent)
-      return () => {}
+    ctx.on('agent/session-start', ({ agent }) => {
+      if (this.members.has(String(agent.id))) this.attach(agent)
     })
     ctx.effect(() => () => { this.roots.clear(); this.members.clear() })
   }

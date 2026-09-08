@@ -1,4 +1,9 @@
-import type { ClientContext, ISessions } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+import type {} from '@deepseek-ai/dsh-api-remotes/client'
+import type {} from '@deepseek-ai/dsh-api-remotes/types'
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
+import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
@@ -28,24 +33,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-export const inject = ['sessions', 'slots', 'locale', 'settingsScope', 'connection']
-
-interface CatalogResponse<T> {
-  readonly result: { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: { readonly message: string } }
-}
-
-interface TeamSettingsConnection {
-  readonly api: {
-    readonly sessions: { models(input: { readonly sessionId: string }): Promise<CatalogResponse<{ readonly groups: readonly { readonly id: string; readonly name: string; readonly models: readonly { readonly id: string; readonly name: string }[] }[] }>> }
-  }
-}
+export const inject = ['sessions', 'slots', 'locale', 'settingsScope', 'remote', 'remote.session']
 
 /** Compose the additive DSH-native Details occupant and Session utility. */
 export function apply(ctx: ClientContext): void {
   const sessionsService = ctx.get('sessions') as ISessions | undefined
   if (sessionsService === undefined) throw new Error('swarm Team dashboard requires the official Sessions service')
-  const connection = ctx.get('connection') as TeamSettingsConnection | undefined
-  if (connection === undefined) throw new Error('swarm Team settings requires the official Connection service')
   const readClient = new SwarmReadClient()
   const catalog: TeamSettingsCatalog = {
     currentSessionId: () => sessionsService.list.getSnapshot().current,
@@ -62,11 +55,9 @@ export function apply(ctx: ClientContext): void {
       return value.skills
     },
     listModelRoutes: async (): Promise<readonly TeamModelRoute[]> => {
-      const sessionId = sessionsService.list.getSnapshot().current
-      if (sessionId === undefined) return []
-      const response = await connection.api.sessions.models({ sessionId })
-      if (!response.result.ok) throw new Error(response.result.error.message)
-      return response.result.value.groups.flatMap(group => group.models.map(model => ({
+      const response = await ctx.remote.session.modelCatalog()
+      if (!response.ok) throw new Error(response.error.message)
+      return response.value.groups.flatMap(group => group.models.map(model => ({
         provider: group.id, providerName: group.name, model: model.id, modelName: model.name,
       })))
     },

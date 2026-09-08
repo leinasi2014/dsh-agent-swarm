@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import type { SettingsScope, SettingsScopeSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SettingsScope, SettingsScopeSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   TeamSkillSettingsCard,
@@ -73,6 +73,17 @@ class TestScope implements SettingsScope<TeamPluginSettings> {
       const { [field]: _removed, ...user } = this.snapshot.user as Record<string, unknown>
       this.publish(user)
     }
+    return Promise.resolve()
+  }
+
+  mutate(operations: Parameters<SettingsScope<TeamPluginSettings>['mutate']>[0]): Promise<void> {
+    const user = { ...(this.snapshot.user as Record<string, unknown>) }
+    for (const op of operations) {
+      const field = op.path.join('.')
+      if (op.op === 'set') { this.writes.push({ op: 'set', field, value: op.value }); user[field] = structuredClone(op.value) }
+      else { this.writes.push({ op: 'unset', field }); delete user[field] }
+    }
+    if (this.acceptWrites) this.publish(user)
     return Promise.resolve()
   }
 

@@ -1,3 +1,5 @@
+import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /** SW-I2-H1: internal Host-owned opaque context lifecycle. */
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -6,9 +8,9 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { CallId, LlmAdapter, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, LlmAdapter, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -77,7 +79,7 @@ function codeOf(error: unknown): string | undefined {
 }
 
 async function callTool(ctx: Context, agent: Agent, callId: string, name: string, args: unknown) {
-  return await ctx.tools.execute({ signal: new AbortController().signal, callId: CallId(callId), name, arguments: args, agent })
+  return await ctx.tools.execute({ signal: new AbortController().signal, callId: ToolCallId(callId), name, arguments: args, agent })
 }
 
 async function mountHost(maxHostContexts: number): Promise<MountedHost> {
@@ -85,7 +87,9 @@ async function mountHost(maxHostContexts: number): Promise<MountedHost> {
   roots.push(sandbox)
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
-  fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(sandbox, 'sessions', 'sessions.db') }))
+  await ctx.plugin(SessionProjectionService)
+  await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
+  fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   await mountStorageStackOn(ctx, join(sandbox, 'storage'))
   fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
   fibers.push(await ctx.plugin(SubagentService))
@@ -175,7 +179,9 @@ describe('SW-I2-H1 Host opaque context lifecycle', () => {
     roots.push(sandbox)
     const ctx = new Context()
     await mountAgentLoopTestDependencies(ctx)
-    fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(sandbox, 'sessions', 'sessions.db') }))
+  await ctx.plugin(SessionProjectionService)
+  await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
+    fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
     await mountStorageStackOn(ctx, join(sandbox, 'storage'))
     fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
     fibers.push(await ctx.plugin(SubagentService))

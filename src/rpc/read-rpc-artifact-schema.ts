@@ -8,7 +8,7 @@ import {
 } from './read-rpc-contract.js'
 
 const SWARM_READ_RPC_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
-export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = 'be7057d88772729575fcec259882a7c4cfdc61b473f02eedcdd27ed00097e378' as const
+export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '2770961880caa0a382d2ec8e2efd7662232d78d118ebf3b7d80f28689f158813' as const
 
 const boundedString = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength, pattern: '\\S' })
 /** Member role is authoritative free-text (never truncated by the reader); the
@@ -84,6 +84,7 @@ const teamDescriptor = {
     displayName: boundedString(128),
     profession: boundedString(256),
     personality: boundedString(1024),
+    biography: boundedString(1024),
     avatar: assetStatus, identityCard: assetStatus,
     goal: teamGoal,
     endpoints: {
@@ -131,6 +132,7 @@ const captainMemberRow = {
     displayName: boundedString(128),
     profession: boundedString(256),
     personality: boundedString(1024),
+    biography: boundedString(1024),
     avatar: assetStatus, identityCard: assetStatus,
     growth: memberGrowth,
     composition: memberComposition,

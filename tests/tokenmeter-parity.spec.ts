@@ -209,7 +209,7 @@ describe('official tokenUsage projection versus the Team ledger (issue #127 boun
     // Replay the whole firehose at the ledger (the M1B cursor contract): every
     // event seq is already folded, so the exactly-once cursor skips them all.
     for (const session of [captain, member]) {
-      for (const event of session.events) accountant.observeSessionEvent(session, event)
+      for (const event of session.snapshotEvents()) accountant.observeSessionEvent(session, event)
     }
     await accountant.wait()
     await expect(teamUsedTokens(teamId)).resolves.toBe(expected)
@@ -257,7 +257,7 @@ describe('official tokenUsage projection versus the Team ledger (issue #127 boun
     await expect(teamUsedTokens(teamId)).resolves.toBe(billed(settled))
     // A reload-time refold over the same durable log cannot change either
     // number: both faces are pure folds of the committed events.
-    for (const event of captain.events) accountant.observeSessionEvent(captain, event)
+    for (const event of captain.snapshotEvents()) accountant.observeSessionEvent(captain, event)
     await accountant.wait()
     await expect(teamUsedTokens(teamId)).resolves.toBe(billed(settled))
     expect(officialTotal(captain)).toBe(billed(settled) + billed(failed))
@@ -273,7 +273,7 @@ describe('official tokenUsage projection versus the Team ledger (issue #127 boun
     await expect(teamUsedTokens(teamId)).resolves.toBe(cumulative)
 
     const before = ctx.tokenMeter.measure(captain)
-    expect(before.logRevision).toBe(captain.events.length)
+    expect(before.logRevision).toBe(captain.snapshotEvents().length)
     // Surface growth without any usage event: the cumulative faces hold
     // still (the projection is usage-driven; the Team ledger saw no message
     // usage), while measure() reprices the CURRENT surface — the read-model
@@ -286,7 +286,7 @@ describe('official tokenUsage projection versus the Team ledger (issue #127 boun
     const after = ctx.tokenMeter.measure(captain)
 
     expect(after.surfaceTokens).toBeGreaterThan(before.surfaceTokens)
-    expect(after.logRevision).toBe(captain.events.length)
+    expect(after.logRevision).toBe(captain.snapshotEvents().length)
     expect(officialTotal(captain)).toBe(cumulative)
     await expect(teamUsedTokens(teamId)).resolves.toBe(cumulative)
   })

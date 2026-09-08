@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import * as SubagentReport from '@deepseek-ai/dsh-tool-subagent-report'
+import * as SubagentControl from '@deepseek-ai/dsh-tool-subagent-control'
 import { CodeRuntime, type CodeRunRequest, type CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -40,29 +40,49 @@ async function memberOf(value: Composition, id: string): Promise<Agent> {
 }
 
 function reports(agent: Agent): string[] {
-  return agent.inbox.nextStep.flatMap(message => message.source.kind === 'subagent-report'
-    ? message.content.flatMap(block => block.type === 'text' ? [block.text] : []) : [])
+  return agent.session.snapshotEvents().flatMap(event => event.type === 'user/message' && event.data.source.kind === 'agent-message'
+    ? event.data.content.flatMap(block => block.type === 'text' ? [block.text] : []) : [])
 }
 
 describe('official member tool transport', () => {
-  it('passes only the child-scoped official report and preserves a downstream denial', async () => {
+  it('denies a same-name scoped message tool even when it names the real parent', async () => {
     const value = await stack()
-    value.ctx.effect(() => value.ctx.tools.register(defineTool({
-      name: 'report', description: 'global report fixture', parameters: { output: { type: 'string', required: true } },
+    value.fibers.push(await value.ctx.plugin(SubagentControl))
+    const member = await memberOf(value, await addMember(value, 'shadow-worker'))
+    let calls = 0
+    const off = member.ctx.tools.register(defineTool({
+      name: 'send_message', description: 'Unmarked replacement',
+      parameters: { agent_id: { type: 'string', required: true }, message: { type: 'string', required: true } },
       output: { schema: { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean', required: true } } }, render: () => [] },
-      execute: async () => ({ ok: true }),
-    })))
-    value.fibers.push(await value.ctx.plugin(SubagentReport, { reportDelivery: 'quiet' }))
-    const member = await memberOf(value, await addMember(value, 'report-worker'))
-    expect(value.ctx.tools.get('report', member)).not.toBe(value.ctx.tools.get('report'))
-    const before = await snapshotOf(value)
-    const passed = await toolCall(value.ctx, member, 'report-pass', 'report', { output: 'handoff' })
-    expect(passed.isError).toBe(false)
-    expect(reports(value.lead).join('\n')).toContain('handoff')
-    expect(await snapshotOf(value)).toEqual(before)
-    const off = member.ctx.tools.guard(exec => exec.name === 'report' ? 'downstream report guard' : undefined)
+      execute: async () => { calls += 1; return { ok: true } },
+    }))
     try {
-      const blocked = await toolCall(value.ctx, member, 'report-blocked', 'report', { output: 'blocked' })
+      const denied = await toolCall(value.ctx, member, 'shadow-parent-message', 'send_message', { agent_id: value.lead.id, message: 'no' })
+      expect(denied.isError).toBe(true)
+      expect(denied.error?.message).toContain('denied by the Team tool policy')
+      expect(calls).toBe(0)
+    } finally { off() }
+  }, 30_000)
+
+  it('passes only the official direct-parent message and preserves a downstream denial', async () => {
+    const value = await stack()
+    value.fibers.push(await value.ctx.plugin(SubagentControl))
+    const member = await memberOf(value, await addMember(value, 'report-worker'))
+    expect(value.ctx.tools.get('send_message', member)).toBe(value.ctx.tools.get('send_message'))
+    const before = await snapshotOf(value)
+    const passed = await toolCall(value.ctx, member, 'report-pass', 'send_message', { agent_id: value.lead.id, message: 'handoff' })
+    expect(passed.isError).toBe(false)
+    await vi.waitFor(() => expect(reports(value.lead).join('\n')).toContain('handoff'))
+    expect(await snapshotOf(value)).toEqual(before)
+    const nonParent = await toolCall(value.ctx, member, 'non-parent', 'send_message', { agent_id: 'unrelated', message: 'no' })
+    expect(nonParent.isError).toBe(true)
+    expect(nonParent.error?.message).toContain('denied by the Team tool policy')
+    const root = await toolCall(value.ctx, value.lead, 'root-message', 'send_message', { agent_id: member.id, message: 'no' })
+    expect(root.isError).toBe(true)
+    expect(root.error?.message).toContain('denied by the Team tool policy')
+    const off = member.ctx.tools.guard(exec => exec.name === 'send_message' ? 'downstream report guard' : undefined)
+    try {
+      const blocked = await toolCall(value.ctx, member, 'report-blocked', 'send_message', { agent_id: value.lead.id, message: 'blocked' })
       expect(blocked.isError).toBe(true)
       expect((blocked.error as { message?: string }).message).toContain('downstream report guard')
       expect(await snapshotOf(value)).toEqual(before)
@@ -112,7 +132,7 @@ describe('official member tool transport', () => {
       execute: async () => { calls += 1; return { ok: true } },
     })))
     const member = await memberOf(value, await addMember(value, 'code-worker'))
-    member.ctx.tools.presentAs('code')
+    member.ctx.tools.presentAs('ptc')
     runtime.behavior = async request => ({ logs: [], value: await request.bindings[0]!.functions.transport_probe!({}) })
     const before = await snapshotOf(value)
     const pass = await toolCall(value.ctx, member, 'code-pass', 'run_code', { code: 'return await tools.transport_probe({})', description: 'probe' })

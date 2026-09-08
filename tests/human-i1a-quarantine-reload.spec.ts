@@ -1,18 +1,20 @@
+import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { CallId, LlmAdapter, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, LlmAdapter, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import Storage, { storageBackendServiceKey } from '@deepseek-ai/dsh-storage'
 import type { KvFacet, KvUnit, KvUnitDescriptor, StorageBackend } from '@deepseek-ai/dsh-storage'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
-import UserQuestionService, { type UserQuestionProvider } from '@deepseek-ai/dsh-user-questions'
+import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
 import type { HumanInteractionRequest } from '../src/index.js'
@@ -178,7 +180,9 @@ async function mount(
   const ctx = new Context()
   const fibers: Fiber[] = []
   await mountAgentLoopTestDependencies(ctx)
-  fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(root, 'sessions', 'sessions.db') }))
+  await ctx.plugin(SessionProjectionService)
+  await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
+  fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(root, 'sessions', 'sessions.db') }))
   fibers.push(await ctx.plugin(Storage))
   ctx.storage.backend.register('quarantine-fault', backend)
   ctx.provide(storageBackendServiceKey('quarantine-fault'), backend)
@@ -196,7 +200,7 @@ async function mount(
   if (teamId === undefined) {
     const created = await ctx.tools.execute({
       signal: SIGNAL,
-      callId: CallId('i1a-quarantine-create'),
+      callId: ToolCallId('i1a-quarantine-create'),
       name: 'agent_swarm_create',
       arguments: { name: 'I1a quarantine reload', description: 'Real durable outcome-unknown boundary.' },
       agent: lead,
@@ -235,7 +239,7 @@ async function stableSnapshot(stack: Stack) {
 async function addMember(stack: Stack): Promise<string> {
   const added = await stack.ctx.tools.execute({
     signal: SIGNAL,
-    callId: CallId('i1a-quarantine-add-member'),
+    callId: ToolCallId('i1a-quarantine-add-member'),
     name: 'agent_swarm_add_member',
     arguments: { name: 'worker', role: 'Durable quarantine test worker.' },
     agent: stack.lead,
@@ -382,12 +386,10 @@ describe('SW-I1a durable outcome-unknown quarantine', () => {
     expect(first.ctx.agents.get(memberId)).toBe(member)
     expect(first.ctx.agents.roots().some(agent => agent === member)).toBe(false)
     expect(first.ctx.agents.isOwnedBy(memberId, first.lead)).toBe(true)
-    first.ctx.userQuestions.registerProvider({
-      async ask(input) {
+    first.ctx.on('user-questions/request', async input => {
         firstQuestions += 1
         return { answers: [{ id: input.questions[0]?.id ?? 'missing', selected: [], custom: 'Answer only once.' }] }
-      },
-    } satisfies UserQuestionProvider)
+    })
     const beforeRelay = await stableSnapshot(first)
     const relayed = await first.ctx.agentSwarmHumanInteraction.relayMemberQuestion({
       scope: first.scope,
@@ -419,12 +421,10 @@ describe('SW-I1a durable outcome-unknown quarantine', () => {
     await dispose(first)
     let reopenedQuestions = 0
     const second = await mount(root, backend, first.teamId, true)
-    second.ctx.userQuestions.registerProvider({
-      async ask() {
+    second.ctx.on('user-questions/request', async () => {
         reopenedQuestions += 1
         return { answers: [] }
-      },
-    } satisfies UserQuestionProvider)
+    })
     const replayInput = { ...presentInput, scope: second.scope, teamId: second.teamId, captainSessionId: second.lead.id }
     await expect(second.ctx.agentSwarmHumanInteraction.presentQuestion(
       replayInput,

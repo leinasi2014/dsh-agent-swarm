@@ -56,6 +56,8 @@ export class DedicatedCaptainProvisioner {
 
   private async start(input: Parameters<DedicatedCaptainProvisioner['create']>[0]): Promise<TeamState> {
     const providerName = this.requireCaptainProvider()
+    await this.ctx.sessionPersistence.ensureMaterialized(input.root.session)
+    input.signal.throwIfAborted()
     const captainId = SessionId(randomUUID())
     const team = await this.deps.domain().createTeam(
       input.scope, captainId, input.name, input.description, -1, input.managedOrigin, input.allowedSkills,
@@ -88,10 +90,10 @@ export class DedicatedCaptainProvisioner {
           persona: captainPersona(team),
           toolFilter: { deny: ['agent_swarm_create_managed'] },
           agentOptions: {
-            ...((input.llmProvider ?? this.deps.config.captainLlmProvider ?? input.root.options.provider) === undefined
-              ? {} : { provider: input.llmProvider ?? this.deps.config.captainLlmProvider ?? input.root.options.provider }),
-            ...((input.model ?? this.deps.config.captainModel ?? input.root.options.model) === undefined
-              ? {} : { model: input.model ?? this.deps.config.captainModel ?? input.root.options.model }),
+            ...((input.llmProvider ?? this.deps.config.captainLlmProvider ?? (input.root.session.requestHeader()?.config ?? input.root.options).provider) === undefined
+              ? {} : { provider: input.llmProvider ?? this.deps.config.captainLlmProvider ?? (input.root.session.requestHeader()?.config ?? input.root.options).provider }),
+            ...((input.model ?? this.deps.config.captainModel ?? (input.root.session.requestHeader()?.config ?? input.root.options).model) === undefined
+              ? {} : { model: input.model ?? this.deps.config.captainModel ?? (input.root.session.requestHeader()?.config ?? input.root.options).model }),
           },
           // Official maxDepth is absolute. Root=0, Captain=1, members=2.
           maxDepth: this.deps.config.memberMaxDepth + 1,
@@ -136,6 +138,8 @@ export class DedicatedCaptainProvisioner {
     if (this.closing) throw new TeamDomainError('Team orchestrator is disposing', 'TEAM_RUNTIME_CLOSING')
     const providerName = this.requireCaptainProvider()
     const { team, root, captainId } = input
+    await this.ctx.sessionPersistence.ensureMaterialized(root.session)
+    input.signal.throwIfAborted()
     this.deps.config.teamSkills.rememberTeam(team)
     this.deps.trackChild(root, captainId)
     try {
@@ -149,10 +153,10 @@ export class DedicatedCaptainProvisioner {
           persona: captainPersona(team),
           toolFilter: { deny: ['agent_swarm_create_managed'] },
           agentOptions: {
-            ...((input.llmProvider ?? this.deps.config.captainLlmProvider ?? root.options.provider) === undefined
-              ? {} : { provider: input.llmProvider ?? this.deps.config.captainLlmProvider ?? root.options.provider }),
-            ...((input.model ?? this.deps.config.captainModel ?? root.options.model) === undefined
-              ? {} : { model: input.model ?? this.deps.config.captainModel ?? root.options.model }),
+            ...((input.llmProvider ?? this.deps.config.captainLlmProvider ?? (root.session.requestHeader()?.config ?? root.options).provider) === undefined
+              ? {} : { provider: input.llmProvider ?? this.deps.config.captainLlmProvider ?? (root.session.requestHeader()?.config ?? root.options).provider }),
+            ...((input.model ?? this.deps.config.captainModel ?? (root.session.requestHeader()?.config ?? root.options).model) === undefined
+              ? {} : { model: input.model ?? this.deps.config.captainModel ?? (root.session.requestHeader()?.config ?? root.options).model }),
           },
           maxDepth: this.deps.config.memberMaxDepth + 1,
         },

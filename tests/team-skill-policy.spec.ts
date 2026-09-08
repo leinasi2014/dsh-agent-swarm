@@ -1,3 +1,5 @@
+import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
  * Issue #183 — Team skill allow-list enforcement (test implementer, strict TDD).
  *
@@ -33,12 +35,12 @@ import { join } from 'node:path'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import { assembleContextFor, type Agent } from '@deepseek-ai/dsh-agent'
 import {
-  CallId, createUserMessage, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk,
+  ToolCallId, createUserMessage, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk,
 } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
@@ -80,14 +82,17 @@ interface Mounted {
   readonly ctx: Context
   readonly parent: ReturnType<Context['agentLoop']['create']>
   readonly surface: TeamSkillSurface
+  readonly surfaceFiber: Fiber
   readonly adapter: CapturingAdapter
   readonly sandbox: string
 }
 
-async function mountSurfaceStack(sandbox: string, fibers: Fiber[]): Promise<Mounted> {
+async function mountSurfaceStack(sandbox: string, fibers: Fiber[], resolveTeam?: (agent: Agent) => Promise<TeamState | undefined>): Promise<Mounted> {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
-  fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(sandbox, 'sessions', 'sessions.db') }))
+  await ctx.plugin(SessionProjectionService)
+  await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
+  fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   await mountStorageStackOn(ctx, join(sandbox, 'storage'))
   fibers.push(await ctx.plugin(SkillRegistry))
   fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
@@ -104,12 +109,14 @@ async function mountSurfaceStack(sandbox: string, fibers: Fiber[]): Promise<Moun
   })
   const adapter = new CapturingAdapter()
   ctx.llm.registerAdapter(['mock'], adapter)
-  const surface = new TeamSkillSurface(ctx)
+  let surface!: TeamSkillSurface
+  const surfaceFiber = await ctx.plugin({ inject: ['tools', 'systemPrompt', 'agents', 'skills'], apply(pluginCtx: Context) { surface = new TeamSkillSurface(pluginCtx, resolveTeam) } })
+  fibers.push(surfaceFiber)
   const parent = ctx.agentLoop.create(
     SessionId('mt-parent'),
     { provider: 'mock', model: 'mock' },
     { cwd: join(sandbox, 'workspace') })
-  return { ctx, parent, surface, adapter, sandbox }
+  return { ctx, parent, surface, surfaceFiber, adapter, sandbox }
 }
 
 /** A minimal durable-shaped TeamState carrying the allow-list under test. */
@@ -164,7 +171,7 @@ async function spawnCaptain(mounted: Mounted, childId: SessionId, team: TeamStat
 async function callSkill(mounted: Mounted, agent: Agent, callId: string, name: string) {
   return await mounted.ctx.tools.execute({
     signal: SIGNAL,
-    callId: CallId(callId),
+    callId: ToolCallId(callId),
     name: 'skill',
     arguments: { name },
     agent,
@@ -187,7 +194,7 @@ function shadowSkillSchema() {
 }
 
 function skillCatalogOf(agent: Agent): { entries: Array<{ name: string; description: string }> } | undefined {
-  const event = agent.session.events.find(
+  const event = agent.session.snapshotEvents().find(
     candidate => candidate.type === 'user/message' && (candidate.data as { source?: { kind?: string } }).source?.kind === 'skill-catalog',
   )
   if (event === undefined) return undefined
@@ -195,7 +202,7 @@ function skillCatalogOf(agent: Agent): { entries: Array<{ name: string; descript
 }
 
 function skillInvocationsOf(agent: Agent): string[] {
-  return agent.session.events
+  return agent.session.snapshotEvents()
     .filter(event => event.type === 'user/message' && (event.data as { source?: { kind?: string } }).source?.kind === 'skill-invocation')
     .map(event => (event.data as unknown as { source: { name: string } }).source.name)
 }
@@ -210,6 +217,61 @@ afterEach(async () => {
 })
 
 describe('Team skill allow-list surface (strict-TDD regressions)', () => {
+  it('resolves the production cold path before the first model schema and retries after a transient failure on reactivation', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-skill-resolver-'))
+    roots.push(sandbox)
+    const childId = SessionId('resolver-child')
+    let fail = true
+    const resolver = vi.fn(async () => {
+      if (fail) throw new Error('temporary store failure')
+      return makeTeam('mt-parent', [childId], [ALPHA])
+    })
+    const mounted = await mountSurfaceStack(sandbox, fibers, resolver)
+    await mounted.ctx.subagents.startContinuable({ provider: 'spawn', label: 'member', childId,
+      request: { prompt: [{ type: 'text', text: 'Start.' }], parent: mounted.parent, persona: 'worker' } as never, signal: SIGNAL })
+    await vi.waitFor(() => expect(mounted.adapter.requests.some(row => row.sessionId === childId)).toBe(true))
+    const first = mounted.adapter.requests.find(row => row.sessionId === childId)!
+    expect(first.tools?.filter(tool => tool.name === 'skill')).toEqual([shadowSkillSchema()])
+    expect(JSON.stringify(first)).toContain('This Team may not load any Skill')
+    expect(JSON.stringify(first)).not.toContain(BETA_DESCRIPTION)
+    await mounted.ctx.subagents.drainContinuableChildren(mounted.parent, [childId])
+    fail = false
+    const resumed = await mounted.ctx.agents.resume({ resumeSessionId: childId, agentOptions: { provider: 'mock', model: 'mock' } })
+    try {
+      const errors: unknown[] = []
+      mounted.ctx.on('agent/error', event => { errors.push(event.error) })
+      resumed.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'Continue.' }], source: { kind: 'user' } }))
+      await resumed.agent.whenIdle()
+      expect(errors).toEqual([])
+      const requests = mounted.adapter.requests.filter(row => row.sessionId === childId)
+      expect(requests).toHaveLength(2)
+      expect(requests[1]!.tools?.filter(tool => tool.name === 'skill')).toEqual([shadowSkillSchema()])
+      expect(JSON.stringify(requests[1])).toContain('This Team may load only these Skills: `alpha`')
+      expect(JSON.stringify(requests[1])).not.toContain(BETA_DESCRIPTION)
+      expect(await callSkill(mounted, resumed.agent, 'recovered-alpha', ALPHA)).toMatchObject({ isError: false })
+      expect(await callSkill(mounted, resumed.agent, 'recovered-beta', BETA)).toMatchObject({ isError: true })
+      expect(resolver).toHaveBeenCalledTimes(2)
+    } finally { await resumed.dispose() }
+  }, 30_000)
+
+  it('removes scoped contributions on plugin unload while the Captain root remains alive', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-skill-root-unload-'))
+    roots.push(sandbox)
+    const mounted = await mountSurfaceStack(sandbox, fibers)
+    // Main Chat may have made requests before it creates its first Team.
+    await mounted.ctx.systemPrompt.assemble(assembleContextFor(mounted.parent))
+    mounted.surface.rememberTeam(makeTeam(mounted.parent.id, [], [ALPHA]))
+    const restricted = await mounted.ctx.systemPrompt.assemble(assembleContextFor(mounted.parent))
+    expect(restricted.tools.filter(tool => tool.name === 'skill')).toEqual([shadowSkillSchema()])
+    expect(restricted.sections.some(row => row.name === 'agent-swarm:team-skills')).toBe(true)
+    await mounted.surfaceFiber.dispose()
+    expect(mounted.ctx.agents.get(mounted.parent.id)).toBe(mounted.parent)
+    const restored = await mounted.ctx.systemPrompt.assemble(assembleContextFor(mounted.parent))
+    expect(restored.tools.find(tool => tool.name === 'skill')?.description).toContain('an available skill')
+    expect(restored.sections.some(row => row.name === 'agent-swarm:team-skills')).toBe(false)
+    expect(await callSkill(mounted, mounted.parent, 'unloaded-beta', BETA)).toMatchObject({ isError: false })
+  })
+
   describe('restricted member tool surface', () => {
     it('allow-list admits only names it lists: the shadow ALLOWS an allowed skill and its result is loadable', { timeout: 30_000 }, async () => {
       const sandbox = await mkdtemp(join(tmpdir(), 'dsh-skill-allow-'))

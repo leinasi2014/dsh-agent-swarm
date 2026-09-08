@@ -1,3 +1,6 @@
+import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
+import { queueSubagentPrompt, type HostPromptQueue } from '@deepseek-ai/dsh-subagent/internal'
 /**
  * M1C official-compat semantics (issue #19), runtime half: the waitForChange
  * contract, quiet (F13) inactive-delivery semantics and the captain-only
@@ -16,10 +19,10 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
-import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -52,7 +55,7 @@ function acceptedFrames(events: readonly SessionEvent[], frame: string): number 
 }
 
 async function toolCall(ctx: Context, agent: Agent, callId: string, name: string, args: unknown) {
-  return await ctx.tools.execute({ signal: SIGNAL, callId: CallId(callId), name, arguments: args, agent })
+  return await ctx.tools.execute({ signal: SIGNAL, callId: ToolCallId(callId), name, arguments: args, agent })
 }
 
 interface Composition {
@@ -69,7 +72,9 @@ async function mount(sandbox: string): Promise<Composition> {
   const fibers: Fiber[] = []
   const adapter = new GatedAdapter()
   await mountAgentLoopTestDependencies(ctx)
-  fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(sandbox, 'sessions', 'sessions.db') }))
+  await ctx.plugin(SessionProjectionService)
+  await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
+  fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   await mountStorageStackOn(ctx, join(sandbox, 'storage'))
   fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
   fibers.push(await ctx.plugin(SubagentService))
@@ -124,12 +129,12 @@ describe('official compatibility semantics over the real composition (issue #19)
       // Determinism: only the explicit sends and rescans below deliver mail.
       const idle = vi.spyOn(ctx.agentSwarm, 'observeAgentIdle').mockImplementation(() => {})
       const followupFrames: string[] = []
-      const followup = ctx.subagents.followup.bind(ctx.subagents)
-      const followupSpy = vi.spyOn(ctx.subagents, 'followup').mockImplementation(async (parent, childId, content, options) => {
+      const followup = (ctx.subagents as unknown as HostPromptQueue)[queueSubagentPrompt].bind(ctx.subagents)
+      const followupSpy = vi.spyOn(ctx.subagents as unknown as HostPromptQueue, queueSubagentPrompt).mockImplementation(async (parent, childId, content, source, signal) => {
         for (const block of content) {
           if (block.type === 'text') followupFrames.push(block.text)
         }
-        return await followup(parent, childId, content, options)
+        return await followup(parent, childId, content, source, signal)
       })
 
       // Settle the initial member turn; the spawn provider auto-settles an
@@ -216,12 +221,12 @@ describe('official compatibility semantics over the real composition (issue #19)
       const memberId = await addMember(ctx, lead, 'busy-worker')
       const idle = vi.spyOn(ctx.agentSwarm, 'observeAgentIdle').mockImplementation(() => {})
       const followupFrames: string[] = []
-      const followup = ctx.subagents.followup.bind(ctx.subagents)
-      const followupSpy = vi.spyOn(ctx.subagents, 'followup').mockImplementation(async (parent, childId, content, options) => {
+      const followup = (ctx.subagents as unknown as HostPromptQueue)[queueSubagentPrompt].bind(ctx.subagents)
+      const followupSpy = vi.spyOn(ctx.subagents as unknown as HostPromptQueue, queueSubagentPrompt).mockImplementation(async (parent, childId, content, source, signal) => {
         for (const block of content) {
           if (block.type === 'text') followupFrames.push(block.text)
         }
-        return await followup(parent, childId, content, options)
+        return await followup(parent, childId, content, source, signal)
       })
 
       // The member is live and running on its gated initial turn.

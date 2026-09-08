@@ -1,3 +1,5 @@
+import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
  * Real-composition tests for the Team bridge workflow engine (M2-1, #75).
  *
@@ -18,13 +20,13 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 import {
-  CallId,
+  ToolCallId,
   LlmAdapter,
   type GenerateOptions,
   type LlmResolvedModelInfo,
   type StreamChunk,
 } from '@deepseek-ai/dsh-llm'
-import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import Storage from '@deepseek-ai/dsh-storage'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
@@ -82,7 +84,7 @@ class MemberAdapter extends LlmAdapter {
     const assignment = ASSIGNMENT_RE.exec(text)
     if (this.options.submit && assignment !== null) {
       const [, taskId, revision, attemptId] = assignment
-      const id = CallId(`wf-submit-${(this.calls += 1)}`)
+      const id = ToolCallId(`wf-submit-${(this.calls += 1)}`)
       const args = JSON.stringify({
         task_id: taskId,
         expected_revision: Number(revision),
@@ -119,7 +121,9 @@ async function mountTree(sandbox: string, options: {
   const ctx = new Context()
   const fibers: Fiber[] = []
   await mountAgentLoopTestDependencies(ctx)
-  fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(sandbox, 'sessions', 'sessions.db') }))
+  await ctx.plugin(SessionProjectionService)
+  await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
+  fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   fibers.push(await ctx.plugin(Storage))
   fibers.push(await ctx.plugin(StorageJson, { root: join(sandbox, 'storage') }))
   fibers.push(await ctx.plugin(StorageDomain, { backend: 'json' }))

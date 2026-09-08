@@ -1,3 +1,6 @@
+import { createRequire } from 'node:module'
+import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
  * Real official composition proof: a Team member joins the Captain's live
  * preset generation and ordinary filesystem skills on both its fresh turn and
@@ -13,10 +16,10 @@ import Include from '@deepseek-ai/cordis-plugin-include'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import AgentRegistry, { assembleContextFor, type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import AgentPresets, { resolveSessionPreset, standingMountFor } from '@deepseek-ai/dsh-agent-presets'
-import LlmRuntime, { CallId, createUserMessage, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import AgentPresets, { agentPresetProjectionDefinition, standingMountFor } from '@deepseek-ai/dsh-agent-presets'
+import LlmRuntime, { ToolCallId, createUserMessage, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import * as SkillFileSystem from '@deepseek-ai/dsh-skill-filesystem'
 import Storage from '@deepseek-ai/dsh-storage'
@@ -94,13 +97,13 @@ function composition(plugin: string, root: string, marker: string, generation: s
     `    marker: ${JSON.stringify(marker)}`,
     `    generation: ${JSON.stringify(generation)}`,
     '- id: skill-filesystem',
-    '  name: "@deepseek-ai/dsh-skill-filesystem"',
+    `  name: ${JSON.stringify(pathToFileURL(createRequire(import.meta.url).resolve('@deepseek-ai/dsh-skill-filesystem')).href)}`,
     '  config:',
     `    dshHome: ${JSON.stringify(join(root, '.dsh'))}`,
     `    agentsHome: ${JSON.stringify(join(root, '.agents'))}`,
     '    watch: false',
     '- id: tool-skill',
-    '  name: "@deepseek-ai/dsh-tool-skill"',
+    `  name: ${JSON.stringify(pathToFileURL(createRequire(import.meta.url).resolve('@deepseek-ai/dsh-tool-skill')).href)}`,
     '',
   ].join('\n')
 }
@@ -148,20 +151,22 @@ async function mount(root: string): Promise<Mounted> {
   fibers.push(await ctx.plugin(SystemPrompt))
   fibers.push(await ctx.plugin(ToolRuntime))
   fibers.push(await ctx.plugin(AgentRegistry))
-  fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(root, 'sessions', 'sessions.db') }))
+  fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(root, 'sessions', 'sessions.db') }))
   fibers.push(await ctx.plugin(Storage))
   fibers.push(await ctx.plugin(StorageJson, { root: join(root, 'storage') }))
   fibers.push(await ctx.plugin(StorageDomain, { backend: 'json' }))
   // The host owns only the registry. Filesystem discovery and the model-facing
   // tool are rows of the Captain's preset composition, never root services.
   fibers.push(await ctx.plugin(SkillRegistry))
+  await ctx.plugin(SessionProjectionService)
+  await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
   fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
   fibers.push(await ctx.plugin(SubagentService))
   fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
   fibers.push(await ctx.plugin(AgentPresets, {
     default: PRESET_ID,
     roots: [{ path: join(root, 'presets'), trust: 'user' }],
-    includeUserRoot: false,
+    includeUserRoot: false, includeShippedRoot: false,
   }))
   fibers.push(await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1, strandedAfterMs: 0 }))
   return { ctx, fibers }
@@ -172,7 +177,7 @@ async function dispose(mounted: Mounted): Promise<void> {
 }
 
 async function call(ctx: Context, agent: Agent, callId: string, name: string, args: unknown) {
-  return await ctx.tools.execute({ signal: SIGNAL, callId: CallId(callId), name, arguments: args, agent })
+  return await ctx.tools.execute({ signal: SIGNAL, callId: ToolCallId(callId), name, arguments: args, agent })
 }
 
 function expectedSkillSchema() {
@@ -215,7 +220,7 @@ async function assertGeneratedComposition(ctx: Context, member: Agent, request: 
   // tool exists only in the composed generation, so the root cannot resolve it.
   expect(ctx.tools.get('skill')).toBeUndefined()
   expect(ctx.tools.schemas().some(tool => tool.name === 'skill')).toBe(false)
-  const catalog = member.session.events.find(event => event.type === 'user/message'
+  const catalog = member.session.snapshotEvents().find(event => event.type === 'user/message'
     && (event.data as { source?: { kind?: string } }).source?.kind === 'skill-catalog')
   const catalogData = catalog === undefined
     ? undefined
@@ -345,10 +350,7 @@ describe('official Captain preset and skill inheritance', () => {
       const durableCaptain = await second.ctx.sessionPersistence.inspect(CAPTAIN, SIGNAL)
       // SQLite inspection separates creation `meta` from the Session header;
       // reconstruct only the official preset-bearing view that resolver owns.
-      const durablePreset = resolveSessionPreset({
-        header: durableCaptain.meta,
-        events: durableCaptain.events,
-      })
+      const durablePreset = durableCaptain.events.reduce(agentPresetProjectionDefinition.apply, agentPresetProjectionDefinition.init(durableCaptain.meta)) ?? undefined
       expect(durablePreset).toBe(PRESET_ID)
       const captainB = await second.ctx.agents.resume({
         resumeSessionId: CAPTAIN,

@@ -12,7 +12,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TeamDomainError } from '../src/domain/error.js'
@@ -90,7 +90,7 @@ function failError<T extends { ok: boolean; error?: { code: string } }>(envelope
 
 async function managedCreate(composition: NodeComposition, agent: NonNullable<Parameters<typeof composition.ctx.tools.execute>[0]['agent']>, callId: string, name: string): Promise<{ team_id: string; captain_session_id: string }> {
   const result = await composition.ctx.tools.execute({
-    signal: SIGNAL, callId: CallId(callId), name: 'agent_swarm_create_managed',
+    signal: SIGNAL, callId: ToolCallId(callId), name: 'agent_swarm_create_managed',
     arguments: { name, description: 'Multi-team switch/403 seam.' }, agent,
   })
   expect(result.isError).toBe(false)
@@ -99,7 +99,7 @@ async function managedCreate(composition: NodeComposition, agent: NonNullable<Pa
 
 async function plainCreate(composition: NodeComposition, agent: NonNullable<Parameters<typeof composition.ctx.tools.execute>[0]['agent']>, callId: string, name: string): Promise<{ team_id: string }> {
   const result = await composition.ctx.tools.execute({
-    signal: SIGNAL, callId: CallId(callId), name: 'agent_swarm_create',
+    signal: SIGNAL, callId: ToolCallId(callId), name: 'agent_swarm_create',
     arguments: { name, description: 'Sibling-owned Team in the same workspace scope.' }, agent,
   })
   expect(result.isError).toBe(false)

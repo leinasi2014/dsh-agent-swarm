@@ -39,9 +39,7 @@ describe('plan approval through official userQuestions (S3)', () => {
         tasks: [{ key: 't1', subject: 'Do', description: 'Work.', target_member_name: 'worker' }],
       })
       expect(planned.isError).toBe(false)
-      composition.ctx.userQuestions.registerProvider({
-        ask: async input => ({ answers: [{ id: input.questions[0]?.id ?? 'q', selected: ['Approve & Run'] }] }),
-      })
+      composition.ctx.on('user-questions/request', async input => ({ answers: [{ id: input.questions[0]?.id ?? 'q', selected: ['Approve & Run'] }] }))
       const approved = await toolCall(composition.ctx, mb, 'approve', 'agent_swarm_approve_plan', { team_id: teamId, expected_revision: 2, ask_user: true })
       expect(approved.isError).toBe(false)
       const aggregates = await composition.ctx.agentSwarm.listTeamAggregates(composition.ctx.agentSwarm.scopeOf(mb))
@@ -71,9 +69,7 @@ describe('plan approval through official userQuestions (S3)', () => {
         tasks: [{ key: 't1', subject: 'Never', description: 'Not executed.' }],
       })
       expect(planned.isError).toBe(false)
-      composition.ctx.userQuestions.registerProvider({
-        ask: async input => ({ answers: [{ id: input.questions[0]?.id ?? 'q', selected: ['Discard'] }] }),
-      })
+      composition.ctx.on('user-questions/request', async input => ({ answers: [{ id: input.questions[0]?.id ?? 'q', selected: ['Discard'] }] }))
       const discarded = await toolCall(composition.ctx, mb, 'discard', 'agent_swarm_approve_plan', { team_id: teamId, expected_revision: 2, ask_user: true })
       expect(discarded.isError).toBe(false)
       const aggregates = await composition.ctx.agentSwarm.listTeamAggregates(composition.ctx.agentSwarm.scopeOf(mb))

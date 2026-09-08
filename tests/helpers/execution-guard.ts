@@ -1,3 +1,5 @@
+import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -5,9 +7,9 @@ import { Context, type Fiber } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { CallId, createUserMessage, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, createUserMessage, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import SqliteSessionPersistence from '@deepseek-ai/dsh-session-persistence-sqlite'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import * as AgentSwarm from '../../src/index.js'
@@ -23,7 +25,7 @@ export class GuardAdapter extends LlmAdapter {
   }
 }
 export async function* toolChunks(index: number, name: string, args: unknown = {}): AsyncIterable<StreamChunk> {
-  const id = CallId(`guard-call-${index}`)
+  const id = ToolCallId(`guard-call-${index}`)
   const argumentsText = JSON.stringify(args)
   yield { type: 'block-start', index: 0, blockType: 'tool-call' }
   yield { type: 'block-end', index: 0, block: { type: 'tool-call', id, name, arguments: argumentsText } }
@@ -48,7 +50,9 @@ export async function mountGuard(adapter: GuardAdapter, config: AgentSwarm.Confi
   }
   try {
     await mountAgentLoopTestDependencies(ctx)
-    fibers.push(await ctx.plugin(SqliteSessionPersistence, { path: join(root, 'sessions.db') }))
+  await ctx.plugin(SessionProjectionService)
+  await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
+    fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(root, 'sessions.db') }))
     await mountStorageStackOn(ctx, join(root, 'storage'))
     fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
     fibers.push(await ctx.plugin(SubagentService))
@@ -58,7 +62,7 @@ export async function mountGuard(adapter: GuardAdapter, config: AgentSwarm.Confi
     ctx.llm.registerAdapter(['guard'], adapter)
     const agent = ctx.agentLoop.create(SessionId('guard-captain'), { provider: 'guard', model: 'guard' }, { cwd: root })
     const execute = async (name: string, args: unknown = {}, target: Agent = agent) => await ctx.tools.execute({
-      agent: target, callId: CallId(`setup-${name}`), name, arguments: args, signal: new AbortController().signal,
+      agent: target, callId: ToolCallId(`setup-${name}`), name, arguments: args, signal: new AbortController().signal,
     })
     const created = await execute('agent_swarm_create', { name: 'Guard', description: 'Real execution containment.' })
     if (created.isError) throw new Error(JSON.stringify(created.error))

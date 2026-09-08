@@ -52,6 +52,7 @@ const memberSchema = z.object({
   displayName: codePointCapped(128, 'displayName').optional(),
   profession: codePointCapped(256, 'profession').optional(),
   personality: codePointCapped(1024, 'personality').optional(),
+  biography: codePointCapped(1024, 'biography').optional(),
   pixelAvatarSvg: z.string().min(1).max(16384)
     .refine(isSafePixelAvatarSvg, { message: 'pixelAvatarSvg violates the strict allowlist' })
     .optional(),
@@ -165,17 +166,18 @@ const captainProfileSchema = z.object({
   displayName: codePointCapped(128, 'captainProfile.displayName').optional(),
   profession: codePointCapped(256, 'captainProfile.profession').optional(),
   personality: codePointCapped(1024, 'captainProfile.personality').optional(),
+  biography: codePointCapped(1024, 'captainProfile.biography').optional(),
   pixelAvatarSvg: z.string().min(1).max(16384)
     .refine(isSafePixelAvatarSvg, { message: 'captainProfile.pixelAvatarSvg violates the strict allowlist' })
     .optional(),
 }).strict().superRefine((profile, ctx) => {
   // Captain profile must be an object carrying at least one canonical field.
   const hasField = profile.displayName !== undefined || profile.profession !== undefined
-    || profile.personality !== undefined || profile.pixelAvatarSvg !== undefined
+    || profile.personality !== undefined|| profile.biography !== undefined || profile.pixelAvatarSvg !== undefined
   if (!hasField) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'captainProfile requires at least one field' })
   }
-  for (const key of ['displayName', 'profession', 'personality'] as const) {
+  for (const key of ['displayName', 'profession', 'personality', 'biography'] as const) {
     const v = profile[key]
     if (typeof v === 'string' && v !== v.trim()) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: `captainProfile.${key} must be canonical (trimmed)` })

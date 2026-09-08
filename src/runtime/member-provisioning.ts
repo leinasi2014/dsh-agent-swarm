@@ -159,8 +159,9 @@ export class MemberProvisioner {
         ...(this.deps.config.memberToolPolicyDeny ?? []),
       ])])
 
-      const llmProvider = input.llmProvider ?? this.deps.config.memberLlmProvider ?? captain.options.provider ?? ''
-      const model = input.model ?? this.deps.config.memberModel ?? captain.options.model ?? ''
+      const parentOptions = captain.session.requestHeader()?.config ?? captain.options
+      const llmProvider = input.llmProvider ?? this.deps.config.memberLlmProvider ?? parentOptions.provider ?? ''
+      const model = input.model ?? this.deps.config.memberModel ?? parentOptions.model ?? ''
       // The exact adapter is authoritative; its model catalog is advisory.
       // Resolve both final fields before publishing any roster or child state.
       await this.ctx.llm.resolveModelInfo(llmProvider, model, exec.signal)
@@ -172,6 +173,10 @@ export class MemberProvisioner {
       // rejection, so a bad subset can never leave a provisioning row behind.
       const previous = input.retryOf === undefined ? undefined : membership.team.members.find(member => member.sessionId === input.retryOf)
       const assignedSkills = await this.validateAssignedSkills(captain, membership.team, input.skills ?? previous?.assignedSkills, exec.signal)
+      // A parent with no events still needs a durable header before child
+      // creation can inspect its lineage and the shared JSONL namespace.
+      await this.ctx.sessionPersistence.ensureMaterialized(captain.session)
+      exec.signal.throwIfAborted()
       const provisioning = await this.deps.domain().provisionMember(scope, membership.team.id, captain.id, {
         name: input.name,
         role: input.role,
@@ -181,6 +186,7 @@ export class MemberProvisioner {
         ...(input.displayName === undefined ? {} : { displayName: input.displayName }),
         ...(input.profession === undefined ? {} : { profession: input.profession }),
         ...(input.personality === undefined ? {} : { personality: input.personality }),
+        ...(input.biography === undefined ? {} : { biography: input.biography }),
         ...(input.pixelAvatarSvg === undefined ? {} : { pixelAvatarSvg: input.pixelAvatarSvg }),
         ...(assignedSkills === undefined ? {} : { assignedSkills }),
       })
@@ -214,6 +220,7 @@ export class MemberProvisioner {
               ...(provisioning.displayName === undefined ? {} : { displayName: provisioning.displayName }),
               ...(provisioning.profession === undefined ? {} : { profession: provisioning.profession }),
               ...(provisioning.personality === undefined ? {} : { personality: provisioning.personality }),
+              ...(provisioning.biography === undefined ? {} : { biography: provisioning.biography }),
             }),
             // M1A static baseline plus the F17 deny-only narrowing declaration
             // (`deny_tools`); the union is monotone — captain-only tools stay
@@ -523,7 +530,7 @@ export class MemberProvisioner {
     } catch (error) {
       return { kind: 'failed', error: `${INTERRUPTED}: reconciliation could not verify the persisted child (child Session recovery failed: ${describe(error)})`, drain: false }
     }
-    const suffix = stored.events.slice(stored.meta.seedLength ?? 0)
+    const suffix = stored.events.slice(stored.inheritedEventCount ?? 0)
     if (stored.meta.parentSession !== captain.id) {
       return { kind: 'failed', error: `${INTERRUPTED}: ${MISMATCH} (parent session does not match the recovering captain)`, drain: true }
     }

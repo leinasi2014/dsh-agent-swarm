@@ -29,6 +29,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId, type Session } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
+import { queueHostSubagentPrompt } from '@deepseek-ai/dsh-subagent/internal'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import { messageObsoleteReason } from '../domain/team-domain-mailbox.js'
 import type { TeamId, TeamMessage, TeamMessageId, TeamState } from '../domain/types.js'
@@ -76,14 +77,18 @@ export class MessageDelivery {
     try {
       const frame = messageFrame(message)
       if (message.targetSessionId === team.captainSessionId && sender.id !== team.captainSessionId) {
-        await this.ctx.subagents.reportFrom(sender, [{ type: 'text', text: frame }], {
-          delivery: message.delivery === 'quiet' ? 'quiet' : 'next-step',
-          signal,
-        })
         const captain = this.ctx.agents.get(SessionId(team.captainSessionId))
+        if (captain === undefined || this.ctx.agents.get(sender.id) !== sender
+          || sender.session.header.parentSession !== captain.id) return false
         if (message.delivery === 'quiet') {
-          return captain === undefined || await this.targetFlushedAndRecorded(captain.session, frame)
+          signal.throwIfAborted()
+          captain.inject(createUserMessage({
+            content: [{ type: 'text', text: frame }],
+            source: { kind: 'plugin', plugin: 'dsh-agent-swarm' },
+          }))
+          return await this.targetFlushedAndRecorded(captain.session, frame)
         }
+        await this.ctx.subagents.sendMessage(sender, captain.id, [{ type: 'text', text: frame }], { signal })
         // Waking mail to the captain (issue #52 / D1): acknowledge only on
         // the claimed, model-visible form.
         return captain !== undefined && await waitForFrameClaim(this.ctx, captain, frame, signal)
@@ -115,11 +120,12 @@ export class MessageDelivery {
         ? sender
         : this.ctx.agents.get(SessionId(team.captainSessionId))
       if (captain === undefined) return false
-      await this.ctx.subagents.followup(
+      await queueHostSubagentPrompt(
+        this.ctx.subagents,
         captain,
         SessionId(message.targetSessionId),
         [{ type: 'text', text: frame }],
-        { source: { kind: 'plugin', plugin: 'dsh-agent-swarm' }, signal },
+        { kind: 'plugin', plugin: 'dsh-agent-swarm' }, signal,
       )
       // The followup may have cold-resumed the target; observe the CURRENT
       // live agent (issue #52 / D1: waking mail acks only on the claim).

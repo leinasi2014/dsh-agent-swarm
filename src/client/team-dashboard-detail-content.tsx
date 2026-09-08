@@ -138,7 +138,7 @@ export function MemberDetail({ detail, data, localeTag, memberAssets, t }: {
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('memberRole')}</dt><dd data-swarm-detail-role>{member.role}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('profileProfession')}</dt><dd data-swarm-detail-profession>{generated && asset.profession !== undefined ? asset.profession : unavailable}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('profilePersonality')}</dt><dd data-swarm-detail-personality>{value(generated && asset.personality !== undefined ? asset.personality : undefined)}</dd></div>
-        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.intro')}</dt><dd>{unavailable}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.intro')}</dt><dd data-swarm-detail-biography>{value(generated ? asset.biography : undefined)}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.model')}</dt><dd data-swarm-detail-model>{compositionValue(composition?.model)}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.provider')}</dt><dd data-swarm-detail-provider>{value(composition?.runtimeProvider)}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.llmProvider')}</dt><dd data-swarm-detail-llm-provider>{compositionValue(composition?.llmProvider)}</dd></div>

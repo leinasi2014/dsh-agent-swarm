@@ -22,7 +22,7 @@ describe('execution guard through the real Code Mode dispatch bridge', () => {
       const code = await stack.ctx.plugin(BridgeRuntime)
       stack.fibers.push(code)
       const runtime = stack.ctx.codeRuntime as BridgeRuntime
-      stack.agent.ctx.tools.presentAs('code')
+      stack.agent.ctx.tools.presentAs('ptc')
       let bodyCalls = 0
       const definition = defineTool({ name: 'guard_nested', description: 'nested real tool', parameters: {},
         output: { schema: { type: 'boolean' }, render: () => [] },
@@ -41,7 +41,7 @@ describe('execution guard through the real Code Mode dispatch bridge', () => {
       stack.agent.followup(prompt())
       await stack.agent.whenIdle()
       expect(adapter.requests).toHaveLength(detector === 'global' ? 30 : 10)
-      const events = stack.agent.session.events
+      const events = stack.agent.session.snapshotEvents()
       expect(events.findLast(event => event.type === 'turn/end')?.data.reason)
         .toMatchObject({ kind: 'aborted', reason: { reason: expect.stringContaining(detector) } })
       expect(events.filter(event => event.type === 'tool/code-dispatch')).toHaveLength(detector === 'global' ? 30 : 10)
@@ -59,12 +59,12 @@ describe('execution guard through the real Code Mode dispatch bridge', () => {
     const stack = await mountGuard(adapter)
     try {
       stack.fibers.push(await stack.ctx.plugin(BridgeRuntime))
-      stack.agent.ctx.tools.presentAs('code')
+      stack.agent.ctx.tools.presentAs('ptc')
       ;(stack.ctx.codeRuntime as BridgeRuntime).behavior = async request => ({ logs: [], value: await request.bindings[0]!.functions.absent!({}) })
       stack.agent.followup(prompt()); await stack.agent.whenIdle()
       expect(adapter.requests).toHaveLength(13)
-      expect(stack.agent.session.events.filter(event => event.type === 'tool/code-dispatch')).toHaveLength(0)
-      expect(stack.agent.session.events.findLast(event => event.type === 'turn/end')?.data.reason.kind).toBe('completed')
+      expect(stack.agent.session.snapshotEvents().filter(event => event.type === 'tool/code-dispatch')).toHaveLength(0)
+      expect(stack.agent.session.snapshotEvents().findLast(event => event.type === 'turn/end')?.data.reason.kind).toBe('completed')
     } finally { await stack.dispose() }
   })
 
@@ -78,7 +78,7 @@ describe('execution guard through the real Code Mode dispatch bridge', () => {
       stack.agent.followup(prompt())
       await stack.agent.whenIdle()
       expect(adapter.requests).toHaveLength(22)
-      expect(stack.agent.session.events.findLast(event => event.type === 'turn/end')?.data.reason)
+      expect(stack.agent.session.snapshotEvents().findLast(event => event.type === 'turn/end')?.data.reason)
         .toMatchObject({ kind: 'aborted', reason: { reason: expect.stringContaining('ping-pong') } })
       expect(adapter.requests[12]?.messages.some(message => JSON.stringify(message).includes('ping-pong: 5'))).toBe(true)
     } finally { await stack.dispose() }

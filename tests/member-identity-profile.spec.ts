@@ -121,6 +121,7 @@ describe('identity profile provisioning, persistence and compatibility', () => {
     const member = await domain.provisionMember(scope, team.id, 'captain-session', {
       name: 'painter', role: 'artist', sessionId: 'member-painter', provider: 'spawn',
       displayName: 'Pixel Painter', profession: 'Avatar artist', personality: 'Careful, meticulous',
+      biography: 'Explains visual choices and checks the original reference.',
       pixelAvatarSvg: PIXEL,
     })
     expect(member.pixelAvatarSvg).toBe(PIXEL)
@@ -137,6 +138,7 @@ describe('identity profile provisioning, persistence and compatibility', () => {
     expect(reloadedMember).toMatchObject({
       name: 'painter', displayName: 'Pixel Painter', profession: 'Avatar artist',
       personality: 'Careful, meticulous', pixelAvatarSvg: PIXEL,
+      biography: 'Explains visual choices and checks the original reference.',
     })
   })
 
@@ -151,6 +153,37 @@ describe('identity profile provisioning, persistence and compatibility', () => {
     // The stored aggregate validates as TeamState with the identity fields absent.
     const [stored] = await stack.store.list(scope)
     expect(() => assertTeamState(stored, 'stored')).not.toThrow()
+  })
+
+  it('normalizes a bounded biography independently and preserves it on a biography-only Captain', async () => {
+    expect(normalizeMemberIdentity({ biography: '  Reviews assumptions.  ' })).toEqual({ biography: 'Reviews assumptions.' })
+    expect(normalizeMemberIdentity({ biography: '  ' })).toEqual({})
+    expect(() => normalizeMemberIdentity({ biography: '😀'.repeat(1025) })).toThrowError(expect.objectContaining({ code: 'TEAM_MEMBER_IDENTITY_INVALID' }))
+    await open()
+    const team = await domain.createTeam(scope, 'captain-session', 'Biography team', 'Verify identity.')
+    const updated = await domain.setCaptainProfile(scope, team.id, 'captain-session', team.revision, { biography: 'Coordinates evidence-based reviews.' })
+    expect(updated.captainProfile).toEqual({ biography: 'Coordinates evidence-based reviews.' })
+    expect(() => assertTeamState(updated, 'biography-only Captain')).not.toThrow()
+  })
+
+  it('patches existing profiles with CAS while preserving member identity and unrelated fields', async () => {
+    await open()
+    let team = await domain.createTeam(scope, 'captain-session', 'Profile repair', 'Backfill legacy identities.')
+    const member = await domain.provisionMember(scope, team.id, 'captain-session', {
+      name: 'writer', role: 'writer', sessionId: 'writer-session', provider: 'spawn',
+      displayName: 'Writer', profession: 'Screenwriter', pixelAvatarSvg: PIXEL, assignedSkills: ['alpha'],
+    })
+    team = (await stack.store.list(scope))[0]!
+    const updated = await domain.setMemberProfile(scope, team.id, 'captain-session', team.revision, 'writer', { personality: 'Patient', biography: 'Builds character motives.' })
+    expect(updated.members[0]).toEqual({ ...member, personality: 'Patient', biography: 'Builds character motives.' })
+    await expect(domain.setMemberProfile(scope, team.id, 'captain-session', team.revision, 'writer', { biography: 'stale' })).rejects.toMatchObject({ code: 'TEAM_REVISION_CONFLICT' })
+    await expect(domain.setMemberProfile(scope, team.id, 'writer-session', updated.revision, 'writer', { biography: 'forged' })).rejects.toBeDefined()
+    let captain = await domain.setCaptainProfile(scope, team.id, 'captain-session', updated.revision, { displayName: 'Lead', profession: 'Editor' })
+    captain = await domain.setCaptainProfile(scope, team.id, 'captain-session', captain.revision, { biography: 'Checks coherence.' })
+    expect(captain.captainProfile).toEqual({ displayName: 'Lead', profession: 'Editor', biography: 'Checks coherence.' })
+    await stack.close()
+    stack = await openStorageStack(join(sandbox, 'storage'))
+    expect((await stack.store.list(scope))[0]?.members[0]).toEqual(updated.members[0])
   })
 
   it('rejects an unsafe pixel avatar at provisioning with no roster side effect', async () => {

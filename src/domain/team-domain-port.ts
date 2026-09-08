@@ -181,6 +181,11 @@ export interface TeamDomainPort {
     expectedRevision: number,
     input: MemberIdentityInput,
   ): Promise<TeamState>
+  /** Captain-only: patch an existing member's public identity with Team revision CAS. */
+  setMemberProfile(
+    scope: TeamScope, teamId: TeamId, captainSessionId: string,
+    expectedRevision: number, name: string, input: MemberIdentityInput,
+  ): Promise<TeamState>
   /** Captain-only: publish one bounded public announcement (expected_revision CAS). */
   publishAnnouncement(
     scope: TeamScope,

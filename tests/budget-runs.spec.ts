@@ -54,7 +54,7 @@ async function setBudget(composition: ModesComposition, limits: { requestLimit?:
 function billedTokensAfter(agent: Agent | undefined, afterSeq: number): number {
   if (agent === undefined) return 0
   let tokens = 0
-  for (const event of agent.session.events) {
+  for (const event of agent.session.snapshotEvents()) {
     if (event.seq <= afterSeq) continue
     if (event.type !== 'assistant/message' || event.data.usage === undefined) continue
     tokens += event.data.usage.inputTokens + event.data.usage.outputTokens
@@ -250,7 +250,7 @@ describe('Team budget across workflow runs (M2-5, issue #79)', () => {
     // usage cursor is seeded at this Team's creation, so only the lead's
     // LATER events can fold here (its earlier turns belong to the run Teams).
     const exec = { agent: lead, signal: AbortSignal.timeout(30_000) }
-    const leadSeqAtCreate = lead.session.events.at(-1)?.seq ?? -1
+    const leadSeqAtCreate = lead.session.snapshotEvents().at(-1)?.seq ?? -1
     const adaptive = await ctx.agentSwarm.create(exec, 'Adaptive team', 'Event-face wake accounting.')
     const member = await ctx.agentSwarm.addMember(exec, { name: 'awake-worker', role: 'worker' })
     const created = await ctx.agentSwarm.createTask(exec, {
@@ -406,7 +406,7 @@ describe('Team budget across workflow runs (M2-5, issue #79)', () => {
     for (const fiber of treeA.fibers.toReversed()) await fiber.dispose()
 
     // Tree B over the SAME storage root, SAME durable captain identity.
-    const treeB = await mountModesComposition(sandbox, { orchestrationMode: 'adaptive', workflowBridge: true, leadSessionId: leadId })
+    const treeB = await mountModesComposition(sandbox, { orchestrationMode: 'adaptive', workflowBridge: true, leadSessionId: leadId, resumeLead: true })
     compositions.push(treeB)
     const bridgeB = treeB.ctx.agentSwarm.workflowBridge!
     const domainB: TeamDomainPort = treeB.ctx.agentSwarm.domain
@@ -426,7 +426,7 @@ describe('Team budget across workflow runs (M2-5, issue #79)', () => {
     })
     await vi.waitFor(async () => {
       const overlay = bridgeB.overlay.get(run2.id)
-      expect(overlay).toMatchObject({ state: 'running' })
+      expect(overlay, overlay?.error).toMatchObject({ state: 'running' })
       const team = await teamOf(treeB, domainB, scopeB, overlay!.teamId)
       expect(team.tasks[0]).toMatchObject({ status: 'pending' })
       expect(treeB.ctx.agents.get(SessionId(team.members[0]!.sessionId))?.status).toBe('running')
@@ -449,7 +449,7 @@ describe('Team budget across workflow runs (M2-5, issue #79)', () => {
     const memberAgent = treeB.ctx.agents.get(SessionId(owner))
     expect(memberAgent).toBeDefined()
     const entries: Array<{ eventSeq: number; tokens: number }> = []
-    for (const event of memberAgent!.session.events) {
+    for (const event of memberAgent!.session.snapshotEvents()) {
       if (event.type !== 'assistant/message') continue
       const usage = event.data.usage
       if (usage === undefined) continue
