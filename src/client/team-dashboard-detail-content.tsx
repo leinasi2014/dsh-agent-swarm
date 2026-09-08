@@ -1,5 +1,5 @@
 /** Stateless view sections; selection and focus ownership remain in Workspace. */
-import { Button, IconCloseOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useId, type KeyboardEvent, type RefObject } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SwarmHostReadProjectionV1 } from '../host/host-read-types.js'
@@ -23,22 +23,22 @@ export function ManageView({ data, memberAssets, number, onManageViaCaptain, onO
     </div>
     <div className="swarm-team-workspace__manage-row" data-swarm-manage-growth>
       <span className="swarm-team-workspace__table-copy"><strong>{t('manage.growthTitle')}</strong><small>{t('manage.growthDesc')}</small></span>
-      <button className="swarm-team-workspace__manage-action" type="button" aria-haspopup="dialog" onClick={() => { onOpenDetail({ kind: 'growth' }) }}>{t('manage.open')}</button>
+      <button className="swarm-team-workspace__manage-action" type="button" onClick={() => { onOpenDetail({ kind: 'growth' }) }}>{t('manage.open')}</button>
     </div>
     <div className="swarm-team-workspace__manage-row" data-swarm-manage-overview>
       <span className="swarm-team-workspace__table-copy"><strong>{t('manage.overviewTitle')}</strong><small>{t('manage.overviewDesc')}</small></span>
-      <button className="swarm-team-workspace__manage-action" type="button" aria-haspopup="dialog" onClick={() => { onOpenDetail({ kind: 'overview' }) }}>{t('manage.open')}</button>
+      <button className="swarm-team-workspace__manage-action" type="button" onClick={() => { onOpenDetail({ kind: 'overview' }) }}>{t('manage.open')}</button>
     </div>
     <div className="swarm-team-workspace__manage-row" data-swarm-manage-diagnostics>
       <span className="swarm-team-workspace__table-copy"><strong>{t('diagnostics')}</strong><small>{t('manage.diagnosticsDesc')}</small></span>
-      <button className="swarm-team-workspace__manage-action" type="button" aria-haspopup="dialog" onClick={() => { onOpenDetail({ kind: 'diagnostics' }) }}>{t('manage.open')}</button>
+      <button className="swarm-team-workspace__manage-action" type="button" onClick={() => { onOpenDetail({ kind: 'diagnostics' }) }}>{t('manage.open')}</button>
     </div>
     {/* Member growth is the only real growth projection available; it also backs the growth overlay. */}
     <p className="swarm-team-workspace__contact-note">{memberAssets === undefined ? t('loading') : t('manageViaCaptainHint')}</p>
   </div>
 }
 
-export function DetailOverlay({ detail, data, localeTag, number, headingRef, memberAssets, diagnostics, onClose, onKeyDown, t }: {
+export function DetailView({ detail, data, localeTag, number, headingRef, memberAssets, diagnostics, onClose, onKeyDown, t }: {
   readonly detail: DetailSelection
   readonly data: SwarmHostReadProjectionV1
   readonly localeTag: () => 'zh-CN' | 'en-US'
@@ -52,16 +52,13 @@ export function DetailOverlay({ detail, data, localeTag, number, headingRef, mem
 }) {
   const heading = detailHeading(detail, data, t)
   const headingId = useId()
-  // Basic focus trap: Tab/Shift+Tab cycles inside the dialog so keyboard focus never escapes
-  // the overlay while it is open; Escape/close restore focus to the trigger (or the active tab).
-
-  return <div className="swarm-team-workspace__detail-overlay" role="dialog" aria-modal="true" aria-labelledby={headingId} data-swarm-detail-overlay data-swarm-detail-kind={detail.kind} onKeyDown={event => { onTabCycle(event); onKeyDown(event) }}>
+  return <div className="swarm-team-workspace__detail-view" role="region" aria-labelledby={headingId} data-swarm-detail-view data-swarm-detail-kind={detail.kind} onKeyDown={onKeyDown}>
     <header className="swarm-team-workspace__detail-head">
+      <Button size="sm" variant="ghost" aria-label={t('detail.back')} data-swarm-detail-back onClick={onClose}><span aria-hidden="true">←</span> {t('detail.back')}</Button>
       <div className="swarm-team-workspace__truncate">
         <h3 className="swarm-team-workspace__detail-title" id={headingId} ref={headingRef} tabIndex={-1}>{heading.title}</h3>
         <small className="swarm-team-workspace__detail-sub">{heading.sub}</small>
       </div>
-      <Button size="sm" variant="toolbar" aria-label={t('backToMembers')} title={t('backToMembers')} data-swarm-detail-back onClick={onClose}><IconCloseOutline16 /></Button>
     </header>
     <div className="swarm-team-workspace__detail-body">
       {detail.kind === 'member' ? <MemberDetail detail={detail} data={data} localeTag={localeTag} memberAssets={memberAssets} t={t} />
@@ -87,7 +84,7 @@ function detailHeading(detail: DetailSelection, data: SwarmHostReadProjectionV1,
   return { title: t('diagnostics'), sub: data.team.name }
 }
 
-/** Overlay member detail. Every field renders its real read value or the explicit
+/** Inline member detail. Every field renders its real read value or the explicit
  *  "not available yet" marker — never a fabricated profile, skill, tool or model claim. */
 export function MemberDetail({ detail, data, localeTag, memberAssets, t }: {
   readonly detail: { readonly kind: 'member'; readonly name: string }
@@ -133,13 +130,15 @@ export function MemberDetail({ detail, data, localeTag, memberAssets, t }: {
         </span>
       </div>
       <dl className="swarm-team-workspace__field-list">
-        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.name')}</dt><dd>{displayName}</dd></div>
-        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.isCaptain')}</dt><dd>{t('detail.no')}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('memberRole')}</dt><dd data-swarm-detail-role>{member.role}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('profileProfession')}</dt><dd data-swarm-detail-profession>{generated && asset.profession !== undefined ? asset.profession : unavailable}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('profilePersonality')}</dt><dd data-swarm-detail-personality>{value(generated && asset.personality !== undefined ? asset.personality : undefined)}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.intro')}</dt><dd data-swarm-detail-biography>{value(generated ? asset.biography : undefined)}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.model')}</dt><dd data-swarm-detail-model>{compositionValue(composition?.model)}</dd></div>
+      </dl>
+      <details className="swarm-team-workspace__fold" data-swarm-runtime-details>
+        <summary>{t('detail.runtime')}</summary>
+        <dl className="swarm-team-workspace__field-list">
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.provider')}</dt><dd data-swarm-detail-provider>{value(composition?.runtimeProvider)}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.llmProvider')}</dt><dd data-swarm-detail-llm-provider>{compositionValue(composition?.llmProvider)}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.preset')}</dt><dd data-swarm-detail-preset>{compositionValue(composition?.presetId)}</dd></div>
@@ -149,37 +148,35 @@ export function MemberDetail({ detail, data, localeTag, memberAssets, t }: {
           <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.compositionReason')}</dt><dd data-swarm-detail-composition-reason>{composition.reason}</dd></div>
         </> : null}
       </dl>
+      </details>
     </div>
-    <div className="swarm-team-workspace__detail-section" data-swarm-detail-skills>
-      <h4>{t('detail.section.skills')}</h4>
+    <details className="swarm-team-workspace__detail-section" data-swarm-detail-skills>
+      <summary>{t('detail.section.skills')}</summary>
       <dl className="swarm-team-workspace__field-list">
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.teamAllowed')}</dt><dd data-swarm-detail-team-allowed>{memberAssets?.teamAllowedSkills === undefined ? unavailable : memberAssets.teamAllowedSkills.length === 0 ? t('detail.field.none') : memberAssets.teamAllowedSkills.join(', ')}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.skills')}</dt><dd data-swarm-detail-skills-value>{asset.skills === undefined ? unavailable : asset.skills.length === 0 ? t('detail.field.none') : asset.skills.join(', ')}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.assignedSkills')}</dt><dd data-swarm-detail-assigned-skills>{asset.assignedSkills === undefined ? unavailable : asset.assignedSkills.length === 0 ? t('detail.field.none') : asset.assignedSkills.join(', ')}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.tools')}</dt><dd data-swarm-detail-callable-tools>{asset.callableTools === undefined ? unavailable : asset.callableTools.length === 0 ? t('detail.field.none') : asset.callableTools.join(', ')}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.deniedTools')}</dt><dd data-swarm-detail-denied-tools>{composition !== undefined && compositionReady ? (composition.deniedTools === undefined ? unavailable : composition.deniedTools.length === 0 ? t('detail.field.none') : composition.deniedTools.join(', ')) : unavailable}</dd></div>
-        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.permissions')}</dt><dd>{unavailable}</dd></div>
       </dl>
-    </div>
+    </details>
     <div className="swarm-team-workspace__detail-section" data-swarm-detail-task>
       <h4>{t('detail.section.currentTask')}</h4>
       <dl className="swarm-team-workspace__field-list">
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('tasks')}</dt><dd data-swarm-detail-task-subject>{currentTask?.subject ?? asset.currentActivity?.subject ?? t('memberNone')}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('status')}</dt><dd data-swarm-detail-task-status>{currentTask !== undefined ? enumLabel(currentTask.status, t) : asset.currentActivity !== undefined ? enumLabel(asset.currentActivity.status, t) : t('memberNone')}</dd></div>
-        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.progress')}</dt><dd>{unavailable}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.started')}</dt><dd data-swarm-detail-task-started>{value(currentTask !== undefined && activity.attempt !== undefined ? formatTime(activity.attempt.createdAt, localeTag) : undefined)}</dd></div>
-        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.due')}</dt><dd>{unavailable}</dd></div>
       </dl>
     </div>
-    <div className="swarm-team-workspace__detail-section" data-swarm-detail-growth>
-      <h4>{t('detail.section.growth')}</h4>
+    <details className="swarm-team-workspace__detail-section" data-swarm-detail-growth>
+      <summary>{t('detail.section.growth')}</summary>
       <dl className="swarm-team-workspace__field-list">
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.recentTask')}</dt><dd data-swarm-detail-recent-attempt>{activity.attempt !== undefined ? `${activity.attempt.phase} · ${formatTime(activity.attempt.updatedAt, localeTag) ?? ''}` : unavailable}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.recentOutput')}</dt><dd data-swarm-detail-recent-outcome>{asset.recentOutcome !== undefined ? `${asset.recentOutcome.phase} · ${formatTime(asset.recentOutcome.at, localeTag) ?? ''}` : unavailable}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('growthTitle')}</dt><dd data-swarm-detail-growth-summary>{asset.growthSummary === undefined ? unavailable : asset.growthSummary === '' ? t('detail.field.none') : asset.growthSummary}</dd></div>
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.memory')}</dt><dd data-swarm-detail-memory>{t('growthMemoryPrivate')}</dd></div>
       </dl>
-    </div>
+    </details>
     {/* Ordinary members have no direct chat capability in the current base; the honest disabled
         note explains the Captain coordination path instead of a fabricated contact action. */}
     <p className="swarm-team-workspace__contact-note" data-swarm-contact-disabled>{t('detail.contactDisabled')}</p>
@@ -269,15 +266,3 @@ function DiagnosticsDetail({ data, diagnostics, number, t }: {
 }
 
 function Facts({ rows }: { readonly rows: readonly (readonly [string, string])[] }) { return <dl className="swarm-team-workspace__facts">{rows.map(([label, value]) => <div className="swarm-team-workspace__fact" key={label}><dt>{label}</dt><dd title={value}>{value}</dd></div>)}</dl> }
-
-function onTabCycle(event: KeyboardEvent<HTMLDivElement>): void {
-  if (event.key !== 'Tab') return
-  const focusables = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])')].filter(element => element.offsetParent !== null || element === document.activeElement)
-  if (focusables.length === 0) return
-  const first = focusables[0]!
-  const last = focusables[focusables.length - 1]!
-  const activeIndex = focusables.indexOf(document.activeElement as HTMLElement)
-  event.preventDefault()
-  if (event.shiftKey) (activeIndex <= 0 ? last : focusables[activeIndex - 1]!).focus()
-  else (activeIndex === -1 || activeIndex === focusables.length - 1 ? first : focusables[activeIndex + 1]!).focus()
-}

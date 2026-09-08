@@ -9,6 +9,15 @@ export const NOT_GENERATED_AVATAR: SwarmReadAssetStatusV1 = { state: 'not_genera
 const NOT_GENERATED_IDENTITY: SwarmReadAssetStatusV1 = { state: 'not_generated', reason: 'identity_backend_not_implemented' }
 
 export type DeskTone = 'standby' | 'executing' | 'pending' | 'failed' | 'offline'
+export type TaskProgressState = 'completed' | 'running' | 'review' | 'blocked' | 'ready' | 'failed' | 'cancelled'
+
+/** Counts visible canonical tasks; callers disclose truncation before showing a total. */
+export function taskProgressState(task: SwarmHostReadProjectionV1['tasks'][number], tasks: SwarmHostReadProjectionV1['tasks']): TaskProgressState {
+  if (task.status === 'in_progress') return 'running'
+  if (task.status === 'submitted' || task.status === 'verifying') return 'review'
+  if (task.status === 'pending') return task.blockedBy.some(id => tasks.find(candidate => candidate.id === id)?.status !== 'completed') ? 'blocked' : 'ready'
+  return task.status
+}
 export type DetailSelection =
   | { readonly kind: 'member'; readonly name: string }
   | { readonly kind: 'task'; readonly id: string }

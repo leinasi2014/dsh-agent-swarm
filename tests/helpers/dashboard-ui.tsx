@@ -40,7 +40,7 @@ export class FakeCoordinator {
 }
 export const controller = { getSnapshot: (): TeamDashboardState => ready, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
 export async function render(node: ReactNode): Promise<void> { const root = createRoot(document.body.appendChild(document.createElement('div'))); mounted.push(root); await act(async () => { root.render(node) }) }
-export const detailOverlay = (): HTMLElement | null => document.querySelector<HTMLElement>('[data-swarm-detail-overlay]')
+export const detailOverlay = (): HTMLElement | null => document.querySelector<HTMLElement>('[data-swarm-detail-view]')
 export const pressEscape = async (): Promise<void> => { await act(async () => { detailOverlay()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) }); await Promise.resolve() }
 export const tabButton = (id: string): HTMLButtonElement => document.querySelector<HTMLButtonElement>(`[data-swarm-view-tab="${id}"]`)!
 afterEach(async () => { while (mounted.length) await act(async () => { mounted.pop()?.unmount() }); document.body.replaceChildren(); vi.clearAllMocks() })

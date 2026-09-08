@@ -201,8 +201,9 @@ describe('roster/Captain interaction slice', () => {
     expect(captain.textContent).not.toContain('Fixture Captain')
     // No personal projection cannot turn the Captain into an unavailable placeholder: the card
     // truthfully exposes the separate Captain Session navigation.
-    expect(captain.querySelector('[data-swarm-captain-state]')?.textContent).toBe(t('captainOpenSession'))
-    expect(captain.getAttribute('data-swarm-tone')).toBe('offline')
+    expect(captain.querySelector('[data-swarm-captain-state]')?.getAttribute('data-swarm-captain-state')).toBe(t('captainOpenSession'))
+    // Missing identity does not establish the Captain's runtime state.
+    expect(captain.getAttribute('data-swarm-tone')).toBeNull()
     // The click remains the honest Captain Chat handoff.
     await act(async () => { captain.click(); await Promise.resolve() })
     expect(coordinator.openCaptainChat).toHaveBeenCalledTimes(1)

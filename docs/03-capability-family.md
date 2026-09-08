@@ -43,7 +43,7 @@ AgentSwarmRuntime
 | Workflow/Jobs | official Workflow bridge + caller-scoped jobs projection | 可选、显式启用；唯一 Consumer seam 是 `ctx.agentSwarmWorkflow.start(request)`，仅委托同一 bridge，不提供激活/销毁权限；disabled/unload 时服务缺席，默认官方 `workflowEngine` 不变。`runtime.workflowBridge` 是内部实现细节；jobs 是 read projection，不影子注册官方 producer |
 | Execution root | execution-root Provider | 可选 per-attempt 物理 root、capability 声明、settlement 和 residue 告警 |
 | Host/RPC | Host read service + `/swarm/v1` | target-bound、bounded、redacted、read-only、loopback/same-origin fail-closed |
-| UI | official Client slots / Session navigation / Settings | Workbench、Tasks、Announcements、Management、overlay、Captain Chat、设置页 |
+| UI | official Client slots / Session navigation / Settings | Workbench、Tasks、Announcements、Management、栏内详情、Captain Chat、设置页 |
 
 ## 3. 模型工具面
 
@@ -66,7 +66,9 @@ Workbench 消费同一 read contract：
 
 - Team rail 支持 Main Brain 管理的多 Team 原位切换；
 - 公开目标、公告、成员 identity、Skills/tools、任务/attempt、budget 和 activity 都来自权威 projection；
-- Captain/member 或 task detail 以 overlay 展示；
+- 概览按 canonical task status 汇总完成、执行、待审核、等待依赖、待领取、失败和取消；截断时标记已显示范围，不伪造总体完成比例；
+- Captain → member → 当前 task/attempt 构成可读执行树；旧 attempt 不得投影为当前工作，复用现有任务依赖图并连接任务详情；
+- 成员或 task detail 在官方 Details 栏内替换概览，返回时恢复原入口焦点；身份、模型、Skills、预算与诊断按需展开，不使用遮罩层；
 - “打开 Captain Chat”调用官方 Session navigation；
 - direct browser Team writes 仍 unavailable，不以自由文本或缓存冒充 Control。
 

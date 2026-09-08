@@ -23,7 +23,7 @@ const t: TranslateNS<typeof TEAM_DASHBOARD_NS> = ((key: keyof typeof en, params?
 
 async function render(node: ReactNode): Promise<void> { const root = createRoot(document.body.appendChild(document.createElement('div'))); mounted.push(root); await act(async () => { root.render(node) }) }
 afterEach(async () => { while (mounted.length) await act(async () => { mounted.pop()?.unmount() }); document.body.replaceChildren(); vi.clearAllMocks() })
-const overlay = (): HTMLElement => document.querySelector<HTMLElement>('[data-swarm-detail-overlay]')!
+const overlay = (): HTMLElement => document.querySelector<HTMLElement>('[data-swarm-detail-view]')!
 const tabButton = (id: string): HTMLButtonElement => document.querySelector<HTMLButtonElement>(`[data-swarm-view-tab="${id}"]`)!
 
 const safeSvg = '<svg viewBox="0 0 8 8"><rect x="0" y="0" width="8" height="8" fill="#2a3"/><rect x="2" y="2" width="4" height="4" fill="#fff" opacity="0.5"/></svg>'
@@ -146,7 +146,8 @@ describe('member rows consume real captainMembers identity data', () => {
     // The overlay detail is the only surface for personality and separated role/profession facts.
     await act(async () => { row.click() })
     const detail = overlay()
-    expect(detail.getAttribute('role')).toBe('dialog')
+    expect(detail.getAttribute('role')).toBe('region')
+    expect(detail.hasAttribute('aria-modal')).toBe(false)
     expect(detail.textContent).toContain('Careful, meticulous')
     // Authoritative technical role (from the roster projection) and Captain-declared
     // profession are separate rows.

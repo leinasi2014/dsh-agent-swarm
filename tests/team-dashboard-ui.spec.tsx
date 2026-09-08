@@ -49,6 +49,12 @@ describe('R3 native Team Details surface', () => {
     expect(document.querySelectorAll('[data-swarm-dag-node]')).toHaveLength(3)
     expect(document.querySelectorAll('[data-swarm-dag-edge]')).toHaveLength(2)
     expect(document.querySelector('[data-swarm-dag-node="t3"]')?.getAttribute('data-swarm-dag-tone')).toBe('open')
+    const taskEntry = document.querySelector<HTMLButtonElement>('[data-swarm-dag-node="t3"]')!
+    taskEntry.focus()
+    await act(async () => { taskEntry.click() })
+    expect(document.querySelector('[data-swarm-detail-view] [data-swarm-task-detail]')).not.toBeNull()
+    await pressEscape()
+    expect(document.activeElement).toBe(taskEntry)
   })
 
   it('renders the attention card from pending human interactions', async () => {
@@ -125,8 +131,8 @@ describe('R3 native Team Details surface', () => {
 
     async function mountPanelAt(width: number): Promise<void> {
       await page.setViewportSize({ width, height: 800 })
-      await page.setContent(`<!doctype html><html><head><style>${shellCss}</style></head><body>
-        <div data-swarm-team-dashboard data-swarm-team-panel><button data-swarm-member-name="worker" type="button" style="width:140px;height:32px">worker</button></div>
+      await page.setContent(`<!doctype html><html><head><style>body{margin:0}.host{display:grid;grid-template-columns:minmax(0,1fr) 360px;height:800px}.details{min-width:0;overflow:hidden}${shellCss}</style></head><body>
+        <div class="host"><main>Chat</main><aside class="details"><div data-swarm-team-dashboard data-swarm-team-panel><button data-swarm-member-name="worker" type="button" style="width:140px;height:32px">worker</button></div></aside></div>
       </body></html>`)
     }
 
@@ -147,25 +153,12 @@ describe('R3 native Team Details surface', () => {
       })
     }
 
-    it.each([813, 995] as const)('%spx: Team panel computed position=fixed with all four insets 0, fully covering the viewport (overlay), member button in-viewport and clickable', async (width) => {
-      await mountPanelAt(width)
-      const g = await panelComputed()
-      expect(g.position).toBe('fixed')
-      expect(g.top).toBe('0px'); expect(g.right).toBe('0px'); expect(g.bottom).toBe('0px'); expect(g.left).toBe('0px')
-      expect(g.rect).not.toBeNull()
-      expect(g.rect!.x).toBeCloseTo(0, 5); expect(g.rect!.y).toBeCloseTo(0, 5)
-      expect(g.rect!.width).toBeCloseTo(width, 5); expect(g.rect!.height).toBeCloseTo(800, 5)
-      expect(g.memberBox).not.toBeNull()
-      const mb = g.memberBox!
-      expect(mb.x).toBeGreaterThanOrEqual(0); expect(mb.y).toBeGreaterThanOrEqual(0)
-      expect(mb.x + mb.width).toBeLessThanOrEqual(g.innerWidth); expect(mb.y + mb.height).toBeLessThanOrEqual(g.innerHeight)
-      await page.click('[data-swarm-member-name="worker"]')
-    })
-
-    it.each([996, 1280] as const)('%spx: Team panel stays computed position=static on the official dock/desktop-collapse path (media query not matched), member button in-viewport and clickable', async (width) => {
+    it.each([813, 995, 996, 1280] as const)('%spx: Team content remains inside the host Details column and its member button is clickable', async (width) => {
       await mountPanelAt(width)
       const g = await panelComputed()
       expect(g.position).toBe('static')
+      expect(g.rect!.x).toBe(width - 360)
+      expect(g.rect!.width).toBe(360)
       expect(g.memberBox).not.toBeNull()
       const mb = g.memberBox!
       expect(mb.x).toBeGreaterThanOrEqual(0); expect(mb.y).toBeGreaterThanOrEqual(0)
@@ -242,9 +235,9 @@ describe('R3 native Team Details surface', () => {
     const coordinator = new FakeCoordinator(); const common = { anchorRef: { current: null }, controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root' }
     const root = createRoot(document.body.appendChild(document.createElement('div'))); mounted.push(root)
     await act(async () => { root.render(<TeamDashboardDetails {...({ ...common, t } as any)} />) })
-    expect(document.body.textContent).toContain('Read-only Team workspace for this main Chat.')
+    expect(document.body.textContent).toContain('Overview'); expect(document.body.textContent).toContain('Active')
     await act(async () => { root.render(<TeamDashboardDetails {...({ ...common, t: tZh } as any)} />) })
-    expect(document.body.textContent).toContain('当前主聊天的只读团队工作区。'); expect(document.body.textContent).toContain('活跃')
+    expect(document.body.textContent).toContain('概览'); expect(document.body.textContent).toContain('活跃')
   })
 
   it('derives display-only initials from an NFC grapheme cluster without storing a profile', () => {
@@ -252,7 +245,7 @@ describe('R3 native Team Details surface', () => {
     expect(memberRosterInitial('👩🏽‍💻 builder')).toBe('👩🏽‍💻')
   })
 
-  it('opens the member detail as an in-sidebar overlay dialog, closes on Escape with focus restore, and recovers from a removed member', async () => {
+  it('opens member details inline in the fixed sidebar, returns with focus restore, and recovers from a removed member', async () => {
     const coordinator = new FakeCoordinator()
     let projection = {
       ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot,
@@ -271,10 +264,10 @@ describe('R3 native Team Details surface', () => {
     const memberTrigger = document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!
     memberTrigger.focus()
     await act(async () => { memberTrigger.click() })
-    // The detail is an overlay dialog inside the sidebar, not content stacked below the page.
+    // The detail replaces the browse view within the same sidebar.
     const overlay = detailOverlay()!
-    expect(overlay.getAttribute('role')).toBe('dialog')
-    expect(overlay.getAttribute('aria-modal')).toBe('true')
+    expect(overlay.getAttribute('role')).toBe('region')
+    expect(overlay.hasAttribute('aria-modal')).toBe(false)
     const headingId = overlay.getAttribute('aria-labelledby')!
     expect(headingId).not.toBe('')
     expect(document.getElementById(headingId)?.textContent).toBe('Member: worker')
@@ -283,10 +276,10 @@ describe('R3 native Team Details surface', () => {
     expect(overlay.textContent).toContain('Not available yet')
     expect(overlay.textContent).toContain('No current task')
     const back = overlay.querySelector<HTMLButtonElement>('[data-swarm-detail-back]')!
-    expect(back.getAttribute('aria-label')).toBe('Back to members')
-    expect(back.querySelector('[data-icon="close"]')).not.toBeNull()
-    expect(shellCss).toContain('.swarm-team-workspace__detail-overlay { position:absolute; inset:0;')
-    expect(shellCss).not.toContain('inset:0 0 0 46px')
+    expect(back.getAttribute('aria-label')).toBe('Back')
+    expect(back.textContent).toContain('←')
+    expect(document.querySelector<HTMLElement>('[data-swarm-workbench-browse]')?.hidden).toBe(true)
+    expect(shellCss).not.toContain('position:absolute; inset:0;')
     await act(async () => { back.click() })
     expect(detailOverlay()).toBeNull()
     expect(document.activeElement).toBe(memberTrigger)
