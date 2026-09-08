@@ -34,7 +34,7 @@
 
 目标：把当前宽广实现收敛为可维护的稳定核心。
 
-- 冻结 Main Brain/Captain/Member identity topology、26 工具 schema、Team aggregate 和 read RPC v1。
+- 冻结 Main Brain/Captain/Member identity topology、公开工具 schema、Team aggregate 和 read RPC v1。
 - 删除或合并重复入口、旧 alias 和无真实 Consumer 的 speculative seam。
 - 为 Skills、tools、model route、settings 和 multi-Team projection 建立一致的 bounded contract。
 - 确认每个 optional Provider 的启用条件、capability disclosure、disposer 和 fail-closed 错误。

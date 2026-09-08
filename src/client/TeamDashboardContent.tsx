@@ -78,8 +78,9 @@ export const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace__manage { display:grid; gap:8px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__manage-row { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:8px; min-width:0; padding:9px 10px; border:1px solid var(--dsw-alias-border-l2); border-radius:10px; background:var(--dsw-alias-bg-layer-1); }
 [data-swarm-team-dashboard] .swarm-team-workspace__manage-action { flex:0 0 auto; padding:4px 10px; border:1px solid color-mix(in srgb, var(--dsw-alias-state-business-primary) 35%, var(--dsw-alias-border-l2)); border-radius:8px; background:transparent; color:var(--dsw-alias-state-business-primary); font-size:12px; cursor:pointer; white-space:nowrap; }
-[data-swarm-team-dashboard] .swarm-team-workspace__detail-view { display:grid; flex:1; grid-template-rows:auto minmax(0,1fr); min-height:0; background:var(--dsw-alias-bg-base); }
+[data-swarm-team-dashboard] .swarm-team-workspace__detail-view { display:grid; flex:1; grid-template-columns:minmax(0,1fr); grid-template-rows:auto minmax(0,1fr); min-width:0; min-height:0; background:var(--dsw-alias-bg-base); }
 [data-swarm-team-dashboard] .swarm-team-workspace__detail-head { display:flex; flex:0 0 auto; align-items:center; justify-content:flex-start; gap:10px; padding:10px 12px; border-bottom:1px solid var(--dsw-alias-border-l2); }
+[data-swarm-team-dashboard] [data-swarm-detail-back] { flex:none; white-space:nowrap; }
 [data-swarm-team-dashboard] .swarm-team-workspace__detail-title { margin:0; overflow:hidden; font-size:14px; line-height:22px; font-weight:650; white-space:nowrap; text-overflow:ellipsis; }
 [data-swarm-team-dashboard] .swarm-team-workspace__detail-sub { display:block; overflow:hidden; margin-top:1px; color:var(--dsw-alias-label-secondary); font-size:12px; white-space:nowrap; text-overflow:ellipsis; }
 [data-swarm-team-dashboard] .swarm-team-workspace__detail-body { min-height:0; padding:16px; overflow:auto; scrollbar-width:thin; }
@@ -310,6 +311,7 @@ function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, sta
         </div>
         <Button size="sm" variant="toolbar" aria-label={t('close')} title={t('close')} onClick={onClose}><IconCloseOutline16 /></Button>
       </header>
+      <Status state={state} t={t} />
       <div className="swarm-team-workspace__browse" data-swarm-workbench-browse hidden={detail !== undefined}>
       <div className="swarm-team-workspace__public-bar" data-swarm-public-bar>
         <section className="swarm-team-workspace__public-card" data-swarm-goal-card data-swarm-goal-state={goal?.state ?? 'loading'}>
@@ -377,7 +379,6 @@ function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, sta
         ))}
       </div>
       <main className="swarm-team-workspace__pane-body">
-        <Status state={state} t={t} />
         {view === 'workspace' && <div role="tabpanel" id="swarm-panel-workspace" aria-labelledby="swarm-tab-workspace" data-swarm-panel="workspace">
           <div className="swarm-team-workspace__block-head"><span>{t('workspace.desks')}</span><small>{t('progress.memberCount', { count: number.format(data.totals.roster) })}</small></div>
           <section className="swarm-team-workspace__workroom" aria-label={t('workspace.desks')} data-swarm-workroom>
@@ -526,7 +527,7 @@ function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, sta
 
 /** The bar measures completed tasks, never an estimate of a model's internal progress. */
 function TeamProgress({ data, number, t }: { readonly data: SwarmHostReadProjectionV1; readonly number: Intl.NumberFormat; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
-  const counts: Record<TaskProgressState, number> = { completed: 0, running: 0, review: 0, blocked: 0, ready: 0, failed: 0, cancelled: 0 }
+  const counts: Record<TaskProgressState, number> = { completed: 0, running: 0, review: 0, blocked: 0, unknown: 0, ready: 0, failed: 0, cancelled: 0 }
   for (const task of data.tasks) counts[taskProgressState(task, data.tasks)] += 1
   const partial = data.truncated.tasks || data.tasks.length !== data.totals.tasks
   const states = Object.entries(counts) as [TaskProgressState, number][]

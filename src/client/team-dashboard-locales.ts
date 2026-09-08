@@ -237,6 +237,7 @@ export const en = {
   'progress.running': 'Running',
   'progress.review': 'Awaiting review',
   'progress.blocked': 'Waiting on dependencies',
+  'progress.unknown': 'Dependency state unavailable',
   'progress.ready': 'Ready',
   'progress.failed': 'Failed',
   'progress.cancelled': 'Cancelled',
@@ -483,6 +484,7 @@ export const zh: Record<keyof typeof en, string> = {
   'progress.running': '执行中',
   'progress.review': '待审核',
   'progress.blocked': '等待依赖',
+  'progress.unknown': '依赖状态待确认',
   'progress.ready': '待领取',
   'progress.failed': '失败',
   'progress.cancelled': '已取消',
@@ -493,5 +495,4 @@ export const zh: Record<keyof typeof en, string> = {
 }
 
 export type TeamDashboardKey = keyof typeof en
-
 

@@ -12,10 +12,12 @@ const task = (id: string, status: Task['status'], extra: Partial<Task> = {}): Ta
 })
 async function mount(extra: Partial<SwarmHostReadProjectionV1>) {
   const projection = { ...ready.data!.projection, ...extra }
-  const state: TeamDashboardState = { ...ready, data: teamData(ready.data!.capabilities, projection) }
+  let state: TeamDashboardState = { ...ready, data: teamData(ready.data!.capabilities, projection) }
+  let notify = () => {}
   const coordinator = new FakeCoordinator()
-  const controller = { getSnapshot: () => state, subscribe: () => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+  const controller = { getSnapshot: () => state, subscribe: (listener: () => void) => { notify = listener; return () => {} }, refresh: vi.fn(), reconnect: vi.fn() }
   await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+  return { update: (patch: Partial<TeamDashboardState>) => { state = { ...state, ...patch }; notify() } }
 }
 
 describe('at-a-glance Team progress and execution hierarchy', () => {
@@ -36,6 +38,27 @@ describe('at-a-glance Team progress and execution hierarchy', () => {
     await mount({ tasks: [task('done', 'completed'), task('run', 'in_progress')], totals: { ...ready.data!.projection.totals, tasks: 19 }, truncated: { ...ready.data!.projection.truncated, tasks: true } })
     expect(document.querySelector('[data-swarm-progress-partial]')?.textContent).toContain('2 of 19')
     expect(document.querySelector('[role="progressbar"]')).toBeNull()
+  })
+
+  it('keeps an omitted dependency unknown unless a visible dependency proves the task blocked', async () => {
+    await mount({ tasks: [task('unknown', 'pending', { blockedBy: ['omitted'] }), task('busy', 'in_progress'), task('blocked', 'pending', { blockedBy: ['omitted', 'busy'] })], totals: { ...ready.data!.projection.totals, tasks: 200 }, truncated: { ...ready.data!.projection.truncated, tasks: true } })
+    expect(document.querySelector('[data-swarm-progress-state="unknown"]')?.getAttribute('data-count')).toBe('1')
+    expect(document.querySelector('[data-swarm-progress-state="blocked"]')?.getAttribute('data-count')).toBe('1')
+    expect(document.querySelector('[data-swarm-progress-state="ready"]')).toBeNull()
+  })
+
+  it('keeps stale and reconnecting warnings visible when an open detail retains cached data', async () => {
+    const mounted = await mount({ roster: [{ name: 'worker', role: 'Verifier', phase: 'active', createdAt: 1 }] })
+    await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!.click() })
+    await act(async () => { mounted.update({ phase: 'stale', error: { code: 'SWARM_UI_READ_FAILED', message: 'connection lost' } }) })
+    const warning = document.querySelector('[role="alert"]')!
+    expect(warning.textContent).toContain('connection lost')
+    expect(warning.closest('[hidden]')).toBeNull()
+    expect(document.querySelector('[data-swarm-detail-view]')).not.toBeNull()
+    await act(async () => { mounted.update({ phase: 'reconnecting' }) })
+    const reconnecting = document.querySelector('[role="status"]')!
+    expect(reconnecting.textContent).toContain('Reconnecting')
+    expect(reconnecting.closest('[hidden]')).toBeNull()
   })
 
   it('connects the current member task to inline details and ignores a stale running attempt', async () => {

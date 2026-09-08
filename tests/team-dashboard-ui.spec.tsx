@@ -165,6 +165,26 @@ describe('R3 native Team Details surface', () => {
       expect(mb.x + mb.width).toBeLessThanOrEqual(g.innerWidth); expect(mb.y + mb.height).toBeLessThanOrEqual(g.innerHeight)
       await page.click('[data-swarm-member-name="worker"]')
     })
+
+    it.each([300, 520])('%spx Details keeps long member information inside its scrollable body', async (width) => {
+      const projection = { ...ready.data!.projection, roster: [{ name: 'worker', role: 'Long authoritative role with 中文内容 '.repeat(20), phase: 'active', createdAt: 1 }], totals: { ...ready.data!.projection.totals, roster: 1 } }
+      const state: TeamDashboardState = { ...ready, data: teamData(ready.data!.capabilities, projection) }
+      const coordinator = new FakeCoordinator()
+      const controller = { getSnapshot: () => state, subscribe: () => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
+      await render(<TeamDashboardDetails {...({ controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+      await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!.click() })
+      await page.setViewportSize({ width: 1100, height: 800 })
+      await page.setContent(`<div style="width:${width}px;height:700px">${document.querySelector('[data-swarm-team-panel]')!.outerHTML}</div>`)
+      const geometry = await page.evaluate(() => {
+        const body = document.querySelector<HTMLElement>('.swarm-team-workspace__detail-body')!
+        const field = document.querySelector<HTMLElement>('[data-swarm-detail-role]')!
+        const panel = document.querySelector<HTMLElement>('[data-swarm-team-panel]')!
+        return { bodyWidth: body.getBoundingClientRect().width, panelWidth: panel.getBoundingClientRect().width, overflow: body.scrollWidth - body.clientWidth, fieldRight: field.getBoundingClientRect().right, panelRight: panel.getBoundingClientRect().right }
+      })
+      expect(geometry.bodyWidth).toBeLessThanOrEqual(geometry.panelWidth)
+      expect(geometry.overflow).toBeLessThanOrEqual(1)
+      expect(geometry.fieldRight).toBeLessThanOrEqual(geometry.panelRight)
+    })
   })
 
   it('renders real error/stale authority signals and retry without claiming a fresh projection', async () => {
