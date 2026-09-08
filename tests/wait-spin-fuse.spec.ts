@@ -32,7 +32,7 @@ describe('WAIT-SPIN member admission and model surface', () => {
   it('tells a member to end its turn after no-task/submit/blocker instead of waiting', () => {
     const team = { id: 'team-wait-spin-fixture', name: 'fixture' } as never
     expect(memberPersona(team, 'worker', 'fixture role')).toContain('END YOUR TURN')
-    expect(memberJoinNotice(team)).toContain('End this turn now')
+    expect(memberJoinNotice(team)).toContain('then end this turn')
   })
 })
 

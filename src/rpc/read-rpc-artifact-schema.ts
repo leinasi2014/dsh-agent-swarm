@@ -8,7 +8,7 @@ import {
 } from './read-rpc-contract.js'
 
 const SWARM_READ_RPC_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
-export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = 'b1e98b06fd246e0521540f7d7acd570d65d240e4fc0e443d5869be7f1f5851b5' as const
+export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = 'fcd6ffc88aabc7671339f7c5cf098969dd0ce0b22e915119c75e40f4f538525f' as const
 
 const boundedString = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength, pattern: '\\S' })
 /** Member role is authoritative free-text (never truncated by the reader); the
@@ -134,6 +134,7 @@ const captainMemberRow = {
   type: 'object', additionalProperties: false,
   required: ['name', 'role', 'phase', 'createdAt', 'avatar', 'identityCard', 'growth', 'composition'],
   properties: {
+    sessionId: boundedString(256),
     name: boundedString(64), role: boundedString(ROSTER_ROLE_MAX_LENGTH),
     phase: { enum: ['provisioning', 'active', 'failed', 'removed'] }, createdAt: nonNegativeInteger,
     displayName: boundedString(128),

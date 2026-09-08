@@ -175,6 +175,7 @@ export function TeamDashboardContent({ controller, coordinator, descriptionId, h
         diagnostics={state.data?.captainDiagnostics}
         memberAssets={state.data?.captainMembers}
         onCaptainSession={handoff}
+        onMemberSession={(name, sessionId) => { void coordinator.openMemberChat(name, sessionId).catch(() => {}) }}
         onSelectTeam={teamId => { controller.selectTeam(teamId) }}
         onClose={() => { coordinator.closeAndRestoreFocus() }}
       />}
@@ -202,7 +203,7 @@ function Empty({ state, controller, t }: { readonly state: TeamDashboardState; r
   </section>
 }
 
-function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, state, t, teams, announcements, diagnostics, memberAssets, onCaptainSession, onSelectTeam, onClose }: {
+function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, state, t, teams, announcements, diagnostics, memberAssets, onCaptainSession, onMemberSession, onSelectTeam, onClose }: {
   readonly data: SwarmHostReadProjectionV1
   readonly handoffBusy: boolean
   readonly localeTag: () => 'zh-CN' | 'en-US'
@@ -215,6 +216,7 @@ function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, sta
   readonly diagnostics: SwarmReadCaptainDiagnosticsV1 | undefined
   readonly memberAssets: SwarmReadCaptainMembersV1 | undefined
   readonly onCaptainSession: () => void
+  readonly onMemberSession: (name: string, sessionId: string) => void
   readonly onSelectTeam: (teamId: string) => void
   readonly onClose: () => void
 }) {
@@ -226,6 +228,7 @@ function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, sta
   const detailHeadingRef = useRef<HTMLHeadingElement>(null)
   const detailTriggerRef = useRef<HTMLElement | null>(null)
   const detailTeamRef = useRef(data.binding.teamId)
+  const detailSessionRef = useRef<string>()
   const openDetail = (selection: DetailSelection): void => {
     detailTriggerRef.current = document.activeElement as HTMLElement | null
     setDetail(selection)
@@ -245,6 +248,13 @@ function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, sta
       setDetail(undefined)
     }
   }, [data.binding.teamId])
+  useLayoutEffect(() => {
+    const member = memberAssets?.members.find(row => row.sessionId === state.targetSessionId)
+    if (member !== undefined && detailSessionRef.current !== state.targetSessionId) {
+      detailSessionRef.current = state.targetSessionId
+      setDetail({ kind: 'member', name: member.name })
+    }
+  }, [memberAssets, state.targetSessionId])
   useLayoutEffect(() => {
     if (detail === undefined) return
     const gone = (detail.kind === 'member' && !data.roster.some(member => member.name === detail.name))
@@ -421,7 +431,10 @@ function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, sta
                   data-swarm-member-role={member.role}
                   data-swarm-identity-state={asset.identityCard.state}
                   data-swarm-tone={tone}
-                  onClick={() => { openDetail({ kind: 'member', name: member.name }) }}
+                  onClick={() => {
+                    openDetail({ kind: 'member', name: member.name })
+                    if (asset.sessionId !== undefined && asset.sessionId !== state.targetSessionId) onMemberSession(member.name, asset.sessionId)
+                  }}
                 >
                   <span className="swarm-team-workspace__avatar"><SafePixelAvatar seed={member.name} asset={asset.avatar} name={displayName} t={t} /></span>
                   <span className="swarm-team-workspace__desk-copy">

@@ -21,8 +21,11 @@ export async function readCaptainSection(ctx: Context, team: TeamState, request:
         // the authoritative roster order exactly.
         const reader = new MemberProfileReader(ctx)
         const profiles = await reader.list(team, team.members, new AbortController().signal)
-        const members: SwarmReadCaptainMembersV1['members'] = team.members.map((member, index) => ({
+        const members: SwarmReadCaptainMembersV1['members'] = team.members.map((member, index) => {
+          const composition = memberCompositionOf(profiles[index], member)
+          return {
           name: member.name,
+          ...(member.phase === 'active' && composition.state === 'available' ? { sessionId: member.sessionId } : {}),
           role: member.role,
           phase: member.phase,
           createdAt: member.createdAt,
@@ -45,7 +48,7 @@ export async function readCaptainSection(ctx: Context, team: TeamState, request:
           identityCard: member.displayName === undefined && member.profession === undefined && member.personality === undefined && member.biography === undefined
             ? { state: 'not_generated', reason: 'identity_backend_not_implemented' }
             : { state: 'generated' },
-          composition: memberCompositionOf(profiles[index], member),
+          composition,
           // Member-detail overlay fields retain separate authorities: Skills
           // come from the member's latest durable catalog, tools only from the
           // exact live scoped registry, and growth from retained Team history.
@@ -61,7 +64,8 @@ export async function readCaptainSection(ctx: Context, team: TeamState, request:
           // Non-sensitive growth availability — constant literal enum only; no content
           // (private memory is never read nor projected beyond this availability marker).
           growth: { privateMemory: 'private_to_member', skills: 'not_implemented', capability: 'not_implemented' },
-        }))
+          }
+        })
         return {
           schemaVersion: 1,
           binding: { rootSessionId, teamId: team.id },

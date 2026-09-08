@@ -68,7 +68,8 @@ it('bounds the actual managed Captain/member onboarding and compiled tool surfac
     expect.soft(report.memberTotal.bytes).toBeLessThanOrEqual(3000)
     // Retain the compiled parameter/output contracts, including Skill
     // admission, provider distinction and deny-only permissions (#184).
-    expect.soft(report.schemasTotal.bytes).toBeLessThanOrEqual(4800)
+    // #221 adds the shared, usable 32x32 palette/rows input to two measured tools.
+    expect.soft(report.schemasTotal.bytes).toBeLessThanOrEqual(6500)
     expect.soft(captainText).not.toMatch(/Chinese display|until the profile succeeds|After (?:your Captain |the )profile succeeds|stop dependent recruitment/)
     expect.soft(captainPersona).toContain('optional')
     expect.soft(captainPersona).toContain("user's language")
@@ -76,7 +77,8 @@ it('bounds the actual managed Captain/member onboarding and compiled tool surfac
     expect.soft(memberText).not.toContain('agent_swarm_add_member')
     expect.soft(memberText).not.toContain('agent_swarm_review_task')
     expect.soft(memberText).not.toContain('agent_swarm_interrupt_member')
-    expect.soft(schemaTexts.join('\n')).not.toMatch(/pixel grid 8\.\.32|viewBox|#RRGGBB|Must be authored/)
+    expect.soft(schemaTexts.join('\n')).toContain('32x32')
+    expect.soft(schemaTexts.join('\n')).toContain('#RRGGBB')
     expect(captainNotice).toContain('Deliver a verified repair. Preserve user identity preferences.')
     expect(captainNotice).toContain('target_member')
   } finally {

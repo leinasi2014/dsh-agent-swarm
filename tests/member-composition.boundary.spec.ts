@@ -148,6 +148,8 @@ describe('P1-1 boundary: provider cap 128 and over-bound producer fields', () =>
       expect(result.members.map(member => member.name), label).toEqual(['healthy', 'bad'])
       // Only the over-bound row degrades to descriptor_invalid.
       expect(result.members[1]!.composition, label).toEqual({ state: 'invalid', reason: 'descriptor_invalid', runtimeProvider: 'mock' })
+      expect(result.members[1]!.sessionId, label).toBeUndefined()
+      expect(result.members[0]!.sessionId, label).toBe('healthy-session')
       // No capability field leaks from the invalid row.
       for (const field of ['llmProvider', 'model', 'presetId', 'personaConfigured', 'deniedTools'] as const) {
         expect(result.members[1]!.composition, `${label}/${field}`).not.toHaveProperty(field)

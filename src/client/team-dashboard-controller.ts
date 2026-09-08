@@ -182,6 +182,40 @@ export class TeamDashboardController {
     this.listeners.clear()
   }
 
+  /** Re-read both authorities before opening the exact member's official Chat.
+   *  Navigation owns no Team mutation and never closes the Details surface. */
+  async openMemberChat(name: string, sessionId: string,
+    openOfficialSession: (captainId: string, memberId: string, signal: AbortSignal) => Promise<void>,
+  ): Promise<void> {
+    this.assertLive()
+    const target = this.state.targetSessionId
+    const expected = this.state.data?.projection.binding
+    if (!this.state.open || target === undefined || expected === undefined) throw new Error('Member Chat requires a current Team binding')
+    this.stopActive()
+    const generation = this.generation
+    const abort = new AbortController()
+    this.requestAbort = abort
+    try {
+      const binding = await this.readBinding(target, expected.teamId, abort.signal)
+      assertSectionBinding(binding, expected, 'captainMembers')
+      const members = await this.readCaptainSection('captainMembers', { rootSessionId: target, teamId: expected.teamId }, abort.signal) as SwarmReadCaptainMembersV1
+      assertSectionBinding(binding, members.binding, 'captainMembers')
+      if (!members.members.some(member => member.name === name && member.sessionId === sessionId && member.phase === 'active')) {
+        throw new DashboardReadError('SWARM_UI_MEMBER_UNAVAILABLE', 'Member Session is no longer available')
+      }
+      if (!this.isCurrent(generation, target, abort)) throw new Error('Member Chat handoff was superseded')
+      await openOfficialSession(binding.binding.rootSessionId, sessionId, abort.signal)
+    } catch (error) {
+      if (this.isCurrent(generation, target, abort)) {
+        this.publish({ ...this.state, phase: 'stale', error: normalizeError(error) })
+      }
+      throw error
+    } finally {
+      if (this.requestAbort === abort) this.requestAbort = undefined
+      if (this.isCurrent(generation, target, abort)) this.scheduleLoad(target, this.pollMs, false)
+    }
+  }
+
   private async load(targetSessionId: string, reconnecting: boolean): Promise<void> {
     const generation = ++this.generation
     const abort = new AbortController()

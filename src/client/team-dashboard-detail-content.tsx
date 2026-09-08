@@ -178,9 +178,7 @@ export function MemberDetail({ detail, data, localeTag, memberAssets, t }: {
         <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.memory')}</dt><dd data-swarm-detail-memory>{t('growthMemoryPrivate')}</dd></div>
       </dl>
     </details>
-    {/* Ordinary members have no direct chat capability in the current base; the honest disabled
-        note explains the Captain coordination path instead of a fabricated contact action. */}
-    <p className="swarm-team-workspace__contact-note" data-swarm-contact-disabled>{t('detail.contactDisabled')}</p>
+    {asset.sessionId === undefined && <p className="swarm-team-workspace__contact-note" data-swarm-contact-disabled>{t('detail.contactDisabled')}</p>}
   </>
 }
 

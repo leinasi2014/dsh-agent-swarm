@@ -116,7 +116,13 @@ export class HostTargetReadService {
         if (root.live !== undefined || root.parentSession === undefined || team.phase === 'active') visible.push(team)
         continue
       }
-      if (root.parentSession !== undefined) continue // a member/child never inherits its parent's Teams
+      if (root.parentSession !== undefined) {
+        // Exact current membership grants this Team only; never inherit a
+        // parent's other Teams or revive a removed/previous Session identity.
+        if (root.parentSession === team.captainSessionId
+          && team.members?.some(member => member.phase === 'active' && member.sessionId === root.id)) visible.push(team)
+        continue
+      }
       // A plan-first Team has no Captain descriptor yet. Its durable managed
       // origin proves ownership; the actual root still comes from DSH above.
       if (team.captainSessionId === ''
@@ -172,6 +178,6 @@ export class HostTargetReadService {
     if (root.live === undefined) return
     const current = this.ctx.sessions.get(SessionId(root.id))
     if (this.ctx.agents.get(SessionId(root.id)) !== root.live || (current !== undefined && current !== root.live.session)
-      || this.runtime.scopeOf(root.live) !== root.cwd) throw new TeamDomainError('Session binding changed during read', 'SWARM_HOST_BINDING_MISMATCH')
+      || this.runtime.scopeOf(root.live) !== root.cwd || root.live.session.header.parentSession !== root.parentSession) throw new TeamDomainError('Session binding changed during read', 'SWARM_HOST_BINDING_MISMATCH')
   }
 }

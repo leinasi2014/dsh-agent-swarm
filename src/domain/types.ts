@@ -248,7 +248,7 @@ export interface TeamAnnouncement {
 }
 
 /** One bounded member declaration inside a staged plan draft. */
-interface TeamPlanMember {
+interface TeamPlanMember extends TeamMemberIdentityProfile {
   readonly name: string
   readonly role: string
   readonly llmProvider?: string
@@ -361,5 +361,4 @@ export interface TeamStatusSnapshot {
   readonly readyTaskIds: TaskId[]
   readonly pendingMessageIds: TeamMessageId[]
 }
-
 

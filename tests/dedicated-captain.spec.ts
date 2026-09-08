@@ -229,9 +229,9 @@ describe('dedicated Captain topology', () => {
     expect(notice).toContain(`Current Team revision: ${membership.team.revision}`)
     expect(notice).toContain('Build the repair. Display name: Ada; profession: Engineer; personality: precise. Preserve these preferences.')
     expect(persona).toContain("user's language")
-    expect(persona).toContain('Normally provide display names')
-    expect(persona).toContain('Avatars are optional')
-    expect(persona).toContain('continue work')
+    expect(persona).toContain('Own public profiles')
+    expect(persona).toContain('Legacy fields stay optional')
+    expect(persona).toContain('continue useful work on failure')
     expect(`${persona}\n${notice}`).not.toMatch(/Chinese display|until the profile succeeds|stop dependent recruitment/)
     expect(notice).toContain('Your Team is already created and bound to this Captain Session.')
 

@@ -127,6 +127,29 @@ describe('R2 authoritative target binding and wire contract', () => {
     })).rejects.toMatchObject({ code: 'SWARM_HOST_BINDING_MISMATCH' })
   })
 
+  it('admits only exact active member Sessions to their Team in live and cold views (#221)', async () => {
+    const captain = 'captain-session'
+    const header = { cwd: 'D:\\workspace', parentSession: captain }
+    const member = { name: 'worker', sessionId: ROOT.id, phase: 'active', role: 'Writer', provider: 'spawn', createdAt: 1 }
+    const team = { id: 'team-r2', name: 'Members', captainSessionId: captain, phase: 'active', members: [member], tasks: [], attempts: [] } as unknown as TeamState
+    const target = { rootSessionId: ROOT.id, teamId: team.id }
+    for (const fullyColdRoot of [false, true]) {
+      const options = { root: { ...ROOT, session: { header } } as Agent, fullyColdRoot, persistedRootHeader: header, teamState: team, bindHostReadToCaptain: true }
+      const allowed = rpcHarness(options)
+      expect(await allowed.service.invoke({ schemaVersion: 1, method: 'teams', target })).toMatchObject({ teams: [{ teamId: team.id }] })
+      expect(await allowed.service.invoke({ schemaVersion: 1, method: 'snapshot', target })).toMatchObject({ binding: { rootSessionId: captain, teamId: team.id } })
+      for (const rejected of [
+        { ...team, members: [{ ...member, phase: 'removed' }] },
+        { ...team, members: [{ ...member, sessionId: 'replacement', previousFailedSessionIds: [ROOT.id] }] },
+        { ...team, captainSessionId: 'foreign-captain' },
+      ]) {
+        const harness = rpcHarness({ ...options, teamState: rejected as TeamState })
+        expect(await harness.service.invoke({ schemaVersion: 1, method: 'teams', target })).toMatchObject({ teams: [] })
+        await expect(harness.service.invoke({ schemaVersion: 1, method: 'snapshot', target })).rejects.toMatchObject({ code: 'SWARM_HOST_BINDING_MISMATCH' })
+      }
+    }
+  })
+
   it('resolves a cold dedicated Captain binding for the Main Brain root without guessing', async () => {
     const harness = rpcHarness({
       captain: 'captain-session',

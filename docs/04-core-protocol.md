@@ -12,7 +12,7 @@ Main Brain Session（Team 外）
 ```
 
 - Main Brain 传递完整用户目标并创建 managed Team；之后只做跨 Team 观察和路由。
-- Captain 是 Team 的唯一管理主体，负责身份档案、招募、任务、公告、公共目标、审核和重派。
+- Captain 是 Team 的唯一管理主体，负责初始身份档案、招募、任务、公告、公共目标、审核和重派；active Member 仅可补充自己的公开身份资料，不取得他人的资料编辑权或队长管理权。
 - Member 只能读取其所属 Team，并在分配给自己的当前 attempt 上提交工作。
 - 一个 Session 可参与显式寻址的多个上下文时，隐式 Team 解析必须拒绝歧义。
 - UI 中的“当前队长会话”与 Main Brain Chat 必须清楚区分；打开 Captain 只导航官方 Session。
@@ -62,9 +62,13 @@ Scheduler Provider 只选择可调度对象，不直接写 aggregate。Runtime �
 
 成员身份包含技术名、显示名、短职业、人格、个人简介/identity card、可选安全像素 SVG、model/provider、Skills 与工具权限投影。像素头像只允许一个有限 `svg` 根和 bounded `rect` 子元素；验证必须发生在 durable member commit 前。
 
+模型可用 `pixel_avatar` 提交 32×32 字符网格及最多 16 色的十六进制 palette；`.` 表示透明，其余像素引用调色板。工具把同色连续像素压缩为矩形，再通过既有 SVG allowlist 校验，唯一持久资产仍是 `pixelAvatarSvg`。网格和原始 SVG 不能同时提交；格式、未知颜色、全透明、复杂度或最终资产超界均在 mutation 前失败。模型应自行设计多色人物、五官、发型、服装与岗位细节；像素数量与色数仅是结构事实，视觉质量须真实预览，未保存资产的占位不冒充作品。
+
 成员创建顺序是：输入/route/tool-policy/identity 预检 → provisional provisioning → 官方 continuable child 启动 → descriptor/phase 提交 → 可调度。启动失败必须保持单一失败记录且可恢复容量，不能产生重复可见员工。当前 route 预检和失败 roster 回收的完整修复仍由 GitHub Issue #176 跟踪，未完成前 UI 必须显示真实失败状态。
 
 Captain identity 独立于 Member roster。`set_captain_profile` 成功提交后，Host/RPC 下一轮 projection 必须发布新 revision；占位文案不能被解释为 Captain Session 创建失败。
+
+身份资料由现有 Team Domain 单一负责：staged plan、add_member 和资料 patch 复用同一输入与校验，计划字段随批准、激活恢复及 Storage Domain reopen 保留。队长负责提供初始资料并核对缺项，成员在入队或首次任务时检查本人实际名册并补缺；`set_member_profile` 依据真实调用者的 active membership，只放行 Captain 或目标恰为调用者自己的记录。补资料仍使用 Team revision CAS，仅更新公开身份字段，不改 Session、role、模型、Skills、运行中的 persona 或任务状态；已有资料不被缺省值覆盖。失败显式报告，保持任务可继续，禁止无限重试。此为项目自有身份 overlay，复用既有官方模型工具、Session 和 Storage Domain，无新调度器或状态 owner。验收需覆盖计划到真实成员的字段传递、本人/他人权限、CAS/失败原子性、存储重开与真实模型及 UI 回读。
 
 `personality` 与 `biography` 分别保存工作性格和个人简介，各限 1024 个 Unicode code points，并经过 Domain、Storage、Host/RPC 的同一校验链。Captain 通常在招募时按用户语言和偏好提供完整资料；缺失字段诚实显示不可用。`set_captain_profile` 与 `set_member_profile` 以当前 Team revision 做局部更新，保留未提交字段；后者按不可变 roster name 定位，检查显示名冲突，不改 Session、角色、Skills、模型或运行中的 persona。descriptor 的 label 是创建时事实；资料改名后的读取继续校验精确 Session、parent、origin、Team 标签前缀及 provider。
 
@@ -107,6 +111,8 @@ DSH `0.1.2-rc.1` 的 continuable child 可由私有 owner 注册；`agents.roots
 - Team Workbench 只读取 projection；页面轮询以 revision/内容变化发布，不得永久缓存占位数据。
 - 多 Team 切换通过 Main Brain/Host projection 选择 Captain Session，不在侧边栏维护第二套 Team registry。
 - official Session list/Chat 仍由 DSH 拥有；插件只提供可读 label 与导航。
+
+成员 Chat 复用已安装 DSH 的公开 `ISessions.refreshSubagents/subagentAddress/openSubagent`：从官方 direct-child catalog 取得精确 Captain/member 地址，再导航，不构造私有路由。Host 只向同 scope、父 Session 等于 Captain、且 sessionId 精确匹配 active roster 的成员开放所属 Team 读取；旧失败身份、移除成员和普通 child 不继承上级 Team。成员导航前重读绑定和成员行；当前 Session 切换到已知同 Team 成员或 Captain 时，Details lease 保留、旧数据清除并向新 Session 重新授权读取，回原打开入口也重读；无关 Session 仍释放 lease。该 UI 临时状态不成为业务权限，注册/轮询继续随既有 controller/coordinator 卸载释放。验收覆盖导航竞争、冷读取、错误父级/成员、侧栏返回和官方 Tool Details 让位。
 
 ## 9. Review、execution root 与可选桥接
 

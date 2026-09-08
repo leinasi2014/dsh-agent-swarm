@@ -28,6 +28,7 @@ const INACTIVE: TeamDashboardSurfaceState = Object.freeze({ mode: 'inactive', vi
 export class TeamDashboardSurfaceCoordinator {
   private readonly listeners = new Set<() => void>()
   private state: TeamDashboardSurfaceState = INACTIVE
+  private entrySessionId: string | undefined
   private layout: ILayout | undefined
   private declarationLive = false
   private layoutEpoch = 0
@@ -53,7 +54,15 @@ export class TeamDashboardSurfaceCoordinator {
     this.offController = this.options.controller.subscribe(() => { if (!this.options.controller.getSnapshot().open && this.state.mode !== 'inactive') this.close(false) })
     this.offSessions = this.options.sessions.list.subscribe(() => {
       const target = this.state.targetSessionId
-      if (target !== undefined && this.options.sessions.list.getSnapshot().current !== target) this.close(false)
+      const current = this.options.sessions.list.getSnapshot().current
+      if (target === undefined || current === target) return
+      const data = this.options.controller.getSnapshot().data
+      const sameTeam = current !== undefined && (current === this.entrySessionId
+        || current === data?.projection.binding.rootSessionId
+        || data?.captainMembers.members.some(member => member.phase === 'active' && member.sessionId === current))
+      if (!sameTeam || current === undefined) return this.close(false)
+      this.publish({ ...this.state, targetSessionId: current })
+      this.options.controller.open(current)
     })
     this.offEntryError = this.options.slots.onEntryError((key, entry) => { if (key === 'details' && entry === this.entry) this.close(false) })
     this.offSlot = this.options.slots.subscribe('details', () => { if (this.entry !== undefined && !this.isWinner(this.entry)) this.close(false) })
@@ -88,6 +97,7 @@ export class TeamDashboardSurfaceCoordinator {
     this.close(false)
     if (!this.acquire()) return
     try {
+      this.entrySessionId = targetSessionId
       this.options.controller.open(targetSessionId)
       this.layout?.openDetails()
       this.publish({ mode: 'docked', targetSessionId, view: 'overview' })
@@ -113,6 +123,23 @@ export class TeamDashboardSurfaceCoordinator {
       this.options.sessions.open(root)
     })
     this.publish(INACTIVE)
+  }
+
+  async openMemberChat(name: string, sessionId: string): Promise<void> {
+    this.assertLive()
+    const target = this.state.targetSessionId
+    await this.options.controller.openMemberChat(name, sessionId, async (captainId, memberId, signal) => {
+      const sessions = this.options.sessions
+      await sessions.refreshSubagents(captainId as SessionId)
+      signal.throwIfAborted()
+      if (this.state.mode !== 'docked' || this.state.targetSessionId !== target
+        || sessions.list.getSnapshot().current !== target) throw new Error('Member Chat handoff was superseded')
+      const address = sessions.subagentAddress(memberId as SessionId)
+      if (address?.parentSessionId !== captainId || address.childSessionId !== memberId || address.mode !== 'continuable') {
+        throw new Error('Member Session is not in the official Captain child catalog')
+      }
+      sessions.openSubagent(address)
+    })
   }
 
   /** Open the official Session of a specific Team's dedicated Captain from the enumerated selector.
@@ -146,6 +173,7 @@ export class TeamDashboardSurfaceCoordinator {
   }
   private isWinner(entry: StoredEntry): boolean { return this.options.slots.entriesOfSlot('details')[0] === entry }
   private close(restoreFocus: boolean): void {
+    this.entrySessionId = undefined
     if (this.state.mode === 'docked') { try { this.layout?.closeDetails() } catch { /* teardown still releases the Team lease */ } }
     this.releaseTeamLease()
     this.publish(INACTIVE)

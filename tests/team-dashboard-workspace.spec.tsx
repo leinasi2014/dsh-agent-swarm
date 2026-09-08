@@ -11,6 +11,31 @@ const activePanel = (): string | null => document.querySelector<HTMLElement>('[r
 const signalOf = (id: string): string | null => document.querySelector<HTMLElement>(`[data-swarm-activity-attempt="${id}"] [data-swarm-signal]`)?.getAttribute('data-swarm-signal') ?? null
 
 describe('Team workspace views and projection-derived activity', () => {
+  it('opens a member Chat on one click and shows that member on a reopened Chat sidebar (#221)', async () => {
+    const coordinator = new FakeCoordinator()
+    const member = { ...ready.data!.captainMembers.members[0]!, name: 'worker', sessionId: 'worker-session', displayName: '林砚', profession: '编剧', personality: '细致', biography: '核对动机与因果。', identityCard: { state: 'generated' as const } }
+    const data = { ...ready.data!, projection: { ...ready.data!.projection, roster: [{ name: member.name, role: 'Writer', phase: 'active' as const, createdAt: 1 }] }, captainMembers: { ...ready.data!.captainMembers, members: [member] } }
+    let state: TeamDashboardState = { ...ready, targetSessionId: 'root', data }
+    const live = { ...controller, getSnapshot: () => state }
+    await render(<TeamDashboardDetails {...({ controller: live, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!.click() })
+    expect(coordinator.openMemberChat).toHaveBeenCalledExactlyOnceWith('worker', 'worker-session')
+    expect(document.querySelector('[data-swarm-detail-biography]')?.textContent).toBe(member.biography)
+    expect(document.querySelector('[data-swarm-contact-disabled]')).toBeNull()
+    // Reopening/reloading the member Chat must select its own details without
+    // requiring another click or relying on the first component's local state.
+    await act(async () => { coordinator.set({ mode: 'inactive', view: 'overview', targetSessionId: undefined }) })
+    state = { ...state, targetSessionId: 'worker-session' }
+    const reopened = new FakeCoordinator()
+    reopened.set({ mode: 'docked', view: 'overview', targetSessionId: 'worker-session' })
+    await render(<TeamDashboardDetails {...({ controller: live, coordinator: reopened, localeTag: reopened.localeTag, sessionId: 'worker-session', t } as any)} />)
+    expect(document.querySelector('[data-swarm-detail-personality]')?.textContent).toBe(member.personality)
+    expect(document.querySelector('[data-swarm-detail-biography]')?.textContent).toBe(member.biography)
+    expect(reopened.openMemberChat).not.toHaveBeenCalled()
+    await pressEscape()
+    expect(document.querySelector('[data-swarm-detail-view]')).toBeNull()
+  })
+
   it('renders persisted personality and biography and refreshes a profile backfill in place', async () => {
     const coordinator = new FakeCoordinator()
     const data = teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, {

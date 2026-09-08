@@ -26,6 +26,62 @@ function fixture() {
   return { slots, controller, layout, sessions, coordinator, releaseDetails, releaseLayout, unmount, destroy: () => { releaseDetails(); releaseLayout(); unmount(); anchor.remove() } }
 }
 describe('TeamDashboardSurfaceCoordinator', () => {
+  it('uses the official direct-child catalog and rejects wrong parents or a superseded handoff (#221)', async () => {
+    const f = fixture()
+    f.coordinator.toggle('root')
+    const ready: TeamDashboardState = { open: true, phase: 'ready', targetSessionId: 'root', data: {
+      projection: { binding: { rootSessionId: 'captain', teamId: 'team-1' } },
+      captainMembers: { members: [{ name: 'worker', sessionId: 'member-1', phase: 'active' }] },
+    } } as unknown as TeamDashboardState
+    f.controller.state = ready
+    const abort = new AbortController()
+    const handoff = vi.fn(async (_name: string, _id: string, callback: (captain: string, member: string, signal: AbortSignal) => Promise<void>) => { await callback('captain', 'member-1', abort.signal) })
+    Object.assign(f.controller, { openMemberChat: handoff })
+    let address = { parentSessionId: 'captain', childSessionId: 'member-1', mode: 'continuable' }
+    const refresh = vi.fn(async () => {})
+    const open = vi.fn(() => { f.sessions.setCurrent('member-1') })
+    Object.assign(f.sessions, { refreshSubagents: refresh, subagentAddress: () => address, openSubagent: open })
+    await f.coordinator.openMemberChat('worker', 'member-1')
+    expect(refresh).toHaveBeenCalledWith('captain')
+    expect(open).toHaveBeenCalledExactlyOnceWith(address)
+    expect(f.coordinator.getSnapshot()).toMatchObject({ mode: 'docked', targetSessionId: 'member-1' })
+    f.controller.state = ready
+    f.sessions.setCurrent('root')
+    address = { ...address, parentSessionId: 'wrong-parent' }
+    await expect(f.coordinator.openMemberChat('worker', 'member-1')).rejects.toThrow('official Captain child catalog')
+    expect(open).toHaveBeenCalledTimes(1)
+    address = { ...address, parentSessionId: 'captain' }
+    refresh.mockImplementation(async () => { f.sessions.setCurrent('other') })
+    await expect(f.coordinator.openMemberChat('worker', 'member-1')).rejects.toThrow('superseded')
+    expect(open).toHaveBeenCalledTimes(1)
+    expect(f.coordinator.getSnapshot().mode).toBe('inactive')
+    f.destroy()
+  })
+
+  it('keeps Details through exact member, Captain and original root navigation (#221)', () => {
+    const f = fixture()
+    f.coordinator.toggle('root')
+    const ready = (targetSessionId: string): void => {
+      f.controller.state = { open: true, phase: 'ready', targetSessionId,
+        data: { projection: { binding: { rootSessionId: 'captain', teamId: 'team-1' } }, captainMembers: { members: [{ name: 'worker', sessionId: 'member-1', phase: 'active' }] } } } as unknown as TeamDashboardState
+    }
+    ready('root')
+    f.sessions.setCurrent('member-1')
+    expect(f.coordinator.getSnapshot()).toMatchObject({ mode: 'docked', targetSessionId: 'member-1' })
+    expect(f.controller.open).toHaveBeenLastCalledWith('member-1')
+    expect(f.slots.team).toBeDefined()
+    ready('member-1')
+    f.sessions.setCurrent('captain')
+    expect(f.coordinator.getSnapshot()).toMatchObject({ mode: 'docked', targetSessionId: 'captain' })
+    ready('captain')
+    f.sessions.setCurrent('root')
+    expect(f.coordinator.getSnapshot()).toMatchObject({ mode: 'docked', targetSessionId: 'root' })
+    ready('root')
+    f.sessions.setCurrent('other')
+    expect(f.coordinator.getSnapshot().mode).toBe('inactive')
+    f.destroy()
+  })
+
   it('leases public Details at priority -1 and toggles closed back to official Tool Details', () => {
     const f = fixture(); f.coordinator.toggle('root')
     expect(f.coordinator.getSnapshot().mode).toBe('docked'); expect((f.slots.entriesOfSlot()[0] as { priority: number }).priority).toBe(-1); expect(f.layout.openDetails).toHaveBeenCalledTimes(1)

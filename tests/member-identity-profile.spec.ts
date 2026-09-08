@@ -197,6 +197,32 @@ describe('identity profile provisioning, persistence and compatibility', () => {
     expect(after!.members.find(candidate => candidate.name === normalizeMemberName('evil'))).toBeUndefined()
   })
 
+  it('lets an active member patch only its own profile, with CAS and no role or skill authority', async () => {
+    await open()
+    const team = await domain.createTeam(scope, 'captain-session', 'Self profile', 'Members complete their own public profiles.')
+    for (const name of ['writer', 'reviewer']) {
+      await domain.provisionMember(scope, team.id, 'captain-session', { name, role: name, sessionId: `${name}-session`, provider: 'spawn', assignedSkills: ['alpha'] })
+      await domain.settleMember(scope, team.id, `${name}-session`, { active: true })
+    }
+    const before = (await stack.store.list(scope))[0]!
+    const updated = await domain.setMemberProfile(scope, team.id, 'writer-session', before.revision, 'writer', { profession: '编剧', personality: '仔细', biography: '我负责人物动机。', pixelAvatarSvg: PIXEL })
+    expect(updated.members[0]).toEqual({ ...before.members[0], profession: '编剧', personality: '仔细', biography: '我负责人物动机。', pixelAvatarSvg: PIXEL })
+    expect(updated.members[1]).toEqual(before.members[1])
+    await expect(domain.setMemberProfile(scope, team.id, 'writer-session', updated.revision, 'reviewer', { biography: 'forged' })).rejects.toMatchObject({ code: 'TEAM_CAPTAIN_REQUIRED' })
+    await expect(domain.setCaptainProfile(scope, team.id, 'writer-session', updated.revision, { biography: 'forged' })).rejects.toMatchObject({ code: 'TEAM_CAPTAIN_REQUIRED' })
+    await expect(domain.setMemberProfile(scope, team.id, 'writer-session', before.revision, 'writer', { biography: 'stale' })).rejects.toMatchObject({ code: 'TEAM_REVISION_CONFLICT' })
+    await expect(domain.setMemberProfile(scope, team.id, 'writer-session', updated.revision, 'writer', { assignedSkills: ['new'] })).rejects.toMatchObject({ code: 'TEAM_MEMBER_IDENTITY_INVALID' })
+    await expect(domain.setMemberProfile(scope, team.id, 'writer-session', updated.revision, 'writer', { pixelAvatarSvg: '<svg><script/></svg>' })).rejects.toMatchObject({ code: 'TEAM_MEMBER_AVATAR_UNSAFE' })
+    expect((await stack.store.list(scope))[0]).toEqual(updated)
+    const removed = await domain.removeMember(scope, team.id, 'captain-session', 'writer', 'test completed')
+    const afterRemoval = (await stack.store.list(scope))[0]!
+    expect(removed.member.phase).toBe('removed')
+    await expect(domain.setMemberProfile(scope, team.id, 'writer-session', afterRemoval.revision, 'writer', { biography: 'removed' })).rejects.toMatchObject({ code: 'TEAM_UNAUTHORIZED' })
+    await stack.close()
+    stack = await openStorageStack(join(sandbox, 'storage'))
+    expect((await stack.store.list(scope))[0]).toEqual(afterRemoval)
+  })
+
   it('validates persisted identity fields via assertTeamState', () => {
     const base = {
       schemaVersion: 2,
