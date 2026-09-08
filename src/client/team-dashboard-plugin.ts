@@ -10,7 +10,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import { SwarmReadClient } from './read-client.js'
-import type { SwarmReadSkillCatalogV1 } from '../rpc/read-rpc-contract.js'
+import type { SwarmReadSkillCatalogV1, SwarmReadToolCatalogV1 } from '../rpc/read-rpc-contract.js'
 import { TeamDashboardController } from './team-dashboard-controller.js'
 import { TeamDashboardAction, type TeamDashboardActionInjected } from './TeamDashboardAction.js'
 import { en, TEAM_DASHBOARD_NS, zh, type TeamDashboardKey } from './team-dashboard-locales.js'
@@ -43,6 +43,13 @@ export function apply(ctx: ClientContext): void {
   const catalog: TeamSettingsCatalog = {
     currentSessionId: () => sessionsService.list.getSnapshot().current,
     subscribe: listener => sessionsService.list.subscribe(listener),
+    listTools: async sessionId => {
+      const response = await readClient.request({ schemaVersion: 1, method: 'toolCatalog', target: { rootSessionId: sessionId } })
+      if (!response.ok) throw new Error(response.error.message)
+      const value = response.value as SwarmReadToolCatalogV1
+      if (value.binding.rootSessionId !== sessionId || !value.complete) throw new Error('DSH tool catalog Session binding changed')
+      return value.tools
+    },
     listSkills: async (sessionId) => {
       const response = await readClient.request({
         schemaVersion: 1,

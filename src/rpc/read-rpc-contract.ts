@@ -8,6 +8,7 @@ export const SWARM_READ_RPC_ENDPOINT = '/swarm/v1' as const
 
 export type SwarmReadRpcMethod =
   | 'capabilities'
+  | 'toolCatalog'
   | 'skillCatalog'
   | 'teams'
   | 'binding'
@@ -24,6 +25,7 @@ export type SwarmReadCaptainSectionMethod =
   | 'captainAnnouncements'
   | 'captainDiagnostics'
 export type SwarmReadCapability =
+  | 'toolCatalog.read'
   | 'skillCatalog.read'
   | 'teams.read'
   | 'binding.read'
@@ -85,6 +87,20 @@ export interface SwarmReadSkillCatalogV1 {
   /** False means provider discovery changed while this observation was collected. */
   readonly complete: boolean
   readonly skills: readonly SwarmReadSkillCatalogEntryV1[]
+  readonly observedAt: number
+}
+
+/** Public tool discovery metadata for the exact live Session; no execution callbacks. */
+export interface SwarmReadToolCatalogRequest {
+  readonly schemaVersion: 1
+  readonly method: 'toolCatalog'
+  readonly target: SwarmReadTargetHint
+}
+export interface SwarmReadToolCatalogV1 {
+  readonly schemaVersion: 1
+  readonly binding: { readonly rootSessionId: string }
+  readonly complete: true
+  readonly tools: readonly { readonly name: string; readonly description: string }[]
   readonly observedAt: number
 }
 
@@ -323,6 +339,7 @@ export interface SwarmReadPageRequest {
 
 export type SwarmReadRpcRequest =
   | SwarmReadCapabilitiesRequest
+  | SwarmReadToolCatalogRequest
   | SwarmReadSkillCatalogRequest
   | SwarmReadTeamsRequest
   | SwarmReadCaptainSectionRequest
@@ -374,6 +391,7 @@ export interface SwarmReadPageV1 {
 
 export type SwarmReadRpcValue =
   | SwarmReadCapabilitiesV1
+  | SwarmReadToolCatalogV1
   | SwarmReadSkillCatalogV1
   | SwarmReadTeamsV1
   | SwarmReadCaptainMembersV1

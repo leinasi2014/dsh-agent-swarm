@@ -65,7 +65,7 @@ export function canonicalSwarmReadRpcJson(value: unknown): string {
 
 /** Strict browser-side result validation against the frozen method schema. */
 export function assertSwarmReadRpcValue(method: string, value: unknown): void {
-  const key = method === 'capabilities' || method === 'skillCatalog' || method === 'teams' || method === 'captainMembers'
+  const key = method === 'capabilities' || method === 'toolCatalog' || method === 'skillCatalog' || method === 'teams' || method === 'captainMembers'
     || method === 'captainAnnouncements' || method === 'captainDiagnostics'
     || method === 'binding' || method === 'status'
     || method === 'snapshot' || method === 'page' ? method : undefined
@@ -217,14 +217,14 @@ function assertMemberComposition(member: Record<string, unknown>): void {
 function assertResultSemantics(method: string, value: Record<string, unknown>): void {
   if (method === 'capabilities') {
     const expected = [
-      'skillCatalog.read',
+      'toolCatalog.read', 'skillCatalog.read',
       'teams.read', 'binding.read', 'status.read', 'snapshot.read', 'page.read',
       'captainMembers.read', 'captainAnnouncements.read', 'captainDiagnostics.read',
       'message.write', 'control.write', 'effect.cancel',
     ]
     const entries = value.capabilities as Array<Record<string, unknown>>
     entries.forEach((entry, index) => {
-      const read = index < 9
+      const read = index < 10
       if (entry.capability !== expected[index]
         || entry.state !== (read ? 'available' : 'unavailable')
         || (read ? entry.blocker !== undefined : entry.blocker !== 'i1b-effect-correlation')) {
@@ -233,11 +233,11 @@ function assertResultSemantics(method: string, value: Record<string, unknown>): 
     })
     return
   }
-  if (method === 'skillCatalog') {
-    const skills = value.skills as readonly Record<string, unknown>[]
+  if (method === 'skillCatalog' || method === 'toolCatalog') {
+    const skills = (method === 'toolCatalog' ? value.tools : value.skills) as readonly Record<string, unknown>[]
     const names = skills.map(skill => skill.name as string)
     if (names.some((name, index) => index > 0 && names[index - 1]!.localeCompare(name) >= 0)) {
-      throw new Error('Swarm RPC Skill catalog must be sorted with unique names')
+      throw new Error('Swarm RPC catalog must be sorted with unique names')
     }
     return
   }

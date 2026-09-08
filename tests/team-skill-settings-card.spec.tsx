@@ -30,6 +30,7 @@ const catalog: TeamSettingsCatalog = {
   currentSessionId: () => 'session-1',
   subscribe: () => () => {},
   listSkills: () => Promise.resolve(modelSkills),
+  listTools: () => Promise.resolve(['team.read', 'team.write', 'team.review', 'shell.exec', 'agent_swarm_submit_task', 'agent_swarm_send_message'].map(name => ({ name, description: `Description of ${name}` }))),
   listModelRoutes: () => Promise.resolve([
     { provider: 'dsv4f-local', providerName: 'DSV4 Flash', model: 'DeepSeek-V4-Flash-0731', modelName: 'DeepSeek V4 Flash' },
   ]),
@@ -148,6 +149,12 @@ async function changeValue(
   })
 }
 
+async function chooseTool(name: string, tier: string): Promise<void> {
+  const control = document.querySelector<HTMLInputElement>(`[data-tool-name="${name}"] input[value="${tier}"]`)
+  expect(control, `Missing ${name} ${tier} radio`).not.toBeNull()
+  await click(control!)
+}
+
 async function openSettings(): Promise<void> {
   await click(entryButton())
   await flush()
@@ -206,8 +213,8 @@ describe('TeamSkillSettingsCard', () => {
     ]) expect(document.body.textContent).toContain(field)
 
     await selectTab('Tool permissions')
-    for (const field of ['Always allow', 'Ask Captain for approval', 'Always deny']) {
-      expect(labeledControl<HTMLTextAreaElement>(field)).not.toBeNull()
+    for (const field of ['Allow', 'Ask Captain for approval', 'Deny']) {
+      expect(document.body.textContent).toContain(field)
     }
 
     await selectTab('Execution & limits')
@@ -278,9 +285,10 @@ describe('TeamSkillSettingsCard', () => {
     await click(labeledControl<HTMLInputElement>('Expose Team tasks in DSH Jobs'))
 
     await selectTab('Tool permissions')
-    await changeValue(labeledControl<HTMLTextAreaElement>('Always allow'), 'team.write, team.read\nteam.write')
-    await changeValue(labeledControl<HTMLTextAreaElement>('Ask Captain for approval'), 'team.review')
-    await changeValue(labeledControl<HTMLTextAreaElement>('Always deny'), 'shell.exec')
+    await chooseTool('team.write', 'allow')
+    await chooseTool('team.read', 'allow')
+    await chooseTool('team.review', 'ask')
+    await chooseTool('shell.exec', 'deny')
 
     await selectTab('Execution & limits')
     await click(labeledControl<HTMLInputElement>('Create isolated execution roots'))
@@ -309,6 +317,85 @@ describe('TeamSkillSettingsCard', () => {
     expect(scope.writes).toContainEqual({ op: 'set', field: 'executionRootProvider', value: 'sandbox' })
     expect(scope.writes).toContainEqual({ op: 'set', field: 'maxRetainedMessages', value: 2048 })
     expect(document.querySelector('[role="status"]')?.textContent).toContain('Restart DSH after saving')
+  })
+
+  it('retains unavailable tools, changes one mutually exclusive tier, and reads back saved choices', async () => {
+    const scope = new TestScope({ toolPolicy: { allow: ['shell.exec'], ask: ['missing.tool'], deny: [] } })
+    await render(card(scope))
+    await openSettings()
+    await selectTab('Tool permissions')
+    expect(document.querySelectorAll('textarea')).toHaveLength(0)
+    expect(scope.writes).toEqual([])
+    expect(document.querySelector('[data-tool-name="missing.tool"]')?.textContent).toContain('Currently unavailable')
+    await chooseTool('shell.exec', 'ask')
+    await chooseTool('team.read', 'deny')
+    await chooseTool('team.read', 'inherit')
+    await click(button('Save plugin settings'))
+    await flush()
+    expect(scope.writes).toEqual([{ op: 'set', field: 'toolPolicy', value: { allow: [], ask: ['missing.tool', 'shell.exec'], deny: [] } }])
+    expect(document.querySelector<HTMLInputElement>('[data-tool-name="shell.exec"] input[value="ask"]')?.checked).toBe(true)
+    expect(document.querySelector<HTMLInputElement>('[data-tool-name="shell.exec"] input[value="allow"]')?.checked).toBe(false)
+    for (const name of ['agent_swarm_submit_task', 'agent_swarm_send_message']) {
+      for (const tier of ['deny', 'ask']) expect(document.querySelector<HTMLInputElement>(`[data-tool-name="${name}"] input[value="${tier}"]`)?.disabled).toBe(true)
+    }
+    await changeValue(document.querySelector<HTMLInputElement>('[aria-label="Search tools"]')!, 'missing')
+    expect(document.querySelectorAll('[data-tool-name]')).toHaveLength(1)
+  })
+
+  it('shows catalog unavailability without deleting configured choices or writing on open', async () => {
+    const scope = new TestScope({ toolPolicy: { deny: ['offline.tool'] } })
+    await render(card(scope, { ...catalog, listTools: async () => { throw new Error('Session is cold') } }))
+    await openSettings()
+    await selectTab('Tool permissions')
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('tool catalog is unavailable')
+    expect(document.querySelector<HTMLInputElement>('[data-tool-name="offline.tool"] input[value="deny"]')?.checked).toBe(true)
+    expect(scope.writes).toEqual([])
+    expect(button('Save plugin settings').disabled).toBe(true)
+  })
+
+  it('refreshes the same Session, ignores the earlier response, and preserves a dirty policy', async () => {
+    const scope = new TestScope()
+    const requests: { session: string; resolve: (value: { name: string; description: string }[]) => void }[] = []
+    const refreshingCatalog = { ...catalog, listTools: (session: string) => new Promise<{ name: string; description: string }[]>(resolve => { requests.push({ session, resolve }) }) }
+    await render(card(scope, refreshingCatalog))
+    await openSettings()
+    await selectTab('Tool permissions')
+    await act(async () => { requests[0]!.resolve([{ name: 'removed.tool', description: 'Before uninstall' }]) })
+    await chooseTool('removed.tool', 'deny')
+    await click(button('Refresh tools'))
+    await click(button('Refresh tools'))
+    expect(requests.map(request => request.session)).toEqual(['session-1', 'session-1', 'session-1'])
+    await act(async () => { requests[2]!.resolve([{ name: 'installed.tool', description: 'After install' }]) })
+    await act(async () => { requests[1]!.resolve([{ name: 'stale.tool', description: 'Earlier refresh' }]) })
+    expect(document.querySelector('[data-tool-name="installed.tool"]')).not.toBeNull()
+    expect(document.querySelector('[data-tool-name="stale.tool"]')).toBeNull()
+    expect(document.querySelector('[data-tool-name="removed.tool"]')?.textContent).toContain('Currently unavailable')
+    expect(document.querySelector<HTMLInputElement>('[data-tool-name="removed.tool"] input[value="deny"]')?.checked).toBe(true)
+    expect(scope.writes).toEqual([])
+    await changeValue(document.querySelector<HTMLInputElement>('[aria-label="Search tools"]')!, 'nothing-matches')
+    expect(document.querySelectorAll('[data-tool-name]')).toHaveLength(0)
+    expect(document.body.textContent).toContain('No matching tools.')
+    await click(button('Save plugin settings'))
+    await flush()
+    expect(scope.writes).toEqual([{ op: 'set', field: 'toolPolicy', value: { allow: [], ask: [], deny: ['removed.tool'] } }])
+  })
+
+  it('ignores an old tool catalog after the current Session changes', async () => {
+    let sessionId = 'old'
+    let listener: (() => void) | undefined
+    let resolveOld!: (value: { name: string; description: string }[]) => void
+    const changingCatalog = { ...catalog, currentSessionId: () => sessionId,
+      subscribe: (next: () => void) => { listener = next; return () => {} },
+      listTools: (id: string) => id === 'old' ? new Promise<{ name: string; description: string }[]>(resolve => { resolveOld = resolve }) : Promise.resolve([{ name: 'current.tool', description: 'Current' }]),
+    }
+    await render(card(new TestScope(), changingCatalog))
+    await openSettings()
+    await selectTab('Tool permissions')
+    await act(async () => { sessionId = 'new'; listener?.() })
+    await flush()
+    await act(async () => { resolveOld([{ name: 'stale.tool', description: 'Stale' }]) })
+    expect(document.querySelector('[data-tool-name="current.tool"]')).not.toBeNull()
+    expect(document.querySelector('[data-tool-name="stale.tool"]')).toBeNull()
   })
 
   it('keeps the draft dirty and reports failure when Host restores state after rejecting a write', async () => {

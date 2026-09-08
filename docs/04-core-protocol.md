@@ -83,7 +83,13 @@ DSH `0.1.2-rc.1` 的 continuable child 可由私有 owner 注册；`agents.roots
 
 工具 schema 的 `name` 是机器协议，`description` 是模型和 UI 的语义来源。普通 UI 应显示本地化短说明，不直接堆函数名；不能解析时诚实显示 unavailable。
 
-权限是单调收窄：官方 preset/tool runtime 先决定可用上界，插件 `allow/ask/deny` 不能扩大它。Captain-only 工具对 Member 永久不可用；Member policy 在 provisioning 时冻结进 descriptor。`ask` 只适用于当前 root Captain 的同一具体调用，delegated member 上等价 deny。
+权限是单调收窄：官方 preset/tool runtime 决定可用上界，插件 `allow/ask/deny` 不能扩大它。Captain-only 工具对 Member 永久不可用；显式 deny 与成员角色限制在 provisioning 时冻结进 descriptor，既有 Session 不因设置页改动而被重写。
+
+工具权限设置从精确 live Session 的官方 `tools.schemas(agent)` 读取有界、只含工具名和用途的目录，通过既有 SettingsScope 保存互斥 allow/ask/deny；未配置项继承，已配置但当前目录缺失的名称保留并明确标记。冷 Session、读取失败和空目录是不同状态，不能以硬编码工具集代替真实目录。
+
+`ask` 表示成员的具体调用先交所属队长批准。它在官方 `tools/pre-execute` 内等待，不改子会话的用户审批 `never`，不让队长代执行工具。队长自身调用继续遵循官方限制，不向自己发起申请。每次申请绑定当前 Team、精确 Agent/Session、open turn、执行 token、callId/rootCallId、冻结参数和工具定义；用既有 Team mailbox 唤醒队长，由 Captain-only 决策工具批准或拒绝。批准仅释放该成员这一次仍存活的调用，再继续官方 next/guards；下游 deny/ask 不被覆盖。
+
+待审批表只拥有当前执行的 Promise，随该工具调用取消、超时、插件卸载或身份失效而销毁，不是第二份 durable 权限状态；Team 消息与官方工具调用/结果日志保留请求和决定证据。重启不恢复旧许可，迟到、重复、跨 Team 或跨成员的决定不得执行工具。队长不可用、审批工具被禁止或通知失败明确拒绝；并发数量和请求体大小有界，等待观察原始取消信号并在卸载时收敛。
 
 ## 7. Skills 与成长
 

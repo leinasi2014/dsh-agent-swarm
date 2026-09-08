@@ -9,7 +9,7 @@ import { TeamDomainError } from '../domain/error.js'
 import type { TeamState } from '../domain/types.js'
 import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
 import { projectTeamSummary, type AgentSwarmHostReadService } from './host-read-service.js'
-import type { SwarmReadTargetHint, SwarmReadCaptainSectionRequest, SwarmReadSkillCatalogV1 } from '../rpc/read-rpc-contract.js'
+import type { SwarmReadTargetHint, SwarmReadCaptainSectionRequest, SwarmReadSkillCatalogV1, SwarmReadToolCatalogV1 } from '../rpc/read-rpc-contract.js'
 import { readCaptainSection } from './captain-section-read.js'
 
 interface RootView {
@@ -25,6 +25,7 @@ export class HostTargetReadService {
   teams(rootSessionId: string) { return this.host.withTargetRead(() => this.readTeams(rootSessionId)) }
   read(target: SwarmReadTargetHint, afterCursor?: string) { return this.host.withTargetRead(() => this.readProjection(target, afterCursor)) }
   section(request: SwarmReadCaptainSectionRequest) { return this.host.withTargetRead(() => this.readSection(request)) }
+  tools(rootSessionId: string) { return this.host.withTargetRead(() => this.readTools(rootSessionId)) }
   skills(rootSessionId: string) { return this.host.withTargetRead(() => this.readSkills(rootSessionId)) }
 
   private async readTeams(rootSessionId: string) {
@@ -51,6 +52,27 @@ export class HostTargetReadService {
     this.assertUnchanged(root)
     this.assertLiveCaptain(team, root.cwd)
     return result
+  }
+
+  private async readTools(rootSessionId: string): Promise<SwarmReadToolCatalogV1> {
+    const root = this.ctx.agents.get(SessionId(rootSessionId))
+    if (root === undefined || this.ctx.sessions.get(root.id) !== root.session) {
+      throw new TeamDomainError('Tool catalog requires an exact live Session', 'SWARM_RPC_TARGET_NOT_LIVE')
+    }
+    const cwd = root.session.header.cwd
+    if (cwd === undefined) throw new TeamDomainError('Target Session has no workspace cwd', 'SWARM_HOST_WORKSPACE_REQUIRED')
+    const registry = this.ctx.get('tools')
+    if (registry === undefined) throw new TeamDomainError('Tool catalog is unavailable for this Session', 'SWARM_RPC_TOOL_CATALOG_UNAVAILABLE')
+    const schemas = registry.schemas(root)
+    if (schemas.length > 512) throw new TeamDomainError('Tool catalog exceeds the bounded read ceiling', 'SWARM_RPC_PROJECTION_LIMIT')
+    const tools = [...new Map(schemas.map(tool => [tool.name, { name: tool.name, description: tool.description }])).values()].toSorted((a, b) => a.name.localeCompare(b.name))
+    if (tools.some(tool => tool.name.length > 128 || tool.description.length > 4096)) {
+      throw new TeamDomainError('Tool metadata exceeds the bounded read ceiling', 'SWARM_RPC_PROJECTION_LIMIT')
+    }
+    if (this.ctx.agents.get(root.id) !== root || this.ctx.sessions.get(root.id) !== root.session || root.session.header.cwd !== cwd) {
+      throw new TeamDomainError('Session binding changed during tool read', 'SWARM_HOST_BINDING_MISMATCH')
+    }
+    return { schemaVersion: 1, binding: { rootSessionId }, complete: true, tools, observedAt: Date.now() }
   }
 
   private async readSkills(rootSessionId: string): Promise<SwarmReadSkillCatalogV1> {

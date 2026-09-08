@@ -118,8 +118,8 @@ export function assertServiceableConfig(value: Config): void {
   normalizeAllowedSkills(value.allowedSkills)
   effectiveToolPolicy(value.toolPolicy)
   // Issue #186: a global toolPolicy deny/ask of a mandatory member-protocol
-  // tool is an impossible protocol — for a delegated member ask degenerates to
-  // deny (approval is pinned to never), so BOTH tiers must fail fast BEFORE any
+  // tool is an impossible protocol — approval must not block its own message
+  // channel or task submission, so BOTH tiers must fail fast BEFORE any
   // runtime, storage or listener side effect is created.
   assertProtocolFloorNotDenied([...(value.toolPolicy?.deny ?? []), ...(value.toolPolicy?.ask ?? [])], 'toolPolicy')
 }

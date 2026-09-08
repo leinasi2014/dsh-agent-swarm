@@ -1,25 +1,6 @@
-/**
- * SW-I1a permission surface.
- *
- * The tiered allow/ask/deny decision model is mounted on the OFFICIAL
- * `tools/pre-execute` waterfall, not on a private approval store. The
- * listener first resolves the caller as an exact live root captain or an
- * active delegated member of one of this plugin's Teams; unrelated agents
- * simply pass through `next()` untouched. For Team participants the
- * project-owned decision (deny > ask > allow; unlisted tools inherit the
- * official downstream decision) is
- * merged monotonically with whatever downstream `next()` and the official
- * monotonic guard stage decide, so a later guard can still deny but nothing
- * can widen an `ask`/`deny` back to allow.
- *
- * This surface also owns two optional host capabilities:
- *  - `HumanPrincipalVerifier` (host-only; no Agent-mintable attestation
- *    marker; missing/false/throwing verifier all fail closed through the
- *    SW-I1a `HumanControlGateway.verifyHumanPrincipal` wiring);
- *  - `ReviewerAgentProvider` (evidence-only; the `reviewer-agent` review
- *    Provider consumes it and only the existing review transaction may
- *    commit a Team mutation).
- */
+/** Official pre-execute consumer for participant policy and member-to-Captain
+ * approvals. The original invocation still passes official downstream guards.
+ * This lifecycle also owns the optional human verifier and reviewer Provider. */
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { isAdjacentAgentSendMessageTool } from '@deepseek-ai/dsh-subagent/internal'
@@ -28,6 +9,7 @@ import { TeamDomainError } from '../domain/error.js'
 import type { HumanInteractionRequest } from '../human/human-interaction-contract.js'
 import type { HumanPrincipalVerifier } from './human-provenance.js'
 import type { AgentSwarmRuntime } from './orchestrator-runtime.js'
+import { CAPTAIN_APPROVAL_TOOL, CaptainToolApproval } from './captain-tool-approval.js'
 import {
   decideToolPermission,
   DEFAULT_TOOL_POLICY,
@@ -60,12 +42,14 @@ export interface TeamPermissionSurfaceDeps {
 }
 
 export class TeamPermissionSurface {
+  private readonly toolApproval: CaptainToolApproval
   private humanPrincipalVerifier: HumanPrincipalVerifier | undefined
   private reviewerAgentProvider: ReviewerAgentProvider | undefined
   private unregisterReviewer: (() => void) | undefined
 
   constructor(private readonly deps: TeamPermissionSurfaceDeps) {
     validateToolPolicyDeclaration(deps.policy)
+    this.toolApproval = new CaptainToolApproval(deps.ctx, deps.runtime)
   }
 
   /** Optional host-only principal verifier; only one may be mounted. */
@@ -106,13 +90,18 @@ export class TeamPermissionSurface {
 
   /** Clear host registrations; idempotent and awaits no async work today. */
   async dispose(): Promise<void> {
+    await this.toolApproval.dispose()
     this.humanPrincipalVerifier = undefined
     this.unregisterReviewer?.()
   }
 
-  /** Effective member provisioning deny overlay: policy `ask` + `deny` names. */
+  /** Effective member provisioning deny overlay: explicit policy denials. */
   memberPolicyDenyNames(): readonly string[] {
-    return [...(this.deps.policy.ask ?? []), ...(this.deps.policy.deny ?? [])]
+    return [...(this.deps.policy.deny ?? [])]
+  }
+
+  async decideToolApproval(exec: ToolExecution, requestId: string, decision: 'approve' | 'deny'): Promise<void> {
+    await this.toolApproval.decide(exec, requestId, decision)
   }
 
   /**
@@ -128,7 +117,16 @@ export class TeamPermissionSurface {
     const scope = this.deps.runtime.scopeOf(agent)
     try {
       const membership = await this.deps.runtime.domain.findMembership(scope, agent.id)
-      if (membership === undefined) return undefined
+      if (membership === undefined) {
+        // Historical/provisioning membership is a denial witness only, never
+        // an active authority grant. A child can start its first model turn
+        // before active admission commits; it must not bypass the ask gate.
+        const known = await this.deps.runtime.domain.findAccountingMembership(scope, agent.id)
+        if (known?.role === 'member') {
+          throw new TeamDomainError('This Team member is not actively admitted; retry after assignment', 'TEAM_NOT_JOINED')
+        }
+        return undefined
+      }
       return { role: membership.role }
     } catch (error) {
       if (error instanceof TeamDomainError) throw error
@@ -177,15 +175,21 @@ export class TeamPermissionSurface {
       if (role === undefined) return await next()
       const context = {
         callerRole: role.role === 'captain' ? ('captain' as const) : ('delegated-member' as const),
-        // pre-execute only runs for a concrete tool call inside the current
-        // turn; the official ApprovalService additionally enforces the open
-        // turn and audit pair before any grant.
+        // The concrete member gate verifies the official open-turn projection.
         sameTurnConcreteToolCall: true,
         openTurn: true,
         approvalSeamAvailable: this.deps.ctx.get('approval') !== undefined,
       }
-      const ours = toPreToolDecision(decideToolPermission(this.deps.policy, exec.name, context), exec.name)
+      const decision = decideToolPermission(this.deps.policy, exec.name, context)
       const downstream = await next()
+      if (decision === 'ask') {
+        if (downstream.kind !== 'allow') return downstream
+        if (decideToolPermission(this.deps.policy, CAPTAIN_APPROVAL_TOOL, { ...context, callerRole: 'captain' }) === 'deny') {
+          return { kind: 'deny', reason: 'Captain tool approval is disabled by the Team tool policy' }
+        }
+        return await this.toolApproval.request(exec) ? downstream : { kind: 'deny', reason: 'This member tool call did not receive a valid Captain approval' }
+      }
+      const ours = toPreToolDecision(decision, exec.name)
       return mergePreToolDecision(ours, downstream)
     })
   }

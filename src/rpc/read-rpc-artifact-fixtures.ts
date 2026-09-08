@@ -3,6 +3,7 @@ import { deepFreezeJson } from '../host/frozen-json.js'
 import { SWARM_READ_RPC_PROTOCOL, SWARM_READ_RPC_NAMESPACE } from './read-rpc-contract.js'
 
 const readCapabilities = [
+  { capability: 'toolCatalog.read', state: 'available' },
   { capability: 'skillCatalog.read', state: 'available' },
   { capability: 'teams.read', state: 'available' },
   { capability: 'binding.read', state: 'available' }, { capability: 'status.read', state: 'available' },
@@ -37,6 +38,7 @@ const fixtureBudget = { usedTokens: 12, usedRequests: 2, usedRetries: 0, tokenLi
 export const SWARM_READ_RPC_FIXTURES_V1 = deepFreezeJson({
   requests: {
     capabilities: { schemaVersion: 1, method: 'capabilities' },
+    toolCatalog: { schemaVersion: 1, method: 'toolCatalog', target: { rootSessionId: 'session-fixture' } },
     skillCatalog: { schemaVersion: 1, method: 'skillCatalog', target: { rootSessionId: 'session-fixture' } },
     teams: { schemaVersion: 1, method: 'teams', target: { rootSessionId: 'session-fixture' } },
     captainMembers: { schemaVersion: 1, method: 'captainMembers', target: { rootSessionId: 'session-fixture', teamId: 'team-fixture' } },
@@ -54,6 +56,7 @@ export const SWARM_READ_RPC_FIXTURES_V1 = deepFreezeJson({
       trust: { mode: 'local-single-user-target-bound', principalBound: false, listener: 'loopback' },
       capabilities: readCapabilities,
     },
+    toolCatalog: { schemaVersion: 1, binding: { rootSessionId: 'session-fixture' }, complete: true, tools: [{ name: 'read', description: 'Read a file.' }], observedAt: 1_700_000_000_200 },
     skillCatalog: {
       schemaVersion: 1,
       binding: { rootSessionId: 'session-fixture' },

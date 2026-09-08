@@ -1,25 +1,6 @@
-/**
- * SW-I1a tiered allow/ask/deny permission decision model.
- *
- * The official DSH tool pipeline (`tools/pre-execute` → monotonic guards) owns
- * the real execution gate, and `ctx.approval` is serviced by the official
- * ToolRuntime for exactly one concrete tool call inside an open captain turn:
- * a pre-execute `{ kind: 'ask' }` decision is routed through the mounted
- * approval service, and every non-grant outcome (including an absent
- * service) denies. This module therefore stays a project-owned policy
- * overlay: it validates captain-declared tiers, merges them monotone
- * (deny > ask > allow, no widening path), classifies one tool call, and maps
- * the decision onto the official `PreToolDecision` shape consumed by that
- * seam (docs/04-core-protocol.md).
- *
- * The Team overlay inherits the official downstream tool preset for an
- * unlisted tool; an `ask` decision is
- * granted only when the caller is the live root captain, the call is a
- * concrete same-turn tool call inside an open turn, and an approval seam is
- * available. Delegated members are pinned to approval `'never'` by the
- * official delegation boundary, so `ask` resolves to `deny` for them and the
- * provisioning-time filter maps every asked tool into the deny list.
- */
+/** Team tiers narrow the official tool pipeline. Members ask their own Captain
+ * for one invocation; Captain calls inherit the official downstream decision.
+ * No approval rewrites a durable descriptor or overrides official guards. */
 import { TeamDomainError } from '../domain/error.js'
 import { CAPTAIN_ONLY_TOOLS } from './prompts.js'
 import { MAX_DENY_TOOLS, MEMBER_DENY_BASELINE, TOOL_NAME_PATTERN } from './tool-policy.js'
@@ -207,20 +188,15 @@ export function decideToolPermission(
   const declared = decisionFor(declaration, toolName) ?? DEFAULT_TOOL_PERMISSION
   if (declared === 'deny') return 'deny'
   if (declared === 'allow') return 'allow'
-  if (context.callerRole !== 'captain') return 'deny'
+  if (context.callerRole === 'captain') return 'allow'
+  if (context.callerRole !== 'delegated-member') return 'deny'
   if (!context.sameTurnConcreteToolCall) return 'deny'
   if (!context.openTurn) return 'deny'
-  if (!context.approvalSeamAvailable) return 'deny'
   return 'ask'
 }
 
-/**
- * Map a decision onto the official `PreToolDecision` shape. `ask` is
- * intentionally returned to the official ToolRuntime, which composes
- * `ctx.approval` inside the same open turn; we never call the approval
- * service from an asynchronous review, a free-text message, or a delegated
- * member path.
- */
+/** Convert a classified decision to the official pipeline shape. The member
+ * ask is consumed by TeamPermissionSurface before reaching ToolRuntime. */
 export function toPreToolDecision(decision: ToolPermissionDecision, toolName: string):
   | { kind: 'allow' }
   | { kind: 'deny'; reason: string }
@@ -230,15 +206,10 @@ export function toPreToolDecision(decision: ToolPermissionDecision, toolName: st
   return { kind: 'deny', reason: `tool "${toolName}" is denied by the Team tool policy (fail closed)` }
 }
 
-/**
- * The provisioning-time official `toolFilter` for a delegated member:
- * baseline captain-only tools, declared deny names, AND every asked name
- * (a delegated child is pinned to approval `'never'`, so an ask degenerates
- * to deny). `allow` names have no filter effect: unlisted host tools are
- * already visible by default, and this model never widens the official mask.
- */
+/** Freeze explicit denials and the role baseline at member creation.
+ * Asked tools remain visible so the invocation gate can request approval. */
 export function memberToolPolicyFilter(declaration?: ToolPolicyDeclaration): { readonly deny: readonly string[] } {
   const validated = validateToolPolicyDeclaration(declaration)
-  const deny = [...MEMBER_DENY_BASELINE, ...(validated.deny ?? []), ...(validated.ask ?? [])]
+  const deny = [...MEMBER_DENY_BASELINE, ...(validated.deny ?? [])]
   return { deny: [...new Set(deny)] }
 }

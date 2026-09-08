@@ -93,7 +93,7 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
   const executionRootProvider = (config.executionRootProvider ?? 'git-worktree').trim()
   const executionRootsBase = expectExecutionRootsBase(config.executionRootsBase) ?? defaultExecutionRootsBase()
   const toolPolicy = effectiveToolPolicy(config.toolPolicy)
-  const memberToolPolicyDeny = [...(toolPolicy.ask ?? []), ...(toolPolicy.deny ?? [])]
+  const memberToolPolicyDeny = [...(toolPolicy.deny ?? [])]
   const disposalTimeoutMs = config.disposalTimeoutMs ?? DEFAULT_DISPOSAL_TIMEOUT_MS
   const teamSkills = new TeamSkillSurface(ctx, async (agent): Promise<TeamState | undefined> => {
     const teams = await runtime.listTeamAggregates(runtime.scopeOf(agent))

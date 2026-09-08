@@ -5,6 +5,7 @@ import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
 import { registerAddMemoryTool, registerSetBudgetTool } from './budget-memory.js'
 import { registerApprovePlanTool, registerDiscardPlanTool, registerSetPlanTool } from './plans.js'
 import { registerSendMessageTool, registerWaitTool } from './mailbox.js'
+import { registerToolApproval } from './tool-approval.js'
 import { registerAddPrivateMemoryTool, registerListPrivateMemoryTool } from './private-memory.js'
 import {
   registerListJobsTool,
@@ -55,6 +56,7 @@ export function registerAgentSwarmTools(
   registerReviewTaskTool(ctx, runtime)
   registerInterruptMemberTool(ctx, runtime)
   registerSendMessageTool(ctx, runtime)
+  registerToolApproval(ctx)
   registerSetBudgetTool(ctx, runtime)
   registerAddMemoryTool(ctx, runtime)
   registerStatusTool(ctx, runtime)
@@ -70,4 +72,3 @@ export function registerAgentSwarmTools(
   registerApprovePlanTool(ctx, runtime)
   registerDiscardPlanTool(ctx, runtime)
 }
-

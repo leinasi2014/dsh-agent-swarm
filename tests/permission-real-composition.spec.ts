@@ -78,6 +78,8 @@ async function mount(
   fibers.push(await ctx.plugin(SubagentService))
   fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
   if (options.approval === true) fibers.push(await ctx.plugin(ApprovalService, { policy: 'ask' }))
+  // Independent official downstream policy must still own Captain approvals.
+  if (options.approval === true) ctx.on('tools/pre-execute', (exec, next) => exec.name === PROBE_TOOL ? Promise.resolve({ kind: 'ask', reason: 'official probe policy' }) : next())
   const pluginFiber = await ctx.plugin(AgentSwarm, {
     memberProvider: 'spawn',
     memberMaxDepth: 1,
@@ -344,13 +346,12 @@ describe('real ToolRuntime + approval composition (SW-I1a)', () => {
     expect(result.isError).toBe(true)
     expect((result.error as { message?: string }).message ?? '').toContain('rejected')
   }, 20_000)
-  it('missing approval seam fails closed without asking', async () => {
+  it('Captain inherits official allow without asking itself', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-perm-missing-'))
     roots.push(sandbox)
     const stack = await mount(sandbox, { toolPolicy: { ask: [PROBE_TOOL] } })
     const result = await callTool(stack.ctx, stack.lead, 'probe-missing', PROBE_TOOL)
-    expect(result.isError).toBe(true)
-    expect((result.error as { message?: string }).message ?? '').toContain('denied by the Team tool policy')
+    expect(result.isError).toBe(false)
   }, 20_000)
   it('unavailable approval fails closed through the official ToolRuntime', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-perm-unavailable-'))
@@ -396,19 +397,17 @@ describe('real ToolRuntime + approval composition (SW-I1a)', () => {
     expect(result.isError).toBe(true)
     expect((result.error as { message?: string }).message ?? '').toContain('denied by the Team tool policy')
   }, 20_000)
-  it('delegated member ask is denied and mapped into the durable provisioning filter', async () => {
+  it('new delegated member ask stays visible in the durable provisioning filter', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-perm-member-'))
     roots.push(sandbox)
     const stack = await mount(sandbox, { toolPolicy: { ask: [PROBE_TOOL] }, approval: true })
     const memberId = await addMember(stack)
-    // The official creation-window toolFilter is the durable authority: the
-    // config `ask` tool is denied for the delegated member (children are
-    // approval-pinned `never`), so the member cannot even see it.
+    // Asked tools reach the member's invocation gate; explicit role denials remain.
     const stored = await stack.ctx.sessionPersistence.inspect(SessionId(memberId))
     const suffix = stored.events.slice(stored.inheritedEventCount ?? 0); const descriptor = foldSubagentDescriptor(suffix)
     expect(descriptor?.mode).toBe('continuable')
     if (descriptor?.mode !== 'continuable') throw new Error('member descriptor is not continuable')
-    expect(descriptor.toolFilter).toEqual({ deny: [...MEMBER_HIDDEN_TOOLS, PROBE_TOOL] })
+    expect(descriptor.toolFilter).toEqual({ deny: [...MEMBER_HIDDEN_TOOLS] })
   }, 30_000)
   it('denies delegated agent_swarm_wait in official pre-execute before its body (body=0)', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-perm-member-wait-')); roots.push(sandbox); const stack = await mount(sandbox, { toolPolicy: { allow: ['agent_swarm_wait'] } })

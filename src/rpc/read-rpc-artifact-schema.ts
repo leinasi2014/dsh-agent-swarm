@@ -8,7 +8,7 @@ import {
 } from './read-rpc-contract.js'
 
 const SWARM_READ_RPC_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
-export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = 'b1e98b06fd246e0521540f7d7acd570d65d240e4fc0e443d5869be7f1f5851b5' as const
+export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '8c52f4f4ffa5777d61eb0a6dc4cab267ccda4cda7ddc520acec842f156a488af' as const
 
 const boundedString = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength, pattern: '\\S' })
 /** Member role is authoritative free-text (never truncated by the reader); the
@@ -208,7 +208,7 @@ const truncation = {
 const capability = {
   type: 'object', additionalProperties: false, required: ['capability', 'state'],
   properties: {
-    capability: { enum: ['skillCatalog.read', 'teams.read', 'binding.read', 'status.read', 'snapshot.read', 'page.read', 'captainMembers.read', 'captainAnnouncements.read', 'captainDiagnostics.read', 'message.write', 'control.write', 'effect.cancel'] },
+    capability: { enum: ['toolCatalog.read', 'skillCatalog.read', 'teams.read', 'binding.read', 'status.read', 'snapshot.read', 'page.read', 'captainMembers.read', 'captainAnnouncements.read', 'captainDiagnostics.read', 'message.write', 'control.write', 'effect.cancel'] },
     state: { enum: ['available', 'unavailable'] },
     blocker: { enum: ['listener-not-loopback', 'i1b-effect-correlation'] },
   },
@@ -309,6 +309,9 @@ export const SWARM_READ_RPC_CONTRACT_V1 = deepFreezeJson({
         {
           ...requestBase, properties: { ...requestBase.properties, method: { const: 'skillCatalog' } },
         },
+        {
+          ...requestBase, properties: { ...requestBase.properties, method: { const: 'toolCatalog' }, target: { type: 'object', additionalProperties: false, required: ['rootSessionId'], properties: { rootSessionId: boundedString(256) } } },
+        },
         ...(['captainMembers', 'captainAnnouncements', 'captainDiagnostics'] as const).map(method => ({
           type: 'object', additionalProperties: false,
           required: ['schemaVersion', 'method', 'target'],
@@ -349,7 +352,21 @@ export const SWARM_READ_RPC_CONTRACT_V1 = deepFreezeJson({
               listener: { enum: ['loopback', 'non-loopback'] },
             },
           },
-          capabilities: { type: 'array', minItems: 12, maxItems: 12, items: capability },
+          capabilities: { type: 'array', minItems: 13, maxItems: 13, items: capability },
+        },
+      },
+      toolCatalog: {
+        type: 'object', additionalProperties: false,
+        required: ['schemaVersion', 'binding', 'complete', 'tools', 'observedAt'],
+        properties: {
+          schemaVersion: { const: 1 },
+          binding: { type: 'object', additionalProperties: false, required: ['rootSessionId'], properties: { rootSessionId: boundedString(256) } },
+          complete: { const: true },
+          tools: { type: 'array', maxItems: 512, items: {
+            type: 'object', additionalProperties: false, required: ['name', 'description'],
+            properties: { name: boundedString(128), description: { type: 'string', maxLength: 4096 } },
+          } },
+          observedAt: nonNegativeInteger,
         },
       },
       skillCatalog: {

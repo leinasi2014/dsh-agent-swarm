@@ -42,6 +42,7 @@ describe('R2 local trust boundary', () => {
     expect(rpcHarness().service.capabilities()).toMatchObject({
       trust: { mode: 'local-single-user-target-bound', principalBound: false, listener: 'loopback' },
       capabilities: [
+        { capability: 'toolCatalog.read', state: 'available' },
         { capability: 'skillCatalog.read', state: 'available' },
         { capability: 'teams.read', state: 'available' },
         { capability: 'binding.read', state: 'available' },

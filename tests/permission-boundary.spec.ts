@@ -69,7 +69,7 @@ describe('tiered allow/ask/deny decision model (pure)', () => {
       { allow: ['bash', 'write'] },
     )
     expect(decideToolPermission(merged, 'bash', captainTurn())).toBe('deny')
-    expect(decideToolPermission(merged, 'write', captainTurn())).toBe('ask')
+    expect(decideToolPermission(merged, 'write', { ...captainTurn(), callerRole: 'delegated-member' })).toBe('ask')
     expect(decideToolPermission(merged, 'read', captainTurn())).toBe('allow')
   })
   it('rejects ambiguous multi-tier declarations loud', () => {
@@ -78,25 +78,25 @@ describe('tiered allow/ask/deny decision model (pure)', () => {
     expect(() => validateToolPolicyDeclaration({ ask: ['bash'], deny: ['bash'] }))
       .toThrowError(expect.objectContaining({ code: 'TEAM_TOOL_POLICY_INVALID' }))
   })
-  it('grants ask only to a captain on a concrete same-turn tool call with an available approval seam', () => {
+  it('asks only for a concrete member call and leaves Captain calls to official policy', () => {
     const policy: ToolPolicyDeclaration = { ask: ['bash'] }
-    expect(decideToolPermission(policy, 'bash', { ...captainTurn(), callerRole: 'delegated-member' })).toBe('deny')
-    expect(decideToolPermission(policy, 'bash', { ...captainTurn(), sameTurnConcreteToolCall: false })).toBe('deny')
-    expect(decideToolPermission(policy, 'bash', { ...captainTurn(), openTurn: false })).toBe('deny')
-    expect(decideToolPermission(policy, 'bash', { ...captainTurn(), approvalSeamAvailable: false })).toBe('deny')
-    expect(decideToolPermission(policy, 'bash', captainTurn())).toBe('ask')
-    expect(toPreToolDecision('ask', 'bash')).toMatchObject({ kind: 'ask' })
+    const member = { ...captainTurn(), callerRole: 'delegated-member' as const }
+    expect(decideToolPermission(policy, 'bash', member)).toBe('ask')
+    expect(decideToolPermission(policy, 'bash', { ...member, sameTurnConcreteToolCall: false })).toBe('deny')
+    expect(decideToolPermission(policy, 'bash', { ...member, openTurn: false })).toBe('deny')
+    expect(decideToolPermission(policy, 'bash', { ...member, approvalSeamAvailable: false })).toBe('ask')
+    expect(decideToolPermission(policy, 'bash', captainTurn())).toBe('allow')
   })
-  it('maps asked tools to deny in the delegated-member provisioning filter', () => {
+  it('keeps asked tools visible while freezing explicit member denials', () => {
     const filter = memberToolPolicyFilter({ allow: ['read'], ask: ['bash'], deny: ['agent_swarm_send_message'] })
-    expect(filter.deny).toContain('bash')
+    expect(filter.deny).not.toContain('bash')
     expect(filter.deny).toContain('agent_swarm_send_message')
     expect(filter.deny).not.toContain('read')
   })
   it('rejects a replayed/stale approval context: an old open turn cannot authorize a new call', () => {
     const policy: ToolPolicyDeclaration = { ask: ['bash'] }
-    expect(decideToolPermission(policy, 'bash', { ...captainTurn(), openTurn: false })).toBe('deny')
-    expect(decideToolPermission(policy, 'bash', { ...captainTurn(), sameTurnConcreteToolCall: false })).toBe('deny')
+    expect(decideToolPermission(policy, 'bash', { ...captainTurn(), callerRole: 'delegated-member', openTurn: false })).toBe('deny')
+    expect(decideToolPermission(policy, 'bash', { ...captainTurn(), callerRole: 'delegated-member', sameTurnConcreteToolCall: false })).toBe('deny')
   })
 })
 describe('human provenance boundary (no Agent-mintable attestation)', () => {

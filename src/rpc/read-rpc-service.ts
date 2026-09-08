@@ -93,7 +93,7 @@ export class AgentSwarmReadRpcService {
     const listener = this.deps.webServer.host === '127.0.0.1' ? 'loopback' : 'non-loopback'
     const available = listener === 'loopback'
     const reads: SwarmReadCapabilityState[] = [
-      'skillCatalog.read',
+      'toolCatalog.read', 'skillCatalog.read',
       'teams.read', 'binding.read', 'status.read', 'snapshot.read', 'page.read',
       'captainMembers.read', 'captainAnnouncements.read', 'captainDiagnostics.read',
     ].map(capability => ({
@@ -125,6 +125,7 @@ export class AgentSwarmReadRpcService {
       const projection = await this.reads.teams(request.target.rootSessionId)
       return { ...projection, teams: projection.teams.map(team => teamDescriptorOf(projection.binding.rootSessionId, team, team.captainProfile, team.goal)) }
     }
+    if (request.method === 'toolCatalog') return await this.reads.tools(request.target.rootSessionId)
     if (request.method === 'skillCatalog') {
       return await this.reads.skills(request.target.rootSessionId)
     }
@@ -258,10 +259,10 @@ function parseRequest(input: unknown): SwarmReadRpcRequest {
     assertKeys(base, new Set(['schemaVersion', 'method', 'target']))
     return { schemaVersion: 1, method: 'teams', target }
   }
-  if (base.method === 'skillCatalog') {
+  if (base.method === 'skillCatalog' || base.method === 'toolCatalog') {
     assertKeys(base, new Set(['schemaVersion', 'method', 'target']))
     if (target.teamId !== undefined) invalidRequest()
-    return { schemaVersion: 1, method: 'skillCatalog', target }
+    return { schemaVersion: 1, method: base.method, target }
   }
   if (isCaptainSectionMethod(base.method)) {
     assertKeys(base, new Set(['schemaVersion', 'method', 'target']))

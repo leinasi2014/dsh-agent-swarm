@@ -70,7 +70,7 @@ export interface RuntimeConfig {
   readonly executionRootProvider: string
   /** Absolute base directory under which every execution root is laid out. */
   readonly executionRootsBase: string
-  /** Effective ask + deny policy names hidden from delegated members. */
+  /** Explicit deny policy names hidden from delegated members. */
   readonly memberToolPolicyDeny: readonly string[]
   /** Snapshot default persisted onto a newly created Team. */
   readonly newTeamAllowedSkills: () => readonly string[]

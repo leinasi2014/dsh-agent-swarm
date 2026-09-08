@@ -51,8 +51,8 @@ describe('R2 browser client', () => {
     expect(digest).toBe(SWARM_READ_RPC_CONTRACT_DIGEST_V1)
     expect(Object.isFrozen(SWARM_READ_RPC_CONTRACT_V1)).toBe(true)
     expect(Object.isFrozen(SWARM_READ_RPC_FIXTURES_V1.requests)).toBe(true)
-    expect(SWARM_READ_RPC_CONTRACT_V1.schemas.request.oneOf).toHaveLength(10)
-    expect(SWARM_READ_RPC_FIXTURES_V1.values.capabilities.capabilities).toHaveLength(12)
+    expect(SWARM_READ_RPC_CONTRACT_V1.schemas.request.oneOf).toHaveLength(11)
+    expect(SWARM_READ_RPC_FIXTURES_V1.values.capabilities.capabilities).toHaveLength(13)
     expect(() => assertSwarmReadRpcValue('skillCatalog', SWARM_READ_RPC_FIXTURES_V1.values.skillCatalog)).not.toThrow()
     expect(() => assertSwarmReadRpcValue('skillCatalog', {
       ...SWARM_READ_RPC_FIXTURES_V1.values.skillCatalog,
@@ -101,6 +101,18 @@ describe('R2 browser client', () => {
         ? { ...entry, state: 'available', blocker: undefined }
         : entry),
     })).toThrow()
+  })
+
+  it('validates tool catalog metadata, bounds and unique ordering', () => {
+    const value = SWARM_READ_RPC_FIXTURES_V1.values.toolCatalog
+    expect(() => assertSwarmReadRpcValue('toolCatalog', value)).not.toThrow()
+    for (const tools of [
+      [{ name: 'read', description: 'Read', execute: 'private' }],
+      [{ name: 'read', description: 'Read' }, { name: 'read', description: 'Duplicate' }],
+      [{ name: 'z', description: '' }, { name: 'a', description: '' }],
+      [{ name: 'read', description: 'x'.repeat(4097) }],
+      Array.from({ length: 513 }, (_, i) => ({ name: `tool-${i}`, description: '' })),
+    ]) expect(() => assertSwarmReadRpcValue('toolCatalog', { ...value, tools })).toThrow()
   })
 
   it('does no work before a request and sends only the versioned JSON envelope', async () => {
