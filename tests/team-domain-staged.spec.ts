@@ -124,4 +124,15 @@ describe('staged plan lifecycle (S1)', () => {
       { planDraft: { ...draft, tasks: [{ ...draft.tasks[0], targetMemberName: 'missing' }] } },
     ]) expect(parse(patch).success).toBe(false)
   })
+
+  it('retains a planned member public profile through normalization and Storage Domain reopen', async () => {
+    const profile = { displayName: '林砚', profession: '编剧', personality: '细致耐心', biography: '核对人物动机。', pixelAvatarSvg: '<svg viewBox="0 0 32 32"><rect x="8" y="8" width="16" height="16" fill="#d58261"/></svg>' }
+    const member = { ...draft.members[0]!, ...profile }
+    const team = await domain.createStagedManaged(scope, 'managed:root:identity:1', '资料验收', '保留招募资料')
+    const planned = await domain.setPlanDraft(scope, team.id, team.revision, { ...draft, members: [member] })
+    expect(planned.planDraft?.members[0]).toEqual(member)
+    await stack.close()
+    stack = await openStorageStack(join(sandbox, 'storage'))
+    expect((await stack.store.read(scope, team.id))?.planDraft?.members[0]).toEqual(member)
+  })
 })

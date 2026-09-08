@@ -17,6 +17,7 @@ import { expectDomain, TeamDomainError } from './error.js'
 import { nonEmpty, type TeamDomainDeps } from './team-domain-shared.js'
 import { TeamId, type TeamPlanDraft, type TeamState } from './types.js'
 import type { TeamScope } from './team-domain-port.js'
+import { normalizeMemberIdentity } from './identity-profile.js'
 
 const MAX_PLAN_MEMBERS = 64
 const MAX_PLAN_TASKS = 64
@@ -39,6 +40,7 @@ function normalizePlanDraft(draft: TeamPlanDraft): TeamPlanDraft {
     const normalized: TeamPlanDraft['members'][number] = {
       name,
       role: nonEmpty(raw?.role ?? '', `plan members[${index}].role`, 256),
+      ...normalizeMemberIdentity({ displayName: raw.displayName, profession: raw.profession, personality: raw.personality, biography: raw.biography, pixelAvatarSvg: raw.pixelAvatarSvg }),
       ...(raw?.llmProvider === undefined ? {} : { llmProvider: nonEmpty(raw.llmProvider, `plan members[${index}].llmProvider`, 128) }),
       ...(raw?.model === undefined ? {} : { model: nonEmpty(raw.model, `plan members[${index}].model`, 128) }),
       ...(raw?.denyTools === undefined ? {} : {
@@ -177,5 +179,4 @@ export async function discardStagedPlan(
   })
   return structuredClone(committed)
 }
-
 

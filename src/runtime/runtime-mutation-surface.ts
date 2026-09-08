@@ -205,13 +205,9 @@ export class RuntimeMutationSurface {
   private async provisionPlannedMembers(captain: Agent, draft: TeamPlanDraft, signal: AbortSignal, skip?: (member: TeamPlanDraft['members'][number]) => boolean): Promise<void> {
     for (const member of draft.members) {
       if (skip?.(member) === true) continue
-      await this.deps.provisioning.addMember({ agent: captain, signal } as ToolExecutionAuthority, {
-        name: member.name,
-        role: member.role,
-        ...(member.llmProvider === undefined ? {} : { llmProvider: member.llmProvider }),
-        ...(member.model === undefined ? {} : { model: member.model }),
-        ...(member.denyTools === undefined ? {} : { denyTools: member.denyTools }),
-      })
+      // The validated plan declaration shares the recruitment input shape.
+      // Forward it intact so identity fields survive approval and recovery.
+      await this.deps.provisioning.addMember({ agent: captain, signal } as ToolExecutionAuthority, member)
     }
   }
 
@@ -413,7 +409,5 @@ export class RuntimeMutationSurface {
     return await this.deps.delivery.deliverQueuedMessage(scope, membership.team.id, captain, message.id, exec.signal) ?? message
   }
 }
-
-
 
 

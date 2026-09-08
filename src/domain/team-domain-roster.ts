@@ -438,7 +438,7 @@ export async function setCaptainProfile(
   return structuredClone(committed)
 }
 
-/** Captain-only identity patch. Session, role, provider, Skills and lifecycle stay canonical. */
+/** Captain or exact active member's own identity patch. Session, role, provider, Skills and lifecycle stay canonical. */
 export async function setMemberProfile(
   deps: TeamDomainDeps, scope: TeamScope, teamId: TeamId, captainSessionId: string,
   expectedRevision: number, name: string, input: MemberIdentityInput,
@@ -451,7 +451,7 @@ export async function setMemberProfile(
   let committed!: TeamState
   await deps.store.transact(scope, teamId, team => {
     const authority = actorMembership(team, captainSessionId)
-    expectDomain(authority.role === 'captain', 'only the captain can set member profiles', 'TEAM_CAPTAIN_REQUIRED')
+    expectDomain(authority.role === 'captain' || authority.name === memberName, 'only the captain can set another member profile', 'TEAM_CAPTAIN_REQUIRED')
     expectDomain(team.revision === expectedRevision, `team revision conflict: expected ${expectedRevision}`, 'TEAM_REVISION_CONFLICT')
     const member = team.members.find(candidate => candidate.name === memberName)
     expectDomain(member !== undefined, `member "${memberName}" does not exist`, 'TEAM_MEMBER_NOT_FOUND')

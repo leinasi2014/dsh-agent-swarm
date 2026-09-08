@@ -109,6 +109,7 @@ export function formatTime(createdAt: number, localeTag: () => 'zh-CN' | 'en-US'
 /** Real member identity card data comes from the captainMembers read keyed by the authoritative
  *  roster name; a missing row keeps the honest not-generated placeholder, never a fabricated asset. */
 export function memberAssetOf(memberAssets: SwarmReadCaptainMembersV1 | undefined, name: string): {
+  readonly sessionId?: string
   readonly avatar: SwarmReadAssetStatusV1
   readonly identityCard: SwarmReadAssetStatusV1
   readonly displayName?: string
@@ -126,6 +127,7 @@ export function memberAssetOf(memberAssets: SwarmReadCaptainMembersV1 | undefine
 } {
   const row = memberAssets?.members.find(candidate => candidate.name === name)
   return {
+    ...(row?.sessionId === undefined ? {} : { sessionId: row.sessionId }),
     avatar: row?.avatar ?? NOT_GENERATED_AVATAR,
     identityCard: row?.identityCard ?? NOT_GENERATED_IDENTITY,
     ...(row?.displayName === undefined ? {} : { displayName: row.displayName }),

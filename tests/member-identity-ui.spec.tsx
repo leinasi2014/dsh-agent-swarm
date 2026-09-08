@@ -159,8 +159,8 @@ describe('member rows consume real captainMembers identity data', () => {
     expect(growth.textContent).toContain('Private to the member (never exposed here)')
     expect(growth.querySelectorAll('dd')).toHaveLength(4)
     expect(growth.textContent.match(/Not available yet/gu)!.length).toBe(3)
-    // Ordinary members have no direct contact capability: disabled with an explanation.
-    expect(detail.querySelector('[data-swarm-contact-disabled]')?.textContent).toContain('not available yet')
+    // A row without an address remains readable, with an explicit Chat limitation.
+    expect(detail.querySelector('[data-swarm-contact-disabled]')?.textContent).toContain('Session is currently unavailable')
   })
 
   it('renders an authored 16x16 asset with its own viewBox, and falls back on unsafe/invalid input', async () => {

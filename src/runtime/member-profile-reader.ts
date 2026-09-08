@@ -166,15 +166,17 @@ export class MemberProfileReader {
     input: { phase?: TeamMember['phase']; cursor: number; limit: number },
     signal: AbortSignal,
     callerSessionId?: string,
-  ): Promise<{ members: MemberProfile[]; nextCursor?: number }> {
+  ) {
     const filtered = team.members.filter(member => input.phase === undefined || member.phase === input.phase)
     const selected = filtered.slice(input.cursor, input.cursor + input.limit)
     const members = (await this.list(team, selected, signal)).map((member, index) => ({
       ...member,
+      identity: selected[index]!,
       ...(callerSessionId === team.captainSessionId && member.phase === 'failed'
         ? { retryOf: selected[index]!.sessionId } : {}),
     }))
-    return { members, ...(input.cursor + input.limit < filtered.length ? { nextCursor: input.cursor + input.limit } : {}) }
+    return { revision: team.revision, captainProfile: team.captainProfile, members,
+      ...(input.cursor + input.limit < filtered.length ? { nextCursor: input.cursor + input.limit } : {}) }
   }
 
   async list(team: TeamState, members: readonly TeamMember[], signal: AbortSignal): Promise<MemberProfile[]> {

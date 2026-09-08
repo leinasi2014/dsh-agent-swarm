@@ -59,7 +59,7 @@ function unique(values: readonly string[], path: string, label: string): void {
 }
 
 
-const PLAN_MEMBER_KEYS = new Set(['name', 'role', 'llmProvider', 'model', 'denyTools'])
+const PLAN_MEMBER_KEYS = new Set(['name', 'role', 'llmProvider', 'model', 'denyTools', ...CAPTAIN_PROFILE_KEYS])
 const PLAN_TASK_KEYS = new Set(['key', 'subject', 'description', 'acceptanceCriteria', 'dependencies', 'targetMemberName', 'writeScopes'])
 const MAX_PLAN_ROWS = 64
 
@@ -77,6 +77,14 @@ export function assertPlanDraftShape(value: unknown, path: string): void {
     if (memberNames.has(name)) corrupt(path, `planDraft.members[${index}].name is not unique`)
     memberNames.add(name)
     codePointText(member.role, 256, path, `planDraft.members[${index}].role`)
+    for (const [key, limit] of [['displayName', 128], ['profession', 256], ['personality', 1024], ['biography', 1024]] as const) {
+      if (member[key] === undefined) continue
+      const identityText = codePointText(member[key], limit, path, `planDraft.members[${index}].${key}`)
+      if (identityText !== identityText.trim()) corrupt(path, `planDraft.members[${index}].${key} must be canonical (trimmed)`)
+    }
+    if (member.pixelAvatarSvg !== undefined && (typeof member.pixelAvatarSvg !== 'string' || !isSafePixelAvatarSvg(member.pixelAvatarSvg))) {
+      corrupt(path, `planDraft.members[${index}].pixelAvatarSvg is unsafe`)
+    }
     if (member.llmProvider !== undefined) codePointText(member.llmProvider, 128, path, `planDraft.members[${index}].llmProvider`)
     if (member.model !== undefined) codePointText(member.model, 128, path, `planDraft.members[${index}].model`)
     if (member.denyTools !== undefined) {
@@ -396,5 +404,3 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
     corrupt(path, error instanceof Error ? error.message : 'task graph is invalid')
   }
 }
-
-

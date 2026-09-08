@@ -8,12 +8,14 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
 import type { TeamPlanDraft } from '../domain/types.js'
 import { compactJsonOutput, register } from './shared.js'
+import { identityParameters, identityPatch } from './identity-parameters.js'
 
 const PLAN_MEMBER_SCHEMA = {
   type: 'object', additionalProperties: false,
   properties: {
     name: { type: 'string', required: true },
     role: { type: 'string', required: true },
+    ...identityParameters,
     llm_provider: { type: 'string', description: 'Optional member LLM provider override.' },
     model: { type: 'string', description: 'Optional member model override.' },
     deny_tools: { type: 'array', items: { type: 'string' }, description: 'Optional deny-only tool narrowing.' },
@@ -46,7 +48,7 @@ const PLAN_TASK_SCHEMA = {
 export function registerSetPlanTool(ctx: Context, runtime: AgentSwarmRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_set_plan',
-    description: 'Main Brain only. Store one bounded plan declaration on your staged Team (members with optional routes/deny lists, and a dependency-aware task graph with plan-local keys). Revises the draft atomically with expected_revision CAS; the Team stays staged.',
+    description: 'Main Brain only. Store a staged plan: include each member initial display name, profession, working personality, biography and pixel avatar, plus optional routes/deny lists and a dependency-aware task graph. The Captain audits missing profiles and members can complete their own. Revises the draft atomically with expected_revision CAS; the Team stays staged.',
     parameters: {
       team_id: { type: 'string', required: true },
       expected_revision: { type: 'integer', required: true },
@@ -58,6 +60,7 @@ export function registerSetPlanTool(ctx: Context, runtime: AgentSwarmRuntime): v
       const draft: TeamPlanDraft = {
         members: (args.members ?? []).map(member => ({
           name: member.name, role: member.role,
+          ...identityPatch(member),
           ...(member.llm_provider === undefined ? {} : { llmProvider: member.llm_provider }),
           ...(member.model === undefined ? {} : { model: member.model }),
           ...(member.deny_tools === undefined ? {} : { denyTools: member.deny_tools }),
@@ -124,6 +127,5 @@ export function registerDiscardPlanTool(ctx: Context, runtime: AgentSwarmRuntime
     },
   }), 'discard-plan tool')
 }
-
 
 

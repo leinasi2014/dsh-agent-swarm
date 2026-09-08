@@ -86,6 +86,9 @@ export const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace__detail-body { min-height:0; padding:16px; overflow:auto; scrollbar-width:thin; }
 [data-swarm-team-dashboard] .swarm-team-workspace__detail-section { margin:0 0 16px; padding:0 0 16px; border:0; border-bottom:1px solid var(--dsw-alias-border-l2); background:transparent; }
 [data-swarm-team-dashboard] .swarm-team-workspace__detail-section h4 { margin:0 0 12px; font-size:13px; }
+[data-swarm-team-dashboard] .swarm-team-workspace__member-tabs { display:flex; flex-wrap:wrap; gap:4px 12px; margin:0 0 16px; border-bottom:1px solid var(--dsw-alias-border-l2); }
+[data-swarm-team-dashboard] .swarm-team-workspace__member-tabs [role="tab"] { flex:1 1 auto; min-width:0; padding:9px 0; border:0; border-radius:0; background:transparent; color:var(--dsw-alias-label-secondary); font:inherit; font-weight:550; cursor:pointer; }
+[data-swarm-team-dashboard] .swarm-team-workspace__member-tabs [role="tab"][aria-selected="true"] { color:var(--dsw-alias-state-business-primary); box-shadow:inset 0 -2px 0 var(--dsw-alias-state-business-primary); }
 [data-swarm-team-dashboard] .swarm-team-workspace__field-list { display:grid; grid-template-columns:84px minmax(0,1fr); gap:10px 12px; margin:0; font-size:12px; line-height:1.65; }
 [data-swarm-team-dashboard] .swarm-team-workspace__field-list dt { min-width:0; color:var(--dsw-alias-label-secondary); }
 [data-swarm-team-dashboard] .swarm-team-workspace__field-list dd { margin:0; min-width:0; overflow-wrap:anywhere; }
@@ -175,6 +178,7 @@ export function TeamDashboardContent({ controller, coordinator, descriptionId, h
         diagnostics={state.data?.captainDiagnostics}
         memberAssets={state.data?.captainMembers}
         onCaptainSession={handoff}
+        onMemberSession={(name, sessionId) => { void coordinator.openMemberChat(name, sessionId).catch(() => {}) }}
         onSelectTeam={teamId => { controller.selectTeam(teamId) }}
         onClose={() => { coordinator.closeAndRestoreFocus() }}
       />}
@@ -202,7 +206,7 @@ function Empty({ state, controller, t }: { readonly state: TeamDashboardState; r
   </section>
 }
 
-function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, state, t, teams, announcements, diagnostics, memberAssets, onCaptainSession, onSelectTeam, onClose }: {
+function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, state, t, teams, announcements, diagnostics, memberAssets, onCaptainSession, onMemberSession, onSelectTeam, onClose }: {
   readonly data: SwarmHostReadProjectionV1
   readonly handoffBusy: boolean
   readonly localeTag: () => 'zh-CN' | 'en-US'
@@ -215,6 +219,7 @@ function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, sta
   readonly diagnostics: SwarmReadCaptainDiagnosticsV1 | undefined
   readonly memberAssets: SwarmReadCaptainMembersV1 | undefined
   readonly onCaptainSession: () => void
+  readonly onMemberSession: (name: string, sessionId: string) => void
   readonly onSelectTeam: (teamId: string) => void
   readonly onClose: () => void
 }) {
@@ -226,6 +231,7 @@ function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, sta
   const detailHeadingRef = useRef<HTMLHeadingElement>(null)
   const detailTriggerRef = useRef<HTMLElement | null>(null)
   const detailTeamRef = useRef(data.binding.teamId)
+  const detailSessionRef = useRef<string>()
   const openDetail = (selection: DetailSelection): void => {
     detailTriggerRef.current = document.activeElement as HTMLElement | null
     setDetail(selection)
@@ -245,6 +251,13 @@ function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, sta
       setDetail(undefined)
     }
   }, [data.binding.teamId])
+  useLayoutEffect(() => {
+    const member = memberAssets?.members.find(row => row.sessionId === state.targetSessionId)
+    if (member !== undefined && detailSessionRef.current !== state.targetSessionId) {
+      detailSessionRef.current = state.targetSessionId
+      setDetail({ kind: 'member', name: member.name })
+    }
+  }, [memberAssets, state.targetSessionId])
   useLayoutEffect(() => {
     if (detail === undefined) return
     const gone = (detail.kind === 'member' && !data.roster.some(member => member.name === detail.name))
@@ -421,7 +434,10 @@ function Workspace({ data, handoffBusy, localeTag, descriptionId, headingId, sta
                   data-swarm-member-role={member.role}
                   data-swarm-identity-state={asset.identityCard.state}
                   data-swarm-tone={tone}
-                  onClick={() => { openDetail({ kind: 'member', name: member.name }) }}
+                  onClick={() => {
+                    openDetail({ kind: 'member', name: member.name })
+                    if (asset.sessionId !== undefined && asset.sessionId !== state.targetSessionId) onMemberSession(member.name, asset.sessionId)
+                  }}
                 >
                   <span className="swarm-team-workspace__avatar"><SafePixelAvatar seed={member.name} asset={asset.avatar} name={displayName} t={t} /></span>
                   <span className="swarm-team-workspace__desk-copy">

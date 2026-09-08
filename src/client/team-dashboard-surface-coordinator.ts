@@ -2,6 +2,7 @@ import type { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { SubagentListEntry } from '@deepseek-ai/dsh-subagent/client'
 import type { ILayout } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { StoredEntry } from '@deepseek-ai/dsh-client-ui-slots'
 import type { RefObject } from 'react'
@@ -28,6 +29,8 @@ const INACTIVE: TeamDashboardSurfaceState = Object.freeze({ mode: 'inactive', vi
 export class TeamDashboardSurfaceCoordinator {
   private readonly listeners = new Set<() => void>()
   private state: TeamDashboardSurfaceState = INACTIVE
+  private entrySessionId: string | undefined
+  private navigationSessions = new Set<string>()
   private layout: ILayout | undefined
   private declarationLive = false
   private layoutEpoch = 0
@@ -53,7 +56,18 @@ export class TeamDashboardSurfaceCoordinator {
     this.offController = this.options.controller.subscribe(() => { if (!this.options.controller.getSnapshot().open && this.state.mode !== 'inactive') this.close(false) })
     this.offSessions = this.options.sessions.list.subscribe(() => {
       const target = this.state.targetSessionId
-      if (target !== undefined && this.options.sessions.list.getSnapshot().current !== target) this.close(false)
+      const current = this.options.sessions.list.getSnapshot().current
+      if (target === undefined || current === target) return
+      const data = this.options.controller.getSnapshot().data
+      if (data !== undefined) {
+        this.navigationSessions = new Set([data.projection.binding.rootSessionId,
+          ...data.captainMembers.members.flatMap(member => member.phase === 'active' && member.sessionId !== undefined ? [member.sessionId] : [])])
+      }
+      const sameTeam = current !== undefined && (current === this.entrySessionId
+        || this.navigationSessions.has(current))
+      if (!sameTeam || current === undefined) return this.close(false)
+      this.publish({ ...this.state, targetSessionId: current })
+      this.options.controller.open(current)
     })
     this.offEntryError = this.options.slots.onEntryError((key, entry) => { if (key === 'details' && entry === this.entry) this.close(false) })
     this.offSlot = this.options.slots.subscribe('details', () => { if (this.entry !== undefined && !this.isWinner(this.entry)) this.close(false) })
@@ -88,6 +102,7 @@ export class TeamDashboardSurfaceCoordinator {
     this.close(false)
     if (!this.acquire()) return
     try {
+      this.entrySessionId = targetSessionId
       this.options.controller.open(targetSessionId)
       this.layout?.openDetails()
       this.publish({ mode: 'docked', targetSessionId, view: 'overview' })
@@ -106,25 +121,57 @@ export class TeamDashboardSurfaceCoordinator {
     try { layout.openDetails() } catch { this.publish(INACTIVE) }
   }
   async openCaptainChat(): Promise<void> {
-    await this.options.controller.openCaptainChat(rootSessionId => {
-      const root = rootSessionId as SessionId
-      const sessions = this.options.sessions.list.getSnapshot()
-      if (!Object.hasOwn(sessions.byId, root)) throw new Error('Dedicated Captain is no longer in the official Session list')
-      this.options.sessions.open(root)
-    })
+    await this.options.controller.openCaptainChat((id, signal) => this.openOfficialCaptain(id, signal))
     this.publish(INACTIVE)
+  }
+
+  private async openOfficialCaptain(id: string, signal?: AbortSignal): Promise<void> {
+    this.assertLive()
+    const sessions = this.options.sessions
+    const before = sessions.list.getSnapshot()
+    const row = before.byId[id as SessionId]
+    if (row === undefined) throw new Error('Dedicated Captain is no longer in the official Session list')
+    if (row.origin !== 'subagent') { sessions.open(id as SessionId); return }
+    if (row.parentId === undefined) throw new Error('Dedicated Captain has no official parent child catalog')
+    await sessions.refreshSubagents(row.parentId)
+    signal?.throwIfAborted()
+    this.assertLive()
+    const after = sessions.list.getSnapshot()
+    if (after.current !== before.current) throw new Error('Captain Chat handoff was superseded')
+    const current = after.byId[id as SessionId]
+    const catalog = after.subagentsByParent[row.parentId]
+    const child = catalog?.state === 'ready' ? catalog.entries.find((entry: SubagentListEntry) => entry.id === id) as SubagentListEntry | undefined : undefined
+    if (current?.origin !== 'subagent' || current.parentId !== row.parentId || child?.kind !== 'child' || child.mode !== 'continuable') {
+      throw new Error('Dedicated Captain is not in the official parent child catalog')
+    }
+    sessions.openSubagent({ parentSessionId: row.parentId, childSessionId: child.id, mode: child.mode })
+  }
+
+  async openMemberChat(name: string, sessionId: string): Promise<void> {
+    this.assertLive()
+    const target = this.state.targetSessionId
+    await this.options.controller.openMemberChat(name, sessionId, async (captainId, memberId, signal) => {
+      const sessions = this.options.sessions
+      await sessions.refreshSubagents(captainId as SessionId)
+      signal.throwIfAborted()
+      if (this.state.mode !== 'docked' || this.state.targetSessionId !== target
+        || sessions.list.getSnapshot().current !== target) throw new Error('Member Chat handoff was superseded')
+      const catalog = sessions.list.getSnapshot().subagentsByParent[captainId as SessionId]
+      const child = catalog?.state === 'ready' ? catalog.entries.find((entry: SubagentListEntry) => entry.id === memberId) as SubagentListEntry | undefined : undefined
+      if (child?.kind !== 'child' || child.mode !== 'continuable') {
+        throw new Error('Member Session is not in the official Captain child catalog')
+      }
+      // subagentAddress is a retained-navigation lookup, empty on first open.
+      // This address comes from the fresh public direct-parent catalog instead.
+      sessions.openSubagent({ parentSessionId: captainId as SessionId, childSessionId: child.id, mode: child.mode })
+    })
   }
 
   /** Open the official Session of a specific Team's dedicated Captain from the enumerated selector.
    *  The official Catalog is the only authority: a Session that is absent (or not live) degrades to
    *  an explicit unavailable, never a fabricated chat. */
-  openTeamCaptain(captainSessionId: string): void {
-    const sessions = this.options.sessions.list.getSnapshot()
-    const root = captainSessionId as SessionId
-    if (!Object.hasOwn(sessions.byId, root)) {
-      throw new Error('Dedicated Captain Session is not in the official Session list')
-    }
-    this.options.sessions.open(root)
+  async openTeamCaptain(captainSessionId: string): Promise<void> {
+    await this.openOfficialCaptain(captainSessionId)
     this.releaseTeamLease()
     this.publish(INACTIVE)
     this.options.controller.close()
@@ -146,6 +193,8 @@ export class TeamDashboardSurfaceCoordinator {
   }
   private isWinner(entry: StoredEntry): boolean { return this.options.slots.entriesOfSlot('details')[0] === entry }
   private close(restoreFocus: boolean): void {
+    this.entrySessionId = undefined
+    this.navigationSessions.clear()
     if (this.state.mode === 'docked') { try { this.layout?.closeDetails() } catch { /* teardown still releases the Team lease */ } }
     this.releaseTeamLease()
     this.publish(INACTIVE)

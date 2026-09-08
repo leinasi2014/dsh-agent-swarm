@@ -142,7 +142,7 @@ export class TeamDashboardController {
   /** Re-prove the exact Host binding, then delegate navigation to the official Session service.
    *  binding.rootSessionId is the host-resolved dedicated Captain Session id (the Team root of this
    *  read). Captainless drafts bind reads to their owner but have no Chat handoff. */
-  async openCaptainChat(openOfficialSession: (rootSessionId: string) => void): Promise<void> {
+  async openCaptainChat(openOfficialSession: (rootSessionId: string, signal: AbortSignal) => void | Promise<void>): Promise<void> {
     this.assertLive()
     const current = this.state
     const target = current.targetSessionId
@@ -158,10 +158,11 @@ export class TeamDashboardController {
     this.requestAbort = abort
     try {
       const binding = await this.readBinding(target, expected.teamId, abort.signal)
+      abort.signal.throwIfAborted()
       if (binding.binding.rootSessionId !== expected.rootSessionId || binding.binding.teamId !== expected.teamId) {
         throw new DashboardReadError('SWARM_UI_BINDING_CHANGED', 'Team binding changed before Captain Chat handoff')
       }
-      openOfficialSession(binding.binding.rootSessionId)
+      await openOfficialSession(binding.binding.rootSessionId, abort.signal)
       this.close()
     } catch (error) {
       if (abort.signal.aborted) throw error
@@ -180,6 +181,40 @@ export class TeamDashboardController {
     this.mount.dispose()
     this.state = CLOSED
     this.listeners.clear()
+  }
+
+  /** Re-read both authorities before opening the exact member's official Chat.
+   *  Navigation owns no Team mutation and never closes the Details surface. */
+  async openMemberChat(name: string, sessionId: string,
+    openOfficialSession: (captainId: string, memberId: string, signal: AbortSignal) => Promise<void>,
+  ): Promise<void> {
+    this.assertLive()
+    const target = this.state.targetSessionId
+    const expected = this.state.data?.projection.binding
+    if (!this.state.open || target === undefined || expected === undefined) throw new Error('Member Chat requires a current Team binding')
+    this.stopActive()
+    const generation = this.generation
+    const abort = new AbortController()
+    this.requestAbort = abort
+    try {
+      const binding = await this.readBinding(target, expected.teamId, abort.signal)
+      assertSectionBinding(binding, expected, 'captainMembers')
+      const members = await this.readCaptainSection('captainMembers', { rootSessionId: target, teamId: expected.teamId }, abort.signal) as SwarmReadCaptainMembersV1
+      assertSectionBinding(binding, members.binding, 'captainMembers')
+      if (!members.members.some(member => member.name === name && member.sessionId === sessionId && member.phase === 'active')) {
+        throw new DashboardReadError('SWARM_UI_MEMBER_UNAVAILABLE', 'Member Session is no longer available')
+      }
+      if (!this.isCurrent(generation, target, abort)) throw new Error('Member Chat handoff was superseded')
+      await openOfficialSession(binding.binding.rootSessionId, sessionId, abort.signal)
+    } catch (error) {
+      if (this.isCurrent(generation, target, abort)) {
+        this.publish({ ...this.state, phase: 'stale', error: normalizeError(error) })
+      }
+      throw error
+    } finally {
+      if (this.requestAbort === abort) this.requestAbort = undefined
+      if (this.isCurrent(generation, target, abort)) this.scheduleLoad(target, this.pollMs, false)
+    }
   }
 
   private async load(targetSessionId: string, reconnecting: boolean): Promise<void> {

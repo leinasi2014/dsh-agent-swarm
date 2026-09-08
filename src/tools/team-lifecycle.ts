@@ -6,32 +6,13 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
-import type { MemberIdentityInput } from '../domain/identity-profile.js'
+import { identityParameters, identityPatch } from './identity-parameters.js'
 import { TeamDomainError } from '../domain/error.js'
 import { register } from './shared.js'
-
-/** Shared optional identity schema; both tools keep the same compiled fields. */
-const optionalIdentityParameters = {
-  display_name: { type: 'string', description: 'Optional display name, at most 128 code points; preserve user preference/language.' },
-  profession: { type: 'string', description: 'Optional profession, at most 256 code points.' },
-  personality: { type: 'string', description: 'Optional disposition, at most 1024 code points.' },
-  biography: { type: 'string', description: 'Role introduction, at most 1024 code points; no invented credentials.' },
-  pixel_avatar_svg: { type: 'string', description: 'Optional safe pixel-avatar SVG, at most 16KB. Omit freely; supplied values are validated.' },
-} as const
 
 const profileOutput = {
   schema: { type: 'object', additionalProperties: false, properties: { revision: { type: 'number', required: true } } } as const,
   render: (_args: unknown, value: { revision: number }) => [{ type: 'text' as const, text: `Set Team profile (revision ${value.revision}).` }],
-}
-
-function identityPatch(args: { display_name?: string; profession?: string; personality?: string; biography?: string; pixel_avatar_svg?: string }): MemberIdentityInput {
-  return {
-    ...(args.display_name === undefined ? {} : { displayName: args.display_name }),
-    ...(args.profession === undefined ? {} : { profession: args.profession }),
-    ...(args.personality === undefined ? {} : { personality: args.personality }),
-    ...(args.biography === undefined ? {} : { biography: args.biography }),
-    ...(args.pixel_avatar_svg === undefined ? {} : { pixelAvatarSvg: args.pixel_avatar_svg }),
-  }
 }
 
 /** `agent_swarm_create`. */
@@ -100,11 +81,11 @@ export function registerCreateManagedTool(ctx: Context, runtime: AgentSwarmRunti
 export function registerAddMemberTool(ctx: Context, runtime: AgentSwarmRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_add_member',
-    description: 'Captain-only: recruit a continuable member with isolated persona and mandatory tool restrictions. Normally include name, profession, personality and biography in the user language; preserve preferences. Identity is optional; invalid avatars fail before effects.',
+    description: 'Captain-only: recruit a continuable member with isolated persona and mandatory tool restrictions. Provide its initial display name, profession, working personality, biography and pixel avatar in the user language; preserve preferences. Omitted legacy fields remain absent for the member to complete on entry. Invalid avatars fail before effects.',
     parameters: {
       name: { type: 'string', required: true, description: 'Immutable member name: NFC-normalized Unicode letters/digits with dash separators, at most 64 code points.' },
       role: { type: 'string', required: true, description: 'Member specialty and responsibility.' },
-      ...optionalIdentityParameters,
+      ...identityParameters,
       skills: { type: 'array', items: { type: 'string' }, description: 'Assigned Skills: validated before effects against Team allow-list and model-invocable scoped catalog; durable across restart.' },
       provider: { type: 'string', description: 'Continuable runtime Provider; defaults to plugin config.' },
       llm_provider: { type: 'string', description: 'Child LLM provider, distinct from runtime provider; inherits Captain when omitted and is recorded durably.' },
@@ -134,11 +115,7 @@ export function registerAddMemberTool(ctx: Context, runtime: AgentSwarmRuntime):
         name: args.name,
         role: args.role,
         ...(args.retry_of === undefined ? {} : { retryOf: args.retry_of }),
-        ...(args.display_name === undefined ? {} : { displayName: args.display_name }),
-        ...(args.profession === undefined ? {} : { profession: args.profession }),
-        ...(args.personality === undefined ? {} : { personality: args.personality }),
-        ...(args.biography === undefined ? {} : { biography: args.biography }),
-        ...(args.pixel_avatar_svg === undefined ? {} : { pixelAvatarSvg: args.pixel_avatar_svg }),
+        ...identityPatch(args),
         ...(args.provider === undefined ? {} : { provider: args.provider }),
         ...(args.llm_provider === undefined ? {} : { llmProvider: args.llm_provider }),
         ...(args.model === undefined ? {} : { model: args.model }),
@@ -163,7 +140,7 @@ export function registerSetCaptainProfileTool(ctx: Context, runtime: AgentSwarmR
     description: 'Captain-only identity patch. Supply at least one identity field; omitted fields are preserved. Invalid avatars fail before mutation. Current expected_revision is required; concurrent mutation fails with TEAM_REVISION_CONFLICT.',
     parameters: {
       expected_revision: { type: 'number', required: true, description: 'Exact current Team revision; conflicts fail with TEAM_REVISION_CONFLICT.' },
-      ...optionalIdentityParameters,
+      ...identityParameters,
     },
     output: profileOutput,
     async execute(args, exec) {
@@ -177,11 +154,11 @@ export function registerSetCaptainProfileTool(ctx: Context, runtime: AgentSwarmR
 export function registerSetMemberProfileTool(ctx: Context, runtime: AgentSwarmRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_set_member_profile',
-    description: 'Captain-only. Fill or correct an existing member public profile. Supply its exact roster name, current Team revision and at least one identity field. Omitted fields are preserved. This updates displayed identity without restarting the member or changing its Session, role, Skills or model.',
+    description: 'Complete a public profile: the Captain may patch any member; an active member may patch ONLY itself, using its exact roster name. Supply current Team revision and at least one identity field. Omitted fields are preserved. This never changes Session, role, Skills, model or running persona. On a revision conflict re-read current state before retrying.',
     parameters: {
       name: { type: 'string', required: true, description: 'Exact existing roster name from list_members.' },
       expected_revision: { type: 'number', required: true, description: 'Exact current Team revision; conflicts fail with TEAM_REVISION_CONFLICT.' },
-      ...optionalIdentityParameters,
+      ...identityParameters,
     },
     output: profileOutput,
     async execute(args, exec) {

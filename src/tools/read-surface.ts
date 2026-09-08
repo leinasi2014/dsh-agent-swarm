@@ -9,6 +9,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { JobSnapshot, JobStatus } from '@deepseek-ai/dsh-jobs'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { publicIdentity, publicIdentitySchema } from './identity-parameters.js'
 import { expectDomain, TeamDomainError } from '../domain/error.js'
 import { taskHoldEvidence } from '../domain/team-domain-budget.js'
 import type { TeamMemoryEntry, TeamState, TeamTask } from '../domain/types.js'
@@ -81,6 +82,7 @@ const MEMBER_PROFILE_ROW_SCHEMA = {
     phase: { type: 'string', required: true, enum: ['provisioning', 'active', 'failed', 'removed'] },
     created_at: { type: 'number', required: true },
     profile_state: { type: 'string', required: true, enum: ['available', 'pending', 'unavailable', 'invalid'] },
+    identity: publicIdentitySchema,
     profile_reason: {
       type: 'string', required: true,
       enum: ['available', 'provisioning', 'startup_failed', 'removed', 'inspection_failed', 'active_session_missing', 'binding_invalid', 'descriptor_invalid', 'not_continuable', 'tool_filter_invalid'],
@@ -97,6 +99,8 @@ const MEMBER_PROFILE_ROW_SCHEMA = {
 const MEMBER_PROFILE_LIST_VALUE_SCHEMA = {
   type: 'object', additionalProperties: false,
   properties: {
+    revision: { type: 'number', required: true },
+    captain_profile: publicIdentitySchema,
     members: { type: 'array', required: true, items: MEMBER_PROFILE_ROW_SCHEMA },
     next_cursor: { type: 'number', description: 'Present only when more filtered rows exist.' },
   },
@@ -265,7 +269,7 @@ export function registerListMemoryTool(ctx: Context, runtime: AgentSwarmRuntime)
 export function registerListMembersTool(ctx: Context, runtime: AgentSwarmRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_list_members',
-    description: 'List Team roster members in stable roster order with optional phase filtering and bounded cursor pagination (limit 1-50, default 25). Each page reads only its members’ durable official Session header and continuable descriptor; unavailable or invalid rows stay row-local. This never resumes, wakes, repairs, or changes a member. persona text, private memory, Skill assignment, and effective tool permissions are not exposed.',
+    description: 'Read current Team revision, Captain public profile, and a roster page with public identity, avatar_saved and missing_fields. Use this to audit/backfill profiles; runtime profile_state describes Session composition, not identity completeness. Stable order, phase filter, limit 1-50 (default 25). Never wakes or repairs members. Persona text, private memory and effective permissions are not exposed.',
     parameters: {
       phase: { type: 'string', enum: ['provisioning', 'active', 'failed', 'removed'], description: 'Optional exact roster phase filter.' },
       cursor: { type: 'integer', description: 'Zero-based result offset. Defaults to 0.' },
@@ -286,6 +290,7 @@ export function registerListMembersTool(ctx: Context, runtime: AgentSwarmRuntime
         phase: member.phase,
         created_at: member.createdAt,
         profile_state: member.profileState,
+        identity: publicIdentity(member.identity),
         profile_reason: member.profileReason,
         runtime_provider: member.runtimeProvider,
         ...(member.llmProvider === undefined ? {} : { llm_provider: member.llmProvider }),
@@ -294,7 +299,7 @@ export function registerListMembersTool(ctx: Context, runtime: AgentSwarmRuntime
         ...(member.personaConfigured === undefined ? {} : { persona_configured: member.personaConfigured }),
         ...(member.deniedTools === undefined ? {} : { denied_tools: [...member.deniedTools] }),
       }))
-      return { members, ...(listed.nextCursor === undefined ? {} : { next_cursor: listed.nextCursor }) }
+      return { revision: listed.revision, captain_profile: publicIdentity(listed.captainProfile), members, ...(listed.nextCursor === undefined ? {} : { next_cursor: listed.nextCursor }) }
     },
   }), 'list-members tool')
 }
@@ -478,4 +483,3 @@ export function registerListJobsTool(ctx: Context, runtime: AgentSwarmRuntime): 
     },
   }), 'list-jobs tool')
 }
-

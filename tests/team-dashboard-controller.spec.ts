@@ -191,6 +191,29 @@ async function waitFor(check: () => boolean): Promise<void> {
 }
 
 describe('TeamDashboardController', () => {
+  it('re-proves member identity before navigation and keeps the panel alive (#221)', async () => {
+    const schedule = new ManualSchedule()
+    const normal = goodFetch([])
+    let removed = false
+    const controller = new TeamDashboardController(new SwarmReadClient(async (input, init) => {
+      if (requestOf(init).method === 'captainMembers') return success({ ...captainMembers, members: [{ ...captainMembers.members[0], ...(removed ? {} : { sessionId: 'member-1' }) }] })
+      return await normal(input, init)
+    }), schedule)
+    controller.open('root-1')
+    await waitFor(() => controller.getSnapshot().phase === 'ready')
+    const opened: string[] = []
+    await controller.openMemberChat('worker', 'member-1', async (captain, member) => { opened.push(captain, member) })
+    expect(opened).toEqual(['root-1', 'member-1'])
+    expect(controller.getSnapshot().open).toBe(true)
+    expect(schedule.pending.size).toBe(1)
+    removed = true
+    await expect(controller.openMemberChat('worker', 'member-1', async () => { opened.push('wrong') })).rejects.toThrow('Member Session')
+    expect(opened).toEqual(['root-1', 'member-1'])
+    expect(controller.getSnapshot().data).toBeDefined()
+    expect(schedule.pending.size).toBe(1)
+    controller.dispose()
+  })
+
   it('stays inert until open and loads every strict page without issuing a write', async () => {
     const seen: SwarmReadRpcRequest[] = []
     const schedule = new ManualSchedule()
@@ -476,7 +499,7 @@ describe('TeamDashboardController', () => {
     controller.open('root-1')
     await waitFor(() => controller.getSnapshot().phase === 'ready')
     const opened: string[] = []
-    await controller.openCaptainChat(rootSessionId => opened.push(rootSessionId))
+    await controller.openCaptainChat(rootSessionId => { opened.push(rootSessionId) })
     expect(opened).toEqual(['root-1'])
     expect(seen.at(-1)?.method).toBe('binding')
     expect(controller.getSnapshot().phase).toBe('closed')
@@ -503,7 +526,7 @@ describe('TeamDashboardController', () => {
     controller.open('root-1')
     await waitFor(() => controller.getSnapshot().phase === 'ready')
     const opened: string[] = []
-    await expect(controller.openCaptainChat(id => opened.push(id))).rejects.toThrow('until a Captain Session is created')
+    await expect(controller.openCaptainChat(id => { opened.push(id) })).rejects.toThrow('until a Captain Session is created')
     expect(opened).toEqual([])
     expect(controller.getSnapshot().phase).toBe('ready')
     controller.dispose()
@@ -529,7 +552,7 @@ describe('TeamDashboardController', () => {
     await waitFor(() => controller.getSnapshot().phase === 'ready')
     handoff = true
     const opened: string[] = []
-    await expect(controller.openCaptainChat(rootSessionId => opened.push(rootSessionId))).rejects.toThrow('changed')
+    await expect(controller.openCaptainChat(rootSessionId => { opened.push(rootSessionId) })).rejects.toThrow('changed')
     expect(opened).toEqual([])
     expect(controller.getSnapshot().phase).toBe('stale')
     controller.dispose()

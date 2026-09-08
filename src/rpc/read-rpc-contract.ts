@@ -212,6 +212,8 @@ export interface SwarmReadMemberCompositionV1 {
  *  corresponding identity profile (`state === 'generated'`), otherwise `not_generated`. */
 export interface SwarmReadCaptainMemberRowV1 {
   readonly name: string
+  /** Exact active roster Session, disclosed only with a validated descriptor. */
+  readonly sessionId?: string
   readonly role: string
   readonly phase: 'provisioning' | 'active' | 'failed' | 'removed'
   readonly createdAt: number
