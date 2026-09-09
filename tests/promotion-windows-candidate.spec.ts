@@ -36,6 +36,7 @@ describe.skipIf(!windows)('Windows candidate process boundary (issue #126)', () 
       const scriptPath = resolve('scripts/promotion/windows-candidate-credential.ps1').replaceAll("'", "''")
       const script = `
         $ErrorActionPreference = 'Stop'
+        [Console]::WriteLine('ACL_AUDIT_STAGE: started')
         $targetPath = '${target.replaceAll("'", "''")}'
         $parentPath = '${base.replaceAll("'", "''")}'
         $tokens=$null; $errors=$null
@@ -45,8 +46,11 @@ describe.skipIf(!windows)('Windows candidate process boundary (issue #126)', () 
         $audit=[scriptblock]::Create($body.Substring(1,$body.Length-2))
         $controller=[Security.Principal.WindowsIdentity]::GetCurrent().User
         $allowed=@($controller.Value,'S-1-5-18','S-1-5-32-544')
+        [Console]::WriteLine('ACL_AUDIT_STAGE: parsed')
         $ProtectedRootsJson=ConvertTo-Json -InputObject @($targetPath) -Compress
+        [Console]::WriteLine('ACL_AUDIT_STAGE: positive audit')
         & $audit
+        [Console]::WriteLine('ACL_AUDIT_STAGE: positive passed')
         $nativeGetAcl=Get-Command Get-Acl -CommandType Cmdlet
         $fake=[Security.AccessControl.FileSecurity]::new()
         $fake.SetOwner($controller)
@@ -56,6 +60,7 @@ describe.skipIf(!windows)('Windows candidate process boundary (issue #126)', () 
         $rejected=$false
         try { & $audit } catch { $diagnostic=$_.Exception.Message; $rejected=$diagnostic.Contains('non-controller writes or replacement') }
         if(-not $rejected){throw "public write was not rejected: $diagnostic"}
+        [Console]::WriteLine('ACL_AUDIT_STAGE: public write rejected')
         $fake=[Security.AccessControl.DirectorySecurity]::new()
         $fake.SetOwner($controller)
         $fake.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($controller,'FullControl','Allow'))
@@ -68,9 +73,14 @@ describe.skipIf(!windows)('Windows candidate process boundary (issue #126)', () 
       `
       const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
         encoding: 'utf8', windowsHide: true, timeout: 15_000,
-        env: { SystemRoot: process.env.SystemRoot, SYSTEMDRIVE: process.env.SYSTEMDRIVE },
+        // This fixture needs only built-in modules. Avoid discovering unrelated
+        // hosted-runner modules while running with a deliberately minimal env.
+        env: { SystemRoot: process.env.SystemRoot, SYSTEMDRIVE: process.env.SYSTEMDRIVE,
+          PSModulePath: join(process.env.SystemRoot!, 'System32', 'WindowsPowerShell', 'v1.0', 'Modules') },
       })
-      expect(result.status, result.stderr + result.stdout).toBe(0)
+      const diagnostic = JSON.stringify({ error: result.error?.message, signal: result.signal, stdout: result.stdout, stderr: result.stderr })
+      expect(result.error, diagnostic).toBeUndefined()
+      expect(result.status, diagnostic).toBe(0)
       expect(result.stdout).toContain('READ_ONLY_ACL_AUDIT_PASS')
       expect(await readFile(target, 'utf8')).toBe('dummy authority')
     } finally { await rm(base, { recursive: true, force: true }) }
