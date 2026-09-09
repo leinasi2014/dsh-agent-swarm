@@ -55,7 +55,7 @@ function readyWithRoster(roster: readonly typeof REAL_ROSTER[number][]) {
 class FakeCoordinator {
   state: TeamDashboardSurfaceState = { mode: 'docked', view: 'overview', targetSessionId: 'root' }
   private readonly listeners = new Set<() => void>()
-  readonly restoreDockedDetails = vi.fn(); readonly toggle = vi.fn(); readonly showToolDetails = vi.fn(); readonly closeAndRestoreFocus = vi.fn(); readonly selectView = vi.fn()
+  readonly makeRoomForDetails = vi.fn(); readonly restoreDockedDetails = vi.fn(); readonly toggle = vi.fn(); readonly showToolDetails = vi.fn(); readonly closeAndRestoreFocus = vi.fn(); readonly selectView = vi.fn()
   readonly openCaptainChat = vi.fn(async (): Promise<void> => { this.set({ mode: 'inactive', view: 'overview', targetSessionId: undefined }) })
   readonly openTeamCaptain = vi.fn((captainSessionId: string): void => { this.set({ mode: 'inactive', view: 'overview', targetSessionId: captainSessionId }) })
   getSnapshot = (): TeamDashboardSurfaceState => this.state

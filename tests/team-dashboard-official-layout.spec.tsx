@@ -30,11 +30,11 @@ interface FrameProps {
 }
 interface RootRegistration { store(): Store; inject(actions: FrameProps['actions']): unknown }
 
-function officialLayout() {
+function officialLayout(viewport: number) {
   let exports!: { apply(ctx: unknown): void }
   const require = createRequire(import.meta.url)
   const source = readFileSync(join(dirname(require.resolve('@deepseek-ai/dsh-client-ui-layout/package.json')), 'lib/client.js'), 'utf8')
-  runInNewContext(source, { window: { innerWidth: 1440, __ModuleLoader__: { load: (entry: { factory(require: (name: string) => unknown): typeof exports }) => {
+  runInNewContext(source, { window: { innerWidth: viewport, __ModuleLoader__: { load: (entry: { factory(require: (name: string) => unknown): typeof exports }) => {
     exports = entry.factory(name => {
       if (name === 'react') return React
       if (name === 'react/jsx-runtime') return jsx
@@ -53,8 +53,17 @@ function officialLayout() {
   return { Frame, registration, layout }
 }
 
-function harness() {
-  const { Frame, registration, layout } = officialLayout()
+function harness(viewport = 1440) {
+  const { Frame, registration, layout } = officialLayout(viewport)
+  const bounds = HTMLElement.prototype.getBoundingClientRect
+  // jsdom has no layout engine. Geometry below is derived from the installed
+  // AppFrame's actual rendered column tracks, not a copy of its width solver.
+  const geometry = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    const frame = this.style.gridTemplateColumns ? this : this.closest<HTMLElement>('[style*="grid-template-columns"]')
+    const width = this === frame ? viewport : this.hasAttribute('data-swarm-team-panel')
+      ? Number(frame?.style.gridTemplateColumns.match(/(\d+)px$/u)?.[1] ?? 0) : undefined
+    return width === undefined ? bounds.call(this) : { x: 0, y: 0, width, height: 730, top: 0, right: width, bottom: 730, left: 0, toJSON: () => ({}) }
+  })
   const store = registration.store()
   let panels = store.init()
   let session: SessionList = { current: 'root', byId: { root: { blank: false }, captain: { blank: false }, member: { blank: false }, other: { blank: false } },
@@ -97,15 +106,42 @@ function harness() {
     useSessions: selector => selector(React.useSyncExternalStore(sessions.list.subscribe, sessions.list.getSnapshot)),
     actions, renderSlot: name => name === 'details' ? <Details /> : null, SessionProvider: React.Fragment, t: key => key,
   }
-  return { coordinator, navigate, trace, onClose: (callback: () => void) => { onClose = callback }, panels: () => panels,
-    mount: async () => { await React.act(async () => { root.render(<Frame {...frameProps} />) }) },
-    dispose: async () => { await React.act(async () => { root.unmount(); unmount() }) },
+  const settleFrame = async () => { await React.act(async () => { await new Promise<void>(resolve => { requestAnimationFrame(() => { resolve() }) }) }) }
+  return { coordinator, navigate, trace, layout, settleFrame, onClose: (callback: () => void) => { onClose = callback }, panels: () => panels,
+    mount: async () => { await React.act(async () => { root.render(<Frame {...frameProps} />) }); await settleFrame() },
+    dispose: async () => { await React.act(async () => { root.unmount(); unmount() }); geometry.mockRestore() },
   }
 }
 
 afterEach(() => { document.body.replaceChildren() })
 
 describe('Team navigation in the installed official AppFrame', () => {
+  it('shows Team cards automatically at 1088px and does not fight a later user sidebar expansion', async () => {
+    const f = harness(1088)
+    try {
+      await f.mount()
+      const panel = document.querySelector('[data-swarm-team-panel]')!
+      const frame = panel.closest<HTMLElement>('[style*="grid-template-columns"]')!
+      expect(frame.style.gridTemplateColumns).toBe('56px minmax(0, 1fr) 360px')
+      await React.act(async () => { f.layout.toggleSidebar() })
+      await React.act(async () => { await f.coordinator.openMemberChat('worker', 'member') })
+      await f.settleFrame()
+      expect(frame.style.gridTemplateColumns).toBe('280px minmax(0, 1fr) 0px')
+    } finally { await f.dispose() }
+  })
+
+  it.each([980, 1000, 1440])('keeps official responsive layout at %ipx', async viewport => {
+    const f = harness(viewport)
+    const toggle = vi.spyOn(f.layout, 'toggleSidebar')
+    try {
+      await f.mount()
+      expect(toggle).not.toHaveBeenCalled()
+      const frame = document.querySelector<HTMLElement>('[style*="grid-template-columns"]')!
+      expect(frame.style.gridTemplateColumns).toBe(viewport === 980 ? '56px minmax(0, 1fr) 0px'
+        : viewport === 1000 ? '56px minmax(0, 1fr) 304px' : '280px minmax(0, 1fr) 360px')
+    } finally { toggle.mockRestore(); await f.dispose() }
+  })
+
   it('does not reopen a Team closed between official layout and passive effects', async () => {
     const f = harness()
     try {

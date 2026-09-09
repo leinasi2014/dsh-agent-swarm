@@ -30,7 +30,7 @@ export const teamData = (capabilities: unknown, projection: unknown): TeamDashbo
 })
 
 export class FakeCoordinator {
-  readonly restoreDockedDetails = vi.fn()
+  readonly makeRoomForDetails = vi.fn(); readonly restoreDockedDetails = vi.fn()
   readonly openMemberChat = vi.fn(async (_name: string, _sessionId: string) => {})
   state: TeamDashboardSurfaceState = { mode: 'docked', view: 'overview', targetSessionId: 'root' }
   private readonly listeners = new Set<() => void>()

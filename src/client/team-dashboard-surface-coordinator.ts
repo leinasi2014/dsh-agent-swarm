@@ -45,6 +45,7 @@ export class TeamDashboardSurfaceCoordinator {
   private offSlot = (): void => {}
   private observedSessionId: string | undefined
   private dismissedTeamId: string | undefined
+  private sidebarYielded = false
 
   constructor(private readonly options: Options) {}
 
@@ -128,6 +129,23 @@ export class TeamDashboardSurfaceCoordinator {
       || this.options.sessions.list.getSnapshot().current !== sessionId
       || !this.options.controller.getSnapshot().open || this.entry === undefined || !this.isWinner(this.entry)) return
     try { this.layout.openDetails() } catch { this.close(false) }
+  }
+  /** rc.1 AppFrame hides Details when its 640px center cannot fit. Observe
+   * its rendered DOM only; all layout changes still use the public service.
+   * One Team lease may yield the expanded sidebar once, never fight the user. */
+  makeRoomForDetails(sessionId: string, panel: HTMLElement | null): void {
+    if (this.disposed || this.sidebarYielded || this.layout === undefined || !this.declarationLive
+      || this.state.mode !== 'docked' || this.state.targetSessionId !== sessionId
+      || this.options.sessions.list.getSnapshot().current !== sessionId
+      || !this.options.controller.getSnapshot().open || this.entry === undefined || !this.isWinner(this.entry)
+      || panel === null || !panel.isConnected || panel.getBoundingClientRect().width > 0) return
+    const frame = panel.closest<HTMLElement>('[data-details-collapsed]')
+    // Below rc.1's 1024px breakpoint the official narrow mode owns auto-collapse.
+    // Its fit floor is 56px rail + 640px center + 300px Details; don't fight it.
+    if (frame === null || frame.hasAttribute('data-sidebar-collapsed') || frame.hasAttribute('data-dragging')
+      || !frame.style.gridTemplateColumns || frame.getBoundingClientRect().width < 1024) return
+    this.sidebarYielded = true
+    try { this.layout.toggleSidebar() } catch { /* keep the existing Team and official layout */ }
   }
   selectView(view: TeamDashboardView): void { if (this.state.mode === 'docked' && this.state.view !== view) this.publish({ ...this.state, view }) }
   closeAndRestoreFocus(): void {
@@ -240,7 +258,7 @@ export class TeamDashboardSurfaceCoordinator {
     if (!keepReading) this.options.controller.close()
     if (restoreFocus) queueMicrotask(() => { this.options.anchorRef.current?.querySelector<HTMLButtonElement>('[data-swarm-team-trigger]')?.focus() })
   }
-  private releaseTeamLease(): void { const release = this.release; this.release = undefined; this.entry = undefined; release?.() }
+  private releaseTeamLease(): void { const release = this.release; this.release = undefined; this.entry = undefined; this.sidebarYielded = false; release?.() }
   private publish(state: TeamDashboardSurfaceState): void { this.state = Object.freeze(state); for (const listener of this.listeners) listener() }
   private dispose(): void {
     if (this.disposed) return

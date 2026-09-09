@@ -1,4 +1,4 @@
-import { useEffect, useId, useSyncExternalStore, type RefObject } from 'react'
+import { useEffect, useId, useRef, useSyncExternalStore, type RefObject } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { TeamDashboardController } from './team-dashboard-controller.js'
@@ -24,12 +24,16 @@ export function TeamDashboardDetails({ controller, coordinator, localeTag, sessi
   const surface = useSyncExternalStore(coordinator.subscribe, coordinator.getSnapshot, coordinator.getSnapshot)
   const headingId = useId()
   const descriptionId = useId()
+  const panelRef = useRef<HTMLElement>(null)
   const leased = surface.mode === 'docked' && surface.targetSessionId === sessionId && state.open
   useEffect(() => {
-    if (leased) coordinator.restoreDockedDetails(sessionId)
+    if (!leased) return
+    coordinator.restoreDockedDetails(sessionId)
+    const frame = requestAnimationFrame(() => { coordinator.makeRoomForDetails(sessionId, panelRef.current) })
+    return () => { cancelAnimationFrame(frame) }
   }, [coordinator, leased, sessionId])
   if (!leased) return null
-  return <aside id={TEAM_DASHBOARD_SURFACE_ID} role="complementary" tabIndex={-1}
+  return <aside ref={panelRef} id={TEAM_DASHBOARD_SURFACE_ID} role="complementary" tabIndex={-1}
     aria-labelledby={headingId} aria-describedby={descriptionId}
     data-swarm-team-panel data-swarm-team-dashboard data-phase={state.phase}
     style={{ width: '100%', height: '100%', overflow: 'hidden' }}>
