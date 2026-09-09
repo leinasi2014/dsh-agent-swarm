@@ -28,7 +28,7 @@ function alive(pid: number): boolean {
 }
 
 describe.skipIf(!windows)('Windows candidate process boundary (issue #126)', () => {
-  it('audits controller authority ACLs read-only and rejects group write and parent replacement grants', async () => {
+  it('checks controller ACL policy with read-only fixtures and rejects ancestor owners, group writes and parent replacement', async () => {
     const base = await mkdtemp(join(process.cwd(), '.promotion-acl-read-'))
     try {
       const target = join(base, 'authority')
@@ -52,24 +52,51 @@ describe.skipIf(!windows)('Windows candidate process boundary (issue #126)', () 
         $allowed=@($controller.Value,'S-1-5-18','S-1-5-32-544')
         [Console]::WriteLine('ACL_AUDIT_STAGE: parsed')
         $ProtectedRootsJson=ConvertTo-Json -InputObject @($targetPath) -Compress
+        # Read the real path chain without changing it. Hosted CI drives need
+        # not be controller-owned, so model the positive ACL premise in memory.
+        # The production traversal and its owner/rule checks still run intact.
+        $nativeGetAcl=Get-Command Get-Acl -CommandType Cmdlet
+        $safeAcl=[Security.AccessControl.FileSecurity]::new()
+        $safeAcl.SetOwner($controller)
+        $safeAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($controller,'FullControl','Allow'))
+        $fixtures=@{}
+        $cursor=$targetPath
+        while($null -ne $cursor) {
+          $actual=& $nativeGetAcl -LiteralPath $cursor
+          if($null -eq $actual.GetOwner([Security.Principal.SecurityIdentifier])){throw "Missing real owner: $cursor"}
+          $fixtures[$cursor]=$safeAcl
+          $parent=[IO.Directory]::GetParent($cursor)
+          $cursor=if($null -eq $parent){$null}else{$parent.FullName}
+        }
+        function Get-Acl { param([string]$LiteralPath) if(-not $fixtures.ContainsKey($LiteralPath)){throw "Unexpected audit path: $LiteralPath"}; return $fixtures[$LiteralPath] }
         [Console]::WriteLine('ACL_AUDIT_STAGE: positive audit')
         & $audit
         [Console]::WriteLine('ACL_AUDIT_STAGE: positive passed')
-        $nativeGetAcl=Get-Command Get-Acl -CommandType Cmdlet
+        $driveRoot=[IO.Path]::GetPathRoot($parentPath)
+        $fake=[Security.AccessControl.DirectorySecurity]::new()
+        $fake.SetOwner([Security.Principal.SecurityIdentifier]::new('S-1-5-32-545'))
+        $fake.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($controller,'FullControl','Allow'))
+        $fixtures[$driveRoot]=$fake
+        $rejected=$false
+        try { & $audit } catch { $rejected=$_.Exception.Message.Contains("untrusted owner: $driveRoot") }
+        if(-not $rejected){throw 'untrusted ancestor owner was not rejected'}
+        $fixtures[$driveRoot]=$safeAcl
+        [Console]::WriteLine('ACL_AUDIT_STAGE: ancestor owner rejected')
         $fake=[Security.AccessControl.FileSecurity]::new()
         $fake.SetOwner($controller)
         $fake.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($controller,'FullControl','Allow'))
         $fake.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new('S-1-5-11'),'Write','Allow'))
-        function Get-Acl { param([string]$LiteralPath) if($LiteralPath -eq $targetPath){return $fake}; & $nativeGetAcl -LiteralPath $LiteralPath }
+        $fixtures[$targetPath]=$fake
         $rejected=$false
         try { & $audit } catch { $diagnostic=$_.Exception.Message; $rejected=$diagnostic.Contains('non-controller writes or replacement') }
         if(-not $rejected){throw "public write was not rejected: $diagnostic"}
+        $fixtures[$targetPath]=$safeAcl
         [Console]::WriteLine('ACL_AUDIT_STAGE: public write rejected')
         $fake=[Security.AccessControl.DirectorySecurity]::new()
         $fake.SetOwner($controller)
         $fake.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($controller,'FullControl','Allow'))
         $fake.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new('S-1-5-32-545'),'DeleteSubdirectoriesAndFiles','Allow'))
-        function Get-Acl { param([string]$LiteralPath) if($LiteralPath -eq $parentPath){return $fake}; & $nativeGetAcl -LiteralPath $LiteralPath }
+        $fixtures[$parentPath]=$fake
         $rejected=$false
         try { & $audit } catch { $rejected=$_.Exception.Message.Contains('non-controller writes or replacement') }
         if(-not $rejected){throw 'parent replacement was not rejected'}
