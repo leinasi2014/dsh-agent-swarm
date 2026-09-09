@@ -11,6 +11,8 @@
  */
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { Session, SessionId, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
+import type { SessionInspection } from '@deepseek-ai/dsh-session-persistence'
 import { expect, it, vi } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
 import { AgentSwarmHostReadService } from '../src/host/host-read-service.js'
@@ -24,7 +26,12 @@ const RpcService = baselineRpc === undefined ? AgentSwarmReadRpcService
   : (await import(/* @vite-ignore */ baselineRpc) as { AgentSwarmReadRpcService: typeof AgentSwarmReadRpcService }).AgentSwarmReadRpcService
 
 const NOW = 1_700_000_000_500
-const ROOT: Agent = { id: 'root-session', session: { header: { cwd: 'C:\\workspace' } } } as unknown as Agent
+function officialSession(id: string, parentSession?: string): Session {
+  return Session.create(SessionId(id), [], { version: SESSION_FORMAT_VERSION, id: SessionId(id),
+    createdAt: NOW, isSeeded: false, cwd: 'C:\\workspace',
+    ...(parentSession === undefined ? {} : { parentSession: SessionId(parentSession) }) })
+}
+const ROOT = { id: SessionId('root-session'), session: officialSession('root-session') } as Agent
 const SAFE_AVATAR = '<svg viewBox="0 0 8 8"><rect x="0" y="0" width="8" height="8" fill="#2a3"/></svg>'
 
 function teamState(): AgentSwarm.TeamState {
@@ -60,8 +67,10 @@ function buildRealService(options: { cold?: boolean; teams?: AgentSwarm.TeamStat
   const team = options.teams?.[0] ?? { ...teamState(), ...(options.liveCaptain ? { captainSessionId: 'captain-live' } : {}) }
   const teams = options.teams ?? [team]
   const roots = new Map<string, Agent>([[ROOT.id, ROOT]])
-  if (options.liveCaptain) roots.set('captain-live', { id: 'captain-live', session: { header: { cwd: ROOT.session.header.cwd, parentSession: ROOT.id } } } as Agent)
+  if (options.liveCaptain) roots.set('captain-live', { id: SessionId('captain-live'), session: officialSession('captain-live', ROOT.id) } as Agent)
   const parents = options.parented ? Object.fromEntries(teams.map(entry => [entry.captainSessionId, ROOT.id])) : {}
+  const persisted = new Map<string, Session>([[ROOT.id, ROOT.session],
+    ...Object.entries(parents).map(([id, parent]) => [id, officialSession(id, parent)] as const)])
   let currentInitiator: Agent | undefined = ROOT
   const ctx = {
     agents: {
@@ -81,9 +90,11 @@ function buildRealService(options: { cold?: boolean; teams?: AgentSwarm.TeamStat
       }
       return roots.get(id)?.session
     } },
-    sessionPersistence: { inspect: async (id: string) => id === ROOT.id
-      ? { meta: { cwd: 'C:\\workspace' } } : parents[id] === undefined ? undefined
-      : { meta: { cwd: 'C:\\workspace', parentSession: parents[id] } } },
+    sessionPersistence: { inspect: async (id: string): Promise<SessionInspection> => {
+      const session = persisted.get(id)
+      if (session === undefined) throw new Error('Session not found')
+      return { meta: session.header, events: session.snapshotEvents(), inheritedEventCount: session.inheritedEventCount }
+    } },
   } as unknown as Context
   const runtime = {
     scopeOf: () => 'C:\\workspace',
