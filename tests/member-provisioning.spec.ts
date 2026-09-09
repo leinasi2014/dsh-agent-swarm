@@ -1,4 +1,4 @@
-import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import { readPersistedSession } from '../src/runtime/persisted-session.js'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
  * F3 (M1B): persisted-child provisioning reconciliation across the crash
@@ -99,7 +99,7 @@ class MatrixAdapter extends LlmAdapter {
 /** The durable composition under test: one captain lead over real services. */
 interface CaptainStack {
   readonly ctx: Context
-  readonly lead: ReturnType<Context['agentLoop']['create']>
+  readonly lead: Awaited<ReturnType<Context['agentLoop']['create']>>
   readonly teamId: string
 }
 
@@ -112,7 +112,6 @@ async function mountCaptain(
 ): Promise<CaptainStack> {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
   fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   await mountStorageStackOn(ctx, join(sandbox, 'storage'))
@@ -124,7 +123,7 @@ async function mountCaptain(
     memberProvider: 'spawn', memberMaxDepth: 1, ...(options.maxMembers === undefined ? {} : { maxMembers: options.maxMembers }),
   }))
   ctx.llm.registerAdapter(['mock'], options.adapter ?? new ImmediateAdapter())
-  const lead = ctx.agentLoop.create(
+  const lead = await ctx.agentLoop.create(
     SessionId(leadId),
     { provider: 'mock', model: 'mock' },
     { cwd: join(sandbox, 'workspace') },
@@ -171,7 +170,7 @@ async function injectCrashWindow(
     signal: SIGNAL,
   })
   await vi.waitFor(async () => {
-    const stored = await stack.ctx.sessionPersistence.inspect(childId, SIGNAL)
+    const stored = await readPersistedSession(stack.ctx.sessionPersistence, childId, SIGNAL)
     expect(stored.events.some(event => event.type === 'user/message' && event.data.source.kind === 'user')).toBe(true)
   }, { timeout: 5_000 })
   stack.ctx.subagents.interrupt(childId, { kind: 'ancestor', agent: stack.lead })
@@ -299,7 +298,7 @@ describe('persisted-child provisioning reconciliation (F3)', () => {
         role: 'Stay unsettled in the active sense when persistence is down.',
         recordProvider: 'spawn',
       })
-      const inspect = vi.spyOn(stack.ctx.sessionPersistence, 'inspect')
+      const inspect = vi.spyOn(stack.ctx.sessionPersistence, 'open')
         .mockRejectedValue(new Error('persistence unavailable during recovery'))
       const drain = vi.spyOn(stack.ctx.subagents, 'drainContinuableChildren')
 
@@ -451,7 +450,7 @@ describe('persisted-child provisioning reconciliation (F3)', () => {
       // durably persisted with its initial join turn complete — kept, never
       // lost, and cold-resumable.
       expect(drain).not.toHaveBeenCalled()
-      const persisted = await stack.ctx.sessionPersistence.inspect(SessionId(member.sessionId))
+      const persisted = await readPersistedSession(stack.ctx.sessionPersistence, SessionId(member.sessionId))
       expect(persisted.events.some(event => event.type === 'turn/end')).toBe(true)
 
       // Retry semantics stay coherent: the occupied name is taken (lifetime

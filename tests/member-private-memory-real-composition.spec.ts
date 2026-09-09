@@ -152,7 +152,7 @@ describe('member private memory real composition', () => {
       // ---- Context A: establish durable private memory ----
       first = await mount(sandbox)
       first.ctx.llm.registerAdapter(['mock'], new PassiveAdapter())
-      const leadA = first.ctx.agentLoop.create(CAPTAIN, { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+      const leadA = await first.ctx.agentLoop.create(CAPTAIN, { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
       const created = await tool(first.ctx, leadA, 'pm-create', 'agent_swarm_create', {
         name: 'Private memory', description: 'Prove cold restore and owning-member authority.',
       })
@@ -223,7 +223,7 @@ describe('member private memory real composition', () => {
         // Captain + outsider rejected in A.
         expect(await tool(first.ctx, leadA, 'pm-captain-add', 'agent_swarm_add_private_memory', { content: 'captain forbidden' }))
           .toMatchObject({ isError: true, error: { info: { code: 'TEAM_PRIVATE_MEMORY_UNAUTHORIZED' } } })
-        const outsiderA = first.ctx.agentLoop.create(SessionId('pm-outsider-a'), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+        const outsiderA = await first.ctx.agentLoop.create(SessionId('pm-outsider-a'), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
         expect(await tool(first.ctx, outsiderA, 'pm-outsider-add', 'agent_swarm_add_private_memory', { content: 'nope' }))
           .toMatchObject({ isError: true, error: { info: { code: 'TEAM_NOT_JOINED' } } })
         expect(await tool(first.ctx, outsiderA, 'pm-outsider-list', 'agent_swarm_list_private_memory', {}))
@@ -328,7 +328,7 @@ describe('member private memory real composition', () => {
     try {
       first = await mount(sandbox)
       first.ctx.llm.registerAdapter(['mock'], new PassiveAdapter())
-      const leadA = first.ctx.agentLoop.create(CAPTAIN, { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+      const leadA = await first.ctx.agentLoop.create(CAPTAIN, { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
       const created = await tool(first.ctx, leadA, 'pm-direct-create', 'agent_swarm_create', {
         name: 'Direct invariant', description: 'Deep-equality proof that private storage never mutates the Team aggregate.',
       })

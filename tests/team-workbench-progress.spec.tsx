@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useTabInfo } from './helpers/sidebar-tab.js'
 import { act } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { t, ready, teamData, FakeCoordinator, render, pressEscape } from './helpers/dashboard-ui.js'
@@ -16,7 +17,7 @@ async function mount(extra: Partial<SwarmHostReadProjectionV1>) {
   let notify = () => {}
   const coordinator = new FakeCoordinator()
   const controller = { getSnapshot: () => state, subscribe: (listener: () => void) => { notify = listener; return () => {} }, refresh: vi.fn(), reconnect: vi.fn() }
-  await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+  await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
   return { update: (patch: Partial<TeamDashboardState>) => { state = { ...state, ...patch }; notify() } }
 }
 

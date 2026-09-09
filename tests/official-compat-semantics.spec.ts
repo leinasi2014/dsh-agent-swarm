@@ -1,6 +1,6 @@
-import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import { readPersistedSession } from '../src/runtime/persisted-session.js'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
-import { queueSubagentPrompt, type HostPromptQueue } from '@deepseek-ai/dsh-subagent/internal'
+import { deliverSubagentPrompt, type HostPromptDeliverer } from '@deepseek-ai/dsh-subagent/internal'
 /**
  * M1C official-compat semantics (issue #19), runtime half: the waitForChange
  * contract, quiet (F13) inactive-delivery semantics and the captain-only
@@ -72,7 +72,6 @@ async function mount(sandbox: string): Promise<Composition> {
   const fibers: Fiber[] = []
   const adapter = new GatedAdapter()
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
   fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   await mountStorageStackOn(ctx, join(sandbox, 'storage'))
@@ -82,7 +81,7 @@ async function mount(sandbox: string): Promise<Composition> {
   const pluginFiber = await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1 })
   fibers.push(pluginFiber)
   ctx.llm.registerAdapter(['mock'], adapter)
-  const lead = ctx.agentLoop.create(
+  const lead = await ctx.agentLoop.create(
     SessionId(`compat-lead-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
     { provider: 'mock', model: 'mock' },
     { cwd: join(sandbox, 'workspace') },
@@ -129,12 +128,12 @@ describe('official compatibility semantics over the real composition (issue #19)
       // Determinism: only the explicit sends and rescans below deliver mail.
       const idle = vi.spyOn(ctx.agentSwarm, 'observeAgentIdle').mockImplementation(() => {})
       const followupFrames: string[] = []
-      const followup = (ctx.subagents as unknown as HostPromptQueue)[queueSubagentPrompt].bind(ctx.subagents)
-      const followupSpy = vi.spyOn(ctx.subagents as unknown as HostPromptQueue, queueSubagentPrompt).mockImplementation(async (parent, childId, content, source, signal) => {
+      const followup = (ctx.subagents as unknown as HostPromptDeliverer)[deliverSubagentPrompt].bind(ctx.subagents)
+      const followupSpy = vi.spyOn(ctx.subagents as unknown as HostPromptDeliverer, deliverSubagentPrompt).mockImplementation(async (parent, childId, content, source, signal, delivery) => {
         for (const block of content) {
           if (block.type === 'text') followupFrames.push(block.text)
         }
-        return await followup(parent, childId, content, source, signal)
+        return await followup(parent, childId, content, source, signal, delivery)
       })
 
       // Settle the initial member turn; the spawn provider auto-settles an
@@ -192,7 +191,7 @@ describe('official compatibility semantics over the real composition (issue #19)
       expect((await ctx.agentSwarm.domain.snapshot(scope, AgentSwarm.TeamId(teamId), lead.id))
         .team.messages.find(candidate => candidate.id === quietMessage?.id)?.phase).toBe('delivered')
       adapter.open()
-      const stored = await ctx.sessionPersistence.inspect(SessionId(memberId), SIGNAL)
+      const stored = await readPersistedSession(ctx.sessionPersistence, SessionId(memberId), SIGNAL)
       expect(acceptedFrames(stored.events, quietFrame)).toBe(1)
       expect(acceptedFrames(stored.events, wakeupFrame)).toBe(1)
       expect(followupFrames.filter(text => text === quietFrame)).toHaveLength(0)
@@ -221,12 +220,12 @@ describe('official compatibility semantics over the real composition (issue #19)
       const memberId = await addMember(ctx, lead, 'busy-worker')
       const idle = vi.spyOn(ctx.agentSwarm, 'observeAgentIdle').mockImplementation(() => {})
       const followupFrames: string[] = []
-      const followup = (ctx.subagents as unknown as HostPromptQueue)[queueSubagentPrompt].bind(ctx.subagents)
-      const followupSpy = vi.spyOn(ctx.subagents as unknown as HostPromptQueue, queueSubagentPrompt).mockImplementation(async (parent, childId, content, source, signal) => {
+      const followup = (ctx.subagents as unknown as HostPromptDeliverer)[deliverSubagentPrompt].bind(ctx.subagents)
+      const followupSpy = vi.spyOn(ctx.subagents as unknown as HostPromptDeliverer, deliverSubagentPrompt).mockImplementation(async (parent, childId, content, source, signal, delivery) => {
         for (const block of content) {
           if (block.type === 'text') followupFrames.push(block.text)
         }
-        return await followup(parent, childId, content, source, signal)
+        return await followup(parent, childId, content, source, signal, delivery)
       })
 
       // The member is live and running on its gated initial turn.
@@ -250,7 +249,7 @@ describe('official compatibility semantics over the real composition (issue #19)
       const message = (await ctx.agentSwarm.domain.snapshot(scope, (await ctx.agentSwarm.domain.requireMembership(scope, lead.id)).team.id, lead.id))
         .team.messages.find(candidate => candidate.content === 'Context you may claim at a later step boundary.')
       const frame = messageFrame(message!)
-      const stored = await ctx.sessionPersistence.inspect(SessionId(memberId), SIGNAL)
+      const stored = await readPersistedSession(ctx.sessionPersistence, SessionId(memberId), SIGNAL)
       expect(acceptedFrames(stored.events, frame)).toBe(1)
 
       idle.mockRestore()
@@ -343,7 +342,7 @@ describe('official compatibility semantics over the real composition (issue #19)
       expect(after.team.tasks[0]).toMatchObject({ status: 'in_progress', ownerSessionId: memberId })
       const quietRow = after.team.messages.find(candidate => candidate.content === 'Quiet context kept across the interrupt.')
       expect(quietRow?.phase).toBe('delivered')
-      const stored = await ctx.sessionPersistence.inspect(SessionId(memberId), SIGNAL)
+      const stored = await readPersistedSession(ctx.sessionPersistence, SessionId(memberId), SIGNAL)
       const quietFrame = messageFrame(quietRow!)
       expect(acceptedFrames(stored.events, quietFrame)).toBe(1)
       expect(JSON.stringify(stored.events)).toContain('Interrupt proof')

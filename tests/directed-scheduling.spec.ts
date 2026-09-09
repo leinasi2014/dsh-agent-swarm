@@ -1,4 +1,4 @@
-import { queueSubagentPrompt, type HostPromptQueue } from '@deepseek-ai/dsh-subagent/internal'
+import { deliverSubagentPrompt, type HostPromptDeliverer } from '@deepseek-ai/dsh-subagent/internal'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -70,7 +70,7 @@ async function activeFixture(composition: Composition, seedTasks = true): Promis
 }
 function schedulingPass(composition: Composition, provider: TeamSchedulerProvider, live: Map<string, { status: 'idle' | 'running' }>, followups: string[]): SchedulingPass {
   vi.spyOn(composition.ctx.agents, 'get').mockImplementation(sessionId => live.get(String(sessionId)) as never)
-  vi.spyOn(composition.ctx.subagents as unknown as HostPromptQueue, queueSubagentPrompt).mockImplementation(async (_parent, childId, content) => { followups.push(content.filter(block => block.type === 'text').map(block => block.text).join('\n')); live.delete(String(childId)); return 'mock-followup' as never })
+  vi.spyOn(composition.ctx.subagents as unknown as HostPromptDeliverer, deliverSubagentPrompt).mockImplementation(async (_parent, childId, content) => { followups.push(content.filter(block => block.type === 'text').map(block => block.text).join('\n')); live.delete(String(childId)); return 'mock-followup' as never })
   return new SchedulingPass(composition.ctx, { domain: () => composition.ctx.agentSwarm.domain, delivery: () => ({}) as never, usage: () => ({}) as never, schedulerProvider: () => 'test-provider', schedulerProviders: () => new Map([['test-provider', provider]]), strandedAfterMs: 0, idleSince: () => undefined, eventFaceActive: () => true, isClosing: () => false, trackTeamChildren: () => {}, requestSchedule: () => {}, executionRoots: () => ({}) as never, executionRootsEnabled: () => false, sweepExecutionRoots: async () => {} })
 }
 async function dispose(composition: Composition): Promise<void> { composition.adapter.open(); for (const fiber of composition.fibers.toReversed()) await fiber.dispose() }

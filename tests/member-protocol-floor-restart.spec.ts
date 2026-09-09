@@ -1,3 +1,4 @@
+import { readPersistedSession } from '../src/runtime/persisted-session.js'
 /**
  * Issue #186: a cold-resumed member must keep the member-protocol floor
  * non-deniable across a true two-Context reopen. The floor tools
@@ -44,7 +45,7 @@ async function mount(sandbox: string): Promise<RestartMounted> {
 }
 
 async function durableToolFilter(ctx: RestartMounted['ctx'], childId: string): Promise<{ deny?: readonly string[] } | undefined> {
-  const stored = await ctx.sessionPersistence.inspect(SessionId(childId))
+  const stored = await readPersistedSession(ctx.sessionPersistence, SessionId(childId))
   const suffix = stored.events.slice(stored.inheritedEventCount ?? 0)
   const descriptor = foldSubagentDescriptor(suffix)
   // Only the continuable descriptor variant carries the durable toolFilter.
@@ -59,14 +60,14 @@ it('keeps the member-protocol floor non-deniable for a cold-resumed member acros
   let second: RestartMounted | undefined
   try {
     first = await mount(sandbox)
-    const leadA = first.ctx.agentLoop.create(captainId, { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+    const leadA = await first.ctx.agentLoop.create(captainId, { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
     const created = await tool(first.ctx, leadA, 'create', 'agent_swarm_create', { name: 'Protocol floor restart', description: 'Persist the member-protocol floor.' })
     expect(created.isError).toBe(false)
     const added = await tool(first.ctx, leadA, 'add', 'agent_swarm_add_member', { name: 'worker', role: 'worker', deny_tools: ['agent_swarm_status'] })
     expect(added.isError).toBe(false)
     const childId = SessionId((added.value as { session_id: string }).session_id)
     await vi.waitFor(async () => {
-      const stored = await first!.ctx.sessionPersistence.inspect(childId)
+      const stored = await readPersistedSession(first!.ctx.sessionPersistence, childId)
       expect(stored.events.some(event => event.type === 'turn/end')).toBe(true)
     })
     await first.ctx.subagents.drainContinuableChildren(leadA, [childId])

@@ -1,6 +1,5 @@
-import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
-import { queueSubagentPrompt, type HostPromptQueue } from '@deepseek-ai/dsh-subagent/internal'
+import { deliverSubagentPrompt, type HostPromptDeliverer } from '@deepseek-ai/dsh-subagent/internal'
 /**
  * Shared harness for the real-composition scheduling suites (issues #12):
  * the official AgentLoop + in-process spawn + SQLite persistence + storage
@@ -143,7 +142,6 @@ export async function mount(
   const fibers: Fiber[] = []
   const adapter = new GatedAdapter()
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
   // Tracked so teardown disposes the sqlite handle before the caller's
   // sandbox cleanup deletes the database directory (Windows: an open
@@ -161,7 +159,7 @@ export async function mount(
   })
   fibers.push(pluginFiber)
   ctx.llm.registerAdapter(['mock'], adapter)
-  const lead = ctx.agentLoop.create(
+  const lead = await ctx.agentLoop.create(
     SessionId(`sched-lead-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
     { provider: 'mock', model: 'mock' },
     { cwd: join(sandbox, 'workspace') },
@@ -194,15 +192,15 @@ export interface FollowupRecord { readonly text: string; readonly targetStatus: 
 export function spyFollowup(composition: Composition): { readonly records: FollowupRecord[]; restore(): void } {
   const records: FollowupRecord[] = []
   const { ctx } = composition
-  const followup = (ctx.subagents as unknown as HostPromptQueue)[queueSubagentPrompt].bind(ctx.subagents)
-  const spy = vi.spyOn(ctx.subagents as unknown as HostPromptQueue, queueSubagentPrompt).mockImplementation(async (parent, childId, content, source, signal) => {
+  const followup = (ctx.subagents as unknown as HostPromptDeliverer)[deliverSubagentPrompt].bind(ctx.subagents)
+  const spy = vi.spyOn(ctx.subagents as unknown as HostPromptDeliverer, deliverSubagentPrompt).mockImplementation(async (parent, childId, content, source, signal, delivery) => {
     for (const block of content) {
       if (block.type === 'text') {
         const live = ctx.agents.get(childId)
         records.push({ text: block.text, targetStatus: live === undefined ? 'cold' : live.status })
       }
     }
-    return await followup(parent, childId, content, source, signal)
+    return await followup(parent, childId, content, source, signal, delivery)
   })
   return { records, restore: () => spy.mockRestore() }
 }

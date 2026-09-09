@@ -1,4 +1,4 @@
-import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import { readPersistedSession } from '../src/runtime/persisted-session.js'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -41,7 +41,6 @@ async function mount(config: { memberLlmProvider?: string; memberModel?: string;
   const ctx = new Context()
   const fibers: Fiber[] = []
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
   fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions.db') }))
   await mountStorageStackOn(ctx, join(sandbox, 'storage'))
@@ -51,7 +50,7 @@ async function mount(config: { memberLlmProvider?: string; memberModel?: string;
   fibers.push(await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1, maxMembers: 1, ...config }))
   const adapter = new RecruitAdapter()
   ctx.llm.registerAdapter(['valid'], adapter)
-  const lead = ctx.agentLoop.create(SessionId(`recruit-${Math.random().toString(36).slice(2)}`), { provider: 'valid', model: 'dynamic-unlisted' }, { cwd: join(sandbox, 'workspace') })
+  const lead = await ctx.agentLoop.create(SessionId(`recruit-${Math.random().toString(36).slice(2)}`), { provider: 'valid', model: 'dynamic-unlisted' }, { cwd: join(sandbox, 'workspace') })
   const call = (args: Record<string, unknown>, name = 'agent_swarm_add_member') => ctx.tools.execute({ signal, callId: ToolCallId(`recruit-${Math.random()}`), name, arguments: args, agent: lead })
   const created = await call({ name: 'Recovery', description: 'One employee, fenced provisioning attempts.' }, 'agent_swarm_create')
   expect(created.isError).toBe(false)
@@ -73,7 +72,7 @@ async function failFirst(stack: Stack) {
   expect(result.isError, JSON.stringify(result.error)).toBe(false)
   const sessionId = (result.value as { session_id: string }).session_id
   await vi.waitFor(async () => expect((await stack.snapshot()).team.members[0]?.phase).toBe('failed'))
-  const stored = await stack.ctx.sessionPersistence.inspect(SessionId(sessionId), signal)
+  const stored = await readPersistedSession(stack.ctx.sessionPersistence, SessionId(sessionId), signal)
   expect(stored.events.some(event => event.type === 'turn/end' && event.data.reason.kind === 'error')).toBe(true)
   return sessionId
 }
@@ -326,7 +325,7 @@ describe('member recruitment route and same-identity recovery', () => {
     expect(added.isError).toBe(false)
     const oldId = (added.value as { session_id: string }).session_id
     await vi.waitFor(async () => {
-      const persisted = await stack.ctx.sessionPersistence.inspect(SessionId(oldId), signal)
+      const persisted = await readPersistedSession(stack.ctx.sessionPersistence, SessionId(oldId), signal)
       expect(persisted.events.some(event => event.type === 'turn/end')).toBe(true)
     })
     // Inject the failure at the real aggregate settlement seam after a billed
@@ -334,7 +333,7 @@ describe('member recruitment route and same-identity recovery', () => {
     await domain.settleMember(stack.scope, stack.teamId, oldId, { active: false, error: 'activation failed after billed work' })
     expect((await stack.call({ name: 'worker', role: 'Implement', retry_of: oldId })).isError).toBe(false)
     billing.mockRestore()
-    const stored = await stack.ctx.sessionPersistence.inspect(SessionId(oldId), signal)
+    const stored = await readPersistedSession(stack.ctx.sessionPersistence, SessionId(oldId), signal)
     expect(stored.events.filter(event => event.type === 'assistant/message').map(event => event.data.usage))
       .toContainEqual({ inputTokens: 5, outputTokens: 2 })
     expect((await stack.snapshot()).team.budget.usedTokens).toBe(0)

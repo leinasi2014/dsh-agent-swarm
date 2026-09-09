@@ -1,4 +1,4 @@
-import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import { readPersistedSession } from '../src/runtime/persisted-session.js'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
  * M5-2 / F17 (issue #136): member tool-permission policy surface.
@@ -61,7 +61,7 @@ class ImmediateAdapter extends LlmAdapter {
 /** The durable composition under test: one captain lead over real services. */
 interface CaptainStack {
   readonly ctx: Context
-  readonly lead: ReturnType<Context['agentLoop']['create']>
+  readonly lead: Awaited<ReturnType<Context['agentLoop']['create']>>
   readonly teamId: string
 }
 
@@ -73,7 +73,6 @@ async function mountCaptain(
 ): Promise<CaptainStack> {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
   fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   await mountStorageStackOn(ctx, join(sandbox, 'storage'))
@@ -82,7 +81,7 @@ async function mountCaptain(
   fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
   fibers.push(await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1 }))
   ctx.llm.registerAdapter(['mock'], new ImmediateAdapter())
-  const lead = ctx.agentLoop.create(
+  const lead = await ctx.agentLoop.create(
     SessionId(leadId),
     { provider: 'mock', model: 'mock' },
     { cwd: join(sandbox, 'workspace') },
@@ -100,7 +99,7 @@ async function mountCaptain(
 
 /** The durable toolFilter applied to one provisioned member's child Session. */
 async function durableToolFilter(stack: CaptainStack, memberSessionId: string): Promise<{ deny?: readonly string[]; allow?: readonly string[] } | undefined> {
-  const stored = await stack.ctx.sessionPersistence.inspect(SessionId(memberSessionId))
+  const stored = await readPersistedSession(stack.ctx.sessionPersistence, SessionId(memberSessionId))
   const suffix = stored.events.slice(stored.inheritedEventCount ?? 0)
   const descriptor = foldSubagentDescriptor(suffix)
   expect(descriptor?.mode).toBe('continuable')

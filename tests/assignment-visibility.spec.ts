@@ -1,3 +1,4 @@
+import { readPersistedSession } from '../src/runtime/persisted-session.js'
 /**
  * Issue #60 / P2-1: an assignment checkpoint must never record `delivered`
  * before its frame is model-visible at the member — the #52 / D1 claimed-gate
@@ -148,7 +149,7 @@ describe('assignment delivery visibility (issue #60 / P2-1)', () => {
       })
       expect(trigger.isError).toBe(false)
       await vi.waitFor(async () => {
-        const stored = await ctx.sessionPersistence.inspect(SessionId(memberId), SIGNAL)
+        const stored = await readPersistedSession(ctx.sessionPersistence, SessionId(memberId), SIGNAL)
         expect(acceptedFrames(stored.events, frame)).toBe(1)
       }, { timeout: 15_000 })
 
@@ -159,7 +160,7 @@ describe('assignment delivery visibility (issue #60 / P2-1)', () => {
       const parked = await snapshotOf(composition)
       const parkedAttempt = parked.team.attempts.find(attempt => attempt.id === attemptId)!
       expect(parkedAttempt.assignmentPhase).toBe('reserved')
-      const storedParked = await ctx.sessionPersistence.inspect(SessionId(memberId), SIGNAL)
+      const storedParked = await readPersistedSession(ctx.sessionPersistence, SessionId(memberId), SIGNAL)
       expect(claimedFrames(storedParked.events, frame)).toBe(0)
 
       // The official teardown discard: an Activation disposal drain clears the
@@ -169,7 +170,7 @@ describe('assignment delivery visibility (issue #60 / P2-1)', () => {
       await ctx.subagents.drainContinuableChildren(composition.lead, [SessionId(memberId)])
       await vi.waitFor(async () => {
         expect(ctx.agents.get(SessionId(memberId))).toBeUndefined()
-        const stored = await ctx.sessionPersistence.inspect(SessionId(memberId), SIGNAL)
+        const stored = await readPersistedSession(ctx.sessionPersistence, SessionId(memberId), SIGNAL)
         expect(acceptedFrames(stored.events, frame)).toBe(0)
       }, { timeout: 15_000 })
 
@@ -190,7 +191,7 @@ describe('assignment delivery visibility (issue #60 / P2-1)', () => {
       expect(settled.team.tasks.find(task => task.id === stagedTask.id)).toMatchObject({
         status: 'in_progress', ownerSessionId: memberId, currentAttemptId: attemptId,
       })
-      const storedSettled = await ctx.sessionPersistence.inspect(SessionId(memberId), SIGNAL)
+      const storedSettled = await readPersistedSession(ctx.sessionPersistence, SessionId(memberId), SIGNAL)
       expect(claimedFrames(storedSettled.events, frame)).toBe(1)
       expect(acceptedFrames(storedSettled.events, frame)).toBe(1)
       // Exactly two assignment dispatches ever left the scheduler for this
@@ -243,7 +244,7 @@ describe('assignment delivery visibility (issue #60 / P2-1)', () => {
       const settled = await snapshotOf(composition)
       const task = settled.team.tasks.find(candidate => candidate.ownerSessionId === memberId)!
       const frame = frameOf(settled.team, task, task.currentAttemptId!)
-      const stored = await ctx.sessionPersistence.inspect(SessionId(memberId), SIGNAL)
+      const stored = await readPersistedSession(ctx.sessionPersistence, SessionId(memberId), SIGNAL)
       expect(claimedFrames(stored.events, frame)).toBe(1)
       expect(acceptedFrames(stored.events, frame)).toBeGreaterThanOrEqual(1)
 

@@ -1,4 +1,5 @@
-import { queueSubagentPrompt, type HostPromptQueue } from '@deepseek-ai/dsh-subagent/internal'
+import { readPersistedSession } from '../src/runtime/persisted-session.js'
+import { deliverSubagentPrompt, type HostPromptDeliverer } from '@deepseek-ai/dsh-subagent/internal'
 /**
  * The actual restart boundary for the current single-Team authority.
  *
@@ -141,7 +142,7 @@ describe('real restart continuation over the current Team authority', () => {
       first = await mount(sandbox, 0)
       const initial = new InitialAdapter()
       first.ctx.llm.registerAdapter(['mock'], initial)
-      const leadA = first.ctx.agentLoop.create(CAPTAIN, { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+      const leadA = await first.ctx.agentLoop.create(CAPTAIN, { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
       const created = await tool(first.ctx, leadA, 'restart-create', 'agent_swarm_create', {
         name: 'Restart continuation', description: 'Prove an explicit recovery of one durable attempt.',
       })
@@ -168,7 +169,7 @@ describe('real restart continuation over the current Team authority', () => {
         frozen = { taskId: task.id, revision: task.revision, attemptId: attempt!.id, generation: attempt!.generation, memberId }
       }, { timeout: 15_000 })
       await vi.waitFor(async () => {
-        const stored = await first!.ctx.sessionPersistence.inspect(SessionId(memberId), SIGNAL)
+        const stored = await readPersistedSession(first!.ctx.sessionPersistence, SessionId(memberId), SIGNAL)
         expect(userTexts(stored.events).filter(text => text.includes('Team assignment from captain.'))).toHaveLength(1)
       }, { timeout: 15_000 })
 
@@ -202,15 +203,15 @@ describe('real restart continuation over the current Team authority', () => {
       second.ctx.llm.registerAdapter(['mock'], recovered)
       const resumedCaptain = await second.ctx.agents.resume({ resumeSessionId: CAPTAIN })
       const leadB = resumedCaptain.agent
-      const rawFollowup = (second.ctx.subagents as unknown as HostPromptQueue)[queueSubagentPrompt].bind(second.ctx.subagents)
+      const rawFollowup = (second.ctx.subagents as unknown as HostPromptDeliverer)[deliverSubagentPrompt].bind(second.ctx.subagents)
       const follows: Array<{ target: string; text: string; wasCold: boolean }> = []
-      const followup = vi.spyOn(second.ctx.subagents as unknown as HostPromptQueue, queueSubagentPrompt).mockImplementation(async (parent, childId, content, source, signal) => {
+      const followup = vi.spyOn(second.ctx.subagents as unknown as HostPromptDeliverer, deliverSubagentPrompt).mockImplementation(async (parent, childId, content, source, signal, delivery) => {
         follows.push({
           target: String(childId),
           text: content.filter(block => block.type === 'text').map(block => block.text).join('\n'),
           wasCold: second!.ctx.agents.get(childId) === undefined,
         })
-        return await rawFollowup(parent, childId, content, source, signal)
+        return await rawFollowup(parent, childId, content, source, signal, delivery)
       })
       try {
         await second.ctx.agentSwarm.recoverAgent(leadB)
@@ -275,7 +276,7 @@ describe('real restart continuation over the current Team authority', () => {
         const final = await snapshot(second.ctx, leadB, teamId)
         expect(final.team.tasks.find(candidate => candidate.id === frozen.taskId)).toMatchObject({ status: 'completed', currentAttemptId: frozen.attemptId })
         expect(final.team.attempts).toEqual([expect.objectContaining({ id: frozen.attemptId, generation: frozen.generation, phase: 'accepted' })])
-        const persisted = await second.ctx.sessionPersistence.inspect(SessionId(memberId), SIGNAL)
+        const persisted = await readPersistedSession(second.ctx.sessionPersistence, SessionId(memberId), SIGNAL)
         const texts = userTexts(persisted.events)
         expect(texts.filter(text => text.includes('Team assignment from captain.'))).toHaveLength(1)
         expect(texts.filter(text => text.includes('resume the exact current attempt after restart.'))).toHaveLength(1)
@@ -299,7 +300,7 @@ describe('real restart continuation over the current Team authority', () => {
     try {
       first = await mount(sandbox, 0)
       first.ctx.llm.registerAdapter(['mock'], new InitialAdapter())
-      const leadA = first.ctx.agentLoop.create(CAPTAIN, { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+      const leadA = await first.ctx.agentLoop.create(CAPTAIN, { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
       const created = await tool(first.ctx, leadA, 'memory-create', 'agent_swarm_create', {
         name: 'Memory list reload', description: 'Prove bounded durable Team-memory reads.',
       })
@@ -362,7 +363,7 @@ describe('real restart continuation over the current Team authority', () => {
           expect(await tool(first.ctx, leadA, `memory-invalid-${JSON.stringify(args)}`, 'agent_swarm_list_memory', args))
             .toMatchObject({ isError: true, error: { info: { code: 'TEAM_INPUT_INVALID' } } })
         }
-        const outsider = first.ctx.agentLoop.create(SessionId('memory-outsider'), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+        const outsider = await first.ctx.agentLoop.create(SessionId('memory-outsider'), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
         expect(await tool(first.ctx, outsider, 'memory-outsider', 'agent_swarm_list_memory', {}))
           .toMatchObject({ isError: true, error: { info: { code: 'TEAM_NOT_JOINED' } } })
         expect(await snapshot(first.ctx, leadA, teamId)).toEqual(beforeRead)
@@ -410,7 +411,7 @@ describe('real restart continuation over the current Team authority', () => {
     try {
       first = await mount(sandbox, 0)
       first.ctx.llm.registerAdapter(['mock'], new InitialAdapter())
-      const leadA = first.ctx.agentLoop.create(CAPTAIN, { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+      const leadA = await first.ctx.agentLoop.create(CAPTAIN, { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
       const created = await tool(first.ctx, leadA, 'profiles-create', 'agent_swarm_create', {
         name: 'Member profiles', description: 'Read durable child composition without a live child.',
       })
@@ -458,7 +459,7 @@ describe('real restart continuation over the current Team authority', () => {
       // Team aggregate and all other child history remain untouched.
       const logRoot = join(sandbox, 'sessions', 'sessions.db')
       const files = await readdir(logRoot, { recursive: true })
-      const log = files.find(file => file.endsWith(join(damagedId, 'session.jsonl')))
+      const log = files.find(file => file.endsWith(join(damagedId, 'session.v3.jsonl')))
       expect(log).toBeDefined()
       const logPath = join(logRoot, log!)
       let replaced = 0
@@ -520,7 +521,7 @@ describe('real restart continuation over the current Team authority', () => {
           expect(await tool(second.ctx, resumedCaptain.agent, `profiles-invalid-${JSON.stringify(args)}`, 'agent_swarm_list_members', args))
             .toMatchObject({ isError: true, error: { info: { code: 'TEAM_INPUT_INVALID' } } })
         }
-        const outsider = second.ctx.agentLoop.create(SessionId('profiles-outsider'), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+        const outsider = await second.ctx.agentLoop.create(SessionId('profiles-outsider'), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
         expect(await tool(second.ctx, outsider, 'profiles-outsider', 'agent_swarm_list_members', {}))
           .toMatchObject({ isError: true, error: { info: { code: 'TEAM_NOT_JOINED' } } })
         expect(await snapshot(second.ctx, resumedCaptain.agent, teamId)).toEqual(before)
@@ -536,7 +537,7 @@ describe('real restart continuation over the current Team authority', () => {
   it('keeps missing-session taxonomy and caller cancellation explicit without inventing a profile', async () => {
     const missing = new Error('session "member-profile-session" not found')
     const reader = new MemberProfileReader({
-      sessionPersistence: { inspect: vi.fn(async () => { throw missing }) },
+      sessionPersistence: { open: vi.fn(async () => { throw missing }) },
     } as unknown as Context)
     const team = { id: 'member-profile-team', captainSessionId: 'member-profile-captain' } as TeamState
     const member = (phase: TeamMember['phase']) => ({

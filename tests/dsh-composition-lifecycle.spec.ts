@@ -1,4 +1,3 @@
-import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -92,7 +91,6 @@ async function successfulTool(
 /** Mount the official durable composition: persistence + storage stack + agent services. */
 async function mountDurableStack(ctx: Context, storageRoot: string, sessionDbPath: string): Promise<Fiber> {
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
   const persistenceFiber = await ctx.plugin(JsonlSessionPersistence, { root: sessionDbPath })
   await ctx.plugin(Storage)
@@ -127,7 +125,7 @@ describe('DSH rc.8 composition', () => {
       fibers.push(pluginFiber)
 
       ctx.llm.registerAdapter(['mock'], new ScriptedAdapter([textResponse('Started before commit failure.')]))
-      const lead = ctx.agentLoop.create(
+      const lead = await ctx.agentLoop.create(
         SessionId('failure-lead'),
         { provider: 'mock', model: 'mock' },
         { cwd: join(sandbox, 'workspace') },
@@ -189,7 +187,7 @@ describe('DSH rc.8 composition', () => {
       fibers.push(pluginFiber)
 
       ctx.llm.registerAdapter(['mock'], new ScriptedAdapter([textResponse('Captain ready.')]))
-      const lead = ctx.agentLoop.create(
+      const lead = await ctx.agentLoop.create(
         SessionId('disposal-lead'),
         { provider: 'mock', model: 'mock' },
         { cwd: join(sandbox, 'workspace') },
@@ -264,7 +262,7 @@ describe('DSH rc.8 composition', () => {
         schedulerProvider: 'test-scheduler', reviewProvider: 'test-review',
       }))
       ctx.llm.registerAdapter(['mock'], new ScriptedAdapter([textResponse('Member ready.')]))
-      const lead = ctx.agentLoop.create(
+      const lead = await ctx.agentLoop.create(
         SessionId('identity-lead'),
         { provider: 'mock', model: 'mock' },
         { cwd: workspace },
@@ -335,12 +333,12 @@ describe('DSH rc.8 composition', () => {
         schedulerProvider: 'test-scheduler', reviewProvider: 'test-review',
       }))
       ctx.llm.registerAdapter(['mock'], new ScriptedAdapter([textResponse('Member ready.')]))
-      const lead = ctx.agentLoop.create(
+      const lead = await ctx.agentLoop.create(
         SessionId('captain-tools-lead'),
         { provider: 'mock', model: 'mock' },
         { cwd: workspace },
       )
-      const intruder = ctx.agentLoop.create(
+      const intruder = await ctx.agentLoop.create(
         SessionId('captain-tools-intruder'),
         { provider: 'mock', model: 'mock' },
         { cwd: workspace },

@@ -1,4 +1,4 @@
-import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import { readPersistedSession } from '../src/runtime/persisted-session.js'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /** Official composition: monotone participant permissions and scenario 44
  * Host-attested human authority; all mutations still commit via TeamDomainPort. */
@@ -52,7 +52,7 @@ function registerProbeTool(ctx: Context): void {
 interface Stack {
   readonly ctx: Context
   readonly fibers: Fiber[]
-  readonly lead: ReturnType<Context['agentLoop']['create']>
+  readonly lead: Awaited<ReturnType<Context['agentLoop']['create']>>
   readonly teamId: AgentSwarm.TeamId
   readonly scope: string
   readonly unregisterInitialReviewer?: () => void
@@ -70,7 +70,6 @@ async function mount(
   const ctx = new Context()
   const fibers: Fiber[] = []
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
   fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   await mountStorageStackOn(ctx, join(sandbox, 'storage'))
@@ -96,7 +95,7 @@ async function mount(
     }) : undefined
   registerProbeTool(ctx)
   ctx.llm.registerAdapter(['mock'], new ImmediateAdapter())
-  const lead = ctx.agentLoop.create(
+  const lead = await ctx.agentLoop.create(
     SessionId(`perm-lead-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
     { provider: 'mock', model: 'mock' },
     { cwd: join(sandbox, 'workspace') },
@@ -119,7 +118,7 @@ async function mount(
 }
 async function callTool(
   ctx: Context,
-  agent: ReturnType<Context['agentLoop']['create']>,
+  agent: Awaited<ReturnType<Context['agentLoop']['create']>>,
   callId: string,
   name: string,
   args: Record<string, unknown> = {},
@@ -403,7 +402,7 @@ describe('real ToolRuntime + approval composition (SW-I1a)', () => {
     const stack = await mount(sandbox, { toolPolicy: { ask: [PROBE_TOOL] }, approval: true })
     const memberId = await addMember(stack)
     // Asked tools reach the member's invocation gate; explicit role denials remain.
-    const stored = await stack.ctx.sessionPersistence.inspect(SessionId(memberId))
+    const stored = await readPersistedSession(stack.ctx.sessionPersistence, SessionId(memberId))
     const suffix = stored.events.slice(stored.inheritedEventCount ?? 0); const descriptor = foldSubagentDescriptor(suffix)
     expect(descriptor?.mode).toBe('continuable')
     if (descriptor?.mode !== 'continuable') throw new Error('member descriptor is not continuable')
@@ -424,7 +423,7 @@ describe('real ToolRuntime + approval composition (SW-I1a)', () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-perm-unrelated-'))
     roots.push(sandbox)
     const stack = await mount(sandbox, { toolPolicy: { deny: [PROBE_TOOL] } })
-    const unrelated = stack.ctx.agentLoop.create(
+    const unrelated = await stack.ctx.agentLoop.create(
       SessionId(`perm-unrelated-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
       { provider: 'mock', model: 'mock' },
       { cwd: join(sandbox, 'unrelated-workspace') },

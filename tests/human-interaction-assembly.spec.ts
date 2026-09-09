@@ -1,4 +1,3 @@
-import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
  * SW-I1a assembled human interaction.
@@ -61,7 +60,6 @@ async function mountBase(sandbox: string, withQuestions: boolean): Promise<BaseM
   const ctx = new Context()
   const fibers: Fiber[] = []
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
   fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   await mountStorageStackOn(ctx, join(sandbox, 'storage'))
@@ -74,7 +72,7 @@ async function mountBase(sandbox: string, withQuestions: boolean): Promise<BaseM
 }
 
 interface Stack extends BaseMount {
-  readonly lead: ReturnType<Context['agentLoop']['create']>
+  readonly lead: Awaited<ReturnType<Context['agentLoop']['create']>>
   readonly teamId: AgentSwarm.TeamId
   readonly scope: string
   pluginFiber: Fiber
@@ -83,7 +81,7 @@ async function mount(sandbox: string, withQuestions = true): Promise<Stack> {
   const base = await mountBase(sandbox, withQuestions)
   const pluginFiber = await base.ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1 })
   base.fibers.push(pluginFiber)
-  const lead = base.ctx.agentLoop.create(
+  const lead = await base.ctx.agentLoop.create(
     SessionId(`i1a-assembly-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
     { provider: 'mock', model: 'mock' },
     { cwd: join(sandbox, 'workspace') },

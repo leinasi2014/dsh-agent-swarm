@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useTabInfo } from './helpers/sidebar-tab.js'
 import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -82,7 +83,7 @@ function stateWithMemberAssets(memberRows: unknown): TeamDashboardState {
     totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, roster: 1 },
   }
   return {
-    open: true, phase: 'ready', targetSessionId: 'root',
+    open: true, phase: 'ready', targetSessionId: 'main-brain',
     data: {
       capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never,
       projection: projection as never,
@@ -96,15 +97,15 @@ function stateWithMemberAssets(memberRows: unknown): TeamDashboardState {
 const controllerOf = (state: TeamDashboardState) => ({ getSnapshot: (): TeamDashboardState => state, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() })
 
 async function renderDetails(state: TeamDashboardState): Promise<void> {
-  const surfaceState = { mode: 'docked' as const, view: 'overview' as const, targetSessionId: 'root' }
+  const surfaceState = { mode: 'docked' as const, view: 'overview' as const, targetSessionId: 'main-brain' }
   const coordinator = {
-    makeRoomForDetails: vi.fn(), restoreDockedDetails: vi.fn(), state: surfaceState,
+    observeTab: vi.fn(() => () => {}), state: surfaceState,
     getSnapshot: (): typeof surfaceState => surfaceState,
     subscribe: (_listener: () => void): (() => void) => () => {},
     localeTag: (): 'en-US' => 'en-US',
     openCaptainChat: vi.fn(async () => {}), closeAndRestoreFocus: vi.fn(), openTeamCaptain: vi.fn(), showToolDetails: vi.fn(), selectView: vi.fn(), toggle: vi.fn(),
   }
-  await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: controllerOf(state), coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+  await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: controllerOf(state), coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
 }
 
 describe('member rows consume real captainMembers identity data', () => {

@@ -9,6 +9,7 @@ import * as React from 'react'
 import * as jsx from 'react/jsx-runtime'
 import { createRoot } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { sidebarHarness } from './helpers/sidebar-harness.js'
 import type { ILayout } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { TeamDashboardDetails, type TeamDashboardDetailsProps } from '../src/client/TeamDashboardDetails.js'
 import { TeamDashboardSurfaceCoordinator } from '../src/client/team-dashboard-surface-coordinator.js'
@@ -17,13 +18,13 @@ import type { TeamDashboardState } from '../src/client/team-dashboard-controller
 vi.mock('../src/client/TeamDashboardContent.js', () => ({ TeamDashboardContent: () => <div>Team content</div> }))
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
-interface Panels { sidebar: number; details: number; narrow: boolean; narrowExpanded: boolean }
-interface Store { init(): Panels; actions: Record<string, (draft: Panels, value?: unknown) => void> }
+interface Panels { sidebar: number; viewportWidth: number; narrowExpanded: boolean; rightbar: number | null; rightbarShown: boolean; rightbarTrack: boolean; rightbarFullscreen: boolean; rightbarInstant: boolean }
+interface Store { init(): Panels; actions: Record<string, (draft: Panels, ...values: unknown[]) => void> }
 interface SessionList { current: string; byId: Record<string, { blank: false }>; subagentsByParent: Record<string, unknown> }
 interface FrameProps {
   useStore<T>(selector: (panels: Panels) => T): T
   useSessions<T>(selector: (sessions: SessionList) => T): T
-  actions: Record<string, (value?: unknown) => void>
+  actions: Record<string, (...values: unknown[]) => void>
   renderSlot(name: string): React.ReactNode
   SessionProvider: React.ComponentType<React.PropsWithChildren>
   t(key: string): string
@@ -71,15 +72,13 @@ function harness(viewport = 1440) {
   const panelListeners = new Set<() => void>()
   const sessionListeners = new Set<() => void>()
   const trace: string[] = []
-  let onClose: (() => void) | undefined
-  const actions = Object.fromEntries(Object.entries(store.actions).map(([name, reduce]) => [name, (value?: unknown) => {
-    panels = { ...panels }; reduce(panels, value)
-    if (name.endsWith('Details')) trace.push(`${name}:${session.current}`)
-    if (name === 'closeDetails') { const callback = onClose; onClose = undefined; callback?.() }
+  const actions = Object.fromEntries(Object.entries(store.actions).map(([name, reduce]) => [name, (...values: unknown[]) => {
+    panels = { ...panels }; reduce(panels, ...values)
+    if (name.endsWith('Rightbar')) trace.push(`${name}:${session.current}`)
     panelListeners.forEach(listener => listener())
   }]))
   registration.inject(actions)
-  const navigate = (current: string) => { session = { ...session, current }; sessionListeners.forEach(listener => listener()) }
+  const navigate = (current: string) => { sidebar.hide(session.current); session = { ...session, current }; sessionListeners.forEach(listener => listener()) }
   const sessions = { list: { getSnapshot: () => session, subscribe: (fn: () => void) => { sessionListeners.add(fn); return () => { sessionListeners.delete(fn) } } },
     refreshSubagents: async () => {}, openSubagent: (address: { childSessionId: string }) => { navigate(address.childSessionId) } }
   let state = { open: false, phase: 'closed' } as TeamDashboardState
@@ -96,19 +95,23 @@ function harness(viewport = 1440) {
   const slots = { entries: () => entry === undefined ? [] : [entry], entriesOfSlot: () => entry === undefined ? [] : [entry],
     register: () => { entry = {}; return () => { entry = undefined } }, onEntryError: () => () => {}, subscribe: () => () => {} }
   const coordinator = new TeamDashboardSurfaceCoordinator({ slots, sessions, controller, locale: { getLocale: () => ({ active: 'en' }) }, anchorRef: { current: null } } as never)
-  const unmount = coordinator.mount(); coordinator.bindLayout(layout); coordinator.bindDetailsDeclaration()
+  const sidebar = sidebarHarness(coordinator, () => session.current, () => { layout.openRightbar(true, false) })
+  sidebar.setAutoMount(false)
+  const unmount = coordinator.mount(); coordinator.bindSidebar(sidebar.sidebar)
   const root = createRoot(document.body.appendChild(document.createElement('div')))
   function Details() {
     const current = React.useSyncExternalStore(sessions.list.subscribe, sessions.list.getSnapshot).current
-    return <TeamDashboardDetails {...({ controller, coordinator, localeTag: coordinator.localeTag, sessionId: current, t: (key: string) => key } as unknown as TeamDashboardDetailsProps)} />
+    const info = sidebar.records.get(current)
+    if (info === undefined) return null
+    return <TeamDashboardDetails {...({ controller, coordinator, useTabInfo: () => info, localeTag: coordinator.localeTag, sessionId: current, t: (key: string) => key } as unknown as TeamDashboardDetailsProps)} />
   }
   const frameProps: FrameProps = {
     useStore: selector => selector(React.useSyncExternalStore(fn => { panelListeners.add(fn); return () => { panelListeners.delete(fn) } }, () => panels)),
     useSessions: selector => selector(React.useSyncExternalStore(sessions.list.subscribe, sessions.list.getSnapshot)),
-    actions, renderSlot: name => name === 'details' ? <Details /> : null, SessionProvider: React.Fragment, t: key => key,
+    actions, renderSlot: name => name === 'rightbar' ? <Details /> : null, SessionProvider: React.Fragment, t: key => key,
   }
   const settleFrame = async () => { await React.act(async () => { await new Promise<void>(resolve => { requestAnimationFrame(() => { resolve() }) }) }) }
-  return { coordinator, navigate, trace, layout, settleFrame, onClose: (callback: () => void) => { onClose = callback }, panels: () => panels,
+  return { coordinator, navigate, trace, layout, settleFrame, sidebar, refresh: () => { controller.open(session.current) }, panels: () => panels,
     mount: async () => { await React.act(async () => { root.render(<Frame {...frameProps} />) }); await settleFrame() },
     dispose: async () => { await React.act(async () => { root.unmount(); unmount() }); geometry.mockRestore() },
   }
@@ -117,65 +120,65 @@ function harness(viewport = 1440) {
 afterEach(() => { document.body.replaceChildren() })
 
 describe('Team navigation in the installed official AppFrame', () => {
-  it('shows Team cards automatically at 1088px and does not fight a later user sidebar expansion', async () => {
+  it('shows Team automatically at 1088px and leaves later sidebar changes to the official layout owner', async () => {
     const f = harness(1088)
     try {
       await f.mount()
       const panel = document.querySelector('[data-swarm-team-panel]')!
       const frame = panel.closest<HTMLElement>('[style*="grid-template-columns"]')!
-      expect(frame.style.gridTemplateColumns).toBe('56px minmax(0, 1fr) 360px')
+      expect(frame.style.gridTemplateColumns).toBe('280px minmax(0, 1fr) 408px')
       await React.act(async () => { f.layout.toggleSidebar() })
       await React.act(async () => { await f.coordinator.openMemberChat('worker', 'member') })
       await f.settleFrame()
-      expect(frame.style.gridTemplateColumns).toBe('280px minmax(0, 1fr) 0px')
+      expect(frame.style.gridTemplateColumns).toBe('56px minmax(0, 1fr) 490px')
+      expect(f.panels().sidebar).toBe(0)
     } finally { await f.dispose() }
   })
 
-  it.each([980, 1000, 1440])('keeps official responsive layout at %ipx', async viewport => {
+  it.each([980, 1000, 1440])('keeps the official responsive column solver at %ipx', async viewport => {
     const f = harness(viewport)
     const toggle = vi.spyOn(f.layout, 'toggleSidebar')
     try {
       await f.mount()
       expect(toggle).not.toHaveBeenCalled()
       const frame = document.querySelector<HTMLElement>('[style*="grid-template-columns"]')!
-      expect(frame.style.gridTemplateColumns).toBe(viewport === 980 ? '56px minmax(0, 1fr) 0px'
-        : viewport === 1000 ? '56px minmax(0, 1fr) 304px' : '280px minmax(0, 1fr) 360px')
+      expect(frame.style.gridTemplateColumns).toBe(viewport === 980 ? '56px minmax(0, 1fr) 441px'
+        : viewport === 1000 ? '56px minmax(0, 1fr) 450px' : '280px minmax(0, 1fr) 648px')
+      expect(document.querySelector('[data-swarm-team-panel]')?.getBoundingClientRect().width).toBeGreaterThan(0)
     } finally { toggle.mockRestore(); await f.dispose() }
   })
 
-  it('does not reopen a Team closed between official layout and passive effects', async () => {
+  it('does not reopen a removed Team on a later read or layout effect', async () => {
     const f = harness()
     try {
       await f.mount()
-      expect(f.panels().details).toBe(360) // automatically visible on first mount
+      expect(f.panels().rightbarShown).toBe(true)
       f.trace.length = 0
-      f.onClose(() => { f.coordinator.closeAndRestoreFocus() })
-      await React.act(async () => { await f.coordinator.openMemberChat('worker', 'member') })
+      await React.act(async () => { f.coordinator.closeAndRestoreFocus(); f.layout.closeRightbar(); f.refresh() })
+      await f.settleFrame()
       expect(f.coordinator.getSnapshot().mode).toBe('inactive')
-      expect(f.trace).not.toContain('openDetails:member')
-      expect(f.panels().details).toBe(0)
-      expect(document.querySelector('[data-details-collapsed]')).not.toBeNull()
+      expect(f.trace).not.toContain('openRightbar:root')
+      expect(f.panels().rightbarShown).toBe(false)
+      expect(document.querySelector('[data-rightbar-collapsed]')).not.toBeNull()
     } finally { await f.dispose() }
   })
 
-  it('restores nonzero Details geometry after the official session layout effect closes it', async () => {
+  it('keeps nonzero official right-column geometry through exact member navigation without a close/reopen layout workaround', async () => {
     const f = harness()
     try {
-      await f.mount()
-      f.trace.length = 0
+      await f.mount(); f.trace.length = 0
       await React.act(async () => { await f.coordinator.openMemberChat('worker', 'member') })
       expect(f.coordinator.getSnapshot()).toMatchObject({ mode: 'docked', targetSessionId: 'member' })
-      expect([...f.trace]).toEqual(['closeDetails:member', 'openDetails:member'])
-      expect(f.panels().details).toBe(360)
+      expect(f.trace).toEqual(['openRightbar:member'])
       const panel = document.querySelector('[data-swarm-team-panel]')!
       const frame = panel.closest<HTMLElement>('[style*="grid-template-columns"]')!
-      expect(frame.hasAttribute('data-details-collapsed')).toBe(false)
-      expect(frame.style.gridTemplateColumns).toBe('280px minmax(0, 1fr) 360px')
-      // The DOM survives width-zero closure in official AppFrame; existence alone
-      // would falsely pass the original bug. Assert the computed track authority.
+      expect(frame.hasAttribute('data-rightbar-collapsed')).toBe(false)
+      expect(frame.style.gridTemplateColumns).toBe('280px minmax(0, 1fr) 648px')
       await React.act(async () => { f.navigate('other') })
       expect(f.coordinator.getSnapshot().mode).toBe('inactive')
-      expect(f.panels().details).toBe(0)
+      expect(document.querySelector('[data-swarm-team-panel]')).toBeNull()
+      // Team discovery does not commandeer the official column on an unrelated Session.
+      expect(f.panels().rightbarShown).toBe(true)
     } finally { await f.dispose() }
   })
 })

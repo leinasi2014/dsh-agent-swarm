@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useTabInfo } from './helpers/sidebar-tab.js'
 import { t, ready, teamData, FakeCoordinator, controller, render, detailOverlay, pressEscape, tabButton } from './helpers/dashboard-ui.js'
 import { act } from 'react'
 import { describe, expect, it, vi } from 'vitest'
@@ -26,7 +27,7 @@ describe('Team workspace views and projection-derived activity', () => {
     } }
     const coordinator = new FakeCoordinator()
     coordinator.set({ mode: 'docked', view: 'overview', targetSessionId: member.sessionId })
-    await render(<TeamDashboardDetails {...({ controller: { ...controller, getSnapshot: () => state }, coordinator, localeTag: coordinator.localeTag, sessionId: member.sessionId, t } as any)} />)
+    await render(<TeamDashboardDetails {...({ controller: { ...controller, getSnapshot: () => state }, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: member.sessionId, t } as any)} />)
     expect(document.querySelector('[data-swarm-team-lineage]')?.textContent).toContain(`角色资产验收›${alpha.name}›霁蓝`)
     expect(document.querySelectorAll('[data-swarm-team-card]')).toHaveLength(2)
     expect(document.querySelector('[data-swarm-team-card="beta"]')?.textContent).toContain('Tasks 1 / 3')
@@ -42,9 +43,9 @@ describe('Team workspace views and projection-derived activity', () => {
     const coordinator = new FakeCoordinator()
     const member = { ...ready.data!.captainMembers.members[0]!, name: 'worker', sessionId: 'worker-session', displayName: '林砚', profession: '编剧', personality: '细致', biography: '核对动机与因果。', identityCard: { state: 'generated' as const } }
     const data = { ...ready.data!, projection: { ...ready.data!.projection, roster: [{ name: member.name, role: 'Writer', phase: 'active' as const, createdAt: 1 }] }, captainMembers: { ...ready.data!.captainMembers, members: [member] } }
-    let state: TeamDashboardState = { ...ready, targetSessionId: 'root', data }
+    let state: TeamDashboardState = { ...ready, targetSessionId: 'main-brain', data }
     const live = { ...controller, getSnapshot: () => state }
-    await render(<TeamDashboardDetails {...({ controller: live, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    await render(<TeamDashboardDetails {...({ controller: live, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
     await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!.click() })
     expect(coordinator.openMemberChat).toHaveBeenCalledExactlyOnceWith('worker', 'worker-session')
     expect(document.querySelector('[data-swarm-detail-biography]')?.textContent).toBe(member.biography)
@@ -55,7 +56,7 @@ describe('Team workspace views and projection-derived activity', () => {
     state = { ...state, targetSessionId: 'worker-session' }
     const reopened = new FakeCoordinator()
     reopened.set({ mode: 'docked', view: 'overview', targetSessionId: 'worker-session' })
-    await render(<TeamDashboardDetails {...({ controller: live, coordinator: reopened, localeTag: reopened.localeTag, sessionId: 'worker-session', t } as any)} />)
+    await render(<TeamDashboardDetails {...({ controller: live, coordinator: reopened, useTabInfo, localeTag: reopened.localeTag, sessionId: 'worker-session', t } as any)} />)
     expect(document.querySelector('[data-swarm-detail-personality]')?.textContent).toBe(member.personality)
     expect(document.querySelector('[data-swarm-detail-biography]')?.textContent).toBe(member.biography)
     expect(reopened.openMemberChat).not.toHaveBeenCalled()
@@ -75,7 +76,7 @@ describe('Team workspace views and projection-derived activity', () => {
     let state: TeamDashboardState = { ...ready, data: { ...data, captainMembers: { ...data.captainMembers!, members: [member] } } }
     const listeners = new Set<() => void>()
     const profiles = { getSnapshot: () => state, subscribe: (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn) } }, refresh: vi.fn(), reconnect: vi.fn() }
-    await render(<TeamDashboardDetails {...({ controller: profiles, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    await render(<TeamDashboardDetails {...({ controller: profiles, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
     await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!.click() })
     expect(document.querySelector('[data-swarm-detail-personality]')?.textContent).toBe(member.personality)
     expect(document.querySelector('[data-swarm-detail-biography]')?.textContent).toBe(t('detail.unavailable'))
@@ -113,7 +114,7 @@ describe('Team workspace views and projection-derived activity', () => {
     }
     const populatedState: TeamDashboardState = { ...ready, data: teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection) }
     const populated = { getSnapshot: (): TeamDashboardState => populatedState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
-    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: populated, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: populated, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
     const stylesheet = document.querySelector('style')?.textContent ?? ''
       // No persistent Team rail: the Details column is reserved for the active Team.
       expect(document.querySelectorAll('[data-swarm-team-panel] [data-swarm-team-rail]')).toHaveLength(0)
@@ -152,7 +153,7 @@ describe('Team workspace views and projection-derived activity', () => {
 
   it('renders four mutually exclusive tab views with correct tablist/tab/tabpanel semantics and keyboard support', async () => {
     const coordinator = new FakeCoordinator()
-    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
     const tablist = document.querySelector<HTMLElement>('[data-swarm-view-tabs]')!
     expect(tablist.getAttribute('role')).toBe('tablist')
     const tabs = [...document.querySelectorAll('[data-swarm-view-tab]')]
@@ -261,7 +262,7 @@ describe('Team workspace views and projection-derived activity', () => {
         listeners.forEach(listener => listener())
       }),
     }
-    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: railController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: railController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
     // One Team owns one card. Duplicate directory rows cannot duplicate cards.
     expect(document.querySelector('[data-swarm-team-rail]')).toBeNull()
     expect(document.querySelector('[data-swarm-team-switcher]')).toBeNull()
@@ -316,7 +317,7 @@ describe('Team workspace views and projection-derived activity', () => {
     const emptyState: TeamDashboardState = { ...ready, data: { ...teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, SWARM_READ_RPC_FIXTURES_V1.values.snapshot), teams: { ...multiTeams, teams: [] } as never } }
     const emptyController = { getSnapshot: (): TeamDashboardState => emptyState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn(), selectTeam: vi.fn() }
     document.body.replaceChildren()
-    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: emptyController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: emptyController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
     expect(document.querySelectorAll('[data-swarm-team-dot]')).toHaveLength(0)
   })
 
@@ -330,7 +331,7 @@ describe('Team workspace views and projection-derived activity', () => {
     }
     const state: TeamDashboardState = { ...ready, data: teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection) }
     const longNameController = { getSnapshot: (): TeamDashboardState => state, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
-    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: longNameController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: longNameController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
     await act(async () => { tabButton('tasks').click() })
     const owner = document.querySelector<HTMLElement>('[data-swarm-task-owner]')!
     expect(owner.getAttribute('data-swarm-task-owner')).toBe(`Owner: ${memberName}`)
@@ -390,7 +391,7 @@ describe('Team workspace views and projection-derived activity', () => {
     })
     const state: TeamDashboardState = { ...ready, data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never, teams: SWARM_READ_RPC_FIXTURES_V1.values.teams as never, captainAnnouncements: SWARM_READ_RPC_FIXTURES_V1.values.captainAnnouncements as never, captainDiagnostics: SWARM_READ_RPC_FIXTURES_V1.values.captainDiagnostics as never, captainMembers: SWARM_READ_RPC_FIXTURES_V1.values.captainMembers as never } }
     const historyController = { getSnapshot: (): TeamDashboardState => state, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
-    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: historyController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: historyController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
     const member = document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!
     expect(member.getAttribute('data-swarm-tone')).toBe('standby')
     expect(member.querySelector('[data-swarm-member-visible-activity]')?.textContent).toBe('Standby')
@@ -436,7 +437,7 @@ describe('Team workspace views and projection-derived activity', () => {
     })
     const state: TeamDashboardState = { ...ready, data: teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection) }
     const activityController = { getSnapshot: (): TeamDashboardState => state, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
-    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: activityController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: activityController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
     expect(signalOf('attempt-r')).toBe('executing')
     expect(signalOf('attempt-s')).toBe('pending')
     expect(signalOf('attempt-x')).toBe('settled')
@@ -451,7 +452,7 @@ describe('Team workspace views and projection-derived activity', () => {
     })
     const state: TeamDashboardState = { ...ready, data: teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection) }
     const liveController = { getSnapshot: (): TeamDashboardState => state, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
-    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: liveController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: liveController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
     const attemptTime = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(t0 + 3_600_000))
     const taskTime = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(t0))
     // Member detail: start time = current attempt.createdAt, never the task creation time.
@@ -495,7 +496,7 @@ describe('Team workspace views and projection-derived activity', () => {
     }
     const state: TeamDashboardState = { ...ready, data: { ...teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection), teams: emptyGoalTeams as never } }
     const emptyGoalController = { getSnapshot: (): TeamDashboardState => state, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
-    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: emptyGoalController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: emptyGoalController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
     const goalCard = document.querySelector<HTMLElement>('[data-swarm-goal-card]')!
     expect(goalCard).not.toBeNull()
     expect(document.querySelectorAll('[data-swarm-goal-card]')).toHaveLength(1)
@@ -504,7 +505,7 @@ describe('Team workspace views and projection-derived activity', () => {
     expect(goalCard.querySelector('[data-swarm-goal-text]')).toBeNull()
     // The generated goal renders its real canonical text exactly once across the whole panel.
     document.body.replaceChildren()
-    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
+    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
     expect(document.querySelectorAll('[data-swarm-goal-text]')).toHaveLength(1)
     expect(document.querySelector('[data-swarm-goal-text]')?.textContent).toBe('Deliver the Team UI.')
     expect(document.body.textContent!.split('Deliver the Team UI.')).toHaveLength(2)

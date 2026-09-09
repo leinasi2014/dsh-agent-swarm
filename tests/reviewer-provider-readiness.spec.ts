@@ -1,4 +1,3 @@
-import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -35,7 +34,6 @@ async function mount() {
   const fibers: Fiber[] = [await ctx.plugin(Loader)]
   owned.push({ ctx, fibers, root })
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
   fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(root, 'sessions.db') }))
   await mountStorageStackOn(ctx, join(root, 'storage'))
@@ -61,7 +59,7 @@ it('reports the missing actual reviewer at Loader settlement and admits no Team'
   await expect.poll(() => errors.some(error => error instanceof Swarm.TeamDomainError
     && error.code === 'TEAM_INVALID_CONFIG'
     && error.message.includes('registerReviewerAgentProvider'))).toBe(true)
-  const captain = ctx.agentLoop.create(SessionId('missing-reviewer'), { provider: 'mock', model: 'mock' }, { cwd: root })
+  const captain = await ctx.agentLoop.create(SessionId('missing-reviewer'), { provider: 'mock', model: 'mock' }, { cwd: root })
   await expect(ctx.agentSwarm.create({ agent: captain, signal }, 'blocked', 'Must not admit without review')).rejects.toMatchObject({ code: 'TEAM_REVIEW_PROVIDER_MISSING' })
   expect(await ctx.agentSwarm.listTeamAggregates(root)).toEqual([])
 })
@@ -88,11 +86,11 @@ it('accepts post-mount host registration before settlement and fences disposal/r
   hostRelease.resolve()
   await loading
   await ctx.loader.await()
-  const captain = ctx.agentLoop.create(SessionId('registered-reviewer'), { provider: 'mock', model: 'mock' }, { cwd: root })
+  const captain = await ctx.agentLoop.create(SessionId('registered-reviewer'), { provider: 'mock', model: 'mock' }, { cwd: root })
   await expect(ctx.agentSwarm.create({ agent: captain, signal }, 'allowed', 'Registered review provider')).resolves.toMatchObject({ name: 'allowed' })
   const retired = unregister
   unregister?.()
-  const other = ctx.agentLoop.create(SessionId('replacement-reviewer'), { provider: 'mock', model: 'mock' }, { cwd: root })
+  const other = await ctx.agentLoop.create(SessionId('replacement-reviewer'), { provider: 'mock', model: 'mock' }, { cwd: root })
   await expect(ctx.agentSwarm.create({ agent: other, signal }, 'blocked', 'Must not admit without review')).rejects.toMatchObject({ code: 'TEAM_REVIEW_PROVIDER_MISSING' })
   unregister = ctx.agentSwarmPermission.registerReviewerAgentProvider(provider)
   retired?.()

@@ -45,8 +45,8 @@ describe('plan-first tool surface (S2)', () => {
       return envelope.value
     }
     try {
-      const owner = ctx.agentLoop.create(SessionId(`plan-ui-${Date.now()}`), { provider: 'mock', model: 'mock' }, { cwd: composition.scope })
-      const stranger = ctx.agentLoop.create(SessionId(`${owner.id}-other`), { provider: 'mock', model: 'mock' }, { cwd: composition.scope })
+      const owner = await ctx.agentLoop.create(SessionId(`plan-ui-${Date.now()}`), { provider: 'mock', model: 'mock' }, { cwd: composition.scope })
+      const stranger = await ctx.agentLoop.create(SessionId(`${owner.id}-other`), { provider: 'mock', model: 'mock' }, { cwd: composition.scope })
       const staged = await toolCall(ctx, owner, 'stage-ui', 'agent_swarm_create_managed', { name: 'Visible draft', description: 'Await approval.', stage: true })
       expect(staged.isError).toBe(false)
       const teamId = (staged.value as { team_id: string }).team_id
@@ -83,7 +83,7 @@ describe('plan-first tool surface (S2)', () => {
     roots.push(sandbox)
     const composition = await mount(sandbox, 60_000)
     try {
-      const mb = composition.ctx.agentLoop.create(SessionId(`plan-first-root-${Date.now()}`), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+      const mb = await composition.ctx.agentLoop.create(SessionId(`plan-first-root-${Date.now()}`), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
       const created = await toolCall(composition.ctx, mb, 'stage', 'agent_swarm_create_managed', {
         name: 'Plan Team', description: 'Review recent deliveries.', stage: true,
       })
@@ -166,7 +166,7 @@ describe('plan-first tool surface (S2)', () => {
     roots.push(sandbox)
     const composition = await mount(sandbox, 60_000)
     try {
-      const mb = composition.ctx.agentLoop.create(SessionId(`plan-first-root-${Date.now()}`), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+      const mb = await composition.ctx.agentLoop.create(SessionId(`plan-first-root-${Date.now()}`), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
       const created = await toolCall(composition.ctx, mb, 'stage', 'agent_swarm_create_managed', {
         name: 'Discard Team', description: 'Never start.', stage: true,
       })

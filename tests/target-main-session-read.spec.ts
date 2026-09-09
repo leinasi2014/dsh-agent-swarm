@@ -1,3 +1,4 @@
+import { persistenceReadFixture } from './helpers/persistence-read-fixture.js'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -49,7 +50,7 @@ async function setup(cold = false) {
     return { meta: value.header, events: value.snapshotEvents(), inheritedEventCount: value.inheritedEventCount }
   })
   const ctx = { agents: { get: (id: string) => live.get(id), roots: () => [...live.values()].filter(agent => agent.session.header.parentSession === undefined) },
-    sessions: { get: (id: string) => cold ? undefined : sessions.get(id) }, sessionPersistence: { inspect } } as unknown as Context
+    sessions: { get: (id: string) => cold ? undefined : sessions.get(id) }, sessionPersistence: persistenceReadFixture(inspect) } as unknown as Context
   const list = vi.fn(() => storage.store.list(scope))
   const runtime = { scopeOf: (agent: Agent) => agent.session.header.cwd!, listTeamAggregates: list,
     managedCaptainSessionsOf: () => [], domain: storage.port } as unknown as AgentSwarmRuntime

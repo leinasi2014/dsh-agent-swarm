@@ -1,4 +1,3 @@
-import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
  * Explicit orchestration-mode semantics over the real official composition
@@ -64,7 +63,6 @@ describe('explicit orchestration modes (M2-3, issue #77)', () => {
     const fibers: Fiber[] = []
     try {
       await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
       fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
       fibers.push(await ctx.plugin(Storage))

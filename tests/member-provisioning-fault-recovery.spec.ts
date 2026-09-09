@@ -1,4 +1,3 @@
-import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
  * Failure barriers around initial-turn member provisioning.
@@ -14,7 +13,7 @@ import { Context, type Fiber } from '@deepseek-ai/cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { ToolCallId, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
@@ -70,14 +69,13 @@ class MatrixAdapter extends LlmAdapter {
 
 interface CaptainStack {
   readonly ctx: Context
-  readonly lead: ReturnType<Context['agentLoop']['create']>
+  readonly lead: Awaited<ReturnType<Context['agentLoop']['create']>>
   readonly teamId: string
 }
 
 async function mountCaptain(sandbox: string, fibers: Fiber[], leadId: string, teamName: string, adapter: LlmAdapter): Promise<CaptainStack> {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
   fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   await mountStorageStackOn(ctx, join(sandbox, 'storage'))
@@ -86,7 +84,7 @@ async function mountCaptain(sandbox: string, fibers: Fiber[], leadId: string, te
   fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
   fibers.push(await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1 }))
   ctx.llm.registerAdapter(['mock'], adapter)
-  const lead = ctx.agentLoop.create(SessionId(leadId), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+  const lead = await ctx.agentLoop.create(SessionId(leadId), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
   const created = await ctx.tools.execute({
     signal: SIGNAL, callId: ToolCallId(`create-${leadId}`), name: 'agent_swarm_create',
     arguments: { name: teamName, description: `Fault barrier proof for ${leadId}.` }, agent: lead,
@@ -149,10 +147,19 @@ describe('member provisioning terminal recovery barriers', () => {
         name: 'cold-failed-worker', role: 'Converge from durable error evidence.', sessionId: 'cold-failed-session', provider: 'spawn',
       })
       await domain.settleMember(scope, teamId, member.sessionId, { active: true })
-      const inspect = vi.spyOn(stack.ctx.sessionPersistence, 'inspect').mockImplementation(async sessionId => {
-        if (sessionId === SessionId(member.sessionId)) return { events: [{ type: 'turn/end', data: { reason: { kind: 'error' } } }] } as never
-        throw new Error(`unexpected persisted session inspection: ${sessionId}`)
+      const stored = await stack.ctx.sessionPersistence.create({
+        version: 3, id: SessionId(member.sessionId), createdAt: Date.now(), isSeeded: false,
+        ...(stack.lead.session.header.cwd === undefined ? {} : { cwd: stack.lead.session.header.cwd }), parentSession: stack.lead.id,
       })
+      try {
+        await stored.append([
+          { type: 'turn/start', seq: SessionSeq(0), time: Date.now(), data: { turn: 0 } },
+          { type: 'turn/end', seq: SessionSeq(1), time: Date.now(), data: {
+            turn: 0, reason: { kind: 'error', error: { code: 'UNKNOWN', message: 'Persisted initial turn failure' } },
+          } },
+        ])
+        await stored.flush()
+      } finally { await stored.close() }
       const start = vi.spyOn(stack.ctx.subagents, 'startContinuable')
       const original = domain.settleMember.bind(domain)
       let rejectFirstTerminal = true
@@ -166,7 +173,7 @@ describe('member provisioning terminal recovery barriers', () => {
       expect(settle.mock.calls.filter(([, , , outcome]) => !outcome.active)).toHaveLength(2)
       expect(start).not.toHaveBeenCalled()
       expect(adapter.calls).toBe(0)
-      settle.mockRestore(); start.mockRestore(); inspect.mockRestore()
+      settle.mockRestore(); start.mockRestore()
     } finally {
       for (const fiber of fibers.toReversed()) await fiber.dispose()
     }

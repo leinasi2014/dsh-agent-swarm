@@ -1,4 +1,3 @@
-import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /** SW-I2-H1: internal Host-owned opaque context lifecycle. */
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -87,7 +86,6 @@ async function mountHost(maxHostContexts: number): Promise<MountedHost> {
   roots.push(sandbox)
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
   fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   await mountStorageStackOn(ctx, join(sandbox, 'storage'))
@@ -101,7 +99,7 @@ async function mountHost(maxHostContexts: number): Promise<MountedHost> {
   const adapter = new GatedAdapter()
   adapters.push(adapter)
   ctx.llm.registerAdapter(['mock'], adapter)
-  const captain = ctx.agentLoop.create(
+  const captain = await ctx.agentLoop.create(
     SessionId(`host-captain-${Math.random().toString(36).slice(2, 10)}`),
     { provider: 'mock', model: 'mock' },
     { cwd: join(sandbox, 'workspace') },
@@ -112,7 +110,7 @@ async function mountHost(maxHostContexts: number): Promise<MountedHost> {
 }
 
 async function addCaptain(stack: MountedHost): Promise<Agent> {
-  const captain = stack.ctx.agentLoop.create(
+  const captain = await stack.ctx.agentLoop.create(
     SessionId(`host-other-${Math.random().toString(36).slice(2, 10)}`),
     { provider: 'mock', model: 'mock' },
     { cwd: stack.ctx.agentSwarm.scopeOf(stack.captain) },
@@ -179,7 +177,6 @@ describe('SW-I2-H1 Host opaque context lifecycle', () => {
     roots.push(sandbox)
     const ctx = new Context()
     await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
     fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
     await mountStorageStackOn(ctx, join(sandbox, 'storage'))

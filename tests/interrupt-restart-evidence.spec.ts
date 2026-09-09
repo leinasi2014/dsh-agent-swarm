@@ -1,6 +1,6 @@
-import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import { readPersistedSession } from '../src/runtime/persisted-session.js'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
-import { queueSubagentPrompt, type HostPromptQueue } from '@deepseek-ai/dsh-subagent/internal'
+import { deliverSubagentPrompt, type HostPromptDeliverer } from '@deepseek-ai/dsh-subagent/internal'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -77,7 +77,7 @@ class HangingAdapter extends LlmAdapter {
 type Stack = {
   ctx: Context
   fibers: Fiber[]
-  lead: ReturnType<Context['agentLoop']['create']>
+  lead: Awaited<ReturnType<Context['agentLoop']['create']>>
   latch: HangingLatch
   tool: (callId: string, name: string, args?: Record<string, unknown>) => Promise<Awaited<ReturnType<Context['tools']['execute']>>>
   teamId: AgentSwarm.TeamId
@@ -103,7 +103,6 @@ async function mount(root: string, leadId: string, adapter: HangingAdapter, exis
   const fibers: Fiber[] = []
   const latch = new HangingLatch()
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
   fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(root, 'sessions', 'sessions.db') }))
   await mountStorageStackOn(ctx, join(root, 'storage'))
@@ -126,7 +125,7 @@ async function mount(root: string, leadId: string, adapter: HangingAdapter, exis
     },
   })), 'restart evidence hanging tool')
   ctx.llm.registerAdapter(['mock'], adapter)
-  const lead = ctx.agentLoop.create(SessionId(leadId), { provider: 'mock', model: 'mock' }, { cwd: join(root, 'workspace') })
+  const lead = existingTeamId === undefined ? await ctx.agentLoop.create(SessionId(leadId), { provider: 'mock', model: 'mock' }, { cwd: join(root, 'workspace') }) : (await ctx.agents.resume({ resumeSessionId: SessionId(leadId), agentOptions: { provider: 'mock', model: 'mock' } })).agent
   const tool = async (callId: string, name: string, args: Record<string, unknown> = {}) => await ctx.tools.execute({
     signal: SIGNAL, callId: ToolCallId(callId), name, arguments: args, agent: lead,
   })
@@ -171,7 +170,7 @@ describe('restart isolation for model interrupt evidence', () => {
     // First Context: establish a real Team/member, then let the official
     // continuable transport dispatch an actual ToolRuntime call. This is the
     // durable crash point; the inspection below proves the call is still open.
-    await (first.ctx.subagents as unknown as HostPromptQueue)[queueSubagentPrompt](first.lead, memberId, [{ type: 'text', text: 'old-crash-seed' }], source().source, source().signal)
+    await (first.ctx.subagents as unknown as HostPromptDeliverer)[deliverSubagentPrompt](first.lead, memberId, [{ type: 'text', text: 'old-crash-seed' }], source().source, source().signal, 'queue')
     let oldCall!: Extract<SessionEvent, { type: 'tool/call' }>
     await vi.waitFor(async () => {
       const live = first.ctx.agents.get(memberId)
@@ -180,7 +179,7 @@ describe('restart isolation for model interrupt evidence', () => {
       if (call === undefined) throw new Error('old hanging call absent')
       oldCall = call
       expect(first.latch.starts).toBe(1)
-      const stored = await first.ctx.sessionPersistence.inspect(memberId, SIGNAL)
+      const stored = await readPersistedSession(first.ctx.sessionPersistence, memberId, SIGNAL)
       expect(stored.events.some(event => event.type === 'tool/call' && event.data.callId === oldCall.data.callId)).toBe(true)
     }, { timeout: 8_000, interval: 10 })
 
@@ -219,7 +218,7 @@ describe('restart isolation for model interrupt evidence', () => {
       // delivers the first post-restart message. The resumed Session's seed
       // boundary must exclude every prior Context event from model-interrupt
       // evidence.
-      await (second.ctx.subagents as unknown as HostPromptQueue)[queueSubagentPrompt](second.lead, memberId, [{ type: 'text', text: 'new-live-suffix' }], source().source, source().signal)
+      await (second.ctx.subagents as unknown as HostPromptDeliverer)[deliverSubagentPrompt](second.lead, memberId, [{ type: 'text', text: 'new-live-suffix' }], source().source, source().signal, 'queue')
       expect(resume).toHaveBeenCalledWith(expect.objectContaining({ resumeSessionId: memberId }))
       let resumedCall!: Extract<SessionEvent, { type: 'tool/call' }>
       await vi.waitFor(() => {

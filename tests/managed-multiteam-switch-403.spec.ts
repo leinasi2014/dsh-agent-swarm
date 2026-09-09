@@ -200,7 +200,7 @@ describe('real-shape multi-Team read + cross-user 403', () => {
     try {
       // Two independent Main Brains share the SAME workspace cwd (same scope).
       const leadA = mounted.lead
-      const leadB = mounted.ctx.agentLoop.create(
+      const leadB = await mounted.ctx.agentLoop.create(
         SessionId(`multi403-leadB-${Math.random().toString(36).slice(2, 8)}`),
         { provider: 'mock', model: 'mock' },
         { cwd: join(sandbox, 'workspace') },

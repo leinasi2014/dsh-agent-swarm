@@ -1,4 +1,3 @@
-import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /** Shared real-composition helpers for executable-review family tests. */
 import { join } from 'node:path'
@@ -38,7 +37,6 @@ export async function mountExecutableReview(
   const fibers: Fiber[] = []
   const adapter = new GatedAdapter()
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
   fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   await mountStorageStackOn(ctx, join(sandbox, 'storage'))
@@ -53,7 +51,7 @@ export async function mountExecutableReview(
     ...(pluginOptions.reviewRootProvider === undefined ? {} : { reviewRootProvider: pluginOptions.reviewRootProvider }),
   }))
   ctx.llm.registerAdapter(['mock'], adapter)
-  const lead = ctx.agentLoop.create(
+  const lead = await ctx.agentLoop.create(
     SessionId(`exec-review-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
     { provider: 'mock', model: 'mock' },
     { cwd: join(sandbox, 'workspace') },

@@ -34,7 +34,7 @@ it('fails closed when the lease is revoked after the official guard and before t
   const mounted = await mount(sandbox)
   const { ctx } = mounted
   try {
-    const agent = ctx.agentLoop.create(SessionId('root-race-worker'), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+    const agent = await ctx.agentLoop.create(SessionId('root-race-worker'), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
     const scope = ctx.agentSwarm.scopeOf(agent)
     const roots = ctx.agentSwarm.executionRoots.roots
     const team = TeamId('root-race-team'), task = TaskId('root-race-task'), attempt = AttemptId('root-race-attempt')
@@ -74,7 +74,7 @@ it.each(['edit', 'missing', 'submit', 'submit-missing'])('cold-resumed member re
   let second: Mounted | undefined
   try {
     first = await mount(sandbox)
-    const lead = first.ctx.agentLoop.create(captainId, { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+    const lead = await first.ctx.agentLoop.create(captainId, { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
     const created = await tool(first.ctx, lead, 'create', 'agent_swarm_create', { name: 'Cold root', description: 'Retain and restore unsubmitted work.' })
     expect(created.isError).toBe(false)
     const teamId = TeamId((created.value as { team_id: string }).team_id)

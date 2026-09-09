@@ -26,7 +26,7 @@ describe('approved Captain recovery (S4)', () => {
     roots.push(sandbox)
     const composition = await mount(sandbox, 60_000)
     try {
-      const mb = composition.ctx.agentLoop.create(SessionId(`plan-recovery-mb-${Date.now()}`), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+      const mb = await composition.ctx.agentLoop.create(SessionId(`plan-recovery-mb-${Date.now()}`), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
       const created = await toolCall(composition.ctx, mb, 'stage', 'agent_swarm_create_managed', { name: 'Recovery Team', description: 'Survive a crash.', stage: true })
       expect(created.isError).toBe(false)
       const teamId = (created.value as { team_id: string }).team_id

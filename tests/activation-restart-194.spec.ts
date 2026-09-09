@@ -1,4 +1,5 @@
-import { queueSubagentPrompt, type HostPromptQueue } from '@deepseek-ai/dsh-subagent/internal'
+import { readPersistedSession } from '../src/runtime/persisted-session.js'
+import { deliverSubagentPrompt, type HostPromptDeliverer } from '@deepseek-ai/dsh-subagent/internal'
 /** Startup recovery, not a manual reattach disguised as a restart test. */
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -58,7 +59,7 @@ async function seedSubmitted(sandbox: string, preset = false) {
       sessionId: ROOT, agentOptions: { provider: 'mock', model: 'mock' },
       meta: { cwd: join(sandbox, 'workspace'), agentPreset: 'code' },
       setup: async ctx => { await first!.ctx.agentPresets.mount(ctx, 'code') },
-    })).agent : first.ctx.agentLoop.create(ROOT, { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+    })).agent : await first.ctx.agentLoop.create(ROOT, { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
     // Real first admission establishes the canonical route used by a cold
     // headless root; direct test tool calls alone do not create request headers.
     root.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Prepare the managed Team.' }] }))
@@ -134,10 +135,10 @@ it('startup with zero live roots restores the managed Captain, reviews the exact
         if (options.resumeSessionId !== ROOT) return handle
         return { agent: handle.agent, dispose: async () => { rootDisposed += 1; await handle.dispose() } }
       })
-      const followup = (ctx.subagents as unknown as HostPromptQueue)[queueSubagentPrompt].bind(ctx.subagents)
-      vi.spyOn(ctx.subagents as unknown as HostPromptQueue, queueSubagentPrompt).mockImplementation(async (parent, child, content, source, signal) => {
+      const followup = (ctx.subagents as unknown as HostPromptDeliverer)[deliverSubagentPrompt].bind(ctx.subagents)
+      vi.spyOn(ctx.subagents as unknown as HostPromptDeliverer, deliverSubagentPrompt).mockImplementation(async (parent, child, content, source, signal, delivery) => {
         follows.push({ parent: parent.id, child })
-        return await followup(parent, child, content, source, signal)
+        return await followup(parent, child, content, source, signal, delivery)
       })
     })
     // No test call reattaches, prompts, or drives the restarted runtime.
@@ -152,7 +153,7 @@ it('startup with zero live roots restores the managed Captain, reviews the exact
     expect(follows.some(item => item.parent === captainId && item.child === memberId)).toBe(true)
     expect(resumes.filter(id => id === ROOT)).toHaveLength(1)
     expect(resumes.some(id => id.startsWith('194-empty') || id.startsWith('194-archived') || id.startsWith('194-completed'))).toBe(false)
-    const history = await second.ctx.sessionPersistence.inspect(SessionId(memberId), SIGNAL)
+    const history = await readPersistedSession(second.ctx.sessionPersistence, SessionId(memberId), SIGNAL)
     expect(history.events.filter(event => event.type === 'user/message' && JSON.stringify(event.data).includes('Before restart') && JSON.stringify(event.data).includes('Team assignment from captain.'))).toHaveLength(1)
     expect((await second.ctx.agentSwarm.listTeamAggregates(scope)).find(team => team.id === AgentSwarm.TeamId(teamId))?.attempts.find(attempt => attempt.id === submitted.currentAttemptId)?.phase).toBe('accepted')
     await second.ctx.agentSwarm.recoverDormantManagedTeams()
@@ -219,10 +220,11 @@ it.each(['root', 'captain'] as const)('rejects a %s workspace mismatch before an
     let followups = 0
     const failure = await mount(sandbox, 0, undefined, undefined, ctx => {
       const list = ctx.sessionPersistence.list.bind(ctx.sessionPersistence)
-      vi.spyOn(ctx.sessionPersistence, 'list').mockImplementation(async signal => (await list(signal)).map(header =>
-        header.id === (target === 'root' ? ROOT : seed.captainId) ? { ...header, cwd: join(sandbox, 'other-workspace') } : header))
-      const followup = (ctx.subagents as unknown as HostPromptQueue)[queueSubagentPrompt].bind(ctx.subagents)
-      vi.spyOn(ctx.subagents as unknown as HostPromptQueue, queueSubagentPrompt).mockImplementation(async (...args) => { followups += 1; return await followup(...args) })
+      vi.spyOn(ctx.sessionPersistence, 'list').mockImplementation(async options => (await list(options)).map(snapshot =>
+        snapshot.header.id === (target === 'root' ? ROOT : seed.captainId)
+          ? { ...snapshot, header: { ...snapshot.header, cwd: join(sandbox, 'other-workspace') } } : snapshot))
+      const followup = (ctx.subagents as unknown as HostPromptDeliverer)[deliverSubagentPrompt].bind(ctx.subagents)
+      vi.spyOn(ctx.subagents as unknown as HostPromptDeliverer, deliverSubagentPrompt).mockImplementation(async (...args) => { followups += 1; return await followup(...args) })
     }).then(value => { mounted = value; return undefined }, error => error)
     expect(failure).toMatchObject({ code: 'TEAM_PARENT_REATTACH_FAILED' })
     expect(followups).toBe(0)

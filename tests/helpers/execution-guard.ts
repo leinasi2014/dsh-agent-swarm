@@ -1,4 +1,3 @@
-import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -50,7 +49,6 @@ export async function mountGuard(adapter: GuardAdapter, config: AgentSwarm.Confi
   }
   try {
     await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
     fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(root, 'sessions.db') }))
     await mountStorageStackOn(ctx, join(root, 'storage'))
@@ -60,7 +58,7 @@ export async function mountGuard(adapter: GuardAdapter, config: AgentSwarm.Confi
     const plugin = await ctx.plugin(AgentSwarm, { ...config, strandedAfterMs: 0 })
     fibers.push(plugin)
     ctx.llm.registerAdapter(['guard'], adapter)
-    const agent = ctx.agentLoop.create(SessionId('guard-captain'), { provider: 'guard', model: 'guard' }, { cwd: root })
+    const agent = await ctx.agentLoop.create(SessionId('guard-captain'), { provider: 'guard', model: 'guard' }, { cwd: root })
     const execute = async (name: string, args: unknown = {}, target: Agent = agent) => await ctx.tools.execute({
       agent: target, callId: ToolCallId(`setup-${name}`), name, arguments: args, signal: new AbortController().signal,
     })

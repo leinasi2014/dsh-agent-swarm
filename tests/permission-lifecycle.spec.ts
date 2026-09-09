@@ -1,4 +1,3 @@
-import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
  * SW-I1a permission surface lifecycle, provide-conflict and storage-fault
@@ -50,7 +49,7 @@ class ImmediateAdapter extends LlmAdapter {
 interface Stack {
   readonly ctx: Context
   readonly fibers: Fiber[]
-  readonly lead: ReturnType<Context['agentLoop']['create']>
+  readonly lead: Awaited<ReturnType<Context['agentLoop']['create']>>
   readonly teamId?: AgentSwarm.TeamId
   readonly scope?: string
 }
@@ -73,7 +72,7 @@ afterEach(async () => {
 
 async function callTool(
   ctx: Context,
-  agent: ReturnType<Context['agentLoop']['create']>,
+  agent: Awaited<ReturnType<Context['agentLoop']['create']>>,
   callId: string,
   name: string,
   args: Record<string, unknown> = {},
@@ -85,7 +84,6 @@ async function mount(sandbox: string): Promise<Stack> {
   const ctx = new Context()
   const fibers: Fiber[] = []
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
   fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   await mountStorageStackOn(ctx, join(sandbox, 'storage'))
@@ -94,7 +92,7 @@ async function mount(sandbox: string): Promise<Stack> {
   fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
   fibers.push(await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1 }))
   ctx.llm.registerAdapter(['mock'], new ImmediateAdapter())
-  const lead = ctx.agentLoop.create(
+  const lead = await ctx.agentLoop.create(
     SessionId(`lifecycle-lead-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
     { provider: 'mock', model: 'mock' },
     { cwd: join(sandbox, 'workspace') },
@@ -119,7 +117,6 @@ async function mountConflictFixture(sandbox: string): Promise<Fiber[]> {
   const ctx = new Context()
   const fibers: Fiber[] = []
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
   fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   await mountStorageStackOn(ctx, join(sandbox, 'storage'))
@@ -232,9 +229,9 @@ describe('Team identity resolution storage fault', () => {
 
     const unrelatedId = `lifecycle-unrelated-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const unrelated = {
-      id: unrelatedId as unknown as ReturnType<Context['agentLoop']['create']>['id'],
+      id: unrelatedId as unknown as Awaited<ReturnType<Context['agentLoop']['create']>>['id'],
       session: { id: SessionId(unrelatedId), header: { cwd: join(sandbox, 'unrelated-workspace') } },
-    } as unknown as ReturnType<Context['agentLoop']['create']>
+    } as unknown as Awaited<ReturnType<Context['agentLoop']['create']>>
     const unrelatedResult = await callTool(stack.ctx, unrelated, 'lc-fault-unrelated', PROBE_TOOL)
     expect(unrelatedResult.isError).toBe(false)
     expect(unrelatedResult.value).toEqual({ ok: true })

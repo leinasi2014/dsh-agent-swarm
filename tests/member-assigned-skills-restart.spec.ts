@@ -1,3 +1,4 @@
+import { readPersistedSession } from '../src/runtime/persisted-session.js'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -39,7 +40,7 @@ it('restores the member subset from disk across two complete Contexts and enforc
   let second: RestartMounted | undefined
   try {
     first = await mount(sandbox)
-    const leadA = first.ctx.agentLoop.create(captainId, { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+    const leadA = await first.ctx.agentLoop.create(captainId, { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
     const created = await tool(first.ctx, leadA, 'create', 'agent_swarm_create', { name: 'Skill recovery', description: 'Persist the assigned subset.' })
     expect(created.isError).toBe(false)
     const teamId = (created.value as { team_id: string }).team_id
@@ -47,7 +48,7 @@ it('restores the member subset from disk across two complete Contexts and enforc
     expect(added.isError).toBe(false)
     const childId = SessionId((added.value as { session_id: string }).session_id)
     await vi.waitFor(async () => {
-      const stored = await first!.ctx.sessionPersistence.inspect(childId)
+      const stored = await readPersistedSession(first!.ctx.sessionPersistence, childId)
       expect(stored.events.some(event => event.type === 'turn/end')).toBe(true)
     })
     await first.ctx.subagents.drainContinuableChildren(leadA, [childId])

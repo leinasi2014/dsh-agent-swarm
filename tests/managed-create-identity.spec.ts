@@ -63,7 +63,7 @@ describe('persisted managed origin survives a store/Session reload', () => {
     try {
       first = await mountRestart(sandbox, 0)
       first.ctx.llm.registerAdapter(['mock'], new PlainStopAdapter())
-      const leadA = first.ctx.agentLoop.create(
+      const leadA = await first.ctx.agentLoop.create(
         ROOT, { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') },
       )
       const createdA = await restartTool(first.ctx, leadA, 'op-reload-X', 'agent_swarm_create_managed', {

@@ -1,6 +1,5 @@
-import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
-import { queueSubagentPrompt, type HostPromptQueue } from '@deepseek-ai/dsh-subagent/internal'
+import { deliverSubagentPrompt, type HostPromptDeliverer } from '@deepseek-ai/dsh-subagent/internal'
 /**
  * Shared harness for the M2-3 orchestration-mode and dual-owner suites
  * (issue #77): the full official composition (AgentLoop + durable stack +
@@ -154,7 +153,6 @@ export async function mountModesComposition(sandbox: string, config: ModesPlugin
   const ctx = new Context()
   const fibers: Fiber[] = []
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
   fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   await mountStorageStackOn(ctx, join(sandbox, 'storage'))
@@ -180,7 +178,7 @@ export async function mountModesComposition(sandbox: string, config: ModesPlugin
       resumeSessionId: SessionId(config.leadSessionId!),
       agentOptions: { provider: 'mock', model: 'mock' },
     })).agent
-    : ctx.agentLoop.create(
+    : await ctx.agentLoop.create(
     SessionId(config.leadSessionId ?? `modes-lead-${Math.random().toString(36).slice(2, 8)}`),
     { provider: 'mock', model: 'mock' },
     { cwd: join(sandbox, 'workspace') },
@@ -198,16 +196,16 @@ export async function toolCall(ctx: Context, agent: Agent, callId: string, name:
 /** One recorded followup delivery with its text (single-delivery proofs). */
 export interface FollowupTextRecord { readonly text: string }
 
-/** Spy on `(ctx.subagents as unknown as HostPromptQueue)[queueSubagentPrompt]`, recording every text frame delivered. */
+/** Spy on `(ctx.subagents as unknown as HostPromptDeliverer)[deliverSubagentPrompt]`, recording every text frame delivered. */
 export function spyFollowupText(composition: ModesComposition): { readonly records: FollowupTextRecord[]; restore(): void } {
   const records: FollowupTextRecord[] = []
   const { ctx } = composition
-  const followup = (ctx.subagents as unknown as HostPromptQueue)[queueSubagentPrompt].bind(ctx.subagents)
-  const spy = vi.spyOn(ctx.subagents as unknown as HostPromptQueue, queueSubagentPrompt).mockImplementation(async (parent, childId, content, source, signal) => {
+  const followup = (ctx.subagents as unknown as HostPromptDeliverer)[deliverSubagentPrompt].bind(ctx.subagents)
+  const spy = vi.spyOn(ctx.subagents as unknown as HostPromptDeliverer, deliverSubagentPrompt).mockImplementation(async (parent, childId, content, source, signal, delivery) => {
     for (const block of content) {
       if (block.type === 'text') records.push({ text: block.text })
     }
-    return await followup(parent, childId, content, source, signal)
+    return await followup(parent, childId, content, source, signal, delivery)
   })
   return { records, restore: () => spy.mockRestore() }
 }

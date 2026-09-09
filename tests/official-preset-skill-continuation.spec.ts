@@ -1,3 +1,4 @@
+import { readPersistedSession } from '../src/runtime/persisted-session.js'
 import { createRequire } from 'node:module'
 import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
@@ -212,9 +213,10 @@ function expectedCatalogText(): string {
 async function assertGeneratedComposition(ctx: Context, member: Agent, request: GenerateOptions, marker: string): Promise<void> {
   expect(request.sessionId).toBe(member.id)
   const directAssembly = await ctx.systemPrompt.assemble(assembleContextFor(member))
-  expect(request.system).toBe(renderPrompt(directAssembly))
-  expect(request.system).toContain(marker)
-  expect(request.system).not.toContain(marker === GENERATION_ONE_MARKER ? GENERATION_TWO_MARKER : GENERATION_ONE_MARKER)
+  const system = request.messages.filter(message => message.role === 'system').flatMap(message => message.content).map(block => block.type === 'text' ? block.text : '').join('\n')
+  expect(system).toBe(renderPrompt(directAssembly))
+  expect(system).toContain(marker)
+  expect(system).not.toContain(marker === GENERATION_ONE_MARKER ? GENERATION_TWO_MARKER : GENERATION_ONE_MARKER)
   expect(request.tools?.filter(tool => tool.name === 'skill')).toEqual([expectedSkillSchema()])
   // AgentSwarm's own Team tools are host registrations. The official skill
   // tool exists only in the composed generation, so the root cannot resolve it.
@@ -335,7 +337,7 @@ describe('official Captain preset and skill inheritance', () => {
       const added = await adding
       expect(added.isError).toBe(false)
       const memberId = SessionId((added.value as { session_id: string }).session_id)
-      expect((await first.ctx.sessionPersistence.inspect(memberId, SIGNAL)).meta.agentPreset).toBe(PRESET_ID)
+      expect((await readPersistedSession(first.ctx.sessionPersistence, memberId, SIGNAL)).meta.agentPreset).toBe(PRESET_ID)
 
       first.ctx.subagents.interrupt(memberId, { kind: 'ancestor', agent: captainA.agent })
       await first.ctx.subagents.drainContinuableChildren(captainA.agent, [memberId])
@@ -347,7 +349,7 @@ describe('official Captain preset and skill inheritance', () => {
       second = await mount(root)
       const recovered = new ProofAdapter()
       second.ctx.llm.registerAdapter(['mock'], recovered)
-      const durableCaptain = await second.ctx.sessionPersistence.inspect(CAPTAIN, SIGNAL)
+      const durableCaptain = await readPersistedSession(second.ctx.sessionPersistence, CAPTAIN, SIGNAL)
       // SQLite inspection separates creation `meta` from the Session header;
       // reconstruct only the official preset-bearing view that resolver owns.
       const durablePreset = durableCaptain.events.reduce(agentPresetProjectionDefinition.apply, agentPresetProjectionDefinition.init(durableCaptain.meta)) ?? undefined
@@ -372,7 +374,7 @@ describe('official Captain preset and skill inheritance', () => {
         await assertGeneratedComposition(second.ctx, resumedMember, recovered.requestsFor(memberId)[0]!, GENERATION_TWO_MARKER)
         expect(second.ctx.agentPresets.composedPreset(resumedMember.ctx)).toBe(PRESET_ID)
         expect(standingMountFor(resumedMember.ctx)).toBe(standingMountFor(captainB.agent.ctx))
-        expect((await second.ctx.sessionPersistence.inspect(memberId, SIGNAL)).meta.agentPreset).toBe(PRESET_ID)
+        expect((await readPersistedSession(second.ctx.sessionPersistence, memberId, SIGNAL)).meta.agentPreset).toBe(PRESET_ID)
         await assertOfficialSkill(second.ctx, resumedMember, 'preset-skill-cold-resume')
         expect(recovered.requestsFor(memberId)).toHaveLength(1)
       } finally {

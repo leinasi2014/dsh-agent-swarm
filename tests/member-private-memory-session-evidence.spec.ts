@@ -1,4 +1,4 @@
-import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import { readPersistedSession } from '../src/runtime/persisted-session.js'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
  * Real Session evidence for member private memory (2026-08-26): a REAL model
@@ -115,7 +115,6 @@ describe('member private memory real Session evidence', () => {
     const ctx = new Context()
     const fibers: Fiber[] = []
     await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
     fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
     await mountStorageStackOn(ctx, join(sandbox, 'storage'))
@@ -137,7 +136,7 @@ describe('member private memory real Session evidence', () => {
       return result
     })
     let waitOutcome: Promise<{ ok: true } | { ok: false; error: unknown }> | undefined
-    const lead = ctx.agentLoop.create(
+    const lead = await ctx.agentLoop.create(
       SessionId(`session-evidence-lead-${Math.random().toString(36).slice(2, 8)}`),
       { provider: 'mock', model: 'mock' },
       { cwd: join(sandbox, 'workspace') },
@@ -172,7 +171,7 @@ describe('member private memory real Session evidence', () => {
         // buffered until a durability checkpoint).
         const live = ctx.sessions.get(SessionId(memberId))
         if (live !== undefined) await ctx.sessions.flush(live)
-        const stored = await ctx.sessionPersistence.inspect(SessionId(memberId), SIGNAL)
+        const stored = await readPersistedSession(ctx.sessionPersistence, SessionId(memberId), SIGNAL)
         const calls = stored.events.filter(event => event.type === 'tool/call')
         const results = stored.events.filter(event => event.type === 'tool/result')
         const hasCall = (callId: string) => calls.some(event => (event.data as { callId: string }).callId === callId)
@@ -210,7 +209,7 @@ describe('member private memory real Session evidence', () => {
       const outcome = await waitOutcome
       if (!outcome.ok) throw outcome.error
 
-      const stored = await ctx.sessionPersistence.inspect(SessionId(memberId), SIGNAL)
+      const stored = await readPersistedSession(ctx.sessionPersistence, SessionId(memberId), SIGNAL)
       // Pair each tool/result to its EXACT tool/call by callId (AgentLoop runs
       // parallel tool calls under one turn/step, so the durable `message.source.
       // callId` is the precise key, not the step index).

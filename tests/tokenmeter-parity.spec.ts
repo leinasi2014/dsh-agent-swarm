@@ -103,14 +103,9 @@ describe('official tokenUsage projection versus the Team ledger (issue #127 boun
     await rm(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   })
 
-  /** One legal usage step: chunk sample superseded by the final message usage. */
+  /** One legal usage step: embedded chunk sample superseded by final message usage. */
   function billedStep(session: Session, turn: number, step: number, chunk: TokenUsage, final: TokenUsage): void {
     session.append('step/start', { turn, step })
-    const source = session.append('assistant/chunk', {
-      turn,
-      step,
-      chunk: { type: 'usage', usage: chunk },
-    }).seq
     session.append('assistant/message', {
       turn,
       step,
@@ -119,8 +114,9 @@ describe('official tokenUsage projection versus the Team ledger (issue #127 boun
         content: [],
         source: { kind: 'model', provider: 'mock', model: 'mock' },
       }),
+      stream: [{ type: 'chunk', time: Date.now(), chunk: { type: 'usage', usage: chunk } }],
       usage: final,
-    }, { surfaceOp: 'append', sourceEventSeqs: [source] })
+    }, { surfaceOp: 'append' })
     session.append('step/end', { turn, step })
   }
 
@@ -136,18 +132,19 @@ describe('official tokenUsage projection versus the Team ledger (issue #127 boun
         source: { kind: 'model', provider: 'mock', model: 'mock' },
       }),
       usage: final,
+      stream: [],
       interrupted: true,
-    }, { surfaceOp: 'append', sourceEventSeqs: [] })
+    }, { surfaceOp: 'append' })
     session.append('step/end', { turn, step })
   }
 
   /** A failed request: the provider usage chunk landed, no message followed. */
   function failedRequestStep(session: Session, turn: number, step: number, chunk: TokenUsage): void {
     session.append('step/start', { turn, step })
-    session.append('assistant/chunk', {
+    session.append('assistant/attempt', {
       turn,
       step,
-      chunk: { type: 'usage', usage: chunk },
+      stream: [{ type: 'chunk', time: Date.now(), chunk: { type: 'usage', usage: chunk } }],
     })
     session.append('step/end', { turn, step })
   }

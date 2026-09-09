@@ -1,4 +1,3 @@
-import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -258,7 +257,7 @@ describe('TeamDomainPort provider over the official Storage Domain', () => {
       // Persistence present but no storage stack: still pending.
       const noStorage = new Context()
       await mountAgentLoopTestDependencies(noStorage)
-  await noStorage.plugin(SessionProjectionService)
+
   await noStorage.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
       const noStorageFibers = [
         await noStorage.plugin(JsonlSessionPersistence, { root: join(sandboxPending, 'sessions-a', 'sessions.db') }),
@@ -273,7 +272,7 @@ describe('TeamDomainPort provider over the official Storage Domain', () => {
       // Storage stack present but no persistence: still pending.
       const noPersistence = new Context()
       await mountAgentLoopTestDependencies(noPersistence)
-  await noPersistence.plugin(SessionProjectionService)
+
   await noPersistence.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
       const noPersistenceFibers = [
         await noPersistence.plugin(Storage),
@@ -296,7 +295,7 @@ describe('TeamDomainPort provider over the official Storage Domain', () => {
     const fibers = [] as import('@deepseek-ai/cordis').Fiber[]
     try {
       await mountAgentLoopTestDependencies(active)
-  await active.plugin(SessionProjectionService)
+
   await active.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
       fibers.push(
         await active.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }),
@@ -309,7 +308,7 @@ describe('TeamDomainPort provider over the official Storage Domain', () => {
         await active.plugin(AgentSwarm, { memberProvider: 'spawn' }),
       )
       expect(active.agentSwarm).toBeDefined()
-      const lead = active.agentLoop.create(
+      const lead = await active.agentLoop.create(
         SessionId('port-lead'),
         { provider: 'mock', model: 'mock' },
         { cwd: join(sandbox, 'workspace') },

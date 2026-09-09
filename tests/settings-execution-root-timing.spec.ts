@@ -84,7 +84,7 @@ describe('issue #191 real Loader enable timing', () => {
     expect((b.ctx.agentSwarm as { config: { executionRootsEnabled: boolean } }).config.executionRootsEnabled).toBe(true)
     try {
       const adapter = new GatedAdapter(); b.ctx.llm.registerAdapter(['mock'], adapter)
-      const lead = b.ctx.agentLoop.create(SessionId('captain-'+Date.now()), { provider: 'mock', model: 'mock' }, { cwd: join(b.sandbox, 'workspace') })
+      const lead = await b.ctx.agentLoop.create(SessionId('captain-'+Date.now()), { provider: 'mock', model: 'mock' }, { cwd: join(b.sandbox, 'workspace') })
       const exec = async (name: string, args: unknown) => await b.ctx.tools.execute({ agent: lead, signal: new AbortController().signal, callId: ToolCallId('c-'+Math.random().toString(36).slice(2,8)), name, arguments: args })
       const te = await exec('agent_swarm_create', { name: 'Claim team', description: 'd' }) as { isError: boolean, value?: { team_id: string } }
       expect(te, JSON.stringify(te)).toMatchObject({ isError: false }); const teamId = AgentSwarm.TeamId(te.value!.team_id)

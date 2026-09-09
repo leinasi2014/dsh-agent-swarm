@@ -1,3 +1,4 @@
+import { sidebarHarness } from './helpers/sidebar-harness.js'
 import { describe, expect, it, vi } from 'vitest'
 import { TeamDashboardController } from '../src/client/team-dashboard-controller.js'
 import { SwarmReadClient, type SwarmFetch } from '../src/client/read-client.js'
@@ -408,7 +409,7 @@ describe('TeamDashboardController', () => {
     controller.dispose()
   })
 
-  it.each(['close', 'tool'] as const)('cancels a delayed Captain handoff on %s while continuing Team discovery (#225)', async action => {
+  it.each(['close', 'hidden'] as const)('cancels a delayed Captain handoff on %s while continuing Team discovery (#225)', async action => {
     let delay = false
     let entered = false
     let release!: () => void
@@ -419,24 +420,27 @@ describe('TeamDashboardController', () => {
       if (delay && request.method === 'binding') { entered = true; await gate }
       return normal(url, init)
     }
-    const controller = new TeamDashboardController(new SwarmReadClient(fetcher), new ManualSchedule())
+    const schedule = new ManualSchedule()
+    const controller = new TeamDashboardController(new SwarmReadClient(fetcher), schedule)
     let entry: object | undefined
     const slots = { entries: () => entry === undefined ? [] : [entry], entriesOfSlot: () => entry === undefined ? [] : [entry],
       register: () => { entry = {}; return () => { entry = undefined } }, onEntryError: () => () => {}, subscribe: () => () => {} }
     const sessions = { open: vi.fn(), list: { getSnapshot: () => ({ current: 'root-1', byId: { 'root-1': {} } }), subscribe: () => () => {} } }
     const coordinator = new TeamDashboardSurfaceCoordinator({ slots, sessions, controller, locale: { getLocale: () => ({ active: 'en' }) }, anchorRef: { current: null } } as never)
     const dispose = coordinator.mount()
-    coordinator.bindLayout({ openDetails: () => {}, closeDetails: () => {} } as never)
-    coordinator.bindDetailsDeclaration()
+    const sidebar = sidebarHarness(coordinator, () => 'root-1')
+    coordinator.bindSidebar(sidebar.sidebar)
     try {
       await waitFor(() => controller.getSnapshot().phase === 'ready')
       delay = true
       const navigation = coordinator.openCaptainChat().then(() => 'navigated', () => 'cancelled')
       await waitFor(() => entered)
       if (action === 'close') coordinator.closeAndRestoreFocus()
-      else coordinator.showToolDetails()
+      else sidebar.hide()
       delay = false; release()
       expect(await navigation).toBe('cancelled')
+      expect(schedule.pending.size).toBe(1)
+      schedule.fire()
       await waitFor(() => controller.getSnapshot().phase === 'ready')
       expect(sessions.open).not.toHaveBeenCalled()
       expect(coordinator.getSnapshot().mode).toBe('inactive')

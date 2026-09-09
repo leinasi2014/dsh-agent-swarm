@@ -1,6 +1,6 @@
-import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import { readPersistedSession } from '../src/runtime/persisted-session.js'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
-import { queueSubagentPrompt, type HostPromptQueue } from '@deepseek-ai/dsh-subagent/internal'
+import { deliverSubagentPrompt, type HostPromptDeliverer } from '@deepseek-ai/dsh-subagent/internal'
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -93,7 +93,6 @@ async function successfulTool(
 /** Mount the official durable composition: persistence + storage stack + agent services. */
 async function mountDurableStack(ctx: Context, storageRoot: string, sessionDbPath: string): Promise<Fiber> {
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
   const persistenceFiber = await ctx.plugin(JsonlSessionPersistence, { root: sessionDbPath })
   await ctx.plugin(Storage)
@@ -157,7 +156,7 @@ describe('DSH rc.8 composition', () => {
         textResponse('Assignment received.'),
       ])
       ctx.llm.registerAdapter(['mock'], adapter)
-      const lead = ctx.agentLoop.create(
+      const lead = await ctx.agentLoop.create(
         SessionId('composition-lead'),
         { provider: 'mock', model: 'mock' },
         { cwd: workspace },
@@ -189,7 +188,7 @@ describe('DSH rc.8 composition', () => {
           expect(resident.status).toBe('idle')
           return
         }
-        const persisted = await ctx.sessionPersistence.inspect(SessionId(added.session_id))
+        const persisted = await readPersistedSession(ctx.sessionPersistence, SessionId(added.session_id))
         expect(persisted.events.some(event => event.type === 'turn/end')).toBe(true)
       }, { timeout: 15_000 })
 
@@ -429,13 +428,13 @@ describe('DSH rc.8 composition', () => {
       // aggregate, member submission, and captain review are all real.
       const adapter = new ScriptedAdapter([textResponse('Alpha ready.'), textResponse('Beta ready.'), textResponse('Alpha assigned.')])
       ctx.llm.registerAdapter(['mock'], adapter)
-      const lead = ctx.agentLoop.create(SessionId('directed-composition-lead'), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+      const lead = await ctx.agentLoop.create(SessionId('directed-composition-lead'), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
       const created = await successfulTool(ctx, lead, 'directed-create', 'agent_swarm_create', { name: 'Directed composition', description: 'Exercise canonical target routing.' }) as { team_id: string }
       const alpha = await successfulTool(ctx, lead, 'directed-add-alpha', 'agent_swarm_add_member', { name: 'alpha', role: 'Target worker' }) as { session_id: string }
       const beta = await successfulTool(ctx, lead, 'directed-add-beta', 'agent_swarm_add_member', { name: 'beta', role: 'Non-target worker' }) as { session_id: string }
       const deliveries: Array<{ childId: string; text: string }> = []
-      const rawFollowup = (ctx.subagents as unknown as HostPromptQueue)[queueSubagentPrompt].bind(ctx.subagents)
-      const followup = vi.spyOn(ctx.subagents as unknown as HostPromptQueue, queueSubagentPrompt).mockImplementation(async (parent, childId, content, source, signal) => { deliveries.push({ childId, text: content.filter(block => block.type === 'text').map(block => block.text).join('\n') }); return await rawFollowup(parent, childId, content, source, signal) })
+      const rawFollowup = (ctx.subagents as unknown as HostPromptDeliverer)[deliverSubagentPrompt].bind(ctx.subagents)
+      const followup = vi.spyOn(ctx.subagents as unknown as HostPromptDeliverer, deliverSubagentPrompt).mockImplementation(async (parent, childId, content, source, signal, delivery) => { deliveries.push({ childId, text: content.filter(block => block.type === 'text').map(block => block.text).join('\n') }); return await rawFollowup(parent, childId, content, source, signal, delivery) })
       const task = await successfulTool(ctx, lead, 'directed-task', 'agent_swarm_create_task', { subject: 'Alpha-only composition proof', description: 'This assignment must reach alpha exactly once.', target_member: 'alpha' }) as { task_id: string }
       let assignedTask: { id: string; revision: number; currentAttemptId?: string } | undefined
       await vi.waitFor(async () => {
