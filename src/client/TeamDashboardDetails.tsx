@@ -1,6 +1,6 @@
-import { useEffect, useId, useRef, useSyncExternalStore, type RefObject } from 'react'
+import { useEffect, useId, useSyncExternalStore, type RefObject } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type { TeamDashboardController } from './team-dashboard-controller.js'
 import type { TeamDashboardSurfaceCoordinator } from './team-dashboard-surface-coordinator.js'
 import { TEAM_DASHBOARD_NS } from './team-dashboard-locales.js'
@@ -15,25 +15,23 @@ interface TeamDashboardDetailsInjected {
   readonly localeTag: () => 'zh-CN' | 'en-US'
 }
 
-export type TeamDashboardDetailsProps = PropsRuntime<'details'>
+export type TeamDashboardDetailsProps = PropsRuntime<'sidebar.right.pane.tab'>
   & PropsLocale<typeof TEAM_DASHBOARD_NS> & TeamDashboardDetailsInjected
 
-/** The sole Team surface. Official AppFrame owns Details sizing and recovery. */
-export function TeamDashboardDetails({ controller, coordinator, localeTag, sessionId, t }: TeamDashboardDetailsProps) {
+/** The Team tab body; official Sidebar owns its geometry and presentation. */
+export function TeamDashboardDetails({ controller, coordinator, localeTag, sessionId, useTabInfo, t }: TeamDashboardDetailsProps) {
+  const { tab } = useTabInfo()
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot)
   const surface = useSyncExternalStore(coordinator.subscribe, coordinator.getSnapshot, coordinator.getSnapshot)
   const headingId = useId()
   const descriptionId = useId()
-  const panelRef = useRef<HTMLElement>(null)
-  const leased = surface.mode === 'docked' && surface.targetSessionId === sessionId && state.open
+  const leased = tab.visible && surface.mode === 'docked' && surface.targetSessionId === sessionId
+    && state.open && state.targetSessionId === sessionId
   useEffect(() => {
-    if (!leased) return
-    coordinator.restoreDockedDetails(sessionId)
-    const frame = requestAnimationFrame(() => { coordinator.makeRoomForDetails(sessionId, panelRef.current) })
-    return () => { cancelAnimationFrame(frame) }
-  }, [coordinator, leased, sessionId])
+    return coordinator.observeTab(sessionId, tab)
+  }, [coordinator, sessionId, tab])
   if (!leased) return null
-  return <aside ref={panelRef} id={TEAM_DASHBOARD_SURFACE_ID} role="complementary" tabIndex={-1}
+  return <aside id={TEAM_DASHBOARD_SURFACE_ID} role="complementary" tabIndex={-1}
     aria-labelledby={headingId} aria-describedby={descriptionId}
     data-swarm-team-panel data-swarm-team-dashboard data-phase={state.phase}
     style={{ width: '100%', height: '100%', overflow: 'hidden' }}>

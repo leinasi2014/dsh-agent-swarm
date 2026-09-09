@@ -8,6 +8,7 @@
  * profile, or writes/repairs either authority.
  */
 import type { Context } from '@deepseek-ai/cordis'
+import { readPersistedSession } from './persisted-session.js'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import { foldSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
@@ -203,9 +204,9 @@ export class MemberProfileReader {
     if (member.phase === 'failed') return unavailable(member, 'startup_failed')
     if (member.phase === 'removed') return unavailable(member, 'removed')
     const rowSignal = AbortSignal.any([pageSignal, AbortSignal.timeout(MEMBER_INSPECTION_TIMEOUT_MS)])
-    let stored: Awaited<ReturnType<Context['sessionPersistence']['inspect']>>
+    let stored: Awaited<ReturnType<typeof readPersistedSession>>
     try {
-      stored = await this.ctx.sessionPersistence.inspect(SessionId(member.sessionId), rowSignal)
+      stored = await readPersistedSession(this.ctx.sessionPersistence, SessionId(member.sessionId), rowSignal)
     } catch (error) {
       // A caller or page-wide deadline has a tool-level outcome; it must not
       // disappear into a harmless-looking row result.

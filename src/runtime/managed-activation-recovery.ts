@@ -10,6 +10,7 @@ import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { TeamScope } from '../domain/team-domain-port.js'
 import type { TeamState } from '../domain/types.js'
 import { TeamDomainError } from '../domain/error.js'
+import { readPersistedSession } from './persisted-session.js'
 
 /** Restore only a committed route; adapter-owned effort remains an adapter default. */
 function selectionFromHeader(header: EpochHeader | undefined): ModelSelection {
@@ -33,7 +34,7 @@ export class ManagedActivationRecovery {
 
   private async recover(): Promise<void> {
     const signal = this.abort.signal
-    const headers = await this.ctx.sessionPersistence.list(signal)
+    const headers = (await this.ctx.sessionPersistence.list({ signal })).map(snapshot => snapshot.header)
     const byId = new Map(headers.map(header => [String(header.id), header]))
     const scopes = new Set(headers.flatMap(header => header.cwd === undefined ? [] : [resolve(header.cwd)]))
     for (const scope of scopes) {
@@ -92,7 +93,7 @@ export class ManagedActivationRecovery {
       // selection and disposal. Never adopt its shared handle into roots.
       return this.checkedRoot(await this.resolveHostedRoot(controller, SessionId(parentId)), parentId, scope)
     }
-    const stored = await this.ctx.sessionPersistence.inspect(SessionId(parentId), this.abort.signal)
+    const stored = await readPersistedSession(this.ctx.sessionPersistence, SessionId(parentId), this.abort.signal)
     const headerRoute = foldRequestHeader(stored.events)
     const agentOptions = selectionFromHeader(headerRoute)
     const presetId = stored.events.reduce(agentPresetProjectionDefinition.apply, agentPresetProjectionDefinition.init(stored.meta)) ?? undefined
@@ -104,8 +105,7 @@ export class ManagedActivationRecovery {
         ...agentOptions,
         ...(headerRoute?.config.maxTokens === undefined || headerRoute.adapterDefaults?.maxTokens === true ? {} : { maxTokens: headerRoute.config.maxTokens }),
       },
-      setup: async (agentCtx: Context) => {
-        const root = agentCtx.agent!
+      setup: async (agentCtx: Context, root: Agent) => {
         const current = (): ModelSelection => {
           const state = agentCtx.get('sessionProjections')?.stateOf(root.session, 'modelSelection')
           if (state?.pending != null) {

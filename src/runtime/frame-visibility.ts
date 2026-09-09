@@ -20,6 +20,7 @@ import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import { messageAccepted, messageClaimed, messagePending } from './session-acceptance.js'
+import { readPersistedSession } from './persisted-session.js'
 
 /**
  * Bounded wait for a waking frame's claim at the target's next turn
@@ -108,7 +109,7 @@ export async function frameVisibility(
     return read(live.session.snapshotEvents())
   }
   try {
-    const stored = await ctx.sessionPersistence.inspect(SessionId(targetSessionId), signal)
+    const stored = await readPersistedSession(ctx.sessionPersistence, SessionId(targetSessionId), signal)
     return read(stored.events.slice(stored.inheritedEventCount ?? 0))
   } catch (error) {
     ctx.logger.warn(`agent-swarm: ${label} target ${targetSessionId} cannot be reconciled: ${String(error)}`)

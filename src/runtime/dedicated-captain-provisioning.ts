@@ -56,7 +56,7 @@ export class DedicatedCaptainProvisioner {
 
   private async start(input: Parameters<DedicatedCaptainProvisioner['create']>[0]): Promise<TeamState> {
     const providerName = this.requireCaptainProvider()
-    await this.ctx.sessionPersistence.ensureMaterialized(input.root.session)
+    if (!await this.ctx.sessions.flush(input.root.session)) throw new Error('Captain startup requires a Session durability listener')
     input.signal.throwIfAborted()
     const captainId = SessionId(randomUUID())
     const team = await this.deps.domain().createTeam(
@@ -138,7 +138,7 @@ export class DedicatedCaptainProvisioner {
     if (this.closing) throw new TeamDomainError('Team orchestrator is disposing', 'TEAM_RUNTIME_CLOSING')
     const providerName = this.requireCaptainProvider()
     const { team, root, captainId } = input
-    await this.ctx.sessionPersistence.ensureMaterialized(root.session)
+    if (!await this.ctx.sessions.flush(root.session)) throw new Error('Captain startup requires a Session durability listener')
     input.signal.throwIfAborted()
     this.deps.config.teamSkills.rememberTeam(team)
     this.deps.trackChild(root, captainId)
@@ -204,5 +204,4 @@ export class DedicatedCaptainProvisioner {
   dispose(): void { this.closing = true; this.abort.abort('Team orchestrator disposal') }
   wait(): Promise<Array<PromiseSettledResult<unknown>>> { return Promise.allSettled([...this.starts, ...this.settlements]) }
 }
-
 

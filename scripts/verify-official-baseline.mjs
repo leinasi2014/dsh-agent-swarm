@@ -41,13 +41,13 @@ export function tagNameForRelease(release) {
 }
 
 export function parseReleaseVersion(release) {
-  const match = /^(\d+)\.(\d+)\.(\d+)(?:-rc\.(\d+))?$/.exec(release)
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:-(alpha|beta|rc)\.(\d+))?$/.exec(release)
   if (match === null) return null
   return {
     major: Number(match[1]),
     minor: Number(match[2]),
     patch: Number(match[3]),
-    rc: match[4] === undefined ? null : Number(match[4]),
+    prerelease: match[4] === undefined ? null : { channel: match[4], number: Number(match[5]) },
   }
 }
 
@@ -60,12 +60,12 @@ export function compareReleaseVersions(a, b) {
   for (const key of ['major', 'minor', 'patch']) {
     if (left[key] !== right[key]) return left[key] - right[key]
   }
-  if (left.rc === null && right.rc === null) return 0
-  // A final release outranks any rc of the same x.y.z; rc numbers compare
-  // numerically (rc.10 > rc.9).
-  if (left.rc === null) return 1
-  if (right.rc === null) return -1
-  return left.rc - right.rc
+  if (left.prerelease === null && right.prerelease === null) return 0
+  if (left.prerelease === null) return 1
+  if (right.prerelease === null) return -1
+  const channels = ['alpha', 'beta', 'rc']
+  const channelOrder = channels.indexOf(left.prerelease.channel) - channels.indexOf(right.prerelease.channel)
+  return channelOrder || left.prerelease.number - right.prerelease.number
 }
 
 export function parseLsRemote(output, branch) {
