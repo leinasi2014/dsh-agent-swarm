@@ -2,7 +2,7 @@ import type { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SubagentListEntry } from '@deepseek-ai/dsh-subagent/client'
-import type { ISidebarRight, SidebarRightTabInfo } from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
+import type { SidebarRightNavigator, SidebarRightTabInfo } from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type { RefObject } from 'react'
 import type { TeamDashboardController } from './team-dashboard-controller.js'
 import { queueCommunicationChange, type CaptainHumanPrompt } from './team-communication-command.js'
@@ -23,6 +23,8 @@ interface Options {
   readonly anchorRef: RefObject<HTMLSpanElement>
   readonly sendCaptainPrompt?: (request: CaptainHumanPrompt, signal: AbortSignal) => Promise<void>
 }
+/** Official exported target-addressed navigation, independent of the mounted seat. */
+type TeamSidebar = Pick<SidebarRightNavigator, 'openTabIn'>
 type Tab = SidebarRightTabInfo['tab']
 interface ObservedTab { sessionId: string; tab: Tab; mounted: boolean; mount: object; offAbort(): void }
 const INACTIVE: TeamDashboardSurfaceState = Object.freeze({ mode: 'inactive', view: 'overview', targetSessionId: undefined })
@@ -33,7 +35,7 @@ export class TeamDashboardSurfaceCoordinator {
   private readonly tabs = new Map<string, ObservedTab>()
   private readonly dismissed = new Map<string, string | undefined>()
   private state: TeamDashboardSurfaceState = INACTIVE
-  private sidebar: ISidebarRight | undefined
+  private sidebar: TeamSidebar | undefined
   private sidebarEpoch = 0
   private navigationEpoch = 0
   private disposed = false
@@ -69,7 +71,7 @@ export class TeamDashboardSurfaceCoordinator {
     return () => { this.dispose() }
   }
 
-  bindSidebar(sidebar: ISidebarRight): () => void {
+  bindSidebar(sidebar: TeamSidebar): () => void {
     if (this.disposed) return () => {}
     const epoch = ++this.sidebarEpoch
     this.sidebar = sidebar
@@ -249,8 +251,11 @@ export class TeamDashboardSurfaceCoordinator {
   }
   private openTeamTab(sessionId: string): void {
     if (this.sidebar === undefined || this.options.sessions.list.getSnapshot().current !== sessionId) return
-    this.publish({ mode: 'docked', targetSessionId: sessionId, view: 'overview' })
-    try { this.sidebar.openTab(TEAM_TAB_KIND) } catch { this.publish(INACTIVE) }
+    // Session selection can precede the official seat's React binding. Address
+    // the adopted Session store exactly; never borrow the previous seat. A first
+    // visit may not be adopted yet, so only observeTab confirms the lease and
+    // the existing authoritative read cadence can retry until it is mounted.
+    try { this.sidebar.openTabIn(sessionId as SessionId, TEAM_TAB_KIND) } catch { this.publish(INACTIVE) }
   }
   private dismissCurrentTeam(sessionId: string): void {
     const read = this.options.controller.getSnapshot()
