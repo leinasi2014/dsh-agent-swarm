@@ -95,9 +95,17 @@ export class TeamDashboardController {
   open(targetSessionId: string): void {
     this.assertLive()
     if (targetSessionId.length === 0) throw new Error('Team dashboard target Session is empty')
+    if (this.state.open && this.state.targetSessionId === targetSessionId && this.state.phase === 'ready') return
+    const previous = this.state.phase === 'ready' ? this.state.data : undefined
+    // Chat navigation does not invalidate the last verified read-only Team
+    // projection. Reuse it only for this Team's known Captain/active members;
+    // unrelated Sessions still start empty and prove their own binding.
+    const sameTeam = previous !== undefined && previous.projection.team.phase === 'active'
+      && (previous.projection.binding.rootSessionId === targetSessionId
+        || previous.captainMembers.members.some(member => member.sessionId === targetSessionId && member.phase === 'active'))
     if (this.state.targetSessionId !== targetSessionId) this.explicitTeamSelection = false
     this.stopActive()
-    this.publish({ open: true, phase: 'loading', targetSessionId })
+    this.publish({ open: true, phase: sameTeam ? 'ready' : 'loading', targetSessionId, ...(sameTeam ? { data: previous } : {}) })
     void this.load(targetSessionId, false)
   }
 

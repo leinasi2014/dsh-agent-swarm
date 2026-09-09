@@ -26,6 +26,7 @@ export interface PlanApprovalPort {
   }) => Promise<'approve' | 'discard'>
 }
 export interface RuntimeConfig {
+  readonly communicationIntensity?: import('../domain/types.js').TeamCommunicationIntensity
   readonly memberProvider: string
   readonly memberLlmProvider?: string
   readonly memberModel?: string
@@ -84,4 +85,3 @@ declare module '@deepseek-ai/cordis' {
     agentSwarm: AgentSwarmRuntime
   }
 }
-

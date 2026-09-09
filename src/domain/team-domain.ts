@@ -12,6 +12,8 @@ import { expectDomain } from './error.js'
 import type { MemberIdentityInput } from './identity-profile.js'
 import * as board from './team-domain-board.js'
 import * as budget from './team-domain-budget.js'
+import * as communication from './team-domain-communication.js'
+import type { TeamCommunicationIntensity } from './types.js'
 import * as mailbox from './team-domain-mailbox.js'
 import * as interaction from './team-domain-interaction.js'
 import * as plan from './team-domain-plan.js'
@@ -63,11 +65,13 @@ export class TeamDomain implements TeamDomainPort {
     store: TeamAggregateStore,
     limits: TeamLimits = DEFAULT_TEAM_LIMITS,
     now: () => number = Date.now,
+    communicationIntensity: TeamCommunicationIntensity = 'active',
   ) {
     for (const [name, value] of Object.entries(limits)) {
       expectDomain(Number.isSafeInteger(value) && value > 0, `${name} must be a positive safe integer`, 'TEAM_INVALID_CONFIG')
     }
-    this.deps = { store, limits, now }
+    communication.assertCommunicationIntensity(communicationIntensity)
+    this.deps = { store, limits, now, communicationIntensity }
   }
 
   async createTeam(
@@ -297,8 +301,13 @@ export class TeamDomain implements TeamDomainPort {
     delivery: TeamMessageDelivery,
     causal?: TeamMessageCausal,
     supersedes?: TeamMessage['supersedes'],
+    replyTo?: TeamMessage['replyTo'],
   ): Promise<TeamState['messages'][number]> {
-    return await mailbox.queueMessage(this.deps, scope, teamId, senderSessionId, targetName, content, delivery, causal, supersedes)
+    return await mailbox.queueMessage(this.deps, scope, teamId, senderSessionId, targetName, content, delivery, causal, supersedes, replyTo)
+  }
+
+  async setCommunication(scope: TeamScope, teamId: TeamId, captainSessionId: string, expectedRevision: number, intensity: TeamCommunicationIntensity | undefined): Promise<TeamState> {
+    return await communication.setCommunication(this.deps, scope, teamId, captainSessionId, expectedRevision, intensity)
   }
 
   async queueMemberQuestionRelayOnce(scope: TeamScope, teamId: TeamId, senderSessionId: string, requestId: string, body: string) {
@@ -387,4 +396,3 @@ export class TeamDomain implements TeamDomainPort {
     return await projection.waitForChange(this.deps, scope, teamId, actorSessionId, afterRevision, signal)
   }
 }
-

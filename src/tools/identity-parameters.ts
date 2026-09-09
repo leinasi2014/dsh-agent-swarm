@@ -30,14 +30,14 @@ export function publicIdentity(profile: TeamMemberIdentityProfile = {}) {
 
 export const identityParameters = {
   display_name: { type: 'string', description: 'Public display name, at most 128 code points; preserve user preference/language.' },
-  profession: { type: 'string', description: 'Short profession, at most 256 code points.' },
-  personality: { type: 'string', description: 'Working personality, at most 1024 code points.' },
-  biography: { type: 'string', description: 'Role introduction, at most 1024 code points; no invented credentials.' },
-  pixel_avatar: { type: 'object', additionalProperties: false, description: 'Preferred: design your own 32x32 pixel avatar. Freely choose people, animals, objects or abstract designs; coordinate main/accent colors and contrast. Center a ~24-28px subject; add 1px details; never upscale coarse 8/16px art. Use the palette/rows format below. Do not also supply pixel_avatar_svg.', properties: {
+  profession: { type: 'string', description: 'Short professional identity or discipline, e.g. 3D character artist. Not Team duties or permission limits. At most 256 code points.' },
+  personality: { type: 'string', description: 'Stable behavioral traits, e.g. patient, precise, evidence-minded. Not task steps, current status or access rules. At most 1024 code points.' },
+  biography: { type: 'string', description: 'Brief truthful expertise and background. Do not repeat the role or include current tasks, file paths, temporary stages or permission rules. No invented credentials. At most 1024 code points.' },
+  pixel_avatar: { type: 'object', additionalProperties: false, description: 'After saving and reading back all four text fields, design your own 32x32 pixel avatar to suit your chosen identity and tastes. Freely choose people, animals, objects or abstract designs; coordinate main/accent colors and contrast. Center a ~24-28px subject; add 1px details; never upscale coarse 8/16px art. Use the palette/rows format below. Do not also supply pixel_avatar_svg.', properties: {
     palette: { type: 'array', required: true, items: { type: 'string' }, description: '1-16 #RRGGBB colors indexed by 0-9/A-F.' },
     rows: { type: 'array', required: true, items: { type: 'string' }, description: 'Exactly 32 strings of 32 pixels each; . is transparent, 0-9/A-F selects a palette entry. Horizontal/vertical runs compile safely to SVG.' },
   } },
-  pixel_avatar_svg: { type: 'string', description: 'Legacy alternative, <=16KB: svg viewBox="0 0 N N" (8<=N<=32) with <=256 self-closing rects using x/y/width/height/fill. Hex colors only, no style/path/scripts/links. Prefer pixel_avatar.' },
+  pixel_avatar_svg: { type: 'string', description: 'Same saved-profile prerequisite. Legacy alternative, <=16KB: svg viewBox="0 0 N N" (8<=N<=32) with <=256 self-closing rects using x/y/width/height/fill. Hex colors only, no style/path/scripts/links. Prefer pixel_avatar.' },
 } as const
 
 export function identityPatch(args: { display_name?: string; profession?: string; personality?: string; biography?: string; pixel_avatar_svg?: string; pixel_avatar?: PixelAvatarGrid }): MemberIdentityInput {

@@ -100,7 +100,7 @@ describe('plan-first tool surface (S2)', () => {
       const planned = await toolCall(composition.ctx, mb, 'plan', 'agent_swarm_set_plan', {
         team_id: teamId, expected_revision: 1,
         members: [
-          { name: 'writer', role: 'implementer', model: 'mock', display_name: '林砚', profession: '编剧', personality: '细致耐心', biography: '核对人物动机与情节因果。', pixel_avatar_svg: '<svg viewBox="0 0 32 32"><rect x="8" y="8" width="16" height="16" fill="#d58261"/></svg>' },
+          { name: 'writer', role: 'implementer', model: 'mock', profession: '编剧' },
           { name: 'reviewer', role: 'reviewer', model: 'mock', deny_tools: ['agent_swarm_archive'] },
         ],
         tasks: [
@@ -121,7 +121,8 @@ describe('plan-first tool surface (S2)', () => {
       expect(team!.phase).toBe('active')
       expect(team!.captainSessionId).not.toBe('')
       expect(team!.members).toHaveLength(2)
-      expect(team!.members.find(member => member.name === 'writer')).toMatchObject({ displayName: '林砚', profession: '编剧', personality: '细致耐心', biography: '核对人物动机与情节因果。', pixelAvatarSvg: '<svg viewBox="0 0 32 32"><rect x="8" y="8" width="16" height="16" fill="#d58261"/></svg>' })
+      expect(team!.members.find(member => member.name === 'writer')).toMatchObject({ profession: '编剧' })
+      expect(team!.members.find(member => member.name === 'writer')?.displayName).toBeUndefined()
       expect(team!.tasks).toHaveLength(2)
       const reviewer = team!.members.find(member => member.name === 'reviewer')!
       const review = team!.tasks.find(task => task.subject === 'Review')!
@@ -131,11 +132,16 @@ describe('plan-first tool surface (S2)', () => {
       const writer = composition.ctx.agents.get(SessionId(team!.members.find(member => member.name === 'writer')!.sessionId))!
       const members = await toolCall(composition.ctx, writer, 'profile-read', 'agent_swarm_list_members', {})
       expect(members.value).toMatchObject({ revision: team!.revision, members: [
-        { name: 'writer', identity: { display_name: '林砚', profession: '编剧', personality: '细致耐心', biography: '核对人物动机与情节因果。', avatar_saved: true, missing_fields: [] } },
+        { name: 'writer', identity: { profession: '编剧', avatar_saved: false, missing_fields: ['display_name', 'personality', 'biography', 'pixel_avatar'] } },
         { name: 'reviewer', identity: { avatar_saved: false, missing_fields: ['display_name', 'profession', 'personality', 'biography', 'pixel_avatar'] } },
       ] })
+      const introduced = await toolCall(composition.ctx, writer, 'self-introduction', 'agent_swarm_set_member_profile', {
+        name: 'writer', expected_revision: team!.revision, display_name: '林砚', personality: '细致耐心', biography: '我负责独立核对人物动机。',
+      })
+      expect(introduced.isError).toBe(false)
+      const readback = await toolCall(composition.ctx, writer, 'read-introduction', 'agent_swarm_list_members', {})
       const self = await toolCall(composition.ctx, writer, 'self-profile', 'agent_swarm_set_member_profile', {
-        name: 'writer', expected_revision: team!.revision, biography: '我负责独立核对人物动机。',
+        name: 'writer', expected_revision: (readback.value as { revision: number }).revision,
         pixel_avatar: { palette: ['#1f3040', '#d58261'], rows: Array.from({ length: 32 }, (_, y) => (y < 16 ? '0' : '1').repeat(32)) },
       })
       expect(self.isError).toBe(false)

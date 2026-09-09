@@ -1,3 +1,4 @@
+import { latestUserText } from './model-input.js'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 import { deliverSubagentPrompt, type HostPromptDeliverer } from '@deepseek-ai/dsh-subagent/internal'
 /**
@@ -88,17 +89,6 @@ export class GatedMemberAdapter extends LlmAdapter {
     release()
   }
 
-  private lastUserText(options: GenerateOptions): string {
-    for (let index = options.messages.length - 1; index >= 0; index -= 1) {
-      const message = options.messages[index]!
-      if (message.role !== 'user') continue
-      return message.content
-        .filter((block): block is Extract<typeof block, { type: 'text' }> => block.type === 'text')
-        .map(block => block.text)
-        .join('\n')
-    }
-    return ''
-  }
 
   override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     this.requests.push(options)
@@ -123,7 +113,7 @@ export class GatedMemberAdapter extends LlmAdapter {
       await this.gate
     }
     // Decision at release time: a flip between turns re-arms the behavior.
-    const assignment = ASSIGNMENT_RE.exec(this.lastUserText(options))
+    const assignment = ASSIGNMENT_RE.exec(latestUserText(options))
     if (this.submit && assignment !== null) {
       const [, taskId, revision, attemptId] = assignment
       const id = ToolCallId(`modes-submit-${(this.calls += 1)}`)

@@ -94,12 +94,12 @@ describe('local UI main Session association (#225)', () => {
   it('keeps the exact member public name while reading a sibling and refreshes it from the owning aggregate', async () => {
     const h = await setup(true)
     const before = await h.storage.port.snapshot(h.scope, h.team.id, 'captain')
-    await h.storage.port.setMemberProfile(h.scope, h.team.id, 'captain', before.team.revision, 'worker', { displayName: '公开成员名' })
+    await h.storage.port.setMemberProfile(h.scope, h.team.id, 'member', before.team.revision, 'worker', { displayName: '公开成员名' })
     await h.read('member', h.other.id, 'captainMembers')
     expect((await h.teams('member')).binding).toMatchObject({ currentTeamId: h.team.id, currentMemberName: '公开成员名' })
     expect((await h.teams('captain')).binding).not.toHaveProperty('currentMemberName')
     const current = await h.storage.port.snapshot(h.scope, h.team.id, 'captain')
-    await h.storage.port.setMemberProfile(h.scope, h.team.id, 'captain', current.team.revision, 'worker', { displayName: '更新后的公开名' })
+    await h.storage.port.setMemberProfile(h.scope, h.team.id, 'member', current.team.revision, 'worker', { displayName: '更新后的公开名' })
     expect((await h.teams('member')).binding).toMatchObject({ currentMemberName: '更新后的公开名' })
   })
 

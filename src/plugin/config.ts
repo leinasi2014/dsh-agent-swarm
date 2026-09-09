@@ -5,6 +5,8 @@ import { DEFAULT_HOST_CONTEXT_TTL_MS, DEFAULT_MAX_HOST_CONTEXTS } from '../human
 import { expectExecutionRootsBase } from '../runtime/execution-roots.js'
 import { effectiveToolPolicy } from '../runtime/permission-surface.js'
 import { assertProtocolFloorNotDenied } from '../runtime/tool-policy.js'
+import { assertCommunicationIntensity } from '../domain/team-domain-communication.js'
+import type { TeamCommunicationIntensity } from '../domain/types.js'
 
 export const AGENT_SWARM_SETTINGS_NAMESPACE = 'agent-swarm' as const
 export const DEFAULT_DISPOSAL_TIMEOUT_MS = 5_000
@@ -16,6 +18,7 @@ export interface Config {
   enabled?: boolean
   executionGuard?: boolean
   swarmGesture?: boolean
+  communicationIntensity?: TeamCommunicationIntensity
   memberProvider?: string
   memberLlmProvider?: string
   memberModel?: string
@@ -58,6 +61,7 @@ export const Config: z<Config> = z.object({
   enabled: z.boolean().default(true),
   executionGuard: z.boolean().default(true),
   swarmGesture: z.boolean().default(true),
+  communicationIntensity: z.union(['quiet', 'balanced', 'active']).default('active'),
   memberProvider: z.string().default('spawn'),
   memberLlmProvider: z.string(),
   memberModel: z.string(),
@@ -102,6 +106,7 @@ export const Config: z<Config> = z.object({
 
 /** Validate combinations before any runtime, listener or storage side effect is created. */
 export function assertServiceableConfig(value: Config): void {
+  assertCommunicationIntensity(value.communicationIntensity ?? 'active')
   for (const [field, raw] of [
     ['memberProvider', value.memberProvider ?? 'spawn'],
     ['schedulerProvider', value.schedulerProvider ?? 'priority-ready'],

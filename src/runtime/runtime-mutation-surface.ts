@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import { TaskId, TeamId, type AttemptId, type TaskAttempt, type TeamAnnouncement, type TeamMessage, type TeamMessageCausal, type TeamPlanDraft, type TeamState, type TeamTask } from '../domain/types.js'
+import { TaskId, TeamId, type AttemptId, type TaskAttempt, type TeamAnnouncement, type TeamCommunicationIntensity, type TeamMessage, type TeamMessageCausal, type TeamPlanDraft, type TeamState, type TeamTask } from '../domain/types.js'
+import { communicationPolicy } from '../domain/team-domain-communication.js'
 import type { CreateTaskInput, TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import { TeamDomainError } from '../domain/error.js'
 import type { MemberIdentityInput } from '../domain/identity-profile.js'
@@ -205,9 +206,10 @@ export class RuntimeMutationSurface {
   private async provisionPlannedMembers(captain: Agent, draft: TeamPlanDraft, signal: AbortSignal, skip?: (member: TeamPlanDraft['members'][number]) => boolean): Promise<void> {
     for (const member of draft.members) {
       if (skip?.(member) === true) continue
-      // The validated plan declaration shares the recruitment input shape.
-      // Forward it intact so identity fields survive approval and recovery.
-      await this.deps.provisioning.addMember({ agent: captain, signal } as ToolExecutionAuthority, member)
+      // Legacy plans remain readable; new recruits author their own personal
+      // identity instead of inheriting Captain-authored draft placeholders.
+      const { displayName: _displayName, personality: _personality, biography: _biography, pixelAvatarSvg: _avatar, ...recruitment } = member
+      await this.deps.provisioning.addMember({ agent: captain, signal } as ToolExecutionAuthority, recruitment)
     }
   }
 
@@ -340,6 +342,14 @@ export class RuntimeMutationSurface {
     return archived
   }
 
+  async setCommunication(exec: ToolExecutionAuthority, expectedRevision: number, intensity: TeamCommunicationIntensity | undefined) {
+    await this.deps.ensureReady(); this.deps.assertOpen()
+    const captain = requireAgent(exec), scope = this.deps.scopeOf(captain)
+    const membership = await this.deps.domain().requireMembership(scope, captain.id)
+    const team = await this.deps.domain().setCommunication(scope, membership.team.id, captain.id, expectedRevision, intensity)
+    return { revision: team.revision, ...communicationPolicy(team, this.deps.config.communicationIntensity) }
+  }
+
   async claimTask(exec: ToolExecutionAuthority, taskId: string, expectedRevision: number): Promise<{ task: TeamTask; attempt: TaskAttempt; executionRoot?: { path: string; isolation: 'git-worktree' | 'temp-directory' } }> {
     await this.deps.ensureReady(); this.deps.assertOpen()
     const actor = requireAgent(exec), scope = this.deps.scopeOf(actor)
@@ -399,15 +409,13 @@ export class RuntimeMutationSurface {
     return outcome
   }
 
-  async sendMessage(exec: ToolExecutionAuthority, target: string, content: string, delivery: 'quiet' | 'wakeup', causal?: TeamMessageCausal, supersedes?: TeamMessage['supersedes']): Promise<TeamMessage> {
+  async sendMessage(exec: ToolExecutionAuthority, target: string, content: string, delivery: 'quiet' | 'wakeup', causal?: TeamMessageCausal, supersedes?: TeamMessage['supersedes'], replyTo?: TeamMessage['replyTo']): Promise<TeamMessage> {
     await this.deps.ensureReady(); this.deps.assertOpen()
     const sender = requireAgent(exec), scope = this.deps.scopeOf(sender)
     const membership = await this.deps.domain().requireMembership(scope, sender.id)
-    const message = await this.deps.domain().queueMessage(scope, membership.team.id, sender.id, target, content, delivery, causal, supersedes)
+    const message = await this.deps.domain().queueMessage(scope, membership.team.id, sender.id, target, content, delivery, causal, supersedes, replyTo)
     const captain = this.deps.ctx.agents.get(SessionId(membership.team.captainSessionId))
     if (captain === undefined) return message
     return await this.deps.delivery.deliverQueuedMessage(scope, membership.team.id, captain, message.id, exec.signal) ?? message
   }
 }
-
-

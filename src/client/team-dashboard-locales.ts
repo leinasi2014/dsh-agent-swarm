@@ -1,6 +1,21 @@
 export const TEAM_DASHBOARD_NS = 'swarm.team-dashboard' as const
 
 export const en = {
+  'communication.title': 'Communication intensity',
+  'communication.current': 'Current: {intensity} · {source} · {limit} proactive peer wakeups per member/minute',
+  'communication.choose': 'Requested intensity',
+  'communication.inherit': 'Use plugin default',
+  'communication.quiet': 'Quiet',
+  'communication.balanced': 'Balanced',
+  'communication.active': 'Active',
+  'communication.team': 'Team setting',
+  'communication.plugin': 'Plugin default',
+  'communication.apply': 'Ask Captain to apply',
+  'communication.hint': 'Excess wakeups queue quietly. First replies and Captain messages remain available. The request waits for the Captain without interrupting current work.',
+  'communication.sending': 'Sending request…',
+  'communication.queued': 'Request queued for Captain; waiting for the saved setting.',
+  'communication.applied': 'Setting confirmed by Team readback.',
+  'communication.failed': 'Request failed; setting is not confirmed.',
   'cards.title': 'Teams · {count}',
   'cards.lineage': 'Main conversation and Team ownership',
   'cards.captain': 'Captain {name}',
@@ -257,6 +272,21 @@ export const en = {
 } as const
 
 export const zh: Record<keyof typeof en, string> = {
+  'communication.title': '交流强度',
+  'communication.current': '当前：{intensity} · {source} · 每名成员每分钟 {limit} 次主动同伴唤醒',
+  'communication.choose': '调整为',
+  'communication.inherit': '跟随插件默认值',
+  'communication.quiet': '安静',
+  'communication.balanced': '适中',
+  'communication.active': '积极',
+  'communication.team': '团队设置',
+  'communication.plugin': '插件默认',
+  'communication.apply': '请队长应用',
+  'communication.hint': '超出频率的消息安静排队，首次答复及队长通信保留。调节请求等待队长处理，不中断当前工作。',
+  'communication.sending': '正在发送请求…',
+  'communication.queued': '已发送给队长，等待保存后的设置回读。',
+  'communication.applied': '已从团队状态确认生效。',
+  'communication.failed': '请求失败，尚未确认设置生效。',
   'cards.title': '关联团队 · {count}',
   'cards.lineage': '主会话与团队归属',
   'cards.captain': '队长 {name}',

@@ -4,7 +4,7 @@ import { apply, inject } from '../src/client/plugin-entry.js'
 
 describe('Team dashboard client composition', () => {
   it('publishes the complete Cordis client plugin face from the package entrypoint', () => {
-    expect(inject).toEqual(['sessions', 'slots', 'locale', 'settingsScope', 'remote', 'remote.session', 'sidebarRight', 'sidebarRightTabs'])
+    expect(inject).toEqual(['sessions', 'slots', 'locale', 'settingsScope', 'remote', 'remote.session', 'remote.subagents', 'sidebarRight', 'sidebarRightTabs'])
   })
 
   it('registers an official Team tab with Guide reentry and a complete settings catalog without toolbar or overlay', async () => {

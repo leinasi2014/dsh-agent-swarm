@@ -13,13 +13,14 @@
 import { Buffer } from 'node:buffer'
 import { expectDomain, TeamDomainError } from './error.js'
 import type { TeamAggregateStore } from './team-domain-port.js'
-import type { AttemptId, TaskAttempt, TeamLimits, TeamMembership, TeamState, TeamTask } from './types.js'
+import type { AttemptId, TaskAttempt, TeamCommunicationIntensity, TeamLimits, TeamMembership, TeamState, TeamTask } from './types.js'
 
 /** Immutable collaborators shared by every subdomain transition. */
 export interface TeamDomainDeps {
   readonly store: TeamAggregateStore
   readonly limits: TeamLimits
   readonly now: () => number
+  readonly communicationIntensity?: TeamCommunicationIntensity
 }
 
 /** Longest normalized member name admitted (official roster bound parity). */

@@ -6,6 +6,8 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { TeamDomainError } from '../domain/error.js'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import { TeamId, type TeamState, type TeamStatusSnapshot } from '../domain/types.js'
+import type { TeamCommunicationIntensity } from '../domain/types.js'
+import { communicationPolicy } from '../domain/team-domain-communication.js'
 import type { HumanInteractionOverlayStore } from '../human/human-interaction-store.js'
 import { deepFreezeJson } from './frozen-json.js'
 import type { SwarmHostReadInput, SwarmHostReadProjectionV1, SwarmHostTeamsProjectionV1 } from './host-read-types.js'
@@ -21,6 +23,7 @@ declare module '@deepseek-ai/cordis' {
 }
 
 export interface AgentSwarmHostReadDeps {
+  readonly communicationIntensity?: TeamCommunicationIntensity
   readonly currentInitiator: () => Agent | undefined
   readonly isExactLiveRoot: (agent: Agent) => boolean
   readonly scopeOf: (agent: Agent) => TeamScope
@@ -63,7 +66,7 @@ export class AgentSwarmHostReadService {
       if (bindingRoot !== root.id) this.assertParentBinding(root, bindingRoot)
       const interactions = this.deps.overlay.list(initialScope, snapshot.team.id)
       this.assertBindingStillLive(root, initialScope)
-      return project(snapshot, interactions, bindingRoot, normalized.afterCursor, this.observedAt())
+      return project(snapshot, interactions, bindingRoot, normalized.afterCursor, this.observedAt(), this.deps.communicationIntensity)
     })
   }
 
@@ -75,7 +78,7 @@ export class AgentSwarmHostReadService {
 
   /** Pure projection; its target collaborator has already admitted this read. */
   projectAuthorizedTeam(team: TeamState, scope: TeamScope, afterCursor?: string, bindingRoot = team.captainSessionId): SwarmHostReadProjectionV1 {
-    return project({ team }, this.deps.overlay.list(scope, team.id), bindingRoot, afterCursor, this.observedAt())
+    return project({ team }, this.deps.overlay.list(scope, team.id), bindingRoot, afterCursor, this.observedAt(), this.deps.communicationIntensity)
   }
 
   /** Stop admission and wait a bounded interval for all admitted projections. */
@@ -336,6 +339,7 @@ function project(
   rootSessionId: string,
   afterCursor: string | undefined,
   observedAt: number,
+  pluginCommunication: TeamCommunicationIntensity = 'active',
 ): SwarmHostReadProjectionV1 {
   const team = snapshot.team
   const memberNames = new Map(team.members.map(member => [member.sessionId, member.name]))
@@ -397,6 +401,7 @@ function project(
     tasks,
     attempts,
     budget: { ...team.budget },
+    communication: communicationPolicy(team, pluginCommunication),
     pendingInteractions,
     totals: {
       roster: team.members.length,

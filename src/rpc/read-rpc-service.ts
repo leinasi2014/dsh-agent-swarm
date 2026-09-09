@@ -383,7 +383,7 @@ function bindingOf(projection: SwarmHostReadProjectionV1) {
 
 function statusOf(projection: SwarmHostReadProjectionV1) {
   return {
-    ...bindingOf(projection), budget: projection.budget, totals: projection.totals,
+    ...bindingOf(projection), budget: projection.budget, communication: projection.communication, totals: projection.totals,
     truncated: projection.truncated, capabilities: projection.capabilities, observedAt: projection.observedAt,
   }
 }
@@ -485,4 +485,3 @@ function isIpv4Loopback(value: string): boolean {
     && octets[0] === '127'
     && octets.every(octet => /^\d{1,3}$/u.test(octet) && Number(octet) <= 255)
 }
-

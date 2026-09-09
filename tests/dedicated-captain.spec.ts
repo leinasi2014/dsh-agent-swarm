@@ -2,6 +2,8 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import { assembleContextFor } from '@deepseek-ai/dsh-agent'
+import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mountNodeComposition, SIGNAL, type NodeComposition } from './helpers/node-composition.js'
@@ -224,18 +226,18 @@ describe('dedicated Captain topology', () => {
     const request = start.mock.calls[0]?.[0].request
     expect(request).toBeDefined()
     const notice = request?.prompt.map(part => part.type === 'text' ? part.text : '').join('\n') ?? ''
-    const persona = request?.persona ?? ''
+    const captain = mounted.ctx.agents.get(SessionId(value.captain_session_id))!
+    const persona = renderPrompt(await mounted.ctx.systemPrompt.assemble(assembleContextFor(captain)))
 
     expect(notice).toContain(`Current Team revision: ${membership.team.revision}`)
     expect(notice).toContain('Build the repair. Display name: Ada; profession: Engineer; personality: precise. Preserve these preferences.')
     expect(persona).toContain("user's language")
-    expect(persona).toContain('Own public profiles')
-    expect(persona).toContain('Legacy fields stay optional')
-    expect(persona).toContain('fill gaps or report failure, then continue work')
+    expect(persona).toContain('personal fields belong to each member')
+    expect(persona).toContain('Profiles remain optional for work')
+    expect(persona).toContain('report failure and continue')
     expect(`${persona}\n${notice}`).not.toMatch(/Chinese display|until the profile succeeds|stop dependent recruitment/)
     expect(notice).toContain('Your Team is already created and bound to this Captain Session.')
 
-    const captain = mounted.ctx.agents.get(SessionId(value.captain_session_id))!
     const failedProfile = await mounted.ctx.tools.execute({
       signal: SIGNAL, callId: ToolCallId('optional-profile-invalid'), name: 'agent_swarm_set_captain_profile',
       arguments: { expected_revision: membership.team.revision, pixel_avatar_svg: '<svg><script>bad()</script></svg>' },
@@ -247,18 +249,19 @@ describe('dedicated Captain topology', () => {
     expect(afterFailure.team.captainProfile).toBeUndefined()
     const recruited = await mounted.ctx.tools.execute({
       signal: SIGNAL, callId: ToolCallId('after-profile-failure'), name: 'agent_swarm_add_member',
-      arguments: { name: 'ada', role: 'Implement the repair', display_name: 'Ada', profession: 'Engineer', personality: 'precise' },
+      arguments: { name: 'ada', role: 'Implement the repair', profession: 'Engineer' },
       agent: captain,
     })
     expect(recruited.isError).toBe(false)
     const refreshed = await mounted.domain.requireMembership(mounted.scope, captain.id)
     expect(refreshed.team.members.find(member => member.name === 'ada')).toMatchObject({
-      displayName: 'Ada', profession: 'Engineer', personality: 'precise', phase: 'active',
+      profession: 'Engineer', phase: 'active',
     })
-    const memberPersona = start.mock.calls.at(-1)?.[0].request.persona ?? ''
-    expect(memberPersona).toContain('Display name: Ada')
-    expect(memberPersona).toContain('Profession: Engineer')
-    expect(memberPersona).toContain('Personality: precise')
+    const memberAgent = mounted.ctx.agents.get(SessionId((recruited.value as { session_id: string }).session_id))!
+    const memberPersona = renderPrompt(await mounted.ctx.systemPrompt.assemble(assembleContextFor(memberAgent)))
+    expect(refreshed.team.members.find(member => member.name === 'ada')?.displayName).toBeUndefined()
+    expect(memberPersona).toContain('Current Team profile and peer-collaboration rules')
+    expect(memberPersona).toContain('Own personal fields')
     expect(memberPersona).not.toContain('agent_swarm_add_member')
 
     start.mockRestore()

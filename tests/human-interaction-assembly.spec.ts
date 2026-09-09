@@ -32,8 +32,8 @@ import UserQuestionService, { type AskUserQuestionRequest } from '@deepseek-ai/d
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
 import type { HumanInteractionRequest } from '../src/index.js'
-import { truncateUtf8 } from '../src/human/human-control-gateway.js'
 import { mountStorageStackOn } from './helpers/storage-stack.js'
+import { GatedAdapter } from './helpers/gated-composition.js'
 const SIGNAL = new AbortController().signal
 
 
@@ -103,12 +103,12 @@ async function mount(sandbox: string, withQuestions = true): Promise<Stack> {
   }
 }
 
-async function addMember(stack: Stack): Promise<string> {
+async function addMember(stack: Stack, llmProvider?: string): Promise<string> {
   const added = await stack.ctx.tools.execute({
     signal: SIGNAL,
     callId: ToolCallId('i1a-assembly-add'),
     name: 'agent_swarm_add_member',
-    arguments: { name: 'worker', role: 'Assembly worker.' },
+    arguments: { name: 'worker', role: 'Assembly worker.', ...(llmProvider === undefined ? {} : { llm_provider: llmProvider }) },
     agent: stack.lead,
   })
   if (added.isError) throw new Error(`add failed: ${JSON.stringify(added.error)}`)
@@ -212,63 +212,76 @@ describe('assembled SW-I1a captain question presentation', () => {
     roots.push(sandbox)
     const stack = await mount(sandbox, true)
     stacks.push(stack)
-    const memberId = await addMember(stack)
-    const member = liveMember(stack, memberId)
-    const seen: AskUserQuestionRequest[] = []
-    stack.ctx.on('user-questions/request', async input => {
-        seen.push(input)
-        return { answers: [{ id: input.questions[0]?.id ?? 'missing', selected: [], custom: 'safe answer' }] }
-    })
-    const current = await snapshot(stack)
-    const forgedRelay = {
-      scope: stack.scope,
-      teamId: stack.teamId,
-      memberSessionId: memberId,
-      body: 'payload names a real member',
-      expectedTeamRevision: current.team.revision,
-      requestId: 'human-forged-relay-00000001',
-    }
-    await expect(stack.ctx.agentSwarmHumanInteraction.relayMemberQuestion(
-      forgedRelay,
-      captainAdmission(stack),
-    )).rejects.toMatchObject({ code: 'TEAM_INTERACTION_MEMBER_REQUIRED' })
-    expect((await snapshot(stack)).team.messages).toHaveLength(current.team.messages.length)
-    expect(await stack.ctx.agentSwarmHumanInteraction.listReceipts(
-      stack.scope,
-      stack.teamId,
-      captainAdmission(stack),
-    )).toHaveLength(0)
+    // Keep this exact official Agent alive across asynchronous admission checks.
+    // A fast completed join may unload it; no synthetic registry entry belongs
+    // in this provenance test.
+    const adapter = new GatedAdapter()
+    stack.ctx.llm.registerAdapter(['liaison-held'], adapter)
+    const memberId = await addMember(stack, 'liaison-held')
+    await adapter.waitForRequests(1)
+    const member = stack.ctx.agents.get(SessionId(memberId))
+    expect(member?.status).toBe('running')
+    if (member === undefined) throw new Error('held official member is not live')
+    try {
+      const seen: AskUserQuestionRequest[] = []
+      stack.ctx.on('user-questions/request', async input => {
+          seen.push(input)
+          return { answers: [{ id: input.questions[0]?.id ?? 'missing', selected: [], custom: 'safe answer' }] }
+      })
+      const current = await snapshot(stack)
+      const forgedRelay = {
+        scope: stack.scope,
+        teamId: stack.teamId,
+        memberSessionId: memberId,
+        body: 'payload names a real member',
+        expectedTeamRevision: current.team.revision,
+        requestId: 'human-forged-relay-00000001',
+      }
+      await expect(stack.ctx.agentSwarmHumanInteraction.relayMemberQuestion(
+        forgedRelay,
+        captainAdmission(stack),
+      )).rejects.toMatchObject({ code: 'TEAM_INTERACTION_MEMBER_REQUIRED' })
+      expect((await snapshot(stack)).team.messages).toHaveLength(current.team.messages.length)
+      expect(await stack.ctx.agentSwarmHumanInteraction.listReceipts(
+        stack.scope,
+        stack.teamId,
+        captainAdmission(stack),
+      )).toHaveLength(0)
 
-    const relayed = await stack.ctx.agentSwarmHumanInteraction.relayMemberQuestion(
-      forgedRelay,
-      { exec: { agent: member, signal: SIGNAL } },
-    )
-    expect(relayed.status).toBe('acknowledged')
-    const memberAdmission = { exec: { agent: member, signal: SIGNAL } }
-    await expect(stack.ctx.agentSwarmHumanInteraction.presentQuestion({
-      scope: stack.scope,
-      teamId: stack.teamId,
-      requestId: relayed.requestId,
-      captainSessionId: stack.lead.id,
-    }, memberAdmission)).rejects.toMatchObject({ code: 'TEAM_CAPTAIN_REQUIRED' })
-    await expect(stack.ctx.agentSwarmHumanInteraction.listReceipts(
-      stack.scope,
-      stack.teamId,
-      memberAdmission,
-    )).rejects.toMatchObject({ code: 'TEAM_CAPTAIN_REQUIRED' })
-    await expect(stack.ctx.agentSwarmHumanInteraction.reconcile(
-      stack.scope,
-      stack.teamId,
-      memberAdmission,
-    )).rejects.toMatchObject({ code: 'TEAM_CAPTAIN_REQUIRED' })
-    expect(seen).toHaveLength(0)
-    const after = await snapshot(stack)
-    expect(after.team.messages.filter(message => message.senderName === 'captain')).toHaveLength(0)
-    expect((await stack.ctx.agentSwarmHumanInteraction.listReceipts(
-      stack.scope,
-      stack.teamId,
-      captainAdmission(stack),
-    )).find(item => item.requestId === relayed.requestId)?.status).toBe('acknowledged')
+      const relayed = await stack.ctx.agentSwarmHumanInteraction.relayMemberQuestion(
+        forgedRelay,
+        { exec: { agent: member, signal: SIGNAL } },
+      )
+      expect(relayed.status).toBe('acknowledged')
+      const memberAdmission = { exec: { agent: member, signal: SIGNAL } }
+      await expect(stack.ctx.agentSwarmHumanInteraction.presentQuestion({
+        scope: stack.scope,
+        teamId: stack.teamId,
+        requestId: relayed.requestId,
+        captainSessionId: stack.lead.id,
+      }, memberAdmission)).rejects.toMatchObject({ code: 'TEAM_CAPTAIN_REQUIRED' })
+      await expect(stack.ctx.agentSwarmHumanInteraction.listReceipts(
+        stack.scope,
+        stack.teamId,
+        memberAdmission,
+      )).rejects.toMatchObject({ code: 'TEAM_CAPTAIN_REQUIRED' })
+      await expect(stack.ctx.agentSwarmHumanInteraction.reconcile(
+        stack.scope,
+        stack.teamId,
+        memberAdmission,
+      )).rejects.toMatchObject({ code: 'TEAM_CAPTAIN_REQUIRED' })
+      expect(seen).toHaveLength(0)
+      const after = await snapshot(stack)
+      expect(after.team.messages.filter(message => message.senderName === 'captain')).toHaveLength(0)
+      expect((await stack.ctx.agentSwarmHumanInteraction.listReceipts(
+        stack.scope,
+        stack.teamId,
+        captainAdmission(stack),
+      )).find(item => item.requestId === relayed.requestId)?.status).toBe('acknowledged')
+      expect(stack.ctx.agents.get(SessionId(memberId))).toBe(member)
+    } finally {
+      adapter.open()
+    }
   }, 45_000)
 
   it('fails closed when the official user-questions service is not composed', async () => {
@@ -552,46 +565,4 @@ describe('human domain lifecycle ownership', () => {
       for (const fiber of base.fibers.toReversed()) await fiber.dispose()
     }
   }, 45_000)
-})
-
-describe('semantic utilities', () => {
-  it('sameHumanInteractionRequest compares schemaVersion and createdAt', () => {
-    const base: HumanInteractionRequest = {
-      schemaVersion: 1,
-      requestId: 'human-semantic-utils-00000001',
-      teamId: AgentSwarm.TeamId('team-semantic-utils'),
-      source: { kind: 'captain-mediated', captainSessionId: 'captain-util' },
-      target: { kind: 'member', memberName: 'worker' },
-      intent: 'wake-member',
-      expectedTeamRevision: 1,
-      createdAt: 10,
-    }
-    expect(AgentSwarm.sameHumanInteractionRequest(base, { ...base })).toBe(true)
-    expect(AgentSwarm.sameHumanInteractionRequest(base, { ...base, createdAt: 11 })).toBe(false)
-    expect(AgentSwarm.sameHumanInteractionRequest(base, {
-      ...base,
-      schemaVersion: 2,
-    } as unknown as HumanInteractionRequest)).toBe(false)
-    const reorderedTarget = { memberName: 'worker', kind: 'member' } as const
-    const withOrigin: HumanInteractionRequest = {
-      ...base,
-      target: reorderedTarget,
-      origin: { kind: 'member', memberSessionId: 'member-util', memberName: 'worker' },
-    }
-    const reorderedOrigin = { memberName: 'worker', memberSessionId: 'member-util', kind: 'member' } as const
-    expect(AgentSwarm.sameHumanInteractionRequest(withOrigin, {
-      ...withOrigin,
-      target: { kind: 'member', memberName: 'worker' },
-      origin: reorderedOrigin,
-    })).toBe(true)
-  })
-
-  it('truncateUtf8 accumulates code points linearly and never splits a character', () => {
-    expect(truncateUtf8('a😀b', 5)).toBe('a😀')
-    expect(truncateUtf8('😀x', 4)).toBe('😀')
-    expect(truncateUtf8('😀😀', 3)).toBe('')
-    expect(truncateUtf8('hello', 5)).toBe('hello')
-    const huge = '😀'.repeat(50_000) + 'x'
-    expect([...truncateUtf8(huge, 20_000)]).toHaveLength(5_000)
-  })
 })

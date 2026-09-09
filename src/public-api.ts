@@ -116,6 +116,8 @@ export { AttemptId, TaskId, TeamId, TeamMessageId } from './domain/types.js'
 export type {
   ReviewVerificationCommand,
   TeamBudget,
+  TeamCommunicationIntensity,
+  TeamCommunicationPolicy,
   TeamMember,
   TeamMemoryEntry,
   TeamMessage,

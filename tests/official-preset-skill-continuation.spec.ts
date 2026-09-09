@@ -311,6 +311,14 @@ describe('official Captain preset and skill inheritance', () => {
       })
       expect(created.isError).toBe(false)
       let freshMember: Agent | undefined
+      let admitFirstAssembly!: () => void
+      const firstAssemblyAdmission = new Promise<void>(resolve => { admitFirstAssembly = resolve })
+      // Compare the first model request and direct assembly under the same
+      // active membership. Provisioning itself does not await the model turn.
+      const stopAssemblyObservation = first.ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
+        if (freshMember !== undefined && context.agent?.id === freshMember.id) await firstAssemblyAdmission
+        return await next()
+      }, { prepend: true })
       const stopCreatedObservation = first.ctx.on('agent/created', ({ agent }) => {
         if (agent.id !== CAPTAIN && agent.id !== GENERATION_TWO_SESSION) {
           freshMember = agent
@@ -324,6 +332,13 @@ describe('official Captain preset and skill inheritance', () => {
         await vi.waitFor(() => expect(freshMember).toBeDefined(), { timeout: 15_000 })
         const exactFreshMember = freshMember
         if (exactFreshMember === undefined) throw new Error('fresh Team member was not published at its held first request')
+        const admitted = await adding
+        expect(admitted.isError).toBe(false)
+        const membership = await first.ctx.agentSwarm.domain.findMembership(first.ctx.agentSwarm.scopeOf(exactFreshMember), exactFreshMember.id)
+        expect(membership).toMatchObject({ role: 'member', name: 'member' })
+        expect(membership?.team.members.find(member => member.sessionId === exactFreshMember.id)?.phase).toBe('active')
+        expect(initial.requestsFor(exactFreshMember.id)).toHaveLength(0)
+        admitFirstAssembly()
         await vi.waitFor(() => expect(initial.requestsFor(exactFreshMember.id)).toHaveLength(1), { timeout: 15_000 })
         expect(first.ctx.agentPresets.composedPreset(captainA.agent.ctx)).toBe(PRESET_ID)
         expect(first.ctx.agentPresets.composedPreset(exactFreshMember.ctx)).toBe(PRESET_ID)
@@ -331,6 +346,8 @@ describe('official Captain preset and skill inheritance', () => {
         await assertGeneratedComposition(first.ctx, exactFreshMember, initial.requestsFor(exactFreshMember.id)[0]!, GENERATION_ONE_MARKER)
         await assertOfficialSkill(first.ctx, exactFreshMember, 'preset-skill-fresh')
       } finally {
+        admitFirstAssembly()
+        stopAssemblyObservation()
         initial.release()
         stopCreatedObservation()
       }

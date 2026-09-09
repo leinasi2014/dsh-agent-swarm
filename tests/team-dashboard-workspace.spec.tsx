@@ -87,6 +87,10 @@ describe('Team workspace views and projection-derived activity', () => {
     })
     expect(document.querySelector('[data-swarm-detail-biography]')?.textContent).toBe(biography)
     expect(document.querySelector('[data-swarm-detail-personality]')?.textContent).toBe(member.personality)
+    expect(document.querySelector('[data-swarm-detail-biography]')?.getAttribute('title')).toBe(biography)
+    expect(document.querySelector('[data-swarm-detail-personality]')?.getAttribute('title')).toBe(member.personality)
+    expect(document.querySelector('[data-swarm-detail-role]')?.getAttribute('title')).toBe('Writer')
+    expect(document.querySelector('[data-swarm-detail-profession]')?.getAttribute('title')).toBe('编剧')
   })
 
   it('keeps the compact work-seat workroom with honest derived tones, stats, and capped summaries/activity', async () => {

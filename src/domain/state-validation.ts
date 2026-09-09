@@ -144,6 +144,7 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
   }
   if (team.managedOrigin !== undefined) text(team.managedOrigin, path, 'managedOrigin')
   if (team.phase !== 'staged' && team.phase !== 'active' && team.phase !== 'archived') corrupt(path, 'phase is invalid')
+  if (team.communicationIntensity !== undefined && !['quiet', 'balanced', 'active'].includes(String(team.communicationIntensity))) corrupt(path, 'communicationIntensity is invalid')
   integer(team.nextTaskNumber, path, 'nextTaskNumber', 1)
   integer(team.nextMemoryNumber, path, 'nextMemoryNumber', 1)
   integer(team.createdAt, path, 'createdAt')
@@ -324,6 +325,10 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
     if (!MESSAGE_PHASES.has(String(message.phase))) corrupt(path, `messages[${index}].phase is invalid`)
     integer(message.createdAt, path, `messages[${index}].createdAt`)
     if (message.deliveredAt !== undefined) integer(message.deliveredAt, path, `messages[${index}].deliveredAt`)
+    if (message.replyTo !== undefined) text(message.replyTo, path, `messages[${index}].replyTo`)
+    if (message.repliedBy !== undefined) text(message.repliedBy, path, `messages[${index}].repliedBy`)
+    if (message.replyExempt !== undefined && (message.replyExempt !== true || message.replyTo === undefined)) corrupt(path, `messages[${index}].replyExempt is invalid`)
+    if (message.communicationLimited !== undefined && (message.communicationLimited !== true || message.delivery !== 'quiet')) corrupt(path, `messages[${index}].communicationLimited is invalid`)
     if (message.causal !== undefined) {
       const causal = record(message.causal, path, `messages[${index}].causal`)
       if (causal.taskId !== undefined) text(causal.taskId, path, `messages[${index}].causal.taskId`)

@@ -1,3 +1,4 @@
+import { latestUserText } from './helpers/model-input.js'
 import { readPersistedSession } from '../src/runtime/persisted-session.js'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
@@ -30,13 +31,6 @@ const SIGNAL = new AbortController().signal
 const ASSIGNMENT_RE = /Task: (task-[a-z0-9-]+), revision (\d+)/
 const PROBE_CONTENT = 'session-proven-note'
 
-function latestUserText(options: GenerateOptions): string {
-  const message = options.messages.toReversed().find(candidate => candidate.role === 'user')
-  return message?.content
-    .filter((block): block is Extract<typeof block, { type: 'text' }> => block.type === 'text')
-    .map(block => block.text)
-    .join('\n') ?? ''
-}
 
 /** Gated real adapter: an assignment turn (on release) emits real add + list tool calls. */
 class PrivateMemoryProbeAdapter extends LlmAdapter {

@@ -1,3 +1,4 @@
+import { latestUserText } from './helpers/model-input.js'
 import { readPersistedSession } from '../src/runtime/persisted-session.js'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -101,14 +102,13 @@ class ApprovalAdapter extends LlmAdapter {
       options.signal?.addEventListener('abort', abort, { once: true })
       void this.gate.then(() => { options.signal?.removeEventListener('abort', abort); resolve() })
     })
-    const text = options.messages.filter(message => message.role === 'user').flatMap(message => message.content)
-      .flatMap(block => block.type === 'text' ? [block.text] : []).join('\n')
+    const text = latestUserText(options)
     const requestId = /"request_id":"([a-z0-9-]+)"/.exec(text)?.[1]
     let tool: { name: string; args: Record<string, unknown> } | undefined
-    if (requestId !== undefined && !this.decisions.has(requestId)) {
+    if (options.sessionId === 'captain' && requestId !== undefined && !this.decisions.has(requestId)) {
       this.decisions.add(requestId)
       tool = { name: 'agent_swarm_decide_tool_approval', args: { request_id: requestId, decision: 'approve' } }
-    } else if (requestId === undefined && !this.memberIssued && text.includes('You joined Team')) {
+    } else if (options.sessionId !== 'captain' && requestId === undefined && !this.memberIssued) {
       this.memberIssued = true
       tool = { name: 'approval_probe', args: { value: 42 } }
     }
@@ -312,8 +312,7 @@ it('retains approval while a real busy Captain exceeds the mailbox claim grace',
   let captainHeld = false
   const stream = adapter.stream.bind(adapter)
   vi.spyOn(adapter, 'stream').mockImplementation(async function* (options) {
-    const text = options.messages.filter(message => message.role === 'user').flatMap(message => message.content)
-      .flatMap(block => block.type === 'text' ? [block.text] : []).join('\n')
+    const text = latestUserText(options)
     if (text.includes('Hold Captain for approval regression') && !text.includes('member_tool_approval')) {
       captainHeld = true
       await captainGate

@@ -68,15 +68,23 @@ Member 消费排队分配时，插件在官方 `agent/pre-step` waterfall 返回
 
 成员身份包含技术名、显示名、短职业、人格、个人简介/identity card、可选安全像素 SVG、model/provider、Skills 与工具权限投影。像素头像只允许一个有限 `svg` 根和 bounded `rect` 子元素；验证必须发生在 durable member commit 前。
 
-模型可用 `pixel_avatar` 提交 32×32 字符网格及最多 16 色的十六进制 palette；`.` 表示透明，其余像素引用调色板。工具把同色连续像素压缩为矩形，再通过既有 SVG allowlist 校验，唯一持久资产仍是 `pixelAvatarSvg`。网格和原始 SVG 不能同时提交；格式、未知颜色、全透明、复杂度或最终资产超界均在 mutation 前失败。模型应自行设计多色人物、五官、发型、服装与岗位细节；像素数量与色数仅是结构事实，视觉质量须真实预览，未保存资产的占位不冒充作品。
+模型可用 `pixel_avatar` 提交 32×32 字符网格及最多 16 色的十六进制 palette；`.` 表示透明，其余像素引用调色板。工具把同色连续像素压缩为矩形，再通过既有 SVG allowlist 校验，唯一持久资产仍是 `pixelAvatarSvg`。网格和原始 SVG 不能同时提交；格式、未知颜色、全透明、复杂度或最终资产超界均在 mutation 前失败。头像由本人先确定并保存姓名、职业、性格和简介，读取确认后再按个人喜好设计；可以是人物、动物、物件或抽象图案，不强制按岗位画人物。缺少先前已保存的四项文字资料时，头像提交失败，不能用同一次 patch 补文字绕过此顺序；像素数量与色数仅是结构事实，视觉质量须真实预览，未保存资产的占位不冒充作品。
 
 成员创建顺序是：输入/route/tool-policy/identity 预检 → provisional provisioning → 官方 continuable child 启动 → descriptor/phase 提交 → 可调度。启动失败必须保持单一失败记录且可恢复容量，不能产生重复可见员工。当前 route 预检和失败 roster 回收的完整修复仍由 GitHub Issue #176 跟踪，未完成前 UI 必须显示真实失败状态。
 
 Captain identity 独立于 Member roster。`set_captain_profile` 成功提交后，Host/RPC 下一轮 projection 必须发布新 revision；占位文案不能被解释为 Captain Session 创建失败。
 
-身份资料由现有 Team Domain 单一负责：staged plan、add_member 和资料 patch 复用同一输入与校验，计划字段随批准、激活恢复及 Storage Domain reopen 保留。队长负责提供初始资料并核对缺项，成员在入队或首次任务时检查本人实际名册并补缺；`set_member_profile` 依据真实调用者的 active membership，只放行 Captain 或目标恰为调用者自己的记录。补资料仍使用 Team revision CAS，仅更新公开身份字段，不改 Session、role、模型、Skills、运行中的 persona 或任务状态；已有资料不被缺省值覆盖。失败显式报告，保持任务可继续，禁止无限重试。此为项目自有身份 overlay，复用既有官方模型工具、Session 和 Storage Domain，无新调度器或状态 owner。验收需覆盖计划到真实成员的字段传递、本人/他人权限、CAS/失败原子性、存储重开与真实模型及 UI 回读。
+身份资料由现有 Team Domain 单一负责。staged plan 和 add_member 只声明不可变名册地址、简短 Team 职责、职业及运行配置；姓名、性格、简介和头像由成员本人确定，Captain 不得代填或修改这些个人字段，但可以调整职业。旧存储资料保持可读；旧计划尚未创建的成员不继承计划里的个人资料，失败招募重试仅允许沿用原记录的相同身份。成员在入队或首次任务时查名册，以 active membership 和当前 Team revision CAS 修改本人资料；他人的个人字段一律拒绝。Captain 通过 set_captain_profile 定义自己。缺项和失败如实显示，工作仍可继续，不无限重试。
 
-`personality` 与 `biography` 分别保存工作性格和个人简介，各限 1024 个 Unicode code points，并经过 Domain、Storage、Host/RPC 的同一校验链。Captain 通常在招募时按用户语言和偏好提供完整资料；缺失字段诚实显示不可用。`set_captain_profile` 与 `set_member_profile` 以当前 Team revision 做局部更新，保留未提交字段；后者按不可变 roster name 定位，检查显示名冲突，不改 Session、角色、Skills、模型或运行中的 persona。descriptor 的 label 是创建时事实；资料改名后的读取继续校验精确 Session、parent、origin、Team 标签前缀及 provider。
+字段规范：显示名是本人公开姓名，名册地址仅用于稳定路由；role 是简短 Team 分工，profession 是专业职业；personality 是稳定性格，biography 是真实背景和专长，不能写成任务清单、临时阶段、路径或权限禁令。后两者各限 1024 个 Unicode code points，沿用 Domain、Storage、Host/RPC 校验。成员按当前身份的性格和专长表达、询问和合作，不虚构资历、记忆或完成结果。UI 资料保持单行，溢出省略，悬停显示完整实际内容。
+
+公开身份每次经官方 system-prompt/assemble 从当前 Team aggregate 读取，加入官方持久 user-role context snapshot。姓名、职业、性格、简介与 Team 职责作为有界 fenced data；模板字符保持字面，新快照替换旧资料语义，不能改变工具或权限。仅身份内容改变才产生新快照。当前身份及同伴协作规则通过独立可信 system section 提供，更新旧 continuable persona 的相关指导而不重写历史 descriptor；用户显式 complete persona 仍由官方保持原样，不承诺覆盖其行为规则。无 active membership 不注入。资料 patch 不改 Session、role、模型、Skills 或任务状态，descriptor label 仍是创建时事实。恢复继续校验精确 Session、parent、origin、Team 标签与 provider。验收分别覆盖所有权、头像顺序、CAS/失败原子性、存储重开、实际模型请求和 UI 回读。
+
+成员可通过 agent_swarm_send_message 直接向活跃同伴提问、答复并把反馈用于成果，Captain 不必代传。任何活跃同伴的 wakeup 都可恢复空闲成员；忙碌成员在后续 step 收件，不打断当前请求。quiet 仅入队；delivered 只证明投递，不能当成已阅读或已答复。同伴沟通不授予无关写入或新 attempt 权限；回答完毕、提交、遇阻或无工作时结束回合，不轮询。协作验收需有 A问B、B答A、A使用反馈提交、Captain审查的实际请求与持久 Session 证据。
+
+交流强度 quiet/balanced/active 分别允许每名成员在滚动 60 秒内主动唤醒同伴 1/4/12 次；默认 active。超额消息持久保存为 quiet，不丢弃，不自动延迟唤醒，也不要求重发。Captain 上下行不受该限额约束；reply_to 必须引用对方发给自己的原始消息，其首次答复豁免，不能串联回复制造豁免。限频与首次答复证据均沿用 Team messages，重启保留；保留回执数量很小时会保守减少主动唤醒空间。此设置控制主动唤醒和协作节奏，不是硬性消息发送速率。
+
+插件 communicationIntensity 沿现有设置的 restart 生效规则；Captain 的 agent_swarm_set_communication 使用 Team revision CAS 保存即时生效的 override，inherit 清除覆盖。当前强度注入参与者上下文；Host/RPC 投影展示生效值和来源。团队面板通过官方 Captain user prompt queue 提交用户的明确调节请求，不模拟 Captain 身份调用工具；只有更新后的 Team revision 与目标值匹配才显示已生效，忙碌时如实显示等待队长处理。
 
 DSH `0.1.5-alpha.1` 的 continuable child 可由私有 owner 注册；`agents.roots()` 本身不证明顶层身份，root 权限还须核对 `session.header.parentSession`。官方带标记的 `send_message` 仅在精确存活 child 向真实 direct parent 发送时继承上行权限，仍经过后续官方 guard；同名替换工具与向下/跨成员发送不获得豁免。冷恢复的 Team Skills 在 `agent/session-start` 后、首个 step/工具调用前从权威 aggregate 重建，解析失败不得放宽权限。
 

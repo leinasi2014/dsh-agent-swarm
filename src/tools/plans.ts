@@ -14,8 +14,8 @@ const PLAN_MEMBER_SCHEMA = {
   type: 'object', additionalProperties: false,
   properties: {
     name: { type: 'string', required: true },
-    role: { type: 'string', required: true },
-    ...identityParameters,
+    role: { type: 'string', required: true, description: 'Short Team responsibility, e.g. geometry repair or independent review. Keep profession, task steps, paths and temporary permission rules in their own fields.' },
+    profession: identityParameters.profession,
     llm_provider: { type: 'string', description: 'Optional member LLM provider override.' },
     model: { type: 'string', description: 'Optional member model override.' },
     deny_tools: { type: 'array', items: { type: 'string' }, description: 'Optional deny-only tool narrowing.' },
@@ -48,7 +48,7 @@ const PLAN_TASK_SCHEMA = {
 export function registerSetPlanTool(ctx: Context, runtime: AgentSwarmRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_set_plan',
-    description: 'Main Brain only. Store a staged plan: include each member initial display name, profession, working personality, biography and pixel avatar, plus optional routes/deny lists and a dependency-aware task graph. The Captain audits missing profiles and members can complete their own. Revises the draft atomically with expected_revision CAS; the Team stays staged.',
+    description: 'Main Brain only. Store recruitment addresses, Team duties and professions, optional routes/deny lists, and a dependency-aware task graph. Each member later chooses its own public name, personality, biography and avatar; do not prefill personal identity. Uses expected_revision CAS; the Team stays staged.',
     parameters: {
       team_id: { type: 'string', required: true },
       expected_revision: { type: 'integer', required: true },
@@ -127,5 +127,3 @@ export function registerDiscardPlanTool(ctx: Context, runtime: AgentSwarmRuntime
     },
   }), 'discard-plan tool')
 }
-
-

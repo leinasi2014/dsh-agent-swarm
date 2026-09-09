@@ -377,6 +377,7 @@ export interface SwarmReadBindingV1 {
 }
 
 export interface SwarmReadStatusV1 extends SwarmReadBindingV1 {
+  readonly communication?: SwarmHostReadProjectionV1['communication']
   readonly budget: SwarmHostReadProjectionV1['budget']
   readonly totals: SwarmHostReadProjectionV1['totals']
   readonly truncated: SwarmHostReadProjectionV1['truncated']

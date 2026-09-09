@@ -245,12 +245,14 @@ describe('DSH rc.8 composition', () => {
     }
   }, 10_000)
 
-  it('agent_swarm_add_member persists a Captain-authored identity profile and rejects unsafe avatars', async () => {
+  it('recruits expertise, persists a member-authored identity and rejects unsafe avatars', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-identity-'))
     roots.push(sandbox)
     const workspace = join(sandbox, 'workspace')
     const ctx = new Context()
     const fibers: Fiber[] = []
+    let releaseMember!: () => void
+    const memberGate = new Promise<void>(resolve => { releaseMember = resolve })
 
     try {
       fibers.push(await mountDurableStack(ctx, join(sandbox, 'storage'), join(sandbox, 'sessions', 'sessions.db')))
@@ -261,7 +263,10 @@ describe('DSH rc.8 composition', () => {
         memberProvider: 'spawn', memberMaxDepth: 1,
         schedulerProvider: 'test-scheduler', reviewProvider: 'test-review',
       }))
-      ctx.llm.registerAdapter(['mock'], new ScriptedAdapter([textResponse('Member ready.')]))
+      const adapter = new ScriptedAdapter([textResponse('Member ready.')])
+      const stream = adapter.stream.bind(adapter)
+      vi.spyOn(adapter, 'stream').mockImplementation(async function* (options) { await memberGate; yield* stream(options) })
+      ctx.llm.registerAdapter(['mock'], adapter)
       const lead = await ctx.agentLoop.create(
         SessionId('identity-lead'),
         { provider: 'mock', model: 'mock' },
@@ -274,11 +279,19 @@ describe('DSH rc.8 composition', () => {
 
       const added = await successfulTool(ctx, lead, 'identity-add', 'agent_swarm_add_member', {
         name: 'painter', role: 'artist',
-        display_name: 'Pixel Painter', profession: 'Avatar artist', personality: 'Careful, meticulous',
-        pixel_avatar_svg: '<svg viewBox="0 0 16 16"><rect x="0" y="0" width="8" height="8" fill="#2a3"/></svg>',
+        profession: 'Avatar artist',
       }) as { session_id: string; phase: string }
       expect(added.phase).toBe('active')
 
+      const painter = ctx.agents.get(SessionId(added.session_id))!
+      const initial = await ctx.agentSwarm.domain.snapshot(workspace, AgentSwarm.TeamId(created.team_id), lead.id)
+      await successfulTool(ctx, painter, 'identity-self', 'agent_swarm_set_member_profile', {
+        name: 'painter', expected_revision: initial.team.revision, display_name: 'Pixel Painter', personality: 'Careful, meticulous', biography: 'Explores color and form.',
+      })
+      const introduced = await successfulTool(ctx, painter, 'identity-self-read', 'agent_swarm_list_members', {}) as { revision: number }
+      await successfulTool(ctx, painter, 'identity-avatar', 'agent_swarm_set_member_profile', {
+        name: 'painter', expected_revision: introduced.revision, pixel_avatar_svg: '<svg viewBox="0 0 16 16"><rect x="0" y="0" width="8" height="8" fill="#2a3"/></svg>',
+      })
       const snapshot = await ctx.agentSwarm.domain.snapshot(workspace, AgentSwarm.TeamId(created.team_id), lead.id)
       expect(snapshot.team.members[0]).toMatchObject({
         name: 'painter', displayName: 'Pixel Painter', profession: 'Avatar artist',
@@ -292,7 +305,7 @@ describe('DSH rc.8 composition', () => {
       const plain = updated.team.members.find(member => member.name === 'plain')
       expect(plain?.displayName).toBeUndefined()
       expect(plain?.pixelAvatarSvg).toBeUndefined()
-      await successfulTool(ctx, lead, 'identity-backfill', 'agent_swarm_set_member_profile', {
+      await successfulTool(ctx, painter, 'identity-backfill', 'agent_swarm_set_member_profile', {
         name: 'painter', expected_revision: updated.team.revision, display_name: 'Revised Painter', biography: 'Checks reference details.',
       })
       const backfilled = await ctx.agentSwarm.domain.snapshot(workspace, AgentSwarm.TeamId(created.team_id), lead.id)
@@ -312,6 +325,7 @@ describe('DSH rc.8 composition', () => {
       const rejected = await ctx.agentSwarm.domain.snapshot(workspace, AgentSwarm.TeamId(created.team_id), lead.id)
       expect(rejected.team.members.find(member => member.name === 'evil')).toBeUndefined()
     } finally {
+      releaseMember()
       for (const fiber of fibers.toReversed()) await fiber.dispose()
     }
   }, 15_000)
@@ -351,9 +365,11 @@ describe('DSH rc.8 composition', () => {
 
       // Captain sets the profile (expected_revision CAS) and publishes.
       const s0 = await ctx.agentSwarm.domain.snapshot(workspace, teamId, lead.id)
-      const setResult = await successfulTool(ctx, lead, 'ct-set', 'agent_swarm_set_captain_profile', {
-        expected_revision: s0.team.revision,
-        display_name: 'Cap', profession: 'Coordinator', personality: 'Steady',
+      const introduction = await successfulTool(ctx, lead, 'ct-set', 'agent_swarm_set_captain_profile', {
+        expected_revision: s0.team.revision, display_name: 'Cap', profession: 'Coordinator', personality: 'Steady', biography: 'Coordinates reviews.',
+      }) as { revision: number }
+      const setResult = await successfulTool(ctx, lead, 'ct-avatar', 'agent_swarm_set_captain_profile', {
+        expected_revision: introduction.revision,
         pixel_avatar_svg: '<svg viewBox="0 0 16 16"><rect x="0" y="0" width="8" height="8" fill="#2a3"/></svg>',
       }) as { revision: number }
       const s1 = await ctx.agentSwarm.domain.snapshot(workspace, teamId, lead.id)

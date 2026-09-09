@@ -9,6 +9,7 @@ import { TEAM_DASHBOARD_NS } from './team-dashboard-locales.js'
 import { SafePixelAvatar } from './SafePixelAvatar.js'
 import { TaskDag } from './team-task-dag.js'
 import { TeamDashboardCards, teamCardsCss } from './team-dashboard-cards.js'
+import type { TeamCommunicationChoice } from './TeamCommunicationControl.js'
 
 import { ManageView, DetailView } from './team-dashboard-detail-content.js'
 import { NOT_GENERATED_AVATAR, deriveMemberActivity, deriveMemberTone, memberAssetOf, formatTime, toneLabel, enumLabel, taskProgressState, type TaskProgressState, type DetailSelection, type DeskTone } from './team-dashboard-view-helpers.js'
@@ -93,6 +94,7 @@ export const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace__field-list { display:grid; grid-template-columns:84px minmax(0,1fr); gap:10px 12px; margin:0; font-size:12px; line-height:1.65; }
 [data-swarm-team-dashboard] .swarm-team-workspace__field-list dt { min-width:0; color:var(--dsw-alias-label-secondary); }
 [data-swarm-team-dashboard] .swarm-team-workspace__field-list dd { margin:0; min-width:0; overflow-wrap:anywhere; }
+[data-swarm-team-dashboard] [data-swarm-detail-profile] .swarm-team-workspace__field-list dd { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
 [data-swarm-team-dashboard] .swarm-team-workspace__unavailable { color:var(--dsw-alias-label-secondary); }
 [data-swarm-team-dashboard] .swarm-team-workspace__contact-note { margin:0; padding:8px; border:1px dashed var(--dsw-alias-border-l2); border-radius:9px; color:var(--dsw-alias-label-secondary); font-size:12px; }
 [data-swarm-team-dashboard] .swarm-team-workspace__identity-head { display:grid; grid-template-columns:40px minmax(0,1fr); align-items:center; gap:10px; margin-bottom:10px; min-width:0; }
@@ -144,7 +146,7 @@ export const shellCss = `
 ${teamCardsCss}
 `
 
-/** The sole Team UI is a read-only projection in the official Details column. */
+/** Team data stays read-only; explicit user requests use the official Captain inbox. */
 export function TeamDashboardContent({ controller, coordinator, descriptionId, headingId, localeTag, state, t }: {
   readonly controller: TeamDashboardController
   readonly coordinator: TeamDashboardSurfaceCoordinator
@@ -165,7 +167,7 @@ export function TeamDashboardContent({ controller, coordinator, descriptionId, h
     <style>{shellCss}</style>
     {data === undefined
       ? <Empty state={state} controller={controller} t={t} />
-      : <TeamDashboardCards key={state.targetSessionId} state={state} headingId={headingId} descriptionId={descriptionId} t={t}
+      : <TeamDashboardCards state={state} headingId={headingId} descriptionId={descriptionId} t={t}
           onSelectTeam={teamId => { controller.selectTeam(teamId) }}
           onMainChat={() => { void coordinator.openMainChat().catch(() => {}) }}
           onClose={() => { coordinator.closeAndRestoreFocus() }}>
@@ -180,6 +182,7 @@ export function TeamDashboardContent({ controller, coordinator, descriptionId, h
         diagnostics={state.data?.captainDiagnostics}
         memberAssets={state.data?.captainMembers}
         onCaptainSession={handoff}
+        onCommunication={choice => coordinator.requestCommunication(choice)}
         onMemberSession={(name, sessionId) => { void coordinator.openMemberChat(name, sessionId).catch(() => {}) }}
         onClose={() => { coordinator.closeAndRestoreFocus() }}
       /></TeamDashboardCards>}
@@ -207,7 +210,7 @@ function Empty({ state, controller, t }: { readonly state: TeamDashboardState; r
   </section>
 }
 
-function Workspace({ data, handoffBusy, localeTag, state, t, teams, announcements, diagnostics, memberAssets, onCaptainSession, onMemberSession, onClose }: {
+function Workspace({ data, handoffBusy, localeTag, state, t, teams, announcements, diagnostics, memberAssets, onCaptainSession, onCommunication, onMemberSession, onClose }: {
   readonly data: SwarmHostReadProjectionV1
   readonly handoffBusy: boolean
   readonly localeTag: () => 'zh-CN' | 'en-US'
@@ -218,6 +221,7 @@ function Workspace({ data, handoffBusy, localeTag, state, t, teams, announcement
   readonly diagnostics: SwarmReadCaptainDiagnosticsV1 | undefined
   readonly memberAssets: SwarmReadCaptainMembersV1 | undefined
   readonly onCaptainSession: () => void
+  readonly onCommunication: (choice: TeamCommunicationChoice) => Promise<void>
   readonly onMemberSession: (name: string, sessionId: string) => void
   readonly onClose: () => void
 }) {
@@ -514,7 +518,7 @@ function Workspace({ data, handoffBusy, localeTag, state, t, teams, announcement
                 </section>}
         </div>}
         {view === 'manage' && <div role="tabpanel" id="swarm-panel-manage" aria-labelledby="swarm-tab-manage" data-swarm-panel="manage">
-          <ManageView data={data} memberAssets={memberAssets} hasCaptain={hasCaptain} number={number} onManageViaCaptain={onCaptainSession} onOpenDetail={openDetail} t={t} />
+          <ManageView data={data} memberAssets={memberAssets} hasCaptain={hasCaptain} number={number} onManageViaCaptain={onCaptainSession} onCommunication={onCommunication} communicationDisabled={state.phase !== 'ready'} onOpenDetail={openDetail} t={t} />
         </div>}
       </main>
       </div>

@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   TeamSkillSettingsCard,
   teamSkillSettingsEn,
+  teamSkillSettingsZh,
   type TeamPluginSettings,
   type TeamSettingsCatalog,
   type TeamSkillSettingsProps,
@@ -171,6 +172,73 @@ afterEach(async () => {
 })
 
 describe('TeamSkillSettingsCard', () => {
+  it('defaults communication intensity to Active and explains the wakeup allowance', async () => {
+    const scope = new TestScope()
+    await render(card(scope))
+    await openSettings()
+
+    const control = labeledControl<HTMLSelectElement>('Default communication intensity')
+    expect(control.value).toBe('active')
+    expect([...control.options].map(option => [option.value, option.text])).toEqual([
+      ['quiet', 'Quiet'], ['balanced', 'Balanced'], ['active', 'Active'],
+    ])
+    expect(document.body.textContent).toContain('1 / 4 / 12 proactive peer wakeups per minute')
+    expect(document.body.textContent).toContain('Excess messages queue quietly; no resend is needed.')
+    expect(document.body.textContent).toContain('The first valid reply is exempt from this allowance.')
+    expect(document.body.textContent).toContain('Captain-to-member and member-to-Captain communication and task submissions are exempt.')
+    expect(document.body.textContent).toContain('The Captain assigns only the profession and responsibilities.')
+    expect(document.body.textContent).toContain('Members choose their own name, personality and biography.')
+    expect(document.body.textContent).toContain('Save and read back the four text fields before creating')
+    expect(scope.writes).toEqual([])
+  })
+
+  it.each(['quiet', 'balanced', 'active'] as const)('saves and reads back %s communication intensity after remount', async intensity => {
+    const scope = new TestScope({ communicationIntensity: intensity === 'quiet' ? 'balanced' : 'quiet' })
+    await render(card(scope))
+    await openSettings()
+    await changeValue(labeledControl<HTMLSelectElement>('Default communication intensity'), intensity)
+    await click(button('Save plugin settings'))
+    await flush()
+
+    expect(scope.writes).toEqual([{ op: 'set', field: 'communicationIntensity', value: intensity }])
+    expect(scope.getSnapshot().user).toMatchObject({ communicationIntensity: intensity })
+    expect(document.querySelector('[role="status"]')?.textContent).toContain('Saved. Restart DSH after saving')
+    await act(async () => { mounted.pop()?.unmount() })
+    document.body.replaceChildren()
+    await render(card(scope))
+    await openSettings()
+    expect(labeledControl<HTMLSelectElement>('Default communication intensity').value).toBe(intensity)
+    expect(scope.writes).toHaveLength(1)
+  })
+
+  it('keeps a communication draft when the Host does not read back its write', async () => {
+    const scope = new TestScope({}, false)
+    await render(card(scope))
+    await openSettings()
+    await changeValue(labeledControl<HTMLSelectElement>('Default communication intensity'), 'quiet')
+    await click(button('Save plugin settings'))
+    await flush()
+    expect(scope.writes).toEqual([{ op: 'set', field: 'communicationIntensity', value: 'quiet' }])
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('DSH did not accept the complete configuration')
+    expect(document.body.textContent).not.toContain('Saved. Restart DSH')
+    expect(labeledControl<HTMLSelectElement>('Default communication intensity').value).toBe('quiet')
+    expect(button('Save plugin settings').disabled).toBe(false)
+  })
+
+  it('renders Chinese communication choices and member-owned identity guidance', async () => {
+    const props = { scope: new TestScope(), catalog, t: (key: keyof typeof teamSkillSettingsZh) => teamSkillSettingsZh[key] } as TeamSkillSettingsProps
+    await render(<TeamSkillSettingsCard {...props} />)
+    await openSettings()
+    expect([...labeledControl<HTMLSelectElement>('默认通信强度').options].map(option => option.text)).toEqual(['安静', '适中', '积极'])
+    expect(document.body.textContent).toContain('每名成员每分钟分别可主动唤醒同伴 1 / 4 / 12 次')
+    expect(document.body.textContent).toContain('超额消息安静排队，无需重发')
+    expect(document.body.textContent).toContain('首次合法回复不受该额度限制')
+    expect(document.body.textContent).toContain('队长上下行通信和任务提交不受限')
+    expect(document.body.textContent).toContain('队长只指定职业与职责')
+    expect(document.body.textContent).toContain('成员自行决定姓名、性格和简介')
+    expect(document.body.textContent).toContain('先保存并读回四项文字资料，最后按喜好生成')
+  })
+
   it('presents Agent Swarm as one plugin entry with five complete configuration groups', async () => {
     await render(card(new TestScope()))
 

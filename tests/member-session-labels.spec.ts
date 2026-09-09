@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SIGNAL, mountNodeComposition } from './helpers/node-composition.js'
@@ -12,7 +13,7 @@ describe('issue #148: official continuable session labels', () => {
     await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })))
   })
 
-  it('uses readable Team and member identities, with the internal name only as a fallback', async () => {
+  it('keeps official labels as creation facts while members choose their public names', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-label-'))
     roots.push(sandbox)
     const stack = await mountNodeComposition(sandbox)
@@ -31,7 +32,7 @@ describe('issue #148: official continuable session labels', () => {
         signal: SIGNAL,
         callId: ToolCallId('label-add-display'),
         name: 'agent_swarm_add_member',
-        arguments: { name: 'worker-internal', role: 'Reader', display_name: 'Worker Readable' },
+        arguments: { name: 'worker-internal', role: 'Reader' },
         agent: stack.lead,
       })
       const withoutDisplay = await stack.ctx.tools.execute({
@@ -45,7 +46,14 @@ describe('issue #148: official continuable session labels', () => {
       expect(withoutDisplay.isError).toBe(false)
 
       const labels = start.mock.calls.map(call => (call[0] as { label: string }).label)
-      expect(labels).toContain('Label Team · Worker Readable')
+      expect(labels).toContain('Label Team · worker-internal')
+      const member = stack.ctx.agents.get(SessionId((withDisplay.value as { session_id: string }).session_id))!
+      const membership = await stack.domain.requireMembership(stack.scope, member.id)
+      const chosen = await stack.ctx.tools.execute({ signal: SIGNAL, callId: ToolCallId('self-name'), name: 'agent_swarm_set_member_profile', agent: member,
+        arguments: { name: 'worker-internal', expected_revision: membership.team.revision, display_name: 'Worker Readable' } })
+      expect(chosen.isError).toBe(false)
+      expect((await stack.domain.requireMembership(stack.scope, member.id)).team.members[0]?.displayName).toBe('Worker Readable')
+      expect(start.mock.calls[0]?.[0].label).toBe('Label Team · worker-internal')
       expect(labels).toContain('Label Team · plain-worker')
       expect(labels.some(label => label.startsWith('agent-swarm:'))).toBe(false)
     } finally {

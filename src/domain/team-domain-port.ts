@@ -15,6 +15,7 @@ import type {
   TaskId,
   TeamAnnouncement,
   TeamBudget,
+  TeamCommunicationIntensity,
   TeamId,
   TeamMember,
   TeamMemoryCategory,
@@ -335,7 +336,9 @@ export interface TeamDomainPort {
     delivery: TeamMessageDelivery,
     causal?: TeamMessageCausal,
     supersedes?: TeamMessage['supersedes'],
+    replyTo?: TeamMessage['replyTo'],
   ): Promise<TeamMessage>
+  setCommunication(scope: TeamScope, teamId: TeamId, captainSessionId: string, expectedRevision: number, intensity: TeamCommunicationIntensity | undefined): Promise<TeamState>
   /**
    * Settle one queued message terminal as obsolete with its admission reason
    * (mail-obsolescence). Idempotent for already-obsolete/delivered rows;
@@ -421,5 +424,4 @@ export interface TeamDomainPort {
     signal: AbortSignal,
   ): Promise<TeamStatusSnapshot>
 }
-
 

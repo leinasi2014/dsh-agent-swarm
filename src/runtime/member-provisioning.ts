@@ -25,7 +25,7 @@ import { foldSubagentDescriptor, SubagentError, type SubagentListEntry } from '@
 import { TeamDomainError } from '../domain/error.js'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import type { TeamId, TeamState, TeamMember, TeamMembership } from '../domain/types.js'
-import { normalizeMemberAssignedSkills, type MemberIdentityInput } from '../domain/identity-profile.js'
+import { assertRecruitmentIdentity, normalizeMemberAssignedSkills, type MemberIdentityInput } from '../domain/identity-profile.js'
 import { requireAgent, type ToolExecutionAuthority } from './authority.js'
 import type { RuntimeConfig } from './orchestrator-runtime.js'
 import { memberJoinNotice, memberPersona } from './prompts.js'
@@ -128,6 +128,7 @@ export class MemberProvisioner {
     const scope = this.deps.scopeOf(captain)
     const membership = await this.deps.domain().requireMembership(scope, captain.id)
     if (membership.role !== 'captain') throw new TeamDomainError('only the captain can add members', 'TEAM_CAPTAIN_REQUIRED')
+    if (input.retryOf === undefined) assertRecruitmentIdentity(input)
 
       const providerName = input.provider ?? this.deps.config.memberProvider
       const provider = this.ctx.subagents.getProvider(providerName)
@@ -222,12 +223,7 @@ export class MemberProvisioner {
             request: {
               prompt: [{ type: 'text', text: memberJoinNotice(membership.team) }],
               parent: captain,
-              persona: memberPersona(membership.team, provisioning.name, provisioning.role, provisioning.assignedSkills, {
-                ...(provisioning.displayName === undefined ? {} : { displayName: provisioning.displayName }),
-                ...(provisioning.profession === undefined ? {} : { profession: provisioning.profession }),
-                ...(provisioning.personality === undefined ? {} : { personality: provisioning.personality }),
-                ...(provisioning.biography === undefined ? {} : { biography: provisioning.biography }),
-              }),
+              persona: memberPersona(membership.team, provisioning.name, provisioning.role, provisioning.assignedSkills),
               // M1A static baseline plus the F17 deny-only narrowing declaration
               // (`deny_tools`); the union is monotone — captain-only tools stay
               // mandatorily denied and no allow surface exists.

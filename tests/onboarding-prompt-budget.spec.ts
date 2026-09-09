@@ -2,6 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import { renderPrompt, renderContextSnapshot } from '@deepseek-ai/dsh-system-prompt'
 import { assembleContextFor } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { expect, it, vi } from 'vitest'
@@ -54,8 +55,11 @@ it('bounds the actual managed Captain/member onboarding and compiled tool surfac
       expect(tool.output?.schema).toBeDefined()
       return JSON.stringify({ name: tool.name, description: tool.description, parameters: tool.parameters, output: tool.output?.schema })
     })
-    const captainText = `${AGENT_SWARM_USAGE_PROMPT}\n${captainPersona}\n${captainNotice}`
-    const memberText = `${AGENT_SWARM_USAGE_PROMPT}\n${memberPersona}\n${memberNotice}`
+    const captainAssembly = await mounted.ctx.systemPrompt.assemble(assembleContextFor(captain))
+    const member = mounted.ctx.agents.get(SessionId((added.value as { session_id: string }).session_id))!
+    const memberAssembly = await mounted.ctx.systemPrompt.assemble(assembleContextFor(member))
+    const captainText = `${renderPrompt(captainAssembly)}\n${renderContextSnapshot(captainAssembly)}\n${captainNotice}`
+    const memberText = `${renderPrompt(memberAssembly)}\n${renderContextSnapshot(memberAssembly)}\n${memberNotice}`
     const report = {
       global: measure(AGENT_SWARM_USAGE_PROMPT), captainPersona: measure(captainPersona), captainNotice: measure(captainNotice),
       memberPersona: measure(memberPersona), memberNotice: measure(memberNotice),
@@ -71,16 +75,16 @@ it('bounds the actual managed Captain/member onboarding and compiled tool surfac
     // #221 adds the shared, usable 32x32 palette/rows input to two measured tools.
     expect.soft(report.schemasTotal.bytes).toBeLessThanOrEqual(6500)
     expect.soft(captainText).not.toMatch(/Chinese display|until the profile succeeds|After (?:your Captain |the )profile succeeds|stop dependent recruitment/)
-    expect.soft(captainPersona).toContain('optional')
-    expect.soft(captainPersona).toContain("user's language")
-    expect.soft(captainPersona).toContain('continue')
+    expect.soft(captainText).toContain('optional')
+    expect.soft(captainText).toContain("user's language")
+    expect.soft(captainText).toContain('continue')
     expect.soft(memberText).not.toContain('agent_swarm_add_member')
     expect.soft(memberText).not.toContain('agent_swarm_review_task')
     expect.soft(memberText).not.toContain('agent_swarm_interrupt_member')
     expect.soft(schemaTexts.join('\n')).toContain('32x32')
     expect.soft(schemaTexts.join('\n')).toContain('#RRGGBB')
     const selfProfile = JSON.stringify(mounted.ctx.tools.get('agent_swarm_set_member_profile')!.parameters)
-    for (const surface of [captainPersona, memberPersona, ...schemaTexts.slice(1), selfProfile]) {
+    for (const surface of [captainText, memberText, schemaTexts[2]!, selfProfile]) {
       expect.soft(surface).toContain('animals, objects or abstract designs')
       expect.soft(surface).not.toMatch(/Draw hair|eyes, clothing|pixel portrait/)
     }

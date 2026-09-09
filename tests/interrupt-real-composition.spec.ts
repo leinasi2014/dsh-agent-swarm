@@ -1,3 +1,4 @@
+import { latestUserText } from './helpers/model-input.js'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -33,10 +34,7 @@ class Adapter extends LlmAdapter {
   wakeups = 0
   open(): void { this.opened = true; this.openFn() }
   override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> { return Promise.resolve({ provider, id: model, name: model }) }
-  private text(options: GenerateOptions): string {
-    const message = options.messages.toReversed().find(candidate => candidate.role === 'user')
-    return message?.content.filter((block): block is Extract<typeof block, { type: 'text' }> => block.type === 'text').map(block => block.text).join('\n') ?? ''
-  }
+
   private async wait(signal: AbortSignal | undefined): Promise<void> {
     if (this.opened) return
     await new Promise<void>((resolve, reject) => {
@@ -47,7 +45,7 @@ class Adapter extends LlmAdapter {
     })
   }
   override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    const text = this.text(options)
+    const text = latestUserText(options)
     await this.wait(options.signal)
     if (!this.hung && text.includes('Team assignment from captain.')) {
       this.hung = true

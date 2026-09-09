@@ -6,7 +6,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Domain } from '@deepseek-ai/dsh-storage-domain'
 import type {} from '@deepseek-ai/dsh-subagent'
-import type { TaskAttempt, TeamAnnouncement, TeamId, TeamMessage, TeamMessageCausal, TeamPlanDraft, TeamState, TeamStatusSnapshot, TeamTask } from '../domain/types.js'
+import type { TaskAttempt, TeamAnnouncement, TeamCommunicationIntensity, TeamId, TeamMessage, TeamMessageCausal, TeamPlanDraft, TeamState, TeamStatusSnapshot, TeamTask } from '../domain/types.js'
 import { TeamDomain } from '../domain/team-domain.js'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import { TeamDomainError } from '../domain/error.js'
@@ -181,7 +181,7 @@ export class AgentSwarmRuntime extends Service {
       const store = new StorageDomainTeamStore(this.ctx, handle)
       this.domainHandle = handle
       this.storeInstance = store
-      this.domainInstance = new TeamDomain(store, this.config.limits)
+      this.domainInstance = new TeamDomain(store, this.config.limits, Date.now, this.config.communicationIntensity)
       // After a service restart the transient in-memory ownedChildren map is
       // empty, so the read-only enumeration/binding of Main Brain → dedicated
       // Captain → Team has no root→Captain edge until a Captain turns again.
@@ -421,13 +421,14 @@ export class AgentSwarmRuntime extends Service {
   async sendMessage(
     exec: ToolExecutionAuthority, target: string, content: string,
     delivery: 'quiet' | 'wakeup', causal?: TeamMessageCausal, supersedes?: TeamMessage['supersedes'],
+    replyTo?: TeamMessage['replyTo'],
   ): Promise<TeamMessage> {
-    return await this.mutations.sendMessage(exec, target, content, delivery, causal, supersedes)
+    return await this.mutations.sendMessage(exec, target, content, delivery, causal, supersedes, replyTo)
   }
 
-  async status(exec: ToolExecutionAuthority) {
-    return await status(this.waitDeps(), exec)
-  }
+  setCommunication(exec: ToolExecutionAuthority, revision: number, intensity: TeamCommunicationIntensity | undefined) { return this.mutations.setCommunication(exec, revision, intensity) }
+
+  status(exec: ToolExecutionAuthority) { return status(this.waitDeps(), exec) }
 
   /** Read durable roster composition; never resumes or repairs a child. */
   async listMemberProfiles(exec: ToolExecutionAuthority, input: { phase?: TeamState['members'][number]['phase']; cursor: number; limit: number }) {
@@ -528,9 +529,7 @@ export class AgentSwarmRuntime extends Service {
    * idle, `stranded=owner-not-live` when it is cold. Never mutates
    * authoritative state — decisions in docs/04 §8c.
    */
-  strandedEvidence(task: TeamTask): string {
-    return this.schedulingPass.strandedEvidence(task)
-  }
+  strandedEvidence(task: TeamTask): string { return this.schedulingPass.strandedEvidence(task) }
 
   private trackChild(captain: Agent, childId: string): void {
     const children = this.ownedChildren.get(captain.id) ?? new Set<string>()

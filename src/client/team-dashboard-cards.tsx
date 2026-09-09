@@ -45,14 +45,15 @@ export function TeamDashboardCards({ state, headingId, descriptionId, onSelectTe
   }, [boundId, pending])
   const expandedId = expanded !== null && !teams.some(team => team.teamId === expanded) ? boundId : expanded
   const binding = data.teams.binding
-  const currentTeamId = binding.currentTeamId
-    ?? teams.find(team => team.captainSessionId === state.targetSessionId)?.teamId
+  const currentBinding = binding.rootSessionId === state.targetSessionId ? binding : undefined
+  const currentTeamId = teams.find(team => team.captainSessionId === state.targetSessionId)?.teamId
     ?? (data.captainMembers?.members.some(member => member.sessionId === state.targetSessionId) ? boundId : undefined)
+    ?? currentBinding?.currentTeamId
   const currentTeam = teams.find(team => team.teamId === currentTeamId)
   const currentMember = data.captainMembers?.members.find(member => member.sessionId === state.targetSessionId)
   const currentName = currentMember?.displayName ?? currentMember?.name
-    ?? binding.currentMemberName
     ?? (currentTeam !== undefined && currentTeam.captainSessionId === state.targetSessionId ? currentTeam.displayName : undefined)
+    ?? currentBinding?.currentMemberName
   const mainName = binding.mainSessionTitle ?? t('mainBrainCaption')
   const mainAvailable = binding.mainSessionId !== undefined && binding.mainSessionId !== state.targetSessionId
   const toggle = (teamId: string): void => {

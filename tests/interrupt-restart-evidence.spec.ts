@@ -1,3 +1,4 @@
+import { latestUserText } from './helpers/model-input.js'
 import { readPersistedSession } from '../src/runtime/persisted-session.js'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 import { deliverSubagentPrompt, type HostPromptDeliverer } from '@deepseek-ai/dsh-subagent/internal'
@@ -48,16 +49,10 @@ class HangingAdapter extends LlmAdapter {
     return Promise.resolve({ provider, id: model, name: model })
   }
 
-  private latestText(options: GenerateOptions): string {
-    const latest = options.messages.toReversed().find(message => message.role === 'user')
-    return latest?.content
-      .filter((block): block is Extract<typeof block, { type: 'text' }> => block.type === 'text')
-      .map(block => block.text)
-      .join('\n') ?? ''
-  }
+
 
   override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    if (this.latestText(options).includes(this.trigger)) {
+    if (latestUserText(options).includes(this.trigger)) {
       const id = ToolCallId(this.callId)
       yield { type: 'block-start', index: 0, blockType: 'tool-call' }
       yield { type: 'tool-call-delta', index: 0, id, name: HANG, argumentsDelta: '{}' }

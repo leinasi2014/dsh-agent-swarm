@@ -9,6 +9,38 @@ vi.mock('../src/client/TeamDashboardDetails.js', () => ({ TeamDashboardDetails: 
 import { CURSOR, binding, tasks, attempts, interactions, snapshot, teams, announcements, captainDiagnostics, captainMembers, ManualSchedule, success, requestOf, goodFetch, waitFor } from './helpers/dashboard-controller.js'
 
 describe('TeamDashboardController', () => {
+  it('keeps the verified Team visible while switching between its Chats, but clears it for an unrelated Session', async () => {
+    const normal = goodFetch([])
+    let release: (() => void) | undefined
+    let delayedSignal: AbortSignal | null | undefined
+    const controller = new TeamDashboardController(new SwarmReadClient(async (input, init) => {
+      const request = requestOf(init)
+      if (request.method === 'teams' && request.target.rootSessionId === 'member-1') {
+        delayedSignal = init?.signal
+        await new Promise<void>(resolve => { release = resolve })
+      }
+      if (request.method === 'captainMembers') return success({ ...captainMembers, members: [{ ...captainMembers.members[0], sessionId: 'member-1' }] })
+      return await normal(input, init)
+    }), new ManualSchedule())
+    controller.open('root-1')
+    await waitFor(() => controller.getSnapshot().phase === 'ready')
+    const verified = controller.getSnapshot().data
+    controller.open('member-1')
+    expect(controller.getSnapshot()).toMatchObject({ phase: 'ready', targetSessionId: 'member-1' })
+    expect(controller.getSnapshot().data).toBe(verified)
+    await waitFor(() => release !== undefined)
+    controller.open('root-1')
+    expect(controller.getSnapshot().data).toBe(verified)
+    expect(delayedSignal?.aborted).toBe(true)
+    release!()
+    await waitFor(() => controller.getSnapshot().phase === 'ready')
+    expect(controller.getSnapshot().targetSessionId).toBe('root-1')
+    controller.open('unrelated-root')
+    expect(controller.getSnapshot().data).toBeUndefined()
+    expect(controller.getSnapshot().phase).toBe('loading')
+    controller.dispose()
+  })
+
   it('selects a fresh child Chat’s own Team, keeps explicit card selection, and cancels a pending switch back (#225)', async () => {
     const normal = goodFetch([])
     let currentTeamId = 'team-2'

@@ -1,3 +1,5 @@
+import type { Domain } from '@deepseek-ai/dsh-storage-domain'
+import { teamDomainSpec } from '../src/storage/team-spec.js'
 import { readPersistedSession } from '../src/runtime/persisted-session.js'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -68,10 +70,13 @@ async function setup(config = {}) { const stack = await mount(config); stacks.pu
 afterEach(async () => { for (const stack of stacks.splice(0)) await stack.dispose() })
 
 async function failFirst(stack: Stack) {
-  const result = await stack.call({ name: 'worker', role: 'Implement', display_name: 'Lin', model: 'startup-fail' })
+  const result = await stack.call({ name: 'worker', role: 'Implement', model: 'startup-fail' })
   expect(result.isError, JSON.stringify(result.error)).toBe(false)
   const sessionId = (result.value as { session_id: string }).session_id
   await vi.waitFor(async () => expect((await stack.snapshot()).team.members[0]?.phase).toBe('failed'))
+  // Imported legacy identity must survive retry, although new recruitment cannot author it.
+  const storage = stack.ctx.storageDomain.get('agent_swarm')! as unknown as Domain<typeof teamDomainSpec>
+  await storage.table('teams').update(stack.teamId, record => ({ ...record, team: { ...record.team, members: record.team.members.map(member => ({ ...member, displayName: 'Lin' })) } }))
   const stored = await readPersistedSession(stack.ctx.sessionPersistence, SessionId(sessionId), signal)
   expect(stored.events.some(event => event.type === 'turn/end' && event.data.reason.kind === 'error')).toBe(true)
   return sessionId
