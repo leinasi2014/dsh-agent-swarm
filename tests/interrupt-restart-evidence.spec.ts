@@ -200,6 +200,11 @@ describe('restart isolation for model interrupt evidence', () => {
     const interrupt = vi.spyOn(second.ctx.subagents, 'interrupt').mockImplementation((id, authority) => realInterrupt(id, authority))
     const realResume = second.ctx.agents.resume.bind(second.ctx.agents)
     const resume = vi.spyOn(second.ctx.agents, 'resume').mockImplementation(options => realResume(options))
+    // Advance beyond the durable call's timeout, then hold the clock across
+    // real cold-resume and persistence I/O. Runner load must not age the new
+    // call beyond the boundary before the rejection assertion can execute.
+    const resumedAt = Math.max(Date.now(), oldCall.time + TIMEOUT)
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(resumedAt)
     try {
       // A cold member has only persisted pre-restart history. Even though that
       // history contained an open tool at the crash point, it has no live
@@ -227,14 +232,17 @@ describe('restart isolation for model interrupt evidence', () => {
         expect(second.latch.starts).toBe(1)
       }, { timeout: 8_000, interval: 10 })
 
-      // The first call occurs after the cold resume, but before the exact
-      // Host-declared timeout. The old durable call cannot help it pass.
+      expect(resumedCall.time).toBe(resumedAt)
+      expect(resumedAt - oldCall.time).toBeGreaterThanOrEqual(TIMEOUT)
+      // Only the actual resumed call's age changes here. The old durable
+      // call is overdue but cannot help the live suffix pass one ms early.
+      clock.mockReturnValue(resumedAt + TIMEOUT - 1)
       expect(await second.tool('too-early', 'agent_swarm_interrupt_member', { name: 'worker' })).toMatchObject({
         isError: true, error: { info: { code: 'TEAM_INTERRUPT_EVIDENCE_REQUIRED' } },
       })
       expect(interrupt).not.toHaveBeenCalled()
 
-      await vi.waitFor(() => expect(Date.now() - resumedCall.time).toBeGreaterThanOrEqual(TIMEOUT), { timeout: 8_000, interval: 10 })
+      clock.mockReturnValue(resumedAt + TIMEOUT)
       const admitted = await second.tool('overdue', 'agent_swarm_interrupt_member', { name: 'worker' })
       expect(admitted.value).toEqual({
         name: 'worker', previous_status: 'running', evidence_kind: 'host-confirmed-tool-timeout',
@@ -245,6 +253,7 @@ describe('restart isolation for model interrupt evidence', () => {
       second.latch.release()
       resume.mockRestore()
       interrupt.mockRestore()
+      clock.mockRestore()
     }
   }, 40_000)
 })
