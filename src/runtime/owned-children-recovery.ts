@@ -21,7 +21,7 @@ export async function recoverOwnedChildrenFromPersistence(
   ctx: Context,
   deps: {
     readonly store: { readonly list: (scope: TeamScope) => Promise<TeamState[]> }
-    readonly rememberTeam: (team: TeamState) => void
+    readonly rememberTeam: (team: TeamState, scope: TeamScope) => void
   },
 ): Promise<Map<string, Set<string>>> {
   const persistence = ctx.sessionPersistence
@@ -35,20 +35,20 @@ export async function recoverOwnedChildrenFromPersistence(
   const owned = new Map<string, Set<string>>()
   const captainsByScope = new Map<TeamScope, ReadonlySet<string>>()
   for (const header of headers) {
-    if (header.parentSession === undefined || header.cwd === undefined) continue
+    if (header.cwd === undefined) continue
     const scope = resolve(header.cwd)
     let captains = captainsByScope.get(scope)
     if (captains === undefined) {
       try {
         const teams = await deps.store.list(scope)
-        for (const team of teams) deps.rememberTeam(team)
+        for (const team of teams) deps.rememberTeam(team, scope)
         captains = new Set(teams.map(team => team.captainSessionId))
       } catch {
         continue
       }
       captainsByScope.set(scope, captains)
     }
-    if (!captains.has(header.id)) continue
+    if (header.parentSession === undefined || !captains.has(header.id)) continue
     const children = owned.get(header.parentSession) ?? new Set<string>()
     children.add(header.id)
     owned.set(header.parentSession, children)

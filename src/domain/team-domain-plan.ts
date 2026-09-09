@@ -1,3 +1,4 @@
+import type { TeamModelRoute } from './types.js'
 /**
  * Plan-first staged lifecycle (P0-2 S1): durable pre-execution Team drafts.
  *
@@ -14,7 +15,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import { expectDomain, TeamDomainError } from './error.js'
-import { nonEmpty, type TeamDomainDeps } from './team-domain-shared.js'
+import { nonEmpty, normalizeTeamModelRoute, type TeamDomainDeps } from './team-domain-shared.js'
 import { TeamId, type TeamPlanDraft, type TeamState } from './types.js'
 import type { TeamScope } from './team-domain-port.js'
 import { assertRecruitmentIdentity, normalizeMemberIdentity } from './identity-profile.js'
@@ -44,6 +45,7 @@ function normalizePlanDraft(draft: TeamPlanDraft): TeamPlanDraft {
       ...normalizeMemberIdentity({ displayName: raw.displayName, profession: raw.profession, personality: raw.personality, biography: raw.biography, pixelAvatarSvg: raw.pixelAvatarSvg }),
       ...(raw?.llmProvider === undefined ? {} : { llmProvider: nonEmpty(raw.llmProvider, `plan members[${index}].llmProvider`, 128) }),
       ...(raw?.model === undefined ? {} : { model: nonEmpty(raw.model, `plan members[${index}].model`, 128) }),
+      ...(raw?.reasoningEffort === undefined ? {} : { reasoningEffort: nonEmpty(raw.reasoningEffort, `plan members[${index}].reasoningEffort`, 128) }),
       ...(raw?.denyTools === undefined ? {} : {
         denyTools: raw.denyTools.map((tool: string, toolIndex: number) => nonEmpty(tool, `plan members[${index}].denyTools[${toolIndex}]`, 128)),
       }),
@@ -86,6 +88,7 @@ export async function createStagedManaged(
   managedOrigin: string,
   name: string,
   description: string,
+  captainRoute?: TeamModelRoute,
 ): Promise<TeamState> {
   const origin = nonEmpty(managedOrigin, 'managed origin', 256)
   const timestamp = deps.now()
@@ -96,6 +99,7 @@ export async function createStagedManaged(
     name: nonEmpty(name, 'team name', 128),
     description: nonEmpty(description, 'team description', 16_384),
     captainSessionId: '',
+    ...(captainRoute === undefined ? {} : { captainRoute: normalizeTeamModelRoute(captainRoute) }),
     managedOrigin: origin,
     phase: 'staged',
     members: [],
@@ -143,6 +147,7 @@ export async function approveStagedPlan(
   teamId: TeamId,
   expectedRevision: number,
   captainSessionId: string,
+  captainRoute?: TeamModelRoute,
 ): Promise<TeamState> {
   expectDomain(Number.isSafeInteger(expectedRevision) && expectedRevision >= 1, 'expected revision is invalid', 'TEAM_INPUT_INVALID')
   const captain = nonEmpty(captainSessionId, 'captain session id', 256)
@@ -151,7 +156,7 @@ export async function approveStagedPlan(
     expectDomain(team.phase === 'staged', 'approval requires a staged Team', 'TEAM_PHASE_INVALID')
     if (team.revision !== expectedRevision) revisionConflict(expectedRevision, team.revision)
     const timestamp = deps.now()
-    Object.assign(team, { phase: 'active', captainSessionId: captain, revision: team.revision + 1, updatedAt: timestamp })
+    Object.assign(team, { ...(captainRoute === undefined ? {} : { captainRoute: normalizeTeamModelRoute(captainRoute) }), phase: 'active', captainSessionId: captain, revision: team.revision + 1, updatedAt: timestamp })
     committed = team
   })
   return structuredClone(committed)

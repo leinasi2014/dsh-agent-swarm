@@ -4,6 +4,7 @@ import type { MemberPrivateMemoryService } from '../runtime/member-private-memor
 import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
 import { registerAddMemoryTool, registerSetBudgetTool } from './budget-memory.js'
 import { registerSetCommunicationTool } from './communication.js'
+import { registerSetCaptainModelTool } from './model-selection.js'
 import { registerApprovePlanTool, registerDiscardPlanTool, registerSetPlanTool } from './plans.js'
 import { registerSendMessageTool, registerWaitTool } from './mailbox.js'
 import { registerToolApproval } from './tool-approval.js'
@@ -43,6 +44,7 @@ export function registerAgentSwarmTools(
 ): void {
   registerCreateTool(ctx, runtime)
   registerCreateManagedTool(ctx, runtime)
+  registerSetCaptainModelTool(ctx, runtime)
   registerAddMemberTool(ctx, runtime)
   registerSetCaptainProfileTool(ctx, runtime)
   registerSetMemberProfileTool(ctx, runtime)

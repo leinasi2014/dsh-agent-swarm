@@ -33,7 +33,7 @@ Main Brain 不加入 Team roster，也不获得 Captain 权限。多个 Team 的
 - `revision` CAS 与 `attemptId` fencing；陈旧提交、重复执行和越权调用明确失败。排队中的任务指令在进入模型前重新核对任务、attempt 和成员归属，已结算或失效的分配不会再次成为工作指令。
 - 官方 Storage Domain 中的 durable Team aggregate；成员、任务、attempt、邮箱、预算、公告和公共目标可跨重启恢复。
 - continuable subagent 成员、可替换 Scheduler/Review Provider、可选 Workflow bridge、Jobs 只读投影和每 attempt execution root。
-- Team 级 Skill allow-list、Captain/成员模型路由、资源上限和官方 Plugins 设置页。工具权限读取当前 Agent 的正式工具目录，可搜索并选择继承、开放、禁止或需队长批准；未加载工具的已有配置仍保留。
+- Team 级 Skill allow-list、Captain/成员模型路由、资源上限和官方 Plugins 设置页。路由按显式参数、插件默认、发起者当前模型依次选择；支持显式推理等级，独立 Captain 可切换自身后续请求的模型并在冷恢复后保留。工具权限读取当前 Agent 的正式工具目录，可搜索并选择继承、开放、禁止或需队长批准；未加载工具的已有配置仍保留。
 - 成员工具调用需要队长批准时，经现有 Team 邮箱唤醒所属 Captain；忙碌队长处的合法排队不会立即使审批失效。批准仅释放原成员的那一次有效调用，拒绝、取消、超时或归属失效不会执行工具，官方权限限制继续生效。
 - 同伴消息支持关联真实提问的 `reply_to` 和可调交流强度。插件设置提供默认值，队长可为本队覆盖；团队面板通过正式 Captain 会话排队请求，权威状态读回后才显示已生效。
 - 团队共享记忆与成员私有 append-only memory，二者具有独立授权和持久化边界。

@@ -1,3 +1,4 @@
+import type { TeamModelRoute } from './types.js'
 /**
  * Team lifecycle and membership roster of the Team protocol core.
  *
@@ -18,6 +19,7 @@ import {
   clearTaskExecution,
   nonEmpty,
   normalizeMemberName,
+  normalizeTeamModelRoute,
   replaceAttempt,
   replaceTask,
   type TeamDomainDeps,
@@ -44,6 +46,7 @@ export async function createTeam(
   captainUsageSeq: number,
   managedOrigin?: string,
   allowedSkills?: readonly string[],
+  captainRoute?: TeamModelRoute,
 ): Promise<TeamState> {
   expectDomain(Number.isSafeInteger(captainUsageSeq) && captainUsageSeq >= -1, 'captain usage seq is invalid', 'TEAM_INPUT_INVALID')
   const timestamp = deps.now()
@@ -55,6 +58,7 @@ export async function createTeam(
     name: nonEmpty(name, 'team name', 128),
     description: nonEmpty(description, 'team description', 16_384),
     captainSessionId,
+    ...(captainRoute === undefined ? {} : { captainRoute: normalizeTeamModelRoute(captainRoute) }),
     ...(managedOrigin === undefined ? {} : { managedOrigin }),
     ...(normalizedAllowedSkills === undefined ? {} : { allowedSkills: normalizedAllowedSkills }),
     phase: 'active',

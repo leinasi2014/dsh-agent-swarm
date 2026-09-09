@@ -232,6 +232,11 @@ const teamFields = {
     // absent on plain captain-owned compatibility Teams so pre-existing records
     // parse byte-identical; a managed Team persists it so reload can reuse.
     managedOrigin: z.string().min(1).optional(),
+    captainRoute: z.object({
+      llmProvider: codePointCapped(128, 'captainRoute.llmProvider'),
+      model: codePointCapped(128, 'captainRoute.model'),
+      reasoningEffort: codePointCapped(128, 'captainRoute.reasoningEffort').optional(),
+    }).strict().optional(),
     // Immutable Team Skill policy. Optional preserves pre-policy teams;
     // canonical names are revalidated at the durable boundary.
     allowedSkills: z.array(z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)).min(1).max(MAX_TEAM_ALLOWED_SKILLS)

@@ -1,3 +1,4 @@
+import type { TeamModelRoute } from './types.js'
 /**
  * Cross-subdomain transaction helpers of the Team protocol core.
  *
@@ -116,4 +117,10 @@ export function readerMembership(team: TeamState, sessionId: string): TeamMember
   if (team.phase !== 'active') throw new TeamDomainError('Team is archived', 'TEAM_ARCHIVED')
   if (member === undefined) throw new TeamDomainError('caller is not an active Team participant', 'TEAM_UNAUTHORIZED')
   return { team, role: 'member', name: member.name }
+}
+
+/** Validate the initial Captain intent before its aggregate commit. */
+export function normalizeTeamModelRoute(route: TeamModelRoute): TeamModelRoute {
+  return { llmProvider: nonEmpty(route.llmProvider, 'Captain LLM provider', 128), model: nonEmpty(route.model, 'Captain model', 128),
+    ...(route.reasoningEffort === undefined ? {} : { reasoningEffort: nonEmpty(route.reasoningEffort, 'Captain reasoning effort', 128) }) }
 }

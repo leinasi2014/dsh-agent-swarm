@@ -1,3 +1,4 @@
+import type { TeamModelRoute } from './types.js'
 /**
  * The sole authority boundary for the Team aggregate (ADR-0007, M1A).
  *
@@ -133,11 +134,11 @@ export interface CreateTaskInput {
  */
 export interface TeamDomainPort {
   /** Plan-first: create a durable staged managed Team (no Captain Session). */
-  createStagedManaged(scope: TeamScope, managedOrigin: string, name: string, description: string): Promise<TeamState>
+  createStagedManaged(scope: TeamScope, managedOrigin: string, name: string, description: string, captainRoute?: TeamModelRoute): Promise<TeamState>
   /** Plan-first: store one bounded plan declaration (staged only, revision CAS). */
   setPlanDraft(scope: TeamScope, teamId: TeamId, expectedRevision: number, draft: TeamPlanDraft): Promise<TeamState>
   /** Plan-first: atomic staged -> active commit with the provisioned Captain id. */
-  approveStagedPlan(scope: TeamScope, teamId: TeamId, expectedRevision: number, captainSessionId: string): Promise<TeamState>
+  approveStagedPlan(scope: TeamScope, teamId: TeamId, expectedRevision: number, captainSessionId: string, captainRoute?: TeamModelRoute): Promise<TeamState>
   /** Plan-first: archive one staged draft without creating work (idempotent). */
   discardStagedPlan(scope: TeamScope, teamId: TeamId, expectedRevision: number): Promise<TeamState>
   createTeam(
@@ -148,6 +149,7 @@ export interface TeamDomainPort {
     captainUsageSeq?: number,
     managedOrigin?: string,
     allowedSkills?: readonly string[],
+    captainRoute?: TeamModelRoute,
   ): Promise<TeamState>
   findMembership(scope: TeamScope, sessionId: string): Promise<TeamMembership | undefined>
   requireMembership(scope: TeamScope, sessionId: string): Promise<TeamMembership>
