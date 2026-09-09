@@ -230,6 +230,7 @@
     "tsdown": "^0.22.2",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4",
-    "@deepseek-ai/dsh-credentials": "0.1.5-alpha.1"
+    "@deepseek-ai/dsh-credentials": "0.1.5-alpha.1",
+    "@deepseek-ai/dsh-credentials-local": "0.1.5-alpha.1"
   }
 }
