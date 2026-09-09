@@ -6,10 +6,11 @@
 
 1. [GOALS.md](GOALS.md) — 稳定产品章程、范围、红线与完成原则。
 2. [00-vision.md](00-vision.md) — Main Brain → Captain → Team 的用户体验和身份模型。
-3. [03-capability-family.md](03-capability-family.md) — 当前实现、服务边界、Consumer 与未交付能力的唯一对齐表。
-4. [04-core-protocol.md](04-core-protocol.md) — 自定身份、revision、attempt、任务、邮箱、交流强度、审核、恢复和权限合同。
-5. [07-implementation-roadmap.md](07-implementation-roadmap.md) — 从当前基线到 90% 产品就绪的交付顺序与出口证据。
-6. [08-testing-verification.md](08-testing-verification.md) — 候选检查、场景和真实 Profile/browser 验证合同。
+3. [03-capability-family.md](03-capability-family.md) — Team 总体架构、会话关系、状态权威、模型路由与能力边界。
+4. [10-team-ui-layout.md](10-team-ui-layout.md) — 桌面与窄屏布局、团队卡、详情、短名称、状态及群聊讨论稿。
+5. [04-core-protocol.md](04-core-protocol.md) — 自定身份、revision、attempt、任务、邮箱、交流强度、审核、恢复和权限合同。
+6. [07-implementation-roadmap.md](07-implementation-roadmap.md) — 从当前基线到 90% 产品就绪的交付顺序与出口证据。
+7. [08-testing-verification.md](08-testing-verification.md) — 候选检查、场景和真实 Profile/browser 验证合同。
 
 ## 架构与兼容
 
@@ -37,6 +38,7 @@
 | 产品目标、范围、非目标 | [GOALS.md](GOALS.md) |
 | 用户体验与身份拓扑 | [00-vision.md](00-vision.md) |
 | 服务/Provider/Consumer ownership | [03-capability-family.md](03-capability-family.md) |
+| UI 布局、组件层级、显示与交互 | [10-team-ui-layout.md](10-team-ui-layout.md) |
 | 状态机、错误、并发与权限合同 | [04-core-protocol.md](04-core-protocol.md) |
 | Workspace 与 distributed 语义 | [06-workspace-distributed.md](06-workspace-distributed.md) |
 | 交付顺序与出口证据 | [07-implementation-roadmap.md](07-implementation-roadmap.md) |

@@ -1,6 +1,6 @@
-# 03. 能力架构
+# 03. Team 总体架构与能力边界
 
-本文件定义当前产品的 capability ownership。具体状态机、错误和并发合同以 [04-core-protocol.md](04-core-protocol.md) 为准；这里不保留历史 milestone 编号。
+本文件是 Team 总体架构与 capability ownership 的唯一说明。具体状态机、错误和并发合同以 [04-core-protocol.md](04-core-protocol.md) 为准；界面结构以 [10-team-ui-layout.md](10-team-ui-layout.md) 为准。下文区分已有实现、接入约束与后续设计；设计图不证明某个安装环境已完成验收。版本身份读取 [OFFICIAL_BASELINE.json](OFFICIAL_BASELINE.json)，部署与验收结果留在对应候选和真实运行证据中。
 
 ## 1. 组合图
 
@@ -24,6 +24,38 @@ AgentSwarmRuntime
 ```
 
 `TeamDomainPort` 是 Team 协作的唯一 mutation 边界。Human-interaction overlay、workflow run overlay 和 member-private-memory domain 只拥有自己的关联数据，不复制 Team aggregate。
+
+### 1.1 用户、会话与执行关系
+
+```mermaid
+flowchart TB
+  User[用户] --> Main[Main Brain / 根 Session]
+  Main --> CaptainA[Team A 的 Captain / 独立 continuable Session]
+  Main --> CaptainB[Team B 的 Captain / 独立 continuable Session]
+  CaptainA --> MemberA[成员 A / 个人执行 Session]
+  CaptainA --> MemberB[成员 B / 个人执行 Session]
+  CaptainB --> MemberC[成员 C / 个人执行 Session]
+  CaptainA -. 协作状态 .-> TeamA[Team A aggregate]
+  MemberA -. 当前 attempt 与提交 .-> TeamA
+  MemberB -. 当前 attempt 与提交 .-> TeamA
+  TeamA --> Read[Host 验证绑定并投影]
+  Read --> UI[官方右侧栏 Team 页签]
+```
+
+Main Brain 负责跨 Team 的用户入口；Captain 在自己的 Session 中统筹单个 Team；成员的模型调用、工具执行和结果保留在各自 Session。Team 是协作域对象，不是另一份聊天历史。成员间邮箱消息可以进入收件人的官方模型上下文，但不能把多个个人 transcript 拼接成 Team 的权威群聊。
+
+### 1.2 权威与投影
+
+| 数据或动作 | 唯一权威 | 允许的投影与边界 |
+|---|---|---|
+| 模型请求、工具调用、会话模型选择 | 官方 Session log / Agent / model selection | UI 可展示已记录事实；Team 初始路由不能覆盖会话当前选择 |
+| Team、成员绑定、任务、attempt、邮箱、预算 | `TeamDomainPort` 与官方 `agent_swarm` Storage Domain | Host/RPC/UI、prompt 与 Jobs 只消费对应 projection |
+| 子会话地址、父子关系、导航和后代计数 | 官方 Subagent catalog / Sessions service | 插件核验归属并替换显示文字；不生成地址或自算官方计数 |
+| Settings 默认值 | 官方 SettingsScope 与插件 config | provider/model 成对保存、回读，在重启后重新组合 runtime |
+| 面板是否展开、选中页签及宿主布局 | 官方 SidebarRight；插件只保存必要的 UI 选择 | 页面刷新不重开用户已关闭的页签；选择状态不构成读写权限 |
+| 成员工作文件 | execution-root Provider 的当前租约 | 绑定真实工具 cwd/FS capability；不是 Prompt 路径，也不是仓库开发 writer 分配 |
+
+UI 的 controller 复用同一个只读目标和读取生命周期。姓名、状态、进度或页面是否可见都不能反向改变 Team 权威。
 
 ## 2. 当前实现
 
@@ -63,17 +95,9 @@ AgentSwarmRuntime
 
 Host 每次从 live root Agent、Session、workspace scope 和 Team Captain binding 建立读上下文。`/swarm/v1` 只发布严格、版本化的 read envelope；客户端不能上传 principal、Captain Session 或 provenance 来扩大权限。
 
-Workbench 消费同一 read contract：
+Workbench 消费同一 read contract：公开目标、成员身份、任务/attempt、budget 和 activity 来自权威 projection。布局、卡片层级、页签、详情、短名称、窄屏与错误展示统一定义在 [UI 布局设计](10-team-ui-layout.md)，不在本文件维护第二套视觉规则。
 
-- Team rail 支持 Main Brain 管理的多 Team 原位切换；
-- 公开目标、公告、成员 identity、Skills/tools、任务/attempt、budget 和 activity 都来自权威 projection；
-- 概览按 canonical task status 汇总完成、执行、待审核、等待依赖、待领取、失败和取消；截断时标记已显示范围，不伪造总体完成比例；
-- Captain → member → 当前 task/attempt 构成可读执行树；旧 attempt 不得投影为当前工作，复用现有任务依赖图并连接任务详情；
-- 成员或 task detail 在官方右侧栏 Team 页签内替换概览，返回时恢复原入口焦点；身份、模型、Skills、预算与诊断按需展开，不使用遮罩层；
-- 详情与概览共享断线/陈旧提示；不可见依赖显示“依赖状态待确认”，不把缺失投影推断为阻塞。长资料字段单行省略并提供完整悬停文字，其余内容按官方栏宽换行或滚动；
-- 官方 SidebarRight 管理展开、浮动、分栏及可见性；Team 通过 `openTabIn` 寻址选中的 Session，实际观察到页签挂载后才确认显示。首次 store 尚未接管时由后续权威读取重试，不借用旧会话侧栏，不承诺固定显示延迟。切到其他页签、收起右栏或关闭 Team 后，轮询不得抢回焦点；窄屏和浮动行为须在实际宿主分别验收；
-- “打开 Captain Chat”调用官方 Session navigation；
-- 管理页的交流强度请求进入正式 Captain human prompt，由队长调用工具保存，canonical read-back 决定应用状态；`/swarm/v1` 的 direct write capabilities 仍 unavailable。
+SidebarRight 拥有展开、浮动、分栏及可见性；插件通过 `openTabIn` 寻址选中的 Session，以实际页签挂载确认显示。成员导航复用官方 continuable child catalog，精确父子地址和每次读取的权限验证见 [核心协议](04-core-protocol.md)。管理页的交流强度请求进入正式 Captain human prompt，由队长调用工具保存，canonical read-back 决定应用状态；`/swarm/v1` 的 direct write capabilities 仍 unavailable。
 
 Plugin Settings 是独立的官方 Settings Consumer。它配置默认模型、成员 provider/depth、Skills、Scheduler/Review、tool policy、默认交流强度、Workflow/Jobs/execution roots 和资源限制；设置在重启后重新组装 runtime。队长保存的本队交流覆盖立即持久生效，清除覆盖后跟随插件默认。
 
@@ -82,6 +106,48 @@ Plugin Settings 是独立的官方 Settings Consumer。它配置默认模型、�
 身份详情展示 durable personality/biography，成员自行更新姓名、性格、简介与头像；Captain 的成员资料管理限于职责和职业。当前资料及有效交流策略共同构成 prompt 快照，不重写历史。
 
 独立 managed Captain 可调用 `agent_swarm_set_captain_model` 修改自身后续请求的模型，不中断当前请求，不修改插件或全局默认。选择保存在该 Captain 自己的官方 `model/selection` 会话事件中，由官方 projection 与 `installModelSelection` 恢复；继承的父会话历史不能覆盖子会话的初始路由。此入口要求 Host 提供官方模型选择 projection；legacy 根 Captain 继续使用 Host 模型选择器。Team 内的 `captainRoute` 只保存初始创建意图，当前使用的模型以 Session 请求记录为准。
+
+### 4.1 创建与执行链路
+
+```mermaid
+sequenceDiagram
+  participant Main as Main Brain
+  participant Tool as Swarm Tool / Runtime
+  participant Domain as TeamDomainPort
+  participant DSH as 官方 Session / Subagent
+  participant Captain as Captain
+  participant Member as Member
+  Main->>Tool: create_managed(目标, 可选 Captain 路由)
+  Tool->>Tool: 验证 caller、目录与有效路由
+  Tool->>Domain: 保存 Team 与初始创建意图
+  Tool->>DSH: 按持久意图创建独立 Captain
+  DSH->>Captain: 启动独立请求
+  Captain->>Tool: 招募成员、创建任务与依赖
+  Tool->>Domain: 提交 roster 与任务
+  Tool->>DSH: 组合 continuable Member
+  DSH->>Member: 当前 attempt 的工作
+  Member->>Tool: submit(证据, 当前 attempt)
+  Tool->>Domain: 审核前 submitted
+  Captain->>Tool: 发起配置的 Review
+  Tool->>Domain: 按 Review 结果接受或 rework
+```
+
+此图表示行为顺序，不额外定义跨服务事务。启动、重试、回滚与部分失败服从现有 provisioning 和 Domain 合同；提交证据只进入 submitted，不能由 UI 或自然语言直接变为 completed。staged Team 的计划批准是独立入口，必须在激活前验证并保存相应路由。
+
+### 4.2 模型路由的两个时点
+
+| 时点 | 决策路径 | 检查结果的依据 |
+|---|---|---|
+| 新 Captain / Member 创建 | 显式调用参数 → 插件该角色默认 → 发起者当前 Session；校验 provider/model 与 effort 后持久保存创建意图 | 首个实际请求的 `request/header` |
+| 独立 Captain 自行换模型 | caller 必须是当前绑定 Captain → 官方模型 resolver 验证 → 写入该子会话的官方选择事件 | 下一次实际请求的 header 与冷恢复后的请求 |
+
+两条路径不互相替代。设置页保存成功、工具返回成功、初始路由字段和模型实际生效，是不同证据。更换路由时推理等级的继承与默认规则继续服从本节已有合同。
+
+### 4.3 UI 接入与官方扩展边界
+
+Swarm 使用官方 Session 导航、SidebarRight、Settings、locale 和 slots。会话顶部文字通过通用 `conversation.session.header.lineage.display` seam 接入；Core 提供实际 owner、原始文字、地址与计数，Swarm 只返回文字显示。该 seam 属于需要随目标 Core 交付和核验的扩展，不能据此声称某个官方已发布版本自带这项能力。
+
+显示 Consumer 不替换 Core 的导航控件、可访问性语义或事件处理；插件缺失、关系未知或数据陈旧时沿用 Core 原始文字。安装包构建成功不能证明 Host 使用了对应 Core seam，须结合实际包导出、装配和浏览器结果验收。
 
 ## 5. 生命周期与失败语义
 
@@ -105,6 +171,8 @@ Plugin Settings 是独立的官方 Settings Consumer。它配置默认模型、�
 
 缺口不能通过新增 UI 状态、第二 storage、transcript parser 或更宽模型权限绕过。
 
+团队公共群聊属于独立的产品方向，其边界与待讨论布局见 [UI 布局设计第 8 节](10-team-ui-layout.md#8-待讨论团队公共群聊)。采用该方向前，需要在核心协议中定义消息权威、写入身份、幂等、投递与重启语义；现有邮箱和个人 Session 不自动等于可编辑的公共群聊。
+
 ## 7. 拆包原则
 
 当前实现保持一个 dual-face package。只有出现第二 Provider/Consumer、独立 lifecycle、独立发布价值或 host/client 编译边界时才拆分；目录整齐本身不是理由。未来官方 Agent Team 成为受支持依赖时，也只能在 `TeamDomainPort` 后替换 Provider，不能并存两个可写 Team authority。
@@ -116,3 +184,15 @@ Plugin Settings 是独立的官方 Settings Consumer。它配置默认模型、�
 尚未创建 Captain 的 staged Team，以及显式 discarded 的草稿归档，以同 scope 内的持久 `managedOrigin` 精确证明所属 Main Brain。读取仍要求官方 live 或持久化 root Session，child 与其他 root 不继承草稿。Selector 保留真实的空 `captainSessionId`；binding、snapshot/page 和三个 Captain sections 使用所属 root 作为读取锚点，UI 明示队长尚未创建并禁止 Captain Chat 交接。该只读路径不批准计划、不创建 Session，也不放宽 active Team 的 Captain 绑定。
 
 `tests/host-read-scale.spec.ts` 在真实 Storage Domain 上覆盖多个 Team、成员规模及任务历史，要求同一次 teams RPC 只执行一次 canonical aggregate list，成员及任务历史不进入 selector payload。操作计数不等于延迟或全部 UI 流量承诺；可选 `SWARM_READ_BASELINE` 仅用于对接受基线进行只读比较。
+
+## 8. 实现与验收入口
+
+| 架构入口 | 源码 |
+|---|---|
+| Team mutation 与持久化 | `src/domain/team-domain-port.ts`、`src/storage/storage-domain-team-store.ts` |
+| 独立 Captain 与初始组合 | `src/runtime/dedicated-captain-provisioning.ts` |
+| Captain 会话模型选择 | `src/tools/model-selection.ts`、`src/runtime/captain-model-selection.ts` |
+| durable 邮箱 | `src/domain/team-domain-mailbox.ts` |
+| UI 组合与生命周期 | `src/client/team-dashboard-plugin.ts`、`src/client/team-dashboard-controller.ts`、`src/client/team-dashboard-surface-coordinator.ts` |
+
+工程门、真实 Profile、冷恢复与发布验证沿用 [08-testing-verification.md](08-testing-verification.md)；升级与回滚分权沿用 [13-self-hosting-dogfood.md](13-self-hosting-dogfood.md)。检查必须对应同一可识别候选和安装组合，工程、真实模型、浏览器、重启与正式环境证据分别陈述。

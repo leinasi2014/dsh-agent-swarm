@@ -30,14 +30,16 @@
 ## 3. 产品界面
 
 - **Main Chat** 保持 Main Brain 会话，不因选中 Team 而改名。
-- **Team rail** 在一个页面中切换多个 Team。
+- **Team 卡片列表** 在官方右侧栏内纵向展示并切换多个 Team。
 - **Workbench** 参考 `dsh-agent-teams` 的信息层级：公共目标、按真实任务状态汇总的进度、Captain → 成员 → 当前任务执行树，以及可展开的任务依赖。未提交计划、空公告和技术诊断不占据默认概览。
-- **Tasks / Announcements / Management** 提供互斥视图；成员和任务详情在官方右侧栏 Team 页签内切换，提供明确的返回入口并恢复焦点。禁止 modal、absolute 详情遮罩和插件自有全屏回退；窄屏布局继续由官方宿主负责。
+- **Tasks / Announcements / Management** 提供互斥视图；成员详情在本人分支内展开，任务等详情在栏内切换。具体布局、返回与窄屏规则统一见 [UI 布局设计](10-team-ui-layout.md)。
 - **Captain Chat** 使用官方 Session navigation 打开所选 Captain；不是 `/swarm` 的隐式写操作。
 - **Management** 可向本队 Captain 排队请求调整交流强度，权威读回后才显示已应用；队长也可直接设置本队覆盖。
 - **Plugin settings** 配置 Captain/成员模型、Skills、工具 policy、默认交流强度、编排/review 选择和资源上限；保存后由官方 Settings 在重启时应用。未覆盖的模型路由继承用户当前 Session，验收模型不成为产品默认。
 
 UI 必须诚实显示 unavailable、stale、reconnect 和 error。没有权威数据时显示未知或不可用，而不是从 transcript 或本地缓存猜测。
+
+整体架构、会话关系与路由链路见 [Team 总体架构](03-capability-family.md)。会话顶部短名称与团队公共群聊的待讨论方向均在 [UI 布局设计](10-team-ui-layout.md) 中明确范围；公共群聊不属于这里的现有 Captain Chat。
 
 ## 4. 技术位置
 

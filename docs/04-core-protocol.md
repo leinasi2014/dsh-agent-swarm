@@ -134,7 +134,7 @@ Team 消息的 `wakeup` 复用官方 steering：忙碌成员在最近的后续 s
 - 多 Team 切换通过 Main Brain/Host projection 选择 Captain Session，不在侧边栏维护第二套 Team registry。
 - official Session list/Chat 仍由 DSH 拥有；插件只提供可读 label 与导航。
 
-Team 注册 DSH SidebarRight 的独立页签，沿用官方布局与主题 tokens，一个团队一张卡，同一主会话的关联团队纵向排列。摘要显示名称、阶段、队长及从 aggregate 派生的成员数、完成任务数与任务总数；默认展开一个团队，其余保留摘要。展开后直接显示真实任务进度与待审核、待处理事项；目标和公告可折叠，进度与待办不受该折叠影响。卡内保留概览、任务、公告、管理，队长和成员采用紧凑缩进树；成员详情展开在本人分支内，个人资料与当前任务位于运行、Skills 与工具、成果与成长三个成员页签之外。团队切换只更换绑定读目标，不能把旧团队的正文放到新卡下，也不能把未完成读取当成新团队可用。侧栏显示主会话→当前所属团队→成员的归属路径与明确的当前会话标记。
+Team 注册 DSH SidebarRight 的独立页签，沿用官方布局与主题 tokens。卡片、视图、执行树、详情与名称展示统一由 [10-team-ui-layout.md](10-team-ui-layout.md) 定义。摘要和进度必须从同一 aggregate 派生；团队切换只更换绑定读目标，不能把旧团队的正文放到新卡下，也不能把未完成读取当成新团队可用。归属路径与当前会话标记必须使用 Host 核验过的关系。
 
 不添加顶部 Team 按钮；关闭后可从官方侧栏的新页签引导页重新打开 Team。现有 controller 随当前 Session 只读观察，首次载入、创建团队及重连后取得完整 Host 投影才自动申请页签，不显示无团队空卡。关闭、切到其他官方页签或收起右栏后，同一 Team 的刷新不得抢回焦点；加载期间关闭同样有效。官方 tab.id 仅在 Session 内唯一，插件按 Session 与 tab.id 跟踪绑定；组件卸载只表示正文不可见，只有 tab.signal abort 表示实际关闭。切换 Session 时保留各自页签；新的 Team 可重新显示。新打开的队长/成员 Chat 优先选中 Host 验证的所属 Team；主会话默认选择未归档 Team，用户显式选中的其他或历史 Team 在当前 Session 内保留。轮询、请求取消和卸载仍由原 controller 生命周期负责。
 
