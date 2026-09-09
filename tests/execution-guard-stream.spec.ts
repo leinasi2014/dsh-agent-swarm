@@ -1,3 +1,4 @@
+import { readPersistedSession } from '../src/runtime/persisted-session.js'
 import { TextProgress } from '../src/runtime/execution-guard-text.js'
 import { describe, expect, it } from 'vitest'
 import { GuardAdapter, mountGuard, prompt } from './helpers/execution-guard.js'
@@ -35,7 +36,7 @@ describe('single-generation visible text containment', () => {
       // No next step exists: a pending WARNING was not shown to the model.
       expect(events.some(event => event.type === 'user/message' && JSON.stringify(event.data).includes('Execution guard WARNING'))).toBe(false)
       await stack.ctx.sessions.flush(stack.agent.session)
-      const stored = await stack.ctx.sessionPersistence.inspect(stack.agent.id, new AbortController().signal)
+      const stored = await readPersistedSession(stack.ctx.sessionPersistence, stack.agent.id, new AbortController().signal)
       expect(stored.events.findLast(event => event.type === 'turn/end')?.data.reason.kind).toBe('aborted')
     } finally { await stack.dispose() }
   })

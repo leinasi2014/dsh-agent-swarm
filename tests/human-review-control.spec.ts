@@ -1,4 +1,3 @@
-import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
  * SW-I1a human review/control over the durable interaction overlay.
@@ -48,7 +47,7 @@ class ImmediateAdapter extends LlmAdapter {
 interface Stack {
   readonly ctx: Context
   readonly fibers: Fiber[]
-  readonly lead: ReturnType<Context['agentLoop']['create']>
+  readonly lead: Awaited<ReturnType<Context['agentLoop']['create']>>
   readonly teamId: AgentSwarm.TeamId
   readonly scope: string
   pluginFiber: Fiber
@@ -58,7 +57,6 @@ async function mount(sandbox: string, reviewProvider = 'manual', schedulerProvid
   const ctx = new Context()
   const fibers: Fiber[] = []
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
   fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   await mountStorageStackOn(ctx, join(sandbox, 'storage'))
@@ -69,7 +67,7 @@ async function mount(sandbox: string, reviewProvider = 'manual', schedulerProvid
   const pluginFiber = await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1, reviewProvider, schedulerProvider })
   fibers.push(pluginFiber)
   ctx.llm.registerAdapter(['mock'], new ImmediateAdapter())
-  const lead = ctx.agentLoop.create(
+  const lead = await ctx.agentLoop.create(
     SessionId(`i1a-lead-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
     { provider: 'mock', model: 'mock' },
     { cwd: join(sandbox, 'workspace') },

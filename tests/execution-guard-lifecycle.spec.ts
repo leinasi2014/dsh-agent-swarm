@@ -14,7 +14,7 @@ describe('execution guard ownership and lifecycle fences', () => {
       })
       const stack = await mountGuard(adapter, { executionGuard: enabled })
       try {
-        const agent = enabled ? stack.ctx.agentLoop.create(SessionId('unowned'), { provider: 'guard', model: 'guard' }, { cwd: stack.root }) : stack.agent
+        const agent = enabled ? await stack.ctx.agentLoop.create(SessionId('unowned'), { provider: 'guard', model: 'guard' }, { cwd: stack.root }) : stack.agent
         agent.followup(prompt()); await agent.whenIdle()
         expect(adapter.requests).toHaveLength(41)
         expect(agent.session.snapshotEvents().findLast(event => event.type === 'turn/end')?.data.reason.kind).toBe('completed')
@@ -98,8 +98,8 @@ describe('execution guard ownership and lifecycle fences', () => {
       await domain.provisionMember(scope, team.id, stack.agent.id, { name: 'worker', role: 'bounded fixture', sessionId: 'guard-old', provider: 'spawn' })
       await domain.settleMember(scope, team.id, 'guard-old', { active: false, error: 'fixture interrupted admission' })
       await domain.provisionMember(scope, team.id, stack.agent.id, { name: 'worker', role: 'bounded fixture', sessionId: 'guard-new', retryOf: 'guard-old', provider: 'spawn' })
-      const current = stack.ctx.agentLoop.create(SessionId('guard-new'), { provider: 'guard', model: 'guard' }, { cwd: stack.root })
-      const previous = stack.ctx.agentLoop.create(SessionId('guard-old'), { provider: 'guard', model: 'guard' }, { cwd: stack.root })
+      const current = await stack.ctx.agentLoop.create(SessionId('guard-new'), { provider: 'guard', model: 'guard' }, { cwd: stack.root })
+      const previous = await stack.ctx.agentLoop.create(SessionId('guard-old'), { provider: 'guard', model: 'guard' }, { cwd: stack.root })
       const before = await domain.snapshot(scope, team.id, stack.agent.id)
       expect(before.team.members[0]?.phase).toBe('provisioning')
       current.followup(prompt()); previous.followup(prompt())
@@ -122,7 +122,7 @@ describe('execution guard ownership and lifecycle fences', () => {
       const { team } = await stack.ctx.agentSwarm.status({ agent: stack.agent, signal: new AbortController().signal })
       await domain.provisionMember(scope, team.id, stack.agent.id, { name: 'reader', role: 'private memory owner', sessionId: 'guard-reader', provider: 'spawn' })
       await domain.settleMember(scope, team.id, 'guard-reader', { active: true })
-      const member = stack.ctx.agentLoop.create(SessionId('guard-reader'), { provider: 'guard', model: 'guard' }, { cwd: stack.root })
+      const member = await stack.ctx.agentLoop.create(SessionId('guard-reader'), { provider: 'guard', model: 'guard' }, { cwd: stack.root })
       member.followup(prompt()); await member.whenIdle()
       expect(adapter.requests).toHaveLength(31)
       expect(member.session.snapshotEvents().filter(event => event.type === 'tool/result').every(event => event.data.message.content[0].isError === false)).toBe(true)

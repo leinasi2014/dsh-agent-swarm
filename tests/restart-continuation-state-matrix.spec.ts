@@ -1,4 +1,5 @@
-import { queueSubagentPrompt, type HostPromptQueue } from '@deepseek-ai/dsh-subagent/internal'
+import { readPersistedSession } from '../src/runtime/persisted-session.js'
+import { deliverSubagentPrompt, type HostPromptDeliverer } from '@deepseek-ai/dsh-subagent/internal'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -40,7 +41,7 @@ class CountMemberTurns extends LlmAdapter {
 }
 
 async function createTeamAndMember(mounted: RestartMounted, sandbox: string, label: string): Promise<{ lead: Agent; teamId: string; memberId: string }> {
-  const lead = mounted.ctx.agentLoop.create(CAPTAIN, { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+  const lead = await mounted.ctx.agentLoop.create(CAPTAIN, { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
   const created = await restartTool(mounted.ctx, lead, `${label}-create`, 'agent_swarm_create', { name: `Restart ${label}`, description: 'Exercise one durable restart state.' })
   if (created.isError) throw new Error(`Team creation failed: ${JSON.stringify(created.error)}`)
   const added = await restartTool(mounted.ctx, lead, `${label}-member`, 'agent_swarm_add_member', { name: 'worker', role: 'Own one fenced restart attempt.' })
@@ -75,11 +76,11 @@ describe('restart continuation state matrix over one Team authority', () => {
       const adapter = new CountMemberTurns(); adapter.memberId = memberId
       second.ctx.llm.registerAdapter(['mock'], adapter)
       const resumed = await second.ctx.agents.resume({ resumeSessionId: CAPTAIN })
-      const rawFollowup = (second.ctx.subagents as unknown as HostPromptQueue)[queueSubagentPrompt].bind(second.ctx.subagents)
+      const rawFollowup = (second.ctx.subagents as unknown as HostPromptDeliverer)[deliverSubagentPrompt].bind(second.ctx.subagents)
       const follows: string[] = []
-      const followup = vi.spyOn(second.ctx.subagents as unknown as HostPromptQueue, queueSubagentPrompt).mockImplementation(async (parent, childId, content, source, signal) => {
+      const followup = vi.spyOn(second.ctx.subagents as unknown as HostPromptDeliverer, deliverSubagentPrompt).mockImplementation(async (parent, childId, content, source, signal, delivery) => {
         if (String(childId) === memberId) follows.push(content.filter(block => block.type === 'text').map(block => block.text).join('\n'))
-        return await rawFollowup(parent, childId, content, source, signal)
+        return await rawFollowup(parent, childId, content, source, signal, delivery)
       })
       try {
         await second.ctx.agentSwarm.recoverAgent(resumed.agent)
@@ -94,7 +95,7 @@ describe('restart continuation state matrix over one Team authority', () => {
         await new Promise(resolve => setTimeout(resolve, 150))
         expect(follows.filter(text => text.includes('Team assignment from captain.'))).toHaveLength(1)
         expect(adapter.memberRequests).toBe(1)
-        const persisted = await second.ctx.sessionPersistence.inspect(SessionId(memberId), RESTART_SIGNAL)
+        const persisted = await readPersistedSession(second.ctx.sessionPersistence, SessionId(memberId), RESTART_SIGNAL)
         expect(userTexts(persisted.events).filter(text => text.includes('Team assignment from captain.'))).toHaveLength(1)
       } finally {
         followup.mockRestore()
@@ -130,7 +131,7 @@ describe('restart continuation state matrix over one Team authority', () => {
       const adapter = new CountMemberTurns(); adapter.memberId = memberId
       second.ctx.llm.registerAdapter(['mock'], adapter)
       const resumed = await second.ctx.agents.resume({ resumeSessionId: CAPTAIN })
-      const followup = vi.spyOn(second.ctx.subagents as unknown as HostPromptQueue, queueSubagentPrompt)
+      const followup = vi.spyOn(second.ctx.subagents as unknown as HostPromptDeliverer, deliverSubagentPrompt)
       try {
         await second.ctx.agentSwarm.recoverAgent(resumed.agent)
         await new Promise(resolve => setTimeout(resolve, 150))

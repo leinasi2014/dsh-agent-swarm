@@ -1,3 +1,4 @@
+import { persistenceReadFixture } from './helpers/persistence-read-fixture.js'
 /**
  * Issue #188/#175 — Host single-authority Team enumeration must carry the
  * complete safe Captain identity profile (displayName, profession,
@@ -90,11 +91,11 @@ function buildRealService(options: { cold?: boolean; teams?: AgentSwarm.TeamStat
       }
       return roots.get(id)?.session
     } },
-    sessionPersistence: { inspect: async (id: string): Promise<SessionInspection> => {
+    sessionPersistence: persistenceReadFixture(async (id: string): Promise<SessionInspection> => {
       const session = persisted.get(id)
       if (session === undefined) throw new Error('Session not found')
       return { meta: session.header, events: session.snapshotEvents(), inheritedEventCount: session.inheritedEventCount }
-    } },
+    }),
   } as unknown as Context
   const runtime = {
     scopeOf: () => 'C:\\workspace',

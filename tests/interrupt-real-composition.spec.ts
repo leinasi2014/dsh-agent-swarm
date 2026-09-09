@@ -1,4 +1,3 @@
-import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -84,7 +83,6 @@ async function mount(root: string, adapter: Adapter) {
   const latch = new Latch()
   stacks.push({ fibers, adapter, latch })
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
   fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(root, 'sessions', 'sessions.db') }))
   await mountStorageStackOn(ctx, join(root, 'storage'))
@@ -96,7 +94,7 @@ async function mount(root: string, adapter: Adapter) {
     execute: async () => { await latch.wait(); return { released: true } },
   })), 'test hanging tool')
   ctx.llm.registerAdapter(['mock'], adapter)
-  const lead = ctx.agentLoop.create(SessionId(`interrupt-lead-${Date.now()}`), { provider: 'mock', model: 'mock' }, { cwd: join(root, 'workspace') })
+  const lead = await ctx.agentLoop.create(SessionId(`interrupt-lead-${Date.now()}`), { provider: 'mock', model: 'mock' }, { cwd: join(root, 'workspace') })
   const tool = async (callId: string, name: string, args: Record<string, unknown> = {}) => await ctx.tools.execute({ signal: SIGNAL, callId: ToolCallId(callId), name, arguments: args, agent: lead })
   const created = await tool('create', 'agent_swarm_create', { name: 'Interrupt evidence', description: 'Real model tool evidence.' })
   if (created.isError) throw new Error(JSON.stringify(created.error))

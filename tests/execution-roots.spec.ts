@@ -1,3 +1,4 @@
+import { readPersistedSession } from '../src/runtime/persisted-session.js'
 /**
  * Real execution-root provider/composition faults (M3-1, #100; docs/04 §8l):
  * isolation, reclaim, crash residue without automatic deletion, authoritative
@@ -404,7 +405,7 @@ describe('execution-root composition wiring (M3-1, issue #100)', () => {
         return texts
       }
       await vi.waitFor(async () => {
-        const stored = await ctx.sessionPersistence.inspect(SessionId(memberId), new AbortController().signal)
+        const stored = await readPersistedSession(ctx.sessionPersistence, SessionId(memberId), new AbortController().signal)
         expect(textsOf(stored.events).some(text => text.includes(expectedPath))).toBe(true)
       }, { timeout: 10_000 })
 

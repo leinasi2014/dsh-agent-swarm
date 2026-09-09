@@ -1,3 +1,4 @@
+import { readPersistedSession } from '../src/runtime/persisted-session.js'
 import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
@@ -131,8 +132,8 @@ async function mount(captainId: string, sandbox: string, config: { memberModel?:
 }
 
 /** Create the fresh GLM captain for a first-life Context (see `Mounted.lead`). */
-function createLead(wired: Mounted, sandbox: string): Agent {
-  wired.lead = wired.ctx.agentLoop.create(SessionId(wired.captainId), { provider: 'glm', model: 'cap-model' }, { cwd: join(sandbox, 'workspace') })
+async function createLead(wired: Mounted, sandbox: string): Promise<Agent> {
+  wired.lead = await wired.ctx.agentLoop.create(SessionId(wired.captainId), { provider: 'glm', model: 'cap-model' }, { cwd: join(sandbox, 'workspace') })
   return wired.lead
 }
 
@@ -170,7 +171,7 @@ async function addMember(
  */
 async function awaitMemberTurn(wired: Mounted, memberSessionId: string): Promise<void> {
   await vi.waitFor(async () => {
-    const stored = await wired.ctx.sessionPersistence.inspect(SessionId(memberSessionId), SIGNAL)
+    const stored = await readPersistedSession(wired.ctx.sessionPersistence, SessionId(memberSessionId), SIGNAL)
     expect(stored.events.some(event => event.type === 'turn/end')).toBe(true)
   }, { timeout: 20_000 })
 }
@@ -194,7 +195,7 @@ async function driveCaptainTurn(wired: Mounted): Promise<void> {
 async function descriptorOf(ctx: Context, sessionId: string): Promise<
   Extract<NonNullable<ReturnType<typeof foldSubagentDescriptor>>, { mode: 'continuable' }> | undefined
 > {
-  const stored = await ctx.sessionPersistence.inspect(SessionId(sessionId), SIGNAL)
+  const stored = await readPersistedSession(ctx.sessionPersistence, SessionId(sessionId), SIGNAL)
   const suffix = stored.events.slice(stored.inheritedEventCount ?? 0)
   const descriptor = foldSubagentDescriptor(suffix)
   return descriptor !== undefined && descriptor.mode === 'continuable' ? descriptor : undefined
@@ -221,7 +222,7 @@ describe('heterogeneous member LLM provider', () => {
     // (explicit beats config; config beats the captain's own `cap-model`),
     // while the restart test below pins the captain-fallback layer itself.
     const wired = await mount('hetero-routing-captain', sandbox, { memberModel: 'cfg-model' })
-    createLead(wired, sandbox)
+    await createLead(wired, sandbox)
     try {
       const created = await tool(wired.ctx, wired.lead, 'hetero-create', 'agent_swarm_create', {
         name: 'Heterogeneous team', description: 'Prove distinct-LLM routing and precedence.',
@@ -284,7 +285,7 @@ describe('heterogeneous member LLM provider', () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-latest-route-'))
     roots.push(sandbox)
     const wired = await mount('route-switch-captain', sandbox)
-    createLead(wired, sandbox)
+    await createLead(wired, sandbox)
     const selection = { current: { provider: 'dsv4-f', model: 'new-model', reasoningEffort: ReasoningEffortId('max') }, assembled: undefined }
     const unbind = installModelSelection(wired.lead.ctx, selection)
     try {
@@ -299,7 +300,7 @@ describe('heterogeneous member LLM provider', () => {
       await awaitMemberTurn(wired, childId)
       expect(wired.dsv4.requestsFor(childId)[0]).toMatchObject(selection.current)
       expect((await descriptorOf(wired.ctx, childId))?.agentReasoningEffort).toBe('max')
-      const externalRoot = wired.ctx.agentLoop.create(SessionId('route-switch-main'), { provider: 'glm', model: 'old-model' }, { cwd: join(sandbox, 'managed-workspace') })
+      const externalRoot = await wired.ctx.agentLoop.create(SessionId('route-switch-main'), { provider: 'glm', model: 'old-model' }, { cwd: join(sandbox, 'managed-workspace') })
       const stopRoot = installModelSelection(externalRoot.ctx, { current: selection.current, assembled: undefined })
       try {
         externalRoot.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Switch before creating a Team.' }] }))
@@ -322,7 +323,7 @@ describe('heterogeneous member LLM provider', () => {
     try {
       // No memberModel config: an omitted model falls back to the captain model.
       first = await mount('hetero-restart-captain', sandbox)
-      createLead(first, sandbox)
+      await createLead(first, sandbox)
       const created = await tool(first.ctx, first.lead, 'hetero-create', 'agent_swarm_create', {
         name: 'Heterogeneous team', description: 'Prove heterogeneous provider across a cold restart.',
       })

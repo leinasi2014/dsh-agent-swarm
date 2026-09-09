@@ -1,3 +1,4 @@
+import { readPersistedSession } from '../src/runtime/persisted-session.js'
 /**
  * Restart recovery of the read-only Main Brain → dedicated Captain → Team
  * enumeration/binding.
@@ -67,7 +68,7 @@ describe('restart recovery of Main Brain → Captain → Team read-only enumerat
       // Context A: real Main Brain + dedicated Captain + persisted Team.
       first = await mount(sandbox, 0)
       first.ctx.llm.registerAdapter(['mock'], new PlainStopAdapter())
-      const leadA = first.ctx.agentLoop.create(
+      const leadA = await first.ctx.agentLoop.create(
         ROOT, { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') },
       )
       const created = await tool(first.ctx, leadA, 'restart-enum-create', 'agent_swarm_create_managed', {
@@ -94,7 +95,7 @@ describe('restart recovery of Main Brain → Captain → Team read-only enumerat
         signal: SIGNAL,
       })
       await vi.waitFor(async () => {
-        const stored = await first!.ctx.sessionPersistence.inspect(siblingId, SIGNAL)
+        const stored = await readPersistedSession(first!.ctx.sessionPersistence, siblingId, SIGNAL)
         expect(stored.meta.parentSession).toBe(ROOT)
       }, { timeout: 5_000 })
 
@@ -108,7 +109,7 @@ describe('restart recovery of Main Brain → Captain → Team read-only enumerat
       second.ctx.llm.registerAdapter(['mock'], new PlainStopAdapter())
       // The durable parent link lives on the official persisted Session header: the
       // single canonical source the fix rebuilds ownedChildren from after restart.
-      const persisted = await second.ctx.sessionPersistence.inspect(SessionId(captainId), SIGNAL)
+      const persisted = await readPersistedSession(second.ctx.sessionPersistence, SessionId(captainId), SIGNAL)
       expect(persisted.meta.parentSession).toBe(ROOT)
       const resumed = await second.ctx.agents.resume({ resumeSessionId: ROOT })
       const leadB = resumed.agent

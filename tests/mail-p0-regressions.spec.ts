@@ -1,4 +1,3 @@
-import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
  * P0 regressions (memory-1) over the real Agent Teams composition.
@@ -57,14 +56,13 @@ class FailingAdapter extends LlmAdapter {
 
 interface CaptainStack {
   readonly ctx: Context
-  readonly lead: ReturnType<Context['agentLoop']['create']>
+  readonly lead: Awaited<ReturnType<Context['agentLoop']['create']>>
   readonly teamId: string
 }
 
 async function mountCaptain(sandbox: string, fibers: Fiber[], adapter: LlmAdapter, leadId: string): Promise<CaptainStack> {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
   fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   await mountStorageStackOn(ctx, join(sandbox, 'storage'))
@@ -73,7 +71,7 @@ async function mountCaptain(sandbox: string, fibers: Fiber[], adapter: LlmAdapte
   fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
   fibers.push(await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1 }))
   ctx.llm.registerAdapter(['mock'], adapter)
-  const lead = ctx.agentLoop.create(SessionId(leadId), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+  const lead = await ctx.agentLoop.create(SessionId(leadId), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
   const created = await ctx.tools.execute({
     signal: SIGNAL,
     callId: ToolCallId('create'),

@@ -1,4 +1,4 @@
-import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import { readPersistedSession } from '../src/runtime/persisted-session.js'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
  * Issue #52 / D1: waking (wakeup) mail must never be acknowledged as
@@ -152,7 +152,6 @@ describe('wakeup delivery visibility (issue #52 / D1)', () => {
 
     try {
       await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
       fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
       await mountStorageStackOn(ctx, join(sandbox, 'storage'))
@@ -161,7 +160,7 @@ describe('wakeup delivery visibility (issue #52 / D1)', () => {
       fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
       fibers.push(await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1 }))
       ctx.llm.registerAdapter(['mock'], adapter)
-      const lead = ctx.agentLoop.create(
+      const lead = await ctx.agentLoop.create(
         SessionId('d1-lead'),
         { provider: 'mock', model: 'mock' },
         { cwd: join(sandbox, 'workspace') },
@@ -202,7 +201,7 @@ describe('wakeup delivery visibility (issue #52 / D1)', () => {
       // The pending acceptance is durable, but the message stays queued (the
       // delivery debt is unsettled) and is never resent while pending.
       await vi.waitFor(async () => {
-        const stored = await ctx.sessionPersistence.inspect(SessionId(memberId), SIGNAL)
+        const stored = await readPersistedSession(ctx.sessionPersistence, SessionId(memberId), SIGNAL)
         expect(acceptedFrames(stored.events, frame)).toBe(1)
       }, { timeout: 5_000 })
       await ctx.agentSwarm.recoverAgent(lead)
@@ -215,7 +214,7 @@ describe('wakeup delivery visibility (issue #52 / D1)', () => {
       ctx.subagents.interrupt(SessionId(memberId), { kind: 'ancestor', agent: lead })
       await ctx.subagents.drainContinuableChildren(lead, [SessionId(memberId)])
       await vi.waitFor(async () => {
-        const stored = await ctx.sessionPersistence.inspect(SessionId(memberId), SIGNAL)
+        const stored = await readPersistedSession(ctx.sessionPersistence, SessionId(memberId), SIGNAL)
         expect(acceptedFrames(stored.events, frame)).toBe(0)
       }, { timeout: 5_000 })
 
@@ -228,14 +227,14 @@ describe('wakeup delivery visibility (issue #52 / D1)', () => {
         snapshot = await ctx.agentSwarm.domain.snapshot(scope, teamId, lead.id)
         expect(snapshot.team.messages.find(candidate => candidate.id === messageId)?.phase).toBe('delivered')
       }, { timeout: 25_000 })
-      const stored = await ctx.sessionPersistence.inspect(SessionId(memberId), SIGNAL)
+      const stored = await readPersistedSession(ctx.sessionPersistence, SessionId(memberId), SIGNAL)
       expect(acceptedFrames(stored.events, frame)).toBe(1)
 
       // Release the gate: the claimed turn completes; still exactly one
       // model-visible copy of the frame.
       adapter.open()
       await vi.waitFor(async () => {
-        const settled = await ctx.sessionPersistence.inspect(SessionId(memberId), SIGNAL)
+        const settled = await readPersistedSession(ctx.sessionPersistence, SessionId(memberId), SIGNAL)
         expect(acceptedFrames(settled.events, frame)).toBe(1)
       }, { timeout: 5_000 })
     } finally {
@@ -259,7 +258,6 @@ describe('wakeup delivery visibility (issue #52 / D1)', () => {
 
     try {
       await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
       fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
       await mountStorageStackOn(ctx, join(sandbox, 'storage'))
@@ -268,7 +266,7 @@ describe('wakeup delivery visibility (issue #52 / D1)', () => {
       fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
       fibers.push(await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1 }))
       ctx.llm.registerAdapter(['mock'], adapter)
-      const lead = ctx.agentLoop.create(
+      const lead = await ctx.agentLoop.create(
         SessionId('d1-prompt-lead'),
         { provider: 'mock', model: 'mock' },
         { cwd: join(sandbox, 'workspace') },
@@ -305,7 +303,7 @@ describe('wakeup delivery visibility (issue #52 / D1)', () => {
       const messageId = (sent.value as { message_id: string }).message_id
       const snapshot = await ctx.agentSwarm.domain.snapshot(ctx.agentSwarm.scopeOf(lead), teamId, lead.id)
       const frame = messageFrame(snapshot.team.messages.find(candidate => candidate.id === messageId)!)
-      const stored = await ctx.sessionPersistence.inspect(SessionId(memberId), SIGNAL)
+      const stored = await readPersistedSession(ctx.sessionPersistence, SessionId(memberId), SIGNAL)
       expect(acceptedFrames(stored.events, frame)).toBeGreaterThanOrEqual(1)
     } finally {
       adapter.open()

@@ -1,3 +1,7 @@
+import CredentialsLocal from '@deepseek-ai/dsh-credentials-local'
+import * as ClientConnection from '@deepseek-ai/dsh-client-connection'
+import Commands from '@deepseek-ai/dsh-commands'
+import FileUploads from '@deepseek-ai/dsh-client-file-upload'
 /** Real cold-root request routing through Host-owned and headless recovery. */
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -68,6 +72,11 @@ async function installHost(ctx: Context, fibers: Fiber[], sandbox: string, contr
   fibers.push(await ctx.plugin(TextOnlyAttachments))
   fibers.push(await ctx.plugin(Typert))
   fibers.push(await ctx.plugin(WorkspaceRegistry))
+  fibers.push(await ctx.plugin(CredentialsLocal, { path: join(sandbox, 'credentials.yaml'), dshHome: sandbox, watch: false }))
+  fibers.push(await ctx.plugin(ClientConnection))
+  fibers.push(await ctx.plugin(Commands))
+  fibers.push(await ctx.plugin(FileUploads))
+  expect(ctx.get('fileUploads')).toBeDefined()
   fibers.push(await ctx.plugin(SessionController, { nativeOpen: false }))
   expect(ctx.get('sessionController')).toBeDefined()
 }
@@ -123,8 +132,9 @@ it.each([
     const requests = adapter.requests.filter(request => request.sessionId === ROOT)
     expect(requests).toHaveLength(1)
     expect(requests[0]).toMatchObject(expected)
-    expect(requests[0]?.system).toContain(`Root model ${expected.model} via ${expected.provider}.`)
-    expect(requests[0]?.system).not.toContain('{{model}}')
+    const system = requests[0]?.messages.filter(message => message.role === 'system').flatMap(message => message.content).map(block => block.type === 'text' ? block.text : '').join('\n')
+    expect(system).toContain(`Root model ${expected.model} via ${expected.provider}.`)
+    expect(system).not.toContain('{{model}}')
     expect(root.session.requestHeader()?.config).toMatchObject(expected)
     await second.fibers.at(-1)!.dispose()
     // Controller-owned roots survive plugin unload; only the headless handle
@@ -144,12 +154,19 @@ it.each(['missing route', 'unsupported selection'] as const)('fails headless rec
     const failure = await mount(sandbox, 0, undefined, undefined, async (ctx, fibers) => {
       await installHost(ctx, fibers, sandbox, false, new RecordingAdapter())
       if (fault === 'missing route') {
-        // Fault the public inspection seam: recovery must reject a prefix
+        // Fault the public read handle: recovery must reject a prefix
         // without canonical route evidence before publishing a root.
-        const inspect = ctx.sessionPersistence.inspect.bind(ctx.sessionPersistence)
-        vi.spyOn(ctx.sessionPersistence, 'inspect').mockImplementation(async (...args) => {
-          const stored = await inspect(...args)
-          return args[0] === ROOT ? { ...stored, events: stored.events.filter(event => event.type !== 'request/header') } : stored
+        const open = ctx.sessionPersistence.open.bind(ctx.sessionPersistence)
+        vi.spyOn(ctx.sessionPersistence, 'open').mockImplementation(async (...args) => {
+          const handle = await open(...args)
+          if (args[0] === ROOT && args[1] === 'read') {
+            const read = handle.read.bind(handle)
+            vi.spyOn(handle, 'read').mockImplementation(async (...readArgs) => {
+              const stored = await read(...readArgs)
+              return { ...stored, events: stored.events.filter(event => event.type !== 'request/header') }
+            })
+          }
+          return handle
         })
       }
     })

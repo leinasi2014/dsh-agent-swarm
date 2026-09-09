@@ -1,4 +1,4 @@
-import { queueSubagentPrompt, type HostPromptQueue } from '@deepseek-ai/dsh-subagent/internal'
+import { deliverSubagentPrompt, type HostPromptDeliverer } from '@deepseek-ai/dsh-subagent/internal'
 /**
  * M1C scheduling discipline (issue #12 / F10), runtime half over the real
  * official composition: live-status candidate filtering, mailbox-before-
@@ -237,9 +237,9 @@ describe('live-status scheduling discipline over the real composition (issue #12
       const { domain } = ctx.agentSwarm
       const rawCancel = domain.cancelAttempt.bind(domain)
       const rawClaim = domain.claimTask.bind(domain)
-      const rawFollowup = (ctx.subagents as unknown as HostPromptQueue)[queueSubagentPrompt].bind(ctx.subagents)
+      const rawFollowup = (ctx.subagents as unknown as HostPromptDeliverer)[deliverSubagentPrompt].bind(ctx.subagents)
       let sabotaged = false
-      const followupSpy = vi.spyOn(ctx.subagents as unknown as HostPromptQueue, queueSubagentPrompt).mockImplementation(async (parent, childId, content, source, signal) => {
+      const followupSpy = vi.spyOn(ctx.subagents as unknown as HostPromptDeliverer, deliverSubagentPrompt).mockImplementation(async (parent, childId, content, source, signal, delivery) => {
         const assignment = content.some(block => block.type === 'text' && block.text.includes('Team assignment'))
         if (assignment && !sabotaged) {
           sabotaged = true
@@ -257,7 +257,7 @@ describe('live-status scheduling discipline over the real composition (issue #12
           )
           throw new Error('simulated assignment delivery failure')
         }
-        return await rawFollowup(parent, childId, content, source, signal)
+        return await rawFollowup(parent, childId, content, source, signal, delivery)
       })
       const cancelSpy = vi.spyOn(domain, 'cancelAttempt')
 

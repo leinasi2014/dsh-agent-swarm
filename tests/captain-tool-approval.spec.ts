@@ -1,3 +1,4 @@
+import { readPersistedSession } from '../src/runtime/persisted-session.js'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -6,7 +7,6 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { ToolCallId, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
-import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SubagentService, { foldSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
@@ -24,7 +24,6 @@ async function mount(adapter?: ApprovalAdapter, beforeActivate?: (ctx: Context) 
   cleanup.push(() => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
   const persistence = await ctx.plugin(JsonlSessionPersistence, { root: join(root, 'sessions') })
   cleanup.push(() => persistence.dispose())
@@ -41,7 +40,7 @@ async function mount(adapter?: ApprovalAdapter, beforeActivate?: (ctx: Context) 
     output: { schema: { type: 'integer' }, render: (_args, value) => [{ type: 'text', text: String(value) }] },
     execute: async args => { effects++; return args.value } }))
   if (adapter !== undefined) ctx.llm.registerAdapter(['approval-mock'], adapter)
-  const captain = ctx.agentLoop.create(SessionId('captain'), adapter === undefined ? {} : { provider: 'approval-mock', model: 'mock' }, { cwd: root })
+  const captain = await ctx.agentLoop.create(SessionId('captain'), adapter === undefined ? {} : { provider: 'approval-mock', model: 'mock' }, { cwd: root })
   const memberHeader = { cwd: root, parentSession: captain.id }
   const scope = ctx.agentSwarm.scopeOf(captain)
   const team = await ctx.agentSwarm.domain.createTeam(scope, captain.id, 'Permission test', 'Concrete member approval gate')
@@ -55,7 +54,7 @@ async function mount(adapter?: ApprovalAdapter, beforeActivate?: (ctx: Context) 
   const add = adapter === undefined ? undefined : await ctx.tools.execute({ agent: captain, name: 'agent_swarm_add_member',
     arguments: { name: 'worker', role: 'Run the approval probe once' }, signal: new AbortController().signal, callId: ToolCallId('add-worker') })
   if (add?.isError) throw new Error(JSON.stringify(add.error))
-  const member = add === undefined ? ctx.agentLoop.create(SessionId('member'), {}, memberHeader)
+  const member = add === undefined ? await ctx.agentLoop.create(SessionId('member'), {}, memberHeader)
     : ctx.agents.get(SessionId((add.value as { session_id: string }).session_id))!
   if (adapter === undefined) {
     await ctx.agentSwarm.domain.provisionMember(scope, team.id, captain.id, { name: 'worker', role: 'worker', sessionId: member.id, provider: 'spawn' })
@@ -136,8 +135,8 @@ it('runs a resident member through real mailbox wakeup, Captain decision and can
   const snap = await stack.ctx.agentSwarm.domain.snapshot(stack.scope, stack.teamId, stack.captain.id)
   const message = snap.team.messages.find(row => row.content.includes('member_tool_approval'))
   expect(message).toMatchObject({ phase: 'delivered', senderSessionId: stack.member.id, targetSessionId: stack.captain.id })
-  const storedMember = await stack.ctx.sessionPersistence.inspect(stack.member.id)
-  const storedCaptain = await stack.ctx.sessionPersistence.inspect(stack.captain.id)
+  const storedMember = await readPersistedSession(stack.ctx.sessionPersistence, stack.member.id)
+  const storedCaptain = await readPersistedSession(stack.ctx.sessionPersistence, stack.captain.id)
   const descriptor = foldSubagentDescriptor(storedMember.events.slice(storedMember.inheritedEventCount ?? 0))
   expect(descriptor?.mode).toBe('continuable')
   expect(JSON.stringify(descriptor)).not.toContain('approval_probe')
@@ -205,7 +204,7 @@ it.each(['deny', 'abort', 'turn-change', 'unload', 'timeout', 'official-deny'] a
 
 it('rejects another Team Captain without consuming the rightful request', async () => {
   const stack = await mount()
-  const other = stack.ctx.agentLoop.create(SessionId('foreign-captain'), {}, { cwd: 'C:/foreign' })
+  const other = await stack.ctx.agentLoop.create(SessionId('foreign-captain'), {}, { cwd: 'C:/foreign' })
   await stack.ctx.agentSwarm.domain.createTeam(stack.ctx.agentSwarm.scopeOf(other), other.id, 'Foreign team', 'Cannot approve this member')
   other.session.append('turn/start', { turn: 1 })
   const pending = stack.call(stack.member, 'approval_probe', { value: 9 })

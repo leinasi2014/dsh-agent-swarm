@@ -1,4 +1,3 @@
-import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -151,7 +150,7 @@ class PersistentInteractionFaultBackend implements StorageBackend {
 interface Stack {
   readonly ctx: Context
   readonly fibers: Fiber[]
-  readonly lead: ReturnType<Context['agentLoop']['create']>
+  readonly lead: Awaited<ReturnType<Context['agentLoop']['create']>>
   readonly scope: string
   readonly teamId: AgentSwarm.TeamId
 }
@@ -180,7 +179,6 @@ async function mount(
   const ctx = new Context()
   const fibers: Fiber[] = []
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
   fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(root, 'sessions', 'sessions.db') }))
   fibers.push(await ctx.plugin(Storage))
@@ -194,7 +192,7 @@ async function mount(
   fibers.push(await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1 }))
   ctx.llm.registerAdapter(['mock'], new ImmediateAdapter())
 
-  const lead = ctx.agentLoop.create(CAPTAIN_ID, { provider: 'mock', model: 'mock' }, { cwd: join(root, 'workspace') })
+  const lead = existingTeamId === undefined ? await ctx.agentLoop.create(CAPTAIN_ID, { provider: 'mock', model: 'mock' }, { cwd: join(root, 'workspace') }) : (await ctx.agents.resume({ resumeSessionId: CAPTAIN_ID, agentOptions: { provider: 'mock', model: 'mock' } })).agent
   const scope = ctx.agentSwarm.scopeOf(lead)
   let teamId = existingTeamId
   if (teamId === undefined) {
@@ -273,6 +271,7 @@ describe('SW-I1a durable outcome-unknown quarantine', () => {
     const memberId = SessionId(await addMember(first))
     await first.ctx.subagents.drainContinuableChildren(first.lead, [memberId])
     const memberHandle = await first.lead.ctx.agents.resume({
+      parentAgent: first.lead,
       resumeSessionId: memberId, agentOptions: { provider: 'mock', model: 'mock' }, signal: SIGNAL,
     })
     const before = await stableSnapshot(first)
@@ -307,6 +306,7 @@ describe('SW-I1a durable outcome-unknown quarantine', () => {
     const memberId = SessionId(await addMember(first))
     await first.ctx.subagents.drainContinuableChildren(first.lead, [memberId])
     const member = await first.lead.ctx.agents.resume({
+      parentAgent: first.lead,
       resumeSessionId: memberId, agentOptions: { provider: 'mock', model: 'mock' }, signal: SIGNAL,
     })
     const before = await stableSnapshot(first)
@@ -341,6 +341,7 @@ describe('SW-I1a durable outcome-unknown quarantine', () => {
     const memberId = SessionId(await addMember(first))
     await first.ctx.subagents.drainContinuableChildren(first.lead, [memberId])
     const member = await first.lead.ctx.agents.resume({
+      parentAgent: first.lead,
       resumeSessionId: memberId, agentOptions: { provider: 'mock', model: 'mock' }, signal: SIGNAL,
     })
     const before = await stableSnapshot(first)
@@ -378,6 +379,7 @@ describe('SW-I1a durable outcome-unknown quarantine', () => {
       expect(first.ctx.agents.get(memberId)).toBeUndefined()
     }, { timeout: 8_000, interval: 10 })
     const memberHandle = await first.lead.ctx.agents.resume({
+      parentAgent: first.lead,
       resumeSessionId: memberId,
       agentOptions: { provider: 'mock', model: 'mock' },
       signal: SIGNAL,

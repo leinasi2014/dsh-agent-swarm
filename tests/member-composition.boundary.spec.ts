@@ -1,3 +1,4 @@
+import { persistenceReadFixture } from './helpers/persistence-read-fixture.js'
 /**
  * Boundary tests: the P1-1 provider cap (exactly 128 vs over-bound producer
  * fields) and the P1-2 strict composition state/reason matrix.
@@ -53,12 +54,10 @@ function rpcHarness(options: {
       withInitiator: async <T>(_agent: Agent, callback: () => Promise<T>) => await callback(),
     },
     sessions: { get: (id: string) => (id === ROOT.id ? ROOT.session : undefined) },
-    sessionPersistence: {
-      inspect: async (sessionId: string) => {
+    sessionPersistence: persistenceReadFixture(async (sessionId: string) => {
         if (options.memberInspect !== undefined) return options.memberInspect(sessionId)
         throw new Error(`session "${sessionId}" not found`)
-      },
-    },
+    }),
   } as unknown as Context
   const snapshot = vi.fn(async () => ({ team }))
   const runtime = {

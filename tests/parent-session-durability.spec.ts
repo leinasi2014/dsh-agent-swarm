@@ -1,3 +1,4 @@
+import { readPersistedSession } from '../src/runtime/persisted-session.js'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -12,7 +13,7 @@ it('materializes the parent before concurrent child admission, and leaves no chi
   const start = ctx.subagents.startContinuable.bind(ctx.subagents)
   const calls = vi.spyOn(ctx.subagents, 'startContinuable').mockImplementation(async options => {
     // A child must never become durable ahead of its own resumable parent.
-    const parent = await ctx.sessionPersistence.inspect(lead.id)
+    const parent = await readPersistedSession(ctx.sessionPersistence, lead.id)
     expect(parent.meta.id).toBe(lead.id)
     return await start(options)
   })
@@ -20,7 +21,7 @@ it('materializes the parent before concurrent child admission, and leaves no chi
     const created = await ctx.tools.execute({ signal: SIGNAL, callId: ToolCallId('parent-create'), name: 'agent_swarm_create',
       arguments: { name: 'Parent durability', description: 'Verify canonical lineage before child admission.' }, agent: lead })
     expect(created.isError).toBe(false)
-    const checkpoint = vi.spyOn(ctx.sessionPersistence, 'ensureMaterialized').mockRejectedValueOnce(new Error('checkpoint unavailable'))
+    const checkpoint = vi.spyOn(ctx.sessions, 'flush').mockRejectedValueOnce(new Error('checkpoint unavailable'))
     const failed = await ctx.tools.execute({ signal: SIGNAL, callId: ToolCallId('parent-failed'), name: 'agent_swarm_add_member',
       arguments: { name: 'failed-before-admission', role: 'Must not exist.' }, agent: lead })
     expect(failed.isError).toBe(true)

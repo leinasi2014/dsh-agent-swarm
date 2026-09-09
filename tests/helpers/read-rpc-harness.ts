@@ -1,3 +1,4 @@
+import { persistenceReadFixture } from './persistence-read-fixture.js'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { vi } from 'vitest'
@@ -81,12 +82,10 @@ export function rpcHarness(options: {
       roots: () => options.fullyColdRoot ? [] : liveRoots,
     },
     sessions: { get: (id: string) => (id === root.id ? (options.coldRoot || options.fullyColdRoot ? undefined : session) : coldSessions[id]) ?? undefined },
-    sessionPersistence: {
-      inspect: async (_sessionId: string) => {
+    sessionPersistence: persistenceReadFixture(async (_sessionId: string) => {
         if (options.persistedRootHeader === undefined) throw new Error('no persisted root')
         return { meta: { cwd: options.persistedRootHeader.cwd, parentSession: options.persistedRootHeader.parentSession }, events: [] }
-      },
-    },
+    }),
   } as unknown as Context
   const snapshot = vi.fn(async () => ({ team }))
   const runtime = {

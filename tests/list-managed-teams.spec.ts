@@ -160,7 +160,7 @@ describe('agent_swarm_list_managed_teams (read-only Main Brain enumeration)', ()
     const captainA = (createdA.value as { captain_session_id: string }).captain_session_id
 
     // Root B is an independent top-level Main Brain in the SAME workspace scope.
-    const rootB = ctx.agentLoop.create(
+    const rootB = await ctx.agentLoop.create(
       SessionId(`root-b-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
       { provider: 'mock', model: 'mock' },
       { cwd: sharedCwd },
@@ -182,7 +182,7 @@ describe('agent_swarm_list_managed_teams (read-only Main Brain enumeration)', ()
 
     // An unrelated top-level root in the same scope has no owned/managed Team
     // and must fail closed to an explicit empty list (no union, no fallback).
-    const rootC = ctx.agentLoop.create(
+    const rootC = await ctx.agentLoop.create(
       SessionId(`root-c-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
       { provider: 'mock', model: 'mock' },
       { cwd: sharedCwd },
@@ -231,7 +231,7 @@ describe('agent_swarm_list_managed_teams survives a service restart', () => {
     try {
       first = await mount(sandbox, 0)
       first.ctx.llm.registerAdapter(['mock'], new PlainStopAdapter())
-      const leadA = first.ctx.agentLoop.create(
+      const leadA = await first.ctx.agentLoop.create(
         ROOT, { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') },
       )
       const created = await tool(first.ctx, leadA, 'restart-create', 'agent_swarm_create_managed', {

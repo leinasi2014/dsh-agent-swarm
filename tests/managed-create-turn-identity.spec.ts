@@ -1,4 +1,4 @@
-import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import { readPersistedSession } from '../src/runtime/persisted-session.js'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
  * Turn-scoped managed-Team identity (real Session-log turns).
@@ -101,7 +101,6 @@ async function mountMainBrain(sandbox: string, adapter: MainBrainTurnAdapter) {
   const ctx = new Context()
   const fibers: Fiber[] = []
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
   fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   await mountStorageStackOn(ctx, join(sandbox, 'storage'))
@@ -112,7 +111,7 @@ async function mountMainBrain(sandbox: string, adapter: MainBrainTurnAdapter) {
     memberProvider: 'spawn', memberMaxDepth: 1, captainLlmProvider: 'mock', captainModel: 'mock',
   }))
   ctx.llm.registerAdapter(['mock'], adapter)
-  const lead = ctx.agentLoop.create(
+  const lead = await ctx.agentLoop.create(
     SessionId(`turn-lead-${Math.random().toString(36).slice(2, 8)}`),
     { provider: 'mock', model: 'mock' },
     { cwd: join(sandbox, 'workspace') },
@@ -130,7 +129,7 @@ async function driveTurn(lead: Agent, adapter: MainBrainTurnAdapter, text: strin
 async function managedCalls(ctx: Context, leadId: SessionId): Promise<ToolCallEvent[]> {
   const live = ctx.sessions.get(leadId)
   if (live !== undefined) await ctx.sessions.flush(live)
-  const stored = await ctx.sessionPersistence.inspect(leadId, SIGNAL)
+  const stored = await readPersistedSession(ctx.sessionPersistence, leadId, SIGNAL)
   return stored.events.filter((event): event is ToolCallEvent =>
     event.type === 'tool/call' && (event.data as { name: string }).name === 'agent_swarm_create_managed')
 }

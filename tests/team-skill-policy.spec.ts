@@ -1,4 +1,3 @@
-import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
  * Issue #183 — Team skill allow-list enforcement (test implementer, strict TDD).
@@ -80,7 +79,7 @@ class CapturingAdapter extends LlmAdapter {
 
 interface Mounted {
   readonly ctx: Context
-  readonly parent: ReturnType<Context['agentLoop']['create']>
+  readonly parent: Awaited<ReturnType<Context['agentLoop']['create']>>
   readonly surface: TeamSkillSurface
   readonly surfaceFiber: Fiber
   readonly adapter: CapturingAdapter
@@ -90,7 +89,6 @@ interface Mounted {
 async function mountSurfaceStack(sandbox: string, fibers: Fiber[], resolveTeam?: (agent: Agent) => Promise<TeamState | undefined>): Promise<Mounted> {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
   fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   await mountStorageStackOn(ctx, join(sandbox, 'storage'))
@@ -112,7 +110,7 @@ async function mountSurfaceStack(sandbox: string, fibers: Fiber[], resolveTeam?:
   let surface!: TeamSkillSurface
   const surfaceFiber = await ctx.plugin({ inject: ['tools', 'systemPrompt', 'agents', 'skills'], apply(pluginCtx: Context) { surface = new TeamSkillSurface(pluginCtx, resolveTeam) } })
   fibers.push(surfaceFiber)
-  const parent = ctx.agentLoop.create(
+  const parent = await ctx.agentLoop.create(
     SessionId('mt-parent'),
     { provider: 'mock', model: 'mock' },
     { cwd: join(sandbox, 'workspace') })

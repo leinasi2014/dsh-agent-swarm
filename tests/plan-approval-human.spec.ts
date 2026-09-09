@@ -29,7 +29,7 @@ describe('plan approval through official userQuestions (S3)', () => {
     const composition = await mount(sandbox, 60_000)
     await composition.ctx.plugin(UserQuestionService)
     try {
-      const mb = composition.ctx.agentLoop.create(SessionId(`plan-approve-mb-${Date.now()}`), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+      const mb = await composition.ctx.agentLoop.create(SessionId(`plan-approve-mb-${Date.now()}`), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
       const created = await toolCall(composition.ctx, mb, 'stage', 'agent_swarm_create_managed', { name: 'Human Approval Team', description: 'Approve me.', stage: true })
       expect(created.isError).toBe(false)
       const teamId = (created.value as { team_id: string }).team_id
@@ -59,7 +59,7 @@ describe('plan approval through official userQuestions (S3)', () => {
     const composition = await mount(sandbox, 60_000)
     await composition.ctx.plugin(UserQuestionService)
     try {
-      const mb = composition.ctx.agentLoop.create(SessionId(`plan-discard-mb-${Date.now()}`), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+      const mb = await composition.ctx.agentLoop.create(SessionId(`plan-discard-mb-${Date.now()}`), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
       const created = await toolCall(composition.ctx, mb, 'stage', 'agent_swarm_create_managed', { name: 'Human Approval Team', description: 'Never start.', stage: true })
       expect(created.isError).toBe(false)
       const teamId = (created.value as { team_id: string }).team_id
@@ -87,7 +87,7 @@ describe('plan approval through official userQuestions (S3)', () => {
     roots.push(sandbox)
     const composition = await mount(sandbox, 60_000)
     try {
-      const mb = composition.ctx.agentLoop.create(SessionId(`plan-missing-mb-${Date.now()}`), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+      const mb = await composition.ctx.agentLoop.create(SessionId(`plan-missing-mb-${Date.now()}`), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
       const created = await toolCall(composition.ctx, mb, 'stage', 'agent_swarm_create_managed', { name: 'Human Approval Team', description: 'Never start.', stage: true })
       expect(created.isError).toBe(false)
       const teamId = (created.value as { team_id: string }).team_id

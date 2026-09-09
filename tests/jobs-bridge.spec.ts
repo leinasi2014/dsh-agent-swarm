@@ -1,4 +1,3 @@
-import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
  * Real-composition tests for the caller-scoped Team jobs projection.
@@ -98,7 +97,7 @@ interface MountedTree {
   ctx: Context
   fibers: Fiber[]
   adapter: MemberAdapter
-  lead: ReturnType<Context['agentLoop']['create']>
+  lead: Awaited<ReturnType<Context['agentLoop']['create']>>
   workflowEvents: Array<{ name: string; runId: string | undefined; detail: unknown }>
 }
 
@@ -135,7 +134,6 @@ async function mountTree(sandbox: string, options: {
   const ctx = new Context()
   const fibers: Fiber[] = []
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
   fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   fibers.push(await ctx.plugin(Storage))
@@ -158,7 +156,7 @@ async function mountTree(sandbox: string, options: {
   }))
   const adapter = new MemberAdapter({ submit: options.submit })
   ctx.llm.registerAdapter(['mock'], adapter)
-  const lead = ctx.agentLoop.create(
+  const lead = await ctx.agentLoop.create(
     SessionId(`jobs-lead-${Math.random().toString(36).slice(2, 8)}`),
     { provider: 'mock', model: 'mock' },
     { cwd: join(sandbox, 'workspace') },
@@ -281,7 +279,7 @@ return { out }`,
         const registry = tree.ctx.jobs
         expect(registry).toBeInstanceOf(LocalJobRegistry)
         const controller = registry.attachController('default-jobs-proof')
-        const other = tree.ctx.agentLoop.create(SessionId(`jobs-default-other-${String(jobsBridge)}`), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'other') })
+        const other = await tree.ctx.agentLoop.create(SessionId(`jobs-default-other-${String(jobsBridge)}`), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'other') })
         const unowned = registry.start({ kind: 'bash', label: 'official unowned', run: completedJobRun })
         const owned = registry.start({ kind: 'bash', label: 'official owned', owner: tree.lead, run: completedJobRun })
         expect(registry.list()).toEqual([expect.objectContaining({ id: unowned })])
@@ -300,7 +298,7 @@ return { out }`,
     sandboxes.push(sandbox)
     const tree = await mountTree(sandbox, { submit: false, workflowBridge: false, jobsBridge: true })
     try {
-      const rootB = tree.ctx.agentLoop.create(
+      const rootB = await tree.ctx.agentLoop.create(
         SessionId('jobs-scope-root-b'),
         { provider: 'mock', model: 'mock' },
         { cwd: join(sandbox, 'workspace-b') },
@@ -351,16 +349,16 @@ return { out }`,
     try {
       const root = tree.lead
       const sameScope = (id: string) => tree.ctx.agentLoop.create(SessionId(id), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
-      const otherScope = tree.ctx.agentLoop.create(SessionId('auth-other-scope'), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'other-workspace') })
-      const activeMember = sameScope('auth-active-member')
-      const archivedCaptain = sameScope('auth-archived-captain')
-      const archivedMember = sameScope('auth-archived-member')
-      const precedence = sameScope('auth-active-precedence')
-      const precedenceCaptain = sameScope('auth-precedence-captain')
-      const ambiguousMember = sameScope('auth-ambiguous-member')
-      const ambiguousCaptainA = sameScope('auth-ambiguous-captain-a')
-      const ambiguousCaptainB = sameScope('auth-ambiguous-captain-b')
-      const archivedAmbiguous = sameScope('auth-archived-ambiguous')
+      const otherScope = await tree.ctx.agentLoop.create(SessionId('auth-other-scope'), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'other-workspace') })
+      const activeMember = await sameScope('auth-active-member')
+      const archivedCaptain = await sameScope('auth-archived-captain')
+      const archivedMember = await sameScope('auth-archived-member')
+      const precedence = await sameScope('auth-active-precedence')
+      const precedenceCaptain = await sameScope('auth-precedence-captain')
+      const ambiguousMember = await sameScope('auth-ambiguous-member')
+      const ambiguousCaptainA = await sameScope('auth-ambiguous-captain-a')
+      const ambiguousCaptainB = await sameScope('auth-ambiguous-captain-b')
+      const archivedAmbiguous = await sameScope('auth-archived-ambiguous')
 
       await createCancelledTask(tree, root, activeMember.id, 'active-captain-member', 'active diagnostic')
       await createCancelledTask(tree, archivedCaptain, archivedMember.id, 'archived-captain', 'archived diagnostic', true)

@@ -1,3 +1,4 @@
+import { readPersistedSession } from '../src/runtime/persisted-session.js'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { describe, expect, it } from 'vitest'
@@ -37,7 +38,7 @@ describe('execution guard over the official Agent Loop', () => {
       expect(stack.agent.inbox.nextTurn.map(message => message.id)).toContain(queued.id)
       expect(adapter.requests[5]?.messages.some(message => JSON.stringify(message).includes('Execution guard WARNING'))).toBe(true)
       await stack.ctx.sessions.flush(stack.agent.session)
-      const stored = await stack.ctx.sessionPersistence.inspect(stack.agent.id, new AbortController().signal)
+      const stored = await readPersistedSession(stack.ctx.sessionPersistence, stack.agent.id, new AbortController().signal)
       expect(stored.events.filter(event => event.type === 'user/message' && JSON.stringify(event.data).includes('Execution guard WARNING'))).toHaveLength(1)
       const after = await stack.ctx.agentSwarm.status({ agent: stack.agent, signal: new AbortController().signal })
       expect(after.team.tasks).toEqual(admitted.team.tasks)

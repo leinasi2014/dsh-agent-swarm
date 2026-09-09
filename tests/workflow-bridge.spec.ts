@@ -1,4 +1,3 @@
-import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
  * Real-composition tests for the Team bridge workflow engine (M2-1, #75).
@@ -106,7 +105,7 @@ interface MountedTree {
   ctx: Context
   fibers: Fiber[]
   adapter: MemberAdapter
-  lead: ReturnType<Context['agentLoop']['create']>
+  lead: Awaited<ReturnType<Context['agentLoop']['create']>>
   workflowEvents: Array<{ name: string; runId: string | undefined; detail: unknown }>
 }
 
@@ -121,7 +120,6 @@ async function mountTree(sandbox: string, options: {
   const ctx = new Context()
   const fibers: Fiber[] = []
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
   fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   fibers.push(await ctx.plugin(Storage))
@@ -144,7 +142,7 @@ async function mountTree(sandbox: string, options: {
   }))
   const adapter = new MemberAdapter({ submit: options.submit })
   ctx.llm.registerAdapter(['mock'], adapter)
-  const lead = ctx.agentLoop.create(
+  const lead = await ctx.agentLoop.create(
     SessionId(`wf-lead-${Math.random().toString(36).slice(2, 8)}`),
     { provider: 'mock', model: 'mock' },
     { cwd: join(sandbox, 'workspace') },

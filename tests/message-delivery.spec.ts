@@ -1,6 +1,6 @@
-import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
+import { readPersistedSession } from '../src/runtime/persisted-session.js'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
-import { queueSubagentPrompt, type HostPromptQueue } from '@deepseek-ai/dsh-subagent/internal'
+import { deliverSubagentPrompt, type HostPromptDeliverer } from '@deepseek-ai/dsh-subagent/internal'
 /**
  * F2 (M1B): target-side stable message-id de-duplication across the mailbox
  * crash window.
@@ -112,7 +112,7 @@ async function countTargetCopies(ctx: Context, sessionId: string, frame: string)
   const live = ctx.agents.get(SessionId(sessionId))
   const events = live !== undefined
     ? live.session.snapshotEvents()
-    : (await ctx.sessionPersistence.inspect(SessionId(sessionId), SIGNAL)).events
+    : (await readPersistedSession(ctx.sessionPersistence, SessionId(sessionId), SIGNAL)).events
   return acceptedFrames(events, frame)
 }
 
@@ -159,7 +159,6 @@ describe('target-side message de-duplication (F2)', () => {
 
     try {
       await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
       fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
       await mountStorageStackOn(ctx, join(sandbox, 'storage'))
@@ -169,7 +168,7 @@ describe('target-side message de-duplication (F2)', () => {
       const pluginFiber = await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1 })
       fibers.push(pluginFiber)
       ctx.llm.registerAdapter(['mock'], adapter)
-      const lead = ctx.agentLoop.create(
+      const lead = await ctx.agentLoop.create(
         SessionId('dedup-lead'),
         { provider: 'mock', model: 'mock' },
         { cwd: join(sandbox, 'workspace') },
@@ -201,12 +200,12 @@ describe('target-side message de-duplication (F2)', () => {
 
       // Delivery observer: capture every framed followup text.
       const followupFrames: string[] = []
-      const followup = (ctx.subagents as unknown as HostPromptQueue)[queueSubagentPrompt].bind(ctx.subagents)
-      const followupSpy = vi.spyOn(ctx.subagents as unknown as HostPromptQueue, queueSubagentPrompt).mockImplementation(async (parent, childId, content, source, signal) => {
+      const followup = (ctx.subagents as unknown as HostPromptDeliverer)[deliverSubagentPrompt].bind(ctx.subagents)
+      const followupSpy = vi.spyOn(ctx.subagents as unknown as HostPromptDeliverer, deliverSubagentPrompt).mockImplementation(async (parent, childId, content, source, signal, delivery) => {
         for (const block of content) {
           if (block.type === 'text') followupFrames.push(block.text)
         }
-        return await followup(parent, childId, content, source, signal)
+        return await followup(parent, childId, content, source, signal, delivery)
       })
 
       // Crash-window injection: the FIRST store acknowledgement (the
@@ -236,7 +235,7 @@ describe('target-side message de-duplication (F2)', () => {
       // delivery path's checkpoint flush made that pending-inbox acceptance
       // durable before the claim.
       await vi.waitFor(async () => {
-        expect(acceptedFrames((await ctx.sessionPersistence.inspect(SessionId(memberSessionId), SIGNAL)).events, frame)).toBe(1)
+        expect(acceptedFrames((await readPersistedSession(ctx.sessionPersistence, SessionId(memberSessionId), SIGNAL)).events, frame)).toBe(1)
       }, { timeout: 15_000 })
 
       // Durable fact (1b): let the member claim the frame into model-visible
@@ -245,7 +244,7 @@ describe('target-side message de-duplication (F2)', () => {
       // only form a waking acknowledgement settles on.
       adapter.open()
       await vi.waitFor(async () => {
-        const stored = await ctx.sessionPersistence.inspect(SessionId(memberSessionId), SIGNAL)
+        const stored = await readPersistedSession(ctx.sessionPersistence, SessionId(memberSessionId), SIGNAL)
         expect(stored.events.some(event => event.type === 'user/message' && carriesFrame(event.data, frame))).toBe(true)
       }, { timeout: 15_000 })
 
@@ -265,7 +264,7 @@ describe('target-side message de-duplication (F2)', () => {
       await ctx.subagents.drainContinuableChildren(lead, [SessionId(memberSessionId)])
       await vi.waitFor(async () => {
         expect(ctx.agents.get(SessionId(memberSessionId))).toBeUndefined()
-        expect(acceptedFrames((await ctx.sessionPersistence.inspect(SessionId(memberSessionId), SIGNAL)).events, frame)).toBe(1)
+        expect(acceptedFrames((await readPersistedSession(ctx.sessionPersistence, SessionId(memberSessionId), SIGNAL)).events, frame)).toBe(1)
       }, { timeout: 15_000 })
 
       // The reload recovery rescan (schedulePass -> deliverQueuedMessage):
@@ -309,7 +308,6 @@ describe('target-side message de-duplication (F2)', () => {
 
     try {
       await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
       fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
       await mountStorageStackOn(ctx, join(sandbox, 'storage'))
@@ -319,7 +317,7 @@ describe('target-side message de-duplication (F2)', () => {
       const pluginFiber = await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1 })
       fibers.push(pluginFiber)
       ctx.llm.registerAdapter(['mock'], adapter)
-      const lead = ctx.agentLoop.create(
+      const lead = await ctx.agentLoop.create(
         SessionId('idempotent-lead'),
         { provider: 'mock', model: 'mock' },
         { cwd: join(sandbox, 'workspace') },
@@ -348,12 +346,12 @@ describe('target-side message de-duplication (F2)', () => {
       // `recoverAgent` calls below stand in for repeated reload recoveries.
       const idle = vi.spyOn(ctx.agentSwarm, 'observeAgentIdle').mockImplementation(() => {})
       const followupFrames: string[] = []
-      const followup = (ctx.subagents as unknown as HostPromptQueue)[queueSubagentPrompt].bind(ctx.subagents)
-      const followupSpy = vi.spyOn(ctx.subagents as unknown as HostPromptQueue, queueSubagentPrompt).mockImplementation(async (parent, childId, content, source, signal) => {
+      const followup = (ctx.subagents as unknown as HostPromptDeliverer)[deliverSubagentPrompt].bind(ctx.subagents)
+      const followupSpy = vi.spyOn(ctx.subagents as unknown as HostPromptDeliverer, deliverSubagentPrompt).mockImplementation(async (parent, childId, content, source, signal, delivery) => {
         for (const block of content) {
           if (block.type === 'text') followupFrames.push(block.text)
         }
-        return await followup(parent, childId, content, source, signal)
+        return await followup(parent, childId, content, source, signal, delivery)
       })
       const acknowledge = vi.spyOn(ctx.agentSwarm.domain, 'acknowledgeMessage')
       acknowledge.mockRejectedValue(new Error('acknowledge stays down across every rescan'))
@@ -379,11 +377,11 @@ describe('target-side message de-duplication (F2)', () => {
       // Durable acceptance, then let the member claim the frame into history
       // (same crash-window facts as scenario 5).
       await vi.waitFor(async () => {
-        expect(acceptedFrames((await ctx.sessionPersistence.inspect(SessionId(memberSessionId), SIGNAL)).events, frame)).toBe(1)
+        expect(acceptedFrames((await readPersistedSession(ctx.sessionPersistence, SessionId(memberSessionId), SIGNAL)).events, frame)).toBe(1)
       }, { timeout: 15_000 })
       adapter.open()
       await vi.waitFor(async () => {
-        const stored = await ctx.sessionPersistence.inspect(SessionId(memberSessionId), SIGNAL)
+        const stored = await readPersistedSession(ctx.sessionPersistence, SessionId(memberSessionId), SIGNAL)
         expect(stored.events.some(event => event.type === 'user/message' && carriesFrame(event.data, frame))).toBe(true)
       }, { timeout: 15_000 })
 

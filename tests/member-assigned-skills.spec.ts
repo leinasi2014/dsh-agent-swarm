@@ -1,4 +1,3 @@
-import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
  * Issue #184 — recruited identity and member-assigned Skills become an
@@ -51,7 +50,7 @@ class CapturingAdapter extends LlmAdapter {
 
 interface Mounted {
   readonly ctx: Context
-  readonly lead: ReturnType<Context['agentLoop']['create']>
+  readonly lead: Awaited<ReturnType<Context['agentLoop']['create']>>
   readonly teamId: string
   readonly fibers: Fiber[]
 }
@@ -60,7 +59,6 @@ async function mount(sandbox: string, allowedSkills: readonly string[] | undefin
   const ctx = new Context()
   const fibers: Fiber[] = []
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(SessionProjectionService)
   await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
   fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
   await mountStorageStackOn(ctx, join(sandbox, 'storage'))
@@ -77,7 +75,7 @@ async function mount(sandbox: string, allowedSkills: readonly string[] | undefin
   }))
   const adapter = new CapturingAdapter()
   ctx.llm.registerAdapter(['mock'], adapter)
-  const lead = ctx.agentLoop.create(SessionId('skills-lead'), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+  const lead = await ctx.agentLoop.create(SessionId('skills-lead'), { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
   const created = await ctx.tools.execute({
     signal: SIGNAL, callId: ToolCallId('create-team'), name: 'agent_swarm_create',
     arguments: { name: 'Skills team', description: 'Prove assigned Skills.' }, agent: lead,
