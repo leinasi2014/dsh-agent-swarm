@@ -36,11 +36,16 @@ describe.skipIf(!windows)('Windows candidate process boundary (issue #126)', () 
       const scriptPath = resolve('scripts/promotion/windows-candidate-credential.ps1').replaceAll("'", "''")
       const script = `
         $ErrorActionPreference = 'Stop'
+        # Load the audit's complete built-in command set explicitly. Missing
+        # modules must fail promptly instead of entering CI module discovery.
+        $PSModuleAutoLoadingPreference = 'None'
         [Console]::WriteLine('ACL_AUDIT_STAGE: started')
         Import-Module -Name "$PSHOME/Modules/Microsoft.PowerShell.Utility/Microsoft.PowerShell.Utility.psd1" -ErrorAction Stop
         [Console]::WriteLine('ACL_AUDIT_STAGE: Utility loaded')
         Import-Module -Name "$PSHOME/Modules/Microsoft.PowerShell.Security/Microsoft.PowerShell.Security.psd1" -ErrorAction Stop
         [Console]::WriteLine('ACL_AUDIT_STAGE: Security loaded')
+        Import-Module -Name "$PSHOME/Modules/Microsoft.PowerShell.Management/Microsoft.PowerShell.Management.psd1" -ErrorAction Stop
+        [Console]::WriteLine('ACL_AUDIT_STAGE: Management loaded')
         $targetPath = '${target.replaceAll("'", "''")}'
         $parentPath = '${base.replaceAll("'", "''")}'
         $tokens=$null; $errors=$null
