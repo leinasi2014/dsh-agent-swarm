@@ -1,9 +1,7 @@
 import { readPersistedSession } from '../src/runtime/persisted-session.js'
 /**
- * Real execution-root provider/composition faults (M3-1, #100; docs/04 §8l):
- * isolation, reclaim, crash residue without automatic deletion, authoritative
- * holds, official tool cwd, submit evidence and conflict rollback.
- * Evidence: docs/08 scenario 21 (distinct roots for parallel coding attempts).
+ * Execution-root faults (M3-1, #100; docs/04 §8l, docs/08 scenario 21): isolation,
+ * reclaim, retained crash residue, holds, tool cwd, submit evidence and rollback.
  */
 import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'

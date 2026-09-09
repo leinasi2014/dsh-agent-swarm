@@ -30,7 +30,7 @@
 - **Main Chat** 保持 Main Brain 会话，不因选中 Team 而改名。
 - **Team rail** 在一个页面中切换多个 Team。
 - **Workbench** 参考 `dsh-agent-teams` 的信息层级：公共目标、按真实任务状态汇总的进度、Captain → 成员 → 当前任务执行树，以及可展开的任务依赖。未提交计划、空公告和技术诊断不占据默认概览。
-- **Tasks / Announcements / Management** 提供互斥视图；成员和任务详情在官方右侧 Details 栏内切换，提供明确的返回入口并恢复焦点。禁止 modal、absolute 详情遮罩和插件自有全屏回退；窄屏布局继续由官方宿主负责。
+- **Tasks / Announcements / Management** 提供互斥视图；成员和任务详情在官方右侧栏 Team 页签内切换，提供明确的返回入口并恢复焦点。禁止 modal、absolute 详情遮罩和插件自有全屏回退；窄屏布局继续由官方宿主负责。
 - **Captain Chat** 使用官方 Session navigation 打开所选 Captain；不是 `/swarm` 的隐式写操作。
 - **Plugin settings** 配置 Captain/成员模型、Skills、工具 policy、编排/review 选择和资源上限；保存后由官方 Settings 在重启时应用。
 

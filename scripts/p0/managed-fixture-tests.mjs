@@ -2,8 +2,8 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { sha256File, verifyP0Evidence } from './evidence.mjs'
-const EXPECTED_P0_OFFICIAL_COMMIT = 'a66e4702047846cdaa10c66c9d3df3951f5ea70d'
-const EXPECTED_P0_OFFICIAL_TREE = '27ab636bb3d77e698f5637e518db44ae1f61e262'
+const EXPECTED_P0_OFFICIAL_COMMIT = '5dda764ed3aa172535a7967b06ff95d9cbfe536a'
+const EXPECTED_P0_OFFICIAL_TREE = '798c8cd37c0f4118d48c7e9891c6f81e962225c0'
 const git = ref => execFileSync('git', ['rev-parse', ref], { encoding: 'utf8', windowsHide: true }).trim()
 
 // Synthetic consumer fixtures, never a live receipt or acceptance collector.
@@ -12,16 +12,16 @@ function fixture(commit, tree, artifact) {
   const sessions = new Map()
   const ids = ['main', 'captain', 'member-a', 'member-b']
   for (const [index, id] of ids.entries()) sessions.set(id, {
-    header: { version: 0, id, isSeeded: false, createdAt: 100, ...(index === 0 ? {} : { parentSession: index === 1 ? 'main' : 'captain' }) }, events: [],
+    header: { version: 3, id, isSeeded: false, createdAt: 100, ...(index === 0 ? {} : { parentSession: index === 1 ? 'main' : 'captain' }) }, inheritedEventCount: 0, events: [],
   })
   function invoke(id, name, args, text, model = 'model-a') {
     const session = sessions.get(id)
     const events = session.events
     const turn = events.filter(event => event.type === 'turn/start').length
-    const add = (type, data) => { const event = { type, seq: events.length, time: ++time, data }; events.push(event); return event.seq }
+    const add = (type, data) => { const event = { type, seq: events.length, time: ++time, data, ...(['user/message', 'tool/result'].includes(type) ? { surfaceOp: 'append' } : {}) }; events.push(event); return event.seq }
     add('turn/start', { turn })
     if (id === 'main') add('user/message', { source: { kind: 'user' }, contentSha256: 'e'.repeat(64) })
-    add('request/header', { header: { config: { provider: 'configured-provider', model, reasoningEffort: 'high' } } })
+    add('request/header', { reason: turn === 0 ? 'initial' : 'resume', header: { config: { provider: 'configured-provider', model, reasoningEffort: 'high' } } })
     const callId = `${id}-${turn}`
     const callSeq = add('tool/call', { turn, step: 0, callId, name, arguments: args })
     const resultSeq = add('tool/result', { turn, step: 0, callId, isError: false, text })
@@ -80,7 +80,7 @@ function fixture(commit, tree, artifact) {
   const manifest = { schemaVersion: 2, proofKind: 'managed-team', status: 'pass', provenance: 'controller-observed-live',
     candidate: { commit, tree, cleanBefore: true, cleanAfter: true }, artifact,
     official: { commitBefore: EXPECTED_P0_OFFICIAL_COMMIT, commitAfter: EXPECTED_P0_OFFICIAL_COMMIT,
-      treeBefore: EXPECTED_P0_OFFICIAL_TREE, treeAfter: EXPECTED_P0_OFFICIAL_TREE, statusBefore: '', statusAfter: '', version: '0.1.2-rc.1' },
+      treeBefore: EXPECTED_P0_OFFICIAL_TREE, treeAfter: EXPECTED_P0_OFFICIAL_TREE, statusBefore: '', statusAfter: '', version: '0.1.5-alpha.1' },
     profile: { dshHome: join(process.cwd(), 'isolated-profile'), provider: 'configured-provider', model: 'model-a', profileName: 'acceptance' },
     managed: { mainSessionId: 'main', captainSessionId: 'captain', memberSessionIds: ids.slice(2),
       sessionsBefore: 'evidence/managed-before.json', sessionsAfter: 'evidence/managed-after.json', phases: {
@@ -97,7 +97,7 @@ function fixture(commit, tree, artifact) {
   // identity below never rewrites these expected package/Profile fields.
   const expected = { requireManaged: true, proofKind: 'managed-team', candidateCommit: commit, candidateTree: tree,
     artifact: { sha256: artifact.sha256, bytes: artifact.bytes },
-    official: { commit: EXPECTED_P0_OFFICIAL_COMMIT, tree: EXPECTED_P0_OFFICIAL_TREE, version: '0.1.2-rc.1' },
+    official: { commit: EXPECTED_P0_OFFICIAL_COMMIT, tree: EXPECTED_P0_OFFICIAL_TREE, version: '0.1.5-alpha.1' },
     profile: { dshHome: join(process.cwd(), 'isolated-profile'), provider: 'configured-provider', model: 'model-a', profileName: 'acceptance' } }
   return { manifest, files, expected }
 }
@@ -110,13 +110,13 @@ function asCodeMode(value) {
         const seq = event.seq * 3
         if (event.type === 'tool/call') {
           const data = { rootCallId: event.data.callId, parentCallId: event.data.callId, subCallId: `${event.data.callId}:code:1`, name: event.data.name, arguments: event.data.arguments }
-          return [{ ...event, seq, data: { ...event.data, name: 'run_code', arguments: {} } }, { type: 'tool/code-dispatch-start', seq: seq + 1, time: event.time, data }]
+          return [{ ...event, seq, data: { ...event.data, name: 'run_code', arguments: {} } }, { type: 'tool/ptc-dispatch-start', seq: seq + 1, time: event.time, data }]
         }
         if (event.type === 'tool/result') {
           const call = calls.get(event.data.callId)
           const data = { rootCallId: event.data.callId, parentCallId: event.data.callId, subCallId: `${event.data.callId}:code:1`, name: call.data.name,
             arguments: call.data.arguments, isError: event.data.isError, content: [{ type: 'text', text: event.data.text }] }
-          return [{ type: 'tool/code-dispatch', seq, time: event.time, data }, { ...event, seq: seq + 2,
+          return [{ type: 'tool/ptc-dispatch', seq, time: event.time, data }, { ...event, seq: seq + 2,
             data: { turn: event.data.turn, step: event.data.step, callId: event.data.callId, isError: event.data.isError, textSha256: 'e'.repeat(64) } }]
         }
         return [{ ...event, seq }]
@@ -142,11 +142,11 @@ function withNestedCodeMode(value) {
   for (const path of ['evidence/managed-before.json', 'evidence/managed-after.json']) for (const session of value.files[path]) {
     session.events = session.events.flatMap(event => {
       event.seq *= 3
-      if (!['tool/code-dispatch-start', 'tool/code-dispatch'].includes(event.type)) return [event]
+      if (!['tool/ptc-dispatch-start', 'tool/ptc-dispatch'].includes(event.type)) return [event]
       const parent = { rootCallId: event.data.rootCallId, parentCallId: event.data.parentCallId,
         subCallId: `${event.data.subCallId}:parent`, name: 'run_code', arguments: {} }
       event.data.parentCallId = parent.subCallId
-      if (event.type === 'tool/code-dispatch-start') return [{ ...event, seq: event.seq - 1, data: parent }, event]
+      if (event.type === 'tool/ptc-dispatch-start') return [{ ...event, seq: event.seq - 1, data: parent }, event]
       return [event, { ...event, seq: event.seq + 1, data: { ...parent, isError: false, contentSha256: 'e'.repeat(64) } }]
     })
   }
@@ -188,7 +188,7 @@ export async function testManagedP0Evidence(root, artifact) {
   gridProof.files['evidence/managed-ui.json'].screenshot = 'evidence/managed-ui.jpg'
   const rootAfter = gridProof.files['evidence/managed-after.json'][0]
   for (const [kind, form] of [['agent-message', 'relay'], ['subagent-settled', 'notice']]) rootAfter.events.push({
-    type: 'user/message', seq: rootAfter.events.at(-1).seq + 1, time: gridProof.manifest.managed.phases.restart.process.startedAt + 1,
+    type: 'user/message', surfaceOp: 'append', seq: rootAfter.events.at(-1).seq + 1, time: gridProof.manifest.managed.phases.restart.process.startedAt + 1,
     data: { source: { kind, form, senderSessionId: 'captain' }, contentSha256: 'e'.repeat(64) },
   })
   const grid = { palette: ['#112233', '#AABBCC'], rows: [
@@ -208,7 +208,7 @@ export async function testManagedP0Evidence(root, artifact) {
   const gridPositive = await verifyP0Evidence(root, gridProof.manifest, gridProof.expected)
   if (!gridPositive.ok) throw new Error(`32x32 palette profile rejected: ${gridPositive.failures.join('; ')}`)
   const gridCases = [
-    ['nested run_code exports stdout', value => { const event = value.files['evidence/managed-before.json'][0].events.find(entry => entry.type === 'tool/code-dispatch' && entry.data.name === 'run_code'); event.data.content = [{ type: 'text', text: 'forbidden stdout' }] }],
+    ['nested run_code exports stdout', value => { const event = value.files['evidence/managed-before.json'][0].events.find(entry => entry.type === 'tool/ptc-dispatch' && entry.data.name === 'run_code'); event.data.content = [{ type: 'text', text: 'forbidden stdout' }] }],
     ['wrong JPEG dimensions', value => { value.files['evidence/managed-ui.json'].width++ }],
     ['JPEG renamed PNG', value => { value.files['evidence/managed-ui.png'] = value.files['evidence/managed-ui.jpg']; delete value.files['evidence/managed-ui.jpg']; value.files['evidence/managed-ui.json'].screenshot = 'evidence/managed-ui.png' }],
     ['relay missing sender', value => { delete value.files['evidence/managed-after.json'][0].events.at(-2).data.source.senderSessionId }],
@@ -263,6 +263,11 @@ export async function testManagedP0Evidence(root, artifact) {
     ['restart changed Team', value => { value.files['evidence/managed-restart.json'].id = 'new-team' }],
     ['restart changed reopened state', value => { value.files['evidence/managed-reopened.json'].revision++ }],
     ['restart changed Session header', value => { value.files['evidence/managed-after.json'][1].header.createdAt++ }],
+    ['restart changed inherited boundary', value => { value.files['evidence/managed-before.json'][1].header.isSeeded = true; value.files['evidence/managed-after.json'][1].header.isSeeded = true; value.files['evidence/managed-after.json'][1].inheritedEventCount = 1 }],
+    ['restart first header claims new conversation', value => {
+      const old = value.files['evidence/managed-before.json'].find(session => session.header.id === 'member-a')
+      value.files['evidence/managed-after.json'].find(session => session.header.id === 'member-a').events.slice(old.events.length).find(event => event.type === 'request/header').data.reason = 'initial'
+    }],
     ['restart changed prefix', value => { value.files['evidence/managed-after.json'][0].events[0].time++ }],
     ['restart borrows old process request routes', value => {
       for (const session of value.files['evidence/managed-after.json']) {
@@ -286,6 +291,21 @@ export async function testManagedP0Evidence(root, artifact) {
   // Change both pre/post projections so these cases reach their semantic check,
   // not merely the immutable restart prefix guard.
   for (const [name, mutate] of [
+    ['obsolete Session version', sessions => { sessions[0].header.version = 0 }],
+    ['missing inherited event count', sessions => { delete sessions[0].inheritedEventCount }],
+    ['invalid inherited event count', sessions => { sessions[0].inheritedEventCount = -1 }],
+    ['unseeded Session claims inheritance', sessions => { sessions[0].inheritedEventCount = 1 }],
+    ['missing request header reason', sessions => { delete sessions[0].events.find(event => event.type === 'request/header').data.reason }],
+    ['invalid request header reason', sessions => { sessions[0].events.find(event => event.type === 'request/header').data.reason = 'restart' }],
+    ['invalid startsSeries', sessions => { sessions[0].events.find(event => event.type === 'request/header').data.startsSeries = false }],
+    ['missing required surface operation', sessions => { delete sessions[0].events.find(event => event.type === 'user/message').surfaceOp }],
+    ['surface metadata on log-only event', sessions => { sessions[0].events[0].surfaceOp = 'append' }],
+    ['sources on log-only event', sessions => { sessions[0].events[0].sourceEventSeqs = [0] }],
+    ['future surface source', sessions => { const event = sessions[0].events.find(event => event.type === 'tool/result'); event.sourceEventSeqs = [event.seq + 1] }],
+    ['empty surface sources', sessions => { sessions[0].events.find(event => event.type === 'tool/result').sourceEventSeqs = [] }],
+    ['duplicate surface sources', sessions => { sessions[0].events.find(event => event.type === 'tool/result').sourceEventSeqs = [1, 1] }],
+    ['invalid surface replacement order', sessions => { sessions[0].events.find(event => event.type === 'tool/result').surfaceOp = { op: 'replace', startSeq: 3, endSeq: 1 } }],
+    ['replacement missing cited endpoints', sessions => { sessions[0].events.find(event => event.type === 'tool/result').surfaceOp = { op: 'replace', startSeq: 1, endSeq: 1 } }],
     ['same model members', sessions => { for (const session of sessions) for (const event of session.events) if (event.type === 'request/header') event.data.header.config.model = 'model-a' }],
     ['blank actual reasoning effort', sessions => { sessions[0].events.find(event => event.type === 'request/header').data.header.config.reasoningEffort = ' ' }],
     ['missing official seed metadata', sessions => { delete sessions[0].header.isSeeded }],
@@ -316,9 +336,10 @@ export async function testManagedP0Evidence(root, artifact) {
     }],
   ]
   for (const [label, mutate] of [
-    ['PTC result missing', sessions => { sessions[0].events = sessions[0].events.filter(event => event.type !== 'tool/code-dispatch') }],
-    ['PTC body failed', sessions => { sessions[0].events.find(event => event.type === 'tool/code-dispatch').data.isError = true }],
-    ['PTC arguments changed', sessions => { sessions[0].events.find(event => event.type === 'tool/code-dispatch').data.arguments = { name: 'changed' } }],
+    ['obsolete Code Mode event names', sessions => { for (const event of sessions[0].events) event.type = event.type.replace('tool/ptc-dispatch', 'tool/code-dispatch') }],
+    ['PTC result missing', sessions => { sessions[0].events = sessions[0].events.filter(event => event.type !== 'tool/ptc-dispatch') }],
+    ['PTC body failed', sessions => { sessions[0].events.find(event => event.type === 'tool/ptc-dispatch').data.isError = true }],
+    ['PTC arguments changed', sessions => { sessions[0].events.find(event => event.type === 'tool/ptc-dispatch').data.arguments = { name: 'changed' } }],
     ['PTC parent failed', sessions => { sessions[0].events.find(event => event.type === 'tool/result').data.isError = true }],
     ['PTC orphan parent', sessions => { sessions[0].events = sessions[0].events.filter(event => event.type !== 'tool/call') }],
     ['PTC outside parent', sessions => { sessions[0].events.find(event => event.type === 'tool/call').data.callId = 'other' }],

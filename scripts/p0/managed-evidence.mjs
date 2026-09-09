@@ -134,15 +134,34 @@ function screenshotDimensions(bytes, path) {
 }
 
 function checkSession(session) {
-  keys(session, ['header', 'events'], 'Session projection')
+  keys(session, ['header', 'events', 'inheritedEventCount'], 'Session projection')
+  assert(integer(session.inheritedEventCount), 'inherited event count missing or invalid')
   keys(session.header, ['version', 'id', 'createdAt', 'parentSession', 'origin', 'isSeeded', 'delegationDepth', 'agentPreset'], 'Session header')
-  assert(session.header.version === 0 && typeof session.header.isSeeded === 'boolean' && nonempty(session.header.id) && integer(session.header.createdAt), 'invalid official Session header')
+  assert(session.header.version === 3 && typeof session.header.isSeeded === 'boolean' && nonempty(session.header.id) && integer(session.header.createdAt), 'invalid official Session header')
+  assert(session.header.isSeeded || session.inheritedEventCount === 0, 'unseeded Session cannot have inherited events')
   assert(Array.isArray(session.events) && session.events.length > 0, 'Session events missing')
   let previous = -1
   for (const event of session.events) {
-    keys(event, ['type', 'seq', 'time', 'data'], 'Session event')
+    keys(event, ['type', 'seq', 'time', 'data', 'surfaceOp', 'sourceEventSeqs'], 'Session event')
     assert(integer(event.seq) && event.seq > previous && integer(event.time), 'Session seq/time invalid')
     previous = event.seq
+    // This is an allowlisted projection, not a full log reconstruction. The
+    // independent collector validates the complete official V3 surface first.
+    if (event.type === 'user/message' || event.type === 'tool/result') {
+      if (event.surfaceOp !== 'append') {
+        keys(event.surfaceOp, ['op', 'startSeq', 'endSeq'], 'surface operation')
+        assert(event.surfaceOp.op === 'replace' && integer(event.surfaceOp.startSeq)
+          && integer(event.surfaceOp.endSeq) && event.surfaceOp.startSeq <= event.surfaceOp.endSeq
+          && event.surfaceOp.endSeq < event.seq, 'invalid surface replacement range')
+      }
+      if (event.sourceEventSeqs !== undefined) {
+        assert(Array.isArray(event.sourceEventSeqs) && event.sourceEventSeqs.length > 0
+          && new Set(event.sourceEventSeqs).size === event.sourceEventSeqs.length
+          && event.sourceEventSeqs.every(seq => integer(seq) && seq < event.seq), 'invalid surface sources')
+      }
+      if (event.surfaceOp !== 'append') assert(event.sourceEventSeqs?.includes(event.surfaceOp.startSeq)
+        && event.sourceEventSeqs.includes(event.surfaceOp.endSeq), 'replacement must cite its endpoints')
+    } else assert(event.surfaceOp === undefined && event.sourceEventSeqs === undefined, 'log event carries surface metadata')
     const data = event.data
     switch (event.type) {
       case 'user/message':
@@ -157,7 +176,9 @@ function checkSession(session) {
         }
         break
       case 'request/header':
-        keys(data, ['header'], 'request header projection')
+        keys(data, ['header', 'reason', 'startsSeries'], 'request header projection')
+        assert(['initial', 'resume', 'change', 'series'].includes(data.reason), 'request header reason missing or invalid')
+        assert(data.startsSeries === undefined || data.startsSeries === true, 'invalid request header startsSeries')
         keys(data.header, ['config'], 'request header')
         keys(data.header.config, ['provider', 'model', 'reasoningEffort'], 'request route')
         if (data.header.config.reasoningEffort !== undefined) assert(nonempty(data.header.config.reasoningEffort), 'actual reasoning effort must be nonblank')
@@ -184,12 +205,12 @@ function checkSession(session) {
         assert(integer(data.turn) && integer(data.step) && nonempty(data.callId)
           && typeof data.isError === 'boolean' && (nonempty(data.text) || digest(data.textSha256)), 'tool result correlation missing')
         break
-      case 'tool/code-dispatch-start':
-      case 'tool/code-dispatch':
-        keys(data, ['rootCallId', 'parentCallId', 'subCallId', 'name', 'arguments', ...(event.type === 'tool/code-dispatch' ? ['isError', 'content', 'contentSha256'] : [])], 'Code Mode dispatch')
+      case 'tool/ptc-dispatch-start':
+      case 'tool/ptc-dispatch':
+        keys(data, ['rootCallId', 'parentCallId', 'subCallId', 'name', 'arguments', ...(event.type === 'tool/ptc-dispatch' ? ['isError', 'content', 'contentSha256'] : [])], 'Code Mode dispatch')
         assert([data.rootCallId, data.parentCallId, data.subCallId].every(nonempty) && Object.hasOwn(TOOLS, data.name), 'Code Mode identity/tool missing')
         keys(data.arguments, TOOLS[data.name], 'Code Mode projected arguments')
-        if (event.type === 'tool/code-dispatch') {
+        if (event.type === 'tool/ptc-dispatch') {
           assert(typeof data.isError === 'boolean', 'Code Mode outcome missing')
           if (data.name === 'run_code') {
             assert(digest(data.contentSha256) && data.content === undefined, 'nested run_code output must be digest-only')
@@ -232,7 +253,7 @@ function toolPair(sessions, ref, name, owner) {
   assert(events !== undefined, 'referenced Session missing')
   const call = events.find(event => event.seq === ref.callSeq)
   const result = events.find(event => event.seq === ref.resultSeq)
-  if (call?.type === 'tool/code-dispatch-start') return codePair(sessions, events, ref, name, owner, call, result)
+  if (call?.type === 'tool/ptc-dispatch-start') return codePair(sessions, events, ref, name, owner, call, result)
   assert(call?.type === 'tool/call' && call.data.name === name && result?.type === 'tool/result', 'referenced tool pair missing')
   assert(call.seq < result.seq && call.data.callId === ref.callId && call.data.turn === ref.turn
     && result.data.callId === ref.callId && result.data.turn === ref.turn
@@ -249,14 +270,14 @@ function toolPair(sessions, ref, name, owner) {
 }
 
 function codePair(sessions, events, ref, name, owner, call, result) {
-  assert(call.data.name === name && result?.type === 'tool/code-dispatch' && result.data.isError === false
+  assert(call.data.name === name && result?.type === 'tool/ptc-dispatch' && result.data.isError === false
     && result.seq > call.seq, 'Code Mode dispatch outcome mismatch')
   for (const field of ['rootCallId', 'parentCallId', 'subCallId']) {
     assert(nonempty(ref[field]) && call.data[field] === ref[field] && result.data[field] === ref[field], 'Code Mode correlation mismatch')
   }
   assert(result.data.name === name && isDeepStrictEqual(call.data.arguments, result.data.arguments), 'Code Mode start/result payload mismatch')
-  assert(events.filter(event => event.type === 'tool/code-dispatch-start' && event.data.subCallId === ref.subCallId).length === 1
-    && events.filter(event => event.type === 'tool/code-dispatch' && event.data.subCallId === ref.subCallId).length === 1, 'Code Mode subCallId must pair uniquely')
+  assert(events.filter(event => event.type === 'tool/ptc-dispatch-start' && event.data.subCallId === ref.subCallId).length === 1
+    && events.filter(event => event.type === 'tool/ptc-dispatch' && event.data.subCallId === ref.subCallId).length === 1, 'Code Mode subCallId must pair uniquely')
   const rootCall = events.find(event => event.type === 'tool/call' && event.data.callId === ref.rootCallId)
   const rootResult = events.find(event => event.type === 'tool/result' && event.data.callId === ref.rootCallId)
   assert(rootCall && rootResult && rootCall.seq < call.seq && result.seq < rootResult.seq, 'Code Mode dispatch must be enclosed by actual run_code')
@@ -267,8 +288,8 @@ function codePair(sessions, events, ref, name, owner, call, result) {
   while (parent !== ref.rootCallId) {
     assert(!seen.has(parent), 'Code Mode parent cycle')
     seen.add(parent)
-    const start = events.find(event => event.type === 'tool/code-dispatch-start' && event.data.subCallId === parent)
-    const end = events.find(event => event.type === 'tool/code-dispatch' && event.data.subCallId === parent)
+    const start = events.find(event => event.type === 'tool/ptc-dispatch-start' && event.data.subCallId === parent)
+    const end = events.find(event => event.type === 'tool/ptc-dispatch' && event.data.subCallId === parent)
     assert(start && end && start.data.name === 'run_code' && end.data.name === 'run_code' && end.data.isError === false
       && start.data.rootCallId === ref.rootCallId && end.data.rootCallId === ref.rootCallId
       && start.data.parentCallId === end.data.parentCallId && start.seq < childStart && childEnd < end.seq, 'Code Mode nested parent lineage mismatch')
@@ -366,7 +387,10 @@ export async function verifyManagedEvidence(root, manifest, expected, failures) 
     for (const id of ids) {
       const old = before.get(id), current = after.get(id)
       assert(isDeepStrictEqual(old.header, current.header)
+        && old.inheritedEventCount === current.inheritedEventCount
         && isDeepStrictEqual(old.events, current.events.slice(0, old.events.length)), 'restart must preserve exact Session identity and projected prefix')
+      const resumedHeader = current.events.slice(old.events.length).find(event => event.type === 'request/header')
+      assert(resumedHeader === undefined || resumedHeader.data.reason === 'resume', 'first post-restart request header must resume the existing Session')
     }
     keys(managed.phases, PHASES, 'managed phases')
     assert(PHASES.every(name => Object.hasOwn(managed.phases, name)), 'all six managed phases required')
