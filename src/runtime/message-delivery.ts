@@ -29,7 +29,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId, type Session } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
-import { queueHostSubagentPrompt } from '@deepseek-ai/dsh-subagent/internal'
+import { steerHostSubagentPrompt } from '@deepseek-ai/dsh-subagent/internal'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import { messageObsoleteReason } from '../domain/team-domain-mailbox.js'
 import type { TeamId, TeamMessage, TeamMessageId, TeamState } from '../domain/types.js'
@@ -120,14 +120,15 @@ export class MessageDelivery {
         ? sender
         : this.ctx.agents.get(SessionId(team.captainSessionId))
       if (captain === undefined) return false
-      await queueHostSubagentPrompt(
+      await steerHostSubagentPrompt(
         this.ctx.subagents,
         captain,
         SessionId(message.targetSessionId),
         [{ type: 'text', text: frame }],
         { kind: 'plugin', plugin: 'dsh-agent-swarm' }, signal,
       )
-      // The followup may have cold-resumed the target; observe the CURRENT
+      // Steering reaches a busy member's next step and may cold-resume an
+      // inactive target; observe the CURRENT
       // live agent (issue #52 / D1: waking mail acks only on the claim).
       const woken = this.ctx.agents.get(SessionId(message.targetSessionId))
       if (woken === undefined) return false

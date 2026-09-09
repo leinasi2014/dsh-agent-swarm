@@ -24,9 +24,9 @@ import { readPersistedSession } from './persisted-session.js'
 
 /**
  * Bounded wait for a waking frame's claim at the target's next turn
- * boundary. An idle or cold target claims within its first pre-step
+ * or step boundary. An idle or cold target claims within its first pre-step
  * (milliseconds on a warm host; a cold runner's first member assemble can
- * take seconds); a member mid-turn claims when the running turn ends, which
+ * take seconds); a busy member claims at the nearest later step, which
  * can be long — the grace expires, the delivery debt stays unsettled, and
  * the target's `agent/status → idle` edge re-runs the pass that completes
  * the acknowledgement on the claimed form.

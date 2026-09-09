@@ -100,7 +100,9 @@ export class CaptainToolApproval {
         tool: name, arguments: args, call_id: callId, root_call_id: rootCallId,
         instruction: `Review this exact call, then use ${CAPTAIN_APPROVAL_TOOL} with approve or deny. A normal message cannot approve. This request expires and never authorizes another call.`,
       }), 'wakeup')
-      if (message.phase !== 'delivered') return false
+      // A busy Captain may claim queued mail after the delivery grace expires.
+      // The original invocation remains pending under its own timeout and signal.
+      if (message.phase === 'cancelled' || message.phase === 'obsolete') return false
       return await answer && await valid()
     } catch {
       return false
@@ -119,14 +121,20 @@ export class CaptainToolApproval {
     if (request === undefined || request.deciding || this.closed || exec.signal.aborted
       || exec.agent !== request.captain || this.ctx.agents.get(request.captain.id) !== request.captain
       || this.openTurn(request.captain) === null) {
-      throw new TeamDomainError('No pending tool approval owned by this live Captain', 'TEAM_TOOL_APPROVAL_UNAVAILABLE')
+      throw new TeamDomainError(
+        'No pending tool approval owned by this live Captain. Do not retry this request ID; check the member\'s latest tool result before requesting a new call.',
+        'TEAM_TOOL_APPROVAL_UNAVAILABLE',
+      )
     }
     const decisionTurn = this.openTurn(request.captain)
     request.deciding = true
     try {
       if (!await request.valid() || exec.signal.aborted || this.ctx.agents.get(request.captain.id) !== exec.agent
         || this.openTurn(request.captain) !== decisionTurn) {
-        throw new TeamDomainError('The member tool invocation is no longer current', 'TEAM_TOOL_APPROVAL_STALE')
+        throw new TeamDomainError(
+          'The member tool invocation is no longer current. Do not retry this request ID; check the member\'s latest tool result.',
+          'TEAM_TOOL_APPROVAL_STALE',
+        )
       }
       request.finish(decision === 'approve')
     } catch (error) {

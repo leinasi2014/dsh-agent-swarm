@@ -261,6 +261,37 @@ describe('official compatibility semantics over the real composition (issue #19)
     }
   }, 20_000)
 
+  it('delivers waking Captain feedback at the busy member next step without waiting for another turn', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-agent-swarm-busy-mail-'))
+    roots.push(sandbox)
+    const { ctx, fibers, adapter, lead } = await mount(sandbox)
+    try {
+      await createTeam(ctx, lead, 'create')
+      const memberId = await addMember(ctx, lead, 'busy-worker')
+      await adapter.waitForRequests(1)
+      const member = ctx.agents.get(SessionId(memberId))!
+      const sent = await toolCall(ctx, lead, 'send-feedback', 'agent_swarm_send_message', {
+        target: 'busy-worker', content: 'Use the newly saved handoff before continuing this task.', delivery: 'wakeup',
+      })
+      expect(sent.isError).toBe(false)
+      expect(sent.value).toMatchObject({ phase: 'queued' })
+      adapter.open()
+      await vi.waitFor(() => {
+        const events = member.session.snapshotEvents()
+        expect(events.some(event => event.type === 'user/message'
+          && event.data.content.some(block => block.type === 'text'
+            && block.text.includes('Use the newly saved handoff before continuing this task.')))).toBe(true)
+      }, { timeout: 5_000 })
+      const events = member.session.snapshotEvents()
+      expect(events.filter(event => event.type === 'turn/start')).toHaveLength(1)
+      expect(events.filter(event => event.type === 'turn/end')).toHaveLength(0)
+      expect(member.inbox.nextTurn).toHaveLength(0)
+    } finally {
+      adapter.open()
+      for (const fiber of fibers.toReversed()) await fiber.dispose()
+    }
+  }, 20_000)
+
   /**
    * Captain-only keepInbox interrupt: cancels the member's current turn
    * through `ctx.subagents.interrupt(kind: 'ancestor')` while the roster row,
