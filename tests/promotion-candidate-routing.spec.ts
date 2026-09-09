@@ -82,9 +82,13 @@ it('rejects a selected CLI that differs from the approved installation entry', a
   } finally { await rm(base, { recursive: true, force: true }) }
 })
 
-it('rebases internal package junctions and rejects links escaping an independent installation', async () => {
-  const base = await mkdtemp(join(tmpdir(), 'promotion-portable-'))
+it.each([false, true])('rebases package junctions and rejects escaping links with aliased ancestor=%s', async aliased => {
+  const temporary = await mkdtemp(join(tmpdir(), 'promotion-portable-'))
   try {
+    const physical = join(temporary, 'physical'), alias = join(temporary, 'alias')
+    await mkdir(physical)
+    if (aliased) await symlink(physical, alias, 'junction')
+    const base = aliased ? alias : physical
     const source = join(base, 'source'), target = join(base, 'copy'), outside = join(base, 'outside')
     await mkdir(source); await mkdir(outside)
     await mkdir(join(source, 'package'))
@@ -97,5 +101,5 @@ it('rebases internal package junctions and rejects links escaping an independent
     await mkdir(source)
     await symlink(outside, join(source, 'private-source'), 'junction')
     await expect(copyPortableTree(source, join(base, 'bad-copy'))).rejects.toThrow('escapes')
-  } finally { await rm(base, { recursive: true, force: true }) }
+  } finally { await rm(temporary, { recursive: true, force: true }) }
 })

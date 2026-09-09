@@ -3,7 +3,7 @@
 // the native Job. Administrator preparation is a separate explicit operation.
 import { spawn } from 'node:child_process'
 import { copyFile, lstat, mkdir, mkdtemp, open, readdir, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { closeHandleChecked, isJobEmpty, pollProcessExit, terminateJob } from '@deepseek-ai/dsh-win32-process'
 import { copyWindowsCandidateOutput, spawnWindowsAccountCandidate, windowsCandidateBindings } from './windows-candidate.mjs'
 
@@ -16,6 +16,9 @@ function within(root, path) {
  * an installation link into a user's source checkout or another private root. */
 export async function copyPortableTree(source, target) {
   const base = await realpath(source)
+  // The destination does not exist yet; resolve its existing parent so short
+  // Windows paths and junction ancestors share the source's physical namespace.
+  target = join(await realpath(dirname(target)), basename(target))
   if (within(base, target)) throw new Error('portable copy target intersects its source')
   await mkdir(target)
   const links = []

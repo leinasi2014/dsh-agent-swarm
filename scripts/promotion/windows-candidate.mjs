@@ -4,7 +4,7 @@
 // WRITE_RESTRICTED token does not intersect DELETE. The controller-only account
 // adapter below reuses the public process/Job lifecycle with a dedicated identity.
 import koffi from 'koffi'
-import { mkdtemp, rm, open } from 'node:fs/promises'
+import { mkdtemp, rm, open, realpath } from 'node:fs/promises'
 import { pipeline } from 'node:stream/promises'
 import { createWriteStream } from 'node:fs'
 import { isAbsolute, join, relative, resolve } from 'node:path'
@@ -334,6 +334,7 @@ export function windowsCandidateBindings() { return win32() }
 /** Read only the opened candidate file's resolved handle. A candidate-created
  * junction must not turn the controller's artifact copy into a private read. */
 export async function copyWindowsCandidateOutput(root, source, destination) {
+  const physicalRoot = await realpath(root)
   const file = await open(source, 'r')
   try {
     const api = win32()
@@ -341,7 +342,7 @@ export async function copyWindowsCandidateOutput(root, source, destination) {
     const size = api.getFinalPathNameByHandleW(api.uvGetOsfhandle(file.fd), buffer, 32_768, 0)
     if (size === 0 || size >= 32_768) throw new Error('candidate artifact final path is unavailable')
     const finalPath = buffer.toString('utf16le', 0, size * 2).replace(/^\\\\\?\\/, '')
-    const local = relative(resolve(root), finalPath)
+    const local = relative(physicalRoot, finalPath)
     if (local.startsWith('..') || isAbsolute(local) || local === '') throw new Error('candidate artifact resolves outside its execution root')
     const info = await file.stat()
     if (!info.isFile() || info.nlink !== 1) throw new Error('candidate artifact must be a regular single-link file')

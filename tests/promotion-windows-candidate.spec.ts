@@ -74,11 +74,15 @@ describe.skipIf(!windows)('Windows candidate process boundary (issue #126)', () 
       expect(result.stdout).toContain('READ_ONLY_ACL_AUDIT_PASS')
       expect(await readFile(target, 'utf8')).toBe('dummy authority')
     } finally { await rm(base, { recursive: true, force: true }) }
-  })
+  }, 30_000)
 
-  it('copies an artifact by its final native file handle and refuses an escaping junction', async () => {
-    const base = await mkdtemp(join(tmpdir(), 'promotion-copy-handle-'))
+  it.each([false, true])('copies the native artifact and rejects escapes with aliased ancestor=%s', async aliased => {
+    const temporary = await mkdtemp(join(tmpdir(), 'promotion-copy-handle-'))
     try {
+      const physical = join(temporary, 'physical'), alias = join(temporary, 'alias')
+      await mkdir(physical)
+      if (aliased) await symlink(physical, alias, 'junction')
+      const base = aliased ? alias : physical
       const root = join(base, 'candidate'), outside = join(base, 'controller')
       await mkdir(root); await mkdir(outside)
       await writeFile(join(root, 'package.tgz'), 'candidate bytes')
@@ -92,7 +96,7 @@ describe.skipIf(!windows)('Windows candidate process boundary (issue #126)', () 
       await expect(copyWindowsCandidateOutput(root, join(root, 'hardlink.tgz'), join(base, 'hardlink-leak'))).rejects.toThrow('single-link')
       expect(await stat(join(base, 'leak')).then(() => true, () => false)).toBe(false)
       expect(await stat(join(base, 'hardlink-leak')).then(() => true, () => false)).toBe(false)
-    } finally { await rm(base, { recursive: true, force: true }) }
+    } finally { await rm(temporary, { recursive: true, force: true }) }
   })
 
   it.each(['windows-candidate-account.ps1', 'windows-candidate-credential.ps1'])('parses %s without executing account, credential or ACL operations', filename => {
@@ -138,10 +142,14 @@ describe.skipIf(!windows)('Windows candidate process boundary (issue #126)', () 
     expect(sid).toBeDefined()
     const password = Buffer.from('not-a-secret', 'utf16le')
     try {
+      // Hosted Windows runners may themselves use a renamed built-in account.
+      // That identity is rejected by the earlier RID guard before token lookup.
+      const rejection = Number(sid!.split('-').at(-1)) < 1000
+        ? 'must not be a built-in Windows identity' : 'must differ from the controller account'
       expect(() => spawnWindowsAccountCandidate({
         account: 'DshMissing126', password, expectedSid: sid!,
         command: process.execPath, cwd: process.cwd(), env: laneEnv(),
-      })).toThrow('must differ from the controller account')
+      })).toThrow(rejection)
     } finally { password.fill(0) }
   })
 
