@@ -274,14 +274,17 @@ export async function settleMember(
   teamId: TeamId,
   sessionId: string,
   outcome: { active: true } | { active: false; error: string },
+  expectedPhase?: 'provisioning',
 ): Promise<TeamMember> {
   let committed!: TeamMember
   await deps.store.transact(scope, teamId, team => {
     const index = team.members.findIndex(candidate => candidate.sessionId === sessionId)
     expectDomain(index >= 0, 'provisioning member not found', 'TEAM_MEMBER_NOT_FOUND')
     const current = team.members[index]!
+    // Startup error evidence can still fail an active member; interrupted
+    // provisioning recovery must compare its expected phase in this write.
     expectDomain(
-      current.phase === 'provisioning' || (current.phase === 'active' && !outcome.active),
+      current.phase === 'provisioning' || (expectedPhase === undefined && current.phase === 'active' && !outcome.active),
       'member is no longer provisioning',
       'TEAM_MEMBER_PHASE_INVALID',
     )
@@ -305,15 +308,17 @@ export async function recoverProvisioningMembers(
   teamId: TeamId,
   captainSessionId: string,
   diagnostic: string,
+  sessionIds?: readonly string[],
 ): Promise<TeamMember[]> {
   const recovered: TeamMember[] = []
+  const selected = sessionIds === undefined ? undefined : new Set(sessionIds)
   await deps.store.transact(scope, teamId, team => {
     const authority = actorMembership(team, captainSessionId)
     expectDomain(authority.role === 'captain', 'only the captain can recover members', 'TEAM_CAPTAIN_REQUIRED')
     const reason = nonEmpty(diagnostic, 'member recovery diagnostic', 4_096)
     for (let index = 0; index < team.members.length; index += 1) {
       const member = team.members[index]!
-      if (member.phase !== 'provisioning') continue
+      if (member.phase !== 'provisioning' || (selected !== undefined && !selected.has(member.sessionId))) continue
       const failed = { ...member, phase: 'failed' as const, error: reason }
       team.members[index] = failed
       recovered.push(failed)

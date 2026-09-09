@@ -207,12 +207,16 @@ export interface TeamDomainPort {
     teamId: TeamId,
     sessionId: string,
     outcome: { active: true } | { active: false; error: string },
+    /** Recovery verdicts must not demote an independently activated member. */
+    expectedPhase?: 'provisioning',
   ): Promise<TeamMember>
   recoverProvisioningMembers(
     scope: TeamScope,
     teamId: TeamId,
     captainSessionId: string,
     diagnostic: string,
+    /** Restrict a recovery pass to its observed, unowned Session identities. */
+    sessionIds?: readonly string[],
   ): Promise<TeamMember[]>
   removeMember(
     scope: TeamScope,

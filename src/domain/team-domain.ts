@@ -173,8 +173,9 @@ export class TeamDomain implements TeamDomainPort {
     teamId: TeamId,
     sessionId: string,
     outcome: { active: true } | { active: false; error: string },
+    expectedPhase?: 'provisioning',
   ): Promise<TeamMember> {
-    return await roster.settleMember(this.deps, scope, teamId, sessionId, outcome)
+    return await roster.settleMember(this.deps, scope, teamId, sessionId, outcome, expectedPhase)
   }
 
   async recoverProvisioningMembers(
@@ -182,8 +183,9 @@ export class TeamDomain implements TeamDomainPort {
     teamId: TeamId,
     captainSessionId: string,
     diagnostic: string,
+    sessionIds?: readonly string[],
   ): Promise<TeamMember[]> {
-    return await roster.recoverProvisioningMembers(this.deps, scope, teamId, captainSessionId, diagnostic)
+    return await roster.recoverProvisioningMembers(this.deps, scope, teamId, captainSessionId, diagnostic, sessionIds)
   }
 
   async removeMember(
