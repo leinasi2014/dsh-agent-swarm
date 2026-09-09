@@ -16,6 +16,10 @@ import { CodeRuntime, type CodeRunRequest, type CodeRunResult } from '@deepseek-
 import { afterEach, expect, it, vi } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
 import { mountStorageStackOn } from './helpers/storage-stack.js'
+import type { TeamMessage } from '../src/domain/types.js'
+import type { Domain } from '@deepseek-ai/dsh-storage-domain'
+import { StorageDomainTeamStore } from '../src/storage/storage-domain-team-store.js'
+import { teamDomainSpec } from '../src/storage/team-spec.js'
 
 const cleanup: Array<() => Promise<unknown>> = []
 afterEach(async () => { vi.useRealTimers(); for (const close of cleanup.splice(0).reverse()) await close() })
@@ -28,6 +32,7 @@ async function mount(adapter?: ApprovalAdapter, beforeActivate?: (ctx: Context) 
   const persistence = await ctx.plugin(JsonlSessionPersistence, { root: join(root, 'sessions') })
   cleanup.push(() => persistence.dispose())
   await mountStorageStackOn(ctx, join(root, 'storage'))
+  const storageOpen = vi.spyOn(ctx.storageDomain, 'open')
   const loop = await ctx.plugin(AgentLoop, { agents: [] }); cleanup.push(() => loop.dispose())
   const subagents = await ctx.plugin(SubagentService); cleanup.push(() => subagents.dispose())
   const spawn = await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }); cleanup.push(() => spawn.dispose())
@@ -71,7 +76,7 @@ async function mount(adapter?: ApprovalAdapter, beforeActivate?: (ctx: Context) 
   })
   const call = (agent: typeof member, name: string, args: Record<string, unknown>, signal = new AbortController().signal) =>
     ctx.tools.execute({ agent, name, arguments: args, signal, callId: ToolCallId(crypto.randomUUID()) })
-  return { ctx, captain, member, call, plugin, teamId: team.id, scope, effects: () => effects,
+  return { ctx, captain, member, call, plugin, storageOpen, teamId: team.id, scope, effects: () => effects,
     requestId: () => JSON.parse(notice).request_id as string,
     requestData: () => JSON.parse(notice) as { call_id: string; root_call_id: string },
   }
@@ -242,6 +247,62 @@ it.each(['cancelled', 'obsolete'] as const)('rejects terminal %s approval mail w
   vi.mocked(stack.ctx.agentSwarm.sendMessage).mockImplementation(async () => ({ phase }) as never)
   expect((await stack.call(stack.member, 'approval_probe', { value: 4 })).isError).toBe(true)
   expect(stack.effects()).toBe(0)
+})
+
+it.each(['obsolete', 'cancelled', 'superseded'] as const)('rejects a late decision after queued approval mail becomes %s', async phase => {
+  const stack = await mount()
+  let notice: TeamMessage | undefined
+  vi.mocked(stack.ctx.agentSwarm.sendMessage).mockImplementation(async (exec, target, content, delivery) => {
+    notice = await stack.ctx.agentSwarm.domain.queueMessage(stack.scope, stack.teamId, exec.agent!.id, target, content, delivery)
+    return notice
+  })
+  const pending = stack.call(stack.member, 'approval_probe', { value: 4 })
+  await vi.waitFor(() => expect(notice).toBeDefined())
+  if (phase === 'obsolete') {
+    await stack.ctx.agentSwarm.domain.markMessageObsolete(stack.scope, stack.teamId, notice!.id, 'Approval withdrawn')
+  } else if (phase === 'superseded') {
+    await stack.ctx.agentSwarm.domain.queueMessage(stack.scope, stack.teamId, stack.member.id, 'captain', 'Approval withdrawn', 'quiet', undefined, notice!.id)
+  } else {
+    const domain = await stack.storageOpen.mock.results[0]!.value as Domain<typeof teamDomainSpec>
+    const store = new StorageDomainTeamStore(stack.ctx, domain)
+    try {
+      await store.transact(stack.scope, stack.teamId, team => {
+        const index = team.messages.findIndex(message => message.id === notice!.id)
+        team.messages[index] = { ...team.messages[index]!, phase: 'cancelled' }
+      })
+    } finally { await store.close() }
+  }
+  expect((await stack.ctx.agentSwarm.domain.findMembership(stack.scope, stack.member.id))?.team.phase).toBe('active')
+  const result = await stack.call(stack.captain, 'agent_swarm_decide_tool_approval', {
+    request_id: JSON.parse(notice!.content).request_id as string, decision: 'approve',
+  })
+  expect(result.isError).toBe(true)
+  expect((await pending).isError).toBe(true)
+  expect(stack.effects()).toBe(0)
+})
+
+it.each([false, true])('rechecks notice after approval preceding send completion (withdrawn=%s)', async withdrawn => {
+  const stack = await mount()
+  let notice: TeamMessage | undefined
+  let release!: () => void
+  const sending = new Promise<void>(resolve => { release = resolve })
+  vi.mocked(stack.ctx.agentSwarm.sendMessage).mockImplementation(async (exec, target, content, delivery) => {
+    notice = await stack.ctx.agentSwarm.domain.queueMessage(stack.scope, stack.teamId, exec.agent!.id, target, content, delivery)
+    await sending
+    return notice
+  })
+  const pending = stack.call(stack.member, 'approval_probe', { value: 4 })
+  try {
+    await vi.waitFor(() => expect(notice).toBeDefined())
+    expect((await stack.call(stack.captain, 'agent_swarm_decide_tool_approval', {
+      request_id: JSON.parse(notice!.content).request_id as string, decision: 'approve',
+    })).isError).toBe(false)
+    expect(stack.effects()).toBe(0)
+    if (withdrawn) await stack.ctx.agentSwarm.domain.markMessageObsolete(stack.scope, stack.teamId, notice!.id, 'Approval withdrawn')
+    release()
+    expect((await pending).isError).toBe(withdrawn)
+    expect(stack.effects()).toBe(withdrawn ? 0 : 1)
+  } finally { release() }
 })
 
 it('retains approval while a real busy Captain exceeds the mailbox claim grace', async () => {

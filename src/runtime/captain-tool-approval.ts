@@ -55,6 +55,11 @@ export class CaptainToolApproval {
     const argumentJson = JSON.stringify(args)
     if (Buffer.byteLength(argumentJson, 'utf8') > MAX_ARGUMENT_BYTES) return false
     const requestId = randomUUID()
+    const notice = JSON.stringify({
+      type: 'member_tool_approval', request_id: requestId, member: membership.name,
+      tool: name, arguments: args, call_id: callId, root_call_id: rootCallId,
+      instruction: `Review this exact call, then use ${CAPTAIN_APPROVAL_TOOL} with approve or deny. A normal message cannot approve. This request expires and never authorizes another call.`,
+    })
     const controller = new AbortController()
     let settled = false
     let finish!: (allowed: boolean) => void
@@ -74,11 +79,15 @@ export class CaptainToolApproval {
         || exec.token !== token || exec.callId !== callId || exec.rootCallId !== rootCallId
         || exec.arguments !== args || exec.name !== name || JSON.stringify(args) !== argumentJson
         || this.ctx.tools.get(name, member) !== definition)
-    const valid = async (): Promise<boolean> => {
+    const valid = async (requireNotice = true): Promise<boolean> => {
       if (!sameInvocation()) return false
       const current = await this.runtime.domain.findMembership(scope, member.id)
       return current?.role === 'member' && current.team.id === teamId
         && current.team.phase === 'active' && current.team.captainSessionId === captain.id
+        // Read authoritative mail even when the Captain decides before sendMessage returns.
+        && (!requireNotice || current.team.messages.some(message => message.content === notice
+          && message.senderSessionId === member.id && message.targetSessionId === captain.id
+          && message.delivery === 'wakeup' && (message.phase === 'queued' || message.phase === 'delivered')))
         && sameInvocation()
     }
     const cancel = () => { finish(false) }
@@ -94,12 +103,8 @@ export class CaptainToolApproval {
     }
     this.pending.set(requestId, { captain, valid, finish, drained, deciding: false })
     try {
-      if (!await valid()) return false
-      const message = await this.runtime.sendMessage({ agent: member, signal: controller.signal }, 'captain', JSON.stringify({
-        type: 'member_tool_approval', request_id: requestId, member: membership.name,
-        tool: name, arguments: args, call_id: callId, root_call_id: rootCallId,
-        instruction: `Review this exact call, then use ${CAPTAIN_APPROVAL_TOOL} with approve or deny. A normal message cannot approve. This request expires and never authorizes another call.`,
-      }), 'wakeup')
+      if (!await valid(false)) return false
+      const message = await this.runtime.sendMessage({ agent: member, signal: controller.signal }, 'captain', notice, 'wakeup')
       // A busy Captain may claim queued mail after the delivery grace expires.
       // The original invocation remains pending under its own timeout and signal.
       if (message.phase === 'cancelled' || message.phase === 'obsolete') return false
