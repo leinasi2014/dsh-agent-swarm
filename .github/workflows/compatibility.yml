@@ -15,6 +15,7 @@ on:
       - 'cordis.patch.yml'
       - 'scripts/verify-official-baseline.mjs'
       - 'scripts/verify-reference-baselines.mjs'
+      - 'scripts/test-reference-baselines-gate.mjs'
       - 'scripts/sync-official-evidence.ps1'
       - '.github/workflows/compatibility.yml'
   push:
@@ -28,6 +29,7 @@ on:
       - 'cordis.patch.yml'
       - 'scripts/verify-official-baseline.mjs'
       - 'scripts/verify-reference-baselines.mjs'
+      - 'scripts/test-reference-baselines-gate.mjs'
       - 'scripts/sync-official-evidence.ps1'
       - '.github/workflows/compatibility.yml'
 

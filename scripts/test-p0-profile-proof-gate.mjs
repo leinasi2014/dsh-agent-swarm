@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { spawnSync } from 'node:child_process'
 import {
   EXPECTED_P0_OFFICIAL_COMMIT, EXPECTED_P0_OFFICIAL_TREE,
   REQUIRED_P0_EVIDENCE_FILES, REQUIRED_P0_GATES, sha256File, verifyP0Evidence,
@@ -10,9 +11,17 @@ import { verifySafeBundlePatch } from './p0/bundle-shape.mjs'
 import { parsePluginInventoryResponse, pluginInventoryPayload } from './p0/inventory.mjs'
 import { EXPECTED_P0_SWARM_TOOL_NAMES, exactP0SwarmToolSurface } from './p0/tool-surface.mjs'
 import { assertCompletedRootProbeTurn } from './p0/profile-probe.mjs'
+import { testManagedP0Evidence } from './p0/managed-fixture-tests.mjs'
 import {
   assertP0ProfileModelRoute, assertReloadProbeTransition, canonicalDeepEqual, canonicalTerminalIdentity, profilePatchLines,
 } from './p0/run.mjs'
+
+const candidateEnv = { ...process.env }
+for (const key of ['P0_PROOF_ROOT', 'P0_EXPECTED', 'P0_EXPECTED_SHA256']) delete candidateEnv[key]
+const unconfigured = spawnSync(process.execPath, ['scripts/verify-p0-profile-proof.mjs', '--candidate'], { encoding: 'utf8', env: candidateEnv })
+if (unconfigured.status !== 0 || !unconfigured.stdout.includes('NOT_CONFIGURED') || unconfigured.stdout.includes('PASS')) {
+  throw new Error('absent external product evidence must report NOT_CONFIGURED without claiming PASS')
+}
 
 const profileProbeSource = await readFile(new URL('./p0/profile-probe.mjs', import.meta.url), 'utf8')
 if (!profileProbeSource.includes("'agentDefaultModel'")
@@ -277,6 +286,8 @@ try {
   const expected = { candidateCommit: base.candidate.commit, candidateTree: base.candidate.tree }
   const positive = await verifyP0Evidence(root, structuredClone(base), expected)
   if (!positive.ok) throw new Error(`positive fixture failed: ${positive.failures.join('; ')}`)
+  const productProof = await verifyP0Evidence(root, structuredClone(base), { ...expected, requireManaged: true })
+  if (productProof.ok) throw new Error('legacy DEV_SMOKE fixture substituted for current managed-Team product proof')
 
   const cases = [
     ['digest mismatch', manifest => { manifest.artifact.sha256 = '0'.repeat(64) }],
@@ -487,6 +498,7 @@ try {
     record.sha256 = await sha256File(path)
     cases.push([label])
   }
+  await testManagedP0Evidence(root, base.artifact)
   console.log(`P0 Bundle/evidence gates: Typert payload + 1 positive/2 negative response cases; 1 safe Bundle + 4 unsafe Bundle cases; positive evidence + ${cases.length} negative evidence cases: PASS`)
 } finally {
   await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
