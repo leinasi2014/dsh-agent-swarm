@@ -8,8 +8,8 @@ This register contains current pinned identities and durable compatibility facts
 |---|---|
 | Repository | `https://github.com/deepseek-ai/deepseek-harness` |
 | Branch | `master` |
-| Release anchor | `a66e4702047846cdaa10c66c9d3df3951f5ea70d` |
-| Release | `dsh@0.1.2-rc.1` |
+| Release anchor | `5dda764ed3aa172535a7967b06ff95d9cbfe536a` |
+| Release | `dsh@0.1.5-alpha.1` |
 | Machine-readable baseline | `docs/OFFICIAL_BASELINE.json` |
 | Evidence checkout | repository-managed official sparse checkout |
 
@@ -23,6 +23,7 @@ The evidence checkout must include the official architecture/package rules, affe
 
 ### 1.2 Load-bearing official facts
 
+- Session V3 surface operations and source references remain in the canonical log; read-only persistence handles own their read/close lifetime. Assistant streams use an attempt identity and a revision that increases on every frame.
 - The Session log and Agent lifecycle are canonical; plugins extend them through public seams rather than patching Agent Loop.
 - `ctx.workspaceRegistry` owns workspace identity/membership, not Worktree allocation or continuable-child cwd changes.
 - `startContinuable` resolves after the initial message is durably accepted, not after the child's first turn settles.
@@ -32,7 +33,7 @@ The evidence checkout must include the official architecture/package rules, affe
 - Official token-meter `measure()` reports current request/surface pressure. Its `tokenUsage` projection is a per-Session provider-usage fold with chunk-early/message-final replacement; neither face supplies Team aggregation, admission, carry or per-event attribution.
 - The official Invariants registry owns package relational invariants and lifecycle checks. It is not a verification-command runner or review-result database.
 - The official Jobs registry owns job admission/controllers/cancellation. The Team job face is therefore a read-only scoped projection and must not replace or shadow the default registry.
-- Official Client extension points and layout leases own shell composition. Team UI is a read-only projection and must not install a private shell, transcript parser or second navigation state machine.
+- Official Client extension points and SidebarRight tabs own shell composition. Team UI is a read-only projection and must not install a private shell, transcript parser or second navigation state machine.
 
 These facts are represented in current source and focused tests, including storage reload, token-meter parity, workflow/Jobs composition, tool permissions and real Client lifecycle coverage.
 

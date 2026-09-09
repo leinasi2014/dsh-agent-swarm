@@ -87,13 +87,13 @@ AgentSwarmRuntime → TeamDomainPort → StorageDomainTeamStore
 
 以上图片于 2026-09-09 从隔离的官方 DSH `0.1.2-rc.1` Web Profile 实际截取，桌面视口为 1280×850，未用草图或模拟数据替换界面。截图展示界面状态，不替代发布级端到端验收。
 
-**显示宽度：**建议浏览区域至少 1024px 宽。官方布局需要约 1000px 才能同时容纳聊天与右侧 Details；更窄时会隐藏右栏，拉宽后恢复。长成员资料在侧栏中滚动查看。
+**显示方式：**Team 使用官方右侧栏的独立页签，可从会话顶部 Team 按钮打开或关闭。侧栏展开、浮动、分栏及窄屏行为由官方宿主管理；长成员资料在页签内滚动查看。上面的截图保留原验收版本标记，不能代替 alpha 版界面验收。
 
 ## 本地构建
 
 要求：Node.js `^22.19.0 || >=24`、pnpm `9.15.9`，以及与 `package.json` peer dependencies 和 `docs/OFFICIAL_BASELINE.json` 一致的官方 DSH。
 
-当前依赖基线为官方 DSH `0.1.2-rc.1`。Session 使用官方 JSONL persistence；客户端通过 `remote.session.modelCatalog()` 读取模型目录。已有 Profile 升级前须保留原 Session/Storage，不把新空 Profile 的通过当成旧数据迁移验收。
+当前依赖基线为官方 DSH `0.1.5-alpha.1`。Session 使用官方 V3 JSONL persistence；客户端通过 `remote.session.modelCatalog()` 读取模型目录。已有 Profile 升级前须保留原 Session/Storage，不把新空 Profile 的通过当成旧数据迁移验收。
 
 ```bash
 corepack enable

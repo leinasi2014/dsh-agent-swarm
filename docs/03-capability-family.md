@@ -68,9 +68,9 @@ Workbench 消费同一 read contract：
 - 公开目标、公告、成员 identity、Skills/tools、任务/attempt、budget 和 activity 都来自权威 projection；
 - 概览按 canonical task status 汇总完成、执行、待审核、等待依赖、待领取、失败和取消；截断时标记已显示范围，不伪造总体完成比例；
 - Captain → member → 当前 task/attempt 构成可读执行树；旧 attempt 不得投影为当前工作，复用现有任务依赖图并连接任务详情；
-- 成员或 task detail 在官方 Details 栏内替换概览，返回时恢复原入口焦点；身份、模型、Skills、预算与诊断按需展开，不使用遮罩层；
+- 成员或 task detail 在官方右侧栏 Team 页签内替换概览，返回时恢复原入口焦点；身份、模型、Skills、预算与诊断按需展开，不使用遮罩层；
 - 详情与概览共享断线/陈旧提示；不可见依赖显示“依赖状态待确认”，不把缺失投影推断为阻塞。长内容在官方 300–520px 栏宽内换行或滚动；
-- 官方 `0.1.2-rc.1` AppFrame 会在空间不足时将 Details 收至零宽：收起左侧栏后最少仍需 `56 + 640 + 300 = 996px`。这是当前宿主的显示限制；插件不覆盖宿主布局或恢复全屏遮罩，较窄窗口需加宽后查看，不能宣称已完成窄屏全场景验收；
+- 官方 `0.1.5-alpha.1` SidebarRight 管理展开、浮动、分栏及可见性；Team 注册独立页签并使用其绑定动作，插件不覆盖宿主布局。切到其他页签、收起右栏或关闭 Team 后，轮询不得抢回焦点；窄屏和浮动行为须在实际宿主分别验收；
 - “打开 Captain Chat”调用官方 Session navigation；
 - direct browser Team writes 仍 unavailable，不以自由文本或缓存冒充 Control。
 

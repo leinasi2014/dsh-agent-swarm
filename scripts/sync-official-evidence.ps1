@@ -30,13 +30,18 @@ if (-not (Test-Path (Join-Path $Target ".git"))) {
 
 $SparsePaths = @(
     ".agents/notes/implemented"
+    ".agents/notes/archived"
     "apps/cli"
     "docs/architecture.md"
     "docs/cordis-tutorial"
     "docs/subsystems"
     "packages/compaction"
     "packages/core/agent-loop"
+    "packages/core/agent"
+    "packages/core/session"
     "packages/core/tools"
+    "packages/client/ui-sidebar-right"
+    "packages/client/ui-dockkit"
     "packages/experimental/agent-team"
     "packages/experimental/tool-agent-team"
     "packages/interaction"
