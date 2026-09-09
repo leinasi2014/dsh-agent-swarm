@@ -78,6 +78,12 @@ async function failFirst(stack: Stack) {
   return sessionId
 }
 
+function gate() {
+  let open!: () => void
+  const waiting = new Promise<void>(resolve => { open = resolve })
+  return { waiting, open }
+}
+
 describe('member recruitment route and same-identity recovery', () => {
   it('discloses the failed employee retry fence only to the authenticated Captain tool caller', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-recruit-private-fence-'))
@@ -188,6 +194,114 @@ describe('member recruitment route and same-identity recovery', () => {
     expect((await stack.snapshot()).team.budget.usedTokens).toBe(used + 7)
     expect((await stack.call(args)).isError).toBe(true)
     expect((await stack.snapshot()).team.members[0]?.sessionId).toBe(newId)
+  })
+
+  it.each(['provision commit', 'child start'] as const)('does not recover an owned retry paused at %s', async seam => {
+    const stack = await setup()
+    const oldId = await failFirst(stack)
+    const domain = stack.ctx.agentSwarm.domain
+    const entered = gate()
+    const release = gate()
+    const pause = async () => { entered.open(); await release.waiting }
+    if (seam === 'provision commit') {
+      const provision = domain.provisionMember.bind(domain)
+      vi.spyOn(domain, 'provisionMember').mockImplementation(async (...args) => {
+        const member = await provision(...args)
+        await pause()
+        return member
+      })
+    } else {
+      const start = stack.ctx.subagents.startContinuable.bind(stack.ctx.subagents)
+      vi.spyOn(stack.ctx.subagents, 'startContinuable').mockImplementation(async (...args) => { await pause(); return start(...args) })
+    }
+    const retry = stack.call({ name: 'worker', role: 'Implement', retry_of: oldId })
+    try {
+      await entered.waiting
+      const childId = (await stack.snapshot()).team.members[0]!.sessionId
+      expect(stack.ctx.agents.get(SessionId(childId))).toBeUndefined()
+      await stack.ctx.agentSwarm.recoverAgent(stack.lead)
+      expect((await stack.snapshot()).team.members[0]).toMatchObject({ sessionId: childId, phase: 'provisioning' })
+    } finally {
+      release.open()
+      await retry
+    }
+    expect((await retry).isError).toBe(false)
+    expect((await stack.snapshot()).team.members[0]).toMatchObject({ phase: 'active', previousSessionIds: [oldId] })
+  })
+
+  it.each([
+    ['child evidence', 'activation'], ['settlement', 'activation'],
+    ['child evidence', 'replacement'], ['settlement', 'replacement'],
+  ] as const)('fences stale recovery across %s after concurrent %s', async (seam, transition) => {
+    const stack = await setup()
+    const domain = stack.ctx.agentSwarm.domain
+    await domain.provisionMember(stack.scope, stack.teamId, stack.lead.id, {
+      name: 'worker', role: 'Implement', sessionId: 'interrupted-child', provider: 'spawn',
+    })
+    const entered = gate()
+    const release = gate()
+    const settle = domain.settleMember.bind(domain)
+    const pause = async () => { entered.open(); await release.waiting }
+    if (seam === 'child evidence') {
+      const list = stack.ctx.subagents.listChildren.bind(stack.ctx.subagents)
+      vi.spyOn(stack.ctx.subagents, 'listChildren').mockImplementationOnce(async (...args) => {
+        const children = await list(...args)
+        await pause()
+        return children
+      })
+    } else {
+      // Hold the write after evidence collection and runtime checks; only the
+      // transaction's exact Session/phase fence can reject this stale verdict.
+      vi.spyOn(domain, 'settleMember').mockImplementationOnce(async (...args) => { await pause(); return settle(...args) })
+    }
+    const recovery = stack.ctx.agentSwarm.recoverAgent(stack.lead)
+    try {
+      await entered.waiting
+      if (transition === 'activation') {
+        await settle(stack.scope, stack.teamId, 'interrupted-child', { active: true })
+      } else {
+        await settle(stack.scope, stack.teamId, 'interrupted-child', { active: false, error: 'real startup failure' })
+        await domain.provisionMember(stack.scope, stack.teamId, stack.lead.id, {
+          name: 'worker', role: 'Implement', sessionId: 'replacement-child', provider: 'spawn', retryOf: 'interrupted-child',
+        })
+        await settle(stack.scope, stack.teamId, 'replacement-child', { active: true })
+      }
+    } finally {
+      release.open()
+      await recovery
+    }
+    expect((await stack.snapshot()).team.members[0]).toMatchObject({
+      sessionId: transition === 'activation' ? 'interrupted-child' : 'replacement-child', phase: 'active',
+    })
+  })
+
+  it('keeps reconciliation fallback away from a concurrently owned provisioning row', async () => {
+    const stack = await setup({ maxMembers: 2 })
+    const domain = stack.ctx.agentSwarm.domain
+    await domain.provisionMember(stack.scope, stack.teamId, stack.lead.id, {
+      name: 'interrupted', role: 'Implement', sessionId: 'interrupted-child', provider: 'spawn',
+    })
+    const entered = gate()
+    const release = gate()
+    const start = stack.ctx.subagents.startContinuable.bind(stack.ctx.subagents)
+    vi.spyOn(stack.ctx.subagents, 'startContinuable').mockImplementation(async (...args) => {
+      entered.open()
+      await release.waiting
+      return start(...args)
+    })
+    const added = stack.call({ name: 'live-worker', role: 'Implement' })
+    try {
+      await entered.waiting
+      vi.spyOn(domain, 'settleMember').mockRejectedValueOnce(new Error('transient recovery commit failure'))
+      await stack.ctx.agentSwarm.recoverAgent(stack.lead)
+      expect((await stack.snapshot()).team.members.find(member => member.name === 'interrupted')?.phase).toBe('failed')
+      expect((await stack.snapshot()).team.members.find(member => member.name === 'live-worker')?.phase).toBe('provisioning')
+    } finally {
+      release.open()
+      await added
+    }
+    expect((await added).isError).toBe(false)
+    expect((await stack.snapshot()).team.members.find(member => member.name === 'live-worker')?.phase).toBe('active')
   })
 
   it('rejects suffixed replacement of a failed display identity and invalid/stale recovery atomically', async () => {

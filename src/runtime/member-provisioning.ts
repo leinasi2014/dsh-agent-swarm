@@ -62,6 +62,7 @@ type InitialTurn = {
 export class MemberProvisioner {
   private readonly operations = new Set<Promise<void>>()
   private readonly initialTurns = new Map<string, InitialTurn>()
+  private readonly ownedProvisioning = new Set<string>()
   private projectionsAbsenceWarned = false
   private closing = false
 
@@ -177,129 +178,136 @@ export class MemberProvisioner {
       // creation can inspect its lineage and the shared JSONL namespace.
       await this.ctx.sessionPersistence.ensureMaterialized(captain.session)
       exec.signal.throwIfAborted()
-      const provisioning = await this.deps.domain().provisionMember(scope, membership.team.id, captain.id, {
-        name: input.name,
-        role: input.role,
-        sessionId: childId,
-        provider: providerName,
-        ...(input.retryOf === undefined ? {} : { retryOf: input.retryOf }),
-        ...(input.displayName === undefined ? {} : { displayName: input.displayName }),
-        ...(input.profession === undefined ? {} : { profession: input.profession }),
-        ...(input.personality === undefined ? {} : { personality: input.personality }),
-        ...(input.biography === undefined ? {} : { biography: input.biography }),
-        ...(input.pixelAvatarSvg === undefined ? {} : { pixelAvatarSvg: input.pixelAvatarSvg }),
-        ...(assignedSkills === undefined ? {} : { assignedSkills }),
-      })
-      this.deps.config.teamSkills.rememberChild(membership.team, childId, assignedSkills)
-      let finish!: () => void
-      const operation = new Promise<void>(settle => { finish = settle })
-      this.operations.add(operation)
-      const initial: InitialTurn = {
-        scope, teamId: membership.team.id, captain, childId, admitted: false, settling: false, forceFailure: false,
-        finish: () => { finish(); this.operations.delete(operation) },
-      }
-      // Register before the official start call: a fast child can terminally
-      // end while `startContinuable` is still resolving.  The observation is
-      // held until active admission commits below, never lost or applied to a
-      // merely provisioned row.
-      this.initialTurns.set(childId, initial)
+      // Claim ownership before the durable write: recovery can observe the
+      // committed row before provisionMember returns or a live Agent exists.
+      this.ownedProvisioning.add(childId)
       try {
-        await this.ctx.subagents.startContinuable({
+        const provisioning = await this.deps.domain().provisionMember(scope, membership.team.id, captain.id, {
+          name: input.name,
+          role: input.role,
+          sessionId: childId,
           provider: providerName,
-          // Issue #148: the label is the readable identity shown in the official
-          // DSH session list. Use the human-readable Captain-declared display
-          // name, falling back to the internal immutable member name when the
-          // recruiter supplied no displayName. Only affects newly created
-          // sessions; stored historical labels are never rewritten.
-          label: `${membership.team.name} · ${provisioning.displayName ?? provisioning.name}`,
-          childId,
-          request: {
-            prompt: [{ type: 'text', text: memberJoinNotice(membership.team) }],
-            parent: captain,
-            persona: memberPersona(membership.team, provisioning.name, provisioning.role, provisioning.assignedSkills, {
-              ...(provisioning.displayName === undefined ? {} : { displayName: provisioning.displayName }),
-              ...(provisioning.profession === undefined ? {} : { profession: provisioning.profession }),
-              ...(provisioning.personality === undefined ? {} : { personality: provisioning.personality }),
-              ...(provisioning.biography === undefined ? {} : { biography: provisioning.biography }),
-            }),
-            // M1A static baseline plus the F17 deny-only narrowing declaration
-            // (`deny_tools`); the union is monotone — captain-only tools stay
-            // mandatorily denied and no allow surface exists.
-            toolFilter: { deny },
-            // `agentOptions.provider` is the member's LLM provider (recorded
-            // in the durable subagent descriptor as `agentProvider`), distinct
-            // from the continuable runtime `provider` passed to
-            // `startContinuable` above. An explicit per-member `llm_provider`
-            // wins; otherwise the member inherits the captain's LLM provider
-            // (existing behavior).
-            agentOptions: {
-              provider: llmProvider,
-              model,
-            },
-            // Official maxDepth is absolute. A dedicated Captain is one
-            // level below the main Chat, while a legacy Captain is the root.
-            maxDepth: this.deps.config.memberMaxDepth + (captain.session.header.parentSession === undefined ? 0 : 1),
-          },
-          signal: exec.signal,
+          ...(input.retryOf === undefined ? {} : { retryOf: input.retryOf }),
+          ...(input.displayName === undefined ? {} : { displayName: input.displayName }),
+          ...(input.profession === undefined ? {} : { profession: input.profession }),
+          ...(input.personality === undefined ? {} : { personality: input.personality }),
+          ...(input.biography === undefined ? {} : { biography: input.biography }),
+          ...(input.pixelAvatarSvg === undefined ? {} : { pixelAvatarSvg: input.pixelAvatarSvg }),
+          ...(assignedSkills === undefined ? {} : { assignedSkills }),
         })
-      } catch (error) {
-        this.initialTurns.delete(childId)
-        await this.deps.domain().settleMember(scope, membership.team.id, childId, {
-          active: false,
-          error: error instanceof Error ? error.message : String(error),
-        })
-        initial.finish()
-        throw error
-      }
-
-      // Inbox admission means the child is real and may receive Team work, so
-      // retain the long-standing active admission contract.  The initial
-      // terminal edge remains independently tracked: an actual error
-      // atomically demotes this same row to failed instead of leaving the
-      // descriptor/runtime/Team projections falsely active.
-      let active: TeamMember
-      try {
-        active = await this.deps.domain().settleMember(scope, membership.team.id, childId, { active: true })
-      } catch (activationError) {
-        this.initialTurns.delete(childId)
+        this.deps.config.teamSkills.rememberChild(membership.team, childId, assignedSkills)
+        let finish!: () => void
+        const operation = new Promise<void>(settle => { finish = settle })
+        this.operations.add(operation)
+        const initial: InitialTurn = {
+          scope, teamId: membership.team.id, captain, childId, admitted: false, settling: false, forceFailure: false,
+          finish: () => { finish(); this.operations.delete(operation) },
+        }
+        // Register before the official start call: a fast child can terminally
+        // end while `startContinuable` is still resolving.  The observation is
+        // held until active admission commits below, never lost or applied to a
+        // merely provisioned row.
+        this.initialTurns.set(childId, initial)
         try {
+          await this.ctx.subagents.startContinuable({
+            provider: providerName,
+            // Issue #148: the label is the readable identity shown in the official
+            // DSH session list. Use the human-readable Captain-declared display
+            // name, falling back to the internal immutable member name when the
+            // recruiter supplied no displayName. Only affects newly created
+            // sessions; stored historical labels are never rewritten.
+            label: `${membership.team.name} · ${provisioning.displayName ?? provisioning.name}`,
+            childId,
+            request: {
+              prompt: [{ type: 'text', text: memberJoinNotice(membership.team) }],
+              parent: captain,
+              persona: memberPersona(membership.team, provisioning.name, provisioning.role, provisioning.assignedSkills, {
+                ...(provisioning.displayName === undefined ? {} : { displayName: provisioning.displayName }),
+                ...(provisioning.profession === undefined ? {} : { profession: provisioning.profession }),
+                ...(provisioning.personality === undefined ? {} : { personality: provisioning.personality }),
+                ...(provisioning.biography === undefined ? {} : { biography: provisioning.biography }),
+              }),
+              // M1A static baseline plus the F17 deny-only narrowing declaration
+              // (`deny_tools`); the union is monotone — captain-only tools stay
+              // mandatorily denied and no allow surface exists.
+              toolFilter: { deny },
+              // `agentOptions.provider` is the member's LLM provider (recorded
+              // in the durable subagent descriptor as `agentProvider`), distinct
+              // from the continuable runtime `provider` passed to
+              // `startContinuable` above. An explicit per-member `llm_provider`
+              // wins; otherwise the member inherits the captain's LLM provider
+              // (existing behavior).
+              agentOptions: {
+                provider: llmProvider,
+                model,
+              },
+              // Official maxDepth is absolute. A dedicated Captain is one
+              // level below the main Chat, while a legacy Captain is the root.
+              maxDepth: this.deps.config.memberMaxDepth + (captain.session.header.parentSession === undefined ? 0 : 1),
+            },
+            signal: exec.signal,
+          })
+        } catch (error) {
+          this.initialTurns.delete(childId)
           await this.deps.domain().settleMember(scope, membership.team.id, childId, {
             active: false,
-            error: `member activation did not commit: ${describe(activationError)}`,
+            error: error instanceof Error ? error.message : String(error),
           })
-        } catch (settleError) {
-          // Keep this operation open: the durable provisioning row plus the
-          // original activation error are recovery evidence. The runtime's
-          // bounded disposer owns the remaining child drain; releasing now
-          // would make a failed terminal commit indistinguishable from a
-          // cleanly settled child.
-          this.deps.trackChild(captain, childId)
-          this.ctx.logger.warn(`agent-swarm: failed to settle uncommitted child ${childId}: ${String(settleError)}`)
+          initial.finish()
+          throw error
+        }
+
+        // Inbox admission means the child is real and may receive Team work, so
+        // retain the long-standing active admission contract.  The initial
+        // terminal edge remains independently tracked: an actual error
+        // atomically demotes this same row to failed instead of leaving the
+        // descriptor/runtime/Team projections falsely active.
+        let active: TeamMember
+        try {
+          active = await this.deps.domain().settleMember(scope, membership.team.id, childId, { active: true })
+        } catch (activationError) {
+          this.initialTurns.delete(childId)
+          try {
+            await this.deps.domain().settleMember(scope, membership.team.id, childId, {
+              active: false,
+              error: `member activation did not commit: ${describe(activationError)}`,
+            })
+          } catch (settleError) {
+            // Keep this operation open: the durable provisioning row plus the
+            // original activation error are recovery evidence. The runtime's
+            // bounded disposer owns the remaining child drain; releasing now
+            // would make a failed terminal commit indistinguishable from a
+            // cleanly settled child.
+            this.deps.trackChild(captain, childId)
+            this.ctx.logger.warn(`agent-swarm: failed to settle uncommitted child ${childId}: ${String(settleError)}`)
+            throw activationError
+          }
+          try {
+            let drained = false
+            await this.ctx.subagents.drainContinuableChildren(captain, [childId]).then(() => { drained = true }).catch(drainError => {
+              this.ctx.logger.warn(`agent-swarm: failed to drain uncommitted child ${childId}: ${String(drainError)}`)
+            })
+            if (!drained) this.deps.trackChild(captain, childId)
+          } finally {
+            // The fallback failed commit succeeded and the child drain was
+            // awaited (or transferred to the runtime owner) before this
+            // operation can let disposal finish.
+            initial.finish()
+          }
           throw activationError
         }
+        this.deps.trackChild(captain, childId)
         try {
-          let drained = false
-          await this.ctx.subagents.drainContinuableChildren(captain, [childId]).then(() => { drained = true }).catch(drainError => {
-            this.ctx.logger.warn(`agent-swarm: failed to drain uncommitted child ${childId}: ${String(drainError)}`)
-          })
-          if (!drained) this.deps.trackChild(captain, childId)
-        } finally {
-          // The fallback failed commit succeeded and the child drain was
-          // awaited (or transferred to the runtime owner) before this
-          // operation can let disposal finish.
-          initial.finish()
+          await this.deps.afterActivation(scope, membership.team.id, captain, childId)
+        } catch (activationError) {
+          this.ctx.logger.warn(`agent-swarm: post-activation accounting failed for ${childId} (member stays active; usage refolds on recovery): ${String(activationError)}`)
         }
-        throw activationError
+        initial.admitted = true
+        this.settleObservedInitialTurn(initial)
+        return active
+      } finally {
+        this.ownedProvisioning.delete(childId)
       }
-      this.deps.trackChild(captain, childId)
-      try {
-        await this.deps.afterActivation(scope, membership.team.id, captain, childId)
-      } catch (activationError) {
-        this.ctx.logger.warn(`agent-swarm: post-activation accounting failed for ${childId} (member stays active; usage refolds on recovery): ${String(activationError)}`)
-      }
-      initial.admitted = true
-      this.settleObservedInitialTurn(initial)
-      return active
   }
 
   observeSessionEvent(session: Session, event: SessionEvent): void {
@@ -399,7 +407,7 @@ export class MemberProvisioner {
    * The domain stays the settlement authority (`settleMember`'s guarded
    * transaction); this collaborator only collects evidence and performs the
    * child lifecycle actions. If the pass itself fails unexpectedly, the
-   * remaining records fall back to the pre-F3 bulk settlement.
+   * remaining unowned records from this snapshot fall back to failed settlement.
    *
    * @returns how many records were settled (activated or failed).
    */
@@ -410,11 +418,12 @@ export class MemberProvisioner {
     let activated = 0
     try {
       for (const member of interrupted) {
-        if (this.ctx.agents.get(SessionId(member.sessionId)) !== undefined) continue
+        if (this.ownsProvisioning(member.sessionId)) continue
         const verdict = await this.childVerdict(captain, member)
+        if (this.ownsProvisioning(member.sessionId)) continue
         const outcome = verdict.kind === 'activate' ? { active: true } as const : { active: false, error: verdict.error } as const
         try {
-          await this.deps.domain().settleMember(scope, membership.team.id, member.sessionId, outcome)
+          await this.deps.domain().settleMember(scope, membership.team.id, member.sessionId, outcome, 'provisioning')
         } catch (error) {
           if (error instanceof TeamDomainError && ['TEAM_MEMBER_PHASE_INVALID', 'TEAM_MEMBER_NOT_FOUND'].includes(error.code)) {
             continue
@@ -437,6 +446,7 @@ export class MemberProvisioner {
         membership.team.id,
         captain.id,
         `${INTERRUPTED} (reconciliation failed: ${describe(error)})`,
+        interrupted.filter(member => !this.ownsProvisioning(member.sessionId)).map(member => member.sessionId),
       )
       settled += recovered.length
     }
@@ -446,6 +456,10 @@ export class MemberProvisioner {
       )
     }
     return settled
+  }
+
+  private ownsProvisioning(sessionId: string): boolean {
+    return this.ownedProvisioning.has(sessionId) || this.ctx.agents.get(SessionId(sessionId)) !== undefined
   }
 
   private async recoverObservedStartupFailures(scope: TeamScope, membership: TeamMembership): Promise<number> {
