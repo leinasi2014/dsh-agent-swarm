@@ -231,7 +231,7 @@ describe('dedicated Captain topology', () => {
     expect(persona).toContain("user's language")
     expect(persona).toContain('Own public profiles')
     expect(persona).toContain('Legacy fields stay optional')
-    expect(persona).toContain('continue useful work on failure')
+    expect(persona).toContain('fill gaps or report failure, then continue work')
     expect(`${persona}\n${notice}`).not.toMatch(/Chinese display|until the profile succeeds|stop dependent recruitment/)
     expect(notice).toContain('Your Team is already created and bound to this Captain Session.')
 
