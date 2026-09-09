@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { ToolCallId, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, LlmAdapter, createUserMessage, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
@@ -216,11 +216,97 @@ it('rejects another Team Captain without consuming the rightful request', async 
   expect((await pending).isError).toBe(true)
 })
 
-it('treats queued delivery as unavailable and does not execute', async () => {
+it('keeps queued approval pending until its Captain decides the original call once', async () => {
   const stack = await mount()
-  vi.mocked(stack.ctx.agentSwarm.sendMessage).mockImplementation(async () => ({ phase: 'queued' }) as never)
+  let notice = ''
+  vi.mocked(stack.ctx.agentSwarm.sendMessage).mockImplementation(async (exec, target, content, delivery) => {
+    notice = content
+    return await stack.ctx.agentSwarm.domain.queueMessage(stack.scope, stack.teamId, exec.agent!.id, target, content, delivery)
+  })
+  let finished = false
+  const pending = stack.call(stack.member, 'approval_probe', { value: 4 })
+  void pending.then(() => { finished = true })
+  await vi.waitFor(() => expect(notice).not.toBe(''))
+  await new Promise(resolve => setTimeout(resolve, 25))
+  expect(finished).toBe(false)
+  expect(stack.effects()).toBe(0)
+  const request_id = JSON.parse(notice).request_id as string
+  expect((await stack.call(stack.captain, 'agent_swarm_decide_tool_approval', { request_id, decision: 'approve' })).isError).toBe(false)
+  expect(await pending).toMatchObject({ isError: false, value: 4 })
+  expect(stack.effects()).toBe(1)
+  expect((await stack.call(stack.captain, 'agent_swarm_decide_tool_approval', { request_id, decision: 'approve' })).isError).toBe(true)
+})
+
+it.each(['cancelled', 'obsolete'] as const)('rejects terminal %s approval mail without executing', async phase => {
+  const stack = await mount()
+  vi.mocked(stack.ctx.agentSwarm.sendMessage).mockImplementation(async () => ({ phase }) as never)
   expect((await stack.call(stack.member, 'approval_probe', { value: 4 })).isError).toBe(true)
   expect(stack.effects()).toBe(0)
+})
+
+it('retains approval while a real busy Captain exceeds the mailbox claim grace', async () => {
+  const adapter = new ApprovalAdapter()
+  let releaseCaptain!: () => void
+  const captainGate = new Promise<void>(resolve => { releaseCaptain = resolve })
+  let captainHeld = false
+  const stream = adapter.stream.bind(adapter)
+  vi.spyOn(adapter, 'stream').mockImplementation(async function* (options) {
+    const text = options.messages.filter(message => message.role === 'user').flatMap(message => message.content)
+      .flatMap(block => block.type === 'text' ? [block.text] : []).join('\n')
+    if (text.includes('Hold Captain for approval regression') && !text.includes('member_tool_approval')) {
+      captainHeld = true
+      await captainGate
+    }
+    yield* stream(options)
+  })
+  const stack = await mount(adapter)
+  try {
+    stack.captain.followup(createUserMessage({
+      content: [{ type: 'text', text: 'Hold Captain for approval regression' }],
+      source: { kind: 'plugin', plugin: 'dsh-agent-swarm' },
+    }))
+    await vi.waitFor(() => expect(captainHeld).toBe(true), { timeout: 5_000 })
+    adapter.open()
+    await vi.waitFor(() => expect(stack.ctx.agentSwarm.sendMessage).toHaveBeenCalled(), { timeout: 5_000 })
+    const delivery = vi.mocked(stack.ctx.agentSwarm.sendMessage).mock.results[0]!
+    expect(delivery.type).toBe('return')
+    const message = await delivery.value
+    expect(message.phase).toBe('queued')
+    await new Promise(resolve => setTimeout(resolve, 25))
+    expect(stack.member.status).toBe('running')
+    expect(stack.effects()).toBe(0)
+    releaseCaptain()
+    await vi.waitFor(() => expect(stack.effects()).toBe(1), { timeout: 5_000 })
+    await stack.member.whenIdle()
+    await stack.captain.whenIdle()
+    expect(hasSuccessfulToolResult(stack.member.session.snapshotEvents(), 'approval_probe')).toBe(true)
+    expect(hasSuccessfulToolResult(stack.captain.session.snapshotEvents(), 'agent_swarm_decide_tool_approval')).toBe(true)
+  } finally {
+    releaseCaptain()
+    adapter.open()
+  }
+}, 20_000)
+
+it.each(['abort', 'timeout'] as const)('settles queued approval on %s and tells the Captain not to retry its ID', async failure => {
+  const stack = await mount()
+  let notice = ''
+  vi.mocked(stack.ctx.agentSwarm.sendMessage).mockImplementation(async (exec, target, content, delivery) => {
+    notice = content
+    return await stack.ctx.agentSwarm.domain.queueMessage(stack.scope, stack.teamId, exec.agent!.id, target, content, delivery)
+  })
+  const controller = new AbortController()
+  if (failure === 'timeout') vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  const pending = stack.call(stack.member, 'approval_probe', { value: 4 }, controller.signal)
+  await vi.waitFor(() => expect(notice).not.toBe(''))
+  if (failure === 'abort') controller.abort()
+  else await vi.advanceTimersByTimeAsync(300_001)
+  expect((await pending).isError).toBe(true)
+  expect(stack.effects()).toBe(0)
+  const result = await stack.call(stack.captain, 'agent_swarm_decide_tool_approval', {
+    request_id: JSON.parse(notice).request_id as string, decision: 'approve',
+  })
+  expect(result.isError).toBe(true)
+  expect(JSON.stringify(result)).toContain('Do not retry this request ID')
 })
 
 it('settles the original invocation immediately when authority revalidation throws', async () => {

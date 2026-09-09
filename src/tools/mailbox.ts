@@ -42,7 +42,7 @@ export function registerSendMessageTool(ctx: Context, runtime: AgentSwarmRuntime
     parameters: {
       target: { type: 'string', required: true, description: 'captain or an active member name.' },
       content: { type: 'string', required: true },
-      delivery: { type: 'string', enum: ['quiet', 'wakeup'], description: 'quiet delivers without waking the recipient and stays queued while the target is inactive; wakeup follows up and may cold-resume an inactive member.' },
+      delivery: { type: 'string', enum: ['quiet', 'wakeup'], description: 'quiet injects context for the next step without waking the recipient; delivered means inbox admission, not model consumption. wakeup steers a busy recipient at its next step and wakes or cold-resumes an inactive member. Neither interrupts an in-flight model request or tool.' },
       task_id: { type: 'string', description: 'Optional causal task id binding: the message is delivered only while the task is still open (not completed/cancelled).' },
       attempt_id: { type: 'string', description: 'Optional causal attempt id binding: the message is delivered only while this attempt is still the task\'s current attempt.' },
       revision: { type: 'integer', description: 'Optional causal task revision at send time (audit identity).' },
