@@ -47,7 +47,33 @@ describe.skipIf(!windows)('Windows candidate process boundary (issue #126)', () 
         $ast=[System.Management.Automation.Language.Parser]::ParseFile('${scriptPath}',[ref]$tokens,[ref]$errors)
         $block=$ast.Find({param($n) $n -is [System.Management.Automation.Language.IfStatementAst] -and $n.Extent.Text.StartsWith('if ($InspectOnly) {') -and $n.Extent.Text.Contains('$writeMask = 0x500D0156')},$true)
         $body=$block.Clauses[0].Item2.Extent.Text
-        $audit=[scriptblock]::Create($body.Substring(1,$body.Length-2))
+        $auditSource=$body.Substring(1,$body.Length-2)
+        # Instrument statement boundaries in the real audit body. Execute every
+        # original statement unchanged; a timeout identifies only this interval.
+        $auditAst=[scriptblock]::Create($auditSource).Ast
+        $tracePoints=@{
+          '$ancestorAllowed ='='TrustedInstaller SID lookup'
+          '$acl = Get-Acl'='ACL descriptor'
+          'if ($acl.GetOwner'='ACL owner check'
+          '$rules = $acl.GetAccessRules'='ACL access rules'
+          '$cursor = [IO.Directory]::GetParent'='initial parent'
+          'Assert-ControllerAcl $cursor.FullName'='parent ACL check'
+          '$cursor = $cursor.Parent'='next parent'
+          'Assert-Parents $fullPath'='ancestor traversal'
+          'Assert-ControllerAcl $path $writeMask'='target ACL check'
+          '$item = Get-Item'='target Get-Item'
+        }
+        $edits=[Collections.Generic.List[object]]::new()
+        foreach($prefix in $tracePoints.Keys) {
+          $matches=@($auditAst.FindAll({param($node) ($node -is [System.Management.Automation.Language.AssignmentStatementAst] -or $node -is [System.Management.Automation.Language.IfStatementAst] -or $node -is [System.Management.Automation.Language.PipelineAst]) -and $node.Extent.Text.StartsWith($prefix)},$true))
+          if($matches.Count -ne 1){throw "Audit diagnostic statement changed: $prefix"}
+          $extent=$matches[0].Extent
+          $label=$tracePoints[$prefix]
+          $edits.Add(@{Offset=$extent.StartOffset;Text="[Console]::WriteLine('ACL_AUDIT_STEP: before $label'); "})
+          $edits.Add(@{Offset=$extent.EndOffset;Text="; [Console]::WriteLine('ACL_AUDIT_STEP: after $label')"})
+        }
+        foreach($edit in ($edits | Sort-Object { $_.Offset } -Descending)) { $auditSource=$auditSource.Insert($edit.Offset,$edit.Text) }
+        $audit=[scriptblock]::Create($auditSource)
         $controller=[Security.Principal.WindowsIdentity]::GetCurrent().User
         $allowed=@($controller.Value,'S-1-5-18','S-1-5-32-544')
         [Console]::WriteLine('ACL_AUDIT_STAGE: parsed')
@@ -115,6 +141,7 @@ describe.skipIf(!windows)('Windows candidate process boundary (issue #126)', () 
       const diagnostic = JSON.stringify({ error: result.error?.message, signal: result.signal, stdout: result.stdout, stderr: result.stderr })
       expect(result.error, diagnostic).toBeUndefined()
       expect(result.status, diagnostic).toBe(0)
+      expect(result.stdout).toContain('ACL_AUDIT_STEP: after target Get-Item')
       expect(result.stdout).toContain('READ_ONLY_ACL_AUDIT_PASS')
       expect(await readFile(target, 'utf8')).toBe('dummy authority')
     } finally { await rm(base, { recursive: true, force: true }) }
