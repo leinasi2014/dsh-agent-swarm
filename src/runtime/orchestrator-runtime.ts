@@ -1,3 +1,5 @@
+import type { ModelRouteInput } from './model-routing.js'
+import { CaptainModelSelection } from './captain-model-selection.js'
 /** DSH-facing Team orchestrator over the domain and official DSH services. */
 import { resolve } from 'node:path'
 import { recoverOwnedChildrenFromPersistence } from './owned-children-recovery.js'
@@ -44,6 +46,7 @@ export type { RuntimeConfig } from './runtime-contract.js'
 
 /** DSH-facing runtime that composes the framework-neutral domain with continuable subagents. */
 export class AgentSwarmRuntime extends Service {
+  readonly captainModels: CaptainModelSelection
   private domainInstance?: TeamDomainPort
   private storeInstance?: StorageDomainTeamStore
   private domainHandle?: Domain<typeof teamDomainSpec>
@@ -151,8 +154,10 @@ export class AgentSwarmRuntime extends Service {
         this.scheduling.request(scope, teamId, captain)
       },
     })
+    this.captainModels = new CaptainModelSelection(ctx, { domain: () => this.domain, scopeOf: agent => this.scopeOf(agent), assertOpen: () => this.assertOpen() })
     this.captainProvisioning = new DedicatedCaptainProvisioner(ctx, {
       config, domain: () => this.domain, trackChild: (parent, childId) => this.trackChild(parent, childId),
+      rememberCaptain: (team, scope) => this.captainModels.remember(team, scope),
     })
     this.mutations = new RuntimeMutationSurface({
       ctx, config, domain: () => this.domain,
@@ -192,26 +197,12 @@ export class AgentSwarmRuntime extends Service {
     return this.startPromise
   }
 
-  /**
-   * Rebuild the transient root → dedicated-Captain (`ownedChildren`) edges from
-   * the official Session persistence when this fresh process starts with it
-   * empty — the "restart loses ownedChildren" recovery. Reads only the canonical
-   * persisted Session headers (`sessionPersistence.list()`), and a persisted
-   * Session counts as a managed child of its parent ONLY when an authoritative
-   * StorageDomain Team aggregate in its own workspace scope (derived from the
-   * header's `cwd`) names it as `captainSessionId`. Ordinary sibling subagents,
-   * plain continuable children and Team members — none of which own a Team — are
-   * never resurrected into `ownedChildren`, so read-only enumeration/binding
-   * cannot fabricate a captain relationship from unrelated persisted Sessions.
-   * No second authority, no new persistent state, no Agent Loop change.
-   * Best-effort: an unavailable or empty persistence store leaves the map
-   * untouched (queries then simply see no managed children, as before the fix).
-   */
+  /** Rebuild Captain ownership and scoped role caches from canonical records. */
   private async recoverOwnedChildrenFromPersistence(): Promise<void> {
     if (this.storeInstance === undefined) return
     const recovered = await recoverOwnedChildrenFromPersistence(this.ctx, {
       store: this.storeInstance,
-      rememberTeam: team => this.config.teamSkills.rememberTeam(team),
+      rememberTeam: (team, scope) => { this.config.teamSkills.rememberTeam(team); this.captainModels.remember(team, scope) },
     })
     for (const [parent, children] of recovered) {
       const existing = this.ownedChildren.get(parent) ?? new Set<string>()
@@ -335,25 +326,25 @@ export class AgentSwarmRuntime extends Service {
     return await this.mutations.create(exec, name, description)
   }
 
-  async createWithDedicatedCaptain(exec: ToolExecutionAuthority, name: string, description: string, options: { llmProvider?: string; model?: string } = {}): Promise<TeamState> {
+  async createWithDedicatedCaptain(exec: ToolExecutionAuthority, name: string, description: string, options: ModelRouteInput = {}): Promise<TeamState> {
     return await this.mutations.createWithDedicatedCaptain(exec, name, description, options)
   }
   /** Plan-first: create a staged managed Team (no Captain provisioned yet). */
   /** S4 recovery: re-provision the declared Captain and missing plan work after approve-commit/crash. */
   async recoverApprovedTeam(scope: TeamScope, team: TeamState): Promise<TeamState> { return await this.mutations.recoverApprovedTeam(scope, team) }
 
-  async createStagedManaged(exec: ToolExecutionAuthority, name: string, description: string): Promise<TeamState> { return await this.mutations.createStagedManaged(exec, name, description) }
+  async createStagedManaged(exec: ToolExecutionAuthority, name: string, description: string, options: ModelRouteInput = {}): Promise<TeamState> { return await this.mutations.createStagedManaged(exec, name, description, options) }
 
   /** Plan-first: Main Brain stores its bounded plan declaration. */
   async setPlan(exec: ToolExecutionAuthority, teamId: string, expectedRevision: number, draft: TeamPlanDraft): Promise<TeamState> { return await this.mutations.setPlan(exec, teamId, expectedRevision, draft) }
 
   /** Plan-first approval: activation + captain/member/task provisioning. */
-  async approvePlan(exec: ToolExecutionAuthority, teamId: string, expectedRevision: number, options: { llmProvider?: string; model?: string; askUser?: boolean } = {}): Promise<TeamState> { return await this.mutations.approvePlan(exec, teamId, expectedRevision, options) }
+  async approvePlan(exec: ToolExecutionAuthority, teamId: string, expectedRevision: number, options: ModelRouteInput & { askUser?: boolean } = {}): Promise<TeamState> { return await this.mutations.approvePlan(exec, teamId, expectedRevision, options) }
 
   /** Plan-first: archive the owning Main Brain's staged draft. */
   async discardPlan(exec: ToolExecutionAuthority, teamId: string, expectedRevision: number): Promise<TeamState> { return await this.mutations.discardPlan(exec, teamId, expectedRevision) }
 
-  async addMember(exec: ToolExecutionAuthority, input: { name: string; role: string; retryOf?: string; provider?: string; llmProvider?: string; model?: string; denyTools?: readonly string[] } & MemberIdentityInput): Promise<TeamState['members'][number]> {
+  async addMember(exec: ToolExecutionAuthority, input: { name: string; role: string; retryOf?: string; provider?: string; llmProvider?: string; model?: string; reasoningEffort?: string; denyTools?: readonly string[] } & MemberIdentityInput): Promise<TeamState['members'][number]> {
     return await this.mutations.addMember(exec, input)
   }
 

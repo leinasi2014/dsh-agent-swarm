@@ -1,3 +1,4 @@
+import type { TeamModelRoute } from './types.js'
 /**
  * Framework-neutral Team protocol core composing the subdomain modules.
  *
@@ -82,13 +83,14 @@ export class TeamDomain implements TeamDomainPort {
     captainUsageSeq = -1,
     managedOrigin?: string,
     allowedSkills?: readonly string[],
+    captainRoute?: TeamModelRoute,
   ): Promise<TeamState> {
-    return await roster.createTeam(this.deps, scope, captainSessionId, name, description, captainUsageSeq, managedOrigin, allowedSkills)
+    return await roster.createTeam(this.deps, scope, captainSessionId, name, description, captainUsageSeq, managedOrigin, allowedSkills, captainRoute)
   }
 
   /** Plan-first: create one durable staged managed Team without provisioning a Captain Session. */
-  async createStagedManaged(scope: TeamScope, managedOrigin: string, name: string, description: string): Promise<TeamState> {
-    return await plan.createStagedManaged(this.deps, scope, managedOrigin, name, description)
+  async createStagedManaged(scope: TeamScope, managedOrigin: string, name: string, description: string, captainRoute?: TeamModelRoute): Promise<TeamState> {
+    return await plan.createStagedManaged(this.deps, scope, managedOrigin, name, description, captainRoute)
   }
 
   /** Plan-first: store one bounded plan declaration on a staged Team (revision CAS). */
@@ -97,8 +99,8 @@ export class TeamDomain implements TeamDomainPort {
   }
 
   /** Plan-first: atomic staged -> active commit with the provisioned Captain id. */
-  async approveStagedPlan(scope: TeamScope, teamId: TeamId, expectedRevision: number, captainSessionId: string): Promise<TeamState> {
-    return await plan.approveStagedPlan(this.deps, scope, teamId, expectedRevision, captainSessionId)
+  async approveStagedPlan(scope: TeamScope, teamId: TeamId, expectedRevision: number, captainSessionId: string, captainRoute?: TeamModelRoute): Promise<TeamState> {
+    return await plan.approveStagedPlan(this.deps, scope, teamId, expectedRevision, captainSessionId, captainRoute)
   }
 
   /** Plan-first: archive one staged draft without creating work (idempotent). */

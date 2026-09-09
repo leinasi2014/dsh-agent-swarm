@@ -59,7 +59,7 @@ function unique(values: readonly string[], path: string, label: string): void {
 }
 
 
-const PLAN_MEMBER_KEYS = new Set(['name', 'role', 'llmProvider', 'model', 'denyTools', ...CAPTAIN_PROFILE_KEYS])
+const PLAN_MEMBER_KEYS = new Set(['name', 'role', 'llmProvider', 'model', 'reasoningEffort', 'denyTools', ...CAPTAIN_PROFILE_KEYS])
 const PLAN_TASK_KEYS = new Set(['key', 'subject', 'description', 'acceptanceCriteria', 'dependencies', 'targetMemberName', 'writeScopes'])
 const MAX_PLAN_ROWS = 64
 
@@ -87,6 +87,7 @@ export function assertPlanDraftShape(value: unknown, path: string): void {
     }
     if (member.llmProvider !== undefined) codePointText(member.llmProvider, 128, path, `planDraft.members[${index}].llmProvider`)
     if (member.model !== undefined) codePointText(member.model, 128, path, `planDraft.members[${index}].model`)
+    if (member.reasoningEffort !== undefined) codePointText(member.reasoningEffort, 128, path, `planDraft.members[${index}].reasoningEffort`)
     if (member.denyTools !== undefined) {
       const deny = stringList(member.denyTools, path, `planDraft.members[${index}].denyTools`)
       if (deny.length > MAX_PLAN_ROWS) corrupt(path, `planDraft.members[${index}].denyTools exceeds the limit`)
@@ -149,6 +150,13 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
   integer(team.nextMemoryNumber, path, 'nextMemoryNumber', 1)
   integer(team.createdAt, path, 'createdAt')
   integer(team.updatedAt, path, 'updatedAt')
+  if (team.captainRoute !== undefined) {
+    const route = record(team.captainRoute, path, 'captainRoute')
+    exactKeys(route, path + '.captainRoute', new Set(['llmProvider', 'model', 'reasoningEffort']))
+    codePointText(route.llmProvider, 128, path, 'captainRoute.llmProvider')
+    codePointText(route.model, 128, path, 'captainRoute.model')
+    if (route.reasoningEffort !== undefined) codePointText(route.reasoningEffort, 128, path, 'captainRoute.reasoningEffort')
+  }
   if (team.planDraft !== undefined) assertPlanDraftShape(team.planDraft, path + '.planDraft')
   if (team.discardReason !== undefined) codePointText(team.discardReason, 128, path, 'discardReason')
 

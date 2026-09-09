@@ -142,6 +142,7 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
 
   // Fail closed: official Storage Domain opens before tools/listeners.
   await runtime.start()
+  ctx.effect(() => runtime.captainModels.install(), 'agent-swarm: Captain model selection lifecycle')
   ctx.effect(() => async () => {
     await drainHumanInteractions?.()
     await runtime.dispose()

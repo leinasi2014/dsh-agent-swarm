@@ -1,3 +1,4 @@
+import { resolveTeamModelRoute, toAgentModelOptions } from './model-routing.js'
 /**
  * Continuable member provisioning.
  *
@@ -122,7 +123,7 @@ export class MemberProvisioner {
 
   async addMember(
     exec: ToolExecutionAuthority,
-    input: { name: string; role: string; retryOf?: string; provider?: string; llmProvider?: string; model?: string; denyTools?: readonly string[]; skills?: readonly string[] } & MemberIdentityInput,
+    input: { name: string; role: string; retryOf?: string; provider?: string; llmProvider?: string; model?: string; reasoningEffort?: string; denyTools?: readonly string[]; skills?: readonly string[] } & MemberIdentityInput,
   ): Promise<TeamMember> {
     const captain = requireAgent(exec)
     const scope = this.deps.scopeOf(captain)
@@ -162,13 +163,10 @@ export class MemberProvisioner {
         ...(this.deps.config.memberToolPolicyDeny ?? []),
       ])])
 
-      const parentOptions = captain.session.requestHeader()?.config ?? captain.options
-      const llmProvider = input.llmProvider ?? this.deps.config.memberLlmProvider ?? parentOptions.provider ?? ''
-      const model = input.model ?? this.deps.config.memberModel ?? parentOptions.model ?? ''
-      // The exact adapter is authoritative; its model catalog is advisory.
-      // Resolve both final fields before publishing any roster or child state.
-      await this.ctx.llm.resolveModelInfo(llmProvider, model, exec.signal)
-      exec.signal.throwIfAborted()
+      const route = await resolveTeamModelRoute(this.ctx, captain, input, {
+        ...(this.deps.config.memberLlmProvider === undefined ? {} : { llmProvider: this.deps.config.memberLlmProvider }),
+        ...(this.deps.config.memberModel === undefined ? {} : { model: this.deps.config.memberModel }),
+      }, exec.signal)
       const childId = SessionId(randomUUID())
       // Issue #184: a member-assigned Skill subset is validated BEFORE any
       // roster mutation — against the immutable Team allow-list and the
@@ -231,13 +229,9 @@ export class MemberProvisioner {
               // `agentOptions.provider` is the member's LLM provider (recorded
               // in the durable subagent descriptor as `agentProvider`), distinct
               // from the continuable runtime `provider` passed to
-              // `startContinuable` above. An explicit per-member `llm_provider`
-              // wins; otherwise the member inherits the captain's LLM provider
-              // (existing behavior).
-              agentOptions: {
-                provider: llmProvider,
-                model,
-              },
+              // `startContinuable` above. The validated route applies explicit,
+              // configured default, then current Captain inheritance.
+              agentOptions: toAgentModelOptions(route),
               // Official maxDepth is absolute. A dedicated Captain is one
               // level below the main Chat, while a legacy Captain is the root.
               maxDepth: this.deps.config.memberMaxDepth + (captain.session.header.parentSession === undefined ? 0 : 1),

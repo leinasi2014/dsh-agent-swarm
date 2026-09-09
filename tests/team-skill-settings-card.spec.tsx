@@ -257,8 +257,8 @@ describe('TeamSkillSettingsCard', () => {
       'Execution & limits',
     ])
     expect(labeledControl<HTMLInputElement>('Enable Agent Swarm').checked).toBe(true)
-    expect([...labeledControl<HTMLSelectElement>('Captain model route').options].map(option => option.text)).toEqual([
-      'Inherit the model selected when the Team is created',
+    expect([...labeledControl<HTMLSelectElement>('Default Captain model route').options].map(option => option.text)).toEqual([
+      'Use the current creator model when no route is specified',
       'DSV4 Flash · DeepSeek V4 Flash',
     ])
     expect(document.body.textContent).toContain('Identity and avatar policy')

@@ -18,6 +18,7 @@ const PLAN_MEMBER_SCHEMA = {
     profession: identityParameters.profession,
     llm_provider: { type: 'string', description: 'Optional member LLM provider override.' },
     model: { type: 'string', description: 'Optional member model override.' },
+    reasoning_effort: { type: 'string', description: 'Optional explicit member reasoning effort.' },
     deny_tools: { type: 'array', items: { type: 'string' }, description: 'Optional deny-only tool narrowing.' },
   },
 } as const
@@ -63,6 +64,7 @@ export function registerSetPlanTool(ctx: Context, runtime: AgentSwarmRuntime): v
           ...identityPatch(member),
           ...(member.llm_provider === undefined ? {} : { llmProvider: member.llm_provider }),
           ...(member.model === undefined ? {} : { model: member.model }),
+          ...(member.reasoning_effort === undefined ? {} : { reasoningEffort: member.reasoning_effort }),
           ...(member.deny_tools === undefined ? {} : { denyTools: member.deny_tools }),
         })),
         tasks: (args.tasks ?? []).map(task => ({
@@ -89,6 +91,7 @@ export function registerApprovePlanTool(ctx: Context, runtime: AgentSwarmRuntime
       expected_revision: { type: 'integer', required: true },
       llm_provider: { type: 'string', description: 'Optional dedicated Captain LLM provider override.' },
       model: { type: 'string', description: 'Optional dedicated Captain model override.' },
+      reasoning_effort: { type: 'string', description: 'Optional explicit Captain reasoning effort.' },
       ask_user: { type: 'boolean', default: false, description: 'Reserved human-approval gate; currently requires the userQuestions service and is otherwise fail-closed.' },
     },
     output: compactJsonOutput({
@@ -104,6 +107,7 @@ export function registerApprovePlanTool(ctx: Context, runtime: AgentSwarmRuntime
       const team = await runtime.approvePlan(exec, args.team_id, args.expected_revision, {
         ...(args.llm_provider === undefined ? {} : { llmProvider: args.llm_provider }),
         ...(args.model === undefined ? {} : { model: args.model }),
+        ...(args.reasoning_effort === undefined ? {} : { reasoningEffort: args.reasoning_effort }),
         ...(args.ask_user === true ? { askUser: true } : {}),
       })
       return { team_id: team.id, phase: team.phase, captain_session_id: team.captainSessionId, revision: team.revision }

@@ -1,3 +1,4 @@
+import { captainModelDefaults, resolveTeamModelRoute, type ModelRouteInput } from './model-routing.js'
 import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -59,7 +60,7 @@ export class RuntimeMutationSurface {
     )
   }
 
-  async createWithDedicatedCaptain(exec: ToolExecutionAuthority, name: string, description: string, options: { llmProvider?: string; model?: string } = {}): Promise<TeamState> {
+  async createWithDedicatedCaptain(exec: ToolExecutionAuthority, name: string, description: string, options: ModelRouteInput = {}): Promise<TeamState> {
     await this.deps.ensureReady(); this.deps.assertOpen(); this.assertReviewerConfigured()
     const root = requireAgent(exec), scope = this.deps.scopeOf(root)
     if (root.session.header.parentSession !== undefined || await this.deps.domain().findMembership(scope, root.id) !== undefined)
@@ -77,6 +78,7 @@ export class RuntimeMutationSurface {
         scope, root, name, description, managedOrigin: identity, allowedSkills: this.deps.config.newTeamAllowedSkills(),
         ...(options.llmProvider === undefined ? {} : { llmProvider: options.llmProvider }),
         ...(options.model === undefined ? {} : { model: options.model }),
+        ...(options.reasoningEffort === undefined ? {} : { reasoningEffort: options.reasoningEffort }),
         signal: exec.signal,
       })
     })()
@@ -90,12 +92,13 @@ export class RuntimeMutationSurface {
 
 
   /** Plan-first: create a durable staged managed Team (no Captain is provisioned). */
-  async createStagedManaged(exec: ToolExecutionAuthority, name: string, description: string): Promise<TeamState> {
+  async createStagedManaged(exec: ToolExecutionAuthority, name: string, description: string, options: ModelRouteInput = {}): Promise<TeamState> {
     await this.deps.ensureReady(); this.deps.assertOpen(); this.assertReviewerConfigured()
     const root = requireAgent(exec), scope = this.deps.scopeOf(root)
     await this.assertMainBrain(root, scope)
     const identity = this.resolveManagedIdentity(root, exec)
-    return await this.deps.domain().createStagedManaged(scope, identity, name, description)
+    const route = await resolveTeamModelRoute(this.deps.ctx, root, options, captainModelDefaults(this.deps.config), exec.signal)
+    return await this.deps.domain().createStagedManaged(scope, identity, name, description, route)
   }
 
   /** Plan-first: Main Brain stores one bounded declaration on its staged Team. */
@@ -115,7 +118,7 @@ export class RuntimeMutationSurface {
    * commit leaves the Team active for the recovery path; the next approved
    * state is never silently rolled back.
    */
-  async approvePlan(exec: ToolExecutionAuthority, teamId: string, expectedRevision: number, options: { llmProvider?: string; model?: string; askUser?: boolean } = {}): Promise<TeamState> {
+  async approvePlan(exec: ToolExecutionAuthority, teamId: string, expectedRevision: number, options: ModelRouteInput & { askUser?: boolean } = {}): Promise<TeamState> {
 
     await this.deps.ensureReady(); this.deps.assertOpen(); this.deps.assertConfiguredProviders()
     const root = requireAgent(exec), scope = this.deps.scopeOf(root)
@@ -139,11 +142,10 @@ export class RuntimeMutationSurface {
       if (decision === 'discard') return await this.deps.domain().discardStagedPlan(scope, staged.id, expectedRevision)
     }
     const captainId = SessionId(randomUUID())
-    const committed = await this.deps.domain().approveStagedPlan(scope, staged.id, expectedRevision, String(captainId))
+    const route = await resolveTeamModelRoute(this.deps.ctx, root, options, staged.captainRoute ?? captainModelDefaults(this.deps.config), exec.signal, staged.captainRoute !== undefined)
+    const committed = await this.deps.domain().approveStagedPlan(scope, staged.id, expectedRevision, String(captainId), route)
     await this.deps.captainProvisioning.provisionForTeam({
       scope, team: committed, root, captainId, signal: exec.signal,
-      ...(options.llmProvider === undefined ? {} : { llmProvider: options.llmProvider }),
-      ...(options.model === undefined ? {} : { model: options.model }),
     })
     const captain = this.deps.ctx.agents.get(captainId)
     if (captain === undefined) {
@@ -269,7 +271,7 @@ export class RuntimeMutationSurface {
     return teams.find(team => team.phase === 'active' && team.managedOrigin === origin)
   }
 
-  async addMember(exec: ToolExecutionAuthority, input: { name: string; role: string; retryOf?: string; provider?: string; llmProvider?: string; model?: string; denyTools?: readonly string[] } & MemberIdentityInput): Promise<TeamState['members'][number]> {
+  async addMember(exec: ToolExecutionAuthority, input: { name: string; role: string; retryOf?: string; provider?: string; llmProvider?: string; model?: string; reasoningEffort?: string; denyTools?: readonly string[] } & MemberIdentityInput): Promise<TeamState['members'][number]> {
     await this.deps.ensureReady(); this.deps.assertOpen()
     return await this.deps.provisioning.addMember(exec, input)
   }

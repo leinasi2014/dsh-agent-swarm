@@ -260,12 +260,20 @@ export interface TeamAnnouncement {
   readonly createdAt: number
 }
 
+/** Validated Captain route retained across staged activation and provisioning. */
+export interface TeamModelRoute {
+  readonly llmProvider: string
+  readonly model: string
+  readonly reasoningEffort?: string
+}
+
 /** One bounded member declaration inside a staged plan draft. */
 interface TeamPlanMember extends TeamMemberIdentityProfile {
   readonly name: string
   readonly role: string
   readonly llmProvider?: string
   readonly model?: string
+  readonly reasoningEffort?: string
   readonly denyTools?: readonly string[]
 }
 
@@ -297,6 +305,7 @@ export interface TeamState {
    *  real store reload can re-discover and reuse the same operation's Team.
    *  Absent for plain `agent_swarm_create` (captain-owned compatibility) Teams. */
   readonly managedOrigin?: string
+  readonly captainRoute?: TeamModelRoute
   /**
    * Immutable Skill allow-list chosen when this Team was created. Absent means
    * the Team predates the policy or intentionally inherits host defaults.

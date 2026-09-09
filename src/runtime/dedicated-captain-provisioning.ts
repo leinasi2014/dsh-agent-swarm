@@ -1,3 +1,4 @@
+import { captainModelDefaults, resolveTeamModelRoute, toAgentModelOptions } from './model-routing.js'
 /** Dedicated Captain creation over the official continuable-subagent seam. */
 import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
@@ -5,7 +6,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import { TeamDomainError } from '../domain/error.js'
-import type { TeamState } from '../domain/types.js'
+import type { TeamModelRoute, TeamState } from '../domain/types.js'
 import { captainPersona, captainStartNotice } from './prompts.js'
 import type { RuntimeConfig } from './runtime-contract.js'
 
@@ -34,6 +35,7 @@ export class DedicatedCaptainProvisioner {
       readonly config: RuntimeConfig
       readonly domain: () => TeamDomainPort
       readonly trackChild: (parent: Agent, childId: SessionId) => void
+      readonly rememberCaptain: (team: TeamState, scope: TeamScope) => void
     },
   ) {}
 
@@ -46,6 +48,7 @@ export class DedicatedCaptainProvisioner {
     readonly allowedSkills?: readonly string[]
     readonly llmProvider?: string
     readonly model?: string
+    readonly reasoningEffort?: string
     readonly signal: AbortSignal
   }): Promise<TeamState> {
     if (this.closing) throw new TeamDomainError('Team orchestrator is disposing', 'TEAM_RUNTIME_CLOSING')
@@ -55,14 +58,16 @@ export class DedicatedCaptainProvisioner {
   }
 
   private async start(input: Parameters<DedicatedCaptainProvisioner['create']>[0]): Promise<TeamState> {
-    const providerName = this.requireCaptainProvider()
+    this.requireCaptainProvider()
+    const route = await resolveTeamModelRoute(this.ctx, input.root, input, captainModelDefaults(this.deps.config), input.signal)
     if (!await this.ctx.sessions.flush(input.root.session)) throw new Error('Captain startup requires a Session durability listener')
     input.signal.throwIfAborted()
     const captainId = SessionId(randomUUID())
     const team = await this.deps.domain().createTeam(
-      input.scope, captainId, input.name, input.description, -1, input.managedOrigin, input.allowedSkills,
+      input.scope, captainId, input.name, input.description, -1, input.managedOrigin, input.allowedSkills, route,
     )
     this.deps.config.teamSkills.rememberTeam(team)
+    this.deps.rememberCaptain(team, input.scope)
     // A concurrent manager may have already won this managed origin at the
     // Storage Domain (atomic claim): its Team (with the winner's Captain) is
     // returned instead of a freshly-minted one. Do NOT provision a duplicate
@@ -77,29 +82,7 @@ export class DedicatedCaptainProvisioner {
     // races can never create an untracked continuable Session.
     this.deps.trackChild(input.root, captainId)
     try {
-      await this.ctx.subagents.startContinuable({
-        provider: providerName,
-        // Issue #148: the label is the readable identity shown in the official
-        // DSH session list; a dedicated Captain renders as the Team name plus a
-        // readable "Captain" role tag instead of `agent-swarm:captain:<uuid>`.
-        label: `${team.name} · Captain`,
-        childId: captainId,
-        request: {
-          prompt: [{ type: 'text', text: captainStartNotice(team) }],
-          parent: input.root,
-          persona: captainPersona(team),
-          toolFilter: { deny: ['agent_swarm_create_managed'] },
-          agentOptions: {
-            ...((input.llmProvider ?? this.deps.config.captainLlmProvider ?? (input.root.session.requestHeader()?.config ?? input.root.options).provider) === undefined
-              ? {} : { provider: input.llmProvider ?? this.deps.config.captainLlmProvider ?? (input.root.session.requestHeader()?.config ?? input.root.options).provider }),
-            ...((input.model ?? this.deps.config.captainModel ?? (input.root.session.requestHeader()?.config ?? input.root.options).model) === undefined
-              ? {} : { model: input.model ?? this.deps.config.captainModel ?? (input.root.session.requestHeader()?.config ?? input.root.options).model }),
-          },
-          // Official maxDepth is absolute. Root=0, Captain=1, members=2.
-          maxDepth: this.deps.config.memberMaxDepth + 1,
-        },
-        signal: AbortSignal.any([input.signal, this.abort.signal]),
-      })
+      await this.spawnCaptain(team, input.root, route, AbortSignal.any([input.signal, this.abort.signal]))
       pending.admitted = true
       this.settleObserved(pending)
       return team
@@ -133,41 +116,45 @@ export class DedicatedCaptainProvisioner {
     readonly captainId: SessionId
     readonly llmProvider?: string
     readonly model?: string
+    readonly reasoningEffort?: string
     readonly signal: AbortSignal
   }): Promise<TeamState> {
     if (this.closing) throw new TeamDomainError('Team orchestrator is disposing', 'TEAM_RUNTIME_CLOSING')
-    const providerName = this.requireCaptainProvider()
+    this.requireCaptainProvider()
     const { team, root, captainId } = input
+    const route = team.captainRoute ?? await resolveTeamModelRoute(this.ctx, root, input, captainModelDefaults(this.deps.config), input.signal)
+    await this.ctx.llm.resolveCallConfig(toAgentModelOptions(route), input.signal)
     if (!await this.ctx.sessions.flush(root.session)) throw new Error('Captain startup requires a Session durability listener')
     input.signal.throwIfAborted()
     this.deps.config.teamSkills.rememberTeam(team)
+    this.deps.rememberCaptain(team, input.scope)
     this.deps.trackChild(root, captainId)
     try {
-      await this.ctx.subagents.startContinuable({
-        provider: providerName,
-        label: `${team.name} · Captain`,
-        childId: captainId,
-        request: {
-          prompt: [{ type: 'text', text: captainStartNotice(team) }],
-          parent: root,
-          persona: captainPersona(team),
-          toolFilter: { deny: ['agent_swarm_create_managed'] },
-          agentOptions: {
-            ...((input.llmProvider ?? this.deps.config.captainLlmProvider ?? (root.session.requestHeader()?.config ?? root.options).provider) === undefined
-              ? {} : { provider: input.llmProvider ?? this.deps.config.captainLlmProvider ?? (root.session.requestHeader()?.config ?? root.options).provider }),
-            ...((input.model ?? this.deps.config.captainModel ?? (root.session.requestHeader()?.config ?? root.options).model) === undefined
-              ? {} : { model: input.model ?? this.deps.config.captainModel ?? (root.session.requestHeader()?.config ?? root.options).model }),
-          },
-          maxDepth: this.deps.config.memberMaxDepth + 1,
-        },
-        signal: AbortSignal.any([input.signal, this.abort.signal]),
-      })
+      await this.spawnCaptain(team, root, route, AbortSignal.any([input.signal, this.abort.signal]))
       return team
     } catch (error) {
       await this.ctx.subagents.drainContinuableChildren(root, [captainId]).catch(() => undefined)
       throw error
     }
   }
+  private async spawnCaptain(team: TeamState, root: Agent, route: TeamModelRoute, signal: AbortSignal): Promise<void> {
+    await this.ctx.subagents.startContinuable({
+      provider: this.requireCaptainProvider(),
+      label: `${team.name} · Captain`,
+      childId: SessionId(team.captainSessionId),
+      request: {
+        prompt: [{ type: 'text', text: captainStartNotice(team) }],
+        parent: root,
+        persona: captainPersona(team),
+        toolFilter: { deny: ['agent_swarm_create_managed'] },
+        agentOptions: toAgentModelOptions(route),
+        // Official maxDepth is absolute: Main Brain=0, Captain=1, members=2.
+        maxDepth: this.deps.config.memberMaxDepth + 1,
+      },
+      signal,
+    })
+  }
+
   private requireCaptainProvider(): string {
     const providerName = this.deps.config.memberProvider
     const provider = this.ctx.subagents.getProvider(providerName)

@@ -12,11 +12,9 @@ import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
  *   `agentOptions.provider`, recorded in the durable descriptor as
  *   `agentProvider` and surfaced as `llm_provider` on the read surface.
  *
- * Provider and model have INDEPENDENT precedence at provisioning: the LLM
- * provider is the member's `llm_provider`, else the captain's LLM provider;
- * the model is `model` ?? `memberModel` config ?? the captain's model. An
- * omitted `llm_provider` therefore only decides provider inheritance and never
- * changes the model precedence.
+ * Provider and model each use explicit input, plugin default, then the current
+ * Captain route. Omitted reasoning effort inherits only on the same route;
+ * changing the route uses the selected model's default effort.
  *
  * Every test composes the real official services (AgentLoop + in-process spawn
  * continuable children, SQLite Session persistence, Storage Domain aggregate) and
@@ -60,7 +58,10 @@ class TrackedAdapter extends LlmAdapter {
 
   override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
     this.resolved.push({ provider, model })
-    return Promise.resolve({ provider, id: model, name: model, reasoning: { efforts: [{ id: ReasoningEffortId('max'), name: 'Max' }] } })
+    return Promise.resolve({ provider, id: model, name: model, reasoning: {
+      efforts: [{ id: ReasoningEffortId('max'), name: 'Max' }, { id: ReasoningEffortId('high'), name: 'High' }],
+      ...(model === 'default-model' ? { defaultEffort: ReasoningEffortId('high') } : {}),
+    } })
   }
 
   override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
@@ -102,7 +103,7 @@ interface Mounted {
   lead: Agent
 }
 
-async function mount(captainId: string, sandbox: string, config: { memberModel?: string } = {}): Promise<Mounted> {
+async function mount(captainId: string, sandbox: string, config: { memberModel?: string; captainLlmProvider?: string; captainModel?: string } = {}): Promise<Mounted> {
   const ctx = new Context()
   const fibers: Fiber[] = []
   fibers.push(await ctx.plugin(LlmRuntime))
@@ -123,6 +124,8 @@ async function mount(captainId: string, sandbox: string, config: { memberModel?:
     memberProvider: 'spawn',
     memberMaxDepth: 1,
     ...(config.memberModel === undefined ? {} : { memberModel: config.memberModel }),
+    ...(config.captainLlmProvider === undefined ? {} : { captainLlmProvider: config.captainLlmProvider }),
+    ...(config.captainModel === undefined ? {} : { captainModel: config.captainModel }),
   }))
   const glm = new TrackedAdapter()
   const dsv4 = new TrackedAdapter()
@@ -147,7 +150,7 @@ async function tool(ctx: Context, agent: Agent, callId: string, name: string, ar
 
 async function addMember(
   wired: Mounted, teamId: string, name: string,
-  args: { llm_provider?: string; model?: string } = {},
+  args: { llm_provider?: string; model?: string; reasoning_effort?: string } = {},
 ): Promise<string> {
   const res = await tool(wired.ctx, wired.lead, `hetero-add-${name}`, 'agent_swarm_add_member', {
     name, role: 'Prove the heterogeneous LLM surface.', ...args,
@@ -212,6 +215,26 @@ describe('heterogeneous member LLM provider', () => {
 
   afterEach(async () => {
     await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })))
+  })
+
+  it('honors explicit Captain route and effort ahead of plugin defaults in the actual child request', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-explicit-captain-'))
+    roots.push(sandbox)
+    const wired = await mount('explicit-captain-main', sandbox, { captainLlmProvider: 'glm', captainModel: 'configured' })
+    await createLead(wired, sandbox)
+    try {
+      const result = await tool(wired.ctx, wired.lead, 'explicit-create', 'agent_swarm_create_managed', {
+        name: 'Explicit route', description: 'Use the requested Captain model.',
+        captain_llm_provider: 'dsv4-f', captain_model: 'selected-model', captain_reasoning_effort: 'max',
+      })
+      expect(result.isError).toBe(false)
+      const id = (result.value as { captain_session_id: string }).captain_session_id
+      await awaitMemberTurn(wired, id)
+      expect(wired.dsv4.requestsFor(id)).toHaveLength(1)
+      expect(wired.dsv4.requestsFor(id)[0]).toMatchObject({ model: 'selected-model', reasoningEffort: 'max' })
+      expect(wired.glm.requestsFor(id)).toHaveLength(0)
+      expect(await descriptorOf(wired.ctx, id)).toMatchObject({ agentProvider: 'dsv4-f', agentModel: 'selected-model', agentReasoningEffort: 'max' })
+    } finally { await dispose(wired) }
   })
 
   it('routes the GLM captain and members to distinct host adapters by exact Session, with independent provider/model precedence', async () => {
@@ -314,6 +337,31 @@ describe('heterogeneous member LLM provider', () => {
       } finally { stopRoot() }
     } finally { unbind(); await dispose(wired) }
   }, 30_000)
+
+  it('validates explicit member effort and preserves same-route inheritance versus a changed model default', async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-member-effort-'))
+    roots.push(sandbox)
+    const wired = await mount('member-effort-captain', sandbox)
+    await createLead(wired, sandbox)
+    const unbind = installModelSelection(wired.lead.ctx, { current: { provider: 'glm', model: 'cap-model', reasoningEffort: ReasoningEffortId('max') }, assembled: undefined })
+    try {
+      await driveCaptainTurn(wired)
+      const created = await tool(wired.ctx, wired.lead, 'effort-create', 'agent_swarm_create', { name: 'Member effort', description: 'Use each intended effort.' })
+      expect(created.isError).toBe(false)
+      const teamId = (created.value as { team_id: string }).team_id
+      const explicit = await addMember(wired, teamId, 'explicit-effort', { reasoning_effort: 'high' })
+      const inherited = await addMember(wired, teamId, 'inherited-effort')
+      const changed = await addMember(wired, teamId, 'changed-effort', { llm_provider: 'dsv4-f', model: 'default-model' })
+      await Promise.all([explicit, inherited, changed].map(id => awaitMemberTurn(wired, id)))
+      expect(wired.glm.requestsFor(explicit)[0]?.reasoningEffort).toBe('high')
+      expect(wired.glm.requestsFor(inherited)[0]?.reasoningEffort).toBe('max')
+      expect(wired.dsv4.requestsFor(changed)[0]?.reasoningEffort).toBe('high')
+      expect((await descriptorOf(wired.ctx, changed))?.agentReasoningEffort).toBeUndefined()
+      const rejected = await tool(wired.ctx, wired.lead, 'unsupported-member-effort', 'agent_swarm_add_member', { name: 'bad-effort', role: 'Worker', reasoning_effort: 'unsupported' })
+      expect(rejected.isError).toBe(true)
+      expect((await listMembers(wired.ctx, wired.lead)).map(member => member.name)).not.toContain('bad-effort')
+    } finally { unbind(); await dispose(wired) }
+  })
 
   it('returns the same heterogeneous provider/model from the durable descriptor after a full cold restart, without resuming any child', async () => {
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-hetero-restart-'))

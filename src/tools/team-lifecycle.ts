@@ -51,6 +51,9 @@ export function registerCreateManagedTool(ctx: Context, runtime: AgentSwarmRunti
       name: { type: 'string', required: true, description: 'Human-readable Team name.' },
       description: { type: 'string', required: true, description: 'The Captain\'s only initial objective. Copy the user\'s complete requested outcome, constraints, and acceptance criteria verbatim; do not summarize or omit requirements because omitted requirements are not delivered automatically later.' },
       stage: { type: 'boolean', default: false, description: 'True: stage without Captain/member/task; set_plan then approve_plan or discard_plan. False: start immediately.' },
+      captain_llm_provider: { type: 'string', description: 'Explicit Captain LLM provider. Overrides plugin defaults; absent defaults inherit the Main Brain route.' },
+      captain_model: { type: 'string', description: 'Explicit Captain model; overrides plugin defaults.' },
+      captain_reasoning_effort: { type: 'string', description: 'Explicit reasoning effort supported by the selected model. Same-route omission inherits; a changed route uses its model default.' },
     },
     output: {
       schema: {
@@ -65,13 +68,14 @@ export function registerCreateManagedTool(ctx: Context, runtime: AgentSwarmRunti
       render: (_args, value) => [{ type: 'text', text: value.captain_session_id === '' ? `Created STAGED managed Team "${value.name}" (${value.team_id}) with no Captain yet. Use agent_swarm_set_plan then agent_swarm_approve_plan to start, or agent_swarm_discard_plan to archive the draft.` : `Created managed Team "${value.name}" (${value.team_id}) with dedicated Captain ${value.captain_session_id}. The supplied description was delivered as the Captain's only initial objective; it must contain the user's complete requested outcome, constraints, and acceptance criteria verbatim because omitted requirements will not be delivered automatically. The Main Brain remains outside the Team: call agent_swarm_list_managed_teams at most once, then end this turn. Do not call agent_swarm_wait, agent_swarm_status, or agent_swarm_send_message, and do not use Shell sleep or polling; use the Host Team UI for later observation.` }],
     },
     async execute(args, exec) {
-      // The dedicated Captain's LLM route is plugin-configured only
-      // (`captainLlmProvider` / `captainModel` on the runtime config); the
-      // model can no longer steer it by co-passing `captain_llm_provider` /
-      // `captain_model`, which are not part of this tool's parameter surface.
+      const route = {
+        ...(args.captain_llm_provider === undefined ? {} : { llmProvider: args.captain_llm_provider }),
+        ...(args.captain_model === undefined ? {} : { model: args.captain_model }),
+        ...(args.captain_reasoning_effort === undefined ? {} : { reasoningEffort: args.captain_reasoning_effort }),
+      }
       const team = args.stage === true
-        ? await runtime.createStagedManaged(exec, args.name, args.description)
-        : await runtime.createWithDedicatedCaptain(exec, args.name, args.description)
+        ? await runtime.createStagedManaged(exec, args.name, args.description, route)
+        : await runtime.createWithDedicatedCaptain(exec, args.name, args.description, route)
       return { team_id: team.id, name: team.name, revision: team.revision, captain_session_id: team.captainSessionId }
     },
   }), 'managed create tool')
@@ -88,8 +92,9 @@ export function registerAddMemberTool(ctx: Context, runtime: AgentSwarmRuntime):
       profession: identityParameters.profession,
       skills: { type: 'array', items: { type: 'string' }, description: 'Assigned Skills: validated before effects against Team allow-list and model-invocable scoped catalog; durable across restart.' },
       provider: { type: 'string', description: 'Continuable runtime Provider; defaults to plugin config.' },
-      llm_provider: { type: 'string', description: 'Child LLM provider, distinct from runtime provider; inherits Captain when omitted and is recorded durably.' },
+      llm_provider: { type: 'string', description: 'Child LLM provider, distinct from runtime provider. Explicit selection overrides plugin defaults; absent defaults inherit the Captain route.' },
       model: { type: 'string', description: 'Optional member model override.' },
+      reasoning_effort: { type: 'string', description: 'Explicit reasoning effort supported by the selected model. Same-route omission inherits; a changed route uses its model default.' },
       retry_of: { type: 'string', description: 'Retry same failed name/identity using its exact Session id.' },
       deny_tools: {
         type: 'array',
@@ -119,6 +124,7 @@ export function registerAddMemberTool(ctx: Context, runtime: AgentSwarmRuntime):
         ...(args.provider === undefined ? {} : { provider: args.provider }),
         ...(args.llm_provider === undefined ? {} : { llmProvider: args.llm_provider }),
         ...(args.model === undefined ? {} : { model: args.model }),
+        ...(args.reasoning_effort === undefined ? {} : { reasoningEffort: args.reasoning_effort }),
         ...(args.deny_tools === undefined ? {} : { denyTools: args.deny_tools }),
         ...(args.skills === undefined ? {} : { skills: args.skills }),
       })
