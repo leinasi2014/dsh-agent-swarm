@@ -37,6 +37,10 @@ describe.skipIf(!windows)('Windows candidate process boundary (issue #126)', () 
       const script = `
         $ErrorActionPreference = 'Stop'
         [Console]::WriteLine('ACL_AUDIT_STAGE: started')
+        Import-Module -Name "$PSHOME/Modules/Microsoft.PowerShell.Utility/Microsoft.PowerShell.Utility.psd1" -ErrorAction Stop
+        [Console]::WriteLine('ACL_AUDIT_STAGE: Utility loaded')
+        Import-Module -Name "$PSHOME/Modules/Microsoft.PowerShell.Security/Microsoft.PowerShell.Security.psd1" -ErrorAction Stop
+        [Console]::WriteLine('ACL_AUDIT_STAGE: Security loaded')
         $targetPath = '${target.replaceAll("'", "''")}'
         $parentPath = '${base.replaceAll("'", "''")}'
         $tokens=$null; $errors=$null
@@ -74,8 +78,11 @@ describe.skipIf(!windows)('Windows candidate process boundary (issue #126)', () 
       const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
         encoding: 'utf8', windowsHide: true, timeout: 15_000,
         // This fixture needs only built-in modules. Avoid discovering unrelated
-        // hosted-runner modules while running with a deliberately minimal env.
+        // hosted-runner modules; retain the ordinary user/cache/temp locations
+        // needed by Windows PowerShell. This is an audit fixture, not a sandbox.
         env: { SystemRoot: process.env.SystemRoot, SYSTEMDRIVE: process.env.SYSTEMDRIVE,
+          USERPROFILE: process.env.USERPROFILE, APPDATA: process.env.APPDATA, LOCALAPPDATA: process.env.LOCALAPPDATA,
+          TEMP: process.env.TEMP, TMP: process.env.TMP,
           PSModulePath: join(process.env.SystemRoot!, 'System32', 'WindowsPowerShell', 'v1.0', 'Modules') },
       })
       const diagnostic = JSON.stringify({ error: result.error?.message, signal: result.signal, stdout: result.stdout, stderr: result.stderr })
