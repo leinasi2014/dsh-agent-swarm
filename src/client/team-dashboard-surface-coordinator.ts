@@ -108,6 +108,15 @@ export class TeamDashboardSurfaceCoordinator {
       this.publish({ mode: 'docked', targetSessionId, view: 'overview' })
     } catch { this.close(false) }
   }
+  /** AppFrame closes Details in its session layout effect. The mounted Team
+   *  occupant calls this from a passive effect, after that official transition. */
+  restoreDockedDetails(sessionId: string): void {
+    if (this.disposed || this.layout === undefined || !this.declarationLive
+      || this.state.mode !== 'docked' || this.state.targetSessionId !== sessionId
+      || this.options.sessions.list.getSnapshot().current !== sessionId
+      || !this.options.controller.getSnapshot().open || this.entry === undefined || !this.isWinner(this.entry)) return
+    try { this.layout.openDetails() } catch { this.close(false) }
+  }
   selectView(view: TeamDashboardView): void { if (this.state.mode === 'docked' && this.state.view !== view) this.publish({ ...this.state, view }) }
   closeAndRestoreFocus(): void { this.close(true) }
   /** Team yields Details; official Tool Details remains the sole Tool renderer. */

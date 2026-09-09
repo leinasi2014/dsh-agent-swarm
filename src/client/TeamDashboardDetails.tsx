@@ -1,4 +1,4 @@
-import { useId, useSyncExternalStore, type RefObject } from 'react'
+import { useEffect, useId, useSyncExternalStore, type RefObject } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { TeamDashboardController } from './team-dashboard-controller.js'
@@ -25,6 +25,9 @@ export function TeamDashboardDetails({ controller, coordinator, localeTag, sessi
   const headingId = useId()
   const descriptionId = useId()
   const leased = surface.mode === 'docked' && surface.targetSessionId === sessionId && state.open
+  useEffect(() => {
+    if (leased) coordinator.restoreDockedDetails(sessionId)
+  }, [coordinator, leased, sessionId])
   if (!leased) return null
   return <aside id={TEAM_DASHBOARD_SURFACE_ID} role="complementary" tabIndex={-1}
     aria-labelledby={headingId} aria-describedby={descriptionId}

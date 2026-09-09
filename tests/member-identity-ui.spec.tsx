@@ -98,7 +98,7 @@ const controllerOf = (state: TeamDashboardState) => ({ getSnapshot: (): TeamDash
 async function renderDetails(state: TeamDashboardState): Promise<void> {
   const surfaceState = { mode: 'docked' as const, view: 'overview' as const, targetSessionId: 'root' }
   const coordinator = {
-    state: surfaceState,
+    restoreDockedDetails: vi.fn(), state: surfaceState,
     getSnapshot: (): typeof surfaceState => surfaceState,
     subscribe: (_listener: () => void): (() => void) => () => {},
     localeTag: (): 'en-US' => 'en-US',
