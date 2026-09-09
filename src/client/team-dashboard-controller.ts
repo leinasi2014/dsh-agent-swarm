@@ -62,7 +62,7 @@ class DashboardReadError extends Error {
   }
 }
 
-/** One client-plugin lifetime. It performs no read until a user opens the Team surface. */
+/** One client-plugin lifetime. The current Session is observed for an available Team. */
 export class TeamDashboardController {
   private readonly mount: SwarmReadClientMount
   private readonly listeners = new Set<() => void>()
@@ -73,6 +73,7 @@ export class TeamDashboardController {
   /** Stable Team bound for a multi-Team root. Persisted across loads so refresh/reconnect/open
    *  keep selecting the same Team instead of flapping. Resolved from the Team directory on every load. */
   private selectedTeamId: string | undefined
+  private explicitTeamSelection = false
   private disposed = false
 
   constructor(
@@ -94,6 +95,7 @@ export class TeamDashboardController {
   open(targetSessionId: string): void {
     this.assertLive()
     if (targetSessionId.length === 0) throw new Error('Team dashboard target Session is empty')
+    if (this.state.targetSessionId !== targetSessionId) this.explicitTeamSelection = false
     this.stopActive()
     this.publish({ open: true, phase: 'loading', targetSessionId })
     void this.load(targetSessionId, false)
@@ -126,6 +128,7 @@ export class TeamDashboardController {
     if (!this.state.open || target === undefined) return
     if (this.state.data?.projection.binding.teamId === teamId) return
     this.selectedTeamId = teamId
+    this.explicitTeamSelection = true
     this.stopActive()
     this.publish(withoutError(this.state, this.state.data === undefined ? 'loading' : 'reconnecting'))
     void this.load(target, false)
@@ -163,14 +166,18 @@ export class TeamDashboardController {
         throw new DashboardReadError('SWARM_UI_BINDING_CHANGED', 'Team binding changed before Captain Chat handoff')
       }
       await openOfficialSession(binding.binding.rootSessionId, abort.signal)
-      this.close()
+      // The coordinator may already have started the new Session's authorized read.
+      // Never close that read after the navigation callback returns.
     } catch (error) {
       if (abort.signal.aborted) throw error
       const failure = normalizeError(error)
       this.publish({ ...this.state, phase: this.state.data === undefined ? 'error' : 'stale', error: failure })
       throw error
     } finally {
-      if (this.requestAbort === abort) this.requestAbort = undefined
+      if (this.requestAbort === abort) {
+        this.requestAbort = undefined
+        if (this.state.open) this.scheduleLoad(target, this.pollMs, false)
+      }
     }
   }
 
@@ -329,11 +336,12 @@ export class TeamDashboardController {
       return first.teamId
     }
     const previously = this.selectedTeamId
-    if (previously !== undefined && visible.some(team => team.teamId === previously)) {
+    if (previously !== undefined && visible.some(team => team.teamId === previously
+      && (this.explicitTeamSelection || team.phase !== 'archived'))) {
       return previously
     }
-    this.selectedTeamId = first.teamId
-    return first.teamId
+    this.selectedTeamId = (visible.find(team => team.phase !== 'archived') ?? first).teamId
+    return this.selectedTeamId
   }
 
   private async readCapabilities(signal: AbortSignal): Promise<SwarmReadCapabilitiesV1> {

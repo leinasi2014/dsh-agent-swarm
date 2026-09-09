@@ -43,6 +43,8 @@ export class TeamDashboardSurfaceCoordinator {
   private offSessions = (): void => {}
   private offEntryError = (): void => {}
   private offSlot = (): void => {}
+  private observedSessionId: string | undefined
+  private dismissedTeamId: string | undefined
 
   constructor(private readonly options: Options) {}
 
@@ -53,11 +55,15 @@ export class TeamDashboardSurfaceCoordinator {
   mount(): () => void {
     if (this.mounted) throw new Error('Team dashboard surface coordinator is already mounted')
     this.mounted = true
-    this.offController = this.options.controller.subscribe(() => { if (!this.options.controller.getSnapshot().open && this.state.mode !== 'inactive') this.close(false) })
+    this.offController = this.options.controller.subscribe(() => {
+      if (!this.options.controller.getSnapshot().open && this.state.mode !== 'inactive') this.close(false)
+      else this.revealAvailableTeam()
+    })
     this.offSessions = this.options.sessions.list.subscribe(() => {
-      const target = this.state.targetSessionId
       const current = this.options.sessions.list.getSnapshot().current
-      if (target === undefined || current === target) return
+      if (current === this.observedSessionId) return
+      this.observedSessionId = current
+      this.dismissedTeamId = undefined
       const data = this.options.controller.getSnapshot().data
       if (data !== undefined) {
         this.navigationSessions = new Set([data.projection.binding.rootSessionId,
@@ -65,12 +71,14 @@ export class TeamDashboardSurfaceCoordinator {
       }
       const sameTeam = current !== undefined && (current === this.entrySessionId
         || this.navigationSessions.has(current))
-      if (!sameTeam || current === undefined) return this.close(false)
-      this.publish({ ...this.state, targetSessionId: current })
-      this.options.controller.open(current)
+      if (!sameTeam || current === undefined) this.close(false)
+      else this.publish({ ...this.state, targetSessionId: current })
+      if (current !== undefined) this.options.controller.open(current)
     })
     this.offEntryError = this.options.slots.onEntryError((key, entry) => { if (key === 'details' && entry === this.entry) this.close(false) })
     this.offSlot = this.options.slots.subscribe('details', () => { if (this.entry !== undefined && !this.isWinner(this.entry)) this.close(false) })
+    this.observedSessionId = this.options.sessions.list.getSnapshot().current
+    if (this.observedSessionId !== undefined) this.options.controller.open(this.observedSessionId)
     return () => { this.dispose() }
   }
 
@@ -78,6 +86,7 @@ export class TeamDashboardSurfaceCoordinator {
     if (this.disposed) return () => {}
     const epoch = ++this.layoutEpoch
     this.layout = layout
+    this.revealAvailableTeam()
     return () => {
       if (epoch !== this.layoutEpoch) return
       this.layoutEpoch += 1
@@ -89,6 +98,7 @@ export class TeamDashboardSurfaceCoordinator {
     if (this.disposed) return () => {}
     const epoch = ++this.declarationEpoch
     this.declarationLive = true
+    this.revealAvailableTeam()
     return () => {
       if (epoch !== this.declarationEpoch) return
       this.declarationEpoch += 1
@@ -118,20 +128,19 @@ export class TeamDashboardSurfaceCoordinator {
     try { this.layout.openDetails() } catch { this.close(false) }
   }
   selectView(view: TeamDashboardView): void { if (this.state.mode === 'docked' && this.state.view !== view) this.publish({ ...this.state, view }) }
-  closeAndRestoreFocus(): void { this.close(true) }
+  closeAndRestoreFocus(): void { this.dismissedTeamId = this.options.controller.getSnapshot().data?.projection.binding.teamId; this.close(true, true) }
   /** Team yields Details; official Tool Details remains the sole Tool renderer. */
   showToolDetails(): void {
     this.assertLive()
     const layout = this.layout
     if (layout === undefined) return
+    this.dismissedTeamId = this.options.controller.getSnapshot().data?.projection.binding.teamId
     this.releaseTeamLease()
     this.publish(INACTIVE)
-    this.options.controller.close()
     try { layout.openDetails() } catch { this.publish(INACTIVE) }
   }
   async openCaptainChat(): Promise<void> {
     await this.options.controller.openCaptainChat((id, signal) => this.openOfficialCaptain(id, signal))
-    this.publish(INACTIVE)
   }
 
   private async openOfficialCaptain(id: string, signal?: AbortSignal): Promise<void> {
@@ -181,9 +190,6 @@ export class TeamDashboardSurfaceCoordinator {
    *  an explicit unavailable, never a fabricated chat. */
   async openTeamCaptain(captainSessionId: string): Promise<void> {
     await this.openOfficialCaptain(captainSessionId)
-    this.releaseTeamLease()
-    this.publish(INACTIVE)
-    this.options.controller.close()
   }
 
   private acquire(): boolean {
@@ -201,13 +207,25 @@ export class TeamDashboardSurfaceCoordinator {
     } catch { release?.(); return false }
   }
   private isWinner(entry: StoredEntry): boolean { return this.options.slots.entriesOfSlot('details')[0] === entry }
-  private close(restoreFocus: boolean): void {
+  /** Polling uses the existing Host projection; only a verified Team acquires UI space. */
+  private revealAvailableTeam(): void {
+    const read = this.options.controller.getSnapshot()
+    const current = this.options.sessions.list.getSnapshot().current
+    if (this.disposed || this.state.mode !== 'inactive' || !read.open || read.phase !== 'ready'
+      || read.data === undefined || current === undefined || read.targetSessionId !== current
+      || read.data.projection.binding.teamId === this.dismissedTeamId) return
+    if (!this.acquire()) return
+    this.entrySessionId = current
+    this.publish({ mode: 'docked', targetSessionId: current, view: 'overview' })
+    try { this.layout?.openDetails() } catch { this.close(false) }
+  }
+  private close(restoreFocus: boolean, keepReading = false): void {
     this.entrySessionId = undefined
     this.navigationSessions.clear()
     if (this.state.mode === 'docked') { try { this.layout?.closeDetails() } catch { /* teardown still releases the Team lease */ } }
     this.releaseTeamLease()
     this.publish(INACTIVE)
-    this.options.controller.close()
+    if (!keepReading) this.options.controller.close()
     if (restoreFocus) queueMicrotask(() => { this.options.anchorRef.current?.querySelector<HTMLButtonElement>('[data-swarm-team-trigger]')?.focus() })
   }
   private releaseTeamLease(): void { const release = this.release; this.release = undefined; this.entry = undefined; release?.() }

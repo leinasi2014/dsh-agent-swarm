@@ -502,7 +502,7 @@ describe('TeamDashboardController', () => {
     await controller.openCaptainChat(rootSessionId => { opened.push(rootSessionId) })
     expect(opened).toEqual(['root-1'])
     expect(seen.at(-1)?.method).toBe('binding')
-    expect(controller.getSnapshot().phase).toBe('closed')
+    expect(controller.getSnapshot().phase).toBe('ready')
     controller.dispose()
   })
 

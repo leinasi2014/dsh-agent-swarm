@@ -76,7 +76,7 @@ function harness() {
   let state = { open: false, phase: 'closed' } as TeamDashboardState
   const controllerListeners = new Set<() => void>()
   const controller = { getSnapshot: () => state, subscribe: (fn: () => void) => { controllerListeners.add(fn); return () => { controllerListeners.delete(fn) } },
-    open: (id: string) => { state = { open: true, phase: 'ready', targetSessionId: id, data: {
+    open: (id: string) => { state = id === 'other' ? { open: true, phase: 'error', targetSessionId: id } : { open: true, phase: 'ready', targetSessionId: id, data: {
       projection: { binding: { rootSessionId: 'captain', teamId: 'team' } }, captainMembers: { members: [{ name: 'worker', sessionId: 'member', phase: 'active' }] },
     } } as unknown as TeamDashboardState; controllerListeners.forEach(fn => fn()) },
     close: () => { state = { open: false, phase: 'closed' }; controllerListeners.forEach(fn => fn()) }, dispose: () => {},
@@ -98,7 +98,7 @@ function harness() {
     actions, renderSlot: name => name === 'details' ? <Details /> : null, SessionProvider: React.Fragment, t: key => key,
   }
   return { coordinator, navigate, trace, onClose: (callback: () => void) => { onClose = callback }, panels: () => panels,
-    mount: async () => { await React.act(async () => { coordinator.toggle('root'); root.render(<Frame {...frameProps} />) }) },
+    mount: async () => { await React.act(async () => { root.render(<Frame {...frameProps} />) }) },
     dispose: async () => { await React.act(async () => { root.unmount(); unmount() }) },
   }
 }
@@ -110,6 +110,7 @@ describe('Team navigation in the installed official AppFrame', () => {
     const f = harness()
     try {
       await f.mount()
+      expect(f.panels().details).toBe(360) // automatically visible on first mount
       f.trace.length = 0
       f.onClose(() => { f.coordinator.closeAndRestoreFocus() })
       await React.act(async () => { await f.coordinator.openMemberChat('worker', 'member') })

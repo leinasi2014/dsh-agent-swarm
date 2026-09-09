@@ -12,15 +12,13 @@ import { en, zh } from '../src/client/team-dashboard-locales.js'
 import { SWARM_READ_RPC_FIXTURES_V1 } from '../src/rpc/read-rpc-artifact.js'
 
 describe('R3 native Team Details surface', () => {
-  it('places an icon Team toggle in the official Session utility contract with correct aria state', async () => {
+  it('removes the Team toolbar toggle and keeps Tool Details accessible while the Team is shown', async () => {
     const coordinator = new FakeCoordinator(); const anchorRef = { current: null }
     await render(<TeamDashboardAction {...({ anchorRef, coordinator, sessionId: 'root', t } as any)} />)
-    const team = document.querySelector<HTMLButtonElement>('[data-swarm-team-trigger]')!
-    expect(team.getAttribute('aria-expanded')).toBe('true'); expect(team.querySelector('[data-icon="user"]')).not.toBeNull()
-    await act(async () => { team.click() }); expect(coordinator.toggle).toHaveBeenCalledWith('root')
+    expect(document.querySelector('[data-swarm-team-trigger]')).toBeNull()
     await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-tool-trigger]')?.click() }); expect(coordinator.showToolDetails).toHaveBeenCalledTimes(1)
     await act(async () => { coordinator.set({ mode: 'inactive', view: 'overview', targetSessionId: undefined }) })
-    expect(team.getAttribute('aria-expanded')).toBe('false')
+    expect(document.querySelector('[data-swarm-tool-trigger]')).toBeNull()
   })
 
   it('renders the task dependency DAG in the Tasks tab', async () => {

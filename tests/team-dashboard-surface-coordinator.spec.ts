@@ -26,6 +26,34 @@ function fixture() {
   return { slots, controller, layout, sessions, coordinator, releaseDetails, releaseLayout, unmount, destroy: () => { releaseDetails(); releaseLayout(); unmount(); anchor.remove() } }
 }
 describe('TeamDashboardSurfaceCoordinator', () => {
+  it('discovers the current Team without a toolbar click, and respects dismissal until a different Team or Session (#225)', () => {
+    const f = fixture()
+    expect(f.controller.open).toHaveBeenCalledWith('root')
+    expect(f.coordinator.getSnapshot().mode).toBe('inactive')
+    const ready = (teamId: string, targetSessionId = 'root') => {
+      f.controller.state = { open: true, phase: 'ready', targetSessionId, data: {
+        projection: { binding: { rootSessionId: 'captain', teamId } }, captainMembers: { members: [] },
+      } } as unknown as TeamDashboardState
+      f.controller.listeners.forEach(listener => listener())
+    }
+    ready('team-1')
+    expect(f.coordinator.getSnapshot()).toMatchObject({ mode: 'docked', targetSessionId: 'root' })
+    f.coordinator.closeAndRestoreFocus()
+    ready('team-1')
+    expect(f.coordinator.getSnapshot().mode).toBe('inactive')
+    ready('team-2')
+    expect(f.coordinator.getSnapshot().mode).toBe('docked')
+    f.coordinator.showToolDetails()
+    ready('team-2')
+    expect(f.coordinator.getSnapshot().mode).toBe('inactive')
+    f.sessions.setCurrent('other')
+    ready('team-2') // stale response from the old Session
+    expect(f.coordinator.getSnapshot().mode).toBe('inactive')
+    ready('team-3', 'other')
+    expect(f.coordinator.getSnapshot()).toMatchObject({ mode: 'docked', targetSessionId: 'other' })
+    f.destroy()
+  })
+
   it('opens a dedicated Captain through its verified parent catalog on first navigation', async () => {
     const f = fixture()
     const snapshot = f.sessions.list.getSnapshot
@@ -154,7 +182,6 @@ describe('TeamDashboardSurfaceCoordinator', () => {
     expect(f.sessions.open).toHaveBeenCalledWith('other')
     expect(f.sessions.open).toHaveBeenCalledTimes(1)
     expect(f.coordinator.getSnapshot().mode).toBe('inactive')
-    expect(f.controller.close).toHaveBeenCalled()
     // A Captain that left the official Session list can never open a fabricated chat.
     await expect(f.coordinator.openTeamCaptain('not-listed')).rejects.toThrow('official Session list')
     expect(f.sessions.open).toHaveBeenCalledTimes(1)
