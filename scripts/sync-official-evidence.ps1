@@ -56,7 +56,13 @@ $SparsePaths = @(
     "packages/workspace"
 )
 
-git -C $Target fetch --depth 1 origin $Baseline.commit
+# Sparse checkout alone still downloads every snapshot blob. Keep this evidence
+# clone partial so checkout fetches only the registered source directories.
+git -C $Target config remote.origin.promisor true
+if ($LASTEXITCODE -ne 0) { throw "git promisor configuration failed for $Target" }
+git -C $Target config remote.origin.partialclonefilter blob:none
+if ($LASTEXITCODE -ne 0) { throw "git partial-clone configuration failed for $Target" }
+git -C $Target fetch --filter=blob:none --depth 1 origin $Baseline.commit
 if ($LASTEXITCODE -ne 0) { throw "git fetch failed for official commit $($Baseline.commit)" }
 git -C $Target sparse-checkout init --cone
 if ($LASTEXITCODE -ne 0) { throw "git sparse-checkout init failed for $Target" }
