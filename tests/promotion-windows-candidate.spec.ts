@@ -36,26 +36,35 @@ describe.skipIf(!windows)('Windows candidate process boundary (issue #126)', () 
       const scriptPath = resolve('scripts/promotion/windows-candidate-credential.ps1').replaceAll("'", "''")
       const script = `
         $ErrorActionPreference = 'Stop'
+        $auditClock=[Diagnostics.Stopwatch]::StartNew()
+        function Write-AuditStage([string]$Stage) {
+          $self=[Diagnostics.Process]::GetCurrentProcess()
+          try { [Console]::WriteLine("ACL_AUDIT_STAGE: $Stage wallMs=$($auditClock.ElapsedMilliseconds) cpuMs=$([int]$self.TotalProcessorTime.TotalMilliseconds) workingSetMB=$([int]($self.WorkingSet64/1MB))") }
+          finally { $self.Dispose() }
+        }
         # Load the audit's complete built-in command set explicitly. Missing
         # modules must fail promptly instead of entering CI module discovery.
         $PSModuleAutoLoadingPreference = 'None'
-        [Console]::WriteLine('ACL_AUDIT_STAGE: started')
+        Write-AuditStage 'started'
         Import-Module -Name "$PSHOME/Modules/Microsoft.PowerShell.Utility/Microsoft.PowerShell.Utility.psd1" -ErrorAction Stop
-        [Console]::WriteLine('ACL_AUDIT_STAGE: Utility loaded')
+        Write-AuditStage 'Utility loaded'
         Import-Module -Name "$PSHOME/Modules/Microsoft.PowerShell.Security/Microsoft.PowerShell.Security.psd1" -ErrorAction Stop
-        [Console]::WriteLine('ACL_AUDIT_STAGE: Security loaded')
+        Write-AuditStage 'Security loaded'
         Import-Module -Name "$PSHOME/Modules/Microsoft.PowerShell.Management/Microsoft.PowerShell.Management.psd1" -ErrorAction Stop
-        [Console]::WriteLine('ACL_AUDIT_STAGE: Management loaded')
+        Write-AuditStage 'Management loaded'
         $targetPath = '${target.replaceAll("'", "''")}'
         $parentPath = '${base.replaceAll("'", "''")}'
         $tokens=$null; $errors=$null
         $ast=[System.Management.Automation.Language.Parser]::ParseFile('${scriptPath}',[ref]$tokens,[ref]$errors)
+        Write-AuditStage 'source parsed'
         $block=$ast.Find({param($n) $n -is [System.Management.Automation.Language.IfStatementAst] -and $n.Extent.Text.StartsWith('if ($InspectOnly) {') -and $n.Extent.Text.Contains('$writeMask = 0x500D0156')},$true)
+        Write-AuditStage 'audit block located'
         $body=$block.Clauses[0].Item2.Extent.Text
         $auditSource=$body.Substring(1,$body.Length-2)
         # Instrument statement boundaries in the real audit body. Execute every
         # original statement unchanged; a timeout identifies only this interval.
         $auditAst=[scriptblock]::Create($auditSource).Ast
+        Write-AuditStage 'audit AST created'
         $tracePoints=@{
           '$ancestorAllowed ='='TrustedInstaller SID lookup'
           '$acl = Get-Acl'='ACL descriptor'
@@ -70,6 +79,7 @@ describe.skipIf(!windows)('Windows candidate process boundary (issue #126)', () 
         }
         $edits=[Collections.Generic.List[object]]::new()
         foreach($prefix in $tracePoints.Keys) {
+          Write-AuditStage "tracing $prefix"
           $matches=@($auditAst.FindAll({param($node) ($node -is [System.Management.Automation.Language.AssignmentStatementAst] -or $node -is [System.Management.Automation.Language.IfStatementAst] -or $node -is [System.Management.Automation.Language.PipelineAst]) -and $node.Extent.Text.StartsWith($prefix)},$true))
           if($matches.Count -ne 1){throw "Audit diagnostic statement changed: $prefix"}
           $extent=$matches[0].Extent
@@ -78,10 +88,12 @@ describe.skipIf(!windows)('Windows candidate process boundary (issue #126)', () 
           $edits.Add(@{Offset=$extent.EndOffset;Text="; [Console]::WriteLine('ACL_AUDIT_STEP: after $label')"})
         }
         foreach($edit in ($edits | Sort-Object { $_.Offset } -Descending)) { $auditSource=$auditSource.Insert($edit.Offset,$edit.Text) }
+        Write-AuditStage 'trace inserted'
         $audit=[scriptblock]::Create($auditSource)
+        Write-AuditStage 'instrumented audit compiled'
         $controller=[Security.Principal.WindowsIdentity]::GetCurrent().User
         $allowed=@($controller.Value,'S-1-5-18','S-1-5-32-544')
-        [Console]::WriteLine('ACL_AUDIT_STAGE: parsed')
+        Write-AuditStage 'parsed'
         $ProtectedRootsJson=ConvertTo-Json -InputObject @($targetPath) -Compress
         # Read the real path chain without changing it. Hosted CI drives need
         # not be controller-owned, so model the positive ACL premise in memory.
