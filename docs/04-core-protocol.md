@@ -76,7 +76,7 @@ Captain identity 独立于 Member roster。`set_captain_profile` 成功提交后
 
 `personality` 与 `biography` 分别保存工作性格和个人简介，各限 1024 个 Unicode code points，并经过 Domain、Storage、Host/RPC 的同一校验链。Captain 通常在招募时按用户语言和偏好提供完整资料；缺失字段诚实显示不可用。`set_captain_profile` 与 `set_member_profile` 以当前 Team revision 做局部更新，保留未提交字段；后者按不可变 roster name 定位，检查显示名冲突，不改 Session、角色、Skills、模型或运行中的 persona。descriptor 的 label 是创建时事实；资料改名后的读取继续校验精确 Session、parent、origin、Team 标签前缀及 provider。
 
-DSH `0.1.2-rc.1` 的 continuable child 可由私有 owner 注册；`agents.roots()` 本身不证明顶层身份，root 权限还须核对 `session.header.parentSession`。官方带标记的 `send_message` 仅在精确存活 child 向真实 direct parent 发送时继承上行权限，仍经过后续官方 guard；同名替换工具与向下/跨成员发送不获得豁免。冷恢复的 Team Skills 在 `agent/session-start` 后、首个 step/工具调用前从权威 aggregate 重建，解析失败不得放宽权限。
+DSH `0.1.5-alpha.1` 的 continuable child 可由私有 owner 注册；`agents.roots()` 本身不证明顶层身份，root 权限还须核对 `session.header.parentSession`。官方带标记的 `send_message` 仅在精确存活 child 向真实 direct parent 发送时继承上行权限，仍经过后续官方 guard；同名替换工具与向下/跨成员发送不获得豁免。冷恢复的 Team Skills 在 `agent/session-start` 后、首个 step/工具调用前从权威 aggregate 重建，解析失败不得放宽权限。
 
 ## 6. 工具与权限
 
@@ -122,13 +122,13 @@ DSH `0.1.2-rc.1` 的 continuable child 可由私有 owner 注册；`agents.roots
 - 多 Team 切换通过 Main Brain/Host projection 选择 Captain Session，不在侧边栏维护第二套 Team registry。
 - official Session list/Chat 仍由 DSH 拥有；插件只提供可读 label 与导航。
 
-Team 侧栏沿用 DSH 的 Details 布局与主题 tokens，一个团队一张卡，同一主会话的关联团队纵向排列。摘要显示名称、阶段、队长及从 aggregate 派生的成员数、完成任务数与任务总数；默认展开一个团队，其余保留摘要。展开后直接显示真实任务进度与待审核、待处理事项；目标和公告可折叠，进度与待办不受该折叠影响。卡内保留概览、任务、公告、管理，队长和成员采用紧凑缩进树；成员详情展开在本人分支内，个人资料与当前任务位于运行、Skills 与工具、成果与成长三个成员页签之外。团队切换只更换绑定读目标，不能把旧团队的正文放到新卡下，也不能把未完成读取当成新团队可用。侧栏显示主会话→当前所属团队→成员的归属路径与明确的当前会话标记。
+Team 注册 DSH SidebarRight 的独立页签，沿用官方布局与主题 tokens，一个团队一张卡，同一主会话的关联团队纵向排列。摘要显示名称、阶段、队长及从 aggregate 派生的成员数、完成任务数与任务总数；默认展开一个团队，其余保留摘要。展开后直接显示真实任务进度与待审核、待处理事项；目标和公告可折叠，进度与待办不受该折叠影响。卡内保留概览、任务、公告、管理，队长和成员采用紧凑缩进树；成员详情展开在本人分支内，个人资料与当前任务位于运行、Skills 与工具、成果与成长三个成员页签之外。团队切换只更换绑定读目标，不能把旧团队的正文放到新卡下，也不能把未完成读取当成新团队可用。侧栏显示主会话→当前所属团队→成员的归属路径与明确的当前会话标记。
 
-移除顶部 Team 按钮；现有 controller 随当前 Session 只读观察，首次载入、创建团队及重连后取得完整 Host 投影才自动申请侧栏，不显示无团队空卡。关闭或让位官方 Tool Details 后，同一 Team 的刷新不得抢回侧栏；切换 Session 或出现新的 Team 可重新显示。新打开的队长/成员 Chat 优先选中 Host 验证的所属 Team；主会话默认选择未归档 Team，用户显式选中的其他或历史 Team 在当前 Session 内保留。轮询、请求取消和卸载仍由原 controller 生命周期负责。
+不添加顶部 Team 按钮；关闭后可从官方侧栏的新页签引导页重新打开 Team。现有 controller 随当前 Session 只读观察，首次载入、创建团队及重连后取得完整 Host 投影才自动申请页签，不显示无团队空卡。关闭、切到其他官方页签或收起右栏后，同一 Team 的刷新不得抢回焦点；加载期间关闭同样有效。官方 tab.id 仅在 Session 内唯一，插件按 Session 与 tab.id 跟踪绑定；组件卸载只表示正文不可见，只有 tab.signal abort 表示实际关闭。切换 Session 时保留各自页签；新的 Team 可重新显示。新打开的队长/成员 Chat 优先选中 Host 验证的所属 Team；主会话默认选择未归档 Team，用户显式选中的其他或历史 Team 在当前 Session 内保留。轮询、请求取消和卸载仍由原 controller 生命周期负责。
 
 成员 Chat 复用已安装 DSH 的公开 `ISessions.refreshSubagents/list/openSubagent`：刷新后从 `list` 的 `subagentsByParent` 中取 `ready`、healthy continuable child 的精确 Captain/member 地址，再导航，不构造私有路由；`subagentAddress` 仅查询已导航地址，不能用于首次打开。Host 以请求 Session 的官方 live/persisted header 与当前 active roster 为依据，校验成员→Captain→无父级主会话的关系及相同 scope，才在 local-single-user 只读 RPC 中提供该主会话的兄弟团队目录与显式选中团队的读取。普通 child、移除/旧身份、跨 scope 或缺失关系不获得该扩展。`teams.binding.rootSessionId` 仍是请求 Session，可选 `mainSessionId/mainSessionTitle/currentTeamId/currentMemberName` 是经验证的导航投影；主会话标题仅取官方公开 Session 标题，成员名仅取所属 Team 当前公开资料，缺失不编造。每次 section/read 继续重新验证请求身份和关系，UI 不能缓存成权限。
 
-成员导航前重读绑定和成员行；返回主会话前重新读取团队目录验证 mainSessionId，再交给官方根会话列表导航。切换到已验证关联的主会话、Captain 或当前团队成员时，Details lease 保留、旧数据清除并向新 Session 重新授权读取；无关 Session 仍释放 lease。该 UI 临时状态不成为业务权限，注册/轮询继续随既有 controller/coordinator 卸载释放。验收覆盖多团队目录、快速反向切换、首次导航、导航竞争、冷读取、错误父级/成员、主会话返回及官方 Tool Details 让位。
+成员导航前重读绑定和成员行；返回主会话前重新读取团队目录验证 mainSessionId，再交给官方根会话列表导航。切换到已验证关联的主会话、Captain 或当前团队成员时，各 Session 的官方页签分别保留、旧数据清除并向新 Session 重新授权读取；无关 Session 不显示上一会话的 Team 正文。该 UI 临时状态不成为业务权限，注册/轮询继续随既有 controller/coordinator 卸载释放。验收覆盖多团队目录、快速反向切换、首次导航、导航竞争、冷读取、错误父级/成员、主会话返回及官方页签切换与侧栏收起。
 
 ## 9. Review、execution root 与可选桥接
 

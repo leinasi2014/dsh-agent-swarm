@@ -13,7 +13,6 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import { SwarmReadClient } from './read-client.js'
 import type { SwarmReadSkillCatalogV1, SwarmReadToolCatalogV1 } from '../rpc/read-rpc-contract.js'
 import { TeamDashboardController } from './team-dashboard-controller.js'
-import { TeamDashboardAction, type TeamDashboardActionInjected } from './TeamDashboardAction.js'
 import { en, TEAM_DASHBOARD_NS, zh, type TeamDashboardKey } from './team-dashboard-locales.js'
 import { TeamDashboardSurfaceCoordinator, TEAM_TAB_ID, TEAM_TAB_KIND } from './team-dashboard-surface-coordinator.js'
 import { TeamDashboardDetails } from './TeamDashboardDetails.js'
@@ -80,18 +79,14 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(TEAM_SKILL_SETTINGS_NS, { zh: teamSkillSettingsZh, en: teamSkillSettingsEn }), 'swarm Team Skills settings dictionaries')
   ctx.effect(() => coordinator.bindSidebar(ctx.sidebarRight), 'swarm Team Sidebar navigation')
   ctx.effect(() => ctx.sidebarRightTabs.register({ id: TEAM_TAB_ID, kind: TEAM_TAB_KIND,
-    title: () => ctx.locale.bind(TEAM_DASHBOARD_NS)('title') }), 'swarm Team Sidebar tab type')
+    title: () => ctx.locale.bind(TEAM_DASHBOARD_NS)('title'),
+    guide: [{ order: 30, title: () => ctx.locale.bind(TEAM_DASHBOARD_NS)('title'),
+      description: () => ctx.locale.bind(TEAM_DASHBOARD_NS)('description') }],
+  }), 'swarm Team Sidebar tab type')
   ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
     name: 'sidebar.right.pane.tab', key: TEAM_TAB_ID, locale: TEAM_DASHBOARD_NS,
     inject: () => ({ anchorRef, controller, coordinator, localeTag: coordinator.localeTag }),
   }, TeamDashboardDetails))
-  ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
-    name: 'conversation.session.header.utilities',
-    id: 'swarm-team',
-    order: 30,
-    locale: TEAM_DASHBOARD_NS,
-    inject: (): TeamDashboardActionInjected => ({ anchorRef, coordinator }),
-  }, TeamDashboardAction))
   ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
     name: 'settings.plugin.item',
     key: TEAM_SKILL_SETTINGS_NS,

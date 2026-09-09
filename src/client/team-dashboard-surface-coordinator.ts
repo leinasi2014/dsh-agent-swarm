@@ -29,7 +29,6 @@ export class TeamDashboardSurfaceCoordinator {
   private readonly listeners = new Set<() => void>()
   private readonly tabs = new Map<string, ObservedTab>()
   private readonly dismissed = new Map<string, string | undefined>()
-  private readonly pendingClose = new Set<string>()
   private state: TeamDashboardSurfaceState = INACTIVE
   private sidebar: ISidebarRight | undefined
   private sidebarEpoch = 0
@@ -81,7 +80,6 @@ export class TeamDashboardSurfaceCoordinator {
   /** The official hook reports visibility; only its abort signal means actual removal. */
   observeTab(sessionId: string, tab: Tab): () => void {
     if (this.disposed || tab.signal.aborted) return () => {}
-    if (this.pendingClose.has(sessionId)) { tab.actions.close(); return () => {} }
     const key = JSON.stringify([sessionId, tab.id])
     const mount = {}
     const previous = this.tabs.get(key)
@@ -121,7 +119,6 @@ export class TeamDashboardSurfaceCoordinator {
     if (this.options.sessions.list.getSnapshot().current !== targetSessionId) return
     if (this.state.mode === 'docked' && this.state.targetSessionId === targetSessionId) return this.closeAndRestoreFocus()
     this.dismissed.delete(targetSessionId)
-    this.pendingClose.delete(targetSessionId)
     this.options.controller.open(targetSessionId)
     this.openTeamTab(targetSessionId)
   }
@@ -130,7 +127,6 @@ export class TeamDashboardSurfaceCoordinator {
     const current = this.options.sessions.list.getSnapshot().current
     if (current === undefined) return
     this.dismissCurrentTeam(current)
-    this.pendingClose.add(current)
     // Each action belongs to this exact tab/session, including late callbacks.
     const own = [...this.tabs.values()].find(value => value.sessionId === current && value.mounted && value.tab.visible)
     own?.tab.actions.close()
@@ -241,7 +237,6 @@ export class TeamDashboardSurfaceCoordinator {
   }
   private openTeamTab(sessionId: string): void {
     if (this.sidebar === undefined || this.options.sessions.list.getSnapshot().current !== sessionId) return
-    this.pendingClose.delete(sessionId)
     this.publish({ mode: 'docked', targetSessionId: sessionId, view: 'overview' })
     try { this.sidebar.openTab(TEAM_TAB_KIND) } catch { this.publish(INACTIVE) }
   }
@@ -262,7 +257,7 @@ export class TeamDashboardSurfaceCoordinator {
     this.sidebarEpoch++
     this.offSessions(); this.offController()
     for (const observed of this.tabs.values()) observed.offAbort()
-    this.tabs.clear(); this.dismissed.clear(); this.pendingClose.clear()
+    this.tabs.clear(); this.dismissed.clear()
     this.publish(INACTIVE)
     this.options.controller.dispose()
     this.listeners.clear()
