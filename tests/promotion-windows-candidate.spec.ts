@@ -2,7 +2,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { copyFile, link, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { allocatePrivateCandidateRoot, copyWindowsCandidateOutput, grantCandidateDirectories, spawnWindowsAccountCandidate } from '../scripts/promotion/windows-candidate.mjs'
 import { laneEnv, run } from '../scripts/promotion/runner.mjs'
@@ -150,8 +150,21 @@ describe.skipIf(!windows)('Windows candidate process boundary (issue #126)', () 
     const grant = grantCandidateDirectories(root, [root])
     try {
       const require = createRequire(import.meta.url)
-      const native = require.resolve('@koromix/koffi-win32-x64', { paths: [dirname(require.resolve('koffi'))] })
-      await copyFile(join(dirname(native), 'win32_x64/koffi.node'), join(root, 'koffi.node'))
+      require('koffi')
+      // Stage the addon selected by the declared package's public loader,
+      // without depending on its private optional-package installation layout.
+      const pending = [require.cache[require.resolve('koffi')]]
+      const visited = new Set<NodeJS.Module>()
+      const addons: string[] = []
+      while (pending.length) {
+        const loaded = pending.pop()
+        if (!loaded || visited.has(loaded)) continue
+        visited.add(loaded)
+        if (basename(loaded.filename) === 'koffi.node') addons.push(loaded.filename)
+        pending.push(...loaded.children)
+      }
+      expect(addons).toHaveLength(1)
+      await copyFile(addons[0]!, join(root, 'koffi.node'))
       const program = `
         const k = require('./koffi.node'), kernel = k.load('kernel32.dll'), advapi = k.load('advapi32.dll');
         const create = kernel.func('void * __stdcall CreateNamedPipeW(str16, uint32, uint32, uint32, uint32, uint32, uint32, void *)');
@@ -206,7 +219,7 @@ describe.skipIf(!windows)('Windows candidate process boundary (issue #126)', () 
     }
   }, 30_000)
 
-  it('supports default Node spawn and spawnSync stdio inside the restricted child', async () => {
+  it('records the full restricted token default Node pipe limitation requiring the account executor', async () => {
     const root = await allocatePrivateCandidateRoot()
     const grant = grantCandidateDirectories(root, [root])
     try {
@@ -228,9 +241,12 @@ describe.skipIf(!windows)('Windows candidate process boundary (issue #126)', () 
       const result = await run(process.execPath, [prefix, grant.sid, root, process.execPath, '-e', program], { cwd: root, timeoutMs: 15_000 })
       expect(result.code, result.stderr).toBe(0)
       const matrix = JSON.parse(result.stdout.trim().split(/\r?\n/).at(-1) ?? '{}')
+      // This legacy token route remains a diagnostic, not the candidate lane.
+      // The account child launcher has its own normal-pipe plumbing test;
+      // successful cross-account logon still requires the prepared OS account.
       expect(matrix).toEqual({
-        sync: { status: 0, stdout: 'sync-output', stderr: 'sync-error' },
-        async: { status: 0, stdout: 'async-input', stderr: 'async-error' },
+        sync: { status: null, error: 'EPERM' },
+        asyncError: 'EPERM',
       })
     } finally {
       grant.dispose()

@@ -1,5 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignoreBinaries": ["whoami.exe"],
   "entry": ["scripts/*.mjs", "scripts/p0/*-probe.mjs", "scripts/promotion/*.mjs", "tests/**/*.spec.{ts,tsx}"],
   "project": ["src/**/*.{ts,tsx}", "scripts/**/*.mjs", "tests/**/*.{ts,tsx}"]
 }
