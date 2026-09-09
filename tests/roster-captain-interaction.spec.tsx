@@ -292,7 +292,7 @@ describe('roster/Captain interaction slice', () => {
     expect(Object.hasOwn(coordinator.getSnapshot(), 'projection')).toBe(false)
   })
 
-  it('enumerates every Team in the rail and switches the bound Team in place via controller.selectTeam without any Captain Session jump', async () => {
+  it('keeps every Team card visible and never displays the old roster under a pending Team selection', async () => {
     const coordinator = new FakeCoordinator()
     // A legal multi-team result: two independent dedicated Captains, each honest not-generated assets.
     const multiTeams = {
@@ -324,22 +324,23 @@ describe('roster/Captain interaction slice', () => {
       observedAt: 1_700_000_000_200, complete: true,
     } as const
     const base = readyWithRoster([...REAL_ROSTER])
-    const ready = { ...base, data: { ...base.data!, teams: multiTeams as never } } as TeamDashboardState
+    const ready = { ...base, data: { ...base.data!, teams: multiTeams as never,
+      projection: { ...base.data!.projection, binding: { ...base.data!.projection.binding, teamId: 'team-alpha' }, team: { ...base.data!.projection.team, id: 'team-alpha', name: 'Alpha 舰队' } },
+    } } as TeamDashboardState
     const controller = { getSnapshot: (): TeamDashboardState => ready, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn(), selectTeam: vi.fn() }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
 
-    // The Details surface owns no vertical Team rail. It exposes the real,
-    // de-duplicated Team directory in its title-bar selector instead.
+    // The directory remains visible as cards, with no nested navigation rail.
     expect(document.querySelector('[data-swarm-team-rail]')).toBeNull()
-    const selector = document.querySelector<HTMLSelectElement>('[data-swarm-team-switcher]')!
-    expect([...selector.options].map(option => [option.value, option.textContent])).toEqual([
-      ['team-alpha', 'Alpha 舰队'], ['team-beta', 'Beta Team'],
-    ])
-    expect(selector.value).toBe('team-alpha')
+    expect([...document.querySelectorAll('[data-swarm-team-card]')].map(card => card.getAttribute('data-swarm-team-card'))).toEqual(['team-alpha', 'team-beta'])
+    const teamPanel = document.querySelector('[data-swarm-team-panel]')!
+    const toggle = (id: string) => teamPanel.querySelector<HTMLButtonElement>(`[data-swarm-team-toggle="${id}"]`)!
+    expect(toggle('team-alpha').textContent).toContain('Alpha 舰队')
+    expect(toggle('team-alpha').getAttribute('aria-expanded')).toBe('true')
 
     // Selecting another Team switches the CURRENT sidebar through
     // controller.selectTeam exactly once — it never opens or jumps to a Captain Session.
-    await act(async () => { selector.value = 'team-beta'; selector.dispatchEvent(new Event('change', { bubbles: true })) })
+    await act(async () => { toggle('team-beta').click() })
     expect(controller.selectTeam).toHaveBeenCalledTimes(1)
     expect(controller.selectTeam).toHaveBeenCalledWith('team-beta')
     expect(coordinator.openTeamCaptain).not.toHaveBeenCalled()
@@ -351,5 +352,12 @@ describe('roster/Captain interaction slice', () => {
     expect(document.querySelector('[data-swarm-team-fullscreen]')).toBeNull()
     expect(document.querySelector('[role="dialog"][data-swarm-detail-overlay]')).toBeNull()
     expect(document.querySelectorAll('[role="complementary"][data-swarm-team-panel]')).toHaveLength(1)
+    expect(document.querySelector('[data-swarm-team-card="team-beta"] [data-swarm-member-name]')).toBeNull()
+    expect(document.querySelector('[data-swarm-team-card="team-beta"] [role="status"]')).not.toBeNull()
+    // Returning to the still-visible previous card cancels the pending choice.
+    await act(async () => { toggle('team-alpha').click() })
+    expect(controller.selectTeam).toHaveBeenLastCalledWith('team-alpha')
+    expect(toggle('team-beta').getAttribute('aria-expanded')).toBe('false')
+    expect(document.querySelector('[data-swarm-team-card="team-alpha"] [data-swarm-workroom]')).not.toBeNull()
   })
 })

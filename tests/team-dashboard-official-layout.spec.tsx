@@ -86,6 +86,7 @@ function harness(viewport = 1440) {
   const controllerListeners = new Set<() => void>()
   const controller = { getSnapshot: () => state, subscribe: (fn: () => void) => { controllerListeners.add(fn); return () => { controllerListeners.delete(fn) } },
     open: (id: string) => { state = id === 'other' ? { open: true, phase: 'error', targetSessionId: id } : { open: true, phase: 'ready', targetSessionId: id, data: {
+      teams: { binding: { rootSessionId: id, mainSessionId: 'root' }, teams: [{ teamId: 'team', captainSessionId: 'captain' }] },
       projection: { binding: { rootSessionId: 'captain', teamId: 'team' } }, captainMembers: { members: [{ name: 'worker', sessionId: 'member', phase: 'active' }] },
     } } as unknown as TeamDashboardState; controllerListeners.forEach(fn => fn()) },
     close: () => { state = { open: false, phase: 'closed' }; controllerListeners.forEach(fn => fn()) }, refresh: () => {}, dispose: () => {},

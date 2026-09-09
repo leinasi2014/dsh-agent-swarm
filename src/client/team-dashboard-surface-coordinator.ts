@@ -68,6 +68,8 @@ export class TeamDashboardSurfaceCoordinator {
       const data = this.options.controller.getSnapshot().data
       if (data !== undefined) {
         this.navigationSessions = new Set([data.projection.binding.rootSessionId,
+          ...(data.teams.binding.mainSessionId === undefined ? [] : [data.teams.binding.mainSessionId]),
+          ...data.teams.teams.map(team => team.captainSessionId).filter(Boolean),
           ...data.captainMembers.members.flatMap(member => member.phase === 'active' && member.sessionId !== undefined ? [member.sessionId] : [])])
       }
       const sameTeam = current !== undefined && (current === this.entrySessionId
@@ -166,6 +168,20 @@ export class TeamDashboardSurfaceCoordinator {
   }
   async openCaptainChat(): Promise<void> {
     await this.options.controller.openCaptainChat((id, signal) => this.openOfficialCaptain(id, signal))
+  }
+
+  async openMainChat(): Promise<void> {
+    await this.options.controller.openMainChat((id, signal) => {
+      signal.throwIfAborted()
+      this.assertLive()
+      const sessions = this.options.sessions
+      const list = sessions.list.getSnapshot()
+      const row = list.byId[id as SessionId]
+      if (list.current !== this.state.targetSessionId || row === undefined || row.origin === 'subagent' || row.parentId !== undefined) {
+        throw new Error('Main conversation is not in the current official root Session list')
+      }
+      sessions.open(id as SessionId)
+    })
   }
 
   private async openOfficialCaptain(id: string, signal?: AbortSignal): Promise<void> {

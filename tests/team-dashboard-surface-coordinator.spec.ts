@@ -26,6 +26,32 @@ function fixture() {
   return { slots, controller, layout, sessions, coordinator, releaseDetails, releaseLayout, unmount, destroy: () => { releaseDetails(); releaseLayout(); unmount(); anchor.remove() } }
 }
 describe('TeamDashboardSurfaceCoordinator', () => {
+  it('retains the Details lease across sibling Captains and returns only to a verified official main Chat (#225)', async () => {
+    const f = fixture()
+    f.coordinator.toggle('root')
+    f.controller.state = { open: true, phase: 'ready', targetSessionId: 'root', data: {
+      teams: { binding: { rootSessionId: 'root', mainSessionId: 'root' }, teams: [{ teamId: 'a', captainSessionId: 'captain-a' }, { teamId: 'b', captainSessionId: 'captain-b' }] },
+      projection: { binding: { rootSessionId: 'captain-a', teamId: 'a' } }, captainMembers: { members: [] },
+    } } as unknown as TeamDashboardState
+    const lease = f.slots.team
+    f.sessions.setCurrent('captain-b')
+    expect(f.coordinator.getSnapshot()).toMatchObject({ mode: 'docked', targetSessionId: 'captain-b' })
+    expect(f.slots.team).toBe(lease)
+    const signal = new AbortController().signal
+    Object.assign(f.controller, { openMainChat: async (open: (id: string, signal: AbortSignal) => void) => { open('root', signal) } })
+    await f.coordinator.openMainChat()
+    expect(f.sessions.open).toHaveBeenCalledExactlyOnceWith('root')
+    const snapshot = f.sessions.list.getSnapshot
+    Object.assign(f.sessions.list, { getSnapshot: () => ({ ...snapshot(), byId: { root: { origin: 'subagent', parentId: 'foreign' } } }) })
+    await expect(f.coordinator.openMainChat()).rejects.toThrow('official root Session list')
+    expect(f.sessions.open).toHaveBeenCalledOnce()
+    Object.assign(f.sessions.list, { getSnapshot: snapshot })
+    Object.assign(f.controller, { openMainChat: async (open: (id: string, signal: AbortSignal) => void) => { f.sessions.setCurrent('other'); open('root', signal) } })
+    await expect(f.coordinator.openMainChat()).rejects.toThrow('official root Session list')
+    expect(f.sessions.open).toHaveBeenCalledOnce()
+    f.destroy()
+  })
+
   it('resumes current Session discovery after layout and declaration replacement without a toolbar (#225)', () => {
     const f = fixture()
     f.releaseLayout()
@@ -48,6 +74,7 @@ describe('TeamDashboardSurfaceCoordinator', () => {
     expect(f.coordinator.getSnapshot().mode).toBe('inactive')
     const ready = (teamId: string, targetSessionId = 'root') => {
       f.controller.state = { open: true, phase: 'ready', targetSessionId, data: {
+        teams: { binding: { rootSessionId: targetSessionId }, teams: [] },
         projection: { binding: { rootSessionId: 'captain', teamId } }, captainMembers: { members: [] },
       } } as unknown as TeamDashboardState
       f.controller.listeners.forEach(listener => listener())
@@ -96,6 +123,7 @@ describe('TeamDashboardSurfaceCoordinator', () => {
     const f = fixture()
     f.coordinator.toggle('root')
     const ready: TeamDashboardState = { open: true, phase: 'ready', targetSessionId: 'root', data: {
+      teams: { binding: { rootSessionId: 'root' }, teams: [] },
       projection: { binding: { rootSessionId: 'captain', teamId: 'team-1' } },
       captainMembers: { members: [{ name: 'worker', sessionId: 'member-1', phase: 'active' }] },
     } } as unknown as TeamDashboardState
@@ -141,7 +169,7 @@ describe('TeamDashboardSurfaceCoordinator', () => {
     f.coordinator.toggle('root')
     const ready = (targetSessionId: string): void => {
       f.controller.state = { open: true, phase: 'ready', targetSessionId,
-        data: { projection: { binding: { rootSessionId: 'captain', teamId: 'team-1' } }, captainMembers: { members: [{ name: 'worker', sessionId: 'member-1', phase: 'active' }] } } } as unknown as TeamDashboardState
+        data: { teams: { binding: { rootSessionId: targetSessionId }, teams: [] }, projection: { binding: { rootSessionId: 'captain', teamId: 'team-1' } }, captainMembers: { members: [{ name: 'worker', sessionId: 'member-1', phase: 'active' }] } } } as unknown as TeamDashboardState
     }
     ready('root')
     f.sessions.setCurrent('member-1')

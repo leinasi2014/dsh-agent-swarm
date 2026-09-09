@@ -1,6 +1,13 @@
 export const TEAM_DASHBOARD_NS = 'swarm.team-dashboard' as const
 
 export const en = {
+  'cards.title': 'Teams · {count}',
+  'cards.lineage': 'Main conversation and Team ownership',
+  'cards.captain': 'Captain {name}',
+  'cards.tasks': 'Tasks {completed} / {total}',
+  'cards.currentTeam': 'Current conversation’s Team',
+  'cards.currentChat': 'Current conversation',
+  'cards.context': 'Team goal and progress',
   'action.open': 'Team',
   'action.toolDetails': 'Tool details',
   'title': 'Agent Team',
@@ -250,6 +257,13 @@ export const en = {
 } as const
 
 export const zh: Record<keyof typeof en, string> = {
+  'cards.title': '关联团队 · {count}',
+  'cards.lineage': '主会话与团队归属',
+  'cards.captain': '队长 {name}',
+  'cards.tasks': '任务 {completed} / {total}',
+  'cards.currentTeam': '当前会话所属团队',
+  'cards.currentChat': '当前会话',
+  'cards.context': '团队目标与进展',
   'action.open': '团队',
   'action.toolDetails': '工具详情',
   'title': '智能体团队',

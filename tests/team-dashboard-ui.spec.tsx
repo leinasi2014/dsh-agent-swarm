@@ -180,7 +180,7 @@ describe('R3 native Team Details surface', () => {
       await render(<TeamDashboardDetails {...({ controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
       await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!.click() })
       await page.setViewportSize({ width: 1100, height: 800 })
-      await page.setContent(`<div style="width:${width}px;height:700px">${document.querySelector('[data-swarm-team-panel]')!.outerHTML}</div>`)
+      await page.setContent(`<div style="width:${width}px;height:700px;--dsw-alias-border-l2:gray">${document.querySelector('[data-swarm-team-panel]')!.outerHTML}</div>`)
       const geometry = await page.evaluate(() => {
         const body = document.querySelector<HTMLElement>('.swarm-team-workspace__detail-body')!
         const field = document.querySelector<HTMLElement>('[data-swarm-detail-role]')!
@@ -190,6 +190,45 @@ describe('R3 native Team Details surface', () => {
       expect(geometry.bodyWidth).toBeLessThanOrEqual(geometry.panelWidth)
       expect(geometry.overflow).toBeLessThanOrEqual(1)
       expect(geometry.fieldRight).toBeLessThanOrEqual(geometry.panelRight)
+    })
+
+    it.each([300, 360, 420])('%spx: real Team cards use one vertical flow and compact connected member rows (#225)', async width => {
+      const base = ready.data!
+      const team = base.teams.teams[0]!
+      const data = { ...base, teams: { ...base.teams, teams: [team, { ...team, teamId: 'beta', name: '运行验证组' }, { ...team, teamId: 'gamma', name: '交付整理组' }] },
+        projection: { ...base.projection, tasks: [], attempts: [], pendingInteractions: [], totals: { roster: 2, tasks: 0, attempts: 0, pendingInteractions: 0 }, roster: [{ name: '霁蓝', role: '角色美术师', phase: 'active' as const, createdAt: 1 }, { name: '赭石', role: '验收员', phase: 'active' as const, createdAt: 1 }] },
+      }
+      const coordinator = new FakeCoordinator()
+      const state: TeamDashboardState = { ...ready, data }
+      await render(<TeamDashboardDetails {...({ controller: { ...controller, getSnapshot: () => state }, coordinator, localeTag: () => 'zh-CN', sessionId: 'root', t: tZh } as any)} />)
+      await page.setViewportSize({ width: 1100, height: 800 })
+      await page.setContent(`<div style="width:${width}px;height:700px;--dsw-alias-border-l2:gray">${document.querySelector('[data-swarm-team-panel]')!.outerHTML}</div>`)
+      const geometry = await page.evaluate(() => {
+        const shell = document.querySelector<HTMLElement>('.swarm-team-workspace')!
+        const cards = [...document.querySelectorAll<HTMLElement>('[data-swarm-team-card]')].map(card => card.getBoundingClientRect())
+        const branches = [...document.querySelectorAll<HTMLElement>('[data-swarm-member-branch]')]
+        const members = document.querySelector<HTMLElement>('.swarm-team-workspace__members')!
+        const captain = document.querySelector<HTMLElement>('[data-swarm-captain-desk]')!
+        return { overflow: shell.scrollWidth - shell.clientWidth,
+          outside: [...shell.querySelectorAll<HTMLElement>('*')].filter(el => el.getBoundingClientRect().right > shell.getBoundingClientRect().right + 1).map(el => [el.tagName, el.className, el.getBoundingClientRect().width]),
+          heights: [...shell.querySelectorAll<HTMLElement>('.swarm-team-workspace__pane-body, .swarm-team-workspace__desk, .swarm-team-workspace__context, .swarm-team-workspace__view-tabs, [data-swarm-history]')].map(el => [el.className, el.getBoundingClientRect().height]),
+          cards: cards.map(rect => ({ x: rect.x, y: rect.y, bottom: rect.bottom, height: rect.height, width: rect.width })),
+          memberBorders: branches.map(row => getComputedStyle(row).borderTopWidth),
+          connectors: branches.map(row => getComputedStyle(row, '::before').borderTopWidth),
+          indentation: members.getBoundingClientRect().left - captain.getBoundingClientRect().left,
+          scrollOwners: [...shell.querySelectorAll<HTMLElement>('*')].filter(element => ['auto', 'scroll'].includes(getComputedStyle(element).overflowY)).length,
+        }
+      })
+      expect(geometry.overflow, JSON.stringify(geometry)).toBeLessThanOrEqual(1)
+      expect(geometry.cards).toHaveLength(3)
+      expect(geometry.cards[0]!.height, JSON.stringify(geometry)).toBeLessThan(450)
+      expect(geometry.cards[1]!.y).toBeGreaterThan(geometry.cards[0]!.bottom)
+      expect(geometry.cards[2]!.y).toBeGreaterThan(geometry.cards[1]!.bottom)
+      expect(geometry.cards.every(card => card.x === geometry.cards[0]!.x && card.width <= width)).toBe(true)
+      expect(geometry.indentation).toBeGreaterThan(0)
+      expect(geometry.memberBorders).toEqual(['0px', '0px'])
+      expect(geometry.connectors).toEqual(['1px', '1px'])
+      expect(geometry.scrollOwners).toBe(0)
     })
   })
 
@@ -290,7 +329,7 @@ describe('R3 native Team Details surface', () => {
     const memberTrigger = document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!
     memberTrigger.focus()
     await act(async () => { memberTrigger.click() })
-    // The detail replaces the browse view within the same sidebar.
+    // Member details stay inside the member branch; the Team tree remains visible.
     const overlay = detailOverlay()!
     expect(overlay.getAttribute('role')).toBe('region')
     expect(overlay.hasAttribute('aria-modal')).toBe(false)
@@ -304,7 +343,9 @@ describe('R3 native Team Details surface', () => {
     const back = overlay.querySelector<HTMLButtonElement>('[data-swarm-detail-back]')!
     expect(back.getAttribute('aria-label')).toBe('Back')
     expect(back.textContent).toContain('←')
-    expect(document.querySelector<HTMLElement>('[data-swarm-workbench-browse]')?.hidden).toBe(true)
+    expect(document.querySelector<HTMLElement>('[data-swarm-workbench-browse]')?.hidden).toBe(false)
+    expect(overlay.closest('[data-swarm-member-branch]')?.getAttribute('data-swarm-member-branch')).toBe('worker')
+    expect(document.querySelector('[data-swarm-captain-desk]')?.closest('[hidden]')).toBeNull()
     expect(shellCss).not.toContain('position:absolute; inset:0;')
     await act(async () => { back.click() })
     expect(detailOverlay()).toBeNull()
@@ -400,7 +441,8 @@ describe('R3 native Team Details surface', () => {
     expect(document.activeElement).toBe(tabs[0])
     for (const selector of ['[data-swarm-detail-profile]', '[data-swarm-detail-task]']) {
       const section = detail.querySelector(selector)!
-      expect(section.closest('[role="tabpanel"], [hidden]')).toBeNull()
+      expect(section.closest('[hidden]')).toBeNull()
+      expect(section.closest('[role="tabpanel"]')).toBe(detail.closest('[role="tabpanel"]'))
     }
     expect(detail.querySelectorAll('[role="tab"][tabindex="0"]')).toHaveLength(1)
     expect(coordinator.openMemberChat).not.toHaveBeenCalled()

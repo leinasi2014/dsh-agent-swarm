@@ -11,7 +11,7 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', async () => {
   const react = await import('react')
   return {
     Button: ({ children, icon: _icon, ...props }: Record<string, unknown>) => react.createElement('button', { type: 'button', ...props }, children as ReactNode),
-    IconUserOutline16: () => react.createElement('svg', { 'data-icon': 'user' }), IconCodeOutline16: () => react.createElement('svg', { 'data-icon': 'code' }), IconCloseOutline16: () => react.createElement('svg', { 'data-icon': 'close' }), IconRefreshOutline16: () => react.createElement('svg', { 'data-icon': 'refresh' }),
+    IconUserOutline16: () => react.createElement('svg', { 'data-icon': 'user', width: 16, height: 16 }), IconCodeOutline16: () => react.createElement('svg', { 'data-icon': 'code', width: 16, height: 16 }), IconCloseOutline16: () => react.createElement('svg', { 'data-icon': 'close', width: 16, height: 16 }), IconRefreshOutline16: () => react.createElement('svg', { 'data-icon': 'refresh', width: 16, height: 16 }),
     Pill: ({ children }: { children?: ReactNode }) => react.createElement('span', {}, children), StateDot: () => react.createElement('span', {}),
   }
 })
@@ -30,6 +30,7 @@ export const teamData = (capabilities: unknown, projection: unknown): TeamDashbo
 })
 
 export class FakeCoordinator {
+  readonly openMainChat = vi.fn(async () => {})
   readonly makeRoomForDetails = vi.fn(); readonly restoreDockedDetails = vi.fn()
   readonly openMemberChat = vi.fn(async (_name: string, _sessionId: string) => {})
   state: TeamDashboardSurfaceState = { mode: 'docked', view: 'overview', targetSessionId: 'root' }

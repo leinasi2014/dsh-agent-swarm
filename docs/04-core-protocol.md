@@ -122,9 +122,13 @@ DSH `0.1.2-rc.1` 的 continuable child 可由私有 owner 注册；`agents.roots
 - 多 Team 切换通过 Main Brain/Host projection 选择 Captain Session，不在侧边栏维护第二套 Team registry。
 - official Session list/Chat 仍由 DSH 拥有；插件只提供可读 label 与导航。
 
-Team 侧栏沿用 DSH 的 Details 布局与主题 tokens，团队目标、进度和成员采用卡片排列。移除顶部 Team 按钮；现有 controller 随当前 Session 只读观察，首次载入、创建团队及重连后取得完整 Host 投影才自动申请侧栏，不显示无团队空卡。关闭或让位官方 Tool Details 后，同一 Team 的刷新不得抢回侧栏；切换 Session 或出现新的 Team 可重新显示。默认选择未归档 Team，用户显式选中的历史 Team 在当前 Session 内保留。轮询、请求取消和卸载仍由原 controller 生命周期负责。
+Team 侧栏沿用 DSH 的 Details 布局与主题 tokens，一个团队一张卡，同一主会话的关联团队纵向排列。摘要显示名称、阶段、队长及从 aggregate 派生的成员数、完成任务数与任务总数；默认展开一个团队，其余保留摘要。卡内保留概览、任务、公告、管理，队长和成员采用紧凑缩进树；成员详情展开在本人分支内，个人资料与当前任务位于运行、Skills 与工具、成果与成长三个成员页签之外。团队切换只更换绑定读目标，不能把旧团队的正文放到新卡下，也不能把未完成读取当成新团队可用。侧栏显示主会话→当前所属团队→成员的归属路径与明确的当前会话标记。
 
-成员 Chat 复用已安装 DSH 的公开 `ISessions.refreshSubagents/list/openSubagent`：刷新后从 `list` 的 `subagentsByParent` 中取 `ready`、healthy continuable child 的精确 Captain/member 地址，再导航，不构造私有路由；`subagentAddress` 仅查询已导航地址，不能用于首次打开。Host 只向同 scope、父 Session 等于 Captain、且 sessionId 精确匹配 active roster 的成员开放所属 Team 读取；旧失败身份、移除成员和普通 child 不继承上级 Team。成员导航前重读绑定和成员行；当前 Session 切换到已知同 Team 成员或 Captain 时，Details lease 保留、旧数据清除并向新 Session 重新授权读取，回原打开入口也重读；无关 Session 仍释放 lease。该 UI 临时状态不成为业务权限，注册/轮询继续随既有 controller/coordinator 卸载释放。验收覆盖首次导航、导航竞争、冷读取、错误父级/成员、侧栏返回和官方 Tool Details 让位。
+移除顶部 Team 按钮；现有 controller 随当前 Session 只读观察，首次载入、创建团队及重连后取得完整 Host 投影才自动申请侧栏，不显示无团队空卡。关闭或让位官方 Tool Details 后，同一 Team 的刷新不得抢回侧栏；切换 Session 或出现新的 Team 可重新显示。新打开的队长/成员 Chat 优先选中 Host 验证的所属 Team；主会话默认选择未归档 Team，用户显式选中的其他或历史 Team 在当前 Session 内保留。轮询、请求取消和卸载仍由原 controller 生命周期负责。
+
+成员 Chat 复用已安装 DSH 的公开 `ISessions.refreshSubagents/list/openSubagent`：刷新后从 `list` 的 `subagentsByParent` 中取 `ready`、healthy continuable child 的精确 Captain/member 地址，再导航，不构造私有路由；`subagentAddress` 仅查询已导航地址，不能用于首次打开。Host 以请求 Session 的官方 live/persisted header 与当前 active roster 为依据，校验成员→Captain→无父级主会话的关系及相同 scope，才在 local-single-user 只读 RPC 中提供该主会话的兄弟团队目录与显式选中团队的读取。普通 child、移除/旧身份、跨 scope 或缺失关系不获得该扩展。`teams.binding.rootSessionId` 仍是请求 Session，可选 `mainSessionId/mainSessionTitle/currentTeamId/currentMemberName` 是经验证的导航投影；主会话标题仅取官方公开 Session 标题，成员名仅取所属 Team 当前公开资料，缺失不编造。每次 section/read 继续重新验证请求身份和关系，UI 不能缓存成权限。
+
+成员导航前重读绑定和成员行；返回主会话前重新读取团队目录验证 mainSessionId，再交给官方根会话列表导航。切换到已验证关联的主会话、Captain 或当前团队成员时，Details lease 保留、旧数据清除并向新 Session 重新授权读取；无关 Session 仍释放 lease。该 UI 临时状态不成为业务权限，注册/轮询继续随既有 controller/coordinator 卸载释放。验收覆盖多团队目录、快速反向切换、首次导航、导航竞争、冷读取、错误父级/成员、主会话返回及官方 Tool Details 让位。
 
 ## 9. Review、execution root 与可选桥接
 

@@ -126,7 +126,7 @@ export class TeamDashboardController {
     this.assertLive()
     const target = this.state.targetSessionId
     if (!this.state.open || target === undefined) return
-    if (this.state.data?.projection.binding.teamId === teamId) return
+    if (this.state.data?.projection.binding.teamId === teamId && this.selectedTeamId === teamId) return
     this.selectedTeamId = teamId
     this.explicitTeamSelection = true
     this.stopActive()
@@ -188,6 +188,32 @@ export class TeamDashboardController {
     this.mount.dispose()
     this.state = CLOSED
     this.listeners.clear()
+  }
+
+  /** Re-prove the current Session's main conversation before a public navigation. */
+  async openMainChat(openOfficialSession: (id: string, signal: AbortSignal) => void | Promise<void>): Promise<void> {
+    this.assertLive()
+    const target = this.state.targetSessionId
+    const expected = this.state.data?.teams.binding.mainSessionId
+    if (!this.state.open || target === undefined || expected === undefined) throw new Error('Main Chat requires a verified Team lineage')
+    this.stopActive()
+    const generation = this.generation
+    const abort = new AbortController()
+    this.requestAbort = abort
+    try {
+      const teams = await this.readTeams(target, abort.signal)
+      if (teams.binding.mainSessionId !== expected || teams.binding.rootSessionId !== target || !teams.complete || teams.teams.length === 0) {
+        throw new DashboardReadError('SWARM_UI_BINDING_CHANGED', 'Main conversation binding changed before navigation')
+      }
+      if (!this.isCurrent(generation, target, abort)) throw new Error('Main Chat handoff was superseded')
+      await openOfficialSession(expected, abort.signal)
+    } catch (error) {
+      if (this.isCurrent(generation, target, abort)) this.publish({ ...this.state, phase: 'stale', error: normalizeError(error) })
+      throw error
+    } finally {
+      if (this.requestAbort === abort) this.requestAbort = undefined
+      if (this.isCurrent(generation, target, abort)) this.scheduleLoad(target, this.pollMs, false)
+    }
   }
 
   /** Re-read both authorities before opening the exact member's official Chat.
@@ -334,6 +360,13 @@ export class TeamDashboardController {
     if (visible.length === 1) {
       this.selectedTeamId = first.teamId
       return first.teamId
+    }
+    // A fresh child Chat opens its own Team even if another Team was inspected
+    // in the previous Chat. An explicit card selection remains stable here.
+    if (!this.explicitTeamSelection && teams.binding.currentTeamId !== undefined
+      && visible.some(team => team.teamId === teams.binding.currentTeamId)) {
+      this.selectedTeamId = teams.binding.currentTeamId
+      return this.selectedTeamId
     }
     const previously = this.selectedTeamId
     if (previously !== undefined && visible.some(team => team.teamId === previously
