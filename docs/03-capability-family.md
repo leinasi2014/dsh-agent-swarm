@@ -173,6 +173,67 @@ Swarm 使用官方 Session 导航、SidebarRight、Settings、locale 和 slots�
 
 团队公共群聊属于独立的产品方向，其边界与待讨论布局见 [UI 布局设计第 8 节](10-team-ui-layout.md#8-待讨论团队公共群聊)。采用该方向前，需要在核心协议中定义消息权威、写入身份、幂等、投递与重启语义；现有邮箱和个人 Session 不自动等于可编辑的公共群聊。
 
+### 6.1 公共群聊的候选架构
+
+本节是功能设计的架构约束，尚未新增群聊 API、消息存储或调度器；不更改现有 `/swarm/v1` 只读合同。功能范围见 [产品设计](00-vision.md)，界面与交互见 [UI 第 8 节](10-team-ui-layout.md#8-待讨论团队公共群聊)。
+
+```mermaid
+flowchart TD
+  Input[群聊输入：文本、稳定身份提及、图片] --> Gate[Host：用户身份、Team归属、附件与接收人验证]
+  Gate --> Image[官方 Attachment admission / 不可变图片引用]
+  Image --> Public[单一 Team 公共消息追加边界]
+  Public --> View[群消息与投递状态投影]
+  Public --> Outbox[关联原消息的 durable 定向投递]
+  Directory[同队共享资料与实时能力目录] --> Project[官方请求投影与群消息协作引用]
+  Outbox --> Project
+  Project --> Personal[官方个人 Session / Agent]
+  Personal --> Assist[成员自主发起视觉协助请求]
+  Assist --> Validate[Host重验同队、可用性、图像能力与附件权限]
+  Validate --> Vision[视觉成员的官方 Session]
+  Vision --> Result[带原消息与图片来源的协助结果]
+  Result --> Public
+  Result --> Personal
+  Personal --> Task[现有任务提交与 Review Gate]
+  Task --> View
+```
+
+公共消息只有一个耐久记录入口。优先作为 `TeamDomainPort` 现有协作域的扩展，沿用官方 Storage Domain 和提交后发布原则；不建立可独立修改的平行聊天数据库。个人 Session 保存模型实际收到的输入及执行历史，公共消息是显式发布的协作记录，两者通过 ID 关联，不拼接多个 transcript。大规模消息需要分页时可调整内部存储形式，外部 mutation owner 仍保持唯一；具体 schema 必须在实现前纳入核心协议。
+
+| 事实 | 唯一来源或候选 owner | 必需关联 |
+|---|---|---|
+| 公共消息 | Team 公共消息追加边界 | `teamId`、稳定 `messageId`、发送人身份、`replyTo`、顺序、时间、提及成员 ID、附件引用 |
+| 接收与模型消费 | 现有 durable 邮箱及官方 Session 事件 | 原消息、接收人、投递 ID、实际消费事件；全员可见不表示全员已消费 |
+| 图片 | 官方 Attachment 服务 | 不可变 `ImageAttachmentRef`、内容完整性与授权访问；不以本地路径或外部 bearer URL 作为转交权限 |
+| 共享队员目录 | Team identity / roster 加官方成员组合、Skills 与 LLM 能力的只读投影 | 稳定成员 ID、目录 revision、各来源更新时间与完整性 |
+| 视觉协助 | 原接收人的受控协作请求，经 Host 验证与耐久投递 | 原消息、图片 ID、发起人与视觉成员、协助 request ID、回报 ID、到期和已访问成员 |
+| 任务、审核、模型选择 | 现有 Team 任务/attempt、Review Gate 与官方 Session model selection | 协助只是来源关联，不暗改任务 owner、审核权或模型 |
+
+公开消息提交与投递意图必须可从耐久状态重建。图片先经过官方 admission；附件失败时整条消息不标记成功。提交时冻结 `teamId`、接收人 ID、附件引用与草稿版本；异步完成只更新原群与原草稿，不随用户当前选择改变目标。公共消息已提交而投递尚未完成时显示排队，恢复过程按 `(messageId, recipientId)` 幂等补投；重试上传、发送、协助和公开结果均保留同一逻辑请求身份。消息顺序来自耐久提交，不采用客户端时钟决定先后。
+
+### 6.2 共享队员目录与能力判定
+
+每个成员在首次加入、恢复及目录改变后的下一次处理前，获得同队完整共享目录。每个条目包含稳定 ID、名称、职责、职业、性格、简介、Skills 名称及用途、assigned 与 Session-visible 状态、工具可用/需批准/禁用信息、当前 provider/model、图像能力、成员阶段、当前任务及更新时间。UI 资料卡、`@` 候选和 Agent 可读目录消费同一个受验证投影，不各自猜测或维护姓名缓存。
+
+正常规模的 Team 将上述核心字段纳入每次适用的上下文快照；较大团队采用完整目录的分页读取及明确的未读范围，不能静默截断后声称已知所有队员。Skill 正文通过已有授权读能力按需获取，目录提供用途和可见性，不将分配某 Skill 等同于已学会、已使用或有权调用全部相关工具。成员私有记忆、凭据、系统私密内容与原始工具秘密参数不进入目录；队员资料作为协作数据，不获得系统指令权限。
+
+图像能力读取目标 Agent 当前解析模型的官方 `inputModalities`，并与实际组合/权限一起确认：包含 `image` 为已声明支持，明确省略为不支持，字段缺失为未知。不得依据模型名称、职业、性格或自我介绍猜测。派发协助时重新核验目录 revision 与成员当前状态；模型变更、成员退出或权限撤销会使旧能力判断失效。
+
+### 6.3 非视觉成员的自主图片转交
+
+1. 用户发给非视觉成员的群消息先保留完整文字和已提交图片引用。复用官方请求投影：固定 alpha.2 的 `projectImagesForTextModel` 会把明确仅支持文本的模型请求中的图片转为文字占位，耐久消息仍保留原图。群聊补充可申请协助的受控消息/附件引用，不重写官方投影，也不伪造图片内容描述；官方占位中的短摘要不能作为附件授权凭据。能力未知须确认或走明确待确认状态，不能按已支持图片发送。
+2. 原接收人读取共享目录，选择同队可用且图像能力已确认的成员，调用拟新增的视觉协助 capability。Host 验证发起人、Team、接收人、原消息可见性与附件访问权，并从原消息解析图片；模型不能提交任意路径或伪造附件引用越权读取。
+3. 视觉成员通过官方 Attachment/Session 通道实际收到图片及明确问题。协助结果引用原消息和图片，公开摘要进入群聊，结果定向回到原接收人；原接收人继续负责自己的任务。
+4. 同一协助请求复用不可变图片，保留稳定请求与结果 ID；限制重复/并发重试，记录已访问成员，初始方案禁止协助对象继续链式转交同一请求。无可用视觉成员、能力未知、超时或内容不可读时公开明确状态，由原接收人/Captain 决定下一步，不反复互相唤醒。
+5. 图片协助不会自动招募新成员、切换原成员模型、扩大工具权限或接受任务。是否以后允许 Captain 受预算约束补充视觉成员，另作扩展。
+
+当前固定 alpha.2 已有官方图片附件类型、上传/Composer 扩展、模型 `inputModalities` 与文本模型图片占位投影；读取证据入口为 `packages/attachment/attachment/src/types.ts`、`packages/client/file-upload/src/types.ts`、`packages/client/ui-conversation/src/client/apply.ts`、`packages/llm/llm/src/types.ts`、`packages/llm/llm/src/index.ts`、`packages/llm/llm/src/content.ts`。其中 file upload receipt 具有接收 Agent scope，不能直接复用到另一个 Agent。群聊转交仍需实现 Host 授权与官方图片输入组合，并用真实模型、图片和冷恢复验收；不能因这些底层能力存在就声称转交已可用。本轮将视频排除于产品设计范围，不据此扩大为所有 DSH 版本的能力结论。
+
+### 6.4 发言模式扩展与验收边界
+
+队长协调、轮流发言、自由发言属于未来 admission/scheduling policy，必须复用同一个任务/消息投递 owner。它们不等于 UI 刷新频率或现有交流强度；公开范围、任务状态与模型消费事实保持独立。轮流模式需持久轮次与发言权，自由发言需公平性、预算、结束条件及回应风暴抑制；切换要验证权限、revision 和在途工作边界。此轮只记录扩展，不注册 mode runtime 或假造生效状态。
+
+代表性设计验收覆盖：同名/改名/退出成员的 `@`、中文输入法与键盘、多提及去重、图片独立发送与上传失败、切 Team 草稿隔离、非视觉原接收人自主选择视觉成员、未知/撤销能力、零视觉成员、协助去重与责任保持、目录变更后成员读到新资料、关闭页面和冷恢复后原消息/图片/结果仍可追溯。原型交互、静态设计、真实模型、持久化及正式部署分别记证据。
+
 ## 7. 拆包原则
 
 当前实现保持一个 dual-face package。只有出现第二 Provider/Consumer、独立 lifecycle、独立发布价值或 host/client 编译边界时才拆分；目录整齐本身不是理由。未来官方 Agent Team 成为受支持依赖时，也只能在 `TeamDomainPort` 后替换 Provider，不能并存两个可写 Team authority。
