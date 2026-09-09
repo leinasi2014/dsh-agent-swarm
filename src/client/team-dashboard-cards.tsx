@@ -40,15 +40,16 @@ export function TeamDashboardCards({ state, headingId, descriptionId, onSelectTe
   const [expanded, setExpanded] = useState<string | null>(boundId)
   const [pending, setPending] = useState<string>()
   useEffect(() => {
+    if (pending === undefined || pending === boundId) setExpanded(current => current === null ? null : boundId)
     if (pending === boundId) setPending(undefined)
   }, [boundId, pending])
   const expandedId = expanded !== null && !teams.some(team => team.teamId === expanded) ? boundId : expanded
   const binding = data.teams.binding
   const currentTeamId = binding.currentTeamId
     ?? teams.find(team => team.captainSessionId === state.targetSessionId)?.teamId
-    ?? (data.captainMembers.members.some(member => member.sessionId === state.targetSessionId) ? boundId : undefined)
+    ?? (data.captainMembers?.members.some(member => member.sessionId === state.targetSessionId) ? boundId : undefined)
   const currentTeam = teams.find(team => team.teamId === currentTeamId)
-  const currentMember = data.captainMembers.members.find(member => member.sessionId === state.targetSessionId)
+  const currentMember = data.captainMembers?.members.find(member => member.sessionId === state.targetSessionId)
   const currentName = currentMember?.displayName ?? currentMember?.name
     ?? binding.currentMemberName
     ?? (currentTeam !== undefined && currentTeam.captainSessionId === state.targetSessionId ? currentTeam.displayName : undefined)

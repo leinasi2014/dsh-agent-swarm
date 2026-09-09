@@ -295,6 +295,23 @@ describe('Team workspace views and projection-derived activity', () => {
     // through the official Captain Chat seam exactly once.
     await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-captain-desk]')!).click(); await Promise.resolve() })
     expect(coordinator.openCaptainChat).toHaveBeenCalledTimes(1)
+    // Polling may select another active Team while the archived card stays listed.
+    await act(async () => {
+      const next = stateFor('team-alpha')
+      current = { ...next, data: { ...next.data!, teams: { ...next.data!.teams,
+        teams: next.data!.teams.teams.map(team => team.teamId === 'team-beta' ? { ...team, phase: 'archived' } : team),
+      } } }
+      listeners.forEach(listener => listener())
+    })
+    expect(toggle('team-alpha').getAttribute('aria-expanded')).toBe('true')
+    expect(toggle('team-beta').getAttribute('aria-expanded')).toBe('false')
+    expect(document.querySelector('[data-swarm-workroom]')).not.toBeNull()
+    expect(document.querySelector('.swarm-team-workspace__card-loading')).toBeNull()
+    // An explicit all-collapsed choice survives a later verified binding change.
+    await act(async () => { toggle('team-alpha').click() })
+    await act(async () => { current = stateFor('team-beta'); listeners.forEach(listener => listener()) })
+    expect(toggle('team-alpha').getAttribute('aria-expanded')).toBe('false')
+    expect(toggle('team-beta').getAttribute('aria-expanded')).toBe('false')
     // Zero Teams renders an honest empty rail, never a fabricated dot.
     const emptyState: TeamDashboardState = { ...ready, data: { ...teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, SWARM_READ_RPC_FIXTURES_V1.values.snapshot), teams: { ...multiTeams, teams: [] } as never } }
     const emptyController = { getSnapshot: (): TeamDashboardState => emptyState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn(), selectTeam: vi.fn() }

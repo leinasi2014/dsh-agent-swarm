@@ -131,9 +131,8 @@ describe('R3 native Team Details surface', () => {
     }, 120_000)
 
     afterAll(async () => {
-      await page?.close()
-      await browser?.close()
-    })
+      try { await page?.close() } finally { await browser?.close() }
+    }, 60_000)
 
     async function mountPanelAt(width: number): Promise<void> {
       await page.setViewportSize({ width, height: 800 })
