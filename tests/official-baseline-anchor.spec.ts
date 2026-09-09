@@ -53,6 +53,19 @@ function anchorInput(overrides: Partial<BaselineAnchorInput> = {}): BaselineAnch
 }
 
 describe('official release version ordering', () => {
+  it('includes published alpha and beta releases when finding newer versions', () => {
+    expect(parseReleaseVersion('0.1.5-alpha.1')).not.toBeNull()
+    expect(compareReleaseVersions('0.1.5-alpha.1', '0.1.2-rc.1')).toBeGreaterThan(0)
+    const versions = ['0.1.5-alpha.2', '0.1.5-alpha.10', '0.1.5-beta.1', '0.1.5-rc.1', '0.1.5']
+    for (let index = 1; index < versions.length; index++) {
+      expect(compareReleaseVersions(versions[index - 1]!, versions[index]!)).toBeLessThan(0)
+    }
+    const verdict = evaluateBaselineAnchor(anchorInput({
+      tags: [{ name: 'dsh-v0.1.0-rc.8', sha: PIN }, { name: 'dsh-v0.1.5-alpha.1', sha: NEWER_TIP }],
+    }))
+    expect(verdict.warnings.join(' ')).toContain('dsh-v0.1.5-alpha.1')
+  })
+
   it('orders rc numbers numerically, not lexicographically', () => {
     expect(compareReleaseVersions('0.1.0-rc.9', '0.1.0-rc.10')).toBeLessThan(0)
     expect(compareReleaseVersions('0.1.0-rc.10', '0.1.0-rc.9')).toBeGreaterThan(0)

@@ -20,10 +20,10 @@ export function TeamDashboardAction({ anchorRef, coordinator, sessionId, t }: Te
   const active = surface.mode === 'docked' && surface.targetSessionId === sessionId
   return (
     <span ref={anchorRef} data-swarm-team-actions data-swarm-team-session={sessionId}>
-      {active ? <Button size="sm" variant="toolbar" aria-label={t('action.toolDetails')} title={t('action.toolDetails')}
-        data-swarm-tool-trigger onClick={() => { coordinator.showToolDetails() }}>
+      <Button size="sm" variant="toolbar" aria-label={t('action.open')} title={t('action.open')} aria-pressed={active}
+        data-swarm-team-trigger onClick={() => { coordinator.toggle(sessionId) }}>
         <IconCodeOutline16 />
-      </Button> : null}
+      </Button>
     </span>
   )
 }

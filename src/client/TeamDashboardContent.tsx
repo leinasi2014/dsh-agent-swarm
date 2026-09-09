@@ -280,6 +280,7 @@ function Workspace({ data, handoffBusy, localeTag, state, t, teams, announcement
   const viewingCaptain = hasCaptain && state.targetSessionId === data.binding.rootSessionId
   const captainStateText = !hasCaptain ? t('captainNotCreated') : viewingCaptain ? t('captainCurrentSession') : t('captainOpenSession')
   const reviewTasks = data.tasks.filter(task => task.status === 'submitted' || task.status === 'verifying')
+  const hasTaskProgress = data.tasks.length > 0 || data.totals.tasks > 0
   const activities = data.attempts.toSorted((left, right) => right.updatedAt - left.updatedAt).slice(0, 3)
   const entries = announcements?.state === 'available' ? announcements.entries : []
   const latest = entries.toSorted((left, right) => right.createdAt - left.createdAt)[0]
@@ -326,6 +327,24 @@ function Workspace({ data, handoffBusy, localeTag, state, t, teams, announcement
           >{tab.label}</button>
         ))}
       </div>
+      {(hasTaskProgress || data.pendingInteractions.length > 0) && <div className="swarm-team-workspace__public-bar" data-swarm-progress-and-attention>
+        {hasTaskProgress && <TeamProgress data={data} number={number} t={t} />}
+        {reviewTasks.length > 0 && <button type="button" className="swarm-team-workspace__attention" data-swarm-review-attention onClick={() => { openDetail({ kind: 'task', id: reviewTasks[0]!.id }) }}>
+          <span>{t('progress.reviewAction', { count: number.format(reviewTasks.length) })}</span><span aria-hidden="true">→</span>
+        </button>}
+        {data.pendingInteractions.length > 0 && (
+          <section className="swarm-team-workspace__public-card swarm-team-workspace__attention" data-swarm-attention>
+            <span className="swarm-team-workspace__public-copy">
+              <span className="swarm-team-workspace__public-title">{t('attention.title')}</span>
+              <span className="swarm-team-workspace__public-content">{number.format(data.pendingInteractions.length)}</span>
+              {data.pendingInteractions.slice(0, 3).map(item => (
+                <span key={item.requestId} className="swarm-team-workspace__public-content" data-swarm-attention-row={item.requestId}>{t('attention.row', { intent: item.intent, target: item.targetRef ?? item.targetKind })}</span>
+              ))}
+            </span>
+            <button type="button" className="swarm-team-workspace__text-action" onClick={viewingCaptain ? onClose : onCaptainSession}>{t('manageViaCaptain')}</button>
+          </section>
+        )}
+      </div>}
       <details className="swarm-team-workspace__context" data-swarm-team-context open={data.team.phase === 'staged'}>
         <summary>{t('cards.context')}</summary>
       <div className="swarm-team-workspace__public-bar" data-swarm-public-bar>
@@ -348,21 +367,6 @@ function Workspace({ data, handoffBusy, localeTag, state, t, teams, announcement
             {data.team.phase === 'staged' && <span className="swarm-team-workspace__public-content swarm-team-workspace__muted" data-swarm-staged-plan-hint>{t('stagedPlan.hint')}</span>}
           </span>
         </section>}
-        {reviewTasks.length > 0 && <button type="button" className="swarm-team-workspace__attention" data-swarm-review-attention onClick={() => { openDetail({ kind: 'task', id: reviewTasks[0]!.id }) }}>
-          <span>{t('progress.reviewAction', { count: number.format(reviewTasks.length) })}</span><span aria-hidden="true">→</span>
-        </button>}
-        {data.pendingInteractions.length > 0 && (
-          <section className="swarm-team-workspace__public-card swarm-team-workspace__attention" data-swarm-attention>
-            <span className="swarm-team-workspace__public-copy">
-              <span className="swarm-team-workspace__public-title">{t('attention.title')}</span>
-              <span className="swarm-team-workspace__public-content">{number.format(data.pendingInteractions.length)}</span>
-              {data.pendingInteractions.slice(0, 3).map(item => (
-                <span key={item.requestId} className="swarm-team-workspace__public-content" data-swarm-attention-row={item.requestId}>{t('attention.row', { intent: item.intent, target: item.targetRef ?? item.targetKind })}</span>
-              ))}
-            </span>
-            <button type="button" className="swarm-team-workspace__text-action" onClick={viewingCaptain ? onClose : onCaptainSession}>{t('manageViaCaptain')}</button>
-          </section>
-        )}
         {latest !== undefined && <button type="button" className="swarm-team-workspace__public-card swarm-team-workspace__notice-preview" data-swarm-announcement-preview onClick={() => { setView('notices') }}>
           <span className="swarm-team-workspace__public-copy">
             <span className="swarm-team-workspace__public-title">{t('announcement.latest')}</span>
@@ -375,7 +379,6 @@ function Workspace({ data, handoffBusy, localeTag, state, t, teams, announcement
                 : <span className="swarm-team-workspace__public-content swarm-team-workspace__unavailable">{t('announcementsUnavailable')}</span>}
           </span>
         </button>}
-        <TeamProgress data={data} number={number} t={t} />
       </div>
       </details>
       <main className="swarm-team-workspace__pane-body">

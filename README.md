@@ -23,7 +23,7 @@ Member：只处理当前 fenced attempt，提交结果后等待 Captain 决策
 
 Main Brain 不加入 Team roster，也不获得 Captain 权限。多个 Team 的 Captain、成员、任务和会话彼此隔离；浏览器 UI 只投影权威状态，不拥有另一套任务状态机。
 
-同一主会话下的团队纵向排列，默认展开一个。点击团队标题只切换侧栏内容；点击队长或成员才进入对应 Chat。侧栏标注“主会话 → 当前团队 → 当前成员”，查看其他团队时仍保留当前聊天的归属，并可返回主会话。
+同一主会话下的团队纵向排列，默认展开一个。展开后直接显示任务进度和待办，目标与公告可折叠。点击团队标题只切换侧栏内容；点击队长或成员才进入对应 Chat。侧栏标注“主会话 → 当前团队 → 当前成员”，查看其他团队时仍保留当前聊天的归属，并可返回主会话。
 
 ## 已实现
 
@@ -136,6 +136,8 @@ pnpm verify:compatibility   # 官方/参考兼容事实参与决策时
 ```
 
 仓库开发只允许通过 `pnpm isolation open|status|close|reconcile` 使用受管 writer allocation；不要直接创建 Git worktree。贡献规则见 [CONTRIBUTING.md](CONTRIBUTING.md)，文档入口见 [docs/README.md](docs/README.md)。
+
+`verify:candidate` 的工程通过不等于产品验收。缺少外部控制器提供的真实 managed-Team 证据时，产品结果为 `NOT_CONFIGURED`；证据配置与独立验收要求见 [测试与验收](docs/08-testing-verification.md)。
 
 ## License
 

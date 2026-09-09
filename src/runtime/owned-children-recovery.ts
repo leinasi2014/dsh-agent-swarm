@@ -28,7 +28,7 @@ export async function recoverOwnedChildrenFromPersistence(
   if (persistence === undefined) return new Map()
   let headers
   try {
-    headers = await persistence.list()
+    headers = (await persistence.list()).map(snapshot => snapshot.header)
   } catch {
     return new Map()
   }

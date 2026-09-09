@@ -15,6 +15,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
+import { readPersistedSession } from './persisted-session.js'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { isModelInvocable, type SkillRegistry } from '@deepseek-ai/dsh-skill'
@@ -176,7 +177,7 @@ export class MemberProvisioner {
       const assignedSkills = await this.validateAssignedSkills(captain, membership.team, input.skills ?? previous?.assignedSkills, exec.signal)
       // A parent with no events still needs a durable header before child
       // creation can inspect its lineage and the shared JSONL namespace.
-      await this.ctx.sessionPersistence.ensureMaterialized(captain.session)
+      if (!await this.ctx.sessions.flush(captain.session)) throw new Error('Member startup requires a Session durability listener')
       exec.signal.throwIfAborted()
       // Claim ownership before the durable write: recovery can observe the
       // committed row before provisionMember returns or a live Agent exists.
@@ -467,7 +468,7 @@ export class MemberProvisioner {
     for (const member of membership.team.members) {
       if (member.phase !== 'active') continue
       try {
-        const stored = await this.ctx.sessionPersistence.inspect(SessionId(member.sessionId), AbortSignal.timeout(RECONCILE_TIMEOUT_MS))
+        const stored = await readPersistedSession(this.ctx.sessionPersistence, SessionId(member.sessionId), AbortSignal.timeout(RECONCILE_TIMEOUT_MS))
         const firstEnd = stored.events.find(event => event.type === 'turn/end')
         if (firstEnd?.data.reason.kind !== 'error') continue
         // A restart owns no live child turn here. The existing Session log is
@@ -538,9 +539,9 @@ export class MemberProvisioner {
     if (entry?.mode !== undefined && entry.mode !== 'continuable') {
       return { kind: 'failed', error: `${INTERRUPTED}: ${MISMATCH} (durable mode "${entry.mode}" is not continuable)`, drain: true }
     }
-    let stored: Awaited<ReturnType<Context['sessionPersistence']['inspect']>>
+    let stored: Awaited<ReturnType<typeof readPersistedSession>>
     try {
-      stored = await this.ctx.sessionPersistence.inspect(SessionId(member.sessionId), AbortSignal.timeout(RECONCILE_TIMEOUT_MS))
+      stored = await readPersistedSession(this.ctx.sessionPersistence, SessionId(member.sessionId), AbortSignal.timeout(RECONCILE_TIMEOUT_MS))
     } catch (error) {
       return { kind: 'failed', error: `${INTERRUPTED}: reconciliation could not verify the persisted child (child Session recovery failed: ${describe(error)})`, drain: false }
     }

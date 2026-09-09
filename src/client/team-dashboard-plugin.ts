@@ -7,6 +7,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import { SwarmReadClient } from './read-client.js'
@@ -14,7 +15,8 @@ import type { SwarmReadSkillCatalogV1, SwarmReadToolCatalogV1 } from '../rpc/rea
 import { TeamDashboardController } from './team-dashboard-controller.js'
 import { TeamDashboardAction, type TeamDashboardActionInjected } from './TeamDashboardAction.js'
 import { en, TEAM_DASHBOARD_NS, zh, type TeamDashboardKey } from './team-dashboard-locales.js'
-import { TeamDashboardSurfaceCoordinator } from './team-dashboard-surface-coordinator.js'
+import { TeamDashboardSurfaceCoordinator, TEAM_TAB_ID, TEAM_TAB_KIND } from './team-dashboard-surface-coordinator.js'
+import { TeamDashboardDetails } from './TeamDashboardDetails.js'
 import {
   TeamSkillSettingsCard,
   TEAM_SKILL_SETTINGS_NS,
@@ -33,9 +35,9 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-export const inject = ['sessions', 'slots', 'locale', 'settingsScope', 'remote', 'remote.session']
+export const inject = ['sessions', 'slots', 'locale', 'settingsScope', 'remote', 'remote.session', 'sidebarRight', 'sidebarRightTabs']
 
-/** Compose the additive DSH-native Details occupant and Session utility. */
+/** Compose an additive official Sidebar tab and Session utility. */
 export function apply(ctx: ClientContext): void {
   const sessionsService = ctx.get('sessions') as ISessions | undefined
   if (sessionsService === undefined) throw new Error('swarm Team dashboard requires the official Sessions service')
@@ -71,16 +73,18 @@ export function apply(ctx: ClientContext): void {
   }
   const controller = new TeamDashboardController(readClient)
   const anchorRef = { current: null as HTMLSpanElement | null }
-  const coordinator = new TeamDashboardSurfaceCoordinator({ slots: ctx.slots, sessions: sessionsService, locale: ctx.locale, controller, anchorRef })
+  const coordinator = new TeamDashboardSurfaceCoordinator({ sessions: sessionsService, locale: ctx.locale, controller, anchorRef })
   ctx.effect(() => coordinator.mount(), 'swarm Team dashboard surface coordinator')
   ctx.on('connection/reset', () => { controller.connectionReset() })
   ctx.effect(() => ctx.locale.register(TEAM_DASHBOARD_NS, { zh, en }), 'swarm Team dashboard dictionaries')
   ctx.effect(() => ctx.locale.register(TEAM_SKILL_SETTINGS_NS, { zh: teamSkillSettingsZh, en: teamSkillSettingsEn }), 'swarm Team Skills settings dictionaries')
-  ctx.inject(['layout'], layoutCtx => {
-    const layout = layoutCtx.get('layout')
-    if (layout !== undefined) layoutCtx.effect(() => coordinator.bindLayout(layout), 'swarm Team dashboard Details lease')
-  })
-  ctx.slots.inject('details', () => coordinator.bindDetailsDeclaration())
+  ctx.effect(() => coordinator.bindSidebar(ctx.sidebarRight), 'swarm Team Sidebar navigation')
+  ctx.effect(() => ctx.sidebarRightTabs.register({ id: TEAM_TAB_ID, kind: TEAM_TAB_KIND,
+    title: () => ctx.locale.bind(TEAM_DASHBOARD_NS)('title') }), 'swarm Team Sidebar tab type')
+  ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
+    name: 'sidebar.right.pane.tab', key: TEAM_TAB_ID, locale: TEAM_DASHBOARD_NS,
+    inject: () => ({ anchorRef, controller, coordinator, localeTag: coordinator.localeTag }),
+  }, TeamDashboardDetails))
   ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
     name: 'conversation.session.header.utilities',
     id: 'swarm-team',

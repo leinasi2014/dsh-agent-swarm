@@ -20,6 +20,8 @@ type State = {
   seq: number
   warning?: string
   critical: boolean
+  streamRevision: number
+  stream?: { attemptId: string; nextIndex: number }
 }
 
 export function installExecutionGuard(ctx: Context, runtime: AgentSwarmRuntime): () => void {
@@ -47,21 +49,14 @@ export function installExecutionGuard(ctx: Context, runtime: AgentSwarmRuntime):
   }
   const observe = (agent: Agent, state: State, event: SessionEvent): void => {
     if (event.type === 'step/start') state.text = new TextProgress()
-    if (event.type === 'assistant/chunk' && event.data.turn === state.turn && event.data.chunk.type === 'text-delta') {
-      for (const notice of state.text.feed(event.data.chunk.text)) {
-        const reason = `visible-text: ${notice.count} exact periodic repeats; stop repeating announcements and change approach.`
-        if (notice.level === 'CRITICAL') contain(agent, state, reason)
-        else state.warning = reason
-      }
-    }
-    if (event.type === 'tool/code-dispatch-start') {
+    if (event.type === 'tool/ptc-dispatch-start') {
       const { rootCallId, parentCallId, subCallId, name, arguments: args } = event.data
       const root = fingerprint(rootCallId)
       const parent = fingerprint(parentCallId)
       const key = fingerprint(subCallId)
       if (root === undefined || parent === undefined || key === undefined || !state.calls.has(root) || state.code.size >= 128) return
       state.code.set(key, { ...requestIdentity(name, args), root, parent, unknown: false })
-    } else if (event.type === 'tool/code-dispatch') {
+    } else if (event.type === 'tool/ptc-dispatch') {
       const key = fingerprint(event.data.subCallId)
       if (key === undefined) return
       const call = state.code.get(key)
@@ -84,6 +79,29 @@ export function installExecutionGuard(ctx: Context, runtime: AgentSwarmRuntime):
     }
   }
   const off = [
+    ctx.on('agent/assistant-stream', ({ agent, frame }) => {
+      const state = states.get(agent)
+      if (state === undefined || !current(agent, state) || state.critical) return
+      if (frame.type === 'start') {
+        if (frame.turn !== state.turn || frame.revision <= state.streamRevision) return
+        state.streamRevision = frame.revision
+        state.stream = { attemptId: frame.attemptId, nextIndex: 0 }
+        state.text = new TextProgress()
+        return
+      }
+      const stream = state.stream
+      if (stream === undefined || stream.attemptId !== frame.attemptId || frame.revision <= state.streamRevision) return
+      if (frame.type === 'end') { state.streamRevision = frame.revision; delete state.stream; return }
+      if (frame.index !== stream.nextIndex) return
+      state.streamRevision = frame.revision
+      stream.nextIndex++
+      if (frame.chunk.type !== 'text-delta') return
+      for (const notice of state.text.feed(frame.chunk.text)) {
+        const reason = `visible-text: ${notice.count} exact periodic repeats; stop repeating announcements and change approach.`
+        if (notice.level === 'CRITICAL') contain(agent, state, reason)
+        else state.warning = reason
+      }
+    }),
     ctx.on('tools/result', (execution, result) => {
       const agent = execution.agent
       if (agent === undefined || execution.parent === undefined || execution.rootCallId === undefined) return undefined
@@ -109,7 +127,7 @@ export function installExecutionGuard(ctx: Context, runtime: AgentSwarmRuntime):
         const owned = team?.phase === 'active' && (team.captainSessionId === agent.id
           || team.members.some(member => member.sessionId === agent.id && (member.phase === 'active' || member.phase === 'provisioning')))
         if (!owned || closed || signal.aborted || ctx.agents.get(agent.id) !== agent) return decision
-        state = { turn, text: new TextProgress(), progress: new ToolProgress(), calls: new Map(), code: new Map(), transports: new Set(), seq: agent.session.seq - 1, critical: false }
+        state = { turn, text: new TextProgress(), progress: new ToolProgress(), calls: new Map(), code: new Map(), transports: new Set(), seq: agent.session.seq - 1, critical: false, streamRevision: 0 }
         states.set(agent, state)
       }
       if (!current(agent, state) || state.turn !== turn || state.critical || state.warning === undefined) return decision

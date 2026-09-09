@@ -34,6 +34,7 @@ import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import type { TeamId, TeamState } from '../domain/types.js'
+import { readPersistedSession } from './persisted-session.js'
 
 /** One coalesced usage entry: the billed tokens of one event seq. */
 interface UsageEntry {
@@ -62,7 +63,7 @@ function usageEntriesAbove(events: readonly SessionEvent[], afterSeq: number): U
 /** One session's persisted history through the official inspect seam, or `undefined` when unreadable. */
 async function persistedHistory(ctx: Context, sessionId: string): Promise<readonly SessionEvent[] | undefined> {
   try {
-    return (await ctx.sessionPersistence.inspect(SessionId(sessionId), AbortSignal.timeout(30_000))).events
+    return (await readPersistedSession(ctx.sessionPersistence, SessionId(sessionId), AbortSignal.timeout(30_000))).events
   } catch (error) {
     if ((error as NodeJS.ErrnoException | undefined)?.code !== 'ENOENT') {
       ctx.logger.warn(`agent-swarm: usage recovery cannot read session ${sessionId}: ${String(error)}`)

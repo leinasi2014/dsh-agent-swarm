@@ -1,15 +1,13 @@
 import type { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
-import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SubagentListEntry } from '@deepseek-ai/dsh-subagent/client'
-import type { ILayout } from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { StoredEntry } from '@deepseek-ai/dsh-client-ui-slots'
+import type { ISidebarRight, SidebarRightTabInfo } from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type { RefObject } from 'react'
-import { TeamDashboardDetails } from './TeamDashboardDetails.js'
 import type { TeamDashboardController } from './team-dashboard-controller.js'
-import { TEAM_DASHBOARD_NS } from './team-dashboard-locales.js'
 
+export const TEAM_TAB_KIND = 'swarm-team'
+export const TEAM_TAB_ID = 'dsh-agent-swarm/team'
 export type TeamDashboardView = 'overview' | 'members' | 'tasks' | 'details'
 export interface TeamDashboardSurfaceState {
   readonly mode: 'inactive' | 'docked'
@@ -17,38 +15,31 @@ export interface TeamDashboardSurfaceState {
   readonly targetSessionId: string | undefined
 }
 interface Options {
-  readonly slots: ClientContext['slots']
   readonly sessions: ISessions
   readonly locale: LocaleRuntime
   readonly controller: TeamDashboardController
   readonly anchorRef: RefObject<HTMLSpanElement>
 }
+type Tab = SidebarRightTabInfo['tab']
+interface ObservedTab { sessionId: string; tab: Tab; mounted: boolean; mount: object; offAbort(): void }
 const INACTIVE: TeamDashboardSurfaceState = Object.freeze({ mode: 'inactive', view: 'overview', targetSessionId: undefined })
 
-/** Owns one reversible public `details` priority lease; it never owns Team data. */
+/** Coordinates the Team's own official Sidebar tab; never owns column layout or Team data. */
 export class TeamDashboardSurfaceCoordinator {
   private readonly listeners = new Set<() => void>()
+  private readonly tabs = new Map<string, ObservedTab>()
+  private readonly dismissed = new Map<string, string | undefined>()
+  private readonly pendingClose = new Set<string>()
   private state: TeamDashboardSurfaceState = INACTIVE
-  private entrySessionId: string | undefined
-  private navigationSessions = new Set<string>()
-  private layout: ILayout | undefined
-  private declarationLive = false
-  private layoutEpoch = 0
-  private declarationEpoch = 0
-  private entry: StoredEntry | undefined
-  private release: (() => void) | undefined
+  private sidebar: ISidebarRight | undefined
+  private sidebarEpoch = 0
   private disposed = false
   private mounted = false
+  private observedSessionId: string | undefined
   private offController = (): void => {}
   private offSessions = (): void => {}
-  private offEntryError = (): void => {}
-  private offSlot = (): void => {}
-  private observedSessionId: string | undefined
-  private dismissedTeamId: string | undefined
-  private sidebarYielded = false
 
   constructor(private readonly options: Options) {}
-
   getSnapshot = (): TeamDashboardSurfaceState => this.state
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
   localeTag = (): 'zh-CN' | 'en-US' => this.options.locale.getLocale().active === 'zh' ? 'zh-CN' : 'en-US'
@@ -57,114 +48,93 @@ export class TeamDashboardSurfaceCoordinator {
     if (this.mounted) throw new Error('Team dashboard surface coordinator is already mounted')
     this.mounted = true
     this.offController = this.options.controller.subscribe(() => {
-      if (!this.options.controller.getSnapshot().open && this.state.mode !== 'inactive') this.close(false)
+      if (!this.options.controller.getSnapshot().open) this.publish(INACTIVE)
       else this.revealAvailableTeam()
     })
     this.offSessions = this.options.sessions.list.subscribe(() => {
       const current = this.options.sessions.list.getSnapshot().current
       if (current === this.observedSessionId) return
       this.observedSessionId = current
-      this.dismissedTeamId = undefined
-      const data = this.options.controller.getSnapshot().data
-      if (data !== undefined) {
-        this.navigationSessions = new Set([data.projection.binding.rootSessionId,
-          ...(data.teams.binding.mainSessionId === undefined ? [] : [data.teams.binding.mainSessionId]),
-          ...data.teams.teams.map(team => team.captainSessionId).filter(Boolean),
-          ...data.captainMembers.members.flatMap(member => member.phase === 'active' && member.sessionId !== undefined ? [member.sessionId] : [])])
-      }
-      const sameTeam = current !== undefined && (current === this.entrySessionId
-        || this.navigationSessions.has(current))
-      if (!sameTeam || current === undefined) this.close(false)
-      else this.publish({ ...this.state, targetSessionId: current })
-      if (current !== undefined) this.options.controller.open(current)
+      this.publish(INACTIVE)
+      if (current === undefined) this.options.controller.close()
+      else this.options.controller.open(current)
     })
-    this.offEntryError = this.options.slots.onEntryError((key, entry) => { if (key === 'details' && entry === this.entry) this.close(false) })
-    this.offSlot = this.options.slots.subscribe('details', () => { if (this.entry !== undefined && !this.isWinner(this.entry)) this.close(false) })
     this.observedSessionId = this.options.sessions.list.getSnapshot().current
     if (this.observedSessionId !== undefined) this.options.controller.open(this.observedSessionId)
     return () => { this.dispose() }
   }
 
-  bindLayout(layout: ILayout): () => void {
+  bindSidebar(sidebar: ISidebarRight): () => void {
     if (this.disposed) return () => {}
-    const epoch = ++this.layoutEpoch
-    this.layout = layout
-    this.resumeObservation()
+    const epoch = ++this.sidebarEpoch
+    this.sidebar = sidebar
     this.revealAvailableTeam()
     return () => {
-      if (epoch !== this.layoutEpoch) return
-      this.layoutEpoch += 1
-      this.layout = undefined
-      this.close(false)
+      if (epoch !== this.sidebarEpoch) return
+      this.sidebarEpoch++
+      this.sidebar = undefined
+      this.publish(INACTIVE)
     }
   }
-  bindDetailsDeclaration(): () => void {
-    if (this.disposed) return () => {}
-    const epoch = ++this.declarationEpoch
-    this.declarationLive = true
-    this.resumeObservation()
-    this.revealAvailableTeam()
+
+  /** The official hook reports visibility; only its abort signal means actual removal. */
+  observeTab(sessionId: string, tab: Tab): () => void {
+    if (this.disposed || tab.signal.aborted) return () => {}
+    if (this.pendingClose.has(sessionId)) { tab.actions.close(); return () => {} }
+    const key = JSON.stringify([sessionId, tab.id])
+    const mount = {}
+    const previous = this.tabs.get(key)
+    if (previous !== undefined && previous.tab.signal !== tab.signal) {
+      previous.offAbort()
+      this.tabs.delete(key)
+    }
+    let observed = this.tabs.get(key)
+    if (observed === undefined) {
+      const onAbort = (): void => {
+        if (this.tabs.get(key)?.tab.signal !== tab.signal) return
+        this.tabs.delete(key)
+        if (this.disposed) return
+        this.dismissCurrentTeam(sessionId)
+        if (this.options.sessions.list.getSnapshot().current === sessionId) this.publish(INACTIVE)
+      }
+      tab.signal.addEventListener('abort', onAbort, { once: true })
+      observed = { sessionId, tab, mounted: true, mount, offAbort: () => { tab.signal.removeEventListener('abort', onAbort) } }
+      this.tabs.set(key, observed)
+    } else { observed.tab = tab; observed.mounted = true; observed.mount = mount }
+    if (this.options.sessions.list.getSnapshot().current === sessionId) {
+      if (tab.visible) this.publish({ mode: 'docked', targetSessionId: sessionId, view: this.state.view })
+      else if (this.state.targetSessionId === sessionId) this.publish(INACTIVE)
+    }
     return () => {
-      if (epoch !== this.declarationEpoch) return
-      this.declarationEpoch += 1
-      this.declarationLive = false
-      this.close(false)
+      const current = this.tabs.get(key)
+      if (current?.mount !== mount) return
+      current.mounted = false
+      // Official tab switches unmount the body without another visibility frame.
+      // Retain the occurrence and abort listener until the actual tab is closed.
+      if (this.state.targetSessionId === sessionId) this.publish(INACTIVE)
     }
   }
+
   toggle(targetSessionId: string): void {
     this.assertLive()
-    if (this.state.mode === 'docked' && this.state.targetSessionId === targetSessionId) return this.close(true)
-    this.close(false)
-    if (!this.acquire()) return
-    try {
-      this.entrySessionId = targetSessionId
-      this.options.controller.open(targetSessionId)
-      this.layout?.openDetails()
-      this.publish({ mode: 'docked', targetSessionId, view: 'overview' })
-    } catch { this.close(false) }
-  }
-  /** AppFrame closes Details in its session layout effect. The mounted Team
-   *  occupant calls this from a passive effect, after that official transition. */
-  restoreDockedDetails(sessionId: string): void {
-    if (this.disposed || this.layout === undefined || !this.declarationLive
-      || this.state.mode !== 'docked' || this.state.targetSessionId !== sessionId
-      || this.options.sessions.list.getSnapshot().current !== sessionId
-      || !this.options.controller.getSnapshot().open || this.entry === undefined || !this.isWinner(this.entry)) return
-    try { this.layout.openDetails() } catch { this.close(false) }
-  }
-  /** rc.1 AppFrame hides Details when its 640px center cannot fit. Observe
-   * its rendered DOM only; all layout changes still use the public service.
-   * One Team lease may yield the expanded sidebar once, never fight the user. */
-  makeRoomForDetails(sessionId: string, panel: HTMLElement | null): void {
-    if (this.disposed || this.sidebarYielded || this.layout === undefined || !this.declarationLive
-      || this.state.mode !== 'docked' || this.state.targetSessionId !== sessionId
-      || this.options.sessions.list.getSnapshot().current !== sessionId
-      || !this.options.controller.getSnapshot().open || this.entry === undefined || !this.isWinner(this.entry)
-      || panel === null || !panel.isConnected || panel.getBoundingClientRect().width > 0) return
-    const frame = panel.closest<HTMLElement>('[data-details-collapsed]')
-    // Below rc.1's 1024px breakpoint the official narrow mode owns auto-collapse.
-    // Its fit floor is 56px rail + 640px center + 300px Details; don't fight it.
-    if (frame === null || frame.hasAttribute('data-sidebar-collapsed') || frame.hasAttribute('data-dragging')
-      || !frame.style.gridTemplateColumns || frame.getBoundingClientRect().width < 1024) return
-    this.sidebarYielded = true
-    try { this.layout.toggleSidebar() } catch { /* keep the existing Team and official layout */ }
+    if (this.options.sessions.list.getSnapshot().current !== targetSessionId) return
+    if (this.state.mode === 'docked' && this.state.targetSessionId === targetSessionId) return this.closeAndRestoreFocus()
+    this.dismissed.delete(targetSessionId)
+    this.pendingClose.delete(targetSessionId)
+    this.options.controller.open(targetSessionId)
+    this.openTeamTab(targetSessionId)
   }
   selectView(view: TeamDashboardView): void { if (this.state.mode === 'docked' && this.state.view !== view) this.publish({ ...this.state, view }) }
   closeAndRestoreFocus(): void {
-    this.dismissedTeamId = this.options.controller.getSnapshot().data?.projection.binding.teamId
-    this.close(true, true)
-    this.options.controller.refresh()
-  }
-  /** Team yields Details; official Tool Details remains the sole Tool renderer. */
-  showToolDetails(): void {
-    this.assertLive()
-    const layout = this.layout
-    if (layout === undefined) return
-    this.dismissedTeamId = this.options.controller.getSnapshot().data?.projection.binding.teamId
-    this.releaseTeamLease()
+    const current = this.options.sessions.list.getSnapshot().current
+    if (current === undefined) return
+    this.dismissCurrentTeam(current)
+    this.pendingClose.add(current)
+    // Each action belongs to this exact tab/session, including late callbacks.
+    const own = [...this.tabs.values()].find(value => value.sessionId === current && value.mounted && value.tab.visible)
+    own?.tab.actions.close()
     this.publish(INACTIVE)
-    this.options.controller.refresh()
-    try { layout.openDetails() } catch { this.publish(INACTIVE) }
+    queueMicrotask(() => { this.options.anchorRef.current?.querySelector<HTMLButtonElement>('[data-swarm-team-trigger]')?.focus() })
   }
   async openCaptainChat(): Promise<void> {
     await this.options.controller.openCaptainChat((id, signal) => this.openOfficialCaptain(id, signal))
@@ -233,56 +203,49 @@ export class TeamDashboardSurfaceCoordinator {
     await this.openOfficialCaptain(captainSessionId)
   }
 
-  private acquire(): boolean {
-    if (!this.declarationLive || this.layout === undefined) return false
-    const before = new Set(this.options.slots.entries('details'))
-    let release: (() => void) | undefined
-    try {
-      release = this.options.slots.register({ name: 'details', priority: -1, locale: TEAM_DASHBOARD_NS,
-        inject: () => ({ anchorRef: this.options.anchorRef, controller: this.options.controller, coordinator: this, localeTag: this.localeTag }),
-      }, TeamDashboardDetails)
-      const entry = this.options.slots.entries('details').find(candidate => !before.has(candidate))
-      if (entry === undefined || !this.isWinner(entry)) { release(); return false }
-      this.entry = entry; this.release = release
-      return true
-    } catch { release?.(); return false }
-  }
-  private isWinner(entry: StoredEntry): boolean { return this.options.slots.entriesOfSlot('details')[0] === entry }
-  private resumeObservation(): void {
-    const current = this.options.sessions.list.getSnapshot().current
-    if (!this.disposed && this.mounted && this.layout !== undefined && this.declarationLive
-      && current !== undefined && !this.options.controller.getSnapshot().open) this.options.controller.open(current)
-  }
-  /** Polling uses the existing Host projection; only a verified Team acquires UI space. */
   private revealAvailableTeam(): void {
     const read = this.options.controller.getSnapshot()
     const current = this.options.sessions.list.getSnapshot().current
-    if (this.disposed || this.state.mode !== 'inactive' || !read.open || read.phase !== 'ready'
-      || read.data === undefined || current === undefined || read.targetSessionId !== current
-      || read.data.projection.binding.teamId === this.dismissedTeamId) return
-    if (!this.acquire()) return
-    this.entrySessionId = current
-    this.publish({ mode: 'docked', targetSessionId: current, view: 'overview' })
-    try { this.layout?.openDetails() } catch { this.close(false) }
+    if (this.disposed || !read.open || read.phase !== 'ready' || read.data === undefined
+      || current === undefined || read.targetSessionId !== current) return
+    const own = [...this.tabs.values()].find(value => value.sessionId === current)
+    if (own !== undefined) {
+      if (own.mounted && own.tab.visible) this.publish({ mode: 'docked', targetSessionId: current, view: this.state.view })
+      return // A hidden tab belongs to the user; polling must not focus it.
+    }
+    const teamId = read.data.projection.binding.teamId
+    if (this.dismissed.has(current) && this.dismissed.get(current) === undefined) {
+      this.dismissed.set(current, teamId)
+      return
+    }
+    if (teamId === undefined || this.dismissed.get(current) === teamId
+      || (this.state.mode === 'docked' && this.state.targetSessionId === current)) return
+    this.openTeamTab(current)
   }
-  private close(restoreFocus: boolean, keepReading = false): void {
-    this.entrySessionId = undefined
-    this.navigationSessions.clear()
-    if (this.state.mode === 'docked') { try { this.layout?.closeDetails() } catch { /* teardown still releases the Team lease */ } }
-    this.releaseTeamLease()
-    this.publish(INACTIVE)
-    if (!keepReading) this.options.controller.close()
-    if (restoreFocus) queueMicrotask(() => { this.options.anchorRef.current?.querySelector<HTMLButtonElement>('[data-swarm-team-trigger]')?.focus() })
+  private openTeamTab(sessionId: string): void {
+    if (this.sidebar === undefined || this.options.sessions.list.getSnapshot().current !== sessionId) return
+    this.pendingClose.delete(sessionId)
+    this.publish({ mode: 'docked', targetSessionId: sessionId, view: 'overview' })
+    try { this.sidebar.openTab(TEAM_TAB_KIND) } catch { this.publish(INACTIVE) }
   }
-  private releaseTeamLease(): void { const release = this.release; this.release = undefined; this.entry = undefined; this.sidebarYielded = false; release?.() }
-  private publish(state: TeamDashboardSurfaceState): void { this.state = Object.freeze(state); for (const listener of this.listeners) listener() }
+  private dismissCurrentTeam(sessionId: string): void {
+    const read = this.options.controller.getSnapshot()
+    const teamId = read.targetSessionId === sessionId ? read.data?.projection.binding.teamId : undefined
+    this.dismissed.set(sessionId, teamId)
+  }
+  private publish(state: TeamDashboardSurfaceState): void {
+    if (state.mode === this.state.mode && state.view === this.state.view && state.targetSessionId === this.state.targetSessionId) return
+    this.state = Object.freeze(state)
+    for (const listener of this.listeners) listener()
+  }
   private dispose(): void {
     if (this.disposed) return
     this.disposed = true
-    this.layoutEpoch += 1
-    this.declarationEpoch += 1
-    this.offSlot(); this.offEntryError(); this.offSessions(); this.offController()
-    this.close(false)
+    this.sidebarEpoch++
+    this.offSessions(); this.offController()
+    for (const observed of this.tabs.values()) observed.offAbort()
+    this.tabs.clear(); this.dismissed.clear(); this.pendingClose.clear()
+    this.publish(INACTIVE)
     this.options.controller.dispose()
     this.listeners.clear()
   }

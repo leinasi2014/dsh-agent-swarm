@@ -1,5 +1,6 @@
 /** Host-owned target and visibility authority for local read consumers. */
 import type { Context } from '@deepseek-ai/cordis'
+import { readPersistedSession } from '../runtime/persisted-session.js'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId, type Session } from '@deepseek-ai/dsh-session'
 import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
@@ -274,7 +275,8 @@ export class HostTargetReadService {
 
   private async persistedHeader(id: string): Promise<{ cwd?: string; parentSession?: string; title?: string | undefined } | undefined> {
     try {
-      const stored = await this.ctx.sessionPersistence?.inspect(SessionId(id), AbortSignal.timeout(3_000))
+      const stored = this.ctx.sessionPersistence === undefined ? undefined
+        : await readPersistedSession(this.ctx.sessionPersistence, SessionId(id), AbortSignal.timeout(3_000))
       if (stored === undefined) return undefined
       return { title: foldSessionTitle(stored.events)?.title, ...(stored.meta.cwd === undefined ? {} : { cwd: stored.meta.cwd }),
         ...(stored.meta.parentSession === undefined ? {} : { parentSession: stored.meta.parentSession }) }

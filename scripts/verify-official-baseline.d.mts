@@ -57,7 +57,7 @@ export interface BaselineAnchorVerdict {
 
 export function tagNameForRelease(release: string): string
 
-export function parseReleaseVersion(release: string): { major: number; minor: number; patch: number; rc: number | null } | null
+export function parseReleaseVersion(release: string): { major: number; minor: number; patch: number; prerelease: { channel: 'alpha' | 'beta' | 'rc'; number: number } | null } | null
 
 export function compareReleaseVersions(a: string, b: string): number
 
