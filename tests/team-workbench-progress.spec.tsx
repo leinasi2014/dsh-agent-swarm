@@ -28,9 +28,11 @@ describe('at-a-glance Team progress and execution hierarchy', () => {
       expect(document.querySelector(`[data-swarm-progress-state="${state}"]`)?.getAttribute('data-count')).toBe(String(count))
     }
     const bar = document.querySelector('[role="progressbar"]')!
+    expect(bar.closest('details:not([open])')).toBeNull()
     expect(bar.getAttribute('aria-valuenow')).toBe('1')
     expect(bar.getAttribute('aria-valuemax')).toBe('8')
     expect(document.querySelector('[data-swarm-review-attention]')?.textContent).toContain('2')
+    expect(document.querySelector('[data-swarm-review-attention]')?.closest('details:not([open])')).toBeNull()
     expect(document.querySelector('[data-swarm-staged-plan]')).toBeNull()
   })
 

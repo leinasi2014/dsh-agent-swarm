@@ -72,6 +72,7 @@ describe('R3 native Team Details surface', () => {
     const coordinator = new FakeCoordinator()
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: attentionController, coordinator, localeTag: coordinator.localeTag, sessionId: 'root', t } as any)} />)
     expect(document.querySelector('[data-swarm-attention]')).not.toBeNull()
+    expect(document.querySelector('[data-swarm-attention]')?.closest('details:not([open])')).toBeNull()
     expect(document.querySelector('[data-swarm-attention-row="human-attn-1"]')?.textContent).toContain('member-question')
   })
 
@@ -172,7 +173,7 @@ describe('R3 native Team Details surface', () => {
     })
 
     it.each([300, 520])('%spx Details keeps long member information inside its scrollable body', async (width) => {
-      const projection = { ...ready.data!.projection, roster: [{ name: 'worker', role: 'Long authoritative role with 中文内容 '.repeat(20), phase: 'active', createdAt: 1 }], totals: { ...ready.data!.projection.totals, roster: 1 } }
+      const projection = { ...ready.data!.projection, roster: [{ name: 'worker', role: 'Long authoritative role with 中文内容 '.repeat(20), phase: 'active', createdAt: 1 }], tasks: [{ id: 'queued', revision: 1, subject: 'Pending work', status: 'pending' as const, blockedBy: [], priority: 0, createdAt: 1, updatedAt: 1 }], totals: { ...ready.data!.projection.totals, roster: 1, tasks: 1 } }
       const state: TeamDashboardState = { ...ready, data: teamData(ready.data!.capabilities, projection) }
       const coordinator = new FakeCoordinator()
       const controller = { getSnapshot: () => state, subscribe: () => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
@@ -180,6 +181,7 @@ describe('R3 native Team Details surface', () => {
       await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!.click() })
       await page.setViewportSize({ width: 1100, height: 800 })
       await page.setContent(`<div style="width:${width}px;height:700px;--dsw-alias-border-l2:gray">${document.querySelector('[data-swarm-team-panel]')!.outerHTML}</div>`)
+      expect(await page.locator('[data-swarm-progress]').isVisible()).toBe(true)
       const geometry = await page.evaluate(() => {
         const body = document.querySelector<HTMLElement>('.swarm-team-workspace__detail-body')!
         const field = document.querySelector<HTMLElement>('[data-swarm-detail-role]')!
