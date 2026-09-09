@@ -33,7 +33,7 @@ export const identityParameters = {
   profession: { type: 'string', description: 'Short profession, at most 256 code points.' },
   personality: { type: 'string', description: 'Working personality, at most 1024 code points.' },
   biography: { type: 'string', description: 'Role introduction, at most 1024 code points; no invented credentials.' },
-  pixel_avatar: { type: 'object', additionalProperties: false, description: 'Preferred: design your own 32x32 pixel avatar. Freely choose people, animals, objects or abstract designs; coordinate main/accent colors and contrast. Compose directly on the 32x32 grid, with a centered silhouette occupying most of the canvas (usually 24-28 pixels across its longer dimension), modest margins, and readable highlights/shadows. Use single-pixel accents where useful; do not upscale a coarse 8x8/16x16 drawing into large blocks. Adapt the silhouette to your chosen subject. Use the palette/rows format below. Do not also supply pixel_avatar_svg.', properties: {
+  pixel_avatar: { type: 'object', additionalProperties: false, description: 'Preferred: design your own 32x32 pixel avatar. Freely choose people, animals, objects or abstract designs; coordinate main/accent colors and contrast. Center a ~24-28px subject; add 1px details; never upscale coarse 8/16px art. Use the palette/rows format below. Do not also supply pixel_avatar_svg.', properties: {
     palette: { type: 'array', required: true, items: { type: 'string' }, description: '1-16 #RRGGBB colors indexed by 0-9/A-F.' },
     rows: { type: 'array', required: true, items: { type: 'string' }, description: 'Exactly 32 strings of 32 pixels each; . is transparent, 0-9/A-F selects a palette entry. Horizontal/vertical runs compile safely to SVG.' },
   } },
