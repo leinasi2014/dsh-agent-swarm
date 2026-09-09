@@ -146,6 +146,7 @@
     "@deepseek-ai/dsh-attachment": "0.1.5-alpha.1",
     "@deepseek-ai/dsh-brand": "0.1.5-alpha.1",
     "@deepseek-ai/dsh-client-connection": "0.1.5-alpha.1",
+    "@deepseek-ai/dsh-client-file-upload": "0.1.5-alpha.1",
     "@deepseek-ai/dsh-client-locale": "0.1.5-alpha.1",
     "@deepseek-ai/dsh-client-ui-conversation": "0.1.5-alpha.1",
     "@deepseek-ai/dsh-client-ui-layout": "0.1.5-alpha.1",
