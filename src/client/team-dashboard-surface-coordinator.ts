@@ -28,7 +28,7 @@ const INACTIVE: TeamDashboardSurfaceState = Object.freeze({ mode: 'inactive', vi
 export class TeamDashboardSurfaceCoordinator {
   private readonly listeners = new Set<() => void>()
   private readonly tabs = new Map<string, ObservedTab>()
-  private readonly dismissed = new Map<string, string>()
+  private readonly dismissed = new Map<string, string | undefined>()
   private state: TeamDashboardSurfaceState = INACTIVE
   private sidebar: ISidebarRight | undefined
   private sidebarEpoch = 0
@@ -91,9 +91,9 @@ export class TeamDashboardSurfaceCoordinator {
       const onAbort = (): void => {
         if (this.tabs.get(key)?.tab.signal !== tab.signal) return
         this.tabs.delete(key)
-        if (this.disposed || this.options.sessions.list.getSnapshot().current !== sessionId) return
+        if (this.disposed) return
         this.dismissCurrentTeam(sessionId)
-        this.publish(INACTIVE)
+        if (this.options.sessions.list.getSnapshot().current === sessionId) this.publish(INACTIVE)
       }
       tab.signal.addEventListener('abort', onAbort, { once: true })
       observed = { sessionId, tab, mounted: true, mount, offAbort: () => { tab.signal.removeEventListener('abort', onAbort) } }
@@ -210,6 +210,10 @@ export class TeamDashboardSurfaceCoordinator {
       return // A hidden tab belongs to the user; polling must not focus it.
     }
     const teamId = read.data.projection.binding.teamId
+    if (this.dismissed.has(current) && this.dismissed.get(current) === undefined) {
+      this.dismissed.set(current, teamId)
+      return
+    }
     if (teamId === undefined || this.dismissed.get(current) === teamId
       || (this.state.mode === 'docked' && this.state.targetSessionId === current)) return
     this.openTeamTab(current)
@@ -222,7 +226,7 @@ export class TeamDashboardSurfaceCoordinator {
   private dismissCurrentTeam(sessionId: string): void {
     const read = this.options.controller.getSnapshot()
     const teamId = read.targetSessionId === sessionId ? read.data?.projection.binding.teamId : undefined
-    if (teamId !== undefined) this.dismissed.set(sessionId, teamId)
+    this.dismissed.set(sessionId, teamId)
   }
   private publish(state: TeamDashboardSurfaceState): void {
     if (state.mode === this.state.mode && state.view === this.state.view && state.targetSessionId === this.state.targetSessionId) return
