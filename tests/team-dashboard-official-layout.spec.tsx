@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-/** Run the installed official AppFrame, layout reducers and public LayoutController.
- * Only the store subscription carrier and unrelated slot contents are test fixtures. */
+/** Run the installed official AppFrame, store engine and public LayoutController.
+ * Unrelated slot contents and Session feeds remain test fixtures. */
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
@@ -11,6 +11,7 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { sidebarHarness } from './helpers/sidebar-harness.js'
 import type { ILayout } from '@deepseek-ai/dsh-client-ui-layout/client'
+import { defineStore } from '@deepseek-ai/dsh-client-store'
 import { TeamDashboardDetails, type TeamDashboardDetailsProps } from '../src/client/TeamDashboardDetails.js'
 import { TeamDashboardSurfaceCoordinator } from '../src/client/team-dashboard-surface-coordinator.js'
 import type { TeamDashboardState } from '../src/client/team-dashboard-controller.js'
@@ -19,43 +20,50 @@ vi.mock('../src/client/TeamDashboardContent.js', () => ({ TeamDashboardContent: 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
 interface Panels { sidebar: number; viewportWidth: number; narrowExpanded: boolean; rightbar: number | null; rightbarShown: boolean; rightbarTrack: boolean; rightbarFullscreen: boolean; rightbarInstant: boolean }
-interface Store { init(): Panels; actions: Record<string, (draft: Panels, ...values: unknown[]) => void> }
+interface LayoutState { panelInfo: { activePanelId: string | null }; layoutInfo: Panels }
+interface StoreInstance { getSnapshot(): LayoutState; subscribe(listener: () => void): () => void; actions: Record<string, (...values: unknown[]) => void> }
 interface SessionList { current: string; byId: Record<string, { blank: false }>; subagentsByParent: Record<string, unknown> }
 interface FrameProps {
-  useStore<T>(selector: (panels: Panels) => T): T
+  useStore<T>(selector: (state: LayoutState) => T): T
+  usePanelInfo<T>(selector: (info: LayoutState['panelInfo']) => T): T
   useSessions<T>(selector: (sessions: SessionList) => T): T
   actions: Record<string, (...values: unknown[]) => void>
   renderSlot(name: string): React.ReactNode
-  SessionProvider: React.ComponentType<React.PropsWithChildren>
   t(key: string): string
 }
-interface RootRegistration { store(): Store; inject(actions: FrameProps['actions']): unknown }
+interface RootRegistration { store: { create(): StoreInstance } }
 
 function officialLayout(viewport: number) {
   let exports!: { apply(ctx: unknown): void }
   const require = createRequire(import.meta.url)
-  const source = readFileSync(join(dirname(require.resolve('@deepseek-ai/dsh-client-ui-layout/package.json')), 'lib/client.js'), 'utf8')
+  const layoutPackage = require.resolve('@deepseek-ai/dsh-client-ui-layout/package.json')
+  const source = readFileSync(join(dirname(layoutPackage), 'lib/client.js'), 'utf8')
   runInNewContext(source, { window: { innerWidth: viewport, __ModuleLoader__: { load: (entry: { factory(require: (name: string) => unknown): typeof exports }) => {
     exports = entry.factory(name => {
       if (name === 'react') return React
       if (name === 'react/jsx-runtime') return jsx
-      if (name === '@deepseek-ai/dsh-client-store') return { defineStore: (store: Store) => store }
+      if (name === '@deepseek-ai/dsh-client-store') return { defineStore }
       throw new Error(`Unexpected official layout dependency: ${name}`)
     })
-  } } }, document, ResizeObserver: class { observe() {} disconnect() {} }, requestAnimationFrame, cancelAnimationFrame })
+  } } }, document, AbortController, ResizeObserver: class { observe() {} disconnect() {} }, requestAnimationFrame, cancelAnimationFrame })
   let Frame!: React.ComponentType<FrameProps>
   let registration!: RootRegistration
   let layout!: ILayout
+  const disposers: (() => void)[] = []
   exports.apply({
-    effect: (effect: () => unknown, label: string) => { if (label === 'ui-layout: service + root registration') effect() },
+    effect: (effect: () => () => void, label: string) => { if (label === 'ui-layout: service + root registration') disposers.push(effect()) },
     reflect: { provide: (_name: string, value: ILayout) => { layout = value; return () => {} } },
-    slots: { register: (options: RootRegistration, component: React.ComponentType<FrameProps>) => { registration = options; Frame = component; return () => {} } },
+    slots: {
+      register: (options: RootRegistration, component: React.ComponentType<FrameProps>) => { registration = options; Frame = component; return () => {} },
+      entries: (name: string) => name === 'main' ? [{ options: { key: 'conversation' } }] : [],
+      provideRoot: () => () => {}, subscribe: () => () => {},
+    },
   })
-  return { Frame, registration, layout }
+  return { Frame, registration, layout, disposeLayout: () => { disposers.toReversed().forEach(dispose => dispose()) } }
 }
 
 function harness(viewport = 1440) {
-  const { Frame, registration, layout } = officialLayout(viewport)
+  const { Frame, registration, layout, disposeLayout } = officialLayout(viewport)
   const bounds = HTMLElement.prototype.getBoundingClientRect
   // jsdom has no layout engine. Geometry below is derived from the installed
   // AppFrame's actual rendered column tracks, not a copy of its width solver.
@@ -65,19 +73,17 @@ function harness(viewport = 1440) {
       ? Number(frame?.style.gridTemplateColumns.match(/(\d+)px$/u)?.[1] ?? 0) : undefined
     return width === undefined ? bounds.call(this) : { x: 0, y: 0, width, height: 730, top: 0, right: width, bottom: 730, left: 0, toJSON: () => ({}) }
   })
-  const store = registration.store()
-  let panels = store.init()
+  const store = registration.store.create()
   let session: SessionList = { current: 'root', byId: { root: { blank: false }, captain: { blank: false }, member: { blank: false }, other: { blank: false } },
     subagentsByParent: { captain: { state: 'ready', entries: [{ id: 'member', kind: 'child', mode: 'continuable' }] } } }
-  const panelListeners = new Set<() => void>()
   const sessionListeners = new Set<() => void>()
   const trace: string[] = []
-  const actions = Object.fromEntries(Object.entries(store.actions).map(([name, reduce]) => [name, (...values: unknown[]) => {
-    panels = { ...panels }; reduce(panels, ...values)
-    if (name.endsWith('Rightbar')) trace.push(`${name}:${session.current}`)
-    panelListeners.forEach(listener => listener())
-  }]))
-  registration.inject(actions)
+  for (const [name, action] of Object.entries(store.actions)) {
+    store.actions[name] = (...values: unknown[]) => {
+      if (name.endsWith('Rightbar')) trace.push(`${name}:${session.current}`)
+      action(...values)
+    }
+  }
   const navigate = (current: string) => { sidebar.hide(session.current); session = { ...session, current }; sessionListeners.forEach(listener => listener()) }
   const sessions = { list: { getSnapshot: () => session, subscribe: (fn: () => void) => { sessionListeners.add(fn); return () => { sessionListeners.delete(fn) } } },
     refreshSubagents: async () => {}, openSubagent: (address: { childSessionId: string }) => { navigate(address.childSessionId) } }
@@ -106,14 +112,15 @@ function harness(viewport = 1440) {
     return <TeamDashboardDetails {...({ controller, coordinator, useTabInfo: () => info, localeTag: coordinator.localeTag, sessionId: current, t: (key: string) => key } as unknown as TeamDashboardDetailsProps)} />
   }
   const frameProps: FrameProps = {
-    useStore: selector => selector(React.useSyncExternalStore(fn => { panelListeners.add(fn); return () => { panelListeners.delete(fn) } }, () => panels)),
+    useStore: selector => selector(React.useSyncExternalStore(store.subscribe, store.getSnapshot)),
+    usePanelInfo: selector => selector(React.useSyncExternalStore(store.subscribe, store.getSnapshot).panelInfo),
     useSessions: selector => selector(React.useSyncExternalStore(sessions.list.subscribe, sessions.list.getSnapshot)),
-    actions, renderSlot: name => name === 'rightbar' ? <Details /> : null, SessionProvider: React.Fragment, t: key => key,
+    actions: store.actions, renderSlot: name => name === 'rightbar' ? <Details /> : null, t: key => key,
   }
   const settleFrame = async () => { await React.act(async () => { await new Promise<void>(resolve => { requestAnimationFrame(() => { resolve() }) }) }) }
-  return { coordinator, navigate, trace, layout, settleFrame, sidebar, refresh: () => { controller.open(session.current) }, panels: () => panels,
+  return { coordinator, navigate, trace, layout, settleFrame, sidebar, refresh: () => { controller.open(session.current) }, panels: () => store.getSnapshot().layoutInfo,
     mount: async () => { await React.act(async () => { root.render(<Frame {...frameProps} />) }); await settleFrame() },
-    dispose: async () => { await React.act(async () => { root.unmount(); unmount() }); geometry.mockRestore() },
+    dispose: async () => { await React.act(async () => { root.unmount(); unmount(); disposeLayout() }); geometry.mockRestore() },
   }
 }
 

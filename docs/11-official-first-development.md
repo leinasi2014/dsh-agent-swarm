@@ -5,7 +5,7 @@
 ## 固定基线
 
 - 官方源码基线由 `docs/OFFICIAL_BASELINE.json` 固定。
-- 当前审计基线包含官方 DSH commit `5dda764ed3aa172535a7967b06ff95d9cbfe536a`（`0.1.5-alpha.1`）。
+- 当前审计基线包含官方 DSH commit `b2e3b2a0125854567a4a5fcba75782e42fe84901`（`0.1.5-alpha.2`）。
 - 实际 API 以本仓库安装的 `@deepseek-ai/*` 包、类型声明和公开测试为准。
 - `ref/` 只读，只能通过仓库提供的同步脚本刷新。
 

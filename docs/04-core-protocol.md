@@ -86,7 +86,7 @@ Captain identity 独立于 Member roster。`set_captain_profile` 成功提交后
 
 插件 communicationIntensity 沿现有设置的 restart 生效规则；Captain 的 agent_swarm_set_communication 使用 Team revision CAS 保存即时生效的 override，inherit 清除覆盖。当前强度注入参与者上下文；Host/RPC 投影展示生效值和来源。团队面板通过官方 Captain user prompt queue 提交用户的明确调节请求，不模拟 Captain 身份调用工具；只有更新后的 Team revision 与目标值匹配才显示已生效，忙碌时如实显示等待队长处理。
 
-DSH `0.1.5-alpha.1` 的 continuable child 可由私有 owner 注册；`agents.roots()` 本身不证明顶层身份，root 权限还须核对 `session.header.parentSession`。官方带标记的 `send_message` 仅在精确存活 child 向真实 direct parent 发送时继承上行权限，仍经过后续官方 guard；同名替换工具与向下/跨成员发送不获得豁免。冷恢复的 Team Skills 在 `agent/session-start` 后、首个 step/工具调用前从权威 aggregate 重建，解析失败不得放宽权限。
+DSH `0.1.5-alpha.2` 的 continuable child 可由私有 owner 注册；`agents.roots()` 本身不证明顶层身份，root 权限还须核对 `session.header.parentSession`。官方带标记的 `send_message` 仅在精确存活 child 向真实 direct parent 发送时继承上行权限，仍经过后续官方 guard；同名替换工具与向下/跨成员发送不获得豁免。冷恢复的 Team Skills 在 `agent/session-start` 后、首个 step/工具调用前从权威 aggregate 重建，解析失败不得放宽权限。
 
 ## 6. 工具与权限
 

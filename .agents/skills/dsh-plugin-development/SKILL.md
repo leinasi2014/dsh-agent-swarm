@@ -110,7 +110,7 @@ pnpm verify:isolation:status
 2. 读取官方根/包级规则、`docs/architecture.md`、包清单、相关 subsystem 和 implemented Agent Notes，确定已实现功能与明确开发方向；
 3. 检查相关官方包的 manifest、exports、types、README、测试与 private/publish 状态，并确认引用的 Agent Notes/包源码已真实 materialize 到证据 checkout；
 4. 检查当前项目和目标 Profile 的实际配置，以及已安装 `@deepseek-ai/*` 的真实导出；
-5. 将能力分类为 official stable、official experimental/private、absent 或 project-owned overlay；
+5. 将能力分类为 official stable、official experimental-public、official private/internal、absent 或 project-owned overlay，并单独记录本插件是否已采用；
 6. deepseekdocs 仅作为学习材料；
 7. `ref/dsh-agent-teams/source/` 用于可移植的 Team 协议与故障用例；
 8. `ref/jiuwenswarm/source/` 用于产品能力、执行流程和故障模型。
@@ -238,7 +238,7 @@ Service 包 default-export Service class。用 TypeScript declaration merging �
 - 先核对目标 DSH 版本是否真的发布通用 workflow 服务；存在时复用它承载确定工作流，不存在时保留显式 Provider 边界并记录缺口，绝不能把 Team Scheduler 伪装成私有工作流引擎。发布与装配事实只由 `docs/OFFICIAL_BASELINE.json`、目标安装包导出和实际 Profile 共同证明。
 - 长工具/工作流使用 `ctx.jobs` 提供观察、取消、等待和完成通知。
 - Human node 使用 `ctx.userQuestions` / `ctx.approval`。
-- Agent Team 优先对齐官方 `ctx.agentTeams`；实验包未发布时通过 adapter 隔离。
+- Agent Team 优先核对官方 `ctx.agentTeams`；实验包是否发布与本插件是否采用分别记录。替换 Provider 须保持产品身份与持久化合同，并经迁移验证，不并存两个 Team 写权威。
 - 任务元数据 CAS (`revision`) 与执行 generation (`attemptId`) 是不同机制。
 - Worktree 必须改变真实执行 cwd/FS capability，不能只写进 Prompt。
 
@@ -409,7 +409,7 @@ dsh --profile <check-profile> --dump-config
 开发 `dsh-agent-swarm` 时额外遵守：
 
 1. `ref/` 两个 checkout 均只读；更新通过各自 sync 脚本并记录 pin。
-2. 不依赖未发布的 `@deepseek-ai/dsh-experimental-agent-team` 作为正式 peer。
+2. 官方 `@deepseek-ai/dsh-experimental-agent-team` 的发布状态由固定基线核验；experimental 发布不等于稳定承诺或已采用。加入正式 peer 前须完成产品身份、持久化、迁移与实际组合评估。
 3. 不注册冲突的 `ctx.agentTeams`；通过 adapter 对齐。能力边界见 `docs/03-capability-family.md`，实际完成由当前实现、测试与相应真实证据证明，不在本 Skill 维护另一份状态表。
 4. Jiuwen 功能必须先映射到已有 DSH seam；只有确实缺失时设计通用新 seam。
 5. Scheduler、Workspace、Budget、Review、Memory、Remote Member、UI 都是插件；不塞回 Team core。

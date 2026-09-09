@@ -6,7 +6,7 @@
 
 | Source | What it owns | What this project may borrow | What this project must not do |
 |---|---|---|---|
-| Official DeepSeek Harness | Framework contracts, Session/Agent lifecycle and published service seams | Service Definitions, Providers, Consumers, tools, events, storage forms, Profile/Bundle composition | patch Agent Loop, duplicate an official state machine, or treat a private experimental package as a published dependency |
+| Official DeepSeek Harness | Framework contracts, Session/Agent lifecycle and published service seams | Service Definitions, Providers, Consumers, tools, events, storage forms, Profile/Bundle composition | patch Agent Loop, duplicate an official state machine, or equate experimental publication with stable support or product adoption |
 | `NanmiCoder/dsh-agent-teams` | Direct DSH Team implementation prior art | continuable member lifecycle, task DAG, revision/attempt fencing, durable mailbox, scheduler and fault cases | copy its monolithic storage/UI/policy coupling or make its file store canonical |
 | `openJiuwen-ai/jiuwenswarm` | Product and failure-model prior art | workflow, Worktree, memory, Skill Evolution, permissions and distributed-reservation concepts | import its Python runtime, transport or types into the DSH capability contract |
 
@@ -16,7 +16,7 @@ The following constraints survive the retired ADR and development-note set:
 
 - `dsh-agent-swarm` is a capability family assembled as a Bundle, not a second Harness runtime.
 - Published official DSH seams are canonical. Project code may be a Provider, Consumer, adapter or policy overlay only.
-- The private experimental official Agent Team defines compatibility semantics but is not a production dependency. Until it is public, the non-conflicting host façade remains `ctx.agentSwarm`; a future official adapter replaces the selected Team Provider instead of becoming a second writer.
+- The official Agent Team is published under its experimental name in the pinned release but is not adopted as this plugin's production dependency. The non-conflicting host façade remains `ctx.agentSwarm`; adoption requires evaluating the product identity, persistence and migration contracts. Any future official adapter replaces the selected Team Provider instead of becoming a second writer.
 - Exactly one `TeamDomainPort` Provider owns roster, task board, attempts, mailbox, budget and Team revision for a Team.
 - Canonical task mutation uses `expectedRevision`; execution writes additionally require the current `attemptId`. Reassignment invalidates the old attempt before another execution generation starts.
 - Durable Team state lives outside the shared workspace in the official Storage Domain. Workspace JSON is migration input only. Migration is explicit, one-way, read-back verified and never dual-written.

@@ -304,7 +304,14 @@ function installedTargetedSidebar() {
     locale: { bind: () => (key: string) => key, register: () => () => {} },
     resources: { pin: () => {} }, layout: { openRightbar: () => {}, closeRightbar: () => {} },
     reflect: { provide: (name: string, value: unknown) => { faces.set(name,value); return () => {} } },
-    slots: { inject: (_name: string, factory: () => unknown) => factory(), register: (options: any) => { if(options.name==='rightbar') registration=options; return () => {} } },
+    slots: {
+      inject: (_name: string, factory: () => (() => void) | Iterable<() => void>) => {
+        const contributions = factory()
+        const releases = typeof contributions === 'function' ? [contributions] : Array.from(contributions)
+        return () => { releases.toReversed().forEach(release => release()) }
+      },
+      register: (options: any) => { if(options.name==='rightbar.session') registration=options; return () => {} },
+    },
   })
   const controller=faces.get('sidebarRight')
   faces.get('sidebarRightTabs').register({ id:'swarm-test',kind:'swarm-team',title:()=> 'Team' })

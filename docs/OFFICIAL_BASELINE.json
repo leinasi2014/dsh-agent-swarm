@@ -1,9 +1,9 @@
 {
   "repository": "https://github.com/deepseek-ai/deepseek-harness.git",
   "branch": "master",
-  "commit": "5dda764ed3aa172535a7967b06ff95d9cbfe536a",
-  "release": "0.1.5-alpha.1",
-  "verifiedAt": "2026-09-09",
+  "commit": "b2e3b2a0125854567a4a5fcba75782e42fe84901",
+  "release": "0.1.5-alpha.2",
+  "verifiedAt": "2026-09-10",
   "evidenceFiles": [
     "apps/cli/src/profile-boot.ts",
     "docs/cordis-tutorial/01-first-plugin.md",
@@ -26,7 +26,14 @@
     ".agents/notes/implemented/architecture/2026-08-31-explicit-agent-runtime-identity.md",
     "packages/core/session/src/types.ts",
     "packages/client/ui-sidebar-right/src/client/stores.ts",
-    ".agents/notes/implemented/architecture/2026-09-06-v3-canonical-session-envelopes.md"
+    ".agents/notes/implemented/architecture/2026-09-06-v3-canonical-session-envelopes.md",
+    "packages/client/ui-subagent/src/client/SubagentHeaderLineage.tsx",
+    "packages/client/ui-subagent/src/client/index.ts",
+    "packages/client/ui-slots/README.md",
+    "packages/client/ui-conversation/src/client/skeleton/InputBar.tsx",
+    "packages/client/ui-sidebar-right/src/client/tab-registry.ts",
+    "packages/subagent/subagent/src/catalog.ts",
+    "packages/experimental/tool-agent-team/README.md"
   ],
   "packages": [
     {
@@ -57,7 +64,12 @@
     {
       "path": "packages/experimental/agent-team",
       "name": "@deepseek-ai/dsh-experimental-agent-team",
-      "visibility": "private"
+      "visibility": "public"
+    },
+    {
+      "path": "packages/experimental/tool-agent-team",
+      "name": "@deepseek-ai/dsh-experimental-tool-agent-team",
+      "visibility": "public"
     }
   ]
 }

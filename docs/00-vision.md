@@ -50,7 +50,7 @@ Service Definition → Provider → Consumer → Bundle/Profile composition
 TeamDomainPort      → StorageDomainTeamStore → tools / Host / RPC / UI
 ```
 
-项目不会注册第二个 `ctx.agentTeams`。在官方 experimental Agent Team 尚未成为受支持发布依赖时，当前 `TeamDomainPort` 隔离 project-owned provider；未来替换 Provider 也必须保持单一权威和迁移证据。
+项目不会注册第二个 `ctx.agentTeams`。官方 experimental Agent Team 已在固定版本发布，但尚未被本插件采用；当前 `TeamDomainPort` 隔离 project-owned provider。未来采用官方实现须核验身份、持久化与迁移合同，并保持单一权威。
 
 ## 5. 支持范围
 

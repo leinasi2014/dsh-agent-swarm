@@ -16,7 +16,7 @@ describe('Team dashboard client composition', () => {
       onEntryError: () => () => {}, subscribe: () => () => {}, entries: () => [], entriesOfSlot: () => [],
     }
     const sessions = { list: { subscribe: () => () => {}, getSnapshot: () => ({ current: 'session-1' }) } }
-    const tabTypes: { id: string; kind: string; guide: { title(): string; description(): string }[] }[] = []
+    const tabTypes: { id: string; kind: string; guide: { title(): string }[] }[] = []
     const models = vi.fn(async () => ({ ok: true as const, value: { groups: [{ id: 'dsv4f-local', name: 'DSV4 Local', models: [{ id: 'DeepSeek-V4-Flash-0731', name: 'DeepSeek V4 Flash' }] }] } }))
     const remote = { session: { modelCatalog: models } }
     const ctx = {
@@ -27,16 +27,20 @@ describe('Team dashboard client composition', () => {
     expect(injected).toContain('sidebar.right.pane.tab')
     expect(injected).not.toContain('conversation.session.header.utilities')
     expect(injected).toContain('settings.plugin.item')
+    expect(injected).toContain('conversation.session.header.lineage.display')
     expect(injected).not.toContain('shell.overlay')
     expect(registrations.map(entry => entry.name)).toEqual([
       'sidebar.right.pane.tab',
+      'conversation.session.header.lineage.display',
       'settings.plugin.item',
     ])
+    const sidebar = registrations[0]?.inject?.() as { controller: unknown }
+    const lineage = registrations[1]?.inject?.() as { hooks: { team: unknown } }
+    expect(lineage.hooks.team).toBe(sidebar.controller)
     expect(injected).not.toContain('details')
     expect(tabTypes).toHaveLength(1)
     expect(tabTypes[0]).toMatchObject({ id: 'dsh-agent-swarm/team', kind: 'swarm-team' })
     expect(tabTypes[0]?.guide[0]?.title()).toBe('title')
-    expect(tabTypes[0]?.guide[0]?.description()).toBe('description')
     const settings = registrations.at(-1)?.inject?.() as { readonly catalog: { listModelRoutes(): Promise<unknown> } }
     await expect(settings.catalog.listModelRoutes()).resolves.toEqual([{
       provider: 'dsv4f-local', providerName: 'DSV4 Local', model: 'DeepSeek-V4-Flash-0731', modelName: 'DeepSeek V4 Flash',
