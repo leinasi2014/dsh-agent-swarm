@@ -33,6 +33,7 @@ export class TeamDashboardSurfaceCoordinator {
   private state: TeamDashboardSurfaceState = INACTIVE
   private sidebar: ISidebarRight | undefined
   private sidebarEpoch = 0
+  private navigationEpoch = 0
   private disposed = false
   private mounted = false
   private observedSessionId: string | undefined
@@ -137,13 +138,15 @@ export class TeamDashboardSurfaceCoordinator {
     queueMicrotask(() => { this.options.anchorRef.current?.querySelector<HTMLButtonElement>('[data-swarm-team-trigger]')?.focus() })
   }
   async openCaptainChat(): Promise<void> {
-    await this.options.controller.openCaptainChat((id, signal) => this.openOfficialCaptain(id, signal))
+    const check = this.navigationGuard()
+    await this.options.controller.openCaptainChat((id, signal) => this.openOfficialCaptain(id, signal, check))
   }
 
   async openMainChat(): Promise<void> {
+    const check = this.navigationGuard()
     await this.options.controller.openMainChat((id, signal) => {
       signal.throwIfAborted()
-      this.assertLive()
+      check()
       const sessions = this.options.sessions
       const list = sessions.list.getSnapshot()
       const row = list.byId[id as SessionId]
@@ -154,8 +157,8 @@ export class TeamDashboardSurfaceCoordinator {
     })
   }
 
-  private async openOfficialCaptain(id: string, signal?: AbortSignal): Promise<void> {
-    this.assertLive()
+  private async openOfficialCaptain(id: string, signal: AbortSignal | undefined, check: () => void): Promise<void> {
+    check()
     const sessions = this.options.sessions
     const before = sessions.list.getSnapshot()
     const row = before.byId[id as SessionId]
@@ -164,7 +167,7 @@ export class TeamDashboardSurfaceCoordinator {
     if (row.parentId === undefined) throw new Error('Dedicated Captain has no official parent child catalog')
     await sessions.refreshSubagents(row.parentId)
     signal?.throwIfAborted()
-    this.assertLive()
+    check()
     const after = sessions.list.getSnapshot()
     if (after.current !== before.current) throw new Error('Captain Chat handoff was superseded')
     const current = after.byId[id as SessionId]
@@ -177,12 +180,13 @@ export class TeamDashboardSurfaceCoordinator {
   }
 
   async openMemberChat(name: string, sessionId: string): Promise<void> {
-    this.assertLive()
+    const check = this.navigationGuard()
     const target = this.state.targetSessionId
     await this.options.controller.openMemberChat(name, sessionId, async (captainId, memberId, signal) => {
       const sessions = this.options.sessions
       await sessions.refreshSubagents(captainId as SessionId)
       signal.throwIfAborted()
+      check()
       if (this.state.mode !== 'docked' || this.state.targetSessionId !== target
         || sessions.list.getSnapshot().current !== target) throw new Error('Member Chat handoff was superseded')
       const catalog = sessions.list.getSnapshot().subagentsByParent[captainId as SessionId]
@@ -200,7 +204,20 @@ export class TeamDashboardSurfaceCoordinator {
    *  The official Catalog is the only authority: a Session that is absent (or not live) degrades to
    *  an explicit unavailable, never a fabricated chat. */
   async openTeamCaptain(captainSessionId: string): Promise<void> {
-    await this.openOfficialCaptain(captainSessionId)
+    await this.openOfficialCaptain(captainSessionId, undefined, this.navigationGuard())
+  }
+
+  private navigationGuard(): () => void {
+    const epoch = this.navigationEpoch
+    const target = this.state.targetSessionId
+    return () => {
+      this.assertLive()
+      if (this.navigationEpoch !== epoch || this.state.mode !== 'docked'
+        || target === undefined || this.state.targetSessionId !== target
+        || this.options.sessions.list.getSnapshot().current !== target) {
+        throw new Error('Team Chat handoff was superseded')
+      }
+    }
   }
 
   private revealAvailableTeam(): void {
@@ -235,6 +252,7 @@ export class TeamDashboardSurfaceCoordinator {
   }
   private publish(state: TeamDashboardSurfaceState): void {
     if (state.mode === this.state.mode && state.view === this.state.view && state.targetSessionId === this.state.targetSessionId) return
+    if (state.mode !== this.state.mode || state.targetSessionId !== this.state.targetSessionId) this.navigationEpoch++
     this.state = Object.freeze(state)
     for (const listener of this.listeners) listener()
   }
