@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { readFile, stat } from 'node:fs/promises'
 import { isAbsolute, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { verifyManagedEvidence } from './managed-evidence.mjs'
 
 export const REQUIRED_P0_GATES = [
   'candidate-clean',
@@ -96,7 +97,9 @@ function requireGitIdentity(value, label, failures) {
 
 export async function verifyP0Evidence(root, manifest, expected = {}) {
   const failures = []
-  if (manifest?.schemaVersion !== 1) failures.push('schemaVersion must be 1')
+  const managed = manifest?.schemaVersion === 2 && manifest?.proofKind === 'managed-team'
+  if (!managed && manifest?.schemaVersion !== 1) failures.push('unsupported P0 evidence schema')
+  if (expected.requireManaged && !managed) failures.push('current candidate requires managed-Team product proof; legacy DEV_SMOKE is compatibility only')
   if (manifest?.status !== 'pass') failures.push('status must be pass')
 
   requireGitIdentity(manifest?.candidate?.commit, 'candidate.commit', failures)
@@ -134,6 +137,15 @@ export async function verifyP0Evidence(root, manifest, expected = {}) {
   if (official?.commitBefore !== official?.commitAfter || official?.treeBefore !== official?.treeAfter) {
     failures.push('official identity changed during proof')
   }
+  if (managed) {
+    const baseline = JSON.parse(await readFile(new URL('../../docs/OFFICIAL_BASELINE.json', import.meta.url), 'utf8'))
+    if (official?.commitBefore !== baseline.commit || official?.version !== baseline.release) {
+      failures.push('managed official identity does not match the current pinned release')
+    }
+    if (official?.statusBefore !== '' || official?.statusAfter !== '') failures.push('official checkout was not clean')
+    await verifyManagedEvidence(root, manifest, expected, failures)
+    return { ok: failures.length === 0, failures }
+  }
   if (official?.commitBefore !== EXPECTED_P0_OFFICIAL_COMMIT || official?.commitAfter !== EXPECTED_P0_OFFICIAL_COMMIT) {
     failures.push('official commit does not match the fixed P0 baseline')
   }
@@ -142,6 +154,7 @@ export async function verifyP0Evidence(root, manifest, expected = {}) {
   }
   if (official?.statusBefore !== '' || official?.statusAfter !== '') failures.push('official checkout was not clean')
   if (official?.version !== '0.1.1-rc.2') failures.push('official CLI version must be 0.1.1-rc.2')
+
 
   const isolation = manifest?.isolation
   for (const key of ['runtimeRoot', 'dshHome', 'workspaceRoot', 'sandboxRoot', 'storageRoot', 'sessionRoot', 'probeModuleRoot']) {
