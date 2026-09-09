@@ -1,7 +1,8 @@
 /** Host-owned target and visibility authority for local read consumers. */
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { SessionId, type Session } from '@deepseek-ai/dsh-session'
+import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
 import { isModelInvocable, type SkillRegistry } from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-agent-presets'
 import type {} from '@deepseek-ai/dsh-session-persistence'
@@ -17,6 +18,8 @@ interface RootView {
   readonly cwd: string
   readonly parentSession?: string
   readonly live?: Agent
+  readonly session?: Session | undefined
+  readonly title?: string | undefined
 }
 
 export class HostTargetReadService {
@@ -29,11 +32,14 @@ export class HostTargetReadService {
   skills(rootSessionId: string) { return this.host.withTargetRead(() => this.readSkills(rootSessionId)) }
 
   private async readTeams(rootSessionId: string) {
-    const { root, visible } = await this.visibleTeams(rootSessionId)
+    const { root, visible, main, currentTeamId, currentMemberName } = await this.visibleTeams(rootSessionId)
     this.assertUnchanged(root)
     return {
       schemaVersion: 1 as const,
-      binding: { rootSessionId },
+      binding: { rootSessionId,
+        ...(main === undefined ? {} : { mainSessionId: main.id, ...(main.title === undefined ? {} : { mainSessionTitle: main.title }) }),
+        ...(currentTeamId === undefined ? {} : { currentTeamId }),
+        ...(currentMemberName === undefined ? {} : { currentMemberName }) },
       teams: visible.map(projectTeamSummary),
       complete: true, observedAt: Date.now(),
     }
@@ -47,8 +53,9 @@ export class HostTargetReadService {
 
   private async readSection(request: SwarmReadCaptainSectionRequest) {
     if (request.target.teamId === undefined) throw new TeamDomainError('Captain section requires an explicit Team selector', 'SWARM_RPC_INVALID_REQUEST')
-    const { root, team } = await this.boundTeam(request.target)
+    const { root, team, verify } = await this.boundTeam(request.target)
     const result = await readCaptainSection(this.ctx, team, request)
+    await verify()
     this.assertUnchanged(root)
     this.assertLiveCaptain(team, root.cwd)
     return result
@@ -97,19 +104,20 @@ export class HostTargetReadService {
   }
 
   private async boundTeam(target: SwarmReadTargetHint) {
-    const { root, visible, all } = await this.visibleTeams(target.rootSessionId)
+    const view = await this.visibleTeams(target.rootSessionId)
+    const { root, visible, all, currentTeamId } = view
     if (target.teamId !== undefined) {
       const team = visible.find(candidate => candidate.id === target.teamId)
-      if (team !== undefined) return this.bindTeam(root, team)
+      if (team !== undefined) return { ...this.bindTeam(root, team), verify: view.verify }
       throw new TeamDomainError('Target Team is not visible to this Session', all.some(candidate => candidate.id === target.teamId)
         ? 'SWARM_HOST_BINDING_MISMATCH' : 'SWARM_HOST_BINDING_NOT_FOUND')
     }
-    const owned = visible.filter(team => team.captainSessionId === root.id)
+    const owned = visible.filter(team => team.id === currentTeamId || team.captainSessionId === root.id)
     const candidates = owned.length === 0 ? visible : owned
     const active = candidates.filter(team => team.phase === 'active')
-    if (active.length === 1) return this.bindTeam(root, active[0]!)
+    if (active.length === 1) return { ...this.bindTeam(root, active[0]!), verify: view.verify }
     if (active.length > 1 || candidates.length > 1) throw new TeamDomainError('Multiple Teams are available; select one Team', 'SWARM_HOST_BINDING_AMBIGUOUS')
-    if (candidates.length === 1) return this.bindTeam(root, candidates[0]!)
+    if (candidates.length === 1) return { ...this.bindTeam(root, candidates[0]!), verify: view.verify }
     throw new TeamDomainError('No Team is available for this Session', 'SWARM_HOST_BINDING_NOT_FOUND')
   }
 
@@ -164,8 +172,82 @@ export class HostTargetReadService {
       throw new TeamDomainError('Target is not a root Session', all.some(team => team.captainSessionId === root.id)
         ? 'SWARM_RPC_TARGET_NOT_LIVE' : 'SWARM_HOST_BINDING_MISMATCH')
     }
-    this.assertUnchanged(root)
-    return { root, visible, all }
+    const association = await this.mainAssociation(root, all)
+    const witnesses = [...new Map([root, ...association.witnesses].map(view => [view.id, view])).values()]
+    if (association.main !== undefined && association.main.id !== root.id) {
+      for (const team of all) {
+        if (visible.includes(team)) continue
+        if (team.captainSessionId === '') {
+          if ((team.phase === 'staged' || (team.phase === 'archived' && team.discardReason === 'discarded'))
+            && team.managedOrigin?.startsWith(`managed:${association.main.id}:`)) visible.push(team)
+          continue
+        }
+        const captain = await this.optionalView(team.captainSessionId)
+        if (captain?.cwd === root.cwd && captain.parentSession === association.main.id) {
+          visible.push(team)
+          witnesses.push(captain)
+        }
+      }
+    }
+    // Header reads and section composition can yield. Re-read the canonical
+    // aggregates after those awaits; a removed/retried member cannot keep an
+    // earlier authorization snapshot. Official Session headers are immutable.
+    const verify = async () => {
+      for (const before of witnesses) {
+        const after = await this.rootView(before.id)
+        if (after.cwd !== before.cwd || after.parentSession !== before.parentSession
+          || after.live !== before.live || after.session !== before.session) this.bindingChanged()
+      }
+      // Main-root reads have no roster-derived capability and retain their
+      // existing single aggregate scan; child reads must refresh that proof.
+      if (root.parentSession !== undefined) {
+        const latest = await this.runtime.listTeamAggregates(root.cwd)
+        for (const before of [...visible, ...(association.current === undefined ? [] : [association.current])]) {
+          const after = latest.find(team => team.id === before.id)
+          if (after === undefined || after.revision !== before.revision || after.captainSessionId !== before.captainSessionId) this.bindingChanged()
+        }
+      }
+      for (const witness of witnesses) this.assertUnchanged(witness)
+      if (association.main?.live !== undefined && !this.ctx.agents.roots().includes(association.main.live)) this.bindingChanged()
+    }
+    await verify()
+    return { root, visible: all.filter(team => visible.includes(team)), all, main: association.main,
+      currentTeamId: association.current?.id, currentMemberName: association.currentMemberName, verify }
+  }
+
+  /** Association is local single-user UI read authority only. A member must
+   *  be the active exact roster identity, and both parent links must be official. */
+  private async mainAssociation(root: RootView, all: TeamState[]) {
+    const candidates = all.filter(team => team.phase === 'active' && (team.captainSessionId === root.id
+      || (team.captainSessionId === root.parentSession && team.members?.some(member => member.phase === 'active' && member.sessionId === root.id))))
+    const current = candidates.length === 1 ? candidates[0] : undefined
+    const witnesses: RootView[] = []
+    let main: RootView | undefined = root.parentSession === undefined ? root : undefined
+    if (main === undefined && current !== undefined) {
+      const captain = current.captainSessionId === root.id ? root : await this.optionalView(current.captainSessionId)
+      if (captain?.cwd === root.cwd && captain.parentSession !== undefined) {
+        const parent = await this.optionalView(captain.parentSession)
+        if (parent?.cwd === root.cwd && parent.parentSession === undefined
+          && (parent.live === undefined || this.ctx.agents.roots().includes(parent.live))) {
+          main = parent
+          witnesses.push(captain, parent)
+        }
+      }
+    }
+    const member = current?.captainSessionId === root.id ? undefined
+      : current?.members.find(row => row.phase === 'active' && row.sessionId === root.id)
+    return { main, current, currentMemberName: member?.displayName ?? member?.name, witnesses }
+  }
+
+  private async optionalView(id: string): Promise<RootView | undefined> {
+    try { return await this.rootView(id) } catch (error) {
+      if (error instanceof TeamDomainError && (error.code === 'SWARM_RPC_TARGET_NOT_LIVE' || error.code === 'SWARM_HOST_WORKSPACE_REQUIRED')) return undefined
+      throw error
+    }
+  }
+
+  private bindingChanged(): never {
+    throw new TeamDomainError('Session or Team binding changed during read', 'SWARM_HOST_BINDING_MISMATCH')
   }
 
   private async rootView(id: string): Promise<RootView> {
@@ -177,27 +259,33 @@ export class HostTargetReadService {
         throw new TeamDomainError('Target Session binding is not current', 'SWARM_RPC_TARGET_NOT_LIVE')
       }
       if (live.session.header.cwd === undefined) throw new TeamDomainError('Target Session has no workspace cwd', 'SWARM_HOST_WORKSPACE_REQUIRED')
-      return { id, cwd: this.runtime.scopeOf(live), live,
+      return { id, cwd: this.runtime.scopeOf(live), live, session: current,
+        title: typeof live.session.snapshotEvents === 'function' ? foldSessionTitle(live.session.snapshotEvents())?.title : undefined,
         ...(live.session.header.parentSession === undefined ? {} : { parentSession: live.session.header.parentSession }) }
     }
-    const header = await this.persistedHeader(id)
+    const session = this.ctx.sessions.get(SessionId(id))
+    const header = session?.header ?? await this.persistedHeader(id)
     if (header === undefined) throw new TeamDomainError('Target is not an official persisted Session', 'SWARM_RPC_TARGET_NOT_LIVE')
     if (header.cwd === undefined) throw new TeamDomainError('Target Session has no workspace cwd', 'SWARM_HOST_WORKSPACE_REQUIRED')
-    return { id, cwd: this.runtime.scopeOf({ session: { header } } as Agent),
+    return { id, cwd: this.runtime.scopeOf({ session: { header } } as Agent), session,
+      title: session === undefined ? ('title' in header ? header.title : undefined) : (typeof session.snapshotEvents === 'function' ? foldSessionTitle(session.snapshotEvents())?.title : undefined),
       ...(header.parentSession === undefined ? {} : { parentSession: header.parentSession }) }
   }
 
-  private async persistedHeader(id: string): Promise<{ cwd?: string; parentSession?: string } | undefined> {
+  private async persistedHeader(id: string): Promise<{ cwd?: string; parentSession?: string; title?: string | undefined } | undefined> {
     try {
       const stored = await this.ctx.sessionPersistence?.inspect(SessionId(id), AbortSignal.timeout(3_000))
       if (stored === undefined) return undefined
-      return { ...(stored.meta.cwd === undefined ? {} : { cwd: stored.meta.cwd }),
+      return { title: foldSessionTitle(stored.events)?.title, ...(stored.meta.cwd === undefined ? {} : { cwd: stored.meta.cwd }),
         ...(stored.meta.parentSession === undefined ? {} : { parentSession: stored.meta.parentSession }) }
     } catch { return undefined }
   }
 
   private assertUnchanged(root: RootView): void {
-    if (root.live === undefined) return
+    if (root.live === undefined) {
+      if (this.ctx.agents.get(SessionId(root.id)) !== undefined || this.ctx.sessions.get(SessionId(root.id)) !== root.session) this.bindingChanged()
+      return
+    }
     const current = this.ctx.sessions.get(SessionId(root.id))
     if (this.ctx.agents.get(SessionId(root.id)) !== root.live || (current !== undefined && current !== root.live.session)
       || this.runtime.scopeOf(root.live) !== root.cwd || root.live.session.header.parentSession !== root.parentSession) throw new TeamDomainError('Session binding changed during read', 'SWARM_HOST_BINDING_MISMATCH')

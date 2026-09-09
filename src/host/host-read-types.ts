@@ -108,6 +108,10 @@ export interface SwarmHostTeamsProjectionV1 {
   readonly binding: {
     readonly rootSessionId: string
     readonly rootKind: 'main-brain' | 'captain'
+    readonly mainSessionId?: string
+    readonly mainSessionTitle?: string
+    readonly currentTeamId?: string
+    readonly currentMemberName?: string
   }
   readonly teams: readonly {
     readonly teamId: string
@@ -116,9 +120,9 @@ export interface SwarmHostTeamsProjectionV1 {
     readonly captainSessionId: string
     readonly captainProfile?: TeamMemberIdentityProfile
     readonly goal?: string
+    /** Counts of committed aggregate rows, not staged plan declarations. */
+    readonly summary?: { readonly memberCount: number; readonly taskCount: number; readonly completedTaskCount: number }
   }[]
   readonly observedAt: number
   readonly complete: boolean
 }
-
-

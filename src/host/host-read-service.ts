@@ -451,6 +451,10 @@ function optionalName<K extends 'ownerName' | 'targetMemberName' | 'memberName'>
 /** Complete public selector data from the same canonical aggregate read. */
 export function projectTeamSummary(team: TeamState) {
   return { teamId: team.id, name: team.name, phase: team.phase, captainSessionId: team.captainSessionId,
+    ...(team.members === undefined || team.tasks === undefined ? {} : { summary: {
+      memberCount: team.members.length, taskCount: team.tasks.length,
+      completedTaskCount: team.tasks.filter(task => task.status === 'completed').length,
+    } }),
     ...(team.captainProfile === undefined ? {} : { captainProfile: { ...team.captainProfile } }),
     ...(team.publicGoal === undefined ? {} : { goal: team.publicGoal }) }
 }

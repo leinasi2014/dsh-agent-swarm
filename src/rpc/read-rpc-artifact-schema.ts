@@ -8,7 +8,7 @@ import {
 } from './read-rpc-contract.js'
 
 const SWARM_READ_RPC_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
-export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '398775729f5d4d5bb9a0d642e2d72ac00dd969d3b15b38539b3f425348109f55' as const
+export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '76c25844a7ab8903ebf00e25ee3196db880c40b2d655cb1942ae4f44295e6ca8' as const
 
 const boundedString = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength, pattern: '\\S' })
 /** Member role is authoritative free-text (never truncated by the reader); the
@@ -81,6 +81,11 @@ const teamDescriptorWithCaptain = {
   properties: {
     teamId: boundedString(128), name: boundedString(128), phase: { enum: ['staged', 'active', 'archived'] },
     captainSessionId: boundedString(256),
+    summary: {
+      type: 'object', additionalProperties: false,
+      required: ['memberCount', 'taskCount', 'completedTaskCount'],
+      properties: { memberCount: nonNegativeInteger, taskCount: nonNegativeInteger, completedTaskCount: nonNegativeInteger },
+    },
     displayName: boundedString(128),
     profession: boundedString(256),
     personality: boundedString(1024),
@@ -400,7 +405,8 @@ export const SWARM_READ_RPC_CONTRACT_V1 = deepFreezeJson({
           schemaVersion: { const: 1 },
           binding: {
             type: 'object', additionalProperties: false, required: ['rootSessionId'],
-            properties: { rootSessionId: boundedString(256) },
+            properties: { rootSessionId: boundedString(256), mainSessionId: boundedString(256),
+              mainSessionTitle: boundedString(4096), currentTeamId: boundedString(128), currentMemberName: boundedString(128) },
           },
           teams: { type: 'array', maxItems: 100, items: teamDescriptor },
           observedAt: nonNegativeInteger, complete: { type: 'boolean' },

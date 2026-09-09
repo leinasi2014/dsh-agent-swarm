@@ -132,6 +132,8 @@ export interface SwarmReadCaptainEndpointRefV1 {
 
 export interface SwarmReadTeamV1 {
   readonly teamId: string
+  /** Actual aggregate counts; absent in older producers. */
+  readonly summary?: { readonly memberCount: number; readonly taskCount: number; readonly completedTaskCount: number }
   readonly name: string
   readonly phase: 'staged' | 'active' | 'archived'
   /** Dedicated Captain Session id; empty only for an unstarted or discarded draft. */
@@ -161,6 +163,12 @@ export interface SwarmReadTeamsV1 {
   readonly schemaVersion: 1
   readonly binding: {
     readonly rootSessionId: string
+    /** Verified local UI association; never a model or mutation capability. */
+    readonly mainSessionId?: string
+    readonly mainSessionTitle?: string
+    readonly currentTeamId?: string
+    /** Exact active member's current public display name, otherwise its roster name. */
+    readonly currentMemberName?: string
   }
   readonly teams: readonly SwarmReadTeamV1[]
   readonly observedAt: number

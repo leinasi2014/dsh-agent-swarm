@@ -31,6 +31,27 @@ const interactionRowFixture = {
 }
 
 describe('R2 browser client', () => {
+  it('accepts optional main association and aggregate summaries while rejecting invented fields and invalid counts', () => {
+    const legacy = SWARM_READ_RPC_FIXTURES_V1.values.teams
+    const row = legacy.teams[0]!
+    const value = { ...legacy, binding: { rootSessionId: 'session-fixture', mainSessionId: 'main-session', mainSessionTitle: 'Public title', currentTeamId: row.teamId, currentMemberName: 'Public member' },
+      teams: [{ ...row, summary: { memberCount: 2, taskCount: 3, completedTaskCount: 1 } }] }
+    expect(() => assertSwarmReadRpcValue('teams', legacy)).not.toThrow()
+    expect(() => assertSwarmReadRpcValue('teams', value)).not.toThrow()
+    for (const binding of [
+      { ...value.binding, privateMemory: 'hidden' }, { ...value.binding, mainSessionId: '' },
+      { ...value.binding, mainSessionTitle: '' }, { ...value.binding, currentTeamId: 'not-in-directory' },
+      { rootSessionId: 'session-fixture', mainSessionTitle: 'orphan title' },
+      { rootSessionId: 'session-fixture', currentMemberName: 'orphan member' },
+      { ...value.binding, currentMemberName: '' },
+    ]) expect(() => assertSwarmReadRpcValue('teams', { ...value, binding })).toThrow()
+    for (const summary of [
+      { memberCount: -1, taskCount: 3, completedTaskCount: 1 }, { memberCount: 1.5, taskCount: 3, completedTaskCount: 1 },
+      { memberCount: 1, taskCount: 3, completedTaskCount: 4 }, { memberCount: 1, taskCount: 3 },
+      { memberCount: 1, taskCount: 3, completedTaskCount: 1, planned: 9 },
+      { memberCount: Number.MAX_SAFE_INTEGER + 1, taskCount: 3, completedTaskCount: 1 },
+    ]) expect(() => assertSwarmReadRpcValue('teams', { ...value, teams: [{ ...row, summary }] })).toThrow()
+  })
   it('admits an absent Captain only for staged or archived drafts, never an empty read binding', () => {
     const directory = SWARM_READ_RPC_FIXTURES_V1.values.teams
     const row = directory.teams[0]!

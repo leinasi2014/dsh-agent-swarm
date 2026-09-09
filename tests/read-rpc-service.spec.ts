@@ -264,7 +264,8 @@ describe('R2 authoritative target binding and wire contract', () => {
         { id: 'team-sibling', captainSessionId: 'sibling-captain', phase: 'active' }],
     })
     const directory = await harness.service.invoke({ schemaVersion: 1, method: 'teams', target: { rootSessionId: captain } }) as SwarmReadTeamsV1
-    expect([directory.binding.rootSessionId, ...directory.teams.map(team => team.teamId)]).toEqual([captain, 'team-r2'])
+    expect([directory.binding.rootSessionId, ...directory.teams.map(team => team.teamId)]).toEqual([captain, 'team-r2', 'team-archived', 'team-sibling'])
+    expect(directory.binding).toMatchObject({ mainSessionId: ROOT.id, currentTeamId: 'team-r2' })
     expect(directory.teams[0]?.endpoints.members.target.rootSessionId).toBe(captain)
     for (const method of ['binding', 'status', 'snapshot', 'captainMembers', 'captainAnnouncements', 'captainDiagnostics'] as const) {
       const value = await harness.service.invoke({ schemaVersion: 1, method, target: { rootSessionId: captain, teamId: 'team-r2' } }) as { binding?: { rootSessionId: string; teamId: string } }

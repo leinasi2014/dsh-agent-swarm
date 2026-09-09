@@ -246,12 +246,17 @@ function assertResultSemantics(method: string, value: Record<string, unknown>): 
     const teams = value.teams as readonly Record<string, unknown>[]
     const binding = value.binding as Record<string, unknown>
     const bindingRootSessionId = binding.rootSessionId as string
+    if (binding.mainSessionTitle !== undefined && binding.mainSessionId === undefined) throw new Error('Swarm RPC main title requires its Session binding')
+    if (binding.currentMemberName !== undefined && binding.currentTeamId === undefined) throw new Error('Swarm RPC member name requires its current Team binding')
+    if (binding.currentTeamId !== undefined && !teams.some(team => team.teamId === binding.currentTeamId)) throw new Error('Swarm RPC current Team must occur in the directory')
     for (const team of teams) {
       const row = team as Record<string, unknown>
       assertAvatarSemantics(row, 'Team')
       assertIdentityCardSemantics(row, 'Team')
       assertGoalSemantics(row)
       assertTeamEndpoints(row, bindingRootSessionId)
+      const summary = row.summary as Record<string, number> | undefined
+      if (summary !== undefined && summary.completedTaskCount! > summary.taskCount!) throw new Error('Swarm RPC completed count exceeds all tasks')
     }
     return
   }
