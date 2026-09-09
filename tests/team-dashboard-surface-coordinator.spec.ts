@@ -17,7 +17,7 @@ class Slots {
   private emit(): void { this.listeners.forEach(listener => listener()) }
 }
 function fixture() {
-  const slots = new Slots(); const controller: { state: TeamDashboardState; listeners: Set<() => void>; open: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn>; openCaptainChat: ReturnType<typeof vi.fn>; getSnapshot(): TeamDashboardState; subscribe(listener: () => void): () => void } = { state: { open: false, phase: 'closed' }, listeners: new Set(), open: vi.fn(function (this: typeof controller, id: string) { this.state = { open: true, phase: 'loading', targetSessionId: id }; this.listeners.forEach(listener => listener()) }), close: vi.fn(function (this: typeof controller) { this.state = { open: false, phase: 'closed' }; this.listeners.forEach(listener => listener()) }), dispose: vi.fn(), openCaptainChat: vi.fn(), getSnapshot() { return this.state }, subscribe(listener: () => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener) } } }
+  const slots = new Slots(); const controller: { state: TeamDashboardState; listeners: Set<() => void>; open: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; refresh: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn>; openCaptainChat: ReturnType<typeof vi.fn>; getSnapshot(): TeamDashboardState; subscribe(listener: () => void): () => void } = { state: { open: false, phase: 'closed' }, listeners: new Set(), open: vi.fn(function (this: typeof controller, id: string) { this.state = { open: true, phase: 'loading', targetSessionId: id }; this.listeners.forEach(listener => listener()) }), close: vi.fn(function (this: typeof controller) { this.state = { open: false, phase: 'closed' }; this.listeners.forEach(listener => listener()) }), refresh: vi.fn(), dispose: vi.fn(), openCaptainChat: vi.fn(), getSnapshot() { return this.state }, subscribe(listener: () => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener) } } }
   const layout = { openDetails: vi.fn(), closeDetails: vi.fn() }; let current = 'root'; const sessionListeners = new Set<() => void>()
   const sessions = { open: vi.fn(), list: { getSnapshot: () => ({ current, byId: { root: {}, other: {} } }), subscribe: (listener: () => void) => { sessionListeners.add(listener); return () => { sessionListeners.delete(listener) } } }, setCurrent: (next: string) => { current = next; sessionListeners.forEach(listener => listener()) } }
   const anchor = document.createElement('span'); anchor.innerHTML = '<button data-swarm-team-trigger></button>'; document.body.append(anchor)
@@ -26,6 +26,22 @@ function fixture() {
   return { slots, controller, layout, sessions, coordinator, releaseDetails, releaseLayout, unmount, destroy: () => { releaseDetails(); releaseLayout(); unmount(); anchor.remove() } }
 }
 describe('TeamDashboardSurfaceCoordinator', () => {
+  it('resumes current Session discovery after layout and declaration replacement without a toolbar (#225)', () => {
+    const f = fixture()
+    f.releaseLayout()
+    expect(f.controller.state.open).toBe(false)
+    const previous = f.controller.open.mock.calls.length
+    const release = f.coordinator.bindLayout(f.layout as never)
+    expect(f.controller.open).toHaveBeenCalledTimes(previous + 1)
+    expect(f.controller.state).toMatchObject({ open: true, targetSessionId: 'root' })
+    f.releaseDetails()
+    expect(f.controller.state.open).toBe(false)
+    const releaseDeclaration = f.coordinator.bindDetailsDeclaration()
+    expect(f.controller.open).toHaveBeenCalledTimes(previous + 2)
+    expect(f.controller.state).toMatchObject({ open: true, targetSessionId: 'root' })
+    releaseDeclaration(); release(); f.destroy()
+  })
+
   it('discovers the current Team without a toolbar click, and respects dismissal until a different Team or Session (#225)', () => {
     const f = fixture()
     expect(f.controller.open).toHaveBeenCalledWith('root')

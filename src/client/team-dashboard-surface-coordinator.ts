@@ -86,6 +86,7 @@ export class TeamDashboardSurfaceCoordinator {
     if (this.disposed) return () => {}
     const epoch = ++this.layoutEpoch
     this.layout = layout
+    this.resumeObservation()
     this.revealAvailableTeam()
     return () => {
       if (epoch !== this.layoutEpoch) return
@@ -98,6 +99,7 @@ export class TeamDashboardSurfaceCoordinator {
     if (this.disposed) return () => {}
     const epoch = ++this.declarationEpoch
     this.declarationLive = true
+    this.resumeObservation()
     this.revealAvailableTeam()
     return () => {
       if (epoch !== this.declarationEpoch) return
@@ -128,7 +130,11 @@ export class TeamDashboardSurfaceCoordinator {
     try { this.layout.openDetails() } catch { this.close(false) }
   }
   selectView(view: TeamDashboardView): void { if (this.state.mode === 'docked' && this.state.view !== view) this.publish({ ...this.state, view }) }
-  closeAndRestoreFocus(): void { this.dismissedTeamId = this.options.controller.getSnapshot().data?.projection.binding.teamId; this.close(true, true) }
+  closeAndRestoreFocus(): void {
+    this.dismissedTeamId = this.options.controller.getSnapshot().data?.projection.binding.teamId
+    this.close(true, true)
+    this.options.controller.refresh()
+  }
   /** Team yields Details; official Tool Details remains the sole Tool renderer. */
   showToolDetails(): void {
     this.assertLive()
@@ -137,6 +143,7 @@ export class TeamDashboardSurfaceCoordinator {
     this.dismissedTeamId = this.options.controller.getSnapshot().data?.projection.binding.teamId
     this.releaseTeamLease()
     this.publish(INACTIVE)
+    this.options.controller.refresh()
     try { layout.openDetails() } catch { this.publish(INACTIVE) }
   }
   async openCaptainChat(): Promise<void> {
@@ -207,6 +214,11 @@ export class TeamDashboardSurfaceCoordinator {
     } catch { release?.(); return false }
   }
   private isWinner(entry: StoredEntry): boolean { return this.options.slots.entriesOfSlot('details')[0] === entry }
+  private resumeObservation(): void {
+    const current = this.options.sessions.list.getSnapshot().current
+    if (!this.disposed && this.mounted && this.layout !== undefined && this.declarationLive
+      && current !== undefined && !this.options.controller.getSnapshot().open) this.options.controller.open(current)
+  }
   /** Polling uses the existing Host projection; only a verified Team acquires UI space. */
   private revealAvailableTeam(): void {
     const read = this.options.controller.getSnapshot()

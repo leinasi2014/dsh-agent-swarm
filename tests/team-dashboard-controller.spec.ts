@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { TeamDashboardController, type TeamDashboardSchedule } from '../src/client/team-dashboard-controller.js'
 import { SwarmReadClient, type SwarmFetch } from '../src/client/read-client.js'
 import type { SwarmReadRpcRequest } from '../src/rpc/read-rpc-contract.js'
+import { TeamDashboardSurfaceCoordinator } from '../src/client/team-dashboard-surface-coordinator.js'
+vi.mock('../src/client/TeamDashboardDetails.js', () => ({ TeamDashboardDetails: () => null }))
 
 const CURSOR = `r1:${'a'.repeat(64)}`
 const CHANGED_CURSOR = `r1:${'b'.repeat(64)}`
@@ -504,6 +506,41 @@ describe('TeamDashboardController', () => {
     expect(seen.at(-1)?.method).toBe('binding')
     expect(controller.getSnapshot().phase).toBe('ready')
     controller.dispose()
+  })
+
+  it.each(['close', 'tool'] as const)('cancels a delayed Captain handoff on %s while continuing Team discovery (#225)', async action => {
+    let delay = false
+    let entered = false
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const normal = goodFetch([])
+    const fetcher: SwarmFetch = async (url, init) => {
+      const request = JSON.parse(String(init?.body)) as SwarmReadRpcRequest
+      if (delay && request.method === 'binding') { entered = true; await gate }
+      return normal(url, init)
+    }
+    const controller = new TeamDashboardController(new SwarmReadClient(fetcher), new ManualSchedule())
+    let entry: object | undefined
+    const slots = { entries: () => entry === undefined ? [] : [entry], entriesOfSlot: () => entry === undefined ? [] : [entry],
+      register: () => { entry = {}; return () => { entry = undefined } }, onEntryError: () => () => {}, subscribe: () => () => {} }
+    const sessions = { open: vi.fn(), list: { getSnapshot: () => ({ current: 'root-1', byId: { 'root-1': {} } }), subscribe: () => () => {} } }
+    const coordinator = new TeamDashboardSurfaceCoordinator({ slots, sessions, controller, locale: { getLocale: () => ({ active: 'en' }) }, anchorRef: { current: null } } as never)
+    const dispose = coordinator.mount()
+    coordinator.bindLayout({ openDetails: () => {}, closeDetails: () => {} } as never)
+    coordinator.bindDetailsDeclaration()
+    try {
+      await waitFor(() => controller.getSnapshot().phase === 'ready')
+      delay = true
+      const navigation = coordinator.openCaptainChat().then(() => 'navigated', () => 'cancelled')
+      await waitFor(() => entered)
+      if (action === 'close') coordinator.closeAndRestoreFocus()
+      else coordinator.showToolDetails()
+      delay = false; release()
+      expect(await navigation).toBe('cancelled')
+      await waitFor(() => controller.getSnapshot().phase === 'ready')
+      expect(sessions.open).not.toHaveBeenCalled()
+      expect(coordinator.getSnapshot().mode).toBe('inactive')
+    } finally { release(); dispose() }
   })
 
   it('loads a captainless draft as ready and rejects a fake Captain Chat handoff', async () => {
