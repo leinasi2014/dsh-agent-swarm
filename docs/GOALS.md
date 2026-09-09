@@ -25,7 +25,7 @@ Main Brain（Team 外）
 
 ## 产品范围
 
-1. **团队与身份**：多 Team、独立 Captain、成员职业/人格/头像、模型与 Skill 配置。
+1. **团队与身份**：多 Team、独立 Captain、成员职业/人格/头像、模型与 Skill 配置。成员头像可按自身喜好选择人物、动物、物品或抽象图案，统一格式、尺寸与点阵分辨率，配色协调。
 2. **任务交付**：DAG、优先级、定向分配、revision CAS、attempt fencing、提交、审核、重派和恢复。
 3. **协作政策**：Scheduler、Workflow、Review、budget、tool permission、memory、execution root 和 remote/distributed Provider 边界。
 4. **用户入口**：26 个模型工具、Main Brain/Captain Chat、Host/RPC read contract、Team Workbench 和官方 Plugins 设置。

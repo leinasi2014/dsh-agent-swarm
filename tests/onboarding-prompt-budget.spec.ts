@@ -79,6 +79,11 @@ it('bounds the actual managed Captain/member onboarding and compiled tool surfac
     expect.soft(memberText).not.toContain('agent_swarm_interrupt_member')
     expect.soft(schemaTexts.join('\n')).toContain('32x32')
     expect.soft(schemaTexts.join('\n')).toContain('#RRGGBB')
+    const selfProfile = JSON.stringify(mounted.ctx.tools.get('agent_swarm_set_member_profile')!.parameters)
+    for (const surface of [captainPersona, memberPersona, ...schemaTexts.slice(1), selfProfile]) {
+      expect.soft(surface).toContain('animals, objects or abstract designs')
+      expect.soft(surface).not.toMatch(/Draw hair|eyes, clothing|pixel portrait/)
+    }
     expect(captainNotice).toContain('Deliver a verified repair. Preserve user identity preferences.')
     expect(captainNotice).toContain('target_member')
   } finally {

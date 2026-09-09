@@ -27,7 +27,7 @@ Main Brain 不加入 Team roster，也不获得 Captain 权限。多个 Team 的
 
 ## 已实现
 
-- 独立 Captain Session、多个 managed Team；staged 招募保留完整成员资料，成员可完善自己的档案与多色像素头像。头像经受限网格/SVG 校验后显示。
+- 独立 Captain Session、多个 managed Team；staged 招募保留完整成员资料，成员可完善自己的档案，并按喜好设计人物、动物、物品或抽象图案头像。新头像统一使用 32×32 点阵与调色板格式，注重配色协调，经受限网格/SVG 校验后显示。
 - 按角色授权的 `agent_swarm_*` 工具，覆盖建队（含 Plan-first staged）、计划审批、成员、任务 DAG、定向分配、提交/审核、逐次工具审批、邮箱、预算、记忆、等待与分页读取。
 - `revision` CAS 与 `attemptId` fencing；陈旧提交、重复执行和越权调用明确失败。
 - 官方 Storage Domain 中的 durable Team aggregate；成员、任务、attempt、邮箱、预算、公告和公共目标可跨重启恢复。

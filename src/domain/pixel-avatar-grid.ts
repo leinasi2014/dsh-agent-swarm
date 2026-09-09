@@ -37,7 +37,7 @@ export function compilePixelAvatarGrid(input: PixelAvatarGrid): string {
     }
     previous = current
   }
-  if (rects.length === 0) invalid('portrait is fully transparent')
+  if (rects.length === 0) invalid('avatar is fully transparent')
   if (rects.length > 256) invalid('too many isolated pixel runs; simplify tiny checkerboard details (maximum 256 rectangles)')
   return sanitizePixelAvatarSvg('<svg viewBox="0 0 32 32">' + rects.map(rect =>
     `<rect x="${rect.x}" y="${rect.y}" width="${rect.width}" height="${rect.height}" fill="${rect.fill}"/>`).join('') + '</svg>')
