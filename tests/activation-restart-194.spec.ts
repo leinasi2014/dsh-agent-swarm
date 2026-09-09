@@ -3,7 +3,7 @@ import { queueSubagentPrompt, type HostPromptQueue } from '@deepseek-ai/dsh-suba
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { ToolCallId, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, createUserMessage, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { expect, it, vi } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
@@ -59,6 +59,12 @@ async function seedSubmitted(sandbox: string, preset = false) {
       meta: { cwd: join(sandbox, 'workspace'), agentPreset: 'code' },
       setup: async ctx => { await first!.ctx.agentPresets.mount(ctx, 'code') },
     })).agent : first.ctx.agentLoop.create(ROOT, { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+    // Real first admission establishes the canonical route used by a cold
+    // headless root; direct test tool calls alone do not create request headers.
+    root.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Prepare the managed Team.' }] }))
+    await initial.waitForRequests(1)
+    initial.open()
+    await root.whenIdle()
     const created = await tool(first.ctx, root, '194-create', 'agent_swarm_create_managed', { name: 'Restart in-flight', description: 'Continue the submitted DAG.' })
     expect(created.isError).toBe(false)
     const { team_id: teamId, captain_session_id: captainId } = created.value as { team_id: string; captain_session_id: string }

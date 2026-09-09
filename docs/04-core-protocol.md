@@ -42,6 +42,10 @@ Team 阶段为 `staged | active | archived`：`staged` 是 Plan-first 声明态�
 - `agent_swarm_discard_plan` 归档 staged 草稿且不创建任何工作，幂等；被放弃的 Team 不会隐式复活。
 - staged Team 不参与调度/成员资格；只读投影暴露 `plan` 摘要（声明成员/任务数），Main Brain 绑定允许唯一 staged Team。
 
+有未完成工作的 managed Team 冷恢复根协调者时，已有 `sessionController` 的 Host 使用官方 `resolveAgent`，由它恢复 preset、已保存路由及 pending 模型选择；该根 Agent 归 Host 所有，不进入插件的销毁清单。无 Controller 的组合只从官方 `foldRequestHeader` 恢复 provider/model、显式 reasoning effort 与 token 上限，再用官方 `installModelSelection` 保持 persona 变量和请求路由一致；缺少路由，或存在模型选择历史却缺少官方 `modelSelection` projection 时明确失败，不猜全局默认。已存活根协调者保持原有绑定与所有权。取消插件恢复只停止本次等待和后续子任务投递，不取消或销毁 Controller 正在共享恢复的根 Agent。
+
+根恢复验收须覆盖真实首轮请求写入 Session → 销毁整个 Context → 冷恢复 → Captain 正式上行消息唤醒根协调者，核对 persona 中的模型变量、实际 provider/model/reasoning effort 与最终 turn；只证明 Captain 或成员继续执行不足以通过根协调者恢复。
+
 ## 3. revision 与 attempt 围栏
 
 - Team mutation 在聚合 revision 上串行提交。
