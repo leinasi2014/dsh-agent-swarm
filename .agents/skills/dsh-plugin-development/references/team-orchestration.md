@@ -2,39 +2,30 @@
 
 ## Canonical Team domain
 
-Align with official Agent Team semantics now, while keeping the private package out of production dependencies until promoted:
+Use the selected product's identity contract and official Session authority while keeping private experimental packages out of production dependencies:
 
-- root Session is Lead identity;
+- this plugin keeps the Main Brain outside the Team and provisions a distinct Captain Session; a reference's root-as-Lead topology does not override that contract;
 - teammate Session ids are durable authority identities;
 - durable roster/mailbox/task DAG;
 - task revision compare-and-set;
 - queued-before-delivered mailbox;
 - bounded wait/change observation.
 
-Before every Team change, re-check the official experimental package and its implemented Agent Notes for contract or promotion movement. Use a single `TeamDomainPort` and exactly one selected canonical backend; never write both private and official Team state.
+Recheck official/reference evidence when a changed API, package cohort, pin or contradictory real result makes compatibility decision-bearing; otherwise reuse the matching accepted evidence. Use a single `TeamDomainPort` and exactly one selected canonical backend; never write both private and official Team state.
 
 ## Orchestrator overlay
 
-Keep policy outside canonical task:
+Keep execution policy out of tools and UI, while retaining each fact in its existing authoritative domain:
 
-- TaskRun and `attemptId`;
-- Scheduler decision;
-- Workspace lease;
-- Budget reservation;
-- Review status;
-- workflow linkage;
-- memory checkpoint.
+- Team owns its tasks, `attemptId`, reservations and review outcome;
+- the Scheduler selects work through the Team mutation boundary;
+- execution-root Providers own physical leases and release handles;
+- Workflow owns run state and links to Team tasks without copying their transitions;
+- private memory and interaction overlays own only their separate correlated records.
 
 ## Safe reassignment
 
-1. CAS task/run state;
-2. invalidate old attempt;
-3. mark handoff/quiescing;
-4. interrupt old member;
-5. await or time-bound quiescence;
-6. create fresh attempt/workspace/budget reservation;
-7. dispatch new work;
-8. reject every late old update.
+Reassignment must invalidate the old attempt through CAS before a new generation can commit work. Interrupt and resource settlement use the selected Provider's real lifecycle guarantees; do not invent a generic quiescence API or a second handoff state machine. Current code settles the Team transition, interrupts the old member and sweeps/schedules through the same runtime owner. Late old submissions remain fenced, and a released execution root must reject further tool use. Verify the exact implementation and failure windows in the core protocol and focused tests.
 
 ## Completion
 

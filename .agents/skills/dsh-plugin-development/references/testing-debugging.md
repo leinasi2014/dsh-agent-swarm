@@ -2,7 +2,7 @@
 
 ## Test strategy
 
-- official compatibility gate: remote SHA, package visibility/exports, Profile composition and superseded-claim search;
+- triggered official compatibility gate: changed baseline/reference/API or contradictory real evidence requires the relevant SHA, package exports, Profile composition and superseded-claim checks; reuse unchanged accepted evidence otherwise;
 - pure behavior tests for transformations;
 - Provider conformance suite;
 - lifecycle/reload tests;

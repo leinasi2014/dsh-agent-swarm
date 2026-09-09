@@ -6,11 +6,12 @@
 
 已存在的可执行产品纵切：
 
-- Main Brain 创建多个 managed Team，每个 Team 有独立 Captain Session；
-- Captain 招募 continuable members，设置 identity/goal/announcement，建立任务 DAG；
+- Main Brain 创建多个 managed Team，每个活跃 Team 有独立 Captain Session；可选 staged 计划审批后再激活；
+- Captain 招募 continuable members、分配职责/职业、设置 goal/announcement，建立任务 DAG；各人自定资料并读回后绘制头像；
 - Scheduler/Workflow 分配 fenced attempts，成员提交，Captain/Review Provider 接受或 rework；
 - Team aggregate、mailbox、budget、memory 和 overlays 通过官方 Storage Domain 持久化；
-- 26 个模型工具、read Host、`/swarm/v1`、Team Workbench V3 和 Plugins 设置页已在源码中组合；
+- 按角色授权的模型工具、read Host、`/swarm/v1`、Team Workbench 和 Plugins 设置页已在源码中组合；
+- 同伴通信强度支持插件默认、Captain 持久覆盖和面板排队请求；真实回复关联提问，超额主动唤醒转为 quiet delivery；
 - unit、composition、restart、fault、UI、package 和 Profile-proof 检查已有工程入口。
 
 当前仍是预发布：公共发布、通用 browser writes、Canvas、remote/distributed 和完整发布级 E2E 未完成。因此本文不声明“当前已达到 90%”。
@@ -46,7 +47,7 @@
 目标：让用户无需阅读内部协议即可完成团队交付。
 
 - 优化 managed Team onboarding：完整目标传递、Captain identity、成员角色/Skills/模型选择和首批任务创建。
-- 按 #18 参照 `dsh-agent-teams` 简化 Workbench：一眼任务进度、纵向 Captain/成员/当前任务执行树、可点开的依赖图与栏内详情；保留待审核与人工待办区别、身份/模型/Skills、预算、公告和 Captain Chat。空态、错误、stale/reconnect 和键盘焦点必须可读可操作。
+- 保持 Workbench 的任务进度、纵向 Captain/成员/当前任务执行树、可点开的依赖图与栏内详情；保留待审核与人工待办区别、身份/模型/Skills、预算、公告和 Captain Chat。空态、错误、stale/reconnect 和键盘焦点必须可读可操作。
 - 保持 browser 主要为 read/navigation Consumer；用户修改 Team 先通过正确 Captain Chat 完成。
 - 对真正需要 direct control 的少量操作，逐项建立 verified human principal、idempotency、authoritative read-back 和 unknown-outcome handling；未通过的操作保持 unavailable。
 
@@ -67,7 +68,7 @@
 
 目标：把仓库能力变成可安全安装和回退的产品候选。
 
-- 从冻结 commit 构建一次 tarball，记录 digest，并在 fresh isolated `DSH_HOME` 安装。
+- 从冻结 commit 构建一次 tarball，记录 digest，以独立目录或提交号区分包路径，并在 fresh isolated `DSH_HOME` 安装。
 - 验证 `plugin add`、默认启用、Settings、`--dump-config`、禁用、reload、upgrade、rollback、remove 和缺依赖 fail-closed。
 - 运行 candidate gate、官方/reference compatibility gate（仅在触发时）、真实 Profile/browser E2E 和风险对应的非作者审查。
 - 同步 README、产品/协议/验证文档和已知限制；保持 `private: true`，直到公共发布另获授权并有发布身份。

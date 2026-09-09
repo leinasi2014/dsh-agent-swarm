@@ -21,7 +21,7 @@ src/
   domain/                  纯 Team 业务规则、状态、错误、revision/attempt 围栏
   runtime/                 调度、成员、审查、权限、预算、恢复、Workflow/Jobs policy
   storage/                 Team/overlay/private-memory 的 Storage Domain adapter
-  tools/                   26 个模型工具 Consumer，按 lifecycle/task/mail/read/memory 分组
+  tools/                   模型工具 Consumer，按 lifecycle/task/mail/plan/read/memory/policy 分组
   human/                   Captain liaison、human control、question/review adapter
   host/                    Host service 与 producer/read assembly
   rpc/                     /swarm/v1 有界读合同、artifact 和 service

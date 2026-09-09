@@ -15,6 +15,8 @@
   → 用户继续由 Main Brain 跨 Team 统筹，或打开 Captain Chat 调整单个 Team
 ```
 
+需要先审计划时，Main Brain 可先创建没有 Captain 的 staged Team，提交成员和任务计划，经批准后再激活并创建会话；放弃计划只归档草稿。默认 managed create 仍直接启动独立 Captain。
+
 ## 2. 三层身份
 
 | 身份 | 职责 | 不能做什么 |
@@ -23,7 +25,7 @@
 | Captain | Team 唯一负责人；招募、建任务、分配、公告、审核和恢复 | 不能把模型声明当作已验收结果，不能批准自己的发布候选 |
 | Member | 在一个 fenced attempt 内完成专业任务并提交证据 | 不能调用 Captain-only 管理面，不能写入陈旧 attempt |
 
-名称、职业、人格和安全像素头像是可展示 identity profile；真正权限来自官方 live Agent/Session 绑定和 Host 验证，不来自显示名称。
+名称、职业、性格、简介和安全像素头像是可展示 identity profile；真正权限来自官方 live Agent/Session 绑定和 Host 验证，不来自显示名称。队长分配职责与专业职业，队长和成员分别选择自己的四项文字、保存并读回，再最后设计头像；临时任务与权限约束不代替个人身份。
 
 ## 3. 产品界面
 
@@ -32,7 +34,8 @@
 - **Workbench** 参考 `dsh-agent-teams` 的信息层级：公共目标、按真实任务状态汇总的进度、Captain → 成员 → 当前任务执行树，以及可展开的任务依赖。未提交计划、空公告和技术诊断不占据默认概览。
 - **Tasks / Announcements / Management** 提供互斥视图；成员和任务详情在官方右侧栏 Team 页签内切换，提供明确的返回入口并恢复焦点。禁止 modal、absolute 详情遮罩和插件自有全屏回退；窄屏布局继续由官方宿主负责。
 - **Captain Chat** 使用官方 Session navigation 打开所选 Captain；不是 `/swarm` 的隐式写操作。
-- **Plugin settings** 配置 Captain/成员模型、Skills、工具 policy、编排/review 选择和资源上限；保存后由官方 Settings 在重启时应用。
+- **Management** 可向本队 Captain 排队请求调整交流强度，权威读回后才显示已应用；队长也可直接设置本队覆盖。
+- **Plugin settings** 配置 Captain/成员模型、Skills、工具 policy、默认交流强度、编排/review 选择和资源上限；保存后由官方 Settings 在重启时应用。未覆盖的模型路由继承用户当前 Session，验收模型不成为产品默认。
 
 UI 必须诚实显示 unavailable、stale、reconnect 和 error。没有权威数据时显示未知或不可用，而不是从 transcript 或本地缓存猜测。
 
@@ -59,9 +62,9 @@ TeamDomainPort      → StorageDomainTeamStore → tools / Host / RPC / UI
 
 1. 在 fresh isolated official DSH Profile 安装不可变插件包并启动。
 2. Main Brain 创建至少两个独立 Captain Team。
-3. Captain 设置身份/目标/公告，招募带不同 Skills、模型和工具 policy 的成员。
+3. Captain 设置目标/公告，招募带不同 Skills、模型和工具 policy 的成员；各人完成自己的身份文字、读回和头像。
 4. 一个含依赖的任务 DAG 经分配、执行、提交、验证、接受和失败恢复完成。
-5. Workbench 原位切换 Team，所有身份、任务和活动与权威读回一致；Captain Chat 导航到正确 Session。
+5. Workbench 原位切换 Team，所有身份、任务和活动与权威读回一致；Captain/Member Chat 导航到正确 Session，面板交流强度请求经队长保存并读回。
 6. 重启后状态恢复；禁用、卸载、升级和回滚不泄漏 listener、route、timer、Session 或 storage authority。
 
 这个场景通过真实 Profile/browser 和持久化重启证据后，才支撑对应产品 claim。目标设计、单元测试或截图不能单独替代它。

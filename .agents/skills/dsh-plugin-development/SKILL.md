@@ -271,7 +271,7 @@ Bundle 修改后重启 Profile。不要手写用户 profile 的 bundle manifest�
 插件用自己组成开发 Team 时，必须把控制面与候选面分开：
 
 - stable control Profile 只加载 last-known-good artifact；
-- 当前仓库只允许一个编码 writer 在已绑定 checkout 中工作；产品的隔离执行根只能作为受测运行时能力使用，不能反向授权并行仓库写入；
+- 每个已绑定 checkout 只有一个编码 writer；并行分配数量与所有权遵循项目绑定的受管 lifecycle。产品隔离执行根不能反向授权仓库写入；
 - 提交后冻结 commit 和 package digest，Reviewer 不审查 Worker 仍可改写的目录；
 - candidate 只进入独立 acceptance Profile/port/state root；
 - promotion/rollback 由 candidate 运行时之外的控制器拥有；
@@ -295,7 +295,7 @@ node .agents/skills/dsh-plugin-development/scripts/verify-dsh-plugin.mjs .
 dsh --profile <check-profile> --dump-config
 ```
 
-本仓库的 `pnpm verify:candidate`（`pnpm verify` 为兼容别名）包含工程门禁（`docs/08` §9）：oxlint、jscpd 重复检测、knip 死导出检测、`noUnused*` 类型检查、测试、场景审计、构建、artifact 和 src 600 行上限。`verify-dsh-plugin`、真实 Profile、coverage 与 promotion 仅在变更的产品/部署 claim 需要时运行，不重复证明无关事实。
+本仓库的 `pnpm verify:candidate`（`pnpm verify` 为兼容别名）包含 [测试与验收](../../../docs/08-testing-verification.md) 定义的工程门：oxlint、jscpd 重复检测、knip 死导出检测、`noUnused*` 类型检查、测试、场景审计、构建、artifact 和 src 600 行上限。`verify-dsh-plugin`、真实 Profile、coverage 与 promotion 仅在变更的产品/部署 claim 需要时运行，不重复证明无关事实。
 
 产品/模型可见改动需要真实 Loader 组合和 snapshot/e2e。Mock-only 单元测试不能证明 Bundle、依赖注入、Session 日志或模型文本正确。
 
@@ -410,7 +410,7 @@ dsh --profile <check-profile> --dump-config
 
 1. `ref/` 两个 checkout 均只读；更新通过各自 sync 脚本并记录 pin。
 2. 不依赖未发布的 `@deepseek-ai/dsh-experimental-agent-team` 作为正式 peer。
-3. 不注册冲突的 `ctx.agentTeams`；通过 adapter 对齐。适配完成状态必须由当前实现、测试和 `docs/10-fusion-audit.md` 证明，不得固化在本 Skill。
+3. 不注册冲突的 `ctx.agentTeams`；通过 adapter 对齐。能力边界见 `docs/03-capability-family.md`，实际完成由当前实现、测试与相应真实证据证明，不在本 Skill 维护另一份状态表。
 4. Jiuwen 功能必须先映射到已有 DSH seam；只有确实缺失时设计通用新 seam。
 5. Scheduler、Workspace、Budget、Review、Memory、Remote Member、UI 都是插件；不塞回 Team core。
 6. `revision` 与 `attemptId` 均保留。

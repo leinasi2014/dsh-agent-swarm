@@ -6,7 +6,7 @@
 
 1. **单元测试**：纯函数、领域约束、序列化和错误映射。
 2. **契约测试**：工具 schema、Provider/Consumer、RPC、存储表单和官方公开类型。
-3. **组合测试**：插件注入、26 个工具注册、生命周期 disposer、权限投影。
+3. **组合测试**：插件注入、当前工具注册与按角色可见性、生命周期 disposer、权限投影。
 4. **恢复测试**：同一 Team 在进程重启后可由 Session log 与插件存储重建。
 5. **包测试**：从冻结 tarball 在全新 Profile 安装、加载、禁用与卸载。
 6. **真实 Profile/浏览器测试**：用户可见页面完成真实点击、导航、输入和断言。
@@ -77,8 +77,7 @@ Scenario audit: implemented = 1-9, 11, 12, 16-21, 27, 28, 31-45, 47-49; not yet 
 
 ```powershell
 pnpm verify:isolation:status
-pnpm verify:policy
-pnpm verify:structure
+pnpm verify:policy          # 治理、指令或登记文档变化时
 pnpm verify:candidate
 ```
 
@@ -92,11 +91,15 @@ pnpm verify:candidate
 
 每条浏览器用例必须包含：
 
-1. 明确的全新 Profile 与插件包身份；
+1. 明确的 Profile 与不可变插件包身份；新安装用全新 Profile，升级/恢复用保留原数据的 Profile；
 2. 用户可执行的导航与交互；
 3. DOM/可见文本/状态变化断言；
 4. 控制台错误与服务错误检查；
 5. 结束后的服务、Profile 和临时工件处置说明。
+
+身份与通信场景须分别证明本人选择四项资料、保存读回后提交头像、同伴真实提问与关联答复、使用反馈提交以及 Captain 审查。面板交流强度请求须区分排队、工具保存和权威读回，并验证重启后的有效值。侧栏须覆盖首次进入未接管的 Session、已知成员切换及用户主动关闭/收起；不能用截图或固定睡眠代替对应状态断言。
+
+重启后官方冷 Session 列表可能缺少运行时 inbox projection，缺失不等于队列为空；结合正式 Session 事件和持久化读回判断保留与消费。构建产物使用独立路径并核对已安装 host/client 的摘要，不能以安装命令成功替代版本一致性。
 
 ## Issue 关闭标准
 

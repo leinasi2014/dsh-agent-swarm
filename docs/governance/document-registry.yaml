@@ -103,6 +103,15 @@ documents:
     mutationAuthority: expected-target-reviewed-candidate
     updateTriggers: product-boundary-or-compatibility-change
     validation: pnpm-verify-policy
+  - documentId: dsh-layering-principles
+    path: docs/01-dsh-principles.md
+    role: stable-authority
+    subject: architecture
+    writeMode: human
+    accountableOwner: architecture-owner
+    mutationAuthority: expected-target-reviewed-candidate
+    updateTriggers: source-layer-or-dependency-direction-change
+    validation: pnpm-verify-structure
   - documentId: reference-analysis
     path: docs/02-reference-analysis.md
     role: reference
@@ -175,15 +184,6 @@ documents:
     mutationAuthority: gate-a-reviewed-candidate
     updateTriggers: official-or-reference-pin-change
     validation: pnpm-verify-compatibility
-  - documentId: fusion-audit
-    path: docs/10-fusion-audit.md
-    role: reference
-    subject: architecture
-    writeMode: human
-    accountableOwner: architecture-owner
-    mutationAuthority: expected-target-reviewed-candidate
-    updateTriggers: integration-ownership-or-gap-change
-    validation: pnpm-verify-structure
   - documentId: official-first-policy
     path: docs/11-official-first-development.md
     role: stable-authority

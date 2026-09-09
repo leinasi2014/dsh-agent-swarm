@@ -16,7 +16,7 @@ JiuwenSwarm contributes product concepts and failure cases. It does not contribu
 | Worktree execution | managed workspace lease plus a Session/tool root that actually changes | prompt-only paths are forbidden |
 | local/remote member | member Provider registry | one selected Provider per member execution |
 | distributed reservation | remote control-plane lease/ACK Provider | transport is replaceable and absent from the Service contract |
-| Team memory | accepted-evidence extractor Consumer | not task-board state |
+| Team memory | authorized manual append through Team domain | compact categories, optional evidence references, bounded content and rule-based redaction; not task-board state |
 | private member memory | Agent-scoped append-only memory domain | owning active member only |
 | Skill Evolution | signal → proposal → validation → approval → write | Team supplies evidence, never self-authorization |
 | tool permission | creation-time tool filter plus host sandbox/permission policy | deny-only overlays cannot widen host authority |
@@ -36,19 +36,11 @@ Both modes can exist, but never advance the same Team concurrently.
 
 Worktree isolation is true only when the actual execution cwd, filesystem capability and tools resolve inside the leased root. A declared path in a prompt is disclosure, not enforcement.
 
-Repository self-development follows the project binding:
-
-1. the stable control Profile loads a last-known-good immutable artifact;
-2. writers use only project-managed owner/generation-fenced allocations;
-3. a candidate is frozen to a commit and immutable package digest;
-4. review and acceptance run against the frozen candidate in a separate Profile/state root;
-5. GitHub `main` is updated only after the required candidate checks and review;
-6. `origin` receives a backup only after GitHub-main identity is read back;
-7. rollback selects a previously accepted immutable artifact from outside the candidate runtime.
+Repository self-development follows the [project binding](governance/project-binding.yaml) and [self-hosting boundary](13-self-hosting-dogfood.md): managed writers, immutable candidates, independent acceptance and promotion/rollback outside the candidate runtime.
 
 ## 4. Memory and Skill growth
 
-Team memory is derived from accepted evidence and keeps compact, attributable records:
+Current Team memory accepts authorized manual append operations. It stores a category, bounded content and optional evidence references, with rule-based redaction. It does not extract accepted evidence automatically or verify that a cited result was accepted. Typical compact records are:
 
 ```text
 [decision] choice, alternatives, trade-off and evidence
@@ -57,7 +49,7 @@ Team memory is derived from accepted evidence and keeps compact, attributable re
 [context] durable project or stakeholder constraint
 ```
 
-Skill growth is a separate controlled pipeline:
+Skill growth is a separate future pipeline, not an implemented effect of appending shared memory:
 
 ```text
 accepted signal
@@ -68,7 +60,7 @@ accepted signal
   → load in a later Agent lifecycle
 ```
 
-Raw private reasoning, unaccepted task output and a candidate's own claims are not admissible growth evidence. Secrets and personal data are filtered before shared memory or Skill proposals.
+That future pipeline must reject raw private reasoning, unaccepted task output and a candidate's unsupported claims as growth evidence. Current rule-based memory redaction does not establish complete secret/personal-data detection or evidence authenticity.
 
 ## 5. Distributed boundary
 
