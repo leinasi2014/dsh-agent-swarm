@@ -32,7 +32,6 @@ const required = [
   'docs/00-vision.md',
   'docs/03-capability-family.md',
   'docs/09-sources.md',
-  'docs/10-fusion-audit.md',
   'docs/11-official-first-development.md',
   'docs/13-self-hosting-dogfood.md',
   'docs/governance/project-binding.yaml',

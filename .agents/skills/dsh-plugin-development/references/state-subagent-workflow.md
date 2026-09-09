@@ -19,7 +19,7 @@ A continuable Provider’s current creation spec may only contribute history see
 
 Use DSH workflow engine for model-authored/deterministic orchestration. Worker-thread execution is event-loop isolation, not a security boundary. Long workflows integrate with jobs/observability. Workflow state and Team task state remain separate authoritative domains joined by stable ids.
 
-Verified rc.8 services are `ctx.workflowEngine` and `ctx.jobs`. A Team bridge must select one orchestration owner per run so adaptive scheduling and deterministic workflow cannot both assign, retry or settle the same attempt.
+Use the recorded baseline and installed exports for `ctx.workflowEngine` and `ctx.jobs`. A Team bridge must select one orchestration owner per run so adaptive scheduling and deterministic workflow cannot both assign, retry or settle the same attempt.
 
 ## Human collaboration
 
@@ -29,8 +29,8 @@ Use question/approval seams. A human answer entering model context follows norma
 
 Use token meter/compaction/spill seams. A Team plugin may set policy or scope but should not duplicate model history compression.
 
-Verified rc.8 `ctx.tokenMeter` is replay-aware and exposes Session projections for current usage/context pressure. Do not assume it is a cumulative Team budget ledger; define the accounting boundary and prevent double counting before replacing direct Session-event folding.
+`ctx.tokenMeter` exposes measurement and replay-aware Session projections at the recorded baseline. Do not assume it is a cumulative Team budget ledger; distinguish current request pressure from per-Session usage, define Team accounting and prevent double counting before replacing direct Session-event folding.
 
 ## Workspace
 
-Verified rc.8 `ctx.workspaceRegistry` owns Workspace identity, canonical directories and Session membership. It is not a per-attempt Worktree allocator and does not override continuable-child cwd. Real isolation needs a Session/tool execution capability rooted at the leased directory or a generic upstream child-workspace seam.
+`ctx.workspaceRegistry` owns Workspace identity, canonical directories and Session membership. It is not a per-attempt Worktree allocator and does not override continuable-child cwd. Real isolation needs a Session/tool execution capability rooted at the leased directory or a supported upstream child-workspace seam; cwd adaptation alone is not an OS sandbox.

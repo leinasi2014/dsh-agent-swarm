@@ -50,6 +50,8 @@ These facts are represented in current source and focused tests, including stora
 
 Use it for continuable-member lifecycle, roster identity, DAG/claim rules, revision and attempt fencing, durable-before-live mailbox behavior, automatic scheduling, activity presentation and crash/fault cases. Do not treat its package boundaries, file store, UI state or policy coupling as framework truth.
 
+Reference refresh notes and the labelled historical `source-snapshot/` describe their recorded cohorts. Historical host-version wording there does not override this plugin's current `OFFICIAL_BASELINE.json`, installed peer dependencies or actual Profile evidence.
+
 ## 3. Product architecture reference
 
 | Field | Value |
@@ -95,11 +97,6 @@ Official `master` advancing beyond the release anchor is not by itself drift. A 
 
 The self-development composition is project-owned, not an official DSH feature. It derives from official Profiles, Sessions, Subagents, Workflow, Jobs, Storage Domain, Workspace and interaction seams plus the two reference projects' behavior/failure evidence.
 
-- stable control and last-known-good artifact remain outside candidate write roots;
-- managed worktrees provide repository writer ownership;
-- candidate commit/package identity is frozen before review;
-- acceptance runs in a separate Profile and state root;
-- promotion/rollback authority is outside the candidate runtime;
-- accepted GitHub `main` is the development/integration authority; `origin` is a local backup updated only after authoritative read-back.
+Its execution and promotion rules are defined once in the [project binding](governance/project-binding.yaml) and [self-hosting policy](13-self-hosting-dogfood.md). These sources do not grant candidate runtimes acceptance or promotion authority.
 
 Past verification results remain discoverable through Git history, GitHub issues/pull requests and the focused test suite. They are not recreated as rolling Markdown evidence.

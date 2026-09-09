@@ -18,11 +18,11 @@ Execution root 是一个 attempt 级租约：
 - submit/review/reassign/终止负责释放或转为 residue；
 - reload 扫描 marker，区分可重连与需人工回收的残留。
 
-它不等于开发 worktree，也不自动获得仓库 writer 权限。路径声明只指导成员将官方 shell/file 工具的 `workdir` 指向正确根；硬隔离仍取决于 OS/container/sandbox。
+它不等于开发 worktree，也不自动获得仓库 writer 权限。启用执行根后，插件实际适配官方 `read/read_image/write/edit/pwsh/bash` 工具，将路径解析到当前 attempt root，拒绝显式越界及已存在 symlink/junction 逃逸，并将持久 Shell cwd 重置到执行根、拒绝后台执行。租约释放后的工具调用 fail-closed。此路径适配不是 OS/container sandbox：任意 Shell 程序自身的系统能力仍取决于宿主权限与真正的操作系统隔离，不能由 cwd 或提示词保证。
 
 ## 3. 当前支持边界
 
-当前稳定语义是单机、单 Storage Domain authority、进程内调度 owner 与本地 execution-root Provider。多 Team 可以并发，但所有写入仍由一个 Team aggregate revision 序列化。
+当前稳定语义是单机、单 Storage Domain authority、进程内调度 owner 与本地 execution-root Provider。多 Team 可以并发，每个 Team 的写入分别由自身 aggregate revision 序列化。
 
 以下能力尚未配置或未完成，不得从现有本地实现推断：
 

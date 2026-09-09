@@ -12,9 +12,7 @@ Read in order:
 6. generated subsystem docs and exported types
 7. tests and Agent Notes
 
-Recorded baseline: `deepseek-ai/deepseek-harness@b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`.
-
-On 2026-08-20, remote `HEAD` and `refs/heads/master` were verified at this same commit. At this baseline, inspect the public `workflow`, `jobs`, `token-meter`, `storage-domain`, `workspace`, interaction, skill, compaction and spill packages before inventing a seam. The experimental Agent Team package is private/unpublished.
+Read the exact release anchor and package cohort from [OFFICIAL_BASELINE.json](../../../../docs/OFFICIAL_BASELINE.json), and publication/adoption boundaries from [the source register](../../../../docs/09-sources.md). Do not keep a second SHA or dated remote-HEAD claim in this guide. Inspect the affected public packages, installed exports and tests before inventing a seam; a private experimental package is not a production dependency.
 
 ## Community learning docs
 
@@ -29,7 +27,7 @@ Use for explanation; verify against official source/installed package.
 
 ## Direct plugin reference
 
-`ref/dsh-agent-teams/source/` pinned to `912aae5225d3d85fa841a1b0c8a5c77021876c25`.
+`ref/dsh-agent-teams/source/` is pinned by [SOURCE_POINTER.json](../../../../ref/dsh-agent-teams/SOURCE_POINTER.json). The separate `source-snapshot/` is a labelled historical reading aid, not that current checkout.
 
 Use this checkout for DSH packaging, lifecycle, scheduler, mailbox, persistence,
 Host/Client and composition-test implementation examples. It is prior art, not
@@ -37,8 +35,7 @@ the framework contract.
 
 ## Jiuwen prior art
 
-`ref/jiuwenswarm/source/` pinned to
-`openJiuwen-ai/jiuwenswarm@e90d9ea80cdeccb84a1f92f296a85aa23e84133d`.
+`ref/jiuwenswarm/source/` is pinned by [SOURCE_POINTER.json](../../../../ref/jiuwenswarm/SOURCE_POINTER.json).
 
 Use this checkout for SwarmFlow, Worktree, budgets, Team memory, Skill
 Evolution, tool-permission and distributed-Team concepts. Extract requirements

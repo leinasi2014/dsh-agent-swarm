@@ -12,7 +12,7 @@ Main Brain Session（Team 外）
 ```
 
 - Main Brain 传递完整用户目标并创建 managed Team；之后只做跨 Team 观察和路由。
-- Captain 是 Team 的唯一管理主体，负责初始身份档案、招募、任务、公告、公共目标、审核和重派；active Member 仅可补充自己的公开身份资料，不取得他人的资料编辑权或队长管理权。
+- Captain 是 Team 的唯一管理主体，负责招募、职责/职业、任务、公告、公共目标、审核、交流策略和重派；Captain 与 active Member 各自创建和维护自己的公开身份，成员不取得他人的资料编辑权或队长管理权。
 - Member 只能读取其所属 Team，并在分配给自己的当前 attempt 上提交工作。
 - 一个 Session 可参与显式寻址的多个上下文时，隐式 Team 解析必须拒绝歧义。
 - UI 中的“当前队长会话”与 Main Brain Chat 必须清楚区分；打开 Captain 只导航官方 Session。
@@ -78,9 +78,9 @@ Captain identity 独立于 Member roster。`set_captain_profile` 成功提交后
 
 字段规范：显示名是本人公开姓名，名册地址仅用于稳定路由；role 是简短 Team 分工，profession 是专业职业；personality 是稳定性格，biography 是真实背景和专长，不能写成任务清单、临时阶段、路径或权限禁令。后两者各限 1024 个 Unicode code points，沿用 Domain、Storage、Host/RPC 校验。成员按当前身份的性格和专长表达、询问和合作，不虚构资历、记忆或完成结果。UI 资料保持单行，溢出省略，悬停显示完整实际内容。
 
-公开身份每次经官方 system-prompt/assemble 从当前 Team aggregate 读取，加入官方持久 user-role context snapshot。姓名、职业、性格、简介与 Team 职责作为有界 fenced data；模板字符保持字面，新快照替换旧资料语义，不能改变工具或权限。仅身份内容改变才产生新快照。当前身份及同伴协作规则通过独立可信 system section 提供，更新旧 continuable persona 的相关指导而不重写历史 descriptor；用户显式 complete persona 仍由官方保持原样，不承诺覆盖其行为规则。无 active membership 不注入。资料 patch 不改 Session、role、模型、Skills 或任务状态，descriptor label 仍是创建时事实。恢复继续校验精确 Session、parent、origin、Team 标签与 provider。验收分别覆盖所有权、头像顺序、CAS/失败原子性、存储重开、实际模型请求和 UI 回读。
+公开身份每次经官方 system-prompt/assemble 从当前 Team aggregate 读取，加入官方持久 user-role context snapshot。姓名、职业、性格、简介与 Team 职责作为有界 fenced data；模板字符保持字面，新快照替换旧资料语义，不能改变工具或权限。身份内容或有效交流策略改变时产生新快照，相同内容不重复追加。当前身份及同伴协作规则通过独立可信 system section 提供，更新旧 continuable persona 的相关指导而不重写历史 descriptor；用户显式 complete persona 仍由官方保持原样，不承诺覆盖其行为规则。无 active membership 不注入。资料 patch 不改 Session、role、模型、Skills 或任务状态，descriptor label 仍是创建时事实。恢复继续校验精确 Session、parent、origin、Team 标签与 provider。验收分别覆盖所有权、头像顺序、CAS/失败原子性、存储重开、实际模型请求和 UI 回读。
 
-成员可通过 agent_swarm_send_message 直接向活跃同伴提问、答复并把反馈用于成果，Captain 不必代传。任何活跃同伴的 wakeup 都可恢复空闲成员；忙碌成员在后续 step 收件，不打断当前请求。quiet 仅入队；delivered 只证明投递，不能当成已阅读或已答复。同伴沟通不授予无关写入或新 attempt 权限；回答完毕、提交、遇阻或无工作时结束回合，不轮询。协作验收需有 A问B、B答A、A使用反馈提交、Captain审查的实际请求与持久 Session 证据。
+成员可通过 agent_swarm_send_message 直接向活跃同伴提问、答复并把反馈用于成果，Captain 不必代传。通过交流策略准入的 wakeup 可恢复空闲成员，超额主动唤醒降为 quiet；忙碌成员在后续 step 收件，不打断当前请求。quiet 仅入队；delivered 只证明投递，不能当成已阅读或已答复。同伴沟通不授予无关写入或新 attempt 权限；回答完毕、提交、遇阻或无工作时结束回合，不轮询。协作验收需有 A问B、B答A、A使用反馈提交、Captain审查的实际请求与持久 Session 证据。
 
 交流强度 quiet/balanced/active 分别允许每名成员在滚动 60 秒内主动唤醒同伴 1/4/12 次；默认 active。超额消息持久保存为 quiet，不丢弃，不自动延迟唤醒，也不要求重发。Captain 上下行不受该限额约束；reply_to 必须引用对方发给自己的原始消息，其首次答复豁免，不能串联回复制造豁免。限频与首次答复证据均沿用 Team messages，重启保留；保留回执数量很小时会保守减少主动唤醒空间。此设置控制主动唤醒和协作节奏，不是硬性消息发送速率。
 
@@ -90,7 +90,7 @@ DSH `0.1.5-alpha.1` 的 continuable child 可由私有 owner 注册；`agents.ro
 
 ## 6. 工具与权限
 
-插件注册 26 个 `agent_swarm_*` 工具，按以下能力组维护：
+插件在 `src/tools/index.ts` 汇总 `agent_swarm_*` 工具，按以下能力组维护：
 
 - managed/team/member lifecycle；
 - Captain profile、goal、announcement；
@@ -140,7 +140,7 @@ Team 注册 DSH SidebarRight 的独立页签，沿用官方布局与主题 token
 
 成员 Chat 复用已安装 DSH 的公开 `ISessions.refreshSubagents/list/openSubagent`：刷新后从 `list` 的 `subagentsByParent` 中取 `ready`、healthy continuable child 的精确 Captain/member 地址，再导航，不构造私有路由；`subagentAddress` 仅查询已导航地址，不能用于首次打开。Host 以请求 Session 的官方 live/persisted header 与当前 active roster 为依据，校验成员→Captain→无父级主会话的关系及相同 scope，才在 local-single-user 只读 RPC 中提供该主会话的兄弟团队目录与显式选中团队的读取。普通 child、移除/旧身份、跨 scope 或缺失关系不获得该扩展。`teams.binding.rootSessionId` 仍是请求 Session，可选 `mainSessionId/mainSessionTitle/currentTeamId/currentMemberName` 是经验证的导航投影；主会话标题仅取官方公开 Session 标题，成员名仅取所属 Team 当前公开资料，缺失不编造。每次 section/read 继续重新验证请求身份和关系，UI 不能缓存成权限。
 
-成员导航前重读绑定和成员行；返回主会话前重新读取团队目录验证 mainSessionId，再交给官方根会话列表导航。切换到已验证关联的主会话、Captain 或当前团队成员时，各 Session 的官方页签分别保留、旧数据清除并向新 Session 重新授权读取；无关 Session 不显示上一会话的 Team 正文。该 UI 临时状态不成为业务权限，注册/轮询继续随既有 controller/coordinator 卸载释放。验收覆盖多团队目录、快速反向切换、首次导航、导航竞争、冷读取、错误父级/成员、主会话返回及官方页签切换与侧栏收起。
+成员导航前重读绑定和成员行；返回主会话前重新读取团队目录验证 mainSessionId，再交给官方根会话列表导航。已核验的同 Team 活跃 Captain/成员切换可保留只读投影，同时对新 Session 重新读取并验证绑定；无关 Session 清空旧正文，不复用其权限。各 Session 的官方页签分别保留，打开动作通过 `SidebarRightNavigator.openTabIn(targetSessionId)` 精确寻址；只有实际 `observeTab` 才确认 docked。首次 store 尚未接管时依靠既有权威读取节奏重试，不能向旧 Session 的 seat 写入，也不能把调用成功当作页签已显示。该 UI 临时状态不成为业务权限，注册/轮询继续随既有 controller/coordinator 卸载释放。验收覆盖多团队目录、快速反向切换、首次导航、导航竞争、冷读取、错误父级/成员、主会话返回及官方页签切换与侧栏收起。
 
 ## 9. Review、execution root 与可选桥接
 

@@ -38,17 +38,7 @@ The following constraints survive the retired ADR and development-note set:
 
 ## 4. Reference use order
 
-When a behavior is uncertain:
-
-1. inspect current project code and the target Profile;
-2. inspect installed package manifests, exports, types and README files;
-3. inspect the pinned official evidence checkout;
-4. inspect official subsystem notes and examples;
-5. use `dsh-agent-teams` for Team behavior and failure precedents;
-6. use JiuwenSwarm for product concepts and operational failure cases;
-7. if still uncertain, implement the smallest fail-loud behavior and record the assumption in an existing registered authority.
-
-Secondary guides are learning material, never proof that a package, service or method exists in the target installation.
+Use the [source register's evidence order](09-sources.md#4-evidence-order). Secondary guides explain concepts; they do not prove that a package, service or method exists in the target installation. This document owns adoption boundaries, not a second source-refresh procedure.
 
 ## 5. Rejected architectural shortcuts
 

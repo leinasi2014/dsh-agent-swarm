@@ -16,7 +16,7 @@ AgentSwarmRuntime
   ├─ orchestration Providers
   │    Scheduler / Review / Workflow bridge / execution root / permission
   ├─ model Consumers
-  │    26 agent_swarm_* tools + ordered usage prompt
+  │    role-scoped agent_swarm_* tools + ordered usage prompt
   ├─ read producer
   │    Host binding → /swarm/v1 read RPC
   └─ client Consumers
@@ -29,13 +29,13 @@ AgentSwarmRuntime
 
 | 能力 | 当前 owner / seam | 已实现边界 |
 |---|---|---|
-| Main Brain → Captain | official Session/Subagent + dedicated captain provisioning | 一个 managed Team 一个独立 Captain；root 留在 Team 外；支持多个 Team |
+| Main Brain → Captain | official Session/Subagent + dedicated captain provisioning | 默认 managed Team 创建独立 Captain；可选 staged 计划审批后激活；root 留在 Team 外；支持多个 Team |
 | Team state | `TeamDomainPort` → `StorageDomainTeamStore` | versioned aggregate、durable commit、显式迁移；legacy file store 只读 |
-| 成员 | official continuable subagent provider | 招募/移除/唤醒/interrupt、身份资料、模型 route、durable descriptor |
+| 成员与身份 | official continuable subagent + identity context | 招募前校验 route；队长分配职责/职业，各人自定四项资料并在保存读回后绘制头像；当前资料进入官方 prompt，durable descriptor 支持恢复 |
 | 任务 | Team domain + `AgentSwarmRuntime` | DAG、priority、target member、revision CAS、attempt fencing、submit/review/reassign |
 | 调度 | Scheduler Provider registry | 默认 priority-ready；adaptive 与 workflow run 保持单一 transition owner |
 | 审核 | Review Provider registry | manual、executable commands/templates、review root 与 reviewer boundary |
-| 邮箱与等待 | durable Team mailbox + wakeup surface | quota、receipt、quiet/wakeup、bounded wait 与 spin fuse |
+| 邮箱与交流 | durable Team mailbox + wakeup surface | quota、receipt、quiet/wakeup、真实 reply_to、按成员限制主动同伴唤醒、队长持久覆盖、bounded wait 与 spin fuse |
 | 预算 | Team budget + committed usage fold | token/request/retry 限制、reservation、carry、exhaustion/recovery |
 | Skills | `TeamSkillSurface` + `allowedSkills` setting | 三层区分（issue #184）：Team allowed（不可变策略）/ member assigned（招募时子集，持久化+重启重建，进一步收窄 surface）/ Session-visible（官方 scoped catalog，仅可见不等于拥有）；不自动演化 Skill |
 | Tools | official tool restriction + plugin permission surface | Captain-only 隐藏、成员 deny-only 收窄、plugin allow/ask/deny setting |
@@ -47,14 +47,15 @@ AgentSwarmRuntime
 
 ## 3. 模型工具面
 
-当前注册 26 个 `agent_swarm_*` 工具，分为六组：
+`src/tools/index.ts` 汇总当前 `agent_swarm_*` 工具，按职责分组；各 caller 只看到其权限允许的面：
 
 - Team lifecycle：create/create-managed、identity、goal、announcement、member、archive、interrupt。
 - Task board：create、claim、submit、review、reassign。
-- Collaboration：send-message、wait。
+- Plan-first：set-plan、approve-plan、discard-plan。
+- Collaboration：send-message、set-communication、wait。
 - Budget and memory：set-budget、shared memory、member private memory。
 - Read surfaces：status、managed teams、members、tasks、jobs、memory。
-- Policy helpers：运行时按 caller role、live Agent/Session、revision 和 attempt 过滤权限。
+- Policy helpers：逐次工具审批；运行时按 caller role、live Agent/Session、revision 和 attempt 过滤权限。
 
 工具只暴露 Team 概念，不暴露 Storage key、内部 Session token 或 Provider 私有状态。授权来自 `exec.agent` 和权威绑定；参数中的 id 只是查找条件。
 
@@ -69,14 +70,16 @@ Workbench 消费同一 read contract：
 - 概览按 canonical task status 汇总完成、执行、待审核、等待依赖、待领取、失败和取消；截断时标记已显示范围，不伪造总体完成比例；
 - Captain → member → 当前 task/attempt 构成可读执行树；旧 attempt 不得投影为当前工作，复用现有任务依赖图并连接任务详情；
 - 成员或 task detail 在官方右侧栏 Team 页签内替换概览，返回时恢复原入口焦点；身份、模型、Skills、预算与诊断按需展开，不使用遮罩层；
-- 详情与概览共享断线/陈旧提示；不可见依赖显示“依赖状态待确认”，不把缺失投影推断为阻塞。长内容在官方 300–520px 栏宽内换行或滚动；
-- 官方 `0.1.5-alpha.1` SidebarRight 管理展开、浮动、分栏及可见性；Team 注册独立页签并使用其绑定动作，插件不覆盖宿主布局。切到其他页签、收起右栏或关闭 Team 后，轮询不得抢回焦点；窄屏和浮动行为须在实际宿主分别验收；
+- 详情与概览共享断线/陈旧提示；不可见依赖显示“依赖状态待确认”，不把缺失投影推断为阻塞。长资料字段单行省略并提供完整悬停文字，其余内容按官方栏宽换行或滚动；
+- 官方 SidebarRight 管理展开、浮动、分栏及可见性；Team 通过 `openTabIn` 寻址选中的 Session，实际观察到页签挂载后才确认显示。首次 store 尚未接管时由后续权威读取重试，不借用旧会话侧栏，不承诺固定显示延迟。切到其他页签、收起右栏或关闭 Team 后，轮询不得抢回焦点；窄屏和浮动行为须在实际宿主分别验收；
 - “打开 Captain Chat”调用官方 Session navigation；
-- direct browser Team writes 仍 unavailable，不以自由文本或缓存冒充 Control。
+- 管理页的交流强度请求进入正式 Captain human prompt，由队长调用工具保存，canonical read-back 决定应用状态；`/swarm/v1` 的 direct write capabilities 仍 unavailable。
 
-Plugin Settings 是独立的官方 Settings Consumer。它配置默认模型、成员 provider/depth、Skills、Scheduler/Review、tool policy、Workflow/Jobs/execution roots 和资源限制；设置在重启后重新组装 runtime。
+Plugin Settings 是独立的官方 Settings Consumer。它配置默认模型、成员 provider/depth、Skills、Scheduler/Review、tool policy、默认交流强度、Workflow/Jobs/execution roots 和资源限制；设置在重启后重新组装 runtime。队长保存的本队交流覆盖立即持久生效，清除覆盖后跟随插件默认。
 
-默认模型选择读取官方 remote Session catalog；provider/model 成对以 SettingsScope `mutate` 提交并回读。未显式覆盖的成员与 Captain 创建配置从当前 Session request header 继承，包含用户最新选择的模型与 reasoning effort。身份详情展示 durable personality/biography；缺失资料可由 Captain 局部补填，刷新不丢失已有字段。
+默认模型选择读取官方 remote Session catalog；provider/model 成对以 SettingsScope `mutate` 提交并回读。未显式覆盖的成员与 Captain 创建配置从当前 Session request header 继承，包含用户最新选择的模型与 reasoning effort；已配置的插件路由不会仅因题面写了其他模型而被覆盖。身份详情展示 durable personality/biography，成员自行更新姓名、性格、简介与头像；Captain 的成员资料管理限于职责和职业。当前资料及有效交流策略共同构成 prompt 快照，不重写历史。
+
+当前入口仍有差异：成员招募和计划审批可显式传入路由；即时 `create_managed` 未暴露 Captain 路由参数，尚无用于 Captain 修改自身模型的 Team 工具。配置页默认值不能代替这些未交付的调用入口。
 
 ## 5. 生命周期与失败语义
 
@@ -110,4 +113,4 @@ Plugin Settings 是独立的官方 Settings Consumer。它配置默认模型、�
 
 尚未创建 Captain 的 staged Team，以及显式 discarded 的草稿归档，以同 scope 内的持久 `managedOrigin` 精确证明所属 Main Brain。读取仍要求官方 live 或持久化 root Session，child 与其他 root 不继承草稿。Selector 保留真实的空 `captainSessionId`；binding、snapshot/page 和三个 Captain sections 使用所属 root 作为读取锚点，UI 明示队长尚未创建并禁止 Captain Chat 交接。该只读路径不批准计划、不创建 Session，也不放宽 active Team 的 Captain 绑定。
 
-`tests/host-read-scale.spec.ts` 在真实 Storage Domain 上，以两个 Team、1/2/8 成员和 0/32/128 条任务历史测量同一次 teams RPC：优化前 list=2、store get=4、aggregate clone=4；优化后为 1/2/2。该 fixture 的响应均为 1641 UTF-8 bytes，成员及任务历史不进入 selector payload；这是操作计数，不是延迟或全部 UI 流量承诺。对应回归要求当前候选始终一次 list；可选 `SWARM_READ_BASELINE` 只用于对接受基线进行只读测量。
+`tests/host-read-scale.spec.ts` 在真实 Storage Domain 上覆盖多个 Team、成员规模及任务历史，要求同一次 teams RPC 只执行一次 canonical aggregate list，成员及任务历史不进入 selector payload。操作计数不等于延迟或全部 UI 流量承诺；可选 `SWARM_READ_BASELINE` 仅用于对接受基线进行只读比较。
