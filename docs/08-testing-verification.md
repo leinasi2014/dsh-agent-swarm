@@ -84,6 +84,10 @@ pnpm verify:candidate
 
 只有官方 DSH 或参考兼容性参与本次决策时才运行 `pnpm verify:compatibility`；输入未变化时复用已接受回执。
 
+`verify:candidate` 执行工程检查，并消费外部控制器提供的产品证据。未设置 `P0_PROOF_ROOT`、`P0_EXPECTED` 和 `P0_EXPECTED_SHA256` 时，产品结果为 `NOT_CONFIGURED`；工程 CI 成功不能替代真实验收。配置不完整、摘要不匹配或证据所指 commit/tree 与实际干净 checkout 不同会失败。
+
+当前 managed-Team 证据使用 schema 2，绑定固定官方版本、冻结包和独立控制器的 expected JSON，检查真实建队、Captain 资料、异构成员执行与审查、浏览器刷新以及重启后的新请求和新 attempt。schema 1 的旧 DEV_SMOKE 仅作兼容检查。CI `workflow_dispatch` 接受不可变 HTTPS ZIP 的 `proof_url`、`proof_sha256`、`expected_sha256`；`accepted_verifier_ref` 必须是经独立审查的固定 commit，且不同于候选。候选自行消费证据不等于独立验收。这一路径证明单个 managed Team；双 Team 交互和 Captain 自动唤醒根会话仍须分别实测。
+
 ## 浏览器验收
 
 每条浏览器用例必须包含：

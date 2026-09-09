@@ -137,6 +137,8 @@ pnpm verify:compatibility   # 官方/参考兼容事实参与决策时
 
 仓库开发只允许通过 `pnpm isolation open|status|close|reconcile` 使用受管 writer allocation；不要直接创建 Git worktree。贡献规则见 [CONTRIBUTING.md](CONTRIBUTING.md)，文档入口见 [docs/README.md](docs/README.md)。
 
+`verify:candidate` 的工程通过不等于产品验收。缺少外部控制器提供的真实 managed-Team 证据时，产品结果为 `NOT_CONFIGURED`；证据配置与独立验收要求见 [测试与验收](docs/08-testing-verification.md)。
+
 ## License
 
 [MIT](LICENSE)
