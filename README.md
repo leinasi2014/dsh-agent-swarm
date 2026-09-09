@@ -16,23 +16,28 @@
 
 Captain：设定目标和公告、招募成员、建立任务 DAG、审核提交
 Member：只处理当前 fenced attempt，提交结果后等待 Captain 决策
-Workbench：在主聊天旁切换 Team，查看成员、任务、公告和管理信息
-Captain Chat：通过官方 Session 导航直接与选中的 Captain 对话
+团队侧栏：每个 Team 一张卡片，摘要展示队长、成员数和任务进度
+团队卡片：概览 / 任务 / 公告 / 管理，队长下方是紧凑成员树
+成员 Chat：点击成员进入官方会话，保留关联团队、个人资料和当前任务
 ```
 
 Main Brain 不加入 Team roster，也不获得 Captain 权限。多个 Team 的 Captain、成员、任务和会话彼此隔离；浏览器 UI 只投影权威状态，不拥有另一套任务状态机。
 
+同一主会话下的团队纵向排列，默认展开一个。点击团队标题只切换侧栏内容；点击队长或成员才进入对应 Chat。侧栏标注“主会话 → 当前团队 → 当前成员”，查看其他团队时仍保留当前聊天的归属，并可返回主会话。
+
 ## 已实现
 
-- 独立 Captain Session、多个 managed Team、Captain/成员身份资料与安全像素 SVG 头像。
-- 29 个 `agent_swarm_*` 工具，覆盖建队（含 Plan-first staged）、计划审批、成员、任务 DAG、定向分配、提交/审核、邮箱、预算、记忆、等待与分页读取。
+- 独立 Captain Session、多个 managed Team；staged 招募保留完整成员资料，成员可完善自己的档案与多色像素头像。头像经受限网格/SVG 校验后显示。
+- 按角色授权的 `agent_swarm_*` 工具，覆盖建队（含 Plan-first staged）、计划审批、成员、任务 DAG、定向分配、提交/审核、逐次工具审批、邮箱、预算、记忆、等待与分页读取。
 - `revision` CAS 与 `attemptId` fencing；陈旧提交、重复执行和越权调用明确失败。
 - 官方 Storage Domain 中的 durable Team aggregate；成员、任务、attempt、邮箱、预算、公告和公共目标可跨重启恢复。
 - continuable subagent 成员、可替换 Scheduler/Review Provider、可选 Workflow bridge、Jobs 只读投影和每 attempt execution root。
-- Team 级 Skill allow-list、成员 tool deny policy、Captain/成员模型路由、资源上限和重启生效的官方 Plugins 设置页。
+- Team 级 Skill allow-list、Captain/成员模型路由、资源上限和官方 Plugins 设置页。工具权限读取当前 Agent 的正式工具目录，可搜索并选择继承、开放、禁止或需队长批准；未加载工具的已有配置仍保留。
+- 成员工具调用需要队长批准时，经现有 Team 邮箱唤醒所属 Captain；批准仅释放原成员的那一次有效调用，拒绝、取消或超时不会执行工具，官方权限限制继续生效。
 - 团队共享记忆与成员私有 append-only memory，二者具有独立授权和持久化边界。
 - Plan-first staged 审批流：`create_managed(stage=true)` → `set_plan` → `approve_plan`（官方 `ctx.userQuestions` 批准/放弃）→ 原子激活并 provisioning Captain/成员/任务；崩溃窗口由启动恢复补齐；放弃/归档幂等；右侧 Team 表面新增“计划审批”卡（staged 只读投影）。
-- read-only Host projection、同源 `/swarm/v1` RPC 与 DSH Team Workbench：多 Team 切换、概览/任务/公告/管理、真实任务进度、Captain→成员→当前任务层级、栏内成员/任务详情与 Captain Chat 跳转。
+- read-only Host projection、同源 `/swarm/v1` RPC 与 DSH 团队侧栏：多团队卡片、真实任务进度、Captain→成员→当前任务层级、官方 Chat 导航。关联团队读取校验正式 Session 父子关系和有效成员身份，不向无关会话或工作区扩展权限。
+- 成员详情始终保留资料和当前任务；运行配置、Skills 与工具、成果与成长使用三个页签。没有当前任务时显示空状态，不把已完成任务当成正在执行。
 
 ## 尚未交付
 
@@ -55,7 +60,7 @@ AgentSwarmRuntime → TeamDomainPort → StorageDomainTeamStore
        │                 │
        │                 └─ Team、roster、task、attempt、mailbox、budget 的唯一写权威
        ├─ Scheduler / Review / Workflow / Workspace / Permission Providers
-       ├─ 26 scoped model tools
+       ├─ 按角色授权的 agent_swarm_* 模型工具
        └─ Host read projection → /swarm/v1 → Team Workbench
 ```
 
@@ -68,11 +73,21 @@ AgentSwarmRuntime → TeamDomainPort → StorageDomainTeamStore
 
 ## 界面
 
-![Team Workbench](docs/assets/readme/team-workbench.png)
+同一主会话的两个真实团队：每队一张卡，摘要持续可见，展开后显示紧凑成员树和四个团队页签。
 
-![Plugin settings](docs/assets/readme/plugin-settings.png)
+![多团队卡片与紧凑成员树](docs/assets/readme/team-workbench.jpg)
 
-截图来自隔离的官方 DSH Web Profile。它们证明对应候选的真实组合路径，不代表尚未交付能力已经完成。
+成员 Chat 中的资料、当前任务和三个详情页签。图中任务已经结束，因此当前任务显示为空。
+
+![成员资料、当前任务和配置页签](docs/assets/readme/member-details.jpg)
+
+官方 Plugins 设置中的 Agent Swarm 工具权限目录，支持搜索与逐项策略选择。
+
+![Agent Swarm 工具权限设置](docs/assets/readme/plugin-settings.jpg)
+
+以上图片于 2026-09-09 从隔离的官方 DSH `0.1.2-rc.1` Web Profile 实际截取，桌面视口为 1280×850，未用草图或模拟数据替换界面。截图展示界面状态，不替代发布级端到端验收。
+
+**显示宽度：**建议浏览区域至少 1024px 宽。官方布局需要约 1000px 才能同时容纳聊天与右侧 Details；更窄时会隐藏右栏，拉宽后恢复。长成员资料在侧栏中滚动查看。
 
 ## 本地构建
 
@@ -107,6 +122,8 @@ dsh --profile web --host 127.0.0.1 --port 3180 --no-open
 ```
 
 Main Brain 调用 `agent_swarm_create_managed`（不加 `stage`）后应结束当前轮次，不轮询 Team；后续执行由独立 Captain 和成员负责。需要“先审批后开工”时使用 `create_managed(stage=true)` + `set_plan` + `approve_plan(ask_user=true)`（或 `discard_plan`），右侧 Team 表面会显示待审批计划卡。
+
+团队可用后，侧栏自动显示相关团队。展开卡片查看概览、任务、公告或管理；点击成员进入其 Chat，资料和当前任务位于三个详情页签之外。工具策略可在“设置 → 插件 → Agent Swarm → 工具权限”中配置，保存后的生效范围与重启要求以设置页提示为准。
 
 ## 开发入口
 
