@@ -60,6 +60,8 @@ Team 阶段为 `staged | active | archived`：`staged` 是 Plan-first 声明态�
 
 Scheduler Provider 只选择可调度对象，不直接写 aggregate。Runtime 在 Domain port 上完成 claim，再把 assignment frame 投递到 continuable Member。投递只有在 frame 成为模型可见历史后才记为 delivered；pending inbox acceptance 不是稳定可见证据。
 
+Member 消费排队分配时，插件在官方 `agent/pre-step` waterfall 返回前从 Team domain 重新核对所属 Team/member 仍 active、task 仍 in_progress 且 owner/currentAttemptId 匹配、attempt 仍 running。已提交、终态、换代或失去成员身份的旧分配不进入模型历史；混合批次保留正常反馈。只有失效分配且没有后继输入时拒绝该 step；还有输入排队时，改为一条不含旧任务正文或 attempt capability 的取消通知，让本回合正常结束并由官方 loop 继续 claim 后继消息。此通知会有一次模型调用，进展依赖本回合结束；不假称官方支持零调用跳过 turn。该消费过滤不改写历史或私自完成任务，队列移除仍由官方 inbox claim 记录。分配帧中的 task revision 用于后续 mutation CAS；消费边界按当前 task/attempt 生命周期判断，不能仅凭消息中的旧数字推断执行权限。域读取失败使本次 admission 失败，不把不可核验的旧分配放行；边界之后发生的状态变化仍由 submit/review 的 CAS 拒绝。
+
 `adaptive` 模式由成员 idle/event 驱动；`workflow` 模式由 Team-backed Workflow run 驱动。一个 Team 同一时刻只有一个 orchestration owner，显式 Captain 操作仍受 revision/attempt 围栏。
 
 ## 5. 成员招募与身份
