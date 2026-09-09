@@ -6,18 +6,22 @@ import type { SwarmHostReadProjectionV1 } from '../host/host-read-types.js'
 import type { SwarmReadCaptainDiagnosticsV1, SwarmReadCaptainMembersV1 } from '../rpc/read-rpc-contract.js'
 import { TEAM_DASHBOARD_NS } from './team-dashboard-locales.js'
 import { SafePixelAvatar } from './SafePixelAvatar.js'
+import { TeamCommunicationControl, type TeamCommunicationChoice } from './TeamCommunicationControl.js'
 import { deriveMemberActivity, deriveMemberTone, memberAssetOf, formatTime, toneLabel, enumLabel, type DetailSelection } from './team-dashboard-view-helpers.js'
 
-export function ManageView({ data, memberAssets, hasCaptain, number, onManageViaCaptain, onOpenDetail, t }: {
+export function ManageView({ data, memberAssets, hasCaptain, number, onManageViaCaptain, onCommunication, communicationDisabled, onOpenDetail, t }: {
   readonly data: SwarmHostReadProjectionV1
   readonly memberAssets: SwarmReadCaptainMembersV1 | undefined
   readonly hasCaptain: boolean
   readonly number: Intl.NumberFormat
   readonly onManageViaCaptain: () => void
+  readonly onCommunication: (choice: TeamCommunicationChoice) => Promise<void>
+  readonly communicationDisabled: boolean
   readonly onOpenDetail: (selection: DetailSelection) => void
   readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS>
 }) {
   return <div className="swarm-team-workspace__manage" data-swarm-manage-view>
+    <TeamCommunicationControl key={data.team.id} value={data.communication} revision={data.team.revision} disabled={!hasCaptain || communicationDisabled || data.team.phase !== 'active'} onRequest={onCommunication} t={t} />
     <div className="swarm-team-workspace__manage-row" data-swarm-manage-members>
       <span className="swarm-team-workspace__table-copy"><strong>{t('manage.membersTitle')}</strong><small>{t('manage.membersDesc', { count: number.format(data.totals.roster) })}</small></span>
       <button className="swarm-team-workspace__manage-action" type="button" disabled={!hasCaptain} onClick={onManageViaCaptain} title={t(hasCaptain ? 'manageViaCaptain' : 'captainNotCreated')}>{t(hasCaptain ? 'manage.open' : 'captainNotCreated')}</button>
@@ -139,11 +143,11 @@ export function MemberDetail({ detail, data, localeTag, memberAssets, t }: {
         </span>
       </div>
       <dl className="swarm-team-workspace__field-list">
-        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('memberRole')}</dt><dd data-swarm-detail-role>{member.role}</dd></div>
-        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('profileProfession')}</dt><dd data-swarm-detail-profession>{generated && asset.profession !== undefined ? asset.profession : unavailable}</dd></div>
-        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('profilePersonality')}</dt><dd data-swarm-detail-personality>{value(generated && asset.personality !== undefined ? asset.personality : undefined)}</dd></div>
-        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.intro')}</dt><dd data-swarm-detail-biography>{value(generated ? asset.biography : undefined)}</dd></div>
-        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.model')}</dt><dd data-swarm-detail-model>{compositionValue(composition?.model)}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('memberRole')}</dt><dd data-swarm-detail-role title={member.role}>{member.role}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('profileProfession')}</dt><dd data-swarm-detail-profession title={generated ? asset.profession : undefined}>{generated && asset.profession !== undefined ? asset.profession : unavailable}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('profilePersonality')}</dt><dd data-swarm-detail-personality title={generated ? asset.personality : undefined}>{value(generated ? asset.personality : undefined)}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.intro')}</dt><dd data-swarm-detail-biography title={generated ? asset.biography : undefined}>{value(generated ? asset.biography : undefined)}</dd></div>
+        <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.model')}</dt><dd data-swarm-detail-model title={compositionReady ? composition.model : undefined}>{compositionValue(composition?.model)}</dd></div>
       </dl>
 
     </div>

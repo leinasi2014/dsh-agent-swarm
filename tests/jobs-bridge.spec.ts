@@ -1,3 +1,4 @@
+import { latestUserText } from './helpers/model-input.js'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
  * Real-composition tests for the caller-scoped Team jobs projection.
@@ -58,20 +59,9 @@ class MemberAdapter extends LlmAdapter {
     return Promise.resolve({ provider, id: model, name: model })
   }
 
-  private lastUserText(options: GenerateOptions): string {
-    for (let index = options.messages.length - 1; index >= 0; index -= 1) {
-      const message = options.messages[index]!
-      if (message.role !== 'user') continue
-      return message.content
-        .filter((block): block is Extract<typeof block, { type: 'text' }> => block.type === 'text')
-        .map(block => block.text)
-        .join('\n')
-    }
-    return ''
-  }
 
   override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    const text = this.lastUserText(options)
+    const text = latestUserText(options)
     const assignment = ASSIGNMENT_RE.exec(text)
     if (this.options.submit && assignment !== null) {
       const [, taskId, revision, attemptId] = assignment

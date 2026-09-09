@@ -1,5 +1,5 @@
 /**
- * Captain-declared member identity profile: bounded text fields plus a
+ * Member-authored identity profile: bounded text fields plus a
  * strictly allowlisted *pixel-avatar* SVG.
  *
  * The avatar is deliberately NOT a general SVG parser. It admits exactly one
@@ -79,6 +79,21 @@ export interface MemberIdentityInput {
   readonly biography?: string
   readonly pixelAvatarSvg?: string
   readonly assignedSkills?: readonly string[]
+}
+
+/** Personal identity is authored by the member; recruitment supplies only profession and Skills. */
+export function assertRecruitmentIdentity(input: MemberIdentityInput): void {
+  if (input.displayName !== undefined || input.personality !== undefined || input.biography !== undefined || input.pixelAvatarSvg !== undefined) {
+    throw new TeamDomainError('Only the member may define its display name, personality, biography and avatar; recruitment may define profession.', 'TEAM_MEMBER_PROFILE_OWNER_REQUIRED')
+  }
+}
+
+/** Avatar design follows a separately committed introduction, never the same patch. */
+export function assertAvatarProfile(previous: MemberIdentityInput | undefined, patch: MemberIdentityInput): void {
+  if (patch.pixelAvatarSvg === undefined) return
+  const fields = ['displayName', 'profession', 'personality', 'biography'] as const
+  if (fields.every(field => previous?.[field] && (patch[field] === undefined || patch[field] === previous[field]))) return
+  throw new TeamDomainError('First save and read back your name, profession, personality and biography; then design your avatar from your chosen identity and preferences.', 'TEAM_MEMBER_AVATAR_PROFILE_REQUIRED')
 }
 
 export interface NormalizedMemberIdentity {

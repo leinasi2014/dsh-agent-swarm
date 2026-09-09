@@ -3,6 +3,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { MemberPrivateMemoryService } from '../runtime/member-private-memory-service.js'
 import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
 import { registerAddMemoryTool, registerSetBudgetTool } from './budget-memory.js'
+import { registerSetCommunicationTool } from './communication.js'
 import { registerApprovePlanTool, registerDiscardPlanTool, registerSetPlanTool } from './plans.js'
 import { registerSendMessageTool, registerWaitTool } from './mailbox.js'
 import { registerToolApproval } from './tool-approval.js'
@@ -58,6 +59,7 @@ export function registerAgentSwarmTools(
   registerSendMessageTool(ctx, runtime)
   registerToolApproval(ctx)
   registerSetBudgetTool(ctx, runtime)
+  registerSetCommunicationTool(ctx, runtime)
   registerAddMemoryTool(ctx, runtime)
   registerStatusTool(ctx, runtime)
   registerListTasksTool(ctx, runtime)

@@ -29,6 +29,8 @@ import {
   MAX_CAPTAIN_ANNOUNCEMENTS,
   normalizeAnnouncementText,
   normalizeMemberIdentity,
+  assertRecruitmentIdentity,
+  assertAvatarProfile,
   normalizePublicGoal,
 } from './identity-profile.js'
 import { normalizeAllowedSkills } from './team-skill-policy.js'
@@ -190,6 +192,7 @@ export async function provisionMember(
   // unsafe pixel SVG rejects provisioning with no roster side effect, and only
   // the sanctioned form is ever persisted in the canonical Team aggregate.
   const identity = normalizeMemberIdentity(input)
+  if (input.retryOf === undefined) assertRecruitmentIdentity(input)
   let committed!: TeamMember
   await deps.store.transact(scope, teamId, team => {
     const authority = actorMembership(team, captainSessionId)
@@ -436,6 +439,7 @@ export async function setCaptainProfile(
     const authority = actorMembership(team, captainSessionId)
     expectDomain(authority.role === 'captain', 'only the captain can set the Team profile', 'TEAM_CAPTAIN_REQUIRED')
     expectDomain(team.revision === expectedRevision, `team revision conflict: expected ${expectedRevision}`, 'TEAM_REVISION_CONFLICT')
+    assertAvatarProfile(team.captainProfile, profile)
     const timestamp = deps.now()
     Object.assign(team, { captainProfile: { ...team.captainProfile, ...profile }, revision: team.revision + 1, updatedAt: timestamp })
     committed = team
@@ -443,7 +447,7 @@ export async function setCaptainProfile(
   return structuredClone(committed)
 }
 
-/** Captain or exact active member's own identity patch. Session, role, provider, Skills and lifecycle stay canonical. */
+/** Member-owned personal identity; the Captain may update only the profession. */
 export async function setMemberProfile(
   deps: TeamDomainDeps, scope: TeamScope, teamId: TeamId, captainSessionId: string,
   expectedRevision: number, name: string, input: MemberIdentityInput,
@@ -457,9 +461,11 @@ export async function setMemberProfile(
   await deps.store.transact(scope, teamId, team => {
     const authority = actorMembership(team, captainSessionId)
     expectDomain(authority.role === 'captain' || authority.name === memberName, 'only the captain can set another member profile', 'TEAM_CAPTAIN_REQUIRED')
+    if (authority.role === 'captain') assertRecruitmentIdentity(input)
     expectDomain(team.revision === expectedRevision, `team revision conflict: expected ${expectedRevision}`, 'TEAM_REVISION_CONFLICT')
     const member = team.members.find(candidate => candidate.name === memberName)
     expectDomain(member !== undefined, `member "${memberName}" does not exist`, 'TEAM_MEMBER_NOT_FOUND')
+    assertAvatarProfile(member, profile)
     const displayName = profile.displayName ?? member.displayName ?? member.name
     expectDomain(!team.members.some(candidate => candidate !== member && (candidate.displayName ?? candidate.name) === displayName),
       'employee identity already exists', 'TEAM_MEMBER_IDENTITY_TAKEN')

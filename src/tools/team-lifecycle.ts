@@ -81,11 +81,11 @@ export function registerCreateManagedTool(ctx: Context, runtime: AgentSwarmRunti
 export function registerAddMemberTool(ctx: Context, runtime: AgentSwarmRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_add_member',
-    description: 'Captain-only: recruit a continuable member with isolated persona and mandatory tool restrictions. Provide its initial display name, profession, working personality, biography and pixel avatar in the user language; preserve preferences. Omitted legacy fields remain absent for the member to complete on entry. Invalid avatars fail before effects.',
+    description: 'Captain-only: recruit a continuable member by Team duty and professional expertise. Each member defines its own display name, personality, biography and avatar after joining; do not supply these on its behalf. Preserve the user language and preferences. Tool restrictions remain separate.',
     parameters: {
-      name: { type: 'string', required: true, description: 'Immutable member name: NFC-normalized Unicode letters/digits with dash separators, at most 64 code points.' },
-      role: { type: 'string', required: true, description: 'Member specialty and responsibility.' },
-      ...identityParameters,
+      name: { type: 'string', required: true, description: 'Immutable roster address, not the self-chosen public name: NFC-normalized Unicode letters/digits with dash separators, at most 64 code points.' },
+      role: { type: 'string', required: true, description: 'Short Team responsibility, e.g. geometry repair or independent review. Keep profession, task steps, paths and temporary permission rules in their own fields.' },
+      profession: identityParameters.profession,
       skills: { type: 'array', items: { type: 'string' }, description: 'Assigned Skills: validated before effects against Team allow-list and model-invocable scoped catalog; durable across restart.' },
       provider: { type: 'string', description: 'Continuable runtime Provider; defaults to plugin config.' },
       llm_provider: { type: 'string', description: 'Child LLM provider, distinct from runtime provider; inherits Captain when omitted and is recorded durably.' },
@@ -154,7 +154,7 @@ export function registerSetCaptainProfileTool(ctx: Context, runtime: AgentSwarmR
 export function registerSetMemberProfileTool(ctx: Context, runtime: AgentSwarmRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_set_member_profile',
-    description: 'Complete a public profile: the Captain may patch any member; an active member may patch ONLY itself, using its exact roster name. Supply current Team revision and at least one identity field. Omitted fields are preserved. This never changes Session, role, Skills, model or running persona. On a revision conflict re-read current state before retrying.',
+    description: 'An active member defines its own display name, personality, biography and avatar using its exact roster name. The Captain may update only profession. Supply current Team revision and at least one identity field; omitted fields are preserved. Updated identity enters subsequent model context; Session, role, Skills and model do not change. On conflict re-read before retrying.',
     parameters: {
       name: { type: 'string', required: true, description: 'Exact existing roster name from list_members.' },
       expected_revision: { type: 'number', required: true, description: 'Exact current Team revision; conflicts fail with TEAM_REVISION_CONFLICT.' },

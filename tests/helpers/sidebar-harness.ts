@@ -1,5 +1,5 @@
 import { vi } from 'vitest'
-import type { ISidebarRight, SidebarRightTabInfo } from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
+import type { ISidebarRight, SidebarRightNavigator, SidebarRightTabInfo } from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type { TeamDashboardSurfaceCoordinator } from '../../src/client/team-dashboard-surface-coordinator.js'
 import { tabInfoFixture } from './sidebar-tab.js'
 
@@ -20,8 +20,7 @@ export function sidebarHarness(coordinator: TeamDashboardSurfaceCoordinator, cur
   const remove = (id = current()) => {
     hide(id); records.delete(id); aborts.get(id)?.abort(); aborts.delete(id)
   }
-  const openTab = vi.fn(() => {
-    const id = current()
+  const openTabIn = vi.fn((id: string) => {
     if (!records.has(id)) {
       const abort = new AbortController()
       const info = tabInfoFixture('tab-3', () => { remove(id) })
@@ -32,11 +31,12 @@ export function sidebarHarness(coordinator: TeamDashboardSurfaceCoordinator, cur
     onOpen()
     if (autoMount) show(id)
   })
-  const sidebar: ISidebarRight = { openTab, openResource: () => { hide() }, close: () => { remove() },
+  const openTab = vi.fn(() => { openTabIn(current()) })
+  const sidebar: ISidebarRight & Pick<SidebarRightNavigator, 'openTabIn'> = { openTab, openTabIn, openResource: () => { hide() }, close: () => { remove() },
     active: () => records.get(current())?.tab, isExpanded: () => expanded,
     toggleExpanded: () => { expanded = !expanded; if (expanded) show(); else hide() },
     focus: () => { show() }, split: () => undefined, float: () => {}, dock: () => {} }
-  return { sidebar, openTab, records, hide, show, remove,
+  return { sidebar, openTab, openTabIn, records, hide, show, remove,
     setAutoMount: (value: boolean) => { autoMount = value },
     dispose: () => { for (const id of records.keys()) remove(id) } }
 }

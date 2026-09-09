@@ -47,6 +47,7 @@ export function registerSendMessageTool(ctx: Context, runtime: AgentSwarmRuntime
       attempt_id: { type: 'string', description: 'Optional causal attempt id binding: the message is delivered only while this attempt is still the task\'s current attempt.' },
       revision: { type: 'integer', description: 'Optional causal task revision at send time (audit identity).' },
       supersedes: { type: 'string', description: 'Optional explicit supersede: settle the referenced still-pending message obsolete and deliver this one instead.' },
+      reply_to: { type: 'string', description: 'Original message id from this recipient to you. Its first reply is exempt from proactive peer-wakeup limits; do not point to another reply.' },
     },
     output: {
       schema: {
@@ -55,9 +56,11 @@ export function registerSendMessageTool(ctx: Context, runtime: AgentSwarmRuntime
           message_id: { type: 'string', required: true },
           target: { type: 'string', required: true },
           phase: { type: 'string', required: true },
+          delivery: { type: 'string', required: true },
+          communication_limited: { type: 'boolean', required: true },
         },
       },
-      render: (_args, value) => [{ type: 'text', text: `Message ${value.message_id} to ${value.target}: ${value.phase}. Do not resend a queued message.` }],
+      render: (_args, value) => [{ type: 'text', text: `Message ${value.message_id} to ${value.target}: ${value.phase}, delivery=${value.delivery}. ${value.communication_limited ? 'Peer wakeup allowance reached. Saved as quiet mail: a busy recipient can read it at its next step; an idle recipient is not woken. Do not resend, poll or wait for the allowance; end your turn if no other work remains.' : 'Do not resend a queued message.'}` }],
     },
     async execute(args, exec) {
       const causal = args.task_id === undefined && args.attempt_id === undefined && args.revision === undefined
@@ -70,8 +73,9 @@ export function registerSendMessageTool(ctx: Context, runtime: AgentSwarmRuntime
       const message = await runtime.sendMessage(
         exec, args.target, args.content, (args.delivery ?? 'wakeup') as 'quiet' | 'wakeup',
         causal, args.supersedes === undefined ? undefined : TeamMessageId(args.supersedes),
+        args.reply_to === undefined ? undefined : TeamMessageId(args.reply_to),
       )
-      return { message_id: message.id, target: message.targetName, phase: message.phase }
+      return { message_id: message.id, target: message.targetName, phase: message.phase, delivery: message.delivery, communication_limited: message.communicationLimited === true }
     },
   }), 'send-message tool')
 }

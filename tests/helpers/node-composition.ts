@@ -1,3 +1,4 @@
+import { latestUserText } from './model-input.js'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
  * Shared harness for the M2-4 Jiuwen node-mapping suite (issue #78): the
@@ -76,17 +77,6 @@ class NodeMemberAdapter extends LlmAdapter {
       .join('\n')
   }
 
-  private lastUserText(options: GenerateOptions): string {
-    for (let index = options.messages.length - 1; index >= 0; index -= 1) {
-      const message = options.messages[index]!
-      if (message.role !== 'user') continue
-      return message.content
-        .filter((block): block is Extract<typeof block, { type: 'text' }> => block.type === 'text')
-        .map(block => block.text)
-        .join('\n')
-    }
-    return ''
-  }
 
   override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     this.requests.push(options)
@@ -111,7 +101,7 @@ class NodeMemberAdapter extends LlmAdapter {
       await this.gate
     }
     // Decision at release time: a flip between turns re-arms the behavior.
-    const assignment = ASSIGNMENT_RE.exec(this.lastUserText(options))
+    const assignment = ASSIGNMENT_RE.exec(latestUserText(options))
     if (this.submit && assignment !== null) {
       const [, taskId, revision, attemptId] = assignment
       const artifact = ARTIFACT_RE.exec(this.conversationText(options))

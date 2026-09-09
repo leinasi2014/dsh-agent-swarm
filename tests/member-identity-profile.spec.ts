@@ -115,17 +115,51 @@ describe('identity profile provisioning, persistence and compatibility', () => {
     domain = stack.port as TeamDomain
   }
 
-  it('persists a captain-declared identity profile in the Team aggregate and reloads it', async () => {
+  it('reserves personal identity for its member while letting the Captain recruit and update a profession', async () => {
+    await open()
+    const team = await domain.createTeam(scope, 'captain-session', 'Self-owned identity', 'Recruit expertise; members introduce themselves.')
+    const personal = { displayName: '林墨', personality: '细致、耐心', biography: '擅长人物动机和对白。', pixelAvatarSvg: PIXEL }
+    await expect(domain.provisionMember(scope, team.id, 'captain-session', {
+      name: 'writer', role: '剧本创作', sessionId: 'writer-session', provider: 'spawn', ...personal,
+    })).rejects.toMatchObject({ code: 'TEAM_MEMBER_PROFILE_OWNER_REQUIRED' })
+    expect((await stack.store.list(scope))[0]?.members).toEqual([])
+    await domain.provisionMember(scope, team.id, 'captain-session', {
+      name: 'writer', role: '剧本创作', sessionId: 'writer-session', provider: 'spawn', profession: '编剧',
+    })
+    await domain.settleMember(scope, team.id, 'writer-session', { active: true })
+    let current = (await stack.store.list(scope))[0]!
+    await expect(domain.setMemberProfile(scope, team.id, 'writer-session', current.revision, 'writer', personal))
+      .rejects.toMatchObject({ code: 'TEAM_MEMBER_AVATAR_PROFILE_REQUIRED' })
+    expect((await stack.store.list(scope))[0]).toEqual(current)
+    const { pixelAvatarSvg, ...introduction } = personal
+    current = await domain.setMemberProfile(scope, team.id, 'writer-session', current.revision, 'writer', introduction)
+    current = await domain.setMemberProfile(scope, team.id, 'writer-session', current.revision, 'writer', { pixelAvatarSvg })
+    await expect(domain.setMemberProfile(scope, team.id, 'writer-session', current.revision, 'writer', { personality: '外向', pixelAvatarSvg }))
+      .rejects.toMatchObject({ code: 'TEAM_MEMBER_AVATAR_PROFILE_REQUIRED' })
+    for (const [field, value] of Object.entries(personal)) {
+      await expect(domain.setMemberProfile(scope, team.id, 'captain-session', current.revision, 'writer', { [field]: value }))
+        .rejects.toMatchObject({ code: 'TEAM_MEMBER_PROFILE_OWNER_REQUIRED' })
+    }
+    expect((await stack.store.list(scope))[0]).toEqual(current)
+    const updated = await domain.setMemberProfile(scope, team.id, 'captain-session', current.revision, 'writer', { profession: '电影编剧' })
+    expect(updated.members[0]).toMatchObject({ ...personal, profession: '电影编剧' })
+  })
+
+  it('persists a member-authored identity profile in the Team aggregate and reloads it', async () => {
     await open()
     const team = await domain.createTeam(scope, 'captain-session', 'Identity team', 'Verify persistence.')
-    const member = await domain.provisionMember(scope, team.id, 'captain-session', {
-      name: 'painter', role: 'artist', sessionId: 'member-painter', provider: 'spawn',
-      displayName: 'Pixel Painter', profession: 'Avatar artist', personality: 'Careful, meticulous',
-      biography: 'Explains visual choices and checks the original reference.',
-      pixelAvatarSvg: PIXEL,
+    await domain.provisionMember(scope, team.id, 'captain-session', {
+      name: 'painter', role: 'artist', sessionId: 'member-painter', provider: 'spawn', profession: 'Avatar artist',
     })
-    expect(member.pixelAvatarSvg).toBe(PIXEL)
-    expect(member.displayName).toBe('Pixel Painter')
+    await domain.settleMember(scope, team.id, 'member-painter', { active: true })
+    let current = (await stack.store.list(scope))[0]!
+    current = await domain.setMemberProfile(scope, team.id, 'member-painter', current.revision, 'painter', {
+      displayName: 'Pixel Painter', personality: 'Careful, meticulous',
+      biography: 'Explains visual choices and checks the original reference.',
+    })
+    current = await domain.setMemberProfile(scope, team.id, 'member-painter', current.revision, 'painter', { pixelAvatarSvg: PIXEL })
+    expect(current.members[0]!.pixelAvatarSvg).toBe(PIXEL)
+    expect(current.members[0]!.displayName).toBe('Pixel Painter')
 
     // Reload the aggregate through a fresh store over the same storage root.
     await stack.close(); stack = undefined as unknown as StorageStack
@@ -169,15 +203,19 @@ describe('identity profile provisioning, persistence and compatibility', () => {
   it('patches existing profiles with CAS while preserving member identity and unrelated fields', async () => {
     await open()
     let team = await domain.createTeam(scope, 'captain-session', 'Profile repair', 'Backfill legacy identities.')
-    const member = await domain.provisionMember(scope, team.id, 'captain-session', {
+    await domain.provisionMember(scope, team.id, 'captain-session', {
       name: 'writer', role: 'writer', sessionId: 'writer-session', provider: 'spawn',
-      displayName: 'Writer', profession: 'Screenwriter', pixelAvatarSvg: PIXEL, assignedSkills: ['alpha'],
+      profession: 'Screenwriter', assignedSkills: ['alpha'],
     })
+    await domain.settleMember(scope, team.id, 'writer-session', { active: true })
     team = (await stack.store.list(scope))[0]!
-    const updated = await domain.setMemberProfile(scope, team.id, 'captain-session', team.revision, 'writer', { personality: 'Patient', biography: 'Builds character motives.' })
-    expect(updated.members[0]).toEqual({ ...member, personality: 'Patient', biography: 'Builds character motives.' })
-    await expect(domain.setMemberProfile(scope, team.id, 'captain-session', team.revision, 'writer', { biography: 'stale' })).rejects.toMatchObject({ code: 'TEAM_REVISION_CONFLICT' })
-    await expect(domain.setMemberProfile(scope, team.id, 'writer-session', updated.revision, 'writer', { biography: 'forged' })).rejects.toBeDefined()
+    team = await domain.setMemberProfile(scope, team.id, 'writer-session', team.revision, 'writer', { displayName: 'Writer', personality: 'Patient', biography: 'Builds character motives.' })
+    team = await domain.setMemberProfile(scope, team.id, 'writer-session', team.revision, 'writer', { pixelAvatarSvg: PIXEL })
+    const member = team.members[0]!
+    const updated = await domain.setMemberProfile(scope, team.id, 'writer-session', team.revision, 'writer', { biography: 'Develops dialogue.' })
+    expect(updated.members[0]).toEqual({ ...member, biography: 'Develops dialogue.' })
+    await expect(domain.setMemberProfile(scope, team.id, 'writer-session', team.revision, 'writer', { biography: 'stale' })).rejects.toMatchObject({ code: 'TEAM_REVISION_CONFLICT' })
+    await expect(domain.setMemberProfile(scope, team.id, 'unknown-session', updated.revision, 'writer', { biography: 'forged' })).rejects.toBeDefined()
     let captain = await domain.setCaptainProfile(scope, team.id, 'captain-session', updated.revision, { displayName: 'Lead', profession: 'Editor' })
     captain = await domain.setCaptainProfile(scope, team.id, 'captain-session', captain.revision, { biography: 'Checks coherence.' })
     expect(captain.captainProfile).toEqual({ displayName: 'Lead', profession: 'Editor', biography: 'Checks coherence.' })
@@ -205,8 +243,9 @@ describe('identity profile provisioning, persistence and compatibility', () => {
       await domain.settleMember(scope, team.id, `${name}-session`, { active: true })
     }
     const before = (await stack.store.list(scope))[0]!
-    const updated = await domain.setMemberProfile(scope, team.id, 'writer-session', before.revision, 'writer', { profession: '编剧', personality: '仔细', biography: '我负责人物动机。', pixelAvatarSvg: PIXEL })
-    expect(updated.members[0]).toEqual({ ...before.members[0], profession: '编剧', personality: '仔细', biography: '我负责人物动机。', pixelAvatarSvg: PIXEL })
+    const introduced = await domain.setMemberProfile(scope, team.id, 'writer-session', before.revision, 'writer', { displayName: '林墨', profession: '编剧', personality: '仔细', biography: '我负责人物动机。' })
+    const updated = await domain.setMemberProfile(scope, team.id, 'writer-session', introduced.revision, 'writer', { pixelAvatarSvg: PIXEL })
+    expect(updated.members[0]).toEqual({ ...before.members[0], displayName: '林墨', profession: '编剧', personality: '仔细', biography: '我负责人物动机。', pixelAvatarSvg: PIXEL })
     expect(updated.members[1]).toEqual(before.members[1])
     await expect(domain.setMemberProfile(scope, team.id, 'writer-session', updated.revision, 'reviewer', { biography: 'forged' })).rejects.toMatchObject({ code: 'TEAM_CAPTAIN_REQUIRED' })
     await expect(domain.setCaptainProfile(scope, team.id, 'writer-session', updated.revision, { biography: 'forged' })).rejects.toMatchObject({ code: 'TEAM_CAPTAIN_REQUIRED' })
@@ -251,11 +290,13 @@ describe('identity profile provisioning, persistence and compatibility', () => {
     await open()
     const team = await domain.createTeam(scope, 'captain-session', 'Emoji team', 'Code-point length limits.')
     const display128 = '😀'.repeat(128)
-    const member = await domain.provisionMember(scope, team.id, 'captain-session', {
+    await domain.provisionMember(scope, team.id, 'captain-session', {
       name: 'emoji', role: 'writer', sessionId: 'member-emoji', provider: 'spawn',
-      displayName: display128,
     })
-    expect([...member.displayName!].length).toBe(128)
+    await domain.settleMember(scope, team.id, 'member-emoji', { active: true })
+    const current = (await stack.store.list(scope))[0]!
+    const updated = await domain.setMemberProfile(scope, team.id, 'member-emoji', current.revision, 'emoji', { displayName: display128 })
+    expect([...updated.members[0]!.displayName!].length).toBe(128)
 
     // Reload: the durable zod boundary (code-point capped, not UTF-16) accepts
     // 128 emoji even though they are 256 UTF-16 code units.

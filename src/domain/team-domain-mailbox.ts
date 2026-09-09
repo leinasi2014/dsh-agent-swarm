@@ -16,6 +16,7 @@ import { expectDomain, TeamDomainError } from './error.js'
 import { actorMembership, foldMemberName, nonEmpty, type TeamDomainDeps } from './team-domain-shared.js'
 import { TeamMessageId, type TeamId, type TeamMessage, type TeamMessageCausal, type TeamMessageDelivery, type TeamState } from './types.js'
 import type { TeamScope } from './team-domain-port.js'
+import { isRecentPeerWakeup, peerWakeupLimited } from './team-domain-communication.js'
 
 export async function queueMessage(
   deps: TeamDomainDeps,
@@ -27,10 +28,11 @@ export async function queueMessage(
   delivery: TeamMessageDelivery,
   causal?: TeamMessageCausal,
   supersedes?: TeamMessage['supersedes'],
+  replyTo?: TeamMessage['replyTo'],
 ): Promise<TeamState['messages'][number]> {
   let committed!: TeamState['messages'][number]
   await deps.store.transact(scope, teamId, team => {
-    committed = queueMessageInDraft(deps, team, senderSessionId, targetName, content, delivery, causal, supersedes)
+    committed = queueMessageInDraft(deps, team, senderSessionId, targetName, content, delivery, causal, supersedes, replyTo)
   })
   return structuredClone(committed)
 }
@@ -45,6 +47,7 @@ export function queueMessageInDraft(
   delivery: TeamMessageDelivery,
   causal?: TeamMessageCausal,
   supersedes?: TeamMessage['supersedes'],
+  replyTo?: TeamMessage['replyTo'],
 ): TeamState['messages'][number] {
     const sender = actorMembership(team, senderSessionId)
     // Issue #19 Unicode alignment: targets fold through the same NFC +
@@ -78,6 +81,14 @@ export function queueMessageInDraft(
     )
     const normalizedContent = nonEmpty(content, 'message', deps.limits.maxMessageBytes)
     const timestamp = deps.now()
+    const replied = replyTo === undefined ? undefined : team.messages.find(message => message.id === replyTo)
+    if (replyTo !== undefined) {
+      expectDomain(replied !== undefined && replied.senderSessionId === targetSessionId && replied.targetSessionId === senderSessionId
+        && replied.replyTo === undefined && (replied.phase === 'queued' || replied.phase === 'delivered'),
+      'reply_to must identify a live original message from this recipient to you; it cannot identify another reply', 'TEAM_MESSAGE_REPLY_INVALID')
+    }
+    const replyExempt = replied !== undefined && replied.repliedBy === undefined
+    const communicationLimited = delivery === 'wakeup' && !replyExempt && peerWakeupLimited(deps, team, senderSessionId, targetSessionId, timestamp)
     // Mail-obsolescence: the optional causal identity is validated before it
     // is ever persisted. A headline revision, if present, must be a positive
     // safe integer; when both a task and an attempt are bound they must agree
@@ -96,11 +107,14 @@ export function queueMessageInDraft(
       targetSessionId,
       targetName: normalizedTarget,
       content: normalizedContent,
-      delivery,
+      delivery: communicationLimited ? 'quiet' : delivery,
       phase: 'queued',
       createdAt: timestamp,
       ...(normalizedCausal === undefined ? {} : { causal: normalizedCausal }),
       ...(supersedes === undefined ? {} : { supersedes }),
+      ...(replyTo === undefined ? {} : { replyTo }),
+      ...(replyExempt ? { replyExempt: true as const } : {}),
+      ...(communicationLimited ? { communicationLimited: true as const } : {}),
     }
     expectDomain(
       Buffer.byteLength(JSON.stringify(committed), 'utf8') <= deps.limits.maxMessageBytes,
@@ -108,6 +122,7 @@ export function queueMessageInDraft(
       'TEAM_INPUT_LIMIT',
     )
     team.messages.push(committed)
+    if (replyExempt) Object.assign(replied!, { repliedBy: committed.id })
     // Explicit supersede (mail-obsolescence): a later message of the same
     // causal chain settles the still-pending predecessor terminal as obsolete
     // in the same aggregate transaction, so its result is immediately
@@ -123,7 +138,7 @@ export function queueMessageInDraft(
         obsoletedReason: `superseded by ${committed.id}`,
       }
     }
-    pruneRetainedMessages(team, deps.limits.maxRetainedMessages)
+    pruneRetainedMessages(team, deps.limits.maxRetainedMessages, deps.now())
     return committed
 }
 
@@ -219,7 +234,7 @@ async function settleMessageTransaction(
     expectDomain(current.phase === 'queued', phaseInvalidDetail, 'TEAM_MESSAGE_PHASE_INVALID')
     committed = settle(current)
     team.messages[index] = committed
-    pruneRetainedMessages(team, deps.limits.maxRetainedMessages)
+    pruneRetainedMessages(team, deps.limits.maxRetainedMessages, deps.now())
   })
   return structuredClone(committed)
 }
@@ -262,14 +277,23 @@ export async function acknowledgeMessage(
  * policy existed load unchanged; their receipts are pruned lazily by the
  * next terminal transition that runs through here.
  */
-export function pruneRetainedMessages(team: TeamState, maxRetainedMessages: number): void {
+export function pruneRetainedMessages(team: TeamState, maxRetainedMessages: number, now = Date.now()): void {
   let excess = team.messages.filter(message => message.phase !== 'queued').length - maxRetainedMessages
+  // Evict ordinary receipts before recent window evidence. The admission
+  // rule keeps protected receipts within the same existing retention bound.
   for (let index = 0; index < team.messages.length && excess > 0;) {
-    if (team.messages[index]!.phase === 'queued') {
+    if (team.messages[index]!.phase === 'queued' || isRecentPeerWakeup(team, team.messages[index]!, now)) {
       index += 1
       continue
     }
     team.messages.splice(index, 1)
     excess -= 1
+  }
+  // Imported/legacy data may already exceed the bound. Preserve its newest
+  // evidence; the global evidence-capacity guard then defers new peer wakes.
+  for (let index = 0; index < team.messages.length && excess > 0;) {
+    if (team.messages[index]!.phase === 'queued') { index++; continue }
+    team.messages.splice(index, 1)
+    excess--
   }
 }

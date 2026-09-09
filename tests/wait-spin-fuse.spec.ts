@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CAPTAIN_ONLY_TOOLS, MEMBER_HIDDEN_TOOLS, memberJoinNotice, memberPersona } from '../src/runtime/prompts.js'
+import { CAPTAIN_ONLY_TOOLS, MEMBER_HIDDEN_TOOLS, identityBehaviorPrompt, memberJoinNotice } from '../src/runtime/prompts.js'
 import { memberToolDeny } from '../src/runtime/tool-policy.js'
 import { decideToolPermission, type ToolPermissionContext } from '../src/runtime/permission-policy.js'
 import { WaitSpinFuse, type WaitSpinObservation } from '../src/runtime/wait-surface.js'
@@ -31,8 +31,8 @@ describe('WAIT-SPIN member admission and model surface', () => {
 
   it('tells a member to end its turn after no-task/submit/blocker instead of waiting', () => {
     const team = { id: 'team-wait-spin-fixture', name: 'fixture' } as never
-    expect(memberPersona(team, 'worker', 'fixture role')).toContain('END YOUR TURN')
-    expect(memberJoinNotice(team)).toContain('then end this turn')
+    expect(identityBehaviorPrompt('member')).toContain('END YOUR TURN')
+    expect(memberJoinNotice(team)).toContain('end this turn')
   })
 })
 

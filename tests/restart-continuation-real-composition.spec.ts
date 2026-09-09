@@ -1,3 +1,4 @@
+import { latestUserText } from './helpers/model-input.js'
 import { readPersistedSession } from '../src/runtime/persisted-session.js'
 import { deliverSubagentPrompt, type HostPromptDeliverer } from '@deepseek-ai/dsh-subagent/internal'
 /**
@@ -31,13 +32,6 @@ import {
 
 const CAPTAIN = SessionId('restart-real-captain')
 
-function latestUserText(options: GenerateOptions): string {
-  const message = options.messages.toReversed().find(candidate => candidate.role === 'user')
-  return message?.content
-    .filter((block): block is Extract<typeof block, { type: 'text' }> => block.type === 'text')
-    .map(block => block.text)
-    .join('\n') ?? ''
-}
 
 function textResponse(text: string): StreamChunk[] {
   return [

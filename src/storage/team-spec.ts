@@ -117,6 +117,10 @@ const messageSchema = z.object({
   phase: z.enum(['queued', 'delivered', 'cancelled', 'obsolete']),
   createdAt: timestamp,
   deliveredAt: timestamp.optional(),
+  replyTo: z.string().min(1).optional(),
+  repliedBy: z.string().min(1).optional(),
+  replyExempt: z.literal(true).optional(),
+  communicationLimited: z.literal(true).optional(),
   // Mail-obsolescence causal identity, explicit supersede and obsolete
   // settlement. All optional so pre-existing records parse byte-identical;
   // a record that settles obsolete carries obsoletedReason/obsoletedAt.
@@ -216,6 +220,7 @@ const teamFields = {
     description: z.string().min(1),
     captainSessionId: z.string(),
     phase: z.enum(['staged', 'active', 'archived']),
+    communicationIntensity: z.enum(['quiet', 'balanced', 'active']).optional(),
     // Reuse the strict domain validator so nested optional plan fields survive
     // reload unchanged, including the approved plan used by startup recovery.
     planDraft: z.custom<TeamPlanDraft>(value => {

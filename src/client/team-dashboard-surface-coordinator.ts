@@ -2,9 +2,11 @@ import type { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SubagentListEntry } from '@deepseek-ai/dsh-subagent/client'
-import type { ISidebarRight, SidebarRightTabInfo } from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
+import type { SidebarRightNavigator, SidebarRightTabInfo } from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type { RefObject } from 'react'
 import type { TeamDashboardController } from './team-dashboard-controller.js'
+import { queueCommunicationChange, type CaptainHumanPrompt } from './team-communication-command.js'
+import type { TeamCommunicationChoice } from './TeamCommunicationControl.js'
 
 export const TEAM_TAB_KIND = 'swarm-team'
 export const TEAM_TAB_ID = 'dsh-agent-swarm/team'
@@ -19,7 +21,10 @@ interface Options {
   readonly locale: LocaleRuntime
   readonly controller: TeamDashboardController
   readonly anchorRef: RefObject<HTMLSpanElement>
+  readonly sendCaptainPrompt?: (request: CaptainHumanPrompt, signal: AbortSignal) => Promise<void>
 }
+/** Official exported target-addressed navigation, independent of the mounted seat. */
+type TeamSidebar = Pick<SidebarRightNavigator, 'openTabIn'>
 type Tab = SidebarRightTabInfo['tab']
 interface ObservedTab { sessionId: string; tab: Tab; mounted: boolean; mount: object; offAbort(): void }
 const INACTIVE: TeamDashboardSurfaceState = Object.freeze({ mode: 'inactive', view: 'overview', targetSessionId: undefined })
@@ -30,7 +35,7 @@ export class TeamDashboardSurfaceCoordinator {
   private readonly tabs = new Map<string, ObservedTab>()
   private readonly dismissed = new Map<string, string | undefined>()
   private state: TeamDashboardSurfaceState = INACTIVE
-  private sidebar: ISidebarRight | undefined
+  private sidebar: TeamSidebar | undefined
   private sidebarEpoch = 0
   private navigationEpoch = 0
   private disposed = false
@@ -55,16 +60,18 @@ export class TeamDashboardSurfaceCoordinator {
       const current = this.options.sessions.list.getSnapshot().current
       if (current === this.observedSessionId) return
       this.observedSessionId = current
-      this.publish(INACTIVE)
       if (current === undefined) this.options.controller.close()
-      else this.options.controller.open(current)
+      else {
+        this.options.controller.open(current)
+        if (this.options.controller.getSnapshot().phase !== 'ready') this.publish(INACTIVE)
+      }
     })
     this.observedSessionId = this.options.sessions.list.getSnapshot().current
     if (this.observedSessionId !== undefined) this.options.controller.open(this.observedSessionId)
     return () => { this.dispose() }
   }
 
-  bindSidebar(sidebar: ISidebarRight): () => void {
+  bindSidebar(sidebar: TeamSidebar): () => void {
     if (this.disposed) return () => {}
     const epoch = ++this.sidebarEpoch
     this.sidebar = sidebar
@@ -136,6 +143,13 @@ export class TeamDashboardSurfaceCoordinator {
   async openCaptainChat(): Promise<void> {
     const check = this.navigationGuard()
     await this.options.controller.openCaptainChat((id, signal) => this.openOfficialCaptain(id, signal, check))
+  }
+
+  async requestCommunication(choice: TeamCommunicationChoice): Promise<void> {
+    this.assertLive()
+    const send = this.options.sendCaptainPrompt
+    if (send === undefined) throw new Error('Official Captain prompt service is unavailable')
+    await queueCommunicationChange({ sessions: this.options.sessions, controller: this.options.controller, choice, send })
   }
 
   async openMainChat(): Promise<void> {
@@ -237,8 +251,11 @@ export class TeamDashboardSurfaceCoordinator {
   }
   private openTeamTab(sessionId: string): void {
     if (this.sidebar === undefined || this.options.sessions.list.getSnapshot().current !== sessionId) return
-    this.publish({ mode: 'docked', targetSessionId: sessionId, view: 'overview' })
-    try { this.sidebar.openTab(TEAM_TAB_KIND) } catch { this.publish(INACTIVE) }
+    // Session selection can precede the official seat's React binding. Address
+    // the adopted Session store exactly; never borrow the previous seat. A first
+    // visit may not be adopted yet, so only observeTab confirms the lease and
+    // the existing authoritative read cadence can retry until it is mounted.
+    try { this.sidebar.openTabIn(sessionId as SessionId, TEAM_TAB_KIND) } catch { this.publish(INACTIVE) }
   }
   private dismissCurrentTeam(sessionId: string): void {
     const read = this.options.controller.getSnapshot()

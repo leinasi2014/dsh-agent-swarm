@@ -33,6 +33,7 @@ import { AGENT_SWARM_USAGE_PROMPT } from '../runtime/usage-prompt.js'
 import { installSwarmGestureBoundary } from '../runtime/gesture.js'
 import { installExecutionGuard } from '../runtime/execution-guard.js'
 import { installAssignmentAdmission } from '../runtime/assignment-admission.js'
+import { installIdentityContext } from '../runtime/identity-context.js'
 import { TeamSkillSurface } from '../runtime/team-skill-surface.js'
 import {
   AGENT_SWARM_SETTINGS_NAMESPACE,
@@ -103,6 +104,7 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
   let drainHumanInteractions: (() => Promise<void>) | undefined
 
   const runtime = new AgentSwarmRuntime(ctx, {
+    communicationIntensity: config.communicationIntensity ?? 'active',
     memberProvider,
     ...(config.memberLlmProvider === undefined ? {} : { memberLlmProvider: config.memberLlmProvider }),
     ...(config.memberModel === undefined ? {} : { memberModel: config.memberModel }),
@@ -301,6 +303,7 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
     order: config.promptSectionOrder ?? 118,
     text: AGENT_SWARM_USAGE_PROMPT,
   }), 'agent-swarm: system prompt')
+  ctx.effect(() => installIdentityContext(ctx, runtime), 'agent-swarm: current identity context')
   // M2-3 (issue #77): the adaptive event face — idle edges drive scheduling
   // passes (assignment delivery, reserved folds, stranded self-healing).
   // `workflow` mode does not register it: Teams advance only through

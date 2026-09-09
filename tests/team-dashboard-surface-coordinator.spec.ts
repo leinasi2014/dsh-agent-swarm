@@ -1,3 +1,10 @@
+import { readFileSync as sidebarReadFile } from 'node:fs'
+import { createRequire as sidebarCreateRequire } from 'node:module'
+import { dirname as sidebarDirname, join as sidebarJoin } from 'node:path'
+import { runInNewContext as sidebarRun } from 'node:vm'
+import * as SidebarReact from 'react'
+import * as SidebarJsx from 'react/jsx-runtime'
+import { tabInfoFixture as sidebarTabInfo } from './helpers/sidebar-tab.js'
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest'
 import { sidebarHarness } from './helpers/sidebar-harness.js'
@@ -58,9 +65,9 @@ describe('TeamDashboardSurfaceCoordinator', () => {
     const f = fixture()
     f.releaseSidebar()
     f.setReady()
-    expect(f.sidebar.openTab).not.toHaveBeenCalled()
+    expect(f.sidebar.openTabIn).not.toHaveBeenCalled()
     const release = f.coordinator.bindSidebar(f.sidebar.sidebar)
-    expect(f.sidebar.openTab).toHaveBeenCalledOnce()
+    expect(f.sidebar.openTabIn).toHaveBeenCalledOnce()
     f.releaseSidebar()
     expect(f.coordinator.getSnapshot().mode).toBe('docked')
     release()
@@ -199,19 +206,19 @@ describe('TeamDashboardSurfaceCoordinator', () => {
     f.setReady()
     expect(f.coordinator.getSnapshot().mode).toBe('inactive')
     expect(f.controller.getSnapshot().open).toBe(true)
-    expect(f.sidebar.openTab).toHaveBeenCalledOnce()
+    expect(f.sidebar.openTabIn).toHaveBeenCalledOnce()
     expect(document.querySelector('[role="dialog"]')).toBeNull(); f.destroy()
   })
 
   it('retains a hidden tab across polling and allows the official guide to reopen a removed occurrence', () => {
     const f = fixture(); f.setReady()
     f.sidebar.hide(); f.setReady()
-    expect(f.sidebar.openTab).toHaveBeenCalledOnce()
+    expect(f.sidebar.openTabIn).toHaveBeenCalledOnce()
     f.sidebar.show(); f.coordinator.closeAndRestoreFocus(); f.setReady()
     expect(f.coordinator.getSnapshot().mode).toBe('inactive')
     f.sidebar.sidebar.openTab('swarm-team')
     expect(f.coordinator.getSnapshot().mode).toBe('docked')
-    f.setReady(); expect(f.sidebar.openTab).toHaveBeenCalledTimes(2); f.destroy()
+    f.setReady(); expect(f.sidebar.openTabIn).toHaveBeenCalledTimes(2); f.destroy()
   })
   it('hands Captain navigation to the exact official Session only when it remains listed', async () => {
     const f = fixture(); f.setReady()
@@ -249,22 +256,90 @@ describe('TeamDashboardSurfaceCoordinator', () => {
     expect(root.tab.id).toBe(other.tab.id)
     f.sidebar.remove('root')
     expect(f.coordinator.getSnapshot()).toMatchObject({ mode: 'docked', targetSessionId: 'other' })
-    f.setReady(); expect(f.sidebar.openTab).toHaveBeenCalledTimes(2); f.destroy()
+    f.setReady(); expect(f.sidebar.openTabIn).toHaveBeenCalledTimes(2); f.destroy()
   })
 
   it('does not expand a collapsed official Sidebar on a Team refresh', () => {
     const f = fixture(); f.setReady(); f.sidebar.sidebar.toggleExpanded(); f.setReady()
     expect(f.sidebar.sidebar.isExpanded()).toBe(false)
     expect(f.coordinator.getSnapshot().mode).toBe('inactive')
-    expect(f.sidebar.openTab).toHaveBeenCalledOnce(); f.destroy()
+    expect(f.sidebar.openTabIn).toHaveBeenCalledOnce(); f.destroy()
   })
 
   it('binds dismissal to the first result when the official user closes a loading Team tab', () => {
     const f = fixture(); f.sidebar.sidebar.openTab('swarm-team')
     f.coordinator.closeAndRestoreFocus(); f.setReady('team-1'); f.setReady('team-1')
     expect(f.coordinator.getSnapshot().mode).toBe('inactive')
-    expect(f.sidebar.openTab).toHaveBeenCalledOnce()
-    f.setReady('team-2'); expect(f.sidebar.openTab).toHaveBeenCalledTimes(2); f.destroy()
+    expect(f.sidebar.openTabIn).toHaveBeenCalledOnce()
+    f.setReady('team-2'); expect(f.sidebar.openTabIn).toHaveBeenCalledTimes(2); f.destroy()
   })
 
+})
+
+
+/** Installed official controller and adoption path; only its store carrier is a fixture. */
+function installedTargetedSidebar() {
+  const require = sidebarCreateRequire(import.meta.url)
+  const source = sidebarReadFile(sidebarJoin(sidebarDirname(require.resolve('@deepseek-ai/dsh-client-ui-sidebar-right/package.json')), 'lib/client.js'), 'utf8')
+  const calls: string[] = []
+  const faces = new Map<string, any>()
+  const stores = new Map<string, any>()
+  const disposers: Array<() => void> = []
+  let registration: any
+  let exported!: { apply(ctx: unknown): void }
+  sidebarRun(source, { window: { __ModuleLoader__: { load: (entry: { factory(require: (name: string) => unknown): typeof exported }) => {
+    exported = entry.factory(name => {
+      if (name === 'react') return SidebarReact
+      if (name === 'react/jsx-runtime') return SidebarJsx
+      if (name === 'react-dom' || name === '@deepseek-ai/dsh-client-ui-primitives' || name === '@deepseek-ai/dsh-client-ui-dockkit') return {}
+      if (name === '@deepseek-ai/dsh-client-store') return { notifySubscribers: (listeners: Iterable<() => void>) => { for (const listener of listeners) listener() }, defineStore: () => ({ create: (sessionId: string) => {
+        const store = { actions: { openContent: (target: string) => { calls.push(target) } }, getSnapshot: () => ({ bySession: {} }), subscribe: () => () => {} }
+        stores.set(sessionId, store); return store
+      } }) }
+      throw new Error(`Unexpected official sidebar dependency: ${name}`)
+    })
+  } } }, AbortController })
+  exported.apply({
+    effect: (effect: () => (() => void), _label: string) => { const off=effect(); disposers.push(off); return off },
+    locale: { bind: () => (key: string) => key, register: () => () => {} },
+    resources: { pin: () => {} }, layout: { openRightbar: () => {}, closeRightbar: () => {} },
+    reflect: { provide: (name: string, value: unknown) => { faces.set(name,value); return () => {} } },
+    slots: { inject: (_name: string, factory: () => unknown) => factory(), register: (options: any) => { if(options.name==='rightbar') registration=options; return () => {} } },
+  })
+  const controller=faces.get('sidebarRight')
+  faces.get('sidebarRightTabs').register({ id:'swarm-test',kind:'swarm-team',title:()=> 'Team' })
+  return { controller,calls,
+    adopt: (id: string) => { registration.store.create(id) },
+    bind: (id: string) => controller.bind({ sessionId:id,actions:stores.get(id).actions,surfaces:{},canSplitPane:()=>true }),
+    dispose: () => { disposers.toReversed().forEach(off=>off?.()) },
+  }
+}
+
+it('targets the exact new Session while the official mounted seat still belongs to the old one', () => {
+  const f=fixture(), official=installedTargetedSidebar()
+  let offRoot: (() => void) | undefined
+  try {
+    f.releaseSidebar(); official.adopt('root'); official.bind('root')
+    f.coordinator.bindSidebar(official.controller)
+    f.setReady('team-1','root')
+    offRoot=f.coordinator.observeTab('root',sidebarTabInfo().tab)
+    official.calls.length=0
+    offRoot(); offRoot=undefined
+    f.controller.open.mockImplementation((id: string)=>{f.setReady('team-1',id)})
+    f.sessions.setCurrent('captain')
+    // The new Session is authoritative before React adopts or binds its seat.
+    // A target-addressed call is a no-op here; it must never open the old root.
+    expect(official.calls).toEqual([])
+    expect(f.coordinator.getSnapshot().mode).toBe('inactive')
+    official.adopt('captain')
+    f.setReady('team-1','captain') // Existing authoritative read cadence; no new timer.
+    expect(official.calls).toEqual(['captain'])
+    expect(f.coordinator.getSnapshot().mode).toBe('inactive')
+    official.bind('captain')
+    const offCaptain=f.coordinator.observeTab('captain',sidebarTabInfo('captain-tab').tab)
+    expect(f.coordinator.getSnapshot()).toMatchObject({mode:'docked',targetSessionId:'captain'})
+    f.setReady('team-1','captain')
+    expect(official.calls).toEqual(['captain'])
+    offCaptain()
+  } finally { offRoot?.(); f.destroy(); official.dispose() }
 })

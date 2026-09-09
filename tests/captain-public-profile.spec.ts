@@ -54,11 +54,13 @@ describe('Captain public profile + announcements (permission, CAS, persistence, 
   it('persists the Captain profile (additive, byte-compatible absence) and requires non-empty', async () => {
     await open()
     const team = await domain.createTeam(scope, 'captain-session', 'Profile team', 'persist')
-    const updated = await domain.setCaptainProfile(scope, team.id, 'captain-session', team.revision, {
-      displayName: 'Cap', profession: 'Coordinator', personality: 'Steady', pixelAvatarSvg: PIXEL,
+    await expect(domain.setCaptainProfile(scope, team.id, 'captain-session', team.revision, { displayName: 'Cap', profession: 'Coordinator', personality: 'Steady', biography: 'Coordinates reviews.', pixelAvatarSvg: PIXEL })).rejects.toMatchObject({ code: 'TEAM_MEMBER_AVATAR_PROFILE_REQUIRED' })
+    const introduced = await domain.setCaptainProfile(scope, team.id, 'captain-session', team.revision, {
+      displayName: 'Cap', profession: 'Coordinator', personality: 'Steady', biography: 'Coordinates reviews.',
     })
+    const updated = await domain.setCaptainProfile(scope, team.id, 'captain-session', introduced.revision, { pixelAvatarSvg: PIXEL })
     expect(updated.captainProfile).toMatchObject({ displayName: 'Cap', profession: 'Coordinator', pixelAvatarSvg: PIXEL })
-    expect(updated.revision).toBe(team.revision + 1)
+    expect(updated.revision).toBe(team.revision + 2)
 
     // Reload through a fresh store: profile + absence compatibility survive.
     await stack.close(); stack = undefined as unknown as StorageStack

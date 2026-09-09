@@ -15,6 +15,7 @@ export function assembleAgentSwarmHostRead(
   disposalTimeoutMs: number,
 ): () => Promise<void> {
   const service = new AgentSwarmHostReadService({
+    communicationIntensity: runtime.config.communicationIntensity ?? 'active',
     currentInitiator: () => ctx.agents.currentInitiator(),
     isExactLiveRoot: agent => ctx.agents.get(agent.id) === agent
       && ctx.sessions.get(agent.id) === agent.session

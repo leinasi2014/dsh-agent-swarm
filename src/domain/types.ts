@@ -148,6 +148,13 @@ export interface TaskAttempt {
 }
 
 export type TeamMessageDelivery = 'quiet' | 'wakeup'
+export type TeamCommunicationIntensity = 'quiet' | 'balanced' | 'active'
+export interface TeamCommunicationPolicy {
+  readonly intensity: TeamCommunicationIntensity
+  readonly source: 'team' | 'plugin'
+  readonly peerWakeupsPerMinute: number
+  readonly windowSeconds: 60
+}
 type TeamMessagePhase = 'queued' | 'delivered' | 'cancelled' | 'obsolete'
 
 /**
@@ -178,6 +185,12 @@ export interface TeamMessage {
   readonly phase: TeamMessagePhase
   readonly createdAt: number
   readonly deliveredAt?: number
+  readonly replyTo?: TeamMessageId
+  /** First reply reservation lives on the original message even if the reply receipt is pruned. */
+  readonly repliedBy?: TeamMessageId
+  readonly replyExempt?: true
+  /** Requested proactive wakeup was saved as quiet mail; never discard or retry it. */
+  readonly communicationLimited?: true
   /**
    * Optional causal identity recorded at queue time (above). Absent on
    * messages queued without a causal binding (including all pre-existing
@@ -306,6 +319,8 @@ export interface TeamState {
   readonly tasks: TeamTask[]
   readonly attempts: TaskAttempt[]
   readonly messages: TeamMessage[]
+  /** Absent means inherit the plugin default; a Team override survives restart. */
+  readonly communicationIntensity?: TeamCommunicationIntensity
   /** Required for schema v2; v1 records are upgraded before public read. */
   readonly interactionEffects?: TeamInteractionEffect[]
   readonly budget: TeamBudget
@@ -361,4 +376,3 @@ export interface TeamStatusSnapshot {
   readonly readyTaskIds: TaskId[]
   readonly pendingMessageIds: TeamMessageId[]
 }
-

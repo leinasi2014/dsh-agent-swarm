@@ -1,4 +1,4 @@
-import type { TeamMemberIdentityProfile } from '../domain/types.js'
+import type { TeamCommunicationPolicy, TeamMemberIdentityProfile } from '../domain/types.js'
 import type { SwarmProducerCapabilityState } from './producer-contract.js'
 
 /** Strict Host-local request. Identity and workspace are never caller fields. */
@@ -17,6 +17,8 @@ export interface SwarmHostReadInput {
 }
 
 export interface SwarmHostReadProjectionV1 {
+  /** Additive for older clients; current Host always supplies the effective policy. */
+  readonly communication?: TeamCommunicationPolicy
   readonly schemaVersion: 1
   readonly binding: {
     readonly rootSessionId: string

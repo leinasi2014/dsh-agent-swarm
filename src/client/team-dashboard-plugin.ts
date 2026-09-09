@@ -1,5 +1,8 @@
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { SessionRequestId } from '@deepseek-ai/dsh-api-session-controller/types'
+import type { SubagentPromptRequestId } from '@deepseek-ai/dsh-subagent/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/types'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
@@ -34,7 +37,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-export const inject = ['sessions', 'slots', 'locale', 'settingsScope', 'remote', 'remote.session', 'sidebarRight', 'sidebarRightTabs']
+export const inject = ['sessions', 'slots', 'locale', 'settingsScope', 'remote', 'remote.session', 'remote.subagents', 'sidebarRight', 'sidebarRightTabs']
 
 /** Compose an additive official Sidebar tab and Session utility. */
 export function apply(ctx: ClientContext): void {
@@ -72,7 +75,16 @@ export function apply(ctx: ClientContext): void {
   }
   const controller = new TeamDashboardController(readClient)
   const anchorRef = { current: null as HTMLSpanElement | null }
-  const coordinator = new TeamDashboardSurfaceCoordinator({ sessions: sessionsService, locale: ctx.locale, controller, anchorRef })
+  const coordinator = new TeamDashboardSurfaceCoordinator({ sessions: sessionsService, locale: ctx.locale, controller, anchorRef,
+    sendCaptainPrompt: async (request, signal) => {
+      const content = [{ type: 'text' as const, text: request.text }]
+      const clientTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+      const result = request.parentSessionId === undefined
+        ? await ctx.remote.session.prompt({ requestId: crypto.randomUUID() as SessionRequestId, sessionId: request.sessionId as SessionId, mode: 'queue', content, clientTimeZone }, signal)
+        : await ctx.remote.subagents.prompt({ requestId: crypto.randomUUID() as SubagentPromptRequestId, parentSessionId: request.parentSessionId as SessionId, childSessionId: request.sessionId as SessionId, mode: 'continuable', delivery: 'queue', content, clientTimeZone }, signal)
+      if (!result.ok) throw new Error(result.error.message)
+    },
+  })
   ctx.effect(() => coordinator.mount(), 'swarm Team dashboard surface coordinator')
   ctx.on('connection/reset', () => { controller.connectionReset() })
   ctx.effect(() => ctx.locale.register(TEAM_DASHBOARD_NS, { zh, en }), 'swarm Team dashboard dictionaries')
