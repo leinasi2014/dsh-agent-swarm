@@ -201,6 +201,7 @@ export class TeamDashboardSurfaceCoordinator {
     const before = sessions.list.getSnapshot()
     const row = before.byId[id as SessionId]
     if (row === undefined) throw new Error('Dedicated Captain is no longer in the official Session list')
+    if (before.current === id) return
     if (row.origin !== 'subagent') { sessions.open(id as SessionId); return }
     if (row.parentId === undefined) throw new Error('Dedicated Captain has no official parent child catalog')
     await sessions.refreshSubagents(row.parentId)

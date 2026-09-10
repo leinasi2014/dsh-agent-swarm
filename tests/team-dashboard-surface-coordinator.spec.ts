@@ -254,9 +254,9 @@ describe('TeamDashboardSurfaceCoordinator', () => {
   })
   it('hands Captain navigation to the exact official Session only when it remains listed', async () => {
     const f = fixture(); f.setReady()
-    f.controller.openCaptainChat.mockImplementation(async (callback: (rootSessionId: string) => Promise<void>) => { await callback('root') })
+    f.controller.openCaptainChat.mockImplementation(async (callback: (rootSessionId: string) => Promise<void>) => { await callback('other') })
     await f.coordinator.openCaptainChat()
-    expect(f.sessions.open).toHaveBeenCalledWith('root')
+    expect(f.sessions.open).toHaveBeenCalledExactlyOnceWith('other')
     f.controller.openCaptainChat.mockImplementation(async (callback: (rootSessionId: string) => Promise<void>) => { await callback('missing') })
     await expect(f.coordinator.openCaptainChat()).rejects.toThrow('official Session list')
     expect(f.sessions.open).toHaveBeenCalledTimes(1)

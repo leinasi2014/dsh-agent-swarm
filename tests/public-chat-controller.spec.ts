@@ -45,6 +45,43 @@ async function ready(controller: PublicChatController, state = dashboard()): Pro
 }
 
 describe('public conversation view owner', () => {
+  it('retains the verified public view through an actual dashboard connection reset and re-proves it before requests resume', async () => {
+    const schedule = new ManualSchedule()
+    const normal = goodFetch([])
+    const dashboardController = new TeamDashboardController(new SwarmReadClient(async (input, init) => {
+      const response = await normal(input, init)
+      const request = JSON.parse(String(init?.body)) as { method: string }
+      if (request.method !== 'teams') return response
+      const envelope = await response.json()
+      envelope.value.binding.mainSessionId = 'main'
+      return new Response(JSON.stringify(envelope), { status: 200 })
+    }), schedule)
+    const f = fixture()
+    f.client.history.mockResolvedValue({ ...page('a', [message(1)]), binding: { rootSessionId: 'root-1', teamId: 'team-1' } })
+    const disconnect = f.controller.connect(dashboardController)
+    dashboardController.open('root-1')
+    await waitFor(() => f.controller.getSnapshot().entries.length === 1)
+    f.controller.edit('original')
+    f.client.append.mockRejectedValueOnce(new Error('response lost'))
+    await f.controller.send()
+    f.controller.edit('next draft')
+    const before = f.controller.getSnapshot()
+    dashboardController.connectionReset()
+    expect(dashboardController.getSnapshot().phase).toBe('stale')
+    expect(f.controller.getSnapshot()).toMatchObject({ selection: before.selection, entries: before.entries, pending: true, draft: { text: 'next draft' } })
+    await f.controller.send(); await f.controller.recover(); await f.controller.refresh()
+    expect(f.client.append).toHaveBeenCalledTimes(1)
+    expect(f.client.requestResult).not.toHaveBeenCalled()
+    expect(f.client.history).toHaveBeenCalledTimes(1)
+    schedule.fire()
+    expect(dashboardController.getSnapshot().phase).toBe('reconnecting')
+    expect(f.controller.getSnapshot().entries).toEqual(before.entries)
+    await waitFor(() => dashboardController.getSnapshot().phase === 'ready')
+    await waitFor(() => !f.controller.getSnapshot().loading)
+    expect(f.client.history).toHaveBeenCalledTimes(3)
+    expect(f.controller.getSnapshot()).toMatchObject({ pending: true, draft: { text: 'next draft' } })
+    disconnect(); dashboardController.dispose()
+  })
   it('restores an unknown operation after reload and retries not-found with its original ID and frozen viewer payload', async () => {
     const f = fixture(); await ready(f.controller)
     f.client.append.mockRejectedValueOnce(new Error('transport disconnected'))

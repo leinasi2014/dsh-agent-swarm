@@ -27,11 +27,18 @@ export function TeamGroupNavigation(props: Props) {
       <small>{props.t('public.groups')}</small><ul>{data.teams.teams.map(team => {
         const open = expanded === team.teamId
         const ready = state.phase === 'ready' && selected === team.teamId
+        const currentCaptain = activePanel === null && state.targetSessionId === team.captainSessionId
+        const membersBound = data.captainMembers.binding.teamId === selected
+          && data.captainMembers.binding.rootSessionId === data.projection.binding.rootSessionId
         return <li key={team.teamId}>
           <button type="button" data-swarm-group={team.teamId} aria-expanded={open} aria-current={activePanel === 'swarm.group' && selected === team.teamId ? 'page' : undefined}
             onClick={() => { setExpanded(open ? undefined : team.teamId); props.selectGroup(team.teamId) }}><span aria-hidden="true">{open ? '▾' : '▸'}</span><span>{team.name}</span></button>
-          {open ? <ul><li><button type="button" data-swarm-group-captain disabled={!ready || !team.captainSessionId} onClick={() => { handoff(props.openCaptain) }}><span>{team.displayName || props.t('captainRole')}</span><small>{props.t('captainRole')}</small></button></li>
-            {ready ? data.captainMembers.members.map(member => <li key={member.name}><button type="button" data-swarm-group-member={member.name} disabled={member.phase !== 'active' || member.sessionId === undefined}
+          {open ? <ul><li><button type="button" data-swarm-group-captain aria-current={currentCaptain ? 'page' : undefined}
+            title={props.t(currentCaptain ? 'captainCurrentSessionTitle' : 'captainMainChatTitle')}
+            disabled={!ready || !team.captainSessionId || team.captainSessionId !== data.projection.binding.rootSessionId || currentCaptain}
+            onClick={() => { handoff(props.openCaptain) }}><span>{team.displayName || props.t('captainRole')}</span><small>{props.t(currentCaptain ? 'captainCurrentSession' : 'captainRole')}</small></button></li>
+            {ready && membersBound ? data.captainMembers.members.map(member => <li key={member.name}><button type="button" data-swarm-group-member={member.name}
+              disabled={member.phase !== 'active' || member.sessionId === undefined || !data.projection.roster.some(row => row.name === member.name && row.phase === 'active')}
               onClick={() => { if (member.sessionId !== undefined) handoff(() => props.openMember(member.name, member.sessionId!)) }}><span>{member.displayName || member.name}</span></button></li>) : <li>{props.t('loading')}</li>}
           </ul> : null}
         </li>

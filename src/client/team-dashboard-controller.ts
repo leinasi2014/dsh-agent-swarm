@@ -28,6 +28,8 @@ export interface TeamDashboardState {
   readonly open: boolean
   readonly phase: TeamDashboardPhase
   readonly targetSessionId?: string
+  /** A requested Team whose binding is not yet verified; cached data still belongs to the prior Team. */
+  readonly pendingTeamId?: string
   readonly data?: TeamDashboardData
   readonly error?: { readonly code: string; readonly message: string }
 }
@@ -173,7 +175,7 @@ export class TeamDashboardController {
     this.selectedTeamId = teamId
     this.explicitTeamSelection = true
     this.stopActive()
-    this.publish(withoutError(this.state, this.state.data === undefined ? 'loading' : 'reconnecting'))
+    this.publish({ ...withoutError(this.state, this.state.data === undefined ? 'loading' : 'reconnecting'), pendingTeamId: teamId })
     void this.load(target, false)
   }
 

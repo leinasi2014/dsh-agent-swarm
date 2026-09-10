@@ -74,12 +74,15 @@ describe('TeamDashboardController', () => {
     await waitFor(() => controller.getSnapshot().phase === 'ready')
     expect(controller.getSnapshot().data?.projection.binding.teamId).toBe('team-2')
     controller.selectTeam('team-1')
+    expect(controller.getSnapshot().pendingTeamId).toBe('team-1')
     await waitFor(() => controller.getSnapshot().data?.projection.binding.teamId === 'team-1')
+    expect(controller.getSnapshot().pendingTeamId).toBeUndefined()
     controller.refresh()
     await waitFor(() => controller.getSnapshot().phase === 'ready')
     expect(controller.getSnapshot().data?.projection.binding.teamId).toBe('team-1')
     delayBeta = true
     controller.selectTeam('team-2')
+    expect(controller.getSnapshot().pendingTeamId).toBe('team-2')
     await waitFor(() => releaseBeta !== undefined)
     controller.selectTeam('team-1')
     await waitFor(() => controller.getSnapshot().phase === 'ready')
@@ -90,6 +93,7 @@ describe('TeamDashboardController', () => {
     delayBeta = false
     currentTeamId = 'team-2'
     controller.open('captain-2')
+    expect(controller.getSnapshot().pendingTeamId).toBeUndefined()
     await waitFor(() => controller.getSnapshot().phase === 'ready')
     expect(controller.getSnapshot().data?.projection.binding.teamId).toBe('team-2')
     controller.dispose()
@@ -126,12 +130,12 @@ describe('TeamDashboardController', () => {
     controller.dispose()
   })
 
-  it('re-proves member identity before navigation and keeps the panel alive (#221)', async () => {
+  it.each(['removed', 'replaced'] as const)('re-proves a %s member identity before navigation and keeps the panel alive (#221)', async change => {
     const schedule = new ManualSchedule()
     const normal = goodFetch([])
     let removed = false
     const controller = new TeamDashboardController(new SwarmReadClient(async (input, init) => {
-      if (requestOf(init).method === 'captainMembers') return success({ ...captainMembers, members: [{ ...captainMembers.members[0], ...(removed ? {} : { sessionId: 'member-1' }) }] })
+      if (requestOf(init).method === 'captainMembers') return success({ ...captainMembers, members: [{ ...captainMembers.members[0], ...(removed ? change === 'removed' ? {} : { sessionId: 'replacement-session' } : { sessionId: 'member-1' }) }] })
       return await normal(input, init)
     }), schedule)
     controller.open('root-1')
@@ -441,7 +445,20 @@ describe('TeamDashboardController', () => {
     controller.dispose()
   })
 
-  it.each(['close', 'hidden'] as const)('cancels a delayed Captain handoff on %s while continuing Team discovery (#225)', async action => {
+  it('reveals an already current Captain without dispatching duplicate official Session navigation', async () => {
+    const controller = new TeamDashboardController(new SwarmReadClient(goodFetch([])), new ManualSchedule())
+    const sessions = { open: vi.fn(), list: { getSnapshot: () => ({ current: 'root-1', byId: { 'root-1': {} } }), subscribe: () => () => {} } }
+    const coordinator = new TeamDashboardSurfaceCoordinator({ sessions, controller, locale: { getLocale: () => ({ active: 'en' }) }, anchorRef: { current: null } } as never)
+    const dispose = coordinator.mount()
+    try {
+      await waitFor(() => controller.getSnapshot().phase === 'ready')
+      await coordinator.openCaptainChat()
+      expect(sessions.open).not.toHaveBeenCalled()
+      expect(controller.getSnapshot()).toMatchObject({ phase: 'ready', targetSessionId: 'root-1' })
+    } finally { dispose() }
+  })
+
+  it.each(['close', 'hidden', 'viewer', 'team', 'dispose'] as const)('fences a delayed left Captain handoff against %s without coupling it to right-tab visibility', async action => {
     let delay = false
     let entered = false
     let release!: () => void
@@ -457,10 +474,12 @@ describe('TeamDashboardController', () => {
     let entry: object | undefined
     const slots = { entries: () => entry === undefined ? [] : [entry], entriesOfSlot: () => entry === undefined ? [] : [entry],
       register: () => { entry = {}; return () => { entry = undefined } }, onEntryError: () => () => {}, subscribe: () => () => {} }
-    const sessions = { open: vi.fn(), list: { getSnapshot: () => ({ current: 'root-1', byId: { 'root-1': {} } }), subscribe: () => () => {} } }
+    let current = 'main-viewer'
+    const listeners = new Set<() => void>()
+    const sessions = { open: vi.fn(), list: { getSnapshot: () => ({ current, byId: { 'root-1': {} } }), subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } } } }
     const coordinator = new TeamDashboardSurfaceCoordinator({ slots, sessions, controller, locale: { getLocale: () => ({ active: 'en' }) }, anchorRef: { current: null } } as never)
     const dispose = coordinator.mount()
-    const sidebar = sidebarHarness(coordinator, () => 'root-1')
+    const sidebar = sidebarHarness(coordinator, () => current)
     coordinator.bindSidebar(sidebar.sidebar)
     try {
       await waitFor(() => controller.getSnapshot().phase === 'ready')
@@ -468,14 +487,22 @@ describe('TeamDashboardController', () => {
       const navigation = coordinator.openCaptainChat().then(() => 'navigated', () => 'cancelled')
       await waitFor(() => entered)
       if (action === 'close') coordinator.closeAndRestoreFocus()
-      else sidebar.hide()
+      else if (action === 'hidden') sidebar.hide()
+      else if (action === 'viewer') { current = 'other-viewer'; listeners.forEach(listener => listener()) }
+      else if (action === 'team') controller.selectTeam('team-2')
+      else dispose()
       delay = false; release()
-      expect(await navigation).toBe('cancelled')
-      expect(schedule.pending.size).toBe(1)
-      schedule.fire()
-      await waitFor(() => controller.getSnapshot().phase === 'ready')
-      expect(sessions.open).not.toHaveBeenCalled()
-      expect(coordinator.getSnapshot().mode).toBe('inactive')
+      const cancelled = action === 'viewer' || action === 'team' || action === 'dispose'
+      expect(await navigation).toBe(cancelled ? 'cancelled' : 'navigated')
+      if (cancelled) expect(sessions.open).not.toHaveBeenCalled()
+      else expect(sessions.open).toHaveBeenCalledExactlyOnceWith('root-1')
+      if (action !== 'dispose') {
+        await waitFor(() => controller.getSnapshot().phase === 'ready')
+        expect(schedule.pending.size).toBe(1)
+        schedule.fire()
+        await waitFor(() => controller.getSnapshot().phase === 'ready')
+      }
+      if (!cancelled) expect(coordinator.getSnapshot().mode).toBe('inactive')
     } finally { release(); dispose() }
   })
 

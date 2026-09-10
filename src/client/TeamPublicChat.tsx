@@ -31,19 +31,23 @@ export function TeamPublicChat(props: Props) {
   const surface = props.useSurface(value => value)
   const composing = useRef(false)
   const selected = state.selection
-  const sameTeam = dashboard.phase === 'ready' && selected !== undefined && dashboard.targetSessionId === selected.viewer
+  const verified = dashboard.phase === 'ready'
+  const sameTeam = (verified || dashboard.phase === 'stale' || dashboard.phase === 'reconnecting')
+    && selected !== undefined && dashboard.targetSessionId === selected.viewer
+    && (dashboard.pendingTeamId === undefined || dashboard.pendingTeamId === selected.team)
     && dashboard.data?.projection.binding.teamId === selected.team && dashboard.data.projection.binding.rootSessionId === selected.captain
   const team = sameTeam ? dashboard.data?.teams.teams.find(row => row.teamId === selected.team) : undefined
   const bytes = new TextEncoder().encode(state.draft.text).length
-  const canSend = sameTeam && state.history?.appendEligibility.state === 'available' && !state.pending && !state.sending
+  const canSend = verified && sameTeam && state.history?.appendEligibility.state === 'available' && !state.pending && !state.sending
     && state.draft.text.trim() !== '' && bytes <= state.history.limits.maxTextBytes
   return <section className="swarm-public" data-swarm-public-chat data-team-id={sameTeam ? selected.team : undefined}>
     <style>{publicChatCss}</style>
     <header className="swarm-public__header"><div><h1>{team?.name ?? t('public.title')}</h1><p>{team?.goal.state === 'generated' ? team.goal.text : t('public.goalEmpty')}</p></div>
-      {surface.mode !== 'docked' ? <button type="button" onClick={props.openTeam} disabled={!sameTeam}>{t('public.openTeam')}</button> : null}</header>
+      {surface.mode !== 'docked' ? <button type="button" onClick={props.openTeam} disabled={!sameTeam || !verified}>{t('public.openTeam')}</button> : null}</header>
+    {sameTeam && !verified ? <p role={dashboard.phase === 'stale' ? 'alert' : 'status'}>{t(dashboard.phase === 'stale' ? 'stale' : 'reconnecting')}{dashboard.error === undefined ? null : ` · ${dashboard.error.message}`}</p> : null}
     {!sameTeam ? <p role="status">{t(dashboard.phase === 'error' ? 'error' : 'loading')}</p> : <>
       <div className="swarm-public__messages" aria-label={t('public.title')} aria-busy={state.loading}>
-        {state.history?.hasEarlier ? <button type="button" disabled={state.loading} onClick={props.earlier}>{t('public.earlier')}</button> : null}
+        {state.history?.hasEarlier ? <button type="button" disabled={!verified || state.loading} onClick={props.earlier}>{t('public.earlier')}</button> : null}
         {state.entries.length === 0 ? <p className="swarm-public__empty">{t(state.loading ? 'loading' : 'public.empty')}</p> : null}
         {state.entries.map(message => <article key={message.id} id={`swarm-message-${message.id}`} data-public-message={message.id} data-delivery={message.delivery.state} className={message.author.kind === 'local-operator' ? 'swarm-public__message swarm-public__message--operator' : 'swarm-public__message'}>
           <div className="swarm-public__meta"><strong>{message.author.kind === 'local-operator' ? t('public.operator') : message.author.displayName || message.author.name}</strong><time dateTime={new Date(message.createdAt).toISOString()}>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></div>
@@ -53,11 +57,11 @@ export function TeamPublicChat(props: Props) {
           <p className="swarm-public__text">{message.text}</p>
           <footer><span>{message.delivery.state === 'not-requested' ? '' : t(message.delivery.state === 'queued' ? 'public.queued' : 'public.claimed')}</span><button type="button" onClick={() => { props.reply(message.id) }}>{t('public.reply')}</button></footer>
         </article>)}
-        {state.history?.hasMore ? <button type="button" disabled={state.loading} onClick={props.newer}>{t('public.newer')}</button> : null}
+        {state.history?.hasMore ? <button type="button" disabled={!verified || state.loading} onClick={props.newer}>{t('public.newer')}</button> : null}
       </div>
       <div className="swarm-public__composer">
-        {state.error === undefined ? null : <p role="alert">{state.error} <button type="button" onClick={props.refresh} disabled={state.loading}>{t('refresh')}</button></p>}
-        {state.pending ? <p role="status">{t('public.unknown')} <button type="button" onClick={props.recover} disabled={state.sending}>{t('public.recover')}</button></p> : null}
+        {state.error === undefined ? null : <p role="alert">{state.error} <button type="button" onClick={props.refresh} disabled={!verified || state.loading}>{t('refresh')}</button></p>}
+        {state.pending ? <p role="status">{t('public.unknown')} <button type="button" onClick={props.recover} disabled={!verified || state.sending}>{t('public.recover')}</button></p> : null}
         {state.draft.replyTo === undefined ? null : <div className="swarm-public__quote">{t('public.reply')}: {state.entries.find(row => row.id === state.draft.replyTo)?.text ?? t('public.replyOutside')} <button type="button" onClick={() => { props.reply(undefined) }}>{t('public.cancelReply')}</button></div>}
         <textarea aria-label={t('public.input')} value={state.draft.text} placeholder={t('public.input')} rows={3}
           onChange={event => { props.edit(event.target.value) }} onCompositionStart={() => { composing.current = true }} onCompositionEnd={() => { composing.current = false }}

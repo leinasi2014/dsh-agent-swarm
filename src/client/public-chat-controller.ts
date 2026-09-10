@@ -34,6 +34,7 @@ export class PublicChatController {
   private read: AbortController | undefined
   /** Only a history page advances this cursor; an append receipt may be ahead of unread messages. */
   private historyCursor: number | undefined
+  private bindingReady = false
   private readonly lifetime = new AbortController()
   private disposed = false
   constructor(private readonly client: Pick<PublicChatClient, 'history' | 'append' | 'requestResult'>,
@@ -47,6 +48,19 @@ export class PublicChatController {
     return () => { off(); this.dispose() }
   }
   bind(dashboard: TeamDashboardState): void {
+    const wasReady = this.bindingReady
+    this.bindingReady = dashboard.phase === 'ready'
+    const cached = this.state.selection
+    if ((dashboard.phase === 'stale' || dashboard.phase === 'reconnecting') && cached !== undefined
+      && dashboard.targetSessionId === cached.viewer && dashboard.data?.teams.binding.rootSessionId === cached.viewer
+      && dashboard.data.teams.binding.mainSessionId !== undefined && dashboard.data.teams.complete
+      && cached.key === `swarm.public.v1:${JSON.stringify([this.environment, dashboard.data.teams.binding.mainSessionId, cached.team])}`
+      && dashboard.data.projection.binding.rootSessionId === cached.captain && dashboard.data.projection.binding.teamId === cached.team
+      && (dashboard.pendingTeamId === undefined || dashboard.pendingTeamId === cached.team)) {
+      this.read?.abort()
+      this.publish({ ...this.state, loading: false })
+      return
+    }
     const data = dashboard.phase === 'ready' ? dashboard.data : undefined
     const main = data?.teams.binding.mainSessionId
     const team = data?.projection.binding.teamId
@@ -60,7 +74,7 @@ export class PublicChatController {
     }
     const previous = this.state.selection
     if (previous?.key === next.key && previous.viewer === next.viewer && previous.captain === next.captain) {
-      if (previous.revision !== next.revision) { this.publish({ ...this.state, selection: next }); void this.refresh() }
+      if (!wasReady || previous.revision !== next.revision) { this.publish({ ...this.state, selection: next }); void this.refresh() }
       return
     }
     this.read?.abort()
@@ -86,17 +100,17 @@ export class PublicChatController {
   }
   async refresh(): Promise<void> {
     const selected = this.state.selection
-    if (selected === undefined) return
+    if (!this.bindingReady || selected === undefined) return
     await this.load(selected, 'refresh')
   }
   async earlier(): Promise<void> {
     const selected = this.state.selection
-    if (selected === undefined || this.state.loading || !this.state.history?.hasEarlier) return
+    if (!this.bindingReady || selected === undefined || this.state.loading || !this.state.history?.hasEarlier) return
     await this.load(selected, 'earlier')
   }
   async newer(): Promise<void> {
     const selected = this.state.selection
-    if (selected === undefined || this.state.loading || !this.state.history?.hasMore) return
+    if (!this.bindingReady || selected === undefined || this.state.loading || !this.state.history?.hasMore) return
     await this.load(selected, 'newer')
   }
   private async load(selected: Selection, direction: 'refresh' | 'earlier' | 'newer'): Promise<void> {
@@ -136,7 +150,7 @@ export class PublicChatController {
   }
   async send(): Promise<void> {
     const selected = this.state.selection
-    if (selected === undefined || this.state.history?.appendEligibility.state !== 'available') return
+    if (!this.bindingReady || selected === undefined || this.state.history?.appendEligibility.state !== 'available') return
     const saved = this.readSaved(selected.key)
     if (saved.pending !== undefined || this.busy.has(selected.key) || saved.draft.text.trim() === '') return
     if (new TextEncoder().encode(saved.draft.text).length > this.state.history.limits.maxTextBytes) return
@@ -148,7 +162,7 @@ export class PublicChatController {
   }
   async recover(): Promise<void> {
     const selected = this.state.selection
-    if (selected === undefined || this.busy.has(selected.key)) return
+    if (!this.bindingReady || selected === undefined || this.busy.has(selected.key)) return
     const saved = this.readSaved(selected.key)
     if (saved.pending === undefined) return
     await this.submit(selected, saved, saved.pending, true)

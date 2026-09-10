@@ -156,7 +156,8 @@ export function TeamDashboardContent({ controller, coordinator, descriptionId, h
   const data = state.data?.projection
   return <div className="swarm-team-workspace" data-swarm-team-layout="workspace">
     <style>{shellCss}</style>
-    {data === undefined || state.phase !== 'ready'
+    {data === undefined || (state.phase !== 'ready' && state.phase !== 'stale' && state.phase !== 'reconnecting')
+      || (state.pendingTeamId !== undefined && state.pendingTeamId !== data.binding.teamId)
       ? <Empty state={state} controller={controller} t={t} />
       : <>
         <header className="swarm-team-workspace__pane-head"><div><h2 className="swarm-team-workspace__title" id={headingId}>{data.team.name}</h2><p className="swarm-team-workspace__subtitle" id={descriptionId}>{t('title')} · {enumLabel(data.team.phase, t)}</p></div><button type="button" aria-label={t('close')} onClick={() => { coordinator.closeAndRestoreFocus() }}>×</button></header>

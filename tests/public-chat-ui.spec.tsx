@@ -11,6 +11,7 @@ function teamState(): TeamDashboardState {
   const data = ready.data!
   const a = data.teams.teams[0]!
   return { ...ready, data: { ...data,
+    projection: { ...data.projection, roster: [{ ...data.projection.roster[0]!, name: 'writer', phase: 'active' }] },
     teams: { ...data.teams, teams: [a, { ...a, teamId: 'b', name: 'Team B', captainSessionId: 'captain-b' }] },
     captainMembers: { ...data.captainMembers, members: [{ ...data.captainMembers.members[0]!, name: 'writer', displayName: 'Lin', phase: 'active', sessionId: 'member-1' }] },
   } }
@@ -31,6 +32,20 @@ function chatProps(state = teamState(), chat = chatState(state)) {
 }
 
 describe('public conversation composition', () => {
+  it.each(['stale', 'reconnecting'] as const)('retains verified history and pending draft during %s while preventing dispatch', async phase => {
+    const readyState = teamState()
+    const props = chatProps({ ...readyState, phase, error: { code: 'RESET', message: 'connection lost' } }, { ...chatState(readyState), pending: true })
+    await render(<TeamPublicChat {...props as ComponentProps<typeof TeamPublicChat>} />)
+    expect(document.querySelector('[data-public-message]')?.textContent).toContain('真实消息')
+    expect(document.querySelector<HTMLTextAreaElement>('textarea')?.value).toBe('send me')
+    expect(document.querySelector('[data-swarm-public-chat]')?.textContent).toContain(t(phase))
+    expect(document.querySelector('[data-swarm-public-chat]')?.textContent).toContain(t('public.unknown'))
+    expect(document.querySelector<HTMLButtonElement>('[data-public-send]')?.disabled).toBe(true)
+    const recovery = [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === t('public.recover'))!
+    expect(recovery.disabled).toBe(true)
+    await act(async () => { document.querySelector('textarea')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true })) })
+    expect(props.send).not.toHaveBeenCalled()
+  })
   it('selects and folds a group on its name, while nested member clicks do not toggle it', async () => {
     const state = teamState()
     const selectGroup = vi.fn()
@@ -66,9 +81,10 @@ describe('public conversation composition', () => {
     expect(document.querySelector('[data-delivery="claimed"]')?.textContent).toContain('completion unconfirmed')
     expect(document.querySelector('button[data-public-send]')).not.toBeNull()
   })
-  it('hides stale Team A messages and composer when the shared right-hand selection becomes Team B', async () => {
+  it.each(['binding', 'pending'] as const)('hides Team A messages and composer when the Team B %s is selected', async change => {
     const a = teamState()
-    const b = { ...a, data: { ...a.data!, projection: { ...a.data!.projection, binding: { teamId: 'b', rootSessionId: 'captain-b' } } } }
+    const b: TeamDashboardState = change === 'pending' ? { ...a, phase: 'stale', pendingTeamId: 'b' }
+      : { ...a, data: { ...a.data!, projection: { ...a.data!.projection, binding: { teamId: 'b', rootSessionId: 'captain-b' } } } }
     const props = chatProps(b, chatState(a))
     await render(<TeamPublicChat {...props as ComponentProps<typeof TeamPublicChat>} />)
     expect(document.querySelector('[data-public-message]')).toBeNull()
