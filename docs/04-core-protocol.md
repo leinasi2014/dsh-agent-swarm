@@ -160,6 +160,8 @@ Team 注册 DSH SidebarRight 的独立页签，沿用官方布局与主题 token
 
 官方 Session 日志仍是模型实际收到输入的权威。公共消息提交不等于已消费：定向意图由现有 runtime owner 串行投递，持久化的版本化 frame 冻结原消息 ID、接收人和完整实际输入，恢复时不按新姓名或新模板重建比较文本。复用 `frameVisibility` 的 claimed、pending、absent、unknown 判断：只有经持久化确认的 claimed 才结清消费记录；pending 与 unknown 不盲目重投，absent 才重新投递。首次发送与冷恢复共用同一路径；空任务板上未结清的公共投递也必须触发现有 managed recovery，不能新增另一套规划或消息循环。
 
+同请求 ID 重试只确认原提交，不是继续命令；冷启动发现耐久 pending 时保持 queued/deferred，用户显式提交的新公开 ID 经 Team、lineage 与容量校验后才通过现有 prompt 驱动已有 Inbox，原 frame 不重投，unknown 不作为激活或重投依据。
+
 提交成功后响应丢失、客户端取消或断线，界面保留原请求 ID 与冻结载荷，显示结果待确认；查询权威结果或以同一身份重试，不能生成新 ID 重发。查询无法验证目标或读取存储时不得返回确定的 not-found。群草稿按当前 Host、查看者与 Team 隔离；完成回调只结算原操作，只有原草稿版本未继续编辑时才清空。未提交草稿及待确认操作的浏览器恢复范围须明确说明，客户端记录不成为公共消息权威。
 
 代表性验收包含：认证缺失/错误来源与跨 Team 拒绝；同请求并发、不同载荷冲突、提交后丢 ACK；公开回报丢工具结果后的同请求重试；发送中切群；真实 Captain 消费与显式回复；无任务 Team 冷恢复；claimed 后、Domain 确认前崩溃不重复输入。工程 fixture、真实模型、真实重启与生产部署分别记录。

@@ -1,9 +1,11 @@
 /** Real official Connection HTTP auth, Team storage, tool execution and cold activation. */
-import { mkdtemp, rm } from 'node:fs/promises'
+import { cp, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import CredentialsLocal from '@deepseek-ai/dsh-credentials-local'
+import { Context } from '@deepseek-ai/cordis'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import * as ClientConnection from '@deepseek-ai/dsh-client-connection'
 import { LlmAdapter, ToolCallId, createUserMessage, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -11,7 +13,7 @@ import { expect, it, vi } from 'vitest'
 import { TeamId } from '../src/domain/types.js'
 import { readPersistedSession } from '../src/runtime/persisted-session.js'
 import { framePredicate, frameVisibility, waitForFrameClaim } from '../src/runtime/frame-visibility.js'
-import { messageClaimed } from '../src/runtime/session-acceptance.js'
+import { messageClaimed, messagePending } from '../src/runtime/session-acceptance.js'
 import { MessageDelivery } from '../src/runtime/message-delivery.js'
 import { mountRestartComposition as mount, disposeRestartComposition as dispose, restartTool as tool, RESTART_SIGNAL as SIGNAL } from './helpers/restart-real-composition.js'
 
@@ -96,6 +98,45 @@ async function createTeam(f: Awaited<ReturnType<typeof setup>>, sandbox: string)
   // durable descriptor instead of flushing a stale Session object.
   expect((await readPersistedSession(f.ctx.sessionPersistence, captain.id, SIGNAL)).meta.parentSession).toBe(root.id)
   return { root, captain, teamId: TeamId(team_id), scope: f.ctx.agentSwarm.scopeOf(root) }
+}
+
+/** Preserve the actual flushed cut before normal disposal cancels the Inbox. */
+async function captureRestartSnapshot(source: Awaited<ReturnType<typeof setup>>, sourceRoot: string, snapshotRoot: string) {
+  await source.ctx.sessionPersistence.flush()
+  const headers = await source.ctx.sessionPersistence.list()
+  const sessions = await Promise.all(headers.map(row => readPersistedSession(source.ctx.sessionPersistence, row.header.id, SIGNAL)))
+  const unitPath = join(sourceRoot, 'storage', 'agent_swarm.json')
+  const teamUnit = await readFile(unitPath, 'utf8')
+  const snapshotCtx = new Context()
+  const persistence = await snapshotCtx.plugin(JsonlSessionPersistence, { root: join(snapshotRoot, 'sessions', 'sessions.db'), compression: 'none' })
+  try {
+    for (const session of sessions) {
+      const handle = await snapshotCtx.sessionPersistence.create(session.meta, { inheritedEventCount: session.inheritedEventCount })
+      try { await handle.append(session.events); await handle.flush() } finally { await handle.close() }
+    }
+    await cp(join(sourceRoot, 'storage'), join(snapshotRoot, 'storage'), { recursive: true })
+    expect(await readFile(join(snapshotRoot, 'storage', 'agent_swarm.json'), 'utf8')).toBe(teamUnit)
+    expect(await readFile(unitPath, 'utf8')).toBe(teamUnit)
+    // The held driver cannot change this cut. Check every Session revision so
+    // a concurrent source mutation fails the fixture instead of making a mix.
+    for (const before of headers) expect((await source.ctx.sessionPersistence.stat(before.header.id))?.revision).toBe(before.revision)
+    return sessions
+  } finally { await persistence.dispose() }
+}
+
+async function publicClient(f: Awaited<ReturnType<typeof setup>>, teamId: string) {
+  const auth = await fetch(f.ctx.connection.authenticatedUrl(f.base + '/'), { redirect: 'manual' })
+  expect(auth.status).toBe(303)
+  const cookie = auth.headers.get('set-cookie')!.split(';')[0]!
+  return async (endpoint: string, fields: object = {}) => {
+    const response = await fetch(`${f.base}/swarm-public/v1/${endpoint}`, { method: 'POST',
+      headers: { 'content-type': 'application/json', cookie }, body: JSON.stringify({ type: 'client-request', rpcId: 'snapshot-rpc',
+        method: `v1/${endpoint}`, payload: { schemaVersion: 1, target: { rootSessionId: ROOT, teamId }, ...fields } }) })
+    expect(response.status).toBe(200)
+    const result = (await response.json()).result
+    expect(result.ok, JSON.stringify(result)).toBe(true)
+    return result.value
+  }
 }
 
 it('authenticates the actual route, persists literal user input, exposes only explicit public replies and deduplicates retries', async () => {
@@ -274,3 +315,109 @@ it.each(['pending', 'unknown'] as const)('merges old claims and %s without re-ad
     await active.whenIdle()
   } finally { adapter.release(); await f.close(); await rm(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) }
 }, 20_000)
+
+it('keeps a durable cold pending input parked on replay, then consumes old and new public inputs once after an explicit new request', async () => {
+  const sourceRoot = await mkdtemp(join(tmpdir(), 'swarm-public-pending-source-'))
+  const snapshotRoot = await mkdtemp(join(tmpdir(), 'swarm-public-pending-snapshot-'))
+  const held = new HeldRecording()
+  const source = await setup(sourceRoot, held, true)
+  let restarted: Awaited<ReturnType<typeof setup>> | undefined
+  let sourceClosed = false
+  try {
+    const { root, captain, teamId, scope } = await createTeam(source, sourceRoot)
+    const task = await source.ctx.agentSwarm.domain.createTask(scope, teamId, captain.id,
+      { subject: 'Existing task', description: 'Public pending recovery must not add planning input.' })
+    held.hold = true
+    await source.ctx.subagents.prompt({ requestId: 'snapshot-existing-turn' as never, parentSessionId: root.id, childSessionId: captain.id,
+      mode: 'continuable', delivery: 'steer', content: [{ type: 'text', text: 'Hold the current fixture turn.' }] }, SIGNAL)
+    await vi.waitFor(() => expect(held.entered).toBe(true))
+    const callBefore = await publicClient(source, teamId)
+    const request = { requestId: 'pending-original', text: 'Original pending public input.' }
+    const sent = await callBefore('append', request)
+    const original = (await source.ctx.agentSwarm.domain.snapshot(scope, teamId, captain.id)).team.publicChat!.messages[0]!
+    if (original.delivery.state === 'not-requested') throw new Error('missing original input')
+    const originalFrame = original.delivery.frame
+    const active = source.ctx.agents.get(captain.id)!
+    await vi.waitFor(() => expect(active.inbox.nextStep.some(message => framePredicate(originalFrame)(message))).toBe(true))
+    expect(await source.ctx.sessions.flush(active.session)).toBe(true)
+    expect(await frameVisibility(source.ctx, captain.id, originalFrame, SIGNAL, 'snapshot pending cut', true)).toBe('pending')
+    const cut = await captureRestartSnapshot(source, sourceRoot, snapshotRoot)
+    const oldSession = cut.find(session => session.meta.id === captain.id)!
+    expect(messagePending(oldSession.events, framePredicate(originalFrame))).toBe(true)
+    expect(messageClaimed(oldSession.events, framePredicate(originalFrame))).toBe(false)
+    const originalInbox = oldSession.events.flatMap(event => event.type === 'agent/inbox/spliced' ? event.data.inserted : [])
+      .filter(framePredicate(originalFrame))
+    expect(originalInbox).toHaveLength(1)
+    expect(originalInbox[0]?.source).toMatchObject({ kind: 'user', rpcId: original.id })
+    // Cleanup may now clear the source Inbox; the independent durable cut is
+    // already sealed and is the only storage loaded by the next Context.
+    const closing = source.close()
+    held.release()
+    await closing
+    sourceClosed = true
+
+    const recorder = new Recording()
+    restarted = await setup(snapshotRoot, recorder, true)
+    const fresh = restarted
+    expect(fresh.ctx.agents.get(captain.id)).toBeUndefined()
+    expect(fresh.ctx.agents.get(ROOT)).toBeUndefined()
+    expect(recorder.requests).toHaveLength(0)
+    expect(await frameVisibility(fresh.ctx, captain.id, originalFrame, SIGNAL, 'cold pending snapshot', true)).toBe('pending')
+    const call = await publicClient(fresh, teamId)
+    const drains = vi.spyOn(MessageDelivery.prototype, 'deliverPublicMessages')
+    const prompt = vi.spyOn(fresh.ctx.subagents, 'prompt')
+    try {
+      expect(await call('requestResult', { requestId: request.requestId })).toMatchObject({ state: 'committed', message: { id: sent.message.id, delivery: { state: 'queued' } } })
+      expect(await call('append', request)).toMatchObject({ replayed: true, message: { id: sent.message.id, delivery: { state: 'queued' } } })
+      const replayDrain = await drains.mock.results.at(-1)!.value
+      expect(replayDrain).toMatchObject({ admitted: false, deferred: true })
+      expect(prompt).not.toHaveBeenCalled()
+      expect(recorder.requests).toHaveLength(0)
+      expect(fresh.ctx.agents.get(captain.id)).toBeUndefined()
+      expect(fresh.ctx.agents.get(ROOT)).toBeUndefined()
+
+      const unreadable = vi.spyOn(fresh.ctx.sessionPersistence, 'open').mockRejectedValue(new Error('fixture read unavailable'))
+      try {
+        fresh.ctx.agentSwarm.kickPublicMessages(scope, teamId)
+        const unknownDrain = await drains.mock.results.at(-1)!.value
+        expect(unknownDrain).toMatchObject({ admitted: false, deferred: true })
+        expect(prompt).not.toHaveBeenCalled()
+        expect(recorder.requests).toHaveLength(0)
+      } finally { unreadable.mockRestore() }
+
+      const continued = await call('append', { requestId: 'explicit-new-public-input', text: 'Continue with this new public input.' })
+      expect(continued).toMatchObject({ replayed: false })
+      await vi.waitFor(async () => expect((await fresh.ctx.agentSwarm.domain.snapshot(scope, teamId, captain.id)).team.publicChat?.messages
+        .map(message => message.delivery.state)).toEqual(['claimed', 'claimed']), { timeout: 10_000 })
+      await fresh.ctx.agents.get(captain.id)?.whenIdle()
+      expect(prompt).toHaveBeenCalledTimes(1)
+      expect(prompt.mock.calls[0]?.[0].requestId).toBe(continued.message.id)
+      const after = (await fresh.ctx.agentSwarm.domain.snapshot(scope, teamId, captain.id)).team
+      expect(after.tasks).toEqual([task])
+      expect(after.publicChat?.messages[0]).toMatchObject({ id: original.id, delivery: { frame: originalFrame, state: 'claimed' } })
+      const stored = await readPersistedSession(fresh.ctx.sessionPersistence, captain.id, SIGNAL)
+      const messages = after.publicChat!.messages
+      const requests = recorder.requests.filter(value => value.sessionId === captain.id)
+      expect(requests).toHaveLength(1)
+      for (const message of messages) {
+        if (message.delivery.state === 'not-requested') throw new Error('missing public input')
+        const frame = message.delivery.frame
+        const insertions = stored.events.flatMap(event => event.type === 'agent/inbox/spliced' ? event.data.inserted : []).filter(framePredicate(frame))
+        const claims = stored.events.flatMap(event => event.type === 'user/message' ? [event.data] : []).filter(framePredicate(frame))
+        expect(insertions).toHaveLength(1)
+        expect(claims).toHaveLength(1)
+        expect(claims[0]?.id).toBe(insertions[0]?.id)
+        if (message.id === original.id) expect(claims[0]?.id).toBe(originalInbox[0]?.id)
+        expect(requests[0]?.messages.filter(row => row.role === 'user').flatMap(row => row.content)
+          .filter(part => part.type === 'text' && part.text === frame)).toHaveLength(1)
+      }
+      expect(stored.events.flatMap(event => event.type === 'user/message' ? event.data.content : [])
+        .some(part => part.type === 'text' && part.text.startsWith('The Host restarted while this managed Team still had unfinished work.'))).toBe(false)
+    } finally { prompt.mockRestore(); drains.mockRestore() }
+  } finally {
+    held.release()
+    if (!sourceClosed) await source.close()
+    await restarted?.close()
+    await Promise.all([sourceRoot, snapshotRoot].map(path => rm(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })))
+  }
+}, 30_000)
