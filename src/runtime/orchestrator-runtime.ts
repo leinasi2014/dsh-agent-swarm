@@ -42,8 +42,7 @@ import { ManagedActivationRecovery } from './managed-activation-recovery.js'
 import { SchedulingAdmission } from './scheduling-admission.js'
 import { TeamDirectory } from './team-directory.js'
 
-export type { ToolExecutionAuthority }
-export type { ReviewProviderInput, ReviewProviderResult, SchedulerDecision, SchedulerSelectionInput, TeamReviewProvider, TeamSchedulerProvider }
+export type { ToolExecutionAuthority, ReviewProviderInput, ReviewProviderResult, SchedulerDecision, SchedulerSelectionInput, TeamReviewProvider, TeamSchedulerProvider }
 export type { RuntimeConfig } from './runtime-contract.js'
 
 /** DSH-facing runtime that composes the framework-neutral domain with continuable subagents. */
