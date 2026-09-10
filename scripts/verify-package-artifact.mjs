@@ -57,6 +57,9 @@ if (failures.length === 0) {
       '@deepseek-ai/dsh-client-ui-primitives': {
         Button() {}, Pill() {}, StateDot() {}, IconUserOutline16() {}, IconCloseOutline16() {}, IconRefreshOutline16() {},
       },
+      // The pinned alpha.2 client/web seed table provides this singleton.
+      // Member profiles use its portal; every other external remains rejected.
+      'react-dom': { createPortal() {} },
     }
     const client = registration.factory((specifier) => {
       requested.push(specifier)
