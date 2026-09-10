@@ -19,7 +19,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
-import { messageAccepted, messageClaimed, messagePending } from './session-acceptance.js'
+import { messageAccepted, messageClaimed, messageInFlight, messagePending } from './session-acceptance.js'
 import { readPersistedSession } from './persisted-session.js'
 
 /**
@@ -106,8 +106,9 @@ export async function waitForFrameClaim(
  * — the frame sits unclaimed in the durable inbox projection (transient;
  * neither acknowledged nor resent); `absent` — no acceptance exists
  * anywhere, so redelivery is owed; `unknown` — the persisted target could
- * not be inspected or the flush failed, and uncertainty keeps the debt
- * unsettled rather than risk a duplicate model-visible delivery.
+ * not be inspected, the flush failed, or its live driver has dequeued the
+ * exact input for a proposed step but has not appended it to history yet.
+ * Uncertainty keeps the debt unsettled rather than risking a duplicate.
  */
 export async function frameVisibility(
   ctx: Context,
@@ -120,14 +121,21 @@ export async function frameVisibility(
 ): Promise<FrameVisibility> {
   const predicate = predicates?.complete ?? framePredicate(frame)
   const identity = predicates?.identity ?? predicate
-  const read = (events: readonly SessionEvent[]): FrameVisibility => {
+  const read = (events: readonly SessionEvent[], includeInFlight = false): FrameVisibility => {
     if (messageAccepted(events, message => identity(message) && !predicate(message))) { predicates?.onMismatch?.(); return 'unknown' }
+    if (includeInFlight && messageInFlight(events, identity)) {
+      if (messageInFlight(events, message => identity(message) && !predicate(message))) predicates?.onMismatch?.()
+      return 'unknown'
+    }
     if (messageClaimed(events, predicate)) return 'claimed'
     return messagePending(events, predicate) ? 'pending' : 'absent'
   }
   const live = ctx.agents.get(SessionId(targetSessionId))
   if (live !== undefined) {
-    if (!sessionAccepts(live.session, identity)) return 'absent'
+    const own = () => live.session.snapshotEvents().slice(live.session.inheritedEventCount)
+    // A real driver may have removed the frame from its Inbox while awaiting
+    // assembly, pre-step or prepareRequest. Absence is not proven in that gap.
+    if (!sessionAccepts(live.session, identity) && !(live.status === 'running' && messageInFlight(own(), identity))) return 'absent'
     try {
       const durable = await ctx.sessions.flush(live.session)
       if (requireDurableFlush && durable !== true) return 'unknown'
@@ -135,7 +143,8 @@ export async function frameVisibility(
       ctx.logger.warn(`agent-swarm: ${label} acceptance flush failed: ${String(error)}`)
       return 'unknown'
     }
-    return read(live.session.snapshotEvents().slice(live.session.inheritedEventCount))
+    if (ctx.agents.get(live.id) !== live || ctx.sessions.get(live.id) !== live.session) return 'unknown'
+    return read(own(), live.status === 'running')
   }
   try {
     const stored = await readPersistedSession(ctx.sessionPersistence, SessionId(targetSessionId), signal)

@@ -21,15 +21,25 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 
 type InboxProjection = Record<'next-turn' | 'next-step', UserMessage[]>
 
-/** Fold the durable inbox suffix into the messages still awaiting a claim. */
-function pendingInboxMessages(events: readonly SessionEvent[]): UserMessage[] {
+/** One fold for pending input and the current turn's dequeued proposals. */
+function inboxMessages(events: readonly SessionEvent[]): { pending: UserMessage[]; inFlight: UserMessage[] } {
   const inbox: InboxProjection = { 'next-turn': [], 'next-step': [] }
+  const inFlight = new Map<string, UserMessage>()
+  let turn: number | undefined
   for (const event of events) {
+    if (event.type === 'turn/start') { turn = event.data.turn; inFlight.clear() }
+    if (event.type === 'turn/end' && event.data.turn === turn) { turn = undefined; inFlight.clear() }
+    if (event.type === 'user/message') inFlight.delete(event.data.id)
     if (event.type !== 'agent/inbox/spliced') continue
     const pending = inbox[event.data.target]
-    pending.splice(event.data.start, event.data.removedCount ?? 0, ...event.data.inserted)
+    const removed = pending.splice(event.data.start, event.data.removedCount ?? 0, ...event.data.inserted)
+    // Official claim() removes input before asynchronous assembly/pre-step/
+    // request preparation. Explicit remove/clear instead records canceled.
+    if (turn !== undefined && event.data.outcome !== 'canceled') {
+      for (const message of removed) inFlight.set(message.id, message)
+    }
   }
-  return [...inbox['next-turn'], ...inbox['next-step']]
+  return { pending: [...inbox['next-turn'], ...inbox['next-step']], inFlight: [...inFlight.values()] }
 }
 
 /**
@@ -52,5 +62,13 @@ export function messageClaimed(events: readonly SessionEvent[], predicate: (mess
  * the transient acceptance form official teardown may still discard.
  */
 export function messagePending(events: readonly SessionEvent[], predicate: (message: UserMessage) => boolean): boolean {
-  return pendingInboxMessages(events).some(predicate)
+  return inboxMessages(events).pending.some(predicate)
+}
+
+/** A proposed message may still enter history only while its exact driver is
+ * live and running. Callers must establish that lifetime; a cold interrupted
+ * turn cannot retain this reservation, and this is never an acknowledgement.
+ */
+export function messageInFlight(events: readonly SessionEvent[], predicate: (message: UserMessage) => boolean): boolean {
+  return inboxMessages(events).inFlight.some(predicate)
 }
