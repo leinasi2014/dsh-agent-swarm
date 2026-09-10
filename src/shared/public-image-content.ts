@@ -54,6 +54,13 @@ export const publicImageAvailabilitySchema = z.discriminatedUnion('state', [
 ])
 export type PublicImageAvailability = z.infer<typeof publicImageAvailabilitySchema>
 
+/** Public, bounded explanations for an unsettled v3 recipient; raw storage/provider errors stay Host-side. */
+export const publicImageDeferredReasonSchema = z.enum([
+  'image-capability-unknown', 'image-model-unsupported', 'image-unavailable',
+  'projection-mismatch', 'recipient-unavailable',
+])
+export type PublicImageDeferredReason = z.infer<typeof publicImageDeferredReasonSchema>
+
 /** Normalize adjacent text and outside whitespace only; preserve image/mention order and uploaded bytes/name.
  * Host retry identity hashes each image's decoded original bytes plus MIME/name in this ordered form,
  * along with replyTo. Normalized attachment IDs and temporary upload receipts are not input identity.

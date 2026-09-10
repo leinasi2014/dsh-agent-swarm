@@ -198,7 +198,7 @@ v1 定义人类公共文本默认交给当前 Captain，以及 Captain/成员显
 
 每名接收人的实际输入投影在首次确定能力后耐久冻结：已支持为完整有序原图 refs，明确不支持为官方 `textOnlyImageText` 与受控图片 ID，未知则保持 deferred。恢复不按最新能力切换既有投影；若当前模型已不能接收冻结图片则保持明确待处理。Human 输入保留 `kind: user` 与稳定 rpcId，协助输入使用真实 plugin 来源。Host 在当前 fence、有效 Captain lease 内重验身份和图片完整性，通过固定 alpha.2 的已发布 internal `steerHostSubagentPrompt` 使用官方生命周期，不伪造 Agent 作者、不修改 Core 或绕过能力检查。
 
-Session 消费证据比较稳定 frame/rpcId 身份与完整冻结输入两层条件。相同身份但文字、来源、图片数量、顺序或原 refs 不一致为 unknown，优先于任何 claimed；只有完整匹配的持久 claimed 才结清，完整 pending 继续等待，证明身份 absent 才能投递。live、flush 后及冷恢复共用这一判断。文字标记存在不能证明图片已收到，也不能将不完整消息误判 absent 后重复发送。
+Session 消费证据比较稳定 frame/rpcId 身份与完整冻结输入两层条件。相同身份但文字、来源、图片数量、顺序或原 refs 不一致为 unknown，优先于任何 claimed；只有完整匹配的持久 claimed 才结清，完整 pending 继续等待，证明身份 absent 才能投递。live、flush 后及冷恢复共用这一判断。文字标记存在不能证明图片已收到，也不能将不完整消息误判 absent 后重复发送。v3 的 queued 接收人可带有限 `deferredReason`：`image-capability-unknown`、`image-model-unsupported`、`image-unavailable`、`projection-mismatch` 或 `recipient-unavailable`，由现有投递 owner 耐久更新；相同原因不重复更新 revision，claimed/settled 清除原因。UI 显示明确的等待原因，不暴露原始存储或 Provider 错误，旧 v2 合同不变。
 
 `agent_swarm_request_visual_assistance` 接受稳定 request_id、source_message_id、非空且去重的 image_ids、helper_member_id 与 question；作者和 Team 从实际 exec 推导。只有原消息的实际接收人能发起，只能选同队当前可用、声明支持图片的其他成员。Host 从原消息解析图片，不接受任意 ref；工具失败明确区分无可用成员、能力未知、图片不可读、撤权和过期。协助在同一 Team aggregate 保存不可变 assistance/result ID、原消息与图片集合、发起人与 helper、问题、期限、visited 和投递状态。同一逻辑请求重试返回原事实，改载荷冲突；同源、同发起人和图片集合的在途协助去重，helper 不能链式转交同一协助。
 

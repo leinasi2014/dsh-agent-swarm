@@ -1,7 +1,7 @@
 /** Client-safe public conversation vocabulary; no execution identity is writable. */
 import { z } from 'zod'
 import { publicImageContentSchema } from '../shared/public-image-content.js'
-import type { PublicImageAvailability, PublicImageHistoryContentSegment, PublicImageInputSegment,
+import type { PublicImageAvailability, PublicImageDeferredReason, PublicImageHistoryContentSegment, PublicImageInputSegment,
   PublicImageMetadata } from '../shared/public-image-content.js'
 export const PUBLIC_RPC_CHANNEL = '/swarm-public'
 export const PUBLIC_RPC_ENDPOINTS = { history: 'v1/history', append: 'v1/append', requestResult: 'v1/requestResult' } as const
@@ -89,8 +89,11 @@ export interface PublicChatV3ImageRequest {
   readonly schemaVersion: 3; readonly target: PublicChatTarget; readonly messageId: string; readonly imageId: string
 }
 /** v3 projects older records without rewriting their formatVersion or historical content. */
-export interface PublicChatV3Message extends Omit<PublicChatV2Message, 'formatVersion' | 'content'> {
+export type PublicChatV3Recipient = Exclude<PublicChatRecipient, { state: 'queued' }>
+  | (Extract<PublicChatRecipient, { state: 'queued' }> & { readonly deferredReason?: PublicImageDeferredReason })
+export interface PublicChatV3Message extends Omit<PublicChatV2Message, 'formatVersion' | 'content' | 'delivery'> {
   readonly formatVersion: 1 | 2 | 3; readonly content: readonly PublicImageHistoryContentSegment[]
+  readonly delivery: { readonly kind: 'not-requested' } | { readonly kind: 'requested'; readonly recipients: readonly PublicChatV3Recipient[] }
 }
 export interface PublicChatV3Response extends Omit<PublicChatResponse, 'schemaVersion'> { readonly schemaVersion: 3 }
 export interface PublicChatV3AppendResponse extends PublicChatV3Response { readonly message: PublicChatV3Message; readonly replayed: boolean }
