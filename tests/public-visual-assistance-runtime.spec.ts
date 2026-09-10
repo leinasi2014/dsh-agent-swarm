@@ -517,3 +517,30 @@ it('binds original image-2 and image-10 to their actual helper image blocks and 
     expect(final.value.entries[2]).toMatchObject({ assistance: { kind: 'result', sourceMessageId: source.id, imageIds: ['image-2', 'image-10'] } })
   } finally { await fixture.close() }
 }, 30_000)
+
+
+it.each(['request', 'result'] as const)('keeps literal odd/even backslashes before @ in real assistance %s history and model input', async kind => {
+  const adapter = new AssistanceRecording(); adapter.autoRequest = false; adapter.autoComplete = false
+  const fixture = await visualFixture(adapter)
+  const literal = String.raw`C:\@folder \@name \\@name \\\@name \\\\@name`
+  try {
+    const args = await originalImage(fixture)
+    expect(await fixture.asCaptain('agent_swarm_request_visual_assistance', { ...args, question: literal })).toMatchObject({ isError: false })
+    await vi.waitFor(async () => expect(publicDeliveries((await fixture.team()).publicChat!.messages[1]!)[0]!.state).toBe('claimed'))
+    const row = assistanceRows(await fixture.team())[0]!
+    expect(await fixture.asHelper('agent_swarm_complete_visual_assistance', { request_id: 'literal-complete', assistance_id: row.assistanceId,
+      outcome: { state: 'completed', summary: literal } })).toMatchObject({ isError: false })
+    await vi.waitFor(async () => expect(publicDeliveries((await fixture.team()).publicChat!.messages[2]!)[0]!.state).toBe('claimed'))
+    const index = kind === 'request' ? 1 : 2, recipient = kind === 'request' ? fixture.helperId : fixture.captain.id
+    const page = await fixture.call('history')
+    expect(page.value.entries[index].text).toBe(literal)
+    const message = (await fixture.team()).publicChat!.messages[index]!, frame = publicDeliveries(message)[0]!.frame
+    const input = adapter.requests.filter(request => request.sessionId === recipient).flatMap(request => request.messages)
+      .find(candidate => candidate.content.some(part => part.type === 'text' && part.text === frame))
+    expect(input?.content[1]).toEqual({ type: 'text', text: literal })
+    const persisted = await readPersistedSession(fixture.f.ctx.sessionPersistence, recipient, SIGNAL)
+    const delivered = persisted.events.find(event => event.type === 'user/message' && event.data.content.some(part => part.type === 'text' && part.text === frame))
+    if (delivered?.type !== 'user/message') throw new Error('Missing actual assistance input')
+    expect(delivered.data.content[1]).toEqual({ type: 'text', text: literal })
+  } finally { await fixture.close() }
+}, 30_000)

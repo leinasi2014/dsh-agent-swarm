@@ -90,7 +90,7 @@ export function normalizeStoredPublicImageContent(input: readonly StoredPublicIm
 export function renderPublicImageContent(message: Pick<TeamPublicMessageV3, 'content' | 'mentionLabels' | 'author'>): string {
   return message.content.map(part => part.type === 'image' ? '' : part.type === 'mention'
     ? `@${message.mentionLabels.find(label => label.memberId === part.memberId)?.label ?? ''}`
-    : message.author.kind === 'agent' ? part.text : renderPublicText(part.text)).join('').trim()
+    : message.author.kind === 'local-operator' ? renderPublicText(part.text) : part.text).join('').trim()
 }
 
 export function publicMessageFrameV3(teamId: string, message: Pick<TeamPublicMessageV3, 'id' | 'author' | 'replyTo' | 'mentionLabels' | 'assistance'>, recipientSessionId: string): string {
@@ -121,7 +121,7 @@ export function publicImageProjection(message: TeamPublicMessageV3, recipient: P
       return originalId === undefined ? [image] : [{ type: 'text', text: `The next image block is this original public image: ${JSON.stringify(reference)}` }, image]
     }
     return [{ type: 'text', text: part.type === 'mention'
-      ? `@${message.mentionLabels.find(label => label.memberId === part.memberId)?.label ?? ''}` : renderPublicText(part.text) }]
+      ? `@${message.mentionLabels.find(label => label.memberId === part.memberId)?.label ?? ''}` : message.author.kind === 'local-operator' ? renderPublicText(part.text) : part.text }]
   })] }
 }
 
