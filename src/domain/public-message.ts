@@ -54,10 +54,10 @@ export const publicChatSchema = z.union([
   z.object({ schemaVersion: z.literal(1), messages: z.array(publicMessageV1Schema) }).strict(),
   z.object({ schemaVersion: z.literal(2), messages: z.array(z.union([publicMessageV1Schema, publicMessageV2Schema])) }).strict(),
 ])
-export type TeamPublicMessageV1 = z.infer<typeof publicMessageV1Schema>
+type TeamPublicMessageV1 = z.infer<typeof publicMessageV1Schema>
 export type TeamPublicMessageV2 = z.infer<typeof publicMessageV2Schema>
 export type TeamPublicMessage = TeamPublicMessageV1 | TeamPublicMessageV2
-export type PublicRecipientIntent = z.infer<typeof publicRecipientSchema>
+type PublicRecipientIntent = z.infer<typeof publicRecipientSchema>
 export type PublicDeliveryIntent = Exclude<TeamPublicMessageV1['delivery'], { state: 'not-requested' }> | PublicRecipientIntent
 export type TeamPublicChat = z.infer<typeof publicChatSchema>
 export type TeamPublicAuthor = TeamPublicMessage['author']
@@ -70,8 +70,8 @@ interface PublicAppendIdentity {
   readonly expectedCaptainSessionId?: string
   readonly expectedTeamRevision?: number
 }
-export interface AppendPublicMessageV1Input extends PublicAppendIdentity { readonly text: string; readonly formatVersion?: 1 }
-export interface AppendPublicMessageV2Input extends PublicAppendIdentity { readonly formatVersion: 2; readonly content: readonly PublicSegment[] }
+interface AppendPublicMessageV1Input extends PublicAppendIdentity { readonly text: string; readonly formatVersion?: 1 }
+interface AppendPublicMessageV2Input extends PublicAppendIdentity { readonly formatVersion: 2; readonly content: readonly PublicSegment[] }
 export type AppendPublicMessageInput = AppendPublicMessageV1Input | AppendPublicMessageV2Input
 export interface AppendPublicMessageResult {
   readonly message: TeamPublicMessage

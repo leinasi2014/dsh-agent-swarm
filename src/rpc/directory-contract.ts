@@ -10,9 +10,9 @@ export interface DirectorySource {
   readonly updatedAt?: number
   readonly reason?: string
 }
-export interface DirectorySkill { readonly name: string; readonly description?: string; readonly descriptionTruncated?: boolean }
+interface DirectorySkill { readonly name: string; readonly description?: string; readonly descriptionTruncated?: boolean }
 export interface DirectorySkillSet extends DirectorySource { readonly entries: readonly DirectorySkill[] }
-export interface DirectoryTool {
+interface DirectoryTool {
   readonly name: string
   readonly state: 'available' | 'approval-required' | 'disabled' | 'unknown'
   /** Our narrowing policy is separate from argument-dependent official execution guards. */
