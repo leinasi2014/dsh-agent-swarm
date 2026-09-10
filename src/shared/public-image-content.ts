@@ -61,6 +61,10 @@ export const publicImageDeferredReasonSchema = z.enum([
 ])
 export type PublicImageDeferredReason = z.infer<typeof publicImageDeferredReasonSchema>
 
+/** v3-only provenance for Host-generated terminal notices; never accepted by public append. */
+export const publicSystemAuthorSchema = z.object({ kind: z.literal('system') }).strict()
+export type PublicSystemAuthor = z.infer<typeof publicSystemAuthorSchema>
+
 /** Host-authored public links. Caller identity, internal visited state and attachment refs are never writable here. */
 export const publicVisualAssistanceFailureSchema = z.enum([
   'helper-unavailable', 'image-capability-unknown', 'image-model-unsupported', 'image-unavailable', 'permission-revoked', 'expired',

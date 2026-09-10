@@ -20,6 +20,17 @@ const image = { type: 'image', mediaType: 'image/png', data: 'AQID', name: 'deta
 const append = { schemaVersion: 3, target, requestId: 'image-request:1', content: [image] } satisfies contract.PublicChatV3AppendRequest
 
 describe('public v3 image wire contract', () => {
+  it('identifies Host-generated assistance failures without impersonating an Agent or operator', () => {
+    const value: unknown = Reflect.get(imageVocabulary, 'publicSystemAuthorSchema')
+    expect(value, 'system provenance must be explicit').toBeDefined()
+    const parse = value as ZodType
+    expect(parse.parse({ kind: 'system' })).toEqual({ kind: 'system' })
+    for (const invalid of [{ kind: 'agent' }, { kind: 'local-operator' }, { kind: 'system', sessionId: 'helper' }]) {
+      expect(parse.safeParse(invalid).success).toBe(false)
+    }
+    expect(schema('publicChatV3AppendRequestSchema').safeParse({ ...append, author: { kind: 'system' } }).success).toBe(false)
+  })
+
   it('exposes bounded assistance links and outcomes only in read projections', () => {
     const value: unknown = Reflect.get(imageVocabulary, 'publicVisualAssistanceSchema')
     expect(value, 'visual assistance read vocabulary must exist').toHaveProperty('safeParse')
