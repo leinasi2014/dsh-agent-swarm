@@ -61,6 +61,28 @@ export const publicImageDeferredReasonSchema = z.enum([
 ])
 export type PublicImageDeferredReason = z.infer<typeof publicImageDeferredReasonSchema>
 
+/** Host-authored public links. Caller identity, internal visited state and attachment refs are never writable here. */
+export const publicVisualAssistanceFailureSchema = z.enum([
+  'helper-unavailable', 'image-capability-unknown', 'image-model-unsupported', 'image-unavailable', 'permission-revoked', 'expired',
+])
+export const publicVisualAssistanceOutcomeSchema = z.discriminatedUnion('state', [
+  z.object({ state: z.literal('completed'), summary: z.string().min(1).max(8192).refine(value => value.trim() !== '') }).strict(),
+  z.object({ state: z.literal('failed'), reason: publicVisualAssistanceFailureSchema }).strict(),
+])
+export type PublicVisualAssistanceOutcome = z.infer<typeof publicVisualAssistanceOutcomeSchema>
+const assistanceId = z.string().min(1).max(256)
+const assistanceLink = {
+  assistanceId, sourceMessageId: assistanceId,
+  imageIds: z.array(assistanceId).min(1).max(MAX_PUBLIC_CONTENT_SEGMENTS).refine(values => new Set(values).size === values.length),
+  requesterSessionId: assistanceId, helperSessionId: assistanceId,
+  expiresAt: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+}
+export const publicVisualAssistanceSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('request'), ...assistanceLink }).strict(),
+  z.object({ kind: z.literal('result'), ...assistanceLink, resultId: assistanceId, outcome: publicVisualAssistanceOutcomeSchema }).strict(),
+]).refine(value => value.requesterSessionId !== value.helperSessionId, 'Visual helper must be another member')
+export type PublicVisualAssistance = z.infer<typeof publicVisualAssistanceSchema>
+
 /** Normalize adjacent text and outside whitespace only; preserve image/mention order and uploaded bytes/name.
  * Host retry identity hashes each image's decoded original bytes plus MIME/name in this ordered form,
  * along with replyTo. Normalized attachment IDs and temporary upload receipts are not input identity.

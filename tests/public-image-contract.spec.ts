@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ZodType } from 'zod'
 import * as contract from '../src/rpc/public-rpc-contract.js'
+import * as imageVocabulary from '../src/shared/public-image-content.js'
 import type { ImageAttachmentLimits } from '@deepseek-ai/dsh-attachment'
 import { isCanonicalPublicImageBase64, normalizePublicImageContent, publicImageAvailabilitySchema,
   publicImageContentSchema, publicImageHistorySegmentSchema, publicImageLimitsSchema,
@@ -19,6 +20,28 @@ const image = { type: 'image', mediaType: 'image/png', data: 'AQID', name: 'deta
 const append = { schemaVersion: 3, target, requestId: 'image-request:1', content: [image] } satisfies contract.PublicChatV3AppendRequest
 
 describe('public v3 image wire contract', () => {
+  it('exposes bounded assistance links and outcomes only in read projections', () => {
+    const value: unknown = Reflect.get(imageVocabulary, 'publicVisualAssistanceSchema')
+    expect(value, 'visual assistance read vocabulary must exist').toHaveProperty('safeParse')
+    const parse = value as ZodType
+    const request = { kind: 'request', assistanceId: 'assistance-1', sourceMessageId: 'public-1', imageIds: ['image-2', 'image-1'],
+      requesterSessionId: 'member-1', helperSessionId: 'member-2', expiresAt: 123 }
+    expect(parse.parse(request)).toEqual(request)
+    const result = { ...request, kind: 'result', resultId: 'result-1', outcome: { state: 'completed', summary: '图中是一个圆形。' } }
+    expect(parse.parse(result)).toEqual(result)
+    expect(parse.safeParse({ ...result, outcome: { state: 'failed', reason: 'expired' } }).success).toBe(true)
+    for (const invalid of [{ ...request, imageIds: [] }, { ...request, imageIds: ['image-1', 'image-1'] },
+      { ...request, helperSessionId: request.requesterSessionId }, { ...request, expiresAt: -1 },
+      { ...request, visited: ['private'] }, { ...request, attachmentId: 'private' },
+      { ...request, outcome: result.outcome }, { ...result, resultId: '' },
+      { ...result, outcome: { state: 'completed', summary: ' ' } },
+      { ...result, outcome: { state: 'completed', summary: 'x'.repeat(8193) } },
+      { ...result, outcome: { state: 'failed', reason: 'arbitrary-provider-stack' } }]) {
+      expect(parse.safeParse(invalid).success).toBe(false)
+    }
+    expect(schema('publicChatV3AppendRequestSchema').safeParse({ ...append, assistance: request }).success).toBe(false)
+  })
+
   it('exposes only append, history, requestResult and authorized image read in v3', () => {
     expect(Reflect.get(contract, 'PUBLIC_RPC_V3_ENDPOINTS')).toEqual({
       history: 'v3/history', append: 'v3/append', requestResult: 'v3/requestResult', image: 'v3/image',

@@ -2,7 +2,7 @@
 import { z } from 'zod'
 import { publicImageContentSchema } from '../shared/public-image-content.js'
 import type { PublicImageAvailability, PublicImageDeferredReason, PublicImageHistoryContentSegment, PublicImageInputSegment,
-  PublicImageMetadata } from '../shared/public-image-content.js'
+  PublicImageMetadata, PublicVisualAssistance } from '../shared/public-image-content.js'
 export const PUBLIC_RPC_CHANNEL = '/swarm-public'
 export const PUBLIC_RPC_ENDPOINTS = { history: 'v1/history', append: 'v1/append', requestResult: 'v1/requestResult' } as const
 export const PUBLIC_RPC_V2_ENDPOINTS = { history: 'v2/history', append: 'v2/append', requestResult: 'v2/requestResult', directory: 'v2/directory' } as const
@@ -93,6 +93,7 @@ export type PublicChatV3Recipient = Exclude<PublicChatRecipient, { state: 'queue
   | (Extract<PublicChatRecipient, { state: 'queued' }> & { readonly deferredReason?: PublicImageDeferredReason })
 export interface PublicChatV3Message extends Omit<PublicChatV2Message, 'formatVersion' | 'content' | 'delivery'> {
   readonly formatVersion: 1 | 2 | 3; readonly content: readonly PublicImageHistoryContentSegment[]
+  readonly assistance?: PublicVisualAssistance
   readonly delivery: { readonly kind: 'not-requested' } | { readonly kind: 'requested'; readonly recipients: readonly PublicChatV3Recipient[] }
 }
 export interface PublicChatV3Response extends Omit<PublicChatResponse, 'schemaVersion'> { readonly schemaVersion: 3 }

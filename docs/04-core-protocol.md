@@ -204,6 +204,8 @@ Session 消费证据比较稳定 frame/rpcId 身份与完整冻结输入两层�
 
 `agent_swarm_complete_visual_assistance` 接受稳定 request_id、assistance_id 与 outcome（公开摘要或受限失败原因）；仅指定 helper 能完成。结果、关联原消息的公开回报和定向返回原发起人的意图由同一 Domain transaction 提交，并共用现有 public delivery debt、串行投递、退出围栏和 ManagedActivationRecovery。读取、既有活动或恢复时检查期限；不增加另一套轮询，也不承诺无人活动时精确计时通知。迟到结果不覆盖终态。协助不自动招募、换模型、转移任务 owner、扩大权限或接受任务，原负责人继续执行并经过既有审核。
 
+公开 v3 消息可含 Host 派生的 `assistance`：`kind: request | result`、assistanceId、sourceMessageId、非空去重 imageIds、requesterSessionId、helperSessionId 和 expiresAt。结果另有 resultId 与 outcome；成功为 `{state: completed, summary}`（非空，最多 8192 字符），失败为 `{state: failed, reason}`，原因限定 helper-unavailable、image-capability-unknown、image-model-unsupported、image-unavailable、permission-revoked、expired。请求与结果各是一条可追溯的公开消息，复用其投递债务，resultId 可直接使用结果消息 ID；原图仍由 sourceMessageId/imageIds 定位。此字段只读，不接受人类 append 填写，内部 visited、请求摘要及真实附件引用不进入公开投影。
+
 Client 用原生 IndexedDB 在一个事务中保存按 Host/Main/Team 隔离的草稿、Blob 与原请求描述，落盘成功后才能编码提交同一 v3 append。恢复完成前不发送；未知结果保留相同 requestId、内容与 Blob，不创建新操作。v1/v2 pending 保留原版本恢复。切群或继续编辑只结算原操作，清除草稿须匹配原 revision，移除当前附件不能删除 pending 仍引用的 Blob。浏览器存储失败明确阻止发送；浏览器记录只是恢复素材，公共消息成功以 Host 耐久提交为准。
 
 验收覆盖纯图片与混合有序图片、官方 admission 拒绝、字节/MIME/名称冲突、丢 ACK 与刷新恢复、跨 Team 读取拒绝、同身份缺图不重发、真实视觉输入、非视觉自主选人、协助去重与失败、退出/取消围栏、关闭页面及冷恢复、原负责人继续提交和审核。fixture、真实模型、浏览器恢复及正式部署分别记录，不能互相替代。
