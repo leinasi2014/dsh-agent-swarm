@@ -2,7 +2,7 @@
  * for one invocation; Captain calls inherit the official downstream decision.
  * No approval rewrites a durable descriptor or overrides official guards. */
 import { TeamDomainError } from '../domain/error.js'
-import { CAPTAIN_ONLY_TOOLS, WORK_REQUEST_CAPTAIN_TOOLS } from './prompts.js'
+import { CAPTAIN_ONLY_TOOLS, GOAL_CAPTAIN_TOOLS, WORK_REQUEST_CAPTAIN_TOOLS } from './prompts.js'
 import { MAX_DENY_TOOLS, MEMBER_DENY_BASELINE, TOOL_NAME_PATTERN } from './tool-policy.js'
 
 /**
@@ -19,7 +19,7 @@ const PLUGIN_TOOL_NAMES = [
   // this transport visible therefore does not widen the inner tool decision.
   'run_code',
   'agent_swarm_create_managed',
-  ...CAPTAIN_ONLY_TOOLS.filter(name => !(WORK_REQUEST_CAPTAIN_TOOLS as readonly string[]).includes(name)),
+  ...CAPTAIN_ONLY_TOOLS.filter(name => !([...WORK_REQUEST_CAPTAIN_TOOLS, ...GOAL_CAPTAIN_TOOLS] as readonly string[]).includes(name)),
   'agent_swarm_claim_task',
   'agent_swarm_create_task',
   'agent_swarm_submit_task',
@@ -38,6 +38,7 @@ const PLUGIN_TOOL_NAMES = [
   'agent_swarm_public_reply',
   ...WORK_REQUEST_CAPTAIN_TOOLS,
   'agent_swarm_submit_work_request',
+  'agent_swarm_get_goal', 'agent_swarm_save_goal', 'agent_swarm_control_goal', ...GOAL_CAPTAIN_TOOLS,
 ] as const
 
 /** Default effective policy: the plugin's own tool surface is allowed. */

@@ -12,7 +12,7 @@ import type { TaskAttempt, TeamAnnouncement, TeamCommunicationIntensity, TeamId,
 import { TeamDomain } from '../domain/team-domain.js'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import { TeamDomainError } from '../domain/error.js'
-import { hasPublicDebt, hasPendingVisualAssistance } from '../domain/public-message.js'
+import { recoverIdleAgent } from './agent-idle-recovery.js'
 import type { MemberIdentityInput } from '../domain/identity-profile.js'
 import { StorageDomainTeamStore } from '../storage/storage-domain-team-store.js'
 import { teamDomainSpec } from '../storage/team-spec.js'
@@ -42,6 +42,7 @@ import { ManagedActivationRecovery } from './managed-activation-recovery.js'
 import { SchedulingAdmission } from './scheduling-admission.js'
 import { TeamDirectory } from './team-directory.js'
 import { WorkRequestSurface } from './work-request-surface.js'
+import { GoalRuntimeSurface } from './goal-runtime-surface.js'
 
 export type { ToolExecutionAuthority, ReviewProviderInput, ReviewProviderResult, SchedulerDecision, SchedulerSelectionInput, TeamReviewProvider, TeamSchedulerProvider }
 export type { RuntimeConfig } from './runtime-contract.js'
@@ -51,6 +52,7 @@ export class AgentSwarmRuntime extends Service {
   readonly directory: TeamDirectory
   readonly captainModels: CaptainModelSelection
   readonly work: WorkRequestSurface
+  readonly goals: GoalRuntimeSurface
   private domainInstance?: TeamDomainPort
   private storeInstance?: StorageDomainTeamStore
   private domainHandle?: Domain<typeof teamDomainSpec>
@@ -95,7 +97,7 @@ export class AgentSwarmRuntime extends Service {
     if (!Number.isSafeInteger(config.disposalTimeoutMs) || config.disposalTimeoutMs < 1) { throw new TeamDomainError('disposalTimeoutMs must be a positive safe integer', 'TEAM_INVALID_CONFIG') }
     if (!Number.isSafeInteger(config.strandedAfterMs) || config.strandedAfterMs < 0) { throw new TeamDomainError('strandedAfterMs must be a safe non-negative integer', 'TEAM_INVALID_CONFIG') }
     const requestSchedule = (scope: TeamScope, teamId: TeamId, captain: Agent): void => { void this.scheduling.request(scope, teamId, captain) }
-    this.orchestration = new OrchestrationOwnership({ mode: config.orchestrationMode, requestSchedule })
+    this.orchestration = new OrchestrationOwnership({ mode: config.orchestrationMode, requestSchedule, released: (scope, teamId) => this.goals.kick(scope, teamId) })
     this.schedulerProviders.set('priority-ready', priorityReadyScheduler())
     this.reviewProviders.set('manual', manualReview())
     const commandBound = config.limits.maxVerificationCommandMs
@@ -124,6 +126,7 @@ export class AgentSwarmRuntime extends Service {
       accountAgentUsage: (scope, teamId, agent) => this.usage.accountAgentUsage(scope, teamId, agent),
       publicTeam: async (scope, teamId) => (await this.listTeamAggregates(scope)).find(team => team.id === teamId),
       publicRoot: (parent, scope) => this.activationRecovery.ensurePublicRoot(parent, scope),
+      goalAllowed: (scope, teamId) => this.goals.allowed(scope, teamId),
     })
     this.memberProfiles = new MemberProfileReader(ctx)
     this.schedulingPass = new SchedulingPass(ctx, {
@@ -142,6 +145,12 @@ export class AgentSwarmRuntime extends Service {
       executionRoots: () => this.executionRoots.roots,
       executionRootsEnabled: () => this.config.executionRootsEnabled,
       sweepExecutionRoots: (scope, teamId) => this.executionRoots.sweep(scope, teamId),
+      reconcileGoal: (scope, team) => this.goals.reconcile(scope, team),
+      wakeGoal: (scope, teamId) => this.goals.wake(scope, teamId),
+      assertExecution: captain => {
+        this.assertOpen()
+        if (this.ctx.agents.get(captain.id) !== captain || this.ctx.sessions.get(captain.id) !== captain.session) throw new TeamDomainError('Scheduling requires the exact live Captain', 'TEAM_AGENT_REQUIRED')
+      },
     })
     this.provisioning = new MemberProvisioner(ctx, {
       domain: () => this.domain,
@@ -175,6 +184,9 @@ export class AgentSwarmRuntime extends Service {
       trackChild: (parent, childId) => this.trackChild(parent, childId),
       drainPublic: (scope, team) => this.delivery.deliverPublicMessages(scope, team.id, this.publicAbort.signal),
       drainWork: (scope, team) => this.delivery.deliverWorkRequests(scope, team.id, this.publicAbort.signal),
+      prepareGoal: (scope, team) => this.goals.reconcile(scope, team),
+      drainGoal: (scope, team) => this.delivery.deliverGoalNotices(scope, team.id, this.publicAbort.signal),
+      goalAllowed: (scope, team) => this.goals.canCoordinate(scope, team),
     })
     this.work = new WorkRequestSurface(ctx, {
       ready: () => this.ensureReady(), assertOpen: () => this.assertOpen(), domain: () => this.domain,
@@ -184,6 +196,14 @@ export class AgentSwarmRuntime extends Service {
       fence: (scope, teamId, signal, operation) => this.withPublicAdmissionFence(scope, teamId, signal, operation),
       kick: (scope, teamId) => this.kickWorkRequests(scope, teamId),
       scheduling: this.scheduling,
+    })
+    this.goals = new GoalRuntimeSurface(ctx, {
+      domain: () => this.domain, ready: () => this.ensureReady(), assertOpen: () => this.assertOpen(),
+      scopeOf: agent => this.scopeOf(agent), teams: scope => this.listTeamAggregates(scope),
+      usage: this.usage, scheduling: this.scheduling, recovery: () => this.activationRecovery,
+      ownership: this.orchestration, adaptive: () => config.orchestrationMode === 'adaptive', signal: this.publicAbort.signal,
+      deadline: (scope, team) => this.schedulingPass.trackGoalDeadline(scope, team),
+      sweep: (scope, teamId) => this.executionRoots.sweep(scope, teamId),
     })
   }
   /** Open the authoritative Storage Domain; invalid records or missing services fail activation. */
@@ -360,7 +380,7 @@ export class AgentSwarmRuntime extends Service {
 
   /** Captain-only: set this Team's public goal (canonical bounded text, expected_revision CAS). */
   async setPublicGoal(exec: ToolExecutionAuthority, expectedRevision: number, text: string): Promise<TeamState> {
-    return await this.mutations.setPublicGoal(exec, expectedRevision, text)
+    return await this.goals.afterLegacyGoal(exec, await this.mutations.setPublicGoal(exec, expectedRevision, text))
   }
 
   async createTask(exec: ToolExecutionAuthority, input: RuntimeCreateTaskInput): Promise<TeamTask> {
@@ -398,15 +418,7 @@ export class AgentSwarmRuntime extends Service {
     exec: ToolExecutionAuthority,
     input: { taskId: string; expectedRevision: number; attemptId: string; decision: 'accept' | 'reject'; diagnostic?: string },
   ): Promise<{ task: TeamTask; decision: 'accept' | 'reject' }> {
-    const result = await this.mutations.reviewTask(exec, input)
-    if (result.decision !== 'accept' || this.closing) return result
-    return this.scheduling.committedReview(result, exec.signal, async () => {
-      const captain = requireAgent(exec), scope = this.scopeOf(captain)
-      const membership = await this.domain.requireMembership(scope, captain.id)
-      if (!this.orchestration.eventFaceActive(scope, membership.team.id)) return
-      if ((await this.domain.snapshot(scope, membership.team.id, captain.id)).readyTaskIds.length === 0) return
-      await this.scheduling.afterCommit(scope, membership.team.id, captain, exec.signal)
-    })
+    return await this.goals.afterReview(exec, await this.mutations.reviewTask(exec, input))
   }
 
   async sendMessage(
@@ -504,26 +516,13 @@ export class AgentSwarmRuntime extends Service {
     if (this.closing) return
     const scope = this.scopeOf(agent)
     this.watchJobsScope(scope)
-    let membership = await this.domain.findMembership(scope, agent.id)
-    if (membership === undefined || this.closing) return
-    if (hasPublicDebt(membership.team.publicChat) || hasPendingVisualAssistance(membership.team.publicChat)) {
-      await this.delivery.deliverPublicMessages(scope, membership.team.id, this.publicAbort.signal)
-    }
-    if (membership.team.messages.some(message => message.kind === 'work-request-notice' && message.phase === 'queued')) {
-      await this.delivery.deliverWorkRequests(scope, membership.team.id, this.publicAbort.signal)
-    }
-    if (membership.role === 'captain') {
-      const settled = await this.provisioning.recoverInterrupted(agent, scope, membership)
-      if (settled > 0) membership = await this.domain.requireMembership(scope, agent.id)
-    }
-    const captain = this.ctx.agents.get(SessionId(membership.team.captainSessionId))
-    if (captain === undefined) return
-    this.trackTeamChildren(captain, membership.team)
-    // Single-owner discipline (M2-3): autonomous drives defer to a live run
-    // owner; `workflow` mode deactivates the face entirely (docs/04 §8g).
-    if (agent.status === 'idle' && this.orchestration.eventFaceActive(scope, membership.team.id)) {
-      this.scheduling.request(scope, membership.team.id, captain)
-    }
+    await recoverIdleAgent(this.ctx, agent, scope, {
+      domain: this.domain, closing: () => this.closing, signal: this.publicAbort.signal,
+      delivery: this.delivery, provisioning: this.provisioning,
+      track: (captain, team) => this.trackTeamChildren(captain, team),
+      allowed: teamId => this.orchestration.eventFaceActive(scope, teamId),
+      schedule: (teamId, captain) => { this.scheduling.request(scope, teamId, captain) },
+    })
   }
 
   observeSessionEvent(session: Session, event: SessionEvent): void { this.usage.observeSessionEvent(session, event); this.provisioning.observeSessionEvent(session, event); this.captainProvisioning.observeSessionEvent(session, event) }

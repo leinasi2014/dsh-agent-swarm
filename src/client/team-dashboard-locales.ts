@@ -1,10 +1,12 @@
 import { workEn, workZh } from './work-request-locales.js'
+import { goalEn, goalZh } from './goal-locales.js'
 import { publicMentionsEn, publicMentionsZh } from './public-mentions-locales.js'
 import { publicImagesEn, publicImagesZh } from './public-images-locales.js'
 import { taskPanelEn, taskPanelZh } from './team-task-panel-locales.js'
 export const TEAM_DASHBOARD_NS = 'swarm.team-dashboard' as const
 
 export const en = {
+  ...goalEn,
   ...workEn,
   'public.title': "Team conversation",
   'public.groups': "Team groups",
@@ -299,6 +301,7 @@ export const en = {
 } as const
 
 export const zh: Record<keyof typeof en, string> = {
+  ...goalZh,
   ...workZh,
   'public.title': "团队群聊",
   'public.groups': "团队群聊",

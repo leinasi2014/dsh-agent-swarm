@@ -103,7 +103,7 @@ export interface SwarmHostReadProjectionV1 {
 }
 
 /** Explicit v2 task projection. Readiness is Team admission evidence, not a member lease. */
-export type SwarmTaskReadinessV2 = 'not-pending' | 'team-inactive' | 'blocked' | 'budget-hold' | 'ready'
+export type SwarmTaskReadinessV2 = 'not-pending' | 'team-inactive' | 'blocked' | 'budget-hold' | 'paused' | 'ready'
 export type SwarmTaskRowV2 = SwarmHostReadProjectionV1['tasks'][number] & {
   readonly assignmentMode: 'automatic' | 'open-claim'
   readonly readiness: SwarmTaskReadinessV2

@@ -1,4 +1,8 @@
 import * as workRequests from './team-domain-work-requests.js'
+import * as goals from './team-domain-goal.js'
+import * as taskCancellation from './team-domain-cancel.js'
+import type { GoalOrigin, SaveGoalInput, ControlGoalInput, GoalAdmissionGuards, GoalResultQuery,
+  GoalCoordinationInput, CancelTaskInput, CancelTaskGuards } from './goal-lifecycle.js'
 import * as workActivities from './team-domain-work-activity.js'
 import * as openClaim from './team-domain-open-claim.js'
 import type { WorkRequestOrigin, SubmitWorkRequestInput, ResolveWorkRequestInput, NoticeOpenClaimTaskInput, WorkRequestAdmission, WorkRequestResolutionGuards } from './work-request.js'
@@ -77,6 +81,13 @@ export const DEFAULT_TEAM_LIMITS: TeamLimits = {
 
 /** Framework-neutral Team protocol used by the DSH tool and scheduler consumers. */
 export class TeamDomain implements TeamDomainPort {
+  saveGoal(scope: TeamScope, teamId: TeamId, origin: GoalOrigin, input: SaveGoalInput, guards?: GoalAdmissionGuards) { return goals.saveGoal(this.deps, scope, teamId, origin, input, guards) }
+  controlGoal(scope: TeamScope, teamId: TeamId, origin: GoalOrigin, input: ControlGoalInput, guards?: GoalAdmissionGuards) { return goals.controlGoal(this.deps, scope, teamId, origin, input, guards) }
+  goalSnapshot(scope: TeamScope, teamId: TeamId) { return goals.goalSnapshot(this.deps, scope, teamId) }
+  goalOperationResult(scope: TeamScope, teamId: TeamId, origin: GoalOrigin, input: GoalResultQuery) { return goals.goalOperationResult(this.deps, scope, teamId, origin, input) }
+  coordinateGoal(scope: TeamScope, teamId: TeamId, captain: string, input: GoalCoordinationInput, guards?: GoalAdmissionGuards) { return goals.coordinateGoal(this.deps, scope, teamId, captain, input, guards) }
+  reconcileGoal(scope: TeamScope, teamId: TeamId, guards?: GoalAdmissionGuards) { return goals.reconcileGoal(this.deps, scope, teamId, guards) }
+  cancelTask(scope: TeamScope, teamId: TeamId, captain: string, input: CancelTaskInput, guards?: CancelTaskGuards) { return taskCancellation.cancelTask(this.deps, scope, teamId, captain, input, guards) }
   submitWorkRequest(scope: TeamScope, teamId: TeamId, origin: WorkRequestOrigin, input: SubmitWorkRequestInput, admission?: WorkRequestAdmission) { return workRequests.submitWorkRequest(this.deps, scope, teamId, origin, input, admission) }
   workRequestResult(scope: TeamScope, teamId: TeamId, origin: WorkRequestOrigin, requestId: string) { return workRequests.workRequestResult(this.deps, scope, teamId, origin, requestId) }
   listWorkRequests(scope: TeamScope, teamId: TeamId, actor: string) { return workRequests.listWorkRequests(this.deps, scope, teamId, actor) }
@@ -272,8 +283,9 @@ export class TeamDomain implements TeamDomainPort {
     taskId: TaskId,
     expectedRevision: number,
     assigneeSessionId = actorSessionId,
+    assertExecution?: () => void,
   ): Promise<{ task: TeamTask; attempt: TaskAttempt }> {
-    return await board.claimTask(this.deps, scope, teamId, actorSessionId, taskId, expectedRevision, assigneeSessionId)
+    return await board.claimTask(this.deps, scope, teamId, actorSessionId, taskId, expectedRevision, assigneeSessionId, assertExecution)
   }
 
   async acknowledgeAssignment(
@@ -332,8 +344,9 @@ export class TeamDomain implements TeamDomainPort {
     expectedRevision: number,
     assigneeSessionId: string,
     diagnostic: string,
+    assertExecution?: () => void,
   ): Promise<{ task: TeamTask; attempt: TaskAttempt }> {
-    return await board.retryAttempt(this.deps, scope, teamId, captainSessionId, taskId, expectedRevision, assigneeSessionId, diagnostic)
+    return await board.retryAttempt(this.deps, scope, teamId, captainSessionId, taskId, expectedRevision, assigneeSessionId, diagnostic, assertExecution)
   }
 
   async reinstateAttempt(

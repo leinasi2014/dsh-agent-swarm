@@ -16,11 +16,13 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Domain, DomainChanged } from '@deepseek-ai/dsh-storage-domain'
 import { TeamDomainError } from '../domain/error.js'
 import { assertTeamState } from '../domain/state-validation.js'
+import { assertGoalState } from '../domain/goal-validation.js'
 import type {
   MigrationReceipt,
   TeamAggregateStore,
   TeamScope,
   TeamTransaction,
+  TeamTransactionOptions,
 } from '../domain/team-domain-port.js'
 import type { TeamId, TeamState } from '../domain/types.js'
 import { TEAM_DOMAIN_NAME, teamDomainSpec, teamRecordOf } from './team-spec.js'
@@ -154,6 +156,9 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
   }
 
   private envelope(scope: TeamScope, team: TeamState) {
+    // Official put does not run the table schema. New goal/cancellation facts
+    // must be valid before publish as well as on load, including semantic links.
+    assertGoalState(team)
     return teamRecordOf(scope, team)
   }
 
@@ -293,7 +298,7 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
     return board
   }
 
-  async transact<T>(scope: TeamScope, teamId: TeamId, operation: TeamTransaction<T>): Promise<T> {
+  async transact<T>(scope: TeamScope, teamId: TeamId, operation: TeamTransaction<T>, options?: TeamTransactionOptions): Promise<T> {
     if (this.storeClosed) throw closed()
     return await withLock(this.teamLocks, teamId, async () => {
       const current = await this.readAndUpgrade(scope, teamId)
@@ -312,7 +317,10 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
         ? { ...draft, revision: current.revision + 1, updatedAt: this.now() }
         : { ...draft }
       await this.writeUnit(() => this.teams.put(teamId, this.envelope(scope, next)))
-      this.notify(teamId)
+      try { options?.afterCommit?.() }
+      catch (error) {
+        throw new TeamDomainError('Team change is committed, but its synchronous cleanup failed; read the committed result before retrying', 'TEAM_AFTER_COMMIT_FAILED', { cause: error })
+      } finally { this.notify(teamId) }
       return result
     })
   }
@@ -397,4 +405,3 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
     for (const notify of pending) notify()
   }
 }
-

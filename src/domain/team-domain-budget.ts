@@ -171,6 +171,18 @@ export async function adoptBudget(
   return structuredClone(committed)
 }
 
+/** Reuse the original ledger validation inside another atomic Team command. */
+export function setBudgetInDraft(team: import('./types.js').TeamState, limits: Pick<TeamBudget, 'tokenLimit' | 'requestLimit' | 'retryLimit' | 'deadlineAt'>): TeamBudget {
+  for (const [name, value] of Object.entries(limits)) {
+    if (value !== undefined) expectDomain(Number.isSafeInteger(value) && value > 0, `${name} must be a positive safe integer`, 'TEAM_BUDGET_INVALID')
+  }
+  if (limits.tokenLimit !== undefined) expectDomain(limits.tokenLimit >= team.budget.usedTokens, 'tokenLimit is below current usage', 'TEAM_BUDGET_INVALID')
+  if (limits.requestLimit !== undefined) expectDomain(limits.requestLimit >= team.budget.usedRequests, 'requestLimit is below current usage', 'TEAM_BUDGET_INVALID')
+  if (limits.retryLimit !== undefined) expectDomain(limits.retryLimit >= team.budget.usedRetries, 'retryLimit is below current usage', 'TEAM_BUDGET_INVALID')
+  const committed = { ...team.budget, ...limits }
+  Object.assign(team, { budget: committed })
+  return committed
+}
 export async function setBudget(
   deps: TeamDomainDeps,
   scope: TeamScope,
@@ -182,14 +194,7 @@ export async function setBudget(
   await deps.store.transact(scope, teamId, team => {
     const authority = actorMembership(team, captainSessionId)
     expectDomain(authority.role === 'captain', 'only the captain can configure budget', 'TEAM_CAPTAIN_REQUIRED')
-    for (const [name, value] of Object.entries(limits)) {
-      if (value !== undefined) expectDomain(Number.isSafeInteger(value) && value > 0, `${name} must be a positive safe integer`, 'TEAM_BUDGET_INVALID')
-    }
-    if (limits.tokenLimit !== undefined) expectDomain(limits.tokenLimit >= team.budget.usedTokens, 'tokenLimit is below current usage', 'TEAM_BUDGET_INVALID')
-    if (limits.requestLimit !== undefined) expectDomain(limits.requestLimit >= team.budget.usedRequests, 'requestLimit is below current usage', 'TEAM_BUDGET_INVALID')
-    if (limits.retryLimit !== undefined) expectDomain(limits.retryLimit >= team.budget.usedRetries, 'retryLimit is below current usage', 'TEAM_BUDGET_INVALID')
-    committed = { ...team.budget, ...limits }
-    Object.assign(team, { budget: committed })
+    committed = setBudgetInDraft(team, limits)
   })
   return structuredClone(committed)
 }

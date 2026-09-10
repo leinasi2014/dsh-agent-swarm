@@ -1,4 +1,6 @@
 import { WorkRequestClient } from './work-rpc-client.js'
+import { GoalClient } from './goal-rpc-client.js'
+import { GoalController } from './goal-controller.js'
 import { WorkRequestController } from './work-request-controller.js'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
@@ -91,6 +93,7 @@ export function apply(ctx: ClientContext): void {
     getItem: key => globalThis.sessionStorage.getItem(key), setItem: (key, value) => { globalThis.sessionStorage.setItem(key, value) },
   })
   const work = new WorkRequestController(new WorkRequestClient(connection.rpc), globalThis.location?.origin ?? 'local')
+  const goal = new GoalController(new GoalClient(connection.rpc), globalThis.location?.origin ?? 'local')
   // Slot injection can run again during Host refreshes; mounted images keep one reader.
   const readPublicImage = (messageId: string, imageId: string, signal: AbortSignal): Promise<Blob> => chat.image(messageId, imageId, signal)
   const groupPanel = 'swarm.group' as MainPanelId
@@ -107,6 +110,7 @@ export function apply(ctx: ClientContext): void {
   })
   ctx.effect(() => coordinator.mount(), 'swarm Team dashboard surface coordinator')
   ctx.effect(() => work.connect(controller), 'swarm task proposal state')
+  ctx.effect(() => goal.connect(controller), 'swarm goal lifecycle state')
   ctx.effect(() => chat.connect(controller), 'swarm public conversation state')
   ctx.on('connection/reset', () => { controller.connectionReset() })
   ctx.effect(() => ctx.locale.register(TEAM_DASHBOARD_NS, { zh, en }), 'swarm Team dashboard dictionaries')
@@ -126,7 +130,7 @@ export function apply(ctx: ClientContext): void {
   }, TeamLineageDisplay))
   ctx.slots.inject('main', function* () {
     yield ctx.slots.register({ name: 'main', key: groupPanel, locale: TEAM_DASHBOARD_NS,
-      inject: () => ({ hooks: { chat, team: controller, surface: coordinator }, work,
+      inject: () => ({ hooks: { chat, team: controller, surface: coordinator }, work, goal,
         openWorkTask: (id: string) => {
           const current = controller.getSnapshot(), selected = work.getSnapshot().selection
           if (current.phase !== 'ready' || selected === undefined || current.data?.projection.binding.teamId !== selected.team || current.targetSessionId === undefined) return

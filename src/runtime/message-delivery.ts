@@ -73,17 +73,27 @@ export class MessageDelivery {
       accountAgentUsage: (scope: TeamScope, teamId: TeamId, agent: Agent) => Promise<void>
       publicTeam?: (scope: TeamScope, teamId: TeamId) => Promise<TeamState | undefined>
       publicRoot?: (parentSessionId: string, scope: TeamScope) => Promise<Agent>
+      goalAllowed?: (scope: TeamScope, teamId: TeamId) => boolean
     },
   ) {}
 
   /** Drain typed work notices through the same mailbox chains and retirement fence. */
   async deliverWorkRequests(scope: TeamScope, teamId: TeamId, signal: AbortSignal): Promise<PublicDeliveryResult> {
+    return await this.drainCaptainNotices(scope, teamId, signal, 'work-request-notice')
+  }
+
+  async deliverGoalNotices(scope: TeamScope, teamId: TeamId, signal: AbortSignal): Promise<PublicDeliveryResult> {
+    return await this.drainCaptainNotices(scope, teamId, signal, 'goal-coordination-notice')
+  }
+
+  private async drainCaptainNotices(scope: TeamScope, teamId: TeamId, signal: AbortSignal,
+    kind: 'work-request-notice' | 'goal-coordination-notice'): Promise<PublicDeliveryResult> {
     const result = { admitted: false, deferred: false, reconciled: 0 }
     const team = await this.deps.publicTeam?.(scope, teamId)
     for (const notice of team?.messages ?? []) {
-      if (notice.kind !== 'work-request-notice' || notice.phase !== 'queued' || this.deps.isClosing()) continue
+      if (notice.kind !== kind || notice.phase !== 'queued' || this.deps.isClosing()) continue
       await this.queueMessageOperation(scope, teamId, notice.id, async () => {
-        const value = await this.deliverWorkNotice(scope, teamId, notice.id, signal)
+        const value = await this.deliverWorkNotice(scope, teamId, notice.id, signal, kind)
         result.admitted ||= value.result.admitted; result.deferred ||= value.result.deferred; result.reconciled += value.result.reconciled
         return value.message
       })
@@ -91,7 +101,8 @@ export class MessageDelivery {
     return result
   }
 
-  private deliverWorkNotice(scope: TeamScope, teamId: TeamId, messageId: TeamMessageId, signal: AbortSignal) {
+  private deliverWorkNotice(scope: TeamScope, teamId: TeamId, messageId: TeamMessageId, signal: AbortSignal,
+    kind: 'work-request-notice' | 'goal-coordination-notice' = 'work-request-notice') {
     return this.withPublicAdmissionFence(scope, teamId, () => deliverWorkRequestNotice(this.ctx, {
       domain: this.deps.domain, closing: this.deps.isClosing,
       team: async (boundScope, id) => await this.deps.publicTeam?.(boundScope, id),
@@ -99,7 +110,8 @@ export class MessageDelivery {
         if (this.deps.publicRoot === undefined) throw new Error('Managed Main restoration is unavailable')
         return await this.deps.publicRoot(parent, boundScope)
       }, account: this.deps.accountAgentUsage,
-    }, scope, teamId, messageId, signal))
+      ...(this.deps.goalAllowed === undefined ? {} : { goalAllowed: this.deps.goalAllowed }),
+    }, scope, teamId, messageId, signal, kind))
   }
 
   /** Serialize membership retirement with the entire official public admission,
@@ -348,7 +360,7 @@ export class MessageDelivery {
           await this.deps.domain().markMessageObsolete(this.deps.scopeOf(captain), team.id, notice.id, obsolete)
           return false
         }
-        if (openClaimNoticeDeferred(current, notice, Date.now()) || this.ctx.agents.get(SessionId(notice.targetSessionId))?.status === 'running') return false
+        if (current.goalLifecycle?.phase === 'paused' || openClaimNoticeDeferred(current, notice, Date.now()) || this.ctx.agents.get(SessionId(notice.targetSessionId))?.status === 'running') return false
       }
       await steerHostSubagentPrompt(
         this.ctx.subagents,
@@ -415,6 +427,7 @@ export class MessageDelivery {
       const message = snapshot.team.messages.find(candidate => candidate.id === messageId)
       if (message === undefined || message.phase !== 'queued') return message
       if (message.kind === 'work-request-notice') return (await this.deliverWorkNotice(scope, teamId, messageId, signal)).message
+      if (message.kind === 'goal-coordination-notice') return (await this.deliverWorkNotice(scope, teamId, messageId, signal, message.kind)).message
       // Mail-obsolescence single obsolete funnel (delivery admission): an
       // obsolete message is NEVER delivered, injected, followed-up or used to
       // wake its target. It is settled terminal once, and the caller observes
@@ -426,7 +439,7 @@ export class MessageDelivery {
       const accepted = await this.targetAlreadyAccepted(message, signal)
       if (accepted === undefined) return undefined
       if (accepted) return await this.deps.domain().acknowledgeMessage(scope, teamId, message.id)
-      if (message.kind === 'open-claim-notice' && (openClaimNoticeDeferred(snapshot.team, message, Date.now())
+      if (message.kind === 'open-claim-notice' && (snapshot.team.goalLifecycle?.phase === 'paused' || openClaimNoticeDeferred(snapshot.team, message, Date.now())
         || this.ctx.agents.get(SessionId(message.targetSessionId))?.status === 'running')) return undefined
       const sender = message.senderSessionId === captain.id
         ? captain

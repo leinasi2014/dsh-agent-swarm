@@ -65,6 +65,9 @@ export interface SchedulingDeps {
   readonly executionRootsEnabled: () => boolean
   /** Release roots whose attempts settled (authority-derived sweep). */
   readonly sweepExecutionRoots: (scope: TeamScope, teamId: TeamId) => Promise<void>
+  readonly reconcileGoal?: (scope: TeamScope, team: TeamState) => Promise<TeamState>
+  readonly wakeGoal?: (scope: TeamScope, teamId: TeamId) => Promise<void>
+  readonly assertExecution?: (captain: Agent) => void
 }
 
 /**
@@ -81,7 +84,7 @@ function memberAvailable(ctx: Context, sessionId: string): boolean {
 
 /** Serialized scheduling passes plus the stranded self-healing state. */
 export class SchedulingPass {
-  private readonly rekickTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  private readonly rekickTimers = new Map<string, { timer: ReturnType<typeof setTimeout>; deadline: number; reason: 'goal' | 'stranded' }>()
 
   constructor(
     private readonly ctx: Context,
@@ -91,6 +94,10 @@ export class SchedulingPass {
   async run(scope: TeamScope, teamId: TeamId, captain: Agent): Promise<void> {
     if (this.deps.isClosing()) return
     let snapshot = await this.deps.domain().snapshot(scope, teamId, captain.id)
+    if (snapshot.team.goalLifecycle !== undefined && this.deps.reconcileGoal !== undefined) {
+      await this.deps.reconcileGoal(scope, snapshot.team)
+      snapshot = await this.deps.domain().snapshot(scope, teamId, captain.id)
+    }
     this.deps.trackTeamChildren(captain, snapshot.team)
 
     // 1. Mailbox backlog first (reference discipline): queued fallback mail
@@ -123,6 +130,10 @@ export class SchedulingPass {
       await this.dispatchAssignment(scope, snapshot.team, captain, task, attempt)
     }
     if (reserved.length > 0) snapshot = await this.deps.domain().snapshot(scope, teamId, captain.id)
+
+    // Pause applies to new work only. Previously reserved attempts and ordinary
+    // mailbox debt above still complete their original delivery and review.
+    if (snapshot.team.goalLifecycle?.phase === 'paused') return
 
     // 3. Stranded-ownership self-healing (docs/04 §8c). Skipped entirely
     //    while the budget face is exhausted (M4-3, issue #129): a budget
@@ -182,9 +193,12 @@ export class SchedulingPass {
       seenTasks.add(task.id)
       let claim
       try {
-        claim = await this.deps.domain().claimTask(scope, teamId, captain.id, task.id, task.revision, member.sessionId)
+        claim = await this.deps.domain().claimTask(scope, teamId, captain.id, task.id, task.revision, member.sessionId, () => {
+          this.deps.assertExecution?.(captain)
+          if (!memberAvailable(this.ctx, member.sessionId)) throw new TeamDomainError('Assignee became busy before seating', 'TEAM_MEMBER_BUSY')
+        })
       } catch (error) {
-        if (error instanceof TeamDomainError && ['TEAM_TASK_STALE_REVISION', 'TEAM_MEMBER_BUSY', 'TEAM_BUDGET_RESERVATION'].includes(error.code)) continue
+        if (error instanceof TeamDomainError && ['TEAM_TASK_STALE_REVISION', 'TEAM_MEMBER_BUSY', 'TEAM_BUDGET_RESERVATION', 'TEAM_GOAL_PAUSED'].includes(error.code)) continue
         throw error
       }
       await this.dispatchAssignment(scope, snapshot.team, captain, claim.task, claim.attempt)
@@ -410,6 +424,12 @@ export class SchedulingPass {
         const retried = await this.deps.domain().retryAttempt(
           scope, teamId, captain.id, task.id, task.revision, task.ownerSessionId,
           `stranded ownership self-heal: member ${task.ownerSessionId} is live and idle while task ${task.id} is still in_progress`,
+          () => {
+            this.deps.assertExecution?.(captain)
+            if (this.ctx.agents.get(SessionId(task.ownerSessionId!)) !== owner || owner.status !== 'idle') {
+              throw new TeamDomainError('Retry owner changed before seating', 'TEAM_MEMBER_BUSY')
+            }
+          },
         )
         acted = true
         if (this.ctx.agents.get(SessionId(task.ownerSessionId)) === undefined) {
@@ -436,21 +456,52 @@ export class SchedulingPass {
    * grace deadline, because the stranded member is already idle and no
    * further event may ever arrive. Cleared synchronously on disposal.
    */
-  private armRekick(scope: TeamScope, teamId: TeamId, captainId: string, deadline: number): void {
+  private armRekick(scope: TeamScope, teamId: TeamId, captainId: string, deadline: number, reason: 'goal' | 'stranded' = 'stranded'): void {
     if (this.deps.isClosing()) return
     const key = `${scope}\0${teamId}`
     // The caller takes the minimum deadline across current idle holders.
     // Later idle edges/task writes move their anchors forward: retain an
     // already armed earlier check rather than postponing it on each pass.
     // The callback requests a fresh pass; it never authorizes a stale retry.
-    if (this.rekickTimers.has(key)) return
+    const previous = this.rekickTimers.get(key)
+    if (previous !== undefined && previous.deadline <= deadline) return
+    if (previous !== undefined) clearTimeout(previous.timer)
     const timer = setTimeout(() => {
-      if (this.rekickTimers.get(key) === timer) this.rekickTimers.delete(key)
+      if (this.rekickTimers.get(key)?.timer === timer) this.rekickTimers.delete(key)
       if (this.deps.isClosing()) return
+      if (reason === 'goal' && this.deps.wakeGoal !== undefined) {
+        void this.deps.wakeGoal(scope, teamId).catch(error => {
+          if (!this.deps.isClosing()) this.ctx.logger.warn(`agent-swarm: goal due admission deferred for ${teamId}: ${String(error)}`)
+        })
+        return
+      }
       const captain = this.ctx.agents.get(SessionId(captainId))
       if (captain !== undefined) this.deps.requestSchedule(scope, teamId, captain)
-    }, Math.max(0, deadline - Date.now()) + 50)
-    this.rekickTimers.set(key, timer)
+    }, Math.max(0, deadline - Date.now()) + (reason === 'stranded' ? 50 : 0))
+    this.rekickTimers.set(key, { timer, deadline, reason })
+  }
+
+  /** Maintenance uses the same earliest one-shot timer as stranded recovery. */
+  trackGoalDeadline(scope: TeamScope, team: TeamState): void {
+    const key = `${scope}\0${team.id}`, goal = team.goalLifecycle, previous = this.rekickTimers.get(key)
+    const eligible = team.phase === 'active' && goal?.phase === 'waiting' && goal.nextDueAt !== undefined
+      && this.deps.eventFaceActive(scope, team.id) && budgetExhaustion(team.budget, Date.now()) === undefined
+      && team.budget.tokenLimit !== undefined && team.budget.tokenLimit > team.budget.usedTokens
+    if (!eligible) {
+      if (previous?.reason === 'goal' || goal?.phase === 'paused') {
+        if (previous !== undefined) clearTimeout(previous.timer)
+        this.rekickTimers.delete(key)
+      }
+      return
+    }
+    // A finished round may still have an earlier idle-holder timer. With no
+    // in-progress task that timer has no remaining authority; retaining it
+    // would lose the later goal deadline when the Captain is already cold.
+    if (previous?.reason === 'stranded' && !team.tasks.some(task => task.status === 'in_progress')) {
+      clearTimeout(previous.timer)
+      this.rekickTimers.delete(key)
+    }
+    this.armRekick(scope, team.id, team.captainSessionId, goal.nextDueAt!, 'goal')
   }
 
   /** Evidence-only stranding hint for the status projection (docs/04 §8c). */
@@ -463,7 +514,7 @@ export class SchedulingPass {
 
   /** Synchronously stop every pending re-kick timer (disposal path). */
   dispose(): void {
-    for (const timer of this.rekickTimers.values()) clearTimeout(timer)
+    for (const { timer } of this.rekickTimers.values()) clearTimeout(timer)
     this.rekickTimers.clear()
   }
 }

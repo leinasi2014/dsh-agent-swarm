@@ -14,6 +14,7 @@ export const workEn = {
   'work.request-proposed': 'Proposal submitted', 'work.request-accepted': 'Proposal accepted', 'work.request-rejected': 'Proposal rejected',
   'work.task-created': 'Task created', 'work.task-claimed': 'Task claimed', 'work.task-submitted': 'Task submitted for review',
   'work.task-reviewed': 'Task reviewed', 'work.task-reassigned': 'Task reassigned', 'work.accept': 'Accepted', 'work.reject': 'Rejected',
+  'work.task-cancelled': 'Task cancelled',
   'work.assignee': 'Assigned to', 'work.awaiting': 'Waiting for the Captain to organize', 'work.main': 'Main Chat',
 } as const
 export const workZh: Record<keyof typeof workEn, string> = {
@@ -32,5 +33,6 @@ export const workZh: Record<keyof typeof workEn, string> = {
   'work.request-proposed': '已提出任务', 'work.request-accepted': '提案已接受', 'work.request-rejected': '提案已拒绝',
   'work.task-created': '正式任务已创建', 'work.task-claimed': '任务已认领', 'work.task-submitted': '任务已提交审核',
   'work.task-reviewed': '任务已审核', 'work.task-reassigned': '任务已重新分配', 'work.accept': '接受', 'work.reject': '拒绝',
+  'work.task-cancelled': '已取消任务',
   'work.assignee': '执行者', 'work.awaiting': '等待队长整理', 'work.main': '主对话',
 }

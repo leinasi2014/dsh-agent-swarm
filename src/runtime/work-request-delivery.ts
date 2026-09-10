@@ -8,6 +8,7 @@ import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import type { TeamId, TeamMessage, TeamMessageId, TeamState } from '../domain/types.js'
 import { publicManagedParent } from '../domain/public-message.js'
 import { messageObsoleteReason } from '../domain/team-domain-mailbox.js'
+import { budgetExhaustion } from '../domain/team-domain-budget.js'
 import { frameVisibility, waitForFrameClaim } from './frame-visibility.js'
 import { messageFrame } from './prompts.js'
 import { publicAppendEligibility } from './public-lineage.js'
@@ -18,23 +19,34 @@ export async function deliverWorkRequestNotice(ctx: Context, deps: {
   team(scope: TeamScope, teamId: TeamId): Promise<TeamState | undefined>
   root(parentId: string, scope: TeamScope): Promise<Agent>
   account(scope: TeamScope, teamId: TeamId, agent: Agent): Promise<void>
-}, scope: TeamScope, teamId: TeamId, messageId: TeamMessageId, signal: AbortSignal): Promise<{
+  goalAllowed?(scope: TeamScope, teamId: TeamId): boolean
+}, scope: TeamScope, teamId: TeamId, messageId: TeamMessageId, signal: AbortSignal,
+kind: 'work-request-notice' | 'goal-coordination-notice' = 'work-request-notice'): Promise<{
   message?: TeamMessage; result: PublicDeliveryResult
 }> {
   const result = { admitted: false, deferred: false, reconciled: 0 }
+  const allowed = (team: TeamState, notice: TeamMessage): boolean => {
+    if (notice.kind !== 'goal-coordination-notice') return true
+    const goal = team.goalLifecycle
+    return deps.goalAllowed?.(scope, teamId) === true && goal?.phase === 'running'
+      && goal.currentTrigger?.id === notice.triggerId && goal.goalRevision === notice.goalRevision
+      && goal.currentTrigger.resultSequence === notice.resultSequence && budgetExhaustion(team.budget, Date.now()) === undefined
+      && (goal.mode !== 'maintenance' || (team.budget.tokenLimit !== undefined && team.budget.tokenLimit > team.budget.usedTokens))
+  }
   try {
     if (deps.closing()) return { result: { ...result, deferred: true } }
     const team = await deps.team(scope, teamId)
     const notice = team?.messages.find(message => message.id === messageId)
-    if (team === undefined || notice?.kind !== 'work-request-notice' || notice.phase !== 'queued') {
+    if (team === undefined || notice?.kind !== kind || notice.phase !== 'queued') {
       return { ...(notice === undefined ? {} : { message: notice }), result }
     }
     const frame = messageFrame(notice)
     // Official durable input wins even when the request was resolved in that same turn.
-    const visible = await frameVisibility(ctx, notice.targetSessionId, frame, signal, `work request ${notice.workRequestId}`, true)
+    const visible = await frameVisibility(ctx, notice.targetSessionId, frame, signal, `Captain notice ${notice.id}`, true)
     if (visible === 'claimed') return { message: await deps.domain().acknowledgeMessage(scope, teamId, notice.id), result: { ...result, reconciled: 1 } }
     const obsolete = messageObsoleteReason(team, notice)
     if (obsolete !== undefined) return { message: await deps.domain().markMessageObsolete(scope, teamId, notice.id, obsolete), result }
+    if (!allowed(team, notice)) return { result: { ...result, deferred: true } }
     if (visible !== 'absent') return { result: { ...result, deferred: true } }
     const parentId = publicManagedParent(team.managedOrigin)
     if (parentId === undefined || (await publicAppendEligibility(ctx, scope, team, signal)).state !== 'available') {
@@ -45,8 +57,8 @@ export async function deliverWorkRequestNotice(ctx: Context, deps: {
     const current = await deps.team(scope, teamId)
     const currentNotice = current?.messages.find(message => message.id === messageId)
     if (deps.closing() || current?.phase !== 'active' || current.managedOrigin !== team.managedOrigin
-      || current.captainSessionId !== team.captainSessionId || currentNotice?.kind !== 'work-request-notice'
-      || currentNotice.phase !== 'queued' || messageFrame(currentNotice) !== frame
+      || current.captainSessionId !== team.captainSessionId || currentNotice?.kind !== kind
+      || currentNotice.phase !== 'queued' || messageFrame(currentNotice) !== frame || !allowed(current, currentNotice)
       || ctx.agents.get(root.id) !== root || ctx.sessions.get(root.id) !== root.session
       || root.id !== parentId || root.session.header.parentSession !== undefined
       || (await publicAppendEligibility(ctx, scope, current, signal)).state !== 'available') {
@@ -57,8 +69,8 @@ export async function deliverWorkRequestNotice(ctx: Context, deps: {
     const latest = await deps.team(scope, teamId)
     const latestNotice = latest?.messages.find(message => message.id === messageId)
     if (deps.closing() || latest?.phase !== 'active' || latest.managedOrigin !== team.managedOrigin
-      || latest.captainSessionId !== team.captainSessionId || latestNotice?.kind !== 'work-request-notice'
-      || latestNotice.phase !== 'queued' || messageFrame(latestNotice) !== frame
+      || latest.captainSessionId !== team.captainSessionId || latestNotice?.kind !== kind
+      || latestNotice.phase !== 'queued' || messageFrame(latestNotice) !== frame || !allowed(latest, latestNotice)
       || ctx.agents.get(root.id) !== root || ctx.sessions.get(root.id) !== root.session
       || root.id !== parentId || root.session.header.parentSession !== undefined
       || root.session.header.cwd === undefined || resolve(root.session.header.cwd) !== scope) {
@@ -76,7 +88,7 @@ export async function deliverWorkRequestNotice(ctx: Context, deps: {
     if (!await waitForFrameClaim(ctx, captain, frame, signal, 10_000, true)) return { result: { ...result, deferred: true } }
     return { message: await deps.domain().acknowledgeMessage(scope, teamId, notice.id), result }
   } catch (error) {
-    if (!deps.closing()) ctx.logger.warn(`agent-swarm: work notice ${messageId} remains queued: ${String(error)}`)
+    if (!deps.closing()) ctx.logger.warn(`agent-swarm: ${kind} ${messageId} remains queued: ${String(error)}`)
     return { result: { ...result, deferred: true } }
   }
 }

@@ -9,7 +9,7 @@ export const NOT_GENERATED_AVATAR: SwarmReadAssetStatusV1 = { state: 'not_genera
 const NOT_GENERATED_IDENTITY: SwarmReadAssetStatusV1 = { state: 'not_generated', reason: 'identity_backend_not_implemented' }
 
 export type DeskTone = 'standby' | 'executing' | 'pending' | 'failed' | 'offline'
-export type TaskProgressState = 'completed' | 'running' | 'review' | 'blocked' | 'unknown' | 'ready' | 'failed' | 'cancelled' | 'open' | 'budgetHold' | 'teamInactive'
+export type TaskProgressState = 'completed' | 'running' | 'review' | 'blocked' | 'unknown' | 'ready' | 'failed' | 'cancelled' | 'open' | 'budgetHold' | 'teamInactive' | 'paused'
 
 /** Counts visible canonical tasks; callers disclose truncation before showing a total. */
 export function taskProgressState(task: SwarmHostReadProjectionV1['tasks'][number], tasks: SwarmHostReadProjectionV1['tasks']): TaskProgressState {
@@ -18,6 +18,7 @@ export function taskProgressState(task: SwarmHostReadProjectionV1['tasks'][numbe
   if (task.status === 'pending') {
     if (task.readiness === 'team-inactive') return 'teamInactive'
     if (task.readiness === 'budget-hold') return 'budgetHold'
+    if (task.readiness === 'paused') return 'paused'
     if (task.readiness === 'blocked') return 'blocked'
     if (task.readiness === 'ready') return task.assignmentMode === 'open-claim' ? 'open' : 'ready'
     const dependencies = task.blockedBy.map(id => tasks.find(candidate => candidate.id === id))

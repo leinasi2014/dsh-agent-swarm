@@ -29,7 +29,7 @@ export const workRequestSchema = z.object({
 export type WorkRequest = z.infer<typeof workRequestSchema>
 const workActivityKindSchema = z.enum([
   'request-proposed', 'request-accepted', 'request-rejected',
-  'task-created', 'task-claimed', 'task-submitted', 'task-reviewed', 'task-reassigned',
+  'task-created', 'task-claimed', 'task-submitted', 'task-reviewed', 'task-reassigned', 'task-cancelled',
 ])
 export const workActivitySchema = z.object({
   id, sequence: z.number().int().positive(), kind: workActivityKindSchema, occurredAt: time,

@@ -248,6 +248,28 @@ Client 的“提出任务”位于任务面板标题旁，仅描述必填，完�
 
 验收覆盖认证和假 Main 拒绝、丢 ACK/冷恢复幂等、含批内依赖的原子拆分、拒绝及失败零 Task、实际来源与审核事实、开放认领竞争/通知裁剪恢复/依赖和 busy、改指派、旧数据读回、跨 Team 草稿隔离与真实 Profile 的请求到审核链路。记录测试、真实模型、浏览器和部署证据分别成立；目标修订、暂停与维护是后续独立合同，不由本节推断已经实现。
 
+### 8.5 目标修订、暂停与维护待命
+
+本节定义目标推进的合同；是否可用由实际 Host 能力与验证结果决定，不以文档或原型代替实现。`publicGoal` 继续是唯一目标正文，optional `goalLifecycle` 保存 schemaVersion 1、独立 lifecycle revision、goalRevision、完成标准、约束、工作方式、推进阶段和协调事实。未启用的新旧 Team 不补造开始或达成事实。原 Captain setter 在已有生命周期时使用同一修订助手，保留工作方式及暂停状态；不另存正文副本。
+
+通过已认证 Connection 的 local-operator、准确 managed Main 以及实际 Captain 可以保存、开始、暂停新增工作和继续；普通成员只读。人类不借当前浏览的成员身份，wire 不接受调用者自报 actor。Main 与 Captain 在实际事务边界重新检查 live Agent、Session、scope、取消和所属关系。Host 将已验证查看绑定的同步身份及当前 Team 成员检查传入同一事务，等待锁期间被替换或撤权不能先写后报错；跨 Team 的成员查看关联只授予读取，写入使用该 Team 的规范 Main/Captain 绑定。目标新修订包含正文、标准、约束、方式和维护间隔的改变；预算用量不冒充目标修订。
+
+仅保存未开始的目标为 draft，不唤醒规划，不暂停现有任务。运行中的目标修订建立待协调事实，保存成功与 Captain 协调成功分别显示；paused 中修订只积累待处理信息。有限目标显式开始后为 running，须由实际 Captain 对当前目标修订、标准及可核对任务/证据明确确认 achieved。维护模式首次开始立即协调，Captain 确认本轮结束后为 waiting；持续维护是工作方式，不是永久完成。两种完成结论均要求 Team 全部 Task 为终态且没有 running/submitted/verifying attempt，不提供排除未完成任务的白名单；空任务板、完成数量和一次协调确认不能自动代替目标完成。历史 accepted attempt 与 currentAttemptId 保留。
+
+save/control 使用 `goal/v1`、独立 expectedLifecycleRevision CAS（尚未启用为 0）和稳定 requestId。验证真实权限后，在最近 256 份操作回执中按 origin/requestId/原 expected revision/命令摘要恢复结果；同载荷返回原操作的结果 revision，改载荷冲突。每个被接受的操作，包括 no-op，都推进 lifecycle revision；窗口外旧 revision 永远不能再次执行，结果查询明确表示恢复已过期。Client 未知结果只查或重试原请求，不换 revision 自动重发；超过恢复窗口显示“原操作结果无法确认”。归档后当前有权查看的目标仍可恢复原来源的只读回执，不能以写入的 active 门禁阻断读回；新控制继续拒绝。该窗口合同与工作请求永久保留幂等身份、满后拒绝新请求的合同分别维护。
+
+开始/继续、运行中的目标修订、Team 实际 review accept/reject 与 cancel_task 结果，以及维护到期使用独立结果水位与唯一当前 trigger 合并。协调通知及意图同事务保存，正式 mailbox 与官方 Session claimed 事实继续控制投递去重；新的目标修订使旧 trigger 的迟到确认失效。Captain 的协调确认记录实际 actor、时间、目标修订、覆盖结果水位、公开结论及真实 Task 引用，不能声称与先前多个 Task 操作是一个联合事务。确认期间的新结果最多建立一个后继意图；mailbox 暂满时仍保存当前协调，保留未覆盖的结果水位，容量释放后由既有 reconcile 建立唯一后继通知。读取、一般 Team 更新、usage 和协调自身不触发规划；draft/achieved 不自动唤醒，paused 的结果在继续时合并。
+
+维护只采用本轮真实结束时间加固定间隔，范围 60 秒至 7 天；不叠加墙钟 cron、不重叠开轮，停机错过多个周期只产生一个当前轮次。nextDueAt 与 trigger 是持久权威，复用现有调度队列和每 Team 一个最早到期的单次 timer，缓存可在启动扫描时重建。空任务板的待命 Team 也须恢复到期检查；准确 Main→Captain 官方恢复保持原身份，不裸 resume child，不另建后台 job、任务板或消耗账本。首版自主推进为 adaptive；live workflow owner 持有时延后，释放并确认 Team 仍 active 后才恢复。workflow-only 可保存和暂停，自主开始/继续明确能力未提供。
+
+维护开始/继续要求有限 tokenLimit 且严格大于最新 usedTokens，同时满足现有 request/retry/deadline 限制；requestLimit 统计的是 attempt seating，不是模型请求次数。表单可提交“团队 Token 总上限（含已使用）”及 expectedTokenLimit（无上限为 null），在同一 Team transaction 中比较原上限、复用现有预算校验并保留用量/其他限制，再检查开始条件和保存状态/通知；不能先调用独立 setBudget 再冒称原子开始。开始前折叠已有 Session usage；运行仍遵循原有用后计量与准入门，不承诺生成硬封顶，不自动加预算、退款、重置或按轮清零。耗尽保留同一意图/到期事实并等待预算恢复，不自旋。
+
+“暂停新增工作”在 Domain claim/retry 的实际新 attempt seating 处统一拒绝，覆盖自动派工、自领、返修和自愈重跑。Runtime 延迟新派工/开放邀请/重跑；已有 reserved、排队、运行 attempt 继续投递、提交和审核，原 attempt 的补偿恢复不算新增。新提案和 Task 可以保存等待，暂停不撤销已经分配的工作，UI 显示实际仍需收尾的数量。
+
+Captain 用显式 cancel_task 终结废弃的非终态 Task；保存真实原因、actor、时间和可重放身份，旧 attempt stale，只清执行权，保留 output、evidence、来源与历史，预算不退款。不得在 CAS 前中断；若实际中断，复用原 Team 事务锁，在持久成功后、解锁前执行同步收尾，复核锁内捕获的 Agent、Session、turn 与旧 attempt，无法证明归属则跳过并如实报告。回执分别说明持久取消和实际中断；重放不再次中断，写失败绝不中断，收尾失败不暗示已提交取消回滚。所有新 claim/retry 仍使用同一原事务锁，模型自领在真正 seating 时重查 exec 失效，防止被取消但原先排队的旧工具领取新任务。Captain 自己持有的 Task 不通过 ancestor interrupt 中断自身工具。
+
+群头沿用一行目标摘要及折叠展开，展开内显示结果、标准、约束、方式、下一步/等待原因和一个当前主要动作。目标编辑草稿及未知操作按 Host/Main/Team 隔离保存，晚到结果只结算原操作，不清其他 Team 或较新的草稿；订阅现有 dashboard 的刷新/重连 owner，不另加轮询。目标、任务和聊天的提交反馈分开，既有个人 Chat、模型路由和官方 Stop 继续可用。工程、真实模型、浏览器、冷恢复与生产安装分别验收。
+
 ## 9. Review、execution root 与可选桥接
 
 Review Provider 返回判定和 bounded evidence，Domain port 完成状态 mutation；候选不能审核自己。Executable review 运行于声明的 review root，并将命令、退出码和产物身份绑定当前 attempt。

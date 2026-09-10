@@ -1,4 +1,5 @@
 import type { TeamModelRoute } from './types.js'
+import { reviseGoalInDraft } from './goal-transitions.js'
 /**
  * Team lifecycle and membership roster of the Team protocol core.
  *
@@ -546,6 +547,12 @@ export async function setPublicGoal(
     expectDomain(authority.role === 'captain', 'only the captain can set the public goal', 'TEAM_CAPTAIN_REQUIRED')
     expectDomain(team.revision === expectedRevision, `team revision conflict: expected ${expectedRevision}`, 'TEAM_REVISION_CONFLICT')
     const timestamp = deps.now()
+    if (team.goalLifecycle !== undefined) {
+      reviseGoalInDraft(deps, team, { text: goal, acceptanceCriteria: team.goalLifecycle.acceptanceCriteria,
+        constraints: team.goalLifecycle.constraints, mode: team.goalLifecycle.mode,
+        ...(team.goalLifecycle.intervalMs === undefined ? {} : { intervalMs: team.goalLifecycle.intervalMs }) })
+      team.goalLifecycle.revision++
+    }
     Object.assign(team, { publicGoal: goal, revision: team.revision + 1, updatedAt: timestamp })
     committed = team
   })

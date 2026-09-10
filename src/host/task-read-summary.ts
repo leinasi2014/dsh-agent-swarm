@@ -19,6 +19,7 @@ export function taskReadSummaryV2(task: TeamTask, team: TeamState, captainId: st
   let readiness: SwarmTaskReadinessV2
   if (task.status !== 'pending' || task.ownerSessionId !== undefined) readiness = 'not-pending'
   else if (team.phase !== 'active') readiness = 'team-inactive'
+  else if (team.goalLifecycle?.phase === 'paused') readiness = 'paused'
   else if (!isTaskReady(team.tasks, task)) readiness = 'blocked'
   else if (budgetExhaustion(team.budget, now) !== undefined
     || !reservationAdmissible(team.budget, outstandingReservationTokens(team.tasks), task.reservationTokens ?? 0)) readiness = 'budget-hold'

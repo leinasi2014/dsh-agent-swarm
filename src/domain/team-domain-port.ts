@@ -35,6 +35,8 @@ import type {
 } from './types.js'
 import type { MemberIdentityInput } from './identity-profile.js'
 import type { QueueMessageOnceResult } from './team-domain-interaction.js'
+import type { GoalOrigin, SaveGoalInput, ControlGoalInput, GoalAdmissionGuards, GoalOperationResult,
+  GoalSnapshot, GoalResultQuery, GoalResultLookup, GoalCoordinationInput, CancelTaskInput, CancelTaskGuards, CancelTaskResult } from './goal-lifecycle.js'
 
 /**
  * Canonical workspace identity scoping one Team namespace inside the shared
@@ -46,6 +48,11 @@ export type TeamScope = string
 
 /** One atomic read-modify-write over a single Team aggregate. */
 export type TeamTransaction<T> = (draft: TeamState) => T | Promise<T>
+
+export interface TeamTransactionOptions {
+  /** Non-persisted synchronous effect. Runs only after a changed durable write, before lock release. */
+  readonly afterCommit?: () => void
+}
 
 /** Durable proof that one legacy Team aggregate was migrated one-way. */
 export interface MigrationReceipt {
@@ -82,7 +89,7 @@ export interface TeamAggregateStore {
   read(scope: TeamScope, teamId: TeamId): Promise<TeamState | undefined>
   /** Optional billing participant filter; matching candidates retain full validation. */
   list(scope: TeamScope, participantSessionId?: string): Promise<TeamState[]>
-  transact<T>(scope: TeamScope, teamId: TeamId, operation: TeamTransaction<T>): Promise<T>
+  transact<T>(scope: TeamScope, teamId: TeamId, operation: TeamTransaction<T>, options?: TeamTransactionOptions): Promise<T>
   waitForChange(scope: TeamScope, teamId: TeamId, afterRevision: number, signal: AbortSignal): Promise<TeamState>
   /**
    * Migration-only durable import of one validated aggregate. Requires an
@@ -134,6 +141,13 @@ export interface CreateTaskInput {
  * the selected aggregate store.
  */
 export interface TeamDomainPort {
+  saveGoal(scope: TeamScope, teamId: TeamId, origin: GoalOrigin, input: SaveGoalInput, guards?: GoalAdmissionGuards): Promise<GoalOperationResult>
+  controlGoal(scope: TeamScope, teamId: TeamId, origin: GoalOrigin, input: ControlGoalInput, guards?: GoalAdmissionGuards): Promise<GoalOperationResult>
+  goalSnapshot(scope: TeamScope, teamId: TeamId): Promise<GoalSnapshot>
+  goalOperationResult(scope: TeamScope, teamId: TeamId, origin: GoalOrigin, input: GoalResultQuery): Promise<GoalResultLookup>
+  coordinateGoal(scope: TeamScope, teamId: TeamId, captain: string, input: GoalCoordinationInput, guards?: GoalAdmissionGuards): Promise<{ team: TeamState; replayed: boolean }>
+  reconcileGoal(scope: TeamScope, teamId: TeamId, guards?: GoalAdmissionGuards): Promise<{ team: TeamState }>
+  cancelTask(scope: TeamScope, teamId: TeamId, captain: string, input: CancelTaskInput, guards?: CancelTaskGuards): Promise<CancelTaskResult>
   submitWorkRequest(scope: TeamScope, teamId: TeamId, origin: import('./work-request.js').WorkRequestOrigin, input: import('./work-request.js').SubmitWorkRequestInput, admission?: import('./work-request.js').WorkRequestAdmission): Promise<import('./work-request.js').WorkRequestResult>
   workRequestResult(scope: TeamScope, teamId: TeamId, origin: import('./work-request.js').WorkRequestOrigin, requestId: string): Promise<import('./work-request.js').WorkRequest | undefined>
   listWorkRequests(scope: TeamScope, teamId: TeamId, actor: string): Promise<import('./work-request.js').WorkRequest[]>
@@ -253,6 +267,7 @@ export interface TeamDomainPort {
     taskId: TaskId,
     expectedRevision: number,
     assigneeSessionId?: string,
+    assertExecution?: () => void,
   ): Promise<{ task: TeamTask; attempt: TaskAttempt }>
   /**
    * Durable delivery checkpoint of one assignment attempt (issue #45):
@@ -325,6 +340,7 @@ export interface TeamDomainPort {
     expectedRevision: number,
     assigneeSessionId: string,
     diagnostic: string,
+    assertExecution?: () => void,
   ): Promise<{ task: TeamTask; attempt: TaskAttempt }>
   /**
    * Reverse one misfired in-place retry (issue #83): the undelivered retry
