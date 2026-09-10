@@ -56,11 +56,14 @@ function officialLayout(viewport: number) {
     slots: {
       register: (options: RootRegistration, component: React.ComponentType<FrameProps>) => { registration = options; Frame = component; return () => {} },
       entries: (name: string) => name === 'main' ? [{ options: { key: 'conversation' } }] : [],
+      entriesOfSlot: (name: string) => name === 'main' ? [{ options: { key: 'conversation' } }] : [],
       provideRoot: () => () => {}, subscribe: () => () => {},
     },
   })
   return { Frame, registration, layout, disposeLayout: () => { disposers.toReversed().forEach(dispose => dispose()) } }
 }
+
+const settleFrame = async () => { await React.act(async () => { await new Promise<void>(resolve => { requestAnimationFrame(() => { resolve() }) }) }) }
 
 function harness(viewport = 1440) {
   const { Frame, registration, layout, disposeLayout } = officialLayout(viewport)
@@ -117,7 +120,6 @@ function harness(viewport = 1440) {
     useSessions: selector => selector(React.useSyncExternalStore(sessions.list.subscribe, sessions.list.getSnapshot)),
     actions: store.actions, renderSlot: name => name === 'rightbar' ? <Details /> : null, t: key => key,
   }
-  const settleFrame = async () => { await React.act(async () => { await new Promise<void>(resolve => { requestAnimationFrame(() => { resolve() }) }) }) }
   return { coordinator, navigate, trace, layout, settleFrame, sidebar, refresh: () => { controller.open(session.current) }, panels: () => store.getSnapshot().layoutInfo,
     mount: async () => { await React.act(async () => { root.render(<Frame {...frameProps} />) }); await settleFrame() },
     dispose: async () => { await React.act(async () => { root.unmount(); unmount(); disposeLayout() }); geometry.mockRestore() },

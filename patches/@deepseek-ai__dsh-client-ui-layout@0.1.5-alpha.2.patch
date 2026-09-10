@@ -1,0 +1,387 @@
+diff --git a/lib/client.js b/lib/client.js
+index 282f8e7ff620c5e3187c7326993e967d15bc25e4..b7abcdec983daa4bcaa263b653dff1193ff1ccc1 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -4,8 +4,8 @@ window.__ModuleLoader__.load({
+ 		var module = { exports: {} };
+ 		var exports = module.exports;
+ 		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
+-		let react_jsx_runtime = require("react/jsx-runtime");
+ 		let react = require("react");
++		let react_jsx_runtime = require("react/jsx-runtime");
+ 		let _deepseek_ai_dsh_client_store = require("@deepseek-ai/dsh-client-store");
+ 		/** Viewport width below which the sidebar auto-collapses to the rail (deepsuite
+ 		* LG breakpoint); a manual toggle below it re-expands over the squeezed center
+@@ -44,7 +44,7 @@ window.__ModuleLoader__.load({
+ 			};
+ 		}
+ 		//#endregion
+-		//#region lib/types/client/DocumentTitle.js
++		//#region src/client/DocumentTitle.tsx
+ 		/** Browser title selection follows the active main panel without subscribing the frame. */
+ 		/**
+ 		* Project the selected durable session title into the browser title and
+@@ -67,8 +67,8 @@ window.__ModuleLoader__.load({
+ 			return null;
+ 		}
+ 		//#endregion
+-		//#region \0dsh-css:/home/runner/work/deepseek-harness/deepseek-harness/packages/client/ui-layout/src/client/AppFrame.module.css.mjs
+-		const css = ".pI_x6G_frame{background:var(--dsw-alias-bg-base);height:100%;transition:grid-template-columns var(--ds-transition-duration-slow) var(--ds-ease-in-out);grid-template-rows:100%;display:grid;position:relative;overflow:hidden}.pI_x6G_frame[data-dragging]{transition:none}@media (prefers-reduced-motion:reduce){.pI_x6G_frame{transition:none}}.pI_x6G_sidebarCol{background:var(--dsw-specific-sidebar-fill);border-right:.5px solid var(--dsw-alias-border-l3);min-width:0;overflow:hidden}.pI_x6G_centerCol{flex-direction:column;min-width:0;display:flex;overflow:hidden}.pI_x6G_handle{cursor:col-resize;z-index:11;touch-action:none;width:8px;transition:left var(--ds-transition-duration-slow) var(--ds-ease-in-out);margin-left:-4px;position:absolute;top:0;bottom:0}.pI_x6G_frame[data-dragging] .pI_x6G_handle,.pI_x6G_frame[data-rightbar-fullscreen],.pI_x6G_frame[data-rightbar-fullscreen] .pI_x6G_handle,.pI_x6G_frame[data-rightbar-instant],.pI_x6G_frame[data-rightbar-instant] .pI_x6G_handle{transition:none}@media (prefers-reduced-motion:reduce){.pI_x6G_handle{transition:none}}.pI_x6G_rightbarCol{min-width:0;position:relative;overflow:visible}.pI_x6G_overlayLayer{z-index:20;pointer-events:none;position:absolute;inset:0}.pI_x6G_overlayLayer>*{pointer-events:auto}";
++		//#region \0dsh-css:D:\Source\DSH\deepseek-harness\.worktrees\subagent-display\packages\client\ui-layout\src\client\AppFrame.module.css.mjs
++		const css = ".FVMiGq_frame{background:var(--dsw-alias-bg-base);height:100%;transition:grid-template-columns var(--ds-transition-duration-slow) var(--ds-ease-in-out);grid-template-rows:100%;display:grid;position:relative;overflow:hidden}.FVMiGq_frame[data-dragging]{transition:none}@media (prefers-reduced-motion:reduce){.FVMiGq_frame{transition:none}}.FVMiGq_sidebarCol{background:var(--dsw-specific-sidebar-fill);border-right:.5px solid var(--dsw-alias-border-l3);min-width:0;overflow:hidden}.FVMiGq_centerCol{flex-direction:column;min-width:0;display:flex;overflow:hidden}.FVMiGq_handle{cursor:col-resize;z-index:11;touch-action:none;width:8px;transition:left var(--ds-transition-duration-slow) var(--ds-ease-in-out);margin-left:-4px;position:absolute;top:0;bottom:0}.FVMiGq_frame[data-dragging] .FVMiGq_handle,.FVMiGq_frame[data-rightbar-fullscreen],.FVMiGq_frame[data-rightbar-fullscreen] .FVMiGq_handle,.FVMiGq_frame[data-rightbar-instant],.FVMiGq_frame[data-rightbar-instant] .FVMiGq_handle{transition:none}@media (prefers-reduced-motion:reduce){.FVMiGq_handle{transition:none}}.FVMiGq_rightbarCol{min-width:0;position:relative;overflow:visible}.FVMiGq_overlayLayer{z-index:20;pointer-events:none;position:absolute;inset:0}.FVMiGq_overlayLayer>*{pointer-events:auto}";
+ 		const tagId = "@deepseek-ai/dsh-client-ui-layout/AppFrame.module.css";
+ 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
+ 			const tag = document.createElement("style");
+@@ -78,15 +78,15 @@ window.__ModuleLoader__.load({
+ 			document.head.appendChild(tag);
+ 		}
+ 		var AppFrame_module_css_default = {
+-			"centerCol": "pI_x6G_centerCol",
+-			"frame": "pI_x6G_frame",
+-			"handle": "pI_x6G_handle",
+-			"overlayLayer": "pI_x6G_overlayLayer",
+-			"rightbarCol": "pI_x6G_rightbarCol",
+-			"sidebarCol": "pI_x6G_sidebarCol"
++			"centerCol": "FVMiGq_centerCol",
++			"frame": "FVMiGq_frame",
++			"handle": "FVMiGq_handle",
++			"overlayLayer": "FVMiGq_overlayLayer",
++			"rightbarCol": "FVMiGq_rightbarCol",
++			"sidebarCol": "FVMiGq_sidebarCol"
+ 		};
+ 		//#endregion
+-		//#region lib/types/client/AppFrame.js
++		//#region src/client/AppFrame.tsx
+ 		/**
+ 		* Three-column shell frame, registered into the built-in 'root' slot (the web
+ 		* shell renders only 'root'). Owns the grid tracks (sidebar | center |
+@@ -105,7 +105,7 @@ window.__ModuleLoader__.load({
+ 		*/
+ 		/** Center column grid item (session-body building block). */
+ 		function CenterColumn(props) {
+-			return (0, react_jsx_runtime.jsx)("div", {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 				className: AppFrame_module_css_default.centerCol,
+ 				children: props.children
+ 			});
+@@ -120,7 +120,7 @@ window.__ModuleLoader__.load({
+ 		* moves, so it can hang over the centre when there is no track.
+ 		*/
+ 		function RightbarColumn(props) {
+-			return (0, react_jsx_runtime.jsx)("div", {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 				className: AppFrame_module_css_default.rightbarCol,
+ 				"data-rightbar-col": true,
+ 				children: props.children
+@@ -188,7 +188,7 @@ window.__ModuleLoader__.load({
+ 			const onPointerCancel = (0, react.useCallback)((e) => {
+ 				if (capture.current?.id === e.pointerId) endDrag();
+ 			}, [endDrag]);
+-			return (0, react_jsx_runtime.jsx)("div", {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 				className: AppFrame_module_css_default.handle,
+ 				style: { left: props.left },
+ 				"data-side": props.side,
+@@ -260,7 +260,7 @@ window.__ModuleLoader__.load({
+ 			const onRightbarDrag = (0, react.useCallback)((dx) => {
+ 				actions.setRightbar(rightbarBase.current - dx);
+ 			}, [actions]);
+-			const productTitle = "DeepSeek Harness";
++			const productTitle = {}.DSH_CLIENT_TITLE ?? t("brand.localBuild");
+ 			const sidebar = (0, react.useMemo)(() => renderSlot("sidebar", {
+ 				collapsed: sidebarCollapsed,
+ 				width: cols.sidebar
+@@ -269,12 +269,12 @@ window.__ModuleLoader__.load({
+ 				sidebarCollapsed,
+ 				cols.sidebar
+ 			]);
+-			const main = (0, react.useMemo)(() => (0, react_jsx_runtime.jsx)(MainPanel, {
++			const main = (0, react.useMemo)(() => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(MainPanel, {
+ 				usePanelInfo,
+ 				renderSlot
+ 			}), [usePanelInfo, renderSlot]);
+ 			const overlays = (0, react.useMemo)(() => renderSlot("shell.overlay", {}), [renderSlot]);
+-			return (0, react_jsx_runtime.jsxs)("div", {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+ 				ref: frameRef,
+ 				className: AppFrame_module_css_default.frame,
+ 				style: { gridTemplateColumns: `${cols.sidebar}px minmax(0, 1fr) ${cols.rightbar}px` },
+@@ -284,33 +284,33 @@ window.__ModuleLoader__.load({
+ 				"data-rightbar-instant": layoutInfo.rightbarInstant || void 0,
+ 				"data-dragging": dragging || void 0,
+ 				children: [
+-					(0, react_jsx_runtime.jsx)(DocumentTitle, {
++					/* @__PURE__ */ (0, react_jsx_runtime.jsx)(DocumentTitle, {
+ 						productTitle,
+ 						useSessions,
+ 						usePanelInfo
+ 					}),
+-					(0, react_jsx_runtime.jsx)("div", {
++					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 						className: AppFrame_module_css_default.sidebarCol,
+ 						children: sidebar
+ 					}),
+-					(0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [(0, react_jsx_runtime.jsx)(CenterColumn, { children: main }), (0, react_jsx_runtime.jsx)(RightbarColumn, { children: renderSlot("rightbar", {
++					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(CenterColumn, { children: main }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(RightbarColumn, { children: renderSlot("rightbar", {
+ 						width: normal.rightbar,
+ 						viewportWidth: viewport,
+ 						canShow: normal.rightbar > 0
+ 					}) })] }),
+-					(0, react_jsx_runtime.jsx)("div", {
++					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 						className: AppFrame_module_css_default.overlayLayer,
+ 						"data-shell-overlay": true,
+ 						children: overlays
+ 					}),
+-					!sidebarCollapsed && (0, react_jsx_runtime.jsx)(DragHandle, {
++					!sidebarCollapsed && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(DragHandle, {
+ 						side: "sidebar",
+ 						left: cols.sidebar,
+ 						onStart: onSidebarStart,
+ 						onDrag: onSidebarDrag,
+ 						onEnd: onDragEnd
+ 					}),
+-					layoutInfo.rightbarShown && !layoutInfo.rightbarFullscreen && normal.rightbar > 0 && (0, react_jsx_runtime.jsx)(DragHandle, {
++					layoutInfo.rightbarShown && !layoutInfo.rightbarFullscreen && normal.rightbar > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(DragHandle, {
+ 						side: "rightbar",
+ 						left: viewport - normal.rightbar,
+ 						onStart: onRightbarStart,
+@@ -321,7 +321,7 @@ window.__ModuleLoader__.load({
+ 			});
+ 		}
+ 		//#endregion
+-		//#region lib/types/client/stores.js
++		//#region src/client/stores.ts
+ 		/**
+ 		* Root-owned frame measurement, panel preferences, and presentation reports.
+ 		* The registration supplies a fresh store and binds its actions to ctx.layout.
+@@ -339,6 +339,7 @@ window.__ModuleLoader__.load({
+ 			return (0, _deepseek_ai_dsh_client_store.defineStore)({
+ 				init: () => ({
+ 					panelInfo: { activePanelId: null },
++					sessionSidebarPanels: [],
+ 					layoutInfo: {
+ 						sidebar: 280,
+ 						viewportWidth: window.innerWidth,
+@@ -353,9 +354,19 @@ window.__ModuleLoader__.load({
+ 				actions: {
+ 					selectPanel: (d, panelId) => {
+ 						d.panelInfo.activePanelId = panelId;
++						if (panelId !== null && d.sessionSidebarPanels.includes(panelId)) d.panelInfo.rightSidebar = "current-session";
++						else delete d.panelInfo.rightSidebar;
+ 					},
+ 					retainMainPanels: (d, panelIds) => {
+-						if (d.panelInfo.activePanelId !== null && !panelIds.includes(d.panelInfo.activePanelId)) d.panelInfo.activePanelId = null;
++						if (d.panelInfo.activePanelId !== null && !panelIds.includes(d.panelInfo.activePanelId)) {
++							d.panelInfo.activePanelId = null;
++							delete d.panelInfo.rightSidebar;
++						}
++					},
++					setSessionSidebarPanels: (d, panelIds) => {
++						d.sessionSidebarPanels = panelIds;
++						if (d.panelInfo.activePanelId !== null && panelIds.includes(d.panelInfo.activePanelId)) d.panelInfo.rightSidebar = "current-session";
++						else delete d.panelInfo.rightSidebar;
+ 					},
+ 					setSidebar: (d, px) => {
+ 						d.layoutInfo.rightbarInstant = false;
+@@ -394,19 +405,22 @@ window.__ModuleLoader__.load({
+ 			});
+ 		}
+ 		//#endregion
+-		//#region lib/types/client/service.js
++		//#region src/client/service.ts
+ 		/** Cross-plugin panel-action face (ctx.layout). */
+ 		var LayoutController = class {
+ 			panels;
+ 			hasMainPanel;
++			registerPresentation;
+ 			navigation = new AbortController();
+ 			/**
+ 			* @param panels - actions of the instance shared with the root entry.
+ 			* @param hasMainPanel - checks the live main-slot registry for a panel id.
++			* @param registerPresentation - owner-managed registration lifecycle and projection.
+ 			*/
+-			constructor(panels, hasMainPanel) {
++			constructor(panels, hasMainPanel, registerPresentation) {
+ 				this.panels = panels;
+ 				this.hasMainPanel = hasMainPanel;
++				this.registerPresentation = registerPresentation;
+ 			}
+ 			/** Select a global panel or return to the Conversation. */
+ 			selectPanel(panelId) {
+@@ -414,6 +428,10 @@ window.__ModuleLoader__.load({
+ 				this.navigation.abort();
+ 				this.panels.selectPanel(panelId);
+ 			}
++			/** Register a global panel's presentation through the layout owner. */
++			registerPanelPresentation(panelId, presentation) {
++				return this.registerPresentation(panelId, presentation);
++			}
+ 			/** @returns the new pending navigation's cancellation signal. */
+ 			beginNavigation() {
+ 				this.navigation.abort();
+@@ -438,7 +456,7 @@ window.__ModuleLoader__.load({
+ 			}
+ 		};
+ 		//#endregion
+-		//#region lib/types/client/theme-presenter.js
++		//#region src/client/theme-presenter.ts
+ 		/** Body attribute selecting the dark base palette in the token stylesheets. */
+ 		const DARK_ATTRIBUTE = "data-ds-dark-theme";
+ 		/** Body variable carrying the user's content font size in px. */
+@@ -491,7 +509,7 @@ window.__ModuleLoader__.load({
+ 			}
+ 		};
+ 		//#endregion
+-		//#region lib/types/client/index.js
++		//#region src/client/index.ts
+ 		/** Required services (cordis fiber inject — the loader passes all module exports as an object plugin). */
+ 		const inject = [
+ 			"slots",
+@@ -512,10 +530,40 @@ window.__ModuleLoader__.load({
+ 					...handle,
+ 					create: () => instance
+ 				};
+-				const layout = new LayoutController(instance.actions, (id) => ctx.slots.entries("main").some((entry) => entry.options.key === id));
++				let active = true;
++				const presentations = /* @__PURE__ */ new Map();
++				const publishPresentations = () => {
++					instance.actions.setSessionSidebarPanels([...presentations.keys()]);
++				};
+ 				const retainMainPanels = () => {
+-					instance.actions.retainMainPanels(ctx.slots.entries("main").flatMap((entry) => entry.options.key === void 0 ? [] : [entry.options.key]));
++					const entries = ctx.slots.entriesOfSlot("main");
++					let changed = false;
++					for (const [id, registration] of presentations) if (!entries.includes(registration.entry)) {
++						presentations.delete(id);
++						changed = true;
++					}
++					if (changed) publishPresentations();
++					instance.actions.retainMainPanels(entries.flatMap((entry) => entry.options.key === void 0 ? [] : [entry.options.key]));
+ 				};
++				const layout = new LayoutController(instance.actions, (id) => {
++					retainMainPanels();
++					return ctx.slots.entriesOfSlot("main").some((entry) => entry.options.key === id);
++				}, (id) => {
++					if (!active) throw new Error("layout.registerPanelPresentation: layout is disposed");
++					if (id === "conversation") throw new Error("layout.registerPanelPresentation: conversation is reserved");
++					retainMainPanels();
++					const entry = ctx.slots.entriesOfSlot("main").find((candidate) => candidate.options.key === id);
++					if (entry === void 0) throw new Error(`layout.registerPanelPresentation: main panel "${id}" is not registered`);
++					if (presentations.has(id)) throw new Error(`layout.registerPanelPresentation: main panel "${id}" is already registered`);
++					const registration = { entry };
++					presentations.set(id, registration);
++					publishPresentations();
++					return () => {
++						if (presentations.get(id) !== registration) return;
++						presentations.delete(id);
++						publishPresentations();
++					};
++				});
+ 				const disposePanelInfo = ctx.slots.provideRoot({ hooks: { panelInfo: {
+ 					getSnapshot: () => instance.getSnapshot().panelInfo,
+ 					subscribe: (listener) => instance.subscribe(listener)
+@@ -547,6 +595,9 @@ window.__ModuleLoader__.load({
+ 				const disposePanels = ctx.slots.subscribe("main", retainMainPanels);
+ 				retainMainPanels();
+ 				return () => {
++					active = false;
++					presentations.clear();
++					publishPresentations();
+ 					layout.dispose();
+ 					disposePanels();
+ 					disposeRegistration();
+diff --git a/lib/types/client/index.d.ts b/lib/types/client/index.d.ts
+index f9a086b7482f3363efe4ef12e74de5d0dae0769b..cd7caf9a61f9f6a980a6f2c0354a1786b4c98ca6 100644
+--- a/lib/types/client/index.d.ts
++++ b/lib/types/client/index.d.ts
+@@ -11,7 +11,7 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis';
+ import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots';
+ import type { PanelInfo } from './service.ts';
+ export { LayoutController } from './service.ts';
+-export type { ILayout, MainPanelId, PanelInfo } from './service.ts';
++export type { ILayout, MainPanelId, MainPanelPresentation, PanelInfo } from './service.ts';
+ /** Selector hook over root-scoped panel selection. */
+ export type UsePanelInfo = SnapshotSelectorHook<PanelInfo>;
+ declare module '@deepseek-ai/cordis' {
+diff --git a/lib/types/client/service.d.ts b/lib/types/client/service.d.ts
+index ece8fb6aad2fcd978072a7a395d3bd925ddc5b85..d8e6138229b77f06edc5d7ff8dee56a94227872f 100644
+--- a/lib/types/client/service.d.ts
++++ b/lib/types/client/service.d.ts
+@@ -13,10 +13,17 @@ import type { Branded } from '@deepseek-ai/dsh-brand';
+ import type { createLayoutStore } from './stores.ts';
+ /** Identity shared by a sidebar panel entry and its main-slot occupant. */
+ export type MainPanelId = Branded<'MainPanelId'>;
++/** Explicit presentation of a registered global main panel. */
++export interface MainPanelPresentation {
++    /** Permit the existing right Sidebar bound to the current real Session. */
++    readonly rightSidebar: 'current-session';
++}
+ /** Root-scoped navigation state exposed to panel-aware components. */
+ export interface PanelInfo {
+     /** Selected global panel; null displays the current Conversation. */
+     readonly activePanelId: MainPanelId | null;
++    /** Present only when the selected global panel retains the current Session's right Sidebar. */
++    readonly rightSidebar?: MainPanelPresentation['rightSidebar'];
+ }
+ /** The layout store's bound action set (framework-baked, draft params peeled). */
+ export type PanelActions = BoundActions<ReturnType<typeof createLayoutStore>>;
+@@ -28,6 +35,16 @@ export interface ILayout {
+      * @throws if the selected main key is not registered; preserves the current selection.
+      */
+     selectPanel(panelId: MainPanelId | null): void;
++    /**
++     * Declare presentation for the current winning registration of a global main key.
++     * Retain the returned disposer in the caller's ctx.effect. Removing or replacing
++     * the main entry revokes the declaration; re-register it for a new entry lifetime.
++     * @param panelId - registered global main key; `conversation` is reserved.
++     * @param presentation - permit the existing current-Session Sidebar without opening it or changing Session selection.
++     * @returns idempotent disposer that immediately revokes this declaration.
++     * @throws for an absent/reserved key, a duplicate declaration, or a disposed layout.
++     */
++    registerPanelPresentation(panelId: MainPanelId, presentation: MainPanelPresentation): () => void;
+     /**
+      * Start an asynchronous navigation, superseding any earlier pending navigation.
+      * @returns a signal aborted by the next navigation or layout disposal; check it before committing UI state.
+@@ -50,14 +67,18 @@ export interface ILayout {
+ export declare class LayoutController implements ILayout {
+     private readonly panels;
+     private readonly hasMainPanel;
++    private readonly registerPresentation;
+     private navigation;
+     /**
+      * @param panels - actions of the instance shared with the root entry.
+      * @param hasMainPanel - checks the live main-slot registry for a panel id.
++     * @param registerPresentation - owner-managed registration lifecycle and projection.
+      */
+-    constructor(panels: PanelActions, hasMainPanel: (id: MainPanelId) => boolean);
++    constructor(panels: PanelActions, hasMainPanel: (id: MainPanelId) => boolean, registerPresentation: ILayout['registerPanelPresentation']);
+     /** Select a global panel or return to the Conversation. */
+     selectPanel(panelId: MainPanelId | null): void;
++    /** Register a global panel's presentation through the layout owner. */
++    registerPanelPresentation(panelId: MainPanelId, presentation: MainPanelPresentation): () => void;
+     /** @returns the new pending navigation's cancellation signal. */
+     beginNavigation(): AbortSignal;
+     /** Invalidate pending navigations when the layout owner is unloaded. */
+diff --git a/lib/types/client/stores.d.ts b/lib/types/client/stores.d.ts
+index 33d1dd66682b4217db234c7a96a5dbdbcd79efad..b2dc84196a25ce92d5b87c86e66386adc47205b0 100644
+--- a/lib/types/client/stores.d.ts
++++ b/lib/types/client/stores.d.ts
+@@ -12,7 +12,9 @@ type LayoutState = {
+     panelInfo: {
+         /** Null selects the Conversation; global panels keep the current Session intact. */
+         activePanelId: MainPanelId | null;
++        rightSidebar?: 'current-session';
+     };
++    sessionSidebarPanels: MainPanelId[];
+     layoutInfo: LayoutInfo;
+ };
+ type LayoutInfo = {
+@@ -51,6 +53,7 @@ type LayoutInfo = {
+ type LayoutActions = {
+     selectPanel: (draft: LayoutState, panelId: MainPanelId | null) => void;
+     retainMainPanels: (draft: LayoutState, panelIds: readonly string[]) => void;
++    setSessionSidebarPanels: (draft: LayoutState, panelIds: MainPanelId[]) => void;
+     setSidebar: (draft: LayoutState, px: number) => void;
+     toggleSidebar: (draft: LayoutState) => void;
+     setViewportWidth: (draft: LayoutState, width: number) => void;

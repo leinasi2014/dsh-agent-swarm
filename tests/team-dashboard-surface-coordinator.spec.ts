@@ -181,6 +181,8 @@ describe('TeamDashboardSurfaceCoordinator', () => {
     // The official catalog has no retained subagentAddress until the FIRST navigation;
     // refreshing the catalog alone does not populate that address cache.
     Object.assign(f.sessions, { refreshSubagents: refresh, subagentAddress: () => undefined, openSubagent: open })
+    f.coordinator.closeAndRestoreFocus()
+    expect(f.coordinator.getSnapshot().mode).toBe('inactive')
     await f.coordinator.openMemberChat('worker', 'member-1')
     expect(refresh).toHaveBeenCalledWith('captain')
     expect(open).toHaveBeenCalledExactlyOnceWith(address)
@@ -189,6 +191,7 @@ describe('TeamDashboardSurfaceCoordinator', () => {
     expect(f.coordinator.getSnapshot()).toMatchObject({ mode: 'docked', targetSessionId: 'member-1' })
     f.controller.state = ready
     f.sessions.setCurrent('root')
+    f.controller.state = ready
     catalogParent = 'wrong-parent'
     await expect(f.coordinator.openMemberChat('worker', 'member-1')).rejects.toThrow('official Captain child catalog')
     expect(open).toHaveBeenCalledTimes(1)

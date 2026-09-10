@@ -10,12 +10,11 @@ import { TeamCommunicationControl, type TeamCommunicationChoice } from './TeamCo
 import { deriveMemberActivity, deriveMemberTone, memberAssetOf, formatTime, toneLabel, enumLabel, type DetailSelection } from './team-dashboard-view-helpers.js'
 type SupplementaryDetail = Exclude<DetailSelection, { readonly kind: 'task' }>
 
-export function ManageView({ data, memberAssets, hasCaptain, number, onManageViaCaptain, onCommunication, communicationDisabled, onOpenDetail, t }: {
+export function ManageView({ data, memberAssets, hasCaptain, number, onCommunication, communicationDisabled, onOpenDetail, t }: {
   readonly data: SwarmHostReadProjectionV1
   readonly memberAssets: SwarmReadCaptainMembersV1 | undefined
   readonly hasCaptain: boolean
   readonly number: Intl.NumberFormat
-  readonly onManageViaCaptain: () => void
   readonly onCommunication: (choice: TeamCommunicationChoice) => Promise<void>
   readonly communicationDisabled: boolean
   readonly onOpenDetail: (selection: DetailSelection) => void
@@ -25,7 +24,7 @@ export function ManageView({ data, memberAssets, hasCaptain, number, onManageVia
     <TeamCommunicationControl key={data.team.id} value={data.communication} revision={data.team.revision} disabled={!hasCaptain || communicationDisabled || data.team.phase !== 'active'} onRequest={onCommunication} t={t} />
     <div className="swarm-team-workspace__manage-row" data-swarm-manage-members>
       <span className="swarm-team-workspace__table-copy"><strong>{t('manage.membersTitle')}</strong><small>{t('manage.membersDesc', { count: number.format(data.totals.roster) })}</small></span>
-      <button className="swarm-team-workspace__manage-action" type="button" disabled={!hasCaptain} onClick={onManageViaCaptain} title={t(hasCaptain ? 'manageViaCaptain' : 'captainNotCreated')}>{t(hasCaptain ? 'manage.open' : 'captainNotCreated')}</button>
+      <span className="swarm-team-workspace__muted">{t(hasCaptain ? 'public.hint' : 'captainNotCreated')}</span>
     </div>
     <div className="swarm-team-workspace__manage-row" data-swarm-manage-growth>
       <span className="swarm-team-workspace__table-copy"><strong>{t('manage.growthTitle')}</strong><small>{t('manage.growthDesc')}</small></span>

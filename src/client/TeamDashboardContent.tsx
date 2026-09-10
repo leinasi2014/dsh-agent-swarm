@@ -1,5 +1,5 @@
 import { Button, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
-import { useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent } from 'react'
+import { useLayoutEffect, useRef, useSyncExternalStore, type KeyboardEvent } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SwarmHostReadProjectionV1 } from '../host/host-read-types.js'
 import type { SwarmReadCaptainAnnouncementsV1, SwarmReadCaptainDiagnosticsV1, SwarmReadCaptainMembersV1, SwarmReadTeamsV1 } from '../rpc/read-rpc-contract.js'
@@ -9,7 +9,6 @@ import { TeamTaskPanel } from './TeamTaskPanel.js'
 import { TEAM_DASHBOARD_NS } from './team-dashboard-locales.js'
 import { SafePixelAvatar } from './SafePixelAvatar.js'
 import { TaskDag } from './team-task-dag.js'
-import { TeamDashboardCards, teamCardsCss } from './team-dashboard-cards.js'
 import type { TeamCommunicationChoice } from './TeamCommunicationControl.js'
 
 import { ManageView, DetailView } from './team-dashboard-detail-content.js'
@@ -142,7 +141,6 @@ export const shellCss = `
 [data-swarm-team-dashboard] summary { padding:12px 0; color:var(--dsw-alias-label-secondary); font-size:12px; font-weight:550; cursor:pointer; }
 [data-swarm-team-dashboard] summary small { float:right; font-size:12px; font-weight:400; }
 [data-swarm-team-dashboard] button:focus-visible, [data-swarm-team-dashboard] summary:focus-visible { outline:2px solid var(--dsw-alias-state-business-primary); outline-offset:2px; }
-${teamCardsCss}
 `
 
 /** Team data stays read-only; explicit user requests use the official Captain inbox. */
@@ -155,26 +153,17 @@ export function TeamDashboardContent({ controller, coordinator, descriptionId, h
   readonly state: TeamDashboardState
   readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS>
 }) {
-  const [handoffBusy, setHandoffBusy] = useState(false)
   const data = state.data?.projection
-  const handoff = (): void => {
-    if (handoffBusy) return
-    setHandoffBusy(true)
-    void coordinator.openCaptainChat().catch(() => {}).finally(() => { setHandoffBusy(false) })
-  }
   return <div className="swarm-team-workspace" data-swarm-team-layout="workspace">
     <style>{shellCss}</style>
-    {data === undefined
+    {data === undefined || state.phase !== 'ready'
       ? <Empty state={state} controller={controller} t={t} />
-      : <TeamDashboardCards state={state} headingId={headingId} descriptionId={descriptionId} t={t}
-          onSelectTeam={teamId => { controller.selectTeam(teamId) }}
-          onMainChat={() => { void coordinator.openMainChat().catch(() => {}) }}
-          onClose={() => { coordinator.closeAndRestoreFocus() }}>
+      : <>
+        <header className="swarm-team-workspace__pane-head"><div><h2 className="swarm-team-workspace__title" id={headingId}>{data.team.name}</h2><p className="swarm-team-workspace__subtitle" id={descriptionId}>{t('title')} · {enumLabel(data.team.phase, t)}</p></div><button type="button" aria-label={t('close')} onClick={() => { coordinator.closeAndRestoreFocus() }}>×</button></header>
         <Workspace
         controller={controller}
         coordinator={coordinator}
         data={data}
-        handoffBusy={handoffBusy}
         localeTag={localeTag}
         state={state}
         t={t}
@@ -182,11 +171,8 @@ export function TeamDashboardContent({ controller, coordinator, descriptionId, h
         announcements={state.data?.captainAnnouncements}
         diagnostics={state.data?.captainDiagnostics}
         memberAssets={state.data?.captainMembers}
-        onCaptainSession={handoff}
         onCommunication={choice => coordinator.requestCommunication(choice)}
-        onMemberSession={(name, sessionId) => { void coordinator.openMemberChat(name, sessionId).catch(() => {}) }}
-        onClose={() => { coordinator.closeAndRestoreFocus() }}
-      /></TeamDashboardCards>}
+      /></>}
   </div>
 }
 
@@ -211,11 +197,10 @@ function Empty({ state, controller, t }: { readonly state: TeamDashboardState; r
   </section>
 }
 
-function Workspace({ data, handoffBusy, localeTag, state, t, teams, announcements, diagnostics, memberAssets, onCaptainSession, onCommunication, onMemberSession, onClose, coordinator, controller }: {
+function Workspace({ data, localeTag, state, t, teams, announcements, diagnostics, memberAssets, onCommunication, coordinator, controller }: {
   readonly controller: TeamDashboardController
   readonly coordinator: TeamDashboardSurfaceCoordinator
   readonly data: SwarmHostReadProjectionV1
-  readonly handoffBusy: boolean
   readonly localeTag: () => 'zh-CN' | 'en-US'
   readonly state: TeamDashboardState
   readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS>
@@ -223,10 +208,7 @@ function Workspace({ data, handoffBusy, localeTag, state, t, teams, announcement
   readonly announcements: SwarmReadCaptainAnnouncementsV1 | undefined
   readonly diagnostics: SwarmReadCaptainDiagnosticsV1 | undefined
   readonly memberAssets: SwarmReadCaptainMembersV1 | undefined
-  readonly onCaptainSession: () => void
   readonly onCommunication: (choice: TeamCommunicationChoice) => Promise<void>
-  readonly onMemberSession: (name: string, sessionId: string) => void
-  readonly onClose: () => void
 }) {
   const number = new Intl.NumberFormat(localeTag())
   const boundCaptain = teams?.teams.find(team => team.teamId === data.binding.teamId)
@@ -289,7 +271,7 @@ function Workspace({ data, handoffBusy, localeTag, state, t, teams, announcement
   // unavailable or inventing a working-state claim.
   const hasCaptain = Boolean(boundCaptain?.captainSessionId)
   const viewingCaptain = hasCaptain && state.targetSessionId === data.binding.rootSessionId
-  const captainStateText = !hasCaptain ? t('captainNotCreated') : viewingCaptain ? t('captainCurrentSession') : t('captainOpenSession')
+  const captainStateText = !hasCaptain ? t('captainNotCreated') : viewingCaptain ? t('captainCurrentSession') : t('captainRole')
   const reviewTasks = data.tasks.filter(task => task.status === 'submitted' || task.status === 'verifying')
   const hasTaskProgress = data.tasks.length > 0 || data.totals.tasks > 0
   const activities = data.attempts.toSorted((left, right) => right.updatedAt - left.updatedAt).slice(0, 3)
@@ -351,7 +333,7 @@ function Workspace({ data, handoffBusy, localeTag, state, t, teams, announcement
                 <span key={item.requestId} className="swarm-team-workspace__public-content" data-swarm-attention-row={item.requestId}>{t('attention.row', { intent: item.intent, target: item.targetRef ?? item.targetKind })}</span>
               ))}
             </span>
-            <button type="button" className="swarm-team-workspace__text-action" onClick={viewingCaptain ? onClose : onCaptainSession}>{t('manageViaCaptain')}</button>
+            <span className="swarm-team-workspace__muted">{t('public.hint')}</span>
           </section>
         )}
       </div>}
@@ -395,22 +377,19 @@ function Workspace({ data, handoffBusy, localeTag, state, t, teams, announcement
         {view === 'members' && <div role="tabpanel" id="swarm-panel-members" aria-labelledby="swarm-tab-members" data-swarm-panel="members">
           <div className="swarm-team-workspace__block-head"><span>{t('workspace.desks')}</span><small>{t('progress.memberCount', { count: number.format(data.totals.roster) })}</small></div>
           <section className="swarm-team-workspace__workroom" aria-label={t('workspace.desks')} data-swarm-workroom>
-            <button
+            <div
               className="swarm-team-workspace__desk"
-              type="button"
-              disabled={handoffBusy || viewingCaptain || !hasCaptain}
               data-swarm-captain-desk
               data-swarm-captain-current={viewingCaptain ? 'true' : 'false'}
-              title={!hasCaptain ? t('captainNotCreated') : viewingCaptain ? t('captainCurrentSessionTitle') : t('captainMainChatTitle')}
-              onClick={onCaptainSession}
+              title={captainStateText}
             >
               <span className="swarm-team-workspace__avatar"><SafePixelAvatar seed={boundCaptain?.name ?? ''} asset={boundCaptain?.avatar ?? NOT_GENERATED_AVATAR} name={captainName} t={t} /></span>
               <span className="swarm-team-workspace__desk-copy">
                 <strong className="swarm-team-workspace__desk-name" data-swarm-captain-visible-name={captainName} title={captainName}>{captainName}<b className="swarm-team-workspace__captain-badge">{t('captainRole')}</b></strong>
                 <small className="swarm-team-workspace__desk-role" data-swarm-captain-profession={captainProfession ?? ''}>{captainProfession ?? t('profileNotGenerated')}</small>
               </span>
-              <span className="swarm-team-workspace__desk-state" data-swarm-captain-state={captainStateText}>{captainStateText}<span aria-hidden="true">{viewingCaptain || !hasCaptain ? '' : ' →'}</span></span>
-            </button>
+              <span className="swarm-team-workspace__desk-state" data-swarm-captain-state={captainStateText}>{captainStateText}</span>
+            </div>
             <div className="swarm-team-workspace__members" role="list" aria-label={t('members')}>
             {data.roster.map(member => {
               const tone = tones.get(member.name) ?? 'standby'
@@ -436,7 +415,6 @@ function Workspace({ data, handoffBusy, localeTag, state, t, teams, announcement
                   aria-current={asset.sessionId === state.targetSessionId ? 'page' : undefined}
                   onClick={() => {
                     openDetail({ kind: 'member', name: member.name })
-                    if (asset.sessionId !== undefined && asset.sessionId !== state.targetSessionId) onMemberSession(member.name, asset.sessionId)
                   }}
                 >
                   <span className="swarm-team-workspace__avatar"><SafePixelAvatar seed={member.name} asset={asset.avatar} name={displayName} t={t} /></span>
@@ -491,7 +469,7 @@ function Workspace({ data, handoffBusy, localeTag, state, t, teams, announcement
         </div>}
         {view === 'tasks' && <div role="tabpanel" id="swarm-panel-tasks" aria-labelledby="swarm-tab-tasks" data-swarm-panel="tasks">
           <TeamTaskPanel data={data} selection={selection} localeTag={localeTag} memberAssets={memberAssets} controller={controller} state={state}
-            onSelect={id => { openDetail({ kind: 'task', id }) }} onBack={() => { closeDetail(true) }} onChange={updateSelection} onMemberSession={onMemberSession} t={t} />
+            onSelect={id => { openDetail({ kind: 'task', id }) }} onBack={() => { closeDetail(true) }} onChange={updateSelection} t={t} />
           {detail?.kind !== 'task' && data.tasks.length > 0 ? <details className="swarm-team-workspace__fold"><summary>{t('dag.title')}</summary><TaskDag tasks={data.tasks} t={t} onSelect={id => { openDetail({ kind: 'task', id }) }} /></details> : null}
         </div>}
         {view === 'info' && <div role="tabpanel" id="swarm-panel-info" aria-labelledby="swarm-tab-info" data-swarm-panel="info">
@@ -510,7 +488,7 @@ function Workspace({ data, handoffBusy, localeTag, state, t, teams, announcement
                     </div>
                   })}
                 </section>}
-          <ManageView data={data} memberAssets={memberAssets} hasCaptain={hasCaptain} number={number} onManageViaCaptain={onCaptainSession} onCommunication={onCommunication} communicationDisabled={state.phase !== 'ready'} onOpenDetail={openDetail} t={t} />
+          <ManageView data={data} memberAssets={memberAssets} hasCaptain={hasCaptain} number={number} onCommunication={onCommunication} communicationDisabled={state.phase !== 'ready'} onOpenDetail={openDetail} t={t} />
           {detail?.kind !== 'member' ? detailView : null}
         </div>}
       </main>
