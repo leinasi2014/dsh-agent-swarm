@@ -19,6 +19,7 @@ import { PNG_IMAGE, GIF_IMAGE, ImageRecording, setupImages, imageClient } from '
 
 class AssistanceRecording extends ImageRecording {
   readonly calls: string[] = []
+  readonly toolCalls: { id: ToolCallId; name: string; sessionId: GenerateOptions['sessionId']; sourceMessageId: string }[] = []
   directoryTexts: string[] = []
   autoRequest = true
   autoComplete = true
@@ -64,6 +65,7 @@ class AssistanceRecording extends ImageRecording {
     if (name === undefined) { yield { type: 'finish', reason: { kind: 'stop' } }; return }
     this.calls.push(name)
     const id = ToolCallId(`visual-real-${this.calls.length}`), toolArguments = JSON.stringify(args)
+    this.toolCalls.push({ id, name, sessionId: options.sessionId, sourceMessageId: data.messageId })
     yield { type: 'block-start', index: 0, blockType: 'tool-call' }
     yield { type: 'tool-call-delta', index: 0, id, name, argumentsDelta: toolArguments }
     yield { type: 'block-end', index: 0, block: { type: 'tool-call', id, name, arguments: toolArguments } }
@@ -91,10 +93,27 @@ async function visualFixture(adapter = new AssistanceRecording()) {
   } catch (error) { await f.close(); await rm(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); throw error }
 }
 
+// Public delivery itself allows 5s for a durable claim after admission. These
+// real cold-Session/attachment gates also include setup and persistence IO.
+const VISUAL_GATE_WAIT = { timeout: 10_000, interval: 50 }
+
+async function claimedImage(fixture: Awaited<ReturnType<typeof visualFixture>>, messageId: string, recipientId: string) {
+  const started = performance.now()
+  await vi.waitFor(async () => {
+    const message = (await fixture.team()).publicChat?.messages.find(row => row.id === messageId)
+    const delivery = message === undefined ? undefined : publicDeliveries(message).find(row => row.recipientSessionId === recipientId)
+    const detail = `${messageId} -> ${recipientId}, ${Math.round(performance.now() - started)}ms: ${JSON.stringify(delivery)}`
+    expect(delivery, detail).toMatchObject({ state: 'claimed', frameVersion: 3 })
+    if (message === undefined || delivery?.frameVersion !== 3 || delivery.projection === undefined) throw new Error(detail)
+    expect(await frameVisibility(fixture.f.ctx, recipientId, delivery.frame, SIGNAL, 'visual fixture claim', true,
+      publicInputPredicates(delivery.frame, message.id, delivery.projection)), detail).toBe('claimed')
+  }, VISUAL_GATE_WAIT)
+}
+
 async function originalImage(fixture: Awaited<ReturnType<typeof visualFixture>>) {
   const sent = await fixture.call('append', { requestId: 'original-for-assistance', content: [PNG_IMAGE] })
   expect(sent.ok, JSON.stringify(sent)).toBe(true)
-  await vi.waitFor(async () => expect(publicDeliveries((await fixture.team()).publicChat!.messages[0]!)[0]!.state).toBe('claimed'))
+  await claimedImage(fixture, sent.value.message.id, fixture.captain.id)
   return { request_id: 'manual-assistance', source_message_id: sent.value.message.id, image_ids: ['image-1'],
     helper_member_id: fixture.helperId, question: 'Describe the original PNG.' }
 }
@@ -129,12 +148,15 @@ it('lets a nonvisual model choose a directory helper, transfer original refs and
     expect(sent.ok, JSON.stringify(sent)).toBe(true)
     await vi.waitFor(async () => {
       expect(adapter.calls, JSON.stringify(adapter.directoryTexts)).toContain('agent_swarm_request_visual_assistance')
+      const toolCall = adapter.toolCalls.find(row => row.name === 'agent_swarm_request_visual_assistance'
+        && row.sessionId === requesterId && row.sourceMessageId === sent.value.message.id)
+      expect(toolCall).toBeDefined()
       const persisted = await readPersistedSession(f.ctx.sessionPersistence, requesterId, SIGNAL)
-      const request = persisted.events.find(event => event.type === 'tool/call' && event.data.name === 'agent_swarm_request_visual_assistance')
+      const request = persisted.events.find(event => event.type === 'tool/call' && event.data.callId === toolCall!.id)
       expect(request).toBeDefined()
       const result = persisted.events.find(event => event.type === 'tool/result' && event.sourceEventSeqs?.includes(request!.seq))
-      expect(result, JSON.stringify(result)).toMatchObject({ data: { message: { content: [{ type: 'tool-result', isError: false }] } } })
-    }, { timeout: 3000 })
+      expect(result, JSON.stringify(result)).toMatchObject({ data: { message: { content: [{ type: 'tool-result', toolCallId: toolCall!.id, isError: false }] } } })
+    }, VISUAL_GATE_WAIT)
     await vi.waitFor(async () => {
       const team = (await f.ctx.agentSwarm.domain.snapshot(scope, teamId, captain.id)).team
       expect(team.publicChat?.messages).toHaveLength(3)
@@ -173,7 +195,8 @@ it('keeps real tool retries immutable, deduplicates in-flight image sets and rej
       .toMatchObject({ isError: true, error: { info: { code: 'TEAM_VISUAL_PERMISSION_REVOKED' } } })
     const started = await fixture.asCaptain('agent_swarm_request_visual_assistance', args)
     expect(started.isError, JSON.stringify(started)).toBe(false)
-    await vi.waitFor(async () => expect(publicDeliveries((await fixture.team()).publicChat!.messages[1]!)[0]!.state).toBe('claimed'))
+    const startedRow = assistanceRows(await fixture.team())[0]!
+    await claimedImage(fixture, startedRow.requestMessageId, fixture.helperId)
     const read = vi.spyOn(fixture.f.ctx.attachments, 'readImage')
     const retry = await fixture.asCaptain('agent_swarm_request_visual_assistance', args)
     expect(retry).toMatchObject({ isError: false, value: { ...(started.value as object), replayed: true } })
@@ -196,7 +219,7 @@ it('keeps real tool retries immutable, deduplicates in-flight image sets and rej
     expect(await fixture.asHelper('agent_swarm_complete_visual_assistance', complete)).toMatchObject({ isError: false, value: { state: 'completed', replayed: true } })
     expect(await fixture.asHelper('agent_swarm_complete_visual_assistance', { ...complete, outcome: { state: 'completed', summary: 'Changed summary' } }))
       .toMatchObject({ isError: true, error: { info: { code: 'TEAM_VISUAL_REQUEST_CONFLICT' } } })
-    await vi.waitFor(async () => expect(publicDeliveries((await fixture.team()).publicChat!.messages[2]!)[0]!.state).toBe('claimed'))
+    await claimedImage(fixture, row.resultId, fixture.captain.id)
     expect((await fixture.team()).tasks).toEqual(before.tasks)
     expect((await fixture.team()).publicChat!.messages).toHaveLength(3)
   } finally { await fixture.close() }
@@ -209,7 +232,7 @@ it('still cold-recovers existing task work while a helper has claimed an unexpir
   try {
     const args = await originalImage(fixture)
     expect(await fixture.asCaptain('agent_swarm_request_visual_assistance', args)).toMatchObject({ isError: false })
-    await vi.waitFor(async () => expect(publicDeliveries((await fixture.team()).publicChat!.messages[1]!)[0]!.state).toBe('claimed'))
+    await claimedImage(fixture, assistanceRows(await fixture.team())[0]!.requestMessageId, fixture.helperId)
     expect(await fixture.asCaptain('agent_swarm_create_task', { subject: 'Existing work', description: 'Existing independent task must recover',
       target_member: 'vision', acceptance_criteria: ['Keep the original task identity'] })).toMatchObject({ isError: false })
     const before = await fixture.team()
