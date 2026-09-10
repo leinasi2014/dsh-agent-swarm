@@ -100,6 +100,15 @@ export class TeamPermissionSurface {
     return [...(this.deps.policy.deny ?? [])]
   }
 
+  /** Read-only Team overlay. It never runs approval or official execution guards. */
+  directoryPolicy(role: 'captain' | 'member', names: readonly string[]) {
+    const policy = { allow: [...(this.deps.policy.allow ?? [])], ask: [...(this.deps.policy.ask ?? [])], deny: [...(this.deps.policy.deny ?? [])] }
+    return { policy, entries: names.map(name => ({ name, decision: decideToolPermission(policy, name, {
+      callerRole: role === 'captain' ? 'captain' : 'delegated-member', sameTurnConcreteToolCall: true,
+      openTurn: true, approvalSeamAvailable: this.deps.ctx.get('approval') !== undefined,
+    }) })) }
+  }
+
   async decideToolApproval(exec: ToolExecution, requestId: string, decision: 'approve' | 'deny'): Promise<void> {
     await this.toolApproval.decide(exec, requestId, decision)
   }

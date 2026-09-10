@@ -31,3 +31,20 @@ export async function publicAppendEligibility(ctx: Context, scope: string, team:
     return { state: 'unavailable', reason: 'lineage-unavailable' }
   }
 }
+
+/** Validate only this admission's exact recipients, independently of directory freshness. */
+export async function publicRecipientEligibility(ctx: Context, scope: string, team: TeamState, recipients: readonly string[], signal: AbortSignal): Promise<boolean> {
+  if ((await publicAppendEligibility(ctx, scope, team, signal)).state !== 'available') return false
+  const members = recipients.filter(id => id !== team.captainSessionId)
+  if (members.length === 0) return true
+  if (members.some(id => !team.members.some(row => row.sessionId === id && row.phase === 'active'))) return false
+  try {
+    const children = await ctx.subagents.listChildren(SessionId(team.captainSessionId), signal)
+    for (const id of members) {
+      if (!children.some(child => child.kind === 'child' && child.mode === 'continuable' && child.id === id)) return false
+      const member = await readPersistedSession(ctx.sessionPersistence, SessionId(id), signal)
+      if (member.meta.parentSession !== team.captainSessionId || member.meta.cwd === undefined || resolve(member.meta.cwd) !== scope) return false
+    }
+    return true
+  } catch { signal.throwIfAborted(); return false }
+}

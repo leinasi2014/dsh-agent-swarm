@@ -211,6 +211,11 @@ it.each(['pending', 'consumed', 'default'] as const)('restores the %s Captain se
     const captain = first.ctx.agents.get(captainId)!
     const task = await tool(first.ctx, captain, 'cold-model-task', 'agent_swarm_create_task', { subject: 'Unfinished', description: 'Continue after restart.' })
     expect(task.isError).toBe(false)
+    const teamId = TeamId((created.value as { team_id: string }).team_id)
+    const scope = first.ctx.agentSwarm.scopeOf(root)
+    const beforeDirectory = await first.ctx.agentSwarm.directory.read(scope, teamId, {}, SIGNAL)
+    expect(beforeDirectory.entries[0]?.model).toMatchObject({ provider: ROUTE.provider, model: ROUTE.model })
+    const teamRevision = (await first.ctx.agentSwarm.domain.snapshot(scope, teamId, captain.id)).team.revision
     const args = { llm_provider: NEXT.provider, model: NEXT.model, ...(mode === 'default' ? {} : { reasoning_effort: NEXT.reasoningEffort }) }
     const beforeRoot = root.session.ownEvents().filter(event => event.type === 'model/selection')
     expect((await tool(first.ctx, root, 'root-must-not-select', 'agent_swarm_set_captain_model', args)).isError).toBe(true)
@@ -219,6 +224,10 @@ it.each(['pending', 'consumed', 'default'] as const)('restores the %s Captain se
     expect(captain.session.ownEvents().filter(event => event.type === 'model/selection')).toEqual([])
     const selected = await tool(first.ctx, captain, 'cold-model-select', 'agent_swarm_set_captain_model', args)
     expect(selected.isError, JSON.stringify(selected.error)).toBe(false)
+    const selectedDirectory = await first.ctx.agentSwarm.directory.read(scope, teamId, {}, SIGNAL)
+    expect(selectedDirectory.entries[0]?.model).toMatchObject({ provider: NEXT.provider, model: NEXT.model })
+    expect(selectedDirectory.directoryRevision).not.toBe(beforeDirectory.directoryRevision)
+    expect((await first.ctx.agentSwarm.domain.snapshot(scope, teamId, captain.id)).team.revision).toBe(teamRevision)
     expect(adapter.held?.signal?.aborted).toBe(false)
     adapter.release()
     await captain.whenIdle()

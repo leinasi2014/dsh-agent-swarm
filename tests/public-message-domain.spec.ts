@@ -39,6 +39,7 @@ describe('public message aggregate', () => {
     expect(stored.messages).toEqual([])
     expect(stored.tasks).toEqual([])
     const message = stored.publicChat!.messages[0]!
+    if ('formatVersion' in message) throw new Error('legacy fixture was rewritten')
     expect(message).toMatchObject({ sequence: 1, author: { kind: 'local-operator' }, requestId: 'human-1',
       delivery: { state: 'queued', recipientSessionId: 'captain', frameVersion: 1 } })
     expect(message.delivery.state).toBe('queued')

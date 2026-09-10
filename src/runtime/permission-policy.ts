@@ -32,6 +32,8 @@ const PLUGIN_TOOL_NAMES = [
   'agent_swarm_list_memory',
   'agent_swarm_list_managed_teams',
   'agent_swarm_list_members',
+  'agent_swarm_directory',
+  'agent_swarm_public_reply',
   'agent_swarm_add_private_memory',
   'agent_swarm_list_private_memory',
 ] as const

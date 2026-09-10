@@ -372,6 +372,10 @@ export interface TeamLimits {
   /** Permanent bound for restart-safe Team-internal effect evidence. */
   readonly maxInteractionEffects: number
   readonly maxPublicMessages: number
+  readonly maxPublicSegments: number
+  readonly maxDirectoryReadConcurrency: number
+  readonly maxDirectoryReadMs: number
+  readonly maxDirectoryEntryReadMs: number
   readonly maxPublicTextBytes: number
   readonly maxPublicBytes: number
   /** Per-task bound on captain-declared verification commands (M3-2). */

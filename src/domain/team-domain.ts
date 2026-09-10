@@ -57,6 +57,10 @@ export const DEFAULT_TEAM_LIMITS: TeamLimits = {
   maxMemories: 512,
   maxInteractionEffects: 1024,
   maxPublicMessages: 1000,
+  maxPublicSegments: 256,
+  maxDirectoryReadConcurrency: 4,
+  maxDirectoryReadMs: 8000,
+  maxDirectoryEntryReadMs: 2500,
   maxPublicTextBytes: 16_384,
   maxPublicBytes: 4 * 1024 * 1024,
   maxVerificationCommands: 16,
@@ -77,6 +81,10 @@ export class TeamDomain implements TeamDomainPort {
 
   acknowledgePublicMessage(scope: TeamScope, teamId: TeamId, messageId: string, recipientSessionId: string) {
     return publicMessages.acknowledgePublicMessage(this.deps, scope, teamId, messageId, recipientSessionId)
+  }
+
+  settlePublicMessage(scope: TeamScope, teamId: TeamId, messageId: string, recipientSessionId: string, reason: 'recipient-removed' | 'team-archived') {
+    return publicMessages.settlePublicMessage(this.deps, scope, teamId, messageId, recipientSessionId, reason)
   }
 
   constructor(

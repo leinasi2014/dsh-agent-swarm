@@ -38,6 +38,7 @@ interface RuntimeMutationDeps {
   delivery: MessageDelivery
   reviewProvider: (name: string) => TeamReviewProvider | undefined
   requestSchedule: (scope: TeamScope, teamId: TeamId, captain: Agent) => void
+  kickPublicMessages: (scope: TeamScope, teamId: TeamId) => void
 }
 
 /** Internal implementation of the runtime's public state-changing operations. */
@@ -58,13 +59,17 @@ export class RuntimeMutationSurface {
     }
     exact()
     const membership = await this.deps.domain().requireMembership(scope, agent.id)
-    if ((await publicAppendEligibility(this.deps.ctx, scope, membership.team, exec.signal)).state !== 'available') {
+    const existing = membership.team.publicChat?.messages.find(row => row.author.kind === 'agent'
+      && row.author.sessionId === agent.id && row.requestId === requestId)
+    if (existing === undefined && (await publicAppendEligibility(this.deps.ctx, scope, membership.team, exec.signal)).state !== 'available') {
       throw new TeamDomainError('Public reply requires a managed Team with official lineage', 'TEAM_PUBLIC_UNSUPPORTED')
     }
     exact()
     exec.signal.throwIfAborted()
     return await this.deps.domain().appendPublicMessage(scope, membership.team.id, { author: { kind: 'agent', sessionId: agent.id },
-      requestId, replyTo, text, expectedCaptainSessionId: membership.team.captainSessionId, expectedTeamRevision: membership.team.revision })
+      requestId, replyTo, ...(existing !== undefined && !('formatVersion' in existing) ? { text }
+        : { formatVersion: 2 as const, content: [{ type: 'text' as const, text }] }),
+      expectedCaptainSessionId: membership.team.captainSessionId, expectedTeamRevision: membership.team.revision })
   }
 
   async addMemory(exec: ToolExecutionAuthority, category: 'decision' | 'lesson' | 'member' | 'context', content: string, evidenceRefs: readonly string[]) {
@@ -358,6 +363,7 @@ export class RuntimeMutationSurface {
     const removed = await this.deps.domain().removeMember(scope, membership.team.id, captain.id, name, reason)
     this.deps.ctx.subagents.interrupt(SessionId(removed.member.sessionId), { kind: 'ancestor', agent: captain })
     await this.deps.ctx.subagents.drainContinuableChildren(captain, [SessionId(removed.member.sessionId)])
+    this.deps.kickPublicMessages(scope, membership.team.id)
     await this.deps.executionRoots.sweep(scope, membership.team.id)
     this.deps.requestSchedule(scope, membership.team.id, captain)
     return removed
@@ -371,6 +377,7 @@ export class RuntimeMutationSurface {
     const archived = await this.deps.domain().archiveTeam(scope, membership.team.id, captain.id, reason)
     for (const id of activeIds) this.deps.ctx.subagents.interrupt(id, { kind: 'ancestor', agent: captain })
     await this.deps.ctx.subagents.drainContinuableChildren(captain, activeIds)
+    this.deps.kickPublicMessages(scope, membership.team.id)
     await this.deps.executionRoots.sweep(scope, membership.team.id)
     return archived
   }
