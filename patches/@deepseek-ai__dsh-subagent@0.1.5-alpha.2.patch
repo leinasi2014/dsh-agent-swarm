@@ -1,0 +1,694 @@
+diff --git a/lib/index.js b/lib/index.js
+index 8be6ef7003ffb6dbb6838b47274b752f15685677..7444396a078860bac244c8b0cb818595a1a13cdf 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -813,6 +813,51 @@ var ContinuableActivationRegistry = class {
+ 		return this.resident.get(childId);
+ 	}
+ 	/**
++	* Retain an admitted child until one Host callback exits. Called under the
++	* child lock so natural settlement cannot cross this acquisition.
++	* @param activation - exact resident epoch to retain.
++	* @param parent - exact live direct parent authorizing the lease.
++	* @param signal - cancellation forwarded to the callback.
++	* @returns callback cancellation and an idempotent release for this hold only.
++	*/
++	lease(activation, parent, signal) {
++		signal.throwIfAborted();
++		this.assertAdmitting(parent);
++		this.authorizeLineage(parent, activation.childId, activation.parentSession);
++		if (activation.inbox.closing !== void 0) throw new SubagentError(`subagent "${activation.childId}" is closing`, "ACTIVATION_CLOSING");
++		return this.retain(activation, signal);
++	}
++	/**
++	* Keep an exact managed parent alive across one child acquisition, including
++	* an old child epoch closing before its replacement finishes lookup. This
++	* synchronous hold is independent of the child's ownership edge.
++	* @param parent - exact live parent already authorized by the manager.
++	* @param signal - caller cancellation while acquiring the child.
++	* @returns the acquisition hold, or a no-op hold for an unmanaged parent.
++	*/
++	holdParent(parent, signal) {
++		const activation = this.resident.get(parent.id);
++		if (activation === void 0 || activation.handle.agent !== parent) return {
++			signal,
++			release() {}
++		};
++		if (activation.inbox.closing !== void 0) throw new SubagentError(`subagent parent "${parent.id}" is closing`, "ACTIVATION_CLOSING");
++		return this.retain(activation, signal);
++	}
++	/** Add one hold before yielding; explicit teardown retains its close cutoff. */
++	retain(activation, signal) {
++		const controller = new AbortController();
++		activation.leases.add(controller);
++		this.wake(activation);
++		return {
++			signal: AbortSignal.any([signal, controller.signal]),
++			release: () => {
++				if (activation.leases.delete(controller)) this.wake(activation);
++				controller.abort();
++			}
++		};
++	}
++	/**
+ 	* Reject one child identity already owned by a live Agent or Session.
+ 	* @param childId - proposed durable child session id.
+ 	*/
+@@ -822,12 +867,11 @@ var ContinuableActivationRegistry = class {
+ 	/**
+ 	* Pre-register `childId` in a continuation-managed parent's owned set so the
+ 	* parent cannot settle while a caller is still establishing or resuming that
+-	* child. Returns a releaser for the failure path; it removes only a hold
+-	* this call added, and leaves ownership in place once a live Activation for
+-	* the child exists.
++	* child. The releaser removes only a hold this call added and leaves the
++	* ownership edge in place while an authorized live child Activation exists.
+ 	* @param parent - the live direct parent the operation is admitted under.
+ 	* @param childId - the durable child the operation addresses.
+-	* @returns the failure-path releaser; a no-op when nothing was added.
++	* @returns the temporary-hold releaser; a no-op when nothing was added.
+ 	*/
+ 	holdOwnership(parent, childId) {
+ 		const parentActivation = this.resident.get(parent.id);
+@@ -837,11 +881,7 @@ var ContinuableActivationRegistry = class {
+ 		parentActivation.ownedChildren.add(childId);
+ 		return () => {
+ 			const live = this.resident.get(childId);
+-			/* v8 ignore next 4 -- reaching this arm needs another delivery to establish the child
+-			* between this operation's failure and its releaser running, which no test can schedule
+-			* deterministically: the ownership edge then belongs to that live Activation, so the
+-			* conservative keep leaves it for finishDisposal's releaseOwnership. */
+-			if (live !== void 0 && live.inbox.closing === void 0) return;
++			if (live !== void 0 && live.inbox.closing === void 0 && live.parentSession === parent.id && live.ancestry.has(parent)) return;
+ 			if (parentActivation.ownedChildren.delete(childId)) this.wake(parentActivation);
+ 		};
+ 	}
+@@ -1092,6 +1132,7 @@ var ContinuableActivationRegistry = class {
+ 			inbox: new SubagentInbox(handle.agent),
+ 			ancestry: new WeakSet([handle.agent, ...parentLineage]),
+ 			ownedChildren: /* @__PURE__ */ new Set(),
++			leases: /* @__PURE__ */ new Set(),
+ 			observer,
+ 			announced: false,
+ 			poke: Promise.withResolvers()
+@@ -1193,12 +1234,13 @@ var ContinuableActivationRegistry = class {
+ 	settlementState(activation, observation) {
+ 		if (activation.inbox.closing !== void 0) return "closed";
+ 		if (activation.poke !== observation) return "retry";
+-		if (activation.inbox.hasPending || activation.ownedChildren.size > 0) return "wait";
++		if (activation.inbox.hasPending || activation.ownedChildren.size > 0 || activation.leases.size > 0) return "wait";
+ 		return "ready";
+ 	}
+ 	/** Propagate stop synchronously, then finish the child-first release. */
+ 	async finishDisposal(activation, finalStateFlushed) {
+ 		this.wake(activation);
++		for (const lease of activation.leases) lease.abort();
+ 		const { childId } = activation;
+ 		const failures = [];
+ 		if (finalStateFlushed) try {
+@@ -1634,6 +1676,53 @@ var SubagentContinuationManager = class {
+ 		this.activations = new ContinuableActivationRegistry(ctx, (provider, childId, parent) => host.observeActivation(provider, childId, parent));
+ 	}
+ 	/**
++	* Run a Host operation with a live direct continuable child, without sending
++	* a message. Each caller holds its own lease outside the child lock.
++	* @param parent - exact live direct parent authorizing reconstruction.
++	* @param childId - durable continuable child to reuse or cold-resume.
++	* @param signal - cancellation before acquisition and during the callback.
++	* @param operation - callback receiving the live child and lifetime signal.
++	* @returns the callback result, after releasing only this caller's hold.
++	*/
++	async withContinuableChild(parent, childId, signal, operation) {
++		signal.throwIfAborted();
++		this.activations.assertAdmitting(parent);
++		if (this.ctx.agents.get(parent.id) !== parent) throw new SubagentError("continuation lease requires the exact live parent agent", "UNAUTHORIZED");
++		const parentHold = this.activations.holdParent(parent, signal);
++		let releaseParent = parentHold.release;
++		try {
++			while (true) {
++				const acquired = await this.activations.locks.run(childId, async () => {
++					parentHold.signal.throwIfAborted();
++					this.activations.assertAdmitting(parent);
++					const live = this.activations.get(childId);
++					if (live?.inbox.closing !== void 0) {
++						await Promise.allSettled([live.inbox.closing]);
++						return;
++					}
++					const activation = live ?? await this.coldMaterialize(parent, childId, parentHold.signal);
++					parentHold.signal.throwIfAborted();
++					const lease = this.activations.lease(activation, parent, signal);
++					releaseParent();
++					releaseParent = () => {};
++					return {
++						activation,
++						lease
++					};
++				});
++				if (acquired === void 0) continue;
++				try {
++					acquired.lease.signal.throwIfAborted();
++					return await operation(acquired.activation.handle.agent, acquired.lease.signal);
++				} finally {
++					acquired.lease.release();
++				}
++			}
++		} finally {
++			releaseParent();
++		}
++	}
++	/**
+ 	* Start one continuable background child and resolve at initial inbox acceptance.
+ 	* Every earlier failure disposes any created handle and rolls back Activation
+ 	* and parent ownership without returning either id.
+@@ -1868,6 +1957,11 @@ var SubagentContinuationManager = class {
+ 	* supplies every reconstruction input; no subagent provider is dispatched.
+ 	*/
+ 	async coldResume(parent, childId, content, options) {
++		const activation = await this.coldMaterialize(parent, childId, options.signal);
++		return await this.submitMaterialized(activation, content, options, parent);
++	}
++	/** Reconstruct a cold child from its own durable descriptor without delivery. */
++	async coldMaterialize(parent, childId, signal) {
+ 		const env_1 = {
+ 			stack: [],
+ 			error: void 0,
+@@ -1877,9 +1971,9 @@ var SubagentContinuationManager = class {
+ 			const query = this.requireSessionQuery();
+ 			let observation;
+ 			try {
+-				observation = await query.observeSession(childId, { signal: options.signal });
++				observation = await query.observeSession(childId, { signal });
+ 			} catch (error) {
+-				options.signal.throwIfAborted();
++				signal.throwIfAborted();
+ 				throw new SubagentError(`subagent "${childId}" is unavailable`, "NOT_RESUMABLE", { cause: error });
+ 			}
+ 			const source = __addDisposableResource$1(env_1, observation, false);
+@@ -1902,14 +1996,14 @@ var SubagentContinuationManager = class {
+ 						persona: descriptor.persona,
+ 						toolFilter: descriptor.toolFilter
+ 					},
+-					signal: options.signal
++					signal
+ 				});
+ 			} catch (error) {
+-				options.signal.throwIfAborted();
++				signal.throwIfAborted();
+ 				if (error instanceof SubagentError) throw error;
+ 				throw new SubagentError(`subagent "${childId}" is unavailable`, "NOT_RESUMABLE", { cause: error });
+ 			}
+-			return await this.submitMaterialized(activation, content, options, parent);
++			return activation;
+ 		} catch (e_1) {
+ 			env_1.error = e_1;
+ 			env_1.hasError = true;
+@@ -2882,6 +2976,25 @@ let SubagentRuntime = (() => {
+ 			return this.requireContinuations().startContinuable(spec);
+ 		}
+ 		/**
++		* Reuse or cold-resume one direct continuable child for a Host callback without
++		* adding a message or starting a model turn. The original continuation owner
++		* retains the child until this callback settles; independent leases and live
++		* descendants continue to retain it afterward. Explicit teardown overrides
++		* leases and aborts the callback signal. Callbacks must observe that signal;
++		* caller cancellation does not cancel another lease or an accepted child turn.
++		* This Host-only method is not exported as a Remote or model tool.
++		* @param parent - exact live direct parent; stale same-id instances are rejected.
++		* @param childId - durable child whose lineage and continuation descriptor are checked.
++		* @param signal - cancellation before acquisition and during the callback.
++		* @param operation - callback receiving the child and combined lifetime signal.
++		* @returns the callback result after releasing this caller's lease.
++		* @throws when services are unavailable, lineage or descriptor validation fails,
++		*   acquisition is cancelled, teardown has begun, or the callback rejects.
++		*/
++		async withContinuableChild(parent, childId, signal, operation) {
++			return this.requireContinuations().withContinuableChild(parent, childId, signal, operation);
++		}
++		/**
+ 		* Steer one model-authored message to the sender's direct parent or direct
+ 		* continuable child. A running target admits it at the nearest step boundary;
+ 		* an idle target starts a turn, and an absent direct child cold-resumes from
+diff --git a/lib/typert.host.js b/lib/typert.host.js
+index 433ec1ffc2f47fbf545f394625c83fde4befbdc4..ab18896578cb8aceae9384e236d77cab2d63ce35 100644
+--- a/lib/typert.host.js
++++ b/lib/typert.host.js
+@@ -102,7 +102,7 @@ export const TYPERT = {
+         typeSymbol: '@deepseek-ai/dsh-subagent/client#SubagentInterruptReceipt',
+         schema: _deepseek_ai_dsh_subagent_subagents_interruptByParent_result$schema,
+       },
+-      sourceLocation: {"file":"packages/subagent/subagent/src/index.ts","line":480,"column":3},
++      sourceLocation: {"file":"packages/subagent/subagent/src/index.ts","line":505,"column":3},
+     },
+     {
+       id: '@deepseek-ai/dsh-subagent#subagents/list',
+@@ -129,7 +129,7 @@ export const TYPERT = {
+         typeSymbol: '@deepseek-ai/dsh-subagent/client#SubagentCatalog',
+         schema: _deepseek_ai_dsh_subagent_subagents_list_result$schema,
+       },
+-      sourceLocation: {"file":"packages/subagent/subagent/src/index.ts","line":386,"column":9},
++      sourceLocation: {"file":"packages/subagent/subagent/src/index.ts","line":411,"column":9},
+     },
+     {
+       id: '@deepseek-ai/dsh-subagent#subagents/prompt',
+@@ -155,7 +155,7 @@ export const TYPERT = {
+         typeSymbol: '@deepseek-ai/dsh-subagent/client#SubagentPromptReceipt',
+         schema: _deepseek_ai_dsh_subagent_subagents_prompt_result$schema,
+       },
+-      sourceLocation: {"file":"packages/subagent/subagent/src/index.ts","line":413,"column":9},
++      sourceLocation: {"file":"packages/subagent/subagent/src/index.ts","line":438,"column":9},
+     },
+   ],
+   model: {
+@@ -175,6 +175,13 @@ export const TYPERT = {
+             "summary": "Establish one durable continuable child and deliver its initial prompt.",
+             "jsDoc": "/**\n * Establish one durable continuable child and deliver its initial prompt.\n * Resolves when the child's inbox accepts that prompt, without waiting for the\n * turn to start or for the message to reach the Session log; any earlier\n * failure rejects with no ids and rolls back the child entirely.\n * @param spec - provider, delegation request, and caller cancellation.\n * @returns the durable child id and the accepted prompt's message id.\n * @throws when continuation services are unavailable or materialization fails.\n */"
+           },
++          {
++            "kind": "method",
++            "name": "withContinuableChild",
++            "signature": "async withContinuableChild<T>( parent: Agent, childId: SessionId, signal: AbortSignal, operation: (child: Agent, signal: AbortSignal) => Promise<T>, ): Promise<T>",
++            "summary": "Reuse or cold-resume one direct continuable child for a Host callback without adding a message or starting a model turn.",
++            "jsDoc": "/**\n * Reuse or cold-resume one direct continuable child for a Host callback without\n * adding a message or starting a model turn. The original continuation owner\n * retains the child until this callback settles; independent leases and live\n * descendants continue to retain it afterward. Explicit teardown overrides\n * leases and aborts the callback signal. Callbacks must observe that signal;\n * caller cancellation does not cancel another lease or an accepted child turn.\n * This Host-only method is not exported as a Remote or model tool.\n * @param parent - exact live direct parent; stale same-id instances are rejected.\n * @param childId - durable child whose lineage and continuation descriptor are checked.\n * @param signal - cancellation before acquisition and during the callback.\n * @param operation - callback receiving the child and combined lifetime signal.\n * @returns the callback result after releasing this caller's lease.\n * @throws when services are unavailable, lineage or descriptor validation fails,\n *   acquisition is cancelled, teardown has begun, or the callback rejects.\n */"
++          },
+           {
+             "kind": "method",
+             "name": "sendMessage",
+diff --git a/lib/typert.remote-client.js b/lib/typert.remote-client.js
+index 11bcd934a1ccc9b4531183577f95006958684517..a32e578171051c10815b02946b82f89e18269291 100644
+--- a/lib/typert.remote-client.js
++++ b/lib/typert.remote-client.js
+@@ -99,7 +99,7 @@ export const TYPERT_REMOTE = {
+         typeSymbol: '@deepseek-ai/dsh-subagent/client#SubagentInterruptReceipt',
+         schema: _deepseek_ai_dsh_subagent_subagents_interruptByParent_result$schema,
+       },
+-      sourceLocation: {"file":"packages/subagent/subagent/src/index.ts","line":480,"column":3},
++      sourceLocation: {"file":"packages/subagent/subagent/src/index.ts","line":505,"column":3},
+     },
+     {
+       id: '@deepseek-ai/dsh-subagent#subagents/list',
+@@ -126,7 +126,7 @@ export const TYPERT_REMOTE = {
+         typeSymbol: '@deepseek-ai/dsh-subagent/client#SubagentCatalog',
+         schema: _deepseek_ai_dsh_subagent_subagents_list_result$schema,
+       },
+-      sourceLocation: {"file":"packages/subagent/subagent/src/index.ts","line":386,"column":9},
++      sourceLocation: {"file":"packages/subagent/subagent/src/index.ts","line":411,"column":9},
+     },
+     {
+       id: '@deepseek-ai/dsh-subagent#subagents/prompt',
+@@ -152,7 +152,7 @@ export const TYPERT_REMOTE = {
+         typeSymbol: '@deepseek-ai/dsh-subagent/client#SubagentPromptReceipt',
+         schema: _deepseek_ai_dsh_subagent_subagents_prompt_result$schema,
+       },
+-      sourceLocation: {"file":"packages/subagent/subagent/src/index.ts","line":413,"column":9},
++      sourceLocation: {"file":"packages/subagent/subagent/src/index.ts","line":438,"column":9},
+     },
+   ],
+ }
+diff --git a/lib/types/continuation-activation.d.ts b/lib/types/continuation-activation.d.ts
+index f681c22a03cf91155cbba99aa965d966167d24ea..92844ced197fd068055523e71df201d0944d92b9 100644
+--- a/lib/types/continuation-activation.d.ts
++++ b/lib/types/continuation-activation.d.ts
+@@ -51,6 +51,8 @@ export interface Activation {
+      * another runtime-incarnation reference. Non-empty blocks settlement.
+      */
+     readonly ownedChildren: Set<SessionId>;
++    /** Independent Host callback holds; explicit teardown aborts their signals. */
++    readonly leases: Set<AbortController>;
+     /** The lifecycle observer that emits this epoch's start and terminal edges. */
+     readonly observer: ActivationObserver;
+     /**
+@@ -62,6 +64,13 @@ export interface Activation {
+     /** Renewed whenever a settlement watcher must re-check residency state. */
+     poke: PromiseWithResolvers<void>;
+ }
++/** One independent process-local hold and its cancellation signal. */
++interface ActivationLease {
++    /** Caller cancellation combined with explicit Activation teardown. */
++    readonly signal: AbortSignal;
++    /** Release only this hold and wake natural settlement. */
++    readonly release: () => void;
++}
+ /** Inputs shared by fresh and resumed Activation materialization. */
+ export interface MaterializeInputs {
+     childId: SessionId;
+@@ -132,6 +141,26 @@ export declare class ContinuableActivationRegistry {
+      * @returns the process-local Activation, or `undefined` when it is not resident.
+      */
+     get(childId: SessionId): Activation | undefined;
++    /**
++     * Retain an admitted child until one Host callback exits. Called under the
++     * child lock so natural settlement cannot cross this acquisition.
++     * @param activation - exact resident epoch to retain.
++     * @param parent - exact live direct parent authorizing the lease.
++     * @param signal - cancellation forwarded to the callback.
++     * @returns callback cancellation and an idempotent release for this hold only.
++     */
++    lease(activation: Activation, parent: Agent, signal: AbortSignal): ActivationLease;
++    /**
++     * Keep an exact managed parent alive across one child acquisition, including
++     * an old child epoch closing before its replacement finishes lookup. This
++     * synchronous hold is independent of the child's ownership edge.
++     * @param parent - exact live parent already authorized by the manager.
++     * @param signal - caller cancellation while acquiring the child.
++     * @returns the acquisition hold, or a no-op hold for an unmanaged parent.
++     */
++    holdParent(parent: Agent, signal: AbortSignal): ActivationLease;
++    /** Add one hold before yielding; explicit teardown retains its close cutoff. */
++    private retain;
+     /**
+      * Reject one child identity already owned by a live Agent or Session.
+      * @param childId - proposed durable child session id.
+@@ -140,12 +169,11 @@ export declare class ContinuableActivationRegistry {
+     /**
+      * Pre-register `childId` in a continuation-managed parent's owned set so the
+      * parent cannot settle while a caller is still establishing or resuming that
+-     * child. Returns a releaser for the failure path; it removes only a hold
+-     * this call added, and leaves ownership in place once a live Activation for
+-     * the child exists.
++     * child. The releaser removes only a hold this call added and leaves the
++     * ownership edge in place while an authorized live child Activation exists.
+      * @param parent - the live direct parent the operation is admitted under.
+      * @param childId - the durable child the operation addresses.
+-     * @returns the failure-path releaser; a no-op when nothing was added.
++     * @returns the temporary-hold releaser; a no-op when nothing was added.
+      */
+     holdOwnership(parent: Agent, childId: SessionId): () => void;
+     /**
+@@ -248,4 +276,5 @@ export declare class ContinuableActivationRegistry {
+     /** Request a best-effort final session flush before closing natural-settlement admission. */
+     private flushFinalState;
+ }
++export {};
+ //# sourceMappingURL=continuation-activation.d.ts.map
+\ No newline at end of file
+diff --git a/lib/types/continuation-activation.js b/lib/types/continuation-activation.js
+index 95e5aebc625dfef38e694d39764e4bbffc7dad84..ca15e948b91c1c11fd85a773f71051aed9339428 100644
+--- a/lib/types/continuation-activation.js
++++ b/lib/types/continuation-activation.js
+@@ -88,6 +88,54 @@ export class ContinuableActivationRegistry {
+     get(childId) {
+         return this.resident.get(childId);
+     }
++    /**
++     * Retain an admitted child until one Host callback exits. Called under the
++     * child lock so natural settlement cannot cross this acquisition.
++     * @param activation - exact resident epoch to retain.
++     * @param parent - exact live direct parent authorizing the lease.
++     * @param signal - cancellation forwarded to the callback.
++     * @returns callback cancellation and an idempotent release for this hold only.
++     */
++    lease(activation, parent, signal) {
++        signal.throwIfAborted();
++        this.assertAdmitting(parent);
++        this.authorizeLineage(parent, activation.childId, activation.parentSession);
++        if (activation.inbox.closing !== undefined) {
++            throw new SubagentError(`subagent "${activation.childId}" is closing`, 'ACTIVATION_CLOSING');
++        }
++        return this.retain(activation, signal);
++    }
++    /**
++     * Keep an exact managed parent alive across one child acquisition, including
++     * an old child epoch closing before its replacement finishes lookup. This
++     * synchronous hold is independent of the child's ownership edge.
++     * @param parent - exact live parent already authorized by the manager.
++     * @param signal - caller cancellation while acquiring the child.
++     * @returns the acquisition hold, or a no-op hold for an unmanaged parent.
++     */
++    holdParent(parent, signal) {
++        const activation = this.resident.get(parent.id);
++        if (activation === undefined || activation.handle.agent !== parent)
++            return { signal, release() { } };
++        if (activation.inbox.closing !== undefined) {
++            throw new SubagentError(`subagent parent "${parent.id}" is closing`, 'ACTIVATION_CLOSING');
++        }
++        return this.retain(activation, signal);
++    }
++    /** Add one hold before yielding; explicit teardown retains its close cutoff. */
++    retain(activation, signal) {
++        const controller = new AbortController();
++        activation.leases.add(controller);
++        this.wake(activation);
++        return {
++            signal: AbortSignal.any([signal, controller.signal]),
++            release: () => {
++                if (activation.leases.delete(controller))
++                    this.wake(activation);
++                controller.abort();
++            },
++        };
++    }
+     /**
+      * Reject one child identity already owned by a live Agent or Session.
+      * @param childId - proposed durable child session id.
+@@ -100,12 +148,11 @@ export class ContinuableActivationRegistry {
+     /**
+      * Pre-register `childId` in a continuation-managed parent's owned set so the
+      * parent cannot settle while a caller is still establishing or resuming that
+-     * child. Returns a releaser for the failure path; it removes only a hold
+-     * this call added, and leaves ownership in place once a live Activation for
+-     * the child exists.
++     * child. The releaser removes only a hold this call added and leaves the
++     * ownership edge in place while an authorized live child Activation exists.
+      * @param parent - the live direct parent the operation is admitted under.
+      * @param childId - the durable child the operation addresses.
+-     * @returns the failure-path releaser; a no-op when nothing was added.
++     * @returns the temporary-hold releaser; a no-op when nothing was added.
+      */
+     holdOwnership(parent, childId) {
+         const parentActivation = this.resident.get(parent.id);
+@@ -119,11 +166,10 @@ export class ContinuableActivationRegistry {
+         parentActivation.ownedChildren.add(childId);
+         return () => {
+             const live = this.resident.get(childId);
+-            /* v8 ignore next 4 -- reaching this arm needs another delivery to establish the child
+-             * between this operation's failure and its releaser running, which no test can schedule
+-             * deterministically: the ownership edge then belongs to that live Activation, so the
+-             * conservative keep leaves it for finishDisposal's releaseOwnership. */
+-            if (live !== undefined && live.inbox.closing === undefined)
++            // A resident authorized child retains the edge after a temporary hold ends.
++            // A different parent's resident child cannot retain a failed ownership claim.
++            if (live !== undefined && live.inbox.closing === undefined
++                && live.parentSession === parent.id && live.ancestry.has(parent))
+                 return;
+             if (parentActivation.ownedChildren.delete(childId))
+                 this.wake(parentActivation);
+@@ -440,6 +486,7 @@ export class ContinuableActivationRegistry {
+             inbox: new SubagentInbox(handle.agent),
+             ancestry: new WeakSet([handle.agent, ...parentLineage]),
+             ownedChildren: new Set(),
++            leases: new Set(),
+             observer,
+             announced: false,
+             poke: Promise.withResolvers(),
+@@ -561,13 +608,15 @@ export class ContinuableActivationRegistry {
+             return 'closed';
+         if (activation.poke !== observation)
+             return 'retry';
+-        if (activation.inbox.hasPending || activation.ownedChildren.size > 0)
++        if (activation.inbox.hasPending || activation.ownedChildren.size > 0 || activation.leases.size > 0)
+             return 'wait';
+         return 'ready';
+     }
+     /** Propagate stop synchronously, then finish the child-first release. */
+     async finishDisposal(activation, finalStateFlushed) {
+         this.wake(activation);
++        for (const lease of activation.leases)
++            lease.abort();
+         const { childId } = activation;
+         const failures = [];
+         if (finalStateFlushed) {
+diff --git a/lib/types/continuation.d.ts b/lib/types/continuation.d.ts
+index 61fba3dc42449906a4256f673f7a81ec19426194..e02d0f0228bc62112574015283061fda2f13166b 100644
+--- a/lib/types/continuation.d.ts
++++ b/lib/types/continuation.d.ts
+@@ -36,6 +36,16 @@ export declare class SubagentContinuationManager {
+     private readonly host;
+     private readonly activations;
+     constructor(ctx: Context, host: ContinuationHost);
++    /**
++     * Run a Host operation with a live direct continuable child, without sending
++     * a message. Each caller holds its own lease outside the child lock.
++     * @param parent - exact live direct parent authorizing reconstruction.
++     * @param childId - durable continuable child to reuse or cold-resume.
++     * @param signal - cancellation before acquisition and during the callback.
++     * @param operation - callback receiving the live child and lifetime signal.
++     * @returns the callback result, after releasing only this caller's hold.
++     */
++    withContinuableChild<T>(parent: Agent, childId: SessionId, signal: AbortSignal, operation: (child: Agent, signal: AbortSignal) => Promise<T>): Promise<T>;
+     /**
+      * Start one continuable background child and resolve at initial inbox acceptance.
+      * Every earlier failure disposes any created handle and rolls back Activation
+@@ -109,6 +119,8 @@ export declare class SubagentContinuationManager {
+      * supplies every reconstruction input; no subagent provider is dispatched.
+      */
+     private coldResume;
++    /** Reconstruct a cold child from its own durable descriptor without delivery. */
++    private coldMaterialize;
+     /** Admit a materialized child, commit its creation fact, and release it on failure. */
+     private submitMaterialized;
+     /** Build and submit one message across the final synchronous admission cutoff. */
+diff --git a/lib/types/continuation.js b/lib/types/continuation.js
+index 29a2cb2114efc2cf3db4c8cd2954b1c0b8ef4159..572a289c7cde53d01e2ca5de8a280c6091cfdc85 100644
+--- a/lib/types/continuation.js
++++ b/lib/types/continuation.js
+@@ -91,6 +91,57 @@ export class SubagentContinuationManager {
+         this.host = host;
+         this.activations = new ContinuableActivationRegistry(ctx, (provider, childId, parent) => host.observeActivation(provider, childId, parent));
+     }
++    /**
++     * Run a Host operation with a live direct continuable child, without sending
++     * a message. Each caller holds its own lease outside the child lock.
++     * @param parent - exact live direct parent authorizing reconstruction.
++     * @param childId - durable continuable child to reuse or cold-resume.
++     * @param signal - cancellation before acquisition and during the callback.
++     * @param operation - callback receiving the live child and lifetime signal.
++     * @returns the callback result, after releasing only this caller's hold.
++     */
++    async withContinuableChild(parent, childId, signal, operation) {
++        signal.throwIfAborted();
++        this.activations.assertAdmitting(parent);
++        if (this.ctx.agents.get(parent.id) !== parent) {
++            throw new SubagentError('continuation lease requires the exact live parent agent', 'UNAUTHORIZED');
++        }
++        const parentHold = this.activations.holdParent(parent, signal);
++        let releaseParent = parentHold.release;
++        try {
++            while (true) {
++                const acquired = await this.activations.locks.run(childId, async () => {
++                    parentHold.signal.throwIfAborted();
++                    this.activations.assertAdmitting(parent);
++                    const live = this.activations.get(childId);
++                    if (live?.inbox.closing !== undefined) {
++                        await Promise.allSettled([live.inbox.closing]);
++                        return undefined;
++                    }
++                    const activation = live ?? await this.coldMaterialize(parent, childId, parentHold.signal);
++                    parentHold.signal.throwIfAborted();
++                    const lease = this.activations.lease(activation, parent, signal);
++                    // Live child ownership replaces the independent acquisition hold in
++                    // this critical section; callback cleanup touches only its own lease.
++                    releaseParent();
++                    releaseParent = () => { };
++                    return { activation, lease };
++                });
++                if (acquired === undefined)
++                    continue;
++                try {
++                    acquired.lease.signal.throwIfAborted();
++                    return await operation(acquired.activation.handle.agent, acquired.lease.signal);
++                }
++                finally {
++                    acquired.lease.release();
++                }
++            }
++        }
++        finally {
++            releaseParent();
++        }
++    }
+     /**
+      * Start one continuable background child and resolve at initial inbox acceptance.
+      * Every earlier failure disposes any created handle and rolls back Activation
+@@ -336,17 +387,22 @@ export class SubagentContinuationManager {
+      * supplies every reconstruction input; no subagent provider is dispatched.
+      */
+     async coldResume(parent, childId, content, options) {
++        const activation = await this.coldMaterialize(parent, childId, options.signal);
++        return await this.submitMaterialized(activation, content, options, parent);
++    }
++    /** Reconstruct a cold child from its own durable descriptor without delivery. */
++    async coldMaterialize(parent, childId, signal) {
+         const env_1 = { stack: [], error: void 0, hasError: false };
+         try {
+             const query = this.requireSessionQuery();
+             let observation;
+             try {
+                 observation = await query.observeSession(childId, {
+-                    signal: options.signal,
++                    signal,
+                 });
+             }
+             catch (error) {
+-                options.signal.throwIfAborted();
++                signal.throwIfAborted();
+                 throw new SubagentError(`subagent "${childId}" is unavailable`, 'NOT_RESUMABLE', { cause: error });
+             }
+             const source = __addDisposableResource(env_1, observation, false);
+@@ -370,16 +426,16 @@ export class SubagentContinuationManager {
+                             : {},
+                     },
+                     composition: { persona: descriptor.persona, toolFilter: descriptor.toolFilter },
+-                    signal: options.signal,
++                    signal,
+                 });
+             }
+             catch (error) {
+-                options.signal.throwIfAborted();
++                signal.throwIfAborted();
+                 if (error instanceof SubagentError)
+                     throw error;
+                 throw new SubagentError(`subagent "${childId}" is unavailable`, 'NOT_RESUMABLE', { cause: error });
+             }
+-            return await this.submitMaterialized(activation, content, options, parent);
++            return activation;
+         }
+         catch (e_1) {
+             env_1.error = e_1;
+diff --git a/lib/types/index.d.ts b/lib/types/index.d.ts
+index 96762bafe567eee9a4259ee21aaf4cb9077a04b9..6e51597d7bf3c7fb055c999e165eb0fdbfdf8e29 100644
+--- a/lib/types/index.d.ts
++++ b/lib/types/index.d.ts
+@@ -115,6 +115,23 @@ export declare class SubagentRuntime extends TypertRemoteService {
+      * @throws when continuation services are unavailable or materialization fails.
+      */
+     startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart>;
++    /**
++     * Reuse or cold-resume one direct continuable child for a Host callback without
++     * adding a message or starting a model turn. The original continuation owner
++     * retains the child until this callback settles; independent leases and live
++     * descendants continue to retain it afterward. Explicit teardown overrides
++     * leases and aborts the callback signal. Callbacks must observe that signal;
++     * caller cancellation does not cancel another lease or an accepted child turn.
++     * This Host-only method is not exported as a Remote or model tool.
++     * @param parent - exact live direct parent; stale same-id instances are rejected.
++     * @param childId - durable child whose lineage and continuation descriptor are checked.
++     * @param signal - cancellation before acquisition and during the callback.
++     * @param operation - callback receiving the child and combined lifetime signal.
++     * @returns the callback result after releasing this caller's lease.
++     * @throws when services are unavailable, lineage or descriptor validation fails,
++     *   acquisition is cancelled, teardown has begun, or the callback rejects.
++     */
++    withContinuableChild<T>(parent: Agent, childId: SessionId, signal: AbortSignal, operation: (child: Agent, signal: AbortSignal) => Promise<T>): Promise<T>;
+     /**
+      * Steer one model-authored message to the sender's direct parent or direct
+      * continuable child. A running target admits it at the nearest step boundary;
+diff --git a/lib/types/index.js b/lib/types/index.js
+index e8d5803fb90ba53e41397fb7c8f0c08ed06430f7..f572c9c0b13c7fbdaa7d364533d0d89b5fb00099 100644
+--- a/lib/types/index.js
++++ b/lib/types/index.js
+@@ -143,6 +143,25 @@ let SubagentRuntime = (() => {
+         async startContinuable(spec) {
+             return this.requireContinuations().startContinuable(spec);
+         }
++        /**
++         * Reuse or cold-resume one direct continuable child for a Host callback without
++         * adding a message or starting a model turn. The original continuation owner
++         * retains the child until this callback settles; independent leases and live
++         * descendants continue to retain it afterward. Explicit teardown overrides
++         * leases and aborts the callback signal. Callbacks must observe that signal;
++         * caller cancellation does not cancel another lease or an accepted child turn.
++         * This Host-only method is not exported as a Remote or model tool.
++         * @param parent - exact live direct parent; stale same-id instances are rejected.
++         * @param childId - durable child whose lineage and continuation descriptor are checked.
++         * @param signal - cancellation before acquisition and during the callback.
++         * @param operation - callback receiving the child and combined lifetime signal.
++         * @returns the callback result after releasing this caller's lease.
++         * @throws when services are unavailable, lineage or descriptor validation fails,
++         *   acquisition is cancelled, teardown has begun, or the callback rejects.
++         */
++        async withContinuableChild(parent, childId, signal, operation) {
++            return this.requireContinuations().withContinuableChild(parent, childId, signal, operation);
++        }
+         /**
+          * Steer one model-authored message to the sender's direct parent or direct
+          * continuable child. A running target admits it at the nearest step boundary;

@@ -21,6 +21,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
 import type { TeamDomainPort, TeamScope } from '../src/domain/team-domain-port.js'
 import type { TeamState } from '../src/domain/types.js'
+import { latestUserText } from './helpers/model-input.js'
 import {
   billedTokensOf,
   mountModesComposition,
@@ -214,6 +215,7 @@ describe('Team budget across workflow runs (M2-5, issue #79)', () => {
         // This cycle's member parks on its join turn; the release must not
         // race past a turn that has not started yet.
         expect(ctx.agents.get(SessionId(team.members[index]!.sessionId))?.status).toBe('running')
+        expect(adapter.requests.some(request => request.sessionId === team.members[index]!.sessionId)).toBe(true)
       }, { timeout: 15_000 })
       adapter.open()
       await vi.waitFor(async () => {
@@ -226,6 +228,9 @@ describe('Team budget across workflow runs (M2-5, issue #79)', () => {
         // before the next release.
         expect(task.ownerSessionId).toBeDefined()
         expect(ctx.agents.get(SessionId(task.ownerSessionId!))?.status).toBe('running')
+        // Running also includes asynchronous context assembly. Release only
+        // once this exact assignment has reached the adapter's actual gate.
+        expect(adapter.requests.some(request => request.sessionId === task.ownerSessionId && latestUserText(request).includes(`Task: ${task.id}, revision `))).toBe(true)
         expect(team.budget.usedRequests).toBe(index + 1)
       }, { timeout: 15_000 })
       adapter.open()

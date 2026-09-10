@@ -136,6 +136,7 @@ export interface TeamDomainPort {
   appendPublicMessage(scope: TeamScope, teamId: TeamId, input: import('./public-message.js').AppendPublicMessageInput): Promise<import('./public-message.js').AppendPublicMessageResult>
   publicRequestResult(scope: TeamScope, teamId: TeamId, author: import('./public-message.js').PublicMessageAuthorInput, requestId: string): Promise<import('./public-message.js').TeamPublicMessage | undefined>
   acknowledgePublicMessage(scope: TeamScope, teamId: TeamId, messageId: string, recipientSessionId: string): Promise<import('./public-message.js').TeamPublicMessage>
+  settlePublicMessage(scope: TeamScope, teamId: TeamId, messageId: string, recipientSessionId: string, reason: 'recipient-removed' | 'team-archived'): Promise<import('./public-message.js').TeamPublicMessage>
   /** Plan-first: create a durable staged managed Team (no Captain Session). */
   createStagedManaged(scope: TeamScope, managedOrigin: string, name: string, description: string, captainRoute?: TeamModelRoute): Promise<TeamState>
   /** Plan-first: store one bounded plan declaration (staged only, revision CAS). */

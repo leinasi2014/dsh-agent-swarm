@@ -39,6 +39,10 @@ export interface Config {
   maxMemories?: number
   maxInteractionEffects?: number
   maxPublicMessages?: number
+  maxPublicSegments?: number
+  maxDirectoryReadConcurrency?: number
+  maxDirectoryReadMs?: number
+  maxDirectoryEntryReadMs?: number
   maxPublicTextBytes?: number
   maxPublicBytes?: number
   maxVerificationCommands?: number
@@ -85,6 +89,10 @@ export const Config: z<Config> = z.object({
   maxMemories: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxMemories),
   maxInteractionEffects: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxInteractionEffects),
   maxPublicMessages: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxPublicMessages),
+  maxPublicSegments: z.number().step(1).min(1).max(256).default(DEFAULT_TEAM_LIMITS.maxPublicSegments),
+  maxDirectoryReadConcurrency: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxDirectoryReadConcurrency),
+  maxDirectoryReadMs: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxDirectoryReadMs),
+  maxDirectoryEntryReadMs: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxDirectoryEntryReadMs),
   maxPublicTextBytes: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxPublicTextBytes),
   maxPublicBytes: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxPublicBytes),
   maxVerificationCommands: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxVerificationCommands),

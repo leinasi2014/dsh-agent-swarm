@@ -112,7 +112,7 @@ export function apply(ctx: ClientContext): void {
   }), 'swarm Team Sidebar tab type')
   ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
     name: 'sidebar.right.pane.tab', key: TEAM_TAB_ID, locale: TEAM_DASHBOARD_NS,
-    inject: () => ({ anchorRef, controller, coordinator, localeTag: coordinator.localeTag }),
+    inject: () => ({ anchorRef, controller, coordinator, chat, localeTag: coordinator.localeTag }),
   }, TeamDashboardDetails))
   ctx.slots.inject('conversation.session.header.lineage.display', () => ctx.slots.register({
     name: 'conversation.session.header.lineage.display',
@@ -122,6 +122,10 @@ export function apply(ctx: ClientContext): void {
     yield ctx.slots.register({ name: 'main', key: groupPanel, locale: TEAM_DASHBOARD_NS,
       inject: () => ({ hooks: { chat, team: controller, surface: coordinator },
         edit: (text: string) => { chat.edit(text) }, reply: (id: string | undefined) => { chat.reply(id) },
+        replaceText: (start: number, end: number, text: string) => { chat.replaceText(start, end, text) },
+        chooseMention: (start: number, end: number, memberId: string) => { chat.chooseMention(start, end, memberId) },
+        removeMention: (start: number, reselect?: boolean) => { chat.removeMention(start, reselect) },
+        refreshDirectory: () => { void chat.refreshDirectory() }, upgradeLegacy: () => { void chat.upgradeLegacy() },
         send: () => { void chat.send() }, recover: () => { void chat.recover() },
         earlier: () => { void chat.earlier() }, newer: () => { void chat.newer() }, refresh: () => { void chat.refresh() },
         openTeam: () => { const current = sessionsService.list.getSnapshot().current; if (current !== undefined) coordinator.toggle(current) },
@@ -134,7 +138,7 @@ export function apply(ctx: ClientContext): void {
   })
   ctx.slots.inject('sidebar.navigation.section', () => ctx.slots.register({
     name: 'sidebar.navigation.section', id: 'swarm.groups', locale: TEAM_DASHBOARD_NS,
-    inject: () => ({ hooks: { team: controller },
+    inject: () => ({ hooks: { team: controller, chat }, refreshDirectory: () => { void chat.refreshDirectory() },
       selectGroup: (teamId: string) => { controller.selectTeam(teamId); ctx.layout.selectPanel(groupPanel) },
       openMain: async () => { await coordinator.openMainChat(); ctx.layout.selectPanel(null) },
       openCaptain: async () => { await coordinator.openCaptainChat(); ctx.layout.selectPanel(null) },

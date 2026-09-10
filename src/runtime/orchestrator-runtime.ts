@@ -12,6 +12,7 @@ import type { TaskAttempt, TeamAnnouncement, TeamCommunicationIntensity, TeamId,
 import { TeamDomain } from '../domain/team-domain.js'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import { TeamDomainError } from '../domain/error.js'
+import { hasPublicDebt } from '../domain/public-message.js'
 import type { MemberIdentityInput } from '../domain/identity-profile.js'
 import { StorageDomainTeamStore } from '../storage/storage-domain-team-store.js'
 import { teamDomainSpec } from '../storage/team-spec.js'
@@ -39,6 +40,7 @@ import { DedicatedCaptainProvisioner } from './dedicated-captain-provisioning.js
 import { RuntimeMutationSurface } from './runtime-mutation-surface.js'
 import { ManagedActivationRecovery } from './managed-activation-recovery.js'
 import { SchedulingAdmission } from './scheduling-admission.js'
+import { TeamDirectory } from './team-directory.js'
 
 export type { ToolExecutionAuthority }
 export type { ReviewProviderInput, ReviewProviderResult, SchedulerDecision, SchedulerSelectionInput, TeamReviewProvider, TeamSchedulerProvider }
@@ -46,6 +48,7 @@ export type { RuntimeConfig } from './runtime-contract.js'
 
 /** DSH-facing runtime that composes the framework-neutral domain with continuable subagents. */
 export class AgentSwarmRuntime extends Service {
+  readonly directory: TeamDirectory
   readonly captainModels: CaptainModelSelection
   private domainInstance?: TeamDomainPort
   private storeInstance?: StorageDomainTeamStore
@@ -96,6 +99,7 @@ export class AgentSwarmRuntime extends Service {
     readonly config: RuntimeConfig,
   ) {
     super(ctx, 'agentSwarm')
+    this.directory = new TeamDirectory(ctx, scope => this.listTeamAggregates(scope), config.limits)
     if (!Number.isSafeInteger(config.disposalTimeoutMs) || config.disposalTimeoutMs < 1) { throw new TeamDomainError('disposalTimeoutMs must be a positive safe integer', 'TEAM_INVALID_CONFIG') }
     if (!Number.isSafeInteger(config.strandedAfterMs) || config.strandedAfterMs < 0) { throw new TeamDomainError('strandedAfterMs must be a safe non-negative integer', 'TEAM_INVALID_CONFIG') }
     const requestSchedule = (scope: TeamScope, teamId: TeamId, captain: Agent): void => { void this.scheduling.request(scope, teamId, captain) }
@@ -171,6 +175,7 @@ export class AgentSwarmRuntime extends Service {
       verificationFamily: this.verificationFamily, executionRoots: this.executionRoots, delivery: this.delivery,
       reviewProvider: name => this.reviewProviders.get(name),
       requestSchedule: (scope, teamId, captain) => this.scheduling.request(scope, teamId, captain),
+      kickPublicMessages: (scope, teamId) => this.kickPublicMessages(scope, teamId),
     })
     this.activationRecovery = new ManagedActivationRecovery(ctx, {
       teams: scope => this.listTeamAggregates(scope),
@@ -204,15 +209,11 @@ export class AgentSwarmRuntime extends Service {
   /** Rebuild Captain ownership and scoped role caches from canonical records. */
   private async recoverOwnedChildrenFromPersistence(): Promise<void> {
     if (this.storeInstance === undefined) return
-    const recovered = await recoverOwnedChildrenFromPersistence(this.ctx, {
+    await recoverOwnedChildrenFromPersistence(this.ctx, {
       store: this.storeInstance,
       rememberTeam: (team, scope) => { this.config.teamSkills.rememberTeam(team); this.captainModels.remember(team, scope) },
+      ownedChildren: this.ownedChildren,
     })
-    for (const [parent, children] of recovered) {
-      const existing = this.ownedChildren.get(parent) ?? new Set<string>()
-      for (const child of children) existing.add(child)
-      this.ownedChildren.set(parent, existing)
-    }
   }
   private async ensureReady(): Promise<void> {
     if (this.domainInstance === undefined) await this.start()
@@ -502,7 +503,7 @@ export class AgentSwarmRuntime extends Service {
     this.watchJobsScope(scope)
     let membership = await this.domain.findMembership(scope, agent.id)
     if (membership === undefined || this.closing) return
-    if (membership.team.publicChat?.messages.some(message => message.delivery.state === 'queued')) {
+    if (hasPublicDebt(membership.team.publicChat)) {
       await this.delivery.deliverPublicMessages(scope, membership.team.id, this.publicAbort.signal)
     }
     if (membership.role === 'captain') {

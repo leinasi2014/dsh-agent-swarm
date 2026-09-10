@@ -36,7 +36,8 @@ import type { TeamId, TeamMessage, TeamMessageId, TeamState } from '../domain/ty
 import { framePredicate, frameVisibility, sessionAccepts, waitForFrameClaim } from './frame-visibility.js'
 import { messageFrame } from './prompts.js'
 import type { SubagentPromptRequestId } from '@deepseek-ai/dsh-subagent'
-import { publicAppendEligibility } from './public-lineage.js'
+import { publicRecipientEligibility } from './public-lineage.js'
+import { isPublicMessageV2, publicDeliveries, publicManagedParent } from '../domain/public-message.js'
 
 /** One serialized drain, including overlapping work it waited for. */
 export interface PublicDeliveryResult {
@@ -72,6 +73,24 @@ export class MessageDelivery {
     },
   ) {}
 
+  /** Serialize membership retirement with the entire official public admission,
+   * including cold observation/materialization and the bounded claim wait.
+   * A retirement cannot return while an earlier admission can still create a child.
+   */
+  async withPublicAdmissionFence<T>(scope: TeamScope, teamId: TeamId, operation: () => Promise<T>): Promise<T> {
+    const key = `${scope}\0${teamId}`
+    let inherited: PublicDeliveryResult = { admitted: false, deferred: true, reconciled: 0 }
+    const previous = this.publicChains.get(key) ?? Promise.resolve({ admitted: false, deferred: false, reconciled: 0 })
+    const outcome = previous.catch(() => inherited).then(async prior => {
+      inherited = prior
+      return { prior, value: await operation() }
+    })
+    const next = outcome.then(({ prior }) => prior, () => ({ ...inherited, deferred: true }))
+      .finally(() => { if (this.publicChains.get(key) === next) this.publicChains.delete(key) })
+    this.publicChains.set(key, next)
+    return (await outcome).value
+  }
+
   /** Public input uses this same delivery owner and immutable aggregate debt. */
   async deliverPublicMessages(scope: TeamScope, teamId: TeamId, signal: AbortSignal): Promise<PublicDeliveryResult> {
     const key = `${scope}\0${teamId}`
@@ -84,15 +103,15 @@ export class MessageDelivery {
       const initial = await read()
       if (initial === undefined || this.deps.isClosing()) return { ...result, deferred: true }
       for (const row of initial.publicChat?.messages ?? []) {
-        if (row.delivery.state !== 'queued') continue
+        for (const frozen of publicDeliveries(row)) {
+        if (frozen.state !== 'queued') continue
         signal.throwIfAborted()
+        try {
         let team = await read()
         let message = team?.publicChat?.messages.find(candidate => candidate.id === row.id)
-        if (team === undefined || message?.delivery.state !== 'queued' || team.phase !== 'active') {
-          result.deferred = true
-          continue
-        }
-        const delivery = message.delivery
+        if (team === undefined || message === undefined) { result.deferred = true; continue }
+        const delivery = publicDeliveries(message).find(recipient => recipient.recipientSessionId === frozen.recipientSessionId)
+        if (delivery?.state !== 'queued') continue
         const visibility = await frameVisibility(this.ctx, delivery.recipientSessionId, delivery.frame, signal, `public ${message.id}`, true)
         if (visibility === 'claimed') {
           await this.deps.domain().acknowledgePublicMessage(scope, teamId, message.id, delivery.recipientSessionId)
@@ -102,25 +121,55 @@ export class MessageDelivery {
         // A pending inbox entry or an unreadable checkpoint is not permission
         // to resend. Only proven absence can reach official prompt admission.
         if (visibility !== 'absent' || this.deps.isClosing()) { result.deferred = true; continue }
-        if ((await publicAppendEligibility(this.ctx, scope, team, signal)).state !== 'available') { result.deferred = true; continue }
-        const root = await this.deps.publicRoot?.(delivery.parentSessionId, scope)
-        if (root === undefined) { result.deferred = true; continue }
+        // This entire drain is serialized with all admissions by the same
+        // owner. Only durable absence permits a terminal non-delivery.
         team = await read()
-        message = team?.publicChat?.messages.find(candidate => candidate.id === row.id)
-        if (team?.phase !== 'active' || team.captainSessionId !== delivery.recipientSessionId
-          || message?.delivery.state !== 'queued' || message.delivery.frame !== delivery.frame) { result.deferred = true; continue }
-        signal.throwIfAborted()
-        if (this.deps.isClosing()) return { ...result, deferred: true }
-        await this.ctx.subagents.prompt({ requestId: message.id as SubagentPromptRequestId,
-          parentSessionId: SessionId(delivery.parentSessionId), childSessionId: SessionId(delivery.recipientSessionId),
-          mode: 'continuable', delivery: 'steer', content: [{ type: 'text', text: delivery.frame }] }, signal)
-        result.admitted = true
-        const target = this.ctx.agents.get(SessionId(delivery.recipientSessionId))
-        if (target !== undefined) {
-          await this.deps.accountAgentUsage(scope, teamId, target)
-          if (await waitForFrameClaim(this.ctx, target, delivery.frame, signal, 5_000, true)) {
-            await this.deps.domain().acknowledgePublicMessage(scope, teamId, message.id, delivery.recipientSessionId)
+        if (team === undefined) { result.deferred = true; continue }
+        const removed = delivery.recipientSessionId !== team.captainSessionId
+          && !team.members.some(member => member.sessionId === delivery.recipientSessionId && member.phase === 'active')
+        if (team.phase === 'archived' || removed) {
+          if (isPublicMessageV2(message)) {
+            await this.deps.domain().settlePublicMessage(scope, teamId, message.id, delivery.recipientSessionId,
+              team.phase === 'archived' ? 'team-archived' : 'recipient-removed')
+            result.reconciled++
+          } else result.deferred = true
+          continue
+        }
+        if (!await publicRecipientEligibility(this.ctx, scope, team, [delivery.recipientSessionId], signal)) { result.deferred = true; continue }
+        const parent = publicManagedParent(team.managedOrigin)
+        if (parent === undefined) { result.deferred = true; continue }
+        const root = await this.deps.publicRoot?.(parent, scope)
+        if (root === undefined) { result.deferred = true; continue }
+        const admit = async (leaseSignal: AbortSignal) => {
+          team = await read()
+          message = team?.publicChat?.messages.find(candidate => candidate.id === row.id)
+          const current = message === undefined ? undefined : publicDeliveries(message).find(recipient => recipient.recipientSessionId === delivery.recipientSessionId)
+          if (team?.phase !== 'active' || current?.state !== 'queued' || current.frame !== delivery.frame
+            || (team.captainSessionId !== delivery.recipientSessionId && !team.members.some(member => member.sessionId === delivery.recipientSessionId && member.phase === 'active'))) {
+            result.deferred = true; return
           }
+          leaseSignal.throwIfAborted()
+          if (this.deps.isClosing()) { result.deferred = true; return }
+          await this.ctx.subagents.prompt({ requestId: row.id as SubagentPromptRequestId,
+          parentSessionId: SessionId(delivery.parentSessionId), childSessionId: SessionId(delivery.recipientSessionId),
+          mode: 'continuable', delivery: 'steer', content: [{ type: 'text', text: delivery.frame }] }, leaseSignal)
+          result.admitted = true
+          const target = this.ctx.agents.get(SessionId(delivery.recipientSessionId))
+          if (target !== undefined) {
+            await this.deps.accountAgentUsage(scope, teamId, target)
+            if (await waitForFrameClaim(this.ctx, target, delivery.frame, leaseSignal, 5_000, true)) {
+              await this.deps.domain().acknowledgePublicMessage(scope, teamId, row.id, delivery.recipientSessionId)
+            }
+          }
+        }
+        if (delivery.recipientSessionId === team.captainSessionId) await admit(signal)
+        else await this.ctx.subagents.withContinuableChild(root, SessionId(team.captainSessionId), signal,
+          async (_captain, leaseSignal) => await admit(leaseSignal))
+        } catch (error) {
+          signal.throwIfAborted()
+          result.deferred = true
+          this.ctx.logger.warn(`agent-swarm: public recipient ${frozen.recipientSessionId} remains queued: ${String(error)}`)
+        }
         }
       }
       return result

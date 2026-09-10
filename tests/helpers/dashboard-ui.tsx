@@ -11,7 +11,9 @@ import { SWARM_READ_RPC_FIXTURES_V1 } from '../../src/rpc/read-rpc-artifact.js'
 
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', async () => {
   const react = await import('react')
+  const { profilePrimitives } = await import('./profile-primitives.js')
   return {
+    ...profilePrimitives(),
     Button: ({ children, icon: _icon, ...props }: Record<string, unknown>) => react.createElement('button', { type: 'button', ...props }, children as ReactNode),
     IconUserOutline16: () => react.createElement('svg', { 'data-icon': 'user', width: 16, height: 16 }), IconCodeOutline16: () => react.createElement('svg', { 'data-icon': 'code', width: 16, height: 16 }), IconCloseOutline16: () => react.createElement('svg', { 'data-icon': 'close', width: 16, height: 16 }), IconRefreshOutline16: () => react.createElement('svg', { 'data-icon': 'refresh', width: 16, height: 16 }),
     Pill: ({ children }: { children?: ReactNode }) => react.createElement('span', {}, children), StateDot: () => react.createElement('span', {}),

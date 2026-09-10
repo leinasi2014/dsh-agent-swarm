@@ -10,6 +10,7 @@ import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { TeamScope } from '../domain/team-domain-port.js'
 import type { TeamState } from '../domain/types.js'
 import { TeamDomainError } from '../domain/error.js'
+import { hasPublicDebt } from '../domain/public-message.js'
 import { readPersistedSession } from './persisted-session.js'
 import type { PublicDeliveryResult } from './message-delivery.js'
 
@@ -48,9 +49,9 @@ export class ManagedActivationRecovery {
       for (const observed of await this.deps.teams(scope)) {
         let team = observed
         signal.throwIfAborted()
-        const publicDebt = team.publicChat?.messages.some(message => message.delivery.state === 'queued') === true
+        const publicDebt = hasPublicDebt(team.publicChat)
         const taskDebt = hasTaskDebt(team)
-        if (team.phase !== 'active' || team.managedOrigin === undefined || (!publicDebt && !taskDebt)) continue
+        if (team.managedOrigin === undefined || (!publicDebt && !taskDebt)) continue
         if (publicDebt && this.deps.drainPublic !== undefined) {
           const drained = await this.deps.drainPublic(scope, team)
           // A new admission or uncertain/pending debt owns this wake. Pure
@@ -60,6 +61,7 @@ export class ManagedActivationRecovery {
           if (current === undefined) continue
           team = current
         }
+        if (team.phase !== 'active') continue
         const managedOrigin = team.managedOrigin
         if (managedOrigin === undefined) continue
         const captainHeader = byId.get(team.captainSessionId)
@@ -113,7 +115,7 @@ export class ManagedActivationRecovery {
     const team = (await this.deps.teams(scope)).find(candidate => candidate.id === before.id)
     if (team?.phase !== 'active' || team.managedOrigin !== before.managedOrigin
       || team.captainSessionId !== before.captainSessionId || !hasTaskDebt(team)
-      || team.publicChat?.messages.some(message => message.delivery.state === 'queued')
+      || hasPublicDebt(team.publicChat)
       || this.ctx.agents.get(SessionId(team.captainSessionId)) !== undefined) return undefined
     return team
   }

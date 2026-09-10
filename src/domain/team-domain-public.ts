@@ -6,8 +6,11 @@ import type { TeamScope } from './team-domain-port.js'
 import type { TeamId, TeamState } from './types.js'
 import {
   PUBLIC_REQUEST_ID_PATTERN, publicAuthorKey, publicBindingDigest, publicChatReservedBytes, publicManagedParent, publicMessageFrame,
+  isPublicMessageV2, publicMessageFrameV2,
   type AppendPublicMessageInput, type AppendPublicMessageResult, type PublicMessageAuthorInput, type TeamPublicAuthor, type TeamPublicMessage,
+  type TeamPublicChat, type TeamPublicMessageV2,
 } from './public-message.js'
+import { hasUnconfirmedPublicMention, normalizePublicContent, publicMentionIds, renderPublicContent } from '../shared/public-content.js'
 
 function requestId(value: string): string {
   expectDomain(PUBLIC_REQUEST_ID_PATTERN.test(value), 'public requestId must contain 1..128 ASCII identity characters', 'TEAM_INPUT_INVALID')
@@ -24,7 +27,9 @@ function freezeAuthor(team: TeamState, author: PublicMessageAuthorInput): TeamPu
 }
 
 export async function appendPublicMessage(deps: TeamDomainDeps, scope: TeamScope, teamId: TeamId, input: AppendPublicMessageInput): Promise<AppendPublicMessageResult> {
-  const normalized = { ...input, requestId: requestId(input.requestId), text: nonEmpty(input.text, 'public text', deps.limits.maxPublicTextBytes) }
+  const normalized = input.formatVersion === 2
+    ? { ...input, requestId: requestId(input.requestId), content: normalizePublicContent(input.content) }
+    : { ...input, requestId: requestId(input.requestId), text: input.text.trim() }
   const digest = publicBindingDigest(teamId, normalized)
   return await deps.store.transact(scope, teamId, team => {
     if (input.author.kind === 'agent') actorMembership(team, input.author.sessionId)
@@ -47,14 +52,40 @@ export async function appendPublicMessage(deps: TeamDomainDeps, scope: TeamScope
       && (input.replyTo === undefined || messages.some(message => message.id === input.replyTo)),
     'public replyTo must identify an existing message in this Team', 'TEAM_PUBLIC_REPLY_INVALID')
     expectDomain(messages.length < deps.limits.maxPublicMessages, 'public message/request capacity reached', 'TEAM_PUBLIC_CAPACITY')
+    expectDomain(input.formatVersion !== 2 || input.content.length <= deps.limits.maxPublicSegments,
+      'public content segment limit reached', 'TEAM_PUBLIC_CAPACITY')
+    const labels = normalized.formatVersion === 2 ? publicMentionIds(normalized.content).map(memberId => {
+      const member = team.members.find(row => row.sessionId === memberId && row.phase === 'active')
+      expectDomain(memberId === team.captainSessionId || member !== undefined,
+        'public recipient is not a current Team participant', 'TEAM_PUBLIC_RECIPIENT_INVALID')
+      return { memberId, label: memberId === team.captainSessionId
+        ? team.captainProfile?.displayName ?? 'captain' : member!.displayName ?? member!.name }
+    }) : []
+    if (normalized.formatVersion === 2) {
+      expectDomain(author.kind !== 'agent' || labels.length === 0, 'Agent replies do not request delivery', 'TEAM_PUBLIC_RECIPIENT_INVALID')
+      expectDomain(author.kind !== 'local-operator' || !hasUnconfirmedPublicMention(normalized.content),
+        'Confirm the mention or escape the literal @', 'TEAM_PUBLIC_MENTION_UNCONFIRMED')
+    }
+    const text = nonEmpty(normalized.formatVersion === 2
+      ? renderPublicContent(normalized.content, labels, author.kind === 'agent') : normalized.text, 'public text', deps.limits.maxPublicTextBytes)
     const base = { id: `public-${randomUUID()}`, sequence: messages.length + 1, createdAt: deps.now(), author,
-      text: normalized.text, requestId: normalized.requestId, bindingDigest: digest,
+      text, requestId: normalized.requestId, bindingDigest: digest,
       ...(input.replyTo === undefined ? {} : { replyTo: input.replyTo }) }
-    const message: TeamPublicMessage = { ...base, delivery: author.kind === 'local-operator'
+    let message: TeamPublicMessage
+    if (normalized.formatVersion === 2) {
+      const body = { ...base, formatVersion: 2 as const, content: normalized.content, mentionLabels: labels }
+      const recipients = labels.length === 0 ? [team.captainSessionId] : labels.map(row => row.memberId)
+      message = { ...body, delivery: author.kind === 'agent' ? { kind: 'not-requested' } : { kind: 'requested', recipients: recipients.map(recipientSessionId => ({
+        state: 'queued', recipientSessionId, parentSessionId: recipientSessionId === team.captainSessionId ? parent : team.captainSessionId,
+        frameVersion: 2, frame: publicMessageFrameV2(team.id, body, recipientSessionId),
+      })) } }
+    } else message = { ...base, delivery: author.kind === 'local-operator'
       ? { state: 'queued', recipientSessionId: team.captainSessionId, parentSessionId: parent,
           frameVersion: 1, frame: publicMessageFrame(team.id, base, team.captainSessionId) }
       : { state: 'not-requested' } }
-    const chat = { schemaVersion: 1 as const, messages: [...messages, message] }
+    const chat: TeamPublicChat = !isPublicMessageV2(message) && (team.publicChat === undefined || team.publicChat.schemaVersion === 1)
+      ? { schemaVersion: 1, messages: [...(team.publicChat?.messages ?? []), message] }
+      : { schemaVersion: 2, messages: [...messages, message] }
     expectDomain(publicChatReservedBytes(chat) <= deps.limits.maxPublicBytes,
       'public byte capacity reached (including request evidence and delivery frames)', 'TEAM_PUBLIC_CAPACITY')
     Object.assign(team, { publicChat: chat })
@@ -75,12 +106,43 @@ export async function acknowledgePublicMessage(deps: TeamDomainDeps, scope: Team
     const index = team.publicChat?.messages.findIndex(message => message.id === messageId) ?? -1
     expectDomain(index >= 0, 'public message not found', 'TEAM_PUBLIC_MESSAGE_NOT_FOUND')
     const message = team.publicChat!.messages[index]!
+    if (isPublicMessageV2(message)) {
+      const next = updateRecipient(message, recipientSessionId, recipient => recipient.state !== 'queued' ? recipient
+        : { ...recipient, state: 'claimed', claimedAt: Math.max(deps.now(), message.createdAt) })
+      Object.assign(team, { publicChat: { schemaVersion: 2, messages: team.publicChat!.messages.map((row, at) => at === index ? next : row) } })
+      return structuredClone(next)
+    }
     const delivery = message.delivery
     expectDomain(delivery.state !== 'not-requested' && delivery.recipientSessionId === recipientSessionId,
       'public receipt recipient does not match the frozen intent', 'TEAM_PUBLIC_DELIVERY_MISMATCH')
     if (delivery.state === 'claimed') return structuredClone(message)
     const next: TeamPublicMessage = { ...message, delivery: { ...delivery, state: 'claimed', claimedAt: Math.max(deps.now(), message.createdAt) } }
     team.publicChat!.messages[index] = next
+    return structuredClone(next)
+  })
+}
+
+type V2Recipient = Extract<TeamPublicMessageV2['delivery'], { kind: 'requested' }>['recipients'][number]
+function updateRecipient(message: TeamPublicMessageV2, id: string, update: (recipient: V2Recipient) => V2Recipient): TeamPublicMessageV2 {
+  expectDomain(message.delivery.kind === 'requested' && message.delivery.recipients.some(row => row.recipientSessionId === id),
+    'public receipt recipient does not match the frozen intent', 'TEAM_PUBLIC_DELIVERY_MISMATCH')
+  if (message.delivery.kind !== 'requested') return message
+  return { ...message, delivery: { ...message.delivery, recipients: message.delivery.recipients.map(row => row.recipientSessionId === id ? update(row) : row) } }
+}
+
+/** Only the delivery owner calls this after proving durable absence, never merely an empty process map. */
+export async function settlePublicMessage(deps: TeamDomainDeps, scope: TeamScope, teamId: TeamId, messageId: string,
+  recipientSessionId: string, reason: 'recipient-removed' | 'team-archived'): Promise<TeamPublicMessage> {
+  return await deps.store.transact(scope, teamId, team => {
+    const message = team.publicChat?.messages.find(row => row.id === messageId)
+    expectDomain(message !== undefined && isPublicMessageV2(message), 'v2 public message not found', 'TEAM_PUBLIC_MESSAGE_NOT_FOUND')
+    if (message === undefined || !isPublicMessageV2(message)) throw new TeamDomainError('v2 public message not found', 'TEAM_PUBLIC_MESSAGE_NOT_FOUND')
+    expectDomain(reason === 'team-archived' ? team.phase === 'archived'
+      : recipientSessionId !== team.captainSessionId && !team.members.some(row => row.sessionId === recipientSessionId && row.phase === 'active'),
+    'public recipient is still eligible', 'TEAM_PUBLIC_DELIVERY_MISMATCH')
+    const next = updateRecipient(message, recipientSessionId, recipient => recipient.state !== 'queued' ? recipient
+      : { ...recipient, state: 'not-delivered', reason, settledAt: Math.max(deps.now(), message.createdAt) })
+    Object.assign(team, { publicChat: { schemaVersion: 2, messages: team.publicChat!.messages.map(row => row.id === messageId ? next : row) } })
     return structuredClone(next)
   })
 }

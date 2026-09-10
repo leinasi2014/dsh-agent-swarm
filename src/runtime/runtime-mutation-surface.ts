@@ -38,6 +38,7 @@ interface RuntimeMutationDeps {
   delivery: MessageDelivery
   reviewProvider: (name: string) => TeamReviewProvider | undefined
   requestSchedule: (scope: TeamScope, teamId: TeamId, captain: Agent) => void
+  kickPublicMessages: (scope: TeamScope, teamId: TeamId) => void
 }
 
 /** Internal implementation of the runtime's public state-changing operations. */
@@ -58,13 +59,17 @@ export class RuntimeMutationSurface {
     }
     exact()
     const membership = await this.deps.domain().requireMembership(scope, agent.id)
-    if ((await publicAppendEligibility(this.deps.ctx, scope, membership.team, exec.signal)).state !== 'available') {
+    const existing = membership.team.publicChat?.messages.find(row => row.author.kind === 'agent'
+      && row.author.sessionId === agent.id && row.requestId === requestId)
+    if (existing === undefined && (await publicAppendEligibility(this.deps.ctx, scope, membership.team, exec.signal)).state !== 'available') {
       throw new TeamDomainError('Public reply requires a managed Team with official lineage', 'TEAM_PUBLIC_UNSUPPORTED')
     }
     exact()
     exec.signal.throwIfAborted()
     return await this.deps.domain().appendPublicMessage(scope, membership.team.id, { author: { kind: 'agent', sessionId: agent.id },
-      requestId, replyTo, text, expectedCaptainSessionId: membership.team.captainSessionId, expectedTeamRevision: membership.team.revision })
+      requestId, replyTo, ...(existing !== undefined && !('formatVersion' in existing) ? { text }
+        : { formatVersion: 2 as const, content: [{ type: 'text' as const, text }] }),
+      expectedCaptainSessionId: membership.team.captainSessionId, expectedTeamRevision: membership.team.revision })
   }
 
   async addMemory(exec: ToolExecutionAuthority, category: 'decision' | 'lesson' | 'member' | 'context', content: string, evidenceRefs: readonly string[]) {
@@ -351,13 +356,27 @@ export class RuntimeMutationSurface {
     return task
   }
 
+  private assertRetirementAuthority(exec: ToolExecutionAuthority, captain: Agent, scope: TeamScope): void {
+    exec.signal.throwIfAborted()
+    this.deps.assertOpen()
+    if (this.deps.ctx.agents.get(captain.id) !== captain || this.deps.ctx.sessions.get(captain.id) !== captain.session
+      || this.deps.scopeOf(captain) !== scope) {
+      throw new TeamDomainError('Team retirement requires the exact live executing Captain', 'TEAM_AGENT_REQUIRED')
+    }
+  }
+
   async removeMember(exec: ToolExecutionAuthority, name: string, reason: string) {
     await this.deps.ensureReady(); this.deps.assertOpen()
     const captain = requireAgent(exec), scope = this.deps.scopeOf(captain)
     const membership = await this.deps.domain().requireMembership(scope, captain.id)
-    const removed = await this.deps.domain().removeMember(scope, membership.team.id, captain.id, name, reason)
-    this.deps.ctx.subagents.interrupt(SessionId(removed.member.sessionId), { kind: 'ancestor', agent: captain })
-    await this.deps.ctx.subagents.drainContinuableChildren(captain, [SessionId(removed.member.sessionId)])
+    const removed = await this.deps.delivery.withPublicAdmissionFence(scope, membership.team.id, async () => {
+      this.assertRetirementAuthority(exec, captain, scope)
+      const result = await this.deps.domain().removeMember(scope, membership.team.id, captain.id, name, reason)
+      this.deps.ctx.subagents.interrupt(SessionId(result.member.sessionId), { kind: 'ancestor', agent: captain })
+      await this.deps.ctx.subagents.drainContinuableChildren(captain, [SessionId(result.member.sessionId)])
+      return result
+    })
+    this.deps.kickPublicMessages(scope, membership.team.id)
     await this.deps.executionRoots.sweep(scope, membership.team.id)
     this.deps.requestSchedule(scope, membership.team.id, captain)
     return removed
@@ -367,10 +386,17 @@ export class RuntimeMutationSurface {
     await this.deps.ensureReady(); this.deps.assertOpen()
     const captain = requireAgent(exec), scope = this.deps.scopeOf(captain)
     const membership = await this.deps.domain().requireMembership(scope, captain.id)
-    const activeIds = membership.team.members.filter(member => member.phase === 'active' || member.phase === 'provisioning').map(member => SessionId(member.sessionId))
-    const archived = await this.deps.domain().archiveTeam(scope, membership.team.id, captain.id, reason)
-    for (const id of activeIds) this.deps.ctx.subagents.interrupt(id, { kind: 'ancestor', agent: captain })
-    await this.deps.ctx.subagents.drainContinuableChildren(captain, activeIds)
+    const archived = await this.deps.delivery.withPublicAdmissionFence(scope, membership.team.id, async () => {
+      this.assertRetirementAuthority(exec, captain, scope)
+      const current = await this.deps.domain().requireMembership(scope, captain.id)
+      const activeIds = current.team.members.filter(member => member.phase === 'active' || member.phase === 'provisioning').map(member => SessionId(member.sessionId))
+      this.assertRetirementAuthority(exec, captain, scope)
+      const result = await this.deps.domain().archiveTeam(scope, current.team.id, captain.id, reason)
+      for (const id of activeIds) this.deps.ctx.subagents.interrupt(id, { kind: 'ancestor', agent: captain })
+      await this.deps.ctx.subagents.drainContinuableChildren(captain, activeIds)
+      return result
+    })
+    this.deps.kickPublicMessages(scope, membership.team.id)
     await this.deps.executionRoots.sweep(scope, membership.team.id)
     return archived
   }

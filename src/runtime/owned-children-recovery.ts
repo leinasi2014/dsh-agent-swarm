@@ -16,21 +16,22 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { TeamScope } from '../domain/team-domain-port.js'
 import type { TeamState } from '../domain/types.js'
 
-/** Rebuild the owned-children map: parent session id -> child captain ids. */
+/** Recover persisted Captain edges, then merge them into the runtime's existing ownership map. */
 export async function recoverOwnedChildrenFromPersistence(
   ctx: Context,
   deps: {
     readonly store: { readonly list: (scope: TeamScope) => Promise<TeamState[]> }
     readonly rememberTeam: (team: TeamState, scope: TeamScope) => void
+    readonly ownedChildren: Map<string, Set<string>>
   },
-): Promise<Map<string, Set<string>>> {
+): Promise<void> {
   const persistence = ctx.sessionPersistence
-  if (persistence === undefined) return new Map()
+  if (persistence === undefined) return
   let headers
   try {
     headers = (await persistence.list()).map(snapshot => snapshot.header)
   } catch {
-    return new Map()
+    return
   }
   const owned = new Map<string, Set<string>>()
   const captainsByScope = new Map<TeamScope, ReadonlySet<string>>()
@@ -53,5 +54,9 @@ export async function recoverOwnedChildrenFromPersistence(
     children.add(header.id)
     owned.set(header.parentSession, children)
   }
-  return owned
+  for (const [parent, children] of owned) {
+    const existing = deps.ownedChildren.get(parent) ?? new Set<string>()
+    for (const child of children) existing.add(child)
+    deps.ownedChildren.set(parent, existing)
+  }
 }

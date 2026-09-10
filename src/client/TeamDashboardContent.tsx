@@ -1,3 +1,5 @@
+import type { PublicChatController } from './public-chat-controller.js'
+import { DirectoryMembers } from './DirectoryMembers.js'
 import { Button, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useLayoutEffect, useRef, useSyncExternalStore, type KeyboardEvent } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
@@ -18,8 +20,12 @@ export { deriveMemberActivity, deriveMemberTone, memberRosterInitial, TEAM_WORKS
 
 export const shellCss = `
 [data-swarm-team-dashboard], [data-swarm-team-dashboard] * { box-sizing:border-box; }
-[data-swarm-team-dashboard] .swarm-team-workspace { position:relative; container-type:inline-size; height:100%; min-width:0; overflow:auto; scrollbar-width:thin; color:var(--dsw-alias-label-primary); background:var(--dsw-alias-bg-layer-1); }
-[data-swarm-team-dashboard] .swarm-team-workspace__pane { display:flex; flex-direction:column; min-width:0; }
+[data-swarm-team-dashboard] .swarm-team-workspace { position:relative; container-type:inline-size; display:flex; flex-direction:column; height:100%; min-width:0; min-height:0; overflow:hidden; scrollbar-width:thin; color:var(--dsw-alias-label-primary); background:var(--dsw-alias-bg-layer-1); }
+[data-swarm-team-dashboard] .swarm-team-workspace__pane { display:flex; flex:1; flex-direction:column; min-width:0; min-height:0; overflow:hidden; }
+[data-swarm-team-dashboard] .swarm-team-workspace__browse { display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden; }
+[data-swarm-team-dashboard] .swarm-team-workspace__toolbar { display:flex; align-items:center; gap:10px; padding:0 12px; flex:none; border-bottom:1px solid var(--dsw-alias-border-l2); }
+[data-swarm-team-dashboard] .swarm-team-workspace__collapse { flex:none; border:0; border-radius:6px; background:transparent; color:inherit; padding:6px 9px; font-size:18px; cursor:pointer; }
+[data-swarm-team-dashboard] .swarm-team-workspace__sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
 [data-swarm-team-dashboard] .swarm-team-workspace__pane-head { display:flex; flex:0 0 auto; align-items:center; justify-content:space-between; gap:12px; padding:14px 16px; border-bottom:1px solid var(--dsw-alias-border-l2); }
 [data-swarm-team-dashboard] .swarm-team-workspace__title-row { display:flex; align-items:center; gap:8px; min-width:0; }
 [data-swarm-team-dashboard] .swarm-team-workspace__title { margin:0; overflow:hidden; font-size:16px; line-height:23px; font-weight:700; white-space:nowrap; text-overflow:ellipsis; }
@@ -32,11 +38,11 @@ export const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace__public-title { color:var(--dsw-alias-label-secondary); font-size:12px; font-weight:500; }
 [data-swarm-team-dashboard] .swarm-team-workspace__public-content { overflow:hidden; overflow-wrap:anywhere; font-size:12px; line-height:1.6; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; }
 [data-swarm-team-dashboard] .swarm-team-workspace__public-card time { color:var(--dsw-alias-label-secondary); font-size:12px; white-space:nowrap; }
-[data-swarm-team-dashboard] .swarm-team-workspace__view-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:0 16px; border-bottom:1px solid var(--dsw-alias-border-l2); }
+[data-swarm-team-dashboard] .swarm-team-workspace__view-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin:0; flex:1; min-width:0; border-bottom:1px solid var(--dsw-alias-border-l2); }
 [data-swarm-team-dashboard] .swarm-team-workspace__view-tabs [role="tab"] { min-width:0; overflow:hidden; padding:10px 2px; border:0; border-radius:0; background:transparent; color:var(--dsw-alias-label-secondary); font-size:13px; line-height:20px; font-weight:500; white-space:nowrap; text-overflow:ellipsis; cursor:pointer; }
 [data-swarm-team-dashboard] .swarm-team-workspace__view-tabs [role="tab"]:hover { color:var(--dsw-alias-label-primary); }
 [data-swarm-team-dashboard] .swarm-team-workspace__view-tabs [role="tab"][aria-selected="true"] { color:var(--dsw-alias-state-business-primary); box-shadow:inset 0 -2px 0 var(--dsw-alias-state-business-primary); }
-[data-swarm-team-dashboard] .swarm-team-workspace__pane-body { min-height:0; padding:12px; font-size:13px; line-height:1.6; }
+[data-swarm-team-dashboard] .swarm-team-workspace__pane-body { flex:1; min-height:0; overflow:auto; overscroll-behavior:contain; scrollbar-width:thin; padding:12px; font-size:13px; line-height:1.6; }
 [data-swarm-team-dashboard] .swarm-team-workspace__block-head { display:flex; align-items:baseline; justify-content:space-between; gap:8px; min-width:0; margin:16px 0 10px; font-size:13px; font-weight:650; }
 [data-swarm-team-dashboard] .swarm-team-workspace__block-head:first-child { margin-top:0; }
 [data-swarm-team-dashboard] .swarm-team-workspace__block-head small { overflow:hidden; color:var(--dsw-alias-label-secondary); font-size:12px; font-weight:500; white-space:nowrap; text-overflow:ellipsis; }
@@ -144,7 +150,8 @@ export const shellCss = `
 `
 
 /** Team data stays read-only; explicit user requests use the official Captain inbox. */
-export function TeamDashboardContent({ controller, coordinator, descriptionId, headingId, localeTag, state, t }: {
+export function TeamDashboardContent({ chat, controller, coordinator, descriptionId, headingId, localeTag, state, t }: {
+  readonly chat?: PublicChatController | undefined
   readonly controller: TeamDashboardController
   readonly coordinator: TeamDashboardSurfaceCoordinator
   readonly descriptionId: string
@@ -160,8 +167,9 @@ export function TeamDashboardContent({ controller, coordinator, descriptionId, h
       || (state.pendingTeamId !== undefined && state.pendingTeamId !== data.binding.teamId)
       ? <Empty state={state} controller={controller} t={t} />
       : <>
-        <header className="swarm-team-workspace__pane-head"><div><h2 className="swarm-team-workspace__title" id={headingId}>{data.team.name}</h2><p className="swarm-team-workspace__subtitle" id={descriptionId}>{t('title')} · {enumLabel(data.team.phase, t)}</p></div><button type="button" aria-label={t('close')} onClick={() => { coordinator.closeAndRestoreFocus() }}>×</button></header>
+        <div className="swarm-team-workspace__sr-only"><h2 className="swarm-team-workspace__title" id={headingId}>{data.team.name}</h2><p id={descriptionId}>{t('title')} · {enumLabel(data.team.phase, t)}</p></div>
         <Workspace
+        chat={chat}
         controller={controller}
         coordinator={coordinator}
         data={data}
@@ -198,7 +206,8 @@ function Empty({ state, controller, t }: { readonly state: TeamDashboardState; r
   </section>
 }
 
-function Workspace({ data, localeTag, state, t, teams, announcements, diagnostics, memberAssets, onCommunication, coordinator, controller }: {
+function Workspace({ chat, data, localeTag, state, t, teams, announcements, diagnostics, memberAssets, onCommunication, coordinator, controller }: {
+  readonly chat?: PublicChatController | undefined
   readonly controller: TeamDashboardController
   readonly coordinator: TeamDashboardSurfaceCoordinator
   readonly data: SwarmHostReadProjectionV1
@@ -277,7 +286,6 @@ function Workspace({ data, localeTag, state, t, teams, announcements, diagnostic
   const hasTaskProgress = data.tasks.length > 0 || data.totals.tasks > 0
   const activities = data.attempts.toSorted((left, right) => right.updatedAt - left.updatedAt).slice(0, 3)
   const entries = announcements?.state === 'available' ? announcements.entries : []
-  const latest = entries.toSorted((left, right) => right.createdAt - left.createdAt)[0]
   const tabs = [
     { id: 'tasks' as const, label: t('tasks') },
     { id: 'members' as const, label: t('members') },
@@ -304,7 +312,7 @@ function Workspace({ data, localeTag, state, t, teams, announcements, diagnostic
     <section className="swarm-team-workspace__pane">
       <Status state={state} t={t} />
       <div className="swarm-team-workspace__browse" data-swarm-workbench-browse>
-      <div className="swarm-team-workspace__view-tabs" role="tablist" aria-label={t('tabs.label')} data-swarm-view-tabs>
+      <div className="swarm-team-workspace__toolbar"><div className="swarm-team-workspace__view-tabs" role="tablist" aria-label={t('tabs.label')} data-swarm-view-tabs>
         {tabs.map((tab, index) => (
           <button
             key={tab.id}
@@ -320,62 +328,10 @@ function Workspace({ data, localeTag, state, t, teams, announcements, diagnostic
           >{tab.label}</button>
         ))}
       </div>
-      {(hasTaskProgress || data.pendingInteractions.length > 0) && <div className="swarm-team-workspace__public-bar" data-swarm-progress-and-attention>
-        {hasTaskProgress && <TeamProgress data={data} number={number} t={t} />}
-        {reviewTasks.length > 0 && <button type="button" className="swarm-team-workspace__attention" data-swarm-review-attention onClick={() => { openDetail({ kind: 'task', id: reviewTasks[0]!.id }) }}>
-          <span>{t('progress.reviewAction', { count: number.format(reviewTasks.length) })}</span><span aria-hidden="true">→</span>
-        </button>}
-        {data.pendingInteractions.length > 0 && (
-          <section className="swarm-team-workspace__public-card swarm-team-workspace__attention" data-swarm-attention>
-            <span className="swarm-team-workspace__public-copy">
-              <span className="swarm-team-workspace__public-title">{t('attention.title')}</span>
-              <span className="swarm-team-workspace__public-content">{number.format(data.pendingInteractions.length)}</span>
-              {data.pendingInteractions.slice(0, 3).map(item => (
-                <span key={item.requestId} className="swarm-team-workspace__public-content" data-swarm-attention-row={item.requestId}>{t('attention.row', { intent: item.intent, target: item.targetRef ?? item.targetKind })}</span>
-              ))}
-            </span>
-            <span className="swarm-team-workspace__muted">{t('public.hint')}</span>
-          </section>
-        )}
-      </div>}
-      <details className="swarm-team-workspace__context" data-swarm-team-context open={data.team.phase === 'staged'}>
-        <summary>{t('cards.context')}</summary>
-      <div className="swarm-team-workspace__public-bar" data-swarm-public-bar>
-        <section className="swarm-team-workspace__public-card" data-swarm-goal-card data-swarm-goal-state={goal?.state ?? 'loading'}>
-          <span className="swarm-team-workspace__public-copy">
-            <span className="swarm-team-workspace__public-title">{t('goal')}</span>
-            {goal === undefined
-              ? <span className="swarm-team-workspace__public-content swarm-team-workspace__unavailable">{t('loading')}</span>
-              : goal.state === 'generated'
-                ? <span className="swarm-team-workspace__public-content" data-swarm-goal-text title={goal.text}>{goal.text}</span>
-                : <span className="swarm-team-workspace__public-content swarm-team-workspace__unavailable" data-swarm-goal-not-set>{t('goalNotSet')}</span>}
-          </span>
-        </section>
-        {data.team.phase === 'staged' && <section className="swarm-team-workspace__public-card swarm-team-workspace__attention" data-swarm-staged-plan data-swarm-staged-plan-state="pending">
-          <span className="swarm-team-workspace__public-copy">
-            <span className="swarm-team-workspace__public-title">{t('stagedPlan.title')}</span>
-            {data.team.phase === 'staged'
-              ? <span className="swarm-team-workspace__public-content" data-swarm-staged-plan-summary>{t('stagedPlan.summary', { members: data.team.plan?.members ?? 0, tasks: data.team.plan?.tasks ?? 0 })}</span>
-              : <span className="swarm-team-workspace__public-content swarm-team-workspace__unavailable">{t('stagedPlan.absent')}</span>}
-            {data.team.phase === 'staged' && <span className="swarm-team-workspace__public-content swarm-team-workspace__muted" data-swarm-staged-plan-hint>{t('stagedPlan.hint')}</span>}
-          </span>
-        </section>}
-        {latest !== undefined && <button type="button" className="swarm-team-workspace__public-card swarm-team-workspace__notice-preview" data-swarm-announcement-preview onClick={() => { setView('info') }}>
-          <span className="swarm-team-workspace__public-copy">
-            <span className="swarm-team-workspace__public-title">{t('announcement.latest')}</span>
-            {announcements === undefined
-              ? <span className="swarm-team-workspace__public-content swarm-team-workspace__unavailable">{t('loading')}</span>
-              : announcements.state === 'available'
-                ? latest === undefined
-                  ? <span className="swarm-team-workspace__public-content swarm-team-workspace__unavailable" data-swarm-announcements-empty>{t('announcementsEmpty')}</span>
-                  : <span className="swarm-team-workspace__public-content" title={latest.text}>{latest.text}</span>
-                : <span className="swarm-team-workspace__public-content swarm-team-workspace__unavailable">{t('announcementsUnavailable')}</span>}
-          </span>
-        </button>}
-      </div>
-      </details>
+      <button className="swarm-team-workspace__collapse" type="button" aria-label={t('workspace.collapse')} onClick={() => { coordinator.closeAndRestoreFocus() }}>×</button></div>
       <main className="swarm-team-workspace__pane-body">
-        {view === 'members' && <div role="tabpanel" id="swarm-panel-members" aria-labelledby="swarm-tab-members" data-swarm-panel="members">
+        {view === 'members' && chat !== undefined ? <div role="tabpanel" id="swarm-panel-members" aria-labelledby="swarm-tab-members" data-swarm-panel="members"><DirectoryMembers chat={chat} dashboard={state} onTask={id => { openDetail({ kind: 'task', id }) }} t={t} /></div> : null}
+        {view === 'members' && chat === undefined && <div role="tabpanel" id="swarm-panel-members" aria-labelledby="swarm-tab-members" data-swarm-panel="members">
           <div className="swarm-team-workspace__block-head"><span>{t('workspace.desks')}</span><small>{t('progress.memberCount', { count: number.format(data.totals.roster) })}</small></div>
           <section className="swarm-team-workspace__workroom" aria-label={t('workspace.desks')} data-swarm-workroom>
             <div
@@ -469,11 +425,53 @@ function Workspace({ data, localeTag, state, t, teams, announcements, diagnostic
           </details>
         </div>}
         {view === 'tasks' && <div role="tabpanel" id="swarm-panel-tasks" aria-labelledby="swarm-tab-tasks" data-swarm-panel="tasks">
+      {detail?.kind !== 'task' && (hasTaskProgress || data.pendingInteractions.length > 0) && <div className="swarm-team-workspace__public-bar" data-swarm-progress-and-attention>
+        {hasTaskProgress && <TeamProgress data={data} number={number} t={t} />}
+        {reviewTasks.length > 0 && <button type="button" className="swarm-team-workspace__attention" data-swarm-review-attention onClick={() => { openDetail({ kind: 'task', id: reviewTasks[0]!.id }) }}>
+          <span>{t('progress.reviewAction', { count: number.format(reviewTasks.length) })}</span><span aria-hidden="true">→</span>
+        </button>}
+        {data.pendingInteractions.length > 0 && (
+          <section className="swarm-team-workspace__public-card swarm-team-workspace__attention" data-swarm-attention>
+            <span className="swarm-team-workspace__public-copy">
+              <span className="swarm-team-workspace__public-title">{t('attention.title')}</span>
+              <span className="swarm-team-workspace__public-content">{number.format(data.pendingInteractions.length)}</span>
+              {data.pendingInteractions.slice(0, 3).map(item => (
+                <span key={item.requestId} className="swarm-team-workspace__public-content" data-swarm-attention-row={item.requestId}>{t('attention.row', { intent: item.intent, target: item.targetRef ?? item.targetKind })}</span>
+              ))}
+            </span>
+            <span className="swarm-team-workspace__muted">{t('attention.inSession')}</span>
+          </section>
+        )}
+      </div>}
           <TeamTaskPanel data={data} selection={selection} localeTag={localeTag} memberAssets={memberAssets} controller={controller} state={state}
             onSelect={id => { openDetail({ kind: 'task', id }) }} onBack={() => { closeDetail(true) }} onChange={updateSelection} t={t} />
           {detail?.kind !== 'task' && data.tasks.length > 0 ? <details className="swarm-team-workspace__fold"><summary>{t('dag.title')}</summary><TaskDag tasks={data.tasks} t={t} onSelect={id => { openDetail({ kind: 'task', id }) }} /></details> : null}
         </div>}
         {view === 'info' && <div role="tabpanel" id="swarm-panel-info" aria-labelledby="swarm-tab-info" data-swarm-panel="info">
+      <section className="swarm-team-workspace__context" data-swarm-team-context>
+      <div className="swarm-team-workspace__public-bar" data-swarm-public-bar>
+        <section className="swarm-team-workspace__public-card" data-swarm-goal-card data-swarm-goal-state={goal?.state ?? 'loading'}>
+          <span className="swarm-team-workspace__public-copy">
+            <span className="swarm-team-workspace__public-title">{t('goal')}</span>
+            {goal === undefined
+              ? <span className="swarm-team-workspace__public-content swarm-team-workspace__unavailable">{t('loading')}</span>
+              : goal.state === 'generated'
+                ? <span className="swarm-team-workspace__public-content" data-swarm-goal-text title={goal.text}>{goal.text}</span>
+                : <span className="swarm-team-workspace__public-content swarm-team-workspace__unavailable" data-swarm-goal-not-set>{t('goalNotSet')}</span>}
+          </span>
+        </section>
+        {data.team.phase === 'staged' && <section className="swarm-team-workspace__public-card swarm-team-workspace__attention" data-swarm-staged-plan data-swarm-staged-plan-state="pending">
+          <span className="swarm-team-workspace__public-copy">
+            <span className="swarm-team-workspace__public-title">{t('stagedPlan.title')}</span>
+            {data.team.phase === 'staged'
+              ? <span className="swarm-team-workspace__public-content" data-swarm-staged-plan-summary>{t('stagedPlan.summary', { members: data.team.plan?.members ?? 0, tasks: data.team.plan?.tasks ?? 0 })}</span>
+              : <span className="swarm-team-workspace__public-content swarm-team-workspace__unavailable">{t('stagedPlan.absent')}</span>}
+            {data.team.phase === 'staged' && <span className="swarm-team-workspace__public-content swarm-team-workspace__muted" data-swarm-staged-plan-hint>{t('stagedPlan.hint')}</span>}
+          </span>
+        </section>}
+
+      </div>
+      </section>
           <div className="swarm-team-workspace__block-head"><span>{t('announcements')}</span><small data-swarm-notice-count>{number.format(entries.length)} {t('announcementCount')}</small></div>
           {announcements === undefined
             ? <p className="swarm-team-workspace__muted">{t('loading')}</p>

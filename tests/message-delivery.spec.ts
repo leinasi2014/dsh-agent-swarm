@@ -251,8 +251,10 @@ describe('target-side message de-duplication (F2)', () => {
       // The rescan folds the durable claim into the make-up acknowledgement,
       // whose commit is the injected crash — byte-identical durable state to
       // a process killed right after the claim.
-      await ctx.agentSwarm.recoverAgent(lead)
-      await vi.waitFor(() => {
+      // The member settlement may still be running the Captain's notice
+      // turn. Recovery intentionally defers until that Captain is idle.
+      await vi.waitFor(async () => {
+        await ctx.agentSwarm.recoverAgent(lead)
         expect(acknowledge.mock.calls.length).toBeGreaterThanOrEqual(1)
       }, { timeout: 15_000 })
       const unacked = await ctx.agentSwarm.domain.snapshot(scope, teamId, lead.id)

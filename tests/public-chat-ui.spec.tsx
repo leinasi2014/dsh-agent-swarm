@@ -19,17 +19,18 @@ function teamState(): TeamDashboardState {
 function chatState(state: TeamDashboardState): PublicChatState {
   const binding = state.data!.projection.binding
   const selection = { key: 'draft-key', viewer: state.targetSessionId!, captain: binding.rootSessionId, team: binding.teamId, revision: state.data!.projection.team.revision }
-  const entries = [{ id: 'public-1', sequence: 1, createdAt: 1000, author: { kind: 'local-operator' as const }, text: '真实消息', delivery: { state: 'claimed' as const, claimedAt: 2000, recipientSessionId: binding.rootSessionId } }]
-  return { selection, entries, draft: { text: 'send me', version: 1 }, sending: false, loading: false, pending: false, error: undefined,
-    history: { schemaVersion: 1, binding, observedAt: 2000, teamRevision: selection.revision, entries, totalCount: 1, returnedCount: 1, limit: 50, hasEarlier: false, hasMore: false, firstSequence: 1, lastSequence: 1, appendEligibility: { state: 'available' }, limits: { maxTextBytes: 4096, maxBytes: 100000, maxMessages: 1000 } },
+  const entries = [{ id: 'public-1', sequence: 1, createdAt: 1000, author: { kind: 'local-operator' as const }, text: '真实消息', formatVersion: 2 as const, content: [{ type: 'text' as const, text: '真实消息' }], mentionLabels: [], delivery: { kind: 'requested' as const, recipients: [{ state: 'claimed' as const, claimedAt: 2000, recipientSessionId: binding.rootSessionId }] } }]
+  return { selection, entries, draft: { text: 'send me', version: 1, tokens: [] }, sending: false, loading: false, pending: false, error: undefined, directory: undefined, directoryError: undefined, directoryLoading: false, legacyUpgrade: false,
+    history: { schemaVersion: 2, binding, observedAt: 2000, teamRevision: selection.revision, entries, totalCount: 1, returnedCount: 1, limit: 50, hasEarlier: false, hasMore: false, firstSequence: 1, lastSequence: 1, appendEligibility: { state: 'available' }, limits: { maxSegments: 256, maxTextBytes: 4096, maxBytes: 100000, maxMessages: 1000 } },
   }
 }
 function chatProps(state = teamState(), chat = chatState(state)) {
   return { t, useTeam: <T,>(selector: (state: TeamDashboardState) => T) => selector(state), useChat: <T,>(selector: (state: PublicChatState) => T) => selector(chat),
     useSurface: <T,>(selector: (state: { mode: 'inactive'; view: 'overview'; targetSessionId: undefined }) => T) => selector({ mode: 'inactive', view: 'overview', targetSessionId: undefined }),
-    send: vi.fn(), recover: vi.fn(), earlier: vi.fn(), newer: vi.fn(), refresh: vi.fn(), edit: vi.fn(), reply: vi.fn(), openTeam: vi.fn(),
+    replaceText: vi.fn(), chooseMention: vi.fn(), removeMention: vi.fn(), refreshDirectory: vi.fn(), upgradeLegacy: vi.fn(), send: vi.fn(), recover: vi.fn(), earlier: vi.fn(), newer: vi.fn(), refresh: vi.fn(), edit: vi.fn(), reply: vi.fn(), openTeam: vi.fn(),
   }
 }
+
 
 describe('public conversation composition', () => {
   it.each(['stale', 'reconnecting'] as const)('retains verified history and pending draft during %s while preventing dispatch', async phase => {
@@ -93,3 +94,31 @@ describe('public conversation composition', () => {
     expect(props.send).not.toHaveBeenCalled()
   })
 })
+
+// Container geometry fixture, not a claim about the installed app's host chrome.
+it('keeps two short messages and the composer visible in a 390px container with a long folded goal', async () => {
+  const base = teamState(), data = base.data!
+  const state = { ...base, data: { ...data, teams: { ...data.teams, teams: data.teams.teams.map(row => ({ ...row, goal: { state: 'generated' as const, text: '这是较长的团队公开目标。'.repeat(80) } })) } } }
+  const chat = chatState(state)
+  const props = chatProps(state, { ...chat, entries: [...chat.entries, { ...chat.entries[0]!, id: 'public-2', sequence: 2, text: '第二条简短消息' }] })
+  await render(<TeamPublicChat {...props as ComponentProps<typeof TeamPublicChat>} />)
+  const { chromium } = await import('playwright'), browser = await chromium.launch({ channel: 'msedge', headless: true })
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 844 } })
+    await page.setContent(`<div style="width:390px;height:700px">${document.querySelector('[data-swarm-public-chat]')!.outerHTML}</div>`)
+    const geometry = await page.evaluate(() => {
+      const root = document.querySelector<HTMLElement>('[data-swarm-public-chat]')!, messages = root.querySelector<HTMLElement>('.swarm-public__messages')!
+      const rect = messages.getBoundingClientRect(), send = root.querySelector('[data-public-send]')!.getBoundingClientRect()
+      return { messagesHeight: rect.height, headerHeight: root.querySelector('header')!.getBoundingClientRect().height,
+        messagePadding: getComputedStyle(messages).paddingLeft, overflow: root.scrollWidth - root.clientWidth,
+        shown: [...messages.querySelectorAll('article')].every(node => node.getBoundingClientRect().top >= rect.top && node.getBoundingClientRect().bottom <= rect.bottom),
+        sendBottom: send.bottom, bottom: root.getBoundingClientRect().bottom }
+    })
+    expect(geometry.messagesHeight).toBeGreaterThan(280)
+    expect(geometry.headerHeight).toBeLessThan(110)
+    expect(geometry.messagePadding).toBe('12px')
+    expect(geometry.overflow).toBeLessThanOrEqual(1)
+    expect(geometry.shown).toBe(true)
+    expect(geometry.sendBottom).toBeLessThanOrEqual(geometry.bottom)
+  } finally { await browser.close() }
+}, 60_000)
