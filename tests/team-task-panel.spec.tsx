@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { FakeCoordinator, ready, render, t } from './helpers/dashboard-ui.js'
+import { FakeCoordinator, ready, render, t, tZh } from './helpers/dashboard-ui.js'
 import { useTabInfo } from './helpers/sidebar-tab.js'
 import { act } from 'react'
 import { describe, expect, it } from 'vitest'
@@ -26,15 +26,35 @@ async function click(selector: string): Promise<void> {
   expect(element, selector).not.toBeNull()
   await act(async () => { element!.click() })
 }
-async function mount(state = fixture()) {
+async function mount(state = fixture(), translate = t) {
   const coordinator = new FakeCoordinator()
   const listeners = new Set<() => void>()
   const controller = { getSnapshot: () => state, subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } } }
-  await render(<TeamDashboardDetails {...({ controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'main-brain', useTabInfo, t } as any)} />)
+  await render(<TeamDashboardDetails {...({ controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'main-brain', useTabInfo, t: translate } as any)} />)
   return { coordinator, setState: async (next: TeamDashboardState) => { await act(async () => { state = next; listeners.forEach(listener => listener()) }) } }
 }
 
 describe('V7 real task sidebar', () => {
+  it.each([
+    { language: 'English', translate: t, accepted: 'Accepted', assignment: 'Assignment record', reserved: 'Reserved', unsupported: 'not yet delivered' },
+    { language: 'Chinese', translate: tZh, accepted: '已接受', assignment: '分派记录', reserved: '已预留', unsupported: '尚未送达' },
+  ])('keeps an accepted attempt with a reserved assignment record factual in $language', async ({ translate, accepted, assignment, reserved, unsupported }) => {
+    const state = fixture(), data = state.data!
+    const tasks = data.projection.tasks.map(task => task.id === 'task-a' ? { ...task, status: 'completed' as const } : task)
+    const attempts = data.projection.attempts.map(attempt => attempt.id === 'attempt-2' ? { ...attempt, phase: 'accepted' as const } : attempt)
+    await mount({ ...state, data: { ...data, projection: { ...data.projection, tasks, attempts } } }, translate)
+    const completed = document.querySelector<HTMLDetailsElement>('[data-swarm-task-group="completed"]')!
+    await act(async () => { completed.open = true; completed.dispatchEvent(new Event('toggle', { bubbles: true })) })
+    await click('[data-swarm-task-id="task-a"]')
+    await click('[data-swarm-task-view="trace"]')
+    const current = document.querySelector('[data-swarm-task-attempt="attempt-2"]')!
+    expect(current.getAttribute('data-swarm-current-attempt')).toBe('true')
+    expect(current.querySelector('summary')?.textContent).toContain(accepted)
+    expect(current.textContent).not.toContain(unsupported)
+    const assignmentLabel = [...current.querySelectorAll('dt')].find(label => label.textContent === assignment)
+    expect(assignmentLabel?.nextElementSibling?.textContent).toBe(reserved)
+  })
+
   it('defaults to one Tasks/Members/Team info tab strip and groups real task states', async () => {
     await mount()
     expect([...document.querySelectorAll('[data-swarm-view-tab]')].map(el => el.getAttribute('data-swarm-view-tab'))).toEqual(['tasks', 'members', 'info'])
