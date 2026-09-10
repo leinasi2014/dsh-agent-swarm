@@ -1,4 +1,6 @@
 import { WorkActivityFeed } from './WorkActivityFeed.js'
+import { TeamGoalHeader } from './TeamGoalHeader.js'
+import type { GoalController } from './goal-controller.js'
 import type { WorkRequestController } from './work-request-controller.js'
 import { useRef } from 'react'
 import { DraftImage } from './PublicImages.js'
@@ -15,6 +17,7 @@ import { TEAM_DASHBOARD_NS } from './team-dashboard-locales.js'
 import { publicChatCss } from './public-chat-styles.js'
 
 interface Actions {
+  readonly goal?: GoalController | undefined
   readonly work?: WorkRequestController | undefined
   readonly openWorkTask?: ((id: string) => void) | undefined
   readonly addImages: (files: readonly File[]) => void
@@ -64,7 +67,7 @@ export function TeamPublicChat(props: Props) {
     && (state.draft.text.trim() !== '' || (state.draft.images?.length ?? 0) > 0) && bytes <= state.history.limits.maxTextBytes
   return <section className="swarm-public" data-swarm-public-chat data-team-id={sameTeam ? selected.team : undefined}>
     <style>{publicChatCss}</style>
-    <header className="swarm-public__header"><div><h1>{team?.name ?? t('public.title')}</h1>{team?.goal.state === 'generated' ? <details className="swarm-public__goal"><summary>{team.goal.text}</summary><p>{team.goal.text}</p></details> : <p>{t('public.goalEmpty')}</p>}</div>
+    <header className="swarm-public__header"><div><h1>{team?.name ?? t('public.title')}</h1>{props.goal !== undefined && sameTeam ? <TeamGoalHeader goal={props.goal} teamId={selected.team} t={t} /> : team?.goal.state === 'generated' ? <details className="swarm-public__goal"><summary>{team.goal.text}</summary><p>{team.goal.text}</p></details> : <p>{t('public.goalEmpty')}</p>}</div>
       {surface.mode !== 'docked' ? <button type="button" onClick={props.openTeam} disabled={!sameTeam || !verified}>{t('public.openTeam')}</button> : null}</header>
     {sameTeam && !verified ? <p role={dashboard.phase === 'stale' ? 'alert' : 'status'}>{t(dashboard.phase === 'stale' ? 'stale' : 'reconnecting')}{dashboard.error === undefined ? null : ` · ${dashboard.error.message}`}</p> : null}
     {!sameTeam ? <p role="status">{t(dashboard.phase === 'error' ? 'error' : 'loading')}</p> : <>

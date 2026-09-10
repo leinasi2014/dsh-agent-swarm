@@ -7,6 +7,7 @@ import type { AttemptId, TeamMessage, TeamState, TeamTask } from '../domain/type
 
 /** Captain-only administration tools hidden from member toolFilter. */
 export const WORK_REQUEST_CAPTAIN_TOOLS = ['agent_swarm_list_work_requests', 'agent_swarm_resolve_work_request'] as const
+export const GOAL_CAPTAIN_TOOLS = ['agent_swarm_coordinate_goal', 'agent_swarm_cancel_task'] as const
 export const CAPTAIN_ONLY_TOOLS = [
   'agent_swarm_create',
   'agent_swarm_add_member',
@@ -26,6 +27,7 @@ export const CAPTAIN_ONLY_TOOLS = [
   'agent_swarm_discard_plan',
   'agent_swarm_decide_tool_approval',
   ...WORK_REQUEST_CAPTAIN_TOOLS,
+  ...GOAL_CAPTAIN_TOOLS,
 ] as const
 
 /**
@@ -33,7 +35,7 @@ export const CAPTAIN_ONLY_TOOLS = [
  * captain concern: a member finishes its turn after submit/blocker/no-task
  * and is resumed only by assignment or wakeup.
  */
-export const MEMBER_HIDDEN_TOOLS = [...CAPTAIN_ONLY_TOOLS, 'agent_swarm_create_managed', 'agent_swarm_wait', 'agent_swarm_submit_work_request'] as const
+export const MEMBER_HIDDEN_TOOLS = [...CAPTAIN_ONLY_TOOLS, 'agent_swarm_create_managed', 'agent_swarm_wait', 'agent_swarm_submit_work_request', 'agent_swarm_save_goal', 'agent_swarm_control_goal'] as const
 
 /**
  * F8 fence discipline: the delimiting fence around untrusted content is one
@@ -208,6 +210,15 @@ export function memberJoinNotice(team: TeamState): string {
  * delivery and acceptance-fold paths still derive one identical identity.
  */
 export function messageFrame(message: TeamMessage): string {
+  if (message.kind === 'goal-coordination-notice') {
+    return 'The Team goal needs Captain coordination. Read agent_swarm_get_goal and the current task board. '
+      + 'Revise or create only necessary tasks; explicitly cancel obsolete tasks with agent_swarm_cancel_task. '
+      + 'Use agent_swarm_coordinate_goal to report this trigger and its exact goal/result revisions. '
+      + 'Confirm achieved (finite) or round-finished (maintenance) only after checking the goal criteria and every task/attempt; '
+      + 'otherwise report coordinated with the concrete next action. Existing tasks must still be submitted and reviewed.\n\n'
+      + untrustedDataBlock(`Goal coordination notice ${JSON.stringify(message.id)}: ${MESSAGE_DATA_DECLARATION}`,
+        JSON.stringify({ triggerId: message.triggerId, goalRevision: message.goalRevision, resultSequence: message.resultSequence, content: message.content }))
+  }
   if (message.kind === 'work-request-notice') {
     return 'A work request awaits the Captain. Read agent_swarm_list_work_requests, then accept one complete plan with '
       + 'agent_swarm_resolve_work_request or reject with a reason. A request is not an assigned task. '

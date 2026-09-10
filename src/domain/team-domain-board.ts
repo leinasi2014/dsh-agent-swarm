@@ -1,5 +1,6 @@
 export { createTask } from './task-creation.js'
 import { appendWorkActivity } from './team-domain-work-activity.js'
+import { assertGoalAllowsNewAttempt, recordGoalTaskResult } from './goal-transitions.js'
 /**
  * Task board transitions of the Team protocol core.
  *
@@ -64,7 +65,7 @@ function assertCurrentAttempt(task: TeamTask, attemptId: AttemptId): void {
  * running transaction — the one shape `cancelAttempt` and the in-place
  * `retryAttempt` (issue #83) share.
  */
-function fenceAttemptStale(team: TeamState, attemptId: AttemptId, diagnostic: string, timestamp: number): void {
+export function fenceAttemptStale(team: TeamState, attemptId: AttemptId, diagnostic: string, timestamp: number): void {
   const attempt = attemptOf(team, attemptId)
   replaceAttempt(team, {
     ...attempt,
@@ -109,6 +110,7 @@ export async function claimTask(
   taskId: TaskId,
   expectedRevision: number,
   assigneeSessionId: string,
+  assertExecution?: () => void,
 ): Promise<{ task: TeamTask; attempt: TaskAttempt }> {
   let seated!: { task: TeamTask; attempt: TaskAttempt }
   await deps.store.transact(scope, teamId, team => {
@@ -139,6 +141,8 @@ export async function claimTask(
       )
     }
     const timestamp = deps.now()
+    assertExecution?.()
+    assertGoalAllowsNewAttempt(team)
     const generation = nextAttemptGeneration(team, taskId)
     const attempt: TaskAttempt = {
       id: AttemptId(`attempt-${randomUUID()}`),
@@ -297,6 +301,7 @@ export async function reviewTask(
       Object.assign(team, { budget: { ...team.budget, usedRetries: team.budget.usedRetries + 1 } })
     }
     pruneRetainedAttempts(team, deps.limits.maxRetainedAttempts)
+    recordGoalTaskResult(team)
   })
   return structuredClone(committed)
 }
@@ -390,6 +395,7 @@ export async function retryAttempt(
   expectedRevision: number,
   assigneeSessionId: string,
   diagnostic: string,
+  assertExecution?: () => void,
 ): Promise<{ task: TeamTask; attempt: TaskAttempt }> {
   let seated!: { task: TeamTask; attempt: TaskAttempt }
   await deps.store.transact(scope, teamId, team => {
@@ -406,6 +412,8 @@ export async function retryAttempt(
     budgetAvailable(team.budget, deps.now())
     const timestamp = deps.now()
     const previous = attemptOf(team, current.currentAttemptId!)
+    assertExecution?.()
+    assertGoalAllowsNewAttempt(team)
     fenceAttemptStale(team, previous.id, diagnostic, timestamp)
     const attempt: TaskAttempt = {
       id: AttemptId(`attempt-${randomUUID()}`),

@@ -41,6 +41,7 @@ export class OrchestrationOwnership {
       readonly mode: OrchestrationMode
       /** The runtime's serialized scheduling-pass entry (the drive path). */
       readonly requestSchedule: (scope: TeamScope, teamId: TeamId, captain: Agent) => void
+      readonly released?: (scope: TeamScope, teamId: TeamId) => void
     },
   ) {}
 
@@ -84,7 +85,10 @@ export class OrchestrationOwnership {
    */
   release(scope: TeamScope, teamId: TeamId, runId: string): void {
     const key = `${scope}\0${teamId}`
-    if (this.owners.get(key) === runId) this.owners.delete(key)
+    if (this.owners.get(key) === runId) {
+      this.owners.delete(key)
+      this.deps.released?.(scope, teamId)
+    }
   }
 
   /** The live run owning this Team's orchestration, if any (evidence). */

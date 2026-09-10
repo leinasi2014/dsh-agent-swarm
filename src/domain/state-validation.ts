@@ -1,4 +1,5 @@
 import { assertWorkState, workRequestNoticeSchema } from './work-request-validation.js'
+import { assertGoalState, goalNoticeSchema } from './goal-validation.js'
 import { TeamDomainError } from './error.js'
 import { assertTaskGraph } from './graph.js'
 import { CAPTAIN_ANNOUNCEMENT_ID_RE, isSafePixelAvatarSvg, MAX_CAPTAIN_ANNOUNCEMENTS, MAX_CAPTAIN_ANNOUNCEMENT_TEXT, MAX_PUBLIC_GOAL } from './identity-profile.js'
@@ -327,7 +328,8 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
   const messages = list(team.messages, path, 'messages').map((raw, index) => {
     const message = record(raw, path, `messages[${index}]`)
     text(message.id, path, `messages[${index}].id`)
-    if (message.kind === "work-request-notice") workRequestNoticeSchema.parse(message)
+    if (message.kind === "goal-coordination-notice") goalNoticeSchema.parse(message)
+    else if (message.kind === "work-request-notice") workRequestNoticeSchema.parse(message)
     else {
       if (message.kind !== undefined && message.kind !== "open-claim-notice") corrupt(path, "invalid message kind")
       text(message.senderSessionId, path, `messages[${index}].senderSessionId`)
@@ -418,6 +420,7 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
   })
   unique(memory.map(entry => entry.id as string), path, 'memory ids')
   assertWorkState(team as unknown as TeamState)
+  assertGoalState(team as unknown as TeamState)
   assertPublicChat(team.publicChat, teamId, team.captainSessionId as string, team.managedOrigin as string | undefined)
 
   try {

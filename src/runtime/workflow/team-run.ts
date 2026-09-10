@@ -88,7 +88,7 @@ export class TeamRun implements WorkflowRun {
   private readonly inflight = new Set<Promise<unknown>>()
   private inputSignal: AbortSignal | undefined
   private inputSignalAbort: (() => void) | undefined
-  private archived = false
+  private archivePromise?: Promise<void>
   /**
    * The run's member session ids (M2-3, issue #77): the run's own idle-edge
    * driver watches exactly these, so the run — not the plugin's adaptive
@@ -332,6 +332,7 @@ export class TeamRun implements WorkflowRun {
       // keep its orchestration ownership past its own teardown.
       this.releaseDriving()
       await this.archiveBounded('workflow disposed')
+      this.releaseOwnership()
     })().then(
       () => { claimedResolve() },
       /* v8 ignore next -- every branch above is contained */
@@ -499,17 +500,16 @@ export class TeamRun implements WorkflowRun {
   }
 
   /** Archive the Team within the disposal bound; idempotent and best-effort. */
-  private async archiveBounded(reason: string): Promise<void> {
-    if (this.archived || this.teamId === undefined) return
-    this.archived = true
-    try {
+  private archiveBounded(reason: string): Promise<void> {
+    if (this.teamId === undefined) return Promise.resolve()
+    return this.archivePromise ??= (async () => { try {
       await Promise.race([
         this.deps.runtime.archive({ agent: this.parent, signal: AbortSignal.timeout(this.deps.disposalTimeoutMs) }, `workflow run ${this.id}: ${reason}`),
         sleep(this.deps.disposalTimeoutMs),
       ])
     } catch (error: unknown) {
       this.deps.ctx.logger.warn(`agent-swarm workflow bridge: team archive failed for ${this.teamId}: ${String(error)}`)
-    }
+    } })()
   }
 
   private cancelledResult(agentsStarted: number): WorkflowResult {
@@ -527,17 +527,16 @@ export class TeamRun implements WorkflowRun {
     signal.removeEventListener('abort', onAbort)
   }
 
-  /**
-   * Stop driving (M2-3, issue #77): detach the run's idle-edge driver and
-   * release the Team's orchestration ownership. Idempotent; called on the
-   * terminal settle path and defensively from `dispose` (a run whose result
-   * never settled still must not keep driving through teardown).
-   */
+  /** Detach the run's idle driver and budget watch before terminal teardown. */
   private releaseDriving(): void {
     this.idleDriver?.()
     this.idleDriver = undefined
     this.stopBudgetWatch?.()
     this.stopBudgetWatch = undefined
+  }
+
+  /** Keep the autonomous face fenced until asynchronous archival is finished. */
+  private releaseOwnership(): void {
     const teamId = this.teamId
     if (teamId !== undefined) this.deps.runtime.orchestration.release(this.scope, TeamId(teamId), this.id)
   }
@@ -552,8 +551,7 @@ export class TeamRun implements WorkflowRun {
     this.settled = true
     this.detachInputSignal()
     // The run stops driving at its terminal edge (M2-3): detach the idle
-    // driver and release the orchestration ownership before any terminal
-    // publication, so no autonomous face races the teardown.
+    // driver before terminal publication; retain ownership during archival.
     this.releaseDriving()
     if (this.graceTimer !== undefined) clearTimeout(this.graceTimer)
     const teamId = this.teamId
@@ -586,12 +584,13 @@ export class TeamRun implements WorkflowRun {
         ...result.error !== undefined ? { error: result.error } : {},
         agentsStarted: result.agentsStarted,
       })
-      this.settleResolve(result)
       if (result.stopReason !== 'completed') {
         await this.archiveBounded(result.stopReason === 'cancelled' ? this.cancelReason ?? 'cancelled' : 'error')
       } else {
         await this.archiveBounded('completed')
       }
+      this.releaseOwnership()
+      this.settleResolve(result)
     })()
   }
 }

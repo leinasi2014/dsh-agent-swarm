@@ -498,7 +498,7 @@ function Workspace({ chat, work, data, localeTag, state, t, teams, announcements
 
 /** The bar measures completed tasks, never an estimate of a model's internal progress. */
 function TeamProgress({ data, number, t }: { readonly data: SwarmHostReadProjectionV1; readonly number: Intl.NumberFormat; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
-  const counts: Record<TaskProgressState, number> = { completed: 0, running: 0, review: 0, blocked: 0, unknown: 0, ready: 0, failed: 0, cancelled: 0, open: 0, budgetHold: 0, teamInactive: 0 }
+  const counts: Record<TaskProgressState, number> = { completed: 0, running: 0, review: 0, blocked: 0, unknown: 0, ready: 0, failed: 0, cancelled: 0, open: 0, budgetHold: 0, teamInactive: 0, paused: 0 }
   for (const task of data.tasks) counts[taskProgressState(task, data.tasks)] += 1
   const partial = data.truncated.tasks || data.tasks.length !== data.totals.tasks
   const states = Object.entries(counts) as [TaskProgressState, number][]

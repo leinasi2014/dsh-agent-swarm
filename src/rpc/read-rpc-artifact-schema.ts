@@ -303,7 +303,7 @@ const taskDetail = {
 export const pageRows = { tasks: taskRow, attempts: attemptRow, pendingInteractions: interactionRow } as const
 export const taskRowV2 = { ...taskRow, required: [...taskRow.required, 'assignmentMode', 'readiness'], properties: {
   ...taskRow.properties, assignmentMode: { enum: ['automatic', 'open-claim'] },
-  readiness: { enum: ['not-pending', 'team-inactive', 'blocked', 'budget-hold', 'ready'] },
+  readiness: { enum: ['not-pending', 'team-inactive', 'blocked', 'budget-hold', 'paused', 'ready'] },
 } }
 const eventFactsV2 = { submittedAt: nonNegativeInteger, submittedBySessionId: boundedString(256),
   reviewedAt: nonNegativeInteger, reviewedBySessionId: boundedString(256) }
@@ -311,6 +311,9 @@ const taskDetailV2 = { ...taskDetail, properties: { ...taskDetail.properties, sc
   task: { ...taskDetail.properties.task, required: [...taskDetail.properties.task.required, 'assignmentMode', 'readiness'], properties: {
     ...taskDetail.properties.task.properties, ...taskRowV2.properties, ...eventFactsV2,
     ownerSessionId: boundedString(256), createdBySessionId: boundedString(256),
+    cancellation: { type: 'object', additionalProperties: false, required: ['reason', 'actorSessionId', 'at'], properties: {
+      reason: boundedString(8192), actorSessionId: boundedString(256), at: nonNegativeInteger, attemptId: boundedString(256),
+    } },
     source: { type: 'object', additionalProperties: false, required: ['workRequestId', 'itemKey', 'origin'], properties: {
       workRequestId: boundedString(128), itemKey: boundedString(128), origin: { oneOf: [
         { type: 'object', additionalProperties: false, required: ['kind'], properties: { kind: { const: 'local-operator' } } },

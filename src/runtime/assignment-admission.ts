@@ -2,8 +2,11 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { createUserMessage, type UserMessage } from '@deepseek-ai/dsh-llm'
 import type { AgentSwarmRuntime } from './orchestrator-runtime.js'
+import { budgetExhaustion } from '../domain/team-domain-budget.js'
 
 const PREFIX = 'Team assignment from captain.\n\n'
+const GOAL_PREFIX = 'The Team goal needs Captain coordination.'
+const GOAL_RECOVERY_PREFIX = 'Goal recovery after Host restart.'
 
 /** Only plugin-authored assignment envelopes belong to this boundary. */
 function assignmentHeader(message: UserMessage): string | undefined {
@@ -23,7 +26,9 @@ export function installAssignmentAdmission(ctx: Context, runtime: AgentSwarmRunt
       const header = assignmentHeader(message)
       return header === undefined ? [] : [{ message, header }]
     })
-    if (assignments.length === 0) return decision
+    const goals = decision.messages.filter(message => message.source.kind === 'plugin' && message.source.plugin === 'dsh-agent-swarm'
+      && message.content.some(block => block.type === 'text' && (block.text.startsWith(GOAL_PREFIX) || block.text.startsWith(GOAL_RECOVERY_PREFIX))))
+    if (assignments.length === 0 && goals.length === 0) return decision
     signal.throwIfAborted()
     // Read after downstream admission awaits; neither inbox admission nor an
     // old task revision is execution authority. Delivery acknowledgements and
@@ -32,6 +37,15 @@ export function installAssignmentAdmission(ctx: Context, runtime: AgentSwarmRunt
     signal.throwIfAborted()
     const team = membership?.team
     const removed = new Set<string>()
+    for (const message of goals) {
+      const goal = team?.goalLifecycle, trigger = goal?.currentTrigger
+      const current = trigger !== undefined && message.content.some(block => block.type === 'text'
+        && block.text.includes(`Goal coordination notice ${JSON.stringify(trigger.notificationMessageId)}:`))
+      if (membership?.role !== 'captain' || team?.phase !== 'active' || goal?.phase !== 'running' || !current
+        || budgetExhaustion(team.budget, Date.now()) !== undefined
+        || (goal.mode === 'maintenance' && (team.budget.tokenLimit === undefined || team.budget.tokenLimit <= team.budget.usedTokens))
+        || !runtime.goals.allowed(runtime.scopeOf(agent), team.id)) removed.add(message.id)
+    }
     for (const { message, header } of assignments) {
       const match = /^Team assignment from captain\.\n\nTeam: ([^\s]+)\nTask: ([^\s,]+), revision \d+\nAttempt capability: ([^\s]+)\n/.exec(header)
       const task = team?.tasks.find(candidate => candidate.id === match?.[2])

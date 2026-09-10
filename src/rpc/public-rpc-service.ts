@@ -12,6 +12,7 @@ import { PUBLIC_RPC_CHANNEL } from './public-rpc-contract.js'
 import { projectPublicMessage, projectPublicHistory } from './public-rpc-projection.js'
 import { handlePublicImageRpc } from './public-image-rpc.js'
 import { handleWorkRpc } from './work-rpc-service.js'
+import { handleGoalRpc } from './goal-rpc-service.js'
 
 const target = z.object({ rootSessionId: z.string().min(1), teamId: z.string().min(1) }).strict()
 const common = { schemaVersion: z.literal(1), target }
@@ -33,6 +34,7 @@ export function mountAgentSwarmPublicRpc(owner: Context, runtime: AgentSwarmRunt
     const targets = new HostTargetReadService(ctx, runtime, ctx.agentSwarmHostRead)
     ctx.effect(() => ctx.connection.rpc.handle(PUBLIC_RPC_CHANNEL, async (endpoint, payload, signal) => {
       try {
+        if (endpoint.startsWith('goal/')) return { ok: true, value: await handleGoalRpc(ctx, runtime, targets, endpoint, payload, signal) }
         if (endpoint.startsWith('work/')) return { ok: true, value: await handleWorkRpc(ctx, runtime, targets, endpoint, payload, signal) }
         if (endpoint.startsWith('v3/')) return { ok: true, value: await handlePublicImageRpc(ctx, runtime, targets, endpoint, payload, signal) }
         const version = endpoint.startsWith('v2/') ? 2 : 1

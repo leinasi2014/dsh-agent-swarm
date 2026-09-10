@@ -139,7 +139,7 @@ export function TeamTaskPanel(props: Props) {
   const groups: readonly { id: string; label: string; states: readonly TaskProgressState[]; folded?: boolean }[] = [
     { id: 'attention', label: t('taskPanel.attention'), states: ['review', 'failed'] },
     { id: 'running', label: t('progress.running'), states: ['running'] },
-    { id: 'waiting', label: t('taskPanel.waiting'), states: ['blocked', 'unknown', 'ready', 'open', 'budgetHold', 'teamInactive'] },
+    { id: 'waiting', label: t('taskPanel.waiting'), states: ['blocked', 'unknown', 'ready', 'open', 'budgetHold', 'teamInactive', 'paused'] },
     { id: 'completed', label: t('progress.completed'), states: ['completed'], folded: true },
     { id: 'cancelled', label: t('progress.cancelled'), states: ['cancelled'] },
   ]
@@ -236,5 +236,10 @@ function TaskWorkFacts({ value, members, localeTag, t }: { readonly value: Swarm
     <dt>{t('work.submittedBy')}</dt><dd><WorkParticipant sessionId={task?.submittedBySessionId} members={members} missing={missing} t={t} /></dd>
     <dt>{t('work.reviewedAt')}</dt><dd>{task === undefined ? missing : <FactTime value={task.reviewedAt} localeTag={localeTag} t={t} />}</dd>
     <dt>{t('work.reviewedBy')}</dt><dd><WorkParticipant sessionId={task?.reviewedBySessionId} members={members} missing={missing} t={t} /></dd>
+    {value.task.status === 'cancelled' ? <>
+      <dt>{t('goal.cancelReason')}</dt><dd data-task-cancel-reason>{task?.cancellation?.reason ?? missing}</dd>
+      <dt>{t('goal.cancelActor')}</dt><dd><WorkParticipant sessionId={task?.cancellation?.actorSessionId} members={members} missing={missing} t={t} /></dd>
+      <dt>{t('goal.cancelAt')}</dt><dd>{task === undefined ? missing : <FactTime value={task.cancellation?.at} localeTag={localeTag} t={t} />}</dd>
+    </> : null}
   </dl>
 }

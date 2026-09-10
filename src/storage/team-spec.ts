@@ -1,4 +1,5 @@
 import { taskSourceSchema, openClaimNoticeSchema, teamWorkRequestsSchema, teamWorkActivitySchema, workRequestNoticeSchema } from '../domain/work-request-validation.js'
+import { teamGoalLifecycleSchema, taskCancellationSchema, goalNoticeSchema } from '../domain/goal-validation.js'
 /**
  * The `agent_swarm` Storage Domain declaration (ADR-0007, M1A): the durable
  * boundary of the authoritative Team aggregate. One record per Team in the
@@ -64,6 +65,7 @@ const memberSchema = z.object({
 })
 
 const taskSchema = z.object({
+  cancellation: taskCancellationSchema.optional(),
   assignmentMode: z.enum(["automatic", "open-claim"]).optional(),
   createdBySessionId: sessionId.optional(),
   source: taskSourceSchema.optional(),
@@ -147,7 +149,7 @@ const peerMessageSchema = z.object({
   obsoletedReason: z.string().min(1).optional(),
 })
 
-const messageSchema = z.union([peerMessageSchema, workRequestNoticeSchema])
+const messageSchema = z.union([peerMessageSchema, workRequestNoticeSchema, goalNoticeSchema])
 
 const budgetSchema = z.object({
   tokenLimit: z.number().int().min(1).optional(),
@@ -264,6 +266,7 @@ const teamFields = {
     // Captain self-declared profile + public announcements + public goal
     // (schema v2 additive; absent on pre-feature records so they parse byte-identical).
     publicGoal: codePointCapped(4096, 'publicGoal').refine(v => v === v.trim(), { message: 'publicGoal must be canonical (trimmed)' }).optional(),
+    goalLifecycle: teamGoalLifecycleSchema.optional(),
     captainProfile: captainProfileSchema.optional(),
     announcements: announcementsSchema().optional(),
     tasks: z.array(taskSchema),

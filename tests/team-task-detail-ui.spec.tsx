@@ -38,6 +38,15 @@ async function mount(read: Mock<DetailReader> = vi.fn(async target => detail(fix
 }
 
 describe('real task detail UI', () => {
+  it('shows public cancellation reason, actor and timestamp while preserving missing legacy facts', async () => {
+    const original = detail(), value: SwarmReadTaskDetailV2 = { ...original, schemaVersion: 2,
+      task: { ...original.task, status: 'cancelled', assignmentMode: 'automatic', readiness: 'not-pending',
+        cancellation: { reason: 'Superseded by approved replacement', actorSessionId: 'captain-real', at: stamp + 200 } } }
+    await mount(vi.fn(async () => value), tZh); await click('[data-swarm-task-id="task-a"]')
+    expect(document.querySelector('[data-task-cancel-reason]')?.textContent).toBe('Superseded by approved replacement')
+    expect(document.querySelector('[data-work-task-facts] [data-work-participant="captain-real"]')?.getAttribute('title')).toBe('captain-real')
+    expect(document.querySelector(`[data-work-task-facts] time[datetime="${new Date(stamp + 200).toISOString()}"]`)).not.toBeNull()
+  })
   it.each([{ language: 'English', translate: t, description: 'Description', diagnostic: 'Diagnostic record', scope: 'currently retained', missing: 'not provided by this read interface' },
     { language: 'Chinese', translate: tZh, description: '任务正文', diagnostic: '诊断记录', scope: '当前保留', missing: '当前接口未提供来源、审核者和阶段事件' }])('shows actual fields and opaque evidence as safe text in $language', async ({ translate, description, diagnostic, scope, missing }) => {
     await mount(undefined, translate)

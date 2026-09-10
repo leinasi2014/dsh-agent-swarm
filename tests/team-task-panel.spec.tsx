@@ -56,6 +56,14 @@ async function mount(state = fixture(), translate = t, navigation = false) {
 }
 
 describe('V7 real task sidebar', () => {
+  it('keeps paused pending tasks in the waiting group with the Host pause label', async () => {
+    const state = fixture(), data = state.data!
+    await mount({ ...state, data: { ...data, projection: { ...data.projection, tasks: data.projection.tasks.map(task => task.id === 'task-c' ? { ...task, blockedBy: [], readiness: 'paused' } : task) } } }, tZh)
+    const task = document.querySelector('[data-swarm-task-id="task-c"]')!
+    expect(task.closest('[data-swarm-task-group="waiting"]')).not.toBeNull()
+    expect(task.textContent).toContain('已暂停新增工作')
+    expect(task.textContent).not.toContain('待认领')
+  })
   it('retains the complete selected task trace during a same-binding disconnect', async () => {
     const state = fixture()
     const { setState } = await mount(state)

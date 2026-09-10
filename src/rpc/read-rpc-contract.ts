@@ -408,6 +408,7 @@ export interface SwarmReadTaskDetailV2 extends Omit<SwarmReadTaskDetailV1, 'sche
   readonly schemaVersion: 2
   /** Missing v2 event/source fields mean not recorded, unlike an older v1 producer. */
   readonly task: SwarmReadTaskDetailV1['task'] & SwarmTaskRowV2 & SwarmTaskEventFactsV2 & {
+    readonly cancellation?: { readonly reason: string; readonly actorSessionId: string; readonly at: number; readonly attemptId?: string }
     readonly ownerSessionId?: string
     readonly createdBySessionId?: string
     readonly source?: { readonly workRequestId: string; readonly itemKey: string;

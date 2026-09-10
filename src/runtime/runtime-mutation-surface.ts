@@ -413,7 +413,13 @@ export class RuntimeMutationSurface {
     await this.deps.ensureReady(); this.deps.assertOpen()
     const actor = requireAgent(exec), scope = this.deps.scopeOf(actor)
     const membership = await this.deps.domain().requireMembership(scope, actor.id)
-    const claim = await this.deps.domain().claimTask(scope, membership.team.id, actor.id, TaskId(taskId), expectedRevision)
+    const assertExecution = (): void => {
+      this.deps.assertOpen(); exec.signal.throwIfAborted()
+      if (this.deps.ctx.agents.get(actor.id) !== actor || this.deps.ctx.sessions.get(actor.id) !== actor.session || this.deps.scopeOf(actor) !== scope) {
+        throw new TeamDomainError('Task claim requires the exact live executing Session', 'TEAM_AGENT_REQUIRED')
+      }
+    }
+    const claim = await this.deps.domain().claimTask(scope, membership.team.id, actor.id, TaskId(taskId), expectedRevision, actor.id, assertExecution)
     return await this.deps.executionRoots.settleClaim(scope, membership.team, claim)
   }
 

@@ -1,5 +1,6 @@
 import type { PublicChatController } from './public-chat-controller.js'
 import { useState } from 'react'
+import { IconQueueOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsHooks, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type { TeamDashboardController } from './team-dashboard-controller.js'
@@ -23,8 +24,8 @@ export function TeamGroupNavigation(props: Props) {
   if (data === undefined || !data.teams.complete) return null
   const selected = data.projection.binding.teamId
   const handoff = (action: () => Promise<void>): void => { setError(undefined); void action().catch(reason => { setError(reason instanceof Error ? reason.message : props.t('error')) }) }
-  return <nav onFocusCapture={props.refreshDirectory} className="swarm-groups" aria-label={props.t('public.groups')} data-swarm-group-navigation>
-    <style>{`.swarm-groups{min-width:0;padding:0 8px 8px;color:var(--dsw-alias-label-primary);font-size:13px}.swarm-groups button{display:flex;align-items:center;gap:7px;width:100%;min-width:0;border:0;border-radius:7px;background:transparent;color:inherit;padding:8px;text-align:left;cursor:pointer}.swarm-groups button:hover,.swarm-groups button[aria-current=page]{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent)}.swarm-groups button:disabled{opacity:.5;cursor:default}.swarm-groups button span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.swarm-groups ul{list-style:none;padding:0;margin:0}.swarm-groups ul ul{margin-left:16px;border-left:1px solid var(--dsw-alias-border-l2);padding-left:5px}.swarm-groups small{color:var(--dsw-alias-label-secondary)}.swarm-groups p{overflow-wrap:anywhere}.swarm-groups__heading{box-sizing:border-box;display:flex;align-items:center;height:36px;margin:2px -8px 4px;padding-left:4px;overflow:hidden;white-space:nowrap;color:var(--dsw-alias-label-tertiary);font-size:14px;font-weight:400;line-height:20px}`}</style>
+  return <nav onFocusCapture={props.refreshDirectory} className="swarm-groups" data-compact={!props.wide} aria-label={props.t('public.groups')} data-swarm-group-navigation>
+    <style>{`.swarm-groups{min-width:0;padding:0 8px 8px;color:var(--dsw-alias-label-primary);font-size:13px}.swarm-groups button{display:flex;align-items:center;gap:7px;width:100%;min-width:0;border:0;border-radius:7px;background:transparent;color:inherit;padding:8px;text-align:left;cursor:pointer}.swarm-groups[data-compact=true]{padding:0 0 12px}.swarm-groups[data-compact=true] button{width:36px;height:36px;justify-content:center;padding:0}.swarm-groups[data-compact=true] button span{display:flex}.swarm-groups button:hover,.swarm-groups button[aria-current=page]{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent)}.swarm-groups button:disabled{opacity:.5;cursor:default}.swarm-groups button span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.swarm-groups ul{list-style:none;padding:0;margin:0}.swarm-groups ul ul{margin-left:16px;border-left:1px solid var(--dsw-alias-border-l2);padding-left:5px}.swarm-groups small{color:var(--dsw-alias-label-secondary)}.swarm-groups p{overflow-wrap:anywhere}.swarm-groups__heading{box-sizing:border-box;display:flex;align-items:center;height:36px;margin:2px -8px 4px;padding-left:4px;overflow:hidden;white-space:nowrap;color:var(--dsw-alias-label-tertiary);font-size:14px;font-weight:400;line-height:20px}`}</style>
     {props.wide ? <>
       <div className="swarm-groups__heading">{props.t('public.groups')}</div><ul>{data.teams.teams.map(team => {
         const open = expanded === team.teamId
@@ -51,7 +52,7 @@ export function TeamGroupNavigation(props: Props) {
           </ul> : null}
         </li>
       })}</ul>
-    </> : <button type="button" title={props.t('public.groups')} aria-label={props.t('public.groups')} onClick={props.expandSidebar}>◉</button>}
+    </> : <button type="button" title={props.t('public.groups')} aria-label={props.t('public.groups')} onClick={props.expandSidebar}><span aria-hidden="true"><IconQueueOutline14 size={18} /></span></button>}
     {error === undefined ? null : <p role="alert">{error}</p>}
   </nav>
 }

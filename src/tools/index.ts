@@ -8,6 +8,7 @@ import { registerPublicReplyTool } from './public-chat.js'
 import { registerVisualAssistanceTools } from './visual-assistance.js'
 import { registerWorkRequestTools } from './work-requests.js'
 import { registerDirectoryTool } from './directory.js'
+import { registerGoalTools } from './goal-lifecycle.js'
 import { registerSetCaptainModelTool } from './model-selection.js'
 import { registerApprovePlanTool, registerDiscardPlanTool, registerSetPlanTool } from './plans.js'
 import { registerSendMessageTool, registerWaitTool } from './mailbox.js'
@@ -67,6 +68,7 @@ export function registerAgentSwarmTools(
   registerVisualAssistanceTools(ctx, runtime)
   registerWorkRequestTools(ctx, runtime)
   registerDirectoryTool(ctx, runtime)
+  registerGoalTools(ctx, runtime)
   registerToolApproval(ctx)
   registerSetBudgetTool(ctx, runtime)
   registerSetCommunicationTool(ctx, runtime)

@@ -12,10 +12,12 @@ export async function notifyOpenTasks(ctx: Context, deps: {
   domain(): TeamDomainPort; delivery(): MessageDelivery; isClosing(): boolean
 }, scope: TeamScope, teamId: TeamId, captain: Agent): Promise<void> {
   let snapshot = await deps.domain().snapshot(scope, teamId, captain.id)
+  if (snapshot.team.goalLifecycle?.phase === 'paused') return
   const open = snapshot.team.tasks.filter(task => task.assignmentMode === 'open-claim' && snapshot.readyTaskIds.includes(task.id))
   for (const task of open) {
     if (deps.isClosing()) return
     snapshot = await deps.domain().snapshot(scope, teamId, captain.id)
+    if (snapshot.team.goalLifecycle?.phase === 'paused') return
     const recipients = snapshot.team.members.filter(member => member.phase === 'active'
       && (ctx.agents.get(SessionId(member.sessionId))?.status ?? 'idle') === 'idle'
       && !openClaimTemporarilyUnavailable(snapshot.team, task, member.sessionId, Date.now())).map(member => member.sessionId)

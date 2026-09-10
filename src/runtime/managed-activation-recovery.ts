@@ -17,6 +17,9 @@ import type { PublicDeliveryResult } from './message-delivery.js'
 function hasTaskDebt(team: TeamState): boolean {
   return team.tasks.some(task => ['pending', 'in_progress', 'submitted', 'verifying'].includes(task.status))
 }
+function hasGoalDebt(team: TeamState): boolean {
+  return team.goalLifecycle?.phase === 'running' && team.goalLifecycle.currentTrigger !== undefined
+}
 
 /** Restore only a committed route; adapter-owned effort remains an adapter default. */
 function selectionFromHeader(header: EpochHeader | undefined): ModelSelection {
@@ -36,6 +39,9 @@ export class ManagedActivationRecovery {
     trackChild(parent: Agent, childId: string): void
     drainPublic?(scope: TeamScope, team: TeamState): Promise<PublicDeliveryResult>
     drainWork?(scope: TeamScope, team: TeamState): Promise<PublicDeliveryResult>
+    prepareGoal?(scope: TeamScope, team: TeamState): Promise<TeamState>
+    drainGoal?(scope: TeamScope, team: TeamState): Promise<PublicDeliveryResult>
+    goalAllowed?(scope: TeamScope, team: TeamState): boolean
   }) {}
 
   /** One startup pass; idle events never replay recovery messages. */
@@ -50,18 +56,30 @@ export class ManagedActivationRecovery {
       for (const observed of await this.deps.teams(scope)) {
         let team = observed
         signal.throwIfAborted()
+        // The existing startup scan reconstructs maintenance deadlines even
+        // for an empty future round, without waking its Captain early.
+        if (team.goalLifecycle !== undefined && this.deps.prepareGoal !== undefined) team = await this.deps.prepareGoal(scope, team)
         const publicDebt = hasPublicDebt(team.publicChat)
         const checkPublic = publicDebt || hasPendingVisualAssistance(team.publicChat)
         const taskDebt = hasTaskDebt(team)
         const workDebt = team.messages.some(message => message.kind === 'work-request-notice' && message.phase === 'queued')
-        if (team.managedOrigin === undefined || (!checkPublic && !taskDebt && !workDebt)) continue
+        const goalDebt = hasGoalDebt(team) && (this.deps.goalAllowed?.(scope, team) ?? true)
+        if (team.managedOrigin === undefined || (!checkPublic && !taskDebt && !workDebt && !goalDebt)) continue
+        if (goalDebt && this.deps.drainGoal !== undefined) {
+          const drained = await this.deps.drainGoal(scope, team)
+          if (drained.admitted || drained.deferred) continue
+          const current = (await this.deps.teams(scope)).find(candidate => candidate.id === team.id)
+          if (current === undefined || current.captainSessionId !== team.captainSessionId || current.managedOrigin !== team.managedOrigin) continue
+          team = current
+          if (!checkPublic && !workDebt && !hasTaskDebt(team) && !hasGoalDebt(team)) continue
+        }
         if (workDebt && this.deps.drainWork !== undefined) {
           const drained = await this.deps.drainWork(scope, team)
           if (drained.admitted || drained.deferred) continue
           const current = (await this.deps.teams(scope)).find(candidate => candidate.id === team.id)
           if (current === undefined || current.captainSessionId !== team.captainSessionId || current.managedOrigin !== team.managedOrigin) continue
           team = current
-          if (!checkPublic && !hasTaskDebt(team)) continue
+          if (!checkPublic && !hasTaskDebt(team) && !hasGoalDebt(team)) continue
         }
         if (checkPublic && this.deps.drainPublic !== undefined) {
           const drained = await this.deps.drainPublic(scope, team)
@@ -91,22 +109,25 @@ export class ManagedActivationRecovery {
           }
           if (this.ctx.agents.get(SessionId(team.captainSessionId)) !== undefined) continue
           const root = await this.attachRoot(parentId, byId, scope)
-          if (publicDebt) {
-            const current = await this.taskRecoveryCandidate(scope, team)
-            if (current === undefined) continue
-            team = current
-          }
+          // Root attachment can await IO: every recovery kind must re-read
+          // the same Team, ownership, lifecycle and budget after that wait.
+          const current = await this.taskRecoveryCandidate(scope, team)
+          if (current === undefined) continue
+          team = current
           if (this.ctx.agents.get(SessionId(team.captainSessionId)) !== undefined) continue
           this.deps.trackChild(root, team.captainSessionId)
+          const goalRecovery = hasGoalDebt(team) && (this.deps.goalAllowed?.(scope, team) ?? true)
           // A bare agents.resume(child) would lose the continuation descriptor,
           // delegated setup, Activation owner, and its disposer. followup owns
           // all of them and records the recovery request in the Session log.
           await queueHostSubagentPrompt(this.ctx.subagents, root, SessionId(team.captainSessionId), [{
             type: 'text',
-            text: 'The Host restarted while this managed Team still had unfinished work. '
+            text: (goalRecovery ? `Goal recovery after Host restart. Goal coordination notice ${JSON.stringify(team.goalLifecycle!.currentTrigger!.notificationMessageId)}: `
+              : 'The Host restarted while this managed Team still had unfinished work. ')
               + 'Inspect the current task board and continue the existing work: review submitted tasks; '
               + 'for an already delivered in-progress attempt, wake its existing member with agent_swarm_send_message '
               + 'and preserve its exact current attempt. Do not recruit replacements or replay old assignments. '
+              + (goalRecovery ? 'Read agent_swarm_get_goal and coordinate its current trigger; the previous notice was already consumed, so inspect durable state before planning. ' : '')
               + `Team identity (data): ${JSON.stringify(team.id)}.`,
           }], { kind: 'plugin', plugin: 'dsh-agent-swarm' }, signal)
         } catch (cause) {
@@ -125,7 +146,7 @@ export class ManagedActivationRecovery {
   private async taskRecoveryCandidate(scope: TeamScope, before: TeamState): Promise<TeamState | undefined> {
     const team = (await this.deps.teams(scope)).find(candidate => candidate.id === before.id)
     if (team?.phase !== 'active' || team.managedOrigin !== before.managedOrigin
-      || team.captainSessionId !== before.captainSessionId || !hasTaskDebt(team)
+      || team.captainSessionId !== before.captainSessionId || (!hasTaskDebt(team) && !(hasGoalDebt(team) && (this.deps.goalAllowed?.(scope, team) ?? true)))
       || hasPublicDebt(team.publicChat)
       || team.messages.some(message => message.kind === 'work-request-notice' && message.phase === 'queued')
       || this.ctx.agents.get(SessionId(team.captainSessionId)) !== undefined) return undefined

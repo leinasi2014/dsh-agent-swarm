@@ -42,13 +42,14 @@ export class HostTargetReadService {
   }
 
   /** Shared Host visibility proof; callers never supply an execution identity. */
-  withPublicTeam<T>(target: SwarmReadTargetHint, operation: (scope: string, team: TeamState, verify: () => Promise<void>) => Promise<T>): Promise<T> {
+  withPublicTeam<T>(target: SwarmReadTargetHint, operation: (scope: string, team: TeamState, verify: () => Promise<void>,
+    assertCurrentTeam: (current: TeamState) => void) => Promise<T>): Promise<T> {
     return this.host.withTargetRead(async () => {
       if (target.teamId === undefined) throw new TeamDomainError('Public chat requires an explicit Team', 'SWARM_RPC_INVALID_REQUEST')
-      const { root, team, verify } = await this.boundTeam(target)
+      const { root, team, verify, assertCurrentTeam } = await this.boundTeam(target)
       const current = async () => { await verify(true); this.assertUnchanged(root); this.assertLiveCaptain(team, root.cwd) }
       await current()
-      return await operation(root.cwd, team, current)
+      return await operation(root.cwd, team, current, assertCurrentTeam)
     })
   }
 
@@ -141,16 +142,16 @@ export class HostTargetReadService {
     const { root, visible, all, currentTeamId } = view
     if (target.teamId !== undefined) {
       const team = visible.find(candidate => candidate.id === target.teamId)
-      if (team !== undefined) return { ...this.bindTeam(root, team), verify: view.verify }
+      if (team !== undefined) return { ...this.bindTeam(root, team), verify: view.verify, assertCurrentTeam: view.assertCurrentTeam }
       throw new TeamDomainError('Target Team is not visible to this Session', all.some(candidate => candidate.id === target.teamId)
         ? 'SWARM_HOST_BINDING_MISMATCH' : 'SWARM_HOST_BINDING_NOT_FOUND')
     }
     const owned = visible.filter(team => team.id === currentTeamId || team.captainSessionId === root.id)
     const candidates = owned.length === 0 ? visible : owned
     const active = candidates.filter(team => team.phase === 'active')
-    if (active.length === 1) return { ...this.bindTeam(root, active[0]!), verify: view.verify }
+    if (active.length === 1) return { ...this.bindTeam(root, active[0]!), verify: view.verify, assertCurrentTeam: view.assertCurrentTeam }
     if (active.length > 1 || candidates.length > 1) throw new TeamDomainError('Multiple Teams are available; select one Team', 'SWARM_HOST_BINDING_AMBIGUOUS')
-    if (candidates.length === 1) return { ...this.bindTeam(root, candidates[0]!), verify: view.verify }
+    if (candidates.length === 1) return { ...this.bindTeam(root, candidates[0]!), verify: view.verify, assertCurrentTeam: view.assertCurrentTeam }
     throw new TeamDomainError('No Team is available for this Session', 'SWARM_HOST_BINDING_NOT_FOUND')
   }
 
@@ -252,9 +253,26 @@ export class HostTargetReadService {
       if (association.main?.live !== undefined && !this.ctx.agents.roots().includes(association.main.live)) this.bindingChanged()
       return latest
     }
+    // A write consumer calls this synchronously while holding the target
+    // Team's existing lock. Never await verify() there: it re-enters that lock.
+    const assertCurrentTeam = (candidate: TeamState): void => {
+      for (const witness of witnesses) this.assertUnchanged(witness)
+      if (association.main?.live !== undefined && !this.ctx.agents.roots().includes(association.main.live)) this.bindingChanged()
+      const before = visible.find(item => item.id === candidate.id)
+      if (before === undefined || candidate.captainSessionId !== before.captainSessionId
+        || candidate.managedOrigin !== before.managedOrigin) this.bindingChanged()
+      if (root.parentSession !== undefined && association.current !== undefined && association.current.id !== candidate.id) {
+        // A member's cross-Team read association is not a write capability:
+        // its other Team roster cannot be revalidated inside this Team lock.
+        this.bindingChanged()
+      }
+      if (root.parentSession === candidate.captainSessionId
+        && !candidate.members.some(member => member.sessionId === root.id && member.phase === 'active')) this.bindingChanged()
+      this.assertLiveCaptain(candidate, root.cwd)
+    }
     const latest = await verify()
     return { root, visible: latest.filter(team => visible.some(before => before.id === team.id)), all: latest, main: association.main,
-      currentTeamId: association.current?.id, currentMemberName: association.currentMemberName, verify }
+      currentTeamId: association.current?.id, currentMemberName: association.currentMemberName, verify, assertCurrentTeam }
   }
 
   /** Association is local single-user UI read authority only. A member must

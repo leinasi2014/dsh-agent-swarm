@@ -30,9 +30,13 @@ it('keeps phase, owner and creation time through fresh-idle grace, retries at it
     const clock = vi.spyOn(Date, 'now').mockReturnValue(idleAt + 199)
     restoreClock = () => clock.mockRestore()
     let live = true
+    // One resident Agent keeps its identity through the queued transaction.
+    // Minting a new object on each lookup would model replacement, which the
+    // exact-owner retry admission correctly rejects before creating an attempt.
+    const liveOwner = { status: 'idle' } as const
     const getAgent = ctx.agents.get.bind(ctx.agents)
     const agents = vi.spyOn(ctx.agents, 'get').mockImplementation(id => String(id) === owner
-      ? (live ? { status: 'idle' } as never : undefined)
+      ? (live ? liveOwner as never : undefined)
       : getAgent(id))
     restoreAgents = () => agents.mockRestore()
     // Liveness and dispatch are controlled collaborators around the real
@@ -65,6 +69,7 @@ it('keeps phase, owner and creation time through fresh-idle grace, retries at it
     await pass.run(scope, teamId, lead)
     const after = await snapshotOf(composition)
     expect(retry).toHaveBeenCalledTimes(1)
+    await expect(retry.mock.results[0]!.value).resolves.toHaveProperty('attempt')
     expect(followup).toHaveBeenCalledTimes(1)
     expect(after.team.tasks[0]).toMatchObject({ status: 'in_progress', ownerSessionId: owner, createdAt: task.createdAt })
     expect(after.team.tasks[0]?.currentAttemptId).not.toBe(claimed.attempt.id)

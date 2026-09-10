@@ -83,6 +83,7 @@ export interface ReviewVerificationCommand {
 }
 
 export interface TeamTask {
+  readonly cancellation?: import('./goal-lifecycle.js').TaskCancellation
   readonly assignmentMode?: 'automatic' | 'open-claim'
   readonly createdBySessionId?: string
   readonly source?: import('./work-request.js').TaskWorkRequestSource
@@ -235,7 +236,15 @@ interface WorkRequestNotice extends Omit<PeerTeamMessage, 'kind' | 'senderSessio
   readonly senderSessionId?: never
   readonly senderName?: never
 }
-export type TeamMessage = PeerTeamMessage | WorkRequestNotice
+interface GoalCoordinationNotice extends Omit<PeerTeamMessage, 'kind' | 'senderSessionId' | 'senderName'> {
+  readonly kind: 'goal-coordination-notice'
+  readonly triggerId: string
+  readonly goalRevision: number
+  readonly resultSequence: number
+  readonly senderSessionId?: never
+  readonly senderName?: never
+}
+export type TeamMessage = PeerTeamMessage | WorkRequestNotice | GoalCoordinationNotice
 
 /**
  * Durable, secret-free proof that a Team-internal human effect committed in
@@ -348,6 +357,7 @@ export interface TeamState {
   /** Canonical bounded public goal (schema v2, Captain-declared). Absence = explicit
    *  `not_generated` on the read; presence is always the validated canonical form. */
   readonly publicGoal?: string
+  readonly goalLifecycle?: import('./goal-lifecycle.js').TeamGoalLifecycle
   /** Captain self-declared identity profile (schema v2). Presence = `generated`,
    *  absence = honest `not_generated`; same code-point/allowlist rules as members. */
   readonly captainProfile?: TeamMemberIdentityProfile

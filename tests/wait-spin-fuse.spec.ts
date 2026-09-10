@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { CAPTAIN_ONLY_TOOLS, MEMBER_HIDDEN_TOOLS, identityBehaviorPrompt, memberJoinNotice } from '../src/runtime/prompts.js'
 import { memberToolDeny } from '../src/runtime/tool-policy.js'
-import { decideToolPermission, type ToolPermissionContext } from '../src/runtime/permission-policy.js'
+import { decideToolPermission, memberToolPolicyFilter, type ToolPermissionContext } from '../src/runtime/permission-policy.js'
 import { WaitSpinFuse, type WaitSpinObservation } from '../src/runtime/wait-surface.js'
 import type { ToolExecutionAuthority } from '../src/runtime/authority.js'
 
@@ -22,11 +22,13 @@ const member: ToolPermissionContext = {
 }
 
 describe('WAIT-SPIN member admission and model surface', () => {
-  it('hides wait and Main-only submission from members even with an explicit policy allow', () => {
-    expect(MEMBER_HIDDEN_TOOLS).toEqual([...CAPTAIN_ONLY_TOOLS, 'agent_swarm_create_managed', 'agent_swarm_wait', 'agent_swarm_submit_work_request'])
+  it('hides wait, Main-only submission and goal control from members even with an explicit policy allow', () => {
+    expect(MEMBER_HIDDEN_TOOLS).toEqual([...CAPTAIN_ONLY_TOOLS, 'agent_swarm_create_managed', 'agent_swarm_wait', 'agent_swarm_submit_work_request',
+      'agent_swarm_save_goal', 'agent_swarm_control_goal'])
     expect(memberToolDeny()).toEqual([...MEMBER_HIDDEN_TOOLS])
-    for (const name of ['agent_swarm_wait', 'agent_swarm_submit_work_request']) {
+    for (const name of ['agent_swarm_wait', 'agent_swarm_submit_work_request', 'agent_swarm_save_goal', 'agent_swarm_control_goal']) {
       expect(memberToolDeny([name])).toEqual([...MEMBER_HIDDEN_TOOLS])
+      expect(memberToolPolicyFilter({ allow: [name] }).deny).toContain(name)
       expect(decideToolPermission({ allow: [name] }, name, member)).toBe('deny')
     }
   })
