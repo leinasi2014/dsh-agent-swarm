@@ -73,7 +73,9 @@ describe('public conversation composition', () => {
     expect(props.send).not.toHaveBeenCalled()
   })
   it('selects and folds a group on its name, while nested member clicks do not toggle it', async () => {
-    const state = teamState()
+    const base = teamState()
+    const state = { ...base, data: { ...base.data!, teams: { ...base.data!.teams,
+      binding: { ...base.data!.teams.binding, mainSessionTitle: '教师正式启动：维护方已完成3' } } } }
     const selectGroup = vi.fn()
     const openMember = vi.fn(async () => {})
     const props = { t, wide: true, expandSidebar: vi.fn(), useTeam: <T,>(selector: (state: TeamDashboardState) => T) => selector(state),
@@ -81,7 +83,11 @@ describe('public conversation composition', () => {
       selectGroup, openMain: vi.fn(async () => {}), openCaptain: vi.fn(async () => {}), openMember,
     }
     await render(<TeamGroupNavigation {...props as ComponentProps<typeof TeamGroupNavigation>} />)
+    const navigation = document.querySelector('[data-swarm-group-navigation]')!
+    expect(navigation.textContent).not.toContain(state.data.teams.binding.mainSessionTitle)
+    expect(navigation.querySelectorAll('button')).toHaveLength(state.data.teams.teams.length)
     const group = document.querySelector<HTMLButtonElement>(`[data-swarm-group="${state.data!.projection.binding.teamId}"]`)!
+    expect(group.title).toBe(state.data.teams.teams[0]!.name)
     await act(async () => { group.click() })
     expect(group.getAttribute('aria-expanded')).toBe('true')
     await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-group-member="writer"]')!.click() })
@@ -93,6 +99,7 @@ describe('public conversation composition', () => {
     await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-group="b"]')!.click() })
     expect(selectGroup).toHaveBeenLastCalledWith('b')
     expect(props.openCaptain).not.toHaveBeenCalled()
+    expect(props.openMain).not.toHaveBeenCalled()
   })
   it('keeps Enter and IME for composition; Ctrl/Cmd Enter submits only a ready Team', async () => {
     const props = chatProps()

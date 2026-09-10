@@ -60,6 +60,50 @@ async function ready(controller: PublicChatController, state = dashboard()): Pro
 }
 
 describe('public conversation view owner', () => {
+  it('keeps the Team directory and history visible across member navigation while fencing the unverified viewer', async () => {
+    const f = fixture()
+    f.client.historyV3.mockResolvedValue(page('a', [message(1)]))
+    const beforeDashboard = dashboard()
+    const data = beforeDashboard.data!
+    const source = { ...beforeDashboard, data: { ...data, captainMembers: { ...data.captainMembers,
+      members: [{ ...data.captainMembers.members[0]!, name: 'member-a', sessionId: 'member-viewer', phase: 'active' as const }],
+    } } }
+    await ready(f.controller, source)
+    await waitFor(() => f.controller.getSnapshot().directory !== undefined)
+    f.controller.edit('keep my draft')
+    const before = f.controller.getSnapshot()
+    f.client.historyV3.mockClear(); f.client.directory.mockClear()
+    // Dashboard keeps the previous verified Team projection during its fresh
+    // member-addressed read. That projection must not authorize the new viewer.
+    f.controller.bind({ ...source, targetSessionId: 'member-viewer' })
+    expect(f.controller.getSnapshot().directory).toBe(before.directory)
+    expect(f.controller.getSnapshot().entries).toBe(before.entries)
+    expect(f.controller.getSnapshot().draft.text).toBe('keep my draft')
+    for (const phase of ['stale', 'reconnecting'] as const) {
+      f.controller.bind({ ...source, phase, targetSessionId: 'member-viewer' })
+      expect(f.controller.getSnapshot().directory).toBe(before.directory)
+      expect(f.controller.getSnapshot().entries).toBe(before.entries)
+    }
+    await f.controller.send(); await f.controller.refresh(); await f.controller.refreshDirectory()
+    expect(f.client.appendV3).not.toHaveBeenCalled()
+    expect(f.client.directory).not.toHaveBeenCalled()
+    expect(f.client.historyV3).not.toHaveBeenCalled()
+    let release!: (value: ReturnType<typeof directoryPage>) => void
+    f.client.directory.mockImplementationOnce(() => new Promise(resolve => { release = resolve }))
+    f.controller.bind(dashboard('a', 4, 'member-viewer'))
+    expect(f.controller.getSnapshot().selection?.viewer).toBe('member-viewer')
+    expect(f.controller.getSnapshot().directory).toBe(before.directory)
+    expect(f.controller.getSnapshot().entries).toBe(before.entries)
+    await waitFor(() => release !== undefined)
+    release(directoryPage('a', [directoryEntry('member-b')], 'fresh-member-view'))
+    await waitFor(() => f.controller.getSnapshot().directory?.directoryRevision === 'fresh-member-view')
+    expect(f.client.directory.mock.calls[0]?.[0].target.rootSessionId).toBe('member-viewer')
+    const other = dashboard('b')
+    f.controller.bind({ ...other, phase: 'reconnecting', pendingTeamId: 'b' })
+    expect(f.controller.getSnapshot().directory).toBeUndefined()
+    expect(f.controller.getSnapshot().entries).toEqual([])
+    f.controller.dispose()
+  })
   it('retains the verified public view through an actual dashboard connection reset and re-proves it before requests resume', async () => {
     const schedule = new ManualSchedule()
     const normal = goodFetch([])

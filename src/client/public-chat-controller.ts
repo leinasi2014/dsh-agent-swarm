@@ -89,7 +89,21 @@ export class PublicChatController {
       && data.teams.binding.rootSessionId === viewer && data.teams.complete
       ? { key: `swarm.public.v1:${JSON.stringify([this.environment, main, team])}`, viewer, team, captain: data.projection.binding.rootSessionId, revision: data.projection.team.revision } : undefined
     if (next === undefined) {
-      this.directoryRead?.abort(); this.read?.abort(); this.historyCursor = undefined; this.publish({ ...initial })
+      this.bindingReady = false
+      this.directoryRead?.abort(); this.read?.abort()
+      // A same-Team navigation temporarily carries the previous viewer's
+      // projection. Retain its display, but admit no RPC until the new viewer
+      // is proved. Unrelated or pending Team selections still clear at once.
+      const retained = dashboard.data
+      const sameTeamNavigation = cached !== undefined && viewer !== undefined && retained !== undefined
+        && ['ready', 'stale', 'reconnecting'].includes(dashboard.phase) && retained.projection.team.phase === 'active' && retained.teams.complete
+        && retained.teams.binding.rootSessionId === cached.viewer
+        && cached.key === `swarm.public.v1:${JSON.stringify([this.environment, retained.teams.binding.mainSessionId, cached.team])}`
+        && retained.projection.binding.rootSessionId === cached.captain && retained.projection.binding.teamId === cached.team
+        && (dashboard.pendingTeamId === undefined || dashboard.pendingTeamId === cached.team)
+        && (viewer === cached.captain || retained.captainMembers.members.some(member => member.sessionId === viewer && member.phase === 'active'))
+      if (sameTeamNavigation) this.publish({ ...this.state, loading: false, directoryLoading: false })
+      else { this.historyCursor = undefined; this.publish({ ...initial }) }
       return
     }
     const previous = this.state.selection
@@ -101,6 +115,11 @@ export class PublicChatController {
     }
     this.directoryRead?.abort(); this.read?.abort()
     this.dashboardData = dashboard.data
+    if (previous?.key === next.key && previous.captain === next.captain) {
+      this.publish({ ...this.state, selection: next, loading: false, directoryLoading: false })
+      void this.refresh()
+      return
+    }
     this.historyCursor = undefined
     const saved = this.readSaved(next.key)
     this.publish({ ...initial, selection: next, draft: saved.draft, legacyUpgrade: saved.legacyUpgrade === true, pending: saved.pending !== undefined, sending: this.busy.has(next.key), draftStatus: saved.status, draftBlobs: saved.blobs })
