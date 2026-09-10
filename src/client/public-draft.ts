@@ -1,6 +1,22 @@
 import { publicMentionStarts, type PublicSegment } from '../shared/public-content.js'
 interface DraftToken { readonly start: number; readonly end: number; readonly memberId: string; readonly label: string }
-export interface PublicDraft { readonly text: string; readonly version: number; readonly replyTo?: string; readonly tokens: readonly DraftToken[] }
+/** Blob identities are local to a Host/Main/Team draft scope, never attachment authority. */
+export interface PublicDraftImage { readonly blobId: string; readonly mediaType: string; readonly name?: string }
+export interface PublicDraft { readonly text: string; readonly version: number; readonly replyTo?: string; readonly tokens: readonly DraftToken[]; readonly images?: readonly PublicDraftImage[] }
+export function addDraftImages(draft: PublicDraft, images: readonly PublicDraftImage[]): PublicDraft {
+  if (images.length === 0) return draft
+  const combined = [...draft.images ?? [], ...images]
+  if (new Set(combined.map(image => image.blobId)).size !== combined.length) throw new Error('Duplicate draft image identity')
+  return { ...draft, images: combined, version: draft.version + 1 }
+}
+export function removeDraftImage(draft: PublicDraft, blobId: string): PublicDraft {
+  const images = draft.images?.filter(image => image.blobId !== blobId)
+  return images === undefined || images.length === draft.images?.length ? draft : { ...draft, images, version: draft.version + 1 }
+}
+export function replyDraft(draft: PublicDraft, replyTo: string | undefined): PublicDraft {
+  const { replyTo: _previous, ...rest } = draft
+  return { ...rest, version: draft.version + 1, ...(replyTo === undefined ? {} : { replyTo }) }
+}
 export function draftContent(draft: Pick<PublicDraft, 'text' | 'tokens'>): PublicSegment[] {
   const content: PublicSegment[] = []; let position = 0
   for (const token of draft.tokens) {
