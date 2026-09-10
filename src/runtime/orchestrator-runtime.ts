@@ -209,15 +209,11 @@ export class AgentSwarmRuntime extends Service {
   /** Rebuild Captain ownership and scoped role caches from canonical records. */
   private async recoverOwnedChildrenFromPersistence(): Promise<void> {
     if (this.storeInstance === undefined) return
-    const recovered = await recoverOwnedChildrenFromPersistence(this.ctx, {
+    await recoverOwnedChildrenFromPersistence(this.ctx, {
       store: this.storeInstance,
       rememberTeam: (team, scope) => { this.config.teamSkills.rememberTeam(team); this.captainModels.remember(team, scope) },
+      ownedChildren: this.ownedChildren,
     })
-    for (const [parent, children] of recovered) {
-      const existing = this.ownedChildren.get(parent) ?? new Set<string>()
-      for (const child of children) existing.add(child)
-      this.ownedChildren.set(parent, existing)
-    }
   }
   private async ensureReady(): Promise<void> {
     if (this.domainInstance === undefined) await this.start()
