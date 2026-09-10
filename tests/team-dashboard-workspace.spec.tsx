@@ -12,7 +12,7 @@ const activePanel = (): string | null => document.querySelector<HTMLElement>('[r
 const signalOf = (id: string): string | null => document.querySelector<HTMLElement>(`[data-swarm-activity-attempt="${id}"] [data-swarm-signal]`)?.getAttribute('data-swarm-signal') ?? null
 
 describe('Team workspace views and projection-derived activity', () => {
-  it('shows root ownership, all Team summaries and the current member together after opening a member Chat (#225)', async () => {
+  it('keeps the selected Team and current member in the right seat without duplicating the left directory', async () => {
     const base = ready.data!
     const alpha = base.teams.teams[0]!
     const member = { ...base.captainMembers.members[0]!, name: 'worker', sessionId: 'member-chat', displayName: '霁蓝', biography: '角色美术。', identityCard: { state: 'generated' as const } }
@@ -28,18 +28,16 @@ describe('Team workspace views and projection-derived activity', () => {
     const coordinator = new FakeCoordinator()
     coordinator.set({ mode: 'docked', view: 'overview', targetSessionId: member.sessionId })
     await render(<TeamDashboardDetails {...({ controller: { ...controller, getSnapshot: () => state }, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: member.sessionId, t } as any)} />)
-    expect(document.querySelector('[data-swarm-team-lineage]')?.textContent).toContain(`角色资产验收›${alpha.name}›霁蓝`)
-    expect(document.querySelectorAll('[data-swarm-team-card]')).toHaveLength(2)
-    expect(document.querySelector('[data-swarm-team-card="beta"]')?.textContent).toContain('Tasks 1 / 3')
-    expect(document.querySelector('[data-swarm-current-team="true"]')?.getAttribute('data-swarm-team-card')).toBe(alpha.teamId)
+    expect(document.querySelectorAll('[data-swarm-team-card]')).toHaveLength(0)
+    expect(document.querySelector('.swarm-team-workspace__title')?.textContent).toBe(base.projection.team.name)
     expect(document.querySelector('[data-swarm-detail-view]')?.closest('[data-swarm-member-branch]')?.getAttribute('data-swarm-member-branch')).toBe('worker')
     expect(document.querySelector('[data-swarm-member-name="worker"]')?.getAttribute('aria-current')).toBe('page')
     expect(document.querySelector('[data-swarm-captain-desk]')?.closest('[hidden]')).toBeNull()
-    await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-main-chat]')!.click() })
-    expect(coordinator.openMainChat).toHaveBeenCalledOnce()
+    expect(document.querySelector('[data-swarm-main-chat]')).toBeNull()
+    expect(coordinator.openMainChat).not.toHaveBeenCalled()
   })
 
-  it('opens a member Chat on one click and shows that member on a reopened Chat sidebar (#221)', async () => {
+  it('opens member details without a duplicate Chat handoff and shows that member on a reopened sidebar', async () => {
     const coordinator = new FakeCoordinator()
     const member = { ...ready.data!.captainMembers.members[0]!, name: 'worker', sessionId: 'worker-session', displayName: '林砚', profession: '编剧', personality: '细致', biography: '核对动机与因果。', identityCard: { state: 'generated' as const } }
     const data = { ...ready.data!, projection: { ...ready.data!.projection, roster: [{ name: member.name, role: 'Writer', phase: 'active' as const, createdAt: 1 }] }, captainMembers: { ...ready.data!.captainMembers, members: [member] } }
@@ -48,7 +46,7 @@ describe('Team workspace views and projection-derived activity', () => {
     await render(<TeamDashboardDetails {...({ controller: live, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
     await act(async () => { tabButton('members').click() })
     await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!.click() })
-    expect(coordinator.openMemberChat).toHaveBeenCalledExactlyOnceWith('worker', 'worker-session')
+    expect(coordinator.openMemberChat).not.toHaveBeenCalled()
     expect(document.querySelector('[data-swarm-detail-biography]')?.textContent).toBe(member.biography)
     expect(document.querySelector('[data-swarm-contact-disabled]')).toBeNull()
     // Reopening/reloading the member Chat must select its own details without
@@ -155,7 +153,7 @@ describe('Team workspace views and projection-derived activity', () => {
   expect(document.querySelector('.swarm-team-workspace')?.getAttribute('data-swarm-team-layout')).toBe('workspace')
   // A single Captain desk click routes to the dedicated Captain Chat via the coordinator.
   await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-captain-desk]')!).click(); await Promise.resolve() })
-  expect(coordinator.openCaptainChat).toHaveBeenCalledTimes(1)
+  expect(coordinator.openCaptainChat).not.toHaveBeenCalled()
   })
 
   it('renders three mutually exclusive tab views and retains announcements and management together in Team info', async () => {
@@ -206,11 +204,11 @@ describe('Team workspace views and projection-derived activity', () => {
     expect(overlay.querySelector('[data-swarm-diagnostics-detail]')?.textContent).toContain('team-domain')
     await pressEscape()
     // Member management routes through the official Captain chat seam.
-    await act(async () => { document.querySelector<HTMLElement>('[data-swarm-manage-members] button')!.click(); await Promise.resolve() })
-    expect(coordinator.openCaptainChat).toHaveBeenCalledTimes(1)
+    expect(document.querySelector('[data-swarm-manage-members] button')).toBeNull()
+    expect(coordinator.openCaptainChat).not.toHaveBeenCalled()
   })
 
-  it('keeps one card per real Team visible while expanding a Team and opening member details (#225)', async () => {
+  it('follows explicit Team selection in the original right seat without a duplicate directory or Chat entry', async () => {
     const coordinator = new FakeCoordinator()
     const multiTeams = {
       schemaVersion: 1,
@@ -276,18 +274,12 @@ describe('Team workspace views and projection-derived activity', () => {
     // One Team owns one card. Duplicate directory rows cannot duplicate cards.
     expect(document.querySelector('[data-swarm-team-rail]')).toBeNull()
     expect(document.querySelector('[data-swarm-team-switcher]')).toBeNull()
-    expect([...document.querySelectorAll('[data-swarm-team-card]')].map(card => card.getAttribute('data-swarm-team-card'))).toEqual(['team-alpha', 'team-beta'])
-    const teamPanel = document.querySelector('[data-swarm-team-panel]')!
-    const toggle = (id: string) => teamPanel.querySelector<HTMLButtonElement>(`[data-swarm-team-toggle="${id}"]`)!
-    expect(toggle('team-alpha').getAttribute('aria-expanded')).toBe('true')
-    expect(toggle('team-beta').getAttribute('aria-expanded')).toBe('false')
-    await act(async () => { toggle('team-alpha').click() })
-    expect(toggle('team-alpha').getAttribute('aria-expanded')).toBe('false')
-    expect(document.querySelector('[data-swarm-workroom]')).toBeNull()
+    expect(document.querySelectorAll('[data-swarm-team-card]')).toHaveLength(0)
+    expect(document.querySelector('.swarm-team-workspace__title')?.textContent).toBe('Alpha Team')
     expect(railController.selectTeam).not.toHaveBeenCalled()
     // Another Team selection switches the CURRENT sidebar through controller.selectTeam
     // with its real id — it never opens or jumps to any Captain Session.
-    await act(async () => { toggle('team-beta').click() })
+    await act(async () => { railController.selectTeam('team-beta') })
     expect(railController.selectTeam).toHaveBeenCalledTimes(1)
     expect(railController.selectTeam).toHaveBeenLastCalledWith('team-beta')
     expect(coordinator.openTeamCaptain).not.toHaveBeenCalled()
@@ -298,15 +290,14 @@ describe('Team workspace views and projection-derived activity', () => {
     expect(document.querySelector('[role="dialog"][data-swarm-detail-overlay]')).toBeNull()
     // After the switch the panel renders the SECOND Team's bound data: the moved selection, the
     // Beta Team title, and Beta's real public goal from the same read contract.
-    expect(toggle('team-beta').getAttribute('aria-expanded')).toBe('true')
-    expect(toggle('team-alpha').getAttribute('aria-expanded')).toBe('false')
-    expect(document.querySelectorAll('[data-swarm-team-card]')).toHaveLength(2)
+    expect(document.querySelector('.swarm-team-workspace__title')?.textContent).toBe('Beta Team')
+    expect(document.querySelectorAll('[data-swarm-team-card]')).toHaveLength(0)
     expect(document.querySelector<HTMLElement>('[data-swarm-goal-text]')?.textContent).toBe('Beta team goal')
     // The Captain conversation entry stays on the selected Team's Captain desk and still routes
     // through the official Captain Chat seam exactly once.
     await act(async () => { tabButton('members').click() })
     await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-captain-desk]')!).click(); await Promise.resolve() })
-    expect(coordinator.openCaptainChat).toHaveBeenCalledTimes(1)
+    expect(coordinator.openCaptainChat).not.toHaveBeenCalled()
     // Polling may select another active Team while the archived card stays listed.
     await act(async () => {
       const next = stateFor('team-alpha')
@@ -315,15 +306,12 @@ describe('Team workspace views and projection-derived activity', () => {
       } } }
       listeners.forEach(listener => listener())
     })
-    expect(toggle('team-alpha').getAttribute('aria-expanded')).toBe('true')
-    expect(toggle('team-beta').getAttribute('aria-expanded')).toBe('false')
+    expect(document.querySelector('.swarm-team-workspace__title')?.textContent).toBe('Alpha Team')
     expect(document.querySelector('[data-swarm-workroom]')).not.toBeNull()
     expect(document.querySelector('.swarm-team-workspace__card-loading')).toBeNull()
-    // An explicit all-collapsed choice survives a later verified binding change.
-    await act(async () => { toggle('team-alpha').click() })
+    // The right seat follows later verified binding changes; folding lives on the left.
     await act(async () => { current = stateFor('team-beta'); listeners.forEach(listener => listener()) })
-    expect(toggle('team-alpha').getAttribute('aria-expanded')).toBe('false')
-    expect(toggle('team-beta').getAttribute('aria-expanded')).toBe('false')
+    expect(document.querySelector('.swarm-team-workspace__title')?.textContent).toBe('Beta Team')
     // Zero Teams renders an honest empty rail, never a fabricated dot.
     const emptyState: TeamDashboardState = { ...ready, data: { ...teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, SWARM_READ_RPC_FIXTURES_V1.values.snapshot), teams: { ...multiTeams, teams: [] } as never } }
     const emptyController = { getSnapshot: (): TeamDashboardState => emptyState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn(), selectTeam: vi.fn() }

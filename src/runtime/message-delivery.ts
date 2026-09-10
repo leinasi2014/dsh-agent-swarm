@@ -35,6 +35,15 @@ import { messageObsoleteReason } from '../domain/team-domain-mailbox.js'
 import type { TeamId, TeamMessage, TeamMessageId, TeamState } from '../domain/types.js'
 import { framePredicate, frameVisibility, sessionAccepts, waitForFrameClaim } from './frame-visibility.js'
 import { messageFrame } from './prompts.js'
+import type { SubagentPromptRequestId } from '@deepseek-ai/dsh-subagent'
+import { publicAppendEligibility } from './public-lineage.js'
+
+/** One serialized drain, including overlapping work it waited for. */
+export interface PublicDeliveryResult {
+  readonly admitted: boolean
+  readonly deferred: boolean
+  readonly reconciled: number
+}
 
 /**
  * The exact model-visible frame one message is delivered under lives in
@@ -49,6 +58,7 @@ import { messageFrame } from './prompts.js'
 /** Serialized per-message delivery over the authoritative mailbox. */
 export class MessageDelivery {
   private readonly chains = new Map<string, Promise<TeamMessage | undefined>>()
+  private readonly publicChains = new Map<string, Promise<PublicDeliveryResult>>()
 
   constructor(
     private readonly ctx: Context,
@@ -57,8 +67,67 @@ export class MessageDelivery {
       isClosing: () => boolean
       scopeOf: (agent: Agent) => TeamScope
       accountAgentUsage: (scope: TeamScope, teamId: TeamId, agent: Agent) => Promise<void>
+      publicTeam?: (scope: TeamScope, teamId: TeamId) => Promise<TeamState | undefined>
+      publicRoot?: (parentSessionId: string, scope: TeamScope) => Promise<Agent>
     },
   ) {}
+
+  /** Public input uses this same delivery owner and immutable aggregate debt. */
+  async deliverPublicMessages(scope: TeamScope, teamId: TeamId, signal: AbortSignal): Promise<PublicDeliveryResult> {
+    const key = `${scope}\0${teamId}`
+    const previous = this.publicChains.get(key) ?? Promise.resolve({ admitted: false, deferred: false, reconciled: 0 })
+    const next = previous.catch(() => ({ admitted: false, deferred: true, reconciled: 0 })).then(async prior => {
+      // OR/OR/SUM across messages and overlapping callers. A preceding
+      // admission still owns this wake even if its Agent has already retired.
+      const result = { ...prior }
+      const read = () => this.deps.publicTeam?.(scope, teamId)
+      const initial = await read()
+      if (initial === undefined || this.deps.isClosing()) return { ...result, deferred: true }
+      for (const row of initial.publicChat?.messages ?? []) {
+        if (row.delivery.state !== 'queued') continue
+        signal.throwIfAborted()
+        let team = await read()
+        let message = team?.publicChat?.messages.find(candidate => candidate.id === row.id)
+        if (team === undefined || message?.delivery.state !== 'queued' || team.phase !== 'active') {
+          result.deferred = true
+          continue
+        }
+        const delivery = message.delivery
+        const visibility = await frameVisibility(this.ctx, delivery.recipientSessionId, delivery.frame, signal, `public ${message.id}`, true)
+        if (visibility === 'claimed') {
+          await this.deps.domain().acknowledgePublicMessage(scope, teamId, message.id, delivery.recipientSessionId)
+          result.reconciled++
+          continue
+        }
+        // A pending inbox entry or an unreadable checkpoint is not permission
+        // to resend. Only proven absence can reach official prompt admission.
+        if (visibility !== 'absent' || this.deps.isClosing()) { result.deferred = true; continue }
+        if ((await publicAppendEligibility(this.ctx, scope, team, signal)).state !== 'available') { result.deferred = true; continue }
+        const root = await this.deps.publicRoot?.(delivery.parentSessionId, scope)
+        if (root === undefined) { result.deferred = true; continue }
+        team = await read()
+        message = team?.publicChat?.messages.find(candidate => candidate.id === row.id)
+        if (team?.phase !== 'active' || team.captainSessionId !== delivery.recipientSessionId
+          || message?.delivery.state !== 'queued' || message.delivery.frame !== delivery.frame) { result.deferred = true; continue }
+        signal.throwIfAborted()
+        if (this.deps.isClosing()) return { ...result, deferred: true }
+        await this.ctx.subagents.prompt({ requestId: message.id as SubagentPromptRequestId,
+          parentSessionId: SessionId(delivery.parentSessionId), childSessionId: SessionId(delivery.recipientSessionId),
+          mode: 'continuable', delivery: 'steer', content: [{ type: 'text', text: delivery.frame }] }, signal)
+        result.admitted = true
+        const target = this.ctx.agents.get(SessionId(delivery.recipientSessionId))
+        if (target !== undefined) {
+          await this.deps.accountAgentUsage(scope, teamId, target)
+          if (await waitForFrameClaim(this.ctx, target, delivery.frame, signal, 5_000, true)) {
+            await this.deps.domain().acknowledgePublicMessage(scope, teamId, message.id, delivery.recipientSessionId)
+          }
+        }
+      }
+      return result
+    }).finally(() => { if (this.publicChains.get(key) === next) this.publicChains.delete(key) })
+    this.publicChains.set(key, next)
+    return await next
+  }
 
   /**
    * Flush one live accepting target's durability checkpoint, then confirm
@@ -212,7 +281,7 @@ export class MessageDelivery {
   }
 
   /** Wait for every in-flight delivery chain (disposal path). */
-  wait(): Promise<Array<PromiseSettledResult<TeamMessage | undefined>>> {
-    return Promise.allSettled(this.chains.values())
+  wait(): Promise<Array<PromiseSettledResult<TeamMessage | undefined | PublicDeliveryResult>>> {
+    return Promise.allSettled([...this.chains.values(), ...this.publicChains.values()])
   }
 }

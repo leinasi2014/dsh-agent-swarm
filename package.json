@@ -50,7 +50,9 @@
         "@deepseek-ai/dsh-client-ui-settings-plugins",
         "@deepseek-ai/dsh-client-ui-renderer",
         "@deepseek-ai/dsh-client-ui-session",
-        "@deepseek-ai/dsh-client-ui-subagent"
+        "@deepseek-ai/dsh-client-ui-subagent",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-connection"
       ],
       "platform": "web"
     }
@@ -99,6 +101,7 @@
     "@deepseek-ai/dsh-agent-presets": "0.1.5-alpha.2",
     "@deepseek-ai/dsh-api-remotes": "0.1.5-alpha.2",
     "@deepseek-ai/dsh-api-session-controller": "0.1.5-alpha.2",
+    "@deepseek-ai/dsh-client-connection": "0.1.5-alpha.2",
     "@deepseek-ai/dsh-client-locale": "0.1.5-alpha.2",
     "@deepseek-ai/dsh-client-ui-conversation": "0.1.5-alpha.2",
     "@deepseek-ai/dsh-client-ui-layout": "0.1.5-alpha.2",
@@ -107,6 +110,7 @@
     "@deepseek-ai/dsh-client-ui-session": "0.1.5-alpha.2",
     "@deepseek-ai/dsh-client-ui-settings": "0.1.5-alpha.2",
     "@deepseek-ai/dsh-client-ui-settings-plugins": "0.1.5-alpha.2",
+    "@deepseek-ai/dsh-client-ui-sidebar": "0.1.5-alpha.2",
     "@deepseek-ai/dsh-client-ui-sidebar-right": "0.1.5-alpha.2",
     "@deepseek-ai/dsh-client-ui-slots": "0.1.5-alpha.2",
     "@deepseek-ai/dsh-client-ui-subagent": "0.1.5-alpha.2",
@@ -157,6 +161,7 @@
     "@deepseek-ai/dsh-client-ui-session": "0.1.5-alpha.2",
     "@deepseek-ai/dsh-client-ui-settings": "0.1.5-alpha.2",
     "@deepseek-ai/dsh-client-ui-settings-plugins": "0.1.5-alpha.2",
+    "@deepseek-ai/dsh-client-ui-sidebar": "0.1.5-alpha.2",
     "@deepseek-ai/dsh-client-ui-sidebar-right": "0.1.5-alpha.2",
     "@deepseek-ai/dsh-client-ui-subagent": "0.1.5-alpha.2",
     "@deepseek-ai/dsh-code-runtime": "0.1.5-alpha.2",
@@ -241,7 +246,11 @@
   },
   "pnpm": {
     "patchedDependencies": {
-      "@deepseek-ai/dsh-client-ui-subagent@0.1.5-alpha.2": "patches/@deepseek-ai__dsh-client-ui-subagent@0.1.5-alpha.2.patch"
+      "@deepseek-ai/dsh-client-ui-subagent@0.1.5-alpha.2": "patches/@deepseek-ai__dsh-client-ui-subagent@0.1.5-alpha.2.patch",
+      "@deepseek-ai/dsh-client-ui-layout@0.1.5-alpha.2": "patches/@deepseek-ai__dsh-client-ui-layout@0.1.5-alpha.2.patch",
+      "@deepseek-ai/dsh-client-ui-sidebar@0.1.5-alpha.2": "patches/@deepseek-ai__dsh-client-ui-sidebar@0.1.5-alpha.2.patch",
+      "@deepseek-ai/dsh-client-ui-sidebar-right@0.1.5-alpha.2": "patches/@deepseek-ai__dsh-client-ui-sidebar-right@0.1.5-alpha.2.patch",
+      "@deepseek-ai/dsh-client-connection@0.1.5-alpha.2": "patches/@deepseek-ai__dsh-client-connection@0.1.5-alpha.2.patch"
     },
     "packageExtensions": {
       "@deepseek-ai/dsh-client-store@0.1.5-alpha.2": {

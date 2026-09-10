@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { FakeCoordinator, ready, render, t, tZh } from './helpers/dashboard-ui.js'
 import { useTabInfo } from './helpers/sidebar-tab.js'
-import { act } from 'react'
+import { act, useSyncExternalStore, type ComponentProps } from 'react'
 import { describe, expect, it } from 'vitest'
 import { TeamDashboardDetails } from '../src/client/TeamDashboardDetails.js'
+import { TeamGroupNavigation } from '../src/client/TeamGroupNavigation.js'
 import type { TeamDashboardState } from '../src/client/team-dashboard-controller.js'
 import type { SwarmReadTaskDetailV1 } from '../src/rpc/read-rpc-contract.js'
 
@@ -27,7 +28,7 @@ async function click(selector: string): Promise<void> {
   expect(element, selector).not.toBeNull()
   await act(async () => { element!.click() })
 }
-async function mount(state = fixture(), translate = t) {
+async function mount(state = fixture(), translate = t, navigation = false) {
   const coordinator = new FakeCoordinator()
   const listeners = new Set<() => void>()
   const controller = { getSnapshot: () => state, subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
@@ -40,11 +41,36 @@ async function mount(state = fixture(), translate = t) {
       return { schemaVersion: 1, state: 'available', binding: projection.binding, taskId, teamRevision: projection.team.revision,
         task: { ...task, description: '', acceptanceCriteria: [] }, attempts: { scope: 'retained', entries, retainedCount: entries.length, returnedCount: entries.length, limit: 100, truncated: false }, observedAt: projection.observedAt }
     } }
-  await render(<TeamDashboardDetails {...({ controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'main-brain', useTabInfo, t: translate } as any)} />)
+  function Navigation() {
+    const current = useSyncExternalStore(controller.subscribe, controller.getSnapshot)
+    const props = { t: translate, wide: true, expandSidebar: () => {},
+      useTeam: <T,>(selector: (value: TeamDashboardState) => T) => selector(current),
+      usePanelInfo: <T,>(selector: (value: { activePanelId: null }) => T) => selector({ activePanelId: null }),
+      selectGroup: () => {}, openMain: async () => {}, openCaptain: async () => {},
+      openMember: (name: string, sessionId: string) => coordinator.openMemberChat(name, sessionId),
+    }
+    return <TeamGroupNavigation {...props as ComponentProps<typeof TeamGroupNavigation>} />
+  }
+  await render(<>{navigation ? <Navigation /> : null}<TeamDashboardDetails {...({ controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'main-brain', useTabInfo, t: translate } as any)} /></>)
   return { coordinator, setState: async (next: TeamDashboardState) => { await act(async () => { state = next; listeners.forEach(listener => listener()) }) } }
 }
 
 describe('V7 real task sidebar', () => {
+  it('retains the complete selected task trace during a same-binding disconnect', async () => {
+    const state = fixture()
+    const { setState } = await mount(state)
+    await click('[data-swarm-task-id="task-a"]')
+    await click('[data-swarm-task-view="trace"]')
+    const trace = document.querySelector('[data-swarm-task-trace]')!
+    expect(trace).not.toBeNull()
+    const text = trace.textContent
+    for (const phase of ['stale', 'reconnecting'] as const) {
+      await setState({ ...state, phase, error: { code: 'RESET', message: 'connection lost' } })
+      expect(document.querySelector('[data-swarm-task-trace]')).toBe(trace)
+      expect(trace.textContent).toBe(text)
+      expect(document.querySelector('[data-swarm-team-panel]')?.textContent).toContain(t(phase))
+    }
+  })
   it.each([
     { language: 'English', translate: t, accepted: 'Accepted', assignment: 'Assignment record', reserved: 'Reserved', unsupported: 'not yet delivered' },
     { language: 'Chinese', translate: tZh, accepted: '已接受', assignment: '分派记录', reserved: '已预留', unsupported: '尚未送达' },
@@ -157,14 +183,20 @@ describe('V7 real task sidebar', () => {
     const state = fixture(), data = state.data!
     const member = { ...data.captainMembers.members[0]!, name: 'worker', phase: 'active' as const, sessionId: 'worker-session' }
     const bound = { ...state, data: { ...data, captainMembers: { ...data.captainMembers, binding: data.projection.binding, members: [member] }, projection: { ...data.projection, roster: [{ name: 'worker', role: 'Builder', phase: 'active' as const, createdAt: start }] } } }
-    const { coordinator, setState } = await mount(bound)
+    const { coordinator, setState } = await mount(bound, t, true)
     await click('[data-swarm-task-id="task-a"]')
     await click('[data-swarm-task-view="trace"]')
-    await click('[data-swarm-task-attempt="attempt-2"] button')
+    expect(document.querySelector('[data-swarm-task-attempt="attempt-2"]')?.textContent).toContain('worker')
+    expect(document.querySelector('[data-swarm-task-attempt="attempt-2"] button')).toBeNull()
+    await click(`[data-swarm-group="${data.projection.binding.teamId}"]`)
+    await click('[data-swarm-group-member="worker"]')
     expect(coordinator.openMemberChat).toHaveBeenCalledExactlyOnceWith('worker', 'worker-session')
     await setState({ ...bound, data: { ...bound.data, captainMembers: { ...bound.data.captainMembers, binding: { ...data.projection.binding, rootSessionId: 'wrong-root' } } } })
-    expect(document.querySelector('[data-swarm-task-attempt="attempt-2"] button')).toBeNull()
+    expect(document.querySelector('[data-swarm-group-member="worker"]')).toBeNull()
     await setState({ ...bound, data: { ...bound.data, projection: { ...bound.data.projection, roster: [{ ...bound.data.projection.roster[0]!, phase: 'removed' }] } } })
-    expect(document.querySelector('[data-swarm-task-attempt="attempt-2"] button')).toBeNull()
+    const removed = document.querySelector<HTMLButtonElement>('[data-swarm-group-member="worker"]')!
+    expect(removed.disabled).toBe(true)
+    await act(async () => { removed.click() })
+    expect(coordinator.openMemberChat).toHaveBeenCalledTimes(1)
   })
 })

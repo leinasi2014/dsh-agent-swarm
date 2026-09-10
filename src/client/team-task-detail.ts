@@ -17,7 +17,10 @@ export function useTaskDetail(controller: TeamDashboardController, state: TeamDa
     && taskId !== undefined && root !== undefined && team !== undefined && cursor !== undefined && revision !== undefined && session !== undefined
     ? { targetSessionId: session, binding: { rootSessionId: root, teamId: team }, taskId, cursor, teamRevision: revision } : undefined,
   [state.phase, state.open, taskId, root, team, cursor, revision, session])
-  const key = target === undefined ? undefined : JSON.stringify([session, root, team, taskId, cursor, revision])
+  const key = state.open && (state.phase === 'ready' || state.phase === 'stale' || state.phase === 'reconnecting')
+    && taskId !== undefined && root !== undefined && team !== undefined && cursor !== undefined && revision !== undefined && session !== undefined
+    && (state.pendingTeamId === undefined || state.pendingTeamId === team)
+    ? JSON.stringify([session, root, team, taskId, cursor, revision]) : undefined
   const sequence = useRef(0)
   const [result, setResult] = useState<{ readonly key: string; readonly read: TaskDetailRead }>()
   useEffect(() => {
@@ -38,5 +41,5 @@ export function useTaskDetail(controller: TeamDashboardController, state: TeamDa
     return () => { sequence.current++; abort.abort() }
   }, [controller, target, key])
   // Identity changes are hidden synchronously, before the old effect's cleanup runs.
-  return key === undefined ? { phase: 'waiting' } : result?.key === key ? result.read : { phase: 'loading' }
+  return key === undefined ? { phase: 'waiting' } : result?.key === key ? result.read : { phase: target === undefined ? 'waiting' : 'loading' }
 }

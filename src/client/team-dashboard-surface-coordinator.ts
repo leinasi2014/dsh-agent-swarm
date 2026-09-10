@@ -87,6 +87,7 @@ export class TeamDashboardSurfaceCoordinator {
       const current = this.options.sessions.list.getSnapshot().current
       if (current === this.observedSessionId) return
       this.observedSessionId = current
+      this.navigationEpoch++
       if (current === undefined) this.options.controller.close()
       else {
         this.options.controller.open(current)
@@ -187,7 +188,7 @@ export class TeamDashboardSurfaceCoordinator {
       const sessions = this.options.sessions
       const list = sessions.list.getSnapshot()
       const row = list.byId[id as SessionId]
-      if (list.current !== this.state.targetSessionId || row === undefined || row.origin === 'subagent' || row.parentId !== undefined) {
+      if (list.current !== this.observedSessionId || row === undefined || row.origin === 'subagent' || row.parentId !== undefined) {
         throw new Error('Main conversation is not in the current official root Session list')
       }
       sessions.open(id as SessionId)
@@ -200,6 +201,7 @@ export class TeamDashboardSurfaceCoordinator {
     const before = sessions.list.getSnapshot()
     const row = before.byId[id as SessionId]
     if (row === undefined) throw new Error('Dedicated Captain is no longer in the official Session list')
+    if (before.current === id) return
     if (row.origin !== 'subagent') { sessions.open(id as SessionId); return }
     if (row.parentId === undefined) throw new Error('Dedicated Captain has no official parent child catalog')
     await sessions.refreshSubagents(row.parentId)
@@ -218,14 +220,13 @@ export class TeamDashboardSurfaceCoordinator {
 
   async openMemberChat(name: string, sessionId: string): Promise<void> {
     const check = this.navigationGuard()
-    const target = this.state.targetSessionId
+    const target = this.options.sessions.list.getSnapshot().current
     await this.options.controller.openMemberChat(name, sessionId, async (captainId, memberId, signal) => {
       const sessions = this.options.sessions
       await sessions.refreshSubagents(captainId as SessionId)
       signal.throwIfAborted()
       check()
-      if (this.state.mode !== 'docked' || this.state.targetSessionId !== target
-        || sessions.list.getSnapshot().current !== target) throw new Error('Member Chat handoff was superseded')
+      if (sessions.list.getSnapshot().current !== target) throw new Error('Member Chat handoff was superseded')
       const catalog = sessions.list.getSnapshot().subagentsByParent[captainId as SessionId]
       const child = catalog?.state === 'ready' ? catalog.entries.find((entry: SubagentListEntry) => entry.id === memberId) as SubagentListEntry | undefined : undefined
       if (child?.kind !== 'child' || child.mode !== 'continuable') {
@@ -246,11 +247,15 @@ export class TeamDashboardSurfaceCoordinator {
 
   private navigationGuard(): () => void {
     const epoch = this.navigationEpoch
-    const target = this.state.targetSessionId
+    const target = this.options.sessions.list.getSnapshot().current
+    const binding = this.options.controller.getSnapshot().data?.projection.binding
     return () => {
       this.assertLive()
-      if (this.navigationEpoch !== epoch || this.state.mode !== 'docked'
-        || target === undefined || this.state.targetSessionId !== target
+      const read = this.options.controller.getSnapshot()
+      if (this.navigationEpoch !== epoch || read.phase !== 'ready'
+        || target === undefined || read.targetSessionId !== target
+        || binding === undefined || read.data?.projection.binding.teamId !== binding.teamId
+        || read.data?.projection.binding.rootSessionId !== binding.rootSessionId
         || this.options.sessions.list.getSnapshot().current !== target) {
         throw new Error('Team Chat handoff was superseded')
       }
@@ -291,7 +296,6 @@ export class TeamDashboardSurfaceCoordinator {
   }
   private publish(state: TeamDashboardSurfaceState): void {
     if (state.mode === this.state.mode && state.view === this.state.view && state.targetSessionId === this.state.targetSessionId) return
-    if (state.mode !== this.state.mode || state.targetSessionId !== this.state.targetSessionId) this.navigationEpoch++
     this.state = Object.freeze(state)
     for (const listener of this.listeners) listener()
   }

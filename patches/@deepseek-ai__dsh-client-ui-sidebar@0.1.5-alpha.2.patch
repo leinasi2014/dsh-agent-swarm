@@ -1,0 +1,349 @@
+diff --git a/lib/client.js b/lib/client.js
+index 6354663d3ce9e4521a58f95e699c8437981ad479..cd27bb037b7dd46557440d95c9a70ee4e0180fd0 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -6,9 +6,9 @@ window.__ModuleLoader__.load({
+ 		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
+ 		let _deepseek_ai_dsh_client_store = require("@deepseek-ai/dsh-client-store");
+ 		let _deepseek_ai_dsh_client_ui_slots = require("@deepseek-ai/dsh-client-ui-slots");
+-		let react_jsx_runtime = require("react/jsx-runtime");
+ 		let react = require("react");
+ 		let _deepseek_ai_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
++		let react_jsx_runtime = require("react/jsx-runtime");
+ 		//#region ../../../node_modules/.pnpm/clsx@2.1.1/node_modules/clsx/dist/clsx.mjs
+ 		function r(e) {
+ 			var t, f, n = "";
+@@ -24,8 +24,8 @@ window.__ModuleLoader__.load({
+ 			return n;
+ 		}
+ 		//#endregion
+-		//#region \0dsh-css:/home/runner/work/deepseek-harness/deepseek-harness/packages/client/ui-sidebar/src/client/SidebarRoot.module.css.mjs
+-		const css = ".hHd-Xa_root{--dsh-sidebar-inline-padding:12px;height:100%;padding:6px var(--dsh-sidebar-inline-padding);box-sizing:border-box;background:var(--dsw-specific-sidebar-fill);color:var(--dsw-alias-label-primary);--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);flex-direction:column;font-size:14px;display:flex}.hHd-Xa_root.hHd-Xa_collapsed{padding:18px 10px 6px}.hHd-Xa_root.hHd-Xa_quietBars{--dsh-scrollbar-thumb:transparent;--dsh-scrollbar-thumb-hover:transparent}.hHd-Xa_fading>*{opacity:0;transition:opacity .15s var(--ds-ease-in-out)}.hHd-Xa_wide{animation:hHd-Xa_wide-in .2s var(--ds-ease-in-out)}@keyframes hHd-Xa_wide-in{0%{opacity:0}}.hHd-Xa_railIn .hHd-Xa_iconButton,.hHd-Xa_railIn .hHd-Xa_newSession,.hHd-Xa_railIn .hHd-Xa_panelList,.hHd-Xa_railIn .hHd-Xa_regionArea{animation:hHd-Xa_rail-in .15s var(--ds-ease-in-out) backwards}.hHd-Xa_railIn .hHd-Xa_footArea{animation:hHd-Xa_rail-fade-in .15s var(--ds-ease-in-out) backwards}@keyframes hHd-Xa_rail-in{0%{opacity:0;transform:translate(49px)}}@keyframes hHd-Xa_rail-fade-in{0%{opacity:0}}.hHd-Xa_logoRow{box-sizing:border-box;flex:none;justify-content:flex-end;align-items:center;gap:8px;height:60px;margin-bottom:8px;padding:8px 0 8px 4px;display:flex;overflow:hidden}.hHd-Xa_collapsed .hHd-Xa_logoRow{justify-content:flex-start;height:36px;margin-bottom:12px;padding:0}.hHd-Xa_brand{min-width:0;color:inherit;cursor:pointer;background:0 0;border:none;flex:1;align-items:center;padding:0;display:inline-flex;overflow:hidden}.hHd-Xa_brandIdentity{align-items:center;gap:8px;min-width:0;height:24px;display:inline-flex}.hHd-Xa_brandMark{flex:none;justify-content:center;align-items:center;display:inline-flex}.hHd-Xa_brandName{letter-spacing:.04em;align-items:center;gap:6px;min-width:0;height:24px;font-size:18px;font-weight:600;line-height:24px;display:inline-flex}.hHd-Xa_fallbackBrandName{letter-spacing:0;white-space:nowrap;font-size:17px}.hHd-Xa_localBuildBrand{white-space:nowrap;flex-direction:column;flex:none;justify-content:center;align-items:flex-start;gap:1px;height:24px;display:inline-flex}.hHd-Xa_localBuildTitle{letter-spacing:0;font-size:12px;line-height:13px}.hHd-Xa_iconButton{corner-shape:round;cursor:pointer;width:28px;height:28px;color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.hHd-Xa_iconButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.hHd-Xa_collapsed .hHd-Xa_iconButton{width:36px;height:36px}.hHd-Xa_collapsed .hHd-Xa_toggle .hHd-Xa_panelIcon{display:none}.hHd-Xa_collapsed .hHd-Xa_toggle:hover .hHd-Xa_panelIcon{display:inline}.hHd-Xa_collapsed .hHd-Xa_toggle:hover .hHd-Xa_railMark{display:none}.hHd-Xa_railMark{justify-content:center;align-items:center;display:inline-flex}.hHd-Xa_collapsed .hHd-Xa_iconButton{color:var(--dsw-alias-label-primary)}.hHd-Xa_buildVersion{height:10px;color:var(--dsw-alias-label-primary-inverted);background:var(--dsw-alias-label-primary);font-family:var(--ds-font-family-code);white-space:nowrap;border-radius:2px;flex:none;align-items:center;padding:0 3px;font-size:6px;font-weight:500;line-height:10px;display:inline-flex}.hHd-Xa_newSession{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-button-elevated-fill);height:38px;color:var(--dsw-alias-label-primary);cursor:pointer;border-radius:12px;flex:none;justify-content:center;align-items:center;gap:6px;margin:0 2px 8px;padding:8px 16px;font-size:14px;font-weight:500;line-height:22px;display:flex;overflow:hidden}.hHd-Xa_newSession:hover{background:var(--dsw-alias-button-floating-hover)}.hHd-Xa_collapsed .hHd-Xa_newSession{background:0 0;border-color:#0000;align-self:flex-start;gap:0;width:36px;height:36px;margin:0 0 12px;padding:0}.hHd-Xa_collapsed .hHd-Xa_newSession:hover{background:var(--dsw-alias-interactive-bg-hover)}.hHd-Xa_newSessionLabel{white-space:nowrap;max-width:200px;overflow:hidden}.hHd-Xa_collapsed .hHd-Xa_newSessionLabel{max-width:0}.hHd-Xa_panelList{flex-direction:column;flex:none;gap:4px;margin-bottom:8px;display:flex}.hHd-Xa_panelRow{box-sizing:border-box;width:100%;min-height:36px;color:var(--dsw-alias-label-secondary);font:inherit;text-align:left;cursor:pointer;background:0 0;border:none;border-radius:8px;align-items:center;gap:8px;padding:7px 8px;line-height:22px;display:flex}.hHd-Xa_panelRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.hHd-Xa_panelRow.hHd-Xa_panelActive{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary);font-weight:500}.hHd-Xa_panelRow:focus-visible{outline:2px solid var(--dsw-alias-label-primary);outline-offset:-2px}.hHd-Xa_panelGlyph{flex:none;justify-content:center;align-items:center;display:inline-flex}.hHd-Xa_panelTitle{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.hHd-Xa_collapsed .hHd-Xa_panelList{gap:12px;margin-bottom:12px}.hHd-Xa_collapsed .hHd-Xa_panelRow{width:36px;height:36px;color:var(--dsw-alias-label-primary);justify-content:center;padding:0}.hHd-Xa_regionArea{min-height:0;margin-left:-4px;margin-right:calc(-1 * var(--dsh-sidebar-inline-padding));flex-direction:column;flex:1;padding-left:4px;display:flex;overflow:hidden}.hHd-Xa_collapsed .hHd-Xa_regionArea{margin-left:0;margin-right:0;padding-left:0}.hHd-Xa_footArea{flex-direction:column;flex:none;display:flex}.hHd-Xa_settingsArea,.hHd-Xa_footerActions{flex:none;width:100%;min-width:0}.hHd-Xa_footerActions{display:flex}.hHd-Xa_collapsed .hHd-Xa_footArea{align-items:center}.hHd-Xa_collapsed .hHd-Xa_settingsArea,.hHd-Xa_collapsed .hHd-Xa_footerActions{justify-content:center;width:auto;display:flex}@media (prefers-reduced-motion:reduce){.hHd-Xa_wide,.hHd-Xa_fading>*,.hHd-Xa_railIn .hHd-Xa_iconButton,.hHd-Xa_railIn .hHd-Xa_newSession,.hHd-Xa_railIn .hHd-Xa_panelList,.hHd-Xa_railIn .hHd-Xa_footArea,.hHd-Xa_railIn .hHd-Xa_regionArea{transition:none;animation:none}}";
++		//#region \0dsh-css:D:\Source\DSH\deepseek-harness\.worktrees\subagent-display\packages\client\ui-sidebar\src\client\SidebarRoot.module.css.mjs
++		const css = ".ZoB5ta_root{--dsh-sidebar-inline-padding:12px;height:100%;padding:6px var(--dsh-sidebar-inline-padding);box-sizing:border-box;background:var(--dsw-specific-sidebar-fill);color:var(--dsw-alias-label-primary);--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);flex-direction:column;font-size:14px;display:flex}.ZoB5ta_root.ZoB5ta_collapsed{padding:18px 10px 6px}.ZoB5ta_root.ZoB5ta_quietBars{--dsh-scrollbar-thumb:transparent;--dsh-scrollbar-thumb-hover:transparent}.ZoB5ta_fading>*{opacity:0;transition:opacity .15s var(--ds-ease-in-out)}.ZoB5ta_wide{animation:ZoB5ta_wide-in .2s var(--ds-ease-in-out)}@keyframes ZoB5ta_wide-in{0%{opacity:0}}.ZoB5ta_railIn .ZoB5ta_iconButton,.ZoB5ta_railIn .ZoB5ta_newSession,.ZoB5ta_railIn .ZoB5ta_panelList,.ZoB5ta_railIn .ZoB5ta_regionArea{animation:ZoB5ta_rail-in .15s var(--ds-ease-in-out) backwards}.ZoB5ta_railIn .ZoB5ta_footArea{animation:ZoB5ta_rail-fade-in .15s var(--ds-ease-in-out) backwards}@keyframes ZoB5ta_rail-in{0%{opacity:0;transform:translate(49px)}}@keyframes ZoB5ta_rail-fade-in{0%{opacity:0}}.ZoB5ta_logoRow{box-sizing:border-box;flex:none;justify-content:flex-end;align-items:center;gap:8px;height:60px;margin-bottom:8px;padding:8px 0 8px 4px;display:flex;overflow:hidden}.ZoB5ta_collapsed .ZoB5ta_logoRow{justify-content:flex-start;height:36px;margin-bottom:12px;padding:0}.ZoB5ta_brand{min-width:0;color:inherit;cursor:pointer;background:0 0;border:none;flex:1;align-items:center;padding:0;display:inline-flex;overflow:hidden}.ZoB5ta_brandIdentity{align-items:center;gap:8px;min-width:0;height:24px;display:inline-flex}.ZoB5ta_brandMark{flex:none;justify-content:center;align-items:center;display:inline-flex}.ZoB5ta_brandName{letter-spacing:.04em;align-items:center;gap:6px;min-width:0;height:24px;font-size:18px;font-weight:600;line-height:24px;display:inline-flex}.ZoB5ta_fallbackBrandName{letter-spacing:0;white-space:nowrap;font-size:17px}.ZoB5ta_localBuildBrand{white-space:nowrap;flex-direction:column;flex:none;justify-content:center;align-items:flex-start;gap:1px;height:24px;display:inline-flex}.ZoB5ta_localBuildTitle{letter-spacing:0;font-size:12px;line-height:13px}.ZoB5ta_iconButton{corner-shape:round;cursor:pointer;width:28px;height:28px;color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.ZoB5ta_iconButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.ZoB5ta_collapsed .ZoB5ta_iconButton{width:36px;height:36px}.ZoB5ta_collapsed .ZoB5ta_toggle .ZoB5ta_panelIcon{display:none}.ZoB5ta_collapsed .ZoB5ta_toggle:hover .ZoB5ta_panelIcon{display:inline}.ZoB5ta_collapsed .ZoB5ta_toggle:hover .ZoB5ta_railMark{display:none}.ZoB5ta_railMark{justify-content:center;align-items:center;display:inline-flex}.ZoB5ta_collapsed .ZoB5ta_iconButton{color:var(--dsw-alias-label-primary)}.ZoB5ta_buildVersion{height:10px;color:var(--dsw-alias-label-primary-inverted);background:var(--dsw-alias-label-primary);font-family:var(--ds-font-family-code);white-space:nowrap;border-radius:2px;flex:none;align-items:center;padding:0 3px;font-size:6px;font-weight:500;line-height:10px;display:inline-flex}.ZoB5ta_newSession{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l3);background:var(--dsw-alias-button-elevated-fill);height:38px;color:var(--dsw-alias-label-primary);cursor:pointer;border-radius:12px;flex:none;justify-content:center;align-items:center;gap:6px;margin:0 2px 8px;padding:8px 16px;font-size:14px;font-weight:500;line-height:22px;display:flex;overflow:hidden}.ZoB5ta_newSession:hover{background:var(--dsw-alias-button-floating-hover)}.ZoB5ta_collapsed .ZoB5ta_newSession{background:0 0;border-color:#0000;align-self:flex-start;gap:0;width:36px;height:36px;margin:0 0 12px;padding:0}.ZoB5ta_collapsed .ZoB5ta_newSession:hover{background:var(--dsw-alias-interactive-bg-hover)}.ZoB5ta_newSessionLabel{white-space:nowrap;max-width:200px;overflow:hidden}.ZoB5ta_collapsed .ZoB5ta_newSessionLabel{max-width:0}.ZoB5ta_panelList{flex-direction:column;flex:none;gap:4px;margin-bottom:8px;display:flex}.ZoB5ta_panelRow{box-sizing:border-box;width:100%;min-height:36px;color:var(--dsw-alias-label-secondary);font:inherit;text-align:left;cursor:pointer;background:0 0;border:none;border-radius:8px;align-items:center;gap:8px;padding:7px 8px;line-height:22px;display:flex}.ZoB5ta_panelRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.ZoB5ta_panelRow.ZoB5ta_panelActive{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary);font-weight:500}.ZoB5ta_panelRow:focus-visible{outline:2px solid var(--dsw-alias-label-primary);outline-offset:-2px}.ZoB5ta_panelGlyph{flex:none;justify-content:center;align-items:center;display:inline-flex}.ZoB5ta_panelTitle{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.ZoB5ta_collapsed .ZoB5ta_panelList{gap:12px;margin-bottom:12px}.ZoB5ta_collapsed .ZoB5ta_panelRow{width:36px;height:36px;color:var(--dsw-alias-label-primary);justify-content:center;padding:0}.ZoB5ta_regionArea{min-height:0;margin-left:-4px;margin-right:calc(-1 * var(--dsh-sidebar-inline-padding));flex-direction:column;flex:1;padding-left:4px;display:flex;overflow:hidden}.ZoB5ta_collapsed .ZoB5ta_regionArea{margin-left:0;margin-right:0;padding-left:0}.ZoB5ta_footArea{flex-direction:column;flex:none;display:flex}.ZoB5ta_settingsArea,.ZoB5ta_footerActions{flex:none;width:100%;min-width:0}.ZoB5ta_footerActions{display:flex}.ZoB5ta_collapsed .ZoB5ta_footArea{align-items:center}.ZoB5ta_collapsed .ZoB5ta_settingsArea,.ZoB5ta_collapsed .ZoB5ta_footerActions{justify-content:center;width:auto;display:flex}@media (prefers-reduced-motion:reduce){.ZoB5ta_wide,.ZoB5ta_fading>*,.ZoB5ta_railIn .ZoB5ta_iconButton,.ZoB5ta_railIn .ZoB5ta_newSession,.ZoB5ta_railIn .ZoB5ta_panelList,.ZoB5ta_railIn .ZoB5ta_footArea,.ZoB5ta_railIn .ZoB5ta_regionArea{transition:none;animation:none}}";
+ 		const tagId = "@deepseek-ai/dsh-client-ui-sidebar/SidebarRoot.module.css";
+ 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
+ 			const tag = document.createElement("style");
+@@ -35,42 +35,42 @@ window.__ModuleLoader__.load({
+ 			document.head.appendChild(tag);
+ 		}
+ 		var SidebarRoot_module_css_default = {
+-			"brand": "hHd-Xa_brand",
+-			"brandIdentity": "hHd-Xa_brandIdentity",
+-			"brandMark": "hHd-Xa_brandMark",
+-			"brandName": "hHd-Xa_brandName",
+-			"buildVersion": "hHd-Xa_buildVersion",
+-			"collapsed": "hHd-Xa_collapsed",
+-			"fading": "hHd-Xa_fading",
+-			"fallbackBrandName": "hHd-Xa_fallbackBrandName",
+-			"footArea": "hHd-Xa_footArea",
+-			"footerActions": "hHd-Xa_footerActions",
+-			"iconButton": "hHd-Xa_iconButton",
+-			"localBuildBrand": "hHd-Xa_localBuildBrand",
+-			"localBuildTitle": "hHd-Xa_localBuildTitle",
+-			"logoRow": "hHd-Xa_logoRow",
+-			"newSession": "hHd-Xa_newSession",
+-			"newSessionLabel": "hHd-Xa_newSessionLabel",
+-			"panelActive": "hHd-Xa_panelActive",
+-			"panelGlyph": "hHd-Xa_panelGlyph",
+-			"panelIcon": "hHd-Xa_panelIcon",
+-			"panelList": "hHd-Xa_panelList",
+-			"panelRow": "hHd-Xa_panelRow",
+-			"panelTitle": "hHd-Xa_panelTitle",
+-			"quietBars": "hHd-Xa_quietBars",
+-			"rail-fade-in": "hHd-Xa_rail-fade-in",
+-			"rail-in": "hHd-Xa_rail-in",
+-			"railIn": "hHd-Xa_railIn",
+-			"railMark": "hHd-Xa_railMark",
+-			"regionArea": "hHd-Xa_regionArea",
+-			"root": "hHd-Xa_root",
+-			"settingsArea": "hHd-Xa_settingsArea",
+-			"toggle": "hHd-Xa_toggle",
+-			"wide": "hHd-Xa_wide",
+-			"wide-in": "hHd-Xa_wide-in"
++			"brand": "ZoB5ta_brand",
++			"brandIdentity": "ZoB5ta_brandIdentity",
++			"brandMark": "ZoB5ta_brandMark",
++			"brandName": "ZoB5ta_brandName",
++			"buildVersion": "ZoB5ta_buildVersion",
++			"collapsed": "ZoB5ta_collapsed",
++			"fading": "ZoB5ta_fading",
++			"fallbackBrandName": "ZoB5ta_fallbackBrandName",
++			"footArea": "ZoB5ta_footArea",
++			"footerActions": "ZoB5ta_footerActions",
++			"iconButton": "ZoB5ta_iconButton",
++			"localBuildBrand": "ZoB5ta_localBuildBrand",
++			"localBuildTitle": "ZoB5ta_localBuildTitle",
++			"logoRow": "ZoB5ta_logoRow",
++			"newSession": "ZoB5ta_newSession",
++			"newSessionLabel": "ZoB5ta_newSessionLabel",
++			"panelActive": "ZoB5ta_panelActive",
++			"panelGlyph": "ZoB5ta_panelGlyph",
++			"panelIcon": "ZoB5ta_panelIcon",
++			"panelList": "ZoB5ta_panelList",
++			"panelRow": "ZoB5ta_panelRow",
++			"panelTitle": "ZoB5ta_panelTitle",
++			"quietBars": "ZoB5ta_quietBars",
++			"rail-fade-in": "ZoB5ta_rail-fade-in",
++			"rail-in": "ZoB5ta_rail-in",
++			"railIn": "ZoB5ta_railIn",
++			"railMark": "ZoB5ta_railMark",
++			"regionArea": "ZoB5ta_regionArea",
++			"root": "ZoB5ta_root",
++			"settingsArea": "ZoB5ta_settingsArea",
++			"toggle": "ZoB5ta_toggle",
++			"wide": "ZoB5ta_wide",
++			"wide-in": "ZoB5ta_wide-in"
+ 		};
+ 		//#endregion
+-		//#region lib/types/client/SidebarRoot.js
++		//#region src/client/SidebarRoot.tsx
+ 		/**
+ 		* Sidebar shell: column geometry and global panel navigation.
+ 		* Collapse is a slide plus crossfade:
+@@ -100,16 +100,19 @@ window.__ModuleLoader__.load({
+ 		const SCROLLBAR_LINGER_MS = 2e3;
+ 		/** Format complete-build metadata for the local brand badge. */
+ 		function localBuildVersion() {
+-			return `0.1.5-alpha.2-9ddbf04` + ({}.DSH_CLIENT_GIT_DIRTY === "true" ? "-dirty" : "");
++			const version = {}.DSH_CLIENT_VERSION;
++			if (version === void 0) return void 0;
++			const commit = {}.DSH_CLIENT_COMMIT_HASH;
++			return version + (commit === void 0 ? "" : `-${commit}`) + ({}.DSH_CLIENT_GIT_DIRTY === "true" ? "-dirty" : "");
+ 		}
+ 		/** Each panel row subscribes only to its own selection state. */
+ 		function PanelRow({ id, label, wide, usePanelInfo, selectPanel, renderSlot }) {
+ 			const active = usePanelInfo((info) => info.activePanelId === id);
+-			return (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
+ 				label,
+ 				delayMs: 500,
+ 				disabled: wide,
+-				children: (0, react_jsx_runtime.jsxs)("button", {
++				children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+ 					type: "button",
+ 					className: clsx(SidebarRoot_module_css_default.panelRow, active && SidebarRoot_module_css_default.panelActive),
+ 					"aria-label": label,
+@@ -117,14 +120,14 @@ window.__ModuleLoader__.load({
+ 					onClick: () => {
+ 						selectPanel(id);
+ 					},
+-					children: [(0, react_jsx_runtime.jsx)("span", {
++					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 						className: SidebarRoot_module_css_default.panelGlyph,
+ 						"aria-hidden": "true",
+ 						children: renderSlot("sidebar.panellist", {
+ 							size: wide ? 16 : 18,
+ 							active
+ 						}, { only: id })
+-					}), wide && (0, react_jsx_runtime.jsx)("span", {
++					}), wide && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 						className: clsx(SidebarRoot_module_css_default.panelTitle, SidebarRoot_module_css_default.wide),
+ 						children: label
+ 					})]
+@@ -186,7 +189,7 @@ window.__ModuleLoader__.load({
+ 				};
+ 			}, [pointerInside]);
+ 			const buildVersion = localBuildVersion();
+-			return (0, react_jsx_runtime.jsxs)("div", {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+ 				ref: column,
+ 				className: clsx(SidebarRoot_module_css_default.root, !wide && SidebarRoot_module_css_default.collapsed, !wide && everWide.current && SidebarRoot_module_css_default.railIn, collapsed && wide && SidebarRoot_module_css_default.fading, !pointerInside && SidebarRoot_module_css_default.quietBars),
+ 				style: wide ? { width: collapsed ? lastWideWidth.current : width } : void 0,
+@@ -198,80 +201,80 @@ window.__ModuleLoader__.load({
+ 					armLinger();
+ 				},
+ 				children: [
+-					(0, react_jsx_runtime.jsxs)("div", {
++					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+ 						className: SidebarRoot_module_css_default.logoRow,
+-						children: [wide && (0, react_jsx_runtime.jsx)("button", {
++						children: [wide && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+ 							type: "button",
+ 							className: clsx(SidebarRoot_module_css_default.brand, SidebarRoot_module_css_default.wide),
+ 							"aria-label": t("session.new.label"),
+ 							onClick: () => {
+ 								startSession();
+ 							},
+-							children: (0, react_jsx_runtime.jsxs)("span", {
++							children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+ 								className: SidebarRoot_module_css_default.brandIdentity,
+ 								"aria-hidden": "true",
+-								children: [(0, react_jsx_runtime.jsx)("span", {
++								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 									className: SidebarRoot_module_css_default.brandMark,
+-									children: renderSlot("sidebar.brand.mark", { size: 24 }, { fallback: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.FishLogo, { size: 24 }) })
+-								}), (0, react_jsx_runtime.jsx)("span", {
++									children: renderSlot("sidebar.brand.mark", { size: 24 }, { fallback: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.FishLogo, { size: 24 }) })
++								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 									className: SidebarRoot_module_css_default.brandName,
+-									children: renderSlot("sidebar.brand.name", {}, { fallback: buildVersion === void 0 ? (0, react_jsx_runtime.jsx)("span", {
++									children: renderSlot("sidebar.brand.name", {}, { fallback: buildVersion === void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 										className: SidebarRoot_module_css_default.fallbackBrandName,
+ 										children: t("brand.localBuild")
+-									}) : (0, react_jsx_runtime.jsxs)("span", {
++									}) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+ 										className: SidebarRoot_module_css_default.localBuildBrand,
+-										children: [(0, react_jsx_runtime.jsx)("span", {
++										children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 											className: SidebarRoot_module_css_default.localBuildTitle,
+ 											children: t("brand.localBuild")
+-										}), (0, react_jsx_runtime.jsx)("span", {
++										}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 											className: SidebarRoot_module_css_default.buildVersion,
+ 											children: buildVersion
+ 										})]
+ 									}) })
+ 								})]
+ 							})
+-						}), (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
++						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
+ 							label: collapsed ? t("toggle.open") : t("toggle.collapse"),
+ 							delayMs: 500,
+-							children: (0, react_jsx_runtime.jsxs)("button", {
++							children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+ 								type: "button",
+ 								className: clsx(SidebarRoot_module_css_default.iconButton, SidebarRoot_module_css_default.toggle),
+ 								"aria-label": collapsed ? t("toggle.open") : t("toggle.collapse"),
+ 								onClick: () => {
+ 									toggleSidebar();
+ 								},
+-								children: [!wide && (0, react_jsx_runtime.jsx)("span", {
++								children: [!wide && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 									className: SidebarRoot_module_css_default.railMark,
+ 									"aria-hidden": "true",
+-									children: renderSlot("sidebar.brand.mark", { size: 24 }, { fallback: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.FishLogo, { size: 24 }) })
+-								}), (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconPanelLeftOutline16, {
++									children: renderSlot("sidebar.brand.mark", { size: 24 }, { fallback: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.FishLogo, { size: 24 }) })
++								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconPanelLeftOutline16, {
+ 									className: SidebarRoot_module_css_default.panelIcon,
+ 									size: wide ? 16 : 18
+ 								})]
+ 							})
+ 						})]
+ 					}),
+-					(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
++					/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
+ 						label: t("session.new.label"),
+ 						delayMs: 500,
+ 						disabled: wide,
+-						children: (0, react_jsx_runtime.jsxs)("button", {
++						children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+ 							type: "button",
+ 							className: SidebarRoot_module_css_default.newSession,
+ 							"aria-label": t("session.new.label"),
+ 							onClick: () => {
+ 								startSession();
+ 							},
+-							children: [(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconNewChatOutline16, { size: wide ? 14 : 18 }), wide && (0, react_jsx_runtime.jsx)("span", {
++							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconNewChatOutline16, { size: wide ? 14 : 18 }), wide && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 								className: clsx(SidebarRoot_module_css_default.newSessionLabel, SidebarRoot_module_css_default.wide),
+ 								children: t("session.new")
+ 							})]
+ 						})
+ 					}),
+-					panels.length > 0 && (0, react_jsx_runtime.jsx)("nav", {
++					panels.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("nav", {
+ 						className: SidebarRoot_module_css_default.panelList,
+ 						"aria-label": t("panels.label"),
+-						children: panels.map(({ id, label }) => (0, react_jsx_runtime.jsx)(PanelRow, {
++						children: panels.map(({ id, label }) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(PanelRow, {
+ 							id,
+ 							label,
+ 							wide,
+@@ -280,7 +283,13 @@ window.__ModuleLoader__.load({
+ 							renderSlot
+ 						}, id))
+ 					}),
+-					(0, react_jsx_runtime.jsx)("div", {
++					renderSlot("sidebar.navigation.section", {
++						wide,
++						expandSidebar: () => {
++							if (collapsed) toggleSidebar();
++						}
++					}),
++					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 						className: SidebarRoot_module_css_default.regionArea,
+ 						children: renderSlot("sidebar.workspaces", {
+ 							wide,
+@@ -289,12 +298,12 @@ window.__ModuleLoader__.load({
+ 							}
+ 						})
+ 					}),
+-					(0, react_jsx_runtime.jsxs)("div", {
++					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+ 						className: SidebarRoot_module_css_default.footArea,
+-						children: [(0, react_jsx_runtime.jsx)("div", {
++						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 							className: SidebarRoot_module_css_default.footerActions,
+ 							children: renderSlot("sidebar.footer.action", { wide })
+-						}), (0, react_jsx_runtime.jsx)("div", {
++						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 							className: SidebarRoot_module_css_default.settingsArea,
+ 							children: renderSlot("sidebar.settings", { wide })
+ 						})]
+@@ -303,7 +312,7 @@ window.__ModuleLoader__.load({
+ 			});
+ 		}
+ 		//#endregion
+-		//#region lib/types/client/locales.js
++		//#region src/client/locales.ts
+ 		/** `sidebar` namespace dictionaries for shell controls and global panels. */
+ 		/** Simplified Chinese dictionary (the key-set source of truth). */
+ 		const zh = {
+@@ -322,7 +331,7 @@ window.__ModuleLoader__.load({
+ 			"panels.label": "Global panels"
+ 		};
+ 		//#endregion
+-		//#region lib/types/client/index.js
++		//#region src/client/index.ts
+ 		/** Dictionary namespace owned by this plugin. */
+ 		const NS = "sidebar";
+ 		/** Services required by the sidebar plugin. */
+@@ -388,6 +397,10 @@ window.__ModuleLoader__.load({
+ 						kind: "list",
+ 						scope: "root"
+ 					},
++					"sidebar.navigation.section": {
++						kind: "list",
++						scope: "root"
++					},
+ 					"sidebar.workspaces": {
+ 						kind: "single",
+ 						scope: "root"
+diff --git a/lib/types/client/contract/slots.d.ts b/lib/types/client/contract/slots.d.ts
+index 8fa30a9de1b7383b694c83bb6eb182bc0b9e2f56..48b0b1818cd22596f5edd7df991bfbc5d1872f98 100644
+--- a/lib/types/client/contract/slots.d.ts
++++ b/lib/types/client/contract/slots.d.ts
+@@ -41,6 +41,15 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
+             scope: 'root';
+             owner: SidebarPanelIconOwnerProps;
+         };
++        /**
++         * Additive navigation regions between global panel rows and the workspace browser.
++         * Occupants own their controls and nested trees; the shell supplies its shared fold state.
++         */
++        'sidebar.navigation.section': {
++            kind: 'list';
++            scope: 'root';
++            owner: SidebarSectionOwnerProps;
++        };
+         /**
+          * The workspace/session browsing region: section header, search, the
+          * grouped/flat session list, and every workspace dialog. Declared by this
+@@ -100,7 +109,7 @@ export interface SidebarPanelMetadata {
+     label: string;
+ }
+ /**
+- * Owner share of the browser hole — the only facts crossing the shell/region
++ * Owner share of navigation regions — the only facts crossing the shell/region
+  * boundary. Business data and actions arrive through the region's own inject.
+  */
+ export interface SidebarSectionOwnerProps {
+@@ -147,5 +156,5 @@ export type SidebarRootInjected = {
+  * render shares, this package's injected callbacks, and the standard locale
+  * seat. Panel metadata arrives through an injected observable.
+  */
+-export type SidebarRootComponentProps = PropsRuntime<'sidebar'> & PropsRenderSlots<'sidebar.brand.mark' | 'sidebar.brand.name' | 'sidebar.panellist' | 'sidebar.workspaces' | 'sidebar.settings' | 'sidebar.footer.action'> & InjectFace<SidebarRootInjected> & PropsLocale<'sidebar'>;
++export type SidebarRootComponentProps = PropsRuntime<'sidebar'> & PropsRenderSlots<'sidebar.brand.mark' | 'sidebar.brand.name' | 'sidebar.panellist' | 'sidebar.navigation.section' | 'sidebar.workspaces' | 'sidebar.settings' | 'sidebar.footer.action'> & InjectFace<SidebarRootInjected> & PropsLocale<'sidebar'>;
+ //# sourceMappingURL=slots.d.ts.map

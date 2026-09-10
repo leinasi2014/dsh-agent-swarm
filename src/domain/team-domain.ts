@@ -17,6 +17,8 @@ import * as communication from './team-domain-communication.js'
 import type { TeamCommunicationIntensity } from './types.js'
 import * as mailbox from './team-domain-mailbox.js'
 import * as interaction from './team-domain-interaction.js'
+import * as publicMessages from './team-domain-public.js'
+import type { AppendPublicMessageInput, PublicMessageAuthorInput } from './public-message.js'
 import * as plan from './team-domain-plan.js'
 import * as projection from './team-domain-projection.js'
 import * as roster from './team-domain-roster.js'
@@ -54,6 +56,9 @@ export const DEFAULT_TEAM_LIMITS: TeamLimits = {
   maxDependencies: 64,
   maxMemories: 512,
   maxInteractionEffects: 1024,
+  maxPublicMessages: 1000,
+  maxPublicTextBytes: 16_384,
+  maxPublicBytes: 4 * 1024 * 1024,
   maxVerificationCommands: 16,
   maxVerificationCommandMs: 600_000,
 }
@@ -61,6 +66,18 @@ export const DEFAULT_TEAM_LIMITS: TeamLimits = {
 /** Framework-neutral Team protocol used by the DSH tool and scheduler consumers. */
 export class TeamDomain implements TeamDomainPort {
   private readonly deps: TeamDomainDeps
+
+  appendPublicMessage(scope: TeamScope, teamId: TeamId, input: AppendPublicMessageInput) {
+    return publicMessages.appendPublicMessage(this.deps, scope, teamId, input)
+  }
+
+  publicRequestResult(scope: TeamScope, teamId: TeamId, author: PublicMessageAuthorInput, requestId: string) {
+    return publicMessages.publicRequestResult(this.deps, scope, teamId, author, requestId)
+  }
+
+  acknowledgePublicMessage(scope: TeamScope, teamId: TeamId, messageId: string, recipientSessionId: string) {
+    return publicMessages.acknowledgePublicMessage(this.deps, scope, teamId, messageId, recipientSessionId)
+  }
 
   constructor(
     store: TeamAggregateStore,

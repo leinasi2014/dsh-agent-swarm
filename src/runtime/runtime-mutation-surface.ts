@@ -9,6 +9,7 @@ import type { CreateTaskInput, TeamDomainPort, TeamScope } from '../domain/team-
 import { TeamDomainError } from '../domain/error.js'
 import type { MemberIdentityInput } from '../domain/identity-profile.js'
 import { requireAgent, type ToolExecutionAuthority } from './authority.js'
+import { publicAppendEligibility } from './public-lineage.js'
 import type { DedicatedCaptainProvisioner } from './dedicated-captain-provisioning.js'
 import type { ExecutionRootSurface } from './execution-root-surface.js'
 import type { MemberProvisioner } from './member-provisioning.js'
@@ -44,6 +45,36 @@ export class RuntimeMutationSurface {
   private readonly managedInflight = new Map<string, Promise<TeamState>>()
 
   constructor(private readonly deps: RuntimeMutationDeps) {}
+
+  async publicReply(exec: ToolExecutionAuthority, requestId: string, replyTo: string, text: string) {
+    await this.deps.ensureReady()
+    this.deps.assertOpen()
+    const agent = requireAgent(exec)
+    const scope = this.deps.scopeOf(agent)
+    const exact = () => {
+      if (this.deps.ctx.agents.get(agent.id) !== agent || this.deps.ctx.sessions.get(agent.id) !== agent.session || this.deps.scopeOf(agent) !== scope) {
+        throw new TeamDomainError('Public reply requires the exact live executing Session', 'TEAM_AGENT_REQUIRED')
+      }
+    }
+    exact()
+    const membership = await this.deps.domain().requireMembership(scope, agent.id)
+    if ((await publicAppendEligibility(this.deps.ctx, scope, membership.team, exec.signal)).state !== 'available') {
+      throw new TeamDomainError('Public reply requires a managed Team with official lineage', 'TEAM_PUBLIC_UNSUPPORTED')
+    }
+    exact()
+    exec.signal.throwIfAborted()
+    return await this.deps.domain().appendPublicMessage(scope, membership.team.id, { author: { kind: 'agent', sessionId: agent.id },
+      requestId, replyTo, text, expectedCaptainSessionId: membership.team.captainSessionId, expectedTeamRevision: membership.team.revision })
+  }
+
+  async addMemory(exec: ToolExecutionAuthority, category: 'decision' | 'lesson' | 'member' | 'context', content: string, evidenceRefs: readonly string[]) {
+    await this.deps.ensureReady()
+    this.deps.assertOpen()
+    const actor = requireAgent(exec)
+    const scope = this.deps.scopeOf(actor)
+    const membership = await this.deps.domain().requireMembership(scope, actor.id)
+    return await this.deps.domain().addMemory(scope, membership.team.id, actor.id, category, content, evidenceRefs)
+  }
 
   private assertReviewerConfigured(): void {
     if (this.deps.config.reviewProvider === 'reviewer-agent' && this.deps.reviewProvider('reviewer-agent') === undefined)

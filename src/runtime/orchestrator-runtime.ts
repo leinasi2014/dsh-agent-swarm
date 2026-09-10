@@ -76,6 +76,7 @@ export class AgentSwarmRuntime extends Service {
   readonly orchestration: OrchestrationOwnership
   readonly executionRoots: ExecutionRootSurface
   private closing = false
+  private readonly publicAbort = new AbortController()
   /** @internal Use ctx.agentSwarmWorkflow.start() for product consumption.
    * The Team bridge workflow engine (M2-1, issue #75), attached by plugin
    * activation when `workflowBridge` is enabled. Registered in an isolated
@@ -125,6 +126,8 @@ export class AgentSwarmRuntime extends Service {
       isClosing: () => this.closing,
       scopeOf: agent => this.scopeOf(agent),
       accountAgentUsage: (scope, teamId, agent) => this.usage.accountAgentUsage(scope, teamId, agent),
+      publicTeam: async (scope, teamId) => (await this.listTeamAggregates(scope)).find(team => team.id === teamId),
+      publicRoot: (parent, scope) => this.activationRecovery.ensurePublicRoot(parent, scope),
     })
     this.memberProfiles = new MemberProfileReader(ctx)
     this.schedulingPass = new SchedulingPass(ctx, {
@@ -172,6 +175,7 @@ export class AgentSwarmRuntime extends Service {
     this.activationRecovery = new ManagedActivationRecovery(ctx, {
       teams: scope => this.listTeamAggregates(scope),
       trackChild: (parent, childId) => this.trackChild(parent, childId),
+      drainPublic: (scope, team) => this.delivery.deliverPublicMessages(scope, team.id, this.publicAbort.signal),
     })
   }
   /**
@@ -417,6 +421,18 @@ export class AgentSwarmRuntime extends Service {
     return await this.mutations.sendMessage(exec, target, content, delivery, causal, supersedes, replyTo)
   }
 
+  /** The authenticated Host calls this only after the atomic public append. */
+  kickPublicMessages(scope: TeamScope, teamId: TeamId): void {
+    void this.delivery.deliverPublicMessages(scope, teamId, this.publicAbort.signal).catch(error => {
+      if (!this.closing) this.ctx.logger.warn(`agent-swarm: public delivery remains queued for ${teamId}: ${String(error)}`)
+    })
+  }
+
+  /** Actual tool execution is the sole authority for an Agent public reply. */
+  async publicReply(exec: ToolExecutionAuthority, requestId: string, replyTo: string, text: string) {
+    return await this.mutations.publicReply(exec, requestId, replyTo, text)
+  }
+
   setCommunication(exec: ToolExecutionAuthority, revision: number, intensity: TeamCommunicationIntensity | undefined) { return this.mutations.setCommunication(exec, revision, intensity) }
 
   status(exec: ToolExecutionAuthority) { return status(this.waitDeps(), exec) }
@@ -467,20 +483,8 @@ export class AgentSwarmRuntime extends Service {
     return (this.scheduling.request(scope, membership.team.id, captain), budget) // §7 budget-release event (M4-3/#129): the recovery pass of held/postponed work
   }
 
-  async addMemory(
-    exec: ToolExecutionAuthority,
-    category: 'decision' | 'lesson' | 'member' | 'context',
-    content: string,
-    evidenceRefs: readonly string[],
-  ) {
-    await this.ensureReady()
-    this.assertOpen()
-    const actor = requireAgent(exec)
-    const scope = this.scopeOf(actor)
-    const membership = await this.domain.requireMembership(scope, actor.id)
-    return await this.domain.addMemory(
-      scope, membership.team.id, actor.id, category, content, evidenceRefs,
-    )
+  async addMemory(exec: ToolExecutionAuthority, category: 'decision' | 'lesson' | 'member' | 'context', content: string, evidenceRefs: readonly string[]) {
+    return await this.mutations.addMemory(exec, category, content, evidenceRefs)
   }
 
   observeAgentIdle(agent: Agent): void {
@@ -498,6 +502,9 @@ export class AgentSwarmRuntime extends Service {
     this.watchJobsScope(scope)
     let membership = await this.domain.findMembership(scope, agent.id)
     if (membership === undefined || this.closing) return
+    if (membership.team.publicChat?.messages.some(message => message.delivery.state === 'queued')) {
+      await this.delivery.deliverPublicMessages(scope, membership.team.id, this.publicAbort.signal)
+    }
     if (membership.role === 'captain') {
       const settled = await this.provisioning.recoverInterrupted(agent, scope, membership)
       if (settled > 0) membership = await this.domain.requireMembership(scope, agent.id)
@@ -554,6 +561,7 @@ export class AgentSwarmRuntime extends Service {
     this.closing = true
     this.scheduling.close()
     this.activationRecovery.close()
+    this.publicAbort.abort(new Error('public delivery disposed'))
     this.captainProvisioning.dispose()
     this.provisioning.dispose()
     this.schedulingPass.dispose()

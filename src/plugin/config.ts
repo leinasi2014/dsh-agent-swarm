@@ -38,6 +38,9 @@ export interface Config {
   maxDependencies?: number
   maxMemories?: number
   maxInteractionEffects?: number
+  maxPublicMessages?: number
+  maxPublicTextBytes?: number
+  maxPublicBytes?: number
   maxVerificationCommands?: number
   maxVerificationCommandMs?: number
   maxHostContexts?: number
@@ -81,6 +84,9 @@ export const Config: z<Config> = z.object({
   maxDependencies: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxDependencies),
   maxMemories: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxMemories),
   maxInteractionEffects: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxInteractionEffects),
+  maxPublicMessages: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxPublicMessages),
+  maxPublicTextBytes: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxPublicTextBytes),
+  maxPublicBytes: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxPublicBytes),
   maxVerificationCommands: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxVerificationCommands),
   maxVerificationCommandMs: z.number().step(1).min(1).default(DEFAULT_TEAM_LIMITS.maxVerificationCommandMs),
   maxHostContexts: z.number().step(1).min(1).default(DEFAULT_MAX_HOST_CONTEXTS),

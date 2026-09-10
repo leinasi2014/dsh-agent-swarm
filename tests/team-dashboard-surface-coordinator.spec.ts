@@ -181,6 +181,8 @@ describe('TeamDashboardSurfaceCoordinator', () => {
     // The official catalog has no retained subagentAddress until the FIRST navigation;
     // refreshing the catalog alone does not populate that address cache.
     Object.assign(f.sessions, { refreshSubagents: refresh, subagentAddress: () => undefined, openSubagent: open })
+    f.coordinator.closeAndRestoreFocus()
+    expect(f.coordinator.getSnapshot().mode).toBe('inactive')
     await f.coordinator.openMemberChat('worker', 'member-1')
     expect(refresh).toHaveBeenCalledWith('captain')
     expect(open).toHaveBeenCalledExactlyOnceWith(address)
@@ -189,6 +191,7 @@ describe('TeamDashboardSurfaceCoordinator', () => {
     expect(f.coordinator.getSnapshot()).toMatchObject({ mode: 'docked', targetSessionId: 'member-1' })
     f.controller.state = ready
     f.sessions.setCurrent('root')
+    f.controller.state = ready
     catalogParent = 'wrong-parent'
     await expect(f.coordinator.openMemberChat('worker', 'member-1')).rejects.toThrow('official Captain child catalog')
     expect(open).toHaveBeenCalledTimes(1)
@@ -251,9 +254,9 @@ describe('TeamDashboardSurfaceCoordinator', () => {
   })
   it('hands Captain navigation to the exact official Session only when it remains listed', async () => {
     const f = fixture(); f.setReady()
-    f.controller.openCaptainChat.mockImplementation(async (callback: (rootSessionId: string) => Promise<void>) => { await callback('root') })
+    f.controller.openCaptainChat.mockImplementation(async (callback: (rootSessionId: string) => Promise<void>) => { await callback('other') })
     await f.coordinator.openCaptainChat()
-    expect(f.sessions.open).toHaveBeenCalledWith('root')
+    expect(f.sessions.open).toHaveBeenCalledExactlyOnceWith('other')
     f.controller.openCaptainChat.mockImplementation(async (callback: (rootSessionId: string) => Promise<void>) => { await callback('missing') })
     await expect(f.coordinator.openCaptainChat()).rejects.toThrow('official Session list')
     expect(f.sessions.open).toHaveBeenCalledTimes(1)

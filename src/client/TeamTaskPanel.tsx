@@ -21,7 +21,6 @@ interface Props {
   readonly onSelect: (id: string) => void
   readonly onBack: () => void
   readonly onChange: (patch: Partial<TeamWorkspaceSelection>) => void
-  readonly onMemberSession: (name: string, sessionId: string) => void
   readonly t: Translate
 }
 const css = `
@@ -152,7 +151,7 @@ export function TeamTaskPanel(props: Props) {
   </section>
 }
 
-function TaskTrace({ task, value, data, selection, onChange, localeTag, memberAssets, onMemberSession, t }: Props & { readonly task: Task; readonly value: SwarmReadTaskDetailV1 }) {
+function TaskTrace({ task, value, data, selection, onChange, localeTag, t }: Props & { readonly task: Task; readonly value: SwarmReadTaskDetailV1 }) {
   const attempts = value.attempts.entries
   const current = currentAttempt(task, { ...data, attempts })
   return <section data-swarm-task-trace>
@@ -163,9 +162,6 @@ function TaskTrace({ task, value, data, selection, onChange, localeTag, memberAs
     {task.currentAttemptId !== undefined && current === undefined ? <p role="status">{t('taskPanel.currentMissing')}</p> : null}
     {attempts.length === 0 ? <p>{t('taskPanel.retainedEmpty')}</p> : attempts.map(attempt => {
       const isCurrent = current?.id === attempt.id
-      // Only a matching active roster row and the exact current Team member binding can open Chat.
-      const member = memberAssets?.binding.teamId === data.binding.teamId && memberAssets.binding.rootSessionId === data.binding.rootSessionId
-        ? memberAssets.members.find(row => row.name === attempt.memberName && row.phase === 'active' && data.roster.some(r => r.name === row.name && r.phase === 'active')) : undefined
       return <details key={attempt.id} className="swarm-task-attempt" data-swarm-task-attempt={attempt.id} data-swarm-current-attempt={String(isCurrent)}
         open={selection.rounds[attempt.id] ?? isCurrent} onToggle={event => {
           onChange({ rounds: { ...selection.rounds, [attempt.id]: event.currentTarget.open } })
@@ -182,7 +178,6 @@ function TaskTrace({ task, value, data, selection, onChange, localeTag, memberAs
         <section className="swarm-task-record"><h4>{t('taskPanel.output')}</h4><div className="swarm-task-text"><RecordedText value={attempt.output} t={t} /></div></section>
         <section className="swarm-task-record"><h4>{t('taskPanel.diagnostic')}</h4><div className="swarm-task-text"><RecordedText value={attempt.diagnostic} t={t} /></div></section>
         <section className="swarm-task-record"><h4>{t('taskPanel.evidence')}</h4><RecordedList values={attempt.evidence} t={t} /><p className="swarm-task-note">{t('taskPanel.evidenceHint')}</p></section>
-        {member?.sessionId === undefined ? null : <button type="button" className="swarm-task-link" onClick={() => { onMemberSession(member.name, member.sessionId!) }}>{t('taskPanel.chat', { name: member.displayName ?? member.name })} →</button>}
       </details>
     })}
   </section>

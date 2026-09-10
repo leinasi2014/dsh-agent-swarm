@@ -1,0 +1,476 @@
+diff --git a/lib/client.js b/lib/client.js
+index 43bc1247eb308bdd15e421542d3e09508608e0af..ac5120faea9a5fb86bf486906548787864caeb80 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -33,8 +33,8 @@ window.__ModuleLoader__.load({
+ 		let react_dom = require("react-dom");
+ 		let _deepseek_ai_dsh_client_ui_dockkit = require("@deepseek-ai/dsh-client-ui-dockkit");
+ 		let _deepseek_ai_dsh_client_store = require("@deepseek-ai/dsh-client-store");
+-		//#region \0dsh-css:/home/runner/work/deepseek-harness/deepseek-harness/packages/client/ui-sidebar-right/src/client/tabs/guide/GuideBody.module.css.mjs
+-		const css$2 = ".geFEbW_guide{box-sizing:border-box;flex-direction:column;justify-content:center;align-items:center;gap:8px;height:100%;padding:0 24px;display:flex}.geFEbW_guide:after{content:\"\";flex:0 12%}.geFEbW_entry{box-sizing:border-box;width:360px;max-width:100%;height:48px;color:var(--dsw-alias-label-primary);font:inherit;border:.5px solid var(--dsw-alias-border-l4);cursor:pointer;background:0 0;border-radius:20px;justify-content:center;align-items:center;gap:8px;padding:0 20px;display:flex}.geFEbW_entry:hover{background:var(--dsw-alias-interactive-bg-hover)}.geFEbW_entryIcon{color:var(--dsw-alias-label-secondary);flex:none;display:flex}.geFEbW_entryTitle{min-width:0;font-size:var(--dsh-content-font-size,14px);white-space:nowrap;text-overflow:ellipsis;line-height:1.4;overflow:hidden}.geFEbW_titleIcon{flex:none}";
++		//#region \0dsh-css:D:\Source\DSH\deepseek-harness\.worktrees\subagent-display\packages\client\ui-sidebar-right\src\client\tabs\guide\GuideBody.module.css.mjs
++		const css$2 = ".OkhC2q_guide{box-sizing:border-box;flex-direction:column;justify-content:center;align-items:center;gap:8px;height:100%;padding:0 24px;display:flex}.OkhC2q_guide:after{content:\"\";flex:0 12%}.OkhC2q_entry{box-sizing:border-box;width:360px;max-width:100%;height:48px;color:var(--dsw-alias-label-primary);font:inherit;border:.5px solid var(--dsw-alias-border-l4);cursor:pointer;background:0 0;border-radius:20px;justify-content:center;align-items:center;gap:8px;padding:0 20px;display:flex}.OkhC2q_entry:hover{background:var(--dsw-alias-interactive-bg-hover)}.OkhC2q_entryIcon{color:var(--dsw-alias-label-secondary);flex:none;display:flex}.OkhC2q_entryTitle{min-width:0;font-size:var(--dsh-content-font-size,14px);white-space:nowrap;text-overflow:ellipsis;line-height:1.4;overflow:hidden}.OkhC2q_titleIcon{flex:none}";
+ 		const tagId$2 = "@deepseek-ai/dsh-client-ui-sidebar-right/GuideBody.module.css";
+ 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$2) + "]") === null) {
+ 			const tag = document.createElement("style");
+@@ -44,28 +44,28 @@ window.__ModuleLoader__.load({
+ 			document.head.appendChild(tag);
+ 		}
+ 		var GuideBody_module_css_default = {
+-			"entry": "geFEbW_entry",
+-			"entryIcon": "geFEbW_entryIcon",
+-			"entryTitle": "geFEbW_entryTitle",
+-			"guide": "geFEbW_guide",
+-			"titleIcon": "geFEbW_titleIcon"
++			"entry": "OkhC2q_entry",
++			"entryIcon": "OkhC2q_entryIcon",
++			"entryTitle": "OkhC2q_entryTitle",
++			"guide": "OkhC2q_guide",
++			"titleIcon": "OkhC2q_titleIcon"
+ 		};
+ 		//#endregion
+-		//#region lib/types/client/tabs/guide/GuideBody.js
++		//#region src/client/tabs/guide/GuideBody.tsx
+ 		/** One entry capsule: the contributing type's glyph and title. */
+ 		function EntryBox({ entry, onPick }) {
+ 			const Icon = entry.icon;
+-			return (0, react_jsx_runtime.jsxs)("button", {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+ 				type: "button",
+ 				className: GuideBody_module_css_default.entry,
+ 				"data-sidebar-right-guide-entry": entry.kind,
+ 				onClick: () => {
+ 					onPick(entry);
+ 				},
+-				children: [Icon !== void 0 && (0, react_jsx_runtime.jsx)("span", {
++				children: [Icon !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 					className: GuideBody_module_css_default.entryIcon,
+-					children: (0, react_jsx_runtime.jsx)(Icon, { size: 16 })
+-				}), (0, react_jsx_runtime.jsx)("span", {
++					children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Icon, { size: 16 })
++				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+ 					className: GuideBody_module_css_default.entryTitle,
+ 					children: entry.title()
+ 				})]
+@@ -73,10 +73,10 @@ window.__ModuleLoader__.load({
+ 		}
+ 		/** The shipped guide: the doors out of the column. */
+ 		function ShippedGuide({ entries, onPick }) {
+-			return (0, react_jsx_runtime.jsx)("div", {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 				className: GuideBody_module_css_default.guide,
+ 				"data-sidebar-right-guide": true,
+-				children: entries.map((entry, index) => (0, react_jsx_runtime.jsx)(EntryBox, {
++				children: entries.map((entry, index) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(EntryBox, {
+ 					entry,
+ 					onPick
+ 				}, `${entry.kind}:${index}`))
+@@ -87,7 +87,7 @@ window.__ModuleLoader__.load({
+ 			const { tab } = useTabInfo();
+ 			return renderSlotChain("sidebar.right.tab.guide", {}, {
+ 				hookContext: useTabInfo,
+-				fallback: (0, react_jsx_runtime.jsx)(ShippedGuide, {
++				fallback: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ShippedGuide, {
+ 					entries: useGuideEntries((entries) => entries),
+ 					onPick: (entry) => {
+ 						tab.actions.openTab(entry.kind, { replaceTab: true });
+@@ -96,25 +96,25 @@ window.__ModuleLoader__.load({
+ 			});
+ 		}
+ 		//#endregion
+-		//#region lib/types/client/tabs/guide/GuideTitle.js
++		//#region src/client/tabs/guide/GuideTitle.tsx
+ 		/**
+ 		* The compass: a grey ring with the needle's rhombus pointing north-east.
+ 		*/
+ 		function CompassGlyph() {
+-			return (0, react_jsx_runtime.jsxs)("svg", {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("svg", {
+ 				width: "16",
+ 				height: "16",
+ 				viewBox: "0 0 16 16",
+ 				fill: "none",
+ 				"aria-hidden": "true",
+ 				className: GuideBody_module_css_default.titleIcon,
+-				children: [(0, react_jsx_runtime.jsx)("circle", {
++				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("circle", {
+ 					cx: "8",
+ 					cy: "8",
+ 					r: "6",
+ 					stroke: "var(--dsw-alias-label-tertiary)",
+ 					strokeWidth: "1.4"
+-				}), (0, react_jsx_runtime.jsx)("path", {
++				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", {
+ 					d: "M 10.9 5.1 L 9.1 9.1 L 5.1 10.9 L 6.9 6.9 Z",
+ 					fill: "var(--dsw-alias-label-tertiary)"
+ 				})]
+@@ -127,11 +127,11 @@ window.__ModuleLoader__.load({
+ 		*/
+ 		function GuideTitle({ useTabInfo }) {
+ 			const { tab } = useTabInfo();
+-			return (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [(0, react_jsx_runtime.jsx)(CompassGlyph, {}), tab.title] });
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(CompassGlyph, {}), tab.title] });
+ 		}
+ 		//#endregion
+-		//#region \0dsh-css:/home/runner/work/deepseek-harness/deepseek-harness/packages/client/ui-sidebar-right/src/client/shell/ExpandButton.module.css.mjs
+-		const css$1 = "._1kL45W_button{width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:28px;flex:none;justify-content:center;align-items:center;padding:6px;display:inline-flex}._1kL45W_button svg{width:15px;height:15px}._1kL45W_button:hover{background:var(--dsw-alias-interactive-bg-hover)}._1kL45W_icon{transform:scaleX(-1)}";
++		//#region \0dsh-css:D:\Source\DSH\deepseek-harness\.worktrees\subagent-display\packages\client\ui-sidebar-right\src\client\shell\ExpandButton.module.css.mjs
++		const css$1 = "._7kg2Hq_button{width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:28px;flex:none;justify-content:center;align-items:center;padding:6px;display:inline-flex}._7kg2Hq_button svg{width:15px;height:15px}._7kg2Hq_button:hover{background:var(--dsw-alias-interactive-bg-hover)}._7kg2Hq_icon{transform:scaleX(-1)}";
+ 		const tagId$1 = "@deepseek-ai/dsh-client-ui-sidebar-right/ExpandButton.module.css";
+ 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$1) + "]") === null) {
+ 			const tag = document.createElement("style");
+@@ -141,19 +141,19 @@ window.__ModuleLoader__.load({
+ 			document.head.appendChild(tag);
+ 		}
+ 		var ExpandButton_module_css_default = {
+-			"button": "_1kL45W_button",
+-			"icon": "_1kL45W_icon"
++			"button": "_7kg2Hq_button",
++			"icon": "_7kg2Hq_icon"
+ 		};
+ 		//#endregion
+-		//#region lib/types/client/shell/ExpandButton.js
++		//#region src/client/shell/ExpandButton.tsx
+ 		/** The expand control while the panel is collapsed; nothing while it is shown. */
+ 		function ExpandButton({ sessionId, useStore, actions, t }) {
+ 			if (useStore((state) => state.bySession[sessionId]?.layout.expanded ?? false)) return null;
+-			return (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
+ 				label: t("chrome.expand"),
+ 				side: "bottom",
+ 				delayMs: 500,
+-				children: (0, react_jsx_runtime.jsx)("button", {
++				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+ 					type: "button",
+ 					className: ExpandButton_module_css_default.button,
+ 					"aria-label": t("chrome.expandAria"),
+@@ -161,12 +161,12 @@ window.__ModuleLoader__.load({
+ 					onClick: () => {
+ 						actions.setExpanded(sessionId, true);
+ 					},
+-					children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconPanelLeftOutline16, { className: ExpandButton_module_css_default.icon })
++					children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconPanelLeftOutline16, { className: ExpandButton_module_css_default.icon })
+ 				})
+ 			});
+ 		}
+ 		//#endregion
+-		//#region lib/types/client/contract/seed.js
++		//#region src/client/contract/seed.ts
+ 		/**
+ 		* Resolve the default page from the registered entry count.
+ 		* @param tabs - current tab registry.
+@@ -195,7 +195,7 @@ window.__ModuleLoader__.load({
+ 			return `sidebar://${kind}`;
+ 		}
+ 		//#endregion
+-		//#region lib/types/client/labels.js
++		//#region src/client/labels.ts
+ 		/**
+ 		* Project the dictionary into the kit's label contract.
+ 		*
+@@ -224,7 +224,7 @@ window.__ModuleLoader__.load({
+ 			};
+ 		}
+ 		//#endregion
+-		//#region lib/types/client/stores.js
++		//#region src/client/stores.ts
+ 		/**
+ 		* The store shell over the docking kit: one surface per session, held as plain
+ 		* data so the kit's pure functions are the only thing that ever computes a
+@@ -550,8 +550,8 @@ window.__ModuleLoader__.load({
+ 			});
+ 		}
+ 		//#endregion
+-		//#region \0dsh-css:/home/runner/work/deepseek-harness/deepseek-harness/packages/client/ui-sidebar-right/src/client/shell/SidebarRight.module.css.mjs
+-		const css = ".P3OORG_panel{z-index:10;background:var(--dsw-alias-bg-base);border-left:.5px solid var(--dsw-alias-border-l4);visibility:hidden;min-width:0;transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out), visibility 0s linear var(--ds-transition-duration-slow);flex-direction:column;display:flex;position:absolute;top:0;bottom:0;right:0;transform:translate(100%)}.P3OORG_panel[data-sidebar-right-open]{visibility:visible;transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out);transform:none}.P3OORG_panel[data-sidebar-right-panel=fullscreen]{z-index:40;border:none;position:fixed;inset:0}@media (prefers-reduced-motion:reduce){.P3OORG_panel,.P3OORG_panel[data-sidebar-right-open]{transition:none}}.P3OORG_iconButton{width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:28px;flex:none;justify-content:center;align-items:center;padding:6px;line-height:1;display:inline-flex}.P3OORG_iconButton svg{width:15px;height:15px}.P3OORG_iconButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.P3OORG_collapseGlyph{transform:scaleX(-1)}.P3OORG_panelBody{flex:auto;min-height:0;display:flex}.P3OORG_unavailable{color:var(--dsw-alias-label-tertiary);font-size:var(--dsh-content-font-size-secondary,13px);margin:0;padding:12px}.P3OORG_floatHost{z-index:60;pointer-events:none;position:fixed;inset:0}";
++		//#region \0dsh-css:D:\Source\DSH\deepseek-harness\.worktrees\subagent-display\packages\client\ui-sidebar-right\src\client\shell\SidebarRight.module.css.mjs
++		const css = "._9UmK_G_panel{z-index:10;background:var(--dsw-alias-bg-base);border-left:.5px solid var(--dsw-alias-border-l4);visibility:hidden;min-width:0;transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out), visibility 0s linear var(--ds-transition-duration-slow);flex-direction:column;display:flex;position:absolute;top:0;bottom:0;right:0;transform:translate(100%)}._9UmK_G_panel[data-sidebar-right-open]{visibility:visible;transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out);transform:none}._9UmK_G_panel[data-sidebar-right-panel=fullscreen]{z-index:40;border:none;position:fixed;inset:0}@media (prefers-reduced-motion:reduce){._9UmK_G_panel,._9UmK_G_panel[data-sidebar-right-open]{transition:none}}._9UmK_G_iconButton{width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:28px;flex:none;justify-content:center;align-items:center;padding:6px;line-height:1;display:inline-flex}._9UmK_G_iconButton svg{width:15px;height:15px}._9UmK_G_iconButton:hover{background:var(--dsw-alias-interactive-bg-hover)}._9UmK_G_collapseGlyph{transform:scaleX(-1)}._9UmK_G_panelBody{flex:auto;min-height:0;display:flex}._9UmK_G_unavailable{color:var(--dsw-alias-label-tertiary);font-size:var(--dsh-content-font-size-secondary,13px);margin:0;padding:12px}._9UmK_G_floatHost{z-index:60;pointer-events:none;position:fixed;inset:0}";
+ 		const tagId = "@deepseek-ai/dsh-client-ui-sidebar-right/SidebarRight.module.css";
+ 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
+ 			const tag = document.createElement("style");
+@@ -561,15 +561,15 @@ window.__ModuleLoader__.load({
+ 			document.head.appendChild(tag);
+ 		}
+ 		var SidebarRight_module_css_default = {
+-			"collapseGlyph": "P3OORG_collapseGlyph",
+-			"floatHost": "P3OORG_floatHost",
+-			"iconButton": "P3OORG_iconButton",
+-			"panel": "P3OORG_panel",
+-			"panelBody": "P3OORG_panelBody",
+-			"unavailable": "P3OORG_unavailable"
++			"collapseGlyph": "_9UmK_G_collapseGlyph",
++			"floatHost": "_9UmK_G_floatHost",
++			"iconButton": "_9UmK_G_iconButton",
++			"panel": "_9UmK_G_panel",
++			"panelBody": "_9UmK_G_panelBody",
++			"unavailable": "_9UmK_G_unavailable"
+ 		};
+ 		//#endregion
+-		//#region lib/types/client/shell/SidebarRight.js
++		//#region src/client/shell/SidebarRight.tsx
+ 		/**
+ 		* The Sidebar's seat in the frame, and the panel it draws.
+ 		*
+@@ -694,11 +694,11 @@ window.__ModuleLoader__.load({
+ 		*/
+ 		function bodiesFor(panel) {
+ 			const { t, ...rest } = panel;
+-			return (tab) => (0, react_jsx_runtime.jsx)(TabSlot, {
++			return (tab) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(TabSlot, {
+ 				...rest,
+ 				tab,
+ 				seat: "sidebar.right.pane.tab",
+-				fallback: (0, react_jsx_runtime.jsx)("p", {
++				fallback: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+ 					className: SidebarRight_module_css_default.unavailable,
+ 					"data-sidebar-right-unavailable": true,
+ 					children: t("tab.unavailable")
+@@ -707,7 +707,7 @@ window.__ModuleLoader__.load({
+ 		}
+ 		/** Dispatch a tab's title to its registered type; without one the chip shows the title captured at open time. */
+ 		function titlesFor(panel) {
+-			return (tab) => (0, react_jsx_runtime.jsx)(TabSlot, {
++			return (tab) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(TabSlot, {
+ 				...panel,
+ 				tab,
+ 				seat: "sidebar.right.pane.tab.title",
+@@ -716,40 +716,40 @@ window.__ModuleLoader__.load({
+ 		}
+ 		/** Expand-to-viewport glyph: four frame corners (figma extract). */
+ 		function FullscreenGlyph() {
+-			return (0, react_jsx_runtime.jsx)("svg", {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("svg", {
+ 				width: "16",
+ 				height: "16",
+ 				viewBox: "0 0 16 16",
+ 				fill: "none",
+ 				"aria-hidden": "true",
+-				children: (0, react_jsx_runtime.jsxs)("g", {
++				children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("g", {
+ 					fill: "currentColor",
+ 					stroke: "currentColor",
+ 					strokeWidth: "0.105646",
+ 					strokeLinecap: "square",
+ 					children: [
+-						(0, react_jsx_runtime.jsx)("path", { d: "M6.04798 2.13627V0.815964H5.99549L5.36158 0.817345V0.815964L3.39978 0.815274C3.01892 0.815274 2.67749 0.814821 2.39919 0.844967C2.10813 0.87655 1.80506 0.949512 1.52981 1.14949C1.3822 1.25681 1.25251 1.38652 1.14518 1.53412C0.945217 1.80935 0.872245 2.11246 0.840659 2.4035C0.810509 2.68178 0.810965 3.02324 0.810966 3.40409L0.811656 5.36589V5.9998L0.810966 6.05297L0.864137 6.05228H2.13196L2.18513 6.05297L2.18444 5.9998V5.36589L2.18513 3.40409C2.18513 2.99322 2.18631 2.73978 2.20653 2.55266C2.22499 2.38234 2.25273 2.34575 2.25556 2.34204C2.27837 2.31066 2.30635 2.28267 2.33774 2.25987C2.34207 2.25657 2.37978 2.22911 2.54835 2.21084C2.73548 2.19063 2.98893 2.18944 3.39978 2.18944L5.36158 2.18875L5.9948 2.18944H6.04867L6.04798 2.13627Z" }),
+-						(0, react_jsx_runtime.jsx)("path", { d: "M9.94031 13.86L9.94031 15.1803L9.99279 15.1803L10.6267 15.179L10.6267 15.1803L12.5885 15.181C12.9694 15.181 13.3108 15.1815 13.5891 15.1513C13.8801 15.1198 14.1832 15.0468 14.4585 14.8468C14.6061 14.7395 14.7358 14.6098 14.8431 14.4622C15.0431 14.187 15.116 13.8838 15.1476 13.5928C15.1778 13.3145 15.1773 12.9731 15.1773 12.5922L15.1766 10.6304L15.1766 9.9965L15.1773 9.94333L15.1241 9.94402L13.8563 9.94402L13.8032 9.94333L13.8038 9.9965L13.8038 10.6304L13.8032 12.5922C13.8032 13.0031 13.802 13.2565 13.7817 13.4437C13.7633 13.614 13.7355 13.6506 13.7327 13.6543C13.7099 13.6856 13.6819 13.7136 13.6505 13.7364C13.6462 13.7397 13.6085 13.7672 13.4399 13.7855C13.2528 13.8057 12.9993 13.8069 12.5885 13.8069L10.6267 13.8076L9.99348 13.8069L9.93962 13.8069L9.94031 13.86Z" }),
+-						(0, react_jsx_runtime.jsx)("path", { d: "M13.8568 6.05243H15.1771V5.99995L15.1757 5.36604H15.1771L15.1778 3.40423C15.1778 3.02337 15.1783 2.68194 15.1481 2.40365C15.1165 2.11259 15.0436 1.80952 14.8436 1.53427C14.7363 1.38666 14.6066 1.25697 14.459 1.14964C14.1837 0.949672 13.8806 0.8767 13.5896 0.845114C13.3113 0.814965 12.9698 0.815421 12.589 0.815421L10.6272 0.816112H9.99329L9.94011 0.815421L9.9408 0.868592V2.13641L9.94011 2.18958L9.99329 2.18889H10.6272L12.589 2.18958C12.9999 2.18958 13.2533 2.19077 13.4404 2.21099C13.6107 2.22944 13.6473 2.25719 13.651 2.26002C13.6824 2.28282 13.7104 2.31081 13.7332 2.34219C13.7365 2.34653 13.764 2.38424 13.7822 2.5528C13.8025 2.73993 13.8037 2.99339 13.8037 3.40423L13.8043 5.36604L13.8037 5.99926V6.05312L13.8568 6.05243Z" }),
+-						(0, react_jsx_runtime.jsx)("path", { d: "M2.12951 9.94389L0.809205 9.94389L0.809205 9.99637L0.810586 10.6303L0.809205 10.6303L0.808514 12.5921C0.808514 12.9729 0.808061 13.3144 0.838207 13.5927C0.86979 13.8837 0.942753 14.1868 1.14273 14.4621C1.25005 14.6097 1.37976 14.7394 1.52736 14.8467C1.80259 15.0467 2.1057 15.1196 2.39674 15.1512C2.67502 15.1814 3.01648 15.1809 3.39733 15.1809L5.35913 15.1802L5.99304 15.1802L6.04621 15.1809L6.04552 15.1277L6.04552 13.8599L6.04621 13.8067L5.99304 13.8074L5.35913 13.8074L3.39733 13.8067C2.98646 13.8067 2.73302 13.8056 2.5459 13.7853C2.37559 13.7669 2.33899 13.7391 2.33528 13.7363C2.3039 13.7135 2.27591 13.6855 2.25311 13.6541C2.24981 13.6498 2.22235 13.6121 2.20408 13.4435C2.18387 13.2564 2.18268 13.0029 2.18268 12.5921L2.18199 10.6303L2.18268 9.99706L2.18268 9.9432L2.12951 9.94389Z" })
++						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M6.04798 2.13627V0.815964H5.99549L5.36158 0.817345V0.815964L3.39978 0.815274C3.01892 0.815274 2.67749 0.814821 2.39919 0.844967C2.10813 0.87655 1.80506 0.949512 1.52981 1.14949C1.3822 1.25681 1.25251 1.38652 1.14518 1.53412C0.945217 1.80935 0.872245 2.11246 0.840659 2.4035C0.810509 2.68178 0.810965 3.02324 0.810966 3.40409L0.811656 5.36589V5.9998L0.810966 6.05297L0.864137 6.05228H2.13196L2.18513 6.05297L2.18444 5.9998V5.36589L2.18513 3.40409C2.18513 2.99322 2.18631 2.73978 2.20653 2.55266C2.22499 2.38234 2.25273 2.34575 2.25556 2.34204C2.27837 2.31066 2.30635 2.28267 2.33774 2.25987C2.34207 2.25657 2.37978 2.22911 2.54835 2.21084C2.73548 2.19063 2.98893 2.18944 3.39978 2.18944L5.36158 2.18875L5.9948 2.18944H6.04867L6.04798 2.13627Z" }),
++						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M9.94031 13.86L9.94031 15.1803L9.99279 15.1803L10.6267 15.179L10.6267 15.1803L12.5885 15.181C12.9694 15.181 13.3108 15.1815 13.5891 15.1513C13.8801 15.1198 14.1832 15.0468 14.4585 14.8468C14.6061 14.7395 14.7358 14.6098 14.8431 14.4622C15.0431 14.187 15.116 13.8838 15.1476 13.5928C15.1778 13.3145 15.1773 12.9731 15.1773 12.5922L15.1766 10.6304L15.1766 9.9965L15.1773 9.94333L15.1241 9.94402L13.8563 9.94402L13.8032 9.94333L13.8038 9.9965L13.8038 10.6304L13.8032 12.5922C13.8032 13.0031 13.802 13.2565 13.7817 13.4437C13.7633 13.614 13.7355 13.6506 13.7327 13.6543C13.7099 13.6856 13.6819 13.7136 13.6505 13.7364C13.6462 13.7397 13.6085 13.7672 13.4399 13.7855C13.2528 13.8057 12.9993 13.8069 12.5885 13.8069L10.6267 13.8076L9.99348 13.8069L9.93962 13.8069L9.94031 13.86Z" }),
++						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M13.8568 6.05243H15.1771V5.99995L15.1757 5.36604H15.1771L15.1778 3.40423C15.1778 3.02337 15.1783 2.68194 15.1481 2.40365C15.1165 2.11259 15.0436 1.80952 14.8436 1.53427C14.7363 1.38666 14.6066 1.25697 14.459 1.14964C14.1837 0.949672 13.8806 0.8767 13.5896 0.845114C13.3113 0.814965 12.9698 0.815421 12.589 0.815421L10.6272 0.816112H9.99329L9.94011 0.815421L9.9408 0.868592V2.13641L9.94011 2.18958L9.99329 2.18889H10.6272L12.589 2.18958C12.9999 2.18958 13.2533 2.19077 13.4404 2.21099C13.6107 2.22944 13.6473 2.25719 13.651 2.26002C13.6824 2.28282 13.7104 2.31081 13.7332 2.34219C13.7365 2.34653 13.764 2.38424 13.7822 2.5528C13.8025 2.73993 13.8037 2.99339 13.8037 3.40423L13.8043 5.36604L13.8037 5.99926V6.05312L13.8568 6.05243Z" }),
++						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M2.12951 9.94389L0.809205 9.94389L0.809205 9.99637L0.810586 10.6303L0.809205 10.6303L0.808514 12.5921C0.808514 12.9729 0.808061 13.3144 0.838207 13.5927C0.86979 13.8837 0.942753 14.1868 1.14273 14.4621C1.25005 14.6097 1.37976 14.7394 1.52736 14.8467C1.80259 15.0467 2.1057 15.1196 2.39674 15.1512C2.67502 15.1814 3.01648 15.1809 3.39733 15.1809L5.35913 15.1802L5.99304 15.1802L6.04621 15.1809L6.04552 15.1277L6.04552 13.8599L6.04621 13.8067L5.99304 13.8074L5.35913 13.8074L3.39733 13.8067C2.98646 13.8067 2.73302 13.8056 2.5459 13.7853C2.37559 13.7669 2.33899 13.7391 2.33528 13.7363C2.3039 13.7135 2.27591 13.6855 2.25311 13.6541C2.24981 13.6498 2.22235 13.6121 2.20408 13.4435C2.18387 13.2564 2.18268 13.0029 2.18268 12.5921L2.18199 10.6303L2.18268 9.99706L2.18268 9.9432L2.12951 9.94389Z" })
+ 					]
+ 				})
+ 			});
+ 		}
+ 		/** Restore-from-fullscreen glyph: two corners drawn inward (figma extract). */
+ 		function ExitFullscreenGlyph() {
+-			return (0, react_jsx_runtime.jsx)("svg", {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("svg", {
+ 				width: "16",
+ 				height: "16",
+ 				viewBox: "0 0 16 16",
+ 				fill: "none",
+ 				"aria-hidden": "true",
+-				children: (0, react_jsx_runtime.jsxs)("g", {
++				children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("g", {
+ 					fill: "currentColor",
+ 					stroke: "currentColor",
+ 					strokeWidth: "0.105646",
+ 					strokeLinecap: "square",
+-					children: [(0, react_jsx_runtime.jsx)("path", { d: "M10.698 0.379607H9.43015L9.37698 0.378916L9.37767 0.432087V1.066L9.37698 4.0277C9.37698 4.40856 9.37653 4.74998 9.40667 5.02828C9.43826 5.31934 9.51053 5.62311 9.71051 5.89835C9.81779 6.04587 9.94762 6.1757 10.0951 6.28298C10.3704 6.48296 10.6741 6.55523 10.9652 6.58682C11.2435 6.61696 11.5849 6.61651 11.9658 6.61651L14.9275 6.61582H15.5614L15.6146 6.61651L15.6139 6.56334V5.29552L15.6146 5.24235L15.5614 5.24304H14.9275L11.9658 5.24235C11.5545 5.24235 11.3009 5.24191 11.1137 5.22163C10.9443 5.20329 10.9078 5.17501 10.9038 5.17191C10.8724 5.14911 10.8444 5.12112 10.8216 5.08974C10.8185 5.08566 10.7902 5.04908 10.7719 4.87982C10.7516 4.69263 10.7511 4.439 10.7511 4.0277L10.7505 1.066V0.432087L10.7511 0.378916L10.698 0.379607Z" }), (0, react_jsx_runtime.jsx)("path", { d: "M5.29031 15.6167L6.55813 15.6167L6.6113 15.6174L6.61061 15.5642L6.61061 14.9303L6.6113 11.9686C6.6113 11.5878 6.61176 11.2463 6.58161 10.968C6.55003 10.677 6.47775 10.3732 6.27777 10.098C6.17049 9.95045 6.04067 9.82062 5.89315 9.71334C5.6179 9.51336 5.31413 9.44109 5.02307 9.40951C4.74478 9.37936 4.40335 9.37981 4.02249 9.37981L1.06079 9.3805L0.426879 9.3805L0.373708 9.37981L0.374398 9.43298L0.374398 10.7008L0.373708 10.754L0.426879 10.7533L1.06079 10.7533L4.02249 10.754C4.43379 10.754 4.68742 10.7544 4.87461 10.7747C5.04393 10.793 5.08047 10.8213 5.08453 10.8244C5.11591 10.8472 5.1439 10.8752 5.1667 10.9066C5.16982 10.9107 5.19808 10.9472 5.21642 11.1165C5.2367 11.3037 5.23714 11.5573 5.23714 11.9686L5.23783 14.9303L5.23783 15.5642L5.23714 15.6174L5.29031 15.6167Z" })]
++					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M10.698 0.379607H9.43015L9.37698 0.378916L9.37767 0.432087V1.066L9.37698 4.0277C9.37698 4.40856 9.37653 4.74998 9.40667 5.02828C9.43826 5.31934 9.51053 5.62311 9.71051 5.89835C9.81779 6.04587 9.94762 6.1757 10.0951 6.28298C10.3704 6.48296 10.6741 6.55523 10.9652 6.58682C11.2435 6.61696 11.5849 6.61651 11.9658 6.61651L14.9275 6.61582H15.5614L15.6146 6.61651L15.6139 6.56334V5.29552L15.6146 5.24235L15.5614 5.24304H14.9275L11.9658 5.24235C11.5545 5.24235 11.3009 5.24191 11.1137 5.22163C10.9443 5.20329 10.9078 5.17501 10.9038 5.17191C10.8724 5.14911 10.8444 5.12112 10.8216 5.08974C10.8185 5.08566 10.7902 5.04908 10.7719 4.87982C10.7516 4.69263 10.7511 4.439 10.7511 4.0277L10.7505 1.066V0.432087L10.7511 0.378916L10.698 0.379607Z" }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M5.29031 15.6167L6.55813 15.6167L6.6113 15.6174L6.61061 15.5642L6.61061 14.9303L6.6113 11.9686C6.6113 11.5878 6.61176 11.2463 6.58161 10.968C6.55003 10.677 6.47775 10.3732 6.27777 10.098C6.17049 9.95045 6.04067 9.82062 5.89315 9.71334C5.6179 9.51336 5.31413 9.44109 5.02307 9.40951C4.74478 9.37936 4.40335 9.37981 4.02249 9.37981L1.06079 9.3805L0.426879 9.3805L0.373708 9.37981L0.374398 9.43298L0.374398 10.7008L0.373708 10.754L0.426879 10.7533L1.06079 10.7533L4.02249 10.754C4.43379 10.754 4.68742 10.7544 4.87461 10.7747C5.04393 10.793 5.08047 10.8213 5.08453 10.8244C5.11591 10.8472 5.1439 10.8752 5.1667 10.9066C5.16982 10.9107 5.19808 10.9472 5.21642 11.1165C5.2367 11.3037 5.23714 11.5573 5.23714 11.9686L5.23783 14.9303L5.23783 15.5642L5.23714 15.6174L5.29031 15.6167Z" })]
+ 				})
+ 			});
+ 		}
+@@ -757,11 +757,11 @@ window.__ModuleLoader__.load({
+ 		function PanelChrome({ sessionId, fullscreen, autoFullscreen, actions, t }) {
+ 			const next = fullscreen ? "push" : "fullscreen";
+ 			const modeLabel = fullscreen ? t("chrome.exitFullscreen") : t("chrome.toFullscreen");
+-			return (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
+ 				label: modeLabel,
+ 				side: "bottom",
+ 				delayMs: 500,
+-				children: (0, react_jsx_runtime.jsx)("button", {
++				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+ 					type: "button",
+ 					className: SidebarRight_module_css_default.iconButton,
+ 					"aria-label": modeLabel,
+@@ -770,13 +770,13 @@ window.__ModuleLoader__.load({
+ 						if (fullscreen && autoFullscreen) actions.setExpanded(sessionId, false);
+ 						actions.setMode(sessionId, next);
+ 					},
+-					children: fullscreen ? (0, react_jsx_runtime.jsx)(ExitFullscreenGlyph, {}) : (0, react_jsx_runtime.jsx)(FullscreenGlyph, {})
++					children: fullscreen ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ExitFullscreenGlyph, {}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(FullscreenGlyph, {})
+ 				})
+-			}), (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
++			}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
+ 				label: t("chrome.collapse"),
+ 				side: "bottom",
+ 				delayMs: 500,
+-				children: (0, react_jsx_runtime.jsx)("button", {
++				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+ 					type: "button",
+ 					className: SidebarRight_module_css_default.iconButton,
+ 					"aria-label": t("chrome.collapseAria"),
+@@ -784,7 +784,7 @@ window.__ModuleLoader__.load({
+ 					onClick: () => {
+ 						actions.toggleExpanded(sessionId);
+ 					},
+-					children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconPanelLeftOutline16, { className: SidebarRight_module_css_default.collapseGlyph })
++					children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconPanelLeftOutline16, { className: SidebarRight_module_css_default.collapseGlyph })
+ 				})
+ 			})] });
+ 		}
+@@ -795,16 +795,16 @@ window.__ModuleLoader__.load({
+ 		function SidebarPanel(panel) {
+ 			const { sessionId, surface, actions, t, renderSlot, openTab, width, reportRoom, fullscreen, autoFullscreen, panelRef } = panel;
+ 			const { expanded } = surface.layout;
+-			return (0, react_jsx_runtime.jsx)("div", {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 				ref: panelRef,
+ 				className: SidebarRight_module_css_default.panel,
+ 				style: { width: fullscreen ? "100%" : width },
+ 				"data-sidebar-right-panel": fullscreen ? "fullscreen" : "push",
+ 				"data-sidebar-right-open": expanded || void 0,
+ 				"aria-hidden": !expanded || void 0,
+-				children: (0, react_jsx_runtime.jsx)("div", {
++				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 					className: SidebarRight_module_css_default.panelBody,
+-					children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_dockkit.DockSurface, {
++					children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_dockkit.DockSurface, {
+ 						state: surface.layout,
+ 						canSplit: (0, _deepseek_ai_dsh_client_ui_dockkit.canSplit)(surface.layout) && (0, _deepseek_ai_dsh_client_ui_dockkit.dockPaneIds)(surface.layout).length < 2,
+ 						hideSplitWhenBlocked: true,
+@@ -820,7 +820,7 @@ window.__ModuleLoader__.load({
+ 							tab,
+ 							dismiss
+ 						}),
+-						chrome: (0, react_jsx_runtime.jsx)(PanelChrome, {
++						chrome: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(PanelChrome, {
+ 							sessionId,
+ 							fullscreen,
+ 							autoFullscreen,
+@@ -836,10 +836,10 @@ window.__ModuleLoader__.load({
+ 		function Floats(panel) {
+ 			const { sessionId, surface, actions, t, openTab } = panel;
+ 			if (surface.layout.floats.length === 0) return null;
+-			return (0, react_dom.createPortal)((0, react_jsx_runtime.jsx)("div", {
++			return (0, react_dom.createPortal)(/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+ 				className: SidebarRight_module_css_default.floatHost,
+ 				"data-sidebar-right-float-host": true,
+-				children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_dockkit.FloatLayer, {
++				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_dockkit.FloatLayer, {
+ 					state: surface.layout,
+ 					canCloseTab: (tabId) => canCloseTab(surface, tabId),
+ 					intents: intentsFor(sessionId, actions, openTab),
+@@ -943,29 +943,29 @@ window.__ModuleLoader__.load({
+ 				autoFullscreen,
+ 				reportRoom
+ 			};
+-			return (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [(0, react_jsx_runtime.jsx)(SidebarPanel, {
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(SidebarPanel, {
+ 				...panel,
+ 				width,
+ 				panelRef
+-			}), (0, react_jsx_runtime.jsx)(Floats, { ...panel })] });
++			}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Floats, { ...panel })] });
+ 		}
+ 		//#endregion
+-		//#region lib/types/client/shell/RightbarRoot.js
++		//#region src/client/shell/RightbarRoot.tsx
+ 		/**
+-		* Render the Session-bound Sidebar only while the Conversation is selected.
++		* Render the existing Session-bound Sidebar for Conversation and explicitly opted-in global panels.
+ 		* @param props - frame geometry, panel selection, and the authorized Session renderer.
+-		* @returns the current Session's right Sidebar, or no content for a global panel.
++		* @returns the current Session's right Sidebar, or no content when the selected panel does not permit it.
+ 		*/
+ 		function RightbarRoot({ usePanelInfo, SessionProvider, renderSlot, width, viewportWidth, canShow }) {
+-			if (!usePanelInfo((info) => info.activePanelId === null)) return null;
+-			return (0, react_jsx_runtime.jsx)(SessionProvider, { children: renderSlot("rightbar.session", {
++			if (!usePanelInfo((info) => info.activePanelId === null || info.rightSidebar === "current-session")) return null;
++			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(SessionProvider, { children: renderSlot("rightbar.session", {
+ 				width,
+ 				viewportWidth,
+ 				canShow
+ 			}) });
+ 		}
+ 		//#endregion
+-		//#region lib/types/client/tab-domain.js
++		//#region src/client/tab-domain.ts
+ 		/** Every session's occurrences. */
+ 		var TabDomain = class {
+ 			navigator;
+@@ -1094,7 +1094,7 @@ window.__ModuleLoader__.load({
+ 			}
+ 		};
+ 		//#endregion
+-		//#region lib/types/client/service.js
++		//#region src/client/service.ts
+ 		/**
+ 		* Create the public controller and the plugin-private store adoption callback.
+ 		* Adoption subscribes without reconciling; the first store commit creates occurrences.
+@@ -3222,7 +3222,7 @@ window.__ModuleLoader__.load({
+ 			module.exports = picomatch;
+ 		}));
+ 		//#endregion
+-		//#region lib/types/client/tab-registry.js
++		//#region src/client/tab-registry.ts
+ 		var import_posix = /* @__PURE__ */ __toESM((/* @__PURE__ */ __commonJSMin(((exports, module) => {
+ 			module.exports = require_picomatch();
+ 		})))(), 1);
+@@ -3458,7 +3458,7 @@ window.__ModuleLoader__.load({
+ 			}
+ 		};
+ 		//#endregion
+-		//#region lib/types/client/locales.js
++		//#region src/client/locales.ts
+ 		/**
+ 		* `sidebarRight` namespace dictionaries.
+ 		*
+@@ -3515,7 +3515,7 @@ window.__ModuleLoader__.load({
+ 			"tab.unavailable": "Nothing here can view this kind of content yet."
+ 		};
+ 		//#endregion
+-		//#region lib/types/client/tabs/guide/definition.js
++		//#region src/client/tabs/guide/definition.ts
+ 		/** The shipped guide implementation's identity: the key its body registers under. */
+ 		const GUIDE_ID = "@deepseek-ai/dsh-client-ui-sidebar-right/guide";
+ 		/**
+@@ -3536,7 +3536,7 @@ window.__ModuleLoader__.load({
+ 			};
+ 		}
+ 		//#endregion
+-		//#region lib/types/client/tab-info.js
++		//#region src/client/tab-info.ts
+ 		/** Slot-owned tab information derived from framework-bound store and navigation hooks. */
+ 		/**
+ 		* Bind a tab occurrence without subscribing or creating records during factory evaluation.
+@@ -3587,7 +3587,7 @@ window.__ModuleLoader__.load({
+ 		*/
+ 		const guideTabInfoFactory = (_standard, useTabInfo) => useTabInfo;
+ 		//#endregion
+-		//#region lib/types/client/index.js
++		//#region src/client/index.ts
+ 		/** This package's copy namespace. */
+ 		const NS = "sidebarRight";
+ 		/** Required browser services: the slot registry, the frame's panel actions, copy, and the resource model. */
+diff --git a/lib/types/client/shell/RightbarRoot.d.ts b/lib/types/client/shell/RightbarRoot.d.ts
+index 4aadf0acd8ae87376ad7cc122c5c4447b2ea2e1e..9e4968adc4676c0bb461319aa2d3054e39f330ab 100644
+--- a/lib/types/client/shell/RightbarRoot.d.ts
++++ b/lib/types/client/shell/RightbarRoot.d.ts
+@@ -1,9 +1,9 @@
+ /** Root-scoped controller for the right Sidebar's Session content. */
+ import type { PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
+ /**
+- * Render the Session-bound Sidebar only while the Conversation is selected.
++ * Render the existing Session-bound Sidebar for Conversation and explicitly opted-in global panels.
+  * @param props - frame geometry, panel selection, and the authorized Session renderer.
+- * @returns the current Session's right Sidebar, or no content for a global panel.
++ * @returns the current Session's right Sidebar, or no content when the selected panel does not permit it.
+  */
+ export declare function RightbarRoot({ usePanelInfo, SessionProvider, renderSlot, width, viewportWidth, canShow, }: PropsRuntime<'rightbar'> & PropsRenderSlots<'rightbar.session'>): import("react").JSX.Element | null;
+ //# sourceMappingURL=RightbarRoot.d.ts.map

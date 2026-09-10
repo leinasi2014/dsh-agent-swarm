@@ -54,15 +54,21 @@ describe('at-a-glance Team progress and execution hierarchy', () => {
     const mounted = await mount({ roster: [{ name: 'worker', role: 'Verifier', phase: 'active', createdAt: 1 }] })
     await act(async () => { tabButton('members').click() })
     await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!.click() })
+    const detail = document.querySelector('[data-swarm-detail-view]')!
+    expect(detail).not.toBeNull()
+    const cachedText = detail.textContent
     await act(async () => { mounted.update({ phase: 'stale', error: { code: 'SWARM_UI_READ_FAILED', message: 'connection lost' } }) })
     const warning = document.querySelector('[role="alert"]')!
     expect(warning.textContent).toContain('connection lost')
     expect(warning.closest('[hidden]')).toBeNull()
-    expect(document.querySelector('[data-swarm-detail-view]')).not.toBeNull()
+    expect(document.querySelector('[data-swarm-detail-view]')).toBe(detail)
+    expect(detail.textContent).toBe(cachedText)
     await act(async () => { mounted.update({ phase: 'reconnecting' }) })
     const reconnecting = document.querySelector('[role="status"]')!
     expect(reconnecting.textContent).toContain('Reconnecting')
     expect(reconnecting.closest('[hidden]')).toBeNull()
+    expect(document.querySelector('[data-swarm-detail-view]')).toBe(detail)
+    expect(detail.textContent).toBe(cachedText)
   })
 
   it('connects the current member task to inline details and ignores a stale running attempt', async () => {

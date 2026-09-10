@@ -29,6 +29,7 @@ import { DEFAULT_HOST_CONTEXT_TTL_MS, DEFAULT_MAX_HOST_CONTEXTS, mountHostContex
 import { effectiveToolPolicy, TeamPermissionSurface } from '../runtime/permission-surface.js'
 import { TeamDomainError } from '../domain/error.js'
 import { assembleAgentSwarmHostRead, assembleAgentSwarmProducerFloor, mountAgentSwarmReadRpc } from '../host/host-read-assembly.js'
+import { mountAgentSwarmPublicRpc } from '../rpc/public-rpc-service.js'
 import { AGENT_SWARM_USAGE_PROMPT } from '../runtime/usage-prompt.js'
 import { installSwarmGestureBoundary } from '../runtime/gesture.js'
 import { installExecutionGuard } from '../runtime/execution-guard.js'
@@ -127,6 +128,9 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
       maxDependencies: config.maxDependencies ?? DEFAULT_TEAM_LIMITS.maxDependencies,
       maxMemories: config.maxMemories ?? DEFAULT_TEAM_LIMITS.maxMemories,
       maxInteractionEffects: config.maxInteractionEffects ?? DEFAULT_TEAM_LIMITS.maxInteractionEffects,
+      maxPublicMessages: config.maxPublicMessages ?? DEFAULT_TEAM_LIMITS.maxPublicMessages,
+      maxPublicTextBytes: config.maxPublicTextBytes ?? DEFAULT_TEAM_LIMITS.maxPublicTextBytes,
+      maxPublicBytes: config.maxPublicBytes ?? DEFAULT_TEAM_LIMITS.maxPublicBytes,
       maxVerificationCommands: config.maxVerificationCommands ?? DEFAULT_TEAM_LIMITS.maxVerificationCommands,
       maxVerificationCommandMs: config.maxVerificationCommandMs ?? DEFAULT_TEAM_LIMITS.maxVerificationCommandMs,
     },
@@ -274,6 +278,7 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
       disposeProducerFloor = assembleAgentSwarmProducerFloor(ctx, runtime, overlay, disposalTimeoutMs)
       disposeHostRead = assembleAgentSwarmHostRead(ctx, runtime, overlay, disposalTimeoutMs)
       mountAgentSwarmReadRpc(ctx, runtime, disposalTimeoutMs)
+      mountAgentSwarmPublicRpc(ctx, runtime)
       return async () => {
         const drained = drain()
         await disposeHostRead?.()
