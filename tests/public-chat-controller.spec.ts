@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { PublicChatController } from '../src/client/public-chat-controller.js'
 import { TeamDashboardController, type TeamDashboardState } from '../src/client/team-dashboard-controller.js'
 import { SwarmReadClient } from '../src/client/read-client.js'
+import { PublicChatRpcError } from '../src/client/public-rpc-client.js'
 import { goodFetch, ManualSchedule, waitFor } from './helpers/dashboard-controller.js'
 import type { PublicChatAppendRequest, PublicChatHistoryRequest, PublicChatHistoryResponse, PublicChatMessage } from '../src/rpc/public-rpc-contract.js'
 
@@ -28,7 +29,7 @@ function page(team = 'a', entries: readonly PublicChatMessage[] = [], more = fal
     ...(entries[0] === undefined ? {} : { firstSequence: entries[0].sequence, lastSequence: entries.at(-1)!.sequence }),
   }
 }
-function fixture() {
+function fixture(requestId = () => 'original-id') {
   const storage = new Map<string, string>()
   const port = { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => { storage.set(key, value) } }
   const client = {
@@ -36,7 +37,7 @@ function fixture() {
     append: vi.fn(async (request: PublicChatAppendRequest) => ({ ...page(request.target.teamId), message: message(1), replayed: false })),
     requestResult: vi.fn(async (_request: unknown, _signal?: AbortSignal) => ({ ...page(), state: 'not-found' as const })),
   }
-  const controller = new PublicChatController(client, 'http://host:3094', port, () => 'original-id')
+  const controller = new PublicChatController(client, 'http://host:3094', port, requestId)
   return { controller, client, port, storage }
 }
 async function ready(controller: PublicChatController, state = dashboard()): Promise<void> {
@@ -71,6 +72,47 @@ describe('public conversation view owner', () => {
     expect(f.controller.getSnapshot().draft.text).toBe('Team B')
     await ready(f.controller, dashboard('a'))
     expect(f.controller.getSnapshot().draft.text).toBe('')
+    f.controller.dispose()
+  })
+  it.each(['committed', 'unknown'] as const)('settles a %s send after navigating to another viewer of the same Team', async outcome => {
+    const f = fixture(); await ready(f.controller)
+    let resolve!: (value: Awaited<ReturnType<typeof f.client.append>>) => void
+    let reject!: (error: Error) => void
+    f.client.append.mockImplementationOnce(() => new Promise((done, fail) => { resolve = done; reject = fail }))
+    f.controller.edit('submitted draft'); const sending = f.controller.send()
+    await ready(f.controller, dashboard('a', 4, 'member-viewer'))
+    f.controller.edit('new member-view draft')
+    expect(f.controller.getSnapshot().sending).toBe(true)
+    if (outcome === 'committed') resolve({ ...page(), message: message(1), replayed: false })
+    else reject(new Error('response lost'))
+    await sending
+    expect(f.controller.getSnapshot()).toMatchObject({ sending: false, pending: outcome === 'unknown', draft: { text: 'new member-view draft' } })
+    if (outcome === 'committed') expect(f.controller.getSnapshot().entries.map(entry => entry.id)).toContain('message-1')
+    else expect(f.controller.getSnapshot().error).toBe('response lost')
+    f.controller.dispose()
+  })
+  it('allows a shorter new message after a definite capacity rejection while retaining the rejected draft', async () => {
+    let nextRequest = 0
+    const f = fixture(() => `request-${++nextRequest}`); await ready(f.controller)
+    f.client.append.mockRejectedValueOnce(new PublicChatRpcError('TEAM_PUBLIC_CAPACITY', 'public byte capacity reached'))
+    f.controller.edit('long draft'); await f.controller.send()
+    expect(f.controller.getSnapshot()).toMatchObject({ pending: false, sending: false, draft: { text: 'long draft' }, error: 'public byte capacity reached' })
+    f.controller.edit('short'); await f.controller.send()
+    expect(f.client.append.mock.calls.map(([request]) => [request.requestId, request.text])).toEqual([['request-1', 'long draft'], ['request-2', 'short']])
+    expect(f.controller.getSnapshot()).toMatchObject({ pending: false, draft: { text: '' } })
+    f.controller.dispose()
+  })
+  it('retains the original request on a decoded unavailable result that may follow a commit', async () => {
+    const f = fixture(); await ready(f.controller)
+    f.client.append.mockRejectedValueOnce(new PublicChatRpcError('SWARM_RPC_UNAVAILABLE', 'unknown storage outcome'))
+    f.controller.edit('original'); await f.controller.send()
+    const original = f.client.append.mock.calls[0]![0]
+    expect(f.controller.getSnapshot().pending).toBe(true)
+    f.controller.edit('new draft'); await f.controller.send()
+    expect(f.client.append).toHaveBeenCalledTimes(1)
+    await f.controller.recover()
+    expect(f.client.append.mock.calls[1]![0]).toEqual(original)
+    expect(f.controller.getSnapshot().draft.text).toBe('new draft')
     f.controller.dispose()
   })
   it('isolates environments and fails closed while a different Team binding is loading', async () => {
@@ -112,6 +154,30 @@ describe('public conversation view owner', () => {
     expect(f.client.history.mock.calls[1]![0]).toMatchObject({ afterSequence: 50 })
     expect(f.controller.getSnapshot().history?.hasMore).toBe(true)
     expect(f.controller.getSnapshot().entries.map(entry => entry.sequence)).toEqual([50, 51])
+    f.controller.dispose()
+  })
+  it.each([6, 126])('keeps messages before append receipt %i reachable through history pages', async appendedSequence => {
+    const f = fixture()
+    let server = [message(1)]
+    f.client.history.mockImplementation(async request => {
+      const eligible = server.filter(row => (request.afterSequence === undefined || row.sequence > request.afterSequence)
+        && (request.beforeSequence === undefined || row.sequence < request.beforeSequence))
+      const limit = request.limit ?? 50
+      const entries = request.afterSequence === undefined ? eligible.slice(-limit) : eligible.slice(0, limit)
+      return { ...page('a', entries), totalCount: server.length, limit,
+        hasEarlier: entries[0] !== undefined && entries[0].sequence > 1,
+        hasMore: entries.at(-1) !== undefined && entries.at(-1)!.sequence < server.length }
+    })
+    await ready(f.controller)
+    f.client.append.mockImplementationOnce(async () => {
+      server = Array.from({ length: appendedSequence }, (_, index) => message(index + 1))
+      return { ...page(), message: message(appendedSequence), replayed: false }
+    })
+    f.controller.edit('send after concurrent replies'); await f.controller.send()
+    await f.controller.refresh()
+    for (let pageIndex = 0; f.controller.getSnapshot().history?.hasMore && pageIndex < 4; pageIndex++) await f.controller.newer()
+    expect(f.controller.getSnapshot().entries.map(entry => entry.sequence)).toEqual(server.map(entry => entry.sequence))
+    expect(f.controller.getSnapshot().history?.hasMore).toBe(false)
     f.controller.dispose()
   })
   it('does not send without durable pending metadata or clear a changed draft on late commit', async () => {

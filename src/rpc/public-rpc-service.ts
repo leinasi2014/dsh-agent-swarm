@@ -9,7 +9,6 @@ import { publicAppendEligibility } from '../runtime/public-lineage.js'
 import { HostTargetReadService } from '../host/target-read-service.js'
 import { PUBLIC_RPC_CHANNEL } from './public-rpc-contract.js'
 
-export { PUBLIC_RPC_CHANNEL } from './public-rpc-contract.js'
 const target = z.object({ rootSessionId: z.string().min(1), teamId: z.string().min(1) }).strict()
 const common = { schemaVersion: z.literal(1), target }
 const requestId = z.string().regex(PUBLIC_REQUEST_ID_PATTERN)
@@ -20,7 +19,7 @@ const history = z.object({ ...common, limit: z.number().int().min(1).max(100).de
 }).strict().refine(value => value.beforeSequence === undefined || value.afterSequence === undefined, 'Choose one cursor')
 
 /** An explicit allowlist; immutable frames and request credentials stay Host-side. */
-export function projectPublicMessage(message: TeamPublicMessage) {
+function projectPublicMessage(message: TeamPublicMessage) {
   const delivery = message.delivery
   return { id: message.id, sequence: message.sequence, createdAt: message.createdAt, author: message.author, text: message.text,
     ...(message.replyTo === undefined ? {} : { replyTo: message.replyTo }),

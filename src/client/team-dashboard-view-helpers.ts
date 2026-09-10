@@ -1,7 +1,7 @@
 /** Display-only derivations from the single authoritative read projection. */
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SwarmHostReadProjectionV1 } from '../host/host-read-types.js'
-import type { SwarmReadAssetStatusV1, SwarmReadCaptainMembersV1, SwarmReadMemberCompositionV1, SwarmReadTeamsV1 } from '../rpc/read-rpc-contract.js'
+import type { SwarmReadAssetStatusV1, SwarmReadCaptainMembersV1, SwarmReadMemberCompositionV1 } from '../rpc/read-rpc-contract.js'
 import { TEAM_DASHBOARD_NS, type TeamDashboardKey } from './team-dashboard-locales.js'
 
 /** The read contract reports un-generated member assets with a stable reason; the UI never fabricates one. */
@@ -88,14 +88,6 @@ export function memberRosterInitial(name: string): string {
   const normalized = name.normalize('NFC')
   const segmenter = typeof Intl.Segmenter === 'undefined' ? undefined : new Intl.Segmenter(undefined, { granularity: 'grapheme' })
   return segmenter === undefined ? (Array.from(normalized)[0] ?? '') : (segmenter.segment(normalized)[Symbol.iterator]().next().value?.segment ?? '')
-}
-
-export function dedupeTeams(teams: SwarmReadTeamsV1 | undefined): SwarmReadTeamsV1['teams'] {
-  const unique = new Map<string, SwarmReadTeamsV1['teams'][number]>()
-  for (const team of teams?.teams ?? []) {
-    if (!unique.has(team.teamId)) unique.set(team.teamId, team)
-  }
-  return [...unique.values()]
 }
 
 /** Fail-safe timestamp: a malformed/non-finite createdAt must never throw during render. */

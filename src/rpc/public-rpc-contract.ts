@@ -2,8 +2,8 @@
 export const PUBLIC_RPC_CHANNEL = '/swarm-public'
 export const PUBLIC_RPC_ENDPOINTS = { history: 'v1/history', append: 'v1/append', requestResult: 'v1/requestResult' } as const
 
-export interface PublicChatTarget { readonly rootSessionId: string; readonly teamId: string }
-export interface PublicChatRequest { readonly schemaVersion: 1; readonly target: PublicChatTarget }
+interface PublicChatTarget { readonly rootSessionId: string; readonly teamId: string }
+interface PublicChatRequest { readonly schemaVersion: 1; readonly target: PublicChatTarget }
 export interface PublicChatAppendRequest extends PublicChatRequest {
   readonly requestId: string; readonly text: string; readonly replyTo?: string
 }
@@ -19,7 +19,7 @@ export interface PublicChatMessage {
   readonly delivery: { readonly state: 'not-requested' } | { readonly state: 'queued'; readonly recipientSessionId: string }
     | { readonly state: 'claimed'; readonly recipientSessionId: string; readonly claimedAt: number }
 }
-export type PublicChatAppendEligibility = { readonly state: 'available' }
+type PublicChatAppendEligibility = { readonly state: 'available' }
   | { readonly state: 'unavailable'; readonly reason: 'not-managed' | 'not-active' | 'lineage-unavailable' }
 export interface PublicChatResponse {
   readonly schemaVersion: 1; readonly binding: PublicChatTarget; readonly teamRevision: number; readonly observedAt: number

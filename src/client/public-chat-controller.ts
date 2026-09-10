@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { PublicChatAppendRequest, PublicChatHistoryResponse, PublicChatMessage, PublicChatResponse } from '../rpc/public-rpc-contract.js'
 import type { TeamDashboardController, TeamDashboardState } from './team-dashboard-controller.js'
-import type { PublicChatClient } from './public-rpc-client.js'
+import { PublicChatRpcError, type PublicChatClient } from './public-rpc-client.js'
 
 interface Selection { readonly key: string; readonly viewer: string; readonly captain: string; readonly team: string; readonly revision: number }
 interface Draft { readonly text: string; readonly version: number; readonly replyTo?: string }
@@ -32,6 +32,8 @@ export class PublicChatController {
   private readonly saved = new Map<string, Saved>()
   private readonly busy = new Set<string>()
   private read: AbortController | undefined
+  /** Only a history page advances this cursor; an append receipt may be ahead of unread messages. */
+  private historyCursor: number | undefined
   private readonly lifetime = new AbortController()
   private disposed = false
   constructor(private readonly client: Pick<PublicChatClient, 'history' | 'append' | 'requestResult'>,
@@ -53,7 +55,7 @@ export class PublicChatController {
       && data.teams.binding.rootSessionId === viewer && data.teams.complete
       ? { key: `swarm.public.v1:${JSON.stringify([this.environment, main, team])}`, viewer, team, captain: data.projection.binding.rootSessionId, revision: data.projection.team.revision } : undefined
     if (next === undefined) {
-      this.read?.abort(); this.publish({ ...initial })
+      this.read?.abort(); this.historyCursor = undefined; this.publish({ ...initial })
       return
     }
     const previous = this.state.selection
@@ -62,6 +64,7 @@ export class PublicChatController {
       return
     }
     this.read?.abort()
+    this.historyCursor = undefined
     const saved = this.readSaved(next.key)
     this.publish({ ...initial, selection: next, draft: saved.draft, pending: saved.pending !== undefined, sending: this.busy.has(next.key) })
     void this.refresh()
@@ -105,7 +108,7 @@ export class PublicChatController {
     try {
       const page = await this.client.history({ ...request, limit: 50,
         ...(direction === 'earlier' && old[0] !== undefined ? { beforeSequence: old[0].sequence } : {}),
-        ...(direction !== 'earlier' && old.at(-1) !== undefined ? { afterSequence: old.at(-1)!.sequence } : {}),
+        ...(direction !== 'earlier' && this.historyCursor !== undefined ? { afterSequence: this.historyCursor } : {}),
       }, read.signal)
       this.checkBinding(page, selected)
       let entries = merge(old, page.entries)
@@ -120,6 +123,7 @@ export class PublicChatController {
       }
       read.signal.throwIfAborted()
       if (!this.isCurrent(selected)) return
+      if (direction !== 'earlier') this.historyCursor = page.lastSequence ?? this.historyCursor ?? 0
       const first = entries[0]?.sequence
       const last = entries.at(-1)?.sequence
       const previous = this.state.history
@@ -164,20 +168,23 @@ export class PublicChatController {
       delete saved.pending
       if (saved.draft.version === pending.version) saved.draft = { text: '', version: saved.draft.version + 1 }
       this.persist(selected.key, saved)
-      if (this.isCurrent(selected)) this.publish({ ...this.state, entries: merge(this.state.entries, [response.message]), error: undefined })
+      if (this.isOperationCurrent(selected)) this.publish({ ...this.state, entries: merge(this.state.entries, [response.message]), error: undefined })
     } catch (error) {
-      // Rejections without a committed result remain recoverable under the same ID.
+      // Capacity is checked before the aggregate changes. Other failures can
+      // conceal a committed result and must retain the original request.
+      if (error instanceof PublicChatRpcError && error.code === 'TEAM_PUBLIC_CAPACITY' && saved.pending === pending) delete saved.pending
       this.persist(selected.key, saved)
-      if (this.isCurrent(selected)) this.publish({ ...this.state, error: errorText(error) })
+      if (this.isOperationCurrent(selected)) this.publish({ ...this.state, error: errorText(error) })
     } finally { this.busy.delete(selected.key); this.updateOperation(selected, saved) }
   }
   private updateOperation(selected: Selection, saved: Saved): void {
-    if (this.isCurrent(selected)) this.publish({ ...this.state, draft: saved.draft, pending: saved.pending !== undefined, sending: this.busy.has(selected.key) })
+    if (this.isOperationCurrent(selected)) this.publish({ ...this.state, draft: saved.draft, pending: saved.pending !== undefined, sending: this.busy.has(selected.key) })
   }
   private checkBinding(response: PublicChatResponse, selected: Selection): void {
     if (response.binding.teamId !== selected.team || response.binding.rootSessionId !== selected.captain || response.teamRevision < selected.revision) throw new Error('Public conversation binding or revision changed')
   }
   private isCurrent(selected: Selection): boolean { return !this.disposed && this.state.selection?.key === selected.key && this.state.selection.viewer === selected.viewer }
+  private isOperationCurrent(selected: Selection): boolean { return !this.disposed && this.state.selection?.key === selected.key && this.state.selection.captain === selected.captain }
   private readSaved(key: string): Saved {
     const existing = this.saved.get(key)
     if (existing !== undefined) return existing

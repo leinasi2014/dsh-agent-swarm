@@ -19,7 +19,7 @@ interface Actions {
 type Props = PropsHooks<{ chat: PublicChatController; team: TeamDashboardController; surface: TeamDashboardSurfaceCoordinator }> & PropsLocale<typeof TEAM_DASHBOARD_NS> & Actions
 
 /** Enter inserts a newline; only an explicit accelerator outside IME submits. */
-export function isPublicChatSendKey(event: Pick<KeyboardEvent<HTMLTextAreaElement>, 'key' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'nativeEvent'>, composing: boolean): boolean {
+function isPublicChatSendKey(event: Pick<KeyboardEvent<HTMLTextAreaElement>, 'key' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'nativeEvent'>, composing: boolean): boolean {
   return event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.shiftKey && !composing && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229
 }
 
