@@ -19,6 +19,8 @@ import * as mailbox from './team-domain-mailbox.js'
 import * as interaction from './team-domain-interaction.js'
 import * as publicMessages from './team-domain-public.js'
 import * as publicImages from './team-domain-public-images.js'
+import * as visualAssistance from './team-domain-visual-assistance.js'
+import type { RequestVisualAssistanceInput, CompleteVisualAssistanceInput } from './visual-assistance.js'
 import type { PublicImageDeferredReason, PublicInputProjection } from './public-image-message.js'
 import type { AppendPublicMessageInput, PublicMessageAuthorInput } from './public-message.js'
 import * as plan from './team-domain-plan.js'
@@ -71,6 +73,13 @@ export const DEFAULT_TEAM_LIMITS: TeamLimits = {
 
 /** Framework-neutral Team protocol used by the DSH tool and scheduler consumers. */
 export class TeamDomain implements TeamDomainPort {
+  requestVisualAssistance(scope: TeamScope, teamId: TeamId, actor: string, input: RequestVisualAssistanceInput, revision: number) {
+    return visualAssistance.requestVisualAssistance(this.deps, scope, teamId, actor, input, revision)
+  }
+  completeVisualAssistance(scope: TeamScope, teamId: TeamId, actor: string, input: CompleteVisualAssistanceInput) {
+    return visualAssistance.completeVisualAssistance(this.deps, scope, teamId, actor, input)
+  }
+  reconcileVisualAssistance(scope: TeamScope, teamId: TeamId) { return visualAssistance.reconcileVisualAssistance(this.deps, scope, teamId) }
   private readonly deps: TeamDomainDeps
 
   appendPublicMessage(scope: TeamScope, teamId: TeamId, input: AppendPublicMessageInput) {
@@ -85,7 +94,7 @@ export class TeamDomain implements TeamDomainPort {
     return publicMessages.acknowledgePublicMessage(this.deps, scope, teamId, messageId, recipientSessionId)
   }
 
-  settlePublicMessage(scope: TeamScope, teamId: TeamId, messageId: string, recipientSessionId: string, reason: 'recipient-removed' | 'team-archived') {
+  settlePublicMessage(scope: TeamScope, teamId: TeamId, messageId: string, recipientSessionId: string, reason: import('../shared/public-image-content.js').PublicImageNotDeliveredReason) {
     return publicMessages.settlePublicMessage(this.deps, scope, teamId, messageId, recipientSessionId, reason)
   }
   preparePublicImageDelivery(scope: TeamScope, teamId: TeamId, messageId: string, recipientId: string, mode: PublicInputProjection['mode']) {

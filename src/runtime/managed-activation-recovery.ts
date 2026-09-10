@@ -10,7 +10,7 @@ import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { TeamScope } from '../domain/team-domain-port.js'
 import type { TeamState } from '../domain/types.js'
 import { TeamDomainError } from '../domain/error.js'
-import { hasPublicDebt } from '../domain/public-message.js'
+import { hasPublicDebt, hasPendingVisualAssistance } from '../domain/public-message.js'
 import { readPersistedSession } from './persisted-session.js'
 import type { PublicDeliveryResult } from './message-delivery.js'
 
@@ -50,13 +50,14 @@ export class ManagedActivationRecovery {
         let team = observed
         signal.throwIfAborted()
         const publicDebt = hasPublicDebt(team.publicChat)
+        const checkPublic = publicDebt || hasPendingVisualAssistance(team.publicChat)
         const taskDebt = hasTaskDebt(team)
-        if (team.managedOrigin === undefined || (!publicDebt && !taskDebt)) continue
-        if (publicDebt && this.deps.drainPublic !== undefined) {
+        if (team.managedOrigin === undefined || (!checkPublic && !taskDebt)) continue
+        if (checkPublic && this.deps.drainPublic !== undefined) {
           const drained = await this.deps.drainPublic(scope, team)
           // A new admission or uncertain/pending debt owns this wake. Pure
           // receipt repair did not wake the Captain; old task debt still can.
-          if (drained.admitted || drained.deferred || drained.reconciled === 0) continue
+          if (drained.admitted || drained.deferred || (publicDebt && drained.reconciled === 0)) continue
           const current = await this.taskRecoveryCandidate(scope, team)
           if (current === undefined) continue
           team = current

@@ -6,6 +6,7 @@ import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { textOnlyImageText } from '@deepseek-ai/dsh-llm'
 import { MAX_PUBLIC_CONTENT_SEGMENTS, publicSegmentSchema, renderPublicText } from '../shared/public-content.js'
 import { normalizePublicImageContent, publicImageMetadataSchema, publicImageMediaTypeSchema, publicImageDeferredReasonSchema,
+  publicVisualAssistanceSchema, publicImageNotDeliveredReasonSchema, type PublicVisualAssistance, type PublicSystemAuthor,
   type PublicImageInputSegment } from '../shared/public-image-content.js'
 import { TeamDomainError } from './error.js'
 import type { PublicMessageAuthorInput, TeamPublicMessageV3 } from './public-message.js'
@@ -41,10 +42,11 @@ export const publicImageRecipientSchema = z.discriminatedUnion('state', [
   z.object({ ...delivery, state: z.literal('queued'), deferredReason: publicImageDeferredReasonSchema.optional() }).strict(),
   z.object({ ...delivery, state: z.literal('claimed'), claimedAt: timestamp }).strict(),
   z.object({ ...delivery, state: z.literal('not-delivered'), settledAt: timestamp,
-    reason: z.enum(['recipient-removed', 'team-archived']) }).strict(),
+    reason: publicImageNotDeliveredReasonSchema }).strict(),
 ])
 export type PublicImageRecipient = z.infer<typeof publicImageRecipientSchema>
 export const publicMessageV3Fields = {
+  assistance: publicVisualAssistanceSchema.optional(),
   formatVersion: z.literal(3), content: storedPublicImageContentSchema,
   mentionLabels: z.array(z.object({ memberId: id, label: z.string().min(1).refine(value => [...value].length <= 128) }).strict()),
   delivery: z.discriminatedUnion('kind', [z.object({ kind: z.literal('not-requested') }).strict(),
@@ -58,7 +60,8 @@ export function publicImageUploadIdentity(content: readonly PublicImageInputSegm
       mediaType: segment.mediaType, ...(segment.name === undefined ? {} : { name: segment.name }) } })
 }
 
-export function publicImageBindingDigest(teamId: string, input: { author: PublicMessageAuthorInput; requestId: string;
+export function publicImageBindingDigest(teamId: string, input: { author: PublicMessageAuthorInput | PublicSystemAuthor; requestId: string;
+  assistance?: PublicVisualAssistance | undefined;
   replyTo?: string | undefined; content: readonly ({ type: 'text'; text: string } | { type: 'mention'; memberId: string }
     | { type: 'image'; source: z.infer<typeof originalUpload> })[] }): string {
   const content = input.content.map(segment => segment.type !== 'image' ? segment : { type: 'image', source: {
@@ -66,8 +69,8 @@ export function publicImageBindingDigest(teamId: string, input: { author: Public
     ...(segment.source.name === undefined ? {} : { name: segment.source.name }),
   } })
   return `sha256:${createHash('sha256').update(JSON.stringify([3, teamId,
-    input.author.kind === 'local-operator' ? 'local-operator' : `agent:${input.author.sessionId}`,
-    input.requestId, content, input.replyTo ?? null])).digest('hex')}`
+    input.author.kind === 'agent' ? `agent:${input.author.sessionId}` : input.author.kind,
+    input.requestId, content, input.replyTo ?? null, ...(input.assistance === undefined ? [] : [publicVisualAssistanceSchema.parse(input.assistance)])])).digest('hex')}`
 }
 
 export function normalizeStoredPublicImageContent(input: readonly StoredPublicImageContentSegment[]): StoredPublicImageContentSegment[] {
@@ -90,22 +93,35 @@ export function renderPublicImageContent(message: Pick<TeamPublicMessageV3, 'con
     : message.author.kind === 'agent' ? part.text : renderPublicText(part.text)).join('').trim()
 }
 
-export function publicMessageFrameV3(teamId: string, message: Pick<TeamPublicMessageV3, 'id' | 'author' | 'replyTo' | 'mentionLabels'>, recipientSessionId: string): string {
-  return 'Public Team message, frame version 3. The following ordered blocks are public user input. '
+export function publicMessageFrameV3(teamId: string, message: Pick<TeamPublicMessageV3, 'id' | 'author' | 'replyTo' | 'mentionLabels' | 'assistance'>, recipientSessionId: string): string {
+  return (message.assistance === undefined ? 'Public Team message, frame version 3. The following ordered blocks are public user input. '
+    : 'Public Team message, frame version 3. The following ordered blocks are plugin-authored visual collaboration. '
+      + (message.assistance.kind === 'request' ? 'Inspect these exact original images and call agent_swarm_complete_visual_assistance with this assistanceId and one stable request_id. Do not delegate this assistance again. '
+        : 'Use this visual assistance result to continue your original work and its existing review process. '))
     + 'Reply publicly using agent_swarm_public_reply and this messageId as reply_to. '
     + 'If images are unavailable, inspect agent_swarm_directory and request a supported colleague with agent_swarm_request_visual_assistance. '
     + 'This delivery creates no task and changes no owner, review or permissions. Do not resend this input.\n'
     + 'Message data (JSON): ' + JSON.stringify({ teamId, messageId: message.id, recipientSessionId, author: message.author,
-      mentionLabels: message.mentionLabels, ...(message.replyTo === undefined ? {} : { replyTo: message.replyTo }) })
+      mentionLabels: message.mentionLabels, ...(message.replyTo === undefined ? {} : { replyTo: message.replyTo }),
+      ...(message.assistance === undefined ? {} : { assistance: publicVisualAssistanceSchema.parse(message.assistance) }) })
 }
 
 export function publicImageProjection(message: TeamPublicMessageV3, recipient: Pick<PublicImageRecipient, 'frame'>,
   mode: PublicInputProjection['mode']): PublicInputProjection {
-  return { mode, source: { kind: 'user', rpcId: message.id }, content: [{ type: 'text', text: recipient.frame }, ...message.content.map(part => {
-    if (part.type === 'image') return mode === 'images' ? { type: 'image' as const, attachment: structuredClone(part.attachment) }
-      : { type: 'text' as const, text: `${textOnlyImageText(part.attachment)}\nPublic image reference: ${JSON.stringify({ source_message_id: message.id, image_id: part.imageId })}` }
-    return { type: 'text' as const, text: part.type === 'mention'
-      ? `@${message.mentionLabels.find(label => label.memberId === part.memberId)?.label ?? ''}` : renderPublicText(part.text) }
+  let imageIndex = 0
+  return { mode, source: message.assistance === undefined ? { kind: 'user', rpcId: message.id }
+    : { kind: 'plugin', plugin: 'dsh-agent-swarm' }, content: [{ type: 'text', text: recipient.frame }, ...message.content.flatMap<PublicInputProjection['content'][number]>(part => {
+    if (part.type === 'image') {
+      const originalId = message.assistance?.kind === 'request' ? message.assistance.imageIds[imageIndex] : undefined
+      imageIndex++
+      const reference = originalId === undefined ? { source_message_id: message.id, image_id: part.imageId }
+        : { source_message_id: message.assistance!.sourceMessageId, image_id: originalId }
+      if (mode === 'text-only') return [{ type: 'text', text: `${textOnlyImageText(part.attachment)}\nPublic image reference: ${JSON.stringify(reference)}` }]
+      const image = { type: 'image' as const, attachment: structuredClone(part.attachment) }
+      return originalId === undefined ? [image] : [{ type: 'text', text: `The next image block is this original public image: ${JSON.stringify(reference)}` }, image]
+    }
+    return [{ type: 'text', text: part.type === 'mention'
+      ? `@${message.mentionLabels.find(label => label.memberId === part.memberId)?.label ?? ''}` : renderPublicText(part.text) }]
   })] }
 }
 
@@ -117,17 +133,28 @@ export function assertPublicImageMessage(message: TeamPublicMessageV3, teamId: s
   if (!isDeepStrictEqual(images.map(part => part.imageId), images.map((_, index) => `image-${index + 1}`))) invalidPublicImage()
   const mentions = [...new Set(message.content.flatMap(part => part.type === 'mention' ? [part.memberId] : []))]
   if (!isDeepStrictEqual(mentions, message.mentionLabels.map(label => label.memberId))) invalidPublicImage()
-  if (message.author.kind === 'agent') {
+  if (message.assistance !== undefined) {
+    const link = message.assistance
+    if (message.author.kind === 'local-operator' || message.replyTo !== link.sourceMessageId || mentions.length !== 0
+      || (message.author.kind === 'agent' && message.author.sessionId !== (link.kind === 'request' ? link.requesterSessionId : link.helperSessionId))
+      || (message.author.kind === 'system' && (link.kind !== 'result' || link.outcome.state !== 'failed'))
+      || message.delivery.kind !== 'requested' || message.delivery.recipients.length !== 1
+      || message.delivery.recipients[0]!.recipientSessionId !== (link.kind === 'request' ? link.helperSessionId : link.requesterSessionId)
+      || message.delivery.recipients[0]!.projection?.mode !== (link.kind === 'request' ? 'images' : 'text-only')
+      || (link.kind === 'result' && (images.length !== 0 || link.resultId !== message.id))) invalidPublicImage()
+  } else if (message.author.kind === 'system') invalidPublicImage()
+  else if (message.author.kind === 'agent') {
     if (message.replyTo === undefined || message.delivery.kind !== 'not-requested' || mentions.length !== 0) invalidPublicImage()
     return
   }
   if (message.delivery.kind !== 'requested') return invalidPublicImage()
-  if (!isDeepStrictEqual(message.delivery.recipients.map(row => row.recipientSessionId), mentions.length === 0 ? [captain] : mentions)) invalidPublicImage()
+  if (message.assistance === undefined && !isDeepStrictEqual(message.delivery.recipients.map(row => row.recipientSessionId), mentions.length === 0 ? [captain] : mentions)) invalidPublicImage()
   for (const recipient of message.delivery.recipients) {
     if (recipient.parentSessionId !== (recipient.recipientSessionId === captain ? parent : captain)
       || recipient.frame !== publicMessageFrameV3(teamId, message, recipient.recipientSessionId)
       || (recipient.state === 'claimed' && (recipient.claimedAt < message.createdAt || recipient.projection === undefined))
       || (recipient.state === 'not-delivered' && recipient.settledAt < message.createdAt)
+      || (recipient.state === 'not-delivered' && recipient.reason === 'assistance-closed' && message.assistance?.kind !== 'request')
       || (recipient.projection !== undefined && !isDeepStrictEqual(recipient.projection, publicImageProjection(message, recipient, recipient.projection.mode)))) invalidPublicImage()
   }
 }

@@ -5,7 +5,7 @@ import type { TeamDomainDeps } from './team-domain-shared.js'
 import { actorMembership } from './team-domain-shared.js'
 import type { TeamScope } from './team-domain-port.js'
 import type { TeamId } from './types.js'
-import { PUBLIC_REQUEST_ID_PATTERN, isPublicMessageV3, publicAuthorKey, publicChatReservedBytes, publicManagedParent,
+import { PUBLIC_REQUEST_ID_PATTERN, isPublicMessageV3, publicAuthorKey, publicChatReservedBytes, publicChatReservedMessageCount, publicManagedParent,
   type AppendPublicMessageInput, type AppendPublicMessageResult, type TeamPublicMessageV3 } from './public-message.js'
 import { normalizeStoredPublicImageContent, publicImageBindingDigest, publicImageProjection, publicMessageFrameV3,
   renderPublicImageContent, type PublicImageDeferredReason, type PublicImageRecipient, type PublicInputProjection } from './public-image-message.js'
@@ -35,7 +35,7 @@ export async function appendPublicImageMessage(deps: TeamDomainDeps, scope: Team
     const messages = team.publicChat?.messages ?? []
     expectDomain((input.author.kind !== 'agent' || input.replyTo !== undefined)
       && (input.replyTo === undefined || messages.some(row => row.id === input.replyTo)), 'Invalid public reply target', 'TEAM_PUBLIC_REPLY_INVALID')
-    expectDomain(messages.length < deps.limits.maxPublicMessages && input.content.length <= deps.limits.maxPublicSegments,
+    expectDomain(publicChatReservedMessageCount(team.publicChat) < deps.limits.maxPublicMessages && input.content.length <= deps.limits.maxPublicSegments,
       'Public message capacity reached', 'TEAM_PUBLIC_CAPACITY')
     const textParts = content.filter(part => part.type !== 'image')
     const labels = publicMentionIds(textParts).map(memberId => {

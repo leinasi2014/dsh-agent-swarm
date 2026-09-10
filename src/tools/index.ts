@@ -5,6 +5,7 @@ import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
 import { registerAddMemoryTool, registerSetBudgetTool } from './budget-memory.js'
 import { registerSetCommunicationTool } from './communication.js'
 import { registerPublicReplyTool } from './public-chat.js'
+import { registerVisualAssistanceTools } from './visual-assistance.js'
 import { registerDirectoryTool } from './directory.js'
 import { registerSetCaptainModelTool } from './model-selection.js'
 import { registerApprovePlanTool, registerDiscardPlanTool, registerSetPlanTool } from './plans.js'
@@ -62,6 +63,7 @@ export function registerAgentSwarmTools(
   registerInterruptMemberTool(ctx, runtime)
   registerSendMessageTool(ctx, runtime)
   registerPublicReplyTool(ctx, runtime)
+  registerVisualAssistanceTools(ctx, runtime)
   registerDirectoryTool(ctx, runtime)
   registerToolApproval(ctx)
   registerSetBudgetTool(ctx, runtime)

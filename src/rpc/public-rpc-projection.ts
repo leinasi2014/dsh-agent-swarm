@@ -20,6 +20,7 @@ export function projectPublicMessage(message: TeamPublicMessage, version: 1 | 2 
       ...(version === 3 && delivery.state === 'queued' && 'deferredReason' in delivery && delivery.deferredReason !== undefined
         ? { deferredReason: delivery.deferredReason } : {}) }))
     return { ...base, formatVersion: isPublicMessageV3(message) ? 3 : isPublicMessageV2(message) ? 2 : 1,
+      ...(isPublicMessageV3(message) && message.assistance !== undefined ? { assistance: structuredClone(message.assistance) } : {}),
       content: isPublicMessageV3(message) ? message.content.map(part => part.type === 'image'
         ? { type: 'image' as const, imageId: part.imageId, ...publicImageMetadata(part.attachment) } : { ...part })
         : isPublicMessageV2(message) ? message.content : [{ type: 'text' as const, text: message.text }],

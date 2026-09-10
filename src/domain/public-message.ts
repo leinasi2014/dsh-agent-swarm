@@ -2,6 +2,8 @@
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import { TeamDomainError } from './error.js'
+import { visualAssistanceSchema, assertVisualAssistanceGraph } from './visual-assistance.js'
+import { publicSystemAuthorSchema, type PublicSystemAuthor } from '../shared/public-image-content.js'
 import { normalizePublicContent, publicContentSchema, publicMentionIds, renderPublicContent, type PublicSegment } from '../shared/public-content.js'
 import { assertPublicImageMessage, publicImageBindingDigest, publicImageProjection, publicMessageV3Fields,
   type PublicImageRecipient, type StoredPublicImageContentSegment } from './public-image-message.js'
@@ -50,13 +52,15 @@ const publicMessageV2Schema = publicMessageV1Schema.omit({ delivery: true }).ext
     z.object({ kind: z.literal('requested'), recipients: z.array(publicRecipientSchema).min(1) }).strict(),
   ]),
 }).strict()
-const publicMessageV3Schema = publicMessageV1Schema.omit({ delivery: true, text: true }).extend({ text: z.string(), ...publicMessageV3Fields }).strict()
+const publicMessageV3Schema = publicMessageV1Schema.omit({ delivery: true, text: true, author: true }).extend({ text: z.string(),
+  author: z.union([publicAuthorSchema, publicSystemAuthorSchema]), ...publicMessageV3Fields }).strict()
 
 /** A v2 aggregate can retain exact v1 rows; no rewriting of historical credentials or frames. */
 export const publicChatSchema = z.union([
   z.object({ schemaVersion: z.literal(1), messages: z.array(publicMessageV1Schema) }).strict(),
   z.object({ schemaVersion: z.literal(2), messages: z.array(z.union([publicMessageV1Schema, publicMessageV2Schema])) }).strict(),
-  z.object({ schemaVersion: z.literal(3), messages: z.array(z.union([publicMessageV1Schema, publicMessageV2Schema, publicMessageV3Schema])) }).strict(),
+  z.object({ schemaVersion: z.literal(3), messages: z.array(z.union([publicMessageV1Schema, publicMessageV2Schema, publicMessageV3Schema])),
+    assistances: z.array(visualAssistanceSchema).optional() }).strict(),
 ])
 type TeamPublicMessageV1 = z.infer<typeof publicMessageV1Schema>
 export type TeamPublicMessageV2 = z.infer<typeof publicMessageV2Schema>
@@ -85,12 +89,12 @@ export interface AppendPublicMessageResult {
   readonly teamRevision: number
 }
 
-export function publicAuthorKey(author: PublicMessageAuthorInput): string {
-  return author.kind === 'local-operator' ? 'local-operator' : `agent:${author.sessionId}`
+export function publicAuthorKey(author: PublicMessageAuthorInput | PublicSystemAuthor): string {
+  return author.kind === 'agent' ? `agent:${author.sessionId}` : author.kind
 }
 
 /** Frozen display names are deliberately not part of retry identity. */
-export function publicBindingDigest(teamId: string, input: { readonly author: PublicMessageAuthorInput; readonly requestId: string; readonly replyTo?: string | undefined } & (
+export function publicBindingDigest(teamId: string, input: { readonly author: PublicMessageAuthorInput | PublicSystemAuthor; readonly requestId: string; readonly replyTo?: string | undefined } & (
   { readonly text: string; readonly formatVersion?: 1 } | { readonly content: readonly PublicSegment[]; readonly formatVersion: 2 }
   | { readonly content: readonly StoredPublicImageContentSegment[]; readonly formatVersion: 3 }
 )): string {
@@ -109,6 +113,9 @@ export function publicDeliveries(message: TeamPublicMessage): readonly PublicDel
 }
 export function hasPublicDebt(chat: TeamPublicChat | undefined): boolean {
   return chat?.messages.some(message => publicDeliveries(message).some(recipient => recipient.state === 'queued')) === true
+}
+export function hasPendingVisualAssistance(chat: TeamPublicChat | undefined): boolean {
+  return chat?.schemaVersion === 3 && chat.assistances?.some(row => row.result === undefined) === true
 }
 
 /** Matches an operation identity; it does not prove official Session lineage. */
@@ -139,7 +146,10 @@ export function publicMessageFrameV2(teamId: string, message: Pick<TeamPublicMes
 
 /** Include request evidence and wrappers, reserving claim bytes before admission. */
 export function publicChatReservedBytes(chat: TeamPublicChat): number {
-  return Buffer.byteLength(JSON.stringify({ ...chat, messages: chat.messages.map(message => {
+  // Each pending result can repeat an 8192-character summary in the bounded link/frame/projection.
+  // Reserve its worst escaped representation before accepting any more public traffic.
+  const assistanceReserve = chat.schemaVersion === 3 ? (chat.assistances?.filter(row => row.result === undefined).length ?? 0) * 524_288 : 0
+  return assistanceReserve + Buffer.byteLength(JSON.stringify({ ...chat, messages: chat.messages.map(message => {
     if (isPublicMessageV3(message) && message.delivery.kind === 'requested') return { ...message,
       delivery: { ...message.delivery, recipients: message.delivery.recipients.map(recipient => {
         if (recipient.state !== 'queued') return recipient
@@ -154,6 +164,10 @@ export function publicChatReservedBytes(chat: TeamPublicChat): number {
     return { ...message, delivery: message.delivery.state === 'queued'
       ? { ...message.delivery, state: 'claimed', claimedAt: Number.MAX_SAFE_INTEGER } : message.delivery }
   }) }), 'utf8')
+}
+
+export function publicChatReservedMessageCount(chat: TeamPublicChat | undefined): number {
+  return (chat?.messages.length ?? 0) + (chat?.schemaVersion === 3 ? chat.assistances?.filter(row => row.result === undefined).length ?? 0 : 0)
 }
 
 function corrupt(): never { throw new TeamDomainError('Invalid public message aggregate', 'TEAM_STATE_CORRUPT') }
@@ -185,6 +199,7 @@ export function assertPublicChat(value: unknown, teamId: string, captainSessionI
         || (delivery.state === 'claimed' && delivery.claimedAt < message.createdAt)) corrupt()
     }
   }
+  assertVisualAssistanceGraph(parsed.data!)
 }
 
 function assertV2(message: TeamPublicMessageV2, teamId: string, captain: string, managedOrigin: string | undefined): void {

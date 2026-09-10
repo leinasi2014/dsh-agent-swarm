@@ -101,6 +101,7 @@ export class MessageDelivery {
       // admission still owns this wake even if its Agent has already retired.
       const result = { ...prior }
       const read = () => this.deps.publicTeam?.(scope, teamId)
+      if (!this.deps.isClosing()) { signal.throwIfAborted(); await this.deps.domain().reconcileVisualAssistance(scope, teamId) }
       const initial = await read()
       if (initial === undefined || this.deps.isClosing()) return { ...result, deferred: true }
       for (const row of initial.publicChat?.messages ?? []) {
@@ -132,6 +133,12 @@ export class MessageDelivery {
         // owner. Only durable absence permits a terminal non-delivery.
         team = await read()
         if (team === undefined) { result.deferred = true; continue }
+        const assistance = isPublicMessageV3(message) ? message.assistance : undefined
+        if (assistance?.kind === 'request' && team.publicChat?.schemaVersion === 3
+          && team.publicChat.assistances?.some(assist => assist.assistanceId === assistance.assistanceId && assist.result !== undefined)) {
+          await this.deps.domain().settlePublicMessage(scope, teamId, message.id, delivery.recipientSessionId, 'assistance-closed')
+          result.reconciled++; continue
+        }
         const removed = delivery.recipientSessionId !== team.captainSessionId
           && !team.members.some(member => member.sessionId === delivery.recipientSessionId && member.phase === 'active')
         if (team.phase === 'archived' || removed) {
@@ -187,6 +194,13 @@ export class MessageDelivery {
             const freshTeam = await read(), freshMessage = freshTeam?.publicChat?.messages.find(candidate => candidate.id === imageMessage.id)
             const fresh = freshMessage === undefined ? undefined : publicDeliveries(freshMessage).find(recipient => recipient.recipientSessionId === delivery.recipientSessionId)
             leaseSignal.throwIfAborted()
+            if (imageMessage.assistance?.kind === 'request' && (imageMessage.assistance.expiresAt <= Date.now()
+              || (freshTeam?.publicChat?.schemaVersion === 3 && freshTeam.publicChat.assistances?.some(assist => assist.assistanceId === imageMessage.assistance!.assistanceId && assist.result !== undefined)))) {
+              await this.deps.domain().reconcileVisualAssistance(scope, teamId)
+              // Append a drain to this same chain so a newly terminal result does not wait for another timer.
+              void this.deliverPublicMessages(scope, teamId, signal).catch(() => {})
+              result.deferred = true; return
+            }
             if (this.deps.isClosing() || freshTeam?.phase !== 'active' || fresh?.state !== 'queued' || fresh.frameVersion !== 3
               || !samePublicImageInput(prepared, fresh) || directParent.id !== prepared.parentSessionId
               || this.ctx.agents.get(directParent.id) !== directParent || this.ctx.sessions.get(directParent.id) !== directParent.session
@@ -195,7 +209,13 @@ export class MessageDelivery {
             }
             if (hasImages && prepared.projection.mode === 'images') {
               const admission = await steerVerifiedPublicImagePrompt(this.ctx, scope, freshTeam, directParent,
-                { ...prepared, projection: prepared.projection }, leaseSignal)
+                { ...prepared, projection: prepared.projection }, leaseSignal,
+                imageMessage.assistance?.kind === 'request' ? imageMessage.assistance.expiresAt : undefined)
+              if (admission === 'expired') {
+                await this.deps.domain().reconcileVisualAssistance(scope, teamId)
+                void this.deliverPublicMessages(scope, teamId, signal).catch(() => {})
+                result.deferred = true; return
+              }
               if (admission !== 'admitted') {
                 await this.deps.domain().deferPublicImageDelivery(scope, teamId, imageMessage.id, prepared.recipientSessionId,
                   admission === 'unknown' ? 'image-capability-unknown' : 'image-model-unsupported')

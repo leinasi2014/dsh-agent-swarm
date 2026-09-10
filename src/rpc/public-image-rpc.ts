@@ -21,6 +21,14 @@ export async function handlePublicImageRpc(ctx: Context, runtime: AgentSwarmRunt
   const parsed = schema?.safeParse(payload)
   if (parsed === undefined || !parsed.success) throw new TeamDomainError('Invalid public v3 request', 'SWARM_RPC_INVALID_REQUEST')
   const request = parsed.data
+  await targets.withPublicTeam(request.target, async (scope, initial, verify) => {
+    if (initial.publicChat?.schemaVersion === 3 && initial.publicChat.assistances?.some(row => row.result === undefined)) {
+      await runtime.withPublicAdmissionFence(scope, initial.id, signal, async current => {
+        await verify(); current.throwIfAborted(); await runtime.domain.reconcileVisualAssistance(scope, initial.id)
+      })
+      runtime.kickPublicMessages(scope, initial.id)
+    }
+  })
   return await targets.withPublicTeam(request.target, async (scope, initial, verify) => {
     const response = (teamRevision = initial.revision) => ({ schemaVersion: 3 as const,
       binding: { rootSessionId: initial.captainSessionId, teamId: initial.id }, teamRevision, observedAt: Date.now() })

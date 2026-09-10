@@ -12,7 +12,7 @@ import type { TaskAttempt, TeamAnnouncement, TeamCommunicationIntensity, TeamId,
 import { TeamDomain } from '../domain/team-domain.js'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import { TeamDomainError } from '../domain/error.js'
-import { hasPublicDebt } from '../domain/public-message.js'
+import { hasPublicDebt, hasPendingVisualAssistance } from '../domain/public-message.js'
 import type { MemberIdentityInput } from '../domain/identity-profile.js'
 import { StorageDomainTeamStore } from '../storage/storage-domain-team-store.js'
 import { teamDomainSpec } from '../storage/team-spec.js'
@@ -505,7 +505,7 @@ export class AgentSwarmRuntime extends Service {
     this.watchJobsScope(scope)
     let membership = await this.domain.findMembership(scope, agent.id)
     if (membership === undefined || this.closing) return
-    if (hasPublicDebt(membership.team.publicChat)) {
+    if (hasPublicDebt(membership.team.publicChat) || hasPendingVisualAssistance(membership.team.publicChat)) {
       await this.delivery.deliverPublicMessages(scope, membership.team.id, this.publicAbort.signal)
     }
     if (membership.role === 'captain') {

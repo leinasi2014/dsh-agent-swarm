@@ -67,7 +67,8 @@ export function samePublicImageInput(left: PublicImageRecipient, right: PublicIm
 
 /** Hold the actual target while checking its current route immediately before official admission. */
 export async function steerVerifiedPublicImagePrompt(ctx: Context, scope: string, team: TeamState, parent: Agent,
-  recipient: PublicImageRecipient & { projection: PublicInputProjection }, signal: AbortSignal): Promise<'admitted' | 'unknown' | 'unsupported'> {
+  recipient: PublicImageRecipient & { projection: PublicInputProjection }, signal: AbortSignal,
+  expiresAt?: number): Promise<'admitted' | 'unknown' | 'unsupported' | 'expired'> {
   return await ctx.subagents.withContinuableChild(parent, SessionId(recipient.recipientSessionId), signal, async (target, leaseSignal) => {
     const routeWitness = () => {
       const events = target.session.snapshotEvents(), own = events.slice(target.session.inheritedEventCount)
@@ -85,6 +86,7 @@ export async function steerVerifiedPublicImagePrompt(ctx: Context, scope: string
     if (!current() || route === undefined || route === null) return 'unknown'
     const info = await ctx.llm.resolveModelInfo(route.provider, route.model, leaseSignal)
     leaseSignal.throwIfAborted()
+    if (expiresAt !== undefined && Date.now() >= expiresAt) return 'expired'
     if (!current() || !isDeepStrictEqual(route, routeWitness()) || info.inputModalities === undefined) return 'unknown'
     if (!info.inputModalities.includes('image')) return 'unsupported'
     await steerHostSubagentPrompt(ctx.subagents, parent, target.id, recipient.projection.content, recipient.projection.source, leaseSignal)
