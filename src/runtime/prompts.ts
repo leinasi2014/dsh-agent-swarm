@@ -6,6 +6,7 @@
 import type { AttemptId, TeamMessage, TeamState, TeamTask } from '../domain/types.js'
 
 /** Captain-only administration tools hidden from member toolFilter. */
+export const WORK_REQUEST_CAPTAIN_TOOLS = ['agent_swarm_list_work_requests', 'agent_swarm_resolve_work_request'] as const
 export const CAPTAIN_ONLY_TOOLS = [
   'agent_swarm_create',
   'agent_swarm_add_member',
@@ -24,6 +25,7 @@ export const CAPTAIN_ONLY_TOOLS = [
   'agent_swarm_approve_plan',
   'agent_swarm_discard_plan',
   'agent_swarm_decide_tool_approval',
+  ...WORK_REQUEST_CAPTAIN_TOOLS,
 ] as const
 
 /**
@@ -31,7 +33,7 @@ export const CAPTAIN_ONLY_TOOLS = [
  * captain concern: a member finishes its turn after submit/blocker/no-task
  * and is resumed only by assignment or wakeup.
  */
-export const MEMBER_HIDDEN_TOOLS = [...CAPTAIN_ONLY_TOOLS, 'agent_swarm_create_managed', 'agent_swarm_wait'] as const
+export const MEMBER_HIDDEN_TOOLS = [...CAPTAIN_ONLY_TOOLS, 'agent_swarm_create_managed', 'agent_swarm_wait', 'agent_swarm_submit_work_request'] as const
 
 /**
  * F8 fence discipline: the delimiting fence around untrusted content is one

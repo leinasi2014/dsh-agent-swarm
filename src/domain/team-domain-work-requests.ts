@@ -4,7 +4,7 @@ import { actorMembership, type TeamDomainDeps } from './team-domain-shared.js'
 import { submitWorkRequestInputSchema, workRequestOriginSchema, workRequestSchema } from '../shared/work-request.js'
 import { TaskId, type TeamState, type TeamId } from './types.js'
 import type { TeamScope } from './team-domain-port.js'
-import type { WorkRequest, WorkRequestRecord, WorkRequestOrigin, SubmitWorkRequestInput, ResolveWorkRequestInput, WorkRequestResult, WorkRequestAdmission } from './work-request.js'
+import type { WorkRequest, WorkRequestRecord, WorkRequestOrigin, SubmitWorkRequestInput, ResolveWorkRequestInput, WorkRequestResult, WorkRequestAdmission, WorkRequestResolutionGuards } from './work-request.js'
 import { queueWorkRequestNoticeInDraft } from './team-domain-mailbox.js'
 import { prepareTaskInDraft } from './task-creation.js'
 import { assertTaskGraph } from './graph.js'
@@ -74,12 +74,13 @@ export async function listWorkRequests(deps: TeamDomainDeps, scope: TeamScope, t
   expectDomain(actorMembership(team, actor).role === 'captain', 'only Captain reads pending work requests', 'TEAM_CAPTAIN_REQUIRED')
   return (team.workRequests?.requests ?? []).filter(record => record.resolution === undefined).map(projectWorkRequest)
 }
-export async function resolveWorkRequest(deps: TeamDomainDeps, scope: TeamScope, teamId: TeamId, actor: string, rawInput: ResolveWorkRequestInput): Promise<WorkRequestResult> {
+export async function resolveWorkRequest(deps: TeamDomainDeps, scope: TeamScope, teamId: TeamId, actor: string, rawInput: ResolveWorkRequestInput, guards?: WorkRequestResolutionGuards): Promise<WorkRequestResult> {
   const input = structuredClone(rawInput)
   const decisionDigest = digest(input.decision)
   let committed!: WorkRequestResult
   await deps.store.transact(scope, teamId, team => {
     expectDomain(actorMembership(team, actor).role === 'captain', 'only Captain resolves work requests', 'TEAM_CAPTAIN_REQUIRED')
+    guards?.assertExecution?.()
     const record = team.workRequests?.requests.find(item => item.id === input.workRequestId)
     expectDomain(record !== undefined, 'work request not found', 'TEAM_WORK_REQUEST_NOT_FOUND')
     if (record.resolution !== undefined) {
@@ -95,6 +96,10 @@ export async function resolveWorkRequest(deps: TeamDomainDeps, scope: TeamScope,
       resolution = { kind: 'reject', actorSessionId: actor, occurredAt: timestamp, publicReason }
     } else {
       expectDomain(input.decision.kind === 'accept', 'invalid work request decision', 'TEAM_INPUT_INVALID')
+      // Only genuinely new tasks need runtime admission; terminal replay and
+      // rejection remain available after a Provider disappears. Never persist
+      // this synchronous, caller-owned guard or let it replace actor/CAS checks.
+      guards?.assertNewTaskAdmission?.()
       const items = input.decision.items
       expectDomain(items.length >= 1 && items.length <= 32, 'accept requires 1 to 32 tasks', 'TEAM_INPUT_INVALID')
       expectDomain(team.tasks.length + items.length <= deps.limits.maxTasks, 'team task limit reached', 'TEAM_TASK_LIMIT')

@@ -177,6 +177,8 @@ export class AgentSwarmRuntime extends Service {
     })
     this.work = new WorkRequestSurface(ctx, {
       ready: () => this.ensureReady(), assertOpen: () => this.assertOpen(), domain: () => this.domain,
+      assertConfiguredProviders: () => this.assertConfiguredProviders(),
+      validateVerification: (commands, signal) => this.verificationFamily.compile(commands, this.config.limits.maxVerificationCommands, signal),
       scopeOf: agent => this.scopeOf(agent), teams: scope => this.listTeamAggregates(scope),
       fence: (scope, teamId, signal, operation) => this.withPublicAdmissionFence(scope, teamId, signal, operation),
       kick: (scope, teamId) => this.kickWorkRequests(scope, teamId),

@@ -137,7 +137,7 @@ export interface TeamDomainPort {
   submitWorkRequest(scope: TeamScope, teamId: TeamId, origin: import('./work-request.js').WorkRequestOrigin, input: import('./work-request.js').SubmitWorkRequestInput, admission?: import('./work-request.js').WorkRequestAdmission): Promise<import('./work-request.js').WorkRequestResult>
   workRequestResult(scope: TeamScope, teamId: TeamId, origin: import('./work-request.js').WorkRequestOrigin, requestId: string): Promise<import('./work-request.js').WorkRequest | undefined>
   listWorkRequests(scope: TeamScope, teamId: TeamId, actor: string): Promise<import('./work-request.js').WorkRequest[]>
-  resolveWorkRequest(scope: TeamScope, teamId: TeamId, actor: string, input: import('./work-request.js').ResolveWorkRequestInput): Promise<import('./work-request.js').WorkRequestResult>
+  resolveWorkRequest(scope: TeamScope, teamId: TeamId, actor: string, input: import('./work-request.js').ResolveWorkRequestInput, guards?: import('./work-request.js').WorkRequestResolutionGuards): Promise<import('./work-request.js').WorkRequestResult>
   workActivity(scope: TeamScope, teamId: TeamId, afterSequence?: number, limit?: number): Promise<import('./work-request.js').WorkActivityPage>
   noticeOpenClaimTask(scope: TeamScope, teamId: TeamId, actor: string, input: import('./work-request.js').NoticeOpenClaimTaskInput): Promise<import('./work-request.js').NoticeOpenClaimTaskResult>
   appendPublicMessage(scope: TeamScope, teamId: TeamId, input: import('./public-message.js').AppendPublicMessageInput): Promise<import('./public-message.js').AppendPublicMessageResult>

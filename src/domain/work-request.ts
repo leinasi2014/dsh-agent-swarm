@@ -29,6 +29,11 @@ export interface ResolveWorkRequestInput {
   readonly expectedRequestRevision: number
   readonly decision: WorkRequestDecision
 }
+/** Synchronous runtime guards at the transaction boundary; never persisted. */
+export interface WorkRequestResolutionGuards {
+  readonly assertExecution?: () => void
+  readonly assertNewTaskAdmission?: () => void
+}
 export interface WorkRequestResult {
   readonly teamRevision: number
   readonly request: WorkRequest

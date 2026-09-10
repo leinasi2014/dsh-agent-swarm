@@ -15,7 +15,7 @@ import { register } from './shared.js'
 export function registerCreateTaskTool(ctx: Context, runtime: AgentSwarmRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_create_task',
-    description: 'Create one dependency-aware Team task. Automatic is the default and assigns ready work by priority; specialist automatic work must name target_member. Use open-claim without a target to notify eligible participants and let one self-claim. For pending work requests use resolve_work_request to preserve atomic source links.',
+    description: 'Create one dependency-aware Team task. Automatic is the default and assigns ready work by priority; specialist automatic work MUST name target_member. Use open-claim without a target to notify eligible participants and let one self-claim. For pending work requests use resolve_work_request to preserve atomic source links.',
     parameters: {
       subject: { type: 'string', required: true, description: 'Short task title.' },
       description: { type: 'string', required: true, description: 'Complete work instructions.' },

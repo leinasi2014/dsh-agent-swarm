@@ -6,6 +6,7 @@ import { TeamId, type TeamState } from '../domain/types.js'
 import { TeamDomainError } from '../domain/error.js'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import type { ResolveWorkRequestInput } from '../domain/work-request.js'
+import type { ReviewVerificationCommand } from '../domain/types.js'
 import { publicManagedParent } from '../domain/public-message.js'
 import type { SubmitWorkRequestInput } from '../shared/work-request.js'
 import { requireAgent, type ToolExecutionAuthority } from './authority.js'
@@ -15,6 +16,8 @@ export class WorkRequestSurface {
   constructor(private readonly ctx: Context, private readonly deps: {
     ready(): Promise<void>; assertOpen(): void; domain(): TeamDomainPort
     scopeOf(agent: Agent): TeamScope; teams(scope: TeamScope): Promise<TeamState[]>
+    assertConfiguredProviders(): void
+    validateVerification(commands: readonly ReviewVerificationCommand[], signal: AbortSignal): Promise<unknown>
     fence<T>(scope: TeamScope, teamId: TeamId, signal: AbortSignal, operation: (signal: AbortSignal) => Promise<T>): Promise<T>
     kick(scope: TeamScope, teamId: TeamId): void
     schedule(scope: TeamScope, teamId: TeamId, captain: Agent): void
@@ -66,9 +69,28 @@ export class WorkRequestSurface {
   }
 
   async resolve(exec: ToolExecutionAuthority, input: ResolveWorkRequestInput) {
+    const frozen = structuredClone(input)
     const { actor, scope, team } = await this.memberExecution(exec)
+    if (actor.id !== team.captainSessionId) throw new TeamDomainError('Only Captain resolves work requests', 'TEAM_CAPTAIN_REQUIRED')
+    let admissionFailure: { error: unknown } | undefined
+    const record = team.workRequests?.requests.find(request => request.id === frozen.workRequestId)
+    const pending = record !== undefined && record.resolution === undefined
+    if (pending && frozen.decision.kind === 'accept') {
+      try {
+        this.deps.assertConfiguredProviders()
+        for (const item of frozen.decision.items) if (item.verification !== undefined) {
+          await this.deps.validateVerification(item.verification, exec.signal)
+        }
+      } catch (error) { admissionFailure = { error } }
+    }
     this.exact(exec, actor, scope)
-    const result = await this.deps.domain().resolveWorkRequest(scope, team.id, actor.id, input)
+    const result = await this.deps.domain().resolveWorkRequest(scope, team.id, actor.id, frozen, {
+      assertExecution: () => this.exact(exec, actor, scope),
+      assertNewTaskAdmission: () => {
+        if (admissionFailure !== undefined) throw admissionFailure.error
+        this.deps.assertConfiguredProviders()
+      },
+    })
     const captain = this.ctx.agents.get(SessionId(team.captainSessionId))
     if (captain !== undefined) this.deps.schedule(scope, team.id, captain)
     return result
