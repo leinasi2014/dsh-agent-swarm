@@ -11,6 +11,11 @@ import type { TeamScope } from '../domain/team-domain-port.js'
 import type { TeamState } from '../domain/types.js'
 import { TeamDomainError } from '../domain/error.js'
 import { readPersistedSession } from './persisted-session.js'
+import type { PublicDeliveryResult } from './message-delivery.js'
+
+function hasTaskDebt(team: TeamState): boolean {
+  return team.tasks.some(task => ['pending', 'in_progress', 'submitted', 'verifying'].includes(task.status))
+}
 
 /** Restore only a committed route; adapter-owned effort remains an adapter default. */
 function selectionFromHeader(header: EpochHeader | undefined): ModelSelection {
@@ -28,7 +33,7 @@ export class ManagedActivationRecovery {
   constructor(private readonly ctx: Context, private readonly deps: {
     teams(scope: TeamScope): Promise<TeamState[]>
     trackChild(parent: Agent, childId: string): void
-    drainPublic?(scope: TeamScope, team: TeamState): Promise<void>
+    drainPublic?(scope: TeamScope, team: TeamState): Promise<PublicDeliveryResult>
   }) {}
 
   /** One startup pass; idle events never replay recovery messages. */
@@ -40,24 +45,30 @@ export class ManagedActivationRecovery {
     const byId = new Map(headers.map(header => [String(header.id), header]))
     const scopes = new Set(headers.flatMap(header => header.cwd === undefined ? [] : [resolve(header.cwd)]))
     for (const scope of scopes) {
-      for (const team of await this.deps.teams(scope)) {
+      for (const observed of await this.deps.teams(scope)) {
+        let team = observed
         signal.throwIfAborted()
         const publicDebt = team.publicChat?.messages.some(message => message.delivery.state === 'queued') === true
-        const taskDebt = team.tasks.some(task => ['pending', 'in_progress', 'submitted', 'verifying'].includes(task.status))
+        const taskDebt = hasTaskDebt(team)
         if (team.phase !== 'active' || team.managedOrigin === undefined || (!publicDebt && !taskDebt)) continue
         if (publicDebt && this.deps.drainPublic !== undefined) {
-          await this.deps.drainPublic(scope, team)
-          // The persisted public input owns this recovery wake. Never add a
-          // second planning prompt while its admission is pending/uncertain.
-          continue
+          const drained = await this.deps.drainPublic(scope, team)
+          // A new admission or uncertain/pending debt owns this wake. Pure
+          // receipt repair did not wake the Captain; old task debt still can.
+          if (drained.admitted || drained.deferred || drained.reconciled === 0) continue
+          const current = await this.taskRecoveryCandidate(scope, team)
+          if (current === undefined) continue
+          team = current
         }
+        const managedOrigin = team.managedOrigin
+        if (managedOrigin === undefined) continue
         const captainHeader = byId.get(team.captainSessionId)
         const parentId = captainHeader?.parentSession
-          ?? headers.find(header => team.managedOrigin!.startsWith(`managed:${header.id}:`))?.id
-          ?? team.managedOrigin.replace(/^managed:(.*):(?:turn|detached):.*$/u, '$1')
+          ?? headers.find(header => managedOrigin.startsWith(`managed:${header.id}:`))?.id
+          ?? managedOrigin.replace(/^managed:(.*):(?:turn|detached):.*$/u, '$1')
         try {
           if (captainHeader === undefined || captainHeader.parentSession !== parentId
-            || !team.managedOrigin.startsWith(`managed:${parentId}:`)) {
+            || !managedOrigin.startsWith(`managed:${parentId}:`)) {
             throw new Error('persisted dedicated Captain lineage is missing or does not match managed ownership')
           }
           const parentHeader = byId.get(parentId)
@@ -67,6 +78,12 @@ export class ManagedActivationRecovery {
           }
           if (this.ctx.agents.get(SessionId(team.captainSessionId)) !== undefined) continue
           const root = await this.attachRoot(parentId, byId, scope)
+          if (publicDebt) {
+            const current = await this.taskRecoveryCandidate(scope, team)
+            if (current === undefined) continue
+            team = current
+          }
+          if (this.ctx.agents.get(SessionId(team.captainSessionId)) !== undefined) continue
           this.deps.trackChild(root, team.captainSessionId)
           // A bare agents.resume(child) would lose the continuation descriptor,
           // delegated setup, Activation owner, and its disposer. followup owns
@@ -89,6 +106,16 @@ export class ManagedActivationRecovery {
         }
       }
     }
+  }
+
+  /** Re-read after receipt repair and again after the asynchronous root attach. */
+  private async taskRecoveryCandidate(scope: TeamScope, before: TeamState): Promise<TeamState | undefined> {
+    const team = (await this.deps.teams(scope)).find(candidate => candidate.id === before.id)
+    if (team?.phase !== 'active' || team.managedOrigin !== before.managedOrigin
+      || team.captainSessionId !== before.captainSessionId || !hasTaskDebt(team)
+      || team.publicChat?.messages.some(message => message.delivery.state === 'queued')
+      || this.ctx.agents.get(SessionId(team.captainSessionId)) !== undefined) return undefined
+    return team
   }
 
   /** Shared root restoration owner for first send and startup debt recovery. */

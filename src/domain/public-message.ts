@@ -108,10 +108,10 @@ export function assertPublicChat(value: unknown, teamId: string, captainSessionI
       if (message.replyTo === undefined || delivery.state !== 'not-requested') corrupt()
     } else {
       if (delivery.state === 'not-requested') corrupt()
-      if (delivery.state !== 'not-requested' && (delivery.recipientSessionId !== captainSessionId
+      if (delivery.recipientSessionId !== captainSessionId
         || delivery.parentSessionId !== publicManagedParent(managedOrigin)
         || delivery.frame !== publicMessageFrame(teamId, message, delivery.recipientSessionId)
-        || (delivery.state === 'claimed' && delivery.claimedAt < message.createdAt))) corrupt()
+        || (delivery.state === 'claimed' && delivery.claimedAt < message.createdAt)) corrupt()
     }
   }
 }

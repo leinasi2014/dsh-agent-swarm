@@ -92,7 +92,9 @@ async function createTeam(f: Awaited<ReturnType<typeof setup>>, sandbox: string)
   const captain = f.ctx.agents.get(SessionId(captain_session_id))!
   await captain.whenIdle()
   expect(await f.ctx.sessions.flush(root.session)).toBe(true)
-  expect(await f.ctx.sessions.flush(captain.session)).toBe(true)
+  // Continuable activation may retire immediately after idle; read its
+  // durable descriptor instead of flushing a stale Session object.
+  expect((await readPersistedSession(f.ctx.sessionPersistence, captain.id, SIGNAL)).meta.parentSession).toBe(root.id)
   return { root, captain, teamId: TeamId(team_id), scope: f.ctx.agentSwarm.scopeOf(root) }
 }
 
@@ -173,11 +175,13 @@ it('authenticates the actual route, persists literal user input, exposes only ex
   } finally { await f.close(); await rm(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) }
 }, 30_000)
 
-it('recovers empty-board public input through the same owner after full teardown, and folds a lost receipt without resending', async () => {
+it.each(['empty-board', 'unfinished-task', 'mixed-new-input'] as const)('recovers public input and lost receipts across full teardown (%s)', async scenario => {
   const sandbox = await mkdtemp(join(tmpdir(), 'swarm-public-restart-'))
   let f = await setup(sandbox, new Recording())
   try {
     const { captain, teamId, scope } = await createTeam(f, sandbox)
+    const task = scenario === 'empty-board' ? undefined : await f.ctx.agentSwarm.domain.createTask(scope, teamId, captain.id,
+      { subject: 'Existing unfinished work', description: 'Preserve this task through public receipt recovery.' })
     const committed = await f.ctx.agentSwarm.domain.appendPublicMessage(scope, teamId, { author: { kind: 'local-operator' }, requestId: 'cold-public', text: 'Recover this exact public input.' })
     const captainId = captain.id
     await f.close()
@@ -185,7 +189,7 @@ it('recovers empty-board public input through the same owner after full teardown
     f = await setup(sandbox, adapter)
     await vi.waitFor(async () => {
       const team = (await f.ctx.agentSwarm.domain.snapshot(scope, teamId, captainId)).team
-      expect(team.tasks).toEqual([])
+      expect(team.tasks).toHaveLength(task === undefined ? 0 : 1)
       expect(team.publicChat?.messages[0]?.delivery.state).toBe('claimed')
     }, { timeout: 10_000 })
     await f.ctx.agents.get(captainId)?.whenIdle()
@@ -198,28 +202,48 @@ it('recovers empty-board public input through the same owner after full teardown
     f.ctx.agentSwarm.kickPublicMessages(scope, teamId)
     await vi.waitFor(() => expect(ack).toHaveBeenCalled(), { timeout: 10_000 })
     await f.ctx.agents.get(captainId)?.whenIdle()
-    ack.mockRestore()
     expect((await f.ctx.agentSwarm.domain.snapshot(scope, teamId, captainId)).team.publicChat?.messages[1]?.delivery.state).toBe('queued')
+    const third = scenario !== 'mixed-new-input' ? undefined : await f.ctx.agentSwarm.domain.appendPublicMessage(scope, teamId,
+      { author: { kind: 'local-operator' }, requestId: 'new-input', text: 'New input shares the recovery wake.' })
     await f.close()
+    ack.mockRestore()
     const finalAdapter = new Recording()
     f = await setup(sandbox, finalAdapter)
     await vi.waitFor(async () => expect((await f.ctx.agentSwarm.domain.snapshot(scope, teamId, captainId)).team.publicChat?.messages[1]?.delivery.state).toBe('claimed'))
-    expect(finalAdapter.requests).toHaveLength(0)
+    const expectedTurns = task === undefined ? 0 : 1
+    await vi.waitFor(() => expect(finalAdapter.requests.filter(request => request.sessionId === captainId)).toHaveLength(expectedTurns))
+    await f.ctx.agents.get(captainId)?.whenIdle()
+    await f.ctx.agentSwarm.recoverDormantManagedTeams()
+    const persisted = await readPersistedSession(f.ctx.sessionPersistence, captainId, SIGNAL)
+    const inputs = persisted.events.filter(event => event.type === 'user/message').flatMap(event => event.data.content)
+      .filter(part => part.type === 'text').map(part => part.text)
+    for (const message of [committed.message, second.message, ...(third === undefined ? [] : [third.message])]) {
+      if (message.delivery.state === 'not-requested') throw new Error('missing public frame')
+      const frame = message.delivery.frame
+      expect(inputs.filter(text => text === frame)).toHaveLength(1)
+    }
+    expect(inputs.filter(text => text.startsWith('The Host restarted while this managed Team still had unfinished work.')))
+      .toHaveLength(scenario === 'unfinished-task' ? 1 : 0)
+    const after = (await f.ctx.agentSwarm.domain.snapshot(scope, teamId, captainId)).team
+    expect(after.tasks).toEqual(task === undefined ? [] : [task])
     const replay = await f.ctx.agentSwarm.domain.appendPublicMessage(scope, teamId, { author: { kind: 'local-operator' }, requestId: 'cold-public', text: 'Recover this exact public input.' })
     expect(replay).toMatchObject({ replayed: true, message: { id: committed.message.id } })
     expect((await f.ctx.agentSwarm.domain.publicRequestResult(scope, teamId, { kind: 'local-operator' }, 'lost-receipt'))?.id).toBe(second.message.id)
   } finally { await f.close(); await rm(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) }
 }, 40_000)
 
-it('keeps actual pending input and failed-flush uncertainty queued without re-admitting or restoring a parent', async () => {
+it.each(['pending', 'unknown'] as const)('merges old claims and %s without re-admitting or restoring a parent', async observation => {
   const sandbox = await mkdtemp(join(tmpdir(), 'swarm-public-pending-'))
   const adapter = new HeldRecording()
   const f = await setup(sandbox, adapter)
   try {
     const { root, captain, teamId, scope } = await createTeam(f, sandbox)
+    const claimed = await f.ctx.agentSwarm.domain.appendPublicMessage(scope, teamId,
+      { author: { kind: 'local-operator' }, requestId: 'claimed-public', text: 'Already claimed but missing a receipt.' })
+    if (claimed.message.delivery.state === 'not-requested') throw new Error('missing public input')
     adapter.hold = true
     await f.ctx.subagents.prompt({ requestId: 'hold-existing-activation' as never, parentSessionId: root.id, childSessionId: captain.id,
-      mode: 'continuable', delivery: 'steer', content: [{ type: 'text', text: 'Hold this fixture turn.' }] }, SIGNAL)
+      mode: 'continuable', delivery: 'steer', content: [{ type: 'text', text: claimed.message.delivery.frame }] }, SIGNAL)
     await vi.waitFor(() => expect(adapter.entered).toBe(true))
     const active = f.ctx.agents.get(captain.id)!
     const committed = await f.ctx.agentSwarm.domain.appendPublicMessage(scope, teamId, {
@@ -234,17 +258,18 @@ it('keeps actual pending input and failed-flush uncertainty queued without re-ad
     const delivery = new MessageDelivery(f.ctx, { domain: () => f.ctx.agentSwarm.domain, isClosing: () => false,
       scopeOf: agent => f.ctx.agentSwarm.scopeOf(agent), accountAgentUsage: async () => {}, publicRoot: restore,
       publicTeam: async () => (await f.ctx.agentSwarm.domain.snapshot(scope, teamId, captain.id)).team })
-    await delivery.deliverPublicMessages(scope, teamId, SIGNAL)
+    const actualFlush = f.ctx.sessions.flush.bind(f.ctx.sessions)
+    const flush = observation !== 'unknown' ? undefined : vi.spyOn(f.ctx.sessions, 'flush')
+      .mockResolvedValue(false).mockImplementationOnce(actualFlush)
+    // The overlapping caller must inherit the first drain's claim repair and
+    // deferral, rather than treating a now-claimed first row as a clean wake.
+    const results = await Promise.all([delivery.deliverPublicMessages(scope, teamId, SIGNAL), delivery.deliverPublicMessages(scope, teamId, SIGNAL)])
+    expect(results).toEqual([{ admitted: false, deferred: true, reconciled: 1 }, { admitted: false, deferred: true, reconciled: 1 }])
     expect(prompt).not.toHaveBeenCalled()
     expect(restore).not.toHaveBeenCalled()
-    const flush = vi.spyOn(f.ctx.sessions, 'flush').mockResolvedValue(false)
-    expect(await frameVisibility(f.ctx, active.id, frame, SIGNAL, 'unknown fixture', true)).toBe('unknown')
-    await delivery.deliverPublicMessages(scope, teamId, SIGNAL)
-    expect(prompt).not.toHaveBeenCalled()
-    expect(restore).not.toHaveBeenCalled()
-    flush.mockRestore()
+    flush?.mockRestore()
     prompt.mockRestore()
-    expect((await f.ctx.agentSwarm.domain.snapshot(scope, teamId, captain.id)).team.publicChat?.messages[0]?.delivery.state).toBe('queued')
+    expect((await f.ctx.agentSwarm.domain.snapshot(scope, teamId, captain.id)).team.publicChat?.messages.map(message => message.delivery.state)).toEqual(['claimed', 'queued'])
     adapter.release()
     await active.whenIdle()
   } finally { adapter.release(); await f.close(); await rm(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) }
