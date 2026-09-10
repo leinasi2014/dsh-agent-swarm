@@ -162,6 +162,48 @@ describe('taskDetail target-bound read', () => {
     await expect(h.service.invoke(memberRequest)).rejects.toMatchObject({ code: 'SWARM_HOST_BINDING_MISMATCH' })
   })
 
+  it.each(['removed', 'retried', 'source-captain-replaced', 'main-replaced'] as const)(
+    'never returns sibling detail after %s during a late aggregate read', async change => {
+      // Exercise both late scan boundaries. Eliminating an extra await is
+      // valid: a transition scheduled at that absent boundary never happened.
+      for (const transitionScan of [3, 4]) {
+        const h = harness()
+        const member = { id: MEMBER, session: { header: { cwd: 'D:/detail', parentSession: CAPTAIN } } } as unknown as Agent
+        const siblingCaptain = { id: 'sibling-captain', session: { header: { cwd: 'D:/detail', parentSession: ROOT } } } as unknown as Agent
+        for (const agent of [member, siblingCaptain]) {
+          h.agents.set(agent.id, agent)
+          h.sessions.set(agent.id, agent.session)
+        }
+        h.teams.push({ ...teamState(), id: TeamId('sibling-team'), captainSessionId: siblingCaptain.id })
+        let transitioned = false
+        let scans = 0
+        h.list.mockImplementation(async () => {
+          if (++scans === transitionScan) {
+            transitioned = true
+            if (change === 'removed' || change === 'retried') {
+              const source = h.teams[0]!
+              h.teams[0] = { ...source, revision: source.revision + 1, members: source.members.map(row => ({
+                ...row, ...(change === 'removed' ? { phase: 'removed' as const } : { sessionId: 'replacement-member' }),
+              })) }
+            } else {
+              const id = change === 'main-replaced' ? ROOT : CAPTAIN
+              h.sessions.set(id, { ...h.sessions.get(id)! } as Agent['session'])
+            }
+          }
+          return [...h.teams]
+        })
+        const outcome = await h.service.invoke({ ...request, target: { rootSessionId: MEMBER, teamId: 'sibling-team' } })
+          .then(value => ({ ok: true as const, value }), error => ({ ok: false as const, error }))
+        if (transitioned) {
+          expect(outcome, `changed authority at scan ${transitionScan} must reject`).toMatchObject({ ok: false,
+            error: { code: expect.stringMatching(/^SWARM_(HOST_BINDING_MISMATCH|RPC_TARGET_NOT_LIVE)$/) } })
+        } else {
+          expect(outcome).toMatchObject({ ok: true, value: { binding: { rootSessionId: 'sibling-captain', teamId: 'sibling-team' } } })
+        }
+      }
+    },
+  )
+
   it('copies all arrays without freezing or mutating the canonical aggregate', async () => {
     const team = teamState()
     const value = await harness(team).service.invoke(request) as SwarmReadTaskDetailV1
