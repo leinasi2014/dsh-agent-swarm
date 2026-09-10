@@ -156,7 +156,7 @@ Team 注册 DSH SidebarRight 的独立页签，沿用官方布局与主题 token
 
 部署依赖 Connection 在自身提供方作用域注入 `webServer` 并挂载频道，同时保留调用方的声明与撤销所有权。`0.1.5-alpha.2` 原包在兄弟插件提供 WebServer 时存在注入错误；源码中的 `patches/@deepseek-ai__dsh-client-connection@0.1.5-alpha.2.patch` 固定测试依赖，真实 Host 也须安装对应 Core 包。仅安装 Swarm 插件不会替换 Host 的 Connection；根 Context 直接提供 WebServer 的 fixture 不能证明该部署条件成立。
 
-此切片限定为人类公共文本默认交给当前 Captain，以及 Captain/成员显式发布带 `replyTo` 的公开回报。发送仅向具有有效 `managedOrigin`、准确 Main→Captain 关系、可由现有 managed recovery owner 恢复的 active 托管 Team 开放；普通、staged 或已归档 Team 明确不可发送，读取可用性不授予写权。Host 公开读取、追加与查询原请求结果；Agent 回报从实际工具执行上下文派生作者并验证当前同队权限。个人 Session 的完整输出不会自动转贴到群里，公开回报也不会隐式唤醒全员。多提及、图片、工作请求及目标控制沿后续切片接入同一消息权威。
+v1 定义人类公共文本默认交给当前 Captain，以及 Captain/成员显式发布带 `replyTo` 的公开回报。新发送仅向具有有效 `managedOrigin`、准确 Main→Captain 关系、可由现有 managed recovery owner 恢复的 active 托管 Team 开放；普通、staged 或已归档 Team 明确不可发送，读取可用性不授予写权。Host 公开读取、追加与查询原请求结果；Agent 回报从实际工具执行上下文派生作者并验证当前同队权限。个人 Session 的完整输出不会自动转贴到群里，公开回报也不会隐式唤醒全员。v2 的多提及与共享目录按下一节扩展同一消息权威，图片、工作请求及目标控制继续沿后续切片接入。
 
 公共消息扩展现有 `TeamDomainPort` 与同一官方 Storage Domain Team aggregate。一次 transaction 保存服务器分配的消息 ID、提交顺序和时间、冻结的作者展示资料、正文、原消息引用、逻辑请求身份及定向投递意图。请求身份绑定 Team、真实作者和完整规范化载荷；同身份同内容返回原结果，内容改变则拒绝。旧 Team 缺少公共字段仍可原样读取。消息与请求凭据均有明确数量和字节上限；首片容量满时拒绝新追加，不能靠丢弃幂等记录释放容量后允许旧请求重复执行。公开读取按稳定消息顺序分页并报告实际范围，不把部分页面描述成完整历史。
 
@@ -167,6 +167,26 @@ Team 注册 DSH SidebarRight 的独立页签，沿用官方布局与主题 token
 提交成功后响应丢失、客户端取消或断线，界面保留原请求 ID 与冻结载荷，显示结果待确认；查询权威结果或以同一身份重试，不能生成新 ID 重发。查询无法验证目标或读取存储时不得返回确定的 not-found。群草稿按当前 Host、查看者与 Team 隔离；完成回调只结算原操作，只有原草稿版本未继续编辑时才清空。未提交草稿及待确认操作的浏览器恢复范围须明确说明，客户端记录不成为公共消息权威。
 
 代表性验收包含：认证缺失/错误来源与跨 Team 拒绝；同请求并发、不同载荷冲突、提交后丢 ACK；公开回报丢工具结果后的同请求重试；发送中切群；真实 Captain 消费与显式回复；无任务 Team 冷恢复；claimed 后、Domain 确认前崩溃不重复输入。工程 fixture、真实模型、真实重启与生产部署分别记录。
+
+### 8.2 稳定身份提及与共享目录
+
+多提及沿用 `/swarm-public` 的认证与目标读取边界，增加 `v2/history`、`v2/append`、`v2/requestResult`、`v2/directory`。版本适配只选择严格输入解析和输出投影，认证、请求查询、事务、分页及投递继续共用原 owner。v2 追加字段为 `schemaVersion: 2`、`target {rootSessionId, teamId}`、`requestId`、有序 `content` 和可选 `replyTo`。结构段只有 `{type: 'text', text}` 与 `{type: 'mention', memberId}`；`memberId` 是当前 Captain 或成员的精确 Session ID，完整身份为 `(teamId, memberId)`，不建立另一份身份表。wire 不接受作者、label、parent、frame 或独立收件人数组。
+
+规范化先合并相邻文本段、去除空文本段，再裁去首尾文本段的外围空白，不改内部空白、段顺序或 Unicode 形式。重复提及仍在原位置显示，接收人按首次出现的 ID 去重；没有提及才默认 Captain，不按姓名或 `previousSessionIds` 猜测替补。Host 对真正的新提交重新核验全部当前身份、状态与官方 lineage，并在同一事务的 Team revision 围栏内从公开资料冻结 label。草稿可缓存姓名供编辑展示，wire 只提交 ID。摘要绑定版本、Team、实际作者、请求号、规范化结构段及 `replyTo`；label 与目录 revision 不属于摘要，改名后的原请求重试仍返回原展示快照。
+
+新的人类输入中，未转义的 ASCII `@` 且其紧邻前字符不是 ASCII word `[A-Za-z0-9_]` 时，视为候选起点及未确认提及；句首、中文及标点后适用，邮箱中的 `a@example.com` 保持字面。UI 候选与发送检查、Host 对文本段的校验使用同一纯函数，Host 不解析姓名。Esc 只关闭候选，不解除未确认状态；选择当前目录中的精确成员后才产生 mention 段，普通复制粘贴仅产生文本。字面 `@` 使用反斜杠转义：其前连续 `n` 个反斜杠为奇数时，渲染为 `floor(n / 2)` 个反斜杠和 `@`；偶数不转义，仍按候选起点检查；其他反斜杠原样保留。wire 和持久 content 保留转义形式供摘要与重试，只有展示正文解码，解码后不二次扫描。历史 v1 文本、已提交请求及 Agent 公开回报正文不套用新提及检查。
+
+新持久记录带 `formatVersion: 2`，保存规范化 content、Host 生成的 `mentionLabels [{memberId, label}]`、一致的渲染正文和版本化投递集合；旧记录保持原字段、原摘要和 frame v1，不批量改写。新的人类消息一次事务保存全部接收人的 `recipientSessionId`、`parentSessionId`、`frameVersion`、完整 frame 及初始 queued 状态；新 frame 明确标识版本 2。Agent 公开回报仍为不请求投递。wire 只投影接收人、公开状态、时间及原因，不暴露 parent、frame 或摘要。沿用文本字节、消息数及 aggregate 总字节上限，结构段数另设并返回 Host limits；接收人数受当前合法 roster 与 Captain 限制，总容量计算包含全部 frame 和最大回执预留，不能部分追加。
+
+逐人状态为 queued、带 `claimedAt` 的 claimed，或带 `settledAt` 和 `recipient-removed` / `team-archived` 原因的 not-delivered。确认退出终态前，既有 delivery owner 的同一串行段必须排除在途 admission 并读回耐久 frame；claimed 证据优先结清，只有已证明 absent 且域内身份移除或 Team 归档才可标记 not-delivered。进程内 map 为空不证明未投递，pending、unknown、临时离线和读取失败不能转为永久终态，也不能重投。成员投递复用原 managed recovery：先恢复精确 Main，通过 Core `withContinuableChild` 的 callback lease 恢复并保活 Captain，再由现有 `subagents.prompt` 只提交真实成员输入；不制造父消息、不绕过 subagent ownership、不增加恢复循环。callback 使用 lease signal，真实后代的既有 ownership 接续父级保活。
+
+请求唯一键跨版本保持 Team、真实作者与 requestId；只有摘要算法按版本分派。先验证当前认证和目标可读 scope，再查原作者的已提交记录，存在时按原版本摘要核验并返回冻结事实；当前接收人、归档及容量检查只约束新提交。v2 接受新消息；v1 append 仅返回已提交且原摘要一致的 v1 请求，未找到则返回明确版本错误，不创建新 legacy 消息。v1 requestResult 对不存在返回真实 not-found，命中 v2 则版本错误；v1 history 的所请求页面含 v2 记录时整页版本错误，不能丢行或伪造单 Captain 结果。v2 统一投影新旧记录并保留原格式版本，旧正文作为字面文本段、旧意图作为单接收人投影，不重扫或重建旧 frame。
+
+客户端待确认记录保留原版本、ID、载荷及草稿版本。legacy pending 查询到 not-found 只允许保留草稿并显式确认 v2 内容，升级确认仍沿用原 Team、作者与 requestId，不能换新 ID；若旧 v1 随后先提交，v2 不得覆盖或追加另一条，须读回旧事实并保留升级后编辑的 v2 草稿。仅原操作对应的未继续编辑草稿可在成功后清空。公共草稿的 key 沿用 Host、规范 Main 与 Team，同群的合法查看者共享草稿，个人 Chat 仍由官方 Session composer 保存；切群、切查看者、迟到回包及目录变化不能重写冻结请求的接收身份。
+
+共享目录由同一 runtime 只读投影供 UI 三个入口、`agent_swarm_directory` 读取工具及适用的 `system-prompt/assemble` 消费，不新增缓存权威或轮询 owner。每条包含精确 memberId、角色、名字与公开 label、职责、职业、性格、简介、阶段、当前任务，以及 Skills 名称/用途和 assigned、Session-visible 各自状态、工具可用/需批准/禁用/未知、当前 provider/model、官方 `inputModalities` 推导的 supported/unsupported/unknown 图像状态。资料、模型、Skills、工具等来源分别报告状态、真实版本或内容摘要、observedAt 与实际存在的 updatedAt；读取时间不能冒充修改时间，声明 deny-list 不能冒充完整有效权限。私有记忆、秘密参数和系统私密内容不进入目录。
+
+目录返回 schemaVersion、经验证的 binding、directoryRevision、observedAt、entries 及 page 的 offset/limit/totalCount/returnedCount/hasMore/nextCursor/unreadRanges。revision 由同一代规范化内容和实际来源版本计算，排除 observedAt；模型、Skills 或权限变化即使 Team revision 不变也须使目录更新。发布前重验所依赖的域与来源，发生变化则重读或返回 stale，不发布混合快照。cursor 绑定 Team、revision、offset，后续页变化返回明确 stale 并重新读取，不拼两代目录。所有成员的身份行均可枚举，分页未读范围与字段未知分别表达；正常规模上下文提供完整核心目录，大队给出页范围与读取入口。append 重验本次接收人的合法身份，不信任客户端旧目录，也不以无关成员的目录变化阻断提交。
 
 ## 9. Review、execution root 与可选桥接
 
