@@ -8,6 +8,7 @@ import { Session, SessionId, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-ses
 import type {} from '@deepseek-ai/dsh-session-title'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AgentSwarmHostReadService } from '../src/host/host-read-service.js'
+import { HostTargetReadService } from '../src/host/target-read-service.js'
 import type { AgentSwarmRuntime } from '../src/runtime/orchestrator-runtime.js'
 import { AgentSwarmReadRpcService } from '../src/rpc/read-rpc-service.js'
 import type { SwarmReadTeamsV1 } from '../src/rpc/read-rpc-contract.js'
@@ -60,7 +61,8 @@ async function setup(cold = false) {
   const rpc = new AgentSwarmReadRpcService({ ctx, runtime, hostRead, webServer: { host: '127.0.0.1', port: 8279, register: vi.fn() } })
   const teams = (id: string) => rpc.invoke({ schemaVersion: 1, method: 'teams', target: { rootSessionId: id } }) as Promise<SwarmReadTeamsV1>
   const read = (id: string, teamId = other.id, method = 'snapshot') => rpc.invoke({ schemaVersion: 1, method, target: { rootSessionId: id, teamId } })
-  return { storage, scope, sessions, session, live, inspect, list, rpc, teams, read, team, other }
+  const targets = new HostTargetReadService(ctx, runtime, hostRead)
+  return { storage, scope, sessions, session, live, inspect, list, rpc, teams, read, team, other, targets }
 }
 
 describe('local UI main Session association (#225)', () => {
@@ -141,6 +143,73 @@ describe('local UI main Session association (#225)', () => {
     })
     await expect(h.read('member')).rejects.toMatchObject({ code: 'SWARM_HOST_BINDING_MISMATCH' })
     expect(removed).toBe(true)
+  })
+
+  for (const id of ['captain', 'member']) for (const changedTeam of ['source', 'sibling']) {
+    it(`allows ${id} reads after ordinary ${changedTeam} task updates during ancestry inspection`, async () => {
+      const h = await setup(true)
+      const original = h.inspect.getMockImplementation()!
+      for (const method of ['teams', 'snapshot', 'captainMembers']) {
+        let changed = false
+        h.inspect.mockImplementation(async sessionId => {
+          const value = await original(sessionId)
+          if (sessionId === 'sibling' && !changed) {
+            changed = true
+            await h.storage.port.createTask(h.scope, changedTeam === 'source' ? h.team.id : h.other.id,
+              changedTeam === 'source' ? 'captain' : 'sibling', { subject: 'Concurrent task', description: 'Ordinary work' })
+          }
+          return value
+        })
+        if (method === 'teams') expect((await h.teams(id)).teams.map(team => team.teamId)).toContain(h.other.id)
+        else await expect(h.read(id, h.other.id, method)).resolves.toMatchObject({ binding: { teamId: h.other.id } })
+        expect(changed).toBe(true)
+      }
+    })
+  }
+
+  for (const id of ['captain', 'member']) it(`revokes ${id} sibling access when its source Team is archived during inspection`, async () => {
+    const h = await setup(true)
+    const original = h.inspect.getMockImplementation()!
+    let archived = false
+    h.inspect.mockImplementation(async sessionId => {
+      const value = await original(sessionId)
+      if (sessionId === 'sibling' && !archived) {
+        archived = true
+        await h.storage.port.archiveTeam(h.scope, h.team.id, 'captain', 'Concurrent archive')
+      }
+      return value
+    })
+    await expect(h.read(id)).rejects.toMatchObject({ code: 'SWARM_HOST_BINDING_MISMATCH' })
+    expect(archived).toBe(true)
+  })
+
+  for (const id of ['main', 'captain', 'member']) it(`keeps ${id} public reads authorized across ordinary updates inside the operation`, async () => {
+    const h = await setup(true)
+    await expect(h.targets.withPublicTeam({ rootSessionId: id, teamId: h.other.id }, async (_scope, team, verify) => {
+      await h.storage.port.createTask(h.scope, h.team.id, 'captain', { subject: 'Concurrent source task', description: 'Work' })
+      await h.storage.port.createTask(h.scope, h.other.id, 'sibling', { subject: 'Concurrent selected task', description: 'Work' })
+      await verify()
+      return team.id
+    })).resolves.toBe(h.other.id)
+  })
+
+  it('revokes public read authority after exact membership changes inside the operation', async () => {
+    const h = await setup(true)
+    await expect(h.targets.withPublicTeam({ rootSessionId: 'member', teamId: h.other.id }, async (_scope, _team, verify) => {
+      await h.storage.port.removeMember(h.scope, h.team.id, 'captain', 'worker', 'During public read')
+      await verify()
+    })).rejects.toMatchObject({ code: 'SWARM_HOST_BINDING_MISMATCH' })
+  })
+
+  it('keeps a same-Captain archived Team visible through the current source membership and Main Brain', async () => {
+    const h = await setup(true)
+    await h.storage.port.removeMember(h.scope, h.team.id, 'captain', 'worker', 'Previous membership ended')
+    await h.storage.port.archiveTeam(h.scope, h.team.id, 'captain', 'Finished')
+    const current = await h.storage.port.createTeam(h.scope, 'captain', 'Current', 'Current source Team')
+    await h.storage.port.provisionMember(h.scope, current.id, 'captain', { name: 'worker', role: 'Writer', provider: 'spawn', sessionId: 'member' })
+    await h.storage.port.settleMember(h.scope, current.id, 'member', { active: true })
+    expect((await h.teams('member')).teams.map(team => team.teamId)).toContain(h.team.id)
+    await expect(h.read('member', h.team.id)).resolves.toMatchObject({ binding: { teamId: h.team.id } })
   })
 
   it('denies a previous failed Session after an actual retry commit', async () => {
