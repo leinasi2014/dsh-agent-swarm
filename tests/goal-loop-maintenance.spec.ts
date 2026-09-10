@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { ToolCallId, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { expect, it, vi } from 'vitest'
 import { Recording, setup, createTeam, captureRestartSnapshot } from './helpers/public-chat-real-composition.js'
-import { restartTool } from './helpers/restart-real-composition.js'
+import { RESTART_SIGNAL as SIGNAL, restartTool } from './helpers/restart-real-composition.js'
 
 class MaintenanceLoop extends Recording {
   rounds = 0
@@ -44,15 +44,24 @@ it('rebuilds a future maintenance deadline after checkpoint, continues the same 
   let restoreTimer = () => {}, restoreWake = () => {}
   try {
     const { root, captain, teamId, scope } = await createTeam(first, source)
-    const result = await restartTool(first.ctx, root, 'start-maintenance', 'agent_swarm_save_goal', { team_id: teamId,
-      requestId: 'maintenance-start', expectedLifecycleRevision: 0, start: true, tokenBudget: { expectedTokenLimit: null, tokenLimit: 1000 },
-      goal: { text: 'Keep checking the same Team.', acceptanceCriteria: 'Record a checked round.', constraints: 'No replacement Team.', mode: 'maintenance', intervalMs: 60_000 } })
-    expect(result.isError, JSON.stringify(result)).toBe(false)
-    await vi.waitFor(async () => expect((await first!.ctx.agentSwarm.goals.snapshot(scope, teamId)).lifecycle?.phase).toBe('waiting'), { timeout: 15_000 })
-    await first.ctx.agents.get(captain.id)?.whenIdle()
-    const before = (await first.ctx.agentSwarm.domain.snapshot(scope, teamId, captain.id)).team, firstDue = before.goalLifecycle!.nextDueAt!
-    expect(firstAdapter.rounds).toBe(1)
-    await captureRestartSnapshot(first, source, checkpoint)
+    // The official lease prevents natural Captain retirement from waking
+    // Main after the driver became idle but while the checkpoint is copied.
+    const { before, firstDue } = await first.ctx.subagents.withContinuableChild(root, captain.id, SIGNAL, async live => {
+      const result = await restartTool(first!.ctx, root, 'start-maintenance', 'agent_swarm_save_goal', { team_id: teamId,
+        requestId: 'maintenance-start', expectedLifecycleRevision: 0, start: true, tokenBudget: { expectedTokenLimit: null, tokenLimit: 1000 },
+        goal: { text: 'Keep checking the same Team.', acceptanceCriteria: 'Record a checked round.', constraints: 'No replacement Team.', mode: 'maintenance', intervalMs: 60_000 } })
+      expect(result.isError, JSON.stringify(result)).toBe(false)
+      await vi.waitFor(async () => expect((await first!.ctx.agentSwarm.goals.snapshot(scope, teamId)).lifecycle?.phase).toBe('waiting'), { timeout: 15_000 })
+      await live.whenIdle()
+      await root.whenIdle()
+      expect(first!.ctx.agents.get(captain.id)).toBe(live)
+      expect(live.status).toBe('idle')
+      expect(root.status).toBe('idle')
+      const savedTeam = (await first!.ctx.agentSwarm.domain.snapshot(scope, teamId, captain.id)).team
+      expect(firstAdapter.rounds).toBe(1)
+      await captureRestartSnapshot(first!, source, checkpoint)
+      return { before: savedTeam, firstDue: savedTeam.goalLifecycle!.nextDueAt! }
+    })
     await first.close(); first = undefined
 
     vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(firstDue - 50_000)

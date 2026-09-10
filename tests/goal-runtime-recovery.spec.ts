@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { expect, it, vi } from 'vitest'
 import { Recording, setup, createTeam, captureRestartSnapshot } from './helpers/public-chat-real-composition.js'
-import { restartTool } from './helpers/restart-real-composition.js'
+import { RESTART_SIGNAL as SIGNAL, restartTool } from './helpers/restart-real-composition.js'
 import { readPersistedSession } from '../src/runtime/persisted-session.js'
 
 async function noRecoveryQueued(f: Awaited<ReturnType<typeof setup>>, captainId: Parameters<typeof readPersistedSession>[1]) {
@@ -25,19 +25,34 @@ async function checkpoint(budgetSpent: boolean) {
   const f = await setup(source, new Recording())
   try {
     const identity = await createTeam(f, source), { root, captain, scope, teamId } = identity
-    const result = await restartTool(f.ctx, root, 'save-cold', 'agent_swarm_save_goal', { team_id: teamId,
-      requestId: 'cold-goal', expectedLifecycleRevision: 0, start: true, tokenBudget: { expectedTokenLimit: null, tokenLimit: 100 },
-      goal: { text: 'Finish after restart.', acceptanceCriteria: 'Explicit confirmation.', constraints: '', mode: 'finite' } })
-    expect(result.isError, JSON.stringify(result)).toBe(false)
-    await vi.waitFor(async () => {
-      const team = (await f.ctx.agentSwarm.domain.snapshot(scope, teamId, captain.id)).team
-      expect(team.messages.find(message => message.kind === 'goal-coordination-notice')?.phase).toBe('delivered')
-      expect(f.ctx.agents.get(captain.id)?.status ?? 'idle').toBe('idle')
+    // Keep this exact Activation resident through the cut. An idle child can
+    // otherwise retire asynchronously and wake Main while files are copied.
+    return await f.ctx.subagents.withContinuableChild(root, captain.id, SIGNAL, async live => {
+      const result = await restartTool(f.ctx, root, 'save-cold', 'agent_swarm_save_goal', { team_id: teamId,
+        requestId: 'cold-goal', expectedLifecycleRevision: 0, start: true, tokenBudget: { expectedTokenLimit: null, tokenLimit: 100 },
+        goal: { text: 'Finish after restart.', acceptanceCriteria: 'Explicit confirmation.', constraints: '', mode: 'finite' } })
+      expect(result.isError, JSON.stringify(result)).toBe(false)
+      await vi.waitFor(async () => {
+        const team = (await f.ctx.agentSwarm.domain.snapshot(scope, teamId, captain.id)).team
+        expect(team.messages.find(message => message.kind === 'goal-coordination-notice')?.phase).toBe('delivered')
+      })
+      await live.whenIdle()
+      await root.whenIdle()
+      expect(f.ctx.agents.get(captain.id)).toBe(live)
+      expect(live.status).toBe('idle')
+      expect(root.status).toBe('idle')
+      if (budgetSpent) await f.ctx.agentSwarm.domain.consumeTokens(scope, teamId, 100)
+      const before = (await f.ctx.agentSwarm.domain.snapshot(scope, teamId, captain.id)).team
+      const writes: { sessionId: string; seq: number; type: string; source?: string }[] = []
+      const stopObserving = f.ctx.on('session/event', (session, event) => {
+        writes.push({ sessionId: session.id, seq: event.seq, type: event.type,
+          ...(event.type === 'user/message' ? { source: event.data.source.kind } : {}) })
+      })
+      try { await captureRestartSnapshot(f, source, saved) }
+      catch (cause) { throw new Error(`Checkpoint writers: ${JSON.stringify({ rootId: root.id, captainId: captain.id, writes })}`, { cause }) }
+      finally { await stopObserving() }
+      return { directory, saved, scope, teamId, captainId: captain.id, rootId: root.id, before }
     })
-    if (budgetSpent) await f.ctx.agentSwarm.domain.consumeTokens(scope, teamId, 100)
-    const before = (await f.ctx.agentSwarm.domain.snapshot(scope, teamId, captain.id)).team
-    await captureRestartSnapshot(f, source, saved)
-    return { directory, saved, scope, teamId, captainId: captain.id, rootId: root.id, before }
   } catch (error) { await rm(directory, { recursive: true, force: true }); throw error }
   finally { await f.close() }
 }

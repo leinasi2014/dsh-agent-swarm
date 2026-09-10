@@ -52,8 +52,9 @@ async function fixture(requestId = () => 'original-id') {
     appendV2: vi.fn(async (): Promise<import('../src/rpc/public-rpc-contract.js').PublicChatV2AppendResponse> => ({ schemaVersion: 2, binding: page().binding, teamRevision: 4, observedAt: 20, replayed: false, message: { ...message(1), formatVersion: 2, content: [{ type: 'text', text: 'legacy v2' }], author: { kind: 'local-operator' }, delivery: { kind: 'not-requested' } } })),
     image: vi.fn(async (): Promise<import('../src/rpc/public-rpc-contract.js').PublicChatV3ImageResponse> => ({ ...page(), messageId: 'message-1', imageId: 'image-1', image: { mediaType: 'image/png', data: 'YWJj', bytes: 3, width: 1, height: 1 } })),
   }
-  const controller = new PublicChatController(client, 'http://host:3094', port, requestId, await drafts(), async (_blob, image) => ({ ...image, status: 'ready', width: 1, height: 1 }))
-  return { controller, client, port, storage, drafts }
+  const draftStore = await drafts()
+  const controller = new PublicChatController(client, 'http://host:3094', port, requestId, draftStore, async (_blob, image) => ({ ...image, status: 'ready', width: 1, height: 1 }))
+  return { controller, client, port, storage, drafts, draftStore }
 }
 async function ready(controller: PublicChatController, state = dashboard()): Promise<void> {
   controller.bind(state); await vi.waitFor(() => { expect(controller.getSnapshot().loading).toBe(false); expect(controller.getSnapshot().draftStatus).not.toBe('loading') }, { timeout: 5000 })
@@ -147,28 +148,54 @@ describe('public conversation view owner', () => {
     f.controller.edit('first'); await f.controller.send()
     const original = f.client.appendV3.mock.calls[0]![0]
     expect(f.controller.getSnapshot().pending).toBe(true)
-    f.controller.edit('new draft'); f.controller.dispose()
-    const restored = new PublicChatController(f.client, 'http://host:3094', f.port, () => 'WRONG-NEW-ID', (await f.drafts()))
-    await ready(restored, dashboard('a', 4, 'different-viewer'))
-    expect(restored.getSnapshot().draft.text).toBe('new draft')
-    await restored.recover()
-    expect(f.client.requestResultV3).toHaveBeenCalledWith({ schemaVersion: 3, target: original.target, requestId: 'original-id' }, expect.any(AbortSignal))
-    expect(f.client.appendV3.mock.calls[1]![0]).toEqual(original)
-    expect(restored.getSnapshot()).toMatchObject({ pending: false, draft: { text: 'new draft' } })
-    restored.dispose()
+    let release!: () => void, writing = false, restored: PublicChatController | undefined
+    const gate = new Promise<void>(resolve => { release = resolve }), write = f.draftStore.writeDraft.bind(f.draftStore)
+    const delayed = vi.spyOn(f.draftStore, 'writeDraft').mockImplementationOnce(async (...args) => { writing = true; await gate; return write(...args) })
+    try {
+      f.controller.edit('new draft'); await vi.waitFor(() => { expect(writing).toBe(true) })
+      expect(f.controller.getSnapshot().draftStatus).toBe('saving')
+      // Dispose while the new draft is still in flight; disposal must let that queued write finish.
+      f.controller.dispose()
+      const pendingWrite = delayed.mock.results[0]!
+      expect(pendingWrite.type).toBe('return')
+      release()
+      // Wait for the actual IndexedDB transaction, not page-creation latency or a disposed UI snapshot.
+      await pendingWrite.value
+      restored = new PublicChatController(f.client, 'http://host:3094', f.port, () => 'WRONG-NEW-ID', (await f.drafts()))
+      await ready(restored, dashboard('a', 4, 'different-viewer'))
+      expect(restored.getSnapshot().draft.text).toBe('new draft')
+      await restored.recover()
+      expect(f.client.requestResultV3).toHaveBeenCalledWith({ schemaVersion: 3, target: original.target, requestId: 'original-id' }, expect.any(AbortSignal))
+      expect(f.client.appendV3.mock.calls[1]![0]).toEqual(original)
+      expect(restored.getSnapshot()).toMatchObject({ pending: false, draft: { text: 'new draft' } })
+    } finally { release(); delayed.mockRestore(); restored?.dispose(); f.controller.dispose() }
   })
   it('clears only the submitted Team draft version after switching to another Team', async () => {
     const f = await fixture(); await ready(f.controller)
     let resolve!: (value: Awaited<ReturnType<typeof f.client.appendV3>>) => void
     f.client.appendV3.mockImplementationOnce(() => new Promise(done => { resolve = done }))
+    let release!: () => void, freezing = false
+    const gate = new Promise<void>(done => { release = done }), freeze = f.draftStore.freeze.bind(f.draftStore)
+    const delayed = vi.spyOn(f.draftStore, 'freeze').mockImplementationOnce(async (...args) => { freezing = true; await gate; return freeze(...args) })
     f.controller.edit('Team A'); const sending = f.controller.send()
-    await ready(f.controller, dashboard('b'))
-    f.controller.edit('Team B')
-    resolve({ ...page('a'), message: message(1), replayed: false }); await sending
-    expect(f.controller.getSnapshot().draft.text).toBe('Team B')
-    await ready(f.controller, dashboard('a'))
-    expect(f.controller.getSnapshot().draft.text).toBe('')
-    f.controller.dispose()
+    try {
+      await vi.waitFor(() => { expect(freezing).toBe(true) })
+      await ready(f.controller, dashboard('b'))
+      f.controller.edit('Team B')
+      expect(f.client.appendV3).not.toHaveBeenCalled()
+      release()
+      // Team B's hydration says nothing about Team A's frozen request reaching the transport.
+      await vi.waitFor(() => { expect(f.client.appendV3).toHaveBeenCalledOnce() })
+      resolve({ ...page('a'), message: message(1), replayed: false }); await sending
+      expect(f.controller.getSnapshot().draft.text).toBe('Team B')
+      await ready(f.controller, dashboard('a'))
+      expect(f.controller.getSnapshot().draft.text).toBe('')
+    } finally {
+      release(); delayed.mockRestore()
+      await vi.waitFor(() => { expect(f.client.appendV3).toHaveBeenCalledOnce() })
+      resolve({ ...page('a'), message: message(1), replayed: false }); await sending
+      f.controller.dispose()
+    }
   })
   it.each(['committed', 'unknown'] as const)('settles a %s send after navigating to another viewer of the same Team', async outcome => {
     const f = await fixture(); await ready(f.controller)
