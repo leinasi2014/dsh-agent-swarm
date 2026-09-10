@@ -74,9 +74,12 @@ async function setup(sandbox: string, adapter: Recording, http = false) {
   instance = await mount(sandbox, 0, undefined, undefined, async (ctx, fibers) => {
     ctx.llm.registerAdapter([ROUTE.provider], adapter)
     if (!http) return
-    ctx.provide('webServer', { host: '127.0.0.1', port, register(route: typeof routes[number]) {
-      routes.push(route); return () => { routes.splice(routes.indexOf(route), 1) }
-    } } as never)
+    // A sibling provider preserves the real Cordis injection boundary.
+    fibers.push(await ctx.plugin({ apply(webCtx: Context) {
+      webCtx.provide('webServer', { host: '127.0.0.1', port, register(route: typeof routes[number]) {
+        routes.push(route); return () => { routes.splice(routes.indexOf(route), 1) }
+      } } as never)
+    } }))
     fibers.push(await ctx.plugin(CredentialsLocal, { path: join(sandbox, 'credentials.yaml'), dshHome: sandbox, watch: false }))
     fibers.push(await ctx.plugin(ClientConnection))
   }, { captainLlmProvider: ROUTE.provider, captainModel: ROUTE.model })

@@ -154,6 +154,8 @@ Team 注册 DSH SidebarRight 的独立页签，沿用官方布局与主题 token
 
 公共群聊的首个写入切片采用官方 Connection RPC 认证通道 `/swarm-public`，以 `v1/history`、`v1/append`、`v1/requestResult` 为版本化端点，由 Host 的 `connection.rpc.handle` 注册并随 Context 注销。官方 channel 只允许单段路径；客户端调用相同通道与端点，最终 HTTP 路径为 `/swarm-public/v1/...`。官方 Host/Origin 与 BrowserAuth 检查先于业务 handler。handler 内派生的作者仅表示本 Host 已认证的 `local-operator`，Cookie 不提供多用户 userId，不能冒充已有 `authenticated-human` principal。wire 不接受作者、principal 或 Captain 身份。请求的 Session 与 Team 仅用于选择目标，Host 重验真实 scope、官方 Session 关系和当前 Team；旧 `/swarm/v1` 仍是原有只读合同。
 
+部署依赖 Connection 在自身提供方作用域注入 `webServer` 并挂载频道，同时保留调用方的声明与撤销所有权。`0.1.5-alpha.2` 原包在兄弟插件提供 WebServer 时存在注入错误；本仓以[配套 Core 补丁](../patches/@deepseek-ai__dsh-client-connection@0.1.5-alpha.2.patch)固定测试依赖，真实 Host 也须安装对应 Core 包。仅安装 Swarm 插件不会替换 Host 的 Connection；根 Context 直接提供 WebServer 的 fixture 不能证明该部署条件成立。
+
 此切片限定为人类公共文本默认交给当前 Captain，以及 Captain/成员显式发布带 `replyTo` 的公开回报。发送仅向具有有效 `managedOrigin`、准确 Main→Captain 关系、可由现有 managed recovery owner 恢复的 active 托管 Team 开放；普通、staged 或已归档 Team 明确不可发送，读取可用性不授予写权。Host 公开读取、追加与查询原请求结果；Agent 回报从实际工具执行上下文派生作者并验证当前同队权限。个人 Session 的完整输出不会自动转贴到群里，公开回报也不会隐式唤醒全员。多提及、图片、工作请求及目标控制沿后续切片接入同一消息权威。
 
 公共消息扩展现有 `TeamDomainPort` 与同一官方 Storage Domain Team aggregate。一次 transaction 保存服务器分配的消息 ID、提交顺序和时间、冻结的作者展示资料、正文、原消息引用、逻辑请求身份及定向投递意图。请求身份绑定 Team、真实作者和完整规范化载荷；同身份同内容返回原结果，内容改变则拒绝。旧 Team 缺少公共字段仍可原样读取。消息与请求凭据均有明确数量和字节上限；首片容量满时拒绝新追加，不能靠丢弃幂等记录释放容量后允许旧请求重复执行。公开读取按稳定消息顺序分页并报告实际范围，不把部分页面描述成完整历史。

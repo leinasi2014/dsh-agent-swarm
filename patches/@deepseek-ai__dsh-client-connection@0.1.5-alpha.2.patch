@@ -1,0 +1,83 @@
+diff --git a/lib/index.js b/lib/index.js
+index d78f1ffe1421dea0ebdbb8d6377e3a475c8f43d1..98a8acd9121bcc5e1bdca6f6e3d41bc15d17f312 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -525,8 +525,10 @@ var HostConnectionService = class extends Service {
+ 	browserAuth;
+ 	interceptors = /* @__PURE__ */ new Map();
+ 	fetchRoutes = /* @__PURE__ */ new Map();
++	rpcRoutes = /* @__PURE__ */ new Map();
++	mountRpcRoute;
+ 	/**
+-	* Provide the Host half over the active HTTP server.
++	* Provide Host Connection and bind dedicated channels to an optional Web carrier.
+ 	* @param ctx - owning Connection plugin context.
+ 	* @param trustedHosts - deployment authorities accepted by the Host/Origin fence.
+ 	* @param browserAuth - process token and persistent browser-session owner.
+@@ -535,6 +537,16 @@ var HostConnectionService = class extends Service {
+ 		super(ctx, "connection");
+ 		this.trustedHosts = trustedHosts;
+ 		this.browserAuth = browserAuth;
++		ctx.inject(["webServer"], (webCtx) => {
++			const mount = (route) => webCtx.effect(() => webCtx.webServer.register(route), `client-connection: ${route.path} rpc route`);
++			webCtx.effect(() => {
++				this.mountRpcRoute = mount;
++				return () => {
++					this.mountRpcRoute = void 0;
++				};
++			}, "client-connection: RPC Web carrier");
++			for (const registered of this.rpcRoutes.values()) registered.dispose = mount(registered.route);
++		});
+ 	}
+ 	/** Generic channel registry scoped to the Context reading this service. */
+ 	get rpc() {
+@@ -615,7 +627,18 @@ var HostConnectionService = class extends Service {
+ 				await bridge(req, res, fetchHandler);
+ 			}
+ 		};
+-		return owner.effect(() => owner.webServer.register(route), `client-connection: ${channel} rpc channel`);
++		return owner.effect(() => {
++			if (this.rpcRoutes.has(channel)) throw new Error(`connection: duplicate route ${JSON.stringify(channel)}`);
++			const registered = {
++				route,
++				dispose: this.mountRpcRoute?.(route)
++			};
++			this.rpcRoutes.set(channel, registered);
++			return async () => {
++				this.rpcRoutes.delete(channel);
++				await registered.dispose?.();
++			};
++		}, `client-connection: ${channel} rpc channel`);
+ 	}
+ 	registerInterceptor(owner, channel, matches, handler) {
+ 		if (channel !== "/api") throw new Error(`connection: invalid shared RPC channel ${JSON.stringify(channel)}`);
+diff --git a/lib/types/rpc-host.d.ts b/lib/types/rpc-host.d.ts
+index 6f9c910fbfaeb7e0edd27ac4fefbdba1c9fe9fb1..6d2da14ffc462b2daefe5b3bd725f23dc3b97b30 100644
+--- a/lib/types/rpc-host.d.ts
++++ b/lib/types/rpc-host.d.ts
+@@ -14,8 +14,10 @@ export declare class HostConnectionService extends Service implements HostConnec
+     private readonly browserAuth;
+     private readonly interceptors;
+     private readonly fetchRoutes;
++    private readonly rpcRoutes;
++    private mountRpcRoute;
+     /**
+-     * Provide the Host half over the active HTTP server.
++     * Provide Host Connection and bind dedicated channels to an optional Web carrier.
+      * @param ctx - owning Connection plugin context.
+      * @param trustedHosts - deployment authorities accepted by the Host/Origin fence.
+      * @param browserAuth - process token and persistent browser-session owner.
+diff --git a/lib/types/rpc.d.ts b/lib/types/rpc.d.ts
+index 8ae4740cf6886835219acb9d17bf129fc37017fb..260a0adbee7e81cc52fee8cba1913c5f899241ab 100644
+--- a/lib/types/rpc.d.ts
++++ b/lib/types/rpc.d.ts
+@@ -104,6 +104,9 @@ export interface HostConnectionFetch {
+ export interface HostConnectionRpc {
+     /**
+      * Register one authenticated absolute channel prefix.
++     * The caller owns the declaration. A Web carrier mounts it while available;
++     * carrier replacement preserves live declarations, and caller disposal removes them.
++     * Duplicate channel declarations throw synchronously, including without a carrier.
+      * @param channel - absolute logical channel such as `/rpc`.
+      * @param handler - decoded endpoint handler returning the existing RPC result shape.
+      * @returns asynchronous disposer removing the channel and its physical route.
