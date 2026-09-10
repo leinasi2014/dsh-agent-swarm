@@ -7,6 +7,18 @@ import type { RefObject } from 'react'
 import type { TeamDashboardController } from './team-dashboard-controller.js'
 import { queueCommunicationChange, type CaptainHumanPrompt } from './team-communication-command.js'
 import type { TeamCommunicationChoice } from './TeamCommunicationControl.js'
+import type { DetailSelection } from './team-dashboard-view-helpers.js'
+import type { SwarmHostReadProjectionV1 } from '../host/host-read-types.js'
+
+export interface TeamWorkspaceSelection {
+  readonly view: 'tasks' | 'members' | 'info'
+  readonly detail?: DetailSelection | undefined
+  readonly taskView: 'overview' | 'trace'
+  readonly rounds: Readonly<Record<string, boolean>>
+  readonly historyOpen: boolean
+}
+export const EMPTY_TEAM_SELECTION: TeamWorkspaceSelection = Object.freeze({ view: 'tasks', taskView: 'overview', rounds: Object.freeze({}), historyOpen: false })
+type TeamBinding = SwarmHostReadProjectionV1['binding']
 
 export const TEAM_TAB_KIND = 'swarm-team'
 export const TEAM_TAB_ID = 'dsh-agent-swarm/team'
@@ -34,6 +46,8 @@ export class TeamDashboardSurfaceCoordinator {
   private readonly listeners = new Set<() => void>()
   private readonly tabs = new Map<string, ObservedTab>()
   private readonly dismissed = new Map<string, string | undefined>()
+  /** View preferences only; task/attempt facts always come from the current Host projection. */
+  private readonly workspaceSelections = new Map<string, TeamWorkspaceSelection>()
   private state: TeamDashboardSurfaceState = INACTIVE
   private sidebar: TeamSidebar | undefined
   private sidebarEpoch = 0
@@ -48,6 +62,19 @@ export class TeamDashboardSurfaceCoordinator {
   getSnapshot = (): TeamDashboardSurfaceState => this.state
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
   localeTag = (): 'zh-CN' | 'en-US' => this.options.locale.getLocale().active === 'zh' ? 'zh-CN' : 'en-US'
+
+  getWorkspaceSelection(binding: TeamBinding): TeamWorkspaceSelection {
+    return this.workspaceSelections.get(JSON.stringify([binding.rootSessionId, binding.teamId])) ?? EMPTY_TEAM_SELECTION
+  }
+  updateWorkspaceSelection(binding: TeamBinding, patch: Partial<TeamWorkspaceSelection>): void {
+    if (this.disposed) return
+    const active = this.options.controller.getSnapshot().data?.projection.binding
+    if (active?.rootSessionId !== binding.rootSessionId || active.teamId !== binding.teamId) return
+    const previous = this.getWorkspaceSelection(binding)
+    if (Object.entries(patch).every(([key, value]) => previous[key as keyof TeamWorkspaceSelection] === value)) return
+    this.workspaceSelections.set(JSON.stringify([binding.rootSessionId, binding.teamId]), Object.freeze({ ...previous, ...patch }))
+    for (const listener of this.listeners) listener()
+  }
 
   mount(): () => void {
     if (this.mounted) throw new Error('Team dashboard surface coordinator is already mounted')
@@ -274,7 +301,7 @@ export class TeamDashboardSurfaceCoordinator {
     this.sidebarEpoch++
     this.offSessions(); this.offController()
     for (const observed of this.tabs.values()) observed.offAbort()
-    this.tabs.clear(); this.dismissed.clear()
+    this.tabs.clear(); this.dismissed.clear(); this.workspaceSelections.clear()
     this.publish(INACTIVE)
     this.options.controller.dispose()
     this.listeners.clear()

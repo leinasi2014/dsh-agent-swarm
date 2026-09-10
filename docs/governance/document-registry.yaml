@@ -139,6 +139,15 @@ documents:
     mutationAuthority: expected-target-reviewed-candidate
     updateTriggers: protocol-state-or-error-contract-change
     validation: pnpm-verify-policy
+  - documentId: team-ui-layout
+    path: docs/10-team-ui-layout.md
+    role: stable-authority
+    subject: interface
+    writeMode: human
+    accountableOwner: product-owner
+    mutationAuthority: user-authorized-reviewed-candidate
+    updateTriggers: team-layout-display-or-interaction-change
+    validation: pnpm-verify-policy
   - documentId: jiuwen-feature-mapping
     path: docs/05-jiuwen-feature-mapping.md
     role: reference
@@ -238,7 +247,7 @@ domains:
   product-architecture:
     accountableOwner: architecture-owner
     writerCount: 1
-    paths: docs/00-vision.md|docs/02-reference-analysis.md|docs/03-capability-family.md|docs/04-core-protocol.md|docs/05-jiuwen-feature-mapping.md|docs/06-workspace-distributed.md
+    paths: docs/00-vision.md|docs/02-reference-analysis.md|docs/03-capability-family.md|docs/04-core-protocol.md|docs/05-jiuwen-feature-mapping.md|docs/06-workspace-distributed.md|docs/10-team-ui-layout.md
 
 checks:
   entryPoint: pnpm-verify-policy

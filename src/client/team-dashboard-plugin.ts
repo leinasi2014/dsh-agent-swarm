@@ -19,6 +19,7 @@ import { TeamDashboardController } from './team-dashboard-controller.js'
 import { en, TEAM_DASHBOARD_NS, zh, type TeamDashboardKey } from './team-dashboard-locales.js'
 import { TeamDashboardSurfaceCoordinator, TEAM_TAB_ID, TEAM_TAB_KIND } from './team-dashboard-surface-coordinator.js'
 import { TeamDashboardDetails } from './TeamDashboardDetails.js'
+import { TeamLineageDisplay } from './TeamLineageDisplay.js'
 import {
   TeamSkillSettingsCard,
   TEAM_SKILL_SETTINGS_NS,
@@ -92,13 +93,16 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => coordinator.bindSidebar(ctx.sidebarRight), 'swarm Team Sidebar navigation')
   ctx.effect(() => ctx.sidebarRightTabs.register({ id: TEAM_TAB_ID, kind: TEAM_TAB_KIND,
     title: () => ctx.locale.bind(TEAM_DASHBOARD_NS)('title'),
-    guide: [{ order: 30, title: () => ctx.locale.bind(TEAM_DASHBOARD_NS)('title'),
-      description: () => ctx.locale.bind(TEAM_DASHBOARD_NS)('description') }],
+    guide: [{ order: 30, title: () => ctx.locale.bind(TEAM_DASHBOARD_NS)('title') }],
   }), 'swarm Team Sidebar tab type')
   ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
     name: 'sidebar.right.pane.tab', key: TEAM_TAB_ID, locale: TEAM_DASHBOARD_NS,
     inject: () => ({ anchorRef, controller, coordinator, localeTag: coordinator.localeTag }),
   }, TeamDashboardDetails))
+  ctx.slots.inject('conversation.session.header.lineage.display', () => ctx.slots.register({
+    name: 'conversation.session.header.lineage.display',
+    inject: () => ({ hooks: { team: controller } }),
+  }, TeamLineageDisplay))
   ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
     name: 'settings.plugin.item',
     key: TEAM_SKILL_SETTINGS_NS,

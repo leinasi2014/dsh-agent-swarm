@@ -53,7 +53,7 @@ describe('R3 native Team Details surface', () => {
     await act(async () => { taskEntry.click() })
     expect(document.querySelector('[data-swarm-detail-view] [data-swarm-task-detail]')).not.toBeNull()
     await pressEscape()
-    expect(document.activeElement).toBe(taskEntry)
+    expect(document.activeElement?.getAttribute('data-swarm-task-id')).toBe('t3')
   })
 
   it('renders the attention card from pending human interactions', async () => {
@@ -94,21 +94,23 @@ describe('R3 native Team Details surface', () => {
     const stagedController = { getSnapshot: (): TeamDashboardState => stagedState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     const coordinator = new FakeCoordinator()
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: stagedController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
+    await act(async () => { tabButton('members').click() })
     expect(document.querySelector('[data-swarm-staged-plan-summary]')?.textContent).toContain('2 members')
     expect(document.querySelector('[data-swarm-staged-plan-summary]')?.textContent).toContain('3 tasks')
     expect(document.querySelector('[data-swarm-staged-plan-hint]')).not.toBeNull()
     expect(document.querySelector<HTMLButtonElement>('[data-swarm-captain-desk]')?.disabled).toBe(true)
     expect(document.querySelector('[data-swarm-captain-state]')?.textContent).toContain('Captain not created')
-    await act(async () => { tabButton('manage').click() })
+    await act(async () => { tabButton('info').click() })
     const manageCaptain = document.querySelector<HTMLButtonElement>('[data-swarm-manage-members] button')!
     expect(manageCaptain.disabled).toBe(true)
     expect(manageCaptain.textContent).toContain('Captain not created')
     await act(async () => { manageCaptain.click() })
     expect(coordinator.openCaptainChat).not.toHaveBeenCalled()
   })
-  it('uses the unique public Details occupant: team rail, header title, goal/announcement cards, four tabs', async () => {
+  it('uses the unique public Details occupant: team rail, header title, goal/announcement cards, three tabs', async () => {
     const coordinator = new FakeCoordinator(); const common = { anchorRef: { current: null }, controller, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t }
     await render(<TeamDashboardDetails {...(common as any)} />)
+    await act(async () => { tabButton('members').click() })
     const panel = document.querySelector<HTMLElement>('[role="complementary"][data-swarm-team-panel]')!
     expect(panel.textContent).toContain('Fixture Team'); expect(panel.textContent).toContain('Active')
     expect(document.querySelector('[role="dialog"]')).toBeNull(); expect(document.querySelector('[data-swarm-team-fullscreen]')).toBeNull()
@@ -179,6 +181,7 @@ describe('R3 native Team Details surface', () => {
       const coordinator = new FakeCoordinator()
       const controller = { getSnapshot: () => state, subscribe: () => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
       await render(<TeamDashboardDetails {...({ controller, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
+      await act(async () => { tabButton('members').click() })
       await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!.click() })
       await page.setViewportSize({ width: 1100, height: 800 })
       await page.setContent(`<div style="width:${width}px;height:700px;--dsw-alias-border-l2:gray">${document.querySelector('[data-swarm-team-panel]')!.outerHTML}</div>`)
@@ -203,6 +206,7 @@ describe('R3 native Team Details surface', () => {
       const coordinator = new FakeCoordinator()
       const state: TeamDashboardState = { ...ready, data }
       await render(<TeamDashboardDetails {...({ controller: { ...controller, getSnapshot: () => state }, coordinator, useTabInfo, localeTag: () => 'zh-CN', sessionId: 'main-brain', t: tZh } as any)} />)
+      await act(async () => { tabButton('members').click() })
       await page.setViewportSize({ width: 1100, height: 800 })
       await page.setContent(`<div style="width:${width}px;height:700px;--dsw-alias-border-l2:gray">${document.querySelector('[data-swarm-team-panel]')!.outerHTML}</div>`)
       const geometry = await page.evaluate(() => {
@@ -291,6 +295,7 @@ describe('R3 native Team Details surface', () => {
     const readyState: TeamDashboardState = { open: true, phase: 'ready', targetSessionId: 'main-brain', data: teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection) }
     const longRoleController = { getSnapshot: (): TeamDashboardState => readyState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: longRoleController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
+    await act(async () => { tabButton('members').click() })
     // The member desk's profession element keeps the full authoritative value in its title.
     const secondary = document.querySelector<HTMLElement>('[data-swarm-member-name] small.swarm-team-workspace__truncate[title]')!
     expect(secondary.getAttribute('title')).toBe(longRole)
@@ -303,9 +308,9 @@ describe('R3 native Team Details surface', () => {
     const coordinator = new FakeCoordinator(); const common = { anchorRef: { current: null }, controller, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain' }
     const root = createRoot(document.body.appendChild(document.createElement('div'))); mounted.push(root)
     await act(async () => { root.render(<TeamDashboardDetails {...({ ...common, t } as any)} />) })
-    expect(document.body.textContent).toContain('Overview'); expect(document.body.textContent).toContain('Active')
+    expect(document.body.textContent).toContain('Team info'); expect(document.body.textContent).toContain('Active')
     await act(async () => { root.render(<TeamDashboardDetails {...({ ...common, t: tZh } as any)} />) })
-    expect(document.body.textContent).toContain('概览'); expect(document.body.textContent).toContain('活跃')
+    expect(document.body.textContent).toContain('群信息'); expect(document.body.textContent).toContain('活跃')
   })
 
   it('derives display-only initials from an NFC grapheme cluster without storing a profile', () => {
@@ -329,6 +334,7 @@ describe('R3 native Team Details surface', () => {
     const common = { anchorRef: { current: null }, controller: dynamicController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t }
     const root = createRoot(document.body.appendChild(document.createElement('div'))); mounted.push(root)
     await act(async () => { root.render(<TeamDashboardDetails {...(common as any)} />) })
+    await act(async () => { tabButton('members').click() })
     const memberTrigger = document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!
     memberTrigger.focus()
     await act(async () => { memberTrigger.click() })
@@ -366,7 +372,7 @@ describe('R3 native Team Details surface', () => {
     await act(async () => { root.render(<TeamDashboardDetails {...(common as any)} />) })
     expect(detailOverlay()).toBeNull()
     // The authority-driven auto-close still leaves usable focus behind (the selected tab).
-    expect(document.activeElement).toBe(tabButton('workspace'))
+    expect(document.activeElement).toBe(tabButton('members'))
     expect(document.body.textContent).not.toContain('worker is no longer in this Team')
   })
 
@@ -383,6 +389,7 @@ describe('R3 native Team Details surface', () => {
     const state: TeamDashboardState = { ...ready, data: teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection) }
     const compositionController = { getSnapshot: (): TeamDashboardState => state, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: compositionController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
+    await act(async () => { tabButton('members').click() })
     // Available row (fixture `worker`): every composition field renders its real value.
     await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!.click() })
     const overlay = detailOverlay()!
@@ -414,6 +421,7 @@ describe('R3 native Team Details surface', () => {
     const missingController = { getSnapshot: (): TeamDashboardState => missingState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     document.body.replaceChildren()
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: missingController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
+    await act(async () => { tabButton('members').click() })
     await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!.click() })
     const missing = detailOverlay()!
     expect(missing.querySelector<HTMLElement>('[data-swarm-detail-provider]')?.textContent).toBe('Not available yet')
@@ -428,6 +436,7 @@ describe('R3 native Team Details surface', () => {
     const state: TeamDashboardState = { ...ready, data: teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection) }
     const detailController = { ...controller, getSnapshot: () => state }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: detailController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
+    await act(async () => { tabButton('members').click() })
     await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!.click() })
     const detail = detailOverlay()!
     const tabs = Array.from(detail.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
@@ -474,11 +483,11 @@ describe('R3 native Team Details surface', () => {
     const task = document.querySelector<HTMLButtonElement>('[data-swarm-task-id="task-1"]')!
     task.focus()
     await act(async () => { task.click() })
-    expect(document.activeElement?.textContent).toBe('Task: Check focus recovery')
+    expect(document.activeElement?.textContent).toBe('Check focus recovery')
     await act(async () => { detailOverlay()!.querySelector<HTMLButtonElement>('[data-swarm-detail-back]')!.click() })
     await Promise.resolve()
     expect(detailOverlay()).toBeNull()
-    expect(document.activeElement).toBe(task)
+    expect(document.activeElement?.getAttribute('data-swarm-task-id')).toBe('task-1')
   })
 
 })

@@ -18,6 +18,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TeamDashboardDetails } from '../src/client/TeamDashboardDetails.js'
 import type { TeamDashboardState } from '../src/client/team-dashboard-controller.js'
 import type { TeamDashboardSurfaceState } from '../src/client/team-dashboard-surface-coordinator.js'
+import { EMPTY_TEAM_SELECTION, type TeamWorkspaceSelection } from '../src/client/team-dashboard-surface-coordinator.js'
+import type { SwarmHostReadProjectionV1 } from '../src/host/host-read-types.js'
 import { en, zh } from '../src/client/team-dashboard-locales.js'
 import { SWARM_READ_RPC_FIXTURES_V1 } from '../src/rpc/read-rpc-artifact.js'
 
@@ -54,6 +56,13 @@ function readyWithRoster(roster: readonly typeof REAL_ROSTER[number][]) {
 }
 
 class FakeCoordinator {
+  private readonly selections = new Map<string, TeamWorkspaceSelection>()
+  getWorkspaceSelection(binding: SwarmHostReadProjectionV1['binding']): TeamWorkspaceSelection { return this.selections.get(JSON.stringify(binding)) ?? EMPTY_TEAM_SELECTION }
+  updateWorkspaceSelection(binding: SwarmHostReadProjectionV1['binding'], patch: Partial<TeamWorkspaceSelection>): void {
+    const previous = this.getWorkspaceSelection(binding)
+    if (Object.entries(patch).every(([key, value]) => previous[key as keyof TeamWorkspaceSelection] === value)) return
+    this.selections.set(JSON.stringify(binding), { ...previous, ...patch }); this.listeners.forEach(listener => listener())
+  }
   state: TeamDashboardSurfaceState = { mode: 'docked', view: 'overview', targetSessionId: 'main-brain' }
   private readonly listeners = new Set<() => void>()
   readonly observeTab = vi.fn(() => () => {}); readonly toggle = vi.fn(); readonly showToolDetails = vi.fn(); readonly closeAndRestoreFocus = vi.fn(); readonly selectView = vi.fn()
@@ -65,7 +74,8 @@ class FakeCoordinator {
   set(state: TeamDashboardSurfaceState): void { this.state = state; this.listeners.forEach(listener => listener()) }
 }
 
-async function render(node: ReactNode): Promise<void> { const root = createRoot(document.body.appendChild(document.createElement('div'))); mounted.push(root); await act(async () => { root.render(node) }) }
+async function selectMembers(): Promise<void> { await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-view-tab="members"]')!.click() }) }
+async function render(node: ReactNode): Promise<void> { const root = createRoot(document.body.appendChild(document.createElement('div'))); mounted.push(root); await act(async () => { root.render(node) }); await selectMembers() }
 afterEach(async () => { while (mounted.length) await act(async () => { mounted.pop()?.unmount() }); document.body.replaceChildren(); vi.clearAllMocks() })
 
 describe('roster/Captain interaction slice', () => {
@@ -253,6 +263,7 @@ describe('roster/Captain interaction slice', () => {
     const root = createRoot(document.body.appendChild(document.createElement('div'))); mounted.push(root)
 
     await act(async () => { root.render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />) })
+    await selectMembers()
     expect(document.querySelector('[data-swarm-captain-desk] .swarm-team-workspace__captain-badge')?.textContent).toBe('Team Captain')
     // The backend-authored captain display name is locale-independent real data.
     expect(document.body.textContent).toContain('Fixture Captain')

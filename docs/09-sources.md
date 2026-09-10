@@ -8,8 +8,8 @@ This register contains current pinned identities and durable compatibility facts
 |---|---|
 | Repository | `https://github.com/deepseek-ai/deepseek-harness` |
 | Branch | `master` |
-| Release anchor | `5dda764ed3aa172535a7967b06ff95d9cbfe536a` |
-| Release | `dsh@0.1.5-alpha.1` |
+| Release anchor | `b2e3b2a0125854567a4a5fcba75782e42fe84901` |
+| Release | `dsh@0.1.5-alpha.2` |
 | Machine-readable baseline | `docs/OFFICIAL_BASELINE.json` |
 | Evidence checkout | repository-managed official sparse checkout |
 
@@ -18,7 +18,7 @@ The evidence checkout must include the official architecture/package rules, affe
 ### 1.1 Published versus private capabilities
 
 - Workflow, Jobs, Token Meter, Storage Domain, Workspace, Session persistence, User Questions/Approval, Skills, Compaction, Spill and Subagents are published capability families at the recorded release.
-- `@deepseek-ai/dsh-experimental-agent-team` is private/unpublished. It is a semantic compatibility target, not a production dependency.
+- `@deepseek-ai/dsh-experimental-agent-team` and `@deepseek-ai/dsh-experimental-tool-agent-team` are published under their experimental names at this release and carry no stability promise. Publication does not mean this plugin has adopted them: Swarm currently retains its own selected Team Provider behind `TeamDomainPort` and does not install a second Team authority.
 - Package publication, Profile assembly and integration by this plugin are three separate facts and must be stated separately.
 
 ### 1.2 Load-bearing official facts
@@ -34,6 +34,8 @@ The evidence checkout must include the official architecture/package rules, affe
 - The official Invariants registry owns package relational invariants and lifecycle checks. It is not a verification-command runner or review-result database.
 - The official Jobs registry owns job admission/controllers/cancellation. The Team job face is therefore a read-only scoped projection and must not replace or shadow the default registry.
 - Official Client extension points and SidebarRight tabs own shell composition. Team UI is a read-only projection and must not install a private shell, transcript parser or second navigation state machine.
+- The pinned release composes conversation under `main.conversation` and right-side panes under `rightbar.session`; SidebarRight Guide entries expose `title` without the retired `description` field. Subagent child catalogs persist through the official parent Session event. These changes require actual host composition and cold-restore checks.
+- The Team lineage text display seam and Stop-only Composer correction are separately maintained Core changes, not capabilities claimed to be included in the pinned upstream release. Their source, build, installation and browser evidence must be checked as part of the composed candidate.
 
 These facts are represented in current source and focused tests, including storage reload, token-meter parity, workflow/Jobs composition, tool permissions and real Client lifecycle coverage.
 

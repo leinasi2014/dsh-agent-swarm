@@ -9,6 +9,7 @@ import type { TeamDashboardState } from '../src/client/team-dashboard-controller
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import { en, TEAM_DASHBOARD_NS } from '../src/client/team-dashboard-locales.js'
 import { SWARM_READ_RPC_FIXTURES_V1 } from '../src/rpc/read-rpc-artifact.js'
+import { EMPTY_TEAM_SELECTION, type TeamWorkspaceSelection } from '../src/client/team-dashboard-surface-coordinator.js'
 
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', async () => {
   const react = await import('react')
@@ -98,14 +99,22 @@ const controllerOf = (state: TeamDashboardState) => ({ getSnapshot: (): TeamDash
 
 async function renderDetails(state: TeamDashboardState): Promise<void> {
   const surfaceState = { mode: 'docked' as const, view: 'overview' as const, targetSessionId: 'main-brain' }
+  let selection: TeamWorkspaceSelection = EMPTY_TEAM_SELECTION
+  const listeners = new Set<() => void>()
   const coordinator = {
+    getWorkspaceSelection: () => selection,
+    updateWorkspaceSelection: (_binding: unknown, patch: Partial<TeamWorkspaceSelection>) => {
+      if (Object.entries(patch).every(([key, value]) => selection[key as keyof TeamWorkspaceSelection] === value)) return
+      selection = { ...selection, ...patch }; listeners.forEach(listener => listener())
+    },
     observeTab: vi.fn(() => () => {}), state: surfaceState,
     getSnapshot: (): typeof surfaceState => surfaceState,
-    subscribe: (_listener: () => void): (() => void) => () => {},
+    subscribe: (listener: () => void): (() => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
     localeTag: (): 'en-US' => 'en-US',
     openCaptainChat: vi.fn(async () => {}), closeAndRestoreFocus: vi.fn(), openTeamCaptain: vi.fn(), showToolDetails: vi.fn(), selectView: vi.fn(), toggle: vi.fn(),
   }
   await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: controllerOf(state), coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
+  await act(async () => { tabButton('members').click() })
 }
 
 describe('member rows consume real captainMembers identity data', () => {
@@ -222,7 +231,7 @@ describe('member rows consume real captainMembers identity data', () => {
     }
     // The full announcement history renders exactly once, inside the notices tab panel.
     await renderDetails(withAnnouncements(entries))
-    await act(async () => { tabButton('notices').click() })
+    await act(async () => { tabButton('info').click() })
     const rendered = document.querySelectorAll('[data-swarm-announcement-entry]')
     expect(rendered).toHaveLength(2)
     expect(rendered[0]!.textContent).toContain('First notice')
@@ -232,7 +241,7 @@ describe('member rows consume real captainMembers identity data', () => {
     // Honest empty state, en copy present in the notices panel and the header preview.
     document.body.replaceChildren()
     await renderDetails(withAnnouncements([]))
-    await act(async () => { tabButton('notices').click() })
+    await act(async () => { tabButton('info').click() })
     expect(document.querySelectorAll('[data-swarm-announcements-empty]').length).toBeGreaterThanOrEqual(1)
     expect(document.querySelector('[data-swarm-announcements-empty]')?.textContent).toBe('No announcements published yet.')
   })

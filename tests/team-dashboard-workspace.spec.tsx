@@ -46,6 +46,7 @@ describe('Team workspace views and projection-derived activity', () => {
     let state: TeamDashboardState = { ...ready, targetSessionId: 'main-brain', data }
     const live = { ...controller, getSnapshot: () => state }
     await render(<TeamDashboardDetails {...({ controller: live, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
+    await act(async () => { tabButton('members').click() })
     await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!.click() })
     expect(coordinator.openMemberChat).toHaveBeenCalledExactlyOnceWith('worker', 'worker-session')
     expect(document.querySelector('[data-swarm-detail-biography]')?.textContent).toBe(member.biography)
@@ -77,6 +78,7 @@ describe('Team workspace views and projection-derived activity', () => {
     const listeners = new Set<() => void>()
     const profiles = { getSnapshot: () => state, subscribe: (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn) } }, refresh: vi.fn(), reconnect: vi.fn() }
     await render(<TeamDashboardDetails {...({ controller: profiles, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
+    await act(async () => { tabButton('members').click() })
     await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!.click() })
     expect(document.querySelector('[data-swarm-detail-personality]')?.textContent).toBe(member.personality)
     expect(document.querySelector('[data-swarm-detail-biography]')?.textContent).toBe(t('detail.unavailable'))
@@ -119,6 +121,7 @@ describe('Team workspace views and projection-derived activity', () => {
     const populatedState: TeamDashboardState = { ...ready, data: teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection) }
     const populated = { getSnapshot: (): TeamDashboardState => populatedState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: populated, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
+    await act(async () => { tabButton('members').click() })
     const stylesheet = document.querySelector('style')?.textContent ?? ''
       // No persistent Team rail: the Details column is reserved for the active Team.
       expect(document.querySelectorAll('[data-swarm-team-panel] [data-swarm-team-rail]')).toHaveLength(0)
@@ -155,31 +158,33 @@ describe('Team workspace views and projection-derived activity', () => {
   expect(coordinator.openCaptainChat).toHaveBeenCalledTimes(1)
   })
 
-  it('renders four mutually exclusive tab views with correct tablist/tab/tabpanel semantics and keyboard support', async () => {
+  it('renders three mutually exclusive tab views and retains announcements and management together in Team info', async () => {
     const coordinator = new FakeCoordinator()
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
     const tablist = document.querySelector<HTMLElement>('[data-swarm-view-tabs]')!
     expect(tablist.getAttribute('role')).toBe('tablist')
     const tabs = [...document.querySelectorAll('[data-swarm-view-tab]')]
-    expect(tabs.map(tab => tab.getAttribute('data-swarm-view-tab'))).toEqual(['workspace', 'tasks', 'notices', 'manage'])
-    expect(activePanel()).toBe('workspace')
-    expect(tabButton('workspace').getAttribute('aria-selected')).toBe('true')
-    // Tasks view replaces the workspace panel (mutually exclusive).
+    expect(tabs.map(tab => tab.getAttribute('data-swarm-view-tab'))).toEqual(['tasks', 'members', 'info'])
+    expect(activePanel()).toBe('tasks')
+    expect(tabButton('tasks').getAttribute('aria-selected')).toBe('true')
+    await act(async () => { tabButton('members').click() })
+    expect(activePanel()).toBe('members')
+    // Tasks view replaces the member panel (mutually exclusive).
     await act(async () => { tabButton('tasks').click() })
     expect(activePanel()).toBe('tasks')
-    expect(document.querySelector('[data-swarm-panel="workspace"]')).toBeNull()
+    expect(document.querySelector('[data-swarm-panel="members"]')).toBeNull()
     expect(document.querySelectorAll('[data-swarm-task-rows] [data-swarm-task-id]')).toHaveLength(0)
     expect(document.querySelector('[data-swarm-task-empty]')).not.toBeNull()
     // Notices view: exactly one full announcement list; the goal card still exists exactly once.
-    await act(async () => { tabButton('notices').click() })
-    expect(activePanel()).toBe('notices')
+    await act(async () => { tabButton('info').click() })
+    expect(activePanel()).toBe('info')
     expect(document.querySelectorAll('[data-swarm-announcements-list]')).toHaveLength(1)
     expect(document.querySelectorAll('[data-swarm-announcement-entry]')).toHaveLength(1)
     expect(document.body.textContent).toContain('Welcome to the Fixture Team.')
     expect(document.querySelectorAll('[data-swarm-goal-card]')).toHaveLength(1)
     // Manage view: the four honest management entries.
-    await act(async () => { tabButton('manage').click() })
-    expect(activePanel()).toBe('manage')
+    await act(async () => { tabButton('info').click() })
+    expect(activePanel()).toBe('info')
     expect(document.querySelector('[data-swarm-manage-members]')).not.toBeNull()
     expect(document.querySelector('[data-swarm-manage-growth]')).not.toBeNull()
     expect(document.querySelector('[data-swarm-manage-overview]')).not.toBeNull()
@@ -187,14 +192,14 @@ describe('Team workspace views and projection-derived activity', () => {
     await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-manage-overview] button')!.click() })
     expect(document.querySelector('[data-swarm-overview-metrics]')).not.toBeNull()
     await pressEscape()
-    // Arrow-key navigation wraps across the four tabs.
-    tabButton('manage').focus()
-    await act(async () => { tabButton('manage').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })) })
-    expect(document.activeElement).toBe(tabButton('workspace'))
-    await act(async () => { tabButton('workspace').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })) })
-    expect(document.activeElement).toBe(tabButton('manage'))
+    // Arrow-key navigation wraps across the three tabs.
+    tabButton('info').focus()
+    await act(async () => { tabButton('info').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })) })
+    expect(document.activeElement).toBe(tabButton('tasks'))
+    await act(async () => { tabButton('tasks').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })) })
+    expect(document.activeElement).toBe(tabButton('info'))
     // Overview/growth/diagnostics overlays are real read projections.
-    await act(async () => { tabButton('manage').click() })
+    await act(async () => { tabButton('info').click() })
     await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-manage-diagnostics] button')!.click() })
     const overlay = detailOverlay()!
     expect(overlay.querySelector('[data-swarm-diagnostics-detail]')?.textContent).toContain('session-fixture')
@@ -267,6 +272,7 @@ describe('Team workspace views and projection-derived activity', () => {
       }),
     }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: railController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
+    await act(async () => { tabButton('members').click() })
     // One Team owns one card. Duplicate directory rows cannot duplicate cards.
     expect(document.querySelector('[data-swarm-team-rail]')).toBeNull()
     expect(document.querySelector('[data-swarm-team-switcher]')).toBeNull()
@@ -298,6 +304,7 @@ describe('Team workspace views and projection-derived activity', () => {
     expect(document.querySelector<HTMLElement>('[data-swarm-goal-text]')?.textContent).toBe('Beta team goal')
     // The Captain conversation entry stays on the selected Team's Captain desk and still routes
     // through the official Captain Chat seam exactly once.
+    await act(async () => { tabButton('members').click() })
     await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-captain-desk]')!).click(); await Promise.resolve() })
     expect(coordinator.openCaptainChat).toHaveBeenCalledTimes(1)
     // Polling may select another active Team while the archived card stays listed.
@@ -340,11 +347,11 @@ describe('Team workspace views and projection-derived activity', () => {
     const owner = document.querySelector<HTMLElement>('[data-swarm-task-owner]')!
     expect(owner.getAttribute('data-swarm-task-owner')).toBe(`Owner: ${memberName}`)
     expect(owner.getAttribute('title')).toBe(`Owner: ${memberName}`)
-    const stylesheet = document.querySelector('style')?.textContent ?? ''
-    expect(stylesheet).toMatch(/__table-copy strong \{ overflow:hidden;[^}]*white-space:nowrap; text-overflow:ellipsis/u)
+    const stylesheet = [...document.querySelectorAll('style')].map(el => el.textContent).join('\n')
+    expect(stylesheet).toMatch(/\.swarm-task-owner[^}]*overflow-wrap:anywhere/u)
     await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-task-id="task-long-name"]')!.click() })
     const overlay = detailOverlay()!
-    expect(overlay.querySelector('[data-swarm-task-detail]')?.textContent).toContain('Owner')
+    expect(overlay.textContent).toContain('Owner')
     expect(overlay.textContent).toContain(memberName)
   })
 
@@ -396,6 +403,7 @@ describe('Team workspace views and projection-derived activity', () => {
     const state: TeamDashboardState = { ...ready, data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never, teams: SWARM_READ_RPC_FIXTURES_V1.values.teams as never, captainAnnouncements: SWARM_READ_RPC_FIXTURES_V1.values.captainAnnouncements as never, captainDiagnostics: SWARM_READ_RPC_FIXTURES_V1.values.captainDiagnostics as never, captainMembers: SWARM_READ_RPC_FIXTURES_V1.values.captainMembers as never } }
     const historyController = { getSnapshot: (): TeamDashboardState => state, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: historyController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
+    await act(async () => { tabButton('members').click() })
     const member = document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!
     expect(member.getAttribute('data-swarm-tone')).toBe('standby')
     expect(member.querySelector('[data-swarm-member-visible-activity]')?.textContent).toBe('Standby')
@@ -442,6 +450,7 @@ describe('Team workspace views and projection-derived activity', () => {
     const state: TeamDashboardState = { ...ready, data: teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection) }
     const activityController = { getSnapshot: (): TeamDashboardState => state, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: activityController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
+    await act(async () => { tabButton('members').click() })
     expect(signalOf('attempt-r')).toBe('executing')
     expect(signalOf('attempt-s')).toBe('pending')
     expect(signalOf('attempt-x')).toBe('settled')
@@ -457,6 +466,7 @@ describe('Team workspace views and projection-derived activity', () => {
     const state: TeamDashboardState = { ...ready, data: teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection) }
     const liveController = { getSnapshot: (): TeamDashboardState => state, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: liveController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
+    await act(async () => { tabButton('members').click() })
     const attemptTime = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(t0 + 3_600_000))
     const taskTime = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(t0))
     // Member detail: start time = current attempt.createdAt, never the task creation time.
@@ -467,10 +477,9 @@ describe('Team workspace views and projection-derived activity', () => {
     // TaskDetail: task.createdAt is labeled "Created", not "Started".
     await act(async () => { tabButton('tasks').click() })
     await act(async () => { (document.querySelector<HTMLButtonElement>('[data-swarm-task-id="task-live"]')!).click(); await Promise.resolve() })
-    const facts = [...detailOverlay()!.querySelectorAll('.swarm-team-workspace__fact')]
-    const createdFact = facts.find(fact => fact.textContent!.includes(taskTime))!
-    expect(createdFact).toBeDefined()
-    expect(createdFact.querySelector('dt')?.textContent).toBe('Created')
+    const createdLabel = [...detailOverlay()!.querySelectorAll('dt')].find(label => label.textContent === 'Created')!
+    expect(createdLabel).toBeDefined()
+    expect(createdLabel.nextElementSibling?.textContent).toBe(taskTime)
   })
 
   it('renders the goal card exactly once above the tabs with the honest empty state, and the announcement surfaces exactly once each', async () => {
