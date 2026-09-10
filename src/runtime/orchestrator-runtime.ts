@@ -182,7 +182,7 @@ export class AgentSwarmRuntime extends Service {
       scopeOf: agent => this.scopeOf(agent), teams: scope => this.listTeamAggregates(scope),
       fence: (scope, teamId, signal, operation) => this.withPublicAdmissionFence(scope, teamId, signal, operation),
       kick: (scope, teamId) => this.kickWorkRequests(scope, teamId),
-      schedule: requestSchedule,
+      scheduling: this.scheduling,
     })
   }
   /** Open the authoritative Storage Domain; invalid records or missing services fail activation. */
@@ -399,12 +399,14 @@ export class AgentSwarmRuntime extends Service {
   ): Promise<{ task: TeamTask; decision: 'accept' | 'reject' }> {
     const result = await this.mutations.reviewTask(exec, input)
     if (result.decision !== 'accept' || this.closing) return result
-    return this.scheduling.committedReview(result, exec.signal, async () => {
+    return this.scheduling.committed(result, exec.signal, { codePrefix: 'TEAM_REVIEW_ADMISSION',
+      description: `review of task ${JSON.stringify(result.task.id)} committed as ${result.task.status}`,
+    }, async () => {
       const captain = requireAgent(exec), scope = this.scopeOf(captain)
       const membership = await this.domain.requireMembership(scope, captain.id)
       if (!this.orchestration.eventFaceActive(scope, membership.team.id)) return
       if ((await this.domain.snapshot(scope, membership.team.id, captain.id)).readyTaskIds.length === 0) return
-      await this.scheduling.afterReview(scope, membership.team.id, captain, exec.signal)
+      await this.scheduling.afterCommit(scope, membership.team.id, captain, exec.signal)
     })
   }
 

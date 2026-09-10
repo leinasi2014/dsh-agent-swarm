@@ -12,6 +12,7 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import { afterEach, expect, it, vi } from 'vitest'
 import * as Swarm from '../src/index.js'
 import type { ResolveWorkRequestInput } from '../src/domain/work-request.js'
+import { SchedulingPass } from '../src/runtime/scheduling.js'
 import { mountStorageStackOn } from './helpers/storage-stack.js'
 import { restartTool as tool, RESTART_SIGNAL as signal } from './helpers/restart-real-composition.js'
 
@@ -115,4 +116,48 @@ it('rechecks configured Providers after asynchronous verification and leaves the
     expect(after.tasks).toHaveLength(0)
     expect(after.workRequests?.requests[0]?.resolution).toBeUndefined()
   } finally { unregister() }
+})
+
+it('reports committed admission failure and recovers the original mapping on the same decision replay', async () => {
+  const f = await fixture(), proposal = await f.propose('failed-pass'), input = accept(proposal.request.id)
+  const failure = new Error('Injected post-commit scheduler IO failure')
+  const pass = vi.spyOn(SchedulingPass.prototype, 'run').mockRejectedValue(failure)
+  try {
+    await expect(f.resolve(input)).rejects.toMatchObject({ code: 'TEAM_WORK_REQUEST_ADMISSION_FAILED',
+      message: expect.stringContaining('committed as accepted'), cause: failure })
+    const committed = await f.snapshot()
+    expect(committed.tasks).toHaveLength(1)
+    expect(committed.workRequests?.requests[0]?.resolution?.kind).toBe('accept')
+    pass.mockRestore()
+    const replay = await f.resolve(input)
+    expect(replay).toMatchObject({ replayed: true, request: { resolution: committed.workRequests?.requests[0]?.resolution } })
+    expect((await f.snapshot()).tasks.map(task => task.id)).toEqual(committed.tasks.map(task => task.id))
+  } finally { pass.mockRestore() }
+})
+
+it.each(['cancel', 'dispose'] as const)('interrupts a committed work admission wait on %s without rolling back Tasks', async mode => {
+  const f = await fixture(), proposal = await f.propose('interrupted-pass'), input = accept(proposal.request.id)
+  const execution = new AbortController()
+  let release!: () => void, entered!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve }), parked = new Promise<void>(resolve => { entered = resolve })
+  const pass = vi.spyOn(SchedulingPass.prototype, 'run').mockImplementation(async () => { entered(); await gate })
+  let disposing: Promise<void> | undefined
+  try {
+    const pending = f.ctx.agentSwarm.work.resolve({ agent: f.captain, signal: execution.signal }, input)
+    const rejected = expect(pending).rejects.toMatchObject({ code: 'TEAM_WORK_REQUEST_ADMISSION_INTERRUPTED',
+      message: expect.stringContaining('committed as accepted') })
+    await parked
+    const committed = await f.snapshot()
+    expect(committed.tasks).toHaveLength(1)
+    expect(committed.workRequests?.requests[0]?.resolution?.kind).toBe('accept')
+    if (mode === 'cancel') execution.abort(new Error('Caller cancelled after commit'))
+    else disposing = f.ctx.agentSwarm.dispose()
+    await rejected
+    release()
+    await disposing
+    if (mode === 'cancel') {
+      pass.mockRestore()
+      expect(await f.resolve(input)).toMatchObject({ replayed: true, request: { resolution: committed.workRequests?.requests[0]?.resolution } })
+    }
+  } finally { release(); await disposing; pass.mockRestore() }
 })

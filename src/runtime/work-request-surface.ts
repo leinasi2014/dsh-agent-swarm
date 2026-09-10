@@ -1,7 +1,6 @@
 /** Agent-backed work-request operations; the Team Domain owns every durable change. */
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { SessionId } from '@deepseek-ai/dsh-session'
 import { TeamId, type TeamState } from '../domain/types.js'
 import { TeamDomainError } from '../domain/error.js'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
@@ -11,6 +10,7 @@ import { publicManagedParent } from '../domain/public-message.js'
 import type { SubmitWorkRequestInput } from '../shared/work-request.js'
 import { requireAgent, type ToolExecutionAuthority } from './authority.js'
 import { publicAppendEligibility } from './public-lineage.js'
+import type { SchedulingAdmission } from './scheduling-admission.js'
 
 export class WorkRequestSurface {
   constructor(private readonly ctx: Context, private readonly deps: {
@@ -20,7 +20,7 @@ export class WorkRequestSurface {
     validateVerification(commands: readonly ReviewVerificationCommand[], signal: AbortSignal): Promise<unknown>
     fence<T>(scope: TeamScope, teamId: TeamId, signal: AbortSignal, operation: (signal: AbortSignal) => Promise<T>): Promise<T>
     kick(scope: TeamScope, teamId: TeamId): void
-    schedule(scope: TeamScope, teamId: TeamId, captain: Agent): void
+    scheduling: Pick<SchedulingAdmission, 'committed' | 'afterCommit'>
   }) {}
 
   private exact(exec: ToolExecutionAuthority, agent: Agent, scope: TeamScope): void {
@@ -91,8 +91,13 @@ export class WorkRequestSurface {
         this.deps.assertConfiguredProviders()
       },
     })
-    const captain = this.ctx.agents.get(SessionId(team.captainSessionId))
-    if (captain !== undefined) this.deps.schedule(scope, team.id, captain)
-    return result
+    if (result.request.resolution?.kind !== 'accept') return result
+    return this.deps.scheduling.committed(result, exec.signal, {
+      description: `work request ${JSON.stringify(result.request.id)} committed as accepted; retry the same decision to recover its original task mapping`,
+      codePrefix: 'TEAM_WORK_REQUEST_ADMISSION',
+    }, async () => {
+      this.exact(exec, actor, scope)
+      await this.deps.scheduling.afterCommit(scope, team.id, actor, exec.signal)
+    })
   }
 }
