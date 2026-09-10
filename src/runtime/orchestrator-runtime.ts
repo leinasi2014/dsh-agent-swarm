@@ -422,14 +422,16 @@ export class AgentSwarmRuntime extends Service {
     return await this.mutations.sendMessage(exec, target, content, delivery, causal, supersedes, replyTo)
   }
 
-  /** The authenticated Host calls this only after the atomic public append. */
+  withPublicAdmissionFence<T>(scope: TeamScope, teamId: TeamId, signal: AbortSignal, operation: (signal: AbortSignal) => Promise<T>) {
+    return this.delivery.withPublicAdmissionFence(scope, teamId, async () => { await this.ensureReady(); this.assertOpen()
+      const current = AbortSignal.any([signal, this.publicAbort.signal]); current.throwIfAborted(); return await operation(current) })
+  }
   kickPublicMessages(scope: TeamScope, teamId: TeamId): void {
     void this.delivery.deliverPublicMessages(scope, teamId, this.publicAbort.signal).catch(error => {
       if (!this.closing) this.ctx.logger.warn(`agent-swarm: public delivery remains queued for ${teamId}: ${String(error)}`)
     })
   }
 
-  /** Actual tool execution is the sole authority for an Agent public reply. */
   async publicReply(exec: ToolExecutionAuthority, requestId: string, replyTo: string, text: string) {
     return await this.mutations.publicReply(exec, requestId, replyTo, text)
   }

@@ -137,6 +137,8 @@ export interface TeamDomainPort {
   publicRequestResult(scope: TeamScope, teamId: TeamId, author: import('./public-message.js').PublicMessageAuthorInput, requestId: string): Promise<import('./public-message.js').TeamPublicMessage | undefined>
   acknowledgePublicMessage(scope: TeamScope, teamId: TeamId, messageId: string, recipientSessionId: string): Promise<import('./public-message.js').TeamPublicMessage>
   settlePublicMessage(scope: TeamScope, teamId: TeamId, messageId: string, recipientSessionId: string, reason: 'recipient-removed' | 'team-archived'): Promise<import('./public-message.js').TeamPublicMessage>
+  preparePublicImageDelivery(scope: TeamScope, teamId: TeamId, messageId: string, recipientId: string, mode: import('./public-image-message.js').PublicInputProjection['mode']): Promise<import('./public-image-message.js').PublicImageRecipient>
+  deferPublicImageDelivery(scope: TeamScope, teamId: TeamId, messageId: string, recipientId: string, reason: import('./public-image-message.js').PublicImageDeferredReason): Promise<void>
   /** Plan-first: create a durable staged managed Team (no Captain Session). */
   createStagedManaged(scope: TeamScope, managedOrigin: string, name: string, description: string, captainRoute?: TeamModelRoute): Promise<TeamState>
   /** Plan-first: store one bounded plan declaration (staged only, revision CAS). */

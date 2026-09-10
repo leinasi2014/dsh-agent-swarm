@@ -3,7 +3,7 @@ import { cp, readFile } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import CredentialsLocal from '@deepseek-ai/dsh-credentials-local'
-import { Context } from '@deepseek-ai/cordis'
+import { Context, type Fiber } from '@deepseek-ai/cordis'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import * as ClientConnection from '@deepseek-ai/dsh-client-connection'
 import { LlmAdapter, ToolCallId, createUserMessage, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
@@ -57,7 +57,7 @@ export class HeldRecording extends Recording {
   }
 }
 
-export async function setup(sandbox: string, adapter: Recording, http = false) {
+export async function setup(sandbox: string, adapter: Recording, http = false, beforeSwarm?: (ctx: Context, fibers: Fiber[]) => Promise<void>) {
   const routes: { kind: string; path: string; handler(req: IncomingMessage, res: ServerResponse): unknown }[] = []
   let instance: Awaited<ReturnType<typeof mount>> | undefined
   const server = createServer((req, res) => {
@@ -72,6 +72,7 @@ export async function setup(sandbox: string, adapter: Recording, http = false) {
   const port = typeof address === 'object' && address !== null ? address.port : 0
   instance = await mount(sandbox, 0, undefined, undefined, async (ctx, fibers) => {
     ctx.llm.registerAdapter([ROUTE.provider], adapter)
+    await beforeSwarm?.(ctx, fibers)
     if (!http) return
     // A sibling provider preserves the real Cordis injection boundary.
     fibers.push(await ctx.plugin({ apply(webCtx: Context) {
@@ -154,4 +155,3 @@ export async function publicClient(f: Awaited<ReturnType<typeof setup>>, teamId:
     return result.value
   }
 }
-

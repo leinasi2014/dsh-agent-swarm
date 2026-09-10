@@ -18,6 +18,8 @@ import type { TeamCommunicationIntensity } from './types.js'
 import * as mailbox from './team-domain-mailbox.js'
 import * as interaction from './team-domain-interaction.js'
 import * as publicMessages from './team-domain-public.js'
+import * as publicImages from './team-domain-public-images.js'
+import type { PublicImageDeferredReason, PublicInputProjection } from './public-image-message.js'
 import type { AppendPublicMessageInput, PublicMessageAuthorInput } from './public-message.js'
 import * as plan from './team-domain-plan.js'
 import * as projection from './team-domain-projection.js'
@@ -85,6 +87,12 @@ export class TeamDomain implements TeamDomainPort {
 
   settlePublicMessage(scope: TeamScope, teamId: TeamId, messageId: string, recipientSessionId: string, reason: 'recipient-removed' | 'team-archived') {
     return publicMessages.settlePublicMessage(this.deps, scope, teamId, messageId, recipientSessionId, reason)
+  }
+  preparePublicImageDelivery(scope: TeamScope, teamId: TeamId, messageId: string, recipientId: string, mode: PublicInputProjection['mode']) {
+    return publicImages.preparePublicImageDelivery(this.deps, scope, teamId, messageId, recipientId, mode)
+  }
+  deferPublicImageDelivery(scope: TeamScope, teamId: TeamId, messageId: string, recipientId: string, reason: PublicImageDeferredReason) {
+    return publicImages.deferPublicImageDelivery(this.deps, scope, teamId, messageId, recipientId, reason)
   }
 
   constructor(
