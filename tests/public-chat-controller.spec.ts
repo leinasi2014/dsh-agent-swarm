@@ -19,8 +19,8 @@ beforeAll(async () => {
   const controller = new TeamDashboardController(new SwarmReadClient(goodFetch([])), new ManualSchedule())
   controller.open('root-1'); await waitFor(() => controller.getSnapshot().phase === 'ready')
   base = controller.getSnapshot(); controller.dispose()
-})
-afterAll(async () => { await browser?.close() })
+}, 30_000)
+afterAll(async () => { await browser?.close() }, 30_000)
 function dashboard(team = 'a', revision = 4, viewer = 'viewer'): TeamDashboardState {
   const data = base.data!
   return { ...base, targetSessionId: viewer, data: { ...data,

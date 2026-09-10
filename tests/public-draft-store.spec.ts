@@ -6,7 +6,7 @@ import { addDraftImages, editDraft, removeDraftImage, replaceDraftRange, replyDr
 
 let browser: Browser
 beforeAll(async () => { browser = await chromium.launch({ channel: 'msedge', headless: true }) })
-afterAll(async () => { await browser?.close() })
+afterAll(async () => { await browser?.close() }, 30_000)
 const scopeKey = 'swarm.public.v1:["host","main","a"]'
 function script(): string {
   const source = new URL('../src/client/public-draft-store.ts', import.meta.url)

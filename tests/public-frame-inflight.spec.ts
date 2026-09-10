@@ -90,15 +90,24 @@ it.each(['reject', 'abort'] as const)('reconstructs an in-flight proposal after 
   try {
     const { root } = await createTeam(f, sandbox)
     const frame = `Fixture public proposal ${action}.`
+    const matches = framePredicate(frame)
     let entered = false
-    off = root.ctx.on('agent/pre-step', async (_proposal, next) => {
+    off = root.ctx.on('agent/pre-step', async (proposal, next) => {
       const decision = await next()
+      if (!proposal.messages.some(matches)) return decision
       entered = true; await gate
       return action === 'reject' ? { kind: 'reject' } : decision
     })
+    // Real other work must finish without entering this frame's barrier.
+    const other = 'Unrelated legitimate input before the proposal.'
+    root.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: other }] }))
+    await root.whenIdle()
+    expect(entered).toBe(false)
+    expect(await frameVisibility(f.ctx, root.id, other, SIGNAL, 'unrelated input completed', true)).toBe('claimed')
     root.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: frame }] }))
     await vi.waitFor(() => expect(entered).toBe(true))
-    expect([...root.inbox.nextStep, ...root.inbox.nextTurn]).toHaveLength(0)
+    expect([...root.inbox.nextStep, ...root.inbox.nextTurn].filter(matches)).toHaveLength(0)
+    expect(messageInFlight(root.session.snapshotEvents(), matches)).toBe(true)
     expect(await frameVisibility(f.ctx, root.id, frame, SIGNAL, 'before reload', true)).toBe('unknown')
     const previous = f.ctx.agentSwarm
     await f.fibers.pop()!.dispose()
