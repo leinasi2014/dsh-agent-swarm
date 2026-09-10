@@ -23,10 +23,12 @@ export class ManagedActivationRecovery {
   private readonly roots = new Map<string, AgentHandle>()
   private readonly abort = new AbortController()
   private recovery?: Promise<void>
+  private readonly attachments = new Map<string, Promise<Agent>>()
 
   constructor(private readonly ctx: Context, private readonly deps: {
     teams(scope: TeamScope): Promise<TeamState[]>
     trackChild(parent: Agent, childId: string): void
+    drainPublic?(scope: TeamScope, team: TeamState): Promise<void>
   }) {}
 
   /** One startup pass; idle events never replay recovery messages. */
@@ -40,8 +42,15 @@ export class ManagedActivationRecovery {
     for (const scope of scopes) {
       for (const team of await this.deps.teams(scope)) {
         signal.throwIfAborted()
-        if (team.phase !== 'active' || team.managedOrigin === undefined
-          || !team.tasks.some(task => ['pending', 'in_progress', 'submitted', 'verifying'].includes(task.status))) continue
+        const publicDebt = team.publicChat?.messages.some(message => message.delivery.state === 'queued') === true
+        const taskDebt = team.tasks.some(task => ['pending', 'in_progress', 'submitted', 'verifying'].includes(task.status))
+        if (team.phase !== 'active' || team.managedOrigin === undefined || (!publicDebt && !taskDebt)) continue
+        if (publicDebt && this.deps.drainPublic !== undefined) {
+          await this.deps.drainPublic(scope, team)
+          // The persisted public input owns this recovery wake. Never add a
+          // second planning prompt while its admission is pending/uncertain.
+          continue
+        }
         const captainHeader = byId.get(team.captainSessionId)
         const parentId = captainHeader?.parentSession
           ?? headers.find(header => team.managedOrigin!.startsWith(`managed:${header.id}:`))?.id
@@ -80,6 +89,19 @@ export class ManagedActivationRecovery {
         }
       }
     }
+  }
+
+  /** Shared root restoration owner for first send and startup debt recovery. */
+  ensurePublicRoot(parentId: string, scope: TeamScope): Promise<Agent> {
+    const key = `${scope}\0${parentId}`
+    const existing = this.attachments.get(key)
+    if (existing !== undefined) return existing
+    const pending = (async () => {
+      const headers = (await this.ctx.sessionPersistence.list({ signal: this.abort.signal })).map(row => row.header)
+      return await this.attachRoot(parentId, new Map(headers.map(header => [String(header.id), header])), scope)
+    })().finally(() => { if (this.attachments.get(key) === pending) this.attachments.delete(key) })
+    this.attachments.set(key, pending)
+    return pending
   }
 
   private async attachRoot(parentId: string, headers: ReadonlyMap<string, SessionHeader>, scope: TeamScope): Promise<Agent> {
@@ -155,7 +177,7 @@ export class ManagedActivationRecovery {
   }
 
   close(): void { this.abort.abort(new Error('managed activation recovery disposed')) }
-  async wait(): Promise<void> { await Promise.allSettled(this.recovery === undefined ? [] : [this.recovery]) }
+  async wait(): Promise<void> { await Promise.allSettled([...(this.recovery === undefined ? [] : [this.recovery]), ...this.attachments.values()]) }
 
   /** Called after official descendants are drained, before closing the store. */
   async disposeRoots(): Promise<void> {

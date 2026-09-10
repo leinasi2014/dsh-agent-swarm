@@ -2,6 +2,7 @@ import { TeamDomainError } from './error.js'
 import { assertTaskGraph } from './graph.js'
 import { CAPTAIN_ANNOUNCEMENT_ID_RE, isSafePixelAvatarSvg, MAX_CAPTAIN_ANNOUNCEMENTS, MAX_CAPTAIN_ANNOUNCEMENT_TEXT, MAX_PUBLIC_GOAL } from './identity-profile.js'
 import type { TeamState } from './types.js'
+import { assertPublicChat } from './public-message.js'
 
 const TASK_STATUSES = new Set(['pending', 'in_progress', 'submitted', 'verifying', 'completed', 'failed', 'cancelled'])
 const ATTEMPT_PHASES = new Set(['running', 'submitted', 'verifying', 'accepted', 'rejected', 'cancelled', 'stale'])
@@ -410,6 +411,7 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
     return entry
   })
   unique(memory.map(entry => entry.id as string), path, 'memory ids')
+  assertPublicChat(team.publicChat, teamId, team.captainSessionId as string, team.managedOrigin as string | undefined)
 
   try {
     assertTaskGraph(tasks as unknown as TeamState['tasks'])

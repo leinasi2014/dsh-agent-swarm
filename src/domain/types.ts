@@ -1,4 +1,5 @@
 /** Durable protocol owned by the local Team-domain compatibility backend. */
+import type { TeamPublicChat } from './public-message.js'
 
 declare const teamIdBrand: unique symbol
 declare const taskIdBrand: unique symbol
@@ -328,6 +329,8 @@ export interface TeamState {
   readonly tasks: TeamTask[]
   readonly attempts: TaskAttempt[]
   readonly messages: TeamMessage[]
+  /** Public conversation, request evidence and frozen delivery intents; absent on older Teams. */
+  readonly publicChat?: TeamPublicChat
   /** Absent means inherit the plugin default; a Team override survives restart. */
   readonly communicationIntensity?: TeamCommunicationIntensity
   /** Required for schema v2; v1 records are upgraded before public read. */
@@ -368,6 +371,9 @@ export interface TeamLimits {
   readonly maxMemories: number
   /** Permanent bound for restart-safe Team-internal effect evidence. */
   readonly maxInteractionEffects: number
+  readonly maxPublicMessages: number
+  readonly maxPublicTextBytes: number
+  readonly maxPublicBytes: number
   /** Per-task bound on captain-declared verification commands (M3-2). */
   readonly maxVerificationCommands: number
   /** Hard per-command timeout ceiling for executable review (M3-2). */

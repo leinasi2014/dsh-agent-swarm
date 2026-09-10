@@ -39,6 +39,7 @@ import { DedicatedCaptainProvisioner } from './dedicated-captain-provisioning.js
 import { RuntimeMutationSurface } from './runtime-mutation-surface.js'
 import { ManagedActivationRecovery } from './managed-activation-recovery.js'
 import { SchedulingAdmission } from './scheduling-admission.js'
+import { publicAppendEligibility } from './public-lineage.js'
 
 export type { ToolExecutionAuthority }
 export type { ReviewProviderInput, ReviewProviderResult, SchedulerDecision, SchedulerSelectionInput, TeamReviewProvider, TeamSchedulerProvider }
@@ -76,6 +77,7 @@ export class AgentSwarmRuntime extends Service {
   readonly orchestration: OrchestrationOwnership
   readonly executionRoots: ExecutionRootSurface
   private closing = false
+  private readonly publicAbort = new AbortController()
   /** @internal Use ctx.agentSwarmWorkflow.start() for product consumption.
    * The Team bridge workflow engine (M2-1, issue #75), attached by plugin
    * activation when `workflowBridge` is enabled. Registered in an isolated
@@ -125,6 +127,11 @@ export class AgentSwarmRuntime extends Service {
       isClosing: () => this.closing,
       scopeOf: agent => this.scopeOf(agent),
       accountAgentUsage: (scope, teamId, agent) => this.usage.accountAgentUsage(scope, teamId, agent),
+      publicTeam: async (scope, teamId) => (await this.listTeamAggregates(scope)).find(team => team.id === teamId),
+      publicRoot: async (parent, scope) => {
+        const root = await this.activationRecovery.ensurePublicRoot(parent, scope)
+        return root
+      },
     })
     this.memberProfiles = new MemberProfileReader(ctx)
     this.schedulingPass = new SchedulingPass(ctx, {
@@ -172,6 +179,7 @@ export class AgentSwarmRuntime extends Service {
     this.activationRecovery = new ManagedActivationRecovery(ctx, {
       teams: scope => this.listTeamAggregates(scope),
       trackChild: (parent, childId) => this.trackChild(parent, childId),
+      drainPublic: (scope, team) => this.delivery.deliverPublicMessages(scope, team.id, this.publicAbort.signal),
     })
   }
   /**
@@ -417,6 +425,35 @@ export class AgentSwarmRuntime extends Service {
     return await this.mutations.sendMessage(exec, target, content, delivery, causal, supersedes, replyTo)
   }
 
+  /** The authenticated Host calls this only after the atomic public append. */
+  kickPublicMessages(scope: TeamScope, teamId: TeamId): void {
+    void this.delivery.deliverPublicMessages(scope, teamId, this.publicAbort.signal).catch(error => {
+      if (!this.closing) this.ctx.logger.warn(`agent-swarm: public delivery remains queued for ${teamId}: ${String(error)}`)
+    })
+  }
+
+  /** Actual tool execution is the sole authority for an Agent public reply. */
+  async publicReply(exec: ToolExecutionAuthority, requestId: string, replyTo: string, text: string) {
+    await this.ensureReady()
+    this.assertOpen()
+    const agent = requireAgent(exec)
+    const scope = this.scopeOf(agent)
+    const exact = () => {
+      if (this.ctx.agents.get(agent.id) !== agent || this.ctx.sessions.get(agent.id) !== agent.session || this.scopeOf(agent) !== scope) {
+        throw new TeamDomainError('Public reply requires the exact live executing Session', 'TEAM_AGENT_REQUIRED')
+      }
+    }
+    exact()
+    const membership = await this.domain.requireMembership(scope, agent.id)
+    if ((await publicAppendEligibility(this.ctx, scope, membership.team, exec.signal)).state !== 'available') {
+      throw new TeamDomainError('Public reply requires a managed Team with official lineage', 'TEAM_PUBLIC_UNSUPPORTED')
+    }
+    exact()
+    exec.signal.throwIfAborted()
+    return await this.domain.appendPublicMessage(scope, membership.team.id, { author: { kind: 'agent', sessionId: agent.id },
+      requestId, replyTo, text, expectedCaptainSessionId: membership.team.captainSessionId, expectedTeamRevision: membership.team.revision })
+  }
+
   setCommunication(exec: ToolExecutionAuthority, revision: number, intensity: TeamCommunicationIntensity | undefined) { return this.mutations.setCommunication(exec, revision, intensity) }
 
   status(exec: ToolExecutionAuthority) { return status(this.waitDeps(), exec) }
@@ -498,6 +535,9 @@ export class AgentSwarmRuntime extends Service {
     this.watchJobsScope(scope)
     let membership = await this.domain.findMembership(scope, agent.id)
     if (membership === undefined || this.closing) return
+    if (membership.team.publicChat?.messages.some(message => message.delivery.state === 'queued')) {
+      await this.delivery.deliverPublicMessages(scope, membership.team.id, this.publicAbort.signal)
+    }
     if (membership.role === 'captain') {
       const settled = await this.provisioning.recoverInterrupted(agent, scope, membership)
       if (settled > 0) membership = await this.domain.requireMembership(scope, agent.id)
@@ -554,6 +594,7 @@ export class AgentSwarmRuntime extends Service {
     this.closing = true
     this.scheduling.close()
     this.activationRecovery.close()
+    this.publicAbort.abort(new Error('public delivery disposed'))
     this.captainProvisioning.dispose()
     this.provisioning.dispose()
     this.schedulingPass.dispose()

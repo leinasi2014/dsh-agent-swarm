@@ -34,6 +34,17 @@ export class HostTargetReadService {
   skills(rootSessionId: string) { return this.host.withTargetRead(() => this.readSkills(rootSessionId)) }
   taskDetail(request: SwarmReadTaskDetailRequest) { return this.host.withTargetRead(() => this.readTaskDetail(request)) }
 
+  /** Shared Host visibility proof; callers never supply an execution identity. */
+  withPublicTeam<T>(target: SwarmReadTargetHint, operation: (scope: string, team: TeamState, verify: () => Promise<void>) => Promise<T>): Promise<T> {
+    return this.host.withTargetRead(async () => {
+      if (target.teamId === undefined) throw new TeamDomainError('Public chat requires an explicit Team', 'SWARM_RPC_INVALID_REQUEST')
+      const { root, team, verify } = await this.boundTeam(target)
+      const current = async () => { await verify(true); this.assertUnchanged(root); this.assertLiveCaptain(team, root.cwd) }
+      await current()
+      return await operation(root.cwd, team, current)
+    })
+  }
+
   private async readTaskDetail(request: SwarmReadTaskDetailRequest) {
     if (request.target.teamId === undefined) throw new TeamDomainError('Task detail requires an explicit Team selector', 'SWARM_RPC_INVALID_REQUEST')
     const { root, team, verify } = await this.boundTeam(request.target)

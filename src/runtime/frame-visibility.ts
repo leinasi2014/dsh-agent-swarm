@@ -60,12 +60,21 @@ export async function waitForFrameClaim(
   frame: string,
   signal: AbortSignal,
   graceMs: number = WAKEUP_CLAIM_GRACE_MS,
+  requireDurableFlush = false,
 ): Promise<boolean> {
   const predicate = framePredicate(frame)
   const deadline = Date.now() + graceMs
   for (;;) {
+    if (requireDurableFlush && (ctx.agents.get(target.id) !== target || ctx.sessions.get(target.id) !== target.session)) {
+      return await frameVisibility(ctx, target.id, frame, signal, 'public claim after activation change', true) === 'claimed'
+    }
     if (messageClaimed(target.session.snapshotEvents(), predicate)) {
-      await ctx.sessions.flush(target.session)
+      let durable: boolean
+      try { durable = await ctx.sessions.flush(target.session) } catch (error) {
+        if (!requireDurableFlush) throw error
+        return await frameVisibility(ctx, target.id, frame, signal, 'public claim checkpoint changed', true) === 'claimed'
+      }
+      if (requireDurableFlush && durable !== true) return false
       if (messageClaimed(target.session.snapshotEvents(), predicate)) return true
     }
     if (signal.aborted || Date.now() >= deadline) return false
@@ -91,6 +100,7 @@ export async function frameVisibility(
   frame: string,
   signal: AbortSignal,
   label: string,
+  requireDurableFlush = false,
 ): Promise<FrameVisibility> {
   const predicate = framePredicate(frame)
   const read = (events: readonly SessionEvent[]): FrameVisibility => {
@@ -101,7 +111,8 @@ export async function frameVisibility(
   if (live !== undefined) {
     if (!sessionAccepts(live.session, predicate)) return 'absent'
     try {
-      await ctx.sessions.flush(live.session)
+      const durable = await ctx.sessions.flush(live.session)
+      if (requireDurableFlush && durable !== true) return 'unknown'
     } catch (error) {
       ctx.logger.warn(`agent-swarm: ${label} acceptance flush failed: ${String(error)}`)
       return 'unknown'

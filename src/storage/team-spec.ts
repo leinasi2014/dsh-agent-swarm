@@ -14,6 +14,7 @@ import type { MigrationReceipt, TeamScope } from '../domain/team-domain-port.js'
 import type { TeamId, TeamPlanDraft, TeamState } from '../domain/types.js'
 import { assertPlanDraftShape } from '../domain/state-validation.js'
 import { MAX_TEAM_ALLOWED_SKILLS } from '../domain/team-skill-policy.js'
+import { assertPublicChat, publicChatSchema } from '../domain/public-message.js'
 
 /** Storage Domain unit/table names must satisfy the official `UNIT_NAME_RE`. */
 export const TEAM_DOMAIN_NAME = 'agent_swarm'
@@ -255,6 +256,7 @@ const teamFields = {
     tasks: z.array(taskSchema),
     attempts: z.array(attemptSchema),
     messages: z.array(messageSchema),
+    publicChat: publicChatSchema.optional(),
     budget: budgetSchema,
     usageCursors: z.record(z.string().min(1), z.number().int().min(-1)),
     memory: z.array(memorySchema),
@@ -268,6 +270,8 @@ const teamSchema = z.discriminatedUnion('schemaVersion', [
   z.object({ schemaVersion: z.literal(1), ...teamFields }).strict(),
   z.object({ schemaVersion: z.literal(2), ...teamFields, interactionEffects: z.array(interactionEffectSchema) }).strict(),
 ]).superRefine((team, ctx) => {
+  try { assertPublicChat(team.publicChat, team.id, team.captainSessionId, team.managedOrigin) }
+  catch { ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'invalid public message aggregate' }) }
   const captainless = team.phase === 'staged' || (team.phase === 'archived' && team.discardReason === 'discarded')
   if (captainless ? team.captainSessionId !== '' : team.captainSessionId === '') {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['captainSessionId'], message: captainless
