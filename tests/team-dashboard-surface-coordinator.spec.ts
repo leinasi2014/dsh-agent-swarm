@@ -33,6 +33,35 @@ function fixture() {
 }
 
 describe('TeamDashboardSurfaceCoordinator', () => {
+  it('retains task view preferences through official close/reopen, isolates root plus Team, and clears them on disposal', () => {
+    const f = fixture()
+    f.setReady('team-a')
+    const a = { rootSessionId: 'captain', teamId: 'team-a' }
+    const b = { rootSessionId: 'captain', teamId: 'team-b' }
+    const otherRoot = { rootSessionId: 'different-captain', teamId: 'team-a' }
+    const selected = { view: 'tasks' as const, detail: { kind: 'task' as const, id: 'reused-id' }, taskView: 'trace' as const, rounds: { 'attempt-1': true }, historyOpen: true }
+    const updates = vi.fn()
+    const unsubscribe = f.coordinator.subscribe(updates)
+    f.coordinator.updateWorkspaceSelection(a, selected)
+    expect(updates).toHaveBeenCalled()
+    f.coordinator.closeAndRestoreFocus()
+    f.coordinator.toggle('root')
+    expect(f.coordinator.getWorkspaceSelection(a)).toEqual(selected)
+    f.setReady('team-b')
+    expect(f.coordinator.getWorkspaceSelection(b)).toMatchObject({ view: 'tasks', taskView: 'overview' })
+    expect(f.coordinator.getWorkspaceSelection(b).detail).toBeUndefined()
+    f.coordinator.updateWorkspaceSelection(a, { detail: undefined }) // stale UI cannot overwrite another Team
+    expect(f.coordinator.getWorkspaceSelection(a).detail).toEqual(selected.detail)
+    f.coordinator.updateWorkspaceSelection(b, { view: 'members' })
+    expect(f.coordinator.getWorkspaceSelection(otherRoot).view).toBe('tasks')
+    f.controller.state = { ...f.controller.state, data: { ...f.controller.state.data!, projection: { ...f.controller.state.data!.projection, binding: otherRoot } } }
+    f.coordinator.updateWorkspaceSelection(otherRoot, { view: 'info' })
+    expect(f.coordinator.getWorkspaceSelection(a).taskView).toBe('trace')
+    expect(f.coordinator.getWorkspaceSelection(otherRoot).view).toBe('info')
+    unsubscribe(); f.destroy()
+    expect(f.coordinator.getWorkspaceSelection(a).detail).toBeUndefined()
+    expect(f.coordinator.getWorkspaceSelection(b).view).toBe('tasks')
+  })
   it('retains the Details lease across sibling Captains and returns only to a verified official main Chat (#225)', async () => {
     const f = fixture()
     f.coordinator.toggle('root')

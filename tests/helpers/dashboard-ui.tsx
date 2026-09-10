@@ -4,6 +4,8 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, vi } from 'vitest'
 import type { TeamDashboardData, TeamDashboardState } from '../../src/client/team-dashboard-controller.js'
 import type { TeamDashboardSurfaceState } from '../../src/client/team-dashboard-surface-coordinator.js'
+import { EMPTY_TEAM_SELECTION, type TeamWorkspaceSelection } from '../../src/client/team-dashboard-surface-coordinator.js'
+import type { SwarmHostReadProjectionV1 } from '../../src/host/host-read-types.js'
 import { en, zh } from '../../src/client/team-dashboard-locales.js'
 import { SWARM_READ_RPC_FIXTURES_V1 } from '../../src/rpc/read-rpc-artifact.js'
 
@@ -30,6 +32,13 @@ export const teamData = (capabilities: unknown, projection: unknown): TeamDashbo
 })
 
 export class FakeCoordinator {
+  private readonly selections = new Map<string, TeamWorkspaceSelection>()
+  getWorkspaceSelection(binding: SwarmHostReadProjectionV1['binding']): TeamWorkspaceSelection { return this.selections.get(JSON.stringify(binding)) ?? EMPTY_TEAM_SELECTION }
+  updateWorkspaceSelection(binding: SwarmHostReadProjectionV1['binding'], patch: Partial<TeamWorkspaceSelection>): void {
+    const previous = this.getWorkspaceSelection(binding)
+    if (Object.entries(patch).every(([key, value]) => previous[key as keyof TeamWorkspaceSelection] === value)) return
+    this.selections.set(JSON.stringify(binding), { ...previous, ...patch }); this.listeners.forEach(listener => listener())
+  }
   readonly openMainChat = vi.fn(async () => {})
   readonly observeTab = vi.fn(() => () => {})
   readonly openMemberChat = vi.fn(async (_name: string, _sessionId: string) => {})

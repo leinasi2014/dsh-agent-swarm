@@ -32,7 +32,7 @@
 - **Main Chat** 保持 Main Brain 会话，不因选中 Team 而改名。
 - **Team 卡片列表** 在官方右侧栏内纵向展示并切换多个 Team。
 - **Workbench** 参考 `dsh-agent-teams` 的信息层级：公共目标、按真实任务状态汇总的进度、Captain → 成员 → 当前任务执行树，以及可展开的任务依赖。未提交计划、空公告和技术诊断不占据默认概览。
-- **Tasks / Announcements / Management** 提供互斥视图；成员详情在本人分支内展开，任务等详情在栏内切换。具体布局、返回与窄屏规则统一见 [UI 布局设计](10-team-ui-layout.md)。
+- **任务 / 成员 / 群信息** 提供互斥视图，默认进入任务列表。任务详情包含概览与当前可读的 attempt 轨迹；成员详情在本人分支内展开，公告、管理与诊断入口收在群信息中。具体布局、返回与窄屏规则统一见 [UI 布局设计](10-team-ui-layout.md)。
 - **Captain Chat** 使用官方 Session navigation 打开所选 Captain；不是 `/swarm` 的隐式写操作。
 - **Management** 可向本队 Captain 排队请求调整交流强度，权威读回后才显示已应用；队长也可直接设置本队覆盖。
 - **Plugin settings** 配置 Captain/成员模型、Skills、工具 policy、默认交流强度、编排/review 选择和资源上限；保存后由官方 Settings 在重启时应用。未覆盖的模型路由继承用户当前 Session，验收模型不成为产品默认。

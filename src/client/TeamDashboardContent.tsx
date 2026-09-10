@@ -1,10 +1,11 @@
 import { Button, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
-import { useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SwarmHostReadProjectionV1 } from '../host/host-read-types.js'
 import type { SwarmReadCaptainAnnouncementsV1, SwarmReadCaptainDiagnosticsV1, SwarmReadCaptainMembersV1, SwarmReadTeamsV1 } from '../rpc/read-rpc-contract.js'
 import type { TeamDashboardController, TeamDashboardState } from './team-dashboard-controller.js'
-import type { TeamDashboardSurfaceCoordinator } from './team-dashboard-surface-coordinator.js'
+import type { TeamDashboardSurfaceCoordinator, TeamWorkspaceSelection } from './team-dashboard-surface-coordinator.js'
+import { TeamTaskPanel } from './TeamTaskPanel.js'
 import { TEAM_DASHBOARD_NS } from './team-dashboard-locales.js'
 import { SafePixelAvatar } from './SafePixelAvatar.js'
 import { TaskDag } from './team-task-dag.js'
@@ -15,8 +16,6 @@ import { ManageView, DetailView } from './team-dashboard-detail-content.js'
 import { NOT_GENERATED_AVATAR, deriveMemberActivity, deriveMemberTone, memberAssetOf, formatTime, toneLabel, enumLabel, taskProgressState, type TaskProgressState, type DetailSelection, type DeskTone } from './team-dashboard-view-helpers.js'
 export { MemberDetail } from './team-dashboard-detail-content.js'
 export { deriveMemberActivity, deriveMemberTone, memberRosterInitial, TEAM_WORKSPACE_WIDE_MIN_WIDTH, teamWorkspaceLayoutForWidth } from './team-dashboard-view-helpers.js'
-
-type WorkspaceView = 'workspace' | 'tasks' | 'notices' | 'manage'
 
 export const shellCss = `
 [data-swarm-team-dashboard], [data-swarm-team-dashboard] * { box-sizing:border-box; }
@@ -34,7 +33,7 @@ export const shellCss = `
 [data-swarm-team-dashboard] .swarm-team-workspace__public-title { color:var(--dsw-alias-label-secondary); font-size:12px; font-weight:500; }
 [data-swarm-team-dashboard] .swarm-team-workspace__public-content { overflow:hidden; overflow-wrap:anywhere; font-size:12px; line-height:1.6; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; }
 [data-swarm-team-dashboard] .swarm-team-workspace__public-card time { color:var(--dsw-alias-label-secondary); font-size:12px; white-space:nowrap; }
-[data-swarm-team-dashboard] .swarm-team-workspace__view-tabs { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin:0 16px; border-bottom:1px solid var(--dsw-alias-border-l2); }
+[data-swarm-team-dashboard] .swarm-team-workspace__view-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:0 16px; border-bottom:1px solid var(--dsw-alias-border-l2); }
 [data-swarm-team-dashboard] .swarm-team-workspace__view-tabs [role="tab"] { min-width:0; overflow:hidden; padding:10px 2px; border:0; border-radius:0; background:transparent; color:var(--dsw-alias-label-secondary); font-size:13px; line-height:20px; font-weight:500; white-space:nowrap; text-overflow:ellipsis; cursor:pointer; }
 [data-swarm-team-dashboard] .swarm-team-workspace__view-tabs [role="tab"]:hover { color:var(--dsw-alias-label-primary); }
 [data-swarm-team-dashboard] .swarm-team-workspace__view-tabs [role="tab"][aria-selected="true"] { color:var(--dsw-alias-state-business-primary); box-shadow:inset 0 -2px 0 var(--dsw-alias-state-business-primary); }
@@ -172,6 +171,7 @@ export function TeamDashboardContent({ controller, coordinator, descriptionId, h
           onMainChat={() => { void coordinator.openMainChat().catch(() => {}) }}
           onClose={() => { coordinator.closeAndRestoreFocus() }}>
         <Workspace
+        coordinator={coordinator}
         data={data}
         handoffBusy={handoffBusy}
         localeTag={localeTag}
@@ -210,7 +210,8 @@ function Empty({ state, controller, t }: { readonly state: TeamDashboardState; r
   </section>
 }
 
-function Workspace({ data, handoffBusy, localeTag, state, t, teams, announcements, diagnostics, memberAssets, onCaptainSession, onCommunication, onMemberSession, onClose }: {
+function Workspace({ data, handoffBusy, localeTag, state, t, teams, announcements, diagnostics, memberAssets, onCaptainSession, onCommunication, onMemberSession, onClose, coordinator }: {
+  readonly coordinator: TeamDashboardSurfaceCoordinator
   readonly data: SwarmHostReadProjectionV1
   readonly handoffBusy: boolean
   readonly localeTag: () => 'zh-CN' | 'en-US'
@@ -228,42 +229,46 @@ function Workspace({ data, handoffBusy, localeTag, state, t, teams, announcement
   const number = new Intl.NumberFormat(localeTag())
   const boundCaptain = teams?.teams.find(team => team.teamId === data.binding.teamId)
   const goal = boundCaptain?.goal
-  const [view, setView] = useState<WorkspaceView>('workspace')
-  const [detail, setDetail] = useState<DetailSelection>()
+  const selection = useSyncExternalStore(coordinator.subscribe, () => coordinator.getWorkspaceSelection(data.binding), () => coordinator.getWorkspaceSelection(data.binding))
+  const { view, detail } = selection
+  const updateSelection = (patch: Partial<TeamWorkspaceSelection>): void => { coordinator.updateWorkspaceSelection(data.binding, patch) }
+  const setView = (next: TeamWorkspaceSelection['view']): void => { updateSelection({ view: next }) }
+  const setDetail = (next: DetailSelection | undefined): void => { updateSelection({ detail: next }) }
   const detailHeadingRef = useRef<HTMLHeadingElement>(null)
   const detailTriggerRef = useRef<HTMLElement | null>(null)
-  const detailTeamRef = useRef(data.binding.teamId)
+  const returnFocusRef = useRef<{ taskId?: string; trigger: HTMLElement | null }>()
   const detailSessionRef = useRef<string>()
-  const openDetail = (selection: DetailSelection): void => {
+  const openDetail = (nextDetail: DetailSelection): void => {
     detailTriggerRef.current = document.activeElement as HTMLElement | null
-    setDetail(selection)
+    updateSelection({ detail: nextDetail, view: nextDetail.kind === 'task' ? 'tasks' : nextDetail.kind === 'member' ? 'members' : 'info', ...(nextDetail.kind === 'task' ? { taskView: 'overview' } : {}) })
   }
   const closeDetail = (refocus: boolean): void => {
+    if (refocus) returnFocusRef.current = { ...(detail?.kind === 'task' ? { taskId: detail.id } : {}), trigger: detailTriggerRef.current }
     setDetail(undefined)
-    if (refocus) queueMicrotask(() => {
-      const trigger = detailTriggerRef.current
-      if (trigger !== null && trigger.isConnected) trigger.focus()
-      else document.querySelector<HTMLElement>('[data-swarm-view-tabs] [role="tab"][aria-selected="true"]')?.focus()
-    })
   }
-  useLayoutEffect(() => { if (detail !== undefined) detailHeadingRef.current?.focus() }, [detail])
   useLayoutEffect(() => {
-    if (detailTeamRef.current !== data.binding.teamId) {
-      detailTeamRef.current = data.binding.teamId
-      setDetail(undefined)
+    if (detail !== undefined) { detailHeadingRef.current?.focus(); return }
+    const pending = returnFocusRef.current
+    if (pending !== undefined) {
+      returnFocusRef.current = undefined
+      const trigger = pending.trigger
+      const row = pending.taskId === undefined ? undefined : [...document.querySelectorAll<HTMLElement>('[data-swarm-task-id]')].find(el => el.dataset.swarmTaskId === pending.taskId)
+      if (row !== undefined) { if (row.closest('details')) row.closest('details')!.open = true; row.focus() }
+      else if (trigger !== null && trigger.isConnected && trigger.tabIndex >= 0) trigger.focus()
+      else document.querySelector<HTMLElement>('[data-swarm-view-tabs] [role="tab"][aria-selected="true"]')?.focus()
     }
-  }, [data.binding.teamId])
+  }, [detail])
   useLayoutEffect(() => {
     const member = memberAssets?.members.find(row => row.sessionId === state.targetSessionId)
-    if (member !== undefined && detailSessionRef.current !== state.targetSessionId) {
+    if (member !== undefined && detailSessionRef.current !== state.targetSessionId && detail === undefined) {
       detailSessionRef.current = state.targetSessionId
-      setDetail({ kind: 'member', name: member.name })
+      updateSelection({ detail: { kind: 'member', name: member.name }, view: 'members' })
     }
   }, [memberAssets, state.targetSessionId])
   useLayoutEffect(() => {
     if (detail === undefined) return
     const gone = (detail.kind === 'member' && !data.roster.some(member => member.name === detail.name))
-      || (detail.kind === 'task' && !data.tasks.some(task => task.id === detail.id))
+      || (detail.kind === 'task' && !data.truncated.tasks && data.tasks.length === data.totals.tasks && !data.tasks.some(task => task.id === detail.id))
     // An authority-driven auto-close must still leave usable focus behind.
     if (gone) closeDetail(true)
   }, [data, detail])
@@ -289,10 +294,9 @@ function Workspace({ data, handoffBusy, localeTag, state, t, teams, announcement
   const entries = announcements?.state === 'available' ? announcements.entries : []
   const latest = entries.toSorted((left, right) => right.createdAt - left.createdAt)[0]
   const tabs = [
-    { id: 'workspace' as const, label: t('tabs.workspace') },
     { id: 'tasks' as const, label: t('tasks') },
-    { id: 'notices' as const, label: t('announcements') },
-    { id: 'manage' as const, label: t('manage') },
+    { id: 'members' as const, label: t('members') },
+    { id: 'info' as const, label: t('taskPanel.info') },
   ]
   const onTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number): void => {
     let next = index
@@ -307,14 +311,14 @@ function Workspace({ data, handoffBusy, localeTag, state, t, teams, announcement
     const nextTab = tabs[next]!.id
     queueMicrotask(() => { document.querySelector<HTMLElement>(`[data-swarm-view-tab="${nextTab}"]`)?.focus() })
   }
-  const detailView = detail === undefined ? null : <DetailView detail={detail} data={data} localeTag={localeTag}
+  const detailView = detail === undefined || detail.kind === 'task' ? null : <DetailView detail={detail} data={data} localeTag={localeTag}
     number={number} headingRef={detailHeadingRef} memberAssets={memberAssets} diagnostics={diagnostics}
     onClose={() => { closeDetail(true) }}
     onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); closeDetail(true) } }} t={t} />
   return <>
     <section className="swarm-team-workspace__pane">
       <Status state={state} t={t} />
-      <div className="swarm-team-workspace__browse" data-swarm-workbench-browse hidden={detail !== undefined && detail.kind !== 'member'}>
+      <div className="swarm-team-workspace__browse" data-swarm-workbench-browse>
       <div className="swarm-team-workspace__view-tabs" role="tablist" aria-label={t('tabs.label')} data-swarm-view-tabs>
         {tabs.map((tab, index) => (
           <button
@@ -371,7 +375,7 @@ function Workspace({ data, handoffBusy, localeTag, state, t, teams, announcement
             {data.team.phase === 'staged' && <span className="swarm-team-workspace__public-content swarm-team-workspace__muted" data-swarm-staged-plan-hint>{t('stagedPlan.hint')}</span>}
           </span>
         </section>}
-        {latest !== undefined && <button type="button" className="swarm-team-workspace__public-card swarm-team-workspace__notice-preview" data-swarm-announcement-preview onClick={() => { setView('notices') }}>
+        {latest !== undefined && <button type="button" className="swarm-team-workspace__public-card swarm-team-workspace__notice-preview" data-swarm-announcement-preview onClick={() => { setView('info') }}>
           <span className="swarm-team-workspace__public-copy">
             <span className="swarm-team-workspace__public-title">{t('announcement.latest')}</span>
             {announcements === undefined
@@ -386,7 +390,7 @@ function Workspace({ data, handoffBusy, localeTag, state, t, teams, announcement
       </div>
       </details>
       <main className="swarm-team-workspace__pane-body">
-        {view === 'workspace' && <div role="tabpanel" id="swarm-panel-workspace" aria-labelledby="swarm-tab-workspace" data-swarm-panel="workspace">
+        {view === 'members' && <div role="tabpanel" id="swarm-panel-members" aria-labelledby="swarm-tab-members" data-swarm-panel="members">
           <div className="swarm-team-workspace__block-head"><span>{t('workspace.desks')}</span><small>{t('progress.memberCount', { count: number.format(data.totals.roster) })}</small></div>
           <section className="swarm-team-workspace__workroom" aria-label={t('workspace.desks')} data-swarm-workroom>
             <button
@@ -484,23 +488,11 @@ function Workspace({ data, handoffBusy, localeTag, state, t, teams, announcement
           </details>
         </div>}
         {view === 'tasks' && <div role="tabpanel" id="swarm-panel-tasks" aria-labelledby="swarm-tab-tasks" data-swarm-panel="tasks">
-          <div className="swarm-team-workspace__block-head"><span>{t('tasks')}</span><small data-swarm-task-count>{number.format(data.tasks.length)} {t('taskCount')}</small></div>
-          {data.tasks.length === 0
-            ? <p className="swarm-team-workspace__muted" data-swarm-task-empty>{t('empty')}</p>
-            : <>
-              <TaskDag tasks={data.tasks} t={t} onSelect={id => { openDetail({ kind: 'task', id }) }} />
-              <section className="swarm-team-workspace__table" data-swarm-task-rows>
-              {data.tasks.map(task => (
-                <button key={task.id} className="swarm-team-workspace__table-row" type="button" data-swarm-task-id={task.id} data-swarm-task-status={task.status} onClick={() => { openDetail({ kind: 'task', id: task.id }) }}>
-                  <span className="swarm-team-workspace__table-copy"><strong title={task.subject}>{task.subject}</strong><small>{task.blockedBy.length > 0 ? t('blocked', { count: task.blockedBy.length }) : ''}</small></span>
-                  <span className="swarm-team-workspace__table-side" data-swarm-task-owner={`${t('taskOwner')}: ${task.ownerName ?? t('hostUnavailable')}`} title={`${t('taskOwner')}: ${task.ownerName ?? t('hostUnavailable')}`}>{task.ownerName ?? t('hostUnavailable')}</span>
-                  <span className="swarm-team-workspace__table-side" data-swarm-task-state>{enumLabel(task.status, t)}</span>
-                </button>
-              ))}
-            </section>
-            </>}
+          <TeamTaskPanel data={data} selection={selection} localeTag={localeTag} memberAssets={memberAssets}
+            onSelect={id => { openDetail({ kind: 'task', id }) }} onBack={() => { closeDetail(true) }} onChange={updateSelection} onMemberSession={onMemberSession} t={t} />
+          {detail?.kind !== 'task' && data.tasks.length > 0 ? <details className="swarm-team-workspace__fold"><summary>{t('dag.title')}</summary><TaskDag tasks={data.tasks} t={t} onSelect={id => { openDetail({ kind: 'task', id }) }} /></details> : null}
         </div>}
-        {view === 'notices' && <div role="tabpanel" id="swarm-panel-notices" aria-labelledby="swarm-tab-notices" data-swarm-panel="notices">
+        {view === 'info' && <div role="tabpanel" id="swarm-panel-info" aria-labelledby="swarm-tab-info" data-swarm-panel="info">
           <div className="swarm-team-workspace__block-head"><span>{t('announcements')}</span><small data-swarm-notice-count>{number.format(entries.length)} {t('announcementCount')}</small></div>
           {announcements === undefined
             ? <p className="swarm-team-workspace__muted">{t('loading')}</p>
@@ -516,13 +508,11 @@ function Workspace({ data, handoffBusy, localeTag, state, t, teams, announcement
                     </div>
                   })}
                 </section>}
-        </div>}
-        {view === 'manage' && <div role="tabpanel" id="swarm-panel-manage" aria-labelledby="swarm-tab-manage" data-swarm-panel="manage">
           <ManageView data={data} memberAssets={memberAssets} hasCaptain={hasCaptain} number={number} onManageViaCaptain={onCaptainSession} onCommunication={onCommunication} communicationDisabled={state.phase !== 'ready'} onOpenDetail={openDetail} t={t} />
+          {detail?.kind !== 'member' ? detailView : null}
         </div>}
       </main>
       </div>
-    {detail?.kind === 'member' ? null : detailView}
     </section>
   </>
 }

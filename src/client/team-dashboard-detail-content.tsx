@@ -8,6 +8,7 @@ import { TEAM_DASHBOARD_NS } from './team-dashboard-locales.js'
 import { SafePixelAvatar } from './SafePixelAvatar.js'
 import { TeamCommunicationControl, type TeamCommunicationChoice } from './TeamCommunicationControl.js'
 import { deriveMemberActivity, deriveMemberTone, memberAssetOf, formatTime, toneLabel, enumLabel, type DetailSelection } from './team-dashboard-view-helpers.js'
+type SupplementaryDetail = Exclude<DetailSelection, { readonly kind: 'task' }>
 
 export function ManageView({ data, memberAssets, hasCaptain, number, onManageViaCaptain, onCommunication, communicationDisabled, onOpenDetail, t }: {
   readonly data: SwarmHostReadProjectionV1
@@ -44,7 +45,7 @@ export function ManageView({ data, memberAssets, hasCaptain, number, onManageVia
 }
 
 export function DetailView({ detail, data, localeTag, number, headingRef, memberAssets, diagnostics, onClose, onKeyDown, t }: {
-  readonly detail: DetailSelection
+  readonly detail: SupplementaryDetail
   readonly data: SwarmHostReadProjectionV1
   readonly localeTag: () => 'zh-CN' | 'en-US'
   readonly number: Intl.NumberFormat
@@ -67,22 +68,17 @@ export function DetailView({ detail, data, localeTag, number, headingRef, member
     </header>
     <div className="swarm-team-workspace__detail-body">
       {detail.kind === 'member' ? <MemberDetail key={`${data.team.id}:${detail.name}`} detail={detail} data={data} localeTag={localeTag} memberAssets={memberAssets} t={t} />
-        : detail.kind === 'task' ? <TaskDetail detail={detail} data={data} number={number} localeTag={localeTag} t={t} />
-          : detail.kind === 'growth' ? <GrowthDetail data={data} t={t} />
+        : detail.kind === 'growth' ? <GrowthDetail data={data} t={t} />
             : detail.kind === 'overview' ? <OverviewDetail data={data} number={number} t={t} />
               : <DiagnosticsDetail data={data} diagnostics={diagnostics} number={number} t={t} />}
     </div>
   </div>
 }
 
-function detailHeading(detail: DetailSelection, data: SwarmHostReadProjectionV1, t: TranslateNS<typeof TEAM_DASHBOARD_NS>): { readonly title: string; readonly sub: string } {
+function detailHeading(detail: SupplementaryDetail, data: SwarmHostReadProjectionV1, t: TranslateNS<typeof TEAM_DASHBOARD_NS>): { readonly title: string; readonly sub: string } {
   if (detail.kind === 'member') {
     const member = data.roster.find(candidate => candidate.name === detail.name)
     return { title: t('memberDetailHeading', { name: detail.name }), sub: member?.role ?? '' }
-  }
-  if (detail.kind === 'task') {
-    const task = data.tasks.find(candidate => candidate.id === detail.id)
-    return { title: t('taskDetailHeading', { subject: task?.subject ?? detail.id }), sub: detail.id }
   }
   if (detail.kind === 'growth') return { title: t('manage.growthTitle'), sub: '' }
   if (detail.kind === 'overview') return { title: t('manage.overviewTitle'), sub: data.team.name }
@@ -202,28 +198,6 @@ export function MemberDetail({ detail, data, localeTag, memberAssets, t }: {
     </div>
     {asset.sessionId === undefined && <p className="swarm-team-workspace__contact-note" data-swarm-contact-disabled>{t('detail.contactDisabled')}</p>}
   </>
-}
-
-function TaskDetail({ detail, data, number, localeTag, t }: {
-  readonly detail: { readonly kind: 'task'; readonly id: string }
-  readonly data: SwarmHostReadProjectionV1
-  readonly number: Intl.NumberFormat
-  readonly localeTag: () => 'zh-CN' | 'en-US'
-  readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS>
-}) {
-  const task = data.tasks.find(candidate => candidate.id === detail.id)
-  if (task === undefined) return null
-  const attempt = task.currentAttemptId === undefined ? undefined : data.attempts.find(candidate => candidate.id === task.currentAttemptId)
-  return <div className="swarm-team-workspace__detail-section" data-swarm-task-detail>
-    <dl className="swarm-team-workspace__field-list">
-      <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('status')}</dt><dd>{enumLabel(task.status, t)}</dd></div>
-      <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('taskOwner')}</dt><dd>{task.ownerName ?? t('hostUnavailable')}</dd></div>
-      <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('taskTarget')}</dt><dd>{task.targetMemberName ?? t('hostUnavailable')}</dd></div>
-      <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('taskBlocked', { count: number.format(task.blockedBy.length) })}</dt><dd>{task.blockedBy.length === 0 ? t('empty') : task.blockedBy.join(', ')}</dd></div>
-      <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('detail.field.created')}</dt><dd>{formatTime(task.createdAt, localeTag) ?? t('detail.unavailable')}</dd></div>
-      <div className="swarm-team-workspace__fact" style={{ display: 'contents' }}><dt>{t('taskCurrentAttempt')}</dt><dd>{task.currentAttemptId ?? t('memberNone')}{attempt === undefined ? '' : ` · ${enumLabel(attempt.phase, t)}`}</dd></div>
-    </dl>
-  </div>
 }
 
 function GrowthDetail({ data, t }: {

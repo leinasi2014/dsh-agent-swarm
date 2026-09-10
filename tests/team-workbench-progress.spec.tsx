@@ -2,7 +2,7 @@
 import { useTabInfo } from './helpers/sidebar-tab.js'
 import { act } from 'react'
 import { describe, expect, it, vi } from 'vitest'
-import { t, ready, teamData, FakeCoordinator, render, pressEscape } from './helpers/dashboard-ui.js'
+import { t, ready, teamData, FakeCoordinator, render, pressEscape, tabButton } from './helpers/dashboard-ui.js'
 import { TeamDashboardDetails } from '../src/client/TeamDashboardDetails.js'
 import type { SwarmHostReadProjectionV1 } from '../src/host/host-read-types.js'
 import type { TeamDashboardState } from '../src/client/team-dashboard-controller.js'
@@ -52,6 +52,7 @@ describe('at-a-glance Team progress and execution hierarchy', () => {
 
   it('keeps stale and reconnecting warnings visible when an open detail retains cached data', async () => {
     const mounted = await mount({ roster: [{ name: 'worker', role: 'Verifier', phase: 'active', createdAt: 1 }] })
+    await act(async () => { tabButton('members').click() })
     await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!.click() })
     await act(async () => { mounted.update({ phase: 'stale', error: { code: 'SWARM_UI_READ_FAILED', message: 'connection lost' } }) })
     const warning = document.querySelector('[role="alert"]')!
@@ -74,6 +75,7 @@ describe('at-a-glance Team progress and execution hierarchy', () => {
         { id: 'accepted', taskId: 'old-task', memberName: 'worker', generation: 1, phase: 'accepted', assignmentPhase: 'delivered', createdAt: 1, updatedAt: 2 },
       ],
     })
+    await act(async () => { tabButton('members').click() })
     const entry = document.querySelector<HTMLButtonElement>('[data-swarm-tree-task="current"]')!
     expect(entry).not.toBeNull()
     expect(entry.closest('[data-swarm-member-branch]')?.getAttribute('data-swarm-member-branch')).toBe('worker')
@@ -83,8 +85,8 @@ describe('at-a-glance Team progress and execution hierarchy', () => {
     await act(async () => { entry.click() })
     expect(document.querySelector('[data-swarm-detail-view]')?.getAttribute('role')).toBe('region')
     expect(document.querySelector('[role="dialog"]')).toBeNull()
-    expect(document.querySelector<HTMLElement>('[data-swarm-workbench-browse]')?.hidden).toBe(true)
+    expect(document.querySelector<HTMLElement>('[data-swarm-workbench-browse]')?.hidden).toBe(false)
     await pressEscape()
-    expect(document.activeElement).toBe(entry)
+    expect(document.activeElement?.getAttribute('data-swarm-task-id')).toBe('current')
   })
 })
