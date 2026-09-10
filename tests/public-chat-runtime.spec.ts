@@ -243,7 +243,8 @@ it('uses the actual authenticated bridge for legacy replay, mixed pages, exact m
     const body = { requestId: 'new-multi', content: [{ type: 'mention', memberId: ids[0] }, { type: 'text', text: '和' }, { type: 'mention', memberId: ids[1] }] }
     const sent = await call(2, 'append', body)
     expect(sent, JSON.stringify(sent)).toMatchObject({ ok: true, value: { replayed: false, message: { formatVersion: 2, delivery: { recipients: ids.map(recipientSessionId => ({ recipientSessionId })) } } } })
-    await vi.waitFor(async () => expect(publicDeliveries((await f.ctx.agentSwarm.domain.snapshot(scope, teamId, captain.id)).team.publicChat!.messages[1]!).map(row => row.state)).toEqual(['claimed', 'claimed']))
+    // Two sequential cold recipients each have a 5s durable-claim window.
+    await vi.waitFor(async () => expect(publicDeliveries((await f.ctx.agentSwarm.domain.snapshot(scope, teamId, captain.id)).team.publicChat!.messages[1]!).map(row => row.state)).toEqual(['claimed', 'claimed']), { timeout: 10_000 })
     await Promise.all(ids.map(id => f.ctx.agents.get(id)?.whenIdle()))
     await f.ctx.agents.get(captain.id)?.whenIdle()
     expect(await call(1, 'history')).toMatchObject({ ok: false, error: { code: 'SWARM_PUBLIC_VERSION_REQUIRED' } })
@@ -275,28 +276,43 @@ it('settles removed recipients only after durable absence and repairs an earlier
   try {
     const { root, captain, teamId, scope } = await createTeam(f, sandbox)
     const ids = await addPublicMembers(f, root, captain.id)
-    const committed = await f.ctx.agentSwarm.domain.appendPublicMessage(scope, teamId, { formatVersion: 2, author: { kind: 'local-operator' }, requestId: 'terminal-recipients',
-      content: ids.map(memberId => ({ type: 'mention' as const, memberId })) })
-    const first = publicDeliveries(committed.message)[0]!
-    // Real durable target claim with a missing aggregate receipt (crash cut).
-    await f.ctx.subagents.withContinuableChild(root, captain.id, SIGNAL, async (_captain, signal) => {
-      await f.ctx.subagents.prompt({ requestId: committed.message.id as never, parentSessionId: captain.id, childSessionId: ids[0]!, mode: 'continuable',
-        delivery: 'steer', content: [{ type: 'text', text: first.frame }] }, signal)
-      await f.ctx.agents.get(ids[0]!)?.whenIdle()
+    // whenIdle does not imply the continuable activation has retired. The
+    // persistence fault below must govern beta before any public debt exists.
+    await vi.waitFor(() => {
+      expect(f.ctx.agents.get(ids[1]!)).toBeUndefined()
+      expect(f.ctx.sessions.get(ids[1]!)).toBeUndefined()
     })
-    expect(await frameVisibility(f.ctx, ids[0]!, first.frame, SIGNAL, 'lost public receipt', true)).toBe('claimed')
-    await f.ctx.agentSwarm.domain.removeMember(scope, teamId, captain.id, 'alpha', 'left')
-    await f.ctx.agentSwarm.domain.removeMember(scope, teamId, captain.id, 'beta', 'left')
     const prompt = vi.spyOn(f.ctx.subagents, 'prompt')
     const open = f.ctx.sessionPersistence.open.bind(f.ctx.sessionPersistence)
     const unreadable = vi.spyOn(f.ctx.sessionPersistence, 'open').mockImplementation(async (...args) => {
       if (args[0] === ids[1] && args[1] === 'read') throw new Error('recipient persistence temporarily unreadable')
       return await open(...args)
     })
-    const delivery = new MessageDelivery(f.ctx, { domain: () => f.ctx.agentSwarm.domain, isClosing: () => false,
-      scopeOf: agent => f.ctx.agentSwarm.scopeOf(agent), accountAgentUsage: async () => {},
-      publicTeam: async () => (await f.ctx.agentSwarm.listTeamAggregates(scope)).find(row => row.id === teamId) })
+    const lostReceipt = vi.spyOn(f.ctx.agentSwarm.domain, 'acknowledgePublicMessage').mockRejectedValue(new Error('lost aggregate receipt'))
     try {
+      const committed = await f.ctx.agentSwarm.domain.appendPublicMessage(scope, teamId, { formatVersion: 2, author: { kind: 'local-operator' }, requestId: 'terminal-recipients',
+        content: ids.map(memberId => ({ type: 'mention' as const, memberId })) })
+      const first = publicDeliveries(committed.message)[0]!
+      // Real durable target claim with a missing aggregate receipt (crash cut).
+      await f.ctx.subagents.withContinuableChild(root, captain.id, SIGNAL, async (_captain, signal) => {
+        await f.ctx.subagents.prompt({ requestId: committed.message.id as never, parentSessionId: captain.id, childSessionId: ids[0]!, mode: 'continuable',
+          delivery: 'steer', content: [{ type: 'text', text: first.frame }] }, signal)
+        await f.ctx.agents.get(ids[0]!)?.whenIdle()
+      })
+      expect(await frameVisibility(f.ctx, ids[0]!, first.frame, SIGNAL, 'lost public receipt', true)).toBe('claimed')
+      await f.ctx.agentSwarm.domain.removeMember(scope, teamId, captain.id, 'alpha', 'left')
+      await f.ctx.agentSwarm.domain.removeMember(scope, teamId, captain.id, 'beta', 'left')
+      expect(publicDeliveries((await f.ctx.agentSwarm.domain.snapshot(scope, teamId, captain.id)).team.publicChat!.messages[0]!).map(row => row.state)).toEqual(['queued', 'queued'])
+      lostReceipt.mockRestore()
+      prompt.mockClear()
+      // Force the real recovery pass into the old race window, with the
+      // read fault already active; background idle recovery stays enabled.
+      expect(f.ctx.agents.get(ids[1]!)).toBeUndefined()
+      await f.ctx.agentSwarm.recoverAgent(captain)
+      expect(unreadable.mock.calls.some(args => args[0] === ids[1] && args[1] === 'read')).toBe(true)
+      const delivery = new MessageDelivery(f.ctx, { domain: () => f.ctx.agentSwarm.domain, isClosing: () => false,
+        scopeOf: agent => f.ctx.agentSwarm.scopeOf(agent), accountAgentUsage: async () => {},
+        publicTeam: async () => (await f.ctx.agentSwarm.listTeamAggregates(scope)).find(row => row.id === teamId) })
       await delivery.deliverPublicMessages(scope, teamId, SIGNAL)
       const afterUnknown = (await f.ctx.agentSwarm.domain.snapshot(scope, teamId, captain.id)).team.publicChat!.messages[0]!
       expect(publicDeliveries(afterUnknown).map(row => row.state)).toEqual(['claimed', 'queued'])
@@ -312,7 +328,7 @@ it('settles removed recipients only after durable absence and repairs an earlier
       expect(publicDeliveries(final.publicChat!.messages.find(row => row.id === archived.message.id)!)).toMatchObject([{ state: 'not-delivered', reason: 'team-archived' }])
       expect(final.publicChat!.messages[0]).toEqual(settled)
       expect(prompt).not.toHaveBeenCalled()
-    } finally { unreadable.mockRestore(); prompt.mockRestore() }
+    } finally { lostReceipt.mockRestore(); unreadable.mockRestore(); prompt.mockRestore() }
   } finally { await f.close(); await rm(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) }
 }, 30_000)
 

@@ -12,7 +12,7 @@ import type { TaskAttempt, TeamAnnouncement, TeamCommunicationIntensity, TeamId,
 import { TeamDomain } from '../domain/team-domain.js'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import { TeamDomainError } from '../domain/error.js'
-import { hasPublicDebt } from '../domain/public-message.js'
+import { hasPublicDebt, hasPendingVisualAssistance } from '../domain/public-message.js'
 import type { MemberIdentityInput } from '../domain/identity-profile.js'
 import { StorageDomainTeamStore } from '../storage/storage-domain-team-store.js'
 import { teamDomainSpec } from '../storage/team-spec.js'
@@ -42,8 +42,7 @@ import { ManagedActivationRecovery } from './managed-activation-recovery.js'
 import { SchedulingAdmission } from './scheduling-admission.js'
 import { TeamDirectory } from './team-directory.js'
 
-export type { ToolExecutionAuthority }
-export type { ReviewProviderInput, ReviewProviderResult, SchedulerDecision, SchedulerSelectionInput, TeamReviewProvider, TeamSchedulerProvider }
+export type { ToolExecutionAuthority, ReviewProviderInput, ReviewProviderResult, SchedulerDecision, SchedulerSelectionInput, TeamReviewProvider, TeamSchedulerProvider }
 export type { RuntimeConfig } from './runtime-contract.js'
 
 /** DSH-facing runtime that composes the framework-neutral domain with continuable subagents. */
@@ -422,14 +421,16 @@ export class AgentSwarmRuntime extends Service {
     return await this.mutations.sendMessage(exec, target, content, delivery, causal, supersedes, replyTo)
   }
 
-  /** The authenticated Host calls this only after the atomic public append. */
+  withPublicAdmissionFence<T>(scope: TeamScope, teamId: TeamId, signal: AbortSignal, operation: (signal: AbortSignal) => Promise<T>) {
+    return this.delivery.withPublicAdmissionFence(scope, teamId, async () => { await this.ensureReady(); this.assertOpen()
+      const current = AbortSignal.any([signal, this.publicAbort.signal]); current.throwIfAborted(); return await operation(current) })
+  }
   kickPublicMessages(scope: TeamScope, teamId: TeamId): void {
     void this.delivery.deliverPublicMessages(scope, teamId, this.publicAbort.signal).catch(error => {
       if (!this.closing) this.ctx.logger.warn(`agent-swarm: public delivery remains queued for ${teamId}: ${String(error)}`)
     })
   }
 
-  /** Actual tool execution is the sole authority for an Agent public reply. */
   async publicReply(exec: ToolExecutionAuthority, requestId: string, replyTo: string, text: string) {
     return await this.mutations.publicReply(exec, requestId, replyTo, text)
   }
@@ -503,7 +504,7 @@ export class AgentSwarmRuntime extends Service {
     this.watchJobsScope(scope)
     let membership = await this.domain.findMembership(scope, agent.id)
     if (membership === undefined || this.closing) return
-    if (hasPublicDebt(membership.team.publicChat)) {
+    if (hasPublicDebt(membership.team.publicChat) || hasPendingVisualAssistance(membership.team.publicChat)) {
       await this.delivery.deliverPublicMessages(scope, membership.team.id, this.publicAbort.signal)
     }
     if (membership.role === 'captain') {

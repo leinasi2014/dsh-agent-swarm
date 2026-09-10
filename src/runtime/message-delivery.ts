@@ -33,11 +33,12 @@ import { steerHostSubagentPrompt } from '@deepseek-ai/dsh-subagent/internal'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import { messageObsoleteReason } from '../domain/team-domain-mailbox.js'
 import type { TeamId, TeamMessage, TeamMessageId, TeamState } from '../domain/types.js'
-import { framePredicate, frameVisibility, sessionAccepts, waitForFrameClaim } from './frame-visibility.js'
+import { framePredicate, frameVisibility, sessionAccepts, waitForFrameClaim, type FramePredicates } from './frame-visibility.js'
 import { messageFrame } from './prompts.js'
 import type { SubagentPromptRequestId } from '@deepseek-ai/dsh-subagent'
 import { publicRecipientEligibility } from './public-lineage.js'
-import { isPublicMessageV2, publicDeliveries, publicManagedParent } from '../domain/public-message.js'
+import { isPublicMessageV3, publicDeliveries, publicManagedParent } from '../domain/public-message.js'
+import { publicInputPredicates, publicRecipientImageCapability, samePublicImageInput, steerVerifiedPublicImagePrompt, verifyPublicImageReferences } from './public-image-delivery.js'
 
 /** One serialized drain, including overlapping work it waited for. */
 export interface PublicDeliveryResult {
@@ -100,6 +101,7 @@ export class MessageDelivery {
       // admission still owns this wake even if its Agent has already retired.
       const result = { ...prior }
       const read = () => this.deps.publicTeam?.(scope, teamId)
+      if (!this.deps.isClosing()) { signal.throwIfAborted(); await this.deps.domain().reconcileVisualAssistance(scope, teamId) }
       const initial = await read()
       if (initial === undefined || this.deps.isClosing()) return { ...result, deferred: true }
       for (const row of initial.publicChat?.messages ?? []) {
@@ -112,7 +114,9 @@ export class MessageDelivery {
         if (team === undefined || message === undefined) { result.deferred = true; continue }
         const delivery = publicDeliveries(message).find(recipient => recipient.recipientSessionId === frozen.recipientSessionId)
         if (delivery?.state !== 'queued') continue
-        const visibility = await frameVisibility(this.ctx, delivery.recipientSessionId, delivery.frame, signal, `public ${message.id}`, true)
+        let mismatch = false
+        const predicates = delivery.frameVersion === 3 ? publicInputPredicates(delivery.frame, message.id, delivery.projection, () => { mismatch = true }) : undefined
+        const visibility = await frameVisibility(this.ctx, delivery.recipientSessionId, delivery.frame, signal, `public ${message.id}`, true, predicates)
         if (visibility === 'claimed') {
           await this.deps.domain().acknowledgePublicMessage(scope, teamId, message.id, delivery.recipientSessionId)
           result.reconciled++
@@ -120,27 +124,40 @@ export class MessageDelivery {
         }
         // A pending inbox entry or an unreadable checkpoint is not permission
         // to resend. Only proven absence can reach official prompt admission.
-        if (visibility !== 'absent' || this.deps.isClosing()) { result.deferred = true; continue }
+        if (visibility !== 'absent' || this.deps.isClosing()) {
+          if (visibility === 'unknown' && isPublicMessageV3(message)) await this.deps.domain().deferPublicImageDelivery(scope, teamId, message.id,
+            delivery.recipientSessionId, mismatch ? 'projection-mismatch' : 'recipient-unavailable')
+          result.deferred = true; continue
+        }
         // This entire drain is serialized with all admissions by the same
         // owner. Only durable absence permits a terminal non-delivery.
         team = await read()
         if (team === undefined) { result.deferred = true; continue }
+        const assistance = isPublicMessageV3(message) ? message.assistance : undefined
+        if (assistance?.kind === 'request' && team.publicChat?.schemaVersion === 3
+          && team.publicChat.assistances?.some(assist => assist.assistanceId === assistance.assistanceId && assist.result !== undefined)) {
+          await this.deps.domain().settlePublicMessage(scope, teamId, message.id, delivery.recipientSessionId, 'assistance-closed')
+          result.reconciled++; continue
+        }
         const removed = delivery.recipientSessionId !== team.captainSessionId
           && !team.members.some(member => member.sessionId === delivery.recipientSessionId && member.phase === 'active')
         if (team.phase === 'archived' || removed) {
-          if (isPublicMessageV2(message)) {
+          if ('formatVersion' in message) {
             await this.deps.domain().settlePublicMessage(scope, teamId, message.id, delivery.recipientSessionId,
               team.phase === 'archived' ? 'team-archived' : 'recipient-removed')
             result.reconciled++
           } else result.deferred = true
           continue
         }
-        if (!await publicRecipientEligibility(this.ctx, scope, team, [delivery.recipientSessionId], signal)) { result.deferred = true; continue }
+        if (!await publicRecipientEligibility(this.ctx, scope, team, [delivery.recipientSessionId], signal)) {
+          if (isPublicMessageV3(message)) await this.deps.domain().deferPublicImageDelivery(scope, teamId, message.id, delivery.recipientSessionId, 'recipient-unavailable')
+          result.deferred = true; continue
+        }
         const parent = publicManagedParent(team.managedOrigin)
         if (parent === undefined) { result.deferred = true; continue }
         const root = await this.deps.publicRoot?.(parent, scope)
         if (root === undefined) { result.deferred = true; continue }
-        const admit = async (leaseSignal: AbortSignal) => {
+        const admit = async (directParent: Agent, leaseSignal: AbortSignal) => {
           team = await read()
           message = team?.publicChat?.messages.find(candidate => candidate.id === row.id)
           const current = message === undefined ? undefined : publicDeliveries(message).find(recipient => recipient.recipientSessionId === delivery.recipientSessionId)
@@ -150,21 +167,77 @@ export class MessageDelivery {
           }
           leaseSignal.throwIfAborted()
           if (this.deps.isClosing()) { result.deferred = true; return }
-          await this.ctx.subagents.prompt({ requestId: row.id as SubagentPromptRequestId,
-          parentSessionId: SessionId(delivery.parentSessionId), childSessionId: SessionId(delivery.recipientSessionId),
-          mode: 'continuable', delivery: 'steer', content: [{ type: 'text', text: delivery.frame }] }, leaseSignal)
+          let claimPredicates: FramePredicates | undefined
+          if (isPublicMessageV3(message!) && current.frameVersion === 3) {
+            const imageMessage = message!
+            const hasImages = imageMessage.content.some(part => part.type === 'image')
+            const capability = !hasImages || current.projection?.mode === 'text-only' ? 'supported'
+              : await publicRecipientImageCapability(this.ctx, scope, team, delivery.recipientSessionId, leaseSignal)
+            if (capability === 'unknown' || (capability === 'unsupported' && current.projection?.mode === 'images')) {
+              await this.deps.domain().deferPublicImageDelivery(scope, teamId, imageMessage.id, delivery.recipientSessionId,
+                capability === 'unknown' ? 'image-capability-unknown' : 'image-model-unsupported')
+              result.deferred = true; return
+            }
+            const prepared = current.projection === undefined ? await this.deps.domain().preparePublicImageDelivery(scope, teamId, imageMessage.id,
+              delivery.recipientSessionId, capability === 'unsupported' ? 'text-only' : 'images') : current
+            if (prepared.state !== 'queued' || prepared.projection === undefined) { result.deferred = true; return }
+            try { await verifyPublicImageReferences(this.ctx, imageMessage, leaseSignal) }
+            catch { leaseSignal.throwIfAborted(); await this.deps.domain().deferPublicImageDelivery(scope, teamId, imageMessage.id, delivery.recipientSessionId, 'image-unavailable'); result.deferred = true; return }
+            claimPredicates = publicInputPredicates(prepared.frame, imageMessage.id, prepared.projection, () => { mismatch = true })
+            const latestVisibility = await frameVisibility(this.ctx, prepared.recipientSessionId, prepared.frame, leaseSignal, `public ${imageMessage.id} before admission`, true, claimPredicates)
+            if (latestVisibility === 'claimed') { await this.deps.domain().acknowledgePublicMessage(scope, teamId, imageMessage.id, prepared.recipientSessionId); result.reconciled++; return }
+            if (latestVisibility !== 'absent') {
+              if (latestVisibility === 'unknown') await this.deps.domain().deferPublicImageDelivery(scope, teamId, imageMessage.id,
+                prepared.recipientSessionId, mismatch ? 'projection-mismatch' : 'recipient-unavailable')
+              result.deferred = true; return
+            }
+            const freshTeam = await read(), freshMessage = freshTeam?.publicChat?.messages.find(candidate => candidate.id === imageMessage.id)
+            const fresh = freshMessage === undefined ? undefined : publicDeliveries(freshMessage).find(recipient => recipient.recipientSessionId === delivery.recipientSessionId)
+            leaseSignal.throwIfAborted()
+            if (imageMessage.assistance?.kind === 'request' && (imageMessage.assistance.expiresAt <= Date.now()
+              || (freshTeam?.publicChat?.schemaVersion === 3 && freshTeam.publicChat.assistances?.some(assist => assist.assistanceId === imageMessage.assistance!.assistanceId && assist.result !== undefined)))) {
+              await this.deps.domain().reconcileVisualAssistance(scope, teamId)
+              // Append a drain to this same chain so a newly terminal result does not wait for another timer.
+              void this.deliverPublicMessages(scope, teamId, signal).catch(() => {})
+              result.deferred = true; return
+            }
+            if (this.deps.isClosing() || freshTeam?.phase !== 'active' || fresh?.state !== 'queued' || fresh.frameVersion !== 3
+              || !samePublicImageInput(prepared, fresh) || directParent.id !== prepared.parentSessionId
+              || this.ctx.agents.get(directParent.id) !== directParent || this.ctx.sessions.get(directParent.id) !== directParent.session
+              || (delivery.recipientSessionId !== freshTeam.captainSessionId && !freshTeam.members.some(member => member.sessionId === delivery.recipientSessionId && member.phase === 'active'))) {
+              result.deferred = true; return
+            }
+            if (hasImages && prepared.projection.mode === 'images') {
+              const admission = await steerVerifiedPublicImagePrompt(this.ctx, scope, freshTeam, directParent,
+                { ...prepared, projection: prepared.projection }, leaseSignal,
+                imageMessage.assistance?.kind === 'request' ? imageMessage.assistance.expiresAt : undefined)
+              if (admission === 'expired') {
+                await this.deps.domain().reconcileVisualAssistance(scope, teamId)
+                void this.deliverPublicMessages(scope, teamId, signal).catch(() => {})
+                result.deferred = true; return
+              }
+              if (admission !== 'admitted') {
+                await this.deps.domain().deferPublicImageDelivery(scope, teamId, imageMessage.id, prepared.recipientSessionId,
+                  admission === 'unknown' ? 'image-capability-unknown' : 'image-model-unsupported')
+                result.deferred = true; return
+              }
+            } else await steerHostSubagentPrompt(this.ctx.subagents, directParent, SessionId(prepared.recipientSessionId),
+              prepared.projection.content, prepared.projection.source, leaseSignal)
+          } else await this.ctx.subagents.prompt({ requestId: row.id as SubagentPromptRequestId,
+            parentSessionId: SessionId(delivery.parentSessionId), childSessionId: SessionId(delivery.recipientSessionId),
+            mode: 'continuable', delivery: 'steer', content: [{ type: 'text', text: delivery.frame }] }, leaseSignal)
           result.admitted = true
           const target = this.ctx.agents.get(SessionId(delivery.recipientSessionId))
           if (target !== undefined) {
             await this.deps.accountAgentUsage(scope, teamId, target)
-            if (await waitForFrameClaim(this.ctx, target, delivery.frame, leaseSignal, 5_000, true)) {
+            if (await waitForFrameClaim(this.ctx, target, delivery.frame, leaseSignal, 5_000, true, claimPredicates)) {
               await this.deps.domain().acknowledgePublicMessage(scope, teamId, row.id, delivery.recipientSessionId)
-            }
+            } else if (mismatch && isPublicMessageV3(message!)) await this.deps.domain().deferPublicImageDelivery(scope, teamId, row.id, delivery.recipientSessionId, 'projection-mismatch')
           }
         }
-        if (delivery.recipientSessionId === team.captainSessionId) await admit(signal)
+        if (delivery.recipientSessionId === team.captainSessionId) await admit(root, signal)
         else await this.ctx.subagents.withContinuableChild(root, SessionId(team.captainSessionId), signal,
-          async (_captain, leaseSignal) => await admit(leaseSignal))
+          async (captain, leaseSignal) => await admit(captain, leaseSignal))
         } catch (error) {
           signal.throwIfAborted()
           result.deferred = true

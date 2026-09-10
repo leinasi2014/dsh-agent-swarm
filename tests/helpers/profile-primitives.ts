@@ -8,7 +8,7 @@ import * as React from 'react'
 import * as jsx from 'react/jsx-runtime'
 import { createPortal } from 'react-dom'
 
-function profilePrimitiveSource(): string {
+export function profilePrimitiveSource(): string {
   const require = createRequire(import.meta.url)
   const manifestPath = require.resolve('@deepseek-ai/dsh-client-ui-primitives/package.json')
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { name: string; version: string; main: string }

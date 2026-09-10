@@ -19,7 +19,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
-import { messageAccepted, messageClaimed, messagePending } from './session-acceptance.js'
+import { messageAccepted, messageClaimed, messageInFlight, messagePending } from './session-acceptance.js'
 import { readPersistedSession } from './persisted-session.js'
 
 /**
@@ -35,6 +35,11 @@ const WAKEUP_CLAIM_GRACE_MS = 5_000
 
 /** One frame's visibility fold over a target's durable facts. */
 export type FrameVisibility = 'claimed' | 'pending' | 'absent' | 'unknown'
+export interface FramePredicates {
+  readonly identity: (message: UserMessage) => boolean
+  readonly complete: (message: UserMessage) => boolean
+  readonly onMismatch?: () => void
+}
 
 /** Identity predicate matching the exact framed text block of one delivery. */
 export function framePredicate(frame: string): (message: UserMessage) => boolean {
@@ -61,21 +66,31 @@ export async function waitForFrameClaim(
   signal: AbortSignal,
   graceMs: number = WAKEUP_CLAIM_GRACE_MS,
   requireDurableFlush = false,
+  predicates?: FramePredicates,
 ): Promise<boolean> {
-  const predicate = framePredicate(frame)
+  const predicate = predicates?.complete ?? framePredicate(frame)
+  const identity = predicates?.identity ?? predicate
+  const own = () => target.session.snapshotEvents().slice(target.session.inheritedEventCount)
+  const mismatch = (events: readonly SessionEvent[]) => messageAccepted(events, message => identity(message) && !predicate(message))
   const deadline = Date.now() + graceMs
   for (;;) {
     if (requireDurableFlush && (ctx.agents.get(target.id) !== target || ctx.sessions.get(target.id) !== target.session)) {
-      return await frameVisibility(ctx, target.id, frame, signal, 'public claim after activation change', true) === 'claimed'
+      return await frameVisibility(ctx, target.id, frame, signal, 'public claim after activation change', true, predicates) === 'claimed'
     }
-    if (messageClaimed(target.session.snapshotEvents(), predicate)) {
+    if (mismatch(own())) { predicates?.onMismatch?.(); return false }
+    if (messageClaimed(own(), predicate)) {
       let durable: boolean
       try { durable = await ctx.sessions.flush(target.session) } catch (error) {
         if (!requireDurableFlush) throw error
-        return await frameVisibility(ctx, target.id, frame, signal, 'public claim checkpoint changed', true) === 'claimed'
+        return await frameVisibility(ctx, target.id, frame, signal, 'public claim checkpoint changed', true, predicates) === 'claimed'
       }
       if (requireDurableFlush && durable !== true) return false
-      if (messageClaimed(target.session.snapshotEvents(), predicate)) return true
+      if (requireDurableFlush && (ctx.agents.get(target.id) !== target || ctx.sessions.get(target.id) !== target.session)) {
+        return await frameVisibility(ctx, target.id, frame, signal, 'public claim after flush activation change', true, predicates) === 'claimed'
+      }
+      const events = own()
+      if (mismatch(events)) { predicates?.onMismatch?.(); return false }
+      if (messageClaimed(events, predicate)) return true
     }
     if (signal.aborted || Date.now() >= deadline) return false
     await new Promise(resolve => setTimeout(resolve, 25))
@@ -91,8 +106,9 @@ export async function waitForFrameClaim(
  * — the frame sits unclaimed in the durable inbox projection (transient;
  * neither acknowledged nor resent); `absent` — no acceptance exists
  * anywhere, so redelivery is owed; `unknown` — the persisted target could
- * not be inspected or the flush failed, and uncertainty keeps the debt
- * unsettled rather than risk a duplicate model-visible delivery.
+ * not be inspected, the flush failed, or its live driver has dequeued the
+ * exact input for a proposed step but has not appended it to history yet.
+ * Uncertainty keeps the debt unsettled rather than risking a duplicate.
  */
 export async function frameVisibility(
   ctx: Context,
@@ -101,15 +117,25 @@ export async function frameVisibility(
   signal: AbortSignal,
   label: string,
   requireDurableFlush = false,
+  predicates?: FramePredicates,
 ): Promise<FrameVisibility> {
-  const predicate = framePredicate(frame)
-  const read = (events: readonly SessionEvent[]): FrameVisibility => {
+  const predicate = predicates?.complete ?? framePredicate(frame)
+  const identity = predicates?.identity ?? predicate
+  const read = (events: readonly SessionEvent[], includeInFlight = false): FrameVisibility => {
+    if (messageAccepted(events, message => identity(message) && !predicate(message))) { predicates?.onMismatch?.(); return 'unknown' }
+    if (includeInFlight && messageInFlight(events, identity)) {
+      if (messageInFlight(events, message => identity(message) && !predicate(message))) predicates?.onMismatch?.()
+      return 'unknown'
+    }
     if (messageClaimed(events, predicate)) return 'claimed'
     return messagePending(events, predicate) ? 'pending' : 'absent'
   }
   const live = ctx.agents.get(SessionId(targetSessionId))
   if (live !== undefined) {
-    if (!sessionAccepts(live.session, predicate)) return 'absent'
+    const own = () => live.session.snapshotEvents().slice(live.session.inheritedEventCount)
+    // A real driver may have removed the frame from its Inbox while awaiting
+    // assembly, pre-step or prepareRequest. Absence is not proven in that gap.
+    if (!sessionAccepts(live.session, identity) && !(live.status === 'running' && messageInFlight(own(), identity))) return 'absent'
     try {
       const durable = await ctx.sessions.flush(live.session)
       if (requireDurableFlush && durable !== true) return 'unknown'
@@ -117,7 +143,8 @@ export async function frameVisibility(
       ctx.logger.warn(`agent-swarm: ${label} acceptance flush failed: ${String(error)}`)
       return 'unknown'
     }
-    return read(live.session.snapshotEvents())
+    if (ctx.agents.get(live.id) !== live || ctx.sessions.get(live.id) !== live.session) return 'unknown'
+    return read(own(), live.status === 'running')
   }
   try {
     const stored = await readPersistedSession(ctx.sessionPersistence, SessionId(targetSessionId), signal)

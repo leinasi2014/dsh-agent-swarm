@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { publicSegmentSchema } from '../shared/public-content.js'
 import type { DirectoryResponse } from '../rpc/directory-contract.js'
-import type { PublicChatV2Message, PublicChatRecipient } from '../rpc/public-rpc-contract.js'
+import type { PublicChatV3Message, PublicChatV3Recipient } from '../rpc/public-rpc-contract.js'
 
 const id = z.string().min(1), integer = z.number().int().nonnegative()
 const publicTargetSchema = z.object({ rootSessionId: id, teamId: id })
@@ -15,10 +15,14 @@ export const publicV2MessageSchema = z.object({
     z.object({ recipientSessionId: id, state: z.literal('claimed'), claimedAt: integer }),
     z.object({ recipientSessionId: id, state: z.literal('not-delivered'), settledAt: integer, reason: z.enum(['recipient-removed', 'team-archived']) }),
   ])).min(1) })]),
-}).superRefine((row, ctx) => {
+}).superRefine(validatePublicMessageLabels)
+export function validatePublicMessageLabels(row: {
+  delivery: { kind: 'not-requested' } | { kind: 'requested'; recipients: readonly { recipientSessionId: string }[] }
+  mentionLabels: readonly { memberId: string }[]; content: readonly ({ type: 'text' } | { type: 'image' } | { type: 'mention'; memberId: string })[]
+}, ctx: z.RefinementCtx): void {
   if (row.delivery.kind === 'requested' && new Set(row.delivery.recipients.map(value => value.recipientSessionId)).size !== row.delivery.recipients.length) ctx.addIssue({ code: 'custom', message: 'Duplicate public recipients' })
   if (new Set(row.mentionLabels.map(value => value.memberId)).size !== row.mentionLabels.length || row.content.some(value => value.type === 'mention' && !row.mentionLabels.some(label => label.memberId === value.memberId))) ctx.addIssue({ code: 'custom', message: 'Invalid frozen mention labels' })
-})
+}
 export const publicV2HistorySchema = z.object({ ...publicV2Common, entries: z.array(publicV2MessageSchema),
   appendEligibility: z.discriminatedUnion('state', [z.object({ state: z.literal('available') }), z.object({ state: z.literal('unavailable'), reason: z.enum(['not-managed', 'not-active', 'lineage-unavailable']) })]),
   totalCount: integer, returnedCount: integer, limit: z.number().int().min(1).max(100), hasEarlier: z.boolean(), hasMore: z.boolean(), firstSequence: integer.optional(), lastSequence: integer.optional(),
@@ -42,12 +46,12 @@ export function decodeDirectory(value: unknown): DirectoryResponse {
   return row as DirectoryResponse
 }
 /** Merge each recipient independently: a delayed queued projection cannot undo settlement. */
-export function mergePublicMessages(old: readonly PublicChatV2Message[], incoming: readonly PublicChatV2Message[]): readonly PublicChatV2Message[] {
-  const result = new Map(old.map(row => [row.id, row]))
+export function mergePublicMessages<Old extends PublicChatV3Message, Incoming extends PublicChatV3Message>(old: readonly Old[], incoming: readonly Incoming[]): readonly (Old | Incoming)[] {
+  const result = new Map<string, Old | Incoming>(old.map(row => [row.id, row]))
   for (const row of incoming) {
     const previous = result.get(row.id)
     if (previous?.delivery.kind === 'requested' && row.delivery.kind === 'requested') {
-      const recipients = new Map<string, PublicChatRecipient>(previous.delivery.recipients.map(value => [value.recipientSessionId, value]))
+      const recipients = new Map<string, PublicChatV3Recipient>(previous.delivery.recipients.map(value => [value.recipientSessionId, value]))
       for (const value of row.delivery.recipients) {
         const prior = recipients.get(value.recipientSessionId)
         if (prior === undefined || prior.state === 'queued') recipients.set(value.recipientSessionId, value)

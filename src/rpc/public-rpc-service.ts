@@ -3,12 +3,14 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import { z } from 'zod'
 import { TeamDomainError } from '../domain/error.js'
-import { PUBLIC_REQUEST_ID_PATTERN, isPublicMessageV2, publicBindingDigest, publicDeliveries, type TeamPublicMessage } from '../domain/public-message.js'
+import { PUBLIC_REQUEST_ID_PATTERN, isPublicMessageV2, isPublicMessageV3, publicBindingDigest } from '../domain/public-message.js'
 import { normalizePublicContent, publicContentSchema, publicMentionIds } from '../shared/public-content.js'
 import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
 import { publicAppendEligibility, publicRecipientEligibility } from '../runtime/public-lineage.js'
 import { HostTargetReadService } from '../host/target-read-service.js'
 import { PUBLIC_RPC_CHANNEL } from './public-rpc-contract.js'
+import { projectPublicMessage, projectPublicHistory } from './public-rpc-projection.js'
+import { handlePublicImageRpc } from './public-image-rpc.js'
 
 const target = z.object({ rootSessionId: z.string().min(1), teamId: z.string().min(1) }).strict()
 const common = { schemaVersion: z.literal(1), target }
@@ -25,32 +27,12 @@ const historyV2 = z.object({ schemaVersion: z.literal(2), target, limit: z.numbe
   beforeSequence: z.number().int().positive().optional(), afterSequence: z.number().int().nonnegative().optional(),
 }).strict().refine(value => value.beforeSequence === undefined || value.afterSequence === undefined, 'Choose one cursor')
 
-/** An explicit allowlist; immutable frames and request credentials stay Host-side. */
-function projectPublicMessage(message: TeamPublicMessage, version: 1 | 2) {
-  const base = { id: message.id, sequence: message.sequence, createdAt: message.createdAt, author: message.author, text: message.text,
-    ...(message.replyTo === undefined ? {} : { replyTo: message.replyTo }) }
-  if (version === 2) {
-    const recipients = publicDeliveries(message).map(delivery => ({ recipientSessionId: delivery.recipientSessionId, state: delivery.state,
-      ...(delivery.state === 'claimed' ? { claimedAt: delivery.claimedAt } : {}),
-      ...(delivery.state === 'not-delivered' ? { settledAt: delivery.settledAt, reason: delivery.reason } : {}) }))
-    return { ...base, formatVersion: isPublicMessageV2(message) ? 2 : 1,
-      content: isPublicMessageV2(message) ? message.content : [{ type: 'text', text: message.text }],
-      mentionLabels: isPublicMessageV2(message) ? message.mentionLabels : [],
-      delivery: recipients.length === 0 ? { kind: 'not-requested' } : { kind: 'requested', recipients } }
-  }
-  if (isPublicMessageV2(message)) throw new TeamDomainError('Use public chat version 2 to read this record', 'SWARM_PUBLIC_VERSION_REQUIRED')
-  const delivery = message.delivery
-  return { ...base,
-    delivery: delivery.state === 'not-requested' ? { state: 'not-requested' as const }
-      : { state: delivery.state, recipientSessionId: delivery.recipientSessionId,
-          ...(delivery.state === 'claimed' ? { claimedAt: delivery.claimedAt } : {}) } }
-}
-
 export function mountAgentSwarmPublicRpc(owner: Context, runtime: AgentSwarmRuntime): void {
   owner.inject(['connection', 'webServer', 'agentSwarmHostRead'], ctx => {
     const targets = new HostTargetReadService(ctx, runtime, ctx.agentSwarmHostRead)
     ctx.effect(() => ctx.connection.rpc.handle(PUBLIC_RPC_CHANNEL, async (endpoint, payload, signal) => {
       try {
+        if (endpoint.startsWith('v3/')) return { ok: true, value: await handlePublicImageRpc(ctx, runtime, targets, endpoint, payload, signal) }
         const version = endpoint.startsWith('v2/') ? 2 : 1
         const operation = endpoint.slice(3)
         const schema = endpoint === 'v1/append' ? append : endpoint === 'v1/requestResult' ? result : endpoint === 'v1/history' ? history
@@ -79,7 +61,7 @@ export function mountAgentSwarmPublicRpc(owner: Context, runtime: AgentSwarmRunt
             const existing = team.publicChat?.messages.find(row => row.author.kind === 'local-operator' && row.requestId === input.requestId)
             if (existing !== undefined) {
               await verify()
-              if (version === 1 && isPublicMessageV2(existing)) throw new TeamDomainError('Use public chat version 2 for this request', 'SWARM_PUBLIC_VERSION_REQUIRED')
+              if (isPublicMessageV3(existing) || (version === 1 && isPublicMessageV2(existing))) throw new TeamDomainError('Use the recorded public chat version for this request', 'SWARM_PUBLIC_VERSION_REQUIRED')
               if (existing.bindingDigest !== publicBindingDigest(team.id, body)) throw new TeamDomainError('Public requestId already binds another payload', 'TEAM_PUBLIC_REQUEST_CONFLICT')
               runtime.kickPublicMessages(scope, team.id)
               return { ...response(), message: projectPublicMessage(existing, version), replayed: true }
@@ -105,16 +87,10 @@ export function mountAgentSwarmPublicRpc(owner: Context, runtime: AgentSwarmRunt
           }
           const input = version === 2 ? historyV2.parse(payload) : history.parse(payload)
           const messages = team.publicChat?.messages ?? []
-          const eligible = messages.filter(row => (input.beforeSequence === undefined || row.sequence < input.beforeSequence)
-            && (input.afterSequence === undefined || row.sequence > input.afterSequence))
-          const entries = (input.afterSequence === undefined ? eligible.slice(-input.limit) : eligible.slice(0, input.limit)).map(row => projectPublicMessage(row, version))
-          const first = entries[0]?.sequence, last = entries.at(-1)?.sequence
+          const page = projectPublicHistory(messages, input, version)
           const appendEligibility = await publicAppendEligibility(ctx, scope, team, signal)
           await verify()
-          return { ...response(), entries, appendEligibility, totalCount: messages.length, returnedCount: entries.length, limit: input.limit,
-            hasEarlier: first === undefined ? messages.some(row => row.sequence < (input.beforeSequence ?? 0)) : messages.some(row => row.sequence < first),
-            hasMore: last === undefined ? messages.some(row => row.sequence > (input.afterSequence ?? Number.MAX_SAFE_INTEGER)) : messages.some(row => row.sequence > last),
-            ...(first === undefined ? {} : { firstSequence: first, lastSequence: last }),
+          return { ...response(), ...page, appendEligibility,
             limits: { maxTextBytes: runtime.config.limits.maxPublicTextBytes, maxMessages: runtime.config.limits.maxPublicMessages, maxBytes: runtime.config.limits.maxPublicBytes,
               ...(version === 2 ? { maxSegments: runtime.config.limits.maxPublicSegments } : {}) } }
         })

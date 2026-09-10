@@ -14,7 +14,7 @@ afterEach(() => { Object.defineProperty(window, 'innerWidth', { configurable: tr
 
 async function fixture() {
   const page = directoryPage('a', [{ ...directoryEntry(), currentTasks: [{ id: 'work-1', subject: '核对正文', status: 'in_progress' }], biography: '长简介'.repeat(200) }, directoryEntry('member-b', '另一位')])
-  let state: PublicChatState = { selection: { team: 'a', captain: 'captain-a', key: 'key', viewer: 'viewer', revision: 1 }, entries: [], history: undefined, draft: { text: '保留草稿', tokens: [], version: 1 }, pending: false, legacyUpgrade: false, sending: false, loading: false, error: undefined, directory: { ...page, totalCount: page.entries.length }, directoryLoading: false, directoryError: undefined }
+  let state: PublicChatState = { selection: { team: 'a', captain: 'captain-a', key: 'key', viewer: 'viewer', revision: 1 }, entries: [], history: undefined, draft: { text: '保留草稿', tokens: [], version: 1 }, pending: false, legacyUpgrade: false, draftStatus: 'ready', draftBlobs: {}, sending: false, loading: false, error: undefined, directory: { ...page, totalCount: page.entries.length }, directoryLoading: false, directoryError: undefined }
   const listeners = new Set<() => void>(), task = vi.fn()
   const chat = { getSnapshot: () => state, subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } }, refreshDirectory: vi.fn(async () => {}) } as unknown as PublicChatController
   await render(<><DirectoryMembers chat={chat} onTask={task} t={tZh as ComponentProps<typeof DirectoryMembers>['t']} /><button data-outside>Outside</button></>)

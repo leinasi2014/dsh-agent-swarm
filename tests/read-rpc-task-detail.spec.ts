@@ -143,12 +143,19 @@ describe('taskDetail target-bound read', () => {
     expect(closed.list).not.toHaveBeenCalled()
   })
 
-  it('revalidates Team revision and Captain after asynchronous ancestry checks', async () => {
-    for (const replacement of [{ revision: 10 }, { captainSessionId: 'other-captain' }]) {
-      const h = harness()
-      h.list.mockResolvedValueOnce(h.teams).mockResolvedValueOnce([{ ...h.teams[0]!, ...replacement }])
-      await expect(h.service.invoke(request)).rejects.toMatchObject({ code: 'SWARM_HOST_BINDING_MISMATCH' })
-    }
+  it('projects the latest selected task after asynchronous ancestry checks', async () => {
+    const h = harness()
+    const latest = { ...h.teams[0]!, revision: 10,
+      tasks: h.teams[0]!.tasks.map(task => ({ ...task, revision: task.revision + 1, description: 'Updated while reading' })) }
+    h.list.mockResolvedValueOnce(h.teams).mockResolvedValue([latest])
+    await expect(h.service.invoke(request)).resolves.toMatchObject({ teamRevision: 10,
+      task: { revision: 4, description: 'Updated while reading' } })
+  })
+
+  it('rejects a replaced Captain after asynchronous ancestry checks', async () => {
+    const h = harness()
+    h.list.mockResolvedValueOnce(h.teams).mockResolvedValue([{ ...h.teams[0]!, captainSessionId: 'other-captain' }])
+    await expect(h.service.invoke(request)).rejects.toMatchObject({ code: 'SWARM_HOST_BINDING_MISMATCH' })
   })
 
   it('allows the current exact member via official ancestry but refuses its removed identity', async () => {

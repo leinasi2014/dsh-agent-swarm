@@ -38,6 +38,9 @@ describe('Team dashboard client composition', () => {
       'sidebar.navigation.section',
       'settings.plugin.item',
     ])
+    const mainFirst = registrations.find(entry => entry.name === 'main')!.inject!() as { image: unknown }
+    const mainRefresh = registrations.find(entry => entry.name === 'main')!.inject!() as { image: unknown }
+    expect(mainRefresh.image).toBe(mainFirst.image)
     const sidebar = registrations[0]?.inject?.() as { controller: unknown }
     const lineage = registrations[1]?.inject?.() as { hooks: { team: unknown } }
     expect(lineage.hooks.team).toBe(sidebar.controller)

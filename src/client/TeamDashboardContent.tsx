@@ -231,7 +231,6 @@ function Workspace({ chat, data, localeTag, state, t, teams, announcements, diag
   const detailHeadingRef = useRef<HTMLHeadingElement>(null)
   const detailTriggerRef = useRef<HTMLElement | null>(null)
   const returnFocusRef = useRef<{ taskId?: string; trigger: HTMLElement | null }>()
-  const detailSessionRef = useRef<string>()
   const openDetail = (nextDetail: DetailSelection): void => {
     detailTriggerRef.current = document.activeElement as HTMLElement | null
     updateSelection({ detail: nextDetail, view: nextDetail.kind === 'task' ? 'tasks' : nextDetail.kind === 'member' ? 'members' : 'info', ...(nextDetail.kind === 'task' ? { taskView: 'overview' } : {}) })
@@ -252,13 +251,6 @@ function Workspace({ chat, data, localeTag, state, t, teams, announcements, diag
       else document.querySelector<HTMLElement>('[data-swarm-view-tabs] [role="tab"][aria-selected="true"]')?.focus()
     }
   }, [detail])
-  useLayoutEffect(() => {
-    const member = memberAssets?.members.find(row => row.sessionId === state.targetSessionId)
-    if (member !== undefined && detailSessionRef.current !== state.targetSessionId && detail === undefined) {
-      detailSessionRef.current = state.targetSessionId
-      updateSelection({ detail: { kind: 'member', name: member.name }, view: 'members' })
-    }
-  }, [memberAssets, state.targetSessionId])
   useLayoutEffect(() => {
     if (detail === undefined) return
     const gone = (detail.kind === 'member' && !data.roster.some(member => member.name === detail.name))

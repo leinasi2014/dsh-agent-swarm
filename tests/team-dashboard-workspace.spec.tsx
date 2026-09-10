@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { useTabInfo } from './helpers/sidebar-tab.js'
-import { t, ready, teamData, FakeCoordinator, controller, render, detailOverlay, pressEscape, tabButton } from './helpers/dashboard-ui.js'
+import { t, ready, teamData, FakeCoordinator, controller, render, mounted, detailOverlay, pressEscape, tabButton } from './helpers/dashboard-ui.js'
 import { act } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { deriveMemberActivity, deriveMemberTone, TEAM_WORKSPACE_WIDE_MIN_WIDTH, teamWorkspaceLayoutForWidth } from '../src/client/TeamDashboardContent.js'
@@ -12,7 +12,35 @@ const activePanel = (): string | null => document.querySelector<HTMLElement>('[r
 const signalOf = (id: string): string | null => document.querySelector<HTMLElement>(`[data-swarm-activity-attempt="${id}"] [data-swarm-signal]`)?.getAttribute('data-swarm-signal') ?? null
 
 describe('Team workspace views and projection-derived activity', () => {
-  it('keeps the selected Team and current member in the right seat without duplicating the left directory', async () => {
+  it.each(['tasks', 'info'] as const)('preserves the selected %s tab across same-Team member navigation and component remount', async view => {
+    const coordinator = new FakeCoordinator()
+    const base = ready.data!
+    const members = ['first', 'second'].map(name => ({ ...base.captainMembers.members[0]!, name, sessionId: `${name}-session`, displayName: name }))
+    let state: TeamDashboardState = { ...ready, data: { ...base,
+      projection: { ...base.projection, roster: members.map(member => ({ name: member.name, role: 'Writer', phase: 'active' as const, createdAt: 1 })) },
+      captainMembers: { ...base.captainMembers, members },
+    } }
+    const live = { ...controller, getSnapshot: () => state }
+    const pane = (key: string) => <TeamDashboardDetails key={key} {...({ controller: live, coordinator, useTabInfo,
+      localeTag: coordinator.localeTag, sessionId: state.targetSessionId, t } as any)} />
+    await render(pane('stable-seat'))
+    const root = mounted.at(-1)!
+    await act(async () => { tabButton(view).click() })
+    expect(activePanel()).toBe(view)
+    for (const [index, member] of members.entries()) {
+      await act(async () => {
+        state = { ...state, targetSessionId: member.sessionId }
+        coordinator.set({ mode: 'docked', view: 'overview', targetSessionId: member.sessionId })
+        root.render(pane(index === 0 ? 'stable-seat' : 'remounted-seat'))
+      })
+      expect(activePanel()).toBe(view)
+      expect(document.querySelector('[data-swarm-detail-view]')).toBeNull()
+      expect(coordinator.getWorkspaceSelection(base.projection.binding).view).toBe(view)
+    }
+    expect(coordinator.openMemberChat).not.toHaveBeenCalled()
+  })
+
+  it('keeps the selected Team and opens the current member only on explicit detail selection', async () => {
     const base = ready.data!
     const alpha = base.teams.teams[0]!
     const member = { ...base.captainMembers.members[0]!, name: 'worker', sessionId: 'member-chat', displayName: '霁蓝', biography: '角色美术。', identityCard: { state: 'generated' as const } }
@@ -30,6 +58,10 @@ describe('Team workspace views and projection-derived activity', () => {
     await render(<TeamDashboardDetails {...({ controller: { ...controller, getSnapshot: () => state }, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: member.sessionId, t } as any)} />)
     expect(document.querySelectorAll('[data-swarm-team-card]')).toHaveLength(0)
     expect(document.querySelector('.swarm-team-workspace__title')?.textContent).toBe(base.projection.team.name)
+    expect(activePanel()).toBe('tasks')
+    expect(document.querySelector('[data-swarm-detail-view]')).toBeNull()
+    await act(async () => { tabButton('members').click() })
+    await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!.click() })
     expect(document.querySelector('[data-swarm-detail-view]')?.closest('[data-swarm-member-branch]')?.getAttribute('data-swarm-member-branch')).toBe('worker')
     expect(document.querySelector('[data-swarm-member-name="worker"]')?.getAttribute('aria-current')).toBe('page')
     expect(document.querySelector('[data-swarm-captain-desk]')?.closest('[hidden]')).toBeNull()
@@ -37,10 +69,11 @@ describe('Team workspace views and projection-derived activity', () => {
     expect(coordinator.openMainChat).not.toHaveBeenCalled()
   })
 
-  it('opens member details without a duplicate Chat handoff and shows that member on a reopened sidebar', async () => {
+  it('retains explicitly opened member details when another same-Team member Chat reopens the sidebar', async () => {
     const coordinator = new FakeCoordinator()
     const member = { ...ready.data!.captainMembers.members[0]!, name: 'worker', sessionId: 'worker-session', displayName: '林砚', profession: '编剧', personality: '细致', biography: '核对动机与因果。', identityCard: { state: 'generated' as const } }
-    const data = { ...ready.data!, projection: { ...ready.data!.projection, roster: [{ name: member.name, role: 'Writer', phase: 'active' as const, createdAt: 1 }] }, captainMembers: { ...ready.data!.captainMembers, members: [member] } }
+    const other = { ...member, name: 'reviewer', sessionId: 'reviewer-session', displayName: '质检员' }
+    const data = { ...ready.data!, projection: { ...ready.data!.projection, roster: [member, other].map(row => ({ name: row.name, role: 'Writer', phase: 'active' as const, createdAt: 1 })) }, captainMembers: { ...ready.data!.captainMembers, members: [member, other] } }
     let state: TeamDashboardState = { ...ready, targetSessionId: 'main-brain', data }
     const live = { ...controller, getSnapshot: () => state }
     await render(<TeamDashboardDetails {...({ controller: live, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
@@ -49,16 +82,20 @@ describe('Team workspace views and projection-derived activity', () => {
     expect(coordinator.openMemberChat).not.toHaveBeenCalled()
     expect(document.querySelector('[data-swarm-detail-biography]')?.textContent).toBe(member.biography)
     expect(document.querySelector('[data-swarm-contact-disabled]')).toBeNull()
-    // Reopening/reloading the member Chat must select its own details without
-    // requiring another click or relying on the first component's local state.
+    // The existing Team coordinator owns the chosen details across unmount;
+    // navigating another member's Chat must not replace that user selection.
     await act(async () => { coordinator.set({ mode: 'inactive', view: 'overview', targetSessionId: undefined }) })
-    state = { ...state, targetSessionId: 'worker-session' }
-    const reopened = new FakeCoordinator()
-    reopened.set({ mode: 'docked', view: 'overview', targetSessionId: 'worker-session' })
-    await render(<TeamDashboardDetails {...({ controller: live, coordinator: reopened, useTabInfo, localeTag: reopened.localeTag, sessionId: 'worker-session', t } as any)} />)
+    await act(async () => { mounted.pop()!.unmount() })
+    expect(document.querySelector('[data-swarm-team-panel]')).toBeNull()
+    state = { ...state, targetSessionId: other.sessionId }
+    await act(async () => { coordinator.set({ mode: 'docked', view: 'overview', targetSessionId: other.sessionId }) })
+    await render(<TeamDashboardDetails {...({ controller: live, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: other.sessionId, t } as any)} />)
+    expect(activePanel()).toBe('members')
+    expect(document.querySelector('[data-swarm-detail-view]')?.closest('[data-swarm-member-branch]')?.getAttribute('data-swarm-member-branch')).toBe('worker')
+    expect(document.querySelector('[data-swarm-member-name="reviewer"]')?.getAttribute('aria-current')).toBe('page')
     expect(document.querySelector('[data-swarm-detail-personality]')?.textContent).toBe(member.personality)
     expect(document.querySelector('[data-swarm-detail-biography]')?.textContent).toBe(member.biography)
-    expect(reopened.openMemberChat).not.toHaveBeenCalled()
+    expect(coordinator.openMemberChat).not.toHaveBeenCalled()
     await pressEscape()
     expect(document.querySelector('[data-swarm-detail-view]')).toBeNull()
   })

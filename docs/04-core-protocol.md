@@ -164,6 +164,8 @@ v1 定义人类公共文本默认交给当前 Captain，以及 Captain/成员显
 
 同请求 ID 重试只确认原提交，不是继续命令；冷启动发现耐久 pending 时保持 queued/deferred，用户显式提交的新公开 ID 经 Team、lineage 与容量校验后才通过现有 prompt 驱动已有 Inbox，原 frame 不重投，unknown 不作为激活或重投依据。
 
+同一官方 live Agent 仍在运行时，当前 turn 已从 Inbox 取出、尚未写入 user/message 的精确输入属于 unknown；继续组装模型请求期间不得重投或提前确认。该判断从官方 turn 与 inbox splice 日志重建，取消移除、实际 user/message 和 turn 结束使在途记录收敛。没有对应 live driver 的冷恢复不继承这项临时保留，仍按耐久输入事实决定是否补投。
+
 提交成功后响应丢失、客户端取消或断线，界面保留原请求 ID 与冻结载荷，显示结果待确认；查询权威结果或以同一身份重试，不能生成新 ID 重发。查询无法验证目标或读取存储时不得返回确定的 not-found。群草稿按当前 Host、查看者与 Team 隔离；完成回调只结算原操作，只有原草稿版本未继续编辑时才清空。未提交草稿及待确认操作的浏览器恢复范围须明确说明，客户端记录不成为公共消息权威。
 
 代表性验收包含：认证缺失/错误来源与跨 Team 拒绝；同请求并发、不同载荷冲突、提交后丢 ACK；公开回报丢工具结果后的同请求重试；发送中切群；真实 Captain 消费与显式回复；无任务 Team 冷恢复；claimed 后、Domain 确认前崩溃不重复输入。工程 fixture、真实模型、真实重启与生产部署分别记录。
@@ -187,6 +189,36 @@ v1 定义人类公共文本默认交给当前 Captain，以及 Captain/成员显
 共享目录由同一 runtime 只读投影供 UI 三个入口、`agent_swarm_directory` 读取工具及适用的 `system-prompt/assemble` 消费，不新增缓存权威或轮询 owner。每条包含精确 memberId、角色、名字与公开 label、职责、职业、性格、简介、阶段、当前任务，以及 Skills 名称/用途和 assigned、Session-visible 各自状态、工具可用/需批准/禁用/未知、当前 provider/model、官方 `inputModalities` 推导的 supported/unsupported/unknown 图像状态。资料、模型、Skills、工具等来源分别报告状态、真实版本或内容摘要、observedAt 与实际存在的 updatedAt；读取时间不能冒充修改时间，声明 deny-list 不能冒充完整有效权限。私有记忆、秘密参数和系统私密内容不进入目录。
 
 目录返回 schemaVersion、经验证的 binding、directoryRevision、observedAt、entries 及 page 的 offset/limit/totalCount/returnedCount/hasMore/nextCursor/unreadRanges。revision 由同一代规范化内容和实际来源版本计算，排除 observedAt；模型、Skills 或权限变化即使 Team revision 不变也须使目录更新。发布前重验所依赖的域与来源，发生变化则重读或返回 stale，不发布混合快照。cursor 绑定 Team、revision、offset，后续页变化返回明确 stale 并重新读取，不拼两代目录。所有成员的身份行均可枚举，分页未读范围与字段未知分别表达；正常规模上下文提供完整核心目录，大队给出页范围与读取入口。append 重验本次接收人的合法身份，不信任客户端旧目录，也不以无关成员的目录变化阻断提交。
+
+模型上下文投影递归省略目录各层 `observedAt`，保留真实 `updatedAt`、语义 revision、成员资料、能力状态与分页边界；RPC 和显式目录工具仍返回观察时间。仅时钟推进不追加相同目录，真实语义变化在下次处理前发布。官方压缩移除旧上下文快照后，下次处理重新注入当前目录，不以客户端缓存或永久已读标记阻止恢复。
+
+### 8.3 公共图片与自主视觉协助
+
+图片复用 `/swarm-public` 的认证和目标解析，增加 `v3/append`、`v3/history`、`v3/requestResult`、`v3/image`，目录继续使用 v2。v3 append 保留 target、requestId、replyTo 与有序 content；新增上传段仅为 `{type: 'image', mediaType, data, name?}`，data 是原始文件的 base64，禁止 URL、路径、附件引用、作者或客户端自报的尺寸。Host 通过实际 `ctx.attachments.imageLimits` 检查数量、原始字节与解码像素，再交官方整批 admission；无附件服务明确报告图片不可用。文字和提及规则沿用 v2，只有图片的消息也有效。v3 history/result 投影全部旧格式，原 v2 页面或请求命中 v3 时明确版本错误，不跳过记录；既有 v2 文本追加保留兼容。
+
+公开图片段只含稳定的 message 内 imageId、校验后的 mediaType、bytes、width、height、可选 name 与 originalDimensions。相同文件多次出现仍有各自 imageId；真实 `ImageAttachmentRef` 仅保存在 Host 的 Team aggregate。`v3/image` 只接受 `{schemaVersion: 3, target, messageId, imageId}`；Host 在读取前后验证当前目标权限和精确消息映射，经官方 `readImage` 校验后返回 base64 与匹配元数据，不提供裸附件 ID 或 bearer URL。Client 使用可释放的 Blob URL 展示；读取失败可重试，不影响正文。官方默认图片限制为单张 20 MiB、单次 20 张/200 MiB、64 Mpx、单边 8192，支持 PNG/JPEG/WebP/GIF；运行时以真实服务配置为准，Connection 的 300 MiB 请求上限还约束 base64 和 JSON 总开销。
+
+新提交复用现有 `withPublicAdmissionFence`：重读真实作者与目标，先查询原 requestId 并比较摘要，再执行整批官方 admission，之后重验取消、运行时、成员与 Team revision，最后由同一 Domain transaction 保存消息、原始引用、请求凭据及全部接收人意图；事务内再查唯一请求。摘要绑定有序规范化内容、每张原始解码字节的 SHA-256、声明 MIME/name 和 replyTo，不能用 normalization 后的字节替换原请求身份。原请求命中不再次上传或 admission。投递 kick 在 fence 外执行。附件失败不提交半条公共消息；跨 Attachment 与 Team storage 没有联合事务，崩溃或取消可能留下不可达官方对象，不能宣称跨存储回滚。
+
+每名接收人的实际输入投影在首次确定能力后耐久冻结：已支持为完整有序原图 refs，明确不支持为官方 `textOnlyImageText` 与受控图片 ID，未知则保持 deferred。恢复不按最新能力切换既有投影；若当前模型已不能接收冻结图片则保持明确待处理。Human 输入保留 `kind: user` 与稳定 rpcId，协助输入使用真实 plugin 来源。Host 在当前 fence、有效 Captain lease 内重验身份和图片完整性，通过固定 alpha.2 的已发布 internal `steerHostSubagentPrompt` 使用官方生命周期，不伪造 Agent 作者、不修改 Core 或绕过能力检查。
+
+Session 消费证据比较稳定 frame/rpcId 身份与完整冻结输入两层条件。相同身份但文字、来源、图片数量、顺序或原 refs 不一致为 unknown，优先于任何 claimed；只有完整匹配的持久 claimed 才结清，完整 pending 继续等待，证明身份 absent 才能投递。live、flush 后及冷恢复共用这一判断。文字标记存在不能证明图片已收到，也不能将不完整消息误判 absent 后重复发送。v3 的 queued 接收人可带有限 `deferredReason`：`image-capability-unknown`、`image-model-unsupported`、`image-unavailable`、`projection-mismatch` 或 `recipient-unavailable`，由现有投递 owner 耐久更新；相同原因不重复更新 revision，claimed/settled 清除原因。UI 显示明确的等待原因，不暴露原始存储或 Provider 错误，旧 v2 合同不变。
+
+`agent_swarm_request_visual_assistance` 接受稳定 request_id、source_message_id、非空且去重的 image_ids、helper_member_id 与 question；作者和 Team 从实际 exec 推导。只有原消息的实际接收人能发起，只能选同队当前可用、声明支持图片的其他成员。Host 从原消息解析图片，不接受任意 ref；工具失败明确区分无可用成员、能力未知、图片不可读、撤权和过期。协助在同一 Team aggregate 保存不可变 assistance/result ID、原消息与图片集合、发起人与 helper、问题、期限、visited 和投递状态。同一逻辑请求重试返回原事实，改载荷冲突；同源、同发起人和图片集合的在途协助去重，helper 不能链式转交同一协助。
+
+`agent_swarm_complete_visual_assistance` 接受稳定 request_id、assistance_id 与 outcome（公开摘要或受限失败原因）；仅指定 helper 能完成。结果、关联原消息的公开回报和定向返回原发起人的意图由同一 Domain transaction 提交，并共用现有 public delivery debt、串行投递、退出围栏和 ManagedActivationRecovery。读取、既有活动或恢复时检查期限；不增加另一套轮询，也不承诺无人活动时精确计时通知。迟到结果不覆盖终态。协助不自动招募、换模型、转移任务 owner、扩大权限或接受任务，原负责人继续执行并经过既有审核。
+
+协助期限固定为创建后 15 分钟；接纳前预留一条结果消息及最大摘要的转义字节容量，后续公共消息不能占用该空间。公开协助的 imageIds 按实际源图块顺序排列，每个 helper 图片输入前明确原 source_message_id 与 image_id；内部用于去重的排序集合不决定图片含义。问题及结果按 Agent 原文传递，只有人类结构化文本解析提及转义。
+
+公开 v3 消息可含 Host 派生的 `assistance`：`kind: request | result`、assistanceId、sourceMessageId、非空去重 imageIds、requesterSessionId、helperSessionId 和 expiresAt。结果另有 resultId 与 outcome；成功为 `{state: completed, summary}`（非空，最多 8192 字符），失败为 `{state: failed, reason}`，原因限定 helper-unavailable、image-capability-unknown、image-model-unsupported、image-unavailable、permission-revoked、expired。请求与结果各是一条可追溯的公开消息，复用其投递债务，resultId 可直接使用结果消息 ID；原图仍由 sourceMessageId/imageIds 定位。此字段只读，不接受人类 append 填写，内部 visited、请求摘要及真实附件引用不进入公开投影。
+
+指定 helper 实际完成的回报保留其 Agent 作者。过期或撤权由 Host 检查产生的失败结果，使用仅 v3 支持的 `{kind: system}` 作者，界面显示“团队系统”；不归因给未执行此回报的成员或人类。此系统身份仅能由内部终态事务生成，普通 append/Agent 工具不开放作者参数，v1/v2 作者合同保持原样；定向通知的 Session 来源仍为真实 plugin。
+
+协助已关闭时，既有 public delivery owner 先核对官方输入事实及待提交完成结果；仅对可证明尚未投递的 helper 债务结算 `not-delivered / assistance-closed`，已 claimed 的输入不可撤回或重投。此原因仅扩展 v3，不把协助关闭冒充成员移除或 Team 归档，v1/v2 保持原合同。
+
+Client 用原生 IndexedDB 在一个事务中保存按 Host/Main/Team 隔离的草稿、Blob 与原请求描述，落盘成功后才能编码提交同一 v3 append。恢复完成前不发送；未知结果保留相同 requestId、内容与 Blob，不创建新操作。v1/v2 pending 保留原版本恢复。切群或继续编辑只结算原操作，清除草稿须匹配原 revision，移除当前附件不能删除 pending 仍引用的 Blob。浏览器存储失败明确阻止发送；浏览器记录只是恢复素材，公共消息成功以 Host 耐久提交为准。
+
+验收覆盖纯图片与混合有序图片、官方 admission 拒绝、字节/MIME/名称冲突、丢 ACK 与刷新恢复、跨 Team 读取拒绝、同身份缺图不重发、真实视觉输入、非视觉自主选人、协助去重与失败、退出/取消围栏、关闭页面及冷恢复、原负责人继续提交和审核。fixture、真实模型、浏览器恢复及正式部署分别记录，不能互相替代。
 
 ## 9. Review、execution root 与可选桥接
 

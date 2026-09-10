@@ -2,8 +2,10 @@ import { z } from 'zod'
 import type { DirectoryRequest, DirectoryResponse } from '../rpc/directory-contract.js'
 import type { PublicChatV2AppendRequest, PublicChatV2AppendResponse, PublicChatV2HistoryRequest, PublicChatV2HistoryResponse, PublicChatV2RequestResultRequest, PublicChatV2RequestResultResponse } from '../rpc/public-rpc-contract.js'
 import { decodeDirectory, publicV2Common, publicV2MessageSchema, publicV2HistorySchema } from './public-v2-schema.js'
+import { publicV3Common, publicV3HistorySchema, publicV3ImageSchema, publicV3MessageSchema } from './public-v3-schema.js'
+import type { PublicChatV3AppendRequest, PublicChatV3AppendResponse, PublicChatV3HistoryRequest, PublicChatV3HistoryResponse, PublicChatV3ImageRequest, PublicChatV3ImageResponse, PublicChatV3RequestResultRequest, PublicChatV3RequestResultResponse } from '../rpc/public-rpc-contract.js'
 import type { ClientConnectionRpc } from '@deepseek-ai/dsh-client-connection/client'
-import { PUBLIC_RPC_CHANNEL, PUBLIC_RPC_ENDPOINTS, PUBLIC_RPC_V2_ENDPOINTS } from '../rpc/public-rpc-contract.js'
+import { PUBLIC_RPC_CHANNEL, PUBLIC_RPC_ENDPOINTS, PUBLIC_RPC_V2_ENDPOINTS, PUBLIC_RPC_V3_ENDPOINTS } from '../rpc/public-rpc-contract.js'
 import type { PublicChatAppendRequest, PublicChatAppendResponse, PublicChatHistoryRequest, PublicChatHistoryResponse, PublicChatRequestResultRequest, PublicChatRequestResultResponse } from '../rpc/public-rpc-contract.js'
 
 const id = z.string().min(1)
@@ -62,6 +64,25 @@ export class PublicChatClient {
   }
   async directory(request: DirectoryRequest, signal?: AbortSignal): Promise<DirectoryResponse> {
     return decodeDirectory(await this.call(PUBLIC_RPC_V2_ENDPOINTS.directory, request, signal))
+  }
+  async historyV3(request: PublicChatV3HistoryRequest, signal?: AbortSignal): Promise<PublicChatV3HistoryResponse> {
+    const value = publicV3HistorySchema.parse(await this.call(PUBLIC_RPC_V3_ENDPOINTS.history, request, signal))
+    if (value.entries.length !== value.returnedCount || value.entries.length > value.limit
+      || value.entries.some((entry, index) => index > 0 && entry.sequence <= value.entries[index - 1]!.sequence)
+      || new Set(value.entries.map(entry => entry.id)).size !== value.entries.length
+      || value.firstSequence !== value.entries[0]?.sequence || value.lastSequence !== value.entries.at(-1)?.sequence) throw new Error('Invalid public history page')
+    return value as PublicChatV3HistoryResponse
+  }
+  async appendV3(request: PublicChatV3AppendRequest, signal?: AbortSignal): Promise<PublicChatV3AppendResponse> {
+    return z.object({ ...publicV3Common, message: publicV3MessageSchema, replayed: z.boolean() }).parse(await this.call(PUBLIC_RPC_V3_ENDPOINTS.append, request, signal)) as PublicChatV3AppendResponse
+  }
+  async requestResultV3(request: PublicChatV3RequestResultRequest, signal?: AbortSignal): Promise<PublicChatV3RequestResultResponse> {
+    return z.discriminatedUnion('state', [z.object({ ...publicV3Common, state: z.literal('not-found') }), z.object({ ...publicV3Common, state: z.literal('committed'), message: publicV3MessageSchema })]).parse(await this.call(PUBLIC_RPC_V3_ENDPOINTS.requestResult, request, signal)) as PublicChatV3RequestResultResponse
+  }
+  async image(request: PublicChatV3ImageRequest, signal?: AbortSignal): Promise<PublicChatV3ImageResponse> {
+    const value = publicV3ImageSchema.parse(await this.call(PUBLIC_RPC_V3_ENDPOINTS.image, request, signal))
+    if (value.messageId !== request.messageId || value.imageId !== request.imageId || value.binding.teamId !== request.target.teamId) throw new Error('Public image binding changed')
+    return value as PublicChatV3ImageResponse
   }
 
 }

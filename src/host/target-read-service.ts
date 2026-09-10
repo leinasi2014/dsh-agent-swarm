@@ -48,14 +48,13 @@ export class HostTargetReadService {
   private async readTaskDetail(request: SwarmReadTaskDetailRequest) {
     if (request.target.teamId === undefined) throw new TeamDomainError('Task detail requires an explicit Team selector', 'SWARM_RPC_INVALID_REQUEST')
     const { root, team, verify } = await this.boundTeam(request.target)
-    const captain = team.captainSessionId
-    const result = projectTaskDetail(team, request.taskId, captain || root.id)
-    // The final aggregate read must verify both selected content and every
-    // source membership witness. Never yield again after that unified check.
-    await verify(true)
+    // Project selected content from the final authorized aggregate cut. Normal
+    // task updates do not invalidate the caller's Session or roster identity.
+    const latest = await verify(true)
+    const current = latest.find(candidate => candidate.id === team.id)!
     this.assertUnchanged(root)
-    this.assertLiveCaptain(team, root.cwd)
-    return result
+    this.assertLiveCaptain(current, root.cwd)
+    return projectTaskDetail(current, request.taskId, current.captainSessionId || root.id)
   }
 
   private async readTeams(rootSessionId: string) {
@@ -225,20 +224,29 @@ export class HostTargetReadService {
         if (after.cwd !== before.cwd || after.parentSession !== before.parentSession
           || after.live !== before.live || after.session !== before.session) this.bindingChanged()
       }
-      // Child reads refresh their roster proof. Detail reads also revalidate
-      // the content revision for a main-root caller at this same final cut.
+      let latest = all
+      // Revalidate authorization facts, not aggregate revisions: ordinary
+      // tasks, announcements and public messages may advance during a read.
       if (root.parentSession !== undefined || refreshAggregates) {
-        const latest = await this.runtime.listTeamAggregates(root.cwd)
+        latest = await this.runtime.listTeamAggregates(root.cwd)
         for (const before of [...visible, ...(association.current === undefined ? [] : [association.current])]) {
           const after = latest.find(team => team.id === before.id)
-          if (after === undefined || after.revision !== before.revision || after.captainSessionId !== before.captainSessionId) this.bindingChanged()
+          if (after === undefined || after.captainSessionId !== before.captainSessionId) this.bindingChanged()
+          if (before === association.current && after.phase !== 'active') this.bindingChanged()
+          if (root.parentSession === before.captainSessionId && (before === association.current || association.main === undefined)
+            && !after.members.some(member => member.phase === 'active' && member.sessionId === root.id)) this.bindingChanged()
+          if (before.captainSessionId === root.id && root.live === undefined && root.parentSession !== undefined && association.main === undefined
+            && after.phase !== 'active') this.bindingChanged()
+          if (before.captainSessionId === '' && (after.managedOrigin !== before.managedOrigin
+            || !(after.phase === 'staged' || (after.phase === 'archived' && after.discardReason === 'discarded')))) this.bindingChanged()
         }
       }
       for (const witness of witnesses) this.assertUnchanged(witness)
       if (association.main?.live !== undefined && !this.ctx.agents.roots().includes(association.main.live)) this.bindingChanged()
+      return latest
     }
-    await verify()
-    return { root, visible: all.filter(team => visible.includes(team)), all, main: association.main,
+    const latest = await verify()
+    return { root, visible: latest.filter(team => visible.some(before => before.id === team.id)), all: latest, main: association.main,
       currentTeamId: association.current?.id, currentMemberName: association.currentMemberName, verify }
   }
 

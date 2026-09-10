@@ -150,18 +150,23 @@ it('switches a Captain through a real tool call for the next request without can
     const created = await tool(first.ctx, root, 'self-model-create', 'agent_swarm_create_managed', { name: 'Self model', description: 'Select the requested model and finish.' })
     expect(created.isError, JSON.stringify(created.error)).toBe(false)
     const captainId = SessionId((created.value as { captain_session_id: string }).captain_session_id)
-    await vi.waitFor(() => expect(adapter.requests.filter(request => request.sessionId === captainId)).toHaveLength(2))
+    // Admission includes the real model-selection tool's durable flushes. Wait
+    // for this Captain's second request, then its official turn completion.
+    await vi.waitFor(() => expect(adapter.requests.filter(request => request.sessionId === captainId)).toHaveLength(2), { timeout: 10_000 })
+    await first.ctx.agents.get(captainId)?.whenIdle()
     const requests = adapter.requests.filter(request => request.sessionId === captainId)
     expect(requests[0]).toMatchObject(ROUTE)
     expect(requests[1]).toMatchObject(NEXT)
+    await first.ctx.sessionPersistence.flush()
     const persisted = await readPersistedSession(first.ctx.sessionPersistence, captainId, SIGNAL)
     expect(persisted.events.slice(persisted.inheritedEventCount ?? 0).filter(event => event.type === 'model/selection'))
       .toMatchObject([{ data: NEXT }])
+    expect(persisted.events.filter(event => event.type === 'turn/end').at(-1)?.data.reason).toEqual({ kind: 'completed' })
   } finally {
     await dispose(first)
     await rm(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
-})
+}, 30_000)
 
 it('leaves legacy root model ownership with the Host and denies member self-selection', async () => {
   const sandbox = await mkdtemp(join(tmpdir(), 'dsh-captain-selection-authority-'))
@@ -207,7 +212,7 @@ it.each(['pending', 'consumed', 'default'] as const)('restores the %s Captain se
     const created = await tool(first.ctx, root, 'cold-model-create', 'agent_swarm_create_managed', { name: 'Cold model', description: 'Retain the selected Captain route.' })
     expect(created.isError).toBe(false)
     const captainId = SessionId((created.value as { captain_session_id: string }).captain_session_id)
-    await vi.waitFor(() => expect(adapter.held?.sessionId).toBe(captainId))
+    await vi.waitFor(() => expect(adapter.held?.sessionId).toBe(captainId), { timeout: 10_000 })
     const captain = first.ctx.agents.get(captainId)!
     const task = await tool(first.ctx, captain, 'cold-model-task', 'agent_swarm_create_task', { subject: 'Unfinished', description: 'Continue after restart.' })
     expect(task.isError).toBe(false)
@@ -234,7 +239,7 @@ it.each(['pending', 'consumed', 'default'] as const)('restores the %s Captain se
     expect(first.ctx.sessionProjections.stateOf(captain.session, 'modelSelection')?.pending).toMatchObject({ provider: NEXT.provider, model: NEXT.model })
     if (mode !== 'pending') {
       await first.ctx.subagents.sendMessage(root, captainId, [{ type: 'text', text: 'Use the selected model now.' }], { signal: SIGNAL })
-      await vi.waitFor(() => expect(adapter.requests.filter(request => request.sessionId === captainId)).toHaveLength(2))
+      await vi.waitFor(() => expect(adapter.requests.filter(request => request.sessionId === captainId)).toHaveLength(2), { timeout: 10_000 })
       const resumed = first.ctx.agents.get(captainId)
       if (resumed !== undefined) await resumed.whenIdle()
       const stored = await readPersistedSession(first.ctx.sessionPersistence, captainId, SIGNAL)
@@ -247,18 +252,25 @@ it.each(['pending', 'consumed', 'default'] as const)('restores the %s Captain se
     await dispose(first); firstDisposed = true
     const afterRestart = new RecordingAdapter()
     second = await mount(sandbox, 0, undefined, undefined,
-      (ctx, fibers) => installHost(ctx, fibers, sandbox, true, afterRestart))
-    await vi.waitFor(() => expect(afterRestart.requests.filter(request => request.sessionId === captainId)).toHaveLength(1))
+      (ctx, fibers) => {
+        expect(firstDisposed).toBe(true)
+        expect(ctx.agents.get(captainId)).toBeUndefined()
+        return installHost(ctx, fibers, sandbox, true, afterRestart)
+      })
+    await vi.waitFor(() => expect(afterRestart.requests.filter(request => request.sessionId === captainId)).toHaveLength(1), { timeout: 10_000 })
+    await second.ctx.agents.get(captainId)?.whenIdle()
     expect(afterRestart.requests.find(request => request.sessionId === captainId)).toMatchObject(NEXT)
+    await second.ctx.sessionPersistence.flush()
     const persisted = await readPersistedSession(second.ctx.sessionPersistence, captainId, SIGNAL)
     expect(persisted.events.slice(persisted.inheritedEventCount ?? 0).filter(event => event.type === 'subagent/descriptor')).toHaveLength(1)
+    expect(persisted.events.filter(event => event.type === 'turn/end').at(-1)?.data.reason).toEqual({ kind: 'completed' })
   } finally {
     adapter.release()
     if (!firstDisposed) await dispose(first)
     if (second !== undefined) await dispose(second)
     await rm(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
-})
+}, 30_000)
 
 it('does not let inherited parent selection replace an explicitly routed new Captain', async () => {
   const sandbox = await mkdtemp(join(tmpdir(), 'dsh-captain-inherited-selection-'))

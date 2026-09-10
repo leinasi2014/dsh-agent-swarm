@@ -6,7 +6,8 @@ import { draftContent, mentionCandidate, type PublicDraft } from './public-draft
 import { SafePixelAvatar } from './SafePixelAvatar.js'
 import { TEAM_DASHBOARD_NS } from './team-dashboard-locales.js'
 
-export function MentionComposer({ draft, entries, directoryError, directoryLoading, edit, replaceText, choose, remove, refreshDirectory, send, canSend, t }: {
+export function MentionComposer({ draft, entries, directoryError, directoryLoading, edit, replaceText, choose, remove, refreshDirectory, send, canSend, addImages, disabled = false, t }: {
+  addImages?: (files: readonly File[]) => void; disabled?: boolean;
   draft: PublicDraft; entries: readonly DirectoryEntry[]; directoryError: string | undefined; directoryLoading: boolean;
   replaceText: (start: number, end: number, text: string) => void;
   edit: (text: string) => void; choose: (start: number, end: number, memberId: string) => void; remove: (start: number, reselect?: boolean) => void;
@@ -81,10 +82,11 @@ export function MentionComposer({ draft, entries, directoryError, directoryLoadi
   const unconfirmed = hasUnconfirmedPublicMention(draftContent(draft))
   return <div className="swarm-public__mention-editor">
     <textarea ref={textarea} aria-label={t('public.input')} aria-describedby={unconfirmed ? hintId : undefined} aria-autocomplete="list" aria-controls={open ? listId : undefined} aria-expanded={open} aria-activedescendant={open && candidates[selected] !== undefined ? `${listId}-${selected}` : undefined}
-      value={draft.text} placeholder={t('public.input')} rows={3}
-      onPaste={event => { event.preventDefault(); const start = event.currentTarget.selectionStart, end = event.currentTarget.selectionEnd, text = event.clipboardData.getData('text/plain'); replaceText(start, end, text); setDismissed(undefined); focusAt(start + text.length) }}
+      disabled={disabled} value={draft.text} placeholder={t('public.input')} rows={3}
+      onPaste={event => { event.preventDefault(); const files = Array.from(event.clipboardData.files ?? []); if (files.length > 0) addImages?.(files); const start = event.currentTarget.selectionStart, end = event.currentTarget.selectionEnd, text = event.clipboardData.getData('text/plain'); if (text !== '') { replaceText(start, end, text); setDismissed(undefined); focusAt(start + text.length) } }}
       onCut={event => { const start = event.currentTarget.selectionStart, end = event.currentTarget.selectionEnd; if (start === end) return; event.preventDefault(); event.clipboardData.setData('text/plain', draft.text.slice(start, end)); replaceText(start, end, ''); focusAt(start) }}
-      onDrop={event => { event.preventDefault(); const start = event.currentTarget.selectionStart, end = event.currentTarget.selectionEnd, text = event.dataTransfer.getData('text/plain'); if (text !== '') { replaceText(start, end, text); setDismissed(undefined); focusAt(start + text.length) } }}
+      onDragOver={event => { if (event.dataTransfer.types.includes('Files')) event.preventDefault() }}
+      onDrop={event => { event.preventDefault(); event.stopPropagation(); const files = Array.from(event.dataTransfer.files ?? []); if (files.length > 0) addImages?.(files); const start = event.currentTarget.selectionStart, end = event.currentTarget.selectionEnd, text = event.dataTransfer.getData('text/plain'); if (text !== '') { replaceText(start, end, text); setDismissed(undefined); focusAt(start + text.length) } }}
       onFocus={refreshDirectory} onChange={event => {
         setDismissed(undefined); setCaret(event.target.selectionStart)
         const range = beforeEdit.current, text = event.target.value; beforeEdit.current = undefined

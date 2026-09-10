@@ -88,6 +88,8 @@ export function apply(ctx: ClientContext): void {
   const chat = new PublicChatController(new PublicChatClient(connection.rpc), globalThis.location?.origin ?? 'local', {
     getItem: key => globalThis.sessionStorage.getItem(key), setItem: (key, value) => { globalThis.sessionStorage.setItem(key, value) },
   })
+  // Slot injection can run again during Host refreshes; mounted images keep one reader.
+  const readPublicImage = (messageId: string, imageId: string, signal: AbortSignal): Promise<Blob> => chat.image(messageId, imageId, signal)
   const groupPanel = 'swarm.group' as MainPanelId
   const anchorRef = { current: null as HTMLSpanElement | null }
   const coordinator = new TeamDashboardSurfaceCoordinator({ sessions: sessionsService, locale: ctx.locale, controller, anchorRef,
@@ -126,6 +128,9 @@ export function apply(ctx: ClientContext): void {
         chooseMention: (start: number, end: number, memberId: string) => { chat.chooseMention(start, end, memberId) },
         removeMention: (start: number, reselect?: boolean) => { chat.removeMention(start, reselect) },
         refreshDirectory: () => { void chat.refreshDirectory() }, upgradeLegacy: () => { void chat.upgradeLegacy() },
+        addImages: (files: readonly File[]) => { chat.addImages(files) }, removeImage: (id: string) => { chat.removeImage(id) },
+        image: readPublicImage,
+        retryDraftStorage: () => { void chat.retryDraftStorage() }, useStoredDraft: () => { void chat.useStoredDraft() },
         send: () => { void chat.send() }, recover: () => { void chat.recover() },
         earlier: () => { void chat.earlier() }, newer: () => { void chat.newer() }, refresh: () => { void chat.refresh() },
         openTeam: () => { const current = sessionsService.list.getSnapshot().current; if (current !== undefined) coordinator.toggle(current) },

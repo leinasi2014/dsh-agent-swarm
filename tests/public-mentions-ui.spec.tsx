@@ -78,7 +78,7 @@ describe('stable mention editor interactions', () => {
   })
 })
 it('shared directory card shows authoritative fields, keeps diagnostics collapsed and returns focus on Esc', async () => {
-  const page = directoryPage(), state = { selection: { team: 'a', captain: 'captain-a', key: 'key', viewer: 'viewer', revision: 1 }, entries: [], history: undefined, draft: empty, pending: false, legacyUpgrade: false, sending: false, loading: false, error: undefined, directory: { ...page, totalCount: 2 }, directoryLoading: false, directoryError: undefined } as PublicChatState
+  const page = directoryPage(), state = { selection: { team: 'a', captain: 'captain-a', key: 'key', viewer: 'viewer', revision: 1 }, entries: [], history: undefined, draft: empty, pending: false, legacyUpgrade: false, draftStatus: 'ready', draftBlobs: {}, sending: false, loading: false, error: undefined, directory: { ...page, totalCount: 2 }, directoryLoading: false, directoryError: undefined } as PublicChatState
   const chat = { getSnapshot: () => state, subscribe: () => () => {}, refreshDirectory: vi.fn(async () => {}) } as unknown as PublicChatController
   await render(<DirectoryMembers chat={chat} t={t as ComponentProps<typeof MentionComposer>['t']} />)
   const avatar = document.querySelector<HTMLButtonElement>('[data-directory-member="member-a"]')!
@@ -143,7 +143,7 @@ it('invalidates ambiguous same-name identities if an input event has no edit-ran
 
 async function chineseProfile(summary: string) {
   const page = directoryPage()
-  let snapshot: PublicChatState = { selection: { key: 'chinese-card', viewer: 'viewer', team: 'a', captain: 'captain-a', revision: 1 }, entries: [], history: undefined, draft: empty, pending: false, legacyUpgrade: false, sending: false, loading: false, error: undefined, directory: { ...page, totalCount: page.entries.length }, directoryLoading: false, directoryError: undefined }
+  let snapshot: PublicChatState = { selection: { key: 'chinese-card', viewer: 'viewer', team: 'a', captain: 'captain-a', revision: 1 }, entries: [], history: undefined, draft: empty, pending: false, legacyUpgrade: false, draftStatus: 'ready', draftBlobs: {}, sending: false, loading: false, error: undefined, directory: { ...page, totalCount: page.entries.length }, directoryLoading: false, directoryError: undefined }
   const subscribers = new Set<() => void>()
   const chat = { getSnapshot: () => snapshot, subscribe: (listener: () => void) => { subscribers.add(listener); return () => { subscribers.delete(listener) } }, refreshDirectory: vi.fn(async () => {}) } as unknown as PublicChatController
   const data = ready.data!

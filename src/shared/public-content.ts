@@ -12,10 +12,14 @@ export interface PublicMentionLabel { readonly memberId: string; readonly label:
 
 /** Normalize storage/digest form; escapes remain intact until display rendering. */
 export function normalizePublicContent(input: readonly PublicSegment[]): PublicSegment[] {
-  const parsed = publicContentSchema.parse(input)
-  const content: PublicSegment[] = []
+  return normalizeParsedPublicContent(publicContentSchema.parse(input))
+}
+
+/** Shared normalization after the caller's version-specific schema has parsed the input. */
+export function normalizeParsedPublicContent<Segment extends PublicSegment | { type: 'image' }>(parsed: readonly Segment[]): Segment[] {
+  const content: Segment[] = []
   for (const segment of parsed) {
-    if (segment.type === 'mention') { content.push({ ...segment }); continue }
+    if (segment.type !== 'text') { content.push({ ...segment }); continue }
     const last = content.at(-1)
     if (last?.type === 'text') last.text += segment.text
     else if (segment.text !== '') content.push({ ...segment })
@@ -23,7 +27,7 @@ export function normalizePublicContent(input: readonly PublicSegment[]): PublicS
   const first = content[0], last = content.at(-1)
   if (first?.type === 'text') first.text = first.text.trimStart()
   if (last?.type === 'text') last.text = last.text.trimEnd()
-  return content.filter(segment => segment.type === 'mention' || segment.text !== '')
+  return content.filter(segment => segment.type !== 'text' || segment.text !== '')
 }
 
 /** UTF-16 positions match the browser selection API. Used for UI candidates and admission. */

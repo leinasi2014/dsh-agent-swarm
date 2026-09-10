@@ -220,13 +220,15 @@ flowchart TD
 
 ### 6.3 非视觉成员的自主图片转交
 
-1. 用户发给非视觉成员的群消息先保留完整文字和已提交图片引用。复用官方请求投影：固定 alpha.2 的 `projectImagesForTextModel` 会把明确仅支持文本的模型请求中的图片转为文字占位，耐久消息仍保留原图。群聊补充可申请协助的受控消息/附件引用，不重写官方投影，也不伪造图片内容描述；官方占位中的短摘要不能作为附件授权凭据。能力未知须确认或走明确待确认状态，不能按已支持图片发送。
+1. 用户发给非视觉成员的群消息先保留完整文字和官方 admission 后的原始图片引用。Host 为明确不支持图片的目标使用官方 `textOnlyImageText` 生成占位，并附可申请协助的受控消息/图片 ID；官方 Subagents 图片能力入口会先拒绝此类目标，不能把原图交给它后寄望下游自动投影。原图仍留在 Team 的唯一消息记录中，占位不伪造图片描述，也不授予任意附件访问。能力未知保持 deferred，不能按已支持图片发送。
 2. 原接收人读取共享目录，选择同队可用且图像能力已确认的成员，调用拟新增的视觉协助 capability。Host 验证发起人、Team、接收人、原消息可见性与附件访问权，并从原消息解析图片；模型不能提交任意路径或伪造附件引用越权读取。
 3. 视觉成员通过官方 Attachment/Session 通道实际收到图片及明确问题。协助结果引用原消息和图片，公开摘要进入群聊，结果定向回到原接收人；原接收人继续负责自己的任务。
 4. 同一协助请求复用不可变图片，保留稳定请求与结果 ID；限制重复/并发重试，记录已访问成员，初始方案禁止协助对象继续链式转交同一请求。无可用视觉成员、能力未知、超时或内容不可读时公开明确状态，由原接收人/Captain 决定下一步，不反复互相唤醒。
 5. 图片协助不会自动招募新成员、切换原成员模型、扩大工具权限或接受任务。是否以后允许 Captain 受预算约束补充视觉成员，另作扩展。
 
-当前固定 alpha.2 已有官方图片附件类型、上传/Composer 扩展、模型 `inputModalities` 与文本模型图片占位投影；读取证据入口为 `packages/attachment/attachment/src/types.ts`、`packages/client/file-upload/src/types.ts`、`packages/client/ui-conversation/src/client/apply.ts`、`packages/llm/llm/src/types.ts`、`packages/llm/llm/src/index.ts`、`packages/llm/llm/src/content.ts`。其中 file upload receipt 具有接收 Agent scope，不能直接复用到另一个 Agent。群聊转交仍需实现 Host 授权与官方图片输入组合，并用真实模型、图片和冷恢复验收；不能因这些底层能力存在就声称转交已可用。本轮将视频排除于产品设计范围，不据此扩大为所有 DSH 版本的能力结论。
+图片追加、授权读取和协助是现有 Host、TeamDomain 与 Client Consumer 的扩展，不新增 Service 或恢复 owner。Attachment 是可选服务，缺失时明确关闭图片路径而保留文本路径。已支持图片的目标经官方 `readImage` 完整性校验后，由现有 `@deepseek-ai/dsh-subagent/internal` 的 `steerHostSubagentPrompt` 接收原始 `ContentBlock[]` 与真实来源，沿官方 ContinuationManager 执行能力、准确父级和冷恢复校验。该入口是固定 alpha.2 已发布的 internal Host adapter，升级须验证契约，不称为稳定公共 Service。它避免将已 admission 的图再编码送入 `subagents.prompt` 导致二次 normalization 和引用漂移；仍须由 Host 检查 Team 访问权、当前成员、取消信号及 Captain lease。
+
+读取证据入口为 `packages/attachment/attachment/src/types.ts`、`packages/client/file-upload/src/types.ts`、`packages/llm/llm/src/content.ts`、`packages/subagent/subagent/src/internal.ts` 与 `src/continuation.ts`。官方 file upload receipt 具有接收 Agent scope；群聊不另设 receipt 上传协议，而在同一 v3 append 中由 Host 整批 admission。两参考源只供 durable-before-live 投递和 Swarm 协作失败语义，附件及 Session 类型遵循官方。具体 wire、投影冻结与去重见 [图片与视觉协助协议](04-core-protocol.md#83-公共图片与自主视觉协助)。底层接口证据不等于群聊功能、真实模型或冷恢复验收；本轮产品不包含视频。
 
 ### 6.4 发言模式扩展与验收边界
 
