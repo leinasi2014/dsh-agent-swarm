@@ -190,6 +190,8 @@ v1 定义人类公共文本默认交给当前 Captain，以及 Captain/成员显
 
 目录返回 schemaVersion、经验证的 binding、directoryRevision、observedAt、entries 及 page 的 offset/limit/totalCount/returnedCount/hasMore/nextCursor/unreadRanges。revision 由同一代规范化内容和实际来源版本计算，排除 observedAt；模型、Skills 或权限变化即使 Team revision 不变也须使目录更新。发布前重验所依赖的域与来源，发生变化则重读或返回 stale，不发布混合快照。cursor 绑定 Team、revision、offset，后续页变化返回明确 stale 并重新读取，不拼两代目录。所有成员的身份行均可枚举，分页未读范围与字段未知分别表达；正常规模上下文提供完整核心目录，大队给出页范围与读取入口。append 重验本次接收人的合法身份，不信任客户端旧目录，也不以无关成员的目录变化阻断提交。
 
+模型上下文投影递归省略目录各层 `observedAt`，保留真实 `updatedAt`、语义 revision、成员资料、能力状态与分页边界；RPC 和显式目录工具仍返回观察时间。仅时钟推进不追加相同目录，真实语义变化在下次处理前发布。官方压缩移除旧上下文快照后，下次处理重新注入当前目录，不以客户端缓存或永久已读标记阻止恢复。
+
 ### 8.3 公共图片与自主视觉协助
 
 图片复用 `/swarm-public` 的认证和目标解析，增加 `v3/append`、`v3/history`、`v3/requestResult`、`v3/image`，目录继续使用 v2。v3 append 保留 target、requestId、replyTo 与有序 content；新增上传段仅为 `{type: 'image', mediaType, data, name?}`，data 是原始文件的 base64，禁止 URL、路径、附件引用、作者或客户端自报的尺寸。Host 通过实际 `ctx.attachments.imageLimits` 检查数量、原始字节与解码像素，再交官方整批 admission；无附件服务明确报告图片不可用。文字和提及规则沿用 v2，只有图片的消息也有效。v3 history/result 投影全部旧格式，原 v2 页面或请求命中 v3 时明确版本错误，不跳过记录；既有 v2 文本追加保留兼容。
