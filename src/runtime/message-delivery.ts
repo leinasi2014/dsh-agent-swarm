@@ -73,6 +73,24 @@ export class MessageDelivery {
     },
   ) {}
 
+  /** Serialize membership retirement with the entire official public admission,
+   * including cold observation/materialization and the bounded claim wait.
+   * A retirement cannot return while an earlier admission can still create a child.
+   */
+  async withPublicAdmissionFence<T>(scope: TeamScope, teamId: TeamId, operation: () => Promise<T>): Promise<T> {
+    const key = `${scope}\0${teamId}`
+    let inherited: PublicDeliveryResult = { admitted: false, deferred: true, reconciled: 0 }
+    const previous = this.publicChains.get(key) ?? Promise.resolve({ admitted: false, deferred: false, reconciled: 0 })
+    const outcome = previous.catch(() => inherited).then(async prior => {
+      inherited = prior
+      return { prior, value: await operation() }
+    })
+    const next = outcome.then(({ prior }) => prior, () => ({ ...inherited, deferred: true }))
+      .finally(() => { if (this.publicChains.get(key) === next) this.publicChains.delete(key) })
+    this.publicChains.set(key, next)
+    return (await outcome).value
+  }
+
   /** Public input uses this same delivery owner and immutable aggregate debt. */
   async deliverPublicMessages(scope: TeamScope, teamId: TeamId, signal: AbortSignal): Promise<PublicDeliveryResult> {
     const key = `${scope}\0${teamId}`
