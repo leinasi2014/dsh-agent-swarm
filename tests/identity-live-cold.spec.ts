@@ -14,6 +14,7 @@ const COMPLETE = 'This fixture uses a real complete system prompt. Respect runti
 const base = tmpdir()
 const text = (messages: readonly any[]) => messages.filter(m => m.role === 'user').flatMap(m => m.content).filter(b => b.type === 'text').map(b => b.text).join('\n')
 const ownRequests = (adapter: GatedAdapter, id: string) => adapter.requests.filter(request => request.sessionId === id)
+const decodeDirectory = (value: string) => JSON.parse(value.split('\n').slice(2, -1).join('\n'))
 
 it('reaches actual model requests and persisted Session after profile changes and a fresh-context cold resume', async () => {
   const sandbox = await mkdtemp(join(base, 'identity-cold-fixture-'))
@@ -86,7 +87,26 @@ it('reaches actual model requests and persisted Session after profile changes an
     await second.ctx.sessionPersistence.flush()
     const stableLog = await readPersistedSession(second.ctx.sessionPersistence,id)
     const stableSnapshots = stableLog.events.filter(e => e.type === 'user/message' && e.data.source.kind === 'plugin' && e.data.source.plugin === '@deepseek-ai/dsh-system-prompt')
-    expect(stableSnapshots).toHaveLength(persisted.length)
+    // The official snapshot contains independently named identity and directory
+    // contributions. Goal metadata changes the Team/directory revision without
+    // changing this member's self identity; the new directory must reach history.
+    expect(stableSnapshots.length).toBeGreaterThan(persisted.length)
+    const beforeSections = persistedLatest.data.source.sections as { name: string; text: string }[]
+    const afterSections = (stableSnapshots.at(-1) as any).data.source.sections as { name: string; text: string }[]
+    const beforeIdentity = beforeSections.filter(section => section.name === 'agent-swarm:identity')
+    const afterIdentity = afterSections.filter(section => section.name === 'agent-swarm:identity')
+    expect(beforeIdentity).toHaveLength(1)
+    expect(afterIdentity).toEqual(beforeIdentity)
+    const beforeDirectory = beforeSections.filter(section => section.name === 'agent-swarm:directory')
+    const afterDirectory = afterSections.filter(section => section.name === 'agent-swarm:directory')
+    expect(beforeDirectory).toHaveLength(1)
+    expect(afterDirectory).toHaveLength(1)
+    const oldDirectory = decodeDirectory(beforeDirectory[0]!.text)
+    const newDirectory = decodeDirectory(afterDirectory[0]!.text)
+    expect(newDirectory.directoryRevision).not.toBe(oldDirectory.directoryRevision)
+    const currentDirectory = await second.ctx.agentSwarm.directory.read(scope, teamId, { limit: 50 }, SIGNAL)
+    expect(newDirectory.directoryRevision).toBe(currentDirectory.directoryRevision)
+    expect(newDirectory.entries.map((entry: { memberId: string }) => entry.memberId)).toEqual(currentDirectory.entries.map(entry => entry.memberId))
   } finally {
     firstAdapter.open(); secondAdapter.open()
     if(first !== undefined) await disposeRestartComposition(first)

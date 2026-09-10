@@ -47,16 +47,24 @@ describe('tiered allow/ask/deny decision model (pure)', () => {
     expect(decideToolPermission(DEFAULT_TOOL_POLICY, 'agent_swarm_list_members', captainTurn())).toBe('allow')
     // The two member-private-memory tools (2026-08-26) are explicitly listed in
     // the default overlay (never relying on the unlisted-host fallback), and are
-    // APPENDED after the original 19-tool surface — never inserted mid-prefix.
+    // appended after the earlier surface, preserving that historical prefix.
     expect(DEFAULT_TOOL_POLICY.allow).toContain('agent_swarm_add_private_memory')
     expect(decideToolPermission(DEFAULT_TOOL_POLICY, 'agent_swarm_add_private_memory', captainTurn())).toBe('allow')
     expect(DEFAULT_TOOL_POLICY.allow).toContain('agent_swarm_list_private_memory')
     expect(decideToolPermission(DEFAULT_TOOL_POLICY, 'agent_swarm_list_private_memory', captainTurn())).toBe('allow')
-    expect(DEFAULT_TOOL_POLICY.allow!.slice(-3)).toEqual([
+    const publicTools = ['agent_swarm_directory', 'agent_swarm_public_reply']
+    const historicalAllow = DEFAULT_TOOL_POLICY.allow!.slice(0, -publicTools.length)
+    expect(historicalAllow.slice(-3)).toEqual([
       'agent_swarm_list_members',
       'agent_swarm_add_private_memory',
       'agent_swarm_list_private_memory',
     ])
+    expect(DEFAULT_TOOL_POLICY.allow!.slice(historicalAllow.length)).toEqual(publicTools)
+    for (const name of publicTools) {
+      expect(DEFAULT_TOOL_POLICY.allow).toContain(name)
+      expect(decideToolPermission(DEFAULT_TOOL_POLICY, name, captainTurn())).toBe('allow')
+      expect(decideToolPermission(DEFAULT_TOOL_POLICY, name, { ...captainTurn(), callerRole: 'delegated-member' })).toBe('allow')
+    }
     expect(decideToolPermission({}, 'report', captainTurn())).toBe('deny')
     expect(MAX_TOOL_POLICY_NAMES).toBe(64)
   })
