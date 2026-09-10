@@ -2,7 +2,7 @@
 import { z } from 'zod'
 import { publicImageContentSchema } from '../shared/public-image-content.js'
 import type { PublicImageAvailability, PublicImageDeferredReason, PublicImageHistoryContentSegment, PublicImageInputSegment,
-  PublicImageMetadata, PublicSystemAuthor, PublicVisualAssistance } from '../shared/public-image-content.js'
+  PublicImageMetadata, PublicImageNotDeliveredReason, PublicSystemAuthor, PublicVisualAssistance } from '../shared/public-image-content.js'
 export const PUBLIC_RPC_CHANNEL = '/swarm-public'
 export const PUBLIC_RPC_ENDPOINTS = { history: 'v1/history', append: 'v1/append', requestResult: 'v1/requestResult' } as const
 export const PUBLIC_RPC_V2_ENDPOINTS = { history: 'v2/history', append: 'v2/append', requestResult: 'v2/requestResult', directory: 'v2/directory' } as const
@@ -89,8 +89,9 @@ export interface PublicChatV3ImageRequest {
   readonly schemaVersion: 3; readonly target: PublicChatTarget; readonly messageId: string; readonly imageId: string
 }
 /** v3 projects older records without rewriting their formatVersion or historical content. */
-export type PublicChatV3Recipient = Exclude<PublicChatRecipient, { state: 'queued' }>
+export type PublicChatV3Recipient = Exclude<PublicChatRecipient, { state: 'queued' | 'not-delivered' }>
   | (Extract<PublicChatRecipient, { state: 'queued' }> & { readonly deferredReason?: PublicImageDeferredReason })
+  | { readonly recipientSessionId: string; readonly state: 'not-delivered'; readonly settledAt: number; readonly reason: PublicImageNotDeliveredReason }
 export interface PublicChatV3Message extends Omit<PublicChatV2Message, 'formatVersion' | 'content' | 'delivery' | 'author'> {
   readonly author: PublicChatMessage['author'] | PublicSystemAuthor
   readonly formatVersion: 1 | 2 | 3; readonly content: readonly PublicImageHistoryContentSegment[]

@@ -20,6 +20,14 @@ const image = { type: 'image', mediaType: 'image/png', data: 'AQID', name: 'deta
 const append = { schemaVersion: 3, target, requestId: 'image-request:1', content: [image] } satisfies contract.PublicChatV3AppendRequest
 
 describe('public v3 image wire contract', () => {
+  it('distinguishes a closed assistance from member removal or Team archival', () => {
+    const value: unknown = Reflect.get(imageVocabulary, 'publicImageNotDeliveredReasonSchema')
+    expect(value).toBeDefined()
+    const parse = value as ZodType
+    expect(parse.parse('assistance-closed')).toBe('assistance-closed')
+    expect(parse.safeParse('private-error').success).toBe(false)
+  })
+
   it('identifies Host-generated assistance failures without impersonating an Agent or operator', () => {
     const value: unknown = Reflect.get(imageVocabulary, 'publicSystemAuthorSchema')
     expect(value, 'system provenance must be explicit').toBeDefined()
