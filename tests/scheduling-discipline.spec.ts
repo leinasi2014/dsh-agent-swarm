@@ -132,6 +132,8 @@ describe('live-status scheduling discipline over the real composition (issue #12
       adapter.open()
       await vi.waitFor(() => {
         expect(composition.lead.status).toBe('running')
+        // Context assembly is also running; wait for the actual notice gate.
+        expect(adapter.requests.some(request => request.sessionId === composition.lead.id)).toBe(true)
       }, { timeout: 15_000 })
       adapter.open()
       await vi.waitFor(() => {
