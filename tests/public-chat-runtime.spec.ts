@@ -155,7 +155,21 @@ it('cold-recovers both exact mentioned members through the Captain lease without
     await f.ctx.subagents.prompt({ requestId: 'settle-recruitment-fixture' as never, parentSessionId: root.id, childSessionId: captain.id,
       mode: 'continuable', delivery: 'steer', content: [{ type: 'text', text: 'Fixture: finish the existing recruitment reports.' }] }, SIGNAL)
     await f.ctx.agents.get(captain.id)?.whenIdle()
-    const captainBefore = await readPersistedSession(f.ctx.sessionPersistence, captain.id, SIGNAL)
+    // Idle only joins the Agent driver; the continuation's durable flush can
+    // still be pending. Seal the cut after this exact fixture turn is stored.
+    const captainBefore = await vi.waitFor(async () => {
+      const persisted = await readPersistedSession(f.ctx.sessionPersistence, captain.id, SIGNAL)
+      const fixtureInputs = persisted.events.filter(event => event.type === 'user/message'
+        && event.data.source?.kind === 'user' && 'rpcId' in event.data.source && event.data.source.rpcId === 'settle-recruitment-fixture'
+        && framePredicate('Fixture: finish the existing recruitment reports.')(event.data))
+      expect(fixtureInputs).toHaveLength(1)
+      const fixture = fixtureInputs[0]!
+      const turn = persisted.events.findLast(event => event.type === 'turn/start' && event.seq < fixture.seq)
+      expect(turn?.type).toBe('turn/start')
+      expect(persisted.events.some(event => event.type === 'turn/end' && event.seq > fixture.seq
+        && turn?.type === 'turn/start' && event.data.turn === turn.data.turn && event.data.reason.kind === 'completed')).toBe(true)
+      return persisted
+    }, { timeout: 10_000 })
     const body = { formatVersion: 2 as const, author: { kind: 'local-operator' as const }, requestId: 'cold-multi', content: [
       { type: 'mention' as const, memberId: ids[1]! }, { type: 'text' as const, text: ' 和 ' },
       { type: 'mention' as const, memberId: ids[0]! }, { type: 'mention' as const, memberId: ids[1]! },
@@ -181,7 +195,9 @@ it('cold-recovers both exact mentioned members through the Captain lease without
     expect(firstMemberRequest).toBe(0)
     const captainAfter = await readPersistedSession(f.ctx.sessionPersistence, captain.id, SIGNAL)
     const newCaptainInputs = captainAfter.events.slice(captainBefore.events.length).flatMap(event => event.type === 'user/message' ? [event.data] : [])
-    expect(newCaptainInputs.every(message => message.source?.kind === 'subagent-settled' || message.source?.kind === 'plugin')).toBe(true)
+    const inputSources = newCaptainInputs.map(message => ({ kind: message.source?.kind,
+      rpcId: message.source?.kind === 'user' && 'rpcId' in message.source ? message.source.rpcId : undefined }))
+    expect(newCaptainInputs.every(message => message.source?.kind === 'subagent-settled' || message.source?.kind === 'plugin'), JSON.stringify(inputSources)).toBe(true)
     expect(newCaptainInputs.some(message => message.content.some(part => part.type === 'text' && part.text.startsWith('Public Team message')))).toBe(false)
     for (const recipient of publicDeliveries(committed.message)) {
       const persisted = await readPersistedSession(f.ctx.sessionPersistence, SessionId(recipient.recipientSessionId), SIGNAL)
