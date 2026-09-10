@@ -171,6 +171,7 @@ export function TeamDashboardContent({ controller, coordinator, descriptionId, h
           onMainChat={() => { void coordinator.openMainChat().catch(() => {}) }}
           onClose={() => { coordinator.closeAndRestoreFocus() }}>
         <Workspace
+        controller={controller}
         coordinator={coordinator}
         data={data}
         handoffBusy={handoffBusy}
@@ -210,7 +211,8 @@ function Empty({ state, controller, t }: { readonly state: TeamDashboardState; r
   </section>
 }
 
-function Workspace({ data, handoffBusy, localeTag, state, t, teams, announcements, diagnostics, memberAssets, onCaptainSession, onCommunication, onMemberSession, onClose, coordinator }: {
+function Workspace({ data, handoffBusy, localeTag, state, t, teams, announcements, diagnostics, memberAssets, onCaptainSession, onCommunication, onMemberSession, onClose, coordinator, controller }: {
+  readonly controller: TeamDashboardController
   readonly coordinator: TeamDashboardSurfaceCoordinator
   readonly data: SwarmHostReadProjectionV1
   readonly handoffBusy: boolean
@@ -488,7 +490,7 @@ function Workspace({ data, handoffBusy, localeTag, state, t, teams, announcement
           </details>
         </div>}
         {view === 'tasks' && <div role="tabpanel" id="swarm-panel-tasks" aria-labelledby="swarm-tab-tasks" data-swarm-panel="tasks">
-          <TeamTaskPanel data={data} selection={selection} localeTag={localeTag} memberAssets={memberAssets}
+          <TeamTaskPanel data={data} selection={selection} localeTag={localeTag} memberAssets={memberAssets} controller={controller} state={state}
             onSelect={id => { openDetail({ kind: 'task', id }) }} onBack={() => { closeDetail(true) }} onChange={updateSelection} onMemberSession={onMemberSession} t={t} />
           {detail?.kind !== 'task' && data.tasks.length > 0 ? <details className="swarm-team-workspace__fold"><summary>{t('dag.title')}</summary><TaskDag tasks={data.tasks} t={t} onSelect={id => { openDetail({ kind: 'task', id }) }} /></details> : null}
         </div>}

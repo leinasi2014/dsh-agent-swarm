@@ -28,6 +28,7 @@ const capabilities = {
     { capability: 'captainMembers.read', state: 'available' },
     { capability: 'captainAnnouncements.read', state: 'available' },
     { capability: 'captainDiagnostics.read', state: 'available' },
+    { capability: 'taskDetail.read', state: 'available' },
     { capability: 'message.write', state: 'unavailable', blocker: 'i1b-effect-correlation' },
     { capability: 'control.write', state: 'unavailable', blocker: 'i1b-effect-correlation' },
     { capability: 'effect.cancel', state: 'unavailable', blocker: 'i1b-effect-correlation' },
@@ -188,4 +189,3 @@ export async function waitFor(check: () => boolean): Promise<void> {
   }
   throw new Error('condition did not settle')
 }
-
