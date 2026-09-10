@@ -9,6 +9,7 @@ import type {
   SwarmReadPageKind,
   SwarmReadPageV1,
   SwarmReadTeamsV1,
+  SwarmReadTaskDetailV1,
 } from '../rpc/read-rpc-contract.js'
 import { SwarmReadClient, type SwarmReadClientMount } from './read-client.js'
 
@@ -29,6 +30,14 @@ export interface TeamDashboardState {
   readonly targetSessionId?: string
   readonly data?: TeamDashboardData
   readonly error?: { readonly code: string; readonly message: string }
+}
+
+export interface TaskDetailTarget {
+  readonly targetSessionId: string
+  readonly binding: SwarmHostReadProjectionV1['binding']
+  readonly taskId: string
+  readonly cursor: string
+  readonly teamRevision: number
 }
 
 export interface TeamDashboardSchedule {
@@ -70,6 +79,7 @@ export class TeamDashboardController {
   private requestAbort: AbortController | undefined
   private timer: unknown
   private generation = 0
+  private detailEpoch = 0
   /** Stable Team bound for a multi-Team root. Persisted across loads so refresh/reconnect/open
    *  keep selecting the same Team instead of flapping. Resolved from the Team directory on every load. */
   private selectedTeamId: string | undefined
@@ -126,6 +136,31 @@ export class TeamDashboardController {
 
   reconnect(): void {
     this.refresh()
+  }
+
+  /** A visible detail owns its cancellation; the dashboard still owns the only polling schedule. */
+  async readTaskDetail(target: TaskDetailTarget, signal: AbortSignal): Promise<SwarmReadTaskDetailV1> {
+    this.assertLive()
+    const epoch = this.detailEpoch
+    const assertCurrent = (): void => {
+      signal.throwIfAborted()
+      const current = this.state.data?.projection
+      if (this.disposed || epoch !== this.detailEpoch || !this.state.open || this.state.phase !== 'ready'
+        || this.state.targetSessionId !== target.targetSessionId || current?.cursor !== target.cursor
+        || current.binding.rootSessionId !== target.binding.rootSessionId || current.binding.teamId !== target.binding.teamId) {
+        throw new DashboardReadError('SWARM_UI_TASK_DETAIL_STALE', 'Task detail selection changed while reading')
+      }
+    }
+    assertCurrent()
+    const value = await this.value({ schemaVersion: 1, method: 'taskDetail',
+      target: { rootSessionId: target.targetSessionId, teamId: target.binding.teamId }, taskId: target.taskId }, signal) as SwarmReadTaskDetailV1
+    assertCurrent()
+    if (value.binding.rootSessionId !== target.binding.rootSessionId || value.binding.teamId !== target.binding.teamId
+      || value.taskId !== target.taskId || value.task.id !== target.taskId || value.attempts.entries.some(row => row.taskId !== target.taskId)
+      || value.teamRevision < Math.max(target.teamRevision, this.state.data!.projection.team.revision)) {
+      throw new DashboardReadError('SWARM_UI_TASK_DETAIL_STALE', 'Task detail binding, task or revision does not match the verified selection')
+    }
+    return value
   }
 
   /** Switch the bound Team for the open dashboard and re-read binding/snapshot/sections
@@ -487,6 +522,7 @@ export class TeamDashboardController {
 
   private stopActive(): void {
     this.generation += 1
+    this.detailEpoch += 1
     this.requestAbort?.abort()
     this.requestAbort = undefined
     this.clearTimer()

@@ -11,6 +11,7 @@ const readCapabilities = [
   { capability: 'captainMembers.read', state: 'available' },
   { capability: 'captainAnnouncements.read', state: 'available' },
   { capability: 'captainDiagnostics.read', state: 'available' },
+  { capability: 'taskDetail.read', state: 'available' },
   { capability: 'message.write', state: 'unavailable', blocker: 'i1b-effect-correlation' },
   { capability: 'control.write', state: 'unavailable', blocker: 'i1b-effect-correlation' },
   { capability: 'effect.cancel', state: 'unavailable', blocker: 'i1b-effect-correlation' },
@@ -44,6 +45,7 @@ export const SWARM_READ_RPC_FIXTURES_V1 = deepFreezeJson({
     captainMembers: { schemaVersion: 1, method: 'captainMembers', target: { rootSessionId: 'session-fixture', teamId: 'team-fixture' } },
     captainAnnouncements: { schemaVersion: 1, method: 'captainAnnouncements', target: { rootSessionId: 'session-fixture', teamId: 'team-fixture' } },
     captainDiagnostics: { schemaVersion: 1, method: 'captainDiagnostics', target: { rootSessionId: 'session-fixture', teamId: 'team-fixture' } },
+    taskDetail: { schemaVersion: 1, method: 'taskDetail', target: { rootSessionId: 'session-fixture', teamId: 'team-fixture' }, taskId: 'task-fixture' },
     snapshot: { schemaVersion: 1, method: 'snapshot', target: { rootSessionId: 'session-fixture', teamId: 'team-fixture' } },
     page: {
       schemaVersion: 1, method: 'page', target: { rootSessionId: 'session-fixture' },
@@ -51,6 +53,16 @@ export const SWARM_READ_RPC_FIXTURES_V1 = deepFreezeJson({
     },
   },
   values: {
+    taskDetail: {
+      schemaVersion: 1, binding: fixtureBinding, state: 'available', taskId: 'task-fixture', teamRevision: 7,
+      task: { id: 'task-fixture', revision: 2, subject: 'Verify detail', description: 'Read the actual task.',
+        acceptanceCriteria: ['Match the source'], status: 'pending', blockedBy: [], priority: 0, createdAt: 1, updatedAt: 3 },
+      attempts: { scope: 'retained', retainedCount: 1, returnedCount: 1, limit: 100, truncated: false,
+        entries: [{ id: 'attempt-fixture', taskId: 'task-fixture', generation: 4, memberName: 'worker', phase: 'rejected',
+          assignmentPhase: 'delivered', assignmentDeliveredAt: 2, output: 'Recorded result', evidence: ['Recorded reference'],
+          diagnostic: 'Check the source again', createdAt: 1, updatedAt: 3 }] },
+      observedAt: 1_700_000_000_200,
+    },
     capabilities: {
       protocol: SWARM_READ_RPC_PROTOCOL, version: 1, namespace: SWARM_READ_RPC_NAMESPACE,
       trust: { mode: 'local-single-user-target-bound', principalBound: false, listener: 'loopback' },

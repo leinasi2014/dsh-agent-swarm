@@ -10,6 +10,7 @@ import type { TeamCommunicationIntensity } from '../domain/types.js'
 import { communicationPolicy } from '../domain/team-domain-communication.js'
 import type { HumanInteractionOverlayStore } from '../human/human-interaction-store.js'
 import { deepFreezeJson } from './frozen-json.js'
+import { attemptReadSummary, taskReadSummary } from './task-read-summary.js'
 import type { SwarmHostReadInput, SwarmHostReadProjectionV1, SwarmHostTeamsProjectionV1 } from './host-read-types.js'
 import { canonicalJson, SWARM_PRODUCER_CAPABILITIES_V1 } from './producer-contract.js'
 
@@ -350,29 +351,8 @@ function project(
     phase: member.phase,
     createdAt: member.createdAt,
   }))
-  const tasks = team.tasks.toSorted(newestFirst).slice(0, MAX_TASKS).map(task => ({
-    id: task.id,
-    revision: task.revision,
-    subject: task.subject,
-    status: task.status,
-    blockedBy: [...task.blockedBy],
-    priority: task.priority,
-    ...optionalName('ownerName', displayName(task.ownerSessionId, rootSessionId, memberNames)),
-    ...optionalName('targetMemberName', displayName(task.targetMemberSessionId, rootSessionId, memberNames)),
-    ...(task.currentAttemptId === undefined ? {} : { currentAttemptId: task.currentAttemptId }),
-    createdAt: task.createdAt,
-    updatedAt: task.updatedAt,
-  }))
-  const attempts = team.attempts.toSorted(newestFirst).slice(0, MAX_ATTEMPTS).map(attempt => ({
-    id: attempt.id,
-    taskId: attempt.taskId,
-    generation: attempt.generation,
-    ...optionalName('memberName', displayName(attempt.memberSessionId, rootSessionId, memberNames)),
-    phase: attempt.phase,
-    assignmentPhase: attempt.assignmentPhase,
-    createdAt: attempt.createdAt,
-    updatedAt: attempt.updatedAt,
-  }))
+  const tasks = team.tasks.toSorted(newestFirst).slice(0, MAX_TASKS).map(task => taskReadSummary(task, rootSessionId, memberNames))
+  const attempts = team.attempts.toSorted(newestFirst).slice(0, MAX_ATTEMPTS).map(attempt => attemptReadSummary(attempt, rootSessionId, memberNames))
   const pending = interactions
     .filter(record => record.receipt.status === 'pending' || record.receipt.status === 'acknowledged')
     .toSorted((left, right) => newestFirst(left.receipt, right.receipt))
@@ -436,22 +416,6 @@ function targetRef(target: { readonly kind: string; readonly memberName?: string
   if (target.kind === 'task' && target.taskId !== undefined) return { targetRef: target.taskId }
   return {}
 }
-
-function displayName(
-  sessionId: string | undefined,
-  rootSessionId: string,
-  memberNames: ReadonlyMap<string, string>,
-): string | undefined {
-  if (sessionId === undefined) return undefined
-  if (sessionId === rootSessionId) return 'captain'
-  return memberNames.get(sessionId)
-}
-
-function optionalName<K extends 'ownerName' | 'targetMemberName' | 'memberName'>(key: K, value: string | undefined): Partial<Record<K, string>> {
-  return value === undefined ? {} : { [key]: value } as Record<K, string>
-}
-
-
 
 /** Complete public selector data from the same canonical aggregate read. */
 export function projectTeamSummary(team: TeamState) {

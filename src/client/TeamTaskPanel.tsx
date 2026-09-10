@@ -1,7 +1,9 @@
 import { useLayoutEffect, useRef, type KeyboardEvent } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SwarmHostReadProjectionV1 } from '../host/host-read-types.js'
-import type { SwarmReadCaptainMembersV1 } from '../rpc/read-rpc-contract.js'
+import type { SwarmReadCaptainMembersV1, SwarmReadTaskDetailV1 } from '../rpc/read-rpc-contract.js'
+import type { TeamDashboardController, TeamDashboardState } from './team-dashboard-controller.js'
+import { useTaskDetail, type TaskDetailRead } from './team-task-detail.js'
 import type { TeamWorkspaceSelection } from './team-dashboard-surface-coordinator.js'
 import { TEAM_DASHBOARD_NS } from './team-dashboard-locales.js'
 import { enumLabel, formatTime, taskProgressState, type TaskProgressState } from './team-dashboard-view-helpers.js'
@@ -10,6 +12,8 @@ type Task = SwarmHostReadProjectionV1['tasks'][number]
 type Attempt = SwarmHostReadProjectionV1['attempts'][number]
 type Translate = TranslateNS<typeof TEAM_DASHBOARD_NS>
 interface Props {
+  readonly controller: TeamDashboardController
+  readonly state: TeamDashboardState
   readonly data: SwarmHostReadProjectionV1
   readonly selection: TeamWorkspaceSelection
   readonly memberAssets: SwarmReadCaptainMembersV1 | undefined
@@ -42,6 +46,9 @@ const css = `
 [data-swarm-task-panel] .swarm-task-facts dt { color:var(--dsw-alias-label-secondary); }
 [data-swarm-task-panel] .swarm-task-facts dd { margin:0; overflow-wrap:anywhere; }
 [data-swarm-task-panel] .swarm-task-note { color:var(--dsw-alias-label-secondary); font-size:12px; overflow-wrap:anywhere; }
+[data-swarm-task-panel] .swarm-task-text { white-space:pre-wrap; overflow-wrap:anywhere; font-size:13px; line-height:1.6; }
+[data-swarm-task-panel] .swarm-task-record { margin:16px 0; }
+[data-swarm-task-panel] .swarm-task-record h4 { margin:0 0 7px; font-size:13px; font-weight:500; }
 [data-swarm-task-panel] .swarm-task-attempt { padding:10px 0 10px 12px; border-left:2px solid var(--dsw-alias-border-l2); margin:12px 0; }
 [data-swarm-task-panel] .swarm-task-attempt[data-swarm-current-attempt=true] { border-left-color:var(--dsw-alias-state-business-primary); }
 [data-swarm-task-panel] .swarm-task-attempt summary { cursor:pointer; font-size:13px; overflow-wrap:anywhere; }
@@ -70,14 +77,16 @@ function TaskTime({ value, localeTag, t }: { readonly value: number; readonly lo
 export function TeamTaskPanel(props: Props) {
   const { data, selection, onSelect, onBack, onChange, localeTag, t } = props
   const taskId = selection.detail?.kind === 'task' ? selection.detail.id : undefined
-  const task = data.tasks.find(row => row.id === taskId)
+  const read = useTaskDetail(props.controller, props.state, taskId)
+  const value = read.phase === 'available' ? read.value : undefined
+  const task = value?.task ?? data.tasks.find(row => row.id === taskId)
   const heading = useRef<HTMLHeadingElement>(null)
   useLayoutEffect(() => { if (taskId !== undefined) heading.current?.focus() }, [taskId])
   const partial = data.truncated.tasks || data.tasks.length !== data.totals.tasks
   if (taskId !== undefined) return <section data-swarm-task-panel data-swarm-detail-view data-swarm-detail-kind="task" role="region" aria-label={task?.subject ?? taskId} onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); onBack() } }}>
     <style>{css}</style>
     <button type="button" className="swarm-task-link" data-swarm-detail-back onClick={onBack}>← {t('detail.back')}</button>
-    {task === undefined ? <p role="status">{t('taskPanel.taskMissing')}</p> : <>
+    {task === undefined ? <><p role="status">{t('taskPanel.taskMissing')}</p><DetailReadStatus read={read} t={t} /></> : <>
       <div className="swarm-task-owner">{task.id} · {enumLabel(task.status, t)}</div>
       <h3 className="swarm-task-heading" ref={heading} tabIndex={-1}>{task.subject}</h3>
       <div className="swarm-task-owner">{t('taskOwner')}: {task.ownerName ?? t('taskPanel.unassigned')}</div>
@@ -91,8 +100,9 @@ export function TeamTaskPanel(props: Props) {
           }}>{t(`taskPanel.${view}`)}</button>)}
       </div>
       <div id="swarm-task-detail-content" role="tabpanel" aria-labelledby={`swarm-task-${selection.taskView}`} data-swarm-task-detail>
-        {selection.taskView === 'trace' ? <TaskTrace {...props} task={task} /> : <>
-          <div className="swarm-task-step"><small>{t('taskPanel.now')}</small>{currentStep(task, data, t)}</div>
+        <DetailReadStatus read={read} t={t} />
+        {selection.taskView === 'trace' ? value === undefined ? null : <TaskTrace {...props} task={task} value={value} /> : <>
+          <div className="swarm-task-step"><small>{t('taskPanel.now')}</small>{currentStep(task, value === undefined ? data : { ...data, attempts: value.attempts.entries }, t)}</div>
           <dl className="swarm-task-facts">
             <dt>{t('taskTarget')}</dt><dd>{task.targetMemberName ?? t('memberNone')}</dd>
             <dt>{t('taskPanel.created')}</dt><dd><TaskTime value={task.createdAt} localeTag={localeTag} t={t} /></dd>
@@ -104,7 +114,11 @@ export function TeamTaskPanel(props: Props) {
                 : <div key={id}><button type="button" className="swarm-task-link" onClick={() => { onSelect(id) }}>{dependency.subject} · {enumLabel(dependency.status, t)} →</button></div>
             })}</dd>
           </dl>
-          <p className="swarm-task-note" data-swarm-task-unavailable>{t('taskPanel.unavailableFields')}</p>
+          {value === undefined ? null : <>
+            <section className="swarm-task-record"><h4>{t('taskPanel.description')}</h4><div className="swarm-task-text" data-swarm-task-description><RecordedText value={value.task.description} t={t} /></div></section>
+            <section className="swarm-task-record"><h4>{t('taskPanel.criteria')}</h4><div data-swarm-task-criteria><RecordedList values={value.task.acceptanceCriteria} t={t} /></div></section>
+            <section className="swarm-task-record"><h4>{t('taskPanel.output')}</h4><div className="swarm-task-text" data-swarm-task-output><RecordedText value={value.task.output} t={t} /></div></section>
+          </>}
         </>}
       </div>
     </>}
@@ -138,15 +152,16 @@ export function TeamTaskPanel(props: Props) {
   </section>
 }
 
-function TaskTrace({ task, data, selection, onChange, localeTag, memberAssets, onMemberSession, t }: Props & { readonly task: Task }) {
-  const attempts = data.attempts.filter(a => a.taskId === task.id).toSorted((a, b) => a.generation - b.generation || a.createdAt - b.createdAt || a.id.localeCompare(b.id))
-  const partial = data.truncated.attempts || data.attempts.length !== data.totals.attempts
-  const current = currentAttempt(task, data)
+function TaskTrace({ task, value, data, selection, onChange, localeTag, memberAssets, onMemberSession, t }: Props & { readonly task: Task; readonly value: SwarmReadTaskDetailV1 }) {
+  const attempts = value.attempts.entries
+  const current = currentAttempt(task, { ...data, attempts })
   return <section data-swarm-task-trace>
     <p className="swarm-task-note">{t('taskPanel.traceSource')}</p>
-    {partial ? <p className="swarm-task-note" role="status" data-swarm-attempts-partial>{t('taskPanel.partial', { shown: data.attempts.length, total: data.totals.attempts })}</p> : null}
+    <p className="swarm-task-note" data-swarm-retained-scope>{t('taskPanel.retained', { returned: value.attempts.returnedCount, retained: value.attempts.retainedCount, limit: value.attempts.limit })}</p>
+    <p className="swarm-task-note">{t('taskPanel.unsavedHistory')}</p>
+    {value.attempts.truncated ? <p className="swarm-task-note" role="status" data-swarm-attempts-partial>{t('taskPanel.retainedPartial')}</p> : null}
     {task.currentAttemptId !== undefined && current === undefined ? <p role="status">{t('taskPanel.currentMissing')}</p> : null}
-    {attempts.length === 0 ? <p>{t(partial || task.currentAttemptId !== undefined ? 'taskPanel.historyMissing' : 'taskPanel.noHistory')}</p> : attempts.map(attempt => {
+    {attempts.length === 0 ? <p>{t('taskPanel.retainedEmpty')}</p> : attempts.map(attempt => {
       const isCurrent = current?.id === attempt.id
       // Only a matching active roster row and the exact current Team member binding can open Chat.
       const member = memberAssets?.binding.teamId === data.binding.teamId && memberAssets.binding.rootSessionId === data.binding.rootSessionId
@@ -161,9 +176,29 @@ function TaskTrace({ task, data, selection, onChange, localeTag, memberAssets, o
           <dt>{t('taskPanel.assignment')}</dt><dd>{t(`taskPanel.${attempt.assignmentPhase}`)}</dd>
           <dt>{t('taskPanel.created')}</dt><dd><TaskTime value={attempt.createdAt} localeTag={localeTag} t={t} /></dd>
           <dt>{t('taskPanel.lastUpdated')}</dt><dd><TaskTime value={attempt.updatedAt} localeTag={localeTag} t={t} /></dd>
+          <dt>{t('taskPanel.deliveryCheckpoint')}</dt><dd data-swarm-delivery-checkpoint>{attempt.assignmentDeliveredAt === undefined ? t('taskPanel.notRecorded') : <TaskTime value={attempt.assignmentDeliveredAt} localeTag={localeTag} t={t} />}</dd>
+          <dt>{t('taskPanel.replaces')}</dt><dd><RecordedText value={attempt.replacesAttemptId} t={t} /></dd>
         </dl>
+        <section className="swarm-task-record"><h4>{t('taskPanel.output')}</h4><div className="swarm-task-text"><RecordedText value={attempt.output} t={t} /></div></section>
+        <section className="swarm-task-record"><h4>{t('taskPanel.diagnostic')}</h4><div className="swarm-task-text"><RecordedText value={attempt.diagnostic} t={t} /></div></section>
+        <section className="swarm-task-record"><h4>{t('taskPanel.evidence')}</h4><RecordedList values={attempt.evidence} t={t} /><p className="swarm-task-note">{t('taskPanel.evidenceHint')}</p></section>
         {member?.sessionId === undefined ? null : <button type="button" className="swarm-task-link" onClick={() => { onMemberSession(member.name, member.sessionId!) }}>{t('taskPanel.chat', { name: member.displayName ?? member.name })} →</button>}
       </details>
     })}
   </section>
+}
+
+function DetailReadStatus({ read, t }: { readonly read: TaskDetailRead; readonly t: Translate }) {
+  if (read.phase === 'available') return null
+  const key = read.phase === 'loading' ? 'taskPanel.detailLoading' : read.phase === 'waiting' ? 'taskPanel.detailWaiting'
+    : read.code === 'TEAM_TASK_NOT_FOUND' ? 'taskPanel.detailNotFound' : read.code === 'SWARM_RPC_PROJECTION_LIMIT' ? 'taskPanel.detailLimit' : 'taskPanel.detailFailed'
+  return <p className="swarm-task-note" role={read.phase === 'failed' ? 'alert' : 'status'} data-swarm-task-detail-state>{t(key)}{read.phase === 'failed' ? <> <code>{read.code}</code></> : null}</p>
+}
+
+function RecordedText({ value, t }: { readonly value: string | undefined; readonly t: Translate }) {
+  return <>{value === undefined ? t('taskPanel.notRecorded') : value === '' ? t('taskPanel.emptyText') : value}</>
+}
+
+function RecordedList({ values, t }: { readonly values: readonly string[]; readonly t: Translate }) {
+  return values.length === 0 ? <span>{t('taskPanel.notRecorded')}</span> : <ul>{values.map((value, index) => <li className="swarm-task-text" key={index}><RecordedText value={value} t={t} /></li>)}</ul>
 }

@@ -5,6 +5,7 @@ import { act } from 'react'
 import { describe, expect, it } from 'vitest'
 import { TeamDashboardDetails } from '../src/client/TeamDashboardDetails.js'
 import type { TeamDashboardState } from '../src/client/team-dashboard-controller.js'
+import type { SwarmReadTaskDetailV1 } from '../src/rpc/read-rpc-contract.js'
 
 const start = 1_700_000_000_000
 function fixture(): TeamDashboardState {
@@ -29,7 +30,16 @@ async function click(selector: string): Promise<void> {
 async function mount(state = fixture(), translate = t) {
   const coordinator = new FakeCoordinator()
   const listeners = new Set<() => void>()
-  const controller = { getSnapshot: () => state, subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } } }
+  const controller = { getSnapshot: () => state, subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
+    readTaskDetail: async ({ taskId }: { taskId: string }): Promise<SwarmReadTaskDetailV1> => {
+      const projection = state.data!.projection
+      if (projection.truncated.attempts) throw new Error('Task detail unavailable in this fixture')
+      const task = projection.tasks.find(row => row.id === taskId)
+      if (task === undefined) throw new Error('Task detail unavailable in this fixture')
+      const entries = projection.attempts.filter(row => row.taskId === taskId).map(row => ({ ...row, evidence: [] }))
+      return { schemaVersion: 1, state: 'available', binding: projection.binding, taskId, teamRevision: projection.team.revision,
+        task: { ...task, description: '', acceptanceCriteria: [] }, attempts: { scope: 'retained', entries, retainedCount: entries.length, returnedCount: entries.length, limit: 100, truncated: false }, observedAt: projection.observedAt }
+    } }
   await render(<TeamDashboardDetails {...({ controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'main-brain', useTabInfo, t: translate } as any)} />)
   return { coordinator, setState: async (next: TeamDashboardState) => { await act(async () => { state = next; listeners.forEach(listener => listener()) }) } }
 }
@@ -89,12 +99,12 @@ describe('V7 real task sidebar', () => {
     await mount({ ...state, data: { ...data, projection: { ...data.projection, attempts, truncated: { ...data.projection.truncated, attempts: true } } } })
     await click('[data-swarm-view-tab="tasks"]')
     await click('[data-swarm-task-id="task-a"]')
-    expect(document.querySelector('[data-swarm-task-unavailable]')?.textContent).toContain('not provided')
+    expect(document.querySelector('[data-swarm-task-detail-state]')?.textContent).toContain('could not be read')
     await click('[data-swarm-task-view="trace"]')
     expect(document.querySelector('[data-swarm-task-attempt="attempt-2"]')).toBeNull()
     expect(document.querySelector('[data-swarm-current-attempt="true"]')).toBeNull()
-    expect(document.querySelector('[data-swarm-attempts-partial]')).not.toBeNull()
-    expect(document.querySelector('[data-swarm-task-trace]')?.textContent).not.toContain('Review passed at')
+    expect(document.querySelector('[data-swarm-task-detail-state]')?.textContent).toContain('could not be read')
+    expect(document.querySelector('[data-swarm-task-detail]')?.textContent).not.toContain('Review passed at')
   })
 
   it('isolates selected task and subview by root plus Team, including reused task IDs', async () => {
@@ -118,7 +128,7 @@ describe('V7 real task sidebar', () => {
     await click('[data-swarm-view-tab="tasks"]')
     expect(document.querySelector('[data-swarm-task-view="trace"]')?.getAttribute('aria-selected')).toBe('true')
     const data = state.data!, tasks = data.projection.tasks.filter(task => task.id !== 'task-a')
-    const partial = { ...state, data: { ...data, projection: { ...data.projection, tasks, truncated: { ...data.projection.truncated, tasks: true } } } }
+    const partial = { ...state, data: { ...data, projection: { ...data.projection, cursor: `r1:${'e'.repeat(64)}`, tasks, truncated: { ...data.projection.truncated, tasks: true } } } }
     await setState(partial)
     expect(document.querySelector('[data-swarm-detail-view]')?.textContent).toContain('outside the available read')
     await setState(state)
@@ -137,10 +147,10 @@ describe('V7 real task sidebar', () => {
     expect(document.querySelector('[data-swarm-task-owner]')?.textContent).toContain('Target member: worker')
     await click('[data-swarm-task-id="task-c"]')
     await click('[data-swarm-task-view="trace"]')
-    expect(document.querySelector('[data-swarm-task-trace]')?.textContent).toContain('No execution attempts in the current complete read')
-    await setState({ ...complete, data: { ...complete.data, projection: { ...complete.data.projection, totals: { ...complete.data.projection.totals, attempts: 8 }, truncated: { ...complete.data.projection.truncated, attempts: true } } } })
-    expect(document.querySelector('[data-swarm-task-trace]')?.textContent).toContain('empty history is not confirmed')
-    expect(document.querySelector('[data-swarm-task-trace]')?.textContent).not.toContain('No execution attempts')
+    expect(document.querySelector('[data-swarm-task-trace]')?.textContent).toContain('No currently retained attempts')
+    await setState({ ...complete, data: { ...complete.data, projection: { ...complete.data.projection, cursor: `r1:${'d'.repeat(64)}`, totals: { ...complete.data.projection.totals, attempts: 8 }, truncated: { ...complete.data.projection.truncated, attempts: true } } } })
+    expect(document.querySelector('[data-swarm-task-detail-state]')?.textContent).toContain('could not be read')
+    expect(document.querySelector('[data-swarm-task-detail]')?.textContent).not.toContain('No currently retained attempts')
   })
 
   it('opens only an active member Chat from the exact current Team binding', async () => {

@@ -96,6 +96,7 @@ export class AgentSwarmReadRpcService {
       'toolCatalog.read', 'skillCatalog.read',
       'teams.read', 'binding.read', 'status.read', 'snapshot.read', 'page.read',
       'captainMembers.read', 'captainAnnouncements.read', 'captainDiagnostics.read',
+      'taskDetail.read',
     ].map(capability => ({
       capability: capability as SwarmReadCapabilityState['capability'],
       state: available ? 'available' : 'unavailable',
@@ -126,6 +127,7 @@ export class AgentSwarmReadRpcService {
       return { ...projection, teams: projection.teams.map(team => teamDescriptorOf(projection.binding.rootSessionId, team, team.captainProfile, team.goal)) }
     }
     if (request.method === 'toolCatalog') return await this.reads.tools(request.target.rootSessionId)
+    if (request.method === 'taskDetail') return await this.reads.taskDetail(request)
     if (request.method === 'skillCatalog') {
       return await this.reads.skills(request.target.rootSessionId)
     }
@@ -248,13 +250,18 @@ export function evaluateSwarmRequestTrust(facts: SwarmRequestTrustFacts): SwarmR
 }
 
 function parseRequest(input: unknown): SwarmReadRpcRequest {
-  const base = strictFields(input, new Set(['schemaVersion', 'method', 'target', 'afterCursor', 'page']))
+  const base = strictFields(input, new Set(['schemaVersion', 'method', 'target', 'afterCursor', 'page', 'taskId']))
   if (base.schemaVersion !== 1 || typeof base.method !== 'string') invalidRequest()
   if (base.method === 'capabilities') {
     assertKeys(base, new Set(['schemaVersion', 'method']))
     return { schemaVersion: 1, method: 'capabilities' }
   }
   const target = parseTarget(base.target)
+  if (base.method === 'taskDetail') {
+    assertKeys(base, new Set(['schemaVersion', 'method', 'target', 'taskId']))
+    if (target.teamId === undefined || !boundedString(base.taskId, 128)) invalidRequest()
+    return { schemaVersion: 1, method: 'taskDetail', target: { rootSessionId: target.rootSessionId, teamId: target.teamId }, taskId: base.taskId }
+  }
   if (base.method === 'teams') {
     assertKeys(base, new Set(['schemaVersion', 'method', 'target']))
     return { schemaVersion: 1, method: 'teams', target }
@@ -434,6 +441,8 @@ function publicFailure(error: unknown): { readonly status: number; readonly code
     SWARM_HOST_BINDING_AMBIGUOUS: [409, 'Target root has multiple Team bindings'],
     SWARM_HOST_BINDING_MISMATCH: [403, 'Target Team does not match the root captain'],
     TEAM_NOT_FOUND: [404, 'Target Team was not found'],
+    TEAM_TASK_NOT_FOUND: [404, 'Target task was not found in this Team'],
+    SWARM_RPC_PROJECTION_LIMIT: [413, 'Swarm read projection exceeds the bounded read ceiling'],
     TEAM_UNAUTHORIZED: [403, 'Target Team is not readable by the root captain'],
   }
   const selected = known[code]

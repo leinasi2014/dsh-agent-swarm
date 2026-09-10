@@ -72,8 +72,8 @@ describe('R2 browser client', () => {
     expect(digest).toBe(SWARM_READ_RPC_CONTRACT_DIGEST_V1)
     expect(Object.isFrozen(SWARM_READ_RPC_CONTRACT_V1)).toBe(true)
     expect(Object.isFrozen(SWARM_READ_RPC_FIXTURES_V1.requests)).toBe(true)
-    expect(SWARM_READ_RPC_CONTRACT_V1.schemas.request.oneOf).toHaveLength(11)
-    expect(SWARM_READ_RPC_FIXTURES_V1.values.capabilities.capabilities).toHaveLength(13)
+    expect(SWARM_READ_RPC_CONTRACT_V1.schemas.request.oneOf).toHaveLength(12)
+    expect(SWARM_READ_RPC_FIXTURES_V1.values.capabilities.capabilities).toHaveLength(14)
     expect(() => assertSwarmReadRpcValue('skillCatalog', SWARM_READ_RPC_FIXTURES_V1.values.skillCatalog)).not.toThrow()
     expect(() => assertSwarmReadRpcValue('skillCatalog', {
       ...SWARM_READ_RPC_FIXTURES_V1.values.skillCatalog,

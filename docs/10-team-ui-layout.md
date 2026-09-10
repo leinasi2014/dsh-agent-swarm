@@ -72,7 +72,11 @@ Team 页面复用官方 SidebarRight 的独立页签。关闭后，从官方新�
 | 成员 | Captain → Member 执行树与当前任务 | 展开成员、打开个人对话或任务详情 |
 | 群信息 | 队长公告、已有团队管理请求与诊断入口 | 公告保留来源与时间；交流强度请求排入队长会话，权威读回后才标记已应用 |
 
-任务概览只显示当前 Host 白名单内的状态、执行者、指定成员、依赖、创建与更新时间及当前 attempt。轨迹按实际 attempt 的轮次展示状态、投递状态和时间，不把更新时间拆成虚构阶段事件；描述、验收标准、成果和退回原因尚未进入该读取契约时，明确提示这些字段当前不可读。当前读取范围与保留策略不能冒充完整历史。
+任务概览通过独立 `taskDetail` 读取真实任务正文、完成标准和已保存的输出；状态、执行者、指定成员、依赖、创建与更新时间及当前 attempt 使用同一次详情响应，避免与较旧摘要混合。轨迹按当前保留的本任务 attempt 分轮显示输出、证据引用、诊断、分派记录时间和被替代的尝试。字段缺失显示未记录，详情请求失败、任务不存在和读取超限分别说明；来源角色、审核者及阶段事件当前不可读，不补造审核原因或时间。
+
+打开可见任务详情时读取，随后只在已验证的 snapshot 稳定游标变化时刷新；概览/轨迹切换与内容未变的轮询不重复请求。返回列表、切到其他分区、关闭正文或切换 Session/Team 时取消该详情读取，并按调用 Session、解析后的 root、Team、任务、游标与修订隔离迟到响应。读取结果不形成新的持久化缓存或权限。
+
+轨迹明确显示当前 retained 尝试的返回数、保留数和上限；截断与已被保留策略移除的历史分开说明，不能称为完整历史。证据按纯文本显示，不推断为存在或可访问的文件；诊断不自动等同于退回原因，分派送达记录时间不等同于模型开始、提交或审核时间。字段与读取边界见 [核心协议](04-core-protocol.md#8-持久化读取与-ui)。
 
 任务详情、概览/轨迹选择、轮次与已完成分组的展开状态按 root Session + Team 保留；关闭并重新打开官方侧栏、切换 Team 后可恢复。该状态仅保存浏览偏好，任务事实仍来自 Host，刷新页面或重启浏览器后的偏好恢复不在此首片范围内。
 
@@ -157,7 +161,8 @@ Team 页面复用官方 SidebarRight 的独立页签。关闭后，从官方新�
 |---|---|
 | Team 卡片 | `src/client/team-dashboard-cards.tsx` |
 | 执行树、视图与栏内布局 | `src/client/TeamDashboardContent.tsx` |
-| 成员和任务详情 | `src/client/team-dashboard-detail-content.tsx` |
+| 成员详情 | `src/client/team-dashboard-detail-content.tsx` |
+| 任务概览与轨迹 | `src/client/TeamTaskPanel.tsx`；可见详情读取由 `src/client/team-task-detail.ts` 管理 |
 | 官方页签和导航协调 | `src/client/team-dashboard-surface-coordinator.ts` |
 | 顶部短名称接入与官方 slots 组合 | `src/client/team-dashboard-plugin.ts`；显示规则见第 5 节 |
 | 官方 Settings Consumer | `src/client/TeamSkillSettingsCard.tsx` |

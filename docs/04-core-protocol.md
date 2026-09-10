@@ -134,6 +134,14 @@ Team 消息的 `wakeup` 复用官方 steering：忙碌成员在最近的后续 s
 - 多 Team 切换通过 Main Brain/Host projection 选择 Captain Session，不在侧边栏维护第二套 Team registry。
 - official Session list/Chat 仍由 DSH 拥有；插件只提供可读 label 与导航。
 
+任务正文使用同一只读入口的 `taskDetail` 方法：请求显式携带当前调用 Session 的 `target.rootSessionId`、`target.teamId` 与 `taskId`，继续经过 Host 关系核验；响应 `binding.rootSessionId` 是解析后的 Captain，不能据此替换后续请求的调用 Session。返回前复核 Team 修订与 Captain 绑定，界面也须核对当前 Session、Team、任务及响应绑定，丢弃切换或关闭后的迟到响应。
+
+详情白名单保留任务摘要，并增加 `description`、`acceptanceCriteria` 和可选 `output`；同一任务的尝试增加可选 `output`、`diagnostic`、`assignmentDeliveredAt`、`replacesAttemptId` 及 `evidence` 数组。旧 snapshot/page 摘要不因此扩大。证据字符串只是保存的引用，不证明文件存在、可访问或已验证；诊断不等同于退回原因，分派送达记录时间不等同于模型开始、提交或审核时间。未保存的来源角色、审核者和阶段事件不推断补齐。
+
+`attempts.scope` 固定为 `retained`，只表示当前 aggregate 保留的本任务尝试；先按任务筛选，再按 generation 降序、ID 升序返回最多 100 条，并报告 `retainedCount`、`returnedCount`、`limit` 和 `truncated`。没有保留尝试的已有任务返回 available 与空数组；任务不存在返回 `TEAM_TASK_NOT_FOUND/404`。既有保留策略已移除的历史不计入 retained 数量，`truncated: false` 也不表示完整历史。
+
+详情文本不静默截短：description 与每项 output 上限各 65,536 Unicode 码点，subject 512，diagnostic 8,192；完成标准与证据各最多 64 项、每项 2,048 码点，依赖最多 100 项。snapshot/page 的任务标题同样支持 512 码点，不能在进入详情前拒绝 Domain 合法标题，摘要字段白名单保持不变。这些窗口覆盖默认 Domain 的 64KiB 文本与 64 项依赖限制；自定义更大限制或更大历史内容超出窗口时返回 `SWARM_RPC_PROJECTION_LIMIT/413`。读取失败与未记录字段分别显示，不能以空内容掩盖超限。
+
 Team 注册 DSH SidebarRight 的独立页签，沿用官方布局与主题 tokens。卡片、视图、执行树、详情与名称展示统一由 [10-team-ui-layout.md](10-team-ui-layout.md) 定义。摘要和进度必须从同一 aggregate 派生；团队切换只更换绑定读目标，不能把旧团队的正文放到新卡下，也不能把未完成读取当成新团队可用。归属路径与当前会话标记必须使用 Host 核验过的关系。
 
 不添加顶部 Team 按钮；关闭后可从官方侧栏的新页签引导页重新打开 Team。现有 controller 随当前 Session 只读观察，首次载入、创建团队及重连后取得完整 Host 投影才自动申请页签，不显示无团队空卡。关闭、切到其他官方页签或收起右栏后，同一 Team 的刷新不得抢回焦点；加载期间关闭同样有效。官方 tab.id 仅在 Session 内唯一，插件按 Session 与 tab.id 跟踪绑定；组件卸载只表示正文不可见，只有 tab.signal abort 表示实际关闭。切换 Session 时保留各自页签；新的 Team 可重新显示。新打开的队长/成员 Chat 优先选中 Host 验证的所属 Team；主会话默认选择未归档 Team，用户显式选中的其他或历史 Team 在当前 Session 内保留。轮询、请求取消和卸载仍由原 controller 生命周期负责。
