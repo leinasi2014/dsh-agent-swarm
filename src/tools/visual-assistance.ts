@@ -24,8 +24,8 @@ export function registerVisualAssistanceTools(ctx: Context, runtime: AgentSwarmR
   register(ctx, { name: 'agent_swarm_request_visual_assistance',
     description: 'Ask another currently image-capable member from agent_swarm_directory to inspect images in a public message actually addressed to you. Reuse a stable request_id unchanged after an uncertain result. Pass only source_message_id and image_ids from your input, never file paths or attachment refs. The helper cannot delegate this request. This preserves task owner and review; the text result returns to you.',
     parameters: { type: 'object', additionalProperties: false, properties: { request_id: text, source_message_id: text,
-      image_ids: { type: 'array', minItems: 1, maxItems: 256, uniqueItems: true, items: text }, helper_member_id: text,
-      question: { type: 'string', minLength: 1, maxLength: 8192 } },
+      image_ids: { type: 'array', description: 'Select 1 to 256 unique original image IDs.', items: text }, helper_member_id: text,
+      question: { type: 'string', description: 'Nonblank question, at most 8192 UTF-8 bytes after trimming.' } },
     required: ['request_id', 'source_message_id', 'image_ids', 'helper_member_id', 'question'] }, output,
     async execute(args, exec) {
       const input = z.object({ request_id: z.string(), source_message_id: z.string(), image_ids: z.array(z.string()),
@@ -37,7 +37,14 @@ export function registerVisualAssistanceTools(ctx: Context, runtime: AgentSwarmR
   register(ctx, { name: 'agent_swarm_complete_visual_assistance',
     description: 'Complete a visual assistance addressed to your exact Session. Use a stable request_id and assistance_id from the request. Outcome is {state:"completed",summary:"public description"} or {state:"failed",reason: one of helper-unavailable, image-capability-unknown, image-model-unsupported, image-unavailable, permission-revoked, expired}. Only the public summary returns to the requester; no task ownership or review changes.',
     parameters: { type: 'object', additionalProperties: false, properties: { request_id: text, assistance_id: text,
-      outcome: z.toJSONSchema(publicVisualAssistanceOutcomeSchema) }, required: ['request_id', 'assistance_id', 'outcome'] }, output,
+      // Use the official plain-JSON subset; Zod metadata and length/pattern keywords cannot form SDK types.
+      // Runtime Zod/domain validation below still enforces length, nonblank text and image-set bounds.
+      outcome: { oneOf: [
+        { type: 'object', additionalProperties: false, properties: { state: { type: 'string', const: 'completed' },
+          summary: { type: 'string', description: 'Nonblank public summary, 1 to 8192 UTF-16 code units.' } }, required: ['state', 'summary'] },
+        { type: 'object', additionalProperties: false, properties: { state: { type: 'string', const: 'failed' },
+          reason: { type: 'string', enum: publicVisualAssistanceFailureSchema.options } }, required: ['state', 'reason'] },
+      ] } }, required: ['request_id', 'assistance_id', 'outcome'] }, output,
     async execute(args, exec) {
       const input = z.object({ request_id: z.string(), assistance_id: z.string(), outcome: publicVisualAssistanceOutcomeSchema }).strict().parse(args)
       return result(await completeVisualAssistance(ctx, runtime, exec, { requestId: input.request_id, assistanceId: input.assistance_id, outcome: input.outcome }))
