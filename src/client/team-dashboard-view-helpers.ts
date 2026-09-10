@@ -1,6 +1,6 @@
 /** Display-only derivations from the single authoritative read projection. */
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SwarmHostReadProjectionV1 } from '../host/host-read-types.js'
+import type { TeamReadProjection as SwarmHostReadProjectionV1 } from './team-read-types.js'
 import type { SwarmReadAssetStatusV1, SwarmReadCaptainMembersV1, SwarmReadMemberCompositionV1 } from '../rpc/read-rpc-contract.js'
 import { TEAM_DASHBOARD_NS, type TeamDashboardKey } from './team-dashboard-locales.js'
 
@@ -9,13 +9,17 @@ export const NOT_GENERATED_AVATAR: SwarmReadAssetStatusV1 = { state: 'not_genera
 const NOT_GENERATED_IDENTITY: SwarmReadAssetStatusV1 = { state: 'not_generated', reason: 'identity_backend_not_implemented' }
 
 export type DeskTone = 'standby' | 'executing' | 'pending' | 'failed' | 'offline'
-export type TaskProgressState = 'completed' | 'running' | 'review' | 'blocked' | 'unknown' | 'ready' | 'failed' | 'cancelled'
+export type TaskProgressState = 'completed' | 'running' | 'review' | 'blocked' | 'unknown' | 'ready' | 'failed' | 'cancelled' | 'open' | 'budgetHold' | 'teamInactive'
 
 /** Counts visible canonical tasks; callers disclose truncation before showing a total. */
 export function taskProgressState(task: SwarmHostReadProjectionV1['tasks'][number], tasks: SwarmHostReadProjectionV1['tasks']): TaskProgressState {
   if (task.status === 'in_progress') return 'running'
   if (task.status === 'submitted' || task.status === 'verifying') return 'review'
   if (task.status === 'pending') {
+    if (task.readiness === 'team-inactive') return 'teamInactive'
+    if (task.readiness === 'budget-hold') return 'budgetHold'
+    if (task.readiness === 'blocked') return 'blocked'
+    if (task.readiness === 'ready') return task.assignmentMode === 'open-claim' ? 'open' : 'ready'
     const dependencies = task.blockedBy.map(id => tasks.find(candidate => candidate.id === id))
     if (dependencies.some(dependency => dependency !== undefined && dependency.status !== 'completed')) return 'blocked'
     return dependencies.some(dependency => dependency === undefined) ? 'unknown' : 'ready'

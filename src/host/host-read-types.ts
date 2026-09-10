@@ -102,6 +102,17 @@ export interface SwarmHostReadProjectionV1 {
   readonly observedAt: number
 }
 
+/** Explicit v2 task projection. Readiness is Team admission evidence, not a member lease. */
+export type SwarmTaskReadinessV2 = 'not-pending' | 'team-inactive' | 'blocked' | 'budget-hold' | 'ready'
+export type SwarmTaskRowV2 = SwarmHostReadProjectionV1['tasks'][number] & {
+  readonly assignmentMode: 'automatic' | 'open-claim'
+  readonly readiness: SwarmTaskReadinessV2
+}
+export interface SwarmHostReadProjectionV2 extends Omit<SwarmHostReadProjectionV1, 'schemaVersion' | 'tasks'> {
+  readonly schemaVersion: 2
+  readonly tasks: readonly SwarmTaskRowV2[]
+}
+
 /** Read-only Team enumeration projected straight from the authoritative aggregates. The client never
  *  receives a copied Team aggregate or a second state — only stable selector rows it may use to target
  *  a subsequent snapshot/{binding,teams} read or open the official Captain Session. */

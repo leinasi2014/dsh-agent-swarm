@@ -22,11 +22,13 @@ const member: ToolPermissionContext = {
 }
 
 describe('WAIT-SPIN member admission and model surface', () => {
-  it('hides wait in the member descriptor baseline and denies it before a policy allow can apply', () => {
-    expect(MEMBER_HIDDEN_TOOLS).toEqual([...CAPTAIN_ONLY_TOOLS, 'agent_swarm_create_managed', 'agent_swarm_wait'])
+  it('hides wait and Main-only submission from members even with an explicit policy allow', () => {
+    expect(MEMBER_HIDDEN_TOOLS).toEqual([...CAPTAIN_ONLY_TOOLS, 'agent_swarm_create_managed', 'agent_swarm_wait', 'agent_swarm_submit_work_request'])
     expect(memberToolDeny()).toEqual([...MEMBER_HIDDEN_TOOLS])
-    expect(memberToolDeny(['agent_swarm_wait'])).toEqual([...MEMBER_HIDDEN_TOOLS])
-    expect(decideToolPermission({ allow: ['agent_swarm_wait'] }, 'agent_swarm_wait', member)).toBe('deny')
+    for (const name of ['agent_swarm_wait', 'agent_swarm_submit_work_request']) {
+      expect(memberToolDeny([name])).toEqual([...MEMBER_HIDDEN_TOOLS])
+      expect(decideToolPermission({ allow: [name] }, name, member)).toBe('deny')
+    }
   })
 
   it('tells a member to end its turn after no-task/submit/blocker instead of waiting', () => {

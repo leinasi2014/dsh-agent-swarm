@@ -10,8 +10,8 @@ import type { TeamCommunicationIntensity } from '../domain/types.js'
 import { communicationPolicy } from '../domain/team-domain-communication.js'
 import type { HumanInteractionOverlayStore } from '../human/human-interaction-store.js'
 import { deepFreezeJson } from './frozen-json.js'
-import { attemptReadSummary, taskReadSummary } from './task-read-summary.js'
-import type { SwarmHostReadInput, SwarmHostReadProjectionV1, SwarmHostTeamsProjectionV1 } from './host-read-types.js'
+import { attemptReadSummary, taskReadSummary, taskReadSummaryV2 } from './task-read-summary.js'
+import type { SwarmHostReadInput, SwarmHostReadProjectionV1, SwarmHostReadProjectionV2, SwarmHostTeamsProjectionV1 } from './host-read-types.js'
 import { canonicalJson, SWARM_PRODUCER_CAPABILITIES_V1 } from './producer-contract.js'
 
 export type { SwarmHostReadInput, SwarmHostReadProjectionV1, SwarmHostTeamsProjectionV1 } from './host-read-types.js'
@@ -80,6 +80,19 @@ export class AgentSwarmHostReadService {
   /** Pure projection; its target collaborator has already admitted this read. */
   projectAuthorizedTeam(team: TeamState, scope: TeamScope, afterCursor?: string, bindingRoot = team.captainSessionId): SwarmHostReadProjectionV1 {
     return project({ team }, this.deps.overlay.list(scope, team.id), bindingRoot, afterCursor, this.observedAt(), this.deps.communicationIntensity)
+  }
+
+  /** Same authorized aggregate cut; opt-in fields participate in the cursor. */
+  projectAuthorizedTeamV2(team: TeamState, scope: TeamScope, afterCursor?: string, bindingRoot = team.captainSessionId): SwarmHostReadProjectionV2 {
+    const base = this.projectAuthorizedTeam(team, scope, undefined, bindingRoot)
+    const { cursor: _cursor, changed: _changed, resyncRequired: _resync, observedAt, ...stable } = base
+    const names = new Map(team.members.map(member => [member.sessionId, member.name]))
+    const byId = new Map(team.tasks.map(task => [task.id as string, task]))
+    const projection = { ...stable, schemaVersion: 2 as const,
+      tasks: base.tasks.map(row => taskReadSummaryV2(byId.get(row.id)!, team, bindingRoot, names, observedAt)) }
+    const cursor = `r1:${createHash('sha256').update(canonicalJson(projection)).digest('hex')}`
+    return deepFreezeJson({ ...projection, cursor, changed: afterCursor !== cursor,
+      resyncRequired: afterCursor !== undefined && afterCursor !== cursor, observedAt })
   }
 
   /** Stop admission and wait a bounded interval for all admitted projections. */

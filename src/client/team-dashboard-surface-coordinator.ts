@@ -8,7 +8,7 @@ import type { TeamDashboardController } from './team-dashboard-controller.js'
 import { queueCommunicationChange, type CaptainHumanPrompt } from './team-communication-command.js'
 import type { TeamCommunicationChoice } from './TeamCommunicationControl.js'
 import type { DetailSelection } from './team-dashboard-view-helpers.js'
-import type { SwarmHostReadProjectionV1 } from '../host/host-read-types.js'
+import type { TeamReadProjection as SwarmHostReadProjectionV1 } from './team-read-types.js'
 
 export interface TeamWorkspaceSelection {
   readonly view: 'tasks' | 'members' | 'info'

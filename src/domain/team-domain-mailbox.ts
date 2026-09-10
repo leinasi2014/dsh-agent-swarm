@@ -17,6 +17,22 @@ import { actorMembership, foldMemberName, nonEmpty, type TeamDomainDeps } from '
 import { TeamMessageId, type TeamId, type TeamMessage, type TeamMessageCausal, type TeamMessageDelivery, type TeamState } from './types.js'
 import type { TeamScope } from './team-domain-port.js'
 import { isRecentPeerWakeup, peerWakeupLimited } from './team-domain-communication.js'
+import type { WorkRequestOrigin } from './work-request.js'
+import { isTaskReady } from './graph.js'
+
+/** System-only producer: external provenance never impersonates a Team sender. */
+export function queueWorkRequestNoticeInDraft(deps: TeamDomainDeps, team: TeamState, workRequestId: string, origin: WorkRequestOrigin, description: string): TeamMessage {
+  const message: TeamMessage = { id: TeamMessageId(`message-${randomUUID()}`), kind: 'work-request-notice', workRequestId,
+    origin: structuredClone(origin), targetSessionId: team.captainSessionId, targetName: 'captain',
+    content: `Work request ${workRequestId} from ${origin.kind === 'main' ? `Main ${origin.sessionId}` : 'local operator'}: ${description}`,
+    delivery: 'wakeup', phase: 'queued', createdAt: deps.now() }
+  expectDomain(team.messages.filter(item => item.phase === 'queued' && item.targetSessionId === message.targetSessionId).length < deps.limits.maxPendingMessagesPerMember,
+    'Captain mailbox is full', 'TEAM_MAILBOX_FULL')
+  expectDomain(Buffer.byteLength(JSON.stringify(message), 'utf8') <= deps.limits.maxMessageBytes, 'message frame is too large', 'TEAM_INPUT_LIMIT')
+  team.messages.push(message)
+  pruneRetainedMessages(team, deps.limits.maxRetainedMessages, deps.now())
+  return message
+}
 
 export async function queueMessage(
   deps: TeamDomainDeps,
@@ -177,6 +193,15 @@ function normalizeCausal(causal: TeamMessageCausal, team: TeamState): TeamMessag
  */
 export function messageObsoleteReason(team: TeamState, message: TeamMessage): string | undefined {
   if (message.phase !== 'queued') return undefined
+  if (message.kind === 'work-request-notice') {
+    const request = team.workRequests?.requests.find(item => item.id === message.workRequestId)
+    if (message.targetSessionId !== team.captainSessionId || request === undefined || request.resolution !== undefined) return 'work request is no longer pending for this Captain'
+  }
+  if (message.kind === 'open-claim-notice') {
+    const task = team.tasks.find(item => item.id === message.causal?.taskId)
+    const member = team.members.find(item => item.sessionId === message.targetSessionId)
+    if (member?.phase !== 'active' || task === undefined || task.assignmentMode !== 'open-claim' || task.revision !== message.causal?.revision || task.ownerSessionId !== undefined || !isTaskReady(team.tasks, task)) return 'open task or recipient is no longer eligible'
+  }
   const target = team.members.find(member => member.sessionId === message.targetSessionId)
   if (target !== undefined && target.phase === 'removed' && message.targetSessionId !== team.captainSessionId) {
     return `target ${target.name} is removed`

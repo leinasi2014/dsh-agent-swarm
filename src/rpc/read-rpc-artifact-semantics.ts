@@ -1,5 +1,5 @@
 /** Browser-safe strict decoding; no Host error/runtime dependency. */
-import { SWARM_READ_RPC_CONTRACT_V1, pageRows } from './read-rpc-artifact-schema.js'
+import { SWARM_READ_RPC_CONTRACT_V1, SWARM_READ_RPC_CONTRACT_V2, pageRows, taskRowV2 } from './read-rpc-artifact-schema.js'
 
 // Keep the browser RPC decoder independent from Host-only domain errors
 // (`TeamDomainError` extends @deepseek-ai/dsh-llm's Node implementation).
@@ -70,7 +70,9 @@ export function assertSwarmReadRpcValue(method: string, value: unknown): void {
     || method === 'binding' || method === 'status'
     || method === 'snapshot' || method === 'page' || method === 'taskDetail' ? method : undefined
   if (key === undefined) throw new Error('Swarm RPC method is not a read method')
-  const schema = SWARM_READ_RPC_CONTRACT_V1.schemas.values[key]
+  const version2 = typeof value === 'object' && value !== null && Object.getOwnPropertyDescriptor(value, 'schemaVersion')?.value === 2
+  if (version2 && key !== 'snapshot' && key !== 'page' && key !== 'taskDetail') throw new Error('Swarm RPC v2 is restricted to task reads')
+  const schema = version2 ? SWARM_READ_RPC_CONTRACT_V2.schemas.values[key as 'snapshot' | 'page' | 'taskDetail'] : SWARM_READ_RPC_CONTRACT_V1.schemas.values[key]
   assertSchema(value, schema, '$', { seen: new WeakSet<object>(), nodes: 0 })
   assertResultSemantics(key, value as Record<string, unknown>)
 }
@@ -334,7 +336,7 @@ function assertResultSemantics(method: string, value: Record<string, unknown>): 
   if (method === 'captainDiagnostics') return
   if (method === 'page') {
     const entries = value.entries as unknown[]
-    assertPageEntryKind(value.kind, entries)
+    assertPageEntryKind(value.kind, entries, value.schemaVersion === 2)
     const offset = value.offset as number
     const limit = value.limit as number
     const visible = value.visibleTotal as number
@@ -365,12 +367,12 @@ function assertResultSemantics(method: string, value: Record<string, unknown>): 
   }
 }
 
-function assertPageEntryKind(kind: unknown, entries: readonly unknown[]): void {
+function assertPageEntryKind(kind: unknown, entries: readonly unknown[], version2 = false): void {
   if (kind !== 'tasks' && kind !== 'attempts' && kind !== 'pendingInteractions') {
     throw new Error('Swarm RPC page kind is not recognized')
   }
   entries.forEach((entry, index) => {
-    assertSchema(entry, pageRows[kind], `$.entries[${index}]`, { seen: new WeakSet<object>(), nodes: 0 })
+    assertSchema(entry, version2 && kind === 'tasks' ? taskRowV2 : pageRows[kind], `$.entries[${index}]`, { seen: new WeakSet<object>(), nodes: 0 })
   })
 }
 

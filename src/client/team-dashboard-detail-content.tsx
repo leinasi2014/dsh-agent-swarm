@@ -2,7 +2,7 @@
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useId, useState, type KeyboardEvent, type RefObject } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SwarmHostReadProjectionV1 } from '../host/host-read-types.js'
+import type { TeamReadProjection as SwarmHostReadProjectionV1 } from './team-read-types.js'
 import type { SwarmReadCaptainDiagnosticsV1, SwarmReadCaptainMembersV1 } from '../rpc/read-rpc-contract.js'
 import { TEAM_DASHBOARD_NS } from './team-dashboard-locales.js'
 import { SafePixelAvatar } from './SafePixelAvatar.js'

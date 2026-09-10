@@ -1,3 +1,4 @@
+import { draftDashboardConnection, adoptPersistedDraft } from './draft-controller-helpers.js'
 import type { DirectoryResponse, DirectoryEntry } from '../rpc/directory-contract.js'
 import { hasUnconfirmedPublicMention } from '../shared/public-content.js'
 import { addDraftImages, draftContent, editDraft, removeDraftImage, replaceDraftRange, replyDraft, type PublicDraft } from './public-draft.js'
@@ -5,7 +6,7 @@ import { PublicDraftStore } from './public-draft-store.js'
 import { decodePublicDraft, encodePublicDraft, inspectDraftImage, publicDraftImageIssue, publicDraftRequest, publicImageBlob, type StoredPublicSnapshot } from './public-image-draft.js'
 import { mergePublicMessages as merge } from './public-v2-schema.js'
 import type { PublicChatV3HistoryResponse as PublicChatHistoryResponse, PublicChatV3Message as PublicChatMessage, PublicChatV2Response, PublicChatV3Response, PublicChatResponse, PublicChatMessage as LegacyMessage } from '../rpc/public-rpc-contract.js'
-import type { TeamDashboardController, TeamDashboardState } from './team-dashboard-controller.js'
+import type { TeamDashboardState } from './team-dashboard-controller.js'
 import { PublicChatRpcError, type PublicChatClient } from './public-rpc-client.js'
 
 interface Selection { readonly key: string; readonly viewer: string; readonly captain: string; readonly team: string; readonly revision: number }
@@ -62,11 +63,7 @@ export class PublicChatController {
     private readonly inspectImage = inspectDraftImage) {}
   getSnapshot = (): PublicChatState => this.state
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
-  connect(dashboard: Pick<TeamDashboardController, 'subscribe' | 'getSnapshot'>): () => void {
-    const sync = (): void => { this.bind(dashboard.getSnapshot()) }
-    const off = dashboard.subscribe(sync); sync()
-    return () => { off(); this.dispose() }
-  }
+  connect = draftDashboardConnection(this)
   bind(dashboard: TeamDashboardState): void {
     const wasReady = this.bindingReady
     this.bindingReady = dashboard.phase === 'ready'
@@ -452,10 +449,7 @@ export class PublicChatController {
         const externalChange = draft === undefined && value.draft.version !== prior.version && !ownClear
         if (externalChange && saved.draft.version !== prior.version) saved.status = 'conflict'
         else {
-          saved.persisted = value.draft
-          if (saved.draft.version === (draft ?? prior).version) saved.draft = value.draft
-          saved.versionFloor = Math.max(saved.versionFloor, value.draft.version)
-          saved.status = saved.draft.version === saved.persisted.version ? 'ready' : 'saving'
+          adoptPersistedDraft(saved, value.draft, (draft ?? prior).version)
         }
         for (const id of Object.keys(value.blobs)) delete saved.newBlobs[id]
         const keep = new Set([...(saved.draft.images ?? []).map(image => image.blobId), ...saved.pending?.blobIds ?? []])

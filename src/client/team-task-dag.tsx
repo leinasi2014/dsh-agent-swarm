@@ -1,6 +1,6 @@
 /** Compact dependency DAG for the Tasks view (P0-2 S5c). Pure client layout. */
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SwarmHostReadProjectionV1 } from '../host/host-read-types.js'
+import type { TeamReadProjection as SwarmHostReadProjectionV1 } from './team-read-types.js'
 import { enumLabel } from './team-dashboard-view-helpers.js'
 
 type DagTask = SwarmHostReadProjectionV1['tasks'][number]

@@ -56,6 +56,47 @@ describe('directed-member scheduling', () => {
       expect(followups).toHaveLength(0)
     } finally { await dispose(composition) }
   })
+
+  it('excludes open work from the Provider, assigns automatic work first and notifies only remaining idle members', async () => {
+    const composition = await compositionAt(roots, 'open-scheduling-')
+    try {
+      await activeFixture(composition, false)
+      const teamId = AgentSwarm.TeamId(composition.teamId), domain = composition.ctx.agentSwarm.domain
+      const open = await domain.createTask(composition.scope, teamId, composition.lead.id,
+        { subject: 'Volunteer work', description: 'Only self-claim.', assignmentMode: 'open-claim', priority: 100 })
+      const automatic = await domain.createTask(composition.scope, teamId, composition.lead.id,
+        { subject: 'Directed automatic', description: 'Alpha first.', targetMemberSessionId: 'alpha' })
+      const provider = { select: vi.fn(priorityReadyScheduler().select) }
+      const live = new Map<string, { status: 'idle' | 'running' }>([['alpha', { status: 'idle' }], ['beta', { status: 'idle' }]])
+      const followups: string[] = []
+      const pass = schedulingPass(composition, provider, live, followups)
+      await pass.run(composition.scope, teamId, composition.lead)
+      expect(provider.select.mock.calls[0]![0].readyTasks.map(task => task.id)).toEqual([automatic.id])
+      const team = (await snapshotOf(composition)).team
+      expect(team.tasks.find(task => task.id === open.id)).toMatchObject({ status: 'pending',
+        openClaimNotice: { revision: open.revision, recipientSessionIds: ['beta'] } })
+      expect(team.attempts.filter(attempt => attempt.taskId === open.id)).toHaveLength(0)
+      expect(team.tasks.find(task => task.id === automatic.id)).toMatchObject({ ownerSessionId: 'alpha' })
+      expect(team.messages.filter(message => message.kind === 'open-claim-notice').map(message => message.targetSessionId)).toEqual(['beta'])
+      expect(followups).toHaveLength(1)
+    } finally { await dispose(composition) }
+  })
+
+  it('rejects a Provider that returns an excluded open task without claiming it', async () => {
+    const composition = await compositionAt(roots, 'open-provider-')
+    try {
+      await activeFixture(composition, false)
+      const teamId = AgentSwarm.TeamId(composition.teamId)
+      const open = await composition.ctx.agentSwarm.domain.createTask(composition.scope, teamId, composition.lead.id,
+        { subject: 'Open task', description: 'The Provider cannot delegate this.', assignmentMode: 'open-claim' })
+      const live = new Map<string, { status: 'idle' | 'running' }>([['alpha', { status: 'idle' }], ['beta', { status: 'idle' }]])
+      const followups: string[] = []
+      await expect(schedulingPass(composition, { select: () => [{ taskId: open.id, memberSessionId: 'alpha' }] }, live, followups)
+        .run(composition.scope, teamId, composition.lead)).rejects.toMatchObject({ code: 'TEAM_SCHEDULER_DECISION_INVALID' })
+      expect((await snapshotOf(composition)).team.attempts).toHaveLength(0)
+      expect(followups).toHaveLength(0)
+    } finally { await dispose(composition) }
+  })
 })
 
 interface Fixture { readonly alphaId: string; readonly betaId: string; readonly directedId: string; readonly genericId: string }
@@ -71,6 +112,6 @@ async function activeFixture(composition: Composition, seedTasks = true): Promis
 function schedulingPass(composition: Composition, provider: TeamSchedulerProvider, live: Map<string, { status: 'idle' | 'running' }>, followups: string[]): SchedulingPass {
   vi.spyOn(composition.ctx.agents, 'get').mockImplementation(sessionId => live.get(String(sessionId)) as never)
   vi.spyOn(composition.ctx.subagents as unknown as HostPromptDeliverer, deliverSubagentPrompt).mockImplementation(async (_parent, childId, content) => { followups.push(content.filter(block => block.type === 'text').map(block => block.text).join('\n')); live.delete(String(childId)); return 'mock-followup' as never })
-  return new SchedulingPass(composition.ctx, { domain: () => composition.ctx.agentSwarm.domain, delivery: () => ({}) as never, usage: () => ({}) as never, schedulerProvider: () => 'test-provider', schedulerProviders: () => new Map([['test-provider', provider]]), strandedAfterMs: 0, idleSince: () => undefined, eventFaceActive: () => true, isClosing: () => false, trackTeamChildren: () => {}, requestSchedule: () => {}, executionRoots: () => ({}) as never, executionRootsEnabled: () => false, sweepExecutionRoots: async () => {} })
+  return new SchedulingPass(composition.ctx, { domain: () => composition.ctx.agentSwarm.domain, delivery: () => ({ deliverQueuedMessage: async () => undefined }) as never, usage: () => ({}) as never, schedulerProvider: () => 'test-provider', schedulerProviders: () => new Map([['test-provider', provider]]), duringProvider: async (_scope, _teamId, operation) => await operation(), strandedAfterMs: 0, idleSince: () => undefined, eventFaceActive: () => true, isClosing: () => false, trackTeamChildren: () => {}, requestSchedule: () => {}, executionRoots: () => ({}) as never, executionRootsEnabled: () => false, sweepExecutionRoots: async () => {} })
 }
 async function dispose(composition: Composition): Promise<void> { composition.adapter.open(); for (const fiber of composition.fibers.toReversed()) await fiber.dispose() }

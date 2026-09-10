@@ -1,5 +1,5 @@
 /** Browser-safe R2/I3-R wire vocabulary. This module imports no Host or storage code. */
-import type { SwarmHostReadProjectionV1 } from '../host/host-read-types.js'
+import type { SwarmHostReadProjectionV1, SwarmHostReadProjectionV2, SwarmTaskRowV2 } from '../host/host-read-types.js'
 
 export const SWARM_READ_RPC_PROTOCOL = 'dsh-agent-swarm/read-rpc' as const
 export const SWARM_READ_RPC_VERSION = 1 as const
@@ -391,7 +391,40 @@ export interface SwarmReadTaskDetailV1 {
   readonly observedAt: number
 }
 
+/** Only task-bearing reads opt into v2; every other method remains v1. */
+export type SwarmReadTaskDetailRequestV2 = Omit<SwarmReadTaskDetailRequest, 'schemaVersion'> & { readonly schemaVersion: 2 }
+export type SwarmReadSnapshotRequestV2 = Omit<SwarmReadTargetRequest, 'schemaVersion' | 'method'> & { readonly schemaVersion: 2; readonly method: 'snapshot' }
+export type SwarmReadPageRequestV2 = Omit<SwarmReadPageRequest, 'schemaVersion' | 'page'> & {
+  readonly schemaVersion: 2
+  readonly page: { readonly kind: 'tasks'; readonly offset?: number; readonly limit?: number }
+}
+export interface SwarmTaskEventFactsV2 {
+  readonly submittedAt?: number
+  readonly submittedBySessionId?: string
+  readonly reviewedAt?: number
+  readonly reviewedBySessionId?: string
+}
+export interface SwarmReadTaskDetailV2 extends Omit<SwarmReadTaskDetailV1, 'schemaVersion' | 'task' | 'attempts'> {
+  readonly schemaVersion: 2
+  /** Missing v2 event/source fields mean not recorded, unlike an older v1 producer. */
+  readonly task: SwarmReadTaskDetailV1['task'] & SwarmTaskRowV2 & SwarmTaskEventFactsV2 & {
+    readonly ownerSessionId?: string
+    readonly createdBySessionId?: string
+    readonly source?: { readonly workRequestId: string; readonly itemKey: string;
+      readonly origin: { readonly kind: 'local-operator' } | { readonly kind: 'main'; readonly sessionId: string } }
+  }
+  readonly attempts: Omit<SwarmReadTaskDetailV1['attempts'], 'entries'> & {
+    readonly entries: readonly (SwarmReadTaskDetailV1['attempts']['entries'][number] & SwarmTaskEventFactsV2 & { readonly reviewProvider?: string })[]
+  }
+}
+export interface SwarmReadPageV2 extends Omit<SwarmReadPageV1, 'entries' | 'kind'> {
+  readonly schemaVersion: 2
+  readonly kind: 'tasks'
+  readonly entries: readonly SwarmTaskRowV2[]
+}
+
 export type SwarmReadRpcRequest =
+  | SwarmReadSnapshotRequestV2 | SwarmReadPageRequestV2 | SwarmReadTaskDetailRequestV2
   | SwarmReadCapabilitiesRequest
   | SwarmReadToolCatalogRequest
   | SwarmReadSkillCatalogRequest
@@ -446,6 +479,7 @@ export interface SwarmReadPageV1 {
 }
 
 export type SwarmReadRpcValue =
+  | SwarmHostReadProjectionV2 | SwarmReadTaskDetailV2 | SwarmReadPageV2
   | SwarmReadCapabilitiesV1
   | SwarmReadToolCatalogV1
   | SwarmReadSkillCatalogV1

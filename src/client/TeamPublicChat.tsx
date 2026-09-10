@@ -1,3 +1,5 @@
+import { WorkActivityFeed } from './WorkActivityFeed.js'
+import type { WorkRequestController } from './work-request-controller.js'
 import { useRef } from 'react'
 import { DraftImage } from './PublicImages.js'
 import { PublicMessageContent, publicParticipantLabel } from './PublicMessageContent.js'
@@ -13,6 +15,8 @@ import { TEAM_DASHBOARD_NS } from './team-dashboard-locales.js'
 import { publicChatCss } from './public-chat-styles.js'
 
 interface Actions {
+  readonly work?: WorkRequestController | undefined
+  readonly openWorkTask?: ((id: string) => void) | undefined
   readonly addImages: (files: readonly File[]) => void
   readonly removeImage: (id: string) => void
   readonly image: (messageId: string, imageId: string, signal: AbortSignal) => Promise<Blob>
@@ -65,6 +69,7 @@ export function TeamPublicChat(props: Props) {
     {sameTeam && !verified ? <p role={dashboard.phase === 'stale' ? 'alert' : 'status'}>{t(dashboard.phase === 'stale' ? 'stale' : 'reconnecting')}{dashboard.error === undefined ? null : ` · ${dashboard.error.message}`}</p> : null}
     {!sameTeam ? <p role="status">{t(dashboard.phase === 'error' ? 'error' : 'loading')}</p> : <>
       <div className="swarm-public__messages" aria-label={t('public.title')} aria-busy={state.loading}>
+        {props.work === undefined ? null : <WorkActivityFeed work={props.work} teamId={selected.team} directory={verified && state.directoryError === undefined ? state.directory : undefined} openTask={props.openWorkTask} t={t} />}
         {state.history?.hasEarlier ? <button type="button" disabled={!verified || state.loading} onClick={props.earlier}>{t('public.earlier')}</button> : null}
         {state.entries.length === 0 ? <p className="swarm-public__empty">{t(state.loading ? 'loading' : 'public.empty')}</p> : null}
         {state.entries.map(message => <article key={`${selected.key}:${message.id}`} id={`swarm-message-${message.id}`} data-public-message={message.id} data-delivery={message.delivery.kind === 'not-requested' ? 'not-requested' : message.delivery.recipients.every(row => row.state === 'claimed') ? 'claimed' : 'requested'} className={message.author.kind === 'local-operator' ? 'swarm-public__message swarm-public__message--operator' : 'swarm-public__message'}>

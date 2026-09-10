@@ -10,6 +10,11 @@ import type { AgentSwarmRuntime } from '../src/runtime/orchestrator-runtime.js'
 import { AgentSwarmReadRpcService } from '../src/rpc/read-rpc-service.js'
 import { assertSwarmReadRpcValue } from '../src/rpc/read-rpc-artifact.js'
 import type { SwarmReadTaskDetailV1 } from '../src/rpc/read-rpc-contract.js'
+import type { SwarmReadTaskDetailV2 } from '../src/rpc/read-rpc-contract.js'
+import { SWARM_READ_RPC_CONTRACT_V1, SWARM_READ_RPC_CONTRACT_DIGEST_V1 } from '../src/rpc/read-rpc-artifact-schema.js'
+import { canonicalSwarmReadRpcJson } from '../src/rpc/read-rpc-artifact.js'
+import { createHash } from 'node:crypto'
+import { SWARM_READ_RPC_FIXTURES_V1, SWARM_READ_RPC_FIXTURES_V2 } from '../src/rpc/read-rpc-artifact-fixtures.js'
 
 const ROOT = 'main-session'
 const CAPTAIN = 'captain-session'
@@ -60,6 +65,125 @@ function harness(team = teamState()) {
 }
 
 describe('taskDetail target-bound read', () => {
+  it('opts into v2 task facts without widening the strict v1 wire', async () => {
+    const team = teamState()
+    Object.assign(team.tasks[0]!, { assignmentMode: 'open-claim', createdBySessionId: CAPTAIN,
+      source: { workRequestId: 'request-1', itemKey: 'design', origin: { kind: 'main', sessionId: ROOT } },
+      submittedAt: 50, submittedBySessionId: MEMBER, reviewedAt: 60, reviewedBySessionId: CAPTAIN })
+    Object.assign(team.attempts[0]!, { submittedAt: 50, submittedBySessionId: MEMBER, reviewedAt: 60, reviewedBySessionId: CAPTAIN })
+    const h = harness(team)
+    const legacy = await h.service.invoke(request)
+    expect(() => assertSwarmReadRpcValue('taskDetail', legacy)).not.toThrow()
+    expect(JSON.stringify(legacy)).not.toContain('submittedAt')
+    expect(JSON.stringify(legacy)).not.toContain('assignmentMode')
+    const detail = await h.service.invoke({ ...request, schemaVersion: 2 })
+    expect(detail).toMatchObject({ schemaVersion: 2, task: { assignmentMode: 'open-claim', readiness: 'not-pending',
+      ownerSessionId: MEMBER, createdBySessionId: CAPTAIN, source: team.tasks[0]!.source,
+      submittedAt: 50, submittedBySessionId: MEMBER, reviewedAt: 60, reviewedBySessionId: CAPTAIN },
+      attempts: { entries: [{ submittedAt: 50, submittedBySessionId: MEMBER, reviewedAt: 60, reviewedBySessionId: CAPTAIN }] } })
+    expect(() => assertSwarmReadRpcValue('taskDetail', detail)).not.toThrow()
+    const snapshot = await h.service.invoke({ schemaVersion: 2, method: 'snapshot', target })
+    expect(snapshot).toMatchObject({ schemaVersion: 2, tasks: [{ assignmentMode: 'open-claim', readiness: 'not-pending' }] })
+    expect(() => assertSwarmReadRpcValue('snapshot', snapshot)).not.toThrow()
+    expect(JSON.stringify(snapshot)).not.toContain('submittedAt')
+    const page = await h.service.invoke({ schemaVersion: 2, method: 'page', target, page: { kind: 'tasks' } })
+    expect(page).toMatchObject({ schemaVersion: 2, kind: 'tasks', entries: [{ assignmentMode: 'open-claim' }] })
+    expect(() => assertSwarmReadRpcValue('page', page)).not.toThrow()
+  })
+
+  it('v2 defaults old task policy and leaves unrecorded creation and event identities absent', async () => {
+    const detail = await harness().service.invoke({ ...request, schemaVersion: 2 })
+    expect(detail).toMatchObject({ schemaVersion: 2, task: { assignmentMode: 'automatic' } })
+    for (const key of ['createdBySessionId', 'source', 'submittedAt', 'submittedBySessionId', 'reviewedAt', 'reviewedBySessionId']) {
+      expect(JSON.stringify(detail)).not.toContain(`"${key}"`)
+    }
+  })
+
+  it.each(['status', 'binding', 'teams', 'capabilities'])('does not implicitly version unrelated %s methods', async method => {
+    await expect(harness().service.invoke({ schemaVersion: 2, method, target })).rejects.toMatchObject({ code: 'SWARM_RPC_INVALID_REQUEST' })
+  })
+
+  it('keeps the frozen v1 artifact identity and rejects v2-only fields tagged as v1', async () => {
+    expect(createHash('sha256').update(canonicalSwarmReadRpcJson({ contract: SWARM_READ_RPC_CONTRACT_V1,
+      fixtures: SWARM_READ_RPC_FIXTURES_V1 })).digest('hex')).toBe(SWARM_READ_RPC_CONTRACT_DIGEST_V1)
+    for (const [method, value] of Object.entries(SWARM_READ_RPC_FIXTURES_V2.values)) {
+      expect(() => assertSwarmReadRpcValue(method, value)).not.toThrow()
+    }
+    const h = harness()
+    for (const method of ['snapshot', 'page', 'taskDetail']) {
+      const input = { schemaVersion: 2, method, target, ...(method === 'taskDetail' ? { taskId: 'task-1' } : {}),
+        ...(method === 'page' ? { page: { kind: 'tasks' } } : {}) }
+      const value = await h.service.invoke(input)
+      expect(() => assertSwarmReadRpcValue(method, { ...value, schemaVersion: 1 })).toThrow()
+    }
+    await expect(h.service.invoke({ schemaVersion: 2, method: 'page', target, page: { kind: 'attempts' } }))
+      .rejects.toMatchObject({ code: 'SWARM_RPC_INVALID_REQUEST' })
+  })
+
+  it('computes v2 readiness from the whole board and current budget even when a dependency is outside the visible window', async () => {
+    const team = teamState(), task = team.tasks[0]!
+    Object.assign(task, { status: 'pending', ownerSessionId: undefined, targetMemberSessionId: undefined,
+      currentAttemptId: undefined, assignmentMode: 'open-claim', blockedBy: [TaskId('hidden-dependency')], updatedAt: 999 })
+    const dependency = { ...task, id: TaskId('hidden-dependency'), blockedBy: [], status: 'completed' as const, updatedAt: 0 }
+    team.tasks.push(dependency)
+    for (let index = 0; index < 100; index++) team.tasks.push({ ...dependency, id: TaskId(`other-${index}`), updatedAt: 10 })
+    const h = harness(team)
+    const read = async () => await h.service.invoke({ schemaVersion: 2, method: 'snapshot', target })
+    const ready = await read()
+    expect(ready).toMatchObject({ tasks: [expect.objectContaining({ id: task.id, readiness: 'ready' }), ...Array.from({ length: 99 }, () => expect.anything())], truncated: { tasks: true } })
+    expect(JSON.stringify(ready)).not.toContain('"id":"hidden-dependency"')
+    Object.assign(dependency, { status: 'pending' })
+    expect(await read()).toMatchObject({ tasks: [expect.objectContaining({ readiness: 'blocked' }), ...Array.from({ length: 99 }, () => expect.anything())] })
+    Object.assign(dependency, { status: 'completed' })
+    Object.assign(team.budget, { tokenLimit: 22 })
+    expect(await h.service.invoke({ ...request, schemaVersion: 2 })).toMatchObject({ task: { readiness: 'budget-hold' } })
+    Object.assign(team.budget, { tokenLimit: 100, requestLimit: 0 })
+    expect(await h.service.invoke({ ...request, schemaVersion: 2 })).toMatchObject({ task: { readiness: 'budget-hold' } })
+    Object.assign(team.budget, { requestLimit: 100, deadlineAt: 1 })
+    expect(await h.service.invoke({ ...request, schemaVersion: 2 })).toMatchObject({ task: { readiness: 'budget-hold' } })
+    Object.assign(team.budget, { deadlineAt: undefined })
+    Object.assign(team, { phase: 'archived' })
+    expect(await h.service.invoke({ ...request, schemaVersion: 2 })).toMatchObject({ task: { readiness: 'team-inactive' } })
+  })
+
+  it('v2 cursor includes policy and readiness without changing a legacy cursor', async () => {
+    const team = teamState(), h = harness(team)
+    const input = { schemaVersion: 2, method: 'snapshot', target }
+    const first = await h.service.invoke(input) as { cursor: string }
+    expect(await h.service.invoke({ ...input, afterCursor: first.cursor })).toMatchObject({ changed: false, resyncRequired: false })
+    const legacy = await h.service.invoke({ ...input, schemaVersion: 1 }) as { cursor: string }
+    Object.assign(team.tasks[0]!, { assignmentMode: 'open-claim' })
+    expect(await h.service.invoke({ ...input, afterCursor: first.cursor })).toMatchObject({ changed: true, resyncRequired: true })
+    expect(await h.service.invoke({ ...input, schemaVersion: 1, afterCursor: legacy.cursor })).toMatchObject({ changed: false })
+  })
+
+  it('copies source identity and rejects unallowlisted v2 data and cross-task facts', async () => {
+    const team = teamState()
+    Object.assign(team.tasks[0]!, { source: { workRequestId: 'request-1', itemKey: 'item', origin: { kind: 'local-operator' } } })
+    const result = await harness(team).service.invoke({ ...request, schemaVersion: 2 }) as SwarmReadTaskDetailV2
+    expect(result.task.source).toEqual(team.tasks[0]!.source)
+    expect(Object.isFrozen(result.task.source!.origin)).toBe(true)
+    expect(Object.isFrozen(team.tasks[0]!.source)).toBe(false)
+    for (const task of [
+      { ...result.task, privateMemory: 'private' },
+      { ...result.task, source: { ...result.task.source, origin: { kind: 'local-operator', sessionId: CAPTAIN } } },
+      { ...result.task, readiness: 'paused' },
+    ]) expect(() => assertSwarmReadRpcValue('taskDetail', { ...result, task })).toThrow()
+    expect(() => assertSwarmReadRpcValue('taskDetail', { ...result, attempts: { ...result.attempts,
+      entries: result.attempts.entries.map(row => ({ ...row, taskId: 'foreign-task' })) } })).toThrow()
+  })
+
+  it('v2 shows only the actual recorded review provider and keeps it absent from v1', async () => {
+    const team = teamState(), h = harness(team)
+    const first = await h.service.invoke({ ...request, schemaVersion: 2 }) as SwarmReadTaskDetailV2
+    expect(first.attempts.entries[0]).not.toHaveProperty('reviewProvider')
+    Object.assign(team.attempts[0]!, { reviewProvider: 'actual-selected-review' })
+    const recorded = await h.service.invoke({ ...request, schemaVersion: 2 }) as SwarmReadTaskDetailV2
+    expect(recorded.attempts.entries[0]).toHaveProperty('reviewProvider', 'actual-selected-review')
+    expect(() => assertSwarmReadRpcValue('taskDetail', recorded)).not.toThrow()
+    expect((await h.service.invoke(request) as SwarmReadTaskDetailV1).attempts.entries[0]).not.toHaveProperty('reviewProvider')
+  })
+
   it('returns exact task content and its retained attempts through the frozen wire contract', async () => {
     const team = teamState()
     team.tasks.push({ ...team.tasks[0]!, id: TaskId('task-other'), description: 'OTHER TASK CONTENT' })

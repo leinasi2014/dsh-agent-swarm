@@ -357,13 +357,21 @@ export async function removeMember(
     const reason = nonEmpty(diagnostic, 'member removal diagnostic', 8_192)
     committedMember = { ...current, phase: 'removed', error: reason }
     team.members[index] = committedMember
+    for (let taskIndex = 0; taskIndex < team.tasks.length; taskIndex += 1) {
+      const task = team.tasks[taskIndex]!
+      if (task.openClaimNotice !== undefined && task.openClaimNotice.recipientSessionIds.includes(current.sessionId)) {
+        team.tasks[taskIndex] = { ...task, openClaimNotice: { ...task.openClaimNotice, recipientSessionIds: task.openClaimNotice.recipientSessionIds.filter(session => session !== current.sessionId) } }
+      }
+    }
 
     for (const task of team.tasks) if ((task.ownerSessionId === current.sessionId && ['in_progress', 'submitted', 'verifying'].includes(task.status)) || (task.status === 'pending' && task.targetMemberSessionId === current.sessionId)) requeuedTaskIds.push(task.id)
     releaseUnavailableMemberTasks(team, new Set([current.sessionId]), reason, timestamp)
     for (let messageIndex = 0; messageIndex < team.messages.length; messageIndex += 1) {
       const message = team.messages[messageIndex]!
       if (message.phase === 'queued' && (message.targetSessionId === current.sessionId || message.senderSessionId === current.sessionId)) {
-        team.messages[messageIndex] = { ...message, phase: 'cancelled' }
+        team.messages[messageIndex] = message.kind === 'open-claim-notice'
+          ? { ...message, phase: 'obsolete', obsoletedAt: timestamp, obsoletedReason: 'open task recipient was removed' }
+          : { ...message, phase: 'cancelled' }
       }
     }
     pruneRetainedMessages(team, deps.limits.maxRetainedMessages)

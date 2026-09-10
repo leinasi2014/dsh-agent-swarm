@@ -2,7 +2,7 @@
  * for one invocation; Captain calls inherit the official downstream decision.
  * No approval rewrites a durable descriptor or overrides official guards. */
 import { TeamDomainError } from '../domain/error.js'
-import { CAPTAIN_ONLY_TOOLS } from './prompts.js'
+import { CAPTAIN_ONLY_TOOLS, WORK_REQUEST_CAPTAIN_TOOLS } from './prompts.js'
 import { MAX_DENY_TOOLS, MEMBER_DENY_BASELINE, TOOL_NAME_PATTERN } from './tool-policy.js'
 
 /**
@@ -19,7 +19,7 @@ const PLUGIN_TOOL_NAMES = [
   // this transport visible therefore does not widen the inner tool decision.
   'run_code',
   'agent_swarm_create_managed',
-  ...CAPTAIN_ONLY_TOOLS,
+  ...CAPTAIN_ONLY_TOOLS.filter(name => !(WORK_REQUEST_CAPTAIN_TOOLS as readonly string[]).includes(name)),
   'agent_swarm_claim_task',
   'agent_swarm_create_task',
   'agent_swarm_submit_task',
@@ -36,6 +36,8 @@ const PLUGIN_TOOL_NAMES = [
   'agent_swarm_list_private_memory',
   'agent_swarm_directory',
   'agent_swarm_public_reply',
+  ...WORK_REQUEST_CAPTAIN_TOOLS,
+  'agent_swarm_submit_work_request',
 ] as const
 
 /** Default effective policy: the plugin's own tool surface is allowed. */
@@ -184,8 +186,8 @@ export function decideToolPermission(
   if (toolName === 'report' || toolName === 'send_message') return 'deny'
   // This is an unconditional delegated-member denial, before declarations
   // are consulted.  An operator allow declaration therefore cannot reopen
-  // the wait body on a resumed or newly provisioned member.
-  if (context.callerRole === 'delegated-member' && toolName === 'agent_swarm_wait') return 'deny'
+  // wait or Main-only submission on a resumed or newly provisioned member.
+  if (context.callerRole === 'delegated-member' && ['agent_swarm_wait', 'agent_swarm_submit_work_request'].includes(toolName)) return 'deny'
   if (context.callerRole === 'delegated-member' && (CAPTAIN_ONLY_TOOLS as readonly string[]).includes(toolName)) return 'deny'
   const declared = decisionFor(declaration, toolName) ?? DEFAULT_TOOL_PERMISSION
   if (declared === 'deny') return 'deny'

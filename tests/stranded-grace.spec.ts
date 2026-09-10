@@ -43,6 +43,7 @@ it('keeps phase, owner and creation time through fresh-idle grace, retries at it
     pass = new SchedulingPass(ctx, {
       domain: () => domain, delivery: () => ({}) as never, usage: () => ({}) as never,
       schedulerProvider: () => 'grace-observer', schedulerProviders: () => new Map([['grace-observer', { select: () => [] }]]),
+      duringProvider: async (_scope, _teamId, operation) => await operation(),
       strandedAfterMs: 200, idleSince: () => idleAt, eventFaceActive: () => true,
       isClosing: () => false, trackTeamChildren: () => {}, requestSchedule: () => {},
       executionRoots: () => ({}) as never, executionRootsEnabled: () => false, sweepExecutionRoots: async () => {},

@@ -1,17 +1,14 @@
-import { readFileSync } from 'node:fs'
+import { draftStoreScript } from './helpers/draft-store-script.js'
 import { chromium, type Browser, type Page } from 'playwright'
 import { afterAll, beforeAll, expect, it } from 'vitest'
-import ts from 'typescript'
 import { addDraftImages, editDraft, removeDraftImage, replaceDraftRange, replyDraft } from '../src/client/public-draft.js'
 
 let browser: Browser
 beforeAll(async () => { browser = await chromium.launch({ channel: 'msedge', headless: true }) })
 afterAll(async () => { await browser?.close() }, 30_000)
 const scopeKey = 'swarm.public.v1:["host","main","a"]'
-function script(): string {
-  const source = new URL('../src/client/public-draft-store.ts', import.meta.url)
-  return ts.transpileModule(readFileSync(source, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
-}
+const script = (): string => draftStoreScript('public-draft-store')
+
 async function fixture(): Promise<{ page: Page; close: () => Promise<void> }> {
   const context = await browser.newContext()
   await context.route('http://draft.test/**', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Draft persistence</title>' }))

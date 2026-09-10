@@ -102,12 +102,15 @@ describe('TeamDomain attempt retention (F7)', () => {
       )).rejects.toMatchObject({ code: 'TEAM_ATTEMPT_STALE' })
     }
 
-    // team.json stays bounded: the whole unit file holds the retained
-    // window plus the fixed aggregate envelope, not one record per
-    // historical claim (the unpruned 12-cycle aggregate measures 6801
-    // bytes; the retained window measures 4227).
+    // Execution payload stays within the original retention bound. Work
+    // activity is a separately bounded public fact window and intentionally
+    // outlives pruned attempts; do not mistake those 27 facts for leaked
+    // private attempt records.
     const raw = await readFile(unitFilePath(join(sandbox, 'storage')), 'utf8')
-    expect(Buffer.byteLength(raw, 'utf8')).toBeLessThan(5_120)
+    const executionUnit: unknown = JSON.parse(raw, (key: string, value: unknown) => key === 'workActivity' ? undefined : value)
+    expect(Buffer.byteLength(JSON.stringify(executionUnit, null, 2), 'utf8')).toBeLessThan(5_120)
+    expect(snapshot.team.workActivity?.entries).toHaveLength(27)
+    expect(snapshot.team.workActivity?.entries.some(entry => entry.attemptId === churned[0]?.id)).toBe(true)
 
     // Ordered replay across a full reload: retained identities, creation
     // order and revision continuity all survive pruning.

@@ -6,6 +6,7 @@
 import type { AttemptId, TeamMessage, TeamState, TeamTask } from '../domain/types.js'
 
 /** Captain-only administration tools hidden from member toolFilter. */
+export const WORK_REQUEST_CAPTAIN_TOOLS = ['agent_swarm_list_work_requests', 'agent_swarm_resolve_work_request'] as const
 export const CAPTAIN_ONLY_TOOLS = [
   'agent_swarm_create',
   'agent_swarm_add_member',
@@ -24,6 +25,7 @@ export const CAPTAIN_ONLY_TOOLS = [
   'agent_swarm_approve_plan',
   'agent_swarm_discard_plan',
   'agent_swarm_decide_tool_approval',
+  ...WORK_REQUEST_CAPTAIN_TOOLS,
 ] as const
 
 /**
@@ -31,7 +33,7 @@ export const CAPTAIN_ONLY_TOOLS = [
  * captain concern: a member finishes its turn after submit/blocker/no-task
  * and is resumed only by assignment or wakeup.
  */
-export const MEMBER_HIDDEN_TOOLS = [...CAPTAIN_ONLY_TOOLS, 'agent_swarm_create_managed', 'agent_swarm_wait'] as const
+export const MEMBER_HIDDEN_TOOLS = [...CAPTAIN_ONLY_TOOLS, 'agent_swarm_create_managed', 'agent_swarm_wait', 'agent_swarm_submit_work_request'] as const
 
 /**
  * F8 fence discipline: the delimiting fence around untrusted content is one
@@ -206,6 +208,19 @@ export function memberJoinNotice(team: TeamState): string {
  * delivery and acceptance-fold paths still derive one identical identity.
  */
 export function messageFrame(message: TeamMessage): string {
+  if (message.kind === 'work-request-notice') {
+    return 'A work request awaits the Captain. Read agent_swarm_list_work_requests, then accept one complete plan with '
+      + 'agent_swarm_resolve_work_request or reject with a reason. A request is not an assigned task. '
+      + 'Only the canonical resolve result proves task creation.\n\n'
+      + untrustedDataBlock(`Work request notice ${JSON.stringify(message.id)}: ${MESSAGE_DATA_DECLARATION}`,
+        JSON.stringify({ workRequestId: message.workRequestId, origin: message.origin, content: message.content }))
+  }
+  if (message.kind === 'open-claim-notice') {
+    return 'An open Team task may be available. Read the current task before deciding. You may claim only for yourself '
+      + 'with agent_swarm_claim_task and the current revision. This notice is not an assignment or attempt capability. '
+      + 'If another participant already claimed it or you cannot act, end the turn; do not poll or repeatedly race.\n\n'
+      + untrustedDataBlock(`Open task notice ${JSON.stringify(message.id)}: ${MESSAGE_DATA_DECLARATION}`, message.content)
+  }
   return untrustedDataBlock(
     `Team message ${message.id} from ${message.senderName}: ${MESSAGE_DATA_DECLARATION}`,
     message.content,

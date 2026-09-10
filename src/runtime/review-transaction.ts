@@ -70,6 +70,7 @@ export async function runReviewTransaction(
     input.attemptId as AttemptId,
     outcome.decision,
     outcome.diagnostic,
+    deps.reviewProviderName(),
   )
   if (outcome.decision === 'reject') deps.requestSchedule(scope, membership.team.id, captain)
   return { task, decision: outcome.decision }

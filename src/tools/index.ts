@@ -6,6 +6,7 @@ import { registerAddMemoryTool, registerSetBudgetTool } from './budget-memory.js
 import { registerSetCommunicationTool } from './communication.js'
 import { registerPublicReplyTool } from './public-chat.js'
 import { registerVisualAssistanceTools } from './visual-assistance.js'
+import { registerWorkRequestTools } from './work-requests.js'
 import { registerDirectoryTool } from './directory.js'
 import { registerSetCaptainModelTool } from './model-selection.js'
 import { registerApprovePlanTool, registerDiscardPlanTool, registerSetPlanTool } from './plans.js'
@@ -64,6 +65,7 @@ export function registerAgentSwarmTools(
   registerSendMessageTool(ctx, runtime)
   registerPublicReplyTool(ctx, runtime)
   registerVisualAssistanceTools(ctx, runtime)
+  registerWorkRequestTools(ctx, runtime)
   registerDirectoryTool(ctx, runtime)
   registerToolApproval(ctx)
   registerSetBudgetTool(ctx, runtime)

@@ -1,3 +1,4 @@
+import { DraftIndexedDatabase } from './draft-indexed-db.js'
 import type { PublicDraft } from './public-draft.js'
 import type { PublicChatAppendRequest } from '../rpc/public-rpc-contract.js'
 
@@ -23,9 +24,10 @@ const failure = (message: string): Error => new Error(`Public draft storage: ${m
 
 /** One record per existing Host/Main/Team key. All mutations read and write in one IDB transaction. */
 export class PublicDraftStore {
-  private database: Promise<IDBDatabase> | undefined
-  private closed = false
-  constructor(private readonly factory: IDBFactory = globalThis.indexedDB, private readonly name = 'swarm.public.drafts') {}
+  private readonly storage: DraftIndexedDatabase
+  constructor(factory: IDBFactory = globalThis.indexedDB, name = 'swarm.public.drafts') {
+    this.storage = new DraftIndexedDatabase(factory, name, failure)
+  }
 
   async read<Request extends PublicDraftRequest = PublicDraftRequest>(key: string): Promise<PublicDraftSnapshot<Request>> {
     return this.transaction(key, undefined) as Promise<PublicDraftSnapshot<Request>>
@@ -84,47 +86,11 @@ export class PublicDraftStore {
     const copy = structuredClone(saved)
     return this.transaction(key, (current, exists) => exists ? current : { ...copy, blobs: {} }) as Promise<PublicDraftSnapshot<Request>>
   }
-  close(): void {
-    this.closed = true
-    void this.database?.then(database => database.close(), () => {})
-  }
-  private open(): Promise<IDBDatabase> {
-    if (this.closed) return Promise.reject(failure('closed'))
-    if (this.database === undefined) this.database = new Promise((resolve, reject) => {
-      if (this.factory === undefined) { reject(failure('IndexedDB unavailable')); return }
-      const request = this.factory.open(this.name, 1)
-      let blocked = false
-      request.addEventListener('upgradeneeded', () => { request.result.createObjectStore('scopes') })
-      request.addEventListener('error', () => { reject(request.error ?? failure('open failed')) })
-      request.addEventListener('blocked', () => { blocked = true; reject(failure('database upgrade blocked')) })
-      request.addEventListener('success', () => {
-        const database = request.result
-        database.addEventListener('versionchange', () => { this.closed = true; database.close() })
-        if (this.closed || blocked) { database.close(); reject(failure('closed')); return }
-        resolve(database)
-      })
-    })
-    const opening = this.database
-    void opening.catch(() => { if (this.database === opening) this.database = undefined })
-    return opening
-  }
-  private async transaction(key: string, update: ((current: PublicDraftSnapshot, exists: boolean) => PublicDraftSnapshot) | undefined): Promise<PublicDraftSnapshot> {
-    const database = await this.open()
-    if (this.closed) throw failure('closed')
-    return new Promise((resolve, reject) => {
-      const transaction = database.transaction('scopes', update === undefined ? 'readonly' : 'readwrite', { durability: 'strict' })
-      const store = transaction.objectStore('scopes')
-      let result: PublicDraftSnapshot, error: unknown
-      transaction.addEventListener('complete', () => { resolve(result) })
-      transaction.addEventListener('abort', () => { reject(error ?? transaction.error ?? failure('transaction aborted')) })
-      const request = store.get(key)
-      request.addEventListener('success', () => {
-        try {
-          const current = (request.result as PublicDraftSnapshot | undefined) ?? empty()
-          result = update === undefined ? current : retainReferencedBlobs(update(current, request.result !== undefined))
-          if (update !== undefined) store.put(result, key)
-        } catch (cause) { error = cause; transaction.abort() }
-      })
+  close(): void { this.storage.close() }
+  private transaction(key: string, update: ((current: PublicDraftSnapshot, exists: boolean) => PublicDraftSnapshot) | undefined): Promise<PublicDraftSnapshot> {
+    return this.storage.transaction(key, update !== undefined, (stored, exists) => {
+      const current = (stored as PublicDraftSnapshot | undefined) ?? empty()
+      return update === undefined ? current : retainReferencedBlobs(update(current, exists))
     })
   }
 }

@@ -17,7 +17,7 @@ export function communicationPolicy(team: Pick<TeamState, 'communicationIntensit
 
 /** A retained receipt is the only window evidence; replies and Captain traffic do not spend this allowance. */
 export function isRecentPeerWakeup(team: TeamState, message: TeamMessage, now: number): boolean {
-  return message.delivery === 'wakeup' && message.replyExempt !== true
+  return message.kind !== 'work-request-notice' && message.delivery === 'wakeup' && message.replyExempt !== true
     && message.senderSessionId !== team.captainSessionId && message.targetSessionId !== team.captainSessionId
     && message.createdAt > now - COMMUNICATION_WINDOW_MS
 }

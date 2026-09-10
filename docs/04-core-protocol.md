@@ -64,6 +64,14 @@ Member 消费排队分配时，插件在官方 `agent/pre-step` waterfall 返回
 
 `adaptive` 模式由成员 idle/event 驱动；`workflow` 模式由 Team-backed Workflow run 驱动。一个 Team 同一时刻只有一个 orchestration owner，显式 Captain 操作仍受 revision/attempt 围栏。
 
+### 4.1 开放认领
+
+Task 可选 `assignmentMode: automatic | open-claim`，旧记录缺省为 automatic。open-claim 不得同时设置固定 target；只有依赖完成且符合现有准入条件的开放任务显示“待认领”。自动 Provider 的候选列表及结果验证均排除开放任务，最终 Domain claim 仍要求实际 actor 等于 assignee，保留 active Member 和 Captain 本人已有的自领权。依赖、busy、预算、reservation、revision CAS 与当前 attempt 围栏全部继续生效。Captain 给他人安排开放任务须经同一 revision CAS 原子改为 automatic 并设置 target，再沿现有分配路径执行。
+
+沿用唯一 orchestration owner 和 Team mailbox 通知当前符合资格的空闲成员。自动任务安排先执行，再向剩余空闲成员发布开放任务通知；既有 reserved/owned attempt 的恢复不受候选过滤影响。Task 保存可选 `openClaimNotice: {revision, recipientSessionIds}`，只保留当前任务 revision 的有界收件人集合。邮箱入队与收件人标记在同一 Team 事务提交，队列满不标记，沿现有 activity/idle/recovery 重试；回执裁剪或重启不对同一任务 revision 和收件人重复通知。通知记账只递增 aggregate revision，不改变 task revision；退休成员从集合移除。Captain 不需要给自己发送邮箱消息，但可直接自领。
+
+开放通知有仅内部可生成的类型标记。投递前重读实际 task 仍 open-claim、同 revision、pending、无 owner、依赖可执行及目标 active；任务已认领、变更或收件人退出时明确 obsolete。暂时 busy 或预算不足保留 queued，不能因已经记过通知就永久丢失机会；异步恢复后继续核验。通知只提示读当前任务和尝试本人认领，不携带 attempt capability，也不承诺仍可认领。两个成员同时认领最多一次提交成功，失败者读取当前结果或结束回合，不轮询争抢。
+
 ## 5. 成员招募与身份
 
 成员身份包含技术名、显示名、短职业、人格、个人简介/identity card、可选安全像素 SVG、model/provider、Skills 与工具权限投影。像素头像只允许一个有限 `svg` 根和 bounded `rect` 子元素；验证必须发生在 durable member commit 前。
@@ -219,6 +227,26 @@ Session 消费证据比较稳定 frame/rpcId 身份与完整冻结输入两层�
 Client 用原生 IndexedDB 在一个事务中保存按 Host/Main/Team 隔离的草稿、Blob 与原请求描述，落盘成功后才能编码提交同一 v3 append。恢复完成前不发送；未知结果保留相同 requestId、内容与 Blob，不创建新操作。v1/v2 pending 保留原版本恢复。切群或继续编辑只结算原操作，清除草稿须匹配原 revision，移除当前附件不能删除 pending 仍引用的 Blob。浏览器存储失败明确阻止发送；浏览器记录只是恢复素材，公共消息成功以 Host 耐久提交为准。
 
 验收覆盖纯图片与混合有序图片、官方 admission 拒绝、字节/MIME/名称冲突、丢 ACK 与刷新恢复、跨 Team 读取拒绝、同身份缺图不重发、真实视觉输入、非视觉自主选人、协助去重与失败、退出/取消围栏、关闭页面及冷恢复、原负责人继续提交和审核。fixture、真实模型、浏览器恢复及正式部署分别记录，不能互相替代。
+
+### 8.4 工作请求与公开任务事实
+
+沿用认证 `/swarm-public` channel，新增独立 `work/v1/submit`、`work/v1/requestResult`、`work/v1/activity` 端点，公共聊天 v1/v2/v3 保持原合同。人类只提交 target、稳定 requestId、非空 description（最多 8192 字符）和可选 acceptanceCriteria（最多 4096 字符）；Host 从已认证的本地操作者派生 `{kind: local-operator}`，通过现有 HostTargetRead 验证准确 Main、Team 和 active managed Captain 绑定。浏览器不能填写作者或借所查看成员的身份创建正式任务。Main 专用工具从实际 exec 推导 Main Session，重验 scope、managedOrigin 与 Main→Captain 官方关系后提交 `{kind: main, sessionId}`；成员不通过此入口伪装 Main，现有创建和自领权限保持原样。
+
+工作请求是 Team 内的来源记录，不是第二套任务状态机。请求唯一键包含 Team、真实来源和 requestId，内容摘要冻结；同载荷重试返回原请求与关联，改载荷冲突。请求、提交事实和发给 Captain 的耐久通知在同一 aggregate 事务提交；邮箱满或写失败则整笔未提交。通知明确携带真实来源的 `work-request` 类型，复用现有 mailbox 和投递 owner，不伪造 Captain/self-send、Main 群聊作者或普通人类聊天输入。通知输入及工具结果仍沿官方 Session 持久化。`requestResult` 明确区分未找到与已提交，网络未知结果保留同一 requestId 查询/重试。若将来从既有群消息提出，请只保存实际存在且通过 Team 可见性校验的 sourceMessageId，引用消息的作者不替换实际提出人。
+
+Captain 通过实际工具调用读取待处理请求，并按请求 revision 一次接受完整计划或以非空原因拒绝。接受计划有 1–32 个唯一 itemKey，复用 CreateTaskInput，允许 blockedBy 引用既有 Task、blockedByItems 引用本批条目；先分配稳定 itemKey→TaskID，再在同一事务验证全批权限、容量和 DAG，提交决策、全部 Task、映射及对应事实。不得逐个调用独立 createTask 导致半成功。拒绝不创建 Task。重试先验证当前真实 actor，再比较已保存决策摘要；相同决策返回原映射，不能被已经过期的旧 expected revision 或当前容量误拒绝，改决策明确冲突。待处理请求不占用 Task 编号、任务数、完成统计或执行槽位。
+
+接受及其同决策重试在提交后等待现有调度 owner 的一次准入 pass，保留真实 continuable Captain 直至当轮 pass 完成，不等待成员工作完成或整个队列清空；busy/预算受限通知仍按原机制排队，仅同 Team 的实际 Scheduler Provider 回调重入只排后继以避免自等待，不把通知唤醒的新 Agent 执行算作调度重入。拒绝不产生新准入 pass。提交后的身份失效、取消、卸载或调度失败明确报告 `TEAM_WORK_REQUEST_ADMISSION_FAILED` / `TEAM_WORK_REQUEST_ADMISSION_INTERRUPTED` 和已提交事实，不能暗示回滚；调用方权威读回或重试原决策恢复原任务映射。
+
+新创建 Task 保存真实 createdBySessionId；请求创建的 Task 另保存不可变 source，包括 workRequestId、itemKey 和真实 origin。submit/review 在现有事务保存实际发生时间和执行/审核 Session，并追加结构化事实；不由 updatedAt、当前查看 Session 或队长身份反推旧记录。生命周期事实只包括明确的来源、关联、动作、状态、实际 actor 与发生时间，不自动公开成员私有输出、证据正文或工具参数。群内显示真实请求提交、拒绝/采纳和任务创建、认领、提交结果、审核/退回及改派卡片；它们引用原 Task/attempt/请求，不能解释普通聊天文本建立权威，也不依赖模型额外 public_reply 才显示已提交事实。
+
+新增请求及 activity 容器各带 schemaVersion 1，作为 Team optional 字段读回旧记录。请求最多保留 256 项，到上限明确拒绝新请求，不静默删除幂等身份；Task 上限仍服从既有配置。activity 使用自身单调 sequence 与唯一 ID，最多保留 1024 项，每页最多 100 项，响应给出真实保留起点、终点、是否还有页及请求/Team 绑定。其 sequence 不与公共聊天 sequence 混用；UI 用稳定 `(kind,id)` 键和服务端事实时间呈现，明确旧历史裁剪范围。旧 Task 缺少来源或提交/审核字段时显示未记录或接口未提供，不能补造事实。新字段写入后旧 Host 的严格 schema 未必可读；升级前备份原 Home，回滚须恢复与旧二进制匹配的备份，不承诺仅换包就能读取新版状态。
+
+activity 同一读取快照返回本页引用的去重 referencedRequests，最多 100 条，仅含公开 WorkRequest 字段；请求卡可展开原说明、完成标准和真实采纳映射，不暴露内部摘要或通知状态。Team revision 与页内容来自同一读取快照。任务 snapshot、tasks page 和 taskDetail 的新增分配方式、来源及实际提交/审核事实使用显式 schemaVersion 2；schemaVersion 1 的返回字段与严格合同保持兼容。新 Client 明确请求 v2，旧 Host 不支持时回退 v1 并显示新增字段未提供，不把缺省接口猜成事实。
+
+Client 的“提出任务”位于任务面板标题旁，仅描述必填，完成标准可选。草稿与聊天分开并按 Host/Main/Team 持久保存；提交前先落盘同一 requestId、冻结载荷和草稿版本。切 Team、未知响应或关闭后继续原请求，晚到结果只结算原操作，不能清除别的 Team 或较新草稿。已提交显示“已交给队长整理”，Task 真正创建后才展示正式关联。工作状态和 activity 订阅既有 dashboard 刷新与重连 owner，不另加轮询、第二任务状态或冒充成员的自领按钮。
+
+验收覆盖认证和假 Main 拒绝、丢 ACK/冷恢复幂等、含批内依赖的原子拆分、拒绝及失败零 Task、实际来源与审核事实、开放认领竞争/通知裁剪恢复/依赖和 busy、改指派、旧数据读回、跨 Team 草稿隔离与真实 Profile 的请求到审核链路。记录测试、真实模型、浏览器和部署证据分别成立；目标修订、暂停与维护是后续独立合同，不由本节推断已经实现。
 
 ## 9. Review、execution root 与可选桥接
 

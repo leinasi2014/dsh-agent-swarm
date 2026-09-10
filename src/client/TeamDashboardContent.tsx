@@ -1,9 +1,10 @@
+import type { WorkRequestController } from './work-request-controller.js'
 import type { PublicChatController } from './public-chat-controller.js'
 import { DirectoryMembers } from './DirectoryMembers.js'
 import { Button, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useLayoutEffect, useRef, useSyncExternalStore, type KeyboardEvent } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SwarmHostReadProjectionV1 } from '../host/host-read-types.js'
+import type { TeamReadProjection as SwarmHostReadProjectionV1 } from './team-read-types.js'
 import type { SwarmReadCaptainAnnouncementsV1, SwarmReadCaptainDiagnosticsV1, SwarmReadCaptainMembersV1, SwarmReadTeamsV1 } from '../rpc/read-rpc-contract.js'
 import type { TeamDashboardController, TeamDashboardState } from './team-dashboard-controller.js'
 import type { TeamDashboardSurfaceCoordinator, TeamWorkspaceSelection } from './team-dashboard-surface-coordinator.js'
@@ -150,8 +151,9 @@ export const shellCss = `
 `
 
 /** Team data stays read-only; explicit user requests use the official Captain inbox. */
-export function TeamDashboardContent({ chat, controller, coordinator, descriptionId, headingId, localeTag, state, t }: {
+export function TeamDashboardContent({ chat, work, controller, coordinator, descriptionId, headingId, localeTag, state, t }: {
   readonly chat?: PublicChatController | undefined
+  readonly work?: WorkRequestController | undefined
   readonly controller: TeamDashboardController
   readonly coordinator: TeamDashboardSurfaceCoordinator
   readonly descriptionId: string
@@ -169,6 +171,7 @@ export function TeamDashboardContent({ chat, controller, coordinator, descriptio
       : <>
         <div className="swarm-team-workspace__sr-only"><h2 className="swarm-team-workspace__title" id={headingId}>{data.team.name}</h2><p id={descriptionId}>{t('title')} · {enumLabel(data.team.phase, t)}</p></div>
         <Workspace
+        work={work}
         chat={chat}
         controller={controller}
         coordinator={coordinator}
@@ -206,8 +209,9 @@ function Empty({ state, controller, t }: { readonly state: TeamDashboardState; r
   </section>
 }
 
-function Workspace({ chat, data, localeTag, state, t, teams, announcements, diagnostics, memberAssets, onCommunication, coordinator, controller }: {
+function Workspace({ chat, work, data, localeTag, state, t, teams, announcements, diagnostics, memberAssets, onCommunication, coordinator, controller }: {
   readonly chat?: PublicChatController | undefined
+  readonly work?: WorkRequestController | undefined
   readonly controller: TeamDashboardController
   readonly coordinator: TeamDashboardSurfaceCoordinator
   readonly data: SwarmHostReadProjectionV1
@@ -230,6 +234,7 @@ function Workspace({ chat, data, localeTag, state, t, teams, announcements, diag
   const setDetail = (next: DetailSelection | undefined): void => { updateSelection({ detail: next }) }
   const detailHeadingRef = useRef<HTMLHeadingElement>(null)
   const detailTriggerRef = useRef<HTMLElement | null>(null)
+  const previouslyVisibleTask = useRef<string>()
   const returnFocusRef = useRef<{ taskId?: string; trigger: HTMLElement | null }>()
   const openDetail = (nextDetail: DetailSelection): void => {
     detailTriggerRef.current = document.activeElement as HTMLElement | null
@@ -253,8 +258,11 @@ function Workspace({ chat, data, localeTag, state, t, teams, announcements, diag
   }, [detail])
   useLayoutEffect(() => {
     if (detail === undefined) return
+    const taskKey = detail.kind === 'task' ? JSON.stringify([data.binding, detail.id]) : undefined
+    if (detail.kind === 'task' && data.tasks.some(task => task.id === detail.id)) previouslyVisibleTask.current = taskKey
     const gone = (detail.kind === 'member' && !data.roster.some(member => member.name === detail.name))
-      || (detail.kind === 'task' && !data.truncated.tasks && data.tasks.length === data.totals.tasks && !data.tasks.some(task => task.id === detail.id))
+      || (detail.kind === 'task' && taskKey === previouslyVisibleTask.current && !data.truncated.tasks && data.tasks.length === data.totals.tasks && !data.tasks.some(task => task.id === detail.id))
+
     // An authority-driven auto-close must still leave usable focus behind.
     if (gone) closeDetail(true)
   }, [data, detail])
@@ -435,7 +443,7 @@ function Workspace({ chat, data, localeTag, state, t, teams, announcements, diag
           </section>
         )}
       </div>}
-          <TeamTaskPanel data={data} selection={selection} localeTag={localeTag} memberAssets={memberAssets} controller={controller} state={state}
+          <TeamTaskPanel chat={chat} work={work} data={data} selection={selection} localeTag={localeTag} memberAssets={memberAssets} controller={controller} state={state}
             onSelect={id => { openDetail({ kind: 'task', id }) }} onBack={() => { closeDetail(true) }} onChange={updateSelection} t={t} />
           {detail?.kind !== 'task' && data.tasks.length > 0 ? <details className="swarm-team-workspace__fold"><summary>{t('dag.title')}</summary><TaskDag tasks={data.tasks} t={t} onSelect={id => { openDetail({ kind: 'task', id }) }} /></details> : null}
         </div>}
@@ -490,7 +498,7 @@ function Workspace({ chat, data, localeTag, state, t, teams, announcements, diag
 
 /** The bar measures completed tasks, never an estimate of a model's internal progress. */
 function TeamProgress({ data, number, t }: { readonly data: SwarmHostReadProjectionV1; readonly number: Intl.NumberFormat; readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS> }) {
-  const counts: Record<TaskProgressState, number> = { completed: 0, running: 0, review: 0, blocked: 0, unknown: 0, ready: 0, failed: 0, cancelled: 0 }
+  const counts: Record<TaskProgressState, number> = { completed: 0, running: 0, review: 0, blocked: 0, unknown: 0, ready: 0, failed: 0, cancelled: 0, open: 0, budgetHold: 0, teamInactive: 0 }
   for (const task of data.tasks) counts[taskProgressState(task, data.tasks)] += 1
   const partial = data.truncated.tasks || data.tasks.length !== data.totals.tasks
   const states = Object.entries(counts) as [TaskProgressState, number][]

@@ -1,3 +1,4 @@
+import type { WorkRequestController } from './work-request-controller.js'
 import type { PublicChatController } from './public-chat-controller.js'
 import { useEffect, useId, useSyncExternalStore, type RefObject } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
@@ -10,6 +11,7 @@ import { TeamDashboardContent } from './TeamDashboardContent.js'
 const TEAM_DASHBOARD_SURFACE_ID = 'swarm-team-surface'
 
 interface TeamDashboardDetailsInjected {
+  readonly work?: WorkRequestController | undefined
   readonly chat?: PublicChatController | undefined
   readonly anchorRef: RefObject<HTMLSpanElement>
   readonly controller: TeamDashboardController
@@ -21,7 +23,7 @@ export type TeamDashboardDetailsProps = PropsRuntime<'sidebar.right.pane.tab'>
   & PropsLocale<typeof TEAM_DASHBOARD_NS> & TeamDashboardDetailsInjected
 
 /** The Team tab body; official Sidebar owns its geometry and presentation. */
-export function TeamDashboardDetails({ controller, coordinator, chat, localeTag, sessionId, useTabInfo, t }: TeamDashboardDetailsProps) {
+export function TeamDashboardDetails({ controller, coordinator, chat, work, localeTag, sessionId, useTabInfo, t }: TeamDashboardDetailsProps) {
   const { tab } = useTabInfo()
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot)
   const surface = useSyncExternalStore(coordinator.subscribe, coordinator.getSnapshot, coordinator.getSnapshot)
@@ -37,7 +39,7 @@ export function TeamDashboardDetails({ controller, coordinator, chat, localeTag,
     aria-labelledby={headingId} aria-describedby={descriptionId}
     data-swarm-team-panel data-swarm-team-dashboard data-phase={state.phase}
     style={{ width: '100%', height: '100%', overflow: 'hidden' }}>
-    <TeamDashboardContent chat={chat} controller={controller} coordinator={coordinator} descriptionId={descriptionId}
+    <TeamDashboardContent work={work} chat={chat} controller={controller} coordinator={coordinator} descriptionId={descriptionId}
       headingId={headingId} localeTag={localeTag} state={state} t={t} />
   </aside>
 }

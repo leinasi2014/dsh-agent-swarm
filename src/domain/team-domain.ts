@@ -1,3 +1,7 @@
+import * as workRequests from './team-domain-work-requests.js'
+import * as workActivities from './team-domain-work-activity.js'
+import * as openClaim from './team-domain-open-claim.js'
+import type { WorkRequestOrigin, SubmitWorkRequestInput, ResolveWorkRequestInput, NoticeOpenClaimTaskInput, WorkRequestAdmission, WorkRequestResolutionGuards } from './work-request.js'
 import type { TeamModelRoute } from './types.js'
 /**
  * Framework-neutral Team protocol core composing the subdomain modules.
@@ -73,6 +77,13 @@ export const DEFAULT_TEAM_LIMITS: TeamLimits = {
 
 /** Framework-neutral Team protocol used by the DSH tool and scheduler consumers. */
 export class TeamDomain implements TeamDomainPort {
+  submitWorkRequest(scope: TeamScope, teamId: TeamId, origin: WorkRequestOrigin, input: SubmitWorkRequestInput, admission?: WorkRequestAdmission) { return workRequests.submitWorkRequest(this.deps, scope, teamId, origin, input, admission) }
+  workRequestResult(scope: TeamScope, teamId: TeamId, origin: WorkRequestOrigin, requestId: string) { return workRequests.workRequestResult(this.deps, scope, teamId, origin, requestId) }
+  listWorkRequests(scope: TeamScope, teamId: TeamId, actor: string) { return workRequests.listWorkRequests(this.deps, scope, teamId, actor) }
+  resolveWorkRequest(scope: TeamScope, teamId: TeamId, actor: string, input: ResolveWorkRequestInput, guards?: WorkRequestResolutionGuards) { return workRequests.resolveWorkRequest(this.deps, scope, teamId, actor, input, guards) }
+  workActivity(scope: TeamScope, teamId: TeamId, afterSequence?: number, limit?: number) { return workActivities.workActivity(this.deps, scope, teamId, afterSequence, limit) }
+  noticeOpenClaimTask(scope: TeamScope, teamId: TeamId, actor: string, input: NoticeOpenClaimTaskInput) { return openClaim.noticeOpenClaimTask(this.deps, scope, teamId, actor, input) }
+
   requestVisualAssistance(scope: TeamScope, teamId: TeamId, actor: string, input: RequestVisualAssistanceInput, revision: number) {
     return visualAssistance.requestVisualAssistance(this.deps, scope, teamId, actor, input, revision)
   }
@@ -296,8 +307,9 @@ export class TeamDomain implements TeamDomainPort {
     attemptId: AttemptId,
     decision: 'accept' | 'reject',
     diagnostic?: string,
+    reviewProvider?: string,
   ): Promise<TeamTask> {
-    return await board.reviewTask(this.deps, scope, teamId, captainSessionId, taskId, expectedRevision, attemptId, decision, diagnostic)
+    return await board.reviewTask(this.deps, scope, teamId, captainSessionId, taskId, expectedRevision, attemptId, decision, diagnostic, reviewProvider)
   }
 
   async cancelAttempt(

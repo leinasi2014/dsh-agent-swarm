@@ -23,6 +23,7 @@ import type { MessageDelivery } from './message-delivery.js'
 import { assignmentPrompt } from './prompts.js'
 import type { TeamSchedulerProvider } from './providers.js'
 import type { UsageAccountant } from './usage-accounting.js'
+import { notifyOpenTasks } from './open-claim-scheduling.js'
 
 export interface SchedulingDeps {
   readonly domain: () => TeamDomainPort
@@ -30,6 +31,7 @@ export interface SchedulingDeps {
   readonly usage: () => UsageAccountant
   readonly schedulerProvider: () => string
   readonly schedulerProviders: () => Map<string, TeamSchedulerProvider>
+  readonly duringProvider: <T>(scope: TeamScope, teamId: TeamId, operation: () => T | Promise<T>) => Promise<T>
   /** Stranded-ownership grace bound in ms; 0 disables automatic retry. */
   readonly strandedAfterMs: number
   /**
@@ -98,6 +100,7 @@ export class SchedulingPass {
     const hadQueuedMail = snapshot.pendingMessageIds.length > 0
     for (const messageId of snapshot.pendingMessageIds) {
       if (this.deps.isClosing()) return
+      if (snapshot.team.messages.find(message => message.id === messageId)?.kind === 'open-claim-notice') continue
       await this.deps.delivery().deliverQueuedMessage(scope, teamId, captain, messageId, AbortSignal.timeout(30_000))
     }
     if (hadQueuedMail) snapshot = await this.deps.domain().snapshot(scope, teamId, captain.id)
@@ -150,7 +153,7 @@ export class SchedulingPass {
       .toSorted((left, right) => left.createdAt - right.createdAt)
     const outstandingReserved = outstandingReservationTokens(snapshot.team.tasks)
     const ready = snapshot.team.tasks
-      .filter(task => snapshot.readyTaskIds.includes(task.id)
+      .filter(task => task.assignmentMode !== 'open-claim' && snapshot.readyTaskIds.includes(task.id)
         && reservationAdmissible(snapshot.team.budget, outstandingReserved, task.reservationTokens ?? 0))
       .toSorted((left, right) => right.priority - left.priority || left.createdAt - right.createdAt)
 
@@ -158,7 +161,8 @@ export class SchedulingPass {
     if (provider === undefined) {
       throw new TeamDomainError(`scheduler Provider "${this.deps.schedulerProvider()}" is unavailable`, 'TEAM_SCHEDULER_PROVIDER_MISSING')
     }
-    const decisions = await provider.select({ team: snapshot.team, readyTasks: ready, availableMembers: members })
+    const decisions = await this.deps.duringProvider(scope, teamId,
+      () => provider.select({ team: snapshot.team, readyTasks: ready, availableMembers: members }))
     const availableById = new Map(members.map(member => [member.sessionId, member]))
     const readyById = new Map(ready.map(task => [task.id, task]))
     const seenMembers = new Set<string>()
@@ -185,6 +189,7 @@ export class SchedulingPass {
       }
       await this.dispatchAssignment(scope, snapshot.team, captain, claim.task, claim.attempt)
     }
+    await notifyOpenTasks(this.ctx, this.deps, scope, teamId, captain)
   }
 
   /**

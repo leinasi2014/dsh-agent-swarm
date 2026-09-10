@@ -1,9 +1,9 @@
-import { readFileSync } from 'node:fs'
+import { draftStoreScript } from './draft-store-script.js'
 import ts from 'typescript'
 import type { BrowserContext } from 'playwright'
 import type { PublicDraftPersistence } from '../../src/client/public-chat-controller.js'
 
-const storeScript = (): string => ts.transpileModule(readFileSync(new URL('../../src/client/public-draft-store.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
+const storeScript = (): string => draftStoreScript('public-draft-store')
 async function pack(value: unknown): Promise<unknown> {
   if (value instanceof Blob) return { packedDraftBlob: true, type: value.type, bytes: [...new Uint8Array(await value.arrayBuffer())] }
   if (Array.isArray(value)) return Promise.all(value.map(pack))
@@ -20,7 +20,7 @@ function unpack(value: unknown): unknown {
   return value
 }
 /** Only transport is adapted: every draft command executes the production store in real Edge IndexedDB. */
-export function browserDraftStore(context: BrowserContext, name: string): PublicDraftPersistence {
+export async function browserDraftStore(context: BrowserContext, name: string): Promise<PublicDraftPersistence> {
   const page = (async () => {
     const tab = await context.newPage()
     await tab.route('http://controller-draft.test/**', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Controller draft fixture</title>' }))
@@ -29,6 +29,9 @@ export function browserDraftStore(context: BrowserContext, name: string): Public
     await tab.addScriptTag({ content: `{ const exports = {}; ${storeScript()}; ${functions}; const store = new exports.PublicDraftStore(indexedDB, ${JSON.stringify(name)}); window.draftCall = async (method, args) => pack(await Reflect.apply(store[method], store, unpack(args))); }` })
     return tab
   })()
+  // Page creation, navigation and bridge compilation belong to fixture setup.
+  // The controller still owns the first real IndexedDB read/open below.
+  await page
   const call = async (methodName: string, methodArgs: unknown[]): Promise<unknown> => {
     const tab = await page, packed = await pack(methodArgs)
     const result = await tab.evaluate(async ({ method, args }) => {

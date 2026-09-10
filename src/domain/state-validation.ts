@@ -1,3 +1,4 @@
+import { assertWorkState, workRequestNoticeSchema } from './work-request-validation.js'
 import { TeamDomainError } from './error.js'
 import { assertTaskGraph } from './graph.js'
 import { CAPTAIN_ANNOUNCEMENT_ID_RE, isSafePixelAvatarSvg, MAX_CAPTAIN_ANNOUNCEMENTS, MAX_CAPTAIN_ANNOUNCEMENT_TEXT, MAX_PUBLIC_GOAL } from './identity-profile.js'
@@ -301,6 +302,7 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
     if (attempt.output !== undefined) text(attempt.output, path, `attempts[${index}].output`)
     stringList(attempt.evidence, path, `attempts[${index}].evidence`)
     if (attempt.diagnostic !== undefined) text(attempt.diagnostic, path, `attempts[${index}].diagnostic`)
+    if (attempt.reviewProvider !== undefined) codePointText(attempt.reviewProvider, 128, path, `attempts[${index}].reviewProvider`)
     integer(attempt.createdAt, path, `attempts[${index}].createdAt`)
     integer(attempt.updatedAt, path, `attempts[${index}].updatedAt`)
     return attempt
@@ -325,8 +327,12 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
   const messages = list(team.messages, path, 'messages').map((raw, index) => {
     const message = record(raw, path, `messages[${index}]`)
     text(message.id, path, `messages[${index}].id`)
-    text(message.senderSessionId, path, `messages[${index}].senderSessionId`)
-    text(message.senderName, path, `messages[${index}].senderName`)
+    if (message.kind === "work-request-notice") workRequestNoticeSchema.parse(message)
+    else {
+      if (message.kind !== undefined && message.kind !== "open-claim-notice") corrupt(path, "invalid message kind")
+      text(message.senderSessionId, path, `messages[${index}].senderSessionId`)
+      text(message.senderName, path, `messages[${index}].senderName`)
+    }
     text(message.targetSessionId, path, `messages[${index}].targetSessionId`)
     text(message.targetName, path, `messages[${index}].targetName`)
     text(message.content, path, `messages[${index}].content`)
@@ -411,6 +417,7 @@ export function assertTeamState(value: unknown, path: string): asserts value is 
     return entry
   })
   unique(memory.map(entry => entry.id as string), path, 'memory ids')
+  assertWorkState(team as unknown as TeamState)
   assertPublicChat(team.publicChat, teamId, team.captainSessionId as string, team.managedOrigin as string | undefined)
 
   try {
