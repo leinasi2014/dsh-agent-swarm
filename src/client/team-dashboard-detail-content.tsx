@@ -24,7 +24,7 @@ export function ManageView({ data, memberAssets, hasCaptain, number, onCommunica
     <TeamCommunicationControl key={data.team.id} value={data.communication} revision={data.team.revision} disabled={!hasCaptain || communicationDisabled || data.team.phase !== 'active'} onRequest={onCommunication} t={t} />
     <div className="swarm-team-workspace__manage-row" data-swarm-manage-members>
       <span className="swarm-team-workspace__table-copy"><strong>{t('manage.membersTitle')}</strong><small>{t('manage.membersDesc', { count: number.format(data.totals.roster) })}</small></span>
-      <span className="swarm-team-workspace__muted">{t(hasCaptain ? 'public.hint' : 'captainNotCreated')}</span>
+      <span className="swarm-team-workspace__muted">{t(hasCaptain ? 'manage.membersReadOnly' : 'captainNotCreated')}</span>
     </div>
     <div className="swarm-team-workspace__manage-row" data-swarm-manage-growth>
       <span className="swarm-team-workspace__table-copy"><strong>{t('manage.growthTitle')}</strong><small>{t('manage.growthDesc')}</small></span>

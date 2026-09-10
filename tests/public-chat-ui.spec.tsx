@@ -31,6 +31,7 @@ function chatProps(state = teamState(), chat = chatState(state)) {
   }
 }
 
+
 describe('public conversation composition', () => {
   it.each(['stale', 'reconnecting'] as const)('retains verified history and pending draft during %s while preventing dispatch', async phase => {
     const readyState = teamState()
@@ -93,3 +94,31 @@ describe('public conversation composition', () => {
     expect(props.send).not.toHaveBeenCalled()
   })
 })
+
+// Container geometry fixture, not a claim about the installed app's host chrome.
+it('keeps two short messages and the composer visible in a 390px container with a long folded goal', async () => {
+  const base = teamState(), data = base.data!
+  const state = { ...base, data: { ...data, teams: { ...data.teams, teams: data.teams.teams.map(row => ({ ...row, goal: { state: 'generated' as const, text: '这是较长的团队公开目标。'.repeat(80) } })) } } }
+  const chat = chatState(state)
+  const props = chatProps(state, { ...chat, entries: [...chat.entries, { ...chat.entries[0]!, id: 'public-2', sequence: 2, text: '第二条简短消息' }] })
+  await render(<TeamPublicChat {...props as ComponentProps<typeof TeamPublicChat>} />)
+  const { chromium } = await import('playwright'), browser = await chromium.launch({ channel: 'msedge', headless: true })
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 844 } })
+    await page.setContent(`<div style="width:390px;height:700px">${document.querySelector('[data-swarm-public-chat]')!.outerHTML}</div>`)
+    const geometry = await page.evaluate(() => {
+      const root = document.querySelector<HTMLElement>('[data-swarm-public-chat]')!, messages = root.querySelector<HTMLElement>('.swarm-public__messages')!
+      const rect = messages.getBoundingClientRect(), send = root.querySelector('[data-public-send]')!.getBoundingClientRect()
+      return { messagesHeight: rect.height, headerHeight: root.querySelector('header')!.getBoundingClientRect().height,
+        messagePadding: getComputedStyle(messages).paddingLeft, overflow: root.scrollWidth - root.clientWidth,
+        shown: [...messages.querySelectorAll('article')].every(node => node.getBoundingClientRect().top >= rect.top && node.getBoundingClientRect().bottom <= rect.bottom),
+        sendBottom: send.bottom, bottom: root.getBoundingClientRect().bottom }
+    })
+    expect(geometry.messagesHeight).toBeGreaterThan(280)
+    expect(geometry.headerHeight).toBeLessThan(110)
+    expect(geometry.messagePadding).toBe('12px')
+    expect(geometry.overflow).toBeLessThanOrEqual(1)
+    expect(geometry.shown).toBe(true)
+    expect(geometry.sendBottom).toBeLessThanOrEqual(geometry.bottom)
+  } finally { await browser.close() }
+}, 60_000)

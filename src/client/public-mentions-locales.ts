@@ -1,4 +1,5 @@
 export const publicMentionsEn = {
+  'directory.attributes': 'Profile', 'directory.work': 'Work', 'directory.model': 'Model', 'directory.skills': 'Skills', 'directory.toolPermissions': 'Tool permissions',
   'directory.closeProfile': 'Close member profile',
   'directory.retainedHistory': 'Retained history · Accepted tasks: {accepted} · Rejected attempts: {rejected}',
   'public.segmentLimit': 'Too many text/mention segments: {count}/{limit}',
@@ -22,11 +23,12 @@ export const publicMentionsEn = {
   'directory.personality': 'Personality', 'directory.biography': 'Biography', 'directory.tasks': 'Current tasks', 'directory.none': 'None',
   'directory.assigned': 'Assigned Skills', 'directory.sessionVisible': 'Session-visible Skills', 'directory.catalog': 'Skill catalog',
   'directory.tools': 'Tools', 'directory.partial': 'Partial tool information; omitted tools remain unknown',
-  'directory.policy': 'Team policy', 'directory.resultsUnknown': 'No result records in this directory. Current tasks are shown above; private memory is not public.',
+  'directory.policy': 'Team policy', 'directory.resultsUnknown': 'No result records in this directory. See Work for current tasks; private memory is not public.',
   'directory.updated': 'Updated', 'directory.observed': 'Observed', 'directory.source': 'Source', 'directory.version': 'Version',
   'directory.approval-required': 'Approval required', 'directory.disabled': 'Disabled', 'directory.allow': 'Allow', 'directory.ask': 'Ask', 'directory.deny': 'Deny',
 }
 export const publicMentionsZh: Record<keyof typeof publicMentionsEn, string> = {
+  'directory.attributes': '属性', 'directory.work': '工作', 'directory.model': '模型', 'directory.skills': 'Skills', 'directory.toolPermissions': '工具权限',
   'directory.closeProfile': '关闭成员资料',
   'directory.retainedHistory': '保留记录：通过审核的任务 {accepted} 项 · 被驳回的尝试 {rejected} 次',
   'public.segmentLimit': '文字与提及段数超出限制：{count}/{limit}',
@@ -45,7 +47,7 @@ export const publicMentionsZh: Record<keyof typeof publicMentionsEn, string> = {
   'directory.identity': '会话身份', 'directory.responsibility': '本队职责', 'directory.profession': '职业', 'directory.personality': '性格', 'directory.biography': '简介',
   'directory.tasks': '当前任务', 'directory.none': '无', 'directory.assigned': '已分配 Skills', 'directory.sessionVisible': '会话可见 Skills', 'directory.catalog': 'Skills 目录',
   'directory.tools': '工具', 'directory.partial': '工具信息不完整，未列出的工具仍未知', 'directory.policy': '团队策略',
-  'directory.resultsUnknown': '本目录暂无成果记录；当前任务见上方，私有记忆不公开。',
+  'directory.resultsUnknown': '本目录暂无成果记录；当前任务见工作页，私有记忆不公开。',
   'directory.updated': '修改时间', 'directory.observed': '读取时间', 'directory.source': '来源', 'directory.version': '版本',
   'directory.approval-required': '需批准', 'directory.disabled': '禁用', 'directory.allow': '允许', 'directory.ask': '询问', 'directory.deny': '拒绝',
 }

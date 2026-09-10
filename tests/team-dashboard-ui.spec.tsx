@@ -95,19 +95,20 @@ describe('R3 native Team Details surface', () => {
     const coordinator = new FakeCoordinator()
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: stagedController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
     await act(async () => { tabButton('members').click() })
+    expect(document.querySelector('[data-swarm-staged-plan-summary]')).toBeNull()
+    expect(document.querySelector('[data-swarm-captain-state]')?.textContent).toContain('Captain not created')
+    await act(async () => { tabButton('info').click() })
     expect(document.querySelector('[data-swarm-staged-plan-summary]')?.textContent).toContain('2 members')
     expect(document.querySelector('[data-swarm-staged-plan-summary]')?.textContent).toContain('3 tasks')
     expect(document.querySelector('[data-swarm-staged-plan-hint]')).not.toBeNull()
     expect(document.querySelector('button[data-swarm-captain-desk]')).toBeNull()
-    expect(document.querySelector('[data-swarm-captain-state]')?.textContent).toContain('Captain not created')
-    await act(async () => { tabButton('info').click() })
     const manageCaptain = document.querySelector<HTMLElement>('[data-swarm-manage-members]')!
     expect(manageCaptain.querySelector('button')).toBeNull()
     expect(manageCaptain.textContent).toContain('Captain not created')
     await act(async () => { manageCaptain.click() })
     expect(coordinator.openCaptainChat).not.toHaveBeenCalled()
   })
-  it('uses the unique public Details occupant: team rail, header title, goal/announcement cards, three tabs', async () => {
+  it('uses one tab toolbar and keeps group context inside Team info', async () => {
     const coordinator = new FakeCoordinator(); const common = { anchorRef: { current: null }, controller, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t }
     await render(<TeamDashboardDetails {...(common as any)} />)
     await act(async () => { tabButton('members').click() })
@@ -115,9 +116,9 @@ describe('R3 native Team Details surface', () => {
     expect(panel.textContent).toContain('Fixture Team'); expect(panel.textContent).toContain('Active')
     expect(document.querySelector('[role="dialog"]')).toBeNull(); expect(document.querySelector('[data-swarm-team-fullscreen]')).toBeNull()
     expect(document.body.innerHTML).toContain('--dsw-alias-bg-layer-1')
-    // Honest read surfaces: exactly one goal card and one announcement preview above the tabs.
-    expect(document.querySelectorAll('[data-swarm-goal-card]')).toHaveLength(1)
-    expect(document.querySelectorAll('[data-swarm-announcement-preview]')).toHaveLength(1)
+    expect(document.querySelectorAll('[data-swarm-goal-card]')).toHaveLength(0)
+    expect(document.querySelectorAll('[data-swarm-announcement-preview]')).toHaveLength(0)
+    expect(document.querySelectorAll('.swarm-team-workspace__toolbar')).toHaveLength(1)
     // No removed surface types survive: no fixed footer actions, no Main-Brain/Captain tabs.
     expect(panel.querySelector('[data-swarm-team-workspace] .swarm-team-workspace__footer, [data-swarm-view-tab="roster"], [data-swarm-view-tab="captain"], [data-swarm-view-tab="board"]')).toBeNull()
     // A single Captain desk click routes to the official Captain Chat.
@@ -185,7 +186,7 @@ describe('R3 native Team Details surface', () => {
       await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!.click() })
       await page.setViewportSize({ width: 1100, height: 800 })
       await page.setContent(`<div style="width:${width}px;height:700px;--dsw-alias-border-l2:gray">${document.querySelector('[data-swarm-team-panel]')!.outerHTML}</div>`)
-      expect(await page.locator('[data-swarm-progress]').isVisible()).toBe(true)
+      expect(await page.locator('[data-swarm-progress]').count()).toBe(0)
       const geometry = await page.evaluate(() => {
         const body = document.querySelector<HTMLElement>('.swarm-team-workspace__detail-body')!
         const field = document.querySelector<HTMLElement>('[data-swarm-detail-role]')!
@@ -197,7 +198,7 @@ describe('R3 native Team Details surface', () => {
       expect(geometry.fieldRight).toBeLessThanOrEqual(geometry.panelRight)
     })
 
-    it.each([300, 360, 420])('%spx: real Team cards use one vertical flow and compact connected member rows (#225)', async width => {
+    it.each([300, 360, 420])('%spx: Team keeps a bounded body and compact connected member rows', async width => {
       const base = ready.data!
       const team = base.teams.teams[0]!
       const data = { ...base, teams: { ...base.teams, teams: [team, { ...team, teamId: 'beta', name: '运行验证组' }, { ...team, teamId: 'gamma', name: '交付整理组' }] },
@@ -230,7 +231,7 @@ describe('R3 native Team Details surface', () => {
       expect(geometry.indentation).toBeGreaterThan(0)
       expect(geometry.memberBorders).toEqual(['0px', '0px'])
       expect(geometry.connectors).toEqual(['1px', '1px'])
-      expect(geometry.scrollOwners).toBe(0)
+      expect(geometry.scrollOwners).toBe(1)
     })
   })
 

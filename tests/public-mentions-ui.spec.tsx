@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { ready, render, t, tZh } from './helpers/dashboard-ui.js'
 import { act, useState, type ComponentProps } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { MentionComposer } from '../src/client/MentionComposer.js'
@@ -6,7 +7,6 @@ import { DirectoryMembers } from '../src/client/DirectoryMembers.js'
 import { editDraft, replaceDraftRange, draftContent, type PublicDraft } from '../src/client/public-draft.js'
 import { hasUnconfirmedPublicMention } from '../src/shared/public-content.js'
 import { directoryEntry, directoryPage } from './helpers/public-directory.js'
-import { ready, render, t, tZh } from './helpers/dashboard-ui.js'
 import type { PublicChatController, PublicChatState } from '../src/client/public-chat-controller.js'
 
 const empty: PublicDraft = { text: '', version: 0, tokens: [] }
@@ -85,9 +85,11 @@ it('shared directory card shows authoritative fields, keeps diagnostics collapse
   await act(async () => { avatar.click() })
   const card = document.querySelector<HTMLElement>('[data-directory-card]')!
   expect(card.textContent).toContain('核对文字'); expect(card.textContent).toContain('校对员')
-  expect(card.textContent).toContain(t('directory.imageUnknown')); expect(card.querySelector('details')?.open).toBe(false)
+  expect(card.textContent).not.toContain(t('directory.imageUnknown')); expect(card.querySelector('details')?.open).toBe(false)
+  expect(document.querySelector('[data-swarm-directory]')?.contains(card)).toBe(false)
+  expect(card.closest('[role=dialog]')?.getAttribute('aria-modal')).toBe('false')
   expect(card.textContent).not.toContain('Open chat')
-  const skills = [...card.querySelectorAll<HTMLButtonElement>('[role=tab]')].find(button => button.textContent === t('directory.skillsTools'))!
+  const skills = [...card.querySelectorAll<HTMLButtonElement>('[role=tab]')].find(button => button.textContent === t('directory.capabilities'))!
   await act(async () => { skills.click() }); expect(card.textContent).toContain('核对原文'); expect(card.textContent).toContain(t('directory.partial')); expect(card.textContent).toContain(t('directory.approval-required'))
   await act(async () => { card.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
   expect(document.querySelector('[data-directory-card]')).toBeNull(); expect(document.activeElement).toBe(avatar)
@@ -164,7 +166,7 @@ it.each([
   await act(async () => { results.click() })
   expect(card.querySelector('[role=tabpanel]')?.textContent).toContain(expected)
 })
-it('labels both profile close controls for the profile only and restores the avatar focus', async () => {
+it('labels profile close, restores avatar focus and dismisses an unavailable member', async () => {
   const view = await chineseProfile('Retained history: 0 accepted tasks · 0 rejected attempts')
   const close = document.querySelector<HTMLButtonElement>('[data-directory-card] header button')!
   expect(close.getAttribute('aria-label')).toBe('关闭成员资料')
@@ -172,8 +174,7 @@ it('labels both profile close controls for the profile only and restores the ava
   expect(document.querySelector('[data-directory-card]')).toBeNull()
   expect(document.querySelector('[data-swarm-directory]')).not.toBeNull(); expect(document.activeElement).toBe(view.avatar)
   await act(async () => { view.avatar.click() }); await view.unavailable()
-  const fallback = document.querySelector<HTMLButtonElement>('[data-swarm-directory] p[role=status] button')!
-  expect(fallback.textContent).toBe('关闭成员资料')
+  expect(document.querySelector('[data-directory-card]')).toBeNull()
 })
 
 it('scrolls only the candidate list to reveal keyboard selection and rechecks changed row geometry', async () => {

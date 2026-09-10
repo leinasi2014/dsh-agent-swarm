@@ -47,7 +47,7 @@ export function TeamPublicChat(props: Props) {
     && state.draft.text.trim() !== '' && bytes <= state.history.limits.maxTextBytes
   return <section className="swarm-public" data-swarm-public-chat data-team-id={sameTeam ? selected.team : undefined}>
     <style>{publicChatCss}</style>
-    <header className="swarm-public__header"><div><h1>{team?.name ?? t('public.title')}</h1><p>{team?.goal.state === 'generated' ? team.goal.text : t('public.goalEmpty')}</p></div>
+    <header className="swarm-public__header"><div><h1>{team?.name ?? t('public.title')}</h1>{team?.goal.state === 'generated' ? <details className="swarm-public__goal"><summary>{team.goal.text}</summary><p>{team.goal.text}</p></details> : <p>{t('public.goalEmpty')}</p>}</div>
       {surface.mode !== 'docked' ? <button type="button" onClick={props.openTeam} disabled={!sameTeam || !verified}>{t('public.openTeam')}</button> : null}</header>
     {sameTeam && !verified ? <p role={dashboard.phase === 'stale' ? 'alert' : 'status'}>{t(dashboard.phase === 'stale' ? 'stale' : 'reconnecting')}{dashboard.error === undefined ? null : ` · ${dashboard.error.message}`}</p> : null}
     {!sameTeam ? <p role="status">{t(dashboard.phase === 'error' ? 'error' : 'loading')}</p> : <>

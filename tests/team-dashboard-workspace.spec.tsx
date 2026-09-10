@@ -292,6 +292,7 @@ describe('Team workspace views and projection-derived activity', () => {
     // Beta Team title, and Beta's real public goal from the same read contract.
     expect(document.querySelector('.swarm-team-workspace__title')?.textContent).toBe('Beta Team')
     expect(document.querySelectorAll('[data-swarm-team-card]')).toHaveLength(0)
+    await act(async () => { tabButton('info').click() })
     expect(document.querySelector<HTMLElement>('[data-swarm-goal-text]')?.textContent).toBe('Beta team goal')
     // The Captain conversation entry stays on the selected Team's Captain desk and still routes
     // through the official Captain Chat seam exactly once.
@@ -470,7 +471,7 @@ describe('Team workspace views and projection-derived activity', () => {
     expect(createdLabel.nextElementSibling?.textContent).toBe(taskTime)
   })
 
-  it('renders the goal card exactly once above the tabs with the honest empty state, and the announcement surfaces exactly once each', async () => {
+  it('keeps the goal in Team info with the honest empty state and one canonical text', async () => {
     const coordinator = new FakeCoordinator()
     const projection = {
       ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot,
@@ -498,6 +499,8 @@ describe('Team workspace views and projection-derived activity', () => {
     const state: TeamDashboardState = { ...ready, data: { ...teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection), teams: emptyGoalTeams as never } }
     const emptyGoalController = { getSnapshot: (): TeamDashboardState => state, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: emptyGoalController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
+    expect(document.querySelector('[data-swarm-goal-card]')).toBeNull()
+    await act(async () => { tabButton('info').click() })
     const goalCard = document.querySelector<HTMLElement>('[data-swarm-goal-card]')!
     expect(goalCard).not.toBeNull()
     expect(document.querySelectorAll('[data-swarm-goal-card]')).toHaveLength(1)
@@ -507,6 +510,7 @@ describe('Team workspace views and projection-derived activity', () => {
     // The generated goal renders its real canonical text exactly once across the whole panel.
     document.body.replaceChildren()
     await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
+    await act(async () => { tabButton('info').click() })
     expect(document.querySelectorAll('[data-swarm-goal-text]')).toHaveLength(1)
     expect(document.querySelector('[data-swarm-goal-text]')?.textContent).toBe('Deliver the Team UI.')
     expect(document.body.textContent!.split('Deliver the Team UI.')).toHaveLength(2)
