@@ -24,6 +24,9 @@ const tab = (label: string): HTMLButtonElement => [...document.querySelectorAll<
 async function click(node: HTMLElement): Promise<void> { await act(async () => { node.click() }) }
 async function key(node: HTMLElement, value: string, shiftKey = false): Promise<void> { await act(async () => { node.dispatchEvent(new KeyboardEvent('keydown', { key: value, shiftKey, bubbles: true, cancelable: true })) }) }
 
+async function pointerDown(node: HTMLElement): Promise<void> { await act(async () => { node.dispatchEvent(new Event('pointerdown', { bubbles: true })); node.focus() }) }
+async function pointerUpClick(node: HTMLElement): Promise<void> { await act(async () => { node.dispatchEvent(new Event('pointerup', { bubbles: true })); node.click() }) }
+
 it('opens one click-owned body portal, separates profile from work/capabilities, and preserves the draft', async () => {
   const f = await fixture()
   await click(avatar())
@@ -60,6 +63,30 @@ it('dismisses on external pointer/Tab focus without stealing it, and restores th
   expect(card()).toBeNull(); expect(document.activeElement).toBe(avatar())
 })
 
+it.each(['current-avatar', 'other-avatar', 'refresh'] as const)('closes when desktop keyboard focus leaves the profile for %s inside the directory', async target => {
+  const f = await fixture(); await f.update({ directoryError: 'Refresh failed' }); await click(avatar())
+  const next = target === 'refresh' ? document.querySelector<HTMLButtonElement>('[data-swarm-directory] [role=alert] button')! : avatar(target === 'current-avatar' ? 'member-a' : 'member-b')
+  await act(async () => { next.focus() })
+  expect(card()).toBeNull(); expect(document.activeElement).toBe(next)
+})
+
+it('keeps current-avatar pointer toggle atomic, treats directory refresh as outside, and opens a clicked different member', async () => {
+  const f = await fixture(); await f.update({ directoryError: 'Refresh failed' }); await click(avatar())
+  const current = avatar()
+  await pointerDown(current); expect(card()).not.toBeNull()
+  await pointerUpClick(current); expect(card()).toBeNull()
+  await pointerDown(current); await pointerUpClick(current)
+  expect(card()?.getAttribute('data-directory-card')).toBe('member-a')
+  await click(tab('能力'))
+  const other = avatar('member-b')
+  await pointerDown(other); expect(card()).toBeNull()
+  await pointerUpClick(other); expect(card()?.getAttribute('data-directory-card')).toBe('member-b')
+  expect(tab('属性').getAttribute('aria-selected')).toBe('true')
+  const refresh = document.querySelector<HTMLButtonElement>('[data-swarm-directory] [role=alert] button')!
+  await pointerDown(refresh); expect(card()).toBeNull()
+  await pointerUpClick(refresh); expect(card()).toBeNull(); expect(document.activeElement).toBe(refresh)
+})
+
 it('uses the official modal on a narrow viewport and traps focus only there', async () => {
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
   await fixture(); await click(avatar())
@@ -76,6 +103,7 @@ it('uses the official modal on a narrow viewport and traps focus only there', as
 })
 
 it('retains the member through resize and refresh, but closes on team change or member removal', async () => {
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1280 })
   const f = await fixture(); await click(avatar()); await click(tab('能力'))
   await f.update({ directoryLoading: true })
   expect(document.querySelector('[data-swarm-directory] [role=status]')).toBeNull()
@@ -86,6 +114,10 @@ it('retains the member through resize and refresh, but closes on team change or 
   await act(async () => { Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 }); window.dispatchEvent(new Event('resize')) })
   expect(card()?.getAttribute('data-directory-card')).toBe('member-a')
   expect(card()?.closest('[role=dialog]')?.getAttribute('aria-modal')).toBe('true')
+  expect(tab('能力').getAttribute('aria-selected')).toBe('true')
+  await act(async () => { Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1280 }); window.dispatchEvent(new Event('resize')) })
+  expect(card()?.getAttribute('data-directory-card')).toBe('member-a')
+  expect(tab('能力').getAttribute('aria-selected')).toBe('true')
   await f.update({ selection: { ...f.state().selection!, key: 'another-team' } })
   expect(card()).toBeNull()
   await click(avatar()); await f.update({ directory: { ...f.state().directory!, entries: [] } })

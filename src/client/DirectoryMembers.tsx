@@ -4,7 +4,7 @@ import type { PublicChatController } from './public-chat-controller.js'
 import type { TeamDashboardState } from './team-dashboard-controller.js'
 import { SafePixelAvatar } from './SafePixelAvatar.js'
 import { MemberProfileSurface } from './MemberProfileSurface.js'
-import { MemberProfileContent, profileCss } from './MemberProfileContent.js'
+import { MemberProfileContent, profileCss, type MemberProfileTab } from './MemberProfileContent.js'
 import { TEAM_DASHBOARD_NS } from './team-dashboard-locales.js'
 type T = TranslateNS<typeof TEAM_DASHBOARD_NS>
 
@@ -12,6 +12,7 @@ type T = TranslateNS<typeof TEAM_DASHBOARD_NS>
 export function DirectoryMembers({ chat, dashboard, onTask, t }: { chat: PublicChatController; dashboard?: TeamDashboardState; onTask?: ((id: string) => void) | undefined; t: T }) {
   const state = useSyncExternalStore(chat.subscribe, chat.getSnapshot, chat.getSnapshot)
   const [memberId, setMemberId] = useState<string>(), trigger = useRef<HTMLButtonElement | null>(null), root = useRef<HTMLDivElement>(null)
+  const [tab, setTab] = useState<MemberProfileTab>('attributes')
   const entry = state.directory?.entries.find(row => row.memberId === memberId)
   const data = dashboard?.data
   const assets = dashboard?.phase === 'ready' && data !== undefined && data.captainMembers.binding.teamId === state.selection?.team && data.captainMembers.binding.rootSessionId === state.selection?.captain ? data.captainMembers : undefined
@@ -25,10 +26,10 @@ export function DirectoryMembers({ chat, dashboard, onTask, t }: { chat: PublicC
     {state.directoryLoading && state.directory === undefined ? <p role="status">{t('directory.loading')}</p> : null}
     {state.directoryError ? <p role="alert">{state.directoryError} <button type="button" onClick={() => { void chat.refreshDirectory() }}>{t('refresh')}</button></p> : null}
     <div className="swarm-directory__grid" aria-busy={state.directoryLoading}>{state.directory?.entries.map(row => <button type="button" key={row.memberId} data-directory-member={row.memberId} aria-label={`${row.label} · ${row.name}`} aria-haspopup="dialog" aria-expanded={memberId === row.memberId} title={`${row.label} · ${row.responsibility}`} onClick={event => {
-      trigger.current = event.currentTarget; setMemberId(current => current === row.memberId ? undefined : row.memberId); void chat.refreshDirectory()
+      trigger.current = event.currentTarget; setTab('attributes'); setMemberId(current => current === row.memberId ? undefined : row.memberId); void chat.refreshDirectory()
     }}><span className="swarm-directory__avatar"><SafePixelAvatar seed={row.memberId} asset={row.avatar} name={row.label} t={t} /></span><span>{row.label}</span><small>{row.role === 'captain' ? t('captainRole') : row.profession || t('members')}</small></button>)}</div>
     {state.directory?.entries.length === 0 ? <p>{t('directory.empty')}</p> : null}
-    {entry === undefined ? null : <MemberProfileSurface key={entry.memberId} anchorRef={trigger} rootRef={root} close={close} title={entry.label}>{dismiss => <MemberProfileContent entry={entry} result={result} resultObservedAt={assets?.observedAt} close={dismiss} onTask={onTask === undefined ? undefined : id => { close(false); onTask(id) }} t={t} />}
+    {entry === undefined ? null : <MemberProfileSurface key={entry.memberId} anchorRef={trigger} rootRef={root} close={close} title={entry.label}>{dismiss => <MemberProfileContent tab={tab} onTabChange={setTab} entry={entry} result={result} resultObservedAt={assets?.observedAt} close={dismiss} onTask={onTask === undefined ? undefined : id => { close(false); onTask(id) }} t={t} />}
     </MemberProfileSurface>}
   </div>
 }

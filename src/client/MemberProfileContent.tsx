@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useRef, useState } from 'react'
+import { useId, useLayoutEffect, useRef } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { DirectoryEntry, DirectorySource } from '../rpc/directory-contract.js'
 import type { SwarmReadCaptainMemberRowV1 } from '../rpc/read-rpc-contract.js'
@@ -7,6 +7,7 @@ import { SafePixelAvatar } from './SafePixelAvatar.js'
 import { TEAM_DASHBOARD_NS } from './team-dashboard-locales.js'
 
 type T = TranslateNS<typeof TEAM_DASHBOARD_NS>
+export type MemberProfileTab = 'attributes' | 'work' | 'capabilities' | 'results'
 /** Display adaptation of the existing Host summary; unknown public prose stays literal. */
 function retainedHistoryLabel(value: string, t: T): string {
   const match = /^Retained history: (0|[1-9]\d*) accepted (task|tasks) · (0|[1-9]\d*) rejected (attempt|attempts)$/u.exec(value)
@@ -20,11 +21,11 @@ function Source({ value, t }: { value: DirectorySource; t: T }) {
   </div>
 }
 
-export function MemberProfileContent({ entry, close, result, resultObservedAt, onTask, t }: {
-  entry: DirectoryEntry; close: () => void; result: SwarmReadCaptainMemberRowV1 | undefined; resultObservedAt: number | undefined; onTask?: ((id: string) => void) | undefined; t: T
+export function MemberProfileContent({ entry, close, result, resultObservedAt, onTask, tab, onTabChange, t }: {
+  tab: MemberProfileTab; onTabChange: (tab: MemberProfileTab) => void; entry: DirectoryEntry; close: () => void; result: SwarmReadCaptainMemberRowV1 | undefined; resultObservedAt: number | undefined; onTask?: ((id: string) => void) | undefined; t: T
 }) {
   const tabs = ['attributes', 'work', 'capabilities', 'results'] as const
-  const [tab, setTab] = useState<typeof tabs[number]>('attributes'), id = useId()
+  const id = useId()
   const body = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => { if (body.current) body.current.scrollTop = 0 }, [tab])
   return <section className="swarm-profile__content" data-directory-card={entry.memberId} aria-labelledby={id}>
@@ -33,9 +34,9 @@ export function MemberProfileContent({ entry, close, result, resultObservedAt, o
       <div className="swarm-profile__identity"><h3 id={id} title={entry.label} data-profile-heading tabIndex={-1}>{entry.label}</h3><small>{entry.role === 'captain' ? t('captainRole') : t('members')} · {enumLabel(entry.phase, t)}</small><p title={entry.responsibility}>{entry.responsibility || t('directory.unknown')}</p></div>
       <button type="button" aria-label={t('directory.closeProfile')} onClick={close}>×</button>
     </header>
-    <div className="swarm-profile__tabs" role="tablist" aria-label={entry.label}>{tabs.map((value, index) => <button type="button" key={value} role="tab" id={`${id}-${value}`} aria-controls={`${id}-panel`} aria-selected={tab === value} tabIndex={tab === value ? 0 : -1} onClick={() => { setTab(value) }} onKeyDown={event => {
+    <div className="swarm-profile__tabs" role="tablist" aria-label={entry.label}>{tabs.map((value, index) => <button type="button" key={value} role="tab" id={`${id}-${value}`} aria-controls={`${id}-panel`} aria-selected={tab === value} tabIndex={tab === value ? 0 : -1} onClick={() => { onTabChange(value) }} onKeyDown={event => {
       const next = event.key === 'ArrowRight' ? (index + 1) % tabs.length : event.key === 'ArrowLeft' ? (index + tabs.length - 1) % tabs.length : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : undefined
-      if (next !== undefined) { event.preventDefault(); setTab(tabs[next]!); event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('button')[next]?.focus() }
+      if (next !== undefined) { event.preventDefault(); onTabChange(tabs[next]!); event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('button')[next]?.focus() }
     }}>{t(`directory.${value}`)}</button>)}</div>
     <div ref={body} className="swarm-profile__body" role="tabpanel" id={`${id}-panel`} aria-labelledby={`${id}-${tab}`} tabIndex={0}>
       {tab === 'attributes' ? <><dl>{(['profession', 'personality', 'biography'] as const).map(key => <div key={key}><dt>{t(`directory.${key}`)}</dt><dd>{entry[key] || t('directory.unknown')}</dd></div>)}</dl><Source value={entry.profile} t={t} /><details><summary>{t('directory.identity')}</summary><code>{entry.name} · {entry.memberId}</code></details></> : null}

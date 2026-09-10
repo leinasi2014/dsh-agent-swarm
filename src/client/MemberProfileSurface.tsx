@@ -6,12 +6,12 @@ import { createPortal } from 'react-dom'
 export function MemberProfileSurface({ anchorRef, rootRef, close, title, children }: {
   anchorRef: RefObject<HTMLButtonElement | null>; rootRef: RefObject<HTMLDivElement>; close: (restore: boolean) => void; title: string; children: (close: () => void) => ReactNode
 }) {
-  const panelRef = useRef<HTMLDivElement>(null), closing = useRef(false)
+  const panelRef = useRef<HTMLDivElement>(null), closing = useRef(false), anchorPointer = useRef(false)
   const dismiss = useCallback((restore: boolean): void => { closing.current = true; close(restore) }, [close])
   const [narrow, setNarrow] = useState(() => window.innerWidth <= 640)
   const [side, setSide] = useState<'top' | 'bottom'>('bottom')
   const position = useAnchoredPosition({ open: !narrow, anchorRef, panelRef, side, gap: 8, margin: 12 })
-  useDismissOnOutsidePointer(rootRef, !narrow, () => { dismiss(false) }, panelRef)
+  useDismissOnOutsidePointer(anchorRef, !narrow, () => { dismiss(false) }, panelRef)
   const positioned = narrow || position !== null
   useLayoutEffect(() => {
     if (!positioned) return
@@ -20,11 +20,23 @@ export function MemberProfileSurface({ anchorRef, rootRef, close, title, childre
     const focus = (event: FocusEvent): void => {
       if (closing.current || !(event.target instanceof Node) || panelRef.current?.contains(event.target)) return
       if (narrow) heading()?.focus()
-      else if (!rootRef.current?.contains(event.target)) dismiss(false)
+      else if (!(anchorPointer.current && anchorRef.current?.contains(event.target))) dismiss(false)
     }
+    // A pointer activation must reach the trigger's click toggle before dismissal.
+    // Keyboard focus leaving the portal has no trigger exemption.
+    const pointer = (event: PointerEvent): void => { anchorPointer.current = event.target instanceof Node && anchorRef.current?.contains(event.target) === true }
+    const release = (): void => { anchorPointer.current = false }
     document.addEventListener('focusin', focus)
-    return () => { document.removeEventListener('focusin', focus) }
-  }, [narrow, positioned, dismiss, rootRef])
+    document.addEventListener('pointerdown', pointer, true)
+    document.addEventListener('pointerup', release, true)
+    document.addEventListener('pointercancel', release, true)
+    document.addEventListener('keydown', release, true)
+    return () => {
+      release(); document.removeEventListener('focusin', focus)
+      document.removeEventListener('pointerdown', pointer, true); document.removeEventListener('pointerup', release, true)
+      document.removeEventListener('pointercancel', release, true); document.removeEventListener('keydown', release, true)
+    }
+  }, [narrow, positioned, dismiss, anchorRef])
   useEffect(() => {
     const anchor = anchorRef.current
     const measure = (): void => {
