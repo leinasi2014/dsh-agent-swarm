@@ -152,3 +152,24 @@ export const SWARM_READ_RPC_FIXTURES_V1 = deepFreezeJson({
     },
   },
 })
+
+/** New task-only examples; no edits to the frozen v1 schema/fixture digest. */
+export const SWARM_READ_RPC_FIXTURES_V2 = deepFreezeJson({
+  requests: {
+    snapshot: { ...SWARM_READ_RPC_FIXTURES_V1.requests.snapshot, schemaVersion: 2 },
+    page: { ...SWARM_READ_RPC_FIXTURES_V1.requests.page, schemaVersion: 2 },
+    taskDetail: { ...SWARM_READ_RPC_FIXTURES_V1.requests.taskDetail, schemaVersion: 2 },
+  },
+  values: {
+    snapshot: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot, schemaVersion: 2 },
+    page: { ...SWARM_READ_RPC_FIXTURES_V1.values.page, schemaVersion: 2 },
+    taskDetail: { ...SWARM_READ_RPC_FIXTURES_V1.values.taskDetail, schemaVersion: 2,
+      task: { ...SWARM_READ_RPC_FIXTURES_V1.values.taskDetail.task, assignmentMode: 'open-claim', readiness: 'ready',
+        createdBySessionId: 'captain-fixture', source: { workRequestId: 'work-request-fixture', itemKey: 'verify', origin: { kind: 'local-operator' } } },
+      attempts: { ...SWARM_READ_RPC_FIXTURES_V1.values.taskDetail.attempts, entries: [{
+        ...SWARM_READ_RPC_FIXTURES_V1.values.taskDetail.attempts.entries[0]!,
+        submittedAt: 2, submittedBySessionId: 'worker-fixture', reviewedAt: 3, reviewedBySessionId: 'captain-fixture',
+      }] },
+    },
+  },
+})

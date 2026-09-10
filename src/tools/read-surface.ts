@@ -30,6 +30,7 @@ const TASK_ROW_SCHEMA = {
       enum: ['pending', 'in_progress', 'submitted', 'verifying', 'completed', 'failed', 'cancelled'],
     },
     ready: { type: 'boolean', required: true },
+    assignment_mode: { type: 'string', required: true, enum: ['automatic', 'open-claim'] },
     blocked_by: { type: 'array', required: true, items: { type: 'string' } },
     owner: { type: 'string', description: 'Member name, or captain when the captain holds it.' },
     target_member: { type: 'string', description: 'Strict captain-selected member, including while the task is blocked or pending. Omit at creation to declare generic work any available member may execute.' },
@@ -217,6 +218,7 @@ export function registerListTasksTool(ctx: Context, runtime: AgentSwarmRuntime):
         const hold = taskHoldEvidence(snapshot.team.budget, snapshot.team.tasks, task, Date.now())
         return {
           task_id: task.id,
+          assignment_mode: task.assignmentMode ?? 'automatic',
           revision: task.revision,
           subject: task.subject,
           description: task.description,

@@ -301,6 +301,30 @@ const taskDetail = {
   },
 }
 export const pageRows = { tasks: taskRow, attempts: attemptRow, pendingInteractions: interactionRow } as const
+export const taskRowV2 = { ...taskRow, required: [...taskRow.required, 'assignmentMode', 'readiness'], properties: {
+  ...taskRow.properties, assignmentMode: { enum: ['automatic', 'open-claim'] },
+  readiness: { enum: ['not-pending', 'team-inactive', 'blocked', 'budget-hold', 'ready'] },
+} }
+const eventFactsV2 = { submittedAt: nonNegativeInteger, submittedBySessionId: boundedString(256),
+  reviewedAt: nonNegativeInteger, reviewedBySessionId: boundedString(256) }
+const taskDetailV2 = { ...taskDetail, properties: { ...taskDetail.properties, schemaVersion: { const: 2 },
+  task: { ...taskDetail.properties.task, required: [...taskDetail.properties.task.required, 'assignmentMode', 'readiness'], properties: {
+    ...taskDetail.properties.task.properties, ...taskRowV2.properties, ...eventFactsV2,
+    ownerSessionId: boundedString(256), createdBySessionId: boundedString(256),
+    source: { type: 'object', additionalProperties: false, required: ['workRequestId', 'itemKey', 'origin'], properties: {
+      workRequestId: boundedString(128), itemKey: boundedString(128), origin: { oneOf: [
+        { type: 'object', additionalProperties: false, required: ['kind'], properties: { kind: { const: 'local-operator' } } },
+        { type: 'object', additionalProperties: false, required: ['kind', 'sessionId'], properties: { kind: { const: 'main' }, sessionId: boundedString(256) } },
+      ] },
+    } },
+  } },
+  attempts: { ...taskDetail.properties.attempts, properties: { ...taskDetail.properties.attempts.properties,
+    entries: { ...taskDetail.properties.attempts.properties.entries, items: {
+      ...taskDetail.properties.attempts.properties.entries.items,
+      properties: { ...taskDetail.properties.attempts.properties.entries.items.properties, ...eventFactsV2, reviewProvider: boundedString(128) },
+    } },
+  } },
+} }
 const pageResultBase = {
   type: 'object', additionalProperties: false,
   required: [
@@ -528,6 +552,35 @@ export const SWARM_READ_RPC_CONTRACT_V1 = deepFreezeJson({
           },
         },
       },
+    },
+  },
+})
+
+/** Explicit task-only extension; the frozen v1 artifact above remains byte-for-byte stable. */
+export const SWARM_READ_RPC_CONTRACT_V2 = deepFreezeJson({
+  protocol: SWARM_READ_RPC_PROTOCOL, version: 2, namespace: SWARM_READ_RPC_NAMESPACE,
+  schemaDialect: SWARM_READ_RPC_SCHEMA_DIALECT,
+  schemas: {
+    request: { $schema: SWARM_READ_RPC_SCHEMA_DIALECT, oneOf: [
+      { ...requestBase, properties: { ...requestBase.properties, schemaVersion: { const: 2 }, method: { const: 'snapshot' } } },
+      { type: 'object', additionalProperties: false, required: ['schemaVersion', 'method', 'target', 'taskId'],
+        properties: { schemaVersion: { const: 2 }, method: { const: 'taskDetail' }, target: sectionTarget, taskId: boundedString(128) } },
+      { ...requestBase, required: [...requestBase.required, 'page'], properties: {
+        ...requestBase.properties, schemaVersion: { const: 2 }, method: { const: 'page' },
+        page: { type: 'object', additionalProperties: false, required: ['kind'], properties: {
+          kind: { const: 'tasks' }, offset: nonNegativeInteger, limit: { type: 'integer', minimum: 1, maximum: 50 },
+        } },
+      } },
+    ] },
+    values: {
+      snapshot: { ...SWARM_READ_RPC_CONTRACT_V1.schemas.values.snapshot, properties: {
+        ...SWARM_READ_RPC_CONTRACT_V1.schemas.values.snapshot.properties, schemaVersion: { const: 2 },
+        tasks: { type: 'array', maxItems: 100, items: taskRowV2 },
+      } },
+      page: { ...pageResult('tasks'), required: [...pageResultBase.required, 'schemaVersion'], properties: {
+        ...pageResult('tasks').properties, schemaVersion: { const: 2 }, entries: { type: 'array', maxItems: 50, items: taskRowV2 },
+      } },
+      taskDetail: taskDetailV2,
     },
   },
 })

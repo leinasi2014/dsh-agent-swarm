@@ -10,7 +10,8 @@ import { TeamDomainError } from '../domain/error.js'
 import { isSafePixelAvatarSvg } from '../domain/identity-profile.js'
 import { type TeamMemberIdentityProfile } from '../domain/types.js'
 import type { AgentSwarmHostReadService } from '../host/host-read-service.js'
-import type { SwarmHostReadProjectionV1 } from '../host/host-read-types.js'
+import type { SwarmHostReadProjectionV1, SwarmHostReadProjectionV2 } from '../host/host-read-types.js'
+import type { SwarmReadPageRequestV2 } from './read-rpc-contract.js'
 import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
 import {
   SWARM_READ_RPC_ENDPOINT,
@@ -128,6 +129,12 @@ export class AgentSwarmReadRpcService {
     }
     if (request.method === 'toolCatalog') return await this.reads.tools(request.target.rootSessionId)
     if (request.method === 'taskDetail') return await this.reads.taskDetail(request)
+    if (request.schemaVersion === 2) {
+      const projection = await this.reads.readTasksV2(request.target, request.afterCursor)
+      if (request.method === 'snapshot') return projection
+      return { ...pageOf(projection, request), schemaVersion: 2, kind: 'tasks', entries: projection.tasks.slice(
+        request.page.offset ?? 0, (request.page.offset ?? 0) + (request.page.limit ?? DEFAULT_PAGE_LIMIT)) }
+    }
     if (request.method === 'skillCatalog') {
       return await this.reads.skills(request.target.rootSessionId)
     }
@@ -251,7 +258,8 @@ export function evaluateSwarmRequestTrust(facts: SwarmRequestTrustFacts): SwarmR
 
 function parseRequest(input: unknown): SwarmReadRpcRequest {
   const base = strictFields(input, new Set(['schemaVersion', 'method', 'target', 'afterCursor', 'page', 'taskId']))
-  if (base.schemaVersion !== 1 || typeof base.method !== 'string') invalidRequest()
+  if ((base.schemaVersion !== 1 && base.schemaVersion !== 2) || typeof base.method !== 'string') invalidRequest()
+  if (base.schemaVersion === 2 && !['snapshot', 'page', 'taskDetail'].includes(base.method)) invalidRequest()
   if (base.method === 'capabilities') {
     assertKeys(base, new Set(['schemaVersion', 'method']))
     return { schemaVersion: 1, method: 'capabilities' }
@@ -260,7 +268,7 @@ function parseRequest(input: unknown): SwarmReadRpcRequest {
   if (base.method === 'taskDetail') {
     assertKeys(base, new Set(['schemaVersion', 'method', 'target', 'taskId']))
     if (target.teamId === undefined || !boundedString(base.taskId, 128)) invalidRequest()
-    return { schemaVersion: 1, method: 'taskDetail', target: { rootSessionId: target.rootSessionId, teamId: target.teamId }, taskId: base.taskId }
+    return { schemaVersion: base.schemaVersion, method: 'taskDetail', target: { rootSessionId: target.rootSessionId, teamId: target.teamId }, taskId: base.taskId }
   }
   if (base.method === 'teams') {
     assertKeys(base, new Set(['schemaVersion', 'method', 'target']))
@@ -280,9 +288,14 @@ function parseRequest(input: unknown): SwarmReadRpcRequest {
   if (base.method === 'page') {
     assertKeys(base, new Set(['schemaVersion', 'method', 'target', 'afterCursor', 'page']))
     const page = parsePage(base.page)
+    if (base.schemaVersion === 2) {
+      if (page.kind !== 'tasks') invalidRequest()
+      return { schemaVersion: 2, method: 'page', target, ...(afterCursor === undefined ? {} : { afterCursor }), page: { ...page, kind: 'tasks' } }
+    }
     return { schemaVersion: 1, method: 'page', target, ...(afterCursor === undefined ? {} : { afterCursor }), page }
   }
   assertKeys(base, new Set(['schemaVersion', 'method', 'target', 'afterCursor']))
+  if (base.schemaVersion === 2) return { schemaVersion: 2, method: 'snapshot', target, ...(afterCursor === undefined ? {} : { afterCursor }) }
   return { schemaVersion: 1, method: base.method, target, ...(afterCursor === undefined ? {} : { afterCursor }) }
 }
 
@@ -395,7 +408,7 @@ function statusOf(projection: SwarmHostReadProjectionV1) {
   }
 }
 
-function pageOf(projection: SwarmHostReadProjectionV1, request: SwarmReadPageRequest): SwarmReadPageV1 {
+function pageOf(projection: SwarmHostReadProjectionV1 | SwarmHostReadProjectionV2, request: SwarmReadPageRequest | SwarmReadPageRequestV2): SwarmReadPageV1 {
   const { kind } = request.page
   const offset = request.page.offset ?? 0
   const limit = request.page.limit ?? DEFAULT_PAGE_LIMIT

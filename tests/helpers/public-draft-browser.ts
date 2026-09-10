@@ -1,9 +1,9 @@
-import { readFileSync } from 'node:fs'
+import { draftStoreScript } from './draft-store-script.js'
 import ts from 'typescript'
 import type { BrowserContext } from 'playwright'
 import type { PublicDraftPersistence } from '../../src/client/public-chat-controller.js'
 
-const storeScript = (): string => ts.transpileModule(readFileSync(new URL('../../src/client/public-draft-store.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
+const storeScript = (): string => draftStoreScript('public-draft-store')
 async function pack(value: unknown): Promise<unknown> {
   if (value instanceof Blob) return { packedDraftBlob: true, type: value.type, bytes: [...new Uint8Array(await value.arrayBuffer())] }
   if (Array.isArray(value)) return Promise.all(value.map(pack))

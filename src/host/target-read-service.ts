@@ -11,7 +11,7 @@ import { TeamDomainError } from '../domain/error.js'
 import type { TeamState } from '../domain/types.js'
 import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
 import { projectTeamSummary, type AgentSwarmHostReadService } from './host-read-service.js'
-import type { SwarmReadTargetHint, SwarmReadCaptainSectionRequest, SwarmReadSkillCatalogV1, SwarmReadToolCatalogV1, SwarmReadTaskDetailRequest } from '../rpc/read-rpc-contract.js'
+import type { SwarmReadTargetHint, SwarmReadCaptainSectionRequest, SwarmReadSkillCatalogV1, SwarmReadToolCatalogV1, SwarmReadTaskDetailRequest, SwarmReadTaskDetailRequestV2 } from '../rpc/read-rpc-contract.js'
 import { readCaptainSection } from './captain-section-read.js'
 import { projectTaskDetail } from './task-detail-read.js'
 
@@ -32,7 +32,14 @@ export class HostTargetReadService {
   section(request: SwarmReadCaptainSectionRequest) { return this.host.withTargetRead(() => this.readSection(request)) }
   tools(rootSessionId: string) { return this.host.withTargetRead(() => this.readTools(rootSessionId)) }
   skills(rootSessionId: string) { return this.host.withTargetRead(() => this.readSkills(rootSessionId)) }
-  taskDetail(request: SwarmReadTaskDetailRequest) { return this.host.withTargetRead(() => this.readTaskDetail(request)) }
+  taskDetail(request: SwarmReadTaskDetailRequest | SwarmReadTaskDetailRequestV2) { return this.host.withTargetRead(() => this.readTaskDetail(request)) }
+  readTasksV2(target: SwarmReadTargetHint, afterCursor?: string) {
+    return this.host.withTargetRead(async () => {
+      const { root, team } = await this.boundTeam(target)
+      this.assertUnchanged(root)
+      return this.host.projectAuthorizedTeamV2(team, root.cwd, afterCursor, team.captainSessionId || root.id)
+    })
+  }
 
   /** Shared Host visibility proof; callers never supply an execution identity. */
   withPublicTeam<T>(target: SwarmReadTargetHint, operation: (scope: string, team: TeamState, verify: () => Promise<void>) => Promise<T>): Promise<T> {
@@ -45,7 +52,7 @@ export class HostTargetReadService {
     })
   }
 
-  private async readTaskDetail(request: SwarmReadTaskDetailRequest) {
+  private async readTaskDetail(request: SwarmReadTaskDetailRequest | SwarmReadTaskDetailRequestV2) {
     if (request.target.teamId === undefined) throw new TeamDomainError('Task detail requires an explicit Team selector', 'SWARM_RPC_INVALID_REQUEST')
     const { root, team, verify } = await this.boundTeam(request.target)
     // Project selected content from the final authorized aggregate cut. Normal
@@ -54,7 +61,7 @@ export class HostTargetReadService {
     const current = latest.find(candidate => candidate.id === team.id)!
     this.assertUnchanged(root)
     this.assertLiveCaptain(current, root.cwd)
-    return projectTaskDetail(current, request.taskId, current.captainSessionId || root.id)
+    return projectTaskDetail(current, request.taskId, current.captainSessionId || root.id, request.schemaVersion)
   }
 
   private async readTeams(rootSessionId: string) {

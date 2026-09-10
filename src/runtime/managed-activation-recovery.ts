@@ -35,6 +35,7 @@ export class ManagedActivationRecovery {
     teams(scope: TeamScope): Promise<TeamState[]>
     trackChild(parent: Agent, childId: string): void
     drainPublic?(scope: TeamScope, team: TeamState): Promise<PublicDeliveryResult>
+    drainWork?(scope: TeamScope, team: TeamState): Promise<PublicDeliveryResult>
   }) {}
 
   /** One startup pass; idle events never replay recovery messages. */
@@ -52,7 +53,16 @@ export class ManagedActivationRecovery {
         const publicDebt = hasPublicDebt(team.publicChat)
         const checkPublic = publicDebt || hasPendingVisualAssistance(team.publicChat)
         const taskDebt = hasTaskDebt(team)
-        if (team.managedOrigin === undefined || (!checkPublic && !taskDebt)) continue
+        const workDebt = team.messages.some(message => message.kind === 'work-request-notice' && message.phase === 'queued')
+        if (team.managedOrigin === undefined || (!checkPublic && !taskDebt && !workDebt)) continue
+        if (workDebt && this.deps.drainWork !== undefined) {
+          const drained = await this.deps.drainWork(scope, team)
+          if (drained.admitted || drained.deferred) continue
+          const current = (await this.deps.teams(scope)).find(candidate => candidate.id === team.id)
+          if (current === undefined || current.captainSessionId !== team.captainSessionId || current.managedOrigin !== team.managedOrigin) continue
+          team = current
+          if (!checkPublic && !hasTaskDebt(team)) continue
+        }
         if (checkPublic && this.deps.drainPublic !== undefined) {
           const drained = await this.deps.drainPublic(scope, team)
           // A new admission or uncertain/pending debt owns this wake. Pure
@@ -117,6 +127,7 @@ export class ManagedActivationRecovery {
     if (team?.phase !== 'active' || team.managedOrigin !== before.managedOrigin
       || team.captainSessionId !== before.captainSessionId || !hasTaskDebt(team)
       || hasPublicDebt(team.publicChat)
+      || team.messages.some(message => message.kind === 'work-request-notice' && message.phase === 'queued')
       || this.ctx.agents.get(SessionId(team.captainSessionId)) !== undefined) return undefined
     return team
   }

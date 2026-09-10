@@ -15,7 +15,7 @@ import { register } from './shared.js'
 export function registerCreateTaskTool(ctx: Context, runtime: AgentSwarmRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_create_task',
-    description: 'Create one dependency-aware Team task. Ready unowned tasks are assigned automatically by priority; a task WITHOUT target_member is safe for any eligible member, and specialist work MUST name target_member (it never falls back to another member).',
+    description: 'Create one dependency-aware Team task. Automatic is the default and assigns ready work by priority; specialist automatic work must name target_member. Use open-claim without a target to notify eligible participants and let one self-claim. For pending work requests use resolve_work_request to preserve atomic source links.',
     parameters: {
       subject: { type: 'string', required: true, description: 'Short task title.' },
       description: { type: 'string', required: true, description: 'Complete work instructions.' },
@@ -23,6 +23,7 @@ export function registerCreateTaskTool(ctx: Context, runtime: AgentSwarmRuntime)
       blocked_by: { type: 'array', items: { type: 'string' }, description: 'Existing task ids that must complete first.' },
       write_scopes: { type: 'array', items: { type: 'string' }, description: 'Advisory workspace-relative coordination paths, not filesystem authorization; delivered to the assigned member as untrusted guidance.' },
       priority: { type: 'number', description: 'Higher values are scheduled first.' },
+      assignment_mode: { type: 'string', enum: ['automatic', 'open-claim'], description: 'Default automatic; open-claim excludes automatic assignment and may not have target_member.' },
       target_member: { type: 'string', description: 'Optional exact Team member name. Omit it to declare generic work any available member may execute; specialist work must set the exact member — the task waits for that member and never falls back to another member.' },
       verification: {
         type: 'array',
@@ -74,6 +75,7 @@ export function registerCreateTaskTool(ctx: Context, runtime: AgentSwarmRuntime)
         ...(args.blocked_by === undefined ? {} : { blockedBy: args.blocked_by.map(TaskId) }),
         ...(args.write_scopes === undefined ? {} : { writeScopes: args.write_scopes }),
         ...(args.priority === undefined ? {} : { priority: args.priority }),
+        ...(args.assignment_mode === undefined ? {} : { assignmentMode: args.assignment_mode }),
         ...(args.target_member === undefined ? {} : { targetMemberName: args.target_member }),
         ...(args.verification === undefined ? {} : {
           verification: args.verification.map(entry => ({

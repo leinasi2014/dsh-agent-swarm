@@ -41,6 +41,7 @@ import { RuntimeMutationSurface } from './runtime-mutation-surface.js'
 import { ManagedActivationRecovery } from './managed-activation-recovery.js'
 import { SchedulingAdmission } from './scheduling-admission.js'
 import { TeamDirectory } from './team-directory.js'
+import { WorkRequestSurface } from './work-request-surface.js'
 
 export type { ToolExecutionAuthority, ReviewProviderInput, ReviewProviderResult, SchedulerDecision, SchedulerSelectionInput, TeamReviewProvider, TeamSchedulerProvider }
 export type { RuntimeConfig } from './runtime-contract.js'
@@ -49,6 +50,7 @@ export type { RuntimeConfig } from './runtime-contract.js'
 export class AgentSwarmRuntime extends Service {
   readonly directory: TeamDirectory
   readonly captainModels: CaptainModelSelection
+  readonly work: WorkRequestSurface
   private domainInstance?: TeamDomainPort
   private storeInstance?: StorageDomainTeamStore
   private domainHandle?: Domain<typeof teamDomainSpec>
@@ -79,18 +81,9 @@ export class AgentSwarmRuntime extends Service {
   readonly executionRoots: ExecutionRootSurface
   private closing = false
   private readonly publicAbort = new AbortController()
-  /** @internal Use ctx.agentSwarmWorkflow.start() for product consumption.
-   * The Team bridge workflow engine (M2-1, issue #75), attached by plugin
-   * activation when `workflowBridge` is enabled. Registered in an isolated
-   * `workflowEngine` service scope — never over the default-scope official
-   * engine. Absent (undefined) when the capability is disabled: default
-   * behavior is byte-identical to the pre-bridge plugin.
-   */
+  /** @internal Optional isolated workflow engine; consume via ctx.agentSwarmWorkflow.start(). */
   workflowBridge?: TeamBridgeWorkflowEngine
-  /** The caller-scoped Team task read projection, attached when `jobsBridge`
-   * is enabled. It is deliberately not a `ctx.jobs` Provider: it has no
-   * producer or task-lifecycle ownership. Absent (undefined) when disabled.
-   */
+  /** Optional caller-scoped read projection; it owns no task lifecycle or ctx.jobs Provider. */
   jobsBridge?: TeamJobProjection
 
   constructor(
@@ -180,13 +173,17 @@ export class AgentSwarmRuntime extends Service {
       teams: scope => this.listTeamAggregates(scope),
       trackChild: (parent, childId) => this.trackChild(parent, childId),
       drainPublic: (scope, team) => this.delivery.deliverPublicMessages(scope, team.id, this.publicAbort.signal),
+      drainWork: (scope, team) => this.delivery.deliverWorkRequests(scope, team.id, this.publicAbort.signal),
+    })
+    this.work = new WorkRequestSurface(ctx, {
+      ready: () => this.ensureReady(), assertOpen: () => this.assertOpen(), domain: () => this.domain,
+      scopeOf: agent => this.scopeOf(agent), teams: scope => this.listTeamAggregates(scope),
+      fence: (scope, teamId, signal, operation) => this.withPublicAdmissionFence(scope, teamId, signal, operation),
+      kick: (scope, teamId) => this.kickWorkRequests(scope, teamId),
+      schedule: requestSchedule,
     })
   }
-  /**
-   * Open the official Storage Domain and construct the authoritative Team
-   * port over it. Fail closed: an unavailable domain, missing backend route,
-   * version mismatch or invalid stored record fails plugin activation.
-   */
+  /** Open the authoritative Storage Domain; invalid records or missing services fail activation. */
   start(): Promise<void> {
     this.startPromise ??= (async () => {
       if (this.closing) throw new TeamDomainError('Team orchestrator is disposing', 'TEAM_RUNTIME_CLOSING')
@@ -195,11 +192,7 @@ export class AgentSwarmRuntime extends Service {
       this.domainHandle = handle
       this.storeInstance = store
       this.domainInstance = new TeamDomain(store, this.config.limits, Date.now, this.config.communicationIntensity)
-      // After a service restart the transient in-memory ownedChildren map is
-      // empty, so the read-only enumeration/binding of Main Brain → dedicated
-      // Captain → Team has no root→Captain edge until a Captain turns again.
-      // Rebuild that transient relation from the OFFICIAL persisted Session
-      // headers (parentSession), not from a second authority.
+      // Rebuild the transient Main→Captain directory from official persisted Session lineage.
       await this.recoverOwnedChildrenFromPersistence()
     })()
     return this.startPromise
@@ -431,6 +424,12 @@ export class AgentSwarmRuntime extends Service {
     })
   }
 
+  kickWorkRequests(scope: TeamScope, teamId: TeamId): void {
+    void this.delivery.deliverWorkRequests(scope, teamId, this.publicAbort.signal).catch(error => {
+      if (!this.closing) this.ctx.logger.warn(`agent-swarm: work delivery remains queued for ${teamId}: ${String(error)}`)
+    })
+  }
+
   async publicReply(exec: ToolExecutionAuthority, requestId: string, replyTo: string, text: string) {
     return await this.mutations.publicReply(exec, requestId, replyTo, text)
   }
@@ -507,6 +506,9 @@ export class AgentSwarmRuntime extends Service {
     if (hasPublicDebt(membership.team.publicChat) || hasPendingVisualAssistance(membership.team.publicChat)) {
       await this.delivery.deliverPublicMessages(scope, membership.team.id, this.publicAbort.signal)
     }
+    if (membership.team.messages.some(message => message.kind === 'work-request-notice' && message.phase === 'queued')) {
+      await this.delivery.deliverWorkRequests(scope, membership.team.id, this.publicAbort.signal)
+    }
     if (membership.role === 'captain') {
       const settled = await this.provisioning.recoverInterrupted(agent, scope, membership)
       if (settled > 0) membership = await this.domain.requireMembership(scope, agent.id)
@@ -546,13 +548,7 @@ export class AgentSwarmRuntime extends Service {
     }
   }
 
-  /**
-   * Activation-recovery residue scan (M3-1, issue #100): fold every on-disk
-   * execution root of one scope against the authoritative aggregates. Called
-   * once per root-reachable scope at plugin activation; orphans are alarmed
-   * and marked reclaimable (never auto-deleted), reattachable roots are
-   * reported. Returns the report for observation (D1 root-residue metric).
-   */
+  /** Report reattachable/orphan execution roots at activation; never auto-delete residues. */
   async scanExecutionRootResidue(scope: TeamScope): Promise<ExecutionRootResidue[]> {
     await this.ensureReady()
     return await this.executionRoots.scan(scope)

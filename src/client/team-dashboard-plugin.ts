@@ -1,3 +1,5 @@
+import { WorkRequestClient } from './work-rpc-client.js'
+import { WorkRequestController } from './work-request-controller.js'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -88,6 +90,7 @@ export function apply(ctx: ClientContext): void {
   const chat = new PublicChatController(new PublicChatClient(connection.rpc), globalThis.location?.origin ?? 'local', {
     getItem: key => globalThis.sessionStorage.getItem(key), setItem: (key, value) => { globalThis.sessionStorage.setItem(key, value) },
   })
+  const work = new WorkRequestController(new WorkRequestClient(connection.rpc), globalThis.location?.origin ?? 'local')
   // Slot injection can run again during Host refreshes; mounted images keep one reader.
   const readPublicImage = (messageId: string, imageId: string, signal: AbortSignal): Promise<Blob> => chat.image(messageId, imageId, signal)
   const groupPanel = 'swarm.group' as MainPanelId
@@ -103,6 +106,7 @@ export function apply(ctx: ClientContext): void {
     },
   })
   ctx.effect(() => coordinator.mount(), 'swarm Team dashboard surface coordinator')
+  ctx.effect(() => work.connect(controller), 'swarm task proposal state')
   ctx.effect(() => chat.connect(controller), 'swarm public conversation state')
   ctx.on('connection/reset', () => { controller.connectionReset() })
   ctx.effect(() => ctx.locale.register(TEAM_DASHBOARD_NS, { zh, en }), 'swarm Team dashboard dictionaries')
@@ -114,7 +118,7 @@ export function apply(ctx: ClientContext): void {
   }), 'swarm Team Sidebar tab type')
   ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
     name: 'sidebar.right.pane.tab', key: TEAM_TAB_ID, locale: TEAM_DASHBOARD_NS,
-    inject: () => ({ anchorRef, controller, coordinator, chat, localeTag: coordinator.localeTag }),
+    inject: () => ({ anchorRef, controller, coordinator, chat, work, localeTag: coordinator.localeTag }),
   }, TeamDashboardDetails))
   ctx.slots.inject('conversation.session.header.lineage.display', () => ctx.slots.register({
     name: 'conversation.session.header.lineage.display',
@@ -122,7 +126,13 @@ export function apply(ctx: ClientContext): void {
   }, TeamLineageDisplay))
   ctx.slots.inject('main', function* () {
     yield ctx.slots.register({ name: 'main', key: groupPanel, locale: TEAM_DASHBOARD_NS,
-      inject: () => ({ hooks: { chat, team: controller, surface: coordinator },
+      inject: () => ({ hooks: { chat, team: controller, surface: coordinator }, work,
+        openWorkTask: (id: string) => {
+          const current = controller.getSnapshot(), selected = work.getSnapshot().selection
+          if (current.phase !== 'ready' || selected === undefined || current.data?.projection.binding.teamId !== selected.team || current.targetSessionId === undefined) return
+          if (coordinator.getSnapshot().mode !== 'docked') coordinator.toggle(current.targetSessionId)
+          coordinator.updateWorkspaceSelection(current.data.projection.binding, { view: 'tasks', detail: { kind: 'task', id }, taskView: 'overview' })
+        },
         edit: (text: string) => { chat.edit(text) }, reply: (id: string | undefined) => { chat.reply(id) },
         replaceText: (start: number, end: number, text: string) => { chat.replaceText(start, end, text) },
         chooseMention: (start: number, end: number, memberId: string) => { chat.chooseMention(start, end, memberId) },

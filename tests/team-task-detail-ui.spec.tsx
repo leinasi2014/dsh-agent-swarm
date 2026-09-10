@@ -5,7 +5,7 @@ import { act } from 'react'
 import { describe, expect, it, vi, type Mock } from 'vitest'
 import { TeamDashboardDetails } from '../src/client/TeamDashboardDetails.js'
 import type { TeamDashboardState } from '../src/client/team-dashboard-controller.js'
-import type { SwarmReadTaskDetailV1 } from '../src/rpc/read-rpc-contract.js'
+import type { SwarmReadTaskDetailV1, SwarmReadTaskDetailV2 } from '../src/rpc/read-rpc-contract.js'
 
 const stamp = 1_700_000_000_000
 function fixture(): TeamDashboardState {
@@ -26,7 +26,7 @@ async function click(selector: string) {
   expect(element, selector).not.toBeNull()
   await act(async () => { element!.click() })
 }
-type DetailReader = (target: { taskId: string }, signal: AbortSignal) => Promise<SwarmReadTaskDetailV1>
+type DetailReader = (target: { taskId: string }, signal: AbortSignal) => Promise<SwarmReadTaskDetailV1 | SwarmReadTaskDetailV2>
 async function mount(read: Mock<DetailReader> = vi.fn(async target => detail(fixture(), target.taskId)), translate = t) {
   let state = fixture()
   const coordinator = new FakeCoordinator(), listeners = new Set<() => void>()
@@ -106,7 +106,7 @@ describe('real task detail UI', () => {
 
   it('cancels A on B selection and never publishes late A, even when cancellation is ignored', async () => {
     const pending: { target: { taskId: string }; signal: AbortSignal; resolve: (value: SwarmReadTaskDetailV1) => void }[] = []
-    const read = vi.fn((target: { taskId: string }, signal: AbortSignal) => new Promise<SwarmReadTaskDetailV1>(resolve => { pending.push({ target, signal, resolve }) }))
+    const read = vi.fn((target: { taskId: string }, signal: AbortSignal) => new Promise<SwarmReadTaskDetailV1 | SwarmReadTaskDetailV2>(resolve => { pending.push({ target, signal, resolve }) }))
     const { coordinator } = await mount(read)
     await click('[data-swarm-task-id="task-a"]')
     expect(document.querySelector('[data-swarm-task-detail-state]')?.textContent).toContain('Loading')
@@ -120,7 +120,7 @@ describe('real task detail UI', () => {
 
   it.each(['root', 'team'] as const)('isolates reused task IDs across %s changes', async field => {
     const pending: { signal: AbortSignal; resolve: (value: SwarmReadTaskDetailV1) => void }[] = []
-    const read = vi.fn((_target: { taskId: string }, signal: AbortSignal) => new Promise<SwarmReadTaskDetailV1>(resolve => { pending.push({ signal, resolve }) }))
+    const read = vi.fn((_target: { taskId: string }, signal: AbortSignal) => new Promise<SwarmReadTaskDetailV1 | SwarmReadTaskDetailV2>(resolve => { pending.push({ signal, resolve }) }))
     const { coordinator, setState } = await mount(read), state = fixture(), projection = state.data!.projection
     await click('[data-swarm-task-id="task-a"]')
     const changedBinding = { ...projection.binding, ...(field === 'root' ? { rootSessionId: 'other-root' } : { teamId: 'other-team' }) }
@@ -136,7 +136,7 @@ describe('real task detail UI', () => {
 
   it('cancels on top-tab hide and official close, then requests afresh on reopen without accepting an old response', async () => {
     const pending: { signal: AbortSignal; resolve: (value: SwarmReadTaskDetailV1) => void }[] = []
-    const read = vi.fn((_target: { taskId: string }, signal: AbortSignal) => new Promise<SwarmReadTaskDetailV1>(resolve => { pending.push({ signal, resolve }) }))
+    const read = vi.fn((_target: { taskId: string }, signal: AbortSignal) => new Promise<SwarmReadTaskDetailV1 | SwarmReadTaskDetailV2>(resolve => { pending.push({ signal, resolve }) }))
     const { coordinator } = await mount(read)
     await click('[data-swarm-task-id="task-a"]'); await click('[data-swarm-view-tab="members"]')
     expect(pending[0]!.signal.aborted).toBe(true)
@@ -179,4 +179,26 @@ describe('real task detail UI', () => {
     expect(document.querySelector('[data-swarm-attempts-partial]')).not.toBeNull()
     expect(document.querySelector('[data-swarm-task-trace]')?.textContent).not.toContain('No currently retained attempts')
   })
+})
+
+it('shows actual v2 source, assignment mode, submitter and reviewer without synthesizing absent facts', async () => {
+  const old = detail()
+  const value: SwarmReadTaskDetailV2 = { ...old, schemaVersion: 2, task: { ...old.task, assignmentMode: 'open-claim', readiness: 'not-pending', createdBySessionId: 'creator-real', ownerSessionId: 'executor-real',
+    source: { workRequestId: 'work-original', itemKey: 'first', origin: { kind: 'main', sessionId: 'main-origin' } }, submittedAt: stamp + 33, submittedBySessionId: 'submitter-real', reviewedBySessionId: 'reviewer-real' },
+    attempts: { ...old.attempts, entries: old.attempts.entries.map(row => ({ ...row, submittedAt: stamp + 33, reviewedAt: stamp + 44, reviewedBySessionId: 'reviewer-real', reviewProvider: 'provider-recorded' })) } }
+  await mount(vi.fn(async () => value), tZh)
+  await click('[data-swarm-task-id="task-a"]')
+  const facts = document.querySelector('[data-work-task-facts]')!
+  expect(facts.textContent).toContain('creator-real')
+  expect(facts.textContent).toContain('executor-real')
+  expect(facts.textContent).toContain('submitter-real')
+  expect(facts.textContent).toContain('reviewer-real')
+  expect(facts.textContent).toContain('work-original')
+  expect(facts.textContent).toContain('未记录')
+  expect(facts.textContent).not.toContain('接口未提供')
+  expect(document.querySelector('[data-work-mode]')?.textContent).toBe('自由认领')
+  expect([...facts.querySelectorAll('time')].map(row => row.dateTime)).toEqual([new Date(stamp + 33).toISOString()])
+  await click('[data-swarm-task-view="trace"]')
+  expect(document.querySelector('[data-swarm-task-trace]')?.textContent).toContain('provider-recorded')
+  expect(document.querySelector('[data-swarm-task-trace]')?.textContent).not.toContain('接口未提供来源')
 })

@@ -1,3 +1,4 @@
+import { taskSourceSchema, openClaimNoticeSchema, teamWorkRequestsSchema, teamWorkActivitySchema, workRequestNoticeSchema } from '../domain/work-request-validation.js'
 /**
  * The `agent_swarm` Storage Domain declaration (ADR-0007, M1A): the durable
  * boundary of the authoritative Team aggregate. One record per Team in the
@@ -63,6 +64,12 @@ const memberSchema = z.object({
 })
 
 const taskSchema = z.object({
+  assignmentMode: z.enum(["automatic", "open-claim"]).optional(),
+  createdBySessionId: sessionId.optional(),
+  source: taskSourceSchema.optional(),
+  openClaimNotice: openClaimNoticeSchema.optional(),
+  submittedAt: timestamp.optional(), submittedBySessionId: sessionId.optional(),
+  reviewedAt: timestamp.optional(), reviewedBySessionId: sessionId.optional(),
   id: z.string().min(1),
   revision: z.number().int().min(1),
   subject: z.string().min(1),
@@ -91,6 +98,9 @@ const taskSchema = z.object({
 })
 
 const attemptSchema = z.object({
+  reviewProvider: z.string().min(1).max(128).optional(),
+  submittedAt: timestamp.optional(), submittedBySessionId: sessionId.optional(),
+  reviewedAt: timestamp.optional(), reviewedBySessionId: sessionId.optional(),
   id: z.string().min(1),
   taskId: z.string().min(1),
   generation: z.number().int().min(1),
@@ -107,7 +117,8 @@ const attemptSchema = z.object({
   updatedAt: timestamp,
 })
 
-const messageSchema = z.object({
+const peerMessageSchema = z.object({
+  kind: z.literal("open-claim-notice").optional(),
   id: z.string().min(1),
   senderSessionId: sessionId,
   senderName: z.string().min(1),
@@ -135,6 +146,8 @@ const messageSchema = z.object({
   obsoletedAt: timestamp.optional(),
   obsoletedReason: z.string().min(1).optional(),
 })
+
+const messageSchema = z.union([peerMessageSchema, workRequestNoticeSchema])
 
 const budgetSchema = z.object({
   tokenLimit: z.number().int().min(1).optional(),
@@ -256,6 +269,8 @@ const teamFields = {
     tasks: z.array(taskSchema),
     attempts: z.array(attemptSchema),
     messages: z.array(messageSchema),
+    workRequests: teamWorkRequestsSchema.optional(),
+    workActivity: teamWorkActivitySchema.optional(),
     publicChat: publicChatSchema.optional(),
     budget: budgetSchema,
     usageCursors: z.record(z.string().min(1), z.number().int().min(-1)),

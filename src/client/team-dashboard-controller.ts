@@ -1,4 +1,4 @@
-import type { SwarmHostReadProjectionV1 } from '../host/host-read-types.js'
+import type { TeamReadProjection as SwarmHostReadProjectionV1 } from './team-read-types.js'
 import type {
   SwarmReadBindingV1,
   SwarmReadCapabilitiesV1,
@@ -9,7 +9,7 @@ import type {
   SwarmReadPageKind,
   SwarmReadPageV1,
   SwarmReadTeamsV1,
-  SwarmReadTaskDetailV1,
+  SwarmReadTaskDetailV1, SwarmReadTaskDetailV2,
 } from '../rpc/read-rpc-contract.js'
 import { SwarmReadClient, type SwarmReadClientMount } from './read-client.js'
 
@@ -141,7 +141,7 @@ export class TeamDashboardController {
   }
 
   /** A visible detail owns its cancellation; the dashboard still owns the only polling schedule. */
-  async readTaskDetail(target: TaskDetailTarget, signal: AbortSignal): Promise<SwarmReadTaskDetailV1> {
+  async readTaskDetail(target: TaskDetailTarget, signal: AbortSignal): Promise<SwarmReadTaskDetail> {
     this.assertLive()
     const epoch = this.detailEpoch
     const assertCurrent = (): void => {
@@ -154,8 +154,8 @@ export class TeamDashboardController {
       }
     }
     assertCurrent()
-    const value = await this.value({ schemaVersion: 1, method: 'taskDetail',
-      target: { rootSessionId: target.targetSessionId, teamId: target.binding.teamId }, taskId: target.taskId }, signal) as SwarmReadTaskDetailV1
+    const value = await this.value({ schemaVersion: this.state.data!.projection.schemaVersion, method: 'taskDetail',
+      target: { rootSessionId: target.targetSessionId, teamId: target.binding.teamId }, taskId: target.taskId }, signal) as SwarmReadTaskDetail
     assertCurrent()
     if (value.binding.rootSessionId !== target.binding.rootSessionId || value.binding.teamId !== target.binding.teamId
       || value.taskId !== target.taskId || value.task.id !== target.taskId || value.attempts.entries.some(row => row.taskId !== target.taskId)
@@ -346,9 +346,9 @@ export class TeamDashboardController {
     // The incremental cursor is only reusable against the SAME bound Team; a team switch must
     // start from a fresh snapshot rather than feed one Team's cursor into another's binding.
     const previous = this.state.targetSessionId === targetSessionId ? this.state.data : undefined
-    const previousCursor = previous !== undefined && previous.projection.binding.teamId === selectedTeamId
-      ? previous.projection.cursor : undefined
-    const snapshot = await this.readSnapshot(target, previousCursor, signal)
+    const previousProjection = previous !== undefined && previous.projection.binding.teamId === selectedTeamId
+      ? previous.projection : undefined
+    const snapshot = await this.readSnapshot(target, previousProjection, signal)
     assertIdentity(binding, snapshot)
     // Captain board sections are real reads against the same binding; today the host answers
     // announcements with an explicit bounded unavailable, never a stub or fabricated posts.
@@ -445,15 +445,22 @@ export class TeamDashboardController {
 
   private async readSnapshot(
     target: { readonly rootSessionId: string; readonly teamId: string },
-    afterCursor: string | undefined,
+    previous: SwarmHostReadProjectionV1 | undefined,
     signal: AbortSignal,
   ): Promise<SwarmHostReadProjectionV1> {
-    return await this.value({
-      schemaVersion: 1,
-      method: 'snapshot',
-      target,
-      ...(afterCursor === undefined ? {} : { afterCursor }),
-    }, signal) as SwarmHostReadProjectionV1
+    try {
+      return await this.value({ schemaVersion: 2, method: 'snapshot', target,
+        ...(previous?.schemaVersion === 2 ? { afterCursor: previous.cursor } : {}),
+      }, signal) as SwarmHostReadProjectionV1
+    } catch (error) {
+      signal.throwIfAborted()
+      // The old strict parser rejects this known-valid v2 request with this exact code.
+      // Target/authentication, malformed response and transport failures never select a lower version.
+      if (!(error instanceof DashboardReadError) || error.code !== 'SWARM_RPC_INVALID_REQUEST') throw error
+      return await this.value({ schemaVersion: 1, method: 'snapshot', target,
+        ...(previous?.schemaVersion === 1 ? { afterCursor: previous.cursor } : {}),
+      }, signal) as SwarmHostReadProjectionV1
+    }
   }
 
   private async readAllPages<K extends SwarmReadPageKind>(
@@ -469,15 +476,13 @@ export class TeamDashboardController {
     const expectedAuthoritative = snapshot.totals[kind]
     const expectedTruncated = snapshot.truncated[kind]
     if (expectedVisible > ceiling) throw new DashboardReadError('SWARM_UI_PAGE_LIMIT', 'Snapshot exceeds the read projection ceiling')
+    // v2 only pages tasks. The snapshot already contains the complete bounded window
+    // for other collections, with the same cut and original totals/truncation metadata.
+    if (snapshot.schemaVersion === 2 && kind !== 'tasks') return Object.freeze(snapshot[kind]) as PageEntries[K]
     let offset = 0
     for (let pageNumber = 1; pageNumber <= Math.ceil(ceiling / PAGE_LIMIT); pageNumber += 1) {
-      const page = await this.value({
-        schemaVersion: 1,
-        method: 'page',
-        target,
-        afterCursor: snapshot.cursor,
-        page: { kind, offset, limit: PAGE_LIMIT },
-      }, signal) as SwarmReadPageV1
+      const page = await this.value(snapshot.schemaVersion === 2 && kind === 'tasks' ? { schemaVersion: 2, method: 'page', target, afterCursor: snapshot.cursor, page: { kind: 'tasks', offset, limit: PAGE_LIMIT } }
+        : { schemaVersion: 1, method: 'page', target, afterCursor: snapshot.cursor, page: { kind, offset, limit: PAGE_LIMIT } }, signal) as SwarmReadPageV1
       if (page.kind !== kind || page.cursor !== snapshot.cursor || page.offset !== offset) {
         throw new DashboardReadError('SWARM_UI_CURSOR_CHANGED', 'Team projection changed while paging')
       }
@@ -586,3 +591,5 @@ function withoutError(state: TeamDashboardState, phase: TeamDashboardPhase): Tea
   const { error: _error, ...rest } = state
   return { ...rest, phase }
 }
+
+type SwarmReadTaskDetail = SwarmReadTaskDetailV1 | SwarmReadTaskDetailV2

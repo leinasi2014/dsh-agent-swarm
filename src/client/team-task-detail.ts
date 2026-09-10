@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { SwarmReadTaskDetailV1 } from '../rpc/read-rpc-contract.js'
+import type { SwarmReadTaskDetailV1, SwarmReadTaskDetailV2 } from '../rpc/read-rpc-contract.js'
 import type { TeamDashboardController, TeamDashboardState, TaskDetailTarget } from './team-dashboard-controller.js'
 
 export type TaskDetailRead =
   | { readonly phase: 'waiting' }
   | { readonly phase: 'loading' }
-  | { readonly phase: 'available'; readonly value: SwarmReadTaskDetailV1 }
+  | { readonly phase: 'available'; readonly value: SwarmReadTaskDetail }
   | { readonly phase: 'failed'; readonly code: string }
 
 /** Only a mounted, selected detail leases reads. No timer, persistent cache or domain state. */
@@ -43,3 +43,5 @@ export function useTaskDetail(controller: TeamDashboardController, state: TeamDa
   // Identity changes are hidden synchronously, before the old effect's cleanup runs.
   return key === undefined ? { phase: 'waiting' } : result?.key === key ? result.read : { phase: target === undefined ? 'waiting' : 'loading' }
 }
+
+type SwarmReadTaskDetail = SwarmReadTaskDetailV1 | SwarmReadTaskDetailV2

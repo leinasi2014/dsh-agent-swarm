@@ -1,3 +1,5 @@
+export { createTask } from './task-creation.js'
+import { appendWorkActivity } from './team-domain-work-activity.js'
 /**
  * Task board transitions of the Team protocol core.
  *
@@ -19,7 +21,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import { expectDomain, TeamDomainError } from './error.js'
-import { assertTaskGraph, isTaskReady } from './graph.js'
+import { isTaskReady } from './graph.js'
 import { budgetAvailable, outstandingReservationTokens, reservationAdmissible } from './team-domain-budget.js'
 import {
   actorMembership,
@@ -31,32 +33,10 @@ import {
   replaceTask,
   type TeamDomainDeps,
 } from './team-domain-shared.js'
-import { AttemptId, TaskId, type ReviewVerificationCommand, type TaskAttempt, type TeamId, type TeamState, type TeamTask } from './types.js'
-import type { CreateTaskInput, TeamScope } from './team-domain-port.js'
+import { AttemptId, type TaskId, type TaskAttempt, type TeamId, type TeamState, type TeamTask } from './types.js'
+import type { TeamScope } from './team-domain-port.js'
 
 const TERMINAL_ATTEMPT_PHASES = new Set(['accepted', 'rejected', 'cancelled', 'stale'])
-
-/**
- * Normalize one captain-declared verification list (M3-2): bounded count,
- * non-empty bounded command text, per-command timeout within the deployment
- * ceiling. A stored list is always a private deep copy of the caller's.
- */
-function normalizeVerification(
-  verification: readonly ReviewVerificationCommand[],
-  limits: { readonly maxVerificationCommands: number; readonly maxVerificationCommandMs: number },
-): ReviewVerificationCommand[] {
-  expectDomain(verification.length <= limits.maxVerificationCommands, 'task verification command limit reached', 'TEAM_TASK_VERIFICATION_LIMIT')
-  return verification.map(entry => {
-    const command = nonEmpty(entry.command, 'verification command', 2_048)
-    if (entry.timeoutMs === undefined) return { command }
-    expectDomain(
-      Number.isSafeInteger(entry.timeoutMs) && entry.timeoutMs >= 1 && entry.timeoutMs <= limits.maxVerificationCommandMs,
-      'verification command timeout must be a safe integer between 1 and the deployment ceiling',
-      'TEAM_INPUT_INVALID',
-    )
-    return { command, timeoutMs: entry.timeoutMs }
-  })
-}
 
 function taskOf(team: TeamState, id: TaskId): TeamTask {
   const task = team.tasks.find(candidate => candidate.id === id)
@@ -109,55 +89,6 @@ function nextAttemptGeneration(team: TeamState, taskId: TaskId): number {
   return watermark + 1
 }
 
-export async function createTask(
-  deps: TeamDomainDeps,
-  scope: TeamScope,
-  teamId: TeamId,
-  actorSessionId: string,
-  input: CreateTaskInput,
-): Promise<TeamTask> {
-  let committed!: TeamTask
-  await deps.store.transact(scope, teamId, team => {
-    const authority = actorMembership(team, actorSessionId)
-    expectDomain(team.tasks.length < deps.limits.maxTasks, 'team task limit reached', 'TEAM_TASK_LIMIT')
-    const blockedBy = [...(input.blockedBy ?? [])]
-    expectDomain(blockedBy.length <= deps.limits.maxDependencies, 'task dependency limit reached', 'TEAM_TASK_DEPENDENCY_LIMIT')
-    expectDomain(Number.isSafeInteger(input.priority ?? 0), 'task priority must be a safe integer', 'TEAM_INPUT_INVALID')
-    if (input.reservationTokens !== undefined) {
-      expectDomain(
-        Number.isSafeInteger(input.reservationTokens) && input.reservationTokens > 0,
-        'reservationTokens must be a positive safe integer',
-        'TEAM_BUDGET_INVALID',
-      )
-    }
-    if (input.targetMemberSessionId !== undefined) {
-      expectDomain(authority.role === 'captain', 'only the captain can target another member', 'TEAM_CAPTAIN_REQUIRED')
-      expectDomain(team.members.some(member => member.sessionId === input.targetMemberSessionId && (member.phase === 'provisioning' || member.phase === 'active')), 'task assignment target is not an available Team member', 'TEAM_ASSIGNEE_INVALID')
-    }
-    const timestamp = deps.now()
-    committed = {
-      id: TaskId(`task-${team.nextTaskNumber}`),
-      revision: 1,
-      subject: nonEmpty(input.subject, 'task subject', 512),
-      description: nonEmpty(input.description, 'task description', deps.limits.maxTaskBytes),
-      acceptanceCriteria: boundedBoardItems(input.acceptanceCriteria ?? [], 'acceptance criterion', 2_048),
-      status: 'pending',
-      blockedBy,
-      writeScopes: boundedBoardItems(input.writeScopes ?? [], 'write scope', 1_024),
-      priority: input.priority ?? 0,
-      ...(input.verification === undefined ? {} : { verification: normalizeVerification(input.verification, deps.limits) }),
-      ...(input.reservationTokens === undefined ? {} : { reservationTokens: input.reservationTokens }),
-      ...(input.targetMemberSessionId === undefined ? {} : { targetMemberSessionId: input.targetMemberSessionId }),
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    }
-    assertTaskGraph([...team.tasks, committed])
-    team.tasks.push(committed)
-    Object.assign(team, { nextTaskNumber: team.nextTaskNumber + 1 })
-  })
-  return structuredClone(committed)
-}
-
 /**
  * Seat one fresh reserved attempt as its task's current execution and charge
  * the request against the budget — the shared commit step of `claimTask` and
@@ -189,6 +120,7 @@ export async function claimTask(
     }
     const current = taskOf(team, taskId)
     taskRevision(current, expectedRevision)
+    expectDomain(current.assignmentMode !== "open-claim" || actorSessionId === assigneeSessionId, "open tasks require self claim", "TEAM_OPEN_CLAIM_SELF_REQUIRED")
     expectDomain(current.targetMemberSessionId === undefined || current.targetMemberSessionId === assigneeSessionId, `task "${taskId}" is assigned to another Team member`, 'TEAM_TASK_ASSIGNEE_MISMATCH')
     expectDomain(isTaskReady(team.tasks, current), `task "${taskId}" is not ready`, 'TEAM_TASK_NOT_READY')
     expectDomain(!team.tasks.some(task => task.ownerSessionId === assigneeSessionId && ['in_progress', 'submitted', 'verifying'].includes(task.status)), 'assignee already owns open work', 'TEAM_MEMBER_BUSY')
@@ -227,6 +159,7 @@ export async function claimTask(
       currentAttemptId: attempt.id,
       updatedAt: timestamp,
     }, attempt)
+    appendWorkActivity(team, { kind: "task-claimed", actor: { kind: "session", sessionId: actorSessionId }, taskId, ...(current.source === undefined ? {} : { workRequestId: current.source.workRequestId }), attemptId: attempt.id, assigneeSessionId, status: "in_progress", occurredAt: timestamp })
   })
   return seated
 }
@@ -292,6 +225,7 @@ export async function submitTask(
     replaceAttempt(team, {
       ...attempt,
       phase: 'submitted',
+      submittedAt: timestamp, submittedBySessionId: actorSessionId,
       output: normalizedOutput,
       evidence: boundedBoardItems(evidence, 'evidence reference', 2_048),
       updatedAt: timestamp,
@@ -300,10 +234,12 @@ export async function submitTask(
       ...current,
       revision: current.revision + 1,
       status: 'submitted',
+      submittedAt: timestamp, submittedBySessionId: actorSessionId,
       output: normalizedOutput,
       updatedAt: timestamp,
     }
     replaceTask(team, committed)
+    appendWorkActivity(team, { kind: "task-submitted", actor: { kind: "session", sessionId: actorSessionId }, taskId, ...(current.source === undefined ? {} : { workRequestId: current.source.workRequestId }), attemptId, status: "submitted", occurredAt: timestamp })
   })
   return structuredClone(committed)
 }
@@ -318,6 +254,7 @@ export async function reviewTask(
   attemptId: AttemptId,
   decision: 'accept' | 'reject',
   diagnostic: string | undefined,
+  reviewProvider?: string,
 ): Promise<TeamTask> {
   let committed!: TeamTask
   await deps.store.transact(scope, teamId, team => {
@@ -330,9 +267,12 @@ export async function reviewTask(
     const attempt = attemptOf(team, attemptId)
     const timestamp = deps.now()
     const normalizedDiagnostic = diagnostic === undefined ? undefined : nonEmpty(diagnostic, 'review diagnostic', 8_192)
+    const providerFact = reviewProvider === undefined ? {} : { reviewProvider: nonEmpty(reviewProvider, 'review provider', 128) }
     replaceAttempt(team, {
       ...attempt,
       phase: decision === 'accept' ? 'accepted' : 'rejected',
+      reviewedAt: timestamp, reviewedBySessionId: captainSessionId,
+      ...providerFact,
       ...(normalizedDiagnostic === undefined ? {} : { diagnostic: normalizedDiagnostic }),
       updatedAt: timestamp,
     })
@@ -350,7 +290,9 @@ export async function reviewTask(
         const { targetMemberSessionId: _target, ...requeued } = cleared
         return requeued
       })()
+    committed = { ...committed, reviewedAt: timestamp, reviewedBySessionId: captainSessionId }
     replaceTask(team, committed)
+    appendWorkActivity(team, { kind: "task-reviewed", actor: { kind: "session", sessionId: captainSessionId }, taskId, ...(current.source === undefined ? {} : { workRequestId: current.source.workRequestId }), attemptId, decision, ...providerFact, status: committed.status, occurredAt: timestamp })
     if (decision === 'reject') {
       Object.assign(team, { budget: { ...team.budget, usedRetries: team.budget.usedRetries + 1 } })
     }
@@ -401,9 +343,10 @@ export async function cancelAttempt(
         const { targetMemberSessionId: _previousTarget, ...released } = committed
         committed = released
       } else {
-        committed = { ...committed, targetMemberSessionId }
+        committed = { ...committed, targetMemberSessionId, assignmentMode: "automatic" }
       }
       replaceTask(team, committed)
+      appendWorkActivity(team, { kind: "task-reassigned", actor: { kind: "session", sessionId: captainSessionId }, taskId, ...(current.source === undefined ? {} : { workRequestId: current.source.workRequestId }), ...(targetMemberSessionId === undefined ? {} : { assigneeSessionId: targetMemberSessionId }), status: committed.status, occurredAt: timestamp })
       return
     }
     expectDomain(
@@ -420,8 +363,9 @@ export async function cancelAttempt(
       updatedAt: timestamp,
     })
     const { targetMemberSessionId: _previousTarget, ...released } = committed
-    committed = targetMemberSessionId === undefined ? released : { ...released, targetMemberSessionId }
+    committed = targetMemberSessionId === undefined ? released : { ...released, targetMemberSessionId, assignmentMode: "automatic" }
     replaceTask(team, committed)
+    appendWorkActivity(team, { kind: "task-reassigned", actor: { kind: "session", sessionId: captainSessionId }, taskId, ...(current.source === undefined ? {} : { workRequestId: current.source.workRequestId }), ...(current.currentAttemptId === undefined ? {} : { attemptId: current.currentAttemptId }), ...(targetMemberSessionId === undefined ? {} : { assigneeSessionId: targetMemberSessionId }), status: committed.status, occurredAt: timestamp })
     pruneRetainedAttempts(team, deps.limits.maxRetainedAttempts)
   })
   return structuredClone(committed)

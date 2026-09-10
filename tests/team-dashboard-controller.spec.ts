@@ -558,3 +558,23 @@ describe('TeamDashboardController', () => {
     controller.dispose()
   })
 })
+
+it('opts task-bearing reads into v2 and retains Host assignment/readiness through task pagination', async () => {
+  const seen: SwarmReadRpcRequest[] = [], normal = goodFetch(seen)
+  const controller = new TeamDashboardController(new SwarmReadClient(async (input, init) => {
+    const request = requestOf(init), response = await normal(input, init)
+    if (request.schemaVersion !== 2) return response
+    const envelope = await response.json() as { value: Record<string, unknown> }
+    const rows = (request.method === 'snapshot' ? envelope.value['tasks'] : envelope.value['entries']) as Record<string, unknown>[]
+    return success({ ...envelope.value, schemaVersion: 2, [request.method === 'snapshot' ? 'tasks' : 'entries']: rows.map(row => ({ ...row, assignmentMode: 'open-claim', readiness: 'budget-hold' })) })
+  }), new ManualSchedule())
+  try {
+    controller.open('root-1'); await waitFor(() => ['ready', 'error'].includes(controller.getSnapshot().phase))
+    expect(controller.getSnapshot().error).toBeUndefined()
+    expect(controller.getSnapshot().data?.projection.schemaVersion).toBe(2)
+    expect(controller.getSnapshot().data?.projection.tasks).toHaveLength(51)
+    expect(controller.getSnapshot().data?.projection.tasks[50]).toMatchObject({ assignmentMode: 'open-claim', readiness: 'budget-hold' })
+    expect(seen.filter(request => request.method === 'snapshot' || (request.method === 'page' && request.page.kind === 'tasks')).every(request => request.schemaVersion === 2)).toBe(true)
+    expect(seen.filter(request => request.method === 'page' && request.page.kind !== 'tasks').every(request => request.schemaVersion === 1)).toBe(true)
+  } finally { controller.dispose() }
+})

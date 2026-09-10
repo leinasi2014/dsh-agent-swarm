@@ -1,5 +1,6 @@
 /** Durable protocol owned by the local Team-domain compatibility backend. */
 import type { TeamPublicChat } from './public-message.js'
+import type { TeamWorkRequests, TeamWorkActivity } from './work-request.js'
 
 declare const teamIdBrand: unique symbol
 declare const taskIdBrand: unique symbol
@@ -82,6 +83,14 @@ export interface ReviewVerificationCommand {
 }
 
 export interface TeamTask {
+  readonly assignmentMode?: 'automatic' | 'open-claim'
+  readonly createdBySessionId?: string
+  readonly source?: import('./work-request.js').TaskWorkRequestSource
+  readonly submittedAt?: number
+  readonly submittedBySessionId?: string
+  readonly reviewedAt?: number
+  readonly reviewedBySessionId?: string
+  readonly openClaimNotice?: { readonly revision: number; readonly recipientSessionIds: string[] }
   readonly id: TaskId
   readonly revision: number
   readonly subject: string
@@ -127,6 +136,11 @@ type TaskAttemptPhase =
   | 'stale'
 
 export interface TaskAttempt {
+  readonly reviewProvider?: string
+  readonly submittedAt?: number
+  readonly submittedBySessionId?: string
+  readonly reviewedAt?: number
+  readonly reviewedBySessionId?: string
   readonly id: AttemptId
   readonly taskId: TaskId
   readonly generation: number
@@ -175,7 +189,8 @@ export interface TeamMessageCausal {
   readonly revision?: number
 }
 
-export interface TeamMessage {
+interface PeerTeamMessage {
+  readonly kind?: 'open-claim-notice'
   readonly id: TeamMessageId
   readonly senderSessionId: string
   readonly senderName: string
@@ -211,6 +226,16 @@ export interface TeamMessage {
   /** Human-readable reason for the obsolete settlement, when obsolete. */
   readonly obsoletedReason?: string
 }
+
+/** External provenance stays distinct from a Team participant's sender identity. */
+interface WorkRequestNotice extends Omit<PeerTeamMessage, 'kind' | 'senderSessionId' | 'senderName'> {
+  readonly kind: 'work-request-notice'
+  readonly workRequestId: string
+  readonly origin: import('./work-request.js').WorkRequestOrigin
+  readonly senderSessionId?: never
+  readonly senderName?: never
+}
+export type TeamMessage = PeerTeamMessage | WorkRequestNotice
 
 /**
  * Durable, secret-free proof that a Team-internal human effect committed in
@@ -296,6 +321,8 @@ export interface TeamPlanDraft {
 }
 
 export interface TeamState {
+  readonly workRequests?: TeamWorkRequests
+  readonly workActivity?: TeamWorkActivity
   readonly schemaVersion: 1 | 2
   readonly id: TeamId
   readonly revision: number

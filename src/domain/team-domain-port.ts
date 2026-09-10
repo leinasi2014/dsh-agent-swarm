@@ -98,6 +98,7 @@ export interface TeamAggregateStore {
 
 /** Input of one task-creation call. */
 export interface CreateTaskInput {
+  readonly assignmentMode?: 'automatic' | 'open-claim'
   readonly subject: string
   readonly description: string
   readonly acceptanceCriteria?: readonly string[]
@@ -133,6 +134,12 @@ export interface CreateTaskInput {
  * the selected aggregate store.
  */
 export interface TeamDomainPort {
+  submitWorkRequest(scope: TeamScope, teamId: TeamId, origin: import('./work-request.js').WorkRequestOrigin, input: import('./work-request.js').SubmitWorkRequestInput, admission?: import('./work-request.js').WorkRequestAdmission): Promise<import('./work-request.js').WorkRequestResult>
+  workRequestResult(scope: TeamScope, teamId: TeamId, origin: import('./work-request.js').WorkRequestOrigin, requestId: string): Promise<import('./work-request.js').WorkRequest | undefined>
+  listWorkRequests(scope: TeamScope, teamId: TeamId, actor: string): Promise<import('./work-request.js').WorkRequest[]>
+  resolveWorkRequest(scope: TeamScope, teamId: TeamId, actor: string, input: import('./work-request.js').ResolveWorkRequestInput): Promise<import('./work-request.js').WorkRequestResult>
+  workActivity(scope: TeamScope, teamId: TeamId, afterSequence?: number, limit?: number): Promise<import('./work-request.js').WorkActivityPage>
+  noticeOpenClaimTask(scope: TeamScope, teamId: TeamId, actor: string, input: import('./work-request.js').NoticeOpenClaimTaskInput): Promise<import('./work-request.js').NoticeOpenClaimTaskResult>
   appendPublicMessage(scope: TeamScope, teamId: TeamId, input: import('./public-message.js').AppendPublicMessageInput): Promise<import('./public-message.js').AppendPublicMessageResult>
   requestVisualAssistance(scope: TeamScope, teamId: TeamId, actor: string, input: import('./visual-assistance.js').RequestVisualAssistanceInput, revision: number): Promise<import('./visual-assistance.js').VisualAssistanceResult>
   completeVisualAssistance(scope: TeamScope, teamId: TeamId, actor: string, input: import('./visual-assistance.js').CompleteVisualAssistanceInput): Promise<import('./visual-assistance.js').VisualAssistanceResult>
@@ -283,6 +290,7 @@ export interface TeamDomainPort {
     attemptId: AttemptId,
     decision: 'accept' | 'reject',
     diagnostic?: string,
+    reviewProvider?: string,
   ): Promise<TeamTask>
   cancelAttempt(
     scope: TeamScope,

@@ -206,6 +206,19 @@ export function memberJoinNotice(team: TeamState): string {
  * delivery and acceptance-fold paths still derive one identical identity.
  */
 export function messageFrame(message: TeamMessage): string {
+  if (message.kind === 'work-request-notice') {
+    return 'A work request awaits the Captain. Read agent_swarm_list_work_requests, then accept one complete plan with '
+      + 'agent_swarm_resolve_work_request or reject with a reason. A request is not an assigned task. '
+      + 'Only the canonical resolve result proves task creation.\n\n'
+      + untrustedDataBlock(`Work request notice ${JSON.stringify(message.id)}: ${MESSAGE_DATA_DECLARATION}`,
+        JSON.stringify({ workRequestId: message.workRequestId, origin: message.origin, content: message.content }))
+  }
+  if (message.kind === 'open-claim-notice') {
+    return 'An open Team task may be available. Read the current task before deciding. You may claim only for yourself '
+      + 'with agent_swarm_claim_task and the current revision. This notice is not an assignment or attempt capability. '
+      + 'If another participant already claimed it or you cannot act, end the turn; do not poll or repeatedly race.\n\n'
+      + untrustedDataBlock(`Open task notice ${JSON.stringify(message.id)}: ${MESSAGE_DATA_DECLARATION}`, message.content)
+  }
   return untrustedDataBlock(
     `Team message ${message.id} from ${message.senderName}: ${MESSAGE_DATA_DECLARATION}`,
     message.content,
