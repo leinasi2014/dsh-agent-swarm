@@ -23,18 +23,18 @@
 #team-group-design .tg-avatar.tg-builder{background:light-dark(#f2e4d4,#44362d);color:light-dark(#80582f,#ebc397)}
 #team-group-design .tg-avatar.tg-reviewer{background:light-dark(#e0ebe4,#2b3e33);color:light-dark(#3d6a4b,#b4d5bd)}
 #team-group-design .tg-member-foot{border-top:1px solid var(--tg-line);margin-top:24px;padding-top:14px;font-size:12px;color:var(--tg-muted)}
-#team-group-design .tg-profile{position:absolute;z-index:20;width:328px;max-width:calc(100% - 24px);padding:21px;background:var(--tg-bg);border:1px solid var(--tg-line);border-radius:12px;box-shadow:0 12px 40px light-dark(#18213224,#00000065)}
+#team-group-design .tg-profile{position:fixed;z-index:21;width:360px;max-width:calc(100vw - 24px);padding:0;background:var(--tg-bg);border:1px solid var(--tg-line);border-radius:12px;box-shadow:0 12px 40px light-dark(#18213224,#00000065);display:flex;flex-direction:column;overflow:hidden}
 #team-group-design .tg-profile-close{position:absolute;top:8px;right:8px;width:28px;height:28px;border:0;background:transparent;border-radius:5px;display:grid;place-items:center;color:var(--tg-muted)}
-#team-group-design .tg-profile-head{display:flex;gap:14px;align-items:center;padding-right:10px}
-#team-group-design .tg-profile-head .tg-avatar{width:58px;height:58px;flex:0 0 58px;font-size:25px;border-radius:11px}
+#team-group-design .tg-profile-head{display:flex;gap:12px;align-items:center;padding:18px 42px 12px 18px;flex:none}
+#team-group-design .tg-profile-head .tg-avatar{width:48px;height:48px;flex:0 0 48px;font-size:22px;border-radius:10px}
 #team-group-design .tg-profile-name{font-size:18px;font-weight:500;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 #team-group-design .tg-profile-bio{font-size:13px;margin:18px 0 0;padding-top:15px;border-top:1px solid var(--tg-line)}
 #team-group-design .tg-profile-task{margin-top:13px;padding:10px 12px;border-radius:7px;background:var(--tg-side);font-size:12px}
 #team-group-design .tg-profile-task strong{display:block;font-weight:500;margin-top:4px}
-#team-group-design .tg-profile .tg-detail-tabs{margin:18px 0 12px;border-bottom:1px solid var(--tg-line);gap:18px}
-#team-group-design .tg-profile .tg-detail-tabs button{font-size:12px;padding-bottom:7px;border-bottom:2px solid transparent}
+#team-group-design .tg-profile .tg-detail-tabs{margin:0;padding:0 12px;border-bottom:1px solid var(--tg-line);gap:0;flex:none;flex-wrap:nowrap}
+#team-group-design .tg-profile .tg-detail-tabs button{font-size:13px;padding:10px 5px;border-bottom:2px solid transparent;flex:1}
 #team-group-design .tg-profile .tg-detail-tabs button[aria-pressed=true]{border-bottom-color:var(--tg-accent)}
-#team-group-design .tg-profile-content{font-size:12px;overflow-wrap:anywhere;min-height:50px}
+#team-group-design .tg-profile-content{font-size:13px;overflow-wrap:anywhere;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:16px 18px;flex:1}
 #team-group-design .tg-profile-content p{margin:0 0 7px}
 #team-group-design .tg-avatar-button{padding:0;border:0;cursor:pointer}
 @media(max-width:500px){#team-group-design .tg-left{display:block}#team-group-design .tg-left .tg-team-row{max-width:100%}#team-group-design .tg-team-children{display:flex;flex-wrap:wrap}#team-group-design .tg-left .tg-team-children button{width:auto}#team-group-design .tg-member-grid{grid-template-columns:repeat(4,minmax(0,1fr))}#team-group-design .tg-member-tile .tg-avatar{max-width:54px}}
@@ -79,7 +79,7 @@
 #team-group-design .tg-sent-images img{width:100px;height:76px;object-fit:cover;border-radius:6px}
 #team-group-design .tg-assist{margin-left:40px;padding:10px 12px;border-left:2px solid var(--tg-accent);background:var(--tg-side);font-size:12px;border-radius:0 6px 6px 0}
 #team-group-design .tg-assist p{margin:4px 0 0;color:var(--tg-muted)}
-#team-group-design .tg-profile{max-height:500px;overflow-y:auto}
+#team-group-design .tg-profile{max-height:560px;overflow:hidden}
 #team-group-design .tg-profile-bio{margin-top:14px}
 #team-group-design .tg-personality{margin-top:8px;font-size:12px;color:var(--tg-muted)}
 #team-group-design .tg-capability-list{display:grid;grid-template-columns:65px minmax(0,1fr);gap:7px 9px;margin:0;font-size:12px}
@@ -239,6 +239,43 @@
 #team-group-design[data-narrow=true] .tg-task-update{gap:5px}
 #team-group-design[data-narrow=true] .tg-task-card{padding:12px}
 #team-group-design[data-narrow=true] .tg-panel-open{padding:5px 7px}
+#team-group-design .tg-shell{height:min(800px,calc(100dvh - 110px));min-height:500px}
+#team-group-design .tg-center{align-self:stretch;min-height:0;overflow:hidden}
+#team-group-design .tg-left{min-height:0;overflow-y:auto;overscroll-behavior:contain}
+#team-group-design .tg-feed{min-height:70px;overflow-y:auto;overscroll-behavior:contain;flex:1}
+#team-group-design .tg-chat-head,#team-group-design .tg-goal,#team-group-design .tg-compose{flex:none}
+#team-group-design .tg-chat-head{min-height:64px;padding-top:10px;padding-bottom:10px}
+#team-group-design .tg-right{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+#team-group-design .tg-right-tabs{flex:none;min-height:64px;padding-top:4px}
+#team-group-design .tg-right-body{min-height:0;overflow-y:auto;overscroll-behavior:contain;flex:1}
+#team-group-design .tg-goal-expand{max-height:190px;overflow-y:auto;overscroll-behavior:contain}
+#team-group-design .tg-editor{min-height:52px;max-height:120px}
+#team-group-design .tg-attach-list{max-height:110px;overflow-y:auto}
+#team-group-design .tg-member-grid{gap:16px 8px}
+#team-group-design .tg-member-tile .tg-avatar{width:46px;height:46px;max-width:46px;flex:none}
+#team-group-design .tg-profile-heading{min-width:0}
+#team-group-design .tg-profile-name{margin:0;font-size:16px;overflow-wrap:anywhere}
+#team-group-design .tg-profile-duty{font-size:12px;margin-top:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+#team-group-design .tg-profile-content h4{font-size:13px;margin:16px 0 8px;font-weight:600}
+#team-group-design .tg-profile-content h4:first-child{margin-top:0}
+#team-group-design .tg-profile-source{margin-top:16px;color:var(--tg-muted);font-size:11px}
+#team-group-design .tg-profile-source summary,#team-group-design .tg-profile-section summary{cursor:pointer;padding:8px 0}
+#team-group-design .tg-profile-section{border-top:1px solid var(--tg-line);margin-top:14px;padding-top:5px}
+#team-group-design .tg-profile-work{display:flex;flex-direction:column;gap:5px;text-align:left;border:1px solid var(--tg-line);background:var(--tg-side);border-radius:7px;width:100%;padding:10px;margin:8px 0}
+#team-group-design .tg-profile-work strong{font-weight:500}
+#team-group-design .tg-profile-mask{position:fixed;inset:0;z-index:20;background:#10162344}
+#team-group-design[data-compact=true] .tg-center>.tg-right{max-height:32%;flex:none}
+#team-group-design[data-narrow=true] .tg-shell{display:flex;flex-direction:column;min-height:640px}
+#team-group-design[data-narrow=true] .tg-left{max-height:112px;flex:none;padding:6px 8px}
+#team-group-design[data-narrow=true] .tg-center{flex:1}
+#team-group-design[data-narrow=true] .tg-chat-head{min-height:56px;padding:8px 14px}
+#team-group-design[data-narrow=true] .tg-goal-bar{padding:7px 14px}
+#team-group-design[data-narrow=true] .tg-center>.tg-right{max-height:178px}
+#team-group-design[data-narrow=true] .tg-right-body{padding:10px 14px}
+#team-group-design[data-narrow=true] .tg-members-title{margin-bottom:8px}
+#team-group-design[data-narrow=true] .tg-feed{min-height:120px}
+#team-group-design[data-narrow=true] .tg-member-foot{margin-top:14px;padding-top:10px}
+#team-group-design[data-narrow=true] .tg-member-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
 </style>
 <div id="team-group-design" aria-label="团队群聊 UI 布局设计">
  <div class="tg-preview"><strong>团队群聊 · 第七版</strong><span>设计样例 · 任务与轨迹为演示数据</span></div>
@@ -277,6 +314,7 @@
    </aside>
   </div>
   <div class="tg-workspace-note" id="tg-context">星河群聊</div>
+  <div class="tg-profile-mask" data-profile-mask hidden></div>
   <section class="tg-profile" id="tg-profile" role="dialog" aria-modal="false" aria-label="成员资料" hidden></section>
  </div>
  <div class="tg-steps" aria-label="功能流程"><span>目标</span>→<span>任务安排／自主认领</span>→<span>提交结果</span>→<span>审核与目标复核</span></div>
@@ -284,7 +322,7 @@
 <script>
 (()=>{
 const root=document.getElementById('team-group-design');
-const state={chat:'group',side:'tasks',person:'',detail:'能力',task:'',taskView:'overview',artifact:false,density:'标准',taskStyle:'浅边框',aside:320,nav:true,drawer:true,goalOpen:false,goalEdit:false,goalPaused:false,goalChanged:false,requestOpen:false,taskNotice:'',historyOpen:false,roundOpen:{},folds:{xinghe:true,yuanshan:false}};
+const state={chat:'group',side:'tasks',person:'',detail:'属性',task:'',taskView:'overview',artifact:false,density:'标准',taskStyle:'浅边框',aside:320,nav:true,drawer:true,goalOpen:false,goalEdit:false,goalPaused:false,goalChanged:false,requestOpen:false,taskNotice:'',historyOpen:false,roundOpen:{},folds:{xinghe:true,yuanshan:false}};
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const people={北辰:{role:'队长',profession:'项目负责人',job:'统筹与审核',model:'GLM-5.3-Flash',task:'审核界面交付',bio:'先确认目标，再分配任务；负责最终验收。'},砺行:{role:'成员',profession:'前端工程师',job:'功能实现',model:'Qwen3.8-Flash-Next',task:'完善窄栏布局',bio:'负责实现、修复与清晰的交付说明。'},衡准:{role:'成员',profession:'质量工程师',job:'质量验证',model:'Qwen3.8-Flash-Next',task:'复核成员详情交互',bio:'围绕验收要求寻找差异，提交可复现的检查结果。'}};
 const extras=new Map();
@@ -351,9 +389,14 @@ function renderGoal(){
 }
 function memberPanel(){return '<div class="tg-members-title"><span>群成员</span><span class="tg-muted">4 人</span></div><div class="tg-member-grid">'+Object.entries(people).map(([n,p])=>`<button type="button" class="tg-member-tile" data-person="${n}" aria-expanded="${state.person===n}" aria-controls="tg-profile" aria-label="查看${n}的资料，${p.role}"><span class="tg-avatar ${faceClass(n)}">${n.slice(-1)}</span><span class="tg-member-name">${n}</span></button>`).join('')+'</div><div class="tg-member-foot">同队共享资料<div class="tg-notice">名字、性格、简介、Skills 与能力<br>所有队员均可读取最新目录</div></div>';}
 function renderFolds(){root.dataset.nav=state.nav?'open':'closed';root.querySelector('#tg-team-nav').hidden=!state.nav;const toggle=root.querySelector('[data-nav-toggle]');toggle.setAttribute('aria-expanded',String(state.nav));toggle.setAttribute('aria-label',state.nav?'收起左侧团队菜单':'展开左侧团队菜单');root.querySelectorAll('[data-fold]').forEach(b=>{const open=state.folds[b.dataset.fold];b.setAttribute('aria-expanded',String(open));b.setAttribute('aria-label',`${b.dataset.fold==='xinghe'?'星河':'远山'}群聊，${open?'收起':'展开'}队员`);root.querySelector('#'+b.getAttribute('aria-controls')).hidden=!open;});}
-function closeProfile(restore=false){const trigger=profileTrigger;state.person='';root.querySelector('#tg-profile').hidden=true;root.querySelectorAll('.tg-member-tile').forEach(b=>b.setAttribute('aria-expanded','false'));profileTrigger=undefined;if(restore&&trigger?.isConnected)trigger.focus();}
-function positionProfile(){const card=root.querySelector('#tg-profile');if(card.hidden||!profileTrigger?.isConnected)return;const box=root.querySelector('.tg-window').getBoundingClientRect(),anchor=profileTrigger.getBoundingClientRect();card.style.maxHeight=`${Math.max(200,Math.min(500,window.innerHeight-24))}px`;const width=card.offsetWidth,height=card.offsetHeight;let left=anchor.left-box.left-width-14;if(left<12)left=anchor.right-box.left+14;if(left+width>box.width-12)left=Math.max(12,box.width-width-12);let top=anchor.top-box.top-12;const low=Math.max(12,-box.top+12),high=Math.min(box.height-height-12,window.innerHeight-box.top-height-12);top=Math.max(low,Math.min(top,Math.max(low,high)));card.style.left=`${left}px`;card.style.top=`${top}px`;}
-function renderProfile(){const card=root.querySelector('#tg-profile');if(!state.person){card.hidden=true;return;}const n=state.person,p=people[n];const content=state.detail==='能力'?`<dl class="tg-capability-list"><dt>当前模型</dt><dd>${esc(p.model)}</dd><dt>图片</dt><dd>${visionLabel(n)}</dd><dt>运行</dt><dd>正在处理当前任务</dd><dt>来源</dt><dd>队员目录 · 10:24 更新（示例）</dd></dl>`:state.detail==='Skills 与工具'?`<p>分配：${p.skills}</p><p>当前可见：${p.skills}</p><p class="tg-muted">${p.tools}</p>`:'<p>公开交付：布局评审、修改摘要</p><p class="tg-muted">仅展示有来源的公开记录</p>';card.innerHTML=`<button type="button" class="tg-profile-close" data-close-profile aria-label="关闭成员资料">×</button><div class="tg-profile-head"><div class="tg-avatar ${faceClass(n)}">${n.slice(-1)}</div><div><div class="tg-profile-name">${n}<span class="tg-pill">${p.role}</span></div><div class="tg-muted">职责：${p.job} · 星河</div></div></div><div class="tg-personality">职业：${p.profession}</div><p class="tg-profile-bio">${p.bio}</p><div class="tg-personality">性格：${p.personality}</div><div class="tg-profile-task"><span class="tg-muted">当前任务</span><strong>${p.task}</strong></div>${n!=='你'?`<div class="tg-detail-tabs">${['能力','Skills 与工具','成果'].map(d=>`<button type="button" data-detail="${d}" aria-pressed="${state.detail===d}">${d}</button>`).join('')}</div><div class="tg-profile-content">${content}</div>`:''}`;card.hidden=false;card.setAttribute('aria-label',`${n}的成员资料`);root.querySelectorAll('.tg-member-tile').forEach(b=>b.setAttribute('aria-expanded',String(b.dataset.person===n)));positionProfile();}
+function closeProfile(restore=false){const trigger=profileTrigger;state.person='';root.querySelector('#tg-profile').hidden=true;root.querySelector('[data-profile-mask]').hidden=true;root.querySelectorAll('.tg-member-tile').forEach(b=>b.setAttribute('aria-expanded','false'));profileTrigger=undefined;if(restore&&trigger?.isConnected)trigger.focus();}
+function positionProfile(){const card=root.querySelector('#tg-profile');if(card.hidden)return;if(!profileTrigger?.isConnected){closeProfile();return;}const anchor=profileTrigger.getBoundingClientRect(),view=window.visualViewport,vw=view?.width||window.innerWidth,vh=view?.height||window.innerHeight,vx=view?.offsetLeft||0,vy=view?.offsetTop||0,narrow=root.clientWidth<=500;const scroller=profileTrigger.closest('.tg-right-body,.tg-feed'),clip=scroller?.getBoundingClientRect();if(anchor.bottom<=vy||anchor.top>=vy+vh||(clip&&(anchor.bottom<=clip.top||anchor.top>=clip.bottom))){closeProfile();return;}card.setAttribute('aria-modal',String(narrow));root.querySelector('[data-profile-mask]').hidden=!narrow;card.style.width=`${Math.min(narrow?420:360,vw-24)}px`;card.style.maxHeight=`${Math.max(0,Math.min(narrow?vh*.78:560,vh-24))}px`;const width=card.offsetWidth,height=card.offsetHeight;let left=narrow?vx+(vw-width)/2:anchor.left-width-12;if(!narrow&&left<vx+12)left=anchor.right+12;left=Math.max(vx+12,Math.min(left,vx+vw-width-12));let top=narrow?vy+vh-height-12:anchor.top;if(top+height>vy+vh-12)top=anchor.bottom-height;top=Math.max(vy+12,Math.min(top,vy+vh-height-12));card.style.left=`${left}px`;card.style.top=`${top}px`;}
+function renderProfile(){const card=root.querySelector('#tg-profile');if(!state.person){closeProfile();return;}const n=state.person,p=people[n],current=tasks.filter(t=>t.group!=='done'&&(t.owner===n||(n==='北辰'&&t.group==='attention')));let content;
+ if(state.detail==='属性')content=`<dl class="tg-capability-list"><dt>职业</dt><dd>${esc(p.profession)}</dd><dt>性格</dt><dd>${esc(p.personality)}</dd></dl><h4>简介</h4><p>${esc(p.bio)}</p><div class="tg-muted">成员资料 · 10:24 更新（示例）</div><details class="tg-profile-source"><summary>来源与身份详情</summary><p>队员目录 · 版本 7（示例）</p><code>${esc(p.id)}</code></details>`;
+ else if(state.detail==='工作')content=`<h4>当前工作 · ${current.length}</h4>${current.length?current.map(t=>`<button type="button" class="tg-profile-work" data-task="${t.id}"><strong>${esc(t.title)}</strong><span class="tg-muted">${t.code} · ${esc(t.status)}</span></button>`).join(''):'<p>当前没有任务</p>'}<p class="tg-muted">单击任务，在团队栏查看详情。</p>`;
+ else if(state.detail==='能力')content=`<h4>模型与图片</h4><dl class="tg-capability-list"><dt>当前模型</dt><dd>${esc(p.model)}</dd><dt>图片</dt><dd>${visionLabel(n)}</dd></dl><div class="tg-muted">会话配置 · 10:24 更新（示例）</div><details class="tg-profile-section"><summary>Skills</summary><h4>团队分配</h4><p>${esc(p.skills)}</p><h4>当前会话可见</h4><p>${esc(p.skills)}</p><h4>可选目录</h4><p class="tg-muted">目录条目不表示当前会话已具备能力。</p></details><details class="tg-profile-section"><summary>工具与权限</summary><p>${esc(p.tools)}</p><p class="tg-muted">可见工具及团队权限分别以实际来源为准。</p></details><details class="tg-profile-source"><summary>来源详情</summary><p>模型：会话配置；Skills：分配与会话目录；工具：当前注册表（均为示例）。</p></details>`;
+ else content='<h4>最近结果</h4><p>公开交付：布局评审、修改摘要（示例）</p><p class="tg-muted">仅展示有来源的保留记录，不代表完整成长历史。</p>';
+ card.innerHTML=`<button type="button" class="tg-profile-close" data-close-profile aria-label="关闭成员资料">×</button><header class="tg-profile-head"><div class="tg-avatar ${faceClass(n)}">${n.slice(-1)}</div><div class="tg-profile-heading"><h3 id="tg-profile-title" class="tg-profile-name" tabindex="-1">${esc(n)}<span class="tg-pill">${p.role}</span></h3><div class="tg-muted">${n==='你'?'在线':'工作中'} · 星河</div><div class="tg-profile-duty">${esc(p.job)}</div></div></header><div class="tg-detail-tabs" role="tablist" aria-label="成员资料分区">${['属性','工作','能力','成果'].map((d,i)=>`<button type="button" id="tg-profile-tab-${i}" data-detail="${d}" role="tab" aria-selected="${state.detail===d}" aria-pressed="${state.detail===d}" aria-controls="tg-profile-body" tabindex="${state.detail===d?0:-1}">${d}</button>`).join('')}</div><div class="tg-profile-content" id="tg-profile-body" role="tabpanel" aria-labelledby="tg-profile-tab-${['属性','工作','能力','成果'].indexOf(state.detail)}" tabindex="0">${content}</div>`;card.hidden=false;card.setAttribute('aria-labelledby','tg-profile-title');root.querySelectorAll('.tg-member-tile').forEach(b=>b.setAttribute('aria-expanded',String(b.dataset.person===n)));positionProfile();}
 function infoPanel(){return `<div class="tg-small-title">星河 · 群信息</div><div class="tg-info-item">置顶消息<p>北辰 · 10:18<br>本轮先完成设计评审，暂不接入真实群聊运行。</p></div><div class="tg-info-item">消息与图片<p>无 @ 默认由北辰处理；已提及的队员分别收到请求。图片可由原接收人请视觉队员协助。</p></div><div class="tg-info-item">任务协作<p>你和主智能体可提出工作；队长整理与协调，成员在授权范围内创建、认领并提交结果。</p></div><details class="tg-info-item"><summary>发言模式 · 队长协调</summary><p>队长统筹，@ 指定队员处理。</p><p>轮流发言、自由发言为扩展规划，尚未实现。</p></details><div class="tg-info-item">公开范围<p>群内发言、图片和结果摘要公开；私有记忆与凭据不进入共享目录。</p></div>`;}
 function syncPanelButtons(){root.querySelectorAll('[data-side]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.side===state.side)));const name={tasks:'任务',members:'成员',info:'群信息'}[state.side];root.querySelector('#tg-panel-open-label').textContent='展开团队栏';root.querySelector('[data-open-panel]').setAttribute('aria-label',`展开团队栏，恢复${name}${state.side==='tasks'&&state.task?'详情':''}`);}
 function renderSide(){syncPanelButtons();root.querySelector('#tg-right-body').innerHTML=state.side==='tasks'?taskPanel():state.side==='members'?memberPanel():infoPanel();}
@@ -377,6 +420,7 @@ function render(){saveDraft();closeProfile();closeMentions();root.style.setPrope
 root.addEventListener('pointerdown',e=>{if(e.target.closest('[data-choose-mention]'))e.preventDefault();});
 root.addEventListener('click',e=>{
  const b=e.target.closest('button');
+ if(e.target.hasAttribute('data-profile-mask')){closeProfile(true);return;}
  if(!e.target.closest('#tg-profile')&&!b?.dataset.person)closeProfile();
  if(!e.target.closest('.tg-compose-box'))closeMentions();
  if(!b)return;
@@ -386,10 +430,10 @@ root.addEventListener('click',e=>{
  if(b.dataset.side){state.side=b.dataset.side;renderSide();adaptLayout();}
  if(b.hasAttribute('data-open-panel')){state.drawer=true;adaptLayout();root.querySelector(`.tg-right-tabs [data-side="${state.side}"]`)?.focus();}
  if(b.hasAttribute('data-close-panel')){state.drawer=false;adaptLayout();root.querySelector('[data-open-panel]')?.focus();}
- if(b.dataset.person){if(state.person===b.dataset.person){closeProfile();return;}state.person=b.dataset.person;state.detail='能力';profileTrigger=b;renderProfile();root.querySelector('[data-close-profile]').focus();}
+ if(b.dataset.person){if(state.person===b.dataset.person){closeProfile();return;}state.person=b.dataset.person;state.detail='属性';profileTrigger=b;renderProfile();root.querySelector('#tg-profile-title').focus();}
  if(b.dataset.detail){state.detail=b.dataset.detail;renderProfile();root.querySelector(`[data-detail="${state.detail}"]`)?.focus();}
  if(b.hasAttribute('data-close-profile'))closeProfile(true);
- if(b.dataset.task){state.task=b.dataset.task;state.taskView=b.dataset.initialView||'overview';state.artifact=false;state.taskNotice='';state.requestOpen=false;state.side='tasks';state.drawer=true;renderSide();adaptLayout();root.querySelector('[data-task-back]')?.focus();}
+ if(b.dataset.task){closeProfile();state.task=b.dataset.task;state.taskView=b.dataset.initialView||'overview';state.artifact=false;state.taskNotice='';state.requestOpen=false;state.side='tasks';state.drawer=true;renderSide();adaptLayout();root.querySelector('[data-task-back]')?.focus();}
  if(b.dataset.taskView){state.taskView=b.dataset.taskView;renderSide();root.querySelector(`.tg-task-view-tabs [data-task-view="${state.taskView}"]`)?.focus();}
  if(b.hasAttribute('data-artifact-toggle')){state.artifact=!state.artifact;renderSide();root.querySelector('[data-artifact-toggle]')?.focus();}
  if(b.hasAttribute('data-show-artifact')){state.taskView='overview';state.artifact=true;renderSide();root.querySelector('[data-artifact-toggle]')?.focus();}
@@ -425,6 +469,13 @@ composer.addEventListener('dragleave',e=>{if(!composer.contains(e.relatedTarget)
 composer.addEventListener('drop',e=>{e.preventDefault();composer.classList.remove('tg-drag');const files=Array.from(e.dataTransfer.files);if(files.length)addImages(files);else insertPlainText(e.dataTransfer.getData('text/plain'));});
 composer.addEventListener('submit',e=>{e.preventDefault();if(!composing)submitDraft();});
 root.addEventListener('keydown',e=>{if(e.defaultPrevented)return;if(e.key==='Escape'){if(state.person){e.preventDefault();closeProfile(true);}else if(state.drawer){e.preventDefault();state.drawer=false;adaptLayout();root.querySelector('[data-open-panel]')?.focus();}else if(state.nav&&root.clientWidth<=500){e.preventDefault();state.nav=false;renderFolds();root.querySelector('[data-nav-toggle]').focus();}}});
+root.querySelector('#tg-profile').addEventListener('keydown',e=>{const tabs=['属性','工作','能力','成果'];if(e.target.matches('[data-detail]')&&['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const i=tabs.indexOf(state.detail);state.detail=tabs[e.key==='Home'?0:e.key==='End'?3:(i+(e.key==='ArrowRight'?1:3))%4];renderProfile();root.querySelector(`[data-detail="${state.detail}"]`).focus();}if(e.key==='Tab'&&root.clientWidth<=500){const card=root.querySelector('#tg-profile'),items=[...card.querySelectorAll('button:not([disabled]),summary,[tabindex="0"]')].filter(el=>el.getClientRects().length),first=items[0],last=items.at(-1);if(e.shiftKey&&(document.activeElement===first||document.activeElement.id==='tg-profile-title')){e.preventDefault();last?.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}}});
+document.addEventListener('focusin',e=>{if(!state.person||root.querySelector('#tg-profile').contains(e.target)||profileTrigger?.contains(e.target))return;if(root.clientWidth<=500)root.querySelector('#tg-profile-title')?.focus();else closeProfile();});
+window.addEventListener('scroll',positionProfile,true);
+window.addEventListener('resize',positionProfile);
+window.visualViewport?.addEventListener('resize',positionProfile);
+window.visualViewport?.addEventListener('scroll',positionProfile);
+new ResizeObserver(positionProfile).observe(root.querySelector('#tg-profile'));
 new ResizeObserver(adaptLayout).observe(root);
 render();
 if(globalThis.Tweak){const tweak=new Tweak({container:root,onChange:render});tweak.addSelect(state,'taskStyle',{label:'任务行样式',options:['浅边框','分隔线']});tweak.addSelect(state,'density',{label:'消息密度',options:['标准','紧凑']});tweak.addSlider(state,'aside',{label:'团队栏宽度',min:300,max:360,step:10,unit:'px'});}
