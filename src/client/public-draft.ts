@@ -1,7 +1,11 @@
 import { publicMentionStarts, type PublicSegment } from '../shared/public-content.js'
 interface DraftToken { readonly start: number; readonly end: number; readonly memberId: string; readonly label: string }
 /** Blob identities are local to a Host/Main/Team draft scope, never attachment authority. */
-export interface PublicDraftImage { readonly blobId: string; readonly mediaType: string; readonly name?: string }
+export type PublicDraftImageError = 'format' | 'empty' | 'decode'
+export interface PublicDraftImage {
+  readonly blobId: string; readonly mediaType: string; readonly name?: string
+  readonly status?: 'checking' | 'ready' | 'invalid'; readonly width?: number; readonly height?: number; readonly error?: PublicDraftImageError
+}
 export interface PublicDraft { readonly text: string; readonly version: number; readonly replyTo?: string; readonly tokens: readonly DraftToken[]; readonly images?: readonly PublicDraftImage[] }
 export function addDraftImages(draft: PublicDraft, images: readonly PublicDraftImage[]): PublicDraft {
   if (images.length === 0) return draft

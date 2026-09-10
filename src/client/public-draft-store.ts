@@ -1,4 +1,5 @@
 import type { PublicDraft } from './public-draft.js'
+import type { PublicChatAppendRequest } from '../rpc/public-rpc-contract.js'
 
 /** v3 request descriptors refer to Blob IDs; encoding to the RPC wire happens after commit. */
 export interface PublicDraftRequest { readonly schemaVersion: 1 | 2 | 3; readonly requestId: string }
@@ -8,7 +9,7 @@ export interface PublicDraftPending<Request extends PublicDraftRequest = PublicD
   readonly captain: string
   readonly blobIds?: readonly string[]
   readonly upgradedLegacy?: boolean
-  readonly legacyRequest?: PublicDraftRequest
+  readonly legacyRequest?: PublicChatAppendRequest
   readonly legacyVersion?: number
 }
 export interface PublicDraftSnapshot<Request extends PublicDraftRequest = PublicDraftRequest> {
@@ -51,6 +52,33 @@ export class PublicDraftStore {
       return { ...rest, draft: committed && current.draft.version === version ? { text: '', tokens: [], version: version + 1 } : current.draft }
     })
   }
+  /** An explicit legacy upgrade replaces pending atomically; its original payload remains recoverable. */
+  async upgradePending<Request extends PublicDraftRequest>(key: string, draft: PublicDraft, pending: PublicDraftPending<Request>, expectedVersion: number, blobs: Readonly<Record<string, Blob>> = {}): Promise<PublicDraftSnapshot<Request>> {
+    const copy = structuredClone({ draft, pending, blobs })
+    return this.transaction(key, current => {
+      const previous = current.pending, original = copy.pending.legacyRequest
+      const target = (copy.pending.request as PublicDraftRequest & { target?: PublicChatAppendRequest['target'] }).target
+      if (previous?.request.schemaVersion !== 1 || copy.pending.request.schemaVersion !== 3 || !current.legacyUpgrade
+        || copy.pending.request.requestId !== previous.request.requestId || copy.pending.version !== copy.draft.version
+        || copy.pending.legacyVersion !== (previous.legacyVersion ?? previous.version) || !copy.pending.upgradedLegacy
+        || original === undefined || copy.pending.captain !== previous.captain || target?.rootSessionId !== original.target.rootSessionId || target?.teamId !== original.target.teamId
+        || !sameLegacyRequest(original, previous.request as PublicChatAppendRequest)) throw failure('legacy pending changed')
+      const { legacyUpgrade: _legacy, ...updated } = mergeDraft(current, copy.draft, expectedVersion, copy.blobs)
+      return { ...updated, pending: copy.pending }
+    }) as Promise<PublicDraftSnapshot<Request>>
+  }
+  async markLegacyUpgrade(key: string, requestId: string, version: number): Promise<PublicDraftSnapshot> {
+    return this.transaction(key, current => current.pending?.request.schemaVersion === 1 && current.pending.request.requestId === requestId && current.pending.version === version ? { ...current, legacyUpgrade: true } : current)
+  }
+  /** A definite upgrade rejection restores provenance in the same transaction as releasing its v3 Blobs. */
+  async restoreLegacyPending(key: string, requestId: string, version: number): Promise<PublicDraftSnapshot> {
+    return this.transaction(key, current => {
+      const pending = current.pending
+      if (pending?.request.requestId !== requestId || pending.version !== version || pending.legacyRequest === undefined) return current
+      const legacyVersion = pending.legacyVersion ?? pending.version
+      return { ...current, legacyUpgrade: true, pending: { request: pending.legacyRequest, captain: pending.captain, version: legacyVersion, legacyVersion, upgradedLegacy: true } }
+    })
+  }
   /** Caller validates legacy JSON and removes it only after this promise resolves; existing IDB data wins. */
   async migrateLegacy<Request extends PublicDraftRequest>(key: string, saved: Omit<PublicDraftSnapshot<Request>, 'blobs'>): Promise<PublicDraftSnapshot<Request>> {
     const copy = structuredClone(saved)
@@ -76,7 +104,9 @@ export class PublicDraftStore {
         resolve(database)
       })
     })
-    return this.database
+    const opening = this.database
+    void opening.catch(() => { if (this.database === opening) this.database = undefined })
+    return opening
   }
   private async transaction(key: string, update: ((current: PublicDraftSnapshot, exists: boolean) => PublicDraftSnapshot) | undefined): Promise<PublicDraftSnapshot> {
     const database = await this.open()
@@ -112,7 +142,11 @@ function mergeDraft(current: PublicDraftSnapshot, draft: PublicDraft, expectedVe
 function sameDraft(a: PublicDraft, b: PublicDraft): boolean {
   return a.text === b.text && a.replyTo === b.replyTo
     && JSON.stringify(a.tokens.map(token => [token.start, token.end, token.memberId, token.label])) === JSON.stringify(b.tokens.map(token => [token.start, token.end, token.memberId, token.label]))
-    && JSON.stringify((a.images ?? []).map(image => [image.blobId, image.mediaType, image.name])) === JSON.stringify((b.images ?? []).map(image => [image.blobId, image.mediaType, image.name]))
+    && JSON.stringify((a.images ?? []).map(image => [image.blobId, image.mediaType, image.name, image.status, image.width, image.height, image.error])) === JSON.stringify((b.images ?? []).map(image => [image.blobId, image.mediaType, image.name, image.status, image.width, image.height, image.error]))
+}
+function sameLegacyRequest(a: PublicChatAppendRequest, b: PublicChatAppendRequest): boolean {
+  return a.schemaVersion === b.schemaVersion && a.requestId === b.requestId && a.text === b.text && a.replyTo === b.replyTo
+    && a.target.rootSessionId === b.target.rootSessionId && a.target.teamId === b.target.teamId
 }
 function retainReferencedBlobs(saved: PublicDraftSnapshot): PublicDraftSnapshot {
   const ids = new Set([...(saved.draft.images ?? []).map(image => image.blobId), ...saved.pending?.blobIds ?? []])

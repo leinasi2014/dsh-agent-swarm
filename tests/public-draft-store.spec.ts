@@ -217,3 +217,34 @@ it('accepts multiple local edits when each save uses the last committed revision
     expect(saved).toMatchObject({ draft: { version: 7, text: 'seven local edits' }, pending: { version: 7, request: { requestId: 'serial' } } })
   } finally { await f.close() }
 }, 30_000)
+
+it('atomically upgrades a legacy pending with its original identity and Blob, rolling back all parts on failure', async () => {
+  const f = await fixture()
+  try {
+    const result = await f.page.evaluate(async key => {
+      const original = { schemaVersion: 1 as const, requestId: 'legacy', target: { rootSessionId: 'original-viewer', teamId: 'a' }, text: 'original', replyTo: 'old-reply' }
+      await window.draftStore.migrateLegacy(key, { draft: { text: 'original', tokens: [], version: 1 }, pending: { version: 1, captain: 'captain', request: original } })
+      await window.draftStore.markLegacyUpgrade(key, 'legacy', 1)
+      const draft = { text: 'updated', tokens: [], version: 3, images: [{ blobId: 'a', mediaType: 'image/png' }] }
+      const pending = { version: 3, captain: 'captain', request: { schemaVersion: 3 as const, requestId: 'legacy', target: original.target, content: [{ type: 'image', blobId: 'a', mediaType: 'image/png' }] }, blobIds: ['a'], legacyRequest: original, legacyVersion: 1, upgradedLegacy: true }
+      const put = IDBObjectStore.prototype.put
+      IDBObjectStore.prototype.put = function (value: unknown, recordKey?: IDBValidKey) { put.call(this, value, recordKey); throw new DOMException('injected failure', 'QuotaExceededError') }
+      let rejected = false
+      try { await window.draftStore.upgradePending(key, draft, pending, 1, { a: new Blob(['image']) }) } catch { rejected = true } finally { IDBObjectStore.prototype.put = put }
+      const rolledBack = await window.draftStore.read(key)
+      const upgraded = await window.draftStore.upgradePending(key, draft, pending, 1, { a: new Blob(['image']) })
+      return { rejected, rolledBack, pending: upgraded.pending, bytes: await upgraded.blobs.a!.text(), original }
+    }, scopeKey)
+    expect(result.rejected).toBe(true)
+    expect(result.rolledBack).toMatchObject({ draft: { version: 1, text: 'original' }, pending: { request: result.original }, blobs: {} })
+    expect(result.pending).toMatchObject({ version: 3, legacyVersion: 1, legacyRequest: result.original, request: { schemaVersion: 3, requestId: 'legacy', target: result.original.target } })
+    expect(result.bytes).toBe('image')
+    await f.page.reload()
+    expect(await f.page.evaluate(async key => (await window.draftStore.read(key)).pending?.request.schemaVersion, scopeKey)).toBe(3)
+    const restored = await f.page.evaluate(async key => {
+      const saved = await window.draftStore.restoreLegacyPending(key, 'legacy', 3)
+      return { ...saved, blobs: { a: await saved.blobs.a!.text() } }
+    }, scopeKey)
+    expect(restored).toMatchObject({ draft: { version: 3, text: 'updated' }, pending: { request: result.original, version: 1, legacyVersion: 1, upgradedLegacy: true }, blobs: { a: 'image' } })
+  } finally { await f.close() }
+}, 30_000)
