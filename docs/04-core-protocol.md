@@ -150,6 +150,20 @@ Team 注册 DSH SidebarRight 的独立页签，沿用官方布局与主题 token
 
 成员导航前重读绑定和成员行；返回主会话前重新读取团队目录验证 mainSessionId，再交给官方根会话列表导航。已核验的同 Team 活跃 Captain/成员切换可保留只读投影，同时对新 Session 重新读取并验证绑定；无关 Session 清空旧正文，不复用其权限。各 Session 的官方页签分别保留，打开动作通过 `SidebarRightNavigator.openTabIn(targetSessionId)` 精确寻址；只有实际 `observeTab` 才确认 docked。首次 store 尚未接管时依靠既有权威读取节奏重试，不能向旧 Session 的 seat 写入，也不能把调用成功当作页签已显示。该 UI 临时状态不成为业务权限，注册/轮询继续随既有 controller/coordinator 卸载释放。验收覆盖多团队目录、快速反向切换、首次导航、导航竞争、冷读取、错误父级/成员、主会话返回及官方页签切换与侧栏收起。
 
+### 8.1 公共文本消息与显式公开回报
+
+公共群聊的首个写入切片采用官方 Connection RPC 认证通道 `/swarm-public/v1`，由 Host 的 `connection.rpc.handle` 注册并随 Context 注销。客户端调用相同通道；官方 Host/Origin 与 BrowserAuth 检查先于业务 handler。handler 内派生的作者仅表示本 Host 已认证的 `local-operator`，Cookie 不提供多用户 userId，不能冒充已有 `authenticated-human` principal。wire 不接受作者、principal 或 Captain 身份。请求的 Session 与 Team 仅用于选择目标，Host 重验真实 scope、官方 Session 关系和当前 Team；旧 `/swarm/v1` 仍是原有只读合同。
+
+此切片限定为人类公共文本默认交给当前 Captain，以及 Captain/成员显式发布带 `replyTo` 的公开回报。Host 公开读取、追加与查询原请求结果；Agent 回报从实际工具执行上下文派生作者并验证当前同队权限。个人 Session 的完整输出不会自动转贴到群里，公开回报也不会隐式唤醒全员。多提及、图片、工作请求及目标控制沿后续切片接入同一消息权威。
+
+公共消息扩展现有 `TeamDomainPort` 与同一官方 Storage Domain Team aggregate。一次 transaction 保存服务器分配的消息 ID、提交顺序和时间、冻结的作者展示资料、正文、原消息引用、逻辑请求身份及定向投递意图。请求身份绑定 Team、真实作者和完整规范化载荷；同身份同内容返回原结果，内容改变则拒绝。旧 Team 缺少公共字段仍可原样读取。消息与请求凭据均有明确数量和字节上限；首片容量满时拒绝新追加，不能靠丢弃幂等记录释放容量后允许旧请求重复执行。公开读取按稳定消息顺序分页并报告实际范围，不把部分页面描述成完整历史。
+
+官方 Session 日志仍是模型实际收到输入的权威。公共消息提交不等于已消费：定向意图由现有 runtime owner 串行投递，持久化的版本化 frame 冻结原消息 ID、接收人和完整实际输入，恢复时不按新姓名或新模板重建比较文本。复用 `frameVisibility` 的 claimed、pending、absent、unknown 判断：只有经持久化确认的 claimed 才结清消费记录；pending 与 unknown 不盲目重投，absent 才重新投递。首次发送与冷恢复共用同一路径；空任务板上未结清的公共投递也必须触发现有 managed recovery，不能新增另一套规划或消息循环。
+
+提交成功后响应丢失、客户端取消或断线，界面保留原请求 ID 与冻结载荷，显示结果待确认；查询权威结果或以同一身份重试，不能生成新 ID 重发。查询无法验证目标或读取存储时不得返回确定的 not-found。群草稿按当前 Host、查看者与 Team 隔离；完成回调只结算原操作，只有原草稿版本未继续编辑时才清空。未提交草稿及待确认操作的浏览器恢复范围须明确说明，客户端记录不成为公共消息权威。
+
+代表性验收包含：认证缺失/错误来源与跨 Team 拒绝；同请求并发、不同载荷冲突、提交后丢 ACK；公开回报丢工具结果后的同请求重试；发送中切群；真实 Captain 消费与显式回复；无任务 Team 冷恢复；claimed 后、Domain 确认前崩溃不重复输入。工程 fixture、真实模型、真实重启与生产部署分别记录。
+
 ## 9. Review、execution root 与可选桥接
 
 Review Provider 返回判定和 bounded evidence，Domain port 完成状态 mutation；候选不能审核自己。Executable review 运行于声明的 review root，并将命令、退出码和产物身份绑定当前 attempt。
