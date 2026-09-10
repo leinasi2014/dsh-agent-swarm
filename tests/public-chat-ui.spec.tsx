@@ -1,11 +1,16 @@
 // @vitest-environment jsdom
+import { ready, render, t, mounted } from './helpers/dashboard-ui.js'
 import { act, type ComponentProps } from 'react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { MessageImage } from '../src/client/PublicImages.js'
+import { PublicMessageContent } from '../src/client/PublicMessageContent.js'
 import { TeamPublicChat } from '../src/client/TeamPublicChat.js'
 import { TeamGroupNavigation } from '../src/client/TeamGroupNavigation.js'
 import type { PublicChatState } from '../src/client/public-chat-controller.js'
 import type { TeamDashboardState } from '../src/client/team-dashboard-controller.js'
-import { ready, render, t } from './helpers/dashboard-ui.js'
+
+beforeEach(() => { vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:fixture-image'), revokeObjectURL: vi.fn() })) })
+afterEach(() => { vi.unstubAllGlobals() })
 
 function teamState(): TeamDashboardState {
   const data = ready.data!
@@ -20,19 +25,39 @@ function chatState(state: TeamDashboardState): PublicChatState {
   const binding = state.data!.projection.binding
   const selection = { key: 'draft-key', viewer: state.targetSessionId!, captain: binding.rootSessionId, team: binding.teamId, revision: state.data!.projection.team.revision }
   const entries = [{ id: 'public-1', sequence: 1, createdAt: 1000, author: { kind: 'local-operator' as const }, text: '真实消息', formatVersion: 2 as const, content: [{ type: 'text' as const, text: '真实消息' }], mentionLabels: [], delivery: { kind: 'requested' as const, recipients: [{ state: 'claimed' as const, claimedAt: 2000, recipientSessionId: binding.rootSessionId }] } }]
-  return { selection, entries, draft: { text: 'send me', version: 1, tokens: [] }, sending: false, loading: false, pending: false, error: undefined, directory: undefined, directoryError: undefined, directoryLoading: false, legacyUpgrade: false,
-    history: { schemaVersion: 2, binding, observedAt: 2000, teamRevision: selection.revision, entries, totalCount: 1, returnedCount: 1, limit: 50, hasEarlier: false, hasMore: false, firstSequence: 1, lastSequence: 1, appendEligibility: { state: 'available' }, limits: { maxSegments: 256, maxTextBytes: 4096, maxBytes: 100000, maxMessages: 1000 } },
+  return { selection, entries, draft: { text: 'send me', version: 1, tokens: [] }, sending: false, loading: false, pending: false, error: undefined, directory: undefined, directoryError: undefined, directoryLoading: false, legacyUpgrade: false, draftStatus: 'ready', draftBlobs: {},
+    history: { schemaVersion: 3, binding, observedAt: 2000, teamRevision: selection.revision, entries, totalCount: 1, returnedCount: 1, limit: 50, hasEarlier: false, hasMore: false, firstSequence: 1, lastSequence: 1, appendEligibility: { state: 'available' }, limits: { maxSegments: 256, maxTextBytes: 4096, maxBytes: 100000, maxMessages: 1000 }, imageAvailability: { state: 'available', imageLimits: { maxImageBytes: 2000, maxImagesPerMessage: 20, maxMessageImageBytes: 20000, maxImagePixels: 10000, maxImageDimension: 1000, mediaTypes: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] } } },
   }
 }
 function chatProps(state = teamState(), chat = chatState(state)) {
   return { t, useTeam: <T,>(selector: (state: TeamDashboardState) => T) => selector(state), useChat: <T,>(selector: (state: PublicChatState) => T) => selector(chat),
     useSurface: <T,>(selector: (state: { mode: 'inactive'; view: 'overview'; targetSessionId: undefined }) => T) => selector({ mode: 'inactive', view: 'overview', targetSessionId: undefined }),
     replaceText: vi.fn(), chooseMention: vi.fn(), removeMention: vi.fn(), refreshDirectory: vi.fn(), upgradeLegacy: vi.fn(), send: vi.fn(), recover: vi.fn(), earlier: vi.fn(), newer: vi.fn(), refresh: vi.fn(), edit: vi.fn(), reply: vi.fn(), openTeam: vi.fn(),
+    addImages: vi.fn(), removeImage: vi.fn(), image: vi.fn(async () => new Blob(['image'], { type: 'image/png' })), retryDraftStorage: vi.fn(), useStoredDraft: vi.fn(),
   }
 }
 
 
 describe('public conversation composition', () => {
+  it('offers a local image picker and blocks sending until draft storage is restored', async () => {
+    const base = teamState(), props = chatProps(base, { ...chatState(base), draftStatus: 'loading' })
+    await render(<TeamPublicChat {...props as ComponentProps<typeof TeamPublicChat>} />)
+    expect(document.querySelector<HTMLInputElement>('input[type="file"][accept*="image/png"]')).not.toBeNull()
+    expect(document.querySelector<HTMLButtonElement>('[data-public-send]')?.disabled).toBe(true)
+  })
+
+  it('passes pasted image files with text once and preserves mention-aware text editing', async () => {
+    const props = chatProps()
+    await render(<TeamPublicChat {...props as ComponentProps<typeof TeamPublicChat>} />)
+    const textarea = document.querySelector('textarea')!, file = new File(['png'], 'paste.png', { type: 'image/png' })
+    textarea.setSelectionRange(0, 7)
+    const event = new Event('paste', { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'clipboardData', { value: { files: [file], getData: () => '@copied' } })
+    await act(async () => { textarea.dispatchEvent(event) })
+    expect(props.addImages).toHaveBeenCalledExactlyOnceWith([file])
+    expect(props.replaceText).toHaveBeenCalledExactlyOnceWith(0, 7, '@copied')
+  })
+
   it.each(['stale', 'reconnecting'] as const)('retains verified history and pending draft during %s while preventing dispatch', async phase => {
     const readyState = teamState()
     const props = chatProps({ ...readyState, phase, error: { code: 'RESET', message: 'connection lost' } }, { ...chatState(readyState), pending: true })
@@ -122,3 +147,192 @@ it('keeps two short messages and the composer visible in a 390px container with 
     expect(geometry.sendBottom).toBeLessThanOrEqual(geometry.bottom)
   } finally { await browser.close() }
 }, 60_000)
+
+const draftImage = { blobId: 'draft-image', mediaType: 'image/png', name: '草稿图.png', status: 'ready' as const, width: 10, height: 10 }
+const historyImage = { type: 'image' as const, imageId: 'image-1', mediaType: 'image/png' as const, name: '参考.png', bytes: 3, width: 10, height: 10 }
+
+it.each([1, 2, 3] as const)('preserves public escape rendering for format %s and literal agent replies', async formatVersion => {
+  const base = chatState(teamState()).entries[0]!, raw = String.raw`one \@a; two \\@b; three \\\@c`
+  const decoded = String.raw`one @a; two \\@b; three \@c`
+  for (const author of [{ kind: 'local-operator' as const }, { kind: 'agent' as const, sessionId: 'helper', name: 'Helper', role: 'member' as const }]) {
+    const message = { ...base, formatVersion, author, content: [{ type: 'text' as const, text: raw },
+      ...(formatVersion === 3 ? [historyImage] : []), { type: 'mention' as const, memberId: 'member' }],
+      mentionLabels: [{ memberId: 'member', label: 'Member' }] }
+    await render(<PublicMessageContent message={message} entries={[message]} image={async () => new Blob(['png'])} t={t as ComponentProps<typeof PublicMessageContent>['t']} />)
+    expect(document.querySelectorAll('[data-public-content] > span')[0]?.textContent).toBe(formatVersion > 1 && author.kind === 'local-operator' ? decoded : raw)
+    expect(document.querySelector('[data-public-mention]')?.textContent).toBe('@Member')
+    await act(async () => { mounted.pop()!.unmount() })
+  }
+})
+
+it('enables pure-image send and retains invalid images with explicit removal', async () => {
+  const base = teamState(), chat = chatState(base), props = chatProps(base, { ...chat, draft: { text: '', version: 2, tokens: [], images: [draftImage] }, draftBlobs: { 'draft-image': new Blob(['png']) } })
+  await render(<TeamPublicChat {...props as ComponentProps<typeof TeamPublicChat>} />)
+  expect(document.querySelector<HTMLButtonElement>('[data-public-send]')!.disabled).toBe(false)
+  await act(async () => { document.querySelector<HTMLButtonElement>('.swarm-public__remove-image')!.click() })
+  expect(props.removeImage).toHaveBeenCalledExactlyOnceWith('draft-image')
+  await act(async () => { mounted.at(-1)!.render(<TeamPublicChat {...chatProps(base, { ...chat, draft: { ...chat.draft, images: [{ ...draftImage, status: 'invalid', error: 'decode' }] }, draftBlobs: props.useChat(value => value.draftBlobs) }) as ComponentProps<typeof TeamPublicChat>} />) })
+  expect(document.querySelector<HTMLButtonElement>('[data-public-send]')!.disabled).toBe(true)
+  expect(document.querySelector('[data-draft-image]')?.textContent).toContain(t('public.imageIssue.decode'))
+})
+
+it.each(['unavailable', 'conflict'] as const)('exposes explicit %s storage recovery without losing the local draft', async draftStatus => {
+  const base = teamState(), props = chatProps(base, { ...chatState(base), draftStatus })
+  await render(<TeamPublicChat {...props as ComponentProps<typeof TeamPublicChat>} />)
+  expect(document.querySelector<HTMLTextAreaElement>('textarea')?.value).toBe('send me')
+  expect(document.querySelector<HTMLButtonElement>('[data-public-send]')!.disabled).toBe(true)
+  await act(async () => { document.querySelector<HTMLButtonElement>('[data-public-draft-status] button')!.click() })
+  expect(draftStatus === 'conflict' ? props.useStoredDraft : props.retryDraftStorage).toHaveBeenCalledOnce()
+})
+
+it('accepts multiple selected files, resets the picker, and handles a textarea drop exactly once', async () => {
+  const props = chatProps(), files = [new File(['png'], 'one.png', { type: 'image/png' }), new File(['png'], 'two.png', { type: 'image/png' })]
+  await render(<TeamPublicChat {...props as ComponentProps<typeof TeamPublicChat>} />)
+  const input = document.querySelector<HTMLInputElement>('input[type=file]')!
+  Object.defineProperty(input, 'files', { value: files })
+  await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })) })
+  expect(props.addImages).toHaveBeenCalledExactlyOnceWith(files)
+  expect(input.value).toBe('')
+  props.addImages.mockClear()
+  const drop = new Event('drop', { bubbles: true, cancelable: true })
+  Object.defineProperty(drop, 'dataTransfer', { value: { files, getData: () => '' } })
+  await act(async () => { document.querySelector('textarea')!.dispatchEvent(drop) })
+  expect(props.addImages).toHaveBeenCalledExactlyOnceWith(files)
+  expect(props.replaceText).not.toHaveBeenCalled()
+})
+
+it('renders ordered mixed content with frozen mention labels and bounded queued reasons', async () => {
+  const base = teamState(), chat = chatState(base), message = { ...chat.entries[0]!, formatVersion: 3 as const, text: 'flattened must not duplicate',
+    content: [{ type: 'text' as const, text: '前文' }, historyImage, { type: 'mention' as const, memberId: 'member' }, { type: 'text' as const, text: '后文' }], mentionLabels: [{ memberId: 'member', label: '当时的名字' }],
+    delivery: { kind: 'requested' as const, recipients: [{ recipientSessionId: 'member', state: 'queued' as const, deferredReason: 'image-model-unsupported' as const }] } }
+  const props = chatProps(base, { ...chat, entries: [message] })
+  await render(<TeamPublicChat {...props as ComponentProps<typeof TeamPublicChat>} />)
+  const content = document.querySelector('[data-public-content]')!
+  expect([...content.children].map(node => node.textContent)).toEqual(['前文', '参考.png', '@当时的名字', '后文'])
+  expect(content.textContent).not.toContain('flattened')
+  expect(document.querySelector('[data-recipient]')?.textContent).toContain(t('public.deferred.image-model-unsupported'))
+  expect(props.image).toHaveBeenCalledOnce()
+})
+
+it('renders system assistance provenance and localizes assistance closure', async () => {
+  const base = teamState(), chat = chatState(base), message = { ...chat.entries[0]!, formatVersion: 3 as const, author: { kind: 'system' as const },
+    assistance: { kind: 'result' as const, assistanceId: 'assist', sourceMessageId: 'not-loaded', imageIds: ['image-1'], requesterSessionId: 'requester', helperSessionId: 'helper', expiresAt: 10, resultId: 'result', outcome: { state: 'failed' as const, reason: 'expired' as const } },
+    delivery: { kind: 'requested' as const, recipients: [{ recipientSessionId: 'helper', state: 'not-delivered' as const, reason: 'assistance-closed' as const, settledAt: 10 }] } }
+  await render(<TeamPublicChat {...chatProps(base, { ...chat, entries: [message] }) as ComponentProps<typeof TeamPublicChat>} />)
+  expect(document.querySelector('.swarm-public__meta strong')?.textContent).toBe(t('public.system'))
+  expect(document.querySelector('[data-public-assistance]')?.textContent).toContain(t('public.assistanceOutside', { id: 'not-loaded' }))
+  expect(document.querySelector('[data-public-assistance]')?.textContent).toContain(t('public.assistanceFailed.expired'))
+  expect(document.querySelector('[data-recipient]')?.textContent).toContain(t('public.notDeliveredReason.assistance-closed'))
+})
+
+it('resolves assistance participants by exact public identity and preserves unknown IDs', async () => {
+  const base = chatState(teamState()).entries[0]!
+  const request = { ...base, id: 'request', author: { kind: 'agent' as const, sessionId: 'requester', name: 'writer', displayName: '原写作者', role: 'member' as const } }
+  const message = { ...base, id: 'result', formatVersion: 3 as const,
+    author: { kind: 'agent' as const, sessionId: 'helper', name: 'vision', displayName: '原视觉员', role: 'member' as const },
+    assistance: { kind: 'result' as const, assistanceId: 'assist', sourceMessageId: 'not-loaded', imageIds: ['image-1'], requesterSessionId: 'requester', helperSessionId: 'helper', expiresAt: 10, resultId: 'result', outcome: { state: 'completed' as const, summary: 'Done' } } }
+  const props = { message, entries: [request, message], image: async () => new Blob(['png']), t: t as ComponentProps<typeof PublicMessageContent>['t'],
+    memberLabels: [{ memberId: 'helper', label: '现在视觉员' }, { memberId: 'requester', label: '现在写作者' }] }
+  await render(<PublicMessageContent {...props} />)
+  expect(document.querySelector('[data-public-assistance] strong')?.textContent).toBe(t('public.assistanceRequest', { requester: '原写作者', helper: '原视觉员' }))
+  await act(async () => { mounted.at(-1)!.render(<PublicMessageContent {...props} entries={[]} message={{ ...message, author: { kind: 'system' } }} />) })
+  expect(document.querySelector('[data-public-assistance] strong')?.textContent).toBe(t('public.assistanceRequest', { requester: '现在写作者', helper: '现在视觉员' }))
+  await act(async () => { mounted.at(-1)!.render(<PublicMessageContent {...props} memberLabels={[]} entries={[]} message={{ ...message, author: { kind: 'system' } }} />) })
+  expect(document.querySelector('[data-public-assistance] strong')?.textContent).toBe(t('public.assistanceRequest', { requester: 'requester', helper: 'helper' }))
+})
+
+
+it('uses actual Edge for responsive image layout, modal focus/Escape, lazy reads and URL cleanup', async () => {
+  const { publicImagesBrowserScript } = await import('./helpers/public-images-browser.js')
+  const { chromium } = await import('playwright'), { mkdir } = await import('node:fs/promises'), { join } = await import('node:path')
+  const script = await publicImagesBrowserScript(), browser = await chromium.launch({ channel: 'msedge', headless: true })
+  const team = teamState(), chat = chatState(team)
+  const message = { ...chat.entries[0]!, formatVersion: 3 as const, content: [{ type: 'text' as const, text: '请查看这张参考图，核对结构和配色。' }, historyImage, { type: 'mention' as const, memberId: 'helper' }], mentionLabels: [{ memberId: 'helper', label: '视觉协助员' }], delivery: { kind: 'requested' as const, recipients: [{ recipientSessionId: 'helper', state: 'queued' as const, deferredReason: 'image-model-unsupported' as const }] } }
+  const fixture = { ...chat, history: { ...chat.history!, imageAvailability: { state: 'available' as const, imageLimits: { ...chat.history!.imageAvailability.state === 'available' ? chat.history!.imageAvailability.imageLimits : {}, maxImageBytes: 200000, maxMessageImageBytes: 500000 } } }, entries: [message], draft: { ...chat.draft, text: '这两处有什么区别？', images: [draftImage] } }
+  const directory = process.env['SWARM_UI_EVIDENCE_DIR']
+  if (directory) await mkdir(directory, { recursive: true })
+  try {
+    for (const width of [390, 768, 1280]) {
+      const page = await browser.newPage({ viewport: { width, height: 900 } })
+      const pageErrors: string[] = []
+      page.on('pageerror', error => { pageErrors.push(error.message) })
+      await page.setContent(`<style>body{margin:0;font-family:system-ui;background:#f4f5f7;--dsw-alias-label-primary:#223047;--dsw-alias-label-secondary:#69778c;--dsw-alias-bg-base:#f8f9fc;--dsw-alias-bg-layer-1:white;--dsw-alias-border-l2:#d8deea;--dsw-alias-state-business-primary:#4267bc}#fixture-root{height:900px}.fixture-modal-root{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center}.fixture-modal-mask{position:absolute;inset:0;background:#0009}.fixture-modal-dialog{position:relative}</style><div id="fixture-root"></div>`)
+      await page.addScriptTag({ content: script })
+      await page.evaluate(async ({ team: teamValue, chat: chatValue }) => { await (window as unknown as { mountChat: (team: unknown, chat: unknown) => Promise<void> }).mountChat(teamValue, chatValue) }, { team, chat: fixture })
+      await page.locator('[data-public-image] img').waitFor()
+      await page.locator('[data-draft-image] img').waitFor()
+      const bounds = await page.evaluate(() => { const root = document.querySelector<HTMLElement>('[data-swarm-public-chat]')!, send = root.querySelector('[data-public-send]')!.getBoundingClientRect(); return { overflow: root.scrollWidth-root.clientWidth, sendBottom: send.bottom, bottom: root.getBoundingClientRect().bottom, reads: (window as unknown as { reads: number }).reads } })
+      expect(bounds.overflow).toBeLessThanOrEqual(1); expect(bounds.sendBottom).toBeLessThanOrEqual(bounds.bottom); expect(bounds.reads).toBe(1)
+      if (directory) await page.screenshot({ path: join(directory, `images-${width}.png`), fullPage: true })
+      const thumb = page.locator('[data-public-image] .swarm-public__image-thumb')
+      await thumb.click(); await page.getByRole('dialog').waitFor({ timeout: 3000 })
+      await expect.poll(() => page.getByRole('button', { name: '关闭大图', exact: true }).evaluate(node => node === document.activeElement)).toBe(true)
+      await page.keyboard.press('Tab')
+      expect(await page.getByRole('button', { name: '关闭大图', exact: true }).evaluate(node => node === document.activeElement)).toBe(true)
+      if (directory && width === 390) await page.screenshot({ path: join(directory, 'image-modal-390.png'), fullPage: true })
+      await page.keyboard.press('Escape'); await page.getByRole('dialog').waitFor({ state: 'detached' })
+      expect(await thumb.evaluate(node => node === document.activeElement)).toBe(true)
+      await page.evaluate(() => { (window as unknown as { unmountChat: () => void }).unmountChat() })
+      await expect.poll(() => page.evaluate(() => { const w = window as unknown as { created: string[]; revoked: string[] }; return w.created.length > 0 && w.created.every(url => w.revoked.includes(url)) })).toBe(true)
+      expect(pageErrors).toEqual([])
+      await page.close()
+    }
+  } finally { await browser.close() }
+}, 60_000)
+
+
+it('defers offscreen reads, retries only its failed image, and aborts pending reads on unmount', async () => {
+  let intersect!: IntersectionObserverCallback
+  const disconnect = vi.fn()
+  vi.stubGlobal('IntersectionObserver', class { constructor(callback: IntersectionObserverCallback) { intersect = callback } observe = vi.fn(); disconnect = disconnect })
+  const read = vi.fn(async (_messageId: string, _imageId: string, _signal: AbortSignal) => new Blob(['png']))
+  read.mockRejectedValueOnce(new Error('private provider data'))
+  await render(<MessageImage messageId="message" image={historyImage} read={read} t={t as ComponentProps<typeof MessageImage>['t']} />)
+  expect(read).not.toHaveBeenCalled()
+  await act(async () => { intersect([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver) })
+  expect(read).toHaveBeenCalledOnce()
+  expect(document.querySelector('[role=alert]')?.textContent).toContain(t('public.imageReadFailed'))
+  expect(document.body.textContent).not.toContain('private provider')
+  await act(async () => { document.querySelector<HTMLButtonElement>('[role=alert] button')!.click() })
+  expect(read).toHaveBeenCalledTimes(2)
+  expect(read.mock.calls.every(call => call[0] === 'message' && call[1] === historyImage.imageId)).toBe(true)
+  const signal = read.mock.calls[1]![2]
+  await act(async () => { mounted.pop()!.unmount() })
+  expect(signal.aborted).toBe(true)
+  expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:fixture-image')
+})
+
+
+it.each(['public.imageRejected', 'public.imageServiceUnavailable'] as const)('translates the known controller error %s', async error => {
+  const base = teamState()
+  await render(<TeamPublicChat {...chatProps(base, { ...chatState(base), error }) as ComponentProps<typeof TeamPublicChat>} />)
+  expect(document.querySelector('.swarm-public__composer [role=alert]')?.textContent).toContain(t(error))
+  expect(document.querySelector('.swarm-public__composer [role=alert]')?.textContent).not.toContain(error)
+})
+it('retains other controller error messages verbatim', async () => {
+  const base = teamState(), error = 'An unrelated transport error'
+  await render(<TeamPublicChat {...chatProps(base, { ...chatState(base), error }) as ComponentProps<typeof TeamPublicChat>} />)
+  expect(document.querySelector('.swarm-public__composer [role=alert]')?.textContent).toContain(error)
+})
+it.each(['ready', 'saving', 'loading', 'conflict', 'unavailable'] as const)('handles Ctrl Enter during %s draft persistence', async draftStatus => {
+  const base = teamState(), props = chatProps(base, { ...chatState(base), draftStatus })
+  await render(<TeamPublicChat {...props as ComponentProps<typeof TeamPublicChat>} />)
+  await act(async () => { document.querySelector('textarea')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true })) })
+  expect(props.send).toHaveBeenCalledTimes(draftStatus === 'ready' || draftStatus === 'saving' ? 1 : 0)
+})
+it('keeps an image read across ordinary refreshes and remounts it for another Team with the same message/image IDs', async () => {
+  const base = teamState(), chat = chatState(base), entry = { ...chat.entries[0]!, formatVersion: 3 as const, content: [historyImage] }
+  const props = chatProps(base, { ...chat, entries: [entry] })
+  const image = vi.fn(async (_messageId: string, _imageId: string, _signal: AbortSignal) => new Blob(['png']))
+  await render(<TeamPublicChat {...{ ...props, image } as ComponentProps<typeof TeamPublicChat>} />)
+  expect(image).toHaveBeenCalledOnce()
+  const refreshed = chatProps({ ...base, data: { ...base.data! } }, { ...chat, entries: [{ ...entry }] })
+  await act(async () => { mounted.at(-1)!.render(<TeamPublicChat {...{ ...refreshed, image } as ComponentProps<typeof TeamPublicChat>} />) })
+  expect(image).toHaveBeenCalledOnce()
+  const nextTeam = { ...base, data: { ...base.data!, projection: { ...base.data!.projection, binding: { rootSessionId: 'captain-b', teamId: 'b' } } } }
+  const nextChat = { ...chat, selection: { ...chat.selection!, key: 'draft-key-b', team: 'b', captain: 'captain-b' }, entries: [{ ...entry }] }
+  await act(async () => { mounted.at(-1)!.render(<TeamPublicChat {...{ ...chatProps(nextTeam, nextChat), image } as ComponentProps<typeof TeamPublicChat>} />) })
+  expect(image).toHaveBeenCalledTimes(2)
+  expect(image.mock.calls[0]![2].aborted).toBe(true)
+  expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:fixture-image')
+})

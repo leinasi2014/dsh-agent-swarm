@@ -1,4 +1,5 @@
 import { publicMentionsEn, publicMentionsZh } from './public-mentions-locales.js'
+import { publicImagesEn, publicImagesZh } from './public-images-locales.js'
 import { taskPanelEn, taskPanelZh } from './team-task-panel-locales.js'
 export const TEAM_DASHBOARD_NS = 'swarm.team-dashboard' as const
 
@@ -21,6 +22,7 @@ export const en = {
   'public.sending': "Sending…",
   ...taskPanelEn,
   ...publicMentionsEn,
+  ...publicImagesEn,
   'communication.title': 'Communication intensity',
   'communication.current': 'Current: {intensity} · {source} · {limit} proactive peer wakeups per member/minute',
   'communication.choose': 'Requested intensity',
@@ -313,6 +315,7 @@ export const zh: Record<keyof typeof en, string> = {
   'public.sending': "发送中…",
   ...taskPanelZh,
   ...publicMentionsZh,
+  ...publicImagesZh,
   'communication.title': '交流强度',
   'communication.current': '当前：{intensity} · {source} · 每名成员每分钟 {limit} 次主动同伴唤醒',
   'communication.choose': '调整为',
