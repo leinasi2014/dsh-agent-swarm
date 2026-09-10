@@ -11,8 +11,9 @@ import { TeamDomainError } from '../domain/error.js'
 import type { TeamState } from '../domain/types.js'
 import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
 import { projectTeamSummary, type AgentSwarmHostReadService } from './host-read-service.js'
-import type { SwarmReadTargetHint, SwarmReadCaptainSectionRequest, SwarmReadSkillCatalogV1, SwarmReadToolCatalogV1 } from '../rpc/read-rpc-contract.js'
+import type { SwarmReadTargetHint, SwarmReadCaptainSectionRequest, SwarmReadSkillCatalogV1, SwarmReadToolCatalogV1, SwarmReadTaskDetailRequest } from '../rpc/read-rpc-contract.js'
 import { readCaptainSection } from './captain-section-read.js'
+import { projectTaskDetail } from './task-detail-read.js'
 
 interface RootView {
   readonly id: string
@@ -31,6 +32,22 @@ export class HostTargetReadService {
   section(request: SwarmReadCaptainSectionRequest) { return this.host.withTargetRead(() => this.readSection(request)) }
   tools(rootSessionId: string) { return this.host.withTargetRead(() => this.readTools(rootSessionId)) }
   skills(rootSessionId: string) { return this.host.withTargetRead(() => this.readSkills(rootSessionId)) }
+  taskDetail(request: SwarmReadTaskDetailRequest) { return this.host.withTargetRead(() => this.readTaskDetail(request)) }
+
+  private async readTaskDetail(request: SwarmReadTaskDetailRequest) {
+    if (request.target.teamId === undefined) throw new TeamDomainError('Task detail requires an explicit Team selector', 'SWARM_RPC_INVALID_REQUEST')
+    const { root, team, verify } = await this.boundTeam(request.target)
+    const captain = team.captainSessionId
+    const result = projectTaskDetail(team, request.taskId, captain || root.id)
+    await verify()
+    // A task read may yield while proving ancestry. Re-prove the exact
+    // aggregate revision before returning its independently copied content.
+    const latest = (await this.runtime.listTeamAggregates(root.cwd)).find(value => value.id === request.target.teamId)
+    if (latest === undefined || latest.revision !== result.teamRevision || latest.captainSessionId !== captain) this.bindingChanged()
+    this.assertUnchanged(root)
+    this.assertLiveCaptain(latest, root.cwd)
+    return result
+  }
 
   private async readTeams(rootSessionId: string) {
     const { root, visible, main, currentTeamId, currentMemberName } = await this.visibleTeams(rootSessionId)

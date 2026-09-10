@@ -68,7 +68,7 @@ export function assertSwarmReadRpcValue(method: string, value: unknown): void {
   const key = method === 'capabilities' || method === 'toolCatalog' || method === 'skillCatalog' || method === 'teams' || method === 'captainMembers'
     || method === 'captainAnnouncements' || method === 'captainDiagnostics'
     || method === 'binding' || method === 'status'
-    || method === 'snapshot' || method === 'page' ? method : undefined
+    || method === 'snapshot' || method === 'page' || method === 'taskDetail' ? method : undefined
   if (key === undefined) throw new Error('Swarm RPC method is not a read method')
   const schema = SWARM_READ_RPC_CONTRACT_V1.schemas.values[key]
   assertSchema(value, schema, '$', { seen: new WeakSet<object>(), nodes: 0 })
@@ -220,11 +220,12 @@ function assertResultSemantics(method: string, value: Record<string, unknown>): 
       'toolCatalog.read', 'skillCatalog.read',
       'teams.read', 'binding.read', 'status.read', 'snapshot.read', 'page.read',
       'captainMembers.read', 'captainAnnouncements.read', 'captainDiagnostics.read',
+      'taskDetail.read',
       'message.write', 'control.write', 'effect.cancel',
     ]
     const entries = value.capabilities as Array<Record<string, unknown>>
     entries.forEach((entry, index) => {
-      const read = index < 10
+      const read = index < 11
       if (entry.capability !== expected[index]
         || entry.state !== (read ? 'available' : 'unavailable')
         || (read ? entry.blocker !== undefined : entry.blocker !== 'i1b-effect-correlation')) {
@@ -239,6 +240,29 @@ function assertResultSemantics(method: string, value: Record<string, unknown>): 
     if (names.some((name, index) => index > 0 && names[index - 1]!.localeCompare(name) >= 0)) {
       throw new Error('Swarm RPC catalog must be sorted with unique names')
     }
+    return
+  }
+  if (method === 'taskDetail') {
+    const task = value.task as Record<string, unknown>
+    const attempts = value.attempts as Record<string, unknown>
+    const entries = attempts.entries as Record<string, unknown>[]
+    const retained = attempts.retainedCount as number
+    if (task.id !== value.taskId || entries.length !== attempts.returnedCount
+      || entries.length !== Math.min(retained, attempts.limit as number)
+      || attempts.truncated !== (entries.length < retained)) {
+      throw new Error('Swarm RPC task detail identity or retained counts are inconsistent')
+    }
+    const ids = new Set<string>()
+    entries.forEach((row, index) => {
+      const previous = entries[index - 1]
+      const id = row.id as string
+      if (row.taskId !== value.taskId || ids.has(id)
+        || (previous !== undefined && ((previous.generation as number) < (row.generation as number)
+          || (previous.generation === row.generation && (previous.id as string).localeCompare(id) >= 0)))) {
+        throw new Error('Swarm RPC task detail attempts must belong to the task and be uniquely ordered')
+      }
+      ids.add(id)
+    })
     return
   }
   if (method === 'teams') {

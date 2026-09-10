@@ -52,6 +52,7 @@ describe('R2 local trust boundary', () => {
         { capability: 'captainMembers.read', state: 'available' },
         { capability: 'captainAnnouncements.read', state: 'available' },
         { capability: 'captainDiagnostics.read', state: 'available' },
+        { capability: 'taskDetail.read', state: 'available' },
         { capability: 'message.write', state: 'unavailable' },
         { capability: 'control.write', state: 'unavailable' },
         { capability: 'effect.cancel', state: 'unavailable' },

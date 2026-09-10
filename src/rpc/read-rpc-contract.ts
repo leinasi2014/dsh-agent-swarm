@@ -15,6 +15,7 @@ export type SwarmReadRpcMethod =
   | 'status'
   | 'snapshot'
   | 'page'
+  | 'taskDetail'
   | 'captainMembers'
   | 'captainAnnouncements'
   | 'captainDiagnostics'
@@ -32,6 +33,7 @@ export type SwarmReadCapability =
   | 'status.read'
   | 'snapshot.read'
   | 'page.read'
+  | 'taskDetail.read'
   | 'captainMembers.read'
   | 'captainAnnouncements.read'
   | 'captainDiagnostics.read'
@@ -347,6 +349,48 @@ export interface SwarmReadPageRequest {
   }
 }
 
+/** Explicit selectors only; neither field is a caller identity. */
+export interface SwarmReadTaskDetailRequest {
+  readonly schemaVersion: 1
+  readonly method: 'taskDetail'
+  readonly target: { readonly rootSessionId: string; readonly teamId: string }
+  readonly taskId: string
+}
+
+export interface SwarmReadTaskDetailV1 {
+  readonly schemaVersion: 1
+  /** Resolved Captain binding, which may differ from the requesting main/member Session. */
+  readonly binding: { readonly rootSessionId: string; readonly teamId: string }
+  readonly state: 'available'
+  readonly taskId: string
+  readonly teamRevision: number
+  readonly task: SwarmHostReadProjectionV1['tasks'][number] & {
+    readonly description: string
+    readonly acceptanceCriteria: readonly string[]
+    readonly output?: string
+  }
+  readonly attempts: {
+    /** Only the current aggregate's retained attempts, never a complete execution history. */
+    readonly scope: 'retained'
+    readonly entries: readonly (SwarmHostReadProjectionV1['attempts'][number] & {
+      readonly output?: string
+      /** Opaque recorded references; existence, accessibility and artifact type are not asserted. */
+      readonly evidence: readonly string[]
+      /** Recorded diagnostic, not necessarily a review rejection. */
+      readonly diagnostic?: string
+      /** Assignment delivery checkpoint only, not a model-start/submission/review timestamp. */
+      readonly assignmentDeliveredAt?: number
+      readonly replacesAttemptId?: string
+    })[]
+    readonly retainedCount: number
+    readonly returnedCount: number
+    readonly limit: 100
+    /** True only when this response omits some currently retained attempts. */
+    readonly truncated: boolean
+  }
+  readonly observedAt: number
+}
+
 export type SwarmReadRpcRequest =
   | SwarmReadCapabilitiesRequest
   | SwarmReadToolCatalogRequest
@@ -355,6 +399,7 @@ export type SwarmReadRpcRequest =
   | SwarmReadCaptainSectionRequest
   | SwarmReadTargetRequest
   | SwarmReadPageRequest
+  | SwarmReadTaskDetailRequest
 
 export interface SwarmReadCapabilitiesV1 {
   readonly protocol: typeof SWARM_READ_RPC_PROTOCOL
@@ -412,6 +457,7 @@ export type SwarmReadRpcValue =
   | SwarmReadStatusV1
   | SwarmHostReadProjectionV1
   | SwarmReadPageV1
+  | SwarmReadTaskDetailV1
 
 export interface SwarmReadRpcSuccess {
   readonly schemaVersion: 1

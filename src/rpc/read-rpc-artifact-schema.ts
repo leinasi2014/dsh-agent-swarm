@@ -8,7 +8,7 @@ import {
 } from './read-rpc-contract.js'
 
 const SWARM_READ_RPC_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
-export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '61b2be015c937b78a4db2a9d5feb1c42f7bf6ec7def95506c2b7156ee4a73282' as const
+export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '25646a635d8def734dfcde9cdb2cd92b944f1e0375cd215a245ae2df45263dec' as const
 
 const boundedString = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength, pattern: '\\S' })
 /** Member role is authoritative free-text (never truncated by the reader); the
@@ -222,7 +222,7 @@ const truncation = {
 const capability = {
   type: 'object', additionalProperties: false, required: ['capability', 'state'],
   properties: {
-    capability: { enum: ['toolCatalog.read', 'skillCatalog.read', 'teams.read', 'binding.read', 'status.read', 'snapshot.read', 'page.read', 'captainMembers.read', 'captainAnnouncements.read', 'captainDiagnostics.read', 'message.write', 'control.write', 'effect.cancel'] },
+    capability: { enum: ['toolCatalog.read', 'skillCatalog.read', 'teams.read', 'binding.read', 'status.read', 'snapshot.read', 'page.read', 'captainMembers.read', 'captainAnnouncements.read', 'captainDiagnostics.read', 'taskDetail.read', 'message.write', 'control.write', 'effect.cancel'] },
     state: { enum: ['available', 'unavailable'] },
     blocker: { enum: ['listener-not-loopback', 'i1b-effect-correlation'] },
   },
@@ -271,6 +271,33 @@ const interactionRow = {
     requestId: boundedString(96), intent: boundedString(64),
     targetKind: { enum: ['captain', 'team', 'member', 'task'] }, targetRef: boundedString(128),
     status: { enum: ['pending', 'acknowledged'] }, createdAt: nonNegativeInteger, updatedAt: nonNegativeInteger,
+  },
+}
+const taskDetail = {
+  type: 'object', additionalProperties: false,
+  required: ['schemaVersion', 'binding', 'state', 'taskId', 'teamRevision', 'task', 'attempts', 'observedAt'],
+  properties: {
+    schemaVersion: { const: 1 }, binding, state: { const: 'available' }, taskId: boundedString(128),
+    teamRevision: nonNegativeInteger, observedAt: nonNegativeInteger,
+    task: { ...taskRow, required: [...taskRow.required, 'description', 'acceptanceCriteria'], properties: {
+      ...taskRow.properties, subject: boundedString(512), description: boundedString(65_536), output: boundedString(65_536),
+      acceptanceCriteria: { type: 'array', maxItems: 64, items: boundedString(2048) },
+    } },
+    attempts: {
+      type: 'object', additionalProperties: false,
+      required: ['scope', 'entries', 'retainedCount', 'returnedCount', 'limit', 'truncated'],
+      properties: {
+        scope: { const: 'retained' }, retainedCount: nonNegativeInteger, returnedCount: nonNegativeInteger,
+        limit: { const: 100 }, truncated: { type: 'boolean' },
+        entries: { type: 'array', maxItems: 100, items: {
+          ...attemptRow, required: [...attemptRow.required, 'evidence'], properties: {
+            ...attemptRow.properties, output: boundedString(65_536), diagnostic: boundedString(8192),
+            evidence: { type: 'array', maxItems: 64, items: boundedString(2048) },
+            assignmentDeliveredAt: nonNegativeInteger, replacesAttemptId: boundedString(128),
+          },
+        } },
+      },
+    },
   },
 }
 export const pageRows = { tasks: taskRow, attempts: attemptRow, pendingInteractions: interactionRow } as const
@@ -326,6 +353,10 @@ export const SWARM_READ_RPC_CONTRACT_V1 = deepFreezeJson({
         {
           ...requestBase, properties: { ...requestBase.properties, method: { const: 'toolCatalog' }, target: { type: 'object', additionalProperties: false, required: ['rootSessionId'], properties: { rootSessionId: boundedString(256) } } },
         },
+        {
+          type: 'object', additionalProperties: false, required: ['schemaVersion', 'method', 'target', 'taskId'],
+          properties: { schemaVersion: { const: 1 }, method: { const: 'taskDetail' }, target: sectionTarget, taskId: boundedString(128) },
+        },
         ...(['captainMembers', 'captainAnnouncements', 'captainDiagnostics'] as const).map(method => ({
           type: 'object', additionalProperties: false,
           required: ['schemaVersion', 'method', 'target'],
@@ -354,6 +385,7 @@ export const SWARM_READ_RPC_CONTRACT_V1 = deepFreezeJson({
       ],
     },
     values: {
+      taskDetail,
       capabilities: {
         type: 'object', additionalProperties: false,
         required: ['protocol', 'version', 'namespace', 'trust', 'capabilities'],
@@ -366,7 +398,7 @@ export const SWARM_READ_RPC_CONTRACT_V1 = deepFreezeJson({
               listener: { enum: ['loopback', 'non-loopback'] },
             },
           },
-          capabilities: { type: 'array', minItems: 13, maxItems: 13, items: capability },
+          capabilities: { type: 'array', minItems: 14, maxItems: 14, items: capability },
         },
       },
       toolCatalog: {
