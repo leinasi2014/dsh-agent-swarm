@@ -239,6 +239,20 @@ describe('taskDetail target-bound read', () => {
     expect(value.attempts.entries[0]!.diagnostic).toHaveLength(8192)
   })
 
+  it('keeps a Domain-valid 512-byte title readable through the snapshot and page before opening detail', async () => {
+    const team = teamState(), subject = 's'.repeat(512)
+    Object.assign(team.tasks[0]!, { subject })
+    const h = harness(team)
+    const snapshot = await h.service.invoke({ schemaVersion: 1, method: 'snapshot', target })
+    expect(() => assertSwarmReadRpcValue('snapshot', snapshot)).not.toThrow()
+    expect(snapshot).toMatchObject({ tasks: [{ subject }] })
+    const page = await h.service.invoke({ schemaVersion: 1, method: 'page', target,
+      page: { kind: 'tasks', offset: 0, limit: 10 } })
+    expect(() => assertSwarmReadRpcValue('page', page)).not.toThrow()
+    expect(page).toMatchObject({ entries: [{ subject }] })
+    expect(await h.service.invoke(request)).toMatchObject({ task: { subject } })
+  })
+
   it('returns a bounded public 404 for a missing task over the existing HTTP handler', async () => {
     const h = harness()
     const input = { ...request, taskId: 'missing-private-task' }

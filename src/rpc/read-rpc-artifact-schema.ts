@@ -8,7 +8,7 @@ import {
 } from './read-rpc-contract.js'
 
 const SWARM_READ_RPC_SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema' as const
-export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '25646a635d8def734dfcde9cdb2cd92b944f1e0375cd215a245ae2df45263dec' as const
+export const SWARM_READ_RPC_CONTRACT_DIGEST_V1 = '437d09fa94c46262742f1f9d284304848236f6b5509683dbd7f65357cdf2a428' as const
 
 const boundedString = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength, pattern: '\\S' })
 /** Member role is authoritative free-text (never truncated by the reader); the
@@ -246,7 +246,7 @@ const taskRow = {
   type: 'object', additionalProperties: false,
   required: ['id', 'revision', 'subject', 'status', 'blockedBy', 'priority', 'createdAt', 'updatedAt'],
   properties: {
-    id: boundedString(128), revision: nonNegativeInteger, subject: boundedString(256),
+    id: boundedString(128), revision: nonNegativeInteger, subject: boundedString(512),
     status: { enum: ['pending', 'in_progress', 'submitted', 'verifying', 'completed', 'failed', 'cancelled'] },
     blockedBy: { type: 'array', maxItems: 100, items: boundedString(128) },
     priority: { type: 'integer' }, ownerName: boundedString(64), targetMemberName: boundedString(64), currentAttemptId: boundedString(128),

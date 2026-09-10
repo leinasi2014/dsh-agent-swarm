@@ -140,7 +140,7 @@ Team 消息的 `wakeup` 复用官方 steering：忙碌成员在最近的后续 s
 
 `attempts.scope` 固定为 `retained`，只表示当前 aggregate 保留的本任务尝试；先按任务筛选，再按 generation 降序、ID 升序返回最多 100 条，并报告 `retainedCount`、`returnedCount`、`limit` 和 `truncated`。没有保留尝试的已有任务返回 available 与空数组；任务不存在返回 `TEAM_TASK_NOT_FOUND/404`。既有保留策略已移除的历史不计入 retained 数量，`truncated: false` 也不表示完整历史。
 
-详情文本不静默截短：description 与每项 output 上限各 65,536 Unicode 码点，subject 512，diagnostic 8,192；完成标准与证据各最多 64 项、每项 2,048 码点，依赖最多 100 项。这些窗口覆盖默认 Domain 的 64KiB 文本与 64 项依赖限制；自定义更大限制或更大历史内容超出窗口时返回 `SWARM_RPC_PROJECTION_LIMIT/413`。读取失败与未记录字段分别显示，不能以空内容掩盖超限。
+详情文本不静默截短：description 与每项 output 上限各 65,536 Unicode 码点，subject 512，diagnostic 8,192；完成标准与证据各最多 64 项、每项 2,048 码点，依赖最多 100 项。snapshot/page 的任务标题同样支持 512 码点，不能在进入详情前拒绝 Domain 合法标题，摘要字段白名单保持不变。这些窗口覆盖默认 Domain 的 64KiB 文本与 64 项依赖限制；自定义更大限制或更大历史内容超出窗口时返回 `SWARM_RPC_PROJECTION_LIMIT/413`。读取失败与未记录字段分别显示，不能以空内容掩盖超限。
 
 Team 注册 DSH SidebarRight 的独立页签，沿用官方布局与主题 tokens。卡片、视图、执行树、详情与名称展示统一由 [10-team-ui-layout.md](10-team-ui-layout.md) 定义。摘要和进度必须从同一 aggregate 派生；团队切换只更换绑定读目标，不能把旧团队的正文放到新卡下，也不能把未完成读取当成新团队可用。归属路径与当前会话标记必须使用 Host 核验过的关系。
 
