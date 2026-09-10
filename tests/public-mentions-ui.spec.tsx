@@ -10,18 +10,20 @@ import { ready, render, t, tZh } from './helpers/dashboard-ui.js'
 import type { PublicChatController, PublicChatState } from '../src/client/public-chat-controller.js'
 
 const empty: PublicDraft = { text: '', version: 0, tokens: [] }
-function editor(initial: PublicDraft) {
+function editor(initial: PublicDraft, initialEntries = [directoryEntry(), directoryEntry('member-b')]) {
   let latest = initial
+  let updateEntries!: (entries: typeof initialEntries) => void
   const send = vi.fn(), refresh = vi.fn()
   function Harness() {
     const [draft, setDraft] = useState(initial); latest = draft
-    return <MentionComposer draft={draft} entries={[directoryEntry(), directoryEntry('member-b')]} directoryError={undefined} directoryLoading={false} t={t as ComponentProps<typeof MentionComposer>['t']}
+    const [entries, setEntries] = useState(initialEntries); updateEntries = setEntries
+    return <MentionComposer draft={draft} entries={entries} directoryError={undefined} directoryLoading={false} t={t as ComponentProps<typeof MentionComposer>['t']}
       edit={text => { setDraft(old => editDraft(old, text)) }} replaceText={(start, end, text) => { setDraft(old => replaceDraftRange(old, start, end, text)) }}
       choose={(start, end, id) => { setDraft(old => replaceDraftRange(old, start, end, '@同舟', { memberId: id, label: '同舟' })) }}
       remove={(start, reselect) => { setDraft(old => replaceDraftRange(old, start, old.tokens.find(row => row.start === start)!.end, reselect ? '@' : '')) }}
       refreshDirectory={refresh} send={send} canSend={!hasUnconfirmedPublicMention(draftContent(draft))} />
   }
-  return { node: <Harness />, send, refresh, draft: () => latest }
+  return { node: <Harness />, send, refresh, draft: () => latest, updateEntries: (entries: typeof initialEntries) => { updateEntries(entries) } }
 }
 async function pressKey(keyName: string, options = {}): Promise<void> { await act(async () => { document.querySelector('textarea')!.dispatchEvent(new KeyboardEvent('keydown', { key: keyName, bubbles: true, ...options })) }) }
 function transfer(type: 'paste' | 'cut' | 'drop', text: string) {
@@ -172,4 +174,34 @@ it('labels both profile close controls for the profile only and restores the ava
   await act(async () => { view.avatar.click() }); await view.unavailable()
   const fallback = document.querySelector<HTMLButtonElement>('[data-swarm-directory] p[role=status] button')!
   expect(fallback.textContent).toBe('关闭成员资料')
+})
+
+it('scrolls only the candidate list to reveal keyboard selection and rechecks changed row geometry', async () => {
+  let rowHeight = 73
+  const originalRect = HTMLElement.prototype.getBoundingClientRect
+  const geometry = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    if (this.getAttribute('role') === 'listbox') return new DOMRect(73, 631, 366, 160)
+    if (this.getAttribute('role') === 'option') {
+      const list = this.parentElement!, index = [...list.children].indexOf(this)
+      return new DOMRect(73, 631 + index * rowHeight - list.scrollTop, 358, rowHeight)
+    }
+    return originalRect.call(this)
+  })
+  const height = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function (this: HTMLElement) { return this.getAttribute('role') === 'listbox' ? 160 : 0 })
+  const page = document.documentElement, messageList = document.body.appendChild(document.createElement('div'))
+  page.scrollTop = 400; messageList.scrollTop = 75
+  try {
+    const rows = [directoryEntry(), directoryEntry('member-b'), directoryEntry('member-c')]
+    const f = editor({ ...empty, text: '请@同舟' }, rows); await render(f.node)
+    const list = document.querySelector<HTMLElement>('[role=listbox]')!
+    await pressKey('ArrowDown'); await pressKey('ArrowDown')
+    expect(document.querySelector('[role=option][aria-selected=true]')?.getAttribute('data-mention-candidate')).toBe('member-c')
+    expect(list.scrollTop).toBe(59)
+    rowHeight = 90
+    await act(async () => { f.updateEntries(rows.map(row => ({ ...row, responsibility: 'Refreshed longer responsibility' }))) })
+    expect(list.scrollTop).toBe(110)
+    await pressKey('ArrowDown')
+    expect(list.scrollTop).toBe(0)
+    expect(page.scrollTop).toBe(400); expect(messageList.scrollTop).toBe(75)
+  } finally { geometry.mockRestore(); height.mockRestore(); page.scrollTop = 0 }
 })

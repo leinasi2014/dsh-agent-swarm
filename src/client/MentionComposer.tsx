@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { DirectoryEntry } from '../rpc/directory-contract.js'
 import { hasUnconfirmedPublicMention } from '../shared/public-content.js'
@@ -14,6 +14,7 @@ export function MentionComposer({ draft, entries, directoryError, directoryLoadi
 }) {
   const textarea = useRef<HTMLTextAreaElement>(null), composing = useRef(false), composingEnded = useRef(false)
   const [caret, setCaret] = useState(draft.text.length), [dismissed, setDismissed] = useState<string>(), [active, setActive] = useState(0)
+  const candidateList = useRef<HTMLDivElement>(null), activeOption = useRef<HTMLButtonElement>(null)
   const beforeEdit = useRef<{ text: string; start: number; end: number }>()
   const listId = useId(), hintId = useId()
   const candidate = mentionCandidate(draft, caret)
@@ -21,6 +22,21 @@ export function MentionComposer({ draft, entries, directoryError, directoryLoadi
   const open = candidate !== undefined && candidateKey !== dismissed && !composing.current
   const candidates = entries.filter(entry => entry.phase === 'active' && `${entry.label} ${entry.name} ${entry.responsibility} ${entry.memberId}`.toLocaleLowerCase().includes(candidate?.query.toLocaleLowerCase() ?? ''))
   const selected = Math.min(active, Math.max(0, candidates.length - 1))
+  useLayoutEffect(() => {
+    const list = candidateList.current, option = activeOption.current
+    if (!open || list === null || option === null) return
+    const reveal = (): void => {
+      if (list.clientHeight <= 0) return
+      const top = list.getBoundingClientRect().top + list.clientTop, row = option.getBoundingClientRect()
+      // Only this list owns the scroll. Oversized rows align their identity at the top.
+      if (row.top < top || row.height > list.clientHeight) list.scrollTop += row.top - top
+      else if (row.bottom > top + list.clientHeight) list.scrollTop += row.bottom - top - list.clientHeight
+    }
+    reveal()
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(reveal)
+    observer?.observe(list); observer?.observe(option)
+    return () => { observer?.disconnect() }
+  }, [open, selected, entries, directoryLoading, candidate?.query])
   useEffect(() => { if (open) { refreshDirectory(); setActive(0) } }, [candidate?.start, open])
   useEffect(() => { setCaret(position => Math.min(position, draft.text.length)) }, [draft.text])
   const focusAt = (position: number): void => { queueMicrotask(() => { textarea.current?.focus(); textarea.current?.setSelectionRange(position, position); setCaret(position) }) }
@@ -85,8 +101,8 @@ export function MentionComposer({ draft, entries, directoryError, directoryLoadi
     {open ? <div className="swarm-public__candidate-box">
       {directoryError !== undefined ? <p role="alert">{directoryError} <button type="button" onClick={refreshDirectory}>{t('refresh')}</button></p> : null}
       {directoryLoading ? <p role="status">{t('directory.loading')}</p> : null}
-      <div role="listbox" id={listId} aria-label={t('public.candidates')} className="swarm-public__candidates">
-        {candidates.map((entry, index) => <button type="button" role="option" id={`${listId}-${index}`} aria-selected={selected === index} key={entry.memberId} data-mention-candidate={entry.memberId} title={`${entry.label} · ${entry.name} · ${entry.memberId}`} tabIndex={-1}
+      <div ref={candidateList} role="listbox" id={listId} aria-label={t('public.candidates')} className="swarm-public__candidates">
+        {candidates.map((entry, index) => <button ref={selected === index ? activeOption : undefined} type="button" role="option" id={`${listId}-${index}`} aria-selected={selected === index} key={entry.memberId} data-mention-candidate={entry.memberId} title={`${entry.label} · ${entry.name} · ${entry.memberId}`} tabIndex={-1}
           disabled={directoryLoading || directoryError !== undefined} onMouseDown={event => { event.preventDefault() }} onPointerMove={() => { setActive(index) }} onClick={() => { confirm(entry) }}>
           <span className="swarm-public__candidate-avatar"><SafePixelAvatar seed={entry.memberId} asset={entry.avatar} name={entry.label} t={t} /></span><span className="swarm-public__candidate-copy"><strong>{entry.label}</strong><small>{entry.responsibility} · {entry.name} · {entry.memberId.slice(0, 8)}</small><small>{t(entry.model.imageInput === 'supported' ? 'directory.supported' : entry.model.imageInput === 'unsupported' ? 'directory.unsupported' : 'directory.imageUnknown')}</small></span>
         </button>)}
