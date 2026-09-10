@@ -10,7 +10,8 @@ export function MemberProfileSurface({ anchorRef, rootRef, close, title, childre
   const dismiss = useCallback((restore: boolean): void => { closing.current = true; close(restore) }, [close])
   const [narrow, setNarrow] = useState(() => window.innerWidth <= 640)
   const [side, setSide] = useState<'top' | 'bottom'>('bottom')
-  const position = useAnchoredPosition({ open: !narrow, anchorRef, panelRef, side, gap: 8, margin: 12 })
+  const [positionAnchor, setPositionAnchor] = useState(anchorRef)
+  const position = useAnchoredPosition({ open: !narrow, anchorRef: positionAnchor, panelRef, side, gap: 8, margin: 12 })
   useDismissOnOutsidePointer(anchorRef, !narrow, () => { dismiss(false) }, panelRef)
   const positioned = narrow || position !== null
   useLayoutEffect(() => {
@@ -60,6 +61,20 @@ export function MemberProfileSurface({ anchorRef, rootRef, close, title, childre
       setSide(below < (panelRef.current?.getBoundingClientRect().height ?? 0) && above > below ? 'top' : 'bottom')
     }
     measure()
+    // Host columns can move after resize without changing the anchor's size.
+    // Track only while this desktop layer is mounted; invalidate the official
+    // hook's ref dependency only on a real rect change, keeping its clamp logic.
+    let previousRect = anchor?.getBoundingClientRect(), frame: number | undefined
+    const trackAnchor = (): void => {
+      const next = anchorRef.current?.getBoundingClientRect()
+      if (next !== undefined && (previousRect === undefined || next.left !== previousRect.left || next.top !== previousRect.top || next.width !== previousRect.width || next.height !== previousRect.height)) {
+        previousRect = next
+        setPositionAnchor({ current: anchorRef.current })
+        measure()
+      }
+      frame = window.requestAnimationFrame(trackAnchor)
+    }
+    if (!narrow) frame = window.requestAnimationFrame(trackAnchor)
     const resize = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measure)
     if (anchor) resize?.observe(anchor)
     if (panelRef.current) resize?.observe(panelRef.current)
@@ -71,7 +86,7 @@ export function MemberProfileSurface({ anchorRef, rootRef, close, title, childre
     if (rootRef.current) mutation.observe(rootRef.current, { childList: true, subtree: true })
     window.addEventListener('resize', measure); window.addEventListener('scroll', measure, true)
     window.visualViewport?.addEventListener('resize', measure)
-    return () => { resize?.disconnect(); intersection?.disconnect(); mutation.disconnect(); window.removeEventListener('resize', measure); window.removeEventListener('scroll', measure, true); window.visualViewport?.removeEventListener('resize', measure) }
+    return () => { if (frame !== undefined) window.cancelAnimationFrame(frame); resize?.disconnect(); intersection?.disconnect(); mutation.disconnect(); window.removeEventListener('resize', measure); window.removeEventListener('scroll', measure, true); window.visualViewport?.removeEventListener('resize', measure) }
   }, [anchorRef, dismiss, rootRef, narrow])
   const content = <div ref={panelRef} className="swarm-profile" data-profile-surface={narrow ? 'sheet' : 'popover'} role={narrow ? undefined : 'dialog'} aria-modal={narrow ? undefined : false} aria-label={narrow ? undefined : title}
     style={narrow ? undefined : { position: 'fixed', ...position, visibility: position === null ? 'hidden' : undefined }}

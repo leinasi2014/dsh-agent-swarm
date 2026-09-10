@@ -2,6 +2,8 @@
 import { render, tZh } from './helpers/dashboard-ui.js'
 import { act, type ComponentProps } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
+import { profileBrowserScripts } from './helpers/profile-primitives.js'
+import { profileCss } from '../src/client/MemberProfileContent.js'
 import { DirectoryMembers } from '../src/client/DirectoryMembers.js'
 import type { PublicChatController, PublicChatState } from '../src/client/public-chat-controller.js'
 import { directoryEntry, directoryPage } from './helpers/public-directory.js'
@@ -175,3 +177,48 @@ it.each([390, 768, 1280])('%spx bounds long profile content while keeping the he
   } finally { await browser.close() }
 }, 60_000)
 
+
+it('tracks a same-size anchor moving to the desktop sidebar after the narrow-to-wide resize has settled', async () => {
+  const scripts = await profileBrowserScripts(), browser = await chromium.launch({ channel: 'msedge', headless: true })
+  try {
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 } })
+    await page.setContent('<div id="fixture-root"></div>')
+    await page.addStyleTag({ content: `${profileCss} .fixture-sidebar{position:fixed;left:12px;top:92px;width:280px}.fixture-sidebar[data-docked=true]{left:992px}@media(max-width:640px){.fixture-sidebar[data-docked=true]{left:12px}}[data-fixture-anchor]{width:86.664px;height:114.391px;box-sizing:border-box}` })
+    for (const content of scripts) await page.addScriptTag({ content })
+    await page.locator('[data-profile-surface=sheet]').waitFor()
+    await page.locator('[data-fixture-section]').click()
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await page.locator('[data-profile-surface=popover]').waitFor()
+    await expect.poll(() => page.locator('[data-profile-surface]').evaluate(node => (node as HTMLElement).style.left)).toBe('12px')
+    await page.locator('[data-fixture-section]').click()
+    await page.locator('.swarm-profile__body').evaluate(node => { node.scrollTop = 160 })
+    expect(await page.evaluate(() => Number(Reflect.get(window, 'profilePendingFrames')))).toBeGreaterThan(0)
+    const before = await page.locator('[data-fixture-anchor]').boundingBox()
+    // The host finishes relocating its same-sized sidebar after the viewport event.
+    // This causes no additional resize/scroll event or panel size change.
+    await page.locator('.fixture-sidebar').evaluate(node => { (node as HTMLElement).dataset.docked = 'true' })
+    await expect.poll(() => page.locator('[data-profile-surface]').evaluate(node => Math.round(node.getBoundingClientRect().left)), { timeout: 1500 }).toBe(868)
+    const after = await page.locator('[data-fixture-anchor]').boundingBox()
+    expect(after?.width).toBe(before?.width); expect(after?.height).toBe(before?.height)
+    expect(after?.x).toBe(992)
+    expect(await page.locator('[data-profile-surface]').evaluate(node => node.parentElement === document.body)).toBe(true)
+    expect(await page.locator('[data-fixture-section]').getAttribute('data-fixture-section')).toBe('capabilities')
+    expect(await page.locator('[data-fixture-section]').evaluate(node => document.activeElement === node)).toBe(true)
+    expect(await page.locator('.swarm-profile__body').evaluate(node => node.scrollTop)).toBe(160)
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.locator('[data-profile-surface=sheet]').waitFor()
+    await expect.poll(() => page.evaluate(() => Number(Reflect.get(window, 'profilePendingFrames')))).toBe(0)
+    expect(await page.locator('[data-fixture-section]').getAttribute('data-fixture-section')).toBe('capabilities')
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await page.locator('[data-profile-surface=popover]').waitFor()
+    await expect.poll(() => page.locator('[data-profile-surface]').evaluate(node => Math.round(node.getBoundingClientRect().left))).toBe(868)
+    await page.locator('[data-profile-heading]').press('Escape')
+    expect(await page.locator('[data-profile-surface]').count()).toBe(0)
+    await expect.poll(() => page.evaluate(() => Number(Reflect.get(window, 'profilePendingFrames')))).toBe(0)
+    await page.locator('[data-fixture-anchor]').click()
+    await page.locator('[data-profile-surface=popover]').waitFor()
+    await page.locator('[data-fixture-anchor]').click()
+    expect(await page.locator('[data-profile-surface]').count()).toBe(0)
+    await expect.poll(() => page.evaluate(() => Number(Reflect.get(window, 'profilePendingFrames')))).toBe(0)
+  } finally { await browser.close() }
+}, 60_000)
