@@ -31,6 +31,7 @@ export interface SchedulingDeps {
   readonly usage: () => UsageAccountant
   readonly schedulerProvider: () => string
   readonly schedulerProviders: () => Map<string, TeamSchedulerProvider>
+  readonly duringProvider: <T>(scope: TeamScope, teamId: TeamId, operation: () => T | Promise<T>) => Promise<T>
   /** Stranded-ownership grace bound in ms; 0 disables automatic retry. */
   readonly strandedAfterMs: number
   /**
@@ -160,7 +161,8 @@ export class SchedulingPass {
     if (provider === undefined) {
       throw new TeamDomainError(`scheduler Provider "${this.deps.schedulerProvider()}" is unavailable`, 'TEAM_SCHEDULER_PROVIDER_MISSING')
     }
-    const decisions = await provider.select({ team: snapshot.team, readyTasks: ready, availableMembers: members })
+    const decisions = await this.deps.duringProvider(scope, teamId,
+      () => provider.select({ team: snapshot.team, readyTasks: ready, availableMembers: members }))
     const availableById = new Map(members.map(member => [member.sessionId, member]))
     const readyById = new Map(ready.map(task => [task.id, task]))
     const seenMembers = new Set<string>()

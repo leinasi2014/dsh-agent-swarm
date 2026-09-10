@@ -236,7 +236,7 @@ Client 用原生 IndexedDB 在一个事务中保存按 Host/Main/Team 隔离的�
 
 Captain 通过实际工具调用读取待处理请求，并按请求 revision 一次接受完整计划或以非空原因拒绝。接受计划有 1–32 个唯一 itemKey，复用 CreateTaskInput，允许 blockedBy 引用既有 Task、blockedByItems 引用本批条目；先分配稳定 itemKey→TaskID，再在同一事务验证全批权限、容量和 DAG，提交决策、全部 Task、映射及对应事实。不得逐个调用独立 createTask 导致半成功。拒绝不创建 Task。重试先验证当前真实 actor，再比较已保存决策摘要；相同决策返回原映射，不能被已经过期的旧 expected revision 或当前容量误拒绝，改决策明确冲突。待处理请求不占用 Task 编号、任务数、完成统计或执行槽位。
 
-接受及其同决策重试在提交后等待现有调度 owner 的一次准入 pass，保留真实 continuable Captain 直至当轮 pass 完成，不等待成员工作完成或整个队列清空；busy/预算受限通知仍按原机制排队，同 Team pass 内的重入只排后继，避免自等待。拒绝不产生新准入 pass。提交后的身份失效、取消、卸载或调度失败明确报告 `TEAM_WORK_REQUEST_ADMISSION_FAILED` / `TEAM_WORK_REQUEST_ADMISSION_INTERRUPTED` 和已提交事实，不能暗示回滚；调用方权威读回或重试原决策恢复原任务映射。
+接受及其同决策重试在提交后等待现有调度 owner 的一次准入 pass，保留真实 continuable Captain 直至当轮 pass 完成，不等待成员工作完成或整个队列清空；busy/预算受限通知仍按原机制排队，仅同 Team 的实际 Scheduler Provider 回调重入只排后继以避免自等待，不把通知唤醒的新 Agent 执行算作调度重入。拒绝不产生新准入 pass。提交后的身份失效、取消、卸载或调度失败明确报告 `TEAM_WORK_REQUEST_ADMISSION_FAILED` / `TEAM_WORK_REQUEST_ADMISSION_INTERRUPTED` 和已提交事实，不能暗示回滚；调用方权威读回或重试原决策恢复原任务映射。
 
 新创建 Task 保存真实 createdBySessionId；请求创建的 Task 另保存不可变 source，包括 workRequestId、itemKey 和真实 origin。submit/review 在现有事务保存实际发生时间和执行/审核 Session，并追加结构化事实；不由 updatedAt、当前查看 Session 或队长身份反推旧记录。生命周期事实只包括明确的来源、关联、动作、状态、实际 actor 与发生时间，不自动公开成员私有输出、证据正文或工具参数。群内显示真实请求提交、拒绝/采纳和任务创建、认领、提交结果、审核/退回及改派卡片；它们引用原 Task/attempt/请求，不能解释普通聊天文本建立权威，也不依赖模型额外 public_reply 才显示已提交事实。
 

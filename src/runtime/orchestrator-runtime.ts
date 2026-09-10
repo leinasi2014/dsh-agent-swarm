@@ -132,6 +132,7 @@ export class AgentSwarmRuntime extends Service {
       usage: () => this.usage,
       schedulerProvider: () => this.config.schedulerProvider,
       schedulerProviders: () => this.schedulerProviders,
+      duringProvider: (scope, teamId, operation) => this.scheduling.duringProvider(scope, teamId, operation),
       strandedAfterMs: this.config.strandedAfterMs,
       idleSince: sessionId => this.idleSince.get(sessionId),
       eventFaceActive: (scope, teamId) => this.orchestration.eventFaceActive(scope, teamId),
@@ -399,9 +400,7 @@ export class AgentSwarmRuntime extends Service {
   ): Promise<{ task: TeamTask; decision: 'accept' | 'reject' }> {
     const result = await this.mutations.reviewTask(exec, input)
     if (result.decision !== 'accept' || this.closing) return result
-    return this.scheduling.committed(result, exec.signal, { codePrefix: 'TEAM_REVIEW_ADMISSION',
-      description: `review of task ${JSON.stringify(result.task.id)} committed as ${result.task.status}`,
-    }, async () => {
+    return this.scheduling.committedReview(result, exec.signal, async () => {
       const captain = requireAgent(exec), scope = this.scopeOf(captain)
       const membership = await this.domain.requireMembership(scope, captain.id)
       if (!this.orchestration.eventFaceActive(scope, membership.team.id)) return

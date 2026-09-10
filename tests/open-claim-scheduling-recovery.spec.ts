@@ -50,6 +50,7 @@ it('dispatches later automatic work before old open mail, retaining the same not
       return new SchedulingPass(ctx, { domain: () => domain, delivery: () => delivery,
         usage: () => ({ accountAgentUsage: async () => {} }) as never,
         schedulerProvider: () => 'priority-ready', schedulerProviders: () => new Map([['priority-ready', provider]]),
+        duringProvider: async (_scope, _teamId, operation) => await operation(),
         strandedAfterMs: 0, idleSince: () => undefined, eventFaceActive: () => true, isClosing: () => false,
         trackTeamChildren: () => {}, requestSchedule: () => {}, executionRoots: () => ({}) as never,
         executionRootsEnabled: () => false, sweepExecutionRoots: async () => {} })
