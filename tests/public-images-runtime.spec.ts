@@ -244,6 +244,33 @@ it('keeps a frozen images projection deferred after model support is withdrawn o
   } finally { await f.close(); await rm(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) }
 }, 30_000)
 
+it.each(['unknown', 'unsupported'] as const)('rechecks image capability changed to %s during the official reference read', async capability => {
+  const sandbox = await mkdtemp(join(tmpdir(), 'swarm-public-images-capability-race-'))
+  const adapter = new ImageRecording(), f = await setupImages(sandbox, adapter)
+  const entered = deferred(), gate = deferred()
+  try {
+    const { captain, teamId, scope } = await createTeam(f, sandbox), call = await imageClient(f, teamId)
+    const original = f.ctx.attachments.readImage.bind(f.ctx.attachments)
+    const read = vi.spyOn(f.ctx.attachments, 'readImage').mockImplementation(async (...args) => {
+      const verified = await original(...args)
+      entered.resolve(); await gate.promise
+      return verified
+    })
+    const sent = await call('append', { requestId: 'capability-race', content: [PNG_IMAGE] })
+    expect(sent.ok, JSON.stringify(sent)).toBe(true)
+    await entered.promise
+    adapter.imageInput = capability; gate.resolve()
+    await f.ctx.agentSwarm.withPublicAdmissionFence(scope, teamId, SIGNAL, async () => {})
+    const message = (await f.ctx.agentSwarm.domain.snapshot(scope, teamId, captain.id)).team.publicChat!.messages[0]!
+    const delivery = publicDeliveries(message)[0]!
+    expect(delivery).toMatchObject({ state: 'queued', projection: { mode: 'images' },
+      deferredReason: capability === 'unknown' ? 'image-capability-unknown' : 'image-model-unsupported' })
+    expect(await frameVisibility(f.ctx, captain.id, delivery.frame, SIGNAL, 'capability changed before admission', true,
+      publicInputPredicates(delivery.frame, message.id, delivery.frameVersion === 3 ? delivery.projection : undefined))).toBe('absent')
+    read.mockRestore()
+  } finally { gate.resolve(); await f.close(); await rm(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) }
+}, 30_000)
+
 it('checks cancellation after official attachment publication and before the Team transaction', async () => {
   const sandbox = await mkdtemp(join(tmpdir(), 'swarm-public-images-cancel-'))
   const f = await setupImages(sandbox)

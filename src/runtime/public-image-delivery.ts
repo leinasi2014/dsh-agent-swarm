@@ -2,8 +2,10 @@
 import { isDeepStrictEqual } from 'node:util'
 import { resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId, SessionLogOffset, foldRequestHeader } from '@deepseek-ai/dsh-session'
 import { foldSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
+import { steerHostSubagentPrompt } from '@deepseek-ai/dsh-subagent/internal'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
 import { TeamDomainError } from '../domain/error.js'
 import type { TeamPublicMessageV3 } from '../domain/public-message.js'
@@ -61,4 +63,31 @@ export async function verifyPublicImageReferences(ctx: Context, message: TeamPub
 export function samePublicImageInput(left: PublicImageRecipient, right: PublicImageRecipient): boolean {
   return left.frame === right.frame && left.parentSessionId === right.parentSessionId
     && left.recipientSessionId === right.recipientSessionId && isDeepStrictEqual(left.projection, right.projection)
+}
+
+/** Hold the actual target while checking its current route immediately before official admission. */
+export async function steerVerifiedPublicImagePrompt(ctx: Context, scope: string, team: TeamState, parent: Agent,
+  recipient: PublicImageRecipient & { projection: PublicInputProjection }, signal: AbortSignal): Promise<'admitted' | 'unknown' | 'unsupported'> {
+  return await ctx.subagents.withContinuableChild(parent, SessionId(recipient.recipientSessionId), signal, async (target, leaseSignal) => {
+    const routeWitness = () => {
+      const events = target.session.snapshotEvents(), own = events.slice(target.session.inheritedEventCount)
+      return own.some(event => event.type === 'model/selection')
+        ? ctx.get('sessionProjections')?.restore({}, events, SessionLogOffset(0), target.session.header, target.session.inheritedEventCount).snapshot.values.modelSelection?.next
+        : target.options.provider === undefined || target.options.model === undefined ? undefined
+          : { provider: target.options.provider, model: target.options.model }
+    }
+    const current = () => ctx.agents.get(target.id) === target && ctx.sessions.get(target.id) === target.session
+      && ctx.agents.get(parent.id) === parent && ctx.sessions.get(parent.id) === parent.session
+      && target.session.header.parentSession === parent.id && target.session.header.cwd !== undefined
+      && resolve(target.session.header.cwd) === scope && parent.id === recipient.parentSessionId
+      && (target.id === team.captainSessionId || parent.id === team.captainSessionId)
+    const route = routeWitness()
+    if (!current() || route === undefined || route === null) return 'unknown'
+    const info = await ctx.llm.resolveModelInfo(route.provider, route.model, leaseSignal)
+    leaseSignal.throwIfAborted()
+    if (!current() || !isDeepStrictEqual(route, routeWitness()) || info.inputModalities === undefined) return 'unknown'
+    if (!info.inputModalities.includes('image')) return 'unsupported'
+    await steerHostSubagentPrompt(ctx.subagents, parent, target.id, recipient.projection.content, recipient.projection.source, leaseSignal)
+    return 'admitted'
+  })
 }

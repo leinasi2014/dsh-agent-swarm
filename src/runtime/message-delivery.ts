@@ -38,7 +38,7 @@ import { messageFrame } from './prompts.js'
 import type { SubagentPromptRequestId } from '@deepseek-ai/dsh-subagent'
 import { publicRecipientEligibility } from './public-lineage.js'
 import { isPublicMessageV3, publicDeliveries, publicManagedParent } from '../domain/public-message.js'
-import { publicInputPredicates, publicRecipientImageCapability, samePublicImageInput, verifyPublicImageReferences } from './public-image-delivery.js'
+import { publicInputPredicates, publicRecipientImageCapability, samePublicImageInput, steerVerifiedPublicImagePrompt, verifyPublicImageReferences } from './public-image-delivery.js'
 
 /** One serialized drain, including overlapping work it waited for. */
 export interface PublicDeliveryResult {
@@ -193,7 +193,15 @@ export class MessageDelivery {
               || (delivery.recipientSessionId !== freshTeam.captainSessionId && !freshTeam.members.some(member => member.sessionId === delivery.recipientSessionId && member.phase === 'active'))) {
               result.deferred = true; return
             }
-            await steerHostSubagentPrompt(this.ctx.subagents, directParent, SessionId(prepared.recipientSessionId),
+            if (hasImages && prepared.projection.mode === 'images') {
+              const admission = await steerVerifiedPublicImagePrompt(this.ctx, scope, freshTeam, directParent,
+                { ...prepared, projection: prepared.projection }, leaseSignal)
+              if (admission !== 'admitted') {
+                await this.deps.domain().deferPublicImageDelivery(scope, teamId, imageMessage.id, prepared.recipientSessionId,
+                  admission === 'unknown' ? 'image-capability-unknown' : 'image-model-unsupported')
+                result.deferred = true; return
+              }
+            } else await steerHostSubagentPrompt(this.ctx.subagents, directParent, SessionId(prepared.recipientSessionId),
               prepared.projection.content, prepared.projection.source, leaseSignal)
           } else await this.ctx.subagents.prompt({ requestId: row.id as SubagentPromptRequestId,
             parentSessionId: SessionId(delivery.parentSessionId), childSessionId: SessionId(delivery.recipientSessionId),
