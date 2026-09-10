@@ -88,7 +88,7 @@ export function MentionComposer({ draft, entries, directoryError, directoryLoadi
       <div role="listbox" id={listId} aria-label={t('public.candidates')} className="swarm-public__candidates">
         {candidates.map((entry, index) => <button type="button" role="option" id={`${listId}-${index}`} aria-selected={selected === index} key={entry.memberId} data-mention-candidate={entry.memberId} title={`${entry.label} · ${entry.name} · ${entry.memberId}`} tabIndex={-1}
           disabled={directoryLoading || directoryError !== undefined} onMouseDown={event => { event.preventDefault() }} onPointerMove={() => { setActive(index) }} onClick={() => { confirm(entry) }}>
-          <SafePixelAvatar seed={entry.memberId} asset={entry.avatar} name={entry.label} t={t} /><span><strong>{entry.label}</strong><small>{entry.responsibility} · {entry.name} · {entry.memberId.slice(0, 8)}</small><small>{t(entry.model.imageInput === 'supported' ? 'directory.supported' : entry.model.imageInput === 'unsupported' ? 'directory.unsupported' : 'directory.imageUnknown')}</small></span>
+          <span className="swarm-public__candidate-avatar"><SafePixelAvatar seed={entry.memberId} asset={entry.avatar} name={entry.label} t={t} /></span><span className="swarm-public__candidate-copy"><strong>{entry.label}</strong><small>{entry.responsibility} · {entry.name} · {entry.memberId.slice(0, 8)}</small><small>{t(entry.model.imageInput === 'supported' ? 'directory.supported' : entry.model.imageInput === 'unsupported' ? 'directory.unsupported' : 'directory.imageUnknown')}</small></span>
         </button>)}
       </div>
       {!directoryLoading && !directoryError && candidates.length === 0 ? <p>{t('public.noCandidates')}</p> : null}

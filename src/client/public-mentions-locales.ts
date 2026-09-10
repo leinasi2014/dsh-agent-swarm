@@ -1,4 +1,6 @@
 export const publicMentionsEn = {
+  'directory.closeProfile': 'Close member profile',
+  'directory.retainedHistory': 'Retained history · Accepted tasks: {accepted} · Rejected attempts: {rejected}',
   'public.segmentLimit': 'Too many text/mention segments: {count}/{limit}',
   'public.input': 'Message the team, @ to select members',
   'public.hint': 'Captain handles messages by default · Ctrl / ⌘ + Enter to send',
@@ -25,6 +27,8 @@ export const publicMentionsEn = {
   'directory.approval-required': 'Approval required', 'directory.disabled': 'Disabled', 'directory.allow': 'Allow', 'directory.ask': 'Ask', 'directory.deny': 'Deny',
 }
 export const publicMentionsZh: Record<keyof typeof publicMentionsEn, string> = {
+  'directory.closeProfile': '关闭成员资料',
+  'directory.retainedHistory': '保留记录：通过审核的任务 {accepted} 项 · 被驳回的尝试 {rejected} 次',
   'public.segmentLimit': '文字与提及段数超出限制：{count}/{limit}',
   'public.input': '输入消息，@ 选择成员', 'public.hint': '默认由队长处理 · Ctrl / ⌘ + Enter 发送',
   'public.directed': '由已选成员处理这条公开消息 · Ctrl / ⌘ + Enter 发送',

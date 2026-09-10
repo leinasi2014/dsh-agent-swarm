@@ -6,7 +6,7 @@ import { DirectoryMembers } from '../src/client/DirectoryMembers.js'
 import { editDraft, replaceDraftRange, draftContent, type PublicDraft } from '../src/client/public-draft.js'
 import { hasUnconfirmedPublicMention } from '../src/shared/public-content.js'
 import { directoryEntry, directoryPage } from './helpers/public-directory.js'
-import { render, t } from './helpers/dashboard-ui.js'
+import { ready, render, t, tZh } from './helpers/dashboard-ui.js'
 import type { PublicChatController, PublicChatState } from '../src/client/public-chat-controller.js'
 
 const empty: PublicDraft = { text: '', version: 0, tokens: [] }
@@ -135,4 +135,41 @@ it('invalidates ambiguous same-name identities if an input event has no edit-ran
   const textarea = document.querySelector('textarea')!
   await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, '@同舟'); textarea.dispatchEvent(new Event('input', { bubbles: true })) })
   expect(f.draft().text).toBe('@同舟'); expect(f.draft().tokens).toEqual([])
+})
+
+async function chineseProfile(summary: string) {
+  const page = directoryPage()
+  let snapshot: PublicChatState = { selection: { key: 'chinese-card', viewer: 'viewer', team: 'a', captain: 'captain-a', revision: 1 }, entries: [], history: undefined, draft: empty, pending: false, legacyUpgrade: false, sending: false, loading: false, error: undefined, directory: { ...page, totalCount: page.entries.length }, directoryLoading: false, directoryError: undefined }
+  const subscribers = new Set<() => void>()
+  const chat = { getSnapshot: () => snapshot, subscribe: (listener: () => void) => { subscribers.add(listener); return () => { subscribers.delete(listener) } }, refreshDirectory: vi.fn(async () => {}) } as unknown as PublicChatController
+  const data = ready.data!
+  const dashboard = { ...ready, data: { ...data, projection: { ...data.projection, binding: page.binding }, captainMembers: { ...data.captainMembers, binding: page.binding, members: [{ ...data.captainMembers.members[0]!, sessionId: 'member-a', growthSummary: summary }] } } }
+  await render(<DirectoryMembers chat={chat} dashboard={dashboard} t={tZh as ComponentProps<typeof DirectoryMembers>['t']} />)
+  const avatar = document.querySelector<HTMLButtonElement>('[data-directory-member="member-a"]')!
+  await act(async () => { avatar.click() })
+  return { avatar, unavailable: async () => { await act(async () => { snapshot = { ...snapshot, directory: undefined }; subscribers.forEach(listener => { listener() }) }) } }
+}
+it.each([
+  ['Retained history: 0 accepted tasks · 0 rejected attempts', '保留记录：通过审核的任务 0 项 · 被驳回的尝试 0 次'],
+  ['Retained history: 1 accepted task · 2 rejected attempts', '保留记录：通过审核的任务 1 项 · 被驳回的尝试 2 次'],
+  ['Retained history: 2 accepted tasks · 1 rejected attempt', '保留记录：通过审核的任务 2 项 · 被驳回的尝试 1 次'],
+  ['Member-authored public summary', 'Member-authored public summary'],
+  ['Retained history: 0 accepted tasks · 0 rejected attempts; additional source detail', 'Retained history: 0 accepted tasks · 0 rejected attempts; additional source detail'],
+])('localizes only the complete known retained-history summary: %s', async (summary, expected) => {
+  await chineseProfile(summary)
+  const card = document.querySelector<HTMLElement>('[data-directory-card]')!
+  const results = [...card.querySelectorAll<HTMLButtonElement>('[role=tab]')].find(button => button.textContent === '成果')!
+  await act(async () => { results.click() })
+  expect(card.querySelector('[role=tabpanel]')?.textContent).toContain(expected)
+})
+it('labels both profile close controls for the profile only and restores the avatar focus', async () => {
+  const view = await chineseProfile('Retained history: 0 accepted tasks · 0 rejected attempts')
+  const close = document.querySelector<HTMLButtonElement>('[data-directory-card] header button')!
+  expect(close.getAttribute('aria-label')).toBe('关闭成员资料')
+  await act(async () => { close.click() })
+  expect(document.querySelector('[data-directory-card]')).toBeNull()
+  expect(document.querySelector('[data-swarm-directory]')).not.toBeNull(); expect(document.activeElement).toBe(view.avatar)
+  await act(async () => { view.avatar.click() }); await view.unavailable()
+  const fallback = document.querySelector<HTMLButtonElement>('[data-swarm-directory] p[role=status] button')!
+  expect(fallback.textContent).toBe('关闭成员资料')
 })

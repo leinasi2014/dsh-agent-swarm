@@ -9,6 +9,12 @@ import { SafePixelAvatar } from './SafePixelAvatar.js'
 import { TEAM_DASHBOARD_NS } from './team-dashboard-locales.js'
 
 type T = TranslateNS<typeof TEAM_DASHBOARD_NS>
+/** Display adaptation of the existing Host summary; unknown public prose stays literal. */
+function retainedHistoryLabel(value: string, t: T): string {
+  const match = /^Retained history: (0|[1-9]\d*) accepted (task|tasks) · (0|[1-9]\d*) rejected (attempt|attempts)$/u.exec(value)
+  if (match === null || match[0] !== value || match[2] !== (match[1] === '1' ? 'task' : 'tasks') || match[4] !== (match[3] === '1' ? 'attempt' : 'attempts')) return value
+  return t('directory.retainedHistory', { accepted: match[1]!, rejected: match[3]! })
+}
 function Source({ value, t }: { value: DirectorySource; t: T }) {
   const sourceLabel = value.source.startsWith('team-aggregate') ? 'directory.sourceTeam' : value.source.startsWith('team-assignment') ? 'directory.sourceAssignment' : value.source.startsWith('session-') ? 'directory.sourceSession' : value.source.startsWith('scoped-') ? 'directory.sourceRegistry' : 'directory.source'
   return <div className="swarm-directory__source"><small>{t(`directory.${value.state}`)} · {t(sourceLabel)}{value.updatedAt === undefined ? '' : ` · ${t('directory.updated')}: ${new Date(value.updatedAt).toLocaleString()}`}</small>
@@ -22,7 +28,7 @@ function MemberCard({ entry, close, result, resultObservedAt, t }: { entry: Dire
   useLayoutEffect(() => { heading.current?.focus() }, [entry.memberId])
   const tabs = ['capabilities', 'skillsTools', 'results'] as const
   return <section className="swarm-directory__card" data-directory-card={entry.memberId} aria-labelledby={id}>
-    <header><h3 id={id} ref={heading} tabIndex={-1}>{entry.label}</h3><button type="button" aria-label={t('close')} onClick={close}>×</button></header>
+    <header><h3 id={id} ref={heading} tabIndex={-1}>{entry.label}</h3><button type="button" aria-label={t('directory.closeProfile')} onClick={close}>×</button></header>
     <dl>{([
       ['identity', `${entry.name} · ${entry.role === 'captain' ? t('captainRole') : t('members')} · ${enumLabel(entry.phase, t)}`], ['responsibility', entry.responsibility], ['profession', entry.profession], ['personality', entry.personality], ['biography', entry.biography],
     ] as const).map(([key, value]) => <div key={key}><dt>{t(`directory.${key}`)}</dt><dd>{value || t('directory.unknown')}</dd></div>)}</dl>
@@ -39,7 +45,7 @@ function MemberCard({ entry, close, result, resultObservedAt, t }: { entry: Dire
         <h4>{t('directory.tools')}</h4><Source value={entry.tools} t={t} />{!entry.tools.complete ? <p>{t('directory.partial')}</p> : null}
         <ul>{entry.tools.entries.map(tool => <li key={tool.name}>{tool.name} · {t(`directory.${tool.state}`)} · {t('directory.policy')}: {t(`directory.${tool.teamPolicy}`)}</li>)}</ul>
       </> : null}
-      {tab === 'results' ? result?.recentOutcome === undefined && result?.growthSummary === undefined ? <p>{t('directory.resultsUnknown')}</p> : <><p>{t('directory.resultScope')}</p>{result.recentOutcome ? <p><span title={result.recentOutcome.taskId}>{result.recentOutcome.taskId.slice(0, 8)}</span> · {enumLabel(result.recentOutcome.phase, t)} · {new Date(result.recentOutcome.at).toLocaleString()}</p> : null}{result.growthSummary ? <p>{result.growthSummary}</p> : null}{resultObservedAt === undefined ? null : <small>{t('directory.observed')}: {new Date(resultObservedAt).toLocaleString()}</small>}</> : null}
+      {tab === 'results' ? result?.recentOutcome === undefined && result?.growthSummary === undefined ? <p>{t('directory.resultsUnknown')}</p> : <><p>{t('directory.resultScope')}</p>{result.recentOutcome ? <p><span title={result.recentOutcome.taskId}>{result.recentOutcome.taskId.slice(0, 8)}</span> · {enumLabel(result.recentOutcome.phase, t)} · {new Date(result.recentOutcome.at).toLocaleString()}</p> : null}{result.growthSummary ? <p>{retainedHistoryLabel(result.growthSummary, t)}</p> : null}{resultObservedAt === undefined ? null : <small>{t('directory.observed')}: {new Date(resultObservedAt).toLocaleString()}</small>}</> : null}
     </div>
   </section>
 }
@@ -70,7 +76,7 @@ export function DirectoryMembers({ chat, dashboard, t }: { chat: PublicChatContr
       trigger.current = event.currentTarget; setMemberId(row.memberId); void chat.refreshDirectory()
     }}><SafePixelAvatar seed={row.memberId} asset={row.avatar} name={row.label} t={t} /><span>{row.label}</span><small>{row.role === 'captain' ? t('captainRole') : row.name}</small></button>)}</div>
     {state.directory?.entries.length === 0 ? <p>{t('directory.empty')}</p> : null}
-    {memberId !== undefined ? entry === undefined ? <p role="status">{t(state.directoryLoading ? 'directory.loading' : 'directory.unavailable')} <button type="button" onClick={() => { close(true) }}>{t('close')}</button></p> : <MemberCard key={entry.memberId} entry={entry} result={result} resultObservedAt={assets?.observedAt} close={() => { close(true) }} t={t} /> : null}
+    {memberId !== undefined ? entry === undefined ? <p role="status">{t(state.directoryLoading ? 'directory.loading' : 'directory.unavailable')} <button type="button" onClick={() => { close(true) }}>{t('directory.closeProfile')}</button></p> : <MemberCard key={entry.memberId} entry={entry} result={result} resultObservedAt={assets?.observedAt} close={() => { close(true) }} t={t} /> : null}
   </div>
 }
 const directoryCss = `
