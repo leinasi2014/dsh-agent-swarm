@@ -90,3 +90,49 @@ it('shared directory card shows authoritative fields, keeps diagnostics collapse
   await act(async () => { card.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
   expect(document.querySelector('[data-directory-card]')).toBeNull(); expect(document.activeElement).toBe(avatar)
 })
+
+it.each(['Delete', 'Backspace'])('deletes the selected first same-name token using the actual %s selection', async keyName => {
+  const first = replaceDraftRange(empty, 0, 0, '@同舟', { memberId: 'member-a', label: '同舟' })
+  const both = replaceDraftRange(first, 3, 3, '@同舟', { memberId: 'member-b', label: '同舟' })
+  const f = editor(both); await render(f.node)
+  const textarea = document.querySelector('textarea')!; textarea.setSelectionRange(0, 3)
+  await act(async () => {
+    const event = new KeyboardEvent('keydown', { key: keyName, bubbles: true, cancelable: true })
+    textarea.dispatchEvent(event)
+    if (!event.defaultPrevented) { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, '@同舟'); textarea.dispatchEvent(new Event('input', { bubbles: true })) }
+  })
+  expect(f.draft().text).toBe('@同舟'); expect(draftContent(f.draft())).toEqual([{ type: 'mention', memberId: 'member-b' }])
+})
+
+it.each([
+  ['Delete', 1, 2, '@舟@同舟'], ['Backspace', 1, 2, '@舟@同舟'],
+  ['Delete', 0, 0, '同舟@同舟'], ['Backspace', 3, 3, '@同@同舟'],
+] as const)('preserves the other same-name identity for %s range %i:%i', async (keyName, start, end, nativeText) => {
+  const first = replaceDraftRange(empty, 0, 0, '@同舟', { memberId: 'member-a', label: '同舟' })
+  const f = editor(replaceDraftRange(first, 3, 3, '@同舟', { memberId: 'member-b', label: '同舟' })); await render(f.node)
+  const textarea = document.querySelector('textarea')!; textarea.setSelectionRange(start, end)
+  await act(async () => {
+    const event = new KeyboardEvent('keydown', { key: keyName, bubbles: true, cancelable: true }); textarea.dispatchEvent(event)
+    if (!event.defaultPrevented) { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, nativeText); textarea.dispatchEvent(new Event('input', { bubbles: true })) }
+  })
+  expect(f.draft().text).toBe('@同舟'); expect(draftContent(f.draft())).toEqual([{ type: 'mention', memberId: 'member-b' }])
+})
+it('uses native beforeinput selection for an identical-text replacement without granting identity to the replacement', async () => {
+  const first = replaceDraftRange(empty, 0, 0, '@同舟', { memberId: 'member-a', label: '同舟' })
+  const f = editor(replaceDraftRange(first, 3, 3, '@同舟', { memberId: 'member-b', label: '同舟' })); await render(f.node)
+  const textarea = document.querySelector('textarea')!; textarea.setSelectionRange(0, 3)
+  await act(async () => {
+    const event = new InputEvent('beforeinput', { inputType: 'insertReplacementText', data: '@同舟', bubbles: true, cancelable: true }); textarea.dispatchEvent(event)
+    if (!event.defaultPrevented) textarea.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  expect(f.draft().text).toBe('@同舟@同舟')
+  expect(draftContent(f.draft())).toEqual([{ type: 'text', text: '@同舟' }, { type: 'mention', memberId: 'member-b' }])
+  await pressKey('Escape'); await pressKey('Enter', { ctrlKey: true }); expect(f.send).not.toHaveBeenCalled()
+})
+it('invalidates ambiguous same-name identities if an input event has no edit-range evidence', async () => {
+  const first = replaceDraftRange(empty, 0, 0, '@同舟', { memberId: 'member-a', label: '同舟' })
+  const f = editor(replaceDraftRange(first, 3, 3, '@同舟', { memberId: 'member-b', label: '同舟' })); await render(f.node)
+  const textarea = document.querySelector('textarea')!
+  await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, '@同舟'); textarea.dispatchEvent(new Event('input', { bubbles: true })) })
+  expect(f.draft().text).toBe('@同舟'); expect(f.draft().tokens).toEqual([])
+})

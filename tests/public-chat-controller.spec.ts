@@ -1,7 +1,7 @@
 import { directoryEntry, directoryPage } from './helpers/public-directory.js'
 import { mergePublicMessages } from '../src/client/public-v2-schema.js'
 import type { DirectoryRequest } from '../src/rpc/directory-contract.js'
-import type { PublicChatV2RequestResultResponse } from '../src/rpc/public-rpc-contract.js'
+import type { PublicChatV2RequestResultResponse, PublicChatRequestResultResponse } from '../src/rpc/public-rpc-contract.js'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { PublicChatController } from '../src/client/public-chat-controller.js'
 import { TeamDashboardController, type TeamDashboardState } from '../src/client/team-dashboard-controller.js'
@@ -37,8 +37,8 @@ function fixture(requestId = () => 'original-id') {
   const storage = new Map<string, string>()
   const port = { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => { storage.set(key, value) } }
   const client = {
-    directory: vi.fn(async (request: DirectoryRequest) => directoryPage(request.target.teamId)),
-    requestResult: vi.fn(async () => ({ schemaVersion: 1 as const, binding: { rootSessionId: 'captain-a', teamId: 'a' }, teamRevision: 4, observedAt: 20, state: 'not-found' as const })),
+    directory: vi.fn(async (request: DirectoryRequest, _signal?: AbortSignal) => directoryPage(request.target.teamId)),
+    requestResult: vi.fn(async (): Promise<PublicChatRequestResultResponse> => ({ schemaVersion: 1 as const, binding: { rootSessionId: 'captain-a', teamId: 'a' }, teamRevision: 4, observedAt: 20, state: 'not-found' as const })),
     historyV2: vi.fn(async (request: PublicChatV2HistoryRequest) => page(request.target.teamId)),
     appendV2: vi.fn(async (request: PublicChatV2AppendRequest) => ({ ...page(request.target.teamId), message: message(1), replayed: false })),
     requestResultV2: vi.fn(async (_request: unknown, _signal?: AbortSignal): Promise<PublicChatV2RequestResultResponse> => ({ ...page(), state: 'not-found' as const })),
@@ -334,4 +334,63 @@ it('retains a legacy request identity on read rejection, and on definite upgrade
   await f.controller.upgradeLegacy(); expect(f.controller.getSnapshot()).toMatchObject({ pending: true, legacyUpgrade: true })
   f.controller.edit('short'); await f.controller.upgradeLegacy()
   expect(f.client.appendV2.mock.calls.map(([request]) => request.requestId)).toEqual(['legacy-id', 'legacy-id']); f.controller.dispose()
+})
+
+it.each([false, true])('preserves the upgraded draft when a rejected upgrade is followed by a legacy commit (reload=%s)', async reload => {
+  const f = fixture(); storeLegacy(f); await ready(f.controller); await f.controller.recover()
+  f.controller.edit('upgraded draft after legacy not-found')
+  f.client.appendV2.mockRejectedValueOnce(new PublicChatRpcError('TEAM_PUBLIC_CAPACITY', 'capacity rejected'))
+  await f.controller.upgradeLegacy()
+  const saved = JSON.parse(f.storage.get('swarm.public.v1:' + JSON.stringify(['http://host:3094', 'main', 'a']))!)
+  expect(saved).toMatchObject({ draft: { version: 6 }, pending: { version: 5, legacyVersion: 5, upgradedLegacy: true, request: { schemaVersion: 1, requestId: 'legacy-id', text: 'legacy draft' } } })
+  let controller = f.controller
+  if (reload) {
+    controller.dispose()
+    controller = new PublicChatController(f.client, 'http://host:3094', f.port, () => 'WRONG-NEW-ID')
+    await ready(controller)
+  }
+  f.client.requestResult.mockResolvedValueOnce({ schemaVersion: 1, binding: { rootSessionId: 'captain-a', teamId: 'a' }, teamRevision: 4, observedAt: 20, state: 'committed',
+    message: { id: 'legacy-message', sequence: 1, createdAt: 10, text: 'legacy draft', author: { kind: 'local-operator' }, delivery: { state: 'queued', recipientSessionId: 'captain-a' } },
+  })
+  await controller.recover()
+  expect(controller.getSnapshot()).toMatchObject({ pending: false, draft: { text: 'upgraded draft after legacy not-found' }, entries: [{ id: 'legacy-message', text: 'legacy draft', formatVersion: 1 }] })
+  expect(f.client.appendV2.mock.calls.map(([request]) => request.requestId)).toEqual(['legacy-id'])
+  controller.dispose()
+})
+
+it('coalesces same-binding dashboard refreshes while a healthy directory read is in flight', async () => {
+  const f = fixture()
+  let resolve!: (value: ReturnType<typeof directoryPage>) => void
+  f.client.directory.mockImplementationOnce(() => new Promise(done => { resolve = done }))
+  f.controller.bind(dashboard())
+  await waitFor(() => f.client.directory.mock.calls.length === 1)
+  for (let index = 0; index < 5; index++) f.controller.bind(dashboard())
+  expect(f.client.directory).toHaveBeenCalledTimes(1)
+  expect(f.client.directory.mock.calls[0]?.[1]?.aborted).toBe(false)
+  resolve(directoryPage()); await waitFor(() => f.controller.getSnapshot().directory !== undefined)
+  expect(f.controller.getSnapshot().directoryLoading).toBe(false)
+  f.controller.dispose()
+})
+
+it('finishes a healthy read then performs one follow-up for an authoritative Team revision change', async () => {
+  const f = fixture(); let resolve!: (value: ReturnType<typeof directoryPage>) => void
+  f.client.directory.mockImplementationOnce(() => new Promise(done => { resolve = done })).mockResolvedValueOnce(directoryPage('a', [directoryEntry('member-b')], 'revision-5'))
+  f.controller.bind(dashboard()); await waitFor(() => f.client.directory.mock.calls.length === 1)
+  f.controller.bind(dashboard('a', 5)); f.controller.bind(dashboard('a', 5))
+  expect(f.client.directory).toHaveBeenCalledTimes(1); expect(f.client.directory.mock.calls[0]?.[1]?.aborted).toBe(false)
+  resolve(directoryPage()); await waitFor(() => f.controller.getSnapshot().directory?.directoryRevision === 'revision-5')
+  expect(f.client.directory).toHaveBeenCalledTimes(2); expect(f.controller.getSnapshot().directoryLoading).toBe(false); f.controller.dispose()
+})
+it.each(['team', 'viewer'] as const)('cancels an old directory read immediately when the %s binding changes', async change => {
+  const f = fixture(); let resolve!: (value: ReturnType<typeof directoryPage>) => void
+  f.client.directory.mockImplementationOnce(() => new Promise(done => { resolve = done }))
+  f.controller.bind(dashboard()); await waitFor(() => f.client.directory.mock.calls.length === 1)
+  const signal = f.client.directory.mock.calls[0]?.[1]
+  const team = change === 'team' ? 'b' : 'a'
+  f.client.directory.mockResolvedValueOnce(directoryPage(team, [directoryEntry('new-scope')], 'new-binding'))
+  f.controller.bind(dashboard(team, 4, change === 'viewer' ? 'other-viewer' : 'viewer'))
+  expect(signal?.aborted).toBe(true)
+  await waitFor(() => f.controller.getSnapshot().directory?.directoryRevision === 'new-binding')
+  resolve(directoryPage()); await Promise.resolve()
+  expect(f.controller.getSnapshot().directory?.entries.map(row => row.memberId)).toEqual(['new-scope']); f.controller.dispose()
 })

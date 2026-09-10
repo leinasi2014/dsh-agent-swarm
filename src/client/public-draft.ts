@@ -24,7 +24,12 @@ export function editDraft(draft: PublicDraft, text: string): PublicDraft {
   let start = 0, oldEnd = draft.text.length, newEnd = text.length
   while (start < oldEnd && start < newEnd && draft.text[start] === text[start]) start++
   while (oldEnd > start && newEnd > start && draft.text[oldEnd - 1] === text[newEnd - 1]) { oldEnd--; newEnd-- }
-  return replaceDraftRange(draft, start, oldEnd, text.slice(start, newEnd))
+  const inserted = text.slice(start, newEnd), removed = oldEnd - start
+  // Without a native edit range, equal labels can make several replacements
+  // produce the same text. Such text cannot prove which identity survived.
+  const ambiguous = (removed > 0 || inserted !== '') && draft.tokens.some(token => [token.start, token.end - removed].some(position => position >= 0 && position !== start && position + removed <= draft.text.length && draft.text.slice(0, position) + inserted + draft.text.slice(position + removed) === text))
+  if (ambiguous) return { ...draft, text, tokens: [], version: draft.version + 1 }
+  return replaceDraftRange(draft, start, oldEnd, inserted)
 }
 export function mentionCandidate(draft: Pick<PublicDraft, 'text' | 'tokens'>, caret: number): { start: number; end: number; query: string } | undefined {
   if (draft.tokens.some(token => caret > token.start && caret <= token.end)) return undefined

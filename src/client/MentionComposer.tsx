@@ -14,6 +14,7 @@ export function MentionComposer({ draft, entries, directoryError, directoryLoadi
 }) {
   const textarea = useRef<HTMLTextAreaElement>(null), composing = useRef(false), composingEnded = useRef(false)
   const [caret, setCaret] = useState(draft.text.length), [dismissed, setDismissed] = useState<string>(), [active, setActive] = useState(0)
+  const beforeEdit = useRef<{ text: string; start: number; end: number }>()
   const listId = useId(), hintId = useId()
   const candidate = mentionCandidate(draft, caret)
   const candidateKey = candidate === undefined ? undefined : `${candidate.start}:${candidate.end}:${candidate.query}`
@@ -23,6 +24,26 @@ export function MentionComposer({ draft, entries, directoryError, directoryLoadi
   useEffect(() => { if (open) { refreshDirectory(); setActive(0) } }, [candidate?.start, open])
   useEffect(() => { setCaret(position => Math.min(position, draft.text.length)) }, [draft.text])
   const focusAt = (position: number): void => { queueMicrotask(() => { textarea.current?.focus(); textarea.current?.setSelectionRange(position, position); setCaret(position) }) }
+  useEffect(() => {
+    const element = textarea.current
+    if (element === null) return
+    const beforeInput = (event: InputEvent): void => {
+      let start = element.selectionStart, end = element.selectionEnd
+      if (start === end && event.inputType === 'deleteContentBackward') start = Math.max(0, start - 1)
+      if (start === end && event.inputType === 'deleteContentForward') end = Math.min(draft.text.length, end + 1)
+      beforeEdit.current = { text: draft.text, start, end }
+      if (composing.current || event.isComposing || !event.cancelable) return
+      const insertion = event.inputType.startsWith('insert') ? event.data : event.inputType === 'deleteContentBackward' || event.inputType === 'deleteContentForward' ? '' : null
+      const touched = draft.tokens.filter(token => start < token.end && end > token.start || start === end && start > token.start && start < token.end)
+      if (insertion !== null && touched.length > 0) {
+        event.preventDefault(); beforeEdit.current = undefined
+        replaceText(start, end, insertion); setDismissed(undefined)
+        focusAt(Math.min(start, ...touched.map(token => token.start)) + insertion.length)
+      }
+    }
+    element.addEventListener('beforeinput', beforeInput)
+    return () => { element.removeEventListener('beforeinput', beforeInput) }
+  }, [draft, replaceText])
   const confirm = (entry: DirectoryEntry): void => {
     if (candidate === undefined || directoryError !== undefined || directoryLoading) return
     choose(candidate.start, candidate.end, entry.memberId); setDismissed(undefined)
@@ -30,6 +51,12 @@ export function MentionComposer({ draft, entries, directoryError, directoryLoadi
   }
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
     if (composing.current || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || composingEnded.current) return
+    if ((event.key === 'Backspace' || event.key === 'Delete') && !(event.key === 'Delete' && event.shiftKey)) {
+      let start = event.currentTarget.selectionStart, end = event.currentTarget.selectionEnd
+      if (start === end) { if (event.key === 'Backspace') start = Math.max(0, start - 1); else end = Math.min(draft.text.length, end + 1) }
+      const touched = draft.tokens.filter(token => start < token.end && end > token.start)
+      if (touched.length > 0) { event.preventDefault(); beforeEdit.current = undefined; replaceText(start, end, ''); focusAt(Math.min(start, ...touched.map(token => token.start))); return }
+    }
     if (event.key === 'Escape' && open) { event.preventDefault(); setDismissed(candidateKey); return }
     if (open && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) { event.preventDefault(); setActive(value => candidates.length === 0 ? 0 : (value + (event.key === 'ArrowDown' ? 1 : -1) + candidates.length) % candidates.length); return }
     if (open && event.key === 'Enter' && !event.ctrlKey && !event.metaKey && !event.shiftKey) { event.preventDefault(); if (candidates[selected] !== undefined) confirm(candidates[selected]!); return }
@@ -42,7 +69,13 @@ export function MentionComposer({ draft, entries, directoryError, directoryLoadi
       onPaste={event => { event.preventDefault(); const start = event.currentTarget.selectionStart, end = event.currentTarget.selectionEnd, text = event.clipboardData.getData('text/plain'); replaceText(start, end, text); setDismissed(undefined); focusAt(start + text.length) }}
       onCut={event => { const start = event.currentTarget.selectionStart, end = event.currentTarget.selectionEnd; if (start === end) return; event.preventDefault(); event.clipboardData.setData('text/plain', draft.text.slice(start, end)); replaceText(start, end, ''); focusAt(start) }}
       onDrop={event => { event.preventDefault(); const start = event.currentTarget.selectionStart, end = event.currentTarget.selectionEnd, text = event.dataTransfer.getData('text/plain'); if (text !== '') { replaceText(start, end, text); setDismissed(undefined); focusAt(start + text.length) } }}
-      onFocus={refreshDirectory} onChange={event => { setDismissed(undefined); setCaret(event.target.selectionStart); edit(event.target.value) }} onSelect={event => { setCaret(event.currentTarget.selectionStart) }}
+      onFocus={refreshDirectory} onChange={event => {
+        setDismissed(undefined); setCaret(event.target.selectionStart)
+        const range = beforeEdit.current, text = event.target.value; beforeEdit.current = undefined
+        const suffix = range === undefined ? '' : range.text.slice(range.end)
+        if (range !== undefined && range.text === draft.text && text.length >= range.start + suffix.length && text.slice(0, range.start) === range.text.slice(0, range.start) && text.endsWith(suffix)) replaceText(range.start, range.end, text.slice(range.start, text.length - suffix.length))
+        else edit(text)
+      }} onSelect={event => { setCaret(event.currentTarget.selectionStart) }}
       onCompositionStart={() => { composing.current = true }} onCompositionEnd={() => { composing.current = false; composingEnded.current = true; queueMicrotask(() => { composingEnded.current = false }); setCaret(textarea.current?.selectionStart ?? 0) }} onKeyDown={onKeyDown} />
     {draft.tokens.length > 0 ? <div className="swarm-public__tokens" aria-label={t('public.directed')}>{draft.tokens.map(token => <span className="swarm-public__token" data-public-token={token.memberId} key={`${token.start}:${token.memberId}`}>
       <span title={token.memberId}>@{token.label}</span><button type="button" aria-label={`${t('public.reselect')} @${token.label}`} onClick={() => { remove(token.start, true); setDismissed(undefined); focusAt(token.start + 1) }}>↺</button>

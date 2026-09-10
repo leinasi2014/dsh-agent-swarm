@@ -9,7 +9,7 @@ import { PublicChatRpcError, type PublicChatClient } from './public-rpc-client.j
 
 interface Selection { readonly key: string; readonly viewer: string; readonly captain: string; readonly team: string; readonly revision: number }
 type Draft = PublicDraft
-interface Pending { readonly request: PublicChatAppendRequest | PublicChatV2AppendRequest; readonly upgradedLegacy?: boolean; readonly legacyRequest?: PublicChatAppendRequest; readonly version: number; readonly captain: string }
+interface Pending { readonly request: PublicChatAppendRequest | PublicChatV2AppendRequest; readonly upgradedLegacy?: boolean; readonly legacyRequest?: PublicChatAppendRequest; readonly legacyVersion?: number; readonly version: number; readonly captain: string }
 interface Saved { draft: Draft; pending?: Pending; legacyUpgrade?: boolean }
 export interface PublicChatState {
   readonly selection: Selection | undefined
@@ -33,7 +33,7 @@ const savedRequest = { requestId: z.string().min(1), replyTo: z.string().optiona
 const savedSchema = z.object({
   draft: z.object({ text: z.string(), version: z.number().int().nonnegative(), replyTo: z.string().optional(), tokens: z.array(z.object({ start: z.number().int().nonnegative(), end: z.number().int().positive(), memberId: z.string().min(1), label: z.string() })).default([]) }),
   legacyUpgrade: z.boolean().optional(),
-  pending: z.object({ version: z.number().int().nonnegative(), captain: z.string(), upgradedLegacy: z.boolean().optional(), legacyRequest: z.object({ ...savedRequest, schemaVersion: z.literal(1), text: z.string() }).optional(), request: z.discriminatedUnion('schemaVersion', [
+  pending: z.object({ version: z.number().int().nonnegative(), captain: z.string(), upgradedLegacy: z.boolean().optional(), legacyVersion: z.number().int().nonnegative().optional(), legacyRequest: z.object({ ...savedRequest, schemaVersion: z.literal(1), text: z.string() }).optional(), request: z.discriminatedUnion('schemaVersion', [
     z.object({ ...savedRequest, schemaVersion: z.literal(1), text: z.string() }),
     z.object({ ...savedRequest, schemaVersion: z.literal(2), content: z.array(publicSegmentSchema).min(1).max(MAX_PUBLIC_CONTENT_SEGMENTS) }),
   ]) }).optional(),
@@ -45,6 +45,8 @@ export class PublicChatController {
   private readonly listeners = new Set<() => void>()
   private readonly saved = new Map<string, Saved>()
   private readonly busy = new Set<string>()
+  private directorySelection: Selection | undefined
+  private directoryRefreshPending = false
   private directoryRead: AbortController | undefined
   private dashboardData: TeamDashboardState['data']
   private read: AbortController | undefined
@@ -213,7 +215,7 @@ export class PublicChatController {
     if (!this.bindingReady || selected === undefined || this.busy.has(selected.key)) return
     const saved = this.readSaved(selected.key), old = saved.pending
     if (this.state.history?.appendEligibility.state !== 'available' || !saved.legacyUpgrade || old?.request.schemaVersion !== 1 || !this.draftAllowed(saved.draft)) return
-    const pending: Pending = { ...old, upgradedLegacy: true, legacyRequest: old.request, version: saved.draft.version, request: { schemaVersion: 2, target: old.request.target, requestId: old.request.requestId, content: normalizePublicContent(draftContent(saved.draft)), ...(saved.draft.replyTo === undefined ? {} : { replyTo: saved.draft.replyTo }) } }
+    const pending: Pending = { ...old, upgradedLegacy: true, legacyRequest: old.request, legacyVersion: old.legacyVersion ?? old.version, version: saved.draft.version, request: { schemaVersion: 2, target: old.request.target, requestId: old.request.requestId, content: normalizePublicContent(draftContent(saved.draft)), ...(saved.draft.replyTo === undefined ? {} : { replyTo: saved.draft.replyTo }) } }
     saved.pending = pending; delete saved.legacyUpgrade
     if (!this.persist(selected.key, saved)) { saved.pending = old; saved.legacyUpgrade = true; return }
     await this.submit(selected, saved, pending, true)
@@ -221,7 +223,15 @@ export class PublicChatController {
   async refreshDirectory(restarted = false): Promise<void> {
     const selected = this.state.selection
     if (!this.bindingReady || selected === undefined || this.client.directory === undefined) return
+    if (!restarted && this.directoryRead !== undefined && !this.directoryRead.signal.aborted && this.state.directoryLoading
+      && this.directorySelection?.key === selected.key && this.directorySelection.viewer === selected.viewer && this.directorySelection.captain === selected.captain) {
+      // Ordinary dashboard/focus refreshes share this healthy read. A changed
+      // authoritative Team revision is read once more after it settles.
+      this.directoryRefreshPending ||= this.directorySelection.revision !== selected.revision
+      return
+    }
     this.directoryRead?.abort()
+    this.directorySelection = selected; this.directoryRefreshPending = false
     const read = this.directoryRead = new AbortController()
     this.publish({ ...this.state, directoryLoading: true })
     try {
@@ -238,12 +248,18 @@ export class PublicChatController {
         if (cursor !== undefined) cursors.add(cursor)
       } while (cursor !== undefined)
       if (first === undefined || entries.length !== first.page.totalCount) throw new Error('Incomplete directory enumeration')
-      if (!this.isCurrent(selected)) return
+      if (!this.isCurrent(selected) || this.state.selection?.revision !== selected.revision) return
       this.publish({ ...this.state, directoryLoading: false, directoryError: undefined, directory: { schemaVersion: 2, binding: first!.binding, observedAt: first!.observedAt, directoryRevision: first!.directoryRevision, entries, totalCount: first!.page.totalCount } })
     } catch (error) {
       if (!read.signal.aborted && this.isCurrent(selected)) {
         this.publish({ ...this.state, directoryLoading: false, directory: undefined, directoryError: errorText(error) })
         if (!restarted && ((error instanceof PublicChatRpcError && error.code === 'SWARM_DIRECTORY_STALE') || errorText(error).startsWith('SWARM_DIRECTORY_STALE'))) await this.refreshDirectory(true)
+      }
+    } finally {
+      if (this.directoryRead === read) {
+        this.directoryRead = undefined; this.directorySelection = undefined
+        const refreshPending = this.directoryRefreshPending; this.directoryRefreshPending = false
+        if (refreshPending && !read.signal.aborted && this.isCurrent(selected)) await this.refreshDirectory()
       }
     }
   }
@@ -296,7 +312,13 @@ export class PublicChatController {
       // Capacity is checked before the aggregate changes. Other failures can
       // conceal a committed result and must retain the original request.
       if (definiteAppendRejection && saved.pending === pending) {
-        if (pending.legacyRequest !== undefined) { saved.pending = { request: pending.legacyRequest, version: pending.version, captain: pending.captain }; saved.legacyUpgrade = true }
+        if (pending.legacyRequest !== undefined) {
+          // Restore the original operation's draft version, while retaining the upgrade
+          // provenance: a later legacy commit must never consume this v2 draft.
+          const legacyVersion = pending.legacyVersion ?? pending.version
+          saved.pending = { request: pending.legacyRequest, version: legacyVersion, legacyVersion, upgradedLegacy: true, captain: pending.captain }
+          saved.legacyUpgrade = true
+        }
         else delete saved.pending
       }
       this.persist(selected.key, saved)
