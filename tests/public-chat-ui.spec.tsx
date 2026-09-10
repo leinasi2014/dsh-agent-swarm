@@ -241,6 +241,16 @@ it('resolves assistance participants by exact public identity and preserves unkn
   expect(document.querySelector('[data-public-assistance] strong')?.textContent).toBe(t('public.assistanceRequest', { requester: 'requester', helper: 'helper' }))
 })
 
+it('labels an assistance receipt with its actual helper instead of the Captain', async () => {
+  const state = teamState(), chat = chatState(state)
+  const message = { ...chat.entries[0]!, formatVersion: 3 as const, author: { kind: 'agent' as const, role: 'member' as const, sessionId: 'requester', name: 'Writer' },
+    assistance: { kind: 'request' as const, assistanceId: 'assist', sourceMessageId: 'source', imageIds: ['image-1'], requesterSessionId: 'requester', helperSessionId: 'helper', expiresAt: 10 },
+    delivery: { kind: 'requested' as const, recipients: [{ recipientSessionId: 'helper', state: 'queued' as const }] } }
+  const helper = { ...chat.entries[0]!, id: 'helper-reply', author: { kind: 'agent' as const, role: 'member' as const, sessionId: 'helper', name: 'Vision' } }
+  await render(<TeamPublicChat {...chatProps(state, { ...chat, entries: [message, helper] }) as ComponentProps<typeof TeamPublicChat>} />)
+  expect(document.querySelector('[data-recipient="helper"] > span')?.textContent).toBe('Vision')
+})
+
 
 it('uses actual Edge for responsive image layout, modal focus/Escape, lazy reads and URL cleanup', async () => {
   const { publicImagesBrowserScript } = await import('./helpers/public-images-browser.js')

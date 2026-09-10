@@ -1,6 +1,6 @@
 import { useRef } from 'react'
 import { DraftImage } from './PublicImages.js'
-import { PublicMessageContent } from './PublicMessageContent.js'
+import { PublicMessageContent, publicParticipantLabel } from './PublicMessageContent.js'
 import { publicDraftImageIssue } from './public-image-draft.js'
 import { MentionComposer } from './MentionComposer.js'
 import { draftContent } from './public-draft.js'
@@ -73,7 +73,7 @@ export function TeamPublicChat(props: Props) {
             ? <a className="swarm-public__quote" href={`#swarm-message-${message.replyTo}`}>{t('public.reply')}: {state.entries.find(row => row.id === message.replyTo)?.text}</a>
             : <span className="swarm-public__quote">{t('public.replyOutside')}</span>}
           <PublicMessageContent message={message} entries={state.entries} image={props.image} memberLabels={state.directory?.entries ?? []} t={t} />
-          <footer><span>{message.delivery.kind === 'not-requested' ? '' : message.delivery.recipients.map(recipient => <span className="swarm-public__receipt" data-recipient={recipient.recipientSessionId} data-recipient-state={recipient.state} key={recipient.recipientSessionId}><span title={recipient.recipientSessionId}>{message.mentionLabels.find(label => label.memberId === recipient.recipientSessionId)?.label ?? (message.mentionLabels.length === 0 ? t('captainRole') : recipient.recipientSessionId)}</span> · {t(recipient.state === 'queued' ? 'public.queued' : recipient.state === 'claimed' ? 'public.claimed' : 'public.notDelivered')}{recipient.state === 'not-delivered' ? ` · ${t(`public.notDeliveredReason.${recipient.reason}`)}` : recipient.state === 'queued' && recipient.deferredReason !== undefined ? ` · ${t(`public.deferred.${recipient.deferredReason}`)}` : ''}</span>)}</span><button type="button" onClick={() => { props.reply(message.id) }}>{t('public.reply')}</button></footer>
+          <footer><span>{message.delivery.kind === 'not-requested' ? '' : message.delivery.recipients.map(recipient => <span className="swarm-public__receipt" data-recipient={recipient.recipientSessionId} data-recipient-state={recipient.state} key={recipient.recipientSessionId}><span title={recipient.recipientSessionId}>{publicParticipantLabel(message, state.entries, state.directory?.entries ?? [], recipient.recipientSessionId, recipient.recipientSessionId === selected.captain ? t('captainRole') : recipient.recipientSessionId)}</span> · {t(recipient.state === 'queued' ? 'public.queued' : recipient.state === 'claimed' ? 'public.claimed' : 'public.notDelivered')}{recipient.state === 'not-delivered' ? ` · ${t(`public.notDeliveredReason.${recipient.reason}`)}` : recipient.state === 'queued' && recipient.deferredReason !== undefined ? ` · ${t(`public.deferred.${recipient.deferredReason}`)}` : ''}</span>)}</span><button type="button" onClick={() => { props.reply(message.id) }}>{t('public.reply')}</button></footer>
         </article>)}
         {state.history?.hasMore ? <button type="button" disabled={!verified || state.loading} onClick={props.newer}>{t('public.newer')}</button> : null}
       </div>
