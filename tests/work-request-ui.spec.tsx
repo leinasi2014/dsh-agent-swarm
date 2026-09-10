@@ -8,6 +8,7 @@ import { WorkActivityFeed } from '../src/client/WorkActivityFeed.js'
 import { TeamDashboardDetails } from '../src/client/TeamDashboardDetails.js'
 import { WorkRequestController, type WorkRequestState } from '../src/client/work-request-controller.js'
 import { taskProgressState } from '../src/client/team-dashboard-view-helpers.js'
+import { directoryEntry, directoryPage } from './helpers/public-directory.js'
 
 const translate = tZh as ComponentProps<typeof TeamWorkRequestForm>['t']
 function fixture() {
@@ -83,24 +84,57 @@ it('uses Host readiness for open claims, budget holds and inactive Teams', () =>
   expect(taskProgressState({ ...task, readiness: 'blocked' }, [])).toBe('blocked')
 })
 
+it('uses bound current names with inspectable IDs, compact proposals and honest missing identities', async () => {
+  const f = fixture()
+  const captain = 'c1f65a50-6d2e-4459-b6cd-770914b775c2', member = '60b10743-2e62-4fef-9989-db54f9c69302'
+  const main = 'session-2060776d-f581-4a0d-b325-c5fd606ca418'
+  const directory = { ...directoryPage('a', [directoryEntry(captain, '同名'), directoryEntry(member, '同名')]), binding: { rootSessionId: 'captain-a', teamId: 'a' } }
+  await f.patch({ entries: [{ id: 'event-9', sequence: 9, kind: 'task-claimed', taskId: 'task-1', workRequestId: 'work-request-long-uuid', assigneeSessionId: member, actor: { kind: 'session', sessionId: captain }, occurredAt: 1000 },
+    { id: 'event-10', sequence: 10, kind: 'request-proposed', actor: { kind: 'main', sessionId: main }, occurredAt: 2000 }] })
+  await render(<WorkActivityFeed work={f.work} teamId="a" directory={directory} t={translate} />)
+  expect(document.querySelector(`[data-work-participant="${captain}"]`)?.textContent).toBe('同名')
+  expect(document.querySelector(`[data-work-participant="${member}"]`)?.getAttribute('title')).toContain(member)
+  expect(document.querySelector(`[data-work-participant="${main}"]`)?.textContent).toBe('主对话 · 2060776d')
+  expect(document.querySelector(`[data-work-participant="${main}"]`)?.getAttribute('title')).toBe(main)
+  expect(document.querySelector('[data-work-request] summary')?.textContent).not.toContain('work-request-long-uuid')
+  expect(document.querySelector('[data-work-request]')?.textContent).toContain('work-request-long-uuid')
+  expect(document.querySelector('[data-work-event] header')?.textContent).not.toContain(captain)
+  await render(<div data-other-directory><WorkActivityFeed work={f.work} teamId="a" directory={{ ...directory, binding: { ...directory.binding, rootSessionId: 'other-captain' } }} t={translate} /></div>)
+  expect(document.querySelector(`[data-other-directory] [data-work-participant="${captain}"]`)?.textContent).not.toContain('同名')
+  expect(document.querySelector(`[data-other-directory] [data-work-participant="${captain}"]`)?.getAttribute('title')).toContain(captain)
+})
+
+it('does not show a reversed retained range or zero visible range for an empty feed', async () => {
+  const f = fixture()
+  await f.patch({ activity: { ...f.work.getSnapshot().activity!, retainedFromSequence: 1, throughSequence: 0 } })
+  await render(<WorkActivityFeed work={f.work} teamId="a" t={translate} />)
+  expect(document.querySelector('[data-work-retained]')).toBeNull()
+  expect(document.querySelector('[data-work-activity]')?.textContent).toContain('暂无')
+})
+
 it('keeps the actual proposal and event cards within 320px and 390px browser layouts', async () => {
-  const f = fixture(); await f.patch({ formOpen: true, entries: [{ id: 'event-browser', sequence: 9, kind: 'request-proposed', workRequestId: 'request-browser', actor: { kind: 'local-operator' }, occurredAt: 1000 }],
+  const memberId = '60b10743-2e62-4fef-9989-db54f9c69302'
+  const directory = directoryPage('a', [directoryEntry(memberId, '校对员')])
+  const f = fixture(); await f.patch({ formOpen: true, entries: [{ id: 'event-browser', sequence: 9, kind: 'request-proposed', workRequestId: 'request-browser', actor: { kind: 'local-operator' }, occurredAt: 1000 },
+    { id: 'event-member', sequence: 10, kind: 'task-claimed', taskId: 'task-1', workRequestId: 'work-request-4718d5b9-long-identifier', actor: { kind: 'session', sessionId: memberId }, assigneeSessionId: memberId, occurredAt: 2000 }],
     referencedRequests: [{ id: 'request-browser', requestId: 'original-id', description: '修复任务栏的窄屏布局，并用真实浏览器验证。', acceptanceCriteria: '没有横向溢出；保留输入与焦点。', origin: { kind: 'local-operator' }, revision: 1, createdAt: 1000 }] })
-  await render(<div data-work-browser><TeamWorkRequestForm work={f.work} t={translate} /><WorkActivityFeed work={f.work} teamId="a" t={translate} /></div>)
+  await render(<div data-work-browser><TeamWorkRequestForm work={f.work} t={translate} /><WorkActivityFeed work={f.work} teamId="a" directory={directory} t={translate} /></div>)
   const { chromium } = await import('playwright'), { mkdir } = await import('node:fs/promises')
   const browser = await chromium.launch({ channel: 'msedge', headless: true })
   try {
-    const directory = process.env['WORK_UI_SCREENSHOTS']
-    if (directory) await mkdir(directory, { recursive: true })
+    const screenshotDirectory = process.env['WORK_UI_SCREENSHOTS']
+    if (screenshotDirectory) await mkdir(screenshotDirectory, { recursive: true })
     const page = await browser.newPage()
     for (const width of [320, 390]) {
       await page.setViewportSize({ width, height: 900 })
       await page.setContent(`<style>body{margin:0;padding:12px;box-sizing:border-box;font:14px system-ui;color:#223047;background:#f8f9fc;--dsw-alias-label-primary:#223047;--dsw-alias-label-secondary:#69778c;--dsw-alias-bg-base:#f8f9fc;--dsw-alias-bg-layer-1:white;--dsw-alias-border-l2:#d8deea;--dsw-alias-state-business-primary:#4267bc}</style>${document.querySelector('[data-work-browser]')!.outerHTML}`)
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
       expect(await page.locator('[data-work-description]').inputValue()).toBe('修复真实问题')
-      await page.locator('[data-work-request] summary').click()
-      expect(await page.locator('[data-work-request]').innerText()).toContain('修复任务栏的窄屏布局')
-      if (directory) await page.screenshot({ path: `${directory}/work-${width}.png`, fullPage: true })
+      expect(await page.locator('[data-work-event="event-member"] header').innerText()).toContain('校对员')
+      expect(await page.locator('[data-work-event="event-member"]').innerText()).not.toContain(memberId)
+      await page.locator('[data-work-request="request-browser"] summary').click()
+      expect(await page.locator('[data-work-request="request-browser"]').innerText()).toContain('修复任务栏的窄屏布局')
+      if (screenshotDirectory) await page.screenshot({ path: `${screenshotDirectory}/work-${width}.png`, fullPage: true })
     }
   } finally { await browser.close() }
 }, 30_000)

@@ -443,7 +443,7 @@ function Workspace({ chat, work, data, localeTag, state, t, teams, announcements
           </section>
         )}
       </div>}
-          <TeamTaskPanel work={work} data={data} selection={selection} localeTag={localeTag} memberAssets={memberAssets} controller={controller} state={state}
+          <TeamTaskPanel chat={chat} work={work} data={data} selection={selection} localeTag={localeTag} memberAssets={memberAssets} controller={controller} state={state}
             onSelect={id => { openDetail({ kind: 'task', id }) }} onBack={() => { closeDetail(true) }} onChange={updateSelection} t={t} />
           {detail?.kind !== 'task' && data.tasks.length > 0 ? <details className="swarm-team-workspace__fold"><summary>{t('dag.title')}</summary><TaskDag tasks={data.tasks} t={t} onSelect={id => { openDetail({ kind: 'task', id }) }} /></details> : null}
         </div>}

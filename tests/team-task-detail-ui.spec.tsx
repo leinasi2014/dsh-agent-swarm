@@ -6,6 +6,8 @@ import { describe, expect, it, vi, type Mock } from 'vitest'
 import { TeamDashboardDetails } from '../src/client/TeamDashboardDetails.js'
 import type { TeamDashboardState } from '../src/client/team-dashboard-controller.js'
 import type { SwarmReadTaskDetailV1, SwarmReadTaskDetailV2 } from '../src/rpc/read-rpc-contract.js'
+import { directoryEntry, directoryPage } from './helpers/public-directory.js'
+import { PublicChatController } from '../src/client/public-chat-controller.js'
 
 const stamp = 1_700_000_000_000
 function fixture(): TeamDashboardState {
@@ -27,11 +29,11 @@ async function click(selector: string) {
   await act(async () => { element!.click() })
 }
 type DetailReader = (target: { taskId: string }, signal: AbortSignal) => Promise<SwarmReadTaskDetailV1 | SwarmReadTaskDetailV2>
-async function mount(read: Mock<DetailReader> = vi.fn(async target => detail(fixture(), target.taskId)), translate = t) {
+async function mount(read: Mock<DetailReader> = vi.fn(async target => detail(fixture(), target.taskId)), translate = t, chat?: unknown) {
   let state = fixture()
   const coordinator = new FakeCoordinator(), listeners = new Set<() => void>()
   const controller = { getSnapshot: () => state, subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } }, readTaskDetail: read }
-  await render(<TeamDashboardDetails {...({ controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'main-brain', useTabInfo, t: translate } as any)} />)
+  await render(<TeamDashboardDetails {...({ controller, coordinator, chat, localeTag: coordinator.localeTag, sessionId: 'main-brain', useTabInfo, t: translate } as any)} />)
   return { read, coordinator, setState: async (next: TeamDashboardState) => { await act(async () => { state = next; listeners.forEach(listener => listener()) }) } }
 }
 
@@ -181,19 +183,20 @@ describe('real task detail UI', () => {
   })
 })
 
-it('shows actual v2 source, assignment mode, submitter and reviewer without synthesizing absent facts', async () => {
+function workDetail(): SwarmReadTaskDetailV2 {
   const old = detail()
-  const value: SwarmReadTaskDetailV2 = { ...old, schemaVersion: 2, task: { ...old.task, assignmentMode: 'open-claim', readiness: 'not-pending', createdBySessionId: 'creator-real', ownerSessionId: 'executor-real',
+  return { ...old, schemaVersion: 2, task: { ...old.task, assignmentMode: 'open-claim', readiness: 'not-pending', createdBySessionId: 'creator-real', ownerSessionId: 'executor-real',
     source: { workRequestId: 'work-original', itemKey: 'first', origin: { kind: 'main', sessionId: 'main-origin' } }, submittedAt: stamp + 33, submittedBySessionId: 'submitter-real', reviewedBySessionId: 'reviewer-real' },
     attempts: { ...old.attempts, entries: old.attempts.entries.map(row => ({ ...row, submittedAt: stamp + 33, reviewedAt: stamp + 44, reviewedBySessionId: 'reviewer-real', reviewProvider: 'provider-recorded' })) } }
+}
+
+it('shows actual v2 source, assignment mode, submitter and reviewer without synthesizing absent facts', async () => {
+  const value = workDetail()
   await mount(vi.fn(async () => value), tZh)
   await click('[data-swarm-task-id="task-a"]')
   const facts = document.querySelector('[data-work-task-facts]')!
-  expect(facts.textContent).toContain('creator-real')
-  expect(facts.textContent).toContain('executor-real')
-  expect(facts.textContent).toContain('submitter-real')
-  expect(facts.textContent).toContain('reviewer-real')
-  expect(facts.textContent).toContain('work-original')
+  for (const id of ['creator-real', 'executor-real', 'submitter-real', 'reviewer-real']) expect(facts.querySelector(`[data-work-participant="${id}"]`)?.getAttribute('title')).toContain(id)
+  expect(facts.querySelector('[data-work-source]')?.getAttribute('title')).toBe('work-original')
   expect(facts.textContent).toContain('未记录')
   expect(facts.textContent).not.toContain('接口未提供')
   expect(document.querySelector('[data-work-mode]')?.textContent).toBe('自由认领')
@@ -201,4 +204,20 @@ it('shows actual v2 source, assignment mode, submitter and reviewer without synt
   await click('[data-swarm-task-view="trace"]')
   expect(document.querySelector('[data-swarm-task-trace]')?.textContent).toContain('provider-recorded')
   expect(document.querySelector('[data-swarm-task-trace]')?.textContent).not.toContain('接口未提供来源')
+})
+
+it('shares current directory labels in task facts and review trace, updating without historical name guesses', async () => {
+  const value = workDetail(), listeners = new Set<() => void>()
+  const directory = { ...directoryPage('a', [directoryEntry('creator-real', '队长'), directoryEntry('submitter-real', '校对员'), directoryEntry('reviewer-real', '队长')]), binding: value.binding, totalCount: 3 }
+  let state = { ...new PublicChatController({} as never, 'test').getSnapshot(), directory }
+  const chat = { getSnapshot: () => state, subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } } }
+  await mount(vi.fn(async () => value), tZh, chat)
+  await click('[data-swarm-task-id="task-a"]')
+  expect(document.querySelector('[data-work-participant="submitter-real"]')?.textContent).toBe('校对员')
+  expect(document.querySelector('[data-work-participant="reviewer-real"]')?.getAttribute('title')).toBe('当前: 队长 · reviewer-real')
+  await click('[data-swarm-task-view="trace"]')
+  expect(document.querySelector('[data-work-participant="reviewer-real"]')?.textContent).toBe('队长')
+  await act(async () => { state = { ...state, directory: { ...directory, binding: { ...value.binding, teamId: 'other-team' } } }; listeners.forEach(listener => listener()) })
+  expect(document.querySelector('[data-work-participant="reviewer-real"]')?.textContent).not.toContain('队长')
+  expect(document.querySelector('[data-work-participant="reviewer-real"]')?.getAttribute('title')).toBe('reviewer-real')
 })

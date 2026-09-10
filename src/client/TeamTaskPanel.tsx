@@ -1,7 +1,9 @@
 import { WorkActivityFeed } from './WorkActivityFeed.js'
 import { TeamWorkRequestForm } from './TeamWorkRequestForm.js'
 import type { WorkRequestController } from './work-request-controller.js'
-import { useLayoutEffect, useRef, type KeyboardEvent } from 'react'
+import { useLayoutEffect, useRef, useSyncExternalStore, type KeyboardEvent } from 'react'
+import type { PublicChatController } from './public-chat-controller.js'
+import { WorkParticipant, workMemberLabels, type WorkDirectory } from './WorkParticipant.js'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TeamReadProjection as SwarmHostReadProjectionV1 } from './team-read-types.js'
 import type { SwarmReadCaptainMembersV1, SwarmReadTaskDetailV1, SwarmReadTaskDetailV2 } from '../rpc/read-rpc-contract.js'
@@ -15,6 +17,7 @@ type Task = SwarmHostReadProjectionV1['tasks'][number]
 type Attempt = SwarmHostReadProjectionV1['attempts'][number]
 type Translate = TranslateNS<typeof TEAM_DASHBOARD_NS>
 interface Props {
+  readonly chat?: PublicChatController | undefined
   readonly work?: WorkRequestController | undefined
   readonly controller: TeamDashboardController
   readonly state: TeamDashboardState
@@ -57,6 +60,7 @@ const css = `
 [data-swarm-task-panel] .swarm-task-attempt summary { cursor:pointer; font-size:13px; overflow-wrap:anywhere; }
 [data-swarm-task-panel] .swarm-task-link { display:inline-block; padding:3px 0; border:0; background:transparent; color:var(--dsw-alias-state-business-primary); font:inherit; font-size:12px; text-align:left; cursor:pointer; overflow-wrap:anywhere; }
 `
+const absentChat = { subscribe: () => () => {}, getSnapshot: () => undefined }
 
 function currentAttempt(task: Task, data: SwarmHostReadProjectionV1): Attempt | undefined {
   return data.attempts.find(a => a.id === task.currentAttemptId && a.taskId === task.id
@@ -79,6 +83,10 @@ function TaskTime({ value, localeTag, t }: { readonly value: number; readonly lo
 /** Read-only product projection. UI preferences never introduce task, review or event facts. */
 export function TeamTaskPanel(props: Props) {
   const { data, selection, onSelect, onBack, onChange, localeTag, t } = props
+  const chat = props.chat ?? absentChat
+  const chatState = useSyncExternalStore(chat.subscribe, chat.getSnapshot, chat.getSnapshot)
+  const directory = props.state.phase === 'ready' && chatState?.directoryError === undefined ? chatState?.directory : undefined
+  const members = workMemberLabels(directory, data.binding)
   const taskId = selection.detail?.kind === 'task' ? selection.detail.id : undefined
   const read = useTaskDetail(props.controller, props.state, taskId)
   const value = read.phase === 'available' ? read.value : undefined
@@ -104,7 +112,7 @@ export function TeamTaskPanel(props: Props) {
       </div>
       <div id="swarm-task-detail-content" role="tabpanel" aria-labelledby={`swarm-task-${selection.taskView}`} data-swarm-task-detail>
         <DetailReadStatus read={read} t={t} />
-        {selection.taskView === 'trace' ? value === undefined ? null : <TaskTrace {...props} task={task} value={value} /> : <>
+        {selection.taskView === 'trace' ? value === undefined ? null : <TaskTrace {...props} directory={directory} task={task} value={value} /> : <>
           <div className="swarm-task-step"><small>{t('taskPanel.now')}</small>{currentStep(task, value === undefined ? data : { ...data, attempts: value.attempts.entries }, t)}</div>
           <dl className="swarm-task-facts">
             <dt>{t('work.mode')}</dt><dd data-work-mode>{task.assignmentMode === undefined ? t('work.apiAbsent') : t(`work.mode.${task.assignmentMode}`)}</dd>
@@ -119,7 +127,7 @@ export function TeamTaskPanel(props: Props) {
             })}</dd>
           </dl>
           {value === undefined ? null : <>
-            <TaskWorkFacts value={value} localeTag={localeTag} t={t} />
+            <TaskWorkFacts value={value} members={members} localeTag={localeTag} t={t} />
             <section className="swarm-task-record"><h4>{t('taskPanel.description')}</h4><div className="swarm-task-text" data-swarm-task-description><RecordedText value={value.task.description} t={t} /></div></section>
             <section className="swarm-task-record"><h4>{t('taskPanel.criteria')}</h4><div data-swarm-task-criteria><RecordedList values={value.task.acceptanceCriteria} t={t} /></div></section>
             <section className="swarm-task-record"><h4>{t('taskPanel.output')}</h4><div className="swarm-task-text" data-swarm-task-output><RecordedText value={value.task.output} t={t} /></div></section>
@@ -159,11 +167,12 @@ export function TeamTaskPanel(props: Props) {
   </section>
 }
 
-function TaskTrace({ task, value, data, work, selection, onChange, localeTag, t }: Props & { readonly task: Task; readonly value: SwarmReadTaskDetail }) {
+function TaskTrace({ task, value, data, work, directory, selection, onChange, localeTag, t }: Props & { readonly task: Task; readonly value: SwarmReadTaskDetail; readonly directory: WorkDirectory | undefined }) {
   const attempts = value.attempts.entries
+  const members = workMemberLabels(directory, value.binding)
   const current = currentAttempt(task, { ...data, attempts })
   return <section data-swarm-task-trace>
-    {work === undefined ? null : <WorkActivityFeed work={work} teamId={data.binding.teamId} taskId={task.id} t={t} />}
+    {work === undefined ? null : <WorkActivityFeed work={work} teamId={data.binding.teamId} directory={directory} taskId={task.id} t={t} />}
     <p className="swarm-task-note">{t(value.schemaVersion === 1 ? 'taskPanel.traceSource' : 'work.traceSource')}</p>
     <p className="swarm-task-note" data-swarm-retained-scope>{t('taskPanel.retained', { returned: value.attempts.returnedCount, retained: value.attempts.retainedCount, limit: value.attempts.limit })}</p>
     {value.schemaVersion === 1 ? <p className="swarm-task-note">{t('taskPanel.unsavedHistory')}</p> : null}
@@ -184,7 +193,7 @@ function TaskTrace({ task, value, data, work, selection, onChange, localeTag, t 
           <dt>{t('taskPanel.deliveryCheckpoint')}</dt><dd data-swarm-delivery-checkpoint>{attempt.assignmentDeliveredAt === undefined ? t('taskPanel.notRecorded') : <TaskTime value={attempt.assignmentDeliveredAt} localeTag={localeTag} t={t} />}</dd>
           <dt>{t('work.submittedAt')}</dt><dd>{value.schemaVersion === 1 ? t('work.apiAbsent') : <FactTime value={('submittedAt' in attempt ? attempt.submittedAt : undefined) as number | undefined} localeTag={localeTag} t={t} />}</dd>
           <dt>{t('work.reviewedAt')}</dt><dd>{value.schemaVersion === 1 ? t('work.apiAbsent') : <FactTime value={('reviewedAt' in attempt ? attempt.reviewedAt : undefined) as number | undefined} localeTag={localeTag} t={t} />}</dd>
-          <dt>{t('work.reviewedBy')}</dt><dd>{value.schemaVersion === 1 ? t('work.apiAbsent') : String(('reviewedBySessionId' in attempt ? attempt.reviewedBySessionId : undefined) ?? t('taskPanel.notRecorded'))}</dd>
+          <dt>{t('work.reviewedBy')}</dt><dd>{value.schemaVersion === 1 ? t('work.apiAbsent') : <WorkParticipant sessionId={('reviewedBySessionId' in attempt ? attempt.reviewedBySessionId : undefined) as string | undefined} members={members} t={t} />}</dd>
           <dt>{t('work.reviewProvider')}</dt><dd>{value.schemaVersion === 1 ? t('work.apiAbsent') : String(('reviewProvider' in attempt ? attempt.reviewProvider : undefined) ?? t('taskPanel.notRecorded'))}</dd>
           <dt>{t('taskPanel.replaces')}</dt><dd><RecordedText value={attempt.replacesAttemptId} t={t} /></dd>
         </dl>
@@ -216,16 +225,16 @@ type SwarmReadTaskDetail = SwarmReadTaskDetailV1 | SwarmReadTaskDetailV2
 function FactTime({ value, localeTag, t }: { readonly value: number | undefined; readonly localeTag: Props['localeTag']; readonly t: Translate }) {
   return value === undefined ? <>{t('taskPanel.notRecorded')}</> : <TaskTime value={value} localeTag={localeTag} t={t} />
 }
-function TaskWorkFacts({ value, localeTag, t }: { readonly value: SwarmReadTaskDetail; readonly localeTag: Props['localeTag']; readonly t: Translate }) {
+function TaskWorkFacts({ value, members, localeTag, t }: { readonly value: SwarmReadTaskDetail; readonly members: ReturnType<typeof workMemberLabels>; readonly localeTag: Props['localeTag']; readonly t: Translate }) {
   const task = value.schemaVersion === 2 ? value.task : undefined
   const missing = t(value.schemaVersion === 1 ? 'work.apiAbsent' : 'taskPanel.notRecorded')
   return <dl className="swarm-task-facts" data-work-task-facts>
-    <dt>{t('work.creator')}</dt><dd>{task?.createdBySessionId ?? missing}</dd>
-    <dt>{t('work.source')}</dt><dd>{task?.source === undefined ? missing : <span data-work-source={task.source.workRequestId}>{task.source.origin.kind === 'local-operator' ? t('public.operator') : `${t('work.main')} · ${task.source.origin.sessionId}`} · {task.source.workRequestId} · {task.source.itemKey}</span>}</dd>
-    <dt>{t('work.ownerSession')}</dt><dd>{task?.ownerSessionId ?? missing}</dd>
+    <dt>{t('work.creator')}</dt><dd><WorkParticipant sessionId={task?.createdBySessionId} members={members} missing={missing} t={t} /></dd>
+    <dt>{t('work.source')}</dt><dd>{task?.source === undefined ? missing : <span data-work-source={task.source.workRequestId} title={task.source.workRequestId}>{task.source.origin.kind === 'local-operator' ? t('public.operator') : <WorkParticipant sessionId={task.source.origin.sessionId} members={members} main t={t} />} · {task.source.itemKey}</span>}</dd>
+    <dt>{t('work.ownerSession')}</dt><dd><WorkParticipant sessionId={task?.ownerSessionId} members={members} missing={missing} t={t} /></dd>
     <dt>{t('work.submittedAt')}</dt><dd>{task === undefined ? missing : <FactTime value={task.submittedAt} localeTag={localeTag} t={t} />}</dd>
-    <dt>{t('work.submittedBy')}</dt><dd>{task?.submittedBySessionId ?? missing}</dd>
+    <dt>{t('work.submittedBy')}</dt><dd><WorkParticipant sessionId={task?.submittedBySessionId} members={members} missing={missing} t={t} /></dd>
     <dt>{t('work.reviewedAt')}</dt><dd>{task === undefined ? missing : <FactTime value={task.reviewedAt} localeTag={localeTag} t={t} />}</dd>
-    <dt>{t('work.reviewedBy')}</dt><dd>{task?.reviewedBySessionId ?? missing}</dd>
+    <dt>{t('work.reviewedBy')}</dt><dd><WorkParticipant sessionId={task?.reviewedBySessionId} members={members} missing={missing} t={t} /></dd>
   </dl>
 }
