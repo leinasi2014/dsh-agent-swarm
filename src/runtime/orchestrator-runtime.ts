@@ -39,7 +39,6 @@ import { DedicatedCaptainProvisioner } from './dedicated-captain-provisioning.js
 import { RuntimeMutationSurface } from './runtime-mutation-surface.js'
 import { ManagedActivationRecovery } from './managed-activation-recovery.js'
 import { SchedulingAdmission } from './scheduling-admission.js'
-import { publicAppendEligibility } from './public-lineage.js'
 
 export type { ToolExecutionAuthority }
 export type { ReviewProviderInput, ReviewProviderResult, SchedulerDecision, SchedulerSelectionInput, TeamReviewProvider, TeamSchedulerProvider }
@@ -128,10 +127,7 @@ export class AgentSwarmRuntime extends Service {
       scopeOf: agent => this.scopeOf(agent),
       accountAgentUsage: (scope, teamId, agent) => this.usage.accountAgentUsage(scope, teamId, agent),
       publicTeam: async (scope, teamId) => (await this.listTeamAggregates(scope)).find(team => team.id === teamId),
-      publicRoot: async (parent, scope) => {
-        const root = await this.activationRecovery.ensurePublicRoot(parent, scope)
-        return root
-      },
+      publicRoot: (parent, scope) => this.activationRecovery.ensurePublicRoot(parent, scope),
     })
     this.memberProfiles = new MemberProfileReader(ctx)
     this.schedulingPass = new SchedulingPass(ctx, {
@@ -434,24 +430,7 @@ export class AgentSwarmRuntime extends Service {
 
   /** Actual tool execution is the sole authority for an Agent public reply. */
   async publicReply(exec: ToolExecutionAuthority, requestId: string, replyTo: string, text: string) {
-    await this.ensureReady()
-    this.assertOpen()
-    const agent = requireAgent(exec)
-    const scope = this.scopeOf(agent)
-    const exact = () => {
-      if (this.ctx.agents.get(agent.id) !== agent || this.ctx.sessions.get(agent.id) !== agent.session || this.scopeOf(agent) !== scope) {
-        throw new TeamDomainError('Public reply requires the exact live executing Session', 'TEAM_AGENT_REQUIRED')
-      }
-    }
-    exact()
-    const membership = await this.domain.requireMembership(scope, agent.id)
-    if ((await publicAppendEligibility(this.ctx, scope, membership.team, exec.signal)).state !== 'available') {
-      throw new TeamDomainError('Public reply requires a managed Team with official lineage', 'TEAM_PUBLIC_UNSUPPORTED')
-    }
-    exact()
-    exec.signal.throwIfAborted()
-    return await this.domain.appendPublicMessage(scope, membership.team.id, { author: { kind: 'agent', sessionId: agent.id },
-      requestId, replyTo, text, expectedCaptainSessionId: membership.team.captainSessionId, expectedTeamRevision: membership.team.revision })
+    return await this.mutations.publicReply(exec, requestId, replyTo, text)
   }
 
   setCommunication(exec: ToolExecutionAuthority, revision: number, intensity: TeamCommunicationIntensity | undefined) { return this.mutations.setCommunication(exec, revision, intensity) }
@@ -504,20 +483,8 @@ export class AgentSwarmRuntime extends Service {
     return (this.scheduling.request(scope, membership.team.id, captain), budget) // §7 budget-release event (M4-3/#129): the recovery pass of held/postponed work
   }
 
-  async addMemory(
-    exec: ToolExecutionAuthority,
-    category: 'decision' | 'lesson' | 'member' | 'context',
-    content: string,
-    evidenceRefs: readonly string[],
-  ) {
-    await this.ensureReady()
-    this.assertOpen()
-    const actor = requireAgent(exec)
-    const scope = this.scopeOf(actor)
-    const membership = await this.domain.requireMembership(scope, actor.id)
-    return await this.domain.addMemory(
-      scope, membership.team.id, actor.id, category, content, evidenceRefs,
-    )
+  async addMemory(exec: ToolExecutionAuthority, category: 'decision' | 'lesson' | 'member' | 'context', content: string, evidenceRefs: readonly string[]) {
+    return await this.mutations.addMemory(exec, category, content, evidenceRefs)
   }
 
   observeAgentIdle(agent: Agent): void {

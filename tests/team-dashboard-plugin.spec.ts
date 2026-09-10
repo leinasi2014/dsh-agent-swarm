@@ -41,7 +41,10 @@ describe('Team dashboard client composition', () => {
     const sidebar = registrations[0]?.inject?.() as { controller: unknown }
     const lineage = registrations[1]?.inject?.() as { hooks: { team: unknown } }
     expect(lineage.hooks.team).toBe(sidebar.controller)
-    expect(layout.registerPanelPresentation).toHaveBeenCalledExactlyOnceWith('swarm.group', { rightSidebar: 'current-session' })
+    expect(layout.registerPanelPresentation).toHaveBeenCalledExactlyOnceWith('swarm.group', {
+      rightSidebar: 'current-session',
+      columns: { sidebar: { defaultWidth: 166, minWidth: 166 }, rightbar: { defaultWidth: 320 } },
+    })
     expect(injected).not.toContain('details')
     expect(tabTypes).toHaveLength(1)
     expect(tabTypes[0]).toMatchObject({ id: 'dsh-agent-swarm/team', kind: 'swarm-team' })

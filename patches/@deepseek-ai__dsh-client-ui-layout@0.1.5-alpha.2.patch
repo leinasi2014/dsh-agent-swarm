@@ -1,27 +1,32 @@
 diff --git a/lib/client.js b/lib/client.js
-index 282f8e7ff620c5e3187c7326993e967d15bc25e4..b7abcdec983daa4bcaa263b653dff1193ff1ccc1 100644
+index 282f8e7ff620c5e3187c7326993e967d15bc25e4..e3b29ffad4853de81a823114c93bdefee37178b0 100644
 --- a/lib/client.js
 +++ b/lib/client.js
-@@ -4,8 +4,8 @@ window.__ModuleLoader__.load({
- 		var module = { exports: {} };
- 		var exports = module.exports;
- 		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
--		let react_jsx_runtime = require("react/jsx-runtime");
- 		let react = require("react");
-+		let react_jsx_runtime = require("react/jsx-runtime");
- 		let _deepseek_ai_dsh_client_store = require("@deepseek-ai/dsh-client-store");
- 		/** Viewport width below which the sidebar auto-collapses to the rail (deepsuite
- 		* LG breakpoint); a manual toggle below it re-expands over the squeezed center
-@@ -44,7 +44,7 @@ window.__ModuleLoader__.load({
- 			};
- 		}
- 		//#endregion
--		//#region lib/types/client/DocumentTitle.js
-+		//#region src/client/DocumentTitle.tsx
- 		/** Browser title selection follows the active main panel without subscribing the frame. */
+@@ -13,8 +13,6 @@ window.__ModuleLoader__.load({
+ 		const SIDEBAR_AUTO_COLLAPSE = 1024;
+ 		/** Maximum normal right panel width as a fraction of the frame. */
+ 		const RIGHTBAR_MAX_RATIO = .7;
+-		/** First-open right panel preference as a fraction of the frame. */
+-		const RIGHTBAR_DEFAULT_RATIO = .45;
  		/**
- 		* Project the selected durable session title into the browser title and
-@@ -67,8 +67,8 @@ window.__ModuleLoader__.load({
+ 		* Clamp a panel width into its contract range.
+ 		* @param px - requested width.
+@@ -30,11 +28,12 @@ window.__ModuleLoader__.load({
+ 		* @param viewport - available frame width in px.
+ 		* @param sidebar - sidebar width preference in px (0 = closed).
+ 		* @param rightbar - requested right panel width in px (0 = no track).
++		* @param sidebarMin - active declaration's resolved drag floor, or the shell default.
+ 		* @returns actual widths after shrinking or removing the right track; only
+ 		*   without that track may the center fall below its minimum, down to zero.
+ 		*/
+-		function computeColumns(viewport, sidebar, rightbar) {
+-			const s = sidebar === 0 ? 56 : clampWidth(sidebar, 264, 420);
++		function computeColumns(viewport, sidebar, rightbar, sidebarMin = 264) {
++			const s = sidebar === 0 ? 56 : clampWidth(sidebar, sidebarMin, 420);
+ 			const available = viewport - s - 400;
+ 			const r = rightbar === 0 || available < 300 ? 0 : Math.min(available, clampWidth(rightbar, 300, viewport * RIGHTBAR_MAX_RATIO));
+ 			return {
+@@ -67,8 +66,8 @@ window.__ModuleLoader__.load({
  			return null;
  		}
  		//#endregion
@@ -32,7 +37,7 @@ index 282f8e7ff620c5e3187c7326993e967d15bc25e4..b7abcdec983daa4bcaa263b653dff119
  		const tagId = "@deepseek-ai/dsh-client-ui-layout/AppFrame.module.css";
  		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
  			const tag = document.createElement("style");
-@@ -78,15 +78,15 @@ window.__ModuleLoader__.load({
+@@ -78,12 +77,12 @@ window.__ModuleLoader__.load({
  			document.head.appendChild(tag);
  		}
  		var AppFrame_module_css_default = {
@@ -50,39 +55,57 @@ index 282f8e7ff620c5e3187c7326993e967d15bc25e4..b7abcdec983daa4bcaa263b653dff119
 +			"sidebarCol": "FVMiGq_sidebarCol"
  		};
  		//#endregion
--		//#region lib/types/client/AppFrame.js
-+		//#region src/client/AppFrame.tsx
- 		/**
- 		* Three-column shell frame, registered into the built-in 'root' slot (the web
- 		* shell renders only 'root'). Owns the grid tracks (sidebar | center |
-@@ -105,7 +105,7 @@ window.__ModuleLoader__.load({
+ 		//#region lib/types/client/AppFrame.js
+@@ -131,6 +130,7 @@ window.__ModuleLoader__.load({
+ 		* `side` keys the hover-reveal CSS to the owning column.
  		*/
- 		/** Center column grid item (session-body building block). */
- 		function CenterColumn(props) {
--			return (0, react_jsx_runtime.jsx)("div", {
-+			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
- 				className: AppFrame_module_css_default.centerCol,
- 				children: props.children
- 			});
-@@ -120,7 +120,7 @@ window.__ModuleLoader__.load({
- 		* moves, so it can hang over the centre when there is no track.
- 		*/
- 		function RightbarColumn(props) {
--			return (0, react_jsx_runtime.jsx)("div", {
-+			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
- 				className: AppFrame_module_css_default.rightbarCol,
- 				"data-rightbar-col": true,
- 				children: props.children
-@@ -188,7 +188,7 @@ window.__ModuleLoader__.load({
- 			const onPointerCancel = (0, react.useCallback)((e) => {
- 				if (capture.current?.id === e.pointerId) endDrag();
- 			}, [endDrag]);
--			return (0, react_jsx_runtime.jsx)("div", {
-+			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
- 				className: AppFrame_module_css_default.handle,
- 				style: { left: props.left },
- 				"data-side": props.side,
-@@ -260,7 +260,7 @@ window.__ModuleLoader__.load({
+ 		function DragHandle(props) {
++			const panelId = props.usePanelInfo((info) => info.activePanelId);
+ 			const [dragging, setDragging] = (0, react.useState)(false);
+ 			const origin = (0, react.useRef)(0);
+ 			const latest = (0, react.useRef)(0);
+@@ -158,7 +158,11 @@ window.__ModuleLoader__.load({
+ 				setDragging(false);
+ 				callbacks.current.onEnd();
+ 			}, []);
+-			(0, react.useEffect)(() => endDrag, [endDrag]);
++			(0, react.useLayoutEffect)(() => endDrag, [
++				endDrag,
++				panelId,
++				props.profileIdentity
++			]);
+ 			const onPointerDown = (0, react.useCallback)((e) => {
+ 				if (e.button !== 0 || capture.current !== null) return;
+ 				e.preventDefault();
+@@ -203,6 +207,10 @@ window.__ModuleLoader__.load({
+ 		/** The three-column frame (see module doc). */
+ 		function AppFrame({ useStore, useSessions, usePanelInfo, actions, renderSlot, t }) {
+ 			const layoutInfo = useStore((state) => state.layoutInfo);
++			const profile = useStore((state) => state.panelInfo.activePanelId === null || !Object.hasOwn(state.columnProfiles, state.panelInfo.activePanelId) ? void 0 : state.columnProfiles[state.panelInfo.activePanelId]);
++			const preferences = profile ?? layoutInfo;
++			const sidebarDefault = profile?.sidebarDefault ?? 280;
++			const sidebarMin = profile?.sidebarMin ?? 264;
+ 			const frameRef = (0, react.useRef)(null);
+ 			const viewport = layoutInfo.viewportWidth;
+ 			(0, react.useLayoutEffect)(() => {
+@@ -231,11 +239,11 @@ window.__ModuleLoader__.load({
+ 				};
+ 			}, [actions]);
+ 			const narrow = viewport < SIDEBAR_AUTO_COLLAPSE;
+-			const sidebarCollapsed = narrow ? !layoutInfo.narrowExpanded : layoutInfo.sidebar === 0;
+-			const sidebarPreference = sidebarCollapsed ? 0 : layoutInfo.sidebar === 0 ? 280 : layoutInfo.sidebar;
+-			const rightbarPreference = layoutInfo.rightbar ?? viewport * .45;
+-			const normal = computeColumns(viewport, !layoutInfo.rightbarShown && narrow ? 0 : sidebarPreference, rightbarPreference);
+-			const cols = computeColumns(viewport, sidebarPreference, layoutInfo.rightbarTrack ? rightbarPreference : 0);
++			const sidebarCollapsed = narrow ? !preferences.narrowExpanded : preferences.sidebar === 0;
++			const sidebarPreference = sidebarCollapsed ? 0 : preferences.sidebar === 0 ? sidebarDefault : preferences.sidebar;
++			const rightbarPreference = preferences.rightbar ?? profile?.rightbarDefault ?? viewport * .45;
++			const normal = computeColumns(viewport, !layoutInfo.rightbarShown && narrow ? 0 : sidebarPreference, rightbarPreference, sidebarMin);
++			const cols = computeColumns(viewport, sidebarPreference, layoutInfo.rightbarTrack ? rightbarPreference : 0, sidebarMin);
+ 			const colsRef = (0, react.useRef)(cols);
+ 			colsRef.current = cols;
+ 			const rightbarWidth = (0, react.useRef)(normal.rightbar);
+@@ -260,7 +268,7 @@ window.__ModuleLoader__.load({
  			const onRightbarDrag = (0, react.useCallback)((dx) => {
  				actions.setRightbar(rightbarBase.current - dx);
  			}, [actions]);
@@ -91,79 +114,53 @@ index 282f8e7ff620c5e3187c7326993e967d15bc25e4..b7abcdec983daa4bcaa263b653dff119
  			const sidebar = (0, react.useMemo)(() => renderSlot("sidebar", {
  				collapsed: sidebarCollapsed,
  				width: cols.sidebar
-@@ -269,12 +269,12 @@ window.__ModuleLoader__.load({
- 				sidebarCollapsed,
- 				cols.sidebar
- 			]);
--			const main = (0, react.useMemo)(() => (0, react_jsx_runtime.jsx)(MainPanel, {
-+			const main = (0, react.useMemo)(() => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(MainPanel, {
- 				usePanelInfo,
- 				renderSlot
- 			}), [usePanelInfo, renderSlot]);
- 			const overlays = (0, react.useMemo)(() => renderSlot("shell.overlay", {}), [renderSlot]);
--			return (0, react_jsx_runtime.jsxs)("div", {
-+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
- 				ref: frameRef,
- 				className: AppFrame_module_css_default.frame,
- 				style: { gridTemplateColumns: `${cols.sidebar}px minmax(0, 1fr) ${cols.rightbar}px` },
-@@ -284,33 +284,33 @@ window.__ModuleLoader__.load({
- 				"data-rightbar-instant": layoutInfo.rightbarInstant || void 0,
- 				"data-dragging": dragging || void 0,
- 				children: [
--					(0, react_jsx_runtime.jsx)(DocumentTitle, {
-+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)(DocumentTitle, {
- 						productTitle,
- 						useSessions,
- 						usePanelInfo
- 					}),
--					(0, react_jsx_runtime.jsx)("div", {
-+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
- 						className: AppFrame_module_css_default.sidebarCol,
- 						children: sidebar
- 					}),
--					(0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [(0, react_jsx_runtime.jsx)(CenterColumn, { children: main }), (0, react_jsx_runtime.jsx)(RightbarColumn, { children: renderSlot("rightbar", {
-+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(CenterColumn, { children: main }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(RightbarColumn, { children: renderSlot("rightbar", {
- 						width: normal.rightbar,
- 						viewportWidth: viewport,
- 						canShow: normal.rightbar > 0
- 					}) })] }),
--					(0, react_jsx_runtime.jsx)("div", {
-+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
- 						className: AppFrame_module_css_default.overlayLayer,
- 						"data-shell-overlay": true,
+@@ -304,6 +312,8 @@ window.__ModuleLoader__.load({
  						children: overlays
  					}),
--					!sidebarCollapsed && (0, react_jsx_runtime.jsx)(DragHandle, {
-+					!sidebarCollapsed && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(DragHandle, {
+ 					!sidebarCollapsed && (0, react_jsx_runtime.jsx)(DragHandle, {
++						usePanelInfo,
++						profileIdentity: profile?.identity ?? 0,
  						side: "sidebar",
  						left: cols.sidebar,
  						onStart: onSidebarStart,
- 						onDrag: onSidebarDrag,
+@@ -311,6 +321,8 @@ window.__ModuleLoader__.load({
  						onEnd: onDragEnd
  					}),
--					layoutInfo.rightbarShown && !layoutInfo.rightbarFullscreen && normal.rightbar > 0 && (0, react_jsx_runtime.jsx)(DragHandle, {
-+					layoutInfo.rightbarShown && !layoutInfo.rightbarFullscreen && normal.rightbar > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(DragHandle, {
+ 					layoutInfo.rightbarShown && !layoutInfo.rightbarFullscreen && normal.rightbar > 0 && (0, react_jsx_runtime.jsx)(DragHandle, {
++						usePanelInfo,
++						profileIdentity: profile?.identity ?? 0,
  						side: "rightbar",
  						left: viewport - normal.rightbar,
  						onStart: onRightbarStart,
-@@ -321,7 +321,7 @@ window.__ModuleLoader__.load({
- 			});
- 		}
- 		//#endregion
--		//#region lib/types/client/stores.js
-+		//#region src/client/stores.ts
- 		/**
+@@ -326,11 +338,16 @@ window.__ModuleLoader__.load({
  		* Root-owned frame measurement, panel preferences, and presentation reports.
  		* The registration supplies a fresh store and binds its actions to ctx.layout.
-@@ -339,6 +339,7 @@ window.__ModuleLoader__.load({
+ 		*/
++		function activeProfile(state) {
++			const id = state.panelInfo.activePanelId;
++			return id === null || !Object.hasOwn(state.columnProfiles, id) ? void 0 : state.columnProfiles[id];
++		}
+ 		/**
+ 		* Create the layout panel store handle. For the sidebar the preference IS the
+ 		* width, so closing it forgets its drag width — reopening restores the contract
+-		* default. The right panel initializes at 45% of the frame on first opening
+-		* and keeps that px preference across resizes and close. Drag writes clamp to
++		* default. The base right preference starts at 45% of the frame; a declared
++		* profile uses its own first-open default. Both retain px preferences across
++		* resizes and close. Drag writes clamp to
+ 		* the current frame's range. Narrow sidebar toggles change only the expansion
+ 		* override; opening the right panel clears that override.
+ 		* @returns the store handle (spec + type + identity + factory in one).
+@@ -339,6 +356,8 @@ window.__ModuleLoader__.load({
  			return (0, _deepseek_ai_dsh_client_store.defineStore)({
  				init: () => ({
  					panelInfo: { activePanelId: null },
 +					sessionSidebarPanels: [],
++					columnProfiles: {},
  					layoutInfo: {
  						sidebar: 280,
  						viewportWidth: window.innerWidth,
-@@ -353,9 +354,19 @@ window.__ModuleLoader__.load({
+@@ -353,33 +372,76 @@ window.__ModuleLoader__.load({
  				actions: {
  					selectPanel: (d, panelId) => {
  						d.panelInfo.activePanelId = panelId;
@@ -177,20 +174,78 @@ index 282f8e7ff620c5e3187c7326993e967d15bc25e4..b7abcdec983daa4bcaa263b653dff119
 +							delete d.panelInfo.rightSidebar;
 +						}
 +					},
-+					setSessionSidebarPanels: (d, panelIds) => {
++					setPanelPresentations: (d, entries) => {
++						const panelIds = entries.map((entry) => entry.panelId);
 +						d.sessionSidebarPanels = panelIds;
 +						if (d.panelInfo.activePanelId !== null && panelIds.includes(d.panelInfo.activePanelId)) d.panelInfo.rightSidebar = "current-session";
 +						else delete d.panelInfo.rightSidebar;
++						const profiles = [];
++						for (const entry of entries) {
++							const columns = entry.presentation.columns;
++							if (columns === void 0) continue;
++							const previous = Object.hasOwn(d.columnProfiles, entry.panelId) ? d.columnProfiles[entry.panelId] : void 0;
++							if (previous?.identity === entry.identity) {
++								profiles.push([entry.panelId, previous]);
++								continue;
++							}
++							const sidebarMin = clampWidth(columns.sidebar.minWidth, 56, 420);
++							const sidebarDefault = clampWidth(columns.sidebar.defaultWidth, sidebarMin, 420);
++							profiles.push([entry.panelId, {
++								identity: entry.identity,
++								sidebar: sidebarDefault,
++								sidebarMin,
++								sidebarDefault,
++								rightbar: null,
++								rightbarDefault: columns.rightbar.defaultWidth,
++								narrowExpanded: false
++							}]);
++						}
++						d.columnProfiles = Object.fromEntries(profiles);
  					},
  					setSidebar: (d, px) => {
  						d.layoutInfo.rightbarInstant = false;
-@@ -394,19 +405,22 @@ window.__ModuleLoader__.load({
- 			});
- 		}
- 		//#endregion
--		//#region lib/types/client/service.js
-+		//#region src/client/service.ts
- 		/** Cross-plugin panel-action face (ctx.layout). */
+-						d.layoutInfo.sidebar = clampWidth(px, 264, 420);
++						const profile = activeProfile(d);
++						const preferences = profile ?? d.layoutInfo;
++						preferences.sidebar = clampWidth(px, profile?.sidebarMin ?? 264, 420);
+ 					},
+ 					toggleSidebar: (d) => {
+ 						d.layoutInfo.rightbarInstant = false;
+-						if (d.layoutInfo.viewportWidth < 1024) d.layoutInfo.narrowExpanded = !d.layoutInfo.narrowExpanded;
+-						else d.layoutInfo.sidebar = d.layoutInfo.sidebar === 0 ? 280 : 0;
++						const profile = activeProfile(d);
++						const preferences = profile ?? d.layoutInfo;
++						if (d.layoutInfo.viewportWidth < 1024) preferences.narrowExpanded = !preferences.narrowExpanded;
++						else preferences.sidebar = preferences.sidebar === 0 ? profile?.sidebarDefault ?? 280 : 0;
+ 					},
+ 					setViewportWidth: (d, width) => {
+ 						if (d.layoutInfo.viewportWidth === width) return;
+ 						d.layoutInfo.rightbarInstant = false;
+-						if (d.layoutInfo.viewportWidth < 1024 !== width < 1024) d.layoutInfo.narrowExpanded = false;
++						if (d.layoutInfo.viewportWidth < 1024 !== width < 1024) {
++							d.layoutInfo.narrowExpanded = false;
++							for (const profile of Object.values(d.columnProfiles)) profile.narrowExpanded = false;
++						}
+ 						d.layoutInfo.viewportWidth = width;
+ 					},
+ 					setRightbar: (d, px) => {
+ 						d.layoutInfo.rightbarInstant = false;
+-						d.layoutInfo.rightbar = clampWidth(px, 300, Math.max(300, d.layoutInfo.viewportWidth * RIGHTBAR_MAX_RATIO));
++						const preferences = activeProfile(d) ?? d.layoutInfo;
++						preferences.rightbar = clampWidth(px, 300, Math.max(300, d.layoutInfo.viewportWidth * RIGHTBAR_MAX_RATIO));
+ 					},
+ 					openRightbar: (d, track, fullscreen) => {
+ 						if (!d.layoutInfo.rightbarShown || d.layoutInfo.rightbarTrack !== track || d.layoutInfo.rightbarFullscreen !== fullscreen) d.layoutInfo.rightbarInstant = d.layoutInfo.rightbarFullscreen && !fullscreen;
+-						if (!d.layoutInfo.rightbarShown && d.layoutInfo.viewportWidth < 1024) d.layoutInfo.narrowExpanded = false;
+-						d.layoutInfo.rightbar ??= Math.max(300, Math.round(d.layoutInfo.viewportWidth * RIGHTBAR_DEFAULT_RATIO));
++						const profile = activeProfile(d);
++						const preferences = profile ?? d.layoutInfo;
++						if (!d.layoutInfo.rightbarShown && d.layoutInfo.viewportWidth < 1024) preferences.narrowExpanded = false;
++						preferences.rightbar ??= clampWidth(profile?.rightbarDefault ?? d.layoutInfo.viewportWidth * .45, 300, Math.max(300, d.layoutInfo.viewportWidth * RIGHTBAR_MAX_RATIO));
+ 						d.layoutInfo.rightbarShown = true;
+ 						d.layoutInfo.rightbarTrack = track;
+ 						d.layoutInfo.rightbarFullscreen = fullscreen;
+@@ -399,14 +461,17 @@ window.__ModuleLoader__.load({
  		var LayoutController = class {
  			panels;
  			hasMainPanel;
@@ -209,7 +264,7 @@ index 282f8e7ff620c5e3187c7326993e967d15bc25e4..b7abcdec983daa4bcaa263b653dff119
  			}
  			/** Select a global panel or return to the Conversation. */
  			selectPanel(panelId) {
-@@ -414,6 +428,10 @@ window.__ModuleLoader__.load({
+@@ -414,6 +479,10 @@ window.__ModuleLoader__.load({
  				this.navigation.abort();
  				this.panels.selectPanel(panelId);
  			}
@@ -220,33 +275,25 @@ index 282f8e7ff620c5e3187c7326993e967d15bc25e4..b7abcdec983daa4bcaa263b653dff119
  			/** @returns the new pending navigation's cancellation signal. */
  			beginNavigation() {
  				this.navigation.abort();
-@@ -438,7 +456,7 @@ window.__ModuleLoader__.load({
+@@ -424,7 +493,7 @@ window.__ModuleLoader__.load({
+ 			dispose() {
+ 				this.navigation.abort();
  			}
- 		};
- 		//#endregion
--		//#region lib/types/client/theme-presenter.js
-+		//#region src/client/theme-presenter.ts
- 		/** Body attribute selecting the dark base palette in the token stylesheets. */
- 		const DARK_ATTRIBUTE = "data-ds-dark-theme";
- 		/** Body variable carrying the user's content font size in px. */
-@@ -491,7 +509,7 @@ window.__ModuleLoader__.load({
+-			/** Toggle the sidebar panel (closed ⟷ contract default width). */
++			/** Toggle the sidebar panel using the active declaration or base default. */
+ 			toggleSidebar() {
+ 				this.panels.toggleSidebar();
  			}
- 		};
- 		//#endregion
--		//#region lib/types/client/index.js
-+		//#region src/client/index.ts
- 		/** Required services (cordis fiber inject — the loader passes all module exports as an object plugin). */
- 		const inject = [
- 			"slots",
-@@ -512,10 +530,40 @@ window.__ModuleLoader__.load({
+@@ -512,10 +581,46 @@ window.__ModuleLoader__.load({
  					...handle,
  					create: () => instance
  				};
 -				const layout = new LayoutController(instance.actions, (id) => ctx.slots.entries("main").some((entry) => entry.options.key === id));
 +				let active = true;
++				let presentationIdentity = 0;
 +				const presentations = /* @__PURE__ */ new Map();
 +				const publishPresentations = () => {
-+					instance.actions.setSessionSidebarPanels([...presentations.keys()]);
++					instance.actions.setPanelPresentations([...presentations.values()]);
 +				};
  				const retainMainPanels = () => {
 -					instance.actions.retainMainPanels(ctx.slots.entries("main").flatMap((entry) => entry.options.key === void 0 ? [] : [entry.options.key]));
@@ -262,14 +309,19 @@ index 282f8e7ff620c5e3187c7326993e967d15bc25e4..b7abcdec983daa4bcaa263b653dff119
 +				const layout = new LayoutController(instance.actions, (id) => {
 +					retainMainPanels();
 +					return ctx.slots.entriesOfSlot("main").some((entry) => entry.options.key === id);
-+				}, (id) => {
++				}, (id, presentation) => {
 +					if (!active) throw new Error("layout.registerPanelPresentation: layout is disposed");
 +					if (id === "conversation") throw new Error("layout.registerPanelPresentation: conversation is reserved");
 +					retainMainPanels();
 +					const entry = ctx.slots.entriesOfSlot("main").find((candidate) => candidate.options.key === id);
 +					if (entry === void 0) throw new Error(`layout.registerPanelPresentation: main panel "${id}" is not registered`);
 +					if (presentations.has(id)) throw new Error(`layout.registerPanelPresentation: main panel "${id}" is already registered`);
-+					const registration = { entry };
++					const registration = {
++						entry,
++						panelId: id,
++						identity: ++presentationIdentity,
++						presentation
++					};
 +					presentations.set(id, registration);
 +					publishPresentations();
 +					return () => {
@@ -281,7 +333,7 @@ index 282f8e7ff620c5e3187c7326993e967d15bc25e4..b7abcdec983daa4bcaa263b653dff119
  				const disposePanelInfo = ctx.slots.provideRoot({ hooks: { panelInfo: {
  					getSnapshot: () => instance.getSnapshot().panelInfo,
  					subscribe: (listener) => instance.subscribe(listener)
-@@ -547,6 +595,9 @@ window.__ModuleLoader__.load({
+@@ -547,6 +652,9 @@ window.__ModuleLoader__.load({
  				const disposePanels = ctx.slots.subscribe("main", retainMainPanels);
  				retainMainPanels();
  				return () => {
@@ -291,6 +343,22 @@ index 282f8e7ff620c5e3187c7326993e967d15bc25e4..b7abcdec983daa4bcaa263b653dff119
  					layout.dispose();
  					disposePanels();
  					disposeRegistration();
+diff --git a/lib/types/client/columns.d.ts b/lib/types/client/columns.d.ts
+index 5b21a817407fb5fe0bb7ca0a4a1238bd88f006d1..c230fe15d5fb38f7c1e25dd1cf5e28bc6c61955b 100644
+--- a/lib/types/client/columns.d.ts
++++ b/lib/types/client/columns.d.ts
+@@ -42,8 +42,9 @@ export declare function clampWidth(px: number, min: number, max: number): number
+  * @param viewport - available frame width in px.
+  * @param sidebar - sidebar width preference in px (0 = closed).
+  * @param rightbar - requested right panel width in px (0 = no track).
++ * @param sidebarMin - active declaration's resolved drag floor, or the shell default.
+  * @returns actual widths after shrinking or removing the right track; only
+  *   without that track may the center fall below its minimum, down to zero.
+  */
+-export declare function computeColumns(viewport: number, sidebar: number, rightbar: number): Columns;
++export declare function computeColumns(viewport: number, sidebar: number, rightbar: number, sidebarMin?: number): Columns;
+ //# sourceMappingURL=columns.d.ts.map
+\ No newline at end of file
 diff --git a/lib/types/client/index.d.ts b/lib/types/client/index.d.ts
 index f9a086b7482f3363efe4ef12e74de5d0dae0769b..cd7caf9a61f9f6a980a6f2c0354a1786b4c98ca6 100644
 --- a/lib/types/client/index.d.ts
@@ -305,10 +373,10 @@ index f9a086b7482f3363efe4ef12e74de5d0dae0769b..cd7caf9a61f9f6a980a6f2c0354a1786
  export type UsePanelInfo = SnapshotSelectorHook<PanelInfo>;
  declare module '@deepseek-ai/cordis' {
 diff --git a/lib/types/client/service.d.ts b/lib/types/client/service.d.ts
-index ece8fb6aad2fcd978072a7a395d3bd925ddc5b85..d8e6138229b77f06edc5d7ff8dee56a94227872f 100644
+index ece8fb6aad2fcd978072a7a395d3bd925ddc5b85..8044f09226dd764ea1c4b87b4677078202b6cfc0 100644
 --- a/lib/types/client/service.d.ts
 +++ b/lib/types/client/service.d.ts
-@@ -13,10 +13,17 @@ import type { Branded } from '@deepseek-ai/dsh-brand';
+@@ -13,10 +13,32 @@ import type { Branded } from '@deepseek-ai/dsh-brand';
  import type { createLayoutStore } from './stores.ts';
  /** Identity shared by a sidebar panel entry and its main-slot occupant. */
  export type MainPanelId = Branded<'MainPanelId'>;
@@ -316,6 +384,21 @@ index ece8fb6aad2fcd978072a7a395d3bd925ddc5b85..d8e6138229b77f06edc5d7ff8dee56a9
 +export interface MainPanelPresentation {
 +    /** Permit the existing right Sidebar bound to the current real Session. */
 +    readonly rightSidebar: 'current-session';
++    /** Independent transient column preferences owned by this main registration. */
++    readonly columns?: {
++        /** Expanded left column: defaults and drag floor remain within the shell's rail-to-maximum range. */
++        readonly sidebar: {
++            /** Initial expanded width in px; reopening a collapsed wide sidebar also uses this width. */
++            readonly defaultWidth: number;
++            /** Drag and solve floor in px, clamped between the collapsed rail and the shell maximum. */
++            readonly minWidth: number;
++        };
++        /** Normal right-column preference; its existing minimum, viewport maximum and center concession remain in force. */
++        readonly rightbar: {
++            /** First-open width in px; later user drags survive panel switches within this declaration lifetime. */
++            readonly defaultWidth: number;
++        };
++    };
 +}
  /** Root-scoped navigation state exposed to panel-aware components. */
  export interface PanelInfo {
@@ -326,7 +409,7 @@ index ece8fb6aad2fcd978072a7a395d3bd925ddc5b85..d8e6138229b77f06edc5d7ff8dee56a9
  }
  /** The layout store's bound action set (framework-baked, draft params peeled). */
  export type PanelActions = BoundActions<ReturnType<typeof createLayoutStore>>;
-@@ -28,6 +35,16 @@ export interface ILayout {
+@@ -28,12 +50,23 @@ export interface ILayout {
       * @throws if the selected main key is not registered; preserves the current selection.
       */
      selectPanel(panelId: MainPanelId | null): void;
@@ -335,7 +418,8 @@ index ece8fb6aad2fcd978072a7a395d3bd925ddc5b85..d8e6138229b77f06edc5d7ff8dee56a9
 +     * Retain the returned disposer in the caller's ctx.effect. Removing or replacing
 +     * the main entry revokes the declaration; re-register it for a new entry lifetime.
 +     * @param panelId - registered global main key; `conversation` is reserved.
-+     * @param presentation - permit the existing current-Session Sidebar without opening it or changing Session selection.
++     * @param presentation - permit the existing current-Session Sidebar and optionally
++     * own independent column preferences, without opening it or changing Session selection.
 +     * @returns idempotent disposer that immediately revokes this declaration.
 +     * @throws for an absent/reserved key, a duplicate declaration, or a disposed layout.
 +     */
@@ -343,7 +427,14 @@ index ece8fb6aad2fcd978072a7a395d3bd925ddc5b85..d8e6138229b77f06edc5d7ff8dee56a9
      /**
       * Start an asynchronous navigation, superseding any earlier pending navigation.
       * @returns a signal aborted by the next navigation or layout disposal; check it before committing UI state.
-@@ -50,14 +67,18 @@ export interface ILayout {
+      */
+     beginNavigation(): AbortSignal;
+-    /** Toggle the sidebar panel (closed ⟷ contract default width). */
++    /** Toggle the sidebar panel (closed ⟷ active declaration or contract default width). */
+     toggleSidebar(): void;
+     /**
+      * Report the right panel's presentation without changing its expanded state.
+@@ -50,19 +83,23 @@ export interface ILayout {
  export declare class LayoutController implements ILayout {
      private readonly panels;
      private readonly hasMainPanel;
@@ -363,25 +454,71 @@ index ece8fb6aad2fcd978072a7a395d3bd925ddc5b85..d8e6138229b77f06edc5d7ff8dee56a9
      /** @returns the new pending navigation's cancellation signal. */
      beginNavigation(): AbortSignal;
      /** Invalidate pending navigations when the layout owner is unloaded. */
+     dispose(): void;
+-    /** Toggle the sidebar panel (closed ⟷ contract default width). */
++    /** Toggle the sidebar panel using the active declaration or base default. */
+     toggleSidebar(): void;
+     /** Report the right panel's track and fullscreen presentation. */
+     openRightbar(track: boolean, fullscreen: boolean): void;
 diff --git a/lib/types/client/stores.d.ts b/lib/types/client/stores.d.ts
-index 33d1dd66682b4217db234c7a96a5dbdbcd79efad..b2dc84196a25ce92d5b87c86e66386adc47205b0 100644
+index 33d1dd66682b4217db234c7a96a5dbdbcd79efad..5686c5ac0e684f9253789484d6c84feee81f4640 100644
 --- a/lib/types/client/stores.d.ts
 +++ b/lib/types/client/stores.d.ts
-@@ -12,7 +12,9 @@ type LayoutState = {
+@@ -3,7 +3,7 @@
+  * The registration supplies a fresh store and binds its actions to ctx.layout.
+  */
+ import { type EngineStoreHandle } from '@deepseek-ai/dsh-client-store';
+-import type { MainPanelId } from './service.ts';
++import type { MainPanelId, MainPanelPresentation } from './service.ts';
+ /**
+  * Transient layout preferences. Responsive concessions never rewrite widths;
+  * the right panel's expanded state belongs to its occupant.
+@@ -12,9 +12,28 @@ type LayoutState = {
      panelInfo: {
          /** Null selects the Conversation; global panels keep the current Session intact. */
          activePanelId: MainPanelId | null;
 +        rightSidebar?: 'current-session';
      };
 +    sessionSidebarPanels: MainPanelId[];
++    columnProfiles: Record<string, ColumnProfile>;
      layoutInfo: LayoutInfo;
  };
++/** Registration-owned preferences; measurements and occupant reports stay frame-wide. */
++type ColumnProfile = {
++    identity: number;
++    sidebar: number;
++    sidebarMin: number;
++    sidebarDefault: number;
++    rightbar: number | null;
++    rightbarDefault: number;
++    narrowExpanded: boolean;
++};
++/** One live presentation published atomically by the layout registration owner. */
++export interface PanelPresentationRegistration {
++    readonly panelId: MainPanelId;
++    readonly identity: number;
++    readonly presentation: MainPanelPresentation;
++}
  type LayoutInfo = {
-@@ -51,6 +53,7 @@ type LayoutInfo = {
+     sidebar: number;
+     /** Last positive frame measurement; window width bootstraps the first render. */
+@@ -51,6 +70,7 @@ type LayoutInfo = {
  type LayoutActions = {
      selectPanel: (draft: LayoutState, panelId: MainPanelId | null) => void;
      retainMainPanels: (draft: LayoutState, panelIds: readonly string[]) => void;
-+    setSessionSidebarPanels: (draft: LayoutState, panelIds: MainPanelId[]) => void;
++    setPanelPresentations: (draft: LayoutState, entries: readonly PanelPresentationRegistration[]) => void;
      setSidebar: (draft: LayoutState, px: number) => void;
      toggleSidebar: (draft: LayoutState) => void;
      setViewportWidth: (draft: LayoutState, width: number) => void;
+@@ -61,8 +81,9 @@ type LayoutActions = {
+ /**
+  * Create the layout panel store handle. For the sidebar the preference IS the
+  * width, so closing it forgets its drag width — reopening restores the contract
+- * default. The right panel initializes at 45% of the frame on first opening
+- * and keeps that px preference across resizes and close. Drag writes clamp to
++ * default. The base right preference starts at 45% of the frame; a declared
++ * profile uses its own first-open default. Both retain px preferences across
++ * resizes and close. Drag writes clamp to
+  * the current frame's range. Narrow sidebar toggles change only the expansion
+  * override; opening the right panel clears that override.
+  * @returns the store handle (spec + type + identity + factory in one).

@@ -127,7 +127,10 @@ export function apply(ctx: ClientContext): void {
         openTeam: () => { const current = sessionsService.list.getSnapshot().current; if (current !== undefined) coordinator.toggle(current) },
       }),
     }, TeamPublicChat)
-    yield ctx.layout.registerPanelPresentation(groupPanel, { rightSidebar: 'current-session' })
+    yield ctx.layout.registerPanelPresentation(groupPanel, {
+      rightSidebar: 'current-session',
+      columns: { sidebar: { defaultWidth: 166, minWidth: 166 }, rightbar: { defaultWidth: 320 } },
+    })
   })
   ctx.slots.inject('sidebar.navigation.section', () => ctx.slots.register({
     name: 'sidebar.navigation.section', id: 'swarm.groups', locale: TEAM_DASHBOARD_NS,

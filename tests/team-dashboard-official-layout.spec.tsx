@@ -10,7 +10,7 @@ import * as jsx from 'react/jsx-runtime'
 import { createRoot } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { sidebarHarness } from './helpers/sidebar-harness.js'
-import type { ILayout } from '@deepseek-ai/dsh-client-ui-layout/client'
+import type { ILayout, MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { defineStore } from '@deepseek-ai/dsh-client-store'
 import { TeamDashboardDetails, type TeamDashboardDetailsProps } from '../src/client/TeamDashboardDetails.js'
 import { TeamDashboardSurfaceCoordinator } from '../src/client/team-dashboard-surface-coordinator.js'
@@ -50,13 +50,14 @@ function officialLayout(viewport: number) {
   let registration!: RootRegistration
   let layout!: ILayout
   const disposers: (() => void)[] = []
+  const mainEntries = [{ options: { key: 'conversation' } }, { options: { key: 'swarm.group' } }]
   exports.apply({
     effect: (effect: () => () => void, label: string) => { if (label === 'ui-layout: service + root registration') disposers.push(effect()) },
     reflect: { provide: (_name: string, value: ILayout) => { layout = value; return () => {} } },
     slots: {
       register: (options: RootRegistration, component: React.ComponentType<FrameProps>) => { registration = options; Frame = component; return () => {} },
-      entries: (name: string) => name === 'main' ? [{ options: { key: 'conversation' } }] : [],
-      entriesOfSlot: (name: string) => name === 'main' ? [{ options: { key: 'conversation' } }] : [],
+      entries: (name: string) => name === 'main' ? mainEntries : [],
+      entriesOfSlot: (name: string) => name === 'main' ? mainEntries : [],
       provideRoot: () => () => {}, subscribe: () => () => {},
     },
   })
@@ -129,6 +130,34 @@ function harness(viewport = 1440) {
 afterEach(() => { document.body.replaceChildren() })
 
 describe('Team navigation in the installed official AppFrame', () => {
+  it('applies the group columns through the installed owner and restores the Conversation without replacing the Team seat', async () => {
+    const f = harness(1440)
+    try {
+      await f.mount()
+      const panel = document.querySelector('[data-swarm-team-panel]')!
+      const frame = panel.closest<HTMLElement>('[style*="grid-template-columns"]')!
+      const group = 'swarm.group' as MainPanelId
+      let revoke!: () => void
+      await React.act(async () => {
+        revoke = f.layout.registerPanelPresentation(group, {
+          rightSidebar: 'current-session',
+          columns: { sidebar: { defaultWidth: 166, minWidth: 166 }, rightbar: { defaultWidth: 320 } },
+        })
+        f.layout.selectPanel(group)
+      })
+      expect(frame.style.gridTemplateColumns).toBe('166px minmax(0, 1fr) 320px')
+      expect(document.querySelector('[data-swarm-team-panel]')).toBe(panel)
+      await React.act(async () => { f.layout.toggleSidebar() })
+      expect(frame.style.gridTemplateColumns).toBe('56px minmax(0, 1fr) 320px')
+      await React.act(async () => { f.layout.toggleSidebar(); f.layout.selectPanel(null) })
+      expect(frame.style.gridTemplateColumns).toBe('280px minmax(0, 1fr) 648px')
+      await React.act(async () => { f.layout.selectPanel(group) })
+      expect(frame.style.gridTemplateColumns).toBe('166px minmax(0, 1fr) 320px')
+      await React.act(async () => { revoke() })
+      expect(frame.style.gridTemplateColumns).toBe('280px minmax(0, 1fr) 648px')
+      expect(document.querySelector('[data-swarm-team-panel]')).toBe(panel)
+    } finally { await f.dispose() }
+  })
   it('shows Team automatically at 1088px and leaves later sidebar changes to the official layout owner', async () => {
     const f = harness(1088)
     try {
