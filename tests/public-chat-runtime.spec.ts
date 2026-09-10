@@ -243,7 +243,8 @@ it('uses the actual authenticated bridge for legacy replay, mixed pages, exact m
     const body = { requestId: 'new-multi', content: [{ type: 'mention', memberId: ids[0] }, { type: 'text', text: '和' }, { type: 'mention', memberId: ids[1] }] }
     const sent = await call(2, 'append', body)
     expect(sent, JSON.stringify(sent)).toMatchObject({ ok: true, value: { replayed: false, message: { formatVersion: 2, delivery: { recipients: ids.map(recipientSessionId => ({ recipientSessionId })) } } } })
-    await vi.waitFor(async () => expect(publicDeliveries((await f.ctx.agentSwarm.domain.snapshot(scope, teamId, captain.id)).team.publicChat!.messages[1]!).map(row => row.state)).toEqual(['claimed', 'claimed']))
+    // Two sequential cold recipients each have a 5s durable-claim window.
+    await vi.waitFor(async () => expect(publicDeliveries((await f.ctx.agentSwarm.domain.snapshot(scope, teamId, captain.id)).team.publicChat!.messages[1]!).map(row => row.state)).toEqual(['claimed', 'claimed']), { timeout: 10_000 })
     await Promise.all(ids.map(id => f.ctx.agents.get(id)?.whenIdle()))
     await f.ctx.agents.get(captain.id)?.whenIdle()
     expect(await call(1, 'history')).toMatchObject({ ok: false, error: { code: 'SWARM_PUBLIC_VERSION_REQUIRED' } })
