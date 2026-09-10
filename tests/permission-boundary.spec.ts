@@ -54,13 +54,14 @@ describe('tiered allow/ask/deny decision model (pure)', () => {
     expect(decideToolPermission(DEFAULT_TOOL_POLICY, 'agent_swarm_list_private_memory', captainTurn())).toBe('allow')
     const publicTools = ['agent_swarm_directory', 'agent_swarm_public_reply']
     const requestTools = ['agent_swarm_list_work_requests', 'agent_swarm_resolve_work_request', 'agent_swarm_submit_work_request']
-    const historicalAllow = DEFAULT_TOOL_POLICY.allow!.slice(0, -publicTools.length - requestTools.length)
+    const goalTools = ['agent_swarm_get_goal', 'agent_swarm_save_goal', 'agent_swarm_control_goal', 'agent_swarm_coordinate_goal', 'agent_swarm_cancel_task']
+    const historicalAllow = DEFAULT_TOOL_POLICY.allow!.slice(0, -publicTools.length - requestTools.length - goalTools.length)
     expect(historicalAllow.slice(-3)).toEqual([
       'agent_swarm_list_members',
       'agent_swarm_add_private_memory',
       'agent_swarm_list_private_memory',
     ])
-    expect(DEFAULT_TOOL_POLICY.allow!.slice(historicalAllow.length)).toEqual([...publicTools, ...requestTools])
+    expect(DEFAULT_TOOL_POLICY.allow!.slice(historicalAllow.length)).toEqual([...publicTools, ...requestTools, ...goalTools])
     for (const name of publicTools) {
       expect(DEFAULT_TOOL_POLICY.allow).toContain(name)
       expect(decideToolPermission(DEFAULT_TOOL_POLICY, name, captainTurn())).toBe('allow')
@@ -69,6 +70,13 @@ describe('tiered allow/ask/deny decision model (pure)', () => {
     for (const name of requestTools) {
       expect(decideToolPermission({ allow: [name] }, name, { ...captainTurn(), callerRole: 'delegated-member' })).toBe('deny')
       expect(memberToolPolicyFilter({ allow: [name] }).deny).toContain(name)
+    }
+    for (const name of goalTools) {
+      expect(DEFAULT_TOOL_POLICY.allow).toContain(name)
+      expect(decideToolPermission(DEFAULT_TOOL_POLICY, name, captainTurn())).toBe('allow')
+      expect(decideToolPermission({ allow: [name] }, name, { ...captainTurn(), callerRole: 'delegated-member' }))
+        .toBe(name === 'agent_swarm_get_goal' ? 'allow' : 'deny')
+      if (name !== 'agent_swarm_get_goal') expect(memberToolPolicyFilter({ allow: [name] }).deny).toContain(name)
     }
     expect(decideToolPermission({}, 'report', captainTurn())).toBe('deny')
     expect(MAX_TOOL_POLICY_NAMES).toBe(64)

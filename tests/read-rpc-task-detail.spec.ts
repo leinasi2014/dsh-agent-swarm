@@ -164,10 +164,11 @@ describe('taskDetail target-bound read', () => {
     expect(result.task.source).toEqual(team.tasks[0]!.source)
     expect(Object.isFrozen(result.task.source!.origin)).toBe(true)
     expect(Object.isFrozen(team.tasks[0]!.source)).toBe(false)
+    expect(() => assertSwarmReadRpcValue('taskDetail', { ...result, task: { ...result.task, readiness: 'paused' } })).not.toThrow()
     for (const task of [
       { ...result.task, privateMemory: 'private' },
       { ...result.task, source: { ...result.task.source, origin: { kind: 'local-operator', sessionId: CAPTAIN } } },
-      { ...result.task, readiness: 'paused' },
+      { ...result.task, readiness: 'unknown-readiness' },
     ]) expect(() => assertSwarmReadRpcValue('taskDetail', { ...result, task })).toThrow()
     expect(() => assertSwarmReadRpcValue('taskDetail', { ...result, attempts: { ...result.attempts,
       entries: result.attempts.entries.map(row => ({ ...row, taskId: 'foreign-task' })) } })).toThrow()

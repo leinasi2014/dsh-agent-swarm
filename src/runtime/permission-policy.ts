@@ -187,8 +187,9 @@ export function decideToolPermission(
   if (toolName === 'report' || toolName === 'send_message') return 'deny'
   // This is an unconditional delegated-member denial, before declarations
   // are consulted.  An operator allow declaration therefore cannot reopen
-  // wait or Main-only submission on a resumed or newly provisioned member.
-  if (context.callerRole === 'delegated-member' && ['agent_swarm_wait', 'agent_swarm_submit_work_request'].includes(toolName)) return 'deny'
+  // wait, Main-only submission or goal control on any delegated member.
+  if (context.callerRole === 'delegated-member' && ['agent_swarm_wait', 'agent_swarm_submit_work_request',
+    'agent_swarm_save_goal', 'agent_swarm_control_goal'].includes(toolName)) return 'deny'
   if (context.callerRole === 'delegated-member' && (CAPTAIN_ONLY_TOOLS as readonly string[]).includes(toolName)) return 'deny'
   const declared = decisionFor(declaration, toolName) ?? DEFAULT_TOOL_PERMISSION
   if (declared === 'deny') return 'deny'
