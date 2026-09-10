@@ -12,7 +12,7 @@ import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
 import type { HostTargetReadService } from '../host/target-read-service.js'
 import { publicChatV3AppendRequestSchema, publicChatV3HistoryRequestSchema, publicChatV3ImageRequestSchema,
   publicChatV3RequestResultRequestSchema } from './public-rpc-contract.js'
-import { projectPublicMessage, publicImageMetadata } from './public-rpc-projection.js'
+import { projectPublicMessage, projectPublicHistory, publicImageMetadata } from './public-rpc-projection.js'
 
 export async function handlePublicImageRpc(ctx: Context, runtime: AgentSwarmRuntime, targets: HostTargetReadService,
   endpoint: string, payload: unknown, signal: AbortSignal): Promise<unknown> {
@@ -113,17 +113,11 @@ export async function handlePublicImageRpc(ctx: Context, runtime: AgentSwarmRunt
         image: { ...publicImageMetadata(image.ref), data: Buffer.from(image.data).toString('base64') } }
     }
     const input = publicChatV3HistoryRequestSchema.parse(payload), messages = initial.publicChat?.messages ?? []
-    const eligible = messages.filter(row => (input.beforeSequence === undefined || row.sequence < input.beforeSequence)
-      && (input.afterSequence === undefined || row.sequence > input.afterSequence))
-    const entries = (input.afterSequence === undefined ? eligible.slice(-input.limit) : eligible.slice(0, input.limit)).map(row => projectPublicMessage(row, 3))
-    const first = entries[0]?.sequence, last = entries.at(-1)?.sequence
+    const page = projectPublicHistory(messages, input, 3)
     const appendEligibility = await publicAppendEligibility(ctx, scope, initial, signal)
     const attachments = ctx.get('attachments')
     await verify(); signal.throwIfAborted()
-    return { ...response(), entries, appendEligibility, totalCount: messages.length, returnedCount: entries.length, limit: input.limit,
-      hasEarlier: first === undefined ? messages.some(row => row.sequence < (input.beforeSequence ?? 0)) : messages.some(row => row.sequence < first),
-      hasMore: last === undefined ? messages.some(row => row.sequence > (input.afterSequence ?? Number.MAX_SAFE_INTEGER)) : messages.some(row => row.sequence > last),
-      ...(first === undefined ? {} : { firstSequence: first, lastSequence: last }),
+    return { ...response(), ...page, appendEligibility,
       limits: { maxTextBytes: runtime.config.limits.maxPublicTextBytes, maxMessages: runtime.config.limits.maxPublicMessages,
         maxBytes: runtime.config.limits.maxPublicBytes, maxSegments: runtime.config.limits.maxPublicSegments },
       imageAvailability: attachments === undefined ? { state: 'unavailable', reason: 'attachment-service-unavailable' }

@@ -46,11 +46,11 @@ export interface PublicChatV2AppendRequest {
 }
 export interface PublicChatV2HistoryRequest extends Omit<PublicChatHistoryRequest, 'schemaVersion'> { readonly schemaVersion: 2 }
 export interface PublicChatV2RequestResultRequest extends Omit<PublicChatRequestResultRequest, 'schemaVersion'> { readonly schemaVersion: 2 }
-export type PublicChatRecipient = { readonly recipientSessionId: string } & (
+type PublicChatRecipient = { readonly recipientSessionId: string } & (
   { readonly state: 'queued' } | { readonly state: 'claimed'; readonly claimedAt: number }
   | { readonly state: 'not-delivered'; readonly settledAt: number; readonly reason: 'recipient-removed' | 'team-archived' }
 )
-export interface PublicChatV2Message extends Omit<PublicChatMessage, 'delivery'> {
+interface PublicChatV2Message extends Omit<PublicChatMessage, 'delivery'> {
   readonly formatVersion: 1 | 2; readonly content: readonly PublicSegment[]; readonly mentionLabels: readonly PublicMentionLabel[]
   readonly delivery: { readonly kind: 'not-requested' } | { readonly kind: 'requested'; readonly recipients: readonly PublicChatRecipient[] }
 }

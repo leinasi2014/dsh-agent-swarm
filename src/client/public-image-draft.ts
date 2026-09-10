@@ -7,7 +7,7 @@ import type { PublicDraftSnapshot } from './public-draft-store.js'
 
 type LocalImage = z.infer<typeof localImage>
 export interface PublicDraftV3Request extends Omit<PublicChatV3AppendRequest, 'content'> { readonly content: readonly (PublicSegment | LocalImage)[] }
-export type StoredPublicRequest = PublicChatAppendRequest | PublicChatV2AppendRequest | PublicDraftV3Request
+type StoredPublicRequest = PublicChatAppendRequest | PublicChatV2AppendRequest | PublicDraftV3Request
 export type StoredPublicSnapshot = PublicDraftSnapshot<StoredPublicRequest>
 const id = z.string().min(1), version = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
 const requestFields = { requestId: id, replyTo: z.string().optional(), target: z.object({ rootSessionId: id, teamId: id }) }

@@ -11,7 +11,7 @@ import { PublicChatRpcError, type PublicChatClient } from './public-rpc-client.j
 interface Selection { readonly key: string; readonly viewer: string; readonly captain: string; readonly team: string; readonly revision: number }
 type Draft = PublicDraft
 type Pending = NonNullable<StoredPublicSnapshot['pending']>
-export type PublicDraftStatus = 'loading' | 'ready' | 'saving' | 'conflict' | 'unavailable'
+type PublicDraftStatus = 'loading' | 'ready' | 'saving' | 'conflict' | 'unavailable'
 export type PublicDraftPersistence = Pick<PublicDraftStore, 'read' | 'writeDraft' | 'freeze' | 'settle' | 'migrateLegacy' | 'upgradePending' | 'markLegacyUpgrade' | 'restoreLegacyPending' | 'close'>
 interface Saved {
   draft: Draft; pending?: Pending; legacyUpgrade?: boolean; blobs: Readonly<Record<string, Blob>>

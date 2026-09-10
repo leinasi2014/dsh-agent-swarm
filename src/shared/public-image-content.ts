@@ -1,7 +1,7 @@
 /** Client-safe v3 image vocabulary. Durable attachment identifiers never cross this wire. */
 import { z } from 'zod'
 import type { ImageAttachmentLimits } from '@deepseek-ai/dsh-attachment'
-import { MAX_PUBLIC_CONTENT_SEGMENTS, publicSegmentSchema } from './public-content.js'
+import { MAX_PUBLIC_CONTENT_SEGMENTS, normalizeParsedPublicContent, publicSegmentSchema } from './public-content.js'
 
 export const publicImageMediaTypeSchema = z.enum(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
 
@@ -96,16 +96,5 @@ export type PublicVisualAssistance = z.infer<typeof publicVisualAssistanceSchema
  * along with replyTo. Normalized attachment IDs and temporary upload receipts are not input identity.
  */
 export function normalizePublicImageContent(input: readonly PublicImageInputSegment[]): PublicImageInputSegment[] {
-  const parsed = publicImageContentSchema.parse(input)
-  const content: PublicImageInputSegment[] = []
-  for (const segment of parsed) {
-    if (segment.type !== 'text') { content.push({ ...segment }); continue }
-    const last = content.at(-1)
-    if (last?.type === 'text') last.text += segment.text
-    else if (segment.text !== '') content.push({ ...segment })
-  }
-  const first = content[0], last = content.at(-1)
-  if (first?.type === 'text') first.text = first.text.trimStart()
-  if (last?.type === 'text') last.text = last.text.trimEnd()
-  return content.filter(segment => segment.type !== 'text' || segment.text !== '')
+  return normalizeParsedPublicContent(publicImageContentSchema.parse(input))
 }

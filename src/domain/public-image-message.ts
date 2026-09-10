@@ -13,21 +13,21 @@ import type { PublicMessageAuthorInput, TeamPublicMessageV3 } from './public-mes
 
 const id = z.string().min(1).max(256)
 const timestamp = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
-export const publicImageAttachmentSchema = publicImageMetadataSchema.extend({
+const publicImageAttachmentSchema = publicImageMetadataSchema.extend({
   attachmentId: id.transform(value => value as ImageAttachmentRef['attachmentId']),
 }).strict().transform((ref): ImageAttachmentRef => ({ attachmentId: ref.attachmentId, mediaType: ref.mediaType,
   bytes: ref.bytes, width: ref.width, height: ref.height, ...(ref.name === undefined ? {} : { name: ref.name }),
   ...(ref.originalDimensions === undefined ? {} : { originalDimensions: ref.originalDimensions }) }))
 const originalUpload = z.object({ sha256: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
   mediaType: publicImageMediaTypeSchema, name: z.string().optional() }).strict()
-export const storedPublicImageSchema = z.object({ type: z.literal('image'), imageId: id,
+const storedPublicImageSchema = z.object({ type: z.literal('image'), imageId: id,
   attachment: publicImageAttachmentSchema, source: originalUpload }).strict()
-export const storedPublicImageContentSchema = z.array(z.union([publicSegmentSchema, storedPublicImageSchema]))
+const storedPublicImageContentSchema = z.array(z.union([publicSegmentSchema, storedPublicImageSchema]))
   .min(1).max(MAX_PUBLIC_CONTENT_SEGMENTS)
 export type StoredPublicImageSegment = z.infer<typeof storedPublicImageSchema>
 export type StoredPublicImageContentSegment = z.infer<typeof storedPublicImageContentSchema>[number]
 
-export const publicInputProjectionSchema = z.object({
+const publicInputProjectionSchema = z.object({
   mode: z.enum(['images', 'text-only']),
   source: z.union([z.object({ kind: z.literal('user'), rpcId: id }).strict(),
     z.object({ kind: z.literal('plugin'), plugin: z.literal('dsh-agent-swarm') }).strict()]),
@@ -38,7 +38,7 @@ export type PublicInputProjection = z.infer<typeof publicInputProjectionSchema>
 export type { PublicImageDeferredReason } from '../shared/public-image-content.js'
 const delivery = { recipientSessionId: id, parentSessionId: id, frameVersion: z.literal(3), frame: z.string().min(1),
   projection: publicInputProjectionSchema.optional() }
-export const publicImageRecipientSchema = z.discriminatedUnion('state', [
+const publicImageRecipientSchema = z.discriminatedUnion('state', [
   z.object({ ...delivery, state: z.literal('queued'), deferredReason: publicImageDeferredReasonSchema.optional() }).strict(),
   z.object({ ...delivery, state: z.literal('claimed'), claimedAt: timestamp }).strict(),
   z.object({ ...delivery, state: z.literal('not-delivered'), settledAt: timestamp,

@@ -1,7 +1,7 @@
 import { publicMentionStarts, type PublicSegment } from '../shared/public-content.js'
 interface DraftToken { readonly start: number; readonly end: number; readonly memberId: string; readonly label: string }
 /** Blob identities are local to a Host/Main/Team draft scope, never attachment authority. */
-export type PublicDraftImageError = 'format' | 'empty' | 'decode'
+type PublicDraftImageError = 'format' | 'empty' | 'decode'
 export interface PublicDraftImage {
   readonly blobId: string; readonly mediaType: string; readonly name?: string
   readonly status?: 'checking' | 'ready' | 'invalid'; readonly width?: number; readonly height?: number; readonly error?: PublicDraftImageError

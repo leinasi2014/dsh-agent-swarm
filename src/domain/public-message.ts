@@ -71,7 +71,7 @@ export type PublicDeliveryIntent = Exclude<TeamPublicMessageV1['delivery'], { st
 export type TeamPublicChat = z.infer<typeof publicChatSchema>
 export type TeamPublicAuthor = TeamPublicMessage['author']
 
-export interface PublicAppendIdentity {
+interface PublicAppendIdentity {
   readonly author: PublicMessageAuthorInput
   readonly requestId: string
   readonly replyTo?: string

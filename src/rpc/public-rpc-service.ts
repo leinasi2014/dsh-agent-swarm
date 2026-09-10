@@ -9,7 +9,7 @@ import type { AgentSwarmRuntime } from '../runtime/orchestrator-runtime.js'
 import { publicAppendEligibility, publicRecipientEligibility } from '../runtime/public-lineage.js'
 import { HostTargetReadService } from '../host/target-read-service.js'
 import { PUBLIC_RPC_CHANNEL } from './public-rpc-contract.js'
-import { projectPublicMessage } from './public-rpc-projection.js'
+import { projectPublicMessage, projectPublicHistory } from './public-rpc-projection.js'
 import { handlePublicImageRpc } from './public-image-rpc.js'
 
 const target = z.object({ rootSessionId: z.string().min(1), teamId: z.string().min(1) }).strict()
@@ -87,16 +87,10 @@ export function mountAgentSwarmPublicRpc(owner: Context, runtime: AgentSwarmRunt
           }
           const input = version === 2 ? historyV2.parse(payload) : history.parse(payload)
           const messages = team.publicChat?.messages ?? []
-          const eligible = messages.filter(row => (input.beforeSequence === undefined || row.sequence < input.beforeSequence)
-            && (input.afterSequence === undefined || row.sequence > input.afterSequence))
-          const entries = (input.afterSequence === undefined ? eligible.slice(-input.limit) : eligible.slice(0, input.limit)).map(row => projectPublicMessage(row, version))
-          const first = entries[0]?.sequence, last = entries.at(-1)?.sequence
+          const page = projectPublicHistory(messages, input, version)
           const appendEligibility = await publicAppendEligibility(ctx, scope, team, signal)
           await verify()
-          return { ...response(), entries, appendEligibility, totalCount: messages.length, returnedCount: entries.length, limit: input.limit,
-            hasEarlier: first === undefined ? messages.some(row => row.sequence < (input.beforeSequence ?? 0)) : messages.some(row => row.sequence < first),
-            hasMore: last === undefined ? messages.some(row => row.sequence > (input.afterSequence ?? Number.MAX_SAFE_INTEGER)) : messages.some(row => row.sequence > last),
-            ...(first === undefined ? {} : { firstSequence: first, lastSequence: last }),
+          return { ...response(), ...page, appendEligibility,
             limits: { maxTextBytes: runtime.config.limits.maxPublicTextBytes, maxMessages: runtime.config.limits.maxPublicMessages, maxBytes: runtime.config.limits.maxPublicBytes,
               ...(version === 2 ? { maxSegments: runtime.config.limits.maxPublicSegments } : {}) } }
         })
