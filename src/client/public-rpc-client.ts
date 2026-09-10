@@ -1,6 +1,9 @@
 import { z } from 'zod'
+import type { DirectoryRequest, DirectoryResponse } from '../rpc/directory-contract.js'
+import type { PublicChatV2AppendRequest, PublicChatV2AppendResponse, PublicChatV2HistoryRequest, PublicChatV2HistoryResponse, PublicChatV2RequestResultRequest, PublicChatV2RequestResultResponse } from '../rpc/public-rpc-contract.js'
+import { decodeDirectory, publicV2Common, publicV2MessageSchema, publicV2HistorySchema } from './public-v2-schema.js'
 import type { ClientConnectionRpc } from '@deepseek-ai/dsh-client-connection/client'
-import { PUBLIC_RPC_CHANNEL, PUBLIC_RPC_ENDPOINTS } from '../rpc/public-rpc-contract.js'
+import { PUBLIC_RPC_CHANNEL, PUBLIC_RPC_ENDPOINTS, PUBLIC_RPC_V2_ENDPOINTS } from '../rpc/public-rpc-contract.js'
 import type { PublicChatAppendRequest, PublicChatAppendResponse, PublicChatHistoryRequest, PublicChatHistoryResponse, PublicChatRequestResultRequest, PublicChatRequestResultResponse } from '../rpc/public-rpc-contract.js'
 
 const id = z.string().min(1)
@@ -43,4 +46,22 @@ export class PublicChatClient {
   async requestResult(request: PublicChatRequestResultRequest, signal?: AbortSignal): Promise<PublicChatRequestResultResponse> {
     return result.parse(await this.call(PUBLIC_RPC_ENDPOINTS.requestResult, request, signal)) as PublicChatRequestResultResponse
   }
+  async historyV2(request: PublicChatV2HistoryRequest, signal?: AbortSignal): Promise<PublicChatV2HistoryResponse> {
+    const value = publicV2HistorySchema.parse(await this.call(PUBLIC_RPC_V2_ENDPOINTS.history, request, signal))
+    if (value.entries.length !== value.returnedCount || value.entries.length > value.limit
+      || value.entries.some((entry, index) => index > 0 && entry.sequence <= value.entries[index - 1]!.sequence)
+      || new Set(value.entries.map(entry => entry.id)).size !== value.entries.length
+      || value.firstSequence !== value.entries[0]?.sequence || value.lastSequence !== value.entries.at(-1)?.sequence) throw new Error('Invalid public history page')
+    return value as PublicChatV2HistoryResponse
+  }
+  async appendV2(request: PublicChatV2AppendRequest, signal?: AbortSignal): Promise<PublicChatV2AppendResponse> {
+    return z.object({ ...publicV2Common, message: publicV2MessageSchema, replayed: z.boolean() }).parse(await this.call(PUBLIC_RPC_V2_ENDPOINTS.append, request, signal)) as PublicChatV2AppendResponse
+  }
+  async requestResultV2(request: PublicChatV2RequestResultRequest, signal?: AbortSignal): Promise<PublicChatV2RequestResultResponse> {
+    return z.discriminatedUnion('state', [z.object({ ...publicV2Common, state: z.literal('not-found') }), z.object({ ...publicV2Common, state: z.literal('committed'), message: publicV2MessageSchema })]).parse(await this.call(PUBLIC_RPC_V2_ENDPOINTS.requestResult, request, signal)) as PublicChatV2RequestResultResponse
+  }
+  async directory(request: DirectoryRequest, signal?: AbortSignal): Promise<DirectoryResponse> {
+    return decodeDirectory(await this.call(PUBLIC_RPC_V2_ENDPOINTS.directory, request, signal))
+  }
+
 }

@@ -1,3 +1,4 @@
+import { directoryEntry, directoryPage } from './helpers/public-directory.js'
 import { describe, expect, it, vi } from 'vitest'
 import { PublicChatClient } from '../src/client/public-rpc-client.js'
 
@@ -20,4 +21,24 @@ describe('public RPC decoder', () => {
     const client = new PublicChatClient({ call: async () => ({ ok: false, error: { code: 'denied', message: 'Unavailable', details: {} } }) })
     await expect(client.requestResult({ schemaVersion: 1, target: { rootSessionId: 'viewer', teamId: 'a' }, requestId: 'r' })).rejects.toMatchObject({ code: 'denied' })
   })
+})
+
+it('decodes v2 append through the official endpoint with frozen labels and per-recipient states', async () => {
+  const value = { ...response, schemaVersion: 2, message: { ...message, formatVersion: 2, content: [{ type: 'mention', memberId: 'a' }, { type: 'mention', memberId: 'b' }], mentionLabels: [{ memberId: 'a', label: '同舟' }, { memberId: 'b', label: '同舟' }], delivery: { kind: 'requested', recipients: [{ recipientSessionId: 'a', state: 'claimed', claimedAt: 10 }, { recipientSessionId: 'b', state: 'not-delivered', settledAt: 11, reason: 'recipient-removed' }] } } }
+  const rpc = { call: vi.fn(async () => ({ ok: true as const, value })) }, client = new PublicChatClient(rpc)
+  const request = { schemaVersion: 2 as const, target: { rootSessionId: 'viewer', teamId: 'a' }, requestId: 'r', content: [{ type: 'mention' as const, memberId: 'a' }, { type: 'mention' as const, memberId: 'b' }] }
+  await expect(client.appendV2(request)).resolves.toEqual(value)
+  expect(rpc.call).toHaveBeenCalledExactlyOnceWith('/swarm-public', 'v2/append', request, undefined)
+})
+it('retains directory source distinctions, avatar status, and description truncation', async () => {
+  const entry = directoryEntry(), value = directoryPage('a', [{ ...entry, skills: { ...entry.skills, assigned: { ...entry.skills.assigned, entries: [{ name: 'review', description: 'bounded', descriptionTruncated: true }] } } }])
+  const rpc = { call: vi.fn(async () => ({ ok: true as const, value })) }, client = new PublicChatClient(rpc)
+  await expect(client.directory({ schemaVersion: 2, target: value.binding })).resolves.toEqual(value)
+  expect(rpc.call).toHaveBeenCalledExactlyOnceWith('/swarm-public', 'v2/directory', { schemaVersion: 2, target: value.binding }, undefined)
+})
+it('rejects an incomplete directory page and duplicate recipient IDs', async () => {
+  const value = directoryPage(), rpc = { call: vi.fn(async (): Promise<{ ok: true; value: unknown }> => ({ ok: true, value: { ...value, page: { ...value.page, returnedCount: 50 } } })) }, client = new PublicChatClient(rpc)
+  await expect(client.directory({ schemaVersion: 2, target: value.binding })).rejects.toThrow('Invalid directory page')
+  rpc.call.mockResolvedValueOnce({ ok: true, value: { ...response, schemaVersion: 2, message: { ...message, formatVersion: 2, content: [{ type: 'text', text: 'hello' }], mentionLabels: [], delivery: { kind: 'requested', recipients: [{ state: 'queued', recipientSessionId: 'same' }, { state: 'queued', recipientSessionId: 'same' }] } } } })
+  await expect(client.appendV2({ schemaVersion: 2, target: value.binding, requestId: 'r', content: [{ type: 'text', text: 'hello' }] })).rejects.toThrow('Duplicate public recipients')
 })

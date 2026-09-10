@@ -1,0 +1,36 @@
+import { publicMentionStarts, type PublicSegment } from '../shared/public-content.js'
+interface DraftToken { readonly start: number; readonly end: number; readonly memberId: string; readonly label: string }
+export interface PublicDraft { readonly text: string; readonly version: number; readonly replyTo?: string; readonly tokens: readonly DraftToken[] }
+export function draftContent(draft: Pick<PublicDraft, 'text' | 'tokens'>): PublicSegment[] {
+  const content: PublicSegment[] = []; let position = 0
+  for (const token of draft.tokens) {
+    if (token.start > position) content.push({ type: 'text', text: draft.text.slice(position, token.start) })
+    content.push({ type: 'mention', memberId: token.memberId }); position = token.end
+  }
+  if (position < draft.text.length) content.push({ type: 'text', text: draft.text.slice(position) })
+  return content
+}
+export function replaceDraftRange(draft: PublicDraft, start: number, end: number, text: string, mention?: { memberId: string; label: string }): PublicDraft {
+  for (const token of draft.tokens) if ((start < token.end && end > token.start) || (start === end && start > token.start && start < token.end)) {
+    start = Math.min(start, token.start); end = Math.max(end, token.end)
+  }
+  const delta = text.length - (end - start)
+  const tokens = draft.tokens.filter(token => token.end <= start || token.start >= end).map(token => token.start >= end ? { ...token, start: token.start + delta, end: token.end + delta } : token)
+  if (mention !== undefined) tokens.push({ start, end: start + text.length, ...mention })
+  return { ...draft, text: draft.text.slice(0, start) + text + draft.text.slice(end), tokens: tokens.toSorted((a, b) => a.start - b.start), version: draft.version + 1 }
+}
+/** A browser text edit is one replacement; touching a token removes that entire identity. */
+export function editDraft(draft: PublicDraft, text: string): PublicDraft {
+  let start = 0, oldEnd = draft.text.length, newEnd = text.length
+  while (start < oldEnd && start < newEnd && draft.text[start] === text[start]) start++
+  while (oldEnd > start && newEnd > start && draft.text[oldEnd - 1] === text[newEnd - 1]) { oldEnd--; newEnd-- }
+  return replaceDraftRange(draft, start, oldEnd, text.slice(start, newEnd))
+}
+export function mentionCandidate(draft: Pick<PublicDraft, 'text' | 'tokens'>, caret: number): { start: number; end: number; query: string } | undefined {
+  if (draft.tokens.some(token => caret > token.start && caret <= token.end)) return undefined
+  const start = draft.tokens.filter(token => token.end <= caret).at(-1)?.end ?? 0
+  const text = draft.text.slice(start, caret)
+  const at = publicMentionStarts(text).at(-1)
+  if (at === undefined || /\s/u.test(text.slice(at + 1))) return undefined
+  return { start: start + at, end: caret, query: text.slice(at + 1) }
+}

@@ -1,3 +1,5 @@
+import type { PublicChatController } from './public-chat-controller.js'
+import { DirectoryMembers } from './DirectoryMembers.js'
 import { Button, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useLayoutEffect, useRef, useSyncExternalStore, type KeyboardEvent } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
@@ -144,7 +146,8 @@ export const shellCss = `
 `
 
 /** Team data stays read-only; explicit user requests use the official Captain inbox. */
-export function TeamDashboardContent({ controller, coordinator, descriptionId, headingId, localeTag, state, t }: {
+export function TeamDashboardContent({ chat, controller, coordinator, descriptionId, headingId, localeTag, state, t }: {
+  readonly chat?: PublicChatController | undefined
   readonly controller: TeamDashboardController
   readonly coordinator: TeamDashboardSurfaceCoordinator
   readonly descriptionId: string
@@ -162,6 +165,7 @@ export function TeamDashboardContent({ controller, coordinator, descriptionId, h
       : <>
         <header className="swarm-team-workspace__pane-head"><div><h2 className="swarm-team-workspace__title" id={headingId}>{data.team.name}</h2><p className="swarm-team-workspace__subtitle" id={descriptionId}>{t('title')} · {enumLabel(data.team.phase, t)}</p></div><button type="button" aria-label={t('close')} onClick={() => { coordinator.closeAndRestoreFocus() }}>×</button></header>
         <Workspace
+        chat={chat}
         controller={controller}
         coordinator={coordinator}
         data={data}
@@ -198,7 +202,8 @@ function Empty({ state, controller, t }: { readonly state: TeamDashboardState; r
   </section>
 }
 
-function Workspace({ data, localeTag, state, t, teams, announcements, diagnostics, memberAssets, onCommunication, coordinator, controller }: {
+function Workspace({ chat, data, localeTag, state, t, teams, announcements, diagnostics, memberAssets, onCommunication, coordinator, controller }: {
+  readonly chat?: PublicChatController | undefined
   readonly controller: TeamDashboardController
   readonly coordinator: TeamDashboardSurfaceCoordinator
   readonly data: SwarmHostReadProjectionV1
@@ -375,7 +380,8 @@ function Workspace({ data, localeTag, state, t, teams, announcements, diagnostic
       </div>
       </details>
       <main className="swarm-team-workspace__pane-body">
-        {view === 'members' && <div role="tabpanel" id="swarm-panel-members" aria-labelledby="swarm-tab-members" data-swarm-panel="members">
+        {view === 'members' && chat !== undefined ? <div role="tabpanel" id="swarm-panel-members" aria-labelledby="swarm-tab-members" data-swarm-panel="members"><DirectoryMembers chat={chat} dashboard={state} t={t} /></div> : null}
+        {view === 'members' && chat === undefined && <div role="tabpanel" id="swarm-panel-members" aria-labelledby="swarm-tab-members" data-swarm-panel="members">
           <div className="swarm-team-workspace__block-head"><span>{t('workspace.desks')}</span><small>{t('progress.memberCount', { count: number.format(data.totals.roster) })}</small></div>
           <section className="swarm-team-workspace__workroom" aria-label={t('workspace.desks')} data-swarm-workroom>
             <div
