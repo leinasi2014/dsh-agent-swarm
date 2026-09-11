@@ -6,7 +6,7 @@
 
 目标是让多个团队可靠完成工作，让成员能在下一任务召回自己的有效经验，并由一个独立 Skills 模块及专用模型管理可复用技能。成员向 Captain 提出技能需求，Captain 统一申请和分配；模型负责分析、设计和修订，Host 负责授权、持久化、实际装配和版本证据。
 
-代码事实以 GitHub main 为开发与集成基线，依赖版本以 package.json、pnpm-lock.yaml 和 [官方基线](OFFICIAL_BASELINE.json) 为准。源码、安装版本、工程检查、真实模型、浏览器、重启和正式环境分别验收。官方上游出现新版本不自动改变本轮兼容目标；采用新 API 前完成对应兼容性核对。
+代码事实以 GitHub main 为开发与集成基线，依赖版本以 package.json、pnpm-lock.yaml 和 [官方基线](OFFICIAL_BASELINE.json) 为准。遵循 [official-first 开发原则](11-official-first-development.md)：先核对官方已发布能力和实际装配，再确定需要保留的插件扩展。源码、安装版本、工程检查、真实模型、浏览器、重启和正式环境分别验收。官方上游出现新版本不自动改变本轮兼容目标；采用新 API 前完成对应兼容性核对。
 
 现有实现可以继续复用：
 
