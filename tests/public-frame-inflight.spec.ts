@@ -130,7 +130,8 @@ it.each(['reject', 'abort'] as const)('reconstructs an in-flight proposal after 
     expect(await frameVisibility(f.ctx, root.id, frame, SIGNAL, 'fresh Host same real driver', true)).toBe('unknown')
     if (action === 'abort') root.cancel({ kind: 'user' }, { keepInbox: true })
     release(); await root.whenIdle()
-    expect(root.session.snapshotEvents().findLast(event => event.type === 'turn/end')?.data.reason.kind).toBe(action === 'reject' ? 'blocked' : 'aborted')
+    const reason = root.session.snapshotEvents().findLast(event => event.type === 'turn/end')?.data.reason
+    expect(reason?.kind, JSON.stringify(reason)).toBe(action === 'reject' ? 'blocked' : 'aborted')
     expect(messageInFlight(root.session.snapshotEvents(), framePredicate(frame))).toBe(false)
     expect(await frameVisibility(f.ctx, root.id, frame, SIGNAL, 'settled discarded proposal', true)).toBe('absent')
     off()

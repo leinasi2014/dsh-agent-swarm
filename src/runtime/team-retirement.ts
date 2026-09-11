@@ -26,6 +26,7 @@ export class TeamRetirement {
   private receipts?: TeamRetirementStore
   private data?: RetirementData
   private queryContext: Context | undefined
+  private readonly admissionLifetimes = new Set<() => void>()
   private readonly operations = new Map<string, { signature: string; result: Promise<RetirementResult> }>()
   constructor(private readonly ctx: Context, private readonly deps: {
     store(): StorageDomainTeamStore
@@ -48,7 +49,11 @@ export class TeamRetirement {
   isRetired(scope: string, teamId: string): boolean { return this.receipts?.isRetired(scope, teamId) ?? false }
   ownsSession(id: string): boolean { return this.receipts?.ownsSession(id) ?? false }
   install(): () => void {
+    let active = true
+    const deactivate = () => { active = false }
+    this.admissionLifetimes.add(deactivate)
     const stopCreation = this.ctx.on('session/created', session => {
+      if (!active) return
       let id: string | undefined = session.id
       const seen = new Set<string>()
       while (id !== undefined && !seen.has(id)) {
@@ -59,13 +64,13 @@ export class TeamRetirement {
       }
     })
     const stopStep = this.ctx.on('agent/pre-step', async ({ agent }, next) => {
-      if (this.ownsSession(agent.id)) return { kind: 'reject' }
+      if (active && this.ownsSession(agent.id)) return { kind: 'reject' }
       const result = await next()
-      return this.ownsSession(agent.id) ? { kind: 'reject' } : result
+      return active && this.ownsSession(agent.id) ? { kind: 'reject' } : result
     })
-    const stopTool = this.ctx.tools.guard(exec => exec.agent !== undefined && this.ownsSession(exec.agent.id)
+    const stopTool = this.ctx.tools.guard(exec => active && exec.agent !== undefined && this.ownsSession(exec.agent.id)
       ? 'Retired Team cannot execute tools.' : undefined)
-    return () => { stopTool(); stopStep(); stopCreation() }
+    return () => { deactivate(); this.admissionLifetimes.delete(deactivate); stopTool(); stopStep(); stopCreation() }
   }
   private provider(): Promise<RetirementJsonlProvider> {
     if (this.queryContext === undefined) throw new TeamDomainError('Session query cleanup is unavailable', 'TEAM_RETIREMENT_PROVIDER_UNAVAILABLE')
@@ -248,6 +253,10 @@ export class TeamRetirement {
   }
   async close(): Promise<void> {
     await Promise.allSettled([...this.operations.values()].map(operation => operation.result))
-    await this.data?.close(); await this.receipts?.close()
+    await this.data?.close()
+    // Runtime disposal may precede removal of its install effect. Old awaited
+    // callbacks must stop reading this domain before the domain is closed.
+    for (const deactivate of this.admissionLifetimes) deactivate()
+    await this.receipts?.close()
   }
 }

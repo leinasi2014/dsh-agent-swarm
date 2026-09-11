@@ -268,7 +268,7 @@ describe('roster/Captain interaction slice', () => {
     expect(captain.disabled).toBe(true)
     expect(captain.getAttribute('aria-current')).toBe('page')
     expect(captain.textContent).toContain(t('captainCurrentSession'))
-    expect(captain.title).toBe(t('captainCurrentSessionTitle'))
+    expect(captain.title).toBe(`Fixture Captain · ${t('captainCurrentSessionTitle')}`)
     await act(async () => { captain.click(); await Promise.resolve() })
     expect(coordinator.openCaptainChat).not.toHaveBeenCalled()
   })
