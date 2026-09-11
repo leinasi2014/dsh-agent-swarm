@@ -9,7 +9,7 @@ import { registerVisualAssistanceTools } from './visual-assistance.js'
 import { registerWorkRequestTools } from './work-requests.js'
 import { registerDirectoryTool } from './directory.js'
 import { registerGoalTools } from './goal-lifecycle.js'
-import { registerSetCaptainModelTool } from './model-selection.js'
+import { registerSetCaptainModelTool, registerSetMemberModelTool } from './model-selection.js'
 import { registerApprovePlanTool, registerDiscardPlanTool, registerSetPlanTool } from './plans.js'
 import { registerSendMessageTool, registerWaitTool } from './mailbox.js'
 import { registerToolApproval } from './tool-approval.js'
@@ -50,6 +50,7 @@ export function registerAgentSwarmTools(
   registerCreateTool(ctx, runtime)
   registerCreateManagedTool(ctx, runtime)
   registerSetCaptainModelTool(ctx, runtime)
+  registerSetMemberModelTool(ctx, runtime)
   registerAddMemberTool(ctx, runtime)
   registerSetCaptainProfileTool(ctx, runtime)
   registerSetMemberProfileTool(ctx, runtime)
