@@ -55,6 +55,7 @@ export class TeamDashboardSurfaceCoordinator {
   private sidebarEpoch = 0
   private navigationEpoch = 0
   private latestIntent: { target: string; cancel(): void } | undefined
+  private pendingExpansion: { target: string; expanded: boolean } | undefined
   private disposed = false
   private mounted = false
   private observedSessionId: string | undefined
@@ -91,6 +92,7 @@ export class TeamDashboardSurfaceCoordinator {
       if (current === this.observedSessionId) return
       this.observedSessionId = current
       this.navigationEpoch++
+      if (this.pendingExpansion !== undefined && this.pendingExpansion.target !== current) this.pendingExpansion = undefined // A navigation to any other Session supersedes the pending handoff.
       if (this.latestIntent?.target !== current) this.cancelLatestIntent()
       if (current === undefined) this.options.controller.close()
       else {
@@ -259,6 +261,7 @@ export class TeamDashboardSurfaceCoordinator {
 
   private navigationGuard(): () => void {
     this.cancelLatestIntent()
+    this.pendingExpansion = undefined // A new navigation starts by invalidating the previous pending handoff.
     const epoch = ++this.navigationEpoch
     const target = this.options.sessions.list.getSnapshot().current
     const binding = this.options.controller.getSnapshot().data?.projection.binding
@@ -279,11 +282,16 @@ export class TeamDashboardSurfaceCoordinator {
   /** Commit presentation preferences only after the fresh official catalog checks. */
   private commitChatNavigation(target: string, open: () => void): void {
     const current = this.options.sessions.list.getSnapshot().current
-    if (current !== undefined && this.sidebar?.isExpandedIn(current) === false) this.sidebar.setExpandedIn(target as SessionId, false)
+    const source = current === undefined ? undefined : this.sidebar?.isExpandedIn(current)
     this.cancelLatestIntent()
+    // Every commit owns the single pending slot: an adopted target writes now, a cold target
+    // replays once adopted, and a source-less click clears rather than keeping stale inheritance.
+    if (source === undefined) this.pendingExpansion = undefined
+    else if (this.sidebar?.isExpandedIn(target as SessionId) === undefined) this.pendingExpansion = { target, expanded: source }
+    else { this.pendingExpansion = undefined; this.sidebar?.setExpandedIn(target as SessionId, source) }
     const cancel = this.options.chatNavigation?.requestLatest(target as SessionId)
     if (cancel !== undefined) this.latestIntent = { target, cancel }
-    try { open() } catch (error) { this.cancelLatestIntent(); throw error }
+    try { open() } catch (error) { this.pendingExpansion = undefined; this.cancelLatestIntent(); throw error }
   }
 
   private revealAvailableTeam(): void {
@@ -291,6 +299,12 @@ export class TeamDashboardSurfaceCoordinator {
     const current = this.options.sessions.list.getSnapshot().current
     if (this.disposed || !read.open || read.phase !== 'ready' || read.data === undefined
       || current === undefined || read.targetSessionId !== current) return
+    if (this.pendingExpansion?.target === current) {
+      if (this.sidebar?.isExpandedIn(current) === undefined) return // Not adopted yet; the authoritative read cadence retries.
+      const inherited = this.pendingExpansion
+      this.pendingExpansion = undefined
+      this.sidebar?.setExpandedIn(current as SessionId, inherited.expanded)
+    }
     if (this.sidebar?.isExpandedIn(current) !== true) return
     const own = [...this.tabs.values()].find(value => value.sessionId === current)
     if (own !== undefined) {
@@ -331,7 +345,7 @@ export class TeamDashboardSurfaceCoordinator {
     this.sidebarEpoch++
     this.offSessions(); this.offController()
     for (const observed of this.tabs.values()) observed.offAbort()
-    this.tabs.clear(); this.dismissed.clear(); this.workspaceSelections.clear()
+    this.tabs.clear(); this.dismissed.clear(); this.workspaceSelections.clear(); this.pendingExpansion = undefined
     this.publish(INACTIVE)
     this.options.controller.dispose()
     this.listeners.clear()

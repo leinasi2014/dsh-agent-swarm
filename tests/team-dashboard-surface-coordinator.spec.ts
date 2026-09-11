@@ -1,39 +1,13 @@
-import { readFileSync as sidebarReadFile } from 'node:fs'
-import { createRequire as sidebarCreateRequire } from 'node:module'
-import { dirname as sidebarDirname, join as sidebarJoin } from 'node:path'
-import { runInNewContext as sidebarRun } from 'node:vm'
-import * as SidebarReact from 'react'
-import * as SidebarJsx from 'react/jsx-runtime'
-import * as SidebarStore from '@deepseek-ai/dsh-client-store'
-import { transpileModule, ModuleKind, ScriptTarget } from 'typescript'
 import { tabInfoFixture as sidebarTabInfo } from './helpers/sidebar-tab.js'
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest'
-import { sidebarHarness } from './helpers/sidebar-harness.js'
-import { TeamDashboardSurfaceCoordinator } from '../src/client/team-dashboard-surface-coordinator.js'
+import { installedTargetedSidebar } from './helpers/official-sidebar.js'
+import { fixture } from './helpers/coordinator-fixture.js'
 import type { TeamDashboardState } from '../src/client/team-dashboard-controller.js'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
-vi.mock('../src/client/TeamDashboardDetails.js', () => ({ TeamDashboardDetails: () => null }))
 
-function fixture(chatNavigation?: { requestLatest: (id: string) => () => void }) {
-  const controller: { state: TeamDashboardState; listeners: Set<() => void>; open: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; refresh: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn>; openCaptainChat: ReturnType<typeof vi.fn>; getSnapshot(): TeamDashboardState; subscribe(listener: () => void): () => void } = { state: { open: false, phase: 'closed' }, listeners: new Set(), open: vi.fn(function (this: typeof controller, id: string) { this.state = { open: true, phase: 'loading', targetSessionId: id }; this.listeners.forEach(listener => listener()) }), close: vi.fn(function (this: typeof controller) { this.state = { open: false, phase: 'closed' }; this.listeners.forEach(listener => listener()) }), refresh: vi.fn(), dispose: vi.fn(), openCaptainChat: vi.fn(), getSnapshot() { return this.state }, subscribe(listener: () => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener) } } }
-  let current = 'root'; const sessionListeners = new Set<() => void>()
-  const sessions = { open: vi.fn(), list: { getSnapshot: () => ({ current, byId: { root: {}, other: {} } }), subscribe: (listener: () => void) => { sessionListeners.add(listener); return () => { sessionListeners.delete(listener) } } }, setCurrent: (next: string) => { sidebar.hide(current); current = next; sessionListeners.forEach(listener => listener()); sidebar.show(current) } }
-  const anchor = document.createElement('span'); document.body.append(anchor)
-  const coordinator = new TeamDashboardSurfaceCoordinator({ sessions, chatNavigation, locale: { getLocale: () => ({ active: 'en' }) }, controller, anchorRef: { current: anchor } } as never)
-  const sidebar = sidebarHarness(coordinator, () => current)
-  const unmount = coordinator.mount(); const releaseSidebar = coordinator.bindSidebar(sidebar.sidebar)
-  const setReady = (teamId = 'team-1', targetSessionId = current) => {
-    controller.state = { open: true, phase: 'ready', targetSessionId, data: {
-      teams: { binding: { rootSessionId: targetSessionId, mainSessionId: 'root' }, teams: [] },
-      projection: { binding: { rootSessionId: 'captain', teamId } }, captainMembers: { members: [] },
-    } } as unknown as TeamDashboardState
-    controller.listeners.forEach(listener => listener())
-  }
-  return { sidebar, controller, sessions, coordinator, setReady, releaseSidebar, unmount,
-    destroy: () => { releaseSidebar(); unmount(); sidebar.dispose(); anchor.remove() } }
-}
+vi.mock('../src/client/TeamDashboardDetails.js', () => ({ TeamDashboardDetails: () => null }))
 
 describe('TeamDashboardSurfaceCoordinator', () => {
   it('opens the frozen retirement Main even after the child and Team disappear or a different Main is selected', () => {
@@ -325,67 +299,6 @@ describe('TeamDashboardSurfaceCoordinator', () => {
   })
 
 })
-
-
-/** Installed official controller, store actions, dock engine and adoption path. */
-function installedTargetedSidebar() {
-  const require = sidebarCreateRequire(import.meta.url)
-  const dockkitSource = sidebarReadFile(require.resolve('@deepseek-ai/dsh-client-ui-dockkit'), 'utf8')
-  const dockkit = { exports: {} }
-  sidebarRun(transpileModule(dockkitSource, { compilerOptions: { module: ModuleKind.CommonJS, target: ScriptTarget.ES2022 } }).outputText, {
-    exports: dockkit.exports, module: dockkit, require: (name: string) => {
-      if (name === 'react') return SidebarReact
-      if (name === 'react/jsx-runtime') return SidebarJsx
-      return {} // Unrendered dock widgets, CSS and their UI dependencies.
-    },
-  })
-  const source = sidebarReadFile(sidebarJoin(sidebarDirname(require.resolve('@deepseek-ai/dsh-client-ui-sidebar-right/package.json')), 'lib/client.js'), 'utf8')
-  const calls: string[] = []
-  const faces = new Map<string, any>()
-  const stores = new Map<string, any>()
-  const disposers: Array<() => void> = []
-  let registration: any
-  let exported!: { apply(ctx: unknown): void }
-  sidebarRun(source, { window: { __ModuleLoader__: { load: (entry: { factory(require: (name: string) => unknown): typeof exported }) => {
-    exported = entry.factory(name => {
-      if (name === 'react') return SidebarReact
-      if (name === 'react/jsx-runtime') return SidebarJsx
-      if (name === 'react-dom' || name === '@deepseek-ai/dsh-client-ui-primitives') return {}
-      if (name === '@deepseek-ai/dsh-client-ui-dockkit') return dockkit.exports
-      if (name === '@deepseek-ai/dsh-client-store') return { ...SidebarStore, defineStore: (definition: any) => {
-        const factory = SidebarStore.defineStore(definition)
-        return { create: (sessionId: string) => {
-          const actual = factory.create(sessionId)
-          const actions = actual.actions as Record<string, (...args: any[]) => any>
-          const store = { ...actual, actions: { ...actions, openContent: (target: string, ...args: any[]) => { calls.push(target); return actions.openContent!(target, ...args) } } }
-          stores.set(sessionId, store); return store
-        } }
-      } }
-      throw new Error(`Unexpected official sidebar dependency: ${name}`)
-    })
-  } } }, AbortController, crypto })
-  exported.apply({
-    effect: (effect: () => (() => void), _label: string) => { const off=effect(); disposers.push(off); return off },
-    locale: { bind: () => (key: string) => key, register: () => () => {} },
-    resources: { pin: () => {} }, layout: { openRightbar: () => {}, closeRightbar: () => {} },
-    reflect: { provide: (name: string, value: unknown) => { faces.set(name,value); return () => {} } },
-    slots: {
-      inject: (_name: string, factory: () => (() => void) | Iterable<() => void>) => {
-        const contributions = factory()
-        const releases = typeof contributions === 'function' ? [contributions] : Array.from(contributions)
-        return () => { releases.toReversed().forEach(release => release()) }
-      },
-      register: (options: any) => { if(options.name==='rightbar.session') registration=options; return () => {} },
-    },
-  })
-  const controller=faces.get('sidebarRight')
-  faces.get('sidebarRightTabs').register({ id:'swarm-test',kind:'swarm-team',title:()=> 'Team' })
-  return { controller,calls,
-    adopt: (id: string) => { registration.store.create(id) },
-    bind: (id: string) => controller.bind({ sessionId:id,actions:stores.get(id).actions,surfaces:{},canSplitPane:()=>true }),
-    dispose: () => { disposers.toReversed().forEach(off=>off?.()) },
-  }
-}
 
 it('targets the exact new Session while the official mounted seat still belongs to the old one', () => {
   const f=fixture(), official=installedTargetedSidebar()
