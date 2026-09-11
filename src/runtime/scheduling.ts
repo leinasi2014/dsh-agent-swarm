@@ -84,7 +84,10 @@ function memberAvailable(ctx: Context, sessionId: string): boolean {
 
 /** Serialized scheduling passes plus the stranded self-healing state. */
 export class SchedulingPass {
-  private readonly rekickTimers = new Map<string, { timer: ReturnType<typeof setTimeout>; deadline: number; reason: 'goal' | 'stranded' }>()
+  private readonly rekickTimers = new Map<string, {
+    timer: ReturnType<typeof setTimeout>; deadline: number; reason: 'goal' | 'stranded'; goalKey?: string; running?: boolean
+    next?: { captainId: string; deadline: number; reason: 'goal' | 'stranded'; goalKey?: string }
+  }>()
 
   constructor(
     private readonly ctx: Context,
@@ -456,7 +459,7 @@ export class SchedulingPass {
    * grace deadline, because the stranded member is already idle and no
    * further event may ever arrive. Cleared synchronously on disposal.
    */
-  private armRekick(scope: TeamScope, teamId: TeamId, captainId: string, deadline: number, reason: 'goal' | 'stranded' = 'stranded'): void {
+  private armRekick(scope: TeamScope, teamId: TeamId, captainId: string, deadline: number, reason: 'goal' | 'stranded' = 'stranded', goalKey?: string): void {
     if (this.deps.isClosing()) return
     const key = `${scope}\0${teamId}`
     // The caller takes the minimum deadline across current idle holders.
@@ -464,34 +467,59 @@ export class SchedulingPass {
     // already armed earlier check rather than postponing it on each pass.
     // The callback requests a fresh pass; it never authorizes a stale retry.
     const previous = this.rekickTimers.get(key)
-    if (previous !== undefined && previous.deadline <= deadline) return
+    if (previous?.running) {
+      if (previous.next?.reason === 'stranded' && previous.next.deadline <= deadline) return
+      previous.next = { captainId, deadline, reason, ...(goalKey === undefined ? {} : { goalKey }) }
+      return
+    }
+    if (previous !== undefined && previous.deadline <= deadline
+      && !(previous.reason === 'goal' && reason === 'goal' && previous.goalKey !== goalKey)) return
     if (previous !== undefined) clearTimeout(previous.timer)
     const timer = setTimeout(() => {
-      if (this.rekickTimers.get(key)?.timer === timer) this.rekickTimers.delete(key)
+      const current = this.rekickTimers.get(key)
+      if (current?.timer !== timer || current.running) return
       if (this.deps.isClosing()) return
       if (reason === 'goal' && this.deps.wakeGoal !== undefined) {
+        if (!this.deps.eventFaceActive(scope, teamId)) { this.rekickTimers.delete(key); return }
+        // The same entry owns the in-flight wake. Reconcile/coordination may
+        // replace its next deadline, but cannot start another timer meanwhile.
+        current.running = true
+        current.next = { captainId, deadline: Date.now() + 1_000, reason, ...(goalKey === undefined ? {} : { goalKey }) }
         void this.deps.wakeGoal(scope, teamId).catch(error => {
           if (!this.deps.isClosing()) this.ctx.logger.warn(`agent-swarm: goal due admission deferred for ${teamId}: ${String(error)}`)
+        }).finally(() => {
+          if (this.rekickTimers.get(key) !== current) return
+          this.rekickTimers.delete(key)
+          const next = current.next
+          if (next !== undefined && !this.deps.isClosing() && this.deps.eventFaceActive(scope, teamId)) {
+            this.armRekick(scope, teamId, next.captainId, Math.max(next.deadline, Date.now() + 1_000), next.reason, next.goalKey)
+          }
         })
         return
       }
+      this.rekickTimers.delete(key)
       const captain = this.ctx.agents.get(SessionId(captainId))
       if (captain !== undefined) this.deps.requestSchedule(scope, teamId, captain)
     }, Math.max(0, deadline - Date.now()) + (reason === 'stranded' ? 50 : 0))
-    this.rekickTimers.set(key, { timer, deadline, reason })
+    this.rekickTimers.set(key, { timer, deadline, reason, ...(goalKey === undefined ? {} : { goalKey }) })
   }
 
   /** Maintenance uses the same earliest one-shot timer as stranded recovery. */
   trackGoalDeadline(scope: TeamScope, team: TeamState): void {
     const key = `${scope}\0${team.id}`, goal = team.goalLifecycle, previous = this.rekickTimers.get(key)
-    const eligible = team.phase === 'active' && goal?.phase === 'waiting' && goal.nextDueAt !== undefined
+    const trigger = goal?.currentTrigger, notice = team.messages.find(message => message.id === trigger?.notificationMessageId)
+    const debt = goal?.phase === 'running' && trigger !== undefined && (notice === undefined
+      || (notice.kind === 'goal-coordination-notice' && notice.phase === 'queued' && notice.triggerId === trigger.id
+        && notice.goalRevision === trigger.goalRevision && notice.resultSequence === trigger.resultSequence))
+    const eligible = !this.deps.isClosing() && team.phase === 'active' && goal?.mode === 'maintenance'
+      && ((goal.phase === 'waiting' && goal.nextDueAt !== undefined) || debt)
       && this.deps.eventFaceActive(scope, team.id) && budgetExhaustion(team.budget, Date.now()) === undefined
       && team.budget.tokenLimit !== undefined && team.budget.tokenLimit > team.budget.usedTokens
     if (!eligible) {
-      if (previous?.reason === 'goal' || goal?.phase === 'paused') {
+      if (goal?.phase === 'paused') {
         if (previous !== undefined) clearTimeout(previous.timer)
         this.rekickTimers.delete(key)
-      }
+      } else this.clearGoalDeadline(scope, team.id)
       return
     }
     // A finished round may still have an earlier idle-holder timer. With no
@@ -501,7 +529,15 @@ export class SchedulingPass {
       clearTimeout(previous.timer)
       this.rekickTimers.delete(key)
     }
-    this.armRekick(scope, team.id, team.captainSessionId, goal.nextDueAt!, 'goal')
+    const goalKey = JSON.stringify([team.captainSessionId, team.managedOrigin, goal.goalRevision, goal.phase, goal.nextDueAt, trigger?.id])
+    this.armRekick(scope, team.id, team.captainSessionId, debt ? Date.now() + 1_000 : goal.nextDueAt!, 'goal', goalKey)
+  }
+
+  clearGoalDeadline(scope: TeamScope, teamId: TeamId): void {
+    const key = `${scope}\0${teamId}`, previous = this.rekickTimers.get(key)
+    if (previous?.reason !== 'goal' || (previous.running && previous.next?.reason === 'stranded')) return
+    clearTimeout(previous.timer)
+    this.rekickTimers.delete(key)
   }
 
   /** Evidence-only stranding hint for the status projection (docs/04 §8c). */

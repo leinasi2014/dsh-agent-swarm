@@ -15,6 +15,7 @@ import { publicAppendEligibility } from './public-lineage.js'
 import type { ManagedActivationRecovery } from './managed-activation-recovery.js'
 import type { OrchestrationOwnership } from './orchestration-ownership.js'
 import type { SchedulingAdmission } from './scheduling-admission.js'
+import type { SchedulingPass } from './scheduling.js'
 import type { UsageAccountant } from './usage-accounting.js'
 import { captureTaskInterruption, type TaskInterruptionResult } from './goal-task-interruption.js'
 
@@ -30,7 +31,7 @@ interface GoalRuntimeDeps {
   ownership: OrchestrationOwnership
   adaptive(): boolean
   signal: AbortSignal
-  deadline(scope: TeamScope, team: TeamState): void
+  deadlines: Pick<SchedulingPass, 'trackGoalDeadline' | 'clearGoalDeadline'>
   sweep(scope: TeamScope, teamId: TeamId): Promise<void>
 }
 
@@ -89,7 +90,7 @@ export class GoalRuntimeSurface {
     await this.deps.ready(); this.deps.assertOpen()
     if (input.start) await this.foldUsage(scope, teamId)
     const result = await this.deps.domain().saveGoal(scope, teamId, { kind: 'local-operator' }, input, this.guards(scope, teamId, guards))
-    this.deps.deadline(scope, result.team)
+    this.deps.deadlines.trackGoalDeadline(scope, result.team)
     return result
   }
 
@@ -97,7 +98,7 @@ export class GoalRuntimeSurface {
     await this.deps.ready(); this.deps.assertOpen()
     if (input.action !== 'pause') await this.foldUsage(scope, teamId)
     const result = await this.deps.domain().controlGoal(scope, teamId, { kind: 'local-operator' }, input, this.guards(scope, teamId, guards))
-    this.deps.deadline(scope, result.team)
+    this.deps.deadlines.trackGoalDeadline(scope, result.team)
     return result
   }
 
@@ -190,7 +191,7 @@ export class GoalRuntimeSurface {
     if (team.goalLifecycle === undefined || team.phase !== 'active') return team
     if (team.goalLifecycle.phase === 'waiting' && (team.goalLifecycle.nextDueAt ?? Infinity) <= Date.now()) await this.foldUsage(scope, team.id)
     const result = await this.deps.domain().reconcileGoal(scope, team.id, this.guards(scope, team.id))
-    this.deps.deadline(scope, result.team)
+    this.deps.deadlines.trackGoalDeadline(scope, result.team)
     return result.team
   }
 
@@ -205,7 +206,7 @@ export class GoalRuntimeSurface {
   }
 
   private async afterOperation(scope: TeamScope, team: TeamState, actor?: Agent, signal = this.deps.signal): Promise<void> {
-    this.deps.deadline(scope, team)
+    this.deps.deadlines.trackGoalDeadline(scope, team)
     if (team.goalLifecycle?.phase !== 'running' || team.goalLifecycle.currentTrigger === undefined || !this.allowed(scope, team.id)) return
     if (actor?.id === team.captainSessionId) {
       await this.deps.scheduling.committed(undefined, signal, { codePrefix: 'TEAM_GOAL_ADMISSION', description: 'Goal operation committed' },
@@ -219,18 +220,38 @@ export class GoalRuntimeSurface {
   /** Called by the existing single timer/startup scan; the Team remains authority. */
   async wake(scope: TeamScope, teamId: TeamId): Promise<void> {
     await this.deps.ready(); this.deps.assertOpen()
-    let team = (await this.deps.teams(scope)).find(candidate => candidate.id === teamId)
-    if (team === undefined || team.phase !== 'active' || team.goalLifecycle === undefined || !this.allowed(scope, teamId)) return
-    team = await this.reconcile(scope, team)
-    if (team.goalLifecycle?.phase !== 'running' || team.goalLifecycle.currentTrigger === undefined || budgetExhaustion(team.budget, Date.now()) !== undefined) return
-    const parentId = publicManagedParent(team.managedOrigin)
-    if (parentId === undefined) return
-    const root = await this.deps.recovery().ensurePublicRoot(parentId, scope)
-    this.deps.signal.throwIfAborted()
-    await this.ctx.subagents.withContinuableChild(root, SessionId(team.captainSessionId), this.deps.signal, async captain => {
-      if (!this.allowed(scope, teamId)) return
-      await this.deps.scheduling.request(scope, teamId, captain, true)
-    })
+    try {
+      let team = (await this.deps.teams(scope)).find(candidate => candidate.id === teamId)
+      if (team === undefined || team.phase !== 'active' || team.goalLifecycle === undefined || !this.allowed(scope, teamId)) return
+      team = await this.reconcile(scope, team)
+      if (!this.canCoordinate(scope, team)) return
+      const parentId = publicManagedParent(team.managedOrigin)
+      if (parentId === undefined) return
+      const root = await this.deps.recovery().ensurePublicRoot(parentId, scope)
+      this.deps.signal.throwIfAborted()
+      const sameWork = (current: TeamState | undefined): current is TeamState => current !== undefined
+        && this.canCoordinate(scope, current) && current.captainSessionId === team.captainSessionId
+        && current.managedOrigin === team.managedOrigin && current.goalLifecycle?.currentTrigger?.id === team.goalLifecycle?.currentTrigger?.id
+        && this.ctx.agents.get(root.id) === root && this.ctx.sessions.get(root.id) === root.session
+        && root.id === parentId && root.session.header.parentSession === undefined && this.deps.scopeOf(root) === scope
+      if (!sameWork((await this.deps.teams(scope)).find(candidate => candidate.id === teamId))) return
+      await this.ctx.subagents.withContinuableChild(root, SessionId(team.captainSessionId), this.deps.signal, async captain => {
+        if (!sameWork((await this.deps.teams(scope)).find(candidate => candidate.id === teamId))
+          || this.ctx.agents.get(captain.id) !== captain || this.ctx.sessions.get(captain.id) !== captain.session) return
+        await this.deps.scheduling.request(scope, teamId, captain, true)
+      })
+    } finally {
+      if (this.deps.signal.aborted) this.deps.deadlines.clearGoalDeadline(scope, teamId)
+      else try {
+        // A successful pass can still leave deferred mailbox debt. Re-read
+        // its original notice; never infer coordination from a resolved wake.
+        const current = (await this.deps.teams(scope)).find(candidate => candidate.id === teamId)
+        if (current === undefined) this.deps.deadlines.clearGoalDeadline(scope, teamId)
+        else this.deps.deadlines.trackGoalDeadline(scope, current)
+      } catch (error) {
+        this.ctx.logger.warn(`agent-swarm: goal retry observation deferred for ${teamId}: ${String(error)}`)
+      }
+    }
   }
 
   /** Event consumers do not own another drain/loop. Failures keep canonical debt. */
