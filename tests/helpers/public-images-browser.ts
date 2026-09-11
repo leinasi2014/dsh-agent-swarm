@@ -30,7 +30,7 @@ export async function publicImagesBrowserScript(): Promise<string> {
         ...(activity ? {work:{subscribe:()=>()=>{},getSnapshot:()=>activity,more:action('moreActivity'),refresh:action('refreshActivity')},openWorkTask:action('openTask')} : {}),
         image:async()=>{window.reads++;if(window.imageWait)await window.imageWait;return blob},addImages:action('addImages'),removeImage:action('removeImage'),
         replaceText:action('replaceText'),chooseMention:action('mention'),removeMention:action('removeMention'),refreshDirectory:()=>{},
-        edit:()=>{},reply:action('reply'),send:action('send'),recover:()=>{},earlier:action('earlier'),newer:action('newer'),refresh:()=>{},upgradeLegacy:()=>{},openTeam:()=>{},retryDraftStorage:()=>{},useStoredDraft:()=>{}};
+        edit:()=>{},reply:action('reply'),send:action('send'),recover:()=>{},earlier:action('earlier'),newer:action('newer'),refresh:()=>{},latest:action('latest'),upgradeLegacy:()=>{},openTeam:()=>{},retryDraftStorage:()=>{},useStoredDraft:()=>{}};
       const root=createRoot(document.getElementById('fixture-root'));root.render(React.createElement(TeamPublicChat,props)); window.unmountChat=()=>root.unmount();
       window.updateChat=(nextTeam,nextChat,nextActivity)=>{team=nextTeam;chat=nextChat;if(nextActivity)activity=nextActivity;root.render(React.createElement(TeamPublicChat,{...props}))};
     };`, resolveDir: cwd, sourcefile: 'image-fixture.tsx', loader: 'tsx' }, absWorkingDir: cwd, bundle: true, write: false, format: 'iife', platform: 'browser', jsx: 'automatic',

@@ -1,5 +1,5 @@
 import type { PublicChatController } from './public-chat-controller.js'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { IconQueueOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsHooks, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
@@ -19,11 +19,20 @@ export function TeamGroupNavigation(props: Props) {
   const chat = props.useChat?.(value => value)
   const activePanel = props.usePanelInfo(value => value.activePanelId)
   const [expanded, setExpanded] = useState<string>()
-  const [error, setError] = useState<string>()
+  const [error, setError] = useState<{ message: string; scope: string }>()
+  const [pending, setPending] = useState<{ name: string; scope: string; token: object }>()
   const data = state.data
+  const scope = JSON.stringify([state.targetSessionId, data?.projection.binding.teamId])
+  const activeScope = useRef(scope), navigation = useRef<object>()
+  activeScope.current = scope
+  useEffect(() => { navigation.current = undefined; setError(undefined); setPending(undefined) }, [scope])
   if (data === undefined || !data.teams.complete) return null
   const selected = data.projection.binding.teamId
-  const handoff = (action: () => Promise<void>): void => { setError(undefined); void action().catch(reason => { setError(reason instanceof Error ? reason.message : props.t('error')) }) }
+  const handoff = (action: () => Promise<void>, name = ''): void => {
+    const token = {}; navigation.current = token; setError(undefined); setPending({ name, scope, token })
+    void action().catch(reason => { if (navigation.current === token && activeScope.current === scope) setError({ scope, message: reason instanceof Error ? reason.message : props.t('error') }) })
+      .finally(() => { setPending(current => current?.token === token ? undefined : current) })
+  }
   return <nav className="swarm-groups" data-compact={!props.wide} aria-label={props.t('public.groups')} data-swarm-group-navigation>
     <style>{`.swarm-groups{min-width:0;padding:0 8px 8px;color:var(--dsw-alias-label-primary);font-size:13px}.swarm-groups button{display:flex;align-items:center;gap:7px;width:100%;min-width:0;border:0;border-radius:7px;background:transparent;color:inherit;padding:8px;text-align:left;cursor:pointer}.swarm-groups[data-compact=true]{padding:0 0 12px}.swarm-groups[data-compact=true] button{width:36px;height:36px;justify-content:center;padding:0}.swarm-groups[data-compact=true] button span{display:flex}.swarm-groups button:hover,.swarm-groups button[aria-current=page]{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent)}.swarm-groups button:disabled{opacity:.5;cursor:default}.swarm-groups button span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.swarm-groups ul{list-style:none;padding:0;margin:0}.swarm-groups ul ul{margin-left:16px;border-left:1px solid var(--dsw-alias-border-l2);padding-left:5px}.swarm-groups small{color:var(--dsw-alias-label-secondary)}.swarm-groups p{overflow-wrap:anywhere}.swarm-groups__heading{box-sizing:border-box;display:flex;align-items:center;height:36px;margin:2px -8px 4px;padding-left:4px;overflow:hidden;white-space:nowrap;color:var(--dsw-alias-label-tertiary);font-size:14px;font-weight:400;line-height:20px}`}</style>
     {props.wide ? <>
@@ -34,8 +43,8 @@ export function TeamGroupNavigation(props: Props) {
         const membersBound = data.captainMembers.binding.teamId === selected
           && data.captainMembers.binding.rootSessionId === data.projection.binding.rootSessionId
         return <li key={team.teamId}>
-          <button type="button" data-swarm-group={team.teamId} title={team.name} aria-expanded={open} aria-current={activePanel === 'swarm.group' && selected === team.teamId ? 'page' : undefined}
-            onClick={() => { setExpanded(open ? undefined : team.teamId); props.selectGroup(team.teamId) }}><span aria-hidden="true">{open ? '▾' : '▸'}</span><span>{team.name}</span></button>
+          <button type="button" data-swarm-group={team.teamId} title={team.name} aria-expanded={open} aria-busy={state.pendingTeamId === team.teamId} aria-current={activePanel === 'swarm.group' && selected === team.teamId ? 'page' : undefined}
+            onClick={() => { setExpanded(open ? undefined : team.teamId); props.selectGroup(team.teamId) }}><span aria-hidden="true">{open ? '▾' : '▸'}</span><span>{team.name}</span>{state.pendingTeamId === team.teamId ? <small role="status">{props.t('loading')}</small> : null}</button>
           {open ? <ul><li><button type="button" data-swarm-group-captain aria-current={currentCaptain ? 'page' : undefined}
             title={props.t(currentCaptain ? 'captainCurrentSessionTitle' : 'captainMainChatTitle')}
             disabled={!ready || !team.captainSessionId || team.captainSessionId !== data.projection.binding.rootSessionId || currentCaptain}
@@ -43,16 +52,17 @@ export function TeamGroupNavigation(props: Props) {
             {ready && membersBound ? data.captainMembers.members.map(member => {
               const entry = chat?.directory?.binding.teamId === selected && chat.directory.binding.rootSessionId === data.projection.binding.rootSessionId
                 ? chat.directory.entries.find(row => row.role === 'member' && row.memberId === member.sessionId && row.name === member.name) : undefined
-              return <li key={member.name}><button type="button" data-swarm-group-member={member.name}
+              const busy = pending?.scope === scope && pending.name === member.name
+              return <li key={member.name}><button type="button" data-swarm-group-member={member.name} aria-busy={busy}
                 title={`${entry?.label ?? (member.displayName || member.name)} · ${member.name}`}
                 disabled={member.phase !== 'active' || member.sessionId === undefined || !data.projection.roster.some(row => row.name === member.name && row.phase === 'active')}
-                onClick={() => { if (member.sessionId !== undefined) handoff(() => props.openMember(member.name, member.sessionId!)) }}><span>{entry?.label ?? (member.displayName || member.name)}</span><small>{member.name}</small></button></li>
+                onClick={() => { if (member.sessionId !== undefined) handoff(() => props.openMember(member.name, member.sessionId!), member.name) }}><span>{entry?.label ?? (member.displayName || member.name)}</span><small>{busy ? props.t('loading') : member.name}</small></button></li>
             }) : <li role="status">{props.t('loading')}</li>}
 
           </ul> : null}
         </li>
       })}</ul>
     </> : <button type="button" title={props.t('public.groups')} aria-label={props.t('public.groups')} onClick={props.expandSidebar}><span aria-hidden="true"><IconQueueOutline14 size={18} /></span></button>}
-    {error === undefined ? null : <p role="alert">{error}</p>}
+    {error?.scope === scope ? <p role="alert">{error.message}</p> : null}
   </nav>
 }

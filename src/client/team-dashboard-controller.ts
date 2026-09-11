@@ -275,9 +275,12 @@ export class TeamDashboardController {
     const abort = new AbortController()
     this.requestAbort = abort
     try {
-      const binding = await this.readBinding(target, expected.teamId, abort.signal)
+      const [binding, members] = await Promise.all([
+        this.readBinding(target, expected.teamId, abort.signal),
+        this.readCaptainSection('captainMembers', { rootSessionId: target, teamId: expected.teamId }, abort.signal) as Promise<SwarmReadCaptainMembersV1>,
+      ])
+      abort.signal.throwIfAborted()
       assertSectionBinding(binding, expected, 'captainMembers')
-      const members = await this.readCaptainSection('captainMembers', { rootSessionId: target, teamId: expected.teamId }, abort.signal) as SwarmReadCaptainMembersV1
       assertSectionBinding(binding, members.binding, 'captainMembers')
       if (!members.members.some(member => member.name === name && member.sessionId === sessionId && member.phase === 'active')) {
         throw new DashboardReadError('SWARM_UI_MEMBER_UNAVAILABLE', 'Member Session is no longer available')
@@ -330,14 +333,11 @@ export class TeamDashboardController {
   }
 
   private async readComplete(targetSessionId: string, signal: AbortSignal): Promise<TeamDashboardData> {
-    const capabilities = await this.readCapabilities(signal)
-    // Enumerate the Team directory FIRST. The binding/snapshot/sections below resolve a concrete
-    // Team only after enumeration, so a multi-Team root never 409s ambiguous: no read is issued
-    // with an unresolved teamId before the directory read completes.
-    const teams = await this.readTeams(targetSessionId, signal)
+    const [capabilities, teams] = await Promise.all([this.readCapabilities(signal), this.readTeams(targetSessionId, signal)])
+    signal.throwIfAborted()
+    // All target reads require a concrete Team from the validated enumeration.
     const selectedTeamId = this.resolveTeamId(teams)
     const target = { rootSessionId: targetSessionId, teamId: selectedTeamId }
-    const binding = await this.readBinding(targetSessionId, selectedTeamId, signal)
     // Keep every read addressed to the Session whose Team panel the user opened.
     // For a Main Brain, binding.rootSessionId is the resolved dedicated Captain;
     // pivoting subsequent RPCs to that child bypasses the parent-root ownership
@@ -348,16 +348,15 @@ export class TeamDashboardController {
     const previous = this.state.targetSessionId === targetSessionId ? this.state.data : undefined
     const previousProjection = previous !== undefined && previous.projection.binding.teamId === selectedTeamId
       ? previous.projection : undefined
-    const snapshot = await this.readSnapshot(target, previousProjection, signal)
-    assertIdentity(binding, snapshot)
-    // Captain board sections are real reads against the same binding; today the host answers
-    // announcements with an explicit bounded unavailable, never a stub or fabricated posts.
-    const sectionTarget = target
-    const [captainAnnouncements, captainDiagnostics, captainMembers] = await Promise.all([
-      this.readCaptainSection('captainAnnouncements', sectionTarget, signal) as Promise<SwarmReadCaptainAnnouncementsV1>,
-      this.readCaptainSection('captainDiagnostics', sectionTarget, signal) as Promise<SwarmReadCaptainDiagnosticsV1>,
-      this.readCaptainSection('captainMembers', sectionTarget, signal) as Promise<SwarmReadCaptainMembersV1>,
+    const [binding, snapshot, captainAnnouncements, captainDiagnostics, captainMembers] = await Promise.all([
+      this.readBinding(targetSessionId, selectedTeamId, signal),
+      this.readSnapshot(target, previousProjection, signal),
+      this.readCaptainSection('captainAnnouncements', target, signal) as Promise<SwarmReadCaptainAnnouncementsV1>,
+      this.readCaptainSection('captainDiagnostics', target, signal) as Promise<SwarmReadCaptainDiagnosticsV1>,
+      this.readCaptainSection('captainMembers', target, signal) as Promise<SwarmReadCaptainMembersV1>,
     ])
+    signal.throwIfAborted()
+    assertIdentity(binding, snapshot)
     assertSectionBinding(binding, captainAnnouncements.binding, 'captainAnnouncements')
     assertSectionBinding(binding, captainDiagnostics.binding, 'captainDiagnostics')
     assertSectionBinding(binding, captainMembers.binding, 'captainMembers')

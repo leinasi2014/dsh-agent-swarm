@@ -234,7 +234,7 @@ GitHub milestone 汇总本轮，Issue 保存一个独立可验收结果及依赖
 | 切片 | 用户结果与代码边界 | 依赖与验收出口 |
 |---|---|---|
 | 通信上下文减负 | identity-context、TeamDirectory 与任务工具说明；保留完整显式目录 | 无前置；真实装配不自动读取富目录，实际请求、身份变化/撤权/压缩恢复保持正确，量化同任务差异 |
-| 切队与成员导航读取减负（#268） | target-read 身份使用公开 stat；Main 标题仅列表展示读取；live 成员资料复用当前 Session；已绑定成员不等待共享目录 | 保留 fresh 身份、父链与 roster 复核；身份正文读取为 0、live 资料磁盘读取为 0；固定场景真实切队和单聊响应分别复测 |
+| 切队与成员导航读取减负（#268） | target-read 身份使用公开 stat；Main 标题先于最终授权 cut；live 成员资料复用当前 Session；已绑定成员不等待共享目录；独立 RPC 并发，切换目标即时 busy；群聊隐藏任务活动并在进入时读取最新尾页 | 保留 fresh 身份、父链、roster、分页及取消复核；Main 一次聚合枚举、身份正文读取为 0、live 资料磁盘读取为 0；固定场景真实切队和单聊响应分别复测，侧栏隐藏及官方 Chat 进入到底另验 |
 | 审核前置校验 | review Provider 调用前的任务/Captain/attempt 检查 | 无前置；无效请求不执行 Provider，最终 CAS 保留 |
 | 逐队恢复隔离 | 现有 startup recovery owner | 无前置；坏队不阻止好队恢复，错误可见，全局损坏不吞掉 |
 | 维护债务重试 | 现有 goal maintenance timer | 无前置；失败后可恢复、无双 owner/重复协调、取消可收敛 |

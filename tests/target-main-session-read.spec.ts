@@ -146,14 +146,19 @@ describe('local UI main Session association (#225)', () => {
     expect((await h.teams('member')).binding.mainSessionTitle).toBe('更新后的标题')
   })
 
-  it('rechecks the Main visible Team set after awaited title data', async () => {
-    const h = await setup(true), inspect = h.inspect.getMockImplementation()!, list = h.list.getMockImplementation()!
+  it('enumerates Main once after a Team is durably deleted during its title read', async () => {
+    const h = await setup(true), inspect = h.inspect.getMockImplementation()!
     h.inspect.mockImplementation(async id => {
       const stored = await inspect(id)
-      h.list.mockImplementation(async () => (await list()).filter(team => team.id !== h.other.id))
+      expect(h.list).not.toHaveBeenCalled()
+      expect(await h.storage.domain.table('teams').delete(h.other.id)).toBe(true)
       return stored
     })
-    await expect(h.teams('main')).rejects.toMatchObject({ code: 'SWARM_HOST_BINDING_MISMATCH' })
+    const result = await h.teams('main')
+    expect(result.binding.mainSessionTitle).toBe('公开主会话标题')
+    expect(result.teams.map(team => team.teamId)).toEqual([h.team.id])
+    expect(h.list).toHaveBeenCalledTimes(1)
+    expect(h.inspect).toHaveBeenCalledExactlyOnceWith('main')
   })
 
   it('keeps the exact member public name while reading a sibling and refreshes it from the owning aggregate', async () => {

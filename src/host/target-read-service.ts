@@ -65,9 +65,7 @@ export class HostTargetReadService {
   }
 
   private async readTeams(rootSessionId: string) {
-    const { root, visible, main, currentTeamId, currentMemberName, verify } = await this.visibleTeams(rootSessionId)
-    const title = main === undefined ? undefined : await this.mainTitle(main)
-    const latest = await verify(true)
+    const { root, visible, main, title, currentTeamId, currentMemberName } = await this.visibleTeams(rootSessionId, { includeMainTitle: true })
     this.assertUnchanged(root)
     return {
       schemaVersion: 1 as const,
@@ -75,7 +73,7 @@ export class HostTargetReadService {
         ...(main === undefined ? {} : { mainSessionId: main.id, ...(title === undefined ? {} : { mainSessionTitle: title }) }),
         ...(currentTeamId === undefined ? {} : { currentTeamId }),
         ...(currentMemberName === undefined ? {} : { currentMemberName }) },
-      teams: latest.filter(team => visible.some(before => before.id === team.id)).map(projectTeamSummary),
+      teams: visible.map(projectTeamSummary),
       complete: true, observedAt: Date.now(),
     }
   }
@@ -171,8 +169,11 @@ export class HostTargetReadService {
     }
   }
 
-  private async visibleTeams(rootSessionId: string) {
+  private async visibleTeams(rootSessionId: string, options: { includeMainTitle?: boolean } = {}) {
     const root = await this.rootView(rootSessionId)
+    // Resolve optional display data before the root's sole aggregate cut.
+    // Keep this original identity witness for the final verification below.
+    const rootTitle = options.includeMainTitle && root.parentSession === undefined ? await this.mainTitle(root) : undefined
     const all = await this.runtime.listTeamAggregates(root.cwd)
     const managed = new Set(this.runtime.managedCaptainSessionsOf(root.id))
     const visible: TeamState[] = []
@@ -224,6 +225,10 @@ export class HostTargetReadService {
         }
       }
     }
+    // A child needs the initial aggregates to locate Main. Its title await
+    // belongs before the existing final parent/member authorization cut.
+    const title = options.includeMainTitle && association.main !== undefined
+      ? association.main.id === root.id ? rootTitle : await this.mainTitle(association.main) : undefined
     // Header reads and section composition can yield. Re-read the canonical
     // aggregates after those awaits; a removed/retried member cannot keep an
     // earlier authorization snapshot. Official Session headers are immutable.
@@ -272,7 +277,7 @@ export class HostTargetReadService {
       this.assertLiveCaptain(candidate, root.cwd)
     }
     const latest = await verify()
-    return { root, visible: latest.filter(team => visible.some(before => before.id === team.id)), all: latest, main: association.main,
+    return { root, visible: latest.filter(team => visible.some(before => before.id === team.id)), all: latest, main: association.main, title,
       currentTeamId: association.current?.id, currentMemberName: association.currentMemberName, verify, assertCurrentTeam }
   }
 
