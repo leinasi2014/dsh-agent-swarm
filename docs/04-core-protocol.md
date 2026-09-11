@@ -299,6 +299,8 @@ Workflow bridge、Jobs projection、human control 和 remote/distributed Provide
 
 设置修改按 restart 语义生效；Runtime 构造前读取已保存层并验证组合。空 Provider、非法 workflow 组合、非法 execution root、冲突 tool tiers 或错误 Skill 声明必须在任何 listener/store/member side effect 前拒绝。
 
+`startupRecoveryExcludedTeamIds` 默认为空数组，按精确 Team ID 排除本次启动的自动恢复，修改后重启生效；空白、首尾空格或重复 ID 明确拒绝。排除在目标准备、消息债务投递及根/Captain 恢复之前判断，后续启动的 usage refold、已批准计划补齐及已加载根的恢复也遵循同一名单，并记录跳过诊断；不改写被排除 Team 的聚合、任务或 Session。清除 ID 并重启后恢复原有行为。此设置不是全局暂停或权限隔离：显式手动操作、普通 idle/event 调度、运行中的工作和执行根残留检查仍按原合同执行，不能据此宣称 Team 已冻结。
+
 ## 12. 执行循环保护
 
 `executionGuard` 默认开启，可在插件配置中显式关闭（restart 生效）。私有观察器只作用于 active Team 的当前 Captain 和 active/provisioning Member 的精确 Agent、Session、turn；失败、移除、归档及 `previousSessionIds` 历史身份不因此取得当前执行归属。它只折叠官方事件，不写 Team/task/attempt，不新增重试、重派或独立执行循环。

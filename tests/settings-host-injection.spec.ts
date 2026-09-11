@@ -49,6 +49,24 @@ function descriptor(ctx: Context) {
 }
 
 describe('agent-swarm settings composition', () => {
+  it('persists exact startup exclusions with restart semantics and restores the default after removing the override', async () => {
+    const ctx = new Context()
+    const store: MemorySettingsStore = { doc: { 'agent-swarm': { enabled: false, startupRecoveryExcludedTeamIds: ['team-existing-one'] } } }
+    try {
+      await ctx.plugin(MemorySettings, { store })
+      let swarm = await mountOptionalSettingsAgentSwarm(ctx, { enabled: false })
+      expect(descriptor(ctx)).toMatchObject({ applies: 'restart', value: { startupRecoveryExcludedTeamIds: ['team-existing-one'] } })
+      await expect(ctx.settings.update(AgentSwarm.AGENT_SWARM_SETTINGS_NAMESPACE, { startupRecoveryExcludedTeamIds: [' '] })).rejects.toThrow('startupRecoveryExcludedTeamIds')
+      expect(store.doc['agent-swarm']).toEqual({ enabled: false, startupRecoveryExcludedTeamIds: ['team-existing-one'] })
+      await ctx.settings.mutate(AgentSwarm.AGENT_SWARM_SETTINGS_NAMESPACE, [{ op: 'unset', path: ['startupRecoveryExcludedTeamIds'] }])
+      expect(store.doc['agent-swarm']).toEqual({ enabled: false })
+      await swarm.dispose()
+      swarm = await mountOptionalSettingsAgentSwarm(ctx, { enabled: false })
+      expect(descriptor(ctx)).toMatchObject({ applies: 'restart', value: { startupRecoveryExcludedTeamIds: [] } })
+      await swarm.dispose()
+    } finally { await ctx.fiber.dispose() }
+  })
+
   it('re-registers its restart-applied namespace across settings-provider and owner generations', async () => {
     const ctx = new Context()
     const store: MemorySettingsStore = {

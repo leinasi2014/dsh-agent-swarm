@@ -35,6 +35,7 @@ export class ManagedActivationRecovery {
   private readonly attachments = new Map<string, Promise<Agent>>()
 
   constructor(private readonly ctx: Context, private readonly deps: {
+    excludedTeamIds?: ReadonlySet<string>
     teams(scope: TeamScope): Promise<TeamState[]>
     trackChild(parent: Agent, childId: string): void
     drainPublic?(scope: TeamScope, team: TeamState): Promise<PublicDeliveryResult>
@@ -56,6 +57,10 @@ export class ManagedActivationRecovery {
       for (const observed of await this.deps.teams(scope)) {
         let team = observed
         signal.throwIfAborted()
+        if (this.deps.excludedTeamIds?.has(team.id)) {
+          this.ctx.logger.info(`agent-swarm: automatic startup recovery excluded Team ${JSON.stringify(team.id)} by startupRecoveryExcludedTeamIds`)
+          continue
+        }
         // The existing startup scan reconstructs maintenance deadlines even
         // for an empty future round, without waking its Captain early.
         if (team.goalLifecycle !== undefined && this.deps.prepareGoal !== undefined) team = await this.deps.prepareGoal(scope, team)

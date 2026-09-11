@@ -26,6 +26,8 @@ export interface PlanApprovalPort {
   }) => Promise<'approve' | 'discard'>
 }
 export interface RuntimeConfig {
+  /** Startup-only recovery selection; does not fence manual work or idle events. */
+  readonly startupRecoveryExcludedTeamIds?: ReadonlySet<string>
   readonly communicationIntensity?: import('../domain/types.js').TeamCommunicationIntensity
   readonly memberProvider: string
   readonly memberLlmProvider?: string

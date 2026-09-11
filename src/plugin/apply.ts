@@ -98,6 +98,7 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
   const toolPolicy = effectiveToolPolicy(config.toolPolicy)
   const memberToolPolicyDeny = [...(toolPolicy.deny ?? [])]
   const disposalTimeoutMs = config.disposalTimeoutMs ?? DEFAULT_DISPOSAL_TIMEOUT_MS
+  const startupRecoveryExcludedTeamIds = new Set(config.startupRecoveryExcludedTeamIds ?? [])
   const teamSkills = new TeamSkillSurface(ctx, async (agent): Promise<TeamState | undefined> => {
     const teams = await runtime.listTeamAggregates(runtime.scopeOf(agent))
     return teams.find(team => team.captainSessionId === agent.id || team.members.some(member => member.sessionId === agent.id))
@@ -105,6 +106,7 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
   let drainHumanInteractions: (() => Promise<void>) | undefined
 
   const runtime = new AgentSwarmRuntime(ctx, {
+    startupRecoveryExcludedTeamIds,
     communicationIntensity: config.communicationIntensity ?? 'active',
     memberProvider,
     ...(config.memberLlmProvider === undefined ? {} : { memberLlmProvider: config.memberLlmProvider }),
@@ -335,20 +337,27 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
     throw error
   }
   ctx.effect(async () => {
-    await Promise.all(ctx.agents.roots().filter(agent => agent.session.header.parentSession === undefined).map(agent => runtime.recoverAgent(agent)))
+    await Promise.all(ctx.agents.roots().filter(agent => agent.session.header.parentSession === undefined).map(async agent => {
+      if (startupRecoveryExcludedTeamIds.size > 0) {
+        const membership = await runtime.domain.findMembership(runtime.scopeOf(agent), agent.id)
+        if (membership !== undefined && startupRecoveryExcludedTeamIds.has(membership.team.id)) return
+      }
+      await runtime.recoverAgent(agent)
+    }))
     // Issue #92's durable net: after agent recovery, refold every active
     // roster's usage from live logs and persisted history so a drop on the
     // live path can never survive a reload as a permanent billed-token gap.
     const scopes = [...new Set(ctx.agents.roots().filter(agent => agent.session.header.parentSession === undefined).map(agent => runtime.scopeOf(agent)))]
+    const startupTeams = async (scope: string) => (await runtime.listTeamAggregates(scope)).filter(team => !startupRecoveryExcludedTeamIds.has(team.id))
     await recoverActiveRosters(ctx, {
       domain: () => runtime.domain,
       scopes,
-      teams: scope => runtime.listTeamAggregates(scope),
+      teams: startupTeams,
     })
     // P0-2 S4: an approved managed Team whose Captain never registered after
     // the durable staged->active commit is re-provisioned now (crash window).
     for (const scope of scopes) {
-      for (const team of await runtime.listTeamAggregates(scope)) {
+      for (const team of await startupTeams(scope)) {
         if (team.phase !== 'active' || team.managedOrigin === undefined || team.captainSessionId === '') continue
         if (ctx.agents.get(SessionId(team.captainSessionId)) !== undefined) continue
         try { await runtime.recoverApprovedTeam(scope, team) }
