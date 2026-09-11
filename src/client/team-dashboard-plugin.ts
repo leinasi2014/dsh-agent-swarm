@@ -50,7 +50,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-export const inject = ['sessions', 'slots', 'locale', 'settingsScope', 'remote', 'remote.session', 'remote.subagents', 'sidebarRight', 'sidebarRightTabs', 'layout', 'connection']
+export const inject = ['sessions', 'slots', 'locale', 'settingsScope', 'remote', 'remote.session', 'remote.subagents', 'sidebarRight', 'sidebarRightTabs', 'chatNavigation', 'layout', 'connection']
 
 /** Compose an additive official Sidebar tab and Session utility. */
 export function apply(ctx: ClientContext): void {
@@ -99,6 +99,7 @@ export function apply(ctx: ClientContext): void {
   const groupPanel = 'swarm.group' as MainPanelId
   const anchorRef = { current: null as HTMLSpanElement | null }
   const coordinator = new TeamDashboardSurfaceCoordinator({ sessions: sessionsService, locale: ctx.locale, controller, anchorRef,
+    chatNavigation: ctx.chatNavigation,
     sendCaptainPrompt: async (request, signal) => {
       const content = [{ type: 'text' as const, text: request.text }]
       const clientTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone

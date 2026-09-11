@@ -1,8 +1,9 @@
 import type { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { IChatNavigation } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SubagentListEntry } from '@deepseek-ai/dsh-subagent/client'
-import type { SidebarRightNavigator, SidebarRightTabInfo } from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
+import type { ISidebarRight, SidebarRightNavigator, SidebarRightTabInfo } from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type { RefObject } from 'react'
 import type { TeamDashboardController } from './team-dashboard-controller.js'
 import { queueCommunicationChange, type CaptainHumanPrompt } from './team-communication-command.js'
@@ -33,10 +34,11 @@ interface Options {
   readonly locale: LocaleRuntime
   readonly controller: TeamDashboardController
   readonly anchorRef: RefObject<HTMLSpanElement>
+  readonly chatNavigation?: IChatNavigation
   readonly sendCaptainPrompt?: (request: CaptainHumanPrompt, signal: AbortSignal) => Promise<void>
 }
 /** Official exported target-addressed navigation, independent of the mounted seat. */
-type TeamSidebar = Pick<SidebarRightNavigator, 'openTabIn'>
+type TeamSidebar = Pick<SidebarRightNavigator, 'openTabIn'> & Pick<ISidebarRight, 'isExpandedIn' | 'setExpandedIn'>
 type Tab = SidebarRightTabInfo['tab']
 interface ObservedTab { sessionId: string; tab: Tab; mounted: boolean; mount: object; offAbort(): void }
 const INACTIVE: TeamDashboardSurfaceState = Object.freeze({ mode: 'inactive', view: 'overview', targetSessionId: undefined })
@@ -52,6 +54,7 @@ export class TeamDashboardSurfaceCoordinator {
   private sidebar: TeamSidebar | undefined
   private sidebarEpoch = 0
   private navigationEpoch = 0
+  private latestIntent: { target: string; cancel(): void } | undefined
   private disposed = false
   private mounted = false
   private observedSessionId: string | undefined
@@ -88,6 +91,7 @@ export class TeamDashboardSurfaceCoordinator {
       if (current === this.observedSessionId) return
       this.observedSessionId = current
       this.navigationEpoch++
+      if (this.latestIntent?.target !== current) this.cancelLatestIntent()
       if (current === undefined) this.options.controller.close()
       else {
         this.options.controller.open(current)
@@ -191,7 +195,7 @@ export class TeamDashboardSurfaceCoordinator {
       if (list.current !== this.observedSessionId || row === undefined || row.origin === 'subagent' || row.parentId !== undefined) {
         throw new Error('Main conversation is not in the current official root Session list')
       }
-      sessions.open(id as SessionId)
+      this.commitChatNavigation(id, () => { sessions.open(id as SessionId) })
     })
   }
 
@@ -201,8 +205,8 @@ export class TeamDashboardSurfaceCoordinator {
     const before = sessions.list.getSnapshot()
     const row = before.byId[id as SessionId]
     if (row === undefined) throw new Error('Dedicated Captain is no longer in the official Session list')
-    if (before.current === id) return
-    if (row.origin !== 'subagent') { sessions.open(id as SessionId); return }
+    if (before.current === id) { this.commitChatNavigation(id, () => {}); return }
+    if (row.origin !== 'subagent') { this.commitChatNavigation(id, () => { sessions.open(id as SessionId) }); return }
     if (row.parentId === undefined) throw new Error('Dedicated Captain has no official parent child catalog')
     await sessions.refreshSubagents(row.parentId)
     signal?.throwIfAborted()
@@ -215,7 +219,7 @@ export class TeamDashboardSurfaceCoordinator {
     if (current?.origin !== 'subagent' || current.parentId !== row.parentId || child?.kind !== 'child' || child.mode !== 'continuable') {
       throw new Error('Dedicated Captain is not in the official parent child catalog')
     }
-    sessions.openSubagent({ parentSessionId: row.parentId, childSessionId: child.id, mode: child.mode })
+    this.commitChatNavigation(id, () => { sessions.openSubagent({ parentSessionId: row.parentId!, childSessionId: child.id, mode: child.mode }) })
   }
 
   async openMemberChat(name: string, sessionId: string): Promise<void> {
@@ -234,7 +238,7 @@ export class TeamDashboardSurfaceCoordinator {
       }
       // subagentAddress is a retained-navigation lookup, empty on first open.
       // This address comes from the fresh public direct-parent catalog instead.
-      sessions.openSubagent({ parentSessionId: captainId as SessionId, childSessionId: child.id, mode: child.mode })
+      this.commitChatNavigation(memberId, () => { sessions.openSubagent({ parentSessionId: captainId as SessionId, childSessionId: child.id, mode: child.mode }) })
     })
   }
 
@@ -246,7 +250,8 @@ export class TeamDashboardSurfaceCoordinator {
   }
 
   private navigationGuard(): () => void {
-    const epoch = this.navigationEpoch
+    this.cancelLatestIntent()
+    const epoch = ++this.navigationEpoch
     const target = this.options.sessions.list.getSnapshot().current
     const binding = this.options.controller.getSnapshot().data?.projection.binding
     return () => {
@@ -262,11 +267,23 @@ export class TeamDashboardSurfaceCoordinator {
     }
   }
 
+  private cancelLatestIntent(): void { this.latestIntent?.cancel(); this.latestIntent = undefined }
+  /** Commit presentation preferences only after the fresh official catalog checks. */
+  private commitChatNavigation(target: string, open: () => void): void {
+    const current = this.options.sessions.list.getSnapshot().current
+    if (current !== undefined && this.sidebar?.isExpandedIn(current) === false) this.sidebar.setExpandedIn(target as SessionId, false)
+    this.cancelLatestIntent()
+    const cancel = this.options.chatNavigation?.requestLatest(target as SessionId)
+    if (cancel !== undefined) this.latestIntent = { target, cancel }
+    try { open() } catch (error) { this.cancelLatestIntent(); throw error }
+  }
+
   private revealAvailableTeam(): void {
     const read = this.options.controller.getSnapshot()
     const current = this.options.sessions.list.getSnapshot().current
     if (this.disposed || !read.open || read.phase !== 'ready' || read.data === undefined
       || current === undefined || read.targetSessionId !== current) return
+    if (this.sidebar?.isExpandedIn(current) !== true) return
     const own = [...this.tabs.values()].find(value => value.sessionId === current)
     if (own !== undefined) {
       if (own.mounted && own.tab.visible) this.publish({ mode: 'docked', targetSessionId: current, view: this.state.view })
@@ -302,6 +319,7 @@ export class TeamDashboardSurfaceCoordinator {
   private dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    this.cancelLatestIntent()
     this.sidebarEpoch++
     this.offSessions(); this.offController()
     for (const observed of this.tabs.values()) observed.offAbort()
