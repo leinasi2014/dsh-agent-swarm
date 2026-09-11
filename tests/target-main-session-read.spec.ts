@@ -1,8 +1,10 @@
 import { persistenceReadFixture } from './helpers/persistence-read-fixture.js'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import type { Context } from '@deepseek-ai/cordis'
+import { join, resolve } from 'node:path'
+import { Context } from '@deepseek-ai/cordis'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import { titleProjectionDefinition } from '@deepseek-ai/dsh-session-title'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-title'
@@ -50,10 +52,15 @@ async function setup(cold = false) {
     if (value === undefined) throw new Error('not found')
     return { meta: value.header, events: value.snapshotEvents(), inheritedEventCount: value.inheritedEventCount }
   })
+  const stat = vi.fn(async (id: string) => {
+    const value = sessions.get(id)
+    if (value === undefined) throw new Error('not found')
+    return value.header
+  })
   const ctx = { agents: { get: (id: string) => live.get(id), roots: () => [...live.values()].filter(agent => agent.session.header.parentSession === undefined) },
-    sessions: { get: (id: string) => cold ? undefined : sessions.get(id) }, sessionPersistence: persistenceReadFixture(inspect) } as unknown as Context
+    sessions: { get: (id: string) => cold ? undefined : sessions.get(id) }, sessionPersistence: persistenceReadFixture(inspect, stat) } as unknown as Context
   const list = vi.fn(() => storage.store.list(scope))
-  const runtime = { scopeOf: (agent: Agent) => agent.session.header.cwd!, listTeamAggregates: list,
+  const runtime = { scopeOf: (agent: Agent) => resolve(agent.session.header.cwd!), listTeamAggregates: list,
     managedCaptainSessionsOf: () => [], domain: storage.port } as unknown as AgentSwarmRuntime
   const hostRead = new AgentSwarmHostReadService({ currentInitiator: () => live.get('main'), isExactLiveRoot: () => true,
     scopeOf: runtime.scopeOf, teams: list, domain: () => storage.port, overlay: { list: () => [] } })
@@ -62,10 +69,25 @@ async function setup(cold = false) {
   const teams = (id: string) => rpc.invoke({ schemaVersion: 1, method: 'teams', target: { rootSessionId: id } }) as Promise<SwarmReadTeamsV1>
   const read = (id: string, teamId = other.id, method = 'snapshot') => rpc.invoke({ schemaVersion: 1, method, target: { rootSessionId: id, teamId } })
   const targets = new HostTargetReadService(ctx, runtime, hostRead)
-  return { storage, scope, sessions, session, live, inspect, list, rpc, teams, read, team, other, targets }
+  return { ctx, storage, scope, sessions, session, live, inspect, stat, list, rpc, teams, read, team, other, targets }
 }
 
 describe('local UI main Session association (#225)', () => {
+  it('keeps cold identity reads on fresh metadata without reading Captain or Main event bodies', async () => {
+    const h = await setup(true)
+    for (const id of ['main', 'captain', 'member']) await h.read(id)
+    expect(h.inspect).not.toHaveBeenCalled()
+    expect(h.stat.mock.calls.map(([id]) => id)).toEqual(expect.arrayContaining(['main', 'captain', 'member', 'sibling']))
+    const count = h.stat.mock.calls.length
+    await h.read('member')
+    expect(h.stat.mock.calls.length).toBeGreaterThan(count)
+  })
+
+  it('does not copy live event arrays for identity-only requests', async () => {
+    const h = await setup(), snapshots = [...h.sessions.values()].map(session => vi.spyOn(session, 'snapshotEvents'))
+    await h.read('member')
+    for (const snapshot of snapshots) expect(snapshot).not.toHaveBeenCalled()
+  })
   for (const cold of [false, true]) it(`retains main, Captain and exact member association with sibling reads (${cold ? 'cold' : 'live'})`, async () => {
     const h = await setup(cold)
     for (const id of ['main', 'captain', 'member']) {
@@ -91,6 +113,47 @@ describe('local UI main Session association (#225)', () => {
     const h = await setup(true)
     h.session('main')
     expect((await h.teams('member')).binding).toEqual({ rootSessionId: 'member', mainSessionId: 'main', currentTeamId: h.team.id, currentMemberName: 'worker' })
+  })
+
+  it('normalizes a cold Main cwd before comparing its displayed-title source', async () => {
+    const h = await setup(true)
+    h.session('main', undefined, h.scope.replaceAll('\\', '/')).append('session/title', { title: 'Same workspace', messageSeqs: [], source: { kind: 'user' } })
+    expect((await h.teams('member')).binding.mainSessionTitle).toBe('Same workspace')
+  })
+
+  it('rechecks membership after the awaited cold Main title read', async () => {
+    const h = await setup(true), inspect = h.inspect.getMockImplementation()!
+    h.inspect.mockImplementation(async id => {
+      const stored = await inspect(id)
+      await h.storage.port.removeMember(h.scope, h.team.id, 'captain', 'worker', 'during title read')
+      return stored
+    })
+    await expect(h.teams('member')).rejects.toMatchObject({ code: 'SWARM_HOST_BINDING_MISMATCH' })
+    expect(h.inspect).toHaveBeenCalledExactlyOnceWith('main')
+  })
+
+  it('uses the live official title watermark and observes the next title append', async () => {
+    const h = await setup(), context = new Context(), projection = await context.plugin(SessionProjectionRegistry)
+    cleanups.push(async () => { await projection.dispose() })
+    context.sessionProjections.register(titleProjectionDefinition)
+    h.ctx.get = context.get.bind(context)
+    const main = h.sessions.get('main')!, snapshot = vi.spyOn(main, 'snapshotEvents')
+    expect((await h.teams('member')).binding.mainSessionTitle).toBe('公开主会话标题')
+    snapshot.mockClear()
+    await h.teams('member'); await h.teams('captain')
+    expect(snapshot).not.toHaveBeenCalled()
+    main.append('session/title', { title: '更新后的标题', messageSeqs: [], source: { kind: 'user' } })
+    expect((await h.teams('member')).binding.mainSessionTitle).toBe('更新后的标题')
+  })
+
+  it('rechecks the Main visible Team set after awaited title data', async () => {
+    const h = await setup(true), inspect = h.inspect.getMockImplementation()!, list = h.list.getMockImplementation()!
+    h.inspect.mockImplementation(async id => {
+      const stored = await inspect(id)
+      h.list.mockImplementation(async () => (await list()).filter(team => team.id !== h.other.id))
+      return stored
+    })
+    await expect(h.teams('main')).rejects.toMatchObject({ code: 'SWARM_HOST_BINDING_MISMATCH' })
   })
 
   it('keeps the exact member public name while reading a sibling and refreshes it from the owning aggregate', async () => {
@@ -131,9 +194,9 @@ describe('local UI main Session association (#225)', () => {
 
   it('rechecks exact membership after awaited Session inspection', async () => {
     const h = await setup(true)
-    const original = h.inspect.getMockImplementation()!
+    const original = h.stat.getMockImplementation()!
     let removed = false
-    h.inspect.mockImplementation(async id => {
+    h.stat.mockImplementation(async id => {
       const value = await original(id)
       if (id === 'sibling' && !removed) {
         removed = true
@@ -148,10 +211,10 @@ describe('local UI main Session association (#225)', () => {
   for (const id of ['captain', 'member']) for (const changedTeam of ['source', 'sibling']) {
     it(`allows ${id} reads after ordinary ${changedTeam} task updates during ancestry inspection`, async () => {
       const h = await setup(true)
-      const original = h.inspect.getMockImplementation()!
+      const original = h.stat.getMockImplementation()!
       for (const method of ['teams', 'snapshot', 'captainMembers']) {
         let changed = false
-        h.inspect.mockImplementation(async sessionId => {
+        h.stat.mockImplementation(async sessionId => {
           const value = await original(sessionId)
           if (sessionId === 'sibling' && !changed) {
             changed = true
@@ -169,9 +232,9 @@ describe('local UI main Session association (#225)', () => {
 
   for (const id of ['captain', 'member']) it(`revokes ${id} sibling access when its source Team is archived during inspection`, async () => {
     const h = await setup(true)
-    const original = h.inspect.getMockImplementation()!
+    const original = h.stat.getMockImplementation()!
     let archived = false
-    h.inspect.mockImplementation(async sessionId => {
+    h.stat.mockImplementation(async sessionId => {
       const value = await original(sessionId)
       if (sessionId === 'sibling' && !archived) {
         archived = true
@@ -226,9 +289,9 @@ describe('local UI main Session association (#225)', () => {
   for (const fault of ['root-reparented', 'captain-reparented', 'sibling-reparented', 'cold-resumed'] as const) {
     it(`rejects an in-flight ${fault} binding change`, async () => {
       const h = await setup(true)
-      const original = h.inspect.getMockImplementation()!
+      const original = h.stat.getMockImplementation()!
       let changed = false
-      h.inspect.mockImplementation(async id => {
+      h.stat.mockImplementation(async id => {
         const value = await original(id)
         if (id === 'sibling' && !changed) {
           changed = true

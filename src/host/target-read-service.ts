@@ -21,7 +21,6 @@ interface RootView {
   readonly parentSession?: string
   readonly live?: Agent
   readonly session?: Session | undefined
-  readonly title?: string | undefined
 }
 
 export class HostTargetReadService {
@@ -66,15 +65,17 @@ export class HostTargetReadService {
   }
 
   private async readTeams(rootSessionId: string) {
-    const { root, visible, main, currentTeamId, currentMemberName } = await this.visibleTeams(rootSessionId)
+    const { root, visible, main, currentTeamId, currentMemberName, verify } = await this.visibleTeams(rootSessionId)
+    const title = main === undefined ? undefined : await this.mainTitle(main)
+    const latest = await verify(true)
     this.assertUnchanged(root)
     return {
       schemaVersion: 1 as const,
       binding: { rootSessionId,
-        ...(main === undefined ? {} : { mainSessionId: main.id, ...(main.title === undefined ? {} : { mainSessionTitle: main.title }) }),
+        ...(main === undefined ? {} : { mainSessionId: main.id, ...(title === undefined ? {} : { mainSessionTitle: title }) }),
         ...(currentTeamId === undefined ? {} : { currentTeamId }),
         ...(currentMemberName === undefined ? {} : { currentMemberName }) },
-      teams: visible.map(projectTeamSummary),
+      teams: latest.filter(team => visible.some(before => before.id === team.id)).map(projectTeamSummary),
       complete: true, observedAt: Date.now(),
     }
   }
@@ -320,7 +321,6 @@ export class HostTargetReadService {
       }
       if (live.session.header.cwd === undefined) throw new TeamDomainError('Target Session has no workspace cwd', 'SWARM_HOST_WORKSPACE_REQUIRED')
       return { id, cwd: this.runtime.scopeOf(live), live, session: current,
-        title: typeof live.session.snapshotEvents === 'function' ? foldSessionTitle(live.session.snapshotEvents())?.title : undefined,
         ...(live.session.header.parentSession === undefined ? {} : { parentSession: live.session.header.parentSession }) }
     }
     const session = this.ctx.sessions.get(SessionId(id))
@@ -328,18 +328,28 @@ export class HostTargetReadService {
     if (header === undefined) throw new TeamDomainError('Target is not an official persisted Session', 'SWARM_RPC_TARGET_NOT_LIVE')
     if (header.cwd === undefined) throw new TeamDomainError('Target Session has no workspace cwd', 'SWARM_HOST_WORKSPACE_REQUIRED')
     return { id, cwd: this.runtime.scopeOf({ session: { header } } as Agent), session,
-      title: session === undefined ? ('title' in header ? header.title : undefined) : (typeof session.snapshotEvents === 'function' ? foldSessionTitle(session.snapshotEvents())?.title : undefined),
       ...(header.parentSession === undefined ? {} : { parentSession: header.parentSession }) }
   }
 
-  private async persistedHeader(id: string): Promise<{ cwd?: string; parentSession?: string; title?: string | undefined } | undefined> {
+  private async persistedHeader(id: string): Promise<{ cwd?: string; parentSession?: string } | undefined> {
     try {
-      const stored = this.ctx.sessionPersistence === undefined ? undefined
-        : await readPersistedSession(this.ctx.sessionPersistence, SessionId(id), AbortSignal.timeout(3_000))
-      if (stored === undefined) return undefined
-      return { title: foldSessionTitle(stored.events)?.title, ...(stored.meta.cwd === undefined ? {} : { cwd: stored.meta.cwd }),
-        ...(stored.meta.parentSession === undefined ? {} : { parentSession: stored.meta.parentSession }) }
+      return (await this.ctx.sessionPersistence?.stat(SessionId(id), { signal: AbortSignal.timeout(3_000) }))?.header
     } catch { return undefined }
+  }
+
+  /** Titles are display data for teams only, never part of an identity witness. */
+  private async mainTitle(main: RootView): Promise<string | undefined> {
+    const session = main.live?.session ?? main.session
+    const projections = this.ctx.get?.('sessionProjections')
+    if (session !== undefined && projections !== undefined) {
+      const title = projections.stateOf(session, 'title')
+      if (title !== undefined) return title ?? undefined
+    }
+    if (session !== undefined) return typeof session.snapshotEvents === 'function' ? foldSessionTitle(session.snapshotEvents())?.title : undefined
+    const stored = await readPersistedSession(this.ctx.sessionPersistence, SessionId(main.id), AbortSignal.timeout(3_000))
+    if (stored.meta.id !== main.id || stored.meta.cwd === undefined || this.runtime.scopeOf({ session: { header: stored.meta } } as Agent) !== main.cwd
+      || stored.meta.parentSession !== main.parentSession) this.bindingChanged()
+    return foldSessionTitle(stored.events)?.title
   }
 
   private assertUnchanged(root: RootView): void {

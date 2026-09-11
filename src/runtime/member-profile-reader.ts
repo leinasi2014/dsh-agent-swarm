@@ -3,14 +3,15 @@
  *
  * The Team aggregate remains the authority for roster identity and phase.
  * Provider/model/preset/persona/tool declarations are inspected per member
- * from the child Session header and its own continuable descriptor suffix.
+ * from the exact attached Session cut, or a bounded cold read, and its own
+ * header and continuable descriptor suffix.
  * This reader never resumes a child, enumerates live subagents, caches a
  * profile, or writes/repairs either authority.
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { readPersistedSession } from './persisted-session.js'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import type {} from '@deepseek-ai/dsh-session-persistence'
+import type { SessionInspection } from '@deepseek-ai/dsh-session-persistence'
 import { foldSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
 import { TeamDomainError } from '../domain/error.js'
 import type { TeamMember, TeamState } from '../domain/types.js'
@@ -204,9 +205,14 @@ export class MemberProfileReader {
     if (member.phase === 'failed') return unavailable(member, 'startup_failed')
     if (member.phase === 'removed') return unavailable(member, 'removed')
     const rowSignal = AbortSignal.any([pageSignal, AbortSignal.timeout(MEMBER_INSPECTION_TIMEOUT_MS)])
-    let stored: Awaited<ReturnType<typeof readPersistedSession>>
     try {
-      stored = await readPersistedSession(this.ctx.sessionPersistence, SessionId(member.sessionId), rowSignal)
+      rowSignal.throwIfAborted()
+      const live = this.ctx.sessions?.get(SessionId(member.sessionId))
+      const stored = live !== undefined && typeof live.snapshotEvents === 'function'
+        ? { meta: live.header, inheritedEventCount: live.inheritedEventCount, events: live.snapshotEvents() }
+        : await readPersistedSession(this.ctx.sessionPersistence, SessionId(member.sessionId), rowSignal)
+      rowSignal.throwIfAborted()
+      return this.profile(team, member, stored)
     } catch (error) {
       // A caller or page-wide deadline has a tool-level outcome; it must not
       // disappear into a harmless-looking row result.
@@ -216,7 +222,9 @@ export class MemberProfileReader {
       }
       return unavailable(member, 'inspection_failed')
     }
+  }
 
+  private profile(team: TeamState, member: TeamMember, stored: SessionInspection): MemberProfile {
     if (
       stored.meta.id !== member.sessionId
       || stored.meta.origin !== 'subagent'
