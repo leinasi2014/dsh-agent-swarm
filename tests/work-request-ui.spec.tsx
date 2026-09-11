@@ -66,6 +66,7 @@ it('renders real event identities, proposal decisions, retained range and only a
     referencedRequests: [{ id: 'request-1', requestId: 'retry-1', origin: { kind: 'main', sessionId: 'main' }, description: 'Original request', acceptanceCriteria: 'Exact evidence', revision: 2, createdAt: 10,
       resolution: { kind: 'accept', actorSessionId: 'captain-a', occurredAt: 1000, taskIdsByItemKey: { deliverable: 'task-real' } } }] })
   await render(<WorkActivityFeed work={f.work} teamId="a" openTask={openTask} t={translate} />)
+  expect(document.querySelector('[data-work-collapse]')?.getAttribute('aria-expanded')).toBe('true')
   expect(document.querySelectorAll('[data-work-event]')).toHaveLength(2)
   expect(document.querySelector('[data-public-message]')).toBeNull()
   expect(document.querySelector('[data-work-retained]')?.textContent).toContain('9–10')

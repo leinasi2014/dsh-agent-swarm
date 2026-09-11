@@ -1,3 +1,4 @@
+import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 // @vitest-environment jsdom
 import { ready, render, t, mounted } from './helpers/dashboard-ui.js'
 import { act, type ComponentProps } from 'react'
@@ -30,7 +31,7 @@ function chatState(state: TeamDashboardState): PublicChatState {
   }
 }
 function chatProps(state = teamState(), chat = chatState(state)) {
-  return { t, useTeam: <T,>(selector: (state: TeamDashboardState) => T) => selector(state), useChat: <T,>(selector: (state: PublicChatState) => T) => selector(chat),
+  return { t, useSessions: <T,>(selector: (state: SessionListState) => T) => selector({ ids: [], byId: {}, current: undefined, phase: 'ready', subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined }), useTeam: <T,>(selector: (state: TeamDashboardState) => T) => selector(state), useChat: <T,>(selector: (state: PublicChatState) => T) => selector(chat),
     useSurface: <T,>(selector: (state: { mode: 'inactive'; view: 'overview'; targetSessionId: undefined }) => T) => selector({ mode: 'inactive', view: 'overview', targetSessionId: undefined }),
     replaceText: vi.fn(), chooseMention: vi.fn(), removeMention: vi.fn(), refreshDirectory: vi.fn(), upgradeLegacy: vi.fn(), send: vi.fn(), recover: vi.fn(), earlier: vi.fn(), newer: vi.fn(), refresh: vi.fn(), edit: vi.fn(), reply: vi.fn(), openTeam: vi.fn(),
     addImages: vi.fn(), removeImage: vi.fn(), image: vi.fn(async () => new Blob(['image'], { type: 'image/png' })), retryDraftStorage: vi.fn(), useStoredDraft: vi.fn(),
@@ -39,6 +40,35 @@ function chatProps(state = teamState(), chat = chatState(state)) {
 
 
 describe('public conversation composition', () => {
+  it('shows official current-Session statistics only for a ready matching viewer', async () => {
+    const team = teamState(), chat = chatState(team), viewer = chat.selection!.viewer as SessionListState['ids'][number]
+    const sessions = { phase: 'ready', current: viewer, ids: [viewer], byId: { [viewer]: { id: viewer, displayTitle: 'Actual current Session', running: false, blank: false, updatedAt: 1,
+      projectionValues: { tokenUsage: { uncachedInputTokens: 100, cacheReadTokens: 50, cacheWriteTokens: 20, outputTokens: 30 }, sessionStats: { turns: 3, steps: 8, decodeTokens: 120, decodeMs: 2000 } } } }, subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined } as unknown as SessionListState
+    const props = { ...chatProps(team, chat), useSessions: <T,>(selector: (state: SessionListState) => T) => selector(sessions) }
+    await render(<TeamPublicChat {...props as ComponentProps<typeof TeamPublicChat>} />)
+    expect(document.querySelector('[data-public-session-stats]')?.textContent).toContain('200 tok')
+    expect(document.querySelector('[data-public-session-stats]')?.textContent).toContain('60 tok/s')
+    expect(document.querySelector('[data-public-session-stats]')?.textContent).toContain('Actual current Session')
+    for (const patch of [{ phase: 'pending' as const }, { current: 'other-session' as typeof sessions.current }]) {
+      await act(async () => { mounted.at(-1)!.render(<TeamPublicChat {...props as ComponentProps<typeof TeamPublicChat>} useSessions={selector => selector({ ...sessions, ...patch })} />) })
+      expect(document.querySelector('[data-public-session-stats]')?.textContent).not.toContain('200 tok')
+      expect(document.querySelector('[data-public-session-stats]')?.textContent).toContain('— tok/s')
+    }
+  })
+  it('offers one explicit loaded-tail navigation menu and keyboard-accessible full quotes', async () => {
+    const team = teamState(), chat = chatState(team), source = chat.entries[0]!
+    await render(<TeamPublicChat {...chatProps(team, { ...chat, entries: [source, { ...source, id: 'reply', replyTo: source.id }] }) as ComponentProps<typeof TeamPublicChat>} />)
+    expect(document.querySelectorAll('[data-public-navigation]')).toHaveLength(1)
+    const trigger = document.querySelector<HTMLButtonElement>('[data-public-quote-trigger]')!
+    expect(trigger).not.toBeNull()
+    await act(async () => { trigger.focus() })
+    expect(trigger.getAttribute('aria-expanded')).toBe('true')
+    expect(document.querySelector('[data-public-quote-full]')?.textContent).toContain(source.text)
+    await act(async () => { trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
+    expect(trigger.getAttribute('aria-expanded')).toBe('false')
+    expect(document.activeElement).toBe(trigger)
+    expect(document.querySelector('[data-public-expand]')).toBeNull()
+  })
   it('offers a local image picker and blocks sending until draft storage is restored', async () => {
     const base = teamState(), props = chatProps(base, { ...chatState(base), draftStatus: 'loading' })
     await render(<TeamPublicChat {...props as ComponentProps<typeof TeamPublicChat>} />)
@@ -166,7 +196,7 @@ it.each([1, 2, 3] as const)('preserves public escape rendering for format %s and
       ...(formatVersion === 3 ? [historyImage] : []), { type: 'mention' as const, memberId: 'member' }],
       mentionLabels: [{ memberId: 'member', label: 'Member' }] }
     await render(<PublicMessageContent message={message} entries={[message]} image={async () => new Blob(['png'])} t={t as ComponentProps<typeof PublicMessageContent>['t']} />)
-    expect(document.querySelectorAll('[data-public-content] > span')[0]?.textContent).toBe(formatVersion > 1 && author.kind === 'local-operator' ? decoded : raw)
+    expect(document.querySelectorAll('[data-public-text] > span')[0]?.textContent).toBe(formatVersion > 1 && author.kind === 'local-operator' ? decoded : raw)
     expect(document.querySelector('[data-public-mention]')?.textContent).toBe('@Member')
     await act(async () => { mounted.pop()!.unmount() })
   }
@@ -215,7 +245,7 @@ it('renders ordered mixed content with frozen mention labels and bounded queued 
   const props = chatProps(base, { ...chat, entries: [message] })
   await render(<TeamPublicChat {...props as ComponentProps<typeof TeamPublicChat>} />)
   const content = document.querySelector('[data-public-content]')!
-  expect([...content.children].map(node => node.textContent)).toEqual(['前文', '参考.png', '@当时的名字', '后文'])
+  expect([...content.querySelectorAll('[data-public-text] > span, [data-public-image]')].map(node => node.textContent)).toEqual(['前文', '参考.png', '@当时的名字', '后文'])
   expect(content.textContent).not.toContain('flattened')
   expect(document.querySelector('[data-recipient]')?.textContent).toContain(t('public.deferred.image-model-unsupported'))
   expect(props.image).toHaveBeenCalledOnce()
@@ -353,3 +383,127 @@ it('keeps an image read across ordinary refreshes and remounts it for another Te
   expect(image.mock.calls[0]![2].aborted).toBe(true)
   expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:fixture-image')
 })
+
+
+it('keeps real React activity, folds, quote access and reading position stable in Edge', async () => {
+  const { publicImagesBrowserScript } = await import('./helpers/public-images-browser.js')
+  const { chromium } = await import('playwright'), { mkdir } = await import('node:fs/promises'), { join } = await import('node:path')
+  const browser = await chromium.launch({ channel: 'msedge', headless: true }), script = await publicImagesBrowserScript()
+  const team = teamState(), chat = chatState(team), source = chat.entries[0]!
+  const longText = Array.from({ length: 24 }, (_, i) => `第 ${i + 1} 行：按已批准交互稿保留真实任务、消息和阅读位置。`).join('\n')
+  const entries = Array.from({ length: 12 }, (_, i) => ({ ...source, id: `message-${i}`, sequence: i + 1,
+    text: i === 0 ? longText : `第 ${i + 1} 条简短消息`, content: [{ type: 'text' as const, text: i === 0 ? longText : `第 ${i + 1} 条简短消息` }], ...(i === 1 ? { replyTo: 'message-0' } : {}) }))
+  const fixture = { ...chat, entries, history: { ...chat.history!, hasEarlier: true, hasMore: true } }
+  const activity = { selection: chat.selection, verified: true, loading: false, error: undefined,
+    entries: Array.from({ length: 4 }, (_, i) => ({ id: `event-${i}`, sequence: i + 1, kind: 'task-created', taskId: `task-${i}`, actor: { kind: 'local-operator' }, occurredAt: 1000 + i })),
+    referencedRequests: [], activity: { retainedFromSequence: 1, throughSequence: 4, hasMore: true } }
+  const directory = process.env['SWARM_UI_EVIDENCE_DIR']; if (directory) await mkdir(directory, { recursive: true })
+  type Driver = { mountChat: (team: unknown, chat: unknown, activity: unknown) => Promise<void>; updateChat: (team: unknown, chat: unknown, activity?: unknown) => void; actions: unknown[] }
+  try {
+    for (const width of [390, 1280]) {
+      const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 })
+      const errors: string[] = []; page.on('pageerror', error => { errors.push(error.message) })
+      await page.setContent(`<style>body{margin:0;font-family:system-ui;--dsw-alias-label-primary:#223047;--dsw-alias-label-secondary:#69778c;--dsw-alias-bg-base:#f8f9fc;--dsw-alias-bg-layer-1:white;--dsw-alias-border-l2:#d8deea;--dsw-alias-state-business-primary:#4267bc}#fixture-root{height:900px}.fixture-modal-root{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center}.fixture-modal-mask{position:absolute;inset:0;background:#0009}.fixture-modal-dialog{position:relative}</style><div id="fixture-root"></div>`)
+      await page.addScriptTag({ content: script })
+      await page.evaluate(viewer => { (window as unknown as { sessionState: unknown }).sessionState = { phase: 'ready', current: viewer, byId: { [viewer]: { displayTitle: '浏览器测试会话', projectionValues: { tokenUsage: { uncachedInputTokens: 100, cacheReadTokens: 50, cacheWriteTokens: 20, outputTokens: 30 }, sessionStats: { turns: 3, steps: 8, decodeTokens: 120, decodeMs: 2000 } } } } } }, chat.selection!.viewer)
+      await page.evaluate(async ({ team: teamValue, fixture: chatValue, activity: activityValue }) => { await (window as unknown as Driver).mountChat(teamValue, chatValue, activityValue) }, { team, fixture, activity })
+      await page.locator('[data-work-collapse]').waitFor()
+      await page.getByRole('button', { name: '200 tok', exact: true }).click()
+      await page.getByRole('dialog', { name: 'Token 用量', exact: true }).waitFor()
+      expect(await page.getByRole('dialog').textContent()).toContain('浏览器测试会话')
+      expect(await page.getByRole('dialog').textContent()).toContain('缓存读取50')
+      if (directory) await page.screenshot({ path: join(directory, `statistics-${width}.png`) })
+      await page.keyboard.press('Escape')
+      await page.getByRole('dialog').waitFor({ state: 'detached' })
+      expect(await page.getByRole('button', { name: '200 tok', exact: true }).evaluate(node => node === document.activeElement)).toBe(true)
+      const box = page.locator('.swarm-public__messages'), long = page.locator('[data-public-message="message-0"]'), short = page.locator('[data-public-message="message-1"]')
+      await expect.poll(() => long.locator('[data-public-expand]').count()).toBe(1)
+      expect(await short.locator('[data-public-expand]').count()).toBe(0)
+      expect(await long.locator('[data-public-text]').evaluate(node => node.clientHeight <= parseFloat(getComputedStyle(node).lineHeight) * 6 + 1)).toBe(true)
+      expect(await page.locator('[data-work-event]').first().evaluate(node => node.getBoundingClientRect().height)).toBeLessThan(width === 390 ? 120 : 70)
+      if (directory) await page.screenshot({ path: join(directory, `activity-chat-${width}.png`) })
+      await page.locator('[data-work-collapse]').click()
+      expect(await page.locator('[data-work-collapse]').getAttribute('aria-expanded')).toBe('false')
+      expect(await page.locator('[data-work-event]').first().isVisible()).toBe(false)
+      await long.locator('[data-public-expand]').click()
+      expect(await long.locator('[data-public-text]').getAttribute('data-expanded')).toBe('true')
+      await long.locator('[data-public-expand]').click()
+      expect(await long.locator('[data-public-text]').getAttribute('data-expanded')).toBe('false')
+      const quote = short.locator('[data-public-quote-trigger]')
+      await quote.scrollIntoViewIfNeeded()
+      if (width === 390) await quote.tap(); else await quote.hover()
+      await expect.poll(() => quote.getAttribute('aria-expanded')).toBe('true')
+      expect(await page.locator('[data-public-quote-full]').textContent()).toContain(longText)
+      expect(await quote.evaluate(node => getComputedStyle(node).textOverflow)).toBe('ellipsis')
+      if (directory) await page.screenshot({ path: join(directory, `quote-chat-${width}.png`) })
+      await quote.focus(); await page.keyboard.press('Tab')
+      expect(await page.getByRole('link', { name: '定位原消息' }).evaluate(node => node === document.activeElement)).toBe(true)
+      await page.keyboard.press('Tab'); await page.keyboard.press('Tab')
+      expect(await page.locator('[data-public-quote-full]').evaluate(node => node === document.activeElement)).toBe(true)
+      await page.keyboard.press('Escape')
+      expect(await quote.getAttribute('aria-expanded')).toBe('false')
+      await page.locator('[data-public-navigation] summary').click()
+      await page.getByRole('button', { name: '已载入消息末尾', exact: true }).click()
+      expect(await box.evaluate(node => node.scrollHeight - node.clientHeight - node.scrollTop)).toBeLessThan(2)
+      // Read a middle message, then add earlier/newer pages and resize content above it.
+      const anchor = page.locator('[data-public-message="message-5"]')
+      await anchor.evaluate(node => { const scrolling = node.closest('.swarm-public__messages')!; scrolling.scrollTop += node.getBoundingClientRect().top - scrolling.getBoundingClientRect().top - 12; scrolling.dispatchEvent(new Event('scroll')) })
+      const offset = () => anchor.evaluate(node => node.getBoundingClientRect().top - node.closest('.swarm-public__messages')!.getBoundingClientRect().top)
+      const before = await offset()
+      const more = { ...fixture, entries: [{ ...source, id: 'earlier', sequence: 0 }, ...entries, { ...source, id: 'later', sequence: 13 }] }
+      await page.evaluate(({ team: teamValue, more: chatValue }) => { (window as unknown as Driver).updateChat(teamValue, chatValue) }, { team, more })
+      await page.locator('[data-public-message="later"]').waitFor({ state: 'attached' })
+      await expect.poll(offset).toBeCloseTo(before, 0)
+      const other = { ...more, selection: { ...more.selection!, key: 'other-view' }, entries: [{ ...source, id: 'other' }] }
+      await page.evaluate(({ team: teamValue, other: chatValue }) => { (window as unknown as Driver).updateChat(teamValue, chatValue) }, { team, other })
+      await page.locator('[data-public-message="other"]').waitFor()
+      await page.evaluate(({ team: teamValue, more: chatValue }) => { (window as unknown as Driver).updateChat(teamValue, chatValue) }, { team, more })
+      await expect.poll(offset).toBeCloseTo(before, 0)
+      expect(await page.locator('[data-work-collapse]').getAttribute('aria-expanded')).toBe('false')
+      await page.locator('[data-public-navigation] summary').click()
+      await page.getByRole('button', { name: '任务活动 · 群聊顶部', exact: true }).click()
+      await expect.poll(() => box.evaluate(node => node.scrollTop)).toBe(0)
+      expect(await page.locator('[data-work-collapse]').getAttribute('aria-expanded')).toBe('true')
+      expect(await page.locator('[data-swarm-public-chat]').evaluate(node => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(1)
+      // The composer quote remains readable above its independently scrolling area.
+      const replying = { ...more, draft: { ...more.draft, replyTo: 'message-0' } }
+      await page.evaluate(({ team: teamValue, replying: chatValue }) => { (window as unknown as Driver).updateChat(teamValue, chatValue) }, { team, replying })
+      const composerQuote = page.locator('.swarm-public__composer [data-public-quote-trigger]')
+      await composerQuote.focus()
+      await page.locator('[data-public-quote-full]').waitFor()
+      const popupBounds = await page.locator('.swarm-public__quote-pop').boundingBox()
+      expect(popupBounds!.y).toBeGreaterThanOrEqual(0); expect(popupBounds!.y + popupBounds!.height).toBeLessThanOrEqual(900)
+      if (directory) await page.screenshot({ path: join(directory, `composer-quote-${width}.png`) })
+      await page.getByRole('link', { name: '定位原消息' }).click()
+      await expect.poll(() => long.evaluate(node => node.getBoundingClientRect().top - node.closest('.swarm-public__messages')!.getBoundingClientRect().top)).toBeCloseTo(0, 0)
+      // A slow image preceding the text in the SAME article must not move that text.
+      await page.evaluate(() => { const w = window as unknown as { imageWait: Promise<void>; releaseImage: () => void }; w.imageWait = new Promise(resolve => { w.releaseImage = resolve }) })
+      const imageFirst = { ...more, entries: [{ ...entries[0]!, content: [historyImage, { type: 'text' as const, text: longText }] }, ...entries.slice(1)] }
+      await page.evaluate(({ team: teamValue, imageFirst: chatValue }) => { (window as unknown as Driver).updateChat(teamValue, chatValue) }, { team, imageFirst })
+      await long.locator('[data-public-image]').scrollIntoViewIfNeeded()
+      await page.waitForFunction(() => document.querySelector('[data-public-image] [aria-busy=true]') !== null || (window as unknown as { reads: number }).reads > 0)
+      const textAfterImage = long.locator('[data-public-text]')
+      await textAfterImage.evaluate(node => { const scrolling = node.closest('.swarm-public__messages')!; scrolling.scrollTop += node.getBoundingClientRect().top - scrolling.getBoundingClientRect().top; scrolling.dispatchEvent(new Event('scroll')) })
+      const textOffset = () => textAfterImage.evaluate(node => node.getBoundingClientRect().top - node.closest('.swarm-public__messages')!.getBoundingClientRect().top)
+      const imageBefore = await textOffset()
+      await page.evaluate(() => { (window as unknown as { releaseImage: () => void }).releaseImage() })
+      await long.locator('[data-public-image] img').waitFor({ state: 'attached' })
+      await expect.poll(textOffset).toBeCloseTo(imageBefore, 0)
+      // When only the header/image is visible, never chase text below the viewport.
+      await page.evaluate(() => { const w = window as unknown as { imageWait: Promise<void>; releaseImage: () => void }; w.imageWait = new Promise(resolve => { w.releaseImage = resolve }) })
+      const imageHead = { ...more, entries: [...entries.slice(1, 6), { ...imageFirst.entries[0]!, id: 'image-head' }, ...entries.slice(6)] }
+      await page.evaluate(({ team: teamValue, imageHead: chatValue }) => { (window as unknown as Driver).updateChat(teamValue, chatValue) }, { team, imageHead })
+      const head = page.locator('[data-public-message="image-head"]')
+      await head.waitFor({ state: 'attached' })
+      await head.evaluate(node => { const scrolling = node.closest('.swarm-public__messages')!; scrolling.scrollTop += node.getBoundingClientRect().top - scrolling.getBoundingClientRect().bottom + 45; scrolling.dispatchEvent(new Event('scroll')) })
+      expect(await head.locator('[data-public-text]').evaluate(node => node.getBoundingClientRect().top >= node.closest('.swarm-public__messages')!.getBoundingClientRect().bottom)).toBe(true)
+      const headOffset = () => head.evaluate(node => node.getBoundingClientRect().top - node.closest('.swarm-public__messages')!.getBoundingClientRect().top)
+      const headBefore = await headOffset()
+      await page.evaluate(() => { (window as unknown as { releaseImage: () => void }).releaseImage() })
+      await head.locator('[data-public-image] img').waitFor({ state: 'attached' })
+      await expect.poll(headOffset).toBeCloseTo(headBefore, 0)
+      expect(errors).toEqual([])
+      await page.close()
+    }
+  } finally { await browser.close() }
+}, 60_000)
