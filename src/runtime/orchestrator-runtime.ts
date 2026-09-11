@@ -159,7 +159,6 @@ export class AgentSwarmRuntime extends Service {
       config,
       scopeOf: agent => this.scopeOf(agent),
       trackChild: (captain, childId) => this.trackChild(captain, childId),
-      rememberParticipant: (scope, childId) => this.captainModels.rememberChild(scope, childId),
       afterActivation: async (scope, teamId, captain, childId) => {
         const child = this.ctx.agents.get(childId)
         if (child !== undefined) await this.usage.accountAgentUsage(scope, teamId, child)

@@ -51,12 +51,6 @@ export class CaptainModelSelection {
     }
   }
 
-  /** A freshly committed member id, registered before its first official
-   * start so the synchronous session-start notification can install. */
-  rememberChild(scope: TeamScope, sessionId: string): void {
-    if (sessionId !== '') this.participants.set(sessionId, resolve(scope))
-  }
-
   /** Install before automatic continuation; the start notification is synchronous. */
   install(): () => void {
     const offStart = this.ctx.on('agent/session-start', ({ agent }) => this.attach(agent))
