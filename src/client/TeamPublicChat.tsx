@@ -1,3 +1,4 @@
+import { IconPaperclipOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { PublicSessionStats } from './PublicSessionStats.js'
 import { PublicQuote } from './PublicQuote.js'
 import { usePublicReadingPosition } from './use-public-reading-position.js'
@@ -76,6 +77,8 @@ export function TeamPublicChat(props: Props) {
   }
   const team = sameTeam ? dashboard.data?.teams.teams.find(row => row.teamId === selected.team) : undefined
   const bytes = new TextEncoder().encode(state.draft.text).length
+  const sendBlocked = state.history?.appendEligibility.state === 'unavailable' || (state.history !== undefined && bytes > state.history.limits.maxTextBytes)
+  const sendHint = `${state.history?.appendEligibility.state === 'unavailable' ? t('public.unavailable') : t(state.draft.tokens.length > 0 ? 'public.directed' : 'public.hint')}${state.history !== undefined && bytes > state.history.limits.maxTextBytes ? ` · ${bytes}/${state.history.limits.maxTextBytes} bytes` : ''}`
   const unconfirmed = hasUnconfirmedPublicMention(draftContent(state.draft))
   const invalidMention = state.draft.tokens.some(token => !state.directory?.entries.some(entry => entry.memberId === token.memberId && entry.phase === 'active'))
   const segments = draftContent(state.draft).length + (state.draft.images?.length ?? 0)
@@ -115,13 +118,17 @@ export function TeamPublicChat(props: Props) {
         {imageIssue === undefined ? null : <p role="alert">{t(`public.imageIssue.${imageIssue}`)}</p>}
         {invalidMention ? <p role="alert">{t('public.invalidMention')}</p> : null}
         {state.history !== undefined && segments > state.history.limits.maxSegments ? <p role="alert">{t('public.segmentLimit', { count: segments, limit: state.history.limits.maxSegments })}</p> : null}
+        <div className="swarm-public__input-surface">
         <MentionComposer key={selected.key} draft={state.draft} entries={state.directory?.entries ?? []} directoryLoading={state.directoryLoading} directoryError={state.directoryError}
           t={t} disabled={!editable} addImages={props.addImages} edit={props.edit} replaceText={props.replaceText} choose={props.chooseMention} remove={props.removeMention} refreshDirectory={props.refreshDirectory} send={props.send} canSend={canSend} />
         <div className="swarm-public__draft-images">{state.draft.images?.map(image => <DraftImage key={image.blobId} image={image} blob={state.draftBlobs[image.blobId]} remove={props.removeImage} t={t} />)}</div>
         <input ref={picker} type="file" hidden multiple accept="image/png,image/jpeg,image/webp,image/gif" aria-label={t('public.addImages')} disabled={!editable} onChange={event => { const files = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = ''; if (files.length > 0) props.addImages(files) }} />
-        <button type="button" className="swarm-public__add-images" disabled={!editable} onClick={() => { picker.current?.click() }}>{t('public.addImages')}</button>
+        <div className="swarm-public__send-row">
+        <button type="button" className="swarm-public__add-images" aria-label={t('public.addImages')} title={t('public.addImages')} disabled={!editable} onClick={() => { picker.current?.click() }}><span aria-hidden="true"><IconPaperclipOutline16 /></span></button>
         <PublicSessionStats key={`stats:${selected.key}`} session={verified && sessions?.phase === 'ready' && sessions.current === selected.viewer ? sessions.byId[sessions.current] : undefined} t={t} />
-        <div className="swarm-public__send-row"><small>{state.history?.appendEligibility.state === 'unavailable' ? t('public.unavailable') : t(state.draft.tokens.length > 0 ? 'public.directed' : 'public.hint')}{state.history !== undefined && bytes > state.history.limits.maxTextBytes ? ` · ${bytes}/${state.history.limits.maxTextBytes} bytes` : ''}</small><button type="button" data-public-send disabled={!canSend} onClick={props.send}>{t(state.sending ? 'public.sending' : 'public.send')}</button></div>
+        <small className="swarm-public__send-hint" title={sendHint} data-blocking={sendBlocked} role={sendBlocked ? 'alert' : undefined}>{sendHint}</small><button type="button" data-public-send disabled={!canSend} onClick={props.send}>{t(state.sending ? 'public.sending' : 'public.send')}</button>
+        </div>
+        </div>
       </div>
     </>}
   </section>

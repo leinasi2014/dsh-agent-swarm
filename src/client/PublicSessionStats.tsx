@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Modal, IconGaugeOutline16, IconDatabaseOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TEAM_DASHBOARD_NS } from './team-dashboard-locales.js'
@@ -17,11 +17,9 @@ export function PublicSessionStats({ session, t }: { session: SessionSummary | u
     close.current?.focus()
     return () => { if (previous instanceof HTMLElement && previous.isConnected) previous.focus({ preventScroll: true }) }
   }, [open])
-  return <div className="swarm-public__stats" data-public-session-stats>
-    <small title={scope}>{scope}</small><div>
-      <button type="button" aria-haspopup="dialog" aria-expanded={open === 'time'} onClick={() => { setOpen('time') }}>{t('public.statsCounts', { turns: number(stats.turns), steps: number(stats.steps) })} · {publicSpeedLabel(stats.speed)} tok/s</button>
-      <button type="button" aria-haspopup="dialog" aria-expanded={open === 'usage'} onClick={() => { setOpen('usage') }}>{publicTokenLabel(stats.total, t('public.statsThousand'), t('public.statsMillion'))} tok</button>
-    </div>
+  return <div className="swarm-public__stats" data-public-session-stats role="group" aria-label={scope}>
+      <button type="button" title={`${scope} · ${t('public.statsTime')}`} aria-haspopup="dialog" aria-expanded={open === 'time'} onClick={() => { setOpen('time') }}><span className="swarm-public__stat-icon" aria-hidden="true"><IconGaugeOutline16 /></span><span>{t('public.statsCounts', { turns: number(stats.turns), steps: number(stats.steps) })} · {publicSpeedLabel(stats.speed)} tok/s</span></button>
+      <button type="button" title={`${scope} · ${t('public.statsUsage')}`} aria-haspopup="dialog" aria-expanded={open === 'usage'} onClick={() => { setOpen('usage') }}><span className="swarm-public__stat-icon" aria-hidden="true"><IconDatabaseOutline16 /></span><span>{publicTokenLabel(stats.total, t('public.statsThousand'), t('public.statsMillion'))} tok</span></button>
     <Modal open={open !== undefined} headless title={t(open === 'usage' ? 'public.statsUsage' : 'public.statsTime')} onClose={() => { setOpen(undefined) }}>
       <div className="swarm-public__stats-dialog" onKeyDown={event => {
         if (event.key === 'Tab') { event.preventDefault(); close.current?.focus() }

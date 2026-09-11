@@ -20,10 +20,12 @@ export function profilePrimitiveSource(): string {
     if (start < 0 || end < 0) throw new Error(`Installed overlay function missing: ${name}`)
     return source.slice(start, end)
   }).join('\n')
-  return `${functions}\n({ ${names.join(', ')} })`
+  const icons = ['IconGaugeOutline16', 'IconDatabaseOutline16', 'IconPaperclipOutline16']
+  const iconSource = icons.map(name => { const start = source.indexOf(`const ${name} =`), end = source.indexOf('\n});', start); if (start < 0 || end < 0) throw new Error(`Installed icon missing: ${name}`); return source.slice(start, end + 4) }).join('\n')
+  return `${functions}\n${iconSource}\n({ ${[...names, ...icons].join(', ')} })`
 }
 
-export function profilePrimitives(): Pick<typeof import('@deepseek-ai/dsh-client-ui-primitives'), 'Modal' | 'useAnchoredPosition' | 'useDismissOnOutsidePointer'> {
+export function profilePrimitives(): Pick<typeof import('@deepseek-ai/dsh-client-ui-primitives'), 'Modal' | 'useAnchoredPosition' | 'useDismissOnOutsidePointer' | 'IconGaugeOutline16' | 'IconDatabaseOutline16' | 'IconPaperclipOutline16'> {
   return runInNewContext(profilePrimitiveSource(), {
     ...React, ...jsx, createPortal, window, document, Node,
     get ResizeObserver() { return globalThis.ResizeObserver },

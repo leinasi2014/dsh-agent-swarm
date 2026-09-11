@@ -264,7 +264,7 @@ Team 页面复用官方 SidebarRight 的独立页签。关闭后，从官方新�
 
 连续正文按实际排版测量，超过约六行才出现“展开全文 / 收起正文”；短文不增加按钮。图片保持原次序并独立展示，不计入文字折叠高度。引用默认单行省略，悬停、键盘聚焦或触摸可查看完整文字，Tab 可进入原文链接、关闭与全文滚动区，Escape 返回触发按钮；自有浮层使用 body portal 避免群消息/输入区裁切。定位原文仅在原消息已载入时可用。当前组件生命周期内，按调用 Session、Captain 与 Team 的选择键保存阅读锚点、活动及正文折叠偏好；展开、收起、前后分页、推入新消息、切群返回及同一消息内图片迟到不自动追尾。草稿和消息事实继续由原 controller 管理。
 
-**统计范围与官方复用边界。** 群聊使用官方全局 `useSessions` 读取当前调用会话的公开 `SessionSummary.projectionValues`，只在 Team 已验证、官方列表 ready、`current === selection.viewer` 时显示已知数据，并标注“当前会话 · 标题”。总量来自 `tokenUsage` 的 `uncachedInputTokens + cacheReadTokens + cacheWriteTokens + outputTokens` 四个不交叠桶；平均输出速度沿用官方 `sessionStats.decodeTokens / (decodeMs / 1000)`，轮数/步数及模型/工具耗时读取同一官方投影。缺值、非有限数、负值、零解码时间、切换和陈旧状态显示 `—`，不能把团队总量或当前会话用量写为单条群消息用量，也不从消息字数/到达时间估算速度。
+**统计范围与官方复用边界。** 群聊使用官方全局 `useSessions` 读取当前调用会话的公开 `SessionSummary.projectionValues`，只在 Team 已验证、官方列表 ready、`current === selection.viewer` 时显示已知数据。统计入口融入输入区工具栏，以紧凑图标和数值呈现，与图片和发送控件统一对齐；窄栏可换为紧贴输入框的第二行，不独立堆叠会话标题、统计和大段提示。“当前会话 · 标题”保留在可访问名称、悬停提示及点击后的详情中。总量来自 `tokenUsage` 的 `uncachedInputTokens + cacheReadTokens + cacheWriteTokens + outputTokens` 四个不交叠桶；平均输出速度沿用官方 `sessionStats.decodeTokens / (decodeMs / 1000)`，轮数/步数及模型/工具耗时读取同一官方投影。缺值、非有限数、负值、零解码时间、切换和陈旧状态显示 `—`，不能把团队总量或当前会话用量写为单条群消息用量，也不从消息字数/到达时间估算速度。
 
 目标 alpha.2 的 `StatsPills` 属于官方聊天内部组件，未提供公开导出；其 composer dock 受 slot children 所有权限制，不能在自定义 main 下直接重用或重新声明。当前仅复用公开 Session 投影、标准 hook 与官方 Modal，保留相近的两个统计入口和明细布局；不拷贝私有组件、不增加 RPC/轮询或 Session 状态 owner。官方以后提供可组合组件时再按功能完整性优先原则评估。以上是组件合同，真实安装与功能验收仍需候选对应的 Profile/浏览器证据。
 
