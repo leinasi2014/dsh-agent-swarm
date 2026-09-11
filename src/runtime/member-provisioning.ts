@@ -79,6 +79,8 @@ export class MemberProvisioner {
       scopeOf: (agent: Agent) => TeamScope
       trackChild: (captain: Agent, childId: string) => void
       afterActivation: (scope: TeamScope, teamId: TeamId, captain: Agent, childId: SessionId) => Promise<void>
+      /** Issue #233: register a freshly committed member for model-selection installs before its first official start. */
+      rememberParticipant?: (scope: TeamScope, childId: SessionId) => void
     },
   ) {
     this.skillsOf = injectedSkills(ctx)
@@ -197,6 +199,7 @@ export class MemberProvisioner {
           ...(assignedSkills === undefined ? {} : { assignedSkills }),
         })
         this.deps.config.teamSkills.rememberChild(membership.team, childId, assignedSkills)
+        this.deps.rememberParticipant?.(scope, childId)
         let finish!: () => void
         const operation = new Promise<void>(settle => { finish = settle })
         this.operations.add(operation)

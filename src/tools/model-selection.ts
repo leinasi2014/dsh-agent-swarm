@@ -21,3 +21,22 @@ export function registerSetCaptainModelTool(ctx: Context, runtime: AgentSwarmRun
     },
   }), 'Captain model selection')
 }
+
+export function registerSetMemberModelTool(ctx: Context, runtime: AgentSwarmRuntime): void {
+  register(ctx, defineTool({
+    name: 'agent_swarm_set_member_model',
+    description: 'Active Team participant (dedicated managed Captain or member) only: select your own LLM provider/model for subsequent requests. Self-only — there is no target parameter, so this never selects a model for another session. The current request completes normally. Selection survives cold continuation and does not change plugin or global defaults. Omitted reasoning_effort uses the selected model default. Legacy root Captains use the Host model selector.',
+    parameters: {
+      llm_provider: { type: 'string', required: true, description: 'Exact LLM provider for your next request.' },
+      model: { type: 'string', required: true, description: 'Exact model for your next request.' },
+      reasoning_effort: { type: 'string', description: 'Explicit supported effort; omit to use this model default.' },
+    },
+    output: compactJsonOutput({ type: 'object', additionalProperties: false, properties: {
+      provider: { type: 'string', required: true }, model: { type: 'string', required: true }, reasoningEffort: { type: 'string' },
+    } }),
+    async execute(args, exec) {
+      return await runtime.captainModels.selectParticipant(exec, { llmProvider: args.llm_provider, model: args.model,
+        ...(args.reasoning_effort === undefined ? {} : { reasoningEffort: args.reasoning_effort }) })
+    },
+  }), 'Member model selection')
+}
