@@ -67,6 +67,7 @@ export async function waitForFrameClaim(
   graceMs: number = WAKEUP_CLAIM_GRACE_MS,
   requireDurableFlush = false,
   predicates?: FramePredicates,
+  throwOnFailure = false,
 ): Promise<boolean> {
   const predicate = predicates?.complete ?? framePredicate(frame)
   const identity = predicates?.identity ?? predicate
@@ -75,18 +76,18 @@ export async function waitForFrameClaim(
   const deadline = Date.now() + graceMs
   for (;;) {
     if (requireDurableFlush && (ctx.agents.get(target.id) !== target || ctx.sessions.get(target.id) !== target.session)) {
-      return await frameVisibility(ctx, target.id, frame, signal, 'public claim after activation change', true, predicates) === 'claimed'
+      return await frameVisibility(ctx, target.id, frame, signal, 'public claim after activation change', true, predicates, throwOnFailure) === 'claimed'
     }
     if (mismatch(own())) { predicates?.onMismatch?.(); return false }
     if (messageClaimed(own(), predicate)) {
       let durable: boolean
       try { durable = await ctx.sessions.flush(target.session) } catch (error) {
-        if (!requireDurableFlush) throw error
-        return await frameVisibility(ctx, target.id, frame, signal, 'public claim checkpoint changed', true, predicates) === 'claimed'
+        if (!requireDurableFlush || throwOnFailure) throw error
+        return await frameVisibility(ctx, target.id, frame, signal, 'public claim checkpoint changed', true, predicates, throwOnFailure) === 'claimed'
       }
       if (requireDurableFlush && durable !== true) return false
       if (requireDurableFlush && (ctx.agents.get(target.id) !== target || ctx.sessions.get(target.id) !== target.session)) {
-        return await frameVisibility(ctx, target.id, frame, signal, 'public claim after flush activation change', true, predicates) === 'claimed'
+        return await frameVisibility(ctx, target.id, frame, signal, 'public claim after flush activation change', true, predicates, throwOnFailure) === 'claimed'
       }
       const events = own()
       if (mismatch(events)) { predicates?.onMismatch?.(); return false }
@@ -118,6 +119,7 @@ export async function frameVisibility(
   label: string,
   requireDurableFlush = false,
   predicates?: FramePredicates,
+  throwOnFailure = false,
 ): Promise<FrameVisibility> {
   const predicate = predicates?.complete ?? framePredicate(frame)
   const identity = predicates?.identity ?? predicate
@@ -140,6 +142,7 @@ export async function frameVisibility(
       const durable = await ctx.sessions.flush(live.session)
       if (requireDurableFlush && durable !== true) return 'unknown'
     } catch (error) {
+      if (throwOnFailure) throw error
       ctx.logger.warn(`agent-swarm: ${label} acceptance flush failed: ${String(error)}`)
       return 'unknown'
     }
@@ -150,6 +153,7 @@ export async function frameVisibility(
     const stored = await readPersistedSession(ctx.sessionPersistence, SessionId(targetSessionId), signal)
     return read(stored.events.slice(stored.inheritedEventCount ?? 0))
   } catch (error) {
+    if (throwOnFailure) throw error
     ctx.logger.warn(`agent-swarm: ${label} target ${targetSessionId} cannot be reconciled: ${String(error)}`)
     return 'unknown'
   }

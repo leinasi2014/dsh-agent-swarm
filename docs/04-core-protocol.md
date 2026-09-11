@@ -323,6 +323,10 @@ Workflow bridge、Jobs projection、human control 和 remote/distributed Provide
 - 不可恢复启动失败保留诊断但释放可用容量或提供 fenced cleanup。
 - UI/RPC 不把缺数据、stale、loading、offline 和 failed 混成同一个“不可用”。
 
+自动启动恢复由原有 owner 逐队验证已持久化的 Captain 父链、Main 顶层身份和 workspace；确定的绑定错误记录 Team、scope、父/子 Session、阶段、稳定错误码及原因，并在本次启动的后续恢复中跳过该队。检查先于活动队伍的目标准备和消息投递；不改写该队债务，不妨碍健康队伍恢复。尚未创建 Captain 的已批准计划仍由原计划恢复路径补齐，归档队伍仍可修复已有消息回执。此隔离仅持续本次启动，不是持久封禁。
+
+Session/Team 的共享读取失败、实际消息读取或 flush 异常、Storage 发布失败、schema/聚合损坏以及取消均不可转换为单队成功或忽略。启动投递使用原投递 owner 的严格错误传播，未知 pending/in-flight 状态仍保留债务；普通运行期投递沿用既有未知结果口径。计划恢复必须被插件挂载等待，只将已完成 provision 后 Captain 退场导致的 `TEAM_CAPTAIN_PROVISION_PENDING` 留作该队待恢复；其他未知失败沿挂载失败路径释放插件自有对象，并保留共享 Host root。
+
 ## 11. 配置合同
 
 配置唯一来源是 `src/plugin/config.ts`，在 DSH Settings → Plugins → dsh-agent-swarm 展示。主要组包括启用状态、Captain/Member provider+model、成员深度、scheduler/review、成员/任务/消息上限、workflow/jobs/execution-root 可选面、tool policy、Team Skills 和 prompt order。

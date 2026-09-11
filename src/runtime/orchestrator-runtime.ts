@@ -38,7 +38,7 @@ import type { RuntimeCreateTaskInput, VerificationCommandTemplate } from './veri
 import { VerificationFamily } from './verification-family.js'
 import { DedicatedCaptainProvisioner } from './dedicated-captain-provisioning.js'
 import { RuntimeMutationSurface } from './runtime-mutation-surface.js'
-import { ManagedActivationRecovery } from './managed-activation-recovery.js'
+import { ManagedActivationRecovery, type ManagedRecoveryFailure } from './managed-activation-recovery.js'
 import { SchedulingAdmission } from './scheduling-admission.js'
 import { TeamDirectory } from './team-directory.js'
 import { TeamRetirement } from './team-retirement.js'
@@ -185,10 +185,10 @@ export class AgentSwarmRuntime extends Service {
       excludedTeamIds: config.startupRecoveryExcludedTeamIds ?? new Set(),
       teams: scope => this.listTeamAggregates(scope),
       trackChild: (parent, childId) => this.trackChild(parent, childId),
-      drainPublic: (scope, team) => this.delivery.deliverPublicMessages(scope, team.id, this.publicAbort.signal),
-      drainWork: (scope, team) => this.delivery.deliverWorkRequests(scope, team.id, this.publicAbort.signal),
+      drainPublic: (scope, team) => this.delivery.deliverPublicMessages(scope, team.id, this.publicAbort.signal, true),
+      drainWork: (scope, team) => this.delivery.deliverWorkRequests(scope, team.id, this.publicAbort.signal, true),
       prepareGoal: (scope, team) => this.goals.reconcile(scope, team),
-      drainGoal: (scope, team) => this.delivery.deliverGoalNotices(scope, team.id, this.publicAbort.signal),
+      drainGoal: (scope, team) => this.delivery.deliverGoalNotices(scope, team.id, this.publicAbort.signal, true),
       goalAllowed: (scope, team) => this.goals.canCoordinate(scope, team),
     })
     this.work = new WorkRequestSurface(ctx, {
@@ -511,7 +511,7 @@ export class AgentSwarmRuntime extends Service {
     })
   }
 
-  async recoverDormantManagedTeams(): Promise<void> { await this.retirement.recover(); await this.activationRecovery.run() }
+  async recoverDormantManagedTeams(): Promise<readonly ManagedRecoveryFailure[]> { await this.retirement.recover(); return await this.activationRecovery.run() }
 
   async recoverAgent(agent: Agent): Promise<void> {
     if (this.closing || this.retirement.ownsSession(agent.id)) return

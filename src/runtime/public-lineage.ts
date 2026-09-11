@@ -9,7 +9,7 @@ import { readPersistedSession } from './persisted-session.js'
 
 export type PublicAppendEligibility = { state: 'available' } | { state: 'unavailable'; reason: 'not-managed' | 'not-active' | 'lineage-unavailable' }
 
-export async function publicAppendEligibility(ctx: Context, scope: string, team: TeamState, signal: AbortSignal): Promise<PublicAppendEligibility> {
+export async function publicAppendEligibility(ctx: Context, scope: string, team: TeamState, signal: AbortSignal, throwOnFailure = false): Promise<PublicAppendEligibility> {
   const parent = publicManagedParent(team.managedOrigin)
   if (parent === undefined) return { state: 'unavailable', reason: 'not-managed' }
   if (team.phase !== 'active') return { state: 'unavailable', reason: 'not-active' }
@@ -26,15 +26,16 @@ export async function publicAppendEligibility(ctx: Context, scope: string, team:
       return { state: 'unavailable', reason: 'lineage-unavailable' }
     }
     return { state: 'available' }
-  } catch {
+  } catch (error) {
     signal.throwIfAborted()
+    if (throwOnFailure) throw error
     return { state: 'unavailable', reason: 'lineage-unavailable' }
   }
 }
 
 /** Validate only this admission's exact recipients, independently of directory freshness. */
-export async function publicRecipientEligibility(ctx: Context, scope: string, team: TeamState, recipients: readonly string[], signal: AbortSignal): Promise<boolean> {
-  if ((await publicAppendEligibility(ctx, scope, team, signal)).state !== 'available') return false
+export async function publicRecipientEligibility(ctx: Context, scope: string, team: TeamState, recipients: readonly string[], signal: AbortSignal, throwOnFailure = false): Promise<boolean> {
+  if ((await publicAppendEligibility(ctx, scope, team, signal, throwOnFailure)).state !== 'available') return false
   const members = recipients.filter(id => id !== team.captainSessionId)
   if (members.length === 0) return true
   if (members.some(id => !team.members.some(row => row.sessionId === id && row.phase === 'active'))) return false
@@ -46,5 +47,5 @@ export async function publicRecipientEligibility(ctx: Context, scope: string, te
       if (member.meta.parentSession !== team.captainSessionId || member.meta.cwd === undefined || resolve(member.meta.cwd) !== scope) return false
     }
     return true
-  } catch { signal.throwIfAborted(); return false }
+  } catch (error) { signal.throwIfAborted(); if (throwOnFailure) throw error; return false }
 }

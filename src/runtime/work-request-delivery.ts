@@ -21,7 +21,7 @@ export async function deliverWorkRequestNotice(ctx: Context, deps: {
   account(scope: TeamScope, teamId: TeamId, agent: Agent): Promise<void>
   goalAllowed?(scope: TeamScope, teamId: TeamId): boolean
 }, scope: TeamScope, teamId: TeamId, messageId: TeamMessageId, signal: AbortSignal,
-kind: 'work-request-notice' | 'goal-coordination-notice' = 'work-request-notice'): Promise<{
+kind: 'work-request-notice' | 'goal-coordination-notice' = 'work-request-notice', throwOnFailure = false): Promise<{
   message?: TeamMessage; result: PublicDeliveryResult
 }> {
   const result = { admitted: false, deferred: false, reconciled: 0 }
@@ -42,14 +42,14 @@ kind: 'work-request-notice' | 'goal-coordination-notice' = 'work-request-notice'
     }
     const frame = messageFrame(notice)
     // Official durable input wins even when the request was resolved in that same turn.
-    const visible = await frameVisibility(ctx, notice.targetSessionId, frame, signal, `Captain notice ${notice.id}`, true)
+    const visible = await frameVisibility(ctx, notice.targetSessionId, frame, signal, `Captain notice ${notice.id}`, true, undefined, throwOnFailure)
     if (visible === 'claimed') return { message: await deps.domain().acknowledgeMessage(scope, teamId, notice.id), result: { ...result, reconciled: 1 } }
     const obsolete = messageObsoleteReason(team, notice)
     if (obsolete !== undefined) return { message: await deps.domain().markMessageObsolete(scope, teamId, notice.id, obsolete), result }
     if (!allowed(team, notice)) return { result: { ...result, deferred: true } }
     if (visible !== 'absent') return { result: { ...result, deferred: true } }
     const parentId = publicManagedParent(team.managedOrigin)
-    if (parentId === undefined || (await publicAppendEligibility(ctx, scope, team, signal)).state !== 'available') {
+    if (parentId === undefined || (await publicAppendEligibility(ctx, scope, team, signal, throwOnFailure)).state !== 'available') {
       return { result: { ...result, deferred: true } }
     }
     const root = await deps.root(parentId, scope)
@@ -61,7 +61,7 @@ kind: 'work-request-notice' | 'goal-coordination-notice' = 'work-request-notice'
       || currentNotice.phase !== 'queued' || messageFrame(currentNotice) !== frame || !allowed(current, currentNotice)
       || ctx.agents.get(root.id) !== root || ctx.sessions.get(root.id) !== root.session
       || root.id !== parentId || root.session.header.parentSession !== undefined
-      || (await publicAppendEligibility(ctx, scope, current, signal)).state !== 'available') {
+      || (await publicAppendEligibility(ctx, scope, current, signal, throwOnFailure)).state !== 'available') {
       return { result: { ...result, deferred: true } }
     }
     // The official lineage proof can await IO while the Captain resolves the request.
@@ -85,9 +85,10 @@ kind: 'work-request-notice' | 'goal-coordination-notice' = 'work-request-notice'
     const captain = ctx.agents.get(SessionId(team.captainSessionId))
     if (captain === undefined) return { result: { ...result, deferred: true } }
     await deps.account(scope, teamId, captain)
-    if (!await waitForFrameClaim(ctx, captain, frame, signal, 10_000, true)) return { result: { ...result, deferred: true } }
+    if (!await waitForFrameClaim(ctx, captain, frame, signal, 10_000, true, undefined, throwOnFailure)) return { result: { ...result, deferred: true } }
     return { message: await deps.domain().acknowledgeMessage(scope, teamId, notice.id), result }
   } catch (error) {
+    if (throwOnFailure) throw error
     if (!deps.closing()) ctx.logger.warn(`agent-swarm: ${kind} ${messageId} remains queued: ${String(error)}`)
     return { result: { ...result, deferred: true } }
   }
