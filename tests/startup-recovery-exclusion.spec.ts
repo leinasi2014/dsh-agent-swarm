@@ -133,7 +133,9 @@ it('holds approved-plan startup repair but allows the explicit manual recovery w
       members: [{ name: 'worker', role: 'Finish the existing task.' }],
       tasks: [{ key: 'existing', subject: 'Existing work', description: 'Resume this plan.', targetMemberName: 'worker' }],
     })
-    const before = await domain.approveStagedPlan(scope, staged.id, planned.revision, captainId)
+    await domain.approveStagedPlan(scope, staged.id, planned.revision, captainId)
+    // Compare restart against the committed record, including its storage timestamp.
+    const before = (await first.ctx.agentSwarm.listTeamAggregates(scope)).find(team => team.id === staged.id)!
     await dispose(first); first = undefined
     second = await mount(sandbox, 0, undefined, undefined, async ctx => {
       ctx.llm.registerAdapter([ROUTE.provider], adapter)

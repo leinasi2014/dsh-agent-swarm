@@ -310,7 +310,7 @@ it.each(['absent', 'claimed'] as const)('checks a %s pending assistance deadline
     })
     expect(await fixture.asCaptain('agent_swarm_request_visual_assistance', args)).toMatchObject({ isError: false })
     await vi.waitFor(async () => expect(publicDeliveries((await fixture.team()).publicChat!.messages[1]!)[0])
-      .toMatchObject(state === 'claimed' ? { state: 'claimed' } : { state: 'queued', deferredReason: 'image-capability-unknown' }))
+      .toMatchObject(state === 'claimed' ? { state: 'claimed' } : { state: 'queued', deferredReason: 'image-capability-unknown' }), VISUAL_GATE_WAIT)
     await live.close(); live = undefined; committed.mockRestore()
     now += VISUAL_ASSISTANCE_TTL_MS + 1
     const afterAdapter = new AssistanceRecording(); afterAdapter.autoRequest = false; afterAdapter.autoComplete = false
