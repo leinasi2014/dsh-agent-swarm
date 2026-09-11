@@ -48,7 +48,7 @@ describe('public conversation composition', () => {
     await render(<TeamPublicChat {...props as ComponentProps<typeof TeamPublicChat>} />)
     expect(document.querySelector('[data-public-session-stats]')?.textContent).toContain('200 tok')
     expect(document.querySelector('[data-public-session-stats]')?.textContent).toContain('60 tok/s')
-    expect(document.querySelector('[data-public-session-stats]')?.textContent).toContain('Actual current Session')
+    expect(document.querySelector('[data-public-session-stats]')?.getAttribute('aria-label')).toContain('Actual current Session')
     for (const patch of [{ phase: 'pending' as const }, { current: 'other-session' as typeof sessions.current }]) {
       await act(async () => { mounted.at(-1)!.render(<TeamPublicChat {...props as ComponentProps<typeof TeamPublicChat>} useSessions={selector => selector({ ...sessions, ...patch })} />) })
       expect(document.querySelector('[data-public-session-stats]')?.textContent).not.toContain('200 tok')
@@ -182,6 +182,34 @@ it('keeps two short messages and the composer visible in a 390px container with 
     expect(geometry.overflow).toBeLessThanOrEqual(1)
     expect(geometry.shown).toBe(true)
     expect(geometry.sendBottom).toBeLessThanOrEqual(geometry.bottom)
+  } finally { await browser.close() }
+}, 60_000)
+
+it('keeps long Session statistics quiet and fully readable on an unfocused dark composer', async () => {
+  const { publicImagesBrowserScript } = await import('./helpers/public-images-browser.js'), { chromium } = await import('playwright')
+  const { readFile, mkdir } = await import('node:fs/promises'), { join } = await import('node:path')
+  const themePath = process.env['SWARM_UI_THEME_SOURCE'], directory = process.env['SWARM_UI_EVIDENCE_DIR']
+  const theme = themePath ? JSON.parse((await readFile(themePath, 'utf8')).match(/var design_platform_css_default = (".*?");/u)![1]!) as string : 'body{--dsw-alias-label-primary:#f9fafb;--dsw-alias-label-secondary:#cfd3d6;--dsw-alias-bg-base:#151517;--dsw-alias-bg-layer-1:#232324;--dsw-alias-border-l2:#ffffff1f;--dsw-alias-state-business-primary:#679efe}'
+  if (directory) await mkdir(directory, { recursive: true })
+  const script = await publicImagesBrowserScript(), browser = await chromium.launch({ channel: 'msedge', headless: true })
+  try {
+    for (const width of [320, 390, 813]) {
+      const page = await browser.newPage({ viewport: { width, height: 731 }, hasTouch: width <= 390 }), team = teamState(), chat = chatState(team)
+      await page.setContent(`<style>${theme}body{margin:0;font-family:system-ui;background:var(--dsw-alias-bg-base)}#fixture-root{height:731px}</style><body data-ds-dark-theme><div id="fixture-root"></div></body>`)
+      await page.addScriptTag({ content: script })
+      await page.evaluate(async ({ team: teamValue, chat: chatValue }) => {
+        const w = window as unknown as { sessionState: unknown; mountChat: (team: unknown, chat: unknown) => Promise<void> }, viewer = chatValue.selection!.viewer
+        w.sessionState = { phase: 'ready', current: viewer, byId: { [viewer]: { displayTitle: '校对员', projectionValues: { tokenUsage: { uncachedInputTokens: 41600000, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 0 }, sessionStats: { turns: 52, steps: 294, decodeTokens: 31, decodeMs: 1000 } } } } }
+        await w.mountChat(teamValue, chatValue)
+      }, { team, chat })
+      await page.getByRole('button', { name: '41.6M tok', exact: true }).waitFor()
+      expect(await page.locator('[data-public-session-stats]').textContent()).toContain('52 轮 · 294 步 · 31 tok/s')
+      expect(await page.locator('[data-public-session-stats] button>span:last-child').evaluateAll(nodes => nodes.every(node => node.scrollWidth <= node.clientWidth))).toBe(true)
+      expect(await page.locator('.swarm-public__composer :focus').count()).toBe(0)
+      expect(await page.locator('[data-swarm-public-chat]').evaluate(node => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(1)
+      if (directory) await page.screenshot({ path: join(directory, `dark-initial-${width}.png`) })
+      await page.close()
+    }
   } finally { await browser.close() }
 }, 60_000)
 
@@ -400,8 +428,8 @@ it('keeps real React activity, folds, quote access and reading position stable i
   const directory = process.env['SWARM_UI_EVIDENCE_DIR']; if (directory) await mkdir(directory, { recursive: true })
   type Driver = { mountChat: (team: unknown, chat: unknown, activity: unknown) => Promise<void>; updateChat: (team: unknown, chat: unknown, activity?: unknown) => void; actions: unknown[] }
   try {
-    for (const width of [390, 1280]) {
-      const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 })
+    for (const width of [320, 390, 813, 1280]) {
+      const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width <= 390 })
       const errors: string[] = []; page.on('pageerror', error => { errors.push(error.message) })
       await page.setContent(`<style>body{margin:0;font-family:system-ui;--dsw-alias-label-primary:#223047;--dsw-alias-label-secondary:#69778c;--dsw-alias-bg-base:#f8f9fc;--dsw-alias-bg-layer-1:white;--dsw-alias-border-l2:#d8deea;--dsw-alias-state-business-primary:#4267bc}#fixture-root{height:900px}.fixture-modal-root{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center}.fixture-modal-mask{position:absolute;inset:0;background:#0009}.fixture-modal-dialog{position:relative}</style><div id="fixture-root"></div>`)
       await page.addScriptTag({ content: script })
@@ -416,11 +444,19 @@ it('keeps real React activity, folds, quote access and reading position stable i
       await page.keyboard.press('Escape')
       await page.getByRole('dialog').waitFor({ state: 'detached' })
       expect(await page.getByRole('button', { name: '200 tok', exact: true }).evaluate(node => node === document.activeElement)).toBe(true)
+      const composerLayout = await page.locator('.swarm-public__composer').evaluate(node => {
+        const attach = node.querySelector('.swarm-public__add-images')!.getBoundingClientRect(), send = node.querySelector('[data-public-send]')!.getBoundingClientRect(), stats = node.querySelector('[data-public-session-stats]')!.getBoundingClientRect()
+        return { attachSendAligned: Math.abs((attach.top + attach.bottom) / 2 - (send.top + send.bottom) / 2) < 2, rowsHeight: Math.max(attach.bottom, send.bottom, stats.bottom) - Math.min(attach.top, send.top, stats.top), hasVisibleScopeRow: node.querySelector('[data-public-session-stats]>small') !== null }
+      })
+      expect(composerLayout.attachSendAligned).toBe(true)
+      expect(composerLayout.rowsHeight).toBeLessThanOrEqual(width <= 600 ? 92 : 40)
+      expect(composerLayout.hasVisibleScopeRow).toBe(false)
+      if (width <= 390) expect(await page.locator('.swarm-public__send-row button').evaluateAll(nodes => nodes.every(node => { const r = node.getBoundingClientRect(); return r.width >= 44 && r.height >= 44 }))).toBe(true)
       const box = page.locator('.swarm-public__messages'), long = page.locator('[data-public-message="message-0"]'), short = page.locator('[data-public-message="message-1"]')
       await expect.poll(() => long.locator('[data-public-expand]').count()).toBe(1)
       expect(await short.locator('[data-public-expand]').count()).toBe(0)
       expect(await long.locator('[data-public-text]').evaluate(node => node.clientHeight <= parseFloat(getComputedStyle(node).lineHeight) * 6 + 1)).toBe(true)
-      expect(await page.locator('[data-work-event]').first().evaluate(node => node.getBoundingClientRect().height)).toBeLessThan(width === 390 ? 120 : 70)
+      expect(await page.locator('[data-work-event]').first().evaluate(node => node.getBoundingClientRect().height)).toBeLessThan(width <= 600 ? 120 : 70)
       if (directory) await page.screenshot({ path: join(directory, `activity-chat-${width}.png`) })
       await page.locator('[data-work-collapse]').click()
       expect(await page.locator('[data-work-collapse]').getAttribute('aria-expanded')).toBe('false')
@@ -431,7 +467,7 @@ it('keeps real React activity, folds, quote access and reading position stable i
       expect(await long.locator('[data-public-text]').getAttribute('data-expanded')).toBe('false')
       const quote = short.locator('[data-public-quote-trigger]')
       await quote.scrollIntoViewIfNeeded()
-      if (width === 390) await quote.tap(); else await quote.hover()
+      if (width <= 390) await quote.tap(); else await quote.hover()
       await expect.poll(() => quote.getAttribute('aria-expanded')).toBe('true')
       expect(await page.locator('[data-public-quote-full]').textContent()).toContain(longText)
       expect(await quote.evaluate(node => getComputedStyle(node).textOverflow)).toBe('ellipsis')
@@ -502,6 +538,14 @@ it('keeps real React activity, folds, quote access and reading position stable i
       await page.evaluate(() => { (window as unknown as { releaseImage: () => void }).releaseImage() })
       await head.locator('[data-public-image] img').waitFor({ state: 'attached' })
       await expect.poll(headOffset).toBeCloseTo(headBefore, 0)
+      const blocked = { ...more, history: { ...more.history!, appendEligibility: { state: 'unavailable', reason: 'message-limit' }, limits: { ...more.history!.limits, maxTextBytes: 1 } } }
+      await page.evaluate(({ team: teamValue, blocked: chatValue }) => { (window as unknown as Driver).updateChat(teamValue, chatValue) }, { team, blocked })
+      const issue = page.locator('.swarm-public__send-hint[role=alert]')
+      await issue.waitFor()
+      expect(await issue.textContent()).toContain('7/1 bytes')
+      expect(await issue.getAttribute('title')).toBe(await issue.textContent())
+      expect(await issue.evaluate(node => getComputedStyle(node).whiteSpace === 'normal' && node.scrollWidth <= node.clientWidth)).toBe(true)
+      if (directory) await page.screenshot({ path: join(directory, `blocked-composer-${width}.png`) })
       expect(errors).toEqual([])
       await page.close()
     }
