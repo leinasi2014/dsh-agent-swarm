@@ -63,9 +63,9 @@ UI 的 controller 复用同一个只读目标和读取生命周期。姓名、�
 
 基础成员生命周期、peer mailbox 和基本任务板是优先评估的职责替换候选。不能仅因接口名称相似就挂载第二个 Team 写权威：官方将普通 root Session 作为 Lead，排除 provider-owned continuable child，而当前 managed Captain 正是 Main 的 child；官方任务没有本插件的 attempt/Review Gate 与预算共同提交入口，邮箱也没有当前 quiet 与任务过期取消合同。直接接入会改变产品语义，双写官方任务与自建 attempt 不能替代当前事务。
 
-保持完整功能的推荐路线是使官方 Team 模块具备可组合的 Host 绑定、原子后端和策略扩展能力，再由 Swarm 适配；这是需要验证的官方模块扩展，不是现成 API。保留 Main→Captain→member 的真实 Session 层级，先保留现有 Storage Domain 聚合为唯一持久权威，使官方基础操作与 Swarm 的 attempt、Review Gate、预算及取消策略在同一事务中提交。`TeamDomainPort` 保持对现有 Consumer 的兼容入口，不另实现一套与官方并行的通用算法。
+功能完整性优先于复用。只有官方公开组件已具备所需的 Host 绑定、原子后端和策略能力，且实际组合保持功能时才由 Swarm 适配；尚缺接口的职责标为“等待官方完善”，不为采用主动开发官方补丁或私有分叉。保留 Main→Captain→member 的真实 Session 层级和现有 Storage Domain 聚合的唯一持久权威；官方基础操作必须能与 Swarm 的 attempt、Review Gate、预算及取消策略在同一事务中提交。`TeamDomainPort` 保持对现有 Consumer 的兼容入口，不另实现一套与官方并行的通用算法。
 
-官方当前把同步 Session projection 与私有 Journal/Roster/Mailbox/TaskBoard 直接组合，尚无可替换异步事务后端；公开生命周期缺少 removed 和本插件的失败重试语义。适配必须显式解决这些限制，尤其成员退出同时撤权、fence/requeue attempt 和终止旧消息的共同提交，不能把 removed 映射为 failed，不能把普通缓存当作授权事务。Main 作官方 Lead 的扁平化路线、Captain 改普通 root 的路线都会改变现有真实层级，不作为本轮默认方案。
+官方当前把同步 Session projection 与私有 Journal/Roster/Mailbox/TaskBoard 直接组合，尚无可替换异步事务后端；公开生命周期缺少 removed 和本插件的失败重试语义。这些限制未由官方补齐前保留现有实现，不重复投入迁移。成员退出仍须同时撤权、fence/requeue attempt 和终止旧消息，不能把 removed 映射为 failed，不能把普通缓存当作授权事务。Main 作官方 Lead 的扁平化路线、Captain 改普通 root 的路线都会改变现有真实层级，不采用。
 
 采用顺序、功能清单、扩展点验证和回退条件见 [统一开发方案 §2.1](07-implementation-roadmap.md#21-官方-agent-teams-完整功能采用方案)。每项在同一版本的实际组合中通过后才删除相应自建职责，不能凭源码同名或模型自评放行。依据见 [官方源登记](09-sources.md)及固定版本的 agent-team 服务、roster、mailbox、journal、projection 和 task-board 源码。
 
