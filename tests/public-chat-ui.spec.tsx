@@ -55,10 +55,10 @@ describe('public conversation composition', () => {
       expect(document.querySelector('[data-public-session-stats]')?.textContent).toContain('— tok/s')
     }
   })
-  it('offers one explicit loaded-tail navigation menu and keyboard-accessible full quotes', async () => {
+  it('keeps keyboard-accessible full quotes after the locate menu removal', async () => {
     const team = teamState(), chat = chatState(team), source = chat.entries[0]!
     await render(<TeamPublicChat {...chatProps(team, { ...chat, entries: [source, { ...source, id: 'reply', replyTo: source.id }] }) as ComponentProps<typeof TeamPublicChat>} />)
-    expect(document.querySelectorAll('[data-public-navigation]')).toHaveLength(1)
+    expect(document.querySelectorAll('[data-public-navigation]')).toHaveLength(0) // #276：顶部定位菜单已删，引用键盘语义独立保留
     const trigger = document.querySelector<HTMLButtonElement>('[data-public-quote-trigger]')!
     expect(trigger).not.toBeNull()
     await act(async () => { trigger.focus() })
@@ -478,8 +478,7 @@ it('opens real React group history at its latest message and preserves manual re
       expect(await page.locator('[data-public-quote-full]').evaluate(node => node === document.activeElement)).toBe(true)
       await page.keyboard.press('Escape')
       expect(await quote.getAttribute('aria-expanded')).toBe('false')
-      await page.locator('[data-public-navigation] summary').click()
-      await page.getByRole('button', { name: '已载入消息末尾', exact: true }).click()
+      await page.locator('[data-public-jump-latest]').click() // #276 新载体：浮动「跳最新」（hasMore=true 帧走 controller.latest）
       expect(await box.evaluate(node => node.scrollHeight - node.clientHeight - node.scrollTop)).toBeLessThan(2)
       // Read a middle message, then add earlier/newer pages and resize content above it.
       const anchor = page.locator('[data-public-message="message-5"]')
@@ -557,42 +556,44 @@ it('opens real React group history at its latest message and preserves manual re
   } finally { await browser.close() }
 }, 60_000)
 
-it('keeps latest-message navigation painted and clickable below the fixed header at the installed viewport', async () => {
+it('keeps the goal modal usable at every width with the floating jump above the composer', async () => {
   const { publicImagesBrowserScript } = await import('./helpers/public-images-browser.js')
-  const { chromium } = await import('playwright'), { readFile } = await import('node:fs/promises')
-  const layoutSource = await readFile('node_modules/@deepseek-ai/dsh-client-ui-layout/lib/client.js', 'utf8')
-  const layoutCss = JSON.parse(layoutSource.match(/const css = (".*?");/u)![1]!) as string
-  const browser = await chromium.launch({ channel: 'msedge', headless: true })
+  const { chromium } = await import('playwright'), { mkdir } = await import('node:fs/promises')
+  const browser = await chromium.launch({ channel: 'msedge', headless: true }), script = await publicImagesBrowserScript()
+  const team = teamState(), chat = chatState(team), goal = { selection: chat.selection, verified: true, expanded: false, editing: false, draftStatus: 'ready', draft: { text: '已保存的团队目标。', acceptanceCriteria: '', constraints: '', mode: 'finite', intervalSeconds: '60', tokenLimit: '', baseTokenLimit: null, baseLifecycleRevision: 0, version: 1, initialized: true, dirty: false }, response: { snapshot: { text: '已保存的团队目标。'.repeat(50), budget: { usedTokens: 23 }, remainingActiveTasks: 0, remainingActiveAttempts: 0, eligibility: { state: 'available' } } } }
+  const directory = process.env['SWARM_UI_EVIDENCE_DIR']; if (directory) await mkdir(directory, { recursive: true })
   try {
-    const page = await browser.newPage({ viewport: { width: 813, height: 731 } })
-    await page.setContent(`<style>${layoutCss}body{margin:0;font:14px system-ui;--dsw-alias-label-primary:#223047;--dsw-alias-label-secondary:#69778c;--dsw-alias-bg-base:#f8f9fc;--dsw-alias-bg-layer-1:white;--dsw-alias-border-l2:#d8deea;--dsw-alias-state-business-primary:#4267bc}.FVMiGq_frame{height:731px;width:758px;margin-left:55px}#fixture-root{height:100%;min-height:0}</style><div class="FVMiGq_frame"><div class="FVMiGq_centerCol"><div id="fixture-root"></div></div></div>`)
-    await page.addScriptTag({ content: await publicImagesBrowserScript() })
-    const team = teamState(), chat = chatState(team), goal = { selection: chat.selection, verified: true, expanded: false, draftStatus: 'ready', response: { snapshot: { text: '已保存的团队目标。'.repeat(100), budget: { usedTokens: 23 }, remainingActiveTasks: 0, remainingActiveAttempts: 0, eligibility: { state: 'available' } } } }
-    await page.evaluate(async ({ team: teamValue, chat: chatValue, goal: goalValue }) => { await (window as unknown as { mountChat: (team: unknown, chat: unknown, activity: unknown, goal: unknown) => Promise<void> }).mountChat(teamValue, chatValue, undefined, goalValue) }, { team, chat, goal })
-    await page.locator('[data-public-navigation] summary').click()
-    const items = page.locator('[data-public-navigation]>div>button')
-    expect(await items.count()).toBe(1)
-    const readHits = () => items.evaluateAll(nodes => nodes.map(node => {
-      const r = node.getBoundingClientRect()
-      return { text: node.textContent, inViewport: r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight,
-        hits: [[r.left + 3, r.top + 3], [r.right - 3, r.top + 3], [r.left + 3, r.bottom - 3], [r.right - 3, r.bottom - 3], [(r.left + r.right) / 2, (r.top + r.bottom) / 2]].map(([x, y]) => node.contains(document.elementFromPoint(x!, y!))) }
-    }))
-    expect((await readHits()).every(item => item.inViewport && item.hits.every(Boolean))).toBe(true)
-    const screenshotDirectory = process.env['SWARM_UI_EVIDENCE_DIR']
-    if (screenshotDirectory) await page.screenshot({ path: `${screenshotDirectory}/navigation-goal-collapsed-813.png` })
-    await page.getByRole('button', { name: '已载入消息末尾', exact: true }).click()
-    expect(await page.locator('[data-public-navigation] summary').evaluate(node => node === document.activeElement)).toBe(true)
-    await page.locator('[data-goal-toggle]').click()
-    await page.locator('[data-goal-details]').waitFor()
-    const goalBounds = await page.locator('.swarm-public__header').evaluate(node => { const column = node.querySelector('div')!; return { height: node.getBoundingClientRect().height, maxHeight: node.parentElement!.getBoundingClientRect().height * 0.55, scrollable: column.scrollHeight > column.clientHeight, headerOverflow: getComputedStyle(node).overflowY } })
-    expect(goalBounds.height).toBeLessThanOrEqual(goalBounds.maxHeight + 1)
-    expect(goalBounds.scrollable).toBe(true)
-    expect(goalBounds.headerOverflow).toBe('visible')
-    await page.locator('[data-public-navigation] summary').click()
-    expect((await readHits()).every(item => item.inViewport && item.hits.every(Boolean))).toBe(true)
-    if (screenshotDirectory) await page.screenshot({ path: `${screenshotDirectory}/navigation-goal-expanded-813.png` })
-    await page.keyboard.press('Escape')
-    expect(await page.locator('[data-public-navigation]').getAttribute('open')).toBeNull()
-    expect(await page.locator('[data-public-navigation] summary').evaluate(node => node === document.activeElement)).toBe(true)
+    for (const width of [320, 390, 813]) {
+      const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width <= 390 })
+      await page.setContent(`<style>body{margin:0;font-family:system-ui;--dsw-alias-label-primary:#223047;--dsw-alias-label-secondary:#69778c;--dsw-alias-bg-base:#f8f9fc;--dsw-alias-bg-layer-1:white;--dsw-alias-border-l2:#d8deea;--dsw-alias-state-business-primary:#4267bc}#fixture-root{height:900px}.fixture-modal-root{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center}.fixture-modal-mask{position:absolute;inset:0;background:#0009}.fixture-modal-dialog{position:relative}</style><div id="fixture-root"></div>`)
+      await page.addScriptTag({ content: script })
+      await page.evaluate(async ({ team: teamValue, chat: chatValue, goal: goalValue }) => { await (window as unknown as { mountChat: (team: unknown, chat: unknown, activity: unknown, goal: unknown) => Promise<void> }).mountChat(teamValue, { ...chatValue, history: { ...chatValue.history, hasMore: true } }, undefined, goalValue) }, { team, chat, goal })
+      expect(await page.locator('[data-public-navigation]').count()).toBe(0) // 旧「定位」菜单已删，浮动入口承接
+      const jump = page.locator('[data-public-jump-latest]'); await jump.waitFor()
+      const jb = (await jump.boundingBox())!, composer = (await page.locator('.swarm-public__composer').boundingBox())!, messages = (await page.locator('.swarm-public__messages').boundingBox())!
+      expect(jb.width).toBe(jb.height); expect(jb.width).toBeGreaterThanOrEqual(40) // 实图口径真圆且可点
+      expect(jb.y + jb.height).toBeLessThanOrEqual(composer.y); expect(Math.abs(jb.x + jb.width / 2 - (messages.x + messages.width / 2))).toBeLessThanOrEqual(2) // composer 上方不遮输入，水平居中
+      const latestCount = () => page.evaluate(() => ((window as unknown as { actions: string[][] }).actions).filter(row => row.includes('latest')).length)
+      const latestBefore = await latestCount(); await jump.click() // mount 进入 effect 已 latest：断增量，不迁就总数
+      expect(await latestCount()).toBe(latestBefore + 1)
+      expect(await page.locator('.swarm-public__messages').evaluate(node => node.scrollHeight - node.clientHeight - node.scrollTop)).toBeLessThan(2)
+      const headerBefore = (await page.locator('.swarm-public__header').boundingBox())!
+      await page.locator('[data-goal-toggle]').click()
+      await page.locator('[data-goal-modal]').waitFor()
+      expect(await page.locator('[data-goal-modal]').evaluate(node => node.closest('.swarm-public') === null)).toBe(true) // 真 React 装配，门户在聊天子树外
+      expect(await page.locator('[data-goal-field="text"]').evaluate(node => node === document.activeElement)).toBe(true) // 开窗即见目标输入框，焦点直接在场
+      await page.keyboard.press('Shift+Tab') // 真实边界：从输入框向后会撞向背景「目标」按钮——环必须收口
+      expect(await page.locator('[data-goal-modal]').evaluate(node => node.contains(document.activeElement))).toBe(true)
+      expect((await page.locator('[data-goal-modal]').boundingBox())!.width).toBeLessThanOrEqual(width - 8) // 模态不溢出窄屏
+      const headerAfter = (await page.locator('.swarm-public__header').boundingBox())!
+      expect(headerAfter.height).toBeLessThanOrEqual(headerBefore.height + 1) // 页头不增高（覆盖旧 55% 上限语义，更强）
+      expect(await page.locator('[data-goal-budget]').isVisible()).toBe(true) // 运行状态/预算仍可达
+      if (directory) await page.screenshot({ path: `${directory}/goal-modal-${width}.png` })
+      await page.keyboard.press('Escape')
+      await page.locator('[data-goal-modal]').waitFor({ state: 'detached' })
+      expect(await page.locator('[role=dialog]').count()).toBe(0) // 无残留/重复 dialog
+      expect(await page.locator('[data-goal-toggle]').evaluate(node => node === document.activeElement)).toBe(true) // Escape 焦点回目标按钮
+      await page.close()
+    }
   } finally { await browser.close() }
 }, 60_000)

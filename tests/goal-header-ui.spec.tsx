@@ -5,7 +5,6 @@ import { render, tZh } from './helpers/dashboard-ui.js'
 import { TeamGoalHeader } from '../src/client/TeamGoalHeader.js'
 import { GoalController, type GoalState } from '../src/client/goal-controller.js'
 import { goalDraftFromSnapshot } from '../src/client/goal-draft-store.js'
-import { publicChatCss } from '../src/client/public-chat-styles.js'
 
 const t = tZh as ComponentProps<typeof TeamGoalHeader>['t']
 function fixture() {
@@ -19,7 +18,7 @@ function fixture() {
   state = { ...state, draft: goalDraftFromSnapshot(state.response!.snapshot, 1) }
   const listeners = new Set<() => void>(), patch = (update: Partial<GoalState>) => { state = { ...state, ...update }; listeners.forEach(listener => listener()) }
   const actions = { getSnapshot: () => state, subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) },
-    setExpanded: vi.fn((expanded: boolean) => patch({ expanded })), beginEdit: vi.fn(() => patch({ editing: true, expanded: true })), closeEditor: vi.fn(() => patch({ editing: false })),
+    setExpanded: vi.fn((expanded: boolean) => patch({ expanded })), beginEdit: vi.fn(() => { if (!state.verified || state.response === undefined || !['ready', 'saving'].includes(state.draftStatus)) return; patch({ editing: true, expanded: true }) }), closeEditor: vi.fn(() => patch({ editing: false })),
     edit: vi.fn(), save: vi.fn(), control: vi.fn(), recover: vi.fn(), retryStorage: vi.fn(), useStoredDraft: vi.fn() }
   return { goal: actions as unknown as GoalController, actions, patch: async (update: Partial<GoalState>) => { await act(async () => patch(update)) } }
 }
@@ -66,38 +65,9 @@ it('validates maintenance interval, budget usage and code point limits before en
   expect(document.querySelector<HTMLButtonElement>('[data-goal-save-start]')?.disabled).toBe(true)
 })
 it('offers draft storage recovery even when hydration failed before the editor could open', async () => {
-  const f = fixture(); await f.patch({ expanded: true, draftStatus: 'unavailable' }); await render(<TeamGoalHeader goal={f.goal} teamId="a" t={t} />)
+  const f = fixture(); await f.patch({ draftStatus: 'unavailable' }); await render(<TeamGoalHeader goal={f.goal} teamId="a" t={t} />)
+  await click('[data-goal-toggle]') // 真实单击路径（不预设 expanded）：beginEdit 被拒时窗口仍打开
   expect(document.querySelector('[data-goal-form]')).toBeNull()
   await click('[data-goal-draft-state] button'); expect(f.actions.retryStorage).toHaveBeenCalledOnce()
 })
-it('keeps expanded goal text visible and the chat composer reachable in a narrow actual browser layout', async () => {
-  const f = fixture(); await f.patch({ expanded: true, editing: true })
-  await render(<section className="swarm-public" style={{ height: 900 }}><style>{publicChatCss}</style><header className="swarm-public__header"><div><h1>制作团队</h1><TeamGoalHeader goal={f.goal} teamId="a" t={t} /></div></header><div className="swarm-public__messages">真实聊天记录</div><div className="swarm-public__composer"><textarea defaultValue="尚未提交的聊天草稿" /></div></section>)
-  const { chromium } = await import('playwright'), { mkdir } = await import('node:fs/promises')
-  const browser = await chromium.launch({ channel: 'msedge', headless: true })
-  try {
-    const page = await browser.newPage(), directory = process.env['GOAL_UI_SCREENSHOTS']
-    if (directory) await mkdir(directory, { recursive: true })
-    for (const width of [320, 390]) {
-      await page.setViewportSize({ width, height: 900 })
-      await page.setContent(`<style>body{margin:0;font:14px system-ui;color:#223047;background:#f8f9fc;--dsw-alias-label-primary:#223047;--dsw-alias-label-secondary:#69778c;--dsw-alias-bg-base:#f8f9fc;--dsw-alias-bg-layer-1:white;--dsw-alias-border-l2:#d8deea}</style>${document.querySelector('.swarm-public')!.outerHTML}`)
-      // outerHTML does not serialize React's live selected property; restore the rendered fixture's actual value.
-      await page.locator('[data-goal-mode]').selectOption(f.goal.getSnapshot().draft.mode)
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-      expect(await page.locator('[data-goal-text]').evaluate(element => getComputedStyle(element).display)).toBe('block')
-      const composer = (await page.locator('.swarm-public__composer').boundingBox())!
-      expect(composer.y + composer.height).toBeLessThanOrEqual(900)
-      expect((await page.locator('.swarm-public__messages').boundingBox())!.height).toBeGreaterThan(100)
-      if (directory) await page.screenshot({ path: `${directory}/goal-${width}.png`, fullPage: true })
-      await page.locator('[data-goal-save-start]').scrollIntoViewIfNeeded()
-      expect(await page.locator('[data-goal-save-start]').isVisible()).toBe(true)
-      if (directory) await page.screenshot({ path: `${directory}/goal-editor-${width}.png`, fullPage: true })
-    }
-    if (directory) {
-      await f.patch({ editing: false, pending: { kind: 'control', version: 1, request: { schemaVersion: 1, target: { rootSessionId: 'captain-a', teamId: 'a' }, requestId: 'original', expectedLifecycleRevision: 2, action: 'resume' } } })
-      await page.locator('.swarm-public').evaluate((element, content) => { element.outerHTML = content }, document.querySelector('.swarm-public')!.outerHTML)
-      await page.locator('[data-goal-pending] button').scrollIntoViewIfNeeded()
-      await page.screenshot({ path: `${directory}/goal-pending-390.png`, fullPage: true })
-    }
-  } finally { await browser.close() }
-}, 30_000)
+// 模态开闭/输入焦点/320/390/宽屏由 public-chat-ui.spec.tsx 的真实 React 装配浏览器测试验证（真 portal，非静态拷贝）。
