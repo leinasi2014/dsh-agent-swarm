@@ -1,6 +1,6 @@
 export const goalEn = {
   'progress.paused': 'New work paused', 'goal.cancelReason': 'Cancellation reason', 'goal.cancelActor': 'Cancelled by', 'goal.cancelAt': 'Cancelled at',
-  'goal.expand': 'Expand goal', 'goal.collapse': 'Collapse goal', 'goal.edit': 'Edit goal', 'goal.close': 'Close editor',
+  'goal.expand': 'Expand goal', 'goal.collapse': 'Collapse goal', 'goal.edit': 'Edit goal', 'goal.close': 'Close editor', 'goal.entry': 'Goal',
   'goal.text': 'Goal', 'goal.criteria': 'Acceptance criteria', 'goal.constraints': 'Constraints', 'goal.mode': 'Work mode',
   'goal.finite': 'Finite goal', 'goal.maintenance': 'Ongoing maintenance', 'goal.interval': 'Interval after each round (seconds)',
   'goal.tokenLimit': 'Team token total limit (including usage)', 'goal.budgetHint': 'Maintenance needs a limit above current usage. A reply already being generated may exceed the remaining allowance.',
@@ -18,7 +18,7 @@ export const goalEn = {
 } as const
 export const goalZh: Record<keyof typeof goalEn, string> = {
   'progress.paused': '已暂停新增工作', 'goal.cancelReason': '取消原因', 'goal.cancelActor': '取消操作者', 'goal.cancelAt': '取消时间',
-  'goal.expand': '展开目标', 'goal.collapse': '收起目标', 'goal.edit': '编辑目标', 'goal.close': '关闭编辑',
+  'goal.expand': '展开目标', 'goal.collapse': '收起目标', 'goal.edit': '编辑目标', 'goal.close': '关闭编辑', 'goal.entry': '目标',
   'goal.text': '目标', 'goal.criteria': '完成标准', 'goal.constraints': '约束', 'goal.mode': '工作方式',
   'goal.finite': '有限目标', 'goal.maintenance': '持续维护', 'goal.interval': '每轮结束后的间隔（秒）',
   'goal.tokenLimit': '团队 Token 总上限（含已使用）', 'goal.budgetHint': '维护上限须高于已用量。正在生成的回复仍可能超出剩余额度。',
