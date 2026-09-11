@@ -21,7 +21,6 @@ interface RootView {
   readonly parentSession?: string
   readonly live?: Agent
   readonly session?: Session | undefined
-  readonly title?: string | undefined
 }
 
 export class HostTargetReadService {
@@ -66,12 +65,12 @@ export class HostTargetReadService {
   }
 
   private async readTeams(rootSessionId: string) {
-    const { root, visible, main, currentTeamId, currentMemberName } = await this.visibleTeams(rootSessionId)
+    const { root, visible, main, title, currentTeamId, currentMemberName } = await this.visibleTeams(rootSessionId, { includeMainTitle: true })
     this.assertUnchanged(root)
     return {
       schemaVersion: 1 as const,
       binding: { rootSessionId,
-        ...(main === undefined ? {} : { mainSessionId: main.id, ...(main.title === undefined ? {} : { mainSessionTitle: main.title }) }),
+        ...(main === undefined ? {} : { mainSessionId: main.id, ...(title === undefined ? {} : { mainSessionTitle: title }) }),
         ...(currentTeamId === undefined ? {} : { currentTeamId }),
         ...(currentMemberName === undefined ? {} : { currentMemberName }) },
       teams: visible.map(projectTeamSummary),
@@ -170,8 +169,11 @@ export class HostTargetReadService {
     }
   }
 
-  private async visibleTeams(rootSessionId: string) {
+  private async visibleTeams(rootSessionId: string, options: { includeMainTitle?: boolean } = {}) {
     const root = await this.rootView(rootSessionId)
+    // Resolve optional display data before the root's sole aggregate cut.
+    // Keep this original identity witness for the final verification below.
+    const rootTitle = options.includeMainTitle && root.parentSession === undefined ? await this.mainTitle(root) : undefined
     const all = await this.runtime.listTeamAggregates(root.cwd)
     const managed = new Set(this.runtime.managedCaptainSessionsOf(root.id))
     const visible: TeamState[] = []
@@ -223,6 +225,10 @@ export class HostTargetReadService {
         }
       }
     }
+    // A child needs the initial aggregates to locate Main. Its title await
+    // belongs before the existing final parent/member authorization cut.
+    const title = options.includeMainTitle && association.main !== undefined
+      ? association.main.id === root.id ? rootTitle : await this.mainTitle(association.main) : undefined
     // Header reads and section composition can yield. Re-read the canonical
     // aggregates after those awaits; a removed/retried member cannot keep an
     // earlier authorization snapshot. Official Session headers are immutable.
@@ -271,7 +277,7 @@ export class HostTargetReadService {
       this.assertLiveCaptain(candidate, root.cwd)
     }
     const latest = await verify()
-    return { root, visible: latest.filter(team => visible.some(before => before.id === team.id)), all: latest, main: association.main,
+    return { root, visible: latest.filter(team => visible.some(before => before.id === team.id)), all: latest, main: association.main, title,
       currentTeamId: association.current?.id, currentMemberName: association.currentMemberName, verify, assertCurrentTeam }
   }
 
@@ -320,7 +326,6 @@ export class HostTargetReadService {
       }
       if (live.session.header.cwd === undefined) throw new TeamDomainError('Target Session has no workspace cwd', 'SWARM_HOST_WORKSPACE_REQUIRED')
       return { id, cwd: this.runtime.scopeOf(live), live, session: current,
-        title: typeof live.session.snapshotEvents === 'function' ? foldSessionTitle(live.session.snapshotEvents())?.title : undefined,
         ...(live.session.header.parentSession === undefined ? {} : { parentSession: live.session.header.parentSession }) }
     }
     const session = this.ctx.sessions.get(SessionId(id))
@@ -328,18 +333,28 @@ export class HostTargetReadService {
     if (header === undefined) throw new TeamDomainError('Target is not an official persisted Session', 'SWARM_RPC_TARGET_NOT_LIVE')
     if (header.cwd === undefined) throw new TeamDomainError('Target Session has no workspace cwd', 'SWARM_HOST_WORKSPACE_REQUIRED')
     return { id, cwd: this.runtime.scopeOf({ session: { header } } as Agent), session,
-      title: session === undefined ? ('title' in header ? header.title : undefined) : (typeof session.snapshotEvents === 'function' ? foldSessionTitle(session.snapshotEvents())?.title : undefined),
       ...(header.parentSession === undefined ? {} : { parentSession: header.parentSession }) }
   }
 
-  private async persistedHeader(id: string): Promise<{ cwd?: string; parentSession?: string; title?: string | undefined } | undefined> {
+  private async persistedHeader(id: string): Promise<{ cwd?: string; parentSession?: string } | undefined> {
     try {
-      const stored = this.ctx.sessionPersistence === undefined ? undefined
-        : await readPersistedSession(this.ctx.sessionPersistence, SessionId(id), AbortSignal.timeout(3_000))
-      if (stored === undefined) return undefined
-      return { title: foldSessionTitle(stored.events)?.title, ...(stored.meta.cwd === undefined ? {} : { cwd: stored.meta.cwd }),
-        ...(stored.meta.parentSession === undefined ? {} : { parentSession: stored.meta.parentSession }) }
+      return (await this.ctx.sessionPersistence?.stat(SessionId(id), { signal: AbortSignal.timeout(3_000) }))?.header
     } catch { return undefined }
+  }
+
+  /** Titles are display data for teams only, never part of an identity witness. */
+  private async mainTitle(main: RootView): Promise<string | undefined> {
+    const session = main.live?.session ?? main.session
+    const projections = this.ctx.get?.('sessionProjections')
+    if (session !== undefined && projections !== undefined) {
+      const title = projections.stateOf(session, 'title')
+      if (title !== undefined) return title ?? undefined
+    }
+    if (session !== undefined) return typeof session.snapshotEvents === 'function' ? foldSessionTitle(session.snapshotEvents())?.title : undefined
+    const stored = await readPersistedSession(this.ctx.sessionPersistence, SessionId(main.id), AbortSignal.timeout(3_000))
+    if (stored.meta.id !== main.id || stored.meta.cwd === undefined || this.runtime.scopeOf({ session: { header: stored.meta } } as Agent) !== main.cwd
+      || stored.meta.parentSession !== main.parentSession) this.bindingChanged()
+    return foldSessionTitle(stored.events)?.title
   }
 
   private assertUnchanged(root: RootView): void {

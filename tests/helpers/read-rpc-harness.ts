@@ -1,6 +1,7 @@
 import { persistenceReadFixture } from './persistence-read-fixture.js'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import { vi } from 'vitest'
 import type { TeamState } from '../../src/domain/types.js'
 import type { AgentSwarmHostReadService } from '../../src/host/host-read-service.js'
@@ -82,9 +83,10 @@ export function rpcHarness(options: {
       roots: () => options.fullyColdRoot ? [] : liveRoots,
     },
     sessions: { get: (id: string) => (id === root.id ? (options.coldRoot || options.fullyColdRoot ? undefined : session) : coldSessions[id]) ?? undefined },
-    sessionPersistence: persistenceReadFixture(async (_sessionId: string) => {
+    sessionPersistence: persistenceReadFixture(async (sessionId: string) => {
         if (options.persistedRootHeader === undefined) throw new Error('no persisted root')
-        return { meta: { cwd: options.persistedRootHeader.cwd, parentSession: options.persistedRootHeader.parentSession }, events: [] }
+        return { meta: { id: sessionId, version: SESSION_FORMAT_VERSION, createdAt: 1, isSeeded: false,
+          ...options.persistedRootHeader }, events: [], inheritedEventCount: 0 }
     }),
   } as unknown as Context
   const snapshot = vi.fn(async () => ({ team }))
@@ -103,4 +105,3 @@ export function rpcHarness(options: {
     setRoots: (roots: readonly Agent[]) => { liveRoots = roots },
   }
 }
-

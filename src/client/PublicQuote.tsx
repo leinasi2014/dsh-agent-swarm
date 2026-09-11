@@ -19,7 +19,11 @@ export function PublicQuote({ text, targetId, t }: { text: string; targetId?: st
   const close = () => { pinned.current = false; setOpen(false); skipFocus.current = true; trigger.current?.focus({ preventScroll: true }); skipFocus.current = false }
   useEffect(() => {
     if (!open) return
-    const dismiss = (event: Event) => { if (event.target instanceof Node && panel.current?.contains(event.target)) return; pinned.current = false; setOpen(false) }
+    const dismiss = (event: Event) => {
+      if (event.target instanceof Node && (panel.current?.contains(event.target)
+        || (event.type === 'scroll' && !event.target.contains(root.current)))) return
+      pinned.current = false; setOpen(false)
+    }
     window.addEventListener('resize', dismiss); document.addEventListener('scroll', dismiss, true)
     return () => { window.removeEventListener('resize', dismiss); document.removeEventListener('scroll', dismiss, true) }
   }, [open])

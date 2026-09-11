@@ -43,6 +43,7 @@
         "@deepseek-ai/dsh-api-remotes",
         "@deepseek-ai/dsh-api-session-controller",
         "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-chat",
         "@deepseek-ai/dsh-client-ui-layout",
         "@deepseek-ai/dsh-client-ui-sidebar-right",
         "@deepseek-ai/dsh-client-ui-primitives",
@@ -104,6 +105,7 @@
     "@deepseek-ai/dsh-attachment": "0.1.5-alpha.2",
     "@deepseek-ai/dsh-client-connection": "0.1.5-alpha.2",
     "@deepseek-ai/dsh-client-locale": "0.1.5-alpha.2",
+    "@deepseek-ai/dsh-client-ui-chat": "0.1.5-alpha.2",
     "@deepseek-ai/dsh-client-ui-conversation": "0.1.5-alpha.2",
     "@deepseek-ai/dsh-client-ui-layout": "0.1.5-alpha.2",
     "@deepseek-ai/dsh-client-ui-primitives": "0.1.5-alpha.2",
@@ -157,7 +159,9 @@
     "@deepseek-ai/dsh-client-file-upload": "0.1.5-alpha.2",
     "@deepseek-ai/dsh-client-locale": "0.1.5-alpha.2",
     "@deepseek-ai/dsh-client-store": "0.1.5-alpha.2",
+    "@deepseek-ai/dsh-client-ui-chat": "0.1.5-alpha.2",
     "@deepseek-ai/dsh-client-ui-conversation": "0.1.5-alpha.2",
+    "@deepseek-ai/dsh-client-ui-dockkit": "0.1.5-alpha.2",
     "@deepseek-ai/dsh-client-ui-layout": "0.1.5-alpha.2",
     "@deepseek-ai/dsh-client-ui-renderer": "0.1.5-alpha.2",
     "@deepseek-ai/dsh-client-ui-session": "0.1.5-alpha.2",
@@ -253,7 +257,8 @@
       "@deepseek-ai/dsh-client-ui-sidebar@0.1.5-alpha.2": "patches/@deepseek-ai__dsh-client-ui-sidebar@0.1.5-alpha.2.patch",
       "@deepseek-ai/dsh-client-ui-sidebar-right@0.1.5-alpha.2": "patches/@deepseek-ai__dsh-client-ui-sidebar-right@0.1.5-alpha.2.patch",
       "@deepseek-ai/dsh-client-connection@0.1.5-alpha.2": "patches/@deepseek-ai__dsh-client-connection@0.1.5-alpha.2.patch",
-      "@deepseek-ai/dsh-subagent@0.1.5-alpha.2": "patches/@deepseek-ai__dsh-subagent@0.1.5-alpha.2.patch"
+      "@deepseek-ai/dsh-subagent@0.1.5-alpha.2": "patches/@deepseek-ai__dsh-subagent@0.1.5-alpha.2.patch",
+      "@deepseek-ai/dsh-client-ui-chat@0.1.5-alpha.2": "patches/@deepseek-ai__dsh-client-ui-chat@0.1.5-alpha.2.patch"
     },
     "packageExtensions": {
       "@deepseek-ai/dsh-client-store@0.1.5-alpha.2": {

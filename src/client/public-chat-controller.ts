@@ -53,6 +53,8 @@ export class PublicChatController {
   private read: AbortController | undefined
   /** Only a history page advances this cursor; an append receipt may be ahead of unread messages. */
   private historyCursor: number | undefined
+  /** An entry's tail intent survives a same-Team refresh until a tail read succeeds. */
+  private latestPending: Selection | undefined
   private bindingReady = false
   private readonly lifetime = new AbortController()
   private disposed = false
@@ -100,7 +102,7 @@ export class PublicChatController {
         && (dashboard.pendingTeamId === undefined || dashboard.pendingTeamId === cached.team)
         && (viewer === cached.captain || retained.captainMembers.members.some(member => member.sessionId === viewer && member.phase === 'active'))
       if (sameTeamNavigation) this.publish({ ...this.state, loading: false, directoryLoading: false })
-      else { this.historyCursor = undefined; this.publish({ ...initial }) }
+      else { this.historyCursor = undefined; this.latestPending = undefined; this.publish({ ...initial }) }
       return
     }
     const previous = this.state.selection
@@ -110,6 +112,7 @@ export class PublicChatController {
       this.dashboardData = dashboard.data
       return
     }
+    this.latestPending = undefined
     this.directoryRead?.abort(); this.read?.abort()
     this.dashboardData = dashboard.data
     if (previous?.key === next.key && previous.captain === next.captain) {
@@ -138,19 +141,27 @@ export class PublicChatController {
   async refresh(): Promise<void> {
     const selected = this.state.selection
     if (!this.bindingReady || selected === undefined) return
-    await Promise.all([this.load(selected, 'refresh'), this.refreshDirectory()])
+    await Promise.all([this.load(selected, this.latestPending !== undefined && this.isCurrent(this.latestPending) ? 'latest' : 'refresh'), this.refreshDirectory()])
   }
   async earlier(): Promise<void> {
     const selected = this.state.selection
     if (!this.bindingReady || selected === undefined || this.state.loading || !this.state.history?.hasEarlier) return
+    this.latestPending = undefined
     await this.load(selected, 'earlier')
+  }
+  /** A visible group entry requests the current tail, independent of prior paging. */
+  async latest(): Promise<void> {
+    const selected = this.state.selection
+    if (!this.bindingReady || selected === undefined) return
+    this.latestPending = selected
+    await this.load(selected, 'latest')
   }
   async newer(): Promise<void> {
     const selected = this.state.selection
     if (!this.bindingReady || selected === undefined || this.state.loading || !this.state.history?.hasMore) return
     await this.load(selected, 'newer')
   }
-  private async load(selected: Selection, direction: 'refresh' | 'earlier' | 'newer'): Promise<void> {
+  private async load(selected: Selection, direction: 'refresh' | 'earlier' | 'newer' | 'latest'): Promise<void> {
     this.read?.abort()
     const read = this.read = new AbortController()
     const old = this.state.entries
@@ -159,10 +170,10 @@ export class PublicChatController {
     try {
       const page = await this.client.historyV3({ ...request, limit: 50,
         ...(direction === 'earlier' && old[0] !== undefined ? { beforeSequence: old[0].sequence } : {}),
-        ...(direction !== 'earlier' && this.historyCursor !== undefined ? { afterSequence: this.historyCursor } : {}),
+        ...((direction === 'refresh' || direction === 'newer') && this.historyCursor !== undefined ? { afterSequence: this.historyCursor } : {}),
       }, read.signal)
       this.checkBinding(page, selected)
-      let entries = merge(old, page.entries)
+      let entries = direction === 'latest' ? page.entries : merge(old, page.entries)
       // Re-read only already displayed ranges: delivery can change on old messages.
       if (direction === 'refresh') {
         for (let index = 0; index < old.length; index += 100) {
@@ -174,13 +185,16 @@ export class PublicChatController {
       }
       read.signal.throwIfAborted()
       if (!this.isCurrent(selected)) return
-      if (direction !== 'earlier') this.historyCursor = page.lastSequence ?? this.historyCursor ?? 0
+      if (direction === 'latest') this.latestPending = undefined
+      if (direction !== 'earlier') this.historyCursor = page.lastSequence ?? (direction === 'latest' ? 0 : this.historyCursor ?? 0)
+      const retained = direction === 'latest' ? this.state.entries.filter(row => page.lastSequence !== undefined && row.sequence > page.lastSequence) : this.state.entries
+      entries = merge(retained, entries)
       const first = entries[0]?.sequence
       const last = entries.at(-1)?.sequence
       const previous = this.state.history
-      const hasEarlier = direction === 'earlier' || old.length === 0 ? page.hasEarlier : previous?.hasEarlier ?? page.hasEarlier
+      const hasEarlier = direction === 'latest' || direction === 'earlier' || old.length === 0 ? page.hasEarlier : previous?.hasEarlier ?? page.hasEarlier
       const hasMore = direction === 'earlier' ? previous?.hasMore ?? false : page.hasMore
-      this.publish({ ...this.state, entries: merge(this.state.entries, entries), loading: false, history: { ...page, hasEarlier, hasMore, ...(first === undefined ? {} : { firstSequence: first }), ...(last === undefined ? {} : { lastSequence: last }) } })
+      this.publish({ ...this.state, entries, loading: false, history: { ...page, hasEarlier, hasMore, ...(first === undefined ? {} : { firstSequence: first }), ...(last === undefined ? {} : { lastSequence: last }) } })
     } catch (error) {
       if (!read.signal.aborted && this.isCurrent(selected)) this.publish({ ...this.state, loading: false, error: errorText(error) })
     }

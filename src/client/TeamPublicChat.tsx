@@ -2,11 +2,9 @@ import { IconPaperclipOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { PublicSessionStats } from './PublicSessionStats.js'
 import { PublicQuote } from './PublicQuote.js'
 import { usePublicReadingPosition } from './use-public-reading-position.js'
-import { WorkActivityFeed } from './WorkActivityFeed.js'
 import { TeamGoalHeader } from './TeamGoalHeader.js'
 import type { GoalController } from './goal-controller.js'
-import type { WorkRequestController } from './work-request-controller.js'
-import { useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { DraftImage } from './PublicImages.js'
 import { PublicMessageContent, publicParticipantLabel } from './PublicMessageContent.js'
 import { publicDraftImageIssue } from './public-image-draft.js'
@@ -22,8 +20,6 @@ import { publicChatCss } from './public-chat-styles.js'
 
 interface Actions {
   readonly goal?: GoalController | undefined
-  readonly work?: WorkRequestController | undefined
-  readonly openWorkTask?: ((id: string) => void) | undefined
   readonly addImages: (files: readonly File[]) => void
   readonly removeImage: (id: string) => void
   readonly image: (messageId: string, imageId: string, signal: AbortSignal) => Promise<Blob>
@@ -36,6 +32,7 @@ interface Actions {
   readonly earlier: () => void
   readonly newer: () => void
   readonly refresh: () => void
+  readonly latest: () => void
   readonly replaceText: (start: number, end: number, text: string) => void
   readonly chooseMention: (start: number, end: number, memberId: string) => void
   readonly removeMention: (start: number, reselect?: boolean) => void
@@ -59,19 +56,23 @@ export function TeamPublicChat(props: Props) {
     && selected !== undefined && dashboard.targetSessionId === selected.viewer
     && (dashboard.pendingTeamId === undefined || dashboard.pendingTeamId === selected.team)
     && dashboard.data?.projection.binding.teamId === selected.team && dashboard.data.projection.binding.rootSessionId === selected.captain
-  const scrollbox = usePublicReadingPosition(selected?.key, sameTeam)
+  const readingKey = selected === undefined ? undefined : JSON.stringify([selected.key, selected.viewer])
+  const scrollbox = usePublicReadingPosition(readingKey, sameTeam)
+  const latest = useRef(props.latest); latest.current = props.latest
+  const requestedEntry = useRef<string>()
+  useEffect(() => {
+    if (!sameTeam) requestedEntry.current = undefined
+    else if (verified && readingKey !== requestedEntry.current) { requestedEntry.current = readingKey; latest.current?.() }
+  }, [readingKey, sameTeam, verified])
   const menu = useRef<HTMLDetailsElement>(null)
   const viewPreferences = useRef(new Map<string, Map<string, boolean>>())
-  const [, rerender] = useState(0)
   const preferenceKey = selected?.key ?? ''
   if (!viewPreferences.current.has(preferenceKey)) viewPreferences.current.set(preferenceKey, new Map())
   const folds = viewPreferences.current.get(preferenceKey)!
-  const foldActivity = (collapsed: boolean) => { folds.set('activity', collapsed); rerender(value => value + 1) }
-  const jump = (activity: boolean) => {
+  const jump = () => {
     if (menu.current) menu.current.open = false
     const box = scrollbox.current
-    if (activity) { foldActivity(false); if (box) box.scrollTop = 0 }
-    else if (box) box.scrollTop = box.scrollHeight
+    if (box) box.scrollTop = box.scrollHeight
     box?.dispatchEvent(new Event('scroll'))
     menu.current?.querySelector('summary')?.focus({ preventScroll: true })
   }
@@ -92,13 +93,12 @@ export function TeamPublicChat(props: Props) {
     <style>{publicChatCss}</style>
     <header className="swarm-public__header"><div><h1>{team?.name ?? t('public.title')}</h1>{props.goal !== undefined && sameTeam ? <TeamGoalHeader goal={props.goal} teamId={selected.team} t={t} /> : team?.goal.state === 'generated' ? <details className="swarm-public__goal"><summary>{team.goal.text}</summary><p>{team.goal.text}</p></details> : <p>{t('public.goalEmpty')}</p>}</div>
       <details ref={menu} className="swarm-public__navigation" data-public-navigation onKeyDown={event => { if (event.key === 'Escape' && menu.current) { menu.current.open = false; menu.current.querySelector('summary')?.focus({ preventScroll: true }) } }}>
-        <summary>{t('public.navigate')}</summary><div><button type="button" disabled={!sameTeam} onClick={() => { jump(true) }}>{t('public.activityTop')}</button><button type="button" disabled={!sameTeam || state.entries.length === 0} onClick={() => { jump(false) }}>{t('public.loadedEnd')}</button></div>
+        <summary>{t('public.navigate')}</summary><div><button type="button" disabled={!sameTeam || state.entries.length === 0} onClick={jump}>{t('public.loadedEnd')}</button></div>
       </details>
       {surface.mode !== 'docked'  ? <button type="button" onClick={props.openTeam} disabled={!sameTeam || !verified}>{t('public.openTeam')}</button> : null}</header>
     {sameTeam && !verified ? <p role={dashboard.phase === 'stale' ? 'alert' : 'status'}>{t(dashboard.phase === 'stale' ? 'stale' : 'reconnecting')}{dashboard.error === undefined ? null : ` · ${dashboard.error.message}`}</p> : null}
     {!sameTeam ? <p role="status">{t(dashboard.phase === 'error' ? 'error' : 'loading')}</p> : <>
       <div ref={scrollbox} className="swarm-public__messages" aria-label={t('public.title')} aria-busy={state.loading}>
-        {props.work === undefined ? null : <WorkActivityFeed collapsed={folds.get('activity') ?? false} setCollapsed={foldActivity} work={props.work} teamId={selected.team} directory={verified && state.directoryError === undefined ? state.directory : undefined} openTask={props.openWorkTask} t={t} />}
         {state.history?.hasEarlier ? <button type="button" disabled={!verified || state.loading} onClick={props.earlier}>{t('public.earlier')}</button> : null}
         {state.entries.length === 0 ? <p className="swarm-public__empty">{t(state.loading ? 'loading' : 'public.empty')}</p> : null}
         {state.entries.map(message => <article key={`${selected.key}:${message.id}`} id={`swarm-message-${message.id}`} tabIndex={-1} data-public-message={message.id} data-delivery={message.delivery.kind === 'not-requested' ? 'not-requested' : message.delivery.recipients.every(row => row.state === 'claimed') ? 'claimed' : 'requested'} className={message.author.kind === 'local-operator' ? 'swarm-public__message swarm-public__message--operator' : 'swarm-public__message'}>

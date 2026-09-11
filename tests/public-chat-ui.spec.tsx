@@ -33,7 +33,7 @@ function chatState(state: TeamDashboardState): PublicChatState {
 function chatProps(state = teamState(), chat = chatState(state)) {
   return { t, useSessions: <T,>(selector: (state: SessionListState) => T) => selector({ ids: [], byId: {}, current: undefined, phase: 'ready', subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined }), useTeam: <T,>(selector: (state: TeamDashboardState) => T) => selector(state), useChat: <T,>(selector: (state: PublicChatState) => T) => selector(chat),
     useSurface: <T,>(selector: (state: { mode: 'inactive'; view: 'overview'; targetSessionId: undefined }) => T) => selector({ mode: 'inactive', view: 'overview', targetSessionId: undefined }),
-    replaceText: vi.fn(), chooseMention: vi.fn(), removeMention: vi.fn(), refreshDirectory: vi.fn(), upgradeLegacy: vi.fn(), send: vi.fn(), recover: vi.fn(), earlier: vi.fn(), newer: vi.fn(), refresh: vi.fn(), edit: vi.fn(), reply: vi.fn(), openTeam: vi.fn(),
+    replaceText: vi.fn(), chooseMention: vi.fn(), removeMention: vi.fn(), refreshDirectory: vi.fn(), upgradeLegacy: vi.fn(), send: vi.fn(), recover: vi.fn(), earlier: vi.fn(), newer: vi.fn(), refresh: vi.fn(), latest: vi.fn(), edit: vi.fn(), reply: vi.fn(), openTeam: vi.fn(),
     addImages: vi.fn(), removeImage: vi.fn(), image: vi.fn(async () => new Blob(['image'], { type: 'image/png' })), retryDraftStorage: vi.fn(), useStoredDraft: vi.fn(),
   }
 }
@@ -413,7 +413,7 @@ it('keeps an image read across ordinary refreshes and remounts it for another Te
 })
 
 
-it('keeps real React activity, folds, quote access and reading position stable in Edge', async () => {
+it('opens real React group history at its latest message and preserves manual reading in Edge', async () => {
   const { publicImagesBrowserScript } = await import('./helpers/public-images-browser.js')
   const { chromium } = await import('playwright'), { mkdir } = await import('node:fs/promises'), { join } = await import('node:path')
   const browser = await chromium.launch({ channel: 'msedge', headless: true }), script = await publicImagesBrowserScript()
@@ -434,8 +434,12 @@ it('keeps real React activity, folds, quote access and reading position stable i
       await page.setContent(`<style>body{margin:0;font-family:system-ui;--dsw-alias-label-primary:#223047;--dsw-alias-label-secondary:#69778c;--dsw-alias-bg-base:#f8f9fc;--dsw-alias-bg-layer-1:white;--dsw-alias-border-l2:#d8deea;--dsw-alias-state-business-primary:#4267bc}#fixture-root{height:900px}.fixture-modal-root{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center}.fixture-modal-mask{position:absolute;inset:0;background:#0009}.fixture-modal-dialog{position:relative}</style><div id="fixture-root"></div>`)
       await page.addScriptTag({ content: script })
       await page.evaluate(viewer => { (window as unknown as { sessionState: unknown }).sessionState = { phase: 'ready', current: viewer, byId: { [viewer]: { displayTitle: '浏览器测试会话', projectionValues: { tokenUsage: { uncachedInputTokens: 100, cacheReadTokens: 50, cacheWriteTokens: 20, outputTokens: 30 }, sessionStats: { turns: 3, steps: 8, decodeTokens: 120, decodeMs: 2000 } } } } } }, chat.selection!.viewer)
-      await page.evaluate(async ({ team: teamValue, fixture: chatValue, activity: activityValue }) => { await (window as unknown as Driver).mountChat(teamValue, chatValue, activityValue) }, { team, fixture, activity })
-      await page.locator('[data-work-collapse]').waitFor()
+      await page.evaluate(async ({ team: teamValue, fixture: chatValue, activity: activityValue }) => { await (window as unknown as Driver).mountChat(teamValue, { ...chatValue, entries: [], history: undefined, loading: true }, activityValue) }, { team, fixture, activity })
+      await page.locator('.swarm-public__empty').waitFor()
+      await page.evaluate(({ team: teamValue, fixture: chatValue }) => { (window as unknown as Driver).updateChat(teamValue, chatValue) }, { team, fixture })
+      await page.locator('[data-public-message="message-11"]').waitFor({ state: 'attached' })
+      expect(await page.locator('[data-work-event], [data-work-collapse]').count()).toBe(0)
+      await expect.poll(() => page.locator('.swarm-public__messages').evaluate(node => node.scrollHeight - node.clientHeight - node.scrollTop)).toBeLessThan(2)
       await page.getByRole('button', { name: '200 tok', exact: true }).click()
       await page.getByRole('dialog', { name: 'Token 用量', exact: true }).waitFor()
       expect(await page.getByRole('dialog').textContent()).toContain('浏览器测试会话')
@@ -456,11 +460,7 @@ it('keeps real React activity, folds, quote access and reading position stable i
       await expect.poll(() => long.locator('[data-public-expand]').count()).toBe(1)
       expect(await short.locator('[data-public-expand]').count()).toBe(0)
       expect(await long.locator('[data-public-text]').evaluate(node => node.clientHeight <= parseFloat(getComputedStyle(node).lineHeight) * 6 + 1)).toBe(true)
-      expect(await page.locator('[data-work-event]').first().evaluate(node => node.getBoundingClientRect().height)).toBeLessThan(width <= 600 ? 120 : 70)
-      if (directory) await page.screenshot({ path: join(directory, `activity-chat-${width}.png`) })
-      await page.locator('[data-work-collapse]').click()
-      expect(await page.locator('[data-work-collapse]').getAttribute('aria-expanded')).toBe('false')
-      expect(await page.locator('[data-work-event]').first().isVisible()).toBe(false)
+      if (directory) await page.screenshot({ path: join(directory, `latest-chat-${width}.png`) })
       await long.locator('[data-public-expand]').click()
       expect(await long.locator('[data-public-text]').getAttribute('data-expanded')).toBe('true')
       await long.locator('[data-public-expand]').click()
@@ -494,13 +494,17 @@ it('keeps real React activity, folds, quote access and reading position stable i
       await page.evaluate(({ team: teamValue, other: chatValue }) => { (window as unknown as Driver).updateChat(teamValue, chatValue) }, { team, other })
       await page.locator('[data-public-message="other"]').waitFor()
       await page.evaluate(({ team: teamValue, more: chatValue }) => { (window as unknown as Driver).updateChat(teamValue, chatValue) }, { team, more })
-      await expect.poll(offset).toBeCloseTo(before, 0)
-      expect(await page.locator('[data-work-collapse]').getAttribute('aria-expanded')).toBe('false')
-      await page.locator('[data-public-navigation] summary').click()
-      await page.getByRole('button', { name: '任务活动 · 群聊顶部', exact: true }).click()
-      await expect.poll(() => box.evaluate(node => node.scrollTop)).toBe(0)
-      expect(await page.locator('[data-work-collapse]').getAttribute('aria-expanded')).toBe('true')
+      await expect.poll(() => box.evaluate(node => node.scrollHeight - node.clientHeight - node.scrollTop)).toBeLessThan(2)
+      expect(await page.getByRole('button', { name: '任务活动 · 群聊顶部', exact: true }).count()).toBe(0)
       expect(await page.locator('[data-swarm-public-chat]').evaluate(node => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(1)
+      // The initial tail stays at the bottom when its image finishes loading.
+      await page.evaluate(() => { const w = window as unknown as { imageWait: Promise<void>; releaseImage: () => void }; w.imageWait = new Promise(resolve => { w.releaseImage = resolve }) })
+      const tailImage = { ...more, entries: [...more.entries, { ...source, id: 'tail-image', sequence: 14, content: [historyImage] }] }
+      await page.evaluate(({ team: teamValue, tailImage: chatValue }) => { (window as unknown as Driver).updateChat(teamValue, chatValue) }, { team, tailImage })
+      await page.locator('[data-public-message="tail-image"] [data-public-image]').waitFor()
+      await page.evaluate(() => { (window as unknown as { releaseImage: () => void }).releaseImage() })
+      await page.locator('[data-public-message="tail-image"] img').waitFor()
+      await expect.poll(() => box.evaluate(node => node.scrollHeight - node.clientHeight - node.scrollTop)).toBeLessThan(2)
       // The composer quote remains readable above its independently scrolling area.
       const replying = { ...more, draft: { ...more.draft, replyTo: 'message-0' } }
       await page.evaluate(({ team: teamValue, replying: chatValue }) => { (window as unknown as Driver).updateChat(teamValue, chatValue) }, { team, replying })
@@ -514,10 +518,11 @@ it('keeps real React activity, folds, quote access and reading position stable i
       await expect.poll(() => long.evaluate(node => node.getBoundingClientRect().top - node.closest('.swarm-public__messages')!.getBoundingClientRect().top)).toBeCloseTo(0, 0)
       // A slow image preceding the text in the SAME article must not move that text.
       await page.evaluate(() => { const w = window as unknown as { imageWait: Promise<void>; releaseImage: () => void }; w.imageWait = new Promise(resolve => { w.releaseImage = resolve }) })
+      const imageReads = await page.evaluate(() => (window as unknown as { reads: number }).reads)
       const imageFirst = { ...more, entries: [{ ...entries[0]!, content: [historyImage, { type: 'text' as const, text: longText }] }, ...entries.slice(1)] }
       await page.evaluate(({ team: teamValue, imageFirst: chatValue }) => { (window as unknown as Driver).updateChat(teamValue, chatValue) }, { team, imageFirst })
       await long.locator('[data-public-image]').scrollIntoViewIfNeeded()
-      await page.waitForFunction(() => document.querySelector('[data-public-image] [aria-busy=true]') !== null || (window as unknown as { reads: number }).reads > 0)
+      await page.waitForFunction(before => (window as unknown as { reads: number }).reads > before, imageReads)
       const textAfterImage = long.locator('[data-public-text]')
       await textAfterImage.evaluate(node => { const scrolling = node.closest('.swarm-public__messages')!; scrolling.scrollTop += node.getBoundingClientRect().top - scrolling.getBoundingClientRect().top; scrolling.dispatchEvent(new Event('scroll')) })
       const textOffset = () => textAfterImage.evaluate(node => node.getBoundingClientRect().top - node.closest('.swarm-public__messages')!.getBoundingClientRect().top)
@@ -552,7 +557,7 @@ it('keeps real React activity, folds, quote access and reading position stable i
   } finally { await browser.close() }
 }, 60_000)
 
-it('keeps both navigation items painted and clickable below the fixed header at the installed viewport', async () => {
+it('keeps latest-message navigation painted and clickable below the fixed header at the installed viewport', async () => {
   const { publicImagesBrowserScript } = await import('./helpers/public-images-browser.js')
   const { chromium } = await import('playwright'), { readFile } = await import('node:fs/promises')
   const layoutSource = await readFile('node_modules/@deepseek-ai/dsh-client-ui-layout/lib/client.js', 'utf8')
@@ -566,7 +571,7 @@ it('keeps both navigation items painted and clickable below the fixed header at 
     await page.evaluate(async ({ team: teamValue, chat: chatValue, goal: goalValue }) => { await (window as unknown as { mountChat: (team: unknown, chat: unknown, activity: unknown, goal: unknown) => Promise<void> }).mountChat(teamValue, chatValue, undefined, goalValue) }, { team, chat, goal })
     await page.locator('[data-public-navigation] summary').click()
     const items = page.locator('[data-public-navigation]>div>button')
-    expect(await items.count()).toBe(2)
+    expect(await items.count()).toBe(1)
     const readHits = () => items.evaluateAll(nodes => nodes.map(node => {
       const r = node.getBoundingClientRect()
       return { text: node.textContent, inViewport: r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight,
@@ -576,8 +581,6 @@ it('keeps both navigation items painted and clickable below the fixed header at 
     const screenshotDirectory = process.env['SWARM_UI_EVIDENCE_DIR']
     if (screenshotDirectory) await page.screenshot({ path: `${screenshotDirectory}/navigation-goal-collapsed-813.png` })
     await page.getByRole('button', { name: '已载入消息末尾', exact: true }).click()
-    await page.locator('[data-public-navigation] summary').click()
-    await page.getByRole('button', { name: '任务活动 · 群聊顶部', exact: true }).click()
     expect(await page.locator('[data-public-navigation] summary').evaluate(node => node === document.activeElement)).toBe(true)
     await page.locator('[data-goal-toggle]').click()
     await page.locator('[data-goal-details]').waitFor()

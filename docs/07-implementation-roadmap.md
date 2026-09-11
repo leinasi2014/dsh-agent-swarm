@@ -234,6 +234,7 @@ GitHub milestone 汇总本轮，Issue 保存一个独立可验收结果及依赖
 | 切片 | 用户结果与代码边界 | 依赖与验收出口 |
 |---|---|---|
 | 通信上下文减负 | identity-context、TeamDirectory 与任务工具说明；保留完整显式目录 | 无前置；真实装配不自动读取富目录，实际请求、身份变化/撤权/压缩恢复保持正确，量化同任务差异 |
+| 切队与成员导航读取减负（#268） | target-read 身份使用公开 stat；Main 标题先于最终授权 cut；live 成员资料复用当前 Session；已绑定成员不等待共享目录；独立 RPC 并发，切换目标即时 busy；群聊隐藏任务活动并在进入时读取最新尾页 | 保留 fresh 身份、父链、roster、分页及取消复核；Main 一次聚合枚举、身份正文读取为 0、live 资料磁盘读取为 0；固定场景真实切队和单聊响应分别复测，侧栏隐藏及官方 Chat 进入到底另验 |
 | 审核前置校验 | review Provider 调用前的任务/Captain/attempt 检查 | 无前置；无效请求不执行 Provider，最终 CAS 保留 |
 | 逐队恢复隔离 | 现有 startup recovery owner | 无前置；坏队不阻止好队恢复，错误可见，全局损坏不吞掉 |
 | 维护债务重试 | 现有 goal maintenance timer | 无前置；失败后可恢复、无双 owner/重复协调、取消可收敛 |
@@ -247,6 +248,8 @@ GitHub milestone 汇总本轮，Issue 保存一个独立可验收结果及依赖
 群聊 UI 另按用户要求先提交交互方案：任务活动紧凑布局与返回顶部/最新内容定位、长正文默认折叠并手动展开、引用单行省略并悬停显示全文，以及复用官方数据口径的 token 用量/速度。方案确认后通过独立 UI Issue 开发，复用现有 workActivity/controller 与官方滚动容器；不能把 Team 累计用量当作单条消息或单个 Session 的速度。
 
 ## 9. 验收、集成与运行保护
+
+切队减负首片不承诺冷日志缓存命中。固定 alpha.2 的官方 point observation 在真实 Cordis 4.0.2 组合中连续读取仍打开两次正文；其 persistence 代理引用不稳定，不能把接口说明当作命中证据。该方案的 RED 保留在 Issue #268 证据中；首片沿用有界 cold read，不增加插件缓存或授权缓存。cold Main 标题、cold 成员资料及共享目录双重采集的剩余成本分别保留，后续是否优化由真实响应复测决定。
 
 每个切片先证明 RED，再做最小修复，保留针对性回归。新增工具、context、Service 和存储需要真实官方组合；只有 mock 通过不能证明模型实际看到或加载。冻结候选后运行工程门，风险对应非作者审查，必要时用独立 Profile/browser 验证，最后经 PR 串行合入 GitHub main 并读回。
 

@@ -4,21 +4,24 @@ import { dirname as sidebarDirname, join as sidebarJoin } from 'node:path'
 import { runInNewContext as sidebarRun } from 'node:vm'
 import * as SidebarReact from 'react'
 import * as SidebarJsx from 'react/jsx-runtime'
+import * as SidebarStore from '@deepseek-ai/dsh-client-store'
+import { transpileModule, ModuleKind, ScriptTarget } from 'typescript'
 import { tabInfoFixture as sidebarTabInfo } from './helpers/sidebar-tab.js'
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest'
 import { sidebarHarness } from './helpers/sidebar-harness.js'
 import { TeamDashboardSurfaceCoordinator } from '../src/client/team-dashboard-surface-coordinator.js'
 import type { TeamDashboardState } from '../src/client/team-dashboard-controller.js'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
 vi.mock('../src/client/TeamDashboardDetails.js', () => ({ TeamDashboardDetails: () => null }))
 
-function fixture() {
+function fixture(chatNavigation?: { requestLatest: (id: string) => () => void }) {
   const controller: { state: TeamDashboardState; listeners: Set<() => void>; open: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; refresh: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn>; openCaptainChat: ReturnType<typeof vi.fn>; getSnapshot(): TeamDashboardState; subscribe(listener: () => void): () => void } = { state: { open: false, phase: 'closed' }, listeners: new Set(), open: vi.fn(function (this: typeof controller, id: string) { this.state = { open: true, phase: 'loading', targetSessionId: id }; this.listeners.forEach(listener => listener()) }), close: vi.fn(function (this: typeof controller) { this.state = { open: false, phase: 'closed' }; this.listeners.forEach(listener => listener()) }), refresh: vi.fn(), dispose: vi.fn(), openCaptainChat: vi.fn(), getSnapshot() { return this.state }, subscribe(listener: () => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener) } } }
   let current = 'root'; const sessionListeners = new Set<() => void>()
   const sessions = { open: vi.fn(), list: { getSnapshot: () => ({ current, byId: { root: {}, other: {} } }), subscribe: (listener: () => void) => { sessionListeners.add(listener); return () => { sessionListeners.delete(listener) } } }, setCurrent: (next: string) => { sidebar.hide(current); current = next; sessionListeners.forEach(listener => listener()); sidebar.show(current) } }
   const anchor = document.createElement('span'); document.body.append(anchor)
-  const coordinator = new TeamDashboardSurfaceCoordinator({ sessions, locale: { getLocale: () => ({ active: 'en' }) }, controller, anchorRef: { current: anchor } } as never)
+  const coordinator = new TeamDashboardSurfaceCoordinator({ sessions, chatNavigation, locale: { getLocale: () => ({ active: 'en' }) }, controller, anchorRef: { current: anchor } } as never)
   const sidebar = sidebarHarness(coordinator, () => current)
   const unmount = coordinator.mount(); const releaseSidebar = coordinator.bindSidebar(sidebar.sidebar)
   const setReady = (teamId = 'team-1', targetSessionId = current) => {
@@ -309,9 +312,18 @@ describe('TeamDashboardSurfaceCoordinator', () => {
 })
 
 
-/** Installed official controller and adoption path; only its store carrier is a fixture. */
+/** Installed official controller, store actions, dock engine and adoption path. */
 function installedTargetedSidebar() {
   const require = sidebarCreateRequire(import.meta.url)
+  const dockkitSource = sidebarReadFile(require.resolve('@deepseek-ai/dsh-client-ui-dockkit'), 'utf8')
+  const dockkit = { exports: {} }
+  sidebarRun(transpileModule(dockkitSource, { compilerOptions: { module: ModuleKind.CommonJS, target: ScriptTarget.ES2022 } }).outputText, {
+    exports: dockkit.exports, module: dockkit, require: (name: string) => {
+      if (name === 'react') return SidebarReact
+      if (name === 'react/jsx-runtime') return SidebarJsx
+      return {} // Unrendered dock widgets, CSS and their UI dependencies.
+    },
+  })
   const source = sidebarReadFile(sidebarJoin(sidebarDirname(require.resolve('@deepseek-ai/dsh-client-ui-sidebar-right/package.json')), 'lib/client.js'), 'utf8')
   const calls: string[] = []
   const faces = new Map<string, any>()
@@ -323,14 +335,20 @@ function installedTargetedSidebar() {
     exported = entry.factory(name => {
       if (name === 'react') return SidebarReact
       if (name === 'react/jsx-runtime') return SidebarJsx
-      if (name === 'react-dom' || name === '@deepseek-ai/dsh-client-ui-primitives' || name === '@deepseek-ai/dsh-client-ui-dockkit') return {}
-      if (name === '@deepseek-ai/dsh-client-store') return { notifySubscribers: (listeners: Iterable<() => void>) => { for (const listener of listeners) listener() }, defineStore: () => ({ create: (sessionId: string) => {
-        const store = { actions: { openContent: (target: string) => { calls.push(target) } }, getSnapshot: () => ({ bySession: {} }), subscribe: () => () => {} }
-        stores.set(sessionId, store); return store
-      } }) }
+      if (name === 'react-dom' || name === '@deepseek-ai/dsh-client-ui-primitives') return {}
+      if (name === '@deepseek-ai/dsh-client-ui-dockkit') return dockkit.exports
+      if (name === '@deepseek-ai/dsh-client-store') return { ...SidebarStore, defineStore: (definition: any) => {
+        const factory = SidebarStore.defineStore(definition)
+        return { create: (sessionId: string) => {
+          const actual = factory.create(sessionId)
+          const actions = actual.actions as Record<string, (...args: any[]) => any>
+          const store = { ...actual, actions: { ...actions, openContent: (target: string, ...args: any[]) => { calls.push(target); return actions.openContent!(target, ...args) } } }
+          stores.set(sessionId, store); return store
+        } }
+      } }
       throw new Error(`Unexpected official sidebar dependency: ${name}`)
     })
-  } } }, AbortController })
+  } } }, AbortController, crypto })
   exported.apply({
     effect: (effect: () => (() => void), _label: string) => { const off=effect(); disposers.push(off); return off },
     locale: { bind: () => (key: string) => key, register: () => () => {} },
@@ -358,7 +376,7 @@ it('targets the exact new Session while the official mounted seat still belongs 
   const f=fixture(), official=installedTargetedSidebar()
   let offRoot: (() => void) | undefined
   try {
-    f.releaseSidebar(); official.adopt('root'); official.bind('root')
+    f.releaseSidebar(); official.adopt('root'); official.controller.setExpandedIn('root', true); official.bind('root')
     f.coordinator.bindSidebar(official.controller)
     f.setReady('team-1','root')
     offRoot=f.coordinator.observeTab('root',sidebarTabInfo().tab)
@@ -371,6 +389,7 @@ it('targets the exact new Session while the official mounted seat still belongs 
     expect(official.calls).toEqual([])
     expect(f.coordinator.getSnapshot().mode).toBe('inactive')
     official.adopt('captain')
+    official.controller.setExpandedIn('captain', true)
     f.setReady('team-1','captain') // Existing authoritative read cadence; no new timer.
     expect(official.calls).toEqual(['captain'])
     expect(f.coordinator.getSnapshot().mode).toBe('inactive')
@@ -381,4 +400,85 @@ it('targets the exact new Session while the official mounted seat still belongs 
     expect(official.calls).toEqual(['captain'])
     offCaptain()
   } finally { offRoot?.(); f.destroy(); official.dispose() }
+})
+
+it('reads and commits only the exact adopted sidebar store, including a hidden previously expanded target', () => {
+  const f = installedTargetedSidebar()
+  try {
+    expect(f.controller.isExpandedIn('new')).toBeUndefined()
+    f.controller.setExpandedIn('new', true)
+    f.adopt('new')
+    expect(f.controller.isExpandedIn('new')).toBe(false) // Unknown target did not queue a write.
+    f.adopt('source'); f.controller.setExpandedIn('source', true); f.bind('source')
+    f.controller.setExpandedIn('new', true)
+    expect(f.controller.isExpandedIn('new')).toBe(true)
+    f.controller.setExpandedIn('new', false)
+    expect(f.controller.isExpandedIn('new')).toBe(false)
+    expect(f.controller.isExpandedIn('source')).toBe(true)
+    f.controller.setExpandedIn('source', false)
+    expect(f.controller.isExpandedIn('source')).toBe(false)
+  } finally { f.dispose() }
+})
+
+it('preserves a newly adopted collapsed source when opening an already expanded target through the real sidebar owner', async () => {
+  const f = fixture(), official = installedTargetedSidebar()
+  try {
+    f.releaseSidebar(); official.adopt('root'); official.bind('root')
+    official.adopt('other'); official.controller.setExpandedIn('other', true)
+    f.coordinator.bindSidebar(official.controller); f.setReady()
+    expect(official.calls).toEqual([])
+    await f.coordinator.openTeamCaptain('other')
+    expect(official.controller.isExpandedIn('root')).toBe(false)
+    expect(official.controller.isExpandedIn('other')).toBe(false)
+    expect(f.sessions.open).toHaveBeenCalledExactlyOnceWith('other')
+  } finally { f.destroy(); official.dispose() }
+})
+
+it('requests latest before official opening, supports same-current reentry and cancels only superseded or failed intents', async () => {
+  const events: string[] = [], cancels: Array<ReturnType<typeof vi.fn>> = []
+  const requestLatest = vi.fn((id: string) => { events.push(`request:${id}`); const cancel = vi.fn(); cancels.push(cancel); return cancel })
+  const f = fixture({ requestLatest })
+  try {
+    f.setReady()
+    await f.coordinator.openTeamCaptain('root')
+    expect(requestLatest).toHaveBeenCalledWith('root')
+    expect(f.sessions.open).not.toHaveBeenCalled()
+    f.sessions.open.mockImplementation((id: string) => { events.push(`open:${id}`); f.sessions.setCurrent(id) })
+    await f.coordinator.openTeamCaptain('other')
+    expect(events).toEqual(['request:root', 'request:other', 'open:other'])
+    expect(cancels[0]).toHaveBeenCalledOnce()
+    expect(cancels[1]).not.toHaveBeenCalled() // Expected selection must survive until the Chat view mounts.
+    f.sessions.setCurrent('root'); f.setReady()
+    expect(cancels[1]).toHaveBeenCalledOnce()
+    f.sessions.open.mockImplementation(() => { throw new Error('official open failed') })
+    await expect(f.coordinator.openTeamCaptain('other')).rejects.toThrow('official open failed')
+    expect(cancels[2]).toHaveBeenCalledOnce()
+    f.sessions.open.mockImplementation(() => {})
+    await f.coordinator.openTeamCaptain('root')
+    f.unmount()
+    expect(cancels[3]).toHaveBeenCalledOnce()
+  } finally { f.destroy() }
+})
+
+it('uses the user expansion choice at catalog commit time, rather than restoring a preference captured before await', async () => {
+  const f = fixture()
+  try {
+    f.setReady()
+    const snapshot = f.sessions.list.getSnapshot
+    Object.assign(f.sessions.list, { getSnapshot: () => ({ ...snapshot(), byId: { ...snapshot().byId, captain: { origin: 'subagent', parentId: 'root' } }, subagentsByParent: { root: { state: 'ready', entries: [{ kind: 'child', id: 'captain', mode: 'continuable' }] } } }) })
+    let finish!: () => void
+    const refresh = vi.fn(() => new Promise<void>(resolve => { finish = resolve }))
+    const open = vi.fn()
+    Object.assign(f.sessions, { refreshSubagents: refresh, openSubagent: open })
+    f.sidebar.sidebar.toggleExpanded() // Initially hidden.
+    const first = f.coordinator.openTeamCaptain('captain')
+    f.sidebar.sidebar.toggleExpanded() // The user reopens while authorization is in flight.
+    finish(); await first
+    expect(f.sidebar.sidebar.isExpandedIn('captain' as SessionId)).toBe(true)
+    const second = f.coordinator.openTeamCaptain('captain')
+    f.sidebar.sidebar.toggleExpanded() // The user closes while the next authorization is in flight.
+    finish(); await second
+    expect(f.sidebar.sidebar.isExpandedIn('captain' as SessionId)).toBe(false)
+    expect(open).toHaveBeenCalledTimes(2)
+  } finally { f.destroy() }
 })

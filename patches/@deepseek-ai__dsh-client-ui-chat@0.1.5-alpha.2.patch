@@ -1,0 +1,150 @@
+diff --git a/lib/client.js b/lib/client.js
+index c6e0cb2749a06d0dbef96a2834d6920f69ae5101..3f2d0f3a5271ea126e45778578d7b1441fdf1c45 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -2069,7 +2069,9 @@ window.__ModuleLoader__.load({
+ 		* The chat view slot entry: pure component over the composed props; each
+ 		* ordered business Node crosses the keyed renderer seat.
+ 		*/
+-		function ChatView({ useSession, useChat, useChatNode, useChatNodeProcess, useSessions, useStore, actions, renderSlot, sessionId, openFile, loadOlder, loadThrough, loadImage, openView, chatScroll, forkAt, fileMentions, useTranscriptView, useProjection, t }) {
++		function ChatView({ useSession, useChat, useChatNode, useChatNodeProcess, useSessions, useStore, actions, renderSlot, sessionId, openFile, loadOlder, loadThrough, loadImage, openView, chatScroll, forkAt, fileMentions, useTranscriptView, useLatestRequest, consumeLatest, useProjection, t }) {
++			const latestRequest = useLatestRequest((token) => token);
++			const currentSessionId = useSessions((s) => s.current);
+ 			const order = useChat((s) => s.order);
+ 			const nodeStore = useChat((s) => s.nodes);
+ 			const turnNavigationItems = useChat((s) => s.navigation.items());
+@@ -2263,11 +2265,22 @@ window.__ModuleLoader__.load({
+ 				return true;
+ 			};
+ 			(0, react.useLayoutEffect)(() => {
+-				if (scrollSamplePendingRef.current) return;
+ 				const local = listRef.current;
+ 				/* v8 ignore next -- ref-null guard: React attaches the ref before layout effects run. */
+ 				if (local === null) return;
+ 				const el = scrollerOf(local);
++				if (openState === "open" && currentSessionId === sessionId && latestRequest !== null && consumeLatest(latestRequest)) {
++					scrollSamplePendingRef.current = false;
++					openedRef.current = true;
++					toBottom(el);
++					firstSeqRef.current = firstSeq;
++					lastKeyRef.current = lastKey;
++					lastSteeringIdRef.current = lastSteeringId;
++					lastSubmissionIdRef.current = lastSubmissionId;
++					followSigRef.current = followSig;
++					return;
++				}
++				if (scrollSamplePendingRef.current) return;
+ 				if (openState === "open" && !openedRef.current) {
+ 					openedRef.current = true;
+ 					const saved = chatScroll.read();
+@@ -8227,6 +8240,46 @@ window.__ModuleLoader__.load({
+ 		}
+ 		//#endregion
+ 		//#region lib/types/client/apply.js
++		/** UI-owned, one-shot navigation requests. No transcript or Session authority. */
++		var ChatNavigation = class {
++			requests = new Map();
++			sources = new Map();
++			sequence = 0;
++			disposed = false;
++			source(sessionId) {
++				let source = this.sources.get(sessionId);
++				if (source === void 0) {
++					source = (0, _deepseek_ai_dsh_client_store.createSnapshotStore)(null);
++					this.sources.set(sessionId, source);
++				}
++				return source;
++			}
++			requestLatest(sessionId, options = {}) {
++				if (this.disposed || options.signal?.aborted) return () => {};
++				const previous = this.requests.get(sessionId);
++				previous?.cancel();
++				const token = ++this.sequence;
++				const cancel = () => { this.consume(sessionId, token); };
++				const off = () => { options.signal?.removeEventListener("abort", cancel); };
++				this.requests.set(sessionId, { token, cancel, off });
++				options.signal?.addEventListener("abort", cancel, { once: true });
++				this.source(sessionId).set(token);
++				return cancel;
++			}
++			consume(sessionId, token) {
++				const request = this.requests.get(sessionId);
++				if (request === void 0 || request.token !== token) return false;
++				this.requests.delete(sessionId);
++				request.off();
++				this.source(sessionId).set(null);
++				return true;
++			}
++			dispose() {
++				this.disposed = true;
++				for (const request of this.requests.values()) request.cancel();
++				this.sources.clear();
++			}
++		};
+ 		const CHAT_NODE_INJECT = { hooks: { turnData: (_standard, data) => function useTurnData(key) {
+ 			return useTurnDataValue(data, key);
+ 		} } };
+@@ -8273,6 +8326,11 @@ window.__ModuleLoader__.load({
+ 			const t = ctx.locale.bind(NS);
+ 			const chatStore = createChatStore();
+ 			const chatScrollPositions = /* @__PURE__ */ new Map();
++			const chatNavigation = new ChatNavigation();
++			ctx.effect(() => {
++				const off = ctx.reflect.provide("chatNavigation", chatNavigation);
++				return () => { chatNavigation.dispose(); off(); };
++			}, "ui-chat: navigation");
+ 			const transcriptView = new TranscriptViewPolicy(ctx.settingsScope.bind({ namespace: CHAT_SETTINGS_NAMESPACE }));
+ 			ctx.slots.inject("settings.general.item", () => ctx.slots.register({
+ 				name: "settings.general.item",
+@@ -8311,7 +8369,8 @@ window.__ModuleLoader__.load({
+ 						const session = binding.session;
+ 						const chat = chatSource(binding);
+ 						return {
+-							hooks: { transcriptView: transcriptView.mode },
++							hooks: { transcriptView: transcriptView.mode, latestRequest: chatNavigation.source(sessionId) },
++							consumeLatest: (token) => chatNavigation.consume(sessionId, token),
+ 							keyedHooks: {
+ 								chatNode: (key) => chat.getSnapshot().nodes.source(key),
+ 								chatNodeProcess: (key) => chat.getSnapshot().nodes.processSource(key)
+diff --git a/lib/types/client/chat-navigation.d.ts b/lib/types/client/chat-navigation.d.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..21d8aeb62e5af59cb650ce214c93c657681b5e36
+--- /dev/null
++++ b/lib/types/client/chat-navigation.d.ts
+@@ -0,0 +1,11 @@
++import type { SessionId } from '@deepseek-ai/dsh-session/types';
++/** Presentation-only Chat navigation; callers retain official Session authorization and opening. */
++export interface IChatNavigation {
++    /** Request the exact Session's next open Chat view to show latest content once. Returns cancellation; superseded cancellation is harmless. */
++    requestLatest(sessionId: SessionId, options?: { readonly signal?: AbortSignal }): () => void;
++}
++declare module '@deepseek-ai/cordis' {
++    interface Context {
++        chatNavigation: IChatNavigation;
++    }
++}
+diff --git a/lib/types/client/contract/slots.d.ts b/lib/types/client/contract/slots.d.ts
+index 646baac5ad27c493bf4d283bb0a2abe1b6c1d233..18941ac7d97096316e1bc0fc968f77f0a007a5e1 100644
+--- a/lib/types/client/contract/slots.d.ts
++++ b/lib/types/client/contract/slots.d.ts
+@@ -100,7 +100,10 @@ export interface ChatScrollPosition {
+ }
+ /** Business callbacks injected into the Chat view. */
+ export interface ChatViewInjected {
++    /** Consume only this Chat view's matching one-shot navigation request. */
++    consumeLatest(token: number): boolean;
+     hooks: {
++        latestRequest: SnapshotStore<number | null>;
+         /** Persisted completed-Turn transcript presentation. */
+         transcriptView: SnapshotStore<TranscriptViewMode>;
+     };
+diff --git a/lib/types/client/index.d.ts b/lib/types/client/index.d.ts
+index 24526daa3767117bdc6077ae421acd8c90bb94c4..5be2a772a9d4f772c12b5b9fb452a91b756453a8 100644
+--- a/lib/types/client/index.d.ts
++++ b/lib/types/client/index.d.ts
+@@ -1,4 +1,5 @@
+ /** Browser Chat target plugin. */
++export type { IChatNavigation } from './chat-navigation.ts';
+ export { apply, inject } from './apply.ts';
+ export type {} from './conversation-nodes/assistant.ts';
+ export type {} from './conversation-nodes/command.ts';

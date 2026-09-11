@@ -50,7 +50,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-export const inject = ['sessions', 'slots', 'locale', 'settingsScope', 'remote', 'remote.session', 'remote.subagents', 'sidebarRight', 'sidebarRightTabs', 'layout', 'connection']
+export const inject = ['sessions', 'slots', 'locale', 'settingsScope', 'remote', 'remote.session', 'remote.subagents', 'sidebarRight', 'sidebarRightTabs', 'chatNavigation', 'layout', 'connection']
 
 /** Compose an additive official Sidebar tab and Session utility. */
 export function apply(ctx: ClientContext): void {
@@ -99,6 +99,7 @@ export function apply(ctx: ClientContext): void {
   const groupPanel = 'swarm.group' as MainPanelId
   const anchorRef = { current: null as HTMLSpanElement | null }
   const coordinator = new TeamDashboardSurfaceCoordinator({ sessions: sessionsService, locale: ctx.locale, controller, anchorRef,
+    chatNavigation: ctx.chatNavigation,
     sendCaptainPrompt: async (request, signal) => {
       const content = [{ type: 'text' as const, text: request.text }]
       const clientTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -130,13 +131,7 @@ export function apply(ctx: ClientContext): void {
   }, TeamLineageDisplay))
   ctx.slots.inject('main', function* () {
     yield ctx.slots.register({ name: 'main', key: groupPanel, locale: TEAM_DASHBOARD_NS,
-      inject: () => ({ hooks: { chat, team: controller, surface: coordinator }, work, goal,
-        openWorkTask: (id: string) => {
-          const current = controller.getSnapshot(), selected = work.getSnapshot().selection
-          if (current.phase !== 'ready' || selected === undefined || current.data?.projection.binding.teamId !== selected.team || current.targetSessionId === undefined) return
-          if (coordinator.getSnapshot().mode !== 'docked') coordinator.toggle(current.targetSessionId)
-          coordinator.updateWorkspaceSelection(current.data.projection.binding, { view: 'tasks', detail: { kind: 'task', id }, taskView: 'overview' })
-        },
+      inject: () => ({ hooks: { chat, team: controller, surface: coordinator }, goal,
         edit: (text: string) => { chat.edit(text) }, reply: (id: string | undefined) => { chat.reply(id) },
         replaceText: (start: number, end: number, text: string) => { chat.replaceText(start, end, text) },
         chooseMention: (start: number, end: number, memberId: string) => { chat.chooseMention(start, end, memberId) },
@@ -146,7 +141,7 @@ export function apply(ctx: ClientContext): void {
         image: readPublicImage,
         retryDraftStorage: () => { void chat.retryDraftStorage() }, useStoredDraft: () => { void chat.useStoredDraft() },
         send: () => { void chat.send() }, recover: () => { void chat.recover() },
-        earlier: () => { void chat.earlier() }, newer: () => { void chat.newer() }, refresh: () => { void chat.refresh() },
+        earlier: () => { void chat.earlier() }, newer: () => { void chat.newer() }, refresh: () => { void chat.refresh() }, latest: () => { void chat.latest() },
         openTeam: () => { const current = sessionsService.list.getSnapshot().current; if (current !== undefined) coordinator.toggle(current) },
       }),
     }, TeamPublicChat)
