@@ -13,6 +13,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { TeamDomainError } from '../domain/error.js'
+import { validateTaskReview } from '../domain/team-domain-board.js'
 import { TaskId, type AttemptId, type TeamId, type TeamTask } from '../domain/types.js'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import type { TeamReviewProvider } from './providers.js'
@@ -29,8 +30,8 @@ export interface ReviewTransactionDeps {
 }
 
 /**
- * Run one captain review: resolve the submitted attempt, hand the task's
- * frozen verification command list to the configured review Provider, then
+ * Run one captain review: admit the exact live Captain and submitted attempt,
+ * hand the task's frozen verification command list to the review Provider, then
  * commit the Provider's decision through the authoritative domain
  * transaction (revision CAS + attempt fencing).
  */
@@ -41,11 +42,17 @@ export async function runReviewTransaction(
 ): Promise<{ task: TeamTask; decision: 'accept' | 'reject' }> {
   const captain = requireAgent(exec)
   const scope = deps.scopeOf(captain)
+  const assertExecution = () => {
+    exec.signal.throwIfAborted()
+    if (deps.ctx.agents.get(captain.id) !== captain || deps.ctx.sessions.get(captain.id) !== captain.session || deps.scopeOf(captain) !== scope) {
+      throw new TeamDomainError('Task review requires the exact live executing Session', 'TEAM_AGENT_REQUIRED')
+    }
+  }
+  assertExecution()
   const membership = await deps.domain().requireMembership(scope, captain.id)
-  const taskBefore = membership.team.tasks.find(task => task.id === input.taskId)
-  if (taskBefore === undefined) throw new TeamDomainError(`task "${input.taskId}" not found`, 'TEAM_TASK_NOT_FOUND')
-  const attemptBefore = membership.team.attempts.find(attempt => attempt.id === input.attemptId)
-  if (attemptBefore === undefined) throw new TeamDomainError(`attempt "${input.attemptId}" not found`, 'TEAM_ATTEMPT_NOT_FOUND')
+  assertExecution()
+  const taskId = TaskId(input.taskId), attemptId = input.attemptId as AttemptId
+  const { task: taskBefore, attempt: attemptBefore } = validateTaskReview(membership.team, captain.id, taskId, input.expectedRevision, attemptId)
   const provider = deps.reviewProvider()
   if (provider === undefined) {
     throw new TeamDomainError(`review Provider "${deps.reviewProviderName()}" is unavailable`, 'TEAM_REVIEW_PROVIDER_MISSING')
@@ -61,13 +68,14 @@ export async function runReviewTransaction(
     verification: taskBefore.verification ?? [],
     signal: exec.signal,
   })
+  assertExecution()
   const task = await deps.domain().reviewTask(
     scope,
     membership.team.id,
     captain.id,
-    TaskId(input.taskId),
+    taskId,
     input.expectedRevision,
-    input.attemptId as AttemptId,
+    attemptId,
     outcome.decision,
     outcome.diagnostic,
     deps.reviewProviderName(),

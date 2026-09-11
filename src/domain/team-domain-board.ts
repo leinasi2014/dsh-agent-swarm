@@ -248,6 +248,25 @@ export async function submitTask(
   return structuredClone(committed)
 }
 
+/** Shared pure admission for Provider entry and the final transactional review fence. */
+export function validateTaskReview(
+  team: TeamState,
+  captainSessionId: string,
+  taskId: TaskId,
+  expectedRevision: number,
+  attemptId: AttemptId,
+): { task: TeamTask; attempt: TaskAttempt } {
+  const authority = actorMembership(team, captainSessionId)
+  expectDomain(authority.role === 'captain', 'only the captain can review', 'TEAM_CAPTAIN_REQUIRED')
+  const task = taskOf(team, taskId)
+  taskRevision(task, expectedRevision)
+  assertCurrentAttempt(task, attemptId)
+  expectDomain(task.status === 'submitted' || task.status === 'verifying', 'task is not submitted for review', 'TEAM_REVIEW_NOT_READY')
+  const attempt = attemptOf(team, attemptId)
+  expectDomain(attempt.taskId === task.id, `attempt "${attemptId}" does not belong to task "${taskId}"`, 'TEAM_ATTEMPT_TASK_MISMATCH')
+  return { task, attempt }
+}
+
 export async function reviewTask(
   deps: TeamDomainDeps,
   scope: TeamScope,
@@ -262,13 +281,7 @@ export async function reviewTask(
 ): Promise<TeamTask> {
   let committed!: TeamTask
   await deps.store.transact(scope, teamId, team => {
-    const authority = actorMembership(team, captainSessionId)
-    expectDomain(authority.role === 'captain', 'only the captain can review', 'TEAM_CAPTAIN_REQUIRED')
-    const current = taskOf(team, taskId)
-    taskRevision(current, expectedRevision)
-    assertCurrentAttempt(current, attemptId)
-    expectDomain(current.status === 'submitted' || current.status === 'verifying', 'task is not submitted for review', 'TEAM_REVIEW_NOT_READY')
-    const attempt = attemptOf(team, attemptId)
+    const { task: current, attempt } = validateTaskReview(team, captainSessionId, taskId, expectedRevision, attemptId)
     const timestamp = deps.now()
     const normalizedDiagnostic = diagnostic === undefined ? undefined : nonEmpty(diagnostic, 'review diagnostic', 8_192)
     const providerFact = reviewProvider === undefined ? {} : { reviewProvider: nonEmpty(reviewProvider, 'review provider', 128) }
