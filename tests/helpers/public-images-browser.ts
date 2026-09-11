@@ -15,7 +15,8 @@ export async function publicImagesBrowserScript(): Promise<string> {
     import {zh} from './src/client/team-dashboard-locales.ts';
     window.mountChat = async (team, chat, activity, goalState) => {
       const goalListeners=new Set();
-      const goal=goalState?{subscribe:listener=>{goalListeners.add(listener);return()=>goalListeners.delete(listener)},getSnapshot:()=>goalState,setExpanded:expanded=>{goalState={...goalState,expanded};goalListeners.forEach(listener=>listener())}}:undefined;
+      const notify=()=>goalListeners.forEach(listener=>listener());
+      const goal=goalState?{subscribe:listener=>{goalListeners.add(listener);return()=>goalListeners.delete(listener)},getSnapshot:()=>goalState,setExpanded:expanded=>{goalState={...goalState,expanded};notify()},beginEdit:()=>{goalState={...goalState,expanded:true,editing:true};notify()},closeEditor:()=>{goalState={...goalState,editing:false};notify()}}:undefined;
       const canvas = document.createElement('canvas'); canvas.width=480; canvas.height=320;
       const c=canvas.getContext('2d'); c.fillStyle='#c8daf4'; c.fillRect(0,0,480,320);
       c.fillStyle='#55799e'; c.fillRect(60,80,160,170); c.fillStyle='#b17e72'; c.beginPath(); c.arc(320,155,72,0,Math.PI*2); c.fill();

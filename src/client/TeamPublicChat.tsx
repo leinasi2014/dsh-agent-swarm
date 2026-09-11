@@ -4,7 +4,7 @@ import { PublicQuote } from './PublicQuote.js'
 import { usePublicReadingPosition } from './use-public-reading-position.js'
 import { TeamGoalHeader } from './TeamGoalHeader.js'
 import type { GoalController } from './goal-controller.js'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { DraftImage } from './PublicImages.js'
 import { PublicMessageContent, publicParticipantLabel } from './PublicMessageContent.js'
 import { publicDraftImageIssue } from './public-image-draft.js'
@@ -64,18 +64,26 @@ export function TeamPublicChat(props: Props) {
     if (!sameTeam) requestedEntry.current = undefined
     else if (verified && readingKey !== requestedEntry.current) { requestedEntry.current = readingKey; latest.current?.() }
   }, [readingKey, sameTeam, verified])
-  const menu = useRef<HTMLDetailsElement>(null)
   const viewPreferences = useRef(new Map<string, Map<string, boolean>>())
   const preferenceKey = selected?.key ?? ''
   if (!viewPreferences.current.has(preferenceKey)) viewPreferences.current.set(preferenceKey, new Map())
   const folds = viewPreferences.current.get(preferenceKey)!
-  const jump = () => {
-    if (menu.current) menu.current.open = false
-    const box = scrollbox.current
-    if (box) box.scrollTop = box.scrollHeight
-    box?.dispatchEvent(new Event('scroll'))
-    menu.current?.querySelector('summary')?.focus({ preventScroll: true })
-  }
+  // Derived "at the loaded bottom" flag fed by the reading-position owner's own scroll events; no timers, no second scroll owner.
+  const [atTail, setAtTail] = useState(true)
+  useEffect(() => {
+    const node = scrollbox.current
+    if (node === null || !sameTeam) { setAtTail(true); return }
+    const atBottom = () => node.scrollHeight - node.clientHeight - node.scrollTop < 2
+    setAtTail(atBottom())
+    const onScroll = () => { setAtTail(atBottom()) }
+    node.addEventListener('scroll', onScroll, { passive: true })
+    return () => { node.removeEventListener('scroll', onScroll) }
+  }, [readingKey, sameTeam])
+  useEffect(() => {
+    // Re-derive after every commit: the tail-follow restore may write scrollTop without a scroll event reaching this listener.
+    const node = scrollbox.current
+    if (node !== null && sameTeam) setAtTail(node.scrollHeight - node.clientHeight - node.scrollTop < 2)
+  })
   const team = sameTeam ? dashboard.data?.teams.teams.find(row => row.teamId === selected.team) : undefined
   const bytes = new TextEncoder().encode(state.draft.text).length
   const sendBlocked = state.history?.appendEligibility.state === 'unavailable' || (state.history !== undefined && bytes > state.history.limits.maxTextBytes)
@@ -89,16 +97,16 @@ export function TeamPublicChat(props: Props) {
   const draftReady = imageIssue === undefined && storageReady && bytes <= (state.history?.limits.maxTextBytes ?? 0) && !unconfirmed && !invalidMention && (state.draft.tokens.length === 0 || state.directoryError === undefined) && segments <= (state.history?.limits.maxSegments ?? 0)
   const canSend = draftReady && verified && sameTeam && state.history?.appendEligibility.state === 'available' && !state.pending && !state.sending
     && (state.draft.text.trim() !== '' || (state.draft.images?.length ?? 0) > 0) && bytes <= state.history.limits.maxTextBytes
+  // One condition drives both header slots: when the active GoalHeader will not render (archived/absent), the read-only goal fallback must.
+  const activeGoal = props.goal !== undefined && sameTeam && team?.phase !== 'archived'
   return <section className="swarm-public" data-swarm-public-chat data-team-id={sameTeam ? selected.team : undefined}>
     <style>{publicChatCss}</style>
-    <header className="swarm-public__header"><div><h1>{team?.name ?? t('public.title')}</h1>{props.goal !== undefined && sameTeam && team?.phase !== 'archived' ? <TeamGoalHeader goal={props.goal} teamId={selected.team} t={t} /> : team?.goal.state === 'generated' ? <details className="swarm-public__goal"><summary>{team.goal.text}</summary><p>{team.goal.text}</p></details> : <p>{t('public.goalEmpty')}</p>}</div>
-      <details ref={menu} className="swarm-public__navigation" data-public-navigation onKeyDown={event => { if (event.key === 'Escape' && menu.current) { menu.current.open = false; menu.current.querySelector('summary')?.focus({ preventScroll: true }) } }}>
-        <summary>{t('public.navigate')}</summary><div><button type="button" disabled={!sameTeam || state.entries.length === 0} onClick={jump}>{t('public.loadedEnd')}</button></div>
-      </details>
+    <header className="swarm-public__header"><div><h1>{team?.name ?? t('public.title')}</h1>{activeGoal ? null : team?.goal.state === 'generated' ? <details className="swarm-public__goal"><summary>{team.goal.text}</summary><p>{team.goal.text}</p></details> : <p>{t('public.goalEmpty')}</p>}</div>
+      {activeGoal ? <TeamGoalHeader goal={props.goal!} teamId={selected.team} t={t} /> : null}
       {surface.mode !== 'docked'  ? <button type="button" onClick={props.openTeam} disabled={!sameTeam || !verified}>{t('public.openTeam')}</button> : null}</header>
     {sameTeam && !verified ? <p role={dashboard.phase === 'stale' ? 'alert' : 'status'}>{t(dashboard.phase === 'stale' ? 'stale' : 'reconnecting')}{dashboard.error === undefined ? null : ` · ${dashboard.error.message}`}</p> : null}
     {!sameTeam ? <p role="status">{t(dashboard.phase === 'error' ? 'error' : 'loading')}</p> : <>
-      <div ref={scrollbox} className="swarm-public__messages" aria-label={t('public.title')} aria-busy={state.loading}>
+      <div ref={scrollbox} tabIndex={-1} className="swarm-public__messages" aria-label={t('public.title')} aria-busy={state.loading}>
         {state.history?.hasEarlier ? <button type="button" disabled={!verified || state.loading} onClick={props.earlier}>{t('public.earlier')}</button> : null}
         {state.entries.length === 0 ? <p className="swarm-public__empty">{t(state.loading ? 'loading' : 'public.empty')}</p> : null}
         {state.entries.map(message => <article key={`${selected.key}:${message.id}`} id={`swarm-message-${message.id}`} tabIndex={-1} data-public-message={message.id} data-delivery={message.delivery.kind === 'not-requested' ? 'not-requested' : message.delivery.recipients.every(row => row.state === 'claimed') ? 'claimed' : 'requested'} className={message.author.kind === 'local-operator' ? 'swarm-public__message swarm-public__message--operator' : 'swarm-public__message'}>
@@ -108,13 +116,19 @@ export function TeamPublicChat(props: Props) {
           <footer><span>{message.delivery.kind === 'not-requested' ? '' : message.delivery.recipients.map(recipient => <span className="swarm-public__receipt" data-recipient={recipient.recipientSessionId} data-recipient-state={recipient.state} key={recipient.recipientSessionId}><span title={recipient.recipientSessionId}>{publicParticipantLabel(message, state.entries, state.directory?.entries ?? [], recipient.recipientSessionId, recipient.recipientSessionId === selected.captain ? t('captainRole') : recipient.recipientSessionId)}</span> · {t(recipient.state === 'queued' ? team?.phase === 'archived' ? 'retirement.deliveryUnknown' : 'public.queued' : recipient.state === 'claimed' ? 'public.claimed' : 'public.notDelivered')}{recipient.state === 'not-delivered' ? ` · ${t(`public.notDeliveredReason.${recipient.reason}`)}` : recipient.state === 'queued' && recipient.deferredReason !== undefined ? ` · ${t(`public.deferred.${recipient.deferredReason}`)}` : ''}</span>)}</span><button type="button" onClick={() => { props.reply(message.id) }}>{t('public.reply')}</button></footer>
         </article>)}
         {state.history?.hasMore ? <button type="button" disabled={!verified || state.loading} onClick={props.newer}>{t('public.newer')}</button> : null}
+        {sameTeam && state.entries.length > 0 && (state.history?.hasMore === true || !atTail) ? <button type="button" data-public-jump-latest className="swarm-public__jump-latest" aria-label={t('public.jumpLatest')} disabled={state.loading} onClick={() => {
+          // The component's one external scrollTop write; the dispatched event hands tail state back to the reading-position owner, the sole scroll authority.
+          const node = scrollbox.current
+          if (node !== null) { node.scrollTop = node.scrollHeight; node.dispatchEvent(new Event('scroll')); node.focus({ preventScroll: true }) }
+          if (state.history?.hasMore === true) props.latest()
+        }}><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M8 2.5v11M8 13.5l4-4M8 13.5l-4-4" strokeLinecap="round" strokeLinejoin="round" /></svg></button> : null}
       </div>
       <div className="swarm-public__composer" onDragOver={event => { if (editable && event.dataTransfer.types.includes('Files')) event.preventDefault() }} onDrop={event => { event.preventDefault(); if (editable && event.dataTransfer.files.length > 0) props.addImages(Array.from(event.dataTransfer.files)) }}>
         {state.error === undefined ? null : <p role="alert">{state.error === 'public.imageRejected' || state.error === 'public.imageServiceUnavailable' ? t(state.error) : state.error} <button type="button" onClick={props.refresh} disabled={!verified || state.loading}>{t('refresh')}</button></p>}
         {state.pending ? <p role="status">{t('public.unknown')} <button type="button" onClick={props.recover} disabled={!verified || state.sending}>{t('public.recover')}</button></p> : null}
         {state.draft.replyTo === undefined ? null : <div className="swarm-public__draft-reply"><PublicQuote text={`${t('public.reply')}: ${state.entries.find(row => row.id === state.draft.replyTo)?.text ?? t('public.replyOutside')}`} targetId={state.entries.some(row => row.id === state.draft.replyTo) ? state.draft.replyTo : undefined} t={t} /><button type="button" onClick={() => { props.reply(undefined) }}>{t('public.cancelReply')}</button></div>}
         {state.legacyUpgrade ? <p role="status">{t('public.upgradeHint')} <button type="button" disabled={!draftReady || !verified || state.sending || state.history?.appendEligibility.state !== 'available' || (state.draft.text.trim() === '' && (state.draft.images?.length ?? 0) === 0)} onClick={props.upgradeLegacy}>{t('public.upgrade')}</button></p> : null}
-        {state.draftStatus === 'ready' ? null : <p role={state.draftStatus === 'conflict' || state.draftStatus === 'unavailable' ? 'alert' : 'status'} data-public-draft-status={state.draftStatus}>{t(state.draftStatus === 'loading' ? 'public.draftLoading' : state.draftStatus === 'saving' ? 'public.draftSaving' : state.draftStatus === 'conflict' ? 'public.draftConflict' : 'public.draftUnavailable')}{state.draftStatus === 'unavailable' ? <button type="button" onClick={props.retryDraftStorage}>{t('public.retryDraft')}</button> : state.draftStatus === 'conflict' ? <button type="button" onClick={props.useStoredDraft}>{t('public.useStoredDraft')}</button> : null}</p>}
+        {state.draftStatus === 'ready' || state.draftStatus === 'saving' ? null : <p role={state.draftStatus === 'conflict' || state.draftStatus === 'unavailable' ? 'alert' : 'status'} data-public-draft-status={state.draftStatus}>{t(state.draftStatus === 'loading' ? 'public.draftLoading' : state.draftStatus === 'conflict' ? 'public.draftConflict' : 'public.draftUnavailable')}{state.draftStatus === 'unavailable' ? <button type="button" onClick={props.retryDraftStorage}>{t('public.retryDraft')}</button> : state.draftStatus === 'conflict' ? <button type="button" onClick={props.useStoredDraft}>{t('public.useStoredDraft')}</button> : null}</p>}
         {imageIssue === undefined ? null : <p role="alert">{t(`public.imageIssue.${imageIssue}`)}</p>}
         {invalidMention ? <p role="alert">{t('public.invalidMention')}</p> : null}
         {state.history !== undefined && segments > state.history.limits.maxSegments ? <p role="alert">{t('public.segmentLimit', { count: segments, limit: state.history.limits.maxSegments })}</p> : null}

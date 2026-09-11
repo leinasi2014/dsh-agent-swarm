@@ -7,7 +7,7 @@ export const publicReadingEn = {
   'public.statsTurns': 'Turns', 'public.statsSteps': 'Steps', 'public.statsSpeed': 'Average output speed (tok/s)', 'public.statsLlmMs': 'LLM time (ms)', 'public.statsToolMs': 'Tool time (ms)',
   'public.statsSource': 'Cumulative statistics for this Session. Average output speed uses total decoded tokens / total decode time; these are not group-wide or per-message usage figures. Missing measurements are —.',
 
-  'public.navigate': 'Navigate', 'public.activityTop': 'Task activity · conversation top', 'public.loadedEnd': 'End of loaded messages',
+  'public.jumpLatest': 'Jump to latest', 'public.activityTop': 'Task activity · conversation top',
   'public.expand': 'Expand', 'public.collapse': 'Collapse', 'public.expandText': 'Read full text', 'public.collapseText': 'Collapse text',
   'public.openOriginal': 'Go to original message', 'public.closeQuote': 'Close quote', 'work.loadedCount': '{count} loaded',
 } as const
@@ -21,7 +21,7 @@ export const publicReadingZh: Record<keyof typeof publicReadingEn, string> = {
   'public.statsTurns': '轮数', 'public.statsSteps': '步数', 'public.statsSpeed': '平均输出速度 (tok/s)', 'public.statsLlmMs': '模型耗时 (ms)', 'public.statsToolMs': '工具耗时 (ms)',
   'public.statsSource': '当前会话的累计统计。平均输出速度按累计输出 token / 累计解码时间计算；不代表群总量或单条群消息用量。缺少的测量显示 —。',
 
-  'public.navigate': '定位', 'public.activityTop': '任务活动 · 群聊顶部', 'public.loadedEnd': '已载入消息末尾',
+  'public.jumpLatest': '跳到最新', 'public.activityTop': '任务活动 · 群聊顶部',
   'public.expand': '展开', 'public.collapse': '收起', 'public.expandText': '展开全文', 'public.collapseText': '收起正文',
   'public.openOriginal': '定位原消息', 'public.closeQuote': '关闭引用', 'work.loadedCount': '已载入 {count} 条',
 }

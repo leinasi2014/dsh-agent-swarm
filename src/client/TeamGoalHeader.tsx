@@ -1,4 +1,5 @@
-import { useId, useLayoutEffect, useRef, useSyncExternalStore } from 'react'
+import { useEffect, useId, useRef, useSyncExternalStore } from 'react'
+import { Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TEAM_DASHBOARD_NS } from './team-dashboard-locales.js'
 import type { GoalController, GoalState } from './goal-controller.js'
@@ -11,68 +12,88 @@ interface Props { readonly goal: GoalController; readonly teamId: string; readon
 /** One authoritative goal snapshot, with local drafts kept distinct from committed coordination. */
 export function TeamGoalHeader({ goal, teamId, t }: Props) {
   const state = useSyncExternalStore(goal.subscribe, goal.getSnapshot, goal.getSnapshot)
-  const id = useId(), toggle = useRef<HTMLButtonElement>(null)
+  const id = useId(), toggle = useRef<HTMLButtonElement>(null), modalBox = useRef<HTMLDivElement>(null), closing = useRef(false)
   const sameTeam = state.selection?.team === teamId, snapshot = sameTeam ? state.response?.snapshot : undefined
   const lifecycle = snapshot?.lifecycle
   const available = sameTeam && state.verified && snapshot?.eligibility.state === 'available'
   const canOperate = available && !state.pending && !state.sending && ['ready', 'saving'].includes(state.draftStatus)
   const action = lifecycle?.phase === 'paused' ? 'resume' : lifecycle?.phase === 'draft' ? 'start' : lifecycle?.phase === 'running' || lifecycle?.phase === 'waiting' ? 'pause' : undefined
-  const close = (): void => { goal.closeEditor(); toggle.current?.focus() }
+  const close = (): void => { closing.current = true; goal.closeEditor(); goal.setExpanded(false); toggle.current?.focus() }
+  // primitives.Modal ships no focus trap, auto-focus, or focus restore (verified against the installed lib): supply exactly that, in the PublicImages sample pattern. Focus lands on the goal textarea (legacy editor-focus semantics), first control as fallback.
+  useEffect(() => {
+    if (!sameTeam || !state.expanded) return
+    closing.current = false
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const focusables = () => [...(modalBox.current?.querySelectorAll<HTMLElement>('button:not([disabled]),textarea:not([disabled]),input:not([disabled]),select:not([disabled])') ?? [])]
+    const first = () => modalBox.current?.querySelector<HTMLTextAreaElement>('[data-goal-field="text"]') ?? focusables()[0]
+    first()?.focus()
+    // While open, nothing escapes the ring (Shift+Tab onto the background toggle included); the post-close restore focuses explicitly via close() and is exempt through the closing flag.
+    const contain = (event: FocusEvent): void => { const box = modalBox.current; if (!closing.current && box !== null && event.target instanceof Node && !box.contains(event.target)) first()?.focus() }
+    document.addEventListener('focusin', contain)
+    return () => { document.removeEventListener('focusin', contain); if (previous !== null && previous.isConnected) previous.focus() }
+  }, [sameTeam, state.expanded])
   return <section data-swarm-goal>
     <style>{`
       [data-swarm-goal] { min-width:0; font-size:12px; }
-      .swarm-public__header:has([data-swarm-goal]) { max-height:55%; align-items:stretch; }
-      .swarm-public__header:has([data-swarm-goal])>div { min-height:0; overflow-y:auto; overscroll-behavior:contain; }
-      .swarm-public__header:has([data-swarm-goal])>details, .swarm-public__header:has([data-swarm-goal])>button { align-self:flex-start; }
-      .swarm-public__header [data-swarm-goal] p { display:block; overflow:visible; -webkit-line-clamp:unset; }
       [data-swarm-goal] button { font:inherit; color:inherit; cursor:pointer; padding:5px 8px; border:1px solid var(--dsw-alias-border-l2); border-radius:6px; background:var(--dsw-alias-bg-layer-1); }
       [data-swarm-goal] button:disabled { opacity:.5; cursor:default; }
-      [data-swarm-goal] [data-goal-toggle] { display:block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left; }
-      [data-swarm-goal] [data-goal-details], [data-swarm-goal] form { display:grid; gap:8px; padding-top:10px; }
-      [data-swarm-goal] label { display:grid; gap:4px; }
-      [data-swarm-goal] textarea, [data-swarm-goal] input, [data-swarm-goal] select { box-sizing:border-box; width:100%; min-width:0; font:inherit; padding:6px; color:inherit; background:var(--dsw-alias-bg-base); border:1px solid var(--dsw-alias-border-l2); border-radius:5px; }
-      [data-swarm-goal] textarea { resize:vertical; }
-      [data-swarm-goal] p, [data-swarm-goal] dd { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; }
-      [data-swarm-goal] dl { display:grid; gap:4px; margin:0; } [data-swarm-goal] dt { font-weight:600; }
-      [data-swarm-goal] small { color:var(--dsw-alias-label-secondary); }
+      [data-swarm-goal] [data-goal-toggle] { display:block; max-width:min(36cqi,320px); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left; }
+      .swarm-goal-modal { box-sizing:border-box; width:min(560px,94vw); }
+      [data-goal-modal] { display:grid; gap:8px; max-height:min(70dvh,70vh); overflow:auto; overscroll-behavior:contain; box-sizing:border-box; padding:20px; font:13px system-ui; color:var(--dsw-alias-label-primary); background:var(--dsw-alias-bg-layer-1); border:1px solid var(--dsw-alias-border-l2); border-radius:12px; box-shadow:0 8px 22px #0002; }
+      [data-goal-modal]>header { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+      [data-goal-modal]>header strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      [data-goal-modal] [data-goal-details], [data-goal-modal] form { display:grid; gap:8px; }
+      [data-goal-modal] button { font:inherit; color:inherit; cursor:pointer; padding:6px 10px; border:1px solid var(--dsw-alias-border-l2); border-radius:8px; background:var(--dsw-alias-bg-layer-1); }
+      [data-goal-modal] button:disabled { opacity:.5; cursor:default; }
+      [data-goal-modal] label { display:grid; gap:4px; }
+      [data-goal-modal] textarea, [data-goal-modal] input, [data-goal-modal] select { box-sizing:border-box; width:100%; min-width:0; font:inherit; padding:6px; color:inherit; background:var(--dsw-alias-bg-base); border:1px solid var(--dsw-alias-border-l2); border-radius:5px; }
+      [data-goal-modal] textarea { resize:vertical; }
+      [data-goal-modal] p, [data-goal-modal] dd { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; }
+      [data-goal-modal] dl { display:grid; gap:4px; margin:0; } [data-goal-modal] dt { font-weight:600; }
+      [data-goal-modal] small { color:var(--dsw-alias-label-secondary); }
     `}</style>
     <button ref={toggle} type="button" data-goal-toggle aria-expanded={sameTeam && state.expanded} aria-controls={id}
-      title={t(state.expanded ? 'goal.collapse' : 'goal.expand')} disabled={!sameTeam}
-      onClick={() => { goal.setExpanded(!state.expanded) }}>{snapshot?.text || t(snapshot ? 'public.goalEmpty' : 'loading')}{lifecycle ? ` · ${t(`goal.${lifecycle.phase}`)}` : ''}</button>
-    {sameTeam && state.expanded ? <div id={id} data-goal-details>
-      {!state.verified ? <p role="status">{t('reconnecting')}</p> : null}
-      {snapshot ? <>
-        <p data-goal-text>{snapshot.text || t('public.goalEmpty')}</p>
-        {lifecycle ? <dl>
-          <dt>{t('goal.criteria')}</dt><dd>{lifecycle.acceptanceCriteria || '—'}</dd>
-          <dt>{t('goal.constraints')}</dt><dd>{lifecycle.constraints || '—'}</dd>
-          <dt>{t('goal.mode')}</dt><dd>{t(`goal.${lifecycle.mode}`)}{lifecycle.mode === 'maintenance' ? ` · ${(lifecycle.intervalMs ?? 0) / 1000}s` : ''}</dd>
-          {lifecycle.nextAction ? <><dt>{t('goal.nextAction')}</dt><dd>{lifecycle.nextAction}</dd></> : null}
-          {lifecycle.nextDueAt !== undefined ? <><dt>{t('goal.nextDue')}</dt><dd><time dateTime={new Date(lifecycle.nextDueAt).toISOString()}>{new Date(lifecycle.nextDueAt).toLocaleString()}</time></dd></> : null}
-          {lifecycle.lastCoordination ? <><dt>{t('goal.coordinated')}</dt><dd data-goal-coordinated>{lifecycle.lastCoordination.summary}</dd></> : null}
-          {lifecycle.completion ? <><dt>{t('goal.completion')}</dt><dd data-goal-completion>{lifecycle.completion.summary}</dd></> : null}
-        </dl> : null}
-        {lifecycle?.currentTrigger ? <p role="status">{t('goal.coordinationPending')}</p> : null}
-        <p data-goal-budget>{t('goal.used')}: {snapshot.budget.usedTokens} · {t('goal.remaining')}: {snapshot.budget.tokenLimit === undefined ? t('goal.unlimited') : Math.max(0, snapshot.budget.tokenLimit - snapshot.budget.usedTokens)}</p>
-        <p data-goal-cleanup>{t('goal.cleanup', { tasks: snapshot.remainingActiveTasks, attempts: snapshot.remainingActiveAttempts })}</p>
-        {snapshot.waitingReason ? <p role="status">{t(`goal.wait.${snapshot.waitingReason}`)}</p> : null}
-        {!available ? <p role="status">{t('goal.unavailable')}</p> : null}
-        <div>{action ? <button type="button" data-goal-primary disabled={!canOperate || (action !== 'pause' && snapshot.waitingReason === 'unsupported')}
-          onClick={() => { void goal.control(action) }}>{t(`goal.${action}`)}</button> : null} <button type="button" data-goal-edit disabled={!available || !['ready', 'saving'].includes(state.draftStatus)} onClick={() => { goal.beginEdit() }}>{t('goal.edit')}</button></div>
-      </> : <p role="status">{t('loading')}</p>}
-      {state.pending ? <p role="status" data-goal-pending>{t('goal.unknown')} <button type="button" disabled={!state.verified || state.sending} onClick={() => { void goal.recover() }}>{t('goal.recover')}</button></p> : null}
-      {state.outcome?.state === 'committed' ? <p role="status" data-goal-saved>{t('goal.saved')}</p> : state.outcome?.state === 'expired' ? <p role="alert" data-goal-expired>{t('goal.expired')}</p> : null}
-      {state.error ? <p role="alert">{state.error}</p> : null}
-      {state.draftStatus !== 'ready' ? <p data-goal-draft-state role={['conflict', 'unavailable'].includes(state.draftStatus) ? 'alert' : 'status'}>{t(state.draftStatus === 'loading' ? 'public.draftLoading' : state.draftStatus === 'saving' ? 'public.draftSaving' : state.draftStatus === 'conflict' ? 'public.draftConflict' : 'public.draftUnavailable')}
-        {state.draftStatus === 'unavailable' ? <button type="button" onClick={() => { void goal.retryStorage() }}>{t('public.retryDraft')}</button> : state.draftStatus === 'conflict' ? <button type="button" onClick={() => { void goal.useStoredDraft() }}>{t('public.useStoredDraft')}</button> : null}</p> : null}
-      {state.editing ? <GoalEditor goal={goal} state={state} t={t} close={close} /> : null}
-    </div> : null}
+      title={snapshot?.text || t(state.expanded ? 'goal.collapse' : 'goal.expand')} disabled={!sameTeam}
+      onClick={() => { if (state.expanded) close(); else { goal.setExpanded(true); goal.beginEdit() } }}>{t('goal.entry')}{lifecycle ? ` · ${t(`goal.${lifecycle.phase}`)}` : ''}</button>
+    {sameTeam && state.expanded ? <Modal open headless title={t('goal.edit')} onClose={close} className="swarm-goal-modal">
+      <div ref={modalBox} id={id} data-goal-modal>
+        <header><strong>{t('goal.edit')}</strong><button type="button" data-goal-close onClick={close}>{t('goal.close')}</button></header>
+        {state.editing ? <GoalEditor goal={goal} state={state} t={t} close={close} /> : null}
+        <div data-goal-details>
+          {!state.verified ? <p role="status">{t('reconnecting')}</p> : null}
+          {snapshot ? <>
+            <p data-goal-text>{snapshot.text || t('public.goalEmpty')}</p>
+            {lifecycle ? <dl>
+              <dt>{t('goal.criteria')}</dt><dd>{lifecycle.acceptanceCriteria || '—'}</dd>
+              <dt>{t('goal.constraints')}</dt><dd>{lifecycle.constraints || '—'}</dd>
+              <dt>{t('goal.mode')}</dt><dd>{t(`goal.${lifecycle.mode}`)}{lifecycle.mode === 'maintenance' ? ` · ${(lifecycle.intervalMs ?? 0) / 1000}s` : ''}</dd>
+              {lifecycle.nextAction ? <><dt>{t('goal.nextAction')}</dt><dd>{lifecycle.nextAction}</dd></> : null}
+              {lifecycle.nextDueAt !== undefined ? <><dt>{t('goal.nextDue')}</dt><dd><time dateTime={new Date(lifecycle.nextDueAt).toISOString()}>{new Date(lifecycle.nextDueAt).toLocaleString()}</time></dd></> : null}
+              {lifecycle.lastCoordination ? <><dt>{t('goal.coordinated')}</dt><dd data-goal-coordinated>{lifecycle.lastCoordination.summary}</dd></> : null}
+              {lifecycle.completion ? <><dt>{t('goal.completion')}</dt><dd data-goal-completion>{lifecycle.completion.summary}</dd></> : null}
+            </dl> : null}
+            {lifecycle?.currentTrigger ? <p role="status">{t('goal.coordinationPending')}</p> : null}
+            <p data-goal-budget>{t('goal.used')}: {snapshot.budget.usedTokens} · {t('goal.remaining')}: {snapshot.budget.tokenLimit === undefined ? t('goal.unlimited') : Math.max(0, snapshot.budget.tokenLimit - snapshot.budget.usedTokens)}</p>
+            <p data-goal-cleanup>{t('goal.cleanup', { tasks: snapshot.remainingActiveTasks, attempts: snapshot.remainingActiveAttempts })}</p>
+            {snapshot.waitingReason ? <p role="status">{t(`goal.wait.${snapshot.waitingReason}`)}</p> : null}
+            {!available ? <p role="status">{t('goal.unavailable')}</p> : null}
+            <div>{action ? <button type="button" data-goal-primary disabled={!canOperate || (action !== 'pause' && snapshot.waitingReason === 'unsupported')}
+              onClick={() => { void goal.control(action) }}>{t(`goal.${action}`)}</button> : null} <button type="button" data-goal-edit disabled={!available || !['ready', 'saving'].includes(state.draftStatus)} onClick={() => { goal.beginEdit() }}>{t('goal.edit')}</button></div>
+          </> : <p role="status">{t('loading')}</p>}
+          {state.pending ? <p role="status" data-goal-pending>{t('goal.unknown')} <button type="button" disabled={!state.verified || state.sending} onClick={() => { void goal.recover() }}>{t('goal.recover')}</button></p> : null}
+          {state.outcome?.state === 'committed' ? <p role="status" data-goal-saved>{t('goal.saved')}</p> : state.outcome?.state === 'expired' ? <p role="alert" data-goal-expired>{t('goal.expired')}</p> : null}
+          {state.error ? <p role="alert">{state.error}</p> : null}
+          {state.draftStatus !== 'ready' ? <p data-goal-draft-state role={['conflict', 'unavailable'].includes(state.draftStatus) ? 'alert' : 'status'}>{t(state.draftStatus === 'loading' ? 'public.draftLoading' : state.draftStatus === 'saving' ? 'public.draftSaving' : state.draftStatus === 'conflict' ? 'public.draftConflict' : 'public.draftUnavailable')}
+            {state.draftStatus === 'unavailable' ? <button type="button" onClick={() => { void goal.retryStorage() }}>{t('public.retryDraft')}</button> : state.draftStatus === 'conflict' ? <button type="button" onClick={() => { void goal.useStoredDraft() }}>{t('public.useStoredDraft')}</button> : null}</p> : null}
+        </div>
+      </div>
+    </Modal> : null}
   </section>
 }
 
 function GoalEditor({ goal, state, t, close }: { goal: GoalController; state: GoalState; t: Translation; close: () => void }) {
   const text = useRef<HTMLTextAreaElement>(null), draft = state.draft, snapshot = state.response?.snapshot
-  useLayoutEffect(() => { text.current?.focus() }, [state.selection?.key])
+  useEffect(() => { text.current?.focus() }, [state.selection?.key]) // 编辑迟到开启（先开窗后 beginEdit）时焦点同样进目标输入框
   const budget = draft.tokenLimit.trim(), validBudget = budget === '' || (Number.isSafeInteger(Number(budget)) && Number(budget) > 0)
   const valid = validBudget && goalDefinitionSchema.safeParse(goalDefinitionFromDraft(draft)).success
   const stale = draft.baseLifecycleRevision !== (snapshot?.lifecycle?.revision ?? 0)
