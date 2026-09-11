@@ -239,34 +239,27 @@ describe('DSH rc.8 composition', () => {
       const assignedTask = beforeReview.team.tasks[0]!
       const assignedAttempt = beforeReview.team.attempts.find(attempt => attempt.id === assignedTask.currentAttemptId)!
       expect(adapter.cacheTokens).toBe(150)
-      // The member Agent may again be quiescent-cold here (its assignment
-      // turn settled; issue #112 backend note above) — re-attach through the
-      // official resume seam so the submission still carries the member's
-      // live session authority, and release the handle afterwards so the
-      // plugin-disposal drain checkpoint below sees the member gone.
-      const residentMember = ctx.agents.get(SessionId(added.session_id))
-      const resumedMember = residentMember === undefined
-        ? await ctx.agents.resume({ resumeSessionId: SessionId(added.session_id) })
-        : undefined
-      const memberAgent = residentMember ?? resumedMember?.agent
-      if (memberAgent === undefined) throw new Error('member Agent could not be re-attached for the member-face submit')
-      const staleResult = await ctx.tools.execute({
-        signal: SIGNAL,
-        callId: ToolCallId('stale-submit'),
-        name: 'agent_swarm_submit_task',
-        arguments: {
-          task_id: assignedTask.id,
-          expected_revision: assignedTask.revision,
-          attempt_id: 'attempt-invalid',
-          output: 'This stale submission must not commit.',
-        },
-        agent: memberAgent,
+      // Registry removal can precede the continuation owner's Session-handle
+      // release. Its Host lease waits for retirement and retains the member
+      // through this tool call without adding a message or model turn.
+      await ctx.subagents.withContinuableChild(lead, SessionId(added.session_id), SIGNAL, async (memberAgent, signal) => {
+        const staleResult = await ctx.tools.execute({
+          signal,
+          callId: ToolCallId('stale-submit'),
+          name: 'agent_swarm_submit_task',
+          arguments: {
+            task_id: assignedTask.id,
+            expected_revision: assignedTask.revision,
+            attempt_id: 'attempt-invalid',
+            output: 'This stale submission must not commit.',
+          },
+          agent: memberAgent,
+        })
+        expect(staleResult).toMatchObject({
+          isError: true,
+          error: { info: { name: 'TeamDomainError', code: 'TEAM_ATTEMPT_STALE' } },
+        })
       })
-      expect(staleResult).toMatchObject({
-        isError: true,
-        error: { info: { name: 'TeamDomainError', code: 'TEAM_ATTEMPT_STALE' } },
-      })
-      await resumedMember?.dispose()
       const submitted = await ctx.agentSwarm.domain.submitTask(
         ctx.agentSwarm.scopeOf(lead),
         beforeReview.team.id,
