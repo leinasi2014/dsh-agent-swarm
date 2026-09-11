@@ -87,10 +87,9 @@ it('reaches actual model requests and persisted Session after profile changes an
     await second.ctx.sessionPersistence.flush()
     const stableLog = await readPersistedSession(second.ctx.sessionPersistence,id)
     const stableSnapshots = stableLog.events.filter(e => e.type === 'user/message' && e.data.source.kind === 'plugin' && e.data.source.plugin === '@deepseek-ai/dsh-system-prompt')
-    // The official snapshot contains independently named identity and directory
-    // contributions. Goal metadata changes the Team/directory revision without
-    // changing this member's self identity; the new directory must reach history.
-    expect(stableSnapshots.length).toBeGreaterThan(persisted.length)
+    // Unrelated Team revisions do not append another automatic overview.
+    // Full source revisions remain observable through the explicit directory.
+    expect(stableSnapshots).toHaveLength(persisted.length)
     const beforeSections = persistedLatest.data.source.sections as { name: string; text: string }[]
     const afterSections = (stableSnapshots.at(-1) as any).data.source.sections as { name: string; text: string }[]
     const beforeIdentity = beforeSections.filter(section => section.name === 'agent-swarm:identity')
@@ -103,10 +102,12 @@ it('reaches actual model requests and persisted Session after profile changes an
     expect(afterDirectory).toHaveLength(1)
     const oldDirectory = decodeDirectory(beforeDirectory[0]!.text)
     const newDirectory = decodeDirectory(afterDirectory[0]!.text)
-    expect(newDirectory.directoryRevision).not.toBe(oldDirectory.directoryRevision)
+    expect(newDirectory).toEqual(oldDirectory)
     const currentDirectory = await second.ctx.agentSwarm.directory.read(scope, teamId, { limit: 50 }, SIGNAL)
-    expect(newDirectory.directoryRevision).toBe(currentDirectory.directoryRevision)
-    expect(newDirectory.entries.map((entry: { memberId: string }) => entry.memberId)).toEqual(currentDirectory.entries.map(entry => entry.memberId))
+    expect(newDirectory.members.entries.map((entry: { memberId: string }) => entry.memberId)).toEqual(currentDirectory.entries.map(entry => entry.memberId))
+    expect(newDirectory.members.entries[1]).toMatchObject({ memberId: id, label: '林墨', profession: '编剧' })
+    expect(newDirectory.members.entries[1]).not.toHaveProperty('biography')
+    expect(currentDirectory.entries[1]).toMatchObject({ personality: '坦率、沉静', biography: profile.biography })
   } finally {
     firstAdapter.open(); secondAdapter.open()
     if(first !== undefined) await disposeRestartComposition(first)

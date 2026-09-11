@@ -1,118 +1,181 @@
-# 07. 到 90% 产品就绪的交付路线
+# 07. Team 协作、个人记忆与独立 Skills 管理开发方案
 
-本路线从当前代码事实出发，不保留旧 milestone 字母/编号，也不登记实时任务状态。Git、测试、真实 Profile/browser 证据和项目动态 provider 决定某项是否完成。所有交付遵循 official-first：先复用官方公开 seam，再实现插件能力。
+本文是本轮开发的统一入口，取代旧的“90% 产品就绪”路线和仓库外的架构简化草稿。产品职责由 [03-capability-family.md](03-capability-family.md) 定义，状态与权限合同由 [04-core-protocol.md](04-core-protocol.md) 定义；本文串起完整用户结果、实现边界、依赖、测试和交付顺序，不复制第二份协议。具体排期、Issue 状态、候选 SHA 和验收结果留在 GitHub；历史代码由 Git 保留，已记录的失败证据不因方案替换而删除。
 
-## 1. 当前基线
+## 1. 目标与代码基线
 
-已存在的可执行产品纵切：
+目标是让多个团队可靠完成工作，让成员能在下一任务召回自己的有效经验，并由一个独立 Skills 模块及专用模型管理可复用技能。成员向 Captain 提出技能需求，Captain 统一申请和分配；模型负责分析、设计和修订，Host 负责授权、持久化、实际装配和版本证据。
 
-- Main Brain 创建多个 managed Team，每个活跃 Team 有独立 Captain Session；可选 staged 计划审批后再激活；
-- Captain 招募 continuable members、分配职责/职业、设置 goal/announcement，建立任务 DAG；各人自定资料并读回后绘制头像；
-- Scheduler/Workflow 分配 fenced attempts，成员提交，Captain/Review Provider 接受或 rework；
-- Team aggregate、mailbox、budget、memory 和 overlays 通过官方 Storage Domain 持久化；
-- 按角色授权的模型工具、read Host、`/swarm/v1`、Team Workbench 和 Plugins 设置页已在源码中组合；
-- 同伴通信强度支持插件默认、Captain 持久覆盖和面板排队请求；真实回复关联提问，超额主动唤醒转为 quiet delivery；
-- unit、composition、restart、fault、UI、package 和 Profile-proof 检查已有工程入口。
+代码事实以 GitHub main 为开发与集成基线，依赖版本以 package.json、pnpm-lock.yaml 和 [官方基线](OFFICIAL_BASELINE.json) 为准。源码、安装版本、工程检查、真实模型、浏览器、重启和正式环境分别验收。官方上游出现新版本不自动改变本轮兼容目标；采用新 API 前完成对应兼容性核对。
 
-当前仍是预发布：公共发布、通用 browser writes、Canvas、remote/distributed 和完整发布级 E2E 未完成。因此本文不声明“当前已达到 90%”。
+现有实现可以继续复用：
 
-## 2. “90% 产品就绪”定义
+- Main Brain 创建多个 managed Team，独立 Captain 和 continuable 成员保持官方 Session 身份与父子关系；staged 计划可审核后激活。
+- TeamDomain 保存任务 DAG、revision、attempt、分配、提交、审核、预算与邮箱；adaptive/workflow 保持唯一编排 owner。
+- V7 群聊具备公共消息、真实提及、图片、自主视觉协助、工作请求、开放认领与目标生命周期的代码路径；相应 API 仍由各自版本合同约束，不把任意浏览器输入变成管理权限。
+- 正式任务事件写入 Team 聚合内的 workActivity；分页具有事件 ID、序号、水位和保留边界，但旧 Team 可能没有该字段。
+- 成员私有记忆已有独立分区、本人 append/list；Team shared memory 已有自身的提交与脱敏边界。自动召回、笔记作废与替代并非已有能力。
+- TeamSkillSurface 已区分 Team allowed、member assigned 和 Session-visible；招募时分配与冷恢复可用，精确 release 的动态分配与实际加载归因仍需实现。
 
-90% 是一次可审计的产品门，不是按文件或测试数量估算的百分比。达到该门需要：
+本轮不建立 Team 成长评分、永久累计账本、另一套任务审核或逐条聊天总结服务。不同时引入分布式消息中间件、向量数据库、远程 Skills 管理或公共包发布。
 
-1. **核心代表场景稳定**：fresh official DSH Profile 中，Main Brain → 两个独立 Captain → 异构成员 → 依赖任务 → review/rework → accepted result 全程可复现。
-2. **身份与权限可信**：Main Brain、Captain、Member、human principal、Team、Session、revision 和 attempt 不混用；所有越权/stale 路径 fail-closed。
-3. **持久与恢复可信**：重启、reload、interrupt、失败重试、budget exhaustion、storage/write failure 和 residue 都有权威读回。
-4. **主要 UI 可用**：多 Team、身份、Skills/tools、任务、公告、设置、Captain Chat、loading/stale/reconnect/error 和基础 accessibility 通过真实 browser 验收。
-5. **可安装可回退**：immutable tarball 在隔离 Profile 中安装、禁用、重载、升级、回滚和卸载；没有 listener/route/session/storage 泄漏。
-6. **发布 claim 诚实**：文档、package、兼容矩阵和已知限制与同一候选一致。
+## 2. 完整目标架构
 
-剩余 10% 可以包含非核心的 Canvas、远程成员、distributed scale 和自动 Skill Evolution；未交付项必须明确 unavailable，不能伪装成部分完成。
-
-## 3. 交付顺序
-
-### A. 冻结核心产品合同
-
-目标：把当前宽广实现收敛为可维护的稳定核心。
-
-- 冻结 Main Brain/Captain/Member identity topology、公开工具 schema、Team aggregate 和 read RPC v1。
-- 删除或合并重复入口、旧 alias 和无真实 Consumer 的 speculative seam。
-- 为 Skills、tools、model route、settings 和 multi-Team projection 建立一致的 bounded contract。
-- 确认每个 optional Provider 的启用条件、capability disclosure、disposer 和 fail-closed 错误。
-
-出口：协议/fixture digest 固定；受影响 contract、lifecycle、restart 和 negative tests 通过；没有第二 authority 或无法解释的兼容路径。
-
-### B. 完成用户主路径
-
-目标：让用户无需阅读内部协议即可完成团队交付。
-
-- 优化 managed Team onboarding：完整目标传递、Captain identity、成员角色/Skills/模型选择和首批任务创建。
-- 保持 Workbench 的任务进度、纵向 Captain/成员/当前任务执行树、可点开的依赖图与栏内详情；保留待审核与人工待办区别、身份/模型/Skills、预算、公告和 Captain Chat。空态、错误、stale/reconnect 和键盘焦点必须可读可操作。
-- 保持 browser 主要为 read/navigation Consumer；用户修改 Team 先通过正确 Captain Chat 完成。
-- 对真正需要 direct control 的少量操作，逐项建立 verified human principal、idempotency、authoritative read-back 和 unknown-outcome handling；未通过的操作保持 unavailable。
-
-出口：fresh Profile/browser 中完成双 Team 代表场景；无可见 Chat/console/page error；UI 与工具读回相符。
-
-### C. 强化恢复与运行边界
-
-目标：失败不会制造“看起来完成”的 Team。
-
-- 覆盖 Storage Domain 重启/写失败、Session 恢复、mailbox crash window、attempt stale/retention、budget carry/exhaustion、workflow cancellation 和 execution-root residue。
-- 验证 tool policy、Skill allow-list、Captain/member model route 在 restart 后仍按声明生效。
-- 验证 unload/reload/HMR 的 admission → drain → dispose 顺序；所有 route/listener/timer/waiter/subagent 有明确 owner。
-- 记录 local/process-scoped 能力上限；不把本地 mutex、Storage Domain 或 workspace hint 描述为 distributed safety。
-
-出口：代表性 fault matrix 全绿；每个 unknown outcome 有 stop/read-back/reconcile 路径；资源清理可读回。
-
-### D. 打包、兼容与候选验收
-
-目标：把仓库能力变成可安全安装和回退的产品候选。
-
-- 从冻结 commit 构建一次 tarball，记录 digest，以独立目录或提交号区分包路径，并在 fresh isolated `DSH_HOME` 安装。
-- 验证 `plugin add`、默认启用、Settings、`--dump-config`、禁用、reload、upgrade、rollback、remove 和缺依赖 fail-closed。
-- 运行 candidate gate、官方/reference compatibility gate（仅在触发时）、真实 Profile/browser E2E 和风险对应的非作者审查。
-- 同步 README、产品/协议/验证文档和已知限制；保持 `private: true`，直到公共发布另获授权并有发布身份。
-
-出口：同一 immutable candidate 的 package、Profile、browser、restart 和 cleanup 证据一致；集成到预期 target 后读回。
-
-## 4. 90% 之后
-
-这些是独立 feature pipeline，不阻塞核心产品就绪：
-
-- Canvas-native read/write Consumer；
-- remote member Provider 与跨主机 workspace；
-- distributed CAS/lease/fencing/change feed；
-- accepted evidence 驱动、需要人工批准的 Skill Evolution；
-- 公共 npm/marketplace 发布与长期兼容承诺。
-
-## 5. 每个切片的完成合同
-
-每个独立能力使用最小纵切：
-
-```text
-用户结果
-  → 明确 owner / non-goal / acceptance
-  → 最小实现与受影响检查
-  → immutable candidate
-  → 真实边界 smoke（需要时）
-  → 风险对应 review
-  → 串行集成与 target read-back
+```mermaid
+flowchart TB
+  Main[Main Brain / 用户入口] --> Team[Team A / Team B]
+  Team --> Captain[各队 Captain]
+  Captain --> Member[成员执行当前任务]
+  Member --> Review[提交产物 / Captain 审核]
+  Review --> Facts[Team 任务、attempt、活动与证据引用]
+  Member <--> Private[本人私有记忆 / 有界召回]
+  Captain --> Request[持久技能申请]
+  Request --> Steward[独立 Skills 模块 / 专用模型]
+  Facts -->|Host 授权快照及增量读取| Steward
+  Steward --> Release[复用或修订 / 验证 / 独立批准 / 不可变版本]
+  Release --> Captain
+  Captain --> Apply[Host 分配 / 安全装配 / 加载证据]
+  Apply --> Member
+  Apply --> Steward
 ```
 
-- 一个失败只阻断依赖它的能力；read path 不等待无关 privileged write。
-- accepted candidate 未集成时，先处理 integration debt，不拉取依赖功能。
-- 计划、文档、开放端口、agent 活动或 mock success 不等于交付。
-- 官方 API、reference pin 或目标 Profile 发生决策性变化时才重跑兼容 Gate A；否则复用未变化 receipt。
-- 仓库 writer 只能通过 `pnpm isolation open|status|close|reconcile`；产品 execution root 不授予开发 worktree 权限。
+| 模块 | 唯一职责 | 不承担的职责 |
+|---|---|---|
+| TeamDomain / Captain | 业务任务、审核、协调、技能需求归并和成员分配决定 | 技能候选流水线、跨队成长评分 |
+| 私有记忆服务 | 本人笔记维护、有效性与当前任务召回 | 向队长或 Skills 模块暴露私有全文 |
+| Skills 模块 | 请求、观察游标、候选、验证、批准记录、release 和效果关联 | 认领/接受业务任务、修改 Team 生命周期 |
+| Skills 专用 Session | 在模块授予的工具范围内分析问题、提出候选和解释证据 | 自批候选、扩大团队授权、直接写成员配置或生产文件 |
+| Host / 官方 DSH | 真实身份、权限、storage-domain、Session、工具、Jobs、装配与恢复 | 复制 Agent Loop、以 UI 是否打开驱动工作 |
+| UI | 现有群聊/任务事实、必要的技能申请与版本状态 | 从聊天推算“已经学会”或伪造已读 |
 
-## 6. 验证入口
+Skills 模块采用独立生命周期和独立 Storage Domain，通过明确的 Service/Consumer 边界接入。首版可随同仓库构建与安装，保持代码和状态分离；不为拆目录提前建立多个空包。独立模型路由由模块配置指定，配置与 Team 默认路由分开。未启用或缺少有效模型时明示 unavailable；已安装的获准版本仍可工作。
 
-```bash
-pnpm test -- <affected-test>
+官方 Agent Teams 的替换候选与身份、消息、事务约束统一见 [能力边界 §1.3](03-capability-family.md#13-官方-agent-teams-的复用边界)。优先验证可收回官方的基础生命周期、peer mailbox 和基本 DAG/CAS 职责；通过具体合同后移除对应自建实现，不同时保留两套 Team 写权威。该适配评估不阻塞既有官方底座上的个人记忆与独立 Skills 切片。
+
+## 3. 通信与操作效率
+
+课堂记录显示，大部分保留通信涉及 Captain；同伴唤醒限流不是全队消息限流。耗时还包括模型传输、审批、依赖、人工写入时段和恢复，不能全部归因消息系统。开发前后应使用同一任务比较，保留无法归因部分，不预设节省比例。
+
+### 3.1 自动上下文和显式读取
+
+本轮替换的旧身份装配每轮调用完整 TeamDirectory，先两次采集全员 Session、模型、Skills 和工具，再做分页。自动上下文改为简短成员 ID、姓名/职责、阶段和开放任务摘要；本人角色指令保留。完整资料与能力继续通过已有 directory 工具读取。身份、成员退出和撤权仍实时检查，完整目录原有一致性检查保留，不以固定 TTL 或仅 Team revision 缓存独立变化的能力来源。
+
+稳定 context 已经避免仅因 observedAt 变化而重复追加；新检查分别统计目录读取成本、上下文文本与实际请求体量，不能混为同一指标。撤权、切 Team、压缩和冷恢复后移除或重建正确贡献。
+
+### 3.2 交流与任务操作
+
+- 消息包含当前任务/attempt、问题或变化、版本化证据和需要的决定；共同材料引用一次，后续补差异。普通局部协作直接联系相关同伴，Captain 处理派工、验收、冲突、实际阻塞和技能申请。
+- 保留必要的验收短通知。submit 只提交业务状态，END TURN 也不等于官方自然 settlement；pending inbox、子代理或 lease 能延迟通知。不能为减少消息删掉唯一通知或清空 quiet 输入。
+- 明确任务 revision 与 Team revision 的用途，依据已返回的 ready/status/owner/attempt 操作，最终 CAS 保留。写后结果有变化的验证仍保留。
+- 审批请求一次提供具体操作与范围，只有 Host 的实际授权有效。失败、未知结果与待审批区别显示，不能以文字“同意”冒充可执行。
+- 首期不自动合并或删除历史消息。将来 latest-wins 需要同发送者、接收者、task/attempt、主题与明确替代语义，并保留审计及撤回因果。
+
+## 4. 个人记忆：维护后再召回
+
+沿用 scope + Team + Session 的本人分区。先扩展当前严格 schema 的兼容读取，增加必要的标签/适用条件、作废/替代、任务出处和稳定操作 ID。本人可以纠正自己的笔记；未作废不等于已验证。旧合法记录不得因新增容量规则无法打开。
+
+写入在真实持久副作用前重新检查 live Agent、Session、membership、权限和取消，与退出串行化；已经开始或提交的写入不能宣称被 abort 回滚。同一持久操作重试去重，不承诺不同模型调用的语义去重。容量准入限制正文、引用数量、成员及全域大小；首期满额明确拒绝，不物理删除导致 seq 重用或 offset 漂移。分区索引可以从原记录重建，不另设知识库。
+
+自动召回仅在本人唯一合法 in-progress 任务及当前 running attempt 下选少量笔记，固定 taskId/attemptId、选中 ID 和摘要。没有合法目标不猜“最近任务”；自领任务、普通消息和迟到分配分别测试。自动读取有独立授权契约，不借用显式工具曾经获批的事实。
+
+召回通过独立的私有 durable context 进入实际请求，按任务相关性和输入预算有界选择。无命中、失效、任务变化或撤权时清除旧贡献；压缩和恢复后重建当前选集。正文是待判断的数据，不能覆盖高优先级规则。选择器单次读取失败可降级为未知；存储打开失败与 schema 损坏保持明确故障，不伪装成已有容错。
+
+验收闭环：本人保存 → 下一真实任务选中 → 实际请求可核对 → 作废后撤下 → 压缩/冷恢复一致 → 跨成员与同名新 Session 不泄露。
+
+## 5. 独立 Skills 模块与跨队观察
+
+### 5.1 最小接入面
+
+这些是拟实现的项目接口，不是声称已有同名官方 API。
+
+| 接口 | 调用者与输入 | 持久或可观察结果 |
+|---|---|---|
+| requestSkill / requestStatus | 本队 Captain；问题、目标、当前任务及可共享证据 | 持久接收后的请求 ID；可用版本、需补材料、失败或处理中 |
+| managementSnapshot / readWorkActivity / readEvidence | Host 绑定的专用 Session，限已授权同 Host/Profile 的 workspace/Team 管理清单 | 有界保留历史、当前 phase/来源状态、活动分页和精确 task/attempt 证据 |
+| propose / validate / approve / publish | 专用 Session 提案，验证执行器提供结果，独立获授权主体或配置策略批准 | 基于原版本的候选与验证证据、独立批准记录、不可变 release |
+| assignSkill / assignmentStatus | 本队 Captain；成员、获准 release 与预期修订 | 目标分配已保存、后续装配采用、实际加载版本的分别读回 |
+
+所有身份、scope、Team、attempt、去重键和摘要由 Host 推导或校验。现有 work RPC 面向操作者 Connection 和所选根会话，不能直接借给无 Team 关系的专用模型，更不能填写别人的根会话 ID 借权。管理清单之外不可枚举或读取；私有记忆始终排除。
+
+### 5.2 状态与原子性
+
+模块使用官方 Storage Domain 保存自己的请求、候选、release 和消费者记录。官方 KvTable.update 是单记录原子变换，不提供跨表事务；同一页待处理引用和游标必须放进同一消费者记录一次更新，不能分成两次 put 后称为原子。限制单队未处理页/引用数量，慢处理使用确定的继续位置，不复制完整 Team 账本。
+
+首次接入从同一个 Team 聚合快照获得仍保留的 task/attempt 与 activity 水位，标记历史覆盖范围，再追赶增量。旧 Team 无 workActivity 不等于无历史，不补造旧事件。每队只有一个游标写入者；hasMore 时仅推进本页最后序号，记录事件 ID 去重。
+
+现有活动保留 1024 条。游标落后于保留边界时报告覆盖缺口；高于来源水位时要求重新同步；同序号不同事件 ID 表示来源冲突。归档或来源消失单独反映，来源不可用不返回“已追平空历史”。本轮不承诺永久零漏采，也不增加采集 outbox。
+
+引用不等于证据。Host 按精确 Team/task/attempt 读取保留记录；外部文件缺失、改变或不能证明原版本时返回 needs_evidence。案例成为候选依据时才保留必要的摘要与版本证据。失败可以触发调查，可重现反例可以成为经核验的改进依据；业务状态接受不自动批准技能发布。
+
+### 5.3 专用模型工作方式
+
+明确申请优先，历史活动批量登记元数据；只有需要判断时才调用专用模型。已有适用获准版本直接复用，状态查询只读存储。Captain 归并同任务、技能版本与问题的请求，模块为同一请求修订去重；缺材料一次列清，后续只补变化。不同用途或版本不能仅按相似文字合并。
+
+同一技能候选串行写入并校验原版本。慢验证可以用官方 Jobs 提供观察与取消，Jobs 不替代持久请求和发布状态。模块离线不阻塞业务任务审核，恢复后继续持久请求；重试采用有界退避且可取消。状态变化才通知 Captain，避免查询和每条活动都触发新回合。
+
+## 6. 版本、批准与安全热分配
+
+release 包含稳定技能身份、不可变版本、正文及资源树摘要、来源 Provider/locator、适用条件、验证证据和批准主体。官方 catalog 的名称/说明摘要不能证明正文与资源未变；模块维护完整 manifest。路径规范化、资源范围和摘要核对在 Host 执行，不允许模型任意覆盖工作区或既有技能目录。
+
+候选作者不能批准自己。批准复用现有获授权主体或明确配置的策略；在无自动发布策略时走独立批准入口。批准结果与目标 release 绑定，改变正文、资源或基础版本后旧批准失效。发布并不扩大 Team allow-list；Captain 只能分配该队已获准的技能。
+
+assigned、effective、loaded 是三个事实：目标分配保存、新请求装配采用、工具结果或合法 `skill-invocation` 正文实际进入请求。两条加载路径都核对精确 release、Provider、正文及资源摘要，Host 记录使用的 Session/task/attempt，模块据此关联结果；当前名单或任务 completed 不能反推历史版本使用。
+
+保持官方 assemble 先于 pre-step 的顺序。在当前工具全部收尾后的安全装配点切换 manifest 与工具，必要时重新装配；在途请求不受影响。当前 attempt 通过任一路径已加载旧版同名正文时，首版延至下一 attempt 切换，明确新旧版本关系并核对新版实际加载。空目录、撤销、失败回滚、压缩、冷恢复和卸载都要清理旧贡献，不能只测试首次注入。
+
+热分配提供窄命令，不借现有 profile patch 修改 assignedSkills。已批准旧版可作为明确回退目标，但回退也必须经过授权与版本读回。模块和 Team 生命周期分离，禁用模块保留既有持久数据与已安装获准版本。
+
+## 7. 已知可靠性缺口的修复范围
+
+| 缺口 | 最小改动 | 必需反例 |
+|---|---|---|
+| 单队恢复异常传播至整个插件 | 逐队隔离绑定/恢复故障；全局存储故障仍明确失败 | 一个坏 Team 和一个好 Team，后者可执行且前者可诊断 |
+| 维护 timer 一次失败不再推进 | 在现有 owner 内按持久债务有界重试，不新增调度器 | 一次失败后恢复、重复触发、暂停/卸载取消 |
+| 私有写入排队后撤权或取消仍提交 | 持久副作用前围栏与退出串行 | 阻塞队列中撤权/abort，释放后不出现非法记录 |
+| stale review 先执行 Provider 后才 CAS 失败 | Provider 前检查 Captain、任务修订和 attempt，提交仍 CAS | 无效调用不触发命令；有效调用期间竞态仍被最终 CAS 拦住 |
+| Skills 目录只发一次及旧闭包 | 有效 manifest 驱动完整目录恢复，安全装配与释放 | 压缩后重建、同名正文变化、撤销/空集、冷恢复 |
+
+启动恢复排除名单只跳过指定 Team，不等于故障隔离或运行中冻结。各缺陷单独修复和验收；不把五项全部完成设为任意功能工作的统一前置门。
+
+## 8. Feature Pipeline 与实施顺序
+
+GitHub milestone 汇总本轮，Issue 保存一个独立可验收结果及依赖，PR 绑定代码与测试。开始实现前在对应 Issue 固定当前代码基线、范围和代表性验收；实时状态不回写 Markdown。最多使用项目规定的两个 writer，已有占用必须计入；读者可以独立复核，集成串行。
+
+| 切片 | 用户结果与代码边界 | 依赖与验收出口 |
+|---|---|---|
+| 通信上下文减负 | identity-context、TeamDirectory 与任务工具说明；保留完整显式目录 | 无前置；真实装配不自动读取富目录，实际请求、身份变化/撤权/压缩恢复保持正确，量化同任务差异 |
+| 审核前置校验 | review Provider 调用前的任务/Captain/attempt 检查 | 无前置；无效请求不执行 Provider，最终 CAS 保留 |
+| 逐队恢复隔离 | 现有 startup recovery owner | 无前置；坏队不阻止好队恢复，错误可见，全局损坏不吞掉 |
+| 维护债务重试 | 现有 goal maintenance timer | 无前置；失败后可恢复、无双 owner/重复协调、取消可收敛 |
+| 私有记忆维护 | service/store/tool；授权围栏、容量、有效性、幂等与旧记录兼容 | 独立完成；真实 Storage Domain 重开、失败原子性和撤权反例通过 |
+| 个人自动召回 | 独立 private context selector 与实际请求记录 | 依赖记忆维护；一个新任务完成保存到召回/作废/恢复闭环 |
+| Skills 请求与获准版本 | 独立模块 Session/config/storage/tools，管理授权及精确证据读取 | 先提供一个技能的请求、复用、持久状态和批准版本，不依赖全队历史扫描 |
+| 安全分配与版本加载 | 窄 assign 接口、TeamSkillSurface、manifest/context/官方工具及合法 invocation | 依赖获准版本；两队分别按授权使用同一 release，双路径精确加载、热应用、旧 attempt、冷恢复、撤销均可读回 |
+| 技能缺陷修订闭环 | 请求取证、候选、Jobs 验证、独立批准、发布/回退 | 依赖请求和加载；一个真实可复现缺陷，旧版/新版与相邻反例有实际证据 |
+| 跨队观察与效果关联 | 管理快照、活动游标与版本/attempt 关联 | 在单技能闭环后扩展；旧历史、分页去重、保留缺口、来源回退、离线恢复及请求优先均通过 |
+
+群聊 UI 另按用户要求先提交交互方案：任务活动紧凑布局与返回顶部/最新内容定位、长正文默认折叠并手动展开、引用单行省略并悬停显示全文，以及复用官方数据口径的 token 用量/速度。方案确认后通过独立 UI Issue 开发，复用现有 workActivity/controller 与官方滚动容器；不能把 Team 累计用量当作单条消息或单个 Session 的速度。
+
+## 9. 验收、集成与运行保护
+
+每个切片先证明 RED，再做最小修复，保留针对性回归。新增工具、context、Service 和存储需要真实官方组合；只有 mock 通过不能证明模型实际看到或加载。冻结候选后运行工程门，风险对应非作者审查，必要时用独立 Profile/browser 验证，最后经 PR 串行合入 GitHub main 并读回。
+
+统一的关键验收：
+
+1. 一个小任务改前后记录自动目录读次数/耗时、实际请求输入、必要沟通/认领/审核时间与产物质量，区分模型故障和人工等待。
+2. 两队使用同一获准技能，身份与 allow-list 独立；一次具体失败推动修订、独立验证、批准、分配和下一任务实际加载。
+3. 同一成员保存/纠正笔记后，下一合法任务召回正确选集；其他成员、陌生 root 和同名新 Session 无法读取。
+4. 冷恢复后请求、版本、分配及消费游标可核对；失效身份、取消、存储失败、源历史裁剪/回退与坏队恢复均保持明确边界。
+5. 包安装、禁用、重启、升级与回退使用不可变候选；当前课堂及旧 Canvas 数据不用于破坏性验证。
+
+```powershell
 pnpm verify:isolation:status
+pnpm test -- <affected-tests>
+pnpm verify:policy          # 登记权威、指令或治理变化
+pnpm verify:compatibility   # 官方/reference/新 seam 参与决策
 pnpm verify:candidate
-pnpm verify:policy          # 本路线或其他登记权威变化
-pnpm verify:compatibility   # 官方/reference 事实参与当前决策
 ```
 
-详细场景和 claim ceiling 见 [08-testing-verification.md](08-testing-verification.md)。
+当前课堂继续由原负责人操作。新候选先进入隔离验收环境；正式课堂升级仍需核对当时实际工作与安全切换点，沿用既有暂停旧 Canvas 的要求。打包验收、正式安装和真实任务效果分开报告。未配置的产品证据门明确标为 NOT_CONFIGURED，不将其解释为通过。
+
+Issue 只有达到所声明的最高验收层次、CI 通过并进入 GitHub main 才关闭。代码完成但真实验收未完成的 Issue 保持开启；合入后按受管生命周期处理开发目录并保留必要证据。版本演进以可执行结果驱动，不以新增文档、状态表或模型自评作为完成条件。

@@ -30,6 +30,7 @@ Main Brain（Team 外）
 3. **协作政策**：Scheduler、Workflow、Review、budget、tool permission、memory、同伴交流及频率控制、execution root 和 remote/distributed Provider 边界。
 4. **用户入口**：按角色授权的模型工具、Main Brain/Captain Chat、Host/RPC read contract、Team Workbench 和官方 Plugins 设置；工具目录由当前注册提供。
 5. **可运营性**：持久化、卸载/重载、迁移、隔离验收、候选/晋升/回滚分权与故障诊断。
+6. **个人经验与技能管理**：成员维护并有界召回本人笔记；独立 Skills 模块及专用模型通过授权工作事实处理 Captain 的申请、复用与修订技能，经独立验证和批准后由 Captain 分配给成员。Team 不另设成长评分或发布状态机，实际使用版本与效果分别留痕。
 
 ## 产品红线
 
@@ -55,7 +56,7 @@ Main Brain（Team 外）
 
 - 复制 DSH、Canvas、JiuwenSwarm 或 `dsh-agent-teams` Runtime。
 - 用一套共享 React/CSS 强制不同宿主视觉一致。
-- 在首个稳定产品中同时解决公共发布、远程执行、分布式共识和自动 Skill Evolution。
+- 在同一交付中同时解决公共发布、远程执行和分布式共识；无授权的技能自我改写、自批发布与自动扩大权限。
 - 用 Team 工具或文档授权密钥、push、release、生产数据或破坏性清理。
 
 ## 章程变更
