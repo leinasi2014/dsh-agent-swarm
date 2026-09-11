@@ -256,15 +256,20 @@ it('preserves an ordinary fork and a Session shared by another workspace while d
       try { await stored.append(independent.snapshotEvents()); await stored.flush() } finally { await stored.close() }
       return independent
     })
+    await f.ctx.subagents.drainContinuableChildren(root, [captain.id])
+    for (const id of [captain.id, ...members]) {
+      expect(f.ctx.agents.get(id)).toBeUndefined()
+      expect(f.ctx.sessions.get(id)).toBeUndefined()
+    }
     const otherScope = join(sandbox, 'unrelated-workspace')
     const other = await f.ctx.agentSwarm.domain.createTeam(otherScope, members[0]!, 'Unrelated Team', 'Protect shared Session across scope', -1)
     const beforeShared = await readPersistedSession(f.ctx.sessionPersistence, members[0]!, signal)
     const beforeFork = await readPersistedSession(f.ctx.sessionPersistence, fork.id, signal)
     const call = await retirementClient(f, teamId)
     const preview = await call('preview')
-    expect(preview).toMatchObject({ ok: true, value: { counts: { sessions: 2, protectedSessions: 3 } } })
-    expect(await call('execute', { action: 'delete', requestId: 'exclusive-only', expectedTeamRevision: preview.value.teamRevision, previewDigest: preview.value.previewDigest }))
-      .toMatchObject({ ok: true, value: { state: 'completed' } })
+    expect(preview, JSON.stringify(preview)).toMatchObject({ ok: true, value: { counts: { sessions: 2, protectedSessions: 3 } } })
+    const deleted = await call('execute', { action: 'delete', requestId: 'exclusive-only', expectedTeamRevision: preview.value.teamRevision, previewDigest: preview.value.previewDigest })
+    expect(deleted, JSON.stringify(deleted)).toMatchObject({ ok: true, value: { state: 'completed' } })
     expect(await f.ctx.sessionPersistence.stat(captain.id)).toBeUndefined()
     expect(await f.ctx.sessionPersistence.stat(members[1]!)).toBeUndefined()
     expect(await readPersistedSession(f.ctx.sessionPersistence, members[0]!, signal)).toEqual(beforeShared)
@@ -275,13 +280,18 @@ it('preserves an ordinary fork and a Session shared by another workspace while d
   } finally { await f.close(); await rm(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) }
 }, 30_000)
 
-it('archives through authenticated operator RPC and preserves the archived Team and Session history', async () => {
+it('archives a cold Team through authenticated operator RPC and preserves its Session history', async () => {
   const sandbox = await mkdtemp(join(tmpdir(), 'swarm-retirement-http-'))
   const adapter = new Recording()
   const f = await setup(sandbox, adapter, true)
   try {
     const { root, captain, teamId, scope } = await createTeam(f, sandbox)
     const memberIds = await addPublicMembers(f, root, captain.id)
+    await f.ctx.subagents.drainContinuableChildren(root, [captain.id])
+    for (const id of [captain.id, ...memberIds]) {
+      expect(f.ctx.agents.get(id)).toBeUndefined()
+      expect(f.ctx.sessions.get(id)).toBeUndefined()
+    }
     await vi.waitFor(() => expect(f.routes.some(route => route.path === '/swarm-public')).toBe(true))
     const auth = await fetch(f.ctx.connection.authenticatedUrl(f.base + '/'), { redirect: 'manual' })
     const cookie = auth.headers.get('set-cookie')!.split(';')[0]!

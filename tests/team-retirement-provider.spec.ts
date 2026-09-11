@@ -10,7 +10,7 @@ import Jsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import Projection from '@deepseek-ai/dsh-session-projection'
 import SqliteQuery from '@deepseek-ai/dsh-session-query-sqlite'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { expect, it, vi } from 'vitest'
+import { expect, it, onTestFailed, vi } from 'vitest'
 import { RetirementJsonlProvider, retirementSessionDirectory } from '../src/runtime/retirement-jsonl-provider.js'
 import type { RetirementSession } from '../src/storage/team-retirement-store.js'
 
@@ -57,7 +57,7 @@ async function prepareWithPathEvidence(provider: RetirementJsonlProvider, root: 
   }
 }
 
-async function windowsShortPath(path: string): Promise<string> {
+async function windowsShortPath(path: string, signal: AbortSignal): Promise<string> {
   const source = `
 Add-Type -TypeDefinition 'using System; using System.Text; using System.Runtime.InteropServices; public static class RetirementShortPath { [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] public static extern uint GetShortPathName(string path, StringBuilder output, uint size); }'
 $buffer = New-Object System.Text.StringBuilder 32768
@@ -66,31 +66,61 @@ if ($length -eq 0 -or $length -ge 32768) { throw 'GetShortPathName failed' }
 $buffer.ToString()
 `
   const result = await promisify(execFile)('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', source], {
-    env: { ...process.env, SWARM_RETIREMENT_LONG_PATH: path }, windowsHide: true,
+    env: { ...process.env, SWARM_RETIREMENT_LONG_PATH: path }, windowsHide: true, signal,
   })
   return result.stdout.trim()
 }
 
+function hasExpandedShortName(path: string, physical: string): boolean {
+  const parts = resolve(path).split(/[\\/]/u), actual = resolve(physical).split(/[\\/]/u)
+  return parts.length === actual.length && parts.some((part, index) => /^[^~]{1,6}~\d+(?:\.[^.]{1,3})?$/u.test(part)
+    && part.toUpperCase() !== actual[index]!.toUpperCase())
+}
+
 it.each(['short-name', 'case-variant'] as const)('deletes through a real Windows %s alias while preserving original cwd encoding and control data', async variant => {
-  const root = await realpath(await mkdtemp(join(tmpdir(), 'retirement-alias-proof-')))
-  const alias = variant === 'short-name' ? await windowsShortPath(root) : root.toUpperCase()
-  expect(alias).not.toBe(root)
-  expect(await realpath(alias)).toBe(root)
-  const f = await backend(alias), meta = header(alias), control = header(alias, 'control-owner')
+  const startedAt = Date.now(), stages: { stage: string; elapsedMs: number }[] = [], setup = new AbortController()
+  const stage = (name: string) => { stages.push({ stage: name, elapsedMs: Date.now() - startedAt }) }
+  let failedAt: string | undefined, root: string | undefined, f: Awaited<ReturnType<typeof backend>> | undefined
+  onTestFailed(() => {
+    setup.abort()
+    process.stderr.write(`Retirement alias fixture: ${JSON.stringify({ variant, failedAt: failedAt ?? stages.at(-1)?.stage, elapsedMs: Date.now() - startedAt, stages })}\n`)
+  })
   try {
+    stage('create-root'); root = await mkdtemp(join(tmpdir(), 'retirement-alias-proof-'))
+    stage('resolve-root'); const physical = await realpath(root)
+    const existingShortName = hasExpandedShortName(root, physical)
+    stage(variant === 'case-variant' ? 'case-alias' : existingShortName ? 'existing-short-name' : 'GetShortPathName')
+    const alias = variant === 'case-variant' ? physical.toUpperCase() : existingShortName ? root : await windowsShortPath(physical, setup.signal)
+    stage('verify-alias'); expect(alias).not.toBe(physical); expect(await realpath(alias)).toBe(physical)
+    if (variant === 'short-name') expect(hasExpandedShortName(alias, physical)).toBe(true)
+    stage('mount-backend'); f = await backend(alias)
+    const meta = header(alias), control = header(alias, 'control-owner')
+    stage('create-sessions')
     await create(f.ctx, meta); await create(f.ctx, control)
+    stage('resolve-provider')
     const provider = await RetirementJsonlProvider.resolve(f.ctx)
+    stage('prepare')
     const proof = await prepareWithPathEvidence(provider, alias, meta)
     const directory = retirementSessionDirectory(join(alias, 'sessions'), meta.cwd!, meta.id)
     expect(proof[0]).toMatchObject({ cwd: meta.cwd, artifact: { root: resolve(join(alias, 'sessions')), directory } })
     expect((await f.ctx.sessionPersistence.stat(meta.id))?.header.cwd).toBe(meta.cwd)
     const controlDirectory = retirementSessionDirectory(join(alias, 'sessions'), control.cwd!, control.id)
     const before = await readFile(join(controlDirectory, 'session.v3.jsonl'))
+    stage('purge')
     await provider.purge(proof)
+    stage('verify-preservation')
     await expect(readdir(directory)).rejects.toMatchObject({ code: 'ENOENT' })
     expect(await f.ctx.sessionPersistence.stat(meta.id)).toBeUndefined()
     expect(await readFile(join(controlDirectory, 'session.v3.jsonl'))).toEqual(before)
-  } finally { await f.close(); await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) }
+  } catch (error) { failedAt = stages.at(-1)?.stage; throw error }
+  finally {
+    stage('close-backend')
+    try { await f?.close() } finally {
+      stage('remove-root')
+      if (root !== undefined) await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+    }
+    stage('complete')
+  }
 }, 20_000)
 
 it.each(['root-ancestor', 'project', 'session'] as const)('refuses a real %s junction without removing any Session bytes', async location => {
