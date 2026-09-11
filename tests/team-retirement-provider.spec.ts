@@ -1,5 +1,5 @@
-import { copyFile, mkdtemp, readdir, readFile, rm, rmdir, unlink, writeFile } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { copyFile, lstat, mkdtemp, readdir, readFile, realpath, rm, rmdir, unlink, writeFile } from 'node:fs/promises'
+import { dirname, join, resolve } from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { tmpdir } from 'node:os'
@@ -34,6 +34,29 @@ async function create(ctx: Context, meta: SessionHeader) {
   finally { await handle.close() }
 }
 
+/** Failed CI must show the actual filesystem facts; production path fences stay unchanged. */
+async function prepareWithPathEvidence(provider: RetirementJsonlProvider, root: string, meta: SessionHeader) {
+  try { return await provider.prepare([selection(meta)], new AbortController().signal) }
+  catch (error) {
+    if (!(error instanceof Error) || !error.message.includes('direct physical directory')) throw error
+    const paths = new Set<string>()
+    for (let path = resolve(join(root, 'sessions')); ; path = dirname(path)) {
+      paths.add(path)
+      if (dirname(path) === path) break
+    }
+    const directory = retirementSessionDirectory(join(root, 'sessions'), meta.cwd!, meta.id)
+    paths.add(dirname(directory)); paths.add(directory)
+    const facts = await Promise.all([...paths].map(async path => {
+      try {
+        const [stat, physicalPath] = await Promise.all([lstat(path, { bigint: true }), realpath(path)])
+        return { path, realpath: physicalPath, directory: stat.isDirectory(), symbolicLink: stat.isSymbolicLink(),
+          resolvedPathsEqual: resolve(physicalPath) === resolve(path), dev: String(stat.dev), ino: String(stat.ino), birthtimeNs: String(stat.birthtimeNs) }
+      } catch (failure) { return { path, inspectionError: String(failure) } }
+    }))
+    throw new Error(`Retirement directory identity rejected: ${JSON.stringify({ platform: process.platform, node: process.version, facts })}`, { cause: error })
+  }
+}
+
 it('retries after a competing public create leaves an empty canonical directory under the held deletion lease', async () => {
   const root = await mkdtemp(join(tmpdir(), 'retirement-empty-race-'))
   const f = await backend(root)
@@ -41,7 +64,7 @@ it('retries after a competing public create leaves an empty canonical directory 
   try {
     await create(f.ctx, meta)
     const provider = await RetirementJsonlProvider.resolve(f.ctx)
-    const proof = await provider.prepare([selection(meta)], new AbortController().signal)
+    const proof = await prepareWithPathEvidence(provider, root, meta)
     const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
     const interruption = new Error('crash after competitor empty-directory creation')
     vi.mocked(rmdir).mockImplementationOnce(async path => {
@@ -79,7 +102,7 @@ it('resumes a partially removed Session with its original proof in a fresh proce
     const meta = header(root), control = header(root, 'control-owner')
     await create(f.ctx, meta); await create(f.ctx, control)
     const provider = await RetirementJsonlProvider.resolve(f.ctx)
-    const proof = await provider.prepare([selection(meta)], new AbortController().signal)
+    const proof = await prepareWithPathEvidence(provider, root, meta)
     await writeFile(join(root, 'original-proof.json'), JSON.stringify(proof))
     await writeFile(join(proof[0]!.artifact!.directory, 'zz-retained-fragment'), 'retained private fragment')
     const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
@@ -104,7 +127,7 @@ it.each(['none', 'zstd'] as const)('removes all retained generation artifacts in
   try {
     await create(f.ctx, meta); await create(f.ctx, control)
     const provider = await RetirementJsonlProvider.resolve(f.ctx)
-    const proof = await provider.prepare([selection(meta)], new AbortController().signal)
+    const proof = await prepareWithPathEvidence(provider, root, meta)
     const directory = proof[0]!.artifact!.directory
     const suffix = compression === 'none' ? '.jsonl' : '.jsonl.zstd'
     // Retained generations are opaque artifacts to cleanup. Copy current bytes

@@ -40,6 +40,12 @@ it('deletes exclusive Sessions and private memory, preserves Main and project fi
       f.ctx.subagents.withContinuableChild(lead, members[0]!, parentSignal, async member => {
         await f.ctx.agentSwarmPrivateMemory.add({ agent: member, signal: parentSignal }, 'retirement-private-secret', [])
       }))
+    // Lease release schedules natural disposal; this cold-deletion fixture waits for its public completion boundary.
+    await f.ctx.subagents.drainContinuableChildren(root, [captain.id])
+    for (const id of [captain.id, ...members]) {
+      expect(f.ctx.agents.get(id)).toBeUndefined()
+      expect(f.ctx.sessions.get(id)).toBeUndefined()
+    }
     await writeFile(join(sandbox, 'project-output.blend'), 'preserved Blender evidence')
     const call = await retirementClient(f, teamId)
     const preview = await call('preview')
