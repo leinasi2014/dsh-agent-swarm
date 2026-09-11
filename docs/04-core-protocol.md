@@ -123,7 +123,25 @@ Team 消息的 `wakeup` 复用官方 steering：忙碌成员在最近的后续 s
 
 插件设置提供新 Team 默认 Skill allow-list，Team 可保存自己的 allow-list；成员只能使用 host catalog 与 Team allow-list 的交集。Skills 名称来自实际 catalog projection，用户不手填服务器路径。
 
-私有记忆、共享经验、Skill proposal、验证、独立批准、发布/回滚是不同层。当前已实现成员私有记忆和 Team shared memory；自动经验提炼、语义检索、自动晋升和 Skill Evolution 尚未交付，不能从职业、头像或记忆推断能力。
+私有记忆、共享经验、Skill proposal、验证、独立批准、发布/回滚是不同层。当前已有成员私有 append/list 和 Team shared memory；以下为新增模块的接入合同，具体接口实现和验收按统一开发方案推进，不能从职业、头像或记忆推断能力。
+
+### 7.1 新增个人记忆维护与召回合同
+
+私有分区保持 scope/Team/Session。维护请求只允许真实本人，修订采用记录级 expected revision；旧记录兼容读取，未作废不代表已验证。写队列的实际持久副作用前重新校验身份、membership、权限与取消；同一持久逻辑操作重试幂等，已提交写入不宣称能被 abort 撤销。首期容量满额明确拒绝，不物理回收导致序号或旧 offset 漂移。
+
+自动召回仅选择本人唯一合法 in-progress Task 与当前 running attempt 的有限笔记，记录任务身份和所选记录 ID。独立私有 context 不进入公开 identity/directory；无命中、任务变化、笔记失效或撤权时移除旧贡献。自动读取的权限合同独立于显式工具调用批准，压缩和冷恢复重新建立正确选集。
+
+### 7.2 新增独立 Skills 模块合同
+
+Captain 的技能申请在模块持久收件后才返回已接收；重复请求修订复用结果，后续状态查询不调用模型。问题、任务和证据是业务输入，真实身份与 scope 由 Host 派生；普通成员不能绕过 Captain 建立第二条管理链路。模块可使用失败事实调查，但候选发布必须有可检查验证与独立批准。
+
+管理读取绑定真实专用 Session 和获授权的同 Host/Profile workspace/Team 清单，不接受模型借用其他根会话身份。历史基线从一个 Team 聚合同时读取任务/attempt 和活动水位；模块将本页待处理引用与游标放入同一消费者记录的一次官方 update，不伪称多表事务。hasMore 只推进本页尾部；保留缺口、来源回退、同序号异 ID 和不可用来源分别显式处理。私有记忆不在授权导出范围内。
+
+release 绑定不可变正文/资源树摘要、原版本、验证及批准身份。作者不得自批，正文或资源变更使旧批准失效；发布不增加 Team allow-list。精确 task/attempt 取证不足、外部文件改变或版本不能证明时返回 needs_evidence，不能从当前 assigned 名单反推历史 Skill 使用。
+
+Captain 通过窄 assign 接口选择本队获准 release，Host 保存目标分配并安全装配。assigned 为持久分配，effective 为后续请求实际采用，loaded 为工具结果或合法 `skill-invocation` 正文实际进入请求；两条加载路径都核对精确 release、Provider、正文及资源摘要，三种事实不合并成能力评分。当前 attempt 通过任一路径已加载旧正文时，首版等下一 attempt 切换；在途请求保持固定 manifest。撤销、空集、失败回退、压缩、冷恢复和模块禁用须保持版本与权限可读回。
+
+### 7.3 现有共享记忆入库规则
 
 新 Team shared memory 在 `TeamDomain.addMemory` 的同一 Storage Domain transaction 内强制脱敏，覆盖 `content` 和每条 `evidenceRefs`；没有工具绕过或关闭开关。识别到的值替换为 `[REDACTED]`，保留标签、引号/反引号、Markdown 星号格式和键值表格结构。支持以下明确形式，不声称通用个人信息识别：
 
@@ -194,11 +212,11 @@ v1 定义人类公共文本默认交给当前 Captain，以及 Captain/成员显
 
 客户端待确认记录保留原版本、ID、载荷及草稿版本。legacy pending 查询到 not-found 只允许保留草稿并显式确认 v2 内容，升级确认仍沿用原 Team、作者与 requestId，不能换新 ID；若旧 v1 随后先提交，v2 不得覆盖或追加另一条，须读回旧事实并保留升级后编辑的 v2 草稿。仅原操作对应的未继续编辑草稿可在成功后清空。公共草稿的 key 沿用 Host、规范 Main 与 Team，同群的合法查看者共享草稿，个人 Chat 仍由官方 Session composer 保存；切群、切查看者、迟到回包及目录变化不能重写冻结请求的接收身份。
 
-共享目录由同一 runtime 只读投影供 UI 三个入口、`agent_swarm_directory` 读取工具及适用的 `system-prompt/assemble` 消费，不新增缓存权威或轮询 owner。每条包含精确 memberId、角色、名字与公开 label、职责、职业、性格、简介、阶段、当前任务，以及 Skills 名称/用途和 assigned、Session-visible 各自状态、工具可用/需批准/禁用/未知、当前 provider/model、官方 `inputModalities` 推导的 supported/unsupported/unknown 图像状态。资料、模型、Skills、工具等来源分别报告状态、真实版本或内容摘要、observedAt 与实际存在的 updatedAt；读取时间不能冒充修改时间，声明 deny-list 不能冒充完整有效权限。私有记忆、秘密参数和系统私密内容不进入目录。
+完整共享目录由同一 runtime 只读投影供 UI 三个入口及显式 `agent_swarm_directory` 工具消费，不新增缓存权威或轮询 owner。每条包含精确 memberId、角色、名字与公开 label、职责、职业、性格、简介、阶段、当前任务，以及 Skills 名称/用途和 assigned、Session-visible 各自状态、工具可用/需批准/禁用/未知、当前 provider/model、官方 `inputModalities` 推导的 supported/unsupported/unknown 图像状态。资料、模型、Skills、工具等来源分别报告状态、真实版本或内容摘要、observedAt 与实际存在的 updatedAt；读取时间不能冒充修改时间，声明 deny-list 不能冒充完整有效权限。私有记忆、秘密参数和系统私密内容不进入目录。
 
-目录返回 schemaVersion、经验证的 binding、directoryRevision、observedAt、entries 及 page 的 offset/limit/totalCount/returnedCount/hasMore/nextCursor/unreadRanges。revision 由同一代规范化内容和实际来源版本计算，排除 observedAt；模型、Skills 或权限变化即使 Team revision 不变也须使目录更新。发布前重验所依赖的域与来源，发生变化则重读或返回 stale，不发布混合快照。cursor 绑定 Team、revision、offset，后续页变化返回明确 stale 并重新读取，不拼两代目录。所有成员的身份行均可枚举，分页未读范围与字段未知分别表达；正常规模上下文提供完整核心目录，大队给出页范围与读取入口。append 重验本次接收人的合法身份，不信任客户端旧目录，也不以无关成员的目录变化阻断提交。
+完整目录返回 schemaVersion、经验证的 binding、directoryRevision、observedAt、entries 及 page 的 offset/limit/totalCount/returnedCount/hasMore/nextCursor/unreadRanges。revision 由同一代规范化内容和实际来源版本计算，排除 observedAt；模型、Skills 或权限变化即使 Team revision 不变也须使目录更新。发布前重验所依赖的域与来源，发生变化则重读或返回 stale，不发布混合快照。cursor 绑定 Team、revision、offset，后续页变化返回明确 stale 并重新读取，不拼两代目录。所有成员的身份行均可枚举，分页未读范围与字段未知分别表达。append 重验本次接收人的合法身份，不信任客户端旧目录，也不以无关成员的目录变化阻断提交。
 
-模型上下文投影递归省略目录各层 `observedAt`，保留真实 `updatedAt`、语义 revision、成员资料、能力状态与分页边界；RPC 和显式目录工具仍返回观察时间。仅时钟推进不追加相同目录，真实语义变化在下次处理前发布。官方压缩移除旧上下文快照后，下次处理重新注入当前目录，不以客户端缓存或永久已读标记阻止恢复。
+`system-prompt/assemble` 只从当前 Team 聚合生成自动轻摘要，保留成员 ID、名称/职责、职业、阶段及开放任务的任务 revision、ready/status、assignmentMode、目标成员和 owner/attempt。ready 只反映现有任务就绪投影，不代表目标匹配、预算或权限已通过。最多列出 50 个未移除成员（含 Captain）和 20 项开放任务，职责与题目缩略为最多 160 字符；分别给出总数、hasMore 和完整目录/任务工具入口。本人身份、角色指令与实际 Skill 目录保留，装配重验 membership、精确 live Agent/Session 和 scope。摘要不含观察时钟或无关 Team revision；完整能力与来源时间仍由显式读取返回。核心语义变化在下次处理前发布，撤权或切 Team 撤下旧贡献；官方压缩移除快照后重建当前摘要，不以缓存或永久已读标记阻止恢复。
 
 ### 8.3 公共图片与自主视觉协助
 

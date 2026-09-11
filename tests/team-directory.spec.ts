@@ -11,7 +11,7 @@ import { expect, it, vi } from 'vitest'
 import { TeamId } from '../src/domain/types.js'
 import { mountNodeComposition, setUpTeam, SIGNAL } from './helpers/node-composition.js'
 
-it('shares exact identities and revisioned sources across pages, the real tool and model context', async () => {
+it('keeps full revisioned sources in explicit reads and only core identities in automatic context', async () => {
   const sandbox = await mkdtemp(join(tmpdir(), 'swarm-directory-'))
   const f = await mountNodeComposition(sandbox)
   try {
@@ -50,10 +50,16 @@ it('shares exact identities and revisioned sources across pages, the real tool a
     const result = await f.ctx.tools.execute({ signal: SIGNAL, callId: ToolCallId('directory-read'), name: 'agent_swarm_directory', arguments: {}, agent })
     expect(result.isError, JSON.stringify(result)).toBe(false)
     expect(result.value).toMatchObject({ directoryRevision: full.directoryRevision, entries: full.entries.map(row => ({ memberId: row.memberId })) })
+    const richReads = vi.spyOn(f.ctx.agentSwarm.directory, 'read')
     const context = renderContextSnapshot(await f.ctx.systemPrompt.assemble(assembleContextFor(agent)))
-    expect(context).toContain('Current public Team directory')
+    expect(richReads).not.toHaveBeenCalled()
+    richReads.mockRestore()
+    expect(context).toContain('Current public Team overview')
     expect(context).toContain(member.sessionId)
-    expect(context).toContain('First public purpose')
+    expect(context).toContain('Write stories')
+    expect(context).not.toContain('First public purpose')
+    expect(context).not.toContain('公开负责人')
+    expect(result.value).toMatchObject({ entries: [{ biography: '公开负责人' }, { biography: '公开简介' }] })
 
     const revision = (await f.domain.snapshot(f.scope, teamId, f.lead.id)).team.revision
     disposeSkill(); disposeSkill = registerSkill('Second public purpose ' + '字'.repeat(600))

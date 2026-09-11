@@ -466,13 +466,14 @@ it.each(['expired', 'helper-unavailable'] as const)('publishes a system %s resul
   try {
     const args = await originalImage(fixture)
     expect(await fixture.asCaptain('agent_swarm_request_visual_assistance', args)).toMatchObject({ isError: false })
-    await vi.waitFor(async () => expect(publicDeliveries((await fixture.team()).publicChat!.messages[1]!)[0]!.state).toBe('claimed'))
+    const request = (await fixture.team()).publicChat!.messages[1]!
+    await claimedImage(fixture, request.id, fixture.helperId)
     if (reason === 'expired') now += VISUAL_ASSISTANCE_TTL_MS + 1
     else expect(await fixture.asCaptain('agent_swarm_remove_member', { name: 'vision', reason: 'Fixture revocation' })).toMatchObject({ isError: false })
     const page = await fixture.call('history')
     expect(page.ok, JSON.stringify(page)).toBe(true)
     expect(page.value.entries[2]).toMatchObject({ author: { kind: 'system' }, assistance: { kind: 'result', outcome: { state: 'failed', reason } } })
-    await vi.waitFor(async () => expect(publicDeliveries((await fixture.team()).publicChat!.messages[2]!)[0]!.state).toBe('claimed'))
+    await claimedImage(fixture, page.value.entries[2]!.id, fixture.captain.id)
     const row = assistanceRows(await fixture.team())[0]!
     if (reason === 'expired') expect(await fixture.asHelper('agent_swarm_complete_visual_assistance', {
       request_id: 'too-late', assistance_id: row.assistanceId, outcome: { state: 'completed', summary: 'Late replacement' },

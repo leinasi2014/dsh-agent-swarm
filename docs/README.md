@@ -9,7 +9,7 @@
 3. [03-capability-family.md](03-capability-family.md) — Team 总体架构、会话关系、状态权威、模型路由与能力边界。
 4. [10-team-ui-layout.md](10-team-ui-layout.md) — 桌面与窄屏布局、团队卡、详情、短名称、状态及群聊讨论稿。
 5. [04-core-protocol.md](04-core-protocol.md) — 自定身份、revision、attempt、任务、邮箱、交流强度、审核、恢复和权限合同。
-6. [07-implementation-roadmap.md](07-implementation-roadmap.md) — 从当前基线到 90% 产品就绪的交付顺序与出口证据。
+6. [07-implementation-roadmap.md](07-implementation-roadmap.md) — Team 协作、个人记忆与独立 Skills 管理的统一开发方案、切片依赖与验收出口。
 7. [08-testing-verification.md](08-testing-verification.md) — 候选检查、场景和真实 Profile/browser 验证合同。
 
 ## 架构与兼容

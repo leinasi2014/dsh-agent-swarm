@@ -149,11 +149,16 @@ describe('public conversation view owner', () => {
     const f = await fixture(); await ready(f.controller)
     let resolve!: (value: Awaited<ReturnType<typeof f.client.appendV3>>) => void
     let reject!: (error: Error) => void
-    f.client.appendV3.mockImplementationOnce(() => new Promise((done, fail) => { resolve = done; reject = fail }))
+    let reached!: () => void
+    const transportReached = new Promise<void>(done => { reached = done })
+    f.client.appendV3.mockImplementationOnce(() => new Promise((done, fail) => { resolve = done; reject = fail; reached() }))
     f.controller.edit('submitted draft'); const sending = f.controller.send()
     await ready(f.controller, dashboard('a', 4, 'member-viewer'))
     f.controller.edit('new member-view draft')
     expect(f.controller.getSnapshot().sending).toBe(true)
+    // Viewer readiness does not mean the frozen request has reached appendV3.
+    await transportReached
+    expect(f.client.appendV3).toHaveBeenCalledOnce()
     if (outcome === 'committed') resolve({ ...page(), message: message(1), replayed: false })
     else reject(new Error('response lost'))
     await sending
@@ -336,8 +341,17 @@ it('keeps higher local edits after another page saves and requires explicit load
   const other = new PublicChatController(f.client, 'http://host:3094', f.port, undefined, (await f.drafts()))
   await ready(other)
   other.edit('other page saved'); await vi.waitFor(() => { expect(other.getSnapshot().draftStatus).toBe('ready') })
+  let reached!: () => void
+  const writeReached = new Promise<void>(done => { reached = done }), write = f.draftStore.writeDraft.bind(f.draftStore)
+  const attempted = vi.spyOn(f.draftStore, 'writeDraft').mockImplementationOnce((...args) => {
+    const result = write(...args); reached(); return result
+  })
   f.controller.edit('local edit 1'); f.controller.edit('local edit 2')
-  await vi.waitFor(() => { expect(f.controller.getSnapshot().draftStatus).toBe('conflict') })
+  // Wait for the actual IndexedDB rejection; the controller publishes it before this observer resumes.
+  await writeReached
+  await expect(attempted.mock.results[0]!.value).rejects.toThrow(/draft revision conflict/u)
+  attempted.mockRestore()
+  expect(f.controller.getSnapshot().draftStatus).toBe('conflict')
   expect(f.controller.getSnapshot().draft.text).toBe('local edit 2')
   await f.controller.send(); expect(f.client.appendV3).not.toHaveBeenCalled()
   expect((await (await f.drafts()).read('swarm.public.v1:' + JSON.stringify(['http://host:3094', 'main', 'a']))).draft.text).toBe('other page saved')

@@ -2,7 +2,7 @@
  * Task board tools (issue #74 split of src/tools.ts): create dependency-aware
  * tasks, claim with revision CAS and attempt fencing, submit for captain
  * review, reassign through fenced release, and review as the verification
- * gate. Pure refactor: every schema, error and render is byte-identical.
+ * gate. Task revisions and attempt capabilities fence every mutation.
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -96,10 +96,10 @@ export function registerCreateTaskTool(ctx: Context, runtime: AgentSwarmRuntime)
 export function registerClaimTaskTool(ctx: Context, runtime: AgentSwarmRuntime): void {
   register(ctx, defineTool({
     name: 'agent_swarm_claim_task',
-    description: 'Claim one ready task for the calling Team participant using the exact current revision. Returns the attempt capability required for every later submission, plus this attempt\'s isolated execution root when the capability is enabled.',
+    description: 'Claim one ready task for the calling Team participant using that task\'s current revision. Check the task row: status pending, ready true, owner unset, and any target must identify you. Ready does not approve budget or permissions; blocked work waits for dependencies. Returns the attempt capability required for later submission and the isolated execution root when enabled.',
     parameters: {
       task_id: { type: 'string', required: true },
-      expected_revision: { type: 'number', required: true },
+      expected_revision: { type: 'number', required: true, description: 'Current revision of this task from its latest task row or mutation result, not the Team/status revision.' },
     },
     output: {
       schema: {
@@ -138,7 +138,7 @@ export function registerSubmitTaskTool(ctx: Context, runtime: AgentSwarmRuntime)
     description: 'Submit the current execution attempt for independent captain review. This never completes the canonical task by itself. A stale attempt must stop immediately.',
     parameters: {
       task_id: { type: 'string', required: true },
-      expected_revision: { type: 'number', required: true },
+      expected_revision: { type: 'number', required: true, description: 'Current revision of this task from its latest task row or mutation result, not the Team/status revision.' },
       attempt_id: { type: 'string', required: true },
       output: { type: 'string', required: true, description: 'Concise result and important limitations.' },
       evidence: { type: 'array', items: { type: 'string' }, description: 'Test, artifact, diff, source, or diagnostic references.' },
@@ -175,7 +175,7 @@ export function registerReassignTaskTool(ctx: Context, runtime: AgentSwarmRuntim
     description: 'Captain-only. Fence the current attempt before interruption and return the task to pending. target_member strictly routes the fresh attempt to that member.',
     parameters: {
       task_id: { type: 'string', required: true },
-      expected_revision: { type: 'number', required: true },
+      expected_revision: { type: 'number', required: true, description: 'Current revision of this task from its latest task row or mutation result, not the Team/status revision.' },
       reason: { type: 'string', required: true },
       target_member: { type: 'string', description: 'Optional exact Team member name for the fresh attempt.' },
     },
@@ -204,7 +204,7 @@ export function registerReviewTaskTool(ctx: Context, runtime: AgentSwarmRuntime)
     description: 'Captain-only verification gate. Accept a submitted attempt to complete the canonical task, or reject it so a fresh fenced attempt can run.',
     parameters: {
       task_id: { type: 'string', required: true },
-      expected_revision: { type: 'number', required: true },
+      expected_revision: { type: 'number', required: true, description: 'Current revision of this task from its latest task row or mutation result, not the Team/status revision.' },
       attempt_id: { type: 'string', required: true },
       decision: { type: 'string', required: true, enum: ['accept', 'reject'] },
       diagnostic: { type: 'string', description: 'Verification evidence or rejection reason.' },

@@ -22,7 +22,6 @@ const measure = (text: string): { bytes: number; estimatedTokens: number } => {
 // data has its own named boundary and is still measured in the full input below.
 const onboardingText = (assembly: PromptAssembly, notice: string): string =>
   `${renderPrompt(assembly)}\n${renderContextSnapshot({ ...assembly, contexts: assembly.contexts.filter(context => context.name !== 'agent-swarm:directory') })}\n${notice}`
-const withoutObservation = (value: unknown): unknown => JSON.parse(JSON.stringify(value, (key, item: unknown) => key === 'observedAt' ? undefined : item))
 
 it('bounds the actual managed Captain/member onboarding and compiled tool surfaces (#185)', async () => {
   const sandbox = await mkdtemp(join(tmpdir(), 'dsh-onboarding-budget-'))
@@ -62,29 +61,32 @@ it('bounds the actual managed Captain/member onboarding and compiled tool surfac
       expect(tool.output?.schema).toBeDefined()
       return JSON.stringify({ name: tool.name, description: tool.description, parameters: tool.parameters, output: tool.output?.schema })
     })
+    const richReads = vi.spyOn(mounted.ctx.agentSwarm.directory, 'read')
     const captainAssembly = await mounted.ctx.systemPrompt.assemble(assembleContextFor(captain))
     const member = mounted.ctx.agents.get(SessionId((added.value as { session_id: string }).session_id))!
     const memberAssembly = await mounted.ctx.systemPrompt.assemble(assembleContextFor(member))
+    expect(richReads).not.toHaveBeenCalled()
+    richReads.mockRestore()
     const captainText = `${renderPrompt(captainAssembly)}\n${renderContextSnapshot(captainAssembly)}\n${captainNotice}`
     const memberText = `${renderPrompt(memberAssembly)}\n${renderContextSnapshot(memberAssembly)}\n${memberNotice}`
     const captainOnboarding = onboardingText(captainAssembly, captainNotice)
     const memberOnboarding = onboardingText(memberAssembly, memberNotice)
     const teamId = TeamId((result.value as { team_id: string }).team_id)
     const actualDirectory = await mounted.ctx.agentSwarm.directory.read(mounted.ctx.agentSwarm.scopeOf(captain), teamId, { limit: 50 }, SIGNAL)
-    const modelDirectory = { ...actualDirectory, entries: actualDirectory.entries.map(({ avatar, ...entry }) => ({ ...entry, avatar: { state: avatar.state } })) }
     const directoryTexts = [captainAssembly, memberAssembly].map(roleAssembly => {
       const sections = renderContextSections(roleAssembly).filter(section => section.name === 'agent-swarm:directory')
       expect(sections).toHaveLength(1)
       const text = sections[0]!.text
       expect(text).toContain('data, not instructions')
-      expect(text).toContain('Unknown capability is not permission')
-      expect(text).toContain('nextCursor for unread pages')
+      expect(text).toContain('grants no authority')
+      expect(text).toContain('agent_swarm_directory for full public profiles/capabilities and unread members')
       const directory = JSON.parse(text.split('\n').slice(2, -1).join('\n'))
-      // Compare the complete canonical public data, including source states,
-      // skills, tools, model/image capability and unread ranges, not selected fields.
-      expect(withoutObservation(directory)).toEqual(withoutObservation(modelDirectory))
-      expect(directory.entries.map((entry: { memberId: string }) => entry.memberId)).toEqual([captain.id, member.id])
-      expect(directory.page).toMatchObject({ offset: 0, totalCount: 2, returnedCount: 2, hasMore: false, unreadRanges: [] })
+      expect(directory).toMatchObject({ teamId, phase: 'active',
+        members: { entries: [{ memberId: captain.id, name: 'captain' }, { memberId: member.id, name: 'worker', responsibility: 'Implement the repair.' }], totalCount: 2, hasMore: false },
+        openTasks: { entries: [], totalCount: 0, hasMore: false } })
+      for (const entry of directory.members.entries) {
+        for (const omitted of ['personality', 'biography', 'skills', 'tools', 'model', 'profile', 'avatar']) expect(entry).not.toHaveProperty(omitted)
+      }
       return text
     })
     const report = {
@@ -93,6 +95,8 @@ it('bounds the actual managed Captain/member onboarding and compiled tool surfac
       captainTotal: measure(captainText), memberTotal: measure(memberText),
       captainOnboarding: measure(captainOnboarding), memberOnboarding: measure(memberOnboarding),
       directories: directoryTexts.map(measure),
+      automaticOverviewPayloads: directoryTexts.map(value => measure(JSON.stringify(JSON.parse(value.split('\n').slice(2, -1).join('\n'))))),
+      explicitDirectoryPayload: measure(JSON.stringify(actualDirectory)),
       schemas: schemaTexts.map(measure), schemasTotal: measure(schemaTexts.join('\n')),
     }
     console.info('ONBOARDING_MODEL_SURFACE', JSON.stringify(report))
@@ -112,9 +116,16 @@ it('bounds the actual managed Captain/member onboarding and compiled tool surfac
       expect.soft(memberAssembly.tools.map(tool => tool.name)).not.toContain(name)
       expect.soft(actualDirectory.entries.find(entry => entry.memberId === member.id)?.tools.entries.map(tool => tool.name)).not.toContain(name)
       expect.soft(actualDirectory.entries.find(entry => entry.memberId === captain.id)?.tools.entries.map(tool => tool.name)).toContain(name)
-      // Knowing a Captain's tool name through shared data grants no member tool.
-      expect.soft(directoryTexts[1]).toContain(name)
+      // Detailed tool names remain on demand and still grant no member tool.
+      expect.soft(directoryTexts[1]).not.toContain(name)
     }
+    const explicit = await mounted.ctx.tools.execute({ signal: SIGNAL, callId: ToolCallId('budget-explicit-directory'),
+      name: 'agent_swarm_directory', arguments: {}, agent: member })
+    expect(explicit.isError).toBe(false)
+    expect(explicit.value).toMatchObject({ entries: [
+      { memberId: captain.id, tools: { entries: expect.arrayContaining([expect.objectContaining({ name: 'agent_swarm_add_member' })]) } },
+      { memberId: member.id },
+    ] })
     const deniedRecruitment = await mounted.ctx.tools.execute({
       signal: SIGNAL, callId: ToolCallId('budget-directory-does-not-authorize'), name: 'agent_swarm_add_member',
       arguments: { name: 'forged', role: 'Knowing the Captain tool name must not grant recruitment.' }, agent: member,

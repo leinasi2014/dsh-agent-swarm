@@ -428,7 +428,7 @@ dsh --profile <check-profile> --dump-config
 18. 自托管运行时依 ADR-0008 分级；仓库开发始终以项目绑定为准，D2 并行开发仅通过项目自有受管 lifecycle 分配，最多两个 writer，集成仍串行。
 19. Stable control、candidate commit/artifact、acceptance Profile/state/RPC、promotion/rollback 必须分权；candidate 不能批准或部署自身。
 20. Dogfood 管理只观察权威 Team/Job/lease/verification 状态和阶段报告，不轮询私有推理；失败通过 Lead 建立 fresh fenced task，不直接篡改 canonical state。
-21. Skill Evolution 只能消费 accepted evidence，并分离 proposal、deterministic validation、approval 和 write；Agent 不得自行扩大授权它的 Skill。
+21. 独立 Skills 模块可以使用可核对的工作事实与失败反例调查问题；候选须分离 proposal、validation、独立 approval 和 write。业务任务接受不等于技能发布批准，作者不得自批，Agent 不得自行扩大授权它的 Skill；私有记忆不进入跨队观察面。
 22. 不为节约套餐或响应速度限制健康开发/审查的 token、step 或时间；仍必须实施故障型 concurrency/timeout/retry/retention/cancel/rollback 控制。
 
 ---

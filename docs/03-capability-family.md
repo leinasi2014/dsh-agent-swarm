@@ -57,6 +57,18 @@ Main Brain 负责跨 Team 的用户入口；Captain 在自己的 Session 中统�
 
 UI 的 controller 复用同一个只读目标和读取生命周期。姓名、状态、进度或页面是否可见都不能反向改变 Team 权威。
 
+### 1.3 官方 Agent Teams 的复用边界
+
+固定版本已发布的 `@deepseek-ai/dsh-experimental-agent-team` 提供基础招募、耐久成员邮箱、DAG/CAS 任务板及恢复，配套 tool/client 包提供模型工具和基本面板。本插件尚未接入该 Team Provider，但已直接复用官方 Session、Agent、Subagents、Storage Domain、Skills、Workflow/Jobs 和 Client 扩展；这些底座不属于新增的替换机会。
+
+基础成员生命周期、peer mailbox 和基本任务板是优先评估的职责替换候选。不能仅因接口名称相似就挂载第二个 Team 写权威：官方将普通 root Session 作为 Lead，排除 provider-owned continuable child，而当前 managed Captain 正是 Main 的 child；官方任务没有本插件的 attempt/Review Gate 与预算共同提交入口，邮箱也没有当前 quiet 与任务过期取消合同。直接接入会改变产品语义，双写官方任务与自建 attempt 不能替代当前事务。
+
+功能完整性优先于复用。只有官方公开组件已具备所需的 Host 绑定、原子后端和策略能力，且实际组合保持功能时才由 Swarm 适配；尚缺接口的职责标为“等待官方完善”，不为采用主动开发官方补丁或私有分叉。保留 Main→Captain→member 的真实 Session 层级和现有 Storage Domain 聚合的唯一持久权威；官方基础操作必须能与 Swarm 的 attempt、Review Gate、预算及取消策略在同一事务中提交。`TeamDomainPort` 保持对现有 Consumer 的兼容入口，不另实现一套与官方并行的通用算法。
+
+官方当前把同步 Session projection 与私有 Journal/Roster/Mailbox/TaskBoard 直接组合，尚无可替换异步事务后端；公开生命周期缺少 removed 和本插件的失败重试语义。这些限制未由官方补齐前保留现有实现，不重复投入迁移。成员退出仍须同时撤权、fence/requeue attempt 和终止旧消息，不能把 removed 映射为 failed，不能把普通缓存当作授权事务。Main 作官方 Lead 的扁平化路线、Captain 改普通 root 的路线都会改变现有真实层级，不采用。
+
+采用顺序、功能清单、扩展点验证和回退条件见 [统一开发方案 §2.1](07-implementation-roadmap.md#21-官方-agent-teams-完整功能采用方案)。每项在同一版本的实际组合中通过后才删除相应自建职责，不能凭源码同名或模型自评放行。依据见 [官方源登记](09-sources.md)及固定版本的 agent-team 服务、roster、mailbox、journal、projection 和 task-board 源码。
+
 ## 2. 当前实现
 
 | 能力 | 当前 owner / seam | 已实现边界 |
@@ -64,7 +76,7 @@ UI 的 controller 复用同一个只读目标和读取生命周期。姓名、�
 | Main Brain → Captain | official Session/Subagent + dedicated captain provisioning | 默认 managed Team 创建独立 Captain；可选 staged 计划审批后激活；root 留在 Team 外；支持多个 Team |
 | Team state | `TeamDomainPort` → `StorageDomainTeamStore` | versioned aggregate、durable commit、显式迁移；legacy file store 只读 |
 | 成员与身份 | official continuable subagent + identity context | 招募前校验 route；队长分配职责/职业，各人自定四项资料并在保存读回后绘制头像；当前资料进入官方 prompt，durable descriptor 支持恢复 |
-| 任务 | Team domain + `AgentSwarmRuntime` | DAG、priority、target member、revision CAS、attempt fencing、submit/review/reassign |
+| 任务 | Team domain + `AgentSwarmRuntime` | DAG、priority、target member、revision CAS、attempt fencing、submit/review/reassign；工作请求、开放认领、任务活动与目标生命周期共享该权威 |
 | 调度 | Scheduler Provider registry | 默认 priority-ready；adaptive 与 workflow run 保持单一 transition owner |
 | 审核 | Review Provider registry | manual、executable commands/templates、review root 与 reviewer boundary |
 | 邮箱与交流 | durable Team mailbox + wakeup surface | quota、receipt、quiet/wakeup、真实 reply_to、按成员限制主动同伴唤醒、队长持久覆盖、bounded wait 与 spin fuse |
@@ -74,8 +86,8 @@ UI 的 controller 复用同一个只读目标和读取生命周期。姓名、�
 | Memory | Team memory + private-memory domain | 共享分类记忆；成员私有 append-only memory 和独立授权 |
 | Workflow/Jobs | official Workflow bridge + caller-scoped jobs projection | 可选、显式启用；唯一 Consumer seam 是 `ctx.agentSwarmWorkflow.start(request)`，仅委托同一 bridge，不提供激活/销毁权限；disabled/unload 时服务缺席，默认官方 `workflowEngine` 不变。`runtime.workflowBridge` 是内部实现细节；jobs 是 read projection，不影子注册官方 producer |
 | Execution root | execution-root Provider | 可选 per-attempt 物理 root、capability 声明、settlement 和 residue 告警 |
-| Host/RPC | Host read service + `/swarm/v1` | target-bound、bounded、redacted、read-only、loopback/same-origin fail-closed |
-| UI | official Client slots / Session navigation / Settings | Workbench、Tasks、Announcements、Management、栏内详情、Captain Chat、设置页 |
+| Host/RPC | Host target read + versioned public/work/goal Consumers | `/swarm/v1` 保持只读；公共消息、工作请求和目标控制分别按其版本接口授权、提交和读回 |
+| UI | official Client slots / Session navigation / Settings | Workbench、Tasks、Announcements、Management、栏内详情、Captain Chat、V7 公共群聊及设置页 |
 
 ## 3. 模型工具面
 
@@ -93,7 +105,7 @@ UI 的 controller 复用同一个只读目标和读取生命周期。姓名、�
 
 ## 4. Host、RPC 与 UI
 
-Host 每次从 live root Agent、Session、workspace scope 和 Team Captain binding 建立读上下文。`/swarm/v1` 只发布严格、版本化的 read envelope；客户端不能上传 principal、Captain Session 或 provenance 来扩大权限。
+Host 从官方 live/cold Session、workspace scope 和 Team Captain binding 建立读上下文。`/swarm/v1` 只发布严格、版本化的 read envelope；公共群聊、工作请求与目标控制使用各自的版本化写入入口。客户端不能上传 principal、Captain Session 或 provenance 来扩大权限，详见核心协议的公共消息、工作请求与目标生命周期合同。
 
 Workbench 消费同一 read contract：公开目标、成员身份、任务/attempt、budget 和 activity 来自权威 projection。布局、卡片层级、页签、详情、短名称、窄屏与错误展示统一定义在 [UI 布局设计](10-team-ui-layout.md)，不在本文件维护第二套视觉规则。
 
@@ -212,9 +224,9 @@ flowchart TD
 
 ### 6.2 共享队员目录与能力判定
 
-每个成员在首次加入、恢复及目录改变后的下一次处理前，获得同队完整共享目录。每个条目包含稳定 ID、名称、职责、职业、性格、简介、Skills 名称及用途、assigned 与 Session-visible 状态、工具可用/需批准/禁用信息、当前 provider/model、图像能力、成员阶段、当前任务及更新时间。UI 资料卡、`@` 候选和 Agent 可读目录消费同一个受验证投影，不各自猜测或维护姓名缓存。
+每个成员在首次加入、恢复及核心协作信息改变后的下一次处理前，自动获得来自当前 Team 聚合的轻量摘要：稳定 ID、名称、职责、职业、成员阶段和开放任务。本人身份与角色指令保留；自动装配不读取全员 Session、模型、Skills 或工具目录。
 
-正常规模的 Team 将上述核心字段纳入每次适用的上下文快照；较大团队采用完整目录的分页读取及明确的未读范围，不能静默截断后声称已知所有队员。Skill 正文通过已有授权读能力按需获取，目录提供用途和可见性，不将分配某 Skill 等同于已学会、已使用或有权调用全部相关工具。成员私有记忆、凭据、系统私密内容与原始工具秘密参数不进入目录；队员资料作为协作数据，不获得系统指令权限。
+UI 资料卡、`@` 候选和显式 `agent_swarm_directory` 继续消费同一个受验证的完整目录，不各自猜测或维护姓名缓存。完整条目包括稳定 ID、名称、职责、职业、性格、简介、Skills 名称及用途、assigned 与 Session-visible 状态、工具可用/需批准/禁用信息、当前 provider/model、图像能力、成员阶段、当前任务及各来源时间。自动摘要限制成员和任务数量、缩略长职责与题目，并标明未读数量及显式读取入口；需要完整资料、能力或任务详情时再读取对应工具。Skill 正文通过已有授权读能力按需获取，不将分配某 Skill 等同于已学会、已使用或有权调用全部相关工具。成员私有记忆、凭据、系统私密内容与原始工具秘密参数不进入目录；队员资料作为协作数据，不获得系统指令权限。
 
 图像能力读取目标 Agent 当前解析模型的官方 `inputModalities`，并与实际组合/权限一起确认：包含 `image` 为已声明支持，明确省略为不支持，字段缺失为未知。不得依据模型名称、职业、性格或自我介绍猜测。派发协助时重新核验目录 revision 与成员当前状态；模型变更、成员退出或权限撤销会使旧能力判断失效。
 
@@ -263,7 +275,20 @@ flowchart TD
 
 `tests/host-read-scale.spec.ts` 在真实 Storage Domain 上覆盖多个 Team、成员规模及任务历史，要求同一次 teams RPC 只执行一次 canonical aggregate list，成员及任务历史不进入 selector payload。操作计数不等于延迟或全部 UI 流量承诺；可选 `SWARM_READ_BASELINE` 仅用于对接受基线进行只读比较。
 
-## 8. 实现与验收入口
+## 8. 个人记忆与独立 Skills 模块的目标边界
+
+本节定义已选定的开发方向；维护、自动召回、专用模型、release 和热分配仍须按 [统一开发方案](07-implementation-roadmap.md) 逐项实现与验收，不能由本节推断当前安装版本已提供接口。
+
+- TeamDomain 继续独占业务任务、attempt、review、mailbox 与 workActivity；取消另建 Team 成长账本、成长审核和逐条聊天提炼服务。成员局部协作继续同伴直连，Captain 归并实际技能申请。
+- 私有记忆服务维护本人记录、有效性、容量和逻辑操作幂等，独立 context Consumer 只召回当前合法任务的一小组笔记。本人权限、Session 分区和真实请求留痕不因自动读取被绕过；私有内容不进入共享目录或 Skills 观察入口。
+- 独立 Skills Host 模块拥有自己的 Session/config/disposer、请求与候选、验证/批准记录、不可变 release 和观察游标；专用模型只调用受限 Consumer。可以随现包组合，但不共享 Team mutation authority，不以目录拆包代替生命周期分离。
+- Host 提供绑定真实专用 Session 与授权 workspace/Team 清单的管理读取。复用 Team 聚合、活动分页与精确证据读取，不借操作者 RPC 的根会话身份。首次使用保留历史快照，后续用有界消费者记录追赶；跨 Host/分布式事务不在本轮范围。
+- 技能发现/加载复用官方 scoped SkillRegistry；批准、版本 manifest 和资源树摘要由独立模块维护。Captain 选择获准 release，Host 窄分配接口保存并在安全装配边界应用；assigned/effective/loaded 分开记录，与实际 task/attempt 关联。
+- 官方 Storage Domain 单记录 update 承载需共同原子提交的模块记录；Jobs 仅承载慢验证的观察与取消。模块离线不阻塞任务审核或现有获准版本使用，模型不能自批候选或扩大 allow-list。
+
+自动身份上下文使用轻量成员/当前任务摘要；完整 TeamDirectory 保持显式可读及源一致性检查。本人行为规则、撤权复核和官方 context 恢复保持有效，不能将减少目录读取表述为已经提升实际任务效率。
+
+## 9. 实现与验收入口
 
 | 架构入口 | 源码 |
 |---|---|
