@@ -21,7 +21,9 @@ export function TeamGoalHeader({ goal, teamId, t }: Props) {
   return <section data-swarm-goal>
     <style>{`
       [data-swarm-goal] { min-width:0; font-size:12px; }
-      .swarm-public__header:has([data-swarm-goal]) { max-height:55%; overflow-y:auto; align-items:flex-start; overscroll-behavior:contain; }
+      .swarm-public__header:has([data-swarm-goal]) { max-height:55%; align-items:stretch; }
+      .swarm-public__header:has([data-swarm-goal])>div { min-height:0; overflow-y:auto; overscroll-behavior:contain; }
+      .swarm-public__header:has([data-swarm-goal])>details, .swarm-public__header:has([data-swarm-goal])>button { align-self:flex-start; }
       .swarm-public__header [data-swarm-goal] p { display:block; overflow:visible; -webkit-line-clamp:unset; }
       [data-swarm-goal] button { font:inherit; color:inherit; cursor:pointer; padding:5px 8px; border:1px solid var(--dsw-alias-border-l2); border-radius:6px; background:var(--dsw-alias-bg-layer-1); }
       [data-swarm-goal] button:disabled { opacity:.5; cursor:default; }

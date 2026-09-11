@@ -310,7 +310,7 @@ it.each(['absent', 'claimed'] as const)('checks a %s pending assistance deadline
     })
     expect(await fixture.asCaptain('agent_swarm_request_visual_assistance', args)).toMatchObject({ isError: false })
     await vi.waitFor(async () => expect(publicDeliveries((await fixture.team()).publicChat!.messages[1]!)[0])
-      .toMatchObject(state === 'claimed' ? { state: 'claimed' } : { state: 'queued', deferredReason: 'image-capability-unknown' }))
+      .toMatchObject(state === 'claimed' ? { state: 'claimed' } : { state: 'queued', deferredReason: 'image-capability-unknown' }), VISUAL_GATE_WAIT)
     await live.close(); live = undefined; committed.mockRestore()
     now += VISUAL_ASSISTANCE_TTL_MS + 1
     const afterAdapter = new AssistanceRecording(); afterAdapter.autoRequest = false; afterAdapter.autoComplete = false
@@ -341,7 +341,7 @@ it('recovers a committed helper image request after full teardown and completes 
     })
     expect(await fixture.asCaptain('agent_swarm_request_visual_assistance', args)).toMatchObject({ isError: false })
     await vi.waitFor(async () => expect(publicDeliveries((await fixture.team()).publicChat!.messages[1]!)[0])
-      .toMatchObject({ state: 'queued', deferredReason: 'image-capability-unknown', projection: { mode: 'images' } }))
+      .toMatchObject({ state: 'queued', deferredReason: 'image-capability-unknown', projection: { mode: 'images' } }), VISUAL_GATE_WAIT)
     const before = assistanceRows(await fixture.team())[0]!
     await live.close(); live = undefined; committed.mockRestore()
     const afterAdapter = new AssistanceRecording(); afterAdapter.autoRequest = false
@@ -410,7 +410,7 @@ it('reserves a durable result slot and its worst escaped summary before admittin
   try {
     const args = await originalImage(fixture)
     expect(await fixture.asCaptain('agent_swarm_request_visual_assistance', args)).toMatchObject({ isError: false })
-    await vi.waitFor(async () => expect(publicDeliveries((await fixture.team()).publicChat!.messages[1]!)[0]!.state).toBe('claimed'))
+    await vi.waitFor(async () => expect(publicDeliveries((await fixture.team()).publicChat!.messages[1]!)[0]!.state).toBe('claimed'), VISUAL_GATE_WAIT)
     const before = await fixture.team(), row = assistanceRows(before)[0]!, reserved = publicChatReservedBytes(before.publicChat!)
     await live.close(); live = undefined
     storage = await openStorageStack(join(fixture.sandbox, 'storage'))
@@ -496,7 +496,7 @@ it('binds original image-2 and image-10 to their actual helper image blocks and 
     const images = Array.from({ length: 10 }, (_, index) => ({ ...(index === 1 ? GIF_IMAGE : PNG_IMAGE), name: `original-${index + 1}.${index === 1 ? 'gif' : 'png'}` }))
     const sent = await fixture.call('append', { requestId: 'ten-original-images', content: images })
     expect(sent.ok, JSON.stringify(sent)).toBe(true)
-    await vi.waitFor(async () => expect(publicDeliveries((await fixture.team()).publicChat!.messages[0]!)[0]!.state).toBe('claimed'))
+    await claimedImage(fixture, sent.value.message.id, fixture.captain.id)
     const source = (await fixture.team()).publicChat!.messages[0]!
     if (!isPublicMessageV3(source)) throw new Error('Expected v3 source')
     const original = source.content.filter((part): part is StoredPublicImageSegment => part.type === 'image' && ['image-2', 'image-10'].includes(part.imageId))
@@ -505,7 +505,7 @@ it('binds original image-2 and image-10 to their actual helper image blocks and 
       source_message_id: sent.value.message.id, image_ids: ['image-10', 'image-2'], helper_member_id: fixture.helperId,
       question: 'Describe original image-2, then original image-10, with their exact IDs.' })
     expect(requested.isError, JSON.stringify(requested)).toBe(false)
-    await vi.waitFor(async () => expect(publicDeliveries((await fixture.team()).publicChat!.messages[1]!)[0]!.state).toBe('claimed'))
+    await vi.waitFor(async () => expect(publicDeliveries((await fixture.team()).publicChat!.messages[1]!)[0]!.state).toBe('claimed'), VISUAL_GATE_WAIT)
     const team = await fixture.team(), row = assistanceRows(team)[0]!, request = team.publicChat!.messages[1]!
     // The durable dedup set is sorted; the frame and model blocks must agree on actual source order.
     expect(row.imageIds).toEqual(['image-10', 'image-2'])
@@ -550,11 +550,11 @@ it.each(['request', 'result'] as const)('keeps literal odd/even backslashes befo
   try {
     const args = await originalImage(fixture)
     expect(await fixture.asCaptain('agent_swarm_request_visual_assistance', { ...args, question: literal })).toMatchObject({ isError: false })
-    await vi.waitFor(async () => expect(publicDeliveries((await fixture.team()).publicChat!.messages[1]!)[0]!.state).toBe('claimed'))
+    await vi.waitFor(async () => expect(publicDeliveries((await fixture.team()).publicChat!.messages[1]!)[0]!.state).toBe('claimed'), VISUAL_GATE_WAIT)
     const row = assistanceRows(await fixture.team())[0]!
     expect(await fixture.asHelper('agent_swarm_complete_visual_assistance', { request_id: 'literal-complete', assistance_id: row.assistanceId,
       outcome: { state: 'completed', summary: literal } })).toMatchObject({ isError: false })
-    await vi.waitFor(async () => expect(publicDeliveries((await fixture.team()).publicChat!.messages[2]!)[0]!.state).toBe('claimed'))
+    await vi.waitFor(async () => expect(publicDeliveries((await fixture.team()).publicChat!.messages[2]!)[0]!.state).toBe('claimed'), VISUAL_GATE_WAIT)
     const index = kind === 'request' ? 1 : 2, recipient = kind === 'request' ? fixture.helperId : fixture.captain.id
     const page = await fixture.call('history')
     expect(page.value.entries[index].text).toBe(literal)

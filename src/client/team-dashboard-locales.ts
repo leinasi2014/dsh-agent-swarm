@@ -1,3 +1,4 @@
+import { publicReadingEn, publicReadingZh } from './public-reading-locales.js'
 import { workEn, workZh } from './work-request-locales.js'
 import { goalEn, goalZh } from './goal-locales.js'
 import { publicMentionsEn, publicMentionsZh } from './public-mentions-locales.js'
@@ -8,6 +9,7 @@ export const TEAM_DASHBOARD_NS = 'swarm.team-dashboard' as const
 export const en = {
   ...goalEn,
   ...workEn,
+  ...publicReadingEn,
   'public.title': "Team conversation",
   'public.groups': "Team groups",
   'public.goalEmpty': "No public goal yet",
@@ -17,7 +19,6 @@ export const en = {
   'public.earlier': "Earlier messages",
   'public.newer': "Newer messages",
   'public.reply': "Reply",
-  'public.replyOutside': "Reply to a message outside the loaded page",
   'public.cancelReply': "Cancel reply",
   'public.unknown': "Submission awaiting confirmation. Retry keeps the original request.",
   'public.recover': "Confirm / retry original",
@@ -303,6 +304,7 @@ export const en = {
 export const zh: Record<keyof typeof en, string> = {
   ...goalZh,
   ...workZh,
+  ...publicReadingZh,
   'public.title': "团队群聊",
   'public.groups': "团队群聊",
   'public.goalEmpty': "暂未发布团队目标",
@@ -312,7 +314,6 @@ export const zh: Record<keyof typeof en, string> = {
   'public.earlier': "更早的消息",
   'public.newer': "更新的消息",
   'public.reply': "引用回复",
-  'public.replyOutside': "引用的消息不在当前已加载页中",
   'public.cancelReply': "取消引用",
   'public.unknown': "发送结果待确认；重试将沿用原请求。",
   'public.recover': "确认 / 重试原请求",
