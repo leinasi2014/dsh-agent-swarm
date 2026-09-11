@@ -34,3 +34,15 @@ describe('assertServiceableConfig global toolPolicy protocol-floor guard (issue 
     expect(() => assertServiceableConfig(config({ deny: ['bash'], ask: ['ls'] }))).not.toThrow()
   })
 })
+
+describe('startup recovery exclusion configuration', () => {
+  it('accepts the default, an empty list, or distinct exact Team IDs', () => {
+    for (const value of [{}, { startupRecoveryExcludedTeamIds: [] }, { startupRecoveryExcludedTeamIds: ['team-existing-one', 'team-existing-two'] }]) {
+      expect(() => assertServiceableConfig(value)).not.toThrow()
+    }
+  })
+
+  it.each([[''], [' '], [' team-existing'], ['team-existing '], ['team-existing', 'team-existing']])('rejects empty, padded or repeated IDs: %j', (...ids) => {
+    expect(() => assertServiceableConfig({ startupRecoveryExcludedTeamIds: ids })).toThrow('startupRecoveryExcludedTeamIds')
+  })
+})

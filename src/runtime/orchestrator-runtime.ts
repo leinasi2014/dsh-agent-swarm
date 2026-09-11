@@ -180,6 +180,7 @@ export class AgentSwarmRuntime extends Service {
       kickPublicMessages: (scope, teamId) => this.kickPublicMessages(scope, teamId),
     })
     this.activationRecovery = new ManagedActivationRecovery(ctx, {
+      excludedTeamIds: config.startupRecoveryExcludedTeamIds ?? new Set(),
       teams: scope => this.listTeamAggregates(scope),
       trackChild: (parent, childId) => this.trackChild(parent, childId),
       drainPublic: (scope, team) => this.delivery.deliverPublicMessages(scope, team.id, this.publicAbort.signal),

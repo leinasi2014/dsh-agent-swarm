@@ -16,6 +16,8 @@ export const DEFAULT_WORKFLOW_MAX_TOTAL_AGENTS = 1_000
 /** User-facing plugin configuration. Runtime code must consume only this normalized surface. */
 export interface Config {
   enabled?: boolean
+  /** Exact Team IDs omitted from automatic startup recovery; restart-applied. */
+  startupRecoveryExcludedTeamIds?: string[]
   executionGuard?: boolean
   swarmGesture?: boolean
   communicationIntensity?: TeamCommunicationIntensity
@@ -66,6 +68,7 @@ export interface Config {
 
 export const Config: z<Config> = z.object({
   enabled: z.boolean().default(true),
+  startupRecoveryExcludedTeamIds: z.array(z.string()).default([]),
   executionGuard: z.boolean().default(true),
   swarmGesture: z.boolean().default(true),
   communicationIntensity: z.union(['quiet', 'balanced', 'active']).default('active'),
@@ -121,6 +124,11 @@ export const Config: z<Config> = z.object({
 /** Validate combinations before any runtime, listener or storage side effect is created. */
 export function assertServiceableConfig(value: Config): void {
   assertCommunicationIntensity(value.communicationIntensity ?? 'active')
+  const excluded = value.startupRecoveryExcludedTeamIds ?? []
+  if (!Array.isArray(excluded) || excluded.some(id => typeof id !== 'string' || id.length === 0 || id.trim() !== id)
+    || new Set(excluded).size !== excluded.length) {
+    throw new Error('agent-swarm: startupRecoveryExcludedTeamIds must contain unique, non-empty, trimmed Team IDs')
+  }
   for (const [field, raw] of [
     ['memberProvider', value.memberProvider ?? 'spawn'],
     ['schedulerProvider', value.schedulerProvider ?? 'priority-ready'],

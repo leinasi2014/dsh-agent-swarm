@@ -62,18 +62,30 @@ it('does not readmit a public frame dequeued by a busy real driver awaiting prom
     const coldCall = await publicClient(cold, teamId)
     await coldCall('append', request)
     await vi.waitFor(async () => expect(publicDeliveries((await cold!.ctx.agentSwarm.listTeamAggregates(scope))[0]!.publicChat!.messages[0]!)[0]?.state).toBe('claimed'), { timeout: 10_000 })
-    const coldStored = await readPersistedSession(cold.ctx.sessionPersistence, captain.id, SIGNAL)
-    expect(coldStored.events.filter(event => event.type === 'user/message' && framePredicate(frame)(event.data))).toHaveLength(1)
+    // A claimed frame is live evidence, not a persistence checkpoint. Keep
+    // the official activation leased through its idle flush and stored read.
+    await cold.ctx.subagents.withContinuableChild(cold.ctx.agents.get(root.id)!, captain.id, SIGNAL, async recovered => {
+      await recovered.whenIdle()
+      expect(messageClaimed(recovered.session.snapshotEvents(), framePredicate(frame))).toBe(true)
+      expect(await recovered.ctx.sessions.flush(recovered.session)).toBe(true)
+      const coldStored = await readPersistedSession(cold!.ctx.sessionPersistence, captain.id, SIGNAL)
+      expect(coldStored.events.filter(event => event.type === 'user/message' && framePredicate(frame)(event.data))).toHaveLength(1)
+    })
     await cold.close(); cold = undefined
     await call('append', request)
     await drains.mock.results.at(-1)!.value
-    release()
-    await active.whenIdle()
-    const stored = await readPersistedSession(f.ctx.sessionPersistence, captain.id, SIGNAL)
-    const insertions = stored.events.flatMap(event => event.type === 'agent/inbox/spliced' ? event.data.inserted : []).filter(framePredicate(frame))
-    const claims = stored.events.flatMap(event => event.type === 'user/message' ? [event.data] : []).filter(framePredicate(frame))
-    expect({ admissions: prompts.mock.calls.filter(([args]) => args.requestId === sent.message.id).length,
-      insertions: insertions.length, claims: claims.length }).toEqual({ admissions: 1, insertions: 1, claims: 1 })
+    await f.ctx.subagents.withContinuableChild(root, captain.id, SIGNAL, async live => {
+      expect(live).toBe(active)
+      release()
+      await live.whenIdle()
+      expect(messageClaimed(live.session.snapshotEvents(), framePredicate(frame))).toBe(true)
+      expect(await live.ctx.sessions.flush(live.session)).toBe(true)
+      const stored = await readPersistedSession(f.ctx.sessionPersistence, captain.id, SIGNAL)
+      const insertions = stored.events.flatMap(event => event.type === 'agent/inbox/spliced' ? event.data.inserted : []).filter(framePredicate(frame))
+      const claims = stored.events.flatMap(event => event.type === 'user/message' ? [event.data] : []).filter(framePredicate(frame))
+      expect({ admissions: prompts.mock.calls.filter(([args]) => args.requestId === sent.message.id).length,
+        insertions: insertions.length, claims: claims.length }).toEqual({ admissions: 1, insertions: 1, claims: 1 })
+    })
     await vi.waitFor(async () => expect(publicDeliveries((await f.ctx.agentSwarm.domain.snapshot(scope, teamId, captain.id)).team.publicChat!.messages[0]!)[0]?.state).toBe('claimed'))
   } finally {
     off?.(); release(); adapter.release(); vi.restoreAllMocks(); await cold?.close(); await f.close()
