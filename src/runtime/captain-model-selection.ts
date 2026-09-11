@@ -101,25 +101,39 @@ export class CaptainModelSelection {
     return selected
   }
 
-  async select(exec: ToolExecutionAuthority, input: { llmProvider: string; model: string; reasoningEffort?: string }): Promise<ModelSelection> {
+  /** The one guarded entry behind both public selections: shared liveness and
+   * membership base, with only the authorization variant differing. */
+  private async selectSelf(exec: ToolExecutionAuthority, input: { llmProvider: string; model: string; reasoningEffort?: string }, captainOnly: boolean): Promise<ModelSelection> {
     const agent = requireAgent(exec), scope = this.deps.scopeOf(agent)
+    const kind = captainOnly ? 'Captain' : 'Participant'
     const assertLive = () => {
       exec.signal.throwIfAborted()
       this.deps.assertOpen()
       if (this.closing || this.ctx.agents.get(agent.id) !== agent || agent.session.id !== agent.id)
-        throw new TeamDomainError('Captain Session is no longer live', 'TEAM_RUNTIME_CLOSING')
+        throw new TeamDomainError(`${kind} Session is no longer live`, 'TEAM_RUNTIME_CLOSING')
     }
     const authorize = async () => {
       assertLive()
       const membership = await this.deps.domain().requireMembership(scope, agent.id)
       assertLive()
-      if (membership.role !== 'captain' || membership.team.phase !== 'active')
-        throw new TeamDomainError('Only the active Captain may select its own model', 'TEAM_CAPTAIN_REQUIRED')
-      if (agent.session.header.parentSession === undefined || membership.team.managedOrigin === undefined)
-        throw new TeamDomainError('This tool requires a dedicated managed Captain; a legacy root Captain uses the Host model selector', 'TEAM_DEDICATED_CAPTAIN_REQUIRED')
+      if (captainOnly) {
+        if (membership.role !== 'captain' || membership.team.phase !== 'active')
+          throw new TeamDomainError('Only the active Captain may select its own model', 'TEAM_CAPTAIN_REQUIRED')
+        if (agent.session.header.parentSession === undefined || membership.team.managedOrigin === undefined)
+          throw new TeamDomainError('This tool requires a dedicated managed Captain; a legacy root Captain uses the Host model selector', 'TEAM_DEDICATED_CAPTAIN_REQUIRED')
+      } else {
+        if (membership.team.phase !== 'active')
+          throw new TeamDomainError('Only an active Team participant may select its own model', 'TEAM_PARTICIPANT_REQUIRED')
+        if (agent.session.header.parentSession === undefined)
+          throw new TeamDomainError('Model self-selection requires a plugin-owned continuable participant; a legacy root Captain uses the Host model selector', 'TEAM_DEDICATED_CAPTAIN_REQUIRED')
+      }
       return membership.team
     }
-    return await this.commit(exec, agent, scope, input, { assertLive, authorize, kind: 'Captain' })
+    return await this.commit(exec, agent, scope, input, { assertLive, authorize, kind })
+  }
+
+  async select(exec: ToolExecutionAuthority, input: { llmProvider: string; model: string; reasoningEffort?: string }): Promise<ModelSelection> {
+    return await this.selectSelf(exec, input, true)
   }
 
   /**
@@ -131,23 +145,6 @@ export class CaptainModelSelection {
    * the Session. A cold participant installs through the Team identity roster.
    */
   async selectParticipant(exec: ToolExecutionAuthority, input: { llmProvider: string; model: string; reasoningEffort?: string }): Promise<ModelSelection> {
-    const agent = requireAgent(exec), scope = this.deps.scopeOf(agent)
-    const assertLive = () => {
-      exec.signal.throwIfAborted()
-      this.deps.assertOpen()
-      if (this.closing || this.ctx.agents.get(agent.id) !== agent || agent.session.id !== agent.id)
-        throw new TeamDomainError('Participant Session is no longer live', 'TEAM_RUNTIME_CLOSING')
-    }
-    const authorize = async () => {
-      assertLive()
-      const membership = await this.deps.domain().requireMembership(scope, agent.id)
-      assertLive()
-      if (membership.team.phase !== 'active')
-        throw new TeamDomainError('Only an active Team participant may select its own model', 'TEAM_PARTICIPANT_REQUIRED')
-      if (agent.session.header.parentSession === undefined)
-        throw new TeamDomainError('Model self-selection requires a plugin-owned continuable participant; a legacy root Captain uses the Host model selector', 'TEAM_DEDICATED_CAPTAIN_REQUIRED')
-      return membership.team
-    }
-    return await this.commit(exec, agent, scope, input, { assertLive, authorize, kind: 'Participant' })
+    return await this.selectSelf(exec, input, false)
   }
 }

@@ -120,14 +120,14 @@ async function installHost(ctx: Context, fibers: Fiber[], sandbox: string, adapt
 }
 
 /** Reuse an existing ROOT (the seeded case pre-creates it) or create it once. */
-async function ensureRoot(first: RestartMounted, sandbox: string, route: { provider: string; model: string; reasoningEffort?: string }) {
+async function ensureRoot(first: RestartMounted, sandbox: string, route: { provider: string; model: string; reasoningEffort?: ReasoningEffortId }) {
   const existing = first.ctx.agents.get(ROOT)
   if (existing !== undefined) return existing
   return await first.ctx.agentLoop.create(ROOT, route, { cwd: join(sandbox, 'workspace') })
 }
 
 /** Setup turns must not end in error; agents without any turn are fine. */
-function expectCompletedTurns(...agents: readonly { session: { snapshotEvents(): Array<{ type: string; data: { reason?: unknown } }> } }[]): void {
+function expectCompletedTurns(...agents: readonly Agent[]): void {
   for (const agent of agents) {
     const last = agent.session.snapshotEvents().filter(event => event.type === 'turn/end').at(-1)
     if (last !== undefined) expect(last.data.reason).toEqual({ kind: 'completed' })
@@ -149,7 +149,7 @@ interface LeasedTeam {
  * the always-live Main root escape the leases. `primeRootTurn` gives the Main
  * one real initial user turn (the canonical persisted request/header the
  * recovery contract reads); cold-restart cases use it. */
-async function withRecruitedTeam(first: RestartMounted, sandbox: string, memberRoute: { provider: string; model: string; reasoningEffort?: string }, run: (team: LeasedTeam) => Promise<void>, options: { rootRoute?: { provider: string; model: string; reasoningEffort?: string }; onCaptain?: (captainId: string) => void; primeRootTurn?: boolean } = {}): Promise<void> {
+async function withRecruitedTeam(first: RestartMounted, sandbox: string, memberRoute: { provider: string; model: string; reasoningEffort?: ReasoningEffortId }, run: (team: LeasedTeam) => Promise<void>, options: { rootRoute?: { provider: string; model: string; reasoningEffort?: ReasoningEffortId }; onCaptain?: (captainId: string) => void; primeRootTurn?: boolean } = {}): Promise<void> {
   const root = await ensureRoot(first, sandbox, options.rootRoute ?? ROUTE)
   if (options.primeRootTurn === true) {
     root.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Prepare the Team.' }] }))
@@ -319,27 +319,30 @@ it.each(['pending', 'consumed', 'default'] as const)('restores the %s member sel
       expect(ctx.agents.get(memberId)).toBeUndefined()
       return installHost(ctx, fibers, sandbox, afterRestart)
     })
+    // Bind the mounted instance once; closures below read this const, never
+    // the mutable cleanup slot.
+    const recovered = second
     // Wait for real recovery evidence with real matchers, then take the
     // recovered root from the registry; the Captain continues once by
     // recovery. Wake the cold member through real child mail, leased so the
     // captain stays the exact live parent for the send.
-    await vi.waitFor(() => expect(second!.ctx.agents.get(ROOT)).toBeDefined(), { timeout: 10_000 })
-    const root = second.ctx.agents.get(ROOT)!
+    await vi.waitFor(() => expect(recovered.ctx.agents.get(ROOT)).toBeDefined(), { timeout: 10_000 })
+    const root = recovered.ctx.agents.get(ROOT)!
     // The unfinished task survived the restart: the Team was worth
     // recovering and still carries its in-development debt.
-    const reloaded = (await second.ctx.agentSwarm.listTeamAggregates(second.ctx.agentSwarm.scopeOf(root))).find(team => team.id === teamId)!
+    const reloaded = (await recovered.ctx.agentSwarm.listTeamAggregates(recovered.ctx.agentSwarm.scopeOf(root))).find(team => team.id === teamId)!
     expect(reloaded.tasks.some(task => task.id === debtTaskId)).toBe(true)
     await vi.waitFor(() => expect(afterRestart.requests.some(request => request.sessionId === captainId)).toBe(true), { timeout: 10_000 })
-    await second.ctx.subagents.withContinuableChild(root, captainId, SIGNAL, async captain => {
+    await recovered.ctx.subagents.withContinuableChild(root, captainId, SIGNAL, async captain => {
       await captain.whenIdle()
-      await second.ctx.subagents.sendMessage(captain, memberId, [{ type: 'text', text: 'Continue after restart.' }], { signal: SIGNAL })
+      await recovered.ctx.subagents.sendMessage(captain, memberId, [{ type: 'text', text: 'Continue after restart.' }], { signal: SIGNAL })
     })
     await vi.waitFor(() => expect(afterRestart.requests.some(request => request.sessionId === memberId)).toBe(true), { timeout: 10_000 })
     expect(afterRestart.requests.find(request => request.sessionId === memberId)).toMatchObject(NEXT)
-    const resumedMember = second.ctx.agents.get(memberId)
+    const resumedMember = recovered.ctx.agents.get(memberId)
     if (resumedMember !== undefined) await resumedMember.whenIdle()
-    await second.ctx.sessionPersistence.flush()
-    const persisted = await readPersistedSession(second.ctx.sessionPersistence, memberId, SIGNAL)
+    await recovered.ctx.sessionPersistence.flush()
+    const persisted = await readPersistedSession(recovered.ctx.sessionPersistence, memberId, SIGNAL)
     expect(persisted.events.slice(persisted.inheritedEventCount ?? 0).filter(event => event.type === 'subagent/descriptor')).toHaveLength(1)
     expect(persisted.events.filter(event => event.type === 'turn/end').at(-1)?.data.reason).toEqual({ kind: 'completed' })
   } finally {
