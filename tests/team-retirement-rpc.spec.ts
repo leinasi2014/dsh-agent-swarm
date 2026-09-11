@@ -274,7 +274,8 @@ it('archives through authenticated operator RPC and preserves the archived Team 
   const adapter = new Recording()
   const f = await setup(sandbox, adapter, true)
   try {
-    const { captain, teamId, scope } = await createTeam(f, sandbox)
+    const { root, captain, teamId, scope } = await createTeam(f, sandbox)
+    const memberIds = await addPublicMembers(f, root, captain.id)
     await vi.waitFor(() => expect(f.routes.some(route => route.path === '/swarm-public')).toBe(true))
     const auth = await fetch(f.ctx.connection.authenticatedUrl(f.base + '/'), { redirect: 'manual' })
     const cookie = auth.headers.get('set-cookie')!.split(';')[0]!
@@ -298,6 +299,15 @@ it('archives through authenticated operator RPC and preserves the archived Team 
     expect(await f.ctx.sessionPersistence.stat(ROOT)).toBeDefined()
     const beforeCalls = adapter.requests.length
     const historyCall = await retirementClient(f, teamId)
+    const membersResponse = await fetch(f.base + '/swarm/v1', { method: 'POST', headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({ schemaVersion: 1, method: 'captainMembers', target: { rootSessionId: ROOT, teamId } }) })
+    const members = await membersResponse.json()
+    expect(members, JSON.stringify(members)).toMatchObject({ ok: true, value: { binding: { rootSessionId: captain.id, teamId } } })
+    expect(members.value.members.map((row: { historySessionId?: string }) => row.historySessionId)).toEqual(memberIds)
+    expect(members.value.members.every((row: { phase: string; sessionId?: string; composition: { state: string; reason: string } }) =>
+      row.phase === 'removed' && row.sessionId === undefined && row.composition.state === 'unavailable' && row.composition.reason === 'removed')).toBe(true)
+    expect(await historyCall('history', { sessionId: memberIds[0], cursor: 0 })).toMatchObject({ ok: true, value: { readonly: true, sessionId: memberIds[0] } })
+    expect(memberIds.every(id => f.ctx.agents.get(id) === undefined && f.ctx.sessions.get(id) === undefined)).toBe(true)
     const history = await historyCall('history', { sessionId: captain.id, cursor: 0 })
     expect(history, JSON.stringify(history)).toMatchObject({ ok: true, value: { readonly: true, sessionId: captain.id } })
     expect(history.value.entries.some((entry: { role: string; content: string }) => entry.role === 'assistant' && entry.content.includes('PRIVATE SESSION OUTPUT MUST STAY PRIVATE'))).toBe(true)

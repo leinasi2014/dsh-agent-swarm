@@ -75,10 +75,11 @@ export function TeamGroupNavigation(props: Props) {
               const entry = chat?.directory?.binding.teamId === selected && chat.directory.binding.rootSessionId === data.projection.binding.rootSessionId
                 ? chat.directory.entries.find(row => row.role === 'member' && row.memberId === member.sessionId && row.name === member.name) : undefined
               const busy = pending?.scope === scope && pending.name === member.name
+              const sessionId = team.phase === 'archived' ? member.historySessionId : member.sessionId
               return <li key={member.name}><button type="button" data-swarm-group-member={member.name} aria-busy={busy}
                 title={`${entry?.label ?? (member.displayName || member.name)} · ${member.name}`}
-                disabled={member.sessionId === undefined || (team.phase !== 'archived' && (member.phase !== 'active' || !data.projection.roster.some(row => row.name === member.name && row.phase === 'active')))}
-                onClick={() => { if (member.sessionId !== undefined) { if (team.phase === 'archived') history(team.teamId, member.sessionId); else handoff(() => props.openMember(member.name, member.sessionId!), member.name) } }}><span>{entry?.label ?? (member.displayName || member.name)}</span><small>{busy ? props.t('loading') : member.name}</small></button></li>
+                disabled={sessionId === undefined || (team.phase !== 'archived' && (member.phase !== 'active' || !data.projection.roster.some(row => row.name === member.name && row.phase === 'active')))}
+                onClick={() => { if (sessionId !== undefined) { if (team.phase === 'archived') history(team.teamId, sessionId); else handoff(() => props.openMember(member.name, sessionId), member.name) } }}><span>{entry?.label ?? (member.displayName || member.name)}</span><small>{busy ? props.t('loading') : member.name}</small></button></li>
             }) : <li role="status">{props.t('loading')}</li>}
 
           </ul> : null}

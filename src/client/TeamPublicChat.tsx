@@ -91,7 +91,7 @@ export function TeamPublicChat(props: Props) {
     && (state.draft.text.trim() !== '' || (state.draft.images?.length ?? 0) > 0) && bytes <= state.history.limits.maxTextBytes
   return <section className="swarm-public" data-swarm-public-chat data-team-id={sameTeam ? selected.team : undefined}>
     <style>{publicChatCss}</style>
-    <header className="swarm-public__header"><div><h1>{team?.name ?? t('public.title')}</h1>{props.goal !== undefined && sameTeam ? <TeamGoalHeader goal={props.goal} teamId={selected.team} t={t} /> : team?.goal.state === 'generated' ? <details className="swarm-public__goal"><summary>{team.goal.text}</summary><p>{team.goal.text}</p></details> : <p>{t('public.goalEmpty')}</p>}</div>
+    <header className="swarm-public__header"><div><h1>{team?.name ?? t('public.title')}</h1>{props.goal !== undefined && sameTeam && team?.phase !== 'archived' ? <TeamGoalHeader goal={props.goal} teamId={selected.team} t={t} /> : team?.goal.state === 'generated' ? <details className="swarm-public__goal"><summary>{team.goal.text}</summary><p>{team.goal.text}</p></details> : <p>{t('public.goalEmpty')}</p>}</div>
       <details ref={menu} className="swarm-public__navigation" data-public-navigation onKeyDown={event => { if (event.key === 'Escape' && menu.current) { menu.current.open = false; menu.current.querySelector('summary')?.focus({ preventScroll: true }) } }}>
         <summary>{t('public.navigate')}</summary><div><button type="button" disabled={!sameTeam || state.entries.length === 0} onClick={jump}>{t('public.loadedEnd')}</button></div>
       </details>

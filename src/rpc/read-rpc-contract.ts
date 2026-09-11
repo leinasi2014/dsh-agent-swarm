@@ -224,6 +224,8 @@ export interface SwarmReadCaptainMemberRowV1 {
   readonly name: string
   /** Exact active roster Session, disclosed only with a validated descriptor. */
   readonly sessionId?: string
+  /** Archived, removed member's exact durable Session. Opens read-only history only. */
+  readonly historySessionId?: string
   readonly role: string
   readonly phase: 'provisioning' | 'active' | 'failed' | 'removed'
   readonly createdAt: number
