@@ -32,6 +32,8 @@ import { PublicChatClient } from './public-rpc-client.js'
 import { PublicChatController } from './public-chat-controller.js'
 import { TeamPublicChat } from './TeamPublicChat.js'
 import { TeamGroupNavigation } from './TeamGroupNavigation.js'
+import { RetirementClient } from './retirement-client.js'
+import type { RetirementResult } from '../shared/team-retirement.js'
 import {
   TeamSkillSettingsCard,
   TEAM_SKILL_SETTINGS_NS,
@@ -94,6 +96,11 @@ export function apply(ctx: ClientContext): void {
   })
   const work = new WorkRequestController(new WorkRequestClient(connection.rpc), globalThis.location?.origin ?? 'local')
   const goal = new GoalController(new GoalClient(connection.rpc), globalThis.location?.origin ?? 'local')
+  const retirement = new RetirementClient(connection.rpc, {
+    get length() { return globalThis.sessionStorage.length }, key: index => globalThis.sessionStorage.key(index),
+    getItem: key => globalThis.sessionStorage.getItem(key), setItem: (key, value) => { globalThis.sessionStorage.setItem(key, value) },
+    removeItem: key => { globalThis.sessionStorage.removeItem(key) },
+  })
   // Slot injection can run again during Host refreshes; mounted images keep one reader.
   const readPublicImage = (messageId: string, imageId: string, signal: AbortSignal): Promise<Blob> => chat.image(messageId, imageId, signal)
   const groupPanel = 'swarm.group' as MainPanelId
@@ -152,7 +159,10 @@ export function apply(ctx: ClientContext): void {
   })
   ctx.slots.inject('sidebar.navigation.section', () => ctx.slots.register({
     name: 'sidebar.navigation.section', id: 'swarm.groups', locale: TEAM_DASHBOARD_NS,
-    inject: () => ({ hooks: { team: controller, chat }, refreshDirectory: () => { void chat.refreshDirectory() },
+    inject: () => ({ hooks: { team: controller, chat }, retirement, retired: async (result: RetirementResult) => {
+      coordinator.openRetirementMainChat(result.target.rootSessionId)
+      controller.open(result.target.rootSessionId); controller.refresh(); ctx.layout.selectPanel(groupPanel)
+    }, refreshDirectory: () => { void chat.refreshDirectory() },
       selectGroup: (teamId: string) => { controller.selectTeam(teamId); ctx.layout.selectPanel(groupPanel) },
       openMain: async () => { await coordinator.openMainChat(); ctx.layout.selectPanel(null) },
       openCaptain: async () => { await coordinator.openCaptainChat(); ctx.layout.selectPanel(null) },

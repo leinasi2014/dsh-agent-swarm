@@ -15,6 +15,7 @@ import { DEFAULT_TEAM_LIMITS } from '../domain/team-domain.js'
 import { normalizeAllowedSkills } from '../domain/team-skill-policy.js'
 import { recoverActiveRosters } from '../runtime/usage-recovery.js'
 import { TeamBridgeWorkflowEngine } from '../runtime/workflow/team-bridge-engine.js'
+import { RetirementData } from '../runtime/retirement-data.js'
 import { TeamJobProjection } from '../runtime/jobs/team-job-projection.js'
 import { MemberPrivateMemoryService } from '../runtime/member-private-memory-service.js'
 import { MemberPrivateMemoryStore, privateMemoryDomainSpec } from '../storage/member-private-memory.js'
@@ -152,6 +153,7 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
 
   // Fail closed: official Storage Domain opens before tools/listeners.
   await runtime.start()
+  ctx.effect(() => runtime.retirement.install(), 'agent-swarm: retired Session admission')
   ctx.effect(() => runtime.captainModels.install(), 'agent-swarm: Captain model selection lifecycle')
   ctx.effect(() => async () => {
     await drainHumanInteractions?.()
@@ -330,6 +332,26 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
   ctx.effect(() => ctx.on('session/event', (session, event) => {
     runtime.observeSessionEvent(session, event)
   }), 'agent-swarm: token accounting')
+  // M2-1 (issue #75): the Team bridge workflow engine. Registered in an
+  // isolated `workflowEngine` service scope (the official mechanism for a
+  // second implementation beside the default-scope official engine) and
+  // fail-closed on the overlay domain. Registered AFTER the runtime disposal
+  // effect so Cordis's LIFO teardown settles bridge runs before the runtime
+  // store closes (the bridge drives Team state through the runtime).
+  if (config.workflowBridge === true) {
+    const bridge = new TeamBridgeWorkflowEngine(ctx.isolate('workflowEngine'), runtime, {
+      maxTotalAgents: config.workflowMaxTotalAgents ?? DEFAULT_WORKFLOW_MAX_TOTAL_AGENTS,
+      disposeGraceMs: config.workflowDisposeGraceMs ?? DEFAULT_DISPOSAL_TIMEOUT_MS,
+    })
+    ctx.effect(() => () => bridge.dispose(), 'agent-swarm: workflow bridge disposal')
+    await bridge.activate()
+    runtime.workflowBridge = bridge
+    ctx.effect(() => ctx.provide('agentSwarmWorkflow', {
+      start: request => bridge.start(request),
+    }), 'agent-swarm: workflow Consumer')
+  }
+
+  runtime.retirement.bindData(await RetirementData.open(ctx, privateMemoryStore!, humanOverlay!, runtime.workflowBridge))
   try { await runtime.recoverDormantManagedTeams() }
   catch (error) {
     try { await runtime.dispose() }
@@ -348,7 +370,7 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
     // roster's usage from live logs and persisted history so a drop on the
     // live path can never survive a reload as a permanent billed-token gap.
     const scopes = [...new Set(ctx.agents.roots().filter(agent => agent.session.header.parentSession === undefined).map(agent => runtime.scopeOf(agent)))]
-    const startupTeams = async (scope: string) => (await runtime.listTeamAggregates(scope)).filter(team => !startupRecoveryExcludedTeamIds.has(team.id))
+    const startupTeams = async (scope: string) => (await runtime.listTeamAggregates(scope)).filter(team => !startupRecoveryExcludedTeamIds.has(team.id) && !runtime.retirement.isRetired(scope, team.id))
     await recoverActiveRosters(ctx, {
       domain: () => runtime.domain,
       scopes,
@@ -374,25 +396,6 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
     }
     return () => undefined
   }, 'agent-swarm: activation recovery')
-  // M2-1 (issue #75): the Team bridge workflow engine. Registered in an
-  // isolated `workflowEngine` service scope (the official mechanism for a
-  // second implementation beside the default-scope official engine) and
-  // fail-closed on the overlay domain. Registered AFTER the runtime disposal
-  // effect so Cordis's LIFO teardown settles bridge runs before the runtime
-  // store closes (the bridge drives Team state through the runtime).
-  if (config.workflowBridge === true) {
-    const bridge = new TeamBridgeWorkflowEngine(ctx.isolate('workflowEngine'), runtime, {
-      maxTotalAgents: config.workflowMaxTotalAgents ?? DEFAULT_WORKFLOW_MAX_TOTAL_AGENTS,
-      disposeGraceMs: config.workflowDisposeGraceMs ?? DEFAULT_DISPOSAL_TIMEOUT_MS,
-    })
-    ctx.effect(() => () => bridge.dispose(), 'agent-swarm: workflow bridge disposal')
-    await bridge.activate()
-    runtime.workflowBridge = bridge
-    ctx.effect(() => ctx.provide('agentSwarmWorkflow', {
-      start: request => bridge.start(request),
-    }), 'agent-swarm: workflow Consumer')
-  }
-
   // Caller-scoped, read-only task projection. It deliberately is not mounted
   // as `ctx.jobs`: TeamDomainPort owns task lifecycle, while JobRegistry owns
   // producer/controller/teardown semantics this view cannot provide. It is

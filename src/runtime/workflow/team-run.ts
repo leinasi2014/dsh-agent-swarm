@@ -341,6 +341,9 @@ export class TeamRun implements WorkflowRun {
     return claimed
   }
 
+  /** A frozen Team has closed its write admission; await every actual producer before deleting its overlay. */
+  async retire(): Promise<void> { await this.dispose(); await Promise.allSettled(this.inflight) }
+
   /** The single agent-end emission gate: exactly one end per emitted start. */
   private endAgent(seq: number, outcome: 'completed' | 'failed' | 'cancelled'): void {
     const info = this.liveAgents.get(seq)

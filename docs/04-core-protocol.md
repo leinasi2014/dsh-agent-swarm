@@ -46,6 +46,18 @@ Team 阶段为 `staged | active | archived`：`staged` 是 Plan-first 声明态�
 
 根恢复验收须覆盖真实首轮请求写入 Session → 销毁整个 Context → 冷恢复 → Captain 正式上行消息唤醒根协调者，核对 persona 中的模型变量、实际 provider/model/reasoning effort 与最终 turn；只证明 Captain 或成员继续执行不足以通过根协调者恢复。
 
+### 2.2 本地操作者归档与永久删除
+
+团队清退由已认证的本地 Connection 调用 Host 生命周期接口；浏览器只提供 Main/Team 目标、expected revision、request id 和 Host 预览摘要，不提供 Captain 执行身份、Session 清单或文件路径。Host 根据官方 live/persisted lineage 与完整 Team 记录确认 Main 归属，在提交锁内再次检查，支持冷会话、managed child、staged 和 archived 团队。
+
+归档先耐久关闭 Team admission、未完成任务和待投递邮箱，再 drain 专用 Captain、成员及其所属后代，撤销执行 IO 绑定并保留执行目录与工作成果。历史在归档入口只读显示；归档不恢复、不清除 Session 或记忆。删除沿用同一停止边界，清单包括全部 roster、previousSessionIds 和已证实独占的后代；共享 Main、其他 Team 引用、独立 fork、归属不明项与共享附件受保护。无法证明安全范围时拒绝该次删除，不猜测所有权。
+
+删除操作采用独立 Storage Domain 记录最少量 request/result 与恢复进度，不复制聊天或记忆内容。先持久冻结恢复与写入，等待在途提交，再删除该队个人记忆、human interaction、workflow overlay、迁移回执和专属 Session artifacts，Team payload 最后删除。重试读取同一 receipt；半程失败保留冻结状态，启动恢复先处理冻结，再恢复其他团队。非会话成果、模型和项目文件不属于清理范围。
+
+官方 alpha.2 提供 Session dispose、读写句柄和 Storage Domain delete，未提供 Session 永久删除接口。插件的 JSONL 清理 Provider 明确限定 Windows 与固定 alpha.2 文件后端：根目录来自 Host 配置；通过公开当前代次路径与 header 核实严格身份、根包含关系、无链接逃逸；持有官方 write handle 租约时删除整个专属目录及其 generations/metadata。无 pending/live 写者后，官方 stat/list/open 与 query 会重新检查磁盘，删除后以公开搜索触发 SQLite 派生索引 reconcile，不访问私有缓存。POSIX inode 锁不能用这条整目录删除路径。已交付的旧读取快照不构成新的可读会话，也不承诺内存安全擦除。
+
+验收覆盖预览/提交竞态、跨 Team 与 Main 保护、停止和持久提交顺序、部分清理重试、缓存预热后的新查询及重启、真实 React 归档历史与删除确认。所有删除试验仅使用任务自有临时根；当前 Provider 限制通过明确错误暴露。
+
 ## 3. revision 与 attempt 围栏
 
 - Team mutation 在聚合 revision 上串行提交。

@@ -14,6 +14,8 @@ import { projectTeamSummary, type AgentSwarmHostReadService } from './host-read-
 import type { SwarmReadTargetHint, SwarmReadCaptainSectionRequest, SwarmReadSkillCatalogV1, SwarmReadToolCatalogV1, SwarmReadTaskDetailRequest, SwarmReadTaskDetailRequestV2 } from '../rpc/read-rpc-contract.js'
 import { readCaptainSection } from './captain-section-read.js'
 import { projectTaskDetail } from './task-detail-read.js'
+import type { RetirementBinding } from '../runtime/team-retirement.js'
+import type { RetirementTarget } from '../shared/team-retirement.js'
 
 interface RootView {
   readonly id: string
@@ -49,6 +51,40 @@ export class HostTargetReadService {
       const current = async () => { await verify(true); this.assertUnchanged(root); this.assertLiveCaptain(team, root.cwd) }
       await current()
       return await operation(root.cwd, team, current, assertCurrentTeam)
+    })
+  }
+
+  /** Authenticated local operator authority is Main scope, independent of Captain execution. */
+  withOperatorTeam<T>(target: RetirementTarget, operation: (binding: RetirementBinding) => Promise<T>): Promise<T> {
+    return this.host.withTargetRead(async () => {
+      const view = await this.visibleTeams(target.rootSessionId)
+      const team = view.visible.find(candidate => candidate.id === target.teamId)
+      const main = view.main
+      if (team === undefined || main === undefined || target.rootSessionId !== main.id) throw new TeamDomainError('Team retirement requires its exact Main binding', 'SWARM_HOST_BINDING_MISMATCH')
+      const captain = team.captainSessionId === '' ? undefined : await this.optionalView(team.captainSessionId)
+      if (team.captainSessionId !== main.id && (captain === undefined ? !team.managedOrigin?.startsWith(`managed:${main.id}:`) : captain.parentSession !== main.id)) this.bindingChanged()
+      const assertMain = () => {
+        this.assertUnchanged(main)
+        if (main.parentSession !== undefined || (main.live !== undefined && !this.ctx.agents.roots().includes(main.live))) this.bindingChanged()
+      }
+      const assertTeam = (current: TeamState) => {
+        assertMain()
+        if (current.id !== team.id || current.captainSessionId !== team.captainSessionId || current.managedOrigin !== team.managedOrigin) this.bindingChanged()
+        if (captain !== undefined) this.assertUnchanged(captain)
+      }
+      const verify = async () => { await view.verify(true); assertTeam(team) }
+      await verify()
+      return operation({ scope: main.cwd, mainSessionId: main.id, team, verify, assertTeam })
+    })
+  }
+
+  /** A completed deletion remains queryable after its Team and Captain disappear. */
+  withOperatorMain<T>(rootSessionId: string, operation: (scope: string, mainSessionId: string) => Promise<T>): Promise<T> {
+    return this.host.withTargetRead(async () => {
+      const root = await this.rootView(rootSessionId)
+      if (root.parentSession !== undefined || (root.live !== undefined && !this.ctx.agents.roots().includes(root.live))) this.bindingChanged()
+      this.assertUnchanged(root)
+      return operation(root.cwd, root.id)
     })
   }
 

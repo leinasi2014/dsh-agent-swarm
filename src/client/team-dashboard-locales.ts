@@ -4,9 +4,11 @@ import { goalEn, goalZh } from './goal-locales.js'
 import { publicMentionsEn, publicMentionsZh } from './public-mentions-locales.js'
 import { publicImagesEn, publicImagesZh } from './public-images-locales.js'
 import { taskPanelEn, taskPanelZh } from './team-task-panel-locales.js'
+import { retirementEn, retirementZh } from './retirement-locales.js'
 export const TEAM_DASHBOARD_NS = 'swarm.team-dashboard' as const
 
 export const en = {
+  ...retirementEn,
   ...goalEn,
   ...workEn,
   ...publicReadingEn,
@@ -282,26 +284,10 @@ export const en = {
   'detail.back': 'Back',
   'detail.tabs': 'Member configuration and growth',
   'detail.runtime': 'Runtime details',
-  'progress.title': 'Task progress',
-  'progress.summary': '{completed} / {total} completed',
-  'progress.partial': 'Showing {shown} of {total} tasks; counts below cover visible tasks only.',
-  'progress.visibleSummary': '{completed} visible tasks completed',
-  'progress.empty': 'The Captain has not assigned tasks yet.',
-  'progress.completed': 'Completed',
-  'progress.running': 'Running',
-  'progress.review': 'Awaiting review',
-  'progress.blocked': 'Waiting on dependencies',
-  'progress.unknown': 'Dependency state unavailable',
-  'progress.ready': 'Ready',
-  'progress.failed': 'Failed',
-  'progress.cancelled': 'Cancelled',
-  'progress.reviewAction': '{count} tasks need Captain review',
-  'progress.memberCount': '{count} members',
-  'progress.taskCount': '{count} tasks',
-  'progress.attempt': 'Attempt {count}',
 } as const
 
 export const zh: Record<keyof typeof en, string> = {
+  ...retirementZh,
   ...goalZh,
   ...workZh,
   ...publicReadingZh,
@@ -577,23 +563,6 @@ export const zh: Record<keyof typeof en, string> = {
   'detail.back': '返回',
   'detail.tabs': '成员配置与成长',
   'detail.runtime': '运行配置',
-  'progress.title': '任务进度',
-  'progress.summary': '已完成 {completed} / {total}',
-  'progress.partial': '已显示 {shown} / {total} 项任务；以下仅统计已显示任务。',
-  'progress.visibleSummary': '已显示任务中完成 {completed} 项',
-  'progress.empty': '队长还未分派任务。',
-  'progress.completed': '已完成',
-  'progress.running': '执行中',
-  'progress.review': '待审核',
-  'progress.blocked': '等待依赖',
-  'progress.unknown': '依赖状态待确认',
-  'progress.ready': '待领取',
-  'progress.failed': '失败',
-  'progress.cancelled': '已取消',
-  'progress.reviewAction': '{count} 项任务等待队长审核',
-  'progress.memberCount': '{count} 名成员',
-  'progress.taskCount': '{count} 项任务',
-  'progress.attempt': '第 {count} 次执行',
 }
 
 export type TeamDashboardKey = keyof typeof en

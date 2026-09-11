@@ -463,6 +463,12 @@ export class MessageDelivery {
   }
 
   /** Wait for every in-flight delivery chain (disposal path). */
+  async waitPrivateTeam(scope: TeamScope, teamId: TeamId): Promise<void> {
+    const prefix = `${scope}\0${teamId}\0`
+    await Promise.allSettled([...this.chains].filter(([key]) => key.startsWith(prefix)).map(([, operation]) => operation))
+  }
+
+  /** Wait for every in-flight delivery chain (disposal path). */
   wait(): Promise<Array<PromiseSettledResult<TeamMessage | undefined | PublicDeliveryResult>>> {
     return Promise.allSettled([...this.chains.values(), ...this.publicChains.values()])
   }

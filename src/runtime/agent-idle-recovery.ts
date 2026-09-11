@@ -2,6 +2,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import { teamIsRetired } from '../storage/team-retirement-store.js'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import type { TeamId, TeamState } from '../domain/types.js'
 import { hasPendingVisualAssistance, hasPublicDebt } from '../domain/public-message.js'
@@ -16,7 +17,7 @@ export async function recoverIdleAgent(ctx: Context, agent: Agent, scope: TeamSc
   schedule(teamId: TeamId, captain: Agent): void
 }): Promise<void> {
   let membership = await deps.domain.findMembership(scope, agent.id)
-  if (membership === undefined || deps.closing()) return
+  if (membership === undefined || deps.closing() || teamIsRetired(ctx, scope, membership.team.id)) return
   if (hasPublicDebt(membership.team.publicChat) || hasPendingVisualAssistance(membership.team.publicChat)) {
     await deps.delivery.deliverPublicMessages(scope, membership.team.id, deps.signal)
   }

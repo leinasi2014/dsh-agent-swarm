@@ -10,6 +10,7 @@ import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { TeamScope } from '../domain/team-domain-port.js'
 import type { TeamState } from '../domain/types.js'
 import { TeamDomainError } from '../domain/error.js'
+import { teamIsRetired } from '../storage/team-retirement-store.js'
 import { hasPublicDebt, hasPendingVisualAssistance } from '../domain/public-message.js'
 import { readPersistedSession } from './persisted-session.js'
 import type { PublicDeliveryResult } from './message-delivery.js'
@@ -56,6 +57,7 @@ export class ManagedActivationRecovery {
     for (const scope of scopes) {
       for (const observed of await this.deps.teams(scope)) {
         let team = observed
+        if (teamIsRetired(this.ctx, scope, team.id)) continue
         signal.throwIfAborted()
         if (this.deps.excludedTeamIds?.has(team.id)) {
           this.ctx.logger.info(`agent-swarm: automatic startup recovery excluded Team ${JSON.stringify(team.id)} by startupRecoveryExcludedTeamIds`)
@@ -150,7 +152,7 @@ export class ManagedActivationRecovery {
   /** Re-read after receipt repair and again after the asynchronous root attach. */
   private async taskRecoveryCandidate(scope: TeamScope, before: TeamState): Promise<TeamState | undefined> {
     const team = (await this.deps.teams(scope)).find(candidate => candidate.id === before.id)
-    if (team?.phase !== 'active' || team.managedOrigin !== before.managedOrigin
+    if (team?.phase !== 'active' || teamIsRetired(this.ctx, scope, team.id) || team.managedOrigin !== before.managedOrigin
       || team.captainSessionId !== before.captainSessionId || (!hasTaskDebt(team) && !(hasGoalDebt(team) && (this.deps.goalAllowed?.(scope, team) ?? true)))
       || hasPublicDebt(team.publicChat)
       || team.messages.some(message => message.kind === 'work-request-notice' && message.phase === 'queued')

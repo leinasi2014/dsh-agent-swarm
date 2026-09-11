@@ -132,10 +132,18 @@
     "@deepseek-ai/dsh-workflow": "0.1.5-alpha.2",
     "@deepseek-ai/schemastery": "^3.18.2",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "@deepseek-ai/dsh-session-persistence-jsonl": "0.1.5-alpha.2",
+    "@deepseek-ai/dsh-session-query-sqlite": "0.1.5-alpha.2"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/dsh-user-questions": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-session-persistence-jsonl": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-session-query-sqlite": {
       "optional": true
     }
   },

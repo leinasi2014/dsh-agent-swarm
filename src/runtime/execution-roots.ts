@@ -27,6 +27,7 @@ import { promisify } from 'node:util'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { TeamDomainError } from '../domain/error.js'
+import { assertTeamWritable, teamIsRetired } from '../storage/team-retirement-store.js'
 import type { AttemptId, TaskId, TeamId, TeamState } from '../domain/types.js'
 import type { TeamScope } from '../domain/team-domain-port.js'
 import { ExecutionRootTools } from './execution-root-tools.js'
@@ -322,6 +323,7 @@ export class ExecutionRoots {
    * When `memberSessionId` is supplied, bind that member's effective tool
    * workspace to the root for as long as this lease lives (issue #191). */
   async acquire(scope: TeamScope, teamId: TeamId, taskId: TaskId, attemptId: AttemptId, memberSessionId?: string): Promise<ExecutionLease> {
+    assertTeamWritable(this.ctx, scope, teamId)
     const fence = ExecutionRoots.fence(scope, teamId, taskId, attemptId)
     const leased = this.leases.get(fence)
     if (leased !== undefined) {
@@ -349,6 +351,7 @@ export class ExecutionRoots {
         scope, teamId, taskId, attemptId, path: root.path, isolation: root.isolation, acquiredAt: Date.now(),
         ...(memberSessionId === undefined ? {} : { memberSessionId }),
       }
+      assertTeamWritable(this.ctx, scope, teamId)
       const unbind = memberSessionId === undefined ? undefined : this.tools?.bind(memberSessionId, root.path)
       this.leases.set(fence, { lease, release: () => root.release(), ...(unbind === undefined ? {} : { unbind }) })
       return lease
@@ -374,6 +377,7 @@ export class ExecutionRoots {
     this.leases.delete(fence)
     // Revoke member IO before reclaiming the root; stale calls fail closed.
     entry.unbind?.()
+    if (teamIsRetired(this.ctx, scope, teamId)) return
     try {
       await entry.release()
     } catch (error) {
@@ -400,6 +404,15 @@ export class ExecutionRoots {
   async releaseAll(reason: string): Promise<void> {
     for (const { lease } of this.leases.values()) {
       await this.release(lease.scope, lease.teamId, lease.taskId, lease.attemptId, reason)
+    }
+  }
+
+  /** Revoke process-local IO on shutdown; unfinished roots remain recoverable. */
+  async suspendTeam(scope: TeamScope, teamId: TeamId): Promise<void> {
+    const prefix = `${scope}\0${teamId}\0`
+    await Promise.allSettled([...this.inflight].filter(([key]) => key.startsWith(prefix)).map(([, operation]) => operation))
+    for (const [key, entry] of this.leases) if (entry.lease.scope === scope && entry.lease.teamId === teamId) {
+      entry.unbind?.(); this.leases.delete(key)
     }
   }
 
