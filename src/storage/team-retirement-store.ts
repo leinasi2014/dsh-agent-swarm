@@ -9,7 +9,7 @@ import type { TeamState } from '../domain/types.js'
 
 const id = z.string().min(1).max(256)
 const counter = z.number().int().safe().nonnegative()
-export const retirementSessionSchema = z.object({ id, cwd: z.string().min(1).max(4096), parentSessionId: id.optional(),
+const retirementSessionSchema = z.object({ id, cwd: z.string().min(1).max(4096), parentSessionId: id.optional(),
   origin: z.literal('subagent').optional(), createdAt: counter, version: z.number().int().positive(),
   artifact: z.object({ root: z.string(), directory: z.string(), rootIdentity: z.string(), directoryIdentity: z.string() }).strict().optional() }).strict()
 const receiptSchema = z.object({ schemaVersion: z.literal(1), scope: z.string().min(1).max(4096), teamId: id,

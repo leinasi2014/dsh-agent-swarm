@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 const id = z.string().min(1).max(256)
 const counter = z.number().int().safe().nonnegative()
-export const retirementTargetSchema = z.object({ rootSessionId: id, teamId: id }).strict()
+const retirementTargetSchema = z.object({ rootSessionId: id, teamId: id }).strict()
 export const retirementCountsSchema = z.object({ sessions: counter, memories: counter, humanInteractions: counter,
   workflowRuns: counter, protectedSessions: counter, unfinishedTasks: counter, activeAttempts: counter }).strict()
 const base = { schemaVersion: z.literal(1), target: retirementTargetSchema }
