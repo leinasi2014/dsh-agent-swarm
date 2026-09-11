@@ -7,6 +7,7 @@ import { steerHostSubagentPrompt } from '@deepseek-ai/dsh-subagent/internal'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import type { TeamId, TeamMessage, TeamMessageId, TeamState } from '../domain/types.js'
 import { publicManagedParent } from '../domain/public-message.js'
+import { TeamDomainError } from '../domain/error.js'
 import { messageObsoleteReason } from '../domain/team-domain-mailbox.js'
 import { budgetExhaustion } from '../domain/team-domain-budget.js'
 import { frameVisibility, waitForFrameClaim } from './frame-visibility.js'
@@ -25,6 +26,18 @@ kind: 'work-request-notice' | 'goal-coordination-notice' = 'work-request-notice'
   message?: TeamMessage; result: PublicDeliveryResult
 }> {
   const result = { admitted: false, deferred: false, reconciled: 0 }
+  const acknowledgeClaim = async (notice: TeamMessage, frame: string): Promise<TeamMessage> => {
+    try { return await deps.domain().acknowledgeMessage(scope, teamId, notice.id) }
+    catch (error) {
+      if (!(error instanceof TeamDomainError) || error.code !== 'TEAM_MESSAGE_PHASE_INVALID') throw error
+      // Captain coordination can settle this notice while claim observation
+      // awaits its durable flush. Preserve that exact authoritative terminal.
+      const current = (await deps.team(scope, teamId))?.messages.find(message => message.id === notice.id)
+      if (current?.phase === 'obsolete' && current.kind === notice.kind && current.targetSessionId === notice.targetSessionId
+        && messageFrame(current) === frame) return current
+      throw error
+    }
+  }
   const allowed = (team: TeamState, notice: TeamMessage): boolean => {
     if (notice.kind !== 'goal-coordination-notice') return true
     const goal = team.goalLifecycle
@@ -43,7 +56,7 @@ kind: 'work-request-notice' | 'goal-coordination-notice' = 'work-request-notice'
     const frame = messageFrame(notice)
     // Official durable input wins even when the request was resolved in that same turn.
     const visible = await frameVisibility(ctx, notice.targetSessionId, frame, signal, `Captain notice ${notice.id}`, true, undefined, throwOnFailure)
-    if (visible === 'claimed') return { message: await deps.domain().acknowledgeMessage(scope, teamId, notice.id), result: { ...result, reconciled: 1 } }
+    if (visible === 'claimed') return { message: await acknowledgeClaim(notice, frame), result: { ...result, reconciled: 1 } }
     const obsolete = messageObsoleteReason(team, notice)
     if (obsolete !== undefined) return { message: await deps.domain().markMessageObsolete(scope, teamId, notice.id, obsolete), result }
     if (!allowed(team, notice)) return { result: { ...result, deferred: true } }
@@ -86,7 +99,7 @@ kind: 'work-request-notice' | 'goal-coordination-notice' = 'work-request-notice'
     if (captain === undefined) return { result: { ...result, deferred: true } }
     await deps.account(scope, teamId, captain)
     if (!await waitForFrameClaim(ctx, captain, frame, signal, 10_000, true, undefined, throwOnFailure)) return { result: { ...result, deferred: true } }
-    return { message: await deps.domain().acknowledgeMessage(scope, teamId, notice.id), result }
+    return { message: await acknowledgeClaim(notice, frame), result }
   } catch (error) {
     if (throwOnFailure) throw error
     if (!deps.closing()) ctx.logger.warn(`agent-swarm: ${kind} ${messageId} remains queued: ${String(error)}`)

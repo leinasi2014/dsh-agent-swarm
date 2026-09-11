@@ -292,6 +292,8 @@ save/control 使用 `goal/v1`、独立 expectedLifecycleRevision CAS（尚未启
 
 维护只采用本轮真实结束时间加固定间隔，范围 60 秒至 7 天；不叠加墙钟 cron、不重叠开轮，停机错过多个周期只产生一个当前轮次。nextDueAt 与 trigger 是持久权威，复用现有调度队列和每 Team 一个最早到期的单次 timer，缓存可在启动扫描时重建。空任务板的待命 Team 也须恢复到期检查；准确 Main→Captain 官方恢复保持原身份，不裸 resume child，不另建后台 job、任务板或消耗账本。首版自主推进为 adaptive；live workflow owner 持有时延后，释放并确认 Team 仍 active 后才恢复。workflow-only 可保存和暂停，自主开始/继续明确能力未提供。
 
+到期恢复或投递暂时失败时，同一 timer 在本次 wake 结束后按至少 1 秒间隔重查原 trigger 与尚未结清的通知，不因 wake Promise 已完成就视为协调成功；同一债务的反复观察不推迟既有重试。已 claim 的通知只补原回执，不再发送模型输入；回执已结清但 Captain 尚未确认协调时不自动催问。等待 Main/Captain 恢复后再次检查原 Team 身份、trigger、预算及运行权，暂停、归档、workflow owner 接管、预算耗尽或插件关闭即停止该轮自主重试。若实际 claim 之后，Captain 的协调事务先把同一通知置为 obsolete，投递仅在 acknowledge 的精确阶段冲突后重新核对同一 id、kind、目标 Session 和完整 frame，保留该终态及其原因、时间；其他错误继续按原投递或启动失败合同处理。
+
 维护开始/继续要求有限 tokenLimit 且严格大于最新 usedTokens，同时满足现有 request/retry/deadline 限制；requestLimit 统计的是 attempt seating，不是模型请求次数。表单可提交“团队 Token 总上限（含已使用）”及 expectedTokenLimit（无上限为 null），在同一 Team transaction 中比较原上限、复用现有预算校验并保留用量/其他限制，再检查开始条件和保存状态/通知；不能先调用独立 setBudget 再冒称原子开始。开始前折叠已有 Session usage；运行仍遵循原有用后计量与准入门，不承诺生成硬封顶，不自动加预算、退款、重置或按轮清零。耗尽保留同一意图/到期事实并等待预算恢复，不自旋。
 
 “暂停新增工作”在 Domain claim/retry 的实际新 attempt seating 处统一拒绝，覆盖自动派工、自领、返修和自愈重跑。Runtime 延迟新派工/开放邀请/重跑；已有 reserved、排队、运行 attempt 继续投递、提交和审核，原 attempt 的补偿恢复不算新增。新提案和 Task 可以保存等待，暂停不撤销已经分配的工作，UI 显示实际仍需收尾的数量。

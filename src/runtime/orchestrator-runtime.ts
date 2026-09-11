@@ -205,7 +205,7 @@ export class AgentSwarmRuntime extends Service {
       scopeOf: agent => this.scopeOf(agent), teams: scope => this.listTeamAggregates(scope),
       usage: this.usage, scheduling: this.scheduling, recovery: () => this.activationRecovery,
       ownership: this.orchestration, adaptive: () => config.orchestrationMode === 'adaptive', signal: this.publicAbort.signal,
-      deadline: (scope, team) => this.schedulingPass.trackGoalDeadline(scope, team),
+      deadlines: this.schedulingPass,
       sweep: (scope, teamId) => this.executionRoots.sweep(scope, teamId),
     })
     this.retirement = new TeamRetirement(ctx, { store: () => this.storeInstance!, limits: config.limits,

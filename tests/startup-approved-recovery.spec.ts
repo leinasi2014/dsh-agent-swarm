@@ -30,7 +30,12 @@ it.each(['publish-failure', 'captain-retired'] as const)('awaits actual approved
       members: [{ name: 'worker', role: 'Finish the existing task.' }],
       tasks: [{ key: 'existing', subject: 'Existing work', description: 'Resume this plan.', targetMemberName: 'worker' }],
     })
-    const before = await domain.approveStagedPlan(scope, staged.id, planned.revision, captainId)
+    // Compare durable against durable: the store stamps updatedAt again at commit
+    // time, so the transaction's returned draft can trail the committed record by
+    // one millisecond. Read the approved aggregate back before this Context closes.
+    await domain.approveStagedPlan(scope, staged.id, planned.revision, captainId)
+    const before = (await first.ctx.agentSwarm.listTeamAggregates(scope)).find(team => team.id === staged.id)
+    expect(before).toBeDefined()
     await dispose(first); first = undefined
     const outcome = await mount(sandbox, 0, undefined, undefined, async ctx => {
       ctx.llm.registerAdapter([ROUTE.provider], adapter)
