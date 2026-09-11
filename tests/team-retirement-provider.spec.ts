@@ -1,4 +1,4 @@
-import { copyFile, lstat, mkdtemp, readdir, readFile, realpath, rm, rmdir, unlink, writeFile } from 'node:fs/promises'
+import { copyFile, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, rmdir, symlink, unlink, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -56,6 +56,83 @@ async function prepareWithPathEvidence(provider: RetirementJsonlProvider, root: 
     throw new Error(`Retirement directory identity rejected: ${JSON.stringify({ platform: process.platform, node: process.version, facts })}`, { cause: error })
   }
 }
+
+async function windowsShortPath(path: string): Promise<string> {
+  const source = `
+Add-Type -TypeDefinition 'using System; using System.Text; using System.Runtime.InteropServices; public static class RetirementShortPath { [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] public static extern uint GetShortPathName(string path, StringBuilder output, uint size); }'
+$buffer = New-Object System.Text.StringBuilder 32768
+$length = [RetirementShortPath]::GetShortPathName([Environment]::GetEnvironmentVariable('SWARM_RETIREMENT_LONG_PATH'), $buffer, 32768)
+if ($length -eq 0 -or $length -ge 32768) { throw 'GetShortPathName failed' }
+$buffer.ToString()
+`
+  const result = await promisify(execFile)('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', source], {
+    env: { ...process.env, SWARM_RETIREMENT_LONG_PATH: path }, windowsHide: true,
+  })
+  return result.stdout.trim()
+}
+
+it.each(['short-name', 'case-variant'] as const)('deletes through a real Windows %s alias while preserving original cwd encoding and control data', async variant => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'retirement-alias-proof-')))
+  const alias = variant === 'short-name' ? await windowsShortPath(root) : root.toUpperCase()
+  expect(alias).not.toBe(root)
+  expect(await realpath(alias)).toBe(root)
+  const f = await backend(alias), meta = header(alias), control = header(alias, 'control-owner')
+  try {
+    await create(f.ctx, meta); await create(f.ctx, control)
+    const provider = await RetirementJsonlProvider.resolve(f.ctx)
+    const proof = await prepareWithPathEvidence(provider, alias, meta)
+    const directory = retirementSessionDirectory(join(alias, 'sessions'), meta.cwd!, meta.id)
+    expect(proof[0]).toMatchObject({ cwd: meta.cwd, artifact: { root: resolve(join(alias, 'sessions')), directory } })
+    expect((await f.ctx.sessionPersistence.stat(meta.id))?.header.cwd).toBe(meta.cwd)
+    const controlDirectory = retirementSessionDirectory(join(alias, 'sessions'), control.cwd!, control.id)
+    const before = await readFile(join(controlDirectory, 'session.v3.jsonl'))
+    await provider.purge(proof)
+    await expect(readdir(directory)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(await f.ctx.sessionPersistence.stat(meta.id)).toBeUndefined()
+    expect(await readFile(join(controlDirectory, 'session.v3.jsonl'))).toEqual(before)
+  } finally { await f.close(); await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) }
+}, 20_000)
+
+it.each(['root-ancestor', 'project', 'session'] as const)('refuses a real %s junction without removing any Session bytes', async location => {
+  const sandbox = await realpath(await mkdtemp(join(tmpdir(), 'retirement-junction-proof-')))
+  const physical = join(sandbox, 'physical'), link = join(sandbox, 'linked')
+  await mkdir(physical)
+  if (location === 'root-ancestor') await symlink(physical, link, 'junction')
+  const root = join(location === 'root-ancestor' ? link : physical, 'backend'), f = await backend(root), meta = header(root)
+  let junction = location === 'root-ancestor' ? link : undefined
+  try {
+    await create(f.ctx, meta)
+    const directory = retirementSessionDirectory(join(root, 'sessions'), meta.cwd!, meta.id)
+    if (location !== 'root-ancestor') {
+      junction = location === 'project' ? dirname(directory) : directory
+      const moved = join(sandbox, 'moved-artifact')
+      await rename(junction, moved); await symlink(moved, junction, 'junction')
+    }
+    expect((await lstat(junction!)).isSymbolicLink()).toBe(true)
+    const before = await readFile(join(directory, 'session.v3.jsonl'))
+    const provider = await RetirementJsonlProvider.resolve(f.ctx)
+    await expect(provider.prepare([selection(meta)], new AbortController().signal)).rejects.toMatchObject({ code: 'TEAM_RETIREMENT_PROVIDER_UNAVAILABLE', message: 'Session artifact directory is not a direct physical directory' })
+    expect(await readFile(join(directory, 'session.v3.jsonl'))).toEqual(before)
+  } finally {
+    await f.close()
+    if (junction !== undefined) await rmdir(junction)
+    await rm(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+}, 20_000)
+
+it('refuses a replaced cleanup root after confirmation and preserves both the original and replacement data', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'retirement-root-replacement-'))), f = await backend(root), meta = header(root)
+  try {
+    await create(f.ctx, meta)
+    const provider = await RetirementJsonlProvider.resolve(f.ctx), proof = await prepareWithPathEvidence(provider, root, meta)
+    const configured = join(root, 'sessions'), moved = join(root, 'original-sessions'), relativeDirectory = proof[0]!.artifact!.directory.slice(configured.length + 1)
+    const before = await readFile(join(configured, relativeDirectory, 'session.v3.jsonl'))
+    await rename(configured, moved); await mkdir(configured); await writeFile(join(configured, 'replacement.txt'), 'keep replacement')
+    await expect(provider.purge(proof)).rejects.toMatchObject({ code: 'TEAM_RETIREMENT_PROVIDER_UNAVAILABLE', message: 'Session cleanup root changed' })
+    expect(await readFile(join(moved, relativeDirectory, 'session.v3.jsonl'))).toEqual(before)
+    expect(await readFile(join(configured, 'replacement.txt'), 'utf8')).toBe('keep replacement')
+  } finally { await f.close(); await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) }
+}, 20_000)
 
 it('retries after a competing public create leaves an empty canonical directory under the held deletion lease', async () => {
   const root = await mkdtemp(join(tmpdir(), 'retirement-empty-race-'))

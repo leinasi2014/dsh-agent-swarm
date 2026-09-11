@@ -1,5 +1,6 @@
 /** Fixed-version Windows adapter over public JSONL write ownership and public query reconciliation. */
 import { createRequire } from 'node:module'
+import type { BigIntStats } from 'node:fs'
 import { lstat, readdir, realpath, rmdir, unlink } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -31,10 +32,22 @@ export function retirementSessionDirectory(root: string, cwd: string, id: string
 async function identity(path: string): Promise<string | undefined> {
   try {
     const stat = await lstat(path, { bigint: true })
-    if (!stat.isDirectory() || stat.isSymbolicLink() || resolve(await realpath(path)) !== resolve(path)) refuse('Session artifact directory is not a direct physical directory')
-    return `${stat.dev}:${stat.ino}:${stat.birthtimeNs}`
+    if (!stat.isDirectory() || stat.isSymbolicLink()) refuse('Session artifact directory is not a direct physical directory')
+    // Windows 8.3 and case aliases change realpath spelling without redirecting
+    // an ancestor. Reject actual links at every level, then compare physical identity.
+    for (let parent = dirname(resolve(path)); ; parent = dirname(parent)) {
+      const ancestor = await lstat(parent, { bigint: true })
+      if (!ancestor.isDirectory() || ancestor.isSymbolicLink()) refuse('Session artifact directory is not a direct physical directory')
+      if (dirname(parent) === parent) break
+    }
+    const canonical = await lstat(await realpath(path), { bigint: true })
+    if (!canonical.isDirectory() || canonical.isSymbolicLink() || physicalIdentity(canonical) !== physicalIdentity(stat)) {
+      refuse('Session artifact directory changed while resolving its physical identity')
+    }
+    return physicalIdentity(stat)
   } catch (error) { if (absent(error)) return undefined; throw error }
 }
+function physicalIdentity(stat: BigIntStats): string { return `${stat.dev}:${stat.ino}:${stat.birthtimeNs}` }
 function headerOf(session: RetirementSession): SessionHeader {
   if (session.version !== 3) refuse('Cleanup requires a current v3 logical Session header')
   return { id: SessionId(session.id), cwd: session.cwd, version: 3, isSeeded: false, createdAt: session.createdAt,
