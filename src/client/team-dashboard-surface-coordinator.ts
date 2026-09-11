@@ -199,6 +199,14 @@ export class TeamDashboardSurfaceCoordinator {
     })
   }
 
+  /** A completed retirement carries the original Main even after its Team disappears. */
+  openRetirementMainChat(id: string): void {
+    this.assertLive()
+    const sessions = this.options.sessions, list = sessions.list.getSnapshot(), row = list.byId[id as SessionId]
+    if (list.phase !== 'ready' || row === undefined || row.origin === 'subagent' || row.parentId !== undefined) throw new Error('Retirement Main is not in the official root Session list')
+    if (list.current !== id) sessions.open(id as SessionId)
+  }
+
   private async openOfficialCaptain(id: string, signal: AbortSignal | undefined, check: () => void): Promise<void> {
     check()
     const sessions = this.options.sessions

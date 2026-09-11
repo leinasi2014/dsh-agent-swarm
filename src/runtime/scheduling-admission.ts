@@ -69,4 +69,5 @@ export class SchedulingAdmission {
 
   close(): void { this.abort.abort(new Error('Team orchestrator disposal')) }
   async wait(): Promise<void> { await Promise.allSettled(this.pending.values()) }
+  async waitTeam(scope: TeamScope, teamId: TeamId): Promise<void> { await this.pending.get(`${scope}\0${teamId}`) }
 }

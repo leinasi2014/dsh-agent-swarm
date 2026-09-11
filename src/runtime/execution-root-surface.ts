@@ -140,6 +140,9 @@ export class ExecutionRootSurface {
   }
 
   /** Revoke IO without destroying unfinished output during runtime shutdown. */
+  suspendTeam(scope: TeamScope, teamId: TeamId): Promise<void> { return this.roots.suspendTeam(scope, teamId) }
+
+  /** Revoke IO without destroying unfinished output during runtime shutdown. */
   suspendAll(): Promise<void> {
     return this.roots.suspendAll()
   }

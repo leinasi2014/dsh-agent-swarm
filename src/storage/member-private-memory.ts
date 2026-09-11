@@ -34,6 +34,7 @@ import { defineDomain, domainTable, type Domain } from '@deepseek-ai/dsh-storage
 import { TeamDomainError } from '../domain/error.js'
 import { nonEmpty } from '../domain/team-domain-shared.js'
 import { CommitSequence } from '../util/commit-sequence.js'
+import { assertTeamWritable } from './team-retirement-store.js'
 
 /** Storage Domain unit/table names must satisfy the official `UNIT_NAME_RE`. */
 export const PRIVATE_MEMORY_DOMAIN_NAME = 'agent_swarm_member_private_memory'
@@ -111,7 +112,7 @@ export class MemberPrivateMemoryStore {
   private storeClosed = false
 
   constructor(
-    _ctx: Context,
+    private readonly ctx: Context,
     domain: Domain<typeof privateMemoryDomainSpec>,
     private readonly now: () => number = Date.now,
   ) {
@@ -172,6 +173,7 @@ export class MemberPrivateMemoryStore {
         evidenceRefs: validatedRefs,
         createdAt: this.now(),
       }
+      assertTeamWritable(this.ctx, scope, teamId)
       await this.memories.put(memoryKey(scope, teamId, memberSessionId, seq), structuredClone(record))
       return structuredClone(record)
     })
@@ -208,6 +210,19 @@ export class MemberPrivateMemoryStore {
       created_at: record.createdAt,
       seq: record.seq,
     }
+  }
+
+  countTeam(scope: string, teamId: string): number {
+    this.assertOpen()
+    return [...this.memories.entries()].filter(([, row]) => row.scope === scope && row.teamId === teamId).length
+  }
+
+  async purgeTeam(scope: string, teamId: string): Promise<void> {
+    await this.commitSequence.run(async () => {
+      this.assertOpen()
+      for (const [key, row] of this.memories.entries()) if (row.scope === scope && row.teamId === teamId) await this.memories.delete(key)
+    })
+    if (this.countTeam(scope, teamId) !== 0) throw new TeamDomainError('Private memory purge did not verify', 'TEAM_RETIREMENT_VERIFY_FAILED')
   }
 
   /** Stop accepting operations (the domain handle itself is closed by the owner). */

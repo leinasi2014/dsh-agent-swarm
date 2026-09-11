@@ -1,5 +1,6 @@
 import type { TeamModelRoute } from './types.js'
 import { reviseGoalInDraft } from './goal-transitions.js'
+import { archiveTeamDraft } from './team-retirement.js'
 /**
  * Team lifecycle and membership roster of the Team protocol core.
  *
@@ -392,33 +393,8 @@ export async function archiveTeam(
   await deps.store.transact(scope, teamId, team => {
     const authority = actorMembership(team, captainSessionId)
     expectDomain(authority.role === 'captain', 'only the captain can archive the Team', 'TEAM_CAPTAIN_REQUIRED')
-    const timestamp = deps.now()
     const reason = nonEmpty(diagnostic, 'archive diagnostic', 8_192)
-    for (let index = 0; index < team.members.length; index += 1) {
-      const member = team.members[index]!
-      if (member.phase === 'active' || member.phase === 'provisioning') {
-        team.members[index] = { ...member, phase: 'removed', error: reason }
-      }
-    }
-    for (const task of team.tasks) {
-      if (!['pending', 'in_progress', 'submitted', 'verifying'].includes(task.status)) continue
-      if (task.currentAttemptId !== undefined) {
-        const attempt = attemptOf(team, task.currentAttemptId)
-        replaceAttempt(team, { ...attempt, phase: 'stale', diagnostic: reason, updatedAt: timestamp })
-      }
-      replaceTask(team, clearTaskExecution(task, {
-        revision: task.revision + 1,
-        status: 'cancelled',
-        updatedAt: timestamp,
-      }))
-    }
-    for (let index = 0; index < team.messages.length; index += 1) {
-      const message = team.messages[index]!
-      if (message.phase === 'queued') team.messages[index] = { ...message, phase: 'cancelled' }
-    }
-    pruneRetainedMessages(team, deps.limits.maxRetainedMessages)
-    pruneRetainedAttempts(team, deps.limits.maxRetainedAttempts)
-    Object.assign(team, { phase: 'archived' as const })
+    archiveTeamDraft(team, deps.now(), reason, deps.limits)
     committed = team
   })
   return structuredClone(committed)

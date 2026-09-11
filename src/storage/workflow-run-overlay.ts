@@ -18,6 +18,8 @@ import { z } from 'zod'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import type { Domain } from '@deepseek-ai/dsh-storage-domain'
+import { assertTeamWritable, teamIsRetired } from './team-retirement-store.js'
+import { CommitSequence } from '../util/commit-sequence.js'
 
 /** Storage Domain unit/table names must satisfy the official `UNIT_NAME_RE`. */
 export const WORKFLOW_OVERLAY_DOMAIN_NAME = 'agent_swarm_workflow'
@@ -90,9 +92,10 @@ export const workflowOverlayDomainSpec = defineDomain({
 export class WorkflowRunOverlayStore {
   private readonly runs: ReturnType<Domain<typeof workflowOverlayDomainSpec>['table']>
   private storeClosed = false
+  private readonly writes = new CommitSequence()
 
   constructor(
-    _ctx: Context,
+    private readonly ctx: Context,
     domain: Domain<typeof workflowOverlayDomainSpec>,
     private readonly now: () => number = Date.now,
   ) {
@@ -117,7 +120,10 @@ export class WorkflowRunOverlayStore {
   /** Durably upsert one run record; resolves after backend durability. */
   async put(record: WorkflowRunOverlayRecord): Promise<void> {
     if (this.storeClosed) throw new Error('workflow run overlay store is closed')
-    await this.runs.put(record.runId, { ...record })
+    await this.writes.run(async () => {
+      assertTeamWritable(this.ctx, record.scope, record.teamId)
+      await this.runs.put(record.runId, { ...record })
+    })
   }
 
   /**
@@ -137,6 +143,26 @@ export class WorkflowRunOverlayStore {
     }
     await this.put(updated)
     return updated
+  }
+
+  async purgeTeam(scope: string, teamId: string): Promise<void> {
+    await this.writes.run(async () => {
+      for (const [key, row] of this.runs.entries()) if (row.scope === scope && row.teamId === teamId) await this.runs.delete(key)
+    })
+    if (this.list().some(row => row.scope === scope && row.teamId === teamId)) throw new Error('Workflow overlay purge did not verify')
+  }
+
+  /** Host retirement repair after every live producer has drained. No new run may be admitted. */
+  async settleRetiredTeam(scope: string, teamId: string): Promise<void> {
+    if (this.storeClosed) throw new Error('workflow run overlay store is closed')
+    await this.writes.run(async () => {
+      if (!teamIsRetired(this.ctx, scope, teamId)) throw new Error('Workflow retirement requires a frozen Team')
+      for (const [key, row] of this.runs.entries()) if (row.scope === scope && row.teamId === teamId && row.state === 'running') {
+        const time = this.now()
+        await this.runs.put(key, { ...row, state: 'cancelled', stopReason: 'cancelled', error: 'Team retired by operator', updatedAt: time, settledAt: time })
+      }
+    })
+    if (this.list().some(row => row.scope === scope && row.teamId === teamId && row.state === 'running')) throw new Error('Retired workflow settlement did not verify')
   }
 
   /** Stop accepting operations (the domain handle itself is closed by the owner). */

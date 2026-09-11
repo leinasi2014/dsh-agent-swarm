@@ -319,6 +319,7 @@ function assertResultSemantics(method: string, value: Record<string, unknown>): 
     // no other state may carry `svg`.
     const members = value.members as readonly Record<string, unknown>[]
     const sessionIds = new Set<string>()
+    const historySessionIds = new Set<string>()
     for (const member of members) {
       const row = member as Record<string, unknown>
       assertAvatarSemantics(row, 'member')
@@ -329,6 +330,12 @@ function assertResultSemantics(method: string, value: Record<string, unknown>): 
         if (row.phase !== 'active' || (row.composition as { state?: string }).state !== 'available'
           || sessionIds.has(row.sessionId as string)) throw new Error('Member Session requires unique active membership and an available descriptor')
         sessionIds.add(row.sessionId as string)
+      }
+      if (row.historySessionId !== undefined) {
+        if (row.phase !== 'removed' || row.sessionId !== undefined || historySessionIds.has(row.historySessionId as string)) {
+          throw new Error('Member history requires a unique removed-member Session without active navigation')
+        }
+        historySessionIds.add(row.historySessionId as string)
       }
     }
     return

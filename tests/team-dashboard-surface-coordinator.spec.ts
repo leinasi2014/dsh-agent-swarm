@@ -36,6 +36,21 @@ function fixture(chatNavigation?: { requestLatest: (id: string) => () => void })
 }
 
 describe('TeamDashboardSurfaceCoordinator', () => {
+  it('opens the frozen retirement Main even after the child and Team disappear or a different Main is selected', () => {
+    const f = fixture()
+    const snapshot = f.sessions.list.getSnapshot
+    Object.assign(f.sessions.list, { getSnapshot: () => ({ ...snapshot(), phase: 'ready', current: 'deleted-captain' }) })
+    f.controller.state = { open: true, phase: 'loading', targetSessionId: 'other' }
+    const targetRead = vi.fn(() => { throw new Error('Deleted Team must not be read') })
+    Object.assign(f.controller, { openMainChat: targetRead })
+    f.coordinator.openRetirementMainChat('root')
+    expect(f.sessions.open).toHaveBeenCalledExactlyOnceWith('root')
+    expect(targetRead).not.toHaveBeenCalled()
+    Object.assign(f.sessions.list, { getSnapshot: () => ({ ...snapshot(), phase: 'ready', byId: { root: { origin: 'subagent', parentId: 'other' } } }) })
+    expect(() => f.coordinator.openRetirementMainChat('root')).toThrow('official root Session list')
+    expect(f.sessions.open).toHaveBeenCalledOnce()
+    f.destroy()
+  })
   it('retains task view preferences through official close/reopen, isolates root plus Team, and clears them on disposal', () => {
     const f = fixture()
     f.setReady('team-a')

@@ -17,6 +17,7 @@ import { defineDomain, domainTable, type Domain } from '@deepseek-ai/dsh-storage
 import { TeamDomainError } from '../domain/error.js'
 import type { TeamId } from '../domain/types.js'
 import { CommitSequence } from '../util/commit-sequence.js'
+import { assertTeamWritable } from '../storage/team-retirement-store.js'
 import {
   HUMAN_INTERACTION_ID_PATTERN,
   type HumanInteractionRecord,
@@ -219,7 +220,7 @@ export class HumanInteractionOverlayStore {
   private readonly drainWaiters = new Set<() => void>()
 
   constructor(
-    _ctx: Context,
+    private readonly ctx: Context,
     domain: Domain<typeof humanInteractionDomainSpec>,
   ) {
     this.interactions = domain.table('interactions')
@@ -363,6 +364,7 @@ export class HumanInteractionOverlayStore {
         }
         const existing = this.interactions.get(key)
         if (existing !== undefined) return structuredClone(existing)
+        assertTeamWritable(this.ctx, normalized.scope, normalized.request.teamId)
         await this.interactions.put(key, normalized)
         this.recordSequences.set(key, ++this.nextRecordSequence)
         return undefined
@@ -396,9 +398,23 @@ export class HumanInteractionOverlayStore {
       if (existing.scope !== normalized.scope || existing.request.teamId !== normalized.request.teamId) {
         throw new TeamDomainError('interaction authority tuple cannot change', 'TEAM_INTERACTION_SCOPE_MISMATCH')
       }
-      await this.interactions.put(key, normalized)
+      await this.commitSequence.run(async () => {
+        assertTeamWritable(this.ctx, normalized.scope, normalized.request.teamId)
+        await this.interactions.put(key, normalized)
+      })
       return structuredClone(normalized)
     })
+  }
+
+  async purgeTeam(scope: string, teamId: TeamId): Promise<void> {
+    await this.commitSequence.run(async () => {
+      this.assertOpen()
+      for (const [key, row] of this.interactions.entries()) if (row.scope === scope && row.request.teamId === teamId) {
+        await this.interactions.delete(key)
+        this.recordSequences.delete(key); this.outcomeUnknown.delete(key)
+      }
+    })
+    if (this.list(scope, teamId).length !== 0) throw new TeamDomainError('Human interaction purge did not verify', 'TEAM_RETIREMENT_VERIFY_FAILED')
   }
 
   /** Stop admission and wait for already admitted operations to settle. */

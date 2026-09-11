@@ -26,6 +26,7 @@ import type {
   WorkflowStartRequest,
 } from '@deepseek-ai/dsh-workflow'
 import type { Domain } from '@deepseek-ai/dsh-storage-domain'
+import { teamIsRetired } from '../../storage/team-retirement-store.js'
 import {
   WorkflowRunOverlayStore,
   workflowOverlayDomainSpec,
@@ -195,7 +196,7 @@ export class TeamBridgeWorkflowEngine extends WorkflowEngine {
       store = new WorkflowRunOverlayStore(this.ctx, handle)
       // Recovery is evidence-only: no Team task is re-driven here.
       for (const record of store.list()) {
-        if (record.state !== 'running') continue
+        if (record.state !== 'running' || teamIsRetired(this.ctx, record.scope, record.teamId)) continue
         await store.markInterrupted(record.runId, 'process boundary interrupted the run before settlement')
         this.ctx.logger.warn(`agent-swarm workflow bridge: run ${record.runId} (team ${record.teamId}) recovered as interrupted`)
       }
@@ -289,6 +290,11 @@ export class TeamBridgeWorkflowEngine extends WorkflowEngine {
    * Bounded teardown: settle every live run (cancelled within the grace),
    * then release the overlay domain handle. Idempotent.
    */
+  async retireTeam(scope: string, teamId: string): Promise<void> {
+    const ids = new Set(this.overlay.list().filter(row => row.scope === scope && row.teamId === teamId).map(row => row.runId))
+    for (const run of this.liveRuns) if (ids.has(run.id)) await run.retire()
+  }
+
   dispose(): Promise<void> {
     return this.disposal ??= this.disposeResources()
   }

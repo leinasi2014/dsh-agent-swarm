@@ -15,6 +15,8 @@ import { isDeepStrictEqual } from 'node:util'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Domain, DomainChanged } from '@deepseek-ai/dsh-storage-domain'
 import { TeamDomainError } from '../domain/error.js'
+import { archiveTeamDraft, settleRetiredPublicDraft, type RetirementPublicFact } from '../domain/team-retirement.js'
+import { assertRetiredReferencesExcluded, assertTeamWritable, teamIsRetired } from './team-retirement-store.js'
 import { assertTeamState } from '../domain/state-validation.js'
 import { assertGoalState } from '../domain/goal-validation.js'
 import type {
@@ -24,7 +26,7 @@ import type {
   TeamTransaction,
   TeamTransactionOptions,
 } from '../domain/team-domain-port.js'
-import type { TeamId, TeamState } from '../domain/types.js'
+import type { TeamId, TeamState, TeamLimits } from '../domain/types.js'
 import { TEAM_DOMAIN_NAME, teamDomainSpec, teamRecordOf } from './team-spec.js'
 
 function closed(): TeamDomainError {
@@ -43,6 +45,7 @@ function closed(): TeamDomainError {
  * `managedOrigin` on the Team aggregate, not by this lock.
  */
 const sharedScopeLocks = new WeakMap<Domain<typeof teamDomainSpec>, Map<string, Promise<void>>>()
+const sharedTeamLocks = new WeakMap<Domain<typeof teamDomainSpec>, Map<string, Promise<void>>>()
 
 function scopeLocksFor(domain: Domain<typeof teamDomainSpec>): Map<string, Promise<void>> {
   let locks = sharedScopeLocks.get(domain)
@@ -123,7 +126,7 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
 
   private readonly teams: ReturnType<Domain<typeof teamDomainSpec>['table']>
   private readonly receipts: ReturnType<Domain<typeof teamDomainSpec>['table']>
-  private readonly teamLocks = new Map<string, Promise<void>>()
+  private readonly teamLocks: Map<string, Promise<void>>
   private readonly scopeLocks = new Map<string, Promise<void>>()
   private readonly waiters = new Map<string, Set<() => void>>()
   private readonly stopListening: () => void
@@ -131,11 +134,13 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
   private storeClosed = false
 
   constructor(
-    ctx: Context,
+    private readonly ctx: Context,
     domain: Domain<typeof teamDomainSpec>,
     private readonly now: () => number = Date.now,
   ) {
     this.domain = domain
+    this.teamLocks = sharedTeamLocks.get(domain) ?? new Map<string, Promise<void>>()
+    sharedTeamLocks.set(domain, this.teamLocks)
     this.teams = domain.table('teams')
     this.receipts = domain.table('migration_receipts')
     this.stopListening = ctx.on('domain/changed', change => this.onChange(change))
@@ -144,6 +149,14 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
   /** Route one durable unit write through the bounded transient-retry path. */
   private writeUnit<T>(write: () => Promise<T>): Promise<T> {
     return writeWithTransientRetry(write)
+  }
+
+  private putTeam(scope: TeamScope, team: TeamState): Promise<void> {
+    return this.writeUnit(() => {
+      assertTeamWritable(this.ctx, scope, team.id)
+      assertRetiredReferencesExcluded(this.ctx, team)
+      return this.teams.put(team.id, this.envelope(scope, team))
+    })
   }
 
   private onChange(change: DomainChanged): void {
@@ -187,7 +200,7 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
       interactionEffects: [],
     }
     assertTeamState(upgraded, `${teamId}/aggregate-upgrade`)
-    await this.writeUnit(() => this.teams.put(teamId, this.envelope(scope, upgraded)))
+    await this.putTeam(scope, upgraded)
     const readBack = this.validate(this.teams.get(teamId), teamId)
     if (readBack === undefined || readBack.schemaVersion !== 2 || !isDeepStrictEqual(readBack, upgraded)) {
       throw new TeamDomainError(`Team aggregate v1 to v2 read-back failed for "${teamId}"`, 'TEAM_MIGRATION_VERIFY_FAILED')
@@ -199,6 +212,8 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
   async createUniqueForCaptain(scope: TeamScope, state: TeamState): Promise<void> {
     if (this.storeClosed) throw closed()
     await withLock(this.scopeLocks, scope, async () => {
+      assertTeamWritable(this.ctx, scope, state.id)
+      assertRetiredReferencesExcluded(this.ctx, state)
       let captainActive = false
       for (const record of this.teams.entries()) {
         if (record[1].workspace !== scope) continue
@@ -212,7 +227,7 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
       if (this.teams.get(state.id) !== undefined) {
         throw new TeamDomainError(`team "${state.id}" already exists`, 'TEAM_ALREADY_EXISTS')
       }
-      await this.writeUnit(() => this.teams.put(state.id, this.envelope(scope, state)))
+      await this.putTeam(scope, state)
       this.notify(state.id)
     })
   }
@@ -240,14 +255,16 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
       return state
     }
     return await withLock(scopeLocksFor(this.domain), scope, async () => {
+      assertTeamWritable(this.ctx, scope, state.id)
+      assertRetiredReferencesExcluded(this.ctx, state)
       for (const record of this.teams.entries()) {
         if (record[1].workspace !== scope) continue
         if ((record[1].team.phase === 'active' || record[1].team.phase === 'staged') && record[1].team.managedOrigin === state.managedOrigin) {
           const winner = this.validate(record[1], record[0])
-          if (winner !== undefined) return winner
+          if (winner !== undefined) { assertTeamWritable(this.ctx, scope, winner.id); return winner }
         }
       }
-      await this.writeUnit(() => this.teams.put(state.id, this.envelope(scope, state)))
+      await this.putTeam(scope, state)
       this.notify(state.id)
       return state
     })
@@ -301,11 +318,14 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
   async transact<T>(scope: TeamScope, teamId: TeamId, operation: TeamTransaction<T>, options?: TeamTransactionOptions): Promise<T> {
     if (this.storeClosed) throw closed()
     return await withLock(this.teamLocks, teamId, async () => {
+      assertTeamWritable(this.ctx, scope, teamId)
       const current = await this.readAndUpgrade(scope, teamId)
       if (current === undefined) throw new TeamDomainError(`team "${teamId}" not found`, 'TEAM_NOT_FOUND')
       const draft = structuredClone(current)
       const result = await operation(draft)
       if (isDeepStrictEqual(draft, current)) return result
+      assertTeamWritable(this.ctx, scope, teamId)
+      assertRetiredReferencesExcluded(this.ctx, draft)
       const boardChanged = !isDeepStrictEqual(
         StorageDomainTeamStore.boardPayload(draft),
         StorageDomainTeamStore.boardPayload(current),
@@ -316,7 +336,7 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
       const next: TeamState = boardChanged
         ? { ...draft, revision: current.revision + 1, updatedAt: this.now() }
         : { ...draft }
-      await this.writeUnit(() => this.teams.put(teamId, this.envelope(scope, next)))
+      await this.putTeam(scope, next)
       try { options?.afterCommit?.() }
       catch (error) {
         throw new TeamDomainError('Team change is committed, but its synchronous cleanup failed; read the committed result before retrying', 'TEAM_AFTER_COMMIT_FAILED', { cause: error })
@@ -369,10 +389,12 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
 
   async importAggregate(scope: TeamScope, team: TeamState): Promise<void> {
     if (this.storeClosed) throw closed()
+    assertTeamWritable(this.ctx, scope, team.id)
+    assertRetiredReferencesExcluded(this.ctx, team)
     if (this.teams.get(team.id) !== undefined) {
       throw new TeamDomainError(`team "${team.id}" already exists`, 'TEAM_ALREADY_EXISTS')
     }
-    await this.writeUnit(() => this.teams.put(team.id, this.envelope(scope, team)))
+    await this.putTeam(scope, team)
     // Read back from the authoritative post-durability state and verify the
     // complete aggregate survived the durable write.
     const stored = this.teams.get(team.id)
@@ -393,7 +415,62 @@ export class StorageDomainTeamStore implements TeamAggregateStore {
 
   async recordMigrationReceipt(receipt: MigrationReceipt): Promise<void> {
     if (this.storeClosed) throw closed()
-    await this.writeUnit(() => this.receipts.put(receipt.teamId, { ...receipt }))
+    assertTeamWritable(this.ctx, receipt.scope, receipt.teamId)
+    await this.writeUnit(() => { assertTeamWritable(this.ctx, receipt.scope, receipt.teamId); return this.receipts.put(receipt.teamId, { ...receipt }) })
+  }
+
+  /** All durable scopes participate in exclusive Session ownership proof. */
+  records() {
+    if (this.storeClosed) throw closed()
+    return [...this.teams.entries()].map(([id, record]) => ({ workspace: record.workspace, team: structuredClone(this.validate(record, id)!) }))
+  }
+
+  /** The receipt is the first durable stop boundary; every normal write then fails closed. */
+  async freezeForOperator(scope: TeamScope, teamId: TeamId, expectedRevision: number, limits: TeamLimits,
+    assertTeam: (current: TeamState) => void, freeze: (nextRevision: number) => Promise<void>, recovering = false): Promise<TeamState> {
+    if (this.storeClosed) throw closed()
+    return withLock(this.teamLocks, teamId, async () => {
+      const current = await this.readAndUpgrade(scope, teamId)
+      if (current === undefined) throw new TeamDomainError('Team no longer exists', 'TEAM_NOT_FOUND')
+      if (!recovering && current.revision !== expectedRevision) throw new TeamDomainError('Team changed; refresh its retirement preview', 'TEAM_REVISION_CONFLICT')
+      assertTeam(current)
+      const next = structuredClone(current)
+      archiveTeamDraft(next, this.now(), 'Archived by the local operator', limits)
+      const changed = !isDeepStrictEqual(next, current)
+      Object.assign(next, { revision: current.revision + (changed ? 1 : 0), updatedAt: changed ? this.now() : current.updatedAt })
+      await freeze(next.revision)
+      // Even an already archived Team needs the domain write barrier: older queued reference writes must publish before stop validation.
+      await this.writeUnit(() => this.teams.put(teamId, this.envelope(scope, next)))
+      this.notify(teamId)
+      return next
+    })
+  }
+
+  /** Receipt repair only, after actual frame observation and producer drain. No normal Team admission is reopened. */
+  async settleRetiredPublic(scope: TeamScope, teamId: TeamId, facts: readonly RetirementPublicFact[]): Promise<number> {
+    return withLock(this.teamLocks, teamId, async () => {
+      const current = await this.readAndUpgrade(scope, teamId)
+      if (current?.phase !== 'archived' || !teamIsRetired(this.ctx, scope, teamId)) throw new TeamDomainError('Public retirement repair requires a frozen Team', 'TEAM_RETIREMENT_CONFLICT')
+      const next = structuredClone(current)
+      settleRetiredPublicDraft(next, facts, this.now())
+      if (isDeepStrictEqual(next, current)) return current.revision
+      Object.assign(next, { revision: current.revision + 1, updatedAt: this.now() })
+      assertTeamState(next, `${teamId}/retirement-public`)
+      await this.writeUnit(() => this.teams.put(teamId, this.envelope(scope, next)))
+      this.notify(teamId)
+      return next.revision
+    })
+  }
+
+  /** Runs after subsidiary stores and Session artifacts have been verified absent. */
+  async purgeRetired(scope: TeamScope, teamId: TeamId): Promise<void> {
+    await withLock(this.teamLocks, teamId, async () => {
+      const row = this.teams.get(teamId)
+      if (row !== undefined && (row.workspace !== scope || row.team.phase !== 'archived')) throw new TeamDomainError('Team purge requires its frozen archive', 'TEAM_RETIREMENT_CONFLICT')
+      await this.writeUnit(() => this.receipts.delete(teamId))
+      await this.writeUnit(() => this.teams.delete(teamId))
+      this.notify(teamId)
+    })
   }
 
   async close(): Promise<void> {

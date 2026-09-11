@@ -53,6 +53,7 @@ type InitialTurn = {
   readonly captain: Agent
   readonly childId: SessionId
   readonly finish: () => void
+  readonly done: Promise<void>
   admitted: boolean
   terminalReason?: string
   settling: boolean
@@ -202,6 +203,7 @@ export class MemberProvisioner {
         const initial: InitialTurn = {
           scope, teamId: membership.team.id, captain, childId, admitted: false, settling: false, forceFailure: false,
           finish: () => { finish(); this.operations.delete(operation) },
+          done: operation,
         }
         // Register before the official start call: a fast child can terminally
         // end while `startContinuable` is still resolving.  The observation is
@@ -336,7 +338,7 @@ export class MemberProvisioner {
       })
       this.completeInitialTurn(pending)
     } catch (error) {
-      if (error instanceof TeamDomainError && ['TEAM_MEMBER_PHASE_INVALID', 'TEAM_MEMBER_NOT_FOUND'].includes(error.code)) this.completeInitialTurn(pending)
+      if (error instanceof TeamDomainError && ['TEAM_MEMBER_PHASE_INVALID', 'TEAM_MEMBER_NOT_FOUND', 'TEAM_RETIRED', 'TEAM_NOT_FOUND'].includes(error.code)) this.completeInitialTurn(pending)
       else {
         this.ctx.logger.warn(`agent-swarm: failed to settle initial member turn ${pending.childId}: ${String(error)}`)
         this.retryInitialTurnSettlement(pending)
@@ -363,6 +365,15 @@ export class MemberProvisioner {
   /** Wait for every admitted provisioning operation (disposal path). */
   wait(): Promise<Array<PromiseSettledResult<void>>> {
     return Promise.allSettled(this.operations)
+  }
+
+  async waitTeam(scope: TeamScope, teamId: TeamId): Promise<void> {
+    const pending = [...this.initialTurns.values()].filter(turn => turn.scope === scope && turn.teamId === teamId)
+    for (const turn of pending) {
+      if (turn.admitted) { turn.forceFailure = true; turn.terminalReason ??= 'aborted'; this.settleObservedInitialTurn(turn) }
+    }
+    if (pending.some(turn => !turn.admitted)) throw new TeamDomainError('Team still has an in-flight member startup; retry retirement after it drains', 'TEAM_RETIREMENT_DRAIN_PENDING')
+    await Promise.all(pending.map(turn => turn.done))
   }
 
   dispose(): void {

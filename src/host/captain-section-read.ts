@@ -21,11 +21,13 @@ export async function readCaptainSection(ctx: Context, team: TeamState, request:
         // the authoritative roster order exactly.
         const reader = new MemberProfileReader(ctx)
         const profiles = await reader.list(team, team.members, new AbortController().signal)
+        const history = await archivedMemberHistory(ctx, team)
         const members: SwarmReadCaptainMembersV1['members'] = team.members.map((member, index) => {
           const composition = memberCompositionOf(profiles[index], member)
           return {
           name: member.name,
           ...(member.phase === 'active' && composition.state === 'available' ? { sessionId: member.sessionId } : {}),
+          ...(history.has(member.name) ? { historySessionId: history.get(member.name)! } : {}),
           role: member.role,
           phase: member.phase,
           createdAt: member.createdAt,
@@ -105,6 +107,24 @@ export async function readCaptainSection(ctx: Context, team: TeamState, request:
         }
       }
     }
+}
+
+/** This is a cold history address, never an active-member or resume capability. */
+async function archivedMemberHistory(ctx: Context, team: TeamState): Promise<ReadonlyMap<string, string>> {
+  const history = new Map<string, string>()
+  if (team.phase !== 'archived' || !team.captainSessionId) return history
+  const signal = AbortSignal.timeout(3_000)
+  const captain = await ctx.sessionPersistence.stat(SessionId(team.captainSessionId), { signal }).catch(() => undefined)
+  if (captain?.header.id !== team.captainSessionId || captain.header.cwd === undefined) return history
+  await Promise.all(team.members.map(async member => {
+    if (member.phase !== 'removed' || !member.sessionId) return
+    const stored = await ctx.sessionPersistence.stat(SessionId(member.sessionId), { signal }).catch(() => undefined)
+    if (stored?.header.id === member.sessionId && stored.header.origin === 'subagent'
+      && stored.header.parentSession === team.captainSessionId && stored.header.cwd === captain.header.cwd) {
+      history.set(member.name, member.sessionId)
+    }
+  }))
+  return history
 }
 
 function memberCompositionOf(profile: MemberProfile | undefined, member: TeamMember): SwarmReadCaptainMemberRowV1['composition'] {

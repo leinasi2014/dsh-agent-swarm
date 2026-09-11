@@ -263,7 +263,9 @@ it.each(['obsolete', 'cancelled', 'superseded'] as const)('rejects a late decisi
   } else if (phase === 'superseded') {
     await stack.ctx.agentSwarm.domain.queueMessage(stack.scope, stack.teamId, stack.member.id, 'captain', 'Approval withdrawn', 'quiet', undefined, notice!.id)
   } else {
-    const domain = await stack.storageOpen.mock.results[0]!.value as Domain<typeof teamDomainSpec>
+    const teamDomainOpen = stack.storageOpen.mock.calls.findIndex(([spec]) => spec.name === teamDomainSpec.name)
+    expect(teamDomainOpen).toBeGreaterThanOrEqual(0)
+    const domain = await stack.storageOpen.mock.results[teamDomainOpen]!.value as Domain<typeof teamDomainSpec>
     const store = new StorageDomainTeamStore(stack.ctx, domain)
     try {
       await store.transact(stack.scope, stack.teamId, team => {

@@ -105,34 +105,36 @@ export async function publicRequestResult(deps: TeamDomainDeps, scope: TeamScope
 }
 
 export async function acknowledgePublicMessage(deps: TeamDomainDeps, scope: TeamScope, teamId: TeamId, messageId: string, recipientSessionId: string): Promise<TeamPublicMessage> {
-  return await deps.store.transact(scope, teamId, team => {
-    const index = team.publicChat?.messages.findIndex(message => message.id === messageId) ?? -1
-    expectDomain(index >= 0, 'public message not found', 'TEAM_PUBLIC_MESSAGE_NOT_FOUND')
-    const message = team.publicChat!.messages[index]!
-    if (isPublicMessageV3(message)) {
-      const next = updatePublicImageRecipient(message, recipientSessionId, recipient => {
-        if (recipient.state !== 'queued') return recipient
-        expectDomain(recipient.projection !== undefined, 'Public image input has not been frozen', 'TEAM_PUBLIC_DELIVERY_MISMATCH')
-        const { deferredReason: _reason, ...fields } = recipient
-        return { ...fields, state: 'claimed', claimedAt: Math.max(deps.now(), message.createdAt) }
-      })
-      Object.assign(team, { publicChat: { ...team.publicChat!, messages: team.publicChat!.messages.map((row, at) => at === index ? next : row) } })
-      return structuredClone(next)
-    }
-    if (isPublicMessageV2(message)) {
-      const next = updateRecipient(message, recipientSessionId, recipient => recipient.state !== 'queued' ? recipient
-        : { ...recipient, state: 'claimed', claimedAt: Math.max(deps.now(), message.createdAt) })
-      Object.assign(team, { publicChat: { ...team.publicChat!, messages: team.publicChat!.messages.map((row, at) => at === index ? next : row) } })
-      return structuredClone(next)
-    }
-    const delivery = message.delivery
-    expectDomain(delivery.state !== 'not-requested' && delivery.recipientSessionId === recipientSessionId,
-      'public receipt recipient does not match the frozen intent', 'TEAM_PUBLIC_DELIVERY_MISMATCH')
-    if (delivery.state === 'claimed') return structuredClone(message)
-    const next: TeamPublicMessage = { ...message, delivery: { ...delivery, state: 'claimed', claimedAt: Math.max(deps.now(), message.createdAt) } }
-    team.publicChat!.messages[index] = next
+  return deps.store.transact(scope, teamId, team => acknowledgePublicMessageDraft(team, messageId, recipientSessionId, deps.now()))
+}
+
+export function acknowledgePublicMessageDraft(team: TeamState, messageId: string, recipientSessionId: string, timestamp: number): TeamPublicMessage {
+  const index = team.publicChat?.messages.findIndex(message => message.id === messageId) ?? -1
+  expectDomain(index >= 0, 'public message not found', 'TEAM_PUBLIC_MESSAGE_NOT_FOUND')
+  const message = team.publicChat!.messages[index]!
+  if (isPublicMessageV3(message)) {
+    const next = updatePublicImageRecipient(message, recipientSessionId, recipient => {
+      if (recipient.state !== 'queued') return recipient
+      expectDomain(recipient.projection !== undefined, 'Public image input has not been frozen', 'TEAM_PUBLIC_DELIVERY_MISMATCH')
+      const { deferredReason: _reason, ...fields } = recipient
+      return { ...fields, state: 'claimed', claimedAt: Math.max(timestamp, message.createdAt) }
+    })
+    Object.assign(team, { publicChat: { ...team.publicChat!, messages: team.publicChat!.messages.map((row, at) => at === index ? next : row) } })
     return structuredClone(next)
-  })
+  }
+  if (isPublicMessageV2(message)) {
+    const next = updateRecipient(message, recipientSessionId, recipient => recipient.state !== 'queued' ? recipient
+      : { ...recipient, state: 'claimed', claimedAt: Math.max(timestamp, message.createdAt) })
+    Object.assign(team, { publicChat: { ...team.publicChat!, messages: team.publicChat!.messages.map((row, at) => at === index ? next : row) } })
+    return structuredClone(next)
+  }
+  const delivery = message.delivery
+  expectDomain(delivery.state !== 'not-requested' && delivery.recipientSessionId === recipientSessionId,
+    'public receipt recipient does not match the frozen intent', 'TEAM_PUBLIC_DELIVERY_MISMATCH')
+  if (delivery.state === 'claimed') return structuredClone(message)
+  const next: TeamPublicMessage = { ...message, delivery: { ...delivery, state: 'claimed', claimedAt: Math.max(timestamp, message.createdAt) } }
+  team.publicChat!.messages[index] = next
+  return structuredClone(next)
 }
 
 type V2Recipient = Extract<TeamPublicMessageV2['delivery'], { kind: 'requested' }>['recipients'][number]
@@ -146,25 +148,28 @@ function updateRecipient(message: TeamPublicMessageV2, id: string, update: (reci
 /** Only the delivery owner calls this after proving durable absence, never merely an empty process map. */
 export async function settlePublicMessage(deps: TeamDomainDeps, scope: TeamScope, teamId: TeamId, messageId: string,
   recipientSessionId: string, reason: import('../shared/public-image-content.js').PublicImageNotDeliveredReason): Promise<TeamPublicMessage> {
-  return await deps.store.transact(scope, teamId, team => {
-    const message = team.publicChat?.messages.find(row => row.id === messageId)
-    expectDomain(message !== undefined && 'formatVersion' in message, 'Structured public message not found', 'TEAM_PUBLIC_MESSAGE_NOT_FOUND')
-    if (message === undefined || !('formatVersion' in message)) throw new TeamDomainError('Structured public message not found', 'TEAM_PUBLIC_MESSAGE_NOT_FOUND')
-    expectDomain(reason === 'assistance-closed' ? isPublicMessageV3(message) && message.assistance?.kind === 'request'
-      && team.publicChat?.schemaVersion === 3 && team.publicChat.assistances?.some(row => row.assistanceId === message.assistance!.assistanceId && row.result !== undefined)
-      : reason === 'team-archived' ? team.phase === 'archived'
-      : recipientSessionId !== team.captainSessionId && !team.members.some(row => row.sessionId === recipientSessionId && row.phase === 'active'),
-    'public recipient is still eligible', 'TEAM_PUBLIC_DELIVERY_MISMATCH')
-    const next = isPublicMessageV3(message) ? updatePublicImageRecipient(message, recipientSessionId, recipient => {
-      if (recipient.state !== 'queued') return recipient
-      const { deferredReason: _reason, ...fields } = recipient
-      return { ...fields, state: 'not-delivered', reason, settledAt: Math.max(deps.now(), message.createdAt) }
-    }) : updateRecipient(message, recipientSessionId, recipient => {
-      if (reason === 'assistance-closed') throw new TeamDomainError('Only v3 assistance can close a helper intent', 'TEAM_PUBLIC_DELIVERY_MISMATCH')
-      return recipient.state !== 'queued' ? recipient : { ...recipient, state: 'not-delivered',
-        reason, settledAt: Math.max(deps.now(), message.createdAt) }
-    })
-    Object.assign(team, { publicChat: { ...team.publicChat!, messages: team.publicChat!.messages.map(row => row.id === messageId ? next : row) } })
-    return structuredClone(next)
+  return deps.store.transact(scope, teamId, team => settlePublicMessageDraft(team, messageId, recipientSessionId, reason, deps.now()))
+}
+
+export function settlePublicMessageDraft(team: TeamState, messageId: string, recipientSessionId: string,
+  reason: import('../shared/public-image-content.js').PublicImageNotDeliveredReason, timestamp: number): TeamPublicMessage {
+  const message = team.publicChat?.messages.find(row => row.id === messageId)
+  expectDomain(message !== undefined && 'formatVersion' in message, 'Structured public message not found', 'TEAM_PUBLIC_MESSAGE_NOT_FOUND')
+  if (message === undefined || !('formatVersion' in message)) throw new TeamDomainError('Structured public message not found', 'TEAM_PUBLIC_MESSAGE_NOT_FOUND')
+  expectDomain(reason === 'assistance-closed' ? isPublicMessageV3(message) && message.assistance?.kind === 'request'
+    && team.publicChat?.schemaVersion === 3 && team.publicChat.assistances?.some(row => row.assistanceId === message.assistance!.assistanceId && row.result !== undefined)
+    : reason === 'team-archived' ? team.phase === 'archived'
+    : recipientSessionId !== team.captainSessionId && !team.members.some(row => row.sessionId === recipientSessionId && row.phase === 'active'),
+  'public recipient is still eligible', 'TEAM_PUBLIC_DELIVERY_MISMATCH')
+  const next = isPublicMessageV3(message) ? updatePublicImageRecipient(message, recipientSessionId, recipient => {
+    if (recipient.state !== 'queued') return recipient
+    const { deferredReason: _reason, ...fields } = recipient
+    return { ...fields, state: 'not-delivered', reason, settledAt: Math.max(timestamp, message.createdAt) }
+  }) : updateRecipient(message, recipientSessionId, recipient => {
+    if (reason === 'assistance-closed') throw new TeamDomainError('Only v3 assistance can close a helper intent', 'TEAM_PUBLIC_DELIVERY_MISMATCH')
+    return recipient.state !== 'queued' ? recipient : { ...recipient, state: 'not-delivered',
+      reason, settledAt: Math.max(timestamp, message.createdAt) }
   })
+  Object.assign(team, { publicChat: { ...team.publicChat!, messages: team.publicChat!.messages.map(row => row.id === messageId ? next : row) } })
+  return structuredClone(next)
 }

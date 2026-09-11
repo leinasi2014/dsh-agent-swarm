@@ -11,7 +11,7 @@ import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
  * tool call. Lessons 28/29 discipline: `vi.waitFor` timeouts are 15s and
  * every case carries an explicit budget of at least 60s.
  */
-import { mkdtemp, readdir, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
@@ -270,6 +270,36 @@ return { out }`),
     } finally {
       for (const fiber of tree.fibers.toReversed()) await fiber.dispose()
     }
+  })
+
+  it('archives a running workflow through operator retirement and commits a terminal overlay after its writer is fenced', { timeout: 60_000 }, async () => {
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-wf-retirement-'))
+    sandboxes.push(sandbox)
+    const tree = await mountTree(sandbox, { submit: false, workflowBridge: true, workflowDisposeGraceMs: 100 })
+    try {
+      const runtime = tree.ctx.agentSwarm, bridge = runtime.workflowBridge!
+      const run = bridge.start({ script: scriptOf("return await agent('Park without submitting.')"), meta: { ...META }, parent: tree.lead })
+      await vi.waitFor(() => { expect(tree.workflowEvents.some(event => event.name === 'workflow/agent-start')).toBe(true) }, { timeout: 15_000 })
+      const running = bridge.overlay.get(run.id)!
+      await vi.waitFor(async () => {
+        const current = (await runtime.listTeamAggregates(running.scope)).find(row => row.id === running.teamId)!
+        expect(current.attempts[0]?.assignmentPhase).toBe('delivered')
+        await tree.ctx.agents.get(SessionId(current.attempts[0]!.memberSessionId))?.whenIdle()
+      }, { timeout: 15_000 })
+      const team = (await runtime.listTeamAggregates(running.scope)).find(row => row.id === running.teamId)!
+      const result = await runtime.retirement.execute({ scope: running.scope, mainSessionId: tree.lead.id, team,
+        verify: async () => {}, assertTeam: current => { expect(current.id).toBe(team.id) } },
+      { schemaVersion: 1, target: { rootSessionId: tree.lead.id, teamId: team.id }, action: 'archive', requestId: 'workflow-archive', expectedTeamRevision: team.revision }, new AbortController().signal)
+      expect(result.state).toBe('completed')
+      // Freezing the task may release the script's await before cancellation
+      // reaches the live holder. The durable operator outcome is authoritative.
+      await run.result
+      expect(bridge.overlay.get(run.id)).toMatchObject({ state: 'cancelled', stopReason: 'cancelled', error: 'Team retired by operator' })
+      await expect(bridge.overlay.put(running)).rejects.toMatchObject({ code: 'TEAM_RETIRED' })
+      expect(tree.ctx.agents.get(tree.lead.id)).toBe(tree.lead)
+      const persisted = await readFile(join(sandbox, 'storage', 'agent_swarm_workflow.json'), 'utf8')
+      expect(persisted).toContain('Team retired by operator')
+    } finally { for (const fiber of tree.fibers.toReversed()) await fiber.dispose() }
   })
 
   it('recovers a crashed run from the overlay as interrupted, without re-driving it', { timeout: 120_000 }, async () => {

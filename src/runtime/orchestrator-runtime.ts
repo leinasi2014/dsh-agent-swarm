@@ -41,6 +41,7 @@ import { RuntimeMutationSurface } from './runtime-mutation-surface.js'
 import { ManagedActivationRecovery } from './managed-activation-recovery.js'
 import { SchedulingAdmission } from './scheduling-admission.js'
 import { TeamDirectory } from './team-directory.js'
+import { TeamRetirement } from './team-retirement.js'
 import { WorkRequestSurface } from './work-request-surface.js'
 import { GoalRuntimeSurface } from './goal-runtime-surface.js'
 
@@ -53,6 +54,7 @@ export class AgentSwarmRuntime extends Service {
   readonly captainModels: CaptainModelSelection
   readonly work: WorkRequestSurface
   readonly goals: GoalRuntimeSurface
+  readonly retirement: TeamRetirement
   private domainInstance?: TeamDomainPort
   private storeInstance?: StorageDomainTeamStore
   private domainHandle?: Domain<typeof teamDomainSpec>
@@ -206,36 +208,34 @@ export class AgentSwarmRuntime extends Service {
       deadline: (scope, team) => this.schedulingPass.trackGoalDeadline(scope, team),
       sweep: (scope, teamId) => this.executionRoots.sweep(scope, teamId),
     })
+    this.retirement = new TeamRetirement(ctx, { store: () => this.storeInstance!, limits: config.limits,
+      fence: (scope, teamId, signal, operation) => this.withPublicAdmissionFence(scope, teamId, signal, operation),
+      suspend: (scope, teamId) => this.executionRoots.suspendTeam(scope, teamId),
+      settle: async (scope, teamId) => { await this.scheduling.waitTeam(scope, teamId); await this.delivery.waitPrivateTeam(scope, teamId); await this.provisioning.waitTeam(scope, teamId) },
+    })
   }
   /** Open the authoritative Storage Domain; invalid records or missing services fail activation. */
   start(): Promise<void> {
     this.startPromise ??= (async () => {
       if (this.closing) throw new TeamDomainError('Team orchestrator is disposing', 'TEAM_RUNTIME_CLOSING')
+      await this.retirement.start()
       const handle = await this.ctx.storageDomain.open(teamDomainSpec)
       const store = new StorageDomainTeamStore(this.ctx, handle)
       this.domainHandle = handle
       this.storeInstance = store
       this.domainInstance = new TeamDomain(store, this.config.limits, Date.now, this.config.communicationIntensity)
       // Rebuild the transient Main→Captain directory from official persisted Session lineage.
-      await this.recoverOwnedChildrenFromPersistence()
+      await recoverOwnedChildrenFromPersistence(this.ctx, { store,
+        rememberTeam: (team, scope) => { this.config.teamSkills.rememberTeam(team); this.captainModels.remember(team, scope) },
+        ownedChildren: this.ownedChildren,
+      })
     })()
     return this.startPromise
   }
 
-  /** Rebuild Captain ownership and scoped role caches from canonical records. */
-  private async recoverOwnedChildrenFromPersistence(): Promise<void> {
-    if (this.storeInstance === undefined) return
-    await recoverOwnedChildrenFromPersistence(this.ctx, {
-      store: this.storeInstance,
-      rememberTeam: (team, scope) => { this.config.teamSkills.rememberTeam(team); this.captainModels.remember(team, scope) },
-      ownedChildren: this.ownedChildren,
-    })
-  }
   private async ensureReady(): Promise<void> {
     if (this.domainInstance === undefined) await this.start()
-    if (this.domainInstance === undefined) {
-      throw new TeamDomainError('Team orchestrator storage did not start', 'TEAM_RUNTIME_NOT_STARTED')
-    }
+    if (this.domainInstance === undefined) throw new TeamDomainError('Team orchestrator storage did not start', 'TEAM_RUNTIME_NOT_STARTED')
   }
   /** The authoritative Team port. Throws before `start()` resolves. */
   get domain(): TeamDomainPort {
@@ -511,17 +511,17 @@ export class AgentSwarmRuntime extends Service {
     })
   }
 
-  recoverDormantManagedTeams(): Promise<void> { return this.activationRecovery.run() }
+  async recoverDormantManagedTeams(): Promise<void> { await this.retirement.recover(); await this.activationRecovery.run() }
 
   async recoverAgent(agent: Agent): Promise<void> {
-    if (this.closing) return
+    if (this.closing || this.retirement.ownsSession(agent.id)) return
     const scope = this.scopeOf(agent)
     this.watchJobsScope(scope)
     await recoverIdleAgent(this.ctx, agent, scope, {
       domain: this.domain, closing: () => this.closing, signal: this.publicAbort.signal,
       delivery: this.delivery, provisioning: this.provisioning,
       track: (captain, team) => this.trackTeamChildren(captain, team),
-      allowed: teamId => this.orchestration.eventFaceActive(scope, teamId),
+      allowed: teamId => !this.retirement.isRetired(scope, teamId) && this.orchestration.eventFaceActive(scope, teamId),
       schedule: (teamId, captain) => { this.scheduling.request(scope, teamId, captain) },
     })
   }
@@ -592,6 +592,7 @@ export class AgentSwarmRuntime extends Service {
       // release the storage-domain unit so the name frees for a later open.
       await this.storeInstance?.close()
       await this.domainHandle?.close()
+      await this.retirement.close()
     })())
     if (failures.length > 0) throw new AggregateError(failures, 'Team orchestrator disposal failed')
   }
