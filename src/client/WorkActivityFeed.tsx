@@ -30,9 +30,9 @@ export function WorkActivityFeed({ work, teamId, taskId, openTask, directory, co
       [data-work-activity] button { padding:4px; color:var(--dsw-alias-state-business-primary); border:0; background:transparent; font:inherit; font-size:12px; }
       [data-work-activity] small { font-size:11px; color:var(--dsw-alias-label-secondary); }
       [data-work-activity] [data-work-request] { grid-column:3/-1; min-width:0; }
-      [data-work-activity] article>button { align-self:start; }
+      [data-work-activity] article>[data-work-task-reference] { align-self:start; margin:0; }
       [data-work-activity] [data-work-folded] { margin:0; font-size:12px; color:var(--dsw-alias-label-secondary); }
-      @container(max-width:600px) { [data-work-activity] article { grid-template-columns:24px 54px minmax(0,1fr); gap:5px 7px; } [data-work-activity] article>button { grid-column:3; justify-self:start; } }
+      @container(max-width:600px) { [data-work-activity] article { grid-template-columns:24px 54px minmax(0,1fr); gap:5px 7px; } [data-work-activity] article>[data-work-task-reference] { grid-column:3; justify-self:start; } }
     `}</style>
     <div data-work-heading><h2>{t('work.activity')}<small>{t('work.loadedCount', { count: visible.length })}</small></h2><button type="button" data-work-collapse aria-expanded={!folded} aria-controls={bodyId} onClick={() => { (setCollapsed ?? setLocalCollapsed)(!folded) }}>{t(folded ? 'public.expand' : 'public.collapse')}</button></div>
     {folded ? <p data-work-folded>{visible.at(-1) === undefined ? t('work.empty') : `#${visible.at(-1)!.sequence} · ${t(`work.${visible.at(-1)!.kind}`)}`}</p> : null}
@@ -45,7 +45,7 @@ export function WorkActivityFeed({ work, teamId, taskId, openTask, directory, co
       return <article key={`${state.selection!.key}:${entry.id}`} data-work-event={entry.id} data-work-kind={entry.kind}>
         <small>#{entry.sequence}</small><time title={new Date(entry.occurredAt).toLocaleString()} dateTime={new Date(entry.occurredAt).toISOString()}>{new Date(entry.occurredAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
         <header><strong>{t(`work.${entry.kind}`)}{entry.decision === undefined ? '' : ` · ${t(`work.${entry.decision}`)}`}</strong><span>{actor}</span>{entry.assigneeSessionId === undefined ? null : <span>{t('work.assignee')}: <WorkParticipant sessionId={entry.assigneeSessionId} members={members} t={t} /></span>}</header>
-        {entry.taskId === undefined ? null : openTask === undefined ? <p>{entry.taskId}</p> : <button type="button" data-work-task={entry.taskId} disabled={!state.verified} onClick={() => { openTask(entry.taskId!) }}>{t('work.task', { id: entry.taskId })} →</button>}
+        {entry.taskId === undefined ? null : openTask === undefined ? <p data-work-task-reference>{entry.taskId}</p> : <button type="button" data-work-task-reference data-work-task={entry.taskId} disabled={!state.verified} onClick={() => { openTask(entry.taskId!) }}>{t('work.task', { id: entry.taskId })} →</button>}
         {entry.workRequestId === undefined ? null : <details data-work-request={entry.workRequestId}><summary title={entry.workRequestId}>{t('work.request')}</summary>
           <p><code>{entry.workRequestId}</code></p>
           {request === undefined ? <p>{t('work.requestMissing')}</p> : <>

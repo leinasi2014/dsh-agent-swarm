@@ -507,3 +507,45 @@ it('keeps real React activity, folds, quote access and reading position stable i
     }
   } finally { await browser.close() }
 }, 60_000)
+
+it('keeps both navigation items painted and clickable below the fixed header at the installed viewport', async () => {
+  const { publicImagesBrowserScript } = await import('./helpers/public-images-browser.js')
+  const { chromium } = await import('playwright'), { readFile } = await import('node:fs/promises')
+  const layoutSource = await readFile('node_modules/@deepseek-ai/dsh-client-ui-layout/lib/client.js', 'utf8')
+  const layoutCss = JSON.parse(layoutSource.match(/const css = (".*?");/u)![1]!) as string
+  const browser = await chromium.launch({ channel: 'msedge', headless: true })
+  try {
+    const page = await browser.newPage({ viewport: { width: 813, height: 731 } })
+    await page.setContent(`<style>${layoutCss}body{margin:0;font:14px system-ui;--dsw-alias-label-primary:#223047;--dsw-alias-label-secondary:#69778c;--dsw-alias-bg-base:#f8f9fc;--dsw-alias-bg-layer-1:white;--dsw-alias-border-l2:#d8deea;--dsw-alias-state-business-primary:#4267bc}.FVMiGq_frame{height:731px;width:758px;margin-left:55px}#fixture-root{height:100%;min-height:0}</style><div class="FVMiGq_frame"><div class="FVMiGq_centerCol"><div id="fixture-root"></div></div></div>`)
+    await page.addScriptTag({ content: await publicImagesBrowserScript() })
+    const team = teamState(), chat = chatState(team), goal = { selection: chat.selection, verified: true, expanded: false, draftStatus: 'ready', response: { snapshot: { text: '已保存的团队目标。'.repeat(100), budget: { usedTokens: 23 }, remainingActiveTasks: 0, remainingActiveAttempts: 0, eligibility: { state: 'available' } } } }
+    await page.evaluate(async ({ team: teamValue, chat: chatValue, goal: goalValue }) => { await (window as unknown as { mountChat: (team: unknown, chat: unknown, activity: unknown, goal: unknown) => Promise<void> }).mountChat(teamValue, chatValue, undefined, goalValue) }, { team, chat, goal })
+    await page.locator('[data-public-navigation] summary').click()
+    const items = page.locator('[data-public-navigation]>div>button')
+    expect(await items.count()).toBe(2)
+    const readHits = () => items.evaluateAll(nodes => nodes.map(node => {
+      const r = node.getBoundingClientRect()
+      return { text: node.textContent, inViewport: r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight,
+        hits: [[r.left + 3, r.top + 3], [r.right - 3, r.top + 3], [r.left + 3, r.bottom - 3], [r.right - 3, r.bottom - 3], [(r.left + r.right) / 2, (r.top + r.bottom) / 2]].map(([x, y]) => node.contains(document.elementFromPoint(x!, y!))) }
+    }))
+    expect((await readHits()).every(item => item.inViewport && item.hits.every(Boolean))).toBe(true)
+    const screenshotDirectory = process.env['SWARM_UI_EVIDENCE_DIR']
+    if (screenshotDirectory) await page.screenshot({ path: `${screenshotDirectory}/navigation-goal-collapsed-813.png` })
+    await page.getByRole('button', { name: '已载入消息末尾', exact: true }).click()
+    await page.locator('[data-public-navigation] summary').click()
+    await page.getByRole('button', { name: '任务活动 · 群聊顶部', exact: true }).click()
+    expect(await page.locator('[data-public-navigation] summary').evaluate(node => node === document.activeElement)).toBe(true)
+    await page.locator('[data-goal-toggle]').click()
+    await page.locator('[data-goal-details]').waitFor()
+    const goalBounds = await page.locator('.swarm-public__header').evaluate(node => { const column = node.querySelector('div')!; return { height: node.getBoundingClientRect().height, maxHeight: node.parentElement!.getBoundingClientRect().height * 0.55, scrollable: column.scrollHeight > column.clientHeight, headerOverflow: getComputedStyle(node).overflowY } })
+    expect(goalBounds.height).toBeLessThanOrEqual(goalBounds.maxHeight + 1)
+    expect(goalBounds.scrollable).toBe(true)
+    expect(goalBounds.headerOverflow).toBe('visible')
+    await page.locator('[data-public-navigation] summary').click()
+    expect((await readHits()).every(item => item.inViewport && item.hits.every(Boolean))).toBe(true)
+    if (screenshotDirectory) await page.screenshot({ path: `${screenshotDirectory}/navigation-goal-expanded-813.png` })
+    await page.keyboard.press('Escape')
+    expect(await page.locator('[data-public-navigation]').getAttribute('open')).toBeNull()
+    expect(await page.locator('[data-public-navigation] summary').evaluate(node => node === document.activeElement)).toBe(true)
+  } finally { await browser.close() }
+}, 60_000)

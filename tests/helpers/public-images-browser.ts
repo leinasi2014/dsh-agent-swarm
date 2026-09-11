@@ -13,7 +13,9 @@ export async function publicImagesBrowserScript(): Promise<string> {
     import React from 'react'; import {createRoot} from 'react-dom/client';
     import {TeamPublicChat} from './src/client/TeamPublicChat.tsx';
     import {zh} from './src/client/team-dashboard-locales.ts';
-    window.mountChat = async (team, chat, activity) => {
+    window.mountChat = async (team, chat, activity, goalState) => {
+      const goalListeners=new Set();
+      const goal=goalState?{subscribe:listener=>{goalListeners.add(listener);return()=>goalListeners.delete(listener)},getSnapshot:()=>goalState,setExpanded:expanded=>{goalState={...goalState,expanded};goalListeners.forEach(listener=>listener())}}:undefined;
       const canvas = document.createElement('canvas'); canvas.width=480; canvas.height=320;
       const c=canvas.getContext('2d'); c.fillStyle='#c8daf4'; c.fillRect(0,0,480,320);
       c.fillStyle='#55799e'; c.fillRect(60,80,160,170); c.fillStyle='#b17e72'; c.beginPath(); c.arc(320,155,72,0,Math.PI*2); c.fill();
@@ -23,7 +25,7 @@ export async function publicImagesBrowserScript(): Promise<string> {
       const create=URL.createObjectURL.bind(URL),revoke=URL.revokeObjectURL.bind(URL);
       URL.createObjectURL=b=>{const url=create(b);window.created.push(url);return url}; URL.revokeObjectURL=u=>{window.revoked.push(u);revoke(u)};
       const action=name=>(...args)=>window.actions.push([name,...args.map(v=>Array.isArray(v)?v.map(f=>f.name):v)]);
-      const props={t:(key,params={})=>zh[key].replace(/\\{(\\w+)\\}/gu,(match,name)=>name in params?String(params[name]):match),
+      const props={goal,t:(key,params={})=>zh[key].replace(/\\{(\\w+)\\}/gu,(match,name)=>name in params?String(params[name]):match),
         useSessions:f=>f(window.sessionState??{phase:'ready',current:undefined,byId:{}}),useTeam:f=>f(team),useChat:f=>f(chat),useSurface:f=>f({mode:'inactive',view:'overview'}),
         ...(activity ? {work:{subscribe:()=>()=>{},getSnapshot:()=>activity,more:action('moreActivity'),refresh:action('refreshActivity')},openWorkTask:action('openTask')} : {}),
         image:async()=>{window.reads++;if(window.imageWait)await window.imageWait;return blob},addImages:action('addImages'),removeImage:action('removeImage'),

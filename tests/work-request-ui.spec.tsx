@@ -128,14 +128,18 @@ it('keeps the actual proposal and event cards within 320px and 390px browser lay
     const page = await browser.newPage()
     for (const width of [320, 390]) {
       await page.setViewportSize({ width, height: 900 })
-      await page.setContent(`<style>body{margin:0;padding:12px;box-sizing:border-box;font:14px system-ui;color:#223047;background:#f8f9fc;--dsw-alias-label-primary:#223047;--dsw-alias-label-secondary:#69778c;--dsw-alias-bg-base:#f8f9fc;--dsw-alias-bg-layer-1:white;--dsw-alias-border-l2:#d8deea;--dsw-alias-state-business-primary:#4267bc}</style>${document.querySelector('[data-work-browser]')!.outerHTML}`)
+      await page.setContent(`<style>body{margin:0;padding:12px;box-sizing:border-box;font:14px system-ui;color:#223047;background:#f8f9fc;--dsw-alias-label-primary:#223047;--dsw-alias-label-secondary:#69778c;--dsw-alias-bg-base:#f8f9fc;--dsw-alias-bg-layer-1:white;--dsw-alias-border-l2:#d8deea;--dsw-alias-state-business-primary:#4267bc}[data-work-browser]{container-type:inline-size}</style>${document.querySelector('[data-work-browser]')!.outerHTML}`)
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
       expect(await page.locator('[data-work-description]').inputValue()).toBe('修复真实问题')
       expect(await page.locator('[data-work-event="event-member"] header').innerText()).toContain('校对员')
       expect(await page.locator('[data-work-event="event-member"]').innerText()).not.toContain(memberId)
+      const taskReference = page.locator('[data-work-event="event-member"]>p')
+      expect(await taskReference.innerText()).toBe('task-1')
+      expect(await taskReference.evaluate(node => Math.abs(node.getBoundingClientRect().left - node.parentElement!.querySelector('header')!.getBoundingClientRect().left))).toBeLessThan(1)
+      expect(await taskReference.evaluate(node => node.getBoundingClientRect().height)).toBeLessThan(25)
       await page.locator('[data-work-request="request-browser"] summary').click()
       expect(await page.locator('[data-work-request="request-browser"]').innerText()).toContain('修复任务栏的窄屏布局')
-      if (screenshotDirectory) await page.screenshot({ path: `${screenshotDirectory}/work-${width}.png`, fullPage: true })
+      if (screenshotDirectory) await page.screenshot({ path: `${screenshotDirectory}/task-trace-corrected-${width}.png`, fullPage: true })
     }
   } finally { await browser.close() }
 }, 30_000)
