@@ -78,22 +78,22 @@ export class MessageDelivery {
   ) {}
 
   /** Drain typed work notices through the same mailbox chains and retirement fence. */
-  async deliverWorkRequests(scope: TeamScope, teamId: TeamId, signal: AbortSignal): Promise<PublicDeliveryResult> {
-    return await this.drainCaptainNotices(scope, teamId, signal, 'work-request-notice')
+  async deliverWorkRequests(scope: TeamScope, teamId: TeamId, signal: AbortSignal, throwOnFailure = false): Promise<PublicDeliveryResult> {
+    return await this.drainCaptainNotices(scope, teamId, signal, 'work-request-notice', throwOnFailure)
   }
 
-  async deliverGoalNotices(scope: TeamScope, teamId: TeamId, signal: AbortSignal): Promise<PublicDeliveryResult> {
-    return await this.drainCaptainNotices(scope, teamId, signal, 'goal-coordination-notice')
+  async deliverGoalNotices(scope: TeamScope, teamId: TeamId, signal: AbortSignal, throwOnFailure = false): Promise<PublicDeliveryResult> {
+    return await this.drainCaptainNotices(scope, teamId, signal, 'goal-coordination-notice', throwOnFailure)
   }
 
   private async drainCaptainNotices(scope: TeamScope, teamId: TeamId, signal: AbortSignal,
-    kind: 'work-request-notice' | 'goal-coordination-notice'): Promise<PublicDeliveryResult> {
+    kind: 'work-request-notice' | 'goal-coordination-notice', throwOnFailure: boolean): Promise<PublicDeliveryResult> {
     const result = { admitted: false, deferred: false, reconciled: 0 }
     const team = await this.deps.publicTeam?.(scope, teamId)
     for (const notice of team?.messages ?? []) {
       if (notice.kind !== kind || notice.phase !== 'queued' || this.deps.isClosing()) continue
       await this.queueMessageOperation(scope, teamId, notice.id, async () => {
-        const value = await this.deliverWorkNotice(scope, teamId, notice.id, signal, kind)
+        const value = await this.deliverWorkNotice(scope, teamId, notice.id, signal, kind, throwOnFailure)
         result.admitted ||= value.result.admitted; result.deferred ||= value.result.deferred; result.reconciled += value.result.reconciled
         return value.message
       })
@@ -102,7 +102,7 @@ export class MessageDelivery {
   }
 
   private deliverWorkNotice(scope: TeamScope, teamId: TeamId, messageId: TeamMessageId, signal: AbortSignal,
-    kind: 'work-request-notice' | 'goal-coordination-notice' = 'work-request-notice') {
+    kind: 'work-request-notice' | 'goal-coordination-notice' = 'work-request-notice', throwOnFailure = false) {
     return this.withPublicAdmissionFence(scope, teamId, () => deliverWorkRequestNotice(this.ctx, {
       domain: this.deps.domain, closing: this.deps.isClosing,
       team: async (boundScope, id) => await this.deps.publicTeam?.(boundScope, id),
@@ -111,7 +111,7 @@ export class MessageDelivery {
         return await this.deps.publicRoot(parent, boundScope)
       }, account: this.deps.accountAgentUsage,
       ...(this.deps.goalAllowed === undefined ? {} : { goalAllowed: this.deps.goalAllowed }),
-    }, scope, teamId, messageId, signal, kind))
+    }, scope, teamId, messageId, signal, kind, throwOnFailure))
   }
 
   /** Serialize membership retirement with the entire official public admission,
@@ -133,7 +133,7 @@ export class MessageDelivery {
   }
 
   /** Public input uses this same delivery owner and immutable aggregate debt. */
-  async deliverPublicMessages(scope: TeamScope, teamId: TeamId, signal: AbortSignal): Promise<PublicDeliveryResult> {
+  async deliverPublicMessages(scope: TeamScope, teamId: TeamId, signal: AbortSignal, throwOnFailure = false): Promise<PublicDeliveryResult> {
     const key = `${scope}\0${teamId}`
     const previous = this.publicChains.get(key) ?? Promise.resolve({ admitted: false, deferred: false, reconciled: 0 })
     const next = previous.catch(() => ({ admitted: false, deferred: true, reconciled: 0 })).then(async prior => {
@@ -156,7 +156,7 @@ export class MessageDelivery {
         if (delivery?.state !== 'queued') continue
         let mismatch = false
         const predicates = delivery.frameVersion === 3 ? publicInputPredicates(delivery.frame, message.id, delivery.projection, () => { mismatch = true }) : undefined
-        const visibility = await frameVisibility(this.ctx, delivery.recipientSessionId, delivery.frame, signal, `public ${message.id}`, true, predicates)
+        const visibility = await frameVisibility(this.ctx, delivery.recipientSessionId, delivery.frame, signal, `public ${message.id}`, true, predicates, throwOnFailure)
         if (visibility === 'claimed') {
           await this.deps.domain().acknowledgePublicMessage(scope, teamId, message.id, delivery.recipientSessionId)
           result.reconciled++
@@ -189,7 +189,7 @@ export class MessageDelivery {
           } else result.deferred = true
           continue
         }
-        if (!await publicRecipientEligibility(this.ctx, scope, team, [delivery.recipientSessionId], signal)) {
+        if (!await publicRecipientEligibility(this.ctx, scope, team, [delivery.recipientSessionId], signal, throwOnFailure)) {
           if (isPublicMessageV3(message)) await this.deps.domain().deferPublicImageDelivery(scope, teamId, message.id, delivery.recipientSessionId, 'recipient-unavailable')
           result.deferred = true; continue
         }
@@ -224,7 +224,7 @@ export class MessageDelivery {
             try { await verifyPublicImageReferences(this.ctx, imageMessage, leaseSignal) }
             catch { leaseSignal.throwIfAborted(); await this.deps.domain().deferPublicImageDelivery(scope, teamId, imageMessage.id, delivery.recipientSessionId, 'image-unavailable'); result.deferred = true; return }
             claimPredicates = publicInputPredicates(prepared.frame, imageMessage.id, prepared.projection, () => { mismatch = true })
-            const latestVisibility = await frameVisibility(this.ctx, prepared.recipientSessionId, prepared.frame, leaseSignal, `public ${imageMessage.id} before admission`, true, claimPredicates)
+            const latestVisibility = await frameVisibility(this.ctx, prepared.recipientSessionId, prepared.frame, leaseSignal, `public ${imageMessage.id} before admission`, true, claimPredicates, throwOnFailure)
             if (latestVisibility === 'claimed') { await this.deps.domain().acknowledgePublicMessage(scope, teamId, imageMessage.id, prepared.recipientSessionId); result.reconciled++; return }
             if (latestVisibility !== 'absent') {
               if (latestVisibility === 'unknown') await this.deps.domain().deferPublicImageDelivery(scope, teamId, imageMessage.id,
@@ -270,7 +270,7 @@ export class MessageDelivery {
           const target = this.ctx.agents.get(SessionId(delivery.recipientSessionId))
           if (target !== undefined) {
             await this.deps.accountAgentUsage(scope, teamId, target)
-            if (await waitForFrameClaim(this.ctx, target, delivery.frame, leaseSignal, 5_000, true, claimPredicates)) {
+            if (await waitForFrameClaim(this.ctx, target, delivery.frame, leaseSignal, 5_000, true, claimPredicates, throwOnFailure)) {
               await this.deps.domain().acknowledgePublicMessage(scope, teamId, row.id, delivery.recipientSessionId)
             } else if (mismatch && isPublicMessageV3(message!)) await this.deps.domain().deferPublicImageDelivery(scope, teamId, row.id, delivery.recipientSessionId, 'projection-mismatch')
           }
@@ -280,6 +280,7 @@ export class MessageDelivery {
           async (captain, leaseSignal) => await admit(captain, leaseSignal))
         } catch (error) {
           signal.throwIfAborted()
+          if (throwOnFailure) throw error
           result.deferred = true
           this.ctx.logger.warn(`agent-swarm: public recipient ${frozen.recipientSessionId} remains queued: ${String(error)}`)
         }

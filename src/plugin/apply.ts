@@ -352,17 +352,21 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
   }
 
   runtime.retirement.bindData(await RetirementData.open(ctx, privateMemoryStore!, humanOverlay!, runtime.workflowBridge))
-  try { await runtime.recoverDormantManagedTeams() }
+  const failedStartupTeams = new Set<string>()
+  const skipStartupTeam = (scope: string, teamId: string) => startupRecoveryExcludedTeamIds.has(teamId) || failedStartupTeams.has(`${scope}\0${teamId}`)
+  try {
+    for (const failure of await runtime.recoverDormantManagedTeams()) failedStartupTeams.add(`${failure.scope}\0${failure.teamId}`)
+  }
   catch (error) {
     try { await runtime.dispose() }
     catch (cleanup) { throw new AggregateError([error, cleanup], 'managed Team recovery and cleanup failed', { cause: cleanup }) }
     throw error
   }
-  ctx.effect(async () => {
+  await ctx.effect(async () => {
     await Promise.all(ctx.agents.roots().filter(agent => agent.session.header.parentSession === undefined).map(async agent => {
-      if (startupRecoveryExcludedTeamIds.size > 0) {
+      if (startupRecoveryExcludedTeamIds.size > 0 || failedStartupTeams.size > 0) {
         const membership = await runtime.domain.findMembership(runtime.scopeOf(agent), agent.id)
-        if (membership !== undefined && startupRecoveryExcludedTeamIds.has(membership.team.id)) return
+        if (membership !== undefined && skipStartupTeam(runtime.scopeOf(agent), membership.team.id)) return
       }
       await runtime.recoverAgent(agent)
     }))
@@ -370,7 +374,7 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
     // roster's usage from live logs and persisted history so a drop on the
     // live path can never survive a reload as a permanent billed-token gap.
     const scopes = [...new Set(ctx.agents.roots().filter(agent => agent.session.header.parentSession === undefined).map(agent => runtime.scopeOf(agent)))]
-    const startupTeams = async (scope: string) => (await runtime.listTeamAggregates(scope)).filter(team => !startupRecoveryExcludedTeamIds.has(team.id) && !runtime.retirement.isRetired(scope, team.id))
+    const startupTeams = async (scope: string) => (await runtime.listTeamAggregates(scope)).filter(team => !skipStartupTeam(scope, team.id) && !runtime.retirement.isRetired(scope, team.id))
     await recoverActiveRosters(ctx, {
       domain: () => runtime.domain,
       scopes,
@@ -380,10 +384,17 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
     // the durable staged->active commit is re-provisioned now (crash window).
     for (const scope of scopes) {
       for (const team of await startupTeams(scope)) {
-        if (team.phase !== 'active' || team.managedOrigin === undefined || team.captainSessionId === '') continue
+        if (team.phase !== 'active' || team.managedOrigin === undefined || team.captainSessionId === '' || team.planDraft === undefined) continue
         if (ctx.agents.get(SessionId(team.captainSessionId)) !== undefined) continue
         try { await runtime.recoverApprovedTeam(scope, team) }
-        catch (error) { ctx.logger.warn(`agent-swarm: approved Captain recovery failed for ${team.id}: ${String(error)}`) }
+        catch (error) {
+          // A completed provisioning call can race Captain retirement. Keep
+          // that exact Team pending; unknown IO and integrity failures must
+          // reject this awaited effect and invoke normal plugin teardown.
+          if (!(error instanceof TeamDomainError) || error.code !== 'TEAM_CAPTAIN_PROVISION_PENDING') throw error
+          ctx.logger.warn(`agent-swarm: ${error.code} for approved Team ${JSON.stringify(team.id)}, scope ${JSON.stringify(scope)}, `
+            + `Captain ${JSON.stringify(team.captainSessionId)}: ${error.message}`)
+        }
       }
     }
     // M3-1 (issue #100): the execution-root residue scan — crash-left roots

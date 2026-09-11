@@ -9,43 +9,163 @@ import { deliverSubagentPrompt, type HostPromptDeliverer } from '@deepseek-ai/ds
 import { expect, it, vi } from 'vitest'
 import { TeamId, type TeamState } from '../src/domain/types.js'
 import { ManagedActivationRecovery } from '../src/runtime/managed-activation-recovery.js'
+import { MessageDelivery, type PublicDeliveryResult } from '../src/runtime/message-delivery.js'
 import { AgentSwarmRuntime } from '../src/runtime/orchestrator-runtime.js'
-import { readPersistedSession } from '../src/runtime/persisted-session.js'
 import { UsageAccountant } from '../src/runtime/usage-accounting.js'
+import { TEAM_DOMAIN_NAME } from '../src/storage/team-spec.js'
 import { Recording } from './helpers/public-chat-real-composition.js'
 import { GatedAdapter } from './helpers/gated-composition.js'
 import {
   mountRestartComposition as mount, disposeRestartComposition as dispose,
-  restartTool as tool, RESTART_SIGNAL as SIGNAL, type RestartMounted,
+  restartTool as tool, type RestartMounted,
 } from './helpers/restart-real-composition.js'
 
-const ROUTE = { provider: 'exclusion-fixture', model: 'exclusion-model' }
+import { ROUTE, seed, storedEvents, queueDebt } from './helpers/startup-recovery-fixture.js'
 
-async function seed(sandbox: string) {
-  const first = await mount(sandbox, 0, undefined, undefined, ctx => { ctx.llm.registerAdapter([ROUTE.provider], new Recording()) })
-  const teams: Array<{ rootId: SessionId; captainId: SessionId; teamId: TeamId; scope: string }> = []
+it.each((['root', 'captain'] as const).flatMap(target => (['task', 'work', 'public', 'goal'] as const).map(debt => ({ target, debt }))))('isolates bad $target workspace with real queued $debt debt before a healthy Team', async ({ target, debt }) => {
+  const sandbox = await mkdtemp(join(tmpdir(), 'swarm-startup-isolation-'))
+  let restarted: RestartMounted | undefined
+  const adapter = new GatedAdapter(), resumed: string[] = [], prompted: string[] = []
+  let failures: unknown, beforeBad!: TeamState, beforeRoot!: Awaited<ReturnType<typeof storedEvents>>, beforeCaptain!: Awaited<ReturnType<typeof storedEvents>>
+  const recoverApproved = vi.spyOn(AgentSwarmRuntime.prototype, 'recoverApprovedTeam')
   try {
-    for (const name of ['excluded', 'other']) {
-      const root = (await first.ctx.agents.create({ sessionId: SessionId(`startup-${name}-root`), agentOptions: ROUTE,
-        meta: { cwd: join(sandbox, 'workspace') } })).agent
-      root.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Prepare existing work.' }] }))
-      await root.whenIdle()
-      const created = await tool(first.ctx, root, `create-${name}`, 'agent_swarm_create_managed', { name, description: 'Keep the existing pending task.' })
-      expect(created.isError, JSON.stringify(created)).toBe(false)
-      const ids = created.value as { team_id: string; captain_session_id: string }
-      const teamId = TeamId(ids.team_id), captainId = SessionId(ids.captain_session_id), scope = first.ctx.agentSwarm.scopeOf(root)
-      await first.ctx.agentSwarm.domain.createTask(scope, teamId, captainId, { subject: 'Pending work', description: 'Resume only when intended.' })
-      await first.ctx.agents.get(captainId)?.whenIdle()
-      await root.whenIdle()
-      teams.push({ rootId: root.id, captainId, teamId, scope })
-    }
-  } finally { await dispose(first) }
-  return teams as [typeof teams[number], typeof teams[number]]
-}
+    const [bad, good] = await seed(sandbox, async (ctx, teams) => {
+      if (debt !== 'task') await queueDebt(ctx, teams[0]!, debt)
+    })
+    const orderedTeams = AgentSwarmRuntime.prototype.listTeamAggregates
+    vi.spyOn(AgentSwarmRuntime.prototype, 'listTeamAggregates').mockImplementation(async function (this: AgentSwarmRuntime, scope) {
+      const teams = (await orderedTeams.call(this, scope)).toSorted((a, b) => Number(b.id === bad.teamId) - Number(a.id === bad.teamId))
+      if (scope === bad.scope && beforeBad === undefined) { expect(teams[0]?.id).toBe(bad.teamId); beforeBad = structuredClone(teams[0]!) }
+      return teams
+    })
+    const recover = ManagedActivationRecovery.prototype.run
+    vi.spyOn(ManagedActivationRecovery.prototype, 'run').mockImplementation(async function (this: ManagedActivationRecovery) {
+      const result = await recover.call(this); failures = result; return result
+    })
+    restarted = await mount(sandbox, 0, undefined, undefined, async ctx => {
+      expect(ctx.agents.roots()).toEqual([])
+      ctx.llm.registerAdapter([ROUTE.provider], adapter)
+      beforeRoot = await storedEvents(ctx, bad.rootId); beforeCaptain = await storedEvents(ctx, bad.captainId)
+      const list = ctx.sessionPersistence.list.bind(ctx.sessionPersistence)
+      vi.spyOn(ctx.sessionPersistence, 'list').mockImplementation(async options => (await list(options)).map(snapshot =>
+        snapshot.header.id === (target === 'root' ? bad.rootId : bad.captainId)
+          ? { ...snapshot, header: { ...snapshot.header, cwd: join(sandbox, 'other-workspace') } } : snapshot))
+      const resume = ctx.agents.resume.bind(ctx.agents)
+      vi.spyOn(ctx.agents, 'resume').mockImplementation(async options => { resumed.push(options.resumeSessionId); return await resume(options) })
+      const host = ctx.subagents as unknown as HostPromptDeliverer, deliver = host[deliverSubagentPrompt].bind(host)
+      vi.spyOn(host, deliverSubagentPrompt).mockImplementation(async (...args) => { prompted.push(args[1]); return await deliver(...args) })
+    })
+    await adapter.waitForRequests(1)
+    expect(adapter.requests.some(request => request.sessionId === good.captainId)).toBe(true)
+    expect(adapter.requests.some(request => request.sessionId === bad.captainId)).toBe(false)
+    expect(resumed).not.toContain(bad.rootId); expect(resumed).not.toContain(bad.captainId)
+    expect(prompted).not.toContain(bad.captainId)
+    expect(recoverApproved.mock.calls.some(([, team]) => team.id === bad.teamId)).toBe(false)
+    expect(failures).toEqual([expect.objectContaining({ scope: bad.scope, teamId: bad.teamId, captainSessionId: bad.captainId,
+      parentSessionId: bad.rootId, stage: 'binding', code: 'TEAM_PARENT_REATTACH_FAILED', cause: expect.any(Error) })])
+    expect((await restarted.ctx.agentSwarm.listTeamAggregates(bad.scope)).find(team => team.id === bad.teamId)).toEqual(beforeBad)
+    expect(await storedEvents(restarted.ctx, bad.rootId)).toEqual(beforeRoot)
+    expect(await storedEvents(restarted.ctx, bad.captainId)).toEqual(beforeCaptain)
+    const captain = restarted.ctx.agents.get(good.captainId)!
+    expect(captain).toBeDefined()
+    const pending = (await restarted.ctx.agentSwarm.listTeamAggregates(good.scope)).find(team => team.id === good.teamId)!.tasks[0]!
+    const claim = await tool(restarted.ctx, captain, 'isolated-claim', 'agent_swarm_claim_task', { task_id: pending.id, expected_revision: pending.revision })
+    expect(claim.isError, JSON.stringify(claim.error)).toBe(false)
+    const claimed = claim.value as { revision: number; attempt_id: string }
+    const submit = await tool(restarted.ctx, captain, 'isolated-submit', 'agent_swarm_submit_task', {
+      task_id: pending.id, expected_revision: claimed.revision, attempt_id: claimed.attempt_id, output: 'Healthy recovered Captain completed its original task.' })
+    expect(submit.isError, JSON.stringify(submit.error)).toBe(false)
+    const review = await tool(restarted.ctx, captain, 'isolated-review', 'agent_swarm_review_task', {
+      task_id: pending.id, expected_revision: (submit.value as { revision: number }).revision, attempt_id: claimed.attempt_id, decision: 'accept' })
+    expect(review.isError, JSON.stringify(review.error)).toBe(false)
+    expect((await restarted.ctx.agentSwarm.listTeamAggregates(good.scope)).find(team => team.id === good.teamId)!.tasks[0]).toMatchObject({ status: 'completed', currentAttemptId: claimed.attempt_id })
+    await restarted.ctx.agentSwarm.recoverDormantManagedTeams()
+    expect(prompted.filter(id => id === good.captainId)).toHaveLength(1)
+    expect(prompted).not.toContain(bad.captainId)
+  } finally {
+    adapter.open(); vi.restoreAllMocks()
+    if (restarted !== undefined) await dispose(restarted)
+    await rm(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+}, 30_000)
 
-async function storedEvents(ctx: Context, id: SessionId) {
-  return (await readPersistedSession(ctx.sessionPersistence, id, SIGNAL)).events
-}
+it.each([true, false])('propagates startup publish failure while ordinary work delivery stays deferred and retryable (startup=%s)', async startup => {
+  const sandbox = await mkdtemp(join(tmpdir(), 'swarm-startup-publish-failure-'))
+  let restarted: RestartMounted | undefined
+  const fault = new Error('injected agent_swarm JSON publish failure'), adapter = new GatedAdapter()
+  let failedPublishes = 0, obsoleteCommits = 0, armed = startup, before!: TeamState
+  try {
+    const [bad] = await seed(sandbox, async (ctx, teams) => {
+      const team = teams[0]!, domain = ctx.agentSwarm.domain
+      const proposed = await domain.submitWorkRequest(team.scope, team.teamId, { kind: 'local-operator' },
+        { requestId: 'obsolete-before-restart', description: 'Already resolved request with an undelivered notice.' })
+      await domain.resolveWorkRequest(team.scope, team.teamId, team.captainId, { workRequestId: proposed.request.id,
+        expectedRequestRevision: proposed.request.revision, decision: { kind: 'reject', publicReason: 'This request is no longer needed.' } })
+      before = (await domain.snapshot(team.scope, team.teamId, team.captainId)).team
+      expect(before.messages.find(message => message.id === proposed.notificationMessageId)?.phase).toBe('queued')
+    })
+    const listTeams = AgentSwarmRuntime.prototype.listTeamAggregates
+    vi.spyOn(AgentSwarmRuntime.prototype, 'listTeamAggregates').mockImplementation(async function (this: AgentSwarmRuntime, scope) {
+      return (await listTeams.call(this, scope)).toSorted((a, b) => Number(b.id === bad.teamId) - Number(a.id === bad.teamId))
+    })
+    const outcome = await mount(sandbox, 0, undefined, undefined, ctx => {
+      ctx.llm.registerAdapter([ROUTE.provider], adapter)
+      const open = ctx.storageDomain.open.bind(ctx.storageDomain)
+      vi.spyOn(ctx.storageDomain, 'open').mockImplementation(async (...args) => {
+        const domain = await open(...args)
+        if (args[0].name === TEAM_DOMAIN_NAME) {
+          // The existing #193 real JSON publish seam: downstream of Domain
+          // enqueue and draft staging, before backend durability/publication.
+          const unit = (domain as unknown as { unit: { publish(): Promise<void> } }).unit, publish = unit.publish.bind(unit)
+          vi.spyOn(unit, 'publish').mockImplementation(async () => {
+            if (armed && failedPublishes === 0) { failedPublishes += 1; throw fault }
+            await publish()
+          })
+        }
+        return domain
+      })
+      const run = ManagedActivationRecovery.prototype.run
+      vi.spyOn(ManagedActivationRecovery.prototype, 'run').mockImplementation(async function (this: ManagedActivationRecovery) {
+        const domain = ctx.agentSwarm.domain, obsolete = domain.markMessageObsolete.bind(domain)
+        vi.spyOn(domain, 'markMessageObsolete').mockImplementation(async (...args) => {
+          if (args[1] === bad.teamId) obsoleteCommits += 1
+          return await obsolete(...args)
+        })
+        return await run.call(this)
+      })
+    }, { startupRecoveryExcludedTeamIds: startup ? [] : [bad.teamId] })
+      .then(value => { restarted = value; return { mounted: true } }, error => ({ error }))
+    if (startup) {
+      expect(obsoleteCommits).toBeGreaterThan(0); expect(failedPublishes).toBe(1)
+      expect(outcome).toEqual({ error: fault })
+      vi.restoreAllMocks()
+      const readback = await mount(sandbox, 0, undefined, undefined, ctx => { vi.spyOn(ctx.sessionPersistence, 'list').mockResolvedValue([]) })
+      try { expect((await readback.ctx.agentSwarm.listTeamAggregates(bad.scope)).find(team => team.id === bad.teamId)).toEqual(before) }
+      finally { await dispose(readback) }
+    } else {
+      expect(outcome).toEqual({ mounted: true }); expect(failedPublishes).toBe(0)
+      let delivery!: Promise<PublicDeliveryResult>
+      const drain = MessageDelivery.prototype.deliverWorkRequests
+      vi.spyOn(MessageDelivery.prototype, 'deliverWorkRequests').mockImplementation(function (this: MessageDelivery, ...args) {
+        const result = drain.apply(this, args)
+        if (args[1] === bad.teamId) delivery = result
+        return result
+      })
+      armed = true
+      restarted!.ctx.agentSwarm.kickWorkRequests(bad.scope, bad.teamId)
+      expect(await delivery).toMatchObject({ deferred: true, reconciled: 0 })
+      expect(failedPublishes).toBe(1)
+      expect((await restarted!.ctx.agentSwarm.listTeamAggregates(bad.scope)).find(team => team.id === bad.teamId)).toEqual(before)
+      restarted!.ctx.agentSwarm.kickWorkRequests(bad.scope, bad.teamId)
+      expect(await delivery).toMatchObject({ deferred: false, reconciled: 0 })
+      expect((await restarted!.ctx.agentSwarm.listTeamAggregates(bad.scope)).find(team => team.id === bad.teamId)!.messages[0]).toMatchObject({ phase: 'obsolete' })
+    }
+  } finally {
+    adapter.open(); vi.restoreAllMocks()
+    if (restarted !== undefined) await dispose(restarted)
+    await rm(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+}, 30_000)
 
 it('excludes one pending Team before all startup recovery side effects while another Team resumes, then restores recovery after clearing the setting', async () => {
   const sandbox = await mkdtemp(join(tmpdir(), 'swarm-startup-exclusion-'))

@@ -212,22 +212,34 @@ it.each(['root', 'captain'] as const)('fails plugin startup with actionable line
   } finally { await rm(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) }
 })
 
-it.each(['root', 'captain'] as const)('rejects a %s workspace mismatch before any followup', async target => {
+it.each(['root', 'captain'] as const)('isolates a %s workspace mismatch before any followup and preserves submitted work', async target => {
   const sandbox = await mkdtemp(join(tmpdir(), 'dsh-swarm-194-workspace-'))
   let mounted: RestartMounted | undefined
   try {
     const seed = await seedSubmitted(sandbox)
     let followups = 0
-    const failure = await mount(sandbox, 0, undefined, undefined, ctx => {
+    let beforeRoot!: unknown, beforeCaptain!: unknown
+    const failure = await mount(sandbox, 0, undefined, undefined, async ctx => {
+      beforeRoot = (await readPersistedSession(ctx.sessionPersistence, ROOT, SIGNAL)).events
+      beforeCaptain = (await readPersistedSession(ctx.sessionPersistence, SessionId(seed.captainId), SIGNAL)).events
       const list = ctx.sessionPersistence.list.bind(ctx.sessionPersistence)
-      vi.spyOn(ctx.sessionPersistence, 'list').mockImplementation(async options => (await list(options)).map(snapshot =>
-        snapshot.header.id === (target === 'root' ? ROOT : seed.captainId)
-          ? { ...snapshot, header: { ...snapshot.header, cwd: join(sandbox, 'other-workspace') } } : snapshot))
+      vi.spyOn(ctx.sessionPersistence, 'list').mockImplementation(async options => (await list(options)).map(row =>
+        row.header.id === (target === 'root' ? ROOT : seed.captainId)
+          ? { ...row, header: { ...row.header, cwd: join(sandbox, 'other-workspace') } } : row))
       const followup = (ctx.subagents as unknown as HostPromptDeliverer)[deliverSubagentPrompt].bind(ctx.subagents)
       vi.spyOn(ctx.subagents as unknown as HostPromptDeliverer, deliverSubagentPrompt).mockImplementation(async (...args) => { followups += 1; return await followup(...args) })
     }).then(value => { mounted = value; return undefined }, error => error)
-    expect(failure).toMatchObject({ code: 'TEAM_PARENT_REATTACH_FAILED' })
+    expect(failure).toBeUndefined()
+    expect(await mounted!.ctx.agentSwarm.recoverDormantManagedTeams()).toEqual([expect.objectContaining({
+      teamId: seed.teamId, captainSessionId: seed.captainId, parentSessionId: ROOT, stage: 'binding',
+      code: 'TEAM_PARENT_REATTACH_FAILED', cause: expect.objectContaining({ message: 'Team, Captain and Main Brain workspace scopes do not match' }),
+    })])
     expect(followups).toBe(0)
+    expect((await readPersistedSession(mounted!.ctx.sessionPersistence, ROOT, SIGNAL)).events).toEqual(beforeRoot)
+    expect((await readPersistedSession(mounted!.ctx.sessionPersistence, SessionId(seed.captainId), SIGNAL)).events).toEqual(beforeCaptain)
+    const team = (await mounted!.ctx.agentSwarm.listTeamAggregates(seed.scope)).find(candidate => candidate.id === seed.teamId)!
+    expect(team.tasks[0]).toMatchObject({ status: 'submitted', currentAttemptId: seed.submitted.currentAttemptId })
+    expect(team.members).toHaveLength(1)
   } finally {
     if (mounted !== undefined) await dispose(mounted)
     await rm(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
