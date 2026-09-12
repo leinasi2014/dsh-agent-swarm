@@ -19,6 +19,7 @@ export function run(command: string, args: string[], options?: {
   cwd?: string
   env?: Record<string, string>
   timeoutMs?: number
+  candidate?: { run(command: string, args: string[], options: unknown): Promise<RunResult> }
 }): Promise<RunResult>
 
 /** The sealed child environment: allowlisted vars + explicit injections (F2). */
@@ -27,3 +28,18 @@ export function laneEnv(injections?: Record<string, string>): Record<string, str
 export function git(cwd: string, args: string[], options?: { timeoutMs?: number }): Promise<RunResult>
 
 export function extractTarball(tarballPath: string, destDir: string): Promise<RunResult>
+
+export interface CandidateBoot {
+  child: import('./candidate-session.mjs').CandidateProcess
+  ready: boolean
+  bootMs: number
+  stdout(): string
+  stderr(): string
+  stop(): Promise<{ exited: boolean; code: number | null }>
+}
+export function bootPlane(options: {
+  cli: string; home: string; profile?: string; port: number; host?: string
+  readyTimeoutMs?: number; extraArgs?: string[]; cwd?: string; env?: Record<string, string>
+  candidate: Pick<import('./candidate-session.mjs').CandidateSession, 'start'>
+}): Promise<CandidateBoot>
+export function stopPlane(boot: CandidateBoot): Promise<{ exited: boolean; code: number | null }>

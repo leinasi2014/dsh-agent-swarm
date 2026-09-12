@@ -23,11 +23,15 @@ Dogfood 验证的是用户真实安装路径，不是开发工作区能否启动
 
 ## 候选进程的 Windows 权限边界
 
-`scripts/promotion/windows-candidate.mjs` 是独立的实验性进程边界，尚未接入 `freeze`、`accept`。现有命令的环境变量隔离不能作为候选无法改写稳定状态的 OS 权限证明。
+Windows 的 `freeze`、`accept-check` 要求显式传入 `--candidate-account-root`。控制器通过 `candidate-session.mjs` 读取独立账户配置；未准备、目录权限不合格、CLI 入口与已批准安装不一致时拒绝运行，不回退到控制器身份。
 
-该原型复用官方 `@deepseek-ai/dsh-win32-process` 的进程与 Job API、`@deepseek-ai/dsh-sandbox-windows-acl` 的可撤销目录授权，并通过公开的 Win32 扩展 API 创建完整受限 token。`WRITE_RESTRICTED` 不足以覆盖删除权限，因此不能作为此流程的安全边界。写入和读取授权只作用于新建的私有候选根目录，既有用户目录 ACL 保持不变；取消前缀进程时，其 Job 必须清除子孙进程，随后才撤销授权和清理候选目录。
+账户由用户以同一控制器身份提升后执行 `windows-candidate-account.ps1 -Mode Prepare` 创建。脚本只配置新的私有凭据根和盘根下的 `dsh-candidate-runtime`：工具目录对候选只读，运行状态目录可写，输出目录只允许写既有文件。既有用户目录、Profile 和系统 ACL 不被修改。凭据以该控制器用户的 DPAPI 保存；控制器校验 owner/DACL 后通过私有管道短暂读取并清零缓冲。不要在终端直接执行不带 `-InspectOnly` 的 credential helper。
 
-正式接入前还需完成私有 Git/CLI 工具链暂存及 Node 子进程命名管道的权限处理。Windows 命名管道不沿用此 token 的默认 DACL，普通 `stdio: 'pipe'` 子进程尚不可用；已验证的继承标准流路径不能替代完整 `freeze`、`accept` 安装及运行路径的验收，也不得通过把当前用户 SID 加回限制列表来放宽边界。
+执行前只读检查实际控制器数据、源码、Git common-dir 和脚本路径的权限及父链，拒绝非受信任主体的写入、删除、目录替换或 DACL/owner 修改授权。工具链复制会重定位安装内部 junction，拒绝指向原安装之外的链接；验收证据与 ledger 始终由控制器在原 drills 域写入。候选拥有独立 Git 数据目录，不能通过 linked worktree 文件到达控制器 Git common-dir。
+
+原生进程复用官方 `@deepseek-ai/dsh-win32-process` 的暂停创建、Job 分配、恢复和 Job 收敛 API；`CreateProcessWithLogonW` 负责独立普通账户登录。候选启动器自行打开输出文件并建立 Node 子进程管道，标准流不继承控制器句柄。Profile patch 由候选身份写入；控制器复制 tarball 时校验已打开句柄的最终路径并拒绝硬链接。
+
+账户准备与静态/fixture 检查不证明跨账户原生启动成功。首次使用仍须实际验证 SID、普通 Node 子孙管道、Job 取消、protected-root 拒绝、完整 `freeze`/`accept-check` 及清理；Windows 桌面访问、profile 初始化和创建至 Job 分配之间的宿主中断窗口仍依赖现场证据。历史完整受限 token 原型保留用于诊断，`WRITE_RESTRICTED` 和旧的继承标准流证明不能替代该账户路径的验收。
 
 ## 清理
 

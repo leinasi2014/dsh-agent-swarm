@@ -1,13 +1,16 @@
-// Experimental Windows candidate process boundary (issue #126); not activated
-// by freeze/accept. The official ACL backend's
-// WRITE_RESTRICTED token does not intersect DELETE; promotion candidates need
-// a full restricted token. Reuse the public process/Job and revocable-grant APIs.
+// Windows candidate process boundaries (issue #126). freeze/accept use only the
+// administrator-provisioned account adapter. Retain the full-token probe because
+// the official
+// WRITE_RESTRICTED token does not intersect DELETE. The controller-only account
+// adapter below reuses the public process/Job lifecycle with a dedicated identity.
 import koffi from 'koffi'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, open, realpath } from 'node:fs/promises'
+import { pipeline } from 'node:stream/promises'
+import { createWriteStream } from 'node:fs'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import { AclWriteGrant, workspaceWriteSid } from '@deepseek-ai/dsh-sandbox-windows-acl'
 import {
-  decodePtr, extendWin32ProcessBindings, spawnInheritedJobProcess, throwLastError,
+  decodePtr, extendWin32ProcessBindings, spawnCurrentTokenJobProcess, spawnInheritedJobProcess, throwLastError,
   throwWin32, waitForProcessExit,
 } from '@deepseek-ai/dsh-win32-process'
 
@@ -28,6 +31,8 @@ function win32() {
   bindings ??= extendWin32ProcessBindings(({ kernel32, advapi32, bind }) => ({
     openProcess: bind(kernel32, 'OpenProcess', PVOID, ['uint32', 'int', 'uint32']),
     openProcessToken: bind(advapi32, 'OpenProcessToken', 'int', [PVOID, 'uint32', PPVOID]),
+    createProcessWithLogonW: bind(advapi32, 'CreateProcessWithLogonW', 'int', ['str16', 'str16', PVOID, 'uint32', 'str16', 'str16', 'uint32', PVOID, 'str16', PVOID, PVOID]),
+    equalSid: bind(advapi32, 'EqualSid', 'int', [PVOID, PVOID]),
     getTokenInformation: bind(advapi32, 'GetTokenInformation', 'int', [PVOID, 'int', PVOID, 'uint32', U32PTR]),
     createRestrictedToken: bind(advapi32, 'CreateRestrictedToken', 'int', [PVOID, 'uint32', 'uint32', PVOID, 'uint32', PVOID, 'uint32', PVOID, PPVOID]),
     setTokenInformation: bind(advapi32, 'SetTokenInformation', 'int', [PVOID, 'int', PVOID, 'uint32']),
@@ -36,6 +41,7 @@ function win32() {
     getNamedSecurityInfoW: bind(advapi32, 'GetNamedSecurityInfoW', 'uint32', ['str16', 'int', 'uint32', PPVOID, PPVOID, PPVOID, PPVOID, PPVOID]),
     setNamedSecurityInfoW: bind(advapi32, 'SetNamedSecurityInfoW', 'uint32', ['str16', 'int', 'uint32', PVOID, PVOID, PVOID, PVOID]),
     localFree: bind(kernel32, 'LocalFree', PVOID, [PVOID]),
+    getFinalPathNameByHandleW: bind(kernel32, 'GetFinalPathNameByHandleW', 'uint32', [PVOID, PVOID, 'uint32', 'uint32']),
   }))
   return bindings
 }
@@ -231,6 +237,117 @@ function createFullRestrictedToken(api, capabilitySid) {
     api.closeHandle(processHandle)
     for (const sid of allocatedSids) api.localFree(sid)
   }
+}
+
+/** Controller-only account adapter. Credentials are supplied in memory, never
+ * via argv/environment or retained in the returned process. Directory access
+ * and the account must already be provisioned by the trusted administrator.
+ * expectedSid is an administrator-approved identity pinned by the controller.
+ * password is UTF-16LE bytes without a NUL terminator: the adapter wipes its
+ * native-call copy; the caller must wipe its own buffer after use.
+ * This function does not provision accounts or grant ACLs.
+ * The caller owns the returned Job/process handles and their teardown. */
+export function spawnWindowsAccountCandidate(options) {
+  const { account, password, expectedSid, command, args = [], cwd, env, stdio = { stdin: 0, stdout: 1, stderr: 2 }, inheritStdio = true } = options ?? {}
+  if (typeof account !== 'string' || !/^[A-Za-z][A-Za-z0-9_-]{0,19}$/.test(account) || /^(?:CodexSandbox.*|Administrator|DefaultAccount|Guest|WDAGUtilityAccount)$/i.test(account)) {
+    throw new Error('a dedicated local candidate account is required')
+  }
+  if (!Buffer.isBuffer(password) || password.length === 0 || password.length % 2 !== 0) throw new Error('candidate account credentials are not configured')
+  for (let index = 0; index < password.length; index += 2) {
+    if (password.readUInt16LE(index) === 0) throw new Error('candidate password buffer contains an embedded terminator')
+  }
+  if (typeof expectedSid !== 'string' || !/^S-1-5-21-\d+-\d+-\d+-\d+$/.test(expectedSid)) throw new Error('candidate account SID is not configured')
+  if (Number(expectedSid.split('-').at(-1)) < 1000) throw new Error('candidate account must not be a built-in Windows identity')
+  if (!isAbsolute(command ?? '') || !isAbsolute(cwd ?? '') || !Array.isArray(args) || args.some(arg => typeof arg !== 'string')) {
+    throw new Error('candidate executable, cwd and argv must be explicit')
+  }
+  if (env === null || typeof env !== 'object' || Array.isArray(env)) throw new Error('candidate environment must be explicitly supplied')
+  const api = win32()
+  let expected, administrators, currentToken
+  const nativePassword = Buffer.alloc(password.length + 2)
+  password.copy(nativePassword)
+  try {
+    expected = parseSid(api, expectedSid)
+    administrators = parseSid(api, 'S-1-5-32-544')
+    currentToken = openCurrentToken(api)
+    const currentUser = tokenInformation(api, currentToken, 1)
+    if (api.equalSid(decodePtr(currentUser), expected)) throw new Error('candidate account must differ from the controller account')
+    // Reuse the official paused-create -> Job assignment -> resume lifecycle.
+    // Only replace its native process creation call; all other APIs are intact.
+    const logonApi = { ...api, createProcessW(application, commandLine, _processAcl, _threadAcl, _inherit, flags, environment, directory, startup, processInfo) {
+      try {
+        if (commandLine.length > 1023) throw new Error('candidate logon command line exceeds the Windows logon limit')
+        if (!inheritStdio) {
+          // STARTUPINFOW x64 ABI: no copied controller handles in the account
+          // launcher. It opens its own output files after logon and Job attach.
+          const info = Buffer.from(koffi.view(startup, 104))
+          info.writeUInt32LE(0, 60)
+          info.fill(0, 80, 104)
+        }
+        if (!api.createProcessWithLogonW(account, '.', nativePassword, 1, application, commandLine, flags | 0x08000000, environment, directory, startup, processInfo)) {
+          throwWin32(api, 'CreateProcessWithLogonW', api.getLastError())
+        }
+      } finally { nativePassword.fill(0) }
+      // PROCESS_INFORMATION starts with two pointer-sized handles on x64.
+      // The official struct decoder is private; use only its public pointer API.
+      const handles = Buffer.from(koffi.view(processInfo, 16))
+      const info = { hProcess: decodePtr(handles.subarray(0, 8)), hThread: decodePtr(handles.subarray(8, 16)) }
+      let token
+      try {
+        if (info.hProcess === null || info.hThread === null) throw new Error('candidate logon returned incomplete process handles')
+        const slot = Buffer.alloc(8)
+        if (!api.openProcessToken(info.hProcess, 0x0008, slot)) throwLastError(api, 'OpenProcessToken', 'candidate identity check')
+        token = decodePtr(slot)
+        if (token === null) throw new Error('candidate token is missing')
+        const user = tokenInformation(api, token, 1)
+        if (!api.equalSid(decodePtr(user), expected)) throw new Error('candidate logon identity does not match its configured SID')
+        if (tokenInformation(api, token, 20).readUInt32LE() !== 0) throw new Error('candidate account must not be elevated')
+        const groups = tokenInformation(api, token, TOKEN_GROUPS)
+        for (let index = 0; index < groups.readUInt32LE(); index++) {
+          // Reject admin membership even when UAC marks it deny-only.
+          if (api.equalSid(groups.readBigUInt64LE(8 + index * 16), administrators)) throw new Error('candidate account must not belong to Administrators')
+        }
+        return 1
+      } catch (error) {
+        // The official helper has not received ownership yet; it will release
+        // its Job/struct after this throw. Never resume a rejected identity.
+        if (info.hProcess !== null) api.terminateProcess(info.hProcess, 1)
+        if (info.hThread !== null) api.closeHandle(info.hThread)
+        if (info.hProcess !== null) api.closeHandle(info.hProcess)
+        throw error
+      } finally {
+        if (token !== undefined && token !== null) api.closeHandle(token)
+      }
+    } }
+    return spawnCurrentTokenJobProcess(logonApi, { command, applicationName: command, args, cwd, env, stdio })
+  } finally {
+    nativePassword.fill(0)
+    if (currentToken !== undefined) api.closeHandle(currentToken)
+    if (administrators !== undefined) api.localFree(administrators)
+    if (expected !== undefined) api.localFree(expected)
+  }
+}
+
+/** Native owner used by the controller session; handles never enter argv. */
+export function windowsCandidateBindings() { return win32() }
+
+/** Read only the opened candidate file's resolved handle. A candidate-created
+ * junction must not turn the controller's artifact copy into a private read. */
+export async function copyWindowsCandidateOutput(root, source, destination) {
+  const physicalRoot = await realpath(root)
+  const file = await open(source, 'r')
+  try {
+    const api = win32()
+    const buffer = Buffer.alloc(65_536)
+    const size = api.getFinalPathNameByHandleW(api.uvGetOsfhandle(file.fd), buffer, 32_768, 0)
+    if (size === 0 || size >= 32_768) throw new Error('candidate artifact final path is unavailable')
+    const finalPath = buffer.toString('utf16le', 0, size * 2).replace(/^\\\\\?\\/, '')
+    const local = relative(physicalRoot, finalPath)
+    if (local.startsWith('..') || isAbsolute(local) || local === '') throw new Error('candidate artifact resolves outside its execution root')
+    const info = await file.stat()
+    if (!info.isFile() || info.nlink !== 1) throw new Error('candidate artifact must be a regular single-link file')
+    await pipeline(file.createReadStream({ autoClose: false }), createWriteStream(destination, { flags: 'wx' }))
+  } finally { await file.close() }
 }
 
 /** The dedicated prefix process owns the Job until the candidate has exited. */
