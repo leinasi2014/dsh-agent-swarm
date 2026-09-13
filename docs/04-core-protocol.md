@@ -135,13 +135,15 @@ Team 消息的 `wakeup` 复用官方 steering：忙碌成员在最近的后续 s
 
 插件设置提供新 Team 默认 Skill allow-list，Team 可保存自己的 allow-list；成员只能使用 host catalog 与 Team allow-list 的交集。Skills 名称来自实际 catalog projection，用户不手填服务器路径。
 
-私有记忆、共享经验、Skill proposal、验证、独立批准、发布/回滚是不同层。当前已有成员私有 append/list 和 Team shared memory；以下为新增模块的接入合同，具体接口实现和验收按统一开发方案推进，不能从职业、头像或记忆推断能力。
+私有记忆、共享经验、Skill proposal、验证、独立批准、发布/回滚是不同层。成员私有笔记维护、自动召回和 Team shared memory 各有独立授权边界；Skills 模块按后续接入合同推进，不能从职业、头像或记忆推断能力。
 
-### 7.1 新增个人记忆维护与召回合同
+### 7.1 个人记忆维护与召回合同
 
-私有分区保持 scope/Team/Session。维护请求只允许真实本人，修订采用记录级 expected revision；旧记录兼容读取，未作废不代表已验证。写队列的实际持久副作用前重新校验身份、membership、权限与取消；同一持久逻辑操作重试幂等，已提交写入不宣称能被 abort 撤销。首期容量满额明确拒绝，不物理回收导致序号或旧 offset 漂移。
+私有分区保持 scope/Team/Session。`agent_swarm_maintain_private_memory` 只允许当前 active 成员以本人身份执行 add、revise、invalidate 或 replace；修订/作废/替代必须提供实际读到的记录级 `expected_head_seq`。revise 完整替换 content、evidence_refs、tags、applicability，缺字段拒绝，不作局部补丁。旧 append/list 兼容读取，未作废不代表已验证。写队列在实际持久副作用前重新校验 live Agent、Session、membership、权限与取消，并与成员退出串行化。稳定 `operation_id` 对相同规范化载荷重放原回执，不重复追加；同 ID 改载荷冲突。已提交写入不宣称能被 abort 撤销。首期容量满额明确拒绝，不物理回收导致序号或旧 offset 漂移。
 
-自动召回仅选择本人唯一合法 in-progress Task 与当前 running attempt 的有限笔记，记录任务身份和所选记录 ID。独立私有 context 不进入公开 identity/directory；无命中、任务变化、笔记失效或撤权时移除旧贡献。自动读取的权限合同独立于显式工具调用批准，压缩和冷恢复重新建立正确选集。
+自动召回由 Host 配置 `privateMemoryRecall: active-task` 独立授权，默认 `disabled`。成员/Captain 提示词、工具 allow 或单次人工批准不能开启该授权；本人 list 工具的 deny/ask 只会进一步收窄读取。召回仅选择本人唯一合法 in-progress Task 与当前 running attempt 的有效笔记，记录 task/attempt、所选记录 ID 与 headSeq。内容进入官方单条命名 context `agent-swarm:private-memory-recall`，最终转义后总量不超过 4096 UTF-8 bytes，作为经验数据而非权限或高优先级指令。
+
+召回在实际请求前重验选集和授权；无命中、任务变化、笔记失效、撤权、配置禁用或插件卸载时移除当前贡献，压缩和冷恢复重新建立正确选集。清除当前贡献不删除官方 Session 中的旧事件锚点。私有内容不进入公开 identity/directory、Team shared memory 或 Skills 模块；注册与清理由当前插件生命周期持有。
 
 ### 7.2 新增独立 Skills 模块合同
 
