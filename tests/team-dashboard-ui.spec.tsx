@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { chromium, type Browser, type Page } from 'playwright'
 import { memberRosterInitial, shellCss } from '../src/client/TeamDashboardContent.js'
 import { TeamDashboardDetails } from '../src/client/TeamDashboardDetails.js'
+const fixtureNavigation = { refreshDirectory: () => {}, selectGroup: () => {}, openMain: async () => {}, openCaptain: async () => {}, openMember: async () => {} }
 import type { TeamDashboardState } from '../src/client/team-dashboard-controller.js'
 import { en, zh } from '../src/client/team-dashboard-locales.js'
 import { SWARM_READ_RPC_FIXTURES_V1 } from '../src/rpc/read-rpc-artifact.js'
@@ -14,7 +15,7 @@ import { SWARM_READ_RPC_FIXTURES_V1 } from '../src/rpc/read-rpc-artifact.js'
 describe('R3 native Team Details surface', () => {
   it('keeps Team inside its official tab without restoring a Team or Tool Details toolbar utility', async () => {
     const coordinator = new FakeCoordinator()
-    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
+    await render(<TeamDashboardDetails navigation={fixtureNavigation} {...({ anchorRef: { current: null }, controller, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
     expect(document.querySelector('[data-swarm-team-trigger]')).toBeNull()
     expect(document.querySelector('[data-swarm-tool-trigger]')).toBeNull()
     expect(document.querySelectorAll('[data-swarm-team-panel]')).toHaveLength(1)
@@ -43,7 +44,7 @@ describe('R3 native Team Details surface', () => {
     }
     const dagController = { getSnapshot: (): TeamDashboardState => dagState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     const coordinator = new FakeCoordinator()
-    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: dagController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
+    await render(<TeamDashboardDetails navigation={fixtureNavigation} {...({ anchorRef: { current: null }, controller: dagController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
     await act(async () => { tabButton('tasks')!.click() })
     expect(document.querySelectorAll('[data-swarm-dag-node]')).toHaveLength(3)
     expect(document.querySelectorAll('[data-swarm-dag-edge]')).toHaveLength(2)
@@ -71,7 +72,7 @@ describe('R3 native Team Details surface', () => {
     }
     const attentionController = { getSnapshot: (): TeamDashboardState => attentionState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     const coordinator = new FakeCoordinator()
-    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: attentionController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
+    await render(<TeamDashboardDetails navigation={fixtureNavigation} {...({ anchorRef: { current: null }, controller: attentionController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
     expect(document.querySelector('[data-swarm-attention]')).not.toBeNull()
     expect(document.querySelector('[data-swarm-attention]')?.closest('details:not([open])')).toBeNull()
     expect(document.querySelector('[data-swarm-attention-row="human-attn-1"]')?.textContent).toContain('member-question')
@@ -93,7 +94,7 @@ describe('R3 native Team Details surface', () => {
     }
     const stagedController = { getSnapshot: (): TeamDashboardState => stagedState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     const coordinator = new FakeCoordinator()
-    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: stagedController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
+    await render(<TeamDashboardDetails navigation={fixtureNavigation} {...({ anchorRef: { current: null }, controller: stagedController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
     await act(async () => { tabButton('members').click() })
     expect(document.querySelector('[data-swarm-staged-plan-summary]')).toBeNull()
     expect(document.querySelector('[data-swarm-captain-state]')?.textContent).toContain('Captain not created')
@@ -110,7 +111,7 @@ describe('R3 native Team Details surface', () => {
   })
   it('uses one tab toolbar and keeps group context inside Team info', async () => {
     const coordinator = new FakeCoordinator(); const common = { anchorRef: { current: null }, controller, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t }
-    await render(<TeamDashboardDetails {...(common as any)} />)
+    await render(<TeamDashboardDetails navigation={fixtureNavigation} {...(common as any)} />)
     await act(async () => { tabButton('members').click() })
     const panel = document.querySelector<HTMLElement>('[role="complementary"][data-swarm-team-panel]')!
     expect(panel.textContent).toContain('Fixture Team'); expect(panel.textContent).toContain('Active')
@@ -181,7 +182,7 @@ describe('R3 native Team Details surface', () => {
       const state: TeamDashboardState = { ...ready, data: teamData(ready.data!.capabilities, projection) }
       const coordinator = new FakeCoordinator()
       const longRoleController = { getSnapshot: () => state, subscribe: () => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
-      await render(<TeamDashboardDetails {...({ controller: longRoleController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
+      await render(<TeamDashboardDetails navigation={fixtureNavigation} {...({ controller: longRoleController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
       await act(async () => { tabButton('members').click() })
       await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!.click() })
       await page.setViewportSize({ width: 1100, height: 800 })
@@ -206,7 +207,7 @@ describe('R3 native Team Details surface', () => {
       }
       const coordinator = new FakeCoordinator()
       const state: TeamDashboardState = { ...ready, data }
-      await render(<TeamDashboardDetails {...({ controller: { ...controller, getSnapshot: () => state }, coordinator, useTabInfo, localeTag: () => 'zh-CN', sessionId: 'main-brain', t: tZh } as any)} />)
+      await render(<TeamDashboardDetails navigation={fixtureNavigation} {...({ controller: { ...controller, getSnapshot: () => state }, coordinator, useTabInfo, localeTag: () => 'zh-CN', sessionId: 'main-brain', t: tZh } as any)} />)
       await act(async () => { tabButton('members').click() })
       await page.setViewportSize({ width: 1100, height: 800 })
       await page.setContent(`<div style="width:${width}px;height:700px;--dsw-alias-border-l2:gray">${document.querySelector('[data-swarm-team-panel]')!.outerHTML}</div>`)
@@ -240,7 +241,7 @@ describe('R3 native Team Details surface', () => {
     coordinator.state = { ...coordinator.state, targetSessionId: 'missing' }
     const errorState: TeamDashboardState = { open: true, phase: 'error', targetSessionId: 'missing', error: { code: 'SWARM_RPC_TARGET_NOT_LIVE', message: 'not live' } }
     const errorController = { getSnapshot: (): TeamDashboardState => errorState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
-    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: errorController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'missing', t } as any)} />)
+    await render(<TeamDashboardDetails navigation={fixtureNavigation} {...({ anchorRef: { current: null }, controller: errorController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'missing', t } as any)} />)
     const alert = document.querySelector('[role="alert"]')!
     expect(alert.textContent).toContain('SWARM_RPC_TARGET_NOT_LIVE')
     // The real error message must be visible inline, not hidden only in a tooltip.
@@ -261,7 +262,7 @@ describe('R3 native Team Details surface', () => {
     const coordinator = new FakeCoordinator()
     const readFailedState: TeamDashboardState = { open: true, phase: 'error', targetSessionId: 'main-brain', error: { code: 'SWARM_UI_READ_FAILED', message: 'read-plus: fetch failed' } }
     const failedController = { getSnapshot: (): TeamDashboardState => readFailedState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
-    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: failedController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
+    await render(<TeamDashboardDetails navigation={fixtureNavigation} {...({ anchorRef: { current: null }, controller: failedController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
     // The panel is present and tagged with the failing phase, so the error is observable in the DOM.
     const panel = document.querySelector<HTMLElement>('[data-swarm-team-panel][data-phase="error"]')!
     expect(panel).not.toBeNull()
@@ -291,7 +292,7 @@ describe('R3 native Team Details surface', () => {
     const projection = { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot, roster: [{ name: 'worker', role: longRole, phase: 'active', createdAt: 1_700_000_000_000 }], totals: { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot.totals, roster: 1 } }
     const readyState: TeamDashboardState = { open: true, phase: 'ready', targetSessionId: 'main-brain', data: teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection) }
     const longRoleController = { getSnapshot: (): TeamDashboardState => readyState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
-    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: longRoleController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
+    await render(<TeamDashboardDetails navigation={fixtureNavigation} {...({ anchorRef: { current: null }, controller: longRoleController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
     await act(async () => { tabButton('members').click() })
     // The member desk's profession element keeps the full authoritative value in its title.
     const secondary = document.querySelector<HTMLElement>('[data-swarm-member-name] small.swarm-team-workspace__truncate[title]')!
@@ -304,9 +305,9 @@ describe('R3 native Team Details surface', () => {
   it('rerenders the mounted Details body with official locale copy and mapped enums', async () => {
     const coordinator = new FakeCoordinator(); const common = { anchorRef: { current: null }, controller, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain' }
     const root = createRoot(document.body.appendChild(document.createElement('div'))); mounted.push(root)
-    await act(async () => { root.render(<TeamDashboardDetails {...({ ...common, t } as any)} />) })
+    await act(async () => { root.render(<TeamDashboardDetails navigation={fixtureNavigation} {...({ ...common, t } as any)} />) })
     expect(document.body.textContent).toContain('Team info'); expect(document.body.textContent).toContain('Active')
-    await act(async () => { root.render(<TeamDashboardDetails {...({ ...common, t: tZh } as any)} />) })
+    await act(async () => { root.render(<TeamDashboardDetails navigation={fixtureNavigation} {...({ ...common, t: tZh } as any)} />) })
     expect(document.body.textContent).toContain('群信息'); expect(document.body.textContent).toContain('活跃')
   })
 
@@ -330,7 +331,7 @@ describe('R3 native Team Details surface', () => {
     }
     const common = { anchorRef: { current: null }, controller: dynamicController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t }
     const root = createRoot(document.body.appendChild(document.createElement('div'))); mounted.push(root)
-    await act(async () => { root.render(<TeamDashboardDetails {...(common as any)} />) })
+    await act(async () => { root.render(<TeamDashboardDetails navigation={fixtureNavigation} {...(common as any)} />) })
     await act(async () => { tabButton('members').click() })
     const memberTrigger = document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!
     memberTrigger.focus()
@@ -366,7 +367,7 @@ describe('R3 native Team Details surface', () => {
     expect(detailOverlay()).not.toBeNull()
     projection = { ...projection, roster: [], totals: { ...projection.totals, roster: 0 } }
     dynamicState = { ...ready, data: teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection) }
-    await act(async () => { root.render(<TeamDashboardDetails {...(common as any)} />) })
+    await act(async () => { root.render(<TeamDashboardDetails navigation={fixtureNavigation} {...(common as any)} />) })
     expect(detailOverlay()).toBeNull()
     // The authority-driven auto-close still leaves usable focus behind (the selected tab).
     expect(document.activeElement).toBe(tabButton('members'))
@@ -385,7 +386,7 @@ describe('R3 native Team Details surface', () => {
     }
     const state: TeamDashboardState = { ...ready, data: teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection) }
     const compositionController = { getSnapshot: (): TeamDashboardState => state, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
-    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: compositionController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
+    await render(<TeamDashboardDetails navigation={fixtureNavigation} {...({ anchorRef: { current: null }, controller: compositionController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
     await act(async () => { tabButton('members').click() })
     // Available row (fixture `worker`): every composition field renders its real value.
     await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!.click() })
@@ -417,7 +418,7 @@ describe('R3 native Team Details surface', () => {
     const missingState: TeamDashboardState = { ...ready, data: { ...teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, noMemberProjection), captainMembers: { schemaVersion: 1, binding: SWARM_READ_RPC_FIXTURES_V1.values.captainMembers.binding, members: [], observedAt: 0 } as never } }
     const missingController = { getSnapshot: (): TeamDashboardState => missingState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     document.body.replaceChildren()
-    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: missingController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
+    await render(<TeamDashboardDetails navigation={fixtureNavigation} {...({ anchorRef: { current: null }, controller: missingController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
     await act(async () => { tabButton('members').click() })
     await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!.click() })
     const missing = detailOverlay()!
@@ -432,7 +433,7 @@ describe('R3 native Team Details surface', () => {
     const projection = { ...SWARM_READ_RPC_FIXTURES_V1.values.snapshot, roster: [{ name: 'worker', role: 'writer', phase: 'active', createdAt: 1 }] }
     const state: TeamDashboardState = { ...ready, data: teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection) }
     const detailController = { ...controller, getSnapshot: () => state }
-    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: detailController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
+    await render(<TeamDashboardDetails navigation={fixtureNavigation} {...({ anchorRef: { current: null }, controller: detailController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
     await act(async () => { tabButton('members').click() })
     await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-member-name="worker"]')!.click() })
     const detail = detailOverlay()!
@@ -475,7 +476,7 @@ describe('R3 native Team Details surface', () => {
     }
     const dynamicState: TeamDashboardState = { ...ready, data: teamData(SWARM_READ_RPC_FIXTURES_V1.values.capabilities, projection) }
     const dynamicController = { getSnapshot: (): TeamDashboardState => dynamicState, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
-    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller: dynamicController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
+    await render(<TeamDashboardDetails navigation={fixtureNavigation} {...({ anchorRef: { current: null }, controller: dynamicController, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
     await act(async () => { tabButton('tasks').click() })
     const task = document.querySelector<HTMLButtonElement>('[data-swarm-task-id="task-1"]')!
     task.focus()

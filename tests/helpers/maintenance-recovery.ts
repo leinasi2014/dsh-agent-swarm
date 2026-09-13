@@ -1,5 +1,6 @@
 /** Shared real maintenance checkpoint and the actual one-shot clock callbacks. */
 import { mkdtemp, rm } from 'node:fs/promises'
+import { withLiveChild } from './live-child.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ToolCallId, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
@@ -42,13 +43,13 @@ export async function maintenanceCheckpoint() {
   let failed = false
   try {
     const { root, captain, teamId, scope } = await createTeam(first, source)
-    return await first.ctx.subagents.withContinuableChild(root, captain.id, SIGNAL, async live => {
-      const result = await restartTool(first.ctx, root, 'start-maintenance', 'agent_swarm_save_goal', { team_id: teamId,
+    const result = await restartTool(first.ctx, root, 'start-maintenance', 'agent_swarm_save_goal', { team_id: teamId,
         requestId: 'maintenance-start', expectedLifecycleRevision: 0, start: true, tokenBudget: { expectedTokenLimit: null, tokenLimit: 1000 },
         goal: { text: 'Keep checking the same Team.', acceptanceCriteria: 'Record a checked round.', constraints: 'No replacement Team.', mode: 'maintenance', intervalMs: 60_000 } })
       expect(result.isError, JSON.stringify(result)).toBe(false)
       await vi.waitFor(async () => expect((await first.ctx.agentSwarm.goals.snapshot(scope, teamId)).lifecycle?.phase).toBe('waiting'), { timeout: 15_000 })
-      await live.whenIdle(); await root.whenIdle()
+    await first.ctx.agents.get(captain.id)?.whenIdle(); await root.whenIdle()
+    return await withLiveChild(first.ctx, root, captain.id, SIGNAL, async live => {
       expect(first.ctx.agents.get(captain.id)).toBe(live)
       expect(live.status).toBe('idle'); expect(root.status).toBe('idle')
       const before = (await first.ctx.agentSwarm.domain.snapshot(scope, teamId, captain.id)).team

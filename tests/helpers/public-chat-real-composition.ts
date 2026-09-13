@@ -1,5 +1,6 @@
 /** Shared real Host, HTTP authentication, model recording and durable restart fixtures. */
 import { cp, readFile } from 'node:fs/promises'
+import { withLiveChild } from './live-child.js'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import CredentialsLocal from '@deepseek-ai/dsh-credentials-local'
@@ -57,7 +58,8 @@ export class HeldRecording extends Recording {
   }
 }
 
-export async function setup(sandbox: string, adapter: Recording, http = false, beforeSwarm?: (ctx: Context, fibers: Fiber[]) => Promise<void>) {
+export async function setup(sandbox: string, adapter: Recording, http = false, beforeSwarm?: (ctx: Context, fibers: Fiber[]) => Promise<void>,
+  options: { captainModel?: string; personaPrefix?: string; startupRecoveryExcludedTeamIds?: string[] } = {}) {
   const routes: { kind: string; path: string; handler(req: IncomingMessage, res: ServerResponse): unknown }[] = []
   let instance: Awaited<ReturnType<typeof mount>> | undefined
   const server = createServer((req, res) => {
@@ -74,15 +76,17 @@ export async function setup(sandbox: string, adapter: Recording, http = false, b
     ctx.llm.registerAdapter([ROUTE.provider], adapter)
     await beforeSwarm?.(ctx, fibers)
     if (!http) return
-    // A sibling provider preserves the real Cordis injection boundary.
-    fibers.push(await ctx.plugin({ apply(webCtx: Context) {
-      webCtx.provide('webServer', { host: '127.0.0.1', port, register(route: typeof routes[number]) {
-        routes.push(route); return () => { routes.splice(routes.indexOf(route), 1) }
-      } } as never)
-    } }))
+    // The web carrier is a profile-level provider: the official Connection binds
+    // every channel route through its own context's `webServer`, so the service
+    // must be visible at this shared root rather than from a sibling scope.
+    ctx.provide('webServer', { host: '127.0.0.1', port, register(route: typeof routes[number]) {
+      routes.push(route); return () => { routes.splice(routes.indexOf(route), 1) }
+    } } as never)
     fibers.push(await ctx.plugin(CredentialsLocal, { path: join(sandbox, 'credentials.yaml'), dshHome: sandbox, watch: false }))
     fibers.push(await ctx.plugin(ClientConnection))
-  }, { captainLlmProvider: ROUTE.provider, captainModel: ROUTE.model })
+  }, { captainLlmProvider: ROUTE.provider, captainModel: options.captainModel ?? ROUTE.model,
+    ...(options.startupRecoveryExcludedTeamIds === undefined ? {} : { startupRecoveryExcludedTeamIds: options.startupRecoveryExcludedTeamIds }),
+  }, options.personaPrefix === undefined ? {} : { personaPrefix: options.personaPrefix })
   return { ...instance, base: `http://127.0.0.1:${port}`, routes,
     close: async () => { await dispose(instance!); if (http) await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())) } }
 }
@@ -105,7 +109,7 @@ export async function createTeam(f: Awaited<ReturnType<typeof setup>>, sandbox: 
 
 export async function addPublicMembers(f: Awaited<ReturnType<typeof setup>>, root: Awaited<ReturnType<typeof createTeam>>['root'], captainId: SessionId) {
   const ids: SessionId[] = []
-  await f.ctx.subagents.withContinuableChild(root, captainId, SIGNAL, async (captain, signal) => {
+  await withLiveChild(f.ctx, root, captainId, SIGNAL, async (captain, signal) => {
     for (const name of ['alpha', 'beta']) {
       const result = await f.ctx.tools.execute({ signal, callId: ToolCallId(`public-add-${name}`), name: 'agent_swarm_add_member',
         arguments: { name, role: `Public ${name} duty`, llm_provider: ROUTE.provider, model: ROUTE.model }, agent: captain })

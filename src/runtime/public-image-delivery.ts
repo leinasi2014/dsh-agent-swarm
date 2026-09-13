@@ -13,6 +13,7 @@ import type { PublicImageRecipient, PublicInputProjection } from '../domain/publ
 import type { TeamState } from '../domain/types.js'
 import { framePredicate, type FramePredicates } from './frame-visibility.js'
 import { readPersistedSession } from './persisted-session.js'
+import { withLiveChild } from './continuable-child.js'
 
 export function publicInputPredicates(frame: string, requestId: string, projection: PublicInputProjection | undefined,
   onMismatch?: () => void): FramePredicates {
@@ -65,11 +66,11 @@ export function samePublicImageInput(left: PublicImageRecipient, right: PublicIm
     && left.recipientSessionId === right.recipientSessionId && isDeepStrictEqual(left.projection, right.projection)
 }
 
-/** Hold the actual target while checking its current route immediately before official admission. */
+/** Resolve the actual target on official seams, then check its current route immediately before official admission. */
 export async function steerVerifiedPublicImagePrompt(ctx: Context, scope: string, team: TeamState, parent: Agent,
   recipient: PublicImageRecipient & { projection: PublicInputProjection }, signal: AbortSignal,
   expiresAt?: number): Promise<'admitted' | 'unknown' | 'unsupported' | 'expired'> {
-  return await ctx.subagents.withContinuableChild(parent, SessionId(recipient.recipientSessionId), signal, async (target, leaseSignal) => {
+  return await withLiveChild(ctx, parent, SessionId(recipient.recipientSessionId), signal, async (target, leaseSignal) => {
     const routeWitness = () => {
       const events = target.session.snapshotEvents(), own = events.slice(target.session.inheritedEventCount)
       return own.some(event => event.type === 'model/selection')

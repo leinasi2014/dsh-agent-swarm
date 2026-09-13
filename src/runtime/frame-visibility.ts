@@ -21,6 +21,7 @@ import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-ses
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import { messageAccepted, messageClaimed, messageInFlight, messagePending } from './session-acceptance.js'
 import { readPersistedSession } from './persisted-session.js'
+import { childIsMaintained } from './continuable-child.js'
 
 /**
  * Bounded wait for a waking frame's claim at the target's next turn
@@ -75,6 +76,9 @@ export async function waitForFrameClaim(
   const mismatch = (events: readonly SessionEvent[]) => messageAccepted(events, message => identity(message) && !predicate(message))
   const deadline = Date.now() + graceMs
   for (;;) {
+    // Also release older concurrent waits when maintenance began after admission.
+    // Queued Team debt remains authoritative until a later durable claim fold.
+    if (childIsMaintained(target)) return false
     if (requireDurableFlush && (ctx.agents.get(target.id) !== target || ctx.sessions.get(target.id) !== target.session)) {
       return await frameVisibility(ctx, target.id, frame, signal, 'public claim after activation change', true, predicates, throwOnFailure) === 'claimed'
     }

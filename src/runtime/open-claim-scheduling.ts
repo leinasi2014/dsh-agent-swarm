@@ -10,13 +10,15 @@ import type { MessageDelivery } from './message-delivery.js'
 
 export async function notifyOpenTasks(ctx: Context, deps: {
   domain(): TeamDomainPort; delivery(): MessageDelivery; isClosing(): boolean
-}, scope: TeamScope, teamId: TeamId, captain: Agent): Promise<void> {
+}, scope: TeamScope, teamId: TeamId, captain: Agent, signal: AbortSignal = new AbortController().signal): Promise<void> {
+  signal.throwIfAborted()
   let snapshot = await deps.domain().snapshot(scope, teamId, captain.id)
   if (snapshot.team.goalLifecycle?.phase === 'paused') return
   const open = snapshot.team.tasks.filter(task => task.assignmentMode === 'open-claim' && snapshot.readyTaskIds.includes(task.id))
   for (const task of open) {
     if (deps.isClosing()) return
     snapshot = await deps.domain().snapshot(scope, teamId, captain.id)
+    signal.throwIfAborted()
     if (snapshot.team.goalLifecycle?.phase === 'paused') return
     const recipients = snapshot.team.members.filter(member => member.phase === 'active'
       && (ctx.agents.get(SessionId(member.sessionId))?.status ?? 'idle') === 'idle'
@@ -33,8 +35,9 @@ export async function notifyOpenTasks(ctx: Context, deps: {
   snapshot = await deps.domain().snapshot(scope, teamId, captain.id)
   for (const notice of snapshot.team.messages) {
     if (deps.isClosing()) return
+    signal.throwIfAborted()
     if (notice.kind === 'open-claim-notice' && notice.phase === 'queued') {
-      await deps.delivery().deliverQueuedMessage(scope, teamId, captain, notice.id, AbortSignal.timeout(30_000))
+      await deps.delivery().deliverQueuedMessage(scope, teamId, captain, notice.id, AbortSignal.any([signal, AbortSignal.timeout(30_000)]))
     }
   }
 }

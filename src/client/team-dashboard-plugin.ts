@@ -14,7 +14,6 @@ import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-connection/client'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
@@ -27,11 +26,12 @@ import { TeamDashboardController } from './team-dashboard-controller.js'
 import { en, TEAM_DASHBOARD_NS, zh, type TeamDashboardKey } from './team-dashboard-locales.js'
 import { TeamDashboardSurfaceCoordinator, TEAM_TAB_ID, TEAM_TAB_KIND } from './team-dashboard-surface-coordinator.js'
 import { TeamDashboardDetails } from './TeamDashboardDetails.js'
-import { TeamLineageDisplay } from './TeamLineageDisplay.js'
 import { PublicChatClient } from './public-rpc-client.js'
 import { PublicChatController } from './public-chat-controller.js'
-import { TeamPublicChat } from './TeamPublicChat.js'
-import { TeamGroupNavigation } from './TeamGroupNavigation.js'
+import { TeamGroupPanel } from './TeamGroupPanel.js'
+import { TeamHeaderBadge } from './TeamHeaderBadge.js'
+import { requestLatestNavigation } from './official-capabilities.js'
+import type { TeamNavigationCallbacks } from './TeamGroupNavigation.js'
 import { RetirementClient } from './retirement-client.js'
 import type { RetirementResult } from '../shared/team-retirement.js'
 import {
@@ -52,7 +52,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-export const inject = ['sessions', 'slots', 'locale', 'settingsScope', 'remote', 'remote.session', 'remote.subagents', 'sidebarRight', 'sidebarRightTabs', 'chatNavigation', 'layout', 'connection']
+export const inject = ['sessions', 'slots', 'locale', 'settingsScope', 'remote', 'remote.session', 'remote.subagents', 'sidebarRight', 'sidebarRightTabs', 'layout', 'connection']
 
 /** Compose an additive official Sidebar tab and Session utility. */
 export function apply(ctx: ClientContext): void {
@@ -103,10 +103,9 @@ export function apply(ctx: ClientContext): void {
   })
   // Slot injection can run again during Host refreshes; mounted images keep one reader.
   const readPublicImage = (messageId: string, imageId: string, signal: AbortSignal): Promise<Blob> => chat.image(messageId, imageId, signal)
-  const groupPanel = 'swarm.group' as MainPanelId
   const anchorRef = { current: null as HTMLSpanElement | null }
   const coordinator = new TeamDashboardSurfaceCoordinator({ sessions: sessionsService, locale: ctx.locale, controller, anchorRef,
-    chatNavigation: ctx.chatNavigation,
+    requestLatest: sessionId => { requestLatestNavigation(ctx, sessionId) },
     sendCaptainPrompt: async (request, signal) => {
       const content = [{ type: 'text' as const, text: request.text }]
       const clientTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -128,17 +127,31 @@ export function apply(ctx: ClientContext): void {
     title: () => ctx.locale.bind(TEAM_DASHBOARD_NS)('title'),
     guide: [{ order: 30, title: () => ctx.locale.bind(TEAM_DASHBOARD_NS)('title') }],
   }), 'swarm Team Sidebar tab type')
+  const navigation: TeamNavigationCallbacks = {
+    refreshDirectory: () => { void chat.refreshDirectory() },
+    selectGroup: (teamId: string) => { void coordinator.openGroupChat(teamId) },
+    returnGroup: () => coordinator.openGroupChat(),
+    openMain: async () => { await coordinator.openMainChat(); ctx.layout.selectPanel(null) },
+    openCaptain: async () => { await coordinator.openCaptainChat(); ctx.layout.selectPanel(null) },
+    openMember: async (name: string, sessionId: string) => { await coordinator.openMemberChat(name, sessionId); ctx.layout.selectPanel(null) },
+    retirement,
+    retired: async (result: RetirementResult) => {
+      coordinator.openRetirementMainChat(result.target.rootSessionId)
+      controller.open(result.target.rootSessionId); controller.refresh(); ctx.layout.selectPanel(null)
+    },
+  }
   ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
     name: 'sidebar.right.pane.tab', key: TEAM_TAB_ID, locale: TEAM_DASHBOARD_NS,
-    inject: () => ({ anchorRef, controller, coordinator, chat, work, localeTag: coordinator.localeTag }),
+    inject: () => ({ anchorRef, controller, coordinator, chat, work, localeTag: coordinator.localeTag, navigation }),
   }, TeamDashboardDetails))
-  ctx.slots.inject('conversation.session.header.lineage.display', () => ctx.slots.register({
-    name: 'conversation.session.header.lineage.display',
-    inject: () => ({ hooks: { team: controller } }),
-  }, TeamLineageDisplay))
-  ctx.slots.inject('main', function* () {
-    yield ctx.slots.register({ name: 'main', key: groupPanel, locale: TEAM_DASHBOARD_NS,
+  ctx.slots.inject('main.conversation', () => {
+    let registered: (() => void) | undefined
+    const sync = () => {
+      if (coordinator.groupConversation() === (registered !== undefined)) return
+      if (!coordinator.groupConversation()) { registered?.(); registered = undefined; return }
+      registered = ctx.slots.register({ name: 'main.conversation', priority: -10, locale: TEAM_DASHBOARD_NS,
       inject: () => ({ hooks: { chat, team: controller, surface: coordinator }, goal,
+        controller, coordinator, chat, work, localeTag: coordinator.localeTag, navigation,
         edit: (text: string) => { chat.edit(text) }, reply: (id: string | undefined) => { chat.reply(id) },
         replaceText: (start: number, end: number, text: string) => { chat.replaceText(start, end, text) },
         chooseMention: (start: number, end: number, memberId: string) => { chat.chooseMention(start, end, memberId) },
@@ -148,27 +161,19 @@ export function apply(ctx: ClientContext): void {
         image: readPublicImage,
         retryDraftStorage: () => { void chat.retryDraftStorage() }, useStoredDraft: () => { void chat.useStoredDraft() },
         send: () => { void chat.send() }, recover: () => { void chat.recover() },
-        earlier: () => { void chat.earlier() }, newer: () => { void chat.newer() }, refresh: () => { void chat.refresh() }, latest: () => { void chat.latest() },
-        openTeam: () => { const current = sessionsService.list.getSnapshot().current; if (current !== undefined) coordinator.toggle(current) },
+        earlier: () => { void chat.earlier() }, newer: () => { void chat.newer() }, refresh: () => { void chat.refresh() }, latest: () => { void chat.latest() }, enter: () => { void chat.enter() },
       }),
-    }, TeamPublicChat)
-    yield ctx.layout.registerPanelPresentation(groupPanel, {
-      rightSidebar: 'current-session',
-      columns: { sidebar: { defaultWidth: 166, minWidth: 166 }, rightbar: { defaultWidth: 320 } },
-    })
+      }, TeamGroupPanel)
+    }
+    const off = coordinator.subscribe(sync)
+    sync()
+    return () => { off(); registered?.(); registered = undefined }
   })
-  ctx.slots.inject('sidebar.navigation.section', () => ctx.slots.register({
-    name: 'sidebar.navigation.section', id: 'swarm.groups', locale: TEAM_DASHBOARD_NS,
-    inject: () => ({ hooks: { team: controller, chat }, retirement, retired: async (result: RetirementResult) => {
-      coordinator.openRetirementMainChat(result.target.rootSessionId)
-      controller.open(result.target.rootSessionId); controller.refresh(); ctx.layout.selectPanel(groupPanel)
-    }, refreshDirectory: () => { void chat.refreshDirectory() },
-      selectGroup: (teamId: string) => { controller.selectTeam(teamId); ctx.layout.selectPanel(groupPanel) },
-      openMain: async () => { await coordinator.openMainChat(); ctx.layout.selectPanel(null) },
-      openCaptain: async () => { await coordinator.openCaptainChat(); ctx.layout.selectPanel(null) },
-      openMember: async (name: string, sessionId: string) => { await coordinator.openMemberChat(name, sessionId); ctx.layout.selectPanel(null) },
-    }),
-  }, TeamGroupNavigation))
+  // B3: the official session-header action list carries the Team context badge.
+  ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
+    name: 'conversation.session.header.actions', id: 'swarm-team', order: 20, locale: TEAM_DASHBOARD_NS,
+    inject: () => ({ hooks: { team: controller }, coordinator, navigation }),
+  }, TeamHeaderBadge))
   ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
     name: 'settings.plugin.item',
     key: TEAM_SKILL_SETTINGS_NS,

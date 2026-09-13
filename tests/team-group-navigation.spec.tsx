@@ -12,9 +12,9 @@ it('navigates verified members while the optional shared directory is pending an
   let chat = { directoryLoading: true } as PublicChatState
   let release!: () => void
   const openMember = vi.fn(() => new Promise<void>(resolve => { release = resolve })), refreshDirectory = vi.fn()
-  const props: ComponentProps<typeof TeamGroupNavigation> = { t: t as ComponentProps<typeof TeamGroupNavigation>['t'], wide: true, expandSidebar: vi.fn(),
-    useSessions: vi.fn(), useSessionPendingInteraction: vi.fn(), useWorkspaces: vi.fn(),
-    useTeam: selector => selector(state), useChat: selector => selector(chat), usePanelInfo: selector => selector({ activePanelId: 'swarm.group' } as never),
+  const props: ComponentProps<typeof TeamGroupNavigation> = { t: t as ComponentProps<typeof TeamGroupNavigation>['t'], wide: true, activePanelId: 'swarm.group',
+    team: { subscribe: () => () => {}, getSnapshot: () => state },
+    chat: { subscribe: () => () => {}, getSnapshot: () => chat },
     selectGroup: vi.fn(), openMain: vi.fn(async () => {}), openCaptain: vi.fn(async () => {}), openMember, refreshDirectory }
   await render(<TeamGroupNavigation {...props} />)
   await act(async () => { document.querySelector<HTMLButtonElement>(`[data-swarm-group="${data.projection.binding.teamId}"]`)!.click() })
@@ -42,9 +42,9 @@ it('does not show a superseded member failure after a newer handoff or in anothe
     projection: { ...data.projection, roster: members.map(member => ({ ...data.projection.roster[0]!, name: member.name, phase: member.phase })) } } }
   let rejectFirst!: (error: Error) => void, finishSecond!: () => void
   const openMember = vi.fn((name: string) => name === 'first' ? new Promise<void>((_resolve, reject) => { rejectFirst = reject }) : new Promise<void>(resolve => { finishSecond = resolve }))
-  const props: ComponentProps<typeof TeamGroupNavigation> = { t: t as ComponentProps<typeof TeamGroupNavigation>['t'], wide: true, expandSidebar: vi.fn(),
-    useSessions: vi.fn(), useSessionPendingInteraction: vi.fn(), useWorkspaces: vi.fn(), useTeam: selector => selector(state), useChat: vi.fn(),
-    usePanelInfo: selector => selector({ activePanelId: 'swarm.group' } as never), selectGroup: vi.fn(),
+  const props: ComponentProps<typeof TeamGroupNavigation> = { t: t as ComponentProps<typeof TeamGroupNavigation>['t'], wide: true,
+    team: { subscribe: () => () => {}, getSnapshot: () => state },
+    activePanelId: 'swarm.group', selectGroup: vi.fn(),
     openMain: vi.fn(async () => {}), openCaptain: vi.fn(async () => {}), openMember, refreshDirectory: vi.fn() }
   await render(<TeamGroupNavigation {...props} />)
   await act(async () => { document.querySelector<HTMLButtonElement>('[data-swarm-group]')!.click() })

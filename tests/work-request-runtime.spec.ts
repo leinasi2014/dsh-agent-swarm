@@ -1,5 +1,6 @@
 /** Work requests use real Connection authentication and official durable Sessions. */
 import { mkdtemp, rm } from 'node:fs/promises'
+import { withLiveChild } from './helpers/live-child.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it, vi } from 'vitest'
@@ -108,7 +109,7 @@ it('binds the Main tool to its exact live managed origin and rejects other Sessi
     other.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Prepare an unrelated Main.' }] }))
     await other.whenIdle()
     expect((await tool(f.ctx, other, 'other-work', 'agent_swarm_submit_work_request', args)).isError).toBe(true)
-    await f.ctx.subagents.withContinuableChild(root, captain.id, SIGNAL, async current => {
+    await withLiveChild(f.ctx, root, captain.id, SIGNAL, async current => {
       expect((await tool(f.ctx, current, 'captain-forge-main', 'agent_swarm_submit_work_request', args)).isError).toBe(true)
       expect((await tool(f.ctx, current, 'captain-read-work', 'agent_swarm_list_work_requests', {})).value).toMatchObject({
         requests: [expect.objectContaining({ origin: 'main', main_session_id: root.id, description: args.description })],

@@ -1,5 +1,6 @@
 /** Exact running execution proof over real official child Sessions and tools. */
 import { mkdtemp, rm } from 'node:fs/promises'
+import { withLiveChild } from './helpers/live-child.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ToolCallId, createUserMessage, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
@@ -75,7 +76,8 @@ it.each(['assignment', 'native claim', 'Code Mode claim'] as const)('cancels onl
       }, { prepend: true })
     }
     adapter.worker = worker!
-    await f.ctx.subagents.withContinuableChild(root, captain.id, SIGNAL, async live => {
+    await f.ctx.agents.get(captain.id)?.whenIdle()
+    await withLiveChild(f.ctx, root, captain.id, SIGNAL, async live => {
       const created = await restartTool(f.ctx, live, 'cancel-create', 'agent_swarm_create_task', { subject: 'Cancel exact old work', description: 'Hold until cancelled.',
         ...(kind === 'assignment' ? { target_member: 'alpha' } : { assignment_mode: 'open-claim' }) })
       expect(created.isError, JSON.stringify(created)).toBe(false)
@@ -87,7 +89,7 @@ it.each(['assignment', 'native claim', 'Code Mode claim'] as const)('cancels onl
       expect(held.status).toBe('running')
       // Keep the official child lease so the successor is the same Agent
       // and Session object; only its actual turn identity will differ.
-      await f.ctx.subagents.withContinuableChild(live, held.id, SIGNAL, async owned => {
+      await withLiveChild(f.ctx, live, held.id, SIGNAL, async owned => {
       expect(owned).toBe(held)
       const late: TaskInterruptionResult = { state: 'not-needed' }
       const captured = captureTaskInterruption(f.ctx, live, before, task, attempt, late)

@@ -1,5 +1,6 @@
 /** The authenticated operator can retire a cold Team without impersonating its Captain. */
 import { mkdtemp, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises'
+import { withLiveChild } from './helpers/live-child.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it, vi } from 'vitest'
@@ -36,8 +37,8 @@ it('deletes exclusive Sessions and private memory, preserves Main and project fi
     const { root, captain, teamId, scope } = await createTeam(f, sandbox)
     const members = await addPublicMembers(f, root, captain.id)
     const signal = new AbortController().signal
-    await f.ctx.subagents.withContinuableChild(root, captain.id, signal, (lead, parentSignal) =>
-      f.ctx.subagents.withContinuableChild(lead, members[0]!, parentSignal, async member => {
+    await withLiveChild(f.ctx, root, captain.id, signal, (lead, parentSignal) =>
+      withLiveChild(f.ctx, lead, members[0]!, parentSignal, async member => {
         await f.ctx.agentSwarmPrivateMemory.add({ agent: member, signal: parentSignal }, 'retirement-private-secret', [])
       }))
     // Lease release schedules natural disposal; this cold-deletion fixture waits for its public completion boundary.
@@ -80,8 +81,8 @@ it('recovers a stopped deletion receipt after partial physical removal and a com
     const { root, captain, teamId, scope } = await createTeam(f, sandbox)
     const members = await addPublicMembers(f, root, captain.id)
     const signal = new AbortController().signal
-    await f.ctx.subagents.withContinuableChild(root, captain.id, signal, (lead, parentSignal) =>
-      f.ctx.subagents.withContinuableChild(lead, members[0]!, parentSignal, async member => {
+    await withLiveChild(f.ctx, root, captain.id, signal, (lead, parentSignal) =>
+      withLiveChild(f.ctx, lead, members[0]!, parentSignal, async member => {
         await f.ctx.agentSwarmPrivateMemory.add({ agent: member, signal: parentSignal }, 'recovery-private-memory', [])
       }))
     // Seed retained terminal evidence in the already opened public domain;
@@ -249,9 +250,13 @@ it('preserves an ordinary fork and a Session shared by another workspace while d
   try {
     const { root, captain, teamId } = await createTeam(f, sandbox)
     const members = await addPublicMembers(f, root, captain.id)
-    const fork = await f.ctx.subagents.withContinuableChild(root, captain.id, signal, async lead => {
-      const independent = f.ctx.sessions.fork(lead.session, undefined, SessionId('independent-ordinary-fork'))
+    const fork = await withLiveChild(f.ctx, root, captain.id, signal, async lead => {
+      const boundary = lead.session.snapshotEvents().findLast(event => event.type === 'turn/end')
+      expect(boundary).toBeDefined()
+      const independent = f.ctx.sessions.fork(lead.session, boundary!.seq, SessionId('independent-ordinary-fork'))
       expect(independent.header.isSeeded).toBe(true)
+      expect(independent.snapshotEvents().slice(0, independent.inheritedEventCount))
+        .toEqual(lead.session.snapshotEvents().filter(event => event.seq <= boundary!.seq))
       const stored = await f.ctx.sessionPersistence.create(independent.header, { inheritedEventCount: independent.inheritedEventCount })
       try { await stored.append(independent.snapshotEvents()); await stored.flush() } finally { await stored.close() }
       return independent

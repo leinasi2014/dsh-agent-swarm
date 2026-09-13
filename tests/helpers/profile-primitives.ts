@@ -12,7 +12,7 @@ export function profilePrimitiveSource(): string {
   const require = createRequire(import.meta.url)
   const manifestPath = require.resolve('@deepseek-ai/dsh-client-ui-primitives/package.json')
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { name: string; version: string; main: string }
-  if (manifest.name !== '@deepseek-ai/dsh-client-ui-primitives' || manifest.version !== '0.1.5-alpha.2' || manifest.main !== 'lib/index.js') throw new Error('Recheck overlay extraction against the installed official package')
+  if (manifest.name !== '@deepseek-ai/dsh-client-ui-primitives' || manifest.version !== '0.1.5-rc.2' || manifest.main !== 'lib/index.js') throw new Error('Recheck overlay extraction against the installed official package')
   const source = readFileSync(join(dirname(manifestPath), manifest.main), 'utf8')
   const names = ['Modal', 'useAnchoredPosition', 'useDismissOnOutsidePointer']
   const functions = names.map(name => {

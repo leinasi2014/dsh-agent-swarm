@@ -61,6 +61,8 @@ export function parseReleaseVersion(release: string): { major: number; minor: nu
 
 export function compareReleaseVersions(a: string, b: string): number
 
+export function evaluateReleaseChannel(release: string): { ok: boolean; channel: 'alpha' | 'beta' | 'rc' | 'stable' | null; reason: string | null }
+
 export function parseLsRemote(output: string, branch: string): LsRemoteFacts
 
 export function evaluateBaselineAnchor(input: BaselineAnchorInput): BaselineAnchorVerdict

@@ -5,9 +5,10 @@
 ## 固定基线
 
 - 官方源码基线由 `docs/OFFICIAL_BASELINE.json` 固定。
-- 当前审计基线包含官方 DSH commit `b2e3b2a0125854567a4a5fcba75782e42fe84901`（`0.1.5-alpha.2`）。
+- 当前审计基线包含官方 DSH commit `fb2c4b9e698e30edb738bca4cf0618587db7d203`（`0.1.5-rc.2`）。
 - 实际 API 以本仓库安装的 `@deepseek-ai/*` 包、类型声明和公开测试为准。
 - `ref/` 只读，只能通过仓库提供的同步脚本刷新。
+- 基线只追官方 rc 与正式发布；`pnpm verify:official` 拒绝 alpha/beta 锚点，避免将快速变化的预发布通道作为插件接口合同。
 
 ## 允许的扩展面
 
@@ -17,6 +18,9 @@
 - 官方公开客户端组件、设置扩展和主机上下文。
 
 禁止私有路径导入、猴子补丁、复制官方状态机或直接改 Agent Loop。
+插件直接消费已发布的官方包，不通过 `pnpm patch` / `patches/` 改写 Host 或 Client。官方缺少的公开接口应明确记录缺口，不能用开发安装中的补丁冒充宿主兼容。
+
+rc.2 的群聊入口沿用官方 conversation 扩展和侧栏能力；成员执行、恢复与维护使用官方 Agent/Subagent 生命周期。Connection 的组合显式声明 `webRuntime`、`webServer` 依赖。版本对齐、旧补丁移除与这些调用方的适配作为同一可安装候选验证；源码类型通过不代替实际 Profile、浏览器与冷恢复验收。
 
 ## 修改流程
 

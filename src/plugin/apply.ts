@@ -32,6 +32,7 @@ import { TeamDomainError } from '../domain/error.js'
 import { assembleAgentSwarmHostRead, assembleAgentSwarmProducerFloor, mountAgentSwarmReadRpc } from '../host/host-read-assembly.js'
 import { mountAgentSwarmPublicRpc } from '../rpc/public-rpc-service.js'
 import { AGENT_SWARM_USAGE_PROMPT } from '../runtime/usage-prompt.js'
+import { installChildOperationRecovery } from '../runtime/continuable-child.js'
 import { installSwarmGestureBoundary } from '../runtime/gesture.js'
 import { installExecutionGuard } from '../runtime/execution-guard.js'
 import { installAssignmentAdmission } from '../runtime/assignment-admission.js'
@@ -153,11 +154,16 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
 
   // Fail closed: official Storage Domain opens before tools/listeners.
   await runtime.start()
+  ctx.effect(() => installChildOperationRecovery(ctx), 'agent-swarm: child transport recovery')
   ctx.effect(() => runtime.retirement.install(), 'agent-swarm: retired Session admission')
-  ctx.effect(() => runtime.captainModels.install(), 'agent-swarm: Captain model selection lifecycle')
-  ctx.effect(() => async () => {
-    await drainHumanInteractions?.()
-    await runtime.dispose()
+  ctx.effect(() => {
+    const disposeModels = runtime.captainModels.install()
+    return async () => {
+      try {
+        await drainHumanInteractions?.()
+        await runtime.dispose()
+      } finally { disposeModels() }
+    }
   }, 'agent-swarm: runtime disposal')
   if (config.executionGuard !== false) ctx.effect(() => installExecutionGuard(ctx, runtime), 'agent-swarm: execution guard')
   ctx.effect(() => installAssignmentAdmission(ctx, runtime), 'agent-swarm: assignment admission')
@@ -386,6 +392,11 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
       for (const team of await startupTeams(scope)) {
         if (team.phase !== 'active' || team.managedOrigin === undefined || team.captainSessionId === '' || team.planDraft === undefined) continue
         if (ctx.agents.get(SessionId(team.captainSessionId)) !== undefined) continue
+        // "Never registered" is a persistence question, not a liveness one: a
+        // Captain whose session is already durable did register, it is merely
+        // dormant, and the continuation recovery above wakes it. Creating it
+        // again is what the official startContinuable rejects as DUPLICATE_CHILD.
+        if (await ctx.sessionPersistence.stat(SessionId(team.captainSessionId)) !== undefined) continue
         try { await runtime.recoverApprovedTeam(scope, team) }
         catch (error) {
           // A completed provisioning call can race Captain retirement. Keep

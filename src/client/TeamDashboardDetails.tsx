@@ -7,8 +7,12 @@ import type { TeamDashboardController } from './team-dashboard-controller.js'
 import type { TeamDashboardSurfaceCoordinator } from './team-dashboard-surface-coordinator.js'
 import { TEAM_DASHBOARD_NS } from './team-dashboard-locales.js'
 import { TeamDashboardContent } from './TeamDashboardContent.js'
+import type { TeamNavigationCallbacks } from './TeamGroupNavigation.js'
 
 const TEAM_DASHBOARD_SURFACE_ID = 'swarm-team-surface'
+
+/** Test and embedded mounts may omit the sidebar runtime hook; the real host provides it. */
+const noPanelInfo = (): null => null
 
 interface TeamDashboardDetailsInjected {
   readonly work?: WorkRequestController | undefined
@@ -17,14 +21,16 @@ interface TeamDashboardDetailsInjected {
   readonly controller: TeamDashboardController
   readonly coordinator: TeamDashboardSurfaceCoordinator
   readonly localeTag: () => 'zh-CN' | 'en-US'
+  readonly navigation: TeamNavigationCallbacks
 }
 
 export type TeamDashboardDetailsProps = PropsRuntime<'sidebar.right.pane.tab'>
   & PropsLocale<typeof TEAM_DASHBOARD_NS> & TeamDashboardDetailsInjected
 
 /** The Team tab body; official Sidebar owns its geometry and presentation. */
-export function TeamDashboardDetails({ controller, coordinator, chat, work, localeTag, sessionId, useTabInfo, t }: TeamDashboardDetailsProps) {
+export function TeamDashboardDetails({ controller, coordinator, chat, work, localeTag, navigation, sessionId, useTabInfo, usePanelInfo, t }: TeamDashboardDetailsProps) {
   const { tab } = useTabInfo()
+  const activePanelId = (typeof usePanelInfo === 'function' ? usePanelInfo : noPanelInfo)(value => value.activePanelId)
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot)
   const surface = useSyncExternalStore(coordinator.subscribe, coordinator.getSnapshot, coordinator.getSnapshot)
   const headingId = useId()
@@ -40,6 +46,6 @@ export function TeamDashboardDetails({ controller, coordinator, chat, work, loca
     data-swarm-team-panel data-swarm-team-dashboard data-phase={state.phase}
     style={{ width: '100%', height: '100%', overflow: 'hidden' }}>
     <TeamDashboardContent work={work} chat={chat} controller={controller} coordinator={coordinator} descriptionId={descriptionId}
-      headingId={headingId} localeTag={localeTag} state={state} t={t} />
+      activePanelId={activePanelId} headingId={headingId} localeTag={localeTag} navigation={navigation} state={state} t={t} showGroupNavigation={false} />
   </aside>
 }

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
-import { mounted, ready, render, t } from './helpers/dashboard-ui.js'
+import { mounted, render, t } from './helpers/dashboard-ui.js'
+import { chatState as loadedChatState, teamState } from './helpers/public-chat-fixtures.js'
 import { act, type ComponentProps } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { TeamPublicChat } from '../src/client/TeamPublicChat.js'
@@ -13,6 +14,7 @@ import type { TeamDashboardState } from '../src/client/team-dashboard-controller
 // even when the loaded page is short or already scrolled to its bottom (a stale page tail is not latest).
 // latest() call counts are asserted as increments over the entry effect's initial call (J5 pattern).
 // Baseline (RED run): J1/J2/J2b/J3/J3b/J5/J6 fail. J4 is the keep-green keep-safe cell.
+const ready = teamState()
 
 function chatState(state: TeamDashboardState, over: { hasMore?: boolean; empty?: boolean; key?: string; tail?: boolean; loading?: boolean; error?: string } = {}): PublicChatState {
   const binding = state.data!.projection.binding
@@ -24,7 +26,7 @@ function chatState(state: TeamDashboardState, over: { hasMore?: boolean; empty?:
   } as unknown as PublicChatState
 }
 function chatProps(state: TeamDashboardState, chat: PublicChatState, latest?: ReturnType<typeof vi.fn>) {
-  return { t, useSessions: <T,>(selector: (state: SessionListState) => T) => selector({ ids: [], byId: {}, current: undefined, phase: 'ready', subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined } as SessionListState), useTeam: <T,>(selector: (state: TeamDashboardState) => T) => selector(state), useChat: <T,>(selector: (state: PublicChatState) => T) => selector(chat),
+  return { t, useSessions: <T,>(selector: (state: SessionListState) => T) => selector({ ids: [], byId: {}, current: chat.selection?.viewer, phase: 'ready', subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined } as SessionListState), useTeam: <T,>(selector: (state: TeamDashboardState) => T) => selector(state), useChat: <T,>(selector: (state: PublicChatState) => T) => selector(chat),
     useSurface: <T,>(selector: (state: { mode: 'inactive'; view: 'overview'; targetSessionId: undefined }) => T) => selector({ mode: 'inactive', view: 'overview', targetSessionId: undefined }),
     replaceText: vi.fn(), chooseMention: vi.fn(), removeMention: vi.fn(), refreshDirectory: vi.fn(), upgradeLegacy: vi.fn(), send: vi.fn(), recover: vi.fn(), earlier: vi.fn(), newer: vi.fn(), refresh: vi.fn(), latest: latest ?? vi.fn(), edit: vi.fn(), reply: vi.fn(), openTeam: vi.fn(),
     addImages: vi.fn(), removeImage: vi.fn(), image: vi.fn(async () => new Blob(['image'], { type: 'image/png' })), retryDraftStorage: vi.fn(), useStoredDraft: vi.fn(),
@@ -148,4 +150,95 @@ describe('#276 floating jump-to-latest', () => {
     expect(node.scrollTop).toBe(1400)
     expect(jumpButton()).toBeNull()
   })
+
+  it('separates reading positions for the same draft key under different viewers', async () => {
+    const first = chatState(ready)
+    await render(<TeamPublicChat {...chatProps(ready, first) as unknown as Props} />)
+    const node = box(); stubScroll(node, 2000, 600)
+    await scroll(node, 100)
+    const other: TeamDashboardState = { ...ready, targetSessionId: 'other-viewer', data: { ...ready.data!,
+      teams: { ...ready.data!.teams, binding: { ...ready.data!.teams.binding, rootSessionId: 'other-viewer' } } } }
+    const second = chatState(other)
+    expect(second.selection!.key).toBe(first.selection!.key)
+    await rerender(chatProps(other, second) as unknown as Props)
+    expect(node.scrollTop).toBe(1400) // The new viewer enters at the tail.
+    await scroll(node, 500)
+    await rerender(chatProps(ready, first) as unknown as Props)
+    expect(node.scrollTop).toBe(100)
+    await rerender(chatProps(other, second) as unknown as Props)
+    expect(node.scrollTop).toBe(500)
+  })
+
+  it('restores each Team reading position after pending unmount and asynchronous latest in Edge', async () => {
+    const { publicImagesBrowserScript } = await import('./helpers/public-images-browser.js')
+    const { chromium } = await import('playwright')
+    const browser = await chromium.launch({ channel: 'msedge', headless: true }), script = await publicImagesBrowserScript()
+    const a = teamState(), initial = loadedChatState(a), source = initial.entries[0]!
+    const longText = Array.from({ length: 48 }, (_, index) => `第 ${index + 1} 行：切换团队后继续阅读原有长消息。`).join('\n')
+    const messages = (prefix: string) => Array.from({ length: 12 }, (_, index) => ({ ...source, id: `${prefix}-${index}`, sequence: index + 1,
+      text: index === 0 ? longText : `${prefix} 消息 ${index}`, content: [{ type: 'text' as const, text: index === 0 ? longText : `${prefix} 消息 ${index}` }] }))
+    const aChat = { ...initial, entries: messages('a'), history: { ...initial.history!, hasMore: false } }
+    const b: TeamDashboardState = { ...a, data: { ...a.data!, projection: { ...a.data!.projection, binding: { rootSessionId: 'captain-b', teamId: 'b' },
+      team: { ...a.data!.projection.team, id: 'b', name: 'Team B' } } } }
+    const bInitial = loadedChatState(b)
+    const bChat = { ...bInitial, selection: { ...bInitial.selection!, key: 'b-reading-key' }, draft: { ...bInitial.draft, text: 'B draft' }, entries: messages('b') }
+    type Driver = { mountChat(team: unknown, chat: unknown): Promise<void>; updateChat(team: unknown, chat: unknown): void; actions: string[][] }
+    try {
+      const page = await browser.newPage({ viewport: { width: 813, height: 731 } })
+      await page.setContent('<style>body{margin:0;font-family:system-ui}#fixture-root{height:731px}</style><div id="fixture-root"></div>')
+      await page.addScriptTag({ content: script })
+      const update = async (team: TeamDashboardState, chat: PublicChatState) => { await page.evaluate(({ team, chat }) => { (window as unknown as Driver).updateChat(team, chat) }, { team, chat }) }
+      const latestCount = () => page.evaluate(() => (window as unknown as Driver).actions.filter(row => row[0] === 'latest').length)
+      const loading = (chat: PublicChatState): PublicChatState => ({ ...chat, loading: true, history: undefined, entries: [] })
+      const pending = async (team: TeamDashboardState, nextTeam: string, chat: PublicChatState) => {
+        await update({ ...team, phase: 'reconnecting', pendingTeamId: nextTeam }, { ...loading(chat), selection: undefined })
+        await page.locator('.swarm-public__messages').waitFor({ state: 'detached' })
+      }
+      await page.evaluate(async ({ team, chat }) => { await (window as unknown as Driver).mountChat(team, chat) }, { team: a, chat: loading(aChat) })
+      await expect.poll(latestCount).toBe(1)
+      await update(a, aChat)
+      const box = page.locator('.swarm-public__messages')
+      const long = page.locator('[data-public-message="a-0"]')
+      await long.locator('[data-public-expand]').click()
+      await box.evaluate(node => { node.scrollTop = 710; node.dispatchEvent(new Event('scroll')) })
+      await expect.poll(() => box.evaluate(node => node.scrollTop)).toBe(710)
+      const aOffset = await long.locator('[data-public-text]').evaluate(node => node.getBoundingClientRect().top - node.closest('.swarm-public__messages')!.getBoundingClientRect().top)
+
+      await pending(a, 'b', aChat)
+      await update(b, loading(bChat))
+      await expect.poll(latestCount).toBe(2)
+      await update(b, bChat)
+      await page.locator('[data-public-message="b-11"]').waitFor()
+      await expect.poll(() => box.evaluate(node => node.scrollHeight - node.clientHeight - node.scrollTop)).toBeLessThan(2)
+      await box.evaluate(node => { node.scrollTop = 180; node.dispatchEvent(new Event('scroll')) })
+
+      await pending(b, aChat.selection!.team, bChat)
+      await update(a, loading(aChat))
+      await expect.poll(latestCount).toBe(3) // Revisiting still requests latest before its asynchronous result exists.
+      expect(await page.locator('[data-public-message]').count()).toBe(0)
+      await update(a, aChat)
+      await long.waitFor()
+      expect(await long.locator('[data-public-text]').getAttribute('data-expanded')).toBe('true')
+      expect(await page.locator('textarea').inputValue()).toBe(aChat.draft.text)
+      await expect.poll(() => box.evaluate(node => node.scrollTop)).toBeCloseTo(710, 0)
+      const offset = () => long.locator('[data-public-text]').evaluate(node => node.getBoundingClientRect().top - node.closest('.swarm-public__messages')!.getBoundingClientRect().top)
+      await expect.poll(offset).toBeCloseTo(aOffset, 0)
+      // A later same-key latest publication and reflow above the anchor must
+      // restore the manual anchor, rather than consume it as a fresh tail entry.
+      const earlier = { ...source, id: 'earlier-a', sequence: 0 }
+      await update(a, { ...aChat, loading: true })
+      await update(a, { ...aChat, entries: [earlier, ...aChat.entries] })
+      await page.locator('[data-public-message="earlier-a"]').waitFor()
+      await expect.poll(offset).toBeCloseTo(aOffset, 0)
+      expect(await latestCount()).toBe(3)
+
+      await pending(a, 'b', aChat)
+      await update(b, loading(bChat))
+      await expect.poll(latestCount).toBe(4)
+      await update(b, bChat)
+      await page.locator('[data-public-message="b-11"]').waitFor()
+      await expect.poll(() => box.evaluate(node => node.scrollTop)).toBeCloseTo(180, 0)
+      expect(await page.locator('textarea').inputValue()).toBe('B draft')
+    } finally { await browser.close() }
+  }, 30_000)
 })

@@ -1,5 +1,6 @@
 /** Real official Connection HTTP auth, Team storage, tool execution and cold activation. */
 import { mkdtemp, rm } from 'node:fs/promises'
+import { withLiveChild } from './helpers/live-child.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -170,6 +171,10 @@ it('cold-recovers both exact mentioned members through the Captain lease without
         && turn?.type === 'turn/start' && event.data.turn === turn.data.turn && event.data.reason.kind === 'completed')).toBe(true)
       return persisted
     }, { timeout: 10_000 })
+    await vi.waitFor(() => expect(f.ctx.agents.get(captain.id)).toBeUndefined())
+    await root.whenIdle()
+    expect(await f.ctx.sessions.flush(root.session)).toBe(true)
+    const rootBefore = await readPersistedSession(f.ctx.sessionPersistence, root.id, SIGNAL)
     const body = { formatVersion: 2 as const, author: { kind: 'local-operator' as const }, requestId: 'cold-multi', content: [
       { type: 'mention' as const, memberId: ids[1]! }, { type: 'text' as const, text: ' 和 ' },
       { type: 'mention' as const, memberId: ids[0]! }, { type: 'mention' as const, memberId: ids[1]! },
@@ -190,7 +195,23 @@ it('cold-recovers both exact mentioned members through the Captain lease without
     expect(after.tasks).toEqual([])
     expect(after.messages).toEqual([])
     expect(after.publicChat!.messages.slice(1).map(message => message.author)).toEqual(expect.arrayContaining(ids.map(sessionId => expect.objectContaining({ kind: 'agent', sessionId, role: 'member' }))))
-    expect(adapter.requests.filter(request => request.sessionId === ROOT).length).toBe(0)
+    await vi.waitFor(() => expect(f.ctx.agents.get(captain.id)).toBeUndefined())
+    const rootAfter = await vi.waitFor(async () => {
+      const currentRoot = f.ctx.agents.get(ROOT)
+      await currentRoot?.whenIdle()
+      if (currentRoot !== undefined) expect(await f.ctx.sessions.flush(currentRoot.session)).toBe(true)
+      const stored = await readPersistedSession(f.ctx.sessionPersistence, ROOT, SIGNAL)
+      expect(stored.events.some(event => event.seq > (rootBefore.events.at(-1)?.seq ?? -1) && event.type === 'user/message'
+        && event.data.source.kind === 'subagent-settled' && event.data.source.senderSessionId === captain.id)).toBe(true)
+      return stored
+    })
+    const rootInputs = rootAfter.events.filter(event => event.seq > (rootBefore.events.at(-1)?.seq ?? -1))
+      .flatMap(event => event.type === 'user/message' ? [event.data] : [])
+    // Normal official Captain settlement is not fabricated public/human input.
+    expect(rootInputs.some(message => message.source.kind === 'subagent-settled' && message.source.senderSessionId === captain.id)).toBe(true)
+    expect(rootInputs.every(message => (message.source.kind === 'subagent-settled' && message.source.senderSessionId === captain.id)
+      || (message.source.kind === 'plugin' && message.source.plugin === '@deepseek-ai/dsh-system-prompt'))).toBe(true)
+    expect(JSON.stringify(rootInputs)).not.toMatch(/Public Team message|Agent Swarm transport maintenance v1:/u)
     const firstMemberRequest = adapter.requests.findIndex(request => ids.includes(SessionId(request.sessionId!)))
     expect(firstMemberRequest).toBe(0)
     const captainAfter = await readPersistedSession(f.ctx.sessionPersistence, captain.id, SIGNAL)
@@ -294,7 +315,7 @@ it('settles removed recipients only after durable absence and repairs an earlier
         content: ids.map(memberId => ({ type: 'mention' as const, memberId })) })
       const first = publicDeliveries(committed.message)[0]!
       // Real durable target claim with a missing aggregate receipt (crash cut).
-      await f.ctx.subagents.withContinuableChild(root, captain.id, SIGNAL, async (_captain, signal) => {
+      await withLiveChild(f.ctx, root, captain.id, SIGNAL, async (_captain, signal) => {
         await f.ctx.subagents.prompt({ requestId: committed.message.id as never, parentSessionId: captain.id, childSessionId: ids[0]!, mode: 'continuable',
           delivery: 'steer', content: [{ type: 'text', text: first.frame }] }, signal)
         await f.ctx.agents.get(ids[0]!)?.whenIdle()

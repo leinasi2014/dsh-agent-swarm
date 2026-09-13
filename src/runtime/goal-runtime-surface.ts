@@ -18,6 +18,7 @@ import type { SchedulingAdmission } from './scheduling-admission.js'
 import type { SchedulingPass } from './scheduling.js'
 import type { UsageAccountant } from './usage-accounting.js'
 import { captureTaskInterruption, type TaskInterruptionResult } from './goal-task-interruption.js'
+import { withLiveChild } from './continuable-child.js'
 
 interface GoalRuntimeDeps {
   domain(): TeamDomainPort
@@ -33,6 +34,7 @@ interface GoalRuntimeDeps {
   signal: AbortSignal
   deadlines: Pick<SchedulingPass, 'trackGoalDeadline' | 'clearGoalDeadline'>
   sweep(scope: TeamScope, teamId: TeamId): Promise<void>
+  reconcileRecipientClaims(scope: TeamScope, teamId: TeamId, recipientSessionId: string, signal: AbortSignal): Promise<void>
 }
 
 /** No goal queue, timer or execution state is owned here. */
@@ -235,11 +237,15 @@ export class GoalRuntimeSurface {
         && this.ctx.agents.get(root.id) === root && this.ctx.sessions.get(root.id) === root.session
         && root.id === parentId && root.session.header.parentSession === undefined && this.deps.scopeOf(root) === scope
       if (!sameWork((await this.deps.teams(scope)).find(candidate => candidate.id === teamId))) return
-      await this.ctx.subagents.withContinuableChild(root, SessionId(team.captainSessionId), this.deps.signal, async captain => {
+      await withLiveChild(this.ctx, root, SessionId(team.captainSessionId), this.deps.signal, async (captain, lease) => {
         if (!sameWork((await this.deps.teams(scope)).find(candidate => candidate.id === teamId))
           || this.ctx.agents.get(captain.id) !== captain || this.ctx.sessions.get(captain.id) !== captain.session) return
-        await this.deps.scheduling.request(scope, teamId, captain, true)
+        lease.throwIfAborted()
+        await this.deps.scheduling.request(scope, teamId, captain, true, lease)
       })
+      // The official maintenance and child serialization have both ended. This
+      // owner observes original message identities only; it never reuses the lease.
+      await this.deps.reconcileRecipientClaims(scope, teamId, team.captainSessionId, this.deps.signal)
     } finally {
       if (this.deps.signal.aborted) this.deps.deadlines.clearGoalDeadline(scope, teamId)
       else try {
