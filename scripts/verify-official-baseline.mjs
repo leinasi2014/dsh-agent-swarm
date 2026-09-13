@@ -68,6 +68,21 @@ export function compareReleaseVersions(a, b) {
   return channelOrder || left.prerelease.number - right.prerelease.number
 }
 
+/**
+ * The pinned baseline tracks a release candidate or a final release, never an
+ * alpha/beta prerelease: those channels move far faster than the patches that
+ * align against them can be regenerated.
+ * @param release - release name pinned in docs/OFFICIAL_BASELINE.json.
+ * @returns ok, the resolved channel, and the refusal reason for a non-rc pin.
+ */
+export function evaluateReleaseChannel(release) {
+  const parsed = parseReleaseVersion(release)
+  if (parsed === null) return { ok: false, channel: null, reason: `baseline release ${release} is not a parseable official release` }
+  const channel = parsed.prerelease === null ? 'stable' : parsed.prerelease.channel
+  if (channel === 'stable' || channel === 'rc') return { ok: true, channel, reason: null }
+  return { ok: false, channel, reason: `baseline release ${release} is on the ${channel} channel; pin an rc or final release, because alpha/beta baselines churn faster than the aligned patches can follow` }
+}
+
 export function parseLsRemote(output, branch) {
   const facts = { head: undefined, branchHead: undefined, tags: [] }
   const byName = new Map()
@@ -410,6 +425,8 @@ async function main() {
     verifyLocal: checkout => verifyLocalCheckout({ baseline, checkout }),
   })
   const { failures, warnings, notes, anchorDetail } = evidence
+  const channel = evaluateReleaseChannel(baseline.release)
+  if (!channel.ok) failures.push(channel.reason)
 
   if (failures.length > 0) {
     console.error('Official-first baseline verification failed:')

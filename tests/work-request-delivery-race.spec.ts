@@ -1,9 +1,10 @@
 /** A real Domain decision during the final lineage read must fence obsolete notice input. */
 import { mkdtemp, rm } from 'node:fs/promises'
+import { withLiveChild } from './helpers/live-child.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it, vi } from 'vitest'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { queueHostSubagentPrompt } from '@deepseek-ai/dsh-subagent/internal'
 import * as lineage from '../src/runtime/public-lineage.js'
 import { deliverWorkRequestNotice } from '../src/runtime/work-request-delivery.js'
 import { framePredicate } from '../src/runtime/frame-visibility.js'
@@ -20,11 +21,14 @@ it.each([false, true])('rechecks the notice after the second lineage read (resol
   let spy: { mockRestore(): void } | undefined
   try {
     const { root, captain, teamId, scope } = await createTeam(f, sandbox)
-    await f.ctx.subagents.withContinuableChild(root, captain.id, SIGNAL, async currentCaptain => {
-      const domain = f.ctx.agentSwarm.domain
+    const domain = f.ctx.agentSwarm.domain
+    const read = async () => (await domain.snapshot(scope, teamId, captain.id)).team
+    const deps = { domain: () => domain, closing: () => false,
+      team: read, root: async () => root, account: async () => {} }
+    await f.ctx.agents.get(captain.id)?.whenIdle()
+    const { notice, frame, outcome } = await withLiveChild(f.ctx, root, captain.id, SIGNAL, async currentCaptain => {
       const submitted = await domain.submitWorkRequest(scope, teamId, { kind: 'local-operator' },
         { requestId: 'lineage-race-request', description: 'A request resolved independently while lineage is inspected.' })
-      const read = async () => (await domain.snapshot(scope, teamId, currentCaptain.id)).team
       const notice = (await read()).messages.find(row => row.id === submitted.notificationMessageId)!
       const frame = messageFrame(notice)
       const actualEligibility = lineage.publicAppendEligibility
@@ -35,10 +39,7 @@ it.each([false, true])('rechecks the notice after the second lineage read (resol
         if (++calls === 2) { entered = true; await gate }
         return result
       })
-      const running = deliverWorkRequestNotice(f.ctx, {
-        domain: () => domain, closing: () => false,
-        team: read, root: async () => root, account: async () => {},
-      }, scope, teamId, notice.id, SIGNAL)
+      const running = deliverWorkRequestNotice(f.ctx, deps, scope, teamId, notice.id, SIGNAL)
       delivery = running
       await vi.waitFor(() => expect(entered).toBe(true), { timeout: 10_000 })
       if (resolved) {
@@ -51,22 +52,26 @@ it.each([false, true])('rechecks the notice after the second lineage read (resol
       }
       release()
       const outcome = await running
-      await currentCaptain.whenIdle()
-      const after = await read()
-      expect(after.tasks).toHaveLength(0)
-      expect(after.messages.find(row => row.id === notice.id)?.phase).toBe(resolved ? 'obsolete' : 'delivered')
-      expect(outcome).toMatchObject({ result: { admitted: !resolved } })
-      const noticeRequests = adapter.requests.filter(request => request.sessionId === currentCaptain.id
-        && request.messages.some(message => message.role === 'user' && framePredicate(frame)(message as never)))
-      expect(noticeRequests).toHaveLength(resolved ? 0 : 1)
-
-      // The obsolete-notice gate must not suppress unrelated ordinary Captain input.
-      const ordinary = 'Continue the existing ordinary conversation.'
-      currentCaptain.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: ordinary }] }))
-      await currentCaptain.whenIdle()
-      expect(adapter.requests.some(request => request.sessionId === currentCaptain.id
-        && request.messages.some(message => message.role === 'user' && framePredicate(ordinary)(message as never)))).toBe(true)
+      return { notice, frame, outcome }
     })
+    // Input can be consumed only after the Captain's maintenance releases.
+    await f.ctx.agents.get(captain.id)?.whenIdle()
+    await deliverWorkRequestNotice(f.ctx, deps, scope, teamId, notice.id, SIGNAL)
+    const after = await read()
+    expect(after.tasks).toHaveLength(0)
+    expect(after.messages.find(row => row.id === notice.id)?.phase).toBe(resolved ? 'obsolete' : 'delivered')
+    expect(outcome).toMatchObject({ result: { admitted: !resolved } })
+    const noticeRequests = adapter.requests.filter(request => request.sessionId === captain.id
+      && request.messages.some(message => message.role === 'user' && framePredicate(frame)(message as never)))
+    expect(noticeRequests).toHaveLength(resolved ? 0 : 1)
+
+    // The obsolete-notice gate must not suppress unrelated ordinary Captain input.
+    const ordinary = 'Continue the existing ordinary conversation.'
+    await queueHostSubagentPrompt(f.ctx.subagents, root, captain.id,
+      [{ type: 'text', text: ordinary }], { kind: 'user' }, SIGNAL)
+    await f.ctx.agents.get(captain.id)?.whenIdle()
+    expect(adapter.requests.some(request => request.sessionId === captain.id
+      && request.messages.some(message => message.role === 'user' && framePredicate(ordinary)(message as never)))).toBe(true)
   } finally {
     release()
     await delivery?.catch(() => {})

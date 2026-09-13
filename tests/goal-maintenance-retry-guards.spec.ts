@@ -1,5 +1,6 @@
 /** Maintenance retry uses original notices and rechecks authority after awaited recovery. */
 import { rm } from 'node:fs/promises'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { join } from 'node:path'
 import { expect, it, vi } from 'vitest'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
@@ -9,7 +10,7 @@ import { ManagedActivationRecovery } from '../src/runtime/managed-activation-rec
 import { TeamDomain } from '../src/domain/team-domain.js'
 import type { TeamMessage } from '../src/domain/types.js'
 import { readPersistedSession } from '../src/runtime/persisted-session.js'
-import * as frames from '../src/runtime/frame-visibility.js'
+import { MessageDelivery } from '../src/runtime/message-delivery.js'
 import * as notices from '../src/runtime/work-request-delivery.js'
 
 class HeldGoal extends Recording {
@@ -25,20 +26,30 @@ class HeldGoal extends Recording {
 it('automatically repairs an already claimed goal notice after failed flush without another model input or reminder', async () => {
   const cut = await maintenanceCheckpoint(), { scope, teamId, captainId, firstDue } = cut
   const timers = maintenanceTimers(firstDue - 50_000), adapter = new HeldGoal()
-  let resumed: Awaited<ReturnType<typeof setup>> | undefined, armed = true, checkingClaim = false, faults = 0, deferred = 0, reconciled = 0
+  let resumed: Awaited<ReturnType<typeof setup>> | undefined, armed = true, noticeIdentity: string | undefined, faults = 0, deferred = 0, reconciled = 0
+  const claimWindow = new AsyncLocalStorage<boolean>()
   try {
     resumed = await setup(cut.checkpoint, adapter)
-    const wait = frames.waitForFrameClaim, flush = resumed.ctx.sessions.flush.bind(resumed.ctx.sessions)
-    vi.spyOn(frames, 'waitForFrameClaim').mockImplementation(async (...args) => {
-      checkingClaim = true
-      try { return await wait(...args) } finally { checkingClaim = false }
+    const reconcile = MessageDelivery.prototype.reconcileRecipientClaims, flush = resumed.ctx.sessions.flush.bind(resumed.ctx.sessions)
+    vi.spyOn(MessageDelivery.prototype, 'reconcileRecipientClaims').mockImplementation(async function (this: MessageDelivery, ...args) {
+      // Claim/flush now belongs to this owner after official maintenance release.
+      const exact = args[0] === scope && args[1] === teamId && args[2] === captainId
+      if (armed && exact) await vi.waitFor(() => expect(resumed!.ctx.agents.get(captainId)?.session.snapshotEvents()
+        .some(event => event.type === 'user/message' && event.data.content.some(part => part.type === 'text'
+          && part.text.includes(`Goal coordination notice "${noticeIdentity}":`)))).toBe(true))
+      return await claimWindow.run(exact, () => reconcile.apply(this, args))
     })
     vi.spyOn(resumed.ctx.sessions, 'flush').mockImplementation(async session => {
-      if (armed && checkingClaim && session.id === captainId) { faults++; throw new Error('temporary claimed goal input flush failure') }
+      if (armed && claimWindow.getStore() && session.id === captainId && noticeIdentity !== undefined
+        && session.snapshotEvents().some(event => event.type === 'user/message' && event.data.content.some(part => part.type === 'text'
+          && part.text.includes(`Goal coordination notice "${noticeIdentity}":`)))) {
+        faults++; throw new Error('temporary claimed goal input flush failure')
+      }
       return await flush(session)
     })
     const deliver = notices.deliverWorkRequestNotice
     vi.spyOn(notices, 'deliverWorkRequestNotice').mockImplementation(async (...args) => {
+      if (args[2] === scope && args[3] === teamId && args[6] === 'goal-coordination-notice') noticeIdentity = args[4]
       const result = await deliver(...args)
       if (args[6] === 'goal-coordination-notice') {
         if (result.result.deferred) deferred++
@@ -48,7 +59,7 @@ it('automatically repairs an already claimed goal notice after failed flush with
     })
     timers.pending[0]!.fire()
     await vi.waitFor(() => expect(deferred).toBeGreaterThan(0), { timeout: 15_000 })
-    expect(faults).toBeGreaterThan(0)
+    await vi.waitFor(() => expect(faults).toBeGreaterThan(0), { timeout: 15_000 })
     const interrupted = (await resumed.ctx.agentSwarm.domain.snapshot(scope, teamId, captainId)).team
     const trigger = interrupted.goalLifecycle!.currentTrigger!, noticeId = trigger.notificationMessageId
     expect(interrupted.goalLifecycle?.phase).toBe('running')

@@ -1,9 +1,7 @@
-import type { PublicChatController } from './public-chat-controller.js'
-import { useEffect, useRef, useState } from 'react'
-import { IconQueueOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { PropsHooks, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
-import type { TeamDashboardController } from './team-dashboard-controller.js'
+import type { PublicChatState } from './public-chat-controller.js'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
+import type { TeamDashboardState } from './team-dashboard-controller.js'
 import { TEAM_DASHBOARD_NS } from './team-dashboard-locales.js'
 import type { RetirementClient } from './retirement-client.js'
 import type { RetirementResult, RetirementTarget } from '../shared/team-retirement.js'
@@ -11,20 +9,36 @@ import { TeamRetirementMenu } from './TeamRetirementMenu.js'
 import { TeamRetirementPanel } from './TeamRetirementPanel.js'
 import { TeamRetirementRequests } from './TeamRetirementRequests.js'
 
-type Props = PropsRuntime<'sidebar.navigation.section'> & PropsHooks<{ team: TeamDashboardController; chat: PublicChatController }> & PropsLocale<typeof TEAM_DASHBOARD_NS> & {
+const noSubscribe = (): (() => void) => () => {}
+const noSnapshot = (): undefined => undefined
+
+/** Callbacks the Team panel injects; the rail owns no Session or column state. */
+export interface TeamNavigationCallbacks {
   readonly refreshDirectory: () => void
   readonly selectGroup: (teamId: string) => void
+  readonly returnGroup?: () => Promise<void>
   readonly openMain: () => Promise<void>
   readonly openCaptain: () => Promise<void>
   readonly openMember: (name: string, sessionId: string) => Promise<void>
   readonly retirement?: RetirementClient
   readonly retired?: (result: RetirementResult) => Promise<void>
 }
+
+/** Minimal snapshot store the rail reads; the real controllers satisfy it. */
+interface SnapshotSource<T> { subscribe(listener: () => void): () => void; getSnapshot(): T }
+
+type Props = PropsLocale<typeof TEAM_DASHBOARD_NS> & TeamNavigationCallbacks & {
+  /** The Team read store the rail projects; no slot hook injection is involved. */
+  readonly team: SnapshotSource<TeamDashboardState>
+  readonly chat?: SnapshotSource<PublicChatState> | undefined
+  readonly wide: boolean
+  readonly activePanelId: string | null
+}
 /** Additive navigation in the official left seat; it never owns Session or column state. */
 export function TeamGroupNavigation(props: Props) {
-  const state = props.useTeam(value => value)
-  const chat = props.useChat?.(value => value)
-  const activePanel = props.usePanelInfo(value => value.activePanelId)
+  const state = useSyncExternalStore(props.team.subscribe, props.team.getSnapshot, props.team.getSnapshot)
+  const chat = useSyncExternalStore(props.chat?.subscribe ?? noSubscribe, props.chat?.getSnapshot ?? noSnapshot, props.chat?.getSnapshot ?? noSnapshot)
+  const activePanel = props.activePanelId
   const [expanded, setExpanded] = useState<string>()
   const [showArchived, setShowArchived] = useState(false)
   const [menu, setMenu] = useState<{ target: RetirementTarget; x: number; y: number }>()
@@ -57,10 +71,14 @@ export function TeamGroupNavigation(props: Props) {
       <ul>{visibleTeams.map(team => {
         const open = expanded === team.teamId
         const ready = state.phase === 'ready' && selected === team.teamId
+          && (state.pendingTeamId === undefined || state.pendingTeamId === team.teamId)
         const currentCaptain = activePanel === null && state.targetSessionId === team.captainSessionId
-        const captainLabel = chat?.directory?.binding.teamId === team.teamId ? chat.directory.entries.find(row => row.role === 'captain')?.label ?? props.t('captainRole') : team.displayName || props.t('captainRole')
-        const membersBound = data.captainMembers.binding.teamId === selected
-          && data.captainMembers.binding.rootSessionId === data.projection.binding.rootSessionId
+        const captainLabel = chat?.directory?.binding.teamId === team.teamId && chat.directory.binding.rootSessionId === team.captainSessionId
+          ? chat.directory.entries.find(row => row.role === 'captain' && row.memberId === team.captainSessionId)?.label ?? props.t('captainRole') : team.displayName || props.t('captainRole')
+        const members = data.captainMembers
+        const membersBound = members !== undefined && members.binding.teamId === selected
+          && members.binding.rootSessionId === data.projection.binding.rootSessionId
+          && members.binding.teamId === team.teamId && members.binding.rootSessionId === team.captainSessionId
         return <li key={team.teamId}>
           <div className="swarm-groups__row" onContextMenu={event => { if (props.retirement !== undefined && mainId !== undefined) { event.preventDefault(); setMenu({ target: { rootSessionId: mainId, teamId: team.teamId }, x: event.clientX, y: event.clientY }) } }}>
           <button type="button" data-swarm-group={team.teamId} title={team.name} aria-expanded={open} aria-busy={state.pendingTeamId === team.teamId} aria-current={activePanel === 'swarm.group' && selected === team.teamId ? 'page' : undefined}
@@ -85,7 +103,7 @@ export function TeamGroupNavigation(props: Props) {
           </ul> : null}
         </li>
       })}</ul>
-    </> : <button type="button" title={props.t('public.groups')} aria-label={props.t('public.groups')} onClick={props.expandSidebar}><span aria-hidden="true"><IconQueueOutline14 size={18} /></span></button>}
+    </> : null}
     {error?.scope === scope ? <p role="alert">{error.message}</p> : null}
     {menu !== undefined && menuTeam !== undefined ? <TeamRetirementMenu x={menu.x} y={menu.y} archived={menuTeam.phase === 'archived'} t={props.t} close={() => { setMenu(undefined) }} choose={action => { setPanel({ target: menu.target, action }); setMenu(undefined) }} /> : null}
   </nav>

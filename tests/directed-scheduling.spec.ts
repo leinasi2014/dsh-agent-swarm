@@ -110,7 +110,11 @@ async function activeFixture(composition: Composition, seedTasks = true): Promis
   return { alphaId: 'alpha', betaId: 'beta', directedId: directed.id, genericId: generic.id }
 }
 function schedulingPass(composition: Composition, provider: TeamSchedulerProvider, live: Map<string, { status: 'idle' | 'running' }>, followups: string[]): SchedulingPass {
-  vi.spyOn(composition.ctx.agents, 'get').mockImplementation(sessionId => live.get(String(sessionId)) as never)
+  const getAgent = composition.ctx.agents.get.bind(composition.ctx.agents)
+  const fixtureMembers = new Set(live.keys())
+  // Override only member availability; the Captain keeps its real live identity.
+  vi.spyOn(composition.ctx.agents, 'get').mockImplementation(sessionId => fixtureMembers.has(String(sessionId))
+    ? live.get(String(sessionId)) as never : getAgent(sessionId))
   vi.spyOn(composition.ctx.subagents as unknown as HostPromptDeliverer, deliverSubagentPrompt).mockImplementation(async (_parent, childId, content) => { followups.push(content.filter(block => block.type === 'text').map(block => block.text).join('\n')); live.delete(String(childId)); return 'mock-followup' as never })
   return new SchedulingPass(composition.ctx, { domain: () => composition.ctx.agentSwarm.domain, delivery: () => ({ deliverQueuedMessage: async () => undefined }) as never, usage: () => ({}) as never, schedulerProvider: () => 'test-provider', schedulerProviders: () => new Map([['test-provider', provider]]), duringProvider: async (_scope, _teamId, operation) => await operation(), strandedAfterMs: 0, idleSince: () => undefined, eventFaceActive: () => true, isClosing: () => false, trackTeamChildren: () => {}, requestSchedule: () => {}, executionRoots: () => ({}) as never, executionRootsEnabled: () => false, sweepExecutionRoots: async () => {} })
 }

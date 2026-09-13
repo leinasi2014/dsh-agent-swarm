@@ -20,6 +20,7 @@ import { LlmAdapter, ReasoningEffortId, ToolCallId, createUserMessage, type Gene
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { expect, it, vi } from 'vitest'
 import { ManagedActivationRecovery } from '../src/runtime/managed-activation-recovery.js'
+import { withLiveChild } from '../src/runtime/continuable-child.js'
 import { readPersistedSession } from '../src/runtime/persisted-session.js'
 import { TeamId } from '../src/domain/types.js'
 import {
@@ -133,7 +134,8 @@ async function seed(sandbox: string, options: { pending?: boolean } = {}) {
     const { team_id: teamId, captain_session_id: captainId } = result.value as { team_id: string; captain_session_id: string }
     const captain = first.ctx.agents.get(SessionId(captainId))!
     await captain.whenIdle()
-    const task = await tool(first.ctx, captain, 'model-task', 'agent_swarm_create_task', { subject: 'Unfinished', description: 'Remain recoverable without recruiting a member.' })
+    const task = await withLiveChild(first.ctx, root, SessionId(captainId), SIGNAL, liveCaptain =>
+      tool(first.ctx, liveCaptain, 'model-task', 'agent_swarm_create_task', { subject: 'Unfinished', description: 'Remain recoverable without recruiting a member.' }))
     expect(task.isError).toBe(false)
     if (options.pending) await first.ctx.sessionController.selectModel({ sessionId: ROOT, ...NEXT })
     return { teamId, captainId, scope: first.ctx.agentSwarm.scopeOf(root) }

@@ -1,4 +1,5 @@
 import { mkdtemp, rm } from 'node:fs/promises'
+import { withLiveChild } from './helpers/live-child.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Session } from '@deepseek-ai/dsh-session'
@@ -76,8 +77,8 @@ it.each(waitingCases)('goal Host $operation admits no write after $fault during 
       const lifetime = new AbortController().signal
       // Official leases keep the already legitimate Captain/member view stable
       // while this case changes only the authoritative roster membership.
-      viewerLease = f.ctx.subagents.withContinuableChild(root, captain.id, lifetime, async liveCaptain => {
-        await f.ctx.subagents.withContinuableChild(liveCaptain, viewer, lifetime, async () => { available(); await keep })
+      viewerLease = withLiveChild(f.ctx, root, captain.id, lifetime, async liveCaptain => {
+        await withLiveChild(f.ctx, liveCaptain, viewer, lifetime, async () => { available(); await keep })
       })
       await Promise.race([ready, viewerLease.then(() => { throw new Error('Viewer lease ended before the authority check') })])
     }

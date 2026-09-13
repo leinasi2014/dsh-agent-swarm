@@ -23,11 +23,12 @@ export async function retirementBrowserScript(): Promise<string> {
         if(method.endsWith('/requestResult'))return {ok:true,value:recoveredResult??{state:'not-found'}};
         throw new Error('连接中断，结果未知');
       }},sessionStorage);
-      const props={retirement:client,retired:async result=>window.completed.push(result),t:key=>zh[key],wide:true,expandSidebar:()=>{},refreshDirectory:()=>{},
-        useTeam:f=>f(state),usePanelInfo:f=>f({activePanelId:'swarm.group'}),selectGroup:()=>{},
+      const listeners=new Set();const teamStore={subscribe:l=>{listeners.add(l);return()=>listeners.delete(l)},getSnapshot:()=>state};
+      const props={retirement:client,retired:async result=>window.completed.push(result),t:key=>zh[key],wide:true,refreshDirectory:()=>{},
+        team:teamStore,activePanelId:'swarm.group',selectGroup:()=>{},
         openMain:async()=>window.opened.push('main'),openCaptain:async()=>window.opened.push('captain'),openMember:async()=>window.opened.push('member')};
       const root=createRoot(document.getElementById('fixture-root')); const render=()=>root.render(React.createElement(TeamGroupNavigation,props));render();
-      window.updateRetirement=next=>{state=next;render()};window.unmountRetirement=()=>root.unmount();
+      window.updateRetirement=next=>{state=next;listeners.forEach(l=>l());render()};window.unmountRetirement=()=>root.unmount();
     };`, resolveDir: cwd, sourcefile: 'retirement-fixture.tsx', loader: 'tsx' }, absWorkingDir: cwd, bundle: true, write: false, format: 'iife', platform: 'browser', jsx: 'automatic' }
   return await new Promise<string>((complete, reject) => {
     const child = spawn(process.execPath, ['-e', `let input='';process.stdin.setEncoding('utf8');process.stdin.on('data',v=>input+=v);process.stdin.on('end',async()=>{try{const {options,esbuildPath}=JSON.parse(input);options.plugins=[{name:'glyph',setup(build){build.onResolve({filter:/^@deepseek-ai\\/dsh-client-ui-primitives$/},()=>({path:'glyph',namespace:'glyph'}));build.onLoad({filter:/.*/,namespace:'glyph'},()=>({resolveDir:options.absWorkingDir,loader:'js',contents:"import React from 'react';export const IconQueueOutline14=()=>React.createElement('span',{},'☷')"}))}}];const result=await require(esbuildPath).build(options);process.stdout.write(result.outputFiles[0].text)}catch(e){process.stderr.write(String(e));process.exitCode=1}});`], { windowsHide: true })

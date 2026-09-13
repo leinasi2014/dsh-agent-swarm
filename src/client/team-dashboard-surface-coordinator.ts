@@ -1,6 +1,5 @@
 import type { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { IChatNavigation } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SubagentListEntry } from '@deepseek-ai/dsh-subagent/client'
 import type { ISidebarRight, SidebarRightNavigator, SidebarRightTabInfo } from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
@@ -34,11 +33,12 @@ interface Options {
   readonly locale: LocaleRuntime
   readonly controller: TeamDashboardController
   readonly anchorRef: RefObject<HTMLSpanElement>
-  readonly chatNavigation?: IChatNavigation
   readonly sendCaptainPrompt?: (request: CaptainHumanPrompt, signal: AbortSignal) => Promise<void>
+  /** A3 reservation: one-shot latest navigation when an official surface offers it. */
+  readonly requestLatest?: (sessionId: string) => void
 }
 /** Official exported target-addressed navigation, independent of the mounted seat. */
-type TeamSidebar = Pick<SidebarRightNavigator, 'openTabIn'> & Pick<ISidebarRight, 'isExpandedIn' | 'setExpandedIn'>
+type TeamSidebar = Pick<SidebarRightNavigator, 'openTabIn'> & Pick<ISidebarRight, 'isExpanded' | 'toggleExpanded'>
 type Tab = SidebarRightTabInfo['tab']
 interface ObservedTab { sessionId: string; tab: Tab; mounted: boolean; mount: object; offAbort(): void }
 const INACTIVE: TeamDashboardSurfaceState = Object.freeze({ mode: 'inactive', view: 'overview', targetSessionId: undefined })
@@ -50,15 +50,19 @@ export class TeamDashboardSurfaceCoordinator {
   private readonly dismissed = new Map<string, string | undefined>()
   /** View preferences only; task/attempt facts always come from the current Host projection. */
   private readonly workspaceSelections = new Map<string, TeamWorkspaceSelection>()
+  /** B4: expansion the user chose on the source face, applied once to the adopted target face. */
+  private readonly desiredExpansion = new Map<string, boolean>()
   private state: TeamDashboardSurfaceState = INACTIVE
   private sidebar: TeamSidebar | undefined
   private sidebarEpoch = 0
   private navigationEpoch = 0
-  private latestIntent: { target: string; cancel(): void } | undefined
-  private pendingExpansion: { target: string; expanded: boolean } | undefined
   private disposed = false
   private mounted = false
   private observedSessionId: string | undefined
+  /** Current navigation intent only; Team and Session identities remain Host-owned. */
+  private personalConversation = false
+  private navigationTarget: string | undefined
+  private groupNavigation: { readonly main: string } | undefined
   private offController = (): void => {}
   private offSessions = (): void => {}
 
@@ -66,6 +70,40 @@ export class TeamDashboardSurfaceCoordinator {
   getSnapshot = (): TeamDashboardSurfaceState => this.state
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
   localeTag = (): 'zh-CN' | 'en-US' => this.options.locale.getLocale().active === 'zh' ? 'zh-CN' : 'en-US'
+
+  groupConversation = (): boolean => {
+    const read = this.options.controller.getSnapshot(), current = this.options.sessions.list.getSnapshot().current
+    if (this.personalConversation || !read.open || current === undefined || read.targetSessionId !== current) return false
+    if (this.groupNavigation?.main === current && read.phase !== 'ready') return true
+    const teams = read.choices ?? read.data?.teams
+    if (!teams?.complete || teams.binding.rootSessionId !== current || teams.binding.mainSessionId !== current) return false
+    if (read.choices !== undefined) return true
+    return read.data !== undefined && ['ready', 'stale', 'reconnecting'].includes(read.phase)
+      && teams.teams.some(team => team.teamId === read.data!.projection.binding.teamId && team.captainSessionId !== '')
+  }
+
+  showMembers(): void {
+    const read = this.options.controller.getSnapshot(), current = this.options.sessions.list.getSnapshot().current
+    if (read.phase !== 'ready' || current === undefined || read.targetSessionId !== current || read.data === undefined) return
+    this.updateWorkspaceSelection(read.data.projection.binding, { view: 'members' })
+    this.dismissed.delete(current)
+    if (this.sidebar?.isExpanded() === false) this.sidebar.toggleExpanded()
+    this.openTeamTab(current)
+  }
+
+  async openGroupChat(teamId?: string): Promise<void> {
+    const read = this.options.controller.getSnapshot()
+    const selected = teamId ?? read.data?.projection.binding.teamId
+    const main = (read.choices ?? read.data?.teams)?.binding.mainSessionId
+    if (main === undefined) throw new Error('Group Chat requires a verified Main binding')
+    const request = { main }; this.groupNavigation = request
+    if (this.options.sessions.list.getSnapshot().current !== main) await this.openMainChat(true)
+    if (this.groupNavigation !== request || this.options.sessions.list.getSnapshot().current !== main
+      || this.options.controller.getSnapshot().targetSessionId !== main) throw new Error('Group Chat handoff was superseded')
+    this.personalConversation = false
+    if (selected !== undefined) this.options.controller.selectTeam(selected, main)
+    for (const listener of this.listeners) listener()
+  }
 
   getWorkspaceSelection(binding: TeamBinding): TeamWorkspaceSelection {
     return this.workspaceSelections.get(JSON.stringify([binding.rootSessionId, binding.teamId])) ?? EMPTY_TEAM_SELECTION
@@ -86,14 +124,17 @@ export class TeamDashboardSurfaceCoordinator {
     this.offController = this.options.controller.subscribe(() => {
       if (!this.options.controller.getSnapshot().open) this.publish(INACTIVE)
       else this.revealAvailableTeam()
+      for (const listener of this.listeners) listener()
     })
     this.offSessions = this.options.sessions.list.subscribe(() => {
       const current = this.options.sessions.list.getSnapshot().current
       if (current === this.observedSessionId) return
       this.observedSessionId = current
+      if (current !== this.navigationTarget) { this.personalConversation = false; this.groupNavigation = undefined }
+      this.navigationTarget = undefined
       this.navigationEpoch++
-      if (this.pendingExpansion !== undefined && this.pendingExpansion.target !== current) this.pendingExpansion = undefined // A navigation to any other Session supersedes the pending handoff.
-      if (this.latestIntent?.target !== current) this.cancelLatestIntent()
+      // A navigation to any other Session supersedes every pending expansion handoff.
+      for (const target of this.desiredExpansion.keys()) if (target !== current) this.desiredExpansion.delete(target)
       if (current === undefined) this.options.controller.close()
       else {
         this.options.controller.open(current)
@@ -186,7 +227,7 @@ export class TeamDashboardSurfaceCoordinator {
     await queueCommunicationChange({ sessions: this.options.sessions, controller: this.options.controller, choice, send })
   }
 
-  async openMainChat(): Promise<void> {
+  async openMainChat(asGroup = false): Promise<void> {
     const check = this.navigationGuard()
     await this.options.controller.openMainChat((id, signal) => {
       signal.throwIfAborted()
@@ -197,7 +238,7 @@ export class TeamDashboardSurfaceCoordinator {
       if (list.current !== this.observedSessionId || row === undefined || row.origin === 'subagent' || row.parentId !== undefined) {
         throw new Error('Main conversation is not in the current official root Session list')
       }
-      this.commitChatNavigation(id, () => { sessions.open(id as SessionId) })
+      this.commitNavigation(() => { sessions.open(id as SessionId) }, id, asGroup)
     })
   }
 
@@ -215,8 +256,8 @@ export class TeamDashboardSurfaceCoordinator {
     const before = sessions.list.getSnapshot()
     const row = before.byId[id as SessionId]
     if (row === undefined) throw new Error('Dedicated Captain is no longer in the official Session list')
-    if (before.current === id) { this.commitChatNavigation(id, () => {}); return }
-    if (row.origin !== 'subagent') { this.commitChatNavigation(id, () => { sessions.open(id as SessionId) }); return }
+    if (before.current === id) { this.commitNavigation(() => {}, id); return }
+    if (row.origin !== 'subagent') { this.commitNavigation(() => { sessions.open(id as SessionId) }, id); return }
     if (row.parentId === undefined) throw new Error('Dedicated Captain has no official parent child catalog')
     await sessions.refreshSubagents(row.parentId)
     signal?.throwIfAborted()
@@ -229,7 +270,7 @@ export class TeamDashboardSurfaceCoordinator {
     if (current?.origin !== 'subagent' || current.parentId !== row.parentId || child?.kind !== 'child' || child.mode !== 'continuable') {
       throw new Error('Dedicated Captain is not in the official parent child catalog')
     }
-    this.commitChatNavigation(id, () => { sessions.openSubagent({ parentSessionId: row.parentId!, childSessionId: child.id, mode: child.mode }) })
+    this.commitNavigation(() => { sessions.openSubagent({ parentSessionId: row.parentId!, childSessionId: child.id, mode: child.mode }) }, id)
   }
 
   async openMemberChat(name: string, sessionId: string): Promise<void> {
@@ -248,7 +289,7 @@ export class TeamDashboardSurfaceCoordinator {
       }
       // subagentAddress is a retained-navigation lookup, empty on first open.
       // This address comes from the fresh public direct-parent catalog instead.
-      this.commitChatNavigation(memberId, () => { sessions.openSubagent({ parentSessionId: captainId as SessionId, childSessionId: child.id, mode: child.mode }) })
+      this.commitNavigation(() => { sessions.openSubagent({ parentSessionId: captainId as SessionId, childSessionId: child.id, mode: child.mode }) }, memberId)
     })
   }
 
@@ -260,8 +301,6 @@ export class TeamDashboardSurfaceCoordinator {
   }
 
   private navigationGuard(): () => void {
-    this.cancelLatestIntent()
-    this.pendingExpansion = undefined // A new navigation starts by invalidating the previous pending handoff.
     const epoch = ++this.navigationEpoch
     const target = this.options.sessions.list.getSnapshot().current
     const binding = this.options.controller.getSnapshot().data?.projection.binding
@@ -278,20 +317,34 @@ export class TeamDashboardSurfaceCoordinator {
     }
   }
 
-  private cancelLatestIntent(): void { this.latestIntent?.cancel(); this.latestIntent = undefined }
-  /** Commit presentation preferences only after the fresh official catalog checks. */
-  private commitChatNavigation(target: string, open: () => void): void {
-    const current = this.options.sessions.list.getSnapshot().current
-    const source = current === undefined ? undefined : this.sidebar?.isExpandedIn(current)
-    this.cancelLatestIntent()
-    // Every commit owns the single pending slot: an adopted target writes now, a cold target
-    // replays once adopted, and a source-less click clears rather than keeping stale inheritance.
-    if (source === undefined) this.pendingExpansion = undefined
-    else if (this.sidebar?.isExpandedIn(target as SessionId) === undefined) this.pendingExpansion = { target, expanded: source }
-    else { this.pendingExpansion = undefined; this.sidebar?.setExpandedIn(target as SessionId, source) }
-    const cancel = this.options.chatNavigation?.requestLatest(target as SessionId)
-    if (cancel !== undefined) this.latestIntent = { target, cancel }
-    try { open() } catch (error) { this.pendingExpansion = undefined; this.cancelLatestIntent(); throw error }
+  /** Commit the official Session navigation. Column state belongs to the official sidebar:
+   *  the host exposes no target-addressed expansion read/write, so nothing is inherited. */
+  private commitNavigation(open: () => void, target?: string, asGroup = false): void {
+    this.personalConversation = !asGroup
+    if (!asGroup) this.groupNavigation = undefined
+    this.navigationTarget = target
+    if (target !== undefined) this.options.requestLatest?.(target)
+    // B4: the host exposes no target-addressed expansion read/write, so the plugin
+    // remembers the source face's expansion and applies it once to the adopted
+    // target face through the official current-face toggle.
+    if (target !== undefined) {
+      const source = this.sidebar?.isExpanded()
+      if (source === undefined) this.desiredExpansion.delete(target)
+      else this.desiredExpansion.set(target, source)
+    }
+    open()
+    this.navigationTarget = undefined
+    for (const listener of this.listeners) listener()
+  }
+
+  /** B4: one-shot application of the captured expansion on the adopted target face. */
+  private applyDesiredExpansion(sessionId: string): void {
+    const desired = this.desiredExpansion.get(sessionId)
+    if (desired === undefined) return
+    this.desiredExpansion.delete(sessionId)
+    try {
+      if (this.sidebar?.isExpanded() !== desired) this.sidebar?.toggleExpanded()
+    } catch { /* An unadopted face has no toggle contract yet; the choice is simply dropped. */ }
   }
 
   private revealAvailableTeam(): void {
@@ -299,13 +352,8 @@ export class TeamDashboardSurfaceCoordinator {
     const current = this.options.sessions.list.getSnapshot().current
     if (this.disposed || !read.open || read.phase !== 'ready' || read.data === undefined
       || current === undefined || read.targetSessionId !== current) return
-    if (this.pendingExpansion?.target === current) {
-      if (this.sidebar?.isExpandedIn(current) === undefined) return // Not adopted yet; the authoritative read cadence retries.
-      const inherited = this.pendingExpansion
-      this.pendingExpansion = undefined
-      this.sidebar?.setExpandedIn(current as SessionId, inherited.expanded)
-    }
-    if (this.sidebar?.isExpandedIn(current) !== true) return
+    this.applyDesiredExpansion(current)
+    if (this.sidebar?.isExpanded() !== true) return
     const own = [...this.tabs.values()].find(value => value.sessionId === current)
     if (own !== undefined) {
       if (own.mounted && own.tab.visible) this.publish({ mode: 'docked', targetSessionId: current, view: this.state.view })
@@ -341,11 +389,10 @@ export class TeamDashboardSurfaceCoordinator {
   private dispose(): void {
     if (this.disposed) return
     this.disposed = true
-    this.cancelLatestIntent()
     this.sidebarEpoch++
     this.offSessions(); this.offController()
     for (const observed of this.tabs.values()) observed.offAbort()
-    this.tabs.clear(); this.dismissed.clear(); this.workspaceSelections.clear(); this.pendingExpansion = undefined
+    this.tabs.clear(); this.dismissed.clear(); this.workspaceSelections.clear(); this.desiredExpansion.clear()
     this.publish(INACTIVE)
     this.options.controller.dispose()
     this.listeners.clear()

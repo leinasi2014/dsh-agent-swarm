@@ -10,6 +10,8 @@ import type { TeamDashboardState } from './team-dashboard-controller.js'
 import { PublicChatRpcError, type PublicChatClient } from './public-rpc-client.js'
 
 interface Selection { readonly key: string; readonly viewer: string; readonly captain: string; readonly team: string; readonly revision: number }
+interface ReadingWindow { readonly first: number; readonly last: number; readonly cursor: number | undefined }
+const readingWindowKey = (selected: Selection) => JSON.stringify([selected.key, selected.viewer, selected.captain])
 type Draft = PublicDraft
 type Pending = NonNullable<StoredPublicSnapshot['pending']>
 type PublicDraftStatus = 'loading' | 'ready' | 'saving' | 'conflict' | 'unavailable'
@@ -53,6 +55,8 @@ export class PublicChatController {
   private read: AbortController | undefined
   /** Only a history page advances this cursor; an append receipt may be ahead of unread messages. */
   private historyCursor: number | undefined
+  /** Bounded transient ranges only; returned content and permissions always come from fresh RPC. */
+  private readonly readingWindows = new Map<string, ReadingWindow>()
   /** An entry's tail intent survives a same-Team refresh until a tail read succeeds. */
   private latestPending: Selection | undefined
   private bindingReady = false
@@ -64,6 +68,8 @@ export class PublicChatController {
     private readonly drafts: PublicDraftPersistence = new PublicDraftStore(),
     private readonly inspectImage = inspectDraftImage) {}
   getSnapshot = (): PublicChatState => this.state
+  /** Transient reading preferences survive switching to an official personal Conversation. */
+  readonly readingPositions: import('./use-public-reading-position.js').PublicReadingPositions = new Map()
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
   connect = draftDashboardConnection(this)
   bind(dashboard: TeamDashboardState): void {
@@ -120,7 +126,7 @@ export class PublicChatController {
       void this.refresh()
       return
     }
-    this.historyCursor = undefined
+    this.historyCursor = this.readingWindows.get(readingWindowKey(next))?.cursor
     const saved = this.readSaved(next.key)
     this.publish({ ...initial, selection: next, draft: saved.draft, legacyUpgrade: saved.legacyUpgrade === true, pending: saved.pending !== undefined, sending: this.busy.has(next.key), draftStatus: saved.status, draftBlobs: saved.blobs })
     if (saved.hydrate === undefined && saved.status === 'loading') saved.hydrate = this.hydrate(next.key, saved)
@@ -149,7 +155,12 @@ export class PublicChatController {
     this.latestPending = undefined
     await this.load(selected, 'earlier')
   }
-  /** A visible group entry requests the current tail, independent of prior paging. */
+  /** First entry reads the tail; returning to a retained range lets bind's fresh read restore it. */
+  async enter(): Promise<void> {
+    const selected = this.state.selection
+    if (selected !== undefined && !this.readingWindows.has(readingWindowKey(selected))) await this.latest()
+  }
+  /** Explicit latest action replaces any earlier reading window. */
   async latest(): Promise<void> {
     const selected = this.state.selection
     if (!this.bindingReady || selected === undefined) return
@@ -165,6 +176,7 @@ export class PublicChatController {
     this.read?.abort()
     const read = this.read = new AbortController()
     const old = this.state.entries
+    const window = direction === 'refresh' && old.length === 0 ? this.readingWindows.get(readingWindowKey(selected)) : undefined
     this.publish({ ...this.state, loading: true, error: undefined })
     const request = { schemaVersion: 3 as const, target: { rootSessionId: selected.viewer, teamId: selected.team } }
     try {
@@ -174,8 +186,21 @@ export class PublicChatController {
       }, read.signal)
       this.checkBinding(page, selected)
       let entries = direction === 'latest' ? page.entries : merge(old, page.entries)
+      let restoredEarlier: boolean | undefined
       // Re-read only already displayed ranges: delivery can change on old messages.
       if (direction === 'refresh') {
+        if (window !== undefined) {
+          for (let after = window.first - 1; after < window.last;) {
+            const range = await this.client.historyV3({ ...request, afterSequence: after, limit: Math.min(100, window.last - after) }, read.signal)
+            this.checkBinding(range, selected)
+            read.signal.throwIfAborted()
+            restoredEarlier ??= range.hasEarlier
+            entries = merge(entries, range.entries)
+            const last = range.entries.at(-1)?.sequence
+            if (last === undefined || last <= after) break
+            after = last
+          }
+        }
         for (let index = 0; index < old.length; index += 100) {
           const visible = old.slice(index, index + 100)
           const range = await this.client.historyV3({ ...request, afterSequence: visible[0]!.sequence - 1, limit: visible.length }, read.signal)
@@ -192,9 +217,15 @@ export class PublicChatController {
       const first = entries[0]?.sequence
       const last = entries.at(-1)?.sequence
       const previous = this.state.history
-      const hasEarlier = direction === 'latest' || direction === 'earlier' || old.length === 0 ? page.hasEarlier : previous?.hasEarlier ?? page.hasEarlier
+      const hasEarlier = restoredEarlier ?? (direction === 'latest' || direction === 'earlier' || old.length === 0 ? page.hasEarlier : previous?.hasEarlier ?? page.hasEarlier)
       const hasMore = direction === 'earlier' ? previous?.hasMore ?? false : page.hasMore
       this.publish({ ...this.state, entries, loading: false, history: { ...page, hasEarlier, hasMore, ...(first === undefined ? {} : { firstSequence: first }), ...(last === undefined ? {} : { lastSequence: last }) } })
+      if (first !== undefined && last !== undefined) {
+        const key = readingWindowKey(selected)
+        this.readingWindows.delete(key)
+        this.readingWindows.set(key, { first, last, cursor: this.historyCursor })
+        if (this.readingWindows.size > 20) this.readingWindows.delete(this.readingWindows.keys().next().value!)
+      }
     } catch (error) {
       if (!read.signal.aborted && this.isCurrent(selected)) this.publish({ ...this.state, loading: false, error: errorText(error) })
     }
@@ -507,7 +538,7 @@ export class PublicChatController {
     saved.hydrate = this.hydrate(key, saved); await saved.hydrate
   }
   private publish(state: PublicChatState): void { if (this.disposed) return; this.state = Object.freeze(state); for (const listener of this.listeners) listener() }
-  dispose(): void { this.disposed = true; this.directoryRead?.abort(); this.read?.abort(); this.lifetime.abort(); this.listeners.clear(); void Promise.all([...this.saved.values()].map(saved => saved.write)).then(() => { this.drafts.close() }) }
+  dispose(): void { this.disposed = true; this.directoryRead?.abort(); this.read?.abort(); this.lifetime.abort(); this.listeners.clear(); this.readingWindows.clear(); this.readingPositions.clear(); void Promise.all([...this.saved.values()].map(saved => saved.write)).then(() => { this.drafts.close() }) }
 }
 
 function errorText(error: unknown): string {

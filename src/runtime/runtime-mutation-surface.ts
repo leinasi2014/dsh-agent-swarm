@@ -20,6 +20,7 @@ import type { RuntimeConfig } from './runtime-contract.js'
 import { resolveTaskTarget } from './task-targeting.js'
 import type { RuntimeCreateTaskInput } from './verification-commands.js'
 import type { VerificationFamily } from './verification-family.js'
+import type { SchedulingAdmission } from './scheduling-admission.js'
 
 interface RuntimeMutationDeps {
   ctx: Context
@@ -36,6 +37,7 @@ interface RuntimeMutationDeps {
   verificationFamily: VerificationFamily
   executionRoots: ExecutionRootSurface
   delivery: MessageDelivery
+  scheduling: Pick<SchedulingAdmission, 'committed' | 'afterCommit'>
   reviewProvider: (name: string) => TeamReviewProvider | undefined
   requestSchedule: (scope: TeamScope, teamId: TeamId, captain: Agent) => void
   kickPublicMessages: (scope: TeamScope, teamId: TeamId) => void
@@ -352,8 +354,17 @@ export class RuntimeMutationSurface {
       domainInput = { ...domainInput, verification: compiled }
     }
     const task = await this.deps.domain().createTask(scope, membership.team.id, actor.id, domainInput)
-    const captain = this.deps.ctx.agents.get(SessionId(membership.team.captainSessionId)); if (captain !== undefined) this.deps.requestSchedule(scope, membership.team.id, captain)
-    return task
+    return await this.deps.scheduling.committed(task, exec.signal, {
+      codePrefix: 'TEAM_TASK_CREATE_ADMISSION', description: `Task ${JSON.stringify(task.id)} committed at revision ${task.revision}`,
+    }, async () => {
+      this.deps.assertOpen(); exec.signal.throwIfAborted()
+      const captain = this.deps.ctx.agents.get(SessionId(membership.team.captainSessionId))
+      if (captain === undefined || this.deps.ctx.agents.get(actor.id) !== actor
+        || this.deps.ctx.sessions.get(actor.id) !== actor.session || this.deps.ctx.sessions.get(captain.id) !== captain.session) {
+        throw new TeamDomainError('Task admission requires the exact live actor and Captain', 'TEAM_AGENT_REQUIRED')
+      }
+      await this.deps.scheduling.afterCommit(scope, membership.team.id, captain, exec.signal)
+    })
   }
 
   private assertRetirementAuthority(exec: ToolExecutionAuthority, captain: Agent, scope: TeamScope): void {

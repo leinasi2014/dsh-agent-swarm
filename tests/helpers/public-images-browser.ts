@@ -27,7 +27,7 @@ export async function publicImagesBrowserScript(): Promise<string> {
       URL.createObjectURL=b=>{const url=create(b);window.created.push(url);return url}; URL.revokeObjectURL=u=>{window.revoked.push(u);revoke(u)};
       const action=name=>(...args)=>window.actions.push([name,...args.map(v=>Array.isArray(v)?v.map(f=>f.name):v)]);
       const props={goal,t:(key,params={})=>zh[key].replace(/\\{(\\w+)\\}/gu,(match,name)=>name in params?String(params[name]):match),
-        useSessions:f=>f(window.sessionState??{phase:'ready',current:undefined,byId:{}}),useTeam:f=>f(team),useChat:f=>f(chat),useSurface:f=>f({mode:'inactive',view:'overview'}),
+        useSessions:f=>f(window.sessionState??{phase:'ready',current:chat.selection?.viewer,byId:{}}),useTeam:f=>f(team),useChat:f=>f(chat),useSurface:f=>f({mode:'inactive',view:'overview'}),
         ...(activity ? {work:{subscribe:()=>()=>{},getSnapshot:()=>activity,more:action('moreActivity'),refresh:action('refreshActivity')},openWorkTask:action('openTask')} : {}),
         image:async()=>{window.reads++;if(window.imageWait)await window.imageWait;return blob},addImages:action('addImages'),removeImage:action('removeImage'),
         replaceText:action('replaceText'),chooseMention:action('mention'),removeMention:action('removeMention'),refreshDirectory:()=>{},

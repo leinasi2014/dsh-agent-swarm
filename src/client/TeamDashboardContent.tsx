@@ -2,7 +2,7 @@ import type { WorkRequestController } from './work-request-controller.js'
 import type { PublicChatController } from './public-chat-controller.js'
 import { DirectoryMembers } from './DirectoryMembers.js'
 import { Button, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
-import { useLayoutEffect, useRef, useSyncExternalStore, type KeyboardEvent } from 'react'
+import { useLayoutEffect, useRef, useState, useSyncExternalStore, useEffect, type KeyboardEvent } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TeamReadProjection as SwarmHostReadProjectionV1 } from './team-read-types.js'
 import type { SwarmReadCaptainAnnouncementsV1, SwarmReadCaptainDiagnosticsV1, SwarmReadCaptainMembersV1, SwarmReadTeamsV1 } from '../rpc/read-rpc-contract.js'
@@ -11,11 +11,15 @@ import type { TeamDashboardSurfaceCoordinator, TeamWorkspaceSelection } from './
 import { TeamTaskPanel } from './TeamTaskPanel.js'
 import { TEAM_DASHBOARD_NS } from './team-dashboard-locales.js'
 import { SafePixelAvatar } from './SafePixelAvatar.js'
+import { TeamGroupNavigation, type TeamNavigationCallbacks } from './TeamGroupNavigation.js'
+import { TeamRetirementPanel } from './TeamRetirementPanel.js'
+import { TeamRetirementRequests } from './TeamRetirementRequests.js'
+import type { RetirementTarget } from '../shared/team-retirement.js'
 import { TaskDag } from './team-task-dag.js'
 import type { TeamCommunicationChoice } from './TeamCommunicationControl.js'
 
 import { ManageView, DetailView } from './team-dashboard-detail-content.js'
-import { NOT_GENERATED_AVATAR, deriveMemberActivity, deriveMemberTone, memberAssetOf, formatTime, toneLabel, enumLabel, taskProgressState, type TaskProgressState, type DetailSelection, type DeskTone } from './team-dashboard-view-helpers.js'
+import { NOT_GENERATED_AVATAR, deriveMemberActivity, deriveMemberTone, memberAssetOf, formatTime, toneLabel, enumLabel, taskProgressState, teamWorkspaceLayoutForWidth, type TaskProgressState, type DetailSelection, type DeskTone } from './team-dashboard-view-helpers.js'
 export { MemberDetail } from './team-dashboard-detail-content.js'
 export { deriveMemberActivity, deriveMemberTone, memberRosterInitial, TEAM_WORKSPACE_WIDE_MIN_WIDTH, teamWorkspaceLayoutForWidth } from './team-dashboard-view-helpers.js'
 
@@ -151,18 +155,23 @@ export const shellCss = `
 `
 
 /** Team data stays read-only; explicit user requests use the official Captain inbox. */
-export function TeamDashboardContent({ chat, work, controller, coordinator, descriptionId, headingId, localeTag, state, t }: {
+export function TeamDashboardContent({ activePanelId, chat, work, controller, coordinator, descriptionId, headingId, localeTag, navigation, state, t, onClose, showGroupNavigation = true }: {
+  readonly onClose?: (() => void) | undefined
+  readonly showGroupNavigation?: boolean | undefined
   readonly chat?: PublicChatController | undefined
   readonly work?: WorkRequestController | undefined
   readonly controller: TeamDashboardController
   readonly coordinator: TeamDashboardSurfaceCoordinator
+  readonly activePanelId: string | null
   readonly descriptionId: string
   readonly headingId: string
   readonly localeTag: () => 'zh-CN' | 'en-US'
+  readonly navigation: TeamNavigationCallbacks
   readonly state: TeamDashboardState
   readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS>
 }) {
   const data = state.data?.projection
+  const [retirement, setRetirement] = useState<{ target: RetirementTarget; action: 'archive' | 'delete' }>()
   return <div className="swarm-team-workspace" data-swarm-team-layout="workspace">
     <style>{shellCss}</style>
     {data === undefined || (state.phase !== 'ready' && state.phase !== 'stale' && state.phase !== 'reconnecting')
@@ -171,12 +180,17 @@ export function TeamDashboardContent({ chat, work, controller, coordinator, desc
       : <>
         <div className="swarm-team-workspace__sr-only"><h2 className="swarm-team-workspace__title" id={headingId}>{data.team.name}</h2><p id={descriptionId}>{t('title')} · {enumLabel(data.team.phase, t)}</p></div>
         <Workspace
+        activePanelId={activePanelId}
         work={work}
         chat={chat}
         controller={controller}
         coordinator={coordinator}
+        onClose={onClose}
+        showGroupNavigation={showGroupNavigation}
+        retire={(target, action) => { setRetirement({ target, action }) }}
         data={data}
         localeTag={localeTag}
+        navigation={navigation}
         state={state}
         t={t}
         teams={state.data?.teams}
@@ -185,6 +199,9 @@ export function TeamDashboardContent({ chat, work, controller, coordinator, desc
         memberAssets={state.data?.captainMembers}
         onCommunication={choice => coordinator.requestCommunication(choice)}
       /></>}
+    {!showGroupNavigation && navigation?.retirement !== undefined ? <TeamRetirementRequests client={navigation.retirement} t={t} open={request => { setRetirement({ target: request.target, action: request.action }) }} /> : null}
+    {retirement !== undefined && navigation?.retirement !== undefined ? <TeamRetirementPanel key={`${retirement.target.rootSessionId}:${retirement.target.teamId}:${retirement.action}`} client={navigation.retirement} target={retirement.target} action={retirement.action} t={t}
+      close={() => { setRetirement(undefined) }} completed={async result => { await navigation.retired?.(result) }} /> : null}
   </div>
 }
 
@@ -209,13 +226,18 @@ function Empty({ state, controller, t }: { readonly state: TeamDashboardState; r
   </section>
 }
 
-function Workspace({ chat, work, data, localeTag, state, t, teams, announcements, diagnostics, memberAssets, onCommunication, coordinator, controller }: {
+function Workspace({ activePanelId, chat, work, data, localeTag, navigation, state, t, teams, announcements, diagnostics, memberAssets, onCommunication, coordinator, controller, onClose, showGroupNavigation, retire }: {
+  readonly retire: (target: RetirementTarget, action: 'archive' | 'delete') => void
+  readonly onClose: (() => void) | undefined
+  readonly showGroupNavigation: boolean
   readonly chat?: PublicChatController | undefined
   readonly work?: WorkRequestController | undefined
   readonly controller: TeamDashboardController
   readonly coordinator: TeamDashboardSurfaceCoordinator
   readonly data: SwarmHostReadProjectionV1
   readonly localeTag: () => 'zh-CN' | 'en-US'
+  readonly navigation: TeamNavigationCallbacks
+  readonly activePanelId: string | null
   readonly state: TeamDashboardState
   readonly t: TranslateNS<typeof TEAM_DASHBOARD_NS>
   readonly teams: SwarmReadTeamsV1 | undefined
@@ -225,6 +247,25 @@ function Workspace({ chat, work, data, localeTag, state, t, teams, announcements
   readonly onCommunication: (choice: TeamCommunicationChoice) => Promise<void>
 }) {
   const number = new Intl.NumberFormat(localeTag())
+  const [navigationError, setNavigationError] = useState<string>()
+  const navigate = (operation: () => Promise<void>) => {
+    setNavigationError(undefined)
+    void operation().catch(error => { setNavigationError(error instanceof Error ? error.message : t('error')) })
+  }
+  // B5: the browse column picks its own density from its real width; environments without
+  // ResizeObserver (jsdom) keep the previous wide default instead of guessing from 0px.
+  const browseRef = useRef<HTMLDivElement>(null)
+  const [browseWidth, setBrowseWidth] = useState<number | undefined>(undefined)
+  useEffect(() => {
+    const node = browseRef.current
+    if (node === null || typeof ResizeObserver === 'undefined') return
+    const measure = (): void => { setBrowseWidth(node.getBoundingClientRect().width) }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(node)
+    return () => { observer.disconnect() }
+  }, [])
+  const railWide = browseWidth === undefined || teamWorkspaceLayoutForWidth(browseWidth) === 'wide'
   const boundCaptain = teams?.teams.find(team => team.teamId === data.binding.teamId)
   const goal = boundCaptain?.goal
   const selection = useSyncExternalStore(coordinator.subscribe, () => coordinator.getWorkspaceSelection(data.binding), () => coordinator.getWorkspaceSelection(data.binding))
@@ -311,7 +352,10 @@ function Workspace({ chat, work, data, localeTag, state, t, teams, announcements
   return <>
     <section className="swarm-team-workspace__pane">
       <Status state={state} t={t} />
-      <div className="swarm-team-workspace__browse" data-swarm-workbench-browse>
+      <div ref={browseRef} className="swarm-team-workspace__browse" data-swarm-workbench-browse>
+      {showGroupNavigation ? <TeamGroupNavigation {...navigation} team={controller} chat={chat} t={t} wide={railWide} activePanelId={activePanelId} /> : null}
+      {navigation?.returnGroup !== undefined ? <button type="button" data-swarm-return-group onClick={() => { navigate(navigation.returnGroup!) }}>{t('public.returnGroup')} · {data.team.name}</button> : null}
+      {navigationError ? <p role="alert">{navigationError}</p> : null}
       <div className="swarm-team-workspace__toolbar"><div className="swarm-team-workspace__view-tabs" role="tablist" aria-label={t('tabs.label')} data-swarm-view-tabs>
         {tabs.map((tab, index) => (
           <button
@@ -328,9 +372,9 @@ function Workspace({ chat, work, data, localeTag, state, t, teams, announcements
           >{tab.label}</button>
         ))}
       </div>
-      <button className="swarm-team-workspace__collapse" type="button" aria-label={t('workspace.collapse')} onClick={() => { coordinator.closeAndRestoreFocus() }}>×</button></div>
+      <button className="swarm-team-workspace__collapse" type="button" aria-label={t('workspace.collapse')} onClick={onClose ?? (() => { coordinator.closeAndRestoreFocus() })}>×</button></div>
       <main className="swarm-team-workspace__pane-body">
-        {view === 'members' && chat !== undefined ? <div role="tabpanel" id="swarm-panel-members" aria-labelledby="swarm-tab-members" data-swarm-panel="members"><DirectoryMembers chat={chat} dashboard={state} onTask={id => { openDetail({ kind: 'task', id }) }} t={t} /></div> : null}
+        {view === 'members' && chat !== undefined ? <div role="tabpanel" id="swarm-panel-members" aria-labelledby="swarm-tab-members" data-swarm-panel="members"><DirectoryMembers chat={chat} dashboard={state} navigation={navigation} onTask={id => { openDetail({ kind: 'task', id }) }} t={t} /></div> : null}
         {view === 'members' && chat === undefined && <div role="tabpanel" id="swarm-panel-members" aria-labelledby="swarm-tab-members" data-swarm-panel="members">
           <div className="swarm-team-workspace__block-head"><span>{t('workspace.desks')}</span><small>{t('progress.memberCount', { count: number.format(data.totals.roster) })}</small></div>
           <section className="swarm-team-workspace__workroom" aria-label={t('workspace.desks')} data-swarm-workroom>
@@ -448,6 +492,14 @@ function Workspace({ chat, work, data, localeTag, state, t, teams, announcements
           {detail?.kind !== 'task' && data.tasks.length > 0 ? <details className="swarm-team-workspace__fold"><summary>{t('dag.title')}</summary><TaskDag tasks={data.tasks} t={t} onSelect={id => { openDetail({ kind: 'task', id }) }} /></details> : null}
         </div>}
         {view === 'info' && <div role="tabpanel" id="swarm-panel-info" aria-labelledby="swarm-tab-info" data-swarm-panel="info">
+      {navigation === undefined ? null : <button type="button" data-swarm-main-conversation onClick={() => { navigate(navigation.openMain) }}>{t('public.mainConversation')}</button>}
+      {!showGroupNavigation && navigation?.retirement !== undefined && teams?.binding.mainSessionId !== undefined ? <div data-swarm-team-retirement>
+        {data.team.phase === 'archived' ? null : <button type="button" disabled={state.phase !== 'ready'} onClick={() => { retire({ rootSessionId: teams.binding.mainSessionId!, teamId: data.binding.teamId }, 'archive') }}>{t('retirement.archive')}</button>}
+        <button type="button" disabled={state.phase !== 'ready'} onClick={() => { retire({ rootSessionId: teams.binding.mainSessionId!, teamId: data.binding.teamId }, 'delete') }}>{t('retirement.delete')}</button>
+      </div> : null}
+      {teams !== undefined && teams.teams.length > 1 ? <label>{t('public.chooseGroup')} <select value={data.binding.teamId} onChange={event => { navigation.selectGroup(event.target.value) }}>
+        {teams.teams.map(team => <option key={team.teamId} value={team.teamId}>{team.name}</option>)}
+      </select></label> : null}
       <section className="swarm-team-workspace__context" data-swarm-team-context>
       <div className="swarm-team-workspace__public-bar" data-swarm-public-bar>
         <section className="swarm-team-workspace__public-card" data-swarm-goal-card data-swarm-goal-state={goal?.state ?? 'loading'}>

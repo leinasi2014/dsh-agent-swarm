@@ -12,11 +12,12 @@ import { useTabInfo } from './helpers/sidebar-tab.js'
 //      controller.selectTeam (never a Captain Session jump),
 //   5. an un-generated Captain identity is never impersonated by the technical Team name,
 //   6. theme (official alias tokens, no hardcoded color) + en/zh copy.
-import { act, useSyncExternalStore, type ReactNode, type ComponentProps } from 'react'
+import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TeamDashboardDetails } from '../src/client/TeamDashboardDetails.js'
 import { TeamGroupNavigation } from '../src/client/TeamGroupNavigation.js'
+const fixtureNavigation = { refreshDirectory: () => {}, selectGroup: () => {}, openMain: async () => {}, openCaptain: async () => {}, openMember: async () => {} }
 import type { TeamDashboardState } from '../src/client/team-dashboard-controller.js'
 import type { TeamDashboardSurfaceState } from '../src/client/team-dashboard-surface-coordinator.js'
 import { EMPTY_TEAM_SELECTION, type TeamWorkspaceSelection } from '../src/client/team-dashboard-surface-coordinator.js'
@@ -76,17 +77,14 @@ class FakeCoordinator {
 }
 
 type RosterController = { getSnapshot(): TeamDashboardState; subscribe(listener: () => void): () => void; selectTeam?(id: string): void }
-function LeftNavigation({ controller, coordinator }: { controller: RosterController; coordinator: FakeCoordinator }) {
-  const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot)
-  const props = { t, wide: true, expandSidebar: vi.fn(), useTeam: <T,>(selector: (value: TeamDashboardState) => T) => selector(state),
-    usePanelInfo: <T,>(selector: (value: { activePanelId: null }) => T) => selector({ activePanelId: null }),
-    selectGroup: (id: string) => { controller.selectTeam?.(id) }, openMain: async () => {},
-    openCaptain: () => coordinator.openCaptainChat(), openMember: async () => {},
-  }
-  return <TeamGroupNavigation {...props as ComponentProps<typeof TeamGroupNavigation>} />
-}
 async function renderRoster(controller: RosterController, coordinator: FakeCoordinator, sessionId = 'main-brain'): Promise<void> {
-  await render(<><LeftNavigation controller={controller} coordinator={coordinator} /><TeamDashboardDetails {...({ controller, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId, t } as any)} /></>)
+  // The product embeds the group navigation inside TeamDashboardContent (TeamDashboardContent.tsx:319);
+  // The navigation component is now an explicit legacy unit fixture, outside the official Details seat. The callbacks
+  // LeftNavigation used to wire now arrive through the navigation prop the plugin injects.
+  const navigation = { refreshDirectory: () => {},
+    selectGroup: (id: string) => { controller.selectTeam?.(id) },
+    openMain: async () => {}, openCaptain: async () => { await coordinator.openCaptainChat() }, openMember: async () => {} }
+  await render(<><TeamGroupNavigation {...({ team: controller, wide: true, activePanelId: null, t, ...navigation } as any)} /><TeamDashboardDetails navigation={fixtureNavigation} {...({ controller, coordinator, navigation, useTabInfo, localeTag: coordinator.localeTag, sessionId, t } as any)} /></>)
   await act(async () => { document.querySelector<HTMLButtonElement>(`[data-swarm-group="${controller.getSnapshot().data!.projection.binding.teamId}"]`)!.click() })
 }
 
@@ -99,7 +97,7 @@ describe('roster/Captain interaction slice', () => {
     const coordinator = new FakeCoordinator()
     const ready = readyWithRoster([...REAL_ROSTER])
     const controller = { getSnapshot: (): TeamDashboardState => ready, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
-    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
+    await render(<TeamDashboardDetails navigation={fixtureNavigation} {...({ anchorRef: { current: null }, controller, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
 
     // Avatars are safe deterministic pixel SVGs seeded from the real member name, carrying the
     // honest not-generated state — never a fabricated profile asset.
@@ -150,7 +148,7 @@ describe('roster/Captain interaction slice', () => {
     }
     const ready = { open: true, phase: 'ready', targetSessionId: 'main-brain', data: { capabilities: SWARM_READ_RPC_FIXTURES_V1.values.capabilities as never, projection: projection as never, teams: SWARM_READ_RPC_FIXTURES_V1.values.teams as never, captainAnnouncements: SWARM_READ_RPC_FIXTURES_V1.values.captainAnnouncements as never, captainDiagnostics: SWARM_READ_RPC_FIXTURES_V1.values.captainDiagnostics as never, captainMembers: SWARM_READ_RPC_FIXTURES_V1.values.captainMembers as never } } as TeamDashboardState
     const controller = { getSnapshot: (): TeamDashboardState => ready, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
-    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
+    await render(<TeamDashboardDetails navigation={fixtureNavigation} {...({ anchorRef: { current: null }, controller, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
 
     // executing: an in-flight running attempt.
     expect(toneOf('worker')).toBe('executing')
@@ -183,7 +181,7 @@ describe('roster/Captain interaction slice', () => {
     const coordinator = new FakeCoordinator()
     const ready = readyWithRoster([...REAL_ROSTER])
     const controller = { getSnapshot: (): TeamDashboardState => ready, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
-    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
+    await render(<TeamDashboardDetails navigation={fixtureNavigation} {...({ anchorRef: { current: null }, controller, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
 
     const captain = document.querySelector<HTMLButtonElement>('[data-swarm-captain-desk]')!
     // The Captain desk is unambiguous: not a member row, same 56px work-seat shape, small 队长 badge.
@@ -279,14 +277,14 @@ describe('roster/Captain interaction slice', () => {
     const controller = { getSnapshot: (): TeamDashboardState => ready, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
     const root = createRoot(document.body.appendChild(document.createElement('div'))); mounted.push(root)
 
-    await act(async () => { root.render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />) })
+    await act(async () => { root.render(<TeamDashboardDetails navigation={fixtureNavigation} {...({ anchorRef: { current: null }, controller, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />) })
     await selectMembers()
     expect(document.querySelector('[data-swarm-captain-desk] .swarm-team-workspace__captain-badge')?.textContent).toBe('Team Captain')
     // The backend-authored captain display name is locale-independent real data.
     expect(document.body.textContent).toContain('Fixture Captain')
     expect(document.body.textContent).toContain('Team Captain')
 
-    await act(async () => { root.render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t: tZh } as any)} />) })
+    await act(async () => { root.render(<TeamDashboardDetails navigation={fixtureNavigation} {...({ anchorRef: { current: null }, controller, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t: tZh } as any)} />) })
     expect(document.querySelector('[data-swarm-captain-desk] .swarm-team-workspace__captain-badge')?.textContent).toBe('团队队长')
     expect(document.body.textContent).toContain('Fixture Captain')
     expect(document.body.textContent).toContain('团队队长')
@@ -305,7 +303,7 @@ describe('roster/Captain interaction slice', () => {
     const coordinator = new FakeCoordinator()
     const ready = readyWithRoster([...REAL_ROSTER])
     const controller = { getSnapshot: (): TeamDashboardState => ready, subscribe: (): (() => void) => () => {}, refresh: vi.fn(), reconnect: vi.fn() }
-    await render(<TeamDashboardDetails {...({ anchorRef: { current: null }, controller, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
+    await render(<TeamDashboardDetails navigation={fixtureNavigation} {...({ anchorRef: { current: null }, controller, coordinator, useTabInfo, localeTag: coordinator.localeTag, sessionId: 'main-brain', t } as any)} />)
 
     // The surface is a plain complementary occupant of the official Details column: no canvas, no second state.
     expect(document.querySelectorAll('canvas')).toHaveLength(0)
@@ -392,9 +390,13 @@ describe('roster/Captain interaction slice', () => {
     expect(document.querySelector('[data-swarm-member-name]')).toBeNull()
     expect(document.querySelector('[data-swarm-group-member]')).toBeNull()
     expect(document.querySelector('[data-swarm-empty-shell]')?.textContent).toContain('Team B unavailable')
-    // Returning to the still-visible previous card cancels the pending choice.
+    // Pending branch settled: while pendingTeamId points at another Team the product
+    // intentionally renders the Empty shell (TeamDashboardContent.tsx:171-173), so the
+    // rail is not asserted here. Reselection happens through the same controller seam
+    // the official panel entry uses; the resolved branch below asserts the rail again.
     await act(async () => { toggle('team-alpha').click() })
     expect(controller.selectTeam).toHaveBeenLastCalledWith('team-alpha')
+    expect(toggle('team-alpha').textContent).toContain('Alpha 舰队')
     expect(toggle('team-beta').getAttribute('aria-expanded')).toBe('false')
     await selectMembers()
     expect(document.querySelector('[data-swarm-workroom] [data-swarm-member-name="海宝"]')).not.toBeNull()

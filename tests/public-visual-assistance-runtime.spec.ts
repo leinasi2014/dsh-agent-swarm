@@ -1,4 +1,5 @@
 import { mkdtemp, rm } from 'node:fs/promises'
+import { withLiveChild } from './helpers/live-child.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it, vi } from 'vitest'
@@ -78,14 +79,14 @@ async function visualFixture(adapter = new AssistanceRecording()) {
   try {
     const { root, captain, teamId, scope } = await createTeam(f, sandbox)
     let helperId!: SessionId
-    const asCaptain = async (name: string, args: object, requestSignal?: AbortSignal) => await f.ctx.subagents.withContinuableChild(root, captain.id, SIGNAL,
+    const asCaptain = async (name: string, args: object, requestSignal?: AbortSignal) => await withLiveChild(f.ctx, root, captain.id, SIGNAL,
       async (agent, signal) => await f.ctx.tools.execute({ signal: requestSignal ?? signal, agent, callId: ToolCallId(crypto.randomUUID()), name, arguments: args }))
     const helper = await asCaptain('agent_swarm_add_member', { name: 'vision', role: 'Describe original images', llm_provider: 'public-fixture', model: 'visual-helper' })
     expect(helper.isError, JSON.stringify(helper)).toBe(false)
     helperId = SessionId((helper.value as { session_id: string }).session_id)
     await f.ctx.agents.get(helperId)?.whenIdle()
-    const asHelper = async (name: string, args: object) => await f.ctx.subagents.withContinuableChild(root, captain.id, SIGNAL,
-      async (parent, signal) => await f.ctx.subagents.withContinuableChild(parent, helperId, signal,
+    const asHelper = async (name: string, args: object) => await withLiveChild(f.ctx, root, captain.id, SIGNAL,
+      async (parent, signal) => await withLiveChild(f.ctx, parent, helperId, signal,
         async (agent, inner) => await f.ctx.tools.execute({ signal: inner, agent, callId: ToolCallId(crypto.randomUUID()), name, arguments: args })))
     const call = await imageClient(f, teamId), team = async () => (await f.ctx.agentSwarm.domain.snapshot(scope, teamId, captain.id)).team
     return { sandbox, f, root, captain, teamId, scope, helperId, asCaptain, asHelper, call, team,
@@ -129,7 +130,7 @@ it('lets a nonvisual model choose a directory helper, transfer original refs and
   try {
     const { root, captain, teamId, scope } = await createTeam(f, sandbox)
     let helperId!: SessionId, requesterId!: SessionId
-    await f.ctx.subagents.withContinuableChild(root, captain.id, SIGNAL, async (liveCaptain, signal) => {
+    await withLiveChild(f.ctx, root, captain.id, SIGNAL, async (liveCaptain, signal) => {
       const requester = await f.ctx.tools.execute({ signal, agent: liveCaptain, callId: ToolCallId('add-original-member'),
         name: 'agent_swarm_add_member', arguments: { name: 'original', role: 'Continue the original task',
           llm_provider: 'public-fixture', model: 'public-model' } })
@@ -216,10 +217,12 @@ it('keeps real tool retries immutable, deduplicates in-flight image sets and rej
     expect(await fixture.asCaptain('agent_swarm_complete_visual_assistance', complete))
       .toMatchObject({ isError: true, error: { info: { code: 'TEAM_VISUAL_PERMISSION_REVOKED' } } })
     expect(await fixture.asHelper('agent_swarm_complete_visual_assistance', complete)).toMatchObject({ isError: false, value: { state: 'completed', replayed: false } })
+    await claimedImage(fixture, row.resultId, fixture.captain.id)
+    await fixture.f.ctx.agents.get(fixture.captain.id)?.whenIdle()
+    await fixture.f.ctx.agents.get(fixture.helperId)?.whenIdle()
     expect(await fixture.asHelper('agent_swarm_complete_visual_assistance', complete)).toMatchObject({ isError: false, value: { state: 'completed', replayed: true } })
     expect(await fixture.asHelper('agent_swarm_complete_visual_assistance', { ...complete, outcome: { state: 'completed', summary: 'Changed summary' } }))
       .toMatchObject({ isError: true, error: { info: { code: 'TEAM_VISUAL_REQUEST_CONFLICT' } } })
-    await claimedImage(fixture, row.resultId, fixture.captain.id)
     expect((await fixture.team()).tasks).toEqual(before.tasks)
     expect((await fixture.team()).publicChat!.messages).toHaveLength(3)
   } finally { await fixture.close() }

@@ -2,26 +2,17 @@ import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/c
 // @vitest-environment jsdom
 import { render, t, mounted } from './helpers/dashboard-ui.js'
 import { chatState, teamState } from './helpers/public-chat-fixtures.js'
+import { chatProps } from './helpers/public-chat-ui.js'
 import { act, type ComponentProps } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MessageImage } from '../src/client/PublicImages.js'
 import { PublicMessageContent } from '../src/client/PublicMessageContent.js'
 import { TeamPublicChat } from '../src/client/TeamPublicChat.js'
 import { TeamGroupNavigation } from '../src/client/TeamGroupNavigation.js'
-import type { PublicChatState } from '../src/client/public-chat-controller.js'
 import type { TeamDashboardState } from '../src/client/team-dashboard-controller.js'
 
 beforeEach(() => { vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:fixture-image'), revokeObjectURL: vi.fn() })) })
 afterEach(() => { vi.unstubAllGlobals() })
-
-function chatProps(state = teamState(), chat = chatState(state)) {
-  return { t, useSessions: <T,>(selector: (state: SessionListState) => T) => selector({ ids: [], byId: {}, current: undefined, phase: 'ready', subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined }), useTeam: <T,>(selector: (state: TeamDashboardState) => T) => selector(state), useChat: <T,>(selector: (state: PublicChatState) => T) => selector(chat),
-    useSurface: <T,>(selector: (state: { mode: 'inactive'; view: 'overview'; targetSessionId: undefined }) => T) => selector({ mode: 'inactive', view: 'overview', targetSessionId: undefined }),
-    replaceText: vi.fn(), chooseMention: vi.fn(), removeMention: vi.fn(), refreshDirectory: vi.fn(), upgradeLegacy: vi.fn(), send: vi.fn(), recover: vi.fn(), earlier: vi.fn(), newer: vi.fn(), refresh: vi.fn(), latest: vi.fn(), edit: vi.fn(), reply: vi.fn(), openTeam: vi.fn(),
-    addImages: vi.fn(), removeImage: vi.fn(), image: vi.fn(async () => new Blob(['image'], { type: 'image/png' })), retryDraftStorage: vi.fn(), useStoredDraft: vi.fn(),
-  }
-}
-
 
 describe('public conversation composition', () => {
   it('shows official current-Session statistics only for a ready matching viewer', async () => {
@@ -35,6 +26,12 @@ describe('public conversation composition', () => {
     expect(document.querySelector('[data-public-session-stats]')?.getAttribute('aria-label')).toContain('Actual current Session')
     for (const patch of [{ phase: 'pending' as const }, { current: 'other-session' as typeof sessions.current }]) {
       await act(async () => { mounted.at(-1)!.render(<TeamPublicChat {...props as ComponentProps<typeof TeamPublicChat>} useSessions={selector => selector({ ...sessions, ...patch })} />) })
+      if ('current' in patch) {
+        expect(document.querySelector('[data-public-session-stats]')).toBeNull()
+        expect(document.querySelector('[data-public-message]')).toBeNull()
+        expect(document.querySelector('[data-public-send]')).toBeNull()
+        continue
+      }
       expect(document.querySelector('[data-public-session-stats]')?.textContent).not.toContain('200 tok')
       expect(document.querySelector('[data-public-session-stats]')?.textContent).toContain('— tok/s')
     }
@@ -92,8 +89,8 @@ describe('public conversation composition', () => {
       binding: { ...base.data!.teams.binding, mainSessionTitle: '教师正式启动：维护方已完成3' } } } }
     const selectGroup = vi.fn()
     const openMember = vi.fn(async () => {})
-    const props = { t, wide: true, expandSidebar: vi.fn(), useTeam: <T,>(selector: (state: TeamDashboardState) => T) => selector(state),
-      usePanelInfo: <T,>(selector: (value: { activePanelId: string }) => T) => selector({ activePanelId: 'swarm.group' }),
+    const props = { t, wide: true, activePanelId: 'swarm.group',
+      team: { subscribe: () => () => {}, getSnapshot: () => state }, refreshDirectory: vi.fn(),
       selectGroup, openMain: vi.fn(async () => {}), openCaptain: vi.fn(async () => {}), openMember,
     }
     await render(<TeamGroupNavigation {...props as ComponentProps<typeof TeamGroupNavigation>} />)
@@ -473,14 +470,19 @@ it('opens real React group history at its latest message and preserves manual re
       await page.evaluate(({ team: teamValue, more: chatValue }) => { (window as unknown as Driver).updateChat(teamValue, chatValue) }, { team, more })
       await page.locator('[data-public-message="later"]').waitFor({ state: 'attached' })
       await expect.poll(offset).toBeCloseTo(before, 0)
+      const latestCount = () => page.evaluate(() => ((window as unknown as { actions: string[][] }).actions).filter(row => row.includes('latest')).length)
       const other = { ...more, selection: { ...more.selection!, key: 'other-view' }, entries: [{ ...source, id: 'other' }] }
       await page.evaluate(({ team: teamValue, other: chatValue }) => { (window as unknown as Driver).updateChat(teamValue, chatValue) }, { team, other })
       await page.locator('[data-public-message="other"]').waitFor()
+      const latestBeforeReturn = await latestCount()
       await page.evaluate(({ team: teamValue, more: chatValue }) => { (window as unknown as Driver).updateChat(teamValue, chatValue) }, { team, more })
+      await expect.poll(offset).toBeCloseTo(before, 0)
+      expect(await latestCount()).toBe(latestBeforeReturn + 1)
+      await page.locator('[data-public-jump-latest]').click()
       await expect.poll(() => box.evaluate(node => node.scrollHeight - node.clientHeight - node.scrollTop)).toBeLessThan(2)
       expect(await page.getByRole('button', { name: '任务活动 · 群聊顶部', exact: true }).count()).toBe(0)
       expect(await page.locator('[data-swarm-public-chat]').evaluate(node => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(1)
-      // The initial tail stays at the bottom when its image finishes loading.
+      // Explicitly following the tail stays at the bottom when its image finishes loading.
       await page.evaluate(() => { const w = window as unknown as { imageWait: Promise<void>; releaseImage: () => void }; w.imageWait = new Promise(resolve => { w.releaseImage = resolve }) })
       const tailImage = { ...more, entries: [...more.entries, { ...source, id: 'tail-image', sequence: 14, content: [historyImage] }] }
       await page.evaluate(({ team: teamValue, tailImage: chatValue }) => { (window as unknown as Driver).updateChat(teamValue, chatValue) }, { team, tailImage })

@@ -9,6 +9,7 @@
  * rolls back exactly its own reservation under a `currentAttemptId` CAS
  * guard. Decisions and divergences: docs/04 §7 and §8c.
  */
+import { resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { queueHostSubagentPrompt } from '@deepseek-ai/dsh-subagent/internal'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -16,6 +17,7 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import { TaskId, type AttemptId, type TaskAttempt, type TeamId, type TeamState, type TeamTask } from '../domain/types.js'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import { TeamDomainError } from '../domain/error.js'
+import { publicManagedParent } from '../domain/public-message.js'
 import { budgetExhaustion, outstandingReservationTokens, reservationAdmissible } from '../domain/team-domain-budget.js'
 import { frameVisibility, waitForFrameClaim, type FrameVisibility } from './frame-visibility.js'
 import type { ExecutionRoots } from './execution-roots.js'
@@ -94,8 +96,9 @@ export class SchedulingPass {
     private readonly deps: SchedulingDeps,
   ) {}
 
-  async run(scope: TeamScope, teamId: TeamId, captain: Agent): Promise<void> {
+  async run(scope: TeamScope, teamId: TeamId, captain: Agent, signal: AbortSignal = new AbortController().signal): Promise<void> {
     if (this.deps.isClosing()) return
+    signal.throwIfAborted()
     let snapshot = await this.deps.domain().snapshot(scope, teamId, captain.id)
     if (snapshot.team.goalLifecycle !== undefined && this.deps.reconcileGoal !== undefined) {
       await this.deps.reconcileGoal(scope, snapshot.team)
@@ -110,9 +113,13 @@ export class SchedulingPass {
     const hadQueuedMail = snapshot.pendingMessageIds.length > 0
     for (const messageId of snapshot.pendingMessageIds) {
       if (this.deps.isClosing()) return
+      signal.throwIfAborted()
       if (snapshot.team.messages.find(message => message.id === messageId)?.kind === 'open-claim-notice') continue
-      await this.deps.delivery().deliverQueuedMessage(scope, teamId, captain, messageId, AbortSignal.timeout(30_000))
+      const timeout = AbortSignal.timeout(30_000)
+      await this.deps.delivery().deliverQueuedMessage(scope, teamId, captain, messageId,
+        AbortSignal.any([signal, timeout]))
     }
+    signal.throwIfAborted()
     if (hadQueuedMail) snapshot = await this.deps.domain().snapshot(scope, teamId, captain.id)
 
     // 2. Reserved attempts (issue #60 / P2-1): fold each delivery debt
@@ -129,8 +136,9 @@ export class SchedulingPass {
     })
     for (const { task, attempt } of reserved) {
       if (this.deps.isClosing()) return
-      if (await this.settleReservedAssignment(scope, snapshot.team, task, attempt)) continue
-      await this.dispatchAssignment(scope, snapshot.team, captain, task, attempt)
+      signal.throwIfAborted()
+      if (await this.settleReservedAssignment(scope, snapshot.team, task, attempt, signal)) continue
+      await this.dispatchAssignment(scope, snapshot.team, captain, task, attempt, signal)
     }
     if (reserved.length > 0) snapshot = await this.deps.domain().snapshot(scope, teamId, captain.id)
 
@@ -145,7 +153,7 @@ export class SchedulingPass {
     //    per-pass warn noise are gone; open tasks surface as budget-hold
     //    evidence and the §8n recovery pass re-drives them once the captain
     //    raises the budget.
-    if (await this.healStrandedOwnership(scope, teamId, captain, snapshot.team)) {
+    if (await this.healStrandedOwnership(scope, teamId, captain, snapshot.team, signal)) {
       snapshot = await this.deps.domain().snapshot(scope, teamId, captain.id)
     }
 
@@ -175,14 +183,17 @@ export class SchedulingPass {
     if (provider === undefined) {
       throw new TeamDomainError(`scheduler Provider "${this.deps.schedulerProvider()}" is unavailable`, 'TEAM_SCHEDULER_PROVIDER_MISSING')
     }
+    signal.throwIfAborted()
     const decisions = await this.deps.duringProvider(scope, teamId,
       () => provider.select({ team: snapshot.team, readyTasks: ready, availableMembers: members }))
+    signal.throwIfAborted()
     const availableById = new Map(members.map(member => [member.sessionId, member]))
     const readyById = new Map(ready.map(task => [task.id, task]))
     const seenMembers = new Set<string>()
     const seenTasks = new Set<string>()
     for (const decision of decisions) {
       if (this.deps.isClosing()) break
+      signal.throwIfAborted()
       const member = availableById.get(decision.memberSessionId)
       const task = readyById.get(TaskId(decision.taskId))
       if (member === undefined || task === undefined || seenMembers.has(member.sessionId) || seenTasks.has(task.id)) {
@@ -197,6 +208,7 @@ export class SchedulingPass {
       let claim
       try {
         claim = await this.deps.domain().claimTask(scope, teamId, captain.id, task.id, task.revision, member.sessionId, () => {
+          signal.throwIfAborted()
           this.deps.assertExecution?.(captain)
           if (!memberAvailable(this.ctx, member.sessionId)) throw new TeamDomainError('Assignee became busy before seating', 'TEAM_MEMBER_BUSY')
         })
@@ -204,9 +216,9 @@ export class SchedulingPass {
         if (error instanceof TeamDomainError && ['TEAM_TASK_STALE_REVISION', 'TEAM_MEMBER_BUSY', 'TEAM_BUDGET_RESERVATION', 'TEAM_GOAL_PAUSED'].includes(error.code)) continue
         throw error
       }
-      await this.dispatchAssignment(scope, snapshot.team, captain, claim.task, claim.attempt)
+      await this.dispatchAssignment(scope, snapshot.team, captain, claim.task, claim.attempt, signal)
     }
-    await notifyOpenTasks(this.ctx, this.deps, scope, teamId, captain)
+    await notifyOpenTasks(this.ctx, this.deps, scope, teamId, captain, signal)
   }
 
   /**
@@ -225,8 +237,9 @@ export class SchedulingPass {
     team: TeamState,
     captain: Agent,
     task: TeamTask,
-    attempt: TaskAttempt,
+    attempt: TaskAttempt, signal: AbortSignal,
   ): Promise<void> {
+    signal.throwIfAborted()
     // M3-1 (issue #100): fence this attempt into its execution root BEFORE
     // the frame exists — the frame declares the deterministic root path, and
     // a failed acquisition is a failed dispatch that rolls back exactly its
@@ -236,6 +249,7 @@ export class SchedulingPass {
       try {
         executionRootPath = (await this.deps.executionRoots().acquire(scope, team.id, task.id, attempt.id, attempt.memberSessionId)).path
       } catch (error) {
+        signal.throwIfAborted()
         await this.rollbackUndeliveredAssignment(
           scope,
           team.id,
@@ -247,18 +261,32 @@ export class SchedulingPass {
         return
       }
     }
+    signal.throwIfAborted()
     const frame = assignmentPrompt(team, task, attempt.id, executionRootPath)
+    // Preparation may outlive this Captain's activation. Preserve the reservation
+    // while its real parent is absent; the next live pass can retry the same frame.
+    const liveCaptain = this.ctx.agents.get(SessionId(team.captainSessionId))
+    if (this.deps.isClosing() || liveCaptain === undefined || captain.id !== team.captainSessionId
+      || this.ctx.sessions.get(liveCaptain.id) !== liveCaptain.session
+      || liveCaptain.session.header.cwd === undefined || resolve(liveCaptain.session.header.cwd) !== scope
+      || liveCaptain.session.header.parentSession !== captain.session.header.parentSession
+      || (team.managedOrigin !== undefined && (publicManagedParent(team.managedOrigin) === undefined
+        || liveCaptain.session.header.parentSession !== publicManagedParent(team.managedOrigin)))) return
     try {
+      this.deps.assertExecution?.(liveCaptain)
+      // No await between the live identity check and the official ownership hold.
       await queueHostSubagentPrompt(
         this.ctx.subagents,
-        captain,
+        liveCaptain,
         SessionId(attempt.memberSessionId),
         [{ type: 'text', text: frame }],
-        { kind: 'plugin', plugin: 'dsh-agent-swarm' }, AbortSignal.timeout(30_000),
+        { kind: 'plugin', plugin: 'dsh-agent-swarm' }, AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
       )
       const member = this.ctx.agents.get(SessionId(attempt.memberSessionId))
       if (member !== undefined) await this.deps.usage().accountAgentUsage(scope, team.id, member)
     } catch (error) {
+      // Cancellation leaves this exact reservation recoverable, including accepted input.
+      signal.throwIfAborted()
       await this.rollbackUndeliveredAssignment(
         scope,
         team.id,
@@ -275,7 +303,7 @@ export class SchedulingPass {
     // accepted frame may still be claimed by the turn it parked behind.
     try {
       const member = this.ctx.agents.get(SessionId(attempt.memberSessionId))
-      if (member === undefined || !await waitForFrameClaim(this.ctx, member, frame, AbortSignal.timeout(30_000))) return
+      if (member === undefined || !await waitForFrameClaim(this.ctx, member, frame, AbortSignal.any([signal, AbortSignal.timeout(30_000)]))) return
     } catch (error) {
       this.ctx.logger.warn(`agent-swarm: assignment claim wait failed for ${task.id}: ${String(error)}`)
       return
@@ -297,7 +325,7 @@ export class SchedulingPass {
     scope: TeamScope,
     team: TeamState,
     task: TeamTask,
-    attempt: TaskAttempt,
+    attempt: TaskAttempt, signal: AbortSignal,
   ): Promise<boolean> {
     // The frame identity recomputed here must stay byte-identical to the one
     // dispatched — with execution roots enabled (M3-1) that includes the
@@ -307,7 +335,7 @@ export class SchedulingPass {
       : undefined
     const visibility: FrameVisibility = await frameVisibility(
       this.ctx, attempt.memberSessionId, assignmentPrompt(team, task, attempt.id, executionRootPath),
-      AbortSignal.timeout(30_000), `assignment ${attempt.id}`,
+      AbortSignal.any([signal, AbortSignal.timeout(30_000)]), `assignment ${attempt.id}`,
     )
     if (visibility === 'absent') return false
     if (visibility === 'claimed') await this.commitAssignmentAcknowledgement(scope, team.id, task, attempt.id)
@@ -401,8 +429,9 @@ export class SchedulingPass {
     scope: TeamScope,
     teamId: TeamId,
     captain: Agent,
-    team: TeamState,
+    team: TeamState, signal: AbortSignal,
   ): Promise<boolean> {
+    signal.throwIfAborted()
     if (this.deps.isClosing() || this.deps.strandedAfterMs <= 0) return false
     // Budget-hold gating (M4-3, issue #129): stranding is an owner-liveness
     // defect; an exhausted budget face is a TEAM-economics hold. While the
@@ -414,6 +443,7 @@ export class SchedulingPass {
     let nextDeadline: number | undefined
     for (const task of team.tasks) {
       if (this.deps.isClosing()) return acted
+      signal.throwIfAborted()
       if (task.status !== 'in_progress' || task.ownerSessionId === undefined) continue
       const owner = this.ctx.agents.get(SessionId(task.ownerSessionId))
       if (owner === undefined || owner.status !== 'idle') continue
@@ -428,6 +458,7 @@ export class SchedulingPass {
           scope, teamId, captain.id, task.id, task.revision, task.ownerSessionId,
           `stranded ownership self-heal: member ${task.ownerSessionId} is live and idle while task ${task.id} is still in_progress`,
           () => {
+            signal.throwIfAborted()
             this.deps.assertExecution?.(captain)
             if (this.ctx.agents.get(SessionId(task.ownerSessionId!)) !== owner || owner.status !== 'idle') {
               throw new TeamDomainError('Retry owner changed before seating', 'TEAM_MEMBER_BUSY')
@@ -442,8 +473,9 @@ export class SchedulingPass {
           )
           continue
         }
-        await this.dispatchAssignment(scope, team, captain, retried.task, retried.attempt)
+        await this.dispatchAssignment(scope, team, captain, retried.task, retried.attempt, signal)
       } catch (error) {
+        signal.throwIfAborted()
         // A raced transition (stale revision, dependencies no longer
         // satisfied, budget exhausted) defers to the next pass.
         this.ctx.logger.warn(`agent-swarm: stranded self-heal deferred for task ${task.id}: ${String(error)}`)

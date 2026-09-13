@@ -14,6 +14,9 @@ const EXPECTED = [
   '            memberMaxDepth: 1',
   '            schedulerProvider: priority-ready',
   '            reviewProvider: manual',
+  '- id: connection',
+  "  name: '@deepseek-ai/dsh-client-connection'",
+  '  inject: [webRuntime, webServer]',
 ]
 
 function semanticLines(text) {

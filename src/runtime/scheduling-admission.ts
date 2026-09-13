@@ -11,14 +11,18 @@ export class SchedulingAdmission {
   private readonly abort = new AbortController()
 
   constructor(private readonly deps: {
-    run(scope: TeamScope, teamId: TeamId, captain: Agent): Promise<void>
+    run(scope: TeamScope, teamId: TeamId, captain: Agent, signal: AbortSignal): Promise<void>
     failed(scope: TeamScope, teamId: TeamId, error: unknown): void
   }) {}
 
-  request(scope: TeamScope, teamId: TeamId, captain: Agent, propagateFailure = false): Promise<void> {
+  request(scope: TeamScope, teamId: TeamId, captain: Agent, propagateFailure = false, callerSignal?: AbortSignal): Promise<void> {
     const key = `${scope}\0${teamId}`
     const previous = this.pending.get(key) ?? Promise.resolve()
-    const operation = previous.then(async () => { await this.context.exit(() => this.deps.run(scope, teamId, captain)) })
+    const signal = callerSignal === undefined ? this.abort.signal : AbortSignal.any([callerSignal, this.abort.signal])
+    const operation = previous.then(async () => {
+      signal.throwIfAborted()
+      await this.context.exit(() => this.deps.run(scope, teamId, captain, signal))
+    })
     const next = operation.catch(error => this.deps.failed(scope, teamId, error))
       .finally(() => { if (this.pending.get(key) === next) this.pending.delete(key) })
     this.pending.set(key, next)
@@ -51,7 +55,7 @@ export class SchedulingAdmission {
   }
 
   async afterCommit(scope: TeamScope, teamId: TeamId, captain: Agent, callerSignal: AbortSignal): Promise<void> {
-    const pass = this.request(scope, teamId, captain, true)
+    const pass = this.request(scope, teamId, captain, true, callerSignal)
     // A continuable Captain can settle immediately after its tool returns.
     // Await this admission pass, never member completion or queue quiescence.
     // A Provider reviewing inside the current pass queues a successor without

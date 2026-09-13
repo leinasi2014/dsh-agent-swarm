@@ -2,8 +2,8 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { sha256File, verifyP0Evidence } from './evidence.mjs'
-const EXPECTED_P0_OFFICIAL_COMMIT = 'b2e3b2a0125854567a4a5fcba75782e42fe84901'
-const EXPECTED_P0_OFFICIAL_TREE = 'a3186864df90e02f6e46b2e07394c6781a58cecd'
+const EXPECTED_P0_OFFICIAL_COMMIT = 'fb2c4b9e698e30edb738bca4cf0618587db7d203'
+const EXPECTED_P0_OFFICIAL_TREE = 'bd7dd6d90010a35d3d6ff9f12c1f6207d5b6fe38'
 const git = ref => execFileSync('git', ['rev-parse', ref], { encoding: 'utf8', windowsHide: true }).trim()
 
 // Synthetic consumer fixtures, never a live receipt or acceptance collector.
@@ -80,7 +80,7 @@ function fixture(commit, tree, artifact) {
   const manifest = { schemaVersion: 2, proofKind: 'managed-team', status: 'pass', provenance: 'controller-observed-live',
     candidate: { commit, tree, cleanBefore: true, cleanAfter: true }, artifact,
     official: { commitBefore: EXPECTED_P0_OFFICIAL_COMMIT, commitAfter: EXPECTED_P0_OFFICIAL_COMMIT,
-      treeBefore: EXPECTED_P0_OFFICIAL_TREE, treeAfter: EXPECTED_P0_OFFICIAL_TREE, statusBefore: '', statusAfter: '', version: '0.1.5-alpha.2' },
+      treeBefore: EXPECTED_P0_OFFICIAL_TREE, treeAfter: EXPECTED_P0_OFFICIAL_TREE, statusBefore: '', statusAfter: '', version: '0.1.5-rc.2' },
     profile: { dshHome: join(process.cwd(), 'isolated-profile'), provider: 'configured-provider', model: 'model-a', profileName: 'acceptance' },
     managed: { mainSessionId: 'main', captainSessionId: 'captain', memberSessionIds: ids.slice(2),
       sessionsBefore: 'evidence/managed-before.json', sessionsAfter: 'evidence/managed-after.json', phases: {
@@ -97,7 +97,7 @@ function fixture(commit, tree, artifact) {
   // identity below never rewrites these expected package/Profile fields.
   const expected = { requireManaged: true, proofKind: 'managed-team', candidateCommit: commit, candidateTree: tree,
     artifact: { sha256: artifact.sha256, bytes: artifact.bytes },
-    official: { commit: EXPECTED_P0_OFFICIAL_COMMIT, tree: EXPECTED_P0_OFFICIAL_TREE, version: '0.1.5-alpha.2' },
+    official: { commit: EXPECTED_P0_OFFICIAL_COMMIT, tree: EXPECTED_P0_OFFICIAL_TREE, version: '0.1.5-rc.2' },
     profile: { dshHome: join(process.cwd(), 'isolated-profile'), provider: 'configured-provider', model: 'model-a', profileName: 'acceptance' } }
   return { manifest, files, expected }
 }

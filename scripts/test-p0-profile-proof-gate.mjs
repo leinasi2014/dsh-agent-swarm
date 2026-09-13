@@ -157,13 +157,18 @@ if (inventoryFixture.length !== 0) throw new Error('valid empty inventory respon
 
 const safeBundle = await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
 if (!verifySafeBundlePatch(safeBundle).ok) throw new Error('repository Bundle does not match the enabled-by-default structural group')
-for (const [label, broken] of [
+const unsafeBundleCases = [
   ['default-disabled', safeBundle.replace('disabled: false', 'disabled: true')],
   ['plugin as group', safeBundle.replace('name: cordis:group', 'name: dsh-agent-swarm')],
   ['missing structural flag', safeBundle.replace('      group: true\n', '')],
   ['wrong child', safeBundle.replace('id: agent-swarm-runtime', 'id: alternate-runtime')],
   ['missing settings dependency', safeBundle.replace('          inject: [settings]\n', '')],
-]) {
+  ['missing Connection carrier dependency', safeBundle.replace('[webRuntime, webServer]', '[webRuntime]')],
+  ['missing Connection Web config dependency', safeBundle.replace('[webRuntime, webServer]', '[webServer]')],
+  ['wrong Connection provider', safeBundle.replace("name: '@deepseek-ai/dsh-client-connection'", "name: 'other-transport'")],
+  ['unrelated Connection override', safeBundle + '  disabled: true\n'],
+]
+for (const [label, broken] of unsafeBundleCases) {
   if (verifySafeBundlePatch(broken).ok) throw new Error(`unsafe Bundle fixture unexpectedly passed: ${label}`)
 }
 
@@ -499,7 +504,7 @@ try {
     cases.push([label])
   }
   await testManagedP0Evidence(root, base.artifact)
-  console.log(`P0 Bundle/evidence gates: Typert payload + 1 positive/2 negative response cases; 1 safe Bundle + 4 unsafe Bundle cases; positive evidence + ${cases.length} negative evidence cases: PASS`)
+  console.log(`P0 Bundle/evidence gates: Typert payload + 1 positive/2 negative response cases; 1 safe Bundle + ${unsafeBundleCases.length} unsafe Bundle cases; positive evidence + ${cases.length} negative evidence cases: PASS`)
 } finally {
   await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 }

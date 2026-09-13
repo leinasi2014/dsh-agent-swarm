@@ -41,6 +41,8 @@ import { isPublicMessageV3, publicDeliveries, publicManagedParent } from '../dom
 import { publicInputPredicates, publicRecipientImageCapability, samePublicImageInput, steerVerifiedPublicImagePrompt, verifyPublicImageReferences } from './public-image-delivery.js'
 import { deliverWorkRequestNotice } from './work-request-delivery.js'
 import { openClaimNoticeDeferred } from '../domain/team-domain-open-claim.js'
+import { withLiveChild } from './continuable-child.js'
+import { TeamDomainError } from '../domain/error.js'
 
 /** One serialized drain, including overlapping work it waited for. */
 export interface PublicDeliveryResult {
@@ -276,8 +278,8 @@ export class MessageDelivery {
           }
         }
         if (delivery.recipientSessionId === team.captainSessionId) await admit(root, signal)
-        else await this.ctx.subagents.withContinuableChild(root, SessionId(team.captainSessionId), signal,
-          async (captain, leaseSignal) => await admit(captain, leaseSignal))
+        else await withLiveChild(this.ctx, root, SessionId(team.captainSessionId), signal,
+          async (captain, leaseSignal) => { await admit(captain, leaseSignal) })
         } catch (error) {
           signal.throwIfAborted()
           if (throwOnFailure) throw error
@@ -461,6 +463,40 @@ export class MessageDelivery {
     })
     this.chains.set(key, next)
     return await next
+  }
+
+  /** After maintenance, fold existing recipient debt without admission or a stale Agent lease. */
+  async reconcileRecipientClaims(scope: TeamScope, teamId: TeamId, recipientSessionId: string, signal: AbortSignal): Promise<void> {
+    const initial = await this.deps.publicTeam?.(scope, teamId)
+    for (const notice of initial?.messages ?? []) {
+      if (notice.targetSessionId !== recipientSessionId || notice.phase !== 'queued') continue
+      if (this.deps.isClosing() || signal.aborted) return
+      await this.queueMessageOperation(scope, teamId, notice.id, async () => {
+        const frame = messageFrame(notice)
+        const read = async () => (await this.deps.publicTeam?.(scope, teamId))?.messages.find(message => message.id === notice.id)
+        const same = (message: TeamMessage | undefined): message is TeamMessage => message !== undefined
+          && message.kind === notice.kind && message.targetSessionId === recipientSessionId && messageFrame(message) === frame
+        const current = await read()
+        if (!same(current) || current.phase !== 'queued' || this.deps.isClosing() || signal.aborted) return current
+        const visibility = await frameVisibility(this.ctx, recipientSessionId, frame, signal, `released message ${notice.id}`, true)
+        if (visibility === 'absent') return undefined
+        let claimed = visibility === 'claimed'
+        if (!claimed) {
+          const target = this.ctx.agents.get(SessionId(recipientSessionId))
+          if (target !== undefined) claimed = await waitForFrameClaim(this.ctx, target, frame, signal, 5_000, true)
+        }
+        if (!claimed || this.deps.isClosing() || signal.aborted) return undefined
+        const latest = await read()
+        if (!same(latest) || latest.phase !== 'queued') return latest
+        try { return await this.deps.domain().acknowledgeMessage(scope, teamId, notice.id) }
+        catch (error) {
+          if (!(error instanceof TeamDomainError) || error.code !== 'TEAM_MESSAGE_PHASE_INVALID') throw error
+          const terminal = await read()
+          if (same(terminal) && terminal.phase !== 'queued') return terminal
+          throw error
+        }
+      })
+    }
   }
 
   /** Wait for every in-flight delivery chain (disposal path). */

@@ -13,26 +13,10 @@ import type {
 } from '../rpc/read-rpc-contract.js'
 import { SwarmReadClient, type SwarmReadClientMount } from './read-client.js'
 
-type TeamDashboardPhase = 'closed' | 'loading' | 'ready' | 'stale' | 'reconnecting' | 'error'
+import type { TeamDashboardData, TeamDashboardState, TeamDashboardPhase } from './team-read-types.js'
+export type { TeamDashboardData, TeamDashboardState } from './team-read-types.js'
 
-export interface TeamDashboardData {
-  readonly capabilities: SwarmReadCapabilitiesV1
-  readonly projection: SwarmHostReadProjectionV1
-  readonly teams: SwarmReadTeamsV1
-  readonly captainAnnouncements: SwarmReadCaptainAnnouncementsV1
-  readonly captainDiagnostics: SwarmReadCaptainDiagnosticsV1
-  readonly captainMembers: SwarmReadCaptainMembersV1
-}
-
-export interface TeamDashboardState {
-  readonly open: boolean
-  readonly phase: TeamDashboardPhase
-  readonly targetSessionId?: string
-  /** A requested Team whose binding is not yet verified; cached data still belongs to the prior Team. */
-  readonly pendingTeamId?: string
-  readonly data?: TeamDashboardData
-  readonly error?: { readonly code: string; readonly message: string }
-}
+export { teamEntryVisible } from './team-dashboard-view-helpers.js'
 
 export interface TaskDetailTarget {
   readonly targetSessionId: string
@@ -86,6 +70,7 @@ export class TeamDashboardController {
    *  keep selecting the same Team instead of flapping. Resolved from the Team directory on every load. */
   private selectedTeamId: string | undefined
   private explicitTeamSelection = false
+  private readonly teamSelections = new Map<string, string>()
   private disposed = false
 
   constructor(
@@ -167,13 +152,15 @@ export class TeamDashboardController {
 
   /** Switch the bound Team for the open dashboard and re-read binding/snapshot/sections
    *  consistently against that Team. No-op when there is no open panel or it is already bound. */
-  selectTeam(teamId: string): void {
+  selectTeam(teamId: string, mainSessionId?: string): void {
     this.assertLive()
     const target = this.state.targetSessionId
     if (!this.state.open || target === undefined) return
     if (this.state.data?.projection.binding.teamId === teamId && this.selectedTeamId === teamId) return
     this.selectedTeamId = teamId
     this.explicitTeamSelection = true
+    const main = mainSessionId ?? (this.state.choices ?? this.state.data?.teams)?.binding.mainSessionId
+    if (main !== undefined) this.teamSelections.set(main, teamId)
     this.stopActive()
     this.publish({ ...withoutError(this.state, this.state.data === undefined ? 'loading' : 'reconnecting'), pendingTeamId: teamId })
     void this.load(target, false)
@@ -306,7 +293,7 @@ export class TeamDashboardController {
       this.publish(withoutError(this.state, 'reconnecting'))
     }
     try {
-      let data: TeamDashboardData
+      let data: TeamDashboardData | { choices: SwarmReadTeamsV1 }
       try {
         data = await this.readComplete(targetSessionId, abort.signal)
       } catch (error) {
@@ -314,7 +301,7 @@ export class TeamDashboardController {
         data = await this.readComplete(targetSessionId, abort.signal)
       }
       if (!this.isCurrent(generation, targetSessionId, abort)) return
-      this.publish({ open: true, phase: 'ready', targetSessionId, data })
+      this.publish({ open: true, phase: 'ready', targetSessionId, ...('choices' in data ? data : { data }) })
       this.scheduleLoad(targetSessionId, this.pollMs, false)
     } catch (error) {
       if (abort.signal.aborted || !this.isCurrent(generation, targetSessionId, abort)) return
@@ -332,11 +319,12 @@ export class TeamDashboardController {
     }
   }
 
-  private async readComplete(targetSessionId: string, signal: AbortSignal): Promise<TeamDashboardData> {
+  private async readComplete(targetSessionId: string, signal: AbortSignal): Promise<TeamDashboardData | { choices: SwarmReadTeamsV1 }> {
     const [capabilities, teams] = await Promise.all([this.readCapabilities(signal), this.readTeams(targetSessionId, signal)])
     signal.throwIfAborted()
     // All target reads require a concrete Team from the validated enumeration.
     const selectedTeamId = this.resolveTeamId(teams)
+    if (selectedTeamId === undefined) return { choices: teams }
     const target = { rootSessionId: targetSessionId, teamId: selectedTeamId }
     // Keep every read addressed to the Session whose Team panel the user opened.
     // For a Main Brain, binding.rootSessionId is the resolved dedicated Captain;
@@ -391,11 +379,9 @@ export class TeamDashboardController {
     }, signal) as SwarmReadTeamsV1
   }
 
-  /** Resolve the concrete Team to bind from the enumerated Team directory. A single visible Team
-   *  is auto-selected; a multi-Team root keeps a stable selection across loads, falling back to the
-   *  enumeration-ordered first Team only when the prior selection is no longer visible. An empty
-   *  directory has no bindable Team and fails closed before any binding read. */
-  private resolveTeamId(teams: SwarmReadTeamsV1): string {
+  /** A unique Team selects itself. A multi-Team Main requires an explicit choice,
+   * remembered only under that Main; fresh child reads follow their actual Team. */
+  private resolveTeamId(teams: SwarmReadTeamsV1): string | undefined {
     const visible = teams.teams
     const first = visible[0]
     if (first === undefined) {
@@ -404,6 +390,11 @@ export class TeamDashboardController {
     if (visible.length === 1) {
       this.selectedTeamId = first.teamId
       return first.teamId
+    }
+    if (teams.binding.mainSessionId === teams.binding.rootSessionId) {
+      const selected = this.teamSelections.get(teams.binding.mainSessionId)
+      this.selectedTeamId = visible.some(team => team.teamId === selected) ? selected : undefined
+      return this.selectedTeamId
     }
     // A fresh child Chat opens its own Team even if another Team was inspected
     // in the previous Chat. An explicit card selection remains stable here.

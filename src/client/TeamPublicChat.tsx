@@ -1,7 +1,7 @@
 import { IconPaperclipOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { PublicSessionStats } from './PublicSessionStats.js'
 import { PublicQuote } from './PublicQuote.js'
-import { usePublicReadingPosition } from './use-public-reading-position.js'
+import { usePublicReadingPosition, type PublicReadingPositions } from './use-public-reading-position.js'
 import { TeamGoalHeader } from './TeamGoalHeader.js'
 import type { GoalController } from './goal-controller.js'
 import { useEffect, useRef, useState } from 'react'
@@ -17,8 +17,11 @@ import type { TeamDashboardController } from './team-dashboard-controller.js'
 import type { TeamDashboardSurfaceCoordinator } from './team-dashboard-surface-coordinator.js'
 import { TEAM_DASHBOARD_NS } from './team-dashboard-locales.js'
 import { publicChatCss } from './public-chat-styles.js'
+import { publicChatStatusKey } from './team-dashboard-view-helpers.js'
 
 interface Actions {
+  readonly teamExpanded?: boolean | undefined
+  readonly teamPanelId?: string | undefined
   readonly goal?: GoalController | undefined
   readonly addImages: (files: readonly File[]) => void
   readonly removeImage: (id: string) => void
@@ -33,6 +36,7 @@ interface Actions {
   readonly newer: () => void
   readonly refresh: () => void
   readonly latest: () => void
+  readonly enter?: () => void
   readonly replaceText: (start: number, end: number, text: string) => void
   readonly chooseMention: (start: number, end: number, memberId: string) => void
   readonly removeMention: (start: number, reselect?: boolean) => void
@@ -40,10 +44,11 @@ interface Actions {
   readonly upgradeLegacy: () => void
   readonly openTeam: () => void
 }
-type Props = Pick<PropsRuntime<'main'>, 'useSessions'> & PropsHooks<{ chat: PublicChatController; team: TeamDashboardController; surface: TeamDashboardSurfaceCoordinator }> & PropsLocale<typeof TEAM_DASHBOARD_NS> & Actions
+export type TeamPublicChatProps = Pick<PropsRuntime<'main'>, 'useSessions'> & PropsHooks<{ chat: PublicChatController; team: TeamDashboardController; surface: TeamDashboardSurfaceCoordinator }> & PropsLocale<typeof TEAM_DASHBOARD_NS> & Actions
+  & { readonly teamButtonLabel?: string; readonly readingPositions?: PublicReadingPositions }
 
-/** The single group main panel; the existing Session sidebar remains the task seat. */
-export function TeamPublicChat(props: Props) {
+/** The group conversation keeps its own draft and reading-position lifecycle. */
+export function TeamPublicChat(props: TeamPublicChatProps) {
   const { t } = props
   const picker = useRef<HTMLInputElement>(null)
   const state = props.useChat(value => value)
@@ -53,12 +58,13 @@ export function TeamPublicChat(props: Props) {
   const selected = state.selection
   const verified = dashboard.phase === 'ready'
   const sameTeam = (verified || dashboard.phase === 'stale' || dashboard.phase === 'reconnecting')
-    && selected !== undefined && dashboard.targetSessionId === selected.viewer
+    && selected !== undefined && sessions.current === selected.viewer && dashboard.targetSessionId === selected.viewer
+    && dashboard.data?.teams.binding.rootSessionId === selected.viewer
     && (dashboard.pendingTeamId === undefined || dashboard.pendingTeamId === selected.team)
     && dashboard.data?.projection.binding.teamId === selected.team && dashboard.data.projection.binding.rootSessionId === selected.captain
   const readingKey = selected === undefined ? undefined : JSON.stringify([selected.key, selected.viewer])
-  const scrollbox = usePublicReadingPosition(readingKey, sameTeam)
-  const latest = useRef(props.latest); latest.current = props.latest
+  const scrollbox = usePublicReadingPosition(readingKey, sameTeam, props.readingPositions)
+  const latest = useRef(props.enter ?? props.latest); latest.current = props.enter ?? props.latest
   const requestedEntry = useRef<string>()
   useEffect(() => {
     if (!sameTeam) requestedEntry.current = undefined
@@ -103,12 +109,13 @@ export function TeamPublicChat(props: Props) {
     <style>{publicChatCss}</style>
     <header className="swarm-public__header"><div><h1>{team?.name ?? t('public.title')}</h1>{activeGoal ? null : team?.goal.state === 'generated' ? <details className="swarm-public__goal"><summary>{team.goal.text}</summary><p>{team.goal.text}</p></details> : <p>{t('public.goalEmpty')}</p>}</div>
       {activeGoal ? <TeamGoalHeader goal={props.goal!} teamId={selected.team} t={t} /> : null}
-      {surface.mode !== 'docked'  ? <button type="button" onClick={props.openTeam} disabled={!sameTeam || !verified}>{t('public.openTeam')}</button> : null}</header>
+      {props.teamExpanded !== undefined || surface.mode !== 'docked' ? <button type="button" data-swarm-team-toggle aria-expanded={props.teamExpanded} aria-controls={props.teamPanelId}
+        onClick={props.openTeam} disabled={!sameTeam || !verified}>{props.teamButtonLabel ?? t(props.teamExpanded ? 'workspace.collapse' : 'public.openTeam')}</button> : null}</header>
     {sameTeam && !verified ? <p role={dashboard.phase === 'stale' ? 'alert' : 'status'}>{t(dashboard.phase === 'stale' ? 'stale' : 'reconnecting')}{dashboard.error === undefined ? null : ` · ${dashboard.error.message}`}</p> : null}
-    {!sameTeam ? <p role="status">{t(dashboard.phase === 'error' ? 'error' : 'loading')}</p> : <>
+    {!sameTeam ? <p role="status">{t(publicChatStatusKey(dashboard))}</p> : <>
       <div ref={scrollbox} tabIndex={-1} className="swarm-public__messages" aria-label={t('public.title')} aria-busy={state.loading}>
         {state.history?.hasEarlier ? <button type="button" disabled={!verified || state.loading} onClick={props.earlier}>{t('public.earlier')}</button> : null}
-        {state.entries.length === 0 ? <p className="swarm-public__empty">{t(state.loading ? 'loading' : 'public.empty')}</p> : null}
+        {state.entries.length === 0 && state.error === undefined ? <p className="swarm-public__empty">{t(state.loading || state.history === undefined ? 'loading' : 'public.empty')}</p> : null}
         {state.entries.map(message => <article key={`${selected.key}:${message.id}`} id={`swarm-message-${message.id}`} tabIndex={-1} data-public-message={message.id} data-delivery={message.delivery.kind === 'not-requested' ? 'not-requested' : message.delivery.recipients.every(row => row.state === 'claimed') ? 'claimed' : 'requested'} className={message.author.kind === 'local-operator' ? 'swarm-public__message swarm-public__message--operator' : 'swarm-public__message'}>
           <div className="swarm-public__meta"><strong>{message.author.kind === 'local-operator' ? t('public.operator') : message.author.kind === 'system' ? t('public.system') : message.author.displayName || message.author.name}</strong><time dateTime={new Date(message.createdAt).toISOString()}>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></div>
           {message.replyTo === undefined ? null : <PublicQuote text={`${t('public.reply')}: ${state.entries.find(row => row.id === message.replyTo)?.text ?? t('public.replyOutside')}`} targetId={state.entries.some(row => row.id === message.replyTo) ? message.replyTo : undefined} t={t} />}

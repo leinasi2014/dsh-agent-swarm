@@ -402,20 +402,18 @@ export class TeamRun implements WorkflowRun {
   /** Create the call's task and follow it through the review gate to a terminal state. */
   private async awaitTaskCompletion(call: AgentCall, memberSessionId: string): Promise<AgentCallOutcome> {
     const exec = { agent: this.parent, signal: this.controller.signal }
-    const created = await this.deps.runtime.createTask(exec, {
-      subject: call.label,
-      description: call.prompt,
-      acceptanceCriteria: ['Complete the workflow agent prompt and submit concrete output.'],
-    })
+    let createdId: string | undefined
     try {
+      const created = await this.deps.runtime.createTask(exec, { subject: call.label, description: call.prompt,
+        acceptanceCriteria: ['Complete the workflow agent prompt and submit concrete output.'],
+      })
+      createdId = created.id
       let snapshot: TeamStatusSnapshot = await this.domain.snapshot(this.scope, this.requireTeamId(), this.parent.id)
       for (;;) {
         if (this.cancelReason !== undefined) throw new WorkflowError(`workflow run cancelled: ${this.cancelReason}`, 'CANCELLED')
         const task = snapshot.team.tasks.find(candidate => candidate.id === created.id)
-        if (task === undefined) {
-          this.endAgent(call.seq, 'failed')
+        if (task === undefined)
           throw new WorkflowError(`workflow task ${created.id} disappeared from the Team aggregate`, 'AGENT_RESULT')
-        }
         if (task.status === 'completed') {
           this.endAgent(call.seq, 'completed')
           return { outcome: 'completed', output: task.output ?? '' }
@@ -429,8 +427,7 @@ export class TeamRun implements WorkflowRun {
           if (attemptId !== undefined) {
             try {
               await this.deps.runtime.reviewTask(exec, {
-                taskId: task.id,
-                expectedRevision: task.revision,
+                taskId: task.id, expectedRevision: task.revision,
                 attemptId,
                 decision: 'accept',
                 diagnostic: 'workflow bridge auto-accept',
@@ -457,12 +454,12 @@ export class TeamRun implements WorkflowRun {
         // The budget gate stopped this run (M2-5): the structured failure —
         // not a cancellation — is what the script must die with.
         this.endAgent(call.seq, 'failed')
-        await this.cancelTaskWorkBounded(created.id, memberSessionId)
+        await this.cancelTaskWorkBounded(createdId, memberSessionId)
         throw this.budgetFatal
       }
       if (this.cancelReason !== undefined) {
         this.endAgent(call.seq, 'cancelled')
-        await this.cancelTaskWorkBounded(created.id, memberSessionId)
+        await this.cancelTaskWorkBounded(createdId, memberSessionId)
         throw new WorkflowError(`workflow run cancelled: ${this.cancelReason}`, 'CANCELLED')
       }
       this.endAgent(call.seq, 'failed')
@@ -471,16 +468,19 @@ export class TeamRun implements WorkflowRun {
   }
 
   /** Bounded, best-effort cancellation of one call's task attempt and member turn. */
-  private async cancelTaskWorkBounded(taskId: string, memberSessionId: string): Promise<void> {
+  private async cancelTaskWorkBounded(taskId: string | undefined, memberSessionId: string): Promise<void> {
+    // A committed admission failure may have no receipt; terminal Team archive cancels its debt without guessing an id.
     try {
-      const snapshot = await Promise.race([
-        this.domain.snapshot(this.scope, this.requireTeamId(), this.parent.id),
-        sleep(this.deps.disposalTimeoutMs),
-      ])
-      if (snapshot === undefined) return
-      const task = snapshot.team.tasks.find(candidate => candidate.id === taskId)
-      if (task !== undefined && ['in_progress', 'submitted', 'verifying'].includes(task.status)) {
-        await this.domain.cancelAttempt(this.scope, this.requireTeamId(), this.parent.id, task.id, task.revision, `workflow run cancelled: ${this.cancelReason ?? 'workflow cancelled'}`)
+      if (taskId !== undefined) {
+        const snapshot = await Promise.race([
+          this.domain.snapshot(this.scope, this.requireTeamId(), this.parent.id),
+          sleep(this.deps.disposalTimeoutMs),
+        ])
+        if (snapshot === undefined) return
+        const task = snapshot.team.tasks.find(candidate => candidate.id === taskId)
+        if (task !== undefined && ['in_progress', 'submitted', 'verifying'].includes(task.status)) {
+          await this.domain.cancelAttempt(this.scope, this.requireTeamId(), this.parent.id, task.id, task.revision, `workflow run cancelled: ${this.cancelReason ?? 'workflow cancelled'}`)
+        }
       }
     } catch (error: unknown) {
       this.deps.ctx.logger.warn(`agent-swarm workflow bridge: task cancel failed for ${taskId}: ${String(error)}`)

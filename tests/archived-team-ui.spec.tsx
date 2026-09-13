@@ -7,11 +7,13 @@ import { TeamGroupNavigation } from '../src/client/TeamGroupNavigation.js'
 import { GoalController } from '../src/client/goal-controller.js'
 import { RetirementClient } from '../src/client/retirement-client.js'
 import type { TeamDashboardState } from '../src/client/team-dashboard-controller.js'
+import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+import { TEAM_DASHBOARD_NS } from '../src/client/team-dashboard-locales.js'
 
 function archivedState(): TeamDashboardState {
   const data = ready.data!, row = data.teams.teams[0]!, member = data.captainMembers.members[0]!
   return { ...ready, data: { ...data,
-    teams: { ...data.teams, binding: { ...data.teams.binding, mainSessionId: ready.targetSessionId! }, teams: [{ ...row, phase: 'archived' }] },
+    teams: { ...data.teams, binding: { ...data.teams.binding, rootSessionId: ready.targetSessionId!, mainSessionId: ready.targetSessionId! }, teams: [{ ...row, phase: 'archived' }] },
     projection: { ...data.projection, team: { ...data.projection.team, phase: 'archived' } },
     captainMembers: { ...data.captainMembers, members: [{ ...member, name: 'writer', phase: 'removed', sessionId: undefined,
       historySessionId: 'member-history', composition: { state: 'unavailable', reason: 'removed', runtimeProvider: 'mock' } } as never] },
@@ -25,7 +27,7 @@ it.each(['saved', 'empty'] as const)('renders the archived %s goal without the a
   const binding = team.data.projection.binding, send = vi.fn()
   const goalClient = { read: vi.fn(), save: vi.fn(), control: vi.fn(), requestResult: vi.fn() }
   const props = { t, goal: new GoalController(goalClient, 'archive-fixture'),
-    useTeam: (select: (value: unknown) => unknown) => select(team), useSessions: (select: (value: unknown) => unknown) => select({ phase: 'ready', ids: [], byId: {} }),
+    useTeam: (select: (value: unknown) => unknown) => select(team), useSessions: (select: (value: unknown) => unknown) => select({ phase: 'ready', current: team.targetSessionId, ids: [], byId: {} }),
     useSurface: (select: (value: unknown) => unknown) => select({ mode: 'docked' }),
     useChat: (select: (value: unknown) => unknown) => select({
       selection: { key: 'archived', viewer: team.targetSessionId, captain: binding.rootSessionId, team: binding.teamId },
@@ -59,12 +61,15 @@ it.each(['authorized', 'missing', 'active-id-only', 'team-binding', 'captain-bin
     sessions: [{ id: 'member-history', label: 'Writer', role: 'member', available: true }], cursor: 0,
     entries: [{ sequence: 1, role: 'assistant', content: '已保存的成员工作记录', truncated: false }] } }))
   const openMember = vi.fn(), openCaptain = vi.fn(), openMain = vi.fn()
-  const props = { t, wide: true, retirement: new RetirementClient({ call: rpc } as never, window.sessionStorage),
-    useTeam: (select: (value: TeamDashboardState) => unknown) => select(state),
-    usePanelInfo: (select: (value: unknown) => unknown) => select({ activePanelId: 'swarm.group' }),
-    selectGroup: vi.fn(), expandSidebar: vi.fn(), openMember, openCaptain, openMain,
-  } as unknown as ComponentProps<typeof TeamGroupNavigation>
-  await render(<TeamGroupNavigation {...props} />)
+  const listeners = new Set<() => void>()
+  const teamStore = {
+    subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
+    getSnapshot: (): TeamDashboardState => state,
+  }
+  const tNS = t as TranslateNS<typeof TEAM_DASHBOARD_NS>
+  await render(<TeamGroupNavigation t={tNS} wide retirement={new RetirementClient({ call: rpc } as never, window.sessionStorage)}
+    team={teamStore} activePanelId={null} refreshDirectory={vi.fn()} selectGroup={vi.fn()}
+    openMember={openMember} openCaptain={openCaptain} openMain={openMain} />)
   await act(async () => { document.querySelector<HTMLButtonElement>('.swarm-groups__archived')!.click() })
   await act(async () => { document.querySelector<HTMLButtonElement>(`[data-swarm-group="${team.teamId}"]`)!.click() })
   const member = document.querySelector<HTMLButtonElement>('[data-swarm-group-member="writer"]')!

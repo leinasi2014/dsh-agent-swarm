@@ -1,5 +1,6 @@
 /** Recording adapter drives actual tools through the official loop; it is not real-model evidence. */
 import { mkdtemp, rm } from 'node:fs/promises'
+import { withLiveChild } from './helpers/live-child.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ToolCallId, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
@@ -108,7 +109,7 @@ it.each(['direct work notice', 'scheduling mailbox'] as const)('keeps the real o
     else {
       // A real budget event starts the existing scheduling owner. Its mailbox
       // drain, rather than the independent work-notice kick, wakes the Captain.
-      await f.ctx.subagents.withContinuableChild(root, captain.id, SIGNAL, async live => {
+      await withLiveChild(f.ctx, root, captain.id, SIGNAL, async live => {
         const budget = await restartTool(f.ctx, live, 'work-loop-budget-event', 'agent_swarm_set_budget', { request_limit: 10 })
         expect(budget.isError, JSON.stringify(budget)).toBe(false)
       })

@@ -1,4 +1,5 @@
 import { readPersistedSession } from '../src/runtime/persisted-session.js'
+import { withLiveChild } from './helpers/live-child.js'
 import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 import { deliverSubagentPrompt, type HostPromptDeliverer } from '@deepseek-ai/dsh-subagent/internal'
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
@@ -242,7 +243,7 @@ describe('DSH rc.8 composition', () => {
       // Registry removal can precede the continuation owner's Session-handle
       // release. Its Host lease waits for retirement and retains the member
       // through this tool call without adding a message or model turn.
-      await ctx.subagents.withContinuableChild(lead, SessionId(added.session_id), SIGNAL, async (memberAgent, signal) => {
+      await withLiveChild(ctx, lead, SessionId(added.session_id), SIGNAL, async (memberAgent, signal) => {
         const staleResult = await ctx.tools.execute({
           signal,
           callId: ToolCallId('stale-submit'),

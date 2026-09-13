@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { FakeCoordinator, ready, render, t, tZh } from './helpers/dashboard-ui.js'
 import { useTabInfo } from './helpers/sidebar-tab.js'
-import { act, useSyncExternalStore, type ComponentProps } from 'react'
+import { act, type ComponentProps } from 'react'
 import { describe, expect, it } from 'vitest'
 import { TeamDashboardDetails } from '../src/client/TeamDashboardDetails.js'
+const fixtureNavigation = { refreshDirectory: () => {}, selectGroup: () => {}, openMain: async () => {}, openCaptain: async () => {}, openMember: async () => {} }
 import { TeamGroupNavigation } from '../src/client/TeamGroupNavigation.js'
 import type { TeamDashboardState } from '../src/client/team-dashboard-controller.js'
 import type { SwarmReadTaskDetailV1 } from '../src/rpc/read-rpc-contract.js'
@@ -42,16 +43,14 @@ async function mount(state = fixture(), translate = t, navigation = false) {
         task: { ...task, description: '', acceptanceCriteria: [] }, attempts: { scope: 'retained', entries, retainedCount: entries.length, returnedCount: entries.length, limit: 100, truncated: false }, observedAt: projection.observedAt }
     } }
   function Navigation() {
-    const current = useSyncExternalStore(controller.subscribe, controller.getSnapshot)
-    const props = { t: translate, wide: true, expandSidebar: () => {},
-      useTeam: <T,>(selector: (value: TeamDashboardState) => T) => selector(current),
-      usePanelInfo: <T,>(selector: (value: { activePanelId: null }) => T) => selector({ activePanelId: null }),
+    const props = { t: translate, wide: true, activePanelId: null,
+      team: { subscribe: controller.subscribe, getSnapshot: controller.getSnapshot }, refreshDirectory: () => {},
       selectGroup: () => {}, openMain: async () => {}, openCaptain: async () => {},
       openMember: (name: string, sessionId: string) => coordinator.openMemberChat(name, sessionId),
     }
     return <TeamGroupNavigation {...props as ComponentProps<typeof TeamGroupNavigation>} />
   }
-  await render(<>{navigation ? <Navigation /> : null}<TeamDashboardDetails {...({ controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'main-brain', useTabInfo, t: translate } as any)} /></>)
+  await render(<>{navigation ? <Navigation /> : null}<TeamDashboardDetails navigation={fixtureNavigation} {...({ controller, coordinator, localeTag: coordinator.localeTag, sessionId: 'main-brain', useTabInfo, t: translate } as any)} /></>)
   return { coordinator, setState: async (next: TeamDashboardState) => { await act(async () => { state = next; listeners.forEach(listener => listener()) }) } }
 }
 

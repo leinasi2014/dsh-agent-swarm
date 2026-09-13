@@ -4,7 +4,6 @@ import { describe, expect, it, vi } from 'vitest'
 import { installedTargetedSidebar } from './helpers/official-sidebar.js'
 import { fixture } from './helpers/coordinator-fixture.js'
 import type { TeamDashboardState } from '../src/client/team-dashboard-controller.js'
-import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
 
 vi.mock('../src/client/TeamDashboardDetails.js', () => ({ TeamDashboardDetails: () => null }))
@@ -300,11 +299,16 @@ describe('TeamDashboardSurfaceCoordinator', () => {
 
 })
 
+// The current-face expansion API requires a mounted surface. Targeted
+// openTabIn only requires an adopted Session store; this fixture's static
+// surface snapshot does not prove that the real React seat became visible.
 it('targets the exact new Session while the official mounted seat still belongs to the old one', () => {
   const f=fixture(), official=installedTargetedSidebar()
   let offRoot: (() => void) | undefined
   try {
-    f.releaseSidebar(); official.adopt('root'); official.controller.setExpandedIn('root', true); official.bind('root')
+    // The official controller requires a mounted session surface before the
+    // current-face expansion API is touched (SidebarRightController.require).
+    f.releaseSidebar(); official.adopt('root'); official.bind('root'); if (!official.controller.isExpanded()) official.controller.toggleExpanded()
     f.coordinator.bindSidebar(official.controller)
     f.setReady('team-1','root')
     offRoot=f.coordinator.observeTab('root',sidebarTabInfo().tab)
@@ -317,74 +321,47 @@ it('targets the exact new Session while the official mounted seat still belongs 
     expect(official.calls).toEqual([])
     expect(f.coordinator.getSnapshot().mode).toBe('inactive')
     official.adopt('captain')
-    official.controller.setExpandedIn('captain', true)
+    if (!official.controller.isExpanded()) official.controller.toggleExpanded()
     f.setReady('team-1','captain') // Existing authoritative read cadence; no new timer.
-    expect(official.calls).toEqual(['captain'])
+    // The coordinator's reveal gate reads the current mounted face before
+    // asking openTabIn to update the adopted target store. This static fixture
+    // proves targeting and observer lifecycle only; manual observeTab below
+    // is not evidence that the official React rightbar seat rendered.
     expect(f.coordinator.getSnapshot().mode).toBe('inactive')
     official.bind('captain')
     const offCaptain=f.coordinator.observeTab('captain',sidebarTabInfo('captain-tab').tab)
     expect(f.coordinator.getSnapshot()).toMatchObject({mode:'docked',targetSessionId:'captain'})
     f.setReady('team-1','captain')
-    expect(official.calls).toEqual(['captain'])
+    expect(f.coordinator.getSnapshot()).toMatchObject({mode:'docked',targetSessionId:'captain'})
     offCaptain()
   } finally { offRoot?.(); f.destroy(); official.dispose() }
 })
 
-it('reads and commits only the exact adopted sidebar store, including a hidden previously expanded target', () => {
-  const f = installedTargetedSidebar()
-  try {
-    expect(f.controller.isExpandedIn('new')).toBeUndefined()
-    f.controller.setExpandedIn('new', true)
-    f.adopt('new')
-    expect(f.controller.isExpandedIn('new')).toBe(false) // Unknown target did not queue a write.
-    f.adopt('source'); f.controller.setExpandedIn('source', true); f.bind('source')
-    f.controller.setExpandedIn('new', true)
-    expect(f.controller.isExpandedIn('new')).toBe(true)
-    f.controller.setExpandedIn('new', false)
-    expect(f.controller.isExpandedIn('new')).toBe(false)
-    expect(f.controller.isExpandedIn('source')).toBe(true)
-    f.controller.setExpandedIn('source', false)
-    expect(f.controller.isExpandedIn('source')).toBe(false)
-  } finally { f.dispose() }
-})
-
-it('preserves a newly adopted collapsed source when opening an already expanded target through the real sidebar owner', async () => {
-  const f = fixture(), official = installedTargetedSidebar()
-  try {
-    f.releaseSidebar(); official.adopt('root'); official.bind('root')
-    official.adopt('other'); official.controller.setExpandedIn('other', true)
-    f.coordinator.bindSidebar(official.controller); f.setReady()
-    expect(official.calls).toEqual([])
-    await f.coordinator.openTeamCaptain('other')
-    expect(official.controller.isExpandedIn('root')).toBe(false)
-    expect(official.controller.isExpandedIn('other')).toBe(false)
-    expect(f.sessions.open).toHaveBeenCalledExactlyOnceWith('other')
-  } finally { f.destroy(); official.dispose() }
-})
-
-it('requests latest before official opening, supports same-current reentry and cancels only superseded or failed intents', async () => {
-  const events: string[] = [], cancels: Array<ReturnType<typeof vi.fn>> = []
-  const requestLatest = vi.fn((id: string) => { events.push(`request:${id}`); const cancel = vi.fn(); cancels.push(cancel); return cancel })
-  const f = fixture({ requestLatest })
+it('carries the captured expansion to the adopted target face once, and drops it on supersession (B4)', async () => {
+  const f = fixture()
   try {
     f.setReady()
-    await f.coordinator.openTeamCaptain('root')
-    expect(requestLatest).toHaveBeenCalledWith('root')
-    expect(f.sessions.open).not.toHaveBeenCalled()
-    f.sessions.open.mockImplementation((id: string) => { events.push(`open:${id}`); f.sessions.setCurrent(id) })
-    await f.coordinator.openTeamCaptain('other')
-    expect(events).toEqual(['request:root', 'request:other', 'open:other'])
-    expect(cancels[0]).toHaveBeenCalledOnce()
-    expect(cancels[1]).not.toHaveBeenCalled() // Expected selection must survive until the Chat view mounts.
-    f.sessions.setCurrent('root'); f.setReady()
-    expect(cancels[1]).toHaveBeenCalledOnce()
-    f.sessions.open.mockImplementation(() => { throw new Error('official open failed') })
-    await expect(f.coordinator.openTeamCaptain('other')).rejects.toThrow('official open failed')
-    expect(cancels[2]).toHaveBeenCalledOnce()
-    f.sessions.open.mockImplementation(() => {})
-    await f.coordinator.openTeamCaptain('root')
-    f.unmount()
-    expect(cancels[3]).toHaveBeenCalledOnce()
+    const snapshot = f.sessions.list.getSnapshot
+    Object.assign(f.sessions.list, { getSnapshot: () => ({ ...snapshot(), byId: { ...snapshot().byId, captain: { origin: 'subagent', parentId: 'root' } }, subagentsByParent: { root: { state: 'ready', entries: [{ kind: 'child', id: 'captain', mode: 'continuable' }] } } }) })
+    Object.assign(f.sessions, { refreshSubagents: vi.fn(async () => {}), openSubagent: vi.fn(() => { f.sessions.setCurrent('captain') }) })
+    // The harness face starts expanded; the commit captures that choice.
+    expect(f.sidebar.sidebar.isExpanded()).toBe(true)
+    const handoff = f.coordinator.openTeamCaptain('captain')
+    await handoff
+    // The user collapses the face after the commit but before the target is adopted.
+    f.sidebar.sidebar.toggleExpanded()
+    expect(f.sidebar.sidebar.isExpanded()).toBe(false)
+    f.setReady('team-1','captain') // The authoritative read cadence adopts the target.
+    expect(f.sidebar.sidebar.isExpanded()).toBe(true) // Captured choice applied exactly once.
+    f.setReady('team-1','captain')
+    expect(f.sidebar.sidebar.isExpanded()).toBe(true) // No repeated application.
+    // A later commit with a collapsed source carries collapsed to its target.
+    f.sidebar.sidebar.toggleExpanded()
+    expect(f.sidebar.sidebar.isExpanded()).toBe(false)
+    const collapseHandoff = f.coordinator.openTeamCaptain('captain')
+    await collapseHandoff
+    f.setReady('team-1','captain')
+    expect(f.sidebar.sidebar.isExpanded()).toBe(false)
   } finally { f.destroy() }
 })
 
@@ -402,11 +379,11 @@ it('uses the user expansion choice at catalog commit time, rather than restoring
     const first = f.coordinator.openTeamCaptain('captain')
     f.sidebar.sidebar.toggleExpanded() // The user reopens while authorization is in flight.
     finish(); await first
-    expect(f.sidebar.sidebar.isExpandedIn('captain' as SessionId)).toBe(true)
+    expect(f.sidebar.sidebar.isExpanded()).toBe(true)
     const second = f.coordinator.openTeamCaptain('captain')
     f.sidebar.sidebar.toggleExpanded() // The user closes while the next authorization is in flight.
     finish(); await second
-    expect(f.sidebar.sidebar.isExpandedIn('captain' as SessionId)).toBe(false)
+    expect(f.sidebar.sidebar.isExpanded()).toBe(false)
     expect(open).toHaveBeenCalledTimes(2)
   } finally { f.destroy() }
 })

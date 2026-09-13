@@ -36,6 +36,7 @@ import { WorkflowError } from '@deepseek-ai/dsh-workflow'
 import * as WorkflowInvariant from '@deepseek-ai/dsh-workflow/invariant'
 import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import * as AgentSwarm from '../src/index.js'
+import { SchedulingPass } from '../src/runtime/scheduling.js'
 
 /** Assignment-frame identity fields the member must echo in its submission. */
 const ASSIGNMENT_RE = /Task: (task-[a-z0-9-]+), revision (\d+)\nAttempt capability: (\S+)/
@@ -225,6 +226,22 @@ return { done: true, out }`)
     const sandbox = await mkdtemp(join(tmpdir(), 'dsh-wf-bridge-'))
     sandboxes.push(sandbox)
     const tree = await mountTree(sandbox, { submit: false, workflowBridge: true, workflowDisposeGraceMs: 1_500 })
+    const runtime = tree.ctx.agentSwarm
+    let releaseAdmission!: () => void
+    const admissionGate = new Promise<void>(resolve => { releaseAdmission = resolve })
+    let committedTaskId: string | undefined
+    const originalRun = SchedulingPass.prototype.run
+    const admission = vi.spyOn(SchedulingPass.prototype, 'run').mockImplementation(async function (this: SchedulingPass, scope, teamId, captain, signal) {
+      if (captain === tree.lead) {
+        const snapshot = await runtime.domain.snapshot(scope, teamId, captain.id)
+        if (snapshot.team.tasks[0] !== undefined) {
+          committedTaskId = snapshot.team.tasks[0].id
+          await admissionGate
+        }
+      }
+      return await originalRun.call(this, scope, teamId, captain, signal)
+    })
+    const creation = vi.spyOn(runtime, 'createTask')
     try {
       const bridge = tree.ctx.agentSwarm.workflowBridge!
       const run = bridge.start({
@@ -237,12 +254,15 @@ return { out }`),
       // Wait until the run is live on its Team (agent started, task in flight).
       await vi.waitFor(() => {
         expect(tree.workflowEvents.some(event => event.name === 'workflow/agent-start')).toBe(true)
+        expect(committedTaskId).toBeDefined()
       }, { timeout: 15_000 })
       const overlayRunning = bridge.overlay.get(run.id)
       expect(overlayRunning).toMatchObject({ state: 'running' })
 
       const cancelAt = Date.now()
       run.cancel('test cancel')
+      await expect(creation.mock.results[0]!.value).rejects.toMatchObject({ code: 'TEAM_TASK_CREATE_ADMISSION_INTERRUPTED' })
+      releaseAdmission()
       const settled = await vi.waitFor(() => run.result, { timeout: 15_000 })
       expect(Date.now() - cancelAt).toBeLessThan(15_000)
       expect(settled).toMatchObject({ stopReason: 'cancelled' })
@@ -264,10 +284,14 @@ return { out }`),
           tree.ctx.agentSwarm.scopeOf(tree.lead), AgentSwarm.TeamId(overlayRunning!.teamId), tree.lead.id,
         )
         expect(snapshot.team.phase).toBe('archived')
+        expect(snapshot.team.tasks.find(task => task.id === committedTaskId)?.status).toBe('cancelled')
       }, { timeout: 15_000 })
 
       await run.dispose()
     } finally {
+      releaseAdmission()
+      admission.mockRestore()
+      creation.mockRestore()
       for (const fiber of tree.fibers.toReversed()) await fiber.dispose()
     }
   })

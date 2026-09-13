@@ -146,6 +146,7 @@ function liveMember(stack: Stack, memberSessionId: string): Agent {
   const member = {
     id,
     session: { id, header: { cwd: join(stack.scope, 'member') } },
+    inbox: { nextTurn: [], nextStep: [] },
   } as unknown as Agent
   detachAgents.push(stack.ctx.agents.enter(member, stack.lead))
   return stack.ctx.agents.get(id)!

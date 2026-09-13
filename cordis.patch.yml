@@ -22,3 +22,10 @@
             memberMaxDepth: 1
             schedulerProvider: priority-ready
             reviewProvider: manual
+
+# Official 0.1.5-rc.2 custom RPC registration reads webServer in the Connection
+# provider's scope. Preserve the Web bundle's webRuntime dependency and config;
+# a non-Web profile without this exact official row skips the patch.
+- id: connection
+  name: '@deepseek-ai/dsh-client-connection'
+  inject: [webRuntime, webServer]

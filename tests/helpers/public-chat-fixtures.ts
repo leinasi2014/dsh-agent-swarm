@@ -8,7 +8,7 @@ export function teamState(): TeamDashboardState {
   const a = data.teams.teams[0]!
   return { ...ready, data: { ...data,
     projection: { ...data.projection, roster: [{ ...data.projection.roster[0]!, name: 'writer', phase: 'active' }] },
-    teams: { ...data.teams, teams: [a, { ...a, teamId: 'b', name: 'Team B', captainSessionId: 'captain-b' }] },
+    teams: { ...data.teams, binding: { ...data.teams.binding, rootSessionId: ready.targetSessionId! }, teams: [a, { ...a, teamId: 'b', name: 'Team B', captainSessionId: 'captain-b' }] },
     captainMembers: { ...data.captainMembers, members: [{ ...data.captainMembers.members[0]!, name: 'writer', displayName: 'Lin', phase: 'active', sessionId: 'member-1' }] },
   } }
 }

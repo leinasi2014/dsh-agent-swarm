@@ -60,7 +60,7 @@ export class AgentSwarmRuntime extends Service {
   private domainHandle?: Domain<typeof teamDomainSpec>
   private startPromise?: Promise<void>
   private readonly scheduling = new SchedulingAdmission({
-    run: (scope, teamId, captain) => this.schedulingPass.run(scope, teamId, captain),
+    run: (scope, teamId, captain, signal) => this.schedulingPass.run(scope, teamId, captain, signal),
     failed: (scope, teamId, error) => {
       if (!this.closing) this.ctx.logger.warn(`agent-swarm: scheduler failed for ${teamId}: ${String(error)}`)
       this.orchestration.notePassFailure(scope, teamId, error)
@@ -176,7 +176,7 @@ export class AgentSwarmRuntime extends Service {
       assertConfiguredProviders: () => this.assertConfiguredProviders(), scopeOf: agent => this.scopeOf(agent),
       watchJobsScope: scope => this.watchJobsScope(scope), listTeamAggregates: scope => this.listTeamAggregates(scope),
       provisioning: this.provisioning, captainProvisioning: this.captainProvisioning,
-      verificationFamily: this.verificationFamily, executionRoots: this.executionRoots, delivery: this.delivery,
+      verificationFamily: this.verificationFamily, executionRoots: this.executionRoots, delivery: this.delivery, scheduling: this.scheduling,
       reviewProvider: name => this.reviewProviders.get(name),
       requestSchedule: (scope, teamId, captain) => this.scheduling.request(scope, teamId, captain),
       kickPublicMessages: (scope, teamId) => this.kickPublicMessages(scope, teamId),
@@ -205,8 +205,8 @@ export class AgentSwarmRuntime extends Service {
       scopeOf: agent => this.scopeOf(agent), teams: scope => this.listTeamAggregates(scope),
       usage: this.usage, scheduling: this.scheduling, recovery: () => this.activationRecovery,
       ownership: this.orchestration, adaptive: () => config.orchestrationMode === 'adaptive', signal: this.publicAbort.signal,
-      deadlines: this.schedulingPass,
-      sweep: (scope, teamId) => this.executionRoots.sweep(scope, teamId),
+      deadlines: this.schedulingPass, sweep: (scope, teamId) => this.executionRoots.sweep(scope, teamId),
+      reconcileRecipientClaims: (scope, teamId, recipientSessionId, signal) => this.delivery.reconcileRecipientClaims(scope, teamId, recipientSessionId, signal),
     })
     this.retirement = new TeamRetirement(ctx, { store: () => this.storeInstance!, limits: config.limits,
       fence: (scope, teamId, signal, operation) => this.withPublicAdmissionFence(scope, teamId, signal, operation),

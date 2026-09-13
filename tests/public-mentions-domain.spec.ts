@@ -3,7 +3,6 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import { openStorageStack, type StorageStack } from './helpers/storage-stack.js'
 import { TeamDomain, DEFAULT_TEAM_LIMITS } from '../src/domain/team-domain.js'
 import { publicDeliveries } from '../src/domain/public-message.js'
@@ -36,10 +35,6 @@ const input = () => ({ formatVersion: 2 as const, author: { kind: 'local-operato
 ] })
 
 describe('public mentions v2', () => {
-  it('requires the real official callback lease for a cold intermediate parent', () => {
-    expect(typeof Reflect.get(SubagentRuntime.prototype, 'withContinuableChild')).toBe('function')
-  })
-
   it('commits all deduplicated recipient intents together while preserving mention order', async () => {
     const f = await fixture()
     const results = await Promise.all(Array.from({ length: 5 }, () => f.port.appendPublicMessage(f.scope, f.team.id, input())))

@@ -1,7 +1,10 @@
 /** Retirement and cancellation against actual official cold continuation admission. */
 import { mkdtemp, rm } from 'node:fs/promises'
+import { withLiveChild } from './helpers/live-child.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
+import { queueHostSubagentPrompt } from '@deepseek-ai/dsh-subagent/internal'
 import { expect, it, vi } from 'vitest'
 import { publicDeliveries } from '../src/domain/public-message.js'
 import { readPersistedSession } from '../src/runtime/persisted-session.js'
@@ -10,93 +13,118 @@ import { MessageDelivery } from '../src/runtime/message-delivery.js'
 import { RESTART_SIGNAL as SIGNAL } from './helpers/restart-real-composition.js'
 import { Recording, setup, createTeam, addPublicMembers } from './helpers/public-chat-real-composition.js'
 
+/** Keep the caller's official turn alive without holding member admission. */
+class CaptainRecording extends Recording {
+  holdSessionId?: string
+  release!: () => void
+  private observe!: () => void
+  readonly entered = new Promise<void>(resolve => { this.observe = resolve })
+  private readonly gate = new Promise<void>(resolve => { this.release = resolve })
+
+  override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    if (this.holdSessionId !== undefined && options.sessionId === this.holdSessionId) {
+      this.observe()
+      await this.gate
+    }
+    yield* super.stream(options)
+  }
+}
+
 it.each([
   ['remove', false], ['archive', false], ['remove', true], ['archive', true],
 ] as const)('fences %s completion against an in-flight public cold member observation (cancelled=%s)', async (operation, cancelled) => {
   const sandbox = await mkdtemp(join(tmpdir(), `swarm-public-exit-${operation}-`))
-  const adapter = new Recording()
+  const adapter = new CaptainRecording()
   const f = await setup(sandbox, adapter)
   let release!: () => void
   const gate = new Promise<void>(resolve => { release = resolve })
   try {
     const { root, captain, teamId, scope } = await createTeam(f, sandbox)
     const [memberId] = await addPublicMembers(f, root, captain.id)
-    await f.ctx.subagents.withContinuableChild(root, captain.id, SIGNAL, async (liveCaptain) => {
+    await withLiveChild(f.ctx, root, captain.id, SIGNAL, async liveCaptain => {
       await f.ctx.subagents.drainContinuableChildren(liveCaptain, [memberId!])
-      expect(f.ctx.agents.get(memberId!)).toBeUndefined()
-      const committed = await f.ctx.agentSwarm.domain.appendPublicMessage(scope, teamId, {
-        formatVersion: 2, author: { kind: 'local-operator' }, requestId: `cold-exit-${operation}`,
-        content: [{ type: 'mention', memberId: memberId! }, { type: 'text', text: 'Finish this public request.' }],
-      })
-      const frame = publicDeliveries(committed.message)[0]!.frame
-      let observed!: () => void
-      const entered = new Promise<void>(resolve => { observed = resolve })
-      let insideTargetPrompt = false
-      const actualPrompt = f.ctx.subagents.prompt.bind(f.ctx.subagents)
-      const prompt = vi.spyOn(f.ctx.subagents, 'prompt').mockImplementation(async (request, signal) => {
-        if (request.childSessionId !== memberId) return await actualPrompt(request, signal)
-        insideTargetPrompt = true
-        try { return await actualPrompt(request, signal) } finally { insideTargetPrompt = false }
-      })
-      const actualObserve = f.ctx.sessionQuery.observeSession.bind(f.ctx.sessionQuery)
-      const observe = vi.spyOn(f.ctx.sessionQuery, 'observeSession').mockImplementation(async (id, options) => {
-        if (id === memberId && insideTargetPrompt) {
-          observed()
-          await gate
-        }
-        return await actualObserve(id, options)
-      })
-      const deliveries = vi.spyOn(MessageDelivery.prototype, 'deliverPublicMessages')
-      let exitCompleted = false
-      let modelsAtExit = -1
-      let inputsAtExit = -1
-      const cancellation = new AbortController()
-      const memberModels = () => adapter.requests.filter(request => request.sessionId === memberId).length
-      try {
-        f.ctx.agentSwarm.kickPublicMessages(scope, teamId)
-        const draining = deliveries.mock.results.at(-1)!.value as Promise<unknown>
-        await entered
-        expect(f.ctx.agents.get(memberId!)).toBeUndefined()
-        const exiting = (operation === 'remove'
-          ? f.ctx.agentSwarm.removeMember({ agent: liveCaptain, signal: cancellation.signal }, 'alpha', 'leave during cold admission')
-          : f.ctx.agentSwarm.archive({ agent: liveCaptain, signal: cancellation.signal }, 'archive during cold admission'))
-          .then(async value => {
-            modelsAtExit = memberModels()
-            const stored = await readPersistedSession(f.ctx.sessionPersistence, memberId!, SIGNAL)
-            inputsAtExit = stored.events.slice(stored.inheritedEventCount ?? 0)
-              .flatMap(event => event.type === 'user/message' ? [event.data] : []).filter(framePredicate(frame)).length
-            exitCompleted = true
-            return value
-          })
-        const outcome = exiting.then(() => ({ ok: true as const }), error => ({ ok: false as const, error }))
-        // Give the real mutation its normal async commit/drain opportunities.
-        // The held official observation must prevent a successful early return.
-        await new Promise(resolve => setTimeout(resolve, 150))
-        const returnedBeforeObservation = exitCompleted
-        const cancelReason = new Error('Cancelled while retirement waits for public admission')
-        if (cancelled) cancellation.abort(cancelReason)
-        release()
-        const result = await outcome
-        await draining
-        if (cancelled) {
-          expect(result).toEqual({ ok: false, error: cancelReason })
-          const team = (await f.ctx.agentSwarm.domain.snapshot(scope, teamId, captain.id)).team
-          expect(team.phase).toBe('active')
-          expect(team.members.find(member => member.sessionId === memberId)?.phase).toBe('active')
-          return
-        }
-        expect(result).toEqual({ ok: true })
-        await f.ctx.agents.get(memberId!)?.whenIdle()
-        const after = await readPersistedSession(f.ctx.sessionPersistence, memberId!, SIGNAL)
-        const ownInputs = after.events.slice(after.inheritedEventCount ?? 0)
-          .flatMap(event => event.type === 'user/message' ? [event.data] : []).filter(framePredicate(frame))
-        expect(memberModels(), 'no member model invocation may start after exit completes').toBe(modelsAtExit)
-        expect(ownInputs.length, 'no public member input may arrive after exit completes').toBe(inputsAtExit)
-        expect(returnedBeforeObservation, 'exit must await the official cold observation it fences').toBe(false)
-        expect(ownInputs.length).toBeLessThanOrEqual(1)
-        expect(f.ctx.agents.get(memberId!)).toBeUndefined()
-      } finally { release(); observe.mockRestore(); prompt.mockRestore(); deliveries.mockRestore() }
     })
-  } finally { release(); await f.close(); await rm(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) }
+    expect(f.ctx.agents.get(memberId!)).toBeUndefined()
+    // Retirement belongs to a live executing Captain, not the temporary
+    // maintenance window used by the concurrent public delivery callback.
+    adapter.holdSessionId = captain.id
+    await queueHostSubagentPrompt(f.ctx.subagents, root, captain.id,
+      [{ type: 'text', text: 'Coordinate the member retirement request.' }], { kind: 'user' }, SIGNAL)
+    await adapter.entered
+    const committed = await f.ctx.agentSwarm.domain.appendPublicMessage(scope, teamId, {
+      formatVersion: 2, author: { kind: 'local-operator' }, requestId: `cold-exit-${operation}`,
+      content: [{ type: 'mention', memberId: memberId! }, { type: 'text', text: 'Finish this public request.' }],
+    })
+    const frame = publicDeliveries(committed.message)[0]!.frame
+    let observed!: () => void
+    const entered = new Promise<void>(resolve => { observed = resolve })
+    let insideTargetPrompt = false
+    const actualPrompt = f.ctx.subagents.prompt.bind(f.ctx.subagents)
+    const prompt = vi.spyOn(f.ctx.subagents, 'prompt').mockImplementation(async (request, signal) => {
+      if (request.childSessionId !== memberId) return await actualPrompt(request, signal)
+      insideTargetPrompt = true
+      try { return await actualPrompt(request, signal) } finally { insideTargetPrompt = false }
+    })
+    const actualObserve = f.ctx.sessionQuery.observeSession.bind(f.ctx.sessionQuery)
+    const observe = vi.spyOn(f.ctx.sessionQuery, 'observeSession').mockImplementation(async (id, options) => {
+      if (id === memberId && insideTargetPrompt) {
+        observed()
+        await gate
+      }
+      return await actualObserve(id, options)
+    })
+    const deliveries = vi.spyOn(MessageDelivery.prototype, 'deliverPublicMessages')
+    let exitCompleted = false
+    let modelsAtExit = -1
+    let inputsAtExit = -1
+    const cancellation = new AbortController()
+    const memberModels = () => adapter.requests.filter(request => request.sessionId === memberId).length
+    try {
+      f.ctx.agentSwarm.kickPublicMessages(scope, teamId)
+      const draining = deliveries.mock.results.at(-1)!.value as Promise<unknown>
+      await entered
+      expect(f.ctx.agents.get(memberId!)).toBeUndefined()
+      const liveCaptain = f.ctx.agents.get(captain.id)!
+      expect(liveCaptain).toBeDefined()
+      expect(liveCaptain.status).toBe('running')
+      const exiting = (operation === 'remove'
+        ? f.ctx.agentSwarm.removeMember({ agent: liveCaptain, signal: cancellation.signal }, 'alpha', 'leave during cold admission')
+        : f.ctx.agentSwarm.archive({ agent: liveCaptain, signal: cancellation.signal }, 'archive during cold admission'))
+        .then(async value => {
+          modelsAtExit = memberModels()
+          const stored = await readPersistedSession(f.ctx.sessionPersistence, memberId!, SIGNAL)
+          inputsAtExit = stored.events.slice(stored.inheritedEventCount ?? 0)
+            .flatMap(event => event.type === 'user/message' ? [event.data] : []).filter(framePredicate(frame)).length
+          exitCompleted = true
+          return value
+        })
+      const outcome = exiting.then(() => ({ ok: true as const }), error => ({ ok: false as const, error }))
+      // Give the real mutation its normal async commit/drain opportunities.
+      // The held official observation must prevent a successful early return.
+      await new Promise(resolve => setTimeout(resolve, 150))
+      const returnedBeforeObservation = exitCompleted
+      const cancelReason = new Error('Cancelled while retirement waits for public admission')
+      if (cancelled) cancellation.abort(cancelReason)
+      release()
+      const result = await outcome
+      await draining
+      if (cancelled) {
+        expect(result).toEqual({ ok: false, error: cancelReason })
+        const team = (await f.ctx.agentSwarm.domain.snapshot(scope, teamId, captain.id)).team
+        expect(team.phase).toBe('active')
+        expect(team.members.find(member => member.sessionId === memberId)?.phase).toBe('active')
+        return
+      }
+      expect(result).toEqual({ ok: true })
+      await f.ctx.agents.get(memberId!)?.whenIdle()
+      const after = await readPersistedSession(f.ctx.sessionPersistence, memberId!, SIGNAL)
+      const ownInputs = after.events.slice(after.inheritedEventCount ?? 0)
+        .flatMap(event => event.type === 'user/message' ? [event.data] : []).filter(framePredicate(frame))
+      expect(memberModels(), 'no member model invocation may start after exit completes').toBe(modelsAtExit)
+      expect(ownInputs.length, 'no public member input may arrive after exit completes').toBe(inputsAtExit)
+      expect(returnedBeforeObservation, 'exit must await the official cold observation it fences').toBe(false)
+      expect(ownInputs.length).toBeLessThanOrEqual(1)
+      expect(f.ctx.agents.get(memberId!)).toBeUndefined()
+    } finally { release(); observe.mockRestore(); prompt.mockRestore(); deliveries.mockRestore() }
+  } finally { release(); adapter.release(); await f.close(); await rm(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) }
 }, 20_000)
-

@@ -1,4 +1,5 @@
 import CredentialsLocal from '@deepseek-ai/dsh-credentials-local'
+import { withLiveChild } from './helpers/live-child.js'
 import * as ClientConnection from '@deepseek-ai/dsh-client-connection'
 import Commands from '@deepseek-ai/dsh-commands'
 import FileUploads from '@deepseek-ai/dsh-client-file-upload'
@@ -6,17 +7,15 @@ import FileUploads from '@deepseek-ai/dsh-client-file-upload'
  * Issue #233 RED: an active Team participant selects its own model in place.
  * The durable authority stays the target Session's model/selection events plus
  * the official projection; the Team aggregate only supplies identity and the
- * startup install roster. Written RED-first: production is untouched, so every
- * `[RED]` case below must fail until agent_swarm_set_member_model exists.
+ * startup install roster.
  *
  * Harness notes (reviewed against root's first two runs): a managed dedicated
  * Captain owns recruitment and the subagent surface requires the exact live
- * parent, so every captain/member operation runs inside the installed Core
- * lease overlay `ctx.subagents.withContinuableChild(parent, childId, signal,
- * cb)` (same capability the product uses at message-delivery.ts:279 and
- * goal-runtime-surface.ts:238). No stale Agent pointer survives a lease
- * callback; only session ids and the always-live Main root cross phases. The
- * seeded case reuses its existing root instead of creating ROOT twice.
+ * parent. The Captain holds official maintenance during each scenario;
+ * member mutations and snapshots use short `withLiveChild` callbacks.
+ * Member model requests and idle waits run outside those member callbacks.
+ * Only session ids and the always-live Main root cross lifecycle phases.
+ * The seeded case reuses its existing root instead of creating ROOT twice.
  */
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -137,16 +136,17 @@ function expectCompletedTurns(...agents: readonly Agent[]): void {
 interface LeasedTeam {
   readonly root: Agent
   readonly captain: Agent
-  readonly member: Agent
   readonly teamId: string
   readonly captainId: SessionId
   readonly memberId: SessionId
+  withMember<T>(operation: (member: Agent, signal: AbortSignal) => Promise<T> | T): Promise<T>
+  waitForMemberIdle(): Promise<void>
 }
 
 /** Managed Team plus one explicitly routed member. The real captain recruits
- * inside a Core lease on itself and the member is leased from that captain, so
- * every captain/member operation in `run` sees exact live agents. Only ids and
- * the always-live Main root escape the leases. `primeRootTurn` gives the Main
+ * inside official maintenance; member operations acquire separate short
+ * maintenance windows while request/idle observation stays outside them.
+ * Only ids and the always-live Main root escape. `primeRootTurn` gives the Main
  * one real initial user turn (the canonical persisted request/header the
  * recovery contract reads); cold-restart cases use it. */
 async function withRecruitedTeam(first: RestartMounted, sandbox: string, memberRoute: { provider: string; model: string; reasoningEffort?: ReasoningEffortId }, run: (team: LeasedTeam) => Promise<void>, options: { rootRoute?: { provider: string; model: string; reasoningEffort?: ReasoningEffortId }; onCaptain?: (captainId: string) => void; primeRootTurn?: boolean } = {}): Promise<void> {
@@ -160,7 +160,8 @@ async function withRecruitedTeam(first: RestartMounted, sandbox: string, memberR
   const teamId = (created.value as { team_id: string }).team_id
   const captainId = SessionId((created.value as { captain_session_id: string }).captain_session_id)
   options.onCaptain?.(String(captainId))
-  await first.ctx.subagents.withContinuableChild(root, captainId, SIGNAL, async (captain, captainLease) => {
+  await first.ctx.agents.get(captainId)?.whenIdle()
+  await withLiveChild(first.ctx, root, captainId, SIGNAL, async (captain, captainLease) => {
     const recruited = await tool(first.ctx, captain, 'member-model-recruit', 'agent_swarm_add_member', {
       name: 'worker', role: 'Switch the model in place.',
       llm_provider: memberRoute.provider, model: memberRoute.model,
@@ -168,26 +169,25 @@ async function withRecruitedTeam(first: RestartMounted, sandbox: string, memberR
     })
     expect(recruited.isError, JSON.stringify(recruited.error)).toBe(false)
     const memberId = SessionId((recruited.value as { session_id: string }).session_id)
-    await first.ctx.subagents.withContinuableChild(captain, memberId, captainLease, async member => {
-      await member.whenIdle()
-      expectCompletedTurns(root, captain)
-      await run({ root, captain, member, teamId, captainId, memberId })
+    await first.ctx.agents.get(memberId)?.whenIdle()
+    expectCompletedTurns(root, captain)
+    await run({ root, captain, teamId, captainId, memberId,
+      withMember: operation => withLiveChild(first.ctx, captain, memberId, captainLease, operation),
+      waitForMemberIdle: async () => { await first.ctx.agents.get(memberId)?.whenIdle() },
     })
   })
 }
 
-// [RED] The new self-selection tool does not exist, so the member's tool call
-// errors, no model/selection is appended and the follow-up request keeps the
-// creation route. Must turn green only with the #233 implementation.
+// The member's real tool call selects only its next request's model.
 it('switches a member through a real tool call for the next request without cancelling the current request', async () => {
   const sandbox = await mkdtemp(join(tmpdir(), 'dsh-member-selection-'))
   const adapter = new MemberSwitchAdapter()
   const first = await mount(sandbox, 0, undefined, undefined, (ctx, fibers) => installHost(ctx, fibers, sandbox, adapter))
   try {
-    await withRecruitedTeam(first, sandbox, ROUTE, async ({ root, captain, member, teamId, memberId }) => {
+    await withRecruitedTeam(first, sandbox, ROUTE, async ({ root, captain, teamId, memberId, waitForMemberIdle }) => {
       const scope = first.ctx.agentSwarm.scopeOf(root)
       const teamRevision = (await first.ctx.agentSwarm.domain.snapshot(scope, TeamId(teamId), captain.id)).team.revision
-      await member.whenIdle()
+      await waitForMemberIdle()
       const requests = adapter.requests.filter(request => request.sessionId === memberId)
       expect(requests).toHaveLength(2)
       expect(requests[0]).toMatchObject(ROUTE)
@@ -223,21 +223,26 @@ it('denies non-participant self-selection and keeps the Captain-only tool bounda
   const adapter = new RecordingAdapter()
   const first = await mount(sandbox, 0, undefined, undefined, (ctx, fibers) => installHost(ctx, fibers, sandbox, adapter))
   try {
-    await withRecruitedTeam(first, sandbox, ROUTE, async ({ root, captain, member }) => {
+    await withRecruitedTeam(first, sandbox, ROUTE, async ({ root, captain, withMember }) => {
       expect((await tool(first.ctx, root, 'root-must-not-select-member-model', NEW_TOOL, { llm_provider: NEXT.provider, model: NEXT.model })).isError).toBe(true)
-      const memberOldTool = await tool(first.ctx, member, 'member-must-not-use-captain-tool', 'agent_swarm_set_captain_model', { llm_provider: NEXT.provider, model: NEXT.model })
-      expect(memberOldTool.isError).toBe(true)
-      // The Team tool policy fail-closes the captain-only tool before the
-      // runtime is reached; that exact denial — not an unknown-tool miss — is
-      // the preserved old boundary for members.
-      const denial = JSON.stringify(memberOldTool.error)
-      expect(denial).toContain('denied by the Team tool policy (fail closed)')
-      expect(denial).toContain('agent_swarm_set_captain_model')
-      expect(denial).not.toContain('UNKNOWN_TOOL')
-      expect(member.session.ownEvents().filter(event => event.type === 'model/selection')).toEqual([])
+      await withMember(async member => {
+        const memberOldTool = await tool(first.ctx, member, 'member-must-not-use-captain-tool', 'agent_swarm_set_captain_model', { llm_provider: NEXT.provider, model: NEXT.model })
+        expect(memberOldTool.isError).toBe(true)
+        // The Team tool policy fail-closes the captain-only tool before the
+        // runtime is reached; that exact denial — not an unknown-tool miss — is
+        // the preserved old boundary for members.
+        const denial = JSON.stringify(memberOldTool.error)
+        expect(denial).toContain('denied by the Team tool policy (fail closed)')
+        expect(denial).toContain('agent_swarm_set_captain_model')
+        expect(denial).not.toContain('UNKNOWN_TOOL')
+        expect(member.session.ownEvents().filter(event => event.type === 'model/selection')).toEqual([])
+      })
+      const priorSelections = captain.session.ownEvents().filter(event => event.type === 'model/selection').length
       const captainSelected = await tool(first.ctx, captain, 'captain-self-select', NEW_TOOL, { llm_provider: NEXT.provider, model: NEXT.model })
       expect(captainSelected.isError, JSON.stringify(captainSelected.error)).toBe(false)
-      expect(captain.session.ownEvents().at(-1)).toMatchObject({ type: 'model/selection', data: { provider: NEXT.provider, model: NEXT.model } })
+      const selections = captain.session.ownEvents().filter(event => event.type === 'model/selection')
+      expect(selections).toHaveLength(priorSelections + 1)
+      expect(selections.at(-1)).toMatchObject({ type: 'model/selection', data: { provider: NEXT.provider, model: NEXT.model } })
     })
   } finally {
     await dispose(first)
@@ -256,8 +261,8 @@ it.each(['pending', 'consumed', 'default'] as const)('restores the %s member sel
   let second: RestartMounted | undefined
   try {
     let captainId = SessionId(''), memberId = SessionId(''), debtTaskId = '', teamId = ''
-    await withRecruitedTeam(first, sandbox, ROUTE, async ({ root, captain, member, teamId: id }) => {
-      captainId = captain.id; memberId = member.id; teamId = id
+    await withRecruitedTeam(first, sandbox, ROUTE, async ({ root, captain, memberId: recruitedMemberId, teamId: id, withMember, waitForMemberIdle }) => {
+      captainId = captain.id; memberId = recruitedMemberId; teamId = id
       // Cold-recovery business preconditions (fixture-only, mirrors the
       // existing root-model cold contract): the primed Main turn establishes
       // the canonical persisted request/header the recovery reads. The
@@ -267,8 +272,10 @@ it.each(['pending', 'consumed', 'default'] as const)('restores the %s member sel
       const scope = first.ctx.agentSwarm.scopeOf(root)
       const teamRevision = (await first.ctx.agentSwarm.domain.snapshot(scope, TeamId(teamId), captain.id)).team.revision
       const args = { llm_provider: NEXT.provider, model: NEXT.model, ...(mode === 'default' ? {} : { reasoning_effort: NEXT.reasoningEffort }) }
-      const selected = await tool(first.ctx, member, 'cold-member-select', NEW_TOOL, args)
-      expect(selected.isError, JSON.stringify(selected.error)).toBe(false)
+      await withMember(async member => {
+        const selected = await tool(first.ctx, member, 'cold-member-select', NEW_TOOL, args)
+        expect(selected.isError, JSON.stringify(selected.error)).toBe(false)
+      })
       expect((await first.ctx.agentSwarm.domain.snapshot(scope, TeamId(teamId), captain.id)).team.revision).toBe(teamRevision)
       if (mode !== 'pending') {
         await first.ctx.subagents.sendMessage(captain, memberId, [{ type: 'text', text: 'Use the selected model now.' }], { signal: SIGNAL })
@@ -277,7 +284,7 @@ it.each(['pending', 'consumed', 'default'] as const)('restores the %s member sel
         // before reading anything persisted; if this ever reads the old
         // route the product broke, not the observation.
         expect(adapter.requests.filter(request => request.sessionId === memberId)[1]).toMatchObject(NEXT)
-        await member.whenIdle()
+        await waitForMemberIdle()
         await first.ctx.sessionPersistence.flush()
         const stored = await readPersistedSession(first.ctx.sessionPersistence, memberId, SIGNAL)
         expect(stored.events.filter(event => event.type === 'request/header').at(-1)?.data.header.config).toMatchObject(NEXT)
@@ -289,30 +296,38 @@ it.each(['pending', 'consumed', 'default'] as const)('restores the %s member sel
       // The unfinished task is the restart precondition, created only after
       // the isolated model-selection observation window above has closed and
       // still inside the captain lease (real Team debt for recovery).
-      const debt = await tool(first.ctx, captain, 'cold-debt-task', 'agent_swarm_create_task', { subject: 'Unfinished', description: 'Keep the Team recoverable across restart.' })
-      expect(debt.isError, JSON.stringify(debt.error)).toBe(false)
-      debtTaskId = (debt.value as { task_id: string }).task_id
-      // Branch fidelity (fixture quality): after the debt creation, the three
-      // cold modes must still reach the restart in genuinely different
-      // inbound states. Official projection semantics (installed controller
-      // model-selection-projection :26-43, sameSelection :57-61): lastUsed
-      // carries the adapter-resolved reasoningEffort, and sameSelection
-      // compares it strictly — so a default-intent selection (no effort key)
-      // never equals a resolved one and stays pending, correctly re-using
-      // the model default on every continuation.
-      const selection = first.ctx.sessionProjections.stateOf(member.session, 'modelSelection')
-      if (mode === 'pending') {
-        expect(selection?.pending).toMatchObject(NEXT)
-        expect(selection?.lastUsed).toMatchObject(ROUTE)
-      } else if (mode === 'consumed') {
-        expect(selection?.pending).toBeNull()
-        expect(selection?.lastUsed).toMatchObject(NEXT)
-      } else {
-        expect(selection?.pending).toEqual({ provider: NEXT.provider, model: NEXT.model })
-        expect(selection?.lastUsed).toMatchObject(NEXT)
-      }
+      await withMember(async member => {
+        const debt = await tool(first.ctx, captain, 'cold-debt-task', 'agent_swarm_create_task', { subject: 'Unfinished', description: 'Keep the Team recoverable across restart.' })
+        expect(debt.isError, JSON.stringify(debt.error)).toBe(false)
+        debtTaskId = (debt.value as { task_id: string }).task_id
+        // Branch fidelity (fixture quality): after the debt creation, the three
+        // cold modes must still reach the restart in genuinely different
+        // inbound states. Official projection semantics (installed controller
+        // model-selection-projection :26-43, sameSelection :57-61): lastUsed
+        // carries the adapter-resolved reasoningEffort, and sameSelection
+        // compares it strictly — so a default-intent selection (no effort key)
+        // never equals a resolved one and stays pending, correctly re-using
+        // the model default on every continuation.
+        const selection = first.ctx.sessionProjections.stateOf(member.session, 'modelSelection')
+        if (mode === 'pending') {
+          expect(selection?.pending).toMatchObject(NEXT)
+          expect(selection?.lastUsed).toMatchObject(ROUTE)
+        } else if (mode === 'consumed') {
+          expect(selection?.pending).toBeNull()
+          expect(selection?.lastUsed).toMatchObject(NEXT)
+        } else {
+          expect(selection?.pending).toEqual({ provider: NEXT.provider, model: NEXT.model })
+          expect(selection?.lastUsed).toMatchObject(NEXT)
+        }
+      })
     }, { primeRootTurn: true })
+    const requestsBeforeDispose = adapter.requests.length
     await dispose(first); firstDisposed = true
+    if (mode === 'consumed') {
+      for (const request of adapter.requests.slice(requestsBeforeDispose).filter(request => request.sessionId === memberId)) {
+        expect(request).toMatchObject(NEXT)
+      }
+    }
     const afterRestart = new RecordingAdapter()
     second = await mount(sandbox, 0, undefined, undefined, (ctx, fibers) => {
       expect(firstDisposed).toBe(true)
@@ -333,8 +348,8 @@ it.each(['pending', 'consumed', 'default'] as const)('restores the %s member sel
     const reloaded = (await recovered.ctx.agentSwarm.listTeamAggregates(recovered.ctx.agentSwarm.scopeOf(root))).find(team => team.id === teamId)!
     expect(reloaded.tasks.some(task => task.id === debtTaskId)).toBe(true)
     await vi.waitFor(() => expect(afterRestart.requests.some(request => request.sessionId === captainId)).toBe(true), { timeout: 10_000 })
-    await recovered.ctx.subagents.withContinuableChild(root, captainId, SIGNAL, async captain => {
-      await captain.whenIdle()
+    await recovered.ctx.agents.get(captainId)?.whenIdle()
+    await withLiveChild(recovered.ctx, root, captainId, SIGNAL, async captain => {
       await recovered.ctx.subagents.sendMessage(captain, memberId, [{ type: 'text', text: 'Continue after restart.' }], { signal: SIGNAL })
     })
     await vi.waitFor(() => expect(afterRestart.requests.some(request => request.sessionId === memberId)).toBe(true), { timeout: 10_000 })
@@ -373,8 +388,8 @@ it('does not let inherited parent selection replace an explicitly routed member'
     root.session.append('model/selection', NEXT)
     await first.ctx.sessions.flush(root.session)
     let memberId = SessionId('')
-    await withRecruitedTeam(first, sandbox, ROUTE, async ({ member }) => { memberId = member.id })
-    await vi.waitFor(() => expect(adapter.requests.some(request => request.sessionId === memberId)))
+    await withRecruitedTeam(first, sandbox, ROUTE, async ({ memberId: recruitedMemberId }) => { memberId = recruitedMemberId })
+    await vi.waitFor(() => expect(adapter.requests.some(request => request.sessionId === memberId)).toBe(true))
     expect(adapter.requests.find(request => request.sessionId === memberId)).toMatchObject(ROUTE)
     const stored = await readPersistedSession(first.ctx.sessionPersistence, memberId, SIGNAL)
     expect(stored.events.some(event => event.type === 'model/selection')).toBe(true)

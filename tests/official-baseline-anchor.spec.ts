@@ -23,6 +23,7 @@ import {
   discoverOfficialCheckout,
   enclosingCheckoutCandidates,
   evaluateBaselineAnchor,
+  evaluateReleaseChannel,
   inspectOfficialCheckout,
   officialCheckoutReadGit,
   parseLsRemote,
@@ -84,6 +85,23 @@ describe('official release version ordering', () => {
     expect(parseReleaseVersion('0.1')).toBeNull()
     expect(compareReleaseVersions('latest', '0.1.0-rc.8')).toBe(0)
     expect(tagNameForRelease('0.1.0-rc.8')).toBe('dsh-v0.1.0-rc.8')
+  })
+})
+
+describe('pinned release channel policy', () => {
+  it('accepts rc and final releases', () => {
+    expect(evaluateReleaseChannel('0.1.5-rc.2')).toMatchObject({ ok: true, channel: 'rc' })
+    expect(evaluateReleaseChannel('0.1.5')).toMatchObject({ ok: true, channel: 'stable' })
+  })
+
+  it('refuses alpha and beta baselines that patches cannot stay aligned with', () => {
+    expect(evaluateReleaseChannel('0.1.5-alpha.2')).toMatchObject({ ok: false, channel: 'alpha' })
+    expect(evaluateReleaseChannel('0.1.5-beta.1')).toMatchObject({ ok: false, channel: 'beta' })
+    expect(evaluateReleaseChannel('0.1.5-alpha.2').reason).toContain('rc or final release')
+  })
+
+  it('refuses an unparseable release instead of guessing its channel', () => {
+    expect(evaluateReleaseChannel('latest')).toMatchObject({ ok: false, channel: null })
   })
 })
 

@@ -147,7 +147,10 @@ async function chineseProfile(summary: string) {
   const subscribers = new Set<() => void>()
   const chat = { getSnapshot: () => snapshot, subscribe: (listener: () => void) => { subscribers.add(listener); return () => { subscribers.delete(listener) } }, refreshDirectory: vi.fn(async () => {}) } as unknown as PublicChatController
   const data = ready.data!
-  const dashboard = { ...ready, data: { ...data, projection: { ...data.projection, binding: page.binding }, captainMembers: { ...data.captainMembers, binding: page.binding, members: [{ ...data.captainMembers.members[0]!, sessionId: 'member-a', growthSummary: summary }] } } }
+  const viewer = snapshot.selection!.viewer
+  const dashboard = { ...ready, targetSessionId: viewer, data: { ...data,
+    teams: { ...data.teams, binding: { ...data.teams.binding, rootSessionId: viewer } },
+    projection: { ...data.projection, binding: page.binding }, captainMembers: { ...data.captainMembers, binding: page.binding, members: [{ ...data.captainMembers.members[0]!, sessionId: 'member-a', growthSummary: summary }] } } }
   await render(<DirectoryMembers chat={chat} dashboard={dashboard} t={tZh as ComponentProps<typeof DirectoryMembers>['t']} />)
   const avatar = document.querySelector<HTMLButtonElement>('[data-directory-member="member-a"]')!
   await act(async () => { avatar.click() })

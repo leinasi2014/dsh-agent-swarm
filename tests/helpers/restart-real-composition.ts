@@ -27,12 +27,12 @@ export interface RestartMounted {
  * A restart proof owns every official fiber in each Context: a later Context
  * opens only the same durable SQLite and Storage roots, never a live handle.
  */
-export async function mountRestartComposition(sandbox: string, strandedAfterMs: number, allowedSkills?: readonly string[], executionRootsBase?: string, beforeSwarm?: (ctx: Context, fibers: Fiber[]) => void | Promise<void>, routeConfig: { memberProvider?: string; captainLlmProvider?: string; captainModel?: string; startupRecoveryExcludedTeamIds?: string[] } = {}): Promise<RestartMounted> {
+export async function mountRestartComposition(sandbox: string, strandedAfterMs: number, allowedSkills?: readonly string[], executionRootsBase?: string, beforeSwarm?: (ctx: Context, fibers: Fiber[]) => void | Promise<void>, routeConfig: { memberProvider?: string; captainLlmProvider?: string; captainModel?: string; startupRecoveryExcludedTeamIds?: string[] } = {}, promptConfig: { personaPrefix?: string } = {}): Promise<RestartMounted> {
   const ctx = new Context()
   const fibers: Fiber[] = []
   fibers.push(await ctx.plugin(LlmRuntime))
   fibers.push(await ctx.plugin(SessionStore))
-  fibers.push(await ctx.plugin(SystemPrompt))
+  fibers.push(await ctx.plugin(SystemPrompt, promptConfig))
   fibers.push(await ctx.plugin(ToolRuntime))
   fibers.push(await ctx.plugin(AgentRegistry))
   fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db'), compression: 'none' }))

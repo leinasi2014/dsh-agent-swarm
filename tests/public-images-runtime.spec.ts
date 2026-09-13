@@ -1,4 +1,5 @@
 import { mkdtemp, rm } from 'node:fs/promises'
+import { withLiveChild } from './helpers/live-child.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it, vi } from 'vitest'
@@ -201,15 +202,20 @@ it.each(['missing', 'wrong-image', 'wrong-order', 'wrong-source', 'wrong-text'] 
     if (fault === 'wrong-image') malformed[1] = structuredClone(malformed[2]!)
     if (fault === 'wrong-order') [malformed[1], malformed[2]] = [malformed[2]!, malformed[1]!]
     if (fault === 'wrong-text') malformed[0] = { type: 'text', text: 'Changed frame but retained rpcId' }
-    await f.ctx.subagents.withContinuableChild(root, captain.id, SIGNAL, async active => {
+    const active = await withLiveChild(f.ctx, root, captain.id, SIGNAL, active => {
       active.followup(createUserMessage({ content: malformed, source: fault === 'wrong-source' ? { kind: 'plugin', plugin: 'fixture' } : projection.source }))
       active.followup(createUserMessage({ content: structuredClone(projection.content), source: projection.source }))
-      await active.whenIdle()
+      return active
+    })
+    await active.whenIdle()
+    await withLiveChild(f.ctx, root, captain.id, SIGNAL, async active => {
       expect(await f.ctx.sessions.flush(active.session)).toBe(true)
       const predicates = publicInputPredicates(prepared.frame, sent.value.message.id, projection)
       expect(await frameVisibility(f.ctx, active.id, prepared.frame, SIGNAL, 'fixture malformed live', true, predicates)).toBe('unknown')
       expect(await waitForFrameClaim(f.ctx, active, prepared.frame, SIGNAL, 0, true, predicates)).toBe(false)
     })
+    await vi.waitFor(() => expect(f.ctx.agents.get(captain.id)).toBeUndefined())
+    await root.whenIdle()
     const count = adapter.requests.length
     f.ctx.agentSwarm.kickPublicMessages(scope, teamId)
     await vi.waitFor(async () => expect(publicDeliveries((await f.ctx.agentSwarm.domain.snapshot(scope, teamId, captain.id)).team.publicChat!.messages[0]!)[0])

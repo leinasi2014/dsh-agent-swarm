@@ -3,6 +3,19 @@ import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TeamReadProjection as SwarmHostReadProjectionV1 } from './team-read-types.js'
 import type { SwarmReadAssetStatusV1, SwarmReadCaptainMembersV1, SwarmReadMemberCompositionV1 } from '../rpc/read-rpc-contract.js'
 import { TEAM_DASHBOARD_NS, type TeamDashboardKey } from './team-dashboard-locales.js'
+import type { TeamDashboardState } from './team-dashboard-controller.js'
+
+/**
+ * Whether the current snapshot exposes at least one Team the sidebar entry may address.
+ *
+ * The sidebar panel icon is registered only while this holds: an environment with no
+ * Team must not offer a Team entry that could only report "no Team yet".
+ * @param state - the current dashboard snapshot.
+ * @returns true when at least one visible Team is present.
+ */
+export function teamEntryVisible(state: TeamDashboardState): boolean {
+  return (state.data?.teams.teams.length ?? 0) > 0
+}
 
 /** The read contract reports un-generated member assets with a stable reason; the UI never fabricates one. */
 export const NOT_GENERATED_AVATAR: SwarmReadAssetStatusV1 = { state: 'not_generated', reason: 'avatar_backend_not_implemented' }
@@ -35,6 +48,22 @@ export type DetailSelection =
   | { readonly kind: 'diagnostics' }
 
 export const TEAM_WORKSPACE_WIDE_MIN_WIDTH = 720
+
+/** The public-chat status copy while no Team is bound, derived only from the dashboard read state.
+ *  'loading' stays reserved for an in-flight read; a closed panel (no Session) and the verified
+ *  empty-Team directory each get their own deterministic copy instead of borrowing 'loading'. */
+export function publicChatStatusKey(dashboard: {
+  readonly phase: 'closed' | 'loading' | 'ready' | 'stale' | 'reconnecting' | 'error'
+  readonly error?: { readonly code: string } | undefined
+  readonly data?: { readonly teams: { readonly complete: boolean; readonly teams: ReadonlyArray<{ readonly phase: string }> } } | undefined
+}): TeamDashboardKey {
+  if (dashboard.phase === 'error') {
+    return dashboard.error?.code === 'SWARM_UI_NO_VISIBLE_TEAM' ? 'public.noTeamYet' : 'error'
+  }
+  if (dashboard.phase === 'closed') return 'public.needSession'
+  if (dashboard.data?.teams.complete === true && !dashboard.data.teams.teams.some(team => team.phase !== 'archived')) return 'public.noTeamYet'
+  return 'loading'
+}
 type TeamWorkspaceLayout = 'compact' | 'wide'
 /** The Details container, rather than the browser viewport, chooses the layout branch. */
 export function teamWorkspaceLayoutForWidth(width: number): TeamWorkspaceLayout { return width >= TEAM_WORKSPACE_WIDE_MIN_WIDTH ? 'wide' : 'compact' }

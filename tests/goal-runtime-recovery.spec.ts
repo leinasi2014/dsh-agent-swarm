@@ -1,5 +1,6 @@
 /** Cold recovery consumes persisted goals, never local invocation state. */
 import { mkdtemp, rm } from 'node:fs/promises'
+import { withLiveChild } from './helpers/live-child.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -25,10 +26,7 @@ async function checkpoint(budgetSpent: boolean) {
   const f = await setup(source, new Recording())
   try {
     const identity = await createTeam(f, source), { root, captain, scope, teamId } = identity
-    // Keep this exact Activation resident through the cut. An idle child can
-    // otherwise retire asynchronously and wake Main while files are copied.
-    return await f.ctx.subagents.withContinuableChild(root, captain.id, SIGNAL, async live => {
-      const result = await restartTool(f.ctx, root, 'save-cold', 'agent_swarm_save_goal', { team_id: teamId,
+    const result = await restartTool(f.ctx, root, 'save-cold', 'agent_swarm_save_goal', { team_id: teamId,
         requestId: 'cold-goal', expectedLifecycleRevision: 0, start: true, tokenBudget: { expectedTokenLimit: null, tokenLimit: 100 },
         goal: { text: 'Finish after restart.', acceptanceCriteria: 'Explicit confirmation.', constraints: '', mode: 'finite' } })
       expect(result.isError, JSON.stringify(result)).toBe(false)
@@ -36,8 +34,10 @@ async function checkpoint(budgetSpent: boolean) {
         const team = (await f.ctx.agentSwarm.domain.snapshot(scope, teamId, captain.id)).team
         expect(team.messages.find(message => message.kind === 'goal-coordination-notice')?.phase).toBe('delivered')
       })
-      await live.whenIdle()
-      await root.whenIdle()
+    await f.ctx.agents.get(captain.id)?.whenIdle()
+    await root.whenIdle()
+    // Hold only the stable snapshot cut; model work must finish before maintenance.
+    return await withLiveChild(f.ctx, root, captain.id, SIGNAL, async live => {
       expect(f.ctx.agents.get(captain.id)).toBe(live)
       expect(live.status).toBe('idle')
       expect(root.status).toBe('idle')

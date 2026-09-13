@@ -11,11 +11,11 @@ import { TeamDomainError } from '../domain/error.js'
 import type { RetirementSession } from '../storage/team-retirement-store.js'
 
 const require = createRequire(import.meta.url)
-const VERSION = '0.1.5-alpha.2'
+const VERSION = '0.1.5-rc.2'
 function refuse(message: string): never { throw new TeamDomainError(message, 'TEAM_RETIREMENT_PROVIDER_UNAVAILABLE') }
 const absent = (error: unknown): boolean => typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT'
 
-/** Mirrors the published alpha.2 JSONL format; never imports private path helpers. */
+/** Mirrors the published rc.2 JSONL format; never imports private path helpers. */
 function encodeSegment(value: string): string {
   if (value === '.' || value === '..') return value.replaceAll('.', '~002E')
   let encoded = ''
@@ -69,7 +69,7 @@ export class RetirementJsonlProvider {
       import('@deepseek-ai/dsh-session-persistence-jsonl'), import('@deepseek-ai/dsh-session-query-sqlite'),
     ])
     for (const name of ['dsh-session-persistence-jsonl', 'dsh-session-query-sqlite']) {
-      if ((require(`@deepseek-ai/${name}/package.json`) as { version: string }).version !== VERSION) refuse('Session cleanup requires the verified alpha.2 backends')
+      if ((require(`@deepseek-ai/${name}/package.json`) as { version: string }).version !== VERSION) refuse('Session cleanup requires the verified rc.2 backends')
     }
     if (!(ctx.sessionPersistence instanceof Jsonl) || !(ctx.sessionQuery instanceof Sqlite)) refuse('The active Session backends do not support verified cleanup')
     const root = ctx.sessionPersistence.config.root
@@ -101,7 +101,7 @@ export class RetirementJsonlProvider {
         result.push(session); continue
       }
       const current = await this.persistence.resolveCurrentLog(SessionId(session.id), signal)
-      if (current === undefined || resolve(dirname(current)) !== directory || rootIdentity === undefined) refuse('Session log is outside its canonical alpha.2 directory')
+      if (current === undefined || resolve(dirname(current)) !== directory || rootIdentity === undefined) refuse('Session log is outside its canonical rc.2 directory')
       await this.assertDirectory(directory)
       result.push({ ...session, artifact: { root: this.root, directory, rootIdentity, directoryIdentity } })
     }
