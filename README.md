@@ -5,7 +5,7 @@
 
 Multi-agent teams for [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness). Keep your main conversation focused on the goal while an independent **Captain** recruits members, coordinates tasks, and reviews their work.
 
-**[v0.1.1](https://github.com/leinasi2014/dsh-agent-swarm/releases/tag/v0.1.1)** is an early release with verified group chat, member-profile navigation, and public-message reading and replies. The full set of planned capabilities is still being developed. Install the release tarball; this repository is `private: true` for npm publishing and has no public npm package.
+**[GitHub Releases](https://github.com/leinasi2014/dsh-agent-swarm/releases)** provides versioned installation packages and their accepted scope. This checkout adds continued member chat and private-note maintenance and recall to the earlier group-chat release. The full set of planned capabilities is still being developed. Install a published release tarball; this repository is `private: true` for npm publishing and has no public npm package.
 
 ## What you can do
 
@@ -37,10 +37,10 @@ The compatibility target is pinned in [package.json](package.json), [pnpm-lock.y
 
 Start with an official DSH installation and a Profile that can run your chosen model. The Profile must compose official Storage, Storage Domain, Session persistence, and the Subagent runtime. Use a separate `DSH_HOME` or dedicated Profile for an initial trial, and stop the target Profile before installing or updating its packages.
 
-Download [dsh-agent-swarm-0.1.1.tgz](https://github.com/leinasi2014/dsh-agent-swarm/releases/download/v0.1.1/dsh-agent-swarm-0.1.1.tgz) and [SHA256SUMS.txt](https://github.com/leinasi2014/dsh-agent-swarm/releases/download/v0.1.1/SHA256SUMS.txt). In PowerShell, from the download directory and the shell configured for your chosen Profile:
+Download the versioned `.tgz` package and `SHA256SUMS.txt` from the **[latest published release](https://github.com/leinasi2014/dsh-agent-swarm/releases/latest)**. In PowerShell, from the download directory and the shell configured for your chosen Profile, set the filename to the package you downloaded:
 
 ```powershell
-$swarmPackage = (Resolve-Path './dsh-agent-swarm-0.1.1.tgz').Path
+$swarmPackage = (Resolve-Path './dsh-agent-swarm-<version>.tgz').Path
 Get-FileHash -Algorithm SHA256 $swarmPackage
 Get-Content './SHA256SUMS.txt'
 ```
@@ -83,8 +83,8 @@ Configure defaults under **Settings -> Plugins -> Agent Swarm**. Captains can ov
 
 ## Release boundaries and known limitations
 
-- **Member private chat in v0.1.1:** when the parent Captain is offline or idle, a member's chat may be read-only. Profile navigation and existing records are available, but continued private messaging is not part of this release's accepted scope. See [issue #286](https://github.com/leinasi2014/dsh-agent-swarm/issues/286).
-- **Later development is separate from the download.** v0.1.1 excludes newer selective-collaboration quotas, member-note maintenance and automatic recall, and the independent Skills request, assignment, and revision workflow. Code on `main` may be newer; check the [release notes](https://github.com/leinasi2014/dsh-agent-swarm/releases/tag/v0.1.1) for the installed package's scope.
+- **Member private chat:** v0.1.1 could leave the member chat read-only when its Captain was unavailable. The continuation fix in this checkout uses the same official member Session and restores managed parents only for the prompt operation; see [issue #286](https://github.com/leinasi2014/dsh-agent-swarm/issues/286). Text and image messages are supported; ordinary file attachments are currently refused with the draft retained.
+- **Later development is separate from the download.** New selective-collaboration quotas and the independent Skills request, assignment, revision, and automatic self-maintenance workflows remain under development. Code on `main` may be newer than the installed package; check its [release notes](https://github.com/leinasi2014/dsh-agent-swarm/releases).
 - **Local execution is the delivered target.** Remote members, cross-process distributed coordination, a Canvas consumer, and automatic Skill evolution remain outside the delivered scope.
 - **Acceptance is bounded.** Automatic upgrades, data migration, long-duration stability, and a release-wide recovery and accessibility matrix are not established by the current release. Engineering checks and real Profile acceptance are separate evidence.
 
