@@ -47,7 +47,7 @@ deliveryPipelines:
   roleCombinationPolicy: risk-scaled
   capacityPolicy:
     registered: unbounded-by-method
-    activeWriters: 2
+    activeWriters: coordinator-scheduled-no-fixed-cap
     readOnlySupport: executor-capacity
   candidateAndEvidenceAuthority: git-commit-plus-check-receipts
   defectAndReworkAuthority:

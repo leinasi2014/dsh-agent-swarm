@@ -63,12 +63,17 @@ expect(!denied(listWorktrees), 'git worktree list must remain allowed')
 const capacity = evaluateHook(fixture({ tool_input: { command: 'pnpm isolation open --id third --branch codex/third --owner test' } }), runtime({
   readIsolationAuthority: () => ({ active: [{ state: 'ACTIVE' }, { state: 'ACTIVE' }] }),
 }))
-expect(denied(capacity), 'an isolation open above the two-writer cap must be denied')
+expect(!denied(capacity), 'a third managed writer must not be denied by a fixed capacity')
 
 const capacityAvailable = evaluateHook(fixture({ tool_input: { command: 'pnpm isolation open --id second --branch codex/second --owner test' } }), runtime({
   readIsolationAuthority: () => ({ active: [{ state: 'ACTIVE' }] }),
 }))
-expect(!denied(capacityAvailable), 'an isolation open below capacity must remain allowed')
+expect(!denied(capacityAvailable), 'an isolation open with one existing writer must remain allowed')
+
+const manyWriters = evaluateHook(fixture({ tool_input: { command: 'pnpm isolation open --id next --branch codex/next --owner test' } }), runtime({
+  readIsolationAuthority: () => ({ active: Array.from({ length: 8 }, () => ({ state: 'ACTIVE' })) }),
+}))
+expect(!denied(manyWriters), 'managed allocation must not replace the old cap with another fixed count')
 
 const ledgerWarning = evaluateHook(fixture({ tool_input: { command: 'pnpm isolation open --id check --branch codex/check --owner test' } }), runtime({
   readIsolationAuthority: () => { throw new Error('ledger unavailable') },
@@ -100,7 +105,7 @@ expect(denied(shellToolRawLifecycle), 'shell_tool raw git worktree lifecycle mus
 const shellCapacity = evaluateHook(fixture({ tool_name: 'shell_command', tool_input: { command: 'pnpm isolation open --id third --branch codex/third --owner test' } }), runtime({
   readIsolationAuthority: () => ({ active: [{ state: 'ACTIVE' }, { state: 'ACTIVE' }] }),
 }))
-expect(denied(shellCapacity), 'shell_command isolation open above the two-writer cap must be denied')
+expect(!denied(shellCapacity), 'shell_command must allow a third managed writer')
 
 const shellBrowser = evaluateHook(fixture({ tool_name: 'shell_tool', tool_input: { command: 'Start-Process msedge.exe -- --user-data-dir=D:\\repo\\profile' } }), runtime({
   inspectTaskResources: () => ({ browsers: [{ ProcessId: 44 }], previews: [], listenersAvailable: true }),
