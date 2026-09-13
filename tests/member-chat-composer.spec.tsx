@@ -1,5 +1,14 @@
 // @vitest-environment jsdom
-import { act, type ComponentProps } from 'react'
+import * as React from 'react'
+import * as ReactDom from 'react-dom'
+import * as ReactDomClient from 'react-dom/client'
+import * as JsxRuntime from 'react/jsx-runtime'
+import { act, useSyncExternalStore, type ComponentProps, type ReactNode } from 'react'
+import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { runInNewContext } from 'node:vm'
+import * as Cordis from '@deepseek-ai/cordis'
+import * as Slots from '@deepseek-ai/dsh-client-ui-slots'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
@@ -163,6 +172,65 @@ function owner(): ComposerChainProps {
     subagent: { parentAvailable: false, address: { childSessionId: target.sessionId, parentSessionId: target.captainSessionId, mode: 'continuable' } } } } as ComposerChainProps
 }
 describe('official composer chain ownership and Host target read', () => {
+  it('renders the Host-verified member before the installed official offline-parent contribution in the actual registry and renderer', async () => {
+    // Evaluate the shipped public browser entries unchanged, as the official loader does.
+    // Unrendered catalog icons are the only substituted UI dependency.
+    const require = createRequire(import.meta.url)
+    const dependencies: Record<string, unknown> = { react: React, 'react-dom': ReactDom, 'react-dom/client': ReactDomClient,
+      'react/jsx-runtime': JsxRuntime, '@deepseek-ai/cordis': Cordis, '@deepseek-ai/dsh-client-ui-slots': Slots,
+      '@deepseek-ai/dsh-client-ui-primitives': {} }
+    const load = (name: string): { apply(ctx: Cordis.Context): void } => {
+      let exported!: { apply(ctx: Cordis.Context): void }
+      runInNewContext(readFileSync(require.resolve(`${name}/client`), 'utf8'), { window: { __ModuleLoader__: {
+        load: (entry: { factory(require: (id: string) => unknown): typeof exported }) => { exported = entry.factory(id => {
+          if (!(id in dependencies)) throw new Error(`Unexpected official browser dependency: ${id}`)
+          return dependencies[id]
+        }) },
+      } }, console, document, queueMicrotask, setTimeout, clearTimeout })
+      return exported
+    }
+    const renderer = load('@deepseek-ai/dsh-client-ui-renderer'), subagent = load('@deepseek-ai/dsh-client-ui-subagent')
+    const ctx = new Cordis.Context(), f = fixture('exact member draft'), attestation = deferred<MemberChatTarget>()
+    const selected = owner(), ownerState = createSnapshotStore(selected)
+    const dictionaries: Record<string, Record<string, string>> = { 'swarm.team-dashboard': zh }
+    const locale = { ...createSnapshotStore({ revision: 0 }), bind: (namespace: string) => (key: string) => dictionaries[namespace]?.[key] ?? key,
+      register: (namespace: string, dictionary: { zh: Record<string, string> }) => { dictionaries[namespace] = dictionary.zh; return () => { delete dictionaries[namespace] } } }
+    const sessions = { list: createSnapshotStore({ current: selected.sessionId }), scope: () => ({ conversation: {
+      ...f.attachments, input: { for: () => f.input }, cancel: f.props.cancel,
+    } }) }
+    function ConversationSeat({ renderSlotChain }: { renderSlotChain: (name: 'conversation.composer', props: ComposerChainProps, options: { fallback: ReactNode; overlay: boolean }) => ReactNode }) {
+      const current = useSyncExternalStore(ownerState.subscribe, ownerState.getSnapshot)
+      return <><div data-official-history="">Existing member history</div>{renderSlotChain('conversation.composer', current, { fallback: <div data-official-input="" />, overlay: true })}</>
+    }
+    const fiber = await ctx.plugin((scope: Cordis.Context) => {
+      renderer.apply(scope)
+      scope.reflect.provide('sessions', sessions)
+      scope.reflect.provide('locale', locale)
+      scope.slots.installLocale(locale)
+      const binding = { key: target.sessionId, ctx: scope, hooks: {}, keyedHooks: {}, props: { sessionId: target.sessionId } }
+      scope.slots.installScope('session', { current: createSnapshotStore(binding), resolve: id => id === target.sessionId ? binding : undefined, renderArea: () => null })
+      scope.slots.register({ name: 'root', children: { 'conversation.composer': { kind: 'chain', scope: 'session' } } }, ConversationSeat as never)
+      subagent.apply(scope)
+      installMemberChatComposer(scope, sessions as never, { target: () => attestation.promise, prompt: f.prompt } as unknown as MemberChatClient)
+    })
+    const root = createRoot(document.body.appendChild(document.createElement('div')))
+    try {
+      await act(async () => { root.render(ctx.slots.renderSlot('root', {})) })
+      expect(document.querySelector('[role=status]')?.textContent).toContain(dictionaries.subagent!['readonly.body'])
+      expect(document.querySelector('[data-swarm-member-composer]')).toBeNull()
+      expect(ctx.slots.entries('conversation.composer').some(entry => typeof entry.component === 'function' && entry.component.name === 'SubagentReadOnlyComposer')).toBe(true)
+      await act(async () => attestation.resolve(target))
+      expect(document.querySelector('[data-swarm-member-composer]')).not.toBeNull()
+      expect(document.querySelector('[role=status]')).toBeNull()
+      expect(document.querySelector('[data-official-history]')?.textContent).toBe('Existing member history')
+      expect((document.querySelector('textarea') as HTMLTextAreaElement).value).toBe('exact member draft')
+      expect(selected.session!.subagent!.parentAvailable).toBe(false)
+      await act(async () => ownerState.set({ ...selected, pendingInteraction: {} as never }))
+      expect(document.querySelector('[data-swarm-member-composer]')).toBeNull()
+      expect(f.prompt).not.toHaveBeenCalled()
+    } finally { await act(async () => root.unmount()); await fiber.dispose() }
+  })
+
   it('accepts only the attested open continuable member and yields to official pending interactions', () => {
     const valid = owner()
     expect(selectMemberChat(valid, target)).toBe(target)
@@ -191,7 +259,7 @@ describe('official composer chain ownership and Host target read', () => {
     expect(register).not.toHaveBeenCalled()
     second.resolve({ ...target, sessionId: 'second' }); await Promise.resolve()
     expect(register).toHaveBeenCalledTimes(1)
-    expect(register.mock.calls[0]?.[0]).toMatchObject({ name: 'conversation.composer', priority: 100 })
+    expect(register.mock.calls[0]?.[0]).toMatchObject({ name: 'conversation.composer', priority: -20 })
     dispose()
     expect(unregister).toHaveBeenCalledTimes(1)
     expect(targetRead.mock.calls[1]![1].aborted).toBe(true)

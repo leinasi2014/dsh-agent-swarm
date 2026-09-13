@@ -124,7 +124,9 @@ export function installMemberChatComposer(ctx: Context, sessions: ISessions, cli
       const request = new AbortController(); abort = request
       void client.target(current, request.signal).then(target => {
         if (request.signal.aborted || selected !== target.sessionId) return
-        unregister = ctx.slots.register({ name: 'conversation.composer', priority: 100, locale: TEAM_DASHBOARD_NS,
+        // rc.2's parent-offline contribution is -10; chain election takes the first match.
+        // The selector still declines pending interactions so their official composer owns the seat.
+        unregister = ctx.slots.register({ name: 'conversation.composer', priority: -20, locale: TEAM_DASHBOARD_NS,
           select: owner => selectMemberChat(owner, target),
           inject: sessionId => {
             const scoped = sessions.scope(sessionId)
