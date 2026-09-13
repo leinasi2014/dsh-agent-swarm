@@ -24,7 +24,8 @@ const PRIVATE_MEMORY_MAX_APPLICABILITY_BYTES = 2_048
  * WRITE-admission thresholds (docs04 §7.1 protocol version cced2c181c25b04fcd832c0415ec722e78677b3a + Root ruling):
  * operationId ≤128 UTF-8 bytes, tags ≤32 items ×128 bytes, applicability
  * ≤2,048 bytes, content ≤16,384 bytes, each evidence ref ≤2,048 bytes, and —
- * for BOTH new write paths (the v1-only production `add` AND v2 maintenance) —
+ * for BOTH production write paths (the legacy-v1-shaped production `add`
+ * via append AND v2 maintenance) —
  * at most 64 evidence refs (legacy rows with 64 refs stay legal and readable;
  * the reader adds NO new admission bound to history). Partition CAPACITY is
  * 256 PHYSICAL history rows counting ALL of v1 notes, v2 operations AND
@@ -497,7 +498,7 @@ const sameStrings = (left: readonly string[], right: readonly string[]): boolean
 
 /**
  * Validate one maintenance input against the write-admission thresholds and
- * return its canonical form (content/refs trimmed non-empty; refs ≤32; tags
+ * return its canonical form (content/refs trimmed non-empty; refs ≤64; tags
  * trimmed non-empty, deduplicated, stable code-point order ≤32×128B;
  * applicability trimmed, `''` = unconditional, ≤2,048B; operationId trimmed
  * non-empty ≤128B; content ≤16,384B). Invalid input fails with the shared

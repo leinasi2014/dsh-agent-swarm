@@ -155,6 +155,29 @@ export class MemberPrivateMemoryStore {
   }
 
   /**
+   * READ-ONLY same-fold recent-active projection for M2 recall (task-6): the
+   * active notes of one partition ordered `headSeq` desc then `memoryId`
+   * lexicographic, capped at `cap` CANDIDATES (a candidate cap only — the
+   * full history is still folded and validated on every call, and no
+   * Domain/schema/maintenance-write semantics change here). Detached deep
+   * copies; fails closed on a forged history exactly like the fold.
+   */
+  recentActiveNotes(scope: string, teamId: string, memberSessionId: string, cap: number): PrivateMemoryNote[] {
+    this.assertOpen()
+    const notes = this.foldPartition(scope, teamId, memberSessionId).notes
+      .filter(note => note.status === 'active')
+      .toSorted((left, right) => right.headSeq - left.headSeq
+        || (left.memoryId < right.memoryId ? -1 : left.memoryId > right.memoryId ? 1 : 0))
+    return structuredClone(notes.slice(0, Math.max(0, cap)))
+  }
+
+  /** Read-time (memoryId, headSeq, status) of selected notes for boundary re-verification. */
+  noteVersions(scope: string, teamId: string, memberSessionId: string): Map<string, { headSeq: number; status: PrivateMemoryNote['status'] }> {
+    this.assertOpen()
+    return new Map(this.foldPartition(scope, teamId, memberSessionId).notes.map(note => [note.memoryId, { headSeq: note.headSeq, status: note.status }]))
+  }
+
+  /**
    * INTERNAL read (no public tool, no durable table): rebuild the partition's
    * full operation index — one entry per operation holding (a) the minimal
    * receipt computed AT that operation's own history prefix and (b) the

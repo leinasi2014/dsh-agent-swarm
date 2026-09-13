@@ -13,8 +13,8 @@
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { TeamDomainError } from '../domain/error.js'
 import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
-import type { TeamId, TeamState } from '../domain/types.js'
-import { MemberPrivateMemoryStore, type MemberPrivateMemoryRecord, type PrivateMemoryPage } from '../storage/member-private-memory.js'
+import type { TeamId, TeamState, TeamTask } from '../domain/types.js'
+import { MemberPrivateMemoryStore, type MemberPrivateMemoryRecord, type PrivateMemoryNote, type PrivateMemoryPage } from '../storage/member-private-memory.js'
 import {
   canonicalizeMaintenanceInput,
   type PrivateMemoryMaintenanceInput,
@@ -40,6 +40,24 @@ interface OwningMember {
   readonly memberSessionId: string
   /** Host Team snapshot captured BEFORE any fence entry (provenance observation only). */
   readonly team: TeamState
+}
+
+/**
+ * The ONE shared eligibility filter (task-6): the member's EXACTLY ONE
+ * in-progress task whose `currentAttemptId` matches a RUNNING attempt of the
+ * SAME task and member. Anything else (none, several, replaced/mismatched)
+ * is undefined — id plus running phase alone never attributes. Used by the
+ * M1 maintenance provenance (Host WHERE) and the M2 recall installer
+ * (auto-read eligibility); behavior of both call sites is unchanged.
+ */
+export function uniqueRunningAttemptTask(team: TeamState, memberSessionId: string): TeamTask | undefined {
+  const attributed = team.tasks.filter(task => task.status === 'in_progress' && task.ownerSessionId === memberSessionId
+    && task.currentAttemptId !== undefined
+    && team.attempts.some(attempt => attempt.id === task.currentAttemptId
+      && attempt.taskId === task.id
+      && attempt.memberSessionId === memberSessionId
+      && attempt.phase === 'running'))
+  return attributed.length === 1 ? attributed[0] : undefined
 }
 
 export class MemberPrivateMemoryService {
@@ -108,15 +126,8 @@ export class MemberPrivateMemoryService {
    * provenance is absent from the maintenance input.
    */
   private hostProvenance(team: TeamState, memberSessionId: string): PrivateMemoryProvenance {
-    const attributed = team.tasks.filter(task => task.status === 'in_progress' && task.ownerSessionId === memberSessionId
-      && task.currentAttemptId !== undefined
-      && team.attempts.some(attempt => attempt.id === task.currentAttemptId
-        && attempt.taskId === task.id
-        && attempt.memberSessionId === memberSessionId
-        && attempt.phase === 'running'))
-    if (attributed.length !== 1) return { kind: 'unattributed' }
-    const task = attributed[0]
-    if (task === undefined || task.currentAttemptId === undefined) return { kind: 'unattributed' }
+    const task = uniqueRunningAttemptTask(team, memberSessionId)
+    if (task?.currentAttemptId === undefined) return { kind: 'unattributed' }
     return {
       kind: 'task', taskId: task.id,
       ...(task.currentAttemptId === undefined ? {} : { attemptId: task.currentAttemptId }),
@@ -155,5 +166,21 @@ export class MemberPrivateMemoryService {
   async list(exec: ToolExecutionAuthority, input: { cursor: number; limit: number }): Promise<PrivateMemoryPage> {
     const owner = await this.owningMember(exec)
     return this.requireStore().listPage(owner.scope, owner.teamId, owner.memberSessionId, input.cursor, input.limit)
+  }
+
+  /**
+   * M2 recall (task-6): read-only same-fold recent-active CANDIDATE projection
+   * over the ELIGIBLE member's own partition, resolved by the recall installer
+   * (never a tool surface and never another member's partition). Thin delegator
+   * — all authority, eligibility and boundary re-verification live in the
+   * installer; semantics of the store/domain/maintenance writes are unchanged.
+   */
+  recallCandidates(scope: TeamScope, teamId: TeamId, memberSessionId: string, cap: number): readonly PrivateMemoryNote[] {
+    return this.requireStore().recentActiveNotes(scope, teamId, memberSessionId, cap)
+  }
+
+  /** Same-fold (memoryId → headSeq/status) identity map for boundary re-verification. */
+  recallNoteVersions(scope: TeamScope, teamId: TeamId, memberSessionId: string): Map<string, { headSeq: number; status: PrivateMemoryNote['status'] }> {
+    return this.requireStore().noteVersions(scope, teamId, memberSessionId)
   }
 }
