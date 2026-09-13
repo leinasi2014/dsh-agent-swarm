@@ -338,6 +338,30 @@ function activeAllocation(allocation) {
   return allocation.state === 'OPENING' || allocation.state === 'ACTIVE' || allocation.state === 'CLOSING' || allocation.state === 'UNKNOWN'
 }
 
+function resolveOpenBase(repository, base) {
+  const cwd = repository.primaryRoot
+  const primaryHead = git(['rev-parse', 'HEAD'], cwd)
+  if (base === undefined) return primaryHead
+  if (typeof base !== 'string' || !/^[0-9a-f]{40}$/iu.test(base)
+    || git(['cat-file', '-t', base.toLowerCase()], cwd, true) !== 'commit') {
+    throw new LifecycleError('INVALID_BASE', 'explicit open base must be a full 40-character commit SHA')
+  }
+  const expectedBase = base.toLowerCase()
+  if (expectedBase === primaryHead) return expectedBase
+  // The repository authority is fixed by project-binding.yaml, never by caller input.
+  const trackingRef = 'refs/remotes/github/main'
+  const authorityRef = 'refs/heads/main'
+  const trackingHead = () => git(['rev-parse', '--verify', trackingRef], cwd, true)
+  if (trackingHead() !== expectedBase) {
+    throw new LifecycleError('BASE_MISMATCH', 'explicit non-primary base must equal refs/remotes/github/main')
+  }
+  const remoteHead = git(['ls-remote', '--exit-code', 'github', authorityRef], cwd)
+  if (remoteHead !== `${expectedBase}\t${authorityRef}` || trackingHead() !== expectedBase) {
+    throw new LifecycleError('BASE_MISMATCH', 'github/main must still equal the explicit base and its tracking ref')
+  }
+  return expectedBase
+}
+
 export function openAllocation({ cwd, id, branch, base, owner }) {
   assertSlug(id)
   assertBranch(branch)
@@ -355,9 +379,7 @@ export function openAllocation({ cwd, id, branch, base, owner }) {
     if (gitSucceeds(['show-ref', '--verify', '--quiet', `refs/heads/${branch}`], repository.primaryRoot)) {
       throw new LifecycleError('BRANCH_EXISTS', `branch ${branch} already exists; open requires a new branch`)
     }
-    const expectedBase = git(['rev-parse', base ?? 'HEAD'], repository.primaryRoot)
-    const primaryHead = git(['rev-parse', 'HEAD'], repository.primaryRoot)
-    if (expectedBase !== primaryHead) throw new LifecycleError('BASE_MISMATCH', 'open base must equal the current integration HEAD')
+    const expectedBase = resolveOpenBase(repository, base)
     const path = allocationPath(repository, id)
     if (existsSync(path)) throw new LifecycleError('ALLOCATION_DRIFT', `allocation path already exists: ${path}`)
     const allocation = {
