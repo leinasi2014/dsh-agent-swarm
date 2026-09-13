@@ -4,7 +4,6 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 const ACTIVE_ALLOCATION_STATES = new Set(['OPENING', 'ACTIVE', 'CLOSING', 'UNKNOWN'])
-const WRITER_CAPACITY = 2
 const BROWSER_EXECUTABLES = new Set(['msedge', 'msedge.exe', 'chrome', 'chrome.exe', 'chromium', 'chromium.exe', 'firefox', 'firefox.exe'])
 const PREVIEW_EXECUTABLES = new Set(['vite', 'vite.cmd', 'vite.exe', 'next', 'next.cmd', 'next.exe', 'http-server', 'http-server.cmd', 'serve', 'serve.cmd'])
 const DELIVERY_CHECKPOINT = 'Mandatory delivery checkpoint: state (1) latest integrated user-visible or executable behavior, (2) accepted but unintegrated candidate, (3) how the next action changes behavior, a named decision, or a concrete blocker, and (4) the next observable acceptance event. Integrate accepted work before polishing more evidence.'
@@ -269,10 +268,7 @@ function preToolResult(input, dependencies) {
 
   if (isShellCommandTool(toolName, input) && hasIsolationOpen(command)) {
     try {
-      const authority = dependencies.readIsolationAuthority(repositoryForInspection())
-      if (authority.active.length >= WRITER_CAPACITY) {
-        return blocked(`Managed isolation already has ${authority.active.length} active or in-flight writer allocation(s); opening another lane would exceed the capacity of ${WRITER_CAPACITY}.`)
-      }
+      dependencies.readIsolationAuthority(repositoryForInspection())
     } catch (error) {
       return warning(`could not inspect the authoritative isolation ledger before open (${error.message}); Codex did not block the command.`)
     }

@@ -8,7 +8,7 @@ Use `$manage-agile-software-development` as the delivery method for non-trivial 
 2. Run `pnpm verify:isolation:status` before opening a write lane, freezing a candidate, and integrating. Open and close writer lanes only through `pnpm isolation open|close`; use `status` and read-only `reconcile` for diagnosis. Run the full `pnpm verify:isolation` only when isolation policy or layout assumptions change.
 3. Run `pnpm verify:policy` before changing governance, instructions, or document authority.
 4. Run `pnpm verify:compatibility` when official DSH or reference compatibility is decision-bearing. Reuse an unchanged compatibility receipt otherwise.
-5. Give each independently acceptable capability one Feature Pipeline, then select the lowest delivery lane that covers that pipeline's actual coordination and risk. The managed lifecycle allows at most two active writers; read-only QA/investigation does not consume writer capacity.
+5. Give each independently acceptable capability one Feature Pipeline, then select the lowest delivery lane that covers that pipeline's actual coordination and risk. There is no fixed repository writer-count cap: the coordinator schedules managed allocations by ready dependencies, exclusive write scopes, available resources, and integration capacity; read-only QA/investigation needs no writer allocation.
 6. The Team UI walking skeleton has passed the executable-outcome circuit breaker. The anti-duplication rule remains permanent: update the smallest registered authority and product/test surface; do not add a second design, ADR, diagram, receipt wrapper, oracle, or verifier for the same decision.
 
 ## Project red lines

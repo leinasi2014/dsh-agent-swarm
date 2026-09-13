@@ -10,7 +10,7 @@ metadata:
 
 本 Skill 面向真正执行开发任务的 Agent。目标是把框架理论转化成正确的包结构、服务接口、生命周期、持久语义、测试和 Profile 验证。任何结论都必须能追溯到当前项目、目标安装包、官方 DSH 源码或固定参考源。
 
-仓库开发隔离由 `docs/governance/project-binding.yaml` 唯一决定，当前由项目自有 `pnpm isolation open|status|close|reconcile` 生命周期在 Git common-dir ledger 中管理，最多两个 owner/generation 围栏 writer allocation。只有 primary 的干净 `main` 可变更该生命周期；原始 Git worktree 命令、未登记目录和布局门 PASS 均不授权分配或并行写入。本文的 Worktree/执行根内容描述插件产品能力与隔离测试，不授权创建开发 worktree。
+仓库开发隔离由 `docs/governance/project-binding.yaml` 唯一决定，由项目自有 `pnpm isolation open|status|close|reconcile` 生命周期在 Git common-dir ledger 中管理 owner/generation 围栏 writer allocation。仓库不设固定 writer 数量上限，协调者按就绪依赖、独占写范围、实际资源和集成能力分配并发。只有 primary 的干净 `main` 可变更该生命周期；原始 Git worktree 命令、未登记目录和布局门 PASS 均不授权分配或并行写入。本文的 Worktree/执行根内容描述插件产品能力与隔离测试，不授权创建开发 worktree。
 
 ## 何时使用
 
@@ -425,7 +425,7 @@ dsh --profile <check-profile> --dump-config
 15. 独立安全/架构审查按 `$manage-agile-software-development` 与 `docs/governance/project-binding.yaml` 的风险分级执行；审查范围、权限、候选身份和验收问题由工作包明确，项目经理接收报告并核验证据，不改写结论。
 16. 用户明确授权全权限审查时，将 `danger-full-access` 与 `approval=never` 固定在独立 Session，核对持久权限事件；临时修改未来 Session 默认值后立即恢复。运行时全权限不等于允许改生产源码，审查写入范围仍由任务约束。
 17. M1A 已实现 ADR-0007：`sessionPersistence` 和 `storageDomain` 是 fail-closed 必需注入（缺失组合中插件保持 pending）；权威 Team aggregate 位于官方 `agent_swarm` Storage Domain（`TeamDomainPort` → `StorageDomainTeamStore`，每 Team 一条版本化记录 + 迁移回执），绝不在共享工作区；`FileTeamStore` 只读（迁移读取器/fixture，无写路径）；迁移仅经 `scripts/migrate-legacy-team-store.mjs` 显式单向执行（空目的、读回校验、回执、源只读），禁止运行时自动迁移、双写或回退；该保护 denies ordinary workspace writer，不是对 unrestricted host access 的防御，存储 root 必须配置在工作区与 sandbox 根之外。持久边界事实（M4-3/#129 探针实证，docs/09 §1）：官方 storage-domain 的 `put` 原样存储记录，但加载路径按表 value schema zod 解析并**剥离未声明键**——向聚合新增可选字段时必须同时扩展 `src/storage/team-spec.ts` 的 zod 表 schema 与 `assertTeamState`，否则字段仅在单进程存活、重载即静默丢失（`verification`/`replacesAttemptId` 曾因此中招）。
-18. 自托管运行时依 ADR-0008 分级；仓库开发始终以项目绑定为准，D2 并行开发仅通过项目自有受管 lifecycle 分配，最多两个 writer，集成仍串行。
+18. 自托管运行时依 ADR-0008 分级；仓库开发始终以项目绑定为准，D2 并行开发通过项目自有受管 lifecycle 分配，数量由协调者按实际依赖、独占范围和资源决定，集成仍串行。
 19. Stable control、candidate commit/artifact、acceptance Profile/state/RPC、promotion/rollback 必须分权；candidate 不能批准或部署自身。
 20. Dogfood 管理只观察权威 Team/Job/lease/verification 状态和阶段报告，不轮询私有推理；失败通过 Lead 建立 fresh fenced task，不直接篡改 canonical state。
 21. 独立 Skills 模块可以使用可核对的工作事实与失败反例调查问题；候选须分离 proposal、validation、独立 approval 和 write。业务任务接受不等于技能发布批准，作者不得自批，Agent 不得自行扩大授权它的 Skill；私有记忆不进入跨队观察面。

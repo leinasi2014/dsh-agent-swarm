@@ -14,7 +14,7 @@ This repository uses `$manage-agile-software-development` with the project adapt
 
 The accepted backend is the project-owned `open/status/close/reconcile` lifecycle. Its dynamic authority is a versioned Git-common-dir ledger; open records intent before Git mutation, status cross-checks ledger/Git/filesystem identity, close requires owner+generation plus clean integrated-or-archived proof, and reconcile is read-only unless a repair is deterministic. Raw worktree commands and unmanaged workspace directories are forbidden.
 
-At most two writer allocations may be active. Each Feature Pipeline owns one allocation and branch; integration remains serial on `main`. `close` retains the normal branch and removes only the registered worktree after proof/read-back. An ambiguous lifecycle state freezes new allocations until `reconcile` can prove a safe repair or a reviewed recovery is performed.
+There is no fixed repository writer-count cap. The coordinator selects concurrency from ready dependencies, exclusive write scopes, available resources, and integration capacity. Each Feature Pipeline owns one allocation and branch; integration remains serial on `main`. `close` retains the normal branch and removes only the registered worktree after proof/read-back. An ambiguous lifecycle state freezes new allocations until `reconcile` can prove a safe repair or a reviewed recovery is performed.
 
 Independent read-only investigation may run concurrently. Shared contracts, governance, document registry, integration, promotion, and destructive cleanup each have one writer.
 

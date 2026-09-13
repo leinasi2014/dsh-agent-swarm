@@ -348,9 +348,6 @@ export function openAllocation({ cwd, id, branch, base, owner }) {
     if (Object.values(state.allocations).some(allocation => ['OPENING', 'CLOSING', 'UNKNOWN'].includes(allocation.state))) {
       throw new LifecycleError('RESULT_UNKNOWN', 'an incomplete or ambiguous allocation freezes new writer allocation until reconciliation')
     }
-    if (Object.values(state.allocations).filter(allocation => activeAllocation(allocation)).length >= 2) {
-      throw new LifecycleError('CAPACITY_EXCEEDED', 'the managed writer capacity is two active allocations')
-    }
     assertNoUnmanaged(repository, state, records)
     const existing = state.allocations[id]
     if (existing !== undefined && activeAllocation(existing)) throw new LifecycleError('ALLOCATION_EXISTS', `allocation ${id} is already ${existing.state}`)
@@ -439,7 +436,6 @@ function unlockedStatusReport({ cwd, requireHealthy = false } = {}) {
   if (primary.branch !== expectedPrimaryBranch) failures.push('PRIMARY_NOT_INTEGRATION_REF')
   const allocations = Object.values(state.allocations).map(allocation => inspectAllocation(repository, allocation, records))
   const history = Object.values(state.history).flat().map(allocation => inspectAllocation(repository, allocation, records, true))
-  if (allocations.filter(allocation => activeAllocation(allocation)).length > 2) failures.push('CAPACITY_EXCEEDED')
   for (const allocation of allocations) {
     if (['OPENING', 'CLOSING', 'UNKNOWN'].includes(allocation.state)) failures.push('RESULT_UNKNOWN')
   }
@@ -541,7 +537,6 @@ export function reconcileAllocations({ cwd, repair = false } = {}) {
     const { primary } = primaryFacts(repository)
     if (primary.branch !== integrationBranch(repository)) actions.push({ id: 'primary', from: primary.branch ?? 'DETACHED', to: 'UNKNOWN', unsafe: true })
     try { requireClean(repository.primaryRoot, 'PRIMARY_DIRTY') } catch (error) { actions.push({ id: 'primary', from: 'DIRTY', to: 'UNKNOWN', unsafe: true, code: error.code ?? 'PRIMARY_DIRTY' }) }
-    if (Object.values(state.allocations).filter(activeAllocation).length > 2) actions.push({ id: 'capacity', from: 'OVER_CAPACITY', to: 'UNKNOWN', unsafe: true })
     if (existsSync(repository.worktreeRoot)) {
       try { assertRealContainer(repository) } catch (error) { actions.push({ id: '.worktree', from: 'UNMANAGED', to: 'UNKNOWN', unsafe: true, code: error.code ?? 'PATH_ESCAPE' }) }
     }

@@ -129,20 +129,15 @@ try {
   const beta = json(['open', '--id', 'beta', '--branch', 'test/beta', '--owner', 'writer-b'])
   expectFailure('writer cannot load lifecycle mutation from its own checkout', ['close', '--id', 'beta', '--generation', String(beta.generation), '--owner', 'writer-b', '--outcome', 'integrated'], 'MUTATION_REQUIRES_PRIMARY', beta.path)
   const gamma = json(['open', '--id', 'gamma', '--branch', 'test/gamma', '--owner', 'writer-c'])
-  expectFailure('writer capacity', ['open', '--id', 'delta', '--branch', 'test/delta', '--owner', 'writer-d'], 'CAPACITY_EXCEEDED')
-  const deltaPath = join(repo, '.worktree', 'delta')
-  git(['worktree', 'add', deltaPath, '-b', 'test/delta'])
-  const overCapacity = JSON.parse(readFileSync(authorityStatePath(), 'utf8'))
-  overCapacity.allocations.delta = {
-    id: 'delta', generation: 1, state: 'ACTIVE', owner: 'writer-d', base: git(['rev-parse', 'HEAD']),
-    branch: 'test/delta', path: deltaPath, candidate: null, outcome: null, archiveRef: null, integrationHead: null, result: 'opened', updatedAt: new Date().toISOString(),
-  }
-  writeFileSync(authorityStatePath(), `${JSON.stringify(overCapacity, null, 2)}\n`)
-  expectFailure('observed over-capacity state', ['status'], 'CAPACITY_EXCEEDED')
-  git(['worktree', 'remove', deltaPath])
-  git(['branch', '-D', 'test/delta'])
-  delete overCapacity.allocations.delta
-  writeFileSync(authorityStatePath(), `${JSON.stringify(overCapacity, null, 2)}\n`)
+  const delta = json(['open', '--id', 'delta', '--branch', 'test/delta', '--owner', 'writer-d'])
+  const epsilon = json(['open', '--id', 'epsilon', '--branch', 'test/epsilon', '--owner', 'writer-e'])
+  const parallel = json(['status'])
+  if (!parallel.healthy || parallel.allocations.filter(item => item.state === 'ACTIVE').length !== 4) throw new Error('four independently managed writers must remain healthy')
+  if (json(['reconcile']).actions.length !== 0) throw new Error('healthy parallel writers must not require capacity repair')
+  expectFailure('parallel owner mismatch', ['close', '--id', 'delta', '--generation', String(delta.generation), '--owner', 'writer-e', '--outcome', 'integrated'], 'OWNER_MISMATCH')
+  expectFailure('parallel branch ownership', ['open', '--id', 'branch-owner', '--branch', 'test/epsilon', '--owner', 'writer-f'], 'BRANCH_CLAIMED')
+  json(['close', '--id', 'delta', '--generation', String(delta.generation), '--owner', 'writer-d', '--outcome', 'integrated'])
+  json(['close', '--id', 'epsilon', '--generation', String(epsilon.generation), '--owner', 'writer-e', '--outcome', 'integrated'])
   json(['close', '--id', 'gamma', '--generation', String(gamma.generation), '--owner', 'writer-c', '--outcome', 'integrated'])
   const statePath = authorityStatePath()
   const state = JSON.parse(readFileSync(statePath, 'utf8'))
