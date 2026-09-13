@@ -1,4 +1,7 @@
 export const publicMentionsEn = {
+  'memberChat.input': 'Message this member', 'memberChat.send': 'Send', 'memberChat.sending': 'Sending…', 'memberChat.stop': 'Stop',
+  'memberChat.attach': 'Attach files', 'memberChat.uploading': 'Uploading…', 'memberChat.retryFile': 'Retry upload', 'memberChat.removeFile': 'Remove attachment',
+  'memberChat.fileUnavailable': 'This member chat supports text and images. Other file attachments are not supported by the current host; your draft is retained.',
   'directory.attributes': 'Profile', 'directory.work': 'Work', 'directory.model': 'Model', 'directory.skills': 'Skills', 'directory.toolPermissions': 'Tool permissions',
   'directory.closeProfile': 'Close member profile',
   'directory.contact': 'Message', 'directory.contactOpening': 'Opening chat…',
@@ -29,6 +32,9 @@ export const publicMentionsEn = {
   'directory.approval-required': 'Approval required', 'directory.disabled': 'Disabled', 'directory.allow': 'Allow', 'directory.ask': 'Ask', 'directory.deny': 'Deny',
 }
 export const publicMentionsZh: Record<keyof typeof publicMentionsEn, string> = {
+  'memberChat.input': '给这位成员发送消息', 'memberChat.send': '发送', 'memberChat.sending': '正在发送…', 'memberChat.stop': '停止',
+  'memberChat.attach': '添加附件', 'memberChat.uploading': '上传中…', 'memberChat.retryFile': '重试上传', 'memberChat.removeFile': '移除附件',
+  'memberChat.fileUnavailable': '此成员会话支持文本和图片。当前宿主暂不支持其他文件附件，草稿已保留。',
   'directory.attributes': '属性', 'directory.work': '工作', 'directory.model': '模型', 'directory.skills': 'Skills', 'directory.toolPermissions': '工具权限',
   'directory.closeProfile': '关闭成员资料',
   'directory.contact': '发送消息', 'directory.contactOpening': '正在打开聊天…',
