@@ -528,20 +528,15 @@ export class SkillsManagementModule {
     if (input.revision < stored.revision) {
       throw new TeamDomainError(`skill request ${input.requestId} is at revision ${stored.revision}; revision ${input.revision} is stale`, 'SKILLS_REQUEST_STALE')
     }
-    if (stored.state === 'cancelled' && input.revision === stored.revision + 1) {
-      // A higher revision after a cancellation is a fresh attempt on the same requestId.
-      return { record: await this.store.updateRequest(scope, teamId, input.requestId, current => ({
-        ...current, revision: input.revision, payloadHash, payload, state: 'received', reason: undefined, result: undefined, managerSessionId: undefined,
-      })), replayed: false }
-    }
-    if (stored.state === 'needs_evidence' && input.revision === stored.revision + 1) {
-      // Evidence supplement (docs04 §7.2 @ cced2c18): the SAME requestId
-      // continues at strictly revision+1 with complete new material — no
-      // cancellation round-trip. This is the ONLY legal supplement entry.
-      // A superseded in-flight writer that lands after it re-validates the
-      // full key + revision + payload hash inside the official
-      // single-record update and fences itself out — a late old writer can
-      // never overwrite the newer revision.
+    if ((stored.state === 'cancelled' || stored.state === 'needs_evidence') && input.revision === stored.revision + 1) {
+      // A strictly-next revision over a CANCELLATION is a fresh attempt on the
+      // same requestId; over NEEDS_EVIDENCE it is the evidence supplement
+      // (docs04 §7.2 @ cced2c18) — the ONLY legal supplement entry. Both
+      // restart the record at revision+1 with complete new material. A
+      // superseded in-flight writer that lands after it re-validates the full
+      // key + revision + payload hash inside the official single-record
+      // update and fences itself out — a late old writer can never overwrite
+      // the newer revision.
       return { record: await this.store.updateRequest(scope, teamId, input.requestId, current => ({
         ...current, revision: input.revision, payloadHash, payload, state: 'received', reason: undefined, result: undefined, managerSessionId: undefined,
       })), replayed: false }

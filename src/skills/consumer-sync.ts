@@ -227,27 +227,25 @@ export function planConsumerAdvance(
     }
   }
 
+  // The caught-up / resync-stop ANSWER is the same empty page: ledger
+  // bookkeeping may still land, but no batch is captured over a broken or
+  // exhausted window. One shared plan; both callers keep their own trigger.
+  const emptyPagePlan = (): ConsumerPlan => ({
+    mutate: hasLedgerDelta || regressionDelta || consumer.sourceState !== sourceState || needsBaseline,
+    basis,
+    next: current => ({ ...current, ...ledgerFields, ...(baseline === undefined ? {} : { baseline }) }),
+    page: { entries: [], hasMore: false, reServed: false, sourceState },
+  })
+
   // A conflict, gap, regression, or an outstanding resync stops the first
   // slice explicitly: no new batch is captured over a broken window.
-  if (needsResync) {
-    return {
-      mutate: hasLedgerDelta || regressionDelta || consumer.sourceState !== sourceState || needsBaseline,
-      basis,
-      next: current => ({ ...current, ...ledgerFields, ...(baseline === undefined ? {} : { baseline }) }),
-      page: { entries: [], hasMore: false, reServed: false, sourceState },
-    }
-  }
+  if (needsResync) return emptyPagePlan()
 
   const beyond = snapshot.hasWorkActivity ? snapshot.retained.filter(entry => entry.sequence > consumer.cursorSequence) : []
   const captured = beyond.slice(0, pageSize)
   if (captured.length === 0) {
     // Caught up: no batch to capture; stay silent unless the ledger moved.
-    return {
-      mutate: hasLedgerDelta || regressionDelta || consumer.sourceState !== sourceState || needsBaseline,
-      basis,
-      next: current => ({ ...current, ...ledgerFields, ...(baseline === undefined ? {} : { baseline }) }),
-      page: { entries: [], hasMore: false, reServed: false, sourceState },
-    }
+    return emptyPagePlan()
   }
 
   const refs = captured.map(toBatchRef)
