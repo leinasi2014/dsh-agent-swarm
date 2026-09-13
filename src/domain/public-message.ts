@@ -78,6 +78,8 @@ interface PublicAppendIdentity {
   /** Host-resolved target witnesses, never accepted from the wire. */
   readonly expectedCaptainSessionId?: string
   readonly expectedTeamRevision?: number
+  /** Ephemeral execution guard, rechecked after waiting for the Team transaction. Never persisted or accepted from RPC. */
+  readonly assertExecution?: () => void
 }
 interface AppendPublicMessageV1Input extends PublicAppendIdentity { readonly text: string; readonly formatVersion?: 1 }
 interface AppendPublicMessageV2Input extends PublicAppendIdentity { readonly formatVersion: 2; readonly content: readonly PublicSegment[] }
@@ -210,7 +212,7 @@ function assertV2(message: TeamPublicMessageV2, teamId: string, captain: string,
   const mentions = publicMentionIds(message.content)
   if (JSON.stringify(mentions) !== JSON.stringify(message.mentionLabels.map(row => row.memberId))) corrupt()
   if (message.author.kind === 'agent') {
-    if (message.replyTo === undefined || message.delivery.kind !== 'not-requested' || mentions.length !== 0) corrupt()
+    if (message.delivery.kind !== 'not-requested' || mentions.length !== 0) corrupt()
     return
   }
   if (message.delivery.kind !== 'requested') corrupt()

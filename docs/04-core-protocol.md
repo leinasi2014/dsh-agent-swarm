@@ -208,6 +208,12 @@ v1 定义人类公共文本默认交给当前 Captain，以及 Captain/成员显
 
 代表性验收包含：认证缺失/错误来源与跨 Team 拒绝；同请求并发、不同载荷冲突、提交后丢 ACK；公开回报丢工具结果后的同请求重试；发送中切群；真实 Captain 消费与显式回复；无任务 Team 冷恢复；claimed 后、Domain 确认前崩溃不重复输入。工程 fixture、真实模型、真实重启与生产部署分别记录。
 
+成员公开原创使用 `agent_swarm_public_post`，从实际工具上下文取得作者，以 v2 保存至同一公开消息权威；不要求 `replyTo`，也不创建提及投递、任务或唤醒。`agent_swarm_public_reply` 继续要求本队已存在的精确公开消息 ID，两者共用原事务、容量和幂等边界。
+
+成员原文读取使用 `agent_swarm_public_history` 与 `agent_swarm_public_message`，只从本人的真实 live Agent、Session、scope 和当前 membership 派生本队，不接受借用浏览器身份或自行指定他队。读取前后复核精确运行身份和关闭/取消信号，第二次权威 membership 读取同时固定队伍、Captain 与返回内容；目标变化时丢弃本页。输出限公开作者、正文、`reply_to`、公开图片 ID 与元数据；附件引用、请求凭据、投递 frame 和私人会话正文不对模型导出，读取本身不恢复会话、投递、唤醒或创建任务。
+
+历史页默认 20 条、最多 50 条，默认序列化输出预算 32,768 UTF-8 字节，可设 1,024–65,536 字节。`before_sequence` 与 `after_sequence` 互斥；默认及向前翻页保留窗口较新的记录，向后续读保留较早记录，覆盖范围按最终返回行计算。预算不足时明确标记正文省略，并保留可精确读取的消息 ID，不能静默丢失翻页方向上的原文。精确消息读取按 Unicode 码点 `offset` 分段，默认 8,000、最多 20,000 码点，返回 `text_total`、`text_offset`、`truncated`、`has_more_text` 和 `complete`；只有从零开始且已返回全文时 `complete` 为真。未知 ID 与非法 offset 分别拒绝，既有工具 allow/ask/deny 继续收紧默认可见性。
+
 ### 8.2 稳定身份提及与共享目录
 
 多提及沿用 `/swarm-public` 的认证与目标读取边界，增加 `v2/history`、`v2/append`、`v2/requestResult`、`v2/directory`。版本适配只选择严格输入解析和输出投影，认证、请求查询、事务、分页及投递继续共用原 owner。v2 追加字段为 `schemaVersion: 2`、`target {rootSessionId, teamId}`、`requestId`、有序 `content` 和可选 `replyTo`。结构段只有 `{type: 'text', text}` 与 `{type: 'mention', memberId}`；`memberId` 是当前 Captain 或成员的精确 Session ID，完整身份为 `(teamId, memberId)`，不建立另一份身份表。wire 不接受作者、label、parent、frame 或独立收件人数组。

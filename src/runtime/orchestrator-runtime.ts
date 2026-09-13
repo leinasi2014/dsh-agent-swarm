@@ -85,6 +85,7 @@ export class AgentSwarmRuntime extends Service {
   readonly executionRoots: ExecutionRootSurface
   private closing = false
   private readonly publicAbort = new AbortController()
+  get closingSignal(): AbortSignal { return this.publicAbort.signal }
   /** @internal Optional isolated workflow engine; consume via ctx.agentSwarmWorkflow.start(). */
   workflowBridge?: TeamBridgeWorkflowEngine
   /** Optional caller-scoped read projection; it owns no task lifecycle or ctx.jobs Provider. */
@@ -446,9 +447,9 @@ export class AgentSwarmRuntime extends Service {
     })
   }
 
-  async publicReply(exec: ToolExecutionAuthority, requestId: string, replyTo: string, text: string) {
-    return await this.mutations.publicReply(exec, requestId, replyTo, text)
-  }
+  publicReply(exec: ToolExecutionAuthority, requestId: string, replyTo: string, text: string) { return this.mutations.publicReply(exec, requestId, replyTo, text) }
+
+  publicPost(exec: ToolExecutionAuthority, requestId: string, text: string) { return this.mutations.publicPost(exec, requestId, text) }
 
   setCommunication(exec: ToolExecutionAuthority, revision: number, intensity: TeamCommunicationIntensity | undefined) { return this.mutations.setCommunication(exec, revision, intensity) }
 
@@ -528,12 +529,7 @@ export class AgentSwarmRuntime extends Service {
 
   observeSessionEvent(session: Session, event: SessionEvent): void { this.usage.observeSessionEvent(session, event); this.provisioning.observeSessionEvent(session, event); this.captainProvisioning.observeSessionEvent(session, event) }
 
-  /**
-   * Evidence-only stranded-ownership hint consumed by the status projection
-   * (issue #12 / F10): `stranded=idle-holder` while the owner is live and
-   * idle, `stranded=owner-not-live` when it is cold. Never mutates
-   * authoritative state — decisions in docs/04 §8c.
-   */
+  /** Evidence-only stranded-ownership hint (issue #12 / F10: `stranded=idle-holder` while the owner is live and idle, `stranded=owner-not-live` when cold); delegates to the scheduling pass and never mutates authoritative state. */
   strandedEvidence(task: TeamTask): string { return this.schedulingPass.strandedEvidence(task) }
 
   private trackChild(captain: Agent, childId: string): void {

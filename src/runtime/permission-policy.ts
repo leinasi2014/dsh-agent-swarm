@@ -39,6 +39,10 @@ const PLUGIN_TOOL_NAMES = [
   ...WORK_REQUEST_CAPTAIN_TOOLS,
   'agent_swarm_submit_work_request',
   'agent_swarm_get_goal', 'agent_swarm_save_goal', 'agent_swarm_control_goal', ...GOAL_CAPTAIN_TOOLS,
+  'agent_swarm_public_post',
+  // C1 public read pair: appended after the historical surface so every
+  // existing entry keeps its stable prefix position.
+  'agent_swarm_public_history', 'agent_swarm_public_message',
 ] as const
 
 /** Default effective policy: the plugin's own tool surface is allowed. */
