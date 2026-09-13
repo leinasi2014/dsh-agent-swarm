@@ -13,6 +13,8 @@ Use `$manage-agile-software-development` as the delivery method for non-trivial 
 
 ## Project red lines
 
+- Use English as the primary language for `README.md` and public-facing repository documentation. Optional translations supplement the English entry point; existing architecture documents keep their established language unless their scope includes translation. Describe released capabilities, known limitations, and planned work accurately. Follow the user's language when communicating with them.
+
 - Official DSH services and the Session log remain canonical. Extend through plugins, Providers, Consumers, tools, events, storage forms, or Bundle composition; do not patch Agent Loop or create a second canonical state machine.
 - Verify APIs against the installed `@deepseek-ai/*` packages and the pinned official evidence. `ref/` is read-only evidence and is refreshed only through its supplied sync scripts.
 - Every registration has lifecycle ownership and a disposer. Publish state only after its authoritative commit; model-visible state must be reconstructable from the Session log.
