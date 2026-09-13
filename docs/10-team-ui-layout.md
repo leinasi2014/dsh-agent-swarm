@@ -143,7 +143,7 @@ Team 页面复用官方 SidebarRight 的独立页签。关闭后，从官方新�
 | staged Team | 明示尚未创建 Captain | Captain Chat 入口不可用 |
 | 已归档 | 明确历史阶段 | 不伪造 active 成员或当前工作 |
 
-中央输入区复用官方 Composer。当前会话可停止时保留 Stop；发送能力不可用时不应并列显示一个会误导用户的 Send。该行为归 Core 会话 UI，须按实际在线、离线和运行状态独立验证；Team 管理消息的队列状态不能代替官方输入状态。
+中央输入区默认复用官方 Composer。Host 已核实的 active managed Member 使用公开 `conversation.composer` chain 中的成员输入栏，通过核心协议的私聊命令在发送期间恢复父链。仍显示精确官方 Session 历史，不改 `parentAvailable`；资料页“发送消息”和官方目录直接打开该成员使用同一个输入目标。pending interaction 保留官方表单；当前会话可停止时保留 Stop。文本、图片和失败草稿复用官方输入与附件服务；rc.2 continuable 不支持的普通文件明确报错并保留。切换会话、关闭或迟到回包不能清除另一会话及继续编辑的草稿，发送期间阻止重复提交，失败不自动重发。Team 管理消息的队列状态不能代替官方输入状态；真实在线、离线和运行状态仍须独立验收。
 
 ## 7. 验收场景与实现入口
 

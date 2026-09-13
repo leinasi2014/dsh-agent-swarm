@@ -17,6 +17,10 @@ Main Brain Session（Team 外）
 - 一个 Session 可参与显式寻址的多个上下文时，隐式 Team 解析必须拒绝歧义。
 - UI 中的“当前队长会话”与 Main Brain Chat 必须清楚区分；打开 Captain 只导航官方 Session。
 
+已认证本地操作者可通过 `/swarm-member-chat` 的 `target` 只读解析和 `prompt` 命令向精确 active Member Session 私聊。Host 从 Main/Team、roster 内部 name、Session id 及官方持久 continuable lineage 验证身份；这些字符串只选择目标，不授予 Captain 或模型工具权限。发送复用现有 managed 根恢复和短期 `withLiveChild`，在恢复父链后重新取得 Host 身份证明，再调用官方 `Subagent.prompt`。文本不裁剪、不增加代理指令，图片由官方附件服务准入，request id、用户来源和时区进入官方 Session；群聊、任务及 Team mailbox 不记录这条私聊。rc.2 官方 continuable prompt 不接受普通文件收据，客户端明确报错并保留附件，不转换或丢弃它。
+
+私聊 admission 与成员移除、团队清退共用既有 Team 互斥，关闭时取消并等待在途调用，所有短期 continuation ownership 在调用结束释放。页面浏览不恢复父 Agent，也不保持整页 maintenance；官方 `parentAvailable` 投影保持原义。错误或响应不确定时保留草稿，不自动重投，不以 RPC 受理回执冒称模型已经完成回复。
+
 ## 2. Team aggregate
 
 一个 Team 至少包含：

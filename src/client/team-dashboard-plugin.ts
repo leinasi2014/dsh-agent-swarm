@@ -33,6 +33,8 @@ import { TeamHeaderBadge } from './TeamHeaderBadge.js'
 import { requestLatestNavigation } from './official-capabilities.js'
 import type { TeamNavigationCallbacks } from './TeamGroupNavigation.js'
 import { RetirementClient } from './retirement-client.js'
+import { MemberChatClient } from './member-chat-client.js'
+import { installMemberChatComposer } from './MemberChatComposer.js'
 import type { RetirementResult } from '../shared/team-retirement.js'
 import {
   TeamSkillSettingsCard,
@@ -91,6 +93,7 @@ export function apply(ctx: ClientContext): void {
   const controller = new TeamDashboardController(readClient)
   const connection = ctx.get('connection') as ConnectionHandle | undefined
   if (connection === undefined) throw new Error('swarm public conversation requires the official Client Connection')
+  installMemberChatComposer(ctx, sessionsService, new MemberChatClient(connection.rpc))
   const chat = new PublicChatController(new PublicChatClient(connection.rpc), globalThis.location?.origin ?? 'local', {
     getItem: key => globalThis.sessionStorage.getItem(key), setItem: (key, value) => { globalThis.sessionStorage.setItem(key, value) },
   })

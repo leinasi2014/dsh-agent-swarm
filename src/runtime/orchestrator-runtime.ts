@@ -44,6 +44,7 @@ import { TeamDirectory } from './team-directory.js'
 import { TeamRetirement } from './team-retirement.js'
 import { WorkRequestSurface } from './work-request-surface.js'
 import { GoalRuntimeSurface } from './goal-runtime-surface.js'
+import { MemberChat } from './member-chat.js'
 
 export type { ToolExecutionAuthority, ReviewProviderInput, ReviewProviderResult, SchedulerDecision, SchedulerSelectionInput, TeamReviewProvider, TeamSchedulerProvider }
 export type { RuntimeConfig } from './runtime-contract.js'
@@ -55,6 +56,7 @@ export class AgentSwarmRuntime extends Service {
   readonly work: WorkRequestSurface
   readonly goals: GoalRuntimeSurface
   readonly retirement: TeamRetirement
+  readonly memberChat: MemberChat
   private domainInstance?: TeamDomainPort
   private storeInstance?: StorageDomainTeamStore
   private domainHandle?: Domain<typeof teamDomainSpec>
@@ -132,6 +134,8 @@ export class AgentSwarmRuntime extends Service {
       goalAllowed: (scope, teamId) => this.goals.allowed(scope, teamId),
     })
     this.memberProfiles = new MemberProfileReader(ctx)
+    this.memberChat = new MemberChat(ctx, { root: (main, scope) => this.activationRecovery.ensurePublicRoot(main, scope),
+      fence: (scope, teamId, signal, operation) => this.withPublicAdmissionFence(scope, teamId, signal, operation) })
     this.schedulingPass = new SchedulingPass(ctx, {
       domain: () => this.domain,
       delivery: () => this.delivery,

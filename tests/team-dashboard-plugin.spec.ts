@@ -32,7 +32,7 @@ function harness(layout: LayoutFixture) {
     effect: (callback: () => (() => void) | void, label: string) => { effects.push(label); if (label === 'swarm Team panel geometry' || label === 'swarm Team Sidebar tab type') callback() },
     on: vi.fn(),
   }
-  return { ctx, injected, registrations, effects, tabTypes, models, get }
+  return { ctx, injected, registrations, effects, tabTypes, models, get, connection }
 }
 
 describe('Team dashboard client composition', () => {
@@ -87,6 +87,17 @@ describe('Team dashboard client composition', () => {
     expect(teamEntryVisible({ open: true, phase: 'ready' })).toBe(false)
     expect(teamEntryVisible({ open: true, phase: 'error', error: { code: 'SWARM_UI_NO_VISIBLE_TEAM', message: 'No visible Team' } })).toBe(false)
     expect(teamEntryVisible({ open: true, phase: 'ready', data: { teams: { complete: true, teams: [{ teamId: 'team-1' }] } } as unknown as TeamDashboardData })).toBe(true)
+  })
+
+  it('adds the official composer chain only after the Host verifies the directly selected member Session', async () => {
+    const f = harness({ selectPanel: vi.fn() })
+    f.connection.rpc.call.mockResolvedValue({ ok: true, value: { schemaVersion: 1, target: { rootSessionId: 'main', teamId: 'team' }, name: 'alice', sessionId: 'session-1', captainSessionId: 'captain' } })
+    apply(f.ctx as never)
+    expect(f.injected).toContain('conversation.composer')
+    expect(f.registrations.some(entry => entry.name === 'conversation.composer')).toBe(false)
+    await vi.waitFor(() => expect(f.registrations.some(entry => entry.name === 'conversation.composer')).toBe(true))
+    expect(f.connection.rpc.call).toHaveBeenCalledWith('/swarm-member-chat', 'target', { schemaVersion: 1, sessionId: 'session-1' }, expect.any(AbortSignal))
+    expect(f.registrations.some(entry => entry.name === 'main.conversation')).toBe(false)
   })
 
   it('leaves geometry owned by the official Conversation layout', () => {
