@@ -35,7 +35,7 @@ export interface ManagerLifecycleDeps {
 }
 
 /** The single private, manager-scoped tool (investigate AND batch ack). */
-export const INVESTIGATE_TOOL_NAME = 'skills_management_investigate'
+const INVESTIGATE_TOOL_NAME = 'skills_management_investigate'
 
 export class ManagerLifecycle {
   private handle: AgentHandle | undefined

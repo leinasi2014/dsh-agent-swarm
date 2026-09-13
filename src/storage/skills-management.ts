@@ -28,9 +28,9 @@ import { TeamDomainError } from '../domain/error.js'
 import { CommitSequence } from '../util/commit-sequence.js'
 
 /** Storage Domain unit/table names must satisfy the official `UNIT_NAME_RE`. */
-export const SKILLS_MANAGEMENT_DOMAIN_NAME = 'agent_swarm_skills_management'
+const SKILLS_MANAGEMENT_DOMAIN_NAME = 'agent_swarm_skills_management'
 /** Domain format version; a medium stamped differently rejects at open. */
-export const SKILLS_MANAGEMENT_DOMAIN_VERSION = 1
+const SKILLS_MANAGEMENT_DOMAIN_VERSION = 1
 
 const timestamp = z.number().int().min(0)
 const bounded = (maxBytes: number) => z.string().min(1).refine(
@@ -40,7 +40,7 @@ const bounded = (maxBytes: number) => z.string().min(1).refine(
 const sha256Hex = z.string().regex(/^[0-9a-f]{64}$/)
 
 /** One evidence entry: an opaque reference, optionally an external file with the hash it was recorded under. */
-export const skillsEvidenceEntrySchema = z.object({
+const skillsEvidenceEntrySchema = z.object({
   ref: bounded(2_048),
   external: z.boolean(),
   sha256: sha256Hex.optional(),
@@ -58,7 +58,7 @@ export const skillsRequestPayloadSchema = z.object({
 export type SkillsRequestPayload = z.infer<typeof skillsRequestPayloadSchema>
 
 export const SKILLS_REQUEST_STATES = ['received', 'investigating', 'available', 'needs_evidence', 'unavailable', 'failed', 'cancelled'] as const
-export const SKILLS_EVIDENCE_STATES = ['proven', 'referenced', 'needs_evidence'] as const
+const SKILLS_EVIDENCE_STATES = ['proven', 'referenced', 'needs_evidence'] as const
 
 const skillsRequestRecordSchema = z.object({
   schemaVersion: z.literal(1),
@@ -208,7 +208,7 @@ export const skillsManagementDomainSpec = defineDomain({
 })
 
 /** Single binding key inside the `manager` table. */
-export const SKILLS_MANAGER_BINDING_KEY = 'binding'
+const SKILLS_MANAGER_BINDING_KEY = 'binding'
 
 /** Stable request record key: the scope + Team isolation tuple plus the Captain-stable requestId. */
 export function skillsRequestKey(scope: string, teamId: string, requestId: string): string {

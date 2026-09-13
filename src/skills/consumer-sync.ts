@@ -36,7 +36,7 @@ export interface ConsumerSourceSnapshot {
   readonly taskWatermarks: readonly { readonly taskId: string; readonly revision: number; readonly status: string; readonly currentAttemptId?: string }[]
 }
 
-export interface ConsumerPageView {
+interface ConsumerPageView {
   readonly entries: readonly SkillsConsumerBatchRef[]
   readonly hasMore: boolean
   readonly batchId?: string
@@ -57,7 +57,7 @@ const LEDGER_CAP = 1024
 const ANCHOR_CAP = 1024
 
 /** Deterministic batch identity over the exact captured refs (survives restarts). */
-export function skillsBatchId(refs: readonly SkillsConsumerBatchRef[]): string {
+function skillsBatchId(refs: readonly SkillsConsumerBatchRef[]): string {
   const tail = refs.at(-1)?.sequence ?? 0
   const digest = createHash('sha256').update(canonicalJson(refs), 'utf8').digest('hex').slice(0, 16)
   return `batch:${tail}:${digest}`

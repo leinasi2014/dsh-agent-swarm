@@ -15,7 +15,7 @@ import type { TeamState } from '../domain/types.js'
 import { projectTaskDetail } from '../host/task-detail-read.js'
 import type { SkillsRequestRecord } from '../storage/skills-management.js'
 
-export interface SkillsEvidenceState {
+interface SkillsEvidenceState {
   readonly ref: string
   readonly state: 'proven' | 'referenced' | 'needs_evidence'
   readonly detail?: string

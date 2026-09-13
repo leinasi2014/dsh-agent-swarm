@@ -86,7 +86,7 @@ const FILE_REF_PREFIX = 'file:'
 const FILE_REF_HASH = '#sha256:'
 
 /** Parse one Captain evidence reference into its durable entry shape. */
-export function parseEvidenceRef(ref: string): SkillsEvidenceEntry {
+function parseEvidenceRef(ref: string): SkillsEvidenceEntry {
   if (!ref.startsWith(FILE_REF_PREFIX)) return { ref, external: false }
   const body = ref.slice(FILE_REF_PREFIX.length)
   const hashAt = body.lastIndexOf(FILE_REF_HASH)

@@ -43,7 +43,7 @@ import type { TeamDomainPort, TeamScope } from '../domain/team-domain-port.js'
 import type { TeamState } from '../domain/types.js'
 import { requireAgent } from '../runtime/authority.js'
 import { planConsumerAdvance, projectConsumerPage, skillsAckHash, type ConsumerSourceSnapshot } from './consumer-sync.js'
-import { decideOutcome, resolveEvidenceFromSnapshot, type EvidenceResolution, type SkillsEvidenceState } from './evidence.js'
+import { decideOutcome, resolveEvidenceFromSnapshot, type EvidenceResolution } from './evidence.js'
 import { AuthorityGuards } from './authority-guards.js'
 import { ManagerLifecycle } from './manager-lifecycle.js'
 import { statusViewOf, toCanonicalPayload, type SkillsAckReceipt, type SkillsCallAuthority, type SkillsReceipt, type SkillsRequestInput, type SkillsStatusView, type SkillsSyncPage } from './contracts.js'
@@ -54,9 +54,8 @@ import {
   type SkillsRequestRecord,
 } from '../storage/skills-management.js'
 
-export type { EvidenceResolution, SkillsEvidenceState }
+export type { EvidenceResolution }
 export type { SkillsAckReceipt, SkillsCallAuthority, SkillsReceipt, SkillsRequestInput, SkillsStatusView, SkillsSyncPage } from './contracts.js'
-export { parseEvidenceRef } from './contracts.js'
 
 /** Host-resolved module configuration (validated at plugin apply). */
 export interface SkillsManagementConfig {

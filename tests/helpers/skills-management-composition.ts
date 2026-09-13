@@ -42,7 +42,7 @@ export const SKILLS_CAPTAIN_ROUTE = { provider: 'skills-fixture', model: 'skills
 export const SKILLS_UNIT_NAME = 'agent_swarm_skills_management'
 
 /** Adapter that records every model request so zero-model claims are assertable. */
-export class SkillsCountingAdapter extends LlmAdapter {
+class SkillsCountingAdapter extends LlmAdapter {
   readonly requests: GenerateOptions[] = []
   override resolveModel(provider: string, model: string): Promise<{ provider: string; id: string; name: string }> {
     return Promise.resolve({ provider, id: model, name: model })
@@ -124,15 +124,6 @@ export interface SkillsModuleMountConfig {
   readonly manager?: { readonly provider?: string; readonly model?: string }
   readonly management: readonly { readonly scope: string; readonly teamId: string }[]
   readonly activityPageSize?: number
-}
-
-export interface SkillsComposition {
-  readonly mounted: RestartMounted
-  readonly ctx: Context
-  readonly root: Agent
-  readonly teamId: string
-  readonly scope: string
-  readonly adapter: SkillsCountingAdapter
 }
 
 /** Mount the real official composition plus the swarm plugin for Skills tests.
@@ -252,7 +243,7 @@ export async function captainSkillsTool(
   )
 }
 
-export { RESTART_SIGNAL, disposeRestartComposition, restartTool }
+export { RESTART_SIGNAL, disposeRestartComposition }
 
 // ── Manager-side fixtures (full S1 batch) ───────────────────────────────────
 
