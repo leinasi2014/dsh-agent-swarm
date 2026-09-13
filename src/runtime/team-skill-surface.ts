@@ -16,6 +16,8 @@ import { RELEASE_PROVIDER_NAME, type SkillReleaseProvenance } from '../skills/re
 interface SkillsModuleProvenanceFace {
   readonly releases: {
     loadProvenanceForMember: (memberSessionId: string, name: string) => Promise<SkillReleaseProvenance | undefined>
+    reassembleColdMember: (memberSessionId: string) => Promise<void>
+    advanceAtAttemptBoundary: (memberSessionId: string) => Promise<void>
   }
 }
 
@@ -156,6 +158,16 @@ export class TeamSkillSurface {
   private async resolvePolicy(agent: Agent): Promise<boolean> {
     const id = String(agent.id)
     if (this.ctx.agents.get(agent.id) !== agent) return false
+    // Cold continuation of an assigned member: durable pins outlive the
+    // assembly, so re-authorize and re-mint the member-scoped provider BEFORE
+    // this Agent's next Skill or model step — AWAITED, so the first request
+    // after a cold continuation never races a half-assembled layer. A LIVE
+    // member's version advances the same awaited way once its loads moved to
+    // the next real attempt (held bodies stay frozen inside their own
+    // attempt). Failures stay silent here — no pin, no registration; the load
+    // paths keep their own fail-closed checks.
+    await this.skillsModule?.releases.reassembleColdMember(id).catch(() => undefined)
+    await this.skillsModule?.releases.advanceAtAttemptBoundary(id).catch(() => undefined)
     const wasGoverned = this.governed.has(id)
     // A root may acquire its first Team after earlier unrelated requests.
     if (this.policies.has(id)) {
@@ -214,7 +226,7 @@ export class TeamSkillSurface {
     const allowed = new Set(entry ?? this.controlled.get(id) ?? [])
     this.governed.add(id)
     this.controlled.set(id, allowed)
-    removeTool = agent.ctx.tools.register(restrictedSkillTool(allowed, this.skillsOf, (agent, skillName, provider) => this.releaseProvenance(agent, skillName, provider)))
+    removeTool = agent.ctx.tools.register(restrictedSkillTool(allowed, this.skillsOf, (targetAgent, skillName, provider) => this.releaseProvenance(targetAgent, skillName, provider)))
     removeSection = agent.ctx.systemPrompt.section({
       name: 'agent-swarm:team-skills', order: 121,
       text: allowed.size === 0

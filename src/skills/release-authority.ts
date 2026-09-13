@@ -1,59 +1,49 @@
 /**
- * S2 first-slice release authority (docs04 §release/assign, docs07 §5):
- * the Host management face that approves IMMUTABLE captured-body releases,
- * the Captain assignment face, and the module-owned assembly provider that
- * makes a COMMITTED ASSIGNMENT the thing both official load paths (skill
- * tool result and /name gesture) actually serve FOR THE ASSIGNED MEMBER.
+ * S2 release authority (docs04 §release/assign, docs07 §5/§6): the Host
+ * management compatibility face that approves IMMUTABLE captured-body
+ * releases, the Captain assignment/version-choice face, and the module-owned
+ * assembly provider that makes a COMMITTED ASSIGNMENT the thing both official
+ * load paths (skill tool result and /name gesture) actually serve FOR THE
+ * ASSIGNED MEMBER. The request-facing independent loop (manager capture +
+ * Captain review) lives in `release-candidates.ts`.
  *
- * Assembly discipline: `approveRelease` captures the exact body text and the
- * digest it was approved against (a digest over different text is refused at
- * entry; the first slice additionally forces the agreed EMPTY resources-tree
- * digest and refuses to pretend it validated an arbitrary one). A committed
- * assignment then registers the module-owned provider into the ASSIGNED
- * MEMBER'S OWN scoped layer: the optional-`skills` inject provides a Context
- * on which `skills` IS declared, and the exact-Agent scope is minted FROM
- * THAT Context (official `createScope` from @deepseek-ai/dsh-scope; the
- * registration layer is derived from that scoped context), bound to exactly
- * this scope+Team+member. Both official load paths read with `scope: agent`,
- * so
- * ONLY that member's requests resolve the pinned body; teammates and
- * unrelated Sessions keep resolving the raw source. A same-named source that
- * later changes can therefore never enter the assigned member's real
- * requests while the assignment stands. In-flight version swaps are refused
- * (create-first + identical replay only), so an already loaded attempt can
- * never have its body silently replaced; versioned reassignment is an
- * explicit later-slice capability. The live-session scope is the first-slice
- * window; durable re-assembly after a cold member resume belongs to a later
- * slice. Disposer ownership: every member registration's official effect
- * disposer is held here and released exactly once by `closeAssembly()` from
- * the module's close path. The publish/allow-list boundary is unchanged:
- * this file never touches Team allowedSkills (assignment refuses off-list
- * names; the official surface independently enforces the load entry).
+ * Assembly discipline: approvals capture the exact body text and digest
+ * (digest-mismatch refused at entry; the EMPTY resources-tree digest is the
+ * only one this slice accepts). A committed assignment registers the
+ * module-owned provider into the ASSIGNED MEMBER'S OWN scoped layer (official
+ * `createScope` mint from the optional-`skills` inject Context, bound to
+ * exactly this scope+Team+member), so only that member's requests resolve the
+ * pinned body; teammates keep the raw source. Each assembly FREEZES the
+ * versions actually effective at mint: body and load provenance both read the
+ * snapshot, so a Captain re-pin never hot-swaps a loaded body nor
+ * mis-attributes it; the snapshot advances only at the next real attempt
+ * boundary (`advanceAtAttemptBoundary`) or a cold continuation
+ * (`reassembleColdMember`), both awaited by the governed surface. Disposer
+ * ownership: every registration's official effect disposer is held here and
+ * released exactly once; the assembly also converges from the member's own
+ * `ctx.effect`. Team allowedSkills is never touched here (assignment refuses
+ * off-list names; the surface independently enforces the load entry).
  *
  * @module dsh-agent-swarm/skills/release-authority
  */
-import { createHash } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { SkillDefinition, SkillProvider, SkillProviderControl, SkillRegistry } from '@deepseek-ai/dsh-skill'
+import type { SkillProviderControl, SkillRegistry } from '@deepseek-ai/dsh-skill'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { z } from 'zod'
 import { TeamDomainError } from '../domain/error.js'
-import { canonicalJson, skillsReleaseManifestHash, type SkillsManagementStore, type SkillsReleaseRecord, type SkillsRequestRecord } from '../storage/skills-management.js'
+import type { SkillsManagementStore, SkillsReleaseRecord, SkillsRequestRecord } from '../storage/skills-management.js'
+import { EMPTY_RESOURCES_SHA256, sha256Text, skillsReleaseManifestHash } from '../storage/skills-release-tables.js'
 import type { TeamState } from '../domain/types.js'
 import type { SkillsManagementDeps } from './module.js'
 import type { SkillsCallAuthority } from './contracts.js'
 import type { AuthorityGuards } from './authority-guards.js'
+import { assignmentView, buildReleaseProvider, releaseView, type MemberAssembly, type SkillsAssignmentView } from './release-assembly.js'
 
-/** Frozen contract: the module-owned assembly provider name (the spec asserts
- * it from the public contract header; the governed surface stamps load
- * provenance only for definitions served by this provider). */
-export const RELEASE_PROVIDER_NAME = 'agent_swarm_skills_release'
-
-/** The first slice supports exactly the explicit EMPTY resources tree: its
- * digest is computed from the canonical form, never accepted as arbitrary. */
-const EMPTY_RESOURCES_SHA256 = sha256Text(canonicalJson([]))
+// Assembly-side pieces live in `release-assembly.ts` (cohesive split for the
+// 600-line source gate); re-exported so existing importers keep their path.
+export { RELEASE_PROVIDER_NAME, type SkillsAssignmentView } from './release-assembly.js'
 
 /** Adopted release identity a request may be attributed to: the exact
  * member Session, task/attempt binding and pinned manifest. */
@@ -64,6 +54,11 @@ export interface SkillsAdoption {
   readonly manifestHash: string
   readonly taskId: string
   readonly attemptId?: string
+  /** The adoption was read from the member's EFFECTIVE assembly snapshot (a
+   * held load), not from the current durable pin — commit-boundary
+   * re-validation then checks the assembly, not the (possibly re-pinned)
+   * assignment row. */
+  readonly fromAssembly?: true
 }
 
 /** The full-manifest load attribution the governed surface stamps onto the
@@ -96,17 +91,6 @@ export interface ReleaseAuthorityDeps {
   readonly lane: <T>(scope: string, teamId: string, fn: () => Promise<T>) => Promise<T>
 }
 
-/** The wire view of one live assignment (the assign tool's compact receipt). */
-export interface SkillsAssignmentView {
-  readonly scope: string
-  readonly team_id: string
-  readonly member_session_id: string
-  readonly skill_name: string
-  readonly version: string
-  readonly release_manifest_hash: string
-  readonly revision: number
-}
-
 const boundedText = (maxBytes: number) => z.string().min(1).refine(
   value => Buffer.byteLength(value, 'utf8') <= maxBytes,
   `must not exceed ${maxBytes} UTF-8 bytes`,
@@ -136,23 +120,12 @@ const assignInputSchema = z.object({
   expected_revision: z.number().int().min(0).optional(),
 }).strict()
 
-function sha256Text(text: string): string {
-  return createHash('sha256').update(text, 'utf8').digest('hex')
-}
-
-/** One live member assembly: the officially minted exact-Agent scope (whose
- * scoped context registers the provider INTO that Agent's own layer) plus the
- * exact provider disposer and the minted scope's idempotent disposal. */
-interface MemberAssembly {
-  disposeScope: () => Promise<void>
-  providerDisposer: () => void
-  control: SkillProviderControl | undefined
-}
-
 export class ReleaseAuthority {
   /** One live assembly registration per assigned member; the disposer owns
    * the exact official effect returned by the member-scoped registration. */
   private readonly memberAssemblies = new Map<string, MemberAssembly>()
+  /** Members whose cold re-assembly is currently being (re-)authorized. */
+  private readonly reassembling = new Set<string>()
   /** The Context provided by the optional `skills` inject — a Context on
    * which `skills` IS a declared dependency (the module itself keeps the
    * service OPTIONAL, so no-registry compositions still mount). Cleared when
@@ -172,10 +145,14 @@ export class ReleaseAuthority {
    * property access the composition may not provide). */
   private readonly skillsOf = (): SkillRegistry | undefined => this.skillsCtx?.get('skills')
 
-  /** Host management face (NOT a model tool): approve one immutable release.
-   * The captured body and its digest are bound at entry (digest-mismatch is
-   * refused); the same key with the same manifest replays, a differing
-   * manifest conflicts loudly. */
+  /** Host management face (NOT a model tool): approve one immutable release
+   * from a Host-SUPPLIED body — the trusted external management boundary
+   * (compatibility entry). The captured body and its digest are bound at
+   * entry (digest-mismatch is refused); the same key with the same manifest
+   * replays, a differing manifest conflicts loudly. This is NOT the
+   * request-facing closed loop: for that, the real Skills manager PROPOSES
+   * through `proposeCandidate` (author = the derived calling Agent) and an
+   * INDEPENDENT Captain approves through `reviewCandidate`. */
   async approveRelease(raw: unknown): Promise<Record<string, unknown>> {
     const input = approveInputSchema.parse(raw)
     this.deps.guards.assertAdmission()
@@ -209,12 +186,18 @@ export class ReleaseAuthority {
     return this.releaseView(put.record)
   }
 
-  /** Captain face: assign an approved release version to ONE live member of
-   * this Team, CAS by `expected_revision` (0 = create-first; identical
-   * content replays; a version swap is refused in-flight). Refuses off-list
-   * names, non-members and non-live member Sessions durably writing nothing;
-   * the durable commit is followed by the member-scoped assembly registration (exact-Agent `createScope` mint)
-   * bound to this exact scope+Team+member. */
+  /** Captain face: choose the approved release VERSION one live member of
+   * this Team carries, CAS by `expected_revision` (0 = create-first; identical
+   * content replays; with the live revision matched, a different APPROVED
+   * version re-pins atomically — the controlled version choice and rollback of
+   * docs07 §6). A body already LOADED in the member's current assembly is
+   * held, never hot-swapped (`loaded_held: true`; the next cold continuation
+   * picks the new pin); an unloaded live assembly switches immediately, and a
+   * COLD member's pin simply moves (re-assembly follows the durable pin at
+   * official cold continuation). Refuses off-list names, non-members,
+   * unapproved versions and stale revisions durably writing nothing; creation
+   * additionally requires a live member to bind the assembly (exact-Agent
+   * `createScope` mint) to this exact scope+Team+member. */
   async assign(raw: unknown, exec: SkillsCallAuthority): Promise<SkillsAssignmentView> {
     if (exec.agent === undefined) throw new TeamDomainError('assignment requires the exact calling Captain Agent', 'SKILLS_UNAUTHORIZED')
     const agent = exec.agent
@@ -235,9 +218,6 @@ export class ReleaseAuthority {
         throw new TeamDomainError(`member ${input.member} is not in this Team`, 'SKILLS_MEMBER_NOT_FOUND')
       }
       const memberAgent = this.deps.ctx.agents.get(SessionId(input.member))
-      if (memberAgent === undefined) {
-        throw new TeamDomainError(`member ${input.member} is not live; assembly cannot be bound to a cold Session in this slice`, 'SKILLS_MEMBER_NOT_LIVE')
-      }
       const release = this.deps.store.getRelease(scope, teamId, input.skill_name, input.version)
       if (release === undefined) throw new TeamDomainError(`no approved release ${input.skill_name}@${input.version}`, 'SKILLS_RELEASE_NOT_FOUND')
       const expected = input.expected_revision ?? 0
@@ -246,13 +226,29 @@ export class ReleaseAuthority {
         if (existing.revision !== expected) {
           throw new TeamDomainError(`assignment moved to revision ${existing.revision}; this writer expected ${expected}`, 'SKILLS_ASSIGNMENT_STALE')
         }
-        if (existing.version !== input.version || existing.releaseManifestHash !== release.manifestHash) {
-          throw new TeamDomainError(`reassigning ${input.skill_name} while an assignment stands is not supported in this slice (in-flight loads keep their pinned body)`, 'SKILLS_ASSIGNMENT_REASSIGN_UNSUPPORTED')
+        if (existing.version === input.version && existing.releaseManifestHash === release.manifestHash) {
+          if (memberAgent !== undefined) await this.assemble(scope, teamId, input.member, memberAgent)
+          return this.assignmentView(existing)
         }
-        await this.assemble(scope, teamId, input.member, memberAgent)
-        return this.assignmentView(existing)
+        // Controlled version choice / rollback across APPROVED versions: one
+        // atomic CAS re-pin under the exact live revision, durable-then-visible.
+        const moved = await this.deps.store.updateAssignmentPin(scope, teamId, input.member, input.skill_name, expected, {
+          version: input.version, releaseManifestHash: release.manifestHash, assignedBy: agent.id,
+        })
+        if (moved === undefined) throw new TeamDomainError('the assignment moved under this writer; retry against the live revision', 'SKILLS_ASSIGNMENT_STALE')
+        const assembly = this.memberAssemblies.get(input.member)
+        const loadedHeld = assembly !== undefined && assembly.loads.count > 0
+        // An UNLOADED live assembly switches now by REBUILDING from the new
+        // pin (the old registration is fully disposed first); a LOADED one is
+        // held — body and provenance stay on its frozen snapshot until the
+        // next cold continuation mints a new assembly.
+        if (memberAgent !== undefined && !loadedHeld) await this.assemble(scope, teamId, input.member, memberAgent, { rebuild: true })
+        return this.assignmentView(moved, loadedHeld)
       }
       if (expected !== 0) throw new TeamDomainError(`assignment ${input.skill_name} does not exist; expected_revision ${expected} cannot create`, 'SKILLS_ASSIGNMENT_STALE')
+      if (memberAgent === undefined) {
+        throw new TeamDomainError(`member ${input.member} is not live; a first assembly cannot be bound to a cold Session`, 'SKILLS_MEMBER_NOT_LIVE')
+      }
       const put = await this.deps.store.putAssignmentIfAbsent(scope, teamId, input.member, {
         name: input.skill_name, version: input.version, releaseManifestHash: release.manifestHash, assignedBy: agent.id,
       })
@@ -265,14 +261,12 @@ export class ReleaseAuthority {
     })
   }
 
-  /**
-   * The available-version ANSWER decision for one investigated request (never
-   * the effective claim — real member requests prove assembly): requires the
-   * named skill, the task's durable owner, an assignment pinning an existing
-   * release, an explicit allow-list inclusion, and — read through the OWNER'S
-   * own scope — the registry winner digest equaling the release digest (fail
-   * closed when the owner is not live or the registry is absent).
-   */
+  /** The adopted ANSWER for one investigated request (never the effective
+   * claim — real member requests prove assembly): requires the named skill,
+   * the task's durable owner, an explicit allow-list inclusion, and — read
+   * through the OWNER'S own scope — the registry winner digest equaling the
+   * adopted body digest (fail closed when the owner is not live or the
+   * registry is absent). */
   async adoptionForRequest(scope: string, teamId: string, record: SkillsRequestRecord): Promise<SkillsAdoption | undefined> {
     const skillName = record.payload.skillName
     const taskId = record.payload.taskId
@@ -282,7 +276,17 @@ export class ReleaseAuthority {
     const owner = task?.ownerSessionId
     if (team === undefined || task === undefined || owner === undefined) return undefined
     if (team.allowedSkills !== undefined && !team.allowedSkills.includes(skillName)) return undefined
-    const adoption = this.pendingFromDurable(scope, teamId, owner, skillName, taskId, task.currentAttemptId === undefined ? undefined : String(task.currentAttemptId))
+    const attemptId = task.currentAttemptId === undefined ? undefined : String(task.currentAttemptId)
+    // The EFFECTIVE assembly wins over the current durable pin: after a
+    // Captain re-pin that a loaded member is still holding, a request about
+    // the proven attempt answers with the version that attempt REALLY loads
+    // (the frozen snapshot), never a newer pin reverse-derived from the
+    // current assignment. Only without a live assembly does the durable pin
+    // answer (no cold load can be proven; fail-closed digest check follows).
+    const snapshot = this.memberAssemblies.get(owner)?.pinned.get(skillName)
+    const adoption = snapshot !== undefined
+      ? { owner, skillName, version: snapshot.version, manifestHash: snapshot.manifestHash, taskId, ...(attemptId === undefined ? {} : { attemptId }), fromAssembly: true as const }
+      : this.pendingFromDurable(scope, teamId, owner, skillName, taskId, attemptId)
     if (adoption === undefined) return undefined
     return await this.assembledDigestMatches(scope, teamId, adoption) ? adoption : undefined
   }
@@ -303,8 +307,13 @@ export class ReleaseAuthority {
     }
   }
 
-  /** FINAL synchronous re-validation at the durable commit boundary. */
+  /** FINAL synchronous re-validation at the durable commit boundary: an
+   * assembly-sourced adoption stays valid while that same frozen snapshot
+   * still stands; a durable-sourced one while the pin still verifies. */
   stillPinned(scope: string, teamId: string, adoption: SkillsAdoption): boolean {
+    if (adoption.fromAssembly === true) {
+      return this.memberAssemblies.get(adoption.owner)?.pinned.get(adoption.skillName)?.manifestHash === adoption.manifestHash
+    }
     const assignment = this.deps.store.getAssignment(scope, teamId, adoption.owner, adoption.skillName)
     if (assignment === undefined || assignment.version !== adoption.version) return false
     const release = this.deps.store.getRelease(scope, teamId, assignment.name, assignment.version)
@@ -322,6 +331,84 @@ export class ReleaseAuthority {
     }
   }
 
+  /** Cold-continuation re-assembly (awaited by the governed surface):
+   * assignments are durable while assemblies follow the member Session, so a
+   * resumed member Agent re-mints its member-scoped provider from the CURRENT
+   * durable pin. Every pin is re-authorized against the live Team aggregate
+   * (roster membership + allow-list + intact release row); no pin, no
+   * registration. */
+  async reassembleColdMember(memberSessionId: string): Promise<void> {
+    if (this.memberAssemblies.has(memberSessionId) || this.reassembling.has(memberSessionId)) return
+    const agent = this.deps.ctx.agents.get(SessionId(memberSessionId))
+    if (agent === undefined || this.skillsCtx === undefined) return
+    this.reassembling.add(memberSessionId)
+    try {
+      for (const assignment of this.deps.store.assignmentEntries()) {
+        if (assignment.memberSessionId !== memberSessionId) continue
+        const team = (await this.deps.domain.listTeamAggregates(assignment.scope)).find(candidate => candidate.id === assignment.teamId)
+        if (team === undefined) continue
+        if (team.members?.find(member => member.sessionId === memberSessionId) === undefined) continue
+        if (team.allowedSkills !== undefined && !team.allowedSkills.includes(assignment.name)) continue
+        const release = this.deps.store.getRelease(assignment.scope, assignment.teamId, assignment.name, assignment.version)
+        if (release === undefined || release.manifestHash !== assignment.releaseManifestHash) continue
+        await this.assemble(assignment.scope, assignment.teamId, memberSessionId, agent)
+      }
+    } finally {
+      this.reassembling.delete(memberSessionId)
+    }
+  }
+
+  /** Every current durable pin of one member whose release row still verifies
+   * (the candidate snapshot at mint; also the diff target for attempt-boundary
+   * advancement). */
+  private collectPinned(scope: string, teamId: string, memberSessionId: string): Map<string, SkillsReleaseRecord> {
+    const pinned = new Map<string, SkillsReleaseRecord>()
+    for (const assignment of this.deps.store.assignmentEntries()) {
+      if (assignment.scope !== scope || assignment.teamId !== teamId || assignment.memberSessionId !== memberSessionId) continue
+      const release = this.deps.store.getRelease(scope, teamId, assignment.name, assignment.version)
+      if (release === undefined || release.manifestHash !== assignment.releaseManifestHash) continue
+      pinned.set(assignment.name, release)
+    }
+    return pinned
+  }
+
+  /** LIVE-BOUNDARY version advance (the awaited counterpart of cold
+   * re-assembly): a loaded body is held only inside the attempt that loaded
+   * it. Once the member's sole in-progress task/attempt moved past that load
+   * (official accept/new-task inside the SAME Activation), a fresh frozen
+   * assembly is re-minted from the durable pin — a re-pin or rollback — so
+   * the new attempt really carries the chosen version. An unloaded assembly
+   * switches whenever the pins moved. Never touches an assembly mid-attempt,
+   * never hot-swaps a body. */
+  async advanceAtAttemptBoundary(memberSessionId: string): Promise<void> {
+    const assembly = this.memberAssemblies.get(memberSessionId)
+    if (assembly === undefined || assembly.control === undefined || assembly.control.signal.aborted) return
+    if (this.reassembling.has(memberSessionId)) return
+    const current = this.collectPinned(assembly.scope, assembly.teamId, memberSessionId)
+    const moved = [...current.entries()].some(([name, release]) => {
+      const frozen = assembly.pinned.get(name)
+      return frozen === undefined || frozen.manifestHash !== release.manifestHash
+    }) || current.size !== assembly.pinned.size
+    if (!moved) return
+    if (assembly.loads.count > 0) {
+      const team = (await this.deps.domain.listTeamAggregates(assembly.scope)).find(candidate => candidate.id === assembly.teamId)
+      const owned = (team?.tasks ?? []).filter(task => task.ownerSessionId === memberSessionId && task.status === 'in_progress')
+      const sole = owned.length === 1 ? owned[0] : undefined
+      if (sole === undefined) return
+      if (assembly.lastLoad !== undefined
+        && assembly.lastLoad.taskId === sole.id
+        && assembly.lastLoad.attemptId === (sole.currentAttemptId === undefined ? undefined : String(sole.currentAttemptId))) return
+    }
+    const agent = this.deps.ctx.agents.get(SessionId(memberSessionId))
+    if (agent === undefined) return
+    this.reassembling.add(memberSessionId)
+    try {
+      await this.assemble(assembly.scope, assembly.teamId, memberSessionId, agent, { rebuild: true })
+    } finally {
+      this.reassembling.delete(memberSessionId)
+    }
+  }
+
   private pendingFromDurable(scope: string, teamId: string, owner: string, skillName: string, taskId: string, attemptId: string | undefined): SkillsAdoption | undefined {
     const assignment = this.deps.store.getAssignment(scope, teamId, owner, skillName)
     if (assignment === undefined) return undefined
@@ -331,25 +418,27 @@ export class ReleaseAuthority {
   }
 
   /** The full-manifest attribution record for one REAL load: the governed
-   * surface calls this at the exact moment a pinned body enters the member's
-   * request. Valid only while exactly one pinned assignment+release stands
-   * for that member+name (never a guess, never from a stale pin).
-   * `taskId`/`attemptId` ride only when the member owns exactly one
-   * in-progress task. */
+   * surface calls this the moment a pinned body enters the member's request.
+   * It reads the member's CURRENT assembly SNAPSHOT — the same immutable
+   * record the provider served — so provenance can never name a newer pin
+   * than the body actually loaded (no assembly/snapshot fails closed; there
+   * is no durable-pin fallback). `taskId`/`attemptId` ride only when the
+   * member owns exactly one in-progress task. */
   async loadProvenanceForMember(memberSessionId: string, name: string): Promise<SkillReleaseProvenance | undefined> {
-    const pinned = this.deps.store.assignmentEntries().filter(assignment => assignment.memberSessionId === memberSessionId && assignment.name === name)
-    const assignment = pinned.length === 1 ? pinned[0] : undefined
-    if (assignment === undefined) return undefined
-    const release = this.deps.store.getRelease(assignment.scope, assignment.teamId, name, assignment.version)
-    if (release === undefined || release.manifestHash !== assignment.releaseManifestHash) return undefined
-    const team = (await this.deps.domain.listTeamAggregates(assignment.scope)).find(candidate => candidate.id === assignment.teamId)
+    const assembly = this.memberAssemblies.get(memberSessionId)
+    const release = assembly?.pinned.get(name)
+    if (assembly === undefined || release === undefined) return undefined
+    const team = (await this.deps.domain.listTeamAggregates(release.scope)).find(candidate => candidate.id === release.teamId)
     const owned = (team?.tasks ?? []).filter(task => task.ownerSessionId === memberSessionId && task.status === 'in_progress')
     const sole = owned.length === 1 ? owned[0] : undefined
+    // Record the attempt this real load rode: the attempt-boundary probe
+    // holds the body inside THIS attempt and advances at the next one.
+    assembly.lastLoad = { taskId: sole?.id, attemptId: sole?.currentAttemptId === undefined ? undefined : String(sole.currentAttemptId) }
     return {
-      teamId: assignment.teamId,
+      teamId: release.teamId,
       memberSessionId,
       name,
-      version: assignment.version,
+      version: release.version,
       provider: release.provider,
       locator: release.locator,
       manifestHash: release.manifestHash,
@@ -363,10 +452,14 @@ export class ReleaseAuthority {
     }
   }
 
-  /** The member-scoped registry winner must BE the pinned body (digest). A
-   * cold owner cannot be verified, so the answer fails closed. */
+  /** The member-scoped registry winner must BE the adopted body (digest): the
+   * expected digest is the assembly snapshot when the adoption came from it,
+   * else the durable release row. A cold owner cannot be verified, so the
+   * answer fails closed. */
   private async assembledDigestMatches(scope: string, teamId: string, adoption: SkillsAdoption): Promise<boolean> {
-    const release = this.deps.store.getRelease(scope, teamId, adoption.skillName, adoption.version)
+    const release = adoption.fromAssembly === true
+      ? this.memberAssemblies.get(adoption.owner)?.pinned.get(adoption.skillName)
+      : this.deps.store.getRelease(scope, teamId, adoption.skillName, adoption.version)
     const memberAgent = this.deps.ctx.agents.get(SessionId(adoption.owner))
     const skills = this.skillsOf()
     if (release === undefined || memberAgent === undefined || skills === undefined) return false
@@ -378,27 +471,25 @@ export class ReleaseAuthority {
     }
   }
 
-  /** Ensure this member's scoped layer carries the bound assembly provider.
-   * Wiring (per Captain instruction): `ctx.inject(['skills'], …)` provides a
-   * Context on which `skills` IS a declared dependency (the module itself
-   * keeps the service optional); the exact-Agent scope is minted FROM THAT
-   * Context via `createScope`, so the minted scoped context can resolve
-   * `skills` and `ScopedLayers.effect` derives the registration layer from
-   * its scope key (the exact Agent). The governed load paths read
-   * `get(name, { scope: agent })` with the same key, so only this Agent's
-   * scope sees the pinned body. Lifecycle converges from BOTH sides: the
-   * member Agent's own `ctx.effect` and the module close path each fully
-   * dispose the minted scope and provider registration. */
-  private async assemble(scope: string, teamId: string, memberSessionId: string, memberAgent: Agent): Promise<void> {
+  /** Ensure this member's scoped layer carries the bound assembly provider:
+   * the exact-Agent scope is minted from the optional-`skills` inject Context
+   * (official `createScope`), so both official load paths (`scope: agent`)
+   * resolve ONLY this member's pinned body. Lifecycle converges from BOTH the
+   * member Agent's own `ctx.effect` and the module close path (each fully
+   * disposes the minted scope + provider registration, once). */
+  private async assemble(scope: string, teamId: string, memberSessionId: string, memberAgent: Agent, opts: { readonly rebuild?: boolean } = {}): Promise<void> {
     const existing = this.memberAssemblies.get(memberSessionId)
     if (existing !== undefined) {
-      if (existing.control !== undefined && !existing.control.signal.aborted) {
-        existing.control.invalidate()
+      const live = existing.control !== undefined && !existing.control.signal.aborted
+      if (live && opts.rebuild !== true) {
+        // Replay of the SAME pin: refresh the registry view only; the frozen
+        // body/attributions of this assembly never move.
+        existing.control?.invalidate()
         return
       }
-      // The previous registration died with its Session's effect scope;
-      // FULLY converge it (awaited) before minting a replacement, so two
-      // live registrations never coexist.
+      // Rebuild (a version CHOICE on an unloaded assembly) or a dead effect
+      // scope: FULLY converge first (awaited) so two live registrations never
+      // coexist, then re-mint from the CURRENT durable pins.
       existing.providerDisposer()
       await existing.disposeScope()
       this.memberAssemblies.delete(memberSessionId)
@@ -407,9 +498,12 @@ export class ReleaseAuthority {
     if (skillsCtx === undefined) {
       throw new TeamDomainError(`the Skill registry is not provided in this composition; the approved assembly for member ${memberSessionId} cannot be served`, 'SKILLS_REGISTRY_UNAVAILABLE')
     }
+    // Freeze the versions ACTUALLY EFFECTIVE for this assembly.
+    const pinned = this.collectPinned(scope, teamId, memberSessionId)
     const minted = createScope(skillsCtx, memberAgent)
     let providerDisposer: (() => void) | undefined
     let control: SkillProviderControl | undefined
+    const loads = { count: 0 }
     try {
       const skills = minted.ctx.get('skills')
       if (skills === undefined) {
@@ -419,13 +513,13 @@ export class ReleaseAuthority {
       // already captured when the assembly is recorded below.
       providerDisposer = skills.registerProvider((received: SkillProviderControl) => {
         control = received
-        return this.buildProvider(scope, teamId, memberSessionId)
+        return buildReleaseProvider(scope, teamId, pinned, loads)
       })
     } catch (error) {
       await minted.dispose()
       throw error
     }
-    const assembly: MemberAssembly = { disposeScope: minted.dispose, providerDisposer, control }
+    const assembly: MemberAssembly = { scope, teamId, disposeScope: minted.dispose, providerDisposer, control, loads, lastLoad: undefined, pinned }
     this.memberAssemblies.set(memberSessionId, assembly)
     // Member-side lifecycle: when this Agent's own effect scope unwinds, the
     // assembly converges with it (module-side close stays idempotent).
@@ -436,62 +530,13 @@ export class ReleaseAuthority {
     })
   }
 
-  /** The provider serves EXACTLY this scope+Team+member's assigned manifests. */
-  private buildProvider(scope: string, teamId: string, memberSessionId: string): SkillProvider {
-    const store = this.deps.store
-    return {
-      name: RELEASE_PROVIDER_NAME,
-      async list() {
-        return store.assignmentEntries().flatMap(assignment => {
-          if (assignment.scope !== scope || assignment.teamId !== teamId || assignment.memberSessionId !== memberSessionId) return []
-          const release = store.getRelease(scope, teamId, assignment.name, assignment.version)
-          if (release === undefined || release.manifestHash !== assignment.releaseManifestHash) return []
-          return [{
-            name: assignment.name,
-            description: `Approved release ${assignment.name}@${assignment.version} pinned by manifest ${assignment.releaseManifestHash.slice(0, 12)}`,
-            invocation: { modelInvocable: true, userInvocable: true },
-            source: 'runtime' as const,
-            provider: RELEASE_PROVIDER_NAME,
-            rank: 0,
-            locator: JSON.stringify([scope, teamId, assignment.name, assignment.version]),
-          }]
-        })
-      },
-      async get(candidate: { locator?: unknown; description?: string }): Promise<SkillDefinition | undefined> {
-        if (typeof candidate.locator !== 'string') return undefined
-        try {
-          const [locatorScope, locatorTeam, name, version] = JSON.parse(candidate.locator) as string[]
-          if (locatorScope !== scope || locatorTeam !== teamId) return undefined
-          const release = store.getRelease(scope, teamId, name!, version!)
-          if (release === undefined) return undefined
-          return {
-            name: release.name,
-            description: candidate.description ?? `Approved release ${release.name}@${release.version}`,
-            content: release.body,
-            provider: RELEASE_PROVIDER_NAME,
-            invocation: { modelInvocable: true, userInvocable: true },
-            source: 'runtime' as const,
-          }
-        } catch {
-          return undefined
-        }
-      },
-    }
-  }
-
+  /** Compact approval receipt (see `releaseView`). */
   private releaseView(record: SkillsReleaseRecord): Record<string, unknown> {
-    return {
-      scope: record.scope, teamId: record.teamId, name: record.name, version: record.version,
-      provider: record.provider, content_sha256: record.contentSha256, resources_sha256: record.resourcesSha256,
-      manifest_hash: record.manifestHash,
-    }
+    return releaseView(record)
   }
 
-  private assignmentView(record: { scope: string; teamId: string; memberSessionId: string; name: string; version: string; releaseManifestHash: string; revision: number }): SkillsAssignmentView {
-    return {
-      scope: record.scope, team_id: record.teamId, member_session_id: record.memberSessionId,
-      skill_name: record.name, version: record.version, release_manifest_hash: record.releaseManifestHash,
-      revision: record.revision,
-    }
+  /** Compact assignment receipt (see `assignmentView`). */
+  private assignmentView(record: { scope: string; teamId: string; memberSessionId: string; name: string; version: string; releaseManifestHash: string; revision: number }, loadedHeld = false): SkillsAssignmentView {
+    return assignmentView(record, loadedHeld)
   }
 }

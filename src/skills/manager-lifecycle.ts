@@ -32,6 +32,9 @@ export interface ManagerLifecycleDeps {
   investigateTool(requestId: string, exec: SkillsCallAuthority): Promise<unknown>
   /** The module-owned batch acknowledgement face. */
   ackTool(batchId: string, outcome: string, exec: SkillsCallAuthority): Promise<unknown>
+  /** Candidate capture through the candidate authority (author = this exact
+   * live manager identity; the callback enforces it with object identity). */
+  proposeTool(raw: unknown, exec: SkillsCallAuthority): Promise<unknown>
 }
 
 /** The single private, manager-scoped tool (investigate AND batch ack). */
@@ -88,6 +91,7 @@ export class ManagerLifecycle {
         // (including ones registered later); scoped registrations remain.
         agentCtx.tools.restrict({ allow: [] })
         this.registerInvestigateTool(agentCtx)
+        this.registerProposalTool(agentCtx)
         return {
           // Official publication boundary re-check: closing/revocation that
           // landed during the setup awaits rolls the open back.
@@ -272,6 +276,33 @@ export class ManagerLifecycle {
         }
         return JSON.stringify(await this.deps.investigateTool(input.request_id, exec as SkillsCallAuthority))
       },
+    }))
+  }
+
+  /** The manager's scoped candidate-capture tool: the manager's REAL calling
+   * identity is the author (derived through the candidate authority from this
+   * exact live handle), never an argument. Capture is not publication. */
+  private registerProposalTool(agentCtx: Context): void {
+    agentCtx.tools.register(defineTool({
+      name: 'agent_swarm_skills_propose',
+      description: 'Capture an immutable release candidate for a known skill request of a managed Team: binds the request, target version, optional approved base version and the SHA-256 of the exact captured body. The author is your own derived manager identity — never an argument. The same version slot with a different body conflicts; publication requires an independent Captain review of this exact capture.',
+      parameters: {
+        request_id: { type: 'string', required: true, description: 'A known skill request id of the owning Team.' },
+        skill_name: { type: 'string', required: true, description: 'The skill name the candidate revises.' },
+        version: { type: 'string', required: true, description: 'The NEW candidate version (immutable slot).' },
+        base_version: { type: 'string', description: 'Optional approved version this candidate revises.' },
+        provider: { type: 'string', required: true, description: 'The provider the body was captured from.' },
+        locator: { type: 'string', required: true, description: 'The provider locator behind the captured body.' },
+        body: { type: 'string', required: true, description: 'The exact captured body text.' },
+        applicability: { type: 'string', required: true, description: 'When this candidate applies.' },
+        verification: { type: 'string', required: true, description: 'The verification evidence behind the proposal.' },
+      },
+      output: {
+        schema: { type: 'string' },
+        render: (_args: unknown, value: string) => [{ type: 'text', text: value }],
+      },
+      isConcurrencySafe: () => false,
+      execute: async (args, exec) => JSON.stringify(await this.deps.proposeTool(args, exec as SkillsCallAuthority)),
     }))
   }
 }

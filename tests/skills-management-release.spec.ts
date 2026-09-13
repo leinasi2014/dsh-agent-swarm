@@ -402,7 +402,7 @@ describe('S2 approved release: assignment-driven assembly, real requests, attrib
     }
   }, 90_000)
 
-  it('R3: a real drifted source remains visible to an unassigned teammate while the assigned current attempt loads the pinned release through both paths; invalid digests, off-list assignment and in-flight replacement are refused', async () => {
+  it('R3: a drifted source stays visible to an unassigned teammate; a Captain re-pin preserves the loaded attempt body and historical availability', async () => {
     const sandbox = await freshSandbox()
     const { mounted, root, teamId, scope, memberAdapter, member2Adapter, managerAdapter, entries } = await mountS2(sandbox, [ALPHA_FIX, BETA_FIX])
     const betaTask = await createS2Task(mounted.ctx, root, 's2r3-beta-task', 'Task grounding the assembly-flows-from-assignment proof')
@@ -505,8 +505,8 @@ describe('S2 approved release: assignment-driven assembly, real requests, attrib
       expect(allRequests, 'the pinned body now rides the real requests through both paths').toContain(BETA_FIX_BODY_V1)
       expect(postAssignment, 'the drifted source body never enters any post-assignment request').not.toContain(BETA_FIX_BODY_V2)
 
-      // In-flight version swap is REFUSED: a newly approved v2 cannot
-      // silently replace the body the loaded attempt already assembles.
+      // Captain selection moves the durable next-version pin while the
+      // already-loaded attempt retains its effective body and attribution.
       await releases.approveRelease({
         ...approveBase, scope, teamId, skillName: BETA_FIX, version: '2.0.0', provider: PROVIDER,
         body: BETA_FIX_BODY_V3, contentSha256: sha256(BETA_FIX_BODY_V3), resourcesSha256: EMPTY_RESOURCES_SHA256,
@@ -514,15 +514,15 @@ describe('S2 approved release: assignment-driven assembly, real requests, attrib
       const swapped = await captainSkillsTool(mounted.ctx, root, 's2r3-reassign', ASSIGN_TOOL, {
         skill_name: BETA_FIX, version: '2.0.0', member: member.id, expected_revision: 1,
       })
-      expect(swapped.ok, 'an in-flight version swap must be refused in this slice').toBe(false)
-      expect(failureFields(swapped), `refusal must name reassignment, got: ${failureFields(swapped)}`).toContain('reassign')
-      expect(await readAssignmentRow(sandbox, scope, teamId, member.id, BETA_FIX), 'the refusal left the pinned v1 assignment durable and unchanged').toMatchObject({ version: '1.0.0', revision: 1, releaseManifestHash: expect.any(String) })
+      expect(swapped.ok, failureFields(swapped)).toBe(true)
+      expect(swapped.value).toMatchObject({ version: '2.0.0', revision: 2, loaded_held: true })
+      expect(await readAssignmentRow(sandbox, scope, teamId, member.id, BETA_FIX), 'the authorized next-version pin is durable').toMatchObject({ version: '2.0.0', revision: 2, releaseManifestHash: expect.any(String) })
       releaseReload()
       await vi.waitFor(() => expect(memberAdapter.requests.at(-1)!.messages.flatMap(message => message.content)
         .some(block => block.type === 'tool-result' && block.toolCallId === 's2r3-skill-beta-again')).toBe(true), { timeout: 5_000 })
       const stillPinned = JSON.stringify(memberAdapter.requests.at(-1)!.messages)
       expect(stillPinned).toContain(BETA_FIX_BODY_V1)
-      expect(stillPinned, 'the refused v2 body never entered the request').not.toContain(BETA_FIX_BODY_V3)
+      expect(stillPinned, 'the future v2 body never enters this loaded attempt').not.toContain(BETA_FIX_BODY_V3)
       await expectSkillInRequest(mounted, member, memberAdapter.requests.at(-1)!, { name: BETA_FIX, provider: RELEASE_PROVIDER, content: BETA_FIX_BODY_V1 }, 's2r3-skill-beta-again')
       await vi.waitFor(() => expect(memberAdapter.requests.at(-1)!.messages.flatMap(message => message.content)
         .some(block => block.type === 'tool-result' && block.toolCallId === 's2r3-skill-gamma')).toBe(true), { timeout: 5_000 })

@@ -152,15 +152,15 @@ describe('S1 manager core: real processing, real evidence, legal supplement', ()
         const names = toolNames(options.tools)
         expect(names, 'the scoped investigate Consumer stays visible to the manager').toContain(SKILLS_INVESTIGATE_TOOL)
         expect(names, 'a late-registered GLOBAL tool must never surface to the manager').not.toContain(SKILLS_LATE_GLOBAL_TOOL)
-        expect(names.filter(name => name.startsWith('agent_swarm')), 'Team-facing tools must stay filtered for the manager').toHaveLength(0)
+        expect(names.filter(name => name.startsWith('agent_swarm')), 'only the manager-scoped candidate proposal is exposed').toEqual(['agent_swarm_skills_propose'])
       }
       expect(skillsAdapter(mounted).requests.length, 'manager processing must not touch the Captain route').toBe(captainRouteBefore)
 
-      // Scope surface: the manager Session itself sees only the investigate tool.
+      // The manager sees its scoped investigation and candidate proposal.
       const visible = Array.from(mounted.ctx.tools.schemas(handle!.agent)).map(schema => schema.name)
       expect(visible).toContain(SKILLS_INVESTIGATE_TOOL)
       expect(visible).not.toContain(SKILLS_LATE_GLOBAL_TOOL)
-      expect(visible.filter(name => name.startsWith('agent_swarm'))).toHaveLength(0)
+      expect(visible.filter(name => name.startsWith('agent_swarm'))).toEqual(['agent_swarm_skills_propose'])
 
       // Late-registered global tool: unexecutable BY THE MANAGER...
       const lateAsManager = await captainSkillsTool(mounted.ctx, handle!.agent, 'late-mgr', SKILLS_LATE_GLOBAL_TOOL, {})

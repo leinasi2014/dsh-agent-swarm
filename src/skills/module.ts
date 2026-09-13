@@ -2,36 +2,31 @@
  * The S1 skills-management module (docs/04 §7.2, docs/07 §5): a Captain's
  * skill request is durably persisted in the module-owned official Storage
  * Domain BEFORE the tool face returns "received"; the same requestId +
- * request revision + canonical payload hash is idempotent (read-back), a
- * differing payload at the same revision conflicts loudly, and cancellation /
- * admission closure / pre-write identity re-checks fence every durable write.
- *
- * The dedicated manager is one module-owned Agent Handle on its OWN
- * provider/model route (never the Team default), identified by a DURABLE
- * binding in this module's Storage Domain: restarts resume the same Session
- * identity through the official `agents.resume` (creation-only signal plus an
- * official setup-commit generation re-check; a late handle never publishes
- * and disposes itself), scoped registrations only, inherited tools
- * continuously removed via the official `tools.restrict({ allow: [] })` — a
- * tool registered globally AFTER the manager exists stays invisible to it.
- * It consumes authorized work facts only through the manifest-gated official
- * Consumer tool: one aggregate read yields the baseline task/attempt AND
- * activity watermarks, pages advance the consumer record with ONE atomic
- * update per page (pending refs + page-tail cursor together), and evidence
- * resolves against the exact Team/task/attempt and source revision — external
- * files are only referenced and verified by hash, never read into a response.
- * Intake and investigation share the ONE true per-Team serialization lane;
- * every durable write re-validates the full key + revision + payload hash
- * inside the official single-record update, and a `needs_evidence` request is
+ * revision + canonical payload hash is idempotent (read-back), a differing
+ * payload at the same revision conflicts loudly, and cancellation / admission
+ * closure / pre-write identity re-checks fence every durable write. Intake and
+ * investigation share the ONE true per-Team serialization lane; every durable
+ * write re-validates the full key + revision + payload hash inside the
+ * official single-record update, and a `needs_evidence` request is
  * supplemented by the same requestId at strictly revision+1.
  *
- * Teardown order (memoized): synchronously close admission, invalidate the
- * generation and abort the module's own opening work → start the official
- * manager-handle dispose FIRST (cancel → whenIdle → Session flush →
- * unregister, own handle only) → drain wakes, queued durable writes and
- * revocations → close store → close domain. Business Agents are never
- * touched. All model routes, identities, scopes and Team bindings are Host-
- * derived; no model-facing parameter can borrow another Session or root.
+ * The dedicated manager is one module-owned Agent Handle on its OWN
+ * provider/model route (never the Team default) identified by a DURABLE
+ * binding: restarts resume the same Session identity through the official
+ * `agents.resume` (setup-commit generation re-check; a late handle never
+ * publishes), scoped registrations only, inherited tools continuously removed
+ * via the official `tools.restrict({ allow: [] })`. It consumes authorized
+ * work facts only through the manifest-gated official Consumer tool (one
+ * aggregate read yields baseline facts + watermarks; pages advance with ONE
+ * atomic update each; evidence is referenced and hash-verified, never read).
+ *
+ * Teardown order (memoized): close admission → invalidate generation and
+ * abort opening work → start the official manager-handle dispose FIRST
+ * (cancel → whenIdle → flush → unregister, own handle only) → drain wakes,
+ * queued writes and revocations → close store → close domain. Business
+ * Agents are never touched. All model routes, identities, scopes and Team
+ * bindings are Host-derived; no model-facing parameter can borrow another
+ * Session or root.
  *
  * @module dsh-agent-swarm/skills/module
  */
@@ -47,6 +42,7 @@ import { decideOutcome, resolveEvidenceFromSnapshot, type EvidenceResolution } f
 import { AuthorityGuards } from './authority-guards.js'
 import { ManagerLifecycle } from './manager-lifecycle.js'
 import { ReleaseAuthority } from './release-authority.js'
+import { CandidateAuthority } from './release-candidates.js'
 import { statusViewOf, toCanonicalPayload, type SkillsAckReceipt, type SkillsCallAuthority, type SkillsReceipt, type SkillsRequestInput, type SkillsStatusView, type SkillsSyncPage } from './contracts.js'
 import {
   skillsPayloadHash,
@@ -92,6 +88,7 @@ export class SkillsManagementModule {
   private readonly revocations = new Set<Promise<unknown>>()
   private managersRef: ManagerLifecycle | undefined
   private releasesRef: ReleaseAuthority | undefined
+  private candidatesRef: CandidateAuthority | undefined
 
   constructor(
     private readonly ctx: Context,
@@ -111,6 +108,7 @@ export class SkillsManagementModule {
       assertAdmission: () => this.guards.assertAdmission(),
       investigateTool: (requestId, exec) => this.investigate(requestId, exec),
       ackTool: (batchId, outcome, exec) => this.ackBatch(batchId, outcome, exec),
+      proposeTool: (raw, exec) => this.candidates.proposeCandidate(raw, exec),
     })
     return this.managersRef
   }
@@ -124,6 +122,27 @@ export class SkillsManagementModule {
   get releases(): ReleaseAuthority {
     this.releasesRef ??= new ReleaseAuthority({ ctx: this.ctx, store: this.store, guards: this.guards, domain: this.deps, lane: (s, t, fn) => this.forTeam(s, t, fn) })
     return this.releasesRef
+  }
+
+  /** S2 candidate chain (manager capture + independent Captain review) over
+   * the same fences. Team ownership of a capture comes from the DURABLE
+   * request among the manifest Teams (the manager's own cwd/scope is never
+   * assumed to be the business Team); a request id matching multiple Teams is
+   * refused as ambiguous, never silently picked. */
+  get candidates(): CandidateAuthority {
+    this.candidatesRef ??= new CandidateAuthority({
+      store: this.store, guards: this.guards, domain: this.deps, lane: (s, t, fn) => this.forTeam(s, t, fn),
+      lookupCandidateTeam: requestId => {
+        const matches = this.store.findRequestByIdentity(requestId, this.guards.manifestKeys())
+        if (matches.length === 0) return undefined
+        if (matches.length > 1) return { ambiguous: true as const }
+        return { scope: matches[0]!.scope, teamId: matches[0]!.teamId }
+      },
+      // Exact live-handle object identity through the registry — a bare
+      // SessionId string match (binding) is NOT accepted as the manager.
+      isManagerAgent: agent => this.managers.agentHandle?.agent === agent,
+    })
+    return this.candidatesRef
   }
 
   /**
@@ -154,11 +173,8 @@ export class SkillsManagementModule {
     return this.generation
   }
 
-  /**
-   * Teardown step one, all synchronous: stop admission, invalidate the
-   * generation (every in-flight fence now fails closed), and abort the
-   * module's own opening/executing work through the creation-only signal.
-   */
+  /** Teardown step one, all synchronous: stop admission, invalidate the
+   * generation (every in-flight fence now fails closed), abort opening work. */
   closeAdmission(): void {
     if (this.admissionClosed) return
     this.admissionClosed = true
@@ -177,9 +193,8 @@ export class SkillsManagementModule {
     this.closePromise ??= (async (): Promise<void> => {
       this.closeAdmission()
       await this.releasesRef?.closeAssembly()
-      // Official dispose starts FIRST inside beginClose(): it cancels
-      // in-flight turns, so wakes waiting on whenIdle settle instead of
-      // being waited on beforehand; settle() then drains late handles/wakes.
+      // Official dispose starts FIRST inside beginClose(): it cancels in-flight
+      // turns so wakes waiting on whenIdle settle; settle() drains the rest.
       const { disposal, settle } = this.managers.beginClose()
       await settle()
       await Promise.allSettled(this.teamWrites.values())
@@ -334,12 +349,11 @@ export class SkillsManagementModule {
       const outcome = decideOutcome(record, evidence, activity.cursorSequence)
       const adoption = outcome.reason === 'no_approved_version' ? await this.releases.adoptionForRequest(target.scope, target.teamId, record) : undefined
       const updated = await this.store.updateRequest(target.scope, target.teamId, requestId, current => {
-        // FINAL commit boundary: the official queued update callback is the
-        // last instant before persistence, so the COMPLETE authorization set —
-        // admission, manifest, generation, abort, exact live Agent/handle —
-        // is re-validated HERE, not merely before queueing (docs04 §L200:
-        // authorization is checked before the actual durable side effect,
-        // across BOTH the commit-queue and the record-update queue).
+        // FINAL commit boundary (docs04 §L200: authorization is checked before
+        // the actual durable side effect, across BOTH the commit-queue and the
+        // record-update queue): the COMPLETE authorization set — admission,
+        // manifest, generation, abort, exact live Agent/handle — is
+        // re-validated HERE, not merely before queueing.
         this.guards.assertAdmission()
         this.guards.assertManifest(target.scope, target.teamId)
         if (generation !== this.generation) throw new TeamDomainError('skills authorization generation changed during investigation', 'SKILLS_REVOKED')
@@ -371,12 +385,10 @@ export class SkillsManagementModule {
    * with zero writes and never extended or evicted. Gap / regression /
    * replaced-ID / archived / missing are explicit, sticky, deduplicated, and
    * overflow-counted; the first slice stops and reports instead of rebuilding.
-   *
-   * Contract ③ fence: every consumer side effect (first-touch creation AND
-   * the batch commit) re-validates admission, manifest, generation, live
-   * Agent and abort AFTER the real source-read await — an authorization
-   * change or cancellation landing inside the window can never advance the
-   * consumer.
+   * Contract ③ fence: every consumer side effect (first-touch creation AND the
+   * batch commit) re-validates admission, manifest, generation, live Agent and
+   * abort AFTER the real source-read await — an authorization change or
+   * cancellation landing inside the window can never advance the consumer.
    */
   async syncWorkActivity(scope: string, teamId: string, exec?: SkillsCallAuthority): Promise<SkillsSyncPage> {
     this.guards.assertManifest(scope, teamId)
@@ -388,15 +400,12 @@ export class SkillsManagementModule {
     return await this.forTeam(scope, teamId, () => this.syncWorkActivityLocked(scope, teamId, fence))
   }
 
-  /**
-   * Contract ① explicit acknowledgement: only the dedicated live manager
+  /** Contract ① explicit acknowledgement: only the dedicated live manager
    * Session may ack, re-validated on all five fence axes plus the batch
-   * identity; clearing the batch and recording `lastAck` happen in ONE
-   * consumer update. A lost-response retry replays idempotently against the
-   * current lastAck, a differing payload conflicts, an unknown/superseded
-   * batch is refused. Ack proves the bounded batch was processed — nothing
-   * more (no skill validity, no benefit claim).
-   */
+   * identity; clearing the batch and recording `lastAck` happen in ONE consumer
+   * update. A lost-response retry replays idempotently against the current
+   * lastAck, a differing payload conflicts, an unknown/superseded batch is
+   * refused. Ack proves the bounded batch was processed — nothing more. */
   async ackBatch(batchId: string, outcome: string, exec: SkillsCallAuthority): Promise<SkillsAckReceipt> {
     const parsedOutcome = z.string().min(1).max(512).safeParse(outcome)
     if (!parsedOutcome.success) throw new TeamDomainError('the ack outcome must be a bounded non-empty conclusion', 'SKILLS_INPUT_INVALID')
@@ -416,9 +425,8 @@ export class SkillsManagementModule {
       const auth: ConsumerFence = { generation, agent, ...(exec.signal === undefined ? {} : { signal: exec.signal }) }
       let receipt: SkillsAckReceipt | undefined
       // All decisions AND the five-way fence live inside the official queued
-      // update callback — the final commit boundary. A revoke/cancel landing
-      // in the real await windows can never be raced, and a late ack can
-      // never clear a batch that superseded the one being acknowledged.
+      // update callback — the final commit boundary: a revoke/cancel landing in
+      // the await windows can never be raced or clear a superseded batch.
       await this.store.updateConsumer(scope, teamId, current => {
         this.fence(auth, scope, teamId)
         const pending = current.pendingBatch
@@ -433,8 +441,7 @@ export class SkillsManagementModule {
         }
         const lastAck = current.lastAck
         if (lastAck?.batchId === batchId) {
-          // Idempotent read-back of the ORIGINAL durable receipt (lost-response
-          // retry): same canonical payload replays, anything else conflicts.
+          // Idempotent read-back of the ORIGINAL durable receipt (retry).
           if (lastAck.payloadHash !== skillsAckHash(batchId, parsedOutcome.data, lastAck.refs)) {
             throw new TeamDomainError(`ack for acknowledged batch ${batchId} carries a different payload`, 'SKILLS_ACK_CONFLICT')
           }
@@ -576,22 +583,16 @@ export class SkillsManagementModule {
     }
   }
 
-  /**
-   * Lazily open the dedicated manager Agent on its durable Session identity
-   * (resume-first under the same SessionId, setup-commit + post-return
-   * generation re-checks — see {@link ManagerLifecycle}).
-   */
+  /** Lazily open the dedicated manager Agent on its durable Session identity
+   * (resume-first, generation re-checks — see {@link ManagerLifecycle}). */
   async ensureManager(): Promise<AgentHandle | undefined> {
     return await this.managers.ensureManager()
   }
 
-  /**
-   * Host/fixture drain primitive: settles every in-flight manager wake (the
-   * full followup → model turn → investigate/ack → persist cycle). Also part
-   * of the uninstall guarantee — `close()` drains the same set.
-   */
+  /** Host/fixture drain primitive: settles every in-flight manager wake (the
+   * full followup → model turn → investigate/ack → persist cycle); `close()`
+   * drains the same set. */
   async flushWakes(): Promise<void> {
     await this.managers.flushWakes()
   }
-
 }

@@ -3,19 +3,9 @@
  * module): the module-owned, durable truth behind the Captain skill-request
  * face and the per-Team management consumer cursor.
  *
- * Deliberately NOT TeamState and not a second Team state machine: the
- * authoritative `agent_swarm` aggregate is untouched; this domain stores only
- * (a) one request-intent record per Captain skill request and (b) one
- * consumer record per Team holding the activity cursor, dedup watermark,
- * page-pending references, and the explicit gap/conflict/source ledger. The
- * consumer record is advanced by ONE atomic `KvTable.update` per page — the
- * official single-record atomic transform is the only claimed atomicity;
- * there is no cross-table transaction and no Team-ledger copying.
+ * Deliberately NOT TeamState and not a second Team state machine: the authoritative `agent_swarm` aggregate is untouched; this domain stores only (a) one request-intent record per Captain skill request, (b) one consumer record per Team holding the activity cursor, dedup watermark, page-pending references and the explicit gap/conflict/source ledger, plus the S2 release/assignment truth. The consumer record is advanced by ONE atomic `KvTable.update` per page — the official single-record atomic transform is the only claimed atomicity; there is no cross-table transaction and no Team-ledger copying.
  *
- * Identity discipline mirrors the member-private-memory precedent: every read
- * re-checks that the record's own fields re-derive its table key, so a
- * smuggled or corrupted record fails loud (`SKILLS_TAMPERED`) and never
- * surfaces in another Team's view.
+ * Identity discipline mirrors the member-private-memory precedent: every read re-checks that the record's own fields re-derive its table key, so a smuggled or corrupted record fails loud (`SKILLS_TAMPERED`) and never surfaces in another Team's view.
  *
  * @module dsh-agent-swarm/storage/skills-management
  */
@@ -25,19 +15,14 @@ import { z } from 'zod'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineDomain, domainTable, type Domain, type KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { TeamDomainError } from '../domain/error.js'
+import { bounded, canonicalJson, sha256Hex, skillsAssignmentKey, skillsCandidateKey, skillsReleaseKey, timestamp, skillsAssignmentRecordSchema, skillsReleaseCandidateSchema, skillsReleaseRecordSchema, storedAssignmentSchema, storedCandidateSchema, storedReleaseSchema, type SkillsAssignmentRecord, type SkillsReleaseCandidateRecord, type SkillsReleaseManifest, type SkillsReleaseRecord } from './skills-release-tables.js'
+
+export type { SkillsReleaseRecord, SkillsAssignmentRecord, SkillsReleaseCandidateRecord, SkillsReleaseManifest } from './skills-release-tables.js'
+export { canonicalJson } from './skills-release-tables.js'
 import { CommitSequence } from '../util/commit-sequence.js'
 
-/** Storage Domain unit/table names must satisfy the official `UNIT_NAME_RE`. */
-const SKILLS_MANAGEMENT_DOMAIN_NAME = 'agent_swarm_skills_management'
-/** Domain format version; a medium stamped differently rejects at open. */
-const SKILLS_MANAGEMENT_DOMAIN_VERSION = 1
-
-const timestamp = z.number().int().min(0)
-const bounded = (maxBytes: number) => z.string().min(1).refine(
-  value => Buffer.byteLength(value, 'utf8') <= maxBytes,
-  `must not exceed ${maxBytes} UTF-8 bytes`,
-)
-const sha256Hex = z.string().regex(/^[0-9a-f]{64}$/)
+/** Storage Domain unit/table names must satisfy the official `UNIT_NAME_RE`; the domain format version rejects a differently stamped medium at open. */
+const SKILLS_MANAGEMENT_DOMAIN_NAME = 'agent_swarm_skills_management', SKILLS_MANAGEMENT_DOMAIN_VERSION = 1
 
 /** One evidence entry: an opaque reference, optionally an external file with the hash it was recorded under. */
 const skillsEvidenceEntrySchema = z.object({
@@ -196,69 +181,6 @@ const storedManagerBindingSchema = skillsManagerBindingSchema as unknown as z.Zo
 const storedRequestSchema = skillsRequestRecordSchema as unknown as z.ZodType<SkillsRequestRecord>
 const storedConsumerSchema = skillsConsumerRecordSchema as unknown as z.ZodType<SkillsConsumerRecord>
 
-/**
- * One APPROVED immutable release (S2 first slice): the manifest CAPTURES the
- * exact body text it was approved against, so immutability is physical (the
- * assembly serves this text, never a later source state).
- */
-const skillsReleaseRecordSchema = z.object({
-  schemaVersion: z.literal(1),
-  scope: bounded(4_096),
-  teamId: bounded(256),
-  name: bounded(256),
-  version: bounded(64),
-  provider: bounded(256),
-  locator: bounded(1_024),
-  body: bounded(65_536),
-  contentSha256: sha256Hex,
-  resourcesSha256: sha256Hex,
-  applicability: bounded(1_024),
-  verification: bounded(1_024),
-  approvedBy: bounded(256),
-  approvedAt: timestamp,
-  manifestHash: sha256Hex,
-  createdAt: timestamp,
-  updatedAt: timestamp,
-}).strict()
-export type SkillsReleaseRecord = z.infer<typeof skillsReleaseRecordSchema>
-type SkillsReleaseManifest = Pick<SkillsReleaseRecord, 'name' | 'version' | 'provider' | 'locator' | 'body' | 'contentSha256' | 'resourcesSha256' | 'applicability' | 'verification' | 'approvedBy'>
-
-/** One Captain authorization fact: this member session may have this exact
- * release manifest assembled. CAS by `revision`; never inferred from the
- * roster's static skill view. */
-const skillsAssignmentRecordSchema = z.object({
-  schemaVersion: z.literal(1),
-  scope: bounded(4_096),
-  teamId: bounded(256),
-  memberSessionId: bounded(256),
-  name: bounded(256),
-  version: bounded(64),
-  releaseManifestHash: sha256Hex,
-  assignedBy: bounded(256),
-  revision: z.number().int().min(1),
-  assignedAt: timestamp,
-  updatedAt: timestamp,
-}).strict()
-export type SkillsAssignmentRecord = z.infer<typeof skillsAssignmentRecordSchema>
-const storedReleaseSchema = skillsReleaseRecordSchema as unknown as z.ZodType<SkillsReleaseRecord>
-const storedAssignmentSchema = skillsAssignmentRecordSchema as unknown as z.ZodType<SkillsAssignmentRecord>
-
-/** SHA-256 over the canonical approval fields: the manifest identity an
- * assignment pins and the assembly/adoption equality check consumes. */
-export function skillsReleaseManifestHash(manifest: SkillsReleaseManifest): string {
-  return createHash('sha256').update(canonicalJson(manifest), 'utf8').digest('hex')
-}
-
-/** Stable release key: the isolation tuple plus the immutable version slot. */
-function skillsReleaseKey(scope: string, teamId: string, name: string, version: string): string {
-  return JSON.stringify([scope, teamId, name, version])
-}
-
-/** Stable assignment key: one live assignment per member + skill name. */
-function skillsAssignmentKey(scope: string, teamId: string, memberSessionId: string, name: string): string {
-  return JSON.stringify([scope, teamId, memberSessionId, name])
-}
-
 /** The `agent_swarm_skills_management` domain spec opened through `ctx.storageDomain`. */
 export const skillsManagementDomainSpec = defineDomain({
   name: SKILLS_MANAGEMENT_DOMAIN_NAME,
@@ -269,6 +191,7 @@ export const skillsManagementDomainSpec = defineDomain({
     manager: domainTable<string, SkillsManagerBinding>(storedManagerBindingSchema),
     releases: domainTable<string, SkillsReleaseRecord>(storedReleaseSchema),
     assignments: domainTable<string, SkillsAssignmentRecord>(storedAssignmentSchema),
+    candidates: domainTable<string, SkillsReleaseCandidateRecord>(storedCandidateSchema),
   },
 })
 
@@ -285,15 +208,7 @@ export function skillsConsumerKey(scope: string, teamId: string): string {
   return JSON.stringify([scope, teamId])
 }
 
-/** Deterministic canonical JSON (sorted object keys, codepoint order, dropped undefined). */
-export function canonicalJson(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null'
-  if (Array.isArray(value)) return `[${value.map(entry => canonicalJson(entry)).join(',')}]`
-  const entries = Object.entries(value as Record<string, unknown>)
-    .filter(([, entry]) => entry !== undefined)
-    .toSorted(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
-  return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`).join(',')}}`
-}
+/** Deterministic canonical JSON lives in the release-tables module (single implementation). */
 
 /** SHA-256 of the canonical payload JSON: the stable idempotency discriminator. */
 export function skillsPayloadHash(payload: SkillsRequestPayload): string {
@@ -318,6 +233,7 @@ export class SkillsManagementStore {
   private readonly manager: KvTable<string, SkillsManagerBinding>
   private readonly releases: KvTable<string, SkillsReleaseRecord>
   private readonly assignments: KvTable<string, SkillsAssignmentRecord>
+  private readonly candidates: KvTable<string, SkillsReleaseCandidateRecord>
   private readonly commitSequence = new CommitSequence()
   private storeClosed = false
 
@@ -331,6 +247,7 @@ export class SkillsManagementStore {
     this.manager = domain.table('manager') as KvTable<string, SkillsManagerBinding>
     this.releases = domain.table('releases') as KvTable<string, SkillsReleaseRecord>
     this.assignments = domain.table('assignments') as KvTable<string, SkillsAssignmentRecord>
+    this.candidates = domain.table('candidates') as KvTable<string, SkillsReleaseCandidateRecord>
   }
 
   private assertOpen(): void {
@@ -477,8 +394,10 @@ export class SkillsManagementStore {
   // ── S2 releases / assignments ─────────────────────────────────────────────
 
   /** Create-first one approved release; an existing key reports the stored
-   * manifest unchanged (the caller decides replay vs loud conflict). */
-  putReleaseIfAbsent(scope: string, teamId: string, manifest: SkillsReleaseManifest & { approvedAt: number, manifestHash: string }): Promise<{ created: boolean; record: SkillsReleaseRecord }> {
+   * manifest unchanged (the caller decides replay vs loud conflict).
+   * `approvedCandidateHash` is the candidate-chain approval witness (exact
+   * immutable capture); Host-compatibility approvals simply omit it. */
+  putReleaseIfAbsent(scope: string, teamId: string, manifest: SkillsReleaseManifest & { approvedAt: number, manifestHash: string, authorSessionId?: string, approvedCandidateHash?: string }): Promise<{ created: boolean; record: SkillsReleaseRecord }> {
     return this.commitSequence.run(async () => {
       this.assertOpen()
       const key = skillsReleaseKey(scope, teamId, manifest.name, manifest.version)
@@ -523,6 +442,19 @@ export class SkillsManagementStore {
     })
   }
 
+  /** Re-pin one standing assignment under the exact expected revision (Captain version choice / rollback); undefined when absent or stale. */
+  async updateAssignmentPin(scope: string, teamId: string, memberSessionId: string, name: string, expectedRevision: number, next: Pick<SkillsAssignmentRecord, 'version' | 'releaseManifestHash' | 'assignedBy'>): Promise<SkillsAssignmentRecord | undefined> {
+    return await this.commitSequence.run(async () => {
+      this.assertOpen()
+      const key = skillsAssignmentKey(scope, teamId, memberSessionId, name)
+      const existing = this.readAssignment(key)
+      if (existing === undefined || existing.revision !== expectedRevision) return undefined
+      const record: SkillsAssignmentRecord = { ...existing, ...next, revision: expectedRevision + 1, updatedAt: this.now() }
+      await this.assignments.put(key, structuredClone(record))
+      return structuredClone(record)
+    })
+  }
+
   /** One live assignment, or undefined when absent (synchronous memory read). */
   getAssignment(scope: string, teamId: string, memberSessionId: string, name: string): SkillsAssignmentRecord | undefined {
     this.assertOpen()
@@ -536,6 +468,54 @@ export class SkillsManagementStore {
     const found: SkillsAssignmentRecord[] = []
     for (const [key, raw] of this.assignments.entries()) {
       found.push(structuredClone(this.assertAssignmentIdentity(raw, key)))
+      if (found.length >= limit) break
+    }
+    return found
+  }
+
+  /** Create-first one captured candidate; a same-slot different body conflicts (authority compares the hash). */
+  putCandidateIfAbsent(scope: string, teamId: string, draft: Omit<SkillsReleaseCandidateRecord, 'schemaVersion' | 'scope' | 'teamId' | 'status' | 'decidedBy' | 'decidedAt' | 'createdAt' | 'updatedAt'>): Promise<{ created: boolean; record: SkillsReleaseCandidateRecord }> {
+    return this.commitSequence.run(async () => {
+      this.assertOpen()
+      const key = skillsCandidateKey(scope, teamId, draft.name, draft.version)
+      const existing = this.readCandidate(key)
+      if (existing !== undefined) return { created: false, record: structuredClone(existing) }
+      const stamp = this.now()
+      const record: SkillsReleaseCandidateRecord = { schemaVersion: 1, scope, teamId, ...draft, status: 'pending', createdAt: stamp, updatedAt: stamp }
+      await this.candidates.put(key, structuredClone(record))
+      return { created: true, record: structuredClone(record) }
+    })
+  }
+
+  /** One captured candidate, or undefined when absent. */
+  getCandidate(scope: string, teamId: string, name: string, version: string): SkillsReleaseCandidateRecord | undefined {
+    this.assertOpen()
+    const record = this.readCandidate(skillsCandidateKey(scope, teamId, name, version))
+    return record === undefined ? undefined : structuredClone(record)
+  }
+
+  /** CAS the candidate's one-way status transition; undefined when absent or already decided. */
+  async decideCandidate(scope: string, teamId: string, name: string, version: string, decision: { status: 'approved' | 'rejected'; decidedBy: string }): Promise<SkillsReleaseCandidateRecord | undefined> {
+    return await this.commitSequence.run(async () => {
+      this.assertOpen()
+      const key = skillsCandidateKey(scope, teamId, name, version)
+      const existing = this.readCandidate(key)
+      if (existing === undefined || existing.status !== 'pending') return undefined
+      const record: SkillsReleaseCandidateRecord = { ...existing, ...decision, decidedAt: this.now(), updatedAt: this.now() }
+      await this.candidates.put(key, structuredClone(record))
+      return structuredClone(record)
+    })
+  }
+
+  /** Bounded scan of captured candidates of one Team (Captain review reading). */
+  candidateEntries(teamId: string, pendingOnly: boolean, limit = 64): SkillsReleaseCandidateRecord[] {
+    this.assertOpen()
+    const found: SkillsReleaseCandidateRecord[] = []
+    for (const [key] of this.candidates.entries()) {
+      const record = this.readCandidate(key)!
+      if (record.teamId !== teamId) continue
+      if (pendingOnly && record.status !== 'pending') continue
+      found.push(structuredClone(record))
       if (found.length >= limit) break
     }
     return found
@@ -564,6 +544,16 @@ export class SkillsManagementStore {
   private readAssignment(key: string): SkillsAssignmentRecord | undefined {
     const raw = this.assignments.get(key)
     return raw === undefined ? undefined : this.assertAssignmentIdentity(raw, key)
+  }
+
+  private readCandidate(key: string): SkillsReleaseCandidateRecord | undefined {
+    const raw = this.candidates.get(key)
+    if (raw === undefined) return undefined
+    const validated = skillsReleaseCandidateSchema.parse(raw) as SkillsReleaseCandidateRecord
+    if (skillsCandidateKey(validated.scope, validated.teamId, validated.name, validated.version) !== key) {
+      throw new TeamDomainError('skills candidate record does not re-derive its table key', 'SKILLS_TAMPERED')
+    }
+    return validated
   }
 
   /** Two-way durable identity check (key ↔ record fields), fail loud on any mismatch. */
