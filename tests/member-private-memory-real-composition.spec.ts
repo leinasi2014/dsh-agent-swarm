@@ -1,5 +1,3 @@
-import SessionProjectionService from '@deepseek-ai/dsh-session-projection'
-import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
 /**
  * Real dual-context member-private-memory integration (2026-08-26): two fully
  * separate Cordis Contexts over ONE real SQLite Session store and ONE real
@@ -16,121 +14,27 @@ import SessionQueryService from '@deepseek-ai/dsh-session-query-sqlite'
  *  4. Authority is strictly the owning active member: captain, peers, external
  *     sessions, removed members, and archived members are all rejected.
  *  5. Cross-member and pagination correctness in both contexts.
+ *  6. v2 maintenance rows fold through the REAL tool face: `agent_swarm_list_
+ *     private_memory` output passes its strict output schema with the folded
+ *     fold-metadata/provenance fields present (no duplicated schema, no cast).
+ *  7. (task-4) The real `agent_swarm_maintain_private_memory` face writes v2
+ *     rows through host assembly, replays legal retries, keeps legacy v1 adds
+ *     intact, and is visible CAUSALLY on the owning member's own model
+ *     requests; with an explicit Team `toolPolicy.deny` the same call is
+ *     denied and the tool face disappears from that member's requests.
+ *
+ * Shared mount/adapter/resume helpers live in
+ * `./helpers/private-memory-composition.ts` (M-owned, 600-line split).
  */
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Context, type Fiber } from '@deepseek-ai/cordis'
-import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
-import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import LlmRuntime, { ToolCallId, LlmAdapter, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
-import Storage from '@deepseek-ai/dsh-storage'
-import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
-import * as StorageJson from '@deepseek-ai/dsh-storage-json'
-import SubagentService from '@deepseek-ai/dsh-subagent'
-import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { afterEach, describe, expect, it } from 'vitest'
-import * as AgentSwarm from '../src/index.js'
-
-const SIGNAL = new AbortController().signal
-const CAPTAIN = SessionId('private-memory-real-captain')
-
-function textResponse(text: string): StreamChunk[] {
-  return [
-    { type: 'block-start', index: 0, blockType: 'text' },
-    { type: 'text-delta', index: 0, text },
-    { type: 'block-end', index: 0, block: { type: 'text', text } },
-    { type: 'usage', usage: { inputTokens: 1, outputTokens: 1 } },
-    { type: 'finish', reason: { kind: 'stop' } },
-  ]
-}
-
-class PassiveAdapter extends LlmAdapter {
-  override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
-    return Promise.resolve({ provider, id: model, name: model })
-  }
-  override async * stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
-    for (const chunk of textResponse('Passive.')) yield chunk
-  }
-}
-
-interface Mounted {
-  readonly ctx: Context
-  readonly fibers: Fiber[]
-}
-
-async function mount(sandbox: string): Promise<Mounted> {
-  const ctx = new Context()
-  const fibers: Fiber[] = []
-  fibers.push(await ctx.plugin(LlmRuntime))
-  fibers.push(await ctx.plugin(SessionStore))
-  fibers.push(await ctx.plugin(SystemPrompt))
-  fibers.push(await ctx.plugin(ToolRuntime))
-  fibers.push(await ctx.plugin(AgentRegistry))
-  fibers.push(await ctx.plugin(JsonlSessionPersistence, { root: join(sandbox, 'sessions', 'sessions.db') }))
-  fibers.push(await ctx.plugin(Storage))
-  fibers.push(await ctx.plugin(StorageJson, { root: join(sandbox, 'storage') }))
-  fibers.push(await ctx.plugin(StorageDomain, { backend: 'json' }))
-  await ctx.plugin(SessionProjectionService)
-  await ctx.plugin(SessionQueryService, { path: ':memory:', openAt: 'never' })
-  fibers.push(await ctx.plugin(AgentLoop, { agents: [] }))
-  fibers.push(await ctx.plugin(SubagentService))
-  fibers.push(await ctx.plugin(SubagentSpawn, { providerName: 'spawn' }))
-  fibers.push(await ctx.plugin(AgentSwarm, { memberProvider: 'spawn', memberMaxDepth: 1 }))
-  return { ctx, fibers }
-}
-
-async function dispose(mounted: Mounted): Promise<void> {
-  for (const fiber of mounted.fibers.toReversed()) await fiber.dispose()
-}
-
-async function tool(ctx: Context, agent: Agent, callId: string, name: string, args: unknown) {
-  return await ctx.tools.execute({ signal: SIGNAL, callId: ToolCallId(callId), name, arguments: args, agent })
-}
-
-async function snapshot(ctx: Context, lead: Agent, teamId: string) {
-  return await ctx.agentSwarm.domain.snapshot(ctx.agentSwarm.scopeOf(lead), AgentSwarm.TeamId(teamId), lead.id)
-}
-
-/** Hold an explicitly resumed Agent after its provider-owned initial turn settles. */
-async function memberAgent(ctx: Context, memberId: string): Promise<{ agent: Agent; dispose: () => Promise<void> }> {
-  const captain = ctx.agents.get(CAPTAIN)!
-  await ctx.subagents.drainContinuableChildren(captain, [SessionId(memberId)])
-  const resumed = await ctx.agents.resume({ resumeSessionId: SessionId(memberId) })
-  return { agent: resumed.agent, dispose: async () => { await resumed.dispose() } }
-}
-
-/** Poll an async predicate until it holds (bounded, default 15s). */
-async function pollUntil(predicate: () => Promise<boolean> | boolean, timeoutMs = 15_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  for (;;) {
-    if (await predicate()) return
-    if (Date.now() > deadline) throw new Error('pollUntil timed out')
-    await new Promise(resolve => setTimeout(resolve, 50))
-  }
-}
-
-/** Wait until the Team revision is stable across a quiet window, then return. */
-async function quiesceRevision(ctx: Context, lead: Agent, teamId: string, timeoutMs = 15_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  let last = -1
-  for (;;) {
-    const current = (await snapshot(ctx, lead, teamId)).team.revision
-    if (current === last) {
-      await new Promise(resolve => setTimeout(resolve, 120))
-      const recheck = (await snapshot(ctx, lead, teamId)).team.revision
-      if (recheck === current) return
-      last = recheck
-    } else {
-      last = current
-    }
-    if (Date.now() > deadline) throw new Error('Team revision did not quiesce')
-  }
-}
+import {
+  CAPTAIN, PassiveAdapter, SIGNAL, dispose, memberAgent, mount, pollUntil, quiesceRevision, snapshot, tool, type Mounted,
+} from './helpers/private-memory-composition.js'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import { PRIVATE_MEMORY_DOMAIN_NAME } from '../src/storage/member-private-memory.js'
 
 describe('member private memory real composition', () => {
   const roots: string[] = []
@@ -383,4 +287,253 @@ describe('member private memory real composition', () => {
       if (first !== undefined) await dispose(first)
     }
   }, 60_000)
+
+  it('folds strict v2 rows into agent_swarm_list_private_memory output that passes the real strict tool-output validation', async () => {
+    // Root-accepted reader-acceptance gap (2026-09): the 27 existing tool-path
+    // cases are v1-only; the extended row shape must be proven through the REAL
+    // ctx.tools.execute face, whose strict output schema (additionalProperties:
+    // false, no duplicated schema, no cast) rejects any field it does not know.
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-private-memory-v2-'))
+    roots.push(sandbox)
+    let first: Mounted | undefined
+    let second: Mounted | undefined
+    try {
+      // ---- Context A: real composition seeds ONE legacy v1 note via the tool face ----
+      first = await mount(sandbox)
+      first.ctx.llm.registerAdapter(['mock'], new PassiveAdapter())
+      const leadA = await first.ctx.agentLoop.create(CAPTAIN, { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+      const created = await tool(first.ctx, leadA, 'pm2-create', 'agent_swarm_create', {
+        name: 'V2 fold proof', description: 'Prove v2 maintenance rows surface through the strict tool output.',
+      })
+      expect(created.isError).toBe(false)
+      const teamId = (created.value as { team_id: string }).team_id
+      const added = await tool(first.ctx, leadA, 'pm2-add', 'agent_swarm_add_member', { name: 'foldy', role: 'Owns the v2 fold proof.' })
+      expect(added.isError).toBe(false)
+      const memberId = (added.value as { session_id: string }).session_id
+      await pollUntil(async () => {
+        const current = await snapshot(first!.ctx, leadA, teamId)
+        return current.team.members.some(row => row.sessionId === memberId && row.phase === 'active')
+      })
+      const resolved = await memberAgent(first.ctx, memberId)
+      const scope = first.ctx.agentSwarm.scopeOf(resolved.agent)
+      try {
+        const seed = await tool(first.ctx, resolved.agent, 'pm2-seed', 'agent_swarm_add_private_memory', { content: 'base note', evidence_refs: [] })
+        expect(seed).toMatchObject({ isError: false, value: { memory_id: 'private-memory-1', seq: 1 } })
+      } finally {
+        await resolved.dispose()
+      }
+
+      // ---- medium fully closed, THEN raw-append STRICT v2 rows (add + replace) ----
+      await dispose(first)
+      first = undefined
+      const unitFile = join(sandbox, 'storage', `${PRIVATE_MEMORY_DOMAIN_NAME}.json`)
+      const unit = JSON.parse(await readFile(unitFile, 'utf8')) as { tables: { memories: Record<string, unknown> } }
+      const v2Key = (seq: number) => JSON.stringify([scope, teamId, memberId, seq])
+      unit.tables.memories[v2Key(2)] = {
+        schemaVersion: 2, operation: 'add', scope, teamId, memberSessionId: memberId, seq: 2,
+        operationId: 'op-fold-add', provenance: { kind: 'task', taskId: 'task-fold', teamRevision: 5, observedAt: 123 },
+        createdAt: 1000, content: 'added by v2', evidenceRefs: ['ref-fold'], tags: ['m1', 'tag'], applicability: 'when folding',
+      }
+      unit.tables.memories[v2Key(3)] = {
+        schemaVersion: 2, operation: 'replace', scope, teamId, memberSessionId: memberId, seq: 3,
+        operationId: 'op-fold-replace', provenance: { kind: 'task', taskId: 'task-fold-replace', teamRevision: 5, observedAt: 124 },
+        createdAt: 1001, targetMemoryId: 'private-memory-1', expectedHeadSeq: 1,
+        content: 'replaced base', evidenceRefs: ['ref-replaced'], tags: ['replacement'], applicability: 'when replacing',
+      }
+      await writeFile(unitFile, `${JSON.stringify(unit, null, 2)}\n`, 'utf8')
+
+      // ---- Context B: real cold reopen; the ACTUAL tool face reads the fold ----
+      second = await mount(sandbox)
+      second.ctx.llm.registerAdapter(['mock'], new PassiveAdapter())
+      const resumedCaptain = await second.ctx.agents.resume({ resumeSessionId: CAPTAIN })
+      const resumedMember = await second.ctx.agents.resume({ resumeSessionId: SessionId(memberId) })
+      try {
+        const listed = await tool(second.ctx, resumedMember.agent, 'pm2-list', 'agent_swarm_list_private_memory', {})
+        // Reaching `isError: false` at all means the strict tool OUTPUT schema
+        // accepted the extended rows — the proof the plain row() unit tests cannot give.
+        expect(listed).toMatchObject({ isError: false })
+        const memories = (listed.value as { memories: Array<Record<string, unknown>> }).memories
+        // Folded creation order: superseded old note KEEPS offset 0; the v2 add
+        // and the replace result are appended at their operation positions.
+        expect(memories.map(row => row.memory_id)).toEqual(['private-memory-1', 'private-memory-2', 'private-memory-3'])
+        expect(memories[0]).toMatchObject({
+          content: 'base note', seq: 1, status: 'superseded', head_seq: 3, superseded_by: 'private-memory-3',
+        })
+        // The legacy payload's origin stays UNKNOWN: no fabricated provenance field.
+        expect('provenance' in memories[0]!).toBe(false)
+        expect(memories[1]).toMatchObject({
+          content: 'added by v2', seq: 2, status: 'active', head_seq: 2,
+          tags: ['m1', 'tag'], applicability: 'when folding',
+          created_via: { operation_id: 'op-fold-add', operation: 'add', seq: 2 },
+          provenance: { kind: 'task', task_id: 'task-fold', team_revision: 5, observed_at: 123 },
+        })
+        expect(memories[2]).toMatchObject({
+          content: 'replaced base', seq: 3, status: 'active', head_seq: 3,
+          tags: ['replacement'], applicability: 'when replacing',
+          created_via: { operation_id: 'op-fold-replace', operation: 'replace', seq: 3 },
+          provenance: { kind: 'task', task_id: 'task-fold-replace', team_revision: 5, observed_at: 124 },
+        })
+      } finally {
+        await resumedMember.dispose()
+        await resumedCaptain.dispose()
+      }
+    } finally {
+      if (first !== undefined) await dispose(first)
+      if (second !== undefined) await dispose(second)
+    }
+  }, 90_000)
+
+  it('writes durable v2 maintenance through the REAL agent_swarm_maintain_private_memory tool face (host-assembled registration)', async () => {
+    // Task-4 writer acceptance (contract 5): the tool is registered through the
+    // real plugin assembly (tools/index.ts), visible in the member's next model
+    // request, executes only for the owning member with strict input/output,
+    // replays legal retries, and the legacy add tool keeps writing v1-only.
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-private-memory-writes-'))
+    roots.push(sandbox)
+    let first: Mounted | undefined
+    try {
+      first = await mount(sandbox)
+      const adapter = new PassiveAdapter()
+      first.ctx.llm.registerAdapter(['mock'], adapter)
+      const leadA = await first.ctx.agentLoop.create(CAPTAIN, { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+      const created = await tool(first.ctx, leadA, 'pm3-create', 'agent_swarm_create', {
+        name: 'Writes proof', description: 'Prove the maintenance tool face end to end.',
+      })
+      expect(created.isError).toBe(false)
+      const teamId = (created.value as { team_id: string }).team_id
+      const added = await tool(first.ctx, leadA, 'pm3-add', 'agent_swarm_add_member', { name: 'writyy', role: 'Owns the maintenance writes proof.' })
+      expect(added.isError).toBe(false)
+      const memberId = (added.value as { session_id: string }).session_id
+      await pollUntil(async () => {
+        const current = await snapshot(first!.ctx, leadA, teamId)
+        return current.team.members.some(row => row.sessionId === memberId && row.phase === 'active')
+      })
+      const resolved = await memberAgent(first.ctx, memberId)
+      try {
+        const seed = await tool(first.ctx, resolved.agent, 'pm3-seed', 'agent_swarm_add_private_memory', { content: 'base note', evidence_refs: [] })
+        expect(seed).toMatchObject({ isError: false, value: { memory_id: 'private-memory-1', seq: 1 } })
+
+        const reviseArgs = {
+          operation: 'revise', operation_id: 'op-tool-revise', target_memory_id: 'private-memory-1', expected_head_seq: 1,
+          content: 'tool revision', evidence_refs: [], tags: ['rev'], applicability: 'when listed',
+        }
+        const revise = await tool(first.ctx, resolved.agent, 'pm3-revise', 'agent_swarm_maintain_private_memory', reviseArgs)
+        expect(revise).toMatchObject({
+          isError: false,
+          value: {
+            operation_id: 'op-tool-revise', operation: 'revise', operation_seq: 2,
+            result_memory_id: 'private-memory-1', head_seq: 2, status: 'active', replayed: false,
+          },
+        })
+        expect('replaced_memory_id' in (revise.value as object)).toBe(false)
+        // A legal retry (stable operation_id, same normalized input) replays the
+        // ORIGINAL receipt through the strict output schema and appends nothing.
+        const retry = await tool(first.ctx, resolved.agent, 'pm3-retry', 'agent_swarm_maintain_private_memory', reviseArgs)
+        expect(retry).toMatchObject({ isError: false, value: { ...(revise.value as object), replayed: true } })
+        // The same operation_id with different content is a conflict with zero side effects.
+        expect(await tool(first.ctx, resolved.agent, 'pm3-conflict', 'agent_swarm_maintain_private_memory', { ...reviseArgs, content: 'DIFFERENT' }))
+          .toMatchObject({ isError: true })
+        // A payload-bearing branch missing one of the four full-replacement fields rejects.
+        const { applicability: _applicability, ...missingField } = reviseArgs
+        expect(await tool(first.ctx, resolved.agent, 'pm3-missing', 'agent_swarm_maintain_private_memory', { ...missingField, operation_id: 'op-tool-missing' }))
+          .toMatchObject({ isError: true })
+        // A forged identity face (member-external caller) is rejected: the captain cannot write a member's memory.
+        expect(await tool(first.ctx, leadA, 'pm3-captain', 'agent_swarm_maintain_private_memory', {
+          operation: 'add', operation_id: 'op-tool-captain', content: 'not yours', evidence_refs: [], tags: [], applicability: '',
+        })).toMatchObject({ isError: true })
+        // A v2 maintenance add lands its own note at max-seq+1 — the id derives
+        // from the PHYSICAL seq (the revise above already took seq 2), so this
+        // note is private-memory-3 at seq 3.
+        const v2add = await tool(first.ctx, resolved.agent, 'pm3-v2add', 'agent_swarm_maintain_private_memory', {
+          operation: 'add', operation_id: 'op-tool-add', content: 'tool maintenance note', evidence_refs: ['ref-t'], tags: ['tool'], applicability: '',
+        })
+        expect(v2add).toMatchObject({
+          isError: false,
+          value: { operation_id: 'op-tool-add', operation: 'add', operation_seq: 3, result_memory_id: 'private-memory-3', head_seq: 3, status: 'active', replayed: false },
+        })
+        // ...and the legacy tool append STILL writes v1 without colliding (next physical seq 4).
+        const legacy = await tool(first.ctx, resolved.agent, 'pm3-legacy', 'agent_swarm_add_private_memory', { content: 'legacy after maintenance', evidence_refs: [] })
+        expect(legacy).toMatchObject({ isError: false, value: { memory_id: 'private-memory-4', seq: 4 } })
+
+        const listed = await tool(first.ctx, resolved.agent, 'pm3-list', 'agent_swarm_list_private_memory', {})
+        expect(listed).toMatchObject({ isError: false })
+        const memories = (listed.value as { memories: Array<Record<string, unknown>> }).memories
+        expect(memories.map(row => row.memory_id)).toEqual(['private-memory-1', 'private-memory-3', 'private-memory-4'])
+        expect(memories[0]).toMatchObject({ content: 'tool revision', seq: 1, head_seq: 2, status: 'active', tags: ['rev'], applicability: 'when listed' })
+        expect(memories[1]).toMatchObject({ content: 'tool maintenance note', seq: 3, head_seq: 3, created_via: { operation_id: 'op-tool-add', operation: 'add', seq: 3 } })
+        // The untouched legacy row keeps the historical shape: NO head_seq/extra fields.
+        expect(memories[2]!.content).toBe('legacy after maintenance')
+        expect('head_seq' in memories[2]!).toBe(false)
+
+        // Tool DEFINITION visibility CAUSALLY bound to the OWNING member: the
+        // member's own real model requests (identified by request sessionId)
+        // carry the maintenance face (permission-policy wiring is what makes
+        // the face model-visible); an arbitrary request in the aggregate is not
+        // claimed as proof.
+        const memberRequests = adapter.requests.filter(request => request.sessionId === memberId)
+        expect(memberRequests.length).toBeGreaterThan(0)
+        const memberTools = memberRequests.at(-1)!.toolNames
+        expect(memberTools).toContain('agent_swarm_maintain_private_memory')
+        expect(memberTools).toContain('agent_swarm_add_private_memory')
+      } finally {
+        await resolved.dispose()
+      }
+    } finally {
+      if (first !== undefined) await dispose(first)
+    }
+  }, 90_000)
+
+  it('rejects the maintenance tool through the real Team tool-policy deny and hides it from the member model requests', async () => {
+    // Explicit deny precedence (task-4 acceptance): with the established
+    // official `toolPolicy.deny` entry, the owning member's real
+    // ctx.tools.execute of agent_swarm_maintain_private_memory is denied by the
+    // Team tool policy (fail closed) — while the unlisted private-memory list
+    // tool stays available and the DENIED tool is absent from the member's
+    // model-request tool face (visibility follows the policy, per the existing
+    // permission-composition contract).
+    const sandbox = await mkdtemp(join(tmpdir(), 'dsh-team-private-memory-deny-'))
+    roots.push(sandbox)
+    let first: Mounted | undefined
+    try {
+      first = await mount(sandbox, { toolPolicyDeny: ['agent_swarm_maintain_private_memory'] })
+      const adapter = new PassiveAdapter()
+      first.ctx.llm.registerAdapter(['mock'], adapter)
+      const leadA = await first.ctx.agentLoop.create(CAPTAIN, { provider: 'mock', model: 'mock' }, { cwd: join(sandbox, 'workspace') })
+      const created = await tool(first.ctx, leadA, 'pm4-create', 'agent_swarm_create', {
+        name: 'Deny proof', description: 'Prove tool-policy deny reaches the maintenance tool.',
+      })
+      expect(created.isError).toBe(false)
+      const teamId = (created.value as { team_id: string }).team_id
+      const added = await tool(first.ctx, leadA, 'pm4-add', 'agent_swarm_add_member', { name: 'denyee', role: 'Owns the deny proof.' })
+      expect(added.isError).toBe(false)
+      const memberId = (added.value as { session_id: string }).session_id
+      await pollUntil(async () => {
+        const current = await snapshot(first!.ctx, leadA, teamId)
+        return current.team.members.some(row => row.sessionId === memberId && row.phase === 'active')
+      })
+      const resolved = await memberAgent(first.ctx, memberId)
+      try {
+        const denied = await tool(first.ctx, resolved.agent, 'pm4-maintain', 'agent_swarm_maintain_private_memory', {
+          operation: 'add', operation_id: 'op-denied', content: 'must never persist', evidence_refs: [], tags: [], applicability: '',
+        })
+        expect(denied).toMatchObject({ isError: true })
+        expect(JSON.stringify(denied.error)).toContain('denied by the Team tool policy')
+        // The policy denied ONLY the maintenance tool: the sibling reader stays available.
+        const listed = await tool(first.ctx, resolved.agent, 'pm4-list', 'agent_swarm_list_private_memory', {})
+        expect(listed).toMatchObject({ isError: false, value: { memories: [] } })
+        // Model visibility follows the deny CAUSALLY for this member's own
+        // requests: the member's real model request tool face never carried
+        // the denied tool, while the allowed private-memory reader did.
+        const memberRequests = adapter.requests.filter(request => request.sessionId === memberId)
+        expect(memberRequests.length).toBeGreaterThan(0)
+        const memberTools = memberRequests.at(-1)!.toolNames
+        expect(memberTools).not.toContain('agent_swarm_maintain_private_memory')
+        expect(memberTools).toContain('agent_swarm_list_private_memory')
+      } finally {
+        await resolved.dispose()
+      }
+    } finally {
+      if (first !== undefined) await dispose(first)
+    }
+  }, 90_000)
 })

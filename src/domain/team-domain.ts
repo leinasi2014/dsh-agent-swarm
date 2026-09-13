@@ -34,7 +34,7 @@ import type { AppendPublicMessageInput, PublicMessageAuthorInput } from './publi
 import * as plan from './team-domain-plan.js'
 import * as projection from './team-domain-projection.js'
 import * as roster from './team-domain-roster.js'
-import type { TeamDomainDeps } from './team-domain-shared.js'
+import { actorMembership, type TeamDomainDeps } from './team-domain-shared.js'
 import {
   AttemptId,
   TaskId,
@@ -178,6 +178,15 @@ export class TeamDomain implements TeamDomainPort {
 
   async requireMembership(scope: TeamScope, sessionId: string): Promise<TeamMembership> {
     return await roster.requireMembership(this.deps, scope, sessionId)
+  }
+
+  withActiveMember<T>(scope: TeamScope, teamId: TeamId, memberSessionId: string, operation: () => Promise<T>): Promise<T> {
+    return this.deps.store.transact(scope, teamId, team => {
+      expectDomain(actorMembership(team, memberSessionId).role === 'member', 'private memory requires the owning active member', 'TEAM_PRIVATE_MEMORY_UNAUTHORIZED')
+      // No Team mutation: the store releases its existing lock without a write
+      // or revision change, after the external operation has actually settled.
+      return operation()
+    })
   }
 
   async findReadMembership(scope: TeamScope, sessionId: string): Promise<TeamMembership | undefined> {

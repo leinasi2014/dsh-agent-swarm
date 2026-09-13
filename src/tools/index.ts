@@ -13,7 +13,7 @@ import { registerSetCaptainModelTool, registerSetMemberModelTool } from './model
 import { registerApprovePlanTool, registerDiscardPlanTool, registerSetPlanTool } from './plans.js'
 import { registerSendMessageTool, registerWaitTool } from './mailbox.js'
 import { registerToolApproval } from './tool-approval.js'
-import { registerAddPrivateMemoryTool, registerListPrivateMemoryTool } from './private-memory.js'
+import { registerAddPrivateMemoryTool, registerListPrivateMemoryTool, registerMaintainPrivateMemoryTool } from './private-memory.js'
 import {
   registerListJobsTool,
   registerListManagedTeamsTool,
@@ -83,6 +83,7 @@ export function registerAgentSwarmTools(
   registerListManagedTeamsTool(ctx, runtime)
   registerAddPrivateMemoryTool(ctx, privateMemory)
   registerListPrivateMemoryTool(ctx, privateMemory)
+  registerMaintainPrivateMemoryTool(ctx, privateMemory)
   registerSetPlanTool(ctx, runtime)
   registerApprovePlanTool(ctx, runtime)
   registerDiscardPlanTool(ctx, runtime)

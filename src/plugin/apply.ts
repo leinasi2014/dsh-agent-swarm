@@ -36,6 +36,7 @@ import { installChildOperationRecovery } from '../runtime/continuable-child.js'
 import { installSwarmGestureBoundary } from '../runtime/gesture.js'
 import { installExecutionGuard } from '../runtime/execution-guard.js'
 import { installAssignmentAdmission } from '../runtime/assignment-admission.js'
+import { installMemberPrivateMemoryRecall } from '../runtime/member-private-memory-recall.js'
 import { installIdentityContext } from '../runtime/identity-context.js'
 import { TeamSkillSurface } from '../runtime/team-skill-surface.js'
 import {
@@ -214,6 +215,20 @@ export async function apply(ctx: Context, config: ConfigInput): Promise<void> {
     ttlMs: config.hostContextTtlMs ?? DEFAULT_HOST_CONTEXT_TTL_MS,
   }), 'agent-swarm: Host context lifecycle')
   registerAgentSwarmTools(ctx, runtime, privateMemoryService)
+  // M2 first slice: automatic active-task private-memory recall, granted ONLY
+  // by the Host config above (omitted = disabled). One installer, same
+  // lifecycle: it captures the CURRENT store through the accessor and every
+  // listener/section/cache is released on close or a later apply failure.
+  if ((config.privateMemoryRecall ?? 'disabled') === 'active-task') {
+    ctx.effect(() => installMemberPrivateMemoryRecall({
+      ctx,
+      activeTaskRecall: true,
+      domain: () => runtime.domain,
+      scopeOf: agent => runtime.scopeOf(agent),
+      service: () => privateMemoryService,
+      toolPolicy,
+    }), 'agent-swarm: private memory active-task recall')
+  }
   // I1a permission boundary: project policy consumes the official
   // tools/pre-execute + approval seams. It cannot widen downstream denial.
   let permission: TeamPermissionSurface | undefined

@@ -64,6 +64,13 @@ export interface Config {
   toolPolicy?: { allow?: string[]; ask?: string[]; deny?: string[] }
   allowedSkills?: string[]
   promptSectionOrder?: number
+  /**
+   * Host-only grant for M2 automatic private-memory recall over the member's
+   * unique active task (`active-task`); omitted means `disabled`. Captain,
+   * member, tool-allow or a one-call approval cannot enable it — the
+   * `agent_swarm_list_private_memory` deny/ask tier only narrows it further.
+   */
+  privateMemoryRecall?: 'disabled' | 'active-task'
 }
 
 export const Config: z<Config> = z.object({
@@ -119,6 +126,7 @@ export const Config: z<Config> = z.object({
   }).default({ allow: [], ask: [], deny: [] }),
   allowedSkills: z.array(z.string()).default([]),
   promptSectionOrder: z.natural().default(118),
+  privateMemoryRecall: z.union(['disabled', 'active-task']).default('disabled'),
 })
 
 /** Validate combinations before any runtime, listener or storage side effect is created. */

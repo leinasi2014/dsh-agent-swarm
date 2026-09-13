@@ -183,6 +183,8 @@ export interface TeamDomainPort {
   ): Promise<TeamState>
   findMembership(scope: TeamScope, sessionId: string): Promise<TeamMembership | undefined>
   requireMembership(scope: TeamScope, sessionId: string): Promise<TeamMembership>
+  /** Hold the existing Team lock through an active member's external write. The callback receives no mutable Team and must not re-enter this Team. */
+  withActiveMember<T>(scope: TeamScope, teamId: TeamId, memberSessionId: string, operation: () => Promise<T>): Promise<T>
   /**
    * Read-side membership resolution (F14): active-Team membership wins; a
    * session captain of exactly one archived Team keeps read access to that
